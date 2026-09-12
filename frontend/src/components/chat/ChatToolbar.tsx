@@ -28,6 +28,7 @@ import { useChatSession } from './ChatSessionContext';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
 import { SHORTCUTS } from '../../constants/chat';
+import { isEditableKeyboardTarget } from '../../lib/decisionMnemonic';
 import './ChatToolbar.css';
 
 const DEFAULT_ROUTING_SENTINEL = '$default';
@@ -57,13 +58,30 @@ const MODEL_SHORTCUT_BLOCKED_TARGETS = [
   '.monaco-editor',
   '.xterm',
   '[role="terminal"]',
-  '[role="dialog"]',
-  '[role="alertdialog"]',
   '[role="menu"]',
   '[role="listbox"]',
   '.picker-dropdown',
   '[data-tab-type]:not([data-tab-type="chat"])',
 ].join(',');
+
+const CAPTURE_SHORTCUT_BLOCKED_TARGETS = [
+  '.chat-message__edit',
+  '.monaco-editor',
+  '.xterm',
+  '[role="terminal"]',
+  '[data-tab-type]:not([data-tab-type="chat"])',
+].join(',');
+
+function isCaptureShortcutBlockedTarget(target: Element | null): boolean {
+  if (!target) return false;
+  if (isEditableKeyboardTarget(target)) return true;
+  if (target.closest(CAPTURE_SHORTCUT_BLOCKED_TARGETS)) return true;
+
+  // Modais reais são arbitrados pelo modalRegistry/canHandleShortcut. Já os
+  // diálogos virtuais de mensagem e terminal não entram nesse registro.
+  const dialog = target.closest('[role="dialog"], [role="alertdialog"]');
+  return dialog !== null && !dialog.classList.contains('modal-overlay');
+}
 
 function isVisibleShortcutOverlay(element: Element): boolean {
   if (!(element instanceof HTMLElement)) return false;
@@ -78,7 +96,16 @@ function isVisibleShortcutOverlay(element: Element): boolean {
   return true;
 }
 
-function canOpenModelPickerFromShortcut(event: KeyboardEvent): boolean {
+function hasVisibleShortcutOverlay(): boolean {
+  return Array.from(
+    document.querySelectorAll('[role="menu"], [role="listbox"], .picker-dropdown'),
+  ).some(isVisibleShortcutOverlay);
+}
+
+function canOpenModelPickerFromShortcut(
+  event: KeyboardEvent,
+  canHandleCurrentModal: boolean,
+): boolean {
   if (
     event.defaultPrevented
     || event.isComposing
@@ -89,7 +116,7 @@ function canOpenModelPickerFromShortcut(event: KeyboardEvent): boolean {
     || event.altKey
     || event.metaKey
     || event.key.toLowerCase() !== 'm'
-    || isModalOpen()
+    || (isModalOpen() && !canHandleCurrentModal)
   ) {
     return false;
   }
@@ -100,10 +127,7 @@ function canOpenModelPickerFromShortcut(event: KeyboardEvent): boolean {
 
   // Menus e pickers são portalados ou podem estar fora do alvo do evento.
   // Enquanto qualquer um estiver aberto, Ctrl+M pertence à interação corrente.
-  const openOverlay = Array.from(
-    document.querySelectorAll('[role="menu"], [role="listbox"], .picker-dropdown'),
-  ).some(isVisibleShortcutOverlay);
-  return !openOverlay;
+  return !hasVisibleShortcutOverlay();
 }
 
 export type ChatToolbarConversationChangeHandler = (
@@ -305,7 +329,23 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     if (!enableShortcuts) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
-      if (canOpenModelPickerFromShortcut(e)) {
+      const isToolbarShortcut = e.ctrlKey
+        && !e.shiftKey
+        && !e.altKey
+        && !e.metaKey
+        && !e.isComposing
+        && e.keyCode !== 229
+        && !e.repeat
+        && ['m', 'l', 'h', 'p'].includes(key);
+      if (!isToolbarShortcut) return;
+      const target = e.target instanceof Element ? e.target : null;
+      if (hasVisibleShortcutOverlay()) {
+        if (key !== 'm') e.preventDefault();
+        return;
+      }
+      if (isCaptureShortcutBlockedTarget(target)) return;
+
+      if (canOpenModelPickerFromShortcut(e, canHandleShortcut())) {
         const trigger = toolbarRef.current?.querySelector<HTMLButtonElement>(
           `button.picker-button[data-shortcut="${SHORTCUTS.MODELS}"]`,
         );
@@ -317,18 +357,19 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       }
       // Sempre previne o default do navegador (Ctrl+L/H/P), mas só age quando
       // não há modal aberto ou quando este toolbar pertence ao modal do topo.
-      if (e.ctrlKey && key === 'l') {
+      if (key === 'l') {
         e.preventDefault();
         if (!canHandleShortcut()) return;
+        if (isLoading) return;
         void handleClearConversation();
       }
-      else if (e.ctrlKey && key === 'h') {
+      else if (key === 'h') {
         e.preventDefault();
         if (!canHandleShortcut()) return;
         const btn = historyContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
         btn?.click();
       }
-      else if (e.ctrlKey && key === 'p') {
+      else if (key === 'p') {
         e.preventDefault();
         if (!canHandleShortcut()) return;
         const btn = profileContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
@@ -336,9 +377,11 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canHandleShortcut, enableShortcuts, handleClearConversation]);
+    // A captura mantém estes atalhos disponíveis quando a superfície focada
+    // contém o bubbling (por exemplo, após sair de um menu com Escape).
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [canHandleShortcut, enableShortcuts, handleClearConversation, isLoading]);
 
   const handleProfileChange = useCallback(async (slug: string) => {
     try {
