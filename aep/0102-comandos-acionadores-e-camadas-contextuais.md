@@ -115,6 +115,7 @@ Providers iniciais:
 - diálogo: geração do stack topmost;
 - foco/controle e janela/processo: geração dos adapters de UI/SO;
 - workspace/aba: versão do store canônico;
+- camadas ativas: `active_layers_generation` do resolvedor;
 - job: `run_id` + último `job_run_events.sequence`;
 - sessão/lock: epochs do `EpochService`.
 
@@ -140,11 +141,12 @@ CommandInvocation
   version, invocation_id, command_id?, arguments?
   trigger_type?, trigger_spec?
   user_id?, auth_context_type, auth_context_id, auth_generation
-  session_id?, session_generation?, security_generation
+  session_id?, security_generation
   actor_type, actor_id
   source_type, observer_type?, source_instance_id?, source_event_id?
   workspace_id?, binding_ids?, registry_version
   global_config_generation, workspace_config_generation?
+  active_layers_generation
   conversation_id?, turn_id?, surface_type?, surface_id?
   surface_snapshot_version?, context_version, context_captured_at
   source_profile_slug?, target_profile_slug?
@@ -170,15 +172,30 @@ autenticados; valores recebidos de adapter/cliente são ignorados e divergência
 falha fechado. O mesmo vale para `user_id`. O payload nunca escolhe a identidade
 que será usada por autorização ou auditoria.
 
+`auth_context_*`, `source_type`, `observer_type`, `source_instance_id` e
+`source_event_id` também são derivados ou validados pela borda autenticada e
+pelo registro do adapter. Cada endpoint fixa as origens que pode produzir;
+cliente não promove a si próprio a `system`, hotkey ou dispositivo.
+`trigger_spec` é normalizado pelo dispatcher e validado contra a capacidade do
+adapter antes de chegar ao resolvedor.
+
+`context_captured_at` vem do relógio monotônico/backend do provider que capturou
+o fato. Valor enviado pelo cliente é ignorado. `max_age_ms` usa esse instante e
+o relógio do mesmo provider, não timestamp livre do envelope.
+
 Adapters físicos e de evento exigem `source_instance_id` e `source_event_id`.
 Palette, chat, CLI e `system` os omitem e deduplicam pela PK `invocation_id`.
 Após resolução, `binding_ids` é sempre materializado como lista, ainda que
 vazia.
 
-Para execução direta, `request_fingerprint` é HMAC do request canônico completo
-— comando, argumentos, contexto, ator, origem e auth — calculado com chave local
-e persistido sem revelar segredos. Reentrega com o mesmo `invocation_id` só é
-aceita se o fingerprint for idêntico; divergência é conflito e falha fechado.
+Para toda origem, `request_fingerprint` é HMAC do request de ingresso após
+normalização, serializado por JSON Canonicalization Scheme (RFC 8785). Inclui
+schema, comando ou trigger, argumentos, IDs/versões de contexto, usuário/ator
+derivados, tipo/ID do contexto autenticado, origem/observador, workspace,
+versões de catálogo/configuração e proveniência. Exclui token bruto,
+`auth_generation` rotativa e timestamps. É calculado no backend e persistido
+sem revelar segredos. Reentrega com o mesmo `invocation_id` só é aceita se o
+fingerprint for idêntico; divergência é conflito e falha fechado.
 
 A chave `command-request-hmac:v1` vive no secret manager e permanece disponível
 por pelo menos a maior expiração dos ledgers. O ledger guarda
@@ -222,8 +239,9 @@ O serviço, nessa ordem:
    `queued` para `running`; se o contexto mudou, grava `cancelled_stale` sem
    chamar o handler. Também compara `registry_version`,
    `global_config_generation` e `workspace_config_generation` atuais; mudança de
-   comando, camada, binding ou prioridade cancela como stale. Se a transição
-   vencer, encaminha ao handler;
+   comando, camada, binding ou prioridade cancela como stale. Compara também
+   `active_layers_generation`; claim ativada/desativada desde a resolução
+   cancela a invocação. Se a transição vencer, encaminha ao handler;
 7. conclui a trilha como `succeeded`, `failed` ou `outcome_unknown`.
 
 `registry_version` identifica o catálogo/defaults carregado.
@@ -232,6 +250,9 @@ Cada usuário possui `global_config_generation`; cada workspace possui
 invocações em todos os workspaces; mutação local incrementa somente a segunda.
 A invocação captura `workspace_id` e o par de gerações na resolução. Sem
 workspace, captura apenas a global.
+
+O resolvedor incrementa `active_layers_generation` sempre que o conjunto
+efetivo de claims muda, incluindo `layer.back`, expiração, pin e eventos.
 
 A reserva é uma transação que cria a chave no ledger de idempotência e a linha
 de auditoria `evaluating` antes do handler. O ledger é protegido pela PK de
@@ -343,7 +364,7 @@ falha fechado.
 Jobs cross-profile transportam `job_id`, `target_profile_slug`,
 `delegation_fingerprint` e `grant_generation`. O serviço relê o grant pela chave
 `(user_id, job_id, target_profile_slug, delegation_fingerprint)` e pela geração
-exatas da AEP-0101 imediatamente antes do handler. `job_id` é UUID; o profile
+exata da AEP-0101 imediatamente antes do handler. `job_id` é UUID; o profile
 alvo permanece identificado pelo slug canônico, como exige aquela AEP. O
 envelope transporta a decisão, mas não cria nem amplia grants.
 
@@ -475,6 +496,13 @@ personalizações existentes. Todo override ou tombstone de default armazena
 `replaces_default_id` e `replaces_default_version`, permitindo detectar se o
 default mudou desde a personalização.
 
+No upgrade, se o fingerprint semântico do default referenciado não mudou, o
+sistema apenas avança `replaces_default_version`. Se comando, trigger,
+argumentos, escopo ou risco mudou, o delta vira `needs_review`: ele e o novo
+default ficam bloqueados naquele acionador/contexto, sem fallback, até decisão
+do usuário. Restaurar remove o delta e adota o novo default; rebase confirmado
+atualiza versão/fingerprint. A UI anuncia e lista pendências.
+
 Atalhos obrigatórios da AEP-0091, incluindo `Ctrl+Shift+R` para repetir a
 pergunta do `DecisionDialog`, são invariantes não suprimíveis. O usuário pode
 adicionar uma alternativa, mas não remover a rota exigida pelo contrato. Outros
@@ -516,7 +544,7 @@ A precedência conceitual é:
 Dentro do mesmo nível, especificidade tipada vem antes da prioridade explícita;
 empate não resolvido é conflito de configuração e não pode executar duas ações.
 
-A ordem operacional completa é a tupla:
+O procedimento operacional determinístico compara a tupla:
 
 1. posição do escopo na lista acima;
 2. especificidade do predicado, comparada por campos tipados — identidade exata
@@ -540,6 +568,8 @@ existir, somente bindings declarados pela allowlist do diálogo topmost são
 avaliados. Se não houver candidato permitido, o acionador é consumido ou
 recusado sem cair para surface, workspace, aplicativo ou global. Isso vale
 também para hotkey do SO e Stream Deck e preserva a AEP-0091.
+Atalhos invariantes exigidos pela AEP-0091 integram implicitamente toda allowlist
+do `DecisionDialog` e não podem ser omitidos nem bloqueados por configuração.
 
 A UI deve detectar sobreposição possível no momento da edição, explicar em quais
 contextos ela ocorre e pedir confirmação antes de criar uma substituição. Um
@@ -589,6 +619,12 @@ Cada adapter mapeia seu domínio antes de publicá-lo; no caso de jobs,
 `deactivate`. `source_event_id` é sempre UUIDv7 estável emitido pelo produtor e
 `occurred_at` é timestamp autenticado; contador ou ID opaco de protocolo não é
 aceito nesse envelope.
+
+Produtores da AEP-0067 precisam evoluir o payload canônico com `_event_id`
+UUIDv7 e `_occurred_at` antes de poderem ativar camadas. O PR de implementação
+atualiza a AEP-0067 e `PublishDomainEvent` no mesmo ciclo. Evento legado sem
+esses campos continua funcionando para seus consumidores atuais, mas é
+indisponível como acionador desta AEP; o adapter não fabrica ID durante replay.
 
 O ledger de ativação persiste `event_fingerprint` e chave única por ocorrência:
 `(user_id, rule_id, source_event_id)`. `source_correlation_id` localiza o ciclo
@@ -773,9 +809,9 @@ external_identity_mappings
 command_invocations
   invocation_id, schema_version, user_id nullable_for_system,
   auth_context_type, auth_context_id,
-  auth_generation, session_id, session_generation, security_generation,
+  auth_generation, session_id, security_generation,
   workspace_id, registry_version, global_config_generation,
-  workspace_config_generation,
+  workspace_config_generation, active_layers_generation,
   command_id nullable_until_resolved, binding_ids nonnull_default_empty,
   trigger_type nullable_for_direct, trigger_spec_snapshot nullable_for_direct,
   trigger_fingerprint nullable_for_direct,
@@ -830,12 +866,20 @@ portanto excluir o binding ou atualizar defaults não apaga sua origem históric
 aba ou run, permitindo consultar uma reentrega sem repetir efeitos.
 
 `command_layer_activation_state` mantém o último cursor de cada ciclo. No
-startup, regras `always` e contextuais são recalculadas; ciclo manual só é
+startup, regras `always` e contextuais são recalculadas e não ocupam essa
+tabela; ciclo manual só é
 restaurado se seu lifecycle for persistente e o usuário for autenticado
 novamente; temporário expirado ou session-scoped termina; ciclo de evento/job é
 reconciliado com a fonte. Estado sem autenticação, provenance ou fonte
 revalidável fica inativo. Ciclos terminais permanecem pela mesma retenção curta
 das invocações para deduplicar reentregas; ativos não são removidos pela idade.
+
+Matriz de nulabilidade do estado: claims manuais podem deixar `source_instance`,
+`source_event`, correlação, sequence e provenance nulos; claims de evento exigem
+instância, evento UUIDv7, sequence e fingerprint; correlação é opcional; claim
+temporária exige `expires_at`; provenance é obrigatória quando a origem for job.
+Campos de auth/segurança e refs de layer/rule são sempre obrigatórios. Ausência
+vira `NULL`, nunca sentinel vazio.
 
 `workspace_id` nulo identifica camada global do usuário; preenchido identifica
 camada daquele workspace. A consulta efetiva carrega somente camadas globais do
@@ -886,21 +930,28 @@ de importação; não é aproximada por nome. Grants, autorizações e ativaçõ
 temporárias nunca são exportados ou concedidos. A configuração importada só
 entra no mapa efetivo após validação e confirmação dos conflitos.
 
+Essa seção só é habilitada depois que o mesmo PR atualizar a AEP-0047, registrar
+`commandLayers` e incrementar a versão do envelope portátil com regras de
+compatibilidade. Até lá, comandos/camadas são recurso não suportado pelo export:
+o relatório avisa a omissão e a UI não promete backup deles. Importador antigo
+continua ignorando seção desconhecida com warning, como define a AEP-0047.
+
 `command_invocations` é auditoria técnica efêmera.
 `internal/commandinvocations.MaintenanceService`, definido por esta AEP e
-executado pelo orquestrador canônico da AEP-0074-B, lê exclusivamente
+injetado por interface no ciclo existente `jobs.Manager.runRetention` da
+AEP-0074-B, lê exclusivamente
 `maintenance.command_invocation_retention_days` (padrão 30) e
 `maintenance.command_invocations_per_user_keep` (padrão 10.000) de
 `MaintenanceSettings`/`config.json`. Invocações internas sem usuário usam
 `maintenance.command_invocations_system_keep` (padrão 1.000), além do mesmo
 limite por idade. Para ciclos terminais, usa
 `maintenance.command_activation_terminal_retention_days` (padrão 30) e
-`maintenance.command_activation_terminal_keep_per_user` (padrão 10.000);
-e `maintenance.command_job_activation_lease_seconds` (padrão 180). Estados
+`maintenance.command_activation_terminal_keep_per_user` (padrão 10.000), além
+de `maintenance.command_job_activation_lease_seconds` (padrão 180). Estados
 ativos ficam fora da limpeza por idade/quantidade. As seis chaves
 aparecem na mesma UI de manutenção. O PR que implementar esta fase deve
 atualizar a AEP-0074-B, settings e UI no mesmo ciclo; não se cria configuração
-paralela.
+paralela nem segunda goroutine de retenção.
 
 O serviço remove registros antigos/acima do limite. Índices mínimos:
 `(user_id, received_at)`, `(user_id, status, received_at)`, PK única por
@@ -931,13 +982,14 @@ reconstituível depois de expirar e esta AEP não promete reprodução integral.
 Auditorias de decisão/grant que tenham retenção própria na AEP-0091 ou AEP-0101
 não são substituídas por esta tabela.
 
-Quando um comando delega para tool, `tool_invocations` usa o contrato já vigente
-da AEP-0063: `origin_type = system`,
-`origin_id = command_invocations.invocation_id` e
-metadata `command_origin_schema = command-invocation.v1`. A origem humana ou
-automatizada completa permanece em `command_invocations`; a correlação não
-exige criar um novo enum em AEP-0063. A retenção de cada tabela continua
-independente e a UI tolera o lado técnico já expirado.
+Quando um comando delega para tool, `tool_invocations` precisa ganhar
+`origin_type = command_invocation` e
+`origin_id = command_invocations.invocation_id`. O primeiro PR dessa integração
+atualiza a AEP-0063, enum, consultas e retenção no mesmo ciclo. Até isso existir,
+comando que delega para tool fica indisponível; usar `system` como fallback é
+proibido porque misclassificaria ação de usuário/agente como automação interna.
+A origem completa permanece em `command_invocations` e a UI tolera o lado
+técnico já expirado.
 
 ### D12 — Resolução eficiente
 
@@ -1215,8 +1267,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] É possível restaurar um binding, uma camada ou todas as personalizações.
 - [ ] Conflitos são detectados considerando a possível interseção de contextos,
   e empate não executa dois comandos.
-- [ ] Escopo, especificidade e prioridades persistidas formam ordem operacional
-  total e estável após importação ou restart.
+- [ ] Escopo, especificidade e prioridades persistidas produzem resolução
+  determinística após importação/restart; empate termina em conflito fail-closed.
 - [ ] Bindings equivalentes por comando, argumentos e escopo produzem uma única
   invocação com proveniência preservada.
 - [ ] O resolvedor não consulta SQLite nem percorre o catálogo completo a cada
