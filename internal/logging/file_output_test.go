@@ -33,6 +33,12 @@ func TestParseLogFileArgs(t *testing.T) {
 			wantArgs: []string{"--debug"},
 		},
 		{
+			name:     "caminho relativo iniciado por hífens",
+			args:     []string{"--log-file", "--logs/assistente.log"},
+			wantPath: "--logs/assistente.log",
+			wantArgs: []string{},
+		},
+		{
 			name:     "sem flag",
 			args:     []string{"--debug"},
 			wantArgs: []string{"--debug"},

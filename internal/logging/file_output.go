@@ -43,7 +43,7 @@ func ParseLogFileArgs(args []string) (string, []string, error) {
 		var value string
 		switch {
 		case arg == logFileFlag:
-			if index+1 >= len(args) || strings.HasPrefix(args[index+1], "--") {
+			if index+1 >= len(args) {
 				return "", nil, ErrLogFilePathRequired
 			}
 			index++
