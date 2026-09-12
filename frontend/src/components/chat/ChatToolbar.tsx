@@ -73,6 +73,16 @@ const CAPTURE_SHORTCUT_BLOCKED_TARGETS = [
   '[data-tab-type]:not([data-tab-type="chat"])',
 ].join(',');
 
+function isCaptureShortcutBlockedTarget(target: Element | null): boolean {
+  if (!target) return false;
+  if (target.closest(CAPTURE_SHORTCUT_BLOCKED_TARGETS)) return true;
+
+  // Modais reais são arbitrados pelo modalRegistry/canHandleShortcut. Já os
+  // diálogos virtuais de mensagem e terminal não entram nesse registro.
+  const dialog = target.closest('[role="dialog"], [role="alertdialog"]');
+  return dialog !== null && !dialog.classList.contains('modal-overlay');
+}
+
 function isVisibleShortcutOverlay(element: Element): boolean {
   if (!(element instanceof HTMLElement)) return false;
   if (element.closest('[hidden], [aria-hidden="true"], [inert]')) return false;
@@ -326,7 +336,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         && ['m', 'l', 'h', 'p'].includes(key);
       if (!isToolbarShortcut) return;
       const target = e.target instanceof Element ? e.target : null;
-      if (target?.closest(CAPTURE_SHORTCUT_BLOCKED_TARGETS)) return;
+      if (isCaptureShortcutBlockedTarget(target)) return;
       if (hasVisibleShortcutOverlay()) {
         if (key !== 'm') e.preventDefault();
         return;

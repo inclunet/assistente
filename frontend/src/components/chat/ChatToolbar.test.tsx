@@ -295,9 +295,16 @@ describe('ChatToolbar shortcuts', () => {
     modalState.topmost = true;
     renderToolbar();
 
-    expect(dispatchCtrlKey('h').defaultPrevented).toBe(true);
-    expect(dispatchCtrlKey('p').defaultPrevented).toBe(true);
-    expect(dispatchCtrlKey('l').defaultPrevented).toBe(true);
+    const modalOverlay = document.createElement('div');
+    modalOverlay.className = 'modal-overlay';
+    modalOverlay.setAttribute('role', 'dialog');
+    const modalControl = document.createElement('button');
+    modalOverlay.appendChild(modalControl);
+    document.body.appendChild(modalOverlay);
+
+    expect(dispatchCtrlKey('h', modalControl).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('p', modalControl).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('l', modalControl).defaultPrevented).toBe(true);
 
     expect(historyClickMock).toHaveBeenCalledTimes(1);
     expect(profileClickMock).toHaveBeenCalledTimes(1);
@@ -305,6 +312,7 @@ describe('ChatToolbar shortcuts', () => {
       expect(clearConversationMock).toHaveBeenCalledWith('conversation-1');
       expect(loadConversationSessionMock).toHaveBeenCalledWith('conversation-1', { refreshSurfaceWindows: true });
     });
+    modalOverlay.remove();
   });
 
   it('deixa a toolbar do modal tratar o evento prevenido pela superfície atrás dele', async () => {
@@ -464,6 +472,68 @@ describe('ChatToolbar shortcuts', () => {
     expect(clearConversationMock).not.toHaveBeenCalled();
 
     editor.remove();
+  });
+
+  it('não captura atalhos em descendentes de editor, terminal ou aba não-chat', async () => {
+    renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+
+    const containers = [
+      Object.assign(document.createElement('div'), { className: 'monaco-editor' }),
+      Object.assign(document.createElement('div'), { className: 'xterm' }),
+      document.createElement('div'),
+      document.createElement('div'),
+    ];
+    containers[2].setAttribute('role', 'terminal');
+    containers[3].setAttribute('data-tab-type', 'editor');
+
+    containers.forEach((container) => {
+      const descendant = document.createElement('button');
+      container.appendChild(descendant);
+      document.body.appendChild(container);
+      expect(dispatchCtrlKey('m', descendant).defaultPrevented).toBe(false);
+      expect(dispatchCtrlKey('h', descendant).defaultPrevented).toBe(false);
+      expect(dispatchCtrlKey('p', descendant).defaultPrevented).toBe(false);
+      expect(dispatchCtrlKey('l', descendant).defaultPrevented).toBe(false);
+    });
+
+    expect(modelOpenMock).not.toHaveBeenCalled();
+    expect(historyClickMock).not.toHaveBeenCalled();
+    expect(profileClickMock).not.toHaveBeenCalled();
+    expect(clearConversationMock).not.toHaveBeenCalled();
+
+    containers.forEach((container) => container.remove());
+  });
+
+  it('bloqueia atalhos dentro de diálogo virtual sem bloquear uma região de leitura comum', async () => {
+    renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+
+    const virtualDialog = document.createElement('div');
+    virtualDialog.setAttribute('role', 'dialog');
+    virtualDialog.setAttribute('aria-modal', 'true');
+    const documentRegion = document.createElement('div');
+    documentRegion.setAttribute('role', 'document');
+    const descendant = document.createElement('button');
+    documentRegion.appendChild(descendant);
+    virtualDialog.appendChild(documentRegion);
+    document.body.appendChild(virtualDialog);
+
+    expect(dispatchCtrlKey('m', descendant).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('h', descendant).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('p', descendant).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('l', descendant).defaultPrevented).toBe(false);
+
+    expect(modelOpenMock).not.toHaveBeenCalled();
+    expect(historyClickMock).not.toHaveBeenCalled();
+    expect(profileClickMock).not.toHaveBeenCalled();
+    expect(clearConversationMock).not.toHaveBeenCalled();
+
+    virtualDialog.remove();
   });
 
   it('não intercepta Ctrl+M em editores, terminal, modal, menu ou picker aberto', async () => {
