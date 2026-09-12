@@ -143,14 +143,15 @@ CommandInvocation
   session_id?, session_generation?, security_generation
   actor_type, actor_id
   source_type, observer_type?, source_instance_id?, source_event_id?
-  binding_ids?, registry_version, command_config_generation
+  workspace_id?, binding_ids?, registry_version
+  global_config_generation, workspace_config_generation?
   conversation_id?, turn_id?, surface_type?, surface_id?
   surface_snapshot_version?, context_version, context_captured_at
   source_profile_slug?, target_profile_slug?
   authorization_decision_id?, delegation_fingerprint?, grant_generation?
   job_id?, job_slug?, job_definition_fingerprint?, run_id?
   provenance?, correlation_id, request_fingerprint_version
-  request_fingerprint, requested_at
+  request_fingerprint, client_requested_at?, received_at
 ```
 
 `source_type` distingue teclado local/global, Stream Deck, palette, chat, CLI,
@@ -185,8 +186,8 @@ por pelo menos a maior expiração dos ledgers. O ledger guarda
 mantém chaves antigas até seus ledgers expirarem. Chave esperada indisponível
 faz a reentrega falhar fechado, sem executar novamente.
 
-`provenance` é um documento versionado e redigido com `source`,
-`source_job_id`, `chain_id` e `chain_history` da AEP-0067 quando a solicitação
+`provenance` é um documento versionado e redigido com `_source`,
+`_source_job_id`, `_chain_id` e `_chain_history` da AEP-0067 quando a solicitação
 vier de cadeia reativa. O dispatcher o copia sem reconstruir por heurística.
 
 Uma solicitação informa `command_id` para execução direta ou
@@ -219,15 +220,18 @@ O serviço, nessa ordem:
    qualquer um estiver obsoleto; se estiver válida, transiciona para `queued`;
 6. ao retirar da fila, revalida novamente os mesmos gates e faz CAS atômico de
    `queued` para `running`; se o contexto mudou, grava `cancelled_stale` sem
-   chamar o handler. Também compara `registry_version` e
-   `command_config_generation` atuais; mudança de comando, camada, binding ou
-   prioridade cancela como stale. Se a transição vencer, encaminha ao handler;
+   chamar o handler. Também compara `registry_version`,
+   `global_config_generation` e `workspace_config_generation` atuais; mudança de
+   comando, camada, binding ou prioridade cancela como stale. Se a transição
+   vencer, encaminha ao handler;
 7. conclui a trilha como `succeeded`, `failed` ou `outcome_unknown`.
 
 `registry_version` identifica o catálogo/defaults carregado.
-`command_config_generation` é contador monotônico por usuário+workspace,
-incrementado na mesma transação de qualquer mutação de camada, binding,
-prioridade ou tombstone. A invocação captura ambos na resolução.
+Cada usuário possui `global_config_generation`; cada workspace possui
+`workspace_config_generation`. Mutação global incrementa a primeira e invalida
+invocações em todos os workspaces; mutação local incrementa somente a segunda.
+A invocação captura `workspace_id` e o par de gerações na resolução. Sem
+workspace, captura apenas a global.
 
 A reserva é uma transação que cria a chave no ledger de idempotência e a linha
 de auditoria `evaluating` antes do handler. O ledger é protegido pela PK de
@@ -239,8 +243,12 @@ duplicada, nunca chama novamente o handler. Palette, chat e CLI fornecem um
 `invocation_id` UUIDv7 idempotente por solicitação. Eventos físicos recebem
 `source_event_id` no único adapter que os possui. A garantia de deduplicação é
 limitada à sessão física ou à janela de retenção da invocação. Solicitação
-direta cujo UUIDv7/`requested_at` esteja fora dessa janela é rejeitada como
+direta cujo UUIDv7/`received_at` esteja fora dessa janela é rejeitada como
 obsoleta, mesmo se sua linha já tiver sido removida.
+
+`received_at` é sempre atribuído pelo backend ao receber o envelope e governa
+retenção/idade. `client_requested_at`, quando fornecido, é apenas metadado
+validado e nunca altera expiração, ordenação de segurança ou caps.
 
 Reentrega consulta primeiro o ledger pelo ID e recebe status, `result_summary`
 e `result_ref` redigidos por `CommandExecutionService.GetInvocation`; não
@@ -608,8 +616,10 @@ do principal autenticado do produtor e o sobrescreve; para jobs, relê `job_id` 
 `run_id` no escopo desse usuário. Divergência ou ausência de ownership falha
 fechado.
 
-`source_instance_id` identifica a geração do dispatcher e participa da chave de
-idempotência. Se o cursor terminal já tiver sido removido, `occurred_at`
+`source_instance_id` identifica a geração do dispatcher somente para
+proveniência. A chave de idempotência é exclusivamente
+`(user_id, rule_id, source_event_id)`, portanto replay estável após reinício
+continua duplicata. Se o cursor terminal já tiver sido removido, `occurred_at`
 anterior a `maintenance.command_activation_terminal_retention_days` é rejeitado
 antes do insert; `source_event_id` UUIDv7 também precisa ser compatível com essa
 janela. Assim, limpeza delimita a deduplicação sem permitir replay antigo
@@ -657,11 +667,13 @@ que observam o mesmo run mantêm ciclos independentes. Ele preserva
 `state = retry_scheduled`. A timeline é a fonte de ordem; o status do run serve
 apenas para reconstrução no startup.
 
-Claim derivada de job exige lease em `expires_at`, renovada a cada fato válido
-até no máximo `occurred_at + maintenance.job_retention_hours`. No startup,
-fonte removida pela retenção, lease vencida ou ausência de estado autoritativo
-torna a claim inativa imediatamente. A linha ativa pode permanecer para
-auditoria/reconciliação, mas nunca mantém a camada efetiva sem lease válida.
+Claim derivada de job usa lease própria, renovada por heartbeat do runtime:
+`maintenance.command_job_activation_lease_seconds` (padrão 180), com heartbeat
+antes da metade do TTL. Runs não terminais que sustentam claim ficam excluídos
+da limpeza da AEP-0048; o PR dessa integração deve atualizar aquela AEP. No
+startup, fonte ausente, lease vencida ou estado não autoritativo torna a claim
+inativa até uma confirmação nova do runtime. A linha pode permanecer para
+auditoria, mas nunca mantém a camada efetiva sem lease válida.
 
 O adapter preserva a proveniência anti-loop da AEP-0067. Se um binding ativado
 por esse ciclo iniciar job, tool que publica evento ou outro comando reativo, a
@@ -740,6 +752,9 @@ command_bindings
   condition, effect, enabled, source, resolution_priority, replaces_default_id,
   replaces_default_version, presentation
 
+command_config_generations
+  id, user_id, workspace_id, generation, updated_at
+
 command_layer_activation_state
   activation_id, layer_ref_kind, layer_ref, rule_ref_kind, rule_ref,
   user_id, auth_context_type, auth_context_id, auth_generation,
@@ -759,7 +774,8 @@ command_invocations
   invocation_id, schema_version, user_id nullable_for_system,
   auth_context_type, auth_context_id,
   auth_generation, session_id, session_generation, security_generation,
-  registry_version, command_config_generation,
+  workspace_id, registry_version, global_config_generation,
+  workspace_config_generation,
   command_id nullable_until_resolved, binding_ids nonnull_default_empty,
   trigger_type nullable_for_direct, trigger_spec_snapshot nullable_for_direct,
   trigger_fingerprint nullable_for_direct,
@@ -773,18 +789,25 @@ command_invocations
   job_id, job_slug, job_definition_fingerprint, run_id, provenance,
   correlation_id, request_fingerprint_version, request_fingerprint,
   risk, policy_decision,
-  result_summary, result_ref, status, error_code, requested_at, completed_at
+  result_summary, result_ref, status, error_code, client_requested_at,
+  received_at, completed_at
 
 command_idempotency_keys
   id, key, invocation_id, user_id, auth_context_type, auth_context_id,
   source_type, source_instance_id, source_event_id,
   request_fingerprint_version, request_fingerprint,
-  status, result_summary, result_ref, created_at, expires_at
+  status, result_summary, result_ref, received_at, expires_at
 ```
 
 Condições, argumentos, especificações e apresentação são documentos JSON
 versionados e validados. Alterações relevantes mantêm auditoria suficiente para
 desfazer.
+
+Campos marcados com `?` no envelope são nullable no SQLite; ausência vira
+`NULL`, nunca string vazia. `command_id` é nulo somente em `evaluating` antes da
+resolução; `trigger_*` é nulo em execução direta; campos de surface, conversa,
+job, profile, workspace e decisão são nulos quando o contexto não se aplica.
+Campos obrigatórios do envelope e `binding_ids` (default `[]`) são NOT NULL.
 
 Todas as PKs persistidas criadas por esta AEP são UUIDv7 conforme AEP-0046.
 FKs entre essas tabelas também usam UUIDv7. IDs de defaults que vivem no código
@@ -820,6 +843,10 @@ usuário autenticado mais as do workspace atual. SQLite usa dois índices único
 parciais: `(user_id, name) WHERE workspace_id IS NULL` para globais e
 `(user_id, workspace_id, name) WHERE workspace_id IS NOT NULL` para workspaces.
 Bindings herdam o escopo da camada, evitando misturar configurações.
+
+`command_config_generations` usa os mesmos dois índices únicos parciais de
+escopo: uma linha global por usuário e uma por usuário+workspace. Toda mutação
+incrementa a linha aplicável na mesma transação dos dados alterados.
 
 `external_identity_mappings` tem índice único `(issuer, subject)` e FK para
 `users.id`. Só administração autenticada pode criá-lo; ele não é importado,
@@ -869,24 +896,26 @@ executado pelo orquestrador canônico da AEP-0074-B, lê exclusivamente
 limite por idade. Para ciclos terminais, usa
 `maintenance.command_activation_terminal_retention_days` (padrão 30) e
 `maintenance.command_activation_terminal_keep_per_user` (padrão 10.000);
-estados ativos ficam fora da limpeza por idade/quantidade. As cinco chaves
+e `maintenance.command_job_activation_lease_seconds` (padrão 180). Estados
+ativos ficam fora da limpeza por idade/quantidade. As seis chaves
 aparecem na mesma UI de manutenção. O PR que implementar esta fase deve
 atualizar a AEP-0074-B, settings e UI no mesmo ciclo; não se cria configuração
 paralela.
 
 O serviço remove registros antigos/acima do limite. Índices mínimos:
-`(user_id, requested_at)`, `(user_id, status, requested_at)`, PK única por
+`(user_id, received_at)`, `(user_id, status, received_at)`, PK única por
 `invocation_id` para chamadas diretas e índice único parcial
 `(user_id, auth_context_type, auth_context_id, source_type, source_instance_id,
 source_event_id) WHERE source_event_id IS NOT NULL AND source_event_id <> ''`
 para eventos de adapter. Evento físico sempre tem usuário autenticado; contexto
 `system` sem usuário não usa esse índice e possui
-`(requested_at) WHERE user_id IS NULL` para sua limpeza global.
+`(received_at) WHERE user_id IS NULL` para sua limpeza global.
 
 Os limites de quantidade removem somente auditoria detalhada em
 `command_invocations` e estado terminal em
 `command_layer_activation_state`. Os dois ledgers mínimos não são removidos por
-cap: permanecem até `expires_at`, igual ao fim da janela de 30 dias, e só então
+cap: permanecem até `expires_at`, calculado com a respectiva retenção
+configurada, e só então
 a chave pode ser reutilizada. Status/resultado redigido e último
 fingerprint/sequence são atualizados no ledger na mesma transação da mudança de
 estado. `command_idempotency_keys.key` e
