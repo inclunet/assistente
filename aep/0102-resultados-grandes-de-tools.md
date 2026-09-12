@@ -57,6 +57,12 @@ JSON e não ofereciam retomada exata.
 12. `run_command` usa o budget efetivo do executor (inclusive o budget maior de
     jobs). O histórico de terminal limita uma cópia, sem mutilar o objeto bruto
     devolvido à tool.
+13. Itens do LRU pertencem ao usuário e, quando existente, à conversa que os
+    criou. `read_tool_result` valida ambos e responde como não encontrado fora
+    desse escopo. A cópia persistida omite prévias com `result_id` efêmero.
+14. Consumidores machine-facing, como jobs, exigem resultado integral: acima do
+    budget próprio falham em vez de receber uma prévia que não conseguiriam
+    paginar.
 
 ## Fases
 
@@ -83,5 +89,7 @@ JSON e não ofereciam retomada exata.
 - [x] JSON estruturado nunca é corrompido por corte.
 - [x] Texto grande e MCP bridge podem ser relidos por identificador opaco.
 - [x] O pre-check de contexto não invalida JSON/raw nem offsets de retomada.
+- [x] Resultados preservados não atravessam usuário/conversa nem viram prefixo
+  silencioso em jobs ou na auditoria.
 - [x] Limitação de MCP nativo está explícita.
 - [x] Documentação de usuário e contratos relacionados foram atualizados.

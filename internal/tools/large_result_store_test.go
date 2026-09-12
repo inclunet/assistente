@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"assistente/internal/tools/invocationctx"
+	"assistente/internal/userctx"
 )
 
 func TestProtectModelResultUsesAnnotationsAndCanResume(t *testing.T) {
 	original := strings.Repeat("abcç", 20_000)
-	protected, ok := ProtectModelResult(ToolResult{Content: original}, 1024)
+	protected, ok := ProtectModelResult(context.Background(), ToolResult{Content: original}, 1024)
 	if !ok || len(protected.Content) > 1024 {
 		t.Fatalf("proteção falhou: ok=%v bytes=%d", ok, len(protected.Content))
 	}
@@ -32,12 +35,12 @@ func TestProtectModelResultUsesAnnotationsAndCanResume(t *testing.T) {
 
 func TestProtectExternalModelResultDelimitsPreviewWithoutChangingStoredJSON(t *testing.T) {
 	original := `{"items":[` + strings.Repeat(`{"value":"abcdef"},`, 1000) + `null]}`
-	protected, ok := ProtectExternalModelResult(ToolResult{Content: original}, 512)
+	protected, ok := ProtectExternalModelResult(context.Background(), ToolResult{Content: original}, 512)
 	if !ok || !strings.HasPrefix(protected.Content, "--- INÍCIO DA PRÉVIA MCP") {
 		t.Fatalf("prévia MCP não delimitada: %q", protected.Content)
 	}
 	window := protected.Annotations.OutputWindow
-	stored, found := loadModelResult(window.ResultID)
+	stored, found := loadModelResult(context.Background(), window.ResultID)
 	if !found || stored != original || !json.Valid([]byte(stored)) {
 		t.Fatal("JSON MCP integral não foi preservado")
 	}
@@ -103,7 +106,7 @@ func TestExecutorMakesLargeMCPJSONRecoverable(t *testing.T) {
 	if !strings.Contains(got.Result.Content, "PRÉVIA MCP") {
 		t.Fatalf("prévia MCP não delimitada: %q", got.Result.Content)
 	}
-	stored, ok := loadModelResult(got.Result.Annotations.OutputWindow.ResultID)
+	stored, ok := loadModelResult(context.Background(), got.Result.Annotations.OutputWindow.ResultID)
 	if !ok || stored != original || !json.Valid([]byte(stored)) {
 		t.Fatal("executor corrompeu JSON MCP preservado")
 	}
@@ -145,6 +148,28 @@ func TestExecutorRejectsLargeLegacyJSONScalar(t *testing.T) {
 	}
 }
 
+func TestExecutorMachineFacingRejectsLargePlainText(t *testing.T) {
+	registry := NewRegistry()
+	registry.MustRegister(&mockTool{
+		name: "machine_text",
+		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+			return ToolResult{Content: strings.Repeat("x", 2048)}, nil
+		},
+	})
+	cfg := DefaultExecutorConfig()
+	cfg.MaxResultSize = 128
+	cfg.RequireCompleteResult = true
+	got := NewExecutor(registry, cfg).ExecuteOne(context.Background(), ToolCall{
+		ID: "call-machine", Function: FunctionCall{Name: "machine_text", Arguments: `{}`},
+	})
+	if got.ErrorCode != "result_too_large" || !got.Result.IsError || got.Result.Annotations != nil {
+		t.Fatalf("consumer machine-facing recebeu prévia: %+v", got)
+	}
+	if len(got.Result.Content) > cfg.MaxResultSize {
+		t.Fatalf("falha machine-facing excedeu teto: %d", len(got.Result.Content))
+	}
+}
+
 func TestLooksLikeCanonicalJSONAcceptsOneCompleteValue(t *testing.T) {
 	for _, valid := range []string{`{}`, `[]`, `"texto"`, `123`, `true`, `false`, `null`} {
 		if !IsCanonicalJSON(valid) {
@@ -160,19 +185,19 @@ func TestLooksLikeCanonicalJSONAcceptsOneCompleteValue(t *testing.T) {
 
 func TestProtectionKeepsOriginalResultIDWhenExecutorTightensBudget(t *testing.T) {
 	original := strings.Repeat("conteúdo-", 5000)
-	first, ok := ProtectToolResult(ToolResult{Content: original}, 4096)
+	first, ok := ProtectToolResult(context.Background(), ToolResult{Content: original}, 4096)
 	if !ok {
 		t.Fatal("primeira proteção falhou")
 	}
 	firstID := first.Annotations.OutputWindow.ResultID
-	second, ok := ProtectModelResult(first, 1024)
+	second, ok := ProtectModelResult(context.Background(), first, 1024)
 	if !ok {
 		t.Fatal("segunda proteção falhou")
 	}
 	if second.Annotations.OutputWindow.ResultID != firstID {
 		t.Fatalf("result_id mudou: %q -> %q", firstID, second.Annotations.OutputWindow.ResultID)
 	}
-	stored, found := loadModelResult(firstID)
+	stored, found := loadModelResult(context.Background(), firstID)
 	if !found || stored != original {
 		t.Fatal("segunda proteção substituiu o conteúdo integral pela prévia")
 	}
@@ -180,7 +205,7 @@ func TestProtectionKeepsOriginalResultIDWhenExecutorTightensBudget(t *testing.T)
 
 func TestProtectionFailsWhenExistingResultExpired(t *testing.T) {
 	original := strings.Repeat("conteúdo-", 5000)
-	first, ok := ProtectToolResult(ToolResult{Content: original}, 4096)
+	first, ok := ProtectToolResult(context.Background(), ToolResult{Content: original}, 4096)
 	if !ok {
 		t.Fatal("primeira proteção falhou")
 	}
@@ -193,18 +218,18 @@ func TestProtectionFailsWhenExistingResultExpired(t *testing.T) {
 	modelResultStore.order.Remove(elem)
 	modelResultStore.mu.Unlock()
 
-	if _, ok := ProtectModelResult(first, 1024); ok {
+	if _, ok := ProtectModelResult(context.Background(), first, 1024); ok {
 		t.Fatal("prévia expirada foi republicada como se fosse resultado integral")
 	}
 }
 
 func TestContentForModelWithinLimitRecalculatesRecoverableWindow(t *testing.T) {
 	original := strings.Repeat("abcç", 5000)
-	first, ok := ProtectToolResult(ToolResult{Content: original}, 4096)
+	first, ok := ProtectToolResult(context.Background(), ToolResult{Content: original}, 4096)
 	if !ok {
 		t.Fatal("primeira proteção falhou")
 	}
-	got := ContentForModelWithinLimit(first, 1024, "")
+	got := ContentForModelWithinLimit(context.Background(), first, 1024, "")
 	if len(got) > 1024 {
 		t.Fatalf("resultado excedeu quota: %d", len(got))
 	}
@@ -220,7 +245,7 @@ func TestContentForModelWithinLimitRecalculatesRecoverableWindow(t *testing.T) {
 	if window == nil || window.Returned != len(parts[1]) || window.NextOffset != len(parts[1]) {
 		t.Fatalf("janela não corresponde ao corpo enviado: %+v, corpo=%d", window, len(parts[1]))
 	}
-	if stored, found := loadModelResult(window.ResultID); !found || stored != original {
+	if stored, found := loadModelResult(context.Background(), window.ResultID); !found || stored != original {
 		t.Fatal("resultado integral deixou de ser recuperável")
 	}
 }
@@ -231,7 +256,7 @@ func TestContentForModelWithinLimitNeverCutsRawOrStructured(t *testing.T) {
 		{Content: `{"value":"` + strings.Repeat("x", 500) + `"}`, Structured: true},
 		{Content: `"` + strings.Repeat("x", 500) + `"`},
 	} {
-		got := ContentForModelWithinLimit(result, 256, "")
+		got := ContentForModelWithinLimit(context.Background(), result, 256, "")
 		if strings.Contains(got, result.Content[:100]) {
 			t.Fatalf("conteúdo exato foi devolvido parcialmente: %q", got)
 		}
@@ -242,7 +267,7 @@ func TestContentForModelWithinLimitNeverCutsRawOrStructured(t *testing.T) {
 }
 
 func TestContentForModelWithinLimitKeepsStableExactErrorAtZeroBudget(t *testing.T) {
-	got := ContentForModelWithinLimit(ToolResult{Content: "raw", RawExact: true}, 0, "")
+	got := ContentForModelWithinLimit(context.Background(), ToolResult{Content: "raw", RawExact: true}, 0, "")
 	if got != "[raw_result_too_large]" {
 		t.Fatalf("budget zero silenciou falha raw: %q", got)
 	}
@@ -250,12 +275,12 @@ func TestContentForModelWithinLimitKeepsStableExactErrorAtZeroBudget(t *testing.
 
 func TestContentForModelWithinLimitKeepsMCPPreviewDelimited(t *testing.T) {
 	original := strings.Repeat(`{"value":"abcdef"}`, 1000)
-	first, ok := ProtectExternalModelResult(ToolResult{Content: original}, 4096)
+	first, ok := ProtectExternalModelResult(context.Background(), ToolResult{Content: original}, 4096)
 	if !ok {
 		t.Fatal("primeira proteção MCP falhou")
 	}
 	firstReturned := first.Annotations.OutputWindow.Returned
-	got := ContentForModelWithinLimit(first, 1024, "mcp_server__large")
+	got := ContentForModelWithinLimit(context.Background(), first, 1024, "mcp_server__large")
 	if len(got) > 1024 || !strings.Contains(got, mcpPreviewPrefix) || !strings.Contains(got, mcpPreviewSuffix) {
 		t.Fatalf("prévia MCP recomposta incorretamente: %q", got)
 	}
@@ -264,8 +289,31 @@ func TestContentForModelWithinLimitKeepsMCPPreviewDelimited(t *testing.T) {
 	}
 }
 
+func TestContentForModelWithinLimitDoesNotInferMCPFromContent(t *testing.T) {
+	content := mcpPreviewPrefix + strings.Repeat("x", 2000)
+	got := ContentForModelWithinLimit(context.Background(), ToolResult{Content: content}, 1024, "ordinary_tool")
+	if strings.Count(got, mcpPreviewPrefix) != 1 {
+		t.Fatalf("texto comum foi reclassificado como MCP: %q", got)
+	}
+}
+
+func TestContentForModelWithinLimitDoesNotReclassifyExistingWindowAsJSON(t *testing.T) {
+	original := "{}" + strings.Repeat(" ", 10_000) + "texto"
+	first, ok := ProtectToolResult(context.Background(), ToolResult{Content: original}, 4096)
+	if !ok {
+		t.Fatal("proteção inicial falhou")
+	}
+	if !IsCanonicalJSON(first.Content) {
+		t.Fatalf("fixture não produziu prévia acidentalmente JSON: %q", first.Content)
+	}
+	got := ContentForModelWithinLimit(context.Background(), first, 1024, "ordinary_tool")
+	if !strings.Contains(got, `"result_id"`) || strings.Contains(got, "[result_too_large]") {
+		t.Fatalf("janela retomável foi reclassificada como JSON: %q", got)
+	}
+}
+
 func TestReadToolResultIsExactOrExecutorRejectsPage(t *testing.T) {
-	id, ok := storeModelResult(strings.Repeat("página-", 1000))
+	id, ok := storeModelResult(context.Background(), strings.Repeat("página-", 1000))
 	if !ok {
 		t.Fatal("store falhou")
 	}
@@ -286,7 +334,7 @@ func TestReadToolResultIsExactOrExecutorRejectsPage(t *testing.T) {
 }
 
 func TestReadToolResultNeverExceedsLimitForMultibyteRune(t *testing.T) {
-	id, ok := storeModelResult("ç")
+	id, ok := storeModelResult(context.Background(), "ç")
 	if !ok {
 		t.Fatal("store falhou")
 	}
@@ -294,5 +342,27 @@ func TestReadToolResultNeverExceedsLimitForMultibyteRune(t *testing.T) {
 	got, _ := NewReadToolResult().Execute(context.Background(), raw)
 	if !got.IsError || got.Failure == nil || got.Failure.Code != "result_page_limit_too_small" {
 		t.Fatalf("página deveria falhar sem exceder limit: %+v", got)
+	}
+}
+
+func TestReadToolResultEnforcesUserAndConversationOwnership(t *testing.T) {
+	ownerCtx := userctx.WithUserID(context.Background(), "user-a")
+	ownerCtx = invocationctx.With(ownerCtx, invocationctx.InvocationContext{ConversationID: "conversation-a"})
+	id, ok := storeModelResult(ownerCtx, "conteúdo privado")
+	if !ok {
+		t.Fatal("store falhou")
+	}
+	args, _ := json.Marshal(map[string]any{"result_id": id, "offset": 0})
+
+	otherConversation := userctx.WithUserID(context.Background(), "user-a")
+	otherConversation = invocationctx.With(otherConversation, invocationctx.InvocationContext{ConversationID: "conversation-b"})
+	denied, _ := NewReadToolResult().Execute(otherConversation, args)
+	if !denied.IsError || denied.Failure == nil || denied.Failure.Code != "large_result_not_found" {
+		t.Fatalf("outra conversa acessou resultado: %+v", denied)
+	}
+
+	allowed, _ := NewReadToolResult().Execute(ownerCtx, args)
+	if allowed.IsError || allowed.Content != "conteúdo privado" {
+		t.Fatalf("owner não conseguiu reler resultado: %+v", allowed)
 	}
 }

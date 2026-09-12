@@ -341,7 +341,7 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 			Failure: &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnknown, Retryable: false},
 		}, nil
 	}
-	protected, ok := tools.ProtectToolResult(result, maxLength)
+	protected, ok := tools.ProtectToolResult(ctx, result, maxLength)
 	if !ok {
 		return tools.ToolResult{
 			Content: "Resposta excede a capacidade segura de preservação; reduza o escopo.",

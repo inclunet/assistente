@@ -1225,6 +1225,7 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 			ToolCatalogID:          strings.TrimSpace(req.ToolCatalogID),
 			DryRun:                 true,
 			ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
+			RequireCompleteResult:  true,
 		}).Execution
 		result = exec.Result
 		execErr = exec.Error

@@ -300,7 +300,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 					return m
 				}(),
 			}
-			protected, ok := tools.ProtectToolResult(result, outputLimit)
+			protected, ok := tools.ProtectToolResult(ctx, result, outputLimit)
 			if !ok {
 				return tools.ToolResult{
 					Content: "Output parcial excede a capacidade segura de preservação.",
@@ -363,7 +363,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		result.Structured = true
 		return result, nil
 	}
-	protected, ok := tools.ProtectToolResult(result, outputLimit)
+	protected, ok := tools.ProtectToolResult(ctx, result, outputLimit)
 	if !ok {
 		return tools.ToolResult{
 			Content: "Output excede a capacidade segura de preservação; reduza a saída do comando.",

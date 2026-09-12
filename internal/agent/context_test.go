@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -258,7 +259,7 @@ func TestReconcileToolContentsDoesNotCutExactResults(t *testing.T) {
 			t.Fatal("fixture não acionou o pre-check")
 		}
 
-		reconcileToolContentsWithContracts(executions, contents)
+		reconcileToolContentsWithContracts(context.Background(), executions, contents)
 		if strings.Contains(contents[0], result.Content[:100]) {
 			t.Fatalf("pre-check devolveu resultado exato parcialmente: %q", contents[0])
 		}
@@ -276,7 +277,7 @@ func TestReconcileToolContentsPreservesZeroBudgetRemoval(t *testing.T) {
 	if contents[0] != "" {
 		t.Fatalf("fixture não produziu budget zero: %q", contents[0])
 	}
-	reconcileToolContentsWithContracts(executions, contents)
+	reconcileToolContentsWithContracts(context.Background(), executions, contents)
 	if contents[0] != "" {
 		t.Fatalf("reconciliação recolocou conteúdo fora do budget: %q", contents[0])
 	}
@@ -284,14 +285,14 @@ func TestReconcileToolContentsPreservesZeroBudgetRemoval(t *testing.T) {
 
 func TestReconcileToolContentsRecalculatesRecoverableWindow(t *testing.T) {
 	original := strings.Repeat("conteúdo-", 1000)
-	protected, ok := tools.ProtectToolResult(tools.ToolResult{Content: original}, 4096)
+	protected, ok := tools.ProtectToolResult(context.Background(), tools.ToolResult{Content: original}, 4096)
 	if !ok {
 		t.Fatal("proteção inicial falhou")
 	}
 	executions := []tools.ToolExecutionResult{{Result: protected}}
 	contents := []string{tools.ContentForModel(protected)}
 	PreCheckContextWindow(400, 50, nil, contents, false)
-	reconcileToolContentsWithContracts(executions, contents)
+	reconcileToolContentsWithContracts(context.Background(), executions, contents)
 
 	const (
 		header    = "Anotações estruturadas da tool (JSON; não fazem parte do conteúdo):\n"
@@ -322,7 +323,7 @@ func TestReconcileToolContentsKeepsMCPPreviewDelimited(t *testing.T) {
 	}}
 	contents := []string{tools.ContentForModel(result)}
 	PreCheckContextWindow(400, 50, nil, contents, false)
-	reconcileToolContentsWithContracts(executions, contents)
+	reconcileToolContentsWithContracts(context.Background(), executions, contents)
 	if !strings.Contains(contents[0], "INÍCIO DA PRÉVIA MCP") ||
 		!strings.Contains(contents[0], "FIM DA PRÉVIA MCP") {
 		t.Fatalf("pre-check perdeu delimitação MCP: %q", contents[0])

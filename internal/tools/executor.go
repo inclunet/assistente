@@ -36,6 +36,10 @@ type ExecutorConfig struct {
 	// retomável; Structured/RawExact falham explicitamente sem corte.
 	MaxResultSize int
 
+	// RequireCompleteResult atende consumidores machine-facing (jobs), que não
+	// conseguem seguir read_tool_result. Acima do teto, qualquer saída falha.
+	RequireCompleteResult bool
+
 	// MaxIterations é o número máximo de iterações do agentic loop
 	MaxIterations int
 }
@@ -223,11 +227,12 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			// json.Valid varre o payload inteiro; só precisamos inferir JSON
 			// canônico quando a barreira realmente precisaria cortá-lo.
 			structured := result.Structured
-			if !structured && !result.RawExact {
+			hasWindow := result.Annotations != nil && result.Annotations.OutputWindow != nil
+			if !structured && !result.RawExact && !hasWindow {
 				structured = IsCanonicalJSON(result.Content)
 			}
 			mcpBridge := isMCPBridgeToolName(toolName)
-			if (structured || result.RawExact) && !mcpBridge {
+			if e.config.RequireCompleteResult || ((structured || result.RawExact) && !mcpBridge) {
 				// Falha classificada do executor (AEP-0039): preenche Error/ErrorKind
 				// para que agent/service.go emita tool_failure e persista o error_kind.
 				code := "result_too_large"
@@ -237,6 +242,9 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					code = "raw_result_too_large"
 					label = "raw"
 					guidance = "Use offset/limit menores; conteúdo raw é exato e nunca é devolvido parcialmente."
+				} else if e.config.RequireCompleteResult {
+					label = "machine-facing"
+					guidance = "Reduza o escopo da chamada; este consumidor exige o resultado integral."
 				}
 				message := fmt.Sprintf(
 					"Resultado %s tem %d bytes, acima do limite de %d. %s",
@@ -257,9 +265,9 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				var protected ToolResult
 				var stored bool
 				if mcpBridge {
-					protected, stored = ProtectExternalModelResult(result, e.config.MaxResultSize)
+					protected, stored = ProtectExternalModelResult(execCtx, result, e.config.MaxResultSize)
 				} else {
-					protected, stored = ProtectModelResult(result, e.config.MaxResultSize)
+					protected, stored = ProtectModelResult(execCtx, result, e.config.MaxResultSize)
 				}
 				if !stored {
 					message := fmt.Sprintf(

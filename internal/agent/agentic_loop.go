@@ -327,7 +327,7 @@ func assistantMessageForToolIteration(result AgenticResult) llm.Message {
 	}
 }
 
-func reconcileToolContentsWithContracts(results []tools.ToolExecutionResult, contents []string) {
+func reconcileToolContentsWithContracts(ctx context.Context, results []tools.ToolExecutionResult, contents []string) {
 	for i, execution := range results {
 		if i >= len(contents) {
 			return
@@ -344,7 +344,7 @@ func reconcileToolContentsWithContracts(results []tools.ToolExecutionResult, con
 		// O pre-check legado calcula a quota de cada resultado. Reaplicamos essa
 		// quota ao contrato da tool para não cortar JSON/raw nem deixar
 		// output_window apontar além dos bytes realmente enviados.
-		contents[i] = tools.ContentForModelWithinLimit(execution.Result, len(contents[i]), execution.ToolName)
+		contents[i] = tools.ContentForModelWithinLimit(ctx, execution.Result, len(contents[i]), execution.ToolName)
 	}
 }
 
@@ -388,7 +388,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 		toolContents[i] = tools.ContentForModel(res.Result)
 	}
 	PreCheckContextWindow(r.params.ContextWindow, r.params.MaxTokens, r.messages, toolContents, r.replaysReasoningContent())
-	reconcileToolContentsWithContracts(execResults, toolContents)
+	reconcileToolContentsWithContracts(ctx, execResults, toolContents)
 
 	// 5f-iii. Persiste o texto intermediário do assistant. AEP-0078 depreca o L3:
 	// novas mensagens não gravam mais o JSON tool_calls; o snapshot exibível fica

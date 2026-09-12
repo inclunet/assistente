@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 
+	"assistente/internal/tools/invocationctx"
+	"assistente/internal/userctx"
+
 	"github.com/google/uuid"
 )
 
@@ -23,6 +26,12 @@ const (
 type storedLargeResult struct {
 	id      string
 	content string
+	owner   largeResultOwner
+}
+
+type largeResultOwner struct {
+	userID         string
+	conversationID string
 }
 
 type largeResultStore struct {
@@ -37,7 +46,7 @@ var modelResultStore = &largeResultStore{
 	order: list.New(),
 }
 
-func storeModelResult(content string) (string, bool) {
+func storeModelResult(ctx context.Context, content string) (string, bool) {
 	if len(content) > largeResultStoreBytes {
 		return "", false
 	}
@@ -45,7 +54,7 @@ func storeModelResult(content string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id := "tool-result-" + uuid.NewString()
-	elem := s.order.PushFront(storedLargeResult{id: id, content: content})
+	elem := s.order.PushFront(storedLargeResult{id: id, content: content, owner: largeResultOwnerFromContext(ctx)})
 	s.items[id] = elem
 	s.bytes += len(content)
 	for s.bytes > largeResultStoreBytes || s.order.Len() > largeResultStoreItems {
@@ -58,7 +67,7 @@ func storeModelResult(content string) (string, bool) {
 	return id, true
 }
 
-func loadModelResult(id string) (string, bool) {
+func loadModelResult(ctx context.Context, id string) (string, bool) {
 	s := modelResultStore
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -66,33 +75,44 @@ func loadModelResult(id string) (string, bool) {
 	if !ok {
 		return "", false
 	}
+	entry := elem.Value.(storedLargeResult)
+	if entry.owner != largeResultOwnerFromContext(ctx) {
+		return "", false
+	}
 	s.order.MoveToFront(elem)
-	return elem.Value.(storedLargeResult).content, true
+	return entry.content, true
+}
+
+func largeResultOwnerFromContext(ctx context.Context) largeResultOwner {
+	userID, _ := userctx.UserIDFromContext(ctx)
+	invocation, _ := invocationctx.Get(ctx)
+	return largeResultOwner{userID: userID, conversationID: invocation.ConversationID}
 }
 
 // ProtectModelResult aplica a barreira host-level sem inserir avisos no corpo.
 // O conteúdo completo fica em armazenamento limitado e pode ser retomado pela
 // tool read_tool_result.
-func ProtectModelResult(result ToolResult, maxBytes int) (ToolResult, bool) {
-	return protectModelResult(result, maxBytes, true)
+func ProtectModelResult(ctx context.Context, result ToolResult, maxBytes int) (ToolResult, bool) {
+	return protectModelResult(ctx, result, maxBytes, true)
 }
 
 // ProtectToolResult aplica um limite próprio da tool ao corpo. O executor ainda
 // aplicará depois o limite global à mensagem completa, incluindo o envelope.
-func ProtectToolResult(result ToolResult, maxContentBytes int) (ToolResult, bool) {
-	return protectModelResult(result, maxContentBytes, false)
+func ProtectToolResult(ctx context.Context, result ToolResult, maxContentBytes int) (ToolResult, bool) {
+	return protectModelResult(ctx, result, maxContentBytes, false)
 }
 
 // ContentForModelWithinLimit recompõe um resultado para um budget de contexto
 // menor que o budget do executor. Resultados exatos nunca são cortados; textos
 // retomáveis recebem uma nova janela coerente com os bytes realmente enviados.
-func ContentForModelWithinLimit(result ToolResult, maxBytes int, toolName string) string {
+func ContentForModelWithinLimit(ctx context.Context, result ToolResult, maxBytes int, toolName string) string {
 	content := ContentForModel(result)
 	if len(content) <= maxBytes {
 		return content
 	}
-	mcpBridge := isMCPBridgeToolName(toolName) || strings.HasPrefix(result.Content, mcpPreviewPrefix)
-	if !mcpBridge && (result.RawExact || result.Structured || IsCanonicalJSON(result.Content)) {
+	mcpBridge := isMCPBridgeToolName(toolName)
+	hasWindow := result.Annotations != nil && result.Annotations.OutputWindow != nil
+	if !mcpBridge && (result.RawExact || result.Structured || (!hasWindow && IsCanonicalJSON(result.Content))) {
 		code := "result_too_large"
 		kind := "estruturado"
 		if result.RawExact {
@@ -119,9 +139,9 @@ func ContentForModelWithinLimit(result ToolResult, maxBytes int, toolName string
 		ok        bool
 	)
 	if mcpBridge {
-		protected, ok = ProtectExternalModelResult(result, maxBytes)
+		protected, ok = ProtectExternalModelResult(ctx, result, maxBytes)
 	} else {
-		protected, ok = ProtectModelResult(result, maxBytes)
+		protected, ok = ProtectModelResult(ctx, result, maxBytes)
 	}
 	if ok {
 		return ContentForModel(protected)
@@ -133,7 +153,7 @@ func ContentForModelWithinLimit(result ToolResult, maxBytes int, toolName string
 	return ""
 }
 
-func protectModelResult(result ToolResult, maxBytes int, includeEnvelope bool) (ToolResult, bool) {
+func protectModelResult(ctx context.Context, result ToolResult, maxBytes int, includeEnvelope bool) (ToolResult, bool) {
 	currentBytes := len(result.Content)
 	if includeEnvelope {
 		currentBytes = len(ContentForModel(result))
@@ -148,7 +168,7 @@ func protectModelResult(result ToolResult, maxBytes int, includeEnvelope bool) (
 		existing := result.Annotations.OutputWindow
 		sourceWindow = existing
 		if existing.ResultID != "" {
-			if stored, found := loadModelResult(existing.ResultID); found {
+			if stored, found := loadModelResult(ctx, existing.ResultID); found {
 				original = stored
 				id = existing.ResultID
 				sourceWindow = existing.SourceWindow
@@ -162,7 +182,7 @@ func protectModelResult(result ToolResult, maxBytes int, includeEnvelope bool) (
 	}
 	if id == "" {
 		var ok bool
-		id, ok = storeModelResult(original)
+		id, ok = storeModelResult(ctx, original)
 		if !ok {
 			return ToolResult{}, false
 		}
@@ -207,7 +227,7 @@ func protectModelResult(result ToolResult, maxBytes int, includeEnvelope bool) (
 // ProtectExternalModelResult delimita explicitamente a prévia de um resultado
 // externo (MCP). O payload do servidor permanece intacto no store; nenhum campo
 // é injetado em JSON retornado pelo servidor.
-func ProtectExternalModelResult(result ToolResult, maxBytes int) (ToolResult, bool) {
+func ProtectExternalModelResult(ctx context.Context, result ToolResult, maxBytes int) (ToolResult, bool) {
 	if maxBytes <= 0 || len(ContentForModel(result)) <= maxBytes {
 		return result, true
 	}
@@ -218,7 +238,7 @@ func ProtectExternalModelResult(result ToolResult, maxBytes int) (ToolResult, bo
 		existing := result.Annotations.OutputWindow
 		sourceWindow = existing
 		if existing.ResultID != "" {
-			if stored, found := loadModelResult(existing.ResultID); found {
+			if stored, found := loadModelResult(ctx, existing.ResultID); found {
 				original = stored
 				id = existing.ResultID
 				sourceWindow = existing.SourceWindow
@@ -229,7 +249,7 @@ func ProtectExternalModelResult(result ToolResult, maxBytes int) (ToolResult, bo
 	}
 	if id == "" {
 		var ok bool
-		id, ok = storeModelResult(original)
+		id, ok = storeModelResult(ctx, original)
 		if !ok {
 			return ToolResult{}, false
 		}
@@ -290,7 +310,7 @@ func NewReadToolResult() *ReadToolResult { return &ReadToolResult{} }
 func (t *ReadToolResult) Name() string { return "read_tool_result" }
 
 func (t *ReadToolResult) Description() string {
-	return "Reads a later byte range from a large tool result preserved by the host. Use it with result_id and next_offset from output_window annotations; pages are at most 50 KiB and never alter the stored content. Do not use it for ordinary files or to repeat the original operation. Results are ephemeral and may expire after restart or storage pressure. Risk: read-only access requires an opaque result identifier."
+	return "Reads a later byte range from a large tool result preserved by the host. Use it with result_id and next_offset from output_window annotations; pages are at most 50 KiB and never alter the stored content. Do not use it for ordinary files or to repeat the original operation. Results are scoped to their user and conversation, are ephemeral, and may expire after restart or storage pressure. Risk: read-only access requires an opaque result identifier."
 }
 
 func (t *ReadToolResult) CatalogMetadata() CatalogMetadata {
@@ -310,7 +330,7 @@ func (t *ReadToolResult) Parameters() json.RawMessage {
 	}`)
 }
 
-func (t *ReadToolResult) Execute(_ context.Context, raw json.RawMessage) (ToolResult, error) {
+func (t *ReadToolResult) Execute(ctx context.Context, raw json.RawMessage) (ToolResult, error) {
 	var args struct {
 		ResultID string `json:"result_id"`
 		Offset   int    `json:"offset"`
@@ -323,7 +343,7 @@ func (t *ReadToolResult) Execute(_ context.Context, raw json.RawMessage) (ToolRe
 	if args.ResultID == "" || args.Offset < 0 {
 		return ToolResult{Content: "result_id e offset não negativo são obrigatórios", IsError: true}, nil
 	}
-	content, ok := loadModelResult(args.ResultID)
+	content, ok := loadModelResult(ctx, args.ResultID)
 	if !ok {
 		return ToolResult{
 			Content: "Resultado grande não encontrado ou expirado; execute novamente a tool de origem.",

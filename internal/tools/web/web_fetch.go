@@ -224,7 +224,7 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 			Failure: &tools.ToolFailure{Code: "raw_result_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
 		}, nil
 	}
-	protected, ok := tools.ProtectToolResult(result, maxLength)
+	protected, ok := tools.ProtectToolResult(ctx, result, maxLength)
 	if !ok {
 		return tools.ToolResult{
 			Content: "Resposta excede a capacidade segura de preservação; reduza max_length.",

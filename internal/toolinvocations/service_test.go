@@ -128,6 +128,25 @@ func TestOutputForPersistenceRemovesWindowWhenContentIsReduced(t *testing.T) {
 	}
 }
 
+func TestOutputForPersistenceOmitsEphemeralPreviewEvenWhenItFits(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 4096}
+	result := tools.ToolResult{
+		Content:  "prefixo",
+		Metadata: map[string]any{"result_id": "tool-result-efemero"},
+		Annotations: &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: true, Unit: "bytes", Returned: 7, Total: 1000,
+			NextOffset: 7, ResultID: "tool-result-efemero", OriginalBytes: 1000,
+		}},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Annotations != nil || strings.Contains(persisted.Content, result.Content) {
+		t.Fatalf("prévia efêmera foi persistida como completa: %+v", persisted)
+	}
+	if !strings.Contains(persisted.Content, "omitted") {
+		t.Fatalf("omissão explícita ausente: %+v", persisted)
+	}
+}
+
 func TestOutputForPersistenceOmitsExactContentInsteadOfCutting(t *testing.T) {
 	svc := &Service{persistMaxResultSize: 256}
 	for _, result := range []tools.ToolResult{

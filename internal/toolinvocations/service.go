@@ -284,15 +284,17 @@ func (s *Service) executorForRequest(req ExecuteRequest) *tools.Executor {
 	if s.executor == nil {
 		return nil
 	}
-	if req.ExecutionMaxResultSize <= 0 {
-		return s.executor
-	}
 	cfg := s.executor.Config()
-	if req.ExecutionMaxResultSize == cfg.MaxResultSize {
+	effectiveMax := req.ExecutionMaxResultSize
+	if effectiveMax <= 0 {
+		effectiveMax = cfg.MaxResultSize
+	}
+	if effectiveMax == cfg.MaxResultSize && req.RequireCompleteResult == cfg.RequireCompleteResult {
 		return s.executor
 	}
 	// Config por request: pode aumentar OU reduzir o budget.
-	cfg.MaxResultSize = req.ExecutionMaxResultSize
+	cfg.MaxResultSize = effectiveMax
+	cfg.RequireCompleteResult = req.RequireCompleteResult
 	return tools.NewExecutor(s.executor.Registry(), cfg)
 }
 
@@ -300,6 +302,14 @@ func (s *Service) truncateForPersistence(result tools.ToolResult) tools.ToolResu
 	max := s.persistMaxResultSize
 	if max <= 0 {
 		return result
+	}
+	if result.Annotations != nil && result.Annotations.OutputWindow != nil &&
+		result.Annotations.OutputWindow.ResultID != "" {
+		size := result.Annotations.OutputWindow.OriginalBytes
+		if size <= 0 {
+			size = len(result.Content)
+		}
+		return persistenceOmissionResult(size)
 	}
 	if len(result.Content) <= max {
 		return result
