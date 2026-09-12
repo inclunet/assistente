@@ -554,7 +554,7 @@ describe('ChatToolbar shortcuts', () => {
     virtualDialog.remove();
   });
 
-  it('não intercepta Ctrl+M em editores, terminal, modal, menu ou picker aberto', async () => {
+  it('não intercepta atalhos em campos editáveis, editor ou terminal', async () => {
     renderToolbar();
     await screen.findByRole('button', {
       name: 'chat.modelOverride.label, $default',
@@ -582,6 +582,9 @@ describe('ChatToolbar shortcuts', () => {
 
     targets.forEach((target) => {
       expect(dispatchModelShortcut(target).defaultPrevented).toBe(false);
+      expect(dispatchCtrlKey('h', target).defaultPrevented).toBe(false);
+      expect(dispatchCtrlKey('p', target).defaultPrevented).toBe(false);
+      expect(dispatchCtrlKey('l', target).defaultPrevented).toBe(false);
     });
 
     modalState.open = true;
@@ -601,6 +604,9 @@ describe('ChatToolbar shortcuts', () => {
     picker.remove();
 
     expect(modelOpenMock).not.toHaveBeenCalled();
+    expect(historyClickMock).not.toHaveBeenCalled();
+    expect(profileClickMock).not.toHaveBeenCalled();
+    expect(clearConversationMock).not.toHaveBeenCalled();
     targets.forEach((target) => target.closest('body') && target.remove());
     monaco.remove();
     terminal.remove();

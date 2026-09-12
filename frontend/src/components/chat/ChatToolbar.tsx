@@ -64,6 +64,10 @@ const MODEL_SHORTCUT_BLOCKED_TARGETS = [
 ].join(',');
 
 const CAPTURE_SHORTCUT_BLOCKED_TARGETS = [
+  'input',
+  'textarea',
+  'select',
+  '[contenteditable="true"]',
   '.chat-message__edit',
   '.monaco-editor',
   '.xterm',

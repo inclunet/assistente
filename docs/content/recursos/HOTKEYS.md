@@ -57,8 +57,8 @@ Hotkeys são registrados programaticamente pelo app durante a inicialização. A
 
 Os atalhos da toolbar continuam disponíveis depois que um menu é fechado com
 `Esc`, inclusive quando o foco volta para uma região de leitura. Eles não agem
-enquanto outro menu ou seletor está aberto, durante a edição de uma mensagem,
-em editor ou terminal, em diálogo de leitura ou em uma aba de chat inativa.
+enquanto outro menu ou seletor está aberto, com foco em um campo editável, em
+editor ou terminal, em diálogo de leitura ou em uma aba de chat inativa.
 Quando existe um chat modal, somente a toolbar da superfície ativa pode tratar
 o atalho.
 
