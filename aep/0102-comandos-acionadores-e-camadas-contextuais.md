@@ -147,8 +147,8 @@ CommandInvocation
   surface_snapshot_version?, context_version, context_captured_at
   source_profile_slug?, target_profile_slug?
   authorization_decision_id?, delegation_fingerprint?, grant_generation?
-  job_id?, job_slug?, run_id?
-  provenance?, correlation_id, requested_at
+  job_id?, job_slug?, job_definition_fingerprint?, run_id?
+  provenance?, correlation_id, request_fingerprint, requested_at
 ```
 
 `source_type` distingue teclado local/global, Stream Deck, palette, chat, CLI,
@@ -162,6 +162,11 @@ Adapters físicos e de evento exigem `source_instance_id` e `source_event_id`.
 Palette, chat, CLI e `system` os omitem e deduplicam pela PK `invocation_id`.
 Após resolução, `binding_ids` é sempre materializado como lista, ainda que
 vazia.
+
+Para execução direta, `request_fingerprint` é HMAC do request canônico completo
+— comando, argumentos, contexto, ator, origem e auth — calculado com chave local
+e persistido sem revelar segredos. Reentrega com o mesmo `invocation_id` só é
+aceita se o fingerprint for idêntico; divergência é conflito e falha fechado.
 
 `provenance` é um documento versionado e redigido com `source`,
 `source_job_id`, `chain_id` e `chain_history` da AEP-0067 quando a solicitação
@@ -248,8 +253,9 @@ Os contextos de autenticação são:
   atual; ausência/ambiguidade falha fechado. A geração acompanha
   validade/revogação disponível e JWT/scopes são revalidados antes do handler;
 - `job_service`: automação usa o usuário proprietário, ID e versão persistida do
-  job, além dos grants exatos aplicáveis; não pode abrir diálogo nem executar
-  comando que exija interação;
+  job, representada por `job_definition_fingerprint`, além dos grants exatos
+  aplicáveis; o gate final relê a definição e compara o fingerprint. Não pode
+  abrir diálogo nem executar comando que exija interação;
 - evento externo: só vira um dos contextos acima após autenticação do ingress e
   mapeamento inequívoco para usuário; caso contrário falha fechado;
 - `system`: contexto interno criado pelo processo, sem `user_id`, restrito a
@@ -714,7 +720,8 @@ command_invocations
   surface_type, surface_id, surface_snapshot_version, context_version,
   context_captured_at, context_summary, source_profile_slug, target_profile_slug,
   authorization_decision_id, delegation_fingerprint, grant_generation,
-  job_id, job_slug, run_id, provenance, correlation_id, risk, policy_decision,
+  job_id, job_slug, job_definition_fingerprint, run_id, provenance,
+  correlation_id, request_fingerprint, risk, policy_decision,
   result_summary, result_ref, status, error_code, requested_at, completed_at
 ```
 
@@ -1152,6 +1159,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   tools; acionadores ficam em snapshot imutável redigido.
 - [ ] Reentrega dentro da janela retorna status/resultado redigido sem repetir o
   handler; invocações interrompidas por queda viram `outcome_unknown`.
+- [ ] Reutilizar `invocation_id` com request fingerprint diferente falha
+  fechado.
 - [ ] Consulta de invocação aplica propriedade por usuário e autorização do
   ator, sem lookup cross-user apenas pela PK.
 - [ ] Sessão, geração de segurança e staleness de contexto são revalidados
