@@ -266,10 +266,12 @@ func TestContentForModelWithinLimitNeverCutsRawOrStructured(t *testing.T) {
 	}
 }
 
-func TestContentForModelWithinLimitKeepsStableExactErrorAtZeroBudget(t *testing.T) {
-	got := ContentForModelWithinLimit(context.Background(), ToolResult{Content: "raw", RawExact: true}, 0, "")
-	if got != "[raw_result_too_large]" {
-		t.Fatalf("budget zero silenciou falha raw: %q", got)
+func TestContentForModelWithinLimitNeverExceedsTinyBudget(t *testing.T) {
+	for _, budget := range []int{0, 1, 8} {
+		got := ContentForModelWithinLimit(context.Background(), ToolResult{Content: "raw", RawExact: true}, budget, "")
+		if len(got) > budget {
+			t.Fatalf("falha raw excedeu budget %d: %q", budget, got)
+		}
 	}
 }
 

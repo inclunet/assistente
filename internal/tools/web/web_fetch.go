@@ -224,6 +224,12 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 			Failure: &tools.ToolFailure{Code: "raw_result_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
 		}, nil
 	}
+	if len(extracted) <= maxLength {
+		return result, nil
+	}
+	// max_length mede o conteúdo extraído. Em uma janela retomável, o header
+	// não entra no corpo para que returned/next_offset descrevam bytes exatos.
+	result.Content = extracted
 	protected, ok := tools.ProtectToolResult(ctx, result, maxLength)
 	if !ok {
 		return tools.ToolResult{

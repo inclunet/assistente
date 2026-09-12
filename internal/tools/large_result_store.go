@@ -126,9 +126,7 @@ func ContentForModelWithinLimit(ctx context.Context, result ToolResult, maxBytes
 		if len(failure) <= maxBytes {
 			return failure
 		}
-		// O código estável é mais importante que respeitar uma quota incapaz de
-		// carregar qualquer diagnóstico; o excedente é pequeno e explícito.
-		return "[" + code + "]"
+		return truncateUTF8("["+code+"]", maxBytes)
 	}
 	if maxBytes <= 0 {
 		return ""

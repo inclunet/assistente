@@ -358,7 +358,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			return m
 		}(),
 	}
-	if entry.ExitCode == 0 && json.Valid([]byte(strings.TrimSpace(entry.Output))) {
+	if entry.ExitCode == 0 && tools.IsCanonicalJSON(entry.Output) {
 		result.Content = entry.Output
 		result.Structured = true
 		return result, nil

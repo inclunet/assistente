@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
@@ -283,7 +284,7 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 	case "auto":
 		// Detecta automaticamente
-		if strings.Contains(contentType, "application/json") {
+		if isJSONMediaType(contentType) {
 			var jsonData interface{}
 			if err := json.Unmarshal([]byte(responseContent), &jsonData); err == nil {
 				formatted, _ := json.MarshalIndent(jsonData, "", "  ")
@@ -341,6 +342,12 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 			Failure: &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnknown, Retryable: false},
 		}, nil
 	}
+	if len(extracted) <= maxLength {
+		return result, nil
+	}
+	// max_response_size mede o payload extraído. Quando há continuação, o corpo
+	// retomável não inclui o header informativo, para que offsets sejam exatos.
+	result.Content = extracted
 	protected, ok := tools.ProtectToolResult(ctx, result, maxLength)
 	if !ok {
 		return tools.ToolResult{
@@ -350,4 +357,13 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}, nil
 	}
 	return protected, nil
+}
+
+func isJSONMediaType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		mediaType = strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0])
+	}
+	mediaType = strings.ToLower(mediaType)
+	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 }

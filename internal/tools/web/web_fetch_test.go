@@ -188,6 +188,20 @@ func TestWebFetch_Truncation(t *testing.T) {
 	}
 }
 
+func TestWebFetchMaxLengthCountsExtractedPayloadNotHeader(t *testing.T) {
+	body := strings.Repeat("a", 100)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer server.Close()
+	args, _ := json.Marshal(map[string]any{"url": server.URL, "max_length": len(body)})
+	result, err := newTestWebFetch().Execute(context.Background(), args)
+	if err != nil || result.IsError || result.Annotations != nil || !strings.HasSuffix(result.Content, body) {
+		t.Fatalf("header consumiu max_length: err=%v result=%+v", err, result)
+	}
+}
+
 func TestWebFetchRawIsExactOrFailsWithoutPartial(t *testing.T) {
 	body := "ç-exato"
 	small := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
