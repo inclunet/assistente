@@ -29,7 +29,7 @@ func main() {
 func run(args []string) (exitCode int) {
 	logPath, remainingArgs, err := logging.ParseLogFileArgs(args[1:])
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Erro ao configurar logs: %v\n", err)
+		reportFatalError(os.Stderr, fmt.Sprintf("Erro ao configurar logs: %v", err))
 		return 2
 	}
 
@@ -37,7 +37,7 @@ func run(args []string) (exitCode int) {
 	if logPath != "" {
 		fileOutput, err := logging.OpenFileOutput(logPath)
 		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "Erro ao configurar logs: %v\n", err)
+			reportFatalError(os.Stderr, fmt.Sprintf("Erro ao configurar logs: %v", err))
 			return 2
 		}
 		database.SetLogOutput(fileOutput.Writer())
@@ -45,7 +45,7 @@ func run(args []string) (exitCode int) {
 		defer func() {
 			database.SetLogOutput(nil)
 			if err := fileOutput.Close(); err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "Erro ao fechar arquivo de log %q: %v\n", logPath, err)
+				reportFatalError(os.Stderr, fmt.Sprintf("Erro ao fechar arquivo de log %q: %v", logPath, err))
 				exitCode = 1
 			}
 		}()
@@ -215,7 +215,7 @@ func run(args []string) (exitCode int) {
 	})
 
 	if err != nil {
-		_, _ = fmt.Fprintf(errorOutput, "Error: %v\n", err)
+		reportFatalError(errorOutput, fmt.Sprintf("Error: %v", err))
 		return 1
 	}
 	return 0
