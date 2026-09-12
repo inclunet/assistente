@@ -18,6 +18,9 @@ ausente.
 - ✅ Execução via bridge adapter
 - ✅ Registro no registry global
 - ✅ Suporte a tools com schemas complexos
+- ✅ Resultado grande protegido no host: conteúdo completo em armazenamento
+  efêmero controlado, prévia delimitada e retomada por `read_tool_result`
+  (AEP-0102), sem inserir campos no JSON do servidor
 
 ### 2. **Resources** ✅ FUNCIONAL
 - ✅ Discovery via `ListResources`

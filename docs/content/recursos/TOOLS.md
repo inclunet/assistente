@@ -25,6 +25,25 @@ política do perfil, disponibilidade, allowlists, confirmações e orçamento de
 schemas. Para operações sensíveis, o carregamento apenas disponibiliza a
 capacidade; ele não aprova sua execução.
 
+## Resultados grandes
+
+Resultados model-facing não recebem frases de truncamento dentro do conteúdo.
+Quando há mais dados, um envelope estruturado informa `has_more`, o intervalo
+devolvido e o próximo offset ou um `result_id`. A tool `read_tool_result` relê
+por bytes resultados efêmeros preservados pelo host, como outputs extensos de
+comandos, páginas web e tools MCP via bridge.
+
+`read_file` devolve no máximo 2.000 linhas e 50 KiB por chamada, pelo limite
+atingido primeiro. Continue com o `next_offset` informado. Com `raw:true`, a
+tool devolve somente o texto exato do trecho pedido, sem cabeçalho, números de
+linha ou envelope; se o trecho não couber, a chamada falha e deve ser repetida
+com `offset`/`limit` menor.
+
+JSON canônico e qualquer resultado `raw` nunca são cortados silenciosamente:
+cabem integralmente no limite ou produzem erro explícito. MCP nativo é executado
+no provedor e, por isso, não passa pela proteção local; nesse modo aplicam-se os
+limites do próprio provedor.
+
 ## MCP nos perfis padrão
 
 Os perfis **Padrão** e **Programação** deixam todas as tools MCP disponíveis
@@ -47,8 +66,8 @@ de concorrência.
 Por padrão, o modo síncrono espera e retorna um envelope JSON com status e IDs,
 preservando a compatibilidade das chamadas existentes. Em envios síncronos,
 `raw:true` devolve diretamente a resposta integral do sub-agente como conteúdo
-da tool; os IDs continuam disponíveis nos metadados. O limite geral de saída do
-executor ainda se aplica.
+da tool; os IDs continuam disponíveis nos metadados. Se a resposta não couber
+no limite geral, a chamada falha sem devolver conteúdo parcial.
 
 `background:true` retorna os IDs imediatamente, mantém a execução em segundo
 plano e entrega o resultado posteriormente à conversa pai. A combinação

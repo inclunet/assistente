@@ -79,8 +79,13 @@ Devolvidos como estão no disco, com projeção só sob demanda (D12):
 
 ### Contrato de `read_file`
 
-- Entrada: `path`, `offset`/`limit` e `document_mode` opcional (`auto` default;
-  `markdown` explícito). `"ocr"` é rejeitado até a issue #565.
+- Entrada: `path`, `offset`/`limit`, `raw` e `document_mode` opcional (`auto`
+  default; `markdown` explícito). `"ocr"` é rejeitado até a issue #565.
+- A saída model-facing é uma janela de no máximo 2.000 linhas e 50 KiB. O
+  envelope da AEP-0102 informa total, intervalo, `has_more` e `next_offset`.
+- `raw:true` devolve apenas o texto exato do trecho, sem cabeçalho, numeração ou
+  envelope. Se o trecho solicitado não couber, falha com
+  `raw_result_too_large` e exige `offset`/`limit` menor.
 - Texto nativo: como hoje (linhas numeradas), inclusive CSV e RTF (D12).
 - Documento opaco: Markdown derivado no corpo; origem, formato, páginas/abas e
   avisos ficam em `ToolResult.Annotations`, separados do conteúdo (D13).
@@ -227,6 +232,8 @@ implementação:
 - [x] Extração respeita fstrust / sandbox (AEP-0092)
 - [x] Operação longa permanece cancelável; falhas parciais não derrubam a busca
       inteira sem motivo
+- [x] Leitura model-facing é limitada e retomável sem contaminar o conteúdo
+      (AEP-0102)
 
 Critério de OCR ativo (`document_mode: "ocr"` cancelável) **não** faz parte
 deste recorte; ficou na issue #565.
