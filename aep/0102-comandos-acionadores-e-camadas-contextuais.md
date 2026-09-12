@@ -142,13 +142,15 @@ CommandInvocation
   user_id?, auth_context_type, auth_context_id, auth_generation
   session_id?, session_generation?, security_generation
   actor_type, actor_id
-  source_type, source_instance_id?, source_event_id?, binding_ids?
+  source_type, observer_type?, source_instance_id?, source_event_id?
+  binding_ids?, registry_version, command_config_generation
   conversation_id?, turn_id?, surface_type?, surface_id?
   surface_snapshot_version?, context_version, context_captured_at
   source_profile_slug?, target_profile_slug?
   authorization_decision_id?, delegation_fingerprint?, grant_generation?
   job_id?, job_slug?, job_definition_fingerprint?, run_id?
-  provenance?, correlation_id, request_fingerprint, requested_at
+  provenance?, correlation_id, request_fingerprint_version
+  request_fingerprint, requested_at
 ```
 
 `source_type` distingue teclado local/global, Stream Deck, palette, chat, CLI,
@@ -157,6 +159,10 @@ reconexão ou geração física do adapter; a identidade estável do dispositivo
 permanece em `trigger_spec`. `source_event_id` identifica uma ocorrência única
 naquela instância, usando contador monotônico ou ID do protocolo.
 `actor_type` distingue usuário, agente e automação.
+
+`source_type` é a origem lógica que governa binding e
+`allowed_source_types`; `observer_type` registra opcionalmente quem observou o
+evento físico. Eles podem diferir sem perder auditoria.
 
 `actor_type` e `actor_id` são derivados no backend do principal e da origem
 autenticados; valores recebidos de adapter/cliente são ignorados e divergência
@@ -172,6 +178,12 @@ Para execução direta, `request_fingerprint` é HMAC do request canônico compl
 — comando, argumentos, contexto, ator, origem e auth — calculado com chave local
 e persistido sem revelar segredos. Reentrega com o mesmo `invocation_id` só é
 aceita se o fingerprint for idêntico; divergência é conflito e falha fechado.
+
+A chave `command-request-hmac:v1` vive no secret manager e permanece disponível
+por pelo menos a maior expiração dos ledgers. O ledger guarda
+`request_fingerprint_version`. Rotação cria versão nova para requests novos e
+mantém chaves antigas até seus ledgers expirarem. Chave esperada indisponível
+faz a reentrega falhar fechado, sem executar novamente.
 
 `provenance` é um documento versionado e redigido com `source`,
 `source_job_id`, `chain_id` e `chain_history` da AEP-0067 quando a solicitação
@@ -207,8 +219,15 @@ O serviço, nessa ordem:
    qualquer um estiver obsoleto; se estiver válida, transiciona para `queued`;
 6. ao retirar da fila, revalida novamente os mesmos gates e faz CAS atômico de
    `queued` para `running`; se o contexto mudou, grava `cancelled_stale` sem
-   chamar o handler; se a transição vencer, encaminha ao handler registrado;
+   chamar o handler. Também compara `registry_version` e
+   `command_config_generation` atuais; mudança de comando, camada, binding ou
+   prioridade cancela como stale. Se a transição vencer, encaminha ao handler;
 7. conclui a trilha como `succeeded`, `failed` ou `outcome_unknown`.
+
+`registry_version` identifica o catálogo/defaults carregado.
+`command_config_generation` é contador monotônico por usuário+workspace,
+incrementado na mesma transação de qualquer mutação de camada, binding,
+prioridade ou tombstone. A invocação captura ambos na resolução.
 
 A reserva é uma transação que cria a chave no ledger de idempotência e a linha
 de auditoria `evaluating` antes do handler. O ledger é protegido pela PK de
@@ -345,9 +364,10 @@ Eventos de teclado têm ownership exclusivo. Uma combinação registrada como
 `keyboard.global` pertence ao adapter do sistema operacional inclusive quando o
 Assistente está em foco; o adapter DOM recebe a lista correspondente e não emite
 `keyboard.local` para ela. Quando o Assistente está em foco, o adapter global
-encaminha o evento ao dispatcher com origem lógica/`trigger_type =
-keyboard.local`; sem foco, usa `keyboard.global`. Assim, bindings locais ainda
-vencem no contexto do app sem dupla observação. O adapter local possui somente
+encaminha `source_type`/`trigger_type = keyboard.local` e
+`observer_type = keyboard.global`; sem foco, os três são `keyboard.global`.
+Assim, a allowlist e os bindings usam o contexto lógico, enquanto a auditoria
+preserva o observador físico. O adapter local possui somente
 combinações não registradas globalmente. Alterações de registro são aplicadas
 por geração antes de publicar o novo mapa. Stream Deck possui um único listener
 por dispositivo. Essa exclusão evita depender de um ID que DOM e API global não
@@ -555,12 +575,20 @@ menor é ignorada; mesma sequência com conteúdo diferente falha fechado. Uma
 desativação atrasada só encerra seu próprio `activation_id`, nunca uma ativação
 mais nova. Expiração gera a transição terminal no mesmo ciclo.
 
-O ledger de ativação persiste `event_fingerprint` e chave única por
-`(user_id, rule_id, source_type, source_correlation_id)` quando a correlação
-existir. Sem correlação, a chave usa
-`(user_id, rule_id, source_type, source_instance_id, source_event_id)`. Na mesma
-transação, o estado de PK `activation_id` avança por CAS sobre `sequence`:
-insert concorrente resolve pela chave única e update exige o cursor anterior.
+No envelope genérico, `state` aceita somente `activate` ou `deactivate`.
+Cada adapter mapeia seu domínio antes de publicá-lo; no caso de jobs,
+`queued`/`started`/`retry_scheduled` viram `activate` e estados terminais viram
+`deactivate`. `source_event_id` é sempre UUIDv7 estável emitido pelo produtor e
+`occurred_at` é timestamp autenticado; contador ou ID opaco de protocolo não é
+aceito nesse envelope.
+
+O ledger de ativação persiste `event_fingerprint` e chave única por ocorrência:
+`(user_id, rule_id, source_event_id)`. `source_correlation_id` localiza o ciclo
+em índice único separado `(user_id, rule_id, source_type,
+source_correlation_id)` no estado de ativação, mas não deduplica transições
+distintas. Na mesma transação, o estado de PK `activation_id` avança por CAS
+sobre `sequence`: insert concorrente resolve pela chave única e update exige o
+cursor anterior.
 Mesmo número com fingerprint diferente grava conflito e não altera a camada.
 
 Na primeira versão, somente eventos internos presentes no catálogo estático
@@ -569,8 +597,9 @@ podem ativar camadas. A regra persiste `event_name` exato e
 envelope. Webhook, plugin e outro produtor externo são rejeitados e ficam fora
 do escopo até uma AEP definir identidade de ingress e grants próprios.
 
-Sem usuário, regra, autenticação ou correlação válidos, eventos internos não
-alteram camadas. Antes de atualizar o estado, o serviço compara
+Sem usuário, regra, autenticação ou identidade válida — correlação, ou o par
+instância/evento quando a correlação for ausente — eventos internos não alteram
+camadas. Antes de atualizar o estado, o serviço compara
 `auth_generation` e `security_generation` atuais; evento de sessão anterior,
 logout ou estação bloqueada é descartado.
 
@@ -604,7 +633,8 @@ do software do Stream Deck.
 Para jobs, a integração publica o fato contextual interno versionado
 `command-context.job-run-state.v1`, com `user_id`, `job_id`, `job_slug`,
 `run_id`, `run_event_id`, `sequence`, `state`, `occurred_at`,
-`_source_job_id`, `_chain_id` e `_chain_history`. `run_event_id` é o UUIDv7 de
+`_source`, `_source_job_id`, `_chain_id` e `_chain_history`. `_source` deve ser
+`job` nesse fato; outro valor falha fechado. `run_event_id` é o UUIDv7 de
 `job_run_events.id` e vira o `source_event_id` estável, inclusive em replay.
 `job_id` é o UUID de `jobs.id`
 referenciado por `job_runs.job_id`; `run_id` é o UUID de `job_runs.id`;
@@ -626,6 +656,12 @@ que observam o mesmo run mantêm ciclos independentes. Ele preserva
 `job_run_events.sequence` e mapeia `job_runs.status = retrying` para o fato
 `state = retry_scheduled`. A timeline é a fonte de ordem; o status do run serve
 apenas para reconstrução no startup.
+
+Claim derivada de job exige lease em `expires_at`, renovada a cada fato válido
+até no máximo `occurred_at + maintenance.job_retention_hours`. No startup,
+fonte removida pela retenção, lease vencida ou ausência de estado autoritativo
+torna a claim inativa imediatamente. A linha ativa pode permanecer para
+auditoria/reconciliação, mas nunca mantém a camada efetiva sem lease válida.
 
 O adapter preserva a proveniência anti-loop da AEP-0067. Se um binding ativado
 por esse ciclo iniciar job, tool que publica evento ou outro comando reativo, a
@@ -723,22 +759,26 @@ command_invocations
   invocation_id, schema_version, user_id nullable_for_system,
   auth_context_type, auth_context_id,
   auth_generation, session_id, session_generation, security_generation,
+  registry_version, command_config_generation,
   command_id nullable_until_resolved, binding_ids nonnull_default_empty,
   trigger_type nullable_for_direct, trigger_spec_snapshot nullable_for_direct,
   trigger_fingerprint nullable_for_direct,
-  actor_type, actor_id, source_type, source_instance_id nullable,
+  actor_type, actor_id, source_type, observer_type nullable,
+  source_instance_id nullable,
   source_event_id nullable,
   arguments_summary, arguments_fingerprint, conversation_id, turn_id,
   surface_type, surface_id, surface_snapshot_version, context_version,
   context_captured_at, context_summary, source_profile_slug, target_profile_slug,
   authorization_decision_id, delegation_fingerprint, grant_generation,
   job_id, job_slug, job_definition_fingerprint, run_id, provenance,
-  correlation_id, request_fingerprint, risk, policy_decision,
+  correlation_id, request_fingerprint_version, request_fingerprint,
+  risk, policy_decision,
   result_summary, result_ref, status, error_code, requested_at, completed_at
 
 command_idempotency_keys
   id, key, invocation_id, user_id, auth_context_type, auth_context_id,
-  source_type, source_instance_id, source_event_id, request_fingerprint,
+  source_type, source_instance_id, source_event_id,
+  request_fingerprint_version, request_fingerprint,
   status, result_summary, result_ref, created_at, expires_at
 ```
 
@@ -804,6 +844,13 @@ o valor. Se o usuário escolher `includeCredentials`, o segredo viaja apenas no
 bloco criptografado definido pela AEP-0047. Exportação faz nova validação e
 recusa o arquivo, com relatório, se encontrar configuração antiga que viole
 essa regra.
+
+Referência portátil de credencial usa `{ kind: "credential", pattern }`, nunca
+UUID local. Na importação, credenciais do bloco criptografado são tratadas
+primeiro pela AEP-0047; depois, cada binding resolve o `pattern` exato somente
+no usuário de destino. Ausência, ambiguidade ou pattern pertencente a outro
+usuário deixa o binding desabilitado e entra no relatório. Não há associação
+automática por posição, nome aproximado ou ID da instância de origem.
 
 Conflito de UUID com conteúdo diferente exige escolha explícita entre manter,
 substituir ou importar como cópia com novos UUIDs. Referência a workspace,
@@ -1127,6 +1174,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   invocações diretas deduplicam somente pela PK UUIDv7.
 - [ ] Execução por agente e automação preserva e revalida os gates da AEP-0101;
   origem headless não herda a identidade do usuário para autorizar mutações.
+- [ ] Usuário e ator são derivados pelo backend; payload não escolhe identidade
+  de autorização/auditoria.
 - [ ] Camadas padrão do aplicativo e das surfaces permanecem ativas e um binding
   ausente em camada superior cai para o default.
 - [ ] Overrides afetam somente o acionador e contexto declarados.
@@ -1151,6 +1200,7 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   externos falham fechado.
 - [ ] Estado de ativação persistido é reconciliado em modo seguro no startup e
   preserva autenticação, geração e proveniência anti-loop da AEP-0067.
+- [ ] Claim de job sem lease e fonte autoritativa válidas fica inativa.
 - [ ] Replay de ativação fora da retenção é rejeitado, e ownership vem do
   principal autenticado, não do payload.
 - [ ] A Command Palette busca e descreve comandos disponíveis e indisponíveis
@@ -1180,6 +1230,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   conflitos e não transfere grants nem histórico de invocações.
 - [ ] Binding persistente e export não contêm segredos brutos; delegação a tool
   propaga redação ou permanece indisponível.
+- [ ] Referência importada de credencial resolve pattern exato no usuário de
+  destino ou deixa o binding desabilitado.
 - [ ] `command_invocations` tem payload redigido, origem rastreável, índices e
   retenção por idade e quantidade, sem prometer reconstruir o snapshot completo.
 - [ ] `invocation_id` é o nome canônico da PK, da consulta e da correlação com
@@ -1194,6 +1246,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   ator, sem lookup cross-user apenas pela PK.
 - [ ] Sessão, geração de segurança e staleness de contexto são revalidados
   imediatamente antes de todo handler.
+- [ ] Versões do catálogo e da configuração são revalidadas ao retirar da fila;
+  binding alterado não executa resolução antiga.
 - [ ] Cada comando declara `context_policy`; provider ausente ou versão/TTL
   inválido falha fechado.
 - [ ] Contextos local, JWT externo, job e system têm fontes de identidade e
