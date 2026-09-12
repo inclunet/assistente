@@ -89,6 +89,7 @@ Todo comando terá:
 - nome, descrição, categoria e aliases versionados nos três locales;
 - schema tipado de argumentos;
 - escopos e contextos em que pode executar;
+- `context_policy` com fatos obrigatórios e regra de staleness;
 - `allowed_source_types`, usando exatamente a taxonomia de D3, inclusive a
   origem interna reservada `system`;
 - paths sensíveis de input/output e política de persistência;
@@ -103,6 +104,24 @@ inventar IDs nem executar handlers por nome aproximado.
 Aliases pertencem ao registro, em mapa versionado `locale → string[]`, e passam
 pela mesma normalização de busca da Command Palette. A UI não mantém listas
 paralelas.
+
+`context_policy` lista fatos por provider e modo: `exact_version`, `max_age_ms`
+ou `none` somente para leitura que não depende de alvo atual.
+`internal/commandcontext.VersionService` registra providers e monta
+`context_version` como fingerprint dos pares `(fact_name, fact_version)`.
+Providers iniciais:
+
+- surface: consulta `surfaceId`/`snapshotVersion` pelo contrato da AEP-0080;
+- diálogo: geração do stack topmost;
+- foco/controle e janela/processo: geração dos adapters de UI/SO;
+- workspace/aba: versão do store canônico;
+- job: `run_id` + último `job_run_events.sequence`;
+- sessão/lock: epochs do `EpochService`.
+
+Na revalidação, cada provider compara a versão atual ou a idade exigida pelo
+comando. Provider ausente, versão incomparável ou TTL vencido torna o comando
+indisponível/falha fechado; não há heurística comum aplicada a contextos
+diferentes.
 
 Comandos de UI podem ser executados no frontend por uma ponte tipada. Comandos
 de backend são enviados ao serviço correspondente. Jobs usam o runtime de jobs;
@@ -129,7 +148,7 @@ CommandInvocation
   source_profile_slug?, target_profile_slug?
   authorization_decision_id?, delegation_fingerprint?, grant_generation?
   job_id?, job_slug?, run_id?
-  correlation_id, requested_at
+  provenance?, correlation_id, requested_at
 ```
 
 `source_type` distingue teclado local/global, Stream Deck, palette, chat, CLI,
@@ -144,14 +163,25 @@ Palette, chat, CLI e `system` os omitem e deduplicam pela PK `invocation_id`.
 Após resolução, `binding_ids` é sempre materializado como lista, ainda que
 vazia.
 
+`provenance` é um documento versionado e redigido com `source`,
+`source_job_id`, `chain_id` e `chain_history` da AEP-0067 quando a solicitação
+vier de cadeia reativa. O dispatcher o copia sem reconstruir por heurística.
+
 Uma solicitação informa `command_id` para execução direta ou
 `trigger_type`/`trigger_spec` para resolução de binding. Depois da resolução, o
 envelope interno contém ambos; combinações ausentes ou incoerentes falham antes
 de qualquer efeito.
 
-Se `surface_type` ou `surface_id` estiver presente, `surface_type`,
-`surface_id` e `surface_snapshot_version` tornam-se obrigatórios e não vazios.
-Comando direcionado a surface sem esse trio falha fechado, conforme AEP-0080.
+Se qualquer um entre `surface_type`, `surface_id` e
+`surface_snapshot_version` estiver presente, os três tornam-se obrigatórios e
+não vazios. Comando direcionado a surface sem o trio completo falha fechado,
+conforme AEP-0080.
+
+Na borda, o mapeamento é único e explícito:
+`SurfaceContext.surfaceType → surface_type`, `surfaceId → surface_id` e
+`snapshotVersion → surface_snapshot_version`. O envelope e o SQLite usam
+snake_case; `context_version` é o fingerprint composto do `VersionService`, não
+um alias de `snapshotVersion`.
 
 O serviço, nessa ordem:
 
@@ -208,11 +238,15 @@ Os contextos de autenticação são:
 
 - `local_session`: o `SessionService` da AEP-0052 fornece somente `user_id` e
   `session_id`; o `EpochService` desta AEP fornece as gerações. Desktop e CLI
-  recebem esses dados do backend; IDs vindos como argumentos são ignorados;
+  recebem esses dados do backend; `auth_context_id = session_id` e
+  `auth_generation` é mantida por esse session ID, não por usuário; IDs vindos
+  como argumentos são ignorados;
 - `external_token`: JWT validado fornece `sub`, scopes e um
   `auth_context_id` derivado de `iss` + `sub` + `jti` ou fingerprint do token;
-  a geração acompanha validade/revogação disponível e JWT/scopes são
-  revalidados antes do handler;
+  `(iss, sub)` precisa resolver por mapeamento administrativo explícito para um
+  `users.id` local. Não há provisionamento automático nem fallback para usuário
+  atual; ausência/ambiguidade falha fechado. A geração acompanha
+  validade/revogação disponível e JWT/scopes são revalidados antes do handler;
 - `job_service`: automação usa o usuário proprietário, ID e versão persistida do
   job, além dos grants exatos aplicáveis; não pode abrir diálogo nem executar
   comando que exija interação;
@@ -297,10 +331,14 @@ quando mais de um observador puder enxergá-la.
 Eventos de teclado têm ownership exclusivo. Uma combinação registrada como
 `keyboard.global` pertence ao adapter do sistema operacional inclusive quando o
 Assistente está em foco; o adapter DOM recebe a lista correspondente e não emite
-`keyboard.local` para ela. O adapter local possui somente combinações não
-registradas globalmente. Alterações de registro são aplicadas por geração antes
-de publicar o novo mapa. Stream Deck possui um único listener por dispositivo.
-Essa exclusão evita depender de um ID que DOM e API global não compartilham.
+`keyboard.local` para ela. Quando o Assistente está em foco, o adapter global
+encaminha o evento ao dispatcher com origem lógica/`trigger_type =
+keyboard.local`; sem foco, usa `keyboard.global`. Assim, bindings locais ainda
+vencem no contexto do app sem dupla observação. O adapter local possui somente
+combinações não registradas globalmente. Alterações de registro são aplicadas
+por geração antes de publicar o novo mapa. Stream Deck possui um único listener
+por dispositivo. Essa exclusão evita depender de um ID que DOM e API global não
+compartilham.
 
 Pressão normal, pressão longa, alternância e dial podem ser acrescentados como
 gestos normalizados quando o dispositivo oferecer esses sinais. Capacidade não
@@ -329,6 +367,11 @@ normalizados e escopo de execução, o resolvedor os deduplica e produz uma úni
 invocação, preservando a proveniência de todos os bindings equivalentes.
 Diferença de comando, argumentos ou escopo continua sendo conflito e falha
 fechado se a precedência não escolher um único vencedor.
+
+Bindings `effect = suppress` são aplicados antes dessa deduplicação. Eles
+removem os defaults referenciados no contexto, consomem o acionador quando não
+restar candidato e nunca criam `CommandInvocation`. Somente bindings
+`effect = execute` participam do agrupamento por comando/argumentos.
 
 ### D5 — Camadas são conjuntos aditivos
 
@@ -473,12 +516,20 @@ Uma camada pode ser:
 - ativada por evento e removida por evento correlato;
 - temporária, com duração ou ciclo de vida definido.
 
+Cada regra produz claims independentes. Uma camada habilitada fica ativa quando
+ao menos uma claim válida está ativa; desativação encerra somente o
+`activation_id` correspondente. Não há prioridade entre regras. Fixar uma
+camada cria claim manual persistente que eventos automáticos não removem;
+outras camadas continuam compondo o mapa. `layer.back` encerra a claim manual
+mais recente da mesma origem.
+
 Ativação dirigida por eventos usa o envelope:
 
 ```text
 LayerActivationEvent
   version, activation_id, rule_id, user_id
-  source_type, source_event_id, source_correlation_id?, sequence
+  source_type, source_instance_id, source_event_id
+  source_correlation_id?, sequence
   state, occurred_at, expires_at?
   auth_context_type, auth_context_id, auth_generation, security_generation
   source_job_id?, chain_id?, chain_history?
@@ -493,9 +544,11 @@ mais nova. Expiração gera a transição terminal no mesmo ciclo.
 
 O estado persiste `event_fingerprint` e tem PK `activation_id` mais índice único
 `(user_id, rule_id, source_type, source_correlation_id)` quando a correlação
-existir. Aplicação ocorre numa transação CAS sobre `sequence`: insert concorrente
-resolve pela chave única; update exige o cursor anterior. Mesmo número com
-fingerprint diferente grava conflito e não altera a camada.
+existir. Sem correlação, usa índice único
+`(user_id, rule_id, source_type, source_instance_id, source_event_id)`.
+Aplicação ocorre numa transação CAS sobre `sequence`: insert concorrente resolve
+pela chave única; update exige o cursor anterior. Mesmo número com fingerprint
+diferente grava conflito e não altera a camada.
 
 Na primeira versão, somente eventos internos presentes no catálogo estático
 podem ativar camadas. A regra persiste `event_name` exato e
@@ -507,6 +560,18 @@ Sem usuário, regra, autenticação ou correlação válidos, eventos internos n
 alteram camadas. Antes de atualizar o estado, o serviço compara
 `auth_generation` e `security_generation` atuais; evento de sessão anterior,
 logout ou estação bloqueada é descartado.
+
+`user_id` não é aceito como autoridade do payload. O dispatcher deriva o dono
+do principal autenticado do produtor e o sobrescreve; para jobs, relê `job_id` e
+`run_id` no escopo desse usuário. Divergência ou ausência de ownership falha
+fechado.
+
+`source_instance_id` identifica a geração do dispatcher e participa da chave de
+idempotência. Se o cursor terminal já tiver sido removido, `occurred_at`
+anterior a `maintenance.command_activation_terminal_retention_days` é rejeitado
+antes do insert; `source_event_id` UUIDv7 também precisa ser compatível com essa
+janela. Assim, limpeza delimita a deduplicação sem permitir replay antigo
+reativar uma camada.
 
 Exemplos:
 
@@ -560,9 +625,10 @@ Cancelamento não pertence ao enum vigente da AEP-0048 e, portanto, não é
 inventado aqui. Se o runtime ganhar esse estado, a AEP-0048 deve ser atualizada
 antes de ele entrar no fato contextual v1 ou em uma versão posterior.
 
-Trocas rápidas passam por estabilização curta, e o usuário pode fixar uma
-camada para suspender trocas automáticas. Se o contexto deixar de ser confiável,
-o resolvedor retorna ao conjunto padrão seguro.
+Trocas rápidas passam por estabilização curta. O usuário pode fixar uma camada,
+criando a claim manual persistente descrita acima; isso impede sua remoção por
+automação, mas não congela as outras camadas. Se o contexto deixar de ser
+confiável, o resolvedor retorna ao conjunto padrão seguro.
 
 ### D9 — Command Palette
 
@@ -617,7 +683,7 @@ command_layers
   resolution_priority, created_at, updated_at
 
 command_layer_activation_rules
-  id, layer_id, mode, condition, priority, lifecycle, event_name,
+  id, layer_id, mode, condition, lifecycle, event_name,
   allowed_internal_producer_types, enabled
 
 command_bindings
@@ -626,24 +692,29 @@ command_bindings
   replaces_default_version, presentation
 
 command_layer_activation_state
-  activation_id, layer_id, rule_id, user_id, auth_context_id,
-  auth_generation, security_generation, source_type, source_event_id,
-  source_correlation_id, sequence, event_fingerprint, state, provenance,
-  activated_at, expires_at, updated_at
+  activation_id, layer_ref_kind, layer_ref, rule_ref_kind, rule_ref,
+  user_id, auth_context_type, auth_context_id, auth_generation,
+  security_generation, source_type, source_instance_id, source_event_id,
+  source_correlation_id, sequence, event_fingerprint, state,
+  provenance, activated_at, expires_at, updated_at
+
+external_identity_mappings
+  id, issuer, subject, user_id, enabled, created_at, updated_at
 
 command_invocations
   invocation_id, schema_version, user_id nullable_for_system,
   auth_context_type, auth_context_id,
   auth_generation, session_id, session_generation, security_generation,
-  command_id, binding_ids, trigger_type, trigger_spec_snapshot,
-  trigger_fingerprint,
+  command_id nullable_until_resolved, binding_ids nonnull_default_empty,
+  trigger_type nullable_for_direct, trigger_spec_snapshot nullable_for_direct,
+  trigger_fingerprint nullable_for_direct,
   actor_type, actor_id, source_type, source_instance_id nullable,
   source_event_id nullable,
   arguments_summary, arguments_fingerprint, conversation_id, turn_id,
   surface_type, surface_id, surface_snapshot_version, context_version,
   context_captured_at, context_summary, source_profile_slug, target_profile_slug,
   authorization_decision_id, delegation_fingerprint, grant_generation,
-  job_id, job_slug, run_id, correlation_id, risk, policy_decision,
+  job_id, job_slug, run_id, provenance, correlation_id, risk, policy_decision,
   result_summary, result_ref, status, error_code, requested_at, completed_at
 ```
 
@@ -655,6 +726,12 @@ Todas as PKs persistidas criadas por esta AEP são UUIDv7 conforme AEP-0046.
 FKs entre essas tabelas também usam UUIDv7. IDs de defaults que vivem no código
 são strings namespaced estáveis; `replaces_default_id` referencia essa
 identidade lógica, não uma linha SQLite.
+
+Estado de ativação usa referência polimórfica validada, não FK:
+`layer_ref_kind`/`rule_ref_kind` aceitam `builtin` ou `user`; refs builtin são
+IDs namespaced do catálogo em código e refs user são UUIDv7 que precisam
+pertencer ao mesmo usuário. Isso permite ativar defaults sem copiá-los para
+`command_layers` e mantém restore sob ownership do catálogo.
 
 `binding_ids` é uma lista JSON ordenada que registra todos os bindings
 equivalentes considerados na deduplicação; fica vazia para execução direta.
@@ -679,6 +756,10 @@ usuário autenticado mais as do workspace atual. SQLite usa dois índices único
 parciais: `(user_id, name) WHERE workspace_id IS NULL` para globais e
 `(user_id, workspace_id, name) WHERE workspace_id IS NOT NULL` para workspaces.
 Bindings herdam o escopo da camada, evitando misturar configurações.
+
+`external_identity_mappings` tem índice único `(issuer, subject)` e FK para
+`users.id`. Só administração autenticada pode criá-lo; ele não é importado,
+exportado nem inferido por login.
 
 Abrir ou carregar um workspace não autoriza conteúdo controlado pelo workspace
 — arquivos do projeto, metadados importados ou eventos emitidos por ele — a
@@ -712,10 +793,12 @@ entra no mapa efetivo após validação e confirmação dos conflitos.
 executado pelo orquestrador canônico da AEP-0074-B, lê exclusivamente
 `maintenance.command_invocation_retention_days` (padrão 30) e
 `maintenance.command_invocations_per_user_keep` (padrão 10.000) de
-`MaintenanceSettings`/`config.json`. Para ciclos terminais, usa
+`MaintenanceSettings`/`config.json`. Invocações internas sem usuário usam
+`maintenance.command_invocations_system_keep` (padrão 1.000), além do mesmo
+limite por idade. Para ciclos terminais, usa
 `maintenance.command_activation_terminal_retention_days` (padrão 30) e
 `maintenance.command_activation_terminal_keep_per_user` (padrão 10.000);
-estados ativos ficam fora da limpeza por idade/quantidade. As quatro chaves
+estados ativos ficam fora da limpeza por idade/quantidade. As cinco chaves
 aparecem na mesma UI de manutenção. O PR que implementar esta fase deve
 atualizar a AEP-0074-B, settings e UI no mesmo ciclo; não se cria configuração
 paralela.
@@ -726,7 +809,8 @@ O serviço remove registros antigos/acima do limite. Índices mínimos:
 `(user_id, auth_context_type, auth_context_id, source_type, source_instance_id,
 source_event_id) WHERE source_event_id IS NOT NULL AND source_event_id <> ''`
 para eventos de adapter. Evento físico sempre tem usuário autenticado; contexto
-`system` sem usuário não usa esse índice.
+`system` sem usuário não usa esse índice e possui
+`(requested_at) WHERE user_id IS NULL` para sua limpeza global.
 
 Não se persiste `arguments` bruto nem o `SurfaceContext` completo:
 `arguments_summary` redigido, fingerprint do JSON canônico já redigido,
@@ -759,6 +843,8 @@ O resolvedor não percorre todas as camadas nem consulta o banco a cada tecla.
 Para o Stream Deck, a composição é recalculada quando camadas, contexto ou
 estado visível mudam. O renderer compara o estado anterior e atual e envia ao
 dispositivo somente teclas alteradas. Imagens redimensionadas ficam em cache.
+Ao abrir ou reconectar um handle, invalida o estado renderizado daquele
+dispositivo e força frame completo antes de voltar ao diff incremental.
 
 ### D13 — Stream Deck direto por Go
 
@@ -1012,6 +1098,7 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] Overrides afetam somente o acionador e contexto declarados.
 - [ ] Tombstone bloqueia o default no contexto declarado, enquanto
   personalização apenas desabilitada permite fallback.
+- [ ] Tombstones são aplicados antes da deduplicação e nunca produzem invocação.
 - [ ] Override de default persiste ID e versão do default substituído.
 - [ ] É possível restaurar um binding, uma camada ou todas as personalizações.
 - [ ] Conflitos são detectados considerando a possível interseção de contextos,
@@ -1030,6 +1117,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   externos falham fechado.
 - [ ] Estado de ativação persistido é reconciliado em modo seguro no startup e
   preserva autenticação, geração e proveniência anti-loop da AEP-0067.
+- [ ] Replay de ativação fora da retenção é rejeitado, e ownership vem do
+  principal autenticado, não do payload.
 - [ ] A Command Palette busca e descreve comandos disponíveis e indisponíveis
   com motivo, mas executa somente os disponíveis.
 - [ ] A Command Palette tem navegação completa por teclado, anúncios e
@@ -1048,6 +1137,7 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   Deck fica em estado seguro e rejeita callbacks de gerações anteriores.
 - [ ] O Stream Deck atualiza somente teclas cujo conteúdo efetivo mudou e usa
   cache de imagens.
+- [ ] Abertura/reconexão do Stream Deck invalida o diff e força frame completo.
 - [ ] Camadas baseadas no programa em primeiro plano funcionam no Windows e
   degradam explicitamente em plataformas sem adapter.
 - [ ] Comandos disparados fora de foco preservam permissões, decisões e
@@ -1066,8 +1156,12 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   ator, sem lookup cross-user apenas pela PK.
 - [ ] Sessão, geração de segurança e staleness de contexto são revalidados
   imediatamente antes de todo handler.
+- [ ] Cada comando declara `context_policy`; provider ausente ou versão/TTL
+  inválido falha fechado.
 - [ ] Contextos local, JWT externo, job e system têm fontes de identidade e
   revogação explícitas; `EpochService` invalida trabalho obsoleto.
+- [ ] Identidade externa só acessa usuário local por mapeamento administrativo
+  exato de emissor e subject.
 - [ ] Cada comando declara origens permitidas e o serviço bloqueia origem não
   autorizada, incluindo comandos visuais solicitados pela CLI.
 - [ ] Estação bloqueada suspende hotkeys globais e dispositivos físicos e
