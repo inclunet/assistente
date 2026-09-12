@@ -105,7 +105,7 @@ func TestExecutorRejectsRawExactInsteadOfTruncating(t *testing.T) {
 		},
 	})
 	cfg := DefaultExecutorConfig()
-	cfg.MaxResultSize = 128
+	cfg.MaxResultSize = 512
 	got := NewExecutor(registry, cfg).ExecuteOne(largeResultTestContext(), ToolCall{
 		ID: "call-raw", Function: FunctionCall{Name: "raw_test", Arguments: `{}`},
 	})
@@ -115,6 +115,9 @@ func TestExecutorRejectsRawExactInsteadOfTruncating(t *testing.T) {
 	}
 	if len(got.Result.Content) > cfg.MaxResultSize {
 		t.Fatalf("mensagem de falha excedeu limite: %d", len(got.Result.Content))
+	}
+	if strings.Contains(got.Result.Content, "offset/limit") {
+		t.Fatalf("orientação presumiu paginação inexistente na tool: %q", got.Result.Content)
 	}
 }
 
@@ -364,6 +367,9 @@ func TestContentForModelWithinLimitNeverCutsRawOrStructured(t *testing.T) {
 		}
 		if !strings.Contains(got, "result_too_large") {
 			t.Fatalf("falha explícita ausente: %q", got)
+		}
+		if strings.Contains(got, "offset/limit") {
+			t.Fatalf("orientação presumiu paginação inexistente na tool: %q", got)
 		}
 	}
 }

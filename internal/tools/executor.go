@@ -243,7 +243,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				if result.RawExact {
 					code = "raw_result_too_large"
 					label = "raw"
-					guidance = "Use offset/limit menores; conteúdo raw é exato e nunca é devolvido parcialmente."
+					guidance = "Reduza o escopo da chamada ou use a paginação suportada pela própria tool; conteúdo raw é exato e nunca é devolvido parcialmente."
 				} else if e.config.RequireCompleteResult {
 					label = "machine-facing"
 					guidance = "Reduza o escopo da chamada; este consumidor exige o resultado integral."

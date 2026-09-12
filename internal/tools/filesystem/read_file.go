@@ -386,6 +386,14 @@ func rawReadInvalidUTF8() tools.ToolResult {
 	}
 }
 
+func textReadInvalidUTF8() tools.ToolResult {
+	return tools.ToolResult{
+		Content: "Trecho solicitado não é texto UTF-8 válido.",
+		IsError: true,
+		Failure: &tools.ToolFailure{Code: "text_invalid_utf8", Kind: tools.ErrorKindUnknown, Retryable: false},
+	}
+}
+
 func rawReadTooManyLines(lines, limit int) tools.ToolResult {
 	return tools.ToolResult{
 		Content: fmt.Sprintf("Trecho raw solicitado tem %d linhas, acima do limite de %d; use offset/limit menor.", lines, limit),

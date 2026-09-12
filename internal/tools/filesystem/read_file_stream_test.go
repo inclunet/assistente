@@ -166,6 +166,43 @@ func TestReadFileStreamRejectsNulByteBeyondPrefix(t *testing.T) {
 	}
 }
 
+func TestReadFileStreamRejectsInvalidUTF8InNormalSelectedRange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "utf8-invalido.log")
+	writeLinesFile(t, path, 80_000, strings.Repeat("x", 60))
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(append([]byte("segredo-"), 0xff, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		offset int
+	}{
+		{name: "offset positivo", offset: 80_001},
+		{name: "offset negativo", offset: -2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := NewReadFile(dir).Execute(context.Background(), mustJSON(t, map[string]any{
+				"path": "utf8-invalido.log", "offset": tc.offset, "limit": 1,
+			}))
+			if err != nil || !res.IsError || res.Failure == nil ||
+				res.Failure.Code != "text_invalid_utf8" {
+				t.Fatalf("texto inválido não falhou de modo estável: err=%v result=%+v", err, res)
+			}
+			if strings.Contains(res.Content, "segredo") || !strings.Contains(res.Content, "UTF-8") {
+				t.Fatalf("falha expôs conteúdo ou perdeu diagnóstico: %q", res.Content)
+			}
+		})
+	}
+}
+
 // Offset negativo conta do fim também no caminho em streaming.
 func TestReadFileStreamsNegativeOffset(t *testing.T) {
 	dir := t.TempDir()

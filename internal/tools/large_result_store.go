@@ -139,7 +139,7 @@ func ContentForModelWithinLimit(ctx context.Context, result ToolResult, maxBytes
 			kind = "raw"
 		}
 		failure := fmt.Sprintf(
-			"[%s] Resultado %s integral não cabe no contexto disponível; reduza offset/limit ou o escopo da chamada.",
+			"[%s] Resultado %s integral não cabe no contexto disponível; reduza o escopo da chamada ou use a paginação suportada pela própria tool.",
 			code, kind,
 		)
 		if len(failure) <= maxBytes {

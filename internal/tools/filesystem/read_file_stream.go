@@ -219,6 +219,9 @@ func readTextSliceStreamingForward(
 		if readModelFacingSize(displayPath, candidateBytes, offset, candidateEnd, totalLines, nil) > budget {
 			break
 		}
+		if !utf8.ValidString(line) {
+			return textReadInvalidUTF8(), true
+		}
 		selected = append(selected, formatted)
 		selectedBytes = candidateBytes
 		end = candidateEnd
@@ -320,6 +323,7 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 	end := offset
 	tooLargeRaw := false
 	invalidRawUTF8 := false
+	invalidTextUTF8 := false
 	if err := scanTextLines(ctx, fullPath, func(idx int, line string) bool {
 		if idx < offset {
 			return true
@@ -349,16 +353,19 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 			return false
 		}
 		formatted := fmt.Sprintf("%6d|%s", idx+1, line)
-		selected = append(selected, formatted)
 		candidateBytes := selectedBytes + len(formatted)
-		if len(selected) > 1 {
+		if len(selected) > 0 {
 			candidateBytes++
 		}
 		candidateEnd := idx + 1
 		if readModelFacingSize(displayPath, candidateBytes, offset, candidateEnd, totalLines, nil) > budget {
-			selected = selected[:len(selected)-1]
 			return false
 		}
+		if !utf8.ValidString(line) {
+			invalidTextUTF8 = true
+			return false
+		}
+		selected = append(selected, formatted)
 		selectedBytes = candidateBytes
 		end = candidateEnd
 		return true
@@ -384,6 +391,9 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 			RawExact: true,
 			Metadata: map[string]any{"size_bytes": size, "total_lines": totalLines, "offset": offset + 1, "limit": end - offset},
 		}, true
+	}
+	if invalidTextUTF8 {
+		return textReadInvalidUTF8(), true
 	}
 	if end == offset {
 		return tools.ToolResult{
