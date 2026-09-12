@@ -336,6 +336,11 @@ func reconcileToolContentsWithContracts(results []tools.ToolExecutionResult, con
 		if contents[i] == original {
 			continue
 		}
+		if contents[i] == "" {
+			// Budget zero: o pre-check removeu deliberadamente a mensagem.
+			// Não recoloque nem mesmo um diagnóstico fora da contagem.
+			continue
+		}
 		// O pre-check legado calcula a quota de cada resultado. Reaplicamos essa
 		// quota ao contrato da tool para não cortar JSON/raw nem deixar
 		// output_window apontar além dos bytes realmente enviados.

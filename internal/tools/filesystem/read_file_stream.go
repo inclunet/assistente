@@ -173,7 +173,6 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 	selectedBytes := 0
 	end := offset
 	tooLargeRaw := false
-	tooLargeRawSize := 0
 	if err := scanTextLines(ctx, fullPath, func(idx int, line string) bool {
 		if idx < offset {
 			return true
@@ -188,7 +187,6 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 			}
 			if selectedBytes+extra > budget {
 				tooLargeRaw = true
-				tooLargeRawSize = selectedBytes + extra
 				return false
 			}
 			selected = append(selected, line)
@@ -213,10 +211,7 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 	}
 	if raw {
 		if tooLargeRaw || end < requestedEnd {
-			if tooLargeRawSize == 0 {
-				tooLargeRawSize = selectedBytes + 1
-			}
-			return rawReadTooLarge(tooLargeRawSize, budget), true
+			return rawReadLimitExceeded(budget), true
 		}
 		exact := strings.Join(selected, "\n")
 		if requestedEnd < totalLines {

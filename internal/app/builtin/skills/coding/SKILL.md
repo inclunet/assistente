@@ -1,6 +1,6 @@
 ---
 name: coding
-version: 1.4.0
+version: 1.5.0
 description: Operational instructions for software engineering tasks — code exploration workflow, editing methodology, verification, and best practices inspired by senior developer patterns
 displayName: Software Engineering
 author: Assistente
@@ -22,6 +22,7 @@ tools:
     - search_files
     - grep_search
     - run_command
+    - read_tool_result
     - update_plan
 behavior:
   interactive:
@@ -138,6 +139,7 @@ When making changes to files, first understand the file's code conventions. Mimi
 | Create new file | `write_file` | Follow existing project structure |
 | Explore directory | `list_directory` | Understand project layout |
 | Run commands | `run_command` | Build, test, lint verification |
+| Continue a preserved large result | `read_tool_result` | Use `result_id` and `next_offset` from `output_window` |
 | Track multi-step work | `update_plan` | Send the complete plan snapshot on each update |
 
 ## Communication Style

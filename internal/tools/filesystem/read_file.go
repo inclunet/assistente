@@ -362,6 +362,14 @@ func rawReadTooLarge(size, limit int) tools.ToolResult {
 	}
 }
 
+func rawReadLimitExceeded(limit int) tools.ToolResult {
+	return tools.ToolResult{
+		Content: fmt.Sprintf("Trecho raw solicitado excede o limite de %d bytes; use offset/limit menor.", limit),
+		IsError: true,
+		Failure: &tools.ToolFailure{Code: "raw_result_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+	}
+}
+
 func rawReadTooManyLines(lines, limit int) tools.ToolResult {
 	return tools.ToolResult{
 		Content: fmt.Sprintf("Trecho raw solicitado tem %d linhas, acima do limite de %d; use offset/limit menor.", lines, limit),

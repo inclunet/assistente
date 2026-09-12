@@ -32,8 +32,8 @@ type ExecutorConfig struct {
 	// ToolTimeout é o timeout para execução de cada ferramenta individual
 	ToolTimeout time.Duration
 
-	// MaxResultSize é o tamanho máximo em bytes do resultado de uma tool.
-	// Resultados maiores são truncados com aviso.
+	// MaxResultSize é o teto model-facing em bytes: texto recebe prévia
+	// retomável; Structured/RawExact falham explicitamente sem corte.
 	MaxResultSize int
 
 	// MaxIterations é o número máximo de iterações do agentic loop
@@ -224,7 +224,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			// canônico quando a barreira realmente precisaria cortá-lo.
 			structured := result.Structured
 			if !structured && !result.RawExact {
-				structured = looksLikeCanonicalJSON(result.Content)
+				structured = IsCanonicalJSON(result.Content)
 			}
 			mcpBridge := isMCPBridgeToolName(toolName)
 			if (structured || result.RawExact) && !mcpBridge {
@@ -262,11 +262,12 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					protected, stored = ProtectModelResult(result, e.config.MaxResultSize)
 				}
 				if !stored {
+					message := fmt.Sprintf(
+						"Resultado tem %d bytes model-facing e excede a capacidade segura de preservação. Reduza o escopo da chamada.",
+						modelBytes,
+					)
 					result = ToolResult{
-						Content: fmt.Sprintf(
-							"Resultado tem %d bytes model-facing e excede a capacidade segura de preservação. Reduza o escopo da chamada.",
-							modelBytes,
-						),
+						Content: boundedFailureContent(message, "result_storage_limit", e.config.MaxResultSize),
 						IsError: true,
 						Failure: &ToolFailure{Code: "result_storage_limit", Kind: ErrorKindUnknown, Retryable: false},
 					}
@@ -349,7 +350,9 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 	}
 }
 
-func looksLikeCanonicalJSON(content string) bool {
+// IsCanonicalJSON valida um único valor JSON sem criar uma cópia []byte
+// inicial do resultado potencialmente grande.
+func IsCanonicalJSON(content string) bool {
 	trimmed := strings.TrimSpace(content)
 	if trimmed == "" {
 		return false

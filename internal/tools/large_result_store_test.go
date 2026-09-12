@@ -147,12 +147,12 @@ func TestExecutorRejectsLargeLegacyJSONScalar(t *testing.T) {
 
 func TestLooksLikeCanonicalJSONAcceptsOneCompleteValue(t *testing.T) {
 	for _, valid := range []string{`{}`, `[]`, `"texto"`, `123`, `true`, `false`, `null`} {
-		if !looksLikeCanonicalJSON(valid) {
+		if !IsCanonicalJSON(valid) {
 			t.Errorf("JSON válido rejeitado: %s", valid)
 		}
 	}
 	for _, invalid := range []string{"", "texto", "{} {}", "1 2"} {
-		if looksLikeCanonicalJSON(invalid) {
+		if IsCanonicalJSON(invalid) {
 			t.Errorf("conteúdo inválido aceito como JSON: %q", invalid)
 		}
 	}

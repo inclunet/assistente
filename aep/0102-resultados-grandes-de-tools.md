@@ -49,10 +49,11 @@ JSON e não ofereciam retomada exata.
 10. Recortes `raw` por linhas incluem o separador original entre páginas, para
     que sua concatenação reproduza o texto. Proveniência de projeção permanece
     no resultado técnico, sem ser prefixada ao conteúdo `raw` model-facing.
-11. Se a cópia limitada de auditoria reduzir o corpo, sua `OutputWindow` é
-    removida; a hidratação não anuncia offsets ou IDs efêmeros que já não
-    descrevem o conteúdo persistido. `Structured`/`RawExact` são serializados e
-    nunca persistidos parcialmente: quando não cabem, grava-se omissão explícita.
+11. A cópia limitada de auditoria nunca persiste prefixos. Quando conteúdo,
+    metadata e anotações não cabem juntos, grava-se uma omissão explícita; assim
+    a hidratação não apresenta corpo parcial como completo nem anuncia offsets
+    ou IDs efêmeros inválidos. `Structured`/`RawExact` são serializados quando
+    íntegros.
 12. `run_command` usa o budget efetivo do executor (inclusive o budget maior de
     jobs). O histórico de terminal limita uma cópia, sem mutilar o objeto bruto
     devolvido à tool.

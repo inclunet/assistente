@@ -269,3 +269,33 @@ func TestHTTPRequest_ExtractJSON(t *testing.T) {
 		t.Errorf("expected formatted JSON in response: %s", result.Content)
 	}
 }
+
+func TestHTTPRequestLargeJSONAndRawFailWithoutPartial(t *testing.T) {
+	jsonBody := `{"value":"` + strings.Repeat("x", 1000) + `"}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(jsonBody))
+	}))
+	defer ts.Close()
+
+	for _, tc := range []struct {
+		mode string
+		code string
+	}{
+		{mode: "json", code: "result_too_large"},
+		{mode: "raw", code: "raw_result_too_large"},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			args, _ := json.Marshal(map[string]any{
+				"url": ts.URL, "extract_mode": tc.mode, "max_response_size": 100,
+			})
+			result, err := newTestHTTPRequest().Execute(context.Background(), args)
+			if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != tc.code {
+				t.Fatalf("resultado grande não falhou corretamente: err=%v result=%+v", err, result)
+			}
+			if strings.Contains(result.Content, strings.Repeat("x", 100)) {
+				t.Fatal("falha contém prefixo parcial da resposta")
+			}
+		})
+	}
+}

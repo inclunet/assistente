@@ -188,6 +188,37 @@ func TestWebFetch_Truncation(t *testing.T) {
 	}
 }
 
+func TestWebFetchRawIsExactOrFailsWithoutPartial(t *testing.T) {
+	body := "ç-exato"
+	small := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer small.Close()
+	result, err := newTestWebFetch().Execute(context.Background(), json.RawMessage(
+		fmt.Sprintf(`{"url":%q,"extract_mode":"raw"}`, small.URL),
+	))
+	if err != nil || result.IsError || result.Content != body || !result.RawExact {
+		t.Fatalf("raw pequeno não foi exato: err=%v result=%+v", err, result)
+	}
+
+	largeBody := strings.Repeat("segredo-", 1000)
+	large := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, largeBody)
+	}))
+	defer large.Close()
+	result, err = newTestWebFetch().Execute(context.Background(), json.RawMessage(
+		fmt.Sprintf(`{"url":%q,"extract_mode":"raw","max_length":100}`, large.URL),
+	))
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "raw_result_too_large" {
+		t.Fatalf("raw grande não falhou de modo estável: err=%v result=%+v", err, result)
+	}
+	if strings.Contains(result.Content, largeBody[:100]) {
+		t.Fatal("falha raw contém prefixo parcial")
+	}
+}
+
 func TestWebFetch_404(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)

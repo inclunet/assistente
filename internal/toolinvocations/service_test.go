@@ -42,10 +42,10 @@ func TestOutputForPersistence_CapsLargeOutputAndDropsLargeMetadata(t *testing.T)
 	if _, ok := payload["is_error"].(bool); !ok {
 		t.Fatalf("expected is_error bool, got=%T", payload["is_error"])
 	}
-	// Metadata arbitrária é removida, mas o marcador compacto de auditoria fica.
+	// Metadata arbitrária é removida, mas o marcador compacto de omissão fica.
 	metadata, _ := payload["metadata"].(map[string]any)
-	if metadata["truncated_for_persistence"] != true || len(metadata) != 1 {
-		t.Fatalf("expected compact truncation marker, got=%v", payload["metadata"])
+	if metadata["omitted_for_persistence"] != true {
+		t.Fatalf("expected compact omission marker, got=%v", payload["metadata"])
 	}
 }
 
@@ -74,8 +74,8 @@ func TestOutputForPersistence_DropsNonSerializableMetadataAndStillCapsSize(t *te
 		t.Fatalf("expected is_error=true, got=%v", payload["is_error"])
 	}
 	metadata, _ := payload["metadata"].(map[string]any)
-	if metadata["truncated_for_persistence"] != true || len(metadata) != 1 {
-		t.Fatalf("expected compact truncation marker, got=%v", payload["metadata"])
+	if metadata["omitted_for_persistence"] != true {
+		t.Fatalf("expected compact omission marker, got=%v", payload["metadata"])
 	}
 }
 
@@ -120,14 +120,11 @@ func TestOutputForPersistenceRemovesWindowWhenContentIsReduced(t *testing.T) {
 		},
 	}
 	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
-	if persisted.Annotations == nil || persisted.Annotations.DocumentProjection == nil {
-		t.Fatal("proveniência estável foi removida")
+	if persisted.Annotations != nil {
+		t.Fatalf("contrato parcial sobreviveu à omissão: %+v", persisted.Annotations)
 	}
-	if persisted.Annotations.OutputWindow != nil {
-		t.Fatalf("janela inválida sobreviveu ao corte: %+v", persisted.Annotations.OutputWindow)
-	}
-	if len(persisted.Content) >= len(result.Content) {
-		t.Fatal("fixture não reduziu o conteúdo")
+	if !strings.Contains(persisted.Content, "omitted") {
+		t.Fatalf("omissão explícita ausente: %+v", persisted)
 	}
 }
 
@@ -136,6 +133,7 @@ func TestOutputForPersistenceOmitsExactContentInsteadOfCutting(t *testing.T) {
 	for _, result := range []tools.ToolResult{
 		{Content: `{"value":"` + strings.Repeat("x", 4096) + `"}`, Structured: true},
 		{Content: strings.Repeat("raw-", 4096), RawExact: true},
+		{Content: `"` + strings.Repeat("x", 4096) + `"`},
 	} {
 		persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
 		if strings.Contains(persisted.Content, result.Content[:100]) {

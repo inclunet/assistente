@@ -268,6 +268,20 @@ func TestReconcileToolContentsDoesNotCutExactResults(t *testing.T) {
 	}
 }
 
+func TestReconcileToolContentsPreservesZeroBudgetRemoval(t *testing.T) {
+	result := tools.ToolResult{Content: strings.Repeat("raw-", 1000), RawExact: true}
+	executions := []tools.ToolExecutionResult{{Result: result}}
+	contents := []string{tools.ContentForModel(result)}
+	PreCheckContextWindow(1, 50, nil, contents, false)
+	if contents[0] != "" {
+		t.Fatalf("fixture não produziu budget zero: %q", contents[0])
+	}
+	reconcileToolContentsWithContracts(executions, contents)
+	if contents[0] != "" {
+		t.Fatalf("reconciliação recolocou conteúdo fora do budget: %q", contents[0])
+	}
+}
+
 func TestReconcileToolContentsRecalculatesRecoverableWindow(t *testing.T) {
 	original := strings.Repeat("conteúdo-", 1000)
 	protected, ok := tools.ProtectToolResult(tools.ToolResult{Content: original}, 4096)

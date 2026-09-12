@@ -304,27 +304,10 @@ func (s *Service) truncateForPersistence(result tools.ToolResult) tools.ToolResu
 	if len(result.Content) <= max {
 		return result
 	}
-	if result.Structured || result.RawExact {
-		return persistenceOmissionResult(len(result.Content))
-	}
-
-	// Evita mutar o mapa original (ToolResult.Metadata é map por referência).
-	if result.Metadata != nil {
-		result.Metadata = cloneAnyMap(result.Metadata)
-	}
-
-	// Persistência é uma cópia de auditoria: reduz o corpo sem inserir avisos
-	// dentro do conteúdo. Uma janela de retomada deixa de ser verdadeira quando
-	// o corpo é reduzido, portanto não pode sobreviver nessa cópia.
-	origSize := len(result.Content)
-	result.Content = truncateUTF8Safe(result.Content, max)
-	result = withoutOutputWindow(result)
-	if result.Metadata == nil {
-		result.Metadata = make(map[string]any)
-	}
-	result.Metadata["truncated_for_persistence"] = true
-	result.Metadata["original_size_bytes"] = origSize
-	return result
+	// A cópia de auditoria nunca persiste prefixos: a hidratação reutiliza este
+	// payload no contexto e não poderia distinguir um corte de um resultado
+	// completo. Vale também para JSON legado ainda não marcado Structured.
+	return persistenceOmissionResult(len(result.Content))
 }
 
 func persistenceOmissionResult(originalBytes int) tools.ToolResult {
@@ -336,20 +319,6 @@ func persistenceOmissionResult(originalBytes int) tools.ToolResult {
 			"original_size_bytes":     originalBytes,
 		},
 	}
-}
-
-func withoutOutputWindow(result tools.ToolResult) tools.ToolResult {
-	if result.Annotations == nil || result.Annotations.OutputWindow == nil {
-		return result
-	}
-	annotations := *result.Annotations
-	annotations.OutputWindow = nil
-	if annotations.DocumentProjection == nil {
-		result.Annotations = nil
-	} else {
-		result.Annotations = &annotations
-	}
-	return result
 }
 
 func (s *Service) truncateErrorForPersistence(message string) string {
@@ -366,14 +335,6 @@ func (s *Service) truncateErrorForPersistence(message string) string {
 		return truncateUTF8Safe(message, budget) + suffix
 	}
 	return truncateUTF8Safe(message, max)
-}
-
-func cloneAnyMap(src map[string]any) map[string]any {
-	out := make(map[string]any, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
-	return out
 }
 
 func truncateUTF8Safe(s string, maxBytes int) string {
@@ -949,9 +910,6 @@ func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage 
 
 	// Primeiro fallback: dropa metadata, que pode explodir o payload.
 	compactMetadata := map[string]any(nil)
-	if truncated, _ := trimmed.Metadata["truncated_for_persistence"].(bool); truncated {
-		compactMetadata = map[string]any{"truncated_for_persistence": true}
-	}
 	if omitted, _ := trimmed.Metadata["omitted_for_persistence"].(bool); omitted {
 		compactMetadata = map[string]any{"omitted_for_persistence": true}
 	}
@@ -961,40 +919,8 @@ func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage 
 		return data
 	}
 
-	// Fallback final: reduz content até caber no JSON (UTF-8 safe).
-	// Remove antes qualquer janela que passaria a descrever outro corpo.
-	trimmed = withoutOutputWindow(trimmed)
-	data = resultOutput(trimmed)
-	if len(data) <= max {
-		return data
-	}
-	if trimmed.Structured || trimmed.RawExact {
-		// Campos auxiliares podem ser descartados, mas o corpo exato não.
-		trimmed.Annotations = nil
-		data = resultOutput(trimmed)
-		if len(data) <= max {
-			return data
-		}
-		return minimalPersistenceOutput(max)
-	}
-	content := trimmed.Content
-	trimmed.Metadata = map[string]any{"truncated_for_persistence": true}
-	// Começa com um budget razoável; ajusta iterativamente com base no marshal.
-	budget := max
-	for attempt := 0; attempt < 4; attempt++ {
-		candidate := truncateUTF8Safe(content, budget)
-		trimmed.Content = candidate
-		data = resultOutput(trimmed)
-		if len(data) <= max {
-			return data
-		}
-		over := len(data) - max
-		budget -= over + 64
-		if budget < 1 {
-			break
-		}
-	}
-
+	// Se metadata/anotações fizeram o payload exceder o teto, não remova o
+	// contrato e apresente o corpo como completo: persista omissão explícita.
 	return minimalPersistenceOutput(max)
 }
 

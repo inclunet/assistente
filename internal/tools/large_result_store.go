@@ -91,7 +91,8 @@ func ContentForModelWithinLimit(result ToolResult, maxBytes int, toolName string
 	if len(content) <= maxBytes {
 		return content
 	}
-	if result.RawExact || result.Structured || looksLikeCanonicalJSON(result.Content) {
+	mcpBridge := isMCPBridgeToolName(toolName) || strings.HasPrefix(result.Content, mcpPreviewPrefix)
+	if !mcpBridge && (result.RawExact || result.Structured || IsCanonicalJSON(result.Content)) {
 		code := "result_too_large"
 		kind := "estruturado"
 		if result.RawExact {
@@ -117,7 +118,7 @@ func ContentForModelWithinLimit(result ToolResult, maxBytes int, toolName string
 		protected ToolResult
 		ok        bool
 	)
-	if isMCPBridgeToolName(toolName) || strings.HasPrefix(result.Content, mcpPreviewPrefix) {
+	if mcpBridge {
 		protected, ok = ProtectExternalModelResult(result, maxBytes)
 	} else {
 		protected, ok = ProtectModelResult(result, maxBytes)
