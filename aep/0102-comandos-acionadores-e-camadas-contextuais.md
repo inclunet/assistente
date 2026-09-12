@@ -152,7 +152,7 @@ envelope versionado:
 ```text
 CommandInvocation
   version, invocation_id, command_id?, arguments?
-  observed_trigger_type?, candidate_trigger_types?, trigger_type?, trigger_spec?
+  observed_trigger_type?, trigger_type?, trigger_spec?
   user_id?, auth_context_type, auth_context_id, auth_generation
   session_id?, security_generation
   actor_type, actor_id
@@ -441,17 +441,14 @@ Eventos de teclado têm ownership exclusivo. Uma combinação registrada como
 `keyboard.global` pertence ao adapter do sistema operacional inclusive quando o
 Assistente está em foco; o adapter DOM recebe a lista correspondente e não emite
 `keyboard.local` para ela. O adapter global preserva
-`observer_type`/`observed_trigger_type = keyboard.global`.
-Com o Assistente focado, o resolvedor considera primeiro o candidato lógico
-`keyboard.local` e depois o `keyboard.global`; o próprio adapter global envia
-`candidate_trigger_types = [keyboard.local, keyboard.global]`, sem depender de
-evento DOM. Sem foco, envia somente o global. `source_type` e `trigger_type` recebem o candidato vencedor antes da
-allowlist; a origem física continua nos campos observados. Assim, binding local pode
-vencer sem apagar o binding global nem a proveniência física. O adapter local possui somente
-combinações não registradas globalmente. Alterações de registro são aplicadas
-por geração antes de publicar o novo mapa. Stream Deck possui um único listener
-por dispositivo. Essa exclusão evita depender de um ID que DOM e API global não
-compartilham.
+`source_type`/`observer_type`/`observed_trigger_type`/`trigger_type =
+keyboard.global` em qualquer foco. Binding local da mesma combinação fica
+marcado como shadowed/conflitante e não participa; para variar a ação dentro do
+Assistente, o binding global usa condições/camadas de foco e surface. O adapter
+local possui somente combinações não registradas globalmente. Alterações de
+registro são aplicadas por geração antes de publicar o novo mapa. Stream Deck
+possui um único listener por dispositivo. Essa exclusão evita dupla execução e
+define uma única observação física.
 
 Pressão normal, pressão longa, alternância e dial podem ser acrescentados como
 gestos normalizados quando o dispositivo oferecer esses sinais. Capacidade não
@@ -713,7 +710,7 @@ ativadores de camada.
 O ledger de ativação persiste `event_fingerprint` e chave única por ocorrência:
 `(user_id, rule_ref_kind, rule_ref, source_event_id)`.
 `source_correlation_id` localiza o ciclo
-em índice único separado `(user_id, rule_id, source_type,
+em índice único separado `(user_id, rule_ref_kind, rule_ref, source_type,
 source_correlation_id)` no estado de ativação, mas não deduplica transições
 distintas. Na mesma transação, o estado de PK `activation_id` avança por CAS
 sobre `sequence`: insert concorrente resolve pela chave única e update exige o
@@ -780,6 +777,10 @@ lookup seguro por PK/ownership nesta integração.
 `job_slug` é a identidade pública usada por
 `eventctx.SourceJobID` conforme AEP-0067 e serve para apresentação/resolução inicial.
 Depois da resolução, correlação e autorização usam o UUID.
+
+Como pré-requisito do adapter, o executor passa a criar/persistir `queued` antes
+do despacho, `started` antes da tool e `retry_scheduled` antes do backoff; sem
+essas transições incrementais o fato v1 fica desabilitado.
 
 O runtime gera `run_event_id` ao criar cada `RunEvent`, persiste
 todos os estados mapeados — inclusive `completed`, `failed` e `skipped` —
@@ -930,7 +931,6 @@ command_invocations
   workspace_config_generation, active_layers_generation,
   command_id nullable_until_resolved, binding_ids nonnull_default_empty,
   observed_trigger_type nullable_for_direct,
-  candidate_trigger_types nullable_for_direct,
   trigger_type nullable_for_direct, trigger_spec_snapshot nullable_for_direct,
   trigger_fingerprint nullable_for_direct,
   actor_type, actor_id, source_type nullable_until_resolved,
@@ -951,7 +951,7 @@ command_invocations
 command_idempotency_keys
   id, key, invocation_id, user_id nullable_for_system,
   auth_context_type, auth_context_id,
-  source_type, source_instance_id, source_event_id,
+  source_type nullable_until_resolved, source_instance_id, source_event_id,
   request_fingerprint_version, request_fingerprint,
   status, result_summary, result_ref, received_at, expires_at
 ```
@@ -1086,9 +1086,10 @@ executado pelo novo `InstanceMaintenanceCoordinator`, opera em escopo
 privilegiado da instância: enumera todos os usuários e também `user_id IS NULL`,
 sem depender do usuário ativo nem de `RequireUserID`. O coordenador absorve a
 cadência hoje iniciada por `jobs.Manager.runRetention` e chama, por interfaces,
-retenção de jobs e comandos numa única goroutine de manutenção. O PR da
-implementação atualiza a AEP-0074-B e move a responsabilidade; não cria loop
-paralelo.
+retenção de jobs/comandos e a compactação física hoje feita por `maybeCompact`,
+na mesma ordem e numa única goroutine de manutenção. O PR da implementação
+atualiza a AEP-0074-B e move a responsabilidade sem perder vacuum/compactação;
+não cria loop paralelo.
 
 O serviço lê exclusivamente
 `maintenance.command_invocation_retention_days` (padrão 30) e
@@ -1491,8 +1492,9 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   destino ou deixa o binding desabilitado.
 - [ ] `command_invocations` tem payload redigido, origem rastreável, índices e
   retenção por idade e quantidade, sem prometer reconstruir o snapshot completo.
-- [ ] `invocation_id` é o nome canônico da PK, da consulta e da correlação com
-  tools; acionadores ficam em snapshot imutável redigido.
+- [ ] `command_invocations.invocation_id` é a PK canônica da invocação,
+  consulta e correlação com tools; o ledger tem PK própria `id` e referências
+  UNIQUE explícitas.
 - [ ] Reentrega dentro da janela retorna status/resultado redigido sem repetir o
   handler; invocações interrompidas por queda viram `outcome_unknown`.
 - [ ] Recuperação de startup atualiza auditoria e ledger para
