@@ -37,6 +37,10 @@ de comandos, páginas web e tools MCP via bridge. O identificador só pode ser
 usado pelo mesmo usuário e, quando aplicável, na mesma conversa; ele expira com
 reinício ou pressão do armazenamento.
 
+Se a janela de contexto reduzir uma página que já tinha continuação própria, o
+envelope mantém esse cursor de origem em `source_window`: conclua primeiro a
+leitura por bytes e depois retome a consulta original conforme esse campo.
+
 `read_file` devolve no máximo 2.000 linhas e 50 KiB por chamada, pelo limite
 atingido primeiro. Continue com o `next_offset` informado. Com `raw:true`, a
 tool devolve somente o texto exato do trecho pedido, sem cabeçalho, números de
