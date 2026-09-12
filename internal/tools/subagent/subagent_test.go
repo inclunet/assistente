@@ -376,6 +376,29 @@ func TestToolRawReturnsIntegralContentAndMetadata(t *testing.T) {
 	}
 }
 
+func TestToolRawRejectsInvalidUTF8WithoutPartial(t *testing.T) {
+	response := "prefixo-" + string([]byte{0xff, 0xfe}) + "-segredo"
+	runner := &fakeRunner{result: subagent.RunResult{
+		ConversationID: "child-conv",
+		RunID:          "run-invalid-utf8",
+		Status:         subagent.StatusSucceeded,
+		Response:       response,
+	}}
+	tool := NewWithProvider(func() Runner { return runner })
+
+	res, err := tool.Execute(parentCtx(), json.RawMessage(`{"prompt":"gere bytes","raw":true}`))
+	if err != nil || !res.IsError || res.Failure == nil || res.Failure.Code != "raw_invalid_utf8" {
+		t.Fatalf("raw inválido não falhou de modo estável: result=%#v err=%v", res, err)
+	}
+	if res.RawExact || strings.Contains(res.Content, "prefixo-") || strings.Contains(res.Content, "segredo") {
+		t.Fatalf("falha raw expôs conteúdo parcial: %#v", res)
+	}
+	if res.Metadata["conversation_id"] != "child-conv" ||
+		res.Metadata["run_id"] != "run-invalid-utf8" {
+		t.Fatalf("falha raw perdeu IDs de diagnóstico: %#v", res.Metadata)
+	}
+}
+
 func TestToolRawPreservesBusinessErrorInMetadata(t *testing.T) {
 	runner := &fakeRunner{result: subagent.RunResult{
 		ConversationID: "child-conv",
