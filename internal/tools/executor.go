@@ -200,6 +200,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				result.Content = fmt.Sprintf("Erro ao executar '%s': %v", toolName, err)
 			}
 			result.IsError = true
+			result = protectErroredToolResult(execCtx, result, e.config.MaxResultSize, toolName)
 			resultCh <- ToolExecutionResult{
 				CallID:            call.ID,
 				ToolName:          toolName,
@@ -399,6 +400,63 @@ func metadataForFailure(metadata map[string]any) map[string]any {
 		}
 	}
 	return cloned
+}
+
+// protectErroredToolResult aplica a mesma barreira final quando a tool devolve
+// simultaneamente ToolResult e erro Go. A classificação e retryability do erro
+// original continuam sendo definidas pelo chamador.
+func protectErroredToolResult(ctx context.Context, result ToolResult, maxBytes int, toolName string) ToolResult {
+	if len(ContentForModel(result)) <= maxBytes && maxBytes > 0 {
+		return result
+	}
+	hasWindow := outputWindowOf(result) != nil
+	exact := result.RawExact || result.Structured ||
+		(!hasWindow && IsCanonicalJSON(result.Content))
+	mcpBridge := isMCPBridgeToolName(toolName)
+	if exact && !mcpBridge {
+		code := failureCode(result)
+		if code == "" {
+			code = "tool_execution_error"
+		}
+		return ToolResult{
+			Content: boundedFailureContent(
+				"Saída integral do erro excede o limite seguro e foi omitida; reduza o escopo da chamada.",
+				code, maxBytes,
+			),
+			IsError:     true,
+			Metadata:    metadataForFailure(result.Metadata),
+			Annotations: annotationsForFailure(result.Annotations),
+			Failure:     result.Failure,
+		}
+	}
+	var (
+		protected ToolResult
+		ok        bool
+	)
+	if mcpBridge {
+		protected, ok = ProtectExternalModelResult(ctx, result, maxBytes)
+	} else {
+		protected, ok = ProtectModelResult(ctx, result, maxBytes)
+	}
+	if ok {
+		protected.IsError = true
+		protected.Failure = result.Failure
+		return protected
+	}
+	code := failureCode(result)
+	if code == "" {
+		code = "tool_execution_error"
+	}
+	return ToolResult{
+		Content: boundedFailureContent(
+			"Saída do erro excede a capacidade segura de preservação; reduza o escopo da chamada.",
+			code, maxBytes,
+		),
+		IsError:     true,
+		Metadata:    metadataForFailure(result.Metadata),
+		Annotations: annotationsForFailure(result.Annotations),
+		Failure:     result.Failure,
+	}
 }
 
 // IsCanonicalJSON valida um único valor JSON sem criar uma cópia []byte

@@ -29,6 +29,7 @@ type storedLargeResult struct {
 	content    string
 	owner      largeResultOwner
 	provenance *ResultAnnotations
+	source     *OutputWindowAnnotation
 }
 
 type largeResultOwner struct {
@@ -58,10 +59,16 @@ func storeModelResult(ctx context.Context, content string, annotations ...*Resul
 	defer s.mu.Unlock()
 	id := "tool-result-" + uuid.NewString()
 	var provenance *ResultAnnotations
+	var source *OutputWindowAnnotation
 	if len(annotations) > 0 {
 		provenance = resumableProvenance(annotations[0])
+		if annotations[0] != nil {
+			source = cloneOutputWindow(annotations[0].OutputWindow)
+		}
 	}
-	elem := s.order.PushFront(storedLargeResult{id: id, content: content, owner: owner, provenance: provenance})
+	elem := s.order.PushFront(storedLargeResult{
+		id: id, content: content, owner: owner, provenance: provenance, source: source,
+	})
 	s.items[id] = elem
 	s.bytes += len(content)
 	for s.bytes > largeResultStoreBytes || s.order.Len() > largeResultStoreItems {
@@ -187,9 +194,10 @@ func protectModelResult(ctx context.Context, result ToolResult, maxBytes int, in
 	if result.Annotations != nil && result.Annotations.OutputWindow != nil {
 		existing := result.Annotations.OutputWindow
 		if existing.ResultID == "" {
-			return ToolResult{}, false
-		}
-		if stored, found := loadModelResult(ctx, existing.ResultID); found {
+			// Janela nativa (read_file, buscas/listagens): preserve a página
+			// atual no store e mantenha seu cursor como origem da continuação.
+			sourceWindow = cloneOutputWindow(existing)
+		} else if stored, found := loadModelResult(ctx, existing.ResultID); found {
 			original = stored
 			id = existing.ResultID
 			sourceWindow = existing.SourceWindow
@@ -325,6 +333,15 @@ func cloneMutableResultFields(result ToolResult) ToolResult {
 	return result
 }
 
+func cloneOutputWindow(window *OutputWindowAnnotation) *OutputWindowAnnotation {
+	if window == nil {
+		return nil
+	}
+	cloned := *window
+	cloned.SourceWindow = cloneOutputWindow(window.SourceWindow)
+	return &cloned
+}
+
 func resumableProvenance(annotations *ResultAnnotations) *ResultAnnotations {
 	if annotations == nil {
 		return nil
@@ -439,6 +456,7 @@ func (t *ReadToolResult) Execute(ctx context.Context, raw json.RawMessage) (Tool
 		}(),
 		ResultID:      args.ResultID,
 		OriginalBytes: len(content),
+		SourceWindow:  cloneOutputWindow(entry.source),
 	}
 	return ToolResult{
 		Content:     page,

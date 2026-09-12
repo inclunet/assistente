@@ -317,6 +317,9 @@ func TestRunAgenticLoop_ToolCalls_FallbackPreservesLargeResultContract(t *testin
 		!strings.Contains(msgRepo.lastToolResult, `"has_more":true`) {
 		t.Fatalf("fallback perdeu contrato retomável: %q", msgRepo.lastToolResult)
 	}
+	if len(msgRepo.lastToolResult) > cfg.MaxResultSize {
+		t.Fatalf("fallback persistiu resultado acima do limite: %d", len(msgRepo.lastToolResult))
+	}
 }
 
 func TestTagChatToolInvocationsWithAssistantMessage_SkipsAlreadyTaggedMetadata(t *testing.T) {

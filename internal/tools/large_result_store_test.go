@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -48,15 +49,37 @@ func TestReadToolResultRequiresExplicitOffset(t *testing.T) {
 	}
 }
 
-func TestProtectModelResultDoesNotInventByteResumeForNaturalWindow(t *testing.T) {
-	result := ToolResult{
-		Content: strings.Repeat("x", 1024),
-		Annotations: &ResultAnnotations{OutputWindow: &OutputWindowAnnotation{
-			HasMore: true, Unit: "lines", Returned: 10, NextOffset: 11,
-		}},
+func TestProtectModelResultLayersByteResumeOverNaturalWindow(t *testing.T) {
+	source := &OutputWindowAnnotation{
+		HasMore: true, Unit: "lines", Offset: 0, Returned: 10, NextOffset: 11,
 	}
-	if _, ok := ProtectModelResult(largeResultTestContext(), result, 256); ok {
-		t.Fatal("proteção inventou result_id para janela naturalmente paginável")
+	result := ToolResult{
+		Content:     strings.Repeat("x", 1024),
+		Annotations: &ResultAnnotations{OutputWindow: source},
+	}
+	modelContent := ContentForModelWithinLimit(largeResultTestContext(), result, 768, "read_file")
+	if len(modelContent) > 768 || !strings.Contains(modelContent, `"result_id"`) ||
+		!strings.Contains(modelContent, `"source_window"`) {
+		t.Fatalf("pre-check não recompôs janela natural: %q", modelContent)
+	}
+	protected, ok := ProtectModelResult(largeResultTestContext(), result, 768)
+	if !ok || protected.Annotations == nil || protected.Annotations.OutputWindow == nil {
+		t.Fatalf("proteção da página natural falhou: ok=%v result=%+v", ok, protected)
+	}
+	window := protected.Annotations.OutputWindow
+	if window.ResultID == "" || window.SourceWindow == nil ||
+		window.SourceWindow.Unit != "lines" || window.SourceWindow.NextOffset != 11 {
+		t.Fatalf("cursor natural não foi preservado como origem: %+v", window)
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"result_id": window.ResultID, "offset": window.NextOffset, "limit": 512,
+	})
+	next, err := NewReadToolResult().Execute(largeResultTestContext(), raw)
+	if err != nil || next.IsError || next.Annotations == nil ||
+		next.Annotations.OutputWindow == nil ||
+		next.Annotations.OutputWindow.SourceWindow == nil ||
+		next.Annotations.OutputWindow.SourceWindow.NextOffset != 11 {
+		t.Fatalf("retomada perdeu cursor natural: err=%v result=%+v", err, next)
 	}
 }
 
@@ -118,6 +141,59 @@ func TestExecutorRejectsRawExactInsteadOfTruncating(t *testing.T) {
 	}
 	if strings.Contains(got.Result.Content, "offset/limit") {
 		t.Fatalf("orientação presumiu paginação inexistente na tool: %q", got.Result.Content)
+	}
+}
+
+func TestExecutorProtectsLargeResultReturnedWithGoError(t *testing.T) {
+	sentinel := errors.New("falha original")
+	for _, tc := range []struct {
+		name        string
+		result      ToolResult
+		recoverable bool
+	}{
+		{
+			name:        "texto retomável",
+			result:      ToolResult{Content: strings.Repeat("erro-textual-", 500)},
+			recoverable: true,
+		},
+		{
+			name:   "raw integral",
+			result: ToolResult{Content: strings.Repeat("raw-segredo-", 500), RawExact: true},
+		},
+		{
+			name: "JSON estruturado",
+			result: ToolResult{
+				Content:    `{"erro":"` + strings.Repeat("segredo", 500) + `"}`,
+				Structured: true,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registry := NewRegistry()
+			registry.MustRegister(&mockTool{
+				name: "error_result_test",
+				exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+					return tc.result, sentinel
+				},
+			})
+			cfg := DefaultExecutorConfig()
+			cfg.MaxResultSize = 512
+			got := NewExecutor(registry, cfg).ExecuteOne(largeResultTestContext(), ToolCall{
+				ID: "call-error", Function: FunctionCall{Name: "error_result_test", Arguments: `{}`},
+			})
+			if !errors.Is(got.Error, sentinel) || got.ErrorKind != ErrorKindUnknown ||
+				!got.Result.IsError || len(ContentForModel(got.Result)) > cfg.MaxResultSize {
+				t.Fatalf("erro grande escapou ou perdeu classificação: %+v", got)
+			}
+			window := outputWindowOf(got.Result)
+			if tc.recoverable {
+				if window == nil || window.ResultID == "" || !window.HasMore {
+					t.Fatalf("texto do erro não ficou retomável: %+v", got.Result)
+				}
+			} else if strings.Contains(got.Result.Content, "segredo") {
+				t.Fatalf("resultado exato do erro foi devolvido parcialmente: %q", got.Result.Content)
+			}
+		})
 	}
 }
 

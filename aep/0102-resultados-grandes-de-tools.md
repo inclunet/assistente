@@ -69,9 +69,11 @@ JSON e não ofereciam retomada exata.
     A última página de `read_tool_result` pode ser persistida integralmente, mas
     sem o `result_id` efêmero.
 16. O armazenamento recuperável aceita apenas conteúdo UTF-8 e contextos com
-    usuário autenticado. Uma janela natural sem `result_id` nunca é
-    reempacotada como se seu prefixo fosse o resultado integral; se outro teto
-    não comportá-la, a barreira falha explicitamente.
+    usuário autenticado. Se outro teto não comportar uma janela natural sem
+    `result_id`, o host preserva somente a página já produzida, cria paginação
+    por bytes sobre ela e mantém a janela natural em `source_window`. Assim, o
+    prefixo nunca é apresentado como resultado integral e, ao terminar a página
+    preservada, o cursor original continua disponível.
 17. Modos `raw`, inclusive `read_file`, só anunciam exatidão para bytes UTF-8
     válidos; caso contrário falham com `raw_invalid_utf8`. Formatação JSON usa
     números sem conversão por `float64`, preservando inteiros grandes.
