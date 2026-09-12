@@ -29,10 +29,12 @@ capacidade; ele não aprova sua execução.
 
 Resultados model-facing não recebem frases de truncamento dentro do conteúdo.
 Quando há mais dados, um envelope estruturado informa `has_more`, o intervalo
-devolvido e o próximo offset ou um `result_id`. A tool `read_tool_result` relê
-por bytes resultados efêmeros preservados pelo host, como outputs extensos de
-comandos, páginas web e tools MCP via bridge. O identificador só pode ser usado
-pelo mesmo usuário e, quando aplicável, na mesma conversa; ele expira com
+devolvido e, quando há continuação determinística, o próximo offset ou um
+`result_id`. Buscas e listagens podem apenas anunciar `has_more`: nesse caso,
+refaça a consulta com escopo ou limite mais restrito. A tool `read_tool_result`
+relê por bytes resultados efêmeros preservados pelo host, como outputs extensos
+de comandos, páginas web e tools MCP via bridge. O identificador só pode ser
+usado pelo mesmo usuário e, quando aplicável, na mesma conversa; ele expira com
 reinício ou pressão do armazenamento.
 
 `read_file` devolve no máximo 2.000 linhas e 50 KiB por chamada, pelo limite

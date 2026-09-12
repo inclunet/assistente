@@ -425,7 +425,10 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 		// salvar a mensagem intermediária não exige fallback role=tool.
 		persisted := execBatch.PersistedByCallID[execResult.CallID]
 		if !persisted {
-			persistedContent := execResult.Result.Content
+			// Sem a linha técnica, a mensagem role=tool é a única cópia
+			// persistida. Grave o contrato model-facing completo para que uma
+			// prévia não perca output_window/result_id e pareça integral.
+			persistedContent := tools.ContentForModel(execResult.Result)
 			if _, err := r.svc.msgRepo.AddToolResultMessage(ctx, r.conversationID, r.turnID, persistedContent, execResult.CallID); err != nil {
 				if errors.Is(err, chat.ErrConversationDeleted) {
 					logging.Errorf(ctx, "agent.agentic-loop", "[Agent] conversa %s deletada durante tool execution — abortando", r.conversationID)

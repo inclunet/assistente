@@ -233,10 +233,18 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	if mode == "raw" || structuredJSON {
 		resultContent = extracted
 	}
+	var annotations *tools.ResultAnnotations
+	if mode == "raw" || structuredJSON {
+		annotations = &tools.ResultAnnotations{HTTPResponse: &tools.HTTPResponseAnnotation{
+			Method: http.MethodGet, URL: a.URL, Status: resp.StatusCode,
+			StatusText: http.StatusText(resp.StatusCode), ContentType: contentType,
+		}}
+	}
 	result := tools.ToolResult{
-		Content:    resultContent,
-		RawExact:   mode == "raw",
-		Structured: structuredJSON,
+		Content:     resultContent,
+		RawExact:    mode == "raw",
+		Structured:  structuredJSON,
+		Annotations: annotations,
 		Metadata: map[string]any{
 			"url":          a.URL,
 			"status":       resp.StatusCode,

@@ -225,6 +225,30 @@ func TestWebFetchJSONIsStructuredAndLargePayloadFailsWithoutPartial(t *testing.T
 	if result.Metadata["url"] != server.URL || result.Metadata["status"] != http.StatusOK {
 		t.Fatalf("falha estruturada perdeu metadata HTTP: %+v", result.Metadata)
 	}
+	if result.Annotations == nil || result.Annotations.HTTPResponse == nil ||
+		result.Annotations.HTTPResponse.URL != server.URL {
+		t.Fatalf("falha estruturada perdeu proveniência HTTP: %+v", result.Annotations)
+	}
+}
+
+func TestWebFetchSmallStructuredJSONPreservesHTTPContext(t *testing.T) {
+	const body = `{"status":"ok"}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer server.Close()
+
+	args, _ := json.Marshal(map[string]string{"url": server.URL})
+	result, err := newTestWebFetch().Execute(context.Background(), args)
+	if err != nil || result.IsError || !result.Structured || result.Content != body {
+		t.Fatalf("JSON pequeno inesperado: err=%v result=%+v", err, result)
+	}
+	if result.Annotations == nil || result.Annotations.HTTPResponse == nil ||
+		result.Annotations.HTTPResponse.URL != server.URL ||
+		result.Annotations.HTTPResponse.ContentType != "application/problem+json" {
+		t.Fatalf("JSON pequeno perdeu proveniência HTTP: %+v", result.Annotations)
+	}
 }
 
 func TestWebFetchRawIsExactOrFailsWithoutPartial(t *testing.T) {
@@ -239,6 +263,10 @@ func TestWebFetchRawIsExactOrFailsWithoutPartial(t *testing.T) {
 	))
 	if err != nil || result.IsError || result.Content != body || !result.RawExact {
 		t.Fatalf("raw pequeno não foi exato: err=%v result=%+v", err, result)
+	}
+	if result.Annotations == nil || result.Annotations.HTTPResponse == nil ||
+		result.Annotations.HTTPResponse.URL != small.URL {
+		t.Fatalf("raw pequeno perdeu proveniência HTTP: %+v", result.Annotations)
 	}
 
 	largeBody := strings.Repeat("segredo-", 1000)

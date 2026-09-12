@@ -243,6 +243,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 
 	// Busca recursiva em diretório
 	var allMatches []grepMatch
+	matchesFound := 0
 	filesScanned := 0
 	truncation := grepTruncatedNone
 	stats := &grepStats{}
@@ -307,7 +308,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		}
 
 		// Busca neste arquivo
-		remaining := maxResults - countGrepMatches(allMatches)
+		remaining := maxResults - matchesFound
 		if remaining <= 0 {
 			truncation = grepTruncatedMatches
 			return filepath.SkipAll
@@ -334,6 +335,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		}
 
 		allMatches = append(allMatches, fileMatches...)
+		matchesFound += countGrepMatches(fileMatches)
 		if fileTruncated {
 			truncation = grepTruncatedMatches
 			return filepath.SkipAll
