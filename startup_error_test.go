@@ -7,12 +7,16 @@ import (
 
 func TestReportFatalErrorMantemStderrEExibeAvisoNativo(t *testing.T) {
 	previous := showNativeFatalError
+	previousLocaleProvider := startupLocaleProvider
 	t.Cleanup(func() {
 		showNativeFatalError = previous
+		startupLocaleProvider = previousLocaleProvider
 	})
+	startupLocaleProvider = func() string { return "pt-BR" }
 
-	var nativeMessage string
-	showNativeFatalError = func(message string) {
+	var nativeTitle, nativeMessage string
+	showNativeFatalError = func(title, message string) {
+		nativeTitle = title
 		nativeMessage = message
 	}
 	var output bytes.Buffer
@@ -24,5 +28,8 @@ func TestReportFatalErrorMantemStderrEExibeAvisoNativo(t *testing.T) {
 	}
 	if nativeMessage != "caminho de log inacessível" {
 		t.Fatalf("aviso nativo = %q", nativeMessage)
+	}
+	if nativeTitle != "Assistente IA" {
+		t.Fatalf("título nativo = %q", nativeTitle)
 	}
 }

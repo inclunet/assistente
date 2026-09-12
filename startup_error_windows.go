@@ -18,16 +18,16 @@ const (
 var messageBoxW = windows.NewLazySystemDLL("user32.dll").NewProc("MessageBoxW")
 var showNativeFatalError = showFatalErrorMessageBox
 
-func showFatalErrorMessageBox(message string) {
+func showFatalErrorMessageBox(title, message string) {
 	text, textErr := windows.UTF16PtrFromString(message)
-	title, titleErr := windows.UTF16PtrFromString("Assistente")
+	titleUTF16, titleErr := windows.UTF16PtrFromString(title)
 	if textErr != nil || titleErr != nil {
 		return
 	}
 	_, _, _ = messageBoxW.Call(
 		0,
 		uintptr(unsafe.Pointer(text)),
-		uintptr(unsafe.Pointer(title)),
+		uintptr(unsafe.Pointer(titleUTF16)),
 		messageBoxOK|messageBoxIconError|messageBoxSetForeground|messageBoxTaskModal,
 	)
 }

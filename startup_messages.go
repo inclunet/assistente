@@ -10,6 +10,7 @@ import (
 )
 
 type startupMessages struct {
+	appTitle        string
 	logPathRequired string
 	logFlagRepeated string
 	logOpen         string
@@ -21,6 +22,7 @@ type startupMessages struct {
 
 var startupCatalog = map[string]startupMessages{
 	"pt": {
+		appTitle:        "Assistente IA",
 		logPathRequired: "A opção --log-file requer um caminho.",
 		logFlagRepeated: "A opção --log-file foi informada mais de uma vez.",
 		logOpen:         "Não foi possível abrir o arquivo de log %q: %v",
@@ -30,6 +32,7 @@ var startupCatalog = map[string]startupMessages{
 		appRun:          "Erro: %v",
 	},
 	"en": {
+		appTitle:        "AI Assistant",
 		logPathRequired: "The --log-file option requires a path.",
 		logFlagRepeated: "The --log-file option was provided more than once.",
 		logOpen:         "Could not open log file %q: %v",
@@ -39,6 +42,7 @@ var startupCatalog = map[string]startupMessages{
 		appRun:          "Error: %v",
 	},
 	"es": {
+		appTitle:        "Asistente IA",
 		logPathRequired: "La opción --log-file requiere una ruta.",
 		logFlagRepeated: "La opción --log-file se proporcionó más de una vez.",
 		logOpen:         "No se pudo abrir el archivo de registro %q: %v",
@@ -76,6 +80,10 @@ func startupApplicationError(err error) string {
 
 func startupRunError(err error) string {
 	return fmt.Sprintf(currentStartupMessages().appRun, err)
+}
+
+func startupDialogTitle() string {
+	return currentStartupMessages().appTitle
 }
 
 func currentStartupMessages() startupMessages {

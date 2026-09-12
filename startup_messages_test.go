@@ -15,12 +15,13 @@ func TestStartupMessagesSuportamTresIdiomas(t *testing.T) {
 	})
 
 	tests := []struct {
-		locale   string
-		expected string
+		locale        string
+		expected      string
+		expectedTitle string
 	}{
-		{locale: "pt-BR", expected: "requer um caminho"},
-		{locale: "en-US", expected: "requires a path"},
-		{locale: "es-ES", expected: "requiere una ruta"},
+		{locale: "pt-BR", expected: "requer um caminho", expectedTitle: "Assistente IA"},
+		{locale: "en-US", expected: "requires a path", expectedTitle: "AI Assistant"},
+		{locale: "es-ES", expected: "requiere una ruta", expectedTitle: "Asistente IA"},
 	}
 	for _, test := range tests {
 		t.Run(test.locale, func(t *testing.T) {
@@ -28,6 +29,9 @@ func TestStartupMessagesSuportamTresIdiomas(t *testing.T) {
 			got := startupLogConfigurationError(logging.ErrLogFilePathRequired)
 			if !strings.Contains(got, test.expected) {
 				t.Fatalf("mensagem para %s = %q", test.locale, got)
+			}
+			if title := startupDialogTitle(); title != test.expectedTitle {
+				t.Fatalf("título para %s = %q", test.locale, title)
 			}
 		})
 	}

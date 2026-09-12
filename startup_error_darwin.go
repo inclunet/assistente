@@ -8,15 +8,16 @@ import (
 
 var showNativeFatalError = showFatalErrorAppleScript
 
-func showFatalErrorAppleScript(message string) {
+func showFatalErrorAppleScript(title, message string) {
 	command := exec.Command(
 		"osascript",
 		"-e",
 		"on run argv",
 		"-e",
-		`display alert (item 1 of argv) as critical buttons {"OK"} default button "OK"`,
+		`display alert (item 1 of argv) message (item 2 of argv) as critical`,
 		"-e",
 		"end run",
+		title,
 		message,
 	)
 	_ = command.Run()

@@ -2,4 +2,4 @@
 
 package main
 
-var showNativeFatalError = func(string) {}
+var showNativeFatalError = func(string, string) {}

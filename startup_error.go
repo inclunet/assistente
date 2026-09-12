@@ -7,5 +7,5 @@ import (
 
 func reportFatalError(output io.Writer, message string) {
 	_, _ = fmt.Fprintln(output, message)
-	showNativeFatalError(message)
+	showNativeFatalError(startupDialogTitle(), message)
 }

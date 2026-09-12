@@ -43,7 +43,7 @@ func TestRunRemoveFlagPropagaStartupErrorEFechaLog(t *testing.T) {
 		quitCalled = true
 	}
 	var nativeError string
-	showNativeFatalError = func(message string) {
+	showNativeFatalError = func(_ string, message string) {
 		nativeError = message
 	}
 
@@ -92,7 +92,7 @@ func TestRunPropagaErroDoRunnerEFechaLog(t *testing.T) {
 		return errors.New("Wails indisponível")
 	}
 	var nativeError string
-	showNativeFatalError = func(message string) {
+	showNativeFatalError = func(_ string, message string) {
 		nativeError = message
 	}
 
@@ -110,5 +110,41 @@ func TestRunPropagaErroDoRunnerEFechaLog(t *testing.T) {
 	}
 	if err := os.Rename(logPath, logPath+".fechado"); err != nil {
 		t.Fatalf("arquivo de log permaneceu aberto após erro do runner: %v", err)
+	}
+}
+
+func TestRunReportaArquivoDeLogInacessivelAntesDoWails(t *testing.T) {
+	previousRunDesktop := runDesktop
+	previousNativeError := showNativeFatalError
+	previousLocaleProvider := startupLocaleProvider
+	t.Cleanup(func() {
+		runDesktop = previousRunDesktop
+		showNativeFatalError = previousNativeError
+		startupLocaleProvider = previousLocaleProvider
+	})
+	startupLocaleProvider = func() string { return "pt-BR" }
+
+	runnerCalled := false
+	runDesktop = func(*options.App) error {
+		runnerCalled = true
+		return nil
+	}
+	var nativeError string
+	showNativeFatalError = func(_ string, message string) {
+		nativeError = message
+	}
+
+	directoryPath := t.TempDir()
+	exitCode := run([]string{"assistente", "--log-file", directoryPath})
+
+	if exitCode != 2 {
+		t.Fatalf("exitCode = %d, esperado 2", exitCode)
+	}
+	if runnerCalled {
+		t.Fatal("Wails foi executado apesar da falha ao abrir o arquivo")
+	}
+	if !strings.Contains(nativeError, "Não foi possível abrir o arquivo de log") ||
+		!strings.Contains(nativeError, directoryPath) {
+		t.Fatalf("erro nativo não explica a falha: %q", nativeError)
 	}
 }
