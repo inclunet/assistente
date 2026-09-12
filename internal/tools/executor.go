@@ -223,11 +223,13 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 		var execErr error
 		execKind := ErrorKindNone
 		modelBytes := len(ContentForModel(result))
-		if modelBytes > e.config.MaxResultSize {
+		outputWindow := outputWindowOf(result)
+		incompleteMachineResult := e.config.RequireCompleteResult && outputWindow != nil && outputWindow.HasMore
+		if modelBytes > e.config.MaxResultSize || incompleteMachineResult {
 			// json.Valid varre o payload inteiro; só precisamos inferir JSON
 			// canônico quando a barreira realmente precisaria cortá-lo.
 			structured := result.Structured
-			hasWindow := result.Annotations != nil && result.Annotations.OutputWindow != nil
+			hasWindow := outputWindow != nil
 			if !structured && !result.RawExact && !hasWindow {
 				structured = IsCanonicalJSON(result.Content)
 			}
@@ -246,10 +248,11 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					label = "machine-facing"
 					guidance = "Reduza o escopo da chamada; este consumidor exige o resultado integral."
 				}
-				message := fmt.Sprintf(
-					"Resultado %s tem %d bytes, acima do limite de %d. %s",
-					label, modelBytes, e.config.MaxResultSize, guidance,
-				)
+				message := fmt.Sprintf("Resultado %s tem %d bytes, acima do limite de %d. %s",
+					label, modelBytes, e.config.MaxResultSize, guidance)
+				if incompleteMachineResult {
+					message = "Resultado machine-facing está incompleto. " + guidance
+				}
 				result = ToolResult{
 					Content: boundedFailureContent(message, code, e.config.MaxResultSize),
 					IsError: true,
@@ -259,7 +262,11 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 						Retryable: false,
 					},
 				}
-				execErr = fmt.Errorf("saída %s de '%s' tem %d bytes model-facing, acima do limite de %d", label, toolName, modelBytes, e.config.MaxResultSize)
+				if incompleteMachineResult {
+					execErr = fmt.Errorf("saída machine-facing incompleta de '%s'", toolName)
+				} else {
+					execErr = fmt.Errorf("saída %s de '%s' tem %d bytes model-facing, acima do limite de %d", label, toolName, modelBytes, e.config.MaxResultSize)
+				}
 				execKind = ErrorKindUnknown
 			} else {
 				var protected ToolResult
@@ -356,6 +363,13 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			DurationMs:        elapsed,
 		}
 	}
+}
+
+func outputWindowOf(result ToolResult) *OutputWindowAnnotation {
+	if result.Annotations == nil {
+		return nil
+	}
+	return result.Annotations.OutputWindow
 }
 
 // IsCanonicalJSON valida um único valor JSON sem criar uma cópia []byte

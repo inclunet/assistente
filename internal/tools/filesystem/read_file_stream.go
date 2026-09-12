@@ -199,11 +199,16 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 		}
 		formatted := fmt.Sprintf("%6d|%s", idx+1, line)
 		selected = append(selected, formatted)
+		candidateBytes := selectedBytes + len(formatted)
+		if len(selected) > 1 {
+			candidateBytes++
+		}
 		candidateEnd := idx + 1
-		if readModelFacingSize(displayPath, selected, offset, candidateEnd, totalLines, nil) > budget {
+		if readModelFacingSize(displayPath, candidateBytes, offset, candidateEnd, totalLines, nil) > budget {
 			selected = selected[:len(selected)-1]
 			return false
 		}
+		selectedBytes = candidateBytes
 		end = candidateEnd
 		return true
 	}); err != nil {

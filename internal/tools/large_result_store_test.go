@@ -170,6 +170,30 @@ func TestExecutorMachineFacingRejectsLargePlainText(t *testing.T) {
 	}
 }
 
+func TestExecutorMachineFacingRejectsIncompleteWindowEvenWhenPreviewFits(t *testing.T) {
+	registry := NewRegistry()
+	registry.MustRegister(&mockTool{
+		name: "machine_window",
+		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+			return ToolResult{
+				Content: "prefixo",
+				Annotations: &ResultAnnotations{OutputWindow: &OutputWindowAnnotation{
+					HasMore: true, Unit: "bytes", Returned: 7, Total: 20, NextOffset: 7,
+				}},
+			}, nil
+		},
+	})
+	cfg := DefaultExecutorConfig()
+	cfg.MaxResultSize = 1024
+	cfg.RequireCompleteResult = true
+	got := NewExecutor(registry, cfg).ExecuteOne(context.Background(), ToolCall{
+		ID: "call-machine-window", Function: FunctionCall{Name: "machine_window", Arguments: `{}`},
+	})
+	if got.ErrorCode != "result_too_large" || !got.Result.IsError || got.Result.Annotations != nil {
+		t.Fatalf("consumer machine-facing recebeu janela incompleta: %+v", got)
+	}
+}
+
 func TestLooksLikeCanonicalJSONAcceptsOneCompleteValue(t *testing.T) {
 	for _, valid := range []string{`{}`, `[]`, `"texto"`, `123`, `true`, `false`, `null`} {
 		if !IsCanonicalJSON(valid) {

@@ -275,15 +275,21 @@ func formatReadResult(ctx context.Context, path, content string, size int64, off
 		maxEnd = offset + readModelMaxLines
 	}
 	body := make([]string, 0, maxEnd-offset)
+	bodyBytes := 0
 	end := offset
 	for i := offset; i < maxEnd; i++ {
 		line := fmt.Sprintf("%6d|%s", i+1, lines[i])
 		body = append(body, line)
+		candidateBodyBytes := bodyBytes + len(line)
+		if len(body) > 1 {
+			candidateBodyBytes++
+		}
 		candidateEnd := i + 1
-		if readModelFacingSize(path, body, offset, candidateEnd, total, annotations) > budget {
+		if readModelFacingSize(path, candidateBodyBytes, offset, candidateEnd, total, annotations) > budget {
 			body = body[:len(body)-1]
 			break
 		}
+		bodyBytes = candidateBodyBytes
 		end = candidateEnd
 	}
 	if end == offset {
@@ -324,16 +330,14 @@ func readOutputWindow(offset, end, total int) *tools.OutputWindowAnnotation {
 	return window
 }
 
-func readModelFacingSize(path string, body []string, offset, end, total int, annotations *tools.ResultAnnotations) int {
+func readModelFacingSize(path string, bodyBytes, offset, end, total int, annotations *tools.ResultAnnotations) int {
 	candidateAnnotations := &tools.ResultAnnotations{}
 	if annotations != nil {
 		candidateAnnotations.DocumentProjection = annotations.DocumentProjection
 	}
 	candidateAnnotations.OutputWindow = readOutputWindow(offset, end, total)
-	return len(tools.ContentForModel(tools.ToolResult{
-		Content:     formattedReadContent(path, body, offset, end, total),
-		Annotations: candidateAnnotations,
-	}))
+	contentBytes := len(fmt.Sprintf("Arquivo: %s (linhas %d-%d de %d)\n", path, offset+1, end, total)) + bodyBytes
+	return tools.ContentForModelSize(contentBytes, candidateAnnotations, false)
 }
 
 func normalizedLineOffset(offsetArg *int, total int) int {

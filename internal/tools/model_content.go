@@ -34,6 +34,19 @@ func ContentForModel(result ToolResult) string {
 	return annotationsHeader + string(annotations) + contentHeader + result.Content
 }
 
+// ContentForModelSize calcula o tamanho model-facing sem materializar o corpo.
+// É útil para produtores streaming que já conhecem o número de bytes coletados.
+func ContentForModelSize(contentBytes int, annotations *ResultAnnotations, rawExact bool) int {
+	if annotations == nil || (rawExact && annotations.OutputWindow == nil) {
+		return contentBytes
+	}
+	encoded, err := json.Marshal(annotations)
+	if err != nil {
+		return contentBytes
+	}
+	return len(annotationsHeader) + len(encoded) + len(contentHeader) + contentBytes
+}
+
 // SanitizeTruncatedEnvelope descarta um envelope cortado no meio das anotações.
 // Quando o orçamento de contexto é menor que o próprio cabeçalho, a truncagem
 // deixa um cabeçalho ou um JSON pela metade que o modelo leria como
