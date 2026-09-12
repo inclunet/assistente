@@ -96,7 +96,7 @@ Todo comando terá:
 - classificação de risco;
 - `effect_class`, com `read`, `write` ou `destructive`;
 - `decision_requirement`, incluindo `none` ou diálogo interativo;
-- `mutates_effective_capability`;
+- `mutates_effective_capability`, derivado do contrato do handler;
 - estado de disponibilidade e motivo quando indisponível;
 - apresentação padrão opcional, incluindo ícone e estados;
 - handler ou rota de execução.
@@ -440,9 +440,10 @@ quando mais de um observador puder enxergá-la.
 Eventos de teclado têm ownership exclusivo. Uma combinação registrada como
 `keyboard.global` pertence ao adapter do sistema operacional inclusive quando o
 Assistente está em foco; o adapter DOM recebe a lista correspondente e não emite
-`keyboard.local` para ela. O adapter global preserva
-`source_type`/`observer_type`/`observed_trigger_type`/`trigger_type =
-keyboard.global` em qualquer foco. Binding local da mesma combinação fica
+`keyboard.local` para ela. No ingresso, o adapter global preenche somente
+`observer_type`/`observed_trigger_type = keyboard.global`; após a resolução,
+`source_type`/`trigger_type` também ficam `keyboard.global` em qualquer foco.
+Binding local da mesma combinação fica
 marcado como shadowed/conflitante e não participa; para variar a ação dentro do
 Assistente, o binding global usa condições/camadas de foco e surface. O adapter
 local possui somente combinações não registradas globalmente. Alterações de
@@ -614,8 +615,10 @@ O procedimento operacional determinístico compara a tupla:
 3. `command_layers.resolution_priority`;
 4. `command_bindings.resolution_priority`.
 
-Prioridade maior vence. Prioridades são inteiros, persistidas e incluídas no
-export. Se comandos/argumentos diferentes ainda empatarem após a tupla, a
+Comparação é lexicográfica: menor posição na lista de escopos vence (diálogo
+antes de global), identidade exata vence tipo/curinga e, somente nos campos
+`resolution_priority`, o inteiro maior vence. Prioridades são persistidas e
+incluídas no export. Se comandos/argumentos diferentes ainda empatarem após a tupla, a
 configuração é inválida e o evento falha fechado; IDs não são usados como
 desempate oculto.
 
@@ -673,7 +676,7 @@ Ativação dirigida por eventos usa o envelope:
 
 ```text
 LayerActivationEvent
-  version, activation_id, rule_id, user_id
+  version, activation_id, rule_ref_kind, rule_ref, user_id
   source_type, source_instance_id, source_event_id
   source_correlation_id?, sequence
   state, occurred_at, expires_at?
@@ -682,7 +685,8 @@ LayerActivationEvent
 ```
 
 `activation_id` é UUIDv7 novo a cada ciclo; ativar e desativar o mesmo ciclo
-reutiliza esse ID. `sequence` cresce dentro de `(user_id, rule_id,
+reutiliza esse ID. `sequence` cresce dentro de
+`(user_id, rule_ref_kind, rule_ref,
 activation_id)`. Evento duplicado com mesma sequência é idempotente; sequência
 menor é ignorada; mesma sequência com conteúdo diferente falha fechado. Uma
 desativação atrasada só encerra seu próprio `activation_id`, nunca uma ativação
@@ -803,7 +807,8 @@ não produzem `LayerActivationEvent`. Gaps de `sequence` são permitidos; CAS
 aceita somente valor maior que o cursor, não exige contiguidade.
 
 O adapter usa `run_id` como `source_correlation_id` e resolve ou cria um
-`activation_id` distinto por `(user_id, rule_id, run_id)`. Assim, duas regras
+`activation_id` distinto por
+`(user_id, rule_ref_kind, rule_ref, run_id)`. Assim, duas regras
 que observam o mesmo run mantêm ciclos independentes. Ele preserva
 `job_run_events.sequence` e mapeia `job_runs.status = retrying` para o fato
 `state = retry_scheduled`. A timeline é a fonte de ordem; o status do run serve
@@ -812,7 +817,9 @@ apenas para reconstrução no startup.
 Claim derivada de job usa lease própria, renovada por heartbeat do runtime:
 `maintenance.command_job_activation_lease_seconds` (padrão 180), com heartbeat
 antes da metade do TTL. Runs não terminais que sustentam claim ficam excluídos
-da política/ciclo de limpeza da AEP-0074-B. O PR dessa integração deve atualizar
+da política/ciclo de limpeza da AEP-0074-B somente enquanto a lease estiver
+válida. Lease expirada marca a claim inativa e devolve o run órfão à retenção no
+próximo ciclo. O PR dessa integração deve atualizar
 AEP-0074-B e AEP-0048 no mesmo ciclo. No startup, fonte ausente, lease vencida
 ou estado não autoritativo torna a claim inativa até confirmação nova do
 runtime. A linha pode permanecer para auditoria, mas nunca mantém a camada
@@ -884,6 +891,13 @@ Quando `actor_type = agent`, `CommandExecutionService` exige decisão em
 `decision_requirement` exigir; comandos read-only com requisito `none` seguem
 sem diálogo. Para os casos confirmáveis, origem headless falha fechado. Assim,
 não existe segunda rota para alterar o mapa efetivo.
+
+A marca não é declarada livremente pelo autor do comando.
+`CommandHandler.Mutability()` fornece a classificação e o registro rejeita
+divergência. Em `command_config`, toda ação exceto list/get/check é mutação de
+capacidade: create, update, delete, enable, disable, restore e import sempre
+exigem o gate. Teste de catálogo enumera todas as ações/handlers para impedir que
+um verbo novo nasça sem classificação.
 
 ### D11 — Persistência
 
@@ -1073,6 +1087,12 @@ comando, dispositivo ou default ausente fica desabilitada e entra no relatório
 de importação; não é aproximada por nome. Grants, autorizações e ativações
 temporárias nunca são exportados ou concedidos. A configuração importada só
 entra no mapa efetivo após validação e confirmação dos conflitos.
+
+Toda busca/upsert usa `(user_id autenticado, id)`. UUID já pertencente a outro
+usuário retorna conflito `foreign_owner` sem revelar conteúdo, sobrescrever ou
+associar referência. UUID ausente é criado para o usuário autenticado,
+ignorando qualquer owner do arquivo. A opção “cópia” gera novos UUIDs e remapeia
+somente relações internas validadas daquele lote.
 
 Essa seção só é habilitada depois que o mesmo PR atualizar a AEP-0047, registrar
 `commandLayers` e incrementar a versão do envelope portátil com regras de
