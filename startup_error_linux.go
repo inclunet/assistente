@@ -2,19 +2,46 @@
 
 package main
 
-import "os/exec"
+/*
+#cgo pkg-config: gtk+-3.0
+#include <gtk/gtk.h>
+#include <stdlib.h>
 
-var showNativeFatalError = showFatalErrorDesktopDialog
+static void showFatalErrorGTK(const char *message) {
+	int argc = 0;
+	char **argv = NULL;
+	if (!gtk_init_check(&argc, &argv)) {
+		return;
+	}
+	GtkWidget *dialog = gtk_message_dialog_new(
+		NULL,
+		GTK_DIALOG_MODAL,
+		GTK_MESSAGE_ERROR,
+		GTK_BUTTONS_OK,
+		"%s",
+		message
+	);
+	gtk_window_set_title(GTK_WINDOW(dialog), "Assistente");
+	gtk_dialog_run(GTK_DIALOG(dialog));
+	gtk_widget_destroy(dialog);
+	while (gtk_events_pending()) {
+		gtk_main_iteration();
+	}
+}
+*/
+import "C"
 
-func showFatalErrorDesktopDialog(message string) {
-	commands := [][]string{
-		{"zenity", "--error", "--title=Assistente", "--text=" + message},
-		{"kdialog", "--error", message, "--title", "Assistente"},
-		{"xmessage", "-center", "-title", "Assistente", message},
-	}
-	for _, args := range commands {
-		if err := exec.Command(args[0], args[1:]...).Run(); err == nil {
-			return
-		}
-	}
+import (
+	"runtime"
+	"unsafe"
+)
+
+var showNativeFatalError = showFatalErrorGTK
+
+func showFatalErrorGTK(message string) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	cMessage := C.CString(message)
+	defer C.free(unsafe.Pointer(cMessage))
+	C.showFatalErrorGTK(cMessage)
 }

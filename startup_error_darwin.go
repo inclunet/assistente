@@ -3,7 +3,6 @@
 package main
 
 import (
-	"os"
 	"os/exec"
 )
 
@@ -13,8 +12,12 @@ func showFatalErrorAppleScript(message string) {
 	command := exec.Command(
 		"osascript",
 		"-e",
-		`display alert (system attribute "ASSISTENTE_STARTUP_ERROR") as critical buttons {"OK"} default button "OK"`,
+		"on run argv",
+		"-e",
+		`display alert (item 1 of argv) as critical buttons {"OK"} default button "OK"`,
+		"-e",
+		"end run",
+		message,
 	)
-	command.Env = append(os.Environ(), "ASSISTENTE_STARTUP_ERROR="+message)
 	_ = command.Run()
 }
