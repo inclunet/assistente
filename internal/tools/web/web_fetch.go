@@ -170,9 +170,18 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler resposta: %v", err), IsError: true}, nil
 	}
 	if len(body) > fetchMaxResponseBody {
+		contentType := resp.Header.Get("Content-Type")
 		return tools.ToolResult{
 			Content: fmt.Sprintf("Resposta excede o limite seguro de download de %d bytes; o conteúdo não foi devolvido parcialmente.", fetchMaxResponseBody),
 			IsError: true,
+			Metadata: map[string]any{
+				"url": a.URL, "status": resp.StatusCode,
+				"content_type": contentType, "length": len(body),
+			},
+			Annotations: &tools.ResultAnnotations{HTTPResponse: &tools.HTTPResponseAnnotation{
+				Method: http.MethodGet, URL: a.URL, Status: resp.StatusCode,
+				StatusText: http.StatusText(resp.StatusCode), ContentType: contentType,
+			}},
 			Failure: &tools.ToolFailure{Code: "response_body_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
 		}, nil
 	}

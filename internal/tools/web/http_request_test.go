@@ -349,6 +349,37 @@ func TestHTTPRequestRawRejectsInvalidUTF8(t *testing.T) {
 	}
 }
 
+func TestHTTPRequestOversizedDownloadPreservesHTTPContext(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		chunk := strings.Repeat("x", 64*1024)
+		for written := 0; written <= httpMaxResponseBody; written += len(chunk) {
+			_, _ = w.Write([]byte(chunk))
+		}
+	}))
+	defer ts.Close()
+
+	args, _ := json.Marshal(map[string]any{"url": ts.URL, "method": http.MethodPost})
+	result, err := newTestHTTPRequest().Execute(context.Background(), args)
+	if err != nil || !result.IsError || result.Failure == nil ||
+		result.Failure.Code != "response_body_too_large" {
+		t.Fatalf("download grande não falhou corretamente: err=%v result=%+v", err, result)
+	}
+	if result.Metadata["url"] != ts.URL || result.Metadata["method"] != http.MethodPost ||
+		result.Metadata["status"] != http.StatusOK {
+		t.Fatalf("falha perdeu metadata HTTP: %+v", result.Metadata)
+	}
+	if result.Annotations == nil || result.Annotations.HTTPResponse == nil ||
+		result.Annotations.HTTPResponse.URL != ts.URL ||
+		result.Annotations.HTTPResponse.Method != http.MethodPost ||
+		result.Annotations.HTTPResponse.ContentType != "application/octet-stream" {
+		t.Fatalf("falha perdeu proveniência model-facing: %+v", result.Annotations)
+	}
+	if strings.Contains(result.Content, strings.Repeat("x", 100)) {
+		t.Fatal("falha contém prefixo parcial da resposta")
+	}
+}
+
 func TestHTTPRequestPreservesStatusModelFacingForExactAndPagedBodies(t *testing.T) {
 	for _, tc := range []struct {
 		name        string

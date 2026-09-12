@@ -272,6 +272,35 @@ func TestWebFetchRawRejectsInvalidUTF8(t *testing.T) {
 	}
 }
 
+func TestWebFetchOversizedDownloadPreservesHTTPContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		chunk := strings.Repeat("x", 64*1024)
+		for written := 0; written <= fetchMaxResponseBody; written += len(chunk) {
+			_, _ = fmt.Fprint(w, chunk)
+		}
+	}))
+	defer server.Close()
+
+	args, _ := json.Marshal(map[string]string{"url": server.URL})
+	result, err := newTestWebFetch().Execute(context.Background(), args)
+	if err != nil || !result.IsError || result.Failure == nil ||
+		result.Failure.Code != "response_body_too_large" {
+		t.Fatalf("download grande não falhou corretamente: err=%v result=%+v", err, result)
+	}
+	if result.Metadata["url"] != server.URL || result.Metadata["status"] != http.StatusOK {
+		t.Fatalf("falha perdeu metadata HTTP: %+v", result.Metadata)
+	}
+	if result.Annotations == nil || result.Annotations.HTTPResponse == nil ||
+		result.Annotations.HTTPResponse.URL != server.URL ||
+		result.Annotations.HTTPResponse.ContentType != "text/plain; charset=utf-8" {
+		t.Fatalf("falha perdeu proveniência model-facing: %+v", result.Annotations)
+	}
+	if strings.Contains(result.Content, strings.Repeat("x", 100)) {
+		t.Fatal("falha contém prefixo parcial da resposta")
+	}
+}
+
 func TestWebFetch_404(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
