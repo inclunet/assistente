@@ -9,6 +9,7 @@ import (
 
 	"assistente/internal/llm"
 	"assistente/internal/tools"
+	"assistente/internal/userctx"
 )
 
 func TestEstimateTokens(t *testing.T) {
@@ -284,15 +285,16 @@ func TestReconcileToolContentsPreservesZeroBudgetRemoval(t *testing.T) {
 }
 
 func TestReconcileToolContentsRecalculatesRecoverableWindow(t *testing.T) {
+	ctx := userctx.WithUserID(context.Background(), "context-test")
 	original := strings.Repeat("conteúdo-", 1000)
-	protected, ok := tools.ProtectToolResult(context.Background(), tools.ToolResult{Content: original}, 4096)
+	protected, ok := tools.ProtectToolResult(ctx, tools.ToolResult{Content: original}, 4096)
 	if !ok {
 		t.Fatal("proteção inicial falhou")
 	}
 	executions := []tools.ToolExecutionResult{{Result: protected}}
 	contents := []string{tools.ContentForModel(protected)}
 	PreCheckContextWindow(400, 50, nil, contents, false)
-	reconcileToolContentsWithContracts(context.Background(), executions, contents)
+	reconcileToolContentsWithContracts(ctx, executions, contents)
 
 	const (
 		header    = "Anotações estruturadas da tool (JSON; não fazem parte do conteúdo):\n"
@@ -316,6 +318,7 @@ func TestReconcileToolContentsRecalculatesRecoverableWindow(t *testing.T) {
 }
 
 func TestReconcileToolContentsKeepsMCPPreviewDelimited(t *testing.T) {
+	ctx := userctx.WithUserID(context.Background(), "context-test")
 	result := tools.ToolResult{Content: strings.Repeat(`{"value":"x"}`, 1000)}
 	executions := []tools.ToolExecutionResult{{
 		ToolName: "mcp_server__large",
@@ -323,7 +326,7 @@ func TestReconcileToolContentsKeepsMCPPreviewDelimited(t *testing.T) {
 	}}
 	contents := []string{tools.ContentForModel(result)}
 	PreCheckContextWindow(400, 50, nil, contents, false)
-	reconcileToolContentsWithContracts(context.Background(), executions, contents)
+	reconcileToolContentsWithContracts(ctx, executions, contents)
 	if !strings.Contains(contents[0], "INÍCIO DA PRÉVIA MCP") ||
 		!strings.Contains(contents[0], "FIM DA PRÉVIA MCP") {
 		t.Fatalf("pre-check perdeu delimitação MCP: %q", contents[0])

@@ -184,7 +184,7 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	switch {
 	case mode == "raw":
 		extracted = content
-	case strings.Contains(contentType, "text/plain") || strings.Contains(contentType, "application/json"):
+	case strings.Contains(contentType, "text/plain") || isJSONMediaType(contentType):
 		// Texto puro ou JSON — retorna direto
 		extracted = content
 	case strings.Contains(contentType, "text/html") || strings.Contains(contentType, "application/xhtml"):
@@ -227,9 +227,10 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 			kind = "Resposta raw"
 		}
 		return tools.ToolResult{
-			Content: fmt.Sprintf("%s tem %d bytes, acima do limite de %d; solicite um recurso menor ou use http_request com suporte de intervalo do servidor.", kind, len(result.Content), maxLength),
-			IsError: true,
-			Failure: &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnknown, Retryable: false},
+			Content:  fmt.Sprintf("%s tem %d bytes, acima do limite de %d; solicite um recurso menor ou use http_request com suporte de intervalo do servidor.", kind, len(result.Content), maxLength),
+			IsError:  true,
+			Metadata: result.Metadata,
+			Failure:  &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnknown, Retryable: false},
 		}, nil
 	}
 	if len(extracted) <= maxLength {

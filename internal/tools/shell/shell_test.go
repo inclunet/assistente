@@ -13,6 +13,7 @@ import (
 	"assistente/internal/allowlist"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
+	"assistente/internal/userctx"
 )
 
 // ========== TESTES DE VALIDAÇÃO (sem Manager) ==========
@@ -632,7 +633,7 @@ func TestOutputTruncation(t *testing.T) {
 	}
 
 	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
-	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"big-output"}`))
+	result, err := rc.Execute(userctx.WithUserID(context.Background(), "shell-test"), json.RawMessage(`{"command":"big-output"}`))
 
 	if err != nil {
 		t.Fatalf("esperado nil error, got %v", err)

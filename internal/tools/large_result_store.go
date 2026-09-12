@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"assistente/internal/tools/invocationctx"
 	"assistente/internal/userctx"
@@ -47,14 +48,15 @@ var modelResultStore = &largeResultStore{
 }
 
 func storeModelResult(ctx context.Context, content string) (string, bool) {
-	if len(content) > largeResultStoreBytes {
+	owner, ok := largeResultOwnerFromContext(ctx)
+	if !ok || len(content) > largeResultStoreBytes || !utf8.ValidString(content) {
 		return "", false
 	}
 	s := modelResultStore
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id := "tool-result-" + uuid.NewString()
-	elem := s.order.PushFront(storedLargeResult{id: id, content: content, owner: largeResultOwnerFromContext(ctx)})
+	elem := s.order.PushFront(storedLargeResult{id: id, content: content, owner: owner})
 	s.items[id] = elem
 	s.bytes += len(content)
 	for s.bytes > largeResultStoreBytes || s.order.Len() > largeResultStoreItems {
@@ -68,6 +70,10 @@ func storeModelResult(ctx context.Context, content string) (string, bool) {
 }
 
 func loadModelResult(ctx context.Context, id string) (string, bool) {
+	owner, ownerOK := largeResultOwnerFromContext(ctx)
+	if !ownerOK {
+		return "", false
+	}
 	s := modelResultStore
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -76,17 +82,20 @@ func loadModelResult(ctx context.Context, id string) (string, bool) {
 		return "", false
 	}
 	entry := elem.Value.(storedLargeResult)
-	if entry.owner != largeResultOwnerFromContext(ctx) {
+	if entry.owner != owner {
 		return "", false
 	}
 	s.order.MoveToFront(elem)
 	return entry.content, true
 }
 
-func largeResultOwnerFromContext(ctx context.Context) largeResultOwner {
-	userID, _ := userctx.UserIDFromContext(ctx)
+func largeResultOwnerFromContext(ctx context.Context) (largeResultOwner, bool) {
+	userID, ok := userctx.UserIDFromContext(ctx)
+	if !ok {
+		return largeResultOwner{}, false
+	}
 	invocation, _ := invocationctx.Get(ctx)
-	return largeResultOwner{userID: userID, conversationID: invocation.ConversationID}
+	return largeResultOwner{userID: userID, conversationID: invocation.ConversationID}, true
 }
 
 // ProtectModelResult aplica a barreira host-level sem inserir avisos no corpo.
@@ -164,18 +173,18 @@ func protectModelResult(ctx context.Context, result ToolResult, maxBytes int, in
 	var sourceWindow *OutputWindowAnnotation
 	if result.Annotations != nil && result.Annotations.OutputWindow != nil {
 		existing := result.Annotations.OutputWindow
-		sourceWindow = existing
-		if existing.ResultID != "" {
-			if stored, found := loadModelResult(ctx, existing.ResultID); found {
-				original = stored
-				id = existing.ResultID
-				sourceWindow = existing.SourceWindow
-			} else {
-				// A prévia não contém bytes suficientes para reconstruir o
-				// resultado. Publicar outro ID aqui criaria uma continuação
-				// aparentemente válida, porém incompleta.
-				return ToolResult{}, false
-			}
+		if existing.ResultID == "" {
+			return ToolResult{}, false
+		}
+		if stored, found := loadModelResult(ctx, existing.ResultID); found {
+			original = stored
+			id = existing.ResultID
+			sourceWindow = existing.SourceWindow
+		} else {
+			// A prévia não contém bytes suficientes para reconstruir o
+			// resultado. Publicar outro ID aqui criaria uma continuação
+			// aparentemente válida, porém incompleta.
+			return ToolResult{}, false
 		}
 	}
 	if id == "" {
@@ -234,15 +243,15 @@ func ProtectExternalModelResult(ctx context.Context, result ToolResult, maxBytes
 	var sourceWindow *OutputWindowAnnotation
 	if result.Annotations != nil && result.Annotations.OutputWindow != nil {
 		existing := result.Annotations.OutputWindow
-		sourceWindow = existing
-		if existing.ResultID != "" {
-			if stored, found := loadModelResult(ctx, existing.ResultID); found {
-				original = stored
-				id = existing.ResultID
-				sourceWindow = existing.SourceWindow
-			} else {
-				return ToolResult{}, false
-			}
+		if existing.ResultID == "" {
+			return ToolResult{}, false
+		}
+		if stored, found := loadModelResult(ctx, existing.ResultID); found {
+			original = stored
+			id = existing.ResultID
+			sourceWindow = existing.SourceWindow
+		} else {
+			return ToolResult{}, false
 		}
 	}
 	if id == "" {

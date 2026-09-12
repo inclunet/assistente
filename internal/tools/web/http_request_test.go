@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/credentials"
 	"assistente/internal/tools"
+	"assistente/internal/userctx"
 )
 
 // newTestHTTPRequest cria um HTTPRequest que permite hosts privados (para httptest)
@@ -298,6 +299,9 @@ func TestHTTPRequestLargeJSONAndRawFailWithoutPartial(t *testing.T) {
 			if strings.Contains(result.Content, strings.Repeat("x", 100)) {
 				t.Fatal("falha contém prefixo parcial da resposta")
 			}
+			if result.Metadata["url"] != ts.URL || result.Metadata["status"] != http.StatusOK {
+				t.Fatalf("falha perdeu metadata HTTP: %+v", result.Metadata)
+			}
 		})
 	}
 }
@@ -338,13 +342,23 @@ func TestHTTPRequestPreservesStatusModelFacingForExactAndPagedBodies(t *testing.
 			args, _ := json.Marshal(map[string]any{
 				"url": ts.URL, "extract_mode": tc.mode, "max_response_size": tc.max,
 			})
-			result, err := newTestHTTPRequest().Execute(context.Background(), args)
+			ctx := userctx.WithUserID(context.Background(), "http-test")
+			result, err := newTestHTTPRequest().Execute(ctx, args)
 			if err != nil || result.Annotations == nil || result.Annotations.HTTPResponse == nil {
 				t.Fatalf("sem anotação HTTP: err=%v result=%+v", err, result)
 			}
 			modelContent := tools.ContentForModel(result)
 			if !strings.Contains(modelContent, `"status":`+strconv.Itoa(tc.status)) {
 				t.Fatalf("status ausente do conteúdo model-facing: %q", modelContent)
+			}
+			if window := result.Annotations.OutputWindow; window != nil && window.HasMore {
+				nextArgs, _ := json.Marshal(map[string]any{
+					"result_id": window.ResultID, "offset": window.NextOffset, "limit": 50,
+				})
+				next, nextErr := tools.NewReadToolResult().Execute(ctx, nextArgs)
+				if nextErr != nil || next.IsError || next.Content == "" {
+					t.Fatalf("continuação HTTP indisponível: err=%v result=%+v", nextErr, next)
+				}
 			}
 		})
 	}

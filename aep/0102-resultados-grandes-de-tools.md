@@ -68,6 +68,10 @@ JSON e não ofereciam retomada exata.
     apenas o corpo carregam status, método, URL e media type em anotação
     model-facing separada. A última página de `read_tool_result` pode ser
     persistida integralmente, mas sem o `result_id` efêmero.
+16. O armazenamento recuperável aceita apenas conteúdo UTF-8 e contextos com
+    usuário autenticado. Uma janela natural sem `result_id` nunca é
+    reempacotada como se seu prefixo fosse o resultado integral; se outro teto
+    não comportá-la, a barreira falha explicitamente.
 
 ## Fases
 

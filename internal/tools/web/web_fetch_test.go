@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/credentials"
 	"assistente/internal/tools"
+	"assistente/internal/userctx"
 )
 
 // newTestWebFetch cria um WebFetch que permite hosts privados (para httptest)
@@ -172,7 +173,7 @@ func TestWebFetch_Truncation(t *testing.T) {
 	tool := newTestWebFetch()
 	maxLen := 100
 	args, _ := json.Marshal(map[string]interface{}{"url": server.URL, "max_length": maxLen})
-	result, err := tool.Execute(context.Background(), json.RawMessage(args))
+	result, err := tool.Execute(userctx.WithUserID(context.Background(), "web-fetch-test"), json.RawMessage(args))
 	if err != nil {
 		t.Fatalf("Execute retornou erro: %v", err)
 	}
@@ -217,6 +218,9 @@ func TestWebFetchJSONIsStructuredAndLargePayloadFailsWithoutPartial(t *testing.T
 	}
 	if strings.Contains(result.Content, body[:100]) {
 		t.Fatal("falha estruturada contém JSON parcial")
+	}
+	if result.Metadata["url"] != server.URL || result.Metadata["status"] != http.StatusOK {
+		t.Fatalf("falha estruturada perdeu metadata HTTP: %+v", result.Metadata)
 	}
 }
 

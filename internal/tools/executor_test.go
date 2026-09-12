@@ -44,7 +44,7 @@ func TestExecuteSingle_Success(t *testing.T) {
 		},
 	}
 	e := NewExecutor(newRegistry(tool), DefaultExecutorConfig())
-	res := e.ExecuteOne(context.Background(), ToolCall{
+	res := e.ExecuteOne(largeResultTestContext(), ToolCall{
 		ID:       "c1",
 		Function: FunctionCall{Name: "ok_tool", Arguments: `{}`},
 	})
@@ -314,7 +314,7 @@ func TestTruncateUTF8_LargeResult(t *testing.T) {
 	cfg.MaxResultSize = 1024 // 1KB para teste rápido
 	e := NewExecutor(newRegistry(tool), cfg)
 
-	res := e.ExecuteOne(context.Background(), ToolCall{
+	res := e.ExecuteOne(largeResultTestContext(), ToolCall{
 		ID:       "c1",
 		Function: FunctionCall{Name: "big", Arguments: `{}`},
 	})

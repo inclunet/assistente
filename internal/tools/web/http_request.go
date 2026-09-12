@@ -347,6 +347,7 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 		return tools.ToolResult{
 			Content:     fmt.Sprintf("%s tem %d bytes, acima do limite de %d; reduza o escopo da requisição ou use um header Range aceito pelo servidor.", kind, len(result.Content), maxLength),
 			IsError:     true,
+			Metadata:    result.Metadata,
 			Annotations: annotations,
 			Failure:     &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnknown, Retryable: false},
 		}, nil
