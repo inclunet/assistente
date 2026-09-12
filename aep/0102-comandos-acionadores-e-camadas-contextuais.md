@@ -148,7 +148,7 @@ envelope versionado:
 ```text
 CommandInvocation
   version, invocation_id, command_id?, arguments?
-  trigger_type?, trigger_spec?
+  observed_trigger_type?, trigger_type?, trigger_spec?
   user_id?, auth_context_type, auth_context_id, auth_generation
   session_id?, security_generation
   actor_type, actor_id
@@ -266,11 +266,19 @@ workspace, captura apenas a global.
 O resolvedor incrementa `active_layers_generation` sempre que o conjunto
 efetivo de claims muda, incluindo `layer.back`, expiração, pin e eventos.
 
+`internal/commandsecurity.DispatchGate` serializa admissão com mudanças de
+segurança/configuração. Logout, lock, troca de principal e mutações de mapa
+adquirem o gate exclusivo antes de incrementar gerações. O worker adquire o gate
+compartilhado, revalida, faz CAS para `running` e entra sincronamente em
+`handler.Start(ctx)` antes de liberar o gate. Assim não existe janela entre CAS
+e início do handler. Invalidação posterior cancela o contexto quando o handler
+suportar; efeito já admitido não é retroativamente desfeito.
+
 A reserva é uma transação que cria a chave no ledger de idempotência e a linha
 de auditoria `evaluating` antes do handler. O ledger é protegido pela PK de
-`invocation_id` e por unicidade de
-`(user_id, auth_context_type, auth_context_id, source_type, source_instance_id,
-source_event_id)` quando há evento de adapter. Reentrega recebe o resultado
+`invocation_id` e por unicidade global de `source_event_id` quando há evento de
+adapter. Replay com usuário/origem/fingerprint divergente é conflito, não nova
+execução. Reentrega recebe o resultado
 existente ou falha como
 duplicada, nunca chama novamente o handler. Palette, chat e CLI fornecem um
 `invocation_id` UUIDv7 idempotente por solicitação. Eventos físicos recebem
@@ -303,8 +311,8 @@ linha — vão para o log de segurança, não para uma conta indicada pelo paylo
 Toda recusa posterior é persistida como `denied`, com código redigido.
 
 `allowed_source_types` usa os valores exatos `keyboard.local`,
-`keyboard.global`, `streamdeck.key`, `palette`, `chat`, `cli`, `event` e
-`system`. `actor_type` é ortogonal: por exemplo, uma tool chamada pelo agente
+`keyboard.global`, `streamdeck.key`, `palette`, `ui.action`, `chat`, `cli`,
+`event` e `system`. `actor_type` é ortogonal: por exemplo, uma tool chamada pelo agente
 tem `source_type = chat` e `actor_type = agent`. Não existe categoria implícita
 `desktop`; cada comando declara explicitamente quais entradas aceita.
 
@@ -393,9 +401,11 @@ Tipos iniciais de acionador:
 - `keyboard.global`: hotkey registrada no sistema operacional;
 - `streamdeck.key`: tecla física, incluindo dispositivo e posição;
 - `palette`: escolha na Command Palette;
+- `ui.action`: clique, formulário ou ação direta da UI autenticada;
 - `chat`: execução estruturada solicitada pelo agente;
 - `cli`: execução solicitada pelo entrypoint de terminal;
-- `event`: evento interno permitido e tipado.
+- `event`: na primeira versão, somente fato durável de `job_run_events`;
+  outros produtores exigem outbox antes de entrar na taxonomia operacional.
 
 `system` é uma origem interna reservada para execução direta pelo processo. Não
 é acionador configurável, não aparece em bindings do usuário e obedece às
@@ -409,11 +419,12 @@ quando mais de um observador puder enxergá-la.
 Eventos de teclado têm ownership exclusivo. Uma combinação registrada como
 `keyboard.global` pertence ao adapter do sistema operacional inclusive quando o
 Assistente está em foco; o adapter DOM recebe a lista correspondente e não emite
-`keyboard.local` para ela. Quando o Assistente está em foco, o adapter global
-encaminha `source_type`/`trigger_type = keyboard.local` e
-`observer_type = keyboard.global`; sem foco, os três são `keyboard.global`.
-Assim, a allowlist e os bindings usam o contexto lógico, enquanto a auditoria
-preserva o observador físico. O adapter local possui somente
+`keyboard.local` para ela. O adapter global preserva
+`source_type`/`observer_type`/`observed_trigger_type = keyboard.global`.
+Com o Assistente focado, o resolvedor considera primeiro o candidato lógico
+`keyboard.local` e depois o `keyboard.global`; sem foco, considera somente o
+global. `trigger_type` registra o candidato vencedor. Assim, binding local pode
+vencer sem apagar o binding global nem a proveniência física. O adapter local possui somente
 combinações não registradas globalmente. Alterações de registro são aplicadas
 por geração antes de publicar o novo mapa. Stream Deck possui um único listener
 por dispositivo. Essa exclusão evita depender de um ID que DOM e API global não
@@ -527,6 +538,12 @@ argumentos, escopo ou risco mudou, o delta vira `needs_review`: ele e o novo
 default ficam bloqueados naquele acionador/contexto, sem fallback, até decisão
 do usuário. Restaurar remove o delta e adota o novo default; rebase confirmado
 atualiza versão/fingerprint. A UI anuncia e lista pendências.
+
+O fingerprint usa RFC 8785 sobre toda semântica executável: comando, argumentos,
+trigger, condição, effect, escopo, prioridades, origens permitidas,
+`context_policy`, `effect_class`, risco, `decision_requirement`,
+`mutates_effective_capability` e requisitos do adapter. Somente apresentação
+puramente visual fica fora. Qualquer mudança desse conjunto exige review.
 
 Atalhos obrigatórios da AEP-0091, incluindo `Ctrl+Shift+R` para repetir a
 pergunta do `DecisionDialog`, são invariantes não suprimíveis. O usuário pode
@@ -723,13 +740,15 @@ referenciado por `job_runs.job_id`; `run_id` é o ID opaco exato de
 e futuros UUIDv7 sem convertê-los. Alterar o formato canônico exige migração e
 atualização da AEP-0048 antes de remover essa compatibilidade;
 `job_slug` é a identidade pública usada por
-`eventctx.SourceJobID` na AEP-0101 e serve para apresentação/resolução inicial.
+`eventctx.SourceJobID` conforme AEP-0067 e serve para apresentação/resolução inicial.
 Depois da resolução, correlação e autorização usam o UUID.
 
 O runtime gera `run_event_id` ao criar cada `RunEvent`, persiste
-`queued`/`started`/`retry_scheduled` incrementalmente antes de publicar o fato e
-reutiliza o mesmo UUID na linha. Não espera o `defer LogRun` do fim da execução.
-O PR dessa integração atualiza a AEP-0048 e seus testes no mesmo ciclo.
+todos os estados mapeados — inclusive `completed`, `failed` e `skipped` —
+incremental e idempotentemente antes de publicar o fato, reutilizando o mesmo
+UUID na linha. O `defer LogRun` final vira upsert pelo UUID e não duplica eventos
+já persistidos. O PR dessa integração atualiza a AEP-0048 e seus testes no mesmo
+ciclo.
 
 `state` aceita `queued`, `started`,
 `retry_scheduled`, `completed`, `failed` e `skipped`. A chave de
@@ -816,9 +835,11 @@ não concede grant reutilizável para executar o comando configurado.
 
 O registro marca `mutates_effective_capability` em comandos como
 `layer.activate`, `layer.toggle`, `layer.back` persistente e registro de hotkey.
-Quando `actor_type = agent`, `CommandExecutionService` exige decisão explícita
-também em `command_catalog.execute`, não só em `command_config`. Origem headless
-falha fechado. Assim, não existe segunda rota para alterar o mapa efetivo.
+Quando `actor_type = agent`, `CommandExecutionService` exige decisão em
+`command_catalog.execute` somente se esse flag estiver ativo ou se
+`decision_requirement` exigir; comandos read-only com requisito `none` seguem
+sem diálogo. Para os casos confirmáveis, origem headless falha fechado. Assim,
+não existe segunda rota para alterar o mapa efetivo.
 
 ### D11 — Persistência
 
@@ -865,6 +886,7 @@ command_invocations
   workspace_id, registry_version, global_config_generation,
   workspace_config_generation, active_layers_generation,
   command_id nullable_until_resolved, binding_ids nonnull_default_empty,
+  observed_trigger_type nullable_for_direct,
   trigger_type nullable_for_direct, trigger_spec_snapshot nullable_for_direct,
   trigger_fingerprint nullable_for_direct,
   actor_type, actor_id, source_type, observer_type nullable,
@@ -895,9 +917,11 @@ desfazer.
 
 Campos marcados com `?` no envelope são nullable no SQLite; ausência vira
 `NULL`, nunca string vazia. `command_id` é nulo somente em `evaluating` antes da
-resolução; `trigger_*` é nulo em execução direta; campos de surface, conversa,
-job, profile, workspace e decisão são nulos quando o contexto não se aplica.
-Campos obrigatórios do envelope e `binding_ids` (default `[]`) são NOT NULL.
+resolução ou em `denied` quando nenhum comando pôde ser resolvido; depois de
+preenchido, é imutável. `trigger_*` é nulo em execução direta; campos de surface,
+conversa, job, profile, workspace e decisão são nulos quando o contexto não se
+aplica. Campos obrigatórios do envelope e `binding_ids` (default `[]`) são NOT
+NULL.
 
 Todas as PKs persistidas criadas por esta AEP são UUIDv7 conforme AEP-0046.
 FKs entre essas tabelas também usam UUIDv7. IDs de defaults que vivem no código
@@ -929,6 +953,12 @@ evento/job também exige provenance e fonte revalidáveis. Claim manual
 persistente exige dono autenticado e lifecycle válido, mas não provenance de
 job. Ciclos terminais permanecem pela mesma retenção curta das invocações para
 deduplicar reentregas; ativos não são removidos pela idade.
+
+Ao restaurar claim manual persistente após login/restart, o serviço revalida
+ownership/layer e, numa transação, substitui auth/security generations e
+`manual_stack_key` pelo novo contexto antes de ativá-la. Origem/dispositivo não
+mais disponível deixa a claim inativa e visível para revisão; `layer.back` só
+opera sobre claims já rebindadas.
 
 Matriz de nulabilidade do estado: claims manuais exigem `manual_stack_key` e
 podem deixar `source_instance`, `source_event`, correlação, sequence e
@@ -1013,8 +1043,7 @@ paralela nem segunda goroutine de retenção.
 O serviço remove registros antigos/acima do limite. Índices mínimos:
 `(user_id, received_at)`, `(user_id, status, received_at)`, PK única por
 `invocation_id` para chamadas diretas e índice único parcial
-`(user_id, auth_context_type, auth_context_id, source_type, source_instance_id,
-source_event_id) WHERE source_event_id IS NOT NULL AND source_event_id <> ''`
+`(source_event_id) WHERE source_event_id IS NOT NULL AND source_event_id <> ''`
 para eventos de adapter. Evento físico sempre tem usuário autenticado; contexto
 `system` sem usuário não usa esse índice e possui
 `(received_at) WHERE user_id IS NULL` para sua limpeza global.
@@ -1031,10 +1060,12 @@ estado. `command_idempotency_keys.key` e
 uma linha recente não reabre a execução nem a ativação.
 
 Não se persiste `arguments` bruto nem o `SurfaceContext` completo:
-`arguments_summary` redigido, fingerprint do JSON canônico já redigido,
-identidades de conversa/turno/surface, `surface_snapshot_version`,
-`context_version` e um resumo redigido permitem rastrear a origem sem copiar ou
-hashear diretamente segredos. O conteúdo completo do `SurfaceContext` não é
+`arguments_summary` é redigido; `arguments_fingerprint` e
+`request_fingerprint` são HMACs domain-separated calculados no backend sobre os
+valores canônicos ainda não redigidos e só o digest é persistido. Assim, valores
+sensíveis diferentes não colapsam no mesmo placeholder. Identidades de
+conversa/turno/surface, `surface_snapshot_version`, `context_version` e resumo
+redigido permitem rastrear a origem sem copiar segredos. O conteúdo completo do `SurfaceContext` não é
 reconstituível depois de expirar e esta AEP não promete reprodução integral.
 Auditorias de decisão/grant que tenham retenção própria na AEP-0091 ou AEP-0101
 não são substituídas por esta tabela.
@@ -1355,8 +1386,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   ativar e desativar camadas de forma determinística.
 - [ ] Ativações por evento têm ID, sequência, correlação e deduplicação; evento
   atrasado não encerra ciclo mais novo.
-- [ ] A primeira versão aceita apenas eventos internos catalogados; produtores
-  externos falham fechado.
+- [ ] A primeira versão aceita apenas fatos duráveis de `job_run_events`;
+  EventBus best-effort e produtores externos falham fechado.
 - [ ] Estado de ativação persistido é reconciliado em modo seguro no startup e
   preserva autenticação, geração e proveniência anti-loop da AEP-0067.
 - [ ] Claim de job sem lease e fonte autoritativa válidas fica inativa.
