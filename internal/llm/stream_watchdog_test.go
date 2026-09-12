@@ -164,7 +164,7 @@ func TestStreamIdleTimeoutForProvider(t *testing.T) {
 	if got := streamIdleTimeoutForProvider(&ProviderConfig{}); got != defaultStreamIdleTimeout {
 		t.Fatalf("sem override: esperava %v, veio %v", defaultStreamIdleTimeout, got)
 	}
-	if got := streamIdleTimeoutForProvider(&ProviderConfig{streamIdleTimeoutSeconds: 15}); got != 15*time.Second {
+	if got := streamIdleTimeoutForProvider(&ProviderConfig{StreamIdleTimeoutSeconds: 15}); got != 15*time.Second {
 		t.Fatalf("override: esperava 15s, veio %v", got)
 	}
 }

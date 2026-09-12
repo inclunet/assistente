@@ -17,10 +17,10 @@ import (
 const defaultStreamIdleTimeout = 60 * time.Second
 
 // streamIdleTimeoutForProvider devolve o idle timeout do provider, com
-// override interno usado por testes de regressão.
+// override opcional persistido na configuração do provider.
 func streamIdleTimeoutForProvider(p *ProviderConfig) time.Duration {
-	if p != nil && p.streamIdleTimeoutSeconds > 0 {
-		return time.Duration(p.streamIdleTimeoutSeconds) * time.Second
+	if p != nil && p.StreamIdleTimeoutSeconds > 0 {
+		return time.Duration(p.StreamIdleTimeoutSeconds) * time.Second
 	}
 	return defaultStreamIdleTimeout
 }

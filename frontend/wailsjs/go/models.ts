@@ -3809,6 +3809,7 @@ export namespace llm {
 	    default_model?: string;
 	    is_default?: boolean;
 	    timeout?: number;
+	    stream_idle_timeout_seconds?: number;
 	    headers?: Record<string, string>;
 	    credential_pattern?: string;
 	    auth_mode?: string;
@@ -3834,6 +3835,7 @@ export namespace llm {
 	        this.default_model = source["default_model"];
 	        this.is_default = source["is_default"];
 	        this.timeout = source["timeout"];
+	        this.stream_idle_timeout_seconds = source["stream_idle_timeout_seconds"];
 	        this.headers = source["headers"];
 	        this.credential_pattern = source["credential_pattern"];
 	        this.auth_mode = source["auth_mode"];

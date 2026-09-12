@@ -90,7 +90,7 @@ func TestAnthropicTimeoutParcialPreservaDiagnosticos(t *testing.T) {
 	provider := NewAnthropicProvider(&ProviderConfig{
 		ID: "anthropic-timeout", Name: "Anthropic Timeout", BaseURL: server.URL,
 		Type: ProviderClaude, Model: "claude-test", AuthMode: AuthModeNone,
-		streamIdleTimeoutSeconds: 1,
+		StreamIdleTimeoutSeconds: 1,
 	}, credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!")))
 	handler := &espiaoAvisos{}
 
@@ -129,7 +129,7 @@ func TestAnthropicTimeoutSoComReasoningRetentaELimpaHandler(t *testing.T) {
 	provider := NewAnthropicProvider(&ProviderConfig{
 		ID: "anthropic-reasoning", Name: "Anthropic Reasoning", BaseURL: server.URL,
 		Type: ProviderClaude, Model: "claude-test", AuthMode: AuthModeNone,
-		streamIdleTimeoutSeconds: 1,
+		StreamIdleTimeoutSeconds: 1,
 	}, credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!")))
 	handler := &espiaoAvisos{}
 

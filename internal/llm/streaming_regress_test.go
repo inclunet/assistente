@@ -274,7 +274,7 @@ func TestChatCompletions_TimeoutTerminalPreservaDiagnosticos(t *testing.T) {
 
 	p := NewOpenAIProvider(&ProviderConfig{
 		ID: "chat-timeout", BaseURL: server.URL + "/v1", AuthMode: AuthModeNone,
-		streamIdleTimeoutSeconds: 1,
+		StreamIdleTimeoutSeconds: 1,
 	}, credentials.NewManager(nil))
 	h := &spyHandler{}
 	p.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m", MaxTokens: 99}, h)
@@ -309,7 +309,7 @@ func TestResponses_TimeoutTerminalPreservaDiagnosticos(t *testing.T) {
 
 	p := NewOpenAIResponsesProvider(&ProviderConfig{
 		ID: "responses-timeout", BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses,
-		AuthMode: AuthModeNone, streamIdleTimeoutSeconds: 1,
+		AuthMode: AuthModeNone, StreamIdleTimeoutSeconds: 1,
 	}, credentials.NewManager(nil))
 	h := &spyHandler{}
 	p.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m", MaxTokens: 99}, h)
