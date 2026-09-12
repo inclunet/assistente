@@ -2854,7 +2854,7 @@ const ptBR = {
             ] },
             { type: 'p', text: 'Configure hotkeys na página "Perfis de Interação" ou peça no chat: `"Configura um hotkey Ctrl+Alt+V para gravar"`' },
             { type: 'h4', text: 'Perfis por Conversa' },
-            { type: 'p', text: 'Cada conversa pode usar perfis diferentes. Use os seletores na barra de ferramentas do chat (Ctrl+P para voz, Ctrl+I para interação) ou peça no chat para aplicar um perfil.' },
+            { type: 'p', text: 'Cada conversa pode usar perfis diferentes. Use Ctrl+P para abrir o perfil de interação na barra de ferramentas do chat ou peça no chat para aplicar um perfil.' },
             { type: 'h4', text: 'Perfis Padrão' },
             { type: 'p', text: 'Em Configurações, defina quais perfis serão usados automaticamente em novas conversas.' },
           ],

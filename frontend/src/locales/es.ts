@@ -2854,7 +2854,7 @@ const es = {
             ] },
             { type: 'p', text: 'Configura atajos en la página "Perfiles de interacción" o pídelo en el chat: `"Configura un atajo Ctrl+Alt+V para grabar"`' },
             { type: 'h4', text: 'Perfiles por conversación' },
-            { type: 'p', text: 'Cada conversación puede usar perfiles diferentes. Usa los selectores en la barra de herramientas del chat (Ctrl+P para voz, Ctrl+I para interacción) o pide en el chat aplicar un perfil.' },
+            { type: 'p', text: 'Cada conversación puede usar perfiles diferentes. Usa Ctrl+P para abrir el perfil de interacción en la barra de herramientas del chat o pide en el chat aplicar un perfil.' },
             { type: 'h4', text: 'Perfiles predeterminados' },
             { type: 'p', text: 'En Configuración, define qué perfiles se usarán automáticamente en las nuevas conversaciones.' },
           ],

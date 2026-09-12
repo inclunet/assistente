@@ -576,8 +576,19 @@ describe('ChatToolbar shortcuts', () => {
     const targets: HTMLElement[] = [
       document.createElement('textarea'),
       document.createElement('input'),
+      document.createElement('select'),
       contentEditable,
     ];
+    const inheritedContentEditable = document.createElement('div');
+    inheritedContentEditable.setAttribute('contenteditable', '');
+    const inheritedEditableTarget = document.createElement('span');
+    inheritedContentEditable.appendChild(inheritedEditableTarget);
+    targets.push(inheritedEditableTarget);
+    const plaintextContentEditable = document.createElement('div');
+    plaintextContentEditable.setAttribute('contenteditable', 'plaintext-only');
+    const plaintextEditableTarget = document.createElement('span');
+    plaintextContentEditable.appendChild(plaintextEditableTarget);
+    targets.push(plaintextEditableTarget);
     const monaco = document.createElement('div');
     monaco.className = 'monaco-editor';
     const monacoTarget = document.createElement('span');
@@ -588,8 +599,8 @@ describe('ChatToolbar shortcuts', () => {
     const terminalTarget = document.createElement('span');
     terminal.appendChild(terminalTarget);
     targets.push(terminalTarget);
-    targets.slice(0, 3).forEach((target) => document.body.appendChild(target));
-    document.body.append(monaco, terminal);
+    targets.slice(0, 4).forEach((target) => document.body.appendChild(target));
+    document.body.append(inheritedContentEditable, plaintextContentEditable, monaco, terminal);
 
     targets.forEach((target) => {
       expect(dispatchModelShortcut(target).defaultPrevented).toBe(false);
@@ -619,6 +630,8 @@ describe('ChatToolbar shortcuts', () => {
     expect(profileClickMock).not.toHaveBeenCalled();
     expect(clearConversationMock).not.toHaveBeenCalled();
     targets.forEach((target) => target.closest('body') && target.remove());
+    inheritedContentEditable.remove();
+    plaintextContentEditable.remove();
     monaco.remove();
     terminal.remove();
   });

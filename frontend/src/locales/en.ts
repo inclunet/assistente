@@ -2854,7 +2854,7 @@ const en = {
             ] },
             { type: 'p', text: 'Configure hotkeys on the "Interaction Profiles" page or ask in the chat: `"Set up a Ctrl+Alt+V hotkey to record"`' },
             { type: 'h4', text: 'Profiles per Conversation' },
-            { type: 'p', text: 'Each conversation can use different profiles. Use the selectors in the chat toolbar (Ctrl+P for voice, Ctrl+I for interaction) or ask in the chat to apply a profile.' },
+            { type: 'p', text: 'Each conversation can use different profiles. Use Ctrl+P to open the interaction profile in the chat toolbar or ask in the chat to apply a profile.' },
             { type: 'h4', text: 'Default Profiles' },
             { type: 'p', text: 'In Settings, define which profiles will be used automatically in new conversations.' },
           ],

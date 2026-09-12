@@ -28,6 +28,7 @@ import { useChatSession } from './ChatSessionContext';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
 import { SHORTCUTS } from '../../constants/chat';
+import { isEditableKeyboardTarget } from '../../lib/decisionMnemonic';
 import './ChatToolbar.css';
 
 const DEFAULT_ROUTING_SENTINEL = '$default';
@@ -64,10 +65,6 @@ const MODEL_SHORTCUT_BLOCKED_TARGETS = [
 ].join(',');
 
 const CAPTURE_SHORTCUT_BLOCKED_TARGETS = [
-  'input',
-  'textarea',
-  'select',
-  '[contenteditable="true"]',
   '.chat-message__edit',
   '.monaco-editor',
   '.xterm',
@@ -77,6 +74,7 @@ const CAPTURE_SHORTCUT_BLOCKED_TARGETS = [
 
 function isCaptureShortcutBlockedTarget(target: Element | null): boolean {
   if (!target) return false;
+  if (isEditableKeyboardTarget(target)) return true;
   if (target.closest(CAPTURE_SHORTCUT_BLOCKED_TARGETS)) return true;
 
   // Modais reais são arbitrados pelo modalRegistry/canHandleShortcut. Já os
