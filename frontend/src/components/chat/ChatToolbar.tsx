@@ -78,6 +78,12 @@ function isVisibleShortcutOverlay(element: Element): boolean {
   return true;
 }
 
+function hasVisibleShortcutOverlay(): boolean {
+  return Array.from(
+    document.querySelectorAll('[role="menu"], [role="listbox"], .picker-dropdown'),
+  ).some(isVisibleShortcutOverlay);
+}
+
 function canOpenModelPickerFromShortcut(event: KeyboardEvent): boolean {
   if (
     event.defaultPrevented
@@ -100,10 +106,7 @@ function canOpenModelPickerFromShortcut(event: KeyboardEvent): boolean {
 
   // Menus e pickers são portalados ou podem estar fora do alvo do evento.
   // Enquanto qualquer um estiver aberto, Ctrl+M pertence à interação corrente.
-  const openOverlay = Array.from(
-    document.querySelectorAll('[role="menu"], [role="listbox"], .picker-dropdown'),
-  ).some(isVisibleShortcutOverlay);
-  return !openOverlay;
+  return !hasVisibleShortcutOverlay();
 }
 
 export type ChatToolbarConversationChangeHandler = (
@@ -305,6 +308,21 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     if (!enableShortcuts) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
+      const isToolbarShortcut = e.ctrlKey
+        && !e.shiftKey
+        && !e.altKey
+        && !e.metaKey
+        && !e.defaultPrevented
+        && !e.isComposing
+        && e.keyCode !== 229
+        && !e.repeat
+        && ['m', 'l', 'h', 'p'].includes(key);
+      if (!isToolbarShortcut) return;
+      if (hasVisibleShortcutOverlay()) {
+        if (key !== 'm') e.preventDefault();
+        return;
+      }
+
       if (canOpenModelPickerFromShortcut(e)) {
         const trigger = toolbarRef.current?.querySelector<HTMLButtonElement>(
           `button.picker-button[data-shortcut="${SHORTCUTS.MODELS}"]`,
@@ -317,18 +335,18 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       }
       // Sempre previne o default do navegador (Ctrl+L/H/P), mas só age quando
       // não há modal aberto ou quando este toolbar pertence ao modal do topo.
-      if (e.ctrlKey && key === 'l') {
+      if (key === 'l') {
         e.preventDefault();
         if (!canHandleShortcut()) return;
         void handleClearConversation();
       }
-      else if (e.ctrlKey && key === 'h') {
+      else if (key === 'h') {
         e.preventDefault();
         if (!canHandleShortcut()) return;
         const btn = historyContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
         btn?.click();
       }
-      else if (e.ctrlKey && key === 'p') {
+      else if (key === 'p') {
         e.preventDefault();
         if (!canHandleShortcut()) return;
         const btn = profileContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
@@ -336,8 +354,10 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    // A captura mantém estes atalhos disponíveis quando a superfície focada
+    // contém o bubbling (por exemplo, após sair de um menu com Escape).
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [canHandleShortcut, enableShortcuts, handleClearConversation]);
 
   const handleProfileChange = useCallback(async (slug: string) => {

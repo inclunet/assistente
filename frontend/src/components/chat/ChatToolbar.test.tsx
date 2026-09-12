@@ -215,14 +215,14 @@ function renderToolbar() {
   );
 }
 
-function dispatchCtrlKey(key: string) {
+function dispatchCtrlKey(key: string, target: EventTarget = window) {
   const event = new KeyboardEvent('keydown', {
     key,
     ctrlKey: true,
     bubbles: true,
     cancelable: true,
   });
-  window.dispatchEvent(event);
+  target.dispatchEvent(event);
   return event;
 }
 
@@ -361,7 +361,7 @@ describe('ChatToolbar shortcuts', () => {
     expect(trigger).toHaveAttribute('title', 'Ctrl+M');
   });
 
-  it('em surfaces mantidas montadas, somente a ativa responde a Ctrl+M', async () => {
+  it('em surfaces mantidas montadas, somente a ativa responde aos atalhos', async () => {
     render(
       <MemoryRouter>
         <ChatToolbar enableShortcuts={false} />
@@ -375,8 +375,54 @@ describe('ChatToolbar shortcuts', () => {
     });
 
     dispatchModelShortcut();
+    dispatchCtrlKey('h');
+    dispatchCtrlKey('p');
+    dispatchCtrlKey('l');
 
     expect(modelOpenMock).toHaveBeenCalledOnce();
+    expect(historyClickMock).toHaveBeenCalledOnce();
+    expect(profileClickMock).toHaveBeenCalledOnce();
+    await waitFor(() => expect(clearConversationMock).toHaveBeenCalledOnce());
+  });
+
+  it('continua acionando os atalhos após Escape quando a superfície interrompe a propagação', async () => {
+    renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+
+    const surface = document.createElement('div');
+    surface.setAttribute('role', 'document');
+    const trigger = document.createElement('button');
+    const menu = document.createElement('div');
+    const menuItem = document.createElement('button');
+    menu.setAttribute('role', 'menu');
+    menu.appendChild(menuItem);
+    surface.append(trigger, menu);
+    document.body.appendChild(surface);
+    surface.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        menu.hidden = true;
+        trigger.focus();
+      }
+      event.stopPropagation();
+    });
+
+    menuItem.focus();
+    fireEvent.keyDown(menuItem, { key: 'Escape' });
+    expect(trigger).toHaveFocus();
+
+    dispatchCtrlKey('m', trigger);
+    dispatchCtrlKey('h', trigger);
+    dispatchCtrlKey('p', trigger);
+    dispatchCtrlKey('l', trigger);
+
+    expect(modelOpenMock).toHaveBeenCalledOnce();
+    expect(historyClickMock).toHaveBeenCalledOnce();
+    expect(profileClickMock).toHaveBeenCalledOnce();
+    await waitFor(() => expect(clearConversationMock).toHaveBeenCalledOnce());
+
+    surface.remove();
   });
 
   it('não intercepta Ctrl+M em editores, terminal, modal, menu ou picker aberto', async () => {
@@ -445,12 +491,24 @@ describe('ChatToolbar shortcuts', () => {
 
     const blockedEvent = dispatchModelShortcut(outsideFocus);
     expect(blockedEvent.defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('h', outsideFocus).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('p', outsideFocus).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('l', outsideFocus).defaultPrevented).toBe(true);
     expect(modelOpenMock).not.toHaveBeenCalled();
+    expect(historyClickMock).not.toHaveBeenCalled();
+    expect(profileClickMock).not.toHaveBeenCalled();
+    expect(clearConversationMock).not.toHaveBeenCalled();
 
     portalListbox.hidden = true;
     const normalEvent = dispatchModelShortcut(outsideFocus);
     expect(normalEvent.defaultPrevented).toBe(true);
+    dispatchCtrlKey('h', outsideFocus);
+    dispatchCtrlKey('p', outsideFocus);
+    dispatchCtrlKey('l', outsideFocus);
     expect(modelOpenMock).toHaveBeenCalledOnce();
+    expect(historyClickMock).toHaveBeenCalledOnce();
+    expect(profileClickMock).toHaveBeenCalledOnce();
+    await waitFor(() => expect(clearConversationMock).toHaveBeenCalledOnce());
 
     outsideFocus.remove();
     portalListbox.remove();
