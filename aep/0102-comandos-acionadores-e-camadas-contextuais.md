@@ -134,7 +134,8 @@ efetiva. `CommandExecutionService` revalida essa invariância; metadata de coman
 não pode optar por escapar de staleness.
 
 `effect_class = destructive` exige `decision_requirement = interactive`,
-segue AEP-0091 e não aceita `allowed_source_types = cli`. Combinação
+segue AEP-0091 e exige `cli ∉ allowed_source_types`, mesmo quando a coleção
+contém outras origens. Combinação
 `destructive + none` é inválida no registro e recusada novamente pelo executor.
 
 Comandos de UI podem ser executados no frontend por uma ponte tipada. Comandos
@@ -206,13 +207,23 @@ Palette, `ui.action`, chat, CLI e `system` os omitem e deduplicam pela PK
 serviço. Após resolução, `binding_ids` é sempre materializado como lista, ainda
 que vazia.
 
+Na primeira tentativa, IDs são gerados em borda confiável: Wails para
+palette/UI, contexto persistido da tool call para chat, processo backend para
+`system` e serviço CLI para terminal. A CLI imprime/devolve o ID e aceita
+`--request-id` apenas em retry autenticado; chat reutiliza o ID associado ao
+mesmo tool call. Valor reapresentado nunca troca ownership e sempre passa pelo
+fingerprint/ledger.
+
 Para toda origem, `request_fingerprint` é HMAC do request de ingresso após
 normalização e, para trigger, após fixar o candidato vencedor, serializado por
 JSON Canonicalization Scheme (RFC 8785). Inclui
 schema, comando ou trigger, argumentos, IDs/versões de contexto, usuário/ator
 derivados, tipo/ID do contexto autenticado, origem/observador, workspace,
 `source_instance_id`/`source_event_id` quando presentes, versões de
-catálogo/configuração e proveniência. Exclui token bruto,
+catálogo/configuração, profiles de origem/destino,
+`authorization_decision_id`, `delegation_fingerprint`, `grant_generation`,
+`job_id`, `job_slug`, `job_definition_fingerprint`, `run_id` e proveniência.
+Exclui token bruto,
 `auth_generation` rotativa e timestamps. É calculado no backend e persistido
 sem revelar segredos. Reentrega com o mesmo `invocation_id` só é aceita se o
 fingerprint for idêntico; divergência é conflito e falha fechado.
@@ -295,6 +306,13 @@ não existe janela entre CAS e início, nem lock mantido durante trabalho longo.
 Invalidação posterior cancela o contexto quando suportado; efeito já admitido
 não é retroativamente desfeito. Testes cobrem ack limitado, logout concorrente e
 ausência de deadlock.
+
+`Start` devolve `ExecutionHandle` com ID, canal/future `Done` e `Cancel`.
+`CommandExecutionService` aguarda fora do gate e faz CAS terminal único para
+`succeeded`, `failed`, `cancelled` ou `timed_out`, atualizando auditoria e ledger
+na mesma transação. Panic, canal fechado sem outcome e timeout viram falha
+tipada; outcome tardio após terminal é ignorado. Handler síncrono curto usa
+handle já concluído.
 
 A reserva é uma transação que cria a chave no ledger de idempotência e a linha
 de auditoria `evaluating` antes do handler. O ledger usa PK `id`, `key` UNIQUE,
@@ -785,10 +803,16 @@ consulta o snapshot atual do provider, portanto perda/reordenação não conserv
 camada incorreta. O monitor de janela em primeiro plano é adapter específico por
 sistema operacional; no Windows, não depende do software do Stream Deck.
 
+Consumidor do `ContextFactBus` adquire `DispatchGate` exclusivo antes de trocar
+snapshot, recalcular claims e incrementar `active_layers_generation`.
+Resolução/admissão lê providers sob o gate compartilhado. Assim, mudança já
+observada não atravessa o CAS/início com geração antiga.
+
 Para jobs, a integração publica o fato contextual interno versionado
 `command-context.job-run-state.v1`, com `user_id`, `job_id`, `job_slug`,
 `run_id`, `run_event_id`, `sequence`, `state`, `occurred_at`,
-`_source`, `_source_job_id`, `_chain_id` e `_chain_history`. `_source` deve ser
+`root_origin_type`, `root_origin_id`, `_source`, `_source_job_id`, `_chain_id` e
+`_chain_history`. `_source` deve ser
 `job` nesse fato; outro valor falha fechado. `run_event_id` é o UUIDv7 de
 `job_run_events.id` e vira o `source_event_id` estável, inclusive em replay.
 `job_id` é o UUID de `jobs.id`
@@ -801,6 +825,19 @@ lookup seguro por PK/ownership nesta integração.
 `job_slug` é a identidade pública usada por
 `eventctx.SourceJobID` conforme AEP-0067 e serve para apresentação/resolução inicial.
 Depois da resolução, correlação e autorização usam o UUID.
+
+`root_origin_type` é preservado por toda cadeia. Na v1, somente `manual`,
+`cron`, `interval` e `internal_event` autenticado são elegíveis. `webhook`,
+`external_event` ou origem desconhecida não produz ativação, mesmo quando o run
+intermediário tenha `_source = job`.
+
+Persistência incremental exige migração prévia da AEP-0048:
+`job_runs.status` passa a aceitar `queued`, `running`, `retrying`, `completed`,
+`failed` e `skipped`; ganha `queued_at` NOT NULL e torna `started_at` nullable.
+Linhas existentes recebem `queued_at = started_at`; estados terminais não
+mudam. O run é inserido como `queued`, muda para `running` ao iniciar e só então
+preenche `started_at`. Duração continua calculada desde `started_at`, não da
+fila. `job_run_events` referencia a linha já criada.
 
 Como pré-requisito do adapter, o executor passa a criar/persistir `queued` antes
 do despacho, `started` antes da tool e `retry_scheduled` antes do backoff; sem
@@ -989,7 +1026,8 @@ command_invocations
 command_idempotency_keys
   id, key, invocation_id, user_id nullable_for_system,
   auth_context_type, auth_context_id,
-  source_type nullable_until_resolved, source_instance_id, source_event_id,
+  source_type nullable_until_resolved, source_instance_id nullable,
+  source_event_id nullable,
   request_fingerprint_version, request_fingerprint,
   status, result_summary, result_ref, received_at, expires_at
 ```
@@ -1034,7 +1072,7 @@ equivalentes considerados na deduplicação; fica vazia para execução direta.
 O acionador efetivo também fica em snapshot normalizado/redigido e fingerprint,
 portanto excluir o binding ou atualizar defaults não apaga sua origem histórica.
 `status` aceita `evaluating`, `queued`, `running`, `succeeded`, `failed`, `denied`,
-`cancelled_stale` e `outcome_unknown`. `result_summary` é redigido e
+`cancelled`, `cancelled_stale`, `timed_out` e `outcome_unknown`. `result_summary` é redigido e
 `result_ref` guarda somente referência estável e não sensível, como o ID de uma
 aba ou run, permitindo consultar uma reentrega sem repetir efeitos.
 
@@ -1085,8 +1123,11 @@ Essas operações exigem ator autenticado e o fluxo explícito de configuração
 
 Exportação e importação integram o envelope versionado da AEP-0047 pela seção
 `resources.commandLayers`. Cada camada inclui UUID, escopo portátil,
-`activationRules` e `bindings`; overrides incluem ID e versão do default.
-Defaults puros e `command_invocations` não são exportados. Referências internas
+`activationRules` e `bindings`; overrides incluem ID, versão e fingerprint do
+default para round-trip de `needs_review`. Defaults puros, invocações e todo
+`command_layer_activation_state` — inclusive pin/claim manual persistente — não
+são exportados. Camadas importadas começam sem claims manuais; regras
+contextuais são recalculadas no destino. Referências internas
 são remapeadas em conjunto e a importação é idempotente por UUID.
 
 Bindings persistentes não armazenam segredo bruto. Paths marcados como
@@ -1135,10 +1176,11 @@ executado pelo novo `InstanceMaintenanceCoordinator`, opera em escopo
 privilegiado da instância: enumera todos os usuários e também `user_id IS NULL`,
 sem depender do usuário ativo nem de `RequireUserID`. O coordenador absorve a
 cadência hoje iniciada por `jobs.Manager.runRetention` e chama, por interfaces,
-retenção de jobs/comandos e a compactação física hoje feita por `maybeCompact`,
-na mesma ordem e numa única goroutine de manutenção. O PR da implementação
-atualiza a AEP-0074-B e move a responsabilidade sem perder vacuum/compactação;
-não cria loop paralelo.
+numa única goroutine e nesta ordem: retenção de jobs;
+`ToolInvocations.CleanOldDryRuns`; `CleanOrphanChat`; `CleanOldChat`; retenção
+de invocações/ledgers de comandos; retenção de ativações; e compactação física
+por `maybeCompact`. O PR atualiza a AEP-0074-B e move a responsabilidade sem
+perder nenhuma limpeza nem vacuum/compactação; não cria loop paralelo.
 
 O serviço lê exclusivamente
 `maintenance.command_invocation_retention_days` (padrão 30) e
