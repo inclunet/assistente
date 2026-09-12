@@ -307,6 +307,22 @@ describe('ChatToolbar shortcuts', () => {
     });
   });
 
+  it('deixa a toolbar do modal tratar o evento prevenido pela superfície atrás dele', async () => {
+    modalState.open = true;
+    modalState.inside = false;
+    renderToolbar();
+    modalState.inside = true;
+    renderToolbar();
+
+    expect(dispatchCtrlKey('h').defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('p').defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('l').defaultPrevented).toBe(true);
+
+    expect(historyClickMock).toHaveBeenCalledOnce();
+    expect(profileClickMock).toHaveBeenCalledOnce();
+    await waitFor(() => expect(clearConversationMock).toHaveBeenCalledOnce());
+  });
+
   it('bloqueia atalhos do chat quando outro modal esta no topo', () => {
     modalState.open = true;
     modalState.inside = true;

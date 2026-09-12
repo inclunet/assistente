@@ -312,7 +312,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         && !e.shiftKey
         && !e.altKey
         && !e.metaKey
-        && !e.defaultPrevented
         && !e.isComposing
         && e.keyCode !== 229
         && !e.repeat
