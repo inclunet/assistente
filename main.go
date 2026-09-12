@@ -4,21 +4,72 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"embed"
+	"io"
+	"os"
 	"time"
 
 	"assistente/adapters/wails"
 	application "assistente/internal/app"
+	"assistente/internal/database"
 	"assistente/internal/wailsapi"
 
 	wailslib "github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
+var (
+	runDesktop   = wailslib.Run
+	quitDesktop  = wailsruntime.Quit
+	startDesktop = func(a *application.App, ctx context.Context) error {
+		return a.StartupWithAdapters(
+			ctx,
+			wails.NewEmitterAdapter(ctx),
+			wails.NewWindowAdapter(ctx),
+			wails.NewDialogAdapter(ctx),
+		)
+	}
+)
+
 func main() {
+	os.Exit(run(os.Args))
+}
+
+func run(args []string) (exitCode int) {
+	logPath, remainingArgs, err := logging.ParseLogFileArgs(args[1:])
+	if err != nil {
+		reportFatalError(os.Stderr, startupLogConfigurationError(err))
+		return 2
+	}
+
+	errorOutput := io.Writer(os.Stderr)
+	if logPath != "" {
+		fileOutput, err := logging.OpenFileOutput(logPath)
+		if err != nil {
+			reportFatalError(os.Stderr, startupLogConfigurationError(err))
+			return 2
+		}
+		database.SetLogOutput(fileOutput.Writer())
+		errorOutput = logging.DuplicateTo(os.Stderr, fileOutput.Writer())
+		defer func() {
+			database.SetLogOutput(nil)
+			if err := fileOutput.Close(); err != nil {
+				reportFatalError(os.Stderr, startupLogCloseError(logPath, err))
+				exitCode = 1
+			}
+		}()
+	}
+
+	originalArgs := os.Args
+	os.Args = append([]string{args[0]}, remainingArgs...)
+	defer func() {
+		os.Args = originalArgs
+	}()
+
 	a := application.NewApp()
 	tokensAPI := wailsapi.NewTokens()
 	application.SetTokensAPI(a, tokensAPI)
@@ -97,7 +148,8 @@ func main() {
 	exportImportAPI := wailsapi.NewExportImport()
 	application.SetExportImportAPI(a, exportImportAPI)
 
-	err := wailslib.Run(&options.App{
+	startupErrors := make(chan error, 1)
+	err = runDesktop(&options.App{
 		Title:  "assistente",
 		Width:  1024,
 		Height: 768,
@@ -106,12 +158,11 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup: func(ctx context.Context) {
-			if err := a.StartupWithAdapters(ctx,
-				wails.NewEmitterAdapter(ctx),
-				wails.NewWindowAdapter(ctx),
-				wails.NewDialogAdapter(ctx),
-			); err != nil {
-				logging.Fatalf(ctx, "main", "Falha ao inicializar aplicação: %v", err)
+			if err := startDesktop(a, ctx); err != nil {
+				logging.Errorf(ctx, "main", "Falha ao inicializar aplicação: %v", err)
+				startupErrors <- err
+				quitDesktop(ctx)
+				return
 			}
 			// Restaura foco da janela (resolve bug do Wails no Windows)
 			go func() {
@@ -176,7 +227,15 @@ func main() {
 		},
 	})
 
-	if err != nil {
-		println("Error:", err.Error())
+	select {
+	case startupErr := <-startupErrors:
+		reportFatalError(errorOutput, startupApplicationError(startupErr))
+		return 1
+	default:
 	}
+	if err != nil {
+		reportFatalError(errorOutput, startupRunError(err))
+		return 1
+	}
+	return 0
 }
