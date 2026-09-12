@@ -4,10 +4,14 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"embed"
+	"fmt"
+	"io"
+	"os"
 	"time"
 
 	"assistente/adapters/wails"
 	application "assistente/internal/app"
+	"assistente/internal/database"
 	"assistente/internal/wailsapi"
 
 	wailslib "github.com/wailsapp/wails/v2"
@@ -19,6 +23,40 @@ import (
 var assets embed.FS
 
 func main() {
+	os.Exit(run(os.Args))
+}
+
+func run(args []string) (exitCode int) {
+	logPath, remainingArgs, err := logging.ParseLogFileArgs(args[1:])
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Erro ao configurar logs: %v\n", err)
+		return 2
+	}
+
+	errorOutput := io.Writer(os.Stderr)
+	if logPath != "" {
+		fileOutput, err := logging.OpenFileOutput(logPath)
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "Erro ao configurar logs: %v\n", err)
+			return 2
+		}
+		database.SetLogOutput(fileOutput.Writer())
+		errorOutput = logging.DuplicateTo(os.Stderr, fileOutput.Writer())
+		defer func() {
+			database.SetLogOutput(nil)
+			if err := fileOutput.Close(); err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "Erro ao fechar arquivo de log %q: %v\n", logPath, err)
+				exitCode = 1
+			}
+		}()
+	}
+
+	originalArgs := os.Args
+	os.Args = append([]string{args[0]}, remainingArgs...)
+	defer func() {
+		os.Args = originalArgs
+	}()
+
 	a := application.NewApp()
 	tokensAPI := wailsapi.NewTokens()
 	application.SetTokensAPI(a, tokensAPI)
@@ -97,7 +135,7 @@ func main() {
 	exportImportAPI := wailsapi.NewExportImport()
 	application.SetExportImportAPI(a, exportImportAPI)
 
-	err := wailslib.Run(&options.App{
+	err = wailslib.Run(&options.App{
 		Title:  "assistente",
 		Width:  1024,
 		Height: 768,
@@ -177,6 +215,8 @@ func main() {
 	})
 
 	if err != nil {
-		println("Error:", err.Error())
+		_, _ = fmt.Fprintf(errorOutput, "Error: %v\n", err)
+		return 1
 	}
+	return 0
 }
