@@ -204,12 +204,14 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	header += "\n"
 
 	resultContent := header + extracted
-	if mode == "raw" {
+	structuredJSON := mode != "raw" && isJSONMediaType(contentType) && tools.IsCanonicalJSON(extracted)
+	if mode == "raw" || structuredJSON {
 		resultContent = extracted
 	}
 	result := tools.ToolResult{
-		Content:  resultContent,
-		RawExact: mode == "raw",
+		Content:    resultContent,
+		RawExact:   mode == "raw",
+		Structured: structuredJSON,
 		Metadata: map[string]any{
 			"url":          a.URL,
 			"status":       resp.StatusCode,
@@ -217,11 +219,17 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 			"length":       len(extracted),
 		},
 	}
-	if mode == "raw" && len(result.Content) > maxLength {
+	if (result.RawExact || result.Structured) && len(result.Content) > maxLength {
+		code := "result_too_large"
+		kind := "Resposta JSON"
+		if result.RawExact {
+			code = "raw_result_too_large"
+			kind = "Resposta raw"
+		}
 		return tools.ToolResult{
-			Content: fmt.Sprintf("Resposta raw tem %d bytes, acima do limite de %d; solicite um recurso menor ou use http_request com suporte de intervalo do servidor.", len(result.Content), maxLength),
+			Content: fmt.Sprintf("%s tem %d bytes, acima do limite de %d; solicite um recurso menor ou use http_request com suporte de intervalo do servidor.", kind, len(result.Content), maxLength),
 			IsError: true,
-			Failure: &tools.ToolFailure{Code: "raw_result_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+			Failure: &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnknown, Retryable: false},
 		}, nil
 	}
 	if len(extracted) <= maxLength {

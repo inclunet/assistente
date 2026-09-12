@@ -448,63 +448,16 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 
 func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, argsJSON json.RawMessage) tools.ToolExecutionResult {
 	if e.toolInvocations == nil {
-		tool, ok := e.toolRegistry.Get(job.Tool)
-		if !ok {
-			return tools.ToolExecutionResult{
-				ToolName:          job.Tool,
-				Result:            tools.ToolResult{Content: fmt.Sprintf("tool not found: %s", job.Tool), IsError: true},
-				ErrorKind:         tools.ErrorKindNotFound,
-				RetryabilityKnown: true,
-			}
-		}
-		result, err := tool.Execute(ctx, argsJSON)
-		if err != nil {
-			execution := tools.ToolExecutionResult{
-				ToolName:  job.Tool,
-				Result:    result,
-				Error:     err,
-				ErrorKind: tools.ErrorKindUnknown,
-			}
-			if execution.Result.Content == "" {
-				execution.Result.Content = err.Error()
-			}
-			execution.Result.IsError = true
-			if result.Failure != nil {
-				execution.ErrorCode = result.Failure.Code
-			}
-			switch {
-			case errors.Is(err, context.Canceled):
-				execution.ErrorKind = tools.ErrorKindCancelled
-				execution.RetryabilityKnown = true
-			case errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil:
-				execution.ErrorKind = tools.ErrorKindTimeout
-				execution.Retryable = true
-				execution.RetryabilityKnown = true
-			case result.Failure != nil:
-				execution.ErrorKind = result.Failure.Kind
-				execution.ErrorCode = result.Failure.Code
-				execution.Retryable = result.Failure.Retryable
-				execution.RetryabilityKnown = true
-			default:
-				if code, ok := result.Metadata["error_code"].(string); ok {
-					execution.ErrorCode = code
-				}
-			}
-			return execution
-		}
-		if result.Failure != nil {
-			result.IsError = true
-		}
-		execution := tools.ToolExecutionResult{ToolName: job.Tool, Result: result}
-		if result.Failure != nil {
-			execution.ErrorKind = result.Failure.Kind
-			execution.ErrorCode = result.Failure.Code
-			execution.Retryable = result.Failure.Retryable
-			execution.RetryabilityKnown = true
-		} else if code, ok := result.Metadata["error_code"].(string); ok {
-			execution.ErrorCode = code
-		}
-		return execution
+		cfg := tools.DefaultExecutorConfig()
+		cfg.MaxResultSize = JobExecutionMaxResultSizeBytes
+		cfg.RequireCompleteResult = true
+		return tools.NewExecutor(e.toolRegistry, cfg).ExecuteOne(ctx, tools.ToolCall{
+			ID:   fmt.Sprintf("job_%s_%d", job.ID, time.Now().UnixNano()),
+			Type: "function",
+			Function: tools.FunctionCall{
+				Name: job.Tool, Arguments: string(argsJSON),
+			},
+		})
 	}
 
 	callID := fmt.Sprintf("job_%s_%d", job.ID, time.Now().UnixNano())

@@ -202,6 +202,24 @@ func TestWebFetchMaxLengthCountsExtractedPayloadNotHeader(t *testing.T) {
 	}
 }
 
+func TestWebFetchJSONIsStructuredAndLargePayloadFailsWithoutPartial(t *testing.T) {
+	body := `{"items":["` + strings.Repeat("segredo", 100) + `"]}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer server.Close()
+
+	args, _ := json.Marshal(map[string]any{"url": server.URL, "max_length": 100})
+	result, err := newTestWebFetch().Execute(context.Background(), args)
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "result_too_large" {
+		t.Fatalf("JSON grande não falhou integralmente: err=%v result=%+v", err, result)
+	}
+	if strings.Contains(result.Content, body[:100]) {
+		t.Fatal("falha estruturada contém JSON parcial")
+	}
+}
+
 func TestWebFetchRawIsExactOrFailsWithoutPartial(t *testing.T) {
 	body := "ç-exato"
 	small := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

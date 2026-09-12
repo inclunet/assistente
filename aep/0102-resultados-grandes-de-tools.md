@@ -61,8 +61,9 @@ JSON e não ofereciam retomada exata.
     criou. `read_tool_result` valida ambos e responde como não encontrado fora
     desse escopo. A cópia persistida omite prévias com `result_id` efêmero.
 14. Consumidores machine-facing, como jobs, exigem resultado integral: acima do
-    budget próprio falham em vez de receber uma prévia que não conseguiriam
-    paginar.
+    budget próprio ou diante de qualquer `OutputWindow.has_more`, falham em vez
+    de receber uma prévia que não conseguiriam paginar. Isso também vale para o
+    fallback de jobs executado sem o serviço de auditoria.
 
 ## Fases
 

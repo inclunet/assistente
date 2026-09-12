@@ -142,6 +142,32 @@ func TestGrepSearchEmptyResultReportsTruncationByFileLimit(t *testing.T) {
 	if result.Annotations == nil || result.Annotations.OutputWindow == nil ||
 		!result.Annotations.OutputWindow.HasMore {
 		t.Errorf("anotação de janela ausente: %+v", result.Annotations)
+	} else if window := result.Annotations.OutputWindow; window.Unit != "files" || window.Returned != 2 {
+		t.Errorf("janela por arquivos inválida: %+v", window)
+	}
+}
+
+func TestGrepSearchSingleFileReportsActualMatchesWithContext(t *testing.T) {
+	dir := t.TempDir()
+	content := "antes\nagulha um\nmeio\nagulha dois\ndepois\nagulha três\n"
+	if err := os.WriteFile(filepath.Join(dir, "notas.txt"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(
+		`{"pattern":"agulha","path":"notas.txt","max_results":2,"context_lines":1}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Annotations == nil || result.Annotations.OutputWindow == nil {
+		t.Fatalf("limite no arquivo único não foi propagado: %+v", result)
+	}
+	window := result.Annotations.OutputWindow
+	if !window.HasMore || window.Unit != "matches" || window.Returned != 2 {
+		t.Fatalf("janela deve contar matches, não linhas de contexto: %+v", window)
+	}
+	if result.Metadata["matches"] != 2 {
+		t.Fatalf("metadata de matches incorreta: %+v", result.Metadata)
 	}
 }
 
@@ -607,7 +633,7 @@ func TestGrepSearchWarnsWhenPrefixCannotBeRead(t *testing.T) {
 	}
 
 	stats := &grepStats{}
-	matches, searched := NewGrepSearch(dir).searchPath(
+	matches, searched, truncated := NewGrepSearch(dir).searchPath(
 		context.Background(),
 		path,
 		info,
@@ -617,8 +643,8 @@ func TestGrepSearchWarnsWhenPrefixCannotBeRead(t *testing.T) {
 		docextract.ModeAuto,
 		stats,
 	)
-	if !searched || len(matches) != 0 {
-		t.Fatalf("falha de prefixo deve contar como tentativa sem matches: searched=%v matches=%v", searched, matches)
+	if !searched || truncated || len(matches) != 0 {
+		t.Fatalf("falha de prefixo deve contar como tentativa sem matches: searched=%v truncated=%v matches=%v", searched, truncated, matches)
 	}
 	if len(stats.warnings) != 1 || !strings.Contains(stats.warnings[0].Reason, "não foi possível ler o prefixo") {
 		t.Fatalf("aviso ausente: %+v", stats.warnings)
