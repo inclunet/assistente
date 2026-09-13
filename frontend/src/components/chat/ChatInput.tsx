@@ -431,7 +431,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   };
 
   return (
-    <div 
+    <div
+      data-testid="chat-input"
       className={`chat-input ${isDragging ? 'dragging' : ''}`}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
