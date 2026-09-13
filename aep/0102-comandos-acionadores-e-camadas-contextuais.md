@@ -551,6 +551,16 @@ Adapters normalizam a entrada para uma identidade de acionador e nunca executam
 diretamente a ação final. Uma entrada física gera no máximo uma execução, mesmo
 quando mais de um observador puder enxergá-la.
 
+Cada adapter físico normaliza primeiro uma transição `up → down` e só depois
+gera `source_event_id`. Em `keyboard.local`, `keydown` com
+`KeyboardEvent.repeat = true` é descartado e `keyup` libera a combinação; perda
+de foco, blur ou troca de geração limpa o estado pressionado sem disparar ação.
+O adapter global solicita a opção nativa de no-repeat quando disponível e
+mantém a mesma máquina de estado de pressão/liberação; plataforma que não
+consiga garantir essa borda não anuncia suporte ao binding global. Stream Deck
+deduplica callbacks até o release correspondente. Testes mantêm a tecla
+pressionada, simulam repeat/reconexão e provam uma única ocorrência.
+
 Eventos de teclado têm ownership exclusivo. Uma combinação registrada como
 `keyboard.global` pertence ao adapter do sistema operacional inclusive quando o
 Assistente está em foco; o adapter DOM recebe a lista correspondente e não emite
@@ -566,8 +576,10 @@ possui um único listener por dispositivo. Essa exclusão evita dupla execução
 define uma única observação física.
 
 Pressão normal, pressão longa, alternância e dial podem ser acrescentados como
-gestos normalizados quando o dispositivo oferecer esses sinais. Capacidade não
-detectada não deve ser simulada de forma ambígua.
+gestos normalizados quando o dispositivo oferecer esses sinais. Pressão longa
+exige máquina de estado própria que emita exatamente um gesto normal ou longo
+por ciclo físico, nunca reaproveita os `keydown.repeat` descartados. Capacidade
+não detectada não deve ser simulada de forma ambígua.
 
 ### D4 — Bindings associam acionadores a comandos
 
@@ -1172,10 +1184,14 @@ command_layers
   resolution_priority, created_at, updated_at
 
 command_layer_activation_rules
-  id, layer_id, mode, condition, lifecycle, event_name,
+  id, user_id, workspace_id nullable_for_global,
+  layer_ref_kind, layer_ref, rule_ref_kind, rule_ref,
+  mode, condition, lifecycle, event_name,
   allowed_internal_producer_types, authorization_decision_id,
   automation_grant_id, automation_grant_generation,
-  automation_grant_fingerprint, enabled
+  automation_grant_fingerprint, enabled, source,
+  replaces_default_id nullable, replaces_default_version nullable,
+  replaces_default_fingerprint nullable, review_status
 
 command_layer_automation_grants
   id, user_id, workspace_id nullable_for_global,
@@ -1314,11 +1330,25 @@ jobs persiste o novo epoch na mesma seção crítica que publica a configuraçã
 Lookup por `source_occurred_at` escolhe o maior `effective_at` não posterior ao
 evento. Ausência ou ambiguidade falha fechado.
 
-Estado de ativação usa referência polimórfica validada, não FK:
+Regras persistidas e estado de ativação usam referências polimórficas
+validadas, não FKs:
 `layer_ref_kind`/`rule_ref_kind` aceitam `builtin` ou `user`; refs builtin são
 IDs namespaced do catálogo em código e refs user são UUIDv7 que precisam
 pertencer ao mesmo usuário. Isso permite ativar defaults sem copiá-los para
 `command_layers` e mantém restore sob ownership do catálogo.
+
+Em `command_layer_activation_rules`, `id` é a PK física da linha. Regra criada
+pelo usuário usa `rule_ref_kind = user` e `rule_ref = id`; delta de regra
+padrão usa `rule_ref_kind = builtin`, o ID namespaced do catálogo em `rule_ref`
+e o trio `replaces_default_*`. A referência de layer é independente: tanto
+regra user quanto delta builtin podem apontar para layer `builtin` ou `user`,
+desde que o owner e o workspace canônicos coincidam. Default puro continua no
+código e não exige linha SQLite. Pares de índices únicos parciais impedem duas
+linhas com a mesma referência de regra no escopo global/local; `needs_review`
+bloqueia a regra sem fallback, como nos bindings.
+Habilitar uma regra builtin event-driven que exija grant materializa primeiro
+esse delta confirmado; assim, grant, geração e revogação têm uma linha
+autoritativa sem copiar a camada/default inteira.
 
 `binding_ids` é uma lista JSON ordenada que registra todos os bindings
 equivalentes considerados na deduplicação; fica vazia para execução direta.
@@ -1391,6 +1421,10 @@ default para round-trip de `needs_review`. Defaults puros, invocações e todo
 são exportados. Camadas importadas começam sem claims manuais; regras
 contextuais são recalculadas no destino. Referências internas
 são remapeadas em conjunto e a importação é idempotente por UUID.
+Para `activationRules`, refs builtin são validadas no catálogo e refs user são
+remapeadas com a camada/lote; owner e workspace vêm do destino autenticado.
+Regra event-driven importada permanece desabilitada sem grant e exige
+confirmação local para habilitar.
 
 Bindings persistentes não armazenam segredo bruto. Paths marcados como
 sensíveis pelo comando aceitam somente referência ao cofre/credencial; quando
@@ -1790,6 +1824,9 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   consumido sem criar invocação.
 - [ ] A reserva atômica por evento impede reentrega, e ownership exclusivo
   impede duplicidade entre teclado local/global e listeners de dispositivo.
+- [ ] Manter uma tecla pressionada não repete comando: o adapter descarta
+  `KeyboardEvent.repeat`/repetição nativa antes de gerar `source_event_id` e
+  testes cobrem release, blur e reconexão.
 - [ ] Retirada de `queued` revalida todos os gates no mesmo CAS para `running`.
 - [ ] Cada instância física usa geração própria e índice parcial de eventos;
   invocações diretas deduplicam somente pela PK UUIDv7.
@@ -1901,6 +1938,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] Ativação event-driven usa grants próprios de camada, com chave natural,
   geração monotônica, histórico de revogação e revalidação autoritativa por
   evento; não reutiliza nem amplia grants de delegação da AEP-0101.
+- [ ] Regras e layers builtin/user usam refs polimórficas consistentes no
+  schema, grants, estado, ownership, importação e restore.
 - [ ] Identidade externa só acessa usuário local por mapeamento administrativo
   exato de emissor e subject.
 - [ ] Cada comando declara origens permitidas e o serviço bloqueia origem não
