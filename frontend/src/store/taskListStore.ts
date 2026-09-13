@@ -475,8 +475,19 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
 
     updateTaskList: async (taskListId: string, title: string, description?: string) => {
       try {
-        await UpdateTaskList(taskListId, title, description || '');
-        get().invalidateTaskList(taskListId);
+        const normalizedDescription = description || '';
+        await UpdateTaskList(taskListId, title, normalizedDescription);
+        set((state) => {
+          const cached = state.taskLists.get(taskListId);
+          if (!cached) return {};
+          const taskLists = new Map(state.taskLists);
+          taskLists.set(taskListId, {
+            ...cached,
+            title,
+            description: normalizedDescription,
+          });
+          return { taskLists };
+        });
       } catch (error) {
         get().setError(taskListErrorKey('updateTaskList', taskListId), String(error));
       }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getTaskListPage = vi.hoisted(() => vi.fn());
+const updateTaskList = vi.hoisted(() => vi.fn());
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
   EventsOn: vi.fn(),
@@ -8,6 +9,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({
   GetTaskListPage: getTaskListPage,
+  UpdateTaskList: updateTaskList,
 }));
 
 vi.mock('@wailsjs/go/wailsapi/TasklistActions', () => ({}));
@@ -46,6 +48,8 @@ function backendList() {
 describe('taskListStore pagination', () => {
   beforeEach(() => {
     getTaskListPage.mockReset();
+    updateTaskList.mockReset();
+    updateTaskList.mockResolvedValue(undefined);
     useTaskListStore.setState({
       taskLists: new Map(),
       taskPages: new Map(),
@@ -148,5 +152,34 @@ describe('taskListStore pagination', () => {
     const refreshed = useTaskListStore.getState().taskLists.get('list-a');
     expect(refreshed?.title).toBe('Lista atualizada');
     expect(refreshed?.tasks.map((task) => task.id)).toEqual(['task-a', 'task-b', 'task-c']);
+  });
+
+  it('preserva páginas carregadas ao renomear a lista', async () => {
+    getTaskListPage
+      .mockResolvedValueOnce({
+        task_list: backendList(),
+        tasks: [backendTask('task-a', 0), backendTask('task-b', 1)],
+        next_cursor: 'cursor-2',
+        has_more: true,
+        total_count: 3,
+      })
+      .mockResolvedValueOnce({
+        task_list: backendList(),
+        tasks: [backendTask('task-c', 2)],
+        next_cursor: '',
+        has_more: false,
+        total_count: 3,
+      });
+
+    await useTaskListStore.getState().loadTaskList('list-a');
+    await useTaskListStore.getState().loadMoreTasks('list-a');
+    await useTaskListStore.getState().updateTaskList('list-a', 'Nome novo', 'Descrição nova');
+
+    expect(updateTaskList).toHaveBeenCalledWith('list-a', 'Nome novo', 'Descrição nova');
+    const cached = useTaskListStore.getState().taskLists.get('list-a');
+    expect(cached?.title).toBe('Nome novo');
+    expect(cached?.description).toBe('Descrição nova');
+    expect(cached?.tasks.map((task) => task.id)).toEqual(['task-a', 'task-b', 'task-c']);
+    expect(useTaskListStore.getState().taskPages.get('list-a')?.totalCount).toBe(3);
   });
 });
