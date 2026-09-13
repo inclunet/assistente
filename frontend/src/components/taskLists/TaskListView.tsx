@@ -113,15 +113,32 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const hasTasks = tasks.length > 0;
   const hasTaskPage = taskPage !== undefined;
   const lastBoardProgressAnnouncementRef = useRef('');
+  const isMountedRef = useRef(false);
+  const activeTaskListIdRef = useRef(taskListId);
+  activeTaskListIdRef.current = taskListId;
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const handleLoadBoardPages = useCallback(async () => {
+    const shouldAnnounce = () => (
+      isMountedRef.current &&
+      activeTaskListIdRef.current === taskListId &&
+      useTaskListStore.getState().taskLists.get(taskListId)?.preferredViewMode === 'kanban'
+    );
     try {
       const loaded = await loadAllTasksForBoard(taskListId);
+      if (!shouldAnnounce()) return;
       announce(
         t('tasklist.pagination.boardLoaded', 'Quadro completo com {{count}} cards', { count: loaded }),
         'polite',
       );
     } catch {
+      if (!shouldAnnounce()) return;
       announce(
         t('tasklist.pagination.boardLoadFailed', 'Não foi possível carregar todos os cards. Os cards disponíveis continuam navegáveis.'),
         'polite',

@@ -295,6 +295,40 @@ describe('TaskListView', () => {
     });
   });
 
+  it('não anuncia conclusão depois que o Kanban é desmontado', async () => {
+    const backgroundLoad = deferred<number>();
+    taskListStoreState.loadAllTasksForBoard.mockReturnValueOnce(backgroundLoad.promise);
+    taskListStoreState.taskLists = new Map([
+      ['tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Board',
+        preferredViewMode: 'kanban',
+        tasks: [{ id: 'task-1', taskListId: 'tasklist-1', title: 'Card', statusId: 1, order: 0 }],
+        workflow: {
+          id: 'workflow-1',
+          taskListId: 'tasklist-1',
+          statuses: [{ id: 1, order: 0, label: 'A fazer' }],
+          allowedTransitions: {},
+          initialStatusId: 1,
+        },
+      }],
+    ]);
+    taskListStoreState.taskPages = new Map([
+      ['tasklist-1', { nextCursor: 'cursor-100', hasMore: true, totalCount: 205 }],
+    ]);
+
+    const { unmount } = render(<TaskListView taskListId="tasklist-1" />);
+    await waitFor(() => expect(taskListStoreState.loadAllTasksForBoard).toHaveBeenCalledTimes(1));
+    announceMock.mockClear();
+
+    unmount();
+    backgroundLoad.resolve(205);
+    await backgroundLoad.promise;
+    await Promise.resolve();
+
+    expect(announceMock).not.toHaveBeenCalled();
+  });
+
   it('responde a atalhos globais quando o painel está ativo', async () => {
     const user = userEvent.setup();
     workspacePanelState.isActive = true;
