@@ -166,6 +166,21 @@ func TestReadFileStreamRejectsNulByteBeyondPrefix(t *testing.T) {
 	}
 }
 
+func TestReadFileRawForwardIgnoresNULBeforeRequestedRange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nul-anterior.txt")
+	if err := os.WriteFile(path, []byte{'x', 0, '\n', 'v', 'a', 'l', 'i', 'd', 'o'}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	offset := 2
+	result, handled := readTextSliceStreamingForward(
+		context.Background(), path, "nul-anterior.txt", streamTextMinBytes,
+		&offset, nil, true, readModelMaxBytes,
+	)
+	if !handled || result.IsError || !result.RawExact || result.Content != "valido" {
+		t.Fatalf("NUL anterior afetou recorte raw: handled=%v result=%+v", handled, result)
+	}
+}
+
 func TestReadFileStreamRejectsInvalidUTF8InNormalSelectedRange(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "utf8-invalido.log")

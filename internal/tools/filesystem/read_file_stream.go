@@ -129,12 +129,13 @@ func readTextSliceStreamingForward(
 	invalidRawUTF8 := false
 	err := scanTextLines(ctx, fullPath, func(idx int, line string) bool {
 		totalLines++
-		if strings.IndexByte(line, 0) >= 0 {
+		hasNUL := strings.IndexByte(line, 0) >= 0
+		if !raw && hasNUL {
 			binary = true
 		}
 		inRequestedRange := idx >= offset &&
 			(limitArg == nil || *limitArg <= 0 || idx-offset < *limitArg)
-		if raw && inRequestedRange && !utf8.ValidString(line) {
+		if raw && inRequestedRange && (hasNUL || !utf8.ValidString(line)) {
 			invalidRawUTF8 = true
 		}
 		if idx >= offset && len(lines) < collectLimit && !collectionTooLarge {
