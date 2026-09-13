@@ -286,6 +286,7 @@ func TestHTTPRequestLargeJSONAndRawFailWithoutPartial(t *testing.T) {
 		code string
 	}{
 		{mode: "json", code: "result_too_large"},
+		{mode: "text", code: "result_too_large"},
 		{mode: "raw", code: "raw_result_too_large"},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
@@ -350,7 +351,7 @@ func TestHTTPRequestRawRejectsInvalidUTF8(t *testing.T) {
 }
 
 func TestHTTPRequestStructuredJSONRejectsInvalidUTF8(t *testing.T) {
-	for _, mode := range []string{"json", "auto"} {
+	for _, mode := range []string{"json", "auto", "text"} {
 		t.Run(mode, func(t *testing.T) {
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/problem+json")

@@ -282,8 +282,8 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 			Failure: &tools.ToolFailure{Code: "raw_invalid_utf8", Kind: tools.ErrorKindUnknown, Retryable: false},
 		}, nil
 	}
-	expectsStructured := extractMode == "json" ||
-		(extractMode == "auto" && isJSONMediaType(contentType))
+	expectsStructured := extractMode != "raw" &&
+		(extractMode == "json" || isJSONMediaType(contentType))
 	if expectsStructured && !utf8.Valid(body) {
 		return tools.ToolResult{
 			Content: "Resposta JSON não é UTF-8 válida e não pode ser preservada integralmente.",
@@ -338,6 +338,10 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 	default:
 		extracted = responseContent
+	}
+	if !structuredJSON && extractMode != "raw" && isJSONMediaType(contentType) &&
+		tools.IsCanonicalJSON(extracted) {
+		structuredJSON = true
 	}
 
 	// Monta header informativo
