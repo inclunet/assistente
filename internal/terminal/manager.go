@@ -15,7 +15,7 @@ const (
 	DefaultMaxSessions = 10
 
 	// DefaultCommandTimeout é o timeout padrão para execução de comandos.
-	DefaultCommandTimeout = 30 * time.Second
+	DefaultCommandTimeout = 15 * time.Second
 )
 
 // ManagerConfig contém a configuração do gerenciador de sessões.
