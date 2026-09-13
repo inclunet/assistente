@@ -391,6 +391,12 @@ func TestHTTPRequestOversizedDownloadPreservesHTTPContext(t *testing.T) {
 		result.Metadata["status"] != http.StatusOK {
 		t.Fatalf("falha perdeu metadata HTTP: %+v", result.Metadata)
 	}
+	if result.Metadata["bytes_observed"] != httpMaxResponseBody+1 {
+		t.Fatalf("bytes observados incorretos: %+v", result.Metadata)
+	}
+	if _, misleading := result.Metadata["length"]; misleading {
+		t.Fatalf("comprimento desconhecido não deve ser apresentado como total: %+v", result.Metadata)
+	}
 	if result.Annotations == nil || result.Annotations.HTTPResponse == nil ||
 		result.Annotations.HTTPResponse.URL != ts.URL ||
 		result.Annotations.HTTPResponse.Method != http.MethodPost ||

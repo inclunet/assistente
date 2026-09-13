@@ -378,6 +378,33 @@ func TestStructuredResultNotTruncated(t *testing.T) {
 	}
 }
 
+func TestProtectErroredToolResultMaterializesFallbackFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		result ToolResult
+	}{
+		{
+			name: "raw exato",
+			result: ToolResult{
+				Content: strings.Repeat("x", 4096), IsError: true, RawExact: true,
+			},
+		},
+		{
+			name: "texto sem armazenamento disponível",
+			result: ToolResult{
+				Content: strings.Repeat("x", 4096), IsError: true,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := protectErroredToolResult(context.Background(), tc.result, 1024, "test_tool", false)
+			if got.Failure == nil || got.Failure.Code != "tool_execution_error" {
+				t.Fatalf("fallback estruturado ausente: %+v", got)
+			}
+		})
+	}
+}
+
 func TestExecuteContextCancellation(t *testing.T) {
 	tool := &mockTool{
 		name: "waiting",

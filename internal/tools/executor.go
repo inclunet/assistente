@@ -434,6 +434,10 @@ func protectErroredToolResult(ctx context.Context, result ToolResult, maxBytes i
 		if code == "" {
 			code = "tool_execution_error"
 		}
+		failure := result.Failure
+		if failure == nil {
+			failure = &ToolFailure{Code: code, Kind: ErrorKindUnknown, Retryable: false}
+		}
 		return ToolResult{
 			Content: boundedFailureContent(
 				"Saída integral do erro excede o limite seguro e foi omitida; reduza o escopo da chamada.",
@@ -442,7 +446,7 @@ func protectErroredToolResult(ctx context.Context, result ToolResult, maxBytes i
 			IsError:     true,
 			Metadata:    metadataForFailure(result.Metadata),
 			Annotations: annotationsForFailure(result.Annotations),
-			Failure:     result.Failure,
+			Failure:     failure,
 		}
 	}
 	var (
@@ -463,6 +467,10 @@ func protectErroredToolResult(ctx context.Context, result ToolResult, maxBytes i
 	if code == "" {
 		code = "tool_execution_error"
 	}
+	failure := result.Failure
+	if failure == nil {
+		failure = &ToolFailure{Code: code, Kind: ErrorKindUnknown, Retryable: false}
+	}
 	return ToolResult{
 		Content: boundedFailureContent(
 			"Saída do erro excede a capacidade segura de preservação; reduza o escopo da chamada.",
@@ -471,7 +479,7 @@ func protectErroredToolResult(ctx context.Context, result ToolResult, maxBytes i
 		IsError:     true,
 		Metadata:    metadataForFailure(result.Metadata),
 		Annotations: annotationsForFailure(result.Annotations),
-		Failure:     result.Failure,
+		Failure:     failure,
 	}
 }
 

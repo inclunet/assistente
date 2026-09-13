@@ -206,6 +206,34 @@ func TestReadFileRawStreamingUsesEffectiveLineCount(t *testing.T) {
 	}
 }
 
+func TestReadFileRawStreamingIgnoresHugeLineOutsideRange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "linha-gigante-anterior.txt")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(strings.Repeat("x", maxStreamLineBytes+1) + "\nvalido"); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, offset := range []int{2, -1} {
+		result, handled := readTextSliceStreaming(
+			context.Background(), path, "linha-gigante-anterior.txt", streamTextMinBytes,
+			&offset, intPtr(1), docextract.ModeAuto, true,
+		)
+		if !handled || result.IsError || !result.RawExact || result.Content != "valido" {
+			t.Fatalf("offset %d foi afetado por linha fora do recorte: handled=%v result=%+v", offset, handled, result)
+		}
+		if result.Metadata["total_lines"] != 2 {
+			t.Fatalf("offset %d perdeu total de linhas: %+v", offset, result.Metadata)
+		}
+	}
+}
+
 func TestReadFileRawStreamingCountsTrailingSeparatorInBudget(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "separador.txt")
 	if err := os.WriteFile(path, []byte("abc\nseguinte"), 0o600); err != nil {

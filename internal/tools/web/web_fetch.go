@@ -171,13 +171,17 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 	if len(body) > fetchMaxResponseBody {
 		contentType := resp.Header.Get("Content-Type")
+		metadata := map[string]any{
+			"url": a.URL, "status": resp.StatusCode,
+			"content_type": contentType, "bytes_observed": len(body),
+		}
+		if resp.ContentLength >= 0 {
+			metadata["length"] = resp.ContentLength
+		}
 		return tools.ToolResult{
-			Content: fmt.Sprintf("Resposta excede o limite seguro de download de %d bytes; o conteúdo não foi devolvido parcialmente.", fetchMaxResponseBody),
-			IsError: true,
-			Metadata: map[string]any{
-				"url": a.URL, "status": resp.StatusCode,
-				"content_type": contentType, "length": len(body),
-			},
+			Content:  fmt.Sprintf("Resposta excede o limite seguro de download de %d bytes; o conteúdo não foi devolvido parcialmente.", fetchMaxResponseBody),
+			IsError:  true,
+			Metadata: metadata,
 			Annotations: &tools.ResultAnnotations{HTTPResponse: &tools.HTTPResponseAnnotation{
 				Method: http.MethodGet, URL: a.URL, Status: resp.StatusCode,
 				StatusText: http.StatusText(resp.StatusCode), ContentType: contentType,

@@ -79,6 +79,48 @@ func readStreamLine(r *bufio.Reader) (line string, atEOF bool, err error) {
 	}
 }
 
+// skipStreamLine avança uma linha sem materializá-la nem impor o teto usado
+// para linhas devolvidas. Isso permite que raw valide somente o recorte pedido.
+func skipStreamLine(r *bufio.Reader) (atEOF bool, err error) {
+	for {
+		_, err := r.ReadSlice('\n')
+		switch {
+		case err == nil:
+			return false, nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF):
+			return true, nil
+		default:
+			return false, err
+		}
+	}
+}
+
+func countStreamLines(ctx context.Context, fullPath string) (int, error) {
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = f.Close() }()
+
+	r := bufio.NewReaderSize(f, streamBufferBytes)
+	total := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		atEOF, err := skipStreamLine(r)
+		if err != nil {
+			return 0, err
+		}
+		total++
+		if atEOF {
+			return total, nil
+		}
+	}
+}
+
 // streamFailure decide o que fazer quando o streaming não conclui. Linha longa
 // demais vira erro: cair no caminho que lê tudo reintroduziria justamente o pico
 // de memória que o streaming evita. Outras falhas devolvem o controle ao
@@ -272,6 +314,17 @@ func readRawSliceStreamingForward(
 		if err := ctx.Err(); err != nil {
 			return streamFailure(err, size, true, budget)
 		}
+		if idx < offset {
+			atEOF, err := skipStreamLine(reader)
+			if err != nil {
+				return streamFailure(err, size, true, budget)
+			}
+			totalRead = idx + 1
+			if atEOF {
+				break
+			}
+			continue
+		}
 		line, atEOF, err := readStreamLine(reader)
 		if err != nil {
 			return streamFailure(err, size, true, budget)
@@ -365,15 +418,20 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 	// passada já percorre tudo para contar linhas, então aplicar a mesma regra
 	// aqui custa pouco e evita que o mesmo arquivo passe por ser grande.
 	totalLines := 0
-	if err := scanTextLines(ctx, fullPath, func(_ int, line string) bool {
-		if !raw && strings.IndexByte(line, 0) >= 0 {
+	if raw {
+		totalLines, err = countStreamLines(ctx, fullPath)
+		if err != nil {
+			return streamFailure(err, size, true, budget)
+		}
+	} else if err := scanTextLines(ctx, fullPath, func(_ int, line string) bool {
+		if strings.IndexByte(line, 0) >= 0 {
 			totalLines = -1
 			return false
 		}
 		totalLines++
 		return true
 	}); err != nil {
-		return streamFailure(err, size, raw, budget)
+		return streamFailure(err, size, false, budget)
 	}
 	if totalLines < 0 {
 		return tools.ToolResult{
@@ -407,6 +465,16 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 	}
 	if raw && requestedEnd-offset > readModelMaxLines {
 		return rawReadTooManyLines(requestedEnd-offset, readModelMaxLines), true
+	}
+	if raw {
+		positiveOffset := offset + 1
+		result, handled := readRawSliceStreamingForward(
+			ctx, fullPath, size, &positiveOffset, requestedEnd-offset, budget,
+		)
+		if result.Metadata != nil {
+			result.Metadata["total_lines"] = totalLines
+		}
+		return result, handled
 	}
 
 	selected := make([]string, 0, min(requestedEnd-offset, readModelMaxLines))
