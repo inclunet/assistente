@@ -1369,15 +1369,17 @@ command_invocations
   source_occurred_at nullable_for_non_event,
   source_replay_policy_generation nullable_for_non_event,
   source_replay_deadline nullable_for_non_event,
-  arguments_summary, arguments_fingerprint, conversation_id, turn_id,
-  surface_type, surface_id, surface_snapshot_version,
+  arguments_summary, arguments_fingerprint,
+  conversation_id nullable, turn_id nullable,
+  surface_type nullable, surface_id nullable, surface_snapshot_version nullable,
   context_version nullable_for_none,
   context_captured_at_by_provider nullable_for_exact_version_or_none,
-  context_summary, foreground_summary,
-  source_profile_slug, target_profile_slug,
+  context_summary nullable_for_none, foreground_summary nullable,
+  source_profile_slug nullable, target_profile_slug nullable,
   authorization_decision_id nullable_until_decided,
-  delegation_fingerprint, grant_generation,
-  job_id, job_slug, job_definition_fingerprint, run_id, provenance,
+  delegation_fingerprint nullable, grant_generation nullable,
+  job_id nullable, job_slug nullable, job_definition_fingerprint nullable,
+  run_id nullable, provenance nullable,
   correlation_id, request_fingerprint_version, request_fingerprint,
   risk, policy_decision,
   result_summary nullable_until_terminal, result_ref nullable,
@@ -1439,6 +1441,16 @@ profile, workspace e decisão são nulos quando o contexto não se aplica.
 Nesse caso, `source_replay_policy_generation` e `source_replay_deadline`
 também são obrigatórios e derivam do epoch de política, nunca do payload.
 Campos obrigatórios do envelope e `binding_ids` (default `[]`) são NOT NULL.
+
+Constraints condicionais validam os grupos: conversa e turno aparecem juntos;
+surface exige o trio tipo/ID/versão ou todos `NULL`; delegation fingerprint e
+generation aparecem juntos; `job_service` exige job ID/slug/fingerprint e
+run ID, enquanto outros contextos os deixam `NULL`; policy com providers exige
+`context_summary`, e a que declara foreground exige também
+`foreground_summary`; origem job/evento reativa exige `provenance`. Ator agente
+exige `source_profile_slug` e `target_profile_slug`; demais atores só os
+preenchem quando houver delegação explícita. Combinação parcial falha antes da
+reserva.
 
 Todas as PKs persistidas criadas por esta AEP são UUIDv7 conforme AEP-0046.
 FKs entre essas tabelas também usam UUIDv7. IDs de defaults que vivem no código
