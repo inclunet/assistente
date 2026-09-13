@@ -232,6 +232,15 @@ func TestReadFileRawStreamingIgnoresHugeLineOutsideRange(t *testing.T) {
 			t.Fatalf("offset %d perdeu total de linhas: %+v", offset, result.Metadata)
 		}
 	}
+
+	offset := 2
+	result, handled := readTextSliceStreaming(
+		context.Background(), path, "linha-gigante-anterior.txt", streamTextMinBytes,
+		&offset, nil, docextract.ModeAuto, true,
+	)
+	if !handled || result.IsError || !result.RawExact || result.Content != "valido" {
+		t.Fatalf("raw sem limit foi afetado por linha anterior: handled=%v result=%+v", handled, result)
+	}
 }
 
 func TestReadFileRawStreamingCountsTrailingSeparatorInBudget(t *testing.T) {

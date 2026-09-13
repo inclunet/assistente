@@ -152,8 +152,12 @@ func readTextSliceStreamingForward(
 	raw bool,
 	budget int,
 ) (tools.ToolResult, bool) {
-	if raw && limitArg != nil && *limitArg > 0 {
-		return readRawSliceStreamingForward(ctx, fullPath, size, offsetArg, *limitArg, budget)
+	if raw {
+		limit := 0
+		if limitArg != nil && *limitArg > 0 {
+			limit = *limitArg
+		}
+		return readRawSliceStreamingForward(ctx, fullPath, size, offsetArg, limit, budget)
 	}
 	offset := 0
 	if offsetArg != nil && *offsetArg > 0 {
