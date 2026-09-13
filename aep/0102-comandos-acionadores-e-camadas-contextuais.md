@@ -420,8 +420,10 @@ deduplicação é limitada à sessão física ou até `expires_at` do ledger; de
 disso, nova observação física é nova solicitação.
 
 Evento durável não segue essa regra curta. Na v1, o adapter relê
-`job_run_events` por PK/ownership, exige igualdade de `source_event_id` e
-`source_occurred_at`. `command_event_replay_policy_epochs` registra cada
+`command_job_activation_outbox` por PK/ownership, exige igualdade de
+`source_event_id` e `source_occurred_at`. A linha nasce na mesma transação do
+`job_run_events` de origem e não possui cascade com `job_runs`.
+`command_event_replay_policy_epochs` registra cada
 mudança de `maintenance.job_retention_hours` com geração, `effective_at` e
 horizonte; o evento usa o epoch vigente em `source_occurred_at` para calcular
 um `source_replay_deadline` imutável. O ledger recebe `expires_at` nunca
@@ -579,7 +581,8 @@ Tipos iniciais de acionador:
 - `ui.action`: clique, formulário ou ação direta da UI autenticada;
 - `chat`: execução estruturada solicitada pelo agente;
 - `cli`: execução solicitada pelo entrypoint de terminal;
-- `event`: na primeira versão, somente fato durável de `job_run_events`;
+- `event`: na primeira versão, somente fato de `job_run_events` espelhado
+  transacionalmente em `command_job_activation_outbox`;
   outros produtores exigem outbox antes de entrar na taxonomia operacional.
 
 `system` é uma origem interna reservada para execução direta pelo processo. Não
@@ -942,9 +945,10 @@ Cada adapter mapeia seu domínio antes de publicá-lo; no caso de jobs,
 `occurred_at` é timestamp autenticado; contador ou ID opaco de protocolo não é
 aceito nesse envelope.
 
-Na primeira versão, somente fatos persistidos em `job_run_events` podem
-produzir esse envelope. A garantia de replay/reconciliação não se aplica ao
-EventBus best-effort.
+Na primeira versão, somente fatos persistidos em `job_run_events` e espelhados
+na outbox durável desta AEP podem produzir esse envelope. Replay/reconciliação
+consome a outbox, não o EventBus best-effort nem a linha sujeita à cascade do
+run.
 
 Para eventos da AEP-0067 entrarem depois, uma atualização daquela AEP precisa
 definir outbox durável e publicar `_event_id` UUIDv7, `_occurred_at`,
@@ -1127,6 +1131,23 @@ UUID na linha. O `defer LogRun` final vira upsert pelo UUID e não duplica event
 já persistidos. O PR dessa integração atualiza a AEP-0048 e seus testes no mesmo
 ciclo.
 
+Na mesma transação de cada `job_run_events` elegível, o runtime insere
+`command_job_activation_outbox` com o fato normalizado, owner, IDs
+job/run/event, provenance, epoch/deadline de replay e fingerprint. Só publica
+após commit. A outbox não referencia `job_runs`/`job_run_events` por FK com
+cascade; `CleanRunsExceedingCount` pode remover runs e timeline sem apagar uma
+ocorrência ainda reprocessável. O dispatcher faz claim com lease, processa
+todas as regras elegíveis e marca `delivered`; crash devolve `processing`
+vencido para `pending`. Falha permanente auditada vira `dead_letter`.
+
+Outbox `pending`/`processing` não é removida por idade ou count-cap. Linha
+`delivered`/`dead_letter` só sai depois de `source_replay_deadline`; até lá,
+replay encontra a mesma PK/fingerprint. O
+`InstanceMaintenanceCoordinator` processa/reconcilia essa outbox antes da
+limpeza de jobs. O PR de implementação atualiza AEP-0048 e AEP-0074-B para
+substituir a cascade como fronteira de replay; até outbox, ordem de manutenção e
+testes de count-cap existirem, o adapter D8 permanece desabilitado.
+
 `state` aceita `queued`, `started`,
 `retry_scheduled`, `completed`, `failed` e `skipped`. A chave de
 correlação é `(user_id, run_id)`; `sequence` impede regressão por entrega fora
@@ -1293,6 +1314,14 @@ command_event_replay_policy_epochs
   id, producer_type, generation, effective_at, replay_horizon_seconds,
   created_at
 
+command_job_activation_outbox
+  source_event_id PK UUIDv7, user_id, job_database_id, job_slug, run_id,
+  sequence, state, occurred_at, root_origin_type, provenance,
+  source_replay_policy_generation, source_replay_deadline,
+  event_fingerprint, delivery_state, lease_owner nullable,
+  lease_expires_at nullable, attempts, last_error_code nullable,
+  created_at, delivered_at nullable
+
 command_decision_receipts
   decision_id PK UUIDv7, user_id, auth_context_type, auth_context_id,
   auth_generation, security_generation, subject_type, subject_id,
@@ -1351,8 +1380,10 @@ command_invocations
   job_id, job_slug, job_definition_fingerprint, run_id, provenance,
   correlation_id, request_fingerprint_version, request_fingerprint,
   risk, policy_decision,
-  result_summary, result_ref, status, error_code, client_requested_at,
-  received_at, completed_at
+  result_summary nullable_until_terminal, result_ref nullable,
+  status, error_code nullable_for_succeeded_or_nonterminal,
+  client_requested_at nullable, received_at,
+  completed_at nullable_until_terminal
 
 command_idempotency_keys
   id, key, invocation_id, user_id nullable_for_system,
@@ -1449,6 +1480,12 @@ portanto excluir o binding ou atualizar defaults não apaga sua origem históric
 `cancelled`, `cancelled_stale`, `timed_out` e `outcome_unknown`. `result_summary` é redigido e
 `result_ref` guarda somente referência estável e não sensível, como o ID de uma
 aba ou run, permitindo consultar uma reentrega sem repetir efeitos.
+Em `evaluating`, `queued` e `running`, `result_summary`, `result_ref`,
+`error_code` e `completed_at` são `NULL`. Todo estado terminal exige
+`result_summary` redigido — objeto vazio quando não houver retorno — e
+`completed_at`; `result_ref` continua opcional. `error_code` é `NULL` em
+`succeeded` e obrigatório nos demais terminais, com código estável inclusive
+para cancelamento, staleness, timeout e outcome desconhecido.
 
 `command_layer_activation_state` mantém o último cursor de cada ciclo. No
 startup, regras `always` e contextuais são recalculadas e não ocupam essa
@@ -1574,7 +1611,8 @@ interno com aquele `user_id` e preserva `RequireUserID`; registros system usam
 métodos dedicados que exigem capability da instância. O coordenador nunca
 remove o guard nem passa contexto sem usuário a APIs comuns. Ele absorve a
 cadência hoje iniciada por `jobs.Manager.runRetention` e chama, por interfaces,
-numa única goroutine e nesta ordem: retenção de jobs;
+numa única goroutine e nesta ordem: reconciliação de leases da
+`command_job_activation_outbox`; retenção de jobs;
 `ToolInvocations.CleanOldDryRuns`; `CleanOrphanChat`; `CleanOldChat`; retenção
 de invocações/ledgers de comandos; retenção de ativações; e compactação física
 por `maybeCompact`. O futuro PR de implementação atualizará a AEP-0074-B e
@@ -1968,8 +2006,11 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   atrasado não encerra ciclo mais novo.
 - [ ] Claim e ledger de ativação preservam o escopo global/workspace, inclusive
   para refs `builtin`; eventos e replay de outro workspace falham fechado.
-- [ ] A primeira versão aceita apenas fatos duráveis de `job_run_events`;
-  EventBus best-effort e produtores externos falham fechado.
+- [ ] A primeira versão aceita apenas fatos de `job_run_events` espelhados
+  transacionalmente na outbox durável; EventBus best-effort e produtores
+  externos falham fechado.
+- [ ] Count-cap/cascade de runs não remove a outbox antes do deadline; startup
+  recupera leases e reprocessa pendências antes da retenção de jobs.
 - [ ] Estado de ativação persistido é reconciliado em modo seguro no startup e
   preserva autenticação, geração e proveniência anti-loop da AEP-0067.
 - [ ] Claim de job sem lease e fonte autoritativa válidas fica inativa.
