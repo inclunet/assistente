@@ -230,7 +230,8 @@ vencedor, o backend calcula o HMAC por JSON Canonicalization Scheme (RFC 8785).
 Ambos se tornam obrigatórios antes da reserva no ledger. O fingerprint inclui
 schema, comando ou trigger, argumentos, IDs/versões de contexto, usuário/ator
 derivados, tipo/ID do contexto autenticado, origem/observador, workspace,
-`source_instance_id`/`source_event_id` quando presentes, versões de
+`source_event_id` quando presente; `source_instance_id` somente quando não
+houver `source_event_id`; versões de
 catálogo/configuração, profiles de origem/destino,
 `authorization_decision_id`, `delegation_fingerprint`, `grant_generation`,
 `job_id`, `job_slug`, `job_definition_fingerprint`, `run_id` e proveniência.
@@ -273,7 +274,8 @@ O serviço, nessa ordem:
    versões e bindings contribuintes; falha de resolução também produz resultado
    determinístico;
 3. calcula o fingerprint canônico da solicitação resolvida ou recusada;
-4. reserva atomicamente ledger e auditoria como `evaluating`;
+4. para `suppress`, reserva somente o ledger terminal e encerra; nos demais
+   casos, reserva atomicamente ledger e auditoria como `evaluating`;
 5. se a resolução falhou, conclui `denied`; caso contrário valida origem
    permitida, disponibilidade, argumentos, contexto e política;
    falhas após autenticação terminam a tentativa como `denied`;
@@ -322,10 +324,14 @@ ausência de deadlock.
 
 `Start` devolve `ExecutionHandle` com ID, canal/future `Done` e `Cancel`.
 `CommandExecutionService` aguarda fora do gate e faz CAS terminal único para
-`succeeded`, `failed`, `cancelled` ou `timed_out`, atualizando auditoria e ledger
-na mesma transação. Panic, canal fechado sem outcome e timeout viram falha
-tipada; outcome tardio após terminal é ignorado. Handler síncrono curto usa
-handle já concluído.
+`succeeded`, `failed`, `cancelled`, `timed_out` ou `outcome_unknown`,
+atualizando auditoria e ledger na mesma transação. Antes de entrar no handler,
+erro/panic comprovadamente sem
+handoff vira `failed`; depois de entrar em `Start`, panic sem rejeição
+conclusiva, canal fechado sem outcome e perda do prazo sem cancelamento
+confirmado viram `outcome_unknown`, pois o efeito pode ter ocorrido. `failed`
+pós-handoff exige outcome explícito do `ExecutionHandle`. Outcome tardio após
+terminal é ignorado. Handler síncrono curto usa handle já concluído.
 
 `timed_out` só vale antes do handoff ou quando o handler confirma cancelamento
 sem efeito. Depois do ack, prazo vencido, canal perdido ou cancelamento não
@@ -334,8 +340,9 @@ proibido e reconciliação explícita consulta o executor/recurso antes de nova
 invocação. Outcome tardio verificável pode reconciliar
 `outcome_unknown → succeeded|failed` por CAS auditado; não dispara novo efeito.
 
-A reserva é uma transação que cria a chave no ledger de idempotência e a linha
-de auditoria `evaluating` antes do handler. O ledger usa PK `id`, `key` UNIQUE,
+A reserva de execução é uma transação que cria a chave no ledger de
+idempotência e a linha de auditoria `evaluating` antes do handler; supressão
+segue a exceção terminal sem auditoria definida em D4. O ledger usa PK `id`, `key` UNIQUE,
 `invocation_id` UNIQUE e índice parcial UNIQUE de `source_event_id` quando
 presente. Replay com usuário/origem/fingerprint divergente é conflito, não nova
 execução. Reentrega recebe o resultado
@@ -543,8 +550,14 @@ fechado se a precedência não escolher um único vencedor.
 
 Bindings `effect = suppress` são aplicados antes dessa deduplicação. Eles
 removem os defaults referenciados no contexto, consomem o acionador quando não
-restar candidato e nunca criam `CommandInvocation`. Somente bindings
-`effect = execute` participam do agrupamento por comando/argumentos.
+restar candidato e nunca criam `CommandInvocation`. Antes de retornar, o
+serviço reserva `command_idempotency_keys` em estado terminal `suppressed`, com
+`invocation_id`/`source_event_id`, ownership, fingerprint do request resolvido,
+gerações e `expires_at`; não cria linha de auditoria de comando. Reentrega
+encontra essa chave antes de qualquer despacho e retorna `suppressed` ou
+conflito de fingerprint, mesmo se configuração posterior remover o tombstone.
+Somente bindings `effect = execute` participam do agrupamento por
+comando/argumentos.
 
 Todo delta é materializado antes da tupla de D7: override substitui o candidato
 default referenciado e herda seu `scope_rank`/especificidade base; condição do
@@ -804,16 +817,19 @@ O ledger de ativação persiste `workspace_id` e `event_fingerprint`. A chave
 NULL`; para camada local, `(user_id, workspace_id, rule_ref_kind, rule_ref,
 source_event_id) WHERE workspace_id IS NOT NULL`.
 `source_correlation_id` serve somente para localizar o ciclo em
-`command_layer_activation_state`, com um par separado de índices parciais por
-`(source_type, source_correlation_id)`. Ele nunca substitui o
-`source_event_id`, que permanece obrigatório e é a única chave idempotente de
-cada transição. Na mesma transação, o estado de PK
+`command_layer_activation_state`. Há índices auxiliares não únicos, separados
+para escopo global/local, sobre usuário, workspace quando aplicável,
+`rule_ref_kind`, `rule_ref`, `source_type` e `source_correlation_id`; a consulta
+também filtra estado ativo e falha fechado se encontrar mais de um ciclo. Ele
+nunca substitui o `source_event_id`, que permanece obrigatório e é a única
+chave idempotente de cada transição. Na mesma transação, o estado de PK
 `activation_id` avança por CAS sobre `sequence`: insert concorrente resolve
 pela chave única e update exige o cursor anterior.
 Mesmo número com fingerprint diferente grava conflito e não altera a camada.
 
 A regra persiste `event_name` exato e `allowed_internal_producer_types`; na
-primeira versão, ambos precisam identificar o fato de job definido abaixo.
+primeira versão, `event_name` só aceita
+`command-context.job-run-state.v1` e o producer type só aceita `jobs.runtime`.
 Webhook, plugin e outro produtor externo são rejeitados e ficam fora do escopo
 até uma AEP definir identidade de ingress e grants próprios.
 
@@ -826,9 +842,12 @@ logout ou estação bloqueada é descartado.
 `user_id` e `workspace_id` não são aceitos como autoridade do payload. O
 dispatcher deriva o dono do principal autenticado e o escopo da layer/rule
 resolvida; `workspace_id = NULL` representa camada global. Isso também vale
-para refs `builtin`, que não dependem de FK para recuperar o escopo. Para jobs,
-relê `job_id` e `run_id` nesse usuário/workspace. Divergência, workspace
-inacessível ou ausência de ownership falha fechado.
+para refs `builtin`, que não dependem de FK para recuperar o escopo. Jobs não
+possuem workspace na AEP-0048: o dispatcher relê `job_id`/`run_id` apenas no
+usuário e deriva o workspace exclusivamente da layer/rule, validando o acesso
+do mesmo usuário. O mesmo evento pode alimentar regras de workspaces distintos,
+cada uma com estado/chave próprios. Divergência, workspace inacessível ou
+ausência de ownership falha fechado.
 
 `source_instance_id` identifica a geração do dispatcher somente para
 proveniência. A chave de idempotência é a chave global/local por
@@ -860,12 +879,15 @@ camada incorreta. O monitor de janela em primeiro plano é adapter específico p
 sistema operacional; no Windows, não depende do software do Stream Deck.
 
 Consumidor do `ContextFactBus` adquire `DispatchGate` exclusivo antes de trocar
-snapshot, recalcular claims e incrementar `active_layers_generation`.
+snapshot e recalcular claims. Troca de snapshot sempre altera a versão do
+provider em `context_version`, mas só incrementa o contador global/workspace de
+`active_layers_generation` quando o conjunto efetivo de claims mudar.
 Resolução/admissão lê providers sob o gate compartilhado. Assim, mudança já
 observada não atravessa o CAS/início com geração antiga.
 
 Para jobs, a integração publica o fato contextual interno versionado
-`command-context.job-run-state.v1`, com `user_id`, `job_id`, `job_slug`,
+`command-context.job-run-state.v1`, cujo `event_name` é exatamente esse nome,
+com `user_id`, `job_id`, `job_slug`,
 `run_id`, `run_event_id`, `sequence`, `state`, `occurred_at`,
 `root_origin_type`, `root_origin_id`, `_source`, `_source_job_id`, `_chain_id` e
 `_chain_history`. `_source` deve ser
@@ -882,7 +904,7 @@ lookup seguro por PK/ownership nesta integração.
 `eventctx.SourceJobID` conforme AEP-0067 e serve para apresentação/resolução inicial.
 Depois da resolução, correlação e autorização usam o UUID.
 
-`root_origin_type` é preservado por toda cadeia. Normalização da AEP-0048:
+Esta AEP é dona de `root_origin_type` e de sua normalização:
 `manual → manual`, `cron → cron`, `interval → interval`,
 `hotkey → user_hotkey`, `webhook → external_event`; trigger `event` herda a
 raiz autenticada do payload/provenance e vira `internal_event` somente quando o
@@ -890,6 +912,9 @@ produtor for interno conhecido. Raiz ausente vira `unknown`. Na v1, `manual`,
 `cron`, `interval`, `user_hotkey` e `internal_event` são elegíveis;
 `external_event`/`unknown` não ativam camada, mesmo quando o run intermediário
 tenha `_source = job`.
+O futuro PR da integração adiciona e persiste esse campo no runtime/timeline,
+atualiza a AEP-0048 no mesmo ciclo e só então habilita o adapter; inferência
+retroativa a partir do trigger atual é proibida.
 
 Persistência incremental exige migração prévia da AEP-0048:
 `job_runs.status` passa a aceitar `queued`, `running`, `retrying`, `completed`,
@@ -947,9 +972,13 @@ efetiva sem lease válida.
 O adapter preserva a proveniência anti-loop da AEP-0067. Se um binding ativado
 por esse ciclo iniciar job, tool que publica evento ou outro comando reativo, a
 invocação herda `_chain_id`/`_chain_history` sem acrescentar namespaces que não
-sejam jobs. Comando/camada entram em `command_chain_history` separado e obedecem
-`CommandMaxChainDepth`; ao iniciar novo job, somente o runtime de jobs acrescenta
-o job à `_chain_history` e chama `DetectLoop`/`MaxChainDepth`. Evento derivado de job sem
+sejam jobs. `provenance.command_chain_history` é lista ordenada de
+`{ command_id, invocation_id, layer_refs }`, persistida no mesmo documento
+redigido do envelope. `CommandExecutionService` é dono do limite constante
+versionado `CommandMaxChainDepth = 16`: antes da reserva, valida a lista, rejeita
+repetição do mesmo `command_id` na cadeia e acrescenta a entrada atual. Ao
+iniciar novo job, somente o runtime de jobs acrescenta o job à
+`_chain_history` e chama `DetectLoop`/`MaxChainDepth`. Evento derivado de job sem
 proveniência não pode habilitar comando capaz de ampliar a cadeia; falha
 fechado.
 
@@ -1042,7 +1071,8 @@ command_layer_activation_rules
   allowed_internal_producer_types, enabled
 
 command_bindings
-  id, layer_id, trigger_type, trigger_spec, command_id nullable_for_suppress,
+  id, user_id, workspace_id nullable_for_global, layer_ref_kind, layer_ref,
+  trigger_type, trigger_spec, command_id nullable_for_suppress,
   arguments empty_for_suppress,
   condition, effect, enabled, source, resolution_priority, replaces_default_id,
   replaces_default_version, replaces_default_fingerprint, review_status,
@@ -1108,7 +1138,10 @@ No ledger, `id` é PK UUIDv7, `key` é UNIQUE e vale
 `event:<source_event_id>` para evento. `invocation_id` também é UNIQUE e
 `source_event_id` tem índice único parcial quando não nulo. Conflito relê
 ownership e fingerprint antes de classificar como reentrega; divergência falha
-fechado.
+fechado. `status` aceita os estados de invocação e `suppressed`; neste último,
+`invocation_id` continua obrigatório, mas não é FK para
+`command_invocations`, pois não há linha de auditoria e o ledger sobrevive à
+compactação.
 
 No ledger de ativação, `key` inclui escopo canônico:
 `activation:<user_id>:global:<rule_ref_kind>:<rule_ref>:<source_event_id>` ou
@@ -1120,6 +1153,13 @@ colisão e não reaplica a mesma regra no mesmo escopo.
 Condições, argumentos, especificações e apresentação são documentos JSON
 versionados e validados. Alterações relevantes mantêm auditoria suficiente para
 desfazer.
+
+`command_bindings` usa a mesma referência polimórfica `builtin|user` do estado
+de ativação. Ref `user` precisa apontar para `command_layers` do mesmo
+usuário/workspace; ref `builtin` é validada no catálogo e só aceita delta com
+`replaces_default_*`. O owner e o escopo ficam na própria linha para que
+restore/import funcionem sem materializar defaults. Binding inteiramente novo
+só pode referenciar layer `user`.
 
 Campos marcados com `?` no envelope são nullable no SQLite; ausência vira
 `NULL`, nunca string vazia. `command_id` fica nulo em `evaluating`/`denied`
@@ -1613,6 +1653,9 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] Tombstone bloqueia o default no contexto declarado, enquanto
   personalização apenas desabilitada permite fallback.
 - [ ] Tombstones são aplicados antes da deduplicação e nunca produzem invocação.
+- [ ] Tombstone que consome um acionador grava marcador terminal no ledger;
+  reentrega do mesmo evento não passa a executar um default após mudança de
+  configuração.
 - [ ] Override de default persiste ID e versão do default substituído.
 - [ ] É possível restaurar um binding, uma camada ou todas as personalizações.
 - [ ] Conflitos são detectados considerando a possível interseção de contextos,
