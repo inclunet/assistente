@@ -247,6 +247,16 @@ Neste exemplo, de 50 tickets retornados, apenas os com prioridade Critical geram
 
 **Combinando `when` + `emit_when`:** formam um par simétrico de filtros — `when` na entrada (evita rodar a tool), `emit_when` na saída (evita propagar o evento).
 
+### Entrega sem consumidor
+
+Eventos de jobs são efêmeros e não formam fila. Um evento só é registrado como
+emitido no run e em `job_events` quando existe ao menos um listener habilitado
+no instante da publicação. Se todos os consumidores estiverem desabilitados
+(diretamente ou pela pipeline), o barramento descarta o evento, incrementa a
+métrica local `events_dropped` e emite no máximo um WARN por nome de evento a
+cada hora, com a razão `no_enabled_listeners`. Métrica e throttling pertencem a
+`internal/jobs`; não constituem um utilitário global compartilhado.
+
 ### Autocomplete no Encadeamento
 
 Quando um job escuta um evento, o builder sabe qual job emite esse evento e oferece autocomplete dos campos disponíveis no payload.
@@ -528,6 +538,7 @@ Run Logger + Event Log + Notification (chat/telegram/signal)
 - Triggers: cron, interval, manual, hotkey, event
 - Execution engine (1 job = 1 tool call)
 - Event bus + encadeamento
+- Descarte observável de eventos sem consumidor habilitado (`events_dropped` + WARN limitado)
 - Input mapping com templates
 - Output schema + map
 - Error policy configurável
