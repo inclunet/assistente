@@ -4038,6 +4038,12 @@ const ptBR = {
       noLists: 'Nenhuma lista de tarefas criada',
       createFirst: 'Criar Primeira Lista',
       loading: 'Carregando...',
+      pagination: {
+        loadMore: 'Carregar mais tarefas',
+        loadMoreFailed: 'Erro ao carregar mais tarefas.',
+        progress: '{{loaded}} de {{total}} tarefas carregadas',
+        loaded: '{{count}} tarefas carregadas',
+      },
       taskTitle: 'Título da Tarefa',
       status: 'Status',
       dueDate: 'Data de Vencimento',

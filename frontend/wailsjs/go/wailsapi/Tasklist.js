@@ -58,6 +58,10 @@ export function GetTaskList(arg1) {
   return window['go']['wailsapi']['Tasklist']['GetTaskList'](arg1);
 }
 
+export function GetTaskListPage(arg1, arg2) {
+  return window['go']['wailsapi']['Tasklist']['GetTaskListPage'](arg1, arg2);
+}
+
 export function GetTaskListStats(arg1) {
   return window['go']['wailsapi']['Tasklist']['GetTaskListStats'](arg1);
 }
