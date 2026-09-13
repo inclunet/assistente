@@ -279,6 +279,11 @@ Na borda, o mapeamento é único e explícito:
 `snapshotVersion → surface_snapshot_version`. O envelope e o SQLite usam
 snake_case; `context_version` é o fingerprint composto do `VersionService`, não
 um alias de `snapshotVersion`.
+Esses três valores recebidos são candidatos, não autoridade. O backend localiza
+a surface no registro canônico do usuário/contexto autenticado, reconsulta o
+snapshot provider da AEP-0080 e exige igualdade de tipo, ID e versão antes de
+materializá-los no envelope interno. Surface ausente, pertencente a outro
+usuário ou divergente falha fechado; cliente não atesta a própria atualidade.
 
 O serviço, nessa ordem:
 
@@ -289,8 +294,10 @@ O serviço, nessa ordem:
 3. calcula o fingerprint canônico da solicitação resolvida ou recusada;
 4. para `suppress`, adquire `DispatchGate`, revalida autenticação, segurança,
    staleness e gerações e só então reserva o ledger terminal enquanto mantém o
-   gate; se stale, rejeita sem consumir IDs. Nos demais casos, reserva
-   atomicamente ledger e auditoria como `evaluating`;
+   gate; se stale, não grava `suppressed`, mas reserva uma recusa terminal
+   `rejected_stale` para os mesmos IDs/ownership e registra o evento no log de
+   segurança. Nos demais casos, reserva atomicamente ledger e auditoria como
+   `evaluating`;
 5. se a resolução falhou, conclui `denied`; caso contrário valida origem
    permitida, disponibilidade, argumentos, contexto e política;
    falhas após autenticação terminam a tentativa como `denied`;
@@ -871,10 +878,12 @@ Webhook, plugin e outro produtor externo são rejeitados e ficam fora do escopo
 até uma AEP definir identidade de ingress e grants próprios.
 Criar/habilitar essa regra é mutação confirmável e persiste
 `authorization_decision_id` e `automation_grant_fingerprint` sobre usuário,
-layer/rule, workspace, fato e produtor permitidos. Cada evento revalida esse
-fingerprint; divergência desabilita a regra. Essa ativação pré-autorizada ocorre
-somente pelo adapter D8, não executa `layer.activate`/`layer.toggle` como comando
-headless.
+layer/rule, workspace, fato e produtor permitidos, além de
+`automation_grant_generation` persistida e incrementada em toda
+revogação/reconcessão conforme a AEP-0101. O fingerprint inclui essa geração.
+Cada evento relê a autorização e exige geração/fingerprint exatos; divergência
+desabilita a regra. Essa ativação pré-autorizada ocorre somente pelo adapter D8,
+não executa `layer.activate`/`layer.toggle` como comando headless.
 
 Sem usuário, regra, autenticação ou identidade válida — correlação, ou o par
 instância/evento quando a correlação for ausente — eventos internos não alteram
@@ -1094,8 +1103,10 @@ um binding `event` não pode chamar esses comandos mutáveis. Assim, não existe
 segunda rota para alterar o mapa efetivo.
 
 A marca não é declarada livremente pelo autor do comando.
-`CommandHandler.Mutability()` fornece a classificação e o registro rejeita
-divergência. Em `command_config`, somente list/get/check_conflict e
+`CommandHandler.EffectClass()` e `CommandHandler.Mutability()` fornecem,
+respectivamente, `effect_class` e `mutates_effective_capability`; o registro
+rejeita divergência com metadata e combinações inválidas de risco/decisão. Em
+`command_config`, somente list/get/check_conflict e
 `config_export` sem credenciais são leitura; create, update, delete, enable, disable, restore e
 import são mutações de capacidade e sempre exigem o gate. Teste de catálogo enumera todas as ações/handlers para impedir que
 um verbo novo nasça sem classificação.
@@ -1118,7 +1129,7 @@ command_layers
 command_layer_activation_rules
   id, layer_id, mode, condition, lifecycle, event_name,
   allowed_internal_producer_types, authorization_decision_id,
-  automation_grant_fingerprint, enabled
+  automation_grant_generation, automation_grant_fingerprint, enabled
 
 command_bindings
   id, user_id, workspace_id nullable_for_global, layer_ref_kind, layer_ref,
@@ -1193,8 +1204,9 @@ No ledger, `id` é PK UUIDv7, `key` é UNIQUE e vale
 `event:<source_event_id>` para evento. `invocation_id` também é UNIQUE e
 `source_event_id` tem índice único parcial quando não nulo. Conflito relê
 ownership e fingerprint antes de classificar como reentrega; divergência falha
-fechado. `status` aceita os estados de invocação e `suppressed`; neste último,
-`invocation_id` continua obrigatório, mas não é FK para
+fechado. `status` aceita os estados de invocação, `suppressed` e
+`rejected_stale`; nos dois últimos, `invocation_id` continua obrigatório, mas
+não é FK para
 `command_invocations`, pois não há linha de auditoria e o ledger sobrevive à
 compactação.
 
@@ -1711,6 +1723,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] Tombstone que consome um acionador grava marcador terminal no ledger;
   reentrega do mesmo evento não passa a executar um default após mudança de
   configuração.
+- [ ] Acionamento stale não grava `suppressed`, mas recebe marcador terminal
+  `rejected_stale`; o mesmo ID nunca executa em reentrega posterior.
 - [ ] Override de default persiste ID e versão do default substituído.
 - [ ] É possível restaurar um binding, uma camada ou todas as personalizações.
 - [ ] Conflitos são detectados considerando a possível interseção de contextos,
@@ -1802,6 +1816,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   exato de emissor e subject.
 - [ ] Cada comando declara origens permitidas e o serviço bloqueia origem não
   autorizada, incluindo comandos visuais solicitados pela CLI.
+- [ ] `effect_class` e mutabilidade vêm do contrato do handler; metadata
+  divergente impede o registro.
 - [ ] CLI não executa comando que exija diálogo/decisão interativa.
 - [ ] `cli`, `event` e `system` não registram/executam comando destrutivo;
   qualquer origem sem presenter interativo falha fechado.
