@@ -3,12 +3,22 @@ package jobs
 import (
 	"assistente/internal/logging"
 	"context"
+	"log/slog"
 	"sync"
+	"sync/atomic"
+	"time"
 )
+
+const droppedEventWarningInterval = time.Hour
 
 // EventHandler e chamado quando um evento e publicado.
 // Recebe o nome do evento e o payload.
 type EventHandler func(ctx context.Context, eventName string, payload map[string]any)
+
+// EventBusStats expõe métricas operacionais do barramento de jobs.
+type EventBusStats struct {
+	EventsDropped uint64 `json:"events_dropped"`
+}
 
 // EventBus implementa pub/sub de eventos para encadeamento de jobs.
 type EventBus struct {
@@ -20,6 +30,11 @@ type EventBus struct {
 	// sobreviver ao Close/Stop e continuar escrevendo no estado global — em
 	// testes, escrevendo no DB de OUTRO teste após o swap do singleton.
 	wg sync.WaitGroup
+
+	eventsDropped atomic.Uint64
+	dropMu        sync.Mutex
+	lastDropWarn  map[string]time.Time
+	now           func() time.Time
 }
 
 type namedHandler struct {
@@ -30,7 +45,9 @@ type namedHandler struct {
 // NewEventBus cria um event bus vazio.
 func NewEventBus() *EventBus {
 	return &EventBus{
-		handlers: make(map[string][]namedHandler),
+		handlers:     make(map[string][]namedHandler),
+		lastDropWarn: make(map[string]time.Time),
+		now:          time.Now,
 	}
 }
 
@@ -90,20 +107,30 @@ func (eb *EventBus) UnsubscribeAll(subscriberID string) {
 	}
 }
 
-// Publish dispara um evento, executando todos os handlers registrados.
+// Publish dispara um evento, executando todos os handlers registrados, e
+// informa se ao menos um consumidor habilitado recebeu o evento.
 // Cada handler roda em goroutine separada para nao bloquear o publisher.
-func (eb *EventBus) Publish(ctx context.Context, eventName string, payload map[string]any) {
+func (eb *EventBus) Publish(ctx context.Context, eventName string, payload map[string]any) bool {
 	eb.mu.RLock()
 	if eb.closed {
 		eb.mu.RUnlock()
-		return
+		return false
 	}
 	handlers := make([]namedHandler, len(eb.handlers[eventName]))
 	copy(handlers, eb.handlers[eventName])
 	if len(handlers) == 0 {
 		eb.mu.RUnlock()
-		logging.Infof(ctx, "jobs.eventbus", "[EventBus] Event %q published with no listeners", eventName)
-		return
+		dropped, warn := eb.recordDropped(eventName)
+		if warn {
+			logging.Logger(ctx, "jobs.eventbus").Warn(
+				"event dropped because it has no enabled listeners",
+				slog.String("event_name", eventName),
+				slog.String("reason", "no_enabled_listeners"),
+				slog.Uint64("events_dropped", dropped),
+				slog.Duration("warning_throttle", droppedEventWarningInterval),
+			)
+		}
+		return false
 	}
 	// Registra as goroutines no WaitGroup AINDA sob o RLock: Close adquire o
 	// write-lock exclusivo, então ou o Add acontece antes de Close (e o Wait as
@@ -138,6 +165,29 @@ func (eb *EventBus) Publish(ctx context.Context, eventName string, payload map[s
 			nh.handler(ctx, eventName, payload)
 		}(h)
 	}
+	return true
+}
+
+func (eb *EventBus) recordDropped(eventName string) (uint64, bool) {
+	dropped := eb.eventsDropped.Add(1)
+	now := eb.now()
+
+	eb.dropMu.Lock()
+	defer eb.dropMu.Unlock()
+	last := eb.lastDropWarn[eventName]
+	if !last.IsZero() && now.Sub(last) < droppedEventWarningInterval {
+		return dropped, false
+	}
+	eb.lastDropWarn[eventName] = now
+	return dropped, true
+}
+
+// Stats retorna um snapshot consistente das métricas do barramento.
+func (eb *EventBus) Stats() EventBusStats {
+	if eb == nil {
+		return EventBusStats{}
+	}
+	return EventBusStats{EventsDropped: eb.eventsDropped.Load()}
 }
 
 // SubscriberCount retorna o numero de subscribers para um evento.

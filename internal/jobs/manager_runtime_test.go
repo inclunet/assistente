@@ -120,6 +120,56 @@ func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *test
 	}
 }
 
+func TestManagerDropsProducerEventWhenOnlyConsumerIsDisabled(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	registry := tools.NewRegistry()
+	registry.MustRegister(&fakeTool{
+		name:     "test_tool",
+		params:   json.RawMessage(`{"type":"object"}`),
+		response: `{"card":"TA-42"}`,
+	})
+
+	producer := testRepositoryJob("triagem-pre-filtro", "Triagem pré-filtro")
+	producer.Events.OnSuccess = "noticias-ta.card-para-classificar"
+	if err := repo.SaveJob(userA, producer); err != nil {
+		t.Fatalf("save producer: %v", err)
+	}
+	consumer := testRepositoryJob("classificar-card", "Classificar card")
+	consumer.Enabled = false
+	consumer.Triggers = []Trigger{{
+		Type:   TriggerEvent,
+		Listen: "noticias-ta.card-para-classificar",
+	}}
+	if err := repo.SaveJob(userA, consumer); err != nil {
+		t.Fatalf("save disabled consumer: %v", err)
+	}
+
+	mgr := NewManager(ManagerConfig{
+		Repository:      repo,
+		ToolRegistry:    registry,
+		ContextProvider: func() context.Context { return userA },
+	})
+	if err := mgr.Start(); err != nil {
+		t.Fatalf("start manager: %v", err)
+	}
+	t.Cleanup(mgr.Stop)
+
+	eventName := producer.Events.OnSuccess
+	if got := mgr.eventBus.SubscriberCount(eventName); got != 0 {
+		t.Fatalf("consumidor desabilitado foi registrado: %d listener(s)", got)
+	}
+	run, err := mgr.RunJobContext(userA, producer.ID)
+	if err != nil {
+		t.Fatalf("run producer: %v", err)
+	}
+	if len(run.EventsEmitted) != 0 {
+		t.Fatalf("run registrou evento sem consumidor como emitido: %#v", run.EventsEmitted)
+	}
+	if got := mgr.eventBus.Stats().EventsDropped; got != 1 {
+		t.Fatalf("events_dropped = %d, want 1", got)
+	}
+}
+
 func TestManagerReconcileDisabledJobsUpdatesRegistrySchedulerAndEvent(t *testing.T) {
 	mgr := NewManager(ManagerConfig{})
 	mgr.started = true
