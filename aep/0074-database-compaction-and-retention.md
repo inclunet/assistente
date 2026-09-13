@@ -12,6 +12,7 @@
 - **AEP-0052** (Multi-user accounts): toda retenção é escopada por `user_id`. A compactação física (`VACUUM`) é global ao arquivo `.db`.
 - **Issue #195** (DB: crescimento excessivo das tabelas de jobs/execução): motivação direta.
 - **Issue #292** (Contenção SQLite): restringe como/quando rodar `VACUUM`, pois é operação exclusiva.
+- **Issue #738** (Contenção no boot do catálogo): aplica a política central de retry às escritas de sincronização de `tool_catalog`.
 
 ## Resumo
 
@@ -45,6 +46,7 @@ Esta AEP define uma política de **compactação física** combinada a um **refo
 | Dry-runs operacionais | `CleanOldDryRuns` no `runRetention` | Idade curta de jobs |
 | Guardas de volume na escrita | budget 10 MiB por resultado; truncamento de input/output | Limita tamanho por linha, não o total |
 | Pragmas | `internal/database/database.go` (`Init`) | `journal_mode=WAL`, `synchronous=NORMAL`, `auto_vacuum=INCREMENTAL`, `busy_timeout` |
+| Sincronização do catálogo | `internal/toolcatalog/repository.go` | Upsert e indisponibilização repetem somente `SQLITE_BUSY` transitório com backoff central cancelável; erros permanentes retornam sem retry |
 | `VACUUM` / `auto_vacuum` | `internal/database/maintenance.go` | Compactação incremental; `VACUUM` completo gated para bancos legados; gate compartilhado com exclusão transacional de conversas |
 
 Testes de compactação, conversão de bancos legados e retenção ficam em
@@ -132,6 +134,7 @@ Aproveitando a reforma do `config`, os fallbacks de modelo que liam `config.Defa
 ## Critérios de aceitação
 
 - [x] `Init` define `auto_vacuum=INCREMENTAL` e `busy_timeout`; bancos novos nascem no modo incremental.
+- [x] A sincronização de `tool_catalog` usa o retry SQLite central, respeita cancelamento e não repete erros permanentes; há regressão com writer lock real e simulação concorrente de dez boots com três MCPs.
 - [x] Existe `database.Compact(ctx, force, minFreeBytes)` que: roda `wal_checkpoint(TRUNCATE)`; usa `incremental_vacuum` no modo incremental; faz `VACUUM` completo gated em bancos legados, convertendo-os para incremental.
 - [x] O arquivo `.db` encolhe após retenção + compactação (validado por teste com tamanho total antes/depois e `freelist_count`).
 - [x] `CleanRunsExceedingCount` mantém os últimos N runs por job, removendo em cascata `tool_invocations`/`job_run_events`/`job_events`.
@@ -144,4 +147,4 @@ Aproveitando a reforma do `config`, os fallbacks de modelo que liam `config.Defa
 ## Follow-up (fora do escopo desta fatia)
 
 - Teardown completo dos campos legados do `config.json` (welcome wizard, tokens controller, `App.tsx`, bindings) — issue #299.
-- Pooling e retries de `SQLITE_BUSY` foram centralizados em `sqlite_policy.go`; a coordenação entre compactação e exclusão de conversas foi concluída pela issue #725.
+- Pooling e retries de `SQLITE_BUSY` foram centralizados em `sqlite_policy.go`; a coordenação entre compactação e exclusão de conversas foi concluída pela issue #725, e a sincronização de `tool_catalog` passou a consumir essa política na issue #738.
