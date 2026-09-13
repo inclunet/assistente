@@ -74,6 +74,7 @@ const CAPTURE_SHORTCUT_BLOCKED_TARGETS = [
 
 function isCaptureShortcutBlockedTarget(target: Element | null): boolean {
   if (!target) return false;
+  if (target.closest('[data-testid="chat-input"]')) return false;
   if (isEditableKeyboardTarget(target)) return true;
   if (target.closest(CAPTURE_SHORTCUT_BLOCKED_TARGETS)) return true;
 
@@ -122,6 +123,7 @@ function canOpenModelPickerFromShortcut(
   }
 
   const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest('[data-testid="chat-input"]')) return !hasVisibleShortcutOverlay();
   if (target instanceof HTMLElement && target.isContentEditable) return false;
   if (target?.closest(MODEL_SHORTCUT_BLOCKED_TARGETS)) return false;
 
