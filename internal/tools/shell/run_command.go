@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	// defaultTimeout é o timeout padrão para execução de comandos (30s)
-	defaultTimeout = 30 * time.Second
+	// defaultTimeout é o timeout padrão para execução de comandos (15s)
+	defaultTimeout = 15 * time.Second
 
 	// maxTimeout é o timeout máximo permitido (5 minutos)
 	maxTimeout = 5 * time.Minute
@@ -111,7 +111,7 @@ func (rc *RunCommand) Parameters() json.RawMessage {
 			},
 			"timeout_seconds": {
 				"type": "integer",
-				"description": "Timeout em segundos para a execução do comando. Padrão: 30, máximo: 300."
+				"description": "Timeout em segundos para a execução do comando. Padrão: 15, máximo: 300."
 			}
 		},
 		"required": ["command"],

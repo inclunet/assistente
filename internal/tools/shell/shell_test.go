@@ -189,6 +189,8 @@ type MockSessionManager struct {
 	runCommandCalls   int
 	runEphemeralCalls int
 	runSessionID      string
+	runCommandText    string
+	runTimeout        time.Duration
 	liveSessions      map[string]bool
 	sessionCWD        map[string]string
 
@@ -224,6 +226,8 @@ func (m *MockSessionManager) Acquire(ctx context.Context, workDir string) (*term
 func (m *MockSessionManager) RunCommand(ctx context.Context, sessionID string, command string, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error) {
 	m.runCommandCalls++
 	m.runSessionID = sessionID
+	m.runCommandText = command
+	m.runTimeout = timeout
 	if m.fakeRunErr != nil {
 		return m.fakeEntry, m.fakeRunErr
 	}
@@ -256,6 +260,8 @@ func (m *MockSessionManager) Close(sessionID string) error {
 
 func (m *MockSessionManager) RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*terminal.HistoryEntry, error) {
 	m.runEphemeralCalls++
+	m.runCommandText = command
+	m.runTimeout = timeout
 	if m.fakeRunErr != nil {
 		// Se há entry configurado, devolve junto do erro (caso timeout com output parcial);
 		// senão, devolve só o erro — espelha o Manager real que sempre retorna entry preenchida no sucesso.
@@ -307,6 +313,29 @@ func TestSuccessfulExecution(t *testing.T) {
 	}
 	if mgr.acquireCalls != 0 {
 		t.Errorf("não esperado Acquire em modo efêmero, got %d", mgr.acquireCalls)
+	}
+}
+
+func TestRunCommandPreservesOriginalPipelineAndUsesDefaultTimeout(t *testing.T) {
+	const command = `Get-ChildItem | Select-Object Name | Format-Table`
+	mgr := &MockSessionManager{fakeEntry: &terminal.HistoryEntry{
+		ID: "cmd-pipeline", Command: command, Output: "Name\n----\nfile.txt", ExitCode: 0,
+	}}
+	al := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "approve"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+
+	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"Get-ChildItem | Select-Object Name | Format-Table"}`))
+	if err != nil || result.IsError {
+		t.Fatalf("execução inesperada: err=%v result=%+v", err, result)
+	}
+	if mgr.runCommandText != command {
+		t.Fatalf("comando foi reescrito:\n got: %q\nwant: %q", mgr.runCommandText, command)
+	}
+	if strings.Contains(mgr.runCommandText, "-AutoSize") {
+		t.Fatalf("comando recebeu -AutoSize indevidamente: %q", mgr.runCommandText)
+	}
+	if mgr.runTimeout != 15*time.Second {
+		t.Fatalf("timeout padrão = %s, esperado 15s", mgr.runTimeout)
 	}
 }
 
