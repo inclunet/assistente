@@ -261,7 +261,7 @@ type ChatParams struct {
 	// a continuação está habilitada no perfil mas o provider não suporta prefill.
 	// Mutuamente exclusivo com AllowAssistantPrefill.
 	ContinueViaUserMessage bool            `json:"continueViaUserMessage,omitempty"`
-	MaxAgenticIterations   int             `json:"maxAgenticIterations,omitempty"` // 0 = usar default (25), >0 = limite customizado
+	MaxAgenticIterations   int             `json:"maxAgenticIterations,omitempty"` // 0 = usar default (100), >0 = limite customizado
 	ResponseTimeout        int             `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
 	RateLimitEnabled       *bool           `json:"-"`                              // Política de rate limit resolvida do perfil; nil usa o default.
 	RateLimitRPM           int             `json:"-"`                              // Taxa sustentada resolvida do perfil.

@@ -717,10 +717,10 @@ func (s *Service) ResolveProfileDefaults(ctx context.Context, p *profiles.Profil
 		}
 		resolved.Chat.Model = resolvedModel
 		if modelSourceProvider != nil {
-			logging.Infof(ctx, "providers.service", "[providers] Resolvido $default model → provider=%s, model=%s", modelSourceProvider.ID, resolvedModel)
+			logging.Debugf(ctx, "providers.service", "[providers] Resolvido $default model → provider=%s, model=%s", modelSourceProvider.ID, resolvedModel)
 		}
 	} else if defaultProvider != nil {
-		logging.Infof(ctx, "providers.service", "[providers] Resolvido $default → provider=%s", defaultProvider.ID)
+		logging.Debugf(ctx, "providers.service", "[providers] Resolvido $default → provider=%s", defaultProvider.ID)
 	}
 	return &resolved
 }

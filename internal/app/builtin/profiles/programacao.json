@@ -13,6 +13,7 @@
     "min_context_messages": 20,
     "top_p": 0,
     "response_timeout": 180,
+    "max_agentic_iterations": 500,
     "tool_policy_default": "on_demand",
     "tool_policy": {
       "read_file": "preloaded",
