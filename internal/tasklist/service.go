@@ -263,7 +263,10 @@ func (s *Service) UpdateWorkflowFull(ctx context.Context, taskListID string, sta
 	if tl != nil && tl.Workflow != nil {
 		s.emitter.Emit("workflow:updated", tl.Workflow)
 	}
-	s.emitter.Emit("taskList:updated", tl)
+	// A migração pode alterar o status de muitas tarefas sem emitir um evento
+	// task:updated por linha. O ID instrui o frontend a recarregar a janela
+	// paginada já visível, evitando manter cards com status obsoleto.
+	s.emitter.Emit("taskList:updated", taskListID)
 	if s.wantsDomain("tasklist.workflow.updated") {
 		var wf *database.TaskListWorkflow
 		if tl != nil {
