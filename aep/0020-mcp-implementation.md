@@ -37,11 +37,15 @@ ausente.
 
 ### 4. **Health Checks** ✅ FUNCIONAL
 - ✅ Ping periódico a cada 2 minutos
+- ✅ Timeout de 10 segundos por ping
 - ✅ Auto-reconnect com exponential backoff
+- ✅ Backoff de reconexão inicia em 15 segundos e chega ao máximo de 5 minutos
 - ✅ Notificações de estado no frontend
 - ✅ Contexto de sessão persistente, separado do timeout do handshake
 - ✅ `Disconnect`/`CloseAll` cancelam e aguardam conexões em andamento
 - ✅ Reconexão substitui sessão e health loop sem duplicação
+- ✅ Encerramentos normais do lifecycle (`client is closing`/EOF de cleanup)
+  encerram o health loop sem contabilizar falha, emitir evento ou reconectar
 
 #### Contrato de lifecycle da sessão
 
@@ -61,7 +65,12 @@ reconexão posterior.
 
 Erros esperados ao fechar uma sessão já encerrada são registrados como
 informação de cleanup. Falhas inesperadas de fechamento permanecem em nível de
-erro; reconexão bem-sucedida é informação, não erro.
+erro; reconexão bem-sucedida é informação, não erro. Um health check que
+observe `client is closing`/EOF depois de o próprio contexto de lifecycle ter
+sido cancelado não representa indisponibilidade: o resultado é descartado e
+não alimenta contador, evento de unhealthy ou reconexão. O mesmo erro com o
+lifecycle ainda ativo continua sendo falha real, sujeita ao limiar de duas
+falhas consecutivas.
 
 ### 5. **Native MCP Mode** ✅ FUNCIONAL
 - ✅ MCP nativo real via Responses API (OpenAI) e MCP Connector (Anthropic)
@@ -233,6 +242,7 @@ de esta AEP poder ser concluída.
 - lifecycle, timeout, cancelamento, reconexão e shutdown:
   `internal/mcp/manager.go`;
 - regressões de sessão persistente, health check, timeout STDIO, cancelamento
-  concorrente, SSE legado, Streamable HTTP sem SSE, reconexão e `CloseAll`:
+  concorrente, EOF de cleanup sem flapping, SSE legado, Streamable HTTP sem
+  SSE, reconexão e `CloseAll`:
   `internal/mcp/manager_lifecycle_regression_test.go`;
 - validação de concorrência: `go test -race ./internal/mcp`.
