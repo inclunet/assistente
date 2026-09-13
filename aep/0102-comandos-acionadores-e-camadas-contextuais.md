@@ -162,6 +162,8 @@ CommandInvocation
   session_id?, security_generation
   actor_type, actor_id
   source_type?, observer_type?, source_instance_id?, source_event_id?
+  source_occurred_at?, source_replay_policy_generation?
+  source_replay_deadline?
   workspace_id?, binding_ids?, registry_version
   global_config_generation?, workspace_config_generation?
   active_layers_generation?
@@ -220,10 +222,14 @@ acessa bindings/camadas. Policy que declara provider exige `context_version`;
 `none` o omite. Não há string vazia, zero ou sentinel para esses casos.
 
 Adapters físicos e de evento exigem `source_instance_id` e `source_event_id`.
-Palette, `ui.action`, chat, CLI e `system` os omitem e deduplicam pela PK
+Adapter de evento exige ainda `source_occurred_at`, obtido do timestamp
+autenticado e persistido do produtor; adapter físico o omite. Palette,
+`ui.action`, chat, CLI e `system` omitem os três e deduplicam pela PK
 `invocation_id`. A borda Wails cria o UUIDv7 de cada clique/formulário antes do
 serviço. Após resolução, `binding_ids` é sempre materializado como lista, ainda
 que vazia.
+`source_replay_policy_generation` e `source_replay_deadline` são derivados
+internamente depois de validar a fonte; valor recebido de cliente é ignorado.
 
 Na primeira tentativa, IDs são gerados em borda confiável: Wails para
 palette/UI, contexto persistido da tool call para chat, processo backend para
@@ -242,8 +248,9 @@ vencedor, o backend calcula o HMAC por JSON Canonicalization Scheme (RFC 8785).
 Ambos se tornam obrigatórios antes da reserva no ledger. O fingerprint inclui
 schema, comando ou trigger, argumentos, IDs/versões de contexto, usuário/ator
 derivados, tipo/ID do contexto autenticado, origem/observador, workspace,
-`source_event_id` quando presente; `source_instance_id` somente quando não
-houver `source_event_id`; versões de
+`source_event_id`, `source_occurred_at`, geração e deadline de replay quando
+presentes;
+`source_instance_id` somente quando não houver `source_event_id`; versões de
 catálogo/configuração, profiles de origem/destino,
 `authorization_decision_id`, `delegation_fingerprint`, `grant_generation`,
 `job_id`, `job_slug`, `job_definition_fingerprint`, `run_id` e proveniência.
@@ -266,8 +273,11 @@ O dispatcher o copia sem reconstruir por heurística.
 Uma solicitação informa `command_id` para execução direta ou
 `trigger_type`/`trigger_spec` para resolução de binding. Depois da resolução,
 solicitação por trigger contém também o `command_id` vencedor; solicitação
-direta mantém `trigger_*` nulo. Ausência do campo exigido por cada modalidade ou
-combinação incoerente falha antes de qualquer efeito.
+direta mantém `trigger_*` nulo. A única exceção é a resolução terminal
+`effect = suppress` da D4: ela preserva `command_id` nulo, registra o marcador
+`suppressed` no ledger e não cria `CommandInvocation`. Fora dessa exceção,
+ausência do campo exigido por cada modalidade ou combinação incoerente falha
+antes de qualquer efeito.
 
 Se qualquer um entre `surface_type`, `surface_id` e
 `surface_snapshot_version` estiver presente, os três tornam-se obrigatórios e
@@ -371,14 +381,30 @@ execução. Reentrega recebe o resultado
 existente ou falha como
 duplicada, nunca chama novamente o handler. Palette, chat e CLI fornecem um
 `invocation_id` UUIDv7 idempotente por solicitação. Eventos físicos recebem
-`source_event_id` no único adapter que os possui. A garantia de deduplicação é
-limitada à sessão física ou até `expires_at` do ledger. Expirada e removida a
-chave, uma nova recepção é nova solicitação; não se infere idade do timestamp
-embutido no UUIDv7.
+`source_event_id` no único adapter que os possui. Para eles, a garantia de
+deduplicação é limitada à sessão física ou até `expires_at` do ledger; depois
+disso, nova observação física é nova solicitação.
+
+Evento durável não segue essa regra curta. Na v1, o adapter relê
+`job_run_events` por PK/ownership, exige igualdade de `source_event_id` e
+`source_occurred_at`. `command_event_replay_policy_epochs` registra cada
+mudança de `maintenance.job_retention_hours` com geração, `effective_at` e
+horizonte; o evento usa o epoch vigente em `source_occurred_at` para calcular
+um `source_replay_deadline` imutável. O ledger recebe `expires_at` nunca
+anterior a esse deadline.
+
+Antes de remover um ledger de evento, a manutenção exige que o deadline tenha
+vencido. Se não houver ledger, evento após seu `source_replay_deadline` é
+rejeitado como `rejected_stale` antes da resolução, nunca aceito como novo.
+Aumentar retenção cria epoch apenas para ocorrências seguintes e não reabre
+eventos cujo deadline anterior venceu; diminuir também não encurta ledgers já
+reservados. Não se infere idade do UUIDv7.
 
 `received_at` é sempre atribuído pelo backend ao receber o envelope e governa
-retenção/idade. `client_requested_at`, quando fornecido, é apenas metadado
-validado e nunca altera expiração, ordenação de segurança ou caps.
+retenção/idade das origens não duráveis. Para evento durável,
+`source_occurred_at` autenticado governa a admissibilidade e o piso de retenção
+do ledger. `client_requested_at`, quando fornecido, é apenas metadado validado
+e nunca altera expiração, ordenação de segurança ou caps.
 
 Reentrega consulta primeiro o ledger pelo ID e recebe status, `result_summary`
 e `result_ref` redigidos por `CommandExecutionService.GetInvocation`; não
@@ -1170,6 +1196,10 @@ command_bindings
 command_config_generations
   id, user_id, workspace_id, generation, updated_at
 
+command_event_replay_policy_epochs
+  id, producer_type, generation, effective_at, replay_horizon_seconds,
+  created_at
+
 command_layer_activation_state
   activation_id PK UUIDv7, layer_ref_kind, layer_ref, rule_ref_kind, rule_ref,
   user_id, workspace_id nullable_for_global,
@@ -1203,8 +1233,10 @@ command_invocations
   trigger_fingerprint nullable_for_direct,
   actor_type, actor_id, source_type nullable_until_resolved,
   observer_type nullable,
-  source_instance_id nullable,
-  source_event_id nullable,
+  source_instance_id nullable, source_event_id nullable,
+  source_occurred_at nullable_for_non_event,
+  source_replay_policy_generation nullable_for_non_event,
+  source_replay_deadline nullable_for_non_event,
   arguments_summary, arguments_fingerprint, conversation_id, turn_id,
   surface_type, surface_id, surface_snapshot_version,
   context_version nullable_for_none,
@@ -1222,7 +1254,9 @@ command_idempotency_keys
   id, key, invocation_id, user_id nullable_for_system,
   auth_context_type, auth_context_id,
   source_type nullable_until_resolved, source_instance_id nullable,
-  source_event_id nullable,
+  source_event_id nullable, source_occurred_at nullable_for_non_event,
+  source_replay_policy_generation nullable_for_non_event,
+  source_replay_deadline nullable_for_non_event,
   request_fingerprint_version, request_fingerprint,
   status, result_summary, result_ref, received_at, expires_at
 ```
@@ -1259,15 +1293,26 @@ só pode referenciar layer `user`.
 Campos marcados com `?` no envelope são nullable no SQLite; ausência vira
 `NULL`, nunca string vazia. `command_id` fica nulo em `evaluating`/`denied`
 somente quando a resolução prévia não encontrou comando; em toda reserva
-resolvida é preenchido e imutável. `trigger_*` é nulo em execução direta; campos de surface,
-conversa, job, profile, workspace e decisão são nulos quando o contexto não se
-aplica. Campos obrigatórios do envelope e `binding_ids` (default `[]`) são NOT
-NULL.
+resolvida executável é preenchido e imutável. Supressão terminal é a exceção
+sem `CommandInvocation` da D4. `trigger_*` é nulo em execução direta; campos de
+surface, conversa, job, profile, workspace e decisão são nulos quando o
+contexto não se aplica. `source_occurred_at` é obrigatório somente para
+`source_type = event`, vem da fonte autenticada e fica nulo nas demais origens.
+Nesse caso, `source_replay_policy_generation` e `source_replay_deadline`
+também são obrigatórios e derivam do epoch de política, nunca do payload.
+Campos obrigatórios do envelope e `binding_ids` (default `[]`) são NOT NULL.
 
 Todas as PKs persistidas criadas por esta AEP são UUIDv7 conforme AEP-0046.
 FKs entre essas tabelas também usam UUIDv7. IDs de defaults que vivem no código
 são strings namespaced estáveis; `replaces_default_id` referencia essa
 identidade lógica, não uma linha SQLite.
+
+`command_event_replay_policy_epochs` tem UNIQUE
+`(producer_type, generation)` e `(producer_type, effective_at)`. A implantação
+cria o epoch inicial antes de habilitar o adapter D8; alteração da retenção de
+jobs persiste o novo epoch na mesma seção crítica que publica a configuração.
+Lookup por `source_occurred_at` escolhe o maior `effective_at` não posterior ao
+evento. Ausência ou ambiguidade falha fechado.
 
 Estado de ativação usa referência polimórfica validada, não FK:
 `layer_ref_kind`/`rule_ref_kind` aceitam `builtin` ou `user`; refs builtin são
@@ -1435,8 +1480,10 @@ Os limites de quantidade removem somente auditoria detalhada em
 `command_invocations` e estado terminal em
 `command_layer_activation_state`. Os dois ledgers mínimos não são removidos por
 cap: permanecem até `expires_at`, calculado com a respectiva retenção
-configurada, e só então
-a chave pode ser reutilizada. Status/resultado redigido e último
+configurada. Para `source_type = event`, o piso adicional, a consulta da fonte e
+a rejeição por `source_occurred_at` seguem D2.1; a chave não é removida enquanto
+a fonte ainda puder reentregá-la. Só depois desses gates a chave pode ser
+reutilizada. Status/resultado redigido e último
 fingerprint/sequence são atualizados no ledger na mesma transação da mudança de
 estado. `command_idempotency_keys.key` e
 `command_activation_idempotency_keys.key` têm índices únicos. Assim, compactar
@@ -1826,6 +1873,9 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   UNIQUE explícitas.
 - [ ] Reentrega dentro da janela retorna status/resultado redigido sem repetir o
   handler; invocações interrompidas por queda viram `outcome_unknown`.
+- [ ] Evento durável preserva a chave pelo horizonte de replay da fonte e,
+  depois dele, é rejeitado por `source_occurred_at` autenticado em vez de ser
+  tratado como solicitação nova.
 - [ ] Recuperação de startup atualiza auditoria e ledger para
   `outcome_unknown` na mesma transação.
 - [ ] Reutilizar `invocation_id` com request fingerprint diferente falha
