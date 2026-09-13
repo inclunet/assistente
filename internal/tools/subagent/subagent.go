@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"assistente/internal/eventctx"
 	"assistente/internal/profileaccess"
@@ -318,7 +319,17 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 			metadata["error"] = res.Error
 		}
 		if a.Raw {
-			return tools.ToolResult{Content: res.Response, Metadata: metadata}, nil
+			if !utf8.ValidString(res.Response) {
+				return tools.ToolResult{
+					Content:  "Resposta raw do subagente não é UTF-8 válida e não pode ser devolvida exatamente.",
+					IsError:  true,
+					Metadata: metadata,
+					Failure: &tools.ToolFailure{
+						Code: "raw_invalid_utf8", Kind: tools.ErrorKindUnknown, Retryable: false,
+					},
+				}, nil
+			}
+			return tools.ToolResult{Content: res.Response, Metadata: metadata, RawExact: true}, nil
 		}
 		return jsonResult(res, false, metadata), nil
 

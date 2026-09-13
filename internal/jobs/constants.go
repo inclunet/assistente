@@ -7,8 +7,9 @@ import (
 )
 
 // JobExecutionMaxResultSizeBytes é o budget máximo de resultado para execução de tools
-// no caminho de jobs/testes de catálogo. A persistência em tool_invocations pode truncar
-// separadamente; este limite existe para evitar truncar JSON durante o processamento de jobs.
+// no caminho de jobs/testes de catálogo. A persistência em tool_invocations
+// omite explicitamente o que não couber em seu teto separado; este limite
+// impede que jobs processem uma prévia como se fosse resultado integral.
 //
 // Observação: outputs grandes podem gerar pressão de memória (strings + unmarshal).
 // Para ajustar em runtime, use a env var ASSISTENTE_JOB_EXECUTION_MAX_RESULT_BYTES.

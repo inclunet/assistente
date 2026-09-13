@@ -13,6 +13,19 @@ func TestContentForModelKeepsPlainResultUnchanged(t *testing.T) {
 	}
 }
 
+func TestContentForModelRawExactDoesNotPrefixAnnotations(t *testing.T) {
+	result := ToolResult{
+		Content:  "texto exato",
+		RawExact: true,
+		Annotations: &ResultAnnotations{DocumentProjection: &DocumentProjectionAnnotation{
+			Source: "manual.pdf", Format: "pdf", ReadOnly: true,
+		}},
+	}
+	if got := ContentForModel(result); got != result.Content {
+		t.Fatalf("raw recebeu envelope: %q", got)
+	}
+}
+
 func TestContentForModelSeparatesProjectionAnnotation(t *testing.T) {
 	result := ToolResult{
 		Content: "Arquivo: manual.docx\n     1|# Título",
@@ -54,6 +67,70 @@ func annotatedResult() ToolResult {
 		Annotations: &ResultAnnotations{
 			DocumentProjection: &DocumentProjectionAnnotation{Source: "a.pdf", Format: "pdf"},
 		},
+	}
+}
+
+func TestContentForDurableHistoryOmitsEphemeralWindow(t *testing.T) {
+	result := ToolResult{
+		Content: "prévia sensível",
+		Annotations: &ResultAnnotations{OutputWindow: &OutputWindowAnnotation{
+			HasMore: true, ResultID: "tool-result-efemero", Returned: 15,
+		}},
+	}
+	got := ContentForDurableHistory(result, ContentForModel(result))
+	if !strings.Contains(got, "result_omitted_for_persistence") ||
+		strings.Contains(got, "tool-result-efemero") ||
+		strings.Contains(got, result.Content) {
+		t.Fatalf("referência efêmera sobreviveu no histórico: %q", got)
+	}
+}
+
+func TestContentForDurableHistoryDetectsWindowCreatedByPrecheck(t *testing.T) {
+	original := ToolResult{
+		Content: "página natural",
+		Annotations: &ResultAnnotations{OutputWindow: &OutputWindowAnnotation{
+			HasMore: true, Unit: "lines", NextOffset: 20,
+		}},
+	}
+	reconciled := ToolResult{
+		Content: "prefixo da página",
+		Annotations: &ResultAnnotations{OutputWindow: &OutputWindowAnnotation{
+			HasMore: true, Unit: "bytes", ResultID: "tool-result-precheck",
+		}},
+	}
+	got := ContentForDurableHistory(original, ContentForModel(reconciled))
+	if !strings.Contains(got, "result_omitted_for_persistence") ||
+		strings.Contains(got, "tool-result-precheck") {
+		t.Fatalf("ID criado pelo pre-check sobreviveu: %q", got)
+	}
+}
+
+func TestContentForDurableHistoryDoesNotInterpretUnannotatedContent(t *testing.T) {
+	content := annotationsHeader +
+		`{"output_window":{"has_more":true,"result_id":"texto-legitimo"}}` +
+		contentHeader + "corpo literal"
+	if got := ContentForDurableHistory(ToolResult{Content: content}, content); got != content {
+		t.Fatalf("conteúdo sem contrato foi interpretado como envelope: %q", got)
+	}
+}
+
+func TestContentForDurableHistoryKeepsFinalPageWithoutResultID(t *testing.T) {
+	result := ToolResult{
+		Content:  "página final",
+		RawExact: true,
+		Metadata: map[string]any{"result_id": "tool-result-final"},
+		Annotations: &ResultAnnotations{OutputWindow: &OutputWindowAnnotation{
+			HasMore: false, Unit: "bytes", Offset: 10, Returned: 12,
+			ResultID: "tool-result-final",
+		}},
+	}
+	got := ContentForDurableHistory(result, ContentForModel(result))
+	if !strings.Contains(got, result.Content) || strings.Contains(got, "tool-result-final") ||
+		strings.Contains(got, "result_omitted_for_persistence") {
+		t.Fatalf("página final não foi sanitizada corretamente: %q", got)
+	}
+	if result.Annotations.OutputWindow.ResultID != "tool-result-final" {
+		t.Fatal("sanitização alterou o resultado original por aliasing")
 	}
 }
 

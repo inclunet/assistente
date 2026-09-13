@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"assistente/internal/database"
@@ -62,6 +63,32 @@ func (testToolMCPBridge) Description() string         { return "bridge" }
 func (testToolMCPBridge) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
 func (testToolMCPBridge) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: `{"deleted":true}`}, nil
+}
+
+type testToolWindow struct{}
+
+func (testToolWindow) Name() string                { return "tool_window" }
+func (testToolWindow) Description() string         { return "window" }
+func (testToolWindow) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (testToolWindow) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+	return tools.ToolResult{
+		Content: "prefixo",
+		Annotations: &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: true, Unit: "bytes", Returned: 7, Total: 20, NextOffset: 7,
+		}},
+	}, nil
+}
+
+func TestManagerDryRunFallbackRejectsIncompleteWindow(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.MustRegister(testToolWindow{})
+	mgr := NewManager(ManagerConfig{ToolRegistry: registry})
+	result, err := mgr.TestToolDryRunContext(context.Background(), TestToolRequest{
+		ToolName: "tool_window", Inputs: map[string]any{},
+	})
+	if err != nil || result == nil || result.Success || !strings.Contains(result.Error, "incomplet") {
+		t.Fatalf("dry-run fallback aceitou janela incompleta: err=%v result=%+v", err, result)
+	}
 }
 
 func TestManagerTestToolDryRunContext_RecordsDryRunToolCatalogInvocations(t *testing.T) {

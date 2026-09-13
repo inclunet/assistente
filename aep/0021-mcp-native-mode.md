@@ -56,6 +56,10 @@ A unica dimensao ESTATICA de provider que influencia MCP nativo e a **capacidade
 - Apenas MCP servers **remotos HTTP** (SSE / Streamable HTTP) podem ser usados nativamente
 - Servers **STDIO locais** devem continuar usando adapter (MCPToolBridge)
 - Apenas **tool calls** sao suportados nativamente (nao resources/prompts/sampling)
+- Resultados de MCP nativo são produzidos dentro do provider e não atravessam o
+  executor local. A proteção recuperável da AEP-0102 cobre a bridge, mas não
+  pode interceptar corretamente o modo nativo; nele valem os limites e contratos
+  do provider, sem alegação de cobertura pelo host.
 
 ---
 

@@ -105,7 +105,7 @@ Criar ferramenta completa para requisições HTTP que suporte:
     },
     "max_response_size": {
       "type": "integer",
-      "description": "Tamanho máximo da resposta em caracteres (padrão: 50000)",
+      "description": "Tamanho máximo da resposta extraída em bytes (padrão: 50000)",
       "default": 50000
     },
     "extract_mode": {

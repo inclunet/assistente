@@ -376,6 +376,29 @@ func TestToolRawReturnsIntegralContentAndMetadata(t *testing.T) {
 	}
 }
 
+func TestToolRawRejectsInvalidUTF8WithoutPartial(t *testing.T) {
+	response := "prefixo-" + string([]byte{0xff, 0xfe}) + "-segredo"
+	runner := &fakeRunner{result: subagent.RunResult{
+		ConversationID: "child-conv",
+		RunID:          "run-invalid-utf8",
+		Status:         subagent.StatusSucceeded,
+		Response:       response,
+	}}
+	tool := NewWithProvider(func() Runner { return runner })
+
+	res, err := tool.Execute(parentCtx(), json.RawMessage(`{"prompt":"gere bytes","raw":true}`))
+	if err != nil || !res.IsError || res.Failure == nil || res.Failure.Code != "raw_invalid_utf8" {
+		t.Fatalf("raw inválido não falhou de modo estável: result=%#v err=%v", res, err)
+	}
+	if res.RawExact || strings.Contains(res.Content, "prefixo-") || strings.Contains(res.Content, "segredo") {
+		t.Fatalf("falha raw expôs conteúdo parcial: %#v", res)
+	}
+	if res.Metadata["conversation_id"] != "child-conv" ||
+		res.Metadata["run_id"] != "run-invalid-utf8" {
+		t.Fatalf("falha raw perdeu IDs de diagnóstico: %#v", res.Metadata)
+	}
+}
+
 func TestToolRawPreservesBusinessErrorInMetadata(t *testing.T) {
 	runner := &fakeRunner{result: subagent.RunResult{
 		ConversationID: "child-conv",
@@ -464,11 +487,11 @@ func TestToolRawStillRespectsExecutorLimit(t *testing.T) {
 			Arguments: `{"prompt":"gere muito","raw":true}`,
 		},
 	})
-	if exec.Result.IsError {
-		t.Fatalf("limite textual deve truncar, não falhar: %#v", exec)
+	if !exec.Result.IsError || exec.ErrorCode != "raw_result_too_large" {
+		t.Fatalf("raw grande deve falhar explicitamente: %#v", exec)
 	}
-	if len(exec.Result.Content) > cfg.MaxResultSize || exec.Result.Metadata["truncated"] != true {
-		t.Fatalf("raw deve respeitar limite comum do executor: len=%d metadata=%#v", len(exec.Result.Content), exec.Result.Metadata)
+	if strings.Contains(exec.Result.Content, strings.Repeat("x", 32)) {
+		t.Fatalf("raw não pode conter fragmento parcial: %q", exec.Result.Content)
 	}
 }
 

@@ -42,9 +42,10 @@ func TestOutputForPersistence_CapsLargeOutputAndDropsLargeMetadata(t *testing.T)
 	if _, ok := payload["is_error"].(bool); !ok {
 		t.Fatalf("expected is_error bool, got=%T", payload["is_error"])
 	}
-	// Metadata deve ter sido dropada para caber no limite.
-	if _, ok := payload["metadata"]; ok {
-		t.Fatalf("expected metadata to be dropped, got=%v", payload["metadata"])
+	// Metadata arbitrária é removida, mas o marcador compacto de omissão fica.
+	metadata, _ := payload["metadata"].(map[string]any)
+	if metadata["omitted_for_persistence"] != true {
+		t.Fatalf("expected compact omission marker, got=%v", payload["metadata"])
 	}
 }
 
@@ -72,8 +73,40 @@ func TestOutputForPersistence_DropsNonSerializableMetadataAndStillCapsSize(t *te
 	if payload["is_error"] != true {
 		t.Fatalf("expected is_error=true, got=%v", payload["is_error"])
 	}
-	if _, ok := payload["metadata"]; ok {
-		t.Fatalf("expected metadata to be dropped when non-serializable")
+	metadata, _ := payload["metadata"].(map[string]any)
+	if metadata["omitted_for_persistence"] != true {
+		t.Fatalf("expected compact omission marker, got=%v", payload["metadata"])
+	}
+}
+
+func TestOutputForPersistenceTinyLimitHydratesAsExplicitOmission(t *testing.T) {
+	for _, max := range []int{1, len(`{"content":"","is_error":true}`)} {
+		svc := &Service{persistMaxResultSize: max}
+		out := svc.outputForPersistence(tools.ToolResult{Content: strings.Repeat("x", 4096)})
+		if string(out) != persistenceOmissionSentinel || len(out) > svc.persistMaxResultSize {
+			t.Fatalf("max=%d: sentinela inválido: %q", max, out)
+		}
+		persisted := ExtractToolInvocationResult(string(out))
+		if !persisted.IsError || persisted.Failure == nil ||
+			persisted.Failure.Code != "result_omitted_for_persistence" ||
+			persisted.Metadata["omitted_for_persistence"] != true {
+			t.Fatalf("max=%d: omissão reidratada como sucesso: %+v", max, persisted)
+		}
+	}
+}
+
+func TestOutputForPersistenceMarksMetadataReductionWhenContentFits(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 256}
+	result := tools.ToolResult{
+		Content:  "conteúdo íntegro",
+		Metadata: map[string]any{"http": strings.Repeat("x", 4096)},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Content != result.Content {
+		t.Fatalf("conteúdo que cabia foi alterado: %+v", persisted)
+	}
+	if persisted.Metadata["omitted_for_persistence"] != true {
+		t.Fatalf("redução de metadata não foi sinalizada: %+v", persisted.Metadata)
 	}
 }
 
@@ -100,6 +133,126 @@ func TestOutputForPersistence_PreservesResultAnnotations(t *testing.T) {
 	projection := payload.Annotations.DocumentProjection
 	if projection == nil || projection.Source != "manual.docx" || !projection.ReadOnly {
 		t.Fatalf("annotations=%+v", payload.Annotations)
+	}
+}
+
+func TestOutputForPersistenceRemovesWindowWhenContentIsReduced(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 256}
+	result := tools.ToolResult{
+		Content: strings.Repeat("x", 4096),
+		Annotations: &tools.ResultAnnotations{
+			DocumentProjection: &tools.DocumentProjectionAnnotation{
+				Source: "manual.pdf", Format: "pdf", ReadOnly: true,
+			},
+			OutputWindow: &tools.OutputWindowAnnotation{
+				HasMore: true, Unit: "bytes", Returned: 4096, Total: 8192,
+				NextOffset: 4096, ResultID: "tool-result-efemero",
+			},
+		},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Annotations != nil {
+		t.Fatalf("contrato parcial sobreviveu à omissão: %+v", persisted.Annotations)
+	}
+	if !strings.Contains(persisted.Content, "omitted") {
+		t.Fatalf("omissão explícita ausente: %+v", persisted)
+	}
+}
+
+func TestOutputForPersistenceOmitsEphemeralPreviewEvenWhenItFits(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 4096}
+	result := tools.ToolResult{
+		Content:  "prefixo",
+		Metadata: map[string]any{"result_id": "tool-result-efemero"},
+		Annotations: &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: true, Unit: "bytes", Returned: 7, Total: 1000,
+			NextOffset: 7, ResultID: "tool-result-efemero", OriginalBytes: 1000,
+		}},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Annotations != nil || strings.Contains(persisted.Content, result.Content) {
+		t.Fatalf("prévia efêmera foi persistida como completa: %+v", persisted)
+	}
+	if !strings.Contains(persisted.Content, "omitted") {
+		t.Fatalf("omissão explícita ausente: %+v", persisted)
+	}
+}
+
+func TestOutputForPersistenceOmitsEphemeralPreviewWithoutSizeLimit(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 0}
+	result := tools.ToolResult{
+		Content:  "prefixo",
+		Metadata: map[string]any{"result_id": "tool-result-efemero"},
+		Annotations: &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: true, Unit: "bytes", Returned: 7, Total: 1000,
+			NextOffset: 7, ResultID: "tool-result-efemero", OriginalBytes: 1000,
+		}},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Annotations != nil || strings.Contains(persisted.Content, result.Content) ||
+		strings.Contains(string(svc.outputForPersistence(result)), "tool-result-efemero") {
+		t.Fatalf("budget ilimitado persistiu ID efêmero: %+v", persisted)
+	}
+	if !strings.Contains(persisted.Content, "omitted") {
+		t.Fatalf("omissão não foi explícita: %+v", persisted)
+	}
+}
+
+func TestOutputForPersistenceKeepsCompleteFinalPageWithoutEphemeralID(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 4096}
+	result := tools.ToolResult{
+		Content:  "página final exata",
+		RawExact: true,
+		Metadata: map[string]any{"result_id": "tool-result-efemero", "source": "read_tool_result"},
+		Annotations: &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: false, Unit: "bytes", Offset: 100, Returned: 18, Total: 118,
+			ResultID: "tool-result-efemero", OriginalBytes: 118,
+		}},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Content != result.Content || !persisted.RawExact {
+		t.Fatalf("página final completa foi omitida: %+v", persisted)
+	}
+	if persisted.Annotations.OutputWindow.ResultID != "" {
+		t.Fatalf("result_id efêmero sobreviveu: %+v", persisted.Annotations.OutputWindow)
+	}
+	if _, ok := persisted.Metadata["result_id"]; ok {
+		t.Fatalf("result_id efêmero sobreviveu na metadata: %+v", persisted.Metadata)
+	}
+}
+
+func TestOutputForPersistenceOmitsExactContentInsteadOfCutting(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 256}
+	for _, result := range []tools.ToolResult{
+		{Content: `{"value":"` + strings.Repeat("x", 4096) + `"}`, Structured: true},
+		{Content: strings.Repeat("raw-", 4096), RawExact: true},
+		{Content: `"` + strings.Repeat("x", 4096) + `"`},
+	} {
+		persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+		if strings.Contains(persisted.Content, result.Content[:100]) {
+			t.Fatalf("resultado exato foi persistido parcialmente: %q", persisted.Content)
+		}
+		if !strings.Contains(persisted.Content, "omitted") {
+			t.Fatalf("omissão explícita ausente: %+v", persisted)
+		}
+	}
+}
+
+func TestOutputForPersistenceRestoresRawExactSemModelEnvelope(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 4096}
+	result := tools.ToolResult{
+		Content:  "texto projetado",
+		RawExact: true,
+		Annotations: &tools.ResultAnnotations{DocumentProjection: &tools.DocumentProjectionAnnotation{
+			Source: "manual.pdf", Format: "pdf", ReadOnly: true,
+		}},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if !persisted.RawExact || persisted.Annotations == nil {
+		t.Fatalf("contrato raw/proveniência não foi reidratado: %+v", persisted)
+	}
+	if got := tools.ContentForModel(persisted); got != result.Content {
+		t.Fatalf("raw reidratado recebeu envelope: %q", got)
 	}
 }
 

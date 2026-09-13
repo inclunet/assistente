@@ -199,11 +199,6 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 
 		for _, match := range globMatches {
-			if len(matches) >= maxResults {
-				truncated = true
-				break
-			}
-
 			// Link apontando para fora do sandbox: não vazar nomes externos
 			if pathEscapesSandbox(match, t.workDir) {
 				continue
@@ -226,6 +221,10 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 			info, err := os.Stat(match)
 			if err != nil {
 				continue
+			}
+			if len(matches) >= maxResults {
+				truncated = true
+				break
 			}
 
 			prefix := "[FILE]"
@@ -257,21 +256,24 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 	}
 
 	header := fmt.Sprintf("Busca: '%s' em '%s' — %d resultado(s)\n", a.Pattern, basePath, len(matches))
-	if truncated {
-		header += fmt.Sprintf("(TRUNCADO: limite de %d resultados atingido)\n", maxResults)
-	}
 	if skippedBySkill > 0 {
 		header += fmt.Sprintf("(%d caminho(s) omitido(s) por permissões do skill)\n", skippedBySkill)
 	}
 
-	return tools.ToolResult{
+	result := tools.ToolResult{
 		Content: header + strings.Join(matches, "\n"),
 		Metadata: map[string]any{
 			"results":          len(matches),
 			"truncated":        truncated,
 			"skipped_by_skill": skippedBySkill,
 		},
-	}, nil
+	}
+	if truncated {
+		result.Annotations = &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: true, Unit: "results", Offset: 0, Returned: len(matches),
+		}}
+	}
+	return result, nil
 }
 
 func (t *SearchFiles) resolvePath(path string) (string, error) {
