@@ -543,7 +543,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               })}
             </span>
             {currentViewMode === 'kanban' && taskPageLoadError && (
-              <span className="tasklist-pagination__error">
+              <span className="tasklist-pagination-error">
                 {t('tasklist.pagination.boardLoadFailed', 'Não foi possível carregar todos os cards. Os cards disponíveis continuam navegáveis.')}
               </span>
             )}

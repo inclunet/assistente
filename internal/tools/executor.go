@@ -24,7 +24,7 @@ const (
 	DefaultMaxResultSize = 100 * 1024
 
 	// DefaultMaxIterations é o número máximo de iterações do agentic loop
-	DefaultMaxIterations = 25
+	DefaultMaxIterations = 100
 )
 
 // ExecutorConfig contém configurações do executor de ferramentas.

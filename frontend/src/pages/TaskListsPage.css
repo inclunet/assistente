@@ -59,7 +59,7 @@
   color: var(--text-secondary);
 }
 
-.tasklist-pagination__error {
+.tasklist-pagination-error {
   flex-basis: 100%;
   color: var(--color-danger);
   text-align: center;
