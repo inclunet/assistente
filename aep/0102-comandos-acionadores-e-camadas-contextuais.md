@@ -337,8 +337,10 @@ O serviço, nessa ordem:
    staleness e gerações e só então reserva o ledger terminal enquanto mantém o
    gate; se stale, não grava `suppressed`, mas reserva uma recusa terminal
    `rejected_stale` para os mesmos IDs/ownership e registra o evento no log de
-   segurança. Nos demais casos, reserva atomicamente ledger e auditoria como
-   `evaluating`;
+   segurança. Tanto `suppressed` quanto `rejected_stale` encerram o
+   processamento sem seguir aos passos seguintes e sem criar
+   `CommandInvocation`. Nos demais casos, reserva atomicamente ledger e
+   auditoria como `evaluating`;
 5. se a resolução falhou, conclui `denied`; caso contrário valida origem
    permitida, disponibilidade, argumentos, contexto e política;
    falhas após autenticação terminam a tentativa como `denied`. Quando a
