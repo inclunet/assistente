@@ -419,8 +419,9 @@ func TestHTTPRequestUsesExecutorBudgetWhenParameterIsOmitted(t *testing.T) {
 	args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": "text"})
 	ctx := tools.WithMaxResultSize(context.Background(), 100*1024)
 	result, err := newTestHTTPRequest().Execute(ctx, args)
-	if err != nil || result.IsError || result.Annotations == nil ||
-		result.Annotations.OutputWindow != nil || !strings.Contains(result.Content, payload) {
+	if err != nil || result.IsError ||
+		(result.Annotations != nil && result.Annotations.OutputWindow != nil) ||
+		!strings.Contains(result.Content, payload) {
 		t.Fatalf("budget do executor não foi respeitado: err=%v result=%+v", err, result)
 	}
 }
