@@ -110,7 +110,8 @@ paralelas.
 
 `context_policy` lista fatos por provider e modo: `exact_version`, `max_age_ms`,
 `event_snapshot` para captura confiável no instante do acionamento, ou `none`
-somente para leitura que não depende de alvo atual.
+somente para leitura que não depende de alvo atual. `event_snapshot` exige
+`max_age_ms > 0` e timestamp autenticado do provider.
 `internal/commandcontext.VersionService` registra providers e monta
 `context_version` como fingerprint dos pares `(fact_name, fact_version)`.
 Providers iniciais:
@@ -134,8 +135,11 @@ efetiva. `CommandExecutionService` revalida essa invariância; metadata de coman
 não pode optar por escapar de staleness.
 
 `effect_class = destructive` exige `decision_requirement = interactive`,
-segue AEP-0091 e exige `cli ∉ allowed_source_types`, mesmo quando a coleção
-contém outras origens. Combinação
+segue AEP-0091 e exige
+`allowed_source_types ∩ {cli, event, system} = ∅`, mesmo quando a coleção
+contém outras origens. O registro rejeita origens inerentemente headless e o
+executor rejeita qualquer chamada sem um `DecisionPresenter` interativo
+autenticado. Combinação
 `destructive + none` é inválida no registro e recusada novamente pelo executor.
 
 Comandos de UI podem ser executados no frontend por uma ponte tipada. Comandos
@@ -159,11 +163,12 @@ CommandInvocation
   actor_type, actor_id
   source_type?, observer_type?, source_instance_id?, source_event_id?
   workspace_id?, binding_ids?, registry_version
-  global_config_generation, workspace_config_generation?
-  active_layers_generation
+  global_config_generation?, workspace_config_generation?
+  active_layers_generation?
   foreground_snapshot?
   conversation_id?, turn_id?, surface_type?, surface_id?
-  surface_snapshot_version?, context_version, context_captured_at?
+  surface_snapshot_version?, context_version?
+  context_captured_at_by_provider?
   source_profile_slug?, target_profile_slug?
   authorization_decision_id?, delegation_fingerprint?, grant_generation?
   job_id?, job_slug?, job_definition_fingerprint?, run_id?
@@ -197,15 +202,22 @@ cliente não promove a si próprio a `system`, hotkey ou dispositivo.
 `trigger_spec` é normalizado pelo dispatcher e validado contra a capacidade do
 adapter antes de chegar ao resolvedor.
 
-`context_captured_at`, quando presente, é RFC3339 com timezone e preserva o
-instante de captura informado pelo provider confiável. O ingresso nunca
-substitui timestamp ausente por `received_at`, pois isso faria snapshot antigo
-parecer novo; valor de cliente não confiável é ignorado. Política com
-`max_age_ms` exige esse campo e falha fechado quando o provider da AEP-0080 não
-o fornece. Somente `exact_version` pode omiti-lo, pois reconsulta
-sincronamente a versão autoritativa e exige igualdade antes do despacho.
-Versões/epochs monotônicos ficam em `context_version`, não são serializados
-como timestamp.
+`context_captured_at_by_provider` é mapa `provider_id → RFC3339 com timezone`
+e preserva separadamente o instante informado por cada provider confiável. O
+ingresso nunca substitui timestamp ausente por `received_at`, pois isso faria
+snapshot antigo parecer novo; valor de cliente não confiável é ignorado.
+Política `max_age_ms` ou `event_snapshot` exige entrada para cada provider e
+falha fechado quando alguma faltar. `exact_version` pode omitir a entrada
+daquele provider, pois reconsulta sincronamente a versão autoritativa e exige
+igualdade antes do despacho. `none` não declara provider e omite o mapa e
+`context_version`. Versões/epochs monotônicos ficam em `context_version`, não
+são serializados como timestamp.
+
+Invocação com usuário exige `global_config_generation` e
+`active_layers_generation`; workspace exige também
+`workspace_config_generation`. `system` sem usuário omite as três, pois não
+acessa bindings/camadas. Policy que declara provider exige `context_version`;
+`none` o omite. Não há string vazia, zero ou sentinel para esses casos.
 
 Adapters físicos e de evento exigem `source_instance_id` e `source_event_id`.
 Palette, `ui.action`, chat, CLI e `system` os omitem e deduplicam pela PK
@@ -416,6 +428,12 @@ Os contextos de autenticação são:
 Hotkeys e Stream Deck exigem um contexto autenticado atualmente ativo. Contexto
 `system` sem usuário só executa comandos internos que declarem essa origem e não
 acessa bindings ou dados de usuário.
+Em `auth.mode=external`, teclado físico global e Stream Deck ficam
+indisponíveis: não existe sessão desktop autoritativa à qual vincular o evento.
+Palette/UI/chat continuam usando o principal do JWT da própria requisição.
+Habilitar adapters físicos nesse modo exige AEP posterior para um broker local
+que vincule e revogue explicitamente um principal externo ativo; “último token”
+ou usuário inferido nunca é aceito.
 
 Bootstrap do modo externo é pré-requisito explícito: endpoint administrativo
 fora do command manager, protegido por issuer configurado + scope admin, cria
@@ -762,6 +780,15 @@ mais recente da mesma `manual_stack_key`, ordenada por
 `(activated_at, activation_id)`. A chave é derivada no backend da origem
 normalizada e de sua sessão/dispositivo, nunca inventada pelo payload.
 
+`layer_disable` alterna `command_layers.enabled` para falso, incrementa a
+geração de configuração e, se a camada estava efetiva, o contador de claims do
+escopo, tudo sob o `DispatchGate` e na mesma transação. Claims persistidas não
+são encerradas, mas o resolvedor as ignora enquanto `enabled = false`.
+`layer_enable` revalida ownership, expiração, autenticação e fonte de cada
+claim, recalcula condições contextuais e só então torna a camada elegível;
+claim expirada/stale não ressuscita. A geração efetiva é incrementada se o
+conjunto ativo mudar.
+
 Regras de surface, foco, controle e programa em primeiro plano são condições
 síncronas dos context providers da D2, recalculadas em memória quando sua versão
 muda. Elas não usam `LayerActivationEvent`, outbox ou ledger de evento. O
@@ -785,12 +812,17 @@ reutiliza esse ID. `sequence` cresce dentro de
 activation_id)`. Evento duplicado com mesma sequência é idempotente; sequência
 menor é ignorada; mesma sequência com conteúdo diferente falha fechado. Uma
 desativação atrasada só encerra seu próprio `activation_id`, nunca uma ativação
-mais nova. Expiração gera a transição terminal no mesmo ciclo.
+mais nova. Expiração local não fabrica `LayerActivationEvent`: um scheduler usa
+a chave estável `(activation_id, expires_at)` e, em transação, faz CAS de claim
+ativa para terminal `expired` quando o prazo persistido vence, grava
+`terminal_reason = expiry` e incrementa a geração do escopo. Repetição ou
+restart encontra o mesmo estado/PK e vira no-op idempotente.
 
-Estado `deactivate` ou expirado é terminal. Depois dele, o CAS aceita apenas
-replay idempotente da mesma sequência/fingerprint e rejeita qualquer
-`activate`, mesmo com sequência maior. Novo ciclo exige novo `activation_id`;
-evento tardio não ressuscita claim encerrada.
+Estado `deactivate` ou expirado é terminal. Depois de `deactivate`, o CAS aceita
+apenas replay idempotente da mesma sequência/fingerprint; depois de expiração
+local, somente repetir a mesma chave de expiração é no-op. Ambos rejeitam
+qualquer `activate`, mesmo com sequência maior. Novo ciclo exige novo
+`activation_id`; evento tardio não ressuscita claim encerrada.
 
 No envelope genérico, `state` aceita somente `activate` ou `deactivate`.
 Cada adapter mapeia seu domínio antes de publicá-lo; no caso de jobs,
@@ -882,8 +914,12 @@ Consumidor do `ContextFactBus` adquire `DispatchGate` exclusivo antes de trocar
 snapshot e recalcular claims. Troca de snapshot sempre altera a versão do
 provider em `context_version`, mas só incrementa o contador global/workspace de
 `active_layers_generation` quando o conjunto efetivo de claims mudar.
-Resolução/admissão lê providers sob o gate compartilhado. Assim, mudança já
-observada não atravessa o CAS/início com geração antiga.
+Resolução/admissão lê providers sob o gate compartilhado. Se a versão
+autoritativa diferir da versão usada no último cálculo de claims, libera o gate
+compartilhado, adquire o exclusivo, compara novamente, reconcilia
+sincronamente snapshot/claims/gerações e reinicia a resolução. Assim,
+notificação perdida ou mudança já observada não conserva camada antiga nem
+atravessa o CAS/início com geração antiga.
 
 Para jobs, a integração publica o fato contextual interno versionado
 `command-context.job-run-state.v1`, cujo `event_name` é exatamente esse nome,
@@ -1085,14 +1121,16 @@ command_layer_activation_state
   activation_id PK UUIDv7, layer_ref_kind, layer_ref, rule_ref_kind, rule_ref,
   user_id, workspace_id nullable_for_global,
   auth_context_type, auth_context_id, auth_generation,
-  security_generation, source_type, source_instance_id, source_event_id,
-  source_correlation_id, sequence, event_fingerprint, state,
-  provenance, manual_stack_key, activated_at, expires_at, updated_at
+  security_generation, source_type, source_instance_id nullable,
+  source_event_id nullable, source_correlation_id nullable, sequence nullable,
+  event_fingerprint nullable, state, terminal_reason nullable,
+  provenance nullable, manual_stack_key nullable, activated_at,
+  expires_at nullable, updated_at
 
 command_activation_idempotency_keys
   id, key, user_id, workspace_id nullable_for_global,
   rule_ref_kind, rule_ref, source_type, source_instance_id, source_event_id,
-  source_correlation_id, sequence, event_fingerprint,
+  source_correlation_id nullable, sequence, event_fingerprint,
   terminal_state, created_at, expires_at
 
 external_identity_mappings
@@ -1102,8 +1140,10 @@ command_invocations
   invocation_id PK UUIDv7, schema_version, user_id nullable_for_system,
   auth_context_type, auth_context_id,
   auth_generation, session_id, security_generation,
-  workspace_id, registry_version, global_config_generation,
-  workspace_config_generation, active_layers_generation,
+  workspace_id, registry_version,
+  global_config_generation nullable_for_system,
+  workspace_config_generation nullable_without_workspace,
+  active_layers_generation nullable_for_system,
   command_id nullable_until_resolved, binding_ids nonnull_default_empty,
   observed_trigger_type nullable_for_direct,
   trigger_type nullable_for_direct, trigger_spec_snapshot nullable_for_direct,
@@ -1113,8 +1153,9 @@ command_invocations
   source_instance_id nullable,
   source_event_id nullable,
   arguments_summary, arguments_fingerprint, conversation_id, turn_id,
-  surface_type, surface_id, surface_snapshot_version, context_version,
-  context_captured_at nullable_for_exact_version,
+  surface_type, surface_id, surface_snapshot_version,
+  context_version nullable_for_none,
+  context_captured_at_by_provider nullable_for_exact_version_or_none,
   context_summary, foreground_summary,
   source_profile_slug, target_profile_slug,
   authorization_decision_id, delegation_fingerprint, grant_generation,
@@ -1668,6 +1709,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   acionamento.
 - [ ] Mudanças de surface, foco, workspace, janela externa e eventos podem
   ativar e desativar camadas de forma determinística.
+- [ ] Desabilitar camada a remove imediatamente do mapa sem ressuscitar claims
+  stale ao reabilitá-la; expiração local é idempotente após restart.
 - [ ] Ativações por evento têm ID, sequência, correlação e deduplicação; evento
   atrasado não encerra ciclo mais novo.
 - [ ] Claim e ledger de ativação preservam o escopo global/workspace, inclusive
@@ -1729,8 +1772,9 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   ator, sem lookup cross-user apenas pela PK.
 - [ ] Sessão, geração de segurança e staleness de contexto são revalidados
   imediatamente antes de todo handler.
-- [ ] Policy `max_age_ms` falha fechado sem timestamp do provider; ingresso não
-  transforma snapshot sem `capturedAt` em contexto recém-capturado.
+- [ ] Policies `max_age_ms`/`event_snapshot` falham fechado sem timestamp de
+  cada provider; ingresso não transforma snapshot sem `capturedAt` em contexto
+  recém-capturado.
 - [ ] `handler.Start` confirma handoff sem bloquear; logout/mutação concorrente
   não espera o trabalho longo nem entra em deadlock.
 - [ ] Versões do catálogo e da configuração são revalidadas ao retirar da fila;
@@ -1745,6 +1789,10 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] Cada comando declara origens permitidas e o serviço bloqueia origem não
   autorizada, incluindo comandos visuais solicitados pela CLI.
 - [ ] CLI não executa comando que exija diálogo/decisão interativa.
+- [ ] `cli`, `event` e `system` não registram/executam comando destrutivo;
+  qualquer origem sem presenter interativo falha fechado.
+- [ ] Em autenticação externa, adapters físicos permanecem indisponíveis até
+  existir vínculo local explícito e revogável com um principal externo.
 - [ ] Estação bloqueada suspende hotkeys globais e dispositivos físicos e
   apresenta estado seguro até revalidar a sessão após desbloqueio.
 - [ ] Diálogo topmost bloqueia fallback para camadas inferiores e os atalhos
