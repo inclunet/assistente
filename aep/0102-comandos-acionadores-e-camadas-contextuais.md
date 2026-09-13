@@ -276,7 +276,9 @@ O serviço, nessa ordem:
    comando, camada, binding ou prioridade cancela como stale. Compara também
    `active_layers_generation`; claim ativada/desativada desde a resolução
    cancela a invocação. Se a transição vencer, encaminha ao handler;
-8. conclui a trilha como `succeeded`, `failed` ou `outcome_unknown`.
+8. conclui a trilha como `succeeded`, `failed`, `cancelled`, `timed_out` ou
+   `outcome_unknown`; `denied` e `cancelled_stale` já encerram nos gates
+   anteriores.
 
 `registry_version` identifica o catálogo/defaults carregado.
 Cada usuário possui `global_config_generation`; cada workspace possui
@@ -516,6 +518,12 @@ removem os defaults referenciados no contexto, consomem o acionador quando não
 restar candidato e nunca criam `CommandInvocation`. Somente bindings
 `effect = execute` participam do agrupamento por comando/argumentos.
 
+Todo delta é materializado antes da tupla de D7: override substitui o candidato
+default referenciado e herda seu `scope_rank`/especificidade base; condição do
+usuário só pode estreitar o contexto. Tombstone remove o candidato. Portanto
+delta nunca compete nem perde para o próprio default; vínculo sem default válido
+vira `needs_review`.
+
 ### D5 — Camadas são conjuntos aditivos
 
 Camadas agrupam bindings de qualquer tipo de acionador. Elas não são exclusivas
@@ -652,11 +660,14 @@ perfil, modo, estado ou processo. As prioridades persistidas resolvem esse caso.
 Se também forem iguais e os destinos diferirem, aplica-se o conflito fail-closed
 descrito acima.
 
-Na v1, condição é conjunção normalizada de cláusulas tipadas. B domina A quando
-contém todas as cláusulas equivalentes de A e ao menos uma cláusula adicional
-ou mais restritiva; por exemplo, `surface=editor ∧ process=code.exe` domina
-`surface=editor`. Sem relação de subconjunto, os predicados são incomparáveis e
-dependem de prioridade explícita ou terminam em conflito.
+Na v1, condição é somente conjunção de cláusulas `campo eq escalar`, com campos
+de enum fechado e valores normalizados por tipo (string exata com case definido
+pelo campo, booleano ou ID opaco). Ausência de cláusula é curinga; OR, NOT,
+regex, intervalos e operadores de conjunto ficam fora. B domina A somente
+quando contém todas as cláusulas idênticas de A e ao menos uma adicional; por
+exemplo, `surface=editor ∧ process=code.exe` domina `surface=editor`. Valores
+diferentes ou sem relação de subconjunto são incomparáveis e dependem de
+prioridade explícita ou terminam em conflito.
 
 O stack compartilhado de `Modal` registra no dispatcher um
 `DialogCommandScope { dialog_id, kind, generation, allowed_command_ids,
@@ -729,6 +740,11 @@ activation_id)`. Evento duplicado com mesma sequência é idempotente; sequênci
 menor é ignorada; mesma sequência com conteúdo diferente falha fechado. Uma
 desativação atrasada só encerra seu próprio `activation_id`, nunca uma ativação
 mais nova. Expiração gera a transição terminal no mesmo ciclo.
+
+Estado `deactivate` ou expirado é terminal. Depois dele, o CAS aceita apenas
+replay idempotente da mesma sequência/fingerprint e rejeita qualquer
+`activate`, mesmo com sequência maior. Novo ciclo exige novo `activation_id`;
+evento tardio não ressuscita claim encerrada.
 
 No envelope genérico, `state` aceita somente `activate` ou `deactivate`.
 Cada adapter mapeia seu domínio antes de publicá-lo; no caso de jobs,
@@ -826,10 +842,14 @@ lookup seguro por PK/ownership nesta integração.
 `eventctx.SourceJobID` conforme AEP-0067 e serve para apresentação/resolução inicial.
 Depois da resolução, correlação e autorização usam o UUID.
 
-`root_origin_type` é preservado por toda cadeia. Na v1, somente `manual`,
-`cron`, `interval` e `internal_event` autenticado são elegíveis. `webhook`,
-`external_event` ou origem desconhecida não produz ativação, mesmo quando o run
-intermediário tenha `_source = job`.
+`root_origin_type` é preservado por toda cadeia. Normalização da AEP-0048:
+`manual → manual`, `cron → cron`, `interval → interval`,
+`hotkey → user_hotkey`, `webhook → external_event`; trigger `event` herda a
+raiz autenticada do payload/provenance e vira `internal_event` somente quando o
+produtor for interno conhecido. Raiz ausente vira `unknown`. Na v1, `manual`,
+`cron`, `interval`, `user_hotkey` e `internal_event` são elegíveis;
+`external_event`/`unknown` não ativam camada, mesmo quando o run intermediário
+tenha `_source = job`.
 
 Persistência incremental exige migração prévia da AEP-0048:
 `job_runs.status` passa a aceitar `queued`, `running`, `retrying`, `completed`,
@@ -839,9 +859,11 @@ mudam. O run é inserido como `queued`, muda para `running` ao iniciar e só ent
 preenche `started_at`. Duração continua calculada desde `started_at`, não da
 fila. `job_run_events` referencia a linha já criada.
 
-Como pré-requisito do adapter, o executor passa a criar/persistir `queued` antes
-do despacho, `started` antes da tool e `retry_scheduled` antes do backoff; sem
-essas transições incrementais o fato v1 fica desabilitado.
+Como pré-requisito do adapter, o executor persiste
+`job_run_events.type = queued` antes do despacho, `started` antes da tool e
+`retry_scheduled` antes do backoff. Em paralelo, `job_runs.status` usa
+respectivamente `queued`, `running` e `retrying`; os enums não são
+intercambiáveis. Sem essas transições incrementais o fato v1 fica desabilitado.
 
 O runtime gera `run_event_id` ao criar cada `RunEvent`, persiste
 todos os estados mapeados — inclusive `completed`, `failed` e `skipped` —
@@ -933,7 +955,8 @@ AEP-0048 para não inflar o catálogo:
   `layer_update`, `layer_delete`, `layer_enable`, `layer_disable`,
   `layer_restore`, `binding_list`, `binding_check_conflict`,
   `binding_create`, `binding_update`, `binding_delete`, `binding_enable`,
-  `binding_disable`, `binding_restore`, `config_import` e `config_export`.
+  `binding_disable`, `binding_restore`, `config_import`, `config_export` e
+  `config_export_sensitive`.
 
 Alterações destrutivas, conflitos e comandos sensíveis continuam sujeitos ao
 contrato de decisão da AEP-0091. A resposta da tool inclui IDs reais e o efeito
@@ -956,9 +979,14 @@ não existe segunda rota para alterar o mapa efetivo.
 A marca não é declarada livremente pelo autor do comando.
 `CommandHandler.Mutability()` fornece a classificação e o registro rejeita
 divergência. Em `command_config`, somente list/get/check_conflict e
-`config_export` são leitura; create, update, delete, enable, disable, restore e
+`config_export` sem credenciais são leitura; create, update, delete, enable, disable, restore e
 import são mutações de capacidade e sempre exigem o gate. Teste de catálogo enumera todas as ações/handlers para impedir que
 um verbo novo nasça sem classificação.
+
+`config_export_sensitive` é caminho separado para `includeCredentials=true`:
+risco alto, `decision_requirement=interactive`, somente `ui.action`, formulário
+de senha e criptografia/redaction da AEP-0047; origem headless é proibida.
+`config_export` rejeita esse argumento em vez de promovê-lo silenciosamente.
 
 ### D11 — Persistência
 
@@ -1158,6 +1186,12 @@ usuário retorna conflito `foreign_owner` sem revelar conteúdo, sobrescrever ou
 associar referência. UUID ausente é criado para o usuário autenticado,
 ignorando qualquer owner do arquivo. A opção “cópia” gera novos UUIDs e remapeia
 somente relações internas validadas daquele lote.
+
+`workspace_id` portátil nunca é aceito sem resolução. O import recebe mapa
+explícito origem→workspace de destino; ID igual só é reutilizado após repository
+confirmar ownership/acesso do usuário autenticado. Ausência, ambiguidade ou
+destino não autorizado desabilita a camada e entra no relatório antes do
+commit.
 
 Se “cópia” colidir com nome único no mesmo escopo, exige novo nome explícito
 antes do commit; a UI pode sugerir rótulo localizado, mas não persiste enquanto
