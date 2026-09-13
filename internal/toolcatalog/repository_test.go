@@ -3,8 +3,13 @@ package toolcatalog
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"assistente/internal/database"
 	"assistente/internal/tools"
@@ -12,6 +17,26 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
+
+func setupCatalogFileTest(t *testing.T) *DBRepository {
+	t.Helper()
+	path := filepath.ToSlash(filepath.Join(t.TempDir(), "catalog.db"))
+	db, err := gorm.Open(sqlite.Open("file:"+path+"?_pragma=busy_timeout(1)&_pragma=journal_mode(WAL)"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open file db: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(4)
+	sqlDB.SetMaxIdleConns(2)
+	if err := db.AutoMigrate(&database.User{}, &database.MCPServer{}, &database.MCPServerLog{}, &database.ToolCatalog{}); err != nil {
+		t.Fatalf("automigrate: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	return NewDBRepository(db)
+}
 
 func setupCatalogTest(t *testing.T) (*DBRepository, context.Context, context.Context) {
 	t.Helper()
@@ -28,6 +53,156 @@ func setupCatalogTest(t *testing.T) (*DBRepository, context.Context, context.Con
 		database.SetDB(previous)
 	})
 	return NewDBRepository(db), database.WithUserID(context.Background(), "user-a"), database.WithUserID(context.Background(), "user-b")
+}
+
+func TestDBRepositoryUpsertToolRetriesTransientSQLiteBusy(t *testing.T) {
+	repo := setupCatalogFileTest(t)
+	entry := &tools.ToolCatalogEntry{
+		Name:               "feed_read",
+		DisplayName:        "feed_read",
+		Description:        "before lock",
+		Origin:             tools.ToolOriginBuiltin,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+		Schema:             json.RawMessage(`{"type":"object"}`),
+	}
+	if err := repo.UpsertTool(context.Background(), entry); err != nil {
+		t.Fatalf("seed builtin: %v", err)
+	}
+
+	sqlDB, err := repo.db.DB()
+	if err != nil {
+		t.Fatalf("sql db: %v", err)
+	}
+	lockConn, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("lock conn: %v", err)
+	}
+	defer func() { _ = lockConn.Close() }()
+	if _, err := lockConn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatalf("begin writer lock: %v", err)
+	}
+	defer func() { _, _ = lockConn.ExecContext(context.Background(), "ROLLBACK") }()
+
+	busyObserved := make(chan struct{})
+	var busyOnce sync.Once
+	var busyAttempts atomic.Int32
+	if err := repo.db.Callback().Update().After("gorm:update").Register("test:observe_busy_update", func(tx *gorm.DB) {
+		if database.IsSQLiteBusyError(tx.Error) {
+			busyAttempts.Add(1)
+			busyOnce.Do(func() { close(busyObserved) })
+		}
+	}); err != nil {
+		t.Fatalf("register callback: %v", err)
+	}
+
+	entry.Description = "after retry"
+	result := make(chan error, 1)
+	go func() {
+		result <- repo.UpsertTool(context.Background(), entry)
+	}()
+
+	select {
+	case <-busyObserved:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upsert não encontrou o writer lock")
+	}
+	if _, err := lockConn.ExecContext(context.Background(), "COMMIT"); err != nil {
+		t.Fatalf("release writer lock: %v", err)
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("upsert após lock transitório: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("upsert não concluiu após liberar o writer lock")
+	}
+	if busyAttempts.Load() == 0 {
+		t.Fatal("retry não foi exercitado")
+	}
+
+	var persisted database.ToolCatalog
+	if err := repo.db.Where("name = ?", entry.Name).First(&persisted).Error; err != nil {
+		t.Fatalf("load updated builtin: %v", err)
+	}
+	if persisted.Description != "after retry" {
+		t.Fatalf("description = %q, want after retry", persisted.Description)
+	}
+}
+
+func TestDBRepositoryUpsertToolBusyRetryRespectsCancellation(t *testing.T) {
+	repo := setupCatalogFileTest(t)
+	entry := &tools.ToolCatalogEntry{
+		Name:               "feed_read",
+		DisplayName:        "feed_read",
+		Origin:             tools.ToolOriginBuiltin,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}
+	if err := repo.UpsertTool(context.Background(), entry); err != nil {
+		t.Fatalf("seed builtin: %v", err)
+	}
+
+	sqlDB, err := repo.db.DB()
+	if err != nil {
+		t.Fatalf("sql db: %v", err)
+	}
+	lockConn, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("lock conn: %v", err)
+	}
+	defer func() { _ = lockConn.Close() }()
+	if _, err := lockConn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatalf("begin writer lock: %v", err)
+	}
+	defer func() { _, _ = lockConn.ExecContext(context.Background(), "ROLLBACK") }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var cancelOnce sync.Once
+	if err := repo.db.Callback().Update().After("gorm:update").Register("test:cancel_on_busy_update", func(tx *gorm.DB) {
+		if database.IsSQLiteBusyError(tx.Error) {
+			cancelOnce.Do(cancel)
+		}
+	}); err != nil {
+		t.Fatalf("register callback: %v", err)
+	}
+
+	entry.Description = "cancelled"
+	err = repo.UpsertTool(ctx, entry)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("upsert cancelado = %v, want context.Canceled", err)
+	}
+}
+
+func TestDBRepositoryUpsertToolDoesNotRetryPermanentError(t *testing.T) {
+	repo := setupCatalogFileTest(t)
+	entry := &tools.ToolCatalogEntry{
+		Name:               "feed_read",
+		DisplayName:        "feed_read",
+		Origin:             tools.ToolOriginBuiltin,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}
+	if err := repo.UpsertTool(context.Background(), entry); err != nil {
+		t.Fatalf("seed builtin: %v", err)
+	}
+
+	permanentErr := errors.New("permanent catalog write failure")
+	var attempts atomic.Int32
+	if err := repo.db.Callback().Update().Before("gorm:update").Register("test:permanent_update_error", func(tx *gorm.DB) {
+		attempts.Add(1)
+		_ = tx.AddError(permanentErr)
+	}); err != nil {
+		t.Fatalf("register callback: %v", err)
+	}
+
+	entry.Description = "must fail"
+	err := repo.UpsertTool(context.Background(), entry)
+	if !errors.Is(err, permanentErr) {
+		t.Fatalf("upsert error = %v, want permanent error", err)
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Fatalf("permanent error attempts = %d, want 1", got)
+	}
 }
 
 // seedServer cria diretamente uma linha de servidor MCP (cuja model continua em
