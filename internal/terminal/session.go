@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/KennethanCeyer/ptyx"
 	"github.com/google/uuid"
@@ -495,7 +496,11 @@ func (s *Session) addHistoryEntry(entry *HistoryEntry) {
 	// para que a tool aplique seu contrato model-facing sem conteúdo já mutilado.
 	historyEntry := *entry
 	if len(historyEntry.Output) > maxOutputSize {
-		historyEntry.Output = historyEntry.Output[:maxOutputSize] + fmt.Sprintf(
+		end := maxOutputSize
+		for end > 0 && !utf8.RuneStart(historyEntry.Output[end]) {
+			end--
+		}
+		historyEntry.Output = historyEntry.Output[:end] + fmt.Sprintf(
 			"\n\n[TRUNCADO: output original tinha %d bytes]", len(historyEntry.Output),
 		)
 	}
