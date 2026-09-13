@@ -567,6 +567,7 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 		items := resolveForEachItems(rl.Output, job.Events.ForEach)
 		if len(items) > 0 {
 			emitted := 0
+			eligible := 0
 			for i, item := range items {
 				itemPayload := make(map[string]any)
 				if m, ok := item.(map[string]any); ok {
@@ -583,6 +584,7 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 				if !e.checkEmitWhen(ctx, job, itemPayload, trigCtx) {
 					continue
 				}
+				eligible++
 
 				itemPayload = e.applyPayloadTemplate(ctx, job, itemPayload, trigCtx)
 				filtered := e.buildEventPayload(job, itemPayload)
@@ -593,15 +595,16 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 				enriched["_chain_id"] = chainID
 				enriched["_chain_history"] = chainHistory
 
-				e.eventBus.Publish(ctx, job.Events.OnSuccess, enriched)
-				emitted++
+				if e.eventBus.Publish(ctx, job.Events.OnSuccess, enriched) {
+					emitted++
+				}
 			}
 
 			if emitted > 0 {
 				rl.addDomainEvent("event_emitted", job.ID, job.Events.OnSuccess,
 					fmt.Sprintf("[%s] -> emitted %q x%d/%d (fan-out on %q)", job.ID, job.Events.OnSuccess, emitted, len(items), job.Events.ForEach), nil)
 				rl.EventsEmitted = append(rl.EventsEmitted, fmt.Sprintf("%s x%d", job.Events.OnSuccess, emitted))
-			} else {
+			} else if eligible == 0 {
 				logger.Info("all fan-out items filtered by emit_when",
 					slog.String("event_name", job.Events.OnSuccess),
 					slog.Int("fan_out_total", len(items)),
@@ -621,11 +624,6 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 	output := e.applyPayloadTemplate(ctx, job, rl.Output, trigCtx)
 	payload := e.buildEventPayload(job, output)
 
-	rl.addDomainEvent("event_emitted", job.ID, job.Events.OnSuccess,
-		fmt.Sprintf("[%s] -> emitted %q", job.ID, job.Events.OnSuccess), nil)
-
-	rl.EventsEmitted = append(rl.EventsEmitted, job.Events.OnSuccess)
-
 	enriched := make(map[string]any, len(payload)+2)
 	for k, v := range payload {
 		enriched[k] = v
@@ -633,7 +631,11 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 	enriched["_chain_id"] = chainID
 	enriched["_chain_history"] = chainHistory
 
-	e.eventBus.Publish(ctx, job.Events.OnSuccess, enriched)
+	if e.eventBus.Publish(ctx, job.Events.OnSuccess, enriched) {
+		rl.addDomainEvent("event_emitted", job.ID, job.Events.OnSuccess,
+			fmt.Sprintf("[%s] -> emitted %q", job.ID, job.Events.OnSuccess), nil)
+		rl.EventsEmitted = append(rl.EventsEmitted, job.Events.OnSuccess)
+	}
 }
 
 // resolveForEachItems navega o output usando um path separado por pontos e retorna o array.
@@ -696,12 +698,11 @@ func (e *JobExecutor) emitFailure(ctx context.Context, job *Job, rl *RunLog, tri
 		"run_id": rl.RunID,
 	}
 
-	rl.EventsEmitted = append(rl.EventsEmitted, job.Events.OnFailure)
-
-	rl.addDomainEvent("event_emitted", job.ID, job.Events.OnFailure,
-		fmt.Sprintf("[%s] -> emitted %q", job.ID, job.Events.OnFailure), nil)
-
-	e.eventBus.Publish(ctx, job.Events.OnFailure, payload)
+	if e.eventBus.Publish(ctx, job.Events.OnFailure, payload) {
+		rl.EventsEmitted = append(rl.EventsEmitted, job.Events.OnFailure)
+		rl.addDomainEvent("event_emitted", job.ID, job.Events.OnFailure,
+			fmt.Sprintf("[%s] -> emitted %q", job.ID, job.Events.OnFailure), nil)
+	}
 }
 
 // checkEmitWhen evaluates the emit_when condition against the given data.

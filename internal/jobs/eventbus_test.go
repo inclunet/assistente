@@ -124,7 +124,33 @@ func TestEventBus_UnsubscribeAll(t *testing.T) {
 
 func TestEventBus_PublishNoListeners(t *testing.T) {
 	eb := NewEventBus()
-	eb.Publish(context.Background(), "no.listeners", map[string]any{})
+	if delivered := eb.Publish(context.Background(), "no.listeners", map[string]any{}); delivered {
+		t.Fatal("evento sem consumidor foi marcado como entregue")
+	}
+	if got := eb.Stats().EventsDropped; got != 1 {
+		t.Fatalf("events_dropped = %d, want 1", got)
+	}
+}
+
+func TestEventBus_DroppedEventWarningIsThrottledPerEvent(t *testing.T) {
+	eb := NewEventBus()
+	now := time.Date(2026, 9, 13, 8, 0, 0, 0, time.UTC)
+	eb.now = func() time.Time { return now }
+
+	if dropped, warn := eb.recordDropped("pipeline.card"); dropped != 1 || !warn {
+		t.Fatalf("primeiro descarte = (%d, %v), want (1, true)", dropped, warn)
+	}
+	if dropped, warn := eb.recordDropped("pipeline.card"); dropped != 2 || warn {
+		t.Fatalf("descarte dentro do throttle = (%d, %v), want (2, false)", dropped, warn)
+	}
+	if dropped, warn := eb.recordDropped("outro.evento"); dropped != 3 || !warn {
+		t.Fatalf("primeiro descarte de outro evento = (%d, %v), want (3, true)", dropped, warn)
+	}
+
+	now = now.Add(droppedEventWarningInterval)
+	if dropped, warn := eb.recordDropped("pipeline.card"); dropped != 4 || !warn {
+		t.Fatalf("descarte após throttle = (%d, %v), want (4, true)", dropped, warn)
+	}
 }
 
 func TestEventBus_HandlerPanicDoesNotCrash(t *testing.T) {

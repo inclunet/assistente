@@ -62,3 +62,9 @@ autorizado. Jobs que omitem esse input e herdam o profile continuam inalterados.
 ## Execução e encadeamento
 
 Jobs publicam eventos (`on_success`/`on_failure`) no barramento interno; outros jobs com gatilho `event` reagem, formando pipelines. Logs registram `resolved_inputs`, saída e erro, com replay em `dry-run` para testar sem efeito.
+
+Eventos não ficam em fila. Quando nenhum consumidor está habilitado — porque o
+job ou a pipeline consumidora foi desativado — o evento é descartado e não
+aparece no run como emitido. O log registra um aviso limitado por evento para
+facilitar o diagnóstico sem repetir a mesma mensagem continuamente. Reative o
+consumidor antes do próximo disparo do produtor para retomar o encadeamento.
