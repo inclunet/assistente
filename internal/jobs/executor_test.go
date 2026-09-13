@@ -281,6 +281,69 @@ func TestEmitSuccess_NoFanOut_SingleEvent(t *testing.T) {
 	}
 }
 
+func TestEmitSuccess_DoesNotRecordEventWithoutEnabledConsumer(t *testing.T) {
+	eb := NewEventBus()
+	executor := NewJobExecutor(ExecutorConfig{
+		EventBus:       eb,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID:     "producer",
+		Events: EventsConfig{OnSuccess: "pipeline.card"},
+	}
+	rl := &RunLog{
+		RunID:  "run-dropped",
+		JobID:  job.ID,
+		Output: map[string]any{"id": "card-1"},
+	}
+
+	executor.emitSuccess(context.Background(), job, rl, &TriggerContext{Type: TriggerInterval})
+
+	if len(rl.EventsEmitted) != 0 {
+		t.Fatalf("run registrou evento sem consumidor como emitido: %#v", rl.EventsEmitted)
+	}
+	if len(rl.DomainEvents) != 0 {
+		t.Fatalf("timeline registrou evento sem consumidor como emitido: %#v", rl.DomainEvents)
+	}
+	if got := eb.Stats().EventsDropped; got != 1 {
+		t.Fatalf("events_dropped = %d, want 1", got)
+	}
+}
+
+func TestEmitSuccess_FanOutCountsEligibleEventsDroppedWithoutConsumer(t *testing.T) {
+	eb := NewEventBus()
+	executor := NewJobExecutor(ExecutorConfig{
+		EventBus:       eb,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID: "producer-fanout",
+		Events: EventsConfig{
+			OnSuccess: "pipeline.cards",
+			ForEach:   "cards",
+		},
+	}
+	rl := &RunLog{
+		RunID: "run-fanout-dropped",
+		JobID: job.ID,
+		Output: map[string]any{
+			"cards": []any{
+				map[string]any{"id": "TA-1"},
+				map[string]any{"id": "TA-2"},
+			},
+		},
+	}
+
+	executor.emitSuccess(context.Background(), job, rl, &TriggerContext{Type: TriggerInterval})
+
+	if len(rl.EventsEmitted) != 0 || len(rl.DomainEvents) != 0 {
+		t.Fatalf("fan-out sem consumidor foi registrado como emitido: %#v / %#v", rl.EventsEmitted, rl.DomainEvents)
+	}
+	if got := eb.Stats().EventsDropped; got != 2 {
+		t.Fatalf("events_dropped = %d, want 2", got)
+	}
+}
+
 func TestEmitSuccess_FanOut_ForEachMissing_FallsBackToSingle(t *testing.T) {
 	eb := NewEventBus()
 
@@ -686,9 +749,11 @@ func TestExecutePersistsRunThroughRepository(t *testing.T) {
 	if err := repo.SaveJob(userA, job); err != nil {
 		t.Fatalf("save job: %v", err)
 	}
+	eventBus := NewEventBus()
+	eventBus.Subscribe("persist-job.done", "persist-test", func(context.Context, string, map[string]any) {})
 	executor := NewJobExecutor(ExecutorConfig{
 		ToolRegistry:   registry,
-		EventBus:       NewEventBus(),
+		EventBus:       eventBus,
 		Repository:     repo,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
