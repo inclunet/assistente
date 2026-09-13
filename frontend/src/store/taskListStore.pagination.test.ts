@@ -45,6 +45,14 @@ function backendList() {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((fulfill) => {
+    resolve = fulfill;
+  });
+  return { promise, resolve };
+}
+
 describe('taskListStore pagination', () => {
   beforeEach(() => {
     getTaskListPage.mockReset();
@@ -181,5 +189,52 @@ describe('taskListStore pagination', () => {
     expect(cached?.description).toBe('Descrição nova');
     expect(cached?.tasks.map((task) => task.id)).toEqual(['task-a', 'task-b', 'task-c']);
     expect(useTaskListStore.getState().taskPages.get('list-a')?.totalCount).toBe(3);
+  });
+
+  it('serializa carregar mais com recarga disparada por evento', async () => {
+    const pendingPage = deferred<Record<string, unknown>>();
+    getTaskListPage
+      .mockResolvedValueOnce({
+        task_list: backendList(),
+        tasks: [backendTask('task-a', 0), backendTask('task-b', 1)],
+        next_cursor: 'cursor-2',
+        has_more: true,
+        total_count: 3,
+      })
+      .mockReturnValueOnce(pendingPage.promise)
+      .mockResolvedValueOnce({
+        task_list: backendList(),
+        tasks: [backendTask('task-a', 0), backendTask('task-b', 1)],
+        next_cursor: 'cursor-2-refresh',
+        has_more: true,
+        total_count: 3,
+      })
+      .mockResolvedValueOnce({
+        task_list: backendList(),
+        tasks: [backendTask('task-c', 2)],
+        next_cursor: '',
+        has_more: false,
+        total_count: 3,
+      });
+
+    await useTaskListStore.getState().loadTaskList('list-a');
+    const loadMore = useTaskListStore.getState().loadMoreTasks('list-a');
+    await vi.waitFor(() => expect(getTaskListPage).toHaveBeenCalledTimes(2));
+    const reload = useTaskListStore.getState().loadTaskList('list-a');
+    expect(getTaskListPage).toHaveBeenCalledTimes(2);
+
+    pendingPage.resolve({
+      task_list: backendList(),
+      tasks: [backendTask('task-c', 2)],
+      next_cursor: '',
+      has_more: false,
+      total_count: 3,
+    });
+    await Promise.all([loadMore, reload]);
+
+    expect(getTaskListPage).toHaveBeenNthCalledWith(3, 'list-a', '');
+    expect(getTaskListPage).toHaveBeenNthCalledWith(4, 'list-a', 'cursor-2-refresh');
+    expect(useTaskListStore.getState().taskLists.get('list-a')?.tasks.map((task) => task.id))
+      .toEqual(['task-a', 'task-b', 'task-c']);
   });
 });

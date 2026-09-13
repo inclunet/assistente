@@ -253,6 +253,28 @@ interface TaskListStoreState {
   getCachedTaskList: (taskListId: string) => TaskListWithWorkflow | undefined;
 }
 
+const taskPageOperationTails = new Map<string, Promise<void>>();
+
+async function serializeTaskPageOperation<T>(taskListId: string, operation: () => Promise<T>): Promise<T> {
+  const previous = taskPageOperationTails.get(taskListId) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.catch(() => undefined).then(() => gate);
+  taskPageOperationTails.set(taskListId, tail);
+
+  await previous.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (taskPageOperationTails.get(taskListId) === tail) {
+      taskPageOperationTails.delete(taskListId);
+    }
+  }
+}
+
 /**
  * Cria o store usando Zustand
  * Implementa CRUD completo + event listeners para sincronização em tempo real
@@ -372,7 +394,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     errors: new Map(),
 
     // TaskList management
-    loadTaskList: async (taskListId: string) => {
+    loadTaskList: async (taskListId: string) => serializeTaskPageOperation(taskListId, async () => {
       get().setTaskListLoading(taskListId, true);
       try {
         const previouslyLoaded = get().taskLists.get(taskListId)?.tasks.length ?? 0;
@@ -422,9 +444,9 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         get().setTaskListLoading(taskListId, false);
         return null;
       }
-    },
+    }),
 
-    loadMoreTasks: async (taskListId: string) => {
+    loadMoreTasks: async (taskListId: string) => serializeTaskPageOperation(taskListId, async () => {
       const currentPage = get().taskPages.get(taskListId);
       if (!currentPage?.hasMore || !currentPage.nextCursor) return;
       get().setTaskListLoading(taskListId, true);
@@ -455,7 +477,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       } finally {
         get().setTaskListLoading(taskListId, false);
       }
-    },
+    }),
 
     createTaskList: async (title: string, description?: string) => {
       try {
