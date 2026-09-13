@@ -163,7 +163,7 @@ CommandInvocation
   active_layers_generation
   foreground_snapshot?
   conversation_id?, turn_id?, surface_type?, surface_id?
-  surface_snapshot_version?, context_version, context_captured_at
+  surface_snapshot_version?, context_version, context_captured_at?
   source_profile_slug?, target_profile_slug?
   authorization_decision_id?, delegation_fingerprint?, grant_generation?
   job_id?, job_slug?, job_definition_fingerprint?, run_id?
@@ -175,8 +175,9 @@ CommandInvocation
 evento e sistema. `source_instance_id` é um UUIDv7 novo para cada abertura,
 reconexão ou geração física do adapter; a identidade estável do dispositivo
 permanece em `trigger_spec`. `source_event_id` identifica uma ocorrência única
-e é sempre UUIDv7 gerado pela borda confiável. Contador/ID nativo do protocolo
-pode ficar em metadata redigida, mas não substitui a identidade canônica.
+de adapter físico/de evento e é UUIDv7 gerado pela borda confiável. Execuções
+diretas o omitem. Contador/ID nativo do protocolo pode ficar em metadata
+redigida, mas não substitui a identidade canônica.
 `actor_type` distingue usuário, agente e automação.
 
 `source_type` é a origem lógica vencedora que governa binding e
@@ -196,10 +197,15 @@ cliente não promove a si próprio a `system`, hotkey ou dispositivo.
 `trigger_spec` é normalizado pelo dispatcher e validado contra a capacidade do
 adapter antes de chegar ao resolvedor.
 
-`context_captured_at` é RFC3339 com timezone, atribuído pelo relógio de parede
-do backend/provider. Valor enviado pelo cliente é ignorado. `max_age_ms` usa
-esse instante e o relógio do backend; versões/epochs monotônicos ficam em
-`context_version`, não são serializados como timestamp.
+`context_captured_at`, quando presente, é RFC3339 com timezone e preserva o
+instante de captura informado pelo provider confiável. O ingresso nunca
+substitui timestamp ausente por `received_at`, pois isso faria snapshot antigo
+parecer novo; valor de cliente não confiável é ignorado. Política com
+`max_age_ms` exige esse campo e falha fechado quando o provider da AEP-0080 não
+o fornece. Somente `exact_version` pode omiti-lo, pois reconsulta
+sincronamente a versão autoritativa e exige igualdade antes do despacho.
+Versões/epochs monotônicos ficam em `context_version`, não são serializados
+como timestamp.
 
 Adapters físicos e de evento exigem `source_instance_id` e `source_event_id`.
 Palette, `ui.action`, chat, CLI e `system` os omitem e deduplicam pela PK
@@ -210,11 +216,12 @@ que vazia.
 Na primeira tentativa, IDs são gerados em borda confiável: Wails para
 palette/UI, contexto persistido da tool call para chat, processo backend para
 `system`, serviço CLI para terminal e cada adapter de teclado, Stream Deck ou
-evento para sua ocorrência. Todos geram `invocation_id` UUIDv7 além do
-`source_event_id` usado para deduplicar o evento. A CLI imprime/devolve o ID e aceita
-`--request-id` apenas em retry autenticado; chat reutiliza o ID associado ao
-mesmo tool call. Valor reapresentado nunca troca ownership e sempre passa pelo
-fingerprint/ledger.
+evento para sua ocorrência. Todos geram `invocation_id` UUIDv7. Somente
+adapters físicos/de evento também
+geram `source_event_id`, usado para deduplicar a ocorrência; palette, UI, chat,
+CLI e `system` o omitem. A CLI imprime/devolve o ID e aceita `--request-id`
+apenas em retry autenticado; chat reutiliza o ID associado ao mesmo tool call.
+Valor reapresentado nunca troca ownership e sempre passa pelo fingerprint/ledger.
 
 Para toda origem, `request_fingerprint` é HMAC do request de ingresso após
 normalização e, para trigger, após fixar o candidato vencedor, serializado por
@@ -746,7 +753,7 @@ Ativação dirigida por eventos usa o envelope:
 
 ```text
 LayerActivationEvent
-  version, activation_id, rule_ref_kind, rule_ref, user_id
+  version, activation_id, rule_ref_kind, rule_ref, user_id, workspace_id?
   source_type, source_instance_id, source_event_id
   source_correlation_id?, sequence
   state, occurred_at, expires_at?
@@ -756,7 +763,7 @@ LayerActivationEvent
 
 `activation_id` é UUIDv7 novo a cada ciclo; ativar e desativar o mesmo ciclo
 reutiliza esse ID. `sequence` cresce dentro de
-`(user_id, rule_ref_kind, rule_ref,
+`(user_id, workspace_id, rule_ref_kind, rule_ref,
 activation_id)`. Evento duplicado com mesma sequência é idempotente; sequência
 menor é ignorada; mesma sequência com conteúdo diferente falha fechado. Uma
 desativação atrasada só encerra seu próprio `activation_id`, nunca uma ativação
@@ -786,14 +793,16 @@ adapter resolve `activation_id` por regra. Até esse contrato existir, eventos
 legados continuam para seus consumidores atuais, mas são indisponíveis como
 ativadores de camada.
 
-O ledger de ativação persiste `event_fingerprint` e chave única por ocorrência:
-`(user_id, rule_ref_kind, rule_ref, source_event_id)`.
-`source_correlation_id` localiza o ciclo
-em índice único separado `(user_id, rule_ref_kind, rule_ref, source_type,
-source_correlation_id)` no estado de ativação, mas não deduplica transições
-distintas. Na mesma transação, o estado de PK `activation_id` avança por CAS
-sobre `sequence`: insert concorrente resolve pela chave única e update exige o
-cursor anterior.
+O ledger de ativação persiste `workspace_id` e `event_fingerprint`. A chave
+única por ocorrência usa dois índices parciais: para camada global,
+`(user_id, rule_ref_kind, rule_ref, source_event_id) WHERE workspace_id IS
+NULL`; para camada local, `(user_id, workspace_id, rule_ref_kind, rule_ref,
+source_event_id) WHERE workspace_id IS NOT NULL`.
+`source_correlation_id` localiza o ciclo com o mesmo par de índices parciais,
+trocando `source_event_id` por `(source_type, source_correlation_id)`, mas não
+deduplica transições distintas. Na mesma transação, o estado de PK
+`activation_id` avança por CAS sobre `sequence`: insert concorrente resolve
+pela chave única e update exige o cursor anterior.
 Mesmo número com fingerprint diferente grava conflito e não altera a camada.
 
 A regra persiste `event_name` exato e `allowed_internal_producer_types`; na
@@ -807,15 +816,18 @@ camadas. Antes de atualizar o estado, o serviço compara
 `auth_generation` e `security_generation` atuais; evento de sessão anterior,
 logout ou estação bloqueada é descartado.
 
-`user_id` não é aceito como autoridade do payload. O dispatcher deriva o dono
-do principal autenticado do produtor e o sobrescreve; para jobs, relê `job_id` e
-`run_id` no escopo desse usuário. Divergência ou ausência de ownership falha
-fechado.
+`user_id` e `workspace_id` não são aceitos como autoridade do payload. O
+dispatcher deriva o dono do principal autenticado e o escopo da layer/rule
+resolvida; `workspace_id = NULL` representa camada global. Isso também vale
+para refs `builtin`, que não dependem de FK para recuperar o escopo. Para jobs,
+relê `job_id` e `run_id` nesse usuário/workspace. Divergência, workspace
+inacessível ou ausência de ownership falha fechado.
 
 `source_instance_id` identifica a geração do dispatcher somente para
-proveniência. A chave de idempotência é exclusivamente
-`(user_id, rule_ref_kind, rule_ref, source_event_id)`, portanto replay estável após reinício
-continua duplicata. Se o cursor terminal já tiver sido removido, `occurred_at`
+proveniência. A chave de idempotência é a chave global/local por
+`source_event_id` definida acima, portanto replay estável após reinício
+continua duplicata sem atravessar workspaces. Se o cursor terminal já tiver
+sido removido, `occurred_at`
 anterior a `maintenance.command_activation_terminal_retention_days` é rejeitado
 antes do insert. A idade vem somente desse timestamp autenticado, nunca do
 UUIDv7. Assim, limpeza delimita a deduplicação sem permitir replay antigo
@@ -908,7 +920,7 @@ aceita somente valor maior que o cursor, não exige contiguidade.
 
 O adapter usa `run_id` como `source_correlation_id` e resolve ou cria um
 `activation_id` distinto por
-`(user_id, rule_ref_kind, rule_ref, run_id)`. Assim, duas regras
+`(user_id, workspace_id, rule_ref_kind, rule_ref, run_id)`. Assim, duas regras
 que observam o mesmo run mantêm ciclos independentes. Ele preserva
 `job_run_events.sequence` e mapeia `job_runs.status = retrying` para o fato
 `state = retry_scheduled`. A timeline é a fonte de ordem; o status do run serve
@@ -1034,14 +1046,16 @@ command_config_generations
 
 command_layer_activation_state
   activation_id PK UUIDv7, layer_ref_kind, layer_ref, rule_ref_kind, rule_ref,
-  user_id, auth_context_type, auth_context_id, auth_generation,
+  user_id, workspace_id nullable_for_global,
+  auth_context_type, auth_context_id, auth_generation,
   security_generation, source_type, source_instance_id, source_event_id,
   source_correlation_id, sequence, event_fingerprint, state,
   provenance, manual_stack_key, activated_at, expires_at, updated_at
 
 command_activation_idempotency_keys
-  id, key, user_id, rule_ref_kind, rule_ref, source_type, source_instance_id,
-  source_event_id, source_correlation_id, sequence, event_fingerprint,
+  id, key, user_id, workspace_id nullable_for_global,
+  rule_ref_kind, rule_ref, source_type, source_instance_id, source_event_id,
+  source_correlation_id, sequence, event_fingerprint,
   terminal_state, created_at, expires_at
 
 external_identity_mappings
@@ -1063,7 +1077,8 @@ command_invocations
   source_event_id nullable,
   arguments_summary, arguments_fingerprint, conversation_id, turn_id,
   surface_type, surface_id, surface_snapshot_version, context_version,
-  context_captured_at, context_summary, foreground_summary,
+  context_captured_at nullable_for_exact_version,
+  context_summary, foreground_summary,
   source_profile_slug, target_profile_slug,
   authorization_decision_id, delegation_fingerprint, grant_generation,
   job_id, job_slug, job_definition_fingerprint, run_id, provenance,
@@ -1088,10 +1103,12 @@ No ledger, `id` é PK UUIDv7, `key` é UNIQUE e vale
 ownership e fingerprint antes de classificar como reentrega; divergência falha
 fechado.
 
-No ledger de ativação, `key` é
-`activation:<user_id>:<rule_ref_kind>:<rule_ref>:<source_event_id>` e UNIQUE; há
-também índice único equivalente sobre os quatro campos. Assim, o mesmo evento
-pode alimentar regras distintas sem colisão e não reaplica a mesma regra.
+No ledger de ativação, `key` inclui escopo canônico:
+`activation:<user_id>:global:<rule_ref_kind>:<rule_ref>:<source_event_id>` ou
+`activation:<user_id>:workspace:<workspace_id>:<rule_ref_kind>:<rule_ref>:<source_event_id>`,
+e é UNIQUE. Os dois índices parciais equivalentes são os definidos na D8.
+Assim, o mesmo evento pode alimentar regras ou workspaces distintos sem
+colisão e não reaplica a mesma regra no mesmo escopo.
 
 Condições, argumentos, especificações e apresentação são documentos JSON
 versionados e validados. Alterações relevantes mantêm auditoria suficiente para
@@ -1147,8 +1164,9 @@ podem deixar `source_instance`, `source_event`, correlação, sequence e
 provenance nulos; claims de evento deixam `manual_stack_key` nula e exigem
 instância, evento UUIDv7, sequence e fingerprint; correlação é opcional; claim
 temporária exige `expires_at`; provenance é obrigatória quando a origem for job.
-Campos de auth/segurança e refs de layer/rule são sempre obrigatórios. Ausência
-vira `NULL`, nunca sentinel vazio.
+Campos de auth/segurança e refs de layer/rule são sempre obrigatórios.
+`workspace_id` é obrigatório para layer local e nulo somente para layer global;
+é persistido também no ledger mínimo. Ausência vira `NULL`, nunca sentinel vazio.
 
 `workspace_id` nulo identifica camada global do usuário; preenchido identifica
 camada daquele workspace. A consulta efetiva carrega somente camadas globais do
@@ -1596,6 +1614,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   ativar e desativar camadas de forma determinística.
 - [ ] Ativações por evento têm ID, sequência, correlação e deduplicação; evento
   atrasado não encerra ciclo mais novo.
+- [ ] Claim e ledger de ativação preservam o escopo global/workspace, inclusive
+  para refs `builtin`; eventos e replay de outro workspace falham fechado.
 - [ ] A primeira versão aceita apenas fatos duráveis de `job_run_events`;
   EventBus best-effort e produtores externos falham fechado.
 - [ ] Estado de ativação persistido é reconciliado em modo seguro no startup e
@@ -1653,6 +1673,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   ator, sem lookup cross-user apenas pela PK.
 - [ ] Sessão, geração de segurança e staleness de contexto são revalidados
   imediatamente antes de todo handler.
+- [ ] Policy `max_age_ms` falha fechado sem timestamp do provider; ingresso não
+  transforma snapshot sem `capturedAt` em contexto recém-capturado.
 - [ ] `handler.Start` confirma handoff sem bloquear; logout/mutação concorrente
   não espera o trabalho longo nem entra em deadlock.
 - [ ] Versões do catálogo e da configuração são revalidadas ao retirar da fila;
