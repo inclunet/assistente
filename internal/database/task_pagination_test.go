@@ -148,6 +148,93 @@ func TestListTasksPageWithContext_EnforcesUserScope(t *testing.T) {
 	}
 }
 
+func TestListTasksPageWithContext_RootOrderPaginationPreservesHierarchyAndCompleteness(t *testing.T) {
+	testDB := setupTaskPaginationTestDB(t)
+	ctx := WithUserID(context.Background(), "user-a")
+	list := TaskList{UUIDModel: UUIDModel{ID: "list-a"}, UserID: "user-a", Title: "Fila"}
+	if err := testDB.Create(&list).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := testDB.Create(&TaskListWorkflow{TaskListID: list.ID, Statuses: "[]", AllowedTransitions: "{}"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range []Task{
+		{UUIDModel: UUIDModel{ID: "root-c"}, TaskListID: list.ID, Title: "C", StatusID: 1, Order: 2},
+		{UUIDModel: UUIDModel{ID: "root-a"}, TaskListID: list.ID, Title: "A", StatusID: 1, Order: 0},
+		{UUIDModel: UUIDModel{ID: "root-b"}, TaskListID: list.ID, Title: "B", StatusID: 1, Order: 1},
+		{UUIDModel: UUIDModel{ID: "child-a"}, TaskListID: list.ID, Title: "A.1", StatusID: 1, ParentID: stringPointer("root-a"), Order: 0},
+	} {
+		if err := testDB.Create(&task).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, err := ListTasksPageWithContext(ctx, TaskPageQuery{
+		TaskListID: list.ID,
+		Limit:      2,
+		Sort:       TaskSortOrderAsc,
+		RootOnly:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.TotalCount != 3 || !first.HasMore || len(first.Tasks) != 2 {
+		t.Fatalf("metadados incompletos na primeira página: %+v", first)
+	}
+	if first.Tasks[0].ID != "root-a" || first.Tasks[1].ID != "root-b" {
+		t.Fatalf("ordem visual não preservada: %v, %v", first.Tasks[0].ID, first.Tasks[1].ID)
+	}
+	if len(first.Tasks[0].Subtasks) != 1 || first.Tasks[0].Subtasks[0].ID != "child-a" {
+		t.Fatalf("subtasks da raiz não foram preservadas: %+v", first.Tasks[0].Subtasks)
+	}
+
+	second, err := ListTasksPageWithContext(ctx, TaskPageQuery{
+		TaskListID: list.ID,
+		Limit:      2,
+		Sort:       TaskSortOrderAsc,
+		RootOnly:   true,
+		Cursor:     first.NextCursor,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.TotalCount != 3 || second.HasMore || len(second.Tasks) != 1 || second.Tasks[0].ID != "root-c" {
+		t.Fatalf("segunda página não completou a lista: %+v", second)
+	}
+}
+
+func TestGetTaskListMetadataWithContext_DoesNotHydrateTasks(t *testing.T) {
+	testDB := setupTaskPaginationTestDB(t)
+	ctx := WithUserID(context.Background(), "user-a")
+	list := TaskList{UUIDModel: UUIDModel{ID: "list-a"}, UserID: "user-a", Title: "Fila"}
+	if err := testDB.Create(&list).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := testDB.Create(&TaskListWorkflow{TaskListID: list.ID, Statuses: "[]", AllowedTransitions: "{}"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 150; i++ {
+		if err := testDB.Create(&Task{TaskListID: list.ID, Title: "Task", StatusID: 1, Order: i}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	metadata, err := GetTaskListMetadataWithContext(ctx, list.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.Workflow == nil {
+		t.Fatal("workflow ausente no read model de metadados")
+	}
+	if metadata.Tasks != nil {
+		t.Fatalf("read model hidratou tasks indevidamente: %d", len(metadata.Tasks))
+	}
+}
+
+func stringPointer(value string) *string {
+	return &value
+}
+
 func TestListTasksPageWithContext_RetriesMetadataReadDuringTransientLock(t *testing.T) {
 	path := t.TempDir() + "/task-page-retry.db"
 	testDB, cleanup := openSQLitePolicyTestDB(t, "file:"+path+"?_pragma=busy_timeout(1)&_pragma=journal_mode(DELETE)")
@@ -226,9 +313,57 @@ func TestEnsureTaskPaginationIndexes(t *testing.T) {
 	for _, index := range indexes {
 		got[index.Name] = true
 	}
-	for _, name := range []string{"idx_tasks_list_created_id", "idx_tasks_list_status_created_id"} {
+	for _, name := range []string{"idx_tasks_list_created_id", "idx_tasks_list_status_created_id", "idx_tasks_list_parent_order"} {
 		if !got[name] {
 			t.Fatalf("expected pagination index %q, got %v", name, got)
+		}
+	}
+}
+
+func BenchmarkListTasksPageWithContext_2581Roots(b *testing.B) {
+	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		b.Fatal(err)
+	}
+	if err := testDB.AutoMigrate(&TaskList{}, &TaskListWorkflow{}, &Task{}); err != nil {
+		b.Fatal(err)
+	}
+	if err := ensureTaskPaginationIndexes(testDB); err != nil {
+		b.Fatal(err)
+	}
+	previous := DB()
+	SetDB(testDB)
+	defer SetDB(previous)
+
+	list := TaskList{UUIDModel: UUIDModel{ID: "list-a"}, UserID: "user-a", Title: "Fila"}
+	if err := testDB.Create(&list).Error; err != nil {
+		b.Fatal(err)
+	}
+	if err := testDB.Create(&TaskListWorkflow{TaskListID: list.ID, Statuses: "[]", AllowedTransitions: "{}"}).Error; err != nil {
+		b.Fatal(err)
+	}
+	tasks := make([]Task, 2581)
+	for i := range tasks {
+		tasks[i] = Task{TaskListID: list.ID, Title: "Task", StatusID: 1, Order: i}
+	}
+	if err := testDB.CreateInBatches(tasks, 250).Error; err != nil {
+		b.Fatal(err)
+	}
+	ctx := WithUserID(context.Background(), "user-a")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		page, err := ListTasksPageWithContext(ctx, TaskPageQuery{
+			TaskListID: list.ID,
+			Limit:      100,
+			Sort:       TaskSortOrderAsc,
+			RootOnly:   true,
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(page.Tasks) != 100 || page.TotalCount != 2581 {
+			b.Fatalf("página inesperada: tasks=%d total=%d", len(page.Tasks), page.TotalCount)
 		}
 	}
 }

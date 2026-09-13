@@ -69,7 +69,7 @@ func (s *Service) taskListSlug(ctx context.Context, taskListID string) string {
 	if taskListID == "" {
 		return ""
 	}
-	tl, err := s.store.GetTaskList(ctx, taskListID)
+	tl, err := s.getTaskListMetadata(ctx, taskListID)
 	if err != nil || tl == nil {
 		return ""
 	}
