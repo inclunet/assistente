@@ -4038,6 +4038,12 @@ const es = {
       noLists: 'No hay listas de tareas creadas',
       createFirst: 'Crear Primera Lista',
       loading: 'Cargando...',
+      pagination: {
+        loadMore: 'Cargar más tareas',
+        loadMoreFailed: 'Error al cargar más tareas.',
+        progress: '{{loaded}} de {{total}} tareas cargadas',
+        loaded: '{{count}} tareas cargadas',
+      },
       taskTitle: 'Título de la tarea',
       status: 'Estado',
       dueDate: 'Fecha límite',

@@ -6,7 +6,7 @@
 import { create } from 'zustand';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import {
-  GetTaskList,
+  GetTaskListPage,
   GetAllTaskLists,
   CreateTaskList,
   UpdateTaskList,
@@ -177,12 +177,17 @@ function taskListErrorKey(operation: string, taskListId: string): string {
   return `${operation}:${taskListId}`;
 }
 
+function taskPageField(page: Record<string, unknown>, camel: string, snake: string): unknown {
+  return page[camel] ?? page[snake] ?? page[camel.charAt(0).toUpperCase() + camel.slice(1)];
+}
+
 /**
  * TaskListStore - Cache de conteúdo de tasklists (workspace-driven)
  * O workspace é o dono das tabs; aqui apenas gerenciamos cache e operações por ID explícito.
  */
 interface TaskListStoreState {
   taskLists: Map<string, TaskListWithWorkflow>;
+  taskPages: Map<string, { nextCursor: string; hasMore: boolean; totalCount: number }>;
   workflows: Map<string, TaskListWorkflow>;
   expandedTasks: Set<string>;
   loadingByTaskListId: Map<string, boolean>;
@@ -190,6 +195,7 @@ interface TaskListStoreState {
 
   // TaskList management
   loadTaskList: (taskListId: string) => Promise<TaskListWithWorkflow | null>;
+  loadMoreTasks: (taskListId: string) => Promise<void>;
   createTaskList: (title: string, description?: string) => Promise<TaskListWithWorkflow | null>;
   updateTaskList: (taskListId: string, title: string, description?: string) => Promise<void>;
   deleteTaskList: (taskListId: string) => Promise<void>;
@@ -277,7 +283,9 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         newCache.delete(taskListId);
-        return { taskLists: newCache };
+        const taskPages = new Map(state.taskPages);
+        taskPages.delete(taskListId);
+        return { taskLists: newCache, taskPages };
       });
     });
 
@@ -293,6 +301,12 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
               ...taskList,
               tasks: [...(taskList.tasks || []), task],
             });
+            if (!task.parentId) {
+              const taskPages = new Map(state.taskPages);
+              const page = taskPages.get(task.taskListId);
+              if (page) taskPages.set(task.taskListId, { ...page, totalCount: page.totalCount + 1 });
+              return { taskLists: newCache, taskPages };
+            }
             return { taskLists: newCache };
           }
         }
@@ -321,11 +335,18 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         for (const [id, taskList] of newCache.entries()) {
-          if (taskList.tasks?.some((t) => t.id === taskId)) {
+          const deleted = taskList.tasks?.find((t) => t.id === taskId);
+          if (deleted) {
             newCache.set(id, {
               ...taskList,
               tasks: taskList.tasks.filter((t) => t.id !== taskId),
             });
+            if (!deleted.parentId) {
+              const taskPages = new Map(state.taskPages);
+              const page = taskPages.get(id);
+              if (page) taskPages.set(id, { ...page, totalCount: Math.max(0, page.totalCount - 1) });
+              return { taskLists: newCache, taskPages };
+            }
             return { taskLists: newCache };
           }
         }
@@ -344,6 +365,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
 
   return {
     taskLists: new Map(),
+    taskPages: new Map(),
     workflows: new Map(),
     expandedTasks: new Set(),
     loadingByTaskListId: new Map(),
@@ -353,11 +375,27 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     loadTaskList: async (taskListId: string) => {
       get().setTaskListLoading(taskListId, true);
       try {
-        const taskList = await GetTaskList(taskListId);
+        const rawPage = await GetTaskListPage(taskListId, '');
+        const page = rawPage as unknown as Record<string, unknown>;
+        const taskList = taskPageField(page, 'taskList', 'task_list') as TaskListWithWorkflow | undefined;
         if (taskList) {
-          get().cacheTaskList(taskList as unknown as TaskListWithWorkflow);
+          const rawTasks = taskPageField(page, 'tasks', 'tasks');
+          const combined = {
+            ...taskList,
+            tasks: Array.isArray(rawTasks) ? rawTasks : [],
+          } as TaskListWithWorkflow;
+          get().cacheTaskList(combined);
+          set((state) => {
+            const taskPages = new Map(state.taskPages);
+            taskPages.set(taskListId, {
+              nextCursor: String(taskPageField(page, 'nextCursor', 'next_cursor') ?? ''),
+              hasMore: Boolean(taskPageField(page, 'hasMore', 'has_more')),
+              totalCount: Number(taskPageField(page, 'totalCount', 'total_count') ?? combined.tasks.length),
+            });
+            return { taskPages };
+          });
           get().setTaskListLoading(taskListId, false);
-          return taskList as unknown as TaskListWithWorkflow;
+          return get().taskLists.get(taskListId) ?? null;
         }
         get().setTaskListLoading(taskListId, false);
         return null;
@@ -365,6 +403,39 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         get().setError(taskListErrorKey('loadTaskList', taskListId), String(error));
         get().setTaskListLoading(taskListId, false);
         return null;
+      }
+    },
+
+    loadMoreTasks: async (taskListId: string) => {
+      const currentPage = get().taskPages.get(taskListId);
+      if (!currentPage?.hasMore || !currentPage.nextCursor) return;
+      get().setTaskListLoading(taskListId, true);
+      try {
+        const rawPage = await GetTaskListPage(taskListId, currentPage.nextCursor);
+        const page = rawPage as unknown as Record<string, unknown>;
+        const rawTasks = taskPageField(page, 'tasks', 'tasks');
+        const incoming = Array.isArray(rawTasks) ? rawTasks.map(normalizeTask) : [];
+        set((state) => {
+          const taskList = state.taskLists.get(taskListId);
+          if (!taskList) return {};
+          const byID = new Map(taskList.tasks.map((task) => [task.id, task]));
+          for (const task of incoming) byID.set(task.id, task);
+          const tasks = [...byID.values()].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+          const taskLists = new Map(state.taskLists);
+          taskLists.set(taskListId, { ...taskList, tasks });
+          const taskPages = new Map(state.taskPages);
+          taskPages.set(taskListId, {
+            nextCursor: String(taskPageField(page, 'nextCursor', 'next_cursor') ?? ''),
+            hasMore: Boolean(taskPageField(page, 'hasMore', 'has_more')),
+            totalCount: Number(taskPageField(page, 'totalCount', 'total_count') ?? tasks.length),
+          });
+          return { taskLists, taskPages };
+        });
+      } catch (error) {
+        get().setError(taskListErrorKey('loadMoreTasks', taskListId), String(error));
+        throw error;
+      } finally {
+        get().setTaskListLoading(taskListId, false);
       }
     },
 
@@ -415,7 +486,9 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
           if (existing) {
             newCache.set(taskListId, { ...existing, tasks: [] });
           }
-          return { taskLists: newCache };
+          const taskPages = new Map(state.taskPages);
+          taskPages.set(taskListId, { nextCursor: '', hasMore: false, totalCount: 0 });
+          return { taskLists: newCache, taskPages };
         });
       } catch (error) {
         get().setError(taskListErrorKey('clearTaskList', taskListId), String(error));
@@ -491,9 +564,8 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     // Workflow management
     loadWorkflow: async (taskListId: string) => {
       try {
-        const taskList = await GetTaskList(taskListId);
+        const taskList = await get().loadTaskList(taskListId);
         if (taskList) {
-          get().cacheTaskList(taskList as unknown as TaskListWithWorkflow);
           const cached = get().taskLists.get(taskListId);
           return cached?.workflow ?? null;
         }
@@ -561,6 +633,12 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
                   ...taskList,
                   tasks: [...(taskList.tasks || []), task],
                 });
+                if (!task.parentId) {
+                  const taskPages = new Map(state.taskPages);
+                  const page = taskPages.get(taskListId);
+                  if (page) taskPages.set(taskListId, { ...page, totalCount: page.totalCount + 1 });
+                  return { taskLists: newCache, taskPages };
+                }
                 return { taskLists: newCache };
               }
             }
@@ -721,11 +799,18 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         for (const [id, taskList] of newCache.entries()) {
-          if (taskList.tasks?.some((t) => t.id === taskId)) {
+          const deleted = taskList.tasks?.find((t) => t.id === taskId);
+          if (deleted) {
             newCache.set(id, {
               ...taskList,
               tasks: taskList.tasks.filter((t) => t.id !== taskId),
             });
+            if (!deleted.parentId) {
+              const taskPages = new Map(state.taskPages);
+              const page = taskPages.get(id);
+              if (page) taskPages.set(id, { ...page, totalCount: Math.max(0, page.totalCount - 1) });
+              return { taskLists: newCache, taskPages };
+            }
             return { taskLists: newCache };
           }
         }
@@ -899,15 +984,23 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         newCache.delete(taskListId);
-        return { taskLists: newCache };
+        const taskPages = new Map(state.taskPages);
+        taskPages.delete(taskListId);
+        return { taskLists: newCache, taskPages };
       });
     },
 
     cacheTaskList: (taskList: TaskListWithWorkflow) => {
       const normalized = normalizeTaskList(taskList);
+      const raw = taskList as unknown as Record<string, unknown>;
+      const carriesTasks = Object.prototype.hasOwnProperty.call(raw, 'tasks') ||
+        Object.prototype.hasOwnProperty.call(raw, 'Tasks');
       set((state) => {
         const newCache = new Map(state.taskLists);
-        newCache.set(normalized.id, normalized);
+        const existing = newCache.get(normalized.id);
+        newCache.set(normalized.id, !carriesTasks && existing
+          ? { ...normalized, tasks: existing.tasks }
+          : normalized);
         return { taskLists: newCache };
       });
     },
