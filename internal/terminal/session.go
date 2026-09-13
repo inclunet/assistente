@@ -494,6 +494,17 @@ func (s *Session) addHistoryEntry(entry *HistoryEntry) {
 
 	// O histórico recebe uma cópia limitada; o chamador conserva o output bruto
 	// para que a tool aplique seu contrato model-facing sem conteúdo já mutilado.
+	historyEntry := limitedHistoryEntry(entry)
+
+	s.history = append(s.history, historyEntry)
+
+	// Mantém apenas as últimas N entradas
+	if len(s.history) > maxHistoryEntries {
+		s.history = s.history[len(s.history)-maxHistoryEntries:]
+	}
+}
+
+func limitedHistoryEntry(entry *HistoryEntry) HistoryEntry {
 	historyEntry := *entry
 	if len(historyEntry.Output) > maxOutputSize {
 		end := maxOutputSize
@@ -504,13 +515,7 @@ func (s *Session) addHistoryEntry(entry *HistoryEntry) {
 			"\n\n[TRUNCADO: output original tinha %d bytes]", len(historyEntry.Output),
 		)
 	}
-
-	s.history = append(s.history, historyEntry)
-
-	// Mantém apenas as últimas N entradas
-	if len(s.history) > maxHistoryEntries {
-		s.history = s.history[len(s.history)-maxHistoryEntries:]
-	}
+	return historyEntry
 }
 
 // GetHistory retorna uma cópia do histórico de comandos.

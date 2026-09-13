@@ -65,7 +65,8 @@ func ContentForDurableHistory(result ToolResult, modelContent string) string {
 		}
 		return ContentForModel(cloned)
 	}
-	if strings.HasPrefix(modelContent, annotationsHeader) {
+	if result.Annotations != nil && result.Annotations.OutputWindow != nil &&
+		strings.HasPrefix(modelContent, annotationsHeader) {
 		parts := strings.SplitN(modelContent, contentHeader, 2)
 		if len(parts) == 2 {
 			var annotations ResultAnnotations

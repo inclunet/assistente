@@ -307,12 +307,6 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 			return nil
 		}
 
-		// Busca neste arquivo
-		remaining := maxResults - matchesFound
-		if remaining <= 0 {
-			truncation = grepTruncatedMatches
-			return filepath.SkipAll
-		}
 		// O teto limita o custo do walk, não apenas leituras bem-sucedidas:
 		// binários e arquivos grandes também contam depois dos filtros.
 		if stats.filesConsidered >= t.maxFilesConsidered {
@@ -320,6 +314,22 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 			return filepath.SkipAll
 		}
 		stats.filesConsidered++
+
+		// Ao atingir exatamente maxResults, procure uma correspondência adicional
+		// antes de anunciar continuação. Arquivos restantes sem match não tornam a
+		// página parcial.
+		remaining := maxResults - matchesFound
+		if remaining <= 0 {
+			probe, searched, _ := t.searchPath(ctx, path, fileInfo, re, 1, contextLines, mode, stats)
+			if searched {
+				filesScanned++
+			}
+			if countGrepMatches(probe) > 0 {
+				truncation = grepTruncatedMatches
+				return filepath.SkipAll
+			}
+			return nil
+		}
 
 		fileMatches, searched, fileTruncated := t.searchPath(ctx, path, fileInfo, re, remaining, contextLines, mode, stats)
 		if searched {

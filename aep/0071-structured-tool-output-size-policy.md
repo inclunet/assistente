@@ -8,9 +8,10 @@ Autor: Inclunet + Cursor Agent
 
 Esta AEP define a convenção canônica para lidar com o **limite de tamanho de
 resultado** (`MaxResultSize`) quando uma tool retorna uma **saída estruturada**
-(ex.: JSON canônico). O executor de tools trunca resultados acima do limite e
-anexa um aviso textual; para saídas estruturadas isso **corromperia o JSON** e
-quebraria consumidores que fazem `json.Unmarshal` (LLMs e jobs).
+(ex.: JSON canônico). Resultados textuais comuns acima do limite usam uma janela
+estruturada e retomável, conforme a AEP-0102; para saídas estruturadas, qualquer
+corte **corromperia o JSON** e quebraria consumidores que fazem `json.Unmarshal`
+(LLMs e jobs).
 
 A solução: a tool declara `ToolResult.Structured = true` e o **executor comum**
 passa a ser o dono único da política — em vez de truncar, ele falha de forma

@@ -42,7 +42,7 @@ func scanTextLines(ctx context.Context, fullPath string, visit func(idx int, lin
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		line, atEOF, err := readStreamLine(r)
+		line, atEOF, err := readStreamLine(ctx, r)
 		if err != nil {
 			return err
 		}
@@ -58,9 +58,12 @@ func scanTextLines(ctx context.Context, fullPath string, visit func(idx int, lin
 
 // readStreamLine lê uma linha em blocos do tamanho do buffer, abortando assim que
 // o acumulado passa do teto — assim uma "linha" gigante nunca é materializada.
-func readStreamLine(r *bufio.Reader) (line string, atEOF bool, err error) {
+func readStreamLine(ctx context.Context, r *bufio.Reader) (line string, atEOF bool, err error) {
 	var b strings.Builder
 	for {
+		if err := ctx.Err(); err != nil {
+			return "", false, err
+		}
 		chunk, err := r.ReadSlice('\n')
 		if b.Len()+len(chunk) > maxStreamLineBytes {
 			return "", false, errStreamLineTooLong
@@ -81,8 +84,11 @@ func readStreamLine(r *bufio.Reader) (line string, atEOF bool, err error) {
 
 // skipStreamLine avança uma linha sem materializá-la nem impor o teto usado
 // para linhas devolvidas. Isso permite que raw valide somente o recorte pedido.
-func skipStreamLine(r *bufio.Reader) (atEOF bool, err error) {
+func skipStreamLine(ctx context.Context, r *bufio.Reader) (atEOF bool, err error) {
 	for {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
 		_, err := r.ReadSlice('\n')
 		switch {
 		case err == nil:
@@ -110,7 +116,7 @@ func countStreamLines(ctx context.Context, fullPath string) (int, error) {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		atEOF, err := skipStreamLine(r)
+		atEOF, err := skipStreamLine(ctx, r)
 		if err != nil {
 			return 0, err
 		}
@@ -319,7 +325,7 @@ func readRawSliceStreamingForward(
 			return streamFailure(err, size, true, budget)
 		}
 		if idx < offset {
-			atEOF, err := skipStreamLine(reader)
+			atEOF, err := skipStreamLine(ctx, reader)
 			if err != nil {
 				return streamFailure(err, size, true, budget)
 			}
@@ -329,7 +335,7 @@ func readRawSliceStreamingForward(
 			}
 			continue
 		}
-		line, atEOF, err := readStreamLine(reader)
+		line, atEOF, err := readStreamLine(ctx, reader)
 		if err != nil {
 			return streamFailure(err, size, true, budget)
 		}

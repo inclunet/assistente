@@ -1,7 +1,9 @@
 package filesystem
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +12,15 @@ import (
 
 	"assistente/internal/docextract"
 )
+
+func TestSkipStreamLineHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := skipStreamLine(ctx, bufio.NewReader(strings.NewReader(strings.Repeat("x", streamBufferBytes*2))))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelamento não propagado: %v", err)
+	}
+}
 
 // writeLinesFile grava um arquivo de texto com nLines linhas numeradas.
 func writeLinesFile(t *testing.T, path string, nLines int, pad string) {

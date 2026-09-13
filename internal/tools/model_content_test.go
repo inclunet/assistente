@@ -105,6 +105,15 @@ func TestContentForDurableHistoryDetectsWindowCreatedByPrecheck(t *testing.T) {
 	}
 }
 
+func TestContentForDurableHistoryDoesNotInterpretUnannotatedContent(t *testing.T) {
+	content := annotationsHeader +
+		`{"output_window":{"has_more":true,"result_id":"texto-legitimo"}}` +
+		contentHeader + "corpo literal"
+	if got := ContentForDurableHistory(ToolResult{Content: content}, content); got != content {
+		t.Fatalf("conteúdo sem contrato foi interpretado como envelope: %q", got)
+	}
+}
+
 func TestContentForDurableHistoryKeepsFinalPageWithoutResultID(t *testing.T) {
 	result := ToolResult{
 		Content:  "página final",

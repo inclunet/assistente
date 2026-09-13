@@ -235,12 +235,14 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 	result, err := session.RunCommand(ctx, command, timeout, source, commandID)
 	entry = completeCommandEntry(entry, result, err)
 
-	// Emite evento de fim
+	// O retorno conserva o output bruto para a tool; o evento usa a mesma cópia
+	// limitada do histórico para não transferir vários MiB à UI.
+	eventEntry := limitedHistoryEntry(entry)
 	m.emitEvent("terminal:command_end", map[string]any{
 		"sessionId":  sessionID,
 		"terminalId": sessionID,
 		"commandId":  entry.ID,
-		"output":     entry.Output,
+		"output":     eventEntry.Output,
 		"exitCode":   entry.ExitCode,
 		"error":      errToString(err),
 	})

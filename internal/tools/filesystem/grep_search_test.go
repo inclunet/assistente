@@ -171,6 +171,26 @@ func TestGrepSearchSingleFileReportsActualMatchesWithContext(t *testing.T) {
 	}
 }
 
+func TestGrepSearchExactLimitWithoutAdditionalMatchIsComplete(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("agulha\nagulha\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("sem correspondência\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(
+		`{"pattern":"agulha","max_results":2}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Metadata["truncated"] != false || result.Annotations != nil {
+		t.Fatalf("limite exato sem match adicional anunciou continuação: %+v", result)
+	}
+}
+
 func TestGrepSearch_LiteralSearch(t *testing.T) {
 	dir := t.TempDir()
 
