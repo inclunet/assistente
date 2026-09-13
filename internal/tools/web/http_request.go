@@ -103,7 +103,7 @@ func (t *HTTPRequest) Parameters() json.RawMessage {
 			},
 			"max_response_size": {
 				"type": "integer",
-				"description": "Tamanho máximo da resposta em bytes (padrão: 50000)"
+				"description": "Tamanho máximo do payload extraído em bytes, sem header/envelope model-facing (padrão: 50000; em jobs, usa o budget do executor quando omitido)"
 			},
 			"extract_mode": {
 				"type": "string",
@@ -200,6 +200,8 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 	maxLength := httpDefaultMaxLength
 	if a.MaxResponseSize != nil && *a.MaxResponseSize > 0 {
 		maxLength = *a.MaxResponseSize
+	} else if effective, explicit := tools.ExplicitMaxResultSizeFromContext(ctx); explicit {
+		maxLength = effective
 	}
 
 	// Prepara body

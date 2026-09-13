@@ -77,7 +77,7 @@ func (t *WebFetch) Parameters() json.RawMessage {
 			},
 			"max_length": {
 				"type": "integer",
-				"description": "Tamanho máximo do conteúdo retornado em bytes. Padrão: 50000."
+				"description": "Tamanho máximo do payload extraído em bytes, sem header/envelope model-facing. Padrão: 50000; em jobs, usa o budget do executor quando omitido."
 			},
 			"extract_mode": {
 				"type": "string",
@@ -130,6 +130,8 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	maxLength := fetchDefaultMaxLength
 	if a.MaxLength != nil && *a.MaxLength > 0 {
 		maxLength = *a.MaxLength
+	} else if effective, explicit := tools.ExplicitMaxResultSizeFromContext(ctx); explicit {
+		maxLength = effective
 	}
 
 	mode := "text"

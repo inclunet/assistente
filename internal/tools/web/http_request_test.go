@@ -408,6 +408,23 @@ func TestHTTPRequestOversizedDownloadPreservesHTTPContext(t *testing.T) {
 	}
 }
 
+func TestHTTPRequestUsesExecutorBudgetWhenParameterIsOmitted(t *testing.T) {
+	payload := strings.Repeat("x", 60*1024)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer ts.Close()
+
+	args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": "text"})
+	ctx := tools.WithMaxResultSize(context.Background(), 100*1024)
+	result, err := newTestHTTPRequest().Execute(ctx, args)
+	if err != nil || result.IsError || result.Annotations == nil ||
+		result.Annotations.OutputWindow != nil || !strings.Contains(result.Content, payload) {
+		t.Fatalf("budget do executor não foi respeitado: err=%v result=%+v", err, result)
+	}
+}
+
 func TestHTTPRequestPreservesStatusModelFacingForExactAndPagedBodies(t *testing.T) {
 	for _, tc := range []struct {
 		name        string

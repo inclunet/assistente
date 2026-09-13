@@ -352,6 +352,23 @@ func TestWebFetchOversizedDownloadPreservesHTTPContext(t *testing.T) {
 	}
 }
 
+func TestWebFetchUsesExecutorBudgetWhenParameterIsOmitted(t *testing.T) {
+	payload := strings.Repeat("x", 60*1024)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = fmt.Fprint(w, payload)
+	}))
+	defer server.Close()
+
+	args, _ := json.Marshal(map[string]string{"url": server.URL})
+	ctx := tools.WithMaxResultSize(context.Background(), 100*1024)
+	result, err := newTestWebFetch().Execute(ctx, args)
+	if err != nil || result.IsError || result.Annotations == nil ||
+		result.Annotations.OutputWindow != nil || !strings.Contains(result.Content, payload) {
+		t.Fatalf("budget do executor não foi respeitado: err=%v result=%+v", err, result)
+	}
+}
+
 func TestWebFetch_404(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
