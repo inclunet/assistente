@@ -191,6 +191,8 @@ interface TaskListStoreState {
   workflows: Map<string, TaskListWorkflow>;
   expandedTasks: Set<string>;
   loadingByTaskListId: Map<string, boolean>;
+  loadingTaskPagesByListId: Map<string, boolean>;
+  taskPageLoadErrors: Map<string, string>;
   errors: Map<string, string>;
 
   // TaskList management
@@ -256,6 +258,7 @@ interface TaskListStoreState {
 
 const taskPageOperationTails = new Map<string, Promise<void>>();
 const activeBoardLoads = new Map<string, Promise<number>>();
+const taskPageLoadingDepth = new Map<string, number>();
 
 async function serializeTaskPageOperation<T>(taskListId: string, operation: () => Promise<T>): Promise<T> {
   const previous = taskPageOperationTails.get(taskListId) ?? Promise.resolve();
@@ -282,6 +285,39 @@ async function serializeTaskPageOperation<T>(taskListId: string, operation: () =
  * Implementa CRUD completo + event listeners para sincronização em tempo real
  */
 export const useTaskListStore = create<TaskListStoreState>((set, get) => {
+  const beginTaskPageLoad = (taskListId: string) => {
+    taskPageLoadingDepth.set(taskListId, (taskPageLoadingDepth.get(taskListId) ?? 0) + 1);
+    set((state) => {
+      const loadingTaskPagesByListId = new Map(state.loadingTaskPagesByListId);
+      loadingTaskPagesByListId.set(taskListId, true);
+      const taskPageLoadErrors = new Map(state.taskPageLoadErrors);
+      taskPageLoadErrors.delete(taskListId);
+      return { loadingTaskPagesByListId, taskPageLoadErrors };
+    });
+  };
+
+  const endTaskPageLoad = (taskListId: string) => {
+    const remaining = Math.max(0, (taskPageLoadingDepth.get(taskListId) ?? 1) - 1);
+    if (remaining > 0) {
+      taskPageLoadingDepth.set(taskListId, remaining);
+      return;
+    }
+    taskPageLoadingDepth.delete(taskListId);
+    set((state) => {
+      const loadingTaskPagesByListId = new Map(state.loadingTaskPagesByListId);
+      loadingTaskPagesByListId.delete(taskListId);
+      return { loadingTaskPagesByListId };
+    });
+  };
+
+  const setTaskPageLoadError = (taskListId: string, error: unknown) => {
+    set((state) => {
+      const taskPageLoadErrors = new Map(state.taskPageLoadErrors);
+      taskPageLoadErrors.set(taskListId, String(error));
+      return { taskPageLoadErrors };
+    });
+  };
+
   // Inicializa listeners para eventos de atualização em tempo real
   if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).runtime) {
     // Eventos vêm do backend via Wails EventsEmit
@@ -309,7 +345,11 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         newCache.delete(taskListId);
         const taskPages = new Map(state.taskPages);
         taskPages.delete(taskListId);
-        return { taskLists: newCache, taskPages };
+        const loadingTaskPagesByListId = new Map(state.loadingTaskPagesByListId);
+        loadingTaskPagesByListId.delete(taskListId);
+        const taskPageLoadErrors = new Map(state.taskPageLoadErrors);
+        taskPageLoadErrors.delete(taskListId);
+        return { taskLists: newCache, taskPages, loadingTaskPagesByListId, taskPageLoadErrors };
       });
     });
 
@@ -393,6 +433,8 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     workflows: new Map(),
     expandedTasks: new Set(),
     loadingByTaskListId: new Map(),
+    loadingTaskPagesByListId: new Map(),
+    taskPageLoadErrors: new Map(),
     errors: new Map(),
 
     // TaskList management
@@ -451,7 +493,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     loadMoreTasks: async (taskListId: string) => serializeTaskPageOperation(taskListId, async () => {
       const currentPage = get().taskPages.get(taskListId);
       if (!currentPage?.hasMore || !currentPage.nextCursor) return;
-      get().setTaskListLoading(taskListId, true);
+      beginTaskPageLoad(taskListId);
       try {
         const rawPage = await GetTaskListPage(taskListId, currentPage.nextCursor);
         const page = rawPage as unknown as Record<string, unknown>;
@@ -475,9 +517,10 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         });
       } catch (error) {
         get().setError(taskListErrorKey('loadMoreTasks', taskListId), String(error));
+        setTaskPageLoadError(taskListId, error);
         throw error;
       } finally {
-        get().setTaskListLoading(taskListId, false);
+        endTaskPageLoad(taskListId);
       }
     }),
 
@@ -485,6 +528,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       const active = activeBoardLoads.get(taskListId);
       if (active) return active;
 
+      beginTaskPageLoad(taskListId);
       const load = (async () => {
         const visitedCursors = new Set<string>();
         while (true) {
@@ -506,6 +550,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       try {
         return await load;
       } finally {
+        endTaskPageLoad(taskListId);
         if (activeBoardLoads.get(taskListId) === load) {
           activeBoardLoads.delete(taskListId);
         }
@@ -1070,7 +1115,11 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         newCache.delete(taskListId);
         const taskPages = new Map(state.taskPages);
         taskPages.delete(taskListId);
-        return { taskLists: newCache, taskPages };
+        const loadingTaskPagesByListId = new Map(state.loadingTaskPagesByListId);
+        loadingTaskPagesByListId.delete(taskListId);
+        const taskPageLoadErrors = new Map(state.taskPageLoadErrors);
+        taskPageLoadErrors.delete(taskListId);
+        return { taskLists: newCache, taskPages, loadingTaskPagesByListId, taskPageLoadErrors };
       });
     },
 

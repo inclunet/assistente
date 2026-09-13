@@ -562,9 +562,13 @@ Locales: `frontend/src/locales/{pt-BR,en,es}.ts`
   oferece a ação acessível **Carregar mais tarefas**. O Kanban consome
   automaticamente as páginas restantes, uma por vez e com deduplicação por
   lista, porque distribuir somente a primeira página entre colunas produziria
-  um quadro semanticamente incompleto. Início e conclusão desse carregamento
-  são anunciados. Os contratos legados de leitura completa usados por
-  exportação e automações não mudam.
+  um quadro semanticamente incompleto. O loading bloqueante termina com a
+  primeira página: o grid fica navegável imediatamente e recebe as páginas
+  seguintes incrementalmente, sem remontar cards existentes nem alterar foco
+  e seleção. Progresso e conclusão são anunciados de modo `polite`, sem repetir
+  a mesma contagem; falhas mantêm os cards já disponíveis e oferecem retry.
+  Os contratos legados de leitura completa usados por exportação e automações
+  não mudam.
 - **Índice da ordem visual**: `(task_list_id, parent_id, "order", id)` cobre
   filtro, paginação e desempate; `EXPLAIN QUERY PLAN` é verificado por teste.
 - **Subtarefas**: cada página de raízes hidrata suas subtarefas em lote,

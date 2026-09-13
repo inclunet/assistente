@@ -57,8 +57,11 @@ A tela carrega até 100 tarefas principais por vez, preservando a ordem visual e
 as subtarefas de cada item. Na visualização em lista, use **Carregar mais
 tarefas** para buscar a página seguinte. No Kanban, as páginas restantes são
 carregadas automaticamente, em sequência, até que todas as colunas estejam
-completas. O progresso fica visível durante o carregamento, e leitores de tela
-recebem anúncios no início e na conclusão.
+completas. O quadro já pode ser navegado assim que os primeiros cards aparecem;
+as páginas seguintes entram em segundo plano sem retirar o foco do card atual.
+O progresso fica visível e é anunciado de forma discreta. Se uma página falhar,
+os cards disponíveis continuam utilizáveis e a tela oferece uma ação para
+tentar novamente.
 
 Essa paginação evita que abrir ou atualizar um quadro grande dispare todas as
 consultas ao mesmo tempo. Ela não remove nem reordena tarefas: cada página

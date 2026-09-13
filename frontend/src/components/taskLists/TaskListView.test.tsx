@@ -28,6 +28,8 @@ const taskListStoreState = vi.hoisted(() => ({
   taskLists: new Map<string, unknown>(),
   taskPages: new Map<string, { nextCursor: string; hasMore: boolean; totalCount: number }>(),
   loadingByTaskListId: new Map<string, boolean>(),
+  loadingTaskPagesByListId: new Map<string, boolean>(),
+  taskPageLoadErrors: new Map<string, string>(),
   loadTaskList: vi.fn(),
   loadMoreTasks: vi.fn(),
   loadAllTasksForBoard: vi.fn(),
@@ -141,6 +143,14 @@ vi.mock('./useCustomActions', () => ({
   useCustomActions: () => ({ runCustomAction: vi.fn() }),
 }));
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((fulfill) => {
+    resolve = fulfill;
+  });
+  return { promise, resolve };
+}
+
 describe('TaskListView', () => {
   beforeEach(() => {
     workspacePanelState.isActive = false;
@@ -156,6 +166,8 @@ describe('TaskListView', () => {
     taskListStoreState.loadAllTasksForBoard.mockResolvedValue(205);
     taskListStoreState.taskPages = new Map();
     taskListStoreState.loadingByTaskListId = new Map();
+    taskListStoreState.loadingTaskPagesByListId = new Map();
+    taskListStoreState.taskPageLoadErrors = new Map();
     taskListStoreState.listBoardCustomActions.mockReset();
     taskListStoreState.listBoardCustomActions.mockResolvedValue([]);
     taskListStoreState.setTaskListConversation.mockReset();
@@ -196,7 +208,9 @@ describe('TaskListView', () => {
     expect(surfaceContext.snapshotVersion).toMatch(/^tasklist:tasklist-tab:/);
   });
 
-  it('carrega automaticamente todas as páginas ao abrir o Kanban', async () => {
+  it('libera o Kanban na primeira página enquanto carrega as demais', async () => {
+    const backgroundLoad = deferred<number>();
+    taskListStoreState.loadAllTasksForBoard.mockReturnValueOnce(backgroundLoad.promise);
     taskListStoreState.taskLists = new Map([
       ['tasklist-1', {
         id: 'tasklist-1',
@@ -221,16 +235,63 @@ describe('TaskListView', () => {
     taskListStoreState.taskPages = new Map([
       ['tasklist-1', { nextCursor: 'cursor-100', hasMore: true, totalCount: 205 }],
     ]);
+    taskListStoreState.loadingTaskPagesByListId = new Map([
+      ['tasklist-1', true],
+    ]);
 
     render(<TaskListView taskListId="tasklist-1" />);
 
+    expect(document.body).toHaveTextContent('kanban-board');
     await waitFor(() => {
       expect(taskListStoreState.loadAllTasksForBoard).toHaveBeenCalledTimes(1);
       expect(taskListStoreState.loadAllTasksForBoard).toHaveBeenCalledWith('tasklist-1');
     });
-    expect(announceMock).toHaveBeenCalledWith('Carregando todos os cards do quadro');
+    expect(taskListStoreState.loadAllTasksForBoard.mock.results[0]?.value).toBe(backgroundLoad.promise);
+    expect(announceMock).toHaveBeenCalledWith(
+      '{{loaded}} de {{total}} cards carregados; o quadro já está navegável',
+      'polite',
+    );
+
+    backgroundLoad.resolve(205);
     await waitFor(() => {
-      expect(announceMock).toHaveBeenCalledWith('Quadro completo com {{count}} cards');
+      expect(announceMock).toHaveBeenCalledWith('Quadro completo com {{count}} cards', 'polite');
+    });
+  });
+
+  it('expõe retry sem remover o Kanban após falha de página posterior', async () => {
+    taskListStoreState.taskLists = new Map([
+      ['tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Board parcial',
+        preferredViewMode: 'kanban',
+        tasks: [{ id: 'task-1', taskListId: 'tasklist-1', title: 'Card disponível', statusId: 1, order: 0 }],
+        workflow: {
+          id: 'workflow-1',
+          taskListId: 'tasklist-1',
+          statuses: [{ id: 1, order: 0, label: 'A fazer' }],
+          allowedTransitions: {},
+          initialStatusId: 1,
+        },
+      }],
+    ]);
+    taskListStoreState.taskPages = new Map([
+      ['tasklist-1', { nextCursor: 'cursor-100', hasMore: true, totalCount: 205 }],
+    ]);
+    taskListStoreState.taskPageLoadErrors = new Map([
+      ['tasklist-1', 'falha transitória'],
+    ]);
+    taskListStoreState.loadAllTasksForBoard.mockRejectedValueOnce(new Error('falha transitória'));
+
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    expect(document.body).toHaveTextContent('kanban-board');
+    expect(document.body).toHaveTextContent('Não foi possível carregar todos os cards');
+    expect(document.body).toHaveTextContent('Tentar carregar cards restantes');
+    await waitFor(() => {
+      expect(announceMock).toHaveBeenCalledWith(
+        'Não foi possível carregar todos os cards. Os cards disponíveis continuam navegáveis.',
+        'polite',
+      );
     });
   });
 
