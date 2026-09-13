@@ -89,6 +89,27 @@ func TestReadFileNormalMaterializedValidatesOnlySelectedUTF8(t *testing.T) {
 	}
 }
 
+func TestReadFileRawMaterializedRejectsNULOnlyInsideSelectedRange(t *testing.T) {
+	content := string([]byte{'o', 'k', '\n', 'x', 0, 'y'})
+	first, one := 1, 1
+	valid := formatReadResult(
+		context.Background(), "nul.txt", content, int64(len(content)),
+		&first, &one, true, map[string]any{}, nil,
+	)
+	if valid.IsError || valid.Content != "ok\n" {
+		t.Fatalf("NUL posterior afetou recorte válido: result=%+v", valid)
+	}
+	second := 2
+	invalid := formatReadResult(
+		context.Background(), "nul.txt", content, int64(len(content)),
+		&second, &one, true, map[string]any{}, nil,
+	)
+	if !invalid.IsError || invalid.Failure == nil ||
+		invalid.Failure.Code != "raw_invalid_utf8" {
+		t.Fatalf("NUL selecionado não falhou explicitamente: result=%+v", invalid)
+	}
+}
+
 func TestReadFileRawStreamingIgnoresInvalidUTF8OutsideRequestedRange(t *testing.T) {
 	dir := t.TempDir()
 	first := strings.Repeat("a", 10*1024)

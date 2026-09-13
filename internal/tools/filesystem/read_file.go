@@ -265,7 +265,7 @@ func formatReadResult(ctx context.Context, path, content string, size int64, off
 		if len(exact) > budget {
 			return rawReadTooLarge(len(exact), budget)
 		}
-		if !utf8.ValidString(exact) {
+		if strings.IndexByte(exact, 0) >= 0 || !utf8.ValidString(exact) {
 			return rawReadInvalidUTF8()
 		}
 		meta["total_lines"] = total
