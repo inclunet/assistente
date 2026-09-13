@@ -149,7 +149,12 @@ registra uma implementação; ela envia `kind: decision` ao
 AEP-0091. A porta recebe `DecisionRequest` com `decision_id` UUIDv7,
 `invocation_id` ou ID da mutação de configuração, usuário/sessão, fingerprint
 da solicitação, gerações de autenticação/segurança, ações permitidas e
-`expires_at`. A resposta da UI contém somente `decision_id` e `actionId`.
+`expires_at`. O `DecisionDialog` continua produzindo o corpo da AEP-0091:
+`{ actionId }` ou `{ cancelled: true }`. O host confiável anexa o
+`decision_id` da solicitação backend à correlação, resultando em
+`{ decision_id, actionId }` ou `{ decision_id, cancelled: true }` para a porta;
+ESC, fechamento e cancelamento explícito fazem o CAS para `cancelled`
+imediatamente, sem aguardar expiração.
 
 `DecisionReceiptService` valida a resposta contra a solicitação criada no
 backend e faz CAS único de `pending` para `accepted`, `denied`, `cancelled` ou
@@ -265,8 +270,10 @@ Valor reapresentado nunca troca ownership e sempre passa pelo fingerprint/ledger
 
 No envelope de ingresso, `request_fingerprint_version` e
 `request_fingerprint` ficam ausentes: adapters não os calculam nem podem
-fornecê-los. Depois da normalização e, para trigger, após fixar o candidato
-vencedor, o backend calcula o HMAC por JSON Canonicalization Scheme (RFC 8785).
+fornecê-los. `authorization_decision_id` também fica ausente e só é preenchido
+pelo `DecisionReceiptService` após resposta válida. Depois da normalização e,
+para trigger, após fixar o candidato vencedor, o backend calcula o HMAC por
+JSON Canonicalization Scheme (RFC 8785).
 Ambos se tornam obrigatórios antes da reserva no ledger. O fingerprint inclui
 schema, comando ou trigger, argumentos, IDs/versões de contexto, usuário/ator
 derivados, tipo/ID do contexto autenticado, origem/observador, workspace,
@@ -274,10 +281,12 @@ derivados, tipo/ID do contexto autenticado, origem/observador, workspace,
 presentes;
 `source_instance_id` somente quando não houver `source_event_id`; versões de
 catálogo/configuração, profiles de origem/destino,
-`authorization_decision_id`, `delegation_fingerprint`, `grant_generation`,
+política/requisito de decisão, `delegation_fingerprint`, `grant_generation`,
 `job_id`, `job_slug`, `job_definition_fingerprint`, `run_id` e proveniência.
-Exclui token bruto,
-`auth_generation` rotativa e timestamps. É calculado no backend e persistido
+Exclui token bruto, `authorization_decision_id`, `auth_generation` rotativa e
+timestamps. O ID da decisão é resultado da interação, não entrada semântica da
+solicitação; a receipt o vincula ao `invocation_id` e ao fingerprint já
+calculado. É calculado no backend e persistido
 sem revelar segredos. Reentrega com o mesmo `invocation_id` só é aceita se o
 fingerprint for idêntico; divergência é conflito e falha fechado.
 
@@ -460,6 +469,14 @@ Toda recusa posterior é persistida como `denied`, com código redigido.
 tem `source_type = chat` e `actor_type = agent`. Não existe categoria implícita
 `desktop`; cada comando declara explicitamente quais entradas aceita.
 
+**Override pendente da AEP-0052:** a D6 daquela AEP continua canônica hoje e
+define `JWT sub = user_id`. Esta AEP, enquanto `Draft`, não a substitui nem
+autoriza interpretação concorrente. O mapa `(iss, sub) → users.id` abaixo é o
+contrato alvo proposto; `CommandExecutionService` permanece indisponível em
+`auth.mode=external` até um PR de implementação atualizar a AEP-0052 e o
+middleware no mesmo ciclo, migrar identidades e registrar evidências em ambas
+as AEPs. APIs existentes seguem exclusivamente a AEP-0052 até essa migração.
+
 Os contextos de autenticação são:
 
 - `local_session`: o `SessionService` da AEP-0052 fornece somente `user_id` e
@@ -467,16 +484,14 @@ Os contextos de autenticação são:
   recebem esses dados do backend; `auth_context_id = session_id` e
   `auth_generation` é mantida por esse session ID, não por usuário; IDs vindos
   como argumentos são ignorados;
-- `external_token`: JWT validado fornece `sub`, scopes e um
+- `external_token`, somente depois do override acima: JWT validado fornece `sub`, scopes e um
   `auth_context_id` derivado de `iss` + `sub` + `jti` ou fingerprint do token;
   `(iss, sub)` sempre precisa resolver por mapeamento administrativo explícito.
   `sub` isolado nunca é aceito como `users.id`, pois não é global entre issuers.
   Não há provisionamento automático nem fallback para usuário atual;
-  ausência/ambiguidade falha fechado. Antes de habilitar comandos em
-  `auth.mode=external`, o upgrade exige que o administrador migre identidades
-  usadas pelo middleware vigente para `external_identity_mappings`; APIs antigas
-  continuam fora deste subsistema até a migração. O PR de implementação atualiza
-  AEP-0052/middleware no mesmo ciclo. JWT/scopes são revalidados;
+  ausência/ambiguidade falha fechado. Antes de habilitar comandos nesse modo, o
+  upgrade exige que o administrador migre identidades usadas pelo middleware
+  vigente para `external_identity_mappings`. JWT/scopes são revalidados;
 - `job_service`: automação usa o usuário proprietário, ID e versão persistida do
   job, representada por `job_definition_fingerprint`, além dos grants exatos
   aplicáveis; o gate final relê a definição e compara o fingerprint. Não pode
@@ -1309,7 +1324,8 @@ command_invocations
   context_captured_at_by_provider nullable_for_exact_version_or_none,
   context_summary, foreground_summary,
   source_profile_slug, target_profile_slug,
-  authorization_decision_id, delegation_fingerprint, grant_generation,
+  authorization_decision_id nullable_until_decided,
+  delegation_fingerprint, grant_generation,
   job_id, job_slug, job_definition_fingerprint, run_id, provenance,
   correlation_id, request_fingerprint_version, request_fingerprint,
   risk, policy_decision,
@@ -2001,8 +2017,9 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   desabilitado para fatos legados ambíguos.
 - [ ] Regras e layers builtin/user usam refs polimórficas consistentes no
   schema, grants, estado, ownership, importação e restore.
-- [ ] Identidade externa só acessa usuário local por mapeamento administrativo
-  exato de emissor e subject.
+- [ ] Após o PR atualizar a AEP-0052, identidade externa só acessa usuário
+  local por mapeamento administrativo exato de emissor e subject; antes disso,
+  o command manager fica indisponível nesse modo.
 - [ ] Cada comando declara origens permitidas e o serviço bloqueia origem não
   autorizada, incluindo comandos visuais solicitados pela CLI.
 - [ ] `effect_class` e mutabilidade vêm do contrato do handler; metadata
