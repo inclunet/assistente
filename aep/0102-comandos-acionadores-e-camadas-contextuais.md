@@ -167,8 +167,8 @@ CommandInvocation
   source_profile_slug?, target_profile_slug?
   authorization_decision_id?, delegation_fingerprint?, grant_generation?
   job_id?, job_slug?, job_definition_fingerprint?, run_id?
-  provenance?, correlation_id, request_fingerprint_version
-  request_fingerprint, client_requested_at?, received_at
+  provenance?, correlation_id, request_fingerprint_version?
+  request_fingerprint?, client_requested_at?, received_at
 ```
 
 `source_type` distingue teclado local/global, Stream Deck, palette, chat, CLI,
@@ -223,9 +223,11 @@ CLI e `system` o omitem. A CLI imprime/devolve o ID e aceita `--request-id`
 apenas em retry autenticado; chat reutiliza o ID associado ao mesmo tool call.
 Valor reapresentado nunca troca ownership e sempre passa pelo fingerprint/ledger.
 
-Para toda origem, `request_fingerprint` é HMAC do request de ingresso após
-normalização e, para trigger, após fixar o candidato vencedor, serializado por
-JSON Canonicalization Scheme (RFC 8785). Inclui
+No envelope de ingresso, `request_fingerprint_version` e
+`request_fingerprint` ficam ausentes: adapters não os calculam nem podem
+fornecê-los. Depois da normalização e, para trigger, após fixar o candidato
+vencedor, o backend calcula o HMAC por JSON Canonicalization Scheme (RFC 8785).
+Ambos se tornam obrigatórios antes da reserva no ledger. O fingerprint inclui
 schema, comando ou trigger, argumentos, IDs/versões de contexto, usuário/ator
 derivados, tipo/ID do contexto autenticado, origem/observador, workspace,
 `source_instance_id`/`source_event_id` quando presentes, versões de
@@ -354,11 +356,12 @@ e `result_ref` redigidos por `CommandExecutionService.GetInvocation`; não
 repete o handler mesmo se a auditoria detalhada já tiver sido compactada. A
 consulta exige o mesmo contexto autenticado, filtra por
 `(user_id, invocation_id)` e reaplica autorização do ator; buscar somente pela
-PK é proibido. Contexto `system` consulta apenas invocações internas sem usuário.
-Nesse caso, o predicado explícito é `user_id IS NULL AND invocation_id = ? AND
-auth_context_type = 'system' AND auth_context_id = <epoch atual do processo>`;
-não usa igualdade com NULL.
-No startup,
+PK é proibido. A API pública não consulta invocações `system`. No startup, um
+método interno e não exposto, `ReconcileSystemInvocations`, opera sob capability
+privilegiada da instância e seleciona apenas `user_id IS NULL AND
+auth_context_type = 'system'` de epochs anteriores nos estados recuperáveis;
+não exige que `auth_context_id` antigo seja igual ao epoch atual e não aceita ID
+fornecido externamente. Assim,
 registros `evaluating`, `queued` ou `running` de uma geração encerrada viram
 `outcome_unknown` em `command_invocations` e
 `command_idempotency_keys` na mesma transação, nunca são reexecutados
@@ -514,6 +517,7 @@ Um binding contém:
 - `command_id` para `execute`;
 - argumentos validados pelo schema do comando para `execute`;
 - condição tipada opcional;
+- `resolution_priority`;
 - `effect`, com `execute` ou `suppress`;
 - `replaces_default_id`, `replaces_default_version` e
   `replaces_default_fingerprint` para delta de default;
@@ -711,13 +715,14 @@ do `DecisionDialog` e não podem ser omitidos nem bloqueados por configuração.
 Enquanto houver diálogo topmost, o dispatcher reserva essas combinações antes
 de consultar qualquer binding configurável ou ownership global. Assim,
 `Ctrl+Shift+R` chega ao `DecisionDialog` mesmo se existir binding concorrente.
-A reserva só ocorre depois dos guardas obrigatórios da AEP-0091: evento não
-repetido, sem composição IME e fora de input, textarea, contenteditable e
-Monaco. Se um guarda bloquear, o dispatcher ignora sem capturar a digitação.
-Ela só existe com a janela do Assistente focada. Atalhos invariantes de diálogo
-não podem ser registrados como `keyboard.global`; com outro programa em foco, o
-adapter do SO não captura `Ctrl+Shift+R` por causa do diálogo aberto no
-Assistente.
+No caminho local, a reserva só ocorre depois dos guardas obrigatórios da
+AEP-0091: evento não repetido, sem composição IME e fora de input, textarea,
+contenteditable e Monaco. Se um guarda bloquear, o dispatcher ignora sem
+capturar a digitação. No caminho global, o adapter confiável do SO registra
+temporariamente `Ctrl+Shift+R` somente enquanto houver `DecisionDialog`
+topmost, inclusive com outro programa em foco, e remove o registro ao fechar o
+diálogo. Essa reserva intencional preserva o caso Alt+Tab da AEP-0091, não é
+binding configurável e não permanece ativa fora do diálogo.
 
 A UI deve detectar sobreposição possível no momento da edição, explicar em quais
 contextos ela ocorre e pedir confirmação antes de criar uma substituição. Um
@@ -798,9 +803,11 @@ O ledger de ativação persiste `workspace_id` e `event_fingerprint`. A chave
 `(user_id, rule_ref_kind, rule_ref, source_event_id) WHERE workspace_id IS
 NULL`; para camada local, `(user_id, workspace_id, rule_ref_kind, rule_ref,
 source_event_id) WHERE workspace_id IS NOT NULL`.
-`source_correlation_id` localiza o ciclo com o mesmo par de índices parciais,
-trocando `source_event_id` por `(source_type, source_correlation_id)`, mas não
-deduplica transições distintas. Na mesma transação, o estado de PK
+`source_correlation_id` serve somente para localizar o ciclo em
+`command_layer_activation_state`, com um par separado de índices parciais por
+`(source_type, source_correlation_id)`. Ele nunca substitui o
+`source_event_id`, que permanece obrigatório e é a única chave idempotente de
+cada transição. Na mesma transação, o estado de PK
 `activation_id` avança por CAS sobre `sequence`: insert concorrente resolve
 pela chave única e update exige o cursor anterior.
 Mesmo número com fingerprint diferente grava conflito e não altera a camada.
@@ -1062,7 +1069,7 @@ external_identity_mappings
   id, issuer, subject, user_id, enabled, created_at, updated_at
 
 command_invocations
-  invocation_id, schema_version, user_id nullable_for_system,
+  invocation_id PK UUIDv7, schema_version, user_id nullable_for_system,
   auth_context_type, auth_context_id,
   auth_generation, session_id, security_generation,
   workspace_id, registry_version, global_config_generation,
@@ -1247,13 +1254,18 @@ continua ignorando seção desconhecida com warning, como define a AEP-0047.
 `internal/commandinvocations.MaintenanceService`, definido por esta AEP e
 executado pelo novo `InstanceMaintenanceCoordinator`, opera em escopo
 privilegiado da instância: enumera todos os usuários e também `user_id IS NULL`,
-sem depender do usuário ativo nem de `RequireUserID`. O coordenador absorve a
+sem depender do usuário ativo. A implementação adiciona APIs de manutenção
+separadas: uma enumera IDs de usuário; cada limpeza por usuário recebe contexto
+interno com aquele `user_id` e preserva `RequireUserID`; registros system usam
+métodos dedicados que exigem capability da instância. O coordenador nunca
+remove o guard nem passa contexto sem usuário a APIs comuns. Ele absorve a
 cadência hoje iniciada por `jobs.Manager.runRetention` e chama, por interfaces,
 numa única goroutine e nesta ordem: retenção de jobs;
 `ToolInvocations.CleanOldDryRuns`; `CleanOrphanChat`; `CleanOldChat`; retenção
 de invocações/ledgers de comandos; retenção de ativações; e compactação física
-por `maybeCompact`. O PR atualiza a AEP-0074-B e move a responsabilidade sem
-perder nenhuma limpeza nem vacuum/compactação; não cria loop paralelo.
+por `maybeCompact`. O futuro PR de implementação atualizará a AEP-0074-B e
+moverá a responsabilidade sem perder nenhuma limpeza nem vacuum/compactação;
+não criará loop paralelo. Este PR documental apenas registra esse requisito.
 
 O serviço lê exclusivamente
 `maintenance.command_invocation_retention_days` (padrão 30) e
@@ -1582,9 +1594,10 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   disponibilidade, risco, aliases localizados e apresentação.
 - [ ] Teclado local, hotkey global, Stream Deck, Command Palette, chat e CLI
   podem convergir para o mesmo comando sem handlers finais duplicados.
-- [ ] Todos os adapters produzem `CommandInvocation` e passam por
-  `CommandExecutionService`, com sessão, proveniência, autorização, deduplicação
-  e auditoria antes do handler final.
+- [ ] Todo acionamento que resolve para execução produz `CommandInvocation` e
+  passa por `CommandExecutionService`, com sessão, proveniência, autorização,
+  deduplicação e auditoria antes do handler final; `effect = suppress` é
+  consumido sem criar invocação.
 - [ ] A reserva atômica por evento impede reentrega, e ownership exclusivo
   impede duplicidade entre teclado local/global e listeners de dispositivo.
 - [ ] Retirada de `queued` revalida todos os gates no mesmo CAS para `running`.
@@ -1679,8 +1692,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   não espera o trabalho longo nem entra em deadlock.
 - [ ] Versões do catálogo e da configuração são revalidadas ao retirar da fila;
   binding alterado não executa resolução antiga.
-- [ ] Cada comando declara `context_policy`; provider ausente ou versão/TTL
-  inválido falha fechado.
+- [ ] Cada comando declara `context_policy`; nas policies que declaram
+  providers, provider ausente ou versão/TTL inválido falha fechado.
 - [ ] `context_policy = none` é rejeitado para qualquer comando não read-only.
 - [ ] Contextos local, JWT externo, job e system têm fontes de identidade e
   revogação explícitas; `EpochService` invalida trabalho obsoleto.
