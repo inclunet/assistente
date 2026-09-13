@@ -209,7 +209,9 @@ que vazia.
 
 Na primeira tentativa, IDs são gerados em borda confiável: Wails para
 palette/UI, contexto persistido da tool call para chat, processo backend para
-`system` e serviço CLI para terminal. A CLI imprime/devolve o ID e aceita
+`system`, serviço CLI para terminal e cada adapter de teclado, Stream Deck ou
+evento para sua ocorrência. Todos geram `invocation_id` UUIDv7 além do
+`source_event_id` usado para deduplicar o evento. A CLI imprime/devolve o ID e aceita
 `--request-id` apenas em retry autenticado; chat reutiliza o ID associado ao
 mesmo tool call. Valor reapresentado nunca troca ownership e sempre passa pelo
 fingerprint/ledger.
@@ -316,6 +318,13 @@ na mesma transação. Panic, canal fechado sem outcome e timeout viram falha
 tipada; outcome tardio após terminal é ignorado. Handler síncrono curto usa
 handle já concluído.
 
+`timed_out` só vale antes do handoff ou quando o handler confirma cancelamento
+sem efeito. Depois do ack, prazo vencido, canal perdido ou cancelamento não
+confirmado vira `outcome_unknown`, nunca `timed_out`; retry automático é
+proibido e reconciliação explícita consulta o executor/recurso antes de nova
+invocação. Outcome tardio verificável pode reconciliar
+`outcome_unknown → succeeded|failed` por CAS auditado; não dispara novo efeito.
+
 A reserva é uma transação que cria a chave no ledger de idempotência e a linha
 de auditoria `evaluating` antes do handler. O ledger usa PK `id`, `key` UNIQUE,
 `invocation_id` UNIQUE e índice parcial UNIQUE de `source_event_id` quando
@@ -390,6 +399,14 @@ Os contextos de autenticação são:
 Hotkeys e Stream Deck exigem um contexto autenticado atualmente ativo. Contexto
 `system` sem usuário só executa comandos internos que declarem essa origem e não
 acessa bindings ou dados de usuário.
+
+Bootstrap do modo externo é pré-requisito explícito: endpoint administrativo
+fora do command manager, protegido por issuer configurado + scope admin, cria
+`(iss, sub) → users.id` para usuário local existente. O primeiro admin só pode
+vincular o próprio token legado quando `sub` já coincide com esse `users.id`;
+demais vínculos são escolhas explícitas auditadas. Concluído o lote, uma flag de
+readiness faz o middleware resolver todos os principals pelo mapa. Até então,
+CommandExecutionService fica desabilitado em `auth.mode=external`. Não há JIT.
 
 As gerações não são atribuídas à AEP-0052.
 `internal/commandsecurity.EpochService`, definido aqui, cria um epoch aleatório
@@ -690,6 +707,10 @@ de consultar qualquer binding configurável ou ownership global. Assim,
 A reserva só ocorre depois dos guardas obrigatórios da AEP-0091: evento não
 repetido, sem composição IME e fora de input, textarea, contenteditable e
 Monaco. Se um guarda bloquear, o dispatcher ignora sem capturar a digitação.
+Ela só existe com a janela do Assistente focada. Atalhos invariantes de diálogo
+não podem ser registrados como `keyboard.global`; com outro programa em foco, o
+adapter do SO não captura `Ctrl+Shift+R` por causa do diálogo aberto no
+Assistente.
 
 A UI deve detectar sobreposição possível no momento da edição, explicar em quais
 contextos ela ocorre e pedir confirmação antes de criar uma substituição. Um
@@ -955,8 +976,7 @@ AEP-0048 para não inflar o catálogo:
   `layer_update`, `layer_delete`, `layer_enable`, `layer_disable`,
   `layer_restore`, `binding_list`, `binding_check_conflict`,
   `binding_create`, `binding_update`, `binding_delete`, `binding_enable`,
-  `binding_disable`, `binding_restore`, `config_import`, `config_export` e
-  `config_export_sensitive`.
+  `binding_disable`, `binding_restore`, `config_import` e `config_export`.
 
 Alterações destrutivas, conflitos e comandos sensíveis continuam sujeitos ao
 contrato de decisão da AEP-0091. A resposta da tool inclui IDs reais e o efeito
@@ -983,10 +1003,11 @@ divergência. Em `command_config`, somente list/get/check_conflict e
 import são mutações de capacidade e sempre exigem o gate. Teste de catálogo enumera todas as ações/handlers para impedir que
 um verbo novo nasça sem classificação.
 
-`config_export_sensitive` é caminho separado para `includeCredentials=true`:
-risco alto, `decision_requirement=interactive`, somente `ui.action`, formulário
-de senha e criptografia/redaction da AEP-0047; origem headless é proibida.
-`config_export` rejeita esse argumento em vez de promovê-lo silenciosamente.
+`config_export_sensitive` existe apenas no registro/UI, não na tool
+`command_config`: risco alto, `decision_requirement=interactive`, somente
+`ui.action`, formulário de senha e criptografia/redaction da AEP-0047; chat e
+origem headless são proibidos. `config_export` rejeita
+`includeCredentials=true` em vez de promover silenciosamente.
 
 ### D11 — Persistência
 
