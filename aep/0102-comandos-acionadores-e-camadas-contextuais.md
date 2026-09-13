@@ -882,7 +882,24 @@ síncronas dos context providers da D2, recalculadas em memória quando sua vers
 muda. Elas não usam `LayerActivationEvent`, outbox ou ledger de evento. O
 envelope abaixo é apenas para ativações event-driven; na v1, somente jobs.
 
-Ativação dirigida por eventos usa o envelope:
+O produtor entrega primeiro um candidato sem autoridade sobre regra, camada ou
+escopo:
+
+```text
+LayerActivationCandidate
+  version, event_name, source_type, source_instance_id, source_event_id
+  source_correlation_id?, sequence, source_state, occurred_at, expires_at?
+  source_job_database_id?, source_job_slug?, run_id?
+  claimed_user_id?, claimed_workspace_id?, provenance?
+```
+
+O adapter autenticado valida produtor e ocorrência persistida, resolve o job e
+deriva o usuário. `claimed_user_id`/`claimed_workspace_id`, quando um protocolo
+legado os transportar, são apenas assertions: divergência é rejeitada e esses
+campos nunca compõem chave, lookup ou ownership. O dispatcher localiza regras
+e layers somente em catálogo/SQLite pelo owner derivado e produz um evento
+normalizado por regra correspondente. Esse envelope interno, não aceito
+diretamente de produtor/cliente, é:
 
 ```text
 LayerActivationEvent
@@ -894,6 +911,11 @@ LayerActivationEvent
   source_replay_policy_generation, source_replay_deadline
   source_job_database_id?, source_job_slug?, chain_id?, chain_history?
 ```
+
+No evento normalizado, `rule_ref_*`, `user_id`, `workspace_id`,
+`activation_id`, contexto de autenticação e gerações/deadline são todos
+derivados ou revalidados pelo backend. Nenhum valor homônimo do candidato pode
+substituí-los; divergência detectável falha fechado antes de reservar o ledger.
 
 `activation_id` é UUIDv7 novo a cada ciclo; ativar e desativar o mesmo ciclo
 reutiliza esse ID. `sequence` cresce dentro de
@@ -1049,7 +1071,7 @@ atravessa o CAS/início com geração antiga.
 
 Para jobs, a integração publica o fato contextual interno versionado
 `command-context.job-run-state.v1`, cujo `event_name` é exatamente esse nome,
-com `user_id`, `job_database_id`, `job_slug`,
+com `user_id` como assertion candidata, `job_database_id`, `job_slug`,
 `run_id`, `run_event_id`, `sequence`, `state`, `occurred_at`,
 `root_origin_type`, `root_origin_id`, `_source`, `_source_job_id`, `_chain_id` e
 `_chain_history`. `_source` deve ser
@@ -1621,8 +1643,19 @@ O resolvedor não percorre todas as camadas nem consulta o banco a cada tecla.
 - bindings são indexados pela identidade normalizada do acionador;
 - o conjunto de camadas ativas é mantido separadamente;
 - para uma entrada, somente candidatos daquele acionador são avaliados;
-- resultados frequentes podem ser cacheados por versão de contexto;
+- resultados frequentes podem ser cacheados pela tupla exata
+  `(user_id, workspace_id, trigger_identity, source_type, context_version,
+  registry_version, global_config_generation, workspace_config_generation,
+  active_layers_generation)`;
 - mudanças de contexto invalidam apenas entradas afetadas.
+
+O cache positivo e o negativo exigem igualdade de todos os componentes; valor
+nullable usa marcador tipado, nunca string vazia. Mudar catálogo, default,
+binding, prioridade, camada ou claim incrementa a geração correspondente sob o
+`DispatchGate` antes de publicar o novo snapshot, portanto entrada anterior não
+é reutilizada nem para executar nem para repetir recusa stale. Usuário,
+workspace e identidade normalizada do acionador nunca são inferidos apenas de
+`context_version`.
 
 Para o Stream Deck, a composição é recalculada quando camadas, contexto ou
 estado visível mudam. O renderer compara o estado anterior e atual e envia ao
@@ -2004,6 +2037,9 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   não espera o trabalho longo nem entra em deadlock.
 - [ ] Versões do catálogo e da configuração são revalidadas ao retirar da fila;
   binding alterado não executa resolução antiga.
+- [ ] Cache de resolução inclui usuário, workspace, acionador, origem,
+  `context_version` e todas as versões/gerações de catálogo, configuração e
+  camadas ativas.
 - [ ] Cada comando declara `context_policy`; nas policies que declaram
   providers, provider ausente ou versão/TTL inválido falha fechado.
 - [ ] `context_policy = none` é rejeitado para qualquer comando não read-only.
@@ -2015,6 +2051,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] Adapter de jobs exige `job_slug = Job.ID` e
   `job_database_id = Job.DatabaseID`, confirma ambos por owner e permanece
   desabilitado para fatos legados ambíguos.
+- [ ] Evento de ativação recebido é candidato sem autoridade; dispatcher
+  deriva owner, workspace, regra, layer e epochs antes do envelope interno.
 - [ ] Regras e layers builtin/user usam refs polimórficas consistentes no
   schema, grants, estado, ownership, importação e restore.
 - [ ] Após o PR atualizar a AEP-0052, identidade externa só acessa usuário
