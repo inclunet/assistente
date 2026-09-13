@@ -142,6 +142,28 @@ executor rejeita qualquer chamada sem um `DecisionPresenter` interativo
 autenticado. Combinação
 `destructive + none` é inválida no registro e recusada novamente pelo executor.
 
+`DecisionPresenter` é uma porta interna injetada pelo bootstrap, nunca um campo
+ou capability declarada pelo chamador. Na v1, somente a sessão Wails local
+registra uma implementação; ela envia `kind: decision` ao
+`questionnaire.Manager` e o frontend apenas renderiza o `DecisionDialog` da
+AEP-0091. A porta recebe `DecisionRequest` com `decision_id` UUIDv7,
+`invocation_id` ou ID da mutação de configuração, usuário/sessão, fingerprint
+da solicitação, gerações de autenticação/segurança, ações permitidas e
+`expires_at`. A resposta da UI contém somente `decision_id` e `actionId`.
+
+`DecisionReceiptService` valida a resposta contra a solicitação criada no
+backend e faz CAS único de `pending` para `accepted`, `denied`, `cancelled` ou
+`expired`; resposta duplicada ou ação fora do conjunto falha fechado. Para
+despacho destrutivo, o `CommandExecutionService` exige receipt `accepted`
+correspondente a usuário, sessão, invocação, fingerprint, ação afirmativa e
+gerações atuais. Sob o `DispatchGate`, consome a receipt e efetiva o CAS de
+`evaluating` para `queued` na mesma transação; replay, receipt já
+consumida ou geração alterada não executa. `authorization_decision_id` é o
+`decision_id` consumido.
+Mutação confirmável de configuração usa o mesmo contrato com
+`subject_type = config_mutation` e consome a receipt ao gravar a mudança.
+Origem sem presenter registrado nunca cria receipt afirmativa.
+
 Comandos de UI podem ser executados no frontend por uma ponte tipada. Comandos
 de backend são enviados ao serviço correspondente. Jobs usam o runtime de jobs;
 tools internas e MCP usam o executor comum da AEP-0063. O registro de comandos
@@ -310,10 +332,13 @@ O serviço, nessa ordem:
    `evaluating`;
 5. se a resolução falhou, conclui `denied`; caso contrário valida origem
    permitida, disponibilidade, argumentos, contexto e política;
-   falhas após autenticação terminam a tentativa como `denied`;
+   falhas após autenticação terminam a tentativa como `denied`. Quando a
+   política exige interação, obtém uma receipt pelo presenter interno antes de
+   continuar; não mantém `DispatchGate` aberto enquanto aguarda o usuário;
 6. revalida contexto de autenticação, geração de segurança, staleness e
-   autorização imediatamente antes do despacho, cancelando a invocação se
-   qualquer um estiver obsoleto; se estiver válida, transiciona para `queued`;
+   autorização imediatamente antes do despacho, incluindo e consumindo a
+   receipt no CAS para `queued`; cancela a invocação se qualquer gate estiver
+   obsoleto;
 7. ao retirar da fila, revalida novamente os mesmos gates e faz CAS atômico de
    `queued` para `running`; se o contexto mudou, grava `cancelled_stale` sem
    chamar o handler. Também compara `registry_version`,
@@ -851,7 +876,8 @@ LayerActivationEvent
   source_correlation_id?, sequence
   state, occurred_at, expires_at?
   auth_context_type, auth_context_id, auth_generation, security_generation
-  source_job_id?, chain_id?, chain_history?
+  source_replay_policy_generation, source_replay_deadline
+  source_job_database_id?, source_job_slug?, chain_id?, chain_history?
 ```
 
 `activation_id` é UUIDv7 novo a cada ciclo; ativar e desativar o mesmo ciclo
@@ -952,21 +978,29 @@ logout ou estação bloqueada é descartado.
 dispatcher deriva o dono do principal autenticado e o escopo da layer/rule
 resolvida; `workspace_id = NULL` representa camada global. Isso também vale
 para refs `builtin`, que não dependem de FK para recuperar o escopo. Jobs não
-possuem workspace na AEP-0048: o dispatcher relê `job_id`/`run_id` apenas no
-usuário e deriva o workspace exclusivamente da layer/rule, validando o acesso
-do mesmo usuário. O mesmo evento pode alimentar regras de workspaces distintos,
+possuem workspace na AEP-0048: o dispatcher relê
+`source_job_database_id`/`source_job_slug`/`run_id` apenas no usuário e deriva
+o workspace exclusivamente da layer/rule, validando o acesso do mesmo usuário.
+O mesmo evento pode alimentar regras de workspaces distintos,
 cada uma com estado/chave próprios. Divergência, workspace inacessível ou
 ausência de ownership falha fechado.
 
 `source_instance_id` identifica a geração do dispatcher somente para
 proveniência. A chave de idempotência é a chave global/local por
 `source_event_id` definida acima, portanto replay estável após reinício
-continua duplicata sem atravessar workspaces. Se o cursor terminal já tiver
-sido removido, `occurred_at`
-anterior a `maintenance.command_activation_terminal_retention_days` é rejeitado
-antes do insert. A idade vem somente desse timestamp autenticado, nunca do
-UUIDv7. Assim, limpeza delimita a deduplicação sem permitir replay antigo
-reativar uma camada.
+continua duplicata sem atravessar workspaces.
+`source_replay_policy_generation` e `source_replay_deadline` são derivados pelo
+adapter do mesmo `command_event_replay_policy_epochs` de D2.1 e não são aceitos
+como autoridade do payload. Estado e ledger de ativação persistem ambos; seu
+`expires_at` nunca antecede o maior entre o deadline da fonte e a retenção
+terminal de ativações.
+
+Se ledger/cursor terminal já tiver sido removido, evento posterior ao deadline
+imutável do epoch vigente em `occurred_at` é rejeitado antes do insert.
+Aumentar a retenção depois não reabre ocorrência de epoch anterior; diminuir
+não encurta ledger existente. A idade vem somente do timestamp autenticado,
+nunca do UUIDv7. Assim, limpeza delimita a deduplicação sem permitir replay
+antigo reativar uma camada.
 
 Exemplos:
 
@@ -1000,22 +1034,28 @@ atravessa o CAS/início com geração antiga.
 
 Para jobs, a integração publica o fato contextual interno versionado
 `command-context.job-run-state.v1`, cujo `event_name` é exatamente esse nome,
-com `user_id`, `job_id`, `job_slug`,
+com `user_id`, `job_database_id`, `job_slug`,
 `run_id`, `run_event_id`, `sequence`, `state`, `occurred_at`,
 `root_origin_type`, `root_origin_id`, `_source`, `_source_job_id`, `_chain_id` e
 `_chain_history`. `_source` deve ser
 `job` nesse fato; outro valor falha fechado. `run_event_id` é o UUIDv7 de
 `job_run_events.id` e vira o `source_event_id` estável, inclusive em replay.
-`job_id` é o UUID de `jobs.id`
-referenciado por `job_runs.job_id`; `run_id` é tratado nesta borda como ID opaco
-e precisa corresponder exatamente a uma linha `job_runs.id` do mesmo usuário e
-job. O adapter não valida prefixo/formato nem converte IDs. A divergência entre o
-formato UUIDv7 documentado na AEP-0048 e produtores atuais deve ser corrigida
-em PR próprio, com status/evidência da AEP-0048 atualizados, mas não bloqueia
-lookup seguro por PK/ownership nesta integração.
-`job_slug` é a identidade pública usada por
-`eventctx.SourceJobID` conforme AEP-0067 e serve para apresentação/resolução inicial.
-Depois da resolução, correlação e autorização usam o UUID.
+`job_slug` recebe `Job.ID`, que no modelo atual é o slug público usado por
+`eventctx.SourceJobID` conforme AEP-0067; `job_database_id` recebe
+`Job.DatabaseID`, UUID de `jobs.id` referenciado por `job_runs.job_id`.
+O adapter resolve primeiro `(user_id, job_slug)`, exige que a linha encontrada
+tenha exatamente esse `DatabaseID` e então usa o UUID em correlação e
+autorização. Fato legado que envia `job.ID` no campo ambíguo `job_id` ou omite
+`job_database_id` é rejeitado.
+
+`run_id` é tratado nesta borda como ID opaco e precisa corresponder exatamente
+a uma linha `job_runs.id` do mesmo usuário e job. O adapter não valida
+prefixo/formato nem converte IDs. A divergência entre o formato UUIDv7
+documentado na AEP-0048 e produtores atuais deve ser corrigida em PR próprio,
+com status/evidência da AEP-0048 atualizados, mas não bloqueia lookup seguro por
+PK/ownership nesta integração. O adapter D8 permanece desabilitado até o
+produtor persistir/publicar `Job.DatabaseID` como `job_database_id` e a AEP-0048
+ser atualizada no mesmo PR; não há fallback silencioso do slug para UUID.
 
 Esta AEP é dona de `root_origin_type` e de sua normalização:
 `manual → manual`, `cron → cron`, `interval → interval`,
@@ -1180,7 +1220,7 @@ Defaults ficam no código. SQLite guarda entidades do usuário e deltas:
 
 ```text
 command_layers
-  id, user_id, workspace_id, name, description, enabled, source,
+  id, user_id, workspace_id nullable_for_global, name, description, enabled, source,
   resolution_priority, created_at, updated_at
 
 command_layer_activation_rules
@@ -1210,11 +1250,17 @@ command_bindings
   presentation
 
 command_config_generations
-  id, user_id, workspace_id, generation, updated_at
+  id, user_id, workspace_id nullable_for_global, generation, updated_at
 
 command_event_replay_policy_epochs
   id, producer_type, generation, effective_at, replay_horizon_seconds,
   created_at
+
+command_decision_receipts
+  decision_id PK UUIDv7, user_id, auth_context_type, auth_context_id,
+  auth_generation, security_generation, subject_type, subject_id,
+  request_fingerprint, allowed_action_ids, accepted_action_id nullable,
+  status, expires_at, responded_at nullable, consumed_at nullable
 
 command_layer_activation_state
   activation_id PK UUIDv7, layer_ref_kind, layer_ref, rule_ref_kind, rule_ref,
@@ -1222,7 +1268,9 @@ command_layer_activation_state
   auth_context_type, auth_context_id, auth_generation,
   security_generation, source_type, source_instance_id nullable,
   source_event_id nullable, source_correlation_id nullable, sequence nullable,
-  event_fingerprint nullable, state, terminal_reason nullable,
+  source_job_database_id nullable, source_job_slug nullable,
+  event_fingerprint nullable, source_replay_policy_generation nullable,
+  source_replay_deadline nullable, state, terminal_reason nullable,
   provenance nullable, manual_stack_key nullable, activated_at,
   expires_at nullable, updated_at
 
@@ -1230,6 +1278,8 @@ command_activation_idempotency_keys
   id, key, user_id, workspace_id nullable_for_global,
   rule_ref_kind, rule_ref, source_type, source_instance_id, source_event_id,
   source_correlation_id nullable, sequence, event_fingerprint,
+  source_job_database_id nullable, source_job_slug nullable,
+  source_replay_policy_generation, source_replay_deadline,
   terminal_state, created_at, expires_at
 
 external_identity_mappings
@@ -1238,8 +1288,8 @@ external_identity_mappings
 command_invocations
   invocation_id PK UUIDv7, schema_version, user_id nullable_for_system,
   auth_context_type, auth_context_id,
-  auth_generation, session_id, security_generation,
-  workspace_id, registry_version,
+  auth_generation, session_id nullable_for_non_local, security_generation,
+  workspace_id nullable_without_workspace, registry_version,
   global_config_generation nullable_for_system,
   workspace_config_generation nullable_without_workspace,
   active_layers_generation nullable_for_system,
@@ -1278,8 +1328,10 @@ command_idempotency_keys
 ```
 
 No ledger, `id` é PK UUIDv7, `key` é UNIQUE e vale
-`invocation:<invocation_id>` para origem direta ou
-`event:<source_event_id>` para evento. `invocation_id` também é UNIQUE e
+`invocation:<invocation_id>` para toda solicitação sem `source_event_id`,
+direta ou resolvida por trigger, e `event:<source_event_id>` quando esse ID
+existir. Portanto palette, `ui.action`, chat e CLI por trigger usam a primeira
+forma. `invocation_id` também é UNIQUE e
 `source_event_id` tem índice único parcial quando não nulo. Conflito relê
 ownership e fingerprint antes de classificar como reentrega; divergência falha
 fechado. `status` aceita os estados de invocação, `suppressed` e
@@ -1310,9 +1362,10 @@ Campos marcados com `?` no envelope são nullable no SQLite; ausência vira
 `NULL`, nunca string vazia. `command_id` fica nulo em `evaluating`/`denied`
 somente quando a resolução prévia não encontrou comando; em toda reserva
 resolvida executável é preenchido e imutável. Supressão terminal é a exceção
-sem `CommandInvocation` da D4. `trigger_*` é nulo em execução direta; campos de
-surface, conversa, job, profile, workspace e decisão são nulos quando o
-contexto não se aplica. `source_occurred_at` é obrigatório somente para
+sem `CommandInvocation` da D4. `trigger_*` é nulo em execução direta;
+`session_id` é nulo fora de `local_session`; campos de surface, conversa, job,
+profile, workspace e decisão são nulos quando o contexto não se aplica.
+`source_occurred_at` é obrigatório somente para
 `source_type = event`, vem da fonte autenticada e fica nulo nas demais origens.
 Nesse caso, `source_replay_policy_generation` e `source_replay_deadline`
 também são obrigatórios e derivam do epoch de política, nunca do payload.
@@ -1379,8 +1432,9 @@ opera sobre claims já rebindadas.
 Matriz de nulabilidade do estado: claims manuais exigem `manual_stack_key` e
 podem deixar `source_instance`, `source_event`, correlação, sequence e
 provenance nulos; claims de evento deixam `manual_stack_key` nula e exigem
-instância, evento UUIDv7, sequence e fingerprint; correlação é opcional; claim
-temporária exige `expires_at`; provenance é obrigatória quando a origem for job.
+instância, evento UUIDv7, sequence, fingerprint, geração/deadline de replay;
+correlação é opcional; claim temporária exige `expires_at`; provenance é
+obrigatória quando a origem for job.
 Campos de auth/segurança e refs de layer/rule são sempre obrigatórios.
 `workspace_id` é obrigatório para layer local e nulo somente para layer global;
 é persistido também no ledger mínimo. Ausência vira `NULL`, nunca sentinel vazio.
@@ -1824,6 +1878,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   consumido sem criar invocação.
 - [ ] A reserva atômica por evento impede reentrega, e ownership exclusivo
   impede duplicidade entre teclado local/global e listeners de dispositivo.
+- [ ] Solicitações diretas e triggers sem `source_event_id` usam
+  `invocation:<invocation_id>`; eventos usam `event:<source_event_id>`.
 - [ ] Manter uma tecla pressionada não repete comando: o adapter descarta
   `KeyboardEvent.repeat`/repetição nativa antes de gerar `source_event_id` e
   testes cobrem release, blur e reconexão.
@@ -1913,6 +1969,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] Evento durável preserva a chave pelo horizonte de replay da fonte e,
   depois dele, é rejeitado por `source_occurred_at` autenticado em vez de ser
   tratado como solicitação nova.
+- [ ] Ativações por evento persistem o mesmo epoch/deadline imutável da fonte;
+  aumentar retenção não reabre ocorrência antiga.
 - [ ] Recuperação de startup atualiza auditoria e ledger para
   `outcome_unknown` na mesma transação.
 - [ ] Reutilizar `invocation_id` com request fingerprint diferente falha
@@ -1938,6 +1996,9 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] Ativação event-driven usa grants próprios de camada, com chave natural,
   geração monotônica, histórico de revogação e revalidação autoritativa por
   evento; não reutiliza nem amplia grants de delegação da AEP-0101.
+- [ ] Adapter de jobs exige `job_slug = Job.ID` e
+  `job_database_id = Job.DatabaseID`, confirma ambos por owner e permanece
+  desabilitado para fatos legados ambíguos.
 - [ ] Regras e layers builtin/user usam refs polimórficas consistentes no
   schema, grants, estado, ownership, importação e restore.
 - [ ] Identidade externa só acessa usuário local por mapeamento administrativo
@@ -1947,6 +2008,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] `effect_class` e mutabilidade vêm do contrato do handler; metadata
   divergente impede o registro.
 - [ ] CLI não executa comando que exija diálogo/decisão interativa.
+- [ ] Comando destrutivo só avança com receipt de decisão criada no backend,
+  vinculada à solicitação e consumida uma vez no CAS para `queued`.
 - [ ] `cli`, `event` e `system` não registram/executam comando destrutivo;
   qualquer origem sem presenter interativo falha fechado.
 - [ ] Em autenticação externa, adapters físicos permanecem indisponíveis até
