@@ -51,6 +51,17 @@ Cada lista tem seu próprio workflow com:
 
 Alterne entre modos via botão na toolbar.
 
+### Listas grandes
+
+A tela carrega até 100 tarefas principais por vez, preservando a ordem visual e
+as subtarefas de cada item. Quando houver mais tarefas, use **Carregar mais
+tarefas** no fim da lista ou do quadro. O indicador ao lado informa quantas
+tarefas principais já foram carregadas e o total disponível.
+
+Essa paginação evita que abrir ou atualizar um board grande bloqueie o
+aplicativo. Ela não remove nem reordena tarefas: páginas adicionais continuam
+exatamente do ponto anterior.
+
 ## Integração com IA
 
 O assistente pode gerenciar listas de tarefas via tool calling:

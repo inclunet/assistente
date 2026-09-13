@@ -256,6 +256,14 @@ var schemaMigrations = []migration{
 			return nil
 		},
 	},
+	{
+		Version: 17,
+		Name:    "hydration_tasklist_query_indexes",
+		Phase:   phasePostAutoMigrate,
+		Run: func(database *gorm.DB) error {
+			return deferIfErr(ensureHydrationAndTaskListIndexes(database))
+		},
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

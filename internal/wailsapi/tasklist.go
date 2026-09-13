@@ -266,6 +266,25 @@ func (api *Tasklist) GetTasksByTaskListID(taskListID string) ([]database.Task, e
 	})
 }
 
+// GetTaskListPage retorna metadados, workflow e uma página de tarefas raiz na
+// ordem visual. O endpoint legado GetTaskList permanece completo para
+// consumidores que dependem do contrato anterior.
+func (api *Tasklist) GetTaskListPage(taskListID, cursor string) (database.TaskPage, error) {
+	session, ctrl, err := api.deps()
+	if err != nil {
+		return database.TaskPage{}, err
+	}
+	return WithUser(session, func(ctx context.Context) (database.TaskPage, error) {
+		return ctrl.ListTasksPage(ctx, database.TaskPageQuery{
+			TaskListID: taskListID,
+			Limit:      database.DefaultTaskPageLimit,
+			Cursor:     cursor,
+			Sort:       database.TaskSortOrderAsc,
+			RootOnly:   true,
+		})
+	})
+}
+
 // GetTasksByStatus lista tarefas de um status na lista.
 func (api *Tasklist) GetTasksByStatus(taskListID string, statusID int) ([]database.Task, error) {
 	session, ctrl, err := api.deps()

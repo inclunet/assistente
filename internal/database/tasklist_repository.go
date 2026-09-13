@@ -113,6 +113,19 @@ func GetTaskListWithContext(ctx context.Context, id string) (*TaskList, error) {
 	return &taskList, err
 }
 
+// GetTaskListMetadataWithContext retorna apenas a lista e o workflow. É o
+// caminho para eventos e validações que não consomem Tasks; evita hidratar
+// milhares de linhas só para obter título, slug ou configuração.
+func GetTaskListMetadataWithContext(ctx context.Context, id string) (*TaskList, error) {
+	var taskList TaskList
+	err := WithSQLiteBusyRetry(ctx, "tasklist.get.metadata", func() error {
+		return ScopeByUser(ctx, db.WithContext(ctx), "user_id").
+			Preload("Workflow").
+			First(&taskList, "id = ?", id).Error
+	})
+	return &taskList, err
+}
+
 // GetAllTaskListsWithContext retorna todas as tasklists do usuário do
 // contexto, ordenadas por data de criação.
 func GetAllTaskListsWithContext(ctx context.Context) ([]TaskList, error) {
@@ -152,7 +165,7 @@ func SetTaskListViewModeWithContext(ctx context.Context, id string, viewMode str
 // workflow mas sem as tasks.
 func CloneTaskListWithContext(ctx context.Context, id string, newTitle string) (*TaskList, error) {
 	// Busca tasklist original
-	original, err := GetTaskListWithContext(ctx, id)
+	original, err := GetTaskListMetadataWithContext(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +324,7 @@ func UpdateWorkflowFullWithContext(
 	initialStatusID int,
 	statusMigration map[int]int,
 ) error {
-	if _, err := GetTaskListWithContext(ctx, taskListID); err != nil {
+	if _, err := GetTaskListMetadataWithContext(ctx, taskListID); err != nil {
 		return err
 	}
 	if len(statuses) == 0 {
@@ -600,7 +613,7 @@ func ValidateStatusTransitionWithContext(ctx context.Context, taskListID string,
 // CreateTaskWithContext cria uma nova task em uma tasklist do usuário do
 // contexto.
 func CreateTaskWithContext(ctx context.Context, taskListID string, title, description, code, link string, parentID *string) (*Task, error) {
-	if _, err := GetTaskListWithContext(ctx, taskListID); err != nil {
+	if _, err := GetTaskListMetadataWithContext(ctx, taskListID); err != nil {
 		return nil, err
 	}
 	if parentID != nil {
@@ -653,7 +666,7 @@ func CreateTaskWithContext(ctx context.Context, taskListID string, title, descri
 // CreateTaskFullWithContext cria uma nova task em uma tasklist do usuário do
 // contexto, com todos os campos, incluindo assignee e creator.
 func CreateTaskFullWithContext(ctx context.Context, taskListID string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *string) (*Task, error) {
-	if _, err := GetTaskListWithContext(ctx, taskListID); err != nil {
+	if _, err := GetTaskListMetadataWithContext(ctx, taskListID); err != nil {
 		return nil, err
 	}
 	if parentID != nil {
@@ -904,7 +917,7 @@ func UpdateTaskStatusWithContext(ctx context.Context, id string, newStatusID int
 // ReorderTasksWithContext reordena as tasks dentro de um status/parent
 // pertencente ao usuário do contexto.
 func ReorderTasksWithContext(ctx context.Context, taskListID string, statusID int, orderedIDs []string) error {
-	if _, err := GetTaskListWithContext(ctx, taskListID); err != nil {
+	if _, err := GetTaskListMetadataWithContext(ctx, taskListID); err != nil {
 		return err
 	}
 	for i, id := range orderedIDs {
@@ -961,7 +974,7 @@ func MoveTaskToListWithContext(ctx context.Context, taskID string, targetTaskLis
 	if err != nil {
 		return nil, fmt.Errorf("task %s não encontrada: %w", taskID, err)
 	}
-	if _, err := GetTaskListWithContext(ctx, targetTaskListID); err != nil {
+	if _, err := GetTaskListMetadataWithContext(ctx, targetTaskListID); err != nil {
 		return nil, err
 	}
 
@@ -1278,7 +1291,7 @@ func DeleteTaskNotesWithContext(ctx context.Context, taskID string) error {
 // GetTaskListStatsWithContext retorna estatísticas de uma tasklist do usuário
 // do contexto (total, por status).
 func GetTaskListStatsWithContext(ctx context.Context, taskListID string) (map[string]interface{}, error) {
-	if _, err := GetTaskListWithContext(ctx, taskListID); err != nil {
+	if _, err := GetTaskListMetadataWithContext(ctx, taskListID); err != nil {
 		return nil, err
 	}
 	var total int64
@@ -1311,7 +1324,7 @@ func GetTaskListStatsWithContext(ctx context.Context, taskListID string) (map[st
 // GetTaskListWithHierarchyWithContext retorna uma tasklist do usuário do
 // contexto com hierarquia completa de tasks.
 func GetTaskListWithHierarchyWithContext(ctx context.Context, id string) (*TaskList, error) {
-	taskList, err := GetTaskListWithContext(ctx, id)
+	taskList, err := GetTaskListMetadataWithContext(ctx, id)
 	if err != nil {
 		return nil, err
 	}
