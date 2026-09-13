@@ -54,8 +54,9 @@ JSON e não ofereciam retomada exata.
     a hidratação não apresenta corpo parcial como completo nem anuncia offsets
     ou IDs efêmeros inválidos. `Structured`/`RawExact` são serializados quando
     íntegros.
-12. `run_command` usa o budget efetivo do executor (inclusive o budget maior de
-    jobs). O histórico de terminal limita uma cópia, sem mutilar o objeto bruto
+12. `run_command`, `web_fetch` e `http_request` usam o budget efetivo do executor
+    quando o usuário não informa um limite (inclusive o budget maior de jobs).
+    O histórico de terminal limita uma cópia, sem mutilar o objeto bruto
     devolvido à tool.
 13. Itens do LRU pertencem ao usuário e, quando existente, à conversa que os
     criou. `read_tool_result` valida ambos e responde como não encontrado fora
