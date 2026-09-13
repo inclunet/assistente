@@ -877,13 +877,32 @@ primeira versão, `event_name` só aceita
 Webhook, plugin e outro produtor externo são rejeitados e ficam fora do escopo
 até uma AEP definir identidade de ingress e grants próprios.
 Criar/habilitar essa regra é mutação confirmável e persiste
-`authorization_decision_id` e `automation_grant_fingerprint` sobre usuário,
-layer/rule, workspace, fato e produtor permitidos, além de
-`automation_grant_generation` persistida e incrementada em toda
-revogação/reconcessão conforme a AEP-0101. O fingerprint inclui essa geração.
-Cada evento relê a autorização e exige geração/fingerprint exatos; divergência
-desabilita a regra. Essa ativação pré-autorizada ocorre somente pelo adapter D8,
-não executa `layer.activate`/`layer.toggle` como comando headless.
+um grant próprio desta AEP em `command_layer_automation_grants`. Esse grant
+não reutiliza os grants de delegação de jobs da AEP-0101. Sua chave natural é
+o escopo canônico `(user_id, workspace_id, layer_ref_kind, layer_ref,
+rule_ref_kind, rule_ref)`; índices parciais separados representam workspace
+global e local. A linha vincula `authorization_decision_id`, fingerprint
+imutável da regra, `event_name` e fingerprint dos produtores permitidos.
+
+Cada ciclo de concessão recebe `automation_grant_generation` monotônica dentro
+da chave natural. O fingerprint do grant cobre chave natural, fingerprint da
+regra, fato, produtores e geração. Só pode existir uma linha ativa por chave;
+criação e revogação serializam sob o `DispatchGate`, releem a maior geração e
+fazem CAS da linha ativa. Revogar preenche `revoked_at`, `revoked_by` e
+`revocation_reason`; reconceder insere nova linha com geração maior, preservando
+o histórico. Excluir ou desabilitar regra/layer, alterar condição, lifecycle,
+fato, produtor, owner ou workspace revoga o grant ativo. Importar, duplicar ou
+restaurar configuração nunca cria nem transporta grant; habilitar novamente
+exige nova decisão explícita.
+
+`command_layer_activation_rules` referencia o grant ativo por ID, geração e
+fingerprint. Cada evento relê, pela chave natural derivada no backend, tanto a
+regra quanto a linha ativa e exige que ID, geração e fingerprints coincidam;
+grant ausente, revogado, divergente ou concorrente desabilita a regra e falha
+fechado. Resposta pendente de `DecisionDialog` também carrega a geração
+observada e é rejeitada se ela mudou antes da persistência. Essa ativação
+pré-autorizada ocorre somente pelo adapter D8, não executa
+`layer.activate`/`layer.toggle` como comando headless.
 
 Sem usuário, regra, autenticação ou identidade válida — correlação, ou o par
 instância/evento quando a correlação for ausente — eventos internos não alteram
@@ -1129,7 +1148,16 @@ command_layers
 command_layer_activation_rules
   id, layer_id, mode, condition, lifecycle, event_name,
   allowed_internal_producer_types, authorization_decision_id,
-  automation_grant_generation, automation_grant_fingerprint, enabled
+  automation_grant_id, automation_grant_generation,
+  automation_grant_fingerprint, enabled
+
+command_layer_automation_grants
+  id, user_id, workspace_id nullable_for_global,
+  layer_ref_kind, layer_ref, rule_ref_kind, rule_ref,
+  rule_fingerprint, event_name, producer_types_fingerprint,
+  automation_grant_generation, automation_grant_fingerprint,
+  authorization_decision_id, granted_at, granted_by,
+  revoked_at nullable, revoked_by nullable, revocation_reason nullable
 
 command_bindings
   id, user_id, workspace_id nullable_for_global, layer_ref_kind, layer_ref,
@@ -1287,6 +1315,14 @@ camada daquele workspace. A consulta efetiva carrega somente camadas globais do
 usuário autenticado mais as do workspace atual. SQLite usa dois índices únicos
 parciais: `(user_id, name) WHERE workspace_id IS NULL` para globais e
 `(user_id, workspace_id, name) WHERE workspace_id IS NOT NULL` para workspaces.
+
+Os grants de automação também usam pares de índices parciais para a chave
+natural global/local. Outro par de índices únicos parciais, filtrado por
+`revoked_at IS NULL`, garante no máximo um grant ativo por chave. Um índice
+único adicional sobre chave natural mais `automation_grant_generation`
+preserva a monotonicidade auditável; a transação sob `DispatchGate` relê a
+maior geração antes do insert. `automation_grant_id` referencia exatamente a
+linha ativa e nunca é inferido apenas pelo fingerprint.
 Bindings herdam o escopo da camada, evitando misturar configurações.
 
 `command_config_generations` usa os mesmos dois índices únicos parciais de
@@ -1812,6 +1848,9 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] `context_policy = none` é rejeitado para qualquer comando não read-only.
 - [ ] Contextos local, JWT externo, job e system têm fontes de identidade e
   revogação explícitas; `EpochService` invalida trabalho obsoleto.
+- [ ] Ativação event-driven usa grants próprios de camada, com chave natural,
+  geração monotônica, histórico de revogação e revalidação autoritativa por
+  evento; não reutiliza nem amplia grants de delegação da AEP-0101.
 - [ ] Identidade externa só acessa usuário local por mapeamento administrativo
   exato de emissor e subject.
 - [ ] Cada comando declara origens permitidas e o serviço bloqueia origem não
