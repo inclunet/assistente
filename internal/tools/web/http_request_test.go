@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
 	"assistente/internal/credentials"
+	"assistente/internal/tools"
+	"assistente/internal/userctx"
 )
 
 // newTestHTTPRequest cria um HTTPRequest que permite hosts privados (para httptest)
@@ -72,8 +75,11 @@ func TestHTTPRequest_GET(t *testing.T) {
 		t.Errorf("expected success, got error: %s", result.Content)
 	}
 
-	if !strings.Contains(result.Content, "200 OK") {
-		t.Error("expected 200 OK in response")
+	if !json.Valid([]byte(result.Content)) || !result.Structured {
+		t.Errorf("expected canonical JSON response, got %q", result.Content)
+	}
+	if result.Metadata["status"] != http.StatusOK {
+		t.Errorf("expected status metadata 200, got %v", result.Metadata["status"])
 	}
 
 	if !strings.Contains(result.Content, "success") {
@@ -264,5 +270,223 @@ func TestHTTPRequest_ExtractJSON(t *testing.T) {
 	// Deve conter JSON formatado
 	if !strings.Contains(result.Content, "name") || !strings.Contains(result.Content, "test") {
 		t.Errorf("expected formatted JSON in response: %s", result.Content)
+	}
+}
+
+func TestHTTPRequestLargeJSONAndRawFailWithoutPartial(t *testing.T) {
+	jsonBody := `{"value":"` + strings.Repeat("x", 1000) + `"}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(jsonBody))
+	}))
+	defer ts.Close()
+
+	for _, tc := range []struct {
+		mode string
+		code string
+	}{
+		{mode: "json", code: "result_too_large"},
+		{mode: "text", code: "result_too_large"},
+		{mode: "raw", code: "raw_result_too_large"},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			args, _ := json.Marshal(map[string]any{
+				"url": ts.URL, "extract_mode": tc.mode, "max_response_size": 100,
+			})
+			result, err := newTestHTTPRequest().Execute(context.Background(), args)
+			if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != tc.code {
+				t.Fatalf("resultado grande não falhou corretamente: err=%v result=%+v", err, result)
+			}
+			if strings.Contains(result.Content, strings.Repeat("x", 100)) {
+				t.Fatal("falha contém prefixo parcial da resposta")
+			}
+			if result.Metadata["url"] != ts.URL || result.Metadata["status"] != http.StatusOK {
+				t.Fatalf("falha perdeu metadata HTTP: %+v", result.Metadata)
+			}
+		})
+	}
+}
+
+func TestHTTPRequestAutoRecognizesStructuredSuffixJSON(t *testing.T) {
+	body := `{"type":"problem","detail":"inválido"}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer ts.Close()
+	args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": "auto"})
+	result, err := newTestHTTPRequest().Execute(context.Background(), args)
+	if err != nil || result.IsError || !result.Structured || !json.Valid([]byte(result.Content)) {
+		t.Fatalf("+json não foi reconhecido como estruturado: err=%v result=%+v", err, result)
+	}
+}
+
+func TestHTTPRequestJSONFormattingPreservesLargeInteger(t *testing.T) {
+	const body = `{"id":900719925474099312345}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer ts.Close()
+	for _, mode := range []string{"json", "auto"} {
+		args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": mode})
+		result, err := newTestHTTPRequest().Execute(context.Background(), args)
+		if err != nil || result.IsError || !strings.Contains(result.Content, "900719925474099312345") {
+			t.Fatalf("%s arredondou número JSON: err=%v result=%+v", mode, err, result)
+		}
+	}
+}
+
+func TestHTTPRequestRawRejectsInvalidUTF8(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte{0xff, 0xfe})
+	}))
+	defer ts.Close()
+	args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": "raw"})
+	result, err := newTestHTTPRequest().Execute(context.Background(), args)
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "raw_invalid_utf8" {
+		t.Fatalf("raw não UTF-8 não falhou explicitamente: err=%v result=%+v", err, result)
+	}
+}
+
+func TestHTTPRequestStructuredJSONRejectsInvalidUTF8(t *testing.T) {
+	for _, mode := range []string{"json", "auto", "text"} {
+		t.Run(mode, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/problem+json")
+				_, _ = w.Write([]byte{'{', '"', 'x', '"', ':', '"', 0xff, '"', '}'})
+			}))
+			defer ts.Close()
+			args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": mode})
+			result, err := newTestHTTPRequest().Execute(context.Background(), args)
+			if err != nil || !result.IsError || result.Failure == nil ||
+				result.Failure.Code != "structured_invalid_utf8" || result.Structured {
+				t.Fatalf("JSON UTF-8 inválido não falhou: err=%v result=%+v", err, result)
+			}
+			if strings.Contains(result.Content, "�") {
+				t.Fatalf("falha contém JSON corrompido: %q", result.Content)
+			}
+		})
+	}
+}
+
+func TestHTTPRequestOversizedDownloadPreservesHTTPContext(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		chunk := strings.Repeat("x", 64*1024)
+		for written := 0; written <= httpMaxResponseBody; written += len(chunk) {
+			_, _ = w.Write([]byte(chunk))
+		}
+	}))
+	defer ts.Close()
+
+	args, _ := json.Marshal(map[string]any{"url": ts.URL, "method": http.MethodPost})
+	result, err := newTestHTTPRequest().Execute(context.Background(), args)
+	if err != nil || !result.IsError || result.Failure == nil ||
+		result.Failure.Code != "response_body_too_large" {
+		t.Fatalf("download grande não falhou corretamente: err=%v result=%+v", err, result)
+	}
+	if result.Metadata["url"] != ts.URL || result.Metadata["method"] != http.MethodPost ||
+		result.Metadata["status"] != http.StatusOK {
+		t.Fatalf("falha perdeu metadata HTTP: %+v", result.Metadata)
+	}
+	if result.Metadata["bytes_observed"] != httpMaxResponseBody+1 {
+		t.Fatalf("bytes observados incorretos: %+v", result.Metadata)
+	}
+	if _, misleading := result.Metadata["length"]; misleading {
+		t.Fatalf("comprimento desconhecido não deve ser apresentado como total: %+v", result.Metadata)
+	}
+	if result.Annotations == nil || result.Annotations.HTTPResponse == nil ||
+		result.Annotations.HTTPResponse.URL != ts.URL ||
+		result.Annotations.HTTPResponse.Method != http.MethodPost ||
+		result.Annotations.HTTPResponse.ContentType != "application/octet-stream" {
+		t.Fatalf("falha perdeu proveniência model-facing: %+v", result.Annotations)
+	}
+	if strings.Contains(result.Content, strings.Repeat("x", 100)) {
+		t.Fatal("falha contém prefixo parcial da resposta")
+	}
+}
+
+func TestHTTPRequestUsesExecutorBudgetWhenParameterIsOmitted(t *testing.T) {
+	payload := strings.Repeat("x", 60*1024)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer ts.Close()
+
+	args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": "text"})
+	ctx := tools.WithMaxResultSize(context.Background(), 100*1024)
+	result, err := newTestHTTPRequest().Execute(ctx, args)
+	if err != nil || result.IsError ||
+		(result.Annotations != nil && result.Annotations.OutputWindow != nil) ||
+		!strings.Contains(result.Content, payload) {
+		t.Fatalf("budget do executor não foi respeitado: err=%v result=%+v", err, result)
+	}
+}
+
+func TestHTTPRequestPreservesStatusModelFacingForExactAndPagedBodies(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		contentType string
+		body        string
+		status      int
+		mode        string
+		max         int
+	}{
+		{name: "json de erro", contentType: "application/problem+json", body: `{"detail":"ausente"}`, status: http.StatusNotFound, mode: "auto", max: 100},
+		{name: "raw pequeno", contentType: "text/plain", body: "exato", status: http.StatusOK, mode: "raw", max: 100},
+		{name: "texto paginado", contentType: "text/plain", body: strings.Repeat("x", 200), status: http.StatusOK, mode: "text", max: 50},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", tc.contentType)
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer ts.Close()
+			args, _ := json.Marshal(map[string]any{
+				"url": ts.URL, "extract_mode": tc.mode, "max_response_size": tc.max,
+			})
+			ctx := userctx.WithUserID(context.Background(), "http-test")
+			result, err := newTestHTTPRequest().Execute(ctx, args)
+			if err != nil || result.Annotations == nil || result.Annotations.HTTPResponse == nil {
+				t.Fatalf("sem anotação HTTP: err=%v result=%+v", err, result)
+			}
+			modelContent := tools.ContentForModel(result)
+			if !strings.Contains(modelContent, `"status":`+strconv.Itoa(tc.status)) {
+				t.Fatalf("status ausente do conteúdo model-facing: %q", modelContent)
+			}
+			if window := result.Annotations.OutputWindow; window != nil && window.HasMore {
+				nextArgs, _ := json.Marshal(map[string]any{
+					"result_id": window.ResultID, "offset": window.NextOffset, "limit": 50,
+				})
+				next, nextErr := tools.NewReadToolResult().Execute(ctx, nextArgs)
+				if nextErr != nil || next.IsError || next.Content == "" {
+					t.Fatalf("continuação HTTP indisponível: err=%v result=%+v", nextErr, next)
+				}
+				if next.Annotations == nil || next.Annotations.HTTPResponse == nil ||
+					next.Annotations.HTTPResponse.URL != ts.URL {
+					t.Fatalf("continuação perdeu proveniência HTTP: %+v", next.Annotations)
+				}
+			}
+		})
+	}
+}
+
+func TestHTTPRequestMaxSizeCountsExtractedPayloadNotHeader(t *testing.T) {
+	body := strings.Repeat("a", 100)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer ts.Close()
+	args, _ := json.Marshal(map[string]any{
+		"url": ts.URL, "extract_mode": "text", "max_response_size": len(body),
+	})
+	result, err := newTestHTTPRequest().Execute(context.Background(), args)
+	if err != nil || result.IsError || result.Annotations != nil || !strings.HasSuffix(result.Content, body) {
+		t.Fatalf("header consumiu max_response_size: err=%v result=%+v", err, result)
 	}
 }

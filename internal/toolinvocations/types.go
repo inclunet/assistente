@@ -66,6 +66,10 @@ type ExecuteRequest struct {
 	// Observação: a persistência em tool_invocations pode aplicar um limite
 	// separado para evitar crescimento excessivo da tabela.
 	ExecutionMaxResultSize int
+
+	// RequireCompleteResult impede prévias retomáveis para consumidores
+	// machine-facing que processam Result.Content diretamente (ex.: jobs).
+	RequireCompleteResult bool
 }
 
 type ExecuteResult struct {

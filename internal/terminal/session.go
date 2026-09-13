@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/KennethanCeyer/ptyx"
 	"github.com/google/uuid"
@@ -491,19 +492,30 @@ func (s *Session) addHistoryEntry(entry *HistoryEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Trunca output se necessário
-	if len(entry.Output) > maxOutputSize {
-		entry.Output = entry.Output[:maxOutputSize] + fmt.Sprintf(
-			"\n\n[TRUNCADO: output original tinha %d bytes]", len(entry.Output),
-		)
-	}
+	// O histórico recebe uma cópia limitada; o chamador conserva o output bruto
+	// para que a tool aplique seu contrato model-facing sem conteúdo já mutilado.
+	historyEntry := limitedHistoryEntry(entry)
 
-	s.history = append(s.history, *entry)
+	s.history = append(s.history, historyEntry)
 
 	// Mantém apenas as últimas N entradas
 	if len(s.history) > maxHistoryEntries {
 		s.history = s.history[len(s.history)-maxHistoryEntries:]
 	}
+}
+
+func limitedHistoryEntry(entry *HistoryEntry) HistoryEntry {
+	historyEntry := *entry
+	if len(historyEntry.Output) > maxOutputSize {
+		end := maxOutputSize
+		for end > 0 && !utf8.RuneStart(historyEntry.Output[end]) {
+			end--
+		}
+		historyEntry.Output = historyEntry.Output[:end] + fmt.Sprintf(
+			"\n\n[TRUNCADO: output original tinha %d bytes]", len(historyEntry.Output),
+		)
+	}
+	return historyEntry
 }
 
 // GetHistory retorna uma cópia do histórico de comandos.

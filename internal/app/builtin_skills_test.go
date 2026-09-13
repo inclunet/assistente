@@ -100,7 +100,7 @@ func TestBuiltinCodingSkillPrefersAtomicMultiHunkPatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse coding skill: %v", err)
 	}
-	if meta.Name != "coding" || meta.Version != "1.4.0" {
+	if meta.Name != "coding" || meta.Version != "1.5.0" {
 		t.Fatalf("coding skill inesperada: name=%q version=%q", meta.Name, meta.Version)
 	}
 	allowed := meta.GetToolsAllowed()
@@ -110,12 +110,16 @@ func TestBuiltinCodingSkillPrefersAtomicMultiHunkPatch(t *testing.T) {
 	if !slices.Contains(allowed, "update_plan") {
 		t.Fatalf("update_plan ausente da allowlist: %#v", allowed)
 	}
+	if !slices.Contains(allowed, "read_tool_result") {
+		t.Fatalf("read_tool_result ausente da allowlist: %#v", allowed)
+	}
 	for _, required := range []string{
 		"`apply_patch`",
 		"atomic",
 		"multiple surgical edits",
 		"`read_file` before `apply_patch`",
 		"`update_plan`",
+		"`read_tool_result`",
 		"complete ordered plan",
 		"at most one plan item `in_progress`",
 		"trivial one-step request",

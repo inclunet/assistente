@@ -1225,11 +1225,23 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 			ToolCatalogID:          strings.TrimSpace(req.ToolCatalogID),
 			DryRun:                 true,
 			ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
+			RequireCompleteResult:  true,
 		}).Execution
 		result = exec.Result
 		execErr = exec.Error
 	} else {
-		result, execErr = tool.Execute(ctx, argsJSON)
+		cfg := tools.DefaultExecutorConfig()
+		cfg.MaxResultSize = JobExecutionMaxResultSizeBytes
+		cfg.RequireCompleteResult = true
+		exec := tools.NewExecutor(m.cfg.ToolRegistry, cfg).ExecuteOne(ctx, tools.ToolCall{
+			ID:   fmt.Sprintf("tool_catalog_%d", time.Now().UnixNano()),
+			Type: "function",
+			Function: tools.FunctionCall{
+				Name: toolName, Arguments: string(argsJSON),
+			},
+		})
+		result = exec.Result
+		execErr = exec.Error
 	}
 	duration := time.Since(start)
 

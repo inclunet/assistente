@@ -44,7 +44,7 @@ func TestExecuteSingle_Success(t *testing.T) {
 		},
 	}
 	e := NewExecutor(newRegistry(tool), DefaultExecutorConfig())
-	res := e.ExecuteOne(context.Background(), ToolCall{
+	res := e.ExecuteOne(largeResultTestContext(), ToolCall{
 		ID:       "c1",
 		Function: FunctionCall{Name: "ok_tool", Arguments: `{}`},
 	})
@@ -314,7 +314,7 @@ func TestTruncateUTF8_LargeResult(t *testing.T) {
 	cfg.MaxResultSize = 1024 // 1KB para teste rápido
 	e := NewExecutor(newRegistry(tool), cfg)
 
-	res := e.ExecuteOne(context.Background(), ToolCall{
+	res := e.ExecuteOne(largeResultTestContext(), ToolCall{
 		ID:       "c1",
 		Function: FunctionCall{Name: "big", Arguments: `{}`},
 	})
@@ -328,8 +328,13 @@ func TestTruncateUTF8_LargeResult(t *testing.T) {
 	if res.Result.Metadata["truncated"] != true {
 		t.Fatal("expected metadata.truncated=true")
 	}
-	if !strings.Contains(res.Result.Content, "[TRUNCADO:") {
-		t.Fatal("expected truncation notice in content")
+	if strings.Contains(strings.ToUpper(res.Result.Content), "TRUNCAD") {
+		t.Fatal("truncation notice must not pollute content")
+	}
+	if res.Result.Annotations == nil || res.Result.Annotations.OutputWindow == nil ||
+		!res.Result.Annotations.OutputWindow.HasMore ||
+		res.Result.Annotations.OutputWindow.ResultID == "" {
+		t.Fatalf("expected resumable output annotation: %+v", res.Result.Annotations)
 	}
 }
 
@@ -370,6 +375,33 @@ func TestStructuredResultNotTruncated(t *testing.T) {
 	}
 	if res.Error == nil {
 		t.Error("esperado Error não-nil para oversize estruturado")
+	}
+}
+
+func TestProtectErroredToolResultMaterializesFallbackFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		result ToolResult
+	}{
+		{
+			name: "raw exato",
+			result: ToolResult{
+				Content: strings.Repeat("x", 4096), IsError: true, RawExact: true,
+			},
+		},
+		{
+			name: "texto sem armazenamento disponível",
+			result: ToolResult{
+				Content: strings.Repeat("x", 4096), IsError: true,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := protectErroredToolResult(context.Background(), tc.result, 1024, "test_tool", false)
+			if got.Failure == nil || got.Failure.Code != "tool_execution_error" {
+				t.Fatalf("fallback estruturado ausente: %+v", got)
+			}
+		})
 	}
 }
 

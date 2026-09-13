@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,6 +67,7 @@ type toolMsgRepo struct {
 	assistantErr       error
 	toolResultCount    int
 	lastToolResultCall string
+	lastToolResult     string
 }
 
 func (m *toolMsgRepo) GetMessage(_ context.Context, messageID string) (*chat.Message, error) {
@@ -79,9 +81,10 @@ func (m *toolMsgRepo) AddAssistantToolMessage(ctx context.Context, conversationI
 	return m.mockMsgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, content, toolCalls, reasoning, model)
 }
 
-func (m *toolMsgRepo) AddToolResultMessage(_ context.Context, _ string, _ string, _ string, toolCallID string) (*chat.Message, error) {
+func (m *toolMsgRepo) AddToolResultMessage(_ context.Context, _ string, _ string, content string, toolCallID string) (*chat.Message, error) {
 	m.toolResultCount++
 	m.lastToolResultCall = toolCallID
+	m.lastToolResult = content
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: "tool-1"}, Role: "tool", ToolCallID: toolCallID}, nil
 }
 
@@ -92,6 +95,15 @@ func (okTool) Description() string         { return "ok" }
 func (okTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
 func (okTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: "ok"}, nil
+}
+
+type largeTextTool struct{}
+
+func (largeTextTool) Name() string                { return "large_text_tool" }
+func (largeTextTool) Description() string         { return "large" }
+func (largeTextTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (largeTextTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
+	return tools.ToolResult{Content: strings.Repeat("resultado-", 2_000)}, nil
 }
 
 func setupAgenticToolCallDB(t *testing.T) (*gorm.DB, func()) {
@@ -257,6 +269,56 @@ func TestRunAgenticLoop_ToolCalls_FallbackRoleToolWhenInvocationPersistenceFails
 
 	if msgRepo.toolResultCount != 1 {
 		t.Fatalf("expected 1 fallback role=tool message, got=%d", msgRepo.toolResultCount)
+	}
+}
+
+func TestRunAgenticLoop_ToolCalls_FallbackPreservesLargeResultContract(t *testing.T) {
+	_, cleanup := setupAgenticToolCallDB(t)
+	t.Cleanup(cleanup)
+
+	ctx := database.WithUserID(context.Background(), "user-large-fallback")
+	conv, err := database.CreateConversationWithContext(ctx, "t", "")
+	if err != nil {
+		t.Fatalf("create conv: %v", err)
+	}
+	turn, err := database.AddMessageWithContext(ctx, conv.ID, "user", "hi")
+	if err != nil {
+		t.Fatalf("create turn msg: %v", err)
+	}
+
+	// Sem catálogo, a persistência técnica falha e força a mensagem role=tool.
+	repo := toolinvocations.NewDBRepository(database.DB())
+	reg := tools.NewRegistry()
+	reg.MustRegister(largeTextTool{})
+	cfg := tools.DefaultExecutorConfig()
+	cfg.MaxResultSize = 1024
+	exec := tools.NewExecutor(reg, cfg)
+	inv := toolinvocations.NewService(repo, exec)
+
+	msgRepo := &toolMsgRepo{conversationID: conv.ID}
+	svc := NewService(ServiceConfig{
+		Emitter: events.NoopEmitter{}, MsgRepo: msgRepo,
+		ToolExecutor: exec, ToolInvocations: inv,
+	})
+	streamer := &scriptedStreamer{call: llm.ToolCall{
+		ID: "call-large", Type: "function",
+		Function: llm.FunctionCall{Name: "large_text_tool", Arguments: `{}`},
+	}}
+	svc.RunAgenticLoop(ctx, []llm.Message{{Role: "user", Content: "hi"}},
+		llm.ChatParams{MaxAgenticIterations: 2}, conv.ID, turn.ID, nil, streamer, nil,
+		func(string, int) IterationHandler { return &testIterationHandler{} },
+		nil, false, 0)
+
+	if msgRepo.toolResultCount != 1 {
+		t.Fatalf("expected 1 fallback role=tool message, got=%d", msgRepo.toolResultCount)
+	}
+	if !strings.Contains(msgRepo.lastToolResult, "result_omitted_for_persistence") ||
+		strings.Contains(msgRepo.lastToolResult, `"result_id"`) ||
+		strings.Contains(msgRepo.lastToolResult, "resultado-resultado-") {
+		t.Fatalf("fallback persistiu prévia ou ID efêmero: %q", msgRepo.lastToolResult)
+	}
+	if len(msgRepo.lastToolResult) > cfg.MaxResultSize {
+		t.Fatalf("fallback persistiu resultado acima do limite: %d", len(msgRepo.lastToolResult))
 	}
 }
 

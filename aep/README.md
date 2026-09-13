@@ -5,8 +5,8 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 Este diretório é o **repositório único** de decisões arquiteturais do projeto
 (ver `CLAUDE.md`). Não criar outro diretório para AEPs — tudo fica em `aep/`.
 
-> **Inventário (2026-09-12):** este índice contém **101 documentos principais
-> para 100 números ocupados**. A diferença é a colisão histórica 0074, representada
+> **Inventário (2026-09-13):** este índice contém **102 documentos principais
+> para 101 números ocupados**. A diferença é a colisão histórica 0074, representada
 > temporariamente como 0074-A e 0074-B até sua renumeração. Séries multi-arquivo
 > têm o principal listado na tabela e os demais em
 > [Apêndices por AEP](#apêndices-por-aep). Convenção em
@@ -118,11 +118,12 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0099](0099-patch-canonico-multi-hunk.md) | Patch canônico multi-hunk | ✅ Done |
 | [0100](0100-progresso-unificado-por-conversa.md) | Progresso unificado por conversa | ✅ Done |
 | [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
-| [0102](0102-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 📝 Draft |
+| [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
+| [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 📝 Draft |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0102 → próximo
-> 0103), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0103 → próximo
+> 0104), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 
@@ -224,5 +225,5 @@ A renumeração de um deles exige alterar **referências em código fora de `aep
 que está fora do escopo da issue #263 (apenas governança/docs). A colisão fica
 **registrada aqui** e deve ser resolvida em uma issue/PR dedicada que também atualize
 as referências no código. Até lá, o índice usa os rótulos 0074-A e 0074-B e conta
-ambos como documentos principais: por isso há 101 documentos para 100 números
+ambos como documentos principais: por isso há 102 documentos para 101 números
 ocupados.

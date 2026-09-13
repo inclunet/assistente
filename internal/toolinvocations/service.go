@@ -284,50 +284,70 @@ func (s *Service) executorForRequest(req ExecuteRequest) *tools.Executor {
 	if s.executor == nil {
 		return nil
 	}
-	if req.ExecutionMaxResultSize <= 0 {
-		return s.executor
-	}
 	cfg := s.executor.Config()
-	if req.ExecutionMaxResultSize == cfg.MaxResultSize {
+	effectiveMax := req.ExecutionMaxResultSize
+	if effectiveMax <= 0 {
+		effectiveMax = cfg.MaxResultSize
+	}
+	if effectiveMax == cfg.MaxResultSize && req.RequireCompleteResult == cfg.RequireCompleteResult {
 		return s.executor
 	}
 	// Config por request: pode aumentar OU reduzir o budget.
-	cfg.MaxResultSize = req.ExecutionMaxResultSize
+	cfg.MaxResultSize = effectiveMax
+	cfg.RequireCompleteResult = req.RequireCompleteResult
 	return tools.NewExecutor(s.executor.Registry(), cfg)
 }
 
 func (s *Service) truncateForPersistence(result tools.ToolResult) tools.ToolResult {
 	max := s.persistMaxResultSize
+	if result.Annotations != nil && result.Annotations.OutputWindow != nil &&
+		result.Annotations.OutputWindow.ResultID != "" {
+		window := result.Annotations.OutputWindow
+		if window.HasMore {
+			size := window.OriginalBytes
+			if size <= 0 {
+				size = len(result.Content)
+			}
+			return persistenceOmissionResult(size)
+		}
+		// A última página é conteúdo completo por si só. Preserva-a, mas remove o
+		// identificador do LRU, que não é durável entre hidratações.
+		annotations := *result.Annotations
+		windowCopy := *window
+		windowCopy.ResultID = ""
+		annotations.OutputWindow = &windowCopy
+		result.Annotations = &annotations
+		if result.Metadata != nil {
+			metadata := make(map[string]any, len(result.Metadata))
+			for key, value := range result.Metadata {
+				if key != "result_id" {
+					metadata[key] = value
+				}
+			}
+			result.Metadata = metadata
+		}
+	}
 	if max <= 0 {
 		return result
 	}
 	if len(result.Content) <= max {
 		return result
 	}
+	// A cópia de auditoria nunca persiste prefixos: a hidratação reutiliza este
+	// payload no contexto e não poderia distinguir um corte de um resultado
+	// completo. Vale também para JSON legado ainda não marcado Structured.
+	return persistenceOmissionResult(len(result.Content))
+}
 
-	// Evita mutar o mapa original (ToolResult.Metadata é map por referência).
-	if result.Metadata != nil {
-		result.Metadata = cloneAnyMap(result.Metadata)
+func persistenceOmissionResult(originalBytes int) tools.ToolResult {
+	return tools.ToolResult{
+		Content: "[result_omitted_for_persistence] Resultado exato omitido da cópia de auditoria.",
+		IsError: true,
+		Metadata: map[string]any{
+			"omitted_for_persistence": true,
+			"original_size_bytes":     originalBytes,
+		},
 	}
-
-	// Truncamento UTF-8 safe: replica a semântica do executor.
-	origSize := len(result.Content)
-	warning := fmt.Sprintf(
-		"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
-		origSize, max,
-	)
-	contentBudget := max - len(warning)
-	if contentBudget >= 1 {
-		result.Content = truncateUTF8Safe(result.Content, contentBudget) + warning
-	} else {
-		result.Content = truncateUTF8Safe(result.Content, max)
-	}
-	if result.Metadata == nil {
-		result.Metadata = make(map[string]any)
-	}
-	result.Metadata["truncated_for_persistence"] = true
-	result.Metadata["original_size_bytes"] = origSize
-	return result
 }
 
 func (s *Service) truncateErrorForPersistence(message string) string {
@@ -344,14 +364,6 @@ func (s *Service) truncateErrorForPersistence(message string) string {
 		return truncateUTF8Safe(message, budget) + suffix
 	}
 	return truncateUTF8Safe(message, max)
-}
-
-func cloneAnyMap(src map[string]any) map[string]any {
-	out := make(map[string]any, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
-	return out
 }
 
 func truncateUTF8Safe(s string, maxBytes int) string {
@@ -926,47 +938,33 @@ func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage 
 	}
 
 	// Primeiro fallback: dropa metadata, que pode explodir o payload.
-	trimmed.Metadata = nil
+	trimmed.Metadata = map[string]any{"omitted_for_persistence": true}
 	data = resultOutput(trimmed)
 	if len(data) <= max {
 		return data
 	}
 
-	// Fallback final: reduz content até caber no JSON (UTF-8 safe).
-	origSize := len(data)
-	warning := fmt.Sprintf(
-		"\n\n[TRUNCADO: payload serializado tinha %d bytes, limite é %d bytes]",
-		origSize,
-		max,
-	)
-	content := trimmed.Content
-	// Começa com um budget razoável; ajusta iterativamente com base no marshal.
-	budget := max
-	for attempt := 0; attempt < 4; attempt++ {
-		candidate := truncateUTF8Safe(content, budget)
-		trimmed.Content = candidate + warning
-		data = resultOutput(trimmed)
-		if len(data) <= max {
+	// Se metadata/anotações fizeram o payload exceder o teto, não remova o
+	// contrato e apresente o corpo como completo: persista omissão explícita.
+	return minimalPersistenceOutput(max)
+}
+
+func minimalPersistenceOutput(max int) json.RawMessage {
+	candidates := []map[string]any{{
+		"content":  "Output omitido da cópia de auditoria por exceder o limite de persistência.",
+		"is_error": true,
+		"metadata": map[string]any{"omitted_for_persistence": true},
+	}, {
+		"content":  "[result_omitted_for_persistence]",
+		"is_error": true,
+	}}
+	for _, candidate := range candidates {
+		data, _ := json.Marshal(candidate)
+		if max <= 0 || len(data) <= max {
 			return data
 		}
-		over := len(data) - max
-		budget -= over + 64
-		if budget < 1 {
-			break
-		}
 	}
-
-	// Último recurso: JSON mínimo válido.
-	isErr := result.IsError
-	minimal, _ := json.Marshal(map[string]any{
-		"content":  "[TRUNCADO: output excedeu limite de persistência]",
-		"is_error": isErr,
-	})
-	if len(minimal) > 0 {
-		return minimal
-	}
-	if isErr {
-		return json.RawMessage(`{"content":"[TRUNCADO]","is_error":true}`)
-	}
-	return json.RawMessage(`{"content":"[TRUNCADO]","is_error":false}`)
+	// Um valor JSON escalar de um byte cabe em qualquer teto positivo e não se
+	// confunde com ToolResult vazio. O hidratador o reconhece como omissão.
+	return json.RawMessage(persistenceOmissionSentinel)
 }
