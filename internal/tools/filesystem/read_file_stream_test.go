@@ -13,12 +13,34 @@ import (
 	"assistente/internal/docextract"
 )
 
-func TestSkipStreamLineHonorsCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := skipStreamLine(ctx, bufio.NewReader(strings.NewReader(strings.Repeat("x", streamBufferBytes*2))))
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelamento não propagado: %v", err)
+func TestStreamLineReadersHonorCancellation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		read func(context.Context, *bufio.Reader) error
+	}{
+		{
+			name: "skip",
+			read: func(ctx context.Context, reader *bufio.Reader) error {
+				_, err := skipStreamLine(ctx, reader)
+				return err
+			},
+		},
+		{
+			name: "selected",
+			read: func(ctx context.Context, reader *bufio.Reader) error {
+				_, _, err := readStreamLine(ctx, reader)
+				return err
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			err := tc.read(ctx, bufio.NewReader(strings.NewReader(strings.Repeat("x", streamBufferBytes*2))))
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancelamento não propagado: %v", err)
+			}
+		})
 	}
 }
 
