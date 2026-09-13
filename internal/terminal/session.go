@@ -92,6 +92,8 @@ type Session struct {
 	id         string
 	name       string
 	ptySession ptyx.Session
+	ptyReader  io.Reader
+	ptyWriter  io.Writer
 	state      SessionState
 	shell      string
 	cwd        string
@@ -192,11 +194,18 @@ func newSession(name, workDir, shell string, onOutput outputCallback, onRawOutpu
 		cancel()
 		return nil, fmt.Errorf("falha ao criar sessão PTY (%s): %w", shell, err)
 	}
+	// ptyx fecha e zera os campos internos do ConPTY em uma goroutine quando o
+	// processo termina. Capture os handles enquanto Spawn ainda os expõe, para
+	// que o readLoop e os writes não concorram com esse fechamento interno.
+	ptyReader := ptySession.PtyReader()
+	ptyWriter := ptySession.PtyWriter()
 
 	s := &Session{
 		id:             uuid.NewString(),
 		name:           name,
 		ptySession:     ptySession,
+		ptyReader:      ptyReader,
+		ptyWriter:      ptyWriter,
 		state:          StateIdle,
 		shell:          shell,
 		cwd:            workDir,
@@ -220,7 +229,22 @@ func newSession(name, workDir, shell string, onOutput outputCallback, onRawOutpu
 // Start inicia a leitura somente depois que o Manager registrou a sessão.
 func (s *Session) Start() {
 	s.ensureLifecycleChannels()
+	s.ensurePTYIO()
 	go s.readLoop(s.readerCtx)
+}
+
+func (s *Session) ensurePTYIO() {
+	s.ioMu.Lock()
+	defer s.ioMu.Unlock()
+	if s.ptySession == nil {
+		return
+	}
+	if s.ptyReader == nil {
+		s.ptyReader = s.ptySession.PtyReader()
+	}
+	if s.ptyWriter == nil {
+		s.ptyWriter = s.ptySession.PtyWriter()
+	}
 }
 
 // readLoop lê continuamente do PTY e acumula no buffer.
@@ -229,7 +253,7 @@ func (s *Session) readLoop(ctx context.Context) {
 	defer s.signalReaderDone()
 
 	buf := make([]byte, 4096)
-	reader := s.ptySession.PtyReader()
+	reader := s.ptyReader
 
 	for {
 		select {
@@ -435,7 +459,11 @@ func (s *Session) RunCommand(ctx context.Context, command string, timeout time.D
 		s.ioMu.Unlock()
 		return nil, fmt.Errorf("sessão %s foi encerrada antes do início do comando", s.id)
 	}
-	nWritten, err := s.ptySession.PtyWriter().Write([]byte(wrappedCmd + enter))
+	if s.ptyWriter == nil {
+		s.ioMu.Unlock()
+		return nil, fmt.Errorf("sessão %s não possui writer PTY", s.id)
+	}
+	nWritten, err := s.ptyWriter.Write([]byte(wrappedCmd + enter))
 	s.ioMu.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("falha ao enviar comando para sessão %s: %w", s.id, err)
@@ -705,7 +733,11 @@ func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
 		s.ioMu.Unlock()
 		return nil, fmt.Errorf("sessão %s foi encerrada antes do envio do input", s.id)
 	}
-	_, err := s.ptySession.PtyWriter().Write([]byte(input + enter))
+	if s.ptyWriter == nil {
+		s.ioMu.Unlock()
+		return nil, fmt.Errorf("sessão %s não possui writer PTY", s.id)
+	}
+	_, err := s.ptyWriter.Write([]byte(input + enter))
 	s.ioMu.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("falha ao enviar input para sessão %s: %w", s.id, err)
@@ -728,7 +760,10 @@ func (s *Session) Interrupt() error {
 	}
 	s.mu.Unlock()
 
-	_, err := s.ptySession.PtyWriter().Write([]byte{0x03}) // Ctrl+C = ETX
+	if s.ptyWriter == nil {
+		return fmt.Errorf("sessão %s não possui writer PTY", s.id)
+	}
+	_, err := s.ptyWriter.Write([]byte{0x03}) // Ctrl+C = ETX
 	if err != nil {
 		return fmt.Errorf("falha ao enviar Ctrl+C para sessão %s: %w", s.id, err)
 	}
