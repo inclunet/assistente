@@ -115,7 +115,10 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const lastBoardProgressAnnouncementRef = useRef('');
   const isMountedRef = useRef(false);
   const activeTaskListIdRef = useRef(taskListId);
+  const isPanelActiveRef = useRef(isActive);
+  const boardLoadObserverGenerationRef = useRef(0);
   activeTaskListIdRef.current = taskListId;
+  isPanelActiveRef.current = isActive;
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -124,9 +127,11 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     };
   }, []);
 
-  const handleLoadBoardPages = useCallback(async () => {
+  const handleLoadBoardPages = useCallback(async (observerGeneration: number) => {
     const shouldAnnounce = () => (
       isMountedRef.current &&
+      isPanelActiveRef.current &&
+      boardLoadObserverGenerationRef.current === observerGeneration &&
       activeTaskListIdRef.current === taskListId &&
       useTaskListStore.getState().taskLists.get(taskListId)?.preferredViewMode === 'kanban'
     );
@@ -146,15 +151,27 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     }
   }, [loadAllTasksForBoard, taskListId, announce, t]);
 
+  const requestBoardBackgroundLoad = useCallback(() => {
+    const observerGeneration = ++boardLoadObserverGenerationRef.current;
+    void handleLoadBoardPages(observerGeneration);
+    return observerGeneration;
+  }, [handleLoadBoardPages]);
+
   useEffect(() => {
-    if (currentViewMode !== 'kanban' || !hasTaskPage) return;
+    if (!isActive || currentViewMode !== 'kanban' || !hasTaskPage) return;
     const page = useTaskListStore.getState().taskPages.get(taskListId);
     if (!page?.hasMore) return;
-    void handleLoadBoardPages();
-  }, [currentViewMode, hasTaskPage, taskListId, handleLoadBoardPages]);
+    const observerGeneration = requestBoardBackgroundLoad();
+    return () => {
+      if (boardLoadObserverGenerationRef.current === observerGeneration) {
+        boardLoadObserverGenerationRef.current += 1;
+      }
+    };
+  }, [isActive, currentViewMode, hasTaskPage, taskListId, requestBoardBackgroundLoad]);
 
   useEffect(() => {
     if (
+      !isActive ||
       currentViewMode !== 'kanban' ||
       !isLoadingTaskPage ||
       !taskPage ||
@@ -172,7 +189,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
       }),
       'polite',
     );
-  }, [currentViewMode, isLoadingTaskPage, taskPage, tasks.length, taskListId, announce, t]);
+  }, [isActive, currentViewMode, isLoadingTaskPage, taskPage, tasks.length, taskListId, announce, t]);
 
   const handleOpenCreateTask = useCallback(() => {
     tasksRef.current?.openCreateModal();
@@ -545,7 +562,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               loading={isLoadingTaskPage}
               onClick={() => void (
                 currentViewMode === 'kanban' && taskPageLoadError
-                  ? handleLoadBoardPages()
+                  ? requestBoardBackgroundLoad()
                   : handleLoadMore()
               )}
             >
