@@ -30,9 +30,9 @@ const (
 	DefaultRateLimitRPM = 60
 
 	// DefaultRateLimitBurst é a rajada instantânea permitida. Precisa ser
-	// >= MaxAgenticIterations (default 25) para não interromper um único loop
+	// >= MaxAgenticIterations (default 100) para não interromper um único loop
 	// agêntico legítimo que dispare várias iterações em sequência rápida.
-	DefaultRateLimitBurst = 30
+	DefaultRateLimitBurst = 100
 
 	// DefaultNearLimitThreshold é a fração da rajada (burst) de tokens
 	// restantes abaixo da qual um alerta de "próximo do limite" é emitido.
