@@ -7,6 +7,7 @@ import TaskListView from './TaskListView';
 
 const openCreateModalMock = vi.fn();
 const registerWorkspaceChatAdapterMock = vi.hoisted(() => vi.fn());
+const announceMock = vi.hoisted(() => vi.fn());
 const chatModalState = vi.hoisted(() => ({
   isOpen: false,
   boundTabId: null as string | null,
@@ -25,7 +26,11 @@ const workspacePanelState = vi.hoisted(() => ({
 
 const taskListStoreState = vi.hoisted(() => ({
   taskLists: new Map<string, unknown>(),
+  taskPages: new Map<string, { nextCursor: string; hasMore: boolean; totalCount: number }>(),
+  loadingByTaskListId: new Map<string, boolean>(),
   loadTaskList: vi.fn(),
+  loadMoreTasks: vi.fn(),
+  loadAllTasksForBoard: vi.fn(),
   setViewMode: vi.fn(),
   cloneTaskList: vi.fn(),
   clearTaskList: vi.fn(),
@@ -59,9 +64,11 @@ vi.mock('../../store/workspaceStore', () => ({
 }));
 
 vi.mock('../../store/taskListStore', () => ({
-  useTaskListStore: (selector?: (state: typeof taskListStoreState) => unknown) => (
+  useTaskListStore: Object.assign((selector?: (state: typeof taskListStoreState) => unknown) => (
     typeof selector === 'function' ? selector(taskListStoreState) : taskListStoreState
-  ),
+  ), {
+    getState: () => taskListStoreState,
+  }),
 }));
 
 vi.mock('../../store/workspaceChatModalStore', () => {
@@ -79,7 +86,7 @@ vi.mock('../../store/uiStore', () => ({
 }));
 
 vi.mock('../../hooks/useAnnouncer', () => ({
-  useAnnouncer: () => ({ announce: vi.fn() }),
+  useAnnouncer: () => ({ announce: announceMock }),
 }));
 
 vi.mock('../../hooks/useConfirm', () => ({
@@ -142,7 +149,13 @@ describe('TaskListView', () => {
     chatModalState.boundConversationId = null;
     openCreateModalMock.mockReset();
     registerWorkspaceChatAdapterMock.mockReset();
+    announceMock.mockReset();
     taskListStoreState.loadTaskList.mockReset();
+    taskListStoreState.loadMoreTasks.mockReset();
+    taskListStoreState.loadAllTasksForBoard.mockReset();
+    taskListStoreState.loadAllTasksForBoard.mockResolvedValue(205);
+    taskListStoreState.taskPages = new Map();
+    taskListStoreState.loadingByTaskListId = new Map();
     taskListStoreState.listBoardCustomActions.mockReset();
     taskListStoreState.listBoardCustomActions.mockResolvedValue([]);
     taskListStoreState.setTaskListConversation.mockReset();
@@ -181,6 +194,44 @@ describe('TaskListView', () => {
     expect(surfaceContext.surfaceType).toBe('tasklist');
     expect(surfaceContext.surfaceId).toBe('tasklist-tab');
     expect(surfaceContext.snapshotVersion).toMatch(/^tasklist:tasklist-tab:/);
+  });
+
+  it('carrega automaticamente todas as páginas ao abrir o Kanban', async () => {
+    taskListStoreState.taskLists = new Map([
+      ['tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Board grande',
+        preferredViewMode: 'kanban',
+        tasks: Array.from({ length: 100 }, (_, index) => ({
+          id: `task-${index + 1}`,
+          taskListId: 'tasklist-1',
+          title: `Card ${index + 1}`,
+          statusId: 1,
+          order: index,
+        })),
+        workflow: {
+          id: 'workflow-1',
+          taskListId: 'tasklist-1',
+          statuses: [{ id: 1, order: 0, label: 'A fazer' }],
+          allowedTransitions: {},
+          initialStatusId: 1,
+        },
+      }],
+    ]);
+    taskListStoreState.taskPages = new Map([
+      ['tasklist-1', { nextCursor: 'cursor-100', hasMore: true, totalCount: 205 }],
+    ]);
+
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    await waitFor(() => {
+      expect(taskListStoreState.loadAllTasksForBoard).toHaveBeenCalledTimes(1);
+      expect(taskListStoreState.loadAllTasksForBoard).toHaveBeenCalledWith('tasklist-1');
+    });
+    expect(announceMock).toHaveBeenCalledWith('Carregando todos os cards do quadro');
+    await waitFor(() => {
+      expect(announceMock).toHaveBeenCalledWith('Quadro completo com {{count}} cards');
+    });
   });
 
   it('responde a atalhos globais quando o painel está ativo', async () => {

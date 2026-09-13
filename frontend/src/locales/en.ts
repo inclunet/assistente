@@ -4043,6 +4043,8 @@ const en = {
         loadMoreFailed: 'Error loading more tasks.',
         progress: '{{loaded}} of {{total}} tasks loaded',
         loaded: '{{count}} tasks loaded',
+        loadingBoard: 'Loading all cards on the board',
+        boardLoaded: 'Board complete with {{count}} cards',
       },
       taskTitle: 'Task Title',
       status: 'Status',

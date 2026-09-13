@@ -50,7 +50,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const taskList = useTaskListStore((s) => s.taskLists.get(taskListId));
   const taskPage = useTaskListStore((s) => s.taskPages?.get(taskListId));
   const isLoadingTasks = useTaskListStore((s) => s.loadingByTaskListId?.has(taskListId) ?? false);
-  const { loadTaskList, loadMoreTasks, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
+  const { loadTaskList, loadMoreTasks, loadAllTasksForBoard, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
   const { runCustomAction } = useCustomActions();
 
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
@@ -110,6 +110,31 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const tasks = useMemo(() => taskList?.tasks || [], [taskList?.tasks]);
   const currentViewMode: ViewMode = taskList?.preferredViewMode || 'list';
   const hasTasks = tasks.length > 0;
+  const hasTaskPage = taskPage !== undefined;
+
+  useEffect(() => {
+    if (currentViewMode !== 'kanban' || !hasTaskPage) return;
+    const page = useTaskListStore.getState().taskPages.get(taskListId);
+    if (!page?.hasMore) return;
+
+    let active = true;
+    announce(t('tasklist.pagination.loadingBoard', 'Carregando todos os cards do quadro'));
+    void loadAllTasksForBoard(taskListId)
+      .then((loaded) => {
+        if (active) {
+          announce(t('tasklist.pagination.boardLoaded', 'Quadro completo com {{count}} cards', { count: loaded }));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          addToast(t('tasklist.pagination.loadMoreFailed', 'Erro ao carregar mais tarefas'), 'error');
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [currentViewMode, hasTaskPage, taskListId, loadAllTasksForBoard, announce, t, addToast]);
 
   const handleOpenCreateTask = useCallback(() => {
     tasksRef.current?.openCreateModal();

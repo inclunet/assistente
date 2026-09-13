@@ -287,6 +287,26 @@ describe('KanbanBoard', () => {
     expect(desc?.textContent).toContain('1 de 2');
   });
 
+  it('mantém cards posteriores à primeira página acessíveis nas colunas', async () => {
+    const tasks = Array.from({ length: 205 }, (_, index) => ({
+      id: String(index + 1),
+      taskListId: '1',
+      title: `Card ${index + 1}`,
+      description: '',
+      statusId: (index % 3) + 1,
+      order: index,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    }));
+
+    await renderBoard(tasks);
+
+    const lastCard = screen.getByRole('gridcell', { name: 'Card 205' });
+    expect(lastCard).toBeInTheDocument();
+    const descriptionId = lastCard.getAttribute('aria-describedby');
+    expect(document.getElementById(String(descriptionId))?.textContent).toContain('69 de 69');
+  });
+
   // ── Data de criação (issue #151) ──────────────────────────
 
   it('card aria-describedby inclui a data de criação ao final, no formato do chat', async () => {

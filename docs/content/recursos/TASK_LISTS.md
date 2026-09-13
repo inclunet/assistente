@@ -54,13 +54,15 @@ Alterne entre modos via botão na toolbar.
 ### Listas grandes
 
 A tela carrega até 100 tarefas principais por vez, preservando a ordem visual e
-as subtarefas de cada item. Quando houver mais tarefas, use **Carregar mais
-tarefas** no fim da lista ou do quadro. O indicador ao lado informa quantas
-tarefas principais já foram carregadas e o total disponível.
+as subtarefas de cada item. Na visualização em lista, use **Carregar mais
+tarefas** para buscar a página seguinte. No Kanban, as páginas restantes são
+carregadas automaticamente, em sequência, até que todas as colunas estejam
+completas. O progresso fica visível durante o carregamento, e leitores de tela
+recebem anúncios no início e na conclusão.
 
-Essa paginação evita que abrir ou atualizar um board grande bloqueie o
-aplicativo. Ela não remove nem reordena tarefas: páginas adicionais continuam
-exatamente do ponto anterior.
+Essa paginação evita que abrir ou atualizar um quadro grande dispare todas as
+consultas ao mesmo tempo. Ela não remove nem reordena tarefas: cada página
+continua exatamente do cursor anterior.
 
 ## Integração com IA
 
