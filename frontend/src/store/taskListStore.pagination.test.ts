@@ -237,4 +237,68 @@ describe('taskListStore pagination', () => {
     expect(useTaskListStore.getState().taskLists.get('list-a')?.tasks.map((task) => task.id))
       .toEqual(['task-a', 'task-b', 'task-c']);
   });
+
+  it('carrega board com mais de 100 cards até a última página sem tempestade de requests', async () => {
+    const cards = Array.from({ length: 205 }, (_, index) => ({
+      ...backendTask(`task-${index + 1}`, index),
+      status_id: (index % 3) + 1,
+    }));
+    cards[204] = {
+      ...cards[204],
+      subtasks: [{ ...backendTask('subtask-205-a', 0), parent_id: 'task-205' }],
+    } as never;
+
+    getTaskListPage
+      .mockResolvedValueOnce({
+        task_list: {
+          ...backendList(),
+          preferred_view_mode: 'kanban',
+        },
+        tasks: cards.slice(0, 100),
+        next_cursor: 'cursor-100',
+        has_more: true,
+        total_count: 205,
+      })
+      .mockResolvedValueOnce({
+        task_list: backendList(),
+        tasks: cards.slice(100, 200),
+        next_cursor: 'cursor-200',
+        has_more: true,
+        total_count: 205,
+      })
+      .mockResolvedValueOnce({
+        task_list: backendList(),
+        tasks: cards.slice(200),
+        next_cursor: '',
+        has_more: false,
+        total_count: 205,
+      });
+
+    await useTaskListStore.getState().loadTaskList('list-a');
+    const [firstLoad, deduplicatedLoad] = await Promise.all([
+      useTaskListStore.getState().loadAllTasksForBoard('list-a'),
+      useTaskListStore.getState().loadAllTasksForBoard('list-a'),
+    ]);
+
+    expect(firstLoad).toBe(205);
+    expect(deduplicatedLoad).toBe(205);
+    expect(getTaskListPage).toHaveBeenCalledTimes(3);
+    expect(getTaskListPage.mock.calls).toEqual([
+      ['list-a', ''],
+      ['list-a', 'cursor-100'],
+      ['list-a', 'cursor-200'],
+    ]);
+    const loaded = useTaskListStore.getState().taskLists.get('list-a')?.tasks ?? [];
+    expect(loaded).toHaveLength(205);
+    expect(loaded[204]).toEqual(expect.objectContaining({
+      id: 'task-205',
+      statusId: 1,
+      subtasks: [expect.objectContaining({ id: 'subtask-205-a', parentId: 'task-205' })],
+    }));
+    expect(useTaskListStore.getState().taskPages.get('list-a')).toEqual({
+      nextCursor: '',
+      hasMore: false,
+      totalCount: 205,
+    });
+  });
 });

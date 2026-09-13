@@ -558,9 +558,13 @@ Locales: `frontend/src/locales/{pt-BR,en,es}.ts`
 ### **Performance Considerations**
 
 - **Paginação da UI (issue #739)**: a abertura carrega até 100 raízes por
-  página, em `order, id`, com cursor keyset opaco e contagem separada. A ação
-  acessível **Carregar mais tarefas** preserva completude e ordem sem mudar os
-  contratos legados de leitura completa usados por exportação e automações.
+  página, em `order, id`, com cursor keyset opaco e contagem separada. A lista
+  oferece a ação acessível **Carregar mais tarefas**. O Kanban consome
+  automaticamente as páginas restantes, uma por vez e com deduplicação por
+  lista, porque distribuir somente a primeira página entre colunas produziria
+  um quadro semanticamente incompleto. Início e conclusão desse carregamento
+  são anunciados. Os contratos legados de leitura completa usados por
+  exportação e automações não mudam.
 - **Índice da ordem visual**: `(task_list_id, parent_id, "order", id)` cobre
   filtro, paginação e desempate; `EXPLAIN QUERY PLAN` é verificado por teste.
 - **Subtarefas**: cada página de raízes hidrata suas subtarefas em lote,
