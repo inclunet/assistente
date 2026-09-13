@@ -1936,6 +1936,17 @@ func (m *Manager) performHealthCheckFor(parentCtx context.Context, slug string, 
 		err = m.refreshServerOfferingsWithContextFor(ctx, slug, conn)
 	}
 
+	m.recordHealthCheckResult(parentCtx, slug, conn, err)
+}
+
+// recordHealthCheckResult aplica somente resultados de uma sessão ainda ativa.
+// Erros devolvidos depois do cancelamento do próprio lifecycle não representam
+// falha de saúde e não podem alimentar o contador ou a reconexão.
+func (m *Manager) recordHealthCheckResult(parentCtx context.Context, slug string, conn *serverConnection, err error) {
+	if healthCheckEndedDuringCleanup(parentCtx, err) {
+		return
+	}
+
 	now := time.Now()
 	m.mu.Lock()
 	// A sessão pode ter sido desconectada ou substituída enquanto Ping estava
@@ -1975,6 +1986,10 @@ func (m *Manager) performHealthCheckFor(parentCtx context.Context, slug string, 
 		})
 		m.logEvent(slug, "health_fail", "Health check MCP falhou", map[string]any{"error": err.Error()})
 	}
+}
+
+func healthCheckEndedDuringCleanup(parentCtx context.Context, err error) bool {
+	return err != nil && parentCtx != nil && parentCtx.Err() != nil
 }
 
 // handleToolCallError é chamado pelo MCPToolBridge quando um tool call falha
