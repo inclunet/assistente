@@ -144,7 +144,7 @@ func readTextSliceStreamingForward(
 				extra++
 			}
 			if !raw {
-				extra += 7 // largura mínima do prefixo "%6d|"
+				extra += len(fmt.Sprintf("%6d|", idx+1))
 			}
 			if collectedBytes+extra > budget {
 				collectionTooLarge = true
@@ -254,9 +254,6 @@ func readRawSliceStreamingForward(
 	offsetArg *int,
 	limit, budget int,
 ) (tools.ToolResult, bool) {
-	if limit > readModelMaxLines {
-		return rawReadTooManyLines(limit, readModelMaxLines), true
-	}
 	offset := 0
 	if offsetArg != nil && *offsetArg > 0 {
 		offset = *offsetArg - 1
@@ -268,7 +265,7 @@ func readRawSliceStreamingForward(
 	defer func() { _ = f.Close() }()
 
 	reader := bufio.NewReaderSize(f, streamBufferBytes)
-	selected := make([]string, 0, limit)
+	selected := make([]string, 0, min(limit, readModelMaxLines))
 	selectedBytes := 0
 	totalRead := 0
 	for idx := 0; ; idx++ {
@@ -281,6 +278,9 @@ func readRawSliceStreamingForward(
 		}
 		totalRead = idx + 1
 		if idx >= offset {
+			if len(selected) >= readModelMaxLines {
+				return rawReadTooManyLines(len(selected)+1, readModelMaxLines), true
+			}
 			if strings.IndexByte(line, 0) >= 0 || !utf8.ValidString(line) {
 				return rawReadInvalidUTF8(), true
 			}
@@ -296,6 +296,9 @@ func readRawSliceStreamingForward(
 			if len(selected) == limit {
 				exact := strings.Join(selected, "\n")
 				if !atEOF {
+					if selectedBytes+1 > budget {
+						return rawReadLimitExceeded(budget), true
+					}
 					exact += "\n"
 				}
 				meta := map[string]any{

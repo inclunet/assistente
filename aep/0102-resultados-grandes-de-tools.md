@@ -76,15 +76,17 @@ JSON e não ofereciam retomada exata.
     prefixo nunca é apresentado como resultado integral e, ao terminar a página
     preservada, o cursor original continua disponível.
 17. Modos `raw`, inclusive `read_file`, só anunciam exatidão para bytes UTF-8
-    válidos; caso contrário falham com `raw_invalid_utf8`. Formatação JSON usa
-    números sem conversão por `float64`, preservando inteiros grandes.
+    válidos; caso contrário falham com `raw_invalid_utf8`. JSON estruturado
+    também exige UTF-8 válido, e sua formatação usa números sem conversão por
+    `float64`, preservando inteiros grandes.
 18. O LRU preserva também a proveniência model-facing do resultado; cada página
     de `read_tool_result` repete, por exemplo, o contexto HTTP sem alterar os
     bytes do corpo.
 19. Budget zero nunca desativa a barreira. `read_tool_result` exige presença
     explícita de `offset`, inclusive quando o valor é zero. Validações de
     exatidão raw consideram somente o trecho solicitado; com `limit` positivo,
-    o streaming encerra assim que esse recorte e seu separador forem conhecidos.
+    o streaming encerra assim que esse recorte e seu separador forem conhecidos,
+    e aplica o teto de linhas à quantidade efetivamente encontrada.
 
 ## Fases
 

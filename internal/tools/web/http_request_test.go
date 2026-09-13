@@ -349,6 +349,27 @@ func TestHTTPRequestRawRejectsInvalidUTF8(t *testing.T) {
 	}
 }
 
+func TestHTTPRequestStructuredJSONRejectsInvalidUTF8(t *testing.T) {
+	for _, mode := range []string{"json", "auto"} {
+		t.Run(mode, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/problem+json")
+				_, _ = w.Write([]byte{'{', '"', 'x', '"', ':', '"', 0xff, '"', '}'})
+			}))
+			defer ts.Close()
+			args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": mode})
+			result, err := newTestHTTPRequest().Execute(context.Background(), args)
+			if err != nil || !result.IsError || result.Failure == nil ||
+				result.Failure.Code != "structured_invalid_utf8" || result.Structured {
+				t.Fatalf("JSON UTF-8 inválido não falhou: err=%v result=%+v", err, result)
+			}
+			if strings.Contains(result.Content, "�") {
+				t.Fatalf("falha contém JSON corrompido: %q", result.Content)
+			}
+		})
+	}
+}
+
 func TestHTTPRequestOversizedDownloadPreservesHTTPContext(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")

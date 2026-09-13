@@ -181,6 +181,47 @@ func TestReadFileRawForwardIgnoresNULBeforeRequestedRange(t *testing.T) {
 	}
 }
 
+func TestReadFileRawStreamingUsesEffectiveLineCount(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "poucas-linhas-no-fim.txt")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(strings.Repeat("x", streamTextMinBytes) + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("um\ndois\ntres"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	offset, limit := 2, 5_000
+	result, handled := readTextSliceStreamingForward(
+		context.Background(), path, "poucas-linhas-no-fim.txt", streamTextMinBytes,
+		&offset, &limit, true, readModelMaxBytes,
+	)
+	if !handled || result.IsError || result.Content != "um\ndois\ntres" {
+		t.Fatalf("limit nominal rejeitou trecho efetivo pequeno: handled=%v result=%+v", handled, result)
+	}
+}
+
+func TestReadFileRawStreamingCountsTrailingSeparatorInBudget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "separador.txt")
+	if err := os.WriteFile(path, []byte("abc\nseguinte"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	offset, limit := 1, 1
+	result, handled := readTextSliceStreamingForward(
+		context.Background(), path, "separador.txt", streamTextMinBytes,
+		&offset, &limit, true, len("abc"),
+	)
+	if !handled || !result.IsError || result.Failure == nil ||
+		result.Failure.Code != "raw_result_too_large" {
+		t.Fatalf("separador escapou do budget: handled=%v result=%+v", handled, result)
+	}
+}
+
 func TestReadFileStreamRejectsInvalidUTF8InNormalSelectedRange(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "utf8-invalido.log")

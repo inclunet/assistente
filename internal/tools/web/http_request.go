@@ -282,6 +282,23 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 			Failure: &tools.ToolFailure{Code: "raw_invalid_utf8", Kind: tools.ErrorKindUnknown, Retryable: false},
 		}, nil
 	}
+	expectsStructured := extractMode == "json" ||
+		(extractMode == "auto" && isJSONMediaType(contentType))
+	if expectsStructured && !utf8.Valid(body) {
+		return tools.ToolResult{
+			Content: "Resposta JSON não é UTF-8 válida e não pode ser preservada integralmente.",
+			IsError: true,
+			Metadata: map[string]any{
+				"url": a.URL, "method": method, "status": resp.StatusCode,
+				"content_type": contentType, "length": len(body),
+			},
+			Annotations: &tools.ResultAnnotations{HTTPResponse: &tools.HTTPResponseAnnotation{
+				Method: method, URL: a.URL, Status: resp.StatusCode,
+				StatusText: http.StatusText(resp.StatusCode), ContentType: contentType,
+			}},
+			Failure: &tools.ToolFailure{Code: "structured_invalid_utf8", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
 	responseContent := string(body)
 
 	// Processa resposta baseado no extract_mode

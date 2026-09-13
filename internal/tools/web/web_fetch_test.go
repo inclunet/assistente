@@ -300,6 +300,23 @@ func TestWebFetchRawRejectsInvalidUTF8(t *testing.T) {
 	}
 }
 
+func TestWebFetchStructuredJSONRejectsInvalidUTF8(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		_, _ = w.Write([]byte{'{', '"', 'x', '"', ':', '"', 0xff, '"', '}'})
+	}))
+	defer server.Close()
+	args, _ := json.Marshal(map[string]string{"url": server.URL})
+	result, err := newTestWebFetch().Execute(context.Background(), args)
+	if err != nil || !result.IsError || result.Failure == nil ||
+		result.Failure.Code != "structured_invalid_utf8" || result.Structured {
+		t.Fatalf("JSON UTF-8 inválido não falhou explicitamente: err=%v result=%+v", err, result)
+	}
+	if strings.Contains(result.Content, "�") {
+		t.Fatalf("falha contém JSON corrompido: %q", result.Content)
+	}
+}
+
 func TestWebFetchOversizedDownloadPreservesHTTPContext(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
