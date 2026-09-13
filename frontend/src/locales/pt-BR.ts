@@ -4043,6 +4043,8 @@ const ptBR = {
         loadMoreFailed: 'Erro ao carregar mais tarefas.',
         progress: '{{loaded}} de {{total}} tarefas carregadas',
         loaded: '{{count}} tarefas carregadas',
+        loadingBoard: 'Carregando todos os cards do quadro',
+        boardLoaded: 'Quadro completo com {{count}} cards',
       },
       taskTitle: 'Título da Tarefa',
       status: 'Status',

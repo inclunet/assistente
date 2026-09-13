@@ -196,6 +196,7 @@ interface TaskListStoreState {
   // TaskList management
   loadTaskList: (taskListId: string) => Promise<TaskListWithWorkflow | null>;
   loadMoreTasks: (taskListId: string) => Promise<void>;
+  loadAllTasksForBoard: (taskListId: string) => Promise<number>;
   createTaskList: (title: string, description?: string) => Promise<TaskListWithWorkflow | null>;
   updateTaskList: (taskListId: string, title: string, description?: string) => Promise<void>;
   deleteTaskList: (taskListId: string) => Promise<void>;
@@ -254,6 +255,7 @@ interface TaskListStoreState {
 }
 
 const taskPageOperationTails = new Map<string, Promise<void>>();
+const activeBoardLoads = new Map<string, Promise<number>>();
 
 async function serializeTaskPageOperation<T>(taskListId: string, operation: () => Promise<T>): Promise<T> {
   const previous = taskPageOperationTails.get(taskListId) ?? Promise.resolve();
@@ -478,6 +480,37 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         get().setTaskListLoading(taskListId, false);
       }
     }),
+
+    loadAllTasksForBoard: async (taskListId: string) => {
+      const active = activeBoardLoads.get(taskListId);
+      if (active) return active;
+
+      const load = (async () => {
+        const visitedCursors = new Set<string>();
+        while (true) {
+          const page = get().taskPages.get(taskListId);
+          if (!page?.hasMore || !page.nextCursor) {
+            return get().taskLists.get(taskListId)?.tasks.length ?? 0;
+          }
+          if (visitedCursors.has(page.nextCursor)) {
+            throw new Error(`cursor de paginação repetido para tasklist ${taskListId}`);
+          }
+          visitedCursors.add(page.nextCursor);
+          // Uma página por vez: mantém pressão previsível sobre backend/SQLite e
+          // reaproveita a serialização usada por recargas e pelo botão manual.
+          await get().loadMoreTasks(taskListId);
+        }
+      })();
+
+      activeBoardLoads.set(taskListId, load);
+      try {
+        return await load;
+      } finally {
+        if (activeBoardLoads.get(taskListId) === load) {
+          activeBoardLoads.delete(taskListId);
+        }
+      }
+    },
 
     createTaskList: async (title: string, description?: string) => {
       try {

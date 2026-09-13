@@ -4043,6 +4043,8 @@ const es = {
         loadMoreFailed: 'Error al cargar más tareas.',
         progress: '{{loaded}} de {{total}} tareas cargadas',
         loaded: '{{count}} tareas cargadas',
+        loadingBoard: 'Cargando todas las tarjetas del tablero',
+        boardLoaded: 'Tablero completo con {{count}} tarjetas',
       },
       taskTitle: 'Título de la tarea',
       status: 'Estado',
