@@ -30,6 +30,8 @@ export function GetTaskCountsByStatus(arg1:string):Promise<Record<number, number
 
 export function GetTaskList(arg1:string):Promise<database.TaskList>;
 
+export function GetTaskListPage(arg1:string,arg2:string):Promise<database.TaskPage>;
+
 export function GetTaskListStats(arg1:string):Promise<Record<string, any>>;
 
 export function GetTaskListWithHierarchy(arg1:string):Promise<database.TaskList>;

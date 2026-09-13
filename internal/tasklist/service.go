@@ -26,6 +26,10 @@ type Service struct {
 	domain  DomainEventSink
 }
 
+type taskListMetadataReader interface {
+	GetTaskListMetadata(ctx context.Context, id string) (*database.TaskList, error)
+}
+
 // NewService cria um Service com as dependências fornecidas.
 func NewService(cfg ServiceConfig) *Service {
 	return &Service{store: cfg.Store, emitter: cfg.Emitter, domain: cfg.DomainEvents}
@@ -35,6 +39,14 @@ func NewService(cfg ServiceConfig) *Service {
 // Usado pela wiring da app, onde o jobs.Manager só existe após o Service.
 func (s *Service) SetDomainEventSink(sink DomainEventSink) {
 	s.domain = sink
+}
+
+func (s *Service) getTaskListMetadata(ctx context.Context, id string) (*database.TaskList, error) {
+	if reader, ok := s.store.(taskListMetadataReader); ok {
+		return reader.GetTaskListMetadata(ctx, id)
+	}
+	// Compatibilidade com stores externos e fakes anteriores ao read model.
+	return s.store.GetTaskList(ctx, id)
 }
 
 // ── Task List ──────────────────────────────────────────────────────────────────
@@ -75,7 +87,7 @@ func (s *Service) UpdateTaskList(ctx context.Context, id string, title, descript
 	if err := s.store.UpdateTaskList(ctx, id, title, description); err != nil {
 		return err
 	}
-	tl, _ := s.store.GetTaskList(ctx, id)
+	tl, _ := s.getTaskListMetadata(ctx, id)
 	s.emitter.Emit("taskList:updated", tl)
 	if s.wantsDomain("tasklist.list.updated") {
 		s.publishDomain(ctx, "tasklist.list.updated", s.listEventPayload(ctx, tl, id))
@@ -87,7 +99,7 @@ func (s *Service) UpdateTaskListFull(ctx context.Context, id string, title, desc
 	if err := s.store.UpdateTaskListFull(ctx, id, title, description, preferredViewMode, slug); err != nil {
 		return err
 	}
-	tl, _ := s.store.GetTaskList(ctx, id)
+	tl, _ := s.getTaskListMetadata(ctx, id)
 	// Emite taskList:updated (como os demais updates de lista): o frontend escuta
 	// esse evento para recarregar/invalidar cache; sem ele, updates via tool/job
 	// deixariam a UI com dados stale até um refresh manual.
@@ -107,7 +119,7 @@ func (s *Service) SetTaskListConversation(ctx context.Context, id string, conver
 	if err := s.store.SetTaskListConversation(ctx, id, conversationID); err != nil {
 		return err
 	}
-	tl, _ := s.store.GetTaskList(ctx, id)
+	tl, _ := s.getTaskListMetadata(ctx, id)
 	if tl != nil {
 		s.emitter.Emit("taskList:updated", tl)
 	} else {
@@ -138,7 +150,7 @@ func (s *Service) SetTaskListCustomActions(ctx context.Context, taskListID strin
 	if err := s.store.SetTaskListCustomActions(ctx, taskListID, actionsJSON); err != nil {
 		return err
 	}
-	tl, _ := s.store.GetTaskList(ctx, taskListID)
+	tl, _ := s.getTaskListMetadata(ctx, taskListID)
 	if tl != nil {
 		s.emitter.Emit("taskList:updated", tl)
 	} else {
@@ -154,7 +166,7 @@ func (s *Service) SetTaskListViewMode(ctx context.Context, id string, viewMode s
 	if err := s.store.SetTaskListViewMode(ctx, id, viewMode); err != nil {
 		return err
 	}
-	tl, _ := s.store.GetTaskList(ctx, id)
+	tl, _ := s.getTaskListMetadata(ctx, id)
 	s.emitter.Emit("taskList:updated", tl)
 	if s.wantsDomain("tasklist.list.updated") {
 		s.publishDomain(ctx, "tasklist.list.updated", s.listEventPayload(ctx, tl, id))
@@ -247,11 +259,14 @@ func (s *Service) UpdateWorkflowFull(ctx context.Context, taskListID string, sta
 	if err := s.store.UpdateWorkflowFull(ctx, taskListID, statuses, transitions, initialStatusID, statusMigration); err != nil {
 		return err
 	}
-	tl, _ := s.store.GetTaskList(ctx, taskListID)
+	tl, _ := s.getTaskListMetadata(ctx, taskListID)
 	if tl != nil && tl.Workflow != nil {
 		s.emitter.Emit("workflow:updated", tl.Workflow)
 	}
-	s.emitter.Emit("taskList:updated", tl)
+	// A migração pode alterar o status de muitas tarefas sem emitir um evento
+	// task:updated por linha. O ID instrui o frontend a recarregar a janela
+	// paginada já visível, evitando manter cards com status obsoleto.
+	s.emitter.Emit("taskList:updated", taskListID)
 	if s.wantsDomain("tasklist.workflow.updated") {
 		var wf *database.TaskListWorkflow
 		if tl != nil {

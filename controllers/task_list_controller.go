@@ -116,6 +116,10 @@ func (c *TaskListController) GetTasksByStatus(ctx context.Context, taskListID st
 	return c.taskSvc.GetTasksByStatus(ctx, taskListID, statusID)
 }
 
+func (c *TaskListController) ListTasksPage(ctx context.Context, query database.TaskPageQuery) (database.TaskPage, error) {
+	return c.taskSvc.ListTasksPage(ctx, query)
+}
+
 func (c *TaskListController) UpdateTask(ctx context.Context, id string, title, description, code, link string) error {
 	return c.taskSvc.UpdateTask(ctx, id, title, description, code, link)
 }

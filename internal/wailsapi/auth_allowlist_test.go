@@ -550,6 +550,7 @@ func TestTasklistMethodsNotOnUnauthAllowlist(t *testing.T) {
 		"CreateTask",
 		"GetTask",
 		"GetTasksByTaskListID",
+		"GetTaskListPage",
 		"GetTasksByStatus",
 		"UpdateTask",
 		"UpdateTaskFull",

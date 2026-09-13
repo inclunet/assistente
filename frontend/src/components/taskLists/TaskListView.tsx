@@ -14,6 +14,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
+import { Button } from '../ui/Button';
 import { openTaskLink } from '../../lib/deepLinks';
 import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
@@ -47,7 +48,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
   const taskList = useTaskListStore((s) => s.taskLists.get(taskListId));
-  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
+  const taskPage = useTaskListStore((s) => s.taskPages?.get(taskListId));
+  const isLoadingTasks = useTaskListStore((s) => s.loadingByTaskListId?.has(taskListId) ?? false);
+  const { loadTaskList, loadMoreTasks, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
   const { runCustomAction } = useCustomActions();
 
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
@@ -111,6 +114,16 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const handleOpenCreateTask = useCallback(() => {
     tasksRef.current?.openCreateModal();
   }, []);
+
+  const handleLoadMore = useCallback(async () => {
+    try {
+      await loadMoreTasks(taskListId);
+      const loaded = useTaskListStore.getState().taskLists.get(taskListId)?.tasks.length ?? 0;
+      announce(t('tasklist.pagination.loaded', '{{count}} tarefas carregadas', { count: loaded }));
+    } catch {
+      addToast(t('tasklist.pagination.loadMoreFailed', 'Erro ao carregar mais tarefas'), 'error');
+    }
+  }, [loadMoreTasks, taskListId, announce, t, addToast]);
 
   const handleToggleViewMode = useCallback(async () => {
     const newMode: ViewMode = currentViewMode === 'list' ? 'kanban' : 'list';
@@ -460,6 +473,24 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
             onTaskUpdated={() => {}}
             onTaskDeleted={() => {}}
           />
+        )}
+        {taskPage?.hasMore && (
+          <div className="tasklist-pagination">
+            <Button
+              type="button"
+              variant="secondary"
+              loading={isLoadingTasks}
+              onClick={() => void handleLoadMore()}
+            >
+              {t('tasklist.pagination.loadMore', 'Carregar mais tarefas')}
+            </Button>
+            <span>
+              {t('tasklist.pagination.progress', '{{loaded}} de {{total}} tarefas carregadas', {
+                loaded: tasks.length,
+                total: taskPage.totalCount,
+              })}
+            </span>
+          </div>
         )}
       </div>
 

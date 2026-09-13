@@ -59,6 +59,37 @@ func (r *recordingEmitter) has(name string) bool {
 	return false
 }
 
+type payloadRecordingEmitter struct {
+	payloads map[string][]any
+}
+
+func (r *payloadRecordingEmitter) Emit(name string, payload any) {
+	if r.payloads == nil {
+		r.payloads = make(map[string][]any)
+	}
+	r.payloads[name] = append(r.payloads[name], payload)
+}
+
+type workflowUpdateStore struct {
+	TaskListRepository
+	taskList *database.TaskList
+}
+
+func (s *workflowUpdateStore) UpdateWorkflowFull(
+	context.Context,
+	string,
+	[]database.TaskListWorkflowStatus,
+	database.TaskListWorkflowTransitions,
+	int,
+	map[int]int,
+) error {
+	return nil
+}
+
+func (s *workflowUpdateStore) GetTaskList(context.Context, string) (*database.TaskList, error) {
+	return s.taskList, nil
+}
+
 // fakeStore embute a interface (métodos não sobrescritos retornam panic se chamados,
 // o que mantém os testes focados nos caminhos exercidos).
 type fakeStore struct {
@@ -333,6 +364,36 @@ func TestUpdateTaskListFullEmitsTaskListUpdated(t *testing.T) {
 	}
 	if !emitter.has("taskList:updated") {
 		t.Fatalf("taskList:updated não emitido; emitidos: %v", emitter.events)
+	}
+}
+
+func TestUpdateWorkflowFullEmitsReloadIDAfterStatusMigration(t *testing.T) {
+	const taskListID = "L-1"
+	store := &workflowUpdateStore{taskList: &database.TaskList{
+		UUIDModel: database.UUIDModel{ID: taskListID},
+		Workflow:  &database.TaskListWorkflow{TaskListID: taskListID},
+	}}
+	emitter := &payloadRecordingEmitter{}
+	svc := NewService(ServiceConfig{
+		Store:        store,
+		Emitter:      emitter,
+		DomainEvents: &fakeSink{listening: map[string]bool{}},
+	})
+
+	if err := svc.UpdateWorkflowFull(
+		context.Background(),
+		taskListID,
+		nil,
+		nil,
+		1,
+		map[int]int{2: 1},
+	); err != nil {
+		t.Fatalf("UpdateWorkflowFull: %v", err)
+	}
+
+	payloads := emitter.payloads["taskList:updated"]
+	if len(payloads) != 1 || payloads[0] != taskListID {
+		t.Fatalf("payload taskList:updated = %#v, want [%q]", payloads, taskListID)
 	}
 }
 

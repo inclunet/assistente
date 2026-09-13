@@ -122,9 +122,16 @@ Isso cobre tanto dry-run de jobs quanto teste manual de uma tool no `tool_catalo
 Índices:
 
 - `(user_id, origin_type, origin_id)`
+- `(user_id, origin_type, origin_id, queued_at, id)` para hidratação ordenada
+  em lote dos turnos de chat (issue #739)
 - `(user_id, tool_catalog_id, started_at)`
 - `(user_id, status, queued_at)`
 - `(user_id, dry_run, queued_at)`
+
+O lote de hidratação continua em até 400 `origin_id`s, abaixo do limite de
+variáveis do SQLite. Medição por `EXPLAIN QUERY PLAN` mostrou que reduzir
+mecanicamente para 20 apenas multiplicaria round trips; o índice acima elimina
+o scan amplo preservando uma consulta por lote e a ordem `queued_at, id`.
 
 ## Fluxo sem diagrama
 
@@ -246,6 +253,8 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 - [x] Testes cobrem sucesso, falha, timeout, dry-run, chat e `job_run`.
 
 Evidências: `internal/toolinvocations/{repository,service}_test.go`,
+`internal/toolinvocations/hydration_test.go`,
+`internal/database/query_performance_indexes_test.go`,
 `internal/agent/service_tool_calls_persistence_test.go`,
 `internal/jobs/executor_toolinvocations_test.go`,
 `manager_toolinvocations_test.go` e `internal/wailsapi/jobs_dryrun_test.go`.

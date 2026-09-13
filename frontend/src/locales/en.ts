@@ -4038,6 +4038,12 @@ const en = {
       noLists: 'No task lists created',
       createFirst: 'Create First List',
       loading: 'Loading...',
+      pagination: {
+        loadMore: 'Load more tasks',
+        loadMoreFailed: 'Error loading more tasks.',
+        progress: '{{loaded}} of {{total}} tasks loaded',
+        loaded: '{{count}} tasks loaded',
+      },
       taskTitle: 'Task Title',
       status: 'Status',
       dueDate: 'Due Date',
