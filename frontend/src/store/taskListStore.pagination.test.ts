@@ -107,4 +107,46 @@ describe('taskListStore pagination', () => {
     expect(cached?.title).toBe('Título atualizado');
     expect(cached?.tasks.map((task) => task.id)).toEqual(['task-a']);
   });
+
+  it('recarrega todas as páginas que já estavam visíveis', async () => {
+    getTaskListPage
+      .mockResolvedValueOnce({
+        task_list: backendList(),
+        tasks: [backendTask('task-a', 0), backendTask('task-b', 1)],
+        next_cursor: 'cursor-2',
+        has_more: true,
+        total_count: 3,
+      })
+      .mockResolvedValueOnce({
+        task_list: backendList(),
+        tasks: [backendTask('task-c', 2)],
+        next_cursor: '',
+        has_more: false,
+        total_count: 3,
+      })
+      .mockResolvedValueOnce({
+        task_list: { ...backendList(), title: 'Lista atualizada' },
+        tasks: [backendTask('task-a', 0), backendTask('task-b', 1)],
+        next_cursor: 'cursor-2-refresh',
+        has_more: true,
+        total_count: 3,
+      })
+      .mockResolvedValueOnce({
+        task_list: backendList(),
+        tasks: [backendTask('task-c', 2)],
+        next_cursor: '',
+        has_more: false,
+        total_count: 3,
+      });
+
+    await useTaskListStore.getState().loadTaskList('list-a');
+    await useTaskListStore.getState().loadMoreTasks('list-a');
+    await useTaskListStore.getState().loadTaskList('list-a');
+
+    expect(getTaskListPage).toHaveBeenNthCalledWith(3, 'list-a', '');
+    expect(getTaskListPage).toHaveBeenNthCalledWith(4, 'list-a', 'cursor-2-refresh');
+    const refreshed = useTaskListStore.getState().taskLists.get('list-a');
+    expect(refreshed?.title).toBe('Lista atualizada');
+    expect(refreshed?.tasks.map((task) => task.id)).toEqual(['task-a', 'task-b', 'task-c']);
+  });
 });

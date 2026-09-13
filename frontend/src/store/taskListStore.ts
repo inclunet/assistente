@@ -375,21 +375,39 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     loadTaskList: async (taskListId: string) => {
       get().setTaskListLoading(taskListId, true);
       try {
-        const rawPage = await GetTaskListPage(taskListId, '');
-        const page = rawPage as unknown as Record<string, unknown>;
+        const previouslyLoaded = get().taskLists.get(taskListId)?.tasks.length ?? 0;
+        let rawPage = await GetTaskListPage(taskListId, '');
+        let page = rawPage as unknown as Record<string, unknown>;
         const taskList = taskPageField(page, 'taskList', 'task_list') as TaskListWithWorkflow | undefined;
         if (taskList) {
           const rawTasks = taskPageField(page, 'tasks', 'tasks');
+          const tasks = Array.isArray(rawTasks) ? [...rawTasks] : [];
+          let nextCursor = String(taskPageField(page, 'nextCursor', 'next_cursor') ?? '');
+          let hasMore = Boolean(taskPageField(page, 'hasMore', 'has_more'));
+          const visitedCursors = new Set<string>();
+
+          // Recarregamentos disparados por eventos preservam a janela que o usuário
+          // já abriu. Buscar só a primeira página faria tarefas visíveis sumirem.
+          while (hasMore && nextCursor && tasks.length < previouslyLoaded && !visitedCursors.has(nextCursor)) {
+            visitedCursors.add(nextCursor);
+            rawPage = await GetTaskListPage(taskListId, nextCursor);
+            page = rawPage as unknown as Record<string, unknown>;
+            const nextTasks = taskPageField(page, 'tasks', 'tasks');
+            if (Array.isArray(nextTasks)) tasks.push(...nextTasks);
+            nextCursor = String(taskPageField(page, 'nextCursor', 'next_cursor') ?? '');
+            hasMore = Boolean(taskPageField(page, 'hasMore', 'has_more'));
+          }
+
           const combined = {
             ...taskList,
-            tasks: Array.isArray(rawTasks) ? rawTasks : [],
+            tasks,
           } as TaskListWithWorkflow;
           get().cacheTaskList(combined);
           set((state) => {
             const taskPages = new Map(state.taskPages);
             taskPages.set(taskListId, {
-              nextCursor: String(taskPageField(page, 'nextCursor', 'next_cursor') ?? ''),
-              hasMore: Boolean(taskPageField(page, 'hasMore', 'has_more')),
+              nextCursor,
+              hasMore,
               totalCount: Number(taskPageField(page, 'totalCount', 'total_count') ?? combined.tasks.length),
             });
             return { taskPages };
