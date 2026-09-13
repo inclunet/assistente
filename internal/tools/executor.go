@@ -256,8 +256,8 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				if incompleteMachineResult {
 					message = "Resultado machine-facing está incompleto. " + guidance
 				}
-				result = ToolResult{
-					Content:     boundedFailureContent(message, code, e.config.MaxResultSize),
+				result = boundFailureResult(ToolResult{
+					Content:     message,
 					IsError:     true,
 					Metadata:    metadataForFailure(result.Metadata),
 					Annotations: annotationsForFailure(result.Annotations),
@@ -266,7 +266,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 						Kind:      ErrorKindUnknown,
 						Retryable: false,
 					},
-				}
+				}, e.config.MaxResultSize)
 				if incompleteMachineResult {
 					execErr = fmt.Errorf("saída machine-facing incompleta de '%s'", toolName)
 				} else {
@@ -286,13 +286,13 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 						"Resultado tem %d bytes model-facing e excede a capacidade segura de preservação. Reduza o escopo da chamada.",
 						modelBytes,
 					)
-					result = ToolResult{
-						Content:     boundedFailureContent(message, "result_storage_limit", e.config.MaxResultSize),
+					result = boundFailureResult(ToolResult{
+						Content:     message,
 						IsError:     true,
 						Metadata:    metadataForFailure(result.Metadata),
 						Annotations: annotationsForFailure(result.Annotations),
 						Failure:     &ToolFailure{Code: "result_storage_limit", Kind: ErrorKindUnknown, Retryable: false},
-					}
+					}, e.config.MaxResultSize)
 					execErr = fmt.Errorf("saída de '%s' excede armazenamento seguro: %d bytes model-facing", toolName, modelBytes)
 					execKind = ErrorKindUnknown
 				} else {
@@ -383,12 +383,83 @@ func annotationsForFailure(annotations *ResultAnnotations) *ResultAnnotations {
 	if annotations == nil {
 		return nil
 	}
-	cloned := *annotations
-	cloned.OutputWindow = nil
+	cloned := &ResultAnnotations{}
+	if projection := annotations.DocumentProjection; projection != nil {
+		projectionCopy := *projection
+		projectionCopy.Source = truncateUTF8(projectionCopy.Source, failureAnnotationStringLimit)
+		projectionCopy.Format = truncateUTF8(projectionCopy.Format, failureAnnotationStringLimit)
+		if len(projectionCopy.Warnings) > failureAnnotationWarningsLimit {
+			projectionCopy.Warnings = projectionCopy.Warnings[:failureAnnotationWarningsLimit]
+		}
+		projectionCopy.Warnings = append([]string(nil), projectionCopy.Warnings...)
+		for index := range projectionCopy.Warnings {
+			projectionCopy.Warnings[index] = truncateUTF8(
+				projectionCopy.Warnings[index], failureAnnotationStringLimit,
+			)
+		}
+		cloned.DocumentProjection = &projectionCopy
+	}
+	if response := annotations.HTTPResponse; response != nil {
+		responseCopy := *response
+		responseCopy.Method = truncateUTF8(responseCopy.Method, failureAnnotationStringLimit)
+		responseCopy.URL = truncateUTF8(responseCopy.URL, failureAnnotationStringLimit)
+		responseCopy.StatusText = truncateUTF8(responseCopy.StatusText, failureAnnotationStringLimit)
+		responseCopy.ContentType = truncateUTF8(responseCopy.ContentType, failureAnnotationStringLimit)
+		cloned.HTTPResponse = &responseCopy
+	}
 	if cloned.DocumentProjection == nil && cloned.HTTPResponse == nil {
 		return nil
 	}
-	return &cloned
+	return cloned
+}
+
+const (
+	failureAnnotationStringLimit   = 256
+	failureAnnotationWarningsLimit = 4
+)
+
+// boundFailureResult reaplica o orçamento depois de serializar as anotações.
+// Campos de contexto são preservados em ordem de utilidade enquanto couberem;
+// nenhum envelope de falha pode ultrapassar o limite model-facing.
+func boundFailureResult(result ToolResult, maxBytes int) ToolResult {
+	result.Annotations = annotationsForFailure(result.Annotations)
+	if maxBytes <= 0 {
+		result.Content = ""
+		result.Annotations = nil
+		return result
+	}
+
+	message := result.Content
+	code := failureCode(result)
+	for {
+		overhead := ContentForModelSize(0, result.Annotations, false)
+		if overhead < maxBytes {
+			result.Content = boundedFailureContent(message, code, maxBytes-overhead)
+			if len(ContentForModel(result)) <= maxBytes {
+				return result
+			}
+		}
+
+		switch {
+		case result.Annotations != nil &&
+			result.Annotations.DocumentProjection != nil &&
+			len(result.Annotations.DocumentProjection.Warnings) > 0:
+			result.Annotations.DocumentProjection.Warnings = nil
+		case result.Annotations != nil && result.Annotations.DocumentProjection != nil:
+			result.Annotations.DocumentProjection = nil
+		case result.Annotations != nil && result.Annotations.HTTPResponse != nil:
+			result.Annotations.HTTPResponse = nil
+		default:
+			result.Annotations = nil
+			result.Content = boundedFailureContent(message, code, maxBytes)
+			return result
+		}
+		if result.Annotations != nil &&
+			result.Annotations.DocumentProjection == nil &&
+			result.Annotations.HTTPResponse == nil {
+			result.Annotations = nil
+		}
+	}
 }
 
 func metadataForFailure(metadata map[string]any) map[string]any {
@@ -409,18 +480,15 @@ func metadataForFailure(metadata map[string]any) map[string]any {
 // original continuam sendo definidas pelo chamador.
 func protectErroredToolResult(ctx context.Context, result ToolResult, maxBytes int, toolName string, requireComplete bool) ToolResult {
 	if window := outputWindowOf(result); requireComplete && window != nil && window.HasMore {
-		return ToolResult{
-			Content: boundedFailureContent(
-				"Resultado machine-facing está incompleto. Reduza o escopo da chamada; este consumidor exige o resultado integral.",
-				"result_too_large", maxBytes,
-			),
+		return boundFailureResult(ToolResult{
+			Content:     "Resultado machine-facing está incompleto. Reduza o escopo da chamada; este consumidor exige o resultado integral.",
 			IsError:     true,
 			Metadata:    metadataForFailure(result.Metadata),
 			Annotations: annotationsForFailure(result.Annotations),
 			Failure: &ToolFailure{
 				Code: "result_too_large", Kind: ErrorKindUnknown, Retryable: false,
 			},
-		}
+		}, maxBytes)
 	}
 	if len(ContentForModel(result)) <= maxBytes && maxBytes > 0 {
 		return result
@@ -438,16 +506,13 @@ func protectErroredToolResult(ctx context.Context, result ToolResult, maxBytes i
 		if failure == nil {
 			failure = &ToolFailure{Code: code, Kind: ErrorKindUnknown, Retryable: false}
 		}
-		return ToolResult{
-			Content: boundedFailureContent(
-				"Saída integral do erro excede o limite seguro e foi omitida; reduza o escopo da chamada.",
-				code, maxBytes,
-			),
+		return boundFailureResult(ToolResult{
+			Content:     "Saída integral do erro excede o limite seguro e foi omitida; reduza o escopo da chamada.",
 			IsError:     true,
 			Metadata:    metadataForFailure(result.Metadata),
 			Annotations: annotationsForFailure(result.Annotations),
 			Failure:     failure,
-		}
+		}, maxBytes)
 	}
 	var (
 		protected ToolResult
@@ -471,16 +536,13 @@ func protectErroredToolResult(ctx context.Context, result ToolResult, maxBytes i
 	if failure == nil {
 		failure = &ToolFailure{Code: code, Kind: ErrorKindUnknown, Retryable: false}
 	}
-	return ToolResult{
-		Content: boundedFailureContent(
-			"Saída do erro excede a capacidade segura de preservação; reduza o escopo da chamada.",
-			code, maxBytes,
-		),
+	return boundFailureResult(ToolResult{
+		Content:     "Saída do erro excede a capacidade segura de preservação; reduza o escopo da chamada.",
 		IsError:     true,
 		Metadata:    metadataForFailure(result.Metadata),
 		Annotations: annotationsForFailure(result.Annotations),
 		Failure:     failure,
-	}
+	}, maxBytes)
 }
 
 // IsCanonicalJSON valida um único valor JSON sem criar uma cópia []byte

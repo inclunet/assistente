@@ -356,6 +356,70 @@ func TestExecutorSizeFailurePreservesHTTPContextWithoutWindow(t *testing.T) {
 	}
 }
 
+func TestExecutorSizeFailureBoundsAnnotationEnvelope(t *testing.T) {
+	for _, returnGoError := range []bool{false, true} {
+		name := "normal_result"
+		if returnGoError {
+			name = "go_error"
+		}
+		t.Run(name, func(t *testing.T) {
+			registry := NewRegistry()
+			registry.MustRegister(&mockTool{
+				name: "large_annotated_failure_" + name,
+				exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+					result := ToolResult{
+						Content:    strings.Repeat("x", 4096),
+						Structured: true,
+						Annotations: &ResultAnnotations{
+							HTTPResponse: &HTTPResponseAnnotation{
+								Method: "GET", URL: strings.Repeat("u", 4096), Status: 500,
+								StatusText: strings.Repeat("s", 4096), ContentType: strings.Repeat("c", 4096),
+							},
+							DocumentProjection: &DocumentProjectionAnnotation{
+								Source: strings.Repeat("p", 4096), Format: strings.Repeat("f", 4096),
+								Warnings: []string{
+									strings.Repeat("w", 4096), strings.Repeat("w", 4096),
+									strings.Repeat("w", 4096), strings.Repeat("w", 4096),
+									strings.Repeat("w", 4096),
+								},
+							},
+							OutputWindow: &OutputWindowAnnotation{HasMore: true, ResultID: "efemero"},
+						},
+					}
+					if returnGoError {
+						return result, errors.New("falha esperada")
+					}
+					return result, nil
+				},
+			})
+			cfg := DefaultExecutorConfig()
+			cfg.MaxResultSize = 512
+			got := NewExecutor(registry, cfg).ExecuteOne(context.Background(), ToolCall{
+				ID: "call-" + name,
+				Function: FunctionCall{
+					Name: "large_annotated_failure_" + name, Arguments: `{}`,
+				},
+			})
+			if !got.Result.IsError {
+				t.Fatalf("resultado grande não virou falha: %+v", got)
+			}
+			if size := len(ContentForModel(got.Result)); size > cfg.MaxResultSize {
+				t.Fatalf("envelope de falha excedeu teto: %d > %d", size, cfg.MaxResultSize)
+			}
+			if got.Result.Annotations != nil && got.Result.Annotations.OutputWindow != nil {
+				t.Fatalf("falha preservou continuação efêmera: %+v", got.Result.Annotations)
+			}
+			if response := got.Result.Annotations; response != nil && response.HTTPResponse != nil {
+				if len(response.HTTPResponse.URL) > failureAnnotationStringLimit ||
+					len(response.HTTPResponse.StatusText) > failureAnnotationStringLimit ||
+					len(response.HTTPResponse.ContentType) > failureAnnotationStringLimit {
+					t.Fatalf("anotação HTTP não foi sanitizada: %+v", response.HTTPResponse)
+				}
+			}
+		})
+	}
+}
+
 func TestExecutorMachineFacingRejectsLargePlainText(t *testing.T) {
 	registry := NewRegistry()
 	registry.MustRegister(&mockTool{
