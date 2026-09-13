@@ -264,9 +264,10 @@ faz a reentrega falhar fechado, sem executar novamente.
 O dispatcher o copia sem reconstruir por heurística.
 
 Uma solicitação informa `command_id` para execução direta ou
-`trigger_type`/`trigger_spec` para resolução de binding. Depois da resolução, o
-envelope interno contém ambos; combinações ausentes ou incoerentes falham antes
-de qualquer efeito.
+`trigger_type`/`trigger_spec` para resolução de binding. Depois da resolução,
+solicitação por trigger contém também o `command_id` vencedor; solicitação
+direta mantém `trigger_*` nulo. Ausência do campo exigido por cada modalidade ou
+combinação incoerente falha antes de qualquer efeito.
 
 Se qualquer um entre `surface_type`, `surface_id` e
 `surface_snapshot_version` estiver presente, os três tornam-se obrigatórios e
@@ -286,8 +287,10 @@ O serviço, nessa ordem:
    versões e bindings contribuintes; falha de resolução também produz resultado
    determinístico;
 3. calcula o fingerprint canônico da solicitação resolvida ou recusada;
-4. para `suppress`, reserva somente o ledger terminal e encerra; nos demais
-   casos, reserva atomicamente ledger e auditoria como `evaluating`;
+4. para `suppress`, adquire `DispatchGate`, revalida autenticação, segurança,
+   staleness e gerações e só então reserva o ledger terminal enquanto mantém o
+   gate; se stale, rejeita sem consumir IDs. Nos demais casos, reserva
+   atomicamente ledger e auditoria como `evaluating`;
 5. se a resolução falhou, conclui `denied`; caso contrário valida origem
    permitida, disponibilidade, argumentos, contexto e política;
    falhas após autenticação terminam a tentativa como `denied`;
@@ -852,11 +855,13 @@ source_event_id) WHERE workspace_id IS NOT NULL`.
 `command_layer_activation_state`. Há índices auxiliares não únicos, separados
 para escopo global/local, sobre usuário, workspace quando aplicável,
 `rule_ref_kind`, `rule_ref`, `source_type` e `source_correlation_id`; a consulta
-também filtra estado ativo e falha fechado se encontrar mais de um ciclo. Ele
+considera também estados terminais e falha fechado se encontrar mais de um
+ciclo. O dispatcher processa criação/avanço sob o `DispatchGate` exclusivo, de
+modo que dois eventos do mesmo ciclo não podem inserir `activation_id`
+concorrentes. Ele
 nunca substitui o `source_event_id`, que permanece obrigatório e é a única
 chave idempotente de cada transição. Na mesma transação, o estado de PK
-`activation_id` avança por CAS sobre `sequence`: insert concorrente resolve
-pela chave única e update exige o cursor anterior.
+`activation_id` avança por CAS sobre `sequence`; update exige o cursor anterior.
 Mesmo número com fingerprint diferente grava conflito e não altera a camada.
 
 A regra persiste `event_name` exato e `allowed_internal_producer_types`; na
@@ -864,6 +869,12 @@ primeira versão, `event_name` só aceita
 `command-context.job-run-state.v1` e o producer type só aceita `jobs.runtime`.
 Webhook, plugin e outro produtor externo são rejeitados e ficam fora do escopo
 até uma AEP definir identidade de ingress e grants próprios.
+Criar/habilitar essa regra é mutação confirmável e persiste
+`authorization_decision_id` e `automation_grant_fingerprint` sobre usuário,
+layer/rule, workspace, fato e produtor permitidos. Cada evento revalida esse
+fingerprint; divergência desabilita a regra. Essa ativação pré-autorizada ocorre
+somente pelo adapter D8, não executa `layer.activate`/`layer.toggle` como comando
+headless.
 
 Sem usuário, regra, autenticação ou identidade válida — correlação, ou o par
 instância/evento quando a correlação for ausente — eventos internos não alteram
@@ -1074,11 +1085,13 @@ não concede grant reutilizável para executar o comando configurado.
 
 O registro marca `mutates_effective_capability` em comandos como
 `layer.activate`, `layer.toggle`, `layer.back` persistente e registro de hotkey.
-Quando `actor_type = agent`, `CommandExecutionService` exige decisão em
-`command_catalog.execute` somente se esse flag estiver ativo ou se
+Para todo `actor_type != user`, `CommandExecutionService` exige decisão em
+`command_catalog.execute` se esse flag estiver ativo ou se
 `decision_requirement` exigir; comandos read-only com requisito `none` seguem
-sem diálogo. Para os casos confirmáveis, origem headless falha fechado. Assim,
-não existe segunda rota para alterar o mapa efetivo.
+sem diálogo. Para os casos confirmáveis, origem headless falha fechado.
+Automação de ativação usa exclusivamente a regra previamente confirmada da D8;
+um binding `event` não pode chamar esses comandos mutáveis. Assim, não existe
+segunda rota para alterar o mapa efetivo.
 
 A marca não é declarada livremente pelo autor do comando.
 `CommandHandler.Mutability()` fornece a classificação e o registro rejeita
@@ -1104,7 +1117,8 @@ command_layers
 
 command_layer_activation_rules
   id, layer_id, mode, condition, lifecycle, event_name,
-  allowed_internal_producer_types, enabled
+  allowed_internal_producer_types, authorization_decision_id,
+  automation_grant_fingerprint, enabled
 
 command_bindings
   id, user_id, workspace_id nullable_for_global, layer_ref_kind, layer_ref,
