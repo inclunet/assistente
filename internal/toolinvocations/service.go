@@ -967,5 +967,7 @@ func minimalPersistenceOutput(max int) json.RawMessage {
 	if max >= len(`{"content":"","is_error":true}`) {
 		return json.RawMessage(`{"content":"","is_error":true}`)
 	}
-	return json.RawMessage(`{}`)
+	// Um valor JSON escalar de um byte cabe em qualquer teto positivo e não se
+	// confunde com ToolResult vazio. O hidratador o reconhece como omissão.
+	return json.RawMessage(persistenceOmissionSentinel)
 }

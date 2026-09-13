@@ -217,10 +217,22 @@ func ExtractToolInvocationContent(raw string) string {
 	return ExtractToolInvocationResult(raw).Content
 }
 
+const persistenceOmissionSentinel = "0"
+
 func ExtractToolInvocationResult(raw string) tools.ToolResult {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return tools.ToolResult{}
+	}
+	if raw == persistenceOmissionSentinel {
+		return tools.ToolResult{
+			Content:  "[result_omitted_for_persistence]",
+			IsError:  true,
+			Metadata: map[string]any{"omitted_for_persistence": true},
+			Failure: &tools.ToolFailure{
+				Code: "result_omitted_for_persistence", Kind: tools.ErrorKindUnknown, Retryable: false,
+			},
+		}
 	}
 	var payload tools.ToolResult
 	if json.Unmarshal([]byte(raw), &payload) == nil {

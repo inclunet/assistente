@@ -79,6 +79,20 @@ func TestOutputForPersistence_DropsNonSerializableMetadataAndStillCapsSize(t *te
 	}
 }
 
+func TestOutputForPersistenceTinyLimitHydratesAsExplicitOmission(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 1}
+	out := svc.outputForPersistence(tools.ToolResult{Content: strings.Repeat("x", 4096)})
+	if string(out) != persistenceOmissionSentinel || len(out) > svc.persistMaxResultSize {
+		t.Fatalf("sentinela inválido: %q", out)
+	}
+	persisted := ExtractToolInvocationResult(string(out))
+	if !persisted.IsError || persisted.Failure == nil ||
+		persisted.Failure.Code != "result_omitted_for_persistence" ||
+		persisted.Metadata["omitted_for_persistence"] != true {
+		t.Fatalf("omissão reidratada como sucesso: %+v", persisted)
+	}
+}
+
 func TestOutputForPersistenceMarksMetadataReductionWhenContentFits(t *testing.T) {
 	svc := &Service{persistMaxResultSize: 256}
 	result := tools.ToolResult{
