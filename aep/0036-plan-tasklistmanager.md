@@ -557,7 +557,18 @@ Locales: `frontend/src/locales/{pt-BR,en,es}.ts`
 
 ### **Performance Considerations**
 
-- **Lazy loading**: Like chat, carregar apenas raízes; subtasks under demand via expand
+- **Paginação da UI (issue #739)**: a abertura carrega até 100 raízes por
+  página, em `order, id`, com cursor keyset opaco e contagem separada. A ação
+  acessível **Carregar mais tarefas** preserva completude e ordem sem mudar os
+  contratos legados de leitura completa usados por exportação e automações.
+- **Índice da ordem visual**: `(task_list_id, parent_id, "order", id)` cobre
+  filtro, paginação e desempate; `EXPLAIN QUERY PLAN` é verificado por teste.
+- **Subtarefas**: cada página de raízes hidrata suas subtarefas em lote,
+  preservando a hierarquia já exposta pelo frontend.
+- **Eventos e validações**: usam um read model de lista+workflow sem `Tasks`;
+  o payload incremental do frontend preserva as páginas já carregadas. O
+  contrato legado completo permanece disponível apenas para consumidores que
+  realmente precisam de toda a hierarquia.
 - **Hierarchy limit**: Se >500 tasks, considerar flat view com filtering
 - **Debounce**: Edições inline debounce 500ms antes de enviar ao backend
 - **Batch updates**: LLM tool calling pode atualizar múltiplas tasks em 1 request
