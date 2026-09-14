@@ -569,10 +569,20 @@ Locales: `frontend/src/locales/{pt-BR,en,es}.ts`
   a mesma contagem; falhas mantêm os cards já disponíveis e oferecem retry.
   Os contratos legados de leitura completa usados por exportação e automações
   não mudam.
+- **Catálogo e contexto (issue #764)**: listagens de tasklists retornam somente
+  metadados, workflow e `task_count` de cards raiz agregado por índice; não
+  fazem `Preload` das tasks. A página de catálogo faz uma única chamada e só
+  busca cards quando a lista é aberta. O contexto de conversa usa uma projeção
+  limitada compatível com seu orçamento textual, em vez de ler conteúdo que
+  seria truncado.
 - **Índice da ordem visual**: `(task_list_id, parent_id, "order", id)` cobre
   filtro, paginação e desempate; `EXPLAIN QUERY PLAN` é verificado por teste.
-- **Subtarefas**: cada página de raízes hidrata suas subtarefas em lote,
-  preservando a hierarquia já exposta pelo frontend.
+- **Subtarefas**: cada página seleciona raízes por keyset e hidrata toda a
+  descendência delas com uma CTE recursiva única, preservando profundidade
+  arbitrária sem N+1.
+- **Cancelamento progressivo**: ao sair do Kanban, a geração ativa é cancelada
+  entre páginas lentas; uma nova abertura inicia outra geração sem reutilizar
+  uma resposta obsoleta.
 - **Eventos e validações**: usam um read model de lista+workflow sem `Tasks`;
   o payload incremental do frontend preserva as páginas já carregadas. O
   contrato legado completo permanece disponível apenas para consumidores que
