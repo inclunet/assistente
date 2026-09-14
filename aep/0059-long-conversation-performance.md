@@ -253,7 +253,9 @@ Critério prático:
 ### Fase 5 — Conteúdo pesado sob demanda ⏳
 
 - Carregar filhos de thread apenas quando expandidos.
-- Manter tool calls e reasoning colapsados sem render caro inicial.
+- Projetar resumos leves de invocações no item do turno e carregar detalhes
+  integrais em batch/lazy, conforme a AEP-0104.
+- Manter reasoning colapsado sem render caro inicial.
 - Adiar áudio e anexos grandes até interação explícita.
 - Evitar parse/render completo de Markdown fora da janela visível.
 
@@ -281,6 +283,8 @@ Critério prático:
 - [ ] Não há fixture focada comprovada de 500 mensagens sintéticas.
 - [x] `aria-posinset`/`aria-setsize` usam posição e total de itens de timeline.
 - [x] Turnos com tool calls são um único item acessível.
+- [ ] Janela e `turnPatch` não carregam input/output integral de tools.
+- [ ] Detalhes de invocações são carregados em batch user-scoped, sem N+1.
 
 Evidências entregues: `internal/app/db_message_window_test.go`,
 `internal/chat/timeline_test.go`,

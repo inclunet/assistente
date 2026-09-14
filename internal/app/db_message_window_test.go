@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func setupMessageWindowAppTestDB(t *testing.T) {
+func setupMessageWindowAppTestDB(t testing.TB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -73,7 +73,7 @@ func newMessageWindowTestController() *controllers.ConversationsController {
 	})
 }
 
-func createMessageWindowTestConversation(t *testing.T, title string) *database.Conversation {
+func createMessageWindowTestConversation(t testing.TB, title string) *database.Conversation {
 	t.Helper()
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
 	conv, err := database.CreateConversationWithContext(ctx, title, "")

@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"io"
+	"log/slog"
 	"os"
 	"time"
 
@@ -45,6 +46,11 @@ func run(args []string) (exitCode int) {
 		reportFatalError(os.Stderr, startupLogConfigurationError(err))
 		return 2
 	}
+	logLevel, remainingArgs, err := logging.ParseToolLedgerLogLevelArgs(remainingArgs)
+	if err != nil {
+		reportFatalError(os.Stderr, startupLogConfigurationError(err))
+		return 2
+	}
 
 	errorOutput := io.Writer(os.Stderr)
 	if logPath != "" {
@@ -63,6 +69,12 @@ func run(args []string) (exitCode int) {
 			}
 		}()
 	}
+	previousLogger := slog.Default()
+	if err := logging.ConfigureToolLedgerLevel(logLevel); err != nil {
+		reportFatalError(errorOutput, startupLogConfigurationError(err))
+		return 2
+	}
+	defer slog.SetDefault(previousLogger)
 
 	originalArgs := os.Args
 	os.Args = append([]string{args[0]}, remainingArgs...)

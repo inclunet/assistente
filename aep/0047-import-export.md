@@ -49,7 +49,7 @@ Ficam explicitamente fora do escopo desta PR os recursos que ainda vivem em arqu
 
 O pacote `internal/portability` também é responsável por orquestrar importações legadas de arquivos quando um recurso passa a ser persistido no banco. Cada recurso fornece apenas source/parser/importer específicos; o loop de descoberta, leitura read-only, idempotência e relatório de resultado permanece compartilhado para ser reaproveitado por recursos futuros, como skills. O gatilho dessas importações fica em uma fase global pós-login no app, antes dos managers carregarem seus runtimes do banco.
 
-A AEP-0048 usa esse mecanismo para importar definições de jobs, tags, pipelines implícitas e triggers do filesystem para o banco. Logs legados de runs e eventos são descartados e não entram na migração. Tags passam a ser recurso compartilhado do app e podem ser exportadas/importadas como catálogo + associações por recurso. A AEP-0063 não exporta `tool_invocations` como histórico permanente por padrão: são logs técnicos efêmeros, sujeitos a retenção.
+A AEP-0048 usa esse mecanismo para importar definições de jobs, tags, pipelines implícitas e triggers do filesystem para o banco. Logs legados de runs e eventos são descartados e não entram na migração. Tags passam a ser recurso compartilhado do app e podem ser exportadas/importadas como catálogo + associações por recurso. A AEP-0104 distingue invocações operacionais efêmeras das invocações de chat que compõem a conversa: o export de conversa inclui estas últimas em bloco canônico próprio, enquanto logs de jobs/dry-run continuam fora por padrão.
 
 ### D1 — Formato: JSON versionado com IDs estáveis
 
@@ -473,6 +473,13 @@ type LocalizedMessage struct {
      v2 parametrizada para 0.2.0–0.5.0.
 23. Testes Go: recursos fora do escopo no import geram warning; recursos fora do escopo no export são rejeitados.
 24. Testes frontend: modais de export/import, seleção DB-only, senha de credenciais, preview e warnings.
+
+### Fase 6 — Invocações canônicas de conversa 🚧
+
+25. Adicionar bloco `toolInvocations` ao export v2 sem recolocar dados técnicos
+    em mensagens.
+26. Converter `toolCalls`/`toolCallId` de arquivos antigos durante o import.
+27. Garantir roundtrip, idempotência, ownership e rich export pelo ledger.
 
 ## Riscos
 

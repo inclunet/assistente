@@ -5,8 +5,8 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 Este diretório é o **repositório único** de decisões arquiteturais do projeto
 (ver `CLAUDE.md`). Não criar outro diretório para AEPs — tudo fica em `aep/`.
 
-> **Inventário (2026-09-13):** este índice contém **102 documentos principais
-> para 101 números ocupados**. A diferença é a colisão histórica 0074, representada
+> **Inventário (2026-09-13):** este índice contém **103 documentos principais
+> para 102 números ocupados**. A diferença é a colisão histórica 0074, representada
 > temporariamente como 0074-A e 0074-B até sua renumeração. Séries multi-arquivo
 > têm o principal listado na tabela e os demais em
 > [Apêndices por AEP](#apêndices-por-aep). Convenção em
@@ -78,7 +78,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0060](0060-command-policy-parser.md) | Parser e Política de Comandos | ✅ Done |
 | [0061](0061-credential-loss-incident-and-defenses.md) | Incidente de Perda de Credenciais e Defesas | ✔️ Accepted |
 | [0062](0062-profile-application-and-local-provider-auth.md) | Aplicação de Perfil e Auth de Provider Local | ✅ Done |
-| [0063](0063-tool-invocations-and-common-executor.md) | Tool Invocations e Executor Comum | ✅ Done |
+| [0063](0063-tool-invocations-and-common-executor.md) | Tool Invocations e Executor Comum | 🚧 In Progress |
 | [0064](0064-streaming-recovery-explicito.md) | Recuperação explícita de resposta interrompida (continuação) e cancelamento de geração | ✅ Done |
 | [0065](0065-llm-rate-limiting.md) | Rate Limiting nas Chamadas ao Provedor LLM | ✅ Done |
 | [0066](0066-connection-status-indicator.md) | Indicador de Status de Conexão com a API LLM | ✅ Done |
@@ -94,7 +94,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0075](0075-context-providers.md) | Context Providers | ✅ Done |
 | [0076](0076-schema-versioning-migrations.md) | Versionamento de Schema do Banco (schema_migrations) | ✅ Done |
 | [0077](0077-tool-planner-and-tools-subsystem-evolution.md) | ToolPlanner e Evolução do Subsistema de Tools | ✅ Done |
-| [0078](0078-deprecacao-toolcalls-em-mensagens.md) | Deprecação de `tool_calls` em Mensagens | ✅ Done |
+| [0078](0078-deprecacao-toolcalls-em-mensagens.md) | Deprecação de `tool_calls` em Mensagens | 🚧 In Progress |
 | [0079](0079-editor-modo-apresentacao-reveal.md) | Modo Apresentação Reveal.js no Editor | ✅ Done |
 | [0080](0080-surface-context-unificado.md) | SurfaceContext Unificado | 🚧 In Progress |
 | [0081](0081-politica-tools-por-perfil-e-carregamento-sob-demanda.md) | Política de Tools por Perfil e Carregamento sob Demanda | ✔️ Accepted |
@@ -120,10 +120,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
 | [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
 | [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 📝 Draft |
+| [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico | 🚧 In Progress |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0103 → próximo
-> 0104), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0104 → próximo
+> 0105), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 
