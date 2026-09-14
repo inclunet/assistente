@@ -2301,8 +2301,41 @@ encerramento do monitor e cancelamento do executor. Build e vet do repositório
 e testes focados dos pacotes afetados são a validação local; o teste nativo
 interativo e a suíte completa do App permanecem fora desta evidência.
 
-Pendente: carregador da persistência real de bindings/claims, ligação desse
-carregador à recuperação pós-unlock e escopo por workspace. O estado do SO não
+Leitura persistida inicial: `internal/commandconfig` fornece migração explícita
+de `command_layers`, `command_bindings` e `command_config_generations`, sem
+registrá-la no banco de produto. O carregador lê camadas, bindings e gerações
+na mesma transação SQLite. Escopo global carrega só globais; workspace carrega
+globais mais exatamente o workspace autenticado. Referências user precisam de
+camada do mesmo owner/escopo; builtin exige delta e validação posterior no
+catálogo. Ausência de geração não cria defaults nem inventa uma versão.
+
+Snapshot conserva documentos JSON opacos, disabled e needs_review; não gera
+Candidate nem ativa camadas. Documentos ainda exigem validação de versão/schema,
+catálogo, defaults e referências a segredos pelo projetor confiável. Não existe
+projetor permissivo de produto. Um stamp privado, independente dos campos
+mutáveis entregues ao projetor, permite reconsultar as gerações antes de publicar.
+Troca/remoção da geração e snapshot de outro Store falham fechado.
+
+`rebuildPersistedCommandConfiguration` conecta esse carregador à reconstrução
+autenticada do App, obrigando um projetor fornecido pelo bootstrap. O owner vem
+do JWT/sessão local revalidada; a geração persistida é conferida novamente sob
+DispatchGate. Essa borda aceita somente configuração global enquanto HostState
+não isola workspaces. Nenhuma claim manual/evento é restaurada por esse caminho.
+Escritores futuros devem alterar dados e geração na mesma transação sob o gate;
+escrita direta fora desse protocolo não é suportada. Não há API de gravação,
+CRUD/Wails ou migração automática neste incremento.
+
+Evidência do carregador: testes SQLite temporários exercitam constraints
+isoladamente, rollback da migração, índices incompatíveis, ownership e
+isolamento global/workspace. Um teste com duas conexões e commit concorrente
+confirma snapshot consistente, seguido de recusa na revalidação. Testes do
+stamp cobrem troca de ID sem avanço de geração e mutação de slices/pointers
+entregues ao projetor. A integração do App cobre geração ausente e alterada
+durante a projeção, usando somente banco e chaves de fixture.
+
+Pendente: projetor de produto dos documentos persistidos, writers confirmáveis,
+persistência/restore de claims, ligação completa à recuperação pós-unlock e
+estado de execução por workspace. O estado do SO não
 é inferido da presença de uma sessão/JWT ou da disponibilidade do cofre; sem
 observação válida, o host continua fechado. Não há atalhos nem comandos de
 produto ativados.

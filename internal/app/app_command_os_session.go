@@ -61,6 +61,15 @@ func (a *App) observeCommandOSSession(ctx context.Context, watch func(context.Co
 func (a *App) rebuildCommandUserConfiguration(ctx context.Context, token string,
 	build func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error),
 ) error {
+	return a.rebuildCommandUserConfigurationChecked(ctx, token, build, nil)
+}
+
+// check roda dentro da reautenticação sob gate, antes da publicação. Deve
+// apenas revalidar estado local, sem iniciar mutações ou readquirir o gate.
+func (a *App) rebuildCommandUserConfigurationChecked(ctx context.Context, token string,
+	build func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error),
+	check func(context.Context) error,
+) error {
 	if a == nil {
 		return commandexecution.ErrInvalidConfiguration
 	}
@@ -82,6 +91,11 @@ func (a *App) rebuildCommandUserConfiguration(ctx context.Context, token string,
 		a.authMu.RUnlock()
 		if !matches {
 			return auth.LocalSessionPrincipal{}, commandexecution.ErrDenied
+		}
+		if check != nil {
+			if err := check(ctx); err != nil {
+				return auth.LocalSessionPrincipal{}, err
+			}
 		}
 		return principal, nil
 	}, build)

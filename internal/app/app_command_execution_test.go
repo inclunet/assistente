@@ -12,6 +12,7 @@ import (
 	"assistente/internal/auth"
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandcatalog"
+	"assistente/internal/commandconfig"
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandledger"
 	"assistente/internal/credentials"
@@ -164,8 +165,38 @@ func TestCommandExecutionAppUsesInstanceKeyAndRejectsLogout(t *testing.T) {
 	}); !errors.Is(err, commandexecution.ErrDenied) {
 		t.Fatal("reconstrução atrasada publicou após remoção do mapa", err)
 	}
-	if err := app.rebuildCommandUserConfiguration(ctx, pair.AccessToken, func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
-		return bindings, nil, nil
+	// Repositório só neste SQLite de fixture. Nenhuma migração no DB do App.
+	if err := commandconfig.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	configStore, err := commandconfig.New(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.rebuildPersistedCommandConfiguration(ctx, pair.AccessToken, configStore, func(context.Context, commandconfig.Snapshot) (*commandbindings.Configuration, error) {
+		t.Fatal("projetor chamado sem geração persistida")
+		return nil, nil
+	}); !errors.Is(err, commandconfig.ErrInvalid) {
+		t.Fatal("ausência de geração não recusada", err)
+	}
+	generation := commandconfig.Generation{ID: uuid.Must(uuid.NewV7()).String(), UserID: user.ID, Generation: 1, UpdatedAt: time.Now()}
+	if err := db.Create(&generation).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := app.rebuildPersistedCommandConfiguration(ctx, pair.AccessToken, configStore, func(context.Context, commandconfig.Snapshot) (*commandbindings.Configuration, error) {
+		// Simula publicação persistida concluída durante a leitura fora do gate.
+		if err := db.Model(&commandconfig.Generation{}).Where("id = ?", generation.ID).Update("generation", 2).Error; err != nil {
+			return nil, err
+		}
+		return bindings, nil
+	}); !errors.Is(err, commandconfig.ErrStale) {
+		t.Fatal("geração persistida obsoleta publicada", err)
+	}
+	if err := app.rebuildPersistedCommandConfiguration(ctx, pair.AccessToken, configStore, func(_ context.Context, snapshot commandconfig.Snapshot) (*commandbindings.Configuration, error) {
+		if snapshot.Scope.UserID != user.ID || snapshot.Scope.WorkspaceID != nil {
+			t.Fatal("escopo não derivado da sessão")
+		}
+		return bindings, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
