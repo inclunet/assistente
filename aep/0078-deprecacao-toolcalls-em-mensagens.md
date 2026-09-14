@@ -1,12 +1,14 @@
 # AEP-0078 — Deprecação de `tool_calls` em Mensagens
 
-Status: Done — escrita L3 removida do caminho feliz; leitores usam `tool_invocations` com fallback legado
+Status: In Progress — deprecação funcional entregue; backfill, cutover e remoção física seguem na AEP-0104
 
 ## Resumo
 
 Deprecar o legado L3 definido na AEP-0063: o campo `chat_messages.tool_calls` em mensagens `assistant`. A associação entre intenção de chamada e resultado deve passar a ser montada a partir de `tool_invocations.tool_call_id`, sem depender da ordem das mensagens nem de JSON embutido em `chat_messages`.
 
-A mudança não remove leitura de dados antigos. Mensagens históricas com `tool_calls` continuam legíveis como fallback de compatibilidade.
+A compatibilidade histórica passa a ser uma fase finita. A
+[AEP-0104](0104-tool-invocations-como-ledger-canonico.md) fará backfill,
+cutover e remoção física; o estado final não mantém fallback de leitura.
 
 ## Motivação
 
@@ -67,13 +69,17 @@ loop não grava `chat_messages.tool_calls` no caminho feliz; mensagens novas usa
 o snapshot em `tool_invocations`. O campo permanece apenas para leitura de dados
 históricos, e sua remoção física não faz parte desta AEP.
 
-### D5 — Dados antigos continuam legíveis
+### D5 — Dados antigos são migrados antes do cutover
 
-Não haverá backfill destrutivo obrigatório. Leituras de conversas antigas devem continuar aceitando:
+Enquanto a conversa estiver em estado `pending`, leituras aceitam:
 
 - mensagens `assistant` com `tool_calls`;
 - mensagens `role=tool` usadas como fallback;
 - invocações ausentes por retenção ou por dados anteriores à AEP-0063.
+
+O backfill retomável converte esses formatos em `tool_invocations`, valida
+contagens/hashes e bloqueia o cutover em caso de ambiguidade. Em estado
+`canonical`, nenhum leitor consulta esses formatos e as colunas são removidas.
 
 ## Mapa do estado implementado
 
@@ -121,6 +127,13 @@ Não haverá backfill destrutivo obrigatório. Leituras de conversas antigas dev
 - [x] Remoção física da coluna foi explicitamente deixada para migração futura;
       isso não reabre a deprecação funcional.
 
+### Fase 6 — Backfill e remoção física 🚧
+
+- [ ] Migrar todo L1/L3 publicado para o ledger com prova de zero perda.
+- [ ] Remover fallback de runtime, leitura e portabilidade após o cutover.
+- [ ] Reconstruir `chat_messages` sem `tool_calls`/`tool_call_id` e impedir
+      `role=tool`.
+
 ## Riscos
 
 | Risco | Impacto | Mitigação |
@@ -140,6 +153,8 @@ Não haverá backfill destrutivo obrigatório. Leituras de conversas antigas dev
 - [x] Conversas antigas mantêm fallback L3 para render/export.
 - [x] Testes cobrem formato novo e legado.
 - [x] Agentic loop não grava L3 no caminho feliz nem orfana resultados.
+- [ ] Banco canônico não contém linhas `role=tool` nem colunas L3.
+- [ ] Código canônico não contém parser ou fallback de L1/L3.
 
 As evidências individualizadas estão no mapa acima; regressões centrais:
 `internal/agent/service_tool_calls_persistence_test.go`,

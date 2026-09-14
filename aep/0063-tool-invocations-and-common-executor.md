@@ -1,6 +1,6 @@
 # AEP-0063 — Tool Invocations e Executor Comum
 
-**Status:** Done
+**Status:** In Progress — executor comum entregue; exclusividade do ledger e remoção das cópias legadas seguem na AEP-0104
 
 ## Dependências
 
@@ -14,7 +14,7 @@
 
 Criar uma camada única de execução e persistência para chamadas de tools: `ToolInvocationService` + tabela `tool_invocations`. O chat, jobs, testes/dry-run e integrações MCP passam a usar o mesmo executor, o mesmo modelo de status e a mesma trilha técnica de execução.
 
-Resultados de tools deixam de ser armazenados como mensagens de chat ou logs em arquivos. Mensagens continuam representando a conversa; `tool_invocations` representa o histórico técnico, efêmero e sujeito a retenção.
+Resultados de tools deixam de ser armazenados como mensagens de chat ou logs em arquivos. Mensagens continuam representando a conversa; `tool_invocations` representa o histórico técnico, efêmero e sujeito a retenção. A remoção integral dos fallbacks e cópias ainda existentes é regida pela [AEP-0104](0104-tool-invocations-como-ledger-canonico.md); por isso este documento permanece `In Progress` durante a transição.
 
 ## Motivação
 
@@ -54,7 +54,8 @@ O serviço recebe um pedido normalizado:
 Ele tenta resolver a tool no catálogo, aplica políticas de execução e chama o
 adapter nativo ou MCP. Quando a resolução produz um registro persistível, grava
 status/duração/input/output/erro; se o catálogo não puder resolver a tool, a
-execução continua em modo best-effort e o chamador usa o fallback documentado.
+execução sem auditoria só permanece durante o estado de migração. A AEP-0104
+substitui esse best-effort por resolução archival ou falha fechada no chat.
 
 ### D4 — Origens explícitas
 
@@ -215,6 +216,16 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 16. Implementar limpeza periódica por idade e por runs removidos.
 17. Expor listagem/diagnóstico para UI/API quando necessário.
 
+### Fase 6 — Ledger exclusivo e teardown 🚧
+
+18. Backfill retomável de mensagens e runs publicados.
+19. Parar toda escrita `role=tool`/`tool_calls`/`tool_call_id`.
+20. Migrar consumidores, projeções e detalhes lazy para o ledger.
+21. Remover cópias técnicas de `job_runs` e reconstruir o schema legado.
+
+Esta fase é executada em sete PRs pela AEP-0104. Até o cutover final, os
+critérios de exclusividade permanecem pendentes.
+
 ## Arquivos previstos
 
 | Arquivo | Mudança |
@@ -241,8 +252,9 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 ## Critérios de aceitação
 
 - [x] Toda chamada nova por chat, job ou dry-run que resolve uma entrada
-  persistível de catálogo cria `tool_invocations`; catálogo ausente/não
-  resolvido mantém execução best-effort e fallback sem afirmar persistência.
+  persistível de catálogo cria `tool_invocations`.
+- [ ] Chat sem entrada persistível resolve catálogo archival ou falha fechado,
+  sem fallback em mensagens.
 - [x] `tool_catalog_id` é canônico e não duplica `tool_name`.
 - [x] Jobs mantêm estado em `job_runs` e execução técnica em invocações.
 - [x] Chat não grava novos resultados brutos como mensagens no caminho feliz.
@@ -251,6 +263,9 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 - [x] Retenção/limpeza respeita a política por origem da
   [AEP-0074-B — Compactação e Retenção do Banco de Dados](0074-database-compaction-and-retention.md).
 - [x] Testes cobrem sucesso, falha, timeout, dry-run, chat e `job_run`.
+- [ ] Nenhuma execução ou resultado técnico é persistido em `chat_messages`.
+- [ ] `job_runs` não duplica tool, input ou output da execução.
+- [ ] Não existem dual-read, dual-write ou fallback legado após o cutover.
 
 Evidências: `internal/toolinvocations/{repository,service}_test.go`,
 `internal/toolinvocations/hydration_test.go`,
@@ -262,13 +277,12 @@ O contrato de código/retryability e a interrupção seletiva de retries de jobs
 são cobertos também por `internal/tools/executor_test.go` e
 `internal/jobs/executor_toolinvocations_test.go`.
 
-## Plano de Transição e Compatibilidade (Issue #127)
+## Registro da transição iniciada no Issue #127
 
 Esta seção registra como o critério de aceite "há migração/compatibilidade para dados
-existentes OU um plano explícito de transição" do issue #127 foi atendido. O núcleo do
-AEP-0063 está implementado. A transição posterior do L3 foi concluída pela AEP-0078:
-novas mensagens não gravam `tool_calls` no caminho feliz, enquanto dados históricos
-continuam legíveis como fallback.
+existentes OU um plano explícito de transição" do issue #127 foi atendido naquele
+escopo. O executor comum está implementado, mas a separação exclusiva do ledger
+não foi concluída: L1/L3 e cópias de jobs permanecem até as fases da AEP-0104.
 
 ### O que já migrou para `tool_invocations`
 
@@ -312,7 +326,7 @@ domínio distinta da trilha técnica de `tool_invocations`.
 - **Por que permanece**: é a rede de segurança que evita órfãos no histórico/exportação quando
   a hidratação a partir de `tool_invocations` + assistant `tool_calls` não é possível. Remover
   agora poderia perder rastreabilidade em falhas transitórias de DB.
-- **Status**: compatibilidade ativa, acionada apenas em caminho de exceção.
+- **Status**: legado ativo a remover na Fase 3 da AEP-0104.
 
 #### L2 — Timeline própria de jobs em `job_run_events`
 
@@ -336,18 +350,17 @@ domínio distinta da trilha técnica de `tool_invocations`.
 - **Estado atual**: o agentic loop não grava L3 no caminho feliz
   (`internal/agent/agentic_loop.go`); timeline, exportação e sumarização hidratam
   chamadas por `tool_invocations`.
-- **Compatibilidade**: mensagens antigas continuam legíveis e exportáveis. O fallback
-  não autoriza novos consumidores nem novas escritas de L3.
-- **Status**: deprecação funcional concluída pela AEP-0078; coluna legada preservada
-  para leitura.
+- **Compatibilidade transitória**: mensagens antigas continuam legíveis apenas
+  enquanto o backfill da AEP-0104 estiver `pending`.
+- **Status**: parser e coluna aguardam cutover e remoção física.
 
 ### Plano e critérios para deprecar cada legado
 
 | Legado | Ação | Critério para deprecar |
 |---|---|---|
-| L1 `role=tool` | Reduzir gradualmente o acionamento. | Quando a hidratação por `tool_invocations` + assistant `tool_calls` cobrir 100% dos caminhos de leitura (UI, export, sumarização) **e** métricas mostrarem 0 acionamentos do fallback em produção por um período de observação. Só então remover `AddToolResultMessage` do caminho de chat. |
+| L1 `role=tool` | Remover do runtime. | Backfill comprovado e escrita ledger-only; falha de auditoria fecha a execução. |
 | L2 `job_run_events` | **Não deprecar.** | Permanece como timeline operacional. Só seria reavaliado se a UI de jobs passar a derivar a timeline inteiramente de `tool_invocations` + `job_runs`, o que não é objetivo do issue #127. |
-| L3 `tool_calls` JSON em mensagens | Não gravar em mensagens novas; manter leitura legada. | Concluído pela AEP-0078; remoção física da coluna exigiria migração separada. |
+| L3 `tool_calls` JSON em mensagens | Migrar, cortar leitura e remover fisicamente. | Gate transacional e rebuild da Fase 7 da AEP-0104. |
 
 ### Compatibilidade com dados existentes
 

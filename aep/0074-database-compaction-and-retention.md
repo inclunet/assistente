@@ -24,7 +24,7 @@ Esta AEP define uma política de **compactação física** combinada a um **refo
 2. Para bancos legados (criados em `auto_vacuum=none`), um `VACUUM` completo único e oportunista, gated por limiar de páginas livres, que também converte o banco para o modo incremental dali em diante.
 3. `PRAGMA wal_checkpoint(TRUNCATE)` após grandes deleções para limitar o crescimento do arquivo `-wal`.
 4. Retenção de **dados de jobs por categoria**: janela por **idade curta e configurável** (padrão 24h) somada a um teto por **contagem** (últimos N runs por job), para conter jobs de alta frequência.
-5. **Tool calls de chat seguem o ciclo de vida da conversa**: não expiram por tempo por padrão; saem em cascata quando a conversa/mensagem é removida, com uma varredura de órfãos como rede de segurança. Um cap de idade opcional (em dias) pode ser configurado. Dry-runs operacionais (job/tool_catalog) são limpos por idade no loop periódico.
+5. **Tool calls de chat seguem o ciclo de vida da conversa**: não expiram por tempo por padrão; saem em cascata quando a conversa/mensagem é removida, com uma varredura de órfãos como rede de segurança. Um cap de idade opcional (em dias) pode ser configurado. A AEP-0104 torna esse vínculo explícito por `conversation_id`, eliminando inferência por mensagem/JSON. Dry-runs operacionais (job/tool_catalog) são limpos por idade no loop periódico.
 6. **Toda a política vive no `config.json`** (seção `maintenance`), editável na tela de Configurações. **Não há variáveis de ambiente.**
 
 ## Motivação
