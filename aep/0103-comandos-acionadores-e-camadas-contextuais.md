@@ -1911,6 +1911,10 @@ Não representa a conclusão da Fase 0 nem do registro/resolvedor da Fase 1.
 
 Pontos já identificados para o inventário, ainda não migrados:
 
+O [inventário inicial de atalhos](0103-inventario-atalhos.md) detalha símbolos,
+combinações, guards e testes existentes. É documento de apoio, não conclusão
+da Fase 0; os IDs sugeridos ainda não estão registrados no produto.
+
 - `frontend/src/hooks/useWorkspaceKeyboardShortcuts.ts`: abas e sequências
   `Ctrl+N` seguidas de letra; preservar cancelamento, timeout e foco.
 - `frontend/src/hooks/useActivePanelShortcut.ts`: `Ctrl+N` do painel ativo.
@@ -1935,6 +1939,31 @@ não demonstram as garantias de execução, persistência e segurança do sistem
 - Medir latência e estabilidade com muitas camadas e bindings.
 
 ### Fase 1 — Registro, defaults e resolvedor
+
+Incrementos isolados adicionais (sem conexão ao dispatcher):
+
+- `internal/commandcontext`: comparação de versões exatas e validade temporal
+  dos fatos capturados. A autenticidade dos snapshots é pré-condição do host;
+  o helper não implementa providers, `VersionService`, fingerprint, autorização
+  nem revalidação atômica sob `DispatchGate`.
+- `Configuration.WithoutDeltas`: restauração seletiva em um novo snapshot de
+  memória, preservando as personalizações não removidas e seus ajustes de
+  revisão. Não representa restore transacional no SQLite ou por camada.
+- `internal/commandinput`: máquina de pressão/liberação com descarte de repeat
+  e invalidação monotônica por geração. Ainda não registra hotkeys, não observa
+  eventos DOM/SO/Stream Deck, não gera IDs de ocorrência e não arbitra ownership
+  entre teclado local e global. O host deverá integrar esses contratos.
+- `configuration_bench_test.go`: mede candidatos no mesmo acionador, além da
+  distribuição entre buckets. A amostra local com 1000 candidatos na mesma
+  tecla ficou em aproximadamente 4 ms e 2 MB/op; não constitui SLA e evidencia
+  custo de materialização/seleção a otimizar antes de integrar o produto.
+
+Validação conjunta desta rodada: testes de `commandbindings`, `commandcatalog`,
+`commandcontext` e `commandinput` passaram, com coberturas de 92,9%, 99,2%, 96,0%
+e 90,2%, respectivamente. Build e vet gerais também passaram. Os percentuais
+medem instruções instrumentadas dos pacotes, não progresso do AEP.
+Continuam pendentes a suíte geral verde, o detector de corrida com compilador C,
+lint v2 e revisão Bugbot antes de push.
 
 Incremento inicial: `internal/commandcatalog` contém um snapshot imutável dos
 contratos estáticos de comando, com IDs exatos e namespaced, efeitos,
