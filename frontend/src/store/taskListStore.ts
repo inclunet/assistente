@@ -112,6 +112,7 @@ function normalizeTaskNote(raw: unknown): TaskNote {
  */
 function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
   const r = raw as unknown as Record<string, unknown>;
+  const rawTaskCount = r.taskCount ?? r.task_count;
 
   // Normalize workflow
   const rawWf = (r.workflow ?? {}) as Record<string, unknown>;
@@ -157,7 +158,7 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
   return {
     id: r.id as string,
     title: (r.title ?? '') as string,
-    taskCount: Number(r.taskCount ?? r.task_count ?? 0),
+    taskCount: rawTaskCount == null ? undefined : Number(rawTaskCount),
     slug: (() => {
       const s = r.slug ?? r.Slug;
       if (s == null || s === '') return undefined;
@@ -369,13 +370,16 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
           const exists = taskList.tasks?.some((t) => t.id === task.id);
           if (!exists) {
             const newCache = new Map(state.taskLists);
+            const page = state.taskPages.get(task.taskListId);
             newCache.set(task.taskListId, {
               ...taskList,
               tasks: [...(taskList.tasks || []), task],
+              taskCount: !task.parentId
+                ? (page?.totalCount ?? taskList.taskCount ?? taskList.tasks?.length ?? 0) + 1
+                : taskList.taskCount,
             });
             if (!task.parentId) {
               const taskPages = new Map(state.taskPages);
-              const page = taskPages.get(task.taskListId);
               if (page) taskPages.set(task.taskListId, { ...page, totalCount: page.totalCount + 1 });
               return { taskLists: newCache, taskPages };
             }
@@ -409,13 +413,16 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         for (const [id, taskList] of newCache.entries()) {
           const deleted = taskList.tasks?.find((t) => t.id === taskId);
           if (deleted) {
+            const page = state.taskPages.get(id);
             newCache.set(id, {
               ...taskList,
               tasks: taskList.tasks.filter((t) => t.id !== taskId),
+              taskCount: !deleted.parentId
+                ? Math.max(0, (page?.totalCount ?? taskList.taskCount ?? taskList.tasks?.length ?? 0) - 1)
+                : taskList.taskCount,
             });
             if (!deleted.parentId) {
               const taskPages = new Map(state.taskPages);
-              const page = taskPages.get(id);
               if (page) taskPages.set(id, { ...page, totalCount: Math.max(0, page.totalCount - 1) });
               return { taskLists: newCache, taskPages };
             }
@@ -472,9 +479,11 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
             hasMore = Boolean(taskPageField(page, 'hasMore', 'has_more'));
           }
 
+          const totalCount = Number(taskPageField(page, 'totalCount', 'total_count') ?? tasks.length);
           const combined = {
             ...taskList,
             tasks,
+            taskCount: totalCount,
           } as TaskListWithWorkflow;
           get().cacheTaskList(combined);
           set((state) => {
@@ -482,7 +491,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
             taskPages.set(taskListId, {
               nextCursor,
               hasMore,
-              totalCount: Number(taskPageField(page, 'totalCount', 'total_count') ?? combined.tasks.length),
+              totalCount,
             });
             return { taskPages };
           });
@@ -630,7 +639,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
           const newCache = new Map(state.taskLists);
           const existing = newCache.get(taskListId);
           if (existing) {
-            newCache.set(taskListId, { ...existing, tasks: [] });
+            newCache.set(taskListId, { ...existing, tasks: [], taskCount: 0 });
           }
           const taskPages = new Map(state.taskPages);
           taskPages.set(taskListId, { nextCursor: '', hasMore: false, totalCount: 0 });
@@ -778,13 +787,16 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
               const exists = taskList.tasks?.some((t) => t.id === task.id);
               if (!exists) {
                 const newCache = new Map(state.taskLists);
+                const page = state.taskPages.get(taskListId);
                 newCache.set(taskListId, {
                   ...taskList,
                   tasks: [...(taskList.tasks || []), task],
+                  taskCount: !task.parentId
+                    ? (page?.totalCount ?? taskList.taskCount ?? taskList.tasks?.length ?? 0) + 1
+                    : taskList.taskCount,
                 });
                 if (!task.parentId) {
                   const taskPages = new Map(state.taskPages);
-                  const page = taskPages.get(taskListId);
                   if (page) taskPages.set(taskListId, { ...page, totalCount: page.totalCount + 1 });
                   return { taskLists: newCache, taskPages };
                 }
@@ -950,13 +962,16 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         for (const [id, taskList] of newCache.entries()) {
           const deleted = taskList.tasks?.find((t) => t.id === taskId);
           if (deleted) {
+            const page = state.taskPages.get(id);
             newCache.set(id, {
               ...taskList,
               tasks: taskList.tasks.filter((t) => t.id !== taskId),
+              taskCount: !deleted.parentId
+                ? Math.max(0, (page?.totalCount ?? taskList.taskCount ?? taskList.tasks?.length ?? 0) - 1)
+                : taskList.taskCount,
             });
             if (!deleted.parentId) {
               const taskPages = new Map(state.taskPages);
-              const page = taskPages.get(id);
               if (page) taskPages.set(id, { ...page, totalCount: Math.max(0, page.totalCount - 1) });
               return { taskLists: newCache, taskPages };
             }

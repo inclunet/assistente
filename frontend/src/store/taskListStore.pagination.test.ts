@@ -119,6 +119,23 @@ describe('taskListStore pagination', () => {
     expect(useTaskListStore.getState().taskLists.get('list-a')?.taskCount).toBe(2634);
   });
 
+  it('preserva a contagem do catálogo ao carregar a primeira página', async () => {
+    getAllTaskLists.mockResolvedValue([{ ...backendList(), task_count: 2634 }]);
+    getTaskListPage.mockResolvedValue({
+      task_list: backendList(),
+      tasks: Array.from({ length: 100 }, (_, index) => backendTask(`task-${index}`, index)),
+      next_cursor: 'cursor-100',
+      has_more: true,
+      total_count: 2634,
+    });
+
+    await useTaskListStore.getState().fetchAllTaskLists();
+    await useTaskListStore.getState().loadTaskList('list-a');
+
+    expect(useTaskListStore.getState().taskLists.get('list-a')?.taskCount).toBe(2634);
+    expect(getTaskListPage).toHaveBeenCalledTimes(1);
+  });
+
   it('preserva páginas carregadas quando evento traz somente metadados', async () => {
     getTaskListPage.mockResolvedValueOnce({
       task_list: backendList(),
