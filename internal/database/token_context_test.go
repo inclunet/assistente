@@ -147,14 +147,17 @@ func TestGetDetailedTokenStats_CountsCanonicalToolInvocation(t *testing.T) {
 		t.Fatalf("create final assistant message: %v", err)
 	}
 	if err := db.Create(&ToolInvocation{
-		UserID:        testUserID,
-		ToolCatalogID: tool.ID,
-		OriginType:    "chat",
-		OriginID:      finalAssistant.ID,
-		ToolCallID:    "call-search",
-		Status:        "succeeded",
-		Metadata:      `{"display":{"version":1,"iteration":0,"name":"search","arguments":"{}"}}`,
-		QueuedAt:      time.Now(),
+		UserID:         testUserID,
+		ToolCatalogID:  tool.ID,
+		OriginType:     "chat",
+		OriginID:       finalAssistant.ID,
+		ConversationID: &conv.ID,
+		TurnID:         &turnID,
+		ToolCallID:     "call-search",
+		Status:         "succeeded",
+		Metadata:       `{"display":{"version":1,"iteration":0,"name":"search","arguments":"{}"}}`,
+		ModelIteration: 0,
+		QueuedAt:       time.Now(),
 	}).Error; err != nil {
 		t.Fatalf("create tool invocation: %v", err)
 	}
@@ -222,7 +225,7 @@ func TestGetTurnTokenStatsContaSomenteLedgerCanonico(t *testing.T) {
 	if err := db.Create(&ToolInvocation{
 		UserID: testUserID, ToolCatalogID: tool.ID, OriginType: "chat", OriginID: newTurnID,
 		ConversationID: &conv.ID, TurnID: &newTurnID, ToolCallID: "call-new",
-		Status: "succeeded", Metadata: `{"display":{"iteration":0}}`, QueuedAt: time.Now(),
+		Status: "succeeded", Metadata: `{"display":{"iteration":0}}`, ModelIteration: 0, QueuedAt: time.Now(),
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -257,8 +260,8 @@ func TestGetTurnTokenStatsContaSomenteLedgerCanonico(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if legacyStats.ModelCallCount != 1 {
-		t.Fatalf("contagem canônica inesperada: %d", legacyStats.ModelCallCount)
+	if legacyStats.ModelCallCount != 0 {
+		t.Fatalf("invocação sem vínculos canônicos não deveria ser inferida de chat_messages: %d", legacyStats.ModelCallCount)
 	}
 }
 

@@ -38,6 +38,8 @@ type Invocation struct {
 	Input              json.RawMessage `json:"input,omitempty"`
 	Output             json.RawMessage `json:"output,omitempty"`
 	Metadata           json.RawMessage `json:"metadata,omitempty"`
+	ModelIteration     int             `json:"model_iteration,omitempty"`
+	External           bool            `json:"external,omitempty"`
 	DisplayName        string          `json:"display_name,omitempty"`
 	InputPreview       string          `json:"input_preview,omitempty"`
 	OutputPreview      string          `json:"output_preview,omitempty"`

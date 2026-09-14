@@ -1,6 +1,6 @@
 # AEP-0059: Performance de Conversas Longas
 
-## Status: In Progress — janela, timeline e detalhes lazy de tools entregues; demais conteúdos pesados seguem pendentes
+## Status: In Progress — janela, timeline, detalhes lazy e contagem indexada de tools entregues; demais conteúdos pesados seguem pendentes
 
 ## Relação com a AEP-0056
 
@@ -159,6 +159,9 @@ A lista virtualizada deve manter experiência consistente para teclado e leitor 
 - Medir tempo de carregamento, transformação e renderização em conversas sintéticas de 100, 500 e 1000 mensagens.
 - Definir limites internos para janela inicial, paginação e ativação de virtualização.
 - Criar fixture/testes de performance funcional para conversa longa.
+- [x] Remover parsing de metadata JSON da contagem de chamadas ao modelo:
+  a migração v20 materializa iteração/origem externa no ledger, e benchmarks
+  com 20.000 invocações exigem contagem média abaixo de 100 ms.
 
 ### Fase 2 — Janela por sessão ✅
 
@@ -285,6 +288,9 @@ Critério prático:
 - [x] Turnos com tool calls são um único item acessível.
 - [x] Janela e `turnPatch` não carregam input/output integral de tools.
 - [x] Detalhes de invocações são carregados em batch user-scoped, sem N+1.
+- [x] Contagem de model calls usa somente o ledger materializado e índices por
+  conversa/turno, com paridade semântica, isolamento multiusuário, plano sem
+  full scan/JSON e orçamento reproduzível de 100 ms para 20.000 invocações.
 
 Evidências entregues: `internal/app/db_message_window_test.go`,
 `internal/chat/timeline_test.go`,
@@ -292,4 +298,5 @@ Evidências entregues: `internal/app/db_message_window_test.go`,
 `ChatSessionContext.test.tsx`, `ChatSessionView.test.tsx`,
 `internal/toolinvocations/projection_read_test.go`,
 `internal/app/db_message_window_benchmark_test.go` e
-`frontend/src/components/chat/ToolCallsSection.test.tsx`.
+`frontend/src/components/chat/ToolCallsSection.test.tsx`,
+`internal/database/token_repository_performance_test.go`.

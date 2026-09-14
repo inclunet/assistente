@@ -14,36 +14,6 @@ type TokenRepository struct {
 	db *gorm.DB
 }
 
-const toolInvocationConversationPredicate = `(
-	tool_invocations.conversation_id = ?
-	OR (
-		tool_invocations.conversation_id IS NULL
-		AND EXISTS (
-			SELECT 1
-			FROM chat_messages legacy_message
-			JOIN conversations legacy_conversation
-				ON legacy_conversation.id = legacy_message.conversation_id
-				AND legacy_conversation.user_id = tool_invocations.user_id
-			WHERE legacy_message.id = tool_invocations.origin_id
-				AND legacy_message.conversation_id = ?
-		)
-	)
-)`
-
-const toolInvocationResolvedTurnSQL = `COALESCE(
-	tool_invocations.turn_id,
-	(
-		SELECT COALESCE(legacy_message.turn_id, legacy_message.id)
-		FROM chat_messages legacy_message
-		JOIN conversations legacy_conversation
-			ON legacy_conversation.id = legacy_message.conversation_id
-			AND legacy_conversation.user_id = tool_invocations.user_id
-		WHERE legacy_message.id = tool_invocations.origin_id
-		LIMIT 1
-	),
-	tool_invocations.origin_id
-)`
-
 func modelCallCountSelect(_ *gorm.DB) string {
 	return "COALESCE(SUM(CASE WHEN chat_messages.role = 'assistant' AND chat_messages.total_tokens > 0 THEN 1 ELSE 0 END), 0) as model_call_count"
 }
@@ -58,32 +28,20 @@ func countCanonicalToolModelCalls(ctx context.Context, database *gorm.DB, userID
 	}
 	query := database.WithContext(ctx).
 		Model(&ToolInvocation{}).
-		Select(`tool_invocations.origin_id,
-			COALESCE(
-				CASE WHEN json_valid(tool_invocations.metadata)
-					THEN json_extract(tool_invocations.metadata, '$.display.iteration')
-				END,
-				0
-			) AS model_iteration`).
+		Select("tool_invocations.origin_id, tool_invocations.model_iteration").
 		Where(
 			`tool_invocations.user_id = ?
-				AND `+toolInvocationConversationPredicate+`
+				AND tool_invocations.conversation_id = ?
 				AND tool_invocations.origin_type = 'chat'
 				AND TRIM(tool_invocations.tool_call_id) <> ''
-				AND COALESCE(
-					CASE WHEN json_valid(tool_invocations.metadata)
-						THEN json_extract(tool_invocations.metadata, '$.external')
-					END,
-					0
-				) = 0`,
+				AND tool_invocations.external = 0`,
 			userID,
-			conversationID,
 			conversationID,
 		)
 	if strings.TrimSpace(turnID) != "" {
-		query = query.Where(toolInvocationResolvedTurnSQL+" = ?", strings.TrimSpace(turnID))
+		query = query.Where("tool_invocations.turn_id = ?", strings.TrimSpace(turnID))
 	}
-	query = query.Group("tool_invocations.origin_id, model_iteration")
+	query = query.Group("tool_invocations.origin_id, tool_invocations.model_iteration")
 
 	var count int64
 	if err := database.Table("(?) AS canonical_model_calls", query).Count(&count).Error; err != nil {
@@ -478,9 +436,8 @@ func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, 
 			Select("tool_invocations.tool_call_id, tool_invocations.metadata, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name").
 			Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
 			Where(
-				"tool_invocations.user_id = ? AND "+toolInvocationConversationPredicate+" AND tool_invocations.origin_type = ? AND tool_invocations.tool_call_id <> ''",
+				"tool_invocations.user_id = ? AND tool_invocations.conversation_id = ? AND tool_invocations.origin_type = ? AND tool_invocations.tool_call_id <> ''",
 				userID,
-				conversationID,
 				conversationID,
 				"chat",
 			).

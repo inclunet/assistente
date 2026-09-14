@@ -332,7 +332,8 @@ func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
 				Arguments: `{"value":"ok"}`,
 			},
 		},
-		Origin: Origin{Type: OriginChat, ID: "turn-1"},
+		Origin:    Origin{Type: OriginChat, ID: "turn-1"},
+		Iteration: 4,
 	})
 	if result.Execution.Result.IsError {
 		t.Fatalf("execution returned error: %s", result.Execution.Result.Content)
@@ -346,6 +347,7 @@ func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
 	}
 	if got.Status != StatusSucceeded || got.ToolCallID != "call-1" || got.OriginID != "turn-1" ||
 		got.ConversationID != "conv-a" || got.TurnID != "turn-1" || got.Attempt != 1 ||
+		got.ModelIteration != 4 || got.External ||
 		got.InputHash == "" || got.OutputHash == "" || got.ResultAvailability != "available" {
 		t.Fatalf("unexpected invocation: %#v", got)
 	}
@@ -979,6 +981,7 @@ func TestRecordTreatsNonNoneErrorKindAsFailed(t *testing.T) {
 		Retryable:         false,
 		RetryabilityKnown: true,
 		DurationMs:        1,
+		Iteration:         6,
 	})
 	if err != nil {
 		t.Fatalf("record: %v", err)
@@ -996,6 +999,8 @@ func TestRecordTreatsNonNoneErrorKindAsFailed(t *testing.T) {
 		persisted.Retryable ||
 		persisted.ConversationID != "conv-a" ||
 		persisted.TurnID != "turn-rec" ||
+		persisted.ModelIteration != 6 ||
+		!persisted.External ||
 		persisted.InputHash == "" ||
 		persisted.OutputHash == "" {
 		t.Fatalf("structured record fields were not preserved: %#v", persisted)
