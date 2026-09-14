@@ -39,6 +39,10 @@ type ChatParams = llm.ChatParams
 type SystemPromptBuilder interface {
 	BuildWithContextBlocks(messages []llm.Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any, contextBlocks []contextprovider.Block) []llm.Message
 	BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData
+	// ApplySkillToolScope reprojeta os campos de seleção de tools do TemplateData
+	// sob a allowlist/denylist do skill invocado, para o system prompt refletir o
+	// MESMO conjunto de tools que vai nas definitions do turno.
+	ApplySkillToolScope(data TemplateData, skillAllowed, skillDenied []string) TemplateData
 }
 
 type WorkspaceProvider interface {
@@ -810,6 +814,25 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		invokedSkillSlug = pendingInvokedSkillSlug
 		invokedScope = pendingInvokedScope
 		invokedExecutionContext = pendingInvokedExecutionContext
+		// Alinha o system prompt ao escopo de tools do skill efetivamente ativo no
+		// turno. O escopo só é "commitado" (invokedExecutionContext) quando a skill
+		// é de fato injetada; usar essa MESMA condição garante que o protocolo
+		// catalog-first e a lista de tools anunciada no prompt reflitam exatamente
+		// as tools que vão nas definitions (send_message também usa
+		// invokedExecutionContext). Sem isso o prompt poderia instruir o uso de uma
+		// tool (ex.: tool_catalog) já removida das defs pelo applySkillScope.
+		if i.promptBuilder != nil && invokedExecutionContext != nil &&
+			(len(invokedExecutionContext.AllowedTools) > 0 || len(invokedExecutionContext.DeniedTools) > 0) {
+			scopedTplData := i.promptBuilder.ApplySkillToolScope(skillTplData, invokedExecutionContext.AllowedTools, invokedExecutionContext.DeniedTools)
+			if toolSelectionChanged(skillTplData, scopedTplData) {
+				skillTplData = scopedTplData
+				// Só o bloco tool_protocol depende da seleção de tools; os demais
+				// blocos (inclusive slash_skill) independem dela, então rebuildar
+				// aqui mantém slashSkillInjected válido e apenas reprojeta o
+				// protocolo/lista de tools conforme o escopo do skill.
+				contextBlocks = i.buildDynamicContext(ctx, skillTplData, req.UserContent, req.ConversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, req.ActiveProfile)
+			}
+		}
 		if strings.TrimSpace(slashSkillContent) != "" && i.emitter != nil {
 			i.emitter.Emit("chat:skill_loaded", ports.SkillLoadedEvent{
 				ConversationID: req.ConversationID,
@@ -1030,6 +1053,25 @@ func enabledSkillList(activeProfile *profiles.Profile) []string {
 		return nil
 	}
 	return activeProfile.Chat.EnabledSkills
+}
+
+// toolSelectionChanged reporta se a reprojeção sob o escopo do skill alterou a
+// seleção de tools relevante para o system prompt (lista, contagem, tool calling
+// e status de indisponibilidade). Evita rebuildar o contexto quando o escopo do
+// skill não muda nada (ex.: allowlist que já cobre todas as tools do perfil).
+func toolSelectionChanged(before, after TemplateData) bool {
+	if before.ToolCallingEnabled != after.ToolCallingEnabled ||
+		before.EnabledToolCount != after.EnabledToolCount ||
+		before.ImplicitToolSelectionUnavailable != after.ImplicitToolSelectionUnavailable ||
+		len(before.EnabledTools) != len(after.EnabledTools) {
+		return true
+	}
+	for idx := range before.EnabledTools {
+		if before.EnabledTools[idx] != after.EnabledTools[idx] {
+			return true
+		}
+	}
+	return false
 }
 
 func hasContextBlock(blocks []contextprovider.Block, provider string, name string) bool {
