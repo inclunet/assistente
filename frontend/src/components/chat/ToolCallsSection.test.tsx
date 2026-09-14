@@ -1,6 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ToolCallsSection } from './ToolCallsSection';
+import { axe } from '../../test/a11yAxe';
+
+const loadDetails = vi.fn();
+
+vi.mock('../../services/toolInvocationDetailsCache', () => ({
+  loadToolInvocationDetails: (...args: unknown[]) => loadDetails(...args),
+}));
+
+vi.mock('../../store/authStore', () => ({
+  useAuthStore: (selector: (state: { user: { userId: string } }) => unknown) =>
+    selector({ user: { userId: 'user-a' } }),
+}));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -44,6 +56,61 @@ describe('ToolCallsSection', () => {
     fireEvent.click(screen.getByRole('button'));
     expect(screen.getAllByText('fetch')).toHaveLength(2);
     expect(screen.getByRole('button', { name: /chat.showAll/i })).toBeInTheDocument();
+  });
+
+  it('carrega detalhes somente ao expandir a invocação persistida', async () => {
+    loadDetails.mockResolvedValue(new Map([['inv-1', {
+      invocationId: 'inv-1',
+      input: '{"q":"integral"}',
+      output: '{"content":"resultado integral"}',
+      metadata: '{}',
+    }]]));
+    render(
+      <ToolCallsSection
+        tabNavigationEnabled
+        toolInvocations={[{
+          invocationId: 'inv-1',
+          callId: 'call-1',
+          name: 'search',
+          status: 'succeeded',
+          inputPreview: '{"q":"[redacted]"}',
+          outputPreview: 'prévia',
+          hasDetails: true,
+          resultAvailability: 'available',
+        }]}
+      />,
+    );
+
+    expect(loadDetails).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /search/i }));
+    expect(screen.getByText('prévia')).toBeInTheDocument();
+    const detailsButton = screen.getByRole('button', { name: 'chat.showAll' });
+    expect(detailsButton).toHaveAttribute('tabindex', '0');
+    fireEvent.click(detailsButton);
+
+    await waitFor(() => expect(loadDetails).toHaveBeenCalledWith('user-a', ['inv-1']));
+    expect(await screen.findByText('resultado integral')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'chat.showLess' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('não introduz violações axe no resumo persistido expandido', async () => {
+    const { container } = render(
+      <ToolCallsSection
+        tabNavigationEnabled
+        toolInvocations={[{
+          invocationId: 'inv-axe',
+          callId: 'call-axe',
+          name: 'search',
+          status: 'succeeded',
+          inputPreview: '{"fields":["q"]}',
+          outputPreview: '{"bytes":42}',
+          hasDetails: true,
+          resultAvailability: 'available',
+        }]}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /search/i }));
+    expect(await axe(container)).toHaveNoViolations();
   });
 
   it('renderiza badges de origem e duração (AEP-0039 Fase 5)', () => {

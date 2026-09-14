@@ -4,9 +4,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import { MessageOutlined } from '@ant-design/icons';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
-import { MessageNode, Message, TurnSegment } from '../../store/chatStore';
-import { getMessageTurnSegments } from '../../lib/chatMessageTree';
-import { chat } from '../../../wailsjs/go/models';
+import { MessageNode, Message } from '../../store/chatStore';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import { getTimelineNodeKey, isPersistedTimelineNode, type MessageWindowState } from '../../services/chatSessionRegistry';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -59,154 +57,6 @@ const VIRTUALIZATION_THRESHOLD = 40;
 const ESTIMATED_MESSAGE_HEIGHT = 140;
 /** Quantos itens extras renderizar acima/abaixo da viewport. */
 const VIRTUAL_OVERSCAN = 6;
-
-/**
- * Consolida mensagens de turnos de tool calling em entradas únicas com
- * segments intercalados (texto → tools → texto → tools → resposta final).
- *
- * No agentic loop, um único turno gera múltiplas mensagens no banco:
- *   1. Assistant com toolCalls (intermediária)
- *   2. Tool results (role=tool)
- *   3. Assistant com toolCalls (outra iteração)
- *   4. Tool results...
- *   5. Assistant final (resposta)
- *
- * Produz UMA entrada visual com `_turnSegments` que preserva a ordem
- * cronológica: [text, tool_calls, text, tool_calls, ..., text].
- */
-function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
-  if (!nodes || nodes.length === 0) return nodes;
-
-  const turnMap = new Map<string, MessageNode[]>();
-
-  for (const node of nodes) {
-    const turnId = node.message.turnId;
-    if (turnId) {
-      if (!turnMap.has(turnId)) turnMap.set(turnId, []);
-      turnMap.get(turnId)!.push(node);
-    }
-  }
-
-  const hasSplitTurns = Array.from(turnMap.values()).some((turnNodes) => turnNodes.length > 1);
-  if (!hasSplitTurns) return nodes;
-
-  const processedTurnIds = new Set<string>();
-  const result: MessageNode[] = [];
-
-  for (const node of nodes) {
-    const turnId = node.message.turnId;
-
-    if (!turnId) {
-      result.push(node);
-      continue;
-    }
-
-    if (node.message.role === 'tool') continue;
-    if (processedTurnIds.has(turnId)) continue;
-    processedTurnIds.add(turnId);
-
-    const turnNodes = turnMap.get(turnId) || [];
-
-    // Index tool results by toolCallId
-    const toolResults = new Map<string, string>();
-    for (const tn of turnNodes) {
-      if (tn.message.role === 'tool' && tn.message.toolCallId) {
-        toolResults.set(tn.message.toolCallId, tn.message.content || '');
-      }
-    }
-
-    // Build segments in chronological order from assistant messages.
-    // Backend-provided segments are canonical; locally derived segments only cover transient split nodes.
-    const canonicalSegments: TurnSegment[] = [];
-    const derivedSegments: TurnSegment[] = [];
-    const allToolCalls: unknown[] = [];
-    let finalContent = '';
-    let finalReasoning = '';
-    let finalNode = node;
-
-    for (const tn of turnNodes) {
-      if (tn.message.role !== 'assistant') continue;
-      finalNode = tn;
-      const existingSegments = getMessageTurnSegments(tn.message as Message);
-      const hasCanonicalSegments = !!(existingSegments && existingSegments.length > 0);
-      if (hasCanonicalSegments) {
-        canonicalSegments.push(...(existingSegments as TurnSegment[]));
-      }
-
-      // Text segment (intermediate reasoning or final answer)
-      if (tn.message.content && !hasCanonicalSegments) {
-        derivedSegments.push({ type: 'text', content: tn.message.content });
-        finalContent = tn.message.content;
-      } else if (tn.message.content) {
-        finalContent = tn.message.content;
-      }
-
-      // Tool calls segment (enriched with results)
-      if (tn.message.toolCalls) {
-        try {
-          const parsed = JSON.parse(tn.message.toolCalls);
-          const calls = Array.isArray(parsed) ? parsed : [parsed];
-          const enrichedCalls = calls.map((call) => {
-            const callRecord = (typeof call === 'object' && call !== null)
-              ? (call as Record<string, unknown>)
-              : {};
-            const callId = String(callRecord.id ?? '');
-            const type = String(callRecord.type ?? 'function');
-            const func = callRecord.function as { name?: unknown; arguments?: unknown } | undefined;
-            const fnName = String(func?.name ?? callRecord.name ?? '');
-            const fnArgs = String(func?.arguments ?? callRecord.arguments ?? '');
-
-            return {
-              id: callId,
-              type,
-              function: { name: fnName, arguments: fnArgs },
-              result: callId ? toolResults.get(callId) ?? undefined : undefined,
-            };
-          });
-          if (!hasCanonicalSegments) {
-            derivedSegments.push({ type: 'tool_calls', toolCalls: enrichedCalls });
-          }
-          allToolCalls.push(...enrichedCalls);
-        } catch {
-          // Invalid local toolCalls payload; skip this derived segment in render.
-        }
-      }
-
-      if (tn.message.reasoning) {
-        finalReasoning = tn.message.reasoning;
-      }
-    }
-
-    const consolidatedMessage = chat.EnrichedMessage.createFrom({
-      ...finalNode.message,
-      content: finalContent,
-      reasoning: finalReasoning || finalNode.message.reasoning || '',
-      toolCalls: allToolCalls.length > 0 ? JSON.stringify(allToolCalls) : undefined,
-    });
-
-    const consolidated = chat.MessageNode.createFrom({
-      ...finalNode,
-      message: consolidatedMessage,
-    }) as MessageNode;
-    const firstOriginalIndex = turnNodes
-      .map((turnNode) => turnNode.originalIndex)
-      .find((index): index is number => index !== undefined);
-    consolidated.originalIndex = firstOriginalIndex ?? finalNode.originalIndex;
-
-    const segments = canonicalSegments.length > 0
-      ? [...canonicalSegments, ...derivedSegments]
-      : derivedSegments;
-
-    // Backend-provided segments are preserved even when a transient sibling temporarily splits the turn.
-    if (canonicalSegments.length > 0 || segments.length > 1) {
-      (consolidated.message as Message)._turnSegments = segments;
-    }
-
-    result.push(consolidated);
-  }
-
-  return result;
-}
 
 const isPersistedMessageNode = (node: MessageNode | undefined): boolean => {
   if (!node) return false;
@@ -288,10 +138,10 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     }
   }, [announceRequest, effectiveLoadingText, isLoading, origin]);
 
-  // Fallback transitório: o backend já retorna timeline items canônicos;
-  // durante streaming ainda podem existir múltiplos nós locais do mesmo turnId.
+  // A timeline e o turnPatch já chegam consolidados pelo backend. Mensagens
+  // role=tool existem somente no contexto transitório do loop, nunca na UI.
   const displayMessages = useMemo(
-    () => consolidateTurnMessages(threadedMessages),
+    () => threadedMessages.filter((node) => node.message.role !== 'tool'),
     [threadedMessages]
   );
   const canLoadNewerFromDisplayEnd = isPersistedMessageNode(displayMessages[displayMessages.length - 1]);

@@ -2,7 +2,7 @@
  * Origem de uma ferramenta nos eventos de chat (AEP-0039, AEP-0084 D7).
  * `acp_agent` marca ferramentas que um agente externo rodou por conta própria.
  */
-export type ToolOrigin = 'builtin' | 'mcp_bridge' | 'mcp_native' | 'acp_agent';
+export type ToolOrigin = 'builtin' | 'mcp_bridge' | 'mcp_native' | 'acp_agent' | 'archival';
 
 const APP_TOOL_ORIGINS: ReadonlySet<string> = new Set<ToolOrigin>(['builtin', 'mcp_bridge', 'mcp_native']);
 

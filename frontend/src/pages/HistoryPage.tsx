@@ -22,6 +22,7 @@ import {
   SearchConversationHistory,
 } from '@wailsjs/go/wailsapi/Conversations';
 import { portability } from '@wailsjs/go/models';
+import { clearToolInvocationDetailsCache } from '../services/toolInvocationDetailsCache';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -349,6 +350,7 @@ export default function HistoryPage() {
       if (!ok) return;
 
       const deletedIds = await DeleteConversations(ids);
+      clearToolInvocationDetailsCache();
       // Respostas iniciadas antes do commit não podem repor linhas excluídas.
       loadRequestRef.current += 1;
       searchRequestRef.current += 1;

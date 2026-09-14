@@ -26,6 +26,7 @@ import { announceWithOrigin } from './voiceAccessibility/announcerBroker';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
 import type { ChatSurfaceOrigin, MessageWindowState } from './chatSessionRegistry';
 import { clearChatTurnRoutes, createChatTurnEventRouter } from './chatEventHub';
+import { invalidateToolInvocationDetails } from './toolInvocationDetailsCache';
 
 const translateBackendChatError = (message: string) => {
   if (message === 'assistant_placeholder_error') {
@@ -174,7 +175,6 @@ interface ChatTurnPatch {
     turnId: string;
     content: string;
     reasoning?: string;
-    toolCalls?: string;
     promptTokens?: number;
     completionTokens?: number;
     totalTokens?: number;
@@ -427,6 +427,12 @@ export function startChatEventController({
   const applyTurnPatch = (patch?: ChatTurnPatch) => {
     if (!patch?.message || patch.message.conversationId !== conversationId) return;
     if (currentTurnId && patch.message.turnId !== currentTurnId) return;
+    invalidateToolInvocationDetails(
+      (patch.message.turnSegments ?? [])
+        .flatMap((segment) => segment.toolInvocations ?? [])
+        .map((invocation) => invocation.invocationId ?? '')
+        .filter(Boolean),
+    );
     const persistedMessage = new chat.EnrichedMessage({
       ...patch.message,
       role: 'assistant',

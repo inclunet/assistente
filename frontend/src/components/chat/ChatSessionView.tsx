@@ -7,6 +7,7 @@ import { useEditorStore } from '../../store/editorStore';
 import { useChatStore } from '../../store/chatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { ttsService } from '../../services/tts';
+import { clearToolInvocationDetailsCache } from '../../services/toolInvocationDetailsCache';
 import { MessageList, type MessageWindowLoadTrigger } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatToolbar, type ChatToolbarConversationChangeHandler } from './ChatToolbar';
@@ -484,6 +485,7 @@ function ChatSessionViewContent({
       if (!isBackendId(messageId)) return;
       try {
         await DeleteMessage(messageId);
+        clearToolInvocationDetailsCache();
         announce(t('chat.announce.messageDeleted'));
         const conv = getSessionConversation();
         if (conv?.id) {

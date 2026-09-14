@@ -1,16 +1,38 @@
 import { chat } from '../../wailsjs/go/models';
 import type { ToolOrigin } from '../types/chat';
 
+export interface ToolInvocationSummary {
+  invocationId?: string;
+  callId: string;
+  name: string;
+  origin?: ToolOrigin;
+  serverLabel?: string;
+  status: string;
+  iteration?: number;
+  durationMs?: number;
+  inputPreview?: string;
+  outputPreview?: string;
+  inputBytes?: number;
+  outputBytes?: number;
+  hasDetails: boolean;
+  resultAvailability: string;
+}
+
+export interface StreamingToolCall {
+  id: string;
+  type: string;
+  function: { name: string; arguments: string };
+  result?: string;
+  origin?: ToolOrigin;
+}
+
 export interface TurnSegment {
   type: 'text' | 'tool_calls';
   content?: string;
-  toolCalls?: Array<{
-    id: string;
-    type: string;
-    function: { name: string; arguments: string };
-    result?: string;
-    origin?: ToolOrigin;
-  }>;
+  /** Projeção leve persistida; detalhes são carregados sob demanda. */
+  toolInvocations?: ToolInvocationSummary[];
+  /** Estado transitório enquanto o turno ainda está em streaming. */
+  toolCalls?: StreamingToolCall[];
 }
 
 export type MessageNode = chat.MessageNode & {
