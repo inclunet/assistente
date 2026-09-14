@@ -42,14 +42,6 @@ func testAuthenticatedRequestLogout(t *testing.T, coordinated bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	principal, err := sessions.AuthenticateLocalAccess(ctx, pair.AccessToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := epochs.Capture(ctx, principal.UserID, principal.SessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	manager := credentials.NewManager(bytes.Repeat([]byte{2}, 32))
 	if err := manager.RegisterInstanceSecret("internal-auth:command-request-hmac:v1", base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{3}, 32))); err != nil {
 		t.Fatal(err)
@@ -58,33 +50,41 @@ func testAuthenticatedRequestLogout(t *testing.T, coordinated bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A borda de teste não recebe user_id/session_id. As gerações vêm do
-	// EpochService; o lifecycle do host real ainda não está conectado.
-	reserve := func(token string) (Reservation, error) {
-		principal, err := sessions.AuthenticateLocalAccess(ctx, token)
+	reserve := func(token string) (Reservation, commandsecurity.EpochSnapshot, error) {
+		snapshot, err := epochs.CaptureAuthenticated(ctx, func(ctx context.Context) (string, string, error) {
+			principal, err := sessions.AuthenticateLocalAccess(ctx, token)
+			if err != nil {
+				return "", "", err
+			}
+			return principal.UserID, principal.SessionID, nil
+		})
 		if err != nil {
-			return Reservation{}, err
+			return Reservation{}, commandsecurity.EpochSnapshot{}, err
 		}
 		req := validRequest()
 		req.AuthGeneration = snapshot.AuthGeneration
 		req.SecurityGeneration = snapshot.SecurityGeneration
-		req.Owner = Owner{UserID: principal.UserID, AuthContextID: principal.SessionID}
+		req.Owner = Owner{UserID: snapshot.UserID, AuthContextID: snapshot.SessionID}
 		req.ReceivedAt = now
 		req.ExpiresAt = now.Add(time.Hour)
 		req.ArgumentsFingerprint, req.RequestFingerprint, req.RequestFingerprintVersion = "", "", ""
 		signed, err := SignLocalRead(ctx, req, "v1", keys)
 		if err != nil {
-			return Reservation{}, err
+			return Reservation{}, commandsecurity.EpochSnapshot{}, err
 		}
-		return store.Reserve(ctx, signed)
+		result, err := store.Reserve(ctx, signed)
+		if err != nil {
+			return Reservation{}, commandsecurity.EpochSnapshot{}, err
+		}
+		return result, snapshot, nil
 	}
-	result, err := reserve(pair.AccessToken)
+	result, snapshot, err := reserve(pair.AccessToken)
 	if err != nil || !result.Created || result.Record.Owner.UserID != user.ID || result.Record.Owner.AuthContextID != pair.SessionID {
 		t.Fatalf("identidade derivada incorreta: %v", err)
 	}
 	logout := func() error { return sessions.Logout(ctx, pair.RefreshToken) }
 	if coordinated {
-		err = epochs.MutatePrincipal(ctx, principal.UserID, principal.SessionID, logout)
+		err = epochs.MutatePrincipal(ctx, snapshot.UserID, snapshot.SessionID, logout)
 	} else {
 		err = logout()
 	}
@@ -94,8 +94,14 @@ func testAuthenticatedRequestLogout(t *testing.T, coordinated bool) {
 	// Sem coordenação, a consulta autoritativa recusa; com coordenação, o epoch
 	// já está obsoleto. Nenhum dos fluxos deve admitir handoff após logout.
 	err = epochs.Admit(ctx, snapshot, func(ctx context.Context) error {
-		_, err := sessions.AuthenticateLocalAccess(ctx, pair.AccessToken)
-		return err
+		principal, err := sessions.AuthenticateLocalAccess(ctx, pair.AccessToken)
+		if err != nil {
+			return err
+		}
+		if principal.UserID != snapshot.UserID || principal.SessionID != snapshot.SessionID {
+			return commandsecurity.ErrStaleEpoch
+		}
+		return nil
 	}, func() error { t.Fatal("handoff após logout"); return nil })
 	want := auth.ErrUnauthenticatedLocalSession
 	if coordinated {
@@ -107,7 +113,7 @@ func testAuthenticatedRequestLogout(t *testing.T, coordinated bool) {
 	if _, err := sessions.VerifyAccessToken(pair.AccessToken); err != nil {
 		t.Fatal("fixture deveria manter JWT criptograficamente válido")
 	}
-	denied, err := reserve(pair.AccessToken)
+	denied, _, err := reserve(pair.AccessToken)
 	if !errors.Is(err, auth.ErrUnauthenticatedLocalSession) || denied != (Reservation{}) {
 		t.Fatal("logout não bloqueou nova reserva")
 	}

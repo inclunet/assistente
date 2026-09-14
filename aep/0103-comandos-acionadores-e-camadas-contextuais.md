@@ -2127,6 +2127,21 @@ Testes focados do App verificam os hooks em falhas precoces e Logout real com
 sessão SQLite e keychain substituído por callbacks de teste. Permanecem pendentes
 outras origens de revogação, bloqueio do SO, executor e refinamento do refresh.
 
+`CaptureAuthenticated` fecha a janela entre autenticação local e captura de
+gerações: o callback confiável consulta a identidade autoritativa sob o mesmo
+gate exclusivo que publica o snapshot. Uma transição coordenada não pode entrar
+entre essas etapas. Callback inválido, identidade inválida, erro ou cancelamento
+não publicam snapshot nem sessão; transição aberta recusa antes da consulta.
+O callback deve fazer somente consulta local curta e não pode readquirir o gate,
+inicializar cofre, aguardar UI/rede ou executar handlers. A API anterior Capture
+permanece primitiva de baixo nível, não autenticação para requests de produto.
+O teste integrado de sessão/ledger deriva ownership e ambas as gerações da mesma
+captura em cada reserva e compara a identidade exata ao revalidar a admissão.
+Testes unitários verificam exclusão, cancelamento e liberação do gate em panic.
+Isso não concede autorização nem substitui os gates finais de fila/despacho;
+o executor de produto e a coordenação de todas as fontes de revogação continuam
+pendentes.
+
 Esta projeção não cobre comandos com argumentos, providers,
 receipts, delegação ou eventos e não habilita o executor de produto.
 

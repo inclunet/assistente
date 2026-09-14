@@ -56,15 +56,43 @@ func (s *EpochService) next() (string, error) {
 }
 
 // Capture só deve receber IDs já derivados do SessionService. Não chamar de
-// dentro de outro callback do gate (o lock não é reentrante).
+// dentro de outro callback do gate (o lock não é reentrante). Para preparar
+// solicitações, preferir CaptureAuthenticated: autenticar fora deste método
+// permite uma transição entre a leitura da identidade e a captura da geração.
 func (s *EpochService) Capture(ctx context.Context, userID, sessionID string) (EpochSnapshot, error) {
 	if !s.valid() || !epochID(userID) || !epochID(sessionID) {
+		return EpochSnapshot{}, ErrInvalidEpochInput
+	}
+	return s.CaptureAuthenticated(ctx, func(context.Context) (string, string, error) {
+		return userID, sessionID, nil
+	})
+}
+
+// CaptureAuthenticated deriva identidade e gerações na mesma seção exclusiva.
+// authenticate é fornecido pelo host confiável e deve consultar a sessão
+// autoritativa, nunca aceitar IDs do payload. Não chamar APIs deste gate no
+// callback, nem aguardar rede, cofre, UI ou handlers. A consulta local deve ser
+// curta e respeitar ctx. Mutações de segurança devem usar o mesmo gate.
+// O snapshot não é autorização: Admit ainda precisa revalidar identidade exata,
+// contexto e política antes do handoff. Erro/cancelamento não retorna snapshot.
+func (s *EpochService) CaptureAuthenticated(ctx context.Context, authenticate func(context.Context) (userID, sessionID string, err error)) (EpochSnapshot, error) {
+	if !s.valid() || authenticate == nil {
 		return EpochSnapshot{}, ErrInvalidEpochInput
 	}
 	var result EpochSnapshot
 	err := s.gate.WithMutation(ctx, func() error {
 		if s.disabled || s.transitions != 0 {
 			return ErrStaleEpoch
+		}
+		userID, sessionID, err := authenticate(ctx)
+		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !epochID(userID) || !epochID(sessionID) {
+			return ErrInvalidEpochInput
 		}
 		current, ok := s.sessions[sessionID]
 		if ok && current.user != userID {
