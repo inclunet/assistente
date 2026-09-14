@@ -276,6 +276,14 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     migrateToolLedgerPhysicalCutover,
 	},
+	{
+		Version: 20,
+		Name:    "tool_invocations_model_call_projection",
+		// PÓS: AutoMigrate adiciona as colunas materializadas antes do backfill
+		// e da criação dos índices parciais.
+		Phase: phasePostAutoMigrate,
+		Run:   migrateToolModelCallProjection,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
