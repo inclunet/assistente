@@ -31,7 +31,7 @@ func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *test
 	}
 	var emitted []map[string]any
 
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 		EmitEvent: func(event string, data any) {
@@ -144,7 +144,7 @@ func TestManagerDropsProducerEventWhenOnlyConsumerIsDisabled(t *testing.T) {
 		t.Fatalf("save disabled consumer: %v", err)
 	}
 
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ToolRegistry:    registry,
 		ContextProvider: func() context.Context { return userA },
@@ -171,7 +171,7 @@ func TestManagerDropsProducerEventWhenOnlyConsumerIsDisabled(t *testing.T) {
 }
 
 func TestManagerReconcileDisabledJobsUpdatesRegistrySchedulerAndEvent(t *testing.T) {
-	mgr := NewManager(ManagerConfig{})
+	mgr := mustNewManager(t, ManagerConfig{})
 	mgr.started = true
 	mgr.scheduler.Start()
 	t.Cleanup(mgr.scheduler.Stop)
@@ -208,7 +208,7 @@ func TestManagerReconcileDisabledJobsUpdatesRegistrySchedulerAndEvent(t *testing
 }
 
 func TestManagerSerializesTriggerMutations(t *testing.T) {
-	mgr := NewManager(ManagerConfig{})
+	mgr := mustNewManager(t, ManagerConfig{})
 	job := &Job{
 		ID: "serializado", Enabled: true, PipelineEnabled: true,
 		Triggers: []Trigger{{Type: TriggerInterval, Every: "1h"}},
@@ -247,7 +247,7 @@ func TestManagerGetToolCatalogIncludesDiscoverableOptIn(t *testing.T) {
 		params: json.RawMessage(`{"type":"object"}`),
 	})
 
-	mgr := NewManager(ManagerConfig{ToolRegistry: registry})
+	mgr := mustNewManager(t, ManagerConfig{ToolRegistry: registry})
 	catalog, err := mgr.GetToolCatalog()
 	if err != nil {
 		t.Fatalf("get catalog: %v", err)
@@ -281,7 +281,7 @@ func TestManagerGetToolCatalogDerivesMCPRegistryMetadata(t *testing.T) {
 		params: json.RawMessage(`{"type":"object"}`),
 	})
 
-	mgr := NewManager(ManagerConfig{ToolRegistry: registry})
+	mgr := mustNewManager(t, ManagerConfig{ToolRegistry: registry})
 	catalog, err := mgr.GetToolCatalog()
 	if err != nil {
 		t.Fatalf("get catalog: %v", err)
@@ -332,7 +332,7 @@ func TestManagerGetToolCatalogBackfillsEmptyMCPSchemaFromRegistry(t *testing.T) 
 
 	registry := tools.NewRegistry()
 	registry.MustRegister(&fakeTool{name: toolName, params: liveSchema})
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ToolRegistry:    registry,
 		ContextProvider: func() context.Context { return userA },
@@ -355,7 +355,7 @@ func TestManagerGetToolCatalogBackfillsEmptyMCPSchemaFromRegistry(t *testing.T) 
 
 func TestManagerSaveJobBeforeStartDoesNotScheduleInterval(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})
@@ -374,7 +374,7 @@ func TestManagerSaveJobBeforeStartDoesNotScheduleInterval(t *testing.T) {
 
 func TestManagerExecuteJobSkipsAutomaticMCPRunWhenToolUnavailable(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ToolRegistry:    tools.NewRegistry(),
 		ContextProvider: func() context.Context { return userA },
@@ -425,7 +425,7 @@ func TestEventTriggeredRunSurvivesPublisherContextCancellation(t *testing.T) {
 		t.Fatalf("save job: %v", err)
 	}
 
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ToolRegistry:    registry,
 		ContextProvider: func() context.Context { return userA },
@@ -480,7 +480,7 @@ func TestManagerGetJobContextReturnsCopy(t *testing.T) {
 		t.Fatalf("save job: %v", err)
 	}
 
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})
@@ -518,7 +518,7 @@ func TestManagerGetJobContextReturnsCopy(t *testing.T) {
 
 func TestManagerStopResetsCircuitBreakerState(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})
@@ -536,7 +536,7 @@ func TestManagerStopResetsCircuitBreakerState(t *testing.T) {
 
 func TestManagerContextFromUsesManagerUserScope(t *testing.T) {
 	repo, userA, userB := setupJobsRepositoryTest(t)
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})
@@ -554,7 +554,7 @@ func TestManagerContextFromUsesManagerUserScope(t *testing.T) {
 
 func TestManagerGetJobEventsReturnsFullDay(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})
@@ -582,7 +582,7 @@ func TestManagerGetJobEventsReturnsFullDay(t *testing.T) {
 
 func TestManagerGetJobEventsEmptyDateDefaultsToToday(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})

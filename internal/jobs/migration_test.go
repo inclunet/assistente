@@ -9,7 +9,7 @@ import (
 func TestImportLegacyDefinitionsImportsDefinitionsOnlyIdempotently(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
 	dir := t.TempDir()
-	mgr := NewManager(ManagerConfig{BaseDir: dir, Repository: repo})
+	mgr := mustNewManager(t, ManagerConfig{BaseDir: dir, Repository: repo})
 
 	writeFile := func(name, content string) {
 		t.Helper()

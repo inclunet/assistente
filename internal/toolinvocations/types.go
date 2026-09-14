@@ -67,7 +67,12 @@ type Origin struct {
 }
 
 type ExecuteRequest struct {
-	Call               tools.ToolCall
+	Call tools.ToolCall
+	// PersistedArguments substitui apenas os argumentos gravados no ledger e
+	// no snapshot de exibição. A execução continua usando Call sem alteração.
+	// Chamadores que resolvem templates secretos devem fornecer a versão
+	// explicitamente redigida.
+	PersistedArguments *string
 	Origin             Origin
 	ParentInvocationID string
 	ToolCatalogID      string
@@ -99,11 +104,14 @@ type ExecuteResult struct {
 // RecordRequest registra uma invocação já executada fora do executor comum
 // (ex.: MCP nativo), persistindo input/output/status no mesmo formato.
 type RecordRequest struct {
-	Call          tools.ToolCall
-	Origin        Origin
-	ToolCatalogID string
-	DryRun        bool
-	Iteration     int
+	Call tools.ToolCall
+	// PersistedArguments tem a mesma semântica de ExecuteRequest: substitui
+	// somente o snapshot persistido, nunca o payload já executado.
+	PersistedArguments *string
+	Origin             Origin
+	ToolCatalogID      string
+	DryRun             bool
+	Iteration          int
 
 	Result            tools.ToolResult
 	ErrorKind         tools.ErrorKind

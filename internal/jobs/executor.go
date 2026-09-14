@@ -62,8 +62,17 @@ type ExecutorConfig struct {
 	OnRunEnd        func(jobID string, runLog *RunLog)
 }
 
-// NewJobExecutor cria um executor com as dependencias fornecidas.
-func NewJobExecutor(cfg ExecutorConfig) *JobExecutor {
+// NewJobExecutor cria um executor com as dependências fornecidas.
+//
+// O ledger é obrigatório: nenhuma instância capaz de executar uma tool pode ser
+// montada sem registrar a invocação canônica antes do primeiro efeito.
+func NewJobExecutor(cfg ExecutorConfig) (*JobExecutor, error) {
+	if cfg.ToolRegistry == nil {
+		return nil, errors.New("job executor: tool registry not configured")
+	}
+	if cfg.ToolInvocations == nil {
+		return nil, errors.New("job executor: tool invocation ledger not configured")
+	}
 	return &JobExecutor{
 		toolRegistry:    cfg.ToolRegistry,
 		toolInvocations: cfg.ToolInvocations,
@@ -74,7 +83,7 @@ func NewJobExecutor(cfg ExecutorConfig) *JobExecutor {
 		notifyFunc:      cfg.NotifyFunc,
 		onRunStart:      cfg.OnRunStart,
 		onRunEnd:        cfg.OnRunEnd,
-	}
+	}, nil
 }
 
 // TriggerContext carrega informacoes do trigger que disparou a execucao.
@@ -190,9 +199,17 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 	// Dry run: retorna mock output sem executar a tool
 	if job.DryRun.Enabled {
 		rl.IsDryRun = true
+		rl.ToolName = job.Tool
+		rl.ResolvedInputs = RedactResolvedInputs(job.Inputs, job.Inputs)
 		rl.Output = job.DryRun.MockOutput
-		rl.Status = "completed"
 		rl.OutputSize = estimateSize(job.DryRun.MockOutput)
+		if err := e.recordMockDryRun(ctx, job, rl); err != nil {
+			rl.Status = "failed"
+			rl.Error = err.Error()
+			e.emitFailure(ctx, job, rl, trigCtx)
+			return rl
+		}
+		rl.Status = "completed"
 		e.emitSuccess(ctx, job, rl, trigCtx)
 		return rl
 	}
@@ -271,6 +288,39 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 
 	e.emitFailure(ctx, job, rl, trigCtx)
 	return rl
+}
+
+func (e *JobExecutor) recordMockDryRun(ctx context.Context, job *Job, rl *RunLog) error {
+	if e.toolInvocations == nil {
+		return errors.New("tool invocation ledger not configured")
+	}
+	input, err := json.Marshal(rl.ResolvedInputs)
+	if err != nil {
+		return fmt.Errorf("marshal mock dry-run inputs: %w", err)
+	}
+	output, err := json.Marshal(job.DryRun.MockOutput)
+	if err != nil {
+		return fmt.Errorf("marshal mock dry-run output: %w", err)
+	}
+	persistedArguments := string(input)
+	_, err = e.toolInvocations.Record(ctx, toolinvocations.RecordRequest{
+		Call: tools.ToolCall{
+			ID:   fmt.Sprintf("%s_tool", rl.RunID),
+			Type: "function",
+			Function: tools.FunctionCall{
+				Name:      job.Tool,
+				Arguments: persistedArguments,
+			},
+		},
+		PersistedArguments: &persistedArguments,
+		Origin:             toolinvocations.Origin{Type: toolinvocations.OriginJobRun, ID: rl.RunID},
+		DryRun:             true,
+		Result:             tools.ToolResult{Content: string(output)},
+	})
+	if err != nil {
+		return fmt.Errorf("record mock dry-run invocation: %w", err)
+	}
+	return nil
 }
 
 // ExecuteDryRun executa um job em modo dry run, ignorando a flag do YAML.
@@ -371,9 +421,10 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 
 	resolvedInputs = CoerceInputs(resolvedInputs, tool.Parameters())
 
+	persistedInputs := RedactResolvedInputs(job.Inputs, resolvedInputs)
 	if rl != nil {
 		rl.ToolName = job.Tool
-		rl.ResolvedInputs = RedactResolvedInputs(job.Inputs, resolvedInputs)
+		rl.ResolvedInputs = persistedInputs
 	}
 
 	// Serializa inputs para JSON (formato esperado por tool.Execute)
@@ -385,8 +436,16 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 			"invalid_arguments",
 		)
 	}
+	persistedArgsJSON, err := json.Marshal(persistedInputs)
+	if err != nil {
+		return nil, permanentAttemptFailure(
+			fmt.Errorf("marshal redacted inputs: %w", err),
+			tools.ErrorKindInvalidArgs,
+			"invalid_arguments",
+		)
+	}
 
-	execution := e.executeTool(ctx, job, rl, argsJSON)
+	execution := e.executeTool(ctx, job, rl, argsJSON, persistedArgsJSON)
 	if execution.Error != nil || execution.Result.IsError {
 		return nil, newAttemptFailure(ctx, execution)
 	}
@@ -446,18 +505,25 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	return output, nil
 }
 
-func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, argsJSON json.RawMessage) tools.ToolExecutionResult {
+func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, argsJSON, persistedArgsJSON json.RawMessage) tools.ToolExecutionResult {
 	if e.toolInvocations == nil {
-		cfg := tools.DefaultExecutorConfig()
-		cfg.MaxResultSize = JobExecutionMaxResultSizeBytes
-		cfg.RequireCompleteResult = true
-		return tools.NewExecutor(e.toolRegistry, cfg).ExecuteOne(ctx, tools.ToolCall{
-			ID:   fmt.Sprintf("job_%s_%d", job.ID, time.Now().UnixNano()),
-			Type: "function",
-			Function: tools.FunctionCall{
-				Name: job.Tool, Arguments: string(argsJSON),
+		return tools.ToolExecutionResult{
+			CallID:   fmt.Sprintf("job_%s_unconfigured", job.ID),
+			ToolName: job.Tool,
+			Result: tools.ToolResult{
+				Content: "tool invocation ledger not configured",
+				IsError: true,
+				Failure: &tools.ToolFailure{
+					Code:      "tool_invocation_ledger_unavailable",
+					Kind:      tools.ErrorKindConfiguration,
+					Retryable: false,
+				},
 			},
-		})
+			Error:             errors.New("tool invocation ledger not configured"),
+			ErrorCode:         "tool_invocation_ledger_unavailable",
+			ErrorKind:         tools.ErrorKindConfiguration,
+			RetryabilityKnown: true,
+		}
 	}
 
 	callID := fmt.Sprintf("job_%s_%d", job.ID, time.Now().UnixNano())
@@ -468,7 +534,7 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 		originType = toolinvocations.OriginJobRun
 		originID = rl.RunID
 	}
-	return e.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
+	recorded := e.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
 		Call: tools.ToolCall{
 			ID:   callID,
 			Type: "function",
@@ -477,6 +543,7 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 				Arguments: string(argsJSON),
 			},
 		},
+		PersistedArguments: persistedArgumentsPointer(persistedArgsJSON),
 		Origin: toolinvocations.Origin{
 			Type: originType,
 			ID:   originID,
@@ -487,7 +554,25 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 		// explicitamente o payload quando seu limite separado não comporta tudo.
 		ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
 		RequireCompleteResult:  true,
-	}).Execution
+	})
+	if !recorded.Persisted {
+		return tools.ToolExecutionResult{
+			CallID:            recorded.Execution.CallID,
+			ToolName:          recorded.Execution.ToolName,
+			Result:            tools.ToolResult{Content: "tool invocation was not persisted", IsError: true},
+			Error:             errors.New("tool invocation was not persisted"),
+			ErrorKind:         tools.ErrorKindUnavailable,
+			ErrorCode:         "tool_invocation_persistence_failed",
+			Retryable:         false,
+			RetryabilityKnown: true,
+		}
+	}
+	return recorded.Execution
+}
+
+func persistedArgumentsPointer(arguments json.RawMessage) *string {
+	value := string(arguments)
+	return &value
 }
 
 func newAttemptFailure(ctx context.Context, execution tools.ToolExecutionResult) error {

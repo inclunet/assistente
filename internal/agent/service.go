@@ -90,7 +90,6 @@ type Service struct {
 
 	// Somente seams unitários internos podem habilitar execução sem ledger.
 	// NewService nunca expõe esta opção ao runtime.
-	allowUnpersistedExecutionForTests bool
 }
 
 // StreamSimpleWithRecovery executa um streaming simples (sem tool calling) com auto-retry opcional.
@@ -168,6 +167,9 @@ func (s *Service) StreamSimpleWithRecovery(
 
 // NewService cria um novo Service com as dependências injetadas.
 func NewService(cfg ServiceConfig) *Service {
+	if cfg.ToolExecutor != nil && cfg.ToolInvocations == nil {
+		panic("agent service: tool invocation ledger not configured")
+	}
 	return &Service{
 		emitter:          cfg.Emitter,
 		msgRepo:          cfg.MsgRepo,
@@ -1132,14 +1134,6 @@ func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls
 
 func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin, iteration int) toolExecutionBatch {
 	if s.toolInvocations == nil {
-		if s.allowUnpersistedExecutionForTests {
-			execs := s.toolExecutor.ExecuteAll(ctx, calls)
-			persisted := make(map[string]bool, len(execs))
-			for _, execution := range execs {
-				persisted[execution.CallID] = false
-			}
-			return toolExecutionBatch{Executions: execs, PersistedByCallID: persisted, Context: ctx}
-		}
 		execs := make([]tools.ToolExecutionResult, len(calls))
 		persisted := make(map[string]bool, len(execs))
 		for index, call := range calls {
@@ -1169,9 +1163,6 @@ func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, 
 
 func (s *Service) executeToolCall(ctx context.Context, call tools.ToolCall, origin toolinvocations.Origin, iteration int) (tools.ToolExecutionResult, bool) {
 	if s.toolInvocations == nil {
-		if s.allowUnpersistedExecutionForTests {
-			return s.toolExecutor.ExecuteOne(ctx, call), false
-		}
 		return tools.ToolExecutionResult{
 			CallID:   call.ID,
 			ToolName: call.Function.Name,

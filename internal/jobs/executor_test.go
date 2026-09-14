@@ -128,7 +128,7 @@ func (c *eventCollector) wait(t *testing.T, timeout time.Duration) []map[string]
 func TestEmitSuccess_FanOut_MapItems_FlattenedPayload(t *testing.T) {
 	eb := NewEventBus()
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -196,7 +196,7 @@ func TestEmitSuccess_FanOut_MapItems_FlattenedPayload(t *testing.T) {
 func TestEmitSuccess_FanOut_ScalarItems_WrappedInContent(t *testing.T) {
 	eb := NewEventBus()
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -246,7 +246,7 @@ func TestEmitSuccess_FanOut_ScalarItems_WrappedInContent(t *testing.T) {
 func TestEmitSuccess_NoFanOut_SingleEvent(t *testing.T) {
 	eb := NewEventBus()
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -283,7 +283,7 @@ func TestEmitSuccess_NoFanOut_SingleEvent(t *testing.T) {
 
 func TestEmitSuccess_DoesNotRecordEventWithoutEnabledConsumer(t *testing.T) {
 	eb := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -312,7 +312,7 @@ func TestEmitSuccess_DoesNotRecordEventWithoutEnabledConsumer(t *testing.T) {
 
 func TestEmitSuccess_FanOutCountsEligibleEventsDroppedWithoutConsumer(t *testing.T) {
 	eb := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -347,7 +347,7 @@ func TestEmitSuccess_FanOutCountsEligibleEventsDroppedWithoutConsumer(t *testing
 func TestEmitSuccess_FanOut_ForEachMissing_FallsBackToSingle(t *testing.T) {
 	eb := NewEventBus()
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -382,7 +382,7 @@ func TestEmitSuccess_FanOut_ForEachMissing_FallsBackToSingle(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_ConditionMet_Emits(t *testing.T) {
 	eb := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -415,7 +415,7 @@ func TestEmitSuccess_EmitWhen_ConditionMet_Emits(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_ConditionNotMet_Skips(t *testing.T) {
 	eb := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -452,7 +452,7 @@ func TestEmitSuccess_EmitWhen_ConditionNotMet_Skips(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_AccessesEventPayload(t *testing.T) {
 	eb := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -487,7 +487,7 @@ func TestEmitSuccess_EmitWhen_AccessesEventPayload(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_EventMismatch_Skips(t *testing.T) {
 	eb := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -528,7 +528,7 @@ func TestEmitSuccess_EmitWhen_EventMismatch_Skips(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_FanOut_FiltersItems(t *testing.T) {
 	eb := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -576,7 +576,7 @@ func TestEmitSuccess_EmitWhen_FanOut_FiltersItems(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_FanOut_AllFiltered(t *testing.T) {
 	eb := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -702,7 +702,7 @@ func TestExecute_CapturesToolNameAndResolvedInputs(t *testing.T) {
 	}
 	registry.MustRegister(ft)
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
@@ -751,11 +751,16 @@ func TestExecutePersistsRunThroughRepository(t *testing.T) {
 	}
 	eventBus := NewEventBus()
 	eventBus.Subscribe("persist-job.done", "persist-test", func(context.Context, string, map[string]any) {})
-	executor := NewJobExecutor(ExecutorConfig{
-		ToolRegistry:   registry,
-		EventBus:       eventBus,
-		Repository:     repo,
-		CircuitBreaker: NewCircuitBreaker(),
+	invocationService := toolinvocations.NewService(
+		toolinvocations.NewDBRepository(repo.db),
+		tools.NewExecutor(registry, tools.DefaultExecutorConfig()),
+	)
+	executor := mustNewJobExecutor(t, ExecutorConfig{
+		ToolRegistry:    registry,
+		ToolInvocations: invocationService,
+		EventBus:        eventBus,
+		Repository:      repo,
+		CircuitBreaker:  NewCircuitBreaker(),
 	})
 	rl := executor.Execute(userA, job, &TriggerContext{Type: TriggerManual})
 	if rl.Status != "completed" {
@@ -808,7 +813,7 @@ func TestExecutePersistsRunWithCanceledExecutionContext(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(userA)
 	cancel()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   tools.NewRegistry(),
 		EventBus:       NewEventBus(),
 		Repository:     repo,
@@ -825,7 +830,7 @@ func TestExecutePersistsRunWithCanceledExecutionContext(t *testing.T) {
 }
 
 func TestExecuteRecordsSkippedTerminalRunEvent(t *testing.T) {
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   tools.NewRegistry(),
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
@@ -854,7 +859,7 @@ func TestExecute_CapturesResolvedInputsWithTemplates(t *testing.T) {
 	}
 	registry.MustRegister(ft)
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
@@ -893,7 +898,7 @@ func TestExecuteSubagentTemplateResolvingEmptyFailsBeforeFallback(t *testing.T) 
 		response: `{"ok":true}`,
 	}
 	registry.MustRegister(ft)
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry: registry, EventBus: NewEventBus(), CircuitBreaker: NewCircuitBreaker(),
 	})
 	job := &Job{
@@ -912,7 +917,7 @@ func TestExecuteSubagentTemplateResolvingEmptyFailsBeforeFallback(t *testing.T) 
 }
 
 func TestRunProvenanceKeepsPublicJobSlug(t *testing.T) {
-	executor := NewJobExecutor(ExecutorConfig{})
+	executor := mustNewJobExecutor(t, ExecutorConfig{})
 	provenance := executor.runProvenance(
 		&Job{ID: "move-card-job", DatabaseID: "018f0000-0000-7000-8000-000000000099"},
 		&TriggerContext{},
@@ -929,7 +934,7 @@ func TestExecuteDoesNotInheritConversationInvocationContext(t *testing.T) {
 		name: "subagent", params: json.RawMessage(`{"type":"object"}`), response: `{"ok":true}`,
 	}
 	registry.MustRegister(ft)
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry: registry, EventBus: NewEventBus(), CircuitBreaker: NewCircuitBreaker(),
 	})
 	parent := invocationctx.With(context.Background(), invocationctx.InvocationContext{
@@ -946,8 +951,8 @@ func TestExecuteDoesNotInheritConversationInvocationContext(t *testing.T) {
 	if _, inherited := invocationctx.Get(ft.lastCtx); inherited {
 		t.Fatal("job herdou invocationctx da conversa que publicou o evento")
 	}
-	if current := toolinvocations.CurrentInvocationID(ft.lastCtx); current != "" {
-		t.Fatalf("job herdou invocação publicadora: %q", current)
+	if current := toolinvocations.CurrentInvocationID(ft.lastCtx); current == "" || current == "invocacao-publicadora" {
+		t.Fatalf("job não recebeu identidade canônica própria: %q", current)
 	}
 	if parentID := toolctx.ParentInvocationIDFromContext(ft.lastCtx); parentID != "" {
 		t.Fatalf("job herdou invocação ancestral: %q", parentID)
@@ -963,7 +968,7 @@ func TestExecute_RedactsSecretResolvedInputsFromRunLog(t *testing.T) {
 	}
 	registry.MustRegister(ft)
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
@@ -1026,7 +1031,7 @@ func TestExecute_CapturesInputsEvenOnFailure(t *testing.T) {
 	ft.response = "" // force empty response to test error handling
 	registry.MustRegister(ft)
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
@@ -1146,7 +1151,7 @@ func TestExecuteDryRunNilTrigCtxNoPanic(t *testing.T) {
 		params:   json.RawMessage(`{"type":"object"}`),
 		response: `{"ok":true}`,
 	})
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
@@ -1165,7 +1170,7 @@ func TestExecuteDryRunNilTrigCtxNoPanic(t *testing.T) {
 // Regressão do review #171.
 func TestExecuteDryRunSuppressesDomainEvents(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})
@@ -1183,7 +1188,7 @@ func TestExecuteDryRunSuppressesDomainEvents(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegister(&fakeDomainPublishTool{name: "domain_pub", mgr: mgr, event: evt})
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       mgr.eventBus,
 		CircuitBreaker: NewCircuitBreaker(),

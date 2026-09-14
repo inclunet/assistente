@@ -10,6 +10,8 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/jobprofilegrant"
+	"assistente/internal/toolinvocations"
+	"assistente/internal/tools"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -33,6 +35,7 @@ func setupJobsRepositoryTest(t *testing.T) (*DBRepository, context.Context, cont
 		&database.User{},
 		&database.MCPServer{},
 		&database.ToolCatalog{},
+		&database.ToolInvocation{},
 		&database.Tag{},
 		&database.TagAssignment{},
 		&database.JobPipeline{},
@@ -594,7 +597,7 @@ func TestDBRepositoryLogRunRejectsDuplicateRunID(t *testing.T) {
 	}
 }
 
-func TestDBRepositoryLogRunPreservesEmptyRuntimeJSONValues(t *testing.T) {
+func TestDBRepositoryLogRunPersistsOnlyOperationalJSON(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
 	job := testRepositoryJob("empty-runtime-json", "Empty Runtime JSON")
 	if err := repo.SaveJob(userA, job); err != nil {
@@ -618,18 +621,18 @@ func TestDBRepositoryLogRunPreservesEmptyRuntimeJSONValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get run: %v", err)
 	}
-	if got.ResolvedInputs == nil || len(got.ResolvedInputs) != 0 {
-		t.Fatalf("resolved inputs not preserved as empty object: %#v", got.ResolvedInputs)
+	if got.ResolvedInputs != nil {
+		t.Fatalf("resolved inputs vieram de job_runs: %#v", got.ResolvedInputs)
 	}
-	if got.Output == nil || len(got.Output) != 0 {
-		t.Fatalf("output not preserved as empty object: %#v", got.Output)
+	if got.Output != nil {
+		t.Fatalf("output veio de job_runs: %#v", got.Output)
 	}
 	if got.EventsEmitted == nil || len(got.EventsEmitted) != 0 {
 		t.Fatalf("events emitted not preserved as empty array: %#v", got.EventsEmitted)
 	}
 }
 
-func TestDBRepositoryLogRunRedactsSensitiveInputs(t *testing.T) {
+func TestDBRepositoryLogRunDoesNotPersistTechnicalPayload(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
 	job := testRepositoryJob("redact-run", "Redact Run")
 	if err := repo.SaveJob(userA, job); err != nil {
@@ -658,26 +661,63 @@ func TestDBRepositoryLogRunRedactsSensitiveInputs(t *testing.T) {
 		t.Fatalf("log run: %v", err)
 	}
 
-	got, err := repo.GetRun(userA, "redact-run", "run-redact")
+	var row database.JobRun
+	if err := repo.db.Where("id = ?", "run-redact").First(&row).Error; err != nil {
+		t.Fatalf("get run row: %v", err)
+	}
+	if row.ToolName != "" || row.Inputs != "" || row.Output != "" {
+		t.Fatalf("job_runs recebeu cópia técnica: tool=%q inputs=%q output=%q", row.ToolName, row.Inputs, row.Output)
+	}
+}
+
+func TestDBRepositoryHydratesRunTechnicalDetailsFromLedger(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	job := testRepositoryJob("ledger-run", "Ledger Run")
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+	run := &RunLog{
+		RunID: "run-ledger", JobID: job.ID, Status: "completed",
+		Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: time.Now(),
+	}
+	if err := repo.LogRun(userA, run); err != nil {
+		t.Fatalf("log run: %v", err)
+	}
+	var catalog database.ToolCatalog
+	if err := repo.db.Where("name = ?", "test_tool").First(&catalog).Error; err != nil {
+		t.Fatalf("get catalog: %v", err)
+	}
+	resultJSON, err := json.Marshal(tools.ToolResult{
+		Content:  `{"answer":42}`,
+		Metadata: map[string]any{"source": "ledger"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := database.ToolInvocation{
+		UserID: "user-a", ToolCatalogID: catalog.ID,
+		OriginType: toolinvocations.OriginJobRun, OriginID: run.RunID,
+		ToolCallID: run.RunID + "_tool", Attempt: 1,
+		Status: toolinvocations.StatusSucceeded,
+		Input:  `{"tool_call":{"function":{"arguments":"{\"query\":\"public\"}"}}}`,
+		Output: string(resultJSON), ResultAvailability: "available", QueuedAt: time.Now(),
+	}
+	if err := repo.db.Create(&invocation).Error; err != nil {
+		t.Fatalf("create invocation: %v", err)
+	}
+
+	got, err := repo.GetRun(userA, job.ID, run.RunID)
 	if err != nil {
 		t.Fatalf("get run: %v", err)
 	}
-	if got.ResolvedInputs["api_key"] != redactedValue {
-		t.Fatalf("api_key not redacted: %#v", got.ResolvedInputs)
+	if got.ToolName != "test_tool" || got.ResolvedInputs["query"] != "public" {
+		t.Fatalf("detalhes do ledger não hidratados: %#v", got)
 	}
-	if got.ResolvedInputs["apiKey"] != redactedValue ||
-		got.ResolvedInputs["privateKey"] != redactedValue ||
-		got.ResolvedInputs["accessKey"] != redactedValue ||
-		got.ResolvedInputs["cookie"] != redactedValue ||
-		got.ResolvedInputs["session_id"] != redactedValue ||
-		got.ResolvedInputs["jwt"] != redactedValue {
-		t.Fatalf("camelCase sensitive keys not redacted: %#v", got.ResolvedInputs)
+	if got.Output["answer"] != float64(42) || got.Output["_meta_source"] != "ledger" {
+		t.Fatalf("output do ledger não hidratado: %#v", got.Output)
 	}
-	if got.ResolvedInputs["query"] != "public" {
-		t.Fatalf("public input was changed: %#v", got.ResolvedInputs)
-	}
-	if got.Replayable {
-		t.Fatalf("run with redacted inputs should not be replayable: %#v", got)
+	if !got.Replayable {
+		t.Fatalf("run canônico deveria ser reproduzível: %#v", got)
 	}
 }
 

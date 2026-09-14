@@ -83,8 +83,10 @@ func NewManager(cfg ManagerConfig) *Manager {
 		hotkeyIDs:      make(map[string][]int),
 	}
 
-	// Cria o executor com as dependencias
-	m.executor = NewJobExecutor(ExecutorConfig{
+	// Monta o executor somente com o ledger canônico disponível. Ausência dessa
+	// dependência é erro de wiring e deve interromper a inicialização, não
+	// degradar para execução direta.
+	executor, err := NewJobExecutor(ExecutorConfig{
 		ToolRegistry:    cfg.ToolRegistry,
 		ToolInvocations: cfg.ToolInvocations,
 		EventBus:        eventBus,
@@ -95,6 +97,10 @@ func NewManager(cfg ManagerConfig) *Manager {
 		OnRunStart:      m.onRunStart,
 		OnRunEnd:        m.onRunEnd,
 	})
+	if err != nil {
+		panic(err)
+	}
+	m.executor = executor
 
 	// Cria o scheduler com a funcao de execucao
 	m.scheduler = NewScheduler(m.executeJob)
@@ -1204,45 +1210,37 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	if err != nil {
 		return nil, fmt.Errorf("marshal inputs: %w", err)
 	}
+	persistedArgsJSON, err := json.Marshal(RedactResolvedInputs(req.Inputs, inputs))
+	if err != nil {
+		return nil, fmt.Errorf("marshal redacted inputs: %w", err)
+	}
+	persistedArguments := string(persistedArgsJSON)
 
 	ctx, cancel := context.WithTimeout(execCtx, 30*time.Second)
 	defer cancel()
 
 	start := time.Now()
-	var result tools.ToolResult
-	var execErr error
-	if m.cfg.ToolInvocations != nil {
-		exec := m.cfg.ToolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
-			Call: tools.ToolCall{
-				ID:   fmt.Sprintf("tool_catalog_%d", time.Now().UnixNano()),
-				Type: "function",
-				Function: tools.FunctionCall{
-					Name:      toolName,
-					Arguments: string(argsJSON),
-				},
-			},
-			Origin:                 toolinvocations.Origin{Type: toolinvocations.OriginToolCatalog, ID: toolName},
-			ToolCatalogID:          strings.TrimSpace(req.ToolCatalogID),
-			DryRun:                 true,
-			ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
-			RequireCompleteResult:  true,
-		}).Execution
-		result = exec.Result
-		execErr = exec.Error
-	} else {
-		cfg := tools.DefaultExecutorConfig()
-		cfg.MaxResultSize = JobExecutionMaxResultSizeBytes
-		cfg.RequireCompleteResult = true
-		exec := tools.NewExecutor(m.cfg.ToolRegistry, cfg).ExecuteOne(ctx, tools.ToolCall{
+	if m.cfg.ToolInvocations == nil {
+		return nil, errors.New("tool invocation ledger not configured")
+	}
+	exec := m.cfg.ToolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
+		Call: tools.ToolCall{
 			ID:   fmt.Sprintf("tool_catalog_%d", time.Now().UnixNano()),
 			Type: "function",
 			Function: tools.FunctionCall{
-				Name: toolName, Arguments: string(argsJSON),
+				Name:      toolName,
+				Arguments: string(argsJSON),
 			},
-		})
-		result = exec.Result
-		execErr = exec.Error
-	}
+		},
+		PersistedArguments:     &persistedArguments,
+		Origin:                 toolinvocations.Origin{Type: toolinvocations.OriginToolCatalog, ID: toolName},
+		ToolCatalogID:          strings.TrimSpace(req.ToolCatalogID),
+		DryRun:                 true,
+		ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
+		RequireCompleteResult:  true,
+	}).Execution
+	result := exec.Result
+	execErr := exec.Error
 	duration := time.Since(start)
 
 	if execErr != nil {
