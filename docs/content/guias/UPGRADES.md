@@ -22,6 +22,11 @@ ser retomada na próxima abertura. Arquivos antigos de canais, contatos, jobs,
 skills e MCP continuam disponíveis como fonte de importação; o Assistente não
 os apaga automaticamente.
 
+Ao migrar o histórico técnico de ferramentas, o Assistente cria ao lado do
+banco o backup `*.pre-tool-ledger-v19.bak` e um manifesto com tamanho e
+SHA-256. Esse backup é o ponto de restauração suportado caso o corte de schema
+falhe; não o remova antes de confirmar que o aplicativo iniciou normalmente.
+
 ## Diagnóstico local
 
 O log de inicialização inclui uma linha do componente
@@ -38,10 +43,11 @@ linha e a mensagem de erro ao relato, mas não envie o banco de dados.
 
 ## Backups exportados
 
-Arquivos de conversas exportados pela versão 0.1.9 e arquivos portáteis
-`version: 2` das versões posteriores podem ser importados diretamente pela
-versão atual. O adaptador de 0.1.9 converte IDs numéricos em IDs estáveis e
-preserva relações entre mensagens.
+Arquivos de conversas exportados pela versão 0.1.9 sem protocolo técnico
+embutido e arquivos portáteis `version: 2` canônicos podem ser importados
+diretamente. Arquivos que guardem `role=tool`, `toolCalls` ou `toolCallId`
+dentro das mensagens não são aceitos: atualize a instalação de origem e
+exporte novamente para gerar o bloco `toolInvocations`.
 
 ## Se a atualização falhar
 
