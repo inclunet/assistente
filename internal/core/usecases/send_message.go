@@ -491,6 +491,14 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		SchemaBytesBudget: toolSchemaBudgetBytes,
 		PreferredPackages: preferredToolPackages,
 	}
+	// Escopo do skill invocado (AEP-0072 D5): reaproveita a MESMA allowlist/denylist
+	// do gate do executor para NÃO anunciar ao modelo tools que o skill bloqueia.
+	// Sem isso, a tool era oferecida, o modelo tentava usá-la e só era barrada na
+	// execução — gerando falhas repetidas com invalid_args.
+	if invokedExecutionContext != nil {
+		toolCfg.SkillAllowedTools = invokedExecutionContext.AllowedTools
+		toolCfg.SkillDeniedTools = invokedExecutionContext.DeniedTools
+	}
 	if disableTools && uc.loadedToolStore != nil {
 		uc.loadedToolStore.ResetConversation(req.ConversationID)
 	}

@@ -150,6 +150,31 @@ O usuário deve conseguir perceber que a skill foi carregada.
 
 As permissões declaradas pela skill (`tools`, `bashCommands`, `filesystem` e `network`) devem ser preservadas no contexto de execução do turno. Para rede, o enforcement ocorre no cliente HTTP compartilhado e em redirects, de modo que skills carregadas por `/skill` ou por `load_skill` tenham o mesmo bloqueio de hosts `allowed`/`denied`.
 
+Refinamento (2026-09-14). A allowlist/denylist de `tools` do skill deixa de ser
+apenas um gate de execução e passa a filtrar também as tools **anunciadas ao
+modelo**. A `ToolSelectionPolicy` recebe o mesmo escopo do skill (a partir de
+`tools.ExecutionContext.AllowedTools/DeniedTools`) e rebaixa para `disabled` as
+tools fora da allowlist (quando não-vazia) ou dentro da denylist, em todos os
+pontos que consultam a política: defs iniciais (`PlanTurnToolDefs`), expansão
+dinâmica (`ResolveExpandedToolDefs`), catálogo visível (`CatalogVisibleNames`) e
+control-plane. O gate do executor permanece como defesa em profundidade. Isso
+elimina o antipadrão em que uma tool bloqueada (ex.: `memory` num skill que não a
+lista) continuava sendo oferecida, era tentada pelo modelo e só então rejeitada,
+gerando falhas repetidas com `invalid_args`. O escopo é LOCAL/builtin; a
+allowlist de MCP nativo (`filterToolNamesForNativeMCPAllowlist`) é outro conceito
+e não é afetada.
+
+O mesmo escopo é aplicado ao **system prompt** para manter coerência prompt↔defs.
+Quando a skill é efetivamente injetada no turno (mesma condição que "commita" o
+`invokedExecutionContext` usado pelas defs em `send_message`), o
+`PrepareMessages` reprojeta os campos de seleção de tools do `TemplateData`
+(`EnabledTools`, `ToolCallingEnabled`, `ImplicitToolSelectionUnavailable`) via
+`prompt.Builder.ApplySkillToolScope`, reusando `AllowedTools/DeniedTools`. Com
+isso, o Context Provider `tool_protocol` (protocolo catalog-first) reflete o
+conjunto realmente disponível: se a skill remove `tool_catalog` (ou todas as
+preloaded), o prompt deixa de instruir o uso do catálogo, em vez de mandar o
+modelo chamar uma tool que já foi retirada das definitions do turno.
+
 ### D6. Carregamento sob demanda é explícito no runtime
 
 Quando uma skill listada no catálogo é ativada, o runtime deve carregar o corpo completo de forma explícita e observável no turno.
@@ -255,6 +280,21 @@ Consequência para esta AEP: nenhuma fase posterior deve recolocar memória, wor
   em `internal/skills/skills_test.go`.
 - Integração do prompt e remoção de templates: testes de `internal/prompt` e
   built-ins atuais sem execução de Go templates.
+- Escopo de tools do skill filtrando também o que é anunciado ao modelo (D5,
+  refinamento de 2026-09-14): `internal/chat/tool_policy.go`
+  (`applySkillScope`), `internal/chat/tool_selection_policy.go`
+  (`ProfileToolConfig.SkillAllowedTools/SkillDeniedTools`),
+  `internal/core/usecases/send_message.go` (fiação a partir do
+  `ExecutionContext`) e regressões em
+  `internal/chat/tool_skill_scope_test.go`.
+- Coerência prompt↔defs sob escopo de skill (D5, refinamento de 2026-09-14):
+  `internal/prompt/builder.go` (`ApplySkillToolScope`),
+  `internal/chat/interactor.go` (`PrepareMessages` reprojeta o `TemplateData` e
+  reconstrói o bloco `tool_protocol` quando a skill é injetada) e regressões em
+  `internal/prompt/builder_test.go` (casos catalog-first com `tool_catalog`
+  bloqueada/permitida) e `internal/chat/interactor_test.go`
+  (`TestPrepareMessagesDropsCatalogProtocolWhenSkillBlocksCatalog`,
+  `TestPrepareMessagesKeepsCatalogProtocolWhenSkillAllowsCatalog`).
 
 ## Registro do plano implementado
 
