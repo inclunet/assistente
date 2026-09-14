@@ -1,6 +1,6 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
-**Status:** Draft
+**Status:** In Progress
 
 **Data:** 2026-09-12
 
@@ -474,7 +474,7 @@ tem `source_type = chat` e `actor_type = agent`. Não existe categoria implícit
 `desktop`; cada comando declara explicitamente quais entradas aceita.
 
 **Override pendente da AEP-0052:** a D6 daquela AEP continua canônica hoje e
-define `JWT sub = user_id`. Esta AEP, enquanto `Draft`, não a substitui nem
+define `JWT sub = user_id`. A implementação parcial desta AEP não a substitui nem
 autoriza interpretação concorrente. O mapa `(iss, sub) → users.id` abaixo é o
 contrato alvo proposto; `CommandExecutionService` permanece indisponível em
 `auth.mode=external` até um PR de implementação atualizar a AEP-0052 e o
@@ -1872,6 +1872,58 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 
 ## Fases
 
+### Evidência incremental — protótipo da Fase 0
+
+O pacote `internal/commandbindings` inicia o experimento de seleção pura de
+candidatos. Ainda não está conectado ao aplicativo e não executa handlers.
+Não representa a conclusão da Fase 0 nem do registro/resolvedor da Fase 1.
+
+- Implementado: índice por acionador, filtros de habilitação/ativação,
+  precedência de escopos, conjunção de igualdades tipadas, conflito sem desempate
+  por ID, agrupamento de destinos equivalentes e barreira de diálogo.
+- A especificidade parcial é avaliada eliminando condições estritamente
+  dominadas dentro do melhor escopo; prioridades comparam somente os máximos
+  restantes. Não se usa ordenação com comparador parcial. O teste de todas as
+  permutações cobre três candidatos com condições comparáveis e incomparáveis.
+- No protótipo, condição por `surface.id` exige também `surface.type`,
+  fornecido pelo normalizador confiável, para representar identidade antes de
+  tipo por inclusão de cláusulas. Identidade sem tipo é recusada. Candidatos de
+  diálogo possuem `DialogID` e somente os do topmost participam, inclusive na
+  proveniência de equivalentes.
+- Testes: `go test ./internal/commandbindings`; benchmark do índice:
+  `go test ./internal/commandbindings -run '^$' -bench . -benchmem`.
+  O benchmark distribui bindings por acionadores distintos; não mede a ponte
+  Wails, persistência nem o pior caso de muitos candidatos na mesma tecla.
+- Validação local inicial: testes (98,9% de cobertura) e `go vet` do pacote
+  passaram, assim como build/vet do backend completo. A suíte geral não ficou
+  verde: `config`/`wailsapi` falharam por acesso negado à pasta real `.assistente`
+  e `acp`/`acpregistry` encerraram com `exit status 0xffffffff`. Esses pacotes
+  não foram alterados neste incremento. `-race` ainda não foi validado: o ambiente Windows de teste
+  está sem compilador C configurado e o Go exige cgo para esse detector.
+- Limites: candidatos chegam já normalizados, com identidade de argumentos e
+  alvo fornecida pelo chamador confiável. O protótipo não calcula fingerprint,
+  não autentica e não valida o schema de argumentos do catálogo.
+- Pendentes: catálogo, deltas/overrides/tombstones, `needs_review`, claims,
+  persistência, executor/ledger, providers autoritativos, reserva dos atalhos
+  invariantes de diálogo, adapters físicos e migração de handlers.
+  Um resultado `selected` é apenas seleção, nunca autorização de execução.
+
+Pontos já identificados para o inventário, ainda não migrados:
+
+- `frontend/src/hooks/useWorkspaceKeyboardShortcuts.ts`: abas e sequências
+  `Ctrl+N` seguidas de letra; preservar cancelamento, timeout e foco.
+- `frontend/src/hooks/useActivePanelShortcut.ts`: `Ctrl+N` do painel ativo.
+- `frontend/src/components/chat/ChatToolbar.tsx`: seletores e ações do chat.
+- `frontend/src/pages/useEditorMenus.tsx`: ações e modos do editor.
+- `controllers/hotkeys_controller.go` e
+  `frontend/src/hooks/useInteractionProfile.ts`: hotkeys de voz por perfil.
+- `internal/jobs/manager.go`: hotkeys que solicitam triggers de jobs.
+
+O próximo incremento deve completar o inventário e o catálogo de comandos,
+definir os contratos de sequências/ponte de UI e validar os protótipos físicos.
+Os critérios de aceitação finais permanecem abertos: testes do seletor isolado
+não demonstram as garantias de execução, persistência e segurança do sistema.
+
 ### Fase 0 — Inventário e protótipos
 
 - Inventariar atalhos locais, hotkeys de perfis, comandos de menu e ações
@@ -2137,4 +2189,3 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] Testes cobrem fallback de defaults, sobreposição, múltiplas camadas,
   modais, inputs, múltiplas abas, troca de foco, reconexão de dispositivo e
   prevenção de execução duplicada.
-

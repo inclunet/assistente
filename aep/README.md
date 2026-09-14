@@ -119,7 +119,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0100](0100-progresso-unificado-por-conversa.md) | Progresso unificado por conversa | ✅ Done |
 | [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
 | [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
-| [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 📝 Draft |
+| [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 🚧 In Progress |
 | [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico | ✅ Done |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
