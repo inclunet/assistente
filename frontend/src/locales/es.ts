@@ -4369,6 +4369,13 @@ const es = {
           allow: 'Autorizar {{targetProfile}}',
           deny: 'No autorizar',
         },
+        commandBinding: {
+          title: '¿Aplicar cambios de comandos?',
+          description: 'Hay un cambio en la configuración de comandos listo para aplicar. ¿Desea aplicarlo?',
+          bodyLabel: 'Cambio solicitado',
+          apply: 'Aplicar',
+          deny: 'Denegar',
+        },
         network: {
           title: 'Autorizar acceso a un host bloqueado (anti-SSRF)',
           description: 'El asistente intentó acceder a un host que resuelve a una dirección interna/privada ({{category}}). Autoriza solo si confías en este destino.',

@@ -1,0 +1,222 @@
+package commanddecision
+
+import (
+	"context"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
+
+type receiptRow struct {
+	ID                 string `gorm:"column:decision_id;primaryKey;not null"`
+	MutationID         string `gorm:"column:subject_id;not null"`
+	UserID             string `gorm:"not null"`
+	SessionID          string `gorm:"column:auth_context_id;not null"`
+	Fingerprint        string `gorm:"column:request_fingerprint;not null"`
+	AuthGeneration     string `gorm:"not null"`
+	SecurityGeneration string `gorm:"not null"`
+	ExpiresMS          int64  `gorm:"column:expires_at;not null"`
+	State              string `gorm:"column:status;not null;check:status IN ('pending','accepted','denied','cancelled','expired','consumed')"`
+	AuthContextType    string `gorm:"not null;check:auth_context_type = 'local_session'"`
+	SubjectType        string `gorm:"not null;check:subject_type = 'config_mutation'"`
+	AllowedActionIDs   string `gorm:"not null"`
+	AcceptedActionID   *string
+	RespondedAt        *int64
+	ConsumedAt         *int64
+}
+
+func (receiptRow) TableName() string { return "command_decision_receipts" }
+
+type auditRow struct {
+	ID         string `gorm:"primaryKey;not null"`
+	DecisionID string `gorm:"not null;index"`
+	State      string `gorm:"not null;check:state IN ('pending','accepted','denied','cancelled','expired','consumed')"`
+	OccurredMS int64  `gorm:"not null"`
+}
+
+func (auditRow) TableName() string { return "command_decision_receipt_events" }
+
+type Store struct {
+	db        *gorm.DB
+	presenter Presenter
+	now       func() time.Time
+}
+
+// Migrate é explícita e transacional. Não faz parte das migrações do App.
+func Migrate(ctx context.Context, db *gorm.DB) error {
+	if ctx == nil || db == nil {
+		return ErrInvalid
+	}
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { return tx.AutoMigrate(&receiptRow{}, &auditRow{}) })
+}
+
+func New(db *gorm.DB, presenter Presenter, now func() time.Time) (*Store, error) {
+	if db == nil || presenter == nil || now == nil {
+		return nil, ErrInvalid
+	}
+	return &Store{db: db, presenter: presenter, now: now}, nil
+}
+
+func validID(value string) bool {
+	id, err := uuid.Parse(value)
+	return err == nil && id.Version() == 7 && id.Variant() == uuid.RFC4122 && id.String() == value
+}
+func validRequest(r Request) bool {
+	if !validID(r.DecisionID) || !validID(r.MutationID) || !validID(r.UserID) || !validID(r.SessionID) || r.ExpiresAt.UnixMilli() <= 0 {
+		return false
+	}
+	for _, value := range []string{r.Fingerprint, r.AuthGeneration, r.SecurityGeneration} {
+		if strings.TrimSpace(value) != value || value == "" || len(value) > 256 || !utf8.ValidString(value) {
+			return false
+		}
+	}
+	return true
+}
+func rowOf(r Request) receiptRow {
+	return receiptRow{ID: r.DecisionID, MutationID: r.MutationID, UserID: r.UserID, SessionID: r.SessionID,
+		Fingerprint: r.Fingerprint, AuthGeneration: r.AuthGeneration, SecurityGeneration: r.SecurityGeneration, ExpiresMS: r.ExpiresAt.UnixMilli(), State: Pending,
+		AuthContextType: "local_session", SubjectType: "config_mutation", AllowedActionIDs: `["apply","deny"]`}
+}
+func appendEvent(tx *gorm.DB, id, state string, now time.Time) error {
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+	return tx.Create(&auditRow{ID: eventID.String(), DecisionID: id, State: state, OccurredMS: now.UnixMilli()}).Error
+}
+
+// Decide persiste pending antes de apresentar. Só uma resposta do presenter
+// confiável pode fazer o CAS terminal. Deadline inclui espera na fila da UI.
+// Erro/cancelamento nunca produz receipt afirmativa. Não repete apresentações.
+func (s *Store) Decide(ctx context.Context, request Request) (string, error) {
+	if s == nil || s.db == nil || s.presenter == nil || s.now == nil || ctx == nil || !validRequest(request) ||
+		strings.TrimSpace(request.Body) == "" || len(request.Body) > 64*1024 || !utf8.ValidString(request.Body) {
+		return "", ErrInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	request.ExpiresAt = time.UnixMilli(request.ExpiresAt.UnixMilli()).UTC()
+	if !request.ExpiresAt.After(s.now()) {
+		return "", ErrStale
+	}
+	row := rowOf(request)
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&row).Error; err != nil {
+			return err
+		}
+		return appendEvent(tx, row.ID, Pending, s.now())
+	}); err != nil {
+		return "", err
+	}
+	decisionCtx, cancel := context.WithDeadline(ctx, request.ExpiresAt)
+	defer cancel()
+	response, presentationErr := present(s.presenter, decisionCtx, request)
+	state := Cancelled
+	if !request.ExpiresAt.After(s.now()) || decisionCtx.Err() == context.DeadlineExceeded {
+		state = Expired
+	} else if presentationErr == nil && decisionCtx.Err() == nil {
+		if response.DecisionID != request.DecisionID || (response.Cancelled && response.ActionID != "") {
+			presentationErr = ErrInvalid
+		} else if response.Cancelled {
+			state = Cancelled
+		} else if response.ActionID == ApplyAction {
+			state = Accepted
+		} else if response.ActionID == DenyAction {
+			state = Denied
+		} else {
+			presentationErr = ErrInvalid
+		}
+	}
+	// Cancelamento do solicitante não pode impedir registrar o encerramento.
+	// Usa contexto de limpeza limitado, sem reapresentar nem executar efeitos.
+	cleanup, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cleanupCancel()
+	if err := s.db.WithContext(cleanup).Transaction(func(tx *gorm.DB) error {
+		var accepted *string
+		if state == Accepted {
+			action := ApplyAction
+			accepted = &action
+		}
+		result := tx.Model(&receiptRow{}).Where("decision_id = ? AND status = ?", request.DecisionID, Pending).
+			Updates(map[string]any{"status": state, "accepted_action_id": accepted, "responded_at": s.now().UnixMilli()})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrStale
+		}
+		// A espera por um writer SQLite pode ter ultrapassado o prazo depois
+		// de receber a ação. Corrige o terminal antes do evento e do commit.
+		if state == Accepted && (!request.ExpiresAt.After(s.now()) || decisionCtx.Err() != nil) {
+			state = Cancelled
+			if !request.ExpiresAt.After(s.now()) || decisionCtx.Err() == context.DeadlineExceeded {
+				state = Expired
+			}
+			if err := tx.Model(&receiptRow{}).Where("decision_id = ?", request.DecisionID).
+				Updates(map[string]any{"status": state, "accepted_action_id": nil}).Error; err != nil {
+				return err
+			}
+		}
+		return appendEvent(tx, request.DecisionID, state, s.now())
+	}); err != nil {
+		return "", err
+	}
+	if presentationErr != nil {
+		return state, presentationErr
+	}
+	if err := decisionCtx.Err(); err != nil {
+		return state, err
+	}
+	return state, nil
+}
+
+func present(presenter Presenter, ctx context.Context, request Request) (response Response, err error) {
+	defer func() {
+		if recover() != nil {
+			response = Response{}
+			err = ErrInvalid
+		}
+	}()
+	return presenter.Present(ctx, request)
+}
+
+// Consume revalida todos os vínculos e consome accepted em transação com o
+// efeito local. O chamador deve deter DispatchGate, reautenticar e passar as
+// gerações/fingerprint autoritativos atuais. expected não vem do cliente.
+// apply deve usar SOMENTE o tx recebido, sem UI, rede ou reentrada no gate.
+// Falha reverte consumo, evento e efeito; não há retry automático. Esta API
+// ainda não está ligada ao escritor de bindings nem ao ledger de comandos.
+func (s *Store) Consume(ctx context.Context, expected Request, apply func(*gorm.DB) error) error {
+	if s == nil || s.db == nil || s.now == nil || ctx == nil || apply == nil || !validRequest(expected) {
+		return ErrInvalid
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		row := rowOf(expected)
+		result := tx.Model(&receiptRow{}).Where("decision_id = ? AND subject_id = ? AND user_id = ? AND auth_context_id = ? AND request_fingerprint = ? AND auth_generation = ? AND security_generation = ? AND expires_at = ? AND expires_at > ? AND status = ? AND auth_context_type = ? AND subject_type = ? AND allowed_action_ids = ? AND accepted_action_id = ? AND responded_at IS NOT NULL AND consumed_at IS NULL",
+			row.ID, row.MutationID, row.UserID, row.SessionID, row.Fingerprint, row.AuthGeneration, row.SecurityGeneration, row.ExpiresMS, s.now().UnixMilli(), Accepted, "local_session", "config_mutation", `["apply","deny"]`, ApplyAction).
+			Updates(map[string]any{"status": Consumed, "consumed_at": s.now().UnixMilli()})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrStale
+		}
+		if !time.UnixMilli(row.ExpiresMS).After(s.now()) {
+			return ErrStale
+		}
+		if err := appendEvent(tx, row.ID, Consumed, s.now()); err != nil {
+			return err
+		}
+		if err := apply(tx); err != nil {
+			return err
+		}
+		if !time.UnixMilli(row.ExpiresMS).After(s.now()) {
+			return ErrStale
+		}
+		return ctx.Err()
+	})
+}

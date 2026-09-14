@@ -2405,7 +2405,40 @@ lock durante confirmação, geração alterada durante espera e descarte de mapa
 Não há migração automática, criação de bindings/camadas/gerações, restore,
 rebase ou persistência de claims neste subconjunto.
 
-Pendente: ampliar o projetor para contratos de produto, ligar decisões e ledger
+#### Recibos de decisão e adapter local (subconjunto interno)
+
+`commanddecision` implementa pedidos de `config_mutation`/`local_session` com
+IDs UUIDv7, usuário/sessão, fingerprint fornecido pelo produtor confiável,
+gerações e expiração. As ações deste subconjunto são fechadas: `apply` e
+`deny`. `Decide` registra `pending` antes de invocar o presenter e faz CAS
+único para accepted/denied/cancelled/expired, com evento na mesma transação.
+IDs divergentes, ações desconhecidas, erros, panic e cancelamento não concedem
+aprovação. O prazo absoluto inclui a espera na fila de diálogos.
+
+`Consume` confere todos os vínculos atuais, ação afirmativa e prazo, e grava
+consumo/evento na mesma transação do efeito SQLite fornecido pelo host. O
+callback só pode usar a transação recebida; falha reverte as três partes.
+Reentrega não consome novamente. O serviço não autentica nem adquire o gate:
+essa revalidação deve ocorrer no executor/host confiável antes de consumi-lo.
+O fingerprint não é calculado por esse repository, e Body/diff nunca é
+persistido nos recibos ou nos eventos. Os timestamps desse subconjunto SQLite
+são inteiros Unix em milissegundos. Migração continua explícita, fora do App.
+
+`commandDecisionPresenter` usa o `questionnaire.Manager` existente com
+`kind=decision`, ações com polaridade/escopo explícitos, corpo documental e
+rótulos pt-BR/en/es. O ID curto do questionário serve só ao transporte da UI:
+o adapter anexa o UUIDv7 backend à resposta. Não interpreta rótulos traduzidos
+como ações e não aceita ID de decisão injetado nas respostas.
+
+Essas peças ainda NÃO substituem o callback de confirmação do escritor de
+bindings: faltam vincular o fingerprint/ID imutável da proposta ao recibo,
+consumi-lo na transação real de configuração sob o gate e registrar a invocação
+de write no ledger. Também permanecem pendentes bootstrap autenticado do
+presenter, cancelamento imediato por eventos de segurança e reconciliação de
+pedidos pendentes após reinício. Não há entrypoint Wails/tool novo ou alteração
+de configuração acessível ao usuário por esse incremento.
+
+Pendente: ampliar o projetor para contratos de produto, integrar recibos e ledger
 de write, ampliar escritores para CRUD/restauração confirmada,
 persistência/restore de claims, ligação completa à recuperação pós-unlock e
 estado de execução por workspace. O estado do SO não

@@ -4370,6 +4370,13 @@ const ptBR = {
           allow: 'Autorizar {{targetProfile}}',
           deny: 'Não autorizar',
         },
+        commandBinding: {
+          title: 'Aplicar alteração de comandos?',
+          description: 'Uma alteração na configuração de comandos está pronta para ser aplicada. Deseja aplicar?',
+          bodyLabel: 'Alteração solicitada',
+          apply: 'Aplicar',
+          deny: 'Negar',
+        },
         network: {
           title: 'Autorizar acesso a host bloqueado (anti-SSRF)',
           description: 'O assistente tentou acessar um host que resolve para um endereço interno/privado ({{category}}). Autorize apenas se você confia neste destino.',

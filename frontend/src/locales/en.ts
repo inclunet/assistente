@@ -4369,6 +4369,13 @@ const en = {
           allow: 'Authorize {{targetProfile}}',
           deny: 'Do not authorize',
         },
+        commandBinding: {
+          title: 'Apply command changes?',
+          description: 'A change to the command configuration is ready to apply. Apply it?',
+          bodyLabel: 'Requested change',
+          apply: 'Apply',
+          deny: 'Deny',
+        },
         network: {
           title: 'Authorize access to a blocked host (anti-SSRF)',
           description: 'The assistant tried to reach a host that resolves to an internal/private address ({{category}}). Only authorize it if you trust this destination.',
