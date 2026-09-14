@@ -29,8 +29,6 @@ func EnrichMessage(msg Message) EnrichedMessage {
 		Content:          msg.Content,
 		Reasoning:        msg.Reasoning,
 		Media:            msg.Media,
-		ToolCalls:        msg.ToolCalls,
-		ToolCallID:       msg.ToolCallID,
 		PromptTokens:     msg.PromptTokens,
 		CompletionTokens: msg.CompletionTokens,
 		TotalTokens:      msg.TotalTokens,

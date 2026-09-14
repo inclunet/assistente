@@ -114,6 +114,10 @@ export function GetRecentMessages(arg1, arg2) {
   return window['go']['wailsapi']['Conversations']['GetRecentMessages'](arg1, arg2);
 }
 
+export function GetToolInvocationDetails(arg1) {
+  return window['go']['wailsapi']['Conversations']['GetToolInvocationDetails'](arg1);
+}
+
 export function RebuildSearchIndex() {
   return window['go']['wailsapi']['Conversations']['RebuildSearchIndex']();
 }

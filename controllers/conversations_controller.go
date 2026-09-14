@@ -354,6 +354,16 @@ func (c *ConversationsController) GetConversationMessageWindow(ctx context.Conte
 	}, nil
 }
 
+// GetToolInvocationDetails carrega payloads técnicos sob demanda em um único
+// lote user-scoped. A timeline recebe apenas Summary.
+func (c *ConversationsController) GetToolInvocationDetails(ctx context.Context, invocationIDs []string) ([]toolinvocations.Detail, error) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return toolinvocations.LoadDetailsWithUser(ctx, userID, invocationIDs)
+}
+
 // GetConversationInfo retorna metadados da conversa (sem mensagens).
 func (c *ConversationsController) GetConversationInfo(ctx context.Context, id string) (*database.Conversation, error) {
 	return database.GetConversationInfoWithContext(ctx, id)
@@ -796,8 +806,7 @@ func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []dat
 	if err != nil {
 		return nil, err
 	}
-	invocationToolResults := toolInvocationResultsFromTurnSegments(invocationToolCalls)
-	nodes := chat.BuildNodesWithTimelineConsolidation(messages, parentID, map[string]int{}, invocationToolResults, invocationToolCalls, allowLegacy)
+	nodes := chat.BuildNodesWithTimelineConsolidation(messages, parentID, map[string]int{}, nil, invocationToolCalls, allowLegacy)
 	return assignMessageNodeChildCounts(ctx, nodes), nil
 }
 
@@ -814,8 +823,7 @@ func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWind
 	if err != nil {
 		return nil, err
 	}
-	invocationToolResults := toolInvocationResultsFromTurnSegments(invocationToolCalls)
-	nodes := chat.BuildTimelineMessageNodes(items, messages, parentID, map[string]int{}, invocationToolResults, invocationToolCalls, allowLegacy)
+	nodes := chat.BuildTimelineMessageNodes(items, messages, parentID, map[string]int{}, nil, invocationToolCalls, allowLegacy)
 	return assignMessageNodeChildCounts(ctx, nodes), nil
 }
 
@@ -839,48 +847,34 @@ func loadChatToolInvocationDisplaysForTurnIDs(ctx context.Context, turnIDs []str
 	if len(turnIDs) == 0 {
 		return map[string][]chat.TurnSegmentToolCall{}, nil
 	}
-	results, err := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx, userID, turnIDs)
+	results, err := toolinvocations.LoadSummariesForTurnIDsWithUser(ctx, userID, turnIDs)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar projeção de tool invocations: %w", err)
 	}
-	return toolInvocationDisplaysToTurnSegments(results), nil
+	return toolInvocationSummariesToTurnSegments(results), nil
 }
 
-func toolInvocationResultsFromTurnSegments(callsByTurn map[string][]chat.TurnSegmentToolCall) map[string]map[string]string {
-	out := make(map[string]map[string]string, len(callsByTurn))
-	for turnID, calls := range callsByTurn {
-		for _, call := range calls {
-			callID := strings.TrimSpace(call.ID)
-			if callID == "" {
-				continue
-			}
-			byCall := out[turnID]
-			if byCall == nil {
-				byCall = map[string]string{}
-				out[turnID] = byCall
-			}
-			if _, ok := byCall[callID]; ok {
-				continue
-			}
-			byCall[callID] = call.Result
-		}
-	}
-	return out
-}
-
-func toolInvocationDisplaysToTurnSegments(displays map[string][]toolinvocations.ChatToolInvocationDisplay) map[string][]chat.TurnSegmentToolCall {
-	out := make(map[string][]chat.TurnSegmentToolCall, len(displays))
-	for turnID, calls := range displays {
+func toolInvocationSummariesToTurnSegments(summaries map[string][]toolinvocations.Summary) map[string][]chat.TurnSegmentToolCall {
+	out := make(map[string][]chat.TurnSegmentToolCall, len(summaries))
+	for turnID, calls := range summaries {
 		for _, call := range calls {
 			out[turnID] = append(out[turnID], chat.TurnSegmentToolCall{
-				ID:                 call.ID,
-				Type:               call.Type,
-				Function:           chat.TurnSegmentToolFunction{Name: call.Name, Arguments: call.Arguments},
-				Result:             call.Result,
+				InvocationID:       call.InvocationID,
+				ID:                 call.CallID,
+				Name:               call.Name,
+				Type:               "function",
+				Function:           chat.TurnSegmentToolFunction{Name: call.Name},
 				Origin:             call.Origin,
 				ServerLabel:        call.ServerLabel,
+				Status:             call.Status,
 				Iteration:          call.Iteration,
 				DurationMs:         call.DurationMs,
+				InputPreview:       call.InputPreview,
+				OutputPreview:      call.OutputPreview,
+				InputBytes:         call.InputBytes,
+				OutputBytes:        call.OutputBytes,
+				HasDetails:         call.HasDetails,
+				ResultAvailability: call.ResultAvailability,
 				AssistantMessageID: call.AssistantMessageID,
 			})
 		}

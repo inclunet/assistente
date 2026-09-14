@@ -5,6 +5,7 @@ import (
 	"assistente/internal/apidto"
 	"assistente/internal/chat"
 	"assistente/internal/database"
+	"assistente/internal/toolinvocations"
 	"context"
 	"sync"
 )
@@ -151,6 +152,17 @@ func (api *Conversations) GetConversationMessageWindow(req chat.MessageWindowReq
 	}
 	return WithUser(session, func(ctx context.Context) (*chat.MessageWindow, error) {
 		return ctrl.GetConversationMessageWindow(ctx, req)
+	})
+}
+
+// GetToolInvocationDetails carrega no máximo 100 detalhes por lote.
+func (api *Conversations) GetToolInvocationDetails(invocationIDs []string) ([]toolinvocations.Detail, error) {
+	session, ctrl, err := api.deps()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, func(ctx context.Context) ([]toolinvocations.Detail, error) {
+		return ctrl.GetToolInvocationDetails(ctx, invocationIDs)
 	})
 }
 

@@ -56,7 +56,6 @@ type TurnPatchMessage struct {
 	TurnID           string             `json:"turnId"`
 	Content          string             `json:"content"`
 	Reasoning        string             `json:"reasoning,omitempty"`
-	ToolCalls        string             `json:"toolCalls,omitempty"`
 	PromptTokens     int                `json:"promptTokens,omitempty"`
 	CompletionTokens int                `json:"completionTokens,omitempty"`
 	TotalTokens      int                `json:"totalTokens,omitempty"`
@@ -70,25 +69,26 @@ type TurnPatchMessage struct {
 }
 
 type TurnPatchSegment struct {
-	Type      string              `json:"type"`
-	Content   string              `json:"content,omitempty"`
-	ToolCalls []TurnPatchToolCall `json:"toolCalls,omitempty"`
+	Type            string                    `json:"type"`
+	Content         string                    `json:"content,omitempty"`
+	ToolInvocations []TurnPatchToolInvocation `json:"toolInvocations,omitempty"`
 }
 
-type TurnPatchToolCall struct {
-	ID          string                `json:"id"`
-	Type        string                `json:"type"`
-	Function    TurnPatchToolFunction `json:"function"`
-	Result      string                `json:"result,omitempty"`
-	Origin      string                `json:"origin,omitempty"`
-	ServerLabel string                `json:"server_label,omitempty"`
-	Iteration   int                   `json:"iteration,omitempty"`
-	DurationMs  int64                 `json:"duration_ms,omitempty"`
-}
-
-type TurnPatchToolFunction struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
+type TurnPatchToolInvocation struct {
+	InvocationID       string `json:"invocationId,omitempty"`
+	CallID             string `json:"callId"`
+	Name               string `json:"name"`
+	Origin             string `json:"origin,omitempty"`
+	ServerLabel        string `json:"serverLabel,omitempty"`
+	Status             string `json:"status"`
+	Iteration          int    `json:"iteration,omitempty"`
+	DurationMs         int64  `json:"durationMs,omitempty"`
+	InputPreview       string `json:"inputPreview,omitempty"`
+	OutputPreview      string `json:"outputPreview,omitempty"`
+	InputBytes         int64  `json:"inputBytes,omitempty"`
+	OutputBytes        int64  `json:"outputBytes,omitempty"`
+	HasDetails         bool   `json:"hasDetails"`
+	ResultAvailability string `json:"resultAvailability"`
 }
 
 // DoneEvent is the payload for chat:done.

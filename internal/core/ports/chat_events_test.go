@@ -83,11 +83,14 @@ func TestDoneEventSerializaPatchMinimoDoTurno(t *testing.T) {
 			CreatedAt:      "2026-09-08T20:00:00Z",
 			TurnSegments: []TurnPatchSegment{{
 				Type: "tool_calls",
-				ToolCalls: []TurnPatchToolCall{{
-					ID:       "call-1",
-					Type:     "function",
-					Function: TurnPatchToolFunction{Name: "update_plan", Arguments: "{}"},
-					Result:   `{"updated":true}`,
+				ToolInvocations: []TurnPatchToolInvocation{{
+					InvocationID:       "inv-1",
+					CallID:             "call-1",
+					Name:               "update_plan",
+					Status:             "succeeded",
+					OutputPreview:      `{"updated":"[redacted]"}`,
+					HasDetails:         true,
+					ResultAvailability: "available",
 				}},
 			}},
 		}},
@@ -110,10 +113,14 @@ func TestDoneEventSerializaPatchMinimoDoTurno(t *testing.T) {
 		`"responseBytes":8`,
 		`"turnPatch":{"message":`,
 		`"turnSegments":[`,
+		`"invocationId":"inv-1"`,
 		`"name":"update_plan"`,
 	} {
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("payload não contém %s: %s", fragment, got)
 		}
+	}
+	if strings.Contains(got, `"result"`) || strings.Contains(got, `"arguments"`) {
+		t.Fatalf("patch leve vazou payload integral: %s", got)
 	}
 }

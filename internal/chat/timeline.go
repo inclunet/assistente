@@ -118,15 +118,33 @@ func toolCallToTurnSegmentToolCall(call map[string]interface{}) TurnSegmentToolC
 	iteration := intFromToolCallField(call["iteration"])
 	durationMs := int64FromToolCallField(call["duration_ms"])
 	return TurnSegmentToolCall{
-		ID:          id,
-		Type:        tipo,
-		Function:    TurnSegmentToolFunction{Name: name, Arguments: args},
-		Result:      result,
-		Origin:      origin,
-		ServerLabel: serverLabel,
-		Iteration:   iteration,
-		DurationMs:  durationMs,
+		ID:                 id,
+		Name:               name,
+		Type:               tipo,
+		Function:           TurnSegmentToolFunction{Name: name, Arguments: args},
+		Result:             result,
+		Origin:             origin,
+		ServerLabel:        serverLabel,
+		Status:             legacyToolCallStatus(result),
+		Iteration:          iteration,
+		DurationMs:         durationMs,
+		HasDetails:         false,
+		ResultAvailability: legacyToolResultAvailability(result),
 	}
+}
+
+func legacyToolCallStatus(result string) string {
+	if strings.TrimSpace(result) == "" {
+		return "unknown"
+	}
+	return "succeeded"
+}
+
+func legacyToolResultAvailability(result string) string {
+	if strings.TrimSpace(result) == "" {
+		return "unavailable"
+	}
+	return "available"
 }
 
 func intFromToolCallField(value interface{}) int {
@@ -210,8 +228,17 @@ func normalizeInvocationToolCalls(calls []TurnSegmentToolCall, toolResults map[s
 		if call.Function.Name == "" {
 			call.Function.Name = "tool_result"
 		}
+		if call.Name == "" {
+			call.Name = call.Function.Name
+		}
 		if result, ok := toolResults[call.ID]; ok && strings.TrimSpace(result) != "" {
 			call.Result = result
+		}
+		if call.Status == "" || (call.Status == "unknown" && strings.TrimSpace(call.Result) != "") {
+			call.Status = legacyToolCallStatus(call.Result)
+		}
+		if call.ResultAvailability == "" || (call.ResultAvailability == "unavailable" && strings.TrimSpace(call.Result) != "") {
+			call.ResultAvailability = legacyToolResultAvailability(call.Result)
 		}
 		if idx, ok := seen[call.ID]; ok {
 			normalized[idx] = call
@@ -251,10 +278,13 @@ func appendMissingFallbackToolCalls(calls []TurnSegmentToolCall, toolResults map
 	sort.Strings(missingIDs)
 	for _, callID := range missingIDs {
 		calls = append(calls, TurnSegmentToolCall{
-			ID:       callID,
-			Type:     "function",
-			Function: TurnSegmentToolFunction{Name: "tool_result", Arguments: ""},
-			Result:   toolResults[callID],
+			ID:                 callID,
+			Name:               "tool_result",
+			Type:               "function",
+			Function:           TurnSegmentToolFunction{Name: "tool_result", Arguments: ""},
+			Result:             toolResults[callID],
+			Status:             "succeeded",
+			ResultAvailability: "available",
 		})
 	}
 	return calls
@@ -520,7 +550,7 @@ func consolidateTimelineTurn(messages []Message, invocationToolResults map[strin
 		consolidated.ToolCallID = ""
 		consolidated.Source = ToolOnlyTurnPlaceholderSource
 		placeholderCalls := make([]map[string]interface{}, 0, len(toolResults)+len(invocationToolCalls))
-		segmentToolCalls := make([]TurnSegmentToolCall, 0, len(toolResults)+len(invocationToolCalls))
+		segmentToolCalls := append([]TurnSegmentToolCall(nil), invocationToolCalls...)
 		invocationCallIDs := make(map[string]struct{}, len(invocationToolCalls))
 		for _, call := range invocationToolCalls {
 			placeholderCalls = append(placeholderCalls, turnSegmentToolCallToMap(call))
@@ -541,6 +571,14 @@ func consolidateTimelineTurn(messages []Message, invocationToolResults map[strin
 				"function": map[string]interface{}{"name": "tool_result", "arguments": ""},
 				"result":   result,
 			})
+			segmentToolCalls = append(segmentToolCalls, TurnSegmentToolCall{
+				ID:                 callID,
+				Name:               "tool_result",
+				Type:               "function",
+				Function:           TurnSegmentToolFunction{Name: "tool_result"},
+				Status:             "succeeded",
+				ResultAvailability: "available",
+			})
 		}
 		sort.Slice(placeholderCalls, func(i, j int) bool {
 			leftIteration := intFromToolCallField(placeholderCalls[i]["iteration"])
@@ -552,9 +590,12 @@ func consolidateTimelineTurn(messages []Message, invocationToolResults map[strin
 			right, _ := placeholderCalls[j]["id"].(string)
 			return fmt.Sprint(left) < fmt.Sprint(right)
 		})
-		for _, call := range placeholderCalls {
-			segmentToolCalls = append(segmentToolCalls, toolCallToTurnSegmentToolCall(call))
-		}
+		sort.SliceStable(segmentToolCalls, func(i, j int) bool {
+			if segmentToolCalls[i].Iteration != segmentToolCalls[j].Iteration {
+				return segmentToolCalls[i].Iteration < segmentToolCalls[j].Iteration
+			}
+			return segmentToolCalls[i].ID < segmentToolCalls[j].ID
+		})
 		if len(placeholderCalls) > 0 {
 			if encoded, err := json.Marshal(placeholderCalls); err == nil {
 				consolidated.ToolCalls = string(encoded)

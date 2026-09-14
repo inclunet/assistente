@@ -1750,29 +1750,21 @@ export namespace channels {
 
 export namespace chat {
 	
-	export class TurnSegmentToolFunction {
-	    name: string;
-	    arguments: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new TurnSegmentToolFunction(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.arguments = source["arguments"];
-	    }
-	}
 	export class TurnSegmentToolCall {
-	    id: string;
-	    type: string;
-	    function: TurnSegmentToolFunction;
-	    result?: string;
+	    invocationId?: string;
+	    callId: string;
+	    name: string;
 	    origin?: string;
-	    server_label?: string;
+	    serverLabel?: string;
+	    status: string;
 	    iteration?: number;
-	    duration_ms?: number;
+	    durationMs?: number;
+	    inputPreview?: string;
+	    outputPreview?: string;
+	    inputBytes?: number;
+	    outputBytes?: number;
+	    hasDetails: boolean;
+	    resultAvailability: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TurnSegmentToolCall(source);
@@ -1780,38 +1772,26 @@ export namespace chat {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.type = source["type"];
-	        this.function = this.convertValues(source["function"], TurnSegmentToolFunction);
-	        this.result = source["result"];
+	        this.invocationId = source["invocationId"];
+	        this.callId = source["callId"];
+	        this.name = source["name"];
 	        this.origin = source["origin"];
-	        this.server_label = source["server_label"];
+	        this.serverLabel = source["serverLabel"];
+	        this.status = source["status"];
 	        this.iteration = source["iteration"];
-	        this.duration_ms = source["duration_ms"];
+	        this.durationMs = source["durationMs"];
+	        this.inputPreview = source["inputPreview"];
+	        this.outputPreview = source["outputPreview"];
+	        this.inputBytes = source["inputBytes"];
+	        this.outputBytes = source["outputBytes"];
+	        this.hasDetails = source["hasDetails"];
+	        this.resultAvailability = source["resultAvailability"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class TurnSegment {
 	    type: string;
 	    content?: string;
-	    toolCalls?: TurnSegmentToolCall[];
+	    toolInvocations?: TurnSegmentToolCall[];
 	
 	    static createFrom(source: any = {}) {
 	        return new TurnSegment(source);
@@ -1821,7 +1801,7 @@ export namespace chat {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.type = source["type"];
 	        this.content = source["content"];
-	        this.toolCalls = this.convertValues(source["toolCalls"], TurnSegmentToolCall);
+	        this.toolInvocations = this.convertValues(source["toolInvocations"], TurnSegmentToolCall);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1851,8 +1831,6 @@ export namespace chat {
 	    content: string;
 	    reasoning?: string;
 	    media?: string;
-	    toolCalls?: string;
-	    toolCallId?: string;
 	    promptTokens?: number;
 	    completionTokens?: number;
 	    totalTokens?: number;
@@ -1883,8 +1861,6 @@ export namespace chat {
 	        this.content = source["content"];
 	        this.reasoning = source["reasoning"];
 	        this.media = source["media"];
-	        this.toolCalls = source["toolCalls"];
-	        this.toolCallId = source["toolCallId"];
 	        this.promptTokens = source["promptTokens"];
 	        this.completionTokens = source["completionTokens"];
 	        this.totalTokens = source["totalTokens"];
@@ -2065,6 +2041,20 @@ export namespace chat {
 	}
 	
 	
+	export class TurnSegmentToolFunction {
+	    name: string;
+	    arguments: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TurnSegmentToolFunction(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.arguments = source["arguments"];
+	    }
+	}
 
 }
 
@@ -6111,6 +6101,92 @@ export namespace terminal {
 	        this.createdAt = source["createdAt"];
 	        this.lastUsed = source["lastUsed"];
 	    }
+	}
+
+}
+
+export namespace toolinvocations {
+	
+	export class Detail {
+	    invocationId: string;
+	    callId: string;
+	    name: string;
+	    displayName?: string;
+	    origin?: string;
+	    status: string;
+	    attempt: number;
+	    dryRun: boolean;
+	    input?: string;
+	    output?: string;
+	    metadata?: string;
+	    inputBytes?: number;
+	    outputBytes?: number;
+	    inputHash?: string;
+	    outputHash?: string;
+	    resultAvailability: string;
+	    errorKind?: string;
+	    errorCode?: string;
+	    errorMessage?: string;
+	    retryable: boolean;
+	    retryabilityKnown: boolean;
+	    // Go type: time
+	    queuedAt: any;
+	    // Go type: time
+	    startedAt?: any;
+	    // Go type: time
+	    completedAt?: any;
+	    durationMs?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Detail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.invocationId = source["invocationId"];
+	        this.callId = source["callId"];
+	        this.name = source["name"];
+	        this.displayName = source["displayName"];
+	        this.origin = source["origin"];
+	        this.status = source["status"];
+	        this.attempt = source["attempt"];
+	        this.dryRun = source["dryRun"];
+	        this.input = source["input"];
+	        this.output = source["output"];
+	        this.metadata = source["metadata"];
+	        this.inputBytes = source["inputBytes"];
+	        this.outputBytes = source["outputBytes"];
+	        this.inputHash = source["inputHash"];
+	        this.outputHash = source["outputHash"];
+	        this.resultAvailability = source["resultAvailability"];
+	        this.errorKind = source["errorKind"];
+	        this.errorCode = source["errorCode"];
+	        this.errorMessage = source["errorMessage"];
+	        this.retryable = source["retryable"];
+	        this.retryabilityKnown = source["retryabilityKnown"];
+	        this.queuedAt = this.convertValues(source["queuedAt"], null);
+	        this.startedAt = this.convertValues(source["startedAt"], null);
+	        this.completedAt = this.convertValues(source["completedAt"], null);
+	        this.durationMs = source["durationMs"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
