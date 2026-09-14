@@ -76,6 +76,22 @@ disponíveis: se o skill remove o `tool_catalog` (ou todas as tools iniciais), o
 protocolo de seleção catalog-first deixa de instruir o uso do catálogo, evitando
 que o prompt peça uma tool que já não está mais disponível no turno.
 
+### Conjunto base protegido
+
+A allowlist de um skill restringe apenas as tools de **domínio**. Ela nunca
+remove, por si só, o **conjunto base protegido** — as capacidades de
+control-plane (`tool_catalog`, `load_skill`) e a base de runtime do agente
+(`memory`, `task`, `task_list`, `task_note`, `update_plan`, `read_tool_result`).
+Sem essa proteção, um skill com allowlist focada no próprio domínio deixaria o
+agente sem descobrir/carregar tools, registrar memória, planejar tarefas ou
+reler resultados truncados durante o restante do turno.
+
+A proteção vale só contra essa remoção implícita: se o skill **negar** uma
+dessas tools explicitamente (denylist), ou se o **perfil** a marcar como
+desativada, ela continua indisponível — base ou não. O bloqueio na exposição e
+o bloqueio na execução usam exatamente a mesma lista, então o que o prompt
+anuncia e o que o agente pode executar permanecem coerentes.
+
 ## Sub-agentes
 
 A tool `subagent` delega trabalho especializado, paralelizável, longo ou que se
