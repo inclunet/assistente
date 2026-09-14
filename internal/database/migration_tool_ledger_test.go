@@ -317,6 +317,94 @@ func TestToolLedgerBackfillJSONInvalidoPermanecePending(t *testing.T) {
 	}
 }
 
+func TestToolLedgerBackfillRoleToolSemCallIDPermanecePending(t *testing.T) {
+	userA, _, _ := setupToolLedgerMigrationTest(t)
+	database := DB()
+	conversation := Conversation{UUIDModel: UUIDModel{ID: "ledger-missing-call-conversation"}, UserID: userA.ID, Title: "Missing call"}
+	message := ChatMessage{
+		UUIDModel:      UUIDModel{ID: "ledger-missing-call-message"},
+		ConversationID: conversation.ID,
+		Role:           "tool",
+		Content:        "resultado sem identidade",
+	}
+	if err := database.Create(&conversation).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Create(&message).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateToolLedgerBackfill(database); !errors.Is(err, errMigrationDeferred) {
+		t.Fatalf("resultado sem call id deveria adiar: %v", err)
+	}
+	var state ToolLedgerMigrationState
+	if err := database.Where("resource_id = ?", conversation.ID).First(&state).Error; err != nil {
+		t.Fatal(err)
+	}
+	if state.State != toolLedgerStatePending || state.LegacyRows != 1 ||
+		state.LastErrorCode != "missing_call_identity" {
+		t.Fatalf("resultado sem identidade foi dado como coberto: %+v", state)
+	}
+}
+
+func TestToolLedgerBackfillNaoAssociaResultadoDeOutroTurno(t *testing.T) {
+	userA, _, _ := setupToolLedgerMigrationTest(t)
+	database := DB()
+	conversation := Conversation{UUIDModel: UUIDModel{ID: "ledger-turn-mismatch-conversation"}, UserID: userA.ID, Title: "Turn mismatch"}
+	assistantTurn := "ledger-assistant-turn"
+	resultTurn := "ledger-result-turn"
+	assistant := ChatMessage{
+		UUIDModel:      UUIDModel{ID: "ledger-turn-mismatch-assistant"},
+		ConversationID: conversation.ID,
+		TurnID:         &assistantTurn,
+		Role:           "assistant",
+		ToolCalls:      `[{"id":"same-call","function":{"name":"search","arguments":"{}"}}]`,
+	}
+	result := ChatMessage{
+		UUIDModel:      UUIDModel{ID: "ledger-turn-mismatch-result"},
+		ConversationID: conversation.ID,
+		TurnID:         &resultTurn,
+		Role:           "tool",
+		ToolCallID:     "same-call",
+		Content:        "não associar",
+	}
+	if err := database.Create(&conversation).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Create([]*ChatMessage{&assistant, &result}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateToolLedgerBackfill(database); !errors.Is(err, errMigrationDeferred) {
+		t.Fatalf("turno divergente deveria adiar: %v", err)
+	}
+	var state ToolLedgerMigrationState
+	if err := database.Where("resource_id = ?", conversation.ID).First(&state).Error; err != nil {
+		t.Fatal(err)
+	}
+	if state.State != toolLedgerStatePending || state.LastErrorCode != "tool_result_turn_mismatch" {
+		t.Fatalf("resultado de outro turno foi associado: %+v", state)
+	}
+}
+
+func TestToolLedgerBackfillRemoveCheckpointDeRecursoExcluido(t *testing.T) {
+	userA, _, _ := setupToolLedgerMigrationTest(t)
+	database := DB()
+	state := ToolLedgerMigrationState{
+		UserID:       userA.ID,
+		ResourceType: toolLedgerResourceConversation,
+		ResourceID:   "conversation-already-deleted",
+		State:        toolLedgerStatePending,
+	}
+	if err := database.Create(&state).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateToolLedgerBackfill(database); err != nil {
+		t.Fatalf("checkpoint órfão não deveria bloquear boot: %v", err)
+	}
+	if got := queryCount(t, database, "SELECT COUNT(*) FROM tool_ledger_migration_states WHERE id = ?", state.ID); got != 0 {
+		t.Fatalf("checkpoint órfão permaneceu: %d", got)
+	}
+}
+
 func TestToolLedgerBackfillDivergenciaDeHashNaoSobrescreveLedger(t *testing.T) {
 	userA, _, catalog := setupToolLedgerMigrationTest(t)
 	database := DB()

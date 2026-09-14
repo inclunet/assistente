@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -16,6 +17,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+var errToolLedgerResourceDeleted = errors.New("recurso do backfill removido")
 
 const (
 	toolLedgerStatePending    = "pending"
@@ -121,6 +124,7 @@ func migrateToolLedgerBackfill(database *gorm.DB) error {
 		}
 		for _, state := range states {
 			var report toolLedgerBackfillReport
+			resourceDeleted := false
 			err := database.Transaction(func(tx *gorm.DB) error {
 				var processErr error
 				switch state.ResourceType {
@@ -132,6 +136,10 @@ func migrateToolLedgerBackfill(database *gorm.DB) error {
 					processErr = fmt.Errorf("tipo de recurso de backfill desconhecido: %s", state.ResourceType)
 				}
 				if processErr != nil {
+					if errors.Is(processErr, errToolLedgerResourceDeleted) {
+						resourceDeleted = true
+						return tx.Delete(&state).Error
+					}
 					return processErr
 				}
 				rows += report.LedgerRows
@@ -163,6 +171,11 @@ func migrateToolLedgerBackfill(database *gorm.DB) error {
 			})
 			if err != nil {
 				return err
+			}
+			if resourceDeleted {
+				processedResources++
+				cursor = state.ID
+				continue
 			}
 			processedResources++
 			cursor = state.ID
@@ -328,6 +341,9 @@ func toolLedgerResourceKey(userID, resourceType, resourceID string) string {
 func backfillConversationToolLedger(tx *gorm.DB, state ToolLedgerMigrationState) (toolLedgerBackfillReport, error) {
 	var conversation Conversation
 	if err := tx.Where("id = ? AND user_id = ?", state.ResourceID, state.UserID).First(&conversation).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return toolLedgerBackfillReport{}, errToolLedgerResourceDeleted
+		}
 		return toolLedgerBackfillReport{}, err
 	}
 	var messages []ChatMessage
@@ -336,13 +352,11 @@ func backfillConversationToolLedger(tx *gorm.DB, state ToolLedgerMigrationState)
 	}
 
 	resultsByTurnCall := make(map[string][]ChatMessage)
-	resultsByCall := make(map[string][]ChatMessage)
 	calls := make([]legacyToolCall, 0)
 	for _, message := range messages {
 		if message.Role == "tool" && strings.TrimSpace(message.ToolCallID) != "" {
 			key := legacyTurnCallKey(messageTurnID(message), message.ToolCallID)
 			resultsByTurnCall[key] = append(resultsByTurnCall[key], message)
-			resultsByCall[strings.TrimSpace(message.ToolCallID)] = append(resultsByCall[strings.TrimSpace(message.ToolCallID)], message)
 			continue
 		}
 		if message.Role != "assistant" || legacyToolCallsEmpty(message.ToolCalls) {
@@ -362,6 +376,28 @@ func backfillConversationToolLedger(tx *gorm.DB, state ToolLedgerMigrationState)
 			report.LegacyHighWatermark = laterTime(report.LegacyHighWatermark, message.UpdatedAt)
 		}
 	}
+	callKeys := make(map[string]struct{}, len(calls))
+	callIDs := make(map[string]int, len(calls))
+	for _, call := range calls {
+		callKeys[legacyTurnCallKey(call.TurnID, call.CallID)] = struct{}{}
+		callIDs[call.CallID]++
+	}
+	for _, message := range messages {
+		if message.Role != "tool" {
+			continue
+		}
+		callID := strings.TrimSpace(message.ToolCallID)
+		if callID == "" {
+			report.LegacyRows++
+			report.AmbiguousCount++
+			report.LastErrorCode = "missing_call_identity"
+			continue
+		}
+		if _, exact := callKeys[legacyTurnCallKey(messageTurnID(message), callID)]; !exact && callIDs[callID] > 0 {
+			report.AmbiguousCount++
+			report.LastErrorCode = "tool_result_turn_mismatch"
+		}
+	}
 	for _, call := range calls {
 		report.LegacyRows++
 		if call.CallID == "" || call.Name == "" {
@@ -369,14 +405,8 @@ func backfillConversationToolLedger(tx *gorm.DB, state ToolLedgerMigrationState)
 			report.LastErrorCode = "missing_call_identity"
 			continue
 		}
-		results := legacyResultsForCall(call, resultsByTurnCall, resultsByCall)
+		results := resultsByTurnCall[legacyTurnCallKey(call.TurnID, call.CallID)]
 		if len(results) > 1 {
-			report.AmbiguousCount++
-			report.LastErrorCode = "duplicate_tool_result"
-		}
-		if len(results) == 0 &&
-			len(resultsByTurnCall[legacyTurnCallKey(call.TurnID, call.CallID)]) == 0 &&
-			len(resultsByCall[call.CallID]) > 1 {
 			report.AmbiguousCount++
 			report.LastErrorCode = "duplicate_tool_result"
 		}
@@ -404,7 +434,7 @@ func backfillConversationToolLedger(tx *gorm.DB, state ToolLedgerMigrationState)
 	}
 
 	for _, call := range calls {
-		results := legacyResultsForCall(call, resultsByTurnCall, resultsByCall)
+		results := resultsByTurnCall[legacyTurnCallKey(call.TurnID, call.CallID)]
 		result := call.Result
 		if len(results) == 1 {
 			result = results[0].Content
@@ -661,6 +691,9 @@ func backfillJobRunToolLedger(tx *gorm.DB, state ToolLedgerMigrationState) (tool
 		Joins("JOIN jobs ON jobs.id = job_runs.job_id").
 		Where("job_runs.id = ? AND job_runs.user_id = ?", state.ResourceID, state.UserID).
 		First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return toolLedgerBackfillReport{}, errToolLedgerResourceDeleted
+		}
 		return toolLedgerBackfillReport{}, err
 	}
 	sourceKeyPrefix := "job-run:" + row.ID
@@ -865,22 +898,6 @@ func messageTurnID(message ChatMessage) string {
 
 func legacyTurnCallKey(turnID, callID string) string {
 	return strings.TrimSpace(turnID) + "\x00" + strings.TrimSpace(callID)
-}
-
-func legacyResultsForCall(
-	call legacyToolCall,
-	byTurnCall map[string][]ChatMessage,
-	byCall map[string][]ChatMessage,
-) []ChatMessage {
-	exact := byTurnCall[legacyTurnCallKey(call.TurnID, call.CallID)]
-	if len(exact) > 0 {
-		return exact
-	}
-	global := byCall[strings.TrimSpace(call.CallID)]
-	if len(global) == 1 {
-		return global
-	}
-	return exact
 }
 
 func normalizeLegacyValue(value string) string {

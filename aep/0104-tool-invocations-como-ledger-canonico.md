@@ -117,8 +117,10 @@ diagnóstico sem payload.
 O backfill processa lotes transacionais e registra checkpoint. Para chat, casa
 dados por usuário, conversa, turno, marcador assistant, `tool_call_id` e
 iteração. Resultado `role=tool` íntegro prevalece sobre cópia embutida.
-Invocações já existentes são adotadas, nunca duplicadas. Para jobs, a origem é
-`job_run` e o `origin_id` é o ID do run.
+Não existe associação global somente por `tool_call_id`; identidade ou turno
+ausente bloqueia a prova. Invocações já existentes são adotadas, nunca
+duplicadas. Para jobs, a origem é `job_run` e o `origin_id` é o ID do run.
+Checkpoint cujo recurso foi excluído é removido transacionalmente.
 
 Cada item registra proveniência de migração, tamanho e hashes normalizados de
 input/output. Reiniciar retoma somente itens pendentes; executar novamente após
