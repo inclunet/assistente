@@ -62,6 +62,8 @@ describe('taskListStore pagination', () => {
       taskLists: new Map(),
       taskPages: new Map(),
       loadingByTaskListId: new Map(),
+      loadingTaskPagesByListId: new Map(),
+      taskPageLoadErrors: new Map(),
       errors: new Map(),
     });
   });
@@ -239,6 +241,8 @@ describe('taskListStore pagination', () => {
   });
 
   it('carrega board com mais de 100 cards até a última página sem tempestade de requests', async () => {
+    const secondPage = deferred<Record<string, unknown>>();
+    const thirdPage = deferred<Record<string, unknown>>();
     const cards = Array.from({ length: 205 }, (_, index) => ({
       ...backendTask(`task-${index + 1}`, index),
       status_id: (index % 3) + 1,
@@ -259,26 +263,39 @@ describe('taskListStore pagination', () => {
         has_more: true,
         total_count: 205,
       })
-      .mockResolvedValueOnce({
-        task_list: backendList(),
-        tasks: cards.slice(100, 200),
-        next_cursor: 'cursor-200',
-        has_more: true,
-        total_count: 205,
-      })
-      .mockResolvedValueOnce({
-        task_list: backendList(),
-        tasks: cards.slice(200),
-        next_cursor: '',
-        has_more: false,
-        total_count: 205,
-      });
+      .mockReturnValueOnce(secondPage.promise)
+      .mockReturnValueOnce(thirdPage.promise);
 
     await useTaskListStore.getState().loadTaskList('list-a');
-    const [firstLoad, deduplicatedLoad] = await Promise.all([
-      useTaskListStore.getState().loadAllTasksForBoard('list-a'),
-      useTaskListStore.getState().loadAllTasksForBoard('list-a'),
-    ]);
+    expect(useTaskListStore.getState().taskLists.get('list-a')?.tasks).toHaveLength(100);
+    expect(useTaskListStore.getState().loadingByTaskListId.has('list-a')).toBe(false);
+
+    const firstLoadPromise = useTaskListStore.getState().loadAllTasksForBoard('list-a');
+    const deduplicatedLoadPromise = useTaskListStore.getState().loadAllTasksForBoard('list-a');
+    await vi.waitFor(() => expect(getTaskListPage).toHaveBeenCalledTimes(2));
+    expect(useTaskListStore.getState().taskLists.get('list-a')?.tasks).toHaveLength(100);
+    expect(useTaskListStore.getState().loadingByTaskListId.has('list-a')).toBe(false);
+    expect(useTaskListStore.getState().loadingTaskPagesByListId.has('list-a')).toBe(true);
+
+    secondPage.resolve({
+      task_list: backendList(),
+      tasks: cards.slice(100, 200),
+      next_cursor: 'cursor-200',
+      has_more: true,
+      total_count: 205,
+    });
+    await vi.waitFor(() => expect(getTaskListPage).toHaveBeenCalledTimes(3));
+    expect(useTaskListStore.getState().taskLists.get('list-a')?.tasks).toHaveLength(200);
+    expect(useTaskListStore.getState().loadingTaskPagesByListId.has('list-a')).toBe(true);
+
+    thirdPage.resolve({
+      task_list: backendList(),
+      tasks: cards.slice(200),
+      next_cursor: '',
+      has_more: false,
+      total_count: 205,
+    });
+    const [firstLoad, deduplicatedLoad] = await Promise.all([firstLoadPromise, deduplicatedLoadPromise]);
 
     expect(firstLoad).toBe(205);
     expect(deduplicatedLoad).toBe(205);
@@ -300,5 +317,40 @@ describe('taskListStore pagination', () => {
       hasMore: false,
       totalCount: 205,
     });
+    expect(useTaskListStore.getState().loadingTaskPagesByListId.has('list-a')).toBe(false);
+  });
+
+  it('mantém a primeira página navegável e permite retry após erro posterior', async () => {
+    const cards = Array.from({ length: 105 }, (_, index) => backendTask(`task-${index + 1}`, index));
+    getTaskListPage
+      .mockResolvedValueOnce({
+        task_list: { ...backendList(), preferred_view_mode: 'kanban' },
+        tasks: cards.slice(0, 100),
+        next_cursor: 'cursor-100',
+        has_more: true,
+        total_count: 105,
+      })
+      .mockRejectedValueOnce(new Error('falha transitória'))
+      .mockResolvedValueOnce({
+        task_list: backendList(),
+        tasks: cards.slice(100),
+        next_cursor: '',
+        has_more: false,
+        total_count: 105,
+      });
+
+    await useTaskListStore.getState().loadTaskList('list-a');
+    await expect(useTaskListStore.getState().loadAllTasksForBoard('list-a')).rejects.toThrow('falha transitória');
+
+    expect(useTaskListStore.getState().taskLists.get('list-a')?.tasks).toHaveLength(100);
+    expect(useTaskListStore.getState().loadingByTaskListId.has('list-a')).toBe(false);
+    expect(useTaskListStore.getState().loadingTaskPagesByListId.has('list-a')).toBe(false);
+    expect(useTaskListStore.getState().taskPageLoadErrors.get('list-a')).toContain('falha transitória');
+    expect(useTaskListStore.getState().taskPages.get('list-a')?.hasMore).toBe(true);
+
+    await expect(useTaskListStore.getState().loadAllTasksForBoard('list-a')).resolves.toBe(105);
+    expect(getTaskListPage).toHaveBeenCalledTimes(3);
+    expect(useTaskListStore.getState().taskLists.get('list-a')?.tasks).toHaveLength(105);
+    expect(useTaskListStore.getState().taskPageLoadErrors.has('list-a')).toBe(false);
   });
 });
