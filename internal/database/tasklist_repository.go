@@ -96,21 +96,11 @@ func CreateTaskListWithContext(ctx context.Context, title, description string, t
 }
 
 // GetTaskListWithContext retorna uma tasklist do usuário do contexto pelo ID,
-// com workflow e tasks.
+// com workflow e hierarquia completa. O caminho completo usa uma única
+// projeção plana para tasks e monta a árvore em memória, sem Preload por nível.
+// A UI usa ListTasksPageWithContext e não chama este contrato completo.
 func GetTaskListWithContext(ctx context.Context, id string) (*TaskList, error) {
-	var taskList TaskList
-	err := WithSQLiteBusyRetry(ctx, "tasklist.get", func() error {
-		return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
-			Preload("Tasks", func(db *gorm.DB) *gorm.DB {
-				return db.Where("parent_id IS NULL").Order("`order` ASC")
-			}).
-			Preload("Tasks.Subtasks", func(db *gorm.DB) *gorm.DB {
-				return db.Order("`order` ASC")
-			}).
-			First(&taskList, "id = ?", id).Error
-	})
-
-	return &taskList, err
+	return GetTaskListWithHierarchyWithContext(ctx, id)
 }
 
 // GetTaskListMetadataWithContext retorna apenas a lista e o workflow. É o
@@ -126,15 +116,19 @@ func GetTaskListMetadataWithContext(ctx context.Context, id string) (*TaskList, 
 	return &taskList, err
 }
 
-// GetAllTaskListsWithContext retorna todas as tasklists do usuário do
-// contexto, ordenadas por data de criação.
+// GetAllTaskListsWithContext retorna o catálogo de tasklists do usuário, com
+// workflow e contagem agregada, sem hidratar Tasks. Consumidores que precisam
+// do conteúdo usam paginação ou o contrato explícito de hierarquia completa.
 func GetAllTaskListsWithContext(ctx context.Context) ([]TaskList, error) {
 	var taskLists []TaskList
 	err := WithSQLiteBusyRetry(ctx, "tasklist.list_all", func() error {
-		return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
-			Preload("Tasks", func(db *gorm.DB) *gorm.DB {
-				return db.Where("parent_id IS NULL").Order("`order` ASC")
-			}).
+		return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "task_lists.user_id").
+			Select(`task_lists.*, (
+				SELECT COUNT(*) FROM tasks
+				WHERE tasks.task_list_id = task_lists.id
+				  AND tasks.parent_id IS NULL
+			) AS task_count`).
+			Preload("Workflow").
 			Order("created_at DESC").
 			Find(&taskLists).Error
 	})
@@ -495,20 +489,41 @@ func SetTaskListConversationWithContext(ctx context.Context, id string, conversa
 	})
 }
 
-// GetTaskListsByConversationIDWithContext retorna as tasklists do usuário do
-// contexto vinculadas a uma conversa, com workflow e tasks raiz.
+// GetTaskListsByConversationIDWithContext retorna metadados, workflow e
+// contagem das listas vinculadas, sem carregar todas as tasks.
 func GetTaskListsByConversationIDWithContext(ctx context.Context, conversationID string) ([]TaskList, error) {
 	var taskLists []TaskList
 	err := WithSQLiteBusyRetry(ctx, "tasklist.list_by_conversation", func() error {
-		return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
-			Preload("Tasks", func(db *gorm.DB) *gorm.DB {
-				return db.Where("parent_id IS NULL").Order("`order` ASC")
-			}).
+		return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "task_lists.user_id").
+			Select(`task_lists.*, (
+				SELECT COUNT(*) FROM tasks
+				WHERE tasks.task_list_id = task_lists.id
+				  AND tasks.parent_id IS NULL
+			) AS task_count`).
+			Preload("Workflow").
 			Where("conversation_id = ?", conversationID).
 			Order("created_at DESC").
 			Find(&taskLists).Error
 	})
 	return taskLists, err
+}
+
+// GetTaskListContextTasksWithContext projeta um lote limitado de raízes para
+// contexto de conversa. O orçamento textual já limita o consumo desse dado;
+// trazer milhares de tasks que serão descartadas só aumenta latência e memória.
+func GetTaskListContextTasksWithContext(ctx context.Context, taskListIDs []string, limit int) ([]Task, error) {
+	if len(taskListIDs) == 0 || limit <= 0 {
+		return []Task{}, nil
+	}
+	var tasks []Task
+	err := WithSQLiteBusyRetry(ctx, "tasklist.context_tasks", func() error {
+		return taskQuery(ctx, db.Model(&Task{})).
+			Where("tasks.task_list_id IN ? AND tasks.parent_id IS NULL", taskListIDs).
+			Order(`tasks.task_list_id ASC, tasks."order" ASC, tasks.id ASC`).
+			Limit(limit).
+			Find(&tasks).Error
+	})
+	return tasks, err
 }
 
 // ReorderWorkflowStatusesWithContext reordena os statuses do workflow do
@@ -1333,7 +1348,7 @@ func GetTaskListWithHierarchyWithContext(ctx context.Context, id string) (*TaskL
 	var allTasks []Task
 	if err := WithSQLiteBusyRetry(ctx, "tasklist.hierarchy.tasks", func() error {
 		return taskQuery(ctx, db.Model(&Task{})).Where("tasks.task_list_id = ?", id).
-			Order(`tasks."order" ASC, tasks.created_at ASC`).
+			Order(`tasks."order" ASC, tasks.id ASC`).
 			Find(&allTasks).Error
 	}); err != nil {
 		return nil, err
@@ -1358,13 +1373,19 @@ func GetTaskListWithHierarchyWithContext(ctx context.Context, id string) (*TaskL
 		rootTaskIDs = append(rootTaskIDs, task.ID)
 	}
 
-	var buildTaskTree func(task *Task) Task
-	buildTaskTree = func(task *Task) Task {
+	var buildTaskTree func(task *Task, ancestors map[string]bool) Task
+	buildTaskTree = func(task *Task, ancestors map[string]bool) Task {
 		cloned := *task
+		if ancestors[task.ID] {
+			cloned.Subtasks = []Task{}
+			return cloned
+		}
+		ancestors[task.ID] = true
+		defer delete(ancestors, task.ID)
 		children := childrenByParentID[task.ID]
 		cloned.Subtasks = make([]Task, 0, len(children))
 		for _, child := range children {
-			cloned.Subtasks = append(cloned.Subtasks, buildTaskTree(child))
+			cloned.Subtasks = append(cloned.Subtasks, buildTaskTree(child, ancestors))
 		}
 		return cloned
 	}
@@ -1372,7 +1393,7 @@ func GetTaskListWithHierarchyWithContext(ctx context.Context, id string) (*TaskL
 	rootTasks := make([]Task, 0, len(rootTaskIDs))
 	for _, rootID := range rootTaskIDs {
 		if rootTask, ok := taskMap[rootID]; ok {
-			rootTasks = append(rootTasks, buildTaskTree(rootTask))
+			rootTasks = append(rootTasks, buildTaskTree(rootTask, make(map[string]bool)))
 		}
 	}
 

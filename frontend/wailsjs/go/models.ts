@@ -2713,6 +2713,7 @@ export namespace database {
 	    conversation_id?: string;
 	    workflow?: TaskListWorkflow;
 	    tasks?: Task[];
+	    task_count: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new TaskList(source);
@@ -2733,6 +2734,7 @@ export namespace database {
 	        this.conversation_id = source["conversation_id"];
 	        this.workflow = this.convertValues(source["workflow"], TaskListWorkflow);
 	        this.tasks = this.convertValues(source["tasks"], Task);
+	        this.task_count = source["task_count"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

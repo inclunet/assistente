@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -203,6 +204,121 @@ func TestListTasksPageWithContext_RootOrderPaginationPreservesHierarchyAndComple
 	}
 }
 
+func TestListTasksPageWithContext_PreservesArbitraryHierarchyWithoutNPlusOne(t *testing.T) {
+	testDB := setupTaskPaginationTestDB(t)
+	ctx := WithUserID(context.Background(), "user-a")
+	list := TaskList{UUIDModel: UUIDModel{ID: "list-a"}, UserID: "user-a", Title: "Fila"}
+	if err := testDB.Create(&list).Error; err != nil {
+		t.Fatal(err)
+	}
+	parent := func(id string) *string { return &id }
+	for _, task := range []Task{
+		{UUIDModel: UUIDModel{ID: "root"}, TaskListID: list.ID, Title: "Raiz", StatusID: 1, Order: 0},
+		{UUIDModel: UUIDModel{ID: "child"}, TaskListID: list.ID, Title: "Filha", StatusID: 1, ParentID: parent("root"), Order: 0},
+		{UUIDModel: UUIDModel{ID: "grandchild"}, TaskListID: list.ID, Title: "Neta", StatusID: 1, ParentID: parent("child"), Order: 0},
+		{UUIDModel: UUIDModel{ID: "great-grandchild"}, TaskListID: list.ID, Title: "Bisneta", StatusID: 1, ParentID: parent("grandchild"), Order: 0},
+	} {
+		if err := testDB.Create(&task).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	page, err := ListTasksPageWithContext(ctx, TaskPageQuery{
+		TaskListID: list.ID,
+		Limit:      1,
+		Sort:       TaskSortOrderAsc,
+		RootOnly:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := page.Tasks[0].Subtasks[0].Subtasks[0].Subtasks[0].ID; got != "great-grandchild" {
+		t.Fatalf("hierarquia profunda incompleta: %s", got)
+	}
+}
+
+func TestGetAllTaskListsWithContext_ProjectsCountsWithoutTasks(t *testing.T) {
+	testDB := setupTaskPaginationTestDB(t)
+	ctx := WithUserID(context.Background(), "user-a")
+	for _, list := range []TaskList{
+		{UUIDModel: UUIDModel{ID: "list-a"}, UserID: "user-a", Title: "A"},
+		{UUIDModel: UUIDModel{ID: "list-b"}, UserID: "user-a", Title: "B"},
+	} {
+		if err := testDB.Create(&list).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	tasks := make([]Task, 2507)
+	for i := range tasks {
+		listID := "list-a"
+		if i >= 2500 {
+			listID = "list-b"
+		}
+		tasks[i] = Task{TaskListID: listID, Title: "Task", StatusID: 1, Order: i}
+	}
+	if err := testDB.CreateInBatches(tasks, 250).Error; err != nil {
+		t.Fatal(err)
+	}
+	parentID := tasks[0].ID
+	if err := testDB.Create(&Task{
+		TaskListID: "list-a", ParentID: &parentID, Title: "Subtask", StatusID: 1,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	lists, err := GetAllTaskListsWithContext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := make(map[string]int64, len(lists))
+	for _, list := range lists {
+		if list.Tasks != nil {
+			t.Fatalf("catálogo hidratou tasks da lista %s", list.ID)
+		}
+		counts[list.ID] = list.TaskCount
+	}
+	if counts["list-a"] != 2500 || counts["list-b"] != 7 {
+		t.Fatalf("contagens agregadas incorretas: %v", counts)
+	}
+}
+
+func TestConversationTaskListProjectionIsBoundedAndOrdered(t *testing.T) {
+	testDB := setupTaskPaginationTestDB(t)
+	ctx := WithUserID(context.Background(), "user-a")
+	conversationID := "conversation-a"
+	list := TaskList{
+		UUIDModel:      UUIDModel{ID: "list-a"},
+		UserID:         "user-a",
+		Title:          "A",
+		ConversationID: &conversationID,
+	}
+	if err := testDB.Create(&list).Error; err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 150; i++ {
+		if err := testDB.Create(&Task{
+			TaskListID: list.ID, Title: fmt.Sprintf("Task %d", i), StatusID: 1, Order: i,
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	lists, err := GetTaskListsByConversationIDWithContext(ctx, conversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lists) != 1 || lists[0].TaskCount != 150 || lists[0].Tasks != nil {
+		t.Fatalf("projeção de listas inesperada: %+v", lists)
+	}
+	tasks, err := GetTaskListContextTasksWithContext(ctx, []string{list.ID}, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 25 || tasks[0].Order != 0 || tasks[24].Order != 24 {
+		t.Fatalf("projeção de contexto inesperada: len=%d first=%+v last=%+v", len(tasks), tasks[0], tasks[len(tasks)-1])
+	}
+}
+
 func TestGetTaskListMetadataWithContext_DoesNotHydrateTasks(t *testing.T) {
 	testDB := setupTaskPaginationTestDB(t)
 	ctx := WithUserID(context.Background(), "user-a")
@@ -366,4 +482,65 @@ func BenchmarkListTasksPageWithContext_2581Roots(b *testing.B) {
 			b.Fatalf("página inesperada: tasks=%d total=%d", len(page.Tasks), page.TotalCount)
 		}
 	}
+}
+
+func BenchmarkTaskListCatalogWithContext_2581Roots(b *testing.B) {
+	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		b.Fatal(err)
+	}
+	if err := testDB.AutoMigrate(&TaskList{}, &TaskListWorkflow{}, &Task{}); err != nil {
+		b.Fatal(err)
+	}
+	if err := ensureTaskPaginationIndexes(testDB); err != nil {
+		b.Fatal(err)
+	}
+	previous := DB()
+	SetDB(testDB)
+	defer SetDB(previous)
+
+	for i := 0; i < 10; i++ {
+		list := TaskList{UUIDModel: UUIDModel{ID: fmt.Sprintf("list-%02d", i)}, UserID: "user-a", Title: "Fila"}
+		if err := testDB.Create(&list).Error; err != nil {
+			b.Fatal(err)
+		}
+	}
+	tasks := make([]Task, 2581)
+	for i := range tasks {
+		tasks[i] = Task{
+			TaskListID: fmt.Sprintf("list-%02d", i%10),
+			Title:      "Task",
+			StatusID:   1,
+			Order:      i,
+		}
+	}
+	if err := testDB.CreateInBatches(tasks, 250).Error; err != nil {
+		b.Fatal(err)
+	}
+	ctx := WithUserID(context.Background(), "user-a")
+
+	b.Run("antes_preload_ilimitado", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			var lists []TaskList
+			if err := ScopeByUser(ctx, testDB.WithContext(ctx), "user_id").
+				Preload("Workflow").
+				Preload("Tasks", func(query *gorm.DB) *gorm.DB {
+					return query.Where("parent_id IS NULL").Order(`"order" ASC`)
+				}).
+				Find(&lists).Error; err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("depois_catalogo_projetado", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			lists, err := GetAllTaskListsWithContext(ctx)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(lists) != 10 || lists[0].Tasks != nil {
+				b.Fatalf("catálogo inesperado: %d listas", len(lists))
+			}
+		}
+	})
 }
