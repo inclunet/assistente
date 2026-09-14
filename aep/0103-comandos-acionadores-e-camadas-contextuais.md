@@ -1935,6 +1935,22 @@ não demonstram as garantias de execução, persistência e segurança do sistem
 
 ### Fase 1 — Registro, defaults e resolvedor
 
+Incremento inicial: `internal/commandcatalog` contém um snapshot imutável dos
+contratos estáticos de comando, com IDs exatos e namespaced, efeitos,
+mutabilidade, origens permitidas e políticas de contexto por provider/fato.
+O registro recusa metadata divergente do descriptor confiável do handler,
+escrita/ação com alvo mutável usando contexto `none`, políticas temporais sem
+TTL positivo e qualquer origem `cli`/`event`/`system` em comando destrutivo.
+`AllowsSource` consulta somente a declaração; não concede autorização.
+
+Validação: `go test ./internal/commandcatalog ./internal/commandbindings`
+passou (100% de cobertura no catálogo inicial, 98,9% no seletor); `go vet`
+dos dois pacotes passou. Nenhum comando do produto está registrado ainda.
+O descriptor do handler será obtido no bootstrap a partir de
+`EffectClass()`/`Mutability()`, nunca de cliente. Permanecem pendentes schemas
+de argumentos, aliases/locales, risco/redação, disponibilidade, versão do
+catálogo, ponte e executor. Este incremento não conclui a Fase 1.
+
 - Implementar registro tipado de comandos.
 - Definir schema versionado de contexto, acionadores, bindings e camadas.
 - Criar camadas padrão no código e persistência de deltas no SQLite.
