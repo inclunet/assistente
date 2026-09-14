@@ -2015,8 +2015,17 @@ os registros ou revertem a transação; terminais não são reiniciados pela API
 Os testes usam SQLite em arquivos temporários e incluem reabertura do banco,
 rollback por falha da auditoria e isolamento de escopo.
 
-Permanecem pendentes integração ao executor/DispatchGate, recuperação após
-queda e reconciliação, HMAC/RFC8785, resultados, política de retenção, eventos,
+`RecoverClosedGeneration` acrescenta recuperação interna explícita de uma
+sessão local e geração de segurança encerrada: pares `evaluating`, `queued`
+ou `running` passam atomicamente para `outcome_unknown`, sem novo efeito.
+O host precisa comprovar o encerramento e impedir admissão da geração antes
+da chamada; o repositório não deduz isso de relógio ou expiração. Gerações e
+sessões fora do escopo e estados terminais são preservados. Testes cobrem
+idempotência, replay, isolamento, rollback e par com fingerprint divergente.
+
+Permanecem pendentes integração ao executor/DispatchGate e ao startup,
+comprovação de encerramento de geração, reconciliação verificável,
+HMAC/RFC8785, resultados, política de retenção, eventos,
 supressão, identidades externas e constraints condicionais completas de D11.
 As colunas futuras não tornam esses fluxos suportados. Nenhuma fase ou critério
 de execução ponta a ponta é concluído por este incremento.
