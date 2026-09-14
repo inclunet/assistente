@@ -2000,6 +2000,27 @@ do host. Testes focados dos pacotes envolvidos, build e vet gerais passaram.
 Essa evidência não substitui o ledger durável, validação NVDA, suíte geral verde
 ou revisão Bugbot; nenhum critério de execução ponta a ponta está concluído.
 
+#### Persistência inicial isolada (sem execução)
+
+`internal/commandledger` inicia as tabelas `command_idempotency_keys` e
+`command_invocations`, com migração explícita, sem bootstrap no aplicativo.
+A API interna aceita somente solicitações diretas `local_session` de leitura
+sem argumentos/contexto, nas origens `palette`, `ui.action` e `cli`. O chamador
+confiável ainda deve autenticar, validar o contrato e produzir os HMACs; o
+repositório compara fingerprints, mas não os autentica nem autoriza execução.
+
+Reserva e auditoria são transacionais. A reentrega verifica usuário, sessão,
+origem e fingerprint, sem renovar a expiração. Transições CAS atualizam ambos
+os registros ou revertem a transação; terminais não são reiniciados pela API.
+Os testes usam SQLite em arquivos temporários e incluem reabertura do banco,
+rollback por falha da auditoria e isolamento de escopo.
+
+Permanecem pendentes integração ao executor/DispatchGate, recuperação após
+queda e reconciliação, HMAC/RFC8785, resultados, política de retenção, eventos,
+supressão, identidades externas e constraints condicionais completas de D11.
+As colunas futuras não tornam esses fluxos suportados. Nenhuma fase ou critério
+de execução ponta a ponta é concluído por este incremento.
+
 Incremento inicial: `internal/commandcatalog` contém um snapshot imutável dos
 contratos estáticos de comando, com IDs exatos e namespaced, efeitos,
 mutabilidade, origens permitidas e políticas de contexto por provider/fato.
