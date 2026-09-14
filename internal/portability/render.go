@@ -16,14 +16,16 @@ import (
 	"strings"
 	"time"
 
+	"assistente/internal/toolinvocations"
+
 	"codeberg.org/go-pdf/fpdf"
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/yuin/goldmark"
+	highlighting "github.com/yuin/goldmark-highlighting/v2"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	htmlrenderer "github.com/yuin/goldmark/renderer/html"
-	highlighting "github.com/yuin/goldmark-highlighting/v2"
 	"golang.org/x/net/html"
 )
 
@@ -101,7 +103,83 @@ func RenderConversationExport(file *ExportFile, format string) ([]byte, error) {
 	}
 }
 
+func richRenderExportFile(source *ExportFile) *ExportFile {
+	if source == nil {
+		return source
+	}
+	copyFile := *source
+	copyFile.Resources = source.Resources
+	copyFile.Resources.Conversations = make([]ConversationExport, len(source.Resources.Conversations))
+	for conversationIndex, sourceConversation := range source.Resources.Conversations {
+		conversation := sourceConversation
+		conversation.Messages = append([]MessageExport(nil), sourceConversation.Messages...)
+		copyFile.Resources.Conversations[conversationIndex] = conversation
+		if len(conversation.ToolInvocations) == 0 {
+			continue
+		}
+		assistantByTurn := map[string]int{}
+		messageByID := map[string]int{}
+		for index, message := range conversation.Messages {
+			if strings.TrimSpace(message.ID) != "" {
+				messageByID[message.ID] = index
+			}
+			if message.Role == "assistant" && strings.TrimSpace(message.TurnID) != "" {
+				if _, exists := assistantByTurn[message.TurnID]; !exists {
+					assistantByTurn[message.TurnID] = index
+				}
+			}
+		}
+		callsByMessage := map[int][]map[string]interface{}{}
+		for _, invocation := range conversation.ToolInvocations {
+			index, exists := assistantByTurn[strings.TrimSpace(invocation.TurnID)]
+			if !exists {
+				continue
+			}
+			var metadata struct {
+				Display struct {
+					Type               string `json:"type"`
+					Name               string `json:"name"`
+					Arguments          string `json:"arguments"`
+					AssistantMessageID string `json:"assistant_message_id"`
+				} `json:"display"`
+			}
+			_ = json.Unmarshal([]byte(invocation.Metadata), &metadata)
+			if explicitIndex, found := messageByID[strings.TrimSpace(metadata.Display.AssistantMessageID)]; found {
+				index = explicitIndex
+			}
+			callType := strings.TrimSpace(metadata.Display.Type)
+			if callType == "" {
+				callType = "function"
+			}
+			name := strings.TrimSpace(metadata.Display.Name)
+			if name == "" {
+				name = strings.TrimSpace(invocation.ToolDisplayName)
+			}
+			if name == "" {
+				name = strings.TrimSpace(invocation.ToolName)
+			}
+			callsByMessage[index] = append(callsByMessage[index], map[string]interface{}{
+				"id":   invocation.ToolCallID,
+				"type": callType,
+				"function": map[string]interface{}{
+					"name":      name,
+					"arguments": metadata.Display.Arguments,
+				},
+				"result": toolinvocations.ExtractToolInvocationResult(invocation.Output).Content,
+			})
+		}
+		for messageIndex, calls := range callsByMessage {
+			payload, err := json.Marshal(calls)
+			if err == nil {
+				copyFile.Resources.Conversations[conversationIndex].Messages[messageIndex].ToolCalls = string(payload)
+			}
+		}
+	}
+	return &copyFile
+}
+
 func RenderConversationsHTML(file *ExportFile) (string, error) {
+	file = richRenderExportFile(file)
 	const page = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -263,6 +341,7 @@ func RenderConversationsHTML(file *ExportFile) (string, error) {
 }
 
 func RenderConversationsPDF(file *ExportFile) ([]byte, error) {
+	file = richRenderExportFile(file)
 	pdf := fpdf.New("P", "mm", "A4", "")
 	pdf.SetMargins(12, 12, 12)
 	pdf.SetAutoPageBreak(true, 12)
@@ -356,6 +435,7 @@ func RenderConversationsPDF(file *ExportFile) ([]byte, error) {
 // modelo canônico de conversas, respeitando os toggles de conteúdo em
 // file.Options (timestamps, reasoning e metadados).
 func RenderConversationsMarkdown(file *ExportFile) (string, error) {
+	file = richRenderExportFile(file)
 	opts := file.Options
 	var sb strings.Builder
 

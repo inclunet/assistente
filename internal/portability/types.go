@@ -61,13 +61,48 @@ type MessageExport struct {
 }
 
 type ConversationExport struct {
-	ID        string          `json:"id"`
-	Title     string          `json:"title"`
-	Channel   string          `json:"channel,omitempty"`
-	ContactID string          `json:"contactId,omitempty"`
-	Summary   string          `json:"summary,omitempty"`
-	CreatedAt time.Time       `json:"createdAt"`
-	Messages  []MessageExport `json:"messages"`
+	ID              string                 `json:"id"`
+	Title           string                 `json:"title"`
+	Channel         string                 `json:"channel,omitempty"`
+	ContactID       string                 `json:"contactId,omitempty"`
+	Summary         string                 `json:"summary,omitempty"`
+	CreatedAt       time.Time              `json:"createdAt"`
+	Messages        []MessageExport        `json:"messages"`
+	ToolInvocations []ToolInvocationExport `json:"toolInvocations,omitempty"`
+}
+
+type ToolInvocationExport struct {
+	ID                 string     `json:"id"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
+	TurnID             string     `json:"turnId"`
+	ToolCallID         string     `json:"toolCallId"`
+	Attempt            int        `json:"attempt"`
+	Status             string     `json:"status"`
+	DryRun             bool       `json:"dryRun,omitempty"`
+	ToolName           string     `json:"toolName"`
+	ToolDisplayName    string     `json:"toolDisplayName,omitempty"`
+	ToolOrigin         string     `json:"toolOrigin,omitempty"`
+	Input              string     `json:"input,omitempty"`
+	Output             string     `json:"output,omitempty"`
+	Metadata           string     `json:"metadata,omitempty"`
+	DisplayName        string     `json:"displayName,omitempty"`
+	InputPreview       string     `json:"inputPreview,omitempty"`
+	OutputPreview      string     `json:"outputPreview,omitempty"`
+	InputBytes         int64      `json:"inputBytes,omitempty"`
+	OutputBytes        int64      `json:"outputBytes,omitempty"`
+	InputHash          string     `json:"inputHash,omitempty"`
+	OutputHash         string     `json:"outputHash,omitempty"`
+	ResultAvailability string     `json:"resultAvailability,omitempty"`
+	ErrorKind          string     `json:"errorKind,omitempty"`
+	ErrorCode          string     `json:"errorCode,omitempty"`
+	ErrorMessage       string     `json:"errorMessage,omitempty"`
+	Retryable          bool       `json:"retryable,omitempty"`
+	RetryabilityKnown  bool       `json:"retryabilityKnown,omitempty"`
+	QueuedAt           time.Time  `json:"queuedAt"`
+	StartedAt          *time.Time `json:"startedAt,omitempty"`
+	CompletedAt        *time.Time `json:"completedAt,omitempty"`
+	DurationMs         int64      `json:"durationMs,omitempty"`
 }
 
 type ProviderExport struct {

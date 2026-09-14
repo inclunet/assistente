@@ -253,6 +253,38 @@ func TestRenderConversationsMarkdownIncludesContent(t *testing.T) {
 	}
 }
 
+func TestRenderConversationsMarkdownProjectsCanonicalLedger(t *testing.T) {
+	file := &ExportFile{
+		Version: ExportVersion,
+		Options: ExportOptions{IncludeMetadata: true},
+		Resources: ExportResources{Conversations: []ConversationExport{{
+			Title: "Ledger",
+			Messages: []MessageExport{
+				{ID: "turn-1", Role: "user", Content: "pergunta"},
+				{ID: "assistant-1", TurnID: "turn-1", Role: "assistant", Content: "resposta"},
+			},
+			ToolInvocations: []ToolInvocationExport{{
+				ID: "inv-1", TurnID: "turn-1", ToolCallID: "call-1",
+				ToolName: "search", Output: `{"content":"resultado canônico"}`,
+				Metadata: `{"display":{"type":"function","name":"Search","arguments":"{\"q\":\"teste\"}"}}`,
+			}},
+		}}},
+	}
+
+	md, err := RenderConversationsMarkdown(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"call-1", "Search", "resultado canônico"} {
+		if !strings.Contains(md, expected) {
+			t.Fatalf("render rico não projetou %q do ledger: %s", expected, md)
+		}
+	}
+	if file.Resources.Conversations[0].Messages[1].ToolCalls != "" {
+		t.Fatal("render alterou o modelo canônico de exportação")
+	}
+}
+
 func TestRenderConversationsMarkdownRespectsToggles(t *testing.T) {
 	file := sampleConversationFile(ExportOptions{
 		IncludeTimestamps: false,

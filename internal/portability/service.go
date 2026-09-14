@@ -2,6 +2,8 @@ package portability
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"assistente/internal/database"
 	memorysvc "assistente/internal/memory"
 	"assistente/internal/toolinvocations"
+	"assistente/internal/tools"
 
 	"gorm.io/gorm"
 )
@@ -173,6 +176,14 @@ func buildConversationExports(ctx context.Context, conversationIDs []string, inc
 			return nil, fmt.Errorf("erro ao buscar conversa %s: %w", id, gorm.ErrRecordNotFound)
 		}
 	}
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	readPolicy, err := toolinvocations.LoadLegacyReadPolicyWithUser(ctx, userID, uniqueIDs)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao carregar política do ledger para exportação: %w", err)
+	}
 
 	var messages []database.ChatMessage
 	if err := database.DB().
@@ -181,11 +192,33 @@ func buildConversationExports(ctx context.Context, conversationIDs []string, inc
 		Find(&messages).Error; err != nil {
 		return nil, fmt.Errorf("erro ao buscar mensagens das conversas para exportação: %w", err)
 	}
-	if err := hydrateToolCallResultsForExport(ctx, messages); err != nil {
+	pendingMessages := make([]database.ChatMessage, 0, len(messages))
+	pendingIndexes := make([]int, 0, len(messages))
+	for index, message := range messages {
+		if readPolicy.Allows(message.ConversationID) {
+			pendingMessages = append(pendingMessages, message)
+			pendingIndexes = append(pendingIndexes, index)
+		}
+	}
+	if err := hydrateToolCallResultsForExport(ctx, pendingMessages); err != nil {
+		return nil, err
+	}
+	for index := range pendingMessages {
+		messages[pendingIndexes[index]] = pendingMessages[index]
+	}
+	invocationsByConversation, err := loadConversationToolInvocationExports(ctx, userID, uniqueIDs, readPolicy)
+	if err != nil {
 		return nil, err
 	}
 
 	for _, msg := range messages {
+		if !readPolicy.Allows(msg.ConversationID) {
+			if msg.Role == "tool" {
+				continue
+			}
+			msg.ToolCalls = ""
+			msg.ToolCallID = ""
+		}
 		if conv := conversationsByID[msg.ConversationID]; conv != nil {
 			conv.Messages = append(conv.Messages, msg)
 		}
@@ -194,9 +227,126 @@ func buildConversationExports(ctx context.Context, conversationIDs []string, inc
 	exports := make([]ConversationExport, 0, len(conversationIDs))
 	for _, rawID := range conversationIDs {
 		id := strings.TrimSpace(rawID)
-		exports = append(exports, exportConversation(conversationsByID[id], includeAudio))
+		exported := exportConversation(conversationsByID[id], includeAudio)
+		exported.ToolInvocations = invocationsByConversation[id]
+		exports = append(exports, exported)
 	}
 	return exports, nil
+}
+
+func loadConversationToolInvocationExports(
+	ctx context.Context,
+	userID string,
+	conversationIDs []string,
+	policy toolinvocations.LegacyReadPolicy,
+) (map[string][]ToolInvocationExport, error) {
+	result := make(map[string][]ToolInvocationExport, len(conversationIDs))
+	canonicalIDs := make([]string, 0, len(conversationIDs))
+	for _, conversationID := range conversationIDs {
+		if !policy.Allows(conversationID) {
+			canonicalIDs = append(canonicalIDs, conversationID)
+		}
+	}
+	const batchSize = 400
+	for start := 0; start < len(canonicalIDs); start += batchSize {
+		end := start + batchSize
+		if end > len(canonicalIDs) {
+			end = len(canonicalIDs)
+		}
+		type exportRow struct {
+			database.ToolInvocation
+			ToolName               string
+			ToolDisplayName        string
+			ToolOrigin             string
+			ResolvedConversationID string `gorm:"column:resolved_conversation_id"`
+			ResolvedTurnID         string `gorm:"column:resolved_turn_id"`
+		}
+		var rows []exportRow
+		const resolvedConversationSQL = `COALESCE(
+			tool_invocations.conversation_id,
+			(
+				SELECT legacy_message.conversation_id
+				FROM chat_messages legacy_message
+				JOIN conversations legacy_conversation
+					ON legacy_conversation.id = legacy_message.conversation_id
+					AND legacy_conversation.user_id = tool_invocations.user_id
+				WHERE legacy_message.id = tool_invocations.origin_id
+				LIMIT 1
+			)
+		)`
+		const resolvedTurnSQL = `COALESCE(
+			tool_invocations.turn_id,
+			(
+				SELECT COALESCE(legacy_message.turn_id, legacy_message.id)
+				FROM chat_messages legacy_message
+				JOIN conversations legacy_conversation
+					ON legacy_conversation.id = legacy_message.conversation_id
+					AND legacy_conversation.user_id = tool_invocations.user_id
+				WHERE legacy_message.id = tool_invocations.origin_id
+				LIMIT 1
+			),
+			tool_invocations.origin_id
+		)`
+		if err := database.DB().WithContext(ctx).
+			Model(&database.ToolInvocation{}).
+			Select(
+				"tool_invocations.*, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name, tool_catalog.origin AS tool_origin, "+
+					resolvedConversationSQL+" AS resolved_conversation_id, "+
+					resolvedTurnSQL+" AS resolved_turn_id",
+			).
+			Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
+			Where(
+				"tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND "+resolvedConversationSQL+" IN ?",
+				userID,
+				toolinvocations.OriginChat,
+				canonicalIDs[start:end],
+			).
+			Order("resolved_conversation_id, tool_invocations.queued_at, tool_invocations.id").
+			Find(&rows).Error; err != nil {
+			return nil, fmt.Errorf("erro ao buscar tool invocations para exportação: %w", err)
+		}
+		for _, row := range rows {
+			conversationID := strings.TrimSpace(row.ResolvedConversationID)
+			if conversationID == "" {
+				continue
+			}
+			turnID := strings.TrimSpace(row.ResolvedTurnID)
+			result[conversationID] = append(result[conversationID], ToolInvocationExport{
+				ID:                 row.ID,
+				CreatedAt:          row.CreatedAt,
+				UpdatedAt:          row.UpdatedAt,
+				TurnID:             turnID,
+				ToolCallID:         row.ToolCallID,
+				Attempt:            row.Attempt,
+				Status:             row.Status,
+				DryRun:             row.DryRun,
+				ToolName:           row.ToolName,
+				ToolDisplayName:    row.ToolDisplayName,
+				ToolOrigin:         row.ToolOrigin,
+				Input:              row.Input,
+				Output:             row.Output,
+				Metadata:           row.Metadata,
+				DisplayName:        row.DisplayName,
+				InputPreview:       row.InputPreview,
+				OutputPreview:      row.OutputPreview,
+				InputBytes:         row.InputBytes,
+				OutputBytes:        row.OutputBytes,
+				InputHash:          row.InputHash,
+				OutputHash:         row.OutputHash,
+				ResultAvailability: row.ResultAvailability,
+				ErrorKind:          row.ErrorKind,
+				ErrorCode:          row.ErrorCode,
+				ErrorMessage:       row.ErrorMessage,
+				Retryable:          row.Retryable,
+				RetryabilityKnown:  row.RetryabilityKnown,
+				QueuedAt:           row.QueuedAt,
+				StartedAt:          row.StartedAt,
+				CompletedAt:        row.CompletedAt,
+				DurationMs:         row.DurationMs,
+			})
+		}
+	}
+	return result, nil
 }
 
 func hydrateToolCallResultsForExport(ctx context.Context, messages []database.ChatMessage) error {
@@ -820,7 +970,7 @@ func importConversation(ctx context.Context, conv ConversationExport, includeAud
 		if err != nil {
 			return err
 		}
-		return importConversationMessages(tx, newConv.ID, conv, includeAudio)
+		return importConversationMessages(ctx, tx, newConv.ID, conv, includeAudio)
 	})
 	if err != nil {
 		return false, err
@@ -852,7 +1002,7 @@ func overwriteConversationByExisting(ctx context.Context, conv ConversationExpor
 		if err := tx.Where("conversation_id = ?", existing.ID).Delete(&database.ChatMessage{}).Error; err != nil {
 			return fmt.Errorf("erro ao limpar mensagens da conversa '%s': %w", conv.Title, err)
 		}
-		return importConversationMessages(tx, existing.ID, conv, includeAudio)
+		return importConversationMessages(ctx, tx, existing.ID, conv, includeAudio)
 	})
 	if err != nil {
 		return false, err
@@ -891,24 +1041,19 @@ func deleteChatToolInvocationsForConversationTx(ctx context.Context, tx *gorm.DB
 		return fmt.Errorf("erro ao buscar message ids da conversa '%s': %w", conversationID, err)
 	}
 
-	ids := make([]string, 0, len(turnIDs)+len(msgIDs))
-	ids = append(ids, turnIDs...)
-	ids = append(ids, msgIDs...)
-	if len(ids) == 0 {
-		return nil
-	}
-
-	const batchSize = 400
-	for start := 0; start < len(ids); start += batchSize {
-		end := start + batchSize
-		if end > len(ids) {
-			end = len(ids)
-		}
-		if err := tx.
-			Where("user_id = ? AND origin_type = ? AND origin_id IN ?", userID, "chat", ids[start:end]).
-			Delete(&database.ToolInvocation{}).Error; err != nil {
-			return fmt.Errorf("erro ao limpar tool invocations da conversa '%s': %w", conversationID, err)
-		}
+	if err := tx.
+		Where(
+			`user_id = ? AND origin_type = ? AND (
+				conversation_id = ?
+				OR (conversation_id IS NULL AND origin_id IN ?)
+			)`,
+			userID,
+			toolinvocations.OriginChat,
+			conversationID,
+			append(turnIDs, msgIDs...),
+		).
+		Delete(&database.ToolInvocation{}).Error; err != nil {
+		return fmt.Errorf("erro ao limpar tool invocations da conversa '%s': %w", conversationID, err)
 	}
 	return nil
 }
@@ -945,7 +1090,131 @@ func createImportedConversation(ctx context.Context, tx *gorm.DB, conv Conversat
 	return newConv, nil
 }
 
-func importConversationMessages(tx *gorm.DB, conversationID string, conv ConversationExport, includeAudio bool) error {
+func canonicalizeLegacyConversationExport(conv ConversationExport) (ConversationExport, error) {
+	if len(conv.ToolInvocations) > 0 {
+		return conv, nil
+	}
+	results := map[string]string{}
+	resultMessageIDs := map[string]string{}
+	for _, message := range conv.Messages {
+		if message.Role != "tool" {
+			continue
+		}
+		turnID := strings.TrimSpace(message.TurnID)
+		callID := strings.TrimSpace(message.ToolCallID)
+		if turnID == "" || callID == "" {
+			return conv, fmt.Errorf("resultado legado sem turnId/toolCallId na conversa %q", conv.Title)
+		}
+		key := turnID + "\x00" + callID
+		if previousID, exists := resultMessageIDs[key]; exists {
+			return conv, fmt.Errorf("resultados legados ambíguos %s e %s na conversa %q", previousID, message.ID, conv.Title)
+		}
+		results[key] = message.Content
+		resultMessageIDs[key] = message.ID
+	}
+
+	usedResults := map[string]struct{}{}
+	iterationsByTurn := map[string]int{}
+	for messageIndex := range conv.Messages {
+		message := &conv.Messages[messageIndex]
+		if message.Role != "assistant" || strings.TrimSpace(message.ToolCalls) == "" {
+			continue
+		}
+		turnID := strings.TrimSpace(message.TurnID)
+		if turnID == "" {
+			return conv, fmt.Errorf("toolCalls legado sem turnId na conversa %q", conv.Title)
+		}
+		calls := parseToolCalls(message.ToolCalls)
+		if len(calls) == 0 {
+			return conv, fmt.Errorf("toolCalls legado inválido na mensagem %s da conversa %q", message.ID, conv.Title)
+		}
+		iteration := iterationsByTurn[turnID]
+		iterationsByTurn[turnID] = iteration + 1
+		for _, call := range calls {
+			callID, _ := call["id"].(string)
+			callID = strings.TrimSpace(callID)
+			function, _ := call["function"].(map[string]interface{})
+			toolName, _ := function["name"].(string)
+			arguments, _ := function["arguments"].(string)
+			if callID == "" || strings.TrimSpace(toolName) == "" {
+				return conv, fmt.Errorf("toolCalls legado sem identidade na conversa %q", conv.Title)
+			}
+			key := turnID + "\x00" + callID
+			result, hasResultMessage := results[key]
+			if !hasResultMessage {
+				result, _ = call["result"].(string)
+			} else {
+				usedResults[key] = struct{}{}
+			}
+			input, _ := json.Marshal(map[string]interface{}{"tool_call": call})
+			output, _ := json.Marshal(tools.ToolResult{Content: result})
+			metadata, _ := json.Marshal(map[string]interface{}{
+				"display": map[string]interface{}{
+					"version":              1,
+					"type":                 "function",
+					"name":                 toolName,
+					"arguments":            arguments,
+					"assistant_message_id": message.ID,
+					"iteration":            iteration,
+				},
+				"migration": "portability:legacy-v2",
+			})
+			invocation := ToolInvocationExport{
+				CreatedAt:          message.CreatedAt,
+				UpdatedAt:          message.CreatedAt,
+				TurnID:             turnID,
+				ToolCallID:         callID,
+				Attempt:            1,
+				Status:             toolinvocations.StatusSucceeded,
+				ToolName:           strings.TrimSpace(toolName),
+				ToolDisplayName:    strings.TrimSpace(toolName),
+				ToolOrigin:         toolinvocations.ToolOriginArchival,
+				Input:              string(input),
+				Output:             string(output),
+				Metadata:           string(metadata),
+				DisplayName:        strings.TrimSpace(toolName),
+				InputPreview:       fmt.Sprintf(`{"bytes":%d}`, len(input)),
+				OutputPreview:      fmt.Sprintf(`{"bytes":%d}`, len(output)),
+				InputBytes:         int64(len(input)),
+				OutputBytes:        int64(len(output)),
+				InputHash:          portabilityPayloadHash(input),
+				OutputHash:         portabilityPayloadHash(output),
+				ResultAvailability: "available",
+				QueuedAt:           message.CreatedAt,
+				CompletedAt:        portabilityTimePtr(message.CreatedAt),
+			}
+			conv.ToolInvocations = append(conv.ToolInvocations, invocation)
+		}
+		message.ToolCalls = ""
+		message.ToolCallID = ""
+	}
+	for key, messageID := range resultMessageIDs {
+		if _, used := usedResults[key]; !used {
+			return conv, fmt.Errorf("resultado legado %s sem tool call correspondente na conversa %q", messageID, conv.Title)
+		}
+	}
+	return conv, nil
+}
+
+func portabilityPayloadHash(payload []byte) string {
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
+}
+
+func portabilityTimePtr(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	copy := value
+	return &copy
+}
+
+func importConversationMessages(ctx context.Context, tx *gorm.DB, conversationID string, conv ConversationExport, includeAudio bool) error {
+	var err error
+	conv, err = canonicalizeLegacyConversationExport(conv)
+	if err != nil {
+		return err
+	}
 	exportedMessageIDs := make(map[string]struct{}, len(conv.Messages))
 	for i, msg := range conv.Messages {
 		id := strings.TrimSpace(msg.ID)
@@ -982,6 +1251,14 @@ func importConversationMessages(tx *gorm.DB, conversationID string, conv Convers
 		if includeAudio {
 			audio = msg.Audio
 		}
+		if len(conv.ToolInvocations) > 0 && msg.Role == "tool" {
+			idMap[i] = strings.TrimSpace(msg.ID)
+			continue
+		}
+		if len(conv.ToolInvocations) > 0 {
+			msg.ToolCalls = ""
+			msg.ToolCallID = ""
+		}
 
 		newMsg := &database.ChatMessage{
 			UUIDModel: database.UUIDModel{
@@ -1013,6 +1290,150 @@ func importConversationMessages(tx *gorm.DB, conversationID string, conv Convers
 			return fmt.Errorf("erro ao importar mensagem %d da conversa '%s': %w", i, conv.Title, err)
 		}
 		idMap[i] = newMsg.ID
+	}
+	return importConversationToolInvocations(ctx, tx, conversationID, conv.ToolInvocations)
+}
+
+func importConversationToolInvocations(
+	ctx context.Context,
+	tx *gorm.DB,
+	conversationID string,
+	invocations []ToolInvocationExport,
+) error {
+	if len(invocations) == 0 {
+		return nil
+	}
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	toolNames := make([]string, 0, len(invocations))
+	turnIDs := make([]string, 0, len(invocations))
+	displayNames := map[string]string{}
+	seenTools := map[string]struct{}{}
+	seenTurns := map[string]struct{}{}
+	for index, exported := range invocations {
+		toolName := strings.TrimSpace(exported.ToolName)
+		turnID := strings.TrimSpace(exported.TurnID)
+		if toolName == "" {
+			return fmt.Errorf("tool invocation %d sem toolName", index)
+		}
+		if turnID == "" {
+			return fmt.Errorf("tool invocation %d sem turnId", index)
+		}
+		if _, exists := seenTools[toolName]; !exists {
+			seenTools[toolName] = struct{}{}
+			toolNames = append(toolNames, toolName)
+			displayNames[toolName] = strings.TrimSpace(exported.ToolDisplayName)
+		}
+		if _, exists := seenTurns[turnID]; !exists {
+			seenTurns[turnID] = struct{}{}
+			turnIDs = append(turnIDs, turnID)
+		}
+	}
+	var persistedTurnIDs []string
+	if err := tx.WithContext(ctx).
+		Model(&database.ChatMessage{}).
+		Where("conversation_id = ? AND id IN ?", conversationID, turnIDs).
+		Pluck("id", &persistedTurnIDs).Error; err != nil {
+		return err
+	}
+	if len(persistedTurnIDs) != len(turnIDs) {
+		return fmt.Errorf("tool invocation referencia turno ausente na conversa %q", conversationID)
+	}
+
+	catalogIDs := map[string]string{}
+	var catalogs []database.ToolCatalog
+	if err := tx.WithContext(ctx).
+		Where("user_id = ? AND origin = ? AND name IN ?", userID, toolinvocations.ToolOriginArchival, toolNames).
+		Order("id").
+		Find(&catalogs).Error; err != nil {
+		return err
+	}
+	for _, catalog := range catalogs {
+		if catalogIDs[catalog.Name] == "" {
+			catalogIDs[catalog.Name] = catalog.ID
+		}
+	}
+	for _, toolName := range toolNames {
+		if catalogIDs[toolName] != "" {
+			continue
+		}
+		owner := userID
+		displayName := displayNames[toolName]
+		if displayName == "" {
+			displayName = toolName
+		}
+		catalog := database.ToolCatalog{
+			UserID:             &owner,
+			Name:               toolName,
+			DisplayName:        displayName,
+			Origin:             toolinvocations.ToolOriginArchival,
+			AvailabilityStatus: tools.ToolAvailabilityUnavailable,
+			AvailabilityReason: "imported_history",
+		}
+		if err := tx.WithContext(ctx).Create(&catalog).Error; err != nil {
+			return fmt.Errorf("erro ao criar catálogo archival importado: %w", err)
+		}
+		catalogIDs[toolName] = catalog.ID
+	}
+	for index, exported := range invocations {
+		toolName := strings.TrimSpace(exported.ToolName)
+		catalogID := catalogIDs[toolName]
+		turnID := strings.TrimSpace(exported.TurnID)
+		attempt := exported.Attempt
+		if attempt < 1 {
+			attempt = 1
+		}
+		status := strings.TrimSpace(exported.Status)
+		if status == "" {
+			status = toolinvocations.StatusSucceeded
+		}
+		row := database.ToolInvocation{
+			UUIDModel: database.UUIDModel{
+				ID:        strings.TrimSpace(exported.ID),
+				CreatedAt: exported.CreatedAt,
+				UpdatedAt: exported.UpdatedAt,
+			},
+			UserID:              userID,
+			ToolCatalogID:       catalogID,
+			OriginType:          toolinvocations.OriginChat,
+			OriginID:            turnID,
+			ConversationID:      &conversationID,
+			TurnID:              &turnID,
+			ToolCallID:          strings.TrimSpace(exported.ToolCallID),
+			Attempt:             attempt,
+			Status:              status,
+			DryRun:              exported.DryRun,
+			Input:               exported.Input,
+			Output:              exported.Output,
+			Metadata:            exported.Metadata,
+			DisplayName:         exported.DisplayName,
+			InputPreview:        exported.InputPreview,
+			OutputPreview:       exported.OutputPreview,
+			InputBytes:          exported.InputBytes,
+			OutputBytes:         exported.OutputBytes,
+			InputHash:           exported.InputHash,
+			OutputHash:          exported.OutputHash,
+			ResultAvailability:  exported.ResultAvailability,
+			ErrorKind:           exported.ErrorKind,
+			ErrorCode:           exported.ErrorCode,
+			ErrorMessage:        exported.ErrorMessage,
+			Retryable:           exported.Retryable,
+			RetryabilityKnown:   exported.RetryabilityKnown,
+			QueuedAt:            exported.QueuedAt,
+			StartedAt:           exported.StartedAt,
+			CompletedAt:         exported.CompletedAt,
+			DurationMs:          exported.DurationMs,
+			MigrationSourceKey:  "import:" + strings.TrimSpace(exported.ID),
+			MigrationProvenance: "portability:v2",
+		}
+		if row.QueuedAt.IsZero() {
+			row.QueuedAt = time.Now().UTC()
+		}
+		if err := tx.WithContext(ctx).Create(&row).Error; err != nil {
+			return fmt.Errorf("erro ao importar tool invocation %d: %w", index, err)
+		}
 	}
 	return nil
 }
