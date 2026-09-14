@@ -22,7 +22,7 @@ type FingerprintKeyProvider func(context.Context, string) ([]byte, error)
 
 // SignLocalRead calcula a projeção fechada read/none sem argumentos de D2.1.
 // O serviço confiável já deve ter derivado identidade/origem, validado catálogo
-// e contexto. Isto não autentica nem autoriza e não está ligado ao secret manager.
+// e contexto. Isto não autentica nem autoriza e não inicializa o secret manager.
 // version vem da configuração para primeira tentativa ou do ledger escopado
 // para retry, nunca do payload. Fingerprints de ingresso são proibidos.
 // Não é canonicalizador JSON genérico: só strings, constantes 1, {} e [].

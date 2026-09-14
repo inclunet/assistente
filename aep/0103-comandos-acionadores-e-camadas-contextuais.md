@@ -2062,7 +2062,17 @@ comparam um documento canônico literal e exercitam alterações semânticas,
 reentrega SQLite com versão retida e recusa quando a chave antiga desaparece.
 O host ainda precisa derivar/autenticar a identidade, escolher a versão por
 ledger escopado no retry, manter chaves no secret manager e validar a política
-antes de assinar. Esta projeção não cobre comandos com argumentos, providers,
+antes de assinar. `NewCredentialKeyProvider` conecta a leitura ao Manager já
+inicializado: o nome lógico `command-request-hmac:vN` mapeia para o segredo
+de instância `internal-auth:command-request-hmac:vN`, tipo `secret`, codificado
+em base64url canônico sem padding. A consulta é exata e estritamente sem usuário,
+sem o fallback legado de `GetInstanceSecret`. Chave ausente, curta, malformada ou
+credencial user-scoped falha fechado. O adapter não cria nem substitui chaves,
+não inicializa o cofre e não registra bootstrap. Testes usam Manager real com
+criptografia em memória, sem keychain, e reserva SQLite em arquivo temporário.
+Provisionamento, rotação, retenção operacionais e integração no host ainda faltam.
+
+Esta projeção não cobre comandos com argumentos, providers,
 receipts, delegação ou eventos e não habilita o executor de produto.
 
 Permanecem pendentes integração ao executor/DispatchGate e ao startup,
