@@ -58,8 +58,8 @@ func (s *Store) Load(ctx context.Context, scope Scope) (Snapshot, error) {
 
 // CheckCurrent é curto e pode ser usado na revalidação sob DispatchGate.
 // O stamp é privado e não compartilha slices/pointers mutáveis com o projetor.
-// Escritores futuros DEVEM alterar dados+geração na mesma transação sob esse
-// gate; este repository de leitura não autoriza writes externos fora do protocolo.
+// Escritores DEVEM alterar dados+geração na mesma transação sob esse gate;
+// este carregador não autoriza writes externos fora do protocolo.
 func (s *Store) CheckCurrent(ctx context.Context, snapshot Snapshot) error {
 	if s == nil || s.db == nil || ctx == nil || snapshot.stamp == nil || snapshot.stamp.store != s {
 		return ErrInvalid

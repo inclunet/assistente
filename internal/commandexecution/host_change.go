@@ -1,0 +1,83 @@
+package commandexecution
+
+import (
+	"context"
+
+	"assistente/internal/auth"
+)
+
+// ChangeUserConfiguration prepara uma mutação autenticada fora do gate e
+// entrega seu commit somente depois de revalidar a mesma sessão e o estado
+// atual do host. prepare é uma porta confiável: pode aguardar banco ou UI,
+// mas não é uma fonte de autoridade do chamador e deve devolver um callback de
+// commit curto, sem readquirir o DispatchGate.
+//
+// A publicação remove o mapa do usuário antes de chamar commit. Essa remoção
+// é deliberadamente irreversível nesta operação: erro ou panic do escritor não
+// restaura configuração em memória nem tenta publicar novamente.
+func (s *HostState) ChangeUserConfiguration(ctx context.Context,
+	authenticate func(context.Context) (auth.LocalSessionPrincipal, error),
+	prepare func(context.Context, auth.LocalSessionPrincipal) (func(context.Context) error, error),
+) error {
+	if s == nil || s.epochs == nil || ctx == nil || authenticate == nil || prepare == nil {
+		return ErrInvalidHostState
+	}
+
+	var principal auth.LocalSessionPrincipal
+	var revision uint64
+	epoch, err := s.epochs.CaptureAuthenticated(ctx, func(ctx context.Context) (string, string, error) {
+		var err error
+		principal, err = authenticate(ctx)
+		if err != nil {
+			return "", "", err
+		}
+
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		if s.disabled || !s.vaultUnlocked || !s.osKnown || s.osLocked {
+			return "", "", ErrDenied
+		}
+		revision = s.counter
+		return principal.UserID, principal.SessionID, nil
+	})
+	if err != nil {
+		return err
+	}
+
+	commit, err := prepare(ctx, principal)
+	if err != nil {
+		return err
+	}
+	if commit == nil {
+		return ErrInvalidHostState
+	}
+
+	return s.epochs.PublishAuthenticatedConfiguration(ctx, epoch, func(ctx context.Context) error {
+		current, err := authenticate(ctx)
+		if err != nil {
+			return err
+		}
+		if current.UserID != principal.UserID || current.SessionID != principal.SessionID {
+			return ErrDenied
+		}
+		return nil
+	}, func() error {
+		// PublishAuthenticatedConfiguration já cancela os watches do usuário
+		// imediatamente antes deste callback, sob o mesmo gate exclusivo.
+		s.mu.Lock()
+		if s.disabled || !s.vaultUnlocked || !s.osKnown || s.osLocked || s.counter != revision {
+			s.mu.Unlock()
+			return ErrDenied
+		}
+		if _, err := s.reserveGenerationsLocked(1); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+		delete(s.users, principal.UserID)
+		s.mu.Unlock()
+
+		// O gate permanece adquirido, mas o mutex do HostState não. Não há
+		// rollback se commit falhar ou entrar em panic.
+		return commit(ctx)
+	})
+}

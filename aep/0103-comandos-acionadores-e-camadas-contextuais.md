@@ -2321,9 +2321,9 @@ autenticada do App, obrigando um projetor fornecido pelo bootstrap. O owner vem
 do JWT/sessão local revalidada; a geração persistida é conferida novamente sob
 DispatchGate. Essa borda aceita somente configuração global enquanto HostState
 não isola workspaces. Nenhuma claim manual/evento é restaurada por esse caminho.
-Escritores futuros devem alterar dados e geração na mesma transação sob o gate;
-escrita direta fora desse protocolo não é suportada. Não há API de gravação,
-CRUD/Wails ou migração automática neste incremento.
+Escritores devem alterar dados e geração na mesma transação sob o gate;
+escrita direta fora desse protocolo não é suportada. O carregador não oferece
+CRUD/Wails ou migração automática.
 
 Evidência do carregador: testes SQLite temporários exercitam constraints
 isoladamente, rollback da migração, índices incompatíveis, ownership e
@@ -2369,7 +2369,44 @@ usuário continuam inativas e qualquer tentativa de passar uma lista de claims
 apenas SQLite temporário e catálogo/handlers de fixture. Nenhum binding de
 produto ou adapter físico é registrado por esse helper.
 
-Pendente: ampliar o projetor para contratos de produto, writers confirmáveis,
+#### Escrita preparada de enabled (primitivas internas)
+
+`PrepareBindingEnabled` prepara exclusivamente habilitar/desabilitar um binding
+global existente. Valida o mapa antes/depois, recusa no-op, documentos fora do
+subconjunto e qualquer ajuste/revisão pendente de defaults. A proposta mantém
+dados e geração privados; `Diff` retorna cópias independentes, sem aceitar de
+volta payload editado pelo cliente. Preparar não escreve nem ativa camadas.
+
+`CommitBindingEnabled` é uma primitiva de repository, não autorização. Sob o
+gate exclusivo do host, faz CAS do ID e valor da geração, compara o binding
+integral com o estado preparado e troca somente `enabled`. Dados e incremento
+da geração pertencem à mesma transação SQLite. Conflito, remoção, erro de
+escrita ou cancelamento revertem ambos; replay não reaplica a proposta e
+esgotamento de int64 não recicla a geração. Não há retry automático.
+
+`HostState.ChangeUserConfiguration` captura sessão/segurança/revisão do host,
+aguarda preparação/decisão fora do gate e revalida antes do commit. Cancela
+execuções do usuário e remove seu mapa antes de chamar o escritor; erro/panic
+do escritor nunca restaura cache antigo. Outras contas conservam seus mapas.
+Uma reconstrução autenticada separada é obrigatória após a tentativa de commit.
+
+O helper não exportado `changeCommandBindingEnabled` conecta esse caminho ao
+JWT/sessão atual do App e exige um adapter **confiável** de confirmação do diff.
+Exige também política autoritativa de escrita, reavaliada sob o gate antes da
+preparação e do commit; ownership ou confirmação não substituem essa política.
+Não aceita booleano de aprovação vindo de payload. Esse seam é testado com
+decisões de fixture: ainda NÃO está ligado ao DecisionDialog da AEP-0091, ao
+ledger/auditoria de comandos write ou a Wails/tools. Portanto não constitui
+uma funcionalidade de configuração pronta para uso no produto.
+
+Evidências: SQLite temporário cobre commit, replay, concorrência, ABA, rollback,
+overflow e cópias de diff; testes do host/App cobrem negação, sessão inválida,
+lock durante confirmação, geração alterada durante espera e descarte de mapa.
+Não há migração automática, criação de bindings/camadas/gerações, restore,
+rebase ou persistência de claims neste subconjunto.
+
+Pendente: ampliar o projetor para contratos de produto, ligar decisões e ledger
+de write, ampliar escritores para CRUD/restauração confirmada,
 persistência/restore de claims, ligação completa à recuperação pós-unlock e
 estado de execução por workspace. O estado do SO não
 é inferido da presença de uma sessão/JWT ou da disponibilidade do cofre; sem

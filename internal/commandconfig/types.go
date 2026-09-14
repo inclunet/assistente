@@ -1,5 +1,5 @@
-// Package commandconfig carrega configuração persistida, sem autenticar,
-// autorizar, ativar camadas ou interpretar documentos de bindings.
+// Package commandconfig carrega, valida e oferece primitivas de persistência
+// de configuração. Não autentica, autoriza nem ativa camadas por conta própria.
 package commandconfig
 
 import (

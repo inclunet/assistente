@@ -239,6 +239,10 @@ func TestCommandExecutionAppUsesInstanceKeyAndRejectsLogout(t *testing.T) {
 	if err != nil || after != projected {
 		t.Fatal("falha de projeção substituiu mapa", err)
 	}
+	if err := db.Model(&binding).Update("arguments", "{}").Error; err != nil {
+		t.Fatal(err)
+	}
+	exerciseCommandBindingWrites(t, app, db, configStore, state, pair.AccessToken, user.ID, binding.ID, options)
 	result := make(chan error, 1)
 	go func() {
 		record, err := service.Execute(ctx, pair.AccessToken, request)
