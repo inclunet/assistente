@@ -15,6 +15,11 @@ import (
 )
 
 func TestAuthenticatedRequestUsesSessionIdentityAndRejectsLogout(t *testing.T) {
+	t.Run("revogação observada", func(t *testing.T) { testAuthenticatedRequestLogout(t, false) })
+	t.Run("logout coordenado", func(t *testing.T) { testAuthenticatedRequestLogout(t, true) })
+}
+
+func testAuthenticatedRequestLogout(t *testing.T, coordinated bool) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	store, db := testStore(t, &now)
@@ -77,16 +82,26 @@ func TestAuthenticatedRequestUsesSessionIdentityAndRejectsLogout(t *testing.T) {
 	if err != nil || !result.Created || result.Record.Owner.UserID != user.ID || result.Record.Owner.AuthContextID != pair.SessionID {
 		t.Fatalf("identidade derivada incorreta: %v", err)
 	}
-	if err := sessions.Logout(ctx, pair.RefreshToken); err != nil {
+	logout := func() error { return sessions.Logout(ctx, pair.RefreshToken) }
+	if coordinated {
+		err = epochs.MutatePrincipal(ctx, principal.UserID, principal.SessionID, logout)
+	} else {
+		err = logout()
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
-	// Mesmo antes de o host observar a revogação e invalidar o epoch, a consulta
-	// autoritativa sob gate recusa o handoff. Não simula logout concorrente.
+	// Sem coordenação, a consulta autoritativa recusa; com coordenação, o epoch
+	// já está obsoleto. Nenhum dos fluxos deve admitir handoff após logout.
 	err = epochs.Admit(ctx, snapshot, func(ctx context.Context) error {
 		_, err := sessions.AuthenticateLocalAccess(ctx, pair.AccessToken)
 		return err
 	}, func() error { t.Fatal("handoff após logout"); return nil })
-	if !errors.Is(err, auth.ErrUnauthenticatedLocalSession) {
+	want := auth.ErrUnauthenticatedLocalSession
+	if coordinated {
+		want = commandsecurity.ErrStaleEpoch
+	}
+	if !errors.Is(err, want) {
 		t.Fatal(err)
 	}
 	if _, err := sessions.VerifyAccessToken(pair.AccessToken); err != nil {

@@ -2100,6 +2100,18 @@ detido. Coordenação das mutações reais com o gate, lifecycle/limpeza das ses
 e suporte system/external/job continuam pendentes; nenhuma execução real é
 habilitada por este incremento.
 
+`MutateSession`, `MutatePrincipal` e `MutateSecurity` coordenam uma mutação
+autoritativa curta com a invalidação sob o mesmo gate exclusivo. Invalidam antes
+do callback e mantêm a invalidação em erro/panic, pois pode ter ocorrido efeito
+parcial; não prometem rollback do banco. IDs/escopo e callback são fornecidos pelo
+host confiável, nunca por payload. Callbacks não podem readquirir o gate nem
+aguardar interação, rede ou conclusão de handlers. O teste de sessão/ledger
+agora também executa `SessionService.Logout` dentro de MutatePrincipal; snapshots
+anteriores são recusados por staleness e o token revogado não reserva novamente.
+Teste concorrente verifica exclusão durante a mutação e recusa do snapshot
+antigo na admissão. O ponto de integração existe, mas os handlers de logout,
+lock/unlock e troca de principal do aplicativo ainda não foram conectados.
+
 Esta projeção não cobre comandos com argumentos, providers,
 receipts, delegação ou eventos e não habilita o executor de produto.
 
