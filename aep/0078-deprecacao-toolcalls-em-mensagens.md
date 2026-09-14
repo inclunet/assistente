@@ -73,6 +73,11 @@ loop não grava `chat_messages.tool_calls` no caminho feliz; mensagens novas usa
 o snapshot em `tool_invocations`. O campo permanece apenas para leitura de dados
 históricos, e sua remoção física não faz parte desta AEP.
 
+Não existe fallback de execução associado a essa compatibilidade: todos os
+executores exigem o ledger no wiring e falham antes de qualquer efeito quando a
+auditoria canônica não está disponível. `role=tool` necessária ao protocolo do
+LLM existe somente em memória no loop corrente.
+
 ### D5 — Dados antigos são migrados antes do cutover
 
 Enquanto a conversa estiver em estado `pending`, leituras aceitam:
