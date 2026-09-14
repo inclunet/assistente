@@ -446,6 +446,13 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 					args = ev.Item.Arguments
 				}
 				emittedNonRetryableEffect = true
+				// O output item de um mcp_call carrega o motivo real da falha em
+				// Error (além de server_label/name/output). Logamos aqui em ERRO
+				// para tornar a causa diagnosticável sem correlação manual.
+				if strings.TrimSpace(ev.Item.Error) != "" {
+					logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP native call FAILED: %s",
+						mcpFailureLogFields(ev.Item.ServerLabel, ev.Item.Name, ev.Item.Error))
+				}
 				handler.OnMCPToolEvent(MCPToolEvent{
 					ID:          ev.Item.ID,
 					Name:        ev.Item.Name,
@@ -513,11 +520,18 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 		case "response.mcp_call.failed":
 			ev := event.AsResponseMcpCallFailed()
-			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP call FAILED: itemID=%s", ev.ItemID)
+			// O evento .failed traz só o itemID; server_label/name vivem no item
+			// pendente. Incluímos ambos para que o log aponte o servidor e a tool
+			// que falharam, complementando o output item (que carrega o texto do
+			// erro) quando este for emitido.
 			fallbackServer := ""
+			toolName := ""
 			if mc, ok := activeMCPCalls[ev.ItemID]; ok {
 				fallbackServer = mc.ServerLabel
+				toolName = mc.Name
 			}
+			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP call FAILED: itemID=%s server=%q tool=%q",
+				ev.ItemID, fallbackServer, toolName)
 			if failure := inferMCPFailure(MCPFailureStageCall, "", ev.RawJSON(), fallbackServer, mcpServers); failure != nil && !emittedNonRetryableEffect {
 				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{mcpFailure: failure}
