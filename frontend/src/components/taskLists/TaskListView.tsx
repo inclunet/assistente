@@ -49,9 +49,11 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
   const taskList = useTaskListStore((s) => s.taskLists.get(taskListId));
   const taskPage = useTaskListStore((s) => s.taskPages?.get(taskListId));
+  const initialLoadErrorKey = `loadTaskList:${taskListId}`;
+  const initialLoadError = useTaskListStore((s) => s.errors?.get(initialLoadErrorKey));
   const isLoadingTaskPage = useTaskListStore((s) => s.loadingTaskPagesByListId?.has(taskListId) ?? false);
   const taskPageLoadError = useTaskListStore((s) => s.taskPageLoadErrors?.get(taskListId));
-  const { loadTaskList, loadMoreTasks, loadAllTasksForBoard, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
+  const { loadTaskList, loadMoreTasks, loadAllTasksForBoard, cancelBoardTaskLoad, clearError, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
   const { runCustomAction } = useCustomActions();
 
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
@@ -67,6 +69,18 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   );
 
   const boardActionsReqRef = useRef(0);
+  const announcedInitialLoadErrorRef = useRef<string | null>(null);
+  const initialLoadRequestRef = useRef<string | null>(null);
+  const requestInitialLoad = useCallback(() => {
+    if (initialLoadRequestRef.current === taskListId) return;
+    initialLoadRequestRef.current = taskListId;
+    void Promise.resolve(loadTaskList(taskListId)).finally(() => {
+      if (initialLoadRequestRef.current === taskListId) {
+        initialLoadRequestRef.current = null;
+      }
+    });
+  }, [loadTaskList, taskListId]);
+
   const reloadBoardActions = useCallback(() => {
     // Guard por request-id: se taskListId mudar enquanto a Promise anterior ainda
     // está pendente, a resposta antiga não deve sobrescrever a lista mais recente.
@@ -81,10 +95,20 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   }, [reloadBoardActions]);
 
   useEffect(() => {
-    if (!taskList) {
-      void loadTaskList(taskListId);
+    if ((!taskList || !taskPage) && !initialLoadError) {
+      requestInitialLoad();
     }
-  }, [taskListId, taskList, loadTaskList]);
+  }, [taskList, taskPage, initialLoadError, requestInitialLoad]);
+
+  useEffect(() => {
+    if (!initialLoadError) {
+      announcedInitialLoadErrorRef.current = null;
+      return;
+    }
+    if (announcedInitialLoadErrorRef.current === initialLoadError) return;
+    announcedInitialLoadErrorRef.current = initialLoadError;
+    announce(initialLoadError, 'assertive');
+  }, [initialLoadError, announce]);
 
   const contentAreaRef = useRef<HTMLDivElement>(null);
 
@@ -166,8 +190,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
       if (boardLoadObserverGenerationRef.current === observerGeneration) {
         boardLoadObserverGenerationRef.current += 1;
       }
+      cancelBoardTaskLoad(taskListId);
     };
-  }, [isActive, currentViewMode, hasTaskPage, taskListId, requestBoardBackgroundLoad]);
+  }, [isActive, currentViewMode, hasTaskPage, taskListId, requestBoardBackgroundLoad, cancelBoardTaskLoad]);
 
   useEffect(() => {
     if (
@@ -436,7 +461,24 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     });
   }, [chatBoundConversationId, taskList, taskListId, setTaskListConversation, announce, addToast, t]);
 
-  if (!taskList) {
+  if (!taskPage && initialLoadError) {
+    return (
+      <div className="tasklist-loading">
+        <span>{initialLoadError}</span>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => {
+            clearError(initialLoadErrorKey);
+            requestInitialLoad();
+          }}
+        >
+          {t('common.retry', 'Tentar novamente')}
+        </Button>
+      </div>
+    );
+  }
+  if (!taskList || !taskPage) {
     return <div className="tasklist-loading">{t('tasklist.loading', 'Carregando...')}</div>;
   }
 

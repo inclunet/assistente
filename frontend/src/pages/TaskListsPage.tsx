@@ -69,14 +69,9 @@ export default function TaskListsPage() {
   useEffect(() => {
     if (loadedRef.current) return;
     loadedRef.current = true;
-    void fetchAllTaskLists().then((lists) => {
-      for (const list of lists) {
-        const store = useTaskListStore.getState();
-        if (!store.taskLists.has(list.id)) {
-          void store.loadTaskList(list.id);
-        }
-      }
-    });
+    // O catálogo já traz metadados, workflow e contagem agregada em uma
+    // chamada. Cards são carregados por keyset somente ao abrir uma lista.
+    void fetchAllTaskLists();
   }, [fetchAllTaskLists]);
 
   useResourceEditRequest('tasklists', {

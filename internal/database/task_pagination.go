@@ -196,11 +196,6 @@ func ListTasksPageWithContext(ctx context.Context, input TaskPageQuery) (TaskPag
 		}
 	}
 
-	if query.RootOnly {
-		dbQuery = dbQuery.Preload("Subtasks", func(query *gorm.DB) *gorm.DB {
-			return query.Order(`"order" ASC, id ASC`)
-		})
-	}
 	var tasks []Task
 	err = WithSQLiteBusyRetry(ctx, "tasklist.tasks.page", func() error {
 		paged := dbQuery
@@ -219,6 +214,19 @@ func ListTasksPageWithContext(ctx context.Context, input TaskPageQuery) (TaskPag
 		return TaskPage{}, err
 	}
 
+	hasMore := len(tasks) > query.Limit
+	if hasMore {
+		tasks = tasks[:query.Limit]
+	}
+
+	if query.RootOnly {
+		tasks, err = hydrateTaskPageHierarchy(ctx, query.TaskListID, tasks)
+		if err != nil {
+			return TaskPage{}, err
+		}
+	}
+
+	var totalCount int64
 	countQuery := taskQuery(ctx, db.Model(&Task{})).Where("tasks.task_list_id = ?", query.TaskListID)
 	if query.StatusID != nil {
 		countQuery = countQuery.Where("tasks.status_id = ?", *query.StatusID)
@@ -226,16 +234,14 @@ func ListTasksPageWithContext(ctx context.Context, input TaskPageQuery) (TaskPag
 	if query.RootOnly {
 		countQuery = countQuery.Where("tasks.parent_id IS NULL")
 	}
-	var totalCount int64
 	if err := WithSQLiteBusyRetry(ctx, "tasklist.tasks.page.count", func() error {
 		return countQuery.Count(&totalCount).Error
 	}); err != nil {
 		return TaskPage{}, err
 	}
 
-	page := TaskPage{TaskList: taskList, Tasks: tasks, HasMore: len(tasks) > query.Limit, TotalCount: totalCount}
+	page := TaskPage{TaskList: taskList, Tasks: tasks, HasMore: hasMore, TotalCount: totalCount}
 	if page.HasMore {
-		page.Tasks = tasks[:query.Limit]
 		nextCursor, err := encodeTaskPageCursor(query, page.Tasks[len(page.Tasks)-1])
 		if err != nil {
 			return TaskPage{}, err
@@ -246,6 +252,78 @@ func ListTasksPageWithContext(ctx context.Context, input TaskPageQuery) (TaskPag
 		page.Tasks = []Task{}
 	}
 	return page, nil
+}
+
+// hydrateTaskPageHierarchy busca toda a descendência das raízes da página em
+// uma única CTE recursiva e monta a árvore em memória. Isso preserva
+// profundidade arbitrária sem um Preload por nível (N+1).
+func hydrateTaskPageHierarchy(ctx context.Context, taskListID string, roots []Task) ([]Task, error) {
+	if len(roots) == 0 {
+		return []Task{}, nil
+	}
+	rootIDs := make([]string, len(roots))
+	for i := range roots {
+		rootIDs[i] = roots[i].ID
+		roots[i].Subtasks = nil
+	}
+
+	var descendants []Task
+	err := WithSQLiteBusyRetry(ctx, "tasklist.tasks.page.descendants", func() error {
+		return db.WithContext(ctx).Raw(`
+			WITH RECURSIVE descendants AS (
+				SELECT tasks.* FROM tasks
+				WHERE task_list_id = ? AND parent_id IN ?
+				UNION
+				SELECT child.* FROM tasks child
+				JOIN descendants parent ON child.parent_id = parent.id
+				WHERE child.task_list_id = ?
+			)
+			SELECT * FROM descendants
+			ORDER BY "order" ASC, id ASC
+		`, taskListID, rootIDs, taskListID).Scan(&descendants).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	nodes := make(map[string]*Task, len(roots)+len(descendants))
+	childrenByParent := make(map[string][]*Task)
+	for i := range roots {
+		nodes[roots[i].ID] = &roots[i]
+	}
+	for i := range descendants {
+		descendants[i].Subtasks = nil
+		nodes[descendants[i].ID] = &descendants[i]
+	}
+	for i := range descendants {
+		child := &descendants[i]
+		if child.ParentID != nil {
+			childrenByParent[*child.ParentID] = append(childrenByParent[*child.ParentID], child)
+		}
+	}
+
+	var build func(*Task, map[string]bool) Task
+	build = func(task *Task, ancestors map[string]bool) Task {
+		cloned := *task
+		if ancestors[task.ID] {
+			cloned.Subtasks = []Task{}
+			return cloned
+		}
+		ancestors[task.ID] = true
+		defer delete(ancestors, task.ID)
+		children := childrenByParent[task.ID]
+		cloned.Subtasks = make([]Task, 0, len(children))
+		for _, child := range children {
+			cloned.Subtasks = append(cloned.Subtasks, build(child, ancestors))
+		}
+		return cloned
+	}
+
+	result := make([]Task, 0, len(roots))
+	for i := range roots {
+		result = append(result, build(nodes[roots[i].ID], make(map[string]bool)))
+	}
+	return result, nil
 }
 
 func ensureTaskPaginationIndexes(database *gorm.DB) error {

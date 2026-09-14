@@ -361,6 +361,9 @@ type TaskList struct {
 	// Relacionamentos
 	Workflow *TaskListWorkflow `json:"workflow,omitempty" gorm:"foreignKey:TaskListID"`
 	Tasks    []Task            `json:"tasks,omitempty" gorm:"foreignKey:TaskListID"`
+	// TaskCount é uma projeção de leitura, preenchida por consultas de catálogo.
+	// Não pertence ao schema e evita hidratar Tasks apenas para exibir totais.
+	TaskCount int64 `json:"task_count" gorm:"->;-:migration"`
 }
 
 // Task representa uma tarefa dentro de uma tasklist

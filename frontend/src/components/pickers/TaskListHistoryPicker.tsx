@@ -93,7 +93,7 @@ export const TaskListHistoryPicker = forwardRef<TaskListHistoryPickerRef, TaskLi
   const items: ComboboxItem[] = taskLists.map(tl => ({
     value: tl.id.toString(),
     label: tl.title || t('tasklist.noTitle', 'Sem título'),
-    sublabel: `${tl.tasks?.length || 0} ${t('tasklist.totalTasks', 'tarefas')} • ${formatDate(tl.updatedAt)}`,
+    sublabel: `${tl.task_count ?? tl.tasks?.length ?? 0} ${t('tasklist.totalTasks', 'tarefas')} • ${formatDate(tl.updatedAt)}`,
   }));
 
   const selectedValue = value ? value.toString() : '';

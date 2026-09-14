@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getTaskListPage = vi.hoisted(() => vi.fn());
+const getAllTaskLists = vi.hoisted(() => vi.fn());
 const updateTaskList = vi.hoisted(() => vi.fn());
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -9,6 +10,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({
   GetTaskListPage: getTaskListPage,
+  GetAllTaskLists: getAllTaskLists,
   UpdateTaskList: updateTaskList,
 }));
 
@@ -56,6 +58,7 @@ function deferred<T>() {
 describe('taskListStore pagination', () => {
   beforeEach(() => {
     getTaskListPage.mockReset();
+    getAllTaskLists.mockReset();
     updateTaskList.mockReset();
     updateTaskList.mockResolvedValue(undefined);
     useTaskListStore.setState({
@@ -100,6 +103,37 @@ describe('taskListStore pagination', () => {
     expect(useTaskListStore.getState().taskLists.get('list-a')?.tasks.map((task) => task.id))
       .toEqual(['task-a', 'task-b', 'task-c']);
     expect(useTaskListStore.getState().taskPages.get('list-a')?.hasMore).toBe(false);
+  });
+
+  it('cacheia o catálogo sem disparar uma página por lista', async () => {
+    getAllTaskLists.mockResolvedValue([
+      { ...backendList(), task_count: 2634 },
+      { ...backendList(), id: 'list-b', title: 'Outra', task_count: 7 },
+    ]);
+
+    const lists = await useTaskListStore.getState().fetchAllTaskLists();
+
+    expect(lists).toHaveLength(2);
+    expect(getAllTaskLists).toHaveBeenCalledTimes(1);
+    expect(getTaskListPage).not.toHaveBeenCalled();
+    expect(useTaskListStore.getState().taskLists.get('list-a')?.taskCount).toBe(2634);
+  });
+
+  it('preserva a contagem do catálogo ao carregar a primeira página', async () => {
+    getAllTaskLists.mockResolvedValue([{ ...backendList(), task_count: 2634 }]);
+    getTaskListPage.mockResolvedValue({
+      task_list: backendList(),
+      tasks: Array.from({ length: 100 }, (_, index) => backendTask(`task-${index}`, index)),
+      next_cursor: 'cursor-100',
+      has_more: true,
+      total_count: 2634,
+    });
+
+    await useTaskListStore.getState().fetchAllTaskLists();
+    await useTaskListStore.getState().loadTaskList('list-a');
+
+    expect(useTaskListStore.getState().taskLists.get('list-a')?.taskCount).toBe(2634);
+    expect(getTaskListPage).toHaveBeenCalledTimes(1);
   });
 
   it('preserva páginas carregadas quando evento traz somente metadados', async () => {
@@ -352,5 +386,35 @@ describe('taskListStore pagination', () => {
     expect(getTaskListPage).toHaveBeenCalledTimes(3);
     expect(useTaskListStore.getState().taskLists.get('list-a')?.tasks).toHaveLength(105);
     expect(useTaskListStore.getState().taskPageLoadErrors.has('list-a')).toBe(false);
+  });
+
+  it('cancela o carregamento progressivo entre páginas lentas', async () => {
+    const secondPage = deferred<Record<string, unknown>>();
+    const cards = Array.from({ length: 250 }, (_, index) => backendTask(`task-${index + 1}`, index));
+    getTaskListPage
+      .mockResolvedValueOnce({
+        task_list: { ...backendList(), preferred_view_mode: 'kanban' },
+        tasks: cards.slice(0, 100),
+        next_cursor: 'cursor-100',
+        has_more: true,
+        total_count: 250,
+      })
+      .mockReturnValueOnce(secondPage.promise);
+
+    await useTaskListStore.getState().loadTaskList('list-a');
+    const loading = useTaskListStore.getState().loadAllTasksForBoard('list-a');
+    await vi.waitFor(() => expect(getTaskListPage).toHaveBeenCalledTimes(2));
+    useTaskListStore.getState().cancelBoardTaskLoad('list-a');
+    secondPage.resolve({
+      task_list: backendList(),
+      tasks: cards.slice(100, 200),
+      next_cursor: 'cursor-200',
+      has_more: true,
+      total_count: 250,
+    });
+
+    await expect(loading).resolves.toBe(200);
+    expect(getTaskListPage).toHaveBeenCalledTimes(2);
+    expect(useTaskListStore.getState().taskPages.get('list-a')?.hasMore).toBe(true);
   });
 });

@@ -67,6 +67,12 @@ Essa paginação evita que abrir ou atualizar um quadro grande dispare todas as
 consultas ao mesmo tempo. Ela não remove nem reordena tarefas: cada página
 continua exatamente do cursor anterior.
 
+A tela de listas carrega primeiro apenas os dados do catálogo e as contagens,
+sem baixar os cards de todas as listas. Os cards da lista escolhida aparecem em
+páginas; subtarefas em qualquer profundidade acompanham a tarefa principal. Se
+você sair do Kanban durante uma página lenta, o carregamento para antes da
+próxima página e pode continuar normalmente ao voltar.
+
 ## Integração com IA
 
 O assistente pode gerenciar listas de tarefas via tool calling:

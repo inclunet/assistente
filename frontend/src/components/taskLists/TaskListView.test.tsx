@@ -1,6 +1,6 @@
 import { forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { WorkspaceTab } from '../../store/workspaceStore';
 import TaskListView from './TaskListView';
@@ -30,9 +30,12 @@ const taskListStoreState = vi.hoisted(() => ({
   loadingByTaskListId: new Map<string, boolean>(),
   loadingTaskPagesByListId: new Map<string, boolean>(),
   taskPageLoadErrors: new Map<string, string>(),
+  errors: new Map<string, string>(),
   loadTaskList: vi.fn(),
   loadMoreTasks: vi.fn(),
   loadAllTasksForBoard: vi.fn(),
+  cancelBoardTaskLoad: vi.fn(),
+  clearError: vi.fn(),
   setViewMode: vi.fn(),
   cloneTaskList: vi.fn(),
   clearTaskList: vi.fn(),
@@ -164,10 +167,15 @@ describe('TaskListView', () => {
     taskListStoreState.loadMoreTasks.mockReset();
     taskListStoreState.loadAllTasksForBoard.mockReset();
     taskListStoreState.loadAllTasksForBoard.mockResolvedValue(205);
-    taskListStoreState.taskPages = new Map();
+    taskListStoreState.cancelBoardTaskLoad.mockReset();
+    taskListStoreState.taskPages = new Map([
+      ['tasklist-1', { nextCursor: '', hasMore: false, totalCount: 0 }],
+    ]);
     taskListStoreState.loadingByTaskListId = new Map();
     taskListStoreState.loadingTaskPagesByListId = new Map();
     taskListStoreState.taskPageLoadErrors = new Map();
+    taskListStoreState.errors = new Map();
+    taskListStoreState.clearError.mockReset();
     taskListStoreState.listBoardCustomActions.mockReset();
     taskListStoreState.listBoardCustomActions.mockResolvedValue([]);
     taskListStoreState.setTaskListConversation.mockReset();
@@ -181,6 +189,34 @@ describe('TaskListView', () => {
         workflow: { id: 'workflow-1', taskListId: 'tasklist-1', statuses: [], allowedTransitions: {}, initialStatusId: 1 },
       }],
     ]);
+  });
+
+  it('carrega a primeira página quando o cache contém apenas metadados', async () => {
+    taskListStoreState.taskPages = new Map();
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    expect(screen.getByText('Carregando...')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(taskListStoreState.loadTaskList).toHaveBeenCalledTimes(1);
+      expect(taskListStoreState.loadTaskList).toHaveBeenCalledWith('tasklist-1');
+    });
+  });
+
+  it('expõe erro da primeira página e permite retry acessível', async () => {
+    const user = userEvent.setup();
+    taskListStoreState.taskLists = new Map();
+    taskListStoreState.taskPages = new Map();
+    taskListStoreState.errors = new Map([
+      ['loadTaskList:tasklist-1', 'falha transitória'],
+    ]);
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    expect(screen.getByText('falha transitória')).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith('falha transitória', 'assertive');
+    await user.click(screen.getByRole('button', { name: 'Tentar novamente' }));
+
+    expect(taskListStoreState.clearError).toHaveBeenCalledWith('loadTaskList:tasklist-1');
+    expect(taskListStoreState.loadTaskList).toHaveBeenCalledWith('tasklist-1');
   });
 
   it('não responde a atalhos globais quando o painel está inativo', async () => {
