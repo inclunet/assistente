@@ -148,8 +148,13 @@ func (h *SimpleStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse str
 
 func (h *SimpleStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 	if event.IsCompleted {
-		logging.Infof(context.Background(), "agent.simple-stream-handler", "[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
-			event.Name, event.ServerLabel, event.ID, len(event.Output))
+		if event.Error != "" {
+			logging.Errorf(context.Background(), "agent.simple-stream-handler", "[MCP Native] ❌ %s (server=%s, id=%s) FALHOU: %s",
+				event.Name, event.ServerLabel, event.ID, truncateString(event.Error, MaxResultDisplaySize))
+		} else {
+			logging.Infof(context.Background(), "agent.simple-stream-handler", "[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
+				event.Name, event.ServerLabel, event.ID, len(event.Output))
+		}
 	} else {
 		logging.Infof(context.Background(), "agent.simple-stream-handler", "[MCP Native] 🔧 %s (server=%s, id=%s)",
 			event.Name, event.ServerLabel, event.ID)

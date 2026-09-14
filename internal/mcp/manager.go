@@ -1470,7 +1470,7 @@ func (m *Manager) createTransport(ctx context.Context, slug string, cfg ServerCo
 		}
 
 		if cfg.DisableSSE {
-			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Standalone SSE desabilitado por configuração", slug)
+			logStandaloneSSEDisabled(slug)
 		}
 
 		return transport, nil
@@ -2123,6 +2123,15 @@ func (m *Manager) reconnectWithRetry(slug string) {
 
 func logReconnectSuccess(slug string) {
 	logging.Infof(context.Background(), "mcp.manager", "[MCP] Reconexão bem-sucedida para '%s'", slug)
+}
+
+// logStandaloneSSEDisabled registra que o canal SSE standalone foi desabilitado
+// por configuração. É um estado benigno: o servidor continua conectando via HTTP
+// streamable/polling. Por isso o nível é INFO — a mensagem só documenta a
+// configuração vigente e não sinaliza falha (evita poluir o log com ~12 ERROR
+// por sessão).
+func logStandaloneSSEDisabled(slug string) {
+	logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] Standalone SSE desabilitado por configuração", slug)
 }
 
 // ReadResource lê o conteúdo de um resource MCP.

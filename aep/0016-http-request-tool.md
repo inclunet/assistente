@@ -35,6 +35,33 @@ segredos: headers arbitrários, inclusive `Authorization`, são preservados, e a
 própria URL pode conter informação sensível. O contrato centralizado foi
 consolidado pelas AEPs 0018 e 0019.
 
+### Parsing de entrada tolerante (flexibilização do contrato)
+
+O schema publicado permanece canônico (`max_response_size` como `integer`,
+`headers` como `object`), mas o parsing de argumentos (`httpRequestArgs.UnmarshalJSON`)
+passou a tolerar variações que os modelos produzem na prática, sem alterar a
+semântica correta. Motivação: análise do banco de produção mostrou falhas de
+`Erro ao parsear argumentos` porque o modelo às vezes serializa esses campos
+como string:
+
+- `max_response_size`: aceita número (`50000`) **ou** string numérica
+  (`"50000"`). Strings não numéricas e valores não inteiros (ex.: `1.5`) são
+  rejeitados com erro acionável mencionando o campo. Ausência/`null` mantêm o
+  padrão (budget do executor ou `50000`).
+- `headers`: aceita objeto `{"k":"v"}` **ou** uma string contendo o JSON
+  serializado desse objeto (ex.: `"{\"Content-Type\":\"application/json\"}"`).
+  Strings que não representam um objeto JSON válido são rejeitadas com erro
+  claro. Ausência/`null`/string vazia resultam em headers ausentes.
+
+Essa tolerância é uma rede de segurança de *entrada* e **não** altera o
+comportamento de resposta: respostas HTTP não-2xx continuam reportadas como
+falha real da API remota (403/404/422 etc.), preservando a proveniência
+model-facing. Cobertura em `internal/tools/web/http_request_test.go`
+(`TestParseTolerantMaxResponseSize`, `TestParseTolerantHeaders`,
+`TestHTTPRequest_TolerantHeadersAsJSONString`,
+`TestHTTPRequest_TolerantMaxResponseSizeAsString`,
+`TestHTTPRequest_RejectsInvalidTolerantArgs`).
+
 ## Design original da tool (histórico)
 
 Os parâmetros e exemplos desta seção registram a proposta inicial. Em
@@ -286,6 +313,9 @@ a.toolRegistry.MustRegister(web.NewWebSearch())
   customizados nem o caminho de aprovação de operação mutável.
 - [x] O schema publicado coincide com `httpRequestArgs` e não oferece
   `auth_basic`, `auth_bearer` ou `timeout_seconds`.
+- [x] O parsing tolera `max_response_size` como número ou string numérica e
+  `headers` como objeto ou string-JSON, rejeitando entradas inválidas com erro
+  acionável, sem mudar o reporte de respostas não-2xx.
 - [x] Credenciais e timeout são delegados ao cliente central de
   `internal/tools/http`.
 - [x] Guardrails anti-SSRF e confirmação de operações mutáveis permanecem no
