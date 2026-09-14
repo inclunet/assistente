@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandsecurity"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 )
@@ -32,6 +33,18 @@ func TestAuthenticatedRequestUsesSessionIdentityAndRejectsLogout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	epochs, err := commandsecurity.NewEpochService(&commandsecurity.DispatchGate{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal, err := sessions.AuthenticateLocalAccess(ctx, pair.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := epochs.Capture(ctx, principal.UserID, principal.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	manager := credentials.NewManager(bytes.Repeat([]byte{2}, 32))
 	if err := manager.RegisterInstanceSecret("internal-auth:command-request-hmac:v1", base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{3}, 32))); err != nil {
 		t.Fatal(err)
@@ -40,14 +53,16 @@ func TestAuthenticatedRequestUsesSessionIdentityAndRejectsLogout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A borda de teste não recebe user_id/session_id. As gerações ainda são
-	// fixtures: integração com EpochService e gates permanece pendente.
+	// A borda de teste não recebe user_id/session_id. As gerações vêm do
+	// EpochService; o lifecycle do host real ainda não está conectado.
 	reserve := func(token string) (Reservation, error) {
 		principal, err := sessions.AuthenticateLocalAccess(ctx, token)
 		if err != nil {
 			return Reservation{}, err
 		}
 		req := validRequest()
+		req.AuthGeneration = snapshot.AuthGeneration
+		req.SecurityGeneration = snapshot.SecurityGeneration
 		req.Owner = Owner{UserID: principal.UserID, AuthContextID: principal.SessionID}
 		req.ReceivedAt = now
 		req.ExpiresAt = now.Add(time.Hour)
@@ -63,6 +78,15 @@ func TestAuthenticatedRequestUsesSessionIdentityAndRejectsLogout(t *testing.T) {
 		t.Fatalf("identidade derivada incorreta: %v", err)
 	}
 	if err := sessions.Logout(ctx, pair.RefreshToken); err != nil {
+		t.Fatal(err)
+	}
+	// Mesmo antes de o host observar a revogação e invalidar o epoch, a consulta
+	// autoritativa sob gate recusa o handoff. Não simula logout concorrente.
+	err = epochs.Admit(ctx, snapshot, func(ctx context.Context) error {
+		_, err := sessions.AuthenticateLocalAccess(ctx, pair.AccessToken)
+		return err
+	}, func() error { t.Fatal("handoff após logout"); return nil })
+	if !errors.Is(err, auth.ErrUnauthenticatedLocalSession) {
 		t.Fatal(err)
 	}
 	if _, err := sessions.VerifyAccessToken(pair.AccessToken); err != nil {

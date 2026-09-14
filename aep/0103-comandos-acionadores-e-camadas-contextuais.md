@@ -2084,6 +2084,22 @@ e recusa nova reserva após logout mesmo com assinatura JWT ainda válida.
 Esta leitura não é autorização nem elimina corridas após retornar: coordenação
 de revogações com DispatchGate, EpochService e conexão ao host ainda faltam.
 
+`commandsecurity.EpochService` fornece gerações locais em memória sobre um
+DispatchGate injetado: identidade aleatória de startup, contador sem reuso,
+auth_generation por sessão e security_generation global. Capture recebe IDs
+já autenticados; Admit compara snapshot, chama revalidação autoritativa e
+handoff sob o mesmo gate compartilhado. Invalidação de sessão é local;
+invalidação de principal altera sessão e segurança atomicamente; invalidação
+global torna todos os snapshots anteriores obsoletos. Overflow falha fechado.
+Testes verificam o lock durante revalidação/handoff e liberação após retorno.
+O teste integrado de identidade usa essas gerações e consulta SessionService
+sob Admit: logout recusa handoff mesmo antes da invalidação observada do epoch.
+Não existe wiring de logout/lock/troca de principal do aplicativo. Capture
+não autentica, não representa estado locked e não deve readquirir um gate já
+detido. Coordenação das mutações reais com o gate, lifecycle/limpeza das sessões
+e suporte system/external/job continuam pendentes; nenhuma execução real é
+habilitada por este incremento.
+
 Esta projeção não cobre comandos com argumentos, providers,
 receipts, delegação ou eventos e não habilita o executor de produto.
 
