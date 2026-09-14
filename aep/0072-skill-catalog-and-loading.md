@@ -164,6 +164,20 @@ gerando falhas repetidas com `invalid_args`. O escopo é LOCAL/builtin; a
 allowlist de MCP nativo (`filterToolNamesForNativeMCPAllowlist`) é outro conceito
 e não é afetada.
 
+Refinamento (conjunto base protegido). A allowlist de `tools` de um skill faz
+*narrowing* apenas das tools de **domínio**: ela NUNCA remove implicitamente o
+**conjunto base protegido** — control-plane (`tool_catalog`, `load_skill`) e a
+base de runtime (`memory`, `task`, `task_list`, `task_note`, `update_plan`,
+`read_tool_result`). Sem essa isenção, um skill com allowlist focada no próprio
+domínio amputaria o runtime (perderia descoberta/carga de tools, memória,
+planejamento etc.) no restante do turno. A regra vale só contra o narrowing
+IMPLÍCITO: o **deny explícito** do skill (`tools.denied`) e o estado `disabled`
+do perfil (AEP-0081 D2) continuam soberanos e removem a tool mesmo que base. A
+fonte única de verdade é `tools.IsProtectedBaseTool`, compartilhada pelo gate de
+execução (`validateExecutionContextToolAccess`) e pela seleção anunciada
+(`applySkillScope`), preservando a coerência prompt↔defs inclusive no caminho
+catalog-first (o `tool_catalog` protegido permanece `preloaded`). Ver AEP-0081 D12.
+
 O mesmo escopo é aplicado ao **system prompt** para manter coerência prompt↔defs.
 Quando a skill é efetivamente injetada no turno (mesma condição que "commita" o
 `invokedExecutionContext` usado pelas defs em `send_message`), o
