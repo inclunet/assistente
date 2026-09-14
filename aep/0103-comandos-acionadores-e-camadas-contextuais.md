@@ -2145,13 +2145,69 @@ pendentes.
 Esta projeção não cobre comandos com argumentos, providers,
 receipts, delegação ou eventos e não habilita o executor de produto.
 
-Permanecem pendentes integração ao executor/DispatchGate e ao startup,
+Permanecem pendentes integração ao startup e ativação no produto,
 comprovação de encerramento de geração, verificadores reais de reconciliação,
 ampliação da projeção HMAC/RFC8785 e integração ao secret manager,
 resultados, política de retenção, eventos,
 supressão, identidades externas e constraints condicionais completas de D11.
 As colunas futuras não tornam esses fluxos suportados. Nenhuma fase ou critério
 de execução ponta a ponta é concluído por este incremento.
+
+#### Executor interno de leituras diretas (ainda não exposto no produto)
+
+`internal/commandexecution.Service` passa a integrar o caminho que antes existia
+somente em harness: sessão local real, captura autenticada de gerações/catálogo,
+HMAC, reserva durável, política, CAS de fila/running, Start e conclusão.
+O ingresso recebe somente IDs de invocação/correlação e command_id; identidade,
+origem (fixa no adapter), relógio, chave e versões são derivados pelo backend.
+O construtor exige dependências explícitas e copia as rotas de handlers; recusa
+contratos não read/none, alvos mutáveis, argumentos/providers (fora da API),
+origens não suportadas e ausência de política. Nenhum handler é inferido por nome.
+
+Autenticação da mesma sessão, lock, versões e autorização são reconsultados nos
+dois gates: evaluating→queued e queued→running. Start ocorre sincronamente sob
+o gate após o CAS, mas deve apenas devolver um handle não bloqueante. Espera e
+Cancel ocorrem fora do gate. Falha/panic antes de Start é failed; erro/panic ao
+entrar em Start, handle inválido, canal perdido ou cancelamento sem confirmação
+produzem outcome_unknown. Outcomes explícitos succeeded/failed/cancelled são
+persistidos com CAS; não há retry do handler. A finalização tem contexto e prazo
+próprios, para não perder o registro ao cancelar o chamador. Falha de persistência
+é devolvida e nunca tratada como autorização para nova execução.
+O ledger grava policy_decision allowed/denied junto ao CAS correspondente e
+admite queued→failed para falha conclusiva anterior ao handoff.
+
+`NewLocalReadAuthorizer` fornece a política local inicial: allowlist de roles por
+command_id do host e consulta da conta/sessão no banco a cada gate, sem confiar
+na role do JWT. Comando/role não listado falha fechado, inclusive para admin.
+Atualizações de role/revogação devem participar do mesmo gate; essa política
+não torna automaticamente coordenados endpoints legados de mutação.
+`App.newCommandReadExecutor` é fábrica interna sem rota Wails: injeta o serviço
+de sessão, EpochService e provider de chave do Manager já carregado, exige a
+identidade ativa exata e recusa troca de SessionService. Não inicializa, gera
+ou grava segredos. Deve ser construído em bootstrap serializado.
+
+Testes do serviço usam sessão/JWT, SQLite e HMAC reais com dados temporários;
+testes do App exercitam a fábrica e logout enquanto o handler aguarda resultado,
+sem keychain real. Políticas de teste são explícitas, não defaults de produção.
+Evidências: `TestServiceConcurrentReplaysObserveRunningWithoutNewHandoff`
+verifica seis reentregas concorrentes com um único Start;
+`TestServiceFailedQueueCommitNeverStartsOrOverwritesLedger` cobre falha de CAS;
+`TestServiceRealPolicyRejectsChangedRoleDespiteValidJWT` cobre a role vigente;
+`TestServiceReplayUsesStoredKeyVersionWithoutFallbackForNewRequest` cobre a
+versão de chave vinculada ao ledger; e
+`TestCommandExecutionAppUsesInstanceKeyAndRejectsLogout` cobre a fábrica do App.
+
+Limites deste recorte: somente palette/ui.action/cli, read/none sem workspace;
+fila lógica com retirada imediata (sem scheduler compartilhado); sem payload de
+resultado além do status/resumo vazio atual. Execute nunca retoma uma reserva
+existente. GetInvocation reautoriza sem criar reserva nem chamar handler, mas
+ainda exige request original e fingerprint reproduzível nas gerações atuais;
+consulta após mudança de gerações pode falhar como conflito, não reexecutar.
+Ainda faltam consulta histórica independente de versões, recusas auditadas para
+todo envelope não suportado, log de segurança pré-autenticação, propagação de
+invalidação para cancelar handles em andamento, fontes completas de lock/versões,
+provisionamento de chaves e registro de comandos/rotas de produto. Não se habilita
+auth.mode=external, atalhos, UI, receipts ou efeitos de escrita neste bloco.
 
 Incremento inicial: `internal/commandcatalog` contém um snapshot imutável dos
 contratos estáticos de comando, com IDs exatos e namespaced, efeitos,

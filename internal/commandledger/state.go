@@ -1,13 +1,14 @@
 package commandledger
 
-// validTransition não permite concluir antes do handoff nem repetir terminais.
+// validTransition permite recusas/cancelamentos e falha conclusiva antes do
+// handoff, mas nunca sucesso antes de running nem repetição de terminais.
 // Reconciliação de outcome_unknown usa Reconcile, nunca esta transição normal.
 func validTransition(from, to Status) bool {
 	switch from {
 	case Evaluating:
 		return to == Queued || to == Denied || to == Failed || to == Cancelled || to == CancelledStale || to == TimedOut
 	case Queued:
-		return to == Running || to == Cancelled || to == CancelledStale || to == TimedOut
+		return to == Running || to == Failed || to == Cancelled || to == CancelledStale || to == TimedOut
 	case Running:
 		return to == Succeeded || to == Failed || to == Cancelled || to == OutcomeUnknown
 	}

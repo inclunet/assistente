@@ -174,6 +174,12 @@ func (s *Store) CompareAndSwap(ctx context.Context, owner Owner, id string, from
 		}
 		changed = true
 		updates := map[string]any{"status": to}
+		if from == Evaluating && to == Queued {
+			updates["policy_decision"] = "allowed"
+		}
+		if from == Evaluating && to == Denied {
+			updates["policy_decision"] = "denied"
+		}
 		if terminal(to) {
 			updates["completed_at"] = now
 			updates["result_summary"] = "{}"
