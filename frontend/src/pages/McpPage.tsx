@@ -7,6 +7,7 @@ import {
   EditOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SafetyOutlined,
 } from '@ant-design/icons';
 import { useMCPStore } from '../store/mcpStore';
 import { mcp } from '../../wailsjs/go/models';
@@ -48,6 +49,8 @@ interface ServerRow {
   toolCount: number;
   enabled: boolean;
   autoConnect: boolean;
+  needsReauth: boolean;
+  authType: string;
   command?: string;
   args?: string[];
   url?: string;
@@ -110,6 +113,7 @@ export default function McpPage() {
     connect,
     disconnect,
     reconnect,
+    reauthorize,
     save,
     remove,
     getConfig,
@@ -179,6 +183,8 @@ export default function McpPage() {
     toolCount: s.toolCount,
     enabled: s.enabled,
     autoConnect: s.autoConnect,
+    needsReauth: s.needsReauth,
+    authType: s.authType || '',
     command: s.command,
     args: s.args,
     url: s.url,
@@ -555,6 +561,19 @@ export default function McpPage() {
     }
   }, [reconnect, addToast, announce, t]);
 
+  const handleReauthorize = useCallback(async (row: ServerRow) => {
+    try {
+      announce(t('mcp.announce.reauthorizing', { name: row.name }));
+      await reauthorize(row.slug);
+      addToast(t('mcp.toast.serverReauthorized', { name: row.name }), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
+      announce(t('mcp.announce.serverReauthorized', { name: row.name }));
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || t('mcp.error.reauthorizeFailed'), 'error');
+    }
+  }, [reauthorize, addToast, announce, t]);
+
   const handleDuplicate = useCallback(async (row: ServerRow) => {
     try {
       const newSlug = await DuplicateMCPServer(row.slug);
@@ -606,10 +625,19 @@ export default function McpPage() {
       key: 'status',
       label: t('mcp.columns.status'),
       width: '15%',
-      format: (val) => {
+      format: (val, row) => {
         const label = statusLabel(String(val), t);
         const statusClass = `mcp-badge mcp-badge--${String(val)}`;
-        return <span className={statusClass}>{label}</span>;
+        return (
+          <span className="mcp-status-cell">
+            <span className={statusClass}>{label}</span>
+            {row.needsReauth && (
+              <span className="mcp-badge mcp-badge--reauth" title={t('mcp.status.needsReauthHint')}>
+                {t('mcp.status.needsReauth')}
+              </span>
+            )}
+          </span>
+        );
       },
     },
     {
@@ -656,6 +684,14 @@ export default function McpPage() {
         label: t('mcp.actions.reconnect'),
         icon: <ReloadOutlined aria-hidden="true" />,
         onClick: () => handleReconnect(row),
+      });
+    }
+    if (row.authType === 'oauth2_pkce') {
+      actions.push({
+        id: 'reauthorize',
+        label: t('mcp.actions.reauthorize'),
+        icon: <SafetyOutlined aria-hidden="true" />,
+        onClick: () => handleReauthorize(row),
       });
     }
     actions.push({
@@ -742,6 +778,13 @@ export default function McpPage() {
             icon: <ReloadOutlined aria-hidden="true" />,
             onClick: () => focusedRow && handleReconnect(focusedRow),
             disabled: !focusedRow || focusedRow.status === 'connecting',
+          },
+          {
+            key: 'reauthorize',
+            label: t('mcp.actions.reauthorize'),
+            icon: <SafetyOutlined aria-hidden="true" />,
+            onClick: () => focusedRow && void handleReauthorize(focusedRow),
+            disabled: !focusedRow || focusedRow.authType !== 'oauth2_pkce',
           },
           {
             key: 'duplicate',

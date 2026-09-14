@@ -1084,13 +1084,22 @@ const ptBR = {
     },
 
     mcp: {
-      status: { connected: 'Conectado', connecting: 'Conectando...', disconnected: 'Desconectado', error: 'Erro' },
+      status: {
+        connected: 'Conectado',
+        connecting: 'Conectando...',
+        disconnected: 'Desconectado',
+        error: 'Erro',
+        needsReauth: 'Reautorização necessária',
+        needsReauthHint: 'O token OAuth expirou e não pôde ser renovado. Clique em "Reautorizar" para autenticar novamente.',
+      },
       announce: {
         editorClosed: 'Editor fechado',
         serverRemoved: 'Servidor removido',
         serverConnected: 'Servidor {{name}} conectado',
         serverDisconnected: 'Servidor {{name}} desconectado',
         serverReconnected: 'Servidor {{name}} reconectado',
+        reauthorizing: 'Reautorizando servidor {{name}}. Uma janela do navegador será aberta.',
+        serverReauthorized: 'Servidor {{name}} reautorizado',
       },
       error: {
         slugRequired: 'Slug (identificador) é obrigatório',
@@ -1101,6 +1110,7 @@ const ptBR = {
         connectFailed: 'Erro ao conectar',
         disconnectFailed: 'Erro ao desconectar',
         reconnectFailed: 'Erro ao reconectar',
+        reauthorizeFailed: 'Erro ao reautorizar',
       },
       toast: {
         created: 'Servidor MCP criado!',
@@ -1110,6 +1120,7 @@ const ptBR = {
         serverConnected: 'Servidor "{{name}}" conectado!',
         serverDisconnected: 'Servidor "{{name}}" desconectado',
         serverReconnected: 'Servidor "{{name}}" reconectado!',
+        serverReauthorized: 'Servidor "{{name}}" reautorizado!',
       },
       confirm: {
         removeTitle: 'Remover Servidor MCP',
@@ -1119,6 +1130,7 @@ const ptBR = {
       actions: {
         connectDisconnect: 'Conectar/Desconectar',
         reconnect: 'Reconectar',
+        reauthorize: 'Reautorizar',
         removeServer: 'Remover servidor',
         duplicate: 'Duplicar',
         connect: 'Conectar',

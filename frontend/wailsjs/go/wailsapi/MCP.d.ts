@@ -31,6 +31,8 @@ export function ListMCPServers():Promise<Array<mcp.ServerInfo>>;
 
 export function ReadMCPResource(arg1:string,arg2:string):Promise<string>;
 
+export function ReauthorizeMCPServer(arg1:string):Promise<void>;
+
 export function ReconnectMCPServer(arg1:string):Promise<void>;
 
 export function SaveMCPServer(arg1:string,arg2:mcp.ServerConfig):Promise<void>;
