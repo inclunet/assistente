@@ -2333,7 +2333,43 @@ stamp cobrem troca de ID sem avanço de geração e mutação de slices/pointers
 entregues ao projetor. A integração do App cobre geração ausente e alterada
 durante a projeção, usando somente banco e chaves de fixture.
 
-Pendente: projetor de produto dos documentos persistidos, writers confirmáveis,
+#### Projeção estrita de leitura local (subconjunto interno)
+
+`commandconfig.ProjectLocalRead` liga os documentos à configuração pura do
+resolver. O subconjunto atual aceita somente escopo global de armazenamento,
+`keyboard.local`, comandos de catálogo `read`, sem decisão, `Context.None`, sem
+alvo mutável e sem alteração de capacidade. Uma allowlist confiável adicional
+declara quais handlers não recebem argumentos; o catálogo atual ainda não
+descreve esse contrato. Argumentos e apresentação devem ser objetos vazios.
+Não há aceitação de argumentos secretos, templates ou referências a tools.
+
+O formato **interno** v1 do acionador é
+`{"version":1,"code":"KeyK","modifiers":["Control","Shift"]}`.
+Usa códigos físicos fechados (letras, dígitos, F1–F24 e navegação básica), com
+modificadores Control/Alt/Shift/Meta únicos, normalizados nessa ordem. Não é
+ainda contrato de API pública nem adapter DOM/nativo. A condição usa
+`{"version":1,"clauses":[{"field":"app.focused","op":"eq","value":true}]}`:
+conjunção dos campos tipados já suportados pelo resolver, sem campos repetidos.
+Versões futuras, campos desconhecidos, chaves JSON duplicadas, tipos incorretos
+e documentos excedendo limites são recusados. Até registros desabilitados são
+validados; um documento inválido recusa o mapa inteiro, sem fallback permissivo.
+
+Defaults e camadas builtin vêm exclusivamente do bootstrap, com fingerprint
+semântico fornecido por ele, sem hash da projeção parcial. Este subconjunto só
+aceita defaults de escopo Global. Deltas preservam supressões, invariantes e
+`needs_review` do resolver; não persistem automaticamente ajustes de versão.
+Referências builtin são conferidas contra as camadas declaradas e a camada do
+default. Camadas novas usam precedência ExplicitLayer e só participam quando
+habilitadas **e** explicitamente ativas no contexto confiável do chamador.
+
+`rebuildPersistedLocalReadConfiguration` integra esse projetor ao caminho de
+reauth/publicação/revalidação de geração do App. Nesse caminho, camadas de
+usuário continuam inativas e qualquer tentativa de passar uma lista de claims
+é recusada: restore autenticado de claims permanece pendente. Testes usam
+apenas SQLite temporário e catálogo/handlers de fixture. Nenhum binding de
+produto ou adapter físico é registrado por esse helper.
+
+Pendente: ampliar o projetor para contratos de produto, writers confirmáveis,
 persistência/restore de claims, ligação completa à recuperação pós-unlock e
 estado de execução por workspace. O estado do SO não
 é inferido da presença de uma sessão/JWT ou da disponibilidade do cofre; sem

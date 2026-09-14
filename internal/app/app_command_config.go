@@ -9,6 +9,20 @@ import (
 	"assistente/internal/commandexecution"
 )
 
+// rebuildPersistedLocalReadConfiguration instala o projetor estrito do
+// subconjunto local de leitura. Camadas de usuário permanecem inativas: o
+// restore autenticado de claims ainda não foi implementado. Dependências e
+// defaults pertencem ao bootstrap confiável, não ao chamador Wails.
+func (a *App) rebuildPersistedLocalReadConfiguration(ctx context.Context, token string, store *commandconfig.Store, options commandconfig.LocalReadProjection) error {
+	if len(options.ActiveUserLayerIDs) != 0 {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	return a.rebuildPersistedCommandConfiguration(ctx, token, store,
+		func(ctx context.Context, snapshot commandconfig.Snapshot) (*commandbindings.Configuration, error) {
+			return commandconfig.ProjectLocalRead(ctx, snapshot, options)
+		})
+}
+
 // rebuildPersistedCommandConfiguration conecta a leitura SQLite à publicação
 // autenticada. Somente escopo global: HostState ainda não separa workspaces.
 // project é obrigatório e pertence ao bootstrap confiável: valida versões e

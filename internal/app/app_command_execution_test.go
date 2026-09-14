@@ -63,7 +63,7 @@ func TestCommandExecutionAppUsesInstanceKeyAndRejectsLogout(t *testing.T) {
 	for _, locale := range []string{"pt-BR", "en", "es"} {
 		locales[locale] = commandcatalog.LocalizedMetadata{Name: "Fixture", Description: "Fixture", Category: "Fixture"}
 	}
-	registry, err := commandcatalog.New([]commandcatalog.Registration{{Definition: commandcatalog.Definition{ID: "fixture.read", Effect: commandcatalog.Read, Decision: commandcatalog.NoDecision, Context: commandcatalog.ContextPolicy{None: true}, AllowedSources: []commandcatalog.Source{commandcatalog.Palette}, Presentation: &commandcatalog.Presentation{Version: "1", Locales: locales}}, Handler: commandcatalog.HandlerContract{Effect: commandcatalog.Read}}})
+	registry, err := commandcatalog.New([]commandcatalog.Registration{{Definition: commandcatalog.Definition{ID: "fixture.read", Effect: commandcatalog.Read, Decision: commandcatalog.NoDecision, Context: commandcatalog.ContextPolicy{None: true}, AllowedSources: []commandcatalog.Source{commandcatalog.Palette, commandcatalog.KeyboardLocal}, Presentation: &commandcatalog.Presentation{Version: "1", Locales: locales}}, Handler: commandcatalog.HandlerContract{Effect: commandcatalog.Read}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,6 +199,45 @@ func TestCommandExecutionAppUsesInstanceKeyAndRejectsLogout(t *testing.T) {
 		return bindings, nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+	// Projeção concreta: documento válido não restaura ativação de camada.
+	layer := commandconfig.Layer{ID: uuid.Must(uuid.NewV7()).String(), UserID: user.ID, Name: "fixture", Enabled: true, Source: "user", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := db.Create(&layer).Error; err != nil {
+		t.Fatal(err)
+	}
+	commandID := "fixture.read"
+	binding := commandconfig.Binding{ID: uuid.Must(uuid.NewV7()).String(), UserID: user.ID, LayerRefKind: "user", LayerRef: layer.ID,
+		TriggerType: "keyboard.local", TriggerSpec: `{"version":1,"code":"KeyK","modifiers":["Control"]}`,
+		CommandID: &commandID, Arguments: "{}", Condition: `{"version":1,"clauses":[]}`, Effect: "execute", Enabled: true, Source: "user", ReviewStatus: "active", Presentation: "{}"}
+	if err := db.Create(&binding).Error; err != nil {
+		t.Fatal(err)
+	}
+	options := commandconfig.LocalReadProjection{Registry: registry, NoArgumentCommands: []string{commandID}}
+	if err := app.rebuildPersistedLocalReadConfiguration(ctx, pair.AccessToken, configStore, options); err != nil {
+		t.Fatal(err)
+	}
+	projected, activeLayers, err := state.UserConfiguration(ctx, user.ID)
+	if err != nil || len(activeLayers) != 0 {
+		t.Fatal("restore implícito de claims", activeLayers, err)
+	}
+	selection, err := projected.Resolve("keyboard.local:Control+KeyK", nil, nil)
+	if err != nil || selection.Status != commandbindings.NoMatch {
+		t.Fatal("camada habilitada foi ativada", selection, err)
+	}
+	options.ActiveUserLayerIDs = []string{layer.ID}
+	if err := app.rebuildPersistedLocalReadConfiguration(ctx, pair.AccessToken, configStore, options); !errors.Is(err, commandexecution.ErrInvalidConfiguration) {
+		t.Fatal("claims aceitas sem restore", err)
+	}
+	options.ActiveUserLayerIDs = nil
+	if err := db.Model(&binding).Update("arguments", `{"secret":"fixture-only"}`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := app.rebuildPersistedLocalReadConfiguration(ctx, pair.AccessToken, configStore, options); !errors.Is(err, commandconfig.ErrInvalid) {
+		t.Fatal("argumentos não suportados publicados", err)
+	}
+	after, _, err := state.UserConfiguration(ctx, user.ID)
+	if err != nil || after != projected {
+		t.Fatal("falha de projeção substituiu mapa", err)
 	}
 	result := make(chan error, 1)
 	go func() {
