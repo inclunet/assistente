@@ -2034,6 +2034,15 @@ autenticação/autorização e consultar uma fonte conclusiva sem executar efeit
 Nenhum verificador de produto ou endpoint está registrado; os verificadores
 dos testes não constituem prova de reconciliação ponta a ponta.
 
+O harness exclusivo de teste `pipeline_integration_test.go` combina catálogo,
+ledger SQLite e DispatchGate para uma leitura direta de fixture: reserva,
+validação estática, CAS de fila/running, handoff, conclusão e replay sem nova
+chamada. A espera do resultado libera o gate para mutações. Autenticação,
+autorização, identidade, fingerprint e handler são substitutos explícitos de
+teste, não serviços de produto. O harness não é executor reutilizável e não
+cobre o protocolo completo de cancelamento/panic/receipts. Essa evidência não
+habilita comandos reais nem conclui a execução ponta a ponta exigida pelo AEP.
+
 Permanecem pendentes integração ao executor/DispatchGate e ao startup,
 comprovação de encerramento de geração, verificadores reais de reconciliação,
 HMAC/RFC8785, resultados, política de retenção, eventos,
