@@ -163,6 +163,8 @@ func (s *EpochService) mutate(ctx context.Context, userID, sessionID string, sec
 		if security {
 			generation, err := s.next()
 			if err != nil {
+				s.disabled = true
+				s.cancelExecutions("", true)
 				return err
 			}
 			s.security = generation
@@ -189,14 +191,7 @@ func (s *EpochService) MutateUserConfiguration(ctx context.Context, userID strin
 		return ErrInvalidEpochInput
 	}
 	return s.gate.WithMutation(ctx, func() error {
-		s.watchesMu.Lock()
-		for watch := range s.watches {
-			if watch.user == userID {
-				watch.cancel()
-				delete(s.watches, watch)
-			}
-		}
-		s.watchesMu.Unlock()
+		s.cancelExecutionsForUser(userID)
 		return action()
 	})
 }

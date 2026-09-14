@@ -227,8 +227,16 @@ func TestEpochMutationsRejectInvalidOwnerAndGlobalOverflowAtomically(t *testing.
 	if err := service.MutatePrincipal(context.Background(), user, session, func() error { called = true; return nil }); !errors.Is(err, ErrInvalidEpochInput) || called {
 		t.Fatalf("overflow principal = %v, callback chamado=%v", err, called)
 	}
-	if current, err := service.Capture(context.Background(), user, session); err != nil || current != old {
-		t.Fatalf("overflow aplicou invalidação parcial: snapshot=%#v err=%v", current, err)
+	if service.sequence != math.MaxUint64 || service.security != old.SecurityGeneration || service.sessions[session] != (sessionEpoch{user: user, generation: old.AuthGeneration}) {
+		t.Fatalf("overflow principal avançou estado parcialmente: sequence=%d security=%q session=%#v", service.sequence, service.security, service.sessions[session])
+	}
+	// Contrato de overflow: o serviço fica desabilitado e snapshots antigos
+	// falham fechado, mesmo que a geração armazenada não tenha avançado.
+	if current, err := service.Capture(context.Background(), user, session); !errors.Is(err, ErrStaleEpoch) || current != (EpochSnapshot{}) {
+		t.Fatalf("overflow principal não falhou fechado: snapshot=%#v err=%v", current, err)
+	}
+	if err := service.Admit(context.Background(), old, func(context.Context) error { t.Fatal("snapshot antigo admitido após overflow principal"); return nil }, func() error { t.Fatal("snapshot antigo fez handoff após overflow principal"); return nil }); !errors.Is(err, ErrStaleEpoch) {
+		t.Fatalf("Admit após overflow principal = %v", err)
 	}
 
 	global := newEpochServiceForTest(t)
@@ -241,7 +249,13 @@ func TestEpochMutationsRejectInvalidOwnerAndGlobalOverflowAtomically(t *testing.
 	if err := global.MutateSecurity(context.Background(), func() error { called = true; return nil }); !errors.Is(err, ErrInvalidEpochInput) || called {
 		t.Fatalf("overflow global = %v, callback chamado=%v", err, called)
 	}
-	if current, err := global.Capture(context.Background(), globalOld.UserID, globalOld.SessionID); err != nil || current != globalOld {
-		t.Fatalf("overflow global alterou estado: snapshot=%#v err=%v", current, err)
+	if global.sequence != math.MaxUint64 || global.security != globalOld.SecurityGeneration || global.sessions[globalOld.SessionID] != (sessionEpoch{user: globalOld.UserID, generation: globalOld.AuthGeneration}) {
+		t.Fatalf("overflow global avançou estado parcialmente: sequence=%d security=%q session=%#v", global.sequence, global.security, global.sessions[globalOld.SessionID])
+	}
+	if current, err := global.Capture(context.Background(), globalOld.UserID, globalOld.SessionID); !errors.Is(err, ErrStaleEpoch) || current != (EpochSnapshot{}) {
+		t.Fatalf("overflow global não falhou fechado: snapshot=%#v err=%v", current, err)
+	}
+	if err := global.Admit(context.Background(), globalOld, func(context.Context) error { t.Fatal("snapshot antigo admitido após overflow global"); return nil }, func() error { t.Fatal("snapshot antigo fez handoff após overflow global"); return nil }); !errors.Is(err, ErrStaleEpoch) {
+		t.Fatalf("Admit após overflow global = %v", err)
 	}
 }

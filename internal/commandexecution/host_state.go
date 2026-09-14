@@ -48,6 +48,7 @@ type HostState struct {
 }
 
 type hostUserState struct {
+	readySession        string
 	configuration       *commandbindings.Configuration
 	activeLayers        []string
 	globalConfig        string
@@ -85,7 +86,9 @@ func (s *HostState) Epochs() *commandsecurity.EpochService {
 	return s.epochs
 }
 
-// Snapshot implementa Config.Snapshot. É uma leitura curta, sem autenticação
+// Snapshot implementa Config.Snapshot. Unlocked também exige mapa reconstruído
+// para a sessão exata; publicar apenas configuração não ativa bindings.
+// É uma leitura curta, sem autenticação
 // ou autorização, e espera um principal já derivado pela borda confiável.
 // Nenhuma chamada ao EpochService ocorre aqui: este método é seguro dentro de
 // callbacks de Capture/Admit.
@@ -116,7 +119,7 @@ func (s *HostState) Snapshot(ctx context.Context, principal auth.LocalSessionPri
 		Registry:     s.registryVersion,
 		GlobalConfig: user.globalConfig,
 		ActiveLayers: user.activeLayersVersion,
-		Unlocked:     s.vaultUnlocked && s.osKnown && !s.osLocked,
+		Unlocked:     s.vaultUnlocked && s.osKnown && !s.osLocked && user.readySession == principal.SessionID,
 	}, nil
 }
 
@@ -125,6 +128,8 @@ func (s *HostState) Snapshot(ctx context.Context, principal auth.LocalSessionPri
 // operações retornam projeções detached. A publicação e a geração global do
 // usuário são coordenadas pelo EpochService; somente as execuções desse
 // usuário são canceladas antes do callback.
+// Esta publicação é inerte para despacho: a sessão utilizável só é associada
+// por RebuildUserConfiguration após autenticação e reconstrução completas.
 func (s *HostState) PublishUserConfiguration(ctx context.Context, userID string, configuration *commandbindings.Configuration) error {
 	if s == nil {
 		return ErrInvalidHostState
@@ -148,6 +153,7 @@ func (s *HostState) PublishUserConfiguration(ctx context.Context, userID string,
 			return err
 		}
 		user.configuration = configuration
+		user.readySession = ""
 		user.globalConfig = generations[0]
 		if needActiveGeneration {
 			user.activeLayersVersion = generations[1]
@@ -211,7 +217,8 @@ func (s *HostState) ForgetUserConfiguration(ctx context.Context, userID string) 
 			return ErrHostStateDisabled
 		}
 		delete(s.users, userID)
-		return nil
+		_, err := s.reserveGenerationsLocked(1)
+		return err
 	})
 }
 
@@ -262,6 +269,7 @@ func (s *HostState) SetVaultUnlocked(ctx context.Context, unlocked bool) error {
 
 // SetOSSessionState registra uma observação já produzida pelo adapter do SO.
 // Estado desconhecido permanece fechado independentemente do valor de locked.
+// Toda observação descarta mapas: até o primeiro unlock exige reconstrução.
 func (s *HostState) SetOSSessionState(ctx context.Context, known bool, locked bool) error {
 	if s == nil {
 		return ErrInvalidHostState
@@ -274,7 +282,11 @@ func (s *HostState) SetOSSessionState(ctx context.Context, known bool, locked bo
 		}
 		s.osKnown = known
 		s.osLocked = locked
-		return nil
+		// Nem unlock nem uma observação inicial podem reutilizar mapas que
+		// antecedem o fato do SO. Reconstrução autenticada é obrigatória.
+		clear(s.users)
+		_, err := s.reserveGenerationsLocked(1)
+		return err
 	})
 }
 

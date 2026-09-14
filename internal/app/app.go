@@ -116,6 +116,7 @@ type App struct {
 	commandEpochs     *commandsecurity.EpochService
 	commandEpochsErr  error
 	commandHost       *commandexecution.HostState // protegido por authMu; bootstrap serializado
+	commandOSStarted  bool // protegido por authMu; uma execução por App
 	currentUserID     string
 	currentAuthUser   *AuthUser
 	authKeyringLoad   func() (string, error)
@@ -1230,6 +1231,11 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	if err := a.startHTTPAPI(); err != nil {
 		return err
 	}
+	// Também cobre um host de comandos instalado antes do ciclo de vida.
+	// Sem host, o bootstrap continua sem observador nem comandos ativados.
+	a.authMu.Lock()
+	a.startCommandOSSessionMonitorLocked()
+	a.authMu.Unlock()
 
 	// Verifica atualizações no startup (não bloqueante). Rastreada em bgWG para
 	// que o Shutdown faça join e não deixe a goroutine órfã.

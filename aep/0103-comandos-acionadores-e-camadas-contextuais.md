@@ -2252,11 +2252,60 @@ retornos legados são preservados e nenhum desses hooks consulta keychain sob
 o gate. Testes de App verificam falhas precoces sem I/O real, remoção do mapa,
 republicação sem reuso de gerações e logout com cancelamento do executor.
 
-Pendente: adapter real de lock/unlock do Windows e seu bootstrap, reconstrução
-do mapa após desbloqueio do SO, publicação a partir da persistência real de
-bindings/claims e escopo por workspace. O estado do SO não é inferido da presença
-de uma sessão/JWT ou da disponibilidade do cofre; sem adapter registrado, o
-host continua fechado. Não há atalhos nem comandos de produto ativados.
+Reconstrução autenticada do mapa: `RebuildUserConfiguration` captura a sessão
+local e suas gerações, constrói o snapshot fora do gate e reautentica a mesma
+identidade antes de publicar sob gate exclusivo. Mudanças de segurança,
+autenticação ou configuração durante o carregamento descartam o resultado.
+A revisão de carregamento é conservadora e global nesta instância: mudanças de
+outra conta também podem recusar um carregamento concorrente, sem invalidar
+execuções já admitidas dessa outra conta. Não há retry implícito.
+
+Cada observação do SO remove os mapas anteriores, inclusive unlock e estado
+desconhecido. Publicação simples de configuração não torna bindings utilizáveis:
+somente a reconstrução autenticada associa o mapa à sessão exata. O hook interno
+do App autentica JWT e sessão persistida antes/depois do builder e confere a
+identidade atual e as dependências da instância. Não guarda token, não consulta
+keychain e não permite que um builder atrasado ressuscite um mapa removido.
+
+Exaustão do contador de segurança também desabilita o EpochService e cancela
+contextos admitidos, sem executar a mutação autoritativa nem reutilizar geração.
+Assim, falha ao invalidar na parada do observador não preserva admissões antigas.
+
+Adapter nativo `internal/ossession`: usa janela message-only e notificações
+WTS da sessão do processo, consulta WTSInfoEx após registrar o observador e só
+aceita desbloqueio com sessão ativa e flags conhecidas. Lock invalida mesmo
+que uma consulta posterior já veja unlock. Desconexão, erro e encerramento
+deixam o estado desconhecido/fechado. Plataformas não suportadas recusam a
+observação; não há inferência por cofre ou JWT. Referências oficiais:
+[WTSRegisterSessionNotification](https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/nf-wtsapi32-wtsregistersessionnotification),
+[WM_WTSSESSION_CHANGE](https://learn.microsoft.com/en-us/windows/win32/termserv/wm-wtssession-change)
+e [WTSINFOEX_LEVEL1_W](https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/ns-wtsapi32-wtsinfoex_level1_w).
+
+A fábrica interna do executor instala um único monitor quando o ciclo de vida
+do App já está iniciado e acompanha seu encerramento via bgWG/contexto de
+shutdown. Erro do monitor mantém o host fechado, sem reinício silencioso.
+O fim do startup também verifica um host previamente instalado. A fábrica
+ainda não é chamada pelo startup de produto. Os testes do App
+injetam um observador falso; validação manual com lock/unlock real do Windows
+permanece pendente, sem bloquear a estação nem consultar segredos em testes.
+O pump verifica cancelamento em esperas de até 100 ms; chamadas Win32 síncronas
+não recebem cancelamento forçado. Um timeout de limpeza retorna erro e fecha
+o host, mas a liberação nativa ainda depende de a chamada do SO retornar.
+Falha terminal da fonte descarta eventos enfileirados obsoletos, sem reproduzir
+unlock depois de perder a observação.
+
+Evidências deste bloco: testes de reconstrução, publicação exclusiva e
+invalidação por overflow; testes de decoder/eventos WTS com fontes falsas;
+testes de App para sessão divergente, JWT inválido, remoção durante carregamento,
+encerramento do monitor e cancelamento do executor. Build e vet do repositório
+e testes focados dos pacotes afetados são a validação local; o teste nativo
+interativo e a suíte completa do App permanecem fora desta evidência.
+
+Pendente: carregador da persistência real de bindings/claims, ligação desse
+carregador à recuperação pós-unlock e escopo por workspace. O estado do SO não
+é inferido da presença de uma sessão/JWT ou da disponibilidade do cofre; sem
+observação válida, o host continua fechado. Não há atalhos nem comandos de
+produto ativados.
 
 Incremento inicial: `internal/commandcatalog` contém um snapshot imutável dos
 contratos estáticos de comando, com IDs exatos e namespaced, efeitos,

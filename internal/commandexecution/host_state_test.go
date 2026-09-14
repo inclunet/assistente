@@ -61,6 +61,16 @@ func TestHostStateInicialSeguroEEstadosDeLock(t *testing.T) {
 	if err := state.SetOSSessionState(ctx, true, false); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := state.Snapshot(ctx, principalA); !errors.Is(err, ErrHostUserNotPublished) {
+		t.Fatal("unlock preservou mapa antigo", err)
+	}
+	if err := state.RebuildUserConfiguration(ctx, func(context.Context) (auth.LocalSessionPrincipal, error) {
+		return principalA, nil
+	}, func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
+		return config, nil, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	versions, err = state.Snapshot(ctx, principalA)
 	if err != nil || !versions.Unlocked {
 		t.Fatalf("sessão conhecida desbloqueada não abriu o host: versions=%+v err=%v", versions, err)
@@ -69,14 +79,14 @@ func TestHostStateInicialSeguroEEstadosDeLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	versions, err = state.Snapshot(ctx, principalA)
-	if err != nil || versions.Unlocked {
-		t.Fatalf("lock do SO não fechou o host: versions=%+v err=%v", versions, err)
+	if !errors.Is(err, ErrHostUserNotPublished) || versions.Unlocked {
+		t.Fatalf("lock do SO não removeu o mapa: versions=%+v err=%v", versions, err)
 	}
 	if err := state.SetOSSessionState(ctx, false, false); err != nil {
 		t.Fatal(err)
 	}
 	versions, err = state.Snapshot(ctx, principalA)
-	if err != nil || versions.Unlocked {
+	if !errors.Is(err, ErrHostUserNotPublished) || versions.Unlocked {
 		t.Fatalf("estado desconhecido abriu o host: versions=%+v err=%v", versions, err)
 	}
 }

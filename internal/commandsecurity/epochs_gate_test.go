@@ -60,15 +60,20 @@ func TestEpochInvalidationDoesNotResurrectAndOverflowFailsAtomically(t *testing.
 	if err := service.InvalidatePrincipal(ctx, user, session); !errors.Is(err, ErrInvalidEpochInput) {
 		t.Fatal(err)
 	}
+	if service.sequence != math.MaxUint64 || service.security != old.SecurityGeneration || service.sessions[session] != (sessionEpoch{user: user, generation: old.AuthGeneration}) {
+		t.Fatalf("overflow avançou estado parcialmente: sequence=%d security=%q session=%#v", service.sequence, service.security, service.sessions[session])
+	}
+	// Contrato de overflow: a falha desabilita o serviço; o snapshot preservado
+	// no mapa não pode continuar sendo admitido nem capturado como utilizável.
 	unchanged, err := service.Capture(ctx, user, session)
-	if err != nil || unchanged != old {
-		t.Fatal("invalidação parcialmente aplicada")
+	if !errors.Is(err, ErrStaleEpoch) || unchanged != (EpochSnapshot{}) {
+		t.Fatalf("overflow não falhou fechado: snapshot=%#v err=%v", unchanged, err)
 	}
 	if err := service.InvalidateSession(ctx, user, session); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Capture(ctx, user, session); !errors.Is(err, ErrInvalidEpochInput) {
-		t.Fatal("contador reiniciou")
+	if _, err := service.Capture(ctx, user, session); !errors.Is(err, ErrStaleEpoch) {
+		t.Fatalf("serviço desabilitado não falhou fechado após invalidação: %v", err)
 	}
 	if err := service.Admit(ctx, old, func(context.Context) error { return nil }, func() error { t.Fatal("snapshot ressuscitado"); return nil }); !errors.Is(err, ErrStaleEpoch) {
 		t.Fatal(err)

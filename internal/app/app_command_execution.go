@@ -8,7 +8,9 @@ import (
 	"assistente/internal/commandledger"
 )
 
-// newCommandReadExecutor é uma fábrica interna, não uma API Wails nem startup.
+// newCommandReadExecutor é uma fábrica interna, não uma API Wails. Com o ciclo
+// de vida do App iniciado, instala também seu único observador de sessão do SO.
+// A fábrica ainda não é chamada pelo startup de produto nem habilita rotas.
 // O bootstrap fornece catálogo/handlers, política explícita e HostState concreto
 // (desconhecido começa bloqueado). Não consultar Vault.Status sob o gate:
 // isso faria I/O de keychain. Nenhuma dependência ausente recebe fallback.
@@ -56,6 +58,7 @@ func (a *App) newCommandReadExecutor(config commandexecution.Config, state *comm
 		return nil, commandexecution.ErrInvalidConfiguration
 	}
 	a.commandHost = state
+	a.startCommandOSSessionMonitorLocked()
 	return service, nil
 }
 

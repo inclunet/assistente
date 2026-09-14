@@ -1,0 +1,88 @@
+package app
+
+import (
+	"context"
+
+	"assistente/internal/auth"
+	"assistente/internal/commandbindings"
+	"assistente/internal/commandexecution"
+	"assistente/internal/logging"
+	"assistente/internal/ossession"
+)
+
+// Chamado pelo bootstrap serializado, sob authMu. Um App sem ciclo de vida
+// iniciado não lança observadores. Nunca tenta reiniciar silenciosamente um
+// monitor que falhou; nesse caso o HostState permanece desconhecido/fechado.
+func (a *App) startCommandOSSessionMonitorLocked() {
+	a.startCommandOSSessionMonitorWithLocked(ossession.Watch)
+}
+
+func (a *App) startCommandOSSessionMonitorWithLocked(watch func(context.Context, func(ossession.State) error) error) {
+	if watch == nil || a.commandHost == nil || a.commandOSStarted || a.ctx == nil || a.cancel == nil || a.ctx.Err() != nil {
+		return
+	}
+	a.commandOSStarted = true
+	ctx := a.ctx
+	a.bgWG.Add(1)
+	go func() {
+		defer a.bgWG.Done()
+		if err := a.observeCommandOSSession(ctx, watch); err != nil && ctx.Err() == nil {
+			logging.Warnf(ctx, "app.commands", "Observador de sessão do SO indisponível: %v", err)
+		}
+	}()
+}
+
+// observeCommandOSSession bloqueia até cancelamento/erro e é rastreado no
+// background do App. O seam permite testes sem criar janelas nativas.
+func (a *App) observeCommandOSSession(ctx context.Context, watch func(context.Context, func(ossession.State) error) error) error {
+	if a == nil || ctx == nil || watch == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	a.authMu.RLock()
+	state := a.commandHost
+	a.authMu.RUnlock()
+	if state == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	// Não reutilizar observação de uma execução anterior do monitor.
+	if err := state.SetOSSessionState(context.Background(), false, true); err != nil {
+		return err
+	}
+	defer state.SetOSSessionState(context.Background(), false, true)
+	return watch(ctx, func(observed ossession.State) error {
+		return state.SetOSSessionState(ctx, observed.Known, observed.Locked)
+	})
+}
+
+// rebuildCommandUserConfiguration usa JWT apenas para autenticar a sessão
+// local vigente, antes e depois do carregamento. Não armazena o token nem
+// confia em IDs fornecidos pelo builder. O carregador de persistência pertence
+// ao bootstrap; não há fallback para um mapa em cache.
+func (a *App) rebuildCommandUserConfiguration(ctx context.Context, token string,
+	build func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error),
+) error {
+	if a == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	a.authMu.RLock()
+	state, sessions, manager := a.commandHost, a.sessionSvc, a.credMgr
+	a.authMu.RUnlock()
+	if state == nil || sessions == nil || manager == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	return state.RebuildUserConfiguration(ctx, func(ctx context.Context) (auth.LocalSessionPrincipal, error) {
+		principal, err := sessions.AuthenticateLocalAccess(ctx, token)
+		if err != nil {
+			return auth.LocalSessionPrincipal{}, err
+		}
+		a.authMu.RLock()
+		matches := a.commandHost == state && a.sessionSvc == sessions && a.credMgr == manager &&
+			a.currentAuthUser != nil && a.currentUserID == principal.UserID &&
+			a.currentAuthUser.UserID == principal.UserID && a.currentAuthUser.SessionID == principal.SessionID
+		a.authMu.RUnlock()
+		if !matches {
+			return auth.LocalSessionPrincipal{}, commandexecution.ErrDenied
+		}
+		return principal, nil
+	}, build)
+}

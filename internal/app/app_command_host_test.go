@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"assistente/internal/auth"
@@ -44,6 +45,16 @@ func TestCommandHostVaultHookDoesNotInventOSState(t *testing.T) {
 		t.Fatal("cofre inventou estado do SO", initial, err)
 	}
 	if err := state.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.Snapshot(ctx, principal); !errors.Is(err, commandexecution.ErrHostUserNotPublished) {
+		t.Fatal("unlock reutilizou mapa", err)
+	}
+	if err := state.RebuildUserConfiguration(ctx, func(context.Context) (auth.LocalSessionPrincipal, error) {
+		return principal, nil
+	}, func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
+		return bindings, nil, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	opened, err := state.Snapshot(ctx, principal)
@@ -102,7 +113,7 @@ func TestCommandHostFailedVaultOperationsDoNotPublishUnlocked(t *testing.T) {
 		t.Fatal("fixture sem core deveria recusar unlock")
 	}
 	versions, err := state.Snapshot(context.Background(), principal)
-	if err != nil || versions.Unlocked {
+	if !errors.Is(err, commandexecution.ErrHostUserNotPublished) || versions.Unlocked {
 		t.Fatal("falha de cofre liberou comandos", versions, err)
 	}
 }

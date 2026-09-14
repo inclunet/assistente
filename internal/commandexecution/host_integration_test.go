@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/auth"
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandledger"
 )
@@ -87,6 +88,13 @@ func TestHostStatePermiteStartComOSDesbloqueadoEMapaPublicado(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := state.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.RebuildUserConfiguration(ctx, func(ctx context.Context) (auth.LocalSessionPrincipal, error) {
+		return f.sessions.AuthenticateLocalAccess(ctx, f.pair.AccessToken)
+	}, func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
+		return bindings, nil, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 

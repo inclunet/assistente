@@ -146,6 +146,29 @@ func TestCommandExecutionAppUsesInstanceKeyAndRejectsLogout(t *testing.T) {
 	if err := state.SetOSSessionState(ctx, true, false); err != nil {
 		t.Fatal(err)
 	}
+	neverBuild := func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
+		t.Fatal("builder executado sem sessão atual autenticada")
+		return nil, nil, nil
+	}
+	if err := app.rebuildCommandUserConfiguration(ctx, "invalid-token", neverBuild); err == nil {
+		t.Fatal("reconstrução aceitou JWT inválido")
+	}
+	app.setCurrentAuthUser(&AuthUser{UserID: user.ID, SessionID: uuid.Must(uuid.NewV7()).String(), Role: user.Role})
+	if err := app.rebuildCommandUserConfiguration(ctx, pair.AccessToken, neverBuild); !errors.Is(err, commandexecution.ErrDenied) {
+		t.Fatal("JWT de outra sessão do App foi aceito", err)
+	}
+	app.setCurrentAuthUser(&AuthUser{UserID: user.ID, SessionID: pair.SessionID, Role: user.Role})
+	if err := app.rebuildCommandUserConfiguration(ctx, pair.AccessToken, func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
+		app.resetCommandHostSession(false)
+		return bindings, nil, nil
+	}); !errors.Is(err, commandexecution.ErrDenied) {
+		t.Fatal("reconstrução atrasada publicou após remoção do mapa", err)
+	}
+	if err := app.rebuildCommandUserConfiguration(ctx, pair.AccessToken, func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
+		return bindings, nil, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	result := make(chan error, 1)
 	go func() {
 		record, err := service.Execute(ctx, pair.AccessToken, request)
