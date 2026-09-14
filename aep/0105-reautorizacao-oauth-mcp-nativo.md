@@ -2,8 +2,8 @@
 
 **Status:** 🚧 In Progress — backend (ação `ReauthorizeServer`, guarda de token
 expirado no caminho nativo e sinalização `NeedsReauth`), binding Wails, UI de
-reautorização e testes entregues. Documentação de usuário e verificação de CI
-pendentes de finalização no PR.
+reautorização, testes, documentação de usuário e CI verde entregues no PR #771.
+Aguardando revisão e merge do dono do projeto.
 
 ## Resumo
 
@@ -137,7 +137,8 @@ código necessária aqui** — apenas registro da decisão e dos testes existent
 - [x] `offline_access` é solicitado quando anunciado (`TestEffectiveScopes_*`).
 - [x] UI expõe "Reautorizar" distinta de "Reconectar", só para `oauth2_pkce`,
   com i18n nos 3 locales e acessibilidade.
-- [ ] Documentação de usuário atualizada e CI verde.
+- [x] Documentação de usuário atualizada (`MCP_CONFIG_EXAMPLES.md`) e CI verde
+  (backend, backend-race, bindings, e2e, frontend e scripts no PR #771).
 
 ## Referências
 
