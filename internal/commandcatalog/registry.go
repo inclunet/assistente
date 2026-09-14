@@ -64,6 +64,21 @@ type ContextPolicy struct {
 	Facts []ContextFact
 }
 
+// LocalizedMetadata é a apresentação versionada de um comando em um locale.
+type LocalizedMetadata struct {
+	Name        string
+	Description string
+	Category    string
+	Aliases     []string
+}
+
+// Presentation contém somente metadata de apresentação. Ela é opcional para
+// preservar contratos de comandos que ainda estão em estágio inicial.
+type Presentation struct {
+	Version string
+	Locales map[string]LocalizedMetadata
+}
+
 type Definition struct {
 	ID                         string
 	Effect                     Effect
@@ -72,6 +87,7 @@ type Definition struct {
 	HasMutableTarget           bool
 	AllowedSources             []Source
 	Context                    ContextPolicy
+	Presentation               *Presentation
 }
 
 // HandlerContract é obtido pelo bootstrap a partir do handler confiável, nunca
@@ -110,6 +126,14 @@ func New(registrations []Registration) (*Registry, error) {
 func clone(d Definition) Definition {
 	d.AllowedSources = slices.Clone(d.AllowedSources)
 	d.Context.Facts = slices.Clone(d.Context.Facts)
+	if d.Presentation != nil {
+		p := &Presentation{Version: d.Presentation.Version, Locales: make(map[string]LocalizedMetadata, len(d.Presentation.Locales))}
+		for locale, metadata := range d.Presentation.Locales {
+			metadata.Aliases = slices.Clone(metadata.Aliases)
+			p.Locales[locale] = metadata
+		}
+		d.Presentation = p
+	}
 	return d
 }
 
@@ -151,6 +175,9 @@ func validate(d Definition, h HandlerContract) error {
 	}
 	if d.Effect != h.Effect || d.MutatesEffectiveCapability != h.MutatesEffectiveCapability {
 		return fmt.Errorf("metadata diverge do contrato do handler")
+	}
+	if err := validatePresentation(d.Presentation); err != nil {
+		return err
 	}
 	if len(d.AllowedSources) == 0 {
 		return fmt.Errorf("origens permitidas são obrigatórias")
@@ -206,6 +233,40 @@ func validate(d Definition, h HandlerContract) error {
 			}
 		default:
 			return fmt.Errorf("modo de contexto inválido")
+		}
+	}
+	return nil
+}
+
+func validatePresentation(p *Presentation) error {
+	if p == nil {
+		return nil
+	}
+	if strings.TrimSpace(p.Version) == "" {
+		return fmt.Errorf("versão da apresentação é obrigatória")
+	}
+	if len(p.Locales) != len(supportedLocales) {
+		return fmt.Errorf("apresentação deve conter exatamente pt-BR, en e es")
+	}
+	for locale := range p.Locales {
+		if _, ok := supportedLocales[locale]; !ok {
+			return fmt.Errorf("locale de apresentação desconhecido: %s", locale)
+		}
+	}
+	for locale, metadata := range p.Locales {
+		if strings.TrimSpace(metadata.Name) == "" || strings.TrimSpace(metadata.Description) == "" || strings.TrimSpace(metadata.Category) == "" {
+			return fmt.Errorf("metadata incompleta no locale %s", locale)
+		}
+		seen := make(map[string]struct{}, len(metadata.Aliases))
+		for _, alias := range metadata.Aliases {
+			normalized := normalize(alias)
+			if normalized == "" {
+				return fmt.Errorf("alias vazio no locale %s", locale)
+			}
+			if _, ok := seen[normalized]; ok {
+				return fmt.Errorf("alias repetido no locale %s", locale)
+			}
+			seen[normalized] = struct{}{}
 		}
 	}
 	return nil

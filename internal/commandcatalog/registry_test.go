@@ -140,3 +140,52 @@ func TestSnapshotImutavelEIDsExatos(t *testing.T) {
 		t.Fatal("aceitou ID repetido")
 	}
 }
+
+func presentation() *Presentation {
+	return &Presentation{Version: "1", Locales: map[string]LocalizedMetadata{
+		"pt-BR": {Name: "Nova aba", Description: "Cria uma aba", Category: "Workspace", Aliases: []string{"aba nova", "criar aba"}},
+		"en":    {Name: "New tab", Description: "Creates a tab", Category: "Workspace", Aliases: []string{"new tab"}},
+		"es":    {Name: "Nueva pestaña", Description: "Crea una pestaña", Category: "Espacio", Aliases: []string{"pestaña nueva"}},
+	}}
+}
+
+func TestApresentacaoLocalizadaExigeContratoExato(t *testing.T) {
+	tests := map[string]func(*Presentation){
+		"versão ausente": func(p *Presentation) { p.Version = " " },
+		"locale ausente": func(p *Presentation) { delete(p.Locales, "en") },
+		"locale extra":   func(p *Presentation) { p.Locales["fr"] = p.Locales["en"] },
+		"nome vazio":     func(p *Presentation) { m := p.Locales["pt-BR"]; m.Name = " "; p.Locales["pt-BR"] = m },
+		"alias vazio": func(p *Presentation) {
+			m := p.Locales["pt-BR"]
+			m.Aliases = append(m.Aliases, " ")
+			p.Locales["pt-BR"] = m
+		},
+	}
+	for name, change := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := validRegistration()
+			r.Definition.Presentation = presentation()
+			change(r.Definition.Presentation)
+			if _, err := New([]Registration{r}); err == nil {
+				t.Fatal("aceitou apresentação inválida")
+			}
+		})
+	}
+}
+
+func TestApresentacaoTemCopiaProfundaNaEntradaESaida(t *testing.T) {
+	r := validRegistration()
+	r.Definition.Presentation = presentation()
+	registry, err := New([]Registration{r})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Definition.Presentation.Locales["pt-BR"] = LocalizedMetadata{Name: "alterado"}
+	got, _ := registry.Lookup(r.Definition.ID)
+	got.Presentation.Locales["pt-BR"] = LocalizedMetadata{Name: "saída"}
+	got.Presentation.Locales["en"].Aliases[0] = "saída"
+	again, _ := registry.Lookup(r.Definition.ID)
+	if again.Presentation.Locales["pt-BR"].Name != "Nova aba" || again.Presentation.Locales["en"].Aliases[0] != "new tab" {
+		t.Fatal("apresentação não é imutável")
+	}
+}

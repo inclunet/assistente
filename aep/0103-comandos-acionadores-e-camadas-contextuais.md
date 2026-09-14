@@ -1903,7 +1903,8 @@ Não representa a conclusão da Fase 0 nem do registro/resolvedor da Fase 1.
 - Limites: candidatos chegam já normalizados, com identidade de argumentos e
   alvo fornecida pelo chamador confiável. O protótipo não calcula fingerprint,
   não autentica e não valida o schema de argumentos do catálogo.
-- Pendentes: catálogo, deltas/overrides/tombstones, `needs_review`, claims,
+- Pendentes: completar catálogo e materialização de deltas/overrides/tombstones
+  e `needs_review` (incrementos parciais descritos na Fase 1), claims,
   persistência, executor/ledger, providers autoritativos, reserva dos atalhos
   invariantes de diálogo, adapters físicos e migração de handlers.
   Um resultado `selected` é apenas seleção, nunca autorização de execução.
@@ -1948,10 +1949,40 @@ passou (100% de cobertura no catálogo inicial, 98,9% no seletor); `go vet`
 dos dois pacotes passou. Nenhum comando do produto está registrado ainda.
 O descriptor do handler será obtido no bootstrap a partir de
 `EffectClass()`/`Mutability()`, nunca de cliente. Permanecem pendentes schemas
-de argumentos, aliases/locales, risco/redação, disponibilidade, versão do
+de argumentos, integração de aliases/locales na UI, risco/redação, disponibilidade, versão do
 catálogo, ponte e executor. Este incremento não conclui a Fase 1.
 
+O catálogo agora possui apresentação opcional versionada neste estágio de
+protótipo. Quando fornecida, exige nome, descrição e categoria nos três locales
+(`pt-BR`, `en`, `es`), com aliases validados pela mesma normalização da busca.
+`Registry.Search` localiza por ID e metadata, ordena por ID e devolve cópias
+profundas; `Lookup` continua exigindo identidade canônica exata. A normalização
+inicial uniformiza caixa e espaços, sem busca aproximada ou remoção de acentos.
+Ainda falta exigir essa apresentação no bootstrap de comandos do produto e
+ligar a Command Palette ao catálogo, sem listas paralelas no frontend.
+
+Validação do incremento conjunto: testes dos dois pacotes passaram (92,5% de
+cobertura em bindings e 96,9% em catálogo), assim como `go build ./...`,
+`go vet ./...` e verificador de status dos AEPs. Testes adicionais cobrem
+permutações da composição, conflitos entre overrides, proveniência,
+restauração sem mutar snapshots e leituras concorrentes com retornos isolados.
+O `golangci-lint` local não executou: binário v1 incompatível com configuração
+v2 do repositório. A suíte geral e o detector de corrida continuam com as
+limitações registradas na Fase 0; não se declara validação integral ou CI verde.
+
 - Implementar registro tipado de comandos.
+  - Incremento experimental adicional: `internal/commandbindings/defaults.go`
+    materializa overrides do mesmo acionador antes da precedência, aplica
+    tombstones antes da deduplicação e permite restaurar reconstruindo o
+    snapshot sem o delta. Desabilitar a personalização preserva fallback.
+    Testes cobrem condições restritas, versões, referências órfãs, imutabilidade
+    e barreira de diálogo. Os dois pacotes passaram dez repetições dos testes;
+    `go vet` focado também passou.
+  - Não há persistência/restore transacional, remapeamento de acionador,
+    fingerprint RFC 8785, ledger de supressão nem reserva de invariantes no
+    dispatcher. Em mudança semântica, sem snapshot histórico completo, a
+    pendência ainda bloqueia conservadoramente o acionador fora de diálogos;
+    isso precisa ser refinado para o contexto exato antes de integrar ao produto.
 - Definir schema versionado de contexto, acionadores, bindings e camadas.
 - Criar camadas padrão no código e persistência de deltas no SQLite.
 - Implementar resolução determinística, índice em memória e diagnóstico de
