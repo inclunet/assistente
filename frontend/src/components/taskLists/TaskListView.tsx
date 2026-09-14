@@ -49,7 +49,8 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
   const taskList = useTaskListStore((s) => s.taskLists.get(taskListId));
   const taskPage = useTaskListStore((s) => s.taskPages?.get(taskListId));
-  const isLoadingTasks = useTaskListStore((s) => s.loadingByTaskListId?.has(taskListId) ?? false);
+  const isLoadingTaskPage = useTaskListStore((s) => s.loadingTaskPagesByListId?.has(taskListId) ?? false);
+  const taskPageLoadError = useTaskListStore((s) => s.taskPageLoadErrors?.get(taskListId));
   const { loadTaskList, loadMoreTasks, loadAllTasksForBoard, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
   const { runCustomAction } = useCustomActions();
 
@@ -111,30 +112,84 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const currentViewMode: ViewMode = taskList?.preferredViewMode || 'list';
   const hasTasks = tasks.length > 0;
   const hasTaskPage = taskPage !== undefined;
+  const lastBoardProgressAnnouncementRef = useRef('');
+  const isMountedRef = useRef(false);
+  const activeTaskListIdRef = useRef(taskListId);
+  const isPanelActiveRef = useRef(isActive);
+  const boardLoadObserverGenerationRef = useRef(0);
+  activeTaskListIdRef.current = taskListId;
+  isPanelActiveRef.current = isActive;
 
   useEffect(() => {
-    if (currentViewMode !== 'kanban' || !hasTaskPage) return;
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const handleLoadBoardPages = useCallback(async (observerGeneration: number) => {
+    const shouldAnnounce = () => (
+      isMountedRef.current &&
+      isPanelActiveRef.current &&
+      boardLoadObserverGenerationRef.current === observerGeneration &&
+      activeTaskListIdRef.current === taskListId &&
+      useTaskListStore.getState().taskLists.get(taskListId)?.preferredViewMode === 'kanban'
+    );
+    try {
+      const loaded = await loadAllTasksForBoard(taskListId);
+      if (!shouldAnnounce()) return;
+      announce(
+        t('tasklist.pagination.boardLoaded', 'Quadro completo com {{count}} cards', { count: loaded }),
+        'polite',
+      );
+    } catch {
+      if (!shouldAnnounce()) return;
+      announce(
+        t('tasklist.pagination.boardLoadFailed', 'Não foi possível carregar todos os cards. Os cards disponíveis continuam navegáveis.'),
+        'polite',
+      );
+    }
+  }, [loadAllTasksForBoard, taskListId, announce, t]);
+
+  const requestBoardBackgroundLoad = useCallback(() => {
+    const observerGeneration = ++boardLoadObserverGenerationRef.current;
+    void handleLoadBoardPages(observerGeneration);
+    return observerGeneration;
+  }, [handleLoadBoardPages]);
+
+  useEffect(() => {
+    if (!isActive || currentViewMode !== 'kanban' || !hasTaskPage) return;
     const page = useTaskListStore.getState().taskPages.get(taskListId);
     if (!page?.hasMore) return;
-
-    let active = true;
-    announce(t('tasklist.pagination.loadingBoard', 'Carregando todos os cards do quadro'));
-    void loadAllTasksForBoard(taskListId)
-      .then((loaded) => {
-        if (active) {
-          announce(t('tasklist.pagination.boardLoaded', 'Quadro completo com {{count}} cards', { count: loaded }));
-        }
-      })
-      .catch(() => {
-        if (active) {
-          addToast(t('tasklist.pagination.loadMoreFailed', 'Erro ao carregar mais tarefas'), 'error');
-        }
-      });
-
+    const observerGeneration = requestBoardBackgroundLoad();
     return () => {
-      active = false;
+      if (boardLoadObserverGenerationRef.current === observerGeneration) {
+        boardLoadObserverGenerationRef.current += 1;
+      }
     };
-  }, [currentViewMode, hasTaskPage, taskListId, loadAllTasksForBoard, announce, t, addToast]);
+  }, [isActive, currentViewMode, hasTaskPage, taskListId, requestBoardBackgroundLoad]);
+
+  useEffect(() => {
+    if (
+      !isActive ||
+      currentViewMode !== 'kanban' ||
+      !isLoadingTaskPage ||
+      !taskPage ||
+      tasks.length >= taskPage.totalCount
+    ) {
+      return;
+    }
+    const signature = `${taskListId}:${tasks.length}:${taskPage.totalCount}`;
+    if (lastBoardProgressAnnouncementRef.current === signature) return;
+    lastBoardProgressAnnouncementRef.current = signature;
+    announce(
+      t('tasklist.pagination.boardProgress', '{{loaded}} de {{total}} cards carregados; o quadro já está navegável', {
+        loaded: tasks.length,
+        total: taskPage.totalCount,
+      }),
+      'polite',
+    );
+  }, [isActive, currentViewMode, isLoadingTaskPage, taskPage, tasks.length, taskListId, announce, t]);
 
   const handleOpenCreateTask = useCallback(() => {
     tasksRef.current?.openCreateModal();
@@ -504,10 +559,16 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
             <Button
               type="button"
               variant="secondary"
-              loading={isLoadingTasks}
-              onClick={() => void handleLoadMore()}
+              loading={isLoadingTaskPage}
+              onClick={() => void (
+                currentViewMode === 'kanban' && taskPageLoadError
+                  ? requestBoardBackgroundLoad()
+                  : handleLoadMore()
+              )}
             >
-              {t('tasklist.pagination.loadMore', 'Carregar mais tarefas')}
+              {currentViewMode === 'kanban' && taskPageLoadError
+                ? t('tasklist.pagination.retryBoard', 'Tentar carregar cards restantes')
+                : t('tasklist.pagination.loadMore', 'Carregar mais tarefas')}
             </Button>
             <span>
               {t('tasklist.pagination.progress', '{{loaded}} de {{total}} tarefas carregadas', {
@@ -515,6 +576,11 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
                 total: taskPage.totalCount,
               })}
             </span>
+            {currentViewMode === 'kanban' && taskPageLoadError && (
+              <span className="tasklist-pagination-error">
+                {t('tasklist.pagination.boardLoadFailed', 'Não foi possível carregar todos os cards. Os cards disponíveis continuam navegáveis.')}
+              </span>
+            )}
           </div>
         )}
       </div>

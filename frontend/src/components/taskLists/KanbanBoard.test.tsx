@@ -307,6 +307,52 @@ describe('KanbanBoard', () => {
     expect(document.getElementById(String(descriptionId))?.textContent).toContain('69 de 69');
   });
 
+  it('preserva foco e seleção quando páginas posteriores são incorporadas', async () => {
+    const firstPage: TestTask[] = Array.from({ length: 100 }, (_, index) => ({
+      id: String(1000 + index),
+      taskListId: '1',
+      title: `Card ${index + 1}`,
+      description: '',
+      statusId: 1,
+      order: index,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    }));
+    const controlRef: { current: TasksUpdater | null } = { current: null };
+    render(<ControlledBoard initialTasks={firstPage} controlRef={controlRef} />);
+
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+    const firstCard = screen.getByRole('gridcell', { name: 'Card 1' });
+    expect(document.activeElement).toBe(firstCard);
+    fireEvent.keyDown(board, { key: ' ' });
+    expect(firstCard).toHaveAttribute('aria-grabbed', 'true');
+
+    act(() => {
+      controlRef.current?.((current) => [
+        ...current,
+        ...Array.from({ length: 100 }, (_, index) => ({
+          id: String(1100 + index),
+          taskListId: '1',
+          title: `Card ${index + 101}`,
+          description: '',
+          statusId: 1,
+          order: index + 100,
+          createdAt: '2024-01-01',
+          updatedAt: '2024-01-01',
+        })),
+      ]);
+    });
+
+    expect(screen.getByRole('gridcell', { name: 'Card 200' })).toBeInTheDocument();
+    expect(document.activeElement).toBe(firstCard);
+    expect(firstCard).toHaveAttribute('aria-grabbed', 'true');
+
+    fireEvent.keyDown(board, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(screen.getByRole('gridcell', { name: 'Card 2' }));
+    expect(firstCard).toHaveAttribute('aria-grabbed', 'true');
+  });
+
   // ── Data de criação (issue #151) ──────────────────────────
 
   it('card aria-describedby inclui a data de criação ao final, no formato do chat', async () => {
