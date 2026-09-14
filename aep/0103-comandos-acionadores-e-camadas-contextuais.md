@@ -2072,6 +2072,18 @@ não inicializa o cofre e não registra bootstrap. Testes usam Manager real com
 criptografia em memória, sem keychain, e reserva SQLite em arquivo temporário.
 Provisionamento, rotação, retenção operacionais e integração no host ainda faltam.
 
+`SessionService.AuthenticateLocalAccess` adiciona consulta interna de identidade
+para comandos locais. Reutiliza a verificação JWT existente e confere em uma
+leitura SQLite a relação sessão/usuário, conta ativa e ausência de revogação;
+confere também expiração da sessão e do access token ao final da consulta.
+Devolve somente user_id/session_id UUIDv7, sem role, token ou gerações. Não
+modifica `VerifyAccessToken`, middleware externo nem o login vigente. O teste
+`TestAuthenticatedRequestUsesSessionIdentityAndRejectsLogout` usa sessão/JWT,
+Manager e ledger reais em armazenamento de teste: deriva ownership no backend
+e recusa nova reserva após logout mesmo com assinatura JWT ainda válida.
+Esta leitura não é autorização nem elimina corridas após retornar: coordenação
+de revogações com DispatchGate, EpochService e conexão ao host ainda faltam.
+
 Esta projeção não cobre comandos com argumentos, providers,
 receipts, delegação ou eventos e não habilita o executor de produto.
 
