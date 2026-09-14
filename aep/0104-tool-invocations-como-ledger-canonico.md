@@ -229,9 +229,12 @@ transacionalmente do owner. Testes em `internal/toolinvocations` e
 o contador `tool_invocation_persistence_failures_total`.
 
 Token stats contam iterações técnicas por `(conversation_id, turn_id,
-metadata.display.iteration)` no ledger. Por isso, iterações locais sem texto
-não precisam criar uma linha `assistant` vazia nem qualquer marcador técnico
-em `chat_messages`.
+model_iteration)` no ledger. A migração v20 materializa `model_iteration` e
+`external` a partir do metadata já migrado, e os escritores mantêm ambos no
+ledger. A contagem usa índices parciais por conversa/turno, sem interpretar
+JSON nem consultar `chat_messages`. Por isso, iterações locais sem texto não
+precisam criar uma linha `assistant` vazia nem qualquer marcador técnico em
+`chat_messages`.
 
 ### Fase 4 — Consumidores canônicos
 
