@@ -401,15 +401,14 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	// A identidade da chamada ao modelo vem de (turn_id, iteration) no ledger.
 	// Só persista uma mensagem quando houver conteúdo conversacional.
 	if strings.TrimSpace(result.FullResponse) != "" || strings.TrimSpace(result.Reasoning) != "" {
-		assistantToolMsg, err := r.svc.msgRepo.AddAssistantToolMessage(
-			ctx,
-			r.conversationID,
-			r.turnID,
-			result.FullResponse,
-			"",
-			result.Reasoning,
-			result.Model,
-		)
+		assistantToolMsg, err := r.svc.msgRepo.CreateMessage(ctx, chat.MessageOptions{
+			ConversationID: r.conversationID,
+			TurnID:         &r.turnID,
+			Role:           "assistant",
+			Content:        result.FullResponse,
+			Reasoning:      result.Reasoning,
+			Model:          result.Model,
+		})
 		if err != nil {
 			if errors.Is(err, chat.ErrConversationDeleted) {
 				logging.Errorf(ctx, "agent.agentic-loop", "[Agent] conversa %s deletada — abortando", r.conversationID)

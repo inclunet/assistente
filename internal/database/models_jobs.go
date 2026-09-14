@@ -143,10 +143,7 @@ type JobRun struct {
 	Error         string     `json:"error,omitempty" gorm:"type:text"`
 	RetryCount    int        `json:"retryCount,omitempty"`
 	IsDryRun      bool       `json:"isDryRun,omitempty" gorm:"index"`
-	ToolName      string     `json:"toolName,omitempty" gorm:"index"`
 	TriggerData   string     `json:"triggerData,omitempty" gorm:"type:text"`
-	Inputs        string     `json:"inputs,omitempty" gorm:"type:text"`
-	Output        string     `json:"output,omitempty" gorm:"type:text"`
 	EventsEmitted string     `json:"eventsEmitted,omitempty" gorm:"type:text"`
 
 	User    *User         `json:"-" gorm:"foreignKey:UserID"`

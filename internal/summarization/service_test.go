@@ -1,7 +1,6 @@
 package summarization
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -11,26 +10,17 @@ import (
 	"assistente/internal/profiles"
 )
 
-func TestStripLegacyToolMessagesForSummarizationMantemSomenteConversa(t *testing.T) {
-	turnID := "turn-1"
-	messages := []chat.Message{
-		{Role: "assistant", Content: "texto", ToolCalls: `[{"id":"call-1","result":"LEGADO"}]`, TurnID: &turnID},
-		{Role: "tool", Content: "LEGADO-L1", ToolCallID: "call-1", TurnID: &turnID},
-	}
-	got := stripLegacyToolMessagesForSummarization(messages)
-	if len(got) != 1 || got[0].Role != "assistant" || got[0].Content != "texto" ||
-		got[0].ToolCalls != "" || got[0].ToolCallID != "" {
-		t.Fatalf("mensagens canônicas inesperadas: %+v", got)
+func TestEstimateMessagesTokensContaSomenteConteudoConversacional(t *testing.T) {
+	messages := []chat.Message{{Role: "assistant", Content: "texto"}}
+	if got := EstimateMessagesTokens(messages); got != EstimateTokens("texto") {
+		t.Fatalf("estimativa inesperada: %d", got)
 	}
 }
 
-func TestSummarizationReadPolicySemEscopoPreservaLegado(t *testing.T) {
-	messages := []chat.Message{{
-		UUIDModel: database.UUIDModel{ID: "tool-1"}, Role: "tool", ToolCallID: "call-1", Content: "resultado",
-	}}
-	got := summarizationMessagesForReadPolicy(context.Background(), "conv-1", messages)
-	if len(got) != 1 || got[0].Role != "tool" || got[0].ToolCallID != "call-1" {
-		t.Fatalf("falha de política descartou legado: %+v", got)
+func TestSummarizationInvocationResultsFromStringsPreservaLedger(t *testing.T) {
+	got := summarizationInvocationResultsFromStrings(map[string]map[string]string{"turn": {"call": "resultado"}})
+	if got["turn"]["call"].Result != "resultado" {
+		t.Fatalf("resultado canônico perdido: %+v", got)
 	}
 }
 
@@ -78,19 +68,9 @@ func TestEstimateMessagesTokens(t *testing.T) {
 		}
 	})
 
-	t.Run("messages with content and tool_calls", func(t *testing.T) {
+	t.Run("mensagem canônica conta apenas conteúdo", func(t *testing.T) {
 		msgs := []database.ChatMessage{
-			{Content: "abcd", ToolCalls: "abcdefgh"},
-		}
-		result := EstimateMessagesTokens(msgs)
-		if result != 3 {
-			t.Errorf("expected 3, got %d", result)
-		}
-	})
-
-	t.Run("message with empty tool_calls ignored", func(t *testing.T) {
-		msgs := []database.ChatMessage{
-			{Content: "abcd", ToolCalls: ""},
+			{Content: "abcd"},
 		}
 		result := EstimateMessagesTokens(msgs)
 		if result != 1 {
@@ -102,23 +82,18 @@ func TestEstimateMessagesTokens(t *testing.T) {
 func TestBuildSummarizationUserPrompt_HydratesToolInvocationResults(t *testing.T) {
 	turnID := "turn-1"
 	callID := "call-1"
-	toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"files.read","arguments":"{}"}}]`
-
 	msgs := []database.ChatMessage{{
-		Role:      "assistant",
-		Content:   "",
-		ToolCalls: toolCalls,
-		TurnID:    &turnID,
+		Role: "assistant", Content: "", TurnID: &turnID,
 	}}
 
 	invResults := map[string]map[string]string{turnID: {callID: "RESULT"}}
-	prompt := BuildSummarizationUserPrompt("", msgs, invResults, nil)
-	if !strings.Contains(prompt, "Tool result (files.read): RESULT") {
+	prompt := BuildSummarizationUserPrompt("", msgs, invResults)
+	if !strings.Contains(prompt, "Tool result (call-1): RESULT") {
 		t.Fatalf("prompt did not include hydrated tool result, got:\n%s", prompt)
 	}
 }
 
-func TestBuildSummarizationUserPrompt_UsesInvocationResultsWithoutMessageToolCalls(t *testing.T) {
+func TestBuildSummarizationUserPrompt_UsesCanonicalInvocationResults(t *testing.T) {
 	turnID := "turn-1"
 	callID := "call-1"
 	msgs := []database.ChatMessage{{
@@ -128,7 +103,7 @@ func TestBuildSummarizationUserPrompt_UsesInvocationResultsWithoutMessageToolCal
 	}}
 
 	invResults := map[string]map[string]string{turnID: {callID: "RESULT"}}
-	prompt := BuildSummarizationUserPrompt("", msgs, invResults, nil)
+	prompt := BuildSummarizationUserPrompt("", msgs, invResults)
 	if !strings.Contains(prompt, "Tool result (call-1): RESULT") {
 		t.Fatalf("prompt did not include invocation-only tool result, got:\n%s", prompt)
 	}
@@ -143,7 +118,7 @@ func TestBuildSummarizationUserPrompt_DeduplicatesInvocationResultsPerTurnCall(t
 	}
 
 	invResults := map[string]map[string]string{turnID: {callID: "RESULT"}}
-	prompt := BuildSummarizationUserPrompt("", msgs, invResults, nil)
+	prompt := BuildSummarizationUserPrompt("", msgs, invResults)
 	if got := strings.Count(prompt, "Tool result (call-1): RESULT"); got != 1 {
 		t.Fatalf("expected invocation result once, got %d occurrences in:\n%s", got, prompt)
 	}
@@ -166,7 +141,7 @@ func TestBuildSummarizationUserPrompt_ScopesInvocationResultsToAssistantMessage(
 			},
 		},
 	}
-	prompt := buildSummarizationUserPrompt("", msgs, invResults, nil)
+	prompt := buildSummarizationUserPrompt("", msgs, invResults)
 
 	resultMarker := "Tool result (files.read): RESULT"
 	if got := strings.Count(prompt, resultMarker); got != 1 {
@@ -194,7 +169,7 @@ func TestBuildSummarizationUserPrompt_AttachesUnscopedInvocationAfterIterationMe
 			},
 		},
 	}
-	prompt := buildSummarizationUserPrompt("", msgs, invResults, nil)
+	prompt := buildSummarizationUserPrompt("", msgs, invResults)
 
 	resultMarker := "Tool result (files.read): RESULT"
 	if got := strings.Count(prompt, resultMarker); got != 1 {
@@ -225,39 +200,30 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 		p := makeProfile(800, 200) // budget = 800 - 200 - 200 = 400 tokens
 		turnID := "turn-1"
 		callID := "call-1"
-		toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"files.read","arguments":"{}"}}]`
 		msgs := []database.ChatMessage{{
-			Role:      "assistant",
-			Content:   "ok",
-			ToolCalls: toolCalls,
-			TurnID:    &turnID,
+			Role: "assistant", Content: "ok", TurnID: &turnID,
 		}}
 		invResults := map[string]map[string]string{
 			turnID: {callID: strings.Repeat("x", 5000)}, // capped to 2000 chars in estimator => 500 tokens
 		}
 
-		if !shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", summarizationInvocationResultsFromStrings(invResults), nil) {
+		if !shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", summarizationInvocationResultsFromStrings(invResults)) {
 			t.Fatal("expected summarization to trigger when hydrated tool result pushes estimate over budget")
 		}
 	})
 
-	t.Run("does not double-count when fallback role=tool result exists", func(t *testing.T) {
+	t.Run("counts canonical result once", func(t *testing.T) {
 		p := makeProfile(1200, 200) // budget = 1200 - 200 - 300 = 700 tokens
 		turnID := "turn-1"
 		callID := "call-1"
-		toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"files.read","arguments":"{}"}}]`
-		toolContent := strings.Repeat("y", 2000) // 500 tokens (already counted via tool message)
 		msgs := []database.ChatMessage{
-			{Role: "assistant", Content: "ok", ToolCalls: toolCalls, TurnID: &turnID},
-			{Role: "tool", Content: toolContent, TurnID: &turnID, ToolCallID: callID},
+			{Role: "assistant", Content: "ok", TurnID: &turnID},
 		}
 		invResults := map[string]map[string]string{
 			turnID: {callID: strings.Repeat("y", 5000)},
 		}
-		fallback := collectSummarizationFallbackToolResults(msgs)
-
-		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", summarizationInvocationResultsFromStrings(invResults), fallback) {
-			t.Fatal("expected summarization NOT to trigger when fallback tool message already accounts for the result")
+		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", summarizationInvocationResultsFromStrings(invResults)) {
+			t.Fatal("expected summarization NOT to trigger when canonical result fits budget")
 		}
 	})
 
@@ -273,7 +239,7 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 			turnID: {callID: strings.Repeat("z", 2000)}, // 500 tokens; duplicated would exceed budget.
 		}
 
-		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", summarizationInvocationResultsFromStrings(invResults), nil) {
+		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", summarizationInvocationResultsFromStrings(invResults)) {
 			t.Fatal("expected summarization NOT to trigger when the same invocation result appears across assistant messages")
 		}
 	})
@@ -296,7 +262,7 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 			},
 		}
 
-		if !shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, nil) {
+		if !shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults) {
 			t.Fatal("expected summarization to trigger after assigning unscoped invocation to iteration message")
 		}
 	})
@@ -471,12 +437,13 @@ func TestResolveConversationProfile(t *testing.T) {
 
 func TestBuildSummarizationUserPrompt(t *testing.T) {
 	t.Run("without existing summary", func(t *testing.T) {
+		turnID := "turn-1"
 		msgs := []database.ChatMessage{
 			{Role: "user", Content: "Hello"},
-			{Role: "assistant", Content: "Hi there!", ToolCalls: `[{"id":"call_1","type":"function","function":{"name":"grep_search","arguments":"{}"},"result":"found it"}]`},
+			{Role: "assistant", Content: "Hi there!", TurnID: &turnID},
 		}
 
-		result := BuildSummarizationUserPrompt("", msgs, nil, nil)
+		result := BuildSummarizationUserPrompt("", msgs, map[string]map[string]string{turnID: {"call_1": "found it"}})
 
 		if !strings.Contains(result, "## Conversation to Summarize") {
 			t.Error("expected '## Conversation to Summarize' header")
@@ -498,13 +465,14 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 		}
 	})
 
-	t.Run("tool_calls single-object is supported", func(t *testing.T) {
+	t.Run("canonical invocation is supported", func(t *testing.T) {
+		turnID := "turn-1"
 		msgs := []database.ChatMessage{
-			{Role: "assistant", Content: "ok", ToolCalls: `{"id":"call_1","type":"function","function":{"name":"grep_search","arguments":"{}"},"result":"achou"}`},
+			{Role: "assistant", Content: "ok", TurnID: &turnID},
 		}
-		result := BuildSummarizationUserPrompt("", msgs, nil, nil)
+		result := BuildSummarizationUserPrompt("", msgs, map[string]map[string]string{turnID: {"call_1": "achou"}})
 		if !strings.Contains(result, "Tool result") || !strings.Contains(result, "achou") {
-			t.Error("expected tool result from single-object tool_calls in output")
+			t.Error("expected canonical tool result in output")
 		}
 	})
 
@@ -513,7 +481,7 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 			{Role: "user", Content: "What about feature X?"},
 		}
 
-		result := BuildSummarizationUserPrompt("Previous context about the project.", msgs, nil, nil)
+		result := BuildSummarizationUserPrompt("Previous context about the project.", msgs, nil)
 
 		if !strings.Contains(result, "## Previous Summary") {
 			t.Error("expected '## Previous Summary' header")
@@ -535,7 +503,7 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 			{Role: "user", Content: longContent},
 		}
 
-		result := BuildSummarizationUserPrompt("", msgs, nil, nil)
+		result := BuildSummarizationUserPrompt("", msgs, nil)
 
 		if !strings.Contains(result, "... [truncated]") {
 			t.Error("expected truncation marker for content > 2000 chars")
@@ -546,7 +514,7 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 	})
 
 	t.Run("empty messages produces minimal prompt", func(t *testing.T) {
-		result := BuildSummarizationUserPrompt("", nil, nil, nil)
+		result := BuildSummarizationUserPrompt("", nil, nil)
 
 		if !strings.Contains(result, "## Conversation to Summarize") {
 			t.Error("expected header even with no messages")

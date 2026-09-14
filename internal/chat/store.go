@@ -88,12 +88,6 @@ type MessageRepository interface {
 	// chat.TokenStats que é o tipo enriquecido para o frontend.
 	GetTurnTokenStats(ctx context.Context, conversationID string, turnID string) (*database.TokenStats, error)
 
-	// AddAssistantToolMessage persiste mensagem de assistant com tool_calls JSON.
-	AddAssistantToolMessage(ctx context.Context, conversationID string, turnID string, content, toolCalls, reasoning, model string) (*Message, error)
-
-	// AddToolResultMessage persiste o resultado de uma tool call.
-	AddToolResultMessage(ctx context.Context, conversationID string, turnID string, content, toolCallID string) (*Message, error)
-
 	// SearchMessages busca mensagens usando full-text search (FTS5).
 	SearchMessages(ctx context.Context, query string, limit int) ([]MessageSearchResult, error)
 }

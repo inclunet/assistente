@@ -459,10 +459,6 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 	if userErr != nil {
 		return nil, userErr
 	}
-	policy, policyErr := toolinvocations.LoadLegacyReadPolicyWithUser(patchCtx, userID, []string{conversationID})
-	if policyErr != nil {
-		return nil, policyErr
-	}
 	summaries, summaryErr := toolinvocations.LoadSummariesForTurnIDsWithUser(patchCtx, userID, []string{turnID})
 	if summaryErr != nil {
 		return nil, summaryErr
@@ -472,8 +468,6 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 			InvocationID:       summary.InvocationID,
 			ID:                 summary.CallID,
 			Name:               summary.Name,
-			Type:               "function",
-			Function:           chat.TurnSegmentToolFunction{Name: summary.Name},
 			Origin:             summary.Origin,
 			ServerLabel:        summary.ServerLabel,
 			Status:             summary.Status,
@@ -490,7 +484,7 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 		callsByTurn[turnID] = append(callsByTurn[turnID], call)
 	}
 
-	nodes := chat.BuildNodesWithTimelineConsolidation(messages, nil, map[string]int{}, nil, callsByTurn, policy.Allows(conversationID))
+	nodes := chat.BuildNodesWithTimelineConsolidation(messages, nil, map[string]int{}, callsByTurn)
 	if len(nodes) == 0 {
 		return nil, nil
 	}

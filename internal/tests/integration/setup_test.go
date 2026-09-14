@@ -26,6 +26,8 @@ func setupIntegrationDB(t *testing.T) *gorm.DB {
 	models := []interface{}{
 		&database.Conversation{},
 		&database.ChatMessage{},
+		&database.ToolCatalog{},
+		&database.ToolInvocation{},
 		&database.LLMProvider{},
 		&database.CredentialEntry{},
 	}

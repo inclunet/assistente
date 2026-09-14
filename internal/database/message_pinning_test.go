@@ -50,9 +50,8 @@ func TestMessagePinningPersistsAndIsUserScoped(t *testing.T) {
 		t.Fatalf("pinned state was not persisted: message=%+v err=%v", reloaded, err)
 	}
 	if err := db.Model(&ChatMessage{}).Where("id = ?", anaMessage.ID).Updates(map[string]any{
-		"audio":      "audio grande",
-		"media":      "mídia grande",
-		"tool_calls": "chamadas grandes",
+		"audio": "audio grande",
+		"media": "mídia grande",
 	}).Error; err != nil {
 		t.Fatalf("populate large message fields: %v", err)
 	}
@@ -64,7 +63,7 @@ func TestMessagePinningPersistsAndIsUserScoped(t *testing.T) {
 	if len(list) != 1 || list[0].ID != anaMessage.ID {
 		t.Fatalf("unexpected pinned list: %+v", list)
 	}
-	if list[0].Audio != "" || list[0].Media != "" || list[0].ToolCalls != "" {
+	if list[0].Audio != "" || list[0].Media != "" {
 		t.Fatalf("pinned list loaded large unused fields: %+v", list[0])
 	}
 	if _, err := ToggleMessagePinWithContext(anaCtx, leoMessage.ID); !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -85,7 +84,7 @@ func TestMessagePinningPersistsAndIsUserScoped(t *testing.T) {
 		unpinned.CreatedAt.IsZero() || unpinned.UpdatedAt.IsZero() {
 		t.Fatalf("toggle omitted required message fields: %+v", unpinned)
 	}
-	if unpinned.Audio != "" || unpinned.Media != "" || unpinned.ToolCalls != "" {
+	if unpinned.Audio != "" || unpinned.Media != "" {
 		t.Fatalf("toggle loaded large unused fields: %+v", unpinned)
 	}
 }

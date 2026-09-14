@@ -57,9 +57,8 @@ func TestPublishedDatabase019UpgradesDirectlyToLatest(t *testing.T) {
 	if err := database.Where("conversation_id = ?", conversation.ID).Order("created_at").Find(&messages).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 3 ||
-		messages[1].ParentID == nil || *messages[1].ParentID != messages[0].ID ||
-		messages[2].ParentID == nil || *messages[2].ParentID != messages[1].ID {
+	if len(messages) != 2 ||
+		messages[1].ParentID == nil || *messages[1].ParentID != messages[0].ID {
 		t.Fatalf("hierarquia não preservada: %#v", messages)
 	}
 	var invocation ToolInvocation

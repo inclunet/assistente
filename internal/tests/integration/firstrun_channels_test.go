@@ -2,6 +2,7 @@ package integration
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"assistente/internal/database"
@@ -20,9 +21,9 @@ func TestIntegration_FirstMessageViaTelegram(t *testing.T) {
 
 	// 2. Primeira mensagem chega via Telegram
 	userMsg := &database.ChatMessage{
-		Role:      "user",
-		Content:   "Olá! Qual é a capital da França?",
-		Source:    channel,
+		Role:    "user",
+		Content: "Olá! Qual é a capital da França?",
+		Source:  channel,
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -41,9 +42,9 @@ func TestIntegration_FirstMessageViaTelegram(t *testing.T) {
 
 	// 4. Assistente responde
 	assistantMsg := &database.ChatMessage{
-		Role:      "assistant",
-		Content:   "A capital da França é Paris.",
-		Source:    channel,
+		Role:    "assistant",
+		Content: "A capital da França é Paris.",
+		Source:  channel,
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -76,9 +77,9 @@ func TestIntegration_FirstMessageViaSignal(t *testing.T) {
 
 	// 2. Primeira mensagem chega via Signal
 	userMsg := &database.ChatMessage{
-		Role:      "user",
-		Content:   "Qual é a receita de brigadeiro?",
-		Source:    channel,
+		Role:    "user",
+		Content: "Qual é a receita de brigadeiro?",
+		Source:  channel,
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -110,9 +111,9 @@ func TestIntegration_FirstMessageViaSignal(t *testing.T) {
 4. Recheie de chocolate granulado`
 
 	assistantMsg := &database.ChatMessage{
-		Role:      "assistant",
-		Content:   recipeMD,
-		Source:    channel,
+		Role:    "assistant",
+		Content: recipeMD,
+		Source:  channel,
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -129,7 +130,7 @@ func TestIntegration_FirstMessageViaSignal(t *testing.T) {
 		t.Errorf("resposta deveria ter Source=%s, obteve %s", channel, assistantRetrieved.Source)
 	}
 
-	if !contains(assistantRetrieved.Content, "Ingredientes") {
+	if !strings.Contains(assistantRetrieved.Content, "Ingredientes") {
 		t.Error("resposta não contém o conteúdo esperado")
 	}
 
@@ -157,9 +158,9 @@ func TestIntegration_FirstMessageMultipleChannels(t *testing.T) {
 	// 2. Criar mensagem em cada canal
 	for _, ch := range channels {
 		userMsg := &database.ChatMessage{
-			Role:      "user",
-			Content:   ch.content,
-			Source:    ch.name,
+			Role:    "user",
+			Content: ch.content,
+			Source:  ch.name,
 		}
 
 		if err := db.Create(userMsg).Error; err != nil {
@@ -202,7 +203,7 @@ func TestIntegration_FirstMessageChannelInConversation(t *testing.T) {
 
 	// 1. Setup: duas conversas em canais diferentes
 	conv1 := &database.Conversation{
-		Title:     "Chat Telegram",
+		Title: "Chat Telegram",
 	}
 
 	if err := db.Create(conv1).Error; err != nil {
@@ -210,7 +211,7 @@ func TestIntegration_FirstMessageChannelInConversation(t *testing.T) {
 	}
 
 	conv2 := &database.Conversation{
-		Title:     "Chat Signal",
+		Title: "Chat Signal",
 	}
 
 	if err := db.Create(conv2).Error; err != nil {
@@ -282,7 +283,7 @@ func TestIntegration_FirstMessageChannelResponseRoute(t *testing.T) {
 	channel := "telegram"
 
 	conv := &database.Conversation{
-		Title:     "Test from Telegram",
+		Title: "Test from Telegram",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -339,7 +340,7 @@ func TestIntegration_FirstMessageChannelAudioHandling(t *testing.T) {
 	channel := "telegram"
 
 	conv := &database.Conversation{
-		Title:     "Audio from Telegram",
+		Title: "Audio from Telegram",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -395,7 +396,7 @@ func TestIntegration_FirstMessageChannelMediaHandling(t *testing.T) {
 	channel := "slack"
 
 	conv := &database.Conversation{
-		Title:     "Media from Slack",
+		Title: "Media from Slack",
 	}
 
 	if err := db.Create(conv).Error; err != nil {

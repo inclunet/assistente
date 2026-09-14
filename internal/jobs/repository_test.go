@@ -661,12 +661,10 @@ func TestDBRepositoryLogRunDoesNotPersistTechnicalPayload(t *testing.T) {
 		t.Fatalf("log run: %v", err)
 	}
 
-	var row database.JobRun
-	if err := repo.db.Where("id = ?", "run-redact").First(&row).Error; err != nil {
-		t.Fatalf("get run row: %v", err)
-	}
-	if row.ToolName != "" || row.Inputs != "" || row.Output != "" {
-		t.Fatalf("job_runs recebeu cópia técnica: tool=%q inputs=%q output=%q", row.ToolName, row.Inputs, row.Output)
+	for _, column := range []string{"tool_name", "inputs", "output"} {
+		if repo.db.Migrator().HasColumn("job_runs", column) {
+			t.Fatalf("job_runs ainda expõe coluna técnica %q", column)
+		}
 	}
 }
 

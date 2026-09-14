@@ -21,11 +21,10 @@ func createConvWithReportedUsage(t *testing.T) (convID string) {
 
 	base := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
 	type msg struct {
-		id        string
-		role      string
-		prompt    int
-		compl     int
-		toolCalls string
+		id     string
+		role   string
+		prompt int
+		compl  int
 	}
 	rows := []msg{
 		{id: "01972000-0000-7000-8000-000000000001", role: "user"},
@@ -34,9 +33,9 @@ func createConvWithReportedUsage(t *testing.T) (convID string) {
 		// turno 2 (mais recente)
 		{id: "01972000-0000-7000-8000-000000000004", role: "assistant", prompt: 1500, compl: 300},
 		// iteração com tool_calls sem usage persistido
-		{id: "01972000-0000-7000-8000-000000000005", role: "assistant", toolCalls: `[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{}"}}]`},
-		{id: "01972000-0000-7000-8000-000000000006", role: "assistant", toolCalls: "[]"},
-		{id: "01972000-0000-7000-8000-000000000007", role: "assistant", toolCalls: " null "},
+		{id: "01972000-0000-7000-8000-000000000005", role: "assistant"},
+		{id: "01972000-0000-7000-8000-000000000006", role: "assistant"},
+		{id: "01972000-0000-7000-8000-000000000007", role: "assistant"},
 	}
 	for i, r := range rows {
 		m := ChatMessage{
@@ -50,7 +49,6 @@ func createConvWithReportedUsage(t *testing.T) (convID string) {
 			PromptTokens:     r.prompt,
 			CompletionTokens: r.compl,
 			TotalTokens:      r.prompt + r.compl,
-			ToolCalls:        r.toolCalls,
 		}
 		if err := db.Create(&m).Error; err != nil {
 			t.Fatalf("failed to create message %d: %v", i, err)
@@ -99,15 +97,15 @@ func TestGetDetailedTokenStats_ContextVsCumulative(t *testing.T) {
 	if stats.TotalTokens != 3000 {
 		t.Errorf("TotalTokens acumulado: esperado 3000, obtido %d", stats.TotalTokens)
 	}
-	if stats.ModelCallCount != 3 {
-		t.Errorf("ModelCallCount: esperado 3 chamadas ao modelo, obtido %d", stats.ModelCallCount)
+	if stats.ModelCallCount != 2 {
+		t.Errorf("ModelCallCount: esperado 2 chamadas ao modelo, obtido %d", stats.ModelCallCount)
 	}
 	if stats.ContextTokens != 1800 {
 		t.Errorf("ContextTokens (turno atual): esperado 1800, obtido %d", stats.ContextTokens)
 	}
 }
 
-func TestGetDetailedTokenStats_CountsL3FreeAssistantToolInvocation(t *testing.T) {
+func TestGetDetailedTokenStats_CountsCanonicalToolInvocation(t *testing.T) {
 	setupOrderingTestDB(t)
 	if err := db.AutoMigrate(&User{}, &ToolCatalog{}, &ToolInvocation{}, &ToolLedgerMigrationState{}); err != nil {
 		t.Fatalf("migrate tool invocations: %v", err)
@@ -134,16 +132,6 @@ func TestGetDetailedTokenStats_CountsL3FreeAssistantToolInvocation(t *testing.T)
 	}
 	if err := db.Create(&user).Error; err != nil {
 		t.Fatalf("create user message: %v", err)
-	}
-	legacyTool := ChatMessage{
-		ConversationID: conv.ID,
-		TurnID:         &turnID,
-		Role:           "tool",
-		ToolCallID:     "call-search",
-		Content:        "cópia legada",
-	}
-	if err := db.Create(&legacyTool).Error; err != nil {
-		t.Fatalf("create legacy tool message: %v", err)
 	}
 	finalAssistant := ChatMessage{
 		UUIDModel:        UUIDModel{ID: "01972002-0000-7000-8000-000000000003"},
@@ -210,7 +198,7 @@ func TestGetDetailedTokenStats_CountsL3FreeAssistantToolInvocation(t *testing.T)
 	}
 }
 
-func TestGetTurnTokenStatsPendingContaLedgerNovoSemDuplicarLegado(t *testing.T) {
+func TestGetTurnTokenStatsContaSomenteLedgerCanonico(t *testing.T) {
 	setupOrderingTestDB(t)
 	if err := db.AutoMigrate(&User{}, &ToolCatalog{}, &ToolInvocation{}, &ToolLedgerMigrationState{}); err != nil {
 		t.Fatal(err)
@@ -223,12 +211,6 @@ func TestGetTurnTokenStatsPendingContaLedgerNovoSemDuplicarLegado(t *testing.T) 
 	if err := db.Create(&conv).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&ToolLedgerMigrationState{
-		UserID: testUserID, ResourceType: "conversation", ResourceID: conv.ID, State: "pending",
-	}).Error; err != nil {
-		t.Fatal(err)
-	}
-
 	newTurnID := "01972003-0000-7000-8000-000000000001"
 	newFinalID := "01972003-0000-7000-8000-000000000002"
 	if err := db.Create(&[]ChatMessage{
@@ -258,7 +240,7 @@ func TestGetTurnTokenStatsPendingContaLedgerNovoSemDuplicarLegado(t *testing.T) 
 		{UUIDModel: UUIDModel{ID: legacyTurnID}, ConversationID: conv.ID, Role: "user"},
 		{
 			UUIDModel: UUIDModel{ID: legacyAssistantID}, ConversationID: conv.ID, TurnID: &legacyTurnID,
-			Role: "assistant", ToolCalls: `[{"id":"call-legacy","function":{"name":"search-pending"}}]`,
+			Role: "assistant",
 		},
 	}).Error; err != nil {
 		t.Fatal(err)
@@ -276,7 +258,7 @@ func TestGetTurnTokenStatsPendingContaLedgerNovoSemDuplicarLegado(t *testing.T) 
 		t.Fatal(err)
 	}
 	if legacyStats.ModelCallCount != 1 {
-		t.Fatalf("pending duplicou chamada já representada em L3: %d", legacyStats.ModelCallCount)
+		t.Fatalf("contagem canônica inesperada: %d", legacyStats.ModelCallCount)
 	}
 }
 

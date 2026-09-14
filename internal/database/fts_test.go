@@ -47,7 +47,7 @@ func seedTestMessages(t *testing.T) (conv1ID, conv2ID string) {
 		{UUIDModel: UUIDModel{CreatedAt: time.Now().Add(-4 * time.Hour)}, ConversationID: conv1.ID, Role: "assistant", Content: "Para implementar JWT em Go, recomendo usar a biblioteca golang-jwt. Primeiro crie um middleware que valide o token no header Authorization."},
 		{UUIDModel: UUIDModel{CreatedAt: time.Now().Add(-3 * time.Hour)}, ConversationID: conv1.ID, Role: "user", Content: "E o refresh token, como fazemos?"},
 		{UUIDModel: UUIDModel{CreatedAt: time.Now().Add(-2 * time.Hour)}, ConversationID: conv1.ID, Role: "assistant", Content: "O refresh token deve ter expiração mais longa. Armazene no banco com rotação automática. Quando o access token expirar, o client envia o refresh token para obter um novo par."},
-		{UUIDModel: UUIDModel{CreatedAt: time.Now().Add(-1 * time.Hour)}, ConversationID: conv1.ID, Role: "tool", Content: "resultado da tool: arquivo lido com sucesso"},
+		{UUIDModel: UUIDModel{CreatedAt: time.Now().Add(-1 * time.Hour)}, ConversationID: conv1.ID, Role: "system", Content: "diagnóstico interno não pesquisável"},
 		{UUIDModel: UUIDModel{CreatedAt: time.Now().Add(-6 * time.Hour)}, ConversationID: conv2.ID, Role: "user", Content: "Preciso fazer deploy da aplicação no Kubernetes com rolling update"},
 		{UUIDModel: UUIDModel{CreatedAt: time.Now().Add(-5 * time.Hour)}, ConversationID: conv2.ID, Role: "assistant", Content: "Para rolling update no Kubernetes, configure a strategy no Deployment YAML com maxSurge e maxUnavailable. Use readiness probes para garantir que os pods estejam prontos."},
 	}
@@ -77,16 +77,16 @@ func TestSearchMessageContent_BasicSearch(t *testing.T) {
 	}
 }
 
-func TestSearchMessageContent_IgnoresToolMessages(t *testing.T) {
+func TestSearchMessageContent_IgnoresSystemMessages(t *testing.T) {
 	setupTestDBWithFTS(t)
 	seedTestMessages(t)
 
-	results, err := SearchMessageContentWithContext(testCtx(), "resultado da tool", 20)
+	results, err := SearchMessageContentWithContext(testCtx(), "diagnóstico interno", 20)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}
 	if len(results) != 0 {
-		t.Errorf("tool messages should not be indexed, got %d results", len(results))
+		t.Errorf("system messages should not be indexed, got %d results", len(results))
 	}
 }
 

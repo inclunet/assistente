@@ -58,23 +58,12 @@ func (m msgRepoStub) GetTurnTokenStats(context.Context, string, string) (*databa
 	return nil, nil
 }
 
-func (msgRepoStub) AddAssistantToolMessage(_ context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
-	return &chat.Message{UUIDModel: database.UUIDModel{ID: "m"}, Role: "assistant", Content: content}, nil
-}
-
-func (msgRepoStub) AddToolResultMessage(context.Context, string, string, string, string) (*chat.Message, error) {
-	return nil, nil
-}
-
 func (m msgRepoStub) SearchMessages(context.Context, string, int) ([]chat.MessageSearchResult, error) {
 	return nil, nil
 }
 
 type capturingMsgRepo struct {
 	conversationID string
-	lastContent    string
-	lastToolCall   string
-	assistantCount int
 }
 
 func (m *capturingMsgRepo) CreateMessage(context.Context, chat.MessageOptions) (*chat.Message, error) {
@@ -115,17 +104,6 @@ func (m *capturingMsgRepo) GetRecentMessagesTokenCount(context.Context, string, 
 
 func (m *capturingMsgRepo) GetTurnTokenStats(context.Context, string, string) (*database.TokenStats, error) {
 	return nil, nil
-}
-
-func (m *capturingMsgRepo) AddAssistantToolMessage(_ context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
-	m.assistantCount++
-	return &chat.Message{UUIDModel: database.UUIDModel{ID: "m"}, Role: "assistant", Content: content}, nil
-}
-
-func (m *capturingMsgRepo) AddToolResultMessage(_ context.Context, conversationID, turnID string, content, toolCallID string) (*chat.Message, error) {
-	m.lastContent = content
-	m.lastToolCall = toolCallID
-	return &chat.Message{UUIDModel: database.UUIDModel{ID: "t"}, Role: "tool", Content: content, ToolCallID: toolCallID}, nil
 }
 
 func (m *capturingMsgRepo) SearchMessages(context.Context, string, int) ([]chat.MessageSearchResult, error) {
@@ -234,10 +212,4 @@ func TestPersistNativeMCPCalls_SemLedgerNaoCriaFallbackEmMensagem(t *testing.T) 
 		IsCompleted: true,
 	}}, 0)
 
-	if msgRepo.lastToolCall != "" || msgRepo.lastContent != "" {
-		t.Fatalf("não deveria persistir role=tool: call=%q content=%q", msgRepo.lastToolCall, msgRepo.lastContent)
-	}
-	if msgRepo.assistantCount != 0 {
-		t.Fatalf("não deveria persistir marcador assistant técnico: %d", msgRepo.assistantCount)
-	}
 }

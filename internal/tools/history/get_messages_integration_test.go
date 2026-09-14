@@ -39,7 +39,6 @@ func TestGetMessagesIntegrationFullPayloadOmitsLargeBinaries(t *testing.T) {
 		Media:          "base64-midia-marcador",
 		Audio:          "base64-audio-marcador",
 		AudioMimeType:  "audio/mpeg",
-		ToolCalls:      `[{"id":"call-1","type":"function","function":{"name":"web_fetch","arguments":"{}"}}]`,
 	})
 
 	args, _ := json.Marshal(map[string]any{"ids": []string{msg.ID}})
@@ -62,8 +61,8 @@ func TestGetMessagesIntegrationFullPayloadOmitsLargeBinaries(t *testing.T) {
 	if item["content"] != fullContent {
 		t.Fatal("content differs from persisted value")
 	}
-	if _, ok := item["tool_calls"].([]any); !ok {
-		t.Fatalf("tool_calls should be a JSON array: %#v", item["tool_calls"])
+	if _, exists := item["tool_calls"]; exists {
+		t.Fatalf("mensagem conversacional expôs tool_calls: %#v", item)
 	}
 	if _, exists := item["tool_call_id"]; exists {
 		t.Fatal("empty tool_call_id should be omitted")
@@ -72,6 +71,9 @@ func TestGetMessagesIntegrationFullPayloadOmitsLargeBinaries(t *testing.T) {
 
 func TestGetMessagesIntegrationIncludesToolResultsOnlyWhenRequested(t *testing.T) {
 	setupConvInfoDB(t)
+	if err := database.DB().AutoMigrate(&database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
+		t.Fatal(err)
+	}
 	convID := seedConversation(t, "Resultados de tools")
 	userMessage := seedHistoryMessage(t, database.ChatMessage{
 		ConversationID: convID,
@@ -84,15 +86,19 @@ func TestGetMessagesIntegrationIncludesToolResultsOnlyWhenRequested(t *testing.T
 		TurnID:         &turnID,
 		Role:           "assistant",
 		Content:        "vou consultar",
-		ToolCalls:      `[{"id":"call-1","type":"function","function":{"name":"web_fetch","arguments":"{}"}}]`,
 	})
-	seedHistoryMessage(t, database.ChatMessage{
-		ConversationID: convID,
-		TurnID:         &turnID,
-		Role:           "tool",
-		Content:        "resultado integral da tool",
-		ToolCallID:     "call-1",
-	})
+	catalog := database.ToolCatalog{Name: "web_fetch", DisplayName: "Web fetch", Origin: "builtin", AvailabilityStatus: "available"}
+	if err := database.DB().Create(&catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DB().Create(&database.ToolInvocation{
+		UserID: itUserID, ToolCatalogID: catalog.ID, OriginType: "chat",
+		OriginID: turnID, ConversationID: &convID, TurnID: &turnID,
+		ToolCallID: "call-1", Status: "succeeded",
+		Output: `{"content":"resultado integral da tool"}`, QueuedAt: time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	argsWithout, _ := json.Marshal(map[string]any{"ids": []string{userMessage.ID}})
 	without, err := NewGetMessages().Execute(itCtx(convID), argsWithout)
@@ -122,7 +128,7 @@ func TestGetMessagesIntegrationIncludesToolResultsOnlyWhenRequested(t *testing.T
 	}
 }
 
-func TestGetMessagesIntegrationBackfilledUsaSomenteLedger(t *testing.T) {
+func TestGetMessagesIntegrationUsaSomenteLedger(t *testing.T) {
 	setupConvInfoDB(t)
 	if err := database.DB().AutoMigrate(
 		&database.ToolCatalog{},
@@ -142,14 +148,6 @@ func TestGetMessagesIntegrationBackfilledUsaSomenteLedger(t *testing.T) {
 		ConversationID: convID,
 		TurnID:         &turnID,
 		Role:           "assistant",
-		ToolCalls:      `[{"id":"call-1","function":{"name":"legacy"},"result":"LEGADO-L3"}]`,
-	})
-	seedHistoryMessage(t, database.ChatMessage{
-		ConversationID: convID,
-		TurnID:         &turnID,
-		Role:           "tool",
-		ToolCallID:     "call-1",
-		Content:        "LEGADO-L1",
 	})
 	catalog := database.ToolCatalog{Name: "canonical", DisplayName: "Canonical", Origin: "builtin", AvailabilityStatus: "available"}
 	if err := database.DB().Create(&catalog).Error; err != nil {
@@ -171,23 +169,12 @@ func TestGetMessagesIntegrationBackfilledUsaSomenteLedger(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := database.DB().Create(&database.ToolLedgerMigrationState{
-		UserID:       itUserID,
-		ResourceType: "conversation",
-		ResourceID:   convID,
-		State:        "backfilled",
-	}).Error; err != nil {
-		t.Fatal(err)
-	}
-
 	args, _ := json.Marshal(map[string]any{"ids": []string{userMessage.ID}, "include_tool_results": true})
 	result, err := NewGetMessages().Execute(itCtx(convID), args)
 	if err != nil || result.IsError {
 		t.Fatalf("resultado inesperado: %+v err=%v", result, err)
 	}
-	if !strings.Contains(result.Content, "CANONICO") ||
-		strings.Contains(result.Content, "LEGADO-L1") ||
-		strings.Contains(result.Content, "LEGADO-L3") {
+	if !strings.Contains(result.Content, "CANONICO") {
 		t.Fatalf("get_messages não fez cutover para o ledger: %s", result.Content)
 	}
 }

@@ -54,12 +54,6 @@ func (r *stubRepo) GetRecentMessagesTokenCount(_ context.Context, _ string, _ in
 func (r *stubRepo) GetTurnTokenStats(_ context.Context, _ string, _ string) (*database.TokenStats, error) {
 	return nil, nil
 }
-func (r *stubRepo) AddAssistantToolMessage(_ context.Context, _ string, _ string, _, _, _, _ string) (*database.ChatMessage, error) {
-	return nil, nil
-}
-func (r *stubRepo) AddToolResultMessage(_ context.Context, _ string, _ string, _, _ string) (*database.ChatMessage, error) {
-	return nil, nil
-}
 func (r *stubRepo) SearchMessages(_ context.Context, _ string, _ int) ([]database.MessageSearchResult, error) {
 	return nil, nil
 }
@@ -120,14 +114,13 @@ func TestMediaHistoryLoader_NaoConverteReasoningPersistidoEmExtensaoDeProtocolo(
 	}
 }
 
-func TestMediaHistoryLoader_NaoConverteReasoningDeToolCallLegada(t *testing.T) {
+func TestMediaHistoryLoader_NaoConverteReasoningPersistido(t *testing.T) {
 	repo := &stubRepo{messages: []database.ChatMessage{
 		{Role: "user", Content: "consulte os dados"},
 		{
 			Role:      "assistant",
 			Content:   "resposta",
 			Reasoning: "preciso usar lookup",
-			ToolCalls: `{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{}"},"result":"ok"}`,
 		},
 	}}
 	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
@@ -142,13 +135,12 @@ func TestMediaHistoryLoader_NaoConverteReasoningDeToolCallLegada(t *testing.T) {
 	}
 }
 
-func TestMediaHistoryLoader_DescartaToolCallLegadaSoComReasoning(t *testing.T) {
+func TestMediaHistoryLoader_DescartaAssistantSoComReasoning(t *testing.T) {
 	repo := &stubRepo{messages: []database.ChatMessage{
 		{Role: "user", Content: "consulte os dados"},
 		{
 			Role:      "assistant",
 			Reasoning: "preciso usar lookup",
-			ToolCalls: `{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{}"},"result":"ok"}`,
 		},
 	}}
 	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
@@ -403,34 +395,24 @@ func TestMediaHistoryLoader_ReturnsSummary(t *testing.T) {
 	}
 }
 
-func TestMediaHistoryLoader_FiltersTool(t *testing.T) {
+func TestMediaHistoryLoader_ConverteSomenteMensagensConversacionais(t *testing.T) {
 	repo := &stubRepo{messages: []database.ChatMessage{
 		{Role: "user", Content: "oi"},
-		{Role: "tool", Content: "result"},
 		{Role: "assistant", Content: "tudo bem"},
 	}}
 	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(msgs) != 2 {
-		t.Fatalf("got %d messages, want 2 (tool must be filtered)", len(msgs))
-	}
-	for _, m := range msgs {
-		if m.Role == "tool" {
-			t.Error("tool message must be filtered out")
-		}
+	if len(msgs) != 2 || msgs[0].Role != "user" || msgs[1].Role != "assistant" {
+		t.Fatalf("mensagens conversacionais inesperadas: %+v", msgs)
 	}
 }
 
-func TestMediaHistoryLoader_FiltersEmptyAssistantToolCall(t *testing.T) {
-	// Para que ToolCalls seja preservado pelo HistoryLoader, o tool call deve
-	// estar respondido (não-órfão). O MediaHistoryLoader deve então filtrar
-	// o assistant com content="" + tool_calls não-vazio.
+func TestMediaHistoryLoader_FiltersEmptyAssistant(t *testing.T) {
 	repo := &stubRepo{messages: []database.ChatMessage{
 		{Role: "user", Content: "oi"},
-		{UUIDModel: database.UUIDModel{ID: "2"}, Role: "assistant", Content: "", ToolCalls: `[{"id":"x"}]`},
-		{Role: "tool", Content: "result", ToolCallID: "x"},
+		{UUIDModel: database.UUIDModel{ID: "2"}, Role: "assistant", Content: ""},
 		{Role: "assistant", Content: "resposta final"},
 	}}
 	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
@@ -438,21 +420,21 @@ func TestMediaHistoryLoader_FiltersEmptyAssistantToolCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(msgs) != 2 {
-		t.Fatalf("got %d, want 2 (empty assistant+tool_calls + tool msg must both be filtered)", len(msgs))
+		t.Fatalf("got %d, want 2 (empty assistant must be filtered)", len(msgs))
 	}
 }
 
-func TestMediaHistoryLoader_KeepsAssistantWithTextAndToolCalls(t *testing.T) {
+func TestMediaHistoryLoader_KeepsAssistantWithText(t *testing.T) {
 	repo := &stubRepo{messages: []database.ChatMessage{
 		{Role: "user", Content: "oi"},
-		{Role: "assistant", Content: "Vou buscar...", ToolCalls: `[{"id":"x"}]`},
+		{Role: "assistant", Content: "Vou buscar..."},
 	}}
 	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(msgs) != 2 {
-		t.Fatalf("got %d, want 2 (assistant with text+tool_calls must be kept)", len(msgs))
+		t.Fatalf("got %d, want 2 (assistant with text must be kept)", len(msgs))
 	}
 }
 

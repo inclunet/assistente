@@ -23,6 +23,7 @@ var errToolLedgerResourceDeleted = errors.New("recurso do backfill removido")
 const (
 	toolLedgerStatePending    = "pending"
 	toolLedgerStateBackfilled = "backfilled"
+	toolLedgerStateCanonical  = "canonical"
 
 	toolLedgerResourceConversation = "conversation"
 	toolLedgerResourceJobRun       = "job_run"
@@ -58,11 +59,27 @@ type toolLedgerBackfillReport struct {
 	LegacyHighWatermark *time.Time
 }
 
+// legacyChatMessageRow e legacyJobRunRow existem somente dentro da migração
+// v18. Eles permitem ler o schema publicado sem reintroduzir as colunas
+// técnicas nos modelos canônicos usados em runtime.
+type legacyChatMessageRow struct {
+	ChatMessage
+	ToolCalls  string `gorm:"column:tool_calls"`
+	ToolCallID string `gorm:"column:tool_call_id"`
+}
+
 // migrateToolLedgerBackfill é retomável por conversa/run. Cada recurso fecha
 // em uma transação própria; crash entre recursos preserva os já marcados como
 // backfilled e o próximo boot continua somente os pendentes.
 func migrateToolLedgerBackfill(database *gorm.DB) error {
 	if database == nil {
+		return nil
+	}
+	if !database.Migrator().HasColumn("chat_messages", "tool_calls") &&
+		!database.Migrator().HasColumn("chat_messages", "tool_call_id") &&
+		!database.Migrator().HasColumn("job_runs", "inputs") &&
+		!database.Migrator().HasColumn("job_runs", "output") &&
+		!database.Migrator().HasColumn("job_runs", "tool_name") {
 		return nil
 	}
 	statements := []string{
@@ -281,8 +298,10 @@ func seedToolLedgerMigrationStates(database *gorm.DB) (int, error) {
 		ResourceID   string
 	}
 	var resources []resource
-	if err := database.Raw(`
-		SELECT conversations.user_id, 'conversation' AS resource_type, conversations.id AS resource_id
+	queries := make([]string, 0, 2)
+	if database.Migrator().HasColumn("chat_messages", "tool_calls") {
+		queries = append(queries, `
+		 SELECT conversations.user_id, 'conversation' AS resource_type, conversations.id AS resource_id
 		  FROM conversations
 		 WHERE EXISTS (
 		       SELECT 1 FROM chat_messages
@@ -292,14 +311,22 @@ func seedToolLedgerMigrationStates(database *gorm.DB) (int, error) {
 		            OR (chat_messages.role = 'assistant'
 		                AND trim(COALESCE(chat_messages.tool_calls, '')) NOT IN ('', '[]', 'null'))
 		          )
-		 )
-		UNION ALL
-		SELECT job_runs.user_id, 'job_run', job_runs.id
+		 )`)
+	}
+	if database.Migrator().HasColumn("job_runs", "tool_name") &&
+		database.Migrator().HasColumn("job_runs", "inputs") &&
+		database.Migrator().HasColumn("job_runs", "output") {
+		queries = append(queries, `
+		 SELECT job_runs.user_id, 'job_run', job_runs.id
 		  FROM job_runs
 		 WHERE trim(COALESCE(job_runs.tool_name, '')) <> ''
 		    OR trim(COALESCE(job_runs.inputs, '')) <> ''
-		    OR trim(COALESCE(job_runs.output, '')) <> ''`).Scan(&resources).Error; err != nil {
-		return 0, err
+		    OR trim(COALESCE(job_runs.output, '')) <> ''`)
+	}
+	if len(queries) > 0 {
+		if err := database.Raw(strings.Join(queries, " UNION ALL ")).Scan(&resources).Error; err != nil {
+			return 0, err
+		}
 	}
 	deferred := 0
 	var existingStates []ToolLedgerMigrationState
@@ -346,12 +373,12 @@ func backfillConversationToolLedger(tx *gorm.DB, state ToolLedgerMigrationState)
 		}
 		return toolLedgerBackfillReport{}, err
 	}
-	var messages []ChatMessage
-	if err := tx.Where("conversation_id = ?", conversation.ID).Order("created_at, id").Find(&messages).Error; err != nil {
+	var messages []legacyChatMessageRow
+	if err := tx.Table("chat_messages").Where("conversation_id = ?", conversation.ID).Order("created_at, id").Find(&messages).Error; err != nil {
 		return toolLedgerBackfillReport{}, err
 	}
 
-	resultsByTurnCall := make(map[string][]ChatMessage)
+	resultsByTurnCall := make(map[string][]legacyChatMessageRow)
 	calls := make([]legacyToolCall, 0)
 	for _, message := range messages {
 		if message.Role == "tool" && strings.TrimSpace(message.ToolCallID) != "" {
@@ -485,7 +512,7 @@ func backfillConversationToolLedger(tx *gorm.DB, state ToolLedgerMigrationState)
 	return report, nil
 }
 
-func blockedConversationReport(messages []ChatMessage, code string) toolLedgerBackfillReport {
+func blockedConversationReport(messages []legacyChatMessageRow, code string) toolLedgerBackfillReport {
 	legacyRows := 0
 	var highWatermark *time.Time
 	for _, message := range messages {
@@ -502,7 +529,7 @@ func blockedConversationReport(messages []ChatMessage, code string) toolLedgerBa
 	}
 }
 
-func parseLegacyToolCalls(message ChatMessage) ([]legacyToolCall, error) {
+func parseLegacyToolCalls(message legacyChatMessageRow) ([]legacyToolCall, error) {
 	raw := strings.TrimSpace(message.ToolCalls)
 	var items []map[string]any
 	if err := json.Unmarshal([]byte(raw), &items); err != nil {
@@ -682,6 +709,9 @@ func migratedDisplayMetadata(call legacyToolCall) string {
 func backfillJobRunToolLedger(tx *gorm.DB, state ToolLedgerMigrationState) (toolLedgerBackfillReport, error) {
 	type jobRunRow struct {
 		JobRun
+		ToolName                string `gorm:"column:tool_name"`
+		Inputs                  string `gorm:"column:inputs"`
+		Output                  string `gorm:"column:output"`
 		DefinitionToolCatalogID string
 		DefinitionToolName      string
 	}
@@ -889,7 +919,7 @@ func legacyToolCallsEmpty(raw string) bool {
 	}
 }
 
-func messageTurnID(message ChatMessage) string {
+func messageTurnID(message legacyChatMessageRow) string {
 	if message.TurnID != nil && strings.TrimSpace(*message.TurnID) != "" {
 		return strings.TrimSpace(*message.TurnID)
 	}

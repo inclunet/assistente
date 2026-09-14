@@ -2040,21 +2040,6 @@ export namespace chat {
 	    }
 	}
 	
-	
-	export class TurnSegmentToolFunction {
-	    name: string;
-	    arguments: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new TurnSegmentToolFunction(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.arguments = source["arguments"];
-	    }
-	}
 
 }
 
@@ -2218,8 +2203,6 @@ export namespace database {
 	    media?: string;
 	    audio?: string;
 	    audioMimeType?: string;
-	    toolCalls?: string;
-	    toolCallId?: string;
 	    promptTokens?: number;
 	    completionTokens?: number;
 	    totalTokens?: number;
@@ -2248,8 +2231,6 @@ export namespace database {
 	        this.media = source["media"];
 	        this.audio = source["audio"];
 	        this.audioMimeType = source["audioMimeType"];
-	        this.toolCalls = source["toolCalls"];
-	        this.toolCallId = source["toolCallId"];
 	        this.promptTokens = source["promptTokens"];
 	        this.completionTokens = source["completionTokens"];
 	        this.totalTokens = source["totalTokens"];

@@ -1,13 +1,16 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -173,6 +176,7 @@ func TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently(t *testing.T) {
 		expectedAfterCounts[table] = count
 	}
 	expectedAfterCounts["tool_invocations"] = 4
+	expectedAfterCounts["chat_messages"] = 4
 
 	for _, fixture := range publishedReleaseFixtures {
 		t.Run(fixture.version, func(t *testing.T) {
@@ -216,7 +220,7 @@ func TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently(t *testing.T) {
 			if got := queryCount(t, database, `
 				SELECT COUNT(*)
 				  FROM tool_ledger_migration_states
-				 WHERE state = 'backfilled'
+				 WHERE state = 'canonical'
 				   AND ambiguous_count = 0
 				   AND last_error_code = ''
 				   AND legacy_input_digest = ledger_input_digest
@@ -244,6 +248,122 @@ func TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently(t *testing.T) {
 				t.Fatalf("migrações duplicadas ou ausentes após segundo boot: %d", got)
 			}
 		})
+	}
+}
+
+func TestPublishedReleaseCutoverCreatesRestorableBackup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "assistente.db")
+	database, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		sqlDB, dbErr := database.DB()
+		if dbErr == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	raw, err := os.ReadFile("testdata/published/0.5.0.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Exec(string(raw)).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	var foreignKeysBefore int
+	if err := database.Raw(`PRAGMA foreign_keys`).Scan(&foreignKeysBefore).Error; err != nil {
+		t.Fatal(err)
+	}
+	runCurrentUpgrade(t, database)
+	var foreignKeysAfter int
+	if err := database.Raw(`PRAGMA foreign_keys`).Scan(&foreignKeysAfter).Error; err != nil {
+		t.Fatal(err)
+	}
+	if foreignKeysAfter != foreignKeysBefore {
+		t.Fatalf("cutover alterou foreign_keys: antes=%d depois=%d", foreignKeysBefore, foreignKeysAfter)
+	}
+	backupPath := path + ".pre-tool-ledger-v19.bak"
+	digest, size, err := fileSHA256(backupPath)
+	if err != nil {
+		t.Fatalf("backup ausente: %v", err)
+	}
+	manifest, err := os.ReadFile(backupPath + ".manifest")
+	if err != nil {
+		t.Fatalf("manifesto ausente: %v", err)
+	}
+	if size == 0 || !strings.Contains(string(manifest), "sha256="+digest) {
+		t.Fatalf("backup sem checksum verificável: bytes=%d manifesto=%q", size, manifest)
+	}
+
+	backup, err := gorm.Open(sqlite.Open(backupPath), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		sqlDB, dbErr := backup.DB()
+		if dbErr == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	if !backup.Migrator().HasColumn("chat_messages", "tool_calls") ||
+		!backup.Migrator().HasColumn("job_runs", "output") {
+		t.Fatal("backup não preservou o schema restaurável anterior ao cutover")
+	}
+	if database.Migrator().HasColumn("chat_messages", "tool_calls") ||
+		database.Migrator().HasColumn("chat_messages", "tool_call_id") ||
+		database.Migrator().HasColumn("job_runs", "tool_name") ||
+		database.Migrator().HasColumn("job_runs", "inputs") ||
+		database.Migrator().HasColumn("job_runs", "output") {
+		t.Fatal("schema canônico reteve colunas técnicas legadas")
+	}
+	if got := queryCount(t, database, "SELECT COUNT(*) FROM chat_messages WHERE lower(trim(role)) = 'tool'"); got != 0 {
+		t.Fatalf("schema canônico reteve %d mensagens role=tool", got)
+	}
+	if err := database.Exec(`
+		UPDATE chat_messages SET role = 'tool'
+		WHERE id = (SELECT id FROM chat_messages LIMIT 1)`).Error; err == nil {
+		t.Fatal("constraint canônica permitiu persistir role=tool")
+	}
+	if got := queryCount(t, database, "SELECT COUNT(*) FROM chat_messages WHERE lower(trim(role)) = 'tool'"); got != 0 {
+		t.Fatalf("tentativa rejeitada deixou %d mensagens role=tool", got)
+	}
+}
+
+func TestArchivePreviousToolLedgerBackupPreservesDatabaseAndManifest(t *testing.T) {
+	backupPath := filepath.Join(t.TempDir(), "assistente.db.pre-tool-ledger-v19.bak")
+	if err := os.WriteFile(backupPath, []byte("backup-anterior"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backupPath+".manifest", []byte("manifesto-anterior"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := archivePreviousToolLedgerBackup(backupPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(backupPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("backup fixo não foi rotacionado: %v", err)
+	}
+	archived, err := filepath.Glob(backupPath + ".previous-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var archivedBackup string
+	for _, path := range archived {
+		if !strings.HasSuffix(path, ".manifest") {
+			archivedBackup = path
+			break
+		}
+	}
+	if archivedBackup == "" {
+		t.Fatalf("backup anterior não foi preservado: %v", archived)
+	}
+	if content, err := os.ReadFile(archivedBackup); err != nil || string(content) != "backup-anterior" {
+		t.Fatalf("conteúdo do backup arquivado mudou: conteúdo=%q erro=%v", content, err)
+	}
+	if content, err := os.ReadFile(archivedBackup + ".manifest"); err != nil || string(content) != "manifesto-anterior" {
+		t.Fatalf("manifesto arquivado mudou: conteúdo=%q erro=%v", content, err)
 	}
 }
 

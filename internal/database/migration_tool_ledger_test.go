@@ -13,10 +13,68 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+type legacyMigrationChatMessage struct {
+	UUIDModel
+	ConversationID   string
+	ParentID         *string
+	TurnID           *string
+	Role             string
+	Content          string
+	Reasoning        string
+	Media            string
+	Audio            string
+	AudioMimeType    string
+	ToolCalls        string
+	ToolCallID       string
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+	CacheReadTokens  int
+	CacheWriteTokens int
+	CacheMissTokens  int
+	Model            string
+	Source           string
+	Pinned           bool
+}
+
+func (legacyMigrationChatMessage) TableName() string { return "chat_messages" }
+
+type legacyMigrationJobRun struct {
+	UUIDModel
+	UserID        string
+	JobID         string
+	TriggerID     string
+	Status        string
+	StartedAt     time.Time
+	CompletedAt   *time.Time
+	DurationMs    int64
+	Error         string
+	RetryCount    int
+	IsDryRun      bool
+	TriggerData   string
+	EventsEmitted string
+	ToolName      string
+	Inputs        string
+	Output        string
+}
+
+func (legacyMigrationJobRun) TableName() string { return "job_runs" }
+
 func setupToolLedgerMigrationTest(t *testing.T) (*User, *User, *ToolCatalog) {
 	t.Helper()
 	database := newMigratorTestDB(t)
 	fullAutoMigrate(t, database)
+	for _, statement := range []string{
+		`ALTER TABLE chat_messages ADD COLUMN tool_calls text`,
+		`ALTER TABLE chat_messages ADD COLUMN tool_call_id text`,
+		`ALTER TABLE job_runs ADD COLUMN tool_name text`,
+		`ALTER TABLE job_runs ADD COLUMN inputs text`,
+		`ALTER TABLE job_runs ADD COLUMN output text`,
+	} {
+		if err := database.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	previous := DB()
 	SetDB(database)
 	t.Cleanup(func() { SetDB(previous) })
@@ -50,14 +108,14 @@ func TestToolLedgerBackfillChatIsoladoIdempotenteESemPerda(t *testing.T) {
 		if err := database.Create(&conversation).Error; err != nil {
 			t.Fatal(err)
 		}
-		assistant := ChatMessage{
+		assistant := legacyMigrationChatMessage{
 			UUIDModel:      UUIDModel{ID: "ledger-assistant-" + user.ID, CreatedAt: now.Add(time.Duration(index) * time.Second)},
 			ConversationID: conversationID,
 			TurnID:         &turnID,
 			Role:           "assistant",
 			ToolCalls:      `[{"id":"call-` + user.ID + `","type":"function","function":{"name":"search","arguments":"{\"token\":\"segredo-` + user.ID + `\",\"query\":\"x\"}"}}]`,
 		}
-		result := ChatMessage{
+		result := legacyMigrationChatMessage{
 			UUIDModel:      UUIDModel{ID: "ledger-result-" + user.ID, CreatedAt: assistant.CreatedAt.Add(time.Millisecond)},
 			ConversationID: conversationID,
 			TurnID:         &turnID,
@@ -65,7 +123,7 @@ func TestToolLedgerBackfillChatIsoladoIdempotenteESemPerda(t *testing.T) {
 			Content:        "resultado-" + user.ID,
 			ToolCallID:     "call-" + user.ID,
 		}
-		if err := database.Create([]*ChatMessage{&assistant, &result}).Error; err != nil {
+		if err := database.Create([]*legacyMigrationChatMessage{&assistant, &result}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -139,7 +197,7 @@ func TestToolLedgerBackfillJobAdotaInvocacaoPublicada(t *testing.T) {
 	}
 	trigger := JobTrigger{UUIDModel: UUIDModel{ID: "ledger-trigger"}, UserID: userA.ID, JobID: job.ID, Type: "manual", Enabled: true}
 	now := time.Now().UTC()
-	run := JobRun{
+	run := legacyMigrationJobRun{
 		UUIDModel:   UUIDModel{ID: "ledger-run"},
 		UserID:      userA.ID,
 		JobID:       job.ID,
@@ -202,7 +260,7 @@ func TestToolLedgerBackfillJobLegadoComVariosRunsBloqueiaAssociacao(t *testing.T
 	}
 	trigger := JobTrigger{UUIDModel: UUIDModel{ID: "ledger-ambiguous-trigger"}, UserID: userA.ID, JobID: job.ID, Type: "manual", Enabled: true}
 	now := time.Now().UTC()
-	runs := []JobRun{
+	runs := []legacyMigrationJobRun{
 		{UUIDModel: UUIDModel{ID: "ledger-ambiguous-run-a"}, UserID: userA.ID, JobID: job.ID, TriggerID: trigger.ID, Status: "completed", StartedAt: now, ToolName: "search", Inputs: `{}`, Output: `{"run":"a"}`},
 		{UUIDModel: UUIDModel{ID: "ledger-ambiguous-run-b"}, UserID: userA.ID, JobID: job.ID, TriggerID: trigger.ID, Status: "completed", StartedAt: now.Add(time.Second), ToolName: "search", Inputs: `{}`, Output: `{"run":"b"}`},
 	}
@@ -253,19 +311,19 @@ func TestToolLedgerBackfillAmbiguidadeBloqueiaSemPerda(t *testing.T) {
 	database := DB()
 	conversation := Conversation{UUIDModel: UUIDModel{ID: "ledger-ambiguous-conversation"}, UserID: userA.ID, Title: "Ambiguous"}
 	turnID := "ledger-ambiguous-turn"
-	assistant := ChatMessage{
+	assistant := legacyMigrationChatMessage{
 		UUIDModel:      UUIDModel{ID: "ledger-ambiguous-assistant"},
 		ConversationID: conversation.ID,
 		TurnID:         &turnID,
 		Role:           "assistant",
 		ToolCalls:      `[{"id":"duplicate-call","function":{"name":"search","arguments":"{}"}}]`,
 	}
-	resultA := ChatMessage{UUIDModel: UUIDModel{ID: "ledger-result-a"}, ConversationID: conversation.ID, TurnID: &turnID, Role: "tool", ToolCallID: "duplicate-call", Content: "A"}
-	resultB := ChatMessage{UUIDModel: UUIDModel{ID: "ledger-result-b"}, ConversationID: conversation.ID, TurnID: &turnID, Role: "tool", ToolCallID: "duplicate-call", Content: "B"}
+	resultA := legacyMigrationChatMessage{UUIDModel: UUIDModel{ID: "ledger-result-a"}, ConversationID: conversation.ID, TurnID: &turnID, Role: "tool", ToolCallID: "duplicate-call", Content: "A"}
+	resultB := legacyMigrationChatMessage{UUIDModel: UUIDModel{ID: "ledger-result-b"}, ConversationID: conversation.ID, TurnID: &turnID, Role: "tool", ToolCallID: "duplicate-call", Content: "B"}
 	if err := database.Create(&conversation).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := database.Create([]*ChatMessage{&assistant, &resultA, &resultB}).Error; err != nil {
+	if err := database.Create([]*legacyMigrationChatMessage{&assistant, &resultA, &resultB}).Error; err != nil {
 		t.Fatal(err)
 	}
 
@@ -293,7 +351,7 @@ func TestToolLedgerBackfillJSONInvalidoPermanecePending(t *testing.T) {
 	userA, _, _ := setupToolLedgerMigrationTest(t)
 	database := DB()
 	conversation := Conversation{UUIDModel: UUIDModel{ID: "ledger-invalid-json-conversation"}, UserID: userA.ID, Title: "Invalid"}
-	message := ChatMessage{
+	message := legacyMigrationChatMessage{
 		UUIDModel:      UUIDModel{ID: "ledger-invalid-json-message"},
 		ConversationID: conversation.ID,
 		Role:           "assistant",
@@ -321,7 +379,7 @@ func TestToolLedgerBackfillRoleToolSemCallIDPermanecePending(t *testing.T) {
 	userA, _, _ := setupToolLedgerMigrationTest(t)
 	database := DB()
 	conversation := Conversation{UUIDModel: UUIDModel{ID: "ledger-missing-call-conversation"}, UserID: userA.ID, Title: "Missing call"}
-	message := ChatMessage{
+	message := legacyMigrationChatMessage{
 		UUIDModel:      UUIDModel{ID: "ledger-missing-call-message"},
 		ConversationID: conversation.ID,
 		Role:           "tool",
@@ -352,14 +410,14 @@ func TestToolLedgerBackfillNaoAssociaResultadoDeOutroTurno(t *testing.T) {
 	conversation := Conversation{UUIDModel: UUIDModel{ID: "ledger-turn-mismatch-conversation"}, UserID: userA.ID, Title: "Turn mismatch"}
 	assistantTurn := "ledger-assistant-turn"
 	resultTurn := "ledger-result-turn"
-	assistant := ChatMessage{
+	assistant := legacyMigrationChatMessage{
 		UUIDModel:      UUIDModel{ID: "ledger-turn-mismatch-assistant"},
 		ConversationID: conversation.ID,
 		TurnID:         &assistantTurn,
 		Role:           "assistant",
 		ToolCalls:      `[{"id":"same-call","function":{"name":"search","arguments":"{}"}}]`,
 	}
-	result := ChatMessage{
+	result := legacyMigrationChatMessage{
 		UUIDModel:      UUIDModel{ID: "ledger-turn-mismatch-result"},
 		ConversationID: conversation.ID,
 		TurnID:         &resultTurn,
@@ -370,7 +428,7 @@ func TestToolLedgerBackfillNaoAssociaResultadoDeOutroTurno(t *testing.T) {
 	if err := database.Create(&conversation).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := database.Create([]*ChatMessage{&assistant, &result}).Error; err != nil {
+	if err := database.Create([]*legacyMigrationChatMessage{&assistant, &result}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := migrateToolLedgerBackfill(database); !errors.Is(err, errMigrationDeferred) {
@@ -410,7 +468,7 @@ func TestToolLedgerBackfillDivergenciaDeHashNaoSobrescreveLedger(t *testing.T) {
 	database := DB()
 	conversation := Conversation{UUIDModel: UUIDModel{ID: "ledger-hash-conversation"}, UserID: userA.ID, Title: "Hash"}
 	turnID := "ledger-hash-turn"
-	message := ChatMessage{
+	message := legacyMigrationChatMessage{
 		UUIDModel:      UUIDModel{ID: "ledger-hash-message"},
 		ConversationID: conversation.ID,
 		TurnID:         &turnID,
@@ -463,7 +521,7 @@ func TestToolLedgerBackfillOwnerVazioEhRetomavel(t *testing.T) {
 	_, _, _ = setupToolLedgerMigrationTest(t)
 	database := DB()
 	conversation := Conversation{UUIDModel: UUIDModel{ID: "ledger-owner-pending"}, UserID: "", Title: "Owner pending"}
-	assistant := ChatMessage{
+	assistant := legacyMigrationChatMessage{
 		UUIDModel:      UUIDModel{ID: "ledger-owner-assistant"},
 		ConversationID: conversation.ID,
 		Role:           "assistant",
@@ -494,7 +552,7 @@ func TestToolLedgerBackfillProcessaMaisDeUmLote(t *testing.T) {
 		conversationID := fmt.Sprintf("ledger-batch-conversation-%03d", index)
 		messageID := fmt.Sprintf("ledger-batch-message-%03d", index)
 		conversation := Conversation{UUIDModel: UUIDModel{ID: conversationID}, UserID: userA.ID, Title: "Batch"}
-		message := ChatMessage{
+		message := legacyMigrationChatMessage{
 			UUIDModel:      UUIDModel{ID: messageID},
 			ConversationID: conversationID,
 			Role:           "assistant",
@@ -522,7 +580,7 @@ func TestToolLedgerBackfillRetomaDepoisDeFalhaEntreRecursos(t *testing.T) {
 	for _, suffix := range []string{"a", "b"} {
 		conversationID := "ledger-crash-conversation-" + suffix
 		conversation := Conversation{UUIDModel: UUIDModel{ID: conversationID}, UserID: userA.ID, Title: "Crash " + suffix}
-		message := ChatMessage{
+		message := legacyMigrationChatMessage{
 			UUIDModel:      UUIDModel{ID: "ledger-crash-message-" + suffix},
 			ConversationID: conversationID,
 			Role:           "assistant",
@@ -579,7 +637,7 @@ func TestToolLedgerBackfillNaoRegistraPayloadEmErroDePersistencia(t *testing.T) 
 	userA, _, _ := setupToolLedgerMigrationTest(t)
 	database := DB()
 	conversation := Conversation{UUIDModel: UUIDModel{ID: "ledger-safe-log-conversation"}, UserID: userA.ID, Title: "Safe log"}
-	message := ChatMessage{
+	message := legacyMigrationChatMessage{
 		UUIDModel:      UUIDModel{ID: "ledger-safe-log-message"},
 		ConversationID: conversation.ID,
 		Role:           "assistant",
@@ -749,7 +807,7 @@ func TestToolLedgerBackfillContinuoCapturaLegadoCriadoAposV18(t *testing.T) {
 	}
 
 	conversation := Conversation{UUIDModel: UUIDModel{ID: "ledger-after-v18-conversation"}, UserID: userA.ID, Title: "After v18"}
-	message := ChatMessage{
+	message := legacyMigrationChatMessage{
 		UUIDModel:      UUIDModel{ID: "ledger-after-v18-message"},
 		ConversationID: conversation.ID,
 		Role:           "assistant",
@@ -774,7 +832,7 @@ func TestToolLedgerBackfillContinuoCapturaLegadoCriadoAposV18(t *testing.T) {
 		t.Fatalf("backfill contínuo não capturou legado novo: %d", got)
 	}
 	later := time.Now().UTC().Add(time.Minute)
-	secondMessage := ChatMessage{
+	secondMessage := legacyMigrationChatMessage{
 		UUIDModel: UUIDModel{
 			ID:        "ledger-after-v18-message-2",
 			CreatedAt: later,
@@ -801,7 +859,7 @@ func TestToolLedgerBackfillContinuoCapturaLegadoCriadoAposV18(t *testing.T) {
 	}
 	turnID := secondMessage.ID
 	resultTime := later.Add(time.Minute)
-	results := []ChatMessage{
+	results := []legacyMigrationChatMessage{
 		{UUIDModel: UUIDModel{ID: "ledger-after-v18-result-a", CreatedAt: resultTime, UpdatedAt: resultTime}, ConversationID: conversation.ID, TurnID: &turnID, Role: "tool", ToolCallID: "after-v18-call-2", Content: "A"},
 		{UUIDModel: UUIDModel{ID: "ledger-after-v18-result-b", CreatedAt: resultTime, UpdatedAt: resultTime}, ConversationID: conversation.ID, TurnID: &turnID, Role: "tool", ToolCallID: "after-v18-call-2", Content: "B"},
 	}
