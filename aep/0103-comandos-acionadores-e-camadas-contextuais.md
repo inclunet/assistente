@@ -2038,14 +2038,37 @@ O harness exclusivo de teste `pipeline_integration_test.go` combina catálogo,
 ledger SQLite e DispatchGate para uma leitura direta de fixture: reserva,
 validação estática, CAS de fila/running, handoff, conclusão e replay sem nova
 chamada. A espera do resultado libera o gate para mutações. Autenticação,
-autorização, identidade, fingerprint e handler são substitutos explícitos de
-teste, não serviços de produto. O harness não é executor reutilizável e não
+autorização, identidade e handler são substitutos explícitos de teste, não
+serviços de produto. O HMAC usa `SignLocalRead` com chave exclusiva de fixture.
+O harness não é executor reutilizável e não
 cobre o protocolo completo de cancelamento/panic/receipts. Essa evidência não
 habilita comandos reais nem conclui a execução ponta a ponta exigida pelo AEP.
 
+`SignLocalRead` implementa HMAC-SHA256 para a projeção fechada de leitura direta
+local sem argumentos/contexto. Recebe somente envelope interno já derivado e
+recusa fingerprints preenchidos no ingresso. A projeção JCS contém `version:1`,
+IDs de invocação/correlação, comando, usuário/ator, contexto autenticado/sessão,
+geração de segurança, origem, versões de catálogo/configuração/camadas e
+constantes `effect:read`, `decision:none`, `context_policy:none`, `arguments:{}`
+e `binding_ids:[]`. Omite auth_generation e timestamps; opcionais fora do
+subconjunto permanecem ausentes. O HMAC de argumentos cobre `{}` separadamente.
+As saídas são hexadecimal minúsculo. O serializador é restrito a essa projeção
+(chaves ASCII fixas, strings Unicode válidas e constantes), não JSON genérico;
+segue escapes e preservação de Unicode da RFC8785, sem normalização.
+
+O provider injetado recebe `command-request-hmac:<versão>` e deve devolver
+chave de pelo menos 32 bytes; não existe geração/fallback automático. Testes
+comparam um documento canônico literal e exercitam alterações semânticas,
+reentrega SQLite com versão retida e recusa quando a chave antiga desaparece.
+O host ainda precisa derivar/autenticar a identidade, escolher a versão por
+ledger escopado no retry, manter chaves no secret manager e validar a política
+antes de assinar. Esta projeção não cobre comandos com argumentos, providers,
+receipts, delegação ou eventos e não habilita o executor de produto.
+
 Permanecem pendentes integração ao executor/DispatchGate e ao startup,
 comprovação de encerramento de geração, verificadores reais de reconciliação,
-HMAC/RFC8785, resultados, política de retenção, eventos,
+ampliação da projeção HMAC/RFC8785 e integração ao secret manager,
+resultados, política de retenção, eventos,
 supressão, identidades externas e constraints condicionais completas de D11.
 As colunas futuras não tornam esses fluxos suportados. Nenhuma fase ou critério
 de execução ponta a ponta é concluído por este incremento.

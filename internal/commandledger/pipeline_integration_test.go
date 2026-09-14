@@ -3,6 +3,7 @@ package commandledger
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 )
 
 // Harness deliberadamente só de teste. Não é CommandExecutionService: check,
-// identidade e fingerprints são fixtures, não autenticação/HMAC de produto.
+// identidade são fixtures; o HMAC real usa chave de teste, não secret manager.
 // Não registra comandos reais, não cobre UI, receipts, eventos ou argumentos.
 type readPipelineFixture struct {
 	store       *Store
@@ -25,6 +26,9 @@ type readPipelineFixture struct {
 func newReadPipelineFixture(t *testing.T) (*readPipelineFixture, LocalReadRequest) {
 	t.Helper()
 	req := validRequest()
+	req.ArgumentsFingerprint = ""
+	req.RequestFingerprint = ""
+	req.RequestFingerprintVersion = ""
 	now := req.ReceivedAt
 	store, _ := testStore(t, &now)
 	metadata := map[string]commandcatalog.LocalizedMetadata{}
@@ -42,6 +46,13 @@ func (f *readPipelineFixture) run(ctx context.Context, req LocalReadRequest) (Re
 	if err := f.check(ctx); err != nil {
 		return Record{}, err
 	}
+	signed, err := SignLocalRead(ctx, req, "v1", func(context.Context, string) ([]byte, error) {
+		return []byte(strings.Repeat("fixture-only-key-", 2)), nil
+	})
+	if err != nil {
+		return Record{}, err
+	}
+	req = signed
 	reservation, err := f.store.Reserve(ctx, req)
 	if err != nil {
 		return Record{}, err
