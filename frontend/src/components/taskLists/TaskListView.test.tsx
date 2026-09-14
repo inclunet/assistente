@@ -30,10 +30,12 @@ const taskListStoreState = vi.hoisted(() => ({
   loadingByTaskListId: new Map<string, boolean>(),
   loadingTaskPagesByListId: new Map<string, boolean>(),
   taskPageLoadErrors: new Map<string, string>(),
+  errors: new Map<string, string>(),
   loadTaskList: vi.fn(),
   loadMoreTasks: vi.fn(),
   loadAllTasksForBoard: vi.fn(),
   cancelBoardTaskLoad: vi.fn(),
+  clearError: vi.fn(),
   setViewMode: vi.fn(),
   cloneTaskList: vi.fn(),
   clearTaskList: vi.fn(),
@@ -172,6 +174,8 @@ describe('TaskListView', () => {
     taskListStoreState.loadingByTaskListId = new Map();
     taskListStoreState.loadingTaskPagesByListId = new Map();
     taskListStoreState.taskPageLoadErrors = new Map();
+    taskListStoreState.errors = new Map();
+    taskListStoreState.clearError.mockReset();
     taskListStoreState.listBoardCustomActions.mockReset();
     taskListStoreState.listBoardCustomActions.mockResolvedValue([]);
     taskListStoreState.setTaskListConversation.mockReset();
@@ -196,6 +200,22 @@ describe('TaskListView', () => {
       expect(taskListStoreState.loadTaskList).toHaveBeenCalledTimes(1);
       expect(taskListStoreState.loadTaskList).toHaveBeenCalledWith('tasklist-1');
     });
+  });
+
+  it('expõe erro da primeira página e permite retry acessível', async () => {
+    const user = userEvent.setup();
+    taskListStoreState.taskLists = new Map();
+    taskListStoreState.taskPages = new Map();
+    taskListStoreState.errors = new Map([
+      ['loadTaskList:tasklist-1', 'falha transitória'],
+    ]);
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('falha transitória');
+    await user.click(screen.getByRole('button', { name: 'Tentar novamente' }));
+
+    expect(taskListStoreState.clearError).toHaveBeenCalledWith('loadTaskList:tasklist-1');
+    expect(taskListStoreState.loadTaskList).toHaveBeenCalledWith('tasklist-1');
   });
 
   it('não responde a atalhos globais quando o painel está inativo', async () => {
