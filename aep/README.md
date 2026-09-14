@@ -121,10 +121,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
 | [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 📝 Draft |
 | [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico | ✅ Done |
+| [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0104 → próximo
-> 0105), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0105 → próximo
+> 0106), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 
