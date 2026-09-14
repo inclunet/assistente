@@ -463,7 +463,7 @@ func TestToolLedgerBackfillRemoveCheckpointDeRecursoExcluido(t *testing.T) {
 	}
 }
 
-func TestToolLedgerBackfillDivergenciaDeHashNaoSobrescreveLedger(t *testing.T) {
+func TestToolLedgerBackfillDivergenciaDeHashConcluiSemSobrescreverLedger(t *testing.T) {
 	userA, _, catalog := setupToolLedgerMigrationTest(t)
 	database := DB()
 	conversation := Conversation{UUIDModel: UUIDModel{ID: "ledger-hash-conversation"}, UserID: userA.ID, Title: "Hash"}
@@ -497,16 +497,22 @@ func TestToolLedgerBackfillDivergenciaDeHashNaoSobrescreveLedger(t *testing.T) {
 	if err := database.Create(&invocation).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateToolLedgerBackfill(database); !errors.Is(err, errMigrationDeferred) {
-		t.Fatalf("divergência deveria bloquear: %v", err)
+	// Dados presentes com divergência apenas de hash: a reconciliação conclui
+	// (backfilled) preservando o código para auditoria, sem adiar o boot.
+	if err := migrateToolLedgerBackfill(database); err != nil {
+		t.Fatalf("hash_mismatch benigno não deveria bloquear: %v", err)
 	}
 	var state ToolLedgerMigrationState
 	if err := database.Where("resource_id = ?", conversation.ID).First(&state).Error; err != nil {
 		t.Fatal(err)
 	}
-	if state.State != toolLedgerStatePending || state.LastErrorCode != "hash_mismatch" ||
+	if state.State != toolLedgerStateBackfilled || state.LastErrorCode != toolLedgerErrorHashMismatch ||
 		state.LegacyOutputDigest == state.LedgerOutputDigest {
-		t.Fatalf("divergência não diagnosticada: %+v", state)
+		t.Fatalf("hash_mismatch não concluído com aviso preservado: %+v", state)
+	}
+	// O gate do cutover não pode bloquear por divergência apenas de hash.
+	if err := verifyToolLedgerCutoverGate(database); err != nil {
+		t.Fatalf("gate do cutover bloqueou por hash_mismatch benigno: %v", err)
 	}
 	var persisted ToolInvocation
 	if err := database.First(&persisted, "id = ?", invocation.ID).Error; err != nil {
@@ -514,6 +520,48 @@ func TestToolLedgerBackfillDivergenciaDeHashNaoSobrescreveLedger(t *testing.T) {
 	}
 	if persisted.Output != invocation.Output {
 		t.Fatalf("backfill sobrescreveu ledger existente: %q", persisted.Output)
+	}
+}
+
+// TestToolLedgerBackfillCountMismatchContinuaBloqueando garante que a perda
+// real de linhas (count_mismatch) segue mantendo o recurso pendente e
+// bloqueando o gate do cutover, mesmo após a flexibilização do hash_mismatch.
+func TestToolLedgerBackfillCountMismatchContinuaBloqueando(t *testing.T) {
+	userA, _, _ := setupToolLedgerMigrationTest(t)
+	database := DB()
+	blocking := ToolLedgerMigrationState{
+		UserID:             userA.ID,
+		ResourceType:       toolLedgerResourceConversation,
+		ResourceID:         "ledger-count-mismatch",
+		State:              toolLedgerStatePending,
+		LegacyRows:         3,
+		LedgerRows:         2,
+		LastErrorCode:      toolLedgerErrorCountMismatch,
+		LegacyInputDigest:  "in-legacy",
+		LedgerInputDigest:  "in-legacy",
+		LegacyOutputDigest: "out-legacy",
+		LedgerOutputDigest: "out-legacy",
+	}
+	if err := database.Create(&blocking).Error; err != nil {
+		t.Fatal(err)
+	}
+	var pending int64
+	if err := database.Model(&ToolLedgerMigrationState{}).
+		Where("state <> ? OR ambiguous_count > 0 OR last_error_code = ?",
+			toolLedgerStateBackfilled, toolLedgerErrorCountMismatch).
+		Count(&pending).Error; err != nil {
+		t.Fatal(err)
+	}
+	if pending != 1 {
+		t.Fatalf("count_mismatch deveria contar como pendente: %d", pending)
+	}
+	// Mesmo marcado como backfilled, count_mismatch precisa bloquear o gate:
+	// representa perda real de linhas, não divergência benigna de hash.
+	if err := database.Model(&blocking).Update("state", toolLedgerStateBackfilled).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyToolLedgerCutoverGate(database); err == nil {
+		t.Fatal("gate do cutover deveria bloquear por count_mismatch")
 	}
 }
 
