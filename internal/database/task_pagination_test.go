@@ -286,20 +286,23 @@ func TestConversationTaskListProjectionIsBoundedAndOrdered(t *testing.T) {
 	testDB := setupTaskPaginationTestDB(t)
 	ctx := WithUserID(context.Background(), "user-a")
 	conversationID := "conversation-a"
-	list := TaskList{
-		UUIDModel:      UUIDModel{ID: "list-a"},
-		UserID:         "user-a",
-		Title:          "A",
-		ConversationID: &conversationID,
-	}
-	if err := testDB.Create(&list).Error; err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 150; i++ {
-		if err := testDB.Create(&Task{
-			TaskListID: list.ID, Title: fmt.Sprintf("Task %d", i), StatusID: 1, Order: i,
-		}).Error; err != nil {
+	listIDs := []string{"list-a", "list-b"}
+	for _, listID := range listIDs {
+		list := TaskList{
+			UUIDModel:      UUIDModel{ID: listID},
+			UserID:         "user-a",
+			Title:          listID,
+			ConversationID: &conversationID,
+		}
+		if err := testDB.Create(&list).Error; err != nil {
 			t.Fatal(err)
+		}
+		for i := 0; i < 150; i++ {
+			if err := testDB.Create(&Task{
+				TaskListID: list.ID, Title: fmt.Sprintf("Task %d", i), StatusID: 1, Order: i,
+			}).Error; err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 
@@ -307,14 +310,20 @@ func TestConversationTaskListProjectionIsBoundedAndOrdered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(lists) != 1 || lists[0].TaskCount != 150 || lists[0].Tasks != nil {
+	if len(lists) != 2 {
 		t.Fatalf("projeção de listas inesperada: %+v", lists)
 	}
-	tasks, err := GetTaskListContextTasksWithContext(ctx, []string{list.ID}, 25)
+	for _, list := range lists {
+		if list.TaskCount != 150 || list.Tasks != nil {
+			t.Fatalf("projeção de lista inesperada: %+v", list)
+		}
+	}
+	tasks, err := GetTaskListContextTasksWithContext(ctx, listIDs, 25)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tasks) != 25 || tasks[0].Order != 0 || tasks[24].Order != 24 {
+	if len(tasks) != 50 || tasks[0].TaskListID != "list-a" || tasks[24].Order != 24 ||
+		tasks[25].TaskListID != "list-b" || tasks[49].Order != 24 {
 		t.Fatalf("projeção de contexto inesperada: len=%d first=%+v last=%+v", len(tasks), tasks[0], tasks[len(tasks)-1])
 	}
 }
@@ -344,6 +353,9 @@ func TestGetTaskListMetadataWithContext_DoesNotHydrateTasks(t *testing.T) {
 	}
 	if metadata.Tasks != nil {
 		t.Fatalf("read model hidratou tasks indevidamente: %d", len(metadata.Tasks))
+	}
+	if metadata.TaskCount != 150 {
+		t.Fatalf("read model perdeu contagem de cards: %d", metadata.TaskCount)
 	}
 }
 

@@ -27,7 +27,12 @@ func (a *App) linkedTaskListsForConversation(ctx context.Context, conversationID
 	}
 	// O provider tem orçamento de 4k caracteres. Um único lote ordenado é
 	// suficiente para esse orçamento e evita Preload ilimitado/N+1 por lista.
-	contextTasks, _ := database.GetTaskListContextTasksWithContext(ctx, listIDs, 100)
+	// A divisão garante representação de todas as listas vinculadas.
+	perListLimit := 100 / len(lists)
+	if perListLimit < 1 {
+		perListLimit = 1
+	}
+	contextTasks, _ := database.GetTaskListContextTasksWithContext(ctx, listIDs, perListLimit)
 	tasksByListID := make(map[string][]database.Task, len(lists))
 	for _, task := range contextTasks {
 		tasksByListID[task.TaskListID] = append(tasksByListID[task.TaskListID], task)

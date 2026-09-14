@@ -437,7 +437,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     });
   }, [chatBoundConversationId, taskList, taskListId, setTaskListConversation, announce, addToast, t]);
 
-  if (!taskList) {
+  if (!taskList || !taskPage) {
     return <div className="tasklist-loading">{t('tasklist.loading', 'Carregando...')}</div>;
   }
 

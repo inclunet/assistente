@@ -1,6 +1,6 @@
 import { forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { WorkspaceTab } from '../../store/workspaceStore';
 import TaskListView from './TaskListView';
@@ -166,7 +166,9 @@ describe('TaskListView', () => {
     taskListStoreState.loadAllTasksForBoard.mockReset();
     taskListStoreState.loadAllTasksForBoard.mockResolvedValue(205);
     taskListStoreState.cancelBoardTaskLoad.mockReset();
-    taskListStoreState.taskPages = new Map();
+    taskListStoreState.taskPages = new Map([
+      ['tasklist-1', { nextCursor: '', hasMore: false, totalCount: 0 }],
+    ]);
     taskListStoreState.loadingByTaskListId = new Map();
     taskListStoreState.loadingTaskPagesByListId = new Map();
     taskListStoreState.taskPageLoadErrors = new Map();
@@ -186,8 +188,10 @@ describe('TaskListView', () => {
   });
 
   it('carrega a primeira página quando o cache contém apenas metadados', async () => {
+    taskListStoreState.taskPages = new Map();
     render(<TaskListView taskListId="tasklist-1" />);
 
+    expect(screen.getByText('Carregando...')).toBeInTheDocument();
     await waitFor(() => {
       expect(taskListStoreState.loadTaskList).toHaveBeenCalledTimes(1);
       expect(taskListStoreState.loadTaskList).toHaveBeenCalledWith('tasklist-1');

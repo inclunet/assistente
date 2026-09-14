@@ -573,8 +573,8 @@ Locales: `frontend/src/locales/{pt-BR,en,es}.ts`
   metadados, workflow e `task_count` de cards raiz agregado por índice; não
   fazem `Preload` das tasks. A página de catálogo faz uma única chamada e só
   busca cards quando a lista é aberta. O contexto de conversa usa uma projeção
-  limitada compatível com seu orçamento textual, em vez de ler conteúdo que
-  seria truncado.
+  limitada e repartida entre as listas vinculadas, compatível com seu orçamento
+  textual, em vez de ler conteúdo que seria truncado.
 - **Índice da ordem visual**: `(task_list_id, parent_id, "order", id)` cobre
   filtro, paginação e desempate; `EXPLAIN QUERY PLAN` é verificado por teste.
 - **Subtarefas**: cada página seleciona raízes por keyset e hidrata toda a

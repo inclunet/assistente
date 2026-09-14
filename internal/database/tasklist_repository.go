@@ -109,7 +109,12 @@ func GetTaskListWithContext(ctx context.Context, id string) (*TaskList, error) {
 func GetTaskListMetadataWithContext(ctx context.Context, id string) (*TaskList, error) {
 	var taskList TaskList
 	err := WithSQLiteBusyRetry(ctx, "tasklist.get.metadata", func() error {
-		return ScopeByUser(ctx, db.WithContext(ctx), "user_id").
+		return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "task_lists.user_id").
+			Select(`task_lists.*, (
+				SELECT COUNT(*) FROM tasks
+				WHERE tasks.task_list_id = task_lists.id
+				  AND tasks.parent_id IS NULL
+			) AS task_count`).
 			Preload("Workflow").
 			First(&taskList, "id = ?", id).Error
 	})
@@ -508,19 +513,24 @@ func GetTaskListsByConversationIDWithContext(ctx context.Context, conversationID
 	return taskLists, err
 }
 
-// GetTaskListContextTasksWithContext projeta um lote limitado de raízes para
-// contexto de conversa. O orçamento textual já limita o consumo desse dado;
-// trazer milhares de tasks que serão descartadas só aumenta latência e memória.
-func GetTaskListContextTasksWithContext(ctx context.Context, taskListIDs []string, limit int) ([]Task, error) {
-	if len(taskListIDs) == 0 || limit <= 0 {
+// GetTaskListContextTasksWithContext projeta até limitPerList raízes de cada
+// lista para contexto de conversa. ROW_NUMBER reparte o orçamento entre listas
+// em uma única consulta, sem N+1 nem starvation por ordenação de IDs.
+func GetTaskListContextTasksWithContext(ctx context.Context, taskListIDs []string, limitPerList int) ([]Task, error) {
+	if len(taskListIDs) == 0 || limitPerList <= 0 {
 		return []Task{}, nil
 	}
 	var tasks []Task
 	err := WithSQLiteBusyRetry(ctx, "tasklist.context_tasks", func() error {
-		return taskQuery(ctx, db.Model(&Task{})).
-			Where("tasks.task_list_id IN ? AND tasks.parent_id IS NULL", taskListIDs).
-			Order(`tasks.task_list_id ASC, tasks."order" ASC, tasks.id ASC`).
-			Limit(limit).
+		ranked := taskQuery(ctx, db.Model(&Task{})).
+			Select(`tasks.*, ROW_NUMBER() OVER (
+				PARTITION BY tasks.task_list_id
+				ORDER BY tasks."order" ASC, tasks.id ASC
+			) AS context_rank`).
+			Where("tasks.task_list_id IN ? AND tasks.parent_id IS NULL", taskListIDs)
+		return db.WithContext(ctx).Table("(?) AS ranked_tasks", ranked).
+			Where("ranked_tasks.context_rank <= ?", limitPerList).
+			Order(`ranked_tasks.task_list_id ASC, ranked_tasks."order" ASC, ranked_tasks.id ASC`).
 			Find(&tasks).Error
 	})
 	return tasks, err
