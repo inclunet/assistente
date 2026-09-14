@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -124,6 +126,126 @@ type httpRequestArgs struct {
 	BodyType        string            `json:"body_type,omitempty"`
 	MaxResponseSize *int              `json:"max_response_size,omitempty"`
 	ExtractMode     string            `json:"extract_mode,omitempty"`
+}
+
+// UnmarshalJSON torna o parsing de argumentos tolerante a variações comuns que
+// os modelos produzem sem quebrar o contrato canônico (AEP-0016):
+//   - max_response_size pode chegar como número (50000) OU string numérica
+//     ("50000"); strings não numéricas são rejeitadas com erro acionável.
+//   - headers pode chegar como objeto {"k":"v"} OU como string contendo o JSON
+//     serializado desse objeto; strings inválidas são rejeitadas com erro claro.
+//
+// Os demais campos mantêm a semântica original de string.
+func (a *httpRequestArgs) UnmarshalJSON(data []byte) error {
+	// rawHTTPRequestArgs espelha httpRequestArgs, mas recebe headers e
+	// max_response_size como RawMessage para permitir parsing tolerante sem
+	// recursão no UnmarshalJSON.
+	type rawHTTPRequestArgs struct {
+		URL             string          `json:"url"`
+		Method          string          `json:"method,omitempty"`
+		Headers         json.RawMessage `json:"headers,omitempty"`
+		Body            string          `json:"body,omitempty"`
+		BodyType        string          `json:"body_type,omitempty"`
+		MaxResponseSize json.RawMessage `json:"max_response_size,omitempty"`
+		ExtractMode     string          `json:"extract_mode,omitempty"`
+	}
+	var raw rawHTTPRequestArgs
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	headers, err := parseTolerantHeaders(raw.Headers)
+	if err != nil {
+		return err
+	}
+	size, err := parseTolerantMaxResponseSize(raw.MaxResponseSize)
+	if err != nil {
+		return err
+	}
+
+	a.URL = raw.URL
+	a.Method = raw.Method
+	a.Headers = headers
+	a.Body = raw.Body
+	a.BodyType = raw.BodyType
+	a.MaxResponseSize = size
+	a.ExtractMode = raw.ExtractMode
+	return nil
+}
+
+// parseTolerantHeaders aceita um objeto {"k":"v"} ou uma string contendo o JSON
+// de um objeto. Ausência/null retornam headers nil. Entradas inválidas produzem
+// um erro acionável.
+func parseTolerantHeaders(raw json.RawMessage) (map[string]string, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return nil, nil
+	}
+
+	switch trimmed[0] {
+	case '{':
+		var m map[string]string
+		if err := json.Unmarshal(trimmed, &m); err != nil {
+			return nil, fmt.Errorf("headers inválidos: esperado um objeto {\"k\":\"v\"}: %v", err)
+		}
+		return m, nil
+	case '"':
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return nil, fmt.Errorf("headers inválidos: %v", err)
+		}
+		s = strings.TrimSpace(s)
+		if s == "" || s == "null" {
+			return nil, nil
+		}
+		var m map[string]string
+		if err := json.Unmarshal([]byte(s), &m); err != nil {
+			return nil, fmt.Errorf("headers como string deve conter o JSON de um objeto {\"k\":\"v\"}; recebido %q", s)
+		}
+		return m, nil
+	default:
+		return nil, fmt.Errorf("headers deve ser um objeto {\"k\":\"v\"} ou uma string com esse JSON; recebido %s", string(trimmed))
+	}
+}
+
+// parseTolerantMaxResponseSize aceita um inteiro (50000) ou uma string numérica
+// ("50000"). Ausência/null retornam nil (usa o padrão). Strings não numéricas e
+// valores não inteiros são rejeitados com erro acionável.
+func parseTolerantMaxResponseSize(raw json.RawMessage) (*int, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return nil, nil
+	}
+
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return nil, fmt.Errorf("max_response_size inválido: %v", err)
+		}
+		s = strings.TrimSpace(s)
+		if s == "" || s == "null" {
+			return nil, nil
+		}
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return nil, fmt.Errorf("max_response_size deve ser um inteiro (ex.: 50000) ou uma string numérica; recebido %q", s)
+		}
+		return &n, nil
+	}
+
+	// Número JSON: usa json.Number para rejeitar floats/valores não inteiros.
+	dec := json.NewDecoder(bytes.NewReader(trimmed))
+	dec.UseNumber()
+	var num json.Number
+	if err := dec.Decode(&num); err != nil {
+		return nil, fmt.Errorf("max_response_size deve ser um inteiro (ex.: 50000) ou uma string numérica; recebido %s", string(trimmed))
+	}
+	i64, err := num.Int64()
+	if err != nil {
+		return nil, fmt.Errorf("max_response_size deve ser um inteiro (ex.: 50000); recebido %s", string(trimmed))
+	}
+	n := int(i64)
+	return &n, nil
 }
 
 // Limites de segurança
