@@ -154,8 +154,13 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 			})
 		}
 
-		logging.Infof(context.Background(), "agent.agentic-stream-handler", "[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
-			event.Name, event.ServerLabel, event.ID, len(event.Output))
+		if event.Error != "" {
+			logging.Errorf(context.Background(), "agent.agentic-stream-handler", "[MCP Native] ❌ %s (server=%s, id=%s) FALHOU: %s",
+				event.Name, event.ServerLabel, event.ID, errSummary)
+		} else {
+			logging.Infof(context.Background(), "agent.agentic-stream-handler", "[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
+				event.Name, event.ServerLabel, event.ID, len(event.Output))
+		}
 	} else {
 		// Start-event: salva argumentos para enriquecer o completed-event depois.
 		if strings.TrimSpace(event.ID) != "" && strings.TrimSpace(event.Arguments) != "" {

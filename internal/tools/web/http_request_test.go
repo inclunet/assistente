@@ -490,3 +490,153 @@ func TestHTTPRequestMaxSizeCountsExtractedPayloadNotHeader(t *testing.T) {
 		t.Fatalf("header consumiu max_response_size: err=%v result=%+v", err, result)
 	}
 }
+
+func mustIntPtr(v int) *int { return &v }
+
+func TestParseTolerantMaxResponseSize(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     string
+		want    *int
+		wantErr bool
+	}{
+		{name: "número", raw: `50000`, want: mustIntPtr(50000)},
+		{name: "string numérica", raw: `"1000000"`, want: mustIntPtr(1000000)},
+		{name: "ausente", raw: ``, want: nil},
+		{name: "null", raw: `null`, want: nil},
+		{name: "string vazia", raw: `""`, want: nil},
+		{name: "string não numérica", raw: `"muito grande"`, wantErr: true},
+		{name: "float rejeitado", raw: `1.5`, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseTolerantMaxResponseSize(json.RawMessage(tc.raw))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("esperava erro para %q", tc.raw)
+				}
+				if !strings.Contains(err.Error(), "max_response_size") {
+					t.Fatalf("erro não acionável: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("erro inesperado: %v", err)
+			}
+			switch {
+			case tc.want == nil && got != nil:
+				t.Fatalf("esperava nil, obtido %d", *got)
+			case tc.want != nil && got == nil:
+				t.Fatalf("esperava %d, obtido nil", *tc.want)
+			case tc.want != nil && *got != *tc.want:
+				t.Fatalf("esperava %d, obtido %d", *tc.want, *got)
+			}
+		})
+	}
+}
+
+func TestParseTolerantHeaders(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     string
+		want    map[string]string
+		wantErr bool
+	}{
+		{name: "objeto", raw: `{"X-A":"1","X-B":"2"}`, want: map[string]string{"X-A": "1", "X-B": "2"}},
+		{name: "string com JSON de objeto", raw: `"{\"X-A\":\"1\"}"`, want: map[string]string{"X-A": "1"}},
+		{name: "ausente", raw: ``, want: nil},
+		{name: "null", raw: `null`, want: nil},
+		{name: "string vazia", raw: `""`, want: nil},
+		{name: "string inválida", raw: `"não é json"`, wantErr: true},
+		{name: "string com array", raw: `"[1,2]"`, wantErr: true},
+		{name: "tipo inesperado", raw: `123`, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseTolerantHeaders(json.RawMessage(tc.raw))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("esperava erro para %q", tc.raw)
+				}
+				if !strings.Contains(err.Error(), "headers") {
+					t.Fatalf("erro não acionável: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("erro inesperado: %v", err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("tamanho divergente: got=%v want=%v", got, tc.want)
+			}
+			for k, v := range tc.want {
+				if got[k] != v {
+					t.Fatalf("header %q = %q, esperado %q", k, got[k], v)
+				}
+			}
+		})
+	}
+}
+
+// TestHTTPRequest_TolerantHeadersAsJSONString cobre a variação real em que o
+// modelo serializa headers como string contendo o JSON do objeto.
+func TestHTTPRequest_TolerantHeadersAsJSONString(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Custom") != "abc" {
+			t.Errorf("header X-Custom ausente: %q", r.Header.Get("X-Custom"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	rawArgs := `{"url":"` + ts.URL + `","headers":"{\"X-Custom\":\"abc\"}"}`
+	result, err := newTestHTTPRequest().Execute(context.Background(), json.RawMessage(rawArgs))
+	if err != nil || result.IsError {
+		t.Fatalf("headers string-JSON não aceitos: err=%v result=%+v", err, result)
+	}
+}
+
+// TestHTTPRequest_TolerantMaxResponseSizeAsString cobre a variação real em que o
+// modelo envia max_response_size como string numérica.
+func TestHTTPRequest_TolerantMaxResponseSizeAsString(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	rawArgs := `{"url":"` + ts.URL + `","max_response_size":"50000"}`
+	result, err := newTestHTTPRequest().Execute(context.Background(), json.RawMessage(rawArgs))
+	if err != nil || result.IsError {
+		t.Fatalf("max_response_size string numérica não aceito: err=%v result=%+v", err, result)
+	}
+}
+
+// TestHTTPRequest_RejectsInvalidTolerantArgs garante que entradas inválidas
+// produzem um erro de parsing acionável (sem realizar a requisição).
+func TestHTTPRequest_RejectsInvalidTolerantArgs(t *testing.T) {
+	cases := []struct {
+		name       string
+		raw        string
+		wantSubstr string
+	}{
+		{name: "headers string inválida", raw: `{"url":"https://example.com","headers":"não é json"}`, wantSubstr: "headers"},
+		{name: "max_response_size string inválida", raw: `{"url":"https://example.com","max_response_size":"muito"}`, wantSubstr: "max_response_size"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := NewHTTPRequest(nil).Execute(context.Background(), json.RawMessage(tc.raw))
+			if err != nil {
+				t.Fatalf("Execute retornou erro de runtime: %v", err)
+			}
+			if !result.IsError {
+				t.Fatalf("esperava IsError para entrada inválida: %+v", result)
+			}
+			if !strings.Contains(result.Content, "Erro ao parsear argumentos") ||
+				!strings.Contains(result.Content, tc.wantSubstr) {
+				t.Fatalf("erro de parsing não acionável: %q", result.Content)
+			}
+		})
+	}
+}
