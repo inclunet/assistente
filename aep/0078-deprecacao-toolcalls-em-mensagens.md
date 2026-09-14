@@ -117,7 +117,8 @@ contagens/hashes e bloqueia o cutover em caso de ambiguidade. Em estado
 ### Fase 4 — Parar de gravar L3 em mensagens novas
 
 - [x] Escrita de `toolCallsJSON` removida de mensagens novas no caminho feliz.
-- [x] Fallback `role=tool` restrito a falha de persistência técnica.
+- [x] Fallback `role=tool` removido do runtime; falha de persistência não cria
+      cópia em mensagens.
 - [x] Reload, exportação e sumarização funcionam sem L3 novo.
 
 ### Fase 5 — Desencorajar uso novo do campo
@@ -131,7 +132,8 @@ contagens/hashes e bloqueia o cutover em caso de ambiguidade. Em estado
 
 - [x] Migrar todo L1/L3 publicado para o ledger com estado por conversa,
       contagens e hashes; ambiguidades permanecem `pending`.
-- [ ] Remover fallback de runtime, leitura e portabilidade após o cutover.
+- [x] Remover fallback de runtime.
+- [ ] Remover fallback de leitura e portabilidade após o cutover.
 - [ ] Reconstruir `chat_messages` sem `tool_calls`/`tool_call_id` e impedir
       `role=tool`.
 
