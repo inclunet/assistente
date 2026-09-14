@@ -26,6 +26,7 @@ import { announceWithOrigin } from './voiceAccessibility/announcerBroker';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
 import type { ChatSurfaceOrigin, MessageWindowState } from './chatSessionRegistry';
 import { clearChatTurnRoutes, createChatTurnEventRouter } from './chatEventHub';
+import { invalidateToolInvocationDetails } from './toolInvocationDetailsCache';
 
 const translateBackendChatError = (message: string) => {
   if (message === 'assistant_placeholder_error') {
@@ -174,7 +175,6 @@ interface ChatTurnPatch {
     turnId: string;
     content: string;
     reasoning?: string;
-    toolCalls?: string;
     promptTokens?: number;
     completionTokens?: number;
     totalTokens?: number;
@@ -427,6 +427,12 @@ export function startChatEventController({
   const applyTurnPatch = (patch?: ChatTurnPatch) => {
     if (!patch?.message || patch.message.conversationId !== conversationId) return;
     if (currentTurnId && patch.message.turnId !== currentTurnId) return;
+    invalidateToolInvocationDetails(
+      (patch.message.turnSegments ?? [])
+        .flatMap((segment) => segment.toolInvocations ?? [])
+        .map((invocation) => invocation.invocationId ?? '')
+        .filter(Boolean),
+    );
     const persistedMessage = new chat.EnrichedMessage({
       ...patch.message,
       role: 'assistant',
@@ -442,19 +448,33 @@ export function startChatEventController({
       childCount: 0,
     }) as MessageNode;
     adapter.patchConversation(conversationId, (conversation) => {
-      let replaced = false;
-      const threadedMessages = conversation.threadedMessages.map((node) => {
+      const matchingNodes = conversation.threadedMessages.filter((node) => {
         const sameTurn = node.message.role === 'assistant' && node.message.turnId === patch.message.turnId;
         const sameMessage = node.message.id === patch.message.id;
-        if (!sameTurn && !sameMessage) return node;
+        return sameTurn || sameMessage;
+      });
+      const mergedChildren = Array.from(new Map(
+        matchingNodes.flatMap((node) => node.children ?? [])
+          .map((child) => [child.message.id, child]),
+      ).values());
+      const unloadedChildren = matchingNodes.reduce(
+        (total, node) => total + Math.max(0, (node.childCount ?? 0) - (node.children?.length ?? 0)),
+        0,
+      );
+      let replaced = false;
+      const threadedMessages = conversation.threadedMessages.flatMap((node) => {
+        const sameTurn = node.message.role === 'assistant' && node.message.turnId === patch.message.turnId;
+        const sameMessage = node.message.id === patch.message.id;
+        if (!sameTurn && !sameMessage) return [node];
+        if (replaced) return [];
         replaced = true;
-        return new chat.MessageNode({
+        return [new chat.MessageNode({
           message: persistedMessage,
-          children: node.children,
+          children: mergedChildren,
           level: node.level,
-          childCount: node.childCount,
+          childCount: mergedChildren.length + unloadedChildren,
           originalIndex: node.originalIndex,
-        }) as MessageNode;
+        }) as MessageNode];
       });
       return {
         ...conversation,

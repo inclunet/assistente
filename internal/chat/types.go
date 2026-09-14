@@ -26,19 +26,27 @@ type MessageWindowRequest struct {
 	Limit           int    `json:"limit"`
 }
 
-// TurnSegmentToolCall descreve uma chamada de ferramenta dentro de um segmento
-// de turno consolidado. Espelha a estrutura emitida pelo evento chat:segment_done
-// (AEP-0039) para que o frontend renderize segmentos canônicos vindos do histórico
-// com o mesmo componente usado durante o streaming.
+// TurnSegmentToolCall é a projeção leve persistida de uma invocação. Os campos
+// Type/Function/Result permanecem apenas para montar o fallback legado em
+// memória e nunca atravessam a serialização da timeline.
 type TurnSegmentToolCall struct {
-	ID          string                  `json:"id"`
-	Type        string                  `json:"type"`
-	Function    TurnSegmentToolFunction `json:"function"`
-	Result      string                  `json:"result,omitempty"`
-	Origin      string                  `json:"origin,omitempty"`
-	ServerLabel string                  `json:"server_label,omitempty"`
-	Iteration   int                     `json:"iteration,omitempty"`
-	DurationMs  int64                   `json:"duration_ms,omitempty"`
+	InvocationID       string                  `json:"invocationId,omitempty"`
+	ID                 string                  `json:"callId"`
+	Name               string                  `json:"name"`
+	Origin             string                  `json:"origin,omitempty"`
+	ServerLabel        string                  `json:"serverLabel,omitempty"`
+	Status             string                  `json:"status"`
+	Iteration          int                     `json:"iteration,omitempty"`
+	DurationMs         int64                   `json:"durationMs,omitempty"`
+	InputPreview       string                  `json:"inputPreview,omitempty"`
+	OutputPreview      string                  `json:"outputPreview,omitempty"`
+	InputBytes         int64                   `json:"inputBytes,omitempty"`
+	OutputBytes        int64                   `json:"outputBytes,omitempty"`
+	HasDetails         bool                    `json:"hasDetails"`
+	ResultAvailability string                  `json:"resultAvailability"`
+	Type               string                  `json:"-"`
+	Function           TurnSegmentToolFunction `json:"-"`
+	Result             string                  `json:"-"`
 	// AssistantMessageID é metadado interno de hidratação para associar a
 	// invocação L3-free à mensagem assistant que representou a iteração.
 	AssistantMessageID string `json:"-"`
@@ -59,7 +67,7 @@ type TurnSegmentToolFunction struct {
 type TurnSegment struct {
 	Type      string                `json:"type"` // "text" | "tool_calls"
 	Content   string                `json:"content,omitempty"`
-	ToolCalls []TurnSegmentToolCall `json:"toolCalls,omitempty"`
+	ToolCalls []TurnSegmentToolCall `json:"toolInvocations,omitempty"`
 }
 
 type EnrichedMessage struct {
@@ -71,8 +79,6 @@ type EnrichedMessage struct {
 	Content          string    `json:"content"`
 	Reasoning        string    `json:"reasoning,omitempty"`
 	Media            string    `json:"media,omitempty"`
-	ToolCalls        string    `json:"toolCalls,omitempty"`
-	ToolCallID       string    `json:"toolCallId,omitempty"`
 	PromptTokens     int       `json:"promptTokens,omitempty"`
 	CompletionTokens int       `json:"completionTokens,omitempty"`
 	TotalTokens      int       `json:"totalTokens,omitempty"`
@@ -87,10 +93,9 @@ type EnrichedMessage struct {
 	IsStreaming      bool      `json:"isStreaming"`
 	Internal         bool      `json:"internal"`
 	// TurnSegments é populado pelo backend quando uma representação de turno
-	// consolidado é construída a partir de múltiplas mensagens persistidas
-	// (Issue #150). Cada segmento mantém a ordem cronológica do turno; ToolCalls
-	// continua presente para retrocompatibilidade com renderizadores que ainda
-	// dependem do JSON concatenado.
+	// consolidado é construída a partir de múltiplas mensagens persistidas.
+	// Cada segmento mantém a ordem cronológica e carrega somente projeções
+	// leves das invocações; payloads integrais são buscados sob demanda.
 	TurnSegments []TurnSegment `json:"turnSegments,omitempty"`
 }
 

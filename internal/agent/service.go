@@ -453,7 +453,6 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 	}
 
 	callsByTurn := map[string][]chat.TurnSegmentToolCall{}
-	resultsByTurn := map[string]map[string]string{}
 	userID, userErr := database.RequireUserID(patchCtx)
 	if userErr != nil {
 		return nil, userErr
@@ -462,30 +461,34 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 	if policyErr != nil {
 		return nil, policyErr
 	}
-	displays, displayErr := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(patchCtx, userID, []string{turnID})
-	if displayErr != nil {
-		return nil, displayErr
+	summaries, summaryErr := toolinvocations.LoadSummariesForTurnIDsWithUser(patchCtx, userID, []string{turnID})
+	if summaryErr != nil {
+		return nil, summaryErr
 	}
-	for _, display := range displays[turnID] {
+	for _, summary := range summaries[turnID] {
 		call := chat.TurnSegmentToolCall{
-			ID:                 display.ID,
-			Type:               display.Type,
-			Function:           chat.TurnSegmentToolFunction{Name: display.Name, Arguments: display.Arguments},
-			Result:             display.Result,
-			Origin:             display.Origin,
-			ServerLabel:        display.ServerLabel,
-			Iteration:          display.Iteration,
-			DurationMs:         display.DurationMs,
-			AssistantMessageID: display.AssistantMessageID,
+			InvocationID:       summary.InvocationID,
+			ID:                 summary.CallID,
+			Name:               summary.Name,
+			Type:               "function",
+			Function:           chat.TurnSegmentToolFunction{Name: summary.Name},
+			Origin:             summary.Origin,
+			ServerLabel:        summary.ServerLabel,
+			Status:             summary.Status,
+			Iteration:          summary.Iteration,
+			DurationMs:         summary.DurationMs,
+			InputPreview:       summary.InputPreview,
+			OutputPreview:      summary.OutputPreview,
+			InputBytes:         summary.InputBytes,
+			OutputBytes:        summary.OutputBytes,
+			HasDetails:         summary.HasDetails,
+			ResultAvailability: summary.ResultAvailability,
+			AssistantMessageID: summary.AssistantMessageID,
 		}
 		callsByTurn[turnID] = append(callsByTurn[turnID], call)
-		if resultsByTurn[turnID] == nil {
-			resultsByTurn[turnID] = map[string]string{}
-		}
-		resultsByTurn[turnID][display.ID] = display.Result
 	}
 
-	nodes := chat.BuildNodesWithTimelineConsolidation(messages, nil, map[string]int{}, resultsByTurn, callsByTurn, policy.Allows(conversationID))
+	nodes := chat.BuildNodesWithTimelineConsolidation(messages, nil, map[string]int{}, nil, callsByTurn, policy.Allows(conversationID))
 	if len(nodes) == 0 {
 		return nil, nil
 	}
@@ -497,7 +500,6 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 		TurnID:           turnID,
 		Content:          message.Content,
 		Reasoning:        message.Reasoning,
-		ToolCalls:        message.ToolCalls,
 		PromptTokens:     message.PromptTokens,
 		CompletionTokens: message.CompletionTokens,
 		TotalTokens:      message.TotalTokens,
@@ -511,11 +513,13 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 	for _, segment := range message.TurnSegments {
 		target := ports.TurnPatchSegment{Type: segment.Type, Content: segment.Content}
 		for _, call := range segment.ToolCalls {
-			target.ToolCalls = append(target.ToolCalls, ports.TurnPatchToolCall{
-				ID: call.ID, Type: call.Type,
-				Function: ports.TurnPatchToolFunction{Name: call.Function.Name, Arguments: call.Function.Arguments},
-				Result:   call.Result, Origin: call.Origin, ServerLabel: call.ServerLabel,
+			target.ToolInvocations = append(target.ToolInvocations, ports.TurnPatchToolInvocation{
+				InvocationID: call.InvocationID, CallID: call.ID, Name: call.Name,
+				Origin: call.Origin, ServerLabel: call.ServerLabel, Status: call.Status,
 				Iteration: call.Iteration, DurationMs: call.DurationMs,
+				InputPreview: call.InputPreview, OutputPreview: call.OutputPreview,
+				InputBytes: call.InputBytes, OutputBytes: call.OutputBytes,
+				HasDetails: call.HasDetails, ResultAvailability: call.ResultAvailability,
 			})
 		}
 		patch.Message.TurnSegments = append(patch.Message.TurnSegments, target)

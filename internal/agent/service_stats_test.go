@@ -155,11 +155,12 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativoMultiTool(t *testing.T)
 	if len(done.TurnPatch.Message.TurnSegments) != 5 {
 		t.Fatalf("esperava texto/tool/texto/tool/texto, recebeu %+v", done.TurnPatch.Message.TurnSegments)
 	}
-	if got := done.TurnPatch.Message.TurnSegments[1].ToolCalls[0].Function.Name; got != "update_plan" {
+	if got := done.TurnPatch.Message.TurnSegments[1].ToolInvocations[0].Name; got != "update_plan" {
 		t.Fatalf("esperava update_plan no primeiro segmento de tool, recebeu %q", got)
 	}
-	if got := done.TurnPatch.Message.TurnSegments[3].ToolCalls[0].Result; got != "conteúdo" {
-		t.Fatalf("resultado da segunda tool não hidratado: %q", got)
+	secondSummary := done.TurnPatch.Message.TurnSegments[3].ToolInvocations[0]
+	if secondSummary.ResultAvailability != "available" || secondSummary.HasDetails {
+		t.Fatalf("fallback pending deveria ser resumo sem detalhe canônico: %+v", secondSummary)
 	}
 }
 

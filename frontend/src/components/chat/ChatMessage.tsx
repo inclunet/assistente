@@ -84,7 +84,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   onSendToEditor,
 }) => {
   const { t } = useTranslation();
-  const { role, content, timestamp, isStreaming, reasoning, toolCalls } = message;
+  const { role, content, timestamp, isStreaming, reasoning } = message;
   const messageRef = useRef<HTMLDivElement>(null);
   const chainRegionId = useId();
   // Issue #163: a cadeia do turno (segmentos intermediários + tool calls) ganha
@@ -98,7 +98,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     liveContent,
     liveIsStreaming,
     liveReasoning,
-    liveToolCallsRaw,
     liveSegments,
     liveToolCalls,
   } = useChatMessageLiveState(message);
@@ -109,7 +108,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const effectiveContent = liveContent !== null ? liveContent : content;
   const effectiveIsStreaming = liveIsStreaming !== null ? liveIsStreaming : isStreaming;
   const effectiveReasoning = liveReasoning !== null ? liveReasoning : reasoning;
-  const effectiveToolCallsRaw = liveToolCallsRaw !== null ? liveToolCallsRaw : toolCalls;
   const renderedTabNavigation = isReading ? 'enabled' : 'disabled';
   const isToolOnlyTurnPlaceholder = message.source === TOOL_ONLY_TURN_PLACEHOLDER_SOURCE;
   const placeholderContent = isToolOnlyTurnPlaceholder && !effectiveContent
@@ -120,6 +118,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   // memória; turnos persistidos vêm com `turnSegments` canônicos do backend
   // (Issue #150) para preservar a cadeia de raciocínio em UMA única entrada.
   const persistedTurnSegments = getMessageTurnSegments(message);
+  const persistedToolInvocations = (persistedTurnSegments ?? [])
+    .flatMap((segment) => segment.toolInvocations ?? []);
+  const persistedToolsAriaRaw = persistedToolInvocations.length > 0
+    ? JSON.stringify(persistedToolInvocations.map((invocation) => ({ function: { name: invocation.name } })))
+    : null;
   const hasAgenticSegments = !!(persistedTurnSegments || (completedSegments && completedSegments.length > 0));
   const isAgenticStreaming = effectiveIsStreaming && hasAgenticSegments;
 
@@ -182,8 +185,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
   const toolCallsHasTextEdit =
     role === 'assistant' &&
-    typeof effectiveToolCallsRaw === 'string' &&
-    /"name"\s*:\s*"text_edit"/i.test(effectiveToolCallsRaw);
+    (persistedToolInvocations.some((invocation) => invocation.name === 'text_edit')
+      || rawTurnSegments.some((segment) =>
+        segment.toolCalls?.some((call) => call.function.name === 'text_edit')));
 
   // Quando `text_edit` é usado, o conteúdo do assistente pode vir poluído com fences (ex.: ```markdown).
   // Como a UI já mostra as tool calls, omitimos o corpo textual para evitar ruído.
@@ -195,7 +199,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     !isEditing &&
     (
       displayContent.length > HEAVY_MARKDOWN_CONTENT_LENGTH ||
-      (effectiveToolCallsRaw?.length ?? 0) > HEAVY_MARKDOWN_CONTENT_LENGTH ||
+      persistedToolInvocations.reduce(
+        (total, invocation) => total + (invocation.inputBytes ?? 0) + (invocation.outputBytes ?? 0),
+        0,
+      ) > HEAVY_MARKDOWN_CONTENT_LENGTH ||
       segmentCount > HEAVY_AGENTIC_SEGMENT_COUNT
     );
   const [isHeavyContentReady, setIsHeavyContentReady] = useState(!shouldDeferHeavyContent);
@@ -203,22 +210,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     || (isHeavyContentReady && previousShouldDeferHeavyContentRef.current)
     || isReading
     || isEditing;
-  const deferredToolCallsAriaRaw = useMemo(() => {
-    if (!shouldDeferHeavyContent || !effectiveToolCallsRaw) return effectiveToolCallsRaw;
-    const matches = Array.from(
-      effectiveToolCallsRaw
-        .slice(0, HEAVY_ARIA_CONTENT_PREVIEW_LENGTH * 4)
-        .matchAll(/"name"\s*:\s*"([^"]+)"/g),
-    );
-    const names = matches
-      .map((match) => match[1])
-      .filter((name): name is string => !!name)
-      .slice(0, 5);
-    return names.length
-      ? JSON.stringify(names.map((name) => ({ function: { name } })))
-      : null;
-  }, [effectiveToolCallsRaw, shouldDeferHeavyContent]);
-
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString('pt-BR', {
@@ -235,7 +226,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     if (role === 'tool') return t('chat.result');
 
     // Assistente com tool calls pendentes
-    if (role === 'assistant' && toolCalls) return t('chat.assistant');
+    if (role === 'assistant' && (persistedToolInvocations.length > 0 || (effectiveToolCalls?.length ?? 0) > 0)) {
+      return t('chat.assistant');
+    }
 
     // Assistente padrão
     return t('chat.assistant');
@@ -266,7 +259,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         isReasoningExpanded: false,
         reasoning: null,
         streamingReasoning: null,
-        toolCallsRaw: deferredToolCallsAriaRaw,
+        toolCallsRaw: persistedToolsAriaRaw,
         toolCallsHasTextEdit,
         codeBlockLabel: t('chat.codeBlockSpeechLabel'),
       });
@@ -282,7 +275,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       isReasoningExpanded,
       reasoning: effectiveReasoning,
       streamingReasoning,
-      toolCallsRaw: effectiveToolCallsRaw,
+      toolCallsRaw: persistedToolsAriaRaw,
       toolCallsHasTextEdit,
       codeBlockLabel: t('chat.codeBlockSpeechLabel'),
     });
@@ -596,9 +589,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                       />
                     </div>
                   )}
-                  {seg.type === 'tool_calls' && seg.toolCalls && (
+                  {seg.type === 'tool_calls' && (seg.toolInvocations?.length || seg.toolCalls?.length) && (
                     <ToolCallsSection
-                      toolCallsJson={JSON.stringify(seg.toolCalls)}
+                      toolInvocations={seg.toolInvocations}
+                      toolCallsJson={seg.toolCalls ? JSON.stringify(seg.toolCalls) : undefined}
                       tabNavigationEnabled={isReading}
                     />
                   )}
@@ -641,9 +635,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         ) : (
           <>
             {/* Non-agentic messages: flat layout (reasoning → tools → content) */}
-            {role === 'assistant' && (canRenderHeavyContent || effectiveIsStreaming) && (effectiveToolCallsRaw || (effectiveIsStreaming && effectiveToolCalls && effectiveToolCalls.length > 0)) && (
+            {role === 'assistant' && (canRenderHeavyContent || effectiveIsStreaming) && effectiveIsStreaming && effectiveToolCalls && effectiveToolCalls.length > 0 && (
               <ToolCallsSection
-                toolCallsJson={effectiveToolCallsRaw || undefined}
                 activeToolCalls={effectiveIsStreaming ? effectiveToolCalls : undefined}
                 tabNavigationEnabled={isReading}
               />

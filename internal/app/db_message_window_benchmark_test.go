@@ -50,9 +50,34 @@ func BenchmarkConversationMessageWindowBaseline(b *testing.B) {
 	}
 }
 
-func seedMessageWindowBenchmark(b *testing.B, messageCount, resultBytes int) string {
-	b.Helper()
-	conversation := createMessageWindowTestConversation(b, "Benchmark")
+func TestConversationMessageWindowExcluiPayloadIntegralDaTool(t *testing.T) {
+	setupMessageWindowAppTestDB(t)
+	conversationID := seedMessageWindowBenchmark(t, 100, 100<<10)
+	window, err := newMessageWindowTestController().GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
+		ConversationID: conversationID,
+		Scope:          chat.MessageWindowScopeConversation,
+		Anchor:         chat.MessageWindowAnchorEnd,
+		Direction:      chat.MessageWindowDirectionBefore,
+		Limit:          database.MaxMessageWindowRows,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(window)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(payload), strings.Repeat("x", 256)) {
+		t.Fatal("timeline leve contém trecho do resultado integral")
+	}
+	if len(payload) >= 64<<10 {
+		t.Fatalf("timeline leve excedeu 64 KiB: %d bytes", len(payload))
+	}
+}
+
+func seedMessageWindowBenchmark(tb testing.TB, messageCount, resultBytes int) string {
+	tb.Helper()
+	conversation := createMessageWindowTestConversation(tb, "Benchmark")
 	now := time.Unix(1_700_000_000, 0).UTC()
 	rows := make([]database.ChatMessage, 0, messageCount)
 	for index := 0; index < messageCount; index++ {
@@ -75,19 +100,19 @@ func seedMessageWindowBenchmark(b *testing.B, messageCount, resultBytes int) str
 		})
 	}
 	if err := database.DB().CreateInBatches(rows, 100).Error; err != nil {
-		b.Fatalf("seed messages: %v", err)
+		tb.Fatalf("seed messages: %v", err)
 	}
 
 	var catalog database.ToolCatalog
 	if err := database.DB().Where("name = ?", "search").First(&catalog).Error; err != nil {
-		b.Fatalf("load catalog: %v", err)
+		tb.Fatalf("load catalog: %v", err)
 	}
 	output, err := json.Marshal(map[string]any{
 		"content":  strings.Repeat("x", resultBytes),
 		"is_error": false,
 	})
 	if err != nil {
-		b.Fatalf("marshal output: %v", err)
+		tb.Fatalf("marshal output: %v", err)
 	}
 	completedAt := now.Add(time.Second)
 	turnIndex := messageCount - 2
@@ -106,26 +131,33 @@ func seedMessageWindowBenchmark(b *testing.B, messageCount, resultBytes int) str
 		},
 	})
 	if err != nil {
-		b.Fatalf("marshal metadata: %v", err)
+		tb.Fatalf("marshal metadata: %v", err)
 	}
 	invocation := database.ToolInvocation{
-		UUIDModel:     database.UUIDModel{ID: "benchmark-invocation", CreatedAt: now, UpdatedAt: completedAt},
-		UserID:        messageWindowTestUserID,
-		ToolCatalogID: catalog.ID,
-		OriginType:    toolinvocations.OriginChat,
-		OriginID:      turnID,
-		ToolCallID:    "benchmark-call",
-		Status:        toolinvocations.StatusSucceeded,
-		Input:         `{"sample":true}`,
-		Output:        string(output),
-		Metadata:      string(metadata),
-		QueuedAt:      now,
-		StartedAt:     &now,
-		CompletedAt:   &completedAt,
-		DurationMs:    1000,
+		UUIDModel:      database.UUIDModel{ID: "benchmark-invocation", CreatedAt: now, UpdatedAt: completedAt},
+		UserID:         messageWindowTestUserID,
+		ToolCatalogID:  catalog.ID,
+		OriginType:     toolinvocations.OriginChat,
+		OriginID:       turnID,
+		ConversationID: &conversation.ID,
+		TurnID:         &turnID,
+		ToolCallID:     "benchmark-call",
+		Status:         toolinvocations.StatusSucceeded,
+		Input:          `{"sample":true}`,
+		Output:         string(output),
+		Metadata:       string(metadata),
+		QueuedAt:       now,
+		StartedAt:      &now,
+		CompletedAt:    &completedAt,
+		DurationMs:     1000,
 	}
+	invocation.InputBytes = int64(len(invocation.Input))
+	invocation.OutputBytes = int64(len(invocation.Output))
+	invocation.InputPreview = fmt.Sprintf(`{"bytes":%d}`, len(invocation.Input))
+	invocation.OutputPreview = fmt.Sprintf(`{"bytes":%d}`, len(invocation.Output))
+	invocation.ResultAvailability = "available"
 	if err := database.DB().Create(&invocation).Error; err != nil {
-		b.Fatalf("seed invocation: %v", err)
+		tb.Fatalf("seed invocation: %v", err)
 	}
 	return conversation.ID
 }

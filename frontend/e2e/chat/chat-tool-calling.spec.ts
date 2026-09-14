@@ -1,18 +1,27 @@
-import { test, expect } from '../fixtures';
+import { test, expect, type WailsMock } from '../fixtures';
 
 const now = new Date().toISOString();
+const conversationId = '01926b90-0000-7000-8000-000000000001';
 
-const toolCallsJson = JSON.stringify([
-  {
-    id: 'tc-1',
-    type: 'function',
-    function: {
-      name: 'search_web',
-      arguments: '{"query":"clima hoje"}',
-    },
-    result: '{"results":["Ensolarado, 25°C"]}',
-  },
-]);
+async function setMessagesResponse(wails: WailsMock, nodes: unknown[]): Promise<void> {
+  await wails.setResponse('GetMessages', nodes);
+  await wails.setResponse('GetConversationInfo', {
+    id: conversationId,
+    title: 'Conversa com ferramentas',
+    created_at: now,
+    updated_at: now,
+  });
+  await wails.setResponse('GetConversationMessageWindow', {
+    scope: 'conversation',
+    conversationId,
+    nodes,
+    totalCount: nodes.length,
+    startIndex: 0,
+    endIndex: Math.max(0, nodes.length - 1),
+    hasBefore: false,
+    hasAfter: false,
+  });
+}
 
 const messagesWithToolCalls = [
   {
@@ -32,15 +41,29 @@ const messagesWithToolCalls = [
       role: 'assistant',
       content: 'O clima hoje está ensolarado, 25°C.',
       createdAt: now,
-      toolCalls: toolCallsJson,
+      turnSegments: [{
+        type: 'tool_calls',
+        toolInvocations: [{
+          invocationId: 'inv-1',
+          callId: 'tc-1',
+          name: 'search_web',
+          status: 'succeeded',
+          inputPreview: '{"bytes":23,"fields":["query"]}',
+          outputPreview: '{"bytes":35,"fields":["results"]}',
+          inputBytes: 23,
+          outputBytes: 35,
+          hasDetails: true,
+          resultAvailability: 'available',
+        }],
+      }],
     },
     children: [],
   },
 ];
 
 test.describe('Chat — tool calls (histórico)', () => {
-  test('exibe a seção de tool calls em mensagem com toolCalls', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', messagesWithToolCalls);
+  test('exibe a seção de ferramentas pela projeção leve', async ({ page, wails }) => {
+    await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
     await page.waitForSelector('.chat-message', { timeout: 5_000 });
@@ -50,7 +73,7 @@ test.describe('Chat — tool calls (histórico)', () => {
   });
 
   test('header da seção de tool calls mostra nome da ferramenta', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', messagesWithToolCalls);
+    await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
@@ -60,7 +83,7 @@ test.describe('Chat — tool calls (histórico)', () => {
   });
 
   test('seção de tool calls é expansível via clique', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', messagesWithToolCalls);
+    await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
@@ -76,7 +99,7 @@ test.describe('Chat — tool calls (histórico)', () => {
   });
 
   test('seção expandida mostra argumentos da ferramenta', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', messagesWithToolCalls);
+    await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
@@ -86,11 +109,11 @@ test.describe('Chat — tool calls (histórico)', () => {
 
     const args = page.locator('.tool-calls-section__args');
     await expect(args).toBeVisible();
-    await expect(args).toContainText('clima hoje');
+    await expect(args).toContainText('query');
   });
 
   test('seção expandida mostra resultado da ferramenta', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', messagesWithToolCalls);
+    await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
@@ -99,11 +122,36 @@ test.describe('Chat — tool calls (histórico)', () => {
 
     const result = page.locator('.tool-calls-section__result-content');
     await expect(result).toBeVisible();
-    await expect(result).toContainText('Ensolarado');
+    await expect(result).toContainText('results');
+  });
+
+  test('carrega payload integral somente ao pedir detalhes', async ({ page, wails }) => {
+    await setMessagesResponse(wails, messagesWithToolCalls);
+    await wails.setResponse('GetToolInvocationDetails', [{
+      invocationId: 'inv-1',
+      callId: 'tc-1',
+      name: 'search_web',
+      status: 'succeeded',
+      attempt: 1,
+      dryRun: false,
+      input: '{"query":"clima hoje"}',
+      output: '{"content":"Ensolarado, 25°C"}',
+      metadata: '{}',
+      resultAvailability: 'available',
+      retryable: false,
+      retryabilityKnown: true,
+      queuedAt: now,
+    }]);
+    await wails.waitForApp();
+    await page.locator('.tool-calls-section__header').click();
+    await page.getByRole('button', { name: /Mostrar tudo|Show all|Mostrar todo/i }).click();
+
+    await expect(page.locator('.tool-calls-section__args')).toContainText('clima hoje');
+    await expect(page.locator('.tool-calls-section__result-content')).toContainText('Ensolarado');
   });
 
   test('seção de tool calls tem aria-expanded e role=region corretos', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', messagesWithToolCalls);
+    await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
@@ -120,7 +168,7 @@ test.describe('Chat — tool calls (histórico)', () => {
 
 test.describe('Chat — tool calls (streaming)', () => {
   test('exibe tool call em execução durante streaming', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', [
+    await setMessagesResponse(wails, [
       {
         message: {
           id: '01926b90-0000-7000-8000-000000000010',
@@ -188,7 +236,7 @@ test.describe('Chat — tool calls (streaming)', () => {
   });
 
   test('tool call muda de running para done durante streaming', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', [
+    await setMessagesResponse(wails, [
       {
         message: {
           id: '01926b90-0000-7000-8000-000000000010',

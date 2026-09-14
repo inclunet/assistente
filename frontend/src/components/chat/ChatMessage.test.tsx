@@ -9,6 +9,16 @@ const buildAriaLabelMock = vi.hoisted(() => vi.fn((_args: unknown) => 'aria-labe
 const announceRequestMock = vi.hoisted(() => vi.fn(() => true));
 const markdownRendererSpy = vi.hoisted(() => vi.fn());
 
+const toolInvocation = (callId: string, name: string, overrides: Record<string, unknown> = {}) => ({
+  invocationId: `inv-${callId}`,
+  callId,
+  name,
+  status: 'succeeded',
+  hasDetails: true,
+  resultAvailability: 'available',
+  ...overrides,
+});
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
@@ -74,8 +84,8 @@ vi.mock('./ReasoningSection', () => ({
 }));
 
 vi.mock('./ToolCallsSection', () => ({
-  ToolCallsSection: ({ toolCallsJson }: { toolCallsJson?: string }) => (
-    <div data-testid="toolcalls" data-json={toolCallsJson ?? ''} />
+  ToolCallsSection: ({ toolCallsJson, toolInvocations }: { toolCallsJson?: string; toolInvocations?: unknown[] }) => (
+    <div data-testid="toolcalls" data-json={toolCallsJson ?? ''} data-invocations={toolInvocations?.length ?? 0} />
   ),
 }));
 
@@ -228,7 +238,7 @@ describe('ChatMessage', () => {
       turnSegments: [
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
       ],
     });
@@ -239,7 +249,7 @@ describe('ChatMessage', () => {
         completedSegments={[
           {
             type: 'tool_calls',
-            toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+            toolInvocations: [toolInvocation('tool-1', 'search')],
           },
         ]}
       />
@@ -341,20 +351,15 @@ describe('ChatMessage', () => {
     }
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
 
-    const toolCalls = JSON.stringify([{
-      id: 'tool-1',
-      type: 'function',
-      function: {
-        name: 'search_documents',
-        arguments: 'x'.repeat(8_100),
-      },
-    }]);
     const message = new chat.EnrichedMessage({
       id: 'tool-only',
       conversationId,
       role: 'assistant',
       content: '',
-      toolCalls,
+      turnSegments: [{
+        type: 'tool_calls',
+        toolInvocations: [toolInvocation('tool-1', 'search_documents', { inputBytes: 8_100 })],
+      }],
       createdAt: new Date().toISOString(),
       timestamp: Date.now(),
       isStreaming: false,
@@ -386,21 +391,12 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{
-            id: 'tool-1',
-            type: 'function',
-            function: { name: 'search', arguments: '{}' },
-            result: 'resultado da busca',
-          }],
+          toolInvocations: [toolInvocation('tool-1', 'search', { outputPreview: '{"bytes":18}' })],
         },
         { type: 'text', content: 'agora vou refinar' },
         {
           type: 'tool_calls',
-          toolCalls: [{
-            id: 'tool-2',
-            type: 'function',
-            function: { name: 'fetch', arguments: '{}' },
-          }],
+          toolInvocations: [toolInvocation('tool-2', 'fetch')],
         },
         { type: 'text', content: 'resposta final' },
       ],
@@ -423,7 +419,10 @@ describe('ChatMessage', () => {
       role: 'assistant',
       content: '',
       source: 'tool_only_turn_placeholder',
-      toolCalls: JSON.stringify([{ id: 'tool-1', type: 'function', function: { name: 'tool_result', arguments: '' }, result: 'ok' }]),
+      turnSegments: [{
+        type: 'tool_calls',
+        toolInvocations: [toolInvocation('tool-1', 'tool_result', { outputPreview: '{"bytes":2}' })],
+      }],
       createdAt: new Date().toISOString(),
       timestamp: Date.now(),
       isStreaming: false,
@@ -463,12 +462,12 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'agora vou refinar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-2', type: 'function', function: { name: 'fetch', arguments: '{}' } }],
+          toolInvocations: [toolInvocation('tool-2', 'fetch')],
         },
       ],
     });
@@ -500,7 +499,7 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'resposta final' },
       ],
@@ -561,7 +560,7 @@ describe('ChatMessage', () => {
         message={second}
         completedSegments={[
           { type: 'text', content: 'parte um' },
-          { type: 'tool_calls', toolCalls: [{ id: 't', type: 'function', function: { name: 'search', arguments: '{}' } }] },
+          { type: 'tool_calls', toolInvocations: [toolInvocation('t', 'search')] },
         ]}
       />
     );
@@ -589,7 +588,7 @@ describe('ChatMessage', () => {
       turnSegments: [
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'ok' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
       ],
     });
@@ -618,7 +617,7 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'primeiro' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'segundo' },
         { type: 'text', content: '   ' },
@@ -649,7 +648,7 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'intermediário' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: '   ' },
       ],
@@ -679,12 +678,7 @@ describe('ChatMessage', () => {
       turnSegments: [
         {
           type: 'tool_calls',
-          toolCalls: [{
-            id: 'tool-1',
-            type: 'function',
-            function: { name: 'search', arguments: '{}' },
-            result: 'ok',
-          }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
       ],
     });
@@ -719,12 +713,12 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'agora vou refinar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-2', type: 'function', function: { name: 'fetch', arguments: '{}' } }],
+          toolInvocations: [toolInvocation('tool-2', 'fetch')],
         },
         { type: 'text', content: 'resposta final' },
       ],
@@ -757,7 +751,7 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'resposta final' },
       ],
@@ -805,7 +799,7 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'resposta final' },
       ],
@@ -836,12 +830,12 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'agora vou refinar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-2', type: 'function', function: { name: 'fetch', arguments: '{}' } }],
+          toolInvocations: [toolInvocation('tool-2', 'fetch')],
         },
         { type: 'text', content: 'resposta final' },
       ],
@@ -883,7 +877,7 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'resposta final' },
       ],
@@ -925,7 +919,7 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'agora vou refinar' },
         { type: 'text', content: 'resposta final' },

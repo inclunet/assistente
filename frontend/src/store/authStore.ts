@@ -10,6 +10,10 @@ import {
   UnlockVault,
 } from '@wailsjs/go/app/App';
 import { useEditorStore } from './editorStore';
+import {
+  clearToolInvocationDetailsCache,
+  prepareToolInvocationDetailsUser,
+} from '../services/toolInvocationDetailsCache';
 
 export interface AuthStatus {
   vaultConfigured: boolean;
@@ -213,6 +217,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     try {
       const user = parseAuthUser(await Login({ username, password, clientLabel: 'Wails desktop' }));
       useEditorStore.getState().prepareUser(user.userId);
+      prepareToolInvocationDetailsUser(user.userId);
       set({
         user,
         isAuthenticated: true,
@@ -222,6 +227,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     } catch (error) {
       logger.error('[authStore] login failed', error);
       useEditorStore.getState().clearUser();
+      clearToolInvocationDetailsCache();
       set({
         error: mapBackendError(error),
         isLoading: false,
@@ -248,6 +254,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
           return;
         }
         useEditorStore.getState().prepareUser(user.userId);
+        prepareToolInvocationDetailsUser(user.userId);
         set({ user, isAuthenticated: true, error: null });
       } catch (error) {
         if (logoutGeneration !== generationAtStart) {
@@ -257,6 +264,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
         }
         logger.warn('[authStore] refresh failed', error);
         useEditorStore.getState().clearUser();
+        clearToolInvocationDetailsCache();
         set({ user: null, isAuthenticated: false });
       }
     })();
@@ -278,6 +286,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     }
     purgeLegacyTokenStorage();
     useEditorStore.getState().clearUser();
+    clearToolInvocationDetailsCache();
     set({ user: null, isAuthenticated: false, error: null });
   },
 }));

@@ -1,6 +1,6 @@
 # AEP-0059: Performance de Conversas Longas
 
-## Status: In Progress — janela incremental e timeline canônica entregues; virtualização e conteúdo pesado seguem pendentes
+## Status: In Progress — janela, timeline e detalhes lazy de tools entregues; demais conteúdos pesados seguem pendentes
 
 ## Relação com a AEP-0056
 
@@ -253,7 +253,7 @@ Critério prático:
 ### Fase 5 — Conteúdo pesado sob demanda ⏳
 
 - Carregar filhos de thread apenas quando expandidos.
-- Projetar resumos leves de invocações no item do turno e carregar detalhes
+- [x] Projetar resumos leves de invocações no item do turno e carregar detalhes
   integrais em batch/lazy, conforme a AEP-0104.
 - Manter reasoning colapsado sem render caro inicial.
 - Adiar áudio e anexos grandes até interação explícita.
@@ -283,10 +283,13 @@ Critério prático:
 - [ ] Não há fixture focada comprovada de 500 mensagens sintéticas.
 - [x] `aria-posinset`/`aria-setsize` usam posição e total de itens de timeline.
 - [x] Turnos com tool calls são um único item acessível.
-- [ ] Janela e `turnPatch` não carregam input/output integral de tools.
-- [ ] Detalhes de invocações são carregados em batch user-scoped, sem N+1.
+- [x] Janela e `turnPatch` não carregam input/output integral de tools.
+- [x] Detalhes de invocações são carregados em batch user-scoped, sem N+1.
 
 Evidências entregues: `internal/app/db_message_window_test.go`,
 `internal/chat/timeline_test.go`,
 `frontend/src/components/chat/MessageList.test.tsx`,
-`ChatSessionContext.test.tsx` e `ChatSessionView.test.tsx`.
+`ChatSessionContext.test.tsx`, `ChatSessionView.test.tsx`,
+`internal/toolinvocations/projection_read_test.go`,
+`internal/app/db_message_window_benchmark_test.go` e
+`frontend/src/components/chat/ToolCallsSection.test.tsx`.

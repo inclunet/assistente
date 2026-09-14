@@ -207,7 +207,17 @@ describe('MessageList', () => {
     const turnNode = createNode('assistant-final');
     turnNode.message.role = 'assistant';
     turnNode.message.turnId = 'user-1';
-    turnNode.message.toolCalls = JSON.stringify([{ id: 'tool-1', result: 'ok' }]);
+    turnNode.message.turnSegments = [new chat.TurnSegment({
+      type: 'tool_calls',
+      toolInvocations: [{
+        invocationId: 'inv-1',
+        callId: 'tool-1',
+        name: 'search',
+        status: 'succeeded',
+        hasDetails: true,
+        resultAvailability: 'available',
+      }],
+    })];
     (userNode as typeof userNode & { originalIndex?: number }).originalIndex = 0;
     (turnNode as typeof turnNode & { originalIndex?: number }).originalIndex = 1;
 
@@ -233,7 +243,7 @@ describe('MessageList', () => {
     ]));
   });
 
-  it('usa o último assistant como representante ao consolidar turno local', () => {
+  it('não mantém uma segunda consolidação persistida no frontend', () => {
     hoisted.messageNodeMock.mockClear();
     const firstAssistant = createNode('assistant-1');
     firstAssistant.message.role = 'assistant';
@@ -241,21 +251,19 @@ describe('MessageList', () => {
     firstAssistant.message.content = 'intermediário';
     const secondAssistant = createNode('assistant-2');
     secondAssistant.message.role = 'assistant';
-    secondAssistant.message.turnId = 'turn-1';
+    secondAssistant.message.turnId = 'turn-2';
     secondAssistant.message.content = '';
-    secondAssistant.message.toolCalls = JSON.stringify([{ id: 'tool-1' }]);
     const thirdAssistant = createNode('assistant-3');
     thirdAssistant.message.role = 'assistant';
-    thirdAssistant.message.turnId = 'turn-1';
+    thirdAssistant.message.turnId = 'turn-3';
     thirdAssistant.message.content = '';
-    thirdAssistant.message.toolCalls = JSON.stringify([{ id: 'tool-2' }]);
 
     render(<MessageList threadedMessages={[firstAssistant, secondAssistant, thirdAssistant]} />);
 
-    const props = hoisted.messageNodeMock.mock.calls[0][0] as { node: chat.MessageNode };
-    expect(hoisted.messageNodeMock).toHaveBeenCalledTimes(1);
-    expect(props.node.message.id).toBe('assistant-3');
-    expect(props.node.message.content).toBe('intermediário');
+    const renderedIds = hoisted.messageNodeMock.mock.calls.map(
+      ([props]) => (props as { node: chat.MessageNode }).node.message.id,
+    );
+    expect(renderedIds).toEqual(['assistant-1', 'assistant-2', 'assistant-3']);
   });
 
   // Issue #150: quando o backend devolve um único nó canônico já consolidado
@@ -270,7 +278,7 @@ describe('MessageList', () => {
     turnNode.message.content = 'resposta final';
     (turnNode.message as unknown as Record<string, unknown>).turnSegments = [
       { type: 'text', content: 'intermediário' },
-      { type: 'tool_calls', toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }] },
+      { type: 'tool_calls', toolInvocations: [{ invocationId: 'inv-1', callId: 'tool-1', name: 'search', status: 'succeeded', hasDetails: true, resultAvailability: 'available' }] },
       { type: 'text', content: 'resposta final' },
     ];
 
@@ -283,12 +291,12 @@ describe('MessageList', () => {
     expect(turnProps.node.message.id).toBe('assistant-final');
     expect(turnProps.node.message.turnSegments).toEqual([
       { type: 'text', content: 'intermediário' },
-      { type: 'tool_calls', toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }] },
+      { type: 'tool_calls', toolInvocations: [{ invocationId: 'inv-1', callId: 'tool-1', name: 'search', status: 'succeeded', hasDetails: true, resultAvailability: 'available' }] },
       { type: 'text', content: 'resposta final' },
     ]);
   });
 
-  it('preserva segmentos canônicos ao consolidar nó de backend com transitório do mesmo turno', () => {
+  it('não mistura segmentos canônicos com outro nó transitório', () => {
     hoisted.messageNodeMock.mockClear();
     const canonicalNode = createNode('assistant-canonical');
     canonicalNode.message.role = 'assistant';
@@ -296,26 +304,28 @@ describe('MessageList', () => {
     canonicalNode.message.content = 'resposta canônica';
     (canonicalNode.message as typeof canonicalNode.message & { _turnSegments?: unknown })._turnSegments = [
       { type: 'text', content: 'segmento canônico' },
-      { type: 'tool_calls', toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }] },
+      { type: 'tool_calls', toolInvocations: [{ invocationId: 'inv-1', callId: 'tool-1', name: 'search', status: 'succeeded', hasDetails: true, resultAvailability: 'available' }] },
     ];
     const streamingNode = createNode('streaming-turn-1');
     streamingNode.message.role = 'assistant';
-    streamingNode.message.turnId = 'turn-1';
+    streamingNode.message.turnId = 'turn-2';
     streamingNode.message.content = 'continuação transitória';
     streamingNode.message.isStreaming = true;
 
     render(<MessageList threadedMessages={[canonicalNode, streamingNode]} />);
 
-    const props = hoisted.messageNodeMock.mock.calls[0][0] as {
+    const canonicalProps = hoisted.messageNodeMock.mock.calls[0][0] as {
       node: chat.MessageNode & { message: chat.EnrichedMessage & { _turnSegments?: unknown[] } };
     };
-    expect(hoisted.messageNodeMock).toHaveBeenCalledTimes(1);
-    expect(props.node.message.id).toBe('streaming-turn-1');
-    expect(props.node.message._turnSegments).toEqual([
+    const streamingProps = hoisted.messageNodeMock.mock.calls[1][0] as {
+      node: chat.MessageNode & { message: chat.EnrichedMessage & { _turnSegments?: unknown[] } };
+    };
+    expect(hoisted.messageNodeMock).toHaveBeenCalledTimes(2);
+    expect(canonicalProps.node.message._turnSegments).toEqual([
       { type: 'text', content: 'segmento canônico' },
-      { type: 'tool_calls', toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }] },
-      { type: 'text', content: 'continuação transitória' },
+      { type: 'tool_calls', toolInvocations: [{ invocationId: 'inv-1', callId: 'tool-1', name: 'search', status: 'succeeded', hasDetails: true, resultAvailability: 'available' }] },
     ]);
+    expect(streamingProps.node.message.content).toBe('continuação transitória');
   });
 
   it('dispara callbacks de salto por Ctrl+Home e Ctrl+End', () => {

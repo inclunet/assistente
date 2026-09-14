@@ -3,6 +3,7 @@
 import {database} from '../models';
 import {chat} from '../models';
 import {apidto} from '../models';
+import {toolinvocations} from '../models';
 
 export function AddChildMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<database.ChatMessage>;
 
@@ -59,6 +60,8 @@ export function GetMessagesBefore(arg1:string,arg2:string,arg3:number):Promise<A
 export function GetPinnedMessages(arg1:string):Promise<Array<database.ChatMessage>>;
 
 export function GetRecentMessages(arg1:string,arg2:number):Promise<Array<chat.MessageNode>>;
+
+export function GetToolInvocationDetails(arg1:Array<string>):Promise<Array<toolinvocations.Detail>>;
 
 export function RebuildSearchIndex():Promise<void>;
 

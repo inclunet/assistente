@@ -277,9 +277,6 @@ func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T
 	if turnNode.Message.Content != "resposta final" {
 		t.Fatalf("expected final content, got %q", turnNode.Message.Content)
 	}
-	if !strings.Contains(turnNode.Message.ToolCalls, "resultado") {
-		t.Fatalf("expected enriched tool call result, got %s", turnNode.Message.ToolCalls)
-	}
 	// Issue #150: o turno volta com segments cronológicos para que o frontend
 	// renderize o turno inteiro em UMA única entrada acessível (cadeia de
 	// raciocínio: texto → tool_calls → resposta final).
@@ -364,15 +361,12 @@ func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMes
 		t.Fatalf("expected user + consolidated assistant turn, got %d nodes", len(window.Nodes))
 	}
 	turnNode := window.Nodes[1]
-	if !strings.Contains(turnNode.Message.ToolCalls, "resultado por invocacao") {
-		t.Fatalf("expected synthesized toolCalls from tool_invocations, got %s", turnNode.Message.ToolCalls)
-	}
 	if len(turnNode.Message.TurnSegments) != 3 {
 		t.Fatalf("expected text -> tool_calls -> final text segments, got %+v", turnNode.Message.TurnSegments)
 	}
 	call := turnNode.Message.TurnSegments[1].ToolCalls[0]
-	if call.ID != "tool-1" || call.Function.Name != "search" || call.Result != "resultado por invocacao" || call.DurationMs != 42 {
-		t.Fatalf("expected hydrated invocation display, got %+v", call)
+	if call.InvocationID != "inv-new-l3-free" || call.ID != "tool-1" || call.Name != "search" || call.DurationMs != 42 {
+		t.Fatalf("expected lightweight invocation summary, got %+v", call)
 	}
 }
 
@@ -494,8 +488,10 @@ func TestGetConversationMessageWindow_TurnWithoutAssistantReturnsAssistantPlaceh
 	if turnNode.Message.Source != chat.ToolOnlyTurnPlaceholderSource {
 		t.Fatalf("expected tool-only placeholder source, got %q", turnNode.Message.Source)
 	}
-	if !strings.Contains(turnNode.Message.ToolCalls, "resultado preservado") {
-		t.Fatalf("expected tool result preserved in placeholder tool calls, got %s", turnNode.Message.ToolCalls)
+	if len(turnNode.Message.TurnSegments) != 1 ||
+		len(turnNode.Message.TurnSegments[0].ToolCalls) != 1 ||
+		turnNode.Message.TurnSegments[0].ToolCalls[0].ResultAvailability != "available" {
+		t.Fatalf("expected lightweight tool-only summary, got %+v", turnNode.Message.TurnSegments)
 	}
 	if turnNode.OriginalIndex == nil || *turnNode.OriginalIndex != 1 {
 		t.Fatalf("expected canonical originalIndex=1 for tool-only turn, got %v", turnNode.OriginalIndex)
