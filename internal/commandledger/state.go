@@ -1,7 +1,7 @@
 package commandledger
 
 // validTransition não permite concluir antes do handoff nem repetir terminais.
-// Reconciliação de outcome_unknown depende de um contrato futuro separado.
+// Reconciliação de outcome_unknown usa Reconcile, nunca esta transição normal.
 func validTransition(from, to Status) bool {
 	switch from {
 	case Evaluating:

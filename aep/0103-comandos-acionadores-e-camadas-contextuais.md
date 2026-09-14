@@ -2023,8 +2023,19 @@ da chamada; o repositório não deduz isso de relógio ou expiração. Geraçõe
 sessões fora do escopo e estados terminais são preservados. Testes cobrem
 idempotência, replay, isolamento, rollback e par com fingerprint divergente.
 
+`Reconcile` fornece o CAS interno `outcome_unknown → succeeded|failed` após
+consulta por `OutcomeVerifier` confiável, fora da transação SQLite. A consulta
+recebe uma cópia do registro escopado; falha, cancelamento e outcome inconclusivo
+preservam a incerteza. O commit confere novamente identidade, fingerprint e
+estado, atualiza ledger e auditoria juntos e não sobrescreve um terminal que
+venceu a corrida. O subconjunto atual não produz retorno além de `{}`.
+O host ainda precisa selecionar o verificador pelo comando, reaplicar
+autenticação/autorização e consultar uma fonte conclusiva sem executar efeitos.
+Nenhum verificador de produto ou endpoint está registrado; os verificadores
+dos testes não constituem prova de reconciliação ponta a ponta.
+
 Permanecem pendentes integração ao executor/DispatchGate e ao startup,
-comprovação de encerramento de geração, reconciliação verificável,
+comprovação de encerramento de geração, verificadores reais de reconciliação,
 HMAC/RFC8785, resultados, política de retenção, eventos,
 supressão, identidades externas e constraints condicionais completas de D11.
 As colunas futuras não tornam esses fluxos suportados. Nenhuma fase ou critério
