@@ -23,6 +23,12 @@ type ToolInvocation struct {
 	Output   string `json:"output,omitempty" gorm:"type:text"`
 	Metadata string `json:"metadata,omitempty" gorm:"type:text"`
 
+	// ModelIteration e External materializam os campos de metadata usados pela
+	// contagem de chamadas ao modelo. Metadata continua preservado como snapshot
+	// canônico; o hot path não precisa interpretar JSON por invocação.
+	ModelIteration int  `json:"modelIteration,omitempty" gorm:"not null;default:0"`
+	External       bool `json:"external,omitempty" gorm:"not null;default:false"`
+
 	DisplayName         string `json:"displayName,omitempty"`
 	InputPreview        string `json:"inputPreview,omitempty" gorm:"type:text"`
 	OutputPreview       string `json:"outputPreview,omitempty" gorm:"type:text"`
