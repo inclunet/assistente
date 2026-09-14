@@ -69,6 +69,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   );
 
   const boardActionsReqRef = useRef(0);
+  const announcedInitialLoadErrorRef = useRef<string | null>(null);
   const initialLoadRequestRef = useRef<string | null>(null);
   const requestInitialLoad = useCallback(() => {
     if (initialLoadRequestRef.current === taskListId) return;
@@ -98,6 +99,16 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
       requestInitialLoad();
     }
   }, [taskList, taskPage, initialLoadError, requestInitialLoad]);
+
+  useEffect(() => {
+    if (!initialLoadError) {
+      announcedInitialLoadErrorRef.current = null;
+      return;
+    }
+    if (announcedInitialLoadErrorRef.current === initialLoadError) return;
+    announcedInitialLoadErrorRef.current = initialLoadError;
+    announce(initialLoadError, 'assertive');
+  }, [initialLoadError, announce]);
 
   const contentAreaRef = useRef<HTMLDivElement>(null);
 
@@ -452,7 +463,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
   if (!taskPage && initialLoadError) {
     return (
-      <div className="tasklist-loading" role="alert">
+      <div className="tasklist-loading">
         <span>{initialLoadError}</span>
         <Button
           type="button"

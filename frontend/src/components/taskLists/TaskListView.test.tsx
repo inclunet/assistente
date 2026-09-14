@@ -211,7 +211,8 @@ describe('TaskListView', () => {
     ]);
     render(<TaskListView taskListId="tasklist-1" />);
 
-    expect(screen.getByRole('alert')).toHaveTextContent('falha transitória');
+    expect(screen.getByText('falha transitória')).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith('falha transitória', 'assertive');
     await user.click(screen.getByRole('button', { name: 'Tentar novamente' }));
 
     expect(taskListStoreState.clearError).toHaveBeenCalledWith('loadTaskList:tasklist-1');
