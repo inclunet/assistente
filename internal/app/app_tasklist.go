@@ -32,7 +32,10 @@ func (a *App) linkedTaskListsForConversation(ctx context.Context, conversationID
 	if perListLimit < 1 {
 		perListLimit = 1
 	}
-	contextTasks, _ := database.GetTaskListContextTasksWithContext(ctx, listIDs, perListLimit)
+	contextTasks, err := database.GetTaskListContextTasksWithContext(ctx, listIDs, perListLimit)
+	if err != nil {
+		return nil
+	}
 	tasksByListID := make(map[string][]database.Task, len(lists))
 	for _, task := range contextTasks {
 		tasksByListID[task.TaskListID] = append(tasksByListID[task.TaskListID], task)

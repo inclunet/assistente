@@ -328,6 +328,16 @@ func TestConversationTaskListProjectionIsBoundedAndOrdered(t *testing.T) {
 	}
 }
 
+func TestTaskListContextProjectionPropagatesCancellation(t *testing.T) {
+	setupTaskPaginationTestDB(t)
+	ctx, cancel := context.WithCancel(WithUserID(context.Background(), "user-a"))
+	cancel()
+
+	if _, err := GetTaskListContextTasksWithContext(ctx, []string{"list-a"}, 10); err == nil {
+		t.Fatal("projeção deveria propagar cancelamento do contexto")
+	}
+}
+
 func TestGetTaskListMetadataWithContext_DoesNotHydrateTasks(t *testing.T) {
 	testDB := setupTaskPaginationTestDB(t)
 	ctx := WithUserID(context.Background(), "user-a")
