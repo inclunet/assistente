@@ -64,6 +64,13 @@ classificação de risco, confiança de rede e confirmações continuam sendo
 aplicadas normalmente. Tools opt-in também permanecem bloqueadas até uma
 autorização explícita.
 
+Quando um skill declara `allowed-tools`/`tools` (allowlist) ou uma denylist, esse
+escopo passa a valer também para o que é **anunciado** ao modelo, e não só para a
+execução: tools fora da allowlist (quando ela existe) ou dentro da denylist não
+são oferecidas ao modelo enquanto aquele skill estiver ativo. Assim o modelo não
+tenta usar uma tool que o skill bloqueia — antes ela era oferecida e só rejeitada
+na hora de executar. O bloqueio de execução permanece como salvaguarda adicional.
+
 ## Sub-agentes
 
 A tool `subagent` delega trabalho especializado, paralelizável, longo ou que se
