@@ -23,7 +23,7 @@ describe('buildChatMessageAriaLabel', () => {
       role: 'assistant',
       displayContent: '',
       isStreaming: false,
-      toolCallsRaw: JSON.stringify([{ function: { name: 'text_edit' } }, { function: { name: 'web_search' } }]),
+      toolNames: ['text_edit', 'web_search'],
       timePrefix: 'recebido',
       relativeTime: 'há 1 min',
       isReasoningExpanded: false,
@@ -32,13 +32,12 @@ describe('buildChatMessageAriaLabel', () => {
     expect(s).toContain('Executou ferramentas: text_edit, web_search');
   });
 
-  it('após finalizar, usa fallback de text_edit quando toolCallsRaw não parseia', () => {
+  it('após finalizar, descreve text_edit sem nomes disponíveis', () => {
     const s = buildChatMessageAriaLabel({
       roleLabel: 'Assistente',
       role: 'assistant',
       displayContent: '',
       isStreaming: false,
-      toolCallsRaw: '{invalid-json',
       toolCallsHasTextEdit: true,
       timePrefix: 'recebido',
       relativeTime: 'há 1 min',

@@ -14,8 +14,6 @@ import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/edit
 import { ttsService } from '../../services/tts';
 import './MessageNode.css';
 
-const TOOL_ONLY_TURN_PLACEHOLDER_SOURCE = 'tool_only_turn_placeholder';
-
 export interface MessageNodeProps {
   node: MessageNodeType;
   level?: number;
@@ -182,7 +180,6 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   }, [conversationId, hasChildren, isExpanded, toggleConversationThreadExpanded, node.message.id, node.childCount, children.length, onLoadChildren]);
 
   const isInternal = node.message.internal || level > 0;
-  const isToolOnlyTurnPlaceholder = node.message.source === TOOL_ONLY_TURN_PLACEHOLDER_SOURCE;
 
   // Handlers de edição
   const handleSaveEdit = async () => {
@@ -338,7 +335,6 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       key === 'Delete'
       && !node.message.internal
       && !node.message.isStreaming
-      && !isToolOnlyTurnPlaceholder
       && onDelete
     ) {
       e.preventDefault();

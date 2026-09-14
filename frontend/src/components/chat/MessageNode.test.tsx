@@ -101,35 +101,6 @@ describe('MessageNode', () => {
     expect(chatMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ hasThreadIndicator: true }));
   });
 
-  it('não dispara delete por teclado para placeholder de turno só com tool', () => {
-    const onDelete = vi.fn();
-    render(
-      <MessageNode
-        onDelete={onDelete}
-        node={chat.MessageNode.createFrom({
-          message: new chat.EnrichedMessage({
-            id: 'tool-message-1',
-            conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
-            role: 'assistant',
-            content: '',
-            source: 'tool_only_turn_placeholder',
-            createdAt: new Date().toISOString(),
-            timestamp: Date.now(),
-            isStreaming: false,
-            internal: false,
-          }),
-          childCount: 0,
-          level: 0,
-          children: [],
-        })}
-      />
-    );
-
-    fireEvent.keyDown(screen.getByRole('listitem'), { key: 'Delete' });
-
-    expect(onDelete).not.toHaveBeenCalled();
-  });
-
   it('deixa controles internos processarem Enter durante a leitura isolada', () => {
     const onOuterKeyDown = vi.fn();
     render(
