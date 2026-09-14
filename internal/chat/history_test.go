@@ -82,14 +82,13 @@ func TestHistoryLoader_ClampsSingleMessageLimitWithoutPanic(t *testing.T) {
 	}
 }
 
-func TestHistoryLoader_ToolCallsSingleObject_DoesNotDropToolResult(t *testing.T) {
+func TestHistoryLoader_MantemMensagensConversacionaisDoTurno(t *testing.T) {
 	turnID := "turn-1"
-	callID := "call-1"
 	repo := &stubRepo{
 		messages: []database.ChatMessage{
 			{UUIDModel: database.UUIDModel{ID: turnID, CreatedAt: time.Now().Add(-3 * time.Minute)}, Role: "user", Content: "hi"},
-			{UUIDModel: database.UUIDModel{ID: "msg-assistant", CreatedAt: time.Now().Add(-2 * time.Minute)}, Role: "assistant", Content: "ok", TurnID: &turnID, ToolCalls: `{"id":"` + callID + `","type":"function","function":{"name":"x","arguments":"{}"}}`},
-			{UUIDModel: database.UUIDModel{ID: "msg-tool", CreatedAt: time.Now().Add(-1 * time.Minute)}, Role: "tool", Content: "RESULT", TurnID: &turnID, ToolCallID: callID},
+			{UUIDModel: database.UUIDModel{ID: "msg-assistant", CreatedAt: time.Now().Add(-2 * time.Minute)}, Role: "assistant", Content: "consultando", TurnID: &turnID},
+			{UUIDModel: database.UUIDModel{ID: "msg-final", CreatedAt: time.Now().Add(-1 * time.Minute)}, Role: "assistant", Content: "resultado", TurnID: &turnID},
 		},
 	}
 
@@ -101,18 +100,17 @@ func TestHistoryLoader_ToolCallsSingleObject_DoesNotDropToolResult(t *testing.T)
 	if len(msgs) != 3 {
 		t.Fatalf("expected 3 messages, got %d", len(msgs))
 	}
-	if msgs[2].Role != "tool" || msgs[2].ToolCallID != callID {
-		t.Fatalf("expected tool result to be kept, got role=%s toolCallID=%s", msgs[2].Role, msgs[2].ToolCallID)
+	if msgs[2].Role != "assistant" || msgs[2].Content != "resultado" {
+		t.Fatalf("expected final assistant to be kept, got %+v", msgs[2])
 	}
 }
 
-func TestHistoryLoader_ToolCallsSingleObject_OrphanToolUseIsCleared(t *testing.T) {
+func TestHistoryLoader_PlaceholderAssistantVazioIsCleared(t *testing.T) {
 	turnID := "turn-1"
-	callID := "call-1"
 	repo := &stubRepo{
 		messages: []database.ChatMessage{
 			{UUIDModel: database.UUIDModel{ID: turnID, CreatedAt: time.Now().Add(-2 * time.Minute)}, Role: "user", Content: "hi"},
-			{UUIDModel: database.UUIDModel{ID: "msg-assistant", CreatedAt: time.Now().Add(-1 * time.Minute)}, Role: "assistant", Content: "ok", TurnID: &turnID, ToolCalls: `{"id":"` + callID + `","type":"function","function":{"name":"x","arguments":"{}"}}`},
+			{UUIDModel: database.UUIDModel{ID: "msg-assistant", CreatedAt: time.Now().Add(-1 * time.Minute)}, Role: "assistant", TurnID: &turnID},
 		},
 	}
 
@@ -121,13 +119,7 @@ func TestHistoryLoader_ToolCallsSingleObject_OrphanToolUseIsCleared(t *testing.T
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(msgs) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(msgs))
-	}
-	if msgs[1].Role != "assistant" {
-		t.Fatalf("expected assistant message, got role=%s", msgs[1].Role)
-	}
-	if msgs[1].ToolCalls != "" {
-		t.Fatalf("expected orphan tool_calls to be cleared, got %q", msgs[1].ToolCalls)
+	if len(msgs) != 1 || msgs[0].Role != "user" {
+		t.Fatalf("expected only user message, got %+v", msgs)
 	}
 }

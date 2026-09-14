@@ -100,7 +100,6 @@ const ptBR = {
         empty: 'Nenhuma mensagem fixada nesta conversa.',
         noTextContent: 'Mensagem sem conteúdo textual.',
         threadMessage: 'Mensagem de thread',
-        toolMessage: 'Mensagem de ferramenta',
         loadError: 'Não foi possível carregar as mensagens fixadas',
         toggleError: 'Não foi possível alterar a fixação da mensagem',
       },

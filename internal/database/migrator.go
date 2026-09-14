@@ -270,6 +270,12 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     migrateToolLedgerBackfill,
 	},
+	{
+		Version: 19,
+		Name:    "tool_invocations_physical_cutover",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateToolLedgerPhysicalCutover,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

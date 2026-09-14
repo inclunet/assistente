@@ -130,14 +130,6 @@ func (r *inMemoryMsgRepo) GetTurnTokenStats(context.Context, string, string) (*d
 	return nil, nil
 }
 
-func (r *inMemoryMsgRepo) AddAssistantToolMessage(context.Context, string, string, string, string, string, string) (*chat.Message, error) {
-	return nil, nil
-}
-
-func (r *inMemoryMsgRepo) AddToolResultMessage(context.Context, string, string, string, string) (*chat.Message, error) {
-	return nil, nil
-}
-
 func (r *inMemoryMsgRepo) SearchMessages(context.Context, string, int) ([]chat.MessageSearchResult, error) {
 	return nil, nil
 }

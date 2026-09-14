@@ -45,8 +45,6 @@ type MessageExport struct {
 	Media            string    `json:"media,omitempty"`
 	Audio            string    `json:"audio,omitempty"`
 	AudioMimeType    string    `json:"audioMimeType,omitempty"`
-	ToolCalls        string    `json:"toolCalls,omitempty"`
-	ToolCallID       string    `json:"toolCallId,omitempty"`
 	PromptTokens     int       `json:"promptTokens,omitempty"`
 	CompletionTokens int       `json:"completionTokens,omitempty"`
 	TotalTokens      int       `json:"totalTokens,omitempty"`
@@ -58,6 +56,10 @@ type MessageExport struct {
 	TurnID           string    `json:"turnId,omitempty"`
 	ParentIndex      *int      `json:"parentIndex,omitempty"`
 	TurnIndex        *int      `json:"turnIndex,omitempty"`
+	// ToolInvocationDetails é uma projeção transitória usada apenas pelos
+	// renderizadores ricos; o arquivo canônico mantém invocações no ledger da
+	// conversa, nunca dentro da mensagem.
+	ToolInvocationDetails string `json:"-"`
 }
 
 type ConversationExport struct {

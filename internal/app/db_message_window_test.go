@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +82,20 @@ func createMessageWindowTestConversation(t testing.TB, title string) *database.C
 		t.Fatalf("create conversation: %v", err)
 	}
 	return conv
+}
+
+func addMessageWindowAssistant(t testing.TB, ctx context.Context, conversationID, turnID, content string) *database.ChatMessage {
+	t.Helper()
+	message, err := database.CreateMessageWithContext(ctx, database.MessageOptions{
+		ConversationID: conversationID,
+		TurnID:         &turnID,
+		Role:           "assistant",
+		Content:        content,
+	})
+	if err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	return message
 }
 
 func TestGetConversationMessageWindow_ValidatesRequestShape(t *testing.T) {
@@ -201,18 +216,7 @@ func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	_, err = database.AddAssistantToolMessageWithContext(
-		ctx,
-		conv.ID,
-		user.ID,
-		"vou buscar",
-		`[{"id":"tool-1","type":"function","function":{"name":"search","arguments":"{}"}}]`,
-		"",
-		"",
-	)
-	if err != nil {
-		t.Fatalf("create assistant tool call: %v", err)
-	}
+	intermediate := addMessageWindowAssistant(t, ctx, conv.ID, user.ID, "vou buscar")
 	// Resultado técnico agora vem de tool_invocations (não role=tool messages).
 	var catalog database.ToolCatalog
 	if err := database.DB().WithContext(ctx).First(&catalog, "name = ?", "search").Error; err != nil {
@@ -228,6 +232,7 @@ func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T
 		Status:        "succeeded",
 		DryRun:        false,
 		Output:        `{"content":"resultado","is_error":false}`,
+		Metadata:      fmt.Sprintf(`{"display":{"version":1,"assistant_message_id":%q,"iteration":0}}`, intermediate.ID),
 		QueuedAt:      time.Now(),
 	}).Error; err != nil {
 		t.Fatalf("create tool invocation: %v", err)
@@ -304,6 +309,7 @@ func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMes
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
+	intermediate := addMessageWindowAssistant(t, ctx, conv.ID, user.ID, "vou buscar")
 	finalAssistant, err := database.AddMessageWithTokensWithContext(ctx, conv.ID, "assistant", "resposta final", 0, 0, 0, "")
 	if err != nil {
 		t.Fatalf("create final assistant: %v", err)
@@ -311,18 +317,6 @@ func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMes
 	finalAssistant.TurnID = &user.ID
 	if err := database.DB().Save(finalAssistant).Error; err != nil {
 		t.Fatalf("save final assistant turn: %v", err)
-	}
-	_, err = database.AddAssistantToolMessageWithContext(
-		ctx,
-		conv.ID,
-		user.ID,
-		"vou buscar",
-		"",
-		"",
-		"",
-	)
-	if err != nil {
-		t.Fatalf("create assistant tool marker without L3: %v", err)
 	}
 
 	var catalog database.ToolCatalog
@@ -340,7 +334,7 @@ func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMes
 		DryRun:        false,
 		Input:         `{"query":"foo"}`,
 		Output:        `{"content":"resultado por invocacao","is_error":false}`,
-		Metadata:      `{"display":{"version":1,"type":"function","name":"search","arguments":"{\"q\":\"foo\"}","origin":"builtin","iteration":1,"duration_ms":42}}`,
+		Metadata:      fmt.Sprintf(`{"display":{"version":1,"type":"function","name":"search","arguments":"{\"q\":\"foo\"}","origin":"builtin","assistant_message_id":%q,"iteration":1,"duration_ms":42}}`, intermediate.ID),
 		QueuedAt:      time.Now(),
 		DurationMs:    42,
 	}).Error; err != nil {
@@ -380,18 +374,7 @@ func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testin
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	assistant, err := database.AddAssistantToolMessageWithContext(
-		ctx,
-		conv.ID,
-		user.ID,
-		"vou buscar",
-		`[{"id":"tool-1","type":"function","function":{"name":"search","arguments":"{}"}}]`,
-		"",
-		"",
-	)
-	if err != nil {
-		t.Fatalf("create assistant tool call: %v", err)
-	}
+	assistant := addMessageWindowAssistant(t, ctx, conv.ID, user.ID, "vou buscar")
 	var catalog database.ToolCatalog
 	if err := database.DB().WithContext(ctx).First(&catalog, "name = ?", "search").Error; err != nil {
 		t.Fatalf("load tool catalog: %v", err)
@@ -430,7 +413,7 @@ func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testin
 	}
 }
 
-func TestGetConversationMessageWindow_TurnWithoutAssistantReturnsAssistantPlaceholder(t *testing.T) {
+func TestGetConversationMessageWindow_TurnWithEmptyAssistantKeepsLedgerSummary(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
 	ctrl := newMessageWindowTestController()
 
@@ -440,12 +423,7 @@ func TestGetConversationMessageWindow_TurnWithoutAssistantReturnsAssistantPlaceh
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	// Turno só com resultado de tool (legado): mantemos ChatMessage como âncora
-	// para paginação, mas o enriquecimento vem de tool_invocations.
-	tool, err := database.AddToolResultMessageWithContext(ctx, conv.ID, user.ID, "", "tool-1")
-	if err != nil {
-		t.Fatalf("create tool-only turn anchor: %v", err)
-	}
+	assistant := addMessageWindowAssistant(t, ctx, conv.ID, user.ID, "")
 	var catalog database.ToolCatalog
 	if err := database.DB().WithContext(ctx).First(&catalog, "name = ?", "search").Error; err != nil {
 		t.Fatalf("load tool catalog: %v", err)
@@ -476,25 +454,22 @@ func TestGetConversationMessageWindow_TurnWithoutAssistantReturnsAssistantPlaceh
 		t.Fatalf("get window: %v", err)
 	}
 	if window.TotalCount != 2 || len(window.Nodes) != 2 {
-		t.Fatalf("expected user item + tool-only turn item, got total=%d nodes=%d", window.TotalCount, len(window.Nodes))
+		t.Fatalf("expected user item + assistant turn item, got total=%d nodes=%d", window.TotalCount, len(window.Nodes))
 	}
 	turnNode := window.Nodes[1]
-	if turnNode.Message.ID != tool.ID {
-		t.Fatalf("expected tool message id to remain representative, got %s", turnNode.Message.ID)
+	if turnNode.Message.ID != assistant.ID {
+		t.Fatalf("expected assistant to remain representative, got %s", turnNode.Message.ID)
 	}
 	if turnNode.Message.Role != "assistant" || turnNode.Message.Content != "" {
-		t.Fatalf("expected assistant placeholder for tool-only turn, got role=%q content=%q", turnNode.Message.Role, turnNode.Message.Content)
-	}
-	if turnNode.Message.Source != chat.ToolOnlyTurnPlaceholderSource {
-		t.Fatalf("expected tool-only placeholder source, got %q", turnNode.Message.Source)
+		t.Fatalf("expected empty assistant for ledger-only result, got role=%q content=%q", turnNode.Message.Role, turnNode.Message.Content)
 	}
 	if len(turnNode.Message.TurnSegments) != 1 ||
 		len(turnNode.Message.TurnSegments[0].ToolCalls) != 1 ||
 		turnNode.Message.TurnSegments[0].ToolCalls[0].ResultAvailability != "available" {
-		t.Fatalf("expected lightweight tool-only summary, got %+v", turnNode.Message.TurnSegments)
+		t.Fatalf("expected lightweight ledger summary, got %+v", turnNode.Message.TurnSegments)
 	}
 	if turnNode.OriginalIndex == nil || *turnNode.OriginalIndex != 1 {
-		t.Fatalf("expected canonical originalIndex=1 for tool-only turn, got %v", turnNode.OriginalIndex)
+		t.Fatalf("expected canonical originalIndex=1 for turn, got %v", turnNode.OriginalIndex)
 	}
 }
 
@@ -542,7 +517,7 @@ func TestGetMessageChildrenRejectsOtherUsersParent(t *testing.T) {
 	}
 }
 
-func TestGetRecentMessages_OverfetchesToHonorLimitWithMultiRowTurns(t *testing.T) {
+func TestGetRecentMessages_HonorsLimitWithCanonicalTurns(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
 	ctrl := newMessageWindowTestController()
 
@@ -567,28 +542,8 @@ func TestGetRecentMessages_OverfetchesToHonorLimitWithMultiRowTurns(t *testing.T
 		setTime(userMsg.ID, turnBase)
 
 		turnID := userMsg.ID
-		assistant, err := database.AddAssistantToolMessageWithContext(
-			ctx,
-			conv.ID,
-			turnID,
-			"a"+string(rune('0'+turn)),
-			`[{"id":"tool-1","type":"function","function":{"name":"search","arguments":"{}"}}]`,
-			"",
-			"",
-		)
-		if err != nil {
-			t.Fatalf("create assistant %d: %v", turn, err)
-		}
+		assistant := addMessageWindowAssistant(t, ctx, conv.ID, turnID, "a"+string(rune('0'+turn)))
 		setTime(assistant.ID, turnBase.Add(1*time.Second))
-
-		// Muitos tool rows no fim do turno (simula o problema de paginação do legado).
-		for i := 0; i < 3; i++ {
-			toolMsg, err := database.AddToolResultMessageWithContext(ctx, conv.ID, turnID, "tool", "tool-"+string(rune('a'+i)))
-			if err != nil {
-				t.Fatalf("create tool %d.%d: %v", turn, i, err)
-			}
-			setTime(toolMsg.ID, turnBase.Add(time.Duration(2+i)*time.Second))
-		}
 	}
 
 	nodes, err := ctrl.GetRecentMessages(messageWindowTestCtx(), conv.ID, 6)
@@ -609,7 +564,7 @@ func TestGetRecentMessages_OverfetchesToHonorLimitWithMultiRowTurns(t *testing.T
 	}
 }
 
-func TestGetMessagesBefore_OverfetchesAndTrimsFromEndWithMultiRowTurns(t *testing.T) {
+func TestGetMessagesBefore_TrimsFromEndWithCanonicalTurns(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
 	ctrl := newMessageWindowTestController()
 
@@ -637,27 +592,8 @@ func TestGetMessagesBefore_OverfetchesAndTrimsFromEndWithMultiRowTurns(t *testin
 		}
 
 		turnID := userMsg.ID
-		assistant, err := database.AddAssistantToolMessageWithContext(
-			ctx,
-			conv.ID,
-			turnID,
-			"a"+string(rune('0'+turn)),
-			`[{"id":"tool-1","type":"function","function":{"name":"search","arguments":"{}"}}]`,
-			"",
-			"",
-		)
-		if err != nil {
-			t.Fatalf("create assistant %d: %v", turn, err)
-		}
+		assistant := addMessageWindowAssistant(t, ctx, conv.ID, turnID, "a"+string(rune('0'+turn)))
 		setTime(assistant.ID, turnBase.Add(1*time.Second))
-
-		for i := 0; i < 3; i++ {
-			toolMsg, err := database.AddToolResultMessageWithContext(ctx, conv.ID, turnID, "tool", "tool-"+string(rune('a'+i)))
-			if err != nil {
-				t.Fatalf("create tool %d.%d: %v", turn, i, err)
-			}
-			setTime(toolMsg.ID, turnBase.Add(time.Duration(2+i)*time.Second))
-		}
 	}
 	if turn4UserID == "" {
 		t.Fatal("missing turn4 user id")

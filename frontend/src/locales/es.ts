@@ -99,7 +99,6 @@ const es = {
         empty: 'No hay mensajes fijados en esta conversación.',
         noTextContent: 'Mensaje sin contenido de texto.',
         threadMessage: 'Mensaje de hilo',
-        toolMessage: 'Mensaje de herramienta',
         loadError: 'No se pudieron cargar los mensajes fijados',
         toggleError: 'No se pudo cambiar la fijación del mensaje',
       },

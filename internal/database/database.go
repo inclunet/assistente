@@ -192,14 +192,14 @@ func Init() error {
 	if err := runMigrations(db, phasePostAutoMigrate); err != nil {
 		return fmt.Errorf("erro nas migrações pós-AutoMigrate: %w", err)
 	}
-	// A fase 2 ainda convive com escritores legados. Mesmo depois de a v18 ser
-	// registrada, um boot posterior precisa capturar linhas criadas por uma
-	// versão anterior enquanto o PR de escrita exclusiva ainda não chegou.
+	// Se a v18 concluiu mas a v19 foi adiada pelo gate, um boot posterior retoma
+	// o backfill antes de tentar novamente o cutover. Depois da v19 este caminho
+	// fica definitivamente inativo.
 	appliedMigrations, err := appliedMigrationVersions(db)
 	if err != nil {
 		return fmt.Errorf("erro ao verificar ativação do backfill contínuo: %w", err)
 	}
-	if appliedMigrations[18] {
+	if appliedMigrations[18] && !appliedMigrations[19] {
 		if err := migrateToolLedgerBackfill(db); err != nil {
 			if errors.Is(err, errMigrationDeferred) {
 				logging.Warnf(context.Background(), "database.tool-ledger.backfill", "backfill permanece pendente; será retomado no próximo boot")

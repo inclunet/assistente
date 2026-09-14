@@ -5,7 +5,7 @@ import { act, renderHook } from '@testing-library/react';
 import { useEditorInlineChatPatch } from './useEditorInlineChatPatch';
 
 const conversationId = "01926b90-7a5a-7c4e-8d3f-000000000042";
-let messages: Array<{ role?: string; toolCalls?: unknown; toolCallId?: string; content?: string }>;
+let messages: Array<{ role?: string; content?: string }>;
 const getConversationMessagesMock = vi.fn(() => messages);
 
 let eventHandler: ((data: unknown) => void) | null = null;

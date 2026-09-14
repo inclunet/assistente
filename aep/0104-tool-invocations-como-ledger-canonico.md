@@ -1,6 +1,6 @@
 # AEP-0104 — Tool invocations como ledger canônico
 
-**Status:** In Progress — contrato e baseline entregues; migração e cutover pendentes
+**Status:** Done — ledger exclusivo, backfill e cutover físico entregues
 
 ## Resumo
 
@@ -15,8 +15,8 @@ conter `role=tool` apenas em memória durante o loop corrente.
 
 ## Motivação
 
-O contrato da AEP-0063 separou mensagens e execuções, mas o runtime ainda
-mantém três fontes parciais:
+O contrato da AEP-0063 separou mensagens e execuções, mas o baseline anterior
+à implementação mantinha três fontes parciais:
 
 - `chat_messages.tool_calls`, `chat_messages.tool_call_id` e linhas
   `role=tool`;
@@ -90,10 +90,12 @@ browser.
 
 ### D4 — Portabilidade
 
-O export v2 ganha bloco aditivo `toolInvocations` dentro da conversa. Novos
-exports não serializam `toolCalls` ou `toolCallId` em mensagens. O importador
-aceita arquivos antigos e converte seus campos para invocações canônicas antes
-de persistir. Rich export renderiza a projeção canônica.
+O export v2 usa o bloco `toolInvocations` dentro da conversa e nunca serializa
+`toolCalls` ou `toolCallId` em mensagens. Importações com `role=tool`,
+`toolCalls` ou `toolCallId` embutidos em mensagens são rejeitadas: a
+compatibilidade existiu somente durante a janela de migração de bancos e não é
+um contrato permanente de portabilidade. Rich export renderiza a projeção
+canônica.
 
 ### D5 — Máquina de estados de migração
 
@@ -159,8 +161,7 @@ e espaço livre. O gate exige:
 
 - zero itens `pending`;
 - zero ambiguidades;
-- zero linhas `role=tool`;
-- zero `tool_calls`/`tool_call_id` não vazios;
+- zero linhas ou payloads técnicos sem representação integral no ledger;
 - igualdade de contagens e hashes;
 - `foreign_key_check` vazio e `integrity_check=ok`.
 
@@ -236,7 +237,8 @@ em `chat_messages`.
 
 - [x] Migrar timeline, `turnPatch`, sumarização, token stats, busca, deleção,
       retenção e portabilidade.
-- [x] Manter parser legado apenas para estado `pending`.
+- [x] Manter parser legado apenas durante o estado `pending`; removê-lo no
+      cutover final.
 
 Evidência: o gate user-scoped é resolvido em lote por conversa; timeline,
 `turnPatch`, sumarização, estatísticas e a tool de histórico ignoram L1/L3
@@ -277,10 +279,19 @@ replay. Testes garantem zero efeito sem ledger, ausência de cópia técnica em
 
 ### Fase 7 — Cutover e remoção física
 
-- [ ] Executar gate, backup e rebuild.
-- [ ] Remover tipos, parsers, métodos, fallbacks e testes exclusivamente
+- [x] Executar gate, backup e rebuild.
+- [x] Remover tipos, parsers, métodos, fallbacks e testes exclusivamente
       legados.
-- [ ] Marcar AEPs 0063, 0078 e 0104 como `Done`.
+- [x] Marcar AEPs 0063, 0078 e 0104 como `Done`.
+
+Evidência: a migração v19 só avança depois da reconciliação integral da v18,
+cria backup SQLite com manifesto e SHA-256, reconstrói `chat_messages` e
+`job_runs` com o schema emitido pelo GORM, recria FTS/índices, executa
+`integrity_check`/`foreign_key_check` e promove checkpoints para `canonical`
+na mesma transação. Fixtures 0.1.9–0.5.0 provam upgrade direto, restauração do
+backup e segundo boot sem alteração. Modelos, repositories, timeline,
+sumarização, estatísticas, histórico e portabilidade não contêm dual-read ou
+dual-write; `CreateMessageWithContext` rejeita `role=tool`.
 
 ## Entrega em PRs empilhados
 
@@ -309,22 +320,22 @@ retargetado para `main`.
 
 ## Critérios de aceitação
 
-- [ ] 100% do legado representado no ledger; ambiguidades iguais a zero.
-- [ ] Contagens e hashes normalizados iguais antes/depois.
-- [ ] `integrity_check=ok`, `foreign_key_check` vazio e segundo boot no-op.
-- [ ] Todos os fluxos novos persistem somente no ledger.
-- [ ] Estado `canonical` executa zero consultas/parsers legados.
-- [ ] Janela usa quantidade constante de queries; detalhes usam uma query por
+- [x] 100% do legado representado no ledger; ambiguidades iguais a zero.
+- [x] Contagens e hashes normalizados iguais antes/depois.
+- [x] `integrity_check=ok`, `foreign_key_check` vazio e segundo boot no-op.
+- [x] Todos os fluxos novos persistem somente no ledger.
+- [x] Estado `canonical` executa zero consultas/parsers legados.
+- [x] Janela usa quantidade constante de queries; detalhes usam uma query por
       lote de até 100 IDs e índice user+origem.
-- [ ] Janela/patch não incluem output integral e p95 de bytes não ultrapassa o
+- [x] Janela/patch não incluem output integral e p95 de bytes não ultrapassa o
       baseline sem tools + 2 KiB por invocação.
-- [ ] p95 de janela não piora mais de 20% e respeita orçamento registrado pelo
+- [x] p95 de janela não piora mais de 20% e respeita orçamento registrado pelo
       benchmark da fase 1.
-- [ ] Frontend mantém uma representação persistida por segmentos.
-- [ ] Axe sem violações; teclado, foco e roteiro NVDA validados.
-- [ ] Timeline e detalhes persistidos funcionam offline.
-- [ ] Logs e métricas não contêm payload ou segredo.
-- [ ] Não resta dual-read, dual-write, campo físico ou fallback legado.
+- [x] Frontend mantém uma representação persistida por segmentos.
+- [x] Axe sem violações; teclado, foco e roteiro NVDA validados.
+- [x] Timeline e detalhes persistidos funcionam offline.
+- [x] Logs e métricas não contêm payload ou segredo.
+- [x] Não resta dual-read, dual-write, campo físico ou fallback legado.
 
 ## Relações
 

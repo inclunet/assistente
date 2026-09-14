@@ -100,7 +100,6 @@ const en = {
         empty: 'No pinned messages in this conversation.',
         noTextContent: 'Message without text content.',
         threadMessage: 'Thread message',
-        toolMessage: 'Tool message',
         loadError: 'Could not load pinned messages',
         toggleError: 'Could not change the message pin',
       },

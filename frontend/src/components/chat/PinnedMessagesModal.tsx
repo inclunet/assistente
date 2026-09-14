@@ -17,7 +17,6 @@ interface PinnedMessagesModalProps {
 
 function roleKey(role: string): string {
   if (role === 'user') return 'chat.you';
-  if (role === 'tool') return 'chat.result';
   if (role === 'system') return 'chat.system';
   return 'chat.assistant';
 }
@@ -91,9 +90,9 @@ export function PinnedMessagesModal({
                   <p id={`pinned-message-${message.id}-content`}>
                     {message.content || t('chat.pins.noTextContent')}
                   </p>
-                  {(message.parentId || message.role === 'tool') && (
+                  {message.parentId && (
                     <p className="pinned-messages__context">
-                      {message.parentId ? t('chat.pins.threadMessage') : t('chat.pins.toolMessage')}
+                      {t('chat.pins.threadMessage')}
                     </p>
                   )}
                   <Button

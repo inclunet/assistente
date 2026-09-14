@@ -51,7 +51,7 @@ func TestDeleteMessageWithContext_DeletesChatToolInvocationsByTurnIDAndMessageID
 		t.Fatalf("create user message: %v", err)
 	}
 	turnID := userMsg.ID
-	assistantMsg, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: conv.ID, Role: "assistant", Content: "a1", TurnID: &turnID, ToolCalls: `[{"id":"call-1","type":"function","function":{"name":"echo","arguments":"{}"}}]`})
+	assistantMsg, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: conv.ID, Role: "assistant", Content: "a1", TurnID: &turnID})
 	if err != nil {
 		t.Fatalf("create assistant message: %v", err)
 	}
@@ -62,8 +62,8 @@ func TestDeleteMessageWithContext_DeletesChatToolInvocationsByTurnIDAndMessageID
 	}
 
 	queuedAt := time.Now()
-	invByTurnOther := ToolInvocation{UUIDModel: UUIDModel{ID: "inv-turn-other"}, UserID: "user-a", ToolCatalogID: tool.ID, OriginType: "chat", OriginID: userMsg.ID, ToolCallID: "call-2", Status: "succeeded", QueuedAt: queuedAt}
-	invByTurnCall := ToolInvocation{UUIDModel: UUIDModel{ID: "inv-turn-call"}, UserID: "user-a", ToolCatalogID: tool.ID, OriginType: "chat", OriginID: userMsg.ID, ToolCallID: "call-1", Status: "succeeded", QueuedAt: queuedAt}
+	invByTurnOther := ToolInvocation{UUIDModel: UUIDModel{ID: "inv-turn-other"}, UserID: "user-a", ToolCatalogID: tool.ID, OriginType: "chat", OriginID: userMsg.ID, ToolCallID: "call-2", Status: "succeeded", Metadata: `{"display":{"assistant_message_id":"outro-assistente"}}`, QueuedAt: queuedAt}
+	invByTurnCall := ToolInvocation{UUIDModel: UUIDModel{ID: "inv-turn-call"}, UserID: "user-a", ToolCatalogID: tool.ID, OriginType: "chat", OriginID: userMsg.ID, ToolCallID: "call-1", Status: "succeeded", Metadata: `{"display":{"assistant_message_id":"` + assistantMsg.ID + `"}}`, QueuedAt: queuedAt}
 	invByMessage := ToolInvocation{UUIDModel: UUIDModel{ID: "inv-msg"}, UserID: "user-a", ToolCatalogID: tool.ID, OriginType: "chat", OriginID: assistantMsg.ID, Status: "succeeded", QueuedAt: queuedAt}
 	if err := db.WithContext(ctx).Create(&invByTurnOther).Error; err != nil {
 		t.Fatalf("seed invocation by turn (other): %v", err)

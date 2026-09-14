@@ -36,7 +36,10 @@ ferramentas no bloco `toolInvocations`. As mensagens continuam limpas, sem
 registros técnicos duplicados. Exportações em HTML, PDF e Markdown exibem as
 chamadas e os resultados a partir desse mesmo histórico.
 
-Ao importar um JSON antigo, o app converte automaticamente os registros de
-ferramentas para o formato atual. Ferramentas que não existem na instalação de
-destino permanecem legíveis no histórico, mas não são habilitadas para
+Arquivos importados também precisam trazer ferramentas no bloco
+`toolInvocations`. Um JSON que embuta `role=tool`, `toolCalls` ou `toolCallId`
+nas mensagens é rejeitado para evitar duas fontes de verdade. Para transportar
+uma exportação desse período, atualize primeiro a instalação de origem e gere
+um novo arquivo. Ferramentas ausentes na instalação de destino permanecem
+legíveis no histórico por uma entrada archival, mas não são habilitadas para
 execução.

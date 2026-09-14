@@ -84,8 +84,8 @@ vi.mock('./ReasoningSection', () => ({
 }));
 
 vi.mock('./ToolCallsSection', () => ({
-  ToolCallsSection: ({ toolCallsJson, toolInvocations }: { toolCallsJson?: string; toolInvocations?: unknown[] }) => (
-    <div data-testid="toolcalls" data-json={toolCallsJson ?? ''} data-invocations={toolInvocations?.length ?? 0} />
+  ToolCallsSection: ({ toolInvocations }: { toolInvocations?: unknown[] }) => (
+    <div data-testid="toolcalls" data-invocations={toolInvocations?.length ?? 0} />
   ),
 }));
 
@@ -369,7 +369,7 @@ describe('ChatMessage', () => {
     render(<ChatMessage message={message} />);
 
     expect(buildAriaLabelMock).toHaveBeenCalledWith(expect.objectContaining({
-      toolCallsRaw: JSON.stringify([{ function: { name: 'search_documents' } }]),
+      toolNames: ['search_documents'],
     }));
     expect(screen.queryByTestId('toolcalls')).not.toBeInTheDocument();
   });
@@ -418,7 +418,6 @@ describe('ChatMessage', () => {
       conversationId,
       role: 'assistant',
       content: '',
-      source: 'tool_only_turn_placeholder',
       turnSegments: [{
         type: 'tool_calls',
         toolInvocations: [toolInvocation('tool-1', 'tool_result', { outputPreview: '{"bytes":2}' })],
@@ -433,7 +432,6 @@ describe('ChatMessage', () => {
 
     expect(screen.getByText('chat.toolOnlyTurnPlaceholder')).toBeInTheDocument();
     expect(screen.getByTestId('toolcalls')).toBeInTheDocument();
-    expect(screen.queryByText('tool_only_turn_placeholder')).not.toBeInTheDocument();
     expect(buildAriaLabelMock).toHaveBeenCalledWith(expect.objectContaining({
       displayContent: 'chat.toolOnlyTurnPlaceholder',
     }));
@@ -580,7 +578,6 @@ describe('ChatMessage', () => {
       conversationId,
       role: 'assistant',
       content: '',
-      source: 'tool_only_turn_placeholder',
       createdAt: new Date().toISOString(),
       timestamp: Date.now(),
       isStreaming: false,
@@ -670,7 +667,6 @@ describe('ChatMessage', () => {
       conversationId,
       role: 'assistant',
       content: '',
-      source: 'tool_only_turn_placeholder',
       createdAt: new Date().toISOString(),
       timestamp: Date.now(),
       isStreaming: false,

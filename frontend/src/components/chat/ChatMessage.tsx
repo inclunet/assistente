@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useEffect, useState, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  ToolOutlined, RobotOutlined, SendOutlined, LockOutlined,
+  RobotOutlined, SendOutlined, LockOutlined,
   MessageOutlined, MobileOutlined, SoundOutlined, PauseCircleOutlined,
 } from '@ant-design/icons';
 import type { Message, TurnSegment } from '../../store/chatStore';
@@ -21,7 +21,6 @@ import './ChatMessage.css';
 const HEAVY_MARKDOWN_CONTENT_LENGTH = 8_000;
 const HEAVY_ARIA_CONTENT_PREVIEW_LENGTH = 1_200;
 const HEAVY_AGENTIC_SEGMENT_COUNT = 8;
-const TOOL_ONLY_TURN_PLACEHOLDER_SOURCE = 'tool_only_turn_placeholder';
 
 export interface ChatMessageProps {
   message: Message;
@@ -109,31 +108,28 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const effectiveIsStreaming = liveIsStreaming !== null ? liveIsStreaming : isStreaming;
   const effectiveReasoning = liveReasoning !== null ? liveReasoning : reasoning;
   const renderedTabNavigation = isReading ? 'enabled' : 'disabled';
-  const isToolOnlyTurnPlaceholder = message.source === TOOL_ONLY_TURN_PLACEHOLDER_SOURCE;
-  const placeholderContent = isToolOnlyTurnPlaceholder && !effectiveContent
-    ? t('chat.toolOnlyTurnPlaceholder')
-    : effectiveContent;
 
   // Segmentos cronológicos do turno: durante streaming usamos override em
   // memória; turnos persistidos vêm com `turnSegments` canônicos do backend
   // (Issue #150) para preservar a cadeia de raciocínio em UMA única entrada.
   const persistedTurnSegments = getMessageTurnSegments(message);
+  const rawTurnSegments = persistedTurnSegments || completedSegments || [];
   const persistedToolInvocations = (persistedTurnSegments ?? [])
     .flatMap((segment) => segment.toolInvocations ?? []);
-  const persistedToolsAriaRaw = persistedToolInvocations.length > 0
-    ? JSON.stringify(persistedToolInvocations.map((invocation) => ({ function: { name: invocation.name } })))
-    : null;
+  const toolNames = rawTurnSegments.flatMap((segment) => [
+    ...(segment.toolInvocations ?? []).map((invocation) => invocation.name),
+    ...(segment.toolCalls ?? []).map((call) => call.function.name),
+  ]);
   const hasAgenticSegments = !!(persistedTurnSegments || (completedSegments && completedSegments.length > 0));
   const isAgenticStreaming = effectiveIsStreaming && hasAgenticSegments;
 
-  // Turnos "tool-only" (assistente não emitiu texto, só executou tools) chegam
-  // do backend como um único segmento `tool_calls`. Sem injetar o placeholder
-  // textual antes das tools, o leitor de tela perde o contexto e a entrada
-  // soa como resposta cortada — preserva paridade com o branch flat que já
-  // renderiza `placeholderContent` (Issue #150 follow-up).
-  const rawTurnSegments = persistedTurnSegments || completedSegments || [];
+  // Turnos sem texto, mas com invocações no ledger, recebem somente um
+  // placeholder de apresentação; nenhum ChatMessage técnico é fabricado.
+  const isToolOnlyTurn = !effectiveContent &&
+    rawTurnSegments.some((segment) => (segment.toolInvocations?.length ?? 0) > 0 || (segment.toolCalls?.length ?? 0) > 0);
+  const placeholderContent = isToolOnlyTurn ? t('chat.toolOnlyTurnPlaceholder') : effectiveContent;
   const shouldInjectToolOnlyPlaceholder =
-    isToolOnlyTurnPlaceholder &&
+    isToolOnlyTurn &&
     rawTurnSegments.length > 0 &&
     !rawTurnSegments.some((seg) => seg.type === 'text' && !!seg.content);
   const displaySegments: TurnSegment[] = shouldInjectToolOnlyPlaceholder
@@ -222,9 +218,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     // Usuário
     if (role === 'user') return t('chat.you');
 
-    // Resposta de ferramenta — mostra ID do call
-    if (role === 'tool') return t('chat.result');
-
     // Assistente com tool calls pendentes
     if (role === 'assistant' && (persistedToolInvocations.length > 0 || (effectiveToolCalls?.length ?? 0) > 0)) {
       return t('chat.assistant');
@@ -259,7 +252,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         isReasoningExpanded: false,
         reasoning: null,
         streamingReasoning: null,
-        toolCallsRaw: persistedToolsAriaRaw,
+        toolNames,
         toolCallsHasTextEdit,
         codeBlockLabel: t('chat.codeBlockSpeechLabel'),
       });
@@ -275,7 +268,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       isReasoningExpanded,
       reasoning: effectiveReasoning,
       streamingReasoning,
-      toolCallsRaw: persistedToolsAriaRaw,
+      toolNames,
       toolCallsHasTextEdit,
       codeBlockLabel: t('chat.codeBlockSpeechLabel'),
     });
@@ -465,8 +458,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       <div className="chat-message__avatar" aria-hidden="true">
         {role === 'user' ? (
           <div className="chat-message__avatar-user">U</div>
-        ) : role === 'tool' ? (
-          <div className="chat-message__avatar-tool"><ToolOutlined /></div>
         ) : (
           <div className="chat-message__avatar-assistant">
             {isAgentMessage(message) ? <RobotOutlined /> : 'AI'}
@@ -484,7 +475,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               {t('chat.pinnedMessage')}
             </span>
           )}
-          {message.source && message.source !== 'wails' && message.source !== '' && !isToolOnlyTurnPlaceholder && (
+          {message.source && message.source !== 'wails' && message.source !== '' && (
             <span className="chat-message__source-badge" aria-label={`${t('chat.via')} ${message.source}`}>
               {message.source === 'telegram' && <SendOutlined aria-hidden="true" />}
               {message.source === 'signal' && <LockOutlined aria-hidden="true" />}
@@ -592,7 +583,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                   {seg.type === 'tool_calls' && (seg.toolInvocations?.length || seg.toolCalls?.length) && (
                     <ToolCallsSection
                       toolInvocations={seg.toolInvocations}
-                      toolCallsJson={seg.toolCalls ? JSON.stringify(seg.toolCalls) : undefined}
+                      activeToolCalls={seg.toolCalls?.map((call) => ({
+                        callId: call.id,
+                        name: call.function.name,
+                        args: call.function.arguments,
+                        status: 'done',
+                        summary: call.result,
+                        origin: call.origin ?? 'builtin',
+                      }))}
                       tabNavigationEnabled={isReading}
                     />
                   )}

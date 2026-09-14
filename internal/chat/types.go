@@ -26,36 +26,25 @@ type MessageWindowRequest struct {
 	Limit           int    `json:"limit"`
 }
 
-// TurnSegmentToolCall é a projeção leve persistida de uma invocação. Os campos
-// Type/Function/Result permanecem apenas para montar o fallback legado em
-// memória e nunca atravessam a serialização da timeline.
+// TurnSegmentToolCall é a projeção leve de uma invocação canônica.
 type TurnSegmentToolCall struct {
-	InvocationID       string                  `json:"invocationId,omitempty"`
-	ID                 string                  `json:"callId"`
-	Name               string                  `json:"name"`
-	Origin             string                  `json:"origin,omitempty"`
-	ServerLabel        string                  `json:"serverLabel,omitempty"`
-	Status             string                  `json:"status"`
-	Iteration          int                     `json:"iteration,omitempty"`
-	DurationMs         int64                   `json:"durationMs,omitempty"`
-	InputPreview       string                  `json:"inputPreview,omitempty"`
-	OutputPreview      string                  `json:"outputPreview,omitempty"`
-	InputBytes         int64                   `json:"inputBytes,omitempty"`
-	OutputBytes        int64                   `json:"outputBytes,omitempty"`
-	HasDetails         bool                    `json:"hasDetails"`
-	ResultAvailability string                  `json:"resultAvailability"`
-	Type               string                  `json:"-"`
-	Function           TurnSegmentToolFunction `json:"-"`
-	Result             string                  `json:"-"`
+	InvocationID       string `json:"invocationId,omitempty"`
+	ID                 string `json:"callId"`
+	Name               string `json:"name"`
+	Origin             string `json:"origin,omitempty"`
+	ServerLabel        string `json:"serverLabel,omitempty"`
+	Status             string `json:"status"`
+	Iteration          int    `json:"iteration,omitempty"`
+	DurationMs         int64  `json:"durationMs,omitempty"`
+	InputPreview       string `json:"inputPreview,omitempty"`
+	OutputPreview      string `json:"outputPreview,omitempty"`
+	InputBytes         int64  `json:"inputBytes,omitempty"`
+	OutputBytes        int64  `json:"outputBytes,omitempty"`
+	HasDetails         bool   `json:"hasDetails"`
+	ResultAvailability string `json:"resultAvailability"`
 	// AssistantMessageID é metadado interno de hidratação para associar a
-	// invocação L3-free à mensagem assistant que representou a iteração.
+	// invocação à mensagem assistant que representou a iteração.
 	AssistantMessageID string `json:"-"`
-}
-
-// TurnSegmentToolFunction encapsula o nome e os argumentos de uma tool call.
-type TurnSegmentToolFunction struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
 }
 
 // TurnSegment é uma fatia ordenada cronologicamente de um turno do assistente:

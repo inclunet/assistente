@@ -242,14 +242,6 @@ func (r *retryMessageRepoStub) GetTurnTokenStats(_ context.Context, _ string, _ 
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) AddAssistantToolMessage(_ context.Context, _ string, _ string, _, _, _, _ string) (*Message, error) {
-	return nil, nil
-}
-
-func (r *retryMessageRepoStub) AddToolResultMessage(_ context.Context, _ string, _ string, _, _ string) (*Message, error) {
-	return nil, nil
-}
-
 func (r *retryMessageRepoStub) SearchMessages(_ context.Context, _ string, _ int) ([]MessageSearchResult, error) {
 	return nil, nil
 }

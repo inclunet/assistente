@@ -89,14 +89,6 @@ func (m *mockMsgRepo) GetRecentMessagesTokenCount(context.Context, string, int) 
 func (m *mockMsgRepo) GetTurnTokenStats(context.Context, string, string) (*database.TokenStats, error) {
 	return nil, nil
 }
-func (m *mockMsgRepo) AddAssistantToolMessage(_ context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
-	m.nextID++
-	id := fmt.Sprintf("%d", m.nextID)
-	return &chat.Message{UUIDModel: database.UUIDModel{ID: id}, Role: "assistant", Content: content}, nil
-}
-func (m *mockMsgRepo) AddToolResultMessage(context.Context, string, string, string, string) (*chat.Message, error) {
-	return nil, nil
-}
 func (m *mockMsgRepo) SearchMessages(context.Context, string, int) ([]chat.MessageSearchResult, error) {
 	return nil, nil
 }

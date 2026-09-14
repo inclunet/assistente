@@ -13,30 +13,11 @@ export type ChatMessageAriaLabelArgs = {
   reasoning?: string | null;
   streamingReasoning?: string | null;
 
-  toolCallsRaw?: string | null;
+  toolNames?: string[];
   toolCallsHasTextEdit?: boolean;
 
   /** Rótulo i18n falado no lugar de blocos de código. */
   codeBlockLabel?: string;
-};
-
-const parseToolNames = (raw?: string | null): string[] => {
-  const s = typeof raw === 'string' ? raw.trim() : '';
-  if (!s) return [];
-
-  try {
-    const parsed = JSON.parse(s);
-    const calls = Array.isArray(parsed) ? parsed : [parsed];
-    return calls
-      .map((c) => {
-        const call = c as { function?: { name?: unknown }; name?: unknown };
-        return call.function?.name || call.name;
-      })
-      .filter(Boolean)
-      .map((n) => String(n));
-  } catch {
-    return [];
-  }
 };
 
 export function buildChatMessageAriaLabel(args: ChatMessageAriaLabelArgs): string {
@@ -48,7 +29,7 @@ export function buildChatMessageAriaLabel(args: ChatMessageAriaLabelArgs): strin
     if (args.isStreaming) {
       contentPreview = 'Respondendo...';
     } else {
-      const toolNames = parseToolNames(args.toolCallsRaw);
+      const toolNames = args.toolNames ?? [];
       if (toolNames.length > 0) {
         contentPreview = `Executou ferramenta${toolNames.length > 1 ? 's' : ''}: ${toolNames.join(', ')}`;
       } else if (args.toolCallsHasTextEdit) {

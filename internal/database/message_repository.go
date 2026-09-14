@@ -36,8 +36,6 @@ type MessageOptions struct {
 	Media            string // JSON com mídias
 	Audio            string // Áudio em base64 (recebido ou TTS)
 	AudioMimeType    string // MIME do áudio
-	ToolCalls        string // JSON: [{"id":"call_x","type":"function","function":{...}}]
-	ToolCallID       string // Para role="tool": ID da chamada que este resultado responde
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
@@ -68,6 +66,9 @@ func (r *MessageRepository) CreateMessageWithContext(ctx context.Context, opts M
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
+	if strings.EqualFold(strings.TrimSpace(opts.Role), "tool") {
+		return nil, errors.New("chat_messages aceita apenas conteúdo conversacional; resultados de tools pertencem ao ledger")
+	}
 
 	msg := &ChatMessage{
 		ConversationID:   opts.ConversationID,
@@ -79,8 +80,6 @@ func (r *MessageRepository) CreateMessageWithContext(ctx context.Context, opts M
 		Media:            opts.Media,
 		Audio:            opts.Audio,
 		AudioMimeType:    opts.AudioMimeType,
-		ToolCalls:        opts.ToolCalls,
-		ToolCallID:       opts.ToolCallID,
 		PromptTokens:     opts.PromptTokens,
 		CompletionTokens: opts.CompletionTokens,
 		TotalTokens:      opts.TotalTokens,
@@ -537,44 +536,6 @@ func (r *MessageRepository) GetPinnedMessagesWithContext(ctx context.Context, co
 	return messages, err
 }
 
-// AddToolMessageWithContext adiciona uma mensagem de role="tool" (resposta de
-// tool ao orquestrador) para o usuário do contexto.
-func AddToolMessageWithContext(ctx context.Context, conversationID string, content string) (*ChatMessage, error) {
-	return CreateMessageWithContext(ctx, MessageOptions{
-		ConversationID: conversationID,
-		Role:           "tool",
-		Content:        content,
-	})
-}
-
-// AddToolResultMessageWithContext adiciona uma mensagem de resultado de tool
-// com TurnID e ToolCallID para o usuário do contexto. Usado pelo agentic loop
-// para salvar o resultado de uma execução de ferramenta.
-func AddToolResultMessageWithContext(ctx context.Context, conversationID string, turnID string, content, toolCallID string) (*ChatMessage, error) {
-	return CreateMessageWithContext(ctx, MessageOptions{
-		ConversationID: conversationID,
-		TurnID:         &turnID,
-		Role:           "tool",
-		Content:        content,
-		ToolCallID:     toolCallID,
-	})
-}
-
-// AddAssistantToolMessageWithContext adiciona uma mensagem do assistente que
-// contém tool_calls para o usuário do contexto. Usada quando o LLM responde
-// com texto + pedidos de ferramentas.
-func AddAssistantToolMessageWithContext(ctx context.Context, conversationID string, turnID string, content, toolCalls, reasoning, model string) (*ChatMessage, error) {
-	return CreateMessageWithContext(ctx, MessageOptions{
-		ConversationID: conversationID,
-		TurnID:         &turnID,
-		Role:           "assistant",
-		Content:        content,
-		ToolCalls:      toolCalls,
-		Reasoning:      reasoning,
-		Model:          model,
-	})
-}
-
 // GetTurnMessagesWithContext retorna todas as mensagens de um turno (mesmo
 // TurnID) pertencentes ao usuário do contexto, ordenadas por criação.
 func GetTurnMessagesWithContext(ctx context.Context, turnID string) ([]ChatMessage, error) {
@@ -648,7 +609,7 @@ func (r *MessageRepository) EnsureAssistantPlaceholderWithContext(ctx context.Co
 		err := tx.WithContext(ctx).
 			Model(&ChatMessage{}).
 			Select("id").
-			Where("conversation_id = ? AND turn_id = ? AND parent_id IS NULL AND role = ? AND (tool_calls IS NULL OR tool_calls = '')", conversationID, turnID, "assistant").
+			Where("conversation_id = ? AND turn_id = ? AND parent_id IS NULL AND role = ?", conversationID, turnID, "assistant").
 			Order("created_at ASC, id ASC").
 			First(&existing).Error
 		if err == nil {
@@ -887,7 +848,7 @@ type chatToolInvocationCleanup struct {
 }
 
 func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.DB, messageID string) chatToolInvocationCleanup {
-	userID, err := RequireUserID(ctx)
+	_, err := RequireUserID(ctx)
 	if err != nil {
 		return chatToolInvocationCleanup{}
 	}
@@ -897,7 +858,7 @@ func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.D
 	// scopedMessageQuery garante que não vazamos cross-user.
 	var msg ChatMessage
 	err = scopedMessageQuery(ctx, exec.Model(&ChatMessage{})).
-		Select("chat_messages.id", "chat_messages.conversation_id", "chat_messages.role", "chat_messages.turn_id", "chat_messages.tool_calls", "chat_messages.tool_call_id", "chat_messages.created_at").
+		Select("chat_messages.id", "chat_messages.conversation_id", "chat_messages.role", "chat_messages.turn_id", "chat_messages.created_at").
 		First(&msg, "chat_messages.id = ?", messageID).Error
 	if err != nil {
 		return chatToolInvocationCleanup{}
@@ -911,62 +872,20 @@ func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.D
 		turn = strings.TrimSpace(*msg.TurnID)
 	}
 	cleanup.TurnID = turn
-	allowLegacy := false
-	if policy, policyErr := LoadToolLedgerLegacyReadPolicyWithUser(ctx, userID, []string{msg.ConversationID}); policyErr == nil {
-		allowLegacy = policy.Allows(msg.ConversationID)
-	}
-
 	// Deletar a raiz do turno (role=user, turn_id == id) pode limpar o turno inteiro.
 	if msg.Role == "user" && turn != "" && turn == strings.TrimSpace(msg.ID) {
 		cleanup.DeleteWholeTurn = true
 		return dedupCleanup(cleanup)
 	}
 
-	// Ao deletar mensagens assistant/tool, limpar apenas as invocações do turno
-	// que correspondem aos tool_call_id referenciados por esta mensagem.
+	// Ao deletar uma mensagem assistant, limpa somente as invocações canônicas
+	// correlacionadas pelo metadata do ledger.
 	if turn == "" {
 		return dedupCleanup(cleanup)
 	}
 
-	if msg.Role == "tool" {
-		if !allowLegacy {
-			return dedupCleanup(cleanup)
-		}
-		callID := strings.TrimSpace(msg.ToolCallID)
-		if callID != "" {
-			cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, callID)
-		}
-		return dedupCleanup(cleanup)
-	}
-
 	if msg.Role == "assistant" {
-		if !allowLegacy {
-			cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, chatToolInvocationCallIDsForAssistantMessage(ctx, exec, turn, msg.ID, msg.CreatedAt)...)
-			return dedupCleanup(cleanup)
-		}
-		toolCallsJSON := strings.TrimSpace(msg.ToolCalls)
-		if toolCallsJSON == "" {
-			cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, chatToolInvocationCallIDsForAssistantMessage(ctx, exec, turn, msg.ID, msg.CreatedAt)...)
-			return dedupCleanup(cleanup)
-		}
-		// Aceita tanto `[{...}]` quanto `{...}`.
-		var anyPayload any
-		if err := json.Unmarshal([]byte(toolCallsJSON), &anyPayload); err == nil {
-			switch v := anyPayload.(type) {
-			case []any:
-				for _, item := range v {
-					if obj, ok := item.(map[string]any); ok {
-						if id, _ := obj["id"].(string); strings.TrimSpace(id) != "" {
-							cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, strings.TrimSpace(id))
-						}
-					}
-				}
-			case map[string]any:
-				if id, _ := v["id"].(string); strings.TrimSpace(id) != "" {
-					cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, strings.TrimSpace(id))
-				}
-			}
-		}
+		cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, chatToolInvocationCallIDsForAssistantMessage(ctx, exec, turn, msg.ID, msg.CreatedAt)...)
 		return dedupCleanup(cleanup)
 	}
 

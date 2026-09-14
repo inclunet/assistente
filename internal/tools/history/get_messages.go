@@ -153,29 +153,13 @@ func (t *GetMessagesTool) Execute(ctx context.Context, args json.RawMessage) (to
 		}
 	}
 
-	conversationIDs := make([]string, 0, len(messages))
-	for _, msg := range messages {
-		conversationIDs = append(conversationIDs, msg.ConversationID)
-	}
-	policy, err := toolinvocations.LoadLegacyReadPolicyWithUser(ctx, userID, conversationIDs)
-	if err != nil {
-		return tools.ToolResult{Content: "Tool ledger read policy could not be loaded.", IsError: true}, nil
-	}
-
 	payload := getMessagesPayload{Messages: make([]getMessagePayload, 0, len(messages))}
 	for _, msg := range messages {
-		allowLegacy := policy.Allows(msg.ConversationID)
-		if !allowLegacy && msg.Role == "tool" {
-			continue
-		}
-		item, err := messagePayloadWithLegacy(msg, allowLegacy)
-		if err != nil {
-			return tools.ToolResult{Content: fmt.Sprintf("Message %q contains invalid tool_calls JSON.", msg.ID), IsError: true}, nil
-		}
+		item, _ := messagePayload(msg)
 		payload.Messages = append(payload.Messages, item)
 	}
 	if params.IncludeToolResults {
-		if err := t.appendRequestedToolResults(ctx, userID, requestedTurns, policy, seen, &payload); err != nil {
+		if err := t.appendRequestedToolResults(ctx, userID, requestedTurns, seen, &payload); err != nil {
 			return tools.ToolResult{Content: "Tool results could not be read for the requested message.", IsError: true}, nil
 		}
 	}
@@ -198,42 +182,18 @@ func (t *GetMessagesTool) appendRequestedToolResults(
 	ctx context.Context,
 	userID string,
 	turns []requestedTurn,
-	policy toolinvocations.LegacyReadPolicy,
 	seen map[string]struct{},
 	payload *getMessagesPayload,
 ) error {
 	canonicalTurnIDs := make([]string, 0, len(turns))
 	for _, turn := range turns {
-		if !policy.Allows(turn.ConversationID) {
-			canonicalTurnIDs = append(canonicalTurnIDs, turn.TurnID)
-		}
+		canonicalTurnIDs = append(canonicalTurnIDs, turn.TurnID)
 	}
 	displays, err := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx, userID, canonicalTurnIDs)
 	if err != nil {
 		return err
 	}
 	for _, turn := range turns {
-		if policy.Allows(turn.ConversationID) {
-			turnMessages, readErr := t.reader.GetTurnMessagesWithContext(ctx, turn.TurnID)
-			if readErr != nil {
-				return readErr
-			}
-			for _, turnMessage := range turnMessages {
-				if turnMessage.Role != "tool" || turnMessage.ConversationID != turn.ConversationID {
-					continue
-				}
-				if _, duplicate := seen[turnMessage.ID]; duplicate {
-					continue
-				}
-				seen[turnMessage.ID] = struct{}{}
-				item, payloadErr := messagePayloadWithLegacy(turnMessage, true)
-				if payloadErr != nil {
-					return payloadErr
-				}
-				payload.Messages = append(payload.Messages, item)
-			}
-			continue
-		}
 		for _, display := range displays[turn.TurnID] {
 			ledgerID := strings.TrimSpace(display.LedgerID)
 			if ledgerID == "" {
@@ -257,43 +217,13 @@ func (t *GetMessagesTool) appendRequestedToolResults(
 }
 
 func messagePayload(msg database.ChatMessage) (getMessagePayload, error) {
-	return messagePayloadWithLegacy(msg, true)
-}
-
-func messagePayloadWithLegacy(msg database.ChatMessage, allowLegacy bool) (getMessagePayload, error) {
-	item := getMessagePayload{
+	return getMessagePayload{
 		ID:             msg.ID,
 		ConversationID: msg.ConversationID,
 		Role:           msg.Role,
 		Content:        msg.Content,
 		CreatedAt:      msg.CreatedAt.UTC().Format(time.RFC3339Nano),
-	}
-	if !allowLegacy {
-		return item, nil
-	}
-	item.ToolCallID = msg.ToolCallID
-	if toolCalls := strings.TrimSpace(msg.ToolCalls); toolCalls != "" {
-		var calls []json.RawMessage
-		if err := json.Unmarshal([]byte(toolCalls), &calls); err == nil {
-			if len(calls) > 0 {
-				item.ToolCalls = json.RawMessage(toolCalls)
-			}
-			return item, nil
-		}
-
-		// Compatibilidade com histórico legado: a timeline também aceita uma
-		// única tool call persistida como objeto e a trata como array unitário.
-		var single map[string]json.RawMessage
-		if err := json.Unmarshal([]byte(toolCalls), &single); err != nil {
-			return getMessagePayload{}, fmt.Errorf("invalid tool_calls JSON")
-		}
-		normalized, err := json.Marshal([]map[string]json.RawMessage{single})
-		if err != nil {
-			return getMessagePayload{}, fmt.Errorf("normalize legacy tool_calls: %w", err)
-		}
-		item.ToolCalls = normalized
-	}
-	return item, nil
+	}, nil
 }
 
 func toolArgumentError(format string, args ...any) tools.ToolResult {

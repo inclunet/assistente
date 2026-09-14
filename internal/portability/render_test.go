@@ -202,15 +202,15 @@ func sampleConversationFile(opts ExportOptions) *ExportFile {
 					Summary:   "Resumo da conversa.",
 					Messages: []MessageExport{
 						{
-							Role:             "user",
-							Content:          "Olá, **mundo**.",
-							CreatedAt:        time.Unix(91, 0),
-							Model:            "gpt-4o",
-							Source:           "chat",
-							PromptTokens:     12,
-							CompletionTokens: 34,
-							Reasoning:        "Pensando no problema.",
-							ToolCalls:        `{"name":"search"}`,
+							Role:                  "user",
+							Content:               "Olá, **mundo**.",
+							CreatedAt:             time.Unix(91, 0),
+							Model:                 "gpt-4o",
+							Source:                "chat",
+							PromptTokens:          12,
+							CompletionTokens:      34,
+							Reasoning:             "Pensando no problema.",
+							ToolInvocationDetails: `[{"name":"search"}]`,
 						},
 					},
 				},
@@ -246,7 +246,7 @@ func TestRenderConversationsMarkdownIncludesContent(t *testing.T) {
 		t.Fatalf("markdown should include reasoning when enabled: %s", md)
 	}
 	if !strings.Contains(md, "```json") || !strings.Contains(md, `{"name":"search"}`) {
-		t.Fatalf("markdown should include tool calls as fenced code: %s", md)
+		t.Fatalf("markdown should include tool invocations as fenced code: %s", md)
 	}
 	if !strings.Contains(md, "modelo: gpt-4o") {
 		t.Fatalf("markdown should include metadata when enabled: %s", md)
@@ -280,7 +280,7 @@ func TestRenderConversationsMarkdownProjectsCanonicalLedger(t *testing.T) {
 			t.Fatalf("render rico não projetou %q do ledger: %s", expected, md)
 		}
 	}
-	if file.Resources.Conversations[0].Messages[1].ToolCalls != "" {
+	if file.Resources.Conversations[0].Messages[1].ToolInvocationDetails != "" {
 		t.Fatal("render alterou o modelo canônico de exportação")
 	}
 }
@@ -339,7 +339,7 @@ func TestRenderConversationsMarkdownNormalizesTitle(t *testing.T) {
 	}
 }
 
-func TestRenderConversationsMarkdownToolCallIDFollowsMetadataToggle(t *testing.T) {
+func TestRenderConversationsMarkdownAudioMetadataFollowsToggle(t *testing.T) {
 	build := func(opts ExportOptions) string {
 		t.Helper()
 		file := &ExportFile{
@@ -353,10 +353,10 @@ func TestRenderConversationsMarkdownToolCallIDFollowsMetadataToggle(t *testing.T
 						CreatedAt: time.Unix(90, 0),
 						Messages: []MessageExport{
 							{
-								Role:       "tool",
-								Content:    "resultado",
-								ToolCallID: "call_abc123",
-								CreatedAt:  time.Unix(91, 0),
+								Role:          "assistant",
+								Content:       "resultado",
+								AudioMimeType: "audio/mpeg",
+								CreatedAt:     time.Unix(91, 0),
 							},
 						},
 					},
@@ -370,11 +370,11 @@ func TestRenderConversationsMarkdownToolCallIDFollowsMetadataToggle(t *testing.T
 		return md
 	}
 
-	if on := build(ExportOptions{IncludeMetadata: true}); !strings.Contains(on, "toolCallId: call_abc123") {
-		t.Fatalf("markdown should include toolCallId when metadata enabled: %s", on)
+	if on := build(ExportOptions{IncludeMetadata: true}); !strings.Contains(on, "áudio: audio/mpeg") {
+		t.Fatalf("markdown should include audio metadata when enabled: %s", on)
 	}
-	if off := build(ExportOptions{IncludeMetadata: false}); strings.Contains(off, "toolCallId: call_abc123") {
-		t.Fatalf("markdown should omit toolCallId when metadata disabled: %s", off)
+	if off := build(ExportOptions{IncludeMetadata: false}); strings.Contains(off, "áudio: audio/mpeg") {
+		t.Fatalf("markdown should omit audio metadata when disabled: %s", off)
 	}
 }
 
@@ -463,11 +463,10 @@ func TestRenderConversationsHTMLGatesMetadataFlags(t *testing.T) {
 						CreatedAt: time.Unix(90, 0),
 						Messages: []MessageExport{
 							{
-								Role:          "tool",
+								Role:          "assistant",
 								Content:       "ok",
 								Media:         `[{"type":"image/png","name":"captura.png","data":"` + tinyPNG + `"}]`,
 								AudioMimeType: "audio/mpeg",
-								ToolCallID:    "call_123",
 								CreatedAt:     time.Unix(91, 0),
 							},
 						},
@@ -485,9 +484,6 @@ func TestRenderConversationsHTMLGatesMetadataFlags(t *testing.T) {
 	on := build(ExportOptions{IncludeMetadata: true})
 	if !strings.Contains(on, "message__flags") {
 		t.Fatalf("html should render metadata flags when enabled: %s", on)
-	}
-	if !strings.Contains(on, "toolCallId: call_123") {
-		t.Fatalf("html should render toolCallId flag when metadata enabled: %s", on)
 	}
 
 	off := build(ExportOptions{IncludeMetadata: false})

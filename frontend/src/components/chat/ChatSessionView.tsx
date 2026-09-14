@@ -210,7 +210,7 @@ function ChatSessionViewContent({
         count += 1;
         continue;
       }
-      if (message.role === 'tool' || processedTurnIds.has(turnId)) continue;
+      if (processedTurnIds.has(turnId)) continue;
       processedTurnIds.add(turnId);
       count += 1;
     }

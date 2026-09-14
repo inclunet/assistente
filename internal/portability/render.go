@@ -171,7 +171,7 @@ func richRenderExportFile(source *ExportFile) *ExportFile {
 		for messageIndex, calls := range callsByMessage {
 			payload, err := json.Marshal(calls)
 			if err == nil {
-				copyFile.Resources.Conversations[conversationIndex].Messages[messageIndex].ToolCalls = string(payload)
+				copyFile.Resources.Conversations[conversationIndex].Messages[messageIndex].ToolInvocationDetails = string(payload)
 			}
 		}
 	}
@@ -296,18 +296,17 @@ func RenderConversationsHTML(file *ExportFile) (string, error) {
               {{ if and $.Options.IncludeReasoning .Reasoning }}
                 <div class="message__reasoning">{{ renderMarkdown .Reasoning }}</div>
               {{ end }}
-              {{ if and $.Options.IncludeMetadata (or .Media .AudioMimeType .ToolCallID) }}
+              {{ if and $.Options.IncludeMetadata (or .Media .AudioMimeType) }}
                 <div class="message__flags">
                   {{ if .Media }}<span class="message__flag">mídia anexada</span>{{ end }}
                   {{ if .AudioMimeType }}<span class="message__flag">áudio: {{ .AudioMimeType }}</span>{{ end }}
-                  {{ if .ToolCallID }}<span class="message__flag">toolCallId: {{ .ToolCallID }}</span>{{ end }}
                 </div>
               {{ end }}
               {{ if hasRichMedia . }}
                 <div class="message__media">{{ renderMessageMedia . }}</div>
               {{ end }}
-              {{ if .ToolCalls }}
-                <div class="message__details">{{ renderPreformatted .ToolCalls }}</div>
+              {{ if .ToolInvocationDetails }}
+                <div class="message__details">{{ renderPreformatted .ToolInvocationDetails }}</div>
               {{ end }}
             </section>
           {{ end }}
@@ -404,19 +403,16 @@ func RenderConversationsPDF(file *ExportFile) ([]byte, error) {
 			if opts.IncludeReasoning && strings.TrimSpace(msg.Reasoning) != "" {
 				writePDFIndentedBlock(pdf, useUTF8, "Reasoning", markdownToPDFText(msg.Reasoning))
 			}
-			if strings.TrimSpace(msg.ToolCalls) != "" {
-				writePDFIndentedBlock(pdf, useUTF8, "Tool calls", msg.ToolCalls)
+			if strings.TrimSpace(msg.ToolInvocationDetails) != "" {
+				writePDFIndentedBlock(pdf, useUTF8, "Tool invocations", msg.ToolInvocationDetails)
 			}
 			if err := writePDFMediaAttachments(pdf, useUTF8, msg); err != nil {
 				writePDFMeta(pdf, useUTF8, "Falha ao renderizar uma ou mais mídias anexadas: "+err.Error())
 			}
-			if opts.IncludeMetadata && (msg.AudioMimeType != "" || msg.ToolCallID != "") {
+			if opts.IncludeMetadata && msg.AudioMimeType != "" {
 				flags := make([]string, 0, 3)
 				if msg.AudioMimeType != "" {
 					flags = append(flags, "audio: "+msg.AudioMimeType)
-				}
-				if msg.ToolCallID != "" {
-					flags = append(flags, "toolCallId: "+msg.ToolCallID)
 				}
 				writePDFMeta(pdf, useUTF8, strings.Join(flags, " | "))
 			}
@@ -503,10 +499,10 @@ func RenderConversationsMarkdown(file *ExportFile) (string, error) {
 				sb.WriteString(strings.TrimRight(msg.Reasoning, "\n") + "\n\n")
 			}
 
-			if strings.TrimSpace(msg.ToolCalls) != "" {
-				sb.WriteString("**Tool calls:**\n\n")
+			if strings.TrimSpace(msg.ToolInvocationDetails) != "" {
+				sb.WriteString("**Tool invocations:**\n\n")
 				sb.WriteString("```json\n")
-				sb.WriteString(strings.TrimRight(msg.ToolCalls, "\n") + "\n")
+				sb.WriteString(strings.TrimRight(msg.ToolInvocationDetails, "\n") + "\n")
 				sb.WriteString("```\n\n")
 			}
 
@@ -517,9 +513,6 @@ func RenderConversationsMarkdown(file *ExportFile) (string, error) {
 				}
 				if strings.TrimSpace(msg.AudioMimeType) != "" {
 					flags = append(flags, "áudio: "+msg.AudioMimeType)
-				}
-				if strings.TrimSpace(msg.ToolCallID) != "" {
-					flags = append(flags, "toolCallId: "+msg.ToolCallID)
 				}
 				if len(flags) > 0 {
 					sb.WriteString("> " + strings.Join(flags, " · ") + "\n\n")

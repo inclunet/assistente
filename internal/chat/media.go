@@ -124,24 +124,9 @@ func (l *MediaHistoryLoader) LoadWindow(ctx context.Context, conversationID stri
 func (l *MediaHistoryLoader) format(ctx context.Context, dbMessages []Message, existingSummary string) ([]llm.Message, string, error) {
 	messages := make([]llm.Message, 0, len(dbMessages))
 	for _, m := range dbMessages {
-		// Otimização de contexto: omitir mensagens intermediárias de tool calling
-		// de turnos anteriores. O modelo já processou esses resultados e produziu
-		// uma resposta final com a informação sintetizada — reenviar a cadeia
-		// tool_call→tool_result desperdiça tokens sem valor.
-		if m.Role == "tool" {
-			continue
-		}
-		if m.Role == "assistant" && strings.TrimSpace(m.ToolCalls) != "" && strings.TrimSpace(m.Content) == "" {
-			// Tool calling de turnos anteriores não é reenviado. Reasoning
-			// persistido também não vira extensão de protocolo (AEP-0097), então
-			// mantê-lo aqui produziria uma assistant vazia no payload.
-			continue
-		}
-
 		msg := llm.Message{
-			MessageID:  m.ID,
-			Role:       m.Role,
-			ToolCallID: m.ToolCallID,
+			MessageID: m.ID,
+			Role:      m.Role,
 		}
 
 		if m.Media != "" {

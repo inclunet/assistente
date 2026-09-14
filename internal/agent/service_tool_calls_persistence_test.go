@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -63,31 +62,11 @@ func (h *testIterationHandler) Result() AgenticResult { return h.res }
 
 type toolMsgRepo struct {
 	mockMsgRepo
-	conversationID     string
-	assistantErr       error
-	assistantToolCount int
-	toolResultCount    int
-	lastToolResultCall string
-	lastToolResult     string
+	conversationID string
 }
 
 func (m *toolMsgRepo) GetMessage(_ context.Context, messageID string) (*chat.Message, error) {
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: messageID}, ConversationID: m.conversationID}, nil
-}
-
-func (m *toolMsgRepo) AddAssistantToolMessage(ctx context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
-	m.assistantToolCount++
-	if m.assistantErr != nil {
-		return nil, m.assistantErr
-	}
-	return m.mockMsgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, content, toolCalls, reasoning, model)
-}
-
-func (m *toolMsgRepo) AddToolResultMessage(_ context.Context, _ string, _ string, content string, toolCallID string) (*chat.Message, error) {
-	m.toolResultCount++
-	m.lastToolResultCall = toolCallID
-	m.lastToolResult = content
-	return &chat.Message{UUIDModel: database.UUIDModel{ID: "tool-1"}, Role: "tool", ToolCallID: toolCallID}, nil
 }
 
 type okTool struct{}
@@ -133,7 +112,7 @@ func setupAgenticToolCallDB(t *testing.T) (*gorm.DB, func()) {
 	return db, cleanup
 }
 
-func TestRunAgenticLoop_ToolCalls_SuppressesRoleToolOnSuccessfulPersistence(t *testing.T) {
+func TestRunAgenticLoop_ToolCalls_PersisteSomenteNoLedger(t *testing.T) {
 	db, cleanup := setupAgenticToolCallDB(t)
 	t.Cleanup(cleanup)
 
@@ -176,12 +155,6 @@ func TestRunAgenticLoop_ToolCalls_SuppressesRoleToolOnSuccessfulPersistence(t *t
 		return &testIterationHandler{}
 	}, nil, false, 0)
 
-	if msgRepo.toolResultCount != 0 {
-		t.Fatalf("expected no role=tool messages, got=%d", msgRepo.toolResultCount)
-	}
-	if msgRepo.assistantToolCount != 0 {
-		t.Fatalf("iteração só com tools não deve persistir marcador assistant, count=%d", msgRepo.assistantToolCount)
-	}
 	rows, err := repo.List(ctx, toolinvocations.Filter{OriginType: toolinvocations.OriginChat, OriginID: turn.ID, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
@@ -194,61 +167,7 @@ func TestRunAgenticLoop_ToolCalls_SuppressesRoleToolOnSuccessfulPersistence(t *t
 	}
 }
 
-func TestRunAgenticLoop_ToolCalls_NoFallbackRoleToolWhenInvocationPersistenceSucceeds(t *testing.T) {
-	db, cleanup := setupAgenticToolCallDB(t)
-	t.Cleanup(cleanup)
-
-	ctx := database.WithUserID(context.Background(), "user-1")
-	conv, err := database.CreateConversationWithContext(ctx, "t", "")
-	if err != nil {
-		t.Fatalf("create conv: %v", err)
-	}
-	turn, err := database.AddMessageWithContext(ctx, conv.ID, "user", "hi")
-	if err != nil {
-		t.Fatalf("create turn msg: %v", err)
-	}
-
-	if err := db.Create(&database.ToolCatalog{
-		Name:               "ok_tool",
-		DisplayName:        "ok_tool",
-		Origin:             tools.ToolOriginBuiltin,
-		AvailabilityStatus: tools.ToolAvailabilityAvailable,
-	}).Error; err != nil {
-		t.Fatalf("seed tool catalog: %v", err)
-	}
-
-	repo := toolinvocations.NewDBRepository(db)
-	reg := tools.NewRegistry()
-	reg.MustRegister(okTool{})
-	exec := tools.NewExecutor(reg, tools.DefaultExecutorConfig())
-	inv := toolinvocations.NewService(repo, exec)
-
-	msgRepo := &toolMsgRepo{conversationID: conv.ID, assistantErr: errors.New("boom")}
-	svc := NewService(ServiceConfig{
-		Emitter:         events.NoopEmitter{},
-		MsgRepo:         msgRepo,
-		ToolExecutor:    exec,
-		ToolInvocations: inv,
-	})
-
-	streamer := &scriptedStreamer{call: llm.ToolCall{ID: "call-1", Type: "function", Function: llm.FunctionCall{Name: "ok_tool", Arguments: `{}`}}}
-	svc.RunAgenticLoop(ctx, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 2}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
-		return &testIterationHandler{}
-	}, nil, false, 0)
-
-	if msgRepo.toolResultCount != 0 {
-		t.Fatalf("expected no fallback role=tool message when tool_invocations persisted, got=%d", msgRepo.toolResultCount)
-	}
-	rows, err := repo.List(ctx, toolinvocations.Filter{OriginType: toolinvocations.OriginChat, OriginID: turn.ID, Limit: 10})
-	if err != nil {
-		t.Fatalf("list invocations: %v", err)
-	}
-	if len(rows) != 1 || rows[0].ToolCallID != "call-1" {
-		t.Fatalf("expected persisted invocation for call-1, got %+v", rows)
-	}
-}
-
-func TestRunAgenticLoop_ToolCalls_CriaCatalogoArchivalSemFallbackRoleTool(t *testing.T) {
+func TestRunAgenticLoop_ToolCalls_CriaCatalogoArchival(t *testing.T) {
 	_, cleanup := setupAgenticToolCallDB(t)
 	t.Cleanup(cleanup)
 
@@ -283,9 +202,6 @@ func TestRunAgenticLoop_ToolCalls_CriaCatalogoArchivalSemFallbackRoleTool(t *tes
 		return &testIterationHandler{}
 	}, nil, false, 0)
 
-	if msgRepo.toolResultCount != 0 {
-		t.Fatalf("não deveria persistir fallback role=tool, got=%d", msgRepo.toolResultCount)
-	}
 	var count int64
 	if err := database.DB().Model(&database.ToolInvocation{}).Where("user_id = ? AND tool_call_id = ?", "user-1", "call-1").Count(&count).Error; err != nil {
 		t.Fatal(err)
@@ -333,9 +249,6 @@ func TestRunAgenticLoop_ToolCalls_ResultLargeFicaSomenteNoLedger(t *testing.T) {
 		func(string, int) IterationHandler { return &testIterationHandler{} },
 		nil, false, 0)
 
-	if msgRepo.toolResultCount != 0 {
-		t.Fatalf("não deveria persistir fallback role=tool, got=%d", msgRepo.toolResultCount)
-	}
 	var invocation database.ToolInvocation
 	if err := database.DB().Where("user_id = ? AND tool_call_id = ?", "user-large-fallback", "call-large").First(&invocation).Error; err != nil {
 		t.Fatal(err)
