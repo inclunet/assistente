@@ -162,8 +162,20 @@ func (p *EffectiveToolPolicy) applySkillScope(allowed, denied []string) {
 		}
 	}
 	for name := range p.states {
+		// Deny explícito da skill vence tudo, inclusive o conjunto base
+		// protegido: se o dono da skill negou a tool por nome, ela sai.
 		if _, isDenied := deniedSet[name]; isDenied {
 			p.states[name] = ToolPolicyDisabled
+			continue
+		}
+		// O conjunto base protegido (mesma fonte de verdade do gate de execução,
+		// tools.IsProtectedBaseTool) é isento do narrowing IMPLÍCITO da
+		// allowlist da skill. Assim, control-plane (tool_catalog, load_skill) e
+		// base de runtime seguem anunciados/carregáveis mesmo quando a skill
+		// declara uma allowlist focada no seu domínio, mantendo prompt↔defs
+		// coerentes (inclusive no caminho catalog-first). Só não elevamos nada:
+		// o estado disabled do perfil (AEP-0081 D2) permanece intocado.
+		if tools.IsProtectedBaseTool(name) {
 			continue
 		}
 		if allowSet != nil {

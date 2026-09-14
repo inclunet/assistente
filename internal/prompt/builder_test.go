@@ -756,7 +756,11 @@ func TestBuild_CatalogFirst_NotActiveWhenToolCallingDisabled(t *testing.T) {
 	}
 }
 
-func TestApplySkillToolScope_BlockingCatalog_KeepsPromptAndDefsCoherent(t *testing.T) {
+// A allowlist de um skill que OMITE tool_catalog não o remove: tool_catalog é
+// control-plane do conjunto base protegido (tools.IsProtectedBaseTool) e só sai
+// por deny explícito. Assim o protocolo catalog-first permanece no prompt e
+// coerente com as definitions. (AEP-0081 D12 / AEP-0072 D5.)
+func TestApplySkillToolScope_AllowlistPreservaCatalogoProtegido_PromptEDefsCoerentes(t *testing.T) {
 	reg := tools.NewRegistry()
 	_ = reg.Register(&fakeTool{name: tools.ToolCatalogName})
 	_ = reg.Register(&fakeTool{name: "read_file"})
@@ -772,30 +776,32 @@ func TestApplySkillToolScope_BlockingCatalog_KeepsPromptAndDefsCoherent(t *testi
 		t.Fatal("esperava protocolo catalog-first sem escopo de skill")
 	}
 
-	// Skill allowlist que NÃO inclui tool_catalog: a tool sai das definitions e o
-	// prompt não pode continuar instruindo o uso do catálogo.
+	// Skill allowlist que NÃO inclui tool_catalog: por ser base protegido, ele
+	// permanece preloaded e o prompt segue instruindo o catálogo.
 	scoped := b.ApplySkillToolScope(base, []string{"read_file", "memory"}, nil)
-	if scoped.ToolCallingEnabled {
-		t.Fatalf("com tool_catalog bloqueada e demais on_demand não deveria haver tools iniciais: %+v", scoped)
+	if !scoped.ToolCallingEnabled {
+		t.Fatalf("tool_catalog protegido deveria manter as tools iniciais: %+v", scoped)
 	}
-	for _, name := range scoped.EnabledTools {
-		if name == tools.ToolCatalogName {
-			t.Fatal("tool_catalog não deveria aparecer no prompt sob escopo do skill")
-		}
+	if len(scoped.EnabledTools) != 1 || scoped.EnabledTools[0] != tools.ToolCatalogName {
+		t.Fatalf("tool_catalog protegido deveria seguir no prompt sob escopo do skill: %+v", scoped)
 	}
-	if sys := buildSystemPromptForSkills(b, nil, false, scoped); strings.Contains(sys, "<tool_selection_protocol>") {
-		t.Fatal("prompt não deve instruir catalog-first quando o skill bloqueia tool_catalog")
+	if sys := buildSystemPromptForSkills(b, nil, false, scoped); !strings.Contains(sys, "<tool_selection_protocol>") {
+		t.Fatal("prompt deve manter catalog-first com tool_catalog protegido")
 	}
 
-	// Coerência com as definitions: sob o mesmo escopo, o planner não expõe
-	// tool_catalog (nem as on_demand, que dependiam do catálogo agora bloqueado).
+	// Coerência com as definitions: sob o mesmo escopo, o planner ainda expõe
+	// tool_catalog (base protegido), alinhado ao que o prompt anuncia.
 	defs := chat.NewToolSelectionPolicy(reg).InitialToolDefs(chat.ProfileToolConfig{
 		SkillAllowedTools: []string{"read_file", "memory"},
 	})
+	foundCatalog := false
 	for _, def := range defs {
 		if def.Function.Name == tools.ToolCatalogName {
-			t.Fatal("tool_catalog não deveria aparecer nas definitions sob escopo do skill")
+			foundCatalog = true
 		}
+	}
+	if !foundCatalog {
+		t.Fatal("tool_catalog protegido deveria aparecer nas definitions sob escopo do skill")
 	}
 }
 

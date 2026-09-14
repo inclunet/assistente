@@ -115,3 +115,85 @@ func TestToolSelectionPolicy_SkillDenylist_OcultaDoCatalogo(t *testing.T) {
 		t.Fatal("grep_search bloqueada pelo skill não deveria permitir carga em runtime")
 	}
 }
+
+// baseScopeRegistry inclui, além de tools de domínio, uma tool base de runtime
+// (memory) e o control-plane (tool_catalog/load_skill), para exercitar o
+// conjunto base protegido na seleção.
+func baseScopeRegistry(t *testing.T) *tools.Registry {
+	t.Helper()
+	r := tools.NewRegistry()
+	for _, n := range []string{tools.ToolCatalogName, tools.LoadSkillName, "memory", "read_file", "grep_search"} {
+		r.MustRegister(newToolDef(n))
+	}
+	return r
+}
+
+// A allowlist do skill não pode rebaixar o conjunto base protegido: mesmo omitida
+// da allowlist, memory (base de runtime) segue anunciada, enquanto uma tool de
+// domínio fora da allowlist some. Contraparte, na seleção, da isenção do gate
+// (tools.IsProtectedBaseTool em validateExecutionContextToolAccess).
+func TestToolSelectionPolicy_SkillAllowlist_NaoRebaixaConjuntoBase(t *testing.T) {
+	policy := NewToolSelectionPolicy(baseScopeRegistry(t))
+	got := defNames(policy.InitialToolDefs(ProfileToolConfig{
+		EnabledTools:      []string{"memory", "read_file", "grep_search"},
+		SkillAllowedTools: []string{"read_file"}, // allowlist de domínio, omite a base
+	}))
+	assertNames(t, "allowlist não rebaixa base", got, []string{"memory", "read_file"})
+	if containsName(got, "grep_search") {
+		t.Fatalf("grep_search de domínio deveria sumir sob allowlist do skill: %#v", got)
+	}
+}
+
+// Caminho catalog-first: a allowlist do skill não remove o control-plane. O
+// tool_catalog permanece preloaded (coerente com o prompt/EnabledTools) e as
+// tools base seguem visíveis no catálogo, enquanto a tool de domínio fora da
+// allowlist deixa de ser descoberta.
+func TestToolSelectionPolicy_SkillAllowlist_CatalogFirstMantemBase(t *testing.T) {
+	policy := NewToolSelectionPolicy(baseScopeRegistry(t))
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		// EnabledTools nil → catalog-first: tools viram on_demand e o catálogo as descobre.
+		SkillAllowedTools: []string{"read_file"},
+	})
+
+	if effective.State(tools.ToolCatalogName) != ToolPolicyPreloaded {
+		t.Fatalf("tool_catalog protegido deveria permanecer preloaded; got %q", effective.State(tools.ToolCatalogName))
+	}
+	// Coerência prompt↔defs: o control-plane preloaded é justamente o que o prompt anuncia.
+	if !containsName(effective.PreloadedNames(), tools.ToolCatalogName) {
+		t.Fatalf("tool_catalog deveria constar em PreloadedNames (coerência com o prompt): %#v", effective.PreloadedNames())
+	}
+
+	visible := effective.CatalogVisibleNames()
+	for _, base := range []string{"memory", tools.LoadSkillName} {
+		if !containsName(visible, base) {
+			t.Fatalf("tool base %q deveria seguir visível no catálogo sob allowlist do skill: %#v", base, visible)
+		}
+	}
+	if !containsName(visible, "read_file") {
+		t.Fatalf("read_file na allowlist deveria seguir visível: %#v", visible)
+	}
+	if containsName(visible, "grep_search") {
+		t.Fatalf("grep_search fora da allowlist não deveria aparecer no catálogo: %#v", visible)
+	}
+}
+
+// O estado disabled do perfil (AEP-0081 D2) NÃO é afetado pelo conjunto base
+// protegido: se o perfil desliga memory, ela permanece indisponível mesmo sendo
+// base — a isenção vale só contra o narrowing IMPLÍCITO da allowlist, nunca eleva.
+func TestToolSelectionPolicy_PerfilDisabled_RemoveBaseMesmoProtegida(t *testing.T) {
+	policy := NewToolSelectionPolicy(baseScopeRegistry(t))
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicy: map[string]string{
+			"memory":    string(ToolPolicyDisabled),
+			"read_file": string(ToolPolicyPreloaded),
+		},
+		ToolPolicyDefault: string(ToolPolicyDisabled),
+		SkillAllowedTools: []string{"read_file"},
+	})
+	if effective.State("memory") != ToolPolicyDisabled {
+		t.Fatalf("memory desligada pelo perfil deveria permanecer disabled mesmo sendo base; got %q", effective.State("memory"))
+	}
+	if containsName(effective.PreloadedNames(), "memory") {
+		t.Fatalf("memory desligada pelo perfil não deveria constar como preloaded: %#v", effective.PreloadedNames())
+	}
+}
