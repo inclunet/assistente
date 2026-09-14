@@ -1084,13 +1084,22 @@ const en = {
     },
 
     mcp: {
-      status: { connected: 'Connected', connecting: 'Connecting...', disconnected: 'Disconnected', error: 'Error' },
+      status: {
+        connected: 'Connected',
+        connecting: 'Connecting...',
+        disconnected: 'Disconnected',
+        error: 'Error',
+        needsReauth: 'Reauthorization required',
+        needsReauthHint: 'The OAuth token expired and could not be refreshed. Click "Reauthorize" to authenticate again.',
+      },
       announce: {
         editorClosed: 'Editor closed',
         serverRemoved: 'Server removed',
         serverConnected: 'Server {{name}} connected',
         serverDisconnected: 'Server {{name}} disconnected',
         serverReconnected: 'Server {{name}} reconnected',
+        reauthorizing: 'Reauthorizing server {{name}}. A browser window will open.',
+        serverReauthorized: 'Server {{name}} reauthorized',
       },
       error: {
         slugRequired: 'Slug (identifier) is required',
@@ -1101,6 +1110,7 @@ const en = {
         connectFailed: 'Error connecting',
         disconnectFailed: 'Error disconnecting',
         reconnectFailed: 'Error reconnecting',
+        reauthorizeFailed: 'Error reauthorizing',
       },
       toast: {
         created: 'MCP server created!',
@@ -1110,6 +1120,7 @@ const en = {
         serverConnected: 'Server "{{name}}" connected!',
         serverDisconnected: 'Server "{{name}}" disconnected',
         serverReconnected: 'Server "{{name}}" reconnected!',
+        serverReauthorized: 'Server "{{name}}" reauthorized!',
       },
       confirm: {
         removeTitle: 'Remove MCP Server',
@@ -1119,6 +1130,7 @@ const en = {
       actions: {
         connectDisconnect: 'Connect/Disconnect',
         reconnect: 'Reconnect',
+        reauthorize: 'Reauthorize',
         removeServer: 'Remove server',
         duplicate: 'Duplicate',
         connect: 'Connect',

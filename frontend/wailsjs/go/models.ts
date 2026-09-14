@@ -4227,6 +4227,7 @@ export namespace mcp {
 	    description?: string;
 	    transport: string;
 	    status: string;
+	    authType?: string;
 	    error?: string;
 	    toolCount: number;
 	    tools: MCPToolInfo[];
@@ -4236,6 +4237,7 @@ export namespace mcp {
 	    prompts: MCPPromptInfo[];
 	    enabled: boolean;
 	    autoConnect: boolean;
+	    needsReauth: boolean;
 	    connectedAt?: string;
 	    lastPing?: string;
 	    command?: string;
@@ -4254,6 +4256,7 @@ export namespace mcp {
 	        this.description = source["description"];
 	        this.transport = source["transport"];
 	        this.status = source["status"];
+	        this.authType = source["authType"];
 	        this.error = source["error"];
 	        this.toolCount = source["toolCount"];
 	        this.tools = this.convertValues(source["tools"], MCPToolInfo);
@@ -4263,6 +4266,7 @@ export namespace mcp {
 	        this.prompts = this.convertValues(source["prompts"], MCPPromptInfo);
 	        this.enabled = source["enabled"];
 	        this.autoConnect = source["autoConnect"];
+	        this.needsReauth = source["needsReauth"];
 	        this.connectedAt = source["connectedAt"];
 	        this.lastPing = source["lastPing"];
 	        this.command = source["command"];

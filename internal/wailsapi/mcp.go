@@ -89,6 +89,19 @@ func (m *MCP) ReconnectMCPServer(slug string) error {
 	return err
 }
 
+// ReauthorizeMCPServer força a reautorização OAuth interativa de um servidor MCP
+// (abre o browser), distinta de reconectar. Só se aplica a OAuth2 PKCE (AEP-0105).
+func (m *MCP) ReauthorizeMCPServer(slug string) error {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.ReauthorizeMCPServer(ctx, slug)
+	})
+	return err
+}
+
 // SaveMCPServer cria ou atualiza a configuração de um servidor.
 func (m *MCP) SaveMCPServer(slug string, cfg mcpmgr.ServerConfig) error {
 	session, ctrl, err := m.deps()
