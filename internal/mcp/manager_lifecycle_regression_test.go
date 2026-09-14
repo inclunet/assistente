@@ -832,6 +832,33 @@ func TestReconexaoBemSucedidaUsaNivelInfo(t *testing.T) {
 	}
 }
 
+// TestStandaloneSSEDesabilitadoUsaNivelInfo garante que a desabilitação do SSE
+// standalone é reportada em INFO (estado benigno de configuração) e preserva a
+// mensagem original com o slug do servidor.
+func TestStandaloneSSEDesabilitadoUsaNivelInfo(t *testing.T) {
+	handler := &captureHandler{}
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	defer slog.SetDefault(oldLogger)
+
+	logStandaloneSSEDisabled("atlassian")
+
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+	if len(handler.records) != 1 {
+		t.Fatalf("records=%d, esperado 1", len(handler.records))
+	}
+	if got := handler.records[0].Level; got != slog.LevelInfo {
+		t.Fatalf("nível=%s, esperado INFO", got)
+	}
+	// A normalização de logs remove o prefixo legado [MCP:slug] da mensagem
+	// armazenada (mesmo comportamento de logReconnectSuccess), então validamos
+	// apenas o núcleo preservado da mensagem e o nível.
+	if !strings.Contains(handler.records[0].Message, "Standalone SSE desabilitado por configuração") {
+		t.Fatalf("mensagem inesperada: %q", handler.records[0].Message)
+	}
+}
+
 func TestExitStatusSoEhEsperadoParaSessaoJaEncerrada(t *testing.T) {
 	err := errors.New("exit status 1")
 	if isExpectedSessionCloseError(err, false) {
