@@ -237,6 +237,14 @@ func (b *capturingPromptBuilder) ApplySkillToolScope(data TemplateData, skillAll
 		if _, blocked := denied[name]; blocked {
 			continue
 		}
+		// Espelha a produção (chat.applySkillScope): o conjunto base protegido é
+		// isento do narrowing IMPLÍCITO da allowlist. Mantém o duplo coerente com
+		// tools.IsProtectedBaseTool para os testes não afirmarem comportamento
+		// que a produção não tem.
+		if tools.IsProtectedBaseTool(name) {
+			filtered = append(filtered, name)
+			continue
+		}
 		if allow != nil {
 			if _, ok := allow[name]; !ok {
 				continue
@@ -1197,14 +1205,16 @@ func TestPrepareMessagesDoesNotReportSlashSkillLoadedWhenProviderDisabled(t *tes
 	}
 }
 
-func TestPrepareMessagesDropsCatalogProtocolWhenSkillBlocksCatalog(t *testing.T) {
+func TestPrepareMessagesDropsCatalogProtocolWhenSkillDeniesCatalog(t *testing.T) {
 	skill := &skills.Skill{
 		SkillMetadata: skills.SkillMetadata{Name: "helper", DisplayName: "Helper", Description: "Help"},
 		Slug:          "helper",
 		Content:       "help instructions",
 	}
-	// Allowlist do skill NÃO inclui tool_catalog: a tool sai das definitions.
-	skill.Tools = &skills.ToolPermissions{Allowed: []string{"read_file"}}
+	// tool_catalog é base protegido: só sai por deny EXPLÍCITO da skill (uma
+	// allowlist que apenas o omitisse não o removeria). Aqui a denylist o remove,
+	// então o protocolo catalog-first também deve cair.
+	skill.Tools = &skills.ToolPermissions{Allowed: []string{"read_file"}, Denied: []string{tools.ToolCatalogName}}
 	promptBuilder := &capturingPromptBuilder{
 		baseEnabledTools:       []string{tools.ToolCatalogName},
 		baseToolCallingEnabled: true,
@@ -1236,7 +1246,51 @@ func TestPrepareMessagesDropsCatalogProtocolWhenSkillBlocksCatalog(t *testing.T)
 		t.Fatalf("esperava execution context com allowlist do skill, got %+v", result.InvokedExecutionContext)
 	}
 	if hasContextBlock(promptBuilder.contextBlocks, "tool_protocol", "tool_selection_protocol") {
-		t.Fatal("prompt não deve instruir catalog-first quando o skill remove tool_catalog das definitions")
+		t.Fatal("prompt não deve instruir catalog-first quando o skill nega explicitamente tool_catalog")
+	}
+}
+
+// Allowlist que OMITE tool_catalog não o remove (base protegido): o protocolo
+// catalog-first permanece coerente com as tools disponíveis no turno. Trava a
+// regressão do bug em que a allowlist da skill amputava o control-plane.
+func TestPrepareMessagesKeepsCatalogProtocolWhenAllowlistOmitsProtectedCatalog(t *testing.T) {
+	skill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "helper", DisplayName: "Helper", Description: "Help"},
+		Slug:          "helper",
+		Content:       "help instructions",
+	}
+	// Allowlist focada no domínio, sem tool_catalog: por ser base protegido, ele
+	// permanece disponível e o protocolo catalog-first continua no prompt.
+	skill.Tools = &skills.ToolPermissions{Allowed: []string{"read_file"}}
+	promptBuilder := &capturingPromptBuilder{
+		baseEnabledTools:       []string{tools.ToolCatalogName},
+		baseToolCallingEnabled: true,
+	}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder: promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(
+			slashskill.NewContextProvider(),
+			fakeToolProtocolProvider{},
+		),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"helper": skill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"helper"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/helper"}},
+		UserContent:    "/helper",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if !hasContextBlock(promptBuilder.contextBlocks, "tool_protocol", "tool_selection_protocol") {
+		t.Fatal("prompt deve manter catalog-first quando a allowlist apenas omite o tool_catalog protegido")
 	}
 }
 
