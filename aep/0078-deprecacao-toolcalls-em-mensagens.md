@@ -63,7 +63,8 @@ Os leitores passam a usar `tool_invocations` como fonte primária e `chat_messag
 - timeline do chat em `internal/app/db.go`;
 - exportação/hidratação em `internal/portability/service.go`;
 - sumarização em `internal/summarization/service.go`;
-- frontend que renderiza `toolCalls` quando receber payload legado.
+- frontend que renderiza somente `turnSegments[].toolInvocations`; enquanto o
+  recurso está `pending`, o backend converte o payload legado nessa projeção.
 
 ### D4 — Escrita de L3 removida após a transição
 
@@ -89,7 +90,7 @@ contagens/hashes e bloqueia o cutover em caso de ambiguidade. Em estado
 | Área | Estado atual | Evidência |
 |---|---|---|
 | Persistência de chamadas | caminho feliz grava snapshot em `tool_invocations`, sem novo L3 | `internal/agent/agentic_loop.go` e testes do agentic loop |
-| Timeline | hidrata chamadas e resultados pelo ledger; fallback exige estado `pending` | `internal/chat/timeline.go` e `timeline_test.go` |
+| Timeline | transporta projeção leve do ledger; fallback exige estado `pending` e é projetado no backend | `internal/chat/timeline.go`, `projection_read.go` e testes |
 | Exportação | bloco `toolInvocations` canônico; import legado converte antes de persistir | `internal/portability/service.go` e `service_test.go` |
 | Sumarização | remove L1/L3 em conversas `backfilled` | `internal/summarization/service.go` e `service_test.go` |
 | Modelo persistido | `ChatMessage.ToolCalls` permanece somente para leitura compatível | `internal/database/models.go` |
@@ -128,6 +129,8 @@ contagens/hashes e bloqueia o cutover em caso de ambiguidade. Em estado
 
 - [x] `ChatMessage.ToolCalls` documentado como legado de leitura.
 - [x] Novos consumidores usam `tool_invocations`.
+- [x] `EnrichedMessage.toolCalls` e o parser/consolidador persistido do frontend
+      foram removidos; detalhes integrais usam binding batch user-scoped.
 - [x] Remoção física da coluna foi explicitamente deixada para migração futura;
       isso não reabre a deprecação funcional.
 

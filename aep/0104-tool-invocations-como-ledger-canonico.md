@@ -243,8 +243,20 @@ ownership; HTML/PDF/Markdown projetam as invocações apenas durante o render.
 
 ### Fase 5 — Timeline leve e detalhes lazy
 
-- [ ] Entregar projeção única, binding batch user-scoped e cache LRU.
-- [ ] Cobrir offline, limites, invalidação, E2E e acessibilidade NVDA/teclado.
+- [x] Entregar projeção única, binding batch user-scoped e cache LRU.
+- [x] Cobrir offline, limites, invalidação, E2E e acessibilidade NVDA/teclado.
+
+Evidência: janela e `turnPatch` transportam somente
+`turnSegments[].toolInvocations`; `EnrichedMessage.toolCalls` e a consolidação
+persistida paralela do frontend foram removidos. `GetToolInvocationDetails`
+aceita até 100 IDs, faz uma consulta por lote e revalida ownership da conversa
+ou run. O cache em memória usa chave `userId+invocationId`, TTL de cinco
+minutos, LRU limitado a 4 MiB, coalescing e limpeza em logout, troca de usuário,
+patch terminal e exclusão. Testes de projeção provam ausência de payload
+integral, quantidade constante de queries e filtro entre usuários;
+`ToolCallsSection` cobre carregamento sob demanda, teclado e axe, e o cenário
+Playwright cobre prévia seguida de detalhe integral. A leitura usa SQLite local,
+sem dependência de rede.
 
 ### Fase 6 — JobRun operacional
 

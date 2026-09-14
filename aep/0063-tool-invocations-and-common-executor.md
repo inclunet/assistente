@@ -220,7 +220,7 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 
 18. ✅ Backfill retomável de mensagens e runs publicados (v18).
 19. ✅ Parar toda escrita `role=tool`/`tool_calls`/`tool_call_id`.
-20. Migrar consumidores, projeções e detalhes lazy para o ledger.
+20. ✅ Migrar consumidores, projeções e detalhes lazy para o ledger.
 21. Remover cópias técnicas de `job_runs` e reconstruir o schema legado.
 
 Esta fase é executada em sete PRs pela AEP-0104. Até o cutover final, os

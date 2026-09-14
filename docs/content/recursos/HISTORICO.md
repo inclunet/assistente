@@ -16,6 +16,19 @@ O histórico guarda conversas por workspace com busca, filtros e retomada. Conve
 - Uma conversa com subagente, resposta do assistente ou entrega para canal ainda em andamento não é excluída. Cancele ou aguarde o trabalho terminar e tente novamente; as demais conversas do lote também permanecem intactas.
 - Após excluir, o foco permanece na mesma posição lógica da grade (ou volta à linha anterior ao excluir a última). Se não restarem conversas, ele retorna a um controle utilizável da página.
 
+## Detalhes de ferramentas
+
+O histórico mostra inicialmente apenas o nome, o estado, a duração e uma prévia
+estrutural de cada ferramenta. Use **Mostrar tudo** dentro da ferramenta para
+carregar os parâmetros e o resultado completos. Esse carregamento ocorre
+somente quando solicitado, funciona sem internet porque lê o banco local e não
+grava o conteúdo técnico no navegador.
+
+Os controles entram na ordem de Tab no modo de leitura da mensagem. Se a
+política de retenção já removeu o payload, o app informa que os detalhes não
+estão mais disponíveis. Excluir mensagens ou conversas também remove detalhes
+associados e invalida cópias temporárias mantidas em memória.
+
 ## Exportação e importação
 
 Ao exportar uma conversa, o arquivo JSON inclui o histórico completo das
