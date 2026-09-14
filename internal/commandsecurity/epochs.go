@@ -20,11 +20,13 @@ type sessionEpoch struct{ user, generation string }
 // antes de Capture. Não registra sessões, não autentica, não autoriza e não
 // representa o estado locked: o revalidador real deve recusar enquanto bloqueado.
 type EpochService struct {
-	gate     *DispatchGate
-	startup  string
-	sequence uint64
-	security string
-	sessions map[string]sessionEpoch
+	gate        *DispatchGate
+	startup     string
+	sequence    uint64
+	security    string
+	sessions    map[string]sessionEpoch
+	transitions uint64
+	disabled    bool
 }
 
 func NewEpochService(gate *DispatchGate) (*EpochService, error) {
@@ -61,6 +63,9 @@ func (s *EpochService) Capture(ctx context.Context, userID, sessionID string) (E
 	}
 	var result EpochSnapshot
 	err := s.gate.WithMutation(ctx, func() error {
+		if s.disabled || s.transitions != 0 {
+			return ErrStaleEpoch
+		}
 		current, ok := s.sessions[sessionID]
 		if ok && current.user != userID {
 			return ErrInvalidEpochInput
@@ -92,6 +97,9 @@ func (s *EpochService) Admit(ctx context.Context, snapshot EpochSnapshot, revali
 		return ErrInvalidEpochInput
 	}
 	return s.gate.WithAdmission(ctx, func() error {
+		if s.disabled || s.transitions != 0 {
+			return ErrStaleEpoch
+		}
 		current, ok := s.sessions[snapshot.SessionID]
 		if !ok || current.user != snapshot.UserID || current.generation != snapshot.AuthGeneration || s.security != snapshot.SecurityGeneration {
 			return ErrStaleEpoch

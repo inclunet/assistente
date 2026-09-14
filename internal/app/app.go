@@ -18,6 +18,7 @@ import (
 	"assistente/internal/apidto"
 	"assistente/internal/auth"
 	"assistente/internal/chat"
+	"assistente/internal/commandsecurity"
 	"assistente/internal/connstatus"
 	"assistente/internal/contextprovider"
 	"assistente/internal/conversation"
@@ -110,6 +111,9 @@ type App struct {
 	httpAPIServer     *http.Server
 	authMu            sync.RWMutex
 	authSessionMu     sync.Mutex
+	commandEpochsOnce sync.Once
+	commandEpochs     *commandsecurity.EpochService
+	commandEpochsErr  error
 	currentUserID     string
 	currentAuthUser   *AuthUser
 	authKeyringLoad   func() (string, error)

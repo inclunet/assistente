@@ -2081,8 +2081,8 @@ modifica `VerifyAccessToken`, middleware externo nem o login vigente. O teste
 `TestAuthenticatedRequestUsesSessionIdentityAndRejectsLogout` usa sessão/JWT,
 Manager e ledger reais em armazenamento de teste: deriva ownership no backend
 e recusa nova reserva após logout mesmo com assinatura JWT ainda válida.
-Esta leitura não é autorização nem elimina corridas após retornar: coordenação
-de revogações com DispatchGate, EpochService e conexão ao host ainda faltam.
+Esta leitura não é autorização nem elimina corridas após retornar: todas as
+origens de revogação ainda precisam participar da coordenação do host.
 
 `commandsecurity.EpochService` fornece gerações locais em memória sobre um
 DispatchGate injetado: identidade aleatória de startup, contador sem reuso,
@@ -2094,10 +2094,10 @@ global torna todos os snapshots anteriores obsoletos. Overflow falha fechado.
 Testes verificam o lock durante revalidação/handoff e liberação após retorno.
 O teste integrado de identidade usa essas gerações e consulta SessionService
 sob Admit: logout recusa handoff mesmo antes da invalidação observada do epoch.
-Não existe wiring de logout/lock/troca de principal do aplicativo. Capture
+Capture
 não autentica, não representa estado locked e não deve readquirir um gate já
-detido. Coordenação das mutações reais com o gate, lifecycle/limpeza das sessões
-e suporte system/external/job continuam pendentes; nenhuma execução real é
+detido. Lifecycle/limpeza de sessões fora das transições e suporte
+system/external/job continuam pendentes; nenhuma execução real é
 habilitada por este incremento.
 
 `MutateSession`, `MutatePrincipal` e `MutateSecurity` coordenam uma mutação
@@ -2109,8 +2109,23 @@ aguardar interação, rede ou conclusão de handlers. O teste de sessão/ledger
 agora também executa `SessionService.Logout` dentro de MutatePrincipal; snapshots
 anteriores são recusados por staleness e o token revogado não reserva novamente.
 Teste concorrente verifica exclusão durante a mutação e recusa do snapshot
-antigo na admissão. O ponto de integração existe, mas os handlers de logout,
-lock/unlock e troca de principal do aplicativo ainda não foram conectados.
+antigo na admissão.
+
+`BeginTransition` acrescenta uma barreira para operações longas: invalida todos
+os snapshots e impede Capture/Admit enquanto houver transições abertas, sem
+manter o gate durante I/O ou parada de runtimes. Encerramentos são idempotentes,
+aninháveis e independentes do cancelamento da operação. Exaustão de gerações
+desabilita novas admissões permanentemente naquela instância.
+O App mantém uma instância inicializada sob demanda por sync.Once e chama a
+barreira em Login, RefreshAuth, Logout, rollbackLoginState, SetupVault e
+UnlockVault. A política inicial é conservadora: inclusive refresh e tentativas
+de autenticação que falham invalidam snapshots de comandos. O retorno legado
+dessas operações é preservado; falha de inicialização deixa comandos indisponíveis,
+sem impedir o logout existente. A ordem é authSessionMu (quando aplicável),
+gate e authMu; callbacks de admissão não podem adquirir authSessionMu.
+Testes focados do App verificam os hooks em falhas precoces e Logout real com
+sessão SQLite e keychain substituído por callbacks de teste. Permanecem pendentes
+outras origens de revogação, bloqueio do SO, executor e refinamento do refresh.
 
 Esta projeção não cobre comandos com argumentos, providers,
 receipts, delegação ou eventos e não habilita o executor de produto.
