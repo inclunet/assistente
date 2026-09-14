@@ -71,6 +71,11 @@ são oferecidas ao modelo enquanto aquele skill estiver ativo. Assim o modelo n�
 tenta usar uma tool que o skill bloqueia — antes ela era oferecida e só rejeitada
 na hora de executar. O bloqueio de execução permanece como salvaguarda adicional.
 
+Esse mesmo escopo também alinha as instruções do system prompt às tools
+disponíveis: se o skill remove o `tool_catalog` (ou todas as tools iniciais), o
+protocolo de seleção catalog-first deixa de instruir o uso do catálogo, evitando
+que o prompt peça uma tool que já não está mais disponível no turno.
+
 ## Sub-agentes
 
 A tool `subagent` delega trabalho especializado, paralelizável, longo ou que se

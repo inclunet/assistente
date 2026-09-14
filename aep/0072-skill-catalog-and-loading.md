@@ -164,6 +164,17 @@ gerando falhas repetidas com `invalid_args`. O escopo é LOCAL/builtin; a
 allowlist de MCP nativo (`filterToolNamesForNativeMCPAllowlist`) é outro conceito
 e não é afetada.
 
+O mesmo escopo é aplicado ao **system prompt** para manter coerência prompt↔defs.
+Quando a skill é efetivamente injetada no turno (mesma condição que "commita" o
+`invokedExecutionContext` usado pelas defs em `send_message`), o
+`PrepareMessages` reprojeta os campos de seleção de tools do `TemplateData`
+(`EnabledTools`, `ToolCallingEnabled`, `ImplicitToolSelectionUnavailable`) via
+`prompt.Builder.ApplySkillToolScope`, reusando `AllowedTools/DeniedTools`. Com
+isso, o Context Provider `tool_protocol` (protocolo catalog-first) reflete o
+conjunto realmente disponível: se a skill remove `tool_catalog` (ou todas as
+preloaded), o prompt deixa de instruir o uso do catálogo, em vez de mandar o
+modelo chamar uma tool que já foi retirada das definitions do turno.
+
 ### D6. Carregamento sob demanda é explícito no runtime
 
 Quando uma skill listada no catálogo é ativada, o runtime deve carregar o corpo completo de forma explícita e observável no turno.
@@ -276,6 +287,14 @@ Consequência para esta AEP: nenhuma fase posterior deve recolocar memória, wor
   `internal/core/usecases/send_message.go` (fiação a partir do
   `ExecutionContext`) e regressões em
   `internal/chat/tool_skill_scope_test.go`.
+- Coerência prompt↔defs sob escopo de skill (D5, refinamento de 2026-09-14):
+  `internal/prompt/builder.go` (`ApplySkillToolScope`),
+  `internal/chat/interactor.go` (`PrepareMessages` reprojeta o `TemplateData` e
+  reconstrói o bloco `tool_protocol` quando a skill é injetada) e regressões em
+  `internal/prompt/builder_test.go` (casos catalog-first com `tool_catalog`
+  bloqueada/permitida) e `internal/chat/interactor_test.go`
+  (`TestPrepareMessagesDropsCatalogProtocolWhenSkillBlocksCatalog`,
+  `TestPrepareMessagesKeepsCatalogProtocolWhenSkillAllowsCatalog`).
 
 ## Registro do plano implementado
 

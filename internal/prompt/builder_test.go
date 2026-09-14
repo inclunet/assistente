@@ -756,6 +756,96 @@ func TestBuild_CatalogFirst_NotActiveWhenToolCallingDisabled(t *testing.T) {
 	}
 }
 
+func TestApplySkillToolScope_BlockingCatalog_KeepsPromptAndDefsCoherent(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: tools.ToolCatalogName})
+	_ = reg.Register(&fakeTool{name: "read_file"})
+	_ = reg.Register(&fakeTool{name: "memory"})
+	profile := &profiles.Profile{} // catalog-first (EnabledTools nil)
+	b := &prompt.Builder{Tools: reg}
+
+	base := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	if !base.ToolCallingEnabled || len(base.EnabledTools) != 1 || base.EnabledTools[0] != tools.ToolCatalogName {
+		t.Fatalf("esperava catalog-first sem escopo de skill, got %+v", base)
+	}
+	if sys := buildSystemPromptForSkills(b, nil, false, base); !strings.Contains(sys, "<tool_selection_protocol>") {
+		t.Fatal("esperava protocolo catalog-first sem escopo de skill")
+	}
+
+	// Skill allowlist que NÃO inclui tool_catalog: a tool sai das definitions e o
+	// prompt não pode continuar instruindo o uso do catálogo.
+	scoped := b.ApplySkillToolScope(base, []string{"read_file", "memory"}, nil)
+	if scoped.ToolCallingEnabled {
+		t.Fatalf("com tool_catalog bloqueada e demais on_demand não deveria haver tools iniciais: %+v", scoped)
+	}
+	for _, name := range scoped.EnabledTools {
+		if name == tools.ToolCatalogName {
+			t.Fatal("tool_catalog não deveria aparecer no prompt sob escopo do skill")
+		}
+	}
+	if sys := buildSystemPromptForSkills(b, nil, false, scoped); strings.Contains(sys, "<tool_selection_protocol>") {
+		t.Fatal("prompt não deve instruir catalog-first quando o skill bloqueia tool_catalog")
+	}
+
+	// Coerência com as definitions: sob o mesmo escopo, o planner não expõe
+	// tool_catalog (nem as on_demand, que dependiam do catálogo agora bloqueado).
+	defs := chat.NewToolSelectionPolicy(reg).InitialToolDefs(chat.ProfileToolConfig{
+		SkillAllowedTools: []string{"read_file", "memory"},
+	})
+	for _, def := range defs {
+		if def.Function.Name == tools.ToolCatalogName {
+			t.Fatal("tool_catalog não deveria aparecer nas definitions sob escopo do skill")
+		}
+	}
+}
+
+func TestApplySkillToolScope_DenylistCatalog_DropsProtocol(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: tools.ToolCatalogName})
+	_ = reg.Register(&fakeTool{name: "read_file"})
+	profile := &profiles.Profile{}
+	b := &prompt.Builder{Tools: reg}
+
+	base := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	scoped := b.ApplySkillToolScope(base, nil, []string{tools.ToolCatalogName})
+	if scoped.ToolCallingEnabled {
+		t.Fatalf("denylist de tool_catalog deveria esvaziar a seleção catalog-first: %+v", scoped)
+	}
+	if sys := buildSystemPromptForSkills(b, nil, false, scoped); strings.Contains(sys, "<tool_selection_protocol>") {
+		t.Fatal("prompt não deve instruir catalog-first quando o skill nega tool_catalog")
+	}
+}
+
+func TestApplySkillToolScope_AllowingCatalog_KeepsProtocol(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: tools.ToolCatalogName})
+	_ = reg.Register(&fakeTool{name: "read_file"})
+	profile := &profiles.Profile{}
+	b := &prompt.Builder{Tools: reg}
+
+	base := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	scoped := b.ApplySkillToolScope(base, []string{tools.ToolCatalogName, "read_file"}, nil)
+	if len(scoped.EnabledTools) != 1 || scoped.EnabledTools[0] != tools.ToolCatalogName {
+		t.Fatalf("allowlist com tool_catalog deve preservar o catálogo preloaded: %+v", scoped)
+	}
+	if sys := buildSystemPromptForSkills(b, nil, false, scoped); !strings.Contains(sys, "<tool_selection_protocol>") {
+		t.Fatal("prompt deve manter o protocolo catalog-first quando o skill permite tool_catalog")
+	}
+}
+
+func TestApplySkillToolScope_NoScope_IsNoOp(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: tools.ToolCatalogName})
+	profile := &profiles.Profile{}
+	b := &prompt.Builder{Tools: reg}
+
+	base := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	scoped := b.ApplySkillToolScope(base, nil, nil)
+	if scoped.ToolCallingEnabled != base.ToolCallingEnabled || len(scoped.EnabledTools) != len(base.EnabledTools) {
+		t.Fatalf("sem escopo de skill, ApplySkillToolScope deve ser no-op: base=%+v scoped=%+v", base, scoped)
+	}
+}
+
 func TestBuild_CatalogFirst_CoexistsWithSkills(t *testing.T) {
 	b := &prompt.Builder{
 		Skills: &mockSkillReader{
