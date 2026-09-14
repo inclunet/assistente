@@ -448,19 +448,33 @@ export function startChatEventController({
       childCount: 0,
     }) as MessageNode;
     adapter.patchConversation(conversationId, (conversation) => {
-      let replaced = false;
-      const threadedMessages = conversation.threadedMessages.map((node) => {
+      const matchingNodes = conversation.threadedMessages.filter((node) => {
         const sameTurn = node.message.role === 'assistant' && node.message.turnId === patch.message.turnId;
         const sameMessage = node.message.id === patch.message.id;
-        if (!sameTurn && !sameMessage) return node;
+        return sameTurn || sameMessage;
+      });
+      const mergedChildren = Array.from(new Map(
+        matchingNodes.flatMap((node) => node.children ?? [])
+          .map((child) => [child.message.id, child]),
+      ).values());
+      const unloadedChildren = matchingNodes.reduce(
+        (total, node) => total + Math.max(0, (node.childCount ?? 0) - (node.children?.length ?? 0)),
+        0,
+      );
+      let replaced = false;
+      const threadedMessages = conversation.threadedMessages.flatMap((node) => {
+        const sameTurn = node.message.role === 'assistant' && node.message.turnId === patch.message.turnId;
+        const sameMessage = node.message.id === patch.message.id;
+        if (!sameTurn && !sameMessage) return [node];
+        if (replaced) return [];
         replaced = true;
-        return new chat.MessageNode({
+        return [new chat.MessageNode({
           message: persistedMessage,
-          children: node.children,
+          children: mergedChildren,
           level: node.level,
-          childCount: node.childCount,
+          childCount: mergedChildren.length + unloadedChildren,
           originalIndex: node.originalIndex,
-        }) as MessageNode;
+        }) as MessageNode];
       });
       return {
         ...conversation,

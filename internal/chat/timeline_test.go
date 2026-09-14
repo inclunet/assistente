@@ -374,6 +374,41 @@ func TestConsolidateTimelineTurnPendingPreservaResultadoL1(t *testing.T) {
 	if got := result.Segments[0].ToolCalls[0].Result; got != "RESULTADO-L1" {
 		t.Fatalf("ledger sobrescreveu L1 autoritativo em pending: %q", got)
 	}
+	call := result.Segments[0].ToolCalls[0]
+	if call.OutputBytes != int64(len("RESULTADO-L1")) ||
+		!strings.Contains(call.OutputPreview, `"bytes"`) ||
+		strings.Contains(call.OutputPreview, "RESULTADO-L1") {
+		t.Fatalf("fallback pending não gerou preview estrutural seguro: %+v", call)
+	}
+}
+
+func TestConsolidateTimelineTurnPendingProjetaL3SemExporValores(t *testing.T) {
+	turnID := "turn-l3-pending"
+	result := ConsolidateTimelineTurnLedgerFirst([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-l3"},
+			Role:      "assistant",
+			TurnID:    &turnID,
+			ToolCalls: `[{"id":"call-l3","type":"function","function":{"name":"search","arguments":"{\"secret\":\"valor-input\"}"}}]`,
+		},
+		{
+			UUIDModel:  database.UUIDModel{ID: "tool-l1"},
+			Role:       "tool",
+			TurnID:     &turnID,
+			ToolCallID: "call-l3",
+			Content:    `{"content":"valor-output"}`,
+		},
+	}, nil, true)
+
+	if len(result.Segments) != 1 || len(result.Segments[0].ToolCalls) != 1 {
+		t.Fatalf("segmentos legados inesperados: %+v", result.Segments)
+	}
+	call := result.Segments[0].ToolCalls[0]
+	if call.HasDetails || call.InputBytes == 0 || call.OutputBytes == 0 ||
+		strings.Contains(call.InputPreview, "valor-input") ||
+		strings.Contains(call.OutputPreview, "valor-output") {
+		t.Fatalf("projeção legada expôs valor ou perdeu metadados: %+v", call)
+	}
 }
 
 func TestConsolidateTimelineTurn_AttachesInvocationByAssistantMessageID(t *testing.T) {

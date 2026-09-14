@@ -1225,10 +1225,13 @@ describe('chatEventController', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     const transientAssistant = createMessage('backend-assistant', 'assistant', 'temporária');
     transientAssistant.turnId = 'turn-1';
+    const duplicateAssistant = createMessage('assistant-iteration-2', 'assistant', 'outra iteração');
+    duplicateAssistant.turnId = 'turn-1';
     const legacyTool = createMessage('legacy-tool', 'tool', 'resultado legado');
     legacyTool.turnId = 'turn-1';
     sessions['conversation-1'].conversation!.threadedMessages = [
       createNode(transientAssistant),
+      createNode(duplicateAssistant),
       createNode(legacyTool),
     ];
 
@@ -1259,11 +1262,13 @@ describe('chatEventController', () => {
             { type: 'text', content: 'vou consultar' },
             {
               type: 'tool_calls',
-              toolCalls: [{
-                id: 'call-1',
-                type: 'function',
-                function: { name: 'update_plan', arguments: '{}' },
-                result: '{"updated":true}',
+              toolInvocations: [{
+                invocationId: 'inv-1',
+                callId: 'call-1',
+                name: 'update_plan',
+                status: 'succeeded',
+                hasDetails: true,
+                resultAvailability: 'available',
               }],
             },
             { type: 'text', content: 'resposta final' },

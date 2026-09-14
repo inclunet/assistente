@@ -117,6 +117,8 @@ func toolCallToTurnSegmentToolCall(call map[string]interface{}) TurnSegmentToolC
 	serverLabel, _ := call["server_label"].(string)
 	iteration := intFromToolCallField(call["iteration"])
 	durationMs := int64FromToolCallField(call["duration_ms"])
+	inputPreview := legacyToolPayloadPreview(args)
+	outputPreview := legacyToolPayloadPreview(result)
 	return TurnSegmentToolCall{
 		ID:                 id,
 		Name:               name,
@@ -128,9 +130,31 @@ func toolCallToTurnSegmentToolCall(call map[string]interface{}) TurnSegmentToolC
 		Status:             legacyToolCallStatus(result),
 		Iteration:          iteration,
 		DurationMs:         durationMs,
+		InputPreview:       inputPreview,
+		OutputPreview:      outputPreview,
+		InputBytes:         int64(len(args)),
+		OutputBytes:        int64(len(result)),
 		HasDetails:         false,
 		ResultAvailability: legacyToolResultAvailability(result),
 	}
+}
+
+func legacyToolPayloadPreview(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	preview := map[string]interface{}{"bytes": len(raw)}
+	var object map[string]json.RawMessage
+	if json.Unmarshal([]byte(raw), &object) == nil {
+		fields := make([]string, 0, len(object))
+		for field := range object {
+			fields = append(fields, field)
+		}
+		sort.Strings(fields)
+		preview["fields"] = fields
+	}
+	encoded, _ := json.Marshal(preview)
+	return string(encoded)
 }
 
 func legacyToolCallStatus(result string) string {
@@ -233,6 +257,8 @@ func normalizeInvocationToolCalls(calls []TurnSegmentToolCall, toolResults map[s
 		}
 		if result, ok := toolResults[call.ID]; ok && strings.TrimSpace(result) != "" {
 			call.Result = result
+			call.OutputPreview = legacyToolPayloadPreview(result)
+			call.OutputBytes = int64(len(result))
 		}
 		if call.Status == "" || (call.Status == "unknown" && strings.TrimSpace(call.Result) != "") {
 			call.Status = legacyToolCallStatus(call.Result)
@@ -284,6 +310,8 @@ func appendMissingFallbackToolCalls(calls []TurnSegmentToolCall, toolResults map
 			Function:           TurnSegmentToolFunction{Name: "tool_result", Arguments: ""},
 			Result:             toolResults[callID],
 			Status:             "succeeded",
+			OutputPreview:      legacyToolPayloadPreview(toolResults[callID]),
+			OutputBytes:        int64(len(toolResults[callID])),
 			ResultAvailability: "available",
 		})
 	}
@@ -577,6 +605,8 @@ func consolidateTimelineTurn(messages []Message, invocationToolResults map[strin
 				Type:               "function",
 				Function:           TurnSegmentToolFunction{Name: "tool_result"},
 				Status:             "succeeded",
+				OutputPreview:      legacyToolPayloadPreview(result),
+				OutputBytes:        int64(len(result)),
 				ResultAvailability: "available",
 			})
 		}
