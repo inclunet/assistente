@@ -6,8 +6,40 @@ empilhadas e não deve ser antecipada manualmente em bancos de usuário.
 ## Estados
 
 - `pending`: schema aditivo presente e backfill ainda incompleto;
-- `backfilled`: legado representado e validado no ledger;
+- `backfilled`: histórico legado representado e validado no ledger; a escrita
+  de compatibilidade permanece até a fase 3;
 - `canonical`: schema legado removido; rollback exige restaurar backup.
+
+## Backfill aditivo (schema v18)
+
+O primeiro boot após a v18 cria vínculos explícitos de conversa/turno,
+tentativa, snapshot, previews estruturais sem valores, tamanhos, hashes e
+proveniência. Conversas e runs são processados em lotes de até 100 estados,
+cada recurso em sua própria transação. O checkpoint combina a última chave
+processada com o maior `updated_at` legado observado.
+
+Reiniciar é seguro: recursos `backfilled` não são refeitos. Owner vazio, JSON
+inválido, associação duplicada ou diferença de hash mantêm o recurso
+`pending`, sem apagar o legado. Catálogos históricos ausentes viram entradas
+`archival` user-scoped e indisponíveis para execução.
+
+Até a entrega da escrita exclusiva, todo boot repete a varredura idempotente
+mesmo se a v18 já constar no registro. Isso cobre legado criado no intervalo
+entre os deploys das fases 2 e 3.
+
+Para diagnóstico somente leitura:
+
+```sql
+SELECT state, COUNT(*) AS resources,
+       SUM(legacy_rows) AS legacy_rows,
+       SUM(ledger_rows) AS ledger_rows,
+       SUM(ambiguous_count) AS ambiguities
+  FROM tool_ledger_migration_states
+ GROUP BY state;
+```
+
+Não altere estados manualmente. Corrija ownership/ambiguidade e reinicie o app;
+a v18 pendente é retomada automaticamente.
 
 ## Baseline
 
