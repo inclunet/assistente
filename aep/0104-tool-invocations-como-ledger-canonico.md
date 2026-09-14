@@ -105,9 +105,12 @@ O banco mantém estado explícito por conversa/run:
 - `canonical`: leitores legados estão proibidos e o schema físico foi
   reconstruído.
 
-Estados só avançam. Ambiguidade, owner vazio, JSON inválido sem representação
-segura ou diferença de hash bloqueiam o avanço e produzem diagnóstico sem
-payload.
+Estados avançam monotonicamente quando o conjunto legado não muda. Durante a
+janela transitória entre as fases 2 e 3, uma nova escrita legada invalida a
+prova anterior: o recurso volta de `backfilled` para `pending` até o backfill
+incremental conferir o novo conjunto. Ambiguidade, owner vazio, JSON inválido
+sem representação segura ou diferença de hash bloqueiam o avanço e produzem
+diagnóstico sem payload.
 
 ### D6 — Backfill retomável e idempotente
 

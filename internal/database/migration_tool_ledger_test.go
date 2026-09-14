@@ -668,4 +668,23 @@ func TestToolLedgerBackfillContinuoCapturaLegadoCriadoAposV18(t *testing.T) {
 	if got := queryCount(t, database, "SELECT COUNT(*) FROM tool_invocations WHERE conversation_id = ?", conversation.ID); got != 2 {
 		t.Fatalf("terceiro boot duplicou ledger: %d", got)
 	}
+	turnID := secondMessage.ID
+	resultTime := later.Add(time.Minute)
+	results := []ChatMessage{
+		{UUIDModel: UUIDModel{ID: "ledger-after-v18-result-a", CreatedAt: resultTime, UpdatedAt: resultTime}, ConversationID: conversation.ID, TurnID: &turnID, Role: "tool", ToolCallID: "after-v18-call-2", Content: "A"},
+		{UUIDModel: UUIDModel{ID: "ledger-after-v18-result-b", CreatedAt: resultTime, UpdatedAt: resultTime}, ConversationID: conversation.ID, TurnID: &turnID, Role: "tool", ToolCallID: "after-v18-call-2", Content: "B"},
+	}
+	if err := database.Create(&results).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateToolLedgerBackfill(database); !errors.Is(err, errMigrationDeferred) {
+		t.Fatalf("novo legado ambíguo deveria reabrir estado: %v", err)
+	}
+	var state ToolLedgerMigrationState
+	if err := database.Where("resource_id = ?", conversation.ID).First(&state).Error; err != nil {
+		t.Fatal(err)
+	}
+	if state.State != toolLedgerStatePending || state.LastErrorCode != "duplicate_tool_result" {
+		t.Fatalf("prova anterior não foi invalidada: %+v", state)
+	}
 }

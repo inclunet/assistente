@@ -25,7 +25,8 @@ inválido, associação duplicada ou diferença de hash mantêm o recurso
 
 Até a entrega da escrita exclusiva, todo boot repete a varredura idempotente
 mesmo se a v18 já constar no registro. Isso cobre legado criado no intervalo
-entre os deploys das fases 2 e 3.
+entre os deploys das fases 2 e 3. Uma nova linha reabre a prova do recurso; se
+ela for ambígua ou divergente, o estado volta a `pending`.
 
 Para diagnóstico somente leitura:
 

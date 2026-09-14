@@ -156,6 +156,8 @@ func migrateToolLedgerBackfill(database *gorm.DB) error {
 				state.LegacyHighWatermark = report.LegacyHighWatermark
 				if report.AmbiguousCount == 0 && report.LastErrorCode == "" {
 					state.State = toolLedgerStateBackfilled
+				} else {
+					state.State = toolLedgerStatePending
 				}
 				return tx.Save(&state).Error
 			})
