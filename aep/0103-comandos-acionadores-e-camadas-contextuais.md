@@ -1944,8 +1944,10 @@ Incrementos isolados adicionais (sem conexão ao dispatcher):
 
 - `internal/commandcontext`: comparação de versões exatas e validade temporal
   dos fatos capturados. A autenticidade dos snapshots é pré-condição do host;
-  o helper não implementa providers, `VersionService`, fingerprint, autorização
-  nem revalidação atômica sob `DispatchGate`.
+  `VersionService` registra providers injetados, captura fatos exigidos e
+  calcula uma identidade contextual determinística de provider/fato/versão.
+  Não implementa os providers reais do aplicativo, fingerprint de request
+  RFC 8785, autorização ou revalidação atômica sob `DispatchGate`.
 - `Configuration.WithoutDeltas`: restauração seletiva em um novo snapshot de
   memória, preservando as personalizações não removidas e seus ajustes de
   revisão. Não representa restore transacional no SQLite ou por camada.
@@ -1964,6 +1966,39 @@ e 90,2%, respectivamente. Build e vet gerais também passaram. Os percentuais
 medem instruções instrumentadas dos pacotes, não progresso do AEP.
 Continuam pendentes a suíte geral verde, o detector de corrida com compilador C,
 lint v2 e revisão Bugbot antes de push.
+
+#### Integração inicial de diagnóstico (sem execução)
+
+`internal/commandpreflight.Service.Inspect` conecta configuração de bindings,
+catálogo e `VersionService` num fluxo interno restrito à origem teclado local.
+O host injetado deve autenticar cada consulta e fornecer snapshots estáveis do
+mesmo escopo de usuário/sessão dos providers. A entrada contém somente o
+acionador normalizado; não escolhe usuário, origem, fatos ou permissões.
+O serviço recusa contratos fora do subconjunto de leitura sem interação e sem
+mutabilidade, revalida fatos, reconsulta o host e verifica novamente o TTL ao
+final. Mudança de sessão, configuração ou contexto recusa o diagnóstico sem
+resultado parcial.
+
+`read_checks_passed` não é autorização nem token de despacho. `would_suppress`
+é uma simulação que não consome a tecla nem cria marcador terminal. Não existe
+rota de handler, invocação ou endpoint Wails nesta integração. Argumentos,
+disponibilidade completa, autorização, receipts, ledger/auditoria duráveis e
+gerações de segurança reais precisam existir antes de habilitar execução.
+O teste de integração usa comando e providers de teste, não comando registrado
+no produto. Os atalhos atuais permanecem intactos.
+
+`internal/commandsecurity.DispatchGate` fornece o primitivo de admissão
+compartilhada/mutação exclusiva, sem conectá-lo a logout ou handlers ainda.
+O handoff não bloqueante deverá ocorrer dentro do gate; aguardar trabalho
+longo ocorre fora. A espera pelo RWMutex não é cancelável imediatamente: o
+cancelamento é observado antes e depois de adquirir o lock.
+
+Os testes de integração cobrem leitura, recusa de escrita, contexto alterado,
+logout/troca de usuário ou sessão, geração modificada, erro final sem resultado
+parcial, snapshots equivalentes reconstruídos e TTL vencido durante a consulta
+do host. Testes focados dos pacotes envolvidos, build e vet gerais passaram.
+Essa evidência não substitui o ledger durável, validação NVDA, suíte geral verde
+ou revisão Bugbot; nenhum critério de execução ponta a ponta está concluído.
 
 Incremento inicial: `internal/commandcatalog` contém um snapshot imutável dos
 contratos estáticos de comando, com IDs exatos e namespaced, efeitos,
