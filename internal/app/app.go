@@ -18,6 +18,7 @@ import (
 	"assistente/internal/apidto"
 	"assistente/internal/auth"
 	"assistente/internal/chat"
+	"assistente/internal/commandexecution"
 	"assistente/internal/commandsecurity"
 	"assistente/internal/connstatus"
 	"assistente/internal/contextprovider"
@@ -114,6 +115,7 @@ type App struct {
 	commandEpochsOnce sync.Once
 	commandEpochs     *commandsecurity.EpochService
 	commandEpochsErr  error
+	commandHost       *commandexecution.HostState // protegido por authMu; bootstrap serializado
 	currentUserID     string
 	currentAuthUser   *AuthUser
 	authKeyringLoad   func() (string, error)

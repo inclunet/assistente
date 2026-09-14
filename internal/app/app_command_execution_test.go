@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandbindings"
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandledger"
@@ -82,9 +83,45 @@ func TestCommandExecutionAppUsesInstanceKeyAndRejectsLogout(t *testing.T) {
 			return commandexecution.ExecutionHandle{ID: "fixture", Done: done, Cancel: func() {}}, nil
 		}}},
 	}
-	service, err := app.newCommandReadExecutor(config)
+	epochs, err := app.commandSecurityService()
 	if err != nil {
 		t.Fatal(err)
+	}
+	state, err := commandexecution.NewHostState(epochs, config.RegistryVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := commandbindings.NewConfiguration(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.PublishUserConfiguration(ctx, user.ID, bindings); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetVaultUnlocked(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	service, err := app.newCommandReadExecutor(config, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alternate, err := commandexecution.NewHostState(epochs, config.RegistryVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.newCommandReadExecutor(config, alternate); !errors.Is(err, commandexecution.ErrInvalidConfiguration) {
+		t.Fatal("segundo estado substituiu host instalado", err)
+	}
+	foreignEpochs, err := (&App{}).commandSecurityService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := commandexecution.NewHostState(foreignEpochs, config.RegistryVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.newCommandReadExecutor(config, foreign); !errors.Is(err, commandexecution.ErrInvalidConfiguration) {
+		t.Fatal("host com outro gate foi aceito", err)
 	}
 	request := commandexecution.Request{InvocationID: uuid.Must(uuid.NewV7()).String(), CorrelationID: uuid.Must(uuid.NewV7()).String(), CommandID: "fixture.read"}
 	if _, err := service.Execute(ctx, pair.AccessToken, request); !errors.Is(err, commandledger.ErrFingerprintKeyUnavailable) {
@@ -94,10 +131,25 @@ func TestCommandExecutionAppUsesInstanceKeyAndRejectsLogout(t *testing.T) {
 	if err := manager.RegisterInstanceSecret("internal-auth:command-request-hmac:v1", base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{6}, 32))); err != nil {
 		t.Fatal(err)
 	}
+	// O callback permissivo de Config não pode substituir o HostState do App.
+	lockedRequest := request
+	lockedRequest.InvocationID = uuid.Must(uuid.NewV7()).String()
+	locked, err := service.Execute(ctx, pair.AccessToken, lockedRequest)
+	if err != nil || locked.Status != commandledger.CancelledStale {
+		t.Fatal("OS desconhecido foi admitido", locked, err)
+	}
+	select {
+	case <-started:
+		t.Fatal("Start sem estado do SO")
+	default:
+	}
+	if err := state.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
 	result := make(chan error, 1)
 	go func() {
 		record, err := service.Execute(ctx, pair.AccessToken, request)
-		if err == nil && record.Status != commandledger.Succeeded {
+		if err == nil && record.Status != commandledger.OutcomeUnknown {
 			err = errors.New("resultado incorreto")
 		}
 		result <- err
@@ -118,7 +170,6 @@ func TestCommandExecutionAppUsesInstanceKeyAndRejectsLogout(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("logout bloqueado pelo handler")
 	}
-	done <- commandexecution.Outcome{Status: commandledger.Succeeded}
 	select {
 	case err := <-result:
 		if err != nil {
@@ -126,6 +177,10 @@ func TestCommandExecutionAppUsesInstanceKeyAndRejectsLogout(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("execução não concluiu")
+	}
+	done <- commandexecution.Outcome{Status: commandledger.Succeeded} // Resultado tardio não reabre invocação.
+	if _, _, err := state.UserConfiguration(ctx, user.ID); err == nil {
+		t.Fatal("logout reteve mapa do usuário")
 	}
 	if _, err := service.Execute(ctx, pair.AccessToken, request); err == nil {
 		t.Fatal("replay após logout autorizado")
@@ -138,7 +193,7 @@ func TestCommandExecutionAppUsesInstanceKeyAndRejectsLogout(t *testing.T) {
 }
 
 func TestCommandExecutionAppDoesNotBootstrapMissingDependencies(t *testing.T) {
-	if _, err := (&App{}).newCommandReadExecutor(commandexecution.Config{}); !errors.Is(err, commandexecution.ErrInvalidConfiguration) {
+	if _, err := (&App{}).newCommandReadExecutor(commandexecution.Config{}, nil); !errors.Is(err, commandexecution.ErrInvalidConfiguration) {
 		t.Fatal(err)
 	}
 }

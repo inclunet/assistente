@@ -196,8 +196,15 @@ func (s *Service) Execute(ctx context.Context, token string, request Request) (r
 			record, err = s.finish(p, state, to)
 		}
 	}()
-	admit := func(from, to commandledger.Status, handoff func()) error {
-		return s.config.Epochs.Admit(ctx, p.epoch, func(ctx context.Context) error { return s.check(ctx, token, p) }, func() error {
+	var releaseExecution func()
+	defer func() {
+		if releaseExecution != nil {
+			releaseExecution()
+		}
+	}()
+	admit := func(from, to commandledger.Status, handoff func(context.Context)) error {
+		check := func(ctx context.Context) error { return s.check(ctx, token, p) }
+		commit := func(runCtx context.Context) error {
 			changed, err := s.config.Store.CompareAndSwap(ctx, p.request.Owner, p.request.InvocationID, from, to)
 			if err != nil {
 				return err
@@ -207,19 +214,27 @@ func (s *Service) Execute(ctx context.Context, token string, request Request) (r
 			}
 			state = to
 			if handoff != nil {
-				handoff()
+				handoff(runCtx)
 			}
 			return nil
-		})
+		}
+		if handoff == nil {
+			return s.config.Epochs.Admit(ctx, p.epoch, check, func() error { return commit(ctx) })
+		}
+		var err error
+		releaseExecution, err = s.config.Epochs.AdmitExecution(ctx, p.epoch, check, commit)
+		return err
 	}
 	if err := admit(commandledger.Evaluating, commandledger.Queued, nil); err != nil {
 		return s.failedAdmission(p, state, err)
 	}
 	var handle ExecutionHandle
 	var startErr error
-	if err := admit(commandledger.Queued, commandledger.Running, func() {
+	var executionCtx context.Context
+	if err := admit(commandledger.Queued, commandledger.Running, func(runCtx context.Context) {
 		enteredStart = true
-		handle, startErr = s.config.Handlers[p.invocation.CommandID].Start(ctx, p.invocation)
+		executionCtx = runCtx
+		handle, startErr = s.config.Handlers[p.invocation.CommandID].Start(runCtx, p.invocation)
 	}); err != nil {
 		return s.failedAdmission(p, state, err)
 	}
@@ -227,7 +242,7 @@ func (s *Service) Execute(ctx context.Context, token string, request Request) (r
 		safeCancel(handle.Cancel)
 		return s.finish(p, state, commandledger.OutcomeUnknown)
 	}
-	return s.finish(p, state, awaitOutcome(ctx, handle))
+	return s.finish(p, state, awaitOutcome(executionCtx, handle))
 }
 
 func protect(fn func() error) (err error) {

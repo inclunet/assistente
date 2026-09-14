@@ -126,7 +126,11 @@ func (a *App) SetupVault(masterPassword string) (string, error) {
 	if err := a.ensureAuthCoreServices(); err != nil {
 		return "", err
 	}
-	return a.vaultSvc.Setup(a.appContext(), masterPassword)
+	recovery, err := a.vaultSvc.Setup(a.appContext(), masterPassword)
+	if err == nil {
+		a.markCommandVaultUnlocked()
+	}
+	return recovery, err
 }
 
 func (a *App) UnlockVault(kind, secret string) error {
@@ -134,7 +138,11 @@ func (a *App) UnlockVault(kind, secret string) error {
 	if err := a.ensureAuthCoreServices(); err != nil {
 		return err
 	}
-	return a.vaultSvc.Unlock(a.appContext(), kind, secret)
+	err := a.vaultSvc.Unlock(a.appContext(), kind, secret)
+	if err == nil {
+		a.markCommandVaultUnlocked()
+	}
+	return err
 }
 
 func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
@@ -188,6 +196,7 @@ func (a *App) Login(req LoginRequest) (*AuthUser, error) {
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
 	defer a.beginCommandAuthTransition()()
+	a.resetCommandHostSession(false)
 
 	if err := a.ensureAuthCoreServices(); err != nil {
 		return nil, err
@@ -261,6 +270,7 @@ const rollbackLogoutTimeout = 2 * time.Second
 // e melhor-esforço: cada limpeza é tentada independentemente.
 func (a *App) rollbackLoginState(refreshToken string) {
 	defer a.beginCommandAuthTransition()()
+	a.resetCommandHostSession(true)
 	if a.sessionSvc != nil && refreshToken != "" {
 		ctx, cancel := context.WithTimeout(a.appContext(), rollbackLogoutTimeout)
 		err := a.sessionSvc.Logout(ctx, refreshToken)
@@ -397,6 +407,7 @@ func (a *App) Logout(req LogoutRequest) error {
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
 	defer a.beginCommandAuthTransition()()
+	a.resetCommandHostSession(true)
 
 	if err := a.ensureAuthCoreServices(); err != nil {
 		return err

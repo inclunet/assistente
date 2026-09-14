@@ -248,20 +248,23 @@ func TestServiceLogoutDuringHandleWaitReleasesGateAndDoesNotRepeatStart(t *testi
 		t.Fatal("logout ficou bloqueado: o handle deveria ser aguardado fora do DispatchGate")
 	}
 
-	done <- Outcome{Status: commandledger.Succeeded}
 	select {
 	case got := <-result:
-		if got.err != nil || got.record.Status != commandledger.Succeeded {
+		if got.err != nil || got.record.Status != commandledger.OutcomeUnknown {
 			t.Fatalf("resultado após logout: record=%+v err=%v", got.record, got.err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("Execute não concluiu após outcome explícito")
+		t.Fatal("Execute não concluiu após invalidação")
+	}
+	done <- Outcome{Status: commandledger.Succeeded} // Tardio: não pode sobrescrever terminal.
+	if f.record(t, request).Status != commandledger.OutcomeUnknown {
+		t.Fatal("outcome tardio alterou terminal")
 	}
 	if got := f.startCalls.Load(); got != 1 {
 		t.Fatalf("Start calls = %d, want 1", got)
 	}
-	if got := f.cancelCalls.Load(); got != 0 {
-		t.Fatalf("Cancel calls = %d, want 0 após outcome explícito", got)
+	if got := f.cancelCalls.Load(); got != 1 {
+		t.Fatalf("Cancel calls = %d, want 1 após invalidação", got)
 	}
 	var ledgers int64
 	if err := f.db.Table("command_idempotency_keys").Count(&ledgers).Error; err != nil {

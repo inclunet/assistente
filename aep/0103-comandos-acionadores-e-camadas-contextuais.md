@@ -2204,10 +2204,59 @@ existente. GetInvocation reautoriza sem criar reserva nem chamar handler, mas
 ainda exige request original e fingerprint reproduzível nas gerações atuais;
 consulta após mudança de gerações pode falhar como conflito, não reexecutar.
 Ainda faltam consulta histórica independente de versões, recusas auditadas para
-todo envelope não suportado, log de segurança pré-autenticação, propagação de
-invalidação para cancelar handles em andamento, fontes completas de lock/versões,
+todo envelope não suportado, log de segurança pré-autenticação, fontes completas
+de eventos autoritativos de lock/versões,
 provisionamento de chaves e registro de comandos/rotas de produto. Não se habilita
 auth.mode=external, atalhos, UI, receipts ou efeitos de escrita neste bloco.
+
+#### Estado do host e cancelamento por invalidação
+
+`EpochService.AdmitExecution` associa um contexto de execução ao snapshot dentro
+do mesmo gate compartilhado que revalida e entra em Start. A inscrição não tem
+janela após o handoff. Invalidação de sessão cancela apenas os contextos daquela
+sessão; mudança de segurança/principal e BeginTransition cancelam todos. A
+invalidação fecha apenas contextos internos, nunca chama Cancel do handler sob
+o gate. O executor observa esse cancelamento e chama Cancel fora do gate,
+persistindo outcome_unknown quando não houve confirmação conclusiva. Release
+idempotente remove a inscrição ao terminar; erro/panic de handoff também limpa
+a inscrição. Resultado tardio não sobrescreve o terminal. Isso não desfaz um
+efeito que já tenha começado.
+
+`MutateUserConfiguration` publica sob gate exclusivo e cancela execuções apenas
+do usuário afetado, sem alterar security_generation de outras contas. O
+callback deve avançar as gerações de configuração aplicáveis. Erro ou tentativa
+de publicação sem mudança efetiva pode cancelar conservadoramente execuções do
+próprio usuário; não reativa contexto já cancelado.
+
+`commandexecution.HostState` substitui versões inventadas pelo chamador na
+fábrica do App: mantém Configuration imutável, lista detached de camadas ativas e
+gerações globais por usuário. Gerações usam startup UUIDv7 e contador monotônico;
+overflow desabilita novas leituras do estado. ForgetUserConfiguration remove
+somente o snapshot em memória e republicação nunca reutiliza gerações.
+Snapshot usa mutex curto próprio, sem readquirir o DispatchGate. As mutações
+passam pelo EpochService da mesma instância; nenhuma conta recebe gerações de
+outra conta.
+
+O estado começa com cofre fechado e sessão do SO desconhecida. Só sinaliza
+Unlocked com cofre aberto E sessão do SO conhecida e desbloqueada; cofre aberto
+sozinho não libera comandos. Setters recebem fatos de adapters confiáveis, não
+de payload/UI. A fábrica exige HostState explícito com o mesmo EpochService e
+não aceita que Config.Snapshot substitua esse estado. A instalação no App é
+serializada e rejeita substituir a instância de HostState já instalada.
+
+Login descarta o mapa anterior (inclusive tentativa que falha); logout e
+rollback descartam mapa e marcam o cofre fechado. SetupVault/UnlockVault bem
+sucedidos e SetupMasterPassword atualizam a observação de cofre; o caminho
+legado de SetupMasterPassword também passa pela barreira de transição. Os
+retornos legados são preservados e nenhum desses hooks consulta keychain sob
+o gate. Testes de App verificam falhas precoces sem I/O real, remoção do mapa,
+republicação sem reuso de gerações e logout com cancelamento do executor.
+
+Pendente: adapter real de lock/unlock do Windows e seu bootstrap, reconstrução
+do mapa após desbloqueio do SO, publicação a partir da persistência real de
+bindings/claims e escopo por workspace. O estado do SO não é inferido da presença
+de uma sessão/JWT ou da disponibilidade do cofre; sem adapter registrado, o
+host continua fechado. Não há atalhos nem comandos de produto ativados.
 
 Incremento inicial: `internal/commandcatalog` contém um snapshot imutável dos
 contratos estáticos de comando, com IDs exatos e namespaced, efeitos,

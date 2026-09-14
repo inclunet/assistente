@@ -187,12 +187,14 @@ func (a *App) HasMasterKey() bool {
 // Após sucesso, o credential manager é reconfigurado com persistência ativada.
 // Pré-sessão: permanece no *App / UnauthenticatedAppMethods (AEP-0088).
 func (a *App) SetupMasterPassword(password string) (string, error) {
+	defer a.beginCommandAuthTransition()()
 	store := credentials.NewDBStore()
 	result, err := credentials.SetupMasterKeyAdoptingKeychain(store, password)
 	if err != nil {
 		return "", err
 	}
 	a.configureCredentialManager(result.DEK, true)
+	a.markCommandVaultUnlocked()
 	return result.RecoveryKey, nil
 }
 

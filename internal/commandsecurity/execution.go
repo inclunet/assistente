@@ -1,0 +1,70 @@
+package commandsecurity
+
+import (
+	"context"
+	"sync"
+)
+
+type executionWatch struct {
+	user    string
+	session string
+	cancel  context.CancelFunc
+}
+
+// AdmitExecution faz a mesma revalidação de Admit e associa ao handoff um
+// contexto cancelado por invalidação do epoch. A inscrição ocorre sob o gate,
+// sem janela antes de Start. O chamador deve deferir release após o retorno;
+// release é idempotente e nunca readquire o gate. Handoff não pode bloquear.
+// Invalidação cancela SOMENTE contextos internos: nunca chama Cancel do handler
+// nem aguarda efeitos sob o gate. Um efeito já iniciado não é desfeito.
+func (s *EpochService) AdmitExecution(ctx context.Context, snapshot EpochSnapshot, revalidate func(context.Context) error, handoff func(context.Context) error) (release func(), err error) {
+	if handoff == nil {
+		return nil, ErrInvalidEpochInput
+	}
+	err = s.Admit(ctx, snapshot, revalidate, func() error {
+		runCtx, cancel := context.WithCancel(ctx)
+		watch := &executionWatch{user: snapshot.UserID, session: snapshot.SessionID, cancel: cancel}
+		s.watchesMu.Lock()
+		if s.watches == nil {
+			s.watches = make(map[*executionWatch]struct{})
+		}
+		s.watches[watch] = struct{}{}
+		s.watchesMu.Unlock()
+		var once sync.Once
+		release = func() {
+			once.Do(func() {
+				s.watchesMu.Lock()
+				delete(s.watches, watch)
+				s.watchesMu.Unlock()
+				cancel()
+			})
+		}
+		accepted := false
+		defer func() {
+			if !accepted {
+				release()
+			}
+		}()
+		if err := handoff(runCtx); err != nil {
+			return err
+		}
+		accepted = true
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return release, nil
+}
+
+// Exige o gate exclusivo do chamador. Não executa callbacks de usuário.
+func (s *EpochService) cancelExecutions(session string, all bool) {
+	s.watchesMu.Lock()
+	defer s.watchesMu.Unlock()
+	for watch := range s.watches {
+		if all || watch.session == session {
+			watch.cancel()
+			delete(s.watches, watch)
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 
 	"github.com/google/uuid"
 )
@@ -27,6 +28,8 @@ type EpochService struct {
 	sessions    map[string]sessionEpoch
 	transitions uint64
 	disabled    bool
+	watchesMu   sync.Mutex
+	watches     map[*executionWatch]struct{}
 }
 
 func NewEpochService(gate *DispatchGate) (*EpochService, error) {
@@ -167,10 +170,34 @@ func (s *EpochService) mutate(ctx context.Context, userID, sessionID string, sec
 		if sessionID != "" {
 			delete(s.sessions, sessionID)
 		}
+		s.cancelExecutions(sessionID, security)
 		if action != nil {
 			return action()
 		}
 		return nil
+	})
+}
+
+// MutateUserConfiguration publica configuração sob o mesmo gate exclusivo,
+// sem invalidar a segurança global de usuários não afetados. O host deve
+// avançar as gerações do escopo alterado antes de publicar o snapshot. Não é
+// autorização nem transação de banco; callback curto e sem reentrada no gate.
+// Contextos de execução desse usuário são cancelados antes do callback, mesmo
+// se ele falhar; as demais contas permanecem intactas.
+func (s *EpochService) MutateUserConfiguration(ctx context.Context, userID string, action func() error) error {
+	if !s.valid() || action == nil || !epochID(userID) {
+		return ErrInvalidEpochInput
+	}
+	return s.gate.WithMutation(ctx, func() error {
+		s.watchesMu.Lock()
+		for watch := range s.watches {
+			if watch.user == userID {
+				watch.cancel()
+				delete(s.watches, watch)
+			}
+		}
+		s.watchesMu.Unlock()
+		return action()
 	})
 }
 
