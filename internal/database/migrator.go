@@ -264,6 +264,12 @@ var schemaMigrations = []migration{
 			return deferIfErr(ensureHydrationAndTaskListIndexes(database))
 		},
 	},
+	{
+		Version: 18,
+		Name:    "tool_invocations_canonical_backfill",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateToolLedgerBackfill,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

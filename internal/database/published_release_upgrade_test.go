@@ -159,7 +159,7 @@ func TestPublishedReleaseFixtureSchemasAreTraceable(t *testing.T) {
 func TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently(t *testing.T) {
 	expectedCounts := map[string]int{
 		"users": 2, "sessions": 1, "llm_providers": 2, "conversations": 4,
-		"chat_messages": 4, "memory_records": 2, "credential_entries": 2,
+		"chat_messages": 6, "memory_records": 2, "credential_entries": 2,
 		"task_lists": 2, "task_list_workflows": 2, "tasks": 4, "task_notes": 2,
 		"mcp_servers": 2, "mcp_server_logs": 2, "tool_catalog": 2,
 		"tool_invocations": 2, "tags": 2, "tag_assignments": 2, "job_pipelines": 2,
@@ -168,6 +168,11 @@ func TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently(t *testing.T) {
 		"channel_contact_conversations": 2, "channel_response_pending": 2,
 		"acp_sessions": 2, "sub_agent_runs": 2,
 	}
+	expectedAfterCounts := make(map[string]int, len(expectedCounts))
+	for table, count := range expectedCounts {
+		expectedAfterCounts[table] = count
+	}
+	expectedAfterCounts["tool_invocations"] = 4
 
 	for _, fixture := range publishedReleaseFixtures {
 		t.Run(fixture.version, func(t *testing.T) {
@@ -194,8 +199,29 @@ func TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently(t *testing.T) {
 			}
 			verifyPublishedFixtureData(t, database)
 			afterFirstBoot := populatedTableCounts(t, database)
-			if !reflect.DeepEqual(afterFirstBoot, expectedCounts) {
+			if !reflect.DeepEqual(afterFirstBoot, expectedAfterCounts) {
 				t.Fatalf("contagens mudaram no primeiro upgrade: %#v", afterFirstBoot)
+			}
+			if got := queryCount(t, database, `
+				SELECT COUNT(*)
+				  FROM tool_invocations
+				 WHERE origin_type = 'chat'
+				   AND conversation_id IS NOT NULL
+				   AND turn_id IS NOT NULL
+				   AND input_hash <> ''
+				   AND output_hash <> ''
+				   AND migration_provenance = ?`, toolLedgerMigrationProvenance); got != 2 {
+				t.Fatalf("backfill de chat publicado incompleto: %d", got)
+			}
+			if got := queryCount(t, database, `
+				SELECT COUNT(*)
+				  FROM tool_ledger_migration_states
+				 WHERE state = 'backfilled'
+				   AND ambiguous_count = 0
+				   AND last_error_code = ''
+				   AND legacy_input_digest = ledger_input_digest
+				   AND legacy_output_digest = ledger_output_digest`); got != 4 {
+				t.Fatalf("estados de backfill publicado incompletos: %d", got)
 			}
 
 			diagnostic, err := buildUpgradeDiagnostic(database)
@@ -302,14 +328,14 @@ func verifyPublishedFixtureData(t *testing.T, database *gorm.DB) {
 		  JOIN tool_catalog tool ON tool.id = invocation.tool_catalog_id
 		  JOIN mcp_servers server ON server.id = tool.mcp_server_id
 		 WHERE invocation.user_id = tool.user_id
-		   AND invocation.user_id = server.user_id`); got != 2 {
+		   AND invocation.user_id = server.user_id`); got != 4 {
 		t.Fatalf("relações MCP/tool não preservadas: %d", got)
 	}
 
 	userScoped := map[string]int{
 		"llm_providers": 1, "conversations": 2, "memory_records": 1,
 		"credential_entries": 1, "task_lists": 1, "task_notes": 1,
-		"mcp_servers": 1, "tool_catalog": 1, "tool_invocations": 1,
+		"mcp_servers": 1, "tool_catalog": 1, "tool_invocations": 2,
 		"tags": 1, "tag_assignments": 1, "job_pipelines": 1, "jobs": 1,
 		"job_triggers": 1, "job_runs": 1, "job_events": 1, "job_run_events": 1,
 		"channels": 1, "channel_contacts": 1, "acp_sessions": 1, "sub_agent_runs": 1,
@@ -360,6 +386,13 @@ func verifyPublishedFixtureData(t *testing.T, database *gorm.DB) {
 	}
 	if got := queryCount(t, database, "SELECT COUNT(*) FROM pragma_foreign_key_check"); got != 0 {
 		t.Fatalf("upgrade deixou violações de chave estrangeira: %d", got)
+	}
+	var integrity string
+	if err := database.Raw("PRAGMA integrity_check").Scan(&integrity).Error; err != nil {
+		t.Fatal(err)
+	}
+	if integrity != "ok" {
+		t.Fatalf("integrity_check=%q", integrity)
 	}
 	if database.Migrator().HasTable("skills") {
 		t.Fatal("upgrade não deveria inventar persistência SQLite para skills")

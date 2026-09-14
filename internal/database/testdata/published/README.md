@@ -37,8 +37,9 @@ O gerador:
 - usa UUIDs, datas e valores sentinela fixos;
 - mantém segredos vazios e usa apenas referências de credencial;
 - inclui duas pessoas para provar isolamento;
-- inclui conversa/mensagens e subconversa, tasklist/workflow/tarefa/subtarefa/
-  nota, MCP/catálogo, pipeline/job/trigger/run/eventos, tags, memória, ACP e
+- inclui conversa/mensagens, chamada e resultado legado de tool e subconversa,
+  tasklist/workflow/tarefa/subtarefa/nota, MCP/catálogo,
+  pipeline/job/trigger/run/eventos, tags, memória, ACP e
   canais/contatos/mapeamentos;
 - normaliza a ordem não determinística das constraints do GORM antes do dump.
 

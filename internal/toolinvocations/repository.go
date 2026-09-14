@@ -430,19 +430,40 @@ func invocationDomainToModel(inv Invocation) database.ToolInvocation {
 		parent := strings.TrimSpace(inv.ParentInvocationID)
 		parentID = &parent
 	}
+	var conversationID *string
+	if strings.TrimSpace(inv.ConversationID) != "" {
+		value := strings.TrimSpace(inv.ConversationID)
+		conversationID = &value
+	}
+	var turnID *string
+	if strings.TrimSpace(inv.TurnID) != "" {
+		value := strings.TrimSpace(inv.TurnID)
+		turnID = &value
+	}
 	return database.ToolInvocation{
 		UUIDModel:          database.UUIDModel{ID: strings.TrimSpace(inv.ID), CreatedAt: inv.CreatedAt, UpdatedAt: inv.UpdatedAt},
 		UserID:             strings.TrimSpace(inv.UserID),
 		ToolCatalogID:      strings.TrimSpace(inv.ToolCatalogID),
 		OriginType:         strings.TrimSpace(inv.OriginType),
 		OriginID:           strings.TrimSpace(inv.OriginID),
+		ConversationID:     conversationID,
+		TurnID:             turnID,
 		ParentInvocationID: parentID,
 		ToolCallID:         strings.TrimSpace(inv.ToolCallID),
+		Attempt:            inv.Attempt,
 		Status:             strings.TrimSpace(inv.Status),
 		DryRun:             inv.DryRun,
 		Input:              string(inv.Input),
 		Output:             string(inv.Output),
 		Metadata:           string(inv.Metadata),
+		DisplayName:        strings.TrimSpace(inv.DisplayName),
+		InputPreview:       inv.InputPreview,
+		OutputPreview:      inv.OutputPreview,
+		InputBytes:         inv.InputBytes,
+		OutputBytes:        inv.OutputBytes,
+		InputHash:          inv.InputHash,
+		OutputHash:         inv.OutputHash,
+		ResultAvailability: inv.ResultAvailability,
 		ErrorKind:          strings.TrimSpace(inv.ErrorKind),
 		ErrorCode:          strings.TrimSpace(inv.ErrorCode),
 		ErrorMessage:       strings.TrimSpace(inv.ErrorMessage),
@@ -460,19 +481,38 @@ func invocationModelToDomain(row database.ToolInvocation) Invocation {
 	if row.ParentInvocationID != nil {
 		parentID = *row.ParentInvocationID
 	}
+	conversationID := ""
+	if row.ConversationID != nil {
+		conversationID = *row.ConversationID
+	}
+	turnID := ""
+	if row.TurnID != nil {
+		turnID = *row.TurnID
+	}
 	return Invocation{
 		ID:                 row.ID,
 		UserID:             row.UserID,
 		ToolCatalogID:      row.ToolCatalogID,
 		OriginType:         row.OriginType,
 		OriginID:           row.OriginID,
+		ConversationID:     conversationID,
+		TurnID:             turnID,
 		ParentInvocationID: parentID,
 		ToolCallID:         row.ToolCallID,
+		Attempt:            row.Attempt,
 		Status:             row.Status,
 		DryRun:             row.DryRun,
 		Input:              json.RawMessage(row.Input),
 		Output:             json.RawMessage(row.Output),
 		Metadata:           json.RawMessage(row.Metadata),
+		DisplayName:        row.DisplayName,
+		InputPreview:       row.InputPreview,
+		OutputPreview:      row.OutputPreview,
+		InputBytes:         row.InputBytes,
+		OutputBytes:        row.OutputBytes,
+		InputHash:          row.InputHash,
+		OutputHash:         row.OutputHash,
+		ResultAvailability: row.ResultAvailability,
 		ErrorKind:          row.ErrorKind,
 		ErrorCode:          row.ErrorCode,
 		ErrorMessage:       row.ErrorMessage,

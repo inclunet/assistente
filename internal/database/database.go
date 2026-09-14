@@ -174,6 +174,7 @@ func Init() error {
 		&JobEvent{},
 		&JobRunEvent{},
 		&ToolInvocation{},
+		&ToolLedgerMigrationState{},
 		&SubAgentRun{},
 		&ChannelResponsePending{},
 		&Channel{},
@@ -190,6 +191,22 @@ func Init() error {
 	// por banco.
 	if err := runMigrations(db, phasePostAutoMigrate); err != nil {
 		return fmt.Errorf("erro nas migrações pós-AutoMigrate: %w", err)
+	}
+	// A fase 2 ainda convive com escritores legados. Mesmo depois de a v18 ser
+	// registrada, um boot posterior precisa capturar linhas criadas por uma
+	// versão anterior enquanto o PR de escrita exclusiva ainda não chegou.
+	appliedMigrations, err := appliedMigrationVersions(db)
+	if err != nil {
+		return fmt.Errorf("erro ao verificar ativação do backfill contínuo: %w", err)
+	}
+	if appliedMigrations[18] {
+		if err := migrateToolLedgerBackfill(db); err != nil {
+			if errors.Is(err, errMigrationDeferred) {
+				logging.Warnf(context.Background(), "database.tool-ledger.backfill", "backfill permanece pendente; será retomado no próximo boot")
+			} else {
+				return fmt.Errorf("erro no backfill contínuo do ledger: %w", err)
+			}
+		}
 	}
 	if diagnostic, err := GetUpgradeDiagnostic(); err != nil {
 		logging.Warnf(context.Background(), "database.upgrade-diagnostic", "falha ao inspecionar migrações: %v", err)

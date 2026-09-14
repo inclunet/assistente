@@ -26,13 +26,24 @@ type Invocation struct {
 	ToolCatalogID      string          `json:"tool_catalog_id"`
 	OriginType         string          `json:"origin_type"`
 	OriginID           string          `json:"origin_id,omitempty"`
+	ConversationID     string          `json:"conversation_id,omitempty"`
+	TurnID             string          `json:"turn_id,omitempty"`
 	ParentInvocationID string          `json:"parent_invocation_id,omitempty"`
 	ToolCallID         string          `json:"tool_call_id,omitempty"`
+	Attempt            int             `json:"attempt"`
 	Status             string          `json:"status"`
 	DryRun             bool            `json:"dry_run,omitempty"`
 	Input              json.RawMessage `json:"input,omitempty"`
 	Output             json.RawMessage `json:"output,omitempty"`
 	Metadata           json.RawMessage `json:"metadata,omitempty"`
+	DisplayName        string          `json:"display_name,omitempty"`
+	InputPreview       string          `json:"input_preview,omitempty"`
+	OutputPreview      string          `json:"output_preview,omitempty"`
+	InputBytes         int64           `json:"input_bytes,omitempty"`
+	OutputBytes        int64           `json:"output_bytes,omitempty"`
+	InputHash          string          `json:"input_hash,omitempty"`
+	OutputHash         string          `json:"output_hash,omitempty"`
+	ResultAvailability string          `json:"result_availability,omitempty"`
 	ErrorKind          string          `json:"error_kind,omitempty"`
 	ErrorCode          string          `json:"error_code,omitempty"`
 	ErrorMessage       string          `json:"error_message,omitempty"`
