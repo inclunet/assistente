@@ -129,7 +129,8 @@ contagens/hashes e bloqueia o cutover em caso de ambiguidade. Em estado
 
 ### Fase 6 — Backfill e remoção física 🚧
 
-- [ ] Migrar todo L1/L3 publicado para o ledger com prova de zero perda.
+- [x] Migrar todo L1/L3 publicado para o ledger com estado por conversa,
+      contagens e hashes; ambiguidades permanecem `pending`.
 - [ ] Remover fallback de runtime, leitura e portabilidade após o cutover.
 - [ ] Reconstruir `chat_messages` sem `tool_calls`/`tool_call_id` e impedir
       `role=tool`.

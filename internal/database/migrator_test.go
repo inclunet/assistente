@@ -407,7 +407,7 @@ func fullAutoMigrate(t *testing.T, database *gorm.DB) {
 		&CredentialEntry{}, &CredentialKeyWrap{}, &LLMProvider{}, &ACPSession{}, &TaskListWorkflow{},
 		&TaskList{}, &Task{}, &TaskNote{}, &MCPServer{}, &MCPServerLog{}, &ToolCatalog{},
 		&Tag{}, &TagAssignment{}, &JobPipeline{}, &Job{}, &JobProfileGrant{}, &JobProfileGrantEpoch{}, &ProfileGrantRevocationIntent{}, &JobTrigger{}, &JobRun{},
-		&JobEvent{}, &JobRunEvent{}, &ToolInvocation{}, &SubAgentRun{},
+		&JobEvent{}, &JobRunEvent{}, &ToolInvocation{}, &ToolLedgerMigrationState{}, &SubAgentRun{},
 		&ChannelResponsePending{}, &Channel{}, &ChannelContact{}, &ChannelContactConversation{},
 	); err != nil {
 		t.Fatalf("AutoMigrate: %v", err)

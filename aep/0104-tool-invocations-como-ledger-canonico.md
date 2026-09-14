@@ -100,25 +100,33 @@ de persistir. Rich export renderiza a projeção canônica.
 O banco mantém estado explícito por conversa/run:
 
 - `pending`: legado pode existir e o backfill não provou cobertura;
-- `backfilled`: contagens e hashes conferem; escrita já é ledger-only;
+- `backfilled`: histórico foi representado e contagens/hashes conferem; a
+  escrita de compatibilidade só termina no deploy da fase 3;
 - `canonical`: leitores legados estão proibidos e o schema físico foi
   reconstruído.
 
-Estados só avançam. Ambiguidade, owner vazio, JSON inválido sem representação
-segura ou diferença de hash bloqueiam o avanço e produzem diagnóstico sem
-payload.
+Estados avançam monotonicamente quando o conjunto legado não muda. Durante a
+janela transitória entre as fases 2 e 3, uma nova escrita legada invalida a
+prova anterior: o recurso volta de `backfilled` para `pending` até o backfill
+incremental conferir o novo conjunto. Ambiguidade, owner vazio, JSON inválido
+sem representação segura ou diferença de hash bloqueiam o avanço e produzem
+diagnóstico sem payload.
 
 ### D6 — Backfill retomável e idempotente
 
 O backfill processa lotes transacionais e registra checkpoint. Para chat, casa
 dados por usuário, conversa, turno, marcador assistant, `tool_call_id` e
 iteração. Resultado `role=tool` íntegro prevalece sobre cópia embutida.
-Invocações já existentes são adotadas, nunca duplicadas. Para jobs, a origem é
-`job_run` e o `origin_id` é o ID do run.
+Não existe associação global somente por `tool_call_id`; identidade ou turno
+ausente bloqueia a prova. Invocações já existentes são adotadas, nunca
+duplicadas. Para jobs, a origem é `job_run` e o `origin_id` é o ID do run.
+Checkpoint cujo recurso foi excluído é removido transacionalmente.
 
 Cada item registra proveniência de migração, tamanho e hashes normalizados de
 input/output. Reiniciar retoma somente itens pendentes; executar novamente após
-conclusão é no-op.
+conclusão é no-op. Enquanto a fase 3 não encerra os escritores legados, o boot
+também executa a varredura idempotente depois do registro da v18; assim, dados
+criados no intervalo entre os deploys 2 e 3 entram no ledger antes do corte.
 
 ### D7 — Escrita exclusiva
 
@@ -188,10 +196,17 @@ Métricas locais:
 
 ### Fase 2 — Schema aditivo e backfill
 
-- [ ] Adicionar vínculos, previews, snapshot, estado e checkpoints.
-- [ ] Implementar catálogo archival e backfill de chat/jobs.
-- [ ] Cobrir fresh DB, releases 0.1.9–0.5.0, dois usuários, crash/restart,
+- [x] Adicionar vínculos, previews estruturais sem valores, snapshot, estado e
+      checkpoints (`tool_ledger_migration_states`).
+- [x] Implementar catálogo archival indisponível e backfill de chat/jobs.
+- [x] Cobrir fresh DB, releases 0.1.9–0.5.0, dois usuários, crash/restart,
       lotes, idempotência e constraints.
+
+Evidências: migração v18, fixtures publicadas com chamada/resultado técnico,
+testes `TestToolLedgerBackfill*`, `TestPublishedDatabase019*`,
+`TestPublishedReleaseDatabases*`, `foreign_key_check`, `integrity_check` e
+segundo boot sem duplicação. A AEP permanece `In Progress`: a fase 3 ainda
+precisa encerrar a escrita de compatibilidade.
 
 ### Fase 3 — Escrita ledger-only
 

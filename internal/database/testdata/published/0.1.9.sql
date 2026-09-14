@@ -43,9 +43,14 @@ VALUES
   (41, 7, 'user', 'mensagem de teste', '2026-03-18T11:59:01Z', '2026-03-18T11:59:01Z');
 
 INSERT INTO chat_messages
-  (id, conversation_id, parent_id, turn_id, role, content, created_at, updated_at)
+  (id, conversation_id, parent_id, turn_id, role, content, tool_calls, created_at, updated_at)
 VALUES
-  (42, 7, 41, 41, 'assistant', 'resposta de teste', '2026-03-18T11:59:02Z', '2026-03-18T11:59:02Z');
+  (42, 7, 41, 41, 'assistant', 'resposta de teste', '[{"id":"fixture-call-019","type":"function","function":{"name":"fixture_tool_019","arguments":"{\"query\":\"fixture\"}"}}]', '2026-03-18T11:59:02Z', '2026-03-18T11:59:02Z');
+
+INSERT INTO chat_messages
+  (id, conversation_id, parent_id, turn_id, role, content, tool_call_id, created_at, updated_at)
+VALUES
+  (43, 7, 42, 41, 'tool', 'resultado técnico sintético', 'fixture-call-019', '2026-03-18T11:59:03Z', '2026-03-18T11:59:03Z');
 
 CREATE TABLE editor_documents (
   id TEXT PRIMARY KEY,

@@ -218,7 +218,7 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 
 ### Fase 6 — Ledger exclusivo e teardown 🚧
 
-18. Backfill retomável de mensagens e runs publicados.
+18. ✅ Backfill retomável de mensagens e runs publicados (v18).
 19. Parar toda escrita `role=tool`/`tool_calls`/`tool_call_id`.
 20. Migrar consumidores, projeções e detalhes lazy para o ledger.
 21. Remover cópias técnicas de `job_runs` e reconstruir o schema legado.
@@ -364,11 +364,12 @@ domínio distinta da trilha técnica de `tool_invocations`.
 
 ### Compatibilidade com dados existentes
 
-- Não há backfill destrutivo. Mensagens `role=tool` e `tool_calls` históricas continuam
-  legíveis; a hidratação prioriza `tool_invocations` quando presente e cai para o conteúdo de
-  mensagens quando não há registro técnico (dados anteriores à introdução da tabela).
-- `tool_invocations` é log efêmero (D5): a ausência de registros antigos é esperada e tratada
-  pela leitura como "sem trilha técnica", sem quebrar a exibição da conversa/job.
+- O backfill v18 é aditivo, user-scoped, retomável e mantém mensagens
+  `role=tool`/`tool_calls` intactas durante a transição. Ausência, ambiguidade
+  ou divergência de hash mantém o recurso `pending`.
+- A leitura transitória ainda pode cair para mensagens somente até as fases 4
+  e 7 da AEP-0104. A ausência definitiva de invocação histórica não é aceita
+  silenciosamente pelo gate de cutover.
 
 ### Critérios de aceite do issue #127 — mapeamento
 

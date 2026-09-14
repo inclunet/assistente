@@ -38,6 +38,15 @@ func TestHydrationAndTaskListIndexMigrationAndQueryPlans(t *testing.T) {
 	)
 	assertQueryPlanUsesIndex(t, testDB,
 		`EXPLAIN QUERY PLAN
+		 SELECT id, tool_call_id, status
+		   FROM tool_invocations
+		  WHERE user_id = 'user-a'
+		    AND conversation_id = 'conversation-a'
+		    AND turn_id IN ('turn-a', 'turn-b')`,
+		"idx_tool_invocations_user_conversation_turn",
+	)
+	assertQueryPlanUsesIndex(t, testDB,
+		`EXPLAIN QUERY PLAN
 		 SELECT *
 		   FROM tasks
 		  WHERE task_list_id = 'list-a' AND parent_id IS NULL
@@ -46,11 +55,17 @@ func TestHydrationAndTaskListIndexMigrationAndQueryPlans(t *testing.T) {
 		"idx_tasks_list_parent_order",
 	)
 
-	finalMigration := schemaMigrations[len(schemaMigrations)-1]
-	if finalMigration.Version != 17 || finalMigration.Name != "hydration_tasklist_query_indexes" {
-		t.Fatalf("migração final inesperada: v%d %q", finalMigration.Version, finalMigration.Name)
+	var indexMigration migration
+	for _, candidate := range schemaMigrations {
+		if candidate.Version == 17 {
+			indexMigration = candidate
+			break
+		}
 	}
-	if err := runMigrationList(testDB, phasePostAutoMigrate, []migration{finalMigration}); err != nil {
+	if indexMigration.Name != "hydration_tasklist_query_indexes" {
+		t.Fatalf("migração v17 inesperada: %q", indexMigration.Name)
+	}
+	if err := runMigrationList(testDB, phasePostAutoMigrate, []migration{indexMigration}); err != nil {
 		t.Fatalf("aplicar migração v17: %v", err)
 	}
 	applied, err := appliedMigrationVersions(testDB)
