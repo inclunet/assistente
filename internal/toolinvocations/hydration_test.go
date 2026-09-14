@@ -95,3 +95,54 @@ func TestLoadChatToolInvocationDisplaysForTurnIDsPreservesCompletenessOrderAndLa
 		t.Fatalf("retry mais recente não substituiu a tentativa anterior: %+v", got[turnIDs[0]][1])
 	}
 }
+
+func TestLoadChatToolInvocationDisplaysResolveOriginAssistantLegado(t *testing.T) {
+	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := testDB.AutoMigrate(
+		&database.Conversation{},
+		&database.ChatMessage{},
+		&database.ToolCatalog{},
+		&database.ToolInvocation{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	previous := database.DB()
+	database.SetDB(testDB)
+	t.Cleanup(func() { database.SetDB(previous) })
+
+	conv := database.Conversation{UUIDModel: database.UUIDModel{ID: "conv-legacy"}, UserID: "user-a"}
+	if err := testDB.Create(&conv).Error; err != nil {
+		t.Fatal(err)
+	}
+	turnID := "turn-legacy"
+	assistantID := "assistant-legacy"
+	if err := testDB.Create(&[]database.ChatMessage{
+		{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: conv.ID, Role: "user"},
+		{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: conv.ID, TurnID: &turnID, Role: "assistant"},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	catalog := database.ToolCatalog{Name: "legacy", DisplayName: "Legacy", Origin: tools.ToolOriginBuiltin}
+	if err := testDB.Create(&catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	completed := time.Now().UTC()
+	if err := testDB.Create(&database.ToolInvocation{
+		UserID: "user-a", ToolCatalogID: catalog.ID, OriginType: OriginChat,
+		OriginID: assistantID, ToolCallID: "call-legacy", Status: StatusSucceeded,
+		Output: `{"content":"resultado"}`, QueuedAt: completed.Add(-time.Second), CompletedAt: &completed,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadChatToolInvocationDisplaysForTurnIDsWithUser(context.Background(), "user-a", []string{turnID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got[turnID]) != 1 || got[turnID][0].Result != "resultado" {
+		t.Fatalf("vínculo legado não foi resolvido: %+v", got)
+	}
+}

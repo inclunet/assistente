@@ -12,6 +12,7 @@ import (
 )
 
 type ChatToolInvocationDisplay struct {
+	LedgerID           string
 	ID                 string
 	Type               string
 	Name               string
@@ -23,6 +24,7 @@ type ChatToolInvocationDisplay struct {
 	Iteration          int
 	DurationMs         int64
 	AssistantMessageID string
+	CreatedAt          time.Time
 }
 
 type toolInvocationDisplayMetadata struct {
@@ -92,6 +94,22 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 
 	results := make(map[string][]ChatToolInvocationDisplay, len(turnIDs))
 	indexByTurnCall := make(map[string]map[string]int, len(turnIDs))
+	resolvedTurnSQL := "tool_invocations.origin_id"
+	if db.Migrator().HasTable(&database.ChatMessage{}) && db.Migrator().HasTable(&database.Conversation{}) {
+		resolvedTurnSQL = `COALESCE(
+			tool_invocations.turn_id,
+			(
+				SELECT COALESCE(legacy_message.turn_id, legacy_message.id)
+				FROM chat_messages legacy_message
+				JOIN conversations legacy_conversation
+					ON legacy_conversation.id = legacy_message.conversation_id
+					AND legacy_conversation.user_id = tool_invocations.user_id
+				WHERE legacy_message.id = tool_invocations.origin_id
+				LIMIT 1
+			),
+			tool_invocations.origin_id
+		)`
+	}
 	for start := 0; start < len(turnIDs); start += maxTurnIDsPerBatch {
 		end := start + maxTurnIDsPerBatch
 		if end > len(turnIDs) {
@@ -107,13 +125,14 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 				ToolName        string
 				ToolDisplayName string
 				ToolOrigin      string
+				ResolvedTurnID  string `gorm:"column:resolved_turn_id"`
 			}
 			q := db.WithContext(ctx).
 				Model(&database.ToolInvocation{}).
-				Select("tool_invocations.id, tool_invocations.origin_id, tool_invocations.tool_call_id, tool_invocations.output, tool_invocations.metadata, tool_invocations.queued_at, tool_invocations.duration_ms, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name, tool_catalog.origin AS tool_origin").
+				Select("tool_invocations.id, tool_invocations.created_at, tool_invocations.origin_id, tool_invocations.tool_call_id, tool_invocations.output, tool_invocations.metadata, tool_invocations.queued_at, tool_invocations.duration_ms, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name, tool_catalog.origin AS tool_origin, "+resolvedTurnSQL+" AS resolved_turn_id").
 				Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
 				Where(
-					"tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND tool_invocations.origin_id IN ? AND tool_invocations.tool_call_id <> '' AND (tool_invocations.completed_at IS NOT NULL OR tool_invocations.status IN (?, ?, ?, ?, ?, ?))",
+					"tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND "+resolvedTurnSQL+" IN ? AND tool_invocations.tool_call_id <> '' AND (tool_invocations.completed_at IS NOT NULL OR tool_invocations.status IN (?, ?, ?, ?, ?, ?))",
 					userID,
 					OriginChat,
 					batch,
@@ -138,7 +157,7 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 			}
 
 			for _, row := range rows {
-				turnID := strings.TrimSpace(row.OriginID)
+				turnID := strings.TrimSpace(row.ResolvedTurnID)
 				callID := strings.TrimSpace(row.ToolCallID)
 				if turnID == "" || callID == "" {
 					continue
@@ -199,6 +218,7 @@ func toolInvocationRowToDisplay(row database.ToolInvocation, toolName, toolDispl
 
 	result := ExtractToolInvocationResult(row.Output)
 	return ChatToolInvocationDisplay{
+		LedgerID:           row.ID,
 		ID:                 strings.TrimSpace(row.ToolCallID),
 		Type:               tipo,
 		Name:               name,
@@ -210,6 +230,7 @@ func toolInvocationRowToDisplay(row database.ToolInvocation, toolName, toolDispl
 		Iteration:          meta.Display.Iteration,
 		DurationMs:         durationMs,
 		AssistantMessageID: strings.TrimSpace(meta.Display.AssistantMessageID),
+		CreatedAt:          row.CreatedAt,
 	}
 }
 

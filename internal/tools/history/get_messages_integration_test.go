@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"assistente/internal/database"
 )
@@ -118,6 +119,76 @@ func TestGetMessagesIntegrationIncludesToolResultsOnlyWhenRequested(t *testing.T
 	toolResult := messages[1].(map[string]any)
 	if toolResult["role"] != "tool" || toolResult["tool_call_id"] != "call-1" || toolResult["content"] != "resultado integral da tool" {
 		t.Fatalf("unexpected tool result payload: %#v", toolResult)
+	}
+}
+
+func TestGetMessagesIntegrationBackfilledUsaSomenteLedger(t *testing.T) {
+	setupConvInfoDB(t)
+	if err := database.DB().AutoMigrate(
+		&database.ToolCatalog{},
+		&database.ToolInvocation{},
+		&database.ToolLedgerMigrationState{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	convID := seedConversation(t, "Ledger canônico")
+	userMessage := seedHistoryMessage(t, database.ChatMessage{
+		ConversationID: convID,
+		Role:           "user",
+		Content:        "consulte",
+	})
+	turnID := userMessage.ID
+	seedHistoryMessage(t, database.ChatMessage{
+		ConversationID: convID,
+		TurnID:         &turnID,
+		Role:           "assistant",
+		ToolCalls:      `[{"id":"call-1","function":{"name":"legacy"},"result":"LEGADO-L3"}]`,
+	})
+	seedHistoryMessage(t, database.ChatMessage{
+		ConversationID: convID,
+		TurnID:         &turnID,
+		Role:           "tool",
+		ToolCallID:     "call-1",
+		Content:        "LEGADO-L1",
+	})
+	catalog := database.ToolCatalog{Name: "canonical", DisplayName: "Canonical", Origin: "builtin", AvailabilityStatus: "available"}
+	if err := database.DB().Create(&catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	completed := time.Now().UTC()
+	if err := database.DB().Create(&database.ToolInvocation{
+		UserID:         itUserID,
+		ToolCatalogID:  catalog.ID,
+		OriginType:     "chat",
+		OriginID:       turnID,
+		ConversationID: &convID,
+		TurnID:         &turnID,
+		ToolCallID:     "call-1",
+		Status:         "succeeded",
+		Output:         `{"content":"CANONICO"}`,
+		QueuedAt:       completed.Add(-time.Second),
+		CompletedAt:    &completed,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DB().Create(&database.ToolLedgerMigrationState{
+		UserID:       itUserID,
+		ResourceType: "conversation",
+		ResourceID:   convID,
+		State:        "backfilled",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	args, _ := json.Marshal(map[string]any{"ids": []string{userMessage.ID}, "include_tool_results": true})
+	result, err := NewGetMessages().Execute(itCtx(convID), args)
+	if err != nil || result.IsError {
+		t.Fatalf("resultado inesperado: %+v err=%v", result, err)
+	}
+	if !strings.Contains(result.Content, "CANONICO") ||
+		strings.Contains(result.Content, "LEGADO-L1") ||
+		strings.Contains(result.Content, "LEGADO-L3") {
+		t.Fatalf("get_messages não fez cutover para o ledger: %s", result.Content)
 	}
 }
 

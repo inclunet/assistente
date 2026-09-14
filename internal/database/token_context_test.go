@@ -109,7 +109,7 @@ func TestGetDetailedTokenStats_ContextVsCumulative(t *testing.T) {
 
 func TestGetDetailedTokenStats_CountsL3FreeAssistantToolInvocation(t *testing.T) {
 	setupOrderingTestDB(t)
-	if err := db.AutoMigrate(&User{}, &ToolCatalog{}, &ToolInvocation{}); err != nil {
+	if err := db.AutoMigrate(&User{}, &ToolCatalog{}, &ToolInvocation{}, &ToolLedgerMigrationState{}); err != nil {
 		t.Fatalf("migrate tool invocations: %v", err)
 	}
 	tool := ToolCatalog{
@@ -135,15 +135,15 @@ func TestGetDetailedTokenStats_CountsL3FreeAssistantToolInvocation(t *testing.T)
 	if err := db.Create(&user).Error; err != nil {
 		t.Fatalf("create user message: %v", err)
 	}
-	assistantTool := ChatMessage{
-		UUIDModel:      UUIDModel{ID: "01972002-0000-7000-8000-000000000002"},
+	legacyTool := ChatMessage{
 		ConversationID: conv.ID,
 		TurnID:         &turnID,
-		Role:           "assistant",
-		Content:        "vou buscar",
+		Role:           "tool",
+		ToolCallID:     "call-search",
+		Content:        "cópia legada",
 	}
-	if err := db.Create(&assistantTool).Error; err != nil {
-		t.Fatalf("create assistant tool message: %v", err)
+	if err := db.Create(&legacyTool).Error; err != nil {
+		t.Fatalf("create legacy tool message: %v", err)
 	}
 	finalAssistant := ChatMessage{
 		UUIDModel:        UUIDModel{ID: "01972002-0000-7000-8000-000000000003"},
@@ -162,10 +162,10 @@ func TestGetDetailedTokenStats_CountsL3FreeAssistantToolInvocation(t *testing.T)
 		UserID:        testUserID,
 		ToolCatalogID: tool.ID,
 		OriginType:    "chat",
-		OriginID:      turnID,
+		OriginID:      finalAssistant.ID,
 		ToolCallID:    "call-search",
 		Status:        "succeeded",
-		Metadata:      `{"display":{"version":1,"assistant_message_id":"` + assistantTool.ID + `","name":"search","arguments":"{}"}}`,
+		Metadata:      `{"display":{"version":1,"iteration":0,"name":"search","arguments":"{}"}}`,
 		QueuedAt:      time.Now(),
 	}).Error; err != nil {
 		t.Fatalf("create tool invocation: %v", err)
@@ -178,6 +178,9 @@ func TestGetDetailedTokenStats_CountsL3FreeAssistantToolInvocation(t *testing.T)
 	if turnStats.ModelCallCount != 2 {
 		t.Fatalf("turn ModelCallCount: esperado 2 chamadas ao modelo, obtido %d", turnStats.ModelCallCount)
 	}
+	if turnStats.MessageCount != 1 {
+		t.Fatalf("turn MessageCount contou role=tool legado: %d", turnStats.MessageCount)
+	}
 	stats, err := GetDetailedTokenStatsWithContext(testCtx(), conv.ID, "")
 	if err != nil {
 		t.Fatalf("GetDetailedTokenStats: %v", err)
@@ -185,11 +188,95 @@ func TestGetDetailedTokenStats_CountsL3FreeAssistantToolInvocation(t *testing.T)
 	if stats.ModelCallCount != 2 {
 		t.Fatalf("detailed ModelCallCount: esperado 2 chamadas ao modelo, obtido %d", stats.ModelCallCount)
 	}
+	if stats.MessageCount != 2 {
+		t.Fatalf("MessageCount contou role=tool legado: %d", stats.MessageCount)
+	}
 	if stats.ToolsUsedCount != 1 {
 		t.Fatalf("ToolsUsedCount: esperado 1 tool, obtido %d", stats.ToolsUsedCount)
 	}
 	if len(stats.ToolBreakdown) != 1 || stats.ToolBreakdown[0].ToolName != "search" || stats.ToolBreakdown[0].CallCount != 1 {
 		t.Fatalf("ToolBreakdown inesperado: %+v", stats.ToolBreakdown)
+	}
+	statsWithSummary, err := GetDetailedTokenStatsWithContext(testCtx(), conv.ID, turnID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if statsWithSummary.MessagesInContextCount != 1 || statsWithSummary.MessagesOutOfContextCount != 1 {
+		t.Fatalf(
+			"breakdown de contexto contou role=tool: in=%d out=%d",
+			statsWithSummary.MessagesInContextCount,
+			statsWithSummary.MessagesOutOfContextCount,
+		)
+	}
+}
+
+func TestGetTurnTokenStatsPendingContaLedgerNovoSemDuplicarLegado(t *testing.T) {
+	setupOrderingTestDB(t)
+	if err := db.AutoMigrate(&User{}, &ToolCatalog{}, &ToolInvocation{}, &ToolLedgerMigrationState{}); err != nil {
+		t.Fatal(err)
+	}
+	tool := ToolCatalog{Name: "search-pending", DisplayName: "search", Origin: "builtin"}
+	if err := db.Create(&tool).Error; err != nil {
+		t.Fatal(err)
+	}
+	conv := Conversation{Title: "pending", UserID: testUserID}
+	if err := db.Create(&conv).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&ToolLedgerMigrationState{
+		UserID: testUserID, ResourceType: "conversation", ResourceID: conv.ID, State: "pending",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	newTurnID := "01972003-0000-7000-8000-000000000001"
+	newFinalID := "01972003-0000-7000-8000-000000000002"
+	if err := db.Create(&[]ChatMessage{
+		{UUIDModel: UUIDModel{ID: newTurnID}, ConversationID: conv.ID, Role: "user"},
+		{UUIDModel: UUIDModel{ID: newFinalID}, ConversationID: conv.ID, TurnID: &newTurnID, Role: "assistant", TotalTokens: 10},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&ToolInvocation{
+		UserID: testUserID, ToolCatalogID: tool.ID, OriginType: "chat", OriginID: newTurnID,
+		ConversationID: &conv.ID, TurnID: &newTurnID, ToolCallID: "call-new",
+		Status: "succeeded", Metadata: `{"display":{"iteration":0}}`, QueuedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	newStats, err := GetTurnTokenStatsWithContext(testCtx(), conv.ID, newTurnID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newStats.ModelCallCount != 2 {
+		t.Fatalf("pending omitiu chamada nova do ledger: %d", newStats.ModelCallCount)
+	}
+
+	legacyTurnID := "01972003-0000-7000-8000-000000000003"
+	legacyAssistantID := "01972003-0000-7000-8000-000000000004"
+	if err := db.Create(&[]ChatMessage{
+		{UUIDModel: UUIDModel{ID: legacyTurnID}, ConversationID: conv.ID, Role: "user"},
+		{
+			UUIDModel: UUIDModel{ID: legacyAssistantID}, ConversationID: conv.ID, TurnID: &legacyTurnID,
+			Role: "assistant", ToolCalls: `[{"id":"call-legacy","function":{"name":"search-pending"}}]`,
+		},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&ToolInvocation{
+		UserID: testUserID, ToolCatalogID: tool.ID, OriginType: "chat", OriginID: legacyAssistantID,
+		ToolCallID: "call-legacy", Status: "succeeded",
+		Metadata: `{"display":{"iteration":0,"assistant_message_id":"01972003-0000-7000-8000-000000000004"}}`,
+		QueuedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	legacyStats, err := GetTurnTokenStatsWithContext(testCtx(), conv.ID, legacyTurnID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyStats.ModelCallCount != 1 {
+		t.Fatalf("pending duplicou chamada já representada em L3: %d", legacyStats.ModelCallCount)
 	}
 }
 

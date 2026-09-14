@@ -5,7 +5,6 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
-	"assistente/internal/logging"
 	"assistente/internal/toolinvocations"
 	"context"
 	"errors"
@@ -158,7 +157,7 @@ func (c *ConversationsController) GetMessages(ctx context.Context, conversationI
 	if err != nil {
 		return nil, err
 	}
-	return buildMessageNodesWithInvocationFallback(ctx, messages, parentID), nil
+	return buildMessageNodesWithInvocationFallback(ctx, messages, parentID)
 }
 
 // GetRecentMessages retorna as mensagens raiz mais recentes de uma conversa.
@@ -182,7 +181,10 @@ func (c *ConversationsController) GetRecentMessages(ctx context.Context, convers
 		if err != nil {
 			return nil, err
 		}
-		nodes := buildMessageNodesWithInvocationFallback(ctx, messages, nil)
+		nodes, buildErr := buildMessageNodesWithInvocationFallback(ctx, messages, nil)
+		if buildErr != nil {
+			return nil, buildErr
+		}
 		lastNodes = nodes
 		if len(nodes) >= limit || len(messages) < rawLimit {
 			if len(nodes) > limit {
@@ -225,7 +227,10 @@ func (c *ConversationsController) GetMessagesBefore(ctx context.Context, convers
 		if err != nil {
 			return nil, err
 		}
-		nodes := buildMessageNodesWithInvocationFallback(ctx, messages, nil)
+		nodes, buildErr := buildMessageNodesWithInvocationFallback(ctx, messages, nil)
+		if buildErr != nil {
+			return nil, buildErr
+		}
 		lastNodes = nodes
 		if len(nodes) >= limit || len(messages) < rawLimit {
 			if len(nodes) > limit {
@@ -331,7 +336,10 @@ func (c *ConversationsController) GetConversationMessageWindow(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
-	nodes := buildTimelineMessageNodes(ctx, window.Items, window.Messages, parentID)
+	nodes, err := buildTimelineMessageNodes(ctx, window.Items, window.Messages, parentID)
+	if err != nil {
+		return nil, err
+	}
 
 	return &chat.MessageWindow{
 		Scope:          scope,
@@ -775,39 +783,67 @@ func assignMessageNodeChildCounts(ctx context.Context, nodes []chat.MessageNode)
 	return nodes
 }
 
-func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
+func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []database.ChatMessage, parentID *string) ([]chat.MessageNode, error) {
 	if len(messages) == 0 {
-		return []chat.MessageNode{}
+		return []chat.MessageNode{}, nil
+	}
+	allowLegacy, err := allowLegacyToolMessageRead(ctx, messages[0].ConversationID)
+	if err != nil {
+		return nil, err
 	}
 	turnIDs := chat.CollectTurnIDsWithToolCalls(messages)
-	invocationToolCalls := loadChatToolInvocationDisplaysForTurnIDs(ctx, turnIDs)
+	invocationToolCalls, err := loadChatToolInvocationDisplaysForTurnIDs(ctx, turnIDs)
+	if err != nil {
+		return nil, err
+	}
 	invocationToolResults := toolInvocationResultsFromTurnSegments(invocationToolCalls)
-	nodes := chat.BuildNodesWithTimelineConsolidation(messages, parentID, map[string]int{}, invocationToolResults, invocationToolCalls)
-	return assignMessageNodeChildCounts(ctx, nodes)
+	nodes := chat.BuildNodesWithTimelineConsolidation(messages, parentID, map[string]int{}, invocationToolResults, invocationToolCalls, allowLegacy)
+	return assignMessageNodeChildCounts(ctx, nodes), nil
 }
 
-func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
+func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) ([]chat.MessageNode, error) {
+	if len(messages) == 0 {
+		return []chat.MessageNode{}, nil
+	}
+	allowLegacy, err := allowLegacyToolMessageRead(ctx, messages[0].ConversationID)
+	if err != nil {
+		return nil, err
+	}
 	turnIDs := chat.CollectTurnIDsWithToolCalls(messages)
-	invocationToolCalls := loadChatToolInvocationDisplaysForTurnIDs(ctx, turnIDs)
+	invocationToolCalls, err := loadChatToolInvocationDisplaysForTurnIDs(ctx, turnIDs)
+	if err != nil {
+		return nil, err
+	}
 	invocationToolResults := toolInvocationResultsFromTurnSegments(invocationToolCalls)
-	nodes := chat.BuildTimelineMessageNodes(items, messages, parentID, map[string]int{}, invocationToolResults, invocationToolCalls)
-	return assignMessageNodeChildCounts(ctx, nodes)
+	nodes := chat.BuildTimelineMessageNodes(items, messages, parentID, map[string]int{}, invocationToolResults, invocationToolCalls, allowLegacy)
+	return assignMessageNodeChildCounts(ctx, nodes), nil
 }
 
-func loadChatToolInvocationDisplaysForTurnIDs(ctx context.Context, turnIDs []string) map[string][]chat.TurnSegmentToolCall {
+func allowLegacyToolMessageRead(ctx context.Context, conversationID string) (bool, error) {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
-		return map[string][]chat.TurnSegmentToolCall{}
+		return false, err
+	}
+	policy, err := toolinvocations.LoadLegacyReadPolicyWithUser(ctx, userID, []string{conversationID})
+	if err != nil {
+		return false, fmt.Errorf("erro ao carregar política de leitura do ledger: %w", err)
+	}
+	return policy.Allows(conversationID), nil
+}
+
+func loadChatToolInvocationDisplaysForTurnIDs(ctx context.Context, turnIDs []string) (map[string][]chat.TurnSegmentToolCall, error) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
 	}
 	if len(turnIDs) == 0 {
-		return map[string][]chat.TurnSegmentToolCall{}
+		return map[string][]chat.TurnSegmentToolCall{}, nil
 	}
 	results, err := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx, userID, turnIDs)
 	if err != nil {
-		logging.Errorf(ctx, "controllers.conversations", "[Chat] load tool_invocations display failed: %v", err)
-		return map[string][]chat.TurnSegmentToolCall{}
+		return nil, fmt.Errorf("erro ao carregar projeção de tool invocations: %w", err)
 	}
-	return toolInvocationDisplaysToTurnSegments(results)
+	return toolInvocationDisplaysToTurnSegments(results), nil
 }
 
 func toolInvocationResultsFromTurnSegments(callsByTurn map[string][]chat.TurnSegmentToolCall) map[string]map[string]string {

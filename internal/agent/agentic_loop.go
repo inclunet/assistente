@@ -398,27 +398,27 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	// 5f-iii. Persiste o texto intermediário do assistant. AEP-0078 depreca o L3:
 	// novas mensagens não gravam mais o JSON tool_calls; o snapshot exibível fica
 	// em tool_invocations.metadata, associado por tool_call_id.
-	// Mesmo sem texto, a linha assistant preserva temporariamente a identidade
-	// da chamada ao modelo usada por token stats. Ela não contém payload técnico:
-	// tool_calls permanece vazio. A fase 4 move essa contagem para o ledger e
-	// elimina a necessidade do marcador.
-	assistantToolMsg, err := r.svc.msgRepo.AddAssistantToolMessage(
-		ctx,
-		r.conversationID,
-		r.turnID,
-		result.FullResponse,
-		"",
-		result.Reasoning,
-		result.Model,
-	)
-	if err != nil {
-		if errors.Is(err, chat.ErrConversationDeleted) {
-			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] conversa %s deletada — abortando", r.conversationID)
-			return ctx, true
+	// A identidade da chamada ao modelo vem de (turn_id, iteration) no ledger.
+	// Só persista uma mensagem quando houver conteúdo conversacional.
+	if strings.TrimSpace(result.FullResponse) != "" || strings.TrimSpace(result.Reasoning) != "" {
+		assistantToolMsg, err := r.svc.msgRepo.AddAssistantToolMessage(
+			ctx,
+			r.conversationID,
+			r.turnID,
+			result.FullResponse,
+			"",
+			result.Reasoning,
+			result.Model,
+		)
+		if err != nil {
+			if errors.Is(err, chat.ErrConversationDeleted) {
+				logging.Errorf(ctx, "agent.agentic-loop", "[Agent] conversa %s deletada — abortando", r.conversationID)
+				return ctx, true
+			}
+			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar mensagem assistant intermediária de tool invocation: %v", err)
+		} else if assistantToolMsg != nil {
+			r.svc.tagChatToolInvocationsWithAssistantMessage(ctx, r.turnID, execResults, assistantToolMsg.ID)
 		}
-		logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar mensagem assistant intermediária de tool invocation: %v", err)
-	} else if assistantToolMsg != nil {
-		r.svc.tagChatToolInvocationsWithAssistantMessage(ctx, r.turnID, execResults, assistantToolMsg.ID)
 	}
 
 	// 5f-iv. Resultados técnicos já foram persistidos exclusivamente no ledger.

@@ -65,6 +65,7 @@ type toolMsgRepo struct {
 	mockMsgRepo
 	conversationID     string
 	assistantErr       error
+	assistantToolCount int
 	toolResultCount    int
 	lastToolResultCall string
 	lastToolResult     string
@@ -75,6 +76,7 @@ func (m *toolMsgRepo) GetMessage(_ context.Context, messageID string) (*chat.Mes
 }
 
 func (m *toolMsgRepo) AddAssistantToolMessage(ctx context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
+	m.assistantToolCount++
 	if m.assistantErr != nil {
 		return nil, m.assistantErr
 	}
@@ -177,8 +179,8 @@ func TestRunAgenticLoop_ToolCalls_SuppressesRoleToolOnSuccessfulPersistence(t *t
 	if msgRepo.toolResultCount != 0 {
 		t.Fatalf("expected no role=tool messages, got=%d", msgRepo.toolResultCount)
 	}
-	if msgRepo.nextID < 1 {
-		t.Fatalf("iteração só com tools deve preservar um marcador assistant sem L3, nextID=%d", msgRepo.nextID)
+	if msgRepo.assistantToolCount != 0 {
+		t.Fatalf("iteração só com tools não deve persistir marcador assistant, count=%d", msgRepo.assistantToolCount)
 	}
 	rows, err := repo.List(ctx, toolinvocations.Filter{OriginType: toolinvocations.OriginChat, OriginID: turn.ID, Limit: 10})
 	if err != nil {
@@ -187,13 +189,8 @@ func TestRunAgenticLoop_ToolCalls_SuppressesRoleToolOnSuccessfulPersistence(t *t
 	if len(rows) != 1 {
 		t.Fatalf("invocação não foi ligada ao marcador da chamada do modelo: %+v", rows)
 	}
-	var metadata struct {
-		Display struct {
-			AssistantMessageID string `json:"assistant_message_id"`
-		} `json:"display"`
-	}
-	if err := json.Unmarshal(rows[0].Metadata, &metadata); err != nil || metadata.Display.AssistantMessageID == "" {
-		t.Fatalf("invocação não foi ligada ao marcador da chamada do modelo: metadata=%s err=%v", rows[0].Metadata, err)
+	if strings.Contains(string(rows[0].Metadata), "assistant_message_id") {
+		t.Fatalf("invocação sem texto ainda depende de marcador assistant: %s", rows[0].Metadata)
 	}
 }
 

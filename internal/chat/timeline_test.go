@@ -325,6 +325,57 @@ func TestConsolidateTimelineTurn_UsesRoleToolFallbackWithoutMessageToolCalls(t *
 	}
 }
 
+func TestConsolidateTimelineTurnLedgerFirstIgnoraL1L3Backfilled(t *testing.T) {
+	turnID := "turn-1"
+	result := ConsolidateTimelineTurnLedgerFirst([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-marker"},
+			Role:      "assistant",
+			TurnID:    &turnID,
+			ToolCalls: `[{"id":"tool-a","function":{"name":"legacy"},"result":"LEGADO-L3"}]`,
+		},
+		{
+			UUIDModel:  database.UUIDModel{ID: "tool-a-message"},
+			Role:       "tool",
+			Content:    "LEGADO-L1",
+			TurnID:     &turnID,
+			ToolCallID: "tool-a",
+		},
+	}, map[string]string{"tool-a": "CANONICO"}, false, []TurnSegmentToolCall{{
+		ID:       "tool-a",
+		Type:     "function",
+		Function: TurnSegmentToolFunction{Name: "canonical"},
+		Result:   "CANONICO",
+	}})
+
+	if len(result.Segments) != 1 || len(result.Segments[0].ToolCalls) != 1 {
+		t.Fatalf("segmentos canônicos inesperados: %+v", result.Segments)
+	}
+	call := result.Segments[0].ToolCalls[0]
+	if call.Function.Name != "canonical" || call.Result != "CANONICO" ||
+		strings.Contains(result.Message.ToolCalls, "LEGADO") {
+		t.Fatalf("timeline usou L1/L3 após backfill: message=%+v call=%+v", result.Message, call)
+	}
+}
+
+func TestConsolidateTimelineTurnPendingPreservaResultadoL1(t *testing.T) {
+	turnID := "turn-pending"
+	result := ConsolidateTimelineTurnLedgerFirst([]database.ChatMessage{{
+		UUIDModel: database.UUIDModel{ID: "tool-pending"},
+		Role:      "tool", TurnID: &turnID, ToolCallID: "call-pending", Content: "RESULTADO-L1",
+	}}, map[string]string{"call-pending": "RESULTADO-LEDGER-DIVERGENTE"}, true, []TurnSegmentToolCall{{
+		ID: "call-pending", Type: "function", Function: TurnSegmentToolFunction{Name: "search"},
+		Result: "RESULTADO-LEDGER-DIVERGENTE",
+	}})
+
+	if len(result.Segments) != 1 || len(result.Segments[0].ToolCalls) != 1 {
+		t.Fatalf("segmentos pending inesperados: %+v", result.Segments)
+	}
+	if got := result.Segments[0].ToolCalls[0].Result; got != "RESULTADO-L1" {
+		t.Fatalf("ledger sobrescreveu L1 autoritativo em pending: %q", got)
+	}
+}
+
 func TestConsolidateTimelineTurn_AttachesInvocationByAssistantMessageID(t *testing.T) {
 	turnID := "turn-1"
 	result := ConsolidateTimelineTurn([]database.ChatMessage{

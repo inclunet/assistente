@@ -887,7 +887,8 @@ type chatToolInvocationCleanup struct {
 }
 
 func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.DB, messageID string) chatToolInvocationCleanup {
-	if _, err := RequireUserID(ctx); err != nil {
+	userID, err := RequireUserID(ctx)
+	if err != nil {
 		return chatToolInvocationCleanup{}
 	}
 	if strings.TrimSpace(messageID) == "" {
@@ -895,8 +896,8 @@ func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.D
 	}
 	// scopedMessageQuery garante que não vazamos cross-user.
 	var msg ChatMessage
-	err := scopedMessageQuery(ctx, exec.Model(&ChatMessage{})).
-		Select("chat_messages.id", "chat_messages.role", "chat_messages.turn_id", "chat_messages.tool_calls", "chat_messages.tool_call_id", "chat_messages.created_at").
+	err = scopedMessageQuery(ctx, exec.Model(&ChatMessage{})).
+		Select("chat_messages.id", "chat_messages.conversation_id", "chat_messages.role", "chat_messages.turn_id", "chat_messages.tool_calls", "chat_messages.tool_call_id", "chat_messages.created_at").
 		First(&msg, "chat_messages.id = ?", messageID).Error
 	if err != nil {
 		return chatToolInvocationCleanup{}
@@ -910,6 +911,10 @@ func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.D
 		turn = strings.TrimSpace(*msg.TurnID)
 	}
 	cleanup.TurnID = turn
+	allowLegacy := false
+	if policy, policyErr := LoadToolLedgerLegacyReadPolicyWithUser(ctx, userID, []string{msg.ConversationID}); policyErr == nil {
+		allowLegacy = policy.Allows(msg.ConversationID)
+	}
 
 	// Deletar a raiz do turno (role=user, turn_id == id) pode limpar o turno inteiro.
 	if msg.Role == "user" && turn != "" && turn == strings.TrimSpace(msg.ID) {
@@ -924,6 +929,9 @@ func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.D
 	}
 
 	if msg.Role == "tool" {
+		if !allowLegacy {
+			return dedupCleanup(cleanup)
+		}
 		callID := strings.TrimSpace(msg.ToolCallID)
 		if callID != "" {
 			cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, callID)
@@ -932,6 +940,10 @@ func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.D
 	}
 
 	if msg.Role == "assistant" {
+		if !allowLegacy {
+			cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, chatToolInvocationCallIDsForAssistantMessage(ctx, exec, turn, msg.ID, msg.CreatedAt)...)
+			return dedupCleanup(cleanup)
+		}
 		toolCallsJSON := strings.TrimSpace(msg.ToolCalls)
 		if toolCallsJSON == "" {
 			cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, chatToolInvocationCallIDsForAssistantMessage(ctx, exec, turn, msg.ID, msg.CreatedAt)...)

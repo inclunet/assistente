@@ -1,13 +1,38 @@
 package summarization
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"assistente/internal/chat"
 	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/profiles"
 )
+
+func TestStripLegacyToolMessagesForSummarizationMantemSomenteConversa(t *testing.T) {
+	turnID := "turn-1"
+	messages := []chat.Message{
+		{Role: "assistant", Content: "texto", ToolCalls: `[{"id":"call-1","result":"LEGADO"}]`, TurnID: &turnID},
+		{Role: "tool", Content: "LEGADO-L1", ToolCallID: "call-1", TurnID: &turnID},
+	}
+	got := stripLegacyToolMessagesForSummarization(messages)
+	if len(got) != 1 || got[0].Role != "assistant" || got[0].Content != "texto" ||
+		got[0].ToolCalls != "" || got[0].ToolCallID != "" {
+		t.Fatalf("mensagens canônicas inesperadas: %+v", got)
+	}
+}
+
+func TestSummarizationReadPolicySemEscopoPreservaLegado(t *testing.T) {
+	messages := []chat.Message{{
+		UUIDModel: database.UUIDModel{ID: "tool-1"}, Role: "tool", ToolCallID: "call-1", Content: "resultado",
+	}}
+	got := summarizationMessagesForReadPolicy(context.Background(), "conv-1", messages)
+	if len(got) != 1 || got[0].Role != "tool" || got[0].ToolCallID != "call-1" {
+		t.Fatalf("falha de política descartou legado: %+v", got)
+	}
+}
 
 func TestEstimateTokens(t *testing.T) {
 	tests := []struct {

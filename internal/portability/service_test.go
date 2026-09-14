@@ -1130,6 +1130,186 @@ func setupPortabilityTestDB(t *testing.T) {
 	database.SetDB(db)
 }
 
+func TestConversationToolInvocationsCanonicalRoundTrip(t *testing.T) {
+	setupPortabilityTestDB(t)
+	if err := database.DB().AutoMigrate(&database.ToolCatalog{}, &database.ToolLedgerMigrationState{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := portabilityTestCtx()
+	conv := database.Conversation{UUIDModel: database.UUIDModel{ID: "conv-ledger-roundtrip"}, UserID: portabilityTestUserID, Title: "Ledger"}
+	if err := database.DB().Create(&conv).Error; err != nil {
+		t.Fatal(err)
+	}
+	turnID := "turn-ledger-roundtrip"
+	messages := []database.ChatMessage{
+		{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: conv.ID, Role: "user", Content: "pergunta"},
+		{UUIDModel: database.UUIDModel{ID: "assistant-ledger-roundtrip"}, ConversationID: conv.ID, TurnID: &turnID, Role: "assistant", Content: "resposta"},
+		{UUIDModel: database.UUIDModel{ID: "legacy-ledger-roundtrip"}, ConversationID: conv.ID, TurnID: &turnID, Role: "tool", ToolCallID: "call-ledger", Content: "LEGADO"},
+	}
+	if err := database.DB().Create(&messages).Error; err != nil {
+		t.Fatal(err)
+	}
+	catalog := database.ToolCatalog{Name: "search", DisplayName: "Search", Origin: "builtin", AvailabilityStatus: "available"}
+	if err := database.DB().Create(&catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	completed := time.Now().UTC()
+	invocation := database.ToolInvocation{
+		UUIDModel:          database.UUIDModel{ID: "inv-ledger-roundtrip"},
+		UserID:             portabilityTestUserID,
+		ToolCatalogID:      catalog.ID,
+		OriginType:         "chat",
+		OriginID:           turnID,
+		ConversationID:     &conv.ID,
+		TurnID:             &turnID,
+		ToolCallID:         "call-ledger",
+		Attempt:            2,
+		Status:             "succeeded",
+		Input:              `{"token":"integral"}`,
+		Output:             `{"content":"CANONICO"}`,
+		Metadata:           `{"display":{"name":"search","iteration":1}}`,
+		InputHash:          "hash-input",
+		OutputHash:         "hash-output",
+		ResultAvailability: "available",
+		QueuedAt:           completed.Add(-time.Second),
+		CompletedAt:        &completed,
+	}
+	if err := database.DB().Create(&invocation).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DB().Create(&database.ToolLedgerMigrationState{
+		UserID: portabilityTestUserID, ResourceType: "conversation", ResourceID: conv.ID, State: "backfilled",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	exported, err := buildConversationExports(ctx, []string{conv.ID}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exported) != 1 || len(exported[0].ToolInvocations) != 1 || len(exported[0].Messages) != 2 {
+		t.Fatalf("export canônico incompleto: %+v", exported)
+	}
+	if exported[0].ToolInvocations[0].Output != invocation.Output ||
+		exported[0].ToolInvocations[0].Attempt != 2 {
+		t.Fatalf("ledger perdeu payload/tentativa: %+v", exported[0].ToolInvocations[0])
+	}
+	for _, message := range exported[0].Messages {
+		if message.Role == "tool" || message.ToolCalls != "" || message.ToolCallID != "" {
+			t.Fatalf("export canônico reteve L1/L3: %+v", message)
+		}
+	}
+
+	if _, err := overwriteConversationByExisting(ctx, exported[0], false, &conv); err != nil {
+		t.Fatal(err)
+	}
+	var restored database.ToolInvocation
+	if err := database.DB().First(&restored, "id = ?", invocation.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if restored.Output != invocation.Output || restored.Input != invocation.Input ||
+		restored.Attempt != invocation.Attempt || restored.ConversationID == nil ||
+		*restored.ConversationID != conv.ID {
+		t.Fatalf("roundtrip alterou ledger: %+v", restored)
+	}
+	var roleToolCount int64
+	if err := database.DB().Model(&database.ChatMessage{}).
+		Where("conversation_id = ? AND role = 'tool'", conv.ID).
+		Count(&roleToolCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if roleToolCount != 0 {
+		t.Fatalf("import canônico recriou role=tool: %d", roleToolCount)
+	}
+}
+
+func TestCanonicalizeLegacyConversationExportRejeitaToolCallsInvalido(t *testing.T) {
+	_, err := canonicalizeLegacyConversationExport(ConversationExport{
+		Title: "legado inválido",
+		Messages: []MessageExport{{
+			ID: "assistant-1", TurnID: "turn-1", Role: "assistant", ToolCalls: "{",
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "toolCalls legado inválido") {
+		t.Fatalf("erro = %v, esperado bloqueio sem perda", err)
+	}
+}
+
+func TestCanonicalizeLegacyConversationExportPreservaIteracoes(t *testing.T) {
+	conv, err := canonicalizeLegacyConversationExport(ConversationExport{
+		Title: "iterações",
+		Messages: []MessageExport{
+			{ID: "assistant-1", TurnID: "turn-1", Role: "assistant", ToolCalls: `[{"id":"call-1","function":{"name":"search","arguments":"{}"}}]`},
+			{ID: "assistant-2", TurnID: "turn-1", Role: "assistant", ToolCalls: `[{"id":"call-2","function":{"name":"search","arguments":"{}"}}]`},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conv.ToolInvocations) != 2 {
+		t.Fatalf("invocações = %d", len(conv.ToolInvocations))
+	}
+	for index, invocation := range conv.ToolInvocations {
+		var metadata struct {
+			Display struct {
+				Iteration int `json:"iteration"`
+			} `json:"display"`
+		}
+		if err := json.Unmarshal([]byte(invocation.Metadata), &metadata); err != nil {
+			t.Fatal(err)
+		}
+		if metadata.Display.Iteration != index {
+			t.Fatalf("iteração da invocação %d = %d", index, metadata.Display.Iteration)
+		}
+	}
+}
+
+func TestExportCanonicalResolveVinculoLegadoSemConversationID(t *testing.T) {
+	setupPortabilityTestDB(t)
+	if err := database.DB().AutoMigrate(&database.ToolCatalog{}, &database.ToolLedgerMigrationState{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := portabilityTestCtx()
+	conv := database.Conversation{UUIDModel: database.UUIDModel{ID: "conv-vinculo-legado"}, UserID: portabilityTestUserID, Title: "Vínculo"}
+	if err := database.DB().Create(&conv).Error; err != nil {
+		t.Fatal(err)
+	}
+	turnID := "turn-vinculo-legado"
+	assistantID := "assistant-vinculo-legado"
+	if err := database.DB().Create(&[]database.ChatMessage{
+		{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: conv.ID, Role: "user", Content: "pergunta"},
+		{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: conv.ID, TurnID: &turnID, Role: "assistant", Content: "resposta"},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	catalog := database.ToolCatalog{Name: "legacy-search", DisplayName: "Legacy Search", Origin: "builtin"}
+	if err := database.DB().Create(&catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DB().Create(&database.ToolInvocation{
+		UserID: portabilityTestUserID, ToolCatalogID: catalog.ID, OriginType: "chat",
+		OriginID: assistantID, ToolCallID: "call-legado", Status: "succeeded", QueuedAt: time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DB().Create(&database.ToolLedgerMigrationState{
+		UserID: portabilityTestUserID, ResourceType: "conversation", ResourceID: conv.ID, State: "backfilled",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	exported, err := buildConversationExports(ctx, []string{conv.ID}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exported) != 1 || len(exported[0].ToolInvocations) != 1 {
+		t.Fatalf("export omitiu vínculo legado: %+v", exported)
+	}
+	if exported[0].ToolInvocations[0].TurnID != turnID {
+		t.Fatalf("turnId resolvido = %q", exported[0].ToolInvocations[0].TurnID)
+	}
+}
+
 // portabilityTestUserID is the implicit user-id used by the legacy/test fixtures
 // in this package. Tests that previously relied on no-context wrappers (which
 // silently dropped the user_id filter) now scope explicitly via this id.

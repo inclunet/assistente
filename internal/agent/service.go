@@ -454,32 +454,38 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 
 	callsByTurn := map[string][]chat.TurnSegmentToolCall{}
 	resultsByTurn := map[string]map[string]string{}
-	if userID, userErr := database.RequireUserID(patchCtx); userErr == nil {
-		displays, displayErr := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(patchCtx, userID, []string{turnID})
-		if displayErr != nil {
-			return nil, displayErr
+	userID, userErr := database.RequireUserID(patchCtx)
+	if userErr != nil {
+		return nil, userErr
+	}
+	policy, policyErr := toolinvocations.LoadLegacyReadPolicyWithUser(patchCtx, userID, []string{conversationID})
+	if policyErr != nil {
+		return nil, policyErr
+	}
+	displays, displayErr := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(patchCtx, userID, []string{turnID})
+	if displayErr != nil {
+		return nil, displayErr
+	}
+	for _, display := range displays[turnID] {
+		call := chat.TurnSegmentToolCall{
+			ID:                 display.ID,
+			Type:               display.Type,
+			Function:           chat.TurnSegmentToolFunction{Name: display.Name, Arguments: display.Arguments},
+			Result:             display.Result,
+			Origin:             display.Origin,
+			ServerLabel:        display.ServerLabel,
+			Iteration:          display.Iteration,
+			DurationMs:         display.DurationMs,
+			AssistantMessageID: display.AssistantMessageID,
 		}
-		for _, display := range displays[turnID] {
-			call := chat.TurnSegmentToolCall{
-				ID:                 display.ID,
-				Type:               display.Type,
-				Function:           chat.TurnSegmentToolFunction{Name: display.Name, Arguments: display.Arguments},
-				Result:             display.Result,
-				Origin:             display.Origin,
-				ServerLabel:        display.ServerLabel,
-				Iteration:          display.Iteration,
-				DurationMs:         display.DurationMs,
-				AssistantMessageID: display.AssistantMessageID,
-			}
-			callsByTurn[turnID] = append(callsByTurn[turnID], call)
-			if resultsByTurn[turnID] == nil {
-				resultsByTurn[turnID] = map[string]string{}
-			}
-			resultsByTurn[turnID][display.ID] = display.Result
+		callsByTurn[turnID] = append(callsByTurn[turnID], call)
+		if resultsByTurn[turnID] == nil {
+			resultsByTurn[turnID] = map[string]string{}
 		}
+		resultsByTurn[turnID][display.ID] = display.Result
 	}
 
-	nodes := chat.BuildNodesWithTimelineConsolidation(messages, nil, map[string]int{}, resultsByTurn, callsByTurn)
+	nodes := chat.BuildNodesWithTimelineConsolidation(messages, nil, map[string]int{}, resultsByTurn, callsByTurn, policy.Allows(conversationID))
 	if len(nodes) == 0 {
 		return nil, nil
 	}
