@@ -553,13 +553,15 @@ func TestToolLedgerBackfillRetomaDepoisDeFalhaEntreRecursos(t *testing.T) {
 	if err := database.Callback().Create().Before("gorm:create").Register(callbackName, func(tx *gorm.DB) {
 		invocation, ok := tx.Statement.Dest.(*ToolInvocation)
 		if ok && strings.Contains(invocation.MigrationSourceKey, "crash-b") {
-			tx.AddError(errors.New("falha sintética entre recursos"))
+			_ = tx.AddError(errors.New("falha sintética entre recursos"))
 		}
 	}); err != nil {
 		t.Fatal(err)
 	}
 	err := migrateToolLedgerBackfill(database)
-	database.Callback().Create().Remove(callbackName)
+	if removeErr := database.Callback().Create().Remove(callbackName); removeErr != nil {
+		t.Fatal(removeErr)
+	}
 	if err == nil || !strings.Contains(err.Error(), "falha sintética") {
 		t.Fatalf("falha sintética não propagada: %v", err)
 	}
@@ -598,13 +600,15 @@ func TestToolLedgerBackfillNaoRegistraPayloadEmErroDePersistencia(t *testing.T) 
 	callbackName := "test:tool_ledger_payload_error"
 	if err := migrationDB.Callback().Create().Before("gorm:create").Register(callbackName, func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Dest.(*ToolInvocation); ok {
-			tx.AddError(errors.New("falha sintética sem payload"))
+			_ = tx.AddError(errors.New("falha sintética sem payload"))
 		}
 	}); err != nil {
 		t.Fatal(err)
 	}
 	err := migrateToolLedgerBackfill(migrationDB)
-	migrationDB.Callback().Create().Remove(callbackName)
+	if removeErr := migrationDB.Callback().Create().Remove(callbackName); removeErr != nil {
+		t.Fatal(removeErr)
+	}
 	if err == nil {
 		t.Fatal("falha sintética não propagada")
 	}
