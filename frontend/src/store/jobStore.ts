@@ -6,6 +6,7 @@ import {
   RunJob,
   DryRunJob,
   GetJobRuns,
+  GetJobRunDetail,
   GetJobEvents,
   GetJobPipelines,
   GetToolCatalog,
@@ -98,6 +99,7 @@ interface JobStoreState {
   runJob: (id: string) => Promise<jobs.RunLog | null>;
   dryRunJob: (id: string) => Promise<jobs.DryRunResult | null>;
   fetchJobRuns: (id: string, limit?: number) => Promise<void>;
+  getJobRunDetail: (jobId: string, runId: string) => Promise<jobs.RunDetail | null>;
   fetchJobEvents: (date: string) => Promise<void>;
   fetchPipelines: () => Promise<void>;
   fetchToolCatalog: () => Promise<jobs.CatalogEntry[]>;
@@ -266,6 +268,15 @@ export const useJobStore = create<JobStoreState>((set, get) => {
         set({ runLogs: result || [] });
       } catch (err) {
         set({ error: String(err) });
+      }
+    },
+
+    getJobRunDetail: async (jobId: string, runId: string) => {
+      try {
+        return await GetJobRunDetail(jobId, runId);
+      } catch (err) {
+        set({ error: String(err) });
+        return null;
       }
     },
 

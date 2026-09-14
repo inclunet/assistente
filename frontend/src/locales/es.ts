@@ -3835,6 +3835,7 @@ const es = {
       replayFailed: 'Replay falló',
       clickToExpand: 'Clic para ver detalles',
       runDetailLabel: 'Detalles de la ejecución',
+      runDetailLoadError: 'No se pudieron cargar los detalles de la ejecución.',
       eventsTitle: 'Timeline de Eventos',
       eventsEmpty: 'Ningún evento hoy',
       eventsDate: 'Fecha',

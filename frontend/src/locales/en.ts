@@ -3835,6 +3835,7 @@ const en = {
       replayFailed: 'Replay failed',
       clickToExpand: 'Click to view details',
       runDetailLabel: 'Run details',
+      runDetailLoadError: 'Could not load the run details.',
       eventsTitle: 'Event Timeline',
       eventsEmpty: 'No events today',
       eventsDate: 'Date',

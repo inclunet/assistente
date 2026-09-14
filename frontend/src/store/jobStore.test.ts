@@ -6,6 +6,7 @@ import { JOB_PROFILE_AUTHORIZATION_REQUIRED, useJobStore } from './jobStore';
 const {
   mockAuthorizeJobProfile,
   mockGetJob,
+  mockGetJobRunDetail,
   mockGetJobs,
   mockGetJobProfileGrantState,
   mockGetToolCatalog,
@@ -14,6 +15,7 @@ const {
 } = vi.hoisted(() => ({
   mockAuthorizeJobProfile: vi.fn(),
   mockGetJob: vi.fn(),
+  mockGetJobRunDetail: vi.fn(),
   mockGetJobs: vi.fn(),
   mockGetJobProfileGrantState: vi.fn(),
   mockGetToolCatalog: vi.fn(),
@@ -30,6 +32,7 @@ vi.mock('@wailsjs/go/wailsapi/Jobs', () => ({
   RunJob: vi.fn(),
   DryRunJob: vi.fn(),
   GetJobRuns: vi.fn(),
+  GetJobRunDetail: (jobId: string, runId: string) => mockGetJobRunDetail(jobId, runId),
   GetJobEvents: vi.fn(),
   GetJobPipelines: vi.fn(),
   GetToolCatalog: () => mockGetToolCatalog(),
@@ -69,6 +72,8 @@ beforeEach(() => {
   mockToggleJob.mockResolvedValue(undefined);
   mockGetJob.mockReset();
   mockGetJob.mockResolvedValue(undefined);
+  mockGetJobRunDetail.mockReset();
+  mockGetJobRunDetail.mockResolvedValue(null);
   mockGetJobs.mockReset();
   mockGetJobs.mockResolvedValue([]);
   mockGetJobProfileGrantState.mockReset();
@@ -84,6 +89,16 @@ beforeEach(() => {
     runLogs: [],
     events: [],
     pipelines: [],
+  });
+});
+
+describe('jobStore.getJobRunDetail', () => {
+  it('carrega o detalhe dedicado somente para o run solicitado', async () => {
+    const detail = { run_id: 'run-1', job_id: 'job-1' };
+    mockGetJobRunDetail.mockResolvedValue(detail);
+
+    await expect(useJobStore.getState().getJobRunDetail('job-1', 'run-1')).resolves.toBe(detail);
+    expect(mockGetJobRunDetail).toHaveBeenCalledWith('job-1', 'run-1');
   });
 });
 
