@@ -184,6 +184,18 @@ func (api *Jobs) GetJobRuns(id string, limit int) ([]jobs.RunLog, error) {
 	})
 }
 
+// GetJobRunDetail carrega a timeline operacional e os detalhes técnicos do
+// ledger somente quando um run é aberto.
+func (api *Jobs) GetJobRunDetail(jobID, runID string) (*jobs.RunDetail, error) {
+	session, ctrl, _, _, err := api.deps()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, func(ctx context.Context) (*jobs.RunDetail, error) {
+		return ctrl.GetJobRunDetailContext(ctx, jobID, runID)
+	})
+}
+
 // ReplayRun reexecuta (dry-run) uma run com os inputs gravados.
 func (api *Jobs) ReplayRun(jobID, runID string) (*jobs.TestToolResult, error) {
 	session, ctrl, _, _, err := api.deps()

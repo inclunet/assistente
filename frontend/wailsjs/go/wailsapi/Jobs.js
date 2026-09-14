@@ -34,6 +34,10 @@ export function GetJobProfileGrantState(arg1) {
   return window['go']['wailsapi']['Jobs']['GetJobProfileGrantState'](arg1);
 }
 
+export function GetJobRunDetail(arg1, arg2) {
+  return window['go']['wailsapi']['Jobs']['GetJobRunDetail'](arg1, arg2);
+}
+
 export function GetJobRuns(arg1, arg2) {
   return window['go']['wailsapi']['Jobs']['GetJobRuns'](arg1, arg2);
 }

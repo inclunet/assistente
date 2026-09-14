@@ -82,7 +82,7 @@ func (testToolWindow) Execute(_ context.Context, _ json.RawMessage) (tools.ToolR
 func TestManagerDryRunFallbackRejectsIncompleteWindow(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegister(testToolWindow{})
-	mgr := NewManager(ManagerConfig{ToolRegistry: registry})
+	mgr := mustNewManager(t, ManagerConfig{ToolRegistry: registry})
 	result, err := mgr.TestToolDryRunContext(context.Background(), TestToolRequest{
 		ToolName: "tool_window", Inputs: map[string]any{},
 	})
@@ -126,7 +126,7 @@ func TestManagerTestToolDryRunContext_RecordsDryRunToolCatalogInvocations(t *tes
 	exec := tools.NewExecutor(registry, tools.DefaultExecutorConfig())
 	invSvc := toolinvocations.NewService(repo, exec)
 
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		ToolRegistry:    registry,
 		ToolInvocations: invSvc,
 		ContextProvider: func() context.Context { return userCtx },
@@ -189,7 +189,7 @@ func TestManagerTestToolDryRunContext_BlocksUnsafeAndNative(t *testing.T) {
 	registry.MustRegister(testToolMCPNative{})
 	registry.MustRegister(testToolMCPBridge{})
 
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		ToolRegistry:    registry,
 		ContextProvider: func() context.Context { return userCtx },
 	})
@@ -269,14 +269,5 @@ func TestManagerTestToolDryRunContext_BlocksUnsafeAndNative(t *testing.T) {
 	}
 	if bridgeResolved == nil || !bridgeResolved.Success {
 		t.Fatalf("expected resolved MCP bridge to execute, got %#v", bridgeResolved)
-	}
-}
-
-func TestManagerTestToolDryRunContext_RequiresToolRegistry(t *testing.T) {
-	mgr := NewManager(ManagerConfig{})
-
-	_, err := mgr.TestToolDryRunContext(context.Background(), TestToolRequest{ToolName: "read_file"})
-	if err == nil || err.Error() != "tool registry not configured" {
-		t.Fatalf("expected tool registry error, got %v", err)
 	}
 }

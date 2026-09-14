@@ -40,6 +40,11 @@ Mensagens podem conter referências leves, como `tool_invocation_id`, quando a U
 
 ### D3 — `ToolInvocationService` como único caminho de execução
 
+O serviço é dependência obrigatória no wiring/construtor de cada executor.
+Configuração ausente falha na montagem; a defesa runtime falha antes de qualquer
+efeito e nunca chama um executor direto como fallback. Caminhos de execução sem
+ledger não fazem parte da compatibilidade histórica.
+
 O serviço recebe um pedido normalizado:
 
 - `user_id`
@@ -221,7 +226,9 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 18. ✅ Backfill retomável de mensagens e runs publicados (v18).
 19. ✅ Parar toda escrita `role=tool`/`tool_calls`/`tool_call_id`.
 20. ✅ Migrar consumidores, projeções e detalhes lazy para o ledger.
-21. Remover cópias técnicas de `job_runs` e reconstruir o schema legado.
+21. ✅ Remover escrita e leitura direta das cópias técnicas de `job_runs`;
+    detalhes são hidratados em lote pelo ledger.
+22. Reconstruir o schema legado sem as colunas físicas.
 
 Esta fase é executada em sete PRs pela AEP-0104. Até o cutover final, os
 critérios de exclusividade permanecem pendentes.
@@ -264,7 +271,8 @@ critérios de exclusividade permanecem pendentes.
   [AEP-0074-B — Compactação e Retenção do Banco de Dados](0074-database-compaction-and-retention.md).
 - [x] Testes cobrem sucesso, falha, timeout, dry-run, chat e `job_run`.
 - [ ] Nenhuma execução ou resultado técnico é persistido em `chat_messages`.
-- [ ] `job_runs` não duplica tool, input ou output da execução.
+- [x] `job_runs` não recebe novas cópias de tool, input ou output da execução;
+  consultas hidratam esses dados exclusivamente de `tool_invocations`.
 - [ ] Não existem dual-read, dual-write ou fallback legado após o cutover.
 
 Evidências: `internal/toolinvocations/{repository,service}_test.go`,
@@ -308,11 +316,13 @@ Já usam o executor comum (`internal/toolinvocations.Service`) e persistem em `t
 - **Export/Import** (`internal/portability/service.go`): hidratação reconstrói os resultados de
   tools a partir de `tool_invocations`, sem depender exclusivamente de mensagens.
 
-### O que permanece em armazenamento legado e por quê
+### Estado transitório até o cutover
 
-Três mecanismos legados continuam ativos de forma **intencional**. Nenhum é removido neste
-ciclo (issue #127) por serem de alto risco; cada um tem função de compatibilidade ou de
-domínio distinta da trilha técnica de `tool_invocations`.
+Compatibilidade antiga não constitui caminho alternativo de execução. L1/L3
+permanecem apenas como dados históricos bloqueados pelo gate de migração até o
+rebuild da fase 7; nenhum writer novo os alimenta. L2 não é compatibilidade:
+`job_run_events` representa eventos operacionais, enquanto toda execução
+técnica vive exclusivamente no ledger.
 
 #### L1 — Fallback `role=tool` no chat
 

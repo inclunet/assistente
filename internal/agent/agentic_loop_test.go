@@ -266,8 +266,10 @@ func TestAgenticLoopRunner_RetryRetryableTools(t *testing.T) {
 	reg := tools.NewRegistry()
 	reg.MustRegister(okTool{})
 	exec := tools.NewExecutor(reg, tools.DefaultExecutorConfig())
-	svc := NewService(ServiceConfig{Emitter: em, ToolExecutor: exec})
-	svc.allowUnpersistedExecutionForTests = true
+	svc := NewService(ServiceConfig{
+		Emitter: em, ToolExecutor: exec,
+		ToolInvocations: newAgentTestToolInvocations(reg),
+	})
 	r := newSeamRunner(svc, "c1", "t1")
 	r.maxIterations = 3
 
@@ -306,8 +308,10 @@ func TestAgenticLoopRunner_RetryRetryableTools_LastIterationNoRetry(t *testing.T
 	reg := tools.NewRegistry()
 	reg.MustRegister(okTool{})
 	exec := tools.NewExecutor(reg, tools.DefaultExecutorConfig())
-	svc := NewService(ServiceConfig{Emitter: em, ToolExecutor: exec})
-	svc.allowUnpersistedExecutionForTests = true
+	svc := NewService(ServiceConfig{
+		Emitter: em, ToolExecutor: exec,
+		ToolInvocations: newAgentTestToolInvocations(reg),
+	})
 	r := newSeamRunner(svc, "c1", "t1")
 	r.maxIterations = 1 // iteração 0 é a última → sem retry.
 
@@ -657,11 +661,11 @@ func TestRunAgenticLoop_JSONInvalidoSemFinishReasonContinuaInvalidArgs(t *testin
 	registry.MustRegister(okTool{})
 	executor := tools.NewExecutor(registry, tools.DefaultExecutorConfig())
 	svc := NewService(ServiceConfig{
-		Emitter:      em,
-		MsgRepo:      &toolMsgRepo{conversationID: "c1"},
-		ToolExecutor: executor,
+		Emitter:         em,
+		MsgRepo:         &toolMsgRepo{conversationID: "c1"},
+		ToolExecutor:    executor,
+		ToolInvocations: newAgentTestToolInvocations(registry),
 	})
-	svc.allowUnpersistedExecutionForTests = true
 	streamer := &scriptedStreamer{call: llm.ToolCall{
 		ID:   "malformed-1",
 		Type: "function",

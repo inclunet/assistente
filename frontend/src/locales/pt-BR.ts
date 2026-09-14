@@ -3835,6 +3835,7 @@ const ptBR = {
       replayFailed: 'Replay falhou',
       clickToExpand: 'Clique para ver detalhes',
       runDetailLabel: 'Detalhes da execução',
+      runDetailLoadError: 'Não foi possível carregar os detalhes da execução.',
       eventsTitle: 'Timeline de Eventos',
       eventsEmpty: 'Nenhum evento hoje',
       eventsDate: 'Data',

@@ -7,6 +7,8 @@ import (
 	"assistente/internal/jobs"
 	"assistente/internal/profileaccess"
 	"assistente/internal/profiles"
+	"assistente/internal/toolinvocations"
+	"assistente/internal/tools"
 	"context"
 	"encoding/json"
 	"errors"
@@ -129,7 +131,7 @@ func setupJobsGrantBehaviorTest(t *testing.T) (*Jobs, *jobs.Manager, *gorm.DB, c
 		&database.JobPipeline{}, &database.Job{}, &database.JobProfileGrant{},
 		&database.JobProfileGrantEpoch{}, &database.ProfileGrantRevocationIntent{},
 		&database.JobTrigger{}, &database.JobRun{},
-		&database.JobEvent{}, &database.JobRunEvent{},
+		&database.JobEvent{}, &database.JobRunEvent{}, &database.ToolInvocation{},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -144,8 +146,14 @@ func setupJobsGrantBehaviorTest(t *testing.T) (*Jobs, *jobs.Manager, *gorm.DB, c
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
+	registry := tools.NewRegistry()
 	manager := jobs.NewManager(jobs.ManagerConfig{
 		Repository: jobs.NewDBRepository(db), ContextProvider: func() context.Context { return ctx },
+		ToolRegistry: registry,
+		ToolInvocations: toolinvocations.NewService(
+			toolinvocations.NewDBRepository(db),
+			tools.NewExecutor(registry, tools.DefaultExecutorConfig()),
+		),
 	})
 	grantStore := &jobsGrantTestStore{}
 	access := profileaccess.NewService(jobsGrantTestProfiles{}, nil, nil, nil).WithJobGrants(grantStore)

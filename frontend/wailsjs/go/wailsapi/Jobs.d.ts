@@ -20,6 +20,8 @@ export function GetJobPipelines():Promise<Array<jobs.PipelineInfo>>;
 
 export function GetJobProfileGrantState(arg1:string):Promise<profileaccess.JobGrantState>;
 
+export function GetJobRunDetail(arg1:string,arg2:string):Promise<jobs.RunDetail>;
+
 export function GetJobRuns(arg1:string,arg2:number):Promise<Array<jobs.RunLog>>;
 
 export function GetJobs():Promise<Array<jobs.JobInfo>>;

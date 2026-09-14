@@ -200,7 +200,11 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		toolCatalogID = id
 	}
 
-	input := s.buildInvocationInput(req.Call)
+	persistenceCall := req.Call
+	if req.PersistedArguments != nil {
+		persistenceCall.Function.Arguments = *req.PersistedArguments
+	}
+	input := s.buildInvocationInput(persistenceCall)
 	// Encadeamento pai↔filho (AEP-0068): se o chamador não trouxe um
 	// ParentInvocationID explícito, herda o carimbado no ctx (ex.: sub-conversa
 	// de sub-agente herda a invocação da tool `subagent` que a originou).
@@ -220,7 +224,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		Status:             StatusQueued,
 		DryRun:             req.DryRun,
 		Input:              input,
-		Metadata:           s.buildInvocationDisplayMetadata(req.Call, req.Iteration, 0, false),
+		Metadata:           s.buildInvocationDisplayMetadata(persistenceCall, req.Iteration, 0, false),
 		DisplayName:        req.Call.Function.Name,
 		ResultAvailability: "pending",
 		QueuedAt:           queuedAt,
@@ -303,7 +307,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		inv.RetryabilityKnown = exec.RetryabilityKnown
 		inv.CompletedAt = &completedAt
 		inv.DurationMs = exec.DurationMs
-		inv.Metadata = s.buildInvocationDisplayMetadata(req.Call, req.Iteration, exec.DurationMs, false)
+		inv.Metadata = s.buildInvocationDisplayMetadata(persistenceCall, req.Iteration, exec.DurationMs, false)
 		opCtx, cancel := s.persistOpCtx(persistCtx)
 		err := s.repo.Complete(opCtx, inv.ID, &inv)
 		cancel()
@@ -746,6 +750,10 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 		toolCatalogID = id
 	}
 	queuedAt := s.now()
+	persistenceCall := req.Call
+	if req.PersistedArguments != nil {
+		persistenceCall.Function.Arguments = *req.PersistedArguments
+	}
 	inv := Invocation{
 		ToolCatalogID:      toolCatalogID,
 		OriginType:         req.Origin.Type,
@@ -757,7 +765,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 		Attempt:            1,
 		Status:             StatusQueued,
 		DryRun:             req.DryRun,
-		Input:              s.buildInvocationInput(req.Call),
+		Input:              s.buildInvocationInput(persistenceCall),
 		DisplayName:        req.Call.Function.Name,
 		ResultAvailability: "pending",
 		QueuedAt:           queuedAt,
@@ -795,7 +803,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	inv.RetryabilityKnown = req.RetryabilityKnown
 	inv.CompletedAt = &completedAt
 	inv.DurationMs = req.DurationMs
-	inv.Metadata = s.buildInvocationDisplayMetadata(req.Call, req.Iteration, req.DurationMs, true)
+	inv.Metadata = s.buildInvocationDisplayMetadata(persistenceCall, req.Iteration, req.DurationMs, true)
 
 	// Revalida a origem do chat antes de finalizar. Native MCP pode correr com
 	// deleção de turno/mensagem após o pre-check do chamador.

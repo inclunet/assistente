@@ -132,6 +132,10 @@ criados no intervalo entre os deploys 2 e 3 entram no ledger antes do corte.
 
 O deploy da fase 3 é o ponto exato em que termina qualquer dual-write:
 
+- `ToolInvocationService` é dependência obrigatória de todo executor de tool;
+  wiring sem ledger falha durante a montagem/inicialização;
+- uma defesa runtime adicional falha antes de qualquer efeito caso uma
+  instância inválida seja construída fora dos construtores;
 - `AddToolResultMessage` sai do runtime;
 - não são persistidos `role=tool`, `tool_calls` ou `tool_call_id`;
 - MCP nativo resolve entrada normal ou archival e falha fechado quando não
@@ -260,9 +264,16 @@ sem dependência de rede.
 
 ### Fase 6 — JobRun operacional
 
-- [ ] Ler detalhes por join com invocações.
-- [ ] Remover cópia técnica do run preservando eventos e resultado em memória
+- [x] Ler detalhes por join com invocações.
+- [x] Remover cópia técnica do run preservando eventos e resultado em memória
       para output map/emissão.
+
+Evidência: `NewJobExecutor` rejeita montagem sem registry ou ledger, e
+`executeTool` mantém defesa fail-closed sem chamar a tool. `LogRun` grava apenas
+estado operacional, trigger, eventos, duração e erro; tool, input redigido e
+output são hidratados em lote a partir de `tool_invocations` para consulta e
+replay. Testes garantem zero efeito sem ledger, ausência de cópia técnica em
+`job_runs` e roundtrip de detalhes exclusivamente pelo vínculo do ledger.
 
 ### Fase 7 — Cutover e remoção física
 

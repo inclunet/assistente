@@ -61,7 +61,12 @@ autorizado. Jobs que omitem esse input e herdam o profile continuam inalterados.
 
 ## Execução e encadeamento
 
-Jobs publicam eventos (`on_success`/`on_failure`) no barramento interno; outros jobs com gatilho `event` reagem, formando pipelines. Logs registram `resolved_inputs`, saída e erro, com replay em `dry-run` para testar sem efeito.
+Jobs publicam eventos (`on_success`/`on_failure`) no barramento interno; outros
+jobs com gatilho `event` reagem, formando pipelines. O histórico do run guarda
+estado, trigger, duração, erro e a timeline operacional. Ao abrir os detalhes,
+tool, entradas redigidas e saída são lidas da invocação técnica associada; não
+há uma segunda cópia desses payloads no run. O replay em `dry-run` usa essa
+invocação canônica e fica indisponível quando a entrada foi redigida.
 
 Eventos não ficam em fila. Quando nenhum consumidor está habilitado — porque o
 job ou a pipeline consumidora foi desativado — o evento é descartado e não

@@ -76,7 +76,10 @@ export default function JobsPage() {
   const isLoading = useJobStore((s) => s.isLoading);
   const runLogs = useJobStore((s) => s.runLogs);
   const events = useJobStore((s) => s.events);
-  const { fetchJobs, toggleJob, runJob, fetchJobRuns, fetchJobEvents, fetchJobDetail, deleteJob } = useJobStore();
+  const {
+    fetchJobs, toggleJob, runJob, fetchJobRuns, getJobRunDetail,
+    fetchJobEvents, fetchJobDetail, deleteJob,
+  } = useJobStore();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [focusedJob, setFocusedJob] = useState<jobs.JobInfo | null>(null);
@@ -502,7 +505,12 @@ export default function JobsPage() {
         title={`${t('jobs.logsTitle')} — ${logsJobId || ''}`}
         returnFocusOnClose={false}
       >
-        <RunLogViewer logs={runLogs} onReplay={handleReplay} onRerun={handleRerun} />
+        <RunLogViewer
+          logs={runLogs}
+          onLoadDetail={getJobRunDetail}
+          onReplay={handleReplay}
+          onRerun={handleRerun}
+        />
       </Modal>
 
       <Modal

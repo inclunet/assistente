@@ -895,14 +895,6 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 	if err != nil {
 		return err
 	}
-	inputs, err := marshalJSON(RedactResolvedInputs(nil, rl.ResolvedInputs))
-	if err != nil {
-		return err
-	}
-	output, err := marshalJSON(rl.Output)
-	if err != nil {
-		return err
-	}
 	events, err := marshalJSON(rl.EventsEmitted)
 	if err != nil {
 		return err
@@ -919,10 +911,7 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 		Error:         rl.Error,
 		RetryCount:    rl.RetryCount,
 		IsDryRun:      rl.IsDryRun,
-		ToolName:      rl.ToolName,
 		TriggerData:   triggerData,
-		Inputs:        inputs,
-		Output:        output,
 		EventsEmitted: events,
 	}
 	if row.StartedAt.IsZero() {
@@ -1122,6 +1111,11 @@ func (r *DBRepository) GetRun(ctx context.Context, jobID, runID string) (*RunLog
 		return nil, err
 	}
 	rl := runModelToDomain(row, jobRow.Slug)
+	runs := []RunLog{rl}
+	if err := r.hydrateRunLogsFromLedger(ctx, runs); err != nil {
+		return nil, err
+	}
+	rl = runs[0]
 	return &rl, nil
 }
 
@@ -2098,33 +2092,125 @@ func tagModelToDomain(row database.Tag) Tag {
 	}
 }
 
+func (r *DBRepository) hydrateRunLogsFromLedger(ctx context.Context, runs []RunLog) error {
+	if len(runs) == 0 {
+		return nil
+	}
+	if !r.db.Migrator().HasTable(&database.ToolInvocation{}) {
+		return nil
+	}
+	runIDs := make([]string, 0, len(runs))
+	byRunID := make(map[string]*RunLog, len(runs))
+	for i := range runs {
+		runID := strings.TrimSpace(runs[i].RunID)
+		if runID == "" {
+			continue
+		}
+		runIDs = append(runIDs, runID)
+		byRunID[runID] = &runs[i]
+	}
+	if len(runIDs) == 0 {
+		return nil
+	}
+	type invocationRow struct {
+		OriginID           string
+		Input              string
+		Output             string
+		ResultAvailability string
+		ToolName           string
+		Attempt            int
+	}
+	var rows []invocationRow
+	if err := r.retry(ctx, "hydrate_run_ledger", func() error {
+		return database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "tool_invocations.user_id").
+			Select("tool_invocations.origin_id, tool_invocations.input, tool_invocations.output, tool_invocations.result_availability, tool_invocations.attempt, tool_catalog.name AS tool_name").
+			Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
+			Where("tool_invocations.origin_type = ? AND tool_invocations.origin_id IN ?", toolinvocations.OriginJobRun, runIDs).
+			Order("tool_invocations.origin_id, tool_invocations.attempt DESC, tool_invocations.queued_at DESC, tool_invocations.id DESC").
+			Find(&rows).Error
+	}); err != nil {
+		return fmt.Errorf("hydrate job runs from tool invocation ledger: %w", err)
+	}
+	hydrated := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		run := byRunID[row.OriginID]
+		if run == nil {
+			continue
+		}
+		if _, exists := hydrated[row.OriginID]; exists {
+			continue
+		}
+		hydrated[row.OriginID] = struct{}{}
+		run.ToolName = strings.TrimSpace(row.ToolName)
+		run.ResolvedInputs = invocationArguments(row.Input)
+		run.Output = invocationOutput(row.Output)
+		run.OutputSize = len(row.Output)
+		run.Replayable = run.Status != "skipped" &&
+			run.ToolName != "" &&
+			run.ResolvedInputs != nil &&
+			!ContainsRedactedValue(run.ResolvedInputs)
+	}
+	return nil
+}
+
+func invocationArguments(raw string) map[string]any {
+	var envelope struct {
+		ToolCall struct {
+			Function struct {
+				Arguments string `json:"arguments"`
+			} `json:"function"`
+		} `json:"tool_call"`
+	}
+	if json.Unmarshal([]byte(raw), &envelope) != nil || strings.TrimSpace(envelope.ToolCall.Function.Arguments) == "" {
+		return nil
+	}
+	var arguments map[string]any
+	if json.Unmarshal([]byte(envelope.ToolCall.Function.Arguments), &arguments) != nil {
+		return nil
+	}
+	return arguments
+}
+
+func invocationOutput(raw string) map[string]any {
+	result := toolinvocations.ExtractToolInvocationResult(raw)
+	output := make(map[string]any)
+	if strings.TrimSpace(result.Content) != "" {
+		if err := json.Unmarshal([]byte(result.Content), &output); err != nil {
+			var array []any
+			if json.Unmarshal([]byte(result.Content), &array) == nil {
+				output["content"] = array
+			} else {
+				output["content"] = result.Content
+			}
+		}
+	}
+	for key, value := range result.Metadata {
+		output["_meta_"+key] = value
+	}
+	if len(output) == 0 {
+		return nil
+	}
+	return output
+}
+
 func runModelToDomain(row database.JobRun, jobSlug string) RunLog {
 	var trigger TriggerInfo
 	_ = unmarshalJSON(row.TriggerData, &trigger)
-	var inputs map[string]any
-	_ = unmarshalJSON(row.Inputs, &inputs)
-	var output map[string]any
-	_ = unmarshalJSON(row.Output, &output)
 	var events []string
 	_ = unmarshalJSON(row.EventsEmitted, &events)
 	rl := RunLog{
-		RunID:          row.ID,
-		JobID:          jobSlug,
-		ToolName:       row.ToolName,
-		Trigger:        trigger,
-		Status:         row.Status,
-		StartedAt:      row.StartedAt,
-		ResolvedInputs: inputs,
-		Output:         output,
-		OutputSize:     len(row.Output),
-		Error:          row.Error,
-		RetryCount:     row.RetryCount,
-		EventsEmitted:  events,
-		IsDryRun:       row.IsDryRun,
-		Duration:       time.Duration(row.DurationMs * int64(time.Millisecond)).String(),
-		CompletedAt:    time.Time{},
+		RunID:         row.ID,
+		JobID:         jobSlug,
+		Trigger:       trigger,
+		Status:        row.Status,
+		StartedAt:     row.StartedAt,
+		Error:         row.Error,
+		RetryCount:    row.RetryCount,
+		EventsEmitted: events,
+		IsDryRun:      row.IsDryRun,
+		Duration:      time.Duration(row.DurationMs * int64(time.Millisecond)).String(),
+		CompletedAt:   time.Time{},
 	}
-	rl.Replayable = rl.Status != "skipped" && rl.ToolName != "" && rl.ResolvedInputs != nil && !ContainsRedactedValue(rl.ResolvedInputs)
 	if row.CompletedAt != nil {
 		rl.CompletedAt = *row.CompletedAt
 	}

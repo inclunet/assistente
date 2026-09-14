@@ -55,6 +55,17 @@ func (scopeProbeTool) Execute(ctx context.Context, _ json.RawMessage) (tools.Too
 	return tools.ToolResult{Content: ec.Filesystem.Read[0]}, nil
 }
 
+func TestNewServiceRejectsToolExecutorWithoutLedger(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("esperava falha de wiring sem ledger")
+		}
+	}()
+	NewService(ServiceConfig{
+		ToolExecutor: tools.NewExecutor(tools.NewRegistry(), tools.DefaultExecutorConfig()),
+	})
+}
+
 type ledgerGuardTool struct {
 	calls *int
 }
@@ -101,9 +112,9 @@ func TestExecuteToolCallsWithRuntimeControlsAppliesLoadSkillScopeBeforeRegularTo
 	registry.MustRegister(scopeProbeTool{})
 	emitter := &runtimeControlEmitter{}
 	svc := &Service{
-		toolExecutor:                      tools.NewExecutor(registry, tools.DefaultExecutorConfig()),
-		emitter:                           emitter,
-		allowUnpersistedExecutionForTests: true,
+		toolExecutor:    tools.NewExecutor(registry, tools.DefaultExecutorConfig()),
+		toolInvocations: newAgentTestToolInvocations(registry),
+		emitter:         emitter,
 	}
 
 	batch := svc.executeToolCallsWithRuntimeControls(context.Background(), []tools.ToolCall{

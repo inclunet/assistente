@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"assistente/internal/database"
@@ -28,18 +29,42 @@ type scriptedTool struct {
 	calls   int
 }
 
-type contextErrorTool struct {
-	result tools.ToolResult
-	err    error
-	calls  int
+func TestNewJobExecutorRequiresInvocationLedger(t *testing.T) {
+	registry := tools.NewRegistry()
+	if _, err := NewJobExecutor(ExecutorConfig{ToolRegistry: registry}); err == nil {
+		t.Fatal("esperava erro de montagem sem ledger")
+	}
 }
 
-func (t *contextErrorTool) Name() string                { return "context_error_tool" }
-func (t *contextErrorTool) Description() string         { return "context error tool" }
-func (t *contextErrorTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
-func (t *contextErrorTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
-	t.calls++
-	return t.result, t.err
+func TestNewJobExecutorRequiresToolRegistry(t *testing.T) {
+	service := toolinvocations.NewService(
+		newJobExecutorTestLedger(),
+		tools.NewExecutor(tools.NewRegistry(), tools.DefaultExecutorConfig()),
+	)
+	if _, err := NewJobExecutor(ExecutorConfig{ToolInvocations: service}); err == nil {
+		t.Fatal("esperava erro de montagem sem registry")
+	}
+}
+
+func TestJobExecutorRuntimeDefenseDoesNotExecuteWithoutLedger(t *testing.T) {
+	tool := &scriptedTool{results: []tools.ToolResult{{Content: `{"ok":true}`}}}
+	registry := tools.NewRegistry()
+	registry.MustRegister(tool)
+	executor := &JobExecutor{toolRegistry: registry}
+
+	result := executor.executeTool(
+		context.Background(),
+		&Job{ID: "invalid-wiring", Tool: tool.Name()},
+		nil,
+		json.RawMessage(`{}`),
+		json.RawMessage(`{}`),
+	)
+	if tool.calls != 0 {
+		t.Fatalf("tool executada sem ledger: %d chamadas", tool.calls)
+	}
+	if !result.Result.IsError || result.ErrorCode != "tool_invocation_ledger_unavailable" {
+		t.Fatalf("falha fechada inesperada: %#v", result)
+	}
 }
 
 func (s *scriptedTool) Name() string                { return "scripted_tool" }
@@ -52,23 +77,6 @@ func (s *scriptedTool) Execute(_ context.Context, _ json.RawMessage) (tools.Tool
 		index = len(s.results) - 1
 	}
 	return s.results[index], nil
-}
-
-func TestJobExecutorFallbackRejectsIncompleteToolWindow(t *testing.T) {
-	tool := &scriptedTool{results: []tools.ToolResult{{
-		Content: "prefixo",
-		Annotations: &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
-			HasMore: true, Unit: "bytes", Returned: 7, Total: 20, NextOffset: 7,
-		}},
-	}}}
-	registry := tools.NewRegistry()
-	registry.MustRegister(tool)
-	executor := NewJobExecutor(ExecutorConfig{ToolRegistry: registry})
-
-	result := executor.executeTool(context.Background(), &Job{ID: "fallback-window", Tool: tool.Name()}, nil, json.RawMessage(`{}`))
-	if !result.Result.IsError || result.ErrorCode != "result_too_large" {
-		t.Fatalf("fallback sem serviço aceitou janela incompleta: %+v", result)
-	}
 }
 
 func TestJobExecutor_RecordsToolInvocationForRun(t *testing.T) {
@@ -107,7 +115,7 @@ func TestJobExecutor_RecordsToolInvocationForRun(t *testing.T) {
 	exec := tools.NewExecutor(toolRegistry, tools.DefaultExecutorConfig())
 	invSvc := toolinvocations.NewService(repo, exec)
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:    toolRegistry,
 		ToolInvocations: invSvc,
 		CircuitBreaker:  NewCircuitBreaker(),
@@ -193,140 +201,12 @@ func TestJobExecutorDoesNotRetryPermanentToolFailure(t *testing.T) {
 	}
 }
 
-func TestJobExecutorWithoutInvocationServiceDoesNotRetryPermanentToolFailure(t *testing.T) {
-	tool := &scriptedTool{results: []tools.ToolResult{{
-		Content: "autorização indisponível",
-		Failure: &tools.ToolFailure{
-			Code:      "authorization_unavailable",
-			Kind:      tools.ErrorKindAuthorization,
-			Retryable: false,
-		},
-	}}}
-	registry := tools.NewRegistry()
-	registry.MustRegister(tool)
-	executor := NewJobExecutor(ExecutorConfig{
-		ToolRegistry:   registry,
-		EventBus:       NewEventBus(),
-		CircuitBreaker: NewCircuitBreaker(),
-	})
-	job := &Job{
-		ID:   "legacy-direct-job",
-		Tool: tool.Name(),
-		ErrorPolicy: ErrorPolicy{
-			Strategy:   ErrorRetry,
-			MaxRetries: 3,
-			RetryDelay: "1ms",
-		},
-	}
-
-	run := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
-	if tool.calls != 1 || run.RetryCount != 0 || run.Status != "failed" {
-		t.Fatalf("caminho direto repetiu falha permanente: calls=%d run=%#v", tool.calls, run)
-	}
-}
-
-func TestJobExecutorWithoutInvocationServiceRetriesExplicitTransientFailure(t *testing.T) {
-	tool := &scriptedTool{results: []tools.ToolResult{
-		{
-			Content: "serviço temporariamente indisponível",
-			IsError: true,
-			Failure: &tools.ToolFailure{
-				Code:      "service_unavailable",
-				Kind:      tools.ErrorKindUnavailable,
-				Retryable: true,
-			},
-		},
-		{Content: `{"ok":true}`},
-	}}
-	registry := tools.NewRegistry()
-	registry.MustRegister(tool)
-	executor := NewJobExecutor(ExecutorConfig{
-		ToolRegistry:   registry,
-		EventBus:       NewEventBus(),
-		CircuitBreaker: NewCircuitBreaker(),
-	})
-	job := &Job{
-		ID:   "legacy-transient-job",
-		Tool: tool.Name(),
-		ErrorPolicy: ErrorPolicy{
-			Strategy:   ErrorRetry,
-			MaxRetries: 1,
-			RetryDelay: "1ms",
-		},
-	}
-
-	run := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
-	if tool.calls != 2 || run.RetryCount != 1 || run.Status != "completed" {
-		t.Fatalf("caminho direto não repetiu falha transitória: calls=%d run=%#v", tool.calls, run)
-	}
-}
-
-func TestJobExecutorWithoutInvocationServiceDoesNotRetryCancellation(t *testing.T) {
-	tool := &contextErrorTool{err: context.Canceled}
-	registry := tools.NewRegistry()
-	registry.MustRegister(tool)
-	executor := NewJobExecutor(ExecutorConfig{
-		ToolRegistry:   registry,
-		EventBus:       NewEventBus(),
-		CircuitBreaker: NewCircuitBreaker(),
-	})
-	job := &Job{
-		ID:   "legacy-cancelled-job",
-		Tool: tool.Name(),
-		ErrorPolicy: ErrorPolicy{
-			Strategy:   ErrorRetry,
-			MaxRetries: 2,
-			RetryDelay: "1ms",
-		},
-	}
-
-	run := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
-	if tool.calls != 1 || run.RetryCount != 0 || run.Status != "failed" {
-		t.Fatalf("cancelamento foi repetido: calls=%d run=%#v", tool.calls, run)
-	}
-}
-
-func TestJobExecutorWithoutInvocationServicePreservesFailureReturnedWithError(t *testing.T) {
-	tool := &contextErrorTool{
-		result: tools.ToolResult{
-			Content: "configuração inválida",
-			Failure: &tools.ToolFailure{
-				Code:      "invalid_configuration",
-				Kind:      tools.ErrorKindConfiguration,
-				Retryable: false,
-			},
-		},
-		err: errors.New("configuração inválida"),
-	}
-	registry := tools.NewRegistry()
-	registry.MustRegister(tool)
-	executor := NewJobExecutor(ExecutorConfig{
-		ToolRegistry:   registry,
-		EventBus:       NewEventBus(),
-		CircuitBreaker: NewCircuitBreaker(),
-	})
-	job := &Job{
-		ID:   "legacy-structured-error-job",
-		Tool: tool.Name(),
-		ErrorPolicy: ErrorPolicy{
-			Strategy:   ErrorRetry,
-			MaxRetries: 2,
-			RetryDelay: "1ms",
-		},
-	}
-
-	run := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
-	if tool.calls != 1 || run.RetryCount != 0 || run.Status != "failed" {
-		t.Fatalf("falha estruturada retornada com erro foi repetida: calls=%d run=%#v", tool.calls, run)
-	}
-}
-
 func TestJobExecutorRetriesTransientSecretResolutionFailure(t *testing.T) {
 	tool := &scriptedTool{results: []tools.ToolResult{{Content: `{"ok":true}`}}}
 	registry := tools.NewRegistry()
 	registry.MustRegister(tool)
 	secretCalls := 0
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry: registry,
 		EventBus:     NewEventBus(),
 		SecretStore: secretStoreFunc(func(context.Context, string) (string, error) {
@@ -355,11 +235,111 @@ func TestJobExecutorRetriesTransientSecretResolutionFailure(t *testing.T) {
 	}
 }
 
+func TestJobExecutorPersistsTemplateSecretsRedactedInLedger(t *testing.T) {
+	tool := &scriptedTool{results: []tools.ToolResult{{Content: `{"ok":true}`}}}
+	executor, repo, userCtx := invocationBackedExecutor(t, tool)
+	executor.secretStore = secretStoreFunc(func(context.Context, string) (string, error) {
+		return "segredo-super-sensivel", nil
+	})
+	run := executor.Execute(userCtx, &Job{
+		ID:   "secret-ledger-job",
+		Tool: tool.Name(),
+		Inputs: map[string]any{
+			"query": `{{ secret "token" }}`,
+		},
+	}, &TriggerContext{Type: TriggerManual})
+	if run.Status != "completed" {
+		t.Fatalf("run falhou: %#v", run)
+	}
+	invocations, err := repo.List(userCtx, toolinvocations.Filter{
+		OriginType: toolinvocations.OriginJobRun,
+		OriginID:   run.RunID,
+		Limit:      10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(invocations) != 1 {
+		t.Fatalf("invocações = %d, esperava uma", len(invocations))
+	}
+	persisted := string(invocations[0].Input) + string(invocations[0].Metadata)
+	if strings.Contains(persisted, "segredo-super-sensivel") {
+		t.Fatalf("segredo persistido no ledger: %s", persisted)
+	}
+	if !strings.Contains(persisted, redactedValue) {
+		t.Fatalf("redação ausente do ledger: %s", persisted)
+	}
+}
+
+func TestJobExecutorPersistsMockDryRunOnlyInLedger(t *testing.T) {
+	tool := &scriptedTool{results: []tools.ToolResult{{Content: `{"unexpected":true}`}}}
+	executor, repo, userCtx := invocationBackedExecutor(t, tool)
+	run := executor.Execute(userCtx, &Job{
+		ID:     "mock-dry-run",
+		Tool:   tool.Name(),
+		Inputs: map[string]any{"query": "configured"},
+		DryRun: DryRunConfig{
+			Enabled:    true,
+			MockOutput: map[string]any{"mocked": true},
+		},
+	}, &TriggerContext{Type: TriggerManual})
+	if run.Status != "completed" || tool.calls != 0 {
+		t.Fatalf("mock dry-run executou tool ou falhou: calls=%d run=%#v", tool.calls, run)
+	}
+	invocations, err := repo.List(userCtx, toolinvocations.Filter{
+		OriginType: toolinvocations.OriginJobRun,
+		OriginID:   run.RunID,
+		Limit:      10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(invocations) != 1 || !invocations[0].DryRun ||
+		!strings.Contains(toolinvocations.ExtractToolInvocationResult(string(invocations[0].Output)).Content, `"mocked":true`) {
+		t.Fatalf("mock não foi representado no ledger: %#v", invocations)
+	}
+}
+
+func TestJobExecutorFailsRunWhenLedgerCompletionFails(t *testing.T) {
+	tool := &scriptedTool{results: []tools.ToolResult{{Content: `{"ok":true}`}}}
+	registry := tools.NewRegistry()
+	registry.MustRegister(tool)
+	ledger := newJobExecutorTestLedger()
+	ledger.completeErr = errors.New("complete unavailable")
+	service := toolinvocations.NewService(
+		ledger,
+		tools.NewExecutor(registry, tools.DefaultExecutorConfig()),
+	)
+	executor := mustNewJobExecutor(t, ExecutorConfig{
+		ToolRegistry:    registry,
+		ToolInvocations: service,
+		EventBus:        NewEventBus(),
+		CircuitBreaker:  NewCircuitBreaker(),
+	})
+
+	run := executor.Execute(context.Background(), &Job{
+		ID:   "ledger-complete-failure",
+		Tool: tool.Name(),
+		ErrorPolicy: ErrorPolicy{
+			Strategy:   ErrorRetry,
+			MaxRetries: 2,
+			RetryDelay: "1ms",
+		},
+	}, &TriggerContext{Type: TriggerManual})
+
+	if run.Status != "failed" || run.RetryCount != 0 {
+		t.Fatalf("falha de auditoria não fechou o run: %#v", run)
+	}
+	if tool.calls != 1 {
+		t.Fatalf("tool repetida após falha de persistência: %d chamadas", tool.calls)
+	}
+}
+
 func TestJobExecutorDoesNotRetryInvalidOutputMapAfterToolMutation(t *testing.T) {
 	tool := &scriptedTool{results: []tools.ToolResult{{Content: `{"ok":true}`}}}
 	registry := tools.NewRegistry()
 	registry.MustRegister(tool)
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
@@ -385,7 +365,7 @@ func TestJobExecutorDoesNotRetryInvalidInputTemplate(t *testing.T) {
 	tool := &scriptedTool{results: []tools.ToolResult{{Content: `{"ok":true}`}}}
 	registry := tools.NewRegistry()
 	registry.MustRegister(tool)
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
@@ -480,7 +460,7 @@ func invocationBackedExecutor(t *testing.T, tool tools.Tool) (*JobExecutor, *too
 	registry.MustRegister(tool)
 	repo := toolinvocations.NewDBRepository(db)
 	service := toolinvocations.NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
-	return NewJobExecutor(ExecutorConfig{
+	return mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:    registry,
 		ToolInvocations: service,
 		EventBus:        NewEventBus(),

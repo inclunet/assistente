@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { jobs } from '@wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../ui/DataGrid';
@@ -10,6 +10,7 @@ import './RunLogViewer.css';
 interface RunLogViewerProps {
   logs: jobs.RunLog[];
   isLoading?: boolean;
+  onLoadDetail?: (jobId: string, runId: string) => Promise<jobs.RunDetail | null>;
   onReplay?: (run: jobs.RunLog) => Promise<jobs.TestToolResult | null>;
   onRerun?: (jobId: string) => void;
 }
@@ -154,9 +155,13 @@ function RunDetail({
   );
 }
 
-export function RunLogViewer({ logs, isLoading, onReplay, onRerun }: RunLogViewerProps) {
+export function RunLogViewer({ logs, isLoading, onLoadDetail, onReplay, onRerun }: RunLogViewerProps) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const [selectedRun, setSelectedRun] = useState<jobs.RunLog | null>(null);
+  const [loadingRunId, setLoadingRunId] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState(false);
+  const detailRequestRef = useRef(0);
 
   const getItemId = useCallback((log: jobs.RunLog) => log.run_id, []);
 
@@ -193,15 +198,38 @@ export function RunLogViewer({ logs, isLoading, onReplay, onRerun }: RunLogViewe
     },
   ], [t]);
 
-  const handleActivate = useCallback((item: jobs.RunLog) => {
-    setSelectedRun((prev) => (prev?.run_id === item.run_id ? null : item));
-  }, []);
-
-  const handleFocusChange = useCallback((item: jobs.RunLog | null) => {
-    if (item) {
-      setSelectedRun(item);
+  const handleActivate = useCallback(async (item: jobs.RunLog) => {
+    if (selectedRun?.run_id === item.run_id) {
+      detailRequestRef.current += 1;
+      setSelectedRun(null);
+      setDetailError(false);
+      return;
     }
-  }, []);
+    if (!onLoadDetail) {
+      setSelectedRun(item);
+      return;
+    }
+    const request = detailRequestRef.current + 1;
+    detailRequestRef.current = request;
+    setSelectedRun(null);
+    setDetailError(false);
+    setLoadingRunId(item.run_id);
+    try {
+      const detail = await onLoadDetail(item.job_id, item.run_id);
+      if (detailRequestRef.current !== request) return;
+      if (!detail) {
+        setSelectedRun(null);
+        setDetailError(true);
+        announce(t('jobs.runDetailLoadError'), 'assertive');
+        return;
+      }
+      setSelectedRun(detail);
+    } finally {
+      if (detailRequestRef.current === request) {
+        setLoadingRunId(null);
+      }
+    }
+  }, [announce, onLoadDetail, selectedRun?.run_id, t]);
 
   if (isLoading) {
     return <div className="run-log-viewer run-log-viewer--loading">{t('common.loading')}</div>;
@@ -219,10 +247,17 @@ export function RunLogViewer({ logs, isLoading, onReplay, onRerun }: RunLogViewe
         label={t('jobs.logsTitle')}
         getItemId={getItemId}
         onActivate={handleActivate}
-        onFocusChange={handleFocusChange}
         autoFocusOnMount={false}
       />
 
+      {loadingRunId && (
+        <div className="run-log-viewer--loading">
+          {t('common.loading')}
+        </div>
+      )}
+      {detailError && (
+        <p className="run-detail__error-full">{t('jobs.runDetailLoadError')}</p>
+      )}
       {selectedRun && (
         <RunDetail run={selectedRun} onReplay={onReplay} onRerun={onRerun} />
       )}

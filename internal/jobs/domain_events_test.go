@@ -10,7 +10,7 @@ import (
 // no EventBus, enriquece com proveniencia padrao e o subscriber recebe o payload.
 func TestPublishDomainEventReachesSubscriber(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})
@@ -57,7 +57,7 @@ func TestPublishDomainEventReachesSubscriber(t *testing.T) {
 // presente no payload (ex.: vinda de um job) nao é sobrescrita.
 func TestPublishDomainEventPreservesExplicitProvenance(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})
@@ -98,7 +98,7 @@ func TestPublishDomainEventPreservesExplicitProvenance(t *testing.T) {
 // compartilhado entre handlers concorrentes. Regressão do review #170.
 func TestPublishDomainEventClipsChainHistory(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})
@@ -141,7 +141,7 @@ func TestPublishDomainEventClipsChainHistory(t *testing.T) {
 // rodaria. Regressão do review #170.
 func TestPublishDomainEventTreatsEmptyProvenanceAsAbsent(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})
@@ -187,12 +187,12 @@ func TestPublishDomainEventRequiresUserID(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
 
 	// Manager sem ContextProvider: nenhum user_id é forcado, entao um ctx pelado falha.
-	noUserMgr := NewManager(ManagerConfig{Repository: repo})
+	noUserMgr := mustNewManager(t, ManagerConfig{Repository: repo})
 	if err := noUserMgr.PublishDomainEvent(context.Background(), "tasklist.list.refresh_requested", nil); err == nil {
 		t.Fatal("expected error when no user_id is resolvable")
 	}
 
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})
@@ -205,7 +205,7 @@ func TestPublishDomainEventRequiresUserID(t *testing.T) {
 // mesmo sem nenhum job referenciando os eventos.
 func TestListKnownEventsIncludesDomainCatalog(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})
@@ -226,7 +226,7 @@ func TestListKnownEventsIncludesDomainCatalog(t *testing.T) {
 // TestInferEventSchemaFallsBackToCatalog garante o fallback de schema estatico.
 func TestInferEventSchemaFallsBackToCatalog(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})
