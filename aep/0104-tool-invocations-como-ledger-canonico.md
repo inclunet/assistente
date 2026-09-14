@@ -223,16 +223,23 @@ transacionalmente do owner. Testes em `internal/toolinvocations` e
 `internal/agent` cobrem os caminhos, garantem previews sem valores e exercitam
 o contador `tool_invocation_persistence_failures_total`.
 
-Até a fase 4, iterações locais sem texto ainda criam uma linha `assistant`
-vazia, sem `tool_calls`, para preservar a identidade da chamada usada por token
-stats. Isso não é uma cópia do payload técnico; sua remoção depende de mover
-essa contagem para `(turn_id, iteration)` no ledger.
+Token stats contam iterações técnicas por `(conversation_id, turn_id,
+metadata.display.iteration)` no ledger. Por isso, iterações locais sem texto
+não precisam criar uma linha `assistant` vazia nem qualquer marcador técnico
+em `chat_messages`.
 
 ### Fase 4 — Consumidores canônicos
 
-- [ ] Migrar timeline, `turnPatch`, sumarização, token stats, busca, deleção,
+- [x] Migrar timeline, `turnPatch`, sumarização, token stats, busca, deleção,
       retenção e portabilidade.
-- [ ] Manter parser legado apenas para estado `pending`.
+- [x] Manter parser legado apenas para estado `pending`.
+
+Evidência: o gate user-scoped é resolvido em lote por conversa; timeline,
+`turnPatch`, sumarização, estatísticas e a tool de histórico ignoram L1/L3
+quando o checkpoint está `backfilled`. Exclusão usa os vínculos explícitos do
+ledger. O export v2 grava `toolInvocations`, o import converte arquivos legados
+antes de persistir e o roundtrip preserva payloads, IDs, tentativas e
+ownership; HTML/PDF/Markdown projetam as invocações apenas durante o render.
 
 ### Fase 5 — Timeline leve e detalhes lazy
 

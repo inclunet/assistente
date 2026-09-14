@@ -12,7 +12,10 @@ cutover e remoção física; o estado final não mantém fallback de leitura.
 
 ## Motivação
 
-`tool_invocations` já é a trilha técnica canônica para chamadas de tools, mas a UI, a exportação e a sumarização ainda usam `chat_messages.tool_calls` para descobrir quais chamadas pertencem a cada turno e como associar resultados por `tool_call_id`.
+`tool_invocations` é a trilha técnica canônica para chamadas de tools. Timeline,
+exportação, sumarização, estatísticas e histórico já consultam o ledger para
+conversas `backfilled`; `chat_messages.tool_calls` só é lido enquanto o
+checkpoint da conversa permanece `pending`.
 
 Isso mantém duas fontes parciais de verdade:
 
@@ -86,9 +89,9 @@ contagens/hashes e bloqueia o cutover em caso de ambiguidade. Em estado
 | Área | Estado atual | Evidência |
 |---|---|---|
 | Persistência de chamadas | caminho feliz grava snapshot em `tool_invocations`, sem novo L3 | `internal/agent/agentic_loop.go` e testes do agentic loop |
-| Timeline | hidrata chamadas e resultados por invocações, com fallback para mensagens antigas | `internal/chat/timeline.go` e `timeline_test.go` |
-| Exportação | usa invocações para dados novos e preserva fallback legado | `internal/portability/service.go` e `service_test.go` |
-| Sumarização | inclui resultados hidratados sem exigir `m.ToolCalls` | `internal/summarization/service.go` e `service_test.go` |
+| Timeline | hidrata chamadas e resultados pelo ledger; fallback exige estado `pending` | `internal/chat/timeline.go` e `timeline_test.go` |
+| Exportação | bloco `toolInvocations` canônico; import legado converte antes de persistir | `internal/portability/service.go` e `service_test.go` |
+| Sumarização | remove L1/L3 em conversas `backfilled` | `internal/summarization/service.go` e `service_test.go` |
 | Modelo persistido | `ChatMessage.ToolCalls` permanece somente para leitura compatível | `internal/database/models.go` |
 | Trilha técnica | `ToolCallID`, `ParentInvocationID`, `Input`, `Output` e `Metadata` são canônicos | `internal/database/models_tool_invocations.go` |
 

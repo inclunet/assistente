@@ -474,12 +474,18 @@ type LocalizedMessage struct {
 23. Testes Go: recursos fora do escopo no import geram warning; recursos fora do escopo no export são rejeitados.
 24. Testes frontend: modais de export/import, seleção DB-only, senha de credenciais, preview e warnings.
 
-### Fase 6 — Invocações canônicas de conversa 🚧
+### Fase 6 — Invocações canônicas de conversa ✅
 
-25. Adicionar bloco `toolInvocations` ao export v2 sem recolocar dados técnicos
+25. [x] Adicionar bloco `toolInvocations` ao export v2 sem recolocar dados técnicos
     em mensagens.
-26. Converter `toolCalls`/`toolCallId` de arquivos antigos durante o import.
-27. Garantir roundtrip, idempotência, ownership e rich export pelo ledger.
+26. [x] Converter `toolCalls`/`toolCallId` de arquivos antigos durante o import.
+27. [x] Garantir roundtrip, idempotência, ownership e rich export pelo ledger.
+
+Evidência: `internal/portability/service.go` exporta e importa o bloco
+user-scoped, cria catálogo archival não executável para histórico importado e
+não recria `role=tool`; `service_test.go` cobre roundtrip integral. Os
+renderizadores em `render.go` projetam o ledger em HTML/PDF/Markdown sem
+alterar o JSON canônico.
 
 ## Riscos
 
