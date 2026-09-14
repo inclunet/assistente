@@ -51,7 +51,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const taskPage = useTaskListStore((s) => s.taskPages?.get(taskListId));
   const isLoadingTaskPage = useTaskListStore((s) => s.loadingTaskPagesByListId?.has(taskListId) ?? false);
   const taskPageLoadError = useTaskListStore((s) => s.taskPageLoadErrors?.get(taskListId));
-  const { loadTaskList, loadMoreTasks, loadAllTasksForBoard, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
+  const { loadTaskList, loadMoreTasks, loadAllTasksForBoard, cancelBoardTaskLoad, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
   const { runCustomAction } = useCustomActions();
 
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
@@ -81,10 +81,10 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   }, [reloadBoardActions]);
 
   useEffect(() => {
-    if (!taskList) {
+    if (!taskList || !taskPage) {
       void loadTaskList(taskListId);
     }
-  }, [taskListId, taskList, loadTaskList]);
+  }, [taskListId, taskList, taskPage, loadTaskList]);
 
   const contentAreaRef = useRef<HTMLDivElement>(null);
 
@@ -166,8 +166,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
       if (boardLoadObserverGenerationRef.current === observerGeneration) {
         boardLoadObserverGenerationRef.current += 1;
       }
+      cancelBoardTaskLoad(taskListId);
     };
-  }, [isActive, currentViewMode, hasTaskPage, taskListId, requestBoardBackgroundLoad]);
+  }, [isActive, currentViewMode, hasTaskPage, taskListId, requestBoardBackgroundLoad, cancelBoardTaskLoad]);
 
   useEffect(() => {
     if (

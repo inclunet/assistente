@@ -93,6 +93,8 @@ export interface TaskListValidationPolicy {
 export interface TaskList {
   id: string;
   title: string;
+  /** Total agregado sem hidratar os cards no catálogo. */
+  taskCount?: number;
   /** Slug estável (minúsculas), opcional */
   slug?: string;
   description: string;

@@ -33,6 +33,7 @@ const taskListStoreState = vi.hoisted(() => ({
   loadTaskList: vi.fn(),
   loadMoreTasks: vi.fn(),
   loadAllTasksForBoard: vi.fn(),
+  cancelBoardTaskLoad: vi.fn(),
   setViewMode: vi.fn(),
   cloneTaskList: vi.fn(),
   clearTaskList: vi.fn(),
@@ -164,6 +165,7 @@ describe('TaskListView', () => {
     taskListStoreState.loadMoreTasks.mockReset();
     taskListStoreState.loadAllTasksForBoard.mockReset();
     taskListStoreState.loadAllTasksForBoard.mockResolvedValue(205);
+    taskListStoreState.cancelBoardTaskLoad.mockReset();
     taskListStoreState.taskPages = new Map();
     taskListStoreState.loadingByTaskListId = new Map();
     taskListStoreState.loadingTaskPagesByListId = new Map();
@@ -181,6 +183,15 @@ describe('TaskListView', () => {
         workflow: { id: 'workflow-1', taskListId: 'tasklist-1', statuses: [], allowedTransitions: {}, initialStatusId: 1 },
       }],
     ]);
+  });
+
+  it('carrega a primeira página quando o cache contém apenas metadados', async () => {
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    await waitFor(() => {
+      expect(taskListStoreState.loadTaskList).toHaveBeenCalledTimes(1);
+      expect(taskListStoreState.loadTaskList).toHaveBeenCalledWith('tasklist-1');
+    });
   });
 
   it('não responde a atalhos globais quando o painel está inativo', async () => {
