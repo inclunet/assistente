@@ -880,7 +880,17 @@ func deleteChatToolInvocationsForConversationsTx(ctx context.Context, exec *gorm
 			Where("chat_messages.conversation_id IN ? AND chat_messages.turn_id IS NOT NULL AND chat_messages.turn_id <> ''", batch)
 		var invocationIDs []string
 		if err := exec.WithContext(ctx).Model(&ToolInvocation{}).
-			Where("user_id = ? AND origin_type = ? AND (origin_id IN (?) OR origin_id IN (?))", userID, "chat", messageIDs, turnIDs).
+			Where(
+				`user_id = ? AND origin_type = ? AND (
+					conversation_id IN ?
+					OR (conversation_id IS NULL AND (origin_id IN (?) OR origin_id IN (?)))
+				)`,
+				userID,
+				"chat",
+				batch,
+				messageIDs,
+				turnIDs,
+			).
 			Pluck("id", &invocationIDs).Error; err != nil {
 			return err
 		}

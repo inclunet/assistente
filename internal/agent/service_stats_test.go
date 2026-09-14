@@ -111,7 +111,7 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativoMultiTool(t *testing.T)
 	emitter := &mockEmitter{}
 	svc := NewService(ServiceConfig{Emitter: emitter, MsgRepo: repo})
 
-	svc.SaveAndFinish(context.Background(), "conv-1", turnID, "assistant-placeholder", AgenticResult{
+	svc.SaveAndFinish(database.WithUserID(context.Background(), "user-a"), "conv-1", turnID, "assistant-placeholder", AgenticResult{
 		FullResponse: "resposta final",
 		Model:        "modelo-real",
 		Usage: llm.Usage{
@@ -197,7 +197,7 @@ func TestBuildTurnPatchSobreviveAoCancelamentoDoTurno(t *testing.T) {
 		Content:        "conteúdo parcial persistido",
 	}}}
 	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(database.WithUserID(context.Background(), "user-a"))
 	cancel()
 
 	patch, err := svc.buildTurnPatch(ctx, "conv-1", turnID)
@@ -235,7 +235,7 @@ func TestBuildTurnPatchPreservaEscopoDeThread(t *testing.T) {
 	}
 	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
 
-	patch, err := svc.buildTurnPatch(context.Background(), "conv-1", turnID)
+	patch, err := svc.buildTurnPatch(database.WithUserID(context.Background(), "user-a"), "conv-1", turnID)
 	if err != nil {
 		t.Fatalf("montar patch de thread: %v", err)
 	}

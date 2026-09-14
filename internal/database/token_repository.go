@@ -14,9 +14,42 @@ type TokenRepository struct {
 	db *gorm.DB
 }
 
-func modelCallCountSelect(db *gorm.DB) string {
-	modelCallConditions := "chat_messages.total_tokens > 0 OR (chat_messages.tool_calls IS NOT NULL AND TRIM(chat_messages.tool_calls) NOT IN ('', '[]', 'null'))"
-	if db != nil && db.Migrator().HasTable(&ToolInvocation{}) {
+const toolInvocationConversationPredicate = `(
+	tool_invocations.conversation_id = ?
+	OR (
+		tool_invocations.conversation_id IS NULL
+		AND EXISTS (
+			SELECT 1
+			FROM chat_messages legacy_message
+			JOIN conversations legacy_conversation
+				ON legacy_conversation.id = legacy_message.conversation_id
+				AND legacy_conversation.user_id = tool_invocations.user_id
+			WHERE legacy_message.id = tool_invocations.origin_id
+				AND legacy_message.conversation_id = ?
+		)
+	)
+)`
+
+const toolInvocationResolvedTurnSQL = `COALESCE(
+	tool_invocations.turn_id,
+	(
+		SELECT COALESCE(legacy_message.turn_id, legacy_message.id)
+		FROM chat_messages legacy_message
+		JOIN conversations legacy_conversation
+			ON legacy_conversation.id = legacy_message.conversation_id
+			AND legacy_conversation.user_id = tool_invocations.user_id
+		WHERE legacy_message.id = tool_invocations.origin_id
+		LIMIT 1
+	),
+	tool_invocations.origin_id
+)`
+
+func modelCallCountSelect(db *gorm.DB, allowLegacy bool) string {
+	modelCallConditions := "chat_messages.total_tokens > 0"
+	if allowLegacy {
+		modelCallConditions += " OR (chat_messages.tool_calls IS NOT NULL AND TRIM(chat_messages.tool_calls) NOT IN ('', '[]', 'null'))"
+	}
+	if allowLegacy && db != nil && db.Migrator().HasTable(&ToolInvocation{}) {
 		modelCallConditions += ` OR EXISTS (
 			SELECT 1
 			FROM tool_invocations ti
@@ -31,6 +64,87 @@ func modelCallCountSelect(db *gorm.DB) string {
 		)`
 	}
 	return "COALESCE(SUM(CASE WHEN chat_messages.role = 'assistant' AND (" + modelCallConditions + ") THEN 1 ELSE 0 END), 0) as model_call_count"
+}
+
+func messageCountSelect(allowLegacy bool) string {
+	if allowLegacy {
+		return "COUNT(*) as message_count"
+	}
+	return "COALESCE(SUM(CASE WHEN chat_messages.role <> 'tool' THEN 1 ELSE 0 END), 0) as message_count"
+}
+
+func toolLedgerLegacyReadAllowed(ctx context.Context, userID, conversationID string) (bool, error) {
+	policy, err := LoadToolLedgerLegacyReadPolicyWithUser(ctx, userID, []string{conversationID})
+	if err != nil {
+		return false, err
+	}
+	return policy.Allows(conversationID), nil
+}
+
+func countCanonicalToolModelCalls(ctx context.Context, database *gorm.DB, userID, conversationID, turnID string, allowLegacy bool) (int, error) {
+	if database == nil || !database.Migrator().HasTable(&ToolInvocation{}) {
+		return 0, nil
+	}
+	query := database.WithContext(ctx).
+		Model(&ToolInvocation{}).
+		Select(`tool_invocations.origin_id,
+			COALESCE(
+				CASE WHEN json_valid(tool_invocations.metadata)
+					THEN json_extract(tool_invocations.metadata, '$.display.iteration')
+				END,
+				0
+			) AS model_iteration`).
+		Where(
+			`tool_invocations.user_id = ?
+				AND `+toolInvocationConversationPredicate+`
+				AND tool_invocations.origin_type = 'chat'
+				AND TRIM(tool_invocations.tool_call_id) <> ''
+				AND COALESCE(
+					CASE WHEN json_valid(tool_invocations.metadata)
+						THEN json_extract(tool_invocations.metadata, '$.external')
+					END,
+					0
+				) = 0`,
+			userID,
+			conversationID,
+			conversationID,
+		)
+	if strings.TrimSpace(turnID) != "" {
+		query = query.Where(toolInvocationResolvedTurnSQL+" = ?", strings.TrimSpace(turnID))
+	}
+	if allowLegacy {
+		query = query.Where(
+			`NOT EXISTS (
+				SELECT 1
+				FROM chat_messages counted_message
+				WHERE counted_message.conversation_id = ?
+					AND counted_message.role = 'assistant'
+					AND (
+						counted_message.total_tokens > 0
+						OR (
+							counted_message.tool_calls IS NOT NULL
+							AND TRIM(counted_message.tool_calls) NOT IN ('', '[]', 'null')
+						)
+					)
+					AND (
+						counted_message.id = tool_invocations.origin_id
+						OR counted_message.id = CASE
+							WHEN json_valid(tool_invocations.metadata)
+							THEN json_extract(tool_invocations.metadata, '$.display.assistant_message_id')
+							ELSE NULL
+						END
+					)
+			)`,
+			conversationID,
+		)
+	}
+	query = query.Group("tool_invocations.origin_id, model_iteration")
+
+	var count int64
+	if err := database.Table("(?) AS canonical_model_calls", query).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return int(count), nil
 }
 
 // NewTokenRepository cria um TokenRepository com o *gorm.DB injetado.
@@ -180,7 +294,12 @@ func GetTurnTokenStatsWithContext(ctx context.Context, conversationID string, tu
 
 func (r *TokenRepository) GetTurnTokenStatsWithContext(ctx context.Context, conversationID string, turnID string) (*TokenStats, error) {
 	db := r.db
-	if _, err := RequireUserID(ctx); err != nil {
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	allowLegacy, err := toolLedgerLegacyReadAllowed(ctx, userID, conversationID)
+	if err != nil {
 		return nil, err
 	}
 	var result struct {
@@ -193,13 +312,18 @@ func (r *TokenRepository) GetTurnTokenStatsWithContext(ctx context.Context, conv
 		MessageCount          int
 		ModelCallCount        int
 	}
-	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+	err = scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ? AND chat_messages.turn_id = ?", conversationID, turnID).
-		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, " + modelCallCountSelect(db)).
+		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, " + messageCountSelect(allowLegacy) + ", " + modelCallCountSelect(db, allowLegacy)).
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
 	}
+	canonicalCalls, countErr := countCanonicalToolModelCalls(ctx, db, userID, conversationID, turnID, allowLegacy)
+	if countErr != nil {
+		return nil, countErr
+	}
+	result.ModelCallCount += canonicalCalls
 	return &TokenStats{
 		PromptTokens:     result.TotalPromptTokens,
 		CompletionTokens: result.TotalCompletionTokens,
@@ -223,7 +347,12 @@ func GetConversationDetailedTokenStatsWithContext(ctx context.Context, conversat
 
 func (r *TokenRepository) GetConversationDetailedTokenStatsWithContext(ctx context.Context, conversationID string) (*TokenStats, error) {
 	db := r.db
-	if _, err := RequireUserID(ctx); err != nil {
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	allowLegacy, err := toolLedgerLegacyReadAllowed(ctx, userID, conversationID)
+	if err != nil {
 		return nil, err
 	}
 	var result struct {
@@ -236,13 +365,18 @@ func (r *TokenRepository) GetConversationDetailedTokenStatsWithContext(ctx conte
 		MessageCount          int
 		ModelCallCount        int
 	}
-	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+	err = scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ?", conversationID).
-		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, " + modelCallCountSelect(db)).
+		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, " + messageCountSelect(allowLegacy) + ", " + modelCallCountSelect(db, allowLegacy)).
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
 	}
+	canonicalCalls, countErr := countCanonicalToolModelCalls(ctx, db, userID, conversationID, "", allowLegacy)
+	if countErr != nil {
+		return nil, countErr
+	}
+	result.ModelCallCount += canonicalCalls
 
 	var mostUsedModel string
 	scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
@@ -279,7 +413,12 @@ func GetDetailedTokenStatsWithContext(ctx context.Context, conversationID string
 
 func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, conversationID string, summaryUpToMessageID string) (*DetailedTokenStats, error) {
 	db := r.db
-	if _, err := RequireUserID(ctx); err != nil {
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	allowLegacy, err := toolLedgerLegacyReadAllowed(ctx, userID, conversationID)
+	if err != nil {
 		return nil, err
 	}
 	basicStats, err := r.GetConversationDetailedTokenStatsWithContext(ctx, conversationID)
@@ -304,8 +443,12 @@ func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, 
 
 	if summaryUpToMessageID != "" {
 		var allMessages []ChatMessage
-		if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
-			Where("chat_messages.conversation_id = ? AND chat_messages.parent_id IS NULL", conversationID).
+		query := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+			Where("chat_messages.conversation_id = ? AND chat_messages.parent_id IS NULL", conversationID)
+		if !allowLegacy {
+			query = query.Where("chat_messages.role <> 'tool'")
+		}
+		if err := query.
 			Order("chat_messages.created_at ASC").
 			Select("chat_messages.id, chat_messages.total_tokens").
 			Find(&allMessages).Error; err == nil {
@@ -389,15 +532,21 @@ func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, 
 	if err != nil {
 		return nil, 0, err
 	}
+	allowLegacy, err := toolLedgerLegacyReadAllowed(ctx, userID, conversationID)
+	if err != nil {
+		return nil, 0, err
+	}
 	var messages []ChatMessage
 	// Propaga falha de DB em vez de degradar silenciosamente para um
 	// breakdown vazio — um erro de query mascarado distorceria as estatísticas
 	// detalhadas sem qualquer sinal ao caller.
-	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
-		Where("chat_messages.conversation_id = ? AND chat_messages.tool_calls != '' AND chat_messages.tool_calls IS NOT NULL", conversationID).
-		Select("chat_messages.tool_calls, chat_messages.prompt_tokens, chat_messages.completion_tokens").
-		Find(&messages).Error; err != nil {
-		return nil, 0, err
+	if allowLegacy {
+		if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+			Where("chat_messages.conversation_id = ? AND chat_messages.tool_calls != '' AND chat_messages.tool_calls IS NOT NULL", conversationID).
+			Select("chat_messages.tool_calls, chat_messages.prompt_tokens, chat_messages.completion_tokens").
+			Find(&messages).Error; err != nil {
+			return nil, 0, err
+		}
 	}
 
 	// Map para agregar tool usage
@@ -435,15 +584,18 @@ func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, 
 			ToolName        string
 			ToolDisplayName string
 		}
-		turnIDQuery := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).
-			Select("DISTINCT chat_messages.turn_id").
-			Where("chat_messages.conversation_id = ? AND chat_messages.turn_id IS NOT NULL AND TRIM(chat_messages.turn_id) <> ''", conversationID))
 		var rows []invocationToolUsageRow
 		if err := db.WithContext(ctx).
 			Model(&ToolInvocation{}).
 			Select("tool_invocations.tool_call_id, tool_invocations.metadata, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name").
 			Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
-			Where("tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND tool_invocations.origin_id IN (?) AND tool_invocations.tool_call_id <> ''", userID, "chat", turnIDQuery).
+			Where(
+				"tool_invocations.user_id = ? AND "+toolInvocationConversationPredicate+" AND tool_invocations.origin_type = ? AND tool_invocations.tool_call_id <> ''",
+				userID,
+				conversationID,
+				conversationID,
+				"chat",
+			).
 			Find(&rows).Error; err != nil {
 			return nil, 0, err
 		}

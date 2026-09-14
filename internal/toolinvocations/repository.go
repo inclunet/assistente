@@ -359,14 +359,36 @@ func (r *DBRepository) CleanOrphanChat(ctx context.Context) (int, error) {
 	if !r.db.Migrator().HasTable(&database.ChatMessage{}) {
 		return 0, nil
 	}
-	// NOT EXISTS faz lookup por chave primária por invocação, evitando
-	// materializar/varrer todos os ids de chat_messages (caro conforme o
-	// histórico cresce). Mesma semântica: remove apenas quando não há mensagem.
+	// Vínculos canônicos usam conversation_id/turn_id. origin_id só permanece
+	// para linhas pré-v18 que ainda não receberam o backfill aditivo.
 	var tx *gorm.DB
 	err := r.retry(ctx, "clean_orphan_chat", func() error {
 		tx = database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
 			Where("origin_type = ?", OriginChat).
-			Where("NOT EXISTS (SELECT 1 FROM chat_messages WHERE chat_messages.id = tool_invocations.origin_id)").
+			Where(`(
+				tool_invocations.conversation_id IS NOT NULL
+				AND (
+					NOT EXISTS (
+						SELECT 1 FROM conversations
+						WHERE conversations.id = tool_invocations.conversation_id
+							AND conversations.user_id = tool_invocations.user_id
+					)
+					OR (
+						tool_invocations.turn_id IS NOT NULL
+						AND NOT EXISTS (
+							SELECT 1 FROM chat_messages
+							WHERE chat_messages.id = tool_invocations.turn_id
+								AND chat_messages.conversation_id = tool_invocations.conversation_id
+						)
+					)
+				)
+			) OR (
+				tool_invocations.conversation_id IS NULL
+				AND NOT EXISTS (
+					SELECT 1 FROM chat_messages
+					WHERE chat_messages.id = tool_invocations.origin_id
+				)
+			)`).
 			Delete(&database.ToolInvocation{})
 		return tx.Error
 	})

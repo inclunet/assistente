@@ -546,6 +546,7 @@ func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversation
 		}
 	}
 
+	contextMessages = summarizationMessagesForReadPolicy(ctx, conversationID, contextMessages)
 	fallbackResults := collectSummarizationFallbackToolResults(contextMessages)
 	invocationResults := loadSummarizationToolInvocationResults(ctx, contextMessages)
 	if shouldTriggerSummarizationWithHydratedToolResults(profile, contextMessages, existingSummary, invocationResults, fallbackResults) {
@@ -716,6 +717,7 @@ func (s *Service) executeSummarization(
 
 	model := profile.Chat.Model
 
+	newMessages = summarizationMessagesForReadPolicy(ctx, conversationID, newMessages)
 	fallbackResults := collectSummarizationFallbackToolResults(newMessages)
 	invocationResults := loadSummarizationToolInvocationResults(ctx, newMessages)
 	userPrompt := buildSummarizationUserPrompt(existingSummary, newMessages, invocationResults, fallbackResults)
@@ -854,6 +856,35 @@ func collectSummarizationFallbackToolResults(messages []chat.Message) map[string
 		byCall[callID] = msg.Content
 	}
 	return results
+}
+
+func summarizationMessagesForReadPolicy(ctx context.Context, conversationID string, messages []chat.Message) []chat.Message {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return messages
+	}
+	policy, policyErr := toolinvocations.LoadLegacyReadPolicyWithUser(ctx, userID, []string{conversationID})
+	if policyErr != nil {
+		logging.Errorf(ctx, "summarization.service", "[Summary] erro ao carregar política de leitura do ledger: %v", policyErr)
+		return messages
+	}
+	if policy.Allows(conversationID) {
+		return messages
+	}
+	return stripLegacyToolMessagesForSummarization(messages)
+}
+
+func stripLegacyToolMessagesForSummarization(messages []chat.Message) []chat.Message {
+	canonical := make([]chat.Message, 0, len(messages))
+	for _, message := range messages {
+		if message.Role == "tool" {
+			continue
+		}
+		message.ToolCalls = ""
+		message.ToolCallID = ""
+		canonical = append(canonical, message)
+	}
+	return canonical
 }
 
 func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults map[string]map[string]summarizationInvocationResult, fallbackResults map[string]map[string]string) int {
