@@ -67,20 +67,6 @@ func TestJobExecutorRuntimeDefenseDoesNotExecuteWithoutLedger(t *testing.T) {
 	}
 }
 
-type contextErrorTool struct {
-	result tools.ToolResult
-	err    error
-	calls  int
-}
-
-func (t *contextErrorTool) Name() string                { return "context_error_tool" }
-func (t *contextErrorTool) Description() string         { return "context error tool" }
-func (t *contextErrorTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
-func (t *contextErrorTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
-	t.calls++
-	return t.result, t.err
-}
-
 func (s *scriptedTool) Name() string                { return "scripted_tool" }
 func (s *scriptedTool) Description() string         { return "scripted tool" }
 func (s *scriptedTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
