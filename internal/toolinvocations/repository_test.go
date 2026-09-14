@@ -1,10 +1,13 @@
 package toolinvocations
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	stdlog "log"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func setupRepositoryTest(t *testing.T) (*DBRepository, context.Context, context.Context) {
@@ -76,6 +80,44 @@ func setupRepositoryTest(t *testing.T) (*DBRepository, context.Context, context.
 	return NewDBRepository(db), database.WithUserID(context.Background(), "user-a"), database.WithUserID(context.Background(), "user-b")
 }
 
+func TestRepositoryCreateNaoRegistraPayloadEmFalha(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	var logs bytes.Buffer
+	dbWithLogs := repo.db.Session(&gorm.Session{Logger: logger.New(
+		stdlog.New(&logs, "", 0),
+		logger.Config{LogLevel: logger.Info, ParameterizedQueries: false},
+	)})
+	callbackName := "test:tool_invocation_payload_error"
+	if err := dbWithLogs.Callback().Create().Before("gorm:create").Register(callbackName, func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*database.ToolInvocation); ok {
+			_ = tx.AddError(errors.New("falha sintética sem payload"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := dbWithLogs.Callback().Create().Remove(callbackName); err != nil {
+			t.Errorf("remove callback: %v", err)
+		}
+	})
+	repo = NewDBRepository(dbWithLogs)
+	invocation := Invocation{
+		ToolCatalogID: "catalog-a",
+		OriginType:    OriginJobRun,
+		OriginID:      "run-safe-log",
+		ToolCallID:    "call-safe-log",
+		Input:         json.RawMessage(`{"token":"NAO-PODE-VAZAR"}`),
+		QueuedAt:      time.Now().UTC(),
+	}
+
+	if err := repo.Create(userA, &invocation); err == nil {
+		t.Fatal("falha sintética não propagada")
+	}
+	if output := logs.String(); strings.Contains(output, "NAO-PODE-VAZAR") {
+		t.Fatalf("log expôs payload técnico: %s", output)
+	}
+}
+
 func TestCreateChatInvocationFailsClosedWithoutConversationTables(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -130,6 +172,65 @@ func TestRepositoryCreatesAndListsScopedInvocations(t *testing.T) {
 	}
 	if len(gotA) != 1 || gotA[0].ToolCallID != "call-a" {
 		t.Fatalf("unexpected user A invocations: %#v", gotA)
+	}
+}
+
+func TestRepositoryDerivaVinculoChatEIncrementaTentativa(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	toolID, err := repo.ResolveToolCatalogID(userA, "echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt <= 2; attempt++ {
+		invocation := &Invocation{
+			ToolCatalogID:  toolID,
+			OriginType:     OriginChat,
+			OriginID:       "conversation-a",
+			ConversationID: "conv-b",
+			TurnID:         "turn-forjado",
+			ToolCallID:     "retry-call",
+			Status:         StatusQueued,
+			QueuedAt:       time.Now(),
+		}
+		if err := repo.Create(userA, invocation); err != nil {
+			t.Fatal(err)
+		}
+		if invocation.ConversationID != "conv-a" || invocation.TurnID != "conversation-a" ||
+			invocation.Attempt != attempt {
+			t.Fatalf("tentativa/vínculo %d inválido: %+v", attempt, invocation)
+		}
+	}
+}
+
+func TestRepositoryCriaCatalogoArchivalIsoladoEIndisponivel(t *testing.T) {
+	repo, userA, userB := setupRepositoryTest(t)
+	toolA, err := repo.ResolveOrCreateArchivalToolCatalogID(userA, "missing_tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := repo.ResolveOrCreateArchivalToolCatalogID(userA, "missing_tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolB, err := repo.ResolveOrCreateArchivalToolCatalogID(userB, "missing_tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if toolA != again || toolA == toolB {
+		t.Fatalf("identidade archival inválida: a=%s again=%s b=%s", toolA, again, toolB)
+	}
+	var rows []database.ToolCatalog
+	if err := database.DB().Where("id IN ?", []string{toolA, toolB}).Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("catálogos=%d, esperado 2", len(rows))
+	}
+	for _, row := range rows {
+		if row.Origin != ToolOriginArchival || row.AvailabilityStatus != tools.ToolAvailabilityUnavailable ||
+			row.UserID == nil {
+			t.Fatalf("catálogo archival executável ou sem owner: %+v", row)
+		}
 	}
 }
 

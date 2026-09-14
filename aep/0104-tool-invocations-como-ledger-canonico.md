@@ -210,9 +210,23 @@ precisa encerrar a escrita de compatibilidade.
 
 ### Fase 3 — Escrita ledger-only
 
-- [ ] Remover fallbacks persistidos e fechar falhas de auditoria.
-- [ ] Cobrir local, MCP bridge/nativo, retry, timeout, cancel, canais e
+- [x] Remover fallbacks persistidos e fechar falhas de auditoria antes da
+      execução; falha posterior de `Complete` nunca cria cópia em mensagens.
+- [x] Cobrir local, MCP bridge/nativo, retry, timeout, cancel, canais e
       subagentes.
+
+Evidências: runtime não chama `AddToolResultMessage`; execução sem repositório
+ou sem `Create` falha antes do efeito; catálogo ausente gera entrada archival
+user-scoped; MCP nativo não cria marcador técnico/fallback; retries recebem
+`attempt` crescente; inserts de chat derivam `conversation_id` e `turn_id`
+transacionalmente do owner. Testes em `internal/toolinvocations` e
+`internal/agent` cobrem os caminhos, garantem previews sem valores e exercitam
+o contador `tool_invocation_persistence_failures_total`.
+
+Até a fase 4, iterações locais sem texto ainda criam uma linha `assistant`
+vazia, sem `tool_calls`, para preservar a identidade da chamada usada por token
+stats. Isso não é uma cópia do payload técnico; sua remoção depende de mover
+essa contagem para `(turn_id, iteration)` no ledger.
 
 ### Fase 4 — Consumidores canônicos
 

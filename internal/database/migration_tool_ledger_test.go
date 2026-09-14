@@ -655,6 +655,45 @@ func TestToolLedgerBackfillCompletaSnapshotDeMCPDryRunExistente(t *testing.T) {
 	}
 }
 
+func TestToolLedgerBackfillNaoMarcaInvocacaoNovaComoMigrada(t *testing.T) {
+	userA, _, catalog := setupToolLedgerMigrationTest(t)
+	database := DB()
+	invocation := ToolInvocation{
+		UUIDModel:          UUIDModel{ID: "ledger-runtime-complete"},
+		UserID:             userA.ID,
+		ToolCatalogID:      catalog.ID,
+		OriginType:         "job_run",
+		OriginID:           "runtime-run",
+		ToolCallID:         "runtime-call",
+		Attempt:            1,
+		Status:             "succeeded",
+		Input:              `{}`,
+		Output:             `{}`,
+		InputHash:          "sha256:runtime-input",
+		OutputHash:         "sha256:runtime-output",
+		ResultAvailability: "available",
+		QueuedAt:           time.Now().UTC(),
+	}
+	if err := database.Create(&invocation).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := backfillExistingInvocationMetadata(database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated != 0 {
+		t.Fatalf("invocação canônica foi tratada como legado: updated=%d", updated)
+	}
+	var persisted ToolInvocation
+	if err := database.First(&persisted, "id = ?", invocation.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if persisted.MigrationProvenance != "" {
+		t.Fatalf("invocação nova recebeu proveniência de migração: %q", persisted.MigrationProvenance)
+	}
+}
+
 func TestToolLedgerMigrationStateRejeitaEstadoERecursoInvalidos(t *testing.T) {
 	userA, _, _ := setupToolLedgerMigrationTest(t)
 	database := DB()

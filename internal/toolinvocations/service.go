@@ -21,6 +21,7 @@ type Service struct {
 	repo     Repository
 	executor *tools.Executor
 	now      func() time.Time
+	metrics  *Metrics
 
 	// persistOpTimeout limita o tempo de cada operação síncrona de persistência.
 	// A persistência deve sobreviver a cancelamento do usuário, mas não deve
@@ -40,16 +41,27 @@ type Service struct {
 	persistMaxInputSize int
 }
 
-func NewService(repo Repository, executor *tools.Executor) *Service {
+func NewService(repo Repository, executor *tools.Executor, configuredMetrics ...*Metrics) *Service {
+	metrics := RuntimeMetrics()
+	if len(configuredMetrics) > 0 && configuredMetrics[0] != nil {
+		metrics = configuredMetrics[0]
+	}
 	return &Service{
 		repo:                 repo,
 		executor:             executor,
 		now:                  time.Now,
+		metrics:              metrics,
 		persistOpTimeout:     3 * time.Second,
 		persistMaxResultSize: tools.DefaultMaxResultSize,
 		// Mantém o mesmo limite de persistência do Output para consistência.
 		persistMaxErrorSize: tools.DefaultMaxResultSize,
 		persistMaxInputSize: tools.DefaultMaxResultSize,
+	}
+}
+
+func (s *Service) recordPersistenceFailure() {
+	if s != nil {
+		s.metrics.IncPersistenceFailure()
 	}
 }
 
@@ -94,9 +106,9 @@ func (s *Service) CleanOrphanChat(ctx context.Context) (int, error) {
 	return s.repo.CleanOrphanChat(ctx)
 }
 
-func cancelledChatValidation(call tools.ToolCall) ExecuteResult {
+func cancelledLedgerUnavailable(call tools.ToolCall) ExecuteResult {
 	return ExecuteResult{
-		Execution: executionCancelled(call, "Execução cancelada: não foi possível validar o item do chat"),
+		Execution: executionCancelled(call, "Execução cancelada: não foi possível validar o item do chat ou persistir sua tool invocation"),
 		Persisted: false,
 	}
 }
@@ -106,9 +118,11 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		return ExecuteResult{Execution: executionError(req.Call, "tool invocation service not configured"), Persisted: false}
 	}
 	if s.repo == nil {
-		// Sem persistência configurada: ainda executa a tool.
-		exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
-		return ExecuteResult{Execution: exec, Persisted: false}
+		s.recordPersistenceFailure()
+		return ExecuteResult{
+			Execution: executionError(req.Call, "tool invocation repository not configured"),
+			Persisted: false,
+		}
 	}
 
 	// Persistência best-effort: deve funcionar mesmo se o ctx for cancelado.
@@ -128,7 +142,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		cancel()
 		if err != nil {
 			logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] chat origin %s could not be validated; aborting tool execution: %v", req.Origin.ID, err)
-			return cancelledChatValidation(req.Call)
+			return cancelledLedgerUnavailable(req.Call)
 		}
 	}
 
@@ -163,11 +177,25 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		id, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
 		cancel()
 		if err != nil {
-			// Best-effort: não bloqueia execução quando o catálogo está
-			// desatualizado/indisponível. Executa a tool sem persistir.
-			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to resolve tool_catalog_id (best-effort): %v", err)
-			exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
-			return ExecuteResult{Execution: exec, Persisted: false}
+			if !errors.Is(err, ErrToolCatalogNotFound) {
+				s.recordPersistenceFailure()
+				logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to resolve tool_catalog_id; aborting execution: %v", err)
+				return ExecuteResult{Execution: executionError(req.Call, "tool invocation catalog unavailable"), Persisted: false}
+			}
+			archivalRepo, ok := s.repo.(interface {
+				ResolveOrCreateArchivalToolCatalogID(context.Context, string) (string, error)
+			})
+			if !ok {
+				return ExecuteResult{Execution: executionError(req.Call, "tool invocation catalog entry not found"), Persisted: false}
+			}
+			opCtx, cancel = s.persistOpCtx(persistCtx)
+			id, err = archivalRepo.ResolveOrCreateArchivalToolCatalogID(opCtx, req.Call.Function.Name)
+			cancel()
+			if err != nil {
+				s.recordPersistenceFailure()
+				logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to create archival catalog; aborting execution: %v", err)
+				return ExecuteResult{Execution: executionError(req.Call, "tool invocation catalog unavailable"), Persisted: false}
+			}
 		}
 		toolCatalogID = id
 	}
@@ -184,14 +212,20 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		ToolCatalogID:      toolCatalogID,
 		OriginType:         req.Origin.Type,
 		OriginID:           req.Origin.ID,
+		ConversationID:     req.Origin.ConversationID,
+		TurnID:             req.Origin.TurnID,
 		ParentInvocationID: parentInvocationID,
 		ToolCallID:         req.Call.ID,
+		Attempt:            1,
 		Status:             StatusQueued,
 		DryRun:             req.DryRun,
 		Input:              input,
 		Metadata:           s.buildInvocationDisplayMetadata(req.Call, req.Iteration, 0, false),
+		DisplayName:        req.Call.Function.Name,
+		ResultAvailability: "pending",
 		QueuedAt:           queuedAt,
 	}
+	populateInputProjection(&inv)
 	if inv.OriginType == "" {
 		inv.OriginType = OriginChat
 	}
@@ -203,18 +237,24 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	createErr := s.repo.Create(opCtx, &inv)
 	cancel()
 	if createErr != nil {
-		if strings.TrimSpace(inv.OriginType) == OriginChat {
-			logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] chat invocation could not be persisted safely for origin %s; aborting: %v", strings.TrimSpace(inv.OriginID), createErr)
-			return cancelledChatValidation(req.Call)
+		s.recordPersistenceFailure()
+		logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] invocation could not be persisted safely for origin %s; aborting: %v", strings.TrimSpace(inv.OriginID), createErr)
+		if inv.OriginType == OriginChat {
+			return cancelledLedgerUnavailable(req.Call)
 		}
-		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to create invocation (best-effort): %v", createErr)
-		inv.ID = ""
+		return ExecuteResult{Execution: executionError(req.Call, "tool invocation persistence unavailable"), Persisted: false}
 	}
 	if inv.ID != "" {
 		startedAt := s.now()
 		opCtx, cancel := s.persistOpCtx(persistCtx)
 		if err := s.repo.MarkRunning(opCtx, inv.ID, startedAt); err != nil {
-			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to mark running (id=%s): %v", inv.ID, err)
+			s.recordPersistenceFailure()
+			cancel()
+			deleteCtx, deleteCancel := s.persistOpCtx(persistCtx)
+			_ = s.repo.Delete(deleteCtx, inv.ID)
+			deleteCancel()
+			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to mark running (id=%s); aborting execution: %v", inv.ID, err)
+			return ExecuteResult{Invocation: inv, Execution: executionError(req.Call, "tool invocation persistence unavailable"), Persisted: false}
 		} else {
 			inv.StartedAt = &startedAt
 		}
@@ -255,6 +295,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		completedAt := s.now()
 		inv.Status = status
 		inv.Output = s.outputForPersistence(exec.Result)
+		populateOutputProjection(&inv)
 		inv.ErrorKind = string(exec.ErrorKind)
 		inv.ErrorCode = exec.ErrorCode
 		inv.ErrorMessage = s.truncateErrorForPersistence(errorMessage)
@@ -267,6 +308,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		err := s.repo.Complete(opCtx, inv.ID, &inv)
 		cancel()
 		if err != nil {
+			s.recordPersistenceFailure()
 			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to complete invocation (id=%s): %v", inv.ID, err)
 			persisted = false
 		} else {
@@ -685,7 +727,21 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 		id, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
 		cancel()
 		if err != nil {
-			return Invocation{}, err
+			if !errors.Is(err, ErrToolCatalogNotFound) {
+				return Invocation{}, err
+			}
+			archivalRepo, ok := s.repo.(interface {
+				ResolveOrCreateArchivalToolCatalogID(context.Context, string) (string, error)
+			})
+			if !ok {
+				return Invocation{}, err
+			}
+			opCtx, cancel = s.persistOpCtx(persistCtx)
+			id, err = archivalRepo.ResolveOrCreateArchivalToolCatalogID(opCtx, req.Call.Function.Name)
+			cancel()
+			if err != nil {
+				return Invocation{}, err
+			}
 		}
 		toolCatalogID = id
 	}
@@ -694,13 +750,19 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 		ToolCatalogID:      toolCatalogID,
 		OriginType:         req.Origin.Type,
 		OriginID:           req.Origin.ID,
+		ConversationID:     req.Origin.ConversationID,
+		TurnID:             req.Origin.TurnID,
 		ParentInvocationID: "",
 		ToolCallID:         req.Call.ID,
+		Attempt:            1,
 		Status:             StatusQueued,
 		DryRun:             req.DryRun,
 		Input:              s.buildInvocationInput(req.Call),
+		DisplayName:        req.Call.Function.Name,
+		ResultAvailability: "pending",
 		QueuedAt:           queuedAt,
 	}
+	populateInputProjection(&inv)
 	if inv.OriginType == "" {
 		inv.OriginType = OriginChat
 	}
@@ -708,12 +770,14 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	opCtx, cancel := s.persistOpCtx(persistCtx)
 	if err := s.repo.Create(opCtx, &inv); err != nil {
 		cancel()
+		s.recordPersistenceFailure()
 		return inv, err
 	}
 	cancel()
 	startedAt := s.now()
 	opCtx, cancel = s.persistOpCtx(persistCtx)
 	if err := s.repo.MarkRunning(opCtx, inv.ID, startedAt); err != nil {
+		s.recordPersistenceFailure()
 		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to mark running (id=%s): %v", inv.ID, err)
 	} else {
 		inv.StartedAt = &startedAt
@@ -723,6 +787,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	completedAt := s.now()
 	inv.Status = status
 	inv.Output = s.outputForPersistence(req.Result)
+	populateOutputProjection(&inv)
 	inv.ErrorKind = string(req.ErrorKind)
 	inv.ErrorCode = req.ErrorCode
 	inv.ErrorMessage = s.truncateErrorForPersistence(errorMessage)
@@ -757,6 +822,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	err := s.repo.Complete(opCtx, inv.ID, &inv)
 	cancel()
 	if err != nil {
+		s.recordPersistenceFailure()
 		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to complete recorded invocation (id=%s): %v", inv.ID, err)
 		return inv, err
 	}

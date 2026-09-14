@@ -217,7 +217,7 @@ func backfillExistingInvocationMetadata(database *gorm.DB) (int, error) {
 	for {
 		var invocations []ToolInvocation
 		query := database.
-			Where(`migration_provenance = '' OR input_hash = '' OR output_hash = '' OR attempt < 1`)
+			Where(`input_hash = '' OR output_hash = '' OR attempt < 1`)
 		if cursor != "" {
 			query = query.Where("id > ?", cursor)
 		}

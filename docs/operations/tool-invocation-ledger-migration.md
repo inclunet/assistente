@@ -42,6 +42,18 @@ SELECT state, COUNT(*) AS resources,
 Não altere estados manualmente. Corrija ownership/ambiguidade e reinicie o app;
 a v18 pendente é retomada automaticamente.
 
+## Escrita exclusiva (fase 3)
+
+O runtime não grava mais `role=tool`, `tool_calls` ou `tool_call_id` em
+mensagens. `role=tool` continua apenas no contexto em memória da iteração
+corrente do modelo. Catálogo ausente cria uma entrada archival user-scoped e
+indisponível para execução pela UI.
+
+Se o ledger não puder criar a linha, tools locais/jobs/dry-run não executam.
+MCP nativo já concluído pelo provider não pode ter o efeito desfeito: a falha
+é registrada em log técnico sem payload e nunca gera uma cópia alternativa em
+`chat_messages`.
+
 ## Baseline
 
 Execute o benchmark reproduzível antes e depois de cada mudança de projeção:

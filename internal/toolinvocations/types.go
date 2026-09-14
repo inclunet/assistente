@@ -18,6 +18,8 @@ const (
 	OriginChat        = "chat"
 	OriginJobRun      = "job_run"
 	OriginToolCatalog = "tool_catalog"
+
+	ToolOriginArchival = "archival"
 )
 
 type Invocation struct {
@@ -58,8 +60,10 @@ type Invocation struct {
 }
 
 type Origin struct {
-	Type string
-	ID   string
+	Type           string
+	ID             string
+	ConversationID string
+	TurnID         string
 }
 
 type ExecuteRequest struct {
@@ -88,7 +92,7 @@ type ExecuteResult struct {
 	Execution  tools.ToolExecutionResult
 
 	// Persisted indica se esta execução foi registrada com sucesso em tool_invocations.
-	// Usado por chamadores para decidir fallback de persistência (ex.: role=tool).
+	// Falha nunca autoriza cópia alternativa em chat_messages.
 	Persisted bool
 }
 

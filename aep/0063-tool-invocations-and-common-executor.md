@@ -53,9 +53,9 @@ O serviço recebe um pedido normalizado:
 
 Ele tenta resolver a tool no catálogo, aplica políticas de execução e chama o
 adapter nativo ou MCP. Quando a resolução produz um registro persistível, grava
-status/duração/input/output/erro; se o catálogo não puder resolver a tool, a
-execução sem auditoria só permanece durante o estado de migração. A AEP-0104
-substitui esse best-effort por resolução archival ou falha fechada no chat.
+status/duração/input/output/erro. Desde a fase 3 da AEP-0104, catálogo ausente
+gera resolução archival indisponível e falha de auditoria antes do `Create`
+impede a execução.
 
 ### D4 — Origens explícitas
 
@@ -219,7 +219,7 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 ### Fase 6 — Ledger exclusivo e teardown 🚧
 
 18. ✅ Backfill retomável de mensagens e runs publicados (v18).
-19. Parar toda escrita `role=tool`/`tool_calls`/`tool_call_id`.
+19. ✅ Parar toda escrita `role=tool`/`tool_calls`/`tool_call_id`.
 20. Migrar consumidores, projeções e detalhes lazy para o ledger.
 21. Remover cópias técnicas de `job_runs` e reconstruir o schema legado.
 
@@ -290,9 +290,9 @@ Já usam o executor comum (`internal/toolinvocations.Service`) e persistem em `t
 
 - **Chat / agentic loop** (`internal/agent/service.go`): cada tool call passa por
   `Service.Execute`/`ExecuteAll` com `origin_type = chat` e
-  `origin_id = turnID`. Quando o catálogo resolve uma entrada persistível, o
-  resultado técnico fica em `tool_invocations`; caso contrário, `Persisted=false`
-  aciona o fallback best-effort descrito em L1.
+  `origin_id = turnID`, com `conversation_id`/`turn_id` explícitos. O resultado
+  técnico fica em `tool_invocations`; catálogo ausente gera entrada archival e
+  falha de persistência não aciona fallback em mensagens.
 - **Jobs** (`internal/jobs/executor.go`): execuções reais de tools chamam `Service.Execute`
   com `origin_type = job_run` e `origin_id = run.RunID` (o ID do `job_run`). Isso é o vínculo
   origem→armazenamento comum: dado um `job_run`, é possível listar suas invocações por
@@ -316,17 +316,13 @@ domínio distinta da trilha técnica de `tool_invocations`.
 
 #### L1 — Fallback `role=tool` no chat
 
-- **Onde**: `internal/agent/service.go` (`RunAgenticLoop` e `persistNativeMCPCalls`),
-  via `msgRepo.AddToolResultMessage`.
-- **Quando dispara**: somente quando a persistência técnica não pôde ser usada como fonte
-  para hidratação — isto é, quando `tool_invocations` não persistiu (`Persisted = false`,
-  ex.: catálogo indisponível) **ou** quando a mensagem assistant `tool_calls` falhou ao salvar
-  (`assistantToolCallsSaved = false`). No caminho feliz, **não** são criadas mensagens
-  `role=tool` (ver `TestRunAgenticLoop_ToolCalls_SuppressesRoleToolOnSuccessfulPersistence`).
-- **Por que permanece**: é a rede de segurança que evita órfãos no histórico/exportação quando
-  a hidratação a partir de `tool_invocations` + assistant `tool_calls` não é possível. Remover
-  agora poderia perder rastreabilidade em falhas transitórias de DB.
-- **Status**: legado ativo a remover na Fase 3 da AEP-0104.
+- **Onde existia**: `RunAgenticLoop` e `persistNativeMCPCalls`, via
+  `msgRepo.AddToolResultMessage`.
+- **Estado atual**: removido do runtime na fase 3 da AEP-0104. Catálogo ausente
+  gera entrada archival; indisponibilidade do ledger impede o efeito local e
+  MCP já executado pelo provider registra erro sem fabricar uma mensagem.
+- **Status**: dados históricos permanecem somente para o backfill/leitores
+  transitórios; nenhuma escrita nova usa L1.
 
 #### L2 — Timeline própria de jobs em `job_run_events`
 

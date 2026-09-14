@@ -12,9 +12,13 @@ import (
 	"assistente/internal/tools"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
-var ErrChatOriginIDRequired = errors.New("chat origin ID required")
+var (
+	ErrChatOriginIDRequired = errors.New("chat origin ID required")
+	ErrToolCatalogNotFound  = errors.New("tool catalog entry not found")
+)
 
 type Repository interface {
 	Create(ctx context.Context, inv *Invocation) error
@@ -69,19 +73,30 @@ func (r *DBRepository) Create(ctx context.Context, inv *Invocation) error {
 	}
 	row := invocationDomainToModel(*inv)
 	create := func(exec *gorm.DB) error {
-		return exec.WithContext(ctx).Create(&row).Error
+		var lastAttempt int
+		if err := exec.WithContext(ctx).Model(&database.ToolInvocation{}).
+			Where("user_id = ? AND origin_type = ? AND origin_id = ? AND tool_call_id = ?", userID, row.OriginType, row.OriginID, row.ToolCallID).
+			Select("COALESCE(MAX(attempt), 0)").
+			Scan(&lastAttempt).Error; err != nil {
+			return err
+		}
+		row.Attempt = lastAttempt + 1
+		return withoutInvocationPayloadLogging(exec).WithContext(ctx).Create(&row).Error
 	}
-	var createErr error
-	if row.OriginType == OriginChat {
-		createErr = database.WithSQLiteImmediateTransaction(ctx, r.db, "toolinvocations.create_chat", func(tx *gorm.DB) error {
-			if err := validateChatOriginTx(ctx, tx, userID, row.OriginID); err != nil {
+	createErr := database.WithSQLiteImmediateTransaction(ctx, r.db, "toolinvocations.create", func(tx *gorm.DB) error {
+		if row.OriginType == OriginChat {
+			link, err := resolveChatOriginTx(ctx, tx, userID, row.OriginID)
+			if err != nil {
 				return err
 			}
-			return create(tx)
-		})
-	} else {
-		createErr = r.retry(ctx, "create", func() error { return create(r.db) })
-	}
+			row.ConversationID = &link.ConversationID
+			row.TurnID = &link.TurnID
+		} else {
+			row.ConversationID = nil
+			row.TurnID = nil
+		}
+		return create(tx)
+	})
 	if createErr != nil {
 		return createErr
 	}
@@ -99,27 +114,36 @@ func (r *DBRepository) ValidateChatOrigin(ctx context.Context, originID string) 
 		return ErrChatOriginIDRequired
 	}
 	return r.retry(ctx, "validate_chat_origin", func() error {
-		return validateChatOriginTx(ctx, r.db, userID, originID)
+		_, err := resolveChatOriginTx(ctx, r.db, userID, originID)
+		return err
 	})
 }
 
-func validateChatOriginTx(ctx context.Context, tx *gorm.DB, userID, originID string) error {
+type chatOriginLink struct {
+	ConversationID string
+	TurnID         string
+}
+
+func resolveChatOriginTx(ctx context.Context, tx *gorm.DB, userID, originID string) (chatOriginLink, error) {
 	if tx == nil ||
 		!tx.Migrator().HasTable(&database.ChatMessage{}) ||
 		!tx.Migrator().HasTable(&database.Conversation{}) {
-		return fmt.Errorf("não é possível validar origem chat sem tabelas de conversa e mensagens")
+		return chatOriginLink{}, fmt.Errorf("não é possível validar origem chat sem tabelas de conversa e mensagens")
 	}
-	var originCount int64
+	var link chatOriginLink
 	if err := tx.WithContext(ctx).Model(&database.ChatMessage{}).
+		Select("chat_messages.conversation_id, COALESCE(NULLIF(chat_messages.turn_id, ''), chat_messages.id) AS turn_id").
 		Joins("JOIN conversations ON conversations.id = chat_messages.conversation_id").
 		Where("conversations.user_id = ? AND (chat_messages.id = ? OR chat_messages.turn_id = ?)", userID, originID, originID).
-		Count(&originCount).Error; err != nil {
-		return err
+		Order("chat_messages.created_at, chat_messages.id").
+		Limit(1).
+		Scan(&link).Error; err != nil {
+		return chatOriginLink{}, err
 	}
-	if originCount == 0 {
-		return gorm.ErrRecordNotFound
+	if link.ConversationID == "" || link.TurnID == "" {
+		return chatOriginLink{}, gorm.ErrRecordNotFound
 	}
-	return nil
+	return link, nil
 }
 
 func (r *DBRepository) MarkRunning(ctx context.Context, id string, startedAt time.Time) error {
@@ -131,7 +155,7 @@ func (r *DBRepository) MarkRunning(ctx context.Context, id string, startedAt tim
 	}
 	var tx *gorm.DB
 	err := r.retry(ctx, "mark_running", func() error {
-		tx = database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+		tx = database.ScopeByUser(ctx, withoutInvocationPayloadLogging(r.db).WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
 			Where("id = ?", strings.TrimSpace(id)).
 			Updates(map[string]any{
 				"status":     StatusRunning,
@@ -146,6 +170,10 @@ func (r *DBRepository) MarkRunning(ctx context.Context, id string, startedAt tim
 		return gorm.ErrRecordNotFound
 	}
 	return nil
+}
+
+func withoutInvocationPayloadLogging(database *gorm.DB) *gorm.DB {
+	return database.Session(&gorm.Session{Logger: logger.Discard})
 }
 
 func (r *DBRepository) Complete(ctx context.Context, id string, inv *Invocation) error {
@@ -166,19 +194,23 @@ func (r *DBRepository) Complete(ctx context.Context, id string, inv *Invocation)
 	}
 	var tx *gorm.DB
 	err := r.retry(ctx, "complete", func() error {
-		tx = database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+		tx = database.ScopeByUser(ctx, withoutInvocationPayloadLogging(r.db).WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
 			Where("id = ?", strings.TrimSpace(id)).
 			Updates(map[string]any{
-				"status":             status,
-				"output":             string(inv.Output),
-				"metadata":           string(inv.Metadata),
-				"error_kind":         inv.ErrorKind,
-				"error_code":         inv.ErrorCode,
-				"error_message":      inv.ErrorMessage,
-				"retryable":          inv.Retryable,
-				"retryability_known": inv.RetryabilityKnown,
-				"completed_at":       completedAt,
-				"duration_ms":        inv.DurationMs,
+				"status":              status,
+				"output":              string(inv.Output),
+				"metadata":            string(inv.Metadata),
+				"output_preview":      inv.OutputPreview,
+				"output_bytes":        inv.OutputBytes,
+				"output_hash":         inv.OutputHash,
+				"result_availability": inv.ResultAvailability,
+				"error_kind":          inv.ErrorKind,
+				"error_code":          inv.ErrorCode,
+				"error_message":       inv.ErrorMessage,
+				"retryable":           inv.Retryable,
+				"retryability_known":  inv.RetryabilityKnown,
+				"completed_at":        completedAt,
+				"duration_ms":         inv.DurationMs,
 			})
 		return tx.Error
 	})
@@ -370,17 +402,59 @@ func (r *DBRepository) ResolveToolCatalogID(ctx context.Context, toolName string
 	}
 	err = r.retry(ctx, "resolve_tool_catalog_id", func() error {
 		return q.
+			Order("CASE WHEN tool_catalog.origin = 'archival' THEN 1 ELSE 0 END ASC").
 			Order("tool_catalog.mcp_server_id IS NULL ASC").
 			Order("tool_catalog.user_id IS NULL ASC").
 			First(&row).Error
 	})
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return "", fmt.Errorf("tool catalog entry not found: %s", name)
+		return "", fmt.Errorf("%w: %s", ErrToolCatalogNotFound, name)
 	}
 	if err != nil {
 		return "", err
 	}
 	return row.ID, nil
+}
+
+// ResolveOrCreateArchivalToolCatalogID preserva identidade de uma tool
+// executável no runtime que ainda não consta do catálogo persistido. A entrada
+// é user-scoped e explicitamente indisponível para execução pela UI.
+func (r *DBRepository) ResolveOrCreateArchivalToolCatalogID(ctx context.Context, toolName string) (string, error) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return "", err
+	}
+	name := strings.TrimSpace(toolName)
+	if name == "" {
+		return "", fmt.Errorf("tool name is required")
+	}
+	var catalog database.ToolCatalog
+	err = database.WithSQLiteImmediateTransaction(ctx, r.db, "toolinvocations.resolve_archival_catalog", func(tx *gorm.DB) error {
+		result := tx.WithContext(ctx).
+			Where("user_id = ? AND name = ? AND origin = ?", userID, name, ToolOriginArchival).
+			Limit(1).
+			Find(&catalog)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected > 0 {
+			return nil
+		}
+		owner := userID
+		catalog = database.ToolCatalog{
+			UserID:             &owner,
+			Name:               name,
+			DisplayName:        name,
+			Origin:             ToolOriginArchival,
+			AvailabilityStatus: tools.ToolAvailabilityUnavailable,
+			AvailabilityReason: "runtime_catalog_missing",
+		}
+		return tx.WithContext(ctx).Create(&catalog).Error
+	})
+	if err != nil {
+		return "", err
+	}
+	return catalog.ID, nil
 }
 
 func (r *DBRepository) IsToolCatalogIDVisible(ctx context.Context, toolCatalogID string) (bool, error) {
