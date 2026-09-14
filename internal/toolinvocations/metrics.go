@@ -2,6 +2,13 @@ package toolinvocations
 
 import "sync/atomic"
 
+var runtimeMetrics Metrics
+
+// RuntimeMetrics retorna os contadores process-wide do ledger sem payloads.
+func RuntimeMetrics() *Metrics {
+	return &runtimeMetrics
+}
+
 // Metrics agrega somente contagens e tamanhos técnicos. Payloads e valores de
 // argumentos nunca entram nesta estrutura.
 type Metrics struct {

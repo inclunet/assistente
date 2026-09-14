@@ -55,6 +55,18 @@ func (scopeProbeTool) Execute(ctx context.Context, _ json.RawMessage) (tools.Too
 	return tools.ToolResult{Content: ec.Filesystem.Read[0]}, nil
 }
 
+type ledgerGuardTool struct {
+	calls *int
+}
+
+func (ledgerGuardTool) Name() string                { return "ledger_guard" }
+func (ledgerGuardTool) Description() string         { return "ledger guard" }
+func (ledgerGuardTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (tool ledgerGuardTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
+	*tool.calls++
+	return tools.ToolResult{Content: "executed"}, nil
+}
+
 type runtimeControlEmitter struct {
 	events []string
 	data   []any
@@ -65,12 +77,34 @@ func (e *runtimeControlEmitter) Emit(event string, data any) {
 	e.data = append(e.data, data)
 }
 
+func TestExecuteToolCallsSemLedgerNaoExecutaEfeito(t *testing.T) {
+	calls := 0
+	registry := tools.NewRegistry()
+	registry.MustRegister(ledgerGuardTool{calls: &calls})
+	svc := &Service{toolExecutor: tools.NewExecutor(registry, tools.DefaultExecutorConfig())}
+
+	batch := svc.executeToolCalls(context.Background(), []tools.ToolCall{{
+		ID:       "guarded",
+		Function: tools.FunctionCall{Name: "ledger_guard", Arguments: `{}`},
+	}}, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: "turn-1"}, 0)
+
+	if calls != 0 || len(batch.Executions) != 1 ||
+		!batch.Executions[0].Result.IsError ||
+		batch.Executions[0].ErrorCode != "invocation_ledger_unavailable" {
+		t.Fatalf("execução sem ledger não fechou antes do efeito: calls=%d batch=%+v", calls, batch)
+	}
+}
+
 func TestExecuteToolCallsWithRuntimeControlsAppliesLoadSkillScopeBeforeRegularTools(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegister(loadSkillRuntimeTestTool{})
 	registry.MustRegister(scopeProbeTool{})
 	emitter := &runtimeControlEmitter{}
-	svc := &Service{toolExecutor: tools.NewExecutor(registry, tools.DefaultExecutorConfig()), emitter: emitter}
+	svc := &Service{
+		toolExecutor:                      tools.NewExecutor(registry, tools.DefaultExecutorConfig()),
+		emitter:                           emitter,
+		allowUnpersistedExecutionForTests: true,
+	}
 
 	batch := svc.executeToolCallsWithRuntimeControls(context.Background(), []tools.ToolCall{
 		{ID: "regular", Type: "function", Function: tools.FunctionCall{Name: "scope_probe", Arguments: `{}`}},

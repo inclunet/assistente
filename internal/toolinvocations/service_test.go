@@ -300,6 +300,23 @@ func (t countingTool) Execute(context.Context, json.RawMessage) (tools.ToolResul
 	return tools.ToolResult{Content: "executed"}, nil
 }
 
+func TestServiceSemRepositorioNaoExecutaTool(t *testing.T) {
+	calls := 0
+	registry := tools.NewRegistry()
+	registry.MustRegister(countingTool{calls: &calls})
+	service := NewService(nil, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+	result := service.Execute(context.Background(), ExecuteRequest{
+		Call:   tools.ToolCall{ID: "closed", Function: tools.FunctionCall{Name: "echo", Arguments: `{}`}},
+		Origin: Origin{Type: OriginToolCatalog, ID: "catalog"},
+	})
+	if calls != 0 {
+		t.Fatalf("tool executou sem ledger: %d", calls)
+	}
+	if !result.Execution.Result.IsError || result.Persisted {
+		t.Fatalf("falha fechada inválida: %+v", result)
+	}
+}
+
 func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
 	repo, userA, _ := setupRepositoryTest(t)
 	registry := tools.NewRegistry()
@@ -327,7 +344,9 @@ func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get invocation: %v", err)
 	}
-	if got.Status != StatusSucceeded || got.ToolCallID != "call-1" || got.OriginID != "turn-1" {
+	if got.Status != StatusSucceeded || got.ToolCallID != "call-1" || got.OriginID != "turn-1" ||
+		got.ConversationID != "conv-a" || got.TurnID != "turn-1" || got.Attempt != 1 ||
+		got.InputHash == "" || got.OutputHash == "" || got.ResultAvailability != "available" {
 		t.Fatalf("unexpected invocation: %#v", got)
 	}
 	if len(got.Output) == 0 {
@@ -367,6 +386,29 @@ func TestServiceDoesNotExecuteWhenChatOriginDisappearsDuringCreate(t *testing.T)
 		if calls != 0 {
 			t.Fatalf("erro %v executou a tool %d vez(es)", createErr, calls)
 		}
+	}
+}
+
+func TestServiceDoesNotExecuteNonChatWhenCreateFails(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	calls := 0
+	var metrics Metrics
+	registry := tools.NewRegistry()
+	registry.MustRegister(countingTool{calls: &calls})
+	service := NewService(
+		createFailRepository{Repository: repo, err: errors.New("db unavailable")},
+		tools.NewExecutor(registry, tools.DefaultExecutorConfig()),
+		&metrics,
+	)
+	result := service.Execute(userA, ExecuteRequest{
+		Call:   tools.ToolCall{ID: "job-call", Function: tools.FunctionCall{Name: "echo", Arguments: `{}`}},
+		Origin: Origin{Type: OriginJobRun, ID: "run-1"},
+	})
+	if calls != 0 || !result.Execution.Result.IsError || result.Persisted {
+		t.Fatalf("execução não-chat não fechou na falha do ledger: calls=%d result=%+v", calls, result)
+	}
+	if got := metrics.Snapshot().PersistenceFailures; got != 1 {
+		t.Fatalf("falhas de persistência=%d, esperado 1", got)
 	}
 }
 
@@ -951,7 +993,11 @@ func TestRecordTreatsNonNoneErrorKindAsFailed(t *testing.T) {
 	if persisted.ErrorKind != string(tools.ErrorKindConfiguration) ||
 		persisted.ErrorCode != "invalid_configuration" ||
 		!persisted.RetryabilityKnown ||
-		persisted.Retryable {
+		persisted.Retryable ||
+		persisted.ConversationID != "conv-a" ||
+		persisted.TurnID != "turn-rec" ||
+		persisted.InputHash == "" ||
+		persisted.OutputHash == "" {
 		t.Fatalf("structured record fields were not preserved: %#v", persisted)
 	}
 }

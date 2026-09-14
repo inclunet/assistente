@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"assistente/internal/chat"
@@ -75,6 +74,7 @@ type capturingMsgRepo struct {
 	conversationID string
 	lastContent    string
 	lastToolCall   string
+	assistantCount int
 }
 
 func (m *capturingMsgRepo) CreateMessage(context.Context, chat.MessageOptions) (*chat.Message, error) {
@@ -118,6 +118,7 @@ func (m *capturingMsgRepo) GetTurnTokenStats(context.Context, string, string) (*
 }
 
 func (m *capturingMsgRepo) AddAssistantToolMessage(_ context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
+	m.assistantCount++
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: "m"}, Role: "assistant", Content: content}, nil
 }
 
@@ -191,25 +192,34 @@ func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
 
 	svc.persistNativeMCPCalls(userCtx, "conv-1", "turn-1", []llm.MCPToolEvent{
 		{ID: "call-1", Name: "ping", ServerLabel: "Server One", Arguments: `{"x":1}`, Output: "ok", IsCompleted: true},
+		{ID: "call-2", Name: "unknown", ServerLabel: "Missing Server", Arguments: `{}`, Output: "ok", IsCompleted: true},
 	}, 0)
 
 	rows, err := repo.List(userCtx, toolinvocations.Filter{OriginType: toolinvocations.OriginChat, OriginID: "turn-1", Limit: 10})
 	if err != nil {
 		t.Fatalf("list invocations: %v", err)
 	}
-	if len(rows) != 1 {
-		t.Fatalf("expected 1 invocation, got %d", len(rows))
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 invocations, got %d", len(rows))
 	}
-	if rows[0].ToolCallID != "call-1" {
-		t.Fatalf("unexpected tool_call_id: %s", rows[0].ToolCallID)
+	for _, row := range rows {
+		if row.ConversationID != "conv-1" || row.TurnID != "turn-1" ||
+			row.InputHash == "" || row.OutputHash == "" {
+			t.Fatalf("invocação MCP sem vínculo/projeção: %+v", row)
+		}
 	}
-	if rows[0].ToolCatalogID == "" {
-		t.Fatalf("expected tool_catalog_id to be set")
+	var archivalCount int64
+	if err := db.Model(&database.ToolCatalog{}).
+		Where("user_id = ? AND origin = ?", "user-mcp", toolinvocations.ToolOriginArchival).
+		Count(&archivalCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if archivalCount != 1 {
+		t.Fatalf("catálogo archival MCP=%d, esperado 1", archivalCount)
 	}
 }
 
-func TestPersistNativeMCPCalls_FallbackToolMessageMarksError(t *testing.T) {
-	// Sem toolInvocations => persistNativeMCPCalls deve cair no fallback role=tool.
+func TestPersistNativeMCPCalls_SemLedgerNaoCriaFallbackEmMensagem(t *testing.T) {
 	msgRepo := &capturingMsgRepo{conversationID: "conv-1"}
 	svc := NewService(ServiceConfig{MsgRepo: msgRepo})
 
@@ -224,10 +234,10 @@ func TestPersistNativeMCPCalls_FallbackToolMessageMarksError(t *testing.T) {
 		IsCompleted: true,
 	}}, 0)
 
-	if msgRepo.lastToolCall != "call-1" {
-		t.Fatalf("toolCallID = %q, want call-1", msgRepo.lastToolCall)
+	if msgRepo.lastToolCall != "" || msgRepo.lastContent != "" {
+		t.Fatalf("não deveria persistir role=tool: call=%q content=%q", msgRepo.lastToolCall, msgRepo.lastContent)
 	}
-	if !strings.Contains(msgRepo.lastContent, "Error:") {
-		t.Fatalf("fallback content = %q, want error marker", msgRepo.lastContent)
+	if msgRepo.assistantCount != 0 {
+		t.Fatalf("não deveria persistir marcador assistant técnico: %d", msgRepo.assistantCount)
 	}
 }

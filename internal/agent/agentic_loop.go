@@ -369,7 +369,12 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 		return ctx, true
 	}
 	r.svc.emitToolStarts(r.conversationID, r.turnID, r.assistantMessageID, result.ToolCalls, r.surfaceOrigin)
-	execBatch := r.svc.executeToolCallsWithRuntimeControls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: r.turnID}, r.conversationID, r.turnID, iteration, r.surfaceOrigin)
+	execBatch := r.svc.executeToolCallsWithRuntimeControls(ctx, toolCalls, toolinvocations.Origin{
+		Type:           toolinvocations.OriginChat,
+		ID:             r.turnID,
+		ConversationID: r.conversationID,
+		TurnID:         r.turnID,
+	}, r.conversationID, r.turnID, iteration, r.surfaceOrigin)
 	ctx = execBatch.Context
 	execResults := execBatch.Executions
 
@@ -393,6 +398,10 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	// 5f-iii. Persiste o texto intermediário do assistant. AEP-0078 depreca o L3:
 	// novas mensagens não gravam mais o JSON tool_calls; o snapshot exibível fica
 	// em tool_invocations.metadata, associado por tool_call_id.
+	// Mesmo sem texto, a linha assistant preserva temporariamente a identidade
+	// da chamada ao modelo usada por token stats. Ela não contém payload técnico:
+	// tool_calls permanece vazio. A fase 4 move essa contagem para o ledger e
+	// elimina a necessidade do marcador.
 	assistantToolMsg, err := r.svc.msgRepo.AddAssistantToolMessage(
 		ctx,
 		r.conversationID,
@@ -412,31 +421,16 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 		r.svc.tagChatToolInvocationsWithAssistantMessage(ctx, r.turnID, execResults, assistantToolMsg.ID)
 	}
 
-	// 5f-iv. Persiste resultados técnicos em tool_invocations e adiciona
-	// conteúdo (possivelmente truncado) apenas ao histórico enviado ao LLM.
-	// Fallback: se tool_invocations não estiver configurado, persiste como
-	// mensagens role=tool para manter o histórico completo.
+	// 5f-iv. Resultados técnicos já foram persistidos exclusivamente no ledger.
+	// O protocolo role=tool abaixo existe somente no slice em memória enviado ao
+	// LLM durante este loop.
 	for i, execResult := range execResults {
 		// O histórico do LLM recebe o envelope já medido pelo pre-check: truncado
 		// quando a janela apertou, íntegro quando coube.
 		content := toolContents[i]
-		// PersistedByCallID indica que a linha técnica foi escrita. A associação
-		// call↔result agora vem de tool_invocations.tool_call_id, então a falha de
-		// salvar a mensagem intermediária não exige fallback role=tool.
 		persisted := execBatch.PersistedByCallID[execResult.CallID]
 		if !persisted {
-			// Sem a linha técnica, a mensagem role=tool é a única cópia
-			// persistida. Grave exatamente a representação limitada e
-			// reconciliada, substituindo referências efêmeras ao LRU por omissão
-			// explícita para não prometer retomada após reinício/eviction.
-			persistedContent := tools.ContentForDurableHistory(execResult.Result, content)
-			if _, err := r.svc.msgRepo.AddToolResultMessage(ctx, r.conversationID, r.turnID, persistedContent, execResult.CallID); err != nil {
-				if errors.Is(err, chat.ErrConversationDeleted) {
-					logging.Errorf(ctx, "agent.agentic-loop", "[Agent] conversa %s deletada durante tool execution — abortando", r.conversationID)
-					return ctx, true
-				}
-				logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar tool result message (fallback): %v", err)
-			}
+			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] tool result sem confirmação de persistência no ledger (call_id=%s)", execResult.CallID)
 		}
 		r.messages = append(r.messages, llm.Message{
 			Role:       "tool",
@@ -598,7 +592,12 @@ func (r *agenticLoopRunner) retryRetryableTools(ctx context.Context, toolCalls [
 				Attempt:            1,
 				SurfaceOrigin:      r.surfaceOrigin,
 			})
-			retried, retriedPersisted := r.svc.executeToolCall(ctx, toolCalls[i], toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: r.turnID}, iteration)
+			retried, retriedPersisted := r.svc.executeToolCall(ctx, toolCalls[i], toolinvocations.Origin{
+				Type:           toolinvocations.OriginChat,
+				ID:             r.turnID,
+				ConversationID: r.conversationID,
+				TurnID:         r.turnID,
+			}, iteration)
 			execResults[i] = retried
 			persistedByCallID[retried.CallID] = retriedPersisted
 		}

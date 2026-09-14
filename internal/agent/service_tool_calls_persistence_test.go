@@ -177,6 +177,24 @@ func TestRunAgenticLoop_ToolCalls_SuppressesRoleToolOnSuccessfulPersistence(t *t
 	if msgRepo.toolResultCount != 0 {
 		t.Fatalf("expected no role=tool messages, got=%d", msgRepo.toolResultCount)
 	}
+	if msgRepo.nextID < 1 {
+		t.Fatalf("iteração só com tools deve preservar um marcador assistant sem L3, nextID=%d", msgRepo.nextID)
+	}
+	rows, err := repo.List(ctx, toolinvocations.Filter{OriginType: toolinvocations.OriginChat, OriginID: turn.ID, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("invocação não foi ligada ao marcador da chamada do modelo: %+v", rows)
+	}
+	var metadata struct {
+		Display struct {
+			AssistantMessageID string `json:"assistant_message_id"`
+		} `json:"display"`
+	}
+	if err := json.Unmarshal(rows[0].Metadata, &metadata); err != nil || metadata.Display.AssistantMessageID == "" {
+		t.Fatalf("invocação não foi ligada ao marcador da chamada do modelo: metadata=%s err=%v", rows[0].Metadata, err)
+	}
 }
 
 func TestRunAgenticLoop_ToolCalls_NoFallbackRoleToolWhenInvocationPersistenceSucceeds(t *testing.T) {
@@ -233,7 +251,7 @@ func TestRunAgenticLoop_ToolCalls_NoFallbackRoleToolWhenInvocationPersistenceSuc
 	}
 }
 
-func TestRunAgenticLoop_ToolCalls_FallbackRoleToolWhenInvocationPersistenceFails(t *testing.T) {
+func TestRunAgenticLoop_ToolCalls_CriaCatalogoArchivalSemFallbackRoleTool(t *testing.T) {
 	_, cleanup := setupAgenticToolCallDB(t)
 	t.Cleanup(cleanup)
 
@@ -247,7 +265,8 @@ func TestRunAgenticLoop_ToolCalls_FallbackRoleToolWhenInvocationPersistenceFails
 		t.Fatalf("create turn msg: %v", err)
 	}
 
-	// Não semeia tool_catalog => ResolveToolCatalogID falha => Persisted=false => fallback role=tool.
+	// Não semeia tool_catalog: o runtime deve criar entrada archival e manter
+	// tool_invocations como única escrita técnica.
 	repo := toolinvocations.NewDBRepository(database.DB())
 	reg := tools.NewRegistry()
 	reg.MustRegister(okTool{})
@@ -267,12 +286,19 @@ func TestRunAgenticLoop_ToolCalls_FallbackRoleToolWhenInvocationPersistenceFails
 		return &testIterationHandler{}
 	}, nil, false, 0)
 
-	if msgRepo.toolResultCount != 1 {
-		t.Fatalf("expected 1 fallback role=tool message, got=%d", msgRepo.toolResultCount)
+	if msgRepo.toolResultCount != 0 {
+		t.Fatalf("não deveria persistir fallback role=tool, got=%d", msgRepo.toolResultCount)
+	}
+	var count int64
+	if err := database.DB().Model(&database.ToolInvocation{}).Where("user_id = ? AND tool_call_id = ?", "user-1", "call-1").Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("invocação archival=%d, esperado 1", count)
 	}
 }
 
-func TestRunAgenticLoop_ToolCalls_FallbackPreservesLargeResultContract(t *testing.T) {
+func TestRunAgenticLoop_ToolCalls_ResultLargeFicaSomenteNoLedger(t *testing.T) {
 	_, cleanup := setupAgenticToolCallDB(t)
 	t.Cleanup(cleanup)
 
@@ -286,7 +312,8 @@ func TestRunAgenticLoop_ToolCalls_FallbackPreservesLargeResultContract(t *testin
 		t.Fatalf("create turn msg: %v", err)
 	}
 
-	// Sem catálogo, a persistência técnica falha e força a mensagem role=tool.
+	// Sem catálogo, cria entrada archival; o resultado limitado continua apenas
+	// no ledger.
 	repo := toolinvocations.NewDBRepository(database.DB())
 	reg := tools.NewRegistry()
 	reg.MustRegister(largeTextTool{})
@@ -309,16 +336,20 @@ func TestRunAgenticLoop_ToolCalls_FallbackPreservesLargeResultContract(t *testin
 		func(string, int) IterationHandler { return &testIterationHandler{} },
 		nil, false, 0)
 
-	if msgRepo.toolResultCount != 1 {
-		t.Fatalf("expected 1 fallback role=tool message, got=%d", msgRepo.toolResultCount)
+	if msgRepo.toolResultCount != 0 {
+		t.Fatalf("não deveria persistir fallback role=tool, got=%d", msgRepo.toolResultCount)
 	}
-	if !strings.Contains(msgRepo.lastToolResult, "result_omitted_for_persistence") ||
-		strings.Contains(msgRepo.lastToolResult, `"result_id"`) ||
-		strings.Contains(msgRepo.lastToolResult, "resultado-resultado-") {
-		t.Fatalf("fallback persistiu prévia ou ID efêmero: %q", msgRepo.lastToolResult)
+	var invocation database.ToolInvocation
+	if err := database.DB().Where("user_id = ? AND tool_call_id = ?", "user-large-fallback", "call-large").First(&invocation).Error; err != nil {
+		t.Fatal(err)
 	}
-	if len(msgRepo.lastToolResult) > cfg.MaxResultSize {
-		t.Fatalf("fallback persistiu resultado acima do limite: %d", len(msgRepo.lastToolResult))
+	if !strings.Contains(invocation.Output, "result_omitted_for_persistence") ||
+		strings.Contains(invocation.Output, `"result_id"`) ||
+		strings.Contains(invocation.Output, "resultado-resultado-") {
+		t.Fatalf("ledger persistiu prévia ou ID efêmero: %q", invocation.Output)
+	}
+	if len(invocation.Output) > cfg.MaxResultSize*2 {
+		t.Fatalf("ledger persistiu envelope muito acima do limite: %d", len(invocation.Output))
 	}
 }
 
