@@ -2547,6 +2547,53 @@ limitações registradas na Fase 0; não se declara validação integral ou CI v
 - Avaliar controle privilegiado de programas externos em AEP ou decisão de
   segurança específica.
 
+### Evidência parcial: custo de resolução e orçamento de latência
+
+O resolvedor puro já usa snapshot imutável indexado por acionador: leitura de
+SQLite, Credential Manager, receipts e reconstrução de configuração não fazem
+parte de `Resolver.Resolve`. O caminho de um único candidato evita as listas
+intermediárias de dominância/prioridade, preservando validação de fatos,
+elegibilidade, bloqueio por diálogo e proveniência. Testes diferenciais contra
+o caminho geral cobrem também candidatos desabilitados, camadas inativas,
+foreground, contexto inválido e isolamento do resultado retornado.
+
+Benchmarks reproduzíveis em `internal/commandbindings/resolver_benchmark_test.go`
+cobrem volume de bindings, colisões e leitura concorrente do mesmo snapshot.
+`internal/commandsecurity/gate_benchmark_test.go` mede admissão isolada,
+admissões concorrentes e mistura com mutações exclusivas de callback vazio.
+Os valores `ns/op` são médias de microbenchmark, não percentis de experiência
+do usuário; callbacks vazios não representam contenção de SQLite ou de login.
+
+Amostra local em Windows/amd64, Intel Core Ultra 7 155H, Go 1.26.2,
+`-benchtime=200ms -count=1`: seleção de um candidato entre 1/100/1000 bindings
+distintos ficou em aproximadamente 65–68 ns/op (16 B, uma alocação); colisões
+de 10/100 candidatos no mesmo acionador ficaram em aproximadamente 3,2/33 µs.
+São fixtures sintéticas e uma única rodada, não garantia ou limite de produto.
+Para reproduzir: `go test ./internal/commandbindings -run '^$' -bench
+BenchmarkResolve -benchmem -benchtime=200ms` e o equivalente em
+`./internal/commandsecurity` com `-bench BenchmarkDispatchGate`.
+
+Orçamento experimental para integração futura: p95 abaixo de 1 ms de
+processamento interno para atalhos locais simples, sem incluir o trabalho da
+ação. Essa meta ainda **não foi demonstrada ponta a ponta** e não deve virar
+asserção temporal frágil em teste unitário. A validação de produto deve medir
+separadamente resolução, fila/gate, autenticação/ledger, handoff e renderização,
+com troca de abas, alteração de bindings, sessão bloqueada e carga concorrente.
+
+Não foi introduzida exceção ao fluxo auditado de D4: distinguir ações
+puramente visuais de comandos com efeitos exige classificação explícita e
+revisão do contrato antes de qualquer dispensa de ledger/autorização. `Ctrl+N`
+não é presumido visual/read-only: pode criar dados persistentes. Receipts de
+configuração continuam exclusivos da mutação confirmada, não de cada uso do
+binding. Uma otimização futura nunca pode reutilizar resultado de autorização
+após invalidação nem remover a revalidação atômica para ganhar desempenho.
+
+Risco ainda aberto: `DispatchGate` mantém exclusão durante a transação de
+configuração; leitores podem esperar I/O de SQLite, e a aquisição do mutex
+atual não é cancelável. Os microbenchmarks não resolvem nem limitam essa espera.
+Antes de ativar atalhos no produto, medir caudas de latência com essa contenção
+real e definir tratamento de indisponibilidade sem execução com mapa obsoleto.
+
 ## Riscos
 
 - **Conflitos difíceis de compreender:** muitas camadas podem tornar o resultado

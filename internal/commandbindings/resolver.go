@@ -193,6 +193,19 @@ func (r *Resolver) Resolve(trigger string, facts Facts, dialog *DialogScope) (Re
 	if dialog != nil {
 		empty.Status = Blocked
 	}
+	// O caso comum não precisa construir listas intermediárias nem calcular
+	// dominância. Mantém a mesma validação, elegibilidade e proveniência; isto
+	// otimiza somente seleção, nunca dispensa autorização no dispatcher.
+	bucket := r.byTrigger[trigger]
+	if len(bucket) == 1 {
+		c := bucket[0]
+		if !eligible(c, facts, dialog) {
+			return empty, nil
+		}
+		return Result{Status: Selected, CommandID: c.CommandID,
+			ArgumentsKey: c.ArgumentsKey, ExecutionScopeKey: c.ExecutionScopeKey,
+			BindingIDs: []string{c.ID}}, nil
+	}
 	var candidates []Candidate
 	bestScope := Global
 	for _, c := range r.byTrigger[trigger] {
