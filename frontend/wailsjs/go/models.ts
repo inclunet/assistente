@@ -3110,6 +3110,8 @@ export namespace jobs {
 	    trigger: TriggerInfo;
 	    status: string;
 	    // Go type: time
+	    queued_at: any;
+	    // Go type: time
 	    started_at: any;
 	    // Go type: time
 	    completed_at?: any;
@@ -3134,6 +3136,7 @@ export namespace jobs {
 	        this.tool_name = source["tool_name"];
 	        this.trigger = this.convertValues(source["trigger"], TriggerInfo);
 	        this.status = source["status"];
+	        this.queued_at = this.convertValues(source["queued_at"], null);
 	        this.started_at = this.convertValues(source["started_at"], null);
 	        this.completed_at = this.convertValues(source["completed_at"], null);
 	        this.duration = source["duration"];
@@ -3577,6 +3580,8 @@ export namespace jobs {
 	    trigger: TriggerInfo;
 	    status: string;
 	    // Go type: time
+	    queued_at: any;
+	    // Go type: time
 	    started_at: any;
 	    // Go type: time
 	    completed_at?: any;
@@ -3603,6 +3608,7 @@ export namespace jobs {
 	        this.tool_name = source["tool_name"];
 	        this.trigger = this.convertValues(source["trigger"], TriggerInfo);
 	        this.status = source["status"];
+	        this.queued_at = this.convertValues(source["queued_at"], null);
 	        this.started_at = this.convertValues(source["started_at"], null);
 	        this.completed_at = this.convertValues(source["completed_at"], null);
 	        this.duration = source["duration"];
@@ -4457,9 +4463,11 @@ export namespace portability {
 	    jobIds?: string[];
 	    taskListIds?: string[];
 	    memoryRecordIds?: string[];
+	    commandLayerIds?: string[];
 	    channelNames?: string[];
 	    includeContacts: boolean;
 	    includeWorkspace: boolean;
+	    includeCommandLayers: boolean;
 	    includeAudio: boolean;
 	    includeCredentials: boolean;
 	    credentialExportPassword?: string;
@@ -4485,9 +4493,11 @@ export namespace portability {
 	        this.jobIds = source["jobIds"];
 	        this.taskListIds = source["taskListIds"];
 	        this.memoryRecordIds = source["memoryRecordIds"];
+	        this.commandLayerIds = source["commandLayerIds"];
 	        this.channelNames = source["channelNames"];
 	        this.includeContacts = source["includeContacts"];
 	        this.includeWorkspace = source["includeWorkspace"];
+	        this.includeCommandLayers = source["includeCommandLayers"];
 	        this.includeAudio = source["includeAudio"];
 	        this.includeCredentials = source["includeCredentials"];
 	        this.credentialExportPassword = source["credentialExportPassword"];
@@ -4560,6 +4570,7 @@ export namespace portability {
 	    taskCount: number;
 	    taskNoteCount: number;
 	    memoryRecordCount: number;
+	    commandLayerCount: number;
 	    includesCredentials: boolean;
 	    requiresCredentialPassword: boolean;
 	    credentialCount: number;
@@ -4589,6 +4600,7 @@ export namespace portability {
 	        this.taskCount = source["taskCount"];
 	        this.taskNoteCount = source["taskNoteCount"];
 	        this.memoryRecordCount = source["memoryRecordCount"];
+	        this.commandLayerCount = source["commandLayerCount"];
 	        this.includesCredentials = source["includesCredentials"];
 	        this.requiresCredentialPassword = source["requiresCredentialPassword"];
 	        this.credentialCount = source["credentialCount"];

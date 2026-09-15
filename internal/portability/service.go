@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"assistente/internal/commandportability"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	memorysvc "assistente/internal/memory"
@@ -24,6 +25,7 @@ var supportedPortableResourceTypes = map[string]struct{}{
 	"mcpServers":    {},
 	"taskLists":     {},
 	"memoryRecords": {},
+	"commandLayers": {},
 	"credentials":   {},
 }
 
@@ -99,6 +101,9 @@ func BuildExportFileWithContext(ctx context.Context, conversationIDs []string, p
 	memoryRecords, err := buildMemoryRecordExports(ctx, req.MemoryRecordIDs, req.All)
 	if err != nil {
 		return nil, err
+	}
+	if req.IncludeCommandLayers || len(req.CommandLayerIDs) > 0 {
+		return nil, commandportability.ErrUnsupported
 	}
 
 	file := &ExportFile{
@@ -353,8 +358,11 @@ func ImportConversationsWithRestoreHook(
 	if err != nil {
 		return nil, err
 	}
-	if file.Version != ExportVersion {
-		return nil, fmt.Errorf("versão de exportação não suportada: %d", file.Version)
+	if err := normalizeExportVersion(file); err != nil {
+		return nil, err
+	}
+	if len(file.Resources.CommandLayers) > 0 {
+		return nil, commandportability.ErrUnsupported
 	}
 	if err := validateCredentialEnvelope(file); err != nil {
 		return nil, err
@@ -530,8 +538,8 @@ func AnalyzeImportDataWithContext(ctx context.Context, jsonData string, credMgr 
 	if err != nil {
 		return nil, err
 	}
-	if file.Version != ExportVersion {
-		return nil, fmt.Errorf("versão de exportação não suportada: %d", file.Version)
+	if err := normalizeExportVersion(file); err != nil {
+		return nil, err
 	}
 	if err := validateCredentialEnvelope(file); err != nil {
 		return nil, err
@@ -542,6 +550,40 @@ func AnalyzeImportDataWithContext(ctx context.Context, jsonData string, credMgr 
 	}
 	analysis.UnsupportedResourceTypes = unsupportedResourceTypes
 	return analysis, nil
+}
+
+// PlanCommandLayersImport exige usuário autenticado e devolve somente um
+// plano puro. A aplicação deve encaminhá-lo ao pipeline autenticado de
+// commandconfig/ativação; este pacote não mantém um writer paralelo.
+func PlanCommandLayersImport(ctx context.Context, jsonData string, options commandportability.PlanOptions, ownership commandportability.OwnershipPort, refs commandportability.ReferencePort) (commandportability.Plan, error) {
+	if ctx == nil {
+		return commandportability.Plan{}, commandportability.ErrInvalid
+	}
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return commandportability.Plan{}, err
+	}
+	file, _, err := parseExportFile(jsonData)
+	if err != nil {
+		return commandportability.Plan{}, err
+	}
+	if err := normalizeExportVersion(file); err != nil {
+		return commandportability.Plan{}, err
+	}
+	return commandportability.PlanImport(ctx, file.Resources.CommandLayers, options, ownership, refs)
+}
+
+// ExportCommandLayersWithContext é a porta autenticada para o exportador
+// dedicado. O export genérico continua recusando commandLayers até receber
+// essa prova de catálogo/adapter pelo chamador.
+func ExportCommandLayersWithContext(ctx context.Context, refs commandportability.ReferencePort, layerIDs []string, includeWorkspace bool) ([]commandportability.LayerExport, error) {
+	if ctx == nil {
+		return nil, commandportability.ErrInvalid
+	}
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return commandportability.ExportFromStore(ctx, database.DB(), userID, refs, layerIDs, includeWorkspace)
 }
 
 func validateCredentialEnvelope(file *ExportFile) error {
@@ -1154,6 +1196,7 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 		MCPServerCount:        len(file.Resources.MCPServers),
 		TaskListCount:         len(file.Resources.TaskLists),
 		MemoryRecordCount:     len(file.Resources.MemoryRecords),
+		CommandLayerCount:     len(file.Resources.CommandLayers),
 		IncludesCredentials:   file.Options.IncludeCredentials && file.Resources.Credentials != nil,
 		ConversationConflicts: make([]ImportConflict, 0),
 		ProviderConflicts:     make([]ImportConflict, 0),
@@ -1371,8 +1414,30 @@ func parseExportFile(jsonData string) (*ExportFile, []string, error) {
 	if err := json.Unmarshal(rawData, &file); err != nil {
 		return nil, nil, fmt.Errorf("erro ao parsear JSON: %w", err)
 	}
+	if err := normalizeExportVersion(&file); err != nil {
+		return nil, nil, err
+	}
 
 	return &file, collectUnsupportedResourceTypes(envelope.Resources), nil
+}
+
+// normalizeExportVersion mantém leitura universal do envelope canônico:
+// version 1 é o formato publicado anterior e não exige reescrita de IDs nem
+// de recursos; a versão atual é apenas a versão interna após a normalização.
+// Qualquer versão futura falha fechada antes de analisar ou importar dados.
+func normalizeExportVersion(file *ExportFile) error {
+	if file == nil {
+		return fmt.Errorf("arquivo de exportação ausente")
+	}
+	switch file.Version {
+	case 1:
+		file.Version = ExportVersion
+		return nil
+	case ExportVersion:
+		return nil
+	default:
+		return fmt.Errorf("versão de exportação não suportada: %d", file.Version)
+	}
 }
 
 func collectUnsupportedResourceTypes(resources map[string]json.RawMessage) []string {

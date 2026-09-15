@@ -463,6 +463,7 @@ export default function DataManagementPage() {
         explicitSelection: true,
         includeContacts: false,
         includeWorkspace: false,
+        includeCommandLayers: false,
         includeAudio: false,
         includeCredentials: includeCredentialExport,
         outputFormat: exportMcpExternalFormat ? 'mcp-json' : 'json',
