@@ -2430,15 +2430,54 @@ rótulos pt-BR/en/es. O ID curto do questionário serve só ao transporte da UI:
 o adapter anexa o UUIDv7 backend à resposta. Não interpreta rótulos traduzidos
 como ações e não aceita ID de decisão injetado nas respostas.
 
-Essas peças ainda NÃO substituem o callback de confirmação do escritor de
-bindings: faltam vincular o fingerprint/ID imutável da proposta ao recibo,
-consumi-lo na transação real de configuração sob o gate e registrar a invocação
-de write no ledger. Também permanecem pendentes bootstrap autenticado do
+O caminho interno `changeCommandBindingEnabledWithDecision` agora compõe essas
+peças com o escritor real de bindings. `ChangeUserConfigurationWithEpoch`
+entrega à preparação as gerações capturadas junto da autenticação, sem nova
+captura fora do gate. `ConfirmBindingEnabled` vincula UUIDv7 privado da proposta,
+usuário/sessão, gerações de autenticação/segurança, ID/valor da geração global e
+documentos completos antes/depois a um HMAC versionado. O produtor não recebe
+fingerprint, ID de decisão ou aprovação da UI. O renderizador confiável recebe
+cópias do diff; o texto apresentado não fica no comprovante interno retornado.
+
+`SignConfigurationMutation` usa a chave já reservada
+`command-request-hmac:vN`, com domínio/ação próprios para configuração global.
+O envelope fechado é JCS de strings; a geração int64 é uma string decimal e
+os dois documentos de snapshot são strings JSON opacas, assinadas byte a byte,
+não JSON arbitrário recanonizado. Isso é deliberadamente conservador: nenhuma
+mudança nos bytes do snapshot privado é ignorada. A leitura da chave e a espera
+pelo diálogo ficam fora do gate; o commit não consulta o Credential Manager.
+Este incremento não cria segredos nem reutiliza JWT/refresh pepper.
+
+`CommitConfirmedBindingEnabled` usa `ConsumeForDatabase` para verificar que
+configuração e recibos compartilham a mesma raiz `sql.DB`, recusando outro banco
+ou transação pré-aberta. Uma única transação consome a receipt, registra o
+evento de consumo, faz CAS da geração e grava `enabled`. Não há commit interno
+ou savepoint independente no escritor. Prazo vencido após o UPDATE, conflito,
+erro de escrita ou erro de evento revertem consumo e configuração juntos.
+O host reautentica/reautoriza e verifica o epoch original sob o gate exclusivo
+antes de invalidar o mapa e entregar o commit. O mapa não é restaurado em falha.
+
+Testes de integração usam SQLite temporário e o presenter real do App com o
+Manager de questionários: token inválido, negação, política revogada, lock
+durante o diálogo e sucesso confirmado. Testes de repository cobrem replay,
+propostas concorrentes, CAS obsoleto, vínculo de epoch, outro banco, rollback e
+expiração precisamente após a escrita. O caminho anterior de callback simples
+continua como seam interno de testes, sem entrypoint de produto.
+
+Validação deste incremento: dez pacotes do núcleo, testes focados do App,
+`go build ./...`, `go vet ./...` e verificador dos AEPs passaram. Concorrência
+de propostas e expiração após UPDATE passaram dez repetições. Não se declara
+suíte geral verde: sua tentativa encontrou testes legados de `internal/config`
+tentando escrever a configuração real do usuário, recusados pelo sandbox.
+Os novos testes usam bancos temporários; não há habilitação no produto.
+
+Ainda falta registrar a invocação de write no ledger: o histórico de receipt
+não é substituto da auditoria completa de execução. Permanecem pendentes bootstrap autenticado do
 presenter, cancelamento imediato por eventos de segurança e reconciliação de
 pedidos pendentes após reinício. Não há entrypoint Wails/tool novo ou alteração
 de configuração acessível ao usuário por esse incremento.
 
-Pendente: ampliar o projetor para contratos de produto, integrar recibos e ledger
+Pendente: ampliar o projetor para contratos de produto, integrar o ledger
 de write, ampliar escritores para CRUD/restauração confirmada,
 persistência/restore de claims, ligação completa à recuperação pós-unlock e
 estado de execução por workspace. O estado do SO não

@@ -23,13 +23,38 @@ func (a *App) changeCommandBindingEnabled(ctx context.Context, token string, sto
 	if a == nil || ctx == nil || store == nil || authorize == nil || confirm == nil || len(options.ActiveUserLayerIDs) != 0 {
 		return commandexecution.ErrInvalidConfiguration
 	}
+	state, authenticate, err := a.commandBindingWriteHost(token, authorize)
+	if err != nil {
+		return err
+	}
+	return state.ChangeUserConfiguration(ctx, authenticate, func(ctx context.Context, principal auth.LocalSessionPrincipal) (func(context.Context) error, error) {
+		change, err := store.PrepareBindingEnabled(ctx, commandconfig.Scope{UserID: principal.UserID}, bindingID, enabled, options)
+		if err != nil {
+			return nil, err
+		}
+		before, after := change.Diff()
+		if err := confirm(ctx, before, after); err != nil {
+			return nil, err
+		}
+		return func(ctx context.Context) error { return store.CommitBindingEnabled(ctx, change) }, nil
+	})
+}
+
+// Compartilhado pelas bordas internas: não duplicar ou enfraquecer a política
+// de sessão ao ligar a confirmação persistida. authenticate só roda sob gate.
+func (a *App) commandBindingWriteHost(token string, authorize func(context.Context, auth.LocalSessionPrincipal) error) (
+	*commandexecution.HostState, func(context.Context) (auth.LocalSessionPrincipal, error), error,
+) {
+	if a == nil || authorize == nil {
+		return nil, nil, commandexecution.ErrInvalidConfiguration
+	}
 	a.authMu.RLock()
 	state, sessions, manager := a.commandHost, a.sessionSvc, a.credMgr
 	a.authMu.RUnlock()
 	if state == nil || sessions == nil || manager == nil {
-		return commandexecution.ErrInvalidConfiguration
+		return nil, nil, commandexecution.ErrInvalidConfiguration
 	}
-	return state.ChangeUserConfiguration(ctx, func(ctx context.Context) (auth.LocalSessionPrincipal, error) {
+	authenticate := func(ctx context.Context) (auth.LocalSessionPrincipal, error) {
 		principal, err := sessions.AuthenticateLocalAccess(ctx, token)
 		if err != nil {
 			return auth.LocalSessionPrincipal{}, err
@@ -48,15 +73,6 @@ func (a *App) changeCommandBindingEnabled(ctx context.Context, token string, sto
 			return auth.LocalSessionPrincipal{}, err
 		}
 		return principal, nil
-	}, func(ctx context.Context, principal auth.LocalSessionPrincipal) (func(context.Context) error, error) {
-		change, err := store.PrepareBindingEnabled(ctx, commandconfig.Scope{UserID: principal.UserID}, bindingID, enabled, options)
-		if err != nil {
-			return nil, err
-		}
-		before, after := change.Diff()
-		if err := confirm(ctx, before, after); err != nil {
-			return nil, err
-		}
-		return func(ctx context.Context) error { return store.CommitBindingEnabled(ctx, change) }, nil
-	})
+	}
+	return state, authenticate, nil
 }

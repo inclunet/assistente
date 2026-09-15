@@ -243,6 +243,7 @@ func TestCommandExecutionAppUsesInstanceKeyAndRejectsLogout(t *testing.T) {
 		t.Fatal(err)
 	}
 	exerciseCommandBindingWrites(t, app, db, configStore, state, pair.AccessToken, user.ID, binding.ID, options)
+	exerciseCommandBindingDecisions(t, app, db, configStore, state, pair.AccessToken, user.ID, binding.ID, options)
 	result := make(chan error, 1)
 	go func() {
 		record, err := service.Execute(ctx, pair.AccessToken, request)

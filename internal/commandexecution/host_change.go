@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandsecurity"
 )
 
 // ChangeUserConfiguration prepara uma mutação autenticada fora do gate e
@@ -18,6 +19,22 @@ import (
 func (s *HostState) ChangeUserConfiguration(ctx context.Context,
 	authenticate func(context.Context) (auth.LocalSessionPrincipal, error),
 	prepare func(context.Context, auth.LocalSessionPrincipal) (func(context.Context) error, error),
+) error {
+	if prepare == nil {
+		return ErrInvalidHostState
+	}
+	return s.ChangeUserConfigurationWithEpoch(ctx, authenticate, func(ctx context.Context, principal auth.LocalSessionPrincipal, _ commandsecurity.EpochSnapshot) (func(context.Context) error, error) {
+		return prepare(ctx, principal)
+	})
+}
+
+// ChangeUserConfigurationWithEpoch é a variante que entrega à preparação o
+// snapshot autenticado capturado antes de liberar o gate. A preparação pode
+// aguardar banco ou UI, mas deve devolver um callback de commit curto, sem
+// readquirir o DispatchGate.
+func (s *HostState) ChangeUserConfigurationWithEpoch(ctx context.Context,
+	authenticate func(context.Context) (auth.LocalSessionPrincipal, error),
+	prepare func(context.Context, auth.LocalSessionPrincipal, commandsecurity.EpochSnapshot) (func(context.Context) error, error),
 ) error {
 	if s == nil || s.epochs == nil || ctx == nil || authenticate == nil || prepare == nil {
 		return ErrInvalidHostState
@@ -44,7 +61,7 @@ func (s *HostState) ChangeUserConfiguration(ctx context.Context,
 		return err
 	}
 
-	commit, err := prepare(ctx, principal)
+	commit, err := prepare(ctx, principal, epoch)
 	if err != nil {
 		return err
 	}

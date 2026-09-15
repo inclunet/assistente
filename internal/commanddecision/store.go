@@ -189,7 +189,9 @@ func present(presenter Presenter, ctx context.Context, request Request) (respons
 // gerações/fingerprint autoritativos atuais. expected não vem do cliente.
 // apply deve usar SOMENTE o tx recebido, sem UI, rede ou reentrada no gate.
 // Falha reverte consumo, evento e efeito; não há retry automático. Esta API
-// ainda não está ligada ao escritor de bindings nem ao ledger de comandos.
+// é composta pela configuração via ConsumeForDatabase com configStore.db, de
+// modo que receipt e binding compartilhem o mesmo banco; o ledger de comandos
+// write ainda não está integrado.
 func (s *Store) Consume(ctx context.Context, expected Request, apply func(*gorm.DB) error) error {
 	if s == nil || s.db == nil || s.now == nil || ctx == nil || apply == nil || !validRequest(expected) {
 		return ErrInvalid
@@ -219,4 +221,37 @@ func (s *Store) Consume(ctx context.Context, expected Request, apply func(*gorm.
 		}
 		return ctx.Err()
 	})
+}
+
+// ConsumeForDatabase valida que o banco da composição é a raiz não
+// transacional do Store e delega o consumo à única transação aberta por
+// Consume. O callback continua recebendo somente a transação criada por
+// Consume.
+func (s *Store) ConsumeForDatabase(ctx context.Context, db *gorm.DB, expected Request, apply func(*gorm.DB) error) error {
+	if s == nil || s.db == nil || s.db.Config == nil || db == nil || db.Config == nil || isTransactionalDB(s.db) || isTransactionalDB(db) {
+		return ErrInvalid
+	}
+
+	storeSQLDB, err := s.db.DB()
+	if err != nil || storeSQLDB == nil {
+		return ErrInvalid
+	}
+	databaseSQLDB, err := db.DB()
+	if err != nil || databaseSQLDB == nil || storeSQLDB != databaseSQLDB {
+		return ErrInvalid
+	}
+
+	return s.Consume(ctx, expected, apply)
+}
+
+func isTransactionalDB(db *gorm.DB) bool {
+	if db == nil {
+		return false
+	}
+	connPool := db.ConnPool
+	if db.Statement != nil && db.Statement.ConnPool != nil {
+		connPool = db.Statement.ConnPool
+	}
+	_, ok := connPool.(gorm.TxCommitter)
+	return ok
 }

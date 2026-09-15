@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -13,10 +14,11 @@ import (
 // Somente PrepareBindingEnabled a cria. O host deve apresentar Diff, aguardar
 // decisão fora do gate, reautenticar e invalidar o mapa antes do commit sob gate.
 type BindingEnabledChange struct {
-	store    *Store
-	baseline *stamp
-	before   Binding
-	after    Binding
+	store      *Store
+	baseline   *stamp
+	before     Binding
+	after      Binding
+	mutationID string
 }
 
 // Diff devolve cópias independentes dos documentos validados. Nunca entrega
@@ -68,7 +70,11 @@ func (s *Store) PrepareBindingEnabled(ctx context.Context, scope Scope, bindingI
 	if len(configuration.Adjustments()) != 0 {
 		return nil, ErrInvalid
 	}
-	return &BindingEnabledChange{store: s, baseline: snapshot.stamp, before: before, after: after}, nil
+	mutationID, err := uuid.NewV7()
+	if err != nil {
+		return nil, err
+	}
+	return &BindingEnabledChange{store: s, baseline: snapshot.stamp, before: before, after: after, mutationID: mutationID.String()}, nil
 }
 
 // CommitBindingEnabled é a primitiva SQLite, NÃO uma API autenticada. Exige
@@ -76,6 +82,14 @@ func (s *Store) PrepareBindingEnabled(ctx context.Context, scope Scope, bindingI
 // CAS de geração e dados são uma transação; falha não é repetida automaticamente.
 // Reaplicar uma proposta já consumida falha com ErrStale, sem novo incremento.
 func (s *Store) CommitBindingEnabled(ctx context.Context, change *BindingEnabledChange) error {
+	return s.commitBindingEnabled(ctx, change, func(apply func(*gorm.DB) error) error {
+		return s.db.WithContext(ctx).Transaction(apply)
+	})
+}
+
+// transact deve executar apply na única transação da operação. A composição
+// confirmada usa a transação do receipt service, sem savepoint/commit interno.
+func (s *Store) commitBindingEnabled(ctx context.Context, change *BindingEnabledChange, transact func(func(*gorm.DB) error) error) error {
 	if s == nil || s.db == nil || ctx == nil || change == nil || change.store != s || change.baseline == nil || change.baseline.store != s {
 		return ErrInvalid
 	}
@@ -90,7 +104,7 @@ func (s *Store) CommitBindingEnabled(ctx context.Context, change *BindingEnabled
 	if previous.Generation == math.MaxInt64 {
 		return ErrInvalid
 	}
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return transact(func(tx *gorm.DB) error {
 		// UPDATE condicional primeiro: a geração é a autoridade de concorrência,
 		// incluindo substituição da linha com o mesmo valor numérico (ABA).
 		result := tx.Model(&Generation{}).Where("id = ? AND user_id = ? AND workspace_id IS NULL AND generation = ?", previous.ID, stamp.scope.UserID, previous.Generation).
