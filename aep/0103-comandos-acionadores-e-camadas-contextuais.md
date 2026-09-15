@@ -26,6 +26,12 @@ sem quebrar a autenticação se alguma dependência ainda estiver indisponível.
 I14.2 fica encerrado localmente. Contagem atual: **49/84 critérios locais, 35
 abertos; 3/15 pacotes completos**.
 
+Atualização de I14.3: o pós-auth agora também tenta reconstruir a configuração
+sentinel inicial com `HostState.RebuildUserConfiguration` antes do Bootstrap. A
+publicação só ocorre se a sessão local atual ainda existir e o HostState observar
+cofre/SO desbloqueados; logout ou ausência de sessão falham fechado. Ainda falta
+recovery/reconciliação durável e projeção efetiva de configurações persistidas.
+
 ### Stream Deck real validado — 15/09/2026
 
 `internal/commanddeck` iniciou a base testável de I13.5/C41/C42: o renderer

@@ -3,6 +3,28 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Continuação — 15/09/2026, rebuild inicial de I14.3
+
+Avanço em **I14.3**, ainda sem fechar o subitem. O pós-auth agora tenta, além
+da montagem, reconstruir a configuração sentinel inicial antes do Bootstrap.
+`rebuildCommandLifecycleSentinelConfiguration` usa `HostState.RebuildUserConfiguration`
+com a sessão local vigente, publica uma configuração vazia/sentinel somente
+quando cofre e sessão do SO já estão observados como desbloqueados, e recusa
+logout/sessão ausente. `bootstrapCommandLifecycleAfterAuth` chama esse rebuild
+antes de `BootstrapCommandLifecycle`; falha de rebuild é logada e mantém o
+runtime fail-closed, sem desfazer Login/RefreshAuth. Testes cobrem montagem,
+estado SO pronto, rebuild, Bootstrap chegando a `Ready`, e rejeição quando a
+sessão local foi removida antes do rebuild.
+
+**Contagem mantida: 49/84 critérios encerrados; 35 abertos; 3/15 pacotes
+completos.** I14.3 segue aberto porque ainda falta recovery/reconciliação
+durável e a projeção efetiva de configurações persistidas/claims em login,
+unlock e restart.
+
+Validação: `go test ./internal/commandruntime ./internal/app -run
+"TestAppCommandLifecycle|TestCommandWorkspaceProvider" -count=1`, `go vet
+./internal/commandruntime ./internal/app` e `git diff --check` passaram.
+
 ## Continuação — 15/09/2026, fechamento de I14.2
 
 I14.2 foi encerrado localmente. Além do `MountSpec`, o App agora possui uma

@@ -224,6 +224,9 @@ func (a *App) bootstrapCommandLifecycleAfterAuth(ctx context.Context, result *Au
 			return
 		}
 	}
+	if err := a.rebuildCommandLifecycleSentinelConfiguration(ctx); err != nil {
+		logging.Warnf(context.Background(), "app.app", "configuração inicial de comandos indisponível após autenticação: %v", err)
+	}
 	if err := a.bootstrapCommandLifecycleIfConfigured(ctx); err != nil {
 		logging.Errorf(context.Background(), "app.app", "ciclo de vida de comandos indisponível após autenticação: %v", err)
 	}

@@ -470,6 +470,56 @@ func TestAppCommandLifecycleAfterAuthMountsProductBaseWhenMissing(t *testing.T) 
 	}
 }
 
+func TestAppCommandLifecycleRebuildsSentinelThenBootstrapsReady(t *testing.T) {
+	app, _ := appLifecycleProductMountFixture(t)
+	if err := ensureCommandLifecycleMountedForCurrentUserForTest(context.Background(), app); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.commandHost.SetOSSessionState(context.Background(), true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.rebuildCommandLifecycleSentinelConfiguration(context.Background()); err != nil {
+		t.Fatalf("rebuild sentinel falhou: %v", err)
+	}
+	if err := BootstrapCommandLifecycle(context.Background(), app); err != nil {
+		t.Fatalf("bootstrap após rebuild falhou: %v", err)
+	}
+	snapshot, err := CommandLifecycleSnapshot(app)
+	if err != nil || snapshot.State != commandruntime.StateReady || !snapshot.Published || snapshot.PublishedEntries != 1 {
+		t.Fatalf("runtime não ficou ready após rebuild: %+v err=%v", snapshot, err)
+	}
+	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAppCommandLifecycleSentinelRebuildRejectsLoggedOutSession(t *testing.T) {
+	app, _ := appLifecycleProductMountFixture(t)
+	if err := ensureCommandLifecycleMountedForCurrentUserForTest(context.Background(), app); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.commandHost.SetOSSessionState(context.Background(), true, false); err != nil {
+		t.Fatal(err)
+	}
+	app.setCurrentAuthUser(nil)
+	if err := app.rebuildCommandLifecycleSentinelConfiguration(context.Background()); !errors.Is(err, commandexecution.ErrInvalidConfiguration) && !errors.Is(err, commandruntime.ErrNotReady) {
+		t.Fatalf("rebuild deslogado aceito/erro errado: %v", err)
+	}
+	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func ensureCommandLifecycleMountedForCurrentUserForTest(ctx context.Context, app *App) error {
+	if err := app.ensureCommandLifecycleMountedForCurrentUser(ctx); err != nil {
+		return err
+	}
+	if app.commandHost == nil {
+		return errors.New("HostState ausente")
+	}
+	return nil
+}
+
 func TestAppCommandLifecycleConfigureAllowsOnlyOneInstance(t *testing.T) {
 	app := &App{}
 	start := make(chan struct{})

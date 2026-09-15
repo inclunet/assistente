@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandbindings"
 	"assistente/internal/commandbridge"
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandcontract"
@@ -123,6 +124,27 @@ func (a *App) ensureCommandLifecycleMountedForCurrentUser(ctx context.Context) e
 	a.startCommandOSSessionMonitorLocked()
 	a.authMu.Unlock()
 	return nil
+}
+
+func (a *App) rebuildCommandLifecycleSentinelConfiguration(ctx context.Context) error {
+	if a == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	a.authMu.RLock()
+	state := a.commandHost
+	a.authMu.RUnlock()
+	if state == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	configuration, err := commandbindings.NewConfiguration(nil, nil, nil)
+	if err != nil {
+		return err
+	}
+	return state.RebuildUserConfiguration(ctx, func(context.Context) (auth.LocalSessionPrincipal, error) {
+		return a.currentCommandPrincipal()
+	}, func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
+		return configuration, nil, nil
+	})
 }
 
 func commandLifecycleSentinelCatalog() (*commandcatalog.Registry, map[string]commandexecution.Handler, error) {
