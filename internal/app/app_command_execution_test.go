@@ -242,6 +242,7 @@ func TestCommandExecutionAppUsesInstanceKeyAndRejectsLogout(t *testing.T) {
 	if err := db.Model(&binding).Update("arguments", "{}").Error; err != nil {
 		t.Fatal(err)
 	}
+	exerciseCommandRebuildCancellation(t, app, configStore, state, pair.AccessToken, user.ID, options)
 	exerciseCommandBindingWrites(t, app, db, configStore, state, pair.AccessToken, user.ID, binding.ID, options)
 	exerciseCommandBindingDecisions(t, app, db, configStore, state, pair.AccessToken, user.ID, binding.ID, options)
 	result := make(chan error, 1)

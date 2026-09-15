@@ -16,7 +16,7 @@ func (s *HostState) RebuildUserConfiguration(ctx context.Context,
 	authenticate func(context.Context) (auth.LocalSessionPrincipal, error),
 	build func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error),
 ) error {
-	if s == nil || ctx == nil || authenticate == nil || build == nil {
+	if s == nil || s.epochs == nil || ctx == nil || authenticate == nil || build == nil {
 		return ErrInvalidHostState
 	}
 	var principal auth.LocalSessionPrincipal
@@ -38,7 +38,14 @@ func (s *HostState) RebuildUserConfiguration(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	configuration, layers, err := build(ctx, principal)
+	// Inscrever depois da captura revalida também a janela entre as etapas.
+	// Lock/logout cancela I/O cooperativo do carregador, não apenas a publicação.
+	buildCtx, release, err := s.epochs.WatchEpoch(ctx, epoch)
+	if err != nil {
+		return err
+	}
+	defer release()
+	configuration, layers, err := build(buildCtx, principal)
 	if err != nil {
 		return err
 	}
@@ -49,6 +56,9 @@ func (s *HostState) RebuildUserConfiguration(ctx context.Context,
 		return err
 	}
 	layers = cloneStrings(layers)
+	// A publicação cancela watches do usuário. Encerrar o nosso primeiro e
+	// usar ctx original evita autocancelamento; o epoch continua revalidado.
+	release()
 	return s.epochs.PublishAuthenticatedConfiguration(ctx, epoch, func(ctx context.Context) error {
 		current, err := authenticate(ctx)
 		if err != nil {

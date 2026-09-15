@@ -2530,6 +2530,18 @@ diálogo, recusam token/política inválidos e comprovam idempotência. Testes d
 repository cobrem limites, isolamento, recuperação de Store recriado,
 concorrência e rollback por falha no evento.
 
+`HostState.RebuildUserConfiguration` também inscreve o carregamento no epoch
+capturado, com revalidação da janela entre captura e inscrição. Lock, logout
+ou invalidação cancelam o contexto entregue ao builder/projetor, permitindo
+interromper I/O cooperativo antes de terminar a leitura. A inscrição é liberada
+em erro, configuração inválida, panic e sucesso, antes da publicação. O commit
+continua usando o contexto original e revalidando sessão, epoch e revisão do
+host: cancelamento não substitui essas verificações. Testes no host e na borda
+autenticada do App cobrem cancelamento durante projeção, perda da observação do
+SO e reconstrução posterior. Builders que ignoram contexto não são interrompidos
+à força; seus resultados obsoletos continuam recusados. Não há trabalho novo
+no caminho de resolução por tecla nem promessa de latência da trava/SQLite.
+
 Permanecem pendentes bootstrap autenticado do presenter e chamada automática da
 recuperação antes de publicar o mapa. Esta recuperação é estritamente da sessão
 retomada: manutenção de recibos de outras sessões abandonadas, retenção e
