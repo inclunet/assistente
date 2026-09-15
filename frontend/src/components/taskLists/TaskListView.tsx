@@ -12,6 +12,7 @@ import { useUIStore } from '../../store/uiStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
 import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
+import { registerWorkspacePanelFocus } from '../workspace/workspacePanelFocusRegistry';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
 import { Button } from '../ui/Button';
@@ -150,6 +151,52 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
       isMountedRef.current = false;
     };
   }, []);
+
+  // Foco de painel assíncrono (tasklist/kanban).
+  //
+  // Ao entrar na aba (Ctrl+Tab/PageUp-Down/Ctrl+N ou ao fechar outra aba), o
+  // `WorkspaceLayout` roteia o foco via `workspacePanelFocusRegistry`. Como o
+  // board carrega páginas de forma assíncrona (tela "Carregando..." antes de
+  // `taskList`/`taskPage`), não dá para focar no instante da troca: replicamos o
+  // padrão do editor (nonce + efeito "quando pronto"). O handler apenas marca um
+  // pedido; um efeito refaz o foco assim que a superfície está renderizada.
+  const panelTabId = panelTab?.id;
+  const [panelFocusNonce, setPanelFocusNonce] = useState(0);
+  const consumedPanelFocusNonceRef = useRef(0);
+
+  useEffect(() => {
+    if (!panelTabId) return;
+    return registerWorkspacePanelFocus(panelTabId, () => {
+      if (!isPanelActiveRef.current || isModalOpen()) return false;
+      setPanelFocusNonce((nonce) => nonce + 1);
+      return true;
+    });
+  }, [panelTabId]);
+
+  useEffect(() => {
+    if (
+      panelFocusNonce === 0 ||
+      consumedPanelFocusNonceRef.current === panelFocusNonce ||
+      !isActive ||
+      isModalOpen() ||
+      !taskList ||
+      !taskPage
+    ) {
+      return;
+    }
+    const nonce = panelFocusNonce;
+    const raf = requestAnimationFrame(() => {
+      if (consumedPanelFocusNonceRef.current === nonce) return;
+      if (!isPanelActiveRef.current || isModalOpen()) return;
+      // Só marca o pedido como consumido quando o foco realmente pousa na
+      // superfície; se o board ainda não montou, deixamos o nonce pendente para
+      // um novo commit (cards carregando, troca de modo) tentar de novo.
+      if (focusContentArea()) {
+        consumedPanelFocusNonceRef.current = nonce;
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [panelFocusNonce, isActive, taskList, taskPage, currentViewMode, focusContentArea]);
 
   const handleLoadBoardPages = useCallback(async (observerGeneration: number) => {
     const shouldAnnounce = () => (
