@@ -45,14 +45,15 @@ func (s applyImportSession) AuthenticateLocalAccess(context.Context, string) (au
 }
 
 type applyImportFixture struct {
-	db        *gorm.DB
-	store     *commandconfig.Store
-	service   *commandconfig.CompleteMutationService
-	presenter *applyImportPresenter
-	user      string
-	session   string
-	layer     commandconfig.Layer
-	before    commandconfig.Snapshot
+	db         *gorm.DB
+	store      *commandconfig.Store
+	service    *commandconfig.CompleteMutationService
+	projection *commandconfig.CompleteProjection
+	presenter  *applyImportPresenter
+	user       string
+	session    string
+	layer      commandconfig.Layer
+	before     commandconfig.Snapshot
 }
 
 func newApplyImportFixture(t *testing.T, hook commandconfig.MutationTxHook) applyImportFixture {
@@ -143,7 +144,7 @@ func newApplyImportFixture(t *testing.T, hook commandconfig.MutationTxHook) appl
 	if err != nil {
 		t.Fatal(err)
 	}
-	return applyImportFixture{db: db, store: store, service: service, presenter: presenter, user: user, session: session, layer: layer, before: before}
+	return applyImportFixture{db: db, store: store, service: service, projection: &projection, presenter: presenter, user: user, session: session, layer: layer, before: before}
 }
 
 func applyImportRegistry(t *testing.T) *commandcatalog.Registry {
