@@ -312,6 +312,22 @@ func (c *Controller) Stop(ctx context.Context) error {
 	return c.submit(ctx, opStop, "shutdown")
 }
 
+// WaitStopped aguarda a confirmação observável de que o worker terminou.
+// Stop pode retornar por timeout enquanto uma porta de cleanup ainda está em
+// execução; nesse caso o chamador não deve destruir ou substituir adapters
+// até esta porta retornar nil.
+func (c *Controller) WaitStopped(ctx context.Context) error {
+	if c == nil || ctx == nil {
+		return ErrInvalidConfiguration
+	}
+	select {
+	case <-c.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (c *Controller) Snapshot() Snapshot {
 	if c == nil {
 		return Snapshot{State: StateStopped, LastError: ErrInvalidConfiguration.Error()}

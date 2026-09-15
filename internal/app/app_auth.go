@@ -192,7 +192,16 @@ func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
 	return user, nil
 }
 
-func (a *App) Login(req LoginRequest) (*AuthUser, error) {
+func (a *App) Login(req LoginRequest) (result *AuthUser, err error) {
+	// Invalida qualquer publicação anterior antes de adquirir authSessionMu.
+	// O defer de bootstrap é declarado antes do lock para executar depois dos
+	// defers de gate e unlock, mantendo portas externas fora dos locks.
+	if err := a.resetCommandLifecycleIfConfigured(a.appContext(), "login"); err != nil {
+		return nil, err
+	}
+	defer func() {
+		a.bootstrapCommandLifecycleAfterAuth(a.appContext(), result, err)
+	}()
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
 	defer a.beginCommandAuthTransition()()
@@ -306,7 +315,13 @@ func (a *App) rollbackLoginState(refreshToken string) {
 	}
 }
 
-func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
+func (a *App) RefreshAuth(req RefreshRequest) (result *AuthUser, err error) {
+	if err := a.resetCommandLifecycleIfConfigured(a.appContext(), "refresh"); err != nil {
+		return nil, err
+	}
+	defer func() {
+		a.bootstrapCommandLifecycleAfterAuth(a.appContext(), result, err)
+	}()
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
 	defer a.beginCommandAuthTransition()()
@@ -327,7 +342,6 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 	}
 
 	var pair *auth.TokenPair
-	var err error
 	for _, refreshToken := range candidates {
 		pair, err = a.sessionSvc.RefreshLocalCandidate(a.appContext(), refreshToken)
 		if err == nil {
@@ -404,6 +418,12 @@ func (a *App) loadAuthRefreshTokenCandidates() []string {
 // pensar que o logout falhou enquanto, do ponto de vista do app, ele
 // já tinha completado.
 func (a *App) Logout(req LogoutRequest) error {
+	// A limpeza de comandos ocorre antes do lock de autenticação. Se uma porta
+	// falhar, o controller entra em estado fail-closed; o logout legado ainda
+	// prossegue para não deixar a sessão local presa.
+	if err := a.resetCommandLifecycleIfConfigured(a.appContext(), "logout"); err != nil {
+		logging.Errorf(context.Background(), "app.app-auth", "erro ao resetar ciclo de vida de comandos no logout: %v", err)
+	}
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
 	defer a.beginCommandAuthTransition()()

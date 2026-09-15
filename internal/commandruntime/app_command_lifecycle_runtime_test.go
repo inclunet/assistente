@@ -17,6 +17,9 @@ type lifecycleProbe struct {
 	projectBlock     bool
 	projectStarted   chan struct{}
 	clearError       bool
+	clearStarted     chan struct{}
+	clearRelease     chan struct{}
+	clearOnce        sync.Once
 	readinessError   bool
 	blockReady       bool
 	readyStarted     chan struct{}
@@ -65,6 +68,10 @@ func (p *lifecycleProbe) Publish(_ context.Context, projection Projection) error
 
 func (p *lifecycleProbe) Clear(_ context.Context, _ Generation) error {
 	p.step("clear")
+	if p.clearStarted != nil {
+		p.clearOnce.Do(func() { close(p.clearStarted) })
+		<-p.clearRelease
+	}
 	if p.clearError {
 		return errors.New("clear failed")
 	}
@@ -260,6 +267,36 @@ func TestAppCommandLifecycleStopTerminatesWorkerAfterCleanupFailure(t *testing.T
 	}
 	if err := runtime.Bootstrap(context.Background()); !errors.Is(err, ErrStopped) {
 		t.Fatalf("worker aceitou nova operação após Stop: %v", err)
+	}
+}
+
+func TestAppCommandLifecycleWaitStoppedRequiresWorkerTermination(t *testing.T) {
+	probe := &lifecycleProbe{clearStarted: make(chan struct{}), clearRelease: make(chan struct{})}
+	runtime, err := New(probe.config())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Bootstrap(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	stopCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := runtime.Stop(stopCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Stop sem worker encerrado = %v", err)
+	}
+	select {
+	case <-probe.clearStarted:
+	case <-time.After(time.Second):
+		t.Fatal("cleanup não iniciou")
+	}
+	if err := runtime.WaitStopped(stopCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitStopped confirmou worker bloqueado: %v", err)
+	}
+	close(probe.clearRelease)
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), time.Second)
+	defer waitCancel()
+	if err := runtime.WaitStopped(waitCtx); err != nil {
+		t.Fatalf("WaitStopped após release = %v", err)
 	}
 }
 

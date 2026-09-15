@@ -1242,6 +1242,14 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.startCommandOSSessionMonitorLocked()
 	a.authMu.Unlock()
 
+	// O startup normal ocorre antes de existir uma sessão autenticada. Quando
+	// uma sessão já foi restaurada pelo bootstrap confiável, o controller real
+	// pode executar sua cadeia; caso contrário, Login/RefreshAuth fará isso
+	// depois da transição, sempre fora dos locks de autenticação.
+	if err := a.bootstrapCommandLifecycleAtStartup(a.appContext()); err != nil {
+		return fmt.Errorf("erro ao inicializar ciclo de vida de comandos: %w", err)
+	}
+
 	// Verifica atualizações no startup (não bloqueante). Rastreada em bgWG para
 	// que o Shutdown faça join e não deixe a goroutine órfã.
 	a.bgWG.Add(1)
@@ -1287,6 +1295,23 @@ func (a *App) waitBackground(timeout time.Duration) {
 
 // Shutdown encerra todos os serviços do app.
 func (a *App) Shutdown() {
+	// Desabilita e invalida entradas antes de cancelar/destruir os adapters do
+	// App. O hook não adquire authMu/authSessionMu nem é chamado sob outro lock.
+	// O timeout limita a espera do App; uma porta que ignore o contexto não pode
+	// ser forçada a parar, portanto não há promessa de encerramento forçado.
+	shutdownCtx, cancelCommandLifecycle := context.WithTimeout(context.Background(), shutdownBackgroundTimeout)
+	if err := a.shutdownCommandLifecycleIfConfigured(shutdownCtx); err != nil {
+		logging.Errorf(context.Background(), "app.app", "erro ao encerrar ciclo de vida de comandos: %v", err)
+		if _, mounted := loadCommandLifecycle(a); mounted {
+			// O worker não foi comprovadamente encerrado. Não destruir adapters,
+			// managers ou seu contexto enquanto callbacks ainda podem estar ativos;
+			// uma chamada posterior de Shutdown pode repetir a drenagem.
+			logging.Warnf(context.Background(), "app.app", "ciclo de vida de comandos ainda montado após timeout; shutdown interrompido de forma conservadora")
+			cancelCommandLifecycle()
+			return
+		}
+	}
+	cancelCommandLifecycle()
 	a.wakeLock.Release()
 	// Sinaliza o cancelamento às goroutines de background e aguarda o join
 	// antes de derrubar os managers, evitando loops órfãos no encerramento.
