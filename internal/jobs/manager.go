@@ -1743,10 +1743,20 @@ func (m *Manager) runRetention(ctx context.Context) {
 // intervalo de retenção. É global ao arquivo .db (não escopada por usuário) e
 // best-effort: qualquer erro é apenas logado.
 func (m *Manager) maybeCompact(ctx context.Context, minFreeBytes int64) {
+	if err := m.compact(ctx, minFreeBytes); err != nil {
+		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention compaction failed: %v", err)
+	}
+}
+
+// compact executa a compactação usando o mesmo gate/throttle do caminho
+// legado, mas preserva o erro para o coordinator de manutenção. Um retorno
+// nil também cobre um no-op legítimo (throttle/limiar); somente compactação
+// física bem-sucedida arma lastCompaction.
+func (m *Manager) compact(ctx context.Context, minFreeBytes int64) error {
 	m.compactMu.Lock()
 	if m.compacting || (!m.lastCompaction.IsZero() && time.Since(m.lastCompaction) < jobRetentionInterval) {
 		m.compactMu.Unlock()
-		return
+		return nil
 	}
 	m.compacting = true
 	m.compactMu.Unlock()
@@ -1763,10 +1773,7 @@ func (m *Manager) maybeCompact(ctx context.Context, minFreeBytes int64) {
 		m.lastCompaction = time.Now()
 	}
 	m.compactMu.Unlock()
-
-	if err != nil {
-		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention compaction failed: %v", err)
-	}
+	return err
 }
 
 func (m *Manager) startRetentionLoop(ctx context.Context) {

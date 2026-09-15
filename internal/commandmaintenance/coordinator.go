@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	ErrInvalid            = errors.New("coordenador de manutenção inválido")
-	ErrInvalidBatchResult = errors.New("resultado de lote de manutenção inválido")
-	ErrAlreadyRunning     = errors.New("manutenção da instância já está em execução")
+	ErrInvalid                = errors.New("coordenador de manutenção inválido")
+	ErrInvalidBatchResult     = errors.New("resultado de lote de manutenção inválido")
+	ErrInvalidRetentionResult = errors.New("resultado de retenção inválido")
+	ErrAlreadyRunning         = errors.New("manutenção da instância já está em execução")
 )
 
 const DefaultBatchSize = 128
@@ -75,6 +76,20 @@ type RetentionPort interface {
 	Retain(context.Context, Policy) (int64, error)
 }
 
+// RetentionResult é o resultado de uma retenção bounded. More indica que a
+// porta encontrou trabalho adicional para uma passagem futura; não autoriza
+// um loop interno no coordinator.
+type RetentionResult struct {
+	Deleted int64
+	More    bool
+}
+
+// BoundedRetentionPort é opcional. Portas novas podem expor a operação
+// bounded sem quebrar implementações legadas de RetentionPort.
+type BoundedRetentionPort interface {
+	RetainBatch(context.Context, Policy) (RetentionResult, error)
+}
+
 // ToolRetentionPort mantém a ordem D5/AEP-0074-B dentro do único coordinator.
 // A implementação concreta deve executar cada operação no banco escopado e
 // respeitar o contexto; não há chamada alternativa agregada que possa pular
@@ -108,6 +123,7 @@ type Report struct {
 	MoreOutbox         bool
 	Recovered          int
 	MoreRecovery       bool
+	MoreRetention      bool
 	JobsDeleted        int64
 	ToolsDeleted       int64
 	InvocationsDeleted int64
@@ -163,6 +179,9 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	var report Report
 	// Essa ordem é deliberada: a retenção de jobs só ocorre depois que a
 	// barreira de replay foi reencaminhada e drenada.
+	if err := ctx.Err(); err != nil {
+		return report, err
+	}
 	if n, more, err := c.ports.Outbox.RequeueExpiredLeases(ctx, batch); err != nil {
 		return report, err
 	} else {
@@ -171,6 +190,9 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 		}
 		report.OutboxRequeued = n
 		report.MoreOutbox = more
+	}
+	if err := ctx.Err(); err != nil {
+		return report, err
 	}
 	outboxResult, err := c.ports.Outbox.Drain(ctx, batch)
 	if err != nil {
@@ -183,6 +205,9 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	report.OutboxDrained = !report.MoreOutbox
 
 	for _, port := range []RecoveryPort{c.ports.Decisions, c.ports.Invocations, c.ports.Claims} {
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
 		batchResult, err := port.Recover(ctx, batch)
 		if err != nil {
 			return report, err
@@ -193,24 +218,37 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 		report.Recovered += batchResult.Processed
 		report.MoreRecovery = report.MoreRecovery || batchResult.More
 	}
+	if err := ctx.Err(); err != nil {
+		return report, err
+	}
 	// Nenhuma exclusão/compactação pode ocorrer enquanto um domínio ainda
 	// tiver lote pendente. A próxima passagem retoma pelo cursor próprio.
 	if report.MoreOutbox || report.MoreRecovery {
 		return report, nil
 	}
 
-	if deleted, err := c.ports.Jobs.Retain(ctx, policy); err != nil {
+	if err := ctx.Err(); err != nil {
 		return report, err
-	} else {
-		report.JobsDeleted = deleted
 	}
+	jobsResult, err := retain(ctx, c.ports.Jobs, policy)
+	if err != nil {
+		return report, err
+	}
+	report.JobsDeleted = jobsResult.Deleted
+	report.MoreRetention = jobsResult.More
 	for _, clean := range []func(context.Context, Policy) (int64, error){
 		c.ports.Tools.CleanOldDryRuns,
 		c.ports.Tools.CleanOrphanChat,
 		c.ports.Tools.CleanOldChat,
 	} {
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
 		deleted, err := clean(ctx, policy)
 		if err != nil {
+			return report, err
+		}
+		if err := validateDeletedCount(deleted); err != nil {
 			return report, err
 		}
 		report.ToolsDeleted += deleted
@@ -222,11 +260,24 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 		{c.ports.InvocationDB, &report.InvocationsDeleted},
 		{c.ports.Activations, &report.ActivationsDeleted},
 	} {
-		deleted, err := item.port.Retain(ctx, policy)
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
+		result, err := retain(ctx, item.port, policy)
 		if err != nil {
 			return report, err
 		}
-		*item.dest = deleted
+		*item.dest = result.Deleted
+		report.MoreRetention = report.MoreRetention || result.More
+	}
+	if err := ctx.Err(); err != nil {
+		return report, err
+	}
+	if report.MoreRetention {
+		return report, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return report, err
 	}
 	if err := c.ports.Compaction.Compact(ctx, policy.VacuumMinFreeBytes); err != nil {
 		return report, err
@@ -238,6 +289,34 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 func validateBatchResult(result BatchResult, limit int) error {
 	if limit <= 0 || result.Processed < 0 || result.Processed > limit {
 		return ErrInvalidBatchResult
+	}
+	return nil
+}
+
+func retain(ctx context.Context, port RetentionPort, policy Policy) (RetentionResult, error) {
+	if bounded, ok := port.(BoundedRetentionPort); ok {
+		result, err := bounded.RetainBatch(ctx, policy)
+		if err != nil {
+			return RetentionResult{}, err
+		}
+		if err := validateDeletedCount(result.Deleted); err != nil {
+			return RetentionResult{}, err
+		}
+		return result, nil
+	}
+	deleted, err := port.Retain(ctx, policy)
+	if err != nil {
+		return RetentionResult{}, err
+	}
+	if err := validateDeletedCount(deleted); err != nil {
+		return RetentionResult{}, err
+	}
+	return RetentionResult{Deleted: deleted}, nil
+}
+
+func validateDeletedCount(deleted int64) error {
+	if deleted < 0 {
+		return ErrInvalidRetentionResult
 	}
 	return nil
 }

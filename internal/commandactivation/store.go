@@ -12,7 +12,10 @@ import (
 	"gorm.io/gorm"
 )
 
-type Store struct{ db *gorm.DB }
+type Store struct {
+	db              *gorm.DB
+	maintenanceSeal *maintenanceSeal
+}
 
 // Tx é uma vista da transação fornecida pelo chamador. O tipo impede que a
 // integração abra uma segunda transação ao combinar layer enable/disable com
@@ -26,7 +29,7 @@ func NewStore(db *gorm.DB) (*Store, error) {
 	if db == nil {
 		return nil, ErrInvalid
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, maintenanceSeal: &maintenanceSeal{token: uuid.New()}}, nil
 }
 
 func (s *Store) WithTx(ctx context.Context, fn func(*Tx) error) error {
