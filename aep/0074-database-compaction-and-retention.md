@@ -2,6 +2,26 @@
 
 **Status:** Done
 
+**Rodada de dez frentes AEP-0103 (15/09/2026), extensão In Progress:** o
+coordinator agora recebe heartbeat antes da outbox, com a mesma política lida
+na passagem. O adapter concreto percorre leases em lotes de até 100 e não
+ressuscita leases vencidas. Continuação/erro impede retenção e compactação;
+continuação do heartbeat não impede avançar outbox e recuperação.
+`Manager.ConfigureCommandMaintenance` permite montagem interna antes de Start,
+com os adapters reais de jobs/tools/compactação do próprio Manager. Quando
+configurado, seu único timer de retenção usa TTL/3 (máximo um minuto) e retoma
+trabalho pendente mais cedo. Sem coordinator, o caminho legado é preservado.
+Stop cancela e aguarda a passagem fora dos locks do Manager antes de destruir
+seus componentes; Start/remontagem são recusados durante essa espera. A espera
+depende de cooperação das portas, sem promessa de prazo rígido. Erro de leitura
+ou política usa nova tentativa em um minuto, sem limpeza com defaults substitutos.
+
+O adapter de invocações pagina toda a instância e só recupera gerações presentes
+na prova real de drenagem do core atual, incluindo escopos local/system. Usa o
+writer existente e preserva progresso confirmado em erro; outro core vivo não é
+alterado. Isso não resolve a prova de restart nem monta automaticamente todos
+os domínios de recuperação no startup produtivo. I12 permanece parcial.
+
 **Ligação do core, extensão In Progress (15/09/2026):** o encerramento real dos
 executores no processo atual agora produz prova para o writer existente do ledger.
 Isso não cobre restart. Adapters concretos de outbox/reconciliação usam lotes,

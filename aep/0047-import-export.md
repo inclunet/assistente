@@ -4,6 +4,15 @@
 
 ## Dependências
 
+Na rodada de dez frentes de 15/09/2026, o round-trip interno passou a exercitar
+ExportFromStore → ApplyPlanImport → Store real, com deltas builtin,
+`needs_review`, global e workspace. Keep não abre decisão; Replace restaura
+personalizações; Copy exige nome escolhido, gera novos IDs e remapeia bindings
+para a camada copiada, preservando o global. A sessão desse teste é uma porta
+de autenticação controlada, não transporte público/JWT ponta a ponta.
+O import/export genérico continua recusando commandLayers: essa cobertura não
+habilita a UI nem encerra atomicidade multi-escopo ou export sensível.
+
 Na continuação de 15/09/2026, testes do writer interno confirmam que referência
 ausente falha antes da decisão e erro do hook desfaz o lote. Keep sem mudanças
 não grava nem solicita decisão; a API retorna `ErrNoChanges` para esse no-op

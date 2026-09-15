@@ -3,7 +3,49 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
-## Rodada atual — 15/09/2026, ligação do core e cinco frentes
+## Rodada atual — 15/09/2026, dez frentes existentes
+
+Frentes: **I03, I04, I05, I06, I08, I09, I11, I12, I13 e I14**.
+Seis agentes Luna reutilizados, com implementação, revisão e correções centrais.
+Não foram criados pacotes novos, segredos reais ou atalhos de produto.
+
+- **I03:** contexto de sessão/surface/foco/diálogo composto com a ponte TS; descarte limpa leitores e superfícies. Backend continua exigindo providers autoritativos: a composição frontend não autentica fatos no Wails.
+- **I04:** falha de Snapshot pode virar recusa durável quando a fonte ainda entrega as gerações obrigatórias reais. Reentrega consulta o terminal e não executa depois da recuperação. Sem gerações, em cancelamento ou sem proveniência física/evento, continua sem reserva. O contrato não foi relaxado; I04.3 permanece parcial.
+- **I05:** Preview reutiliza a preparação autenticada do serviço comum, sem receipt/escrita. Preview de regrant é somente estrutural, exige RuleEnable e escopo exato; não promete simulação dinâmica completa. I05.5 permanece aberto.
+- **I06:** fábrica interna do App compõe sessão/JWT, questionnaire/presenter, chaves e stores na mesma raiz SQL. BeforeCommit invalida a projeção antiga dentro do gate exclusivo; rollback não a republica. A montagem pública/lifecycle ainda não está habilitada.
+- **I08:** RegrantEventRule confirma o fingerprint exato da regra/produtores e usa o writer comum para receipt, regra, grant, hook, geração e auditoria. Epoch observado antes de abrir decisão; chave usa KeyVersion, não versão do catálogo. Alteração semântica durante a decisão falha fechado. **I08.2 encerrado localmente**, sem declarar I08 completo.
+- **I09:** heartbeat concreto é uma porta do mesmo coordinator, com cursor, lote máximo 100 e TTL da passagem. Não duplica a sequência de manutenção nem revive lease expirada. Agendamento automático do consumidor no App permanece pendente.
+- **I11:** round-trip por SQLite/serviço interno cobre deltas builtin, needs_review, Keep/Replace/Copy e workspace. Cópia gera IDs novos, remapeia bindings e preserva global. Autenticação nesse teste é uma porta controlada; fluxo público/multi-escopo continua aberto.
+- **I12:** recuperação all-owner pagina invocações de usuários/system e consome somente prova real de gerações drenadas no processo atual; reutiliza o writer existente. Manager pode receber coordinator antes de Start, com adapters reais legados, e usa seu único timer para heartbeat/continuações. Prova de restart e montagem de todos os domínios ainda faltam.
+- **I13:** ponte TS interna valida sessão/geração, filtra resultados de outra sessão, impede regressão de geração por respostas fora de ordem e encerra recursos com ownership exclusivo. Sem transporte Wails ou listener físico novo.
+- **I14:** composição do App recusa dependências trocadas, DB inadequado, closing e estado bloqueado. Stop do Manager cancela e aguarda manutenção fora dos locks; Start e remontagem recusados durante drenagem. Montagem integrada de startup/login/restart ainda pendente.
+
+**Contagem: 41/84 critérios encerrados; 43 abertos; 2/15 pacotes completos.**
+É um critério agregado adicional (I08.2), além de avanços internos nos outros
+pacotes. Dez frentes trabalhadas não significam dez pacotes completos nem uma
+porcentagem de esforço. BASE-PRONTA não foi atingido.
+
+Validação final: suíte Go completa com arquivos estáveis, dados temporários e
+módulos readonly: **108 pacotes passaram; ACP/acpregistry encerraram com
+`0xffffffff`**. A causa continua indeterminada, com reprodução na base anterior
+documentada; não declarar a suíte global verde. A tentativa anterior durante
+edições concorrentes encontrou teste incompleto de configuração e foi substituída
+por esta repetição final. Todos os command* e App/jobs/database/config/portability/
+questionnaire passaram juntos. Build/vet globais e lint Go passaram (zero
+apontamentos). Frontend completo: **312 arquivos/2.915 testes**, TypeScript e
+linters sem erros (1 warning ESLint e 2.159 Stylelint existentes). Fábrica real
+do App e shutdown/loop foram repetidos três vezes. Nenhum teste foi removido.
+Sem nova assinatura Wails, binding gerado ou texto visível de UI. Race/C-GCC,
+Bugbot, CI, NVDA e hardware não qualificados; sem push/PR/merge.
+
+### Próximas saídas verificáveis, sem novos pacotes
+
+1. **Recuperação de restart:** provar exclusão do processo/geração anterior e integrar receipts abandonadas, invocações e claims na montagem única (I12.1–4/I14.3).
+2. **Montagem real do App:** fornecer catálogo/projeção/políticas/hook reais, reconstruir e publicar o mapa após mutações, ligar transporte autenticado de contexto/dispatch (I03.1/I06/I13.1/I14.2–5).
+3. **Fechar simulação e portabilidade:** diff dinâmico exato, integração genérica/publicação, lote multi-escopo e referências sensíveis (I05.5/I11).
+4. **Qualificar antes da migração:** latência integrada, crash/replay, race com C/CGO, CI/review, SO/HID e NVDA (I13.2–6/I15). Migração de comandos permanece P01–P06.
+
+## Rodada anterior — 15/09/2026, ligação do core e cinco frentes
 
 Seis agentes Luna reutilizados, com revisão e correções centrais. Avanço nos mesmos
 I09/I11/I12/I13/I14, sem criar pacotes novos nem habilitar atalhos de produto.
@@ -317,7 +359,7 @@ Estado: **Parcial — implementação e integração local ampliadas em 15/09/20
 Dependências: I04, I05.
 Referências: D2, D10, D11; AEP-0091.
 
-Evidência/limite atual: CRUD/defaults/restore agregado e regras usam receipt/diff/auditoria no mesmo gate; testes cobrem replay, rollback, alias e versão alterada durante decisão. Importação, regrant pelo serviço comum e montagem do presenter continuam abertos; não confundir factory do App com publicação runtime.
+Evidência/limite atual: CRUD/defaults/restore, importação interna e regrant usam o writer comum com receipt/diff/auditoria; testes cobrem replay, rollback, alias, versão e semântica alteradas durante decisão. A fábrica do App compõe presenter e sessão reais e invalida o mapa antes do commit. Montagem no lifecycle e classificação/integração integral dos verbos continuam abertas; não confundir factory com publicação runtime.
 
 - [x] I06.1 — Ampliar receipt para invocação e consumir decisão destrutiva na mesma transação do CAS para queued.
 - [ ] I06.2 — Aplicar diff/receipt/auditoria a todo CRUD, restore, import e alteração de capacidade; incorporar a classificação obrigatória de cada verbo.
@@ -350,10 +392,10 @@ Estado: **Parcial — implementação e integração local ampliadas em 15/09/20
 Dependências: I06, I07.
 Referências: D8, D11; AEP-0101 como limite de separação.
 
-Evidência/limite atual: `commandautomation` mantém tabela exclusiva, chave natural escopada, fingerprints e concessão confirmada atômica com regra. O hook comum revoga em CRUD/restore de regras/layers; timestamps são vinculados ao diff e testes cobrem geração/rollback. O novo consumidor revalida grants por evento. Ainda falta expor o fluxo de regrant pelo serviço comum e integrar importação/cópia/restore completo sem transportar autoridade; concessão preparada não é autorização runtime.
+Evidência/limite atual: `commandautomation` mantém tabela exclusiva, chave natural escopada e fingerprints. RegrantEventRule liga a concessão confirmada ao writer comum de configuração e ao hook real, com receipt, geração e auditoria na mesma transação. Criar/habilitar diretamente regra de evento sem grant continua proibido. Testes cobrem cancelamento da decisão, mudança semântica/versão e rollback, incluindo receipt não consumida após falha. O consumidor revalida grants por evento; resta qualificar a integração completa de importação/cópia/restore e montagem produtiva, sem transportar autoridade.
 
 - [x] I08.1 — Persistir chave natural por owner/workspace/layer/rule, uma concessão ativa e histórico de gerações/revogações.
-- [ ] I08.2 — Criar/habilitar regra event-driven somente com decisão vinculada ao fingerprint exato da regra e dos produtores.
+- [x] I08.2 — Criar/habilitar regra event-driven somente com decisão vinculada ao fingerprint exato da regra e dos produtores.
 - [x] I08.3 — Revogar atomicamente ao alterar/excluir/desabilitar regra ou camada; reabilitação exige nova decisão.
 - [ ] I08.4 — Revalidar ID, geração e fingerprints autoritativos a cada evento; import/cópia/restore nunca transportam concessão.
 - [x] I08.5 — Testar concessão/revogação concorrente, receipt atrasada e isolamento entre grants de delegação e ativação.
@@ -366,7 +408,7 @@ Estado: **Parcial — implementação e integração local ampliadas em 15/09/20
 Dependências: I07, I08.
 Referências: D2.1, D8, D11; AEP-0048, AEP-0067, AEP-0074-B.
 
-Evidência/limite atual: `commandjobactivation` compõe lease de entrega, fato revalidado, regra/grant, CAS por sequência, ledger e ack no mesmo TX. Há lease própria de claim, renovação autenticada e reconciliação bounded; testes cobrem replay, conflito, fonte perdida, sessão antiga e ciclo compactado. Proveniência persistida de jobs é estrutural e valida a cadeia separada de comandos. Migração v26 preserva auditoria anterior. Falta montagem do worker/heartbeat real, bootstrap do epoch e manutenção; I09.4 reconhece as operações transacionais testadas, não consumidor habilitado no App.
+Evidência/limite atual: `commandjobactivation` compõe lease de entrega, fato revalidado, regra/grant, CAS por sequência, ledger e ack no mesmo TX. Há lease própria de claim, renovação autenticada e reconciliação bounded; testes cobrem replay, conflito, fonte perdida, sessão antiga e ciclo compactado. O heartbeat concreto já compõe a passagem do coordinator com TTL atual e cursor; falta sua montagem automática no App e o bootstrap do epoch. Proveniência persistida valida a cadeia separada de comandos. Migração v26 preserva auditoria anterior. I09.4 reconhece operações transacionais testadas, não consumidor habilitado no App.
 
 - [x] I09.1 — Migrar timeline/status incremental e queued_at/started_at conforme AEP-0048; persistir Job.DatabaseID, slug, run_event_id e root_origin_type sem inferência retroativa.
 - [x] I09.2 — Inserir fato elegível e outbox na mesma transação; não usar cascade de runs como fronteira de replay.
@@ -417,7 +459,7 @@ Estado: **Parcial**. Esforço restante: **G**.
 Dependências: I04, I07, I09, I10.
 Referências: D2.1, D8, D11; AEP-0074-B.
 
-Evidência/limite atual: `commandmaintenance.Coordinator` exige todas as portas e política completa; uma passagem ordena outbox, recuperação, jobs, tools, auditorias e compactação, sem novo loop. Requeue e drain recebem limite; trabalho restante bloqueia limpeza. As seis settings estão persistidas e expostas na UI/i18n; o caminho opcional do Manager relê config por passagem com proteção de overflow. `commandledger.MaintenanceService` separa retenção all-users/system do Store comum, com lotes e proteção de deadlines. `commanddecision.ReconcileSessions` amplia recuperação. Adapters concretos de domínio estão implementados, inclusive retenção de ativações. Há prova real de drenagem no processo atual; faltam prova para restart e montagem na cadência única. Não considerar o marcador de banco sozinho prova de exclusão. O TTL salvo ainda depende do wiring no heartbeat real.
+Evidência/limite atual: `commandmaintenance.Coordinator` exige portas/política completas e aceita heartbeat para montagens com claims. Ordena heartbeat, outbox, recuperação, jobs, tools, auditorias e compactação. More/erro impede limpeza. O Manager configurado relê settings por passagem, usa um único timer adaptativo e aguarda sua drenagem no Stop. `ConfigureCommandMaintenance` monta adapters legados reais antes de Start. Recuperação pagina usuários/system com prova real do processo atual e preserva progresso em erro. As seis settings estão persistidas e expostas na UI/i18n. Ainda faltam prova para restart, montagem de receipts e composição automática dos domínios no App; marcador de banco sozinho não prova exclusão.
 
 - [ ] I12.1 — Definir prova de encerramento de geração e exclusão de execuções antigas antes de recuperar pendências, incluindo reinício e outros usuários/sessões.
 - [ ] I12.2 — Reconciliar invocação+ledger atomicamente para outcome_unknown, incluindo system com capability interna; jamais reexecutar efeito.

@@ -2,6 +2,29 @@
 
 **Status:** In Progress
 
+### Dez frentes existentes — 15/09/2026
+
+I03/I04/I05/I06/I08/I09/I11/I12/I13/I14 avançaram com seis agentes Luna e
+revisão central, sem habilitar comandos de produto. Regrant passou a usar a
+decisão exata e o writer comum, com rollback e invalidação do mapa antigo antes
+do commit. A fábrica do App usa sessão/JWT e presenter reais; ainda não é
+montagem produtiva. Preview permanece leitura, nunca autoridade executável.
+
+Heartbeat integra a mesma passagem do coordinator; o Manager configurado usa
+seu único timer e drena a manutenção antes do teardown. Recuperação pagina
+usuários/system com prova real do core atual, sem inferir prova de restart.
+Ponte TS de contexto/dispatch filtra sessão/geração, e o round-trip interno de
+importação cobre deltas/needs_review e remapeamento de cópias por workspace.
+Falha de snapshot só ganha recusa durável quando mantém as gerações obrigatórias
+autoritativas; nenhum requisito de nulabilidade foi flexibilizado.
+
+Contagem atual: **41/84 critérios locais, 43 abertos; 2/15 pacotes completos**.
+I08.2 encerrado no serviço interno; os demais pacotes compostos ainda têm gaps.
+Restart, transporte autenticado UI/backend, montagem dos domínios no App,
+portabilidade pública/multi-escopo e qualificação de desempenho/hardware
+continuam pendentes. A tasklist é a referência atual; as contagens abaixo são
+históricas. Nenhum pacote adicional de infraestrutura foi inventado.
+
 ### Ligação do core — 15/09/2026
 
 O core agora fecha novas admissões e drena obrigatoriamente todos os executores
