@@ -2,6 +2,15 @@
 
 **Status:** Done
 
+**Extensão AEP-0103, ainda In Progress (15/09/2026):** adapters concretos de
+jobs/tools preservam as limpezas existentes por usuário; compactação reutiliza
+o throttle do Manager e propaga falhas. Retenção de ativações e invocações protege
+estado ativo e prazos de ledger. Trabalho restante (`More`) e cancelamento impedem
+compactação da passagem. A política de ativações tem lote máximo 128; o adapter
+legado percorre todos os usuários sem paginação. Os adapters ainda não substituem
+a cadência produtiva e não constituem prova de geração encerrada. O status Done
+acima refere-se ao escopo legado, não ao aceite de I12 da AEP-0103.
+
 ## Dependências
 
 - **AEP-0048** (Migração de Jobs para Banco de Dados): definiu a retenção por idade (30 dias) de `job_runs`, `job_events` e `job_run_events` via goroutine no Manager. Esta AEP **substitui** essa janela por uma retenção curta, configurável em horas (padrão 24h), por dados de jobs serem efêmeros.

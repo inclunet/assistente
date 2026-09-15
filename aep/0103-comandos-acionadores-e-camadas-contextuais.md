@@ -2,6 +2,20 @@
 
 **Status:** In Progress
 
+### Integração local de 15/09/2026 — I09/I11/I12/I13/I14
+
+O writer interno de importação usa decisão/CAS comuns e revalida referências
+antes do commit; a migração 27 preserva auditorias anteriores e admite
+`config_import`. A purga de fatos protege leases vivas. Retenção de ativações
+e adapters reais de manutenção cobrem idade/caps, usuários/system e preservação
+de ledger; a cadência única ainda não está montada e o adapter legado não é paginado.
+Shutdown do executor espera finalização durável e impede novo Start após fechamento,
+mas não constitui por si só prova de geração encerrada para recuperação.
+O adapter de decisão alcança a fila real da UI, e o App ganhou hooks de autenticação
+e encerramento com join do worker. Providers/transporte produtivos, heartbeat,
+importação pública e hardware permanecem pendentes. Nenhum atalho foi migrado.
+Tasklist: 39/84 critérios locais, 2/15 pacotes completos; não é percentual de esforço.
+
 **Data:** 2026-09-12
 
 **Acompanhamento da implementação:** `0103-tasklist-infraestrutura.md` contém

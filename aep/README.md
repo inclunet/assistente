@@ -123,7 +123,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico | ✅ Done |
 
 Acompanhamento da AEP-0103: [tasklist de infraestrutura](0103-tasklist-infraestrutura.md),
-atualizado em 15/09/2026 com a rodada parcial I11–I15. A AEP continua In Progress;
+atualizado em 15/09/2026 com a integração parcial I09/I11/I12/I13/I14 (39/84 critérios). A AEP continua In Progress;
 a extensão de manutenção não altera o aceite da retenção legada da AEP-0074-B.
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser

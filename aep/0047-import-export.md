@@ -4,6 +4,15 @@
 
 ## Dependências
 
+**Integração AEP-0103 (15/09/2026):** `commandportability.ApplyPlanImport`
+encaminha o plano ao writer comum confirmado de configuração. Receipt, auditoria
+`config_import` (migração 27), geração e alterações são transacionais; referências
+são revalidadas no gate final. Keep preserva destino, Replace substitui filhos e
+Copy remapeia IDs. O escopo workspace não pode alterar globals herdados.
+Grants/claims não são importados e regras de eventos importadas ficam desabilitadas.
+Este é um caminho interno: envelope público, lote multi-escopo, idempotência completa
+e UI ainda não estão habilitados. Não equivale a backup funcional de comandos no produto.
+
 - **AEP-0046** (Migração de IDs sequenciais para UUIDv7): o formato canônico
   usa IDs estáveis. O export publicado pela 0.1.9, com IDs numéricos, permanece
   aceito por um adaptador de entrada para cumprir a política de upgrade
