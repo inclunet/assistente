@@ -21,8 +21,10 @@ sessão local atual, geração privada vinculada ao `EpochService`, commit pelo
 gate de segurança, projeção a partir de `HostState.Snapshot`, enable/readiness
 em memória e falha fechada quando host/config/camadas/unlock não estão prontos.
 O teste cobre `BootstrapCommandLifecycle` chegando a `Ready` com HostState
-reconstruído e unlocked. Contagem atual: **48/84 critérios locais, 36 abertos;
-3/15 pacotes completos**.
+reconstruído e unlocked. A montagem agora também instala o `HostState` e a
+`commandbridge.Bridge` reais no App e recusa bridge divergente antes de publicar
+runtime. Contagem atual: **48/84 critérios locais, 36 abertos; 3/15 pacotes
+completos**.
 
 ### Stream Deck real validado — 15/09/2026
 

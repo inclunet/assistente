@@ -38,6 +38,20 @@ Validação adicional: `go test ./internal/commandruntime ./internal/app -run
 "TestAppCommandLifecycle" -count=1`, `go vet ./internal/commandruntime
 ./internal/app` e `git diff --check` passaram.
 
+Complemento de wiring real: `ConfigureCommandLifecycleForApp` agora instala
+também o `HostState` e a `commandbridge.Bridge` fornecidos pelo bootstrap,
+reusando `installCommandHost` e `ConfigureCommandBridge`. Uma bridge já montada
+é aceita somente se for a mesma instância; uma bridge divergente é recusada antes
+de publicar o runtime. O teste confirma que a montagem de produto deixa
+`App.commandHost` e a bridge Wails/backend apontando para as dependências reais,
+sem instalar controller quando adapter/presenter/epoch estão inválidos. Seguem
+pendentes o adapter produtivo de entrada/comandos e o catálogo real sem comandos
+migrados.
+
+Validação adicional: `go test ./internal/commandruntime ./internal/app -run
+"TestAppCommandLifecycle" -count=1`, `go vet ./internal/commandruntime
+./internal/app` e `git diff --check` passaram.
+
 Complemento de portas reais: quando `CommandLifecycleMountInputs.Runtime` vem
 vazio, `ConfigureCommandLifecycleForApp` agora cria os adapters padrão do App
 para `commandruntime.Config`. A autenticação usa a sessão local atual; a geração
@@ -816,7 +830,7 @@ Estado: **Parcial — hooks e fábricas sem bootstrap de produto**. Esforço res
 Dependências: I01, I02, I03, I04, I05, I06, I07, I08, I09, I10, I11, I12, I13.
 Referências: D2.1, D8, D11, D13.
 
-Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invalida/cancela antes do reset e confirma readiness via core compartilhado; exige todas as portas e recusa projeção vazia. `MountSpec` declara dependências obrigatórias de catálogo, defaults, políticas, stores, presenter, providers, dispatcher e adapters; `NewMounted` recusa manifesto incompleto, duplicado ou nil antes de criar controller. `App.commandLifecycle` é um ponteiro atômico privado, com montagem serializada, barreira terminal de shutdown e desmontagem por CAS, sem registry global. `ConfigureCommandLifecycleMountSpec` liga o manifesto ao App sem instalar runtime quando o contrato falha; `ConfigureCommandLifecycleForApp` preenche esse manifesto com `commandexecution.Config`, `HostState`, `commandbridge.Bridge`, `commandcontext.FactBus`, presenter real de decisão e adapter fornecido pelo host, recusando storage sem versão, presenter ausente, adapter nil e `HostState` de outro epoch. Os testes cobrem falhas/cancelamento, configurações concorrentes e montagem incompleta. As chamadas de startup/login/refresh/logout/shutdown estão ligadas condicionalmente ao controller; shutdown espera o worker e mantém dependências em caso de timeout. Ainda falta chamar essa rota no bootstrap produtivo e publicar a primeira projeção real sem comandos migrados: não publicar readiness de produto a partir dos mocks.
+Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invalida/cancela antes do reset e confirma readiness via core compartilhado; exige todas as portas e recusa projeção vazia. `MountSpec` declara dependências obrigatórias de catálogo, defaults, políticas, stores, presenter, providers, dispatcher e adapters; `NewMounted` recusa manifesto incompleto, duplicado ou nil antes de criar controller. `App.commandLifecycle` é um ponteiro atômico privado, com montagem serializada, barreira terminal de shutdown e desmontagem por CAS, sem registry global. `ConfigureCommandLifecycleMountSpec` liga o manifesto ao App sem instalar runtime quando o contrato falha; `ConfigureCommandLifecycleForApp` preenche esse manifesto com `commandexecution.Config`, `HostState`, `commandbridge.Bridge`, `commandcontext.FactBus`, presenter real de decisão e adapter fornecido pelo host, instala o `HostState` e a bridge reais, e recusa storage sem versão, presenter ausente, adapter nil, bridge divergente e `HostState` de outro epoch. Os testes cobrem falhas/cancelamento, configurações concorrentes, montagem incompleta e bootstrap pronto com portas reais. As chamadas de startup/login/refresh/logout/shutdown estão ligadas condicionalmente ao controller; shutdown espera o worker e mantém dependências em caso de timeout. Ainda falta chamar essa rota no bootstrap produtivo com adapter/catálogo finais e publicar a primeira projeção real sem comandos migrados: não publicar readiness de produto a partir dos mocks.
 
 - [x] I14.1 — Construir esqueleto de bootstrap serializado e readiness observável após I01, sem expor novas rotas nem cadastrar comandos de produto; este subitem pode começar cedo.
 - [ ] I14.2 — Montar catálogo/defaults de contrato, políticas, stores, presenter, providers, dispatcher e adapters com dependências explícitas; sem fallback permissivo.

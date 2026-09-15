@@ -346,6 +346,12 @@ func TestAppCommandLifecycleProductMountSpecUsesRealAppDependencies(t *testing.T
 	if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
 		t.Fatalf("montagem de produto recusada: %v", err)
 	}
+	if app.commandHost != inputs.Host {
+		t.Fatal("montagem não instalou HostState real no App")
+	}
+	if bridge, ok := loadCommandBridge(app); !ok || bridge != inputs.Bridge {
+		t.Fatalf("montagem não instalou Bridge real: ok=%v bridge=%p want=%p", ok, bridge, inputs.Bridge)
+	}
 	snapshot, err := CommandLifecycleSnapshot(app)
 	if err != nil || snapshot.State != commandruntime.StateCold {
 		t.Fatalf("montagem instalou runtime em estado inesperado: %+v err=%v", snapshot, err)
@@ -404,6 +410,24 @@ func TestAppCommandLifecycleProductMountSpecRejectsMissingProductDependencies(t 
 	}
 	if err := ConfigureCommandLifecycleForApp(app, inputs); !errors.Is(err, commandruntime.ErrInvalidConfiguration) {
 		t.Fatalf("HostState de outro epoch aceito/erro errado: %v", err)
+	}
+
+	app, inputs = appLifecycleProductMountFixture(t)
+	otherBridge, err := commandbridge.New(commandbridge.Config{
+		Port: appLifecycleBridgePort{},
+		Capabilities: []commandbridge.Capability{{
+			ID: uuid.Must(uuid.NewV7()).String(), CommandID: "fixture.read", Generation: 1,
+			Owner: commandbridge.Owner{UserID: uuid.Must(uuid.NewV7()).String(), SessionID: uuid.Must(uuid.NewV7()).String(), WorkspaceID: "workspace-1"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigureCommandBridge(app, otherBridge); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigureCommandLifecycleForApp(app, inputs); !errors.Is(err, errCommandBridgeAlreadyConfigured) {
+		t.Fatalf("bridge divergente aceita/erro errado: %v", err)
 	}
 }
 

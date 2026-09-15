@@ -63,7 +63,29 @@ func ConfigureCommandLifecycleForApp(a *App, inputs CommandLifecycleMountInputs)
 	if err != nil {
 		return err
 	}
+	if err := a.installCommandHost(inputs.Host); err != nil {
+		return err
+	}
+	if err := configureCommandBridgeForLifecycle(a, inputs.Bridge); err != nil {
+		return err
+	}
 	return ConfigureCommandLifecycleMountSpec(a, spec)
+}
+
+func configureCommandBridgeForLifecycle(a *App, bridge *commandbridge.Bridge) error {
+	if a == nil || bridge == nil {
+		return commandruntime.ErrMissingDependency
+	}
+	if current, ok := loadCommandBridge(a); ok {
+		if current != bridge {
+			return errCommandBridgeAlreadyConfigured
+		}
+		return nil
+	}
+	if err := ConfigureCommandBridge(a, bridge); err != nil {
+		return err
+	}
+	return nil
 }
 
 func commandLifecycleRuntimeConfigEmpty(config commandruntime.Config) bool {
