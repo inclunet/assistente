@@ -82,6 +82,7 @@ type preparedEnvelope struct {
 	argumentsFingerprint string
 	expires              time.Time
 	denied               bool
+	snapshotFailed       bool
 }
 
 func canonicalCandidate(candidate EnvelopeCandidate) (EnvelopeCandidate, error) {
@@ -149,6 +150,15 @@ func (s *Service) bindHostEnvelope(ctx context.Context, identity EnvelopeAuthent
 	o := identity.Ownership
 	e, err := s.snapshotEnvelope(ctx, identity, c)
 	if err != nil {
+		// Cancelamento/timeout não é uma decisão de política: não cria uma
+		// reserva com dados possivelmente incompletos. Para uma falha
+		// autoritativa não cancelada, a recusa pode ser durável apenas nas
+		// origens diretas, cujo identificador de ingresso já é o invocation ID.
+		if ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			if refusal, refusalErr := s.snapshotFailureRefusal(identity, c, epoch, e); refusalErr == nil {
+				return refusal, errSnapshotFailure
+			}
+		}
 		return e, ErrStale
 	}
 	// A porta instala somente estado autoritativo. Cliente não escolhe auth.
@@ -199,6 +209,70 @@ func (s *Service) bindHostEnvelope(ctx context.Context, identity EnvelopeAuthent
 	return detachedEnvelope(e)
 }
 
+// snapshotFailureRefusal cria somente a parte do envelope que continua
+// autoritativa depois de uma falha do Snapshot. Contexto, superfície,
+// workspace, proveniência e epochs de replay não são inferidos do candidato.
+// Origens que precisam da identidade de uma ocorrência física/evento ficam
+// sem reserva: o pipeline não possui um event ID confiável para deduplicar.
+func (s *Service) snapshotFailureRefusal(identity EnvelopeAuthenticatedIdentity, c EnvelopeCandidate, epoch commandsecurity.EpochSnapshot, partial commandcontract.Envelope) (commandcontract.Envelope, error) {
+	source := commandcontract.SourceType(s.config.Source)
+	switch source {
+	case commandcontract.SourceKeyboardLocal, commandcontract.SourceKeyboardGlobal, commandcontract.SourceStreamDeck, commandcontract.SourceEvent:
+		return commandcontract.Envelope{}, ErrStale
+	}
+
+	o := identity.Ownership
+	e := commandcontract.Envelope{
+		Version:            commandcontract.EnvelopeVersion,
+		InvocationID:       c.InvocationID,
+		CorrelationID:      c.CorrelationID,
+		UserID:             cloneEnvelopeString(o.UserID),
+		AuthContextType:    o.AuthContextType,
+		AuthContextID:      o.AuthContextID,
+		AuthGeneration:    epoch.AuthGeneration,
+		SecurityGeneration: epoch.SecurityGeneration,
+		ActorType:          o.ActorType,
+		ActorID:            o.ActorID,
+		SourceType:         &source,
+		BindingIDs:         []string{},
+		RegistryVersion:    s.config.RegistryVersion,
+		ReceivedAt:         s.config.Now().UTC(),
+	}
+	if o.UserID != nil {
+		if partial.GlobalConfigGeneration == nil || partial.ActiveLayersGeneration == nil {
+			return commandcontract.Envelope{}, ErrStale
+		}
+		global := *partial.GlobalConfigGeneration
+		layers := *partial.ActiveLayersGeneration
+		e.GlobalConfigGeneration = &global
+		e.ActiveLayersGeneration = &layers
+	}
+	if identity.WireSessionID != nil {
+		sessionID := *identity.WireSessionID
+		e.SessionID = &sessionID
+	}
+	if c.CommandID != "" {
+		commandID := c.CommandID
+		e.CommandID = &commandID
+	} else {
+		triggerType := c.TriggerType
+		spec := append(json.RawMessage(nil), c.TriggerSpec...)
+		e.TriggerType = &triggerType
+		e.TriggerSpec = &spec
+	}
+	args := append(json.RawMessage(nil), c.Arguments...)
+	e.Arguments = &args
+	return detachedEnvelope(e)
+}
+
+func cloneEnvelopeString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copyValue := *value
+	return &copyValue
+}
+
 func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeCandidate) (preparedEnvelope, *commandledger.FullRecord, error) {
 	var p preparedEnvelope
 	p.candidate = c
@@ -247,6 +321,12 @@ func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeC
 			return ErrDenied
 		}
 		p.envelope, err = s.bindHostEnvelope(ctx, current, c, epoch)
+		if errors.Is(err, errSnapshotFailure) {
+			p.mode = commandcontract.ResolutionDenied
+			p.denied = true
+			p.snapshotFailed = true
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -294,7 +374,7 @@ func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeC
 	if p.envelope.SourceReplayDeadline != nil {
 		p.expires = *p.envelope.SourceReplayDeadline
 	}
-	if p.envelope.CommandID != nil {
+	if p.envelope.CommandID != nil && !p.snapshotFailed {
 		definition, ok := s.config.Registry.Lookup(*p.envelope.CommandID)
 		if !ok {
 			p.denied = true
@@ -351,7 +431,7 @@ func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeC
 		p.envelope.Arguments = &args
 		p.definition = commandcatalog.Definition{ID: "command.suppressed", Effect: commandcatalog.Read, Decision: commandcatalog.NoDecision, AllowedSources: []commandcatalog.Source{s.config.Source}, Context: commandcatalog.ContextPolicy{None: true}}
 	}
-	if p.definition.ID == "" {
+	if p.definition.ID == "" || p.snapshotFailed {
 		p.mode = commandcontract.ResolutionDenied
 		p.denied = true
 		p.envelope, err = p.envelope.SignRefusal(ctx, version, commandcontract.FingerprintKeyProvider(s.config.Keys))

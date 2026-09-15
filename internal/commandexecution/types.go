@@ -22,6 +22,7 @@ var (
 	ErrDenied               = errors.New("comando não autorizado ou indisponível")
 	ErrStale                = errors.New("contexto de comando obsoleto")
 	ErrExecution            = errors.New("falha interna de execução")
+	errSnapshotFailure      = errors.New("falha autoritativa do snapshot")
 )
 
 // Request contém somente candidatos de ingresso. Identidade, origem, relógio,
