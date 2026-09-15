@@ -18,14 +18,22 @@ func ConfigureCommandLifecycle(a *App, config commandruntime.Config) error {
 	if a == nil {
 		return commandruntime.ErrInvalidConfiguration
 	}
+	// Não construir um worker que já sabemos que perderá a montagem: parar
+	// esse candidato exigiria callbacks externos mesmo sem nunca ter sido usado.
+	// New apenas valida/cria o worker frio; nenhuma porta roda sob este mutex.
+	a.commandLifecycleMount.Lock()
+	defer a.commandLifecycleMount.Unlock()
+	if a.commandLifecycle.Load() != nil {
+		return errCommandLifecycleAlreadyConfigured
+	}
+	if a.commandLifecycleClosing {
+		return commandruntime.ErrStopped
+	}
 	runtime, err := commandruntime.New(config)
 	if err != nil {
 		return err
 	}
-	if !a.commandLifecycle.CompareAndSwap(nil, runtime) {
-		_ = runtime.Stop(context.Background())
-		return errCommandLifecycleAlreadyConfigured
-	}
+	a.commandLifecycle.Store(runtime)
 	return nil
 }
 
@@ -120,10 +128,22 @@ func (a *App) resetCommandLifecycleIfConfigured(ctx context.Context, reason stri
 // entradas, limpa publicação em memória e invalida a geração sem manter lock
 // do App durante qualquer porta externa.
 func ShutdownCommandLifecycle(ctx context.Context, a *App) error {
-	runtime, ok := loadCommandLifecycle(a)
-	if !ok {
+	if a == nil || ctx == nil {
 		return commandruntime.ErrInvalidConfiguration
 	}
+	// Fechamento terminal compete com a montagem no mesmo mutex curto.
+	// Não manter esse lock durante Stop/WaitStopped ou portas externas.
+	a.commandLifecycleMount.Lock()
+	a.commandLifecycleClosing = true
+	runtime := a.commandLifecycle.Load()
+	a.commandLifecycleMount.Unlock()
+	if runtime == nil {
+		return commandruntime.ErrInvalidConfiguration
+	}
+	return a.shutdownMountedCommandLifecycle(ctx, runtime)
+}
+
+func (a *App) shutdownMountedCommandLifecycle(ctx context.Context, runtime *commandruntime.Controller) error {
 	// Mantém a instância observada montada até o worker terminar. Timeout não
 	// libera dependências nem permite instalar outro worker sobre elas.
 	stopErr := runtime.Stop(ctx)
@@ -151,10 +171,17 @@ func ShutdownCommandLifecycle(ctx context.Context, a *App) error {
 // remoção CAS do ponteiro torna chamadas repetidas seguras e evita que uma
 // montagem concorrente seja encerrada por engano.
 func (a *App) shutdownCommandLifecycleIfConfigured(ctx context.Context) error {
-	if _, ok := loadCommandLifecycle(a); !ok {
+	if a == nil || ctx == nil {
+		return commandruntime.ErrInvalidConfiguration
+	}
+	a.commandLifecycleMount.Lock()
+	a.commandLifecycleClosing = true
+	runtime := a.commandLifecycle.Load()
+	a.commandLifecycleMount.Unlock()
+	if runtime == nil {
 		return nil
 	}
-	return ShutdownCommandLifecycle(ctx, a)
+	return a.shutdownMountedCommandLifecycle(ctx, runtime)
 }
 
 func CommandLifecycleSnapshot(a *App) (commandruntime.Snapshot, error) {

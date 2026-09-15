@@ -26,6 +26,8 @@ type lifecycleProbe struct {
 	readyRelease     chan struct{}
 	generations      []Generation
 	invalidated      []Generation
+	disabled         []Generation
+	cleared          []Generation
 	invalidateCalled chan struct{}
 	readiness        []Snapshot
 }
@@ -66,8 +68,11 @@ func (p *lifecycleProbe) Publish(_ context.Context, projection Projection) error
 	return nil
 }
 
-func (p *lifecycleProbe) Clear(_ context.Context, _ Generation) error {
+func (p *lifecycleProbe) Clear(_ context.Context, generation Generation) error {
 	p.step("clear")
+	p.mu.Lock()
+	p.cleared = append(p.cleared, generation)
+	p.mu.Unlock()
 	if p.clearStarted != nil {
 		p.clearOnce.Do(func() { close(p.clearStarted) })
 		<-p.clearRelease
@@ -78,10 +83,13 @@ func (p *lifecycleProbe) Clear(_ context.Context, _ Generation) error {
 	return nil
 }
 
-func (p *lifecycleProbe) SetEnabled(_ context.Context, _ Generation, enabled bool) error {
+func (p *lifecycleProbe) SetEnabled(_ context.Context, generation Generation, enabled bool) error {
 	if enabled {
 		p.step("enable")
 	} else {
+		p.mu.Lock()
+		p.disabled = append(p.disabled, generation)
+		p.mu.Unlock()
 		p.step("disable")
 	}
 	return nil
@@ -208,6 +216,42 @@ func TestAppCommandLifecycleSerializesBootstrapAndInvalidatesOnReset(t *testing.
 	}
 	if got := runtime.Snapshot(); got.State != StateStopped {
 		t.Fatalf("stop não encerrou: %+v", got)
+	}
+}
+
+func TestAppCommandLifecycleClearsPublishedGenerationBeforeRebootstrap(t *testing.T) {
+	probe := &lifecycleProbe{}
+	runtime, err := New(probe.config())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Bootstrap(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	old := probe.generations[0]
+	if err := runtime.Bootstrap(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(probe.disabled) == 0 || probe.disabled[0] != old {
+		t.Fatalf("geração antiga não foi desabilitada antes da nova: old=%v disabled=%v", old, probe.disabled)
+	}
+	if len(probe.cleared) == 0 || probe.cleared[0] != old {
+		t.Fatalf("publicação antiga não foi limpa antes da nova: old=%v cleared=%v", old, probe.cleared)
+	}
+	probe.mu.Lock()
+	steps := append([]string(nil), probe.steps...)
+	probe.mu.Unlock()
+	lastBegin := -1
+	for i, step := range steps {
+		if step == "begin" {
+			lastBegin = i
+		}
+	}
+	if lastBegin < 3 || steps[lastBegin-1] != "clear" || steps[lastBegin-2] != "disable" {
+		t.Fatalf("limpeza da geração antiga não precedeu Begin: %v", steps)
+	}
+	if err := runtime.Stop(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 

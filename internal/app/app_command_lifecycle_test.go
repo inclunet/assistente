@@ -156,7 +156,7 @@ func TestAppCommandLifecycleBridgeRequiresMountedRuntimeAndRunsTransitions(t *te
 	}
 }
 
-func TestAppCommandLifecycleConfigureCASAllowsOnlyOneInstance(t *testing.T) {
+func TestAppCommandLifecycleConfigureAllowsOnlyOneInstance(t *testing.T) {
 	app := &App{}
 	start := make(chan struct{})
 	results := make(chan error, 2)
@@ -185,6 +185,70 @@ func TestAppCommandLifecycleConfigureCASAllowsOnlyOneInstance(t *testing.T) {
 	}
 	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAppCommandLifecycleRejectedMountDoesNotRunCandidateCleanup(t *testing.T) {
+	app := &App{}
+	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(&appLifecyclePort{})); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ShutdownCommandLifecycle(context.Background(), app) })
+	probe := &appLifecyclePort{clearStarted: make(chan struct{}), clearRelease: make(chan struct{})}
+	defer close(probe.clearRelease)
+	result := make(chan error, 1)
+	go func() { result <- ConfigureCommandLifecycle(app, appLifecycleConfig(probe)) }()
+	select {
+	case err := <-result:
+		if !errors.Is(err, errCommandLifecycleAlreadyConfigured) {
+			t.Fatalf("montagem repetida=%v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("montagem rejeitada aguardou cleanup de candidato nunca publicado")
+	}
+	select {
+	case <-probe.clearStarted:
+		t.Fatal("candidato rejeitado executou porta de cleanup")
+	default:
+	}
+}
+
+func TestAppCommandLifecycleShutdownClosesMountAdmissionEvenWhenCold(t *testing.T) {
+	for _, mounted := range []bool{false, true} {
+		app := &App{}
+		if mounted {
+			if err := ConfigureCommandLifecycle(app, appLifecycleConfig(&appLifecyclePort{})); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := app.shutdownCommandLifecycleIfConfigured(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if err := ConfigureCommandLifecycle(app, appLifecycleConfig(&appLifecyclePort{})); !errors.Is(err, commandruntime.ErrStopped) {
+			t.Fatalf("montagem após shutdown=%v", err)
+		}
+		if app.commandLifecycle.Load() != nil {
+			t.Fatal("worker criado após shutdown")
+		}
+	}
+}
+
+func TestAppCommandLifecycleConcurrentMountAndShutdownLeavesNoWorker(t *testing.T) {
+	for range 20 {
+		app := &App{}
+		start := make(chan struct{})
+		result := make(chan error, 1)
+		go func() { <-start; result <- ConfigureCommandLifecycle(app, appLifecycleConfig(&appLifecyclePort{})) }()
+		close(start)
+		if err := app.shutdownCommandLifecycleIfConfigured(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-result; err != nil && !errors.Is(err, commandruntime.ErrStopped) {
+			t.Fatal(err)
+		}
+		if app.commandLifecycle.Load() != nil {
+			t.Fatal("shutdown deixou montagem concorrente viva")
+		}
 	}
 }
 

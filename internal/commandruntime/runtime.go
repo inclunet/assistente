@@ -189,11 +189,15 @@ type Controller struct {
 	cancel           context.CancelFunc
 	ops              chan operation
 	done             chan struct{}
+	stopRequested    chan struct{}
 	state            atomic.Pointer[status]
 	stopOnce         atomic.Bool
+	stopErr          atomic.Pointer[stopOutcome]
 	activeCancel     atomic.Value // context.CancelFunc
 	activeGeneration atomic.Value // Generation
 }
+
+type stopOutcome struct{ err error }
 
 func New(config Config) (*Controller, error) {
 	if err := config.validate(); err != nil {
@@ -201,11 +205,12 @@ func New(config Config) (*Controller, error) {
 	}
 	root, cancel := context.WithCancel(context.Background())
 	c := &Controller{
-		config:  config,
-		rootCtx: root,
-		cancel:  cancel,
-		ops:     make(chan operation),
-		done:    make(chan struct{}),
+		config:        config,
+		rootCtx:       root,
+		cancel:        cancel,
+		ops:           make(chan operation),
+		done:          make(chan struct{}),
+		stopRequested: make(chan struct{}),
 	}
 	c.state.Store(&status{Snapshot: Snapshot{State: StateCold}, change: make(chan struct{})})
 	c.activeCancel.Store(context.CancelFunc(func() {}))
@@ -216,7 +221,15 @@ func New(config Config) (*Controller, error) {
 
 func (c *Controller) loop() {
 	defer close(c.done)
-	for op := range c.ops {
+	for {
+		var op operation
+		select {
+		case op = <-c.ops:
+		case <-c.stopRequested:
+			err := c.stop(context.Background())
+			c.stopErr.Store(&stopOutcome{err: err})
+			return
+		}
 		var err error
 		switch op.kind {
 		case opBootstrap:
@@ -225,6 +238,7 @@ func (c *Controller) loop() {
 			err = c.reset(op.ctx, op.reason)
 		case opStop:
 			err = c.stop(op.ctx)
+			c.stopErr.Store(&stopOutcome{err: err})
 			op.resp <- err
 			return
 		default:
@@ -304,12 +318,25 @@ func (c *Controller) Stop(ctx context.Context) error {
 		return ErrInvalidConfiguration
 	}
 	if c.stopOnce.CompareAndSwap(false, true) {
-		// Cancela imediatamente a operação em andamento. O worker ainda
-		// executará a limpeza final sem depender do contexto já cancelado.
+		// Cancela imediatamente a operação em andamento e sinaliza o worker.
+		// O contexto do chamador só limita a espera abaixo; nunca é usado para
+		// enfileirar uma operação em canal unbuffered.
 		c.cancelActive()
 		c.cancel()
+		close(c.stopRequested)
 	}
-	return c.submit(ctx, opStop, "shutdown")
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case <-c.done:
+		if outcome := c.stopErr.Load(); outcome != nil {
+			return outcome.err
+		}
+		return ErrStopped
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // WaitStopped aguarda a confirmação observável de que o worker terminou.
@@ -425,12 +452,27 @@ func (c *Controller) bootstrap(ctx context.Context) error {
 	defer c.clearActiveCancel(cancel)
 	previous := c.state.Load().Generation
 	if err := c.setState(ctx, Snapshot{State: StateBootstrapping}); err != nil {
-		return c.fail(ctx, Generation{}, err)
+		return c.fail(ctx, previous, err)
 	}
 	if previous.valid() {
-		if err := c.config.Generations.Invalidate(ctx, previous, "transition"); err != nil {
-			return c.fail(ctx, previous, err)
+		// A geração anterior já pode estar publicada. Primeiro a retiramos
+		// do core e, ainda antes de Begin, desabilitamos a entrada e limpamos
+		// o adapter de publicação; falhar sem essa ordem deixaria a projeção
+		// antiga visível enquanto a nova era preparada.
+		cleanup, cancelCleanup := c.cleanupContext()
+		if err := c.config.Generations.Invalidate(cleanup, previous, "transition"); err != nil {
+			cancelCleanup()
+			return c.fail(cleanup, previous, err)
 		}
+		if err := c.config.Inputs.SetEnabled(cleanup, previous, false); err != nil {
+			cancelCleanup()
+			return c.fail(cleanup, previous, err)
+		}
+		if err := c.config.Publisher.Clear(cleanup, previous); err != nil {
+			cancelCleanup()
+			return c.fail(cleanup, previous, err)
+		}
+		cancelCleanup()
 	}
 	generation, err := c.config.Generations.Begin(ctx)
 	if err != nil || !generation.valid() {
