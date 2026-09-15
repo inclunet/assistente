@@ -63,6 +63,21 @@ archival é determinístico, indisponível para execução e existe apenas para
 preservar identidade histórica quando a entrada original não pode ser
 resolvida.
 
+A resolução `nome -> tool_catalog_id` roda a CADA invocação (chat e jobs) e,
+sob carga de jobs, o `SELECT` correspondente vira o maior ofensor de contenção
+do writer SQLite (observado até ~80s e `context deadline exceeded`). O
+`toolinvocations.DBRepository` mantém um cache em memória desse mapeamento,
+alinhado à invariante 8 (escopo por usuário):
+
+- chave composta `(user_id, nome)` — nenhuma entrada de um usuário é servida a
+  outro;
+- só entradas **positivas e não-archival** são cacheadas — o mapeamento é
+  estável (upsert reusa o mesmo ID; detach preserva a linha), enquanto archival
+  é placeholder que a ordenação suplanta quando a tool real aparece;
+- "não encontrado" nunca é cacheado (tool nova resolve na próxima chamada);
+- TTL curto (60s) limita a janela de staleness em eventos raros de
+  exclusão+recriação de linha do catálogo.
+
 ### D2 — Projeção leve
 
 Janela e `turnPatch` retornam `ToolInvocationSummary` em
