@@ -643,6 +643,69 @@ func TestAppCommandLifecycleRestoresPersistentClaimsIntoActiveLayers(t *testing.
 	}
 }
 
+func TestAppCommandLifecycleRestartDoesNotInferLedgerRecoveryWithoutDrainProof(t *testing.T) {
+	ctx := context.Background()
+	app, _ := appLifecycleProductMountFixture(t)
+	if err := ensureCommandLifecycleMountedForCurrentUserForTest(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.commandHost.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+	principal, err := app.currentCommandPrincipal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := database.DB().Create(&commandconfig.Generation{ID: uuid.Must(uuid.NewV7()).String(), UserID: principal.UserID, Generation: 1, UpdatedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := commandledger.New(database.DB(), func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := commandledger.LocalReadRequest{
+		InvocationID:              uuid.Must(uuid.NewV7()).String(),
+		Owner:                     commandledger.Owner{UserID: principal.UserID, AuthContextID: principal.SessionID},
+		AuthGeneration:            "auth-before-restart",
+		SecurityGeneration:        "security-before-restart",
+		RegistryVersion:           commandLifecycleRegistryVersion,
+		GlobalConfigGeneration:    "global-before-restart",
+		ActiveLayersGeneration:    "layers-before-restart",
+		CommandID:                 commandLifecycleSentinelID,
+		SourceType:                "palette",
+		ArgumentsFingerprint:      "args",
+		RequestFingerprintVersion: "v1",
+		RequestFingerprint:        "request-before-restart",
+		CorrelationID:             uuid.Must(uuid.NewV7()).String(),
+		ReceivedAt:                now,
+		ExpiresAt:                 now.Add(time.Hour),
+	}
+	if _, err := ledger.Reserve(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.rebuildCommandLifecyclePersistedConfiguration(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := BootstrapCommandLifecycle(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := CommandLifecycleSnapshot(app)
+	if err != nil || snapshot.State != commandruntime.StateReady || !snapshot.Published {
+		t.Fatalf("restart sem drain não publicou configuração válida: %+v err=%v", snapshot, err)
+	}
+	record, err := ledger.Get(ctx, request.Owner, request.InvocationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != commandledger.Evaluating {
+		t.Fatalf("restart sem prova drenada reconciliou ledger indevidamente: %s", record.Status)
+	}
+	if err := ShutdownCommandLifecycle(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAppCommandLifecycleActiveLayerDerivationRejectsUnsafeClaims(t *testing.T) {
 	now := time.Now().UTC()
 	userID := uuid.Must(uuid.NewV7()).String()

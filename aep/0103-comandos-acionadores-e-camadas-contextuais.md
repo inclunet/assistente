@@ -50,6 +50,13 @@ com regra ativa e camada de usuário habilitada. A lista derivada é publicada n
 `HostState` junto com a configuração; instalação nova sem geração base continua
 no sentinel sem alterar claims.
 
+Fechamento qualificado de I14.3: restart de processo agora foi coberto pelo
+contrato local do lifecycle. O App reabre carregando/projetando/publicando uma
+configuração válida quando sessão, cofre e SO estão prontos, mas não transforma
+invocações ou receipts pendentes em recuperados apenas por inferir que houve
+restart; reconciliação continua exigindo prova de drain ou manutenção posterior.
+Contagem atual: **50/84 critérios locais, 34 abertos; 3/15 pacotes completos**.
+
 ### Stream Deck real validado — 15/09/2026
 
 `internal/commanddeck` iniciou a base testável de I13.5/C41/C42: o renderer

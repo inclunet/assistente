@@ -3,6 +3,27 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Continuação — 15/09/2026, fechamento qualificado de restart em I14.3
+
+I14.3 foi encerrado localmente. O ciclo login/unlock/restart agora possui um
+contrato testado de montagem segura: autenticação monta as dependências reais,
+unlock relança o lifecycle após liberar a barreira do cofre, rebuild carrega a
+geração persistida quando existe, restaura claims persistentes, deriva camadas
+ativas revalidadas e publica no `HostState`; shutdown/drain reconcilia receipts
+e invocações somente quando há prova explícita de gerações drenadas. No caminho
+de restart de processo, o App volta a carregar/projetar/publicar configuração
+válida, mas não infere que invocações pendentes antigas foram drenadas apenas
+porque o processo reiniciou. Pendências sem prova permanecem no ledger para
+recovery comprovado ou manutenção posterior.
+
+Teste novo cobre esse limite: uma invocação `evaluating` pré-restart não vira
+`outcome_unknown` sem prova de drain, enquanto o lifecycle ainda chega a
+`Ready` com configuração publicada.
+
+**Contagem: 50/84 critérios encerrados; 34 abertos; 3/15 pacotes completos.**
+I14.4–I14.6 seguem abertos para concorrência/publicação antiga, shutdown
+integrado completo e matriz ampla de falhas/retomadas.
+
 ## Continuação — 15/09/2026, restore de claims persistentes em I14.3
 
 Avanço em **I14.3**, ainda sem fechar o subitem. O rebuild produtivo agora só
@@ -936,11 +957,11 @@ Estado: **Parcial — hooks e fábricas sem bootstrap de produto**. Esforço res
 Dependências: I01, I02, I03, I04, I05, I06, I07, I08, I09, I10, I11, I12, I13.
 Referências: D2.1, D8, D11, D13.
 
-Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invalida/cancela antes do reset e confirma readiness via core compartilhado; exige todas as portas e recusa projeção vazia. `MountSpec` declara dependências obrigatórias de catálogo, defaults, políticas, stores, presenter, providers, dispatcher e adapters; `NewMounted` recusa manifesto incompleto, duplicado ou nil antes de criar controller. `App.commandLifecycle` é um ponteiro atômico privado, com montagem serializada, barreira terminal de shutdown e desmontagem por CAS, sem registry global. `ConfigureCommandLifecycleMountSpec` liga o manifesto ao App sem instalar runtime quando o contrato falha; `ConfigureCommandLifecycleForApp` preenche esse manifesto com `commandexecution.Config`, `HostState`, `commandbridge.Bridge`, `commandcontext.FactBus`, presenter real de decisão e adapter fornecido pelo host, instala o `HostState` e a bridge reais, e recusa storage sem versão, presenter ausente, adapter nil, bridge divergente e `HostState` de outro epoch. `ensureCommandLifecycleMountedForCurrentUser` cria a montagem produtiva mínima pós-auth com store ledger real, catálogo completo sentinel, providers reais e adapter interno fail-closed; `bootstrapCommandLifecycleAfterAuth` tenta montar quando necessário sem quebrar Login/RefreshAuth. O pós-auth já carrega `commandconfig.Store` quando há geração base, restaura claims persistentes com `commandactivation.RestorePersistent`, deriva `ActiveUserLayerIDs` de claims manuais/persistentes atuais e projeta `keyboard.local`/read/none com `ProjectLocalRead`; sem geração persistida, usa sentinel sem alterar claims. `SetupVault`/`UnlockVault` relançam bootstrap após liberar a barreira de auth, e `drainCommandExecutors` usa prova de `CloseAndDrain` para recuperar receipts e invocações pendentes de gerações drenadas antes de destruir dependências. Os testes cobrem falhas/cancelamento, configurações concorrentes, montagem incompleta, bootstrap pronto com portas reais, montagem pós-auth, rebuild sentinel/persistido, restore de claim persistente, filtros de ativação, bootstrap pós-unlock e recovery pós-drain. Ainda falta I14.3: prova/qualificação de restart de processo; I14.5 ainda precisa qualificação completa com bridge/adapters/manutenção.
+Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invalida/cancela antes do reset e confirma readiness via core compartilhado; exige todas as portas e recusa projeção vazia. `MountSpec` declara dependências obrigatórias de catálogo, defaults, políticas, stores, presenter, providers, dispatcher e adapters; `NewMounted` recusa manifesto incompleto, duplicado ou nil antes de criar controller. `App.commandLifecycle` é um ponteiro atômico privado, com montagem serializada, barreira terminal de shutdown e desmontagem por CAS, sem registry global. `ConfigureCommandLifecycleMountSpec` liga o manifesto ao App sem instalar runtime quando o contrato falha; `ConfigureCommandLifecycleForApp` preenche esse manifesto com `commandexecution.Config`, `HostState`, `commandbridge.Bridge`, `commandcontext.FactBus`, presenter real de decisão e adapter fornecido pelo host, instala o `HostState` e a bridge reais, e recusa storage sem versão, presenter ausente, adapter nil, bridge divergente e `HostState` de outro epoch. `ensureCommandLifecycleMountedForCurrentUser` cria a montagem produtiva mínima pós-auth com store ledger real, catálogo completo sentinel, providers reais e adapter interno fail-closed; `bootstrapCommandLifecycleAfterAuth` tenta montar quando necessário sem quebrar Login/RefreshAuth. O pós-auth já carrega `commandconfig.Store` quando há geração base, restaura claims persistentes com `commandactivation.RestorePersistent`, deriva `ActiveUserLayerIDs` de claims manuais/persistentes atuais e projeta `keyboard.local`/read/none com `ProjectLocalRead`; sem geração persistida, usa sentinel sem alterar claims. `SetupVault`/`UnlockVault` relançam bootstrap após liberar a barreira de auth, e `drainCommandExecutors` usa prova de `CloseAndDrain` para recuperar receipts e invocações pendentes de gerações drenadas antes de destruir dependências. Restart de processo é qualificado explicitamente: reabre carregando/projetando/publicando configuração válida, mas não reconcilia invocações/receipts pendentes por inferência sem prova de drain. Os testes cobrem falhas/cancelamento, configurações concorrentes, montagem incompleta, bootstrap pronto com portas reais, montagem pós-auth, rebuild sentinel/persistido, restore de claim persistente, filtros de ativação, bootstrap pós-unlock, recovery pós-drain e restart sem falsa reconciliação. I14.5 ainda precisa qualificação completa com bridge/adapters/manutenção.
 
 - [x] I14.1 — Construir esqueleto de bootstrap serializado e readiness observável após I01, sem expor novas rotas nem cadastrar comandos de produto; este subitem pode começar cedo.
 - [x] I14.2 — Montar catálogo/defaults de contrato, políticas, stores, presenter, providers, dispatcher e adapters com dependências explícitas; sem fallback permissivo.
-- [ ] I14.3 — Orquestrar login/unlock/restart: autenticar → recuperar/reconciliar → carregar/projetar → publicar → habilitar entradas, revalidando cada transição.
+- [x] I14.3 — Orquestrar login/unlock/restart: autenticar → recuperar/reconciliar → carregar/projetar → publicar → habilitar entradas, revalidando cada transição.
 - [ ] I14.4 — Impedir retomadas concorrentes e publicação de geração antiga; logout/troca de usuário/falha de monitor cancela trabalho e apaga somente estado em memória.
 - [ ] I14.5 — Integrar shutdown, drenagem/cancelamento e manutenção sem goroutines órfãs, mutex durante UI/cofre ou cadências duplicadas.
 - [ ] I14.6 — Testar instalação nova, upgrade, restart com pendência, falhas em cada etapa e retomada após erro; nunca mascarar indisponibilidade como mapa vazio pronto.
