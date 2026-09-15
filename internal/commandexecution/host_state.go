@@ -250,6 +250,35 @@ func (s *HostState) UserConfiguration(ctx context.Context, userID string) (*comm
 	return user.configuration, cloneStrings(user.activeLayers), nil
 }
 
+// SuspendUserConfiguration invalida a projeção volátil de um usuário sem
+// adquirir o DispatchGate. É uma porta interna para callbacks que já estão
+// dentro do gate exclusivo (por exemplo, BeforeCommit de uma mutação SQL).
+// Não habilita nada, não consulta fontes externas e não tenta reentrar no
+// EpochService; a reconstrução autenticada precisa publicar um novo snapshot
+// depois que a operação terminar.
+func (s *HostState) SuspendUserConfiguration(ctx context.Context, userID string) error {
+	if s == nil || ctx == nil {
+		return ErrInvalidHostState
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !validHostID(userID) {
+		return ErrInvalidHostUser
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.disabled {
+		return ErrHostStateDisabled
+	}
+	if _, ok := s.users[userID]; !ok {
+		return ErrHostUserNotPublished
+	}
+	delete(s.users, userID)
+	return ctx.Err()
+}
+
 // SetVaultUnlocked atualiza somente a observação do cofre sob a invalidação
 // global de segurança. O host não abre, fecha ou consulta o cofre.
 func (s *HostState) SetVaultUnlocked(ctx context.Context, unlocked bool) error {
