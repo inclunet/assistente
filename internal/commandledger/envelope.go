@@ -11,6 +11,7 @@ import (
 	"assistente/internal/commandcontract"
 	"assistente/internal/commanddecision"
 	"assistente/internal/commandjson"
+	"assistente/internal/database"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -170,7 +171,33 @@ func (s *Store) ReserveEnvelope(ctx context.Context, req EnvelopeRequest) (Envel
 	}
 
 	var result EnvelopeReservation
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.envelopeTransactionWithRetry(ctx, "command.reserve_envelope", func(tx *gorm.DB) error {
+		result = EnvelopeReservation{}
+		now = s.now().UTC()
+		if now.IsZero() {
+			return ErrInvalidRequest
+		}
+		if err := validateEnvelopeRequest(req, now); err != nil {
+			return err
+		}
+		// Não renovar ReceivedAt, UUID nem deadlines durante o backoff.
+		status = Evaluating
+		if req.RejectedStale || (replayEvent && envelope.SourceReplayDeadline != nil && !envelope.SourceReplayDeadline.After(now)) {
+			status = RejectedStale
+		} else if req.Mode == ModeSuppress {
+			status = Suppressed
+		} else if req.Mode == ModeDenied {
+			status = Denied
+		}
+		row.Status = status
+		row.ResultSummary, row.ResultRef = nil, nil
+		if envelopeTerminal(status) {
+			summary, _, ref, err := terminalResult(status, EnvelopeResult{})
+			if err != nil {
+				return err
+			}
+			row.ResultSummary, row.ResultRef = envelopeStringPtr(summary), ref
+		}
 		created := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
 		if created.Error != nil {
 			return created.Error
@@ -294,7 +321,14 @@ func (s *Store) CompareAndSwapEnvelope(ctx context.Context, owner FullOwnership,
 	}
 	now = now.UTC()
 	changed := false
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.envelopeTransactionWithRetry(ctx, "command.cas_envelope", func(tx *gorm.DB) error {
+		changed = false
+		now = s.now().UTC()
+		if now.IsZero() {
+			return ErrInvalidRequest
+		}
+		// Conclusões terminais continuam permitidas após a retenção vencer:
+		// registrar resultado de efeito iniciado não é admitir nova execução.
 		var err error
 		changed, err = s.compareAndSwapEnvelopeTx(tx, owner, id, from, to, supplied, now, summary, code, ref, "")
 		return err
@@ -303,6 +337,26 @@ func (s *Store) CompareAndSwapEnvelope(ctx context.Context, owner FullOwnership,
 		return false, sanitizeEnvelopeError(err)
 	}
 	return changed, nil
+}
+
+// O retry pertence à transação raiz inteira, nunca ao handler ou a um savepoint
+// dentro de uma transação que este Store não controla. O UUID da reserva é
+// criado antes deste helper. Erros de lock são redigidos antes do logging comum.
+func (s *Store) envelopeTransactionWithRetry(ctx context.Context, operation string, action func(*gorm.DB) error) error {
+	if isTransactionalDB(s.db) {
+		return s.db.WithContext(ctx).Transaction(action)
+	}
+	return database.WithSQLiteBusyRetry(ctx, operation, func() error {
+		err := s.db.WithContext(ctx).Transaction(action)
+		// Cancelamento posterior não desfaz um commit já confirmado.
+		if err != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if database.IsSQLiteBusyError(err) {
+			return errors.New("SQLITE_BUSY")
+		}
+		return err
+	})
 }
 
 // CompareAndSwapEnvelopeWithDecision consome um receipt local e faz a
