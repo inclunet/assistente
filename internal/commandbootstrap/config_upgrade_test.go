@@ -77,7 +77,7 @@ func TestKnownV21ConfigUpgradePreservesRowsAndAcceptsRealWorkspace(t *testing.T)
 // Fixtures v20/v21 não podem conter tabelas introduzidas só na v23.
 func preActivationObject(o schemaObject) bool {
 	switch o.TblName {
-	case "command_layer_activation_rules", "command_layer_activation_state", "command_activation_idempotency_keys", "command_layer_activation_generations", "command_layer_automation_grants", "command_job_activation_outbox", "command_event_replay_policy_epochs":
+	case "command_layer_activation_rules", "command_layer_activation_state", "command_activation_idempotency_keys", "command_layer_activation_generations", "command_layer_automation_grants", "command_job_activation_outbox", "command_event_replay_policy_epochs", "command_job_activation_leases", "command_closed_generations":
 		return false
 	}
 	return true

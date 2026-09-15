@@ -21,6 +21,15 @@ func legacyConfigObject(obj schemaObject) schemaObject {
 	return obj
 }
 
+// v22–v25 já tinham documentos v2, mas ainda não os verbos de regras.
+// A comparação continua integral; não se aceita um CHECK arbitrário.
+func legacyRulesObject(obj schemaObject) schemaObject {
+	if obj.Name == "command_config_mutations" {
+		obj.SQL = strings.Replace(obj.SQL, "'rule_create','rule_update','rule_delete','rule_enable','rule_disable','rule_restore',", "", 1)
+	}
+	return obj
+}
+
 // Reconstrói apenas tabelas cuja origem inteira já foi comparada com v20/v21.
 // Copia por nomes de coluna, mantém todas as linhas e refaz os índices depois.
 func upgradeConfigObjects(tx *gorm.DB, want map[string]schemaObject) error {
@@ -38,7 +47,7 @@ func upgradeConfigObjects(tx *gorm.DB, want map[string]schemaObject) error {
 		if normalizeDDL(current) == normalizeDDL(obj) {
 			continue
 		}
-		if normalizeDDL(legacyConfigObject(current)) != normalizeDDL(obj) {
+		if normalizeDDL(legacyConfigObject(current)) != normalizeDDL(obj) && normalizeDDL(legacyRulesObject(current)) != normalizeDDL(obj) {
 			return ErrStorage
 		}
 		var columns []struct{ Name string }

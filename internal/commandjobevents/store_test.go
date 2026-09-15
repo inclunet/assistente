@@ -58,7 +58,7 @@ func TestStoreEpochFingerprintAndIdempotency(t *testing.T) {
 	store := testStore(t)
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	if store.Ready(nil) {
+	if store.Ready(nil) { //nolint:staticcheck // Testa deliberadamente a recusa de contexto nil.
 		t.Fatal("nil context must not report readiness")
 	}
 	canceled, cancel := context.WithCancel(ctx)
@@ -218,6 +218,16 @@ func TestStoreClaimAckRetryDeadLetterAndExpiredLease(t *testing.T) {
 		t.Fatalf("claim lease row = %v, rows=%d", err, len(claimed))
 	}
 	clock = clock.Add(2 * time.Minute)
+	// Expiração por si só retira a autoridade, antes de qualquer varredura.
+	for name, transition := range map[string]func() error{
+		"ack":         func() error { return store.Ack(ctx, leaseFact.SourceEventID, "worker-c") },
+		"retry":       func() error { return store.Retry(ctx, leaseFact.SourceEventID, "worker-c", "temporary_failure") },
+		"dead_letter": func() error { return store.DeadLetter(ctx, leaseFact.SourceEventID, "worker-c", "permanent_failure") },
+	} {
+		if err := transition(); !errors.Is(err, ErrLeaseLost) {
+			t.Fatalf("%s com lease expirada antes da limpeza = %v", name, err)
+		}
+	}
 	requeued, err := store.RequeueExpiredLeases(ctx)
 	if err != nil || requeued != 1 {
 		t.Fatalf("requeue expired = %d, err=%v", requeued, err)

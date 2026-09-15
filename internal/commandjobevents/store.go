@@ -381,7 +381,7 @@ func (s *Store) updateLease(ctx context.Context, sourceEventID, owner string, va
 	if strings.TrimSpace(sourceEventID) == "" || strings.TrimSpace(owner) == "" {
 		return ErrInvalidFact
 	}
-	res := s.db.WithContext(ctx).Model(&ActivationOutbox{}).Where("source_event_id = ? AND delivery_state = ? AND lease_owner = ?", sourceEventID, DeliveryProcessing, owner).Updates(values)
+	res := s.db.WithContext(ctx).Model(&ActivationOutbox{}).Where("source_event_id = ? AND delivery_state = ? AND lease_owner = ? AND lease_expires_at > ?", sourceEventID, DeliveryProcessing, owner, s.now()).Updates(values)
 	if res.Error != nil {
 		return res.Error
 	}

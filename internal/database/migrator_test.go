@@ -472,12 +472,12 @@ func TestRealRegistry_FreshDBAppliesAllAndIsIdempotent(t *testing.T) {
 	}
 
 	got := schemaMigrationRows(t, db)
-	if len(got) != len(schemaMigrations)-4 {
-		t.Fatalf("esperava %d migrações registradas antes da composição de comandos, tenho %d (%v)", len(schemaMigrations)-4, len(got), got)
+	if len(got) != len(schemaMigrations)-5 {
+		t.Fatalf("esperava %d migrações registradas antes da composição de comandos, tenho %d (%v)", len(schemaMigrations)-5, len(got), got)
 	}
 	var expectedApplied []migration
 	for _, m := range schemaMigrations {
-		if m.Version < 20 || m.Version > 23 {
+		if (m.Version < 20 || m.Version > 23) && m.Version != 26 {
 			expectedApplied = append(expectedApplied, m)
 		}
 	}
@@ -535,6 +535,15 @@ func TestRealRegistry_FreshDBAppliesAllAndIsIdempotent(t *testing.T) {
 	}
 	if callbackCalls != 4 {
 		t.Fatalf("callbacks v20–v23 = %d", callbackCalls)
+	}
+	if uv := userVersion(t, db); uv != 25 {
+		t.Fatalf("v26 avançou implicitamente: %d", uv)
+	}
+	if err := ApplyCommandJobActivationMigration(db.Statement.Context, db, func(*gorm.DB) error { callbackCalls++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if callbackCalls != 5 {
+		t.Fatalf("callbacks de comandos = %d", callbackCalls)
 	}
 	got = schemaMigrationRows(t, db)
 	if len(got) != len(schemaMigrations) {

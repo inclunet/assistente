@@ -141,17 +141,6 @@ func runRoot(trigger *TriggerContext, runID string) (string, string) {
 	}
 }
 
-func cloneMap(input map[string]any) map[string]any {
-	if len(input) == 0 {
-		return nil
-	}
-	output := make(map[string]any, len(input))
-	for key, value := range input {
-		output[key] = value
-	}
-	return output
-}
-
 func newRunEvent(runID string, sequence int, eventType, message string, data map[string]any) RunEvent {
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -203,7 +192,12 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		QueuedAt:       time.Now(),
 		RootOriginType: rootType,
 		RootOriginID:   rootID,
-		Provenance:     cloneMap(trigCtx.Provenance),
+	}
+	rl.Provenance, err = e.commandRunProvenance(job, trigCtx, rl)
+	if err != nil {
+		rl.Status = RunStatusFailed
+		rl.Error = "invalid command provenance"
+		return rl
 	}
 
 	// A fila é persistida antes de qualquer callback/dispatch. O evento

@@ -97,7 +97,6 @@ func prepareKeys(ctx context.Context, db *gorm.DB, manager *credentials.Manager)
 			return "", keyError(ctx)
 		}
 		digest, err := keyDigest(value)
-		value = ""
 		if err != nil {
 			return "", ErrKeys
 		}
@@ -123,7 +122,6 @@ func prepareKeys(ctx context.Context, db *gorm.DB, manager *credentials.Manager)
 			return "", keyError(ctx)
 		}
 		digest, err := keyDigest(value)
-		value = ""
 		if err != nil || digest != version.Digest {
 			return "", ErrKeys
 		}
@@ -203,7 +201,6 @@ func RotateKeys(ctx context.Context, db *gorm.DB, manager *credentials.Manager, 
 		return "", keyError(ctx)
 	}
 	digest, err := keyDigest(value)
-	value = ""
 	if err != nil {
 		return "", ErrKeys
 	}

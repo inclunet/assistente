@@ -314,6 +314,12 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     migrateExternalIdentityMapping,
 	},
+	{
+		Version: 26,
+		Name:    "command_job_activation_consumer",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
