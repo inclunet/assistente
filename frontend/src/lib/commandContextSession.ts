@@ -29,6 +29,8 @@ export interface TrustedCommandContextSession {
   readSurfaceContextDetailed(surfaceID: string): SurfaceContextRead;
   readCommandContextFrame(surfaceID?: string): CommandContextFrame;
   readOwnedCommandContextFrame(surfaceID?: string): OwnedCommandContextFrame | undefined;
+  /** Encerra a sessão e remove todas as leases de surface que ela possui. */
+  dispose(): void;
 }
 
 export interface OwnedCommandContextFrame {
@@ -104,11 +106,13 @@ function missingSurface(): SurfaceContextRead {
  */
 export function createTrustedCommandContextSession(): TrustedCommandContextSession {
   const scopedSurfaces = new Map<string, ScopedSurfaceEntry>();
+  let disposed = false;
 
   function registerSurfaceContext(
     surfaceID: string,
     getter: SurfaceContextGetter,
   ): SurfaceContextCleanup {
+    if (disposed) return () => undefined;
     if (!isValidOwnerPart(surfaceID) || typeof getter !== 'function') {
       throw new TypeError('surface-context-registration-invalid');
     }
@@ -123,6 +127,7 @@ export function createTrustedCommandContextSession(): TrustedCommandContextSessi
   }
 
   function readSurfaceContextDetailed(surfaceID: string): SurfaceContextRead {
+    if (disposed) return missingSurface();
     if (!isValidOwnerPart(surfaceID)) return missingSurface();
     const entry = scopedSurfaces.get(surfaceID);
     const ownerBeforeGetter = readTrustedOwner();
@@ -157,6 +162,7 @@ export function createTrustedCommandContextSession(): TrustedCommandContextSessi
   function readOwnedCommandContextFrame(
     surfaceID?: string,
   ): OwnedCommandContextFrame | undefined {
+    if (disposed) return undefined;
     const ownerBeforeCapture = readTrustedOwner();
     if (!ownerBeforeCapture) return undefined;
 
@@ -177,12 +183,19 @@ export function createTrustedCommandContextSession(): TrustedCommandContextSessi
     });
   }
 
+  function dispose(): void {
+    if (disposed) return;
+    disposed = true;
+    scopedSurfaces.clear();
+  }
+
   return {
     registerSurfaceContext,
     readSurfaceContext,
     readSurfaceContextDetailed,
     readCommandContextFrame,
     readOwnedCommandContextFrame,
+    dispose,
   };
 }
 
