@@ -2508,9 +2508,32 @@ entre sessões e liberação idempotente das inscrições.
 
 Ainda falta registrar a invocação de write no ledger quando o comando de produto
 for registrado: nem histórico de receipt nem auditoria de configuração são
-substitutos da auditoria completa de execução. Permanecem pendentes bootstrap autenticado do
-presenter e reconciliação de
-pedidos pendentes após reinício. Não há entrypoint Wails/tool novo ou alteração
+substitutos da auditoria completa de execução.
+
+`commanddecision.ReconcileSession` agora recupera recibos `pending`/`accepted`
+da sessão autenticada: prazo vencido vira `expired`; gerações anteriores viram
+`cancelled`. Recibos atuais válidos, estados encerrados e outras sessões/contas
+permanecem intactos. Cada lote aceita até 128 linhas, em ordem de UUID, e devolve
+`More` quando o snapshot contém outros candidatos. Estado e evento são gravados
+na mesma transação; erro/cancelamento reverte o lote e não reporta progresso
+parcial. O índice por usuário/sessão/status/ID evita varredura entre contas;
+a migração recusa índice homônimo incompatível. Não há reapresentação, consumo,
+efeito, exclusão ou reativação automática. O horário da resposta anterior é
+preservado quando existente; o evento registra o instante do encerramento.
+
+`recoverCommandDecisionSession` compõe a operação com JWT, sessão atual do App,
+política, cofre e estado do SO revalidados sob o gate. Processa um lote por
+chamada e invalida o mapa antes da tentativa, sem loop prolongado sob a trava.
+O chamador deve terminar os lotes e reconstruir o mapa autenticadamente. Testes
+do App recuperam a confirmação obsoleta sem repetir binding/auditoria nem abrir
+diálogo, recusam token/política inválidos e comprovam idempotência. Testes de
+repository cobrem limites, isolamento, recuperação de Store recriado,
+concorrência e rollback por falha no evento.
+
+Permanecem pendentes bootstrap autenticado do presenter e chamada automática da
+recuperação antes de publicar o mapa. Esta recuperação é estritamente da sessão
+retomada: manutenção de recibos de outras sessões abandonadas, retenção e
+recuperação completa de invocações ainda não estão integradas. Não há entrypoint Wails/tool novo ou alteração
 de configuração acessível ao usuário por esse incremento.
 
 Pendente: ampliar o projetor para contratos de produto, integrar o ledger

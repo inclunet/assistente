@@ -50,7 +50,26 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 	if ctx == nil || db == nil {
 		return ErrInvalid
 	}
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { return tx.AutoMigrate(&receiptRow{}, &auditRow{}) })
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.AutoMigrate(&receiptRow{}, &auditRow{}); err != nil {
+			return err
+		}
+		const statement = "CREATE INDEX ix_command_decision_recovery_session ON command_decision_receipts (user_id, auth_context_id, status, decision_id)"
+		var existing struct {
+			Type string
+			SQL  string
+		}
+		if err := tx.Raw("SELECT type, sql FROM sqlite_master WHERE name = ?", "ix_command_decision_recovery_session").Scan(&existing).Error; err != nil {
+			return err
+		}
+		if existing.Type != "" {
+			if existing.Type != "index" || strings.Join(strings.Fields(strings.ToLower(existing.SQL)), " ") != strings.ToLower(statement) {
+				return ErrInvalid
+			}
+			return nil
+		}
+		return tx.Exec(statement).Error
+	})
 }
 
 func New(db *gorm.DB, presenter Presenter, now func() time.Time) (*Store, error) {

@@ -150,4 +150,5 @@ func exerciseCommandBindingDecisions(t *testing.T, app *App, db *gorm.DB, store 
 			t.Fatal(err)
 		}
 	}
+	exerciseCommandDecisionRecovery(t, app, db, store, state, token, userID, options)
 }
