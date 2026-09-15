@@ -40,7 +40,7 @@ func exerciseCommandBindingDecisions(t *testing.T, app *App, db *gorm.DB, store 
 		return false, 0
 	}
 	initial, generation := load()
-	for _, scenario := range []string{"denied", "policy_revoked", "locked", "success"} {
+	for _, scenario := range []string{"denied", "policy_revoked", "locked", "locked_wait", "success"} {
 		var manager *questionnaire.Manager
 		presented, revoked := false, false
 		manager = questionnaire.NewManager(func(event string, data any) {
@@ -55,11 +55,14 @@ func exerciseCommandBindingDecisions(t *testing.T, app *App, db *gorm.DB, store 
 			if scenario == "policy_revoked" {
 				revoked = true
 			}
-			if scenario == "locked" {
+			if scenario == "locked" || scenario == "locked_wait" {
 				// Deve ser possível adquirir gate enquanto a decisão está aberta.
 				if err := state.SetOSSessionState(ctx, true, true); err != nil {
 					t.Fatal(err)
 				}
+				if scenario == "locked_wait" {
+					return
+				} // Sem resposta da UI.
 			}
 			action := commanddecision.ApplyAction
 			if scenario == "denied" {
@@ -113,6 +116,9 @@ func exerciseCommandBindingDecisions(t *testing.T, app *App, db *gorm.DB, store 
 		if scenario == "policy_revoked" && !errors.Is(err, policyDenied) {
 			t.Fatal("política não revalidada", err)
 		}
+		if scenario == "locked_wait" && !errors.Is(err, context.Canceled) {
+			t.Fatal("decisão não cancelada pelo lock sem resposta da UI", err)
+		}
 		enabled, current := load()
 		var consumed int64
 		if err := db.Table("command_decision_receipts").Where("status = ?", commanddecision.Consumed).Count(&consumed).Error; err != nil {
@@ -125,10 +131,17 @@ func exerciseCommandBindingDecisions(t *testing.T, app *App, db *gorm.DB, store 
 			if _, _, err := state.UserConfiguration(ctx, userID); !errors.Is(err, commandexecution.ErrHostUserNotPublished) {
 				t.Fatal("mapa não invalidado", err)
 			}
+			var mutations []commandconfig.BindingMutation
+			if err := db.Where("user_id = ? AND binding_id = ?", userID, bindingID).Find(&mutations).Error; err != nil {
+				t.Fatal(err)
+			}
+			if len(mutations) != 1 || mutations[0].BeforeEnabled != initial || mutations[0].AfterEnabled == initial || mutations[0].BeforeGeneration != generation || mutations[0].AfterGeneration != generation+1 {
+				t.Fatal("auditoria de configuração divergente", mutations)
+			}
 		} else if enabled != initial || current != generation || consumed != 0 {
 			t.Fatal("falha alterou banco", scenario)
 		}
-		if scenario == "locked" {
+		if scenario == "locked" || scenario == "locked_wait" {
 			if err := state.SetOSSessionState(ctx, true, false); err != nil {
 				t.Fatal(err)
 			}

@@ -122,7 +122,7 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 				return err
 			}
 		}
-		return nil
+		return migrateMutationAudit(tx)
 	})
 }
 

@@ -11,6 +11,22 @@ type executionWatch struct {
 	cancel  context.CancelFunc
 }
 
+// WatchEpoch acompanha preparação/decisão fora do gate. Não admite execução
+// nem substitui autenticação: só entrega um contexto ligado ao epoch já
+// capturado pelo host. A inscrição revalida esse epoch sob gate para não perder
+// uma invalidação entre a captura e a espera. release é obrigatório/idempotente.
+func (s *EpochService) WatchEpoch(ctx context.Context, snapshot EpochSnapshot) (context.Context, func(), error) {
+	var watched context.Context
+	release, err := s.AdmitExecution(ctx, snapshot, func(context.Context) error { return nil }, func(runCtx context.Context) error {
+		watched = runCtx
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return watched, release, nil
+}
+
 // AdmitExecution faz a mesma revalidação de Admit e associa ao handoff um
 // contexto cancelado por invalidação do epoch. A inscrição ocorre sob o gate,
 // sem janela antes de Start. O chamador deve deferir release após o retorno;

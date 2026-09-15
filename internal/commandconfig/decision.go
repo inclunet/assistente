@@ -84,12 +84,18 @@ func (s *Store) ConfirmBindingEnabled(ctx context.Context, change *BindingEnable
 // da geração e altera enabled em UMA transação no mesmo banco. Falha em qualquer
 // etapa reverte tudo. Exige DispatchGate exclusivo, autenticação/política
 // revalidadas, epoch atual e mapa invalidado; não chama cofre, UI ou rede.
-// O histórico do receipt não substitui o futuro ledger de comandos write.
+// Também registra a mutação de configuração; não substitui o futuro ledger de
+// execução de comandos write.
 func (s *Store) CommitConfirmedBindingEnabled(ctx context.Context, confirmed *ConfirmedBindingEnabledChange, epoch commandsecurity.EpochSnapshot) error {
 	if s == nil || confirmed == nil || confirmed.store != s || confirmed.receipts == nil || epoch != confirmed.epoch {
 		return ErrInvalid
 	}
 	return s.commitBindingEnabled(ctx, confirmed.change, func(apply func(*gorm.DB) error) error {
-		return confirmed.receipts.ConsumeForDatabase(ctx, s.db, confirmed.request, apply)
+		return confirmed.receipts.ConsumeForDatabase(ctx, s.db, confirmed.request, func(tx *gorm.DB) error {
+			if err := apply(tx); err != nil {
+				return err
+			}
+			return recordBindingMutation(tx, confirmed)
+		})
 	})
 }

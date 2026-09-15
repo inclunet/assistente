@@ -1312,6 +1312,13 @@ command_bindings
 command_config_generations
   id, user_id, workspace_id nullable_for_global, generation, updated_at
 
+command_config_mutations
+  mutation_id PK UUIDv7, schema_version, user_id, session_id,
+  scope, operation, binding_id, decision_id UNIQUE, request_fingerprint,
+  auth_generation, security_generation, generation_id,
+  before_generation, after_generation, before_enabled, after_enabled,
+  occurred_at
+
 command_event_replay_policy_epochs
   id, producer_type, generation, effective_at, replay_horizon_seconds,
   created_at
@@ -1423,6 +1430,16 @@ colisão e não reaplica a mesma regra no mesmo escopo.
 Condições, argumentos, especificações e apresentação são documentos JSON
 versionados e validados. Alterações relevantes mantêm auditoria suficiente para
 desfazer.
+
+`command_config_mutations` registra mudanças confirmadas de configuração, não
+invocações de comandos. O subconjunto v1 é fechado em
+`scope=global`/`operation=binding_enabled`: IDs e gerações vinculam a receipt,
+os booleanos antes/depois preservam o efeito reversível, e o fingerprint
+versionado identifica a proposta sem persistir seu texto ou documentos. Registro,
+consumo da receipt e mudança de configuração pertencem à mesma transação.
+Uma operação revertida não deixa linha de sucesso. Consulta interna é escopada
+por usuário/sessão e UUID da mutação. Não há exclusão automática ou undo
+automático; política de retenção e restauração confirmada continuam pendentes.
 
 `command_bindings` usa a mesma referência polimórfica `builtin|user` do estado
 de ativação. Ref `user` precisa apontar para `command_layers` do mesmo
@@ -2471,9 +2488,28 @@ suíte geral verde: sua tentativa encontrou testes legados de `internal/config`
 tentando escrever a configuração real do usuário, recusados pelo sandbox.
 Os novos testes usam bancos temporários; não há habilitação no produto.
 
-Ainda falta registrar a invocação de write no ledger: o histórico de receipt
-não é substituto da auditoria completa de execução. Permanecem pendentes bootstrap autenticado do
-presenter, cancelamento imediato por eventos de segurança e reconciliação de
+O commit confirmado agora também grava `command_config_mutations`, com IDs,
+sessão, fingerprint, receipt e valores antes/depois, sem texto sensível. Falha
+nessa inserção reverte binding, geração, consumo e evento. A migração explícita
+valida o schema esperado; tabela/view incompatível aborta toda a migração, sem
+reescrever o objeto existente. Constraints recusam UUIDs inválidos, decisão
+duplicada, no-op e incremento de geração incorreto. Testes cobrem esses casos,
+consulta escopada, replay e rollback completo; o teste do App confirma a linha
+de auditoria correspondente à única alteração bem-sucedida.
+
+`EpochService.WatchEpoch` agora liga a preparação/decisão ao epoch capturado.
+A inscrição ocorre sob gate com revalidação, portanto invalidação entre captura
+e inscrição não é perdida. Lock/logout/invalidação cancela o contexto da espera,
+sem chamar UI sob o gate. `HostState` libera essa inscrição antes da própria
+publicação e mantém a revalidação atômica original para o commit. O teste do App
+bloqueia a sessão com o diálogo aberto, não envia resposta da UI e exige
+cancelamento, sem esperar o prazo do diálogo. Testes adicionais cobrem isolamento
+entre sessões e liberação idempotente das inscrições.
+
+Ainda falta registrar a invocação de write no ledger quando o comando de produto
+for registrado: nem histórico de receipt nem auditoria de configuração são
+substitutos da auditoria completa de execução. Permanecem pendentes bootstrap autenticado do
+presenter e reconciliação de
 pedidos pendentes após reinício. Não há entrypoint Wails/tool novo ou alteração
 de configuração acessível ao usuário por esse incremento.
 

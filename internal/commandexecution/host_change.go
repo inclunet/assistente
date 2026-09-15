@@ -61,10 +61,19 @@ func (s *HostState) ChangeUserConfigurationWithEpoch(ctx context.Context,
 		return err
 	}
 
-	commit, err := prepare(ctx, principal, epoch)
+	prepareCtx, release, err := s.epochs.WatchEpoch(ctx, epoch)
 	if err != nil {
 		return err
 	}
+	defer release()
+	commit, err := prepare(prepareCtx, principal, epoch)
+	if err != nil {
+		return err
+	}
+	// Não manter o watch da preparação durante a própria publicação, que
+	// cancela contextos antigos do usuário. O commit recebe o contexto original;
+	// sua autorização continua dependendo da revalidação atômica abaixo.
+	release()
 	if commit == nil {
 		return ErrInvalidHostState
 	}

@@ -78,6 +78,9 @@ func TestConfirmedBindingCompetingProposalsCommitOnce(t *testing.T) {
 	if count != 1 {
 		t.Fatal("consumos", count)
 	}
+	if countRows(t, f.db, "command_config_mutations") != 1 {
+		t.Fatal("auditoria duplicada ou ausente")
+	}
 }
 
 func TestConfirmedBindingExpiryAfterSQLWriteRollsBackEverything(t *testing.T) {
@@ -131,5 +134,8 @@ func TestConfirmedBindingExpiryAfterSQLWriteRollsBackEverything(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatal("consumo auditado apesar do rollback")
+	}
+	if countRows(t, f.db, "command_config_mutations") != 0 {
+		t.Fatal("auditoria de alteração sobreviveu ao rollback")
 	}
 }
