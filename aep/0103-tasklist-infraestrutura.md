@@ -3,6 +3,28 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Continuação — 15/09/2026, ciclo genérico de adapters físicos
+
+Avanço focado em **I13.4**, ainda sem registrar teclado global, HID ou comandos
+de produto. `internal/commandadapter` introduz um controller de ciclo de vida
+para listeners físicos futuros: callbacks recebem geração/session/owner vigentes,
+resolvem apenas uma invocação candidata e fazem handoff por `commandbridge.Input`.
+O controller nunca chama handler final, não conhece catálogo de produto e não
+executa comando. Lock/logout/shutdown suspendem novas entradas; nova geração
+reabre somente após `LifecycleGeneration` aceito pela ponte. Conclusões atrasadas
+de lifecycle não regredem a geração.
+
+**Contagem: 44/84 critérios encerrados; 40 abertos; 2/15 pacotes completos.**
+I13.4 encerrado como lifecycle genérico de adapter. Isso ainda não fecha I13.2
+porque ownership físico local/global e contrato de sequência do inventário não
+foram ligados a adapters reais; também não fecha I13.5/I13.6 porque não há
+biblioteca HID, gerenciamento de dispositivo ou validação física.
+
+Validação focada: `go test ./internal/commandadapter ./internal/commandinput
+./internal/commandbridge ./internal/app -run
+"TestController|TestPress|TestBridge|TestAppCommandBridge|TestAppCommandLifecycle"
+-count=1` passou.
+
 ## Continuação — 15/09/2026, ponte UI/backend autenticada
 
 Avanço focado em **I13.1**, sem migrar comandos de produto nem editar bindings
@@ -16,7 +38,7 @@ compatíveis com o TypeScript. O frontend ganhou um adapter `commandBridgeWails`
 que aguarda `window.go` e chama esses métodos sem depender de edição manual de
 `frontend/wailsjs`.
 
-**Contagem: 43/84 critérios encerrados; 41 abertos; 2/15 pacotes completos.**
+**Contagem histórica: 43/84 critérios encerrados; 41 abertos; 2/15 pacotes completos.**
 I13.1 encerrado como contrato de transporte UI/backend: ack, resultado,
 cancelamento, lifecycle, sessão, generation string e invocation_id atravessam o
 App por tipos compartilhados. Isso ainda não habilita listener de teclado,
@@ -229,7 +251,7 @@ foi priorizada em I15, sem remover testes nem alterar proteções da máquina.
 - **I09:** renovação de lease separa continuidade do runtime e admissibilidade de replay. Epoch, deadline, fingerprint, grant e geração continuam validados; o evento antigo continua recusado. Sem a outbox original, falha fechado. Worker, heartbeat real e política de preservação/reconstrução da fonte continuam pendentes.
 - **I11:** contêiner portátil explícito de personalizações builtin por escopo, sem camada artificial, claims ou grants. Planejamento e export interno avançaram; o writer confirmado no serviço comum e a ativação no fluxo público continuam pendentes. Não prometer backup funcional de comandos na UI.
 - **I12:** seis settings, defaults, persistência, UI/i18n e documentação de usuário entregues. O caminho opcional do Manager relê a política inteira a cada passagem; erros de leitura e overflow não viram limpeza com política substituta. Outbox pendente impede retenção/compactação. Ainda faltam prova de encerramento de geração, adapters reais e montagem de instância.
-- **I13:** shutdown idempotente nas pontes Go/TS, invalidação antes do cancelamento e liberação após os lotes admitidos; resultados tardios recusados e recursos em memória liberados. Taxonomia `streamdeck.key` alinhada. Não há montagem de Wails/SO/HID nem validação física; I13.4 permanece parcial.
+- **I13:** shutdown idempotente nas pontes Go/TS, invalidação antes do cancelamento e liberação após os lotes admitidos; resultados tardios recusados e recursos em memória liberados. Taxonomia `streamdeck.key` alinhada. Não há montagem de Wails/SO/HID nem validação física; lifecycle genérico de adapter ficou para rodada posterior e foi encerrado depois em I13.4.
 
 **Contagem mantida: 38/84 critérios encerrados, 46 abertos; 2/15 pacotes completos.**
 Esta rodada fecha lacunas internas de critérios compostos, não os seus requisitos
@@ -592,12 +614,12 @@ Estado: **Parcial — ponte UI/backend, máquina de pressão e observador de ses
 Dependências: I03, I04, I06, I07.
 Referências: D3, D7, D13, D14; AEP-0080, AEP-0091.
 
-Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` definem sessão, capabilities, ack/resultado/cancelamento, geração transportada como string e UUIDv7 de invocação/evento. `internal/app/app_command_bridge.go` monta a ponte no App e expõe invoke/input/result/cancel/lifecycle por métodos Wails, revalidando usuário/sessão autenticados antes do handoff. `frontend/src/lib/commandBridgeWails.ts` transporta o contrato sem editar bindings gerados. Shutdown idempotente invalida antes de cancelar, espera lotes admitidos e libera recursos; uma chamada concorrente Go pode cancelar sua espera. Testes cobrem isolamento, handoff curto, repetição, lock/logout e transporte App/Wails. `OccurrenceID` físico é opaco e ainda não representa ocorrência durável do core. O adapter de decisões usa a fila real de questionários com cancelamento por ID; o scope já acompanha o stack real de Modal, mas não há despacho das invariantes globais, ownership real local/global ou gerenciador HID montados. Portas devem cumprir o contrato de cancelamento; não há promessa de prazo de shutdown para porta defeituosa.
+Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` definem sessão, capabilities, ack/resultado/cancelamento, geração transportada como string e UUIDv7 de invocação/evento. `internal/app/app_command_bridge.go` monta a ponte no App e expõe invoke/input/result/cancel/lifecycle por métodos Wails, revalidando usuário/sessão autenticados antes do handoff. `frontend/src/lib/commandBridgeWails.ts` transporta o contrato sem editar bindings gerados. `internal/commandadapter` fornece lifecycle genérico para listeners físicos futuros: callbacks com geração, suspensão por lock/logout, shutdown terminal e handoff por `commandbridge.Input`, sem handler final. Shutdown idempotente invalida antes de cancelar, espera lotes admitidos e libera recursos; uma chamada concorrente Go pode cancelar sua espera. Testes cobrem isolamento, handoff curto, repetição, lock/logout, transporte App/Wails e lifecycle de adapter. `OccurrenceID` físico é opaco e ainda não representa ocorrência durável do core. O adapter de decisões usa a fila real de questionários com cancelamento por ID; o scope já acompanha o stack real de Modal, mas não há despacho das invariantes globais, ownership real local/global ou gerenciador HID montados. Portas devem cumprir o contrato de cancelamento; não há promessa de prazo de shutdown para porta defeituosa.
 
 - [x] I13.1 — Fechar ponte tipada de despacho UI com ack/resultado/cancelamento, sessão e invocation_id; registrar capabilities sem handlers reais migrados.
 - [ ] I13.2 — Implementar ownership local/global por geração, ocorrências UUIDv7, repeat/release/blur/reconexão e contrato de sequências Ctrl+N do inventário.
 - [ ] I13.3 — Integrar DialogCommandScope ao stack real e reservar invariantes de decisão antes de bindings/ownership, respeitando input/IME e registro global temporário.
-- [ ] I13.4 — Implementar ciclo de vida genérico de adapter, callbacks com geração, suspensão por lock/logout e shutdown; nenhum listener chama handler final.
+- [x] I13.4 — Implementar ciclo de vida genérico de adapter, callbacks com geração, suspensão por lock/logout e shutdown; nenhum listener chama handler final.
 - [ ] I13.5 — Validar biblioteca/licença/build/modelos HID e implementar gerência de dispositivos com exclusividade, reconexão/backoff e estado seguro; renderer com cache/diff e frame completo após reabrir.
 - [ ] I13.6 — Validar teclado/foco/janela e ao menos um Stream Deck real; falha de hardware não derruba App. Registrar explicitamente dependência de dispositivo e ambiente.
 

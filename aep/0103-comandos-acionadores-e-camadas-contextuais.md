@@ -2,15 +2,26 @@
 
 **Status:** In Progress
 
+### Lifecycle de adapters físicos — 15/09/2026
+
+I13.4 foi encerrado localmente com `internal/commandadapter`: listeners físicos
+futuros entregam callbacks a um controller que anexa sessão/owner/geração e faz
+handoff por `commandbridge.Input`, sem chamar handler final nem conhecer catálogo
+de produto. Lock/logout/shutdown suspendem entradas e conclusões atrasadas de
+lifecycle não regredem geração. **44/84 critérios locais, 40 abertos; 2/15
+pacotes completos**. Teclado global real, HID/Stream Deck e comandos de produto
+continuam fora desta etapa.
+
 ### Ponte UI/backend — 15/09/2026
 
 I13.1 foi encerrado localmente: o App monta uma `commandbridge.Bridge` privada,
 expõe métodos Wails para invoke/input/result/cancel/lifecycle e revalida
 usuário/sessão autenticados antes de aceitar payload da UI. O frontend ganhou
 adapter tipado sobre `window.go.app.App`, sem edição manual de bindings gerados.
-**43/84 critérios locais, 41 abertos; 2/15 pacotes completos**. Isso ainda não
-habilita listeners físicos, ownership local/global real, Stream Deck/HID,
-providers autoritativos de contexto ou comandos de produto.
+**Contagem histórica: 43/84 critérios locais, 41 abertos; 2/15 pacotes
+completos**. Isso ainda não habilitava listeners físicos, ownership local/global
+real, Stream Deck/HID, providers autoritativos de contexto ou comandos de
+produto.
 
 ### Quinze pacotes existentes — 15/09/2026
 
