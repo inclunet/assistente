@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandbindings"
 	"assistente/internal/commandbridge"
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandcontext"
@@ -233,6 +234,14 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 	if err != nil {
 		t.Fatal(err)
 	}
+	user := database.User{Username: "lifecycle-mount", PasswordHash: "unused", IsActive: true, Role: database.UserRoleUser}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.IssueSession(ctx, &user, "lifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
 	app := &App{
 		ctx:                   ctx,
 		sessionSvc:            sessions,
@@ -241,12 +250,31 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 		commandStorageVersion: "v1",
 		authKeyringDelete:     func() error { return nil },
 	}
+	app.setCurrentUserID(user.ID)
+	app.setCurrentAuthUser(&AuthUser{UserID: user.ID, SessionID: session.SessionID, Role: user.Role})
 	epochs, err := app.commandSecurityService()
 	if err != nil {
 		t.Fatal(err)
 	}
 	state, err := commandexecution.NewHostState(epochs, "registry-v1")
 	if err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := commandbindings.NewConfiguration(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetVaultUnlocked(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.RebuildUserConfiguration(ctx, func(context.Context) (auth.LocalSessionPrincipal, error) {
+		return auth.LocalSessionPrincipal{UserID: user.ID, SessionID: session.SessionID}, nil
+	}, func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
+		return bindings, nil, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	locales := map[string]commandcatalog.LocalizedMetadata{}
@@ -321,6 +349,27 @@ func TestAppCommandLifecycleProductMountSpecUsesRealAppDependencies(t *testing.T
 	snapshot, err := CommandLifecycleSnapshot(app)
 	if err != nil || snapshot.State != commandruntime.StateCold {
 		t.Fatalf("montagem instalou runtime em estado inesperado: %+v err=%v", snapshot, err)
+	}
+	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAppCommandLifecycleForAppBuildsDefaultRuntimeAndBootstraps(t *testing.T) {
+	app, inputs := appLifecycleProductMountFixture(t)
+	inputs.Runtime = commandruntime.Config{}
+	if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
+		t.Fatalf("montagem com runtime padrão recusada: %v", err)
+	}
+	if snapshot, err := CommandLifecycleSnapshot(app); err != nil || snapshot.State != commandruntime.StateCold {
+		t.Fatalf("runtime padrão não iniciou frio: %+v err=%v", snapshot, err)
+	}
+	if err := BootstrapCommandLifecycle(context.Background(), app); err != nil {
+		t.Fatalf("bootstrap com portas reais falhou: %v", err)
+	}
+	snapshot, err := CommandLifecycleSnapshot(app)
+	if err != nil || snapshot.State != commandruntime.StateReady || !snapshot.Published || snapshot.PublishedEntries != 1 {
+		t.Fatalf("bootstrap não publicou readiness real: %+v err=%v", snapshot, err)
 	}
 	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {
 		t.Fatal(err)

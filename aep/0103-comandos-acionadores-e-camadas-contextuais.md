@@ -15,10 +15,14 @@ quando alguma dependência está ausente, duplicada ou nil. Em complemento,
 dependências reais preparadas pelo bootstrap confiável: registry/handlers/store,
 política/envelope, `HostState`, `commandbridge.Bridge`,
 `commandcontext.FactBus`, presenter de decisão e adapter físico/entrada. Isso
-ainda não fecha I14.2, porque falta ligar essa rota no bootstrap produtivo e
-publicar a primeira projeção real, mas impede que mocks ou fallback permissivo
-publiquem readiness. Contagem atual: **48/84 critérios locais, 36 abertos; 3/15
-pacotes completos**.
+ainda não fecha I14.2, porque falta ligar essa rota no bootstrap produtivo, mas
+o App já tem portas padrão reais para o `commandruntime.Config`: autenticação na
+sessão local atual, geração privada vinculada ao `EpochService`, commit pelo
+gate de segurança, projeção a partir de `HostState.Snapshot`, enable/readiness
+em memória e falha fechada quando host/config/camadas/unlock não estão prontos.
+O teste cobre `BootstrapCommandLifecycle` chegando a `Ready` com HostState
+reconstruído e unlocked. Contagem atual: **48/84 critérios locais, 36 abertos;
+3/15 pacotes completos**.
 
 ### Stream Deck real validado — 15/09/2026
 

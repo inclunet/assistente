@@ -38,6 +38,23 @@ Validação adicional: `go test ./internal/commandruntime ./internal/app -run
 "TestAppCommandLifecycle" -count=1`, `go vet ./internal/commandruntime
 ./internal/app` e `git diff --check` passaram.
 
+Complemento de portas reais: quando `CommandLifecycleMountInputs.Runtime` vem
+vazio, `ConfigureCommandLifecycleForApp` agora cria os adapters padrão do App
+para `commandruntime.Config`. A autenticação usa a sessão local atual; a geração
+é uma geração privada do lifecycle mapeada para um `EpochSnapshot` capturado no
+`EpochService`; validação/autorização/commit passam pelo mesmo gate de segurança
+e revalidam `HostState.Snapshot` da sessão; projeção só fica pronta com
+registry/config/camadas não vazios e estado unlocked; publicação, enable e
+readiness permanecem em memória e falham fechado sem projeção. Teste cobre a
+montagem com runtime vazio e `BootstrapCommandLifecycle` chegando a `Ready`
+somente depois de HostState reconstruído, cofre unlocked e sessão SO conhecida.
+Ainda falta acionar essa montagem no bootstrap produtivo e substituir o adapter
+de fixture pelo adapter real de entrada/comandos.
+
+Validação adicional: `go test ./internal/commandruntime ./internal/app -run
+"TestAppCommandLifecycle" -count=1`, `go vet ./internal/commandruntime
+./internal/app` e `git diff --check` passaram.
+
 ## Continuação — 15/09/2026, renderer preparatório de Stream Deck
 
 Avanço em **I13.5/C39/C40/C41/C42**, agora fechado após validação física.

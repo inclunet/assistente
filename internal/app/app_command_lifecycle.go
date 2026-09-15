@@ -52,11 +52,24 @@ type CommandLifecycleMountInputs struct {
 // dependências reais já preparadas pelo bootstrap confiável e só então instala
 // o controller. Ele não registra comandos de produto nem chama Bootstrap.
 func ConfigureCommandLifecycleForApp(a *App, inputs CommandLifecycleMountInputs) error {
+	if commandLifecycleRuntimeConfigEmpty(inputs.Runtime) {
+		runtimePorts, err := newAppCommandLifecycleRuntime(a, inputs)
+		if err != nil {
+			return err
+		}
+		inputs.Runtime = runtimePorts.config()
+	}
 	spec, err := a.commandLifecycleMountSpec(inputs)
 	if err != nil {
 		return err
 	}
 	return ConfigureCommandLifecycleMountSpec(a, spec)
+}
+
+func commandLifecycleRuntimeConfigEmpty(config commandruntime.Config) bool {
+	return config.Authenticator == nil && config.Recovery == nil && config.Projector == nil &&
+		config.Publisher == nil && config.Inputs == nil && config.Core == nil &&
+		config.Generations == nil && config.Readiness == nil && config.CleanupTimeout == 0
 }
 
 func (a *App) commandLifecycleMountSpec(inputs CommandLifecycleMountInputs) (commandruntime.MountSpec, error) {
