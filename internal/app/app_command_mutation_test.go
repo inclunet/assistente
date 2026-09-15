@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -130,6 +131,15 @@ func TestCommandMutationFactoryUsesRealDBAndPresenterAndRevalidatesSession(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	definition, _ := registry.Lookup("fixture.complete")
+	definition.AllowedSources = []commandcatalog.Source{commandcatalog.KeyboardLocal}
+	definition.Scopes = []commandcatalog.Scope{commandcatalog.ScopeGlobal}
+	registry, err = commandcatalog.NewComplete([]commandcatalog.Registration{{Definition: definition, Handler: commandcatalog.HandlerContract{
+		Effect: definition.Effect, Route: definition.HandlerRoute, Classification: definition.HandlerClassification,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	options := mutationProjectionOptions(registry)
 	var mutationHookErr error
 	factoryInputs := commandCompleteMutationInputs{
@@ -193,6 +203,7 @@ func TestCommandMutationFactoryUsesRealDBAndPresenterAndRevalidatesSession(t *te
 	}
 	app.commandHost = state
 
+	apply := service.Apply
 	applyDecision := func(token string, name string) (commandconfig.MutationDiff, error) {
 		t.Helper()
 		result := make(chan struct {
@@ -200,7 +211,7 @@ func TestCommandMutationFactoryUsesRealDBAndPresenterAndRevalidatesSession(t *te
 			err  error
 		}, 1)
 		go func() {
-			diff, applyErr := service.Apply(ctx, token, nil, commandconfig.MutationIntent{
+			diff, applyErr := apply(ctx, token, nil, commandconfig.MutationIntent{
 				Operation: commandconfig.LayerCreate,
 				Layer:     &commandconfig.Layer{Name: name, Description: "fixture", Enabled: true},
 			})
@@ -212,6 +223,8 @@ func TestCommandMutationFactoryUsesRealDBAndPresenterAndRevalidatesSession(t *te
 		var payload map[string]any
 		select {
 		case payload = <-events:
+		case early := <-result:
+			t.Fatalf("mutação terminou antes do presenter: %v", early.err)
 		case <-time.After(2 * time.Second):
 			t.Fatal("presenter real não publicou a decisão")
 		}
@@ -292,6 +305,127 @@ func TestCommandMutationFactoryUsesRealDBAndPresenterAndRevalidatesSession(t *te
 	}); err != nil {
 		t.Fatal(err)
 	}
+	applier, err := app.newCommandMutationApplier(factoryInputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rebuiltResult commandMutationResult
+	options.ActiveUserLayerIDs = []string{diff.AfterLayers[0].ID}
+	apply = func(ctx context.Context, token string, _ *string, _ commandconfig.MutationIntent) (commandconfig.MutationDiff, error) {
+		var applyErr error
+		commandID := "fixture.complete"
+		intent := commandconfig.MutationIntent{Operation: commandconfig.BindingCreate, Binding: &commandconfig.Binding{
+			LayerRefKind: "user", LayerRef: diff.AfterLayers[0].ID,
+			TriggerType: "keyboard.local", TriggerSpec: `{"version":1,"code":"KeyA","modifiers":[]}`,
+			CommandID: &commandID, Arguments: "{}", Condition: `{"version":1,"clauses":[]}`, Effect: "execute", Enabled: true,
+			ReviewStatus: "active", Presentation: `{"version":1,"title_key":"commands.fixture"}`,
+		}}
+		rebuiltResult, applyErr = applier.Apply(ctx, token, intent)
+		return rebuiltResult.Diff, applyErr
+	}
+	if _, err := applyDecision(first.AccessToken, "reconstruída"); err != nil {
+		t.Fatal(err)
+	}
+	if !rebuiltResult.Committed || !rebuiltResult.Rebuilt {
+		t.Fatalf("resultado: %+v", rebuiltResult)
+	}
+	if versions, err := state.Snapshot(ctx, auth.LocalSessionPrincipal{UserID: user.ID, SessionID: first.SessionID}); err != nil || !versions.Unlocked {
+		t.Fatalf("rebuild não publicou sessão pronta: %+v %v", versions, err)
+	}
+	rebuiltMap, _, err := state.UserConfiguration(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := rebuiltMap.Resolve("keyboard.local:KeyA", nil, nil)
+	if err != nil || resolved.CommandID != "fixture.complete" {
+		t.Fatalf("binding recém-persistido ausente: %+v %v", resolved, err)
+	}
+	options.ActiveUserLayerIDs = nil
+	for _, representation := range []string{"nil-vazio", "ordem"} {
+		setInputs := factoryInputs
+		projectionReads := 0
+		setInputs.Projection = func(ctx context.Context, scope commandconfig.Scope) (commandconfig.CompleteProjection, error) {
+			projected := options
+			if _, _, err := state.UserConfiguration(ctx, scope.UserID); errors.Is(err, commandexecution.ErrHostUserNotPublished) {
+				projectionReads++
+				if representation == "nil-vazio" {
+					if projectionReads > 1 {
+						projected.ActiveUserLayerIDs = []string{}
+					}
+				} else {
+					snapshot, err := store.Load(ctx, scope)
+					if err != nil {
+						return commandconfig.CompleteProjection{}, err
+					}
+					for _, layer := range snapshot.Layers {
+						projected.ActiveUserLayerIDs = append(projected.ActiveUserLayerIDs, layer.ID)
+					}
+					if len(projected.ActiveUserLayerIDs) < 2 {
+						return commandconfig.CompleteProjection{}, errors.New("fixture exige duas camadas")
+					}
+					if projectionReads > 1 {
+						slices.Reverse(projected.ActiveUserLayerIDs)
+					}
+				}
+			}
+			return projected, nil
+		}
+		setApplier, err := app.newCommandMutationApplier(setInputs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		apply = func(ctx context.Context, token string, _ *string, intent commandconfig.MutationIntent) (commandconfig.MutationDiff, error) {
+			var applyErr error
+			rebuiltResult, applyErr = setApplier.Apply(ctx, token, intent)
+			return rebuiltResult.Diff, applyErr
+		}
+		if _, err := applyDecision(first.AccessToken, "conjunto-"+representation); err != nil {
+			t.Fatalf("%s: %v", representation, err)
+		}
+		if !rebuiltResult.Committed || !rebuiltResult.Rebuilt || projectionReads != 2 {
+			t.Fatalf("%s: resultado=%+v leituras=%d", representation, rebuiltResult, projectionReads)
+		}
+	}
+	raceInputs := factoryInputs
+	injected := false
+	raceInputs.Version = func(ctx context.Context) (string, error) {
+		if _, _, err := state.UserConfiguration(ctx, user.ID); errors.Is(err, commandexecution.ErrHostUserNotPublished) && !injected {
+			// Injeção SQL controlada: representa uma geração concorrente antes
+			// da captura do rebuild, que portanto não cancela seu watch futuro.
+			injected = true
+			if err := db.WithContext(ctx).Model(&commandconfig.Generation{}).Where("user_id = ? AND workspace_id IS NULL", user.ID).UpdateColumn("generation", gorm.Expr("generation + 1")).Error; err != nil {
+				return "", err
+			}
+		}
+		return "catalog-v1", nil
+	}
+	raceApplier, err := app.newCommandMutationApplier(raceInputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	apply = func(ctx context.Context, token string, _ *string, intent commandconfig.MutationIntent) (commandconfig.MutationDiff, error) {
+		var applyErr error
+		rebuiltResult, applyErr = raceApplier.Apply(ctx, token, intent)
+		return rebuiltResult.Diff, applyErr
+	}
+	if _, err := applyDecision(first.AccessToken, "geração-concorrente"); !errors.Is(err, commandconfig.ErrStale) {
+		t.Fatalf("geração posterior ao commit: %v", err)
+	}
+	if !rebuiltResult.Committed || rebuiltResult.Rebuilt {
+		t.Fatalf("geração concorrente: %+v", rebuiltResult)
+	}
+	if _, _, err := state.UserConfiguration(ctx, user.ID); !errors.Is(err, commandexecution.ErrHostUserNotPublished) {
+		t.Fatalf("mapa após geração concorrente: %v", err)
+	}
+	if err := state.RebuildUserConfiguration(ctx, func(ctx context.Context) (auth.LocalSessionPrincipal, error) {
+		return sessions.AuthenticateLocalAccess(ctx, first.AccessToken)
+	},
+		func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
+			return empty, nil, nil
+		}); err != nil {
+		t.Fatal(err)
+	}
+	apply = service.Apply
 	mutationHookErr = errors.New("hook de ativação recusou")
 	if _, err := applyDecision(first.AccessToken, "hook-falhou"); err == nil {
 		t.Fatal("falha do hook não abortou o commit")
@@ -362,6 +496,49 @@ func TestCommandMutationFactoryUsesRealDBAndPresenterAndRevalidatesSession(t *te
 	}
 	if _, err := service.Apply(ctx, first.AccessToken, nil, commandconfig.MutationIntent{Operation: commandconfig.LayerCreate, Layer: &commandconfig.Layer{Name: "token-reutilizado", Description: "fixture", Enabled: true}}); err == nil {
 		t.Fatal("token revogado foi reutilizado")
+	}
+	second, err := sessions.IssueSession(ctx, &user, "rebuild-logout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.setCurrentUserID(user.ID)
+	app.setCurrentAuthUser(&AuthUser{UserID: user.ID, SessionID: second.SessionID, Role: user.Role})
+	if err := state.RebuildUserConfiguration(ctx, func(context.Context) (auth.LocalSessionPrincipal, error) {
+		return sessions.AuthenticateLocalAccess(ctx, second.AccessToken)
+	}, func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
+		return empty, nil, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	logoutInputs := factoryInputs
+	logoutInputs.Projection = func(ctx context.Context, scope commandconfig.Scope) (commandconfig.CompleteProjection, error) {
+		if _, _, err := state.UserConfiguration(ctx, scope.UserID); errors.Is(err, commandexecution.ErrHostUserNotPublished) {
+			if err := sessions.Logout(ctx, second.RefreshToken); err != nil {
+				return commandconfig.CompleteProjection{}, err
+			}
+		}
+		return options, nil
+	}
+	logoutApplier, err := app.newCommandMutationApplier(logoutInputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	apply = func(ctx context.Context, token string, _ *string, intent commandconfig.MutationIntent) (commandconfig.MutationDiff, error) {
+		var applyErr error
+		rebuiltResult, applyErr = logoutApplier.Apply(ctx, token, intent)
+		return rebuiltResult.Diff, applyErr
+	}
+	if _, err := applyDecision(second.AccessToken, "commit-antes-logout"); err == nil {
+		t.Fatal("logout durante rebuild permitiu publicação")
+	}
+	if !rebuiltResult.Committed || rebuiltResult.Rebuilt {
+		t.Fatalf("commit/rebuild: %+v", rebuiltResult)
+	}
+	if err := db.Table("command_layers").Where("name = ?", "commit-antes-logout").Count(&layers).Error; err != nil || layers != 1 {
+		t.Fatalf("commit deve permanecer: %d %v", layers, err)
+	}
+	if _, _, err := state.UserConfiguration(ctx, user.ID); !errors.Is(err, commandexecution.ErrHostUserNotPublished) {
+		t.Fatalf("mapa após logout: %v", err)
 	}
 }
 
