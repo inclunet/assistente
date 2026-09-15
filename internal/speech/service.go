@@ -279,9 +279,35 @@ func (s *Service) GenerateAndSaveMessageAudio(ctx context.Context, messageID str
 	return &AudioResult{Audio: result.AudioBase64, MimeType: mimeType, Cached: cached}, nil
 }
 
+// resolveProviderSentinel troca o sentinela "$default" pelo ID do provider
+// default resolvido do perfil (mesma resolução usada no chat/voz). IDs concretos
+// passam intactos. Retorna "" quando o sentinela não pode ser resolvido (sem
+// profileProvider ou sem default configurado), para o chamador degradar sem
+// tentar criar um client para o literal "$default".
+func (s *Service) resolveProviderSentinel(ctx context.Context, providerID string) string {
+	if providerID != profiles.DefaultProviderSentinel {
+		return providerID
+	}
+	if s.profileProvider == nil {
+		return ""
+	}
+	resolved := s.profileProvider.ResolveDefaults(ctx, &profiles.Profile{
+		Chat: profiles.ChatConfig{LLMProvider: profiles.DefaultProviderSentinel},
+	})
+	if resolved == nil || resolved.Chat.LLMProvider == profiles.DefaultProviderSentinel {
+		return ""
+	}
+	return resolved.Chat.LLMProvider
+}
+
 // GetTTSModels retorna modelos TTS disponíveis para um provedor.
 func (s *Service) GetTTSModels(ctx context.Context, providerID string) []TTSModelInfo {
 	if providerID == "" {
+		return []TTSModelInfo{}
+	}
+	providerID = s.resolveProviderSentinel(ctx, providerID)
+	if providerID == "" {
+		logging.Errorf(ctx, "speech.service", "[GetTTSModels] não foi possível resolver o provider default ($default)")
 		return []TTSModelInfo{}
 	}
 	if providerID == "webspeech" || providerID == "sapi5" {
@@ -303,6 +329,11 @@ func (s *Service) GetTTSModels(ctx context.Context, providerID string) []TTSMode
 // GetTTSVoices retorna vozes TTS disponíveis para um provedor e modelo.
 func (s *Service) GetTTSVoices(ctx context.Context, providerID, modelID string) []TTSVoiceInfo {
 	if providerID == "" {
+		return []TTSVoiceInfo{}
+	}
+	providerID = s.resolveProviderSentinel(ctx, providerID)
+	if providerID == "" {
+		logging.Errorf(ctx, "speech.service", "[GetTTSVoices] não foi possível resolver o provider default ($default)")
 		return []TTSVoiceInfo{}
 	}
 
