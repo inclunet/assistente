@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"assistente/internal/commandcatalog"
 	"assistente/internal/tools"
 )
 
@@ -18,6 +19,9 @@ const (
 	OriginChat        = "chat"
 	OriginJobRun      = "job_run"
 	OriginToolCatalog = "tool_catalog"
+	// OriginCommandInvocation mantém a correlação canônica entre a execução
+	// de um comando e a execução técnica da tool que ele delega.
+	OriginCommandInvocation = "command_invocation"
 
 	ToolOriginArchival = "archival"
 )
@@ -73,6 +77,10 @@ type ExecuteRequest struct {
 	// Chamadores que resolvem templates secretos devem fornecer a versão
 	// explicitamente redigida.
 	PersistedArguments *string
+	// SensitivePaths são JSON Pointers declarados pelo contrato do comando. A
+	// execução recebe Call sem alteração; input/output persistidos passam por
+	// essa política além da redação genérica do ledger.
+	SensitivePaths     commandcatalog.SensitivePaths
 	Origin             Origin
 	ParentInvocationID string
 	ToolCatalogID      string
@@ -90,6 +98,12 @@ type ExecuteRequest struct {
 	// RequireCompleteResult impede prévias retomáveis para consumidores
 	// machine-facing que processam Result.Content diretamente (ex.: jobs).
 	RequireCompleteResult bool
+
+	// RequireCanonicalToolCatalogID fecha a resolução para delegações de
+	// comandos: o ID informado deve existir, pertencer ao owner e corresponder
+	// exatamente ao nome da tool. Sem isso, o executor histórico pode resolver
+	// por nome ou criar uma entrada archival para chat/jobs.
+	RequireCanonicalToolCatalogID bool
 }
 
 type ExecuteResult struct {
@@ -108,18 +122,20 @@ type RecordRequest struct {
 	// PersistedArguments tem a mesma semântica de ExecuteRequest: substitui
 	// somente o snapshot persistido, nunca o payload já executado.
 	PersistedArguments *string
+	SensitivePaths     commandcatalog.SensitivePaths
 	Origin             Origin
 	ToolCatalogID      string
 	DryRun             bool
 	Iteration          int
 
-	Result            tools.ToolResult
-	ErrorKind         tools.ErrorKind
-	ErrorCode         string
-	ErrorMessage      string
-	Retryable         bool
-	RetryabilityKnown bool
-	DurationMs        int64
+	Result                        tools.ToolResult
+	ErrorKind                     tools.ErrorKind
+	ErrorCode                     string
+	ErrorMessage                  string
+	Retryable                     bool
+	RetryabilityKnown             bool
+	RequireCanonicalToolCatalogID bool
+	DurationMs                    int64
 }
 
 type Filter struct {

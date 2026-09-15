@@ -40,6 +40,12 @@ type ExecutorConfig struct {
 	// conseguem seguir read_tool_result. Acima do teto, qualquer saída falha.
 	RequireCompleteResult bool
 
+	// PersistedResultRedactor redige somente a cópia colocada no store de
+	// resultados grandes. O resultado retornado ao chamador continua íntegro em
+	// memória; isso permite que o chamador faça seu próprio adapter sem gravar
+	// segredos no armazenamento retomável.
+	PersistedResultRedactor func(ToolResult) ToolResult
+
 	// MaxIterations é o número máximo de iterações do agentic loop
 	MaxIterations int
 }
@@ -277,9 +283,9 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				var protected ToolResult
 				var stored bool
 				if mcpBridge {
-					protected, stored = ProtectExternalModelResult(execCtx, result, e.config.MaxResultSize)
+					protected, stored = ProtectExternalModelResultWithRedactor(execCtx, result, e.config.MaxResultSize, e.config.PersistedResultRedactor)
 				} else {
-					protected, stored = ProtectModelResult(execCtx, result, e.config.MaxResultSize)
+					protected, stored = ProtectModelResultWithRedactor(execCtx, result, e.config.MaxResultSize, e.config.PersistedResultRedactor)
 				}
 				if !stored {
 					message := fmt.Sprintf(

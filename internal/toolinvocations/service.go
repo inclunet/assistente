@@ -124,6 +124,9 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 			Persisted: false,
 		}
 	}
+	if req.RequireCanonicalToolCatalogID && strings.TrimSpace(req.ToolCatalogID) == "" {
+		return ExecuteResult{Execution: executionError(req.Call, ErrCanonicalToolCatalogIDRequired.Error()), Persisted: false}
+	}
 
 	// Persistência best-effort: deve funcionar mesmo se o ctx for cancelado.
 	persistCtx := s.persistCtx(ctx)
@@ -147,15 +150,21 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	}
 
 	queuedAt := s.now()
-	toolCatalogID := req.ToolCatalogID
+	toolCatalogID := strings.TrimSpace(req.ToolCatalogID)
 	if strings.TrimSpace(toolCatalogID) != "" {
 		opCtx, cancel := s.persistOpCtx(persistCtx)
 		visible, err := s.repo.IsToolCatalogIDVisible(opCtx, toolCatalogID)
 		cancel()
 		if err != nil {
+			if req.RequireCanonicalToolCatalogID {
+				return ExecuteResult{Execution: executionError(req.Call, "canonical tool catalog unavailable"), Persisted: false}
+			}
 			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to validate tool_catalog_id (best-effort): %v", err)
 			toolCatalogID = ""
 		} else if !visible {
+			if req.RequireCanonicalToolCatalogID {
+				return ExecuteResult{Execution: executionError(req.Call, "canonical tool catalog unavailable"), Persisted: false}
+			}
 			logging.Infof(ctx, "toolinvocations.service", "[toolinvocations] tool_catalog_id not visible to user; falling back to resolve by name (best-effort) id=%s", strings.TrimSpace(toolCatalogID))
 			toolCatalogID = ""
 		} else {
@@ -164,8 +173,13 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 			resolved, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
 			cancel()
 			if err != nil {
+				if req.RequireCanonicalToolCatalogID {
+					return ExecuteResult{Execution: executionError(req.Call, "canonical tool catalog unavailable"), Persisted: false}
+				}
 				logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to verify tool_catalog_id by name (best-effort): %v", err)
 				toolCatalogID = ""
+			} else if req.RequireCanonicalToolCatalogID && strings.TrimSpace(resolved) != toolCatalogID {
+				return ExecuteResult{Execution: executionError(req.Call, ErrCanonicalToolCatalogMismatch.Error()), Persisted: false}
 			} else if strings.TrimSpace(resolved) != "" && resolved != toolCatalogID {
 				logging.Infof(ctx, "toolinvocations.service", "[toolinvocations] tool_catalog_id mismatch for %q; using resolved id", req.Call.Function.Name)
 				toolCatalogID = resolved
@@ -173,6 +187,9 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		}
 	}
 	if toolCatalogID == "" {
+		if req.RequireCanonicalToolCatalogID {
+			return ExecuteResult{Execution: executionError(req.Call, ErrCanonicalToolCatalogIDRequired.Error()), Persisted: false}
+		}
 		opCtx, cancel := s.persistOpCtx(persistCtx)
 		id, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
 		cancel()
@@ -203,6 +220,9 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	persistenceCall := req.Call
 	if req.PersistedArguments != nil {
 		persistenceCall.Function.Arguments = *req.PersistedArguments
+	}
+	if len(req.SensitivePaths.Input) > 0 {
+		persistenceCall.Function.Arguments = redactArgumentsJSONWithPaths(persistenceCall.Function.Arguments, req.SensitivePaths.Input)
 	}
 	input := s.buildInvocationInput(persistenceCall)
 	// Encadeamento pai↔filho (AEP-0068): se o chamador não trouxe um
@@ -296,9 +316,15 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		}
 
 		status, errorMessage := statusForExecution(exec)
+		// Error()/error_message frequentemente incorpora argumentos, URLs ou
+		// detalhes devolvidos pela tool. Com paths tipados, não há como provar
+		// que essa superfície lateral esteja livre de segredo; omita-a.
+		if len(req.SensitivePaths.Input) > 0 || len(req.SensitivePaths.Output) > 0 {
+			errorMessage = ""
+		}
 		completedAt := s.now()
 		inv.Status = status
-		inv.Output = s.outputForPersistence(exec.Result)
+		inv.Output = s.outputForPersistence(exec.Result, req.SensitivePaths.Output)
 		populateOutputProjection(&inv)
 		inv.ErrorKind = string(exec.ErrorKind)
 		inv.ErrorCode = exec.ErrorCode
@@ -335,12 +361,18 @@ func (s *Service) executorForRequest(req ExecuteRequest) *tools.Executor {
 	if effectiveMax <= 0 {
 		effectiveMax = cfg.MaxResultSize
 	}
-	if effectiveMax == cfg.MaxResultSize && req.RequireCompleteResult == cfg.RequireCompleteResult {
+	if effectiveMax == cfg.MaxResultSize && req.RequireCompleteResult == cfg.RequireCompleteResult && len(req.SensitivePaths.Output) == 0 {
 		return s.executor
 	}
 	// Config por request: pode aumentar OU reduzir o budget.
 	cfg.MaxResultSize = effectiveMax
 	cfg.RequireCompleteResult = req.RequireCompleteResult
+	if len(req.SensitivePaths.Output) > 0 {
+		paths := append([]string(nil), req.SensitivePaths.Output...)
+		cfg.PersistedResultRedactor = func(result tools.ToolResult) tools.ToolResult {
+			return redactToolResultForPersistence(result, paths)
+		}
+	}
 	return tools.NewExecutor(s.executor.Registry(), cfg)
 }
 
@@ -684,6 +716,9 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	if s == nil || s.repo == nil {
 		return Invocation{}, fmt.Errorf("tool invocation repository not configured")
 	}
+	if req.RequireCanonicalToolCatalogID && strings.TrimSpace(req.ToolCatalogID) == "" {
+		return Invocation{}, ErrCanonicalToolCatalogIDRequired
+	}
 
 	// Persistência de invocações externas também deve sobreviver a cancelamento.
 	persistCtx := s.persistCtx(ctx)
@@ -710,23 +745,37 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 		visible, err := s.repo.IsToolCatalogIDVisible(opCtx, toolCatalogID)
 		cancel()
 		if err != nil {
+			if req.RequireCanonicalToolCatalogID {
+				return Invocation{}, fmt.Errorf("canonical tool catalog unavailable: %w", err)
+			}
 			return Invocation{}, err
 		}
 		if !visible {
+			if req.RequireCanonicalToolCatalogID {
+				return Invocation{}, fmt.Errorf("canonical tool catalog unavailable")
+			}
 			toolCatalogID = ""
 		} else {
 			opCtx, cancel := s.persistOpCtx(persistCtx)
 			resolved, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
 			cancel()
 			if err != nil {
+				if req.RequireCanonicalToolCatalogID {
+					return Invocation{}, fmt.Errorf("canonical tool catalog unavailable: %w", err)
+				}
 				// Melhor não persistir sob um ID possivelmente incorreto.
 				toolCatalogID = ""
+			} else if req.RequireCanonicalToolCatalogID && strings.TrimSpace(resolved) != toolCatalogID {
+				return Invocation{}, ErrCanonicalToolCatalogMismatch
 			} else if strings.TrimSpace(resolved) != "" && resolved != toolCatalogID {
 				toolCatalogID = resolved
 			}
 		}
 	}
 	if toolCatalogID == "" {
+		if req.RequireCanonicalToolCatalogID {
+			return Invocation{}, ErrCanonicalToolCatalogIDRequired
+		}
 		opCtx, cancel := s.persistOpCtx(persistCtx)
 		id, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
 		cancel()
@@ -753,6 +802,9 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	persistenceCall := req.Call
 	if req.PersistedArguments != nil {
 		persistenceCall.Function.Arguments = *req.PersistedArguments
+	}
+	if len(req.SensitivePaths.Input) > 0 {
+		persistenceCall.Function.Arguments = redactArgumentsJSONWithPaths(persistenceCall.Function.Arguments, req.SensitivePaths.Input)
 	}
 	inv := Invocation{
 		ToolCatalogID:      toolCatalogID,
@@ -792,9 +844,12 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	}
 	cancel()
 	status, errorMessage := statusForRecord(req)
+	if len(req.SensitivePaths.Input) > 0 || len(req.SensitivePaths.Output) > 0 {
+		errorMessage = ""
+	}
 	completedAt := s.now()
 	inv.Status = status
-	inv.Output = s.outputForPersistence(req.Result)
+	inv.Output = s.outputForPersistence(req.Result, req.SensitivePaths.Output)
 	populateOutputProjection(&inv)
 	inv.ErrorKind = string(req.ErrorKind)
 	inv.ErrorCode = req.ErrorCode
@@ -1003,8 +1058,11 @@ func executionCancelled(call tools.ToolCall, message string) tools.ToolExecution
 	}
 }
 
-func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage {
+func (s *Service) outputForPersistence(result tools.ToolResult, sensitivePaths ...[]string) json.RawMessage {
 	max := s.persistMaxResultSize
+	if len(sensitivePaths) > 0 {
+		result = redactToolResultForPersistence(result, sensitivePaths[0])
+	}
 	trimmed := s.truncateForPersistence(result)
 	data := resultOutput(trimmed)
 	if max <= 0 || len(data) <= max {

@@ -119,13 +119,19 @@ func largeResultOwnerFromContext(ctx context.Context) (largeResultOwner, bool) {
 // O conteúdo completo fica em armazenamento limitado e pode ser retomado pela
 // tool read_tool_result.
 func ProtectModelResult(ctx context.Context, result ToolResult, maxBytes int) (ToolResult, bool) {
-	return protectModelResult(ctx, result, maxBytes, true)
+	return ProtectModelResultWithRedactor(ctx, result, maxBytes, nil)
+}
+
+// ProtectModelResultWithRedactor é equivalente a ProtectModelResult, mas
+// aplica redactor somente aos bytes colocados no store retomável.
+func ProtectModelResultWithRedactor(ctx context.Context, result ToolResult, maxBytes int, redactor func(ToolResult) ToolResult) (ToolResult, bool) {
+	return protectModelResult(ctx, result, maxBytes, true, redactor)
 }
 
 // ProtectToolResult aplica um limite próprio da tool ao corpo. O executor ainda
 // aplicará depois o limite global à mensagem completa, incluindo o envelope.
 func ProtectToolResult(ctx context.Context, result ToolResult, maxContentBytes int) (ToolResult, bool) {
-	return protectModelResult(ctx, result, maxContentBytes, false)
+	return protectModelResult(ctx, result, maxContentBytes, false, nil)
 }
 
 // ContentForModelWithinLimit recompõe um resultado para um budget de contexto
@@ -177,7 +183,7 @@ func ContentForModelWithinLimit(ctx context.Context, result ToolResult, maxBytes
 	return ""
 }
 
-func protectModelResult(ctx context.Context, result ToolResult, maxBytes int, includeEnvelope bool) (ToolResult, bool) {
+func protectModelResult(ctx context.Context, result ToolResult, maxBytes int, includeEnvelope bool, redactor func(ToolResult) ToolResult) (ToolResult, bool) {
 	if maxBytes <= 0 {
 		return ToolResult{}, false
 	}
@@ -208,9 +214,21 @@ func protectModelResult(ctx context.Context, result ToolResult, maxBytes int, in
 			return ToolResult{}, false
 		}
 	}
+	storedContent := original
+	storedAnnotations := result.Annotations
+	if redactor != nil {
+		redactorInput := result
+		redactorInput.Content = original
+		redacted := redactor(redactorInput)
+		storedContent = redacted.Content
+		storedAnnotations = redacted.Annotations
+		// Um ID pré-existente pode apontar para bytes gravados sem esta política.
+		// Nunca o reutilize quando a delegação exige redação.
+		id = ""
+	}
 	if id == "" {
 		var ok bool
-		id, ok = storeModelResult(ctx, original, result.Annotations)
+		id, ok = storeModelResult(ctx, storedContent, storedAnnotations)
 		if !ok {
 			return ToolResult{}, false
 		}
@@ -256,6 +274,12 @@ func protectModelResult(ctx context.Context, result ToolResult, maxBytes int, in
 // externo (MCP). O payload do servidor permanece intacto no store; nenhum campo
 // é injetado em JSON retornado pelo servidor.
 func ProtectExternalModelResult(ctx context.Context, result ToolResult, maxBytes int) (ToolResult, bool) {
+	return ProtectExternalModelResultWithRedactor(ctx, result, maxBytes, nil)
+}
+
+// ProtectExternalModelResultWithRedactor mantém a resposta externa intacta
+// para o chamador e redige apenas a cópia durável/retomável.
+func ProtectExternalModelResultWithRedactor(ctx context.Context, result ToolResult, maxBytes int, redactor func(ToolResult) ToolResult) (ToolResult, bool) {
 	if maxBytes <= 0 {
 		return ToolResult{}, false
 	}
@@ -278,9 +302,19 @@ func ProtectExternalModelResult(ctx context.Context, result ToolResult, maxBytes
 			return ToolResult{}, false
 		}
 	}
+	storedContent := original
+	storedAnnotations := result.Annotations
+	if redactor != nil {
+		redactorInput := result
+		redactorInput.Content = original
+		redacted := redactor(redactorInput)
+		storedContent = redacted.Content
+		storedAnnotations = redacted.Annotations
+		id = ""
+	}
 	if id == "" {
 		var ok bool
-		id, ok = storeModelResult(ctx, original, result.Annotations)
+		id, ok = storeModelResult(ctx, storedContent, storedAnnotations)
 		if !ok {
 			return ToolResult{}, false
 		}
