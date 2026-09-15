@@ -420,7 +420,18 @@ emitido é normalizado para versão 2 no parser, sem regenerar IDs; análise e
 importação real desse formato têm regressão. Versões futuras continuam
 recusadas. O adaptador do formato histórico publicado permanece preservado.
 
-Implementação parcial: faltam round-trip dos deltas sobre builtin, writer
+Fechamento adicional de gaps (15/09/2026): o formato interno representa
+personalizações sobre builtin em contêiner por escopo com `deltaOnly: true`,
+sem ID/nome de camada e com `builtinDeltas`/`builtinRuleDeltas`. O discriminador
+é explícito; não se cria camada persistente fictícia. Export completo inclui
+esses contêineres; seleção explícita de camadas user não agrega personalizações
+builtin não solicitadas. Referências de camada, default substituído e regra
+builtin usam consultas distintas. Mapeamento de workspaces revalida unicidade
+no destino; cópia não duplica silenciosamente a chave natural de regra builtin.
+Metadados de revisão permanecem portáveis e regras event-driven continuam sem
+grant e desabilitadas no plano. Nenhuma dessas operações puras autoriza commit.
+
+Implementação parcial: faltam writer
 transacional confirmado pelo serviço comum e ligação à UI. O import/export
 genérico recusa commandLayers enquanto essas portas não estiverem montadas;
 não retorna falso sucesso nem exporta subconjunto como backup completo. Plano

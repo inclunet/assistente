@@ -3,7 +3,56 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
-## Rodada atual — 15/09/2026, I11–I15 e pendências anteriores
+## Rodada atual — 15/09/2026, fechamento de gaps em cinco pacotes existentes
+
+Frentes: **I05, I09, I11, I12 e I13**, com seis agentes Luna e revisão central.
+Não foram inventados pacotes I16–I20. A investigação transversal de ACP/acpregistry
+foi priorizada em I15, sem remover testes nem alterar proteções da máquina.
+
+- **I05:** diagnóstico usa a ativação real e stamp privado; troca do conjunto invalida o diagnóstico, reordenação não. Preparação valida a prova contra o estado persistido antes de projetar o depois, permitindo disable/delete de camada ativa. Testes cobrem união contextual/manual e ausência de efeitos antes da decisão. Preview autoritativo completo de expiração/rebind/reconcile continua pendente; I05.5 não está encerrado.
+- **I09:** renovação de lease separa continuidade do runtime e admissibilidade de replay. Epoch, deadline, fingerprint, grant e geração continuam validados; o evento antigo continua recusado. Sem a outbox original, falha fechado. Worker, heartbeat real e política de preservação/reconstrução da fonte continuam pendentes.
+- **I11:** contêiner portátil explícito de personalizações builtin por escopo, sem camada artificial, claims ou grants. Planejamento e export interno avançaram; o writer confirmado no serviço comum e a ativação no fluxo público continuam pendentes. Não prometer backup funcional de comandos na UI.
+- **I12:** seis settings, defaults, persistência, UI/i18n e documentação de usuário entregues. O caminho opcional do Manager relê a política inteira a cada passagem; erros de leitura e overflow não viram limpeza com política substituta. Outbox pendente impede retenção/compactação. Ainda faltam prova de encerramento de geração, adapters reais e montagem de instância.
+- **I13:** shutdown idempotente nas pontes Go/TS, invalidação antes do cancelamento e liberação após os lotes admitidos; resultados tardios recusados e recursos em memória liberados. Taxonomia `streamdeck.key` alinhada. Não há montagem de Wails/SO/HID nem validação física; I13.4 permanece parcial.
+
+**Contagem mantida: 38/84 critérios encerrados, 46 abertos; 2/15 pacotes completos.**
+Esta rodada fecha lacunas internas de critérios compostos, não os seus requisitos
+de integração restantes. Não converter volume de código ou número de frentes em
+porcentagem do AEP.
+
+### Investigação ACP/acpregistry
+
+Comparação com `f36c25ddb739a519cb24c42cf385945b06ebe85f`, merge-base anterior aos
+commits desta implementação, em worktree detached e com o mesmo Go 1.26.2.
+Os dois pacotes também apresentaram `0xffffffff` nessa base; acpregistry passou
+em duas repetições do HEAD e voltou a falhar na suíte geral. Os arquivos desses
+pacotes e go.mod/go.sum não diferem da base. O executável ACP também encerra com
+`-test.list .`, sem saída de `GODEBUG=inittrace=1`. AppLocker registra execução
+permitida; logs recentes consultados não trouxeram causa do término.
+
+Isso demonstra reprodução na base **no ambiente atual**, não comprova o que
+ocorria no ambiente histórico do usuário. Causa raiz permanece indeterminada;
+não há correção de código justificada por essa evidência nem suíte global verde.
+Não foram criadas exclusões de segurança, skips ou fallbacks de testes.
+
+### Validação desta rodada de gaps
+
+- Suíte Go completa com home temporário, módulos readonly e `-p 2`: **108 pacotes passaram; ACP/acpregistry falharam por término de processo**. Log preservado na área de trabalho da tarefa. A paralelização menor não eliminou a falha.
+- Frontend: **309 arquivos / 2.886 testes passaram**; TypeScript passou com os bindings oficiais regenerados (seis campos, sem edição manual dos gerados).
+- Build e vet Go globais passaram. ESLint: zero erros e um warning existente; Stylelint: zero erros e 2.159 warnings existentes, sem CSS modificado.
+- Lint Go v2 passou com **zero apontamentos**, sem limitar achados. Após as correções finais, foram repetidas com sucesso todas as suítes command*, jobs, config, portability e database.
+- Testes de regressão adicionais verificam disable/delete de camada ativa com hook real, erro de leitura sem limpeza, política alterada entre passagens e shutdown com dois cancelamentos sucessivos.
+- Requeue de leases agora seleciona IDs em transação, com lote máximo 128 e indicação de continuação; leases vivas e linhas pending não são alteradas. Tanto requeue quanto drain pendentes impedem a retenção da passagem.
+- Race continua sem C/GCC; Bugbot, CI, NVDA e hardware não foram qualificados. Nenhum push/PR/merge; entradas de produto continuam desabilitadas.
+
+### Próxima fila, sem novos pacotes
+
+1. **I12.1/I12.2:** ligar a prova de encerramento/drenagem do core à recuperação de invocações, inclusive outros usuários/system.
+2. **I12.3/I12.4 e I09.5:** compor adapters reais, outbox/heartbeat e a cadência única; TTL salvo precisa chegar ao runtime. Definir preservação/reconstrução da fonte depois da purga, sem reabrir replay.
+3. **I05.5/I06.2/I08.2/I11.3:** simulação autoritativa do diff, regrant e writer de importação no mesmo fluxo de decisão/CAS; não criar escritor alternativo.
+4. **I03/I13/I14:** montar providers, presenter, transporte, diálogo e lifecycle no App antes de migrar comandos. Hardware/NVDA e qualificação I15 permanecem gates posteriores explícitos.
+
+## Rodada anterior — 15/09/2026, I11–I15 e pendências anteriores
 
 - Cinco pacotes novos trabalhados em seis frentes Luna; a sexta fechou pendências de configuração/regras. Revisão e integração central no mesmo worktree.
 - Encerrados localmente nesta rodada: I05.3, I08.3, I09.4, I14.1 e I15.1. Total: **38/84 itens**, 46 abertos. **2/15 pacotes inteiramente encerrados** continuam I01/I02; não equiparar avanço parcial a pacote completo.
@@ -285,7 +334,7 @@ Estado: **Parcial — DTO/plano seguro, sem writer confirmado**. Esforço restan
 Dependências: I02, I05, I06, I08.
 Referências: D10, D11; AEP-0047.
 
-Evidência/limite atual: `commandportability` e `portability` registram commandLayers e planejam manter/substituir/copiar, com autorização de workspace, catálogo completo e patterns exatos. Grants/claims/histórico não são portáveis. O import genérico recusa o recurso; ainda faltam writer/rollback confirmado, round-trip de deltas builtin e montagem na UI. DTO e plano puro não satisfazem os critérios transacionais abaixo.
+Evidência/limite atual: `commandportability` e `portability` registram commandLayers e planejam manter/substituir/copiar, com autorização de workspace, catálogo completo e patterns exatos. Contêineres `deltaOnly` preservam personalizações builtin sem camada artificial; camadas, defaults e regras usam portas distintas de referência. Grants/claims/histórico não são portáveis. O import/export genérico continua recusando o recurso; ainda faltam writer/rollback confirmado e montagem na UI. DTO, round-trip interno e plano puro não satisfazem os critérios transacionais abaixo.
 
 - [ ] I11.1 — Versionar resources.commandLayers no envelope da AEP-0047 e implementar round-trip de deltas/needs_review e escopo portátil.
 - [ ] I11.2 — Resolver UUIDs, refs builtin/user e mapa de workspaces no destino autenticado; conflito foreign_owner não revela conteúdo.
@@ -302,7 +351,7 @@ Estado: **Parcial**. Esforço restante: **G**.
 Dependências: I04, I07, I09, I10.
 Referências: D2.1, D8, D11; AEP-0074-B.
 
-Evidência/limite atual: `commandmaintenance.Coordinator` exige todas as portas e política completa; uma passagem ordena outbox, recuperação, jobs, tools, auditorias e compactação, sem novo loop. `commandledger.MaintenanceService` separa retenção all-users/system do Store comum, com lotes e proteção de deadlines. `commanddecision.ReconcileSessions` amplia recuperação. Falta prova real de geração encerrada/drenagem, adapters de domínio e montagem na cadência única; não considerar o marcador de banco prova de exclusão. Settings/UI continuam pendentes.
+Evidência/limite atual: `commandmaintenance.Coordinator` exige todas as portas e política completa; uma passagem ordena outbox, recuperação, jobs, tools, auditorias e compactação, sem novo loop. Requeue e drain recebem limite; trabalho restante bloqueia limpeza. As seis settings estão persistidas e expostas na UI/i18n; o caminho opcional do Manager relê config por passagem com proteção de overflow. `commandledger.MaintenanceService` separa retenção all-users/system do Store comum, com lotes e proteção de deadlines. `commanddecision.ReconcileSessions` amplia recuperação. Falta prova real de geração encerrada/drenagem, adapters de domínio e montagem na cadência única; não considerar o marcador de banco prova de exclusão. O TTL salvo ainda depende do wiring no heartbeat real.
 
 - [ ] I12.1 — Definir prova de encerramento de geração e exclusão de execuções antigas antes de recuperar pendências, incluindo reinício e outros usuários/sessões.
 - [ ] I12.2 — Reconciliar invocação+ledger atomicamente para outcome_unknown, incluindo system com capability interna; jamais reexecutar efeito.
@@ -319,7 +368,7 @@ Estado: **Parcial — máquina de pressão e observador de sessão**. Esforço r
 Dependências: I03, I04, I06, I07.
 Referências: D3, D7, D13, D14; AEP-0080, AEP-0091.
 
-Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` definem sessão, capabilities, ack/resultado/cancelamento, geração transportada como string e UUIDv7 de invocação/evento. Testes cobrem isolamento, handoff curto, repetição e lock/logout. `OccurrenceID` físico é opaco e ainda não representa ocorrência durável do core. Não há transporte Wails da ponte, stack de diálogos, ownership real local/global ou gerenciador HID montados.
+Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` definem sessão, capabilities, ack/resultado/cancelamento, geração transportada como string e UUIDv7 de invocação/evento. Shutdown idempotente invalida antes de cancelar, espera lotes admitidos e libera recursos; uma chamada concorrente Go pode cancelar sua espera. Testes cobrem isolamento, handoff curto, repetição e lock/logout. `OccurrenceID` físico é opaco e ainda não representa ocorrência durável do core. Não há transporte Wails da ponte, stack de diálogos, ownership real local/global ou gerenciador HID montados. Portas devem cumprir o contrato de cancelamento; não há promessa de prazo de shutdown para porta defeituosa.
 
 - [ ] I13.1 — Fechar ponte tipada de despacho UI com ack/resultado/cancelamento, sessão e invocation_id; registrar capabilities sem handlers reais migrados.
 - [ ] I13.2 — Implementar ownership local/global por geração, ocorrências UUIDv7, repeat/release/blur/reconexão e contrato de sequências Ctrl+N do inventário.

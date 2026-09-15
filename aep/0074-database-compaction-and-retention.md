@@ -54,10 +54,22 @@ O Manager só usa esse caminho quando montado pelo bootstrap; caso contrário
 preserva a cadência legada. Não há coordenador global produtivo ainda.
 
 Permanecem em I12/I14: prova de encerramento/drenagem das gerações antigas,
-adapters de manutenção para toda a instância, settings e UI dos seis campos,
+adapters de manutenção para toda a instância,
 política/retenção de `command_invocation` e montagem única no App. O status
 Done desta AEP descreve a retenção legada entregue, não encerra a extensão
 AEP-0103. Não foram migrados bancos pessoais para validar esta rodada.
+
+Adendo de fechamento de gaps (15/09/2026): os seis campos D11 da AEP-0103
+agora possuem defaults, persistência, UI nos três idiomas e documentação.
+O caminho opcional do Manager relê MaintenanceSettings a cada passagem e
+converte durações com verificação de overflow; não conserva uma política
+estática paralela no bootstrap. Arquivo ausente recebe defaults, mas erro de
+leitura/JSON impede a passagem desse coordenador. Lotes pendentes da outbox ou
+recuperação impedem retenção e compactação. Esses testes integram Manager e
+coordenador com portas controladas; a montagem produtiva all-users/system e
+o heartbeat consumidor do TTL ainda não foram habilitados. O requeue de leases
+também é limitado a 128 linhas por chamada, com seleção e atualização na mesma
+transação; requeue ou drain com continuação impedem a limpeza da passagem.
 
 | Mecanismo | Onde | Comportamento |
 |---|---|---|

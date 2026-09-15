@@ -54,6 +54,14 @@ Antes desta AEP, o sistema de jobs era 100% baseado em filesystem:
 
 ### Adendo AEP-0103 — timeline incremental (15/09/2026)
 
+Fechamento adicional de lease: `commandjobactivation.RenewRuntime` permite
+continuidade após o deadline original do evento somente com lease ainda viva,
+runtime/owner/grant atuais e integridade/epoch preservados. O caminho de consumo
+continua rejeitando replay fora do horizonte. Testes usam um epoch curto que
+vence naturalmente antes da lease, sem fabricar renovação. Remoção da outbox
+original impede renovação; preservar/reconstruir a prova autoritativa e montar
+heartbeat real permanecem requisitos da integração AEP-0103, ainda desabilitada.
+
 O executor passa a persistir criação `queued`, início real e agendamento de
 retry antes das respectivas fronteiras de despacho/efeito/espera. O término
 atualiza o mesmo run. `queued_at` é obrigatório; `started_at` pode ser NULL

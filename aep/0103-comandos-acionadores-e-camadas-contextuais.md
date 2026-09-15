@@ -1913,6 +1913,43 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 
 ## Fases
 
+### Fechamento adicional de gaps I05/I09/I11/I12/I13 — 15/09/2026
+
+O tasklist continua com 15 pacotes de infraestrutura e 38/84 critérios
+encerrados. Esta rodada amplia cinco pacotes existentes; não encerra os seus
+requisitos de montagem no App e não declara BASE-PRONTA.
+
+Diagnóstico passa a considerar o conjunto dinâmico confiável, com stamp privado
+e revalidação. O preview estrutural compara a prova ao estado persistido antes
+de projetar a mutação, sem impedir disable/delete da própria camada ativa.
+Não infere ativação contextual a partir de claims manuais expiradas nem antecipa
+efeitos do hook. Simulação autoritativa completa de expiração/rebind continua aberta.
+
+`VerifiedRuntimeFactTx` compartilha a validação de integridade/epoch com
+`VerifiedFactTx`, mas distingue renovação de uma lease ainda viva de replay.
+A ocorrência antiga continua recusada pelo ingresso. Fonte removida permanece
+indisponível; heartbeat e reconstrução/preservação da fonte no runtime real
+ainda precisam de montagem.
+
+As seis chaves D11 agora estão em MaintenanceSettings, config.json e na mesma
+tela de manutenção, com i18n e documentação. O caminho opcional do coordenador
+relê a política por passagem e rejeita overflow; leitura inválida não é tratada
+como arquivo ausente. Lotes pendentes impedem limpeza. Prova real de geração
+encerrada, adapters e coordenação produtiva continuam pendentes.
+
+As pontes Go/TS receberam shutdown idempotente, invalidação, drenagem dos
+cancelamentos admitidos e liberação de recursos; `streamdeck.key` segue D3.
+Isso não monta listener físico, transporte Wails ou handlers de produto.
+
+Portabilidade interna ganhou contêiner explícito de deltas builtin por escopo,
+com referências de layer/default/regra distintas e conflitos após remapeamento
+ao destino. O round-trip preserva revisão e não transporta autoridade. Writer
+confirmado e fluxo público continuam bloqueados; detalhes estão na AEP-0047.
+
+ACP/acpregistry foram comparados à base f36c25ddb com o mesmo ambiente atual e
+também encerraram com 0xffffffff nela, antes de testes. A causa raiz não foi
+determinada; não retirar testes nem declarar qualificação global verde.
+
 O [tasklist de infraestrutura e entrega](0103-tasklist-infraestrutura.md)
 consolida a baseline de acompanhamento: pacotes, dependências, critérios de
 saída e rastreabilidade dos critérios finais. Ele não altera os contratos desta
