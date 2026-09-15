@@ -71,6 +71,12 @@ type RecoveryPort interface {
 	Recover(context.Context, int) (BatchResult, error)
 }
 
+// HeartbeatPort compartilha o owner, a política e a cadência da manutenção.
+// Implementações executam uma fatia, sem timers ou releitura de settings.
+type HeartbeatPort interface {
+	Heartbeat(context.Context, Policy) (BatchResult, error)
+}
+
 // RetentionPort remove somente dados autorizados pela política do seu domínio.
 type RetentionPort interface {
 	Retain(context.Context, Policy) (int64, error)
@@ -115,6 +121,7 @@ type CompactionPort interface {
 }
 
 type Ports struct {
+	Heartbeat    HeartbeatPort // opcional para montagens sem claims de job
 	Outbox       OutboxPort
 	Decisions    RecoveryPort
 	Invocations  RecoveryPort
@@ -127,6 +134,8 @@ type Ports struct {
 }
 
 type Report struct {
+	HeartbeatProcessed int
+	MoreHeartbeat      bool
 	OutboxRequeued     int
 	OutboxDrained      bool
 	MoreOutbox         bool
@@ -186,6 +195,17 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	}()
 
 	var report Report
+	if c.ports.Heartbeat != nil {
+		result, err := c.ports.Heartbeat.Heartbeat(ctx, policy)
+		if validationErr := validateBatchResult(result, batch); validationErr != nil {
+			return report, validationErr
+		}
+		report.HeartbeatProcessed, report.MoreHeartbeat = result.Processed, result.More
+		if err != nil {
+			report.MoreHeartbeat = true
+			return report, err
+		}
+	}
 	// Essa ordem é deliberada: a retenção de jobs só ocorre depois que a
 	// barreira de replay foi reencaminhada e drenada.
 	if err := ctx.Err(); err != nil {
@@ -237,7 +257,7 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	}
 	// Nenhuma exclusão/compactação pode ocorrer enquanto um domínio ainda
 	// tiver lote pendente. A próxima passagem retoma pelo cursor próprio.
-	if report.MoreOutbox || report.MoreRecovery {
+	if report.MoreHeartbeat || report.MoreOutbox || report.MoreRecovery {
 		return report, nil
 	}
 

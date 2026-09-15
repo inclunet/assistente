@@ -14,6 +14,10 @@ var ErrDrainFailed = errors.New("executor falhou durante drenagem")
 // admissões e retorno das operações locais, incluindo sua finalização.
 type DrainedGenerations struct{ issued map[string]struct{} }
 
+// Valid distingue uma prova emitida pelo core de um valor zero. Não permite
+// construir, ampliar ou inferir gerações a partir de dados persistidos.
+func (p DrainedGenerations) Valid() bool { return len(p.issued) != 0 }
+
 func (p DrainedGenerations) Includes(generation string) bool {
 	_, ok := p.issued[generation]
 	return ok

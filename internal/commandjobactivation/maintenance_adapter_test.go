@@ -47,8 +47,13 @@ func TestMaintenanceAdaptersCoordinatorRealBlocksRetentionUntilOutboxDrained(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	heartbeat, err := NewMaintenanceHeartbeatAdapter(c)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var retentionCalls, toolCalls, compactionCalls int
 	coordinator, err := commandmaintenance.New(commandmaintenance.Ports{
+		Heartbeat:    heartbeat,
 		Outbox:       outbox,
 		Decisions:    maintenanceAdapterRecovery{},
 		Invocations:  maintenanceAdapterRecovery{},
@@ -76,7 +81,7 @@ func TestMaintenanceAdaptersCoordinatorRealBlocksRetentionUntilOutboxDrained(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.OutboxRequeued != 1 || first.OutboxDrained || !first.MoreOutbox || first.Recovered != 1 || retentionCalls != 0 || toolCalls != 0 || compactionCalls != 0 {
+	if first.HeartbeatProcessed != 0 || first.MoreHeartbeat || first.OutboxRequeued != 1 || first.OutboxDrained || !first.MoreOutbox || first.Recovered != 1 || retentionCalls != 0 || toolCalls != 0 || compactionCalls != 0 {
 		t.Fatalf("primeira passagem=%+v calls=(retention:%d tools:%d compact:%d), retenção deveria estar bloqueada", first, retentionCalls, toolCalls, compactionCalls)
 	}
 
@@ -84,7 +89,7 @@ func TestMaintenanceAdaptersCoordinatorRealBlocksRetentionUntilOutboxDrained(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.OutboxRequeued != 0 || !second.OutboxDrained || second.MoreOutbox || second.Recovered != 1 || second.MoreRecovery || !second.Compacted {
+	if second.HeartbeatProcessed != 1 || second.MoreHeartbeat || second.OutboxRequeued != 0 || !second.OutboxDrained || second.MoreOutbox || second.Recovered != 1 || second.MoreRecovery || !second.Compacted {
 		t.Fatalf("segunda passagem=%+v, esperado drain/recovery completos", second)
 	}
 	if retentionCalls != 3 || toolCalls != 3 || compactionCalls != 1 {
@@ -132,6 +137,135 @@ func TestMaintenanceAdaptersRejectCanceledAndInvalidCalls(t *testing.T) {
 	}
 	if _, err := recovery.Recover(canceled, 1); !errors.Is(err, context.Canceled) {
 		t.Fatalf("recovery cancelada=%v, esperado context.Canceled", err)
+	}
+}
+
+func TestMaintenanceHeartbeatAdapterUsesCoordinatorPolicyAcrossPages(t *testing.T) {
+	c, out, fact, _, now := fixture(t)
+	deliver(t, c, out, fact)
+	for i := 0; i < 100; i++ {
+		addHeartbeatLeaseOnly(t, c, fact.SourceEventID, *now)
+	}
+	pass, err := NewMaintenanceHeartbeatAdapter(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := commandmaintenance.Policy{
+		InvocationRetention:   time.Hour,
+		ActivationRetention:   time.Hour,
+		LeaseDuration:         45 * time.Second,
+		InvocationsPerUser:    1,
+		InvocationsSystemKeep: 1,
+		ActivationsPerUser:    1,
+		BatchSize:             commandmaintenance.DefaultBatchSize,
+	}
+	first, err := pass.Heartbeat(context.Background(), policy)
+	if err != nil || first.Processed != 100 || !first.More {
+		t.Fatalf("primeiro heartbeat=(%+v,%v), esperado 100 e More", first, err)
+	}
+	if c.lease != 3*time.Minute {
+		t.Fatalf("policy do host alterou Consumer.lease: %s", c.lease)
+	}
+	var leases []Lease
+	if err := c.db.Order("activation_id").Find(&leases).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(leases) != 101 {
+		t.Fatalf("leases=%d, want 101", len(leases))
+	}
+	var firstTTL, pendingTTL int
+	for _, lease := range leases {
+		switch {
+		case lease.ExpiresAt.Equal((*now).Add(45 * time.Second)):
+			firstTTL++
+		case lease.ExpiresAt.Equal((*now).Add(3 * time.Minute)):
+			pendingTTL++
+		}
+	}
+	if firstTTL != 100 || pendingTTL != 1 {
+		t.Fatalf("TTL após primeira página=(45s:%d,3m:%d), esperado (100,1)", firstTTL, pendingTTL)
+	}
+
+	policy.LeaseDuration = 90 * time.Second
+	second, err := pass.Heartbeat(context.Background(), policy)
+	if err != nil || second.Processed != 1 || second.More {
+		t.Fatalf("segundo heartbeat=(%+v,%v), esperado última lease", second, err)
+	}
+	if err := c.db.Order("activation_id").Find(&leases).Error; err != nil {
+		t.Fatal(err)
+	}
+	var secondTTL int
+	for _, lease := range leases {
+		if lease.ExpiresAt.Equal((*now).Add(90 * time.Second)) {
+			secondTTL++
+		}
+	}
+	if secondTTL != 1 {
+		t.Fatalf("TTL após segunda página=%d, esperado 1", secondTTL)
+	}
+}
+
+func TestMaintenanceHeartbeatMoreBlocksRetentionButNotCoordinatorProgress(t *testing.T) {
+	c, out, fact, _, now := fixture(t)
+	deliver(t, c, out, fact)
+	for i := 0; i < 100; i++ {
+		addHeartbeatLeaseOnly(t, c, fact.SourceEventID, *now)
+	}
+	heartbeat, err := NewMaintenanceHeartbeatAdapter(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outbox, err := NewMaintenanceOutboxAdapter(c, "host-delivery-capability")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery, err := NewMaintenanceRecoveryAdapter(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var retentionCalls, toolCalls, compactionCalls int
+	coordinator, err := commandmaintenance.New(commandmaintenance.Ports{
+		Heartbeat:    heartbeat,
+		Outbox:       outbox,
+		Decisions:    maintenanceAdapterRecovery{},
+		Invocations:  maintenanceAdapterRecovery{},
+		Claims:       recovery,
+		Jobs:         maintenanceAdapterRetention{calls: &retentionCalls},
+		Tools:        maintenanceAdapterTools{calls: &toolCalls},
+		InvocationDB: maintenanceAdapterRetention{calls: &retentionCalls},
+		Activations:  maintenanceAdapterRetention{calls: &retentionCalls},
+		Compaction:   maintenanceAdapterCompaction{calls: &compactionCalls},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := commandmaintenance.Policy{
+		InvocationRetention:   time.Hour,
+		ActivationRetention:   time.Hour,
+		LeaseDuration:         45 * time.Second,
+		InvocationsPerUser:    1,
+		InvocationsSystemKeep: 1,
+		ActivationsPerUser:    1,
+		BatchSize:             commandmaintenance.DefaultBatchSize,
+	}
+	first, err := coordinator.Run(context.Background(), policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.HeartbeatProcessed != 100 || !first.MoreHeartbeat || first.OutboxRequeued != 0 || !first.OutboxDrained || first.MoreOutbox || first.Recovered != 100 || !first.MoreRecovery || retentionCalls != 0 || toolCalls != 0 || compactionCalls != 0 {
+		t.Fatalf("primeira passagem=%+v calls=(retention:%d tools:%d compact:%d), heartbeat deveria bloquear só retenção", first, retentionCalls, toolCalls, compactionCalls)
+	}
+
+	policy.LeaseDuration = 90 * time.Second
+	second, err := coordinator.Run(context.Background(), policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.HeartbeatProcessed != 1 || second.MoreHeartbeat || second.OutboxRequeued != 0 || !second.OutboxDrained || second.MoreOutbox || second.Recovered != 1 || second.MoreRecovery || !second.Compacted {
+		t.Fatalf("segunda passagem=%+v, esperado progresso completo", second)
+	}
+	if retentionCalls != 3 || toolCalls != 3 || compactionCalls != 1 {
+		t.Fatalf("retenção após heartbeat=(%d,%d,%d), esperado (3,3,1)", retentionCalls, toolCalls, compactionCalls)
 	}
 }
 
@@ -232,4 +366,33 @@ type maintenanceAdapterCompaction struct{ calls *int }
 func (p maintenanceAdapterCompaction) Compact(context.Context, int64) error {
 	*p.calls++
 	return nil
+}
+
+func addHeartbeatLeaseOnly(t *testing.T, c *Consumer, sourceEventID string, now time.Time) string {
+	t.Helper()
+	var base commandactivation.Claim
+	if err := c.db.Where("source_event_id = ?", sourceEventID).Take(&base).Error; err != nil {
+		t.Fatal(err)
+	}
+	activationID, err := freshID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := base
+	claim.ActivationID = activationID
+	claim.ActivatedAt = now
+	claim.UpdatedAt = now
+	claim.ExpiresAt = timePtr(now.Add(30 * time.Minute))
+	claim.TerminalReason = nil
+	if err := c.db.Create(&claim).Error; err != nil {
+		t.Fatal(err)
+	}
+	leaseID, err := freshID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.db.Create(&Lease{ID: leaseID, ActivationID: activationID, UserID: claim.UserID, RunID: *claim.SourceCorrelationID, RuntimeGeneration: "runtime-1", ExpiresAt: now.Add(3 * time.Minute), UpdatedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	return activationID
 }

@@ -78,6 +78,67 @@ func NewMaintenanceRecoveryAdapter(consumer *Consumer) (*MaintenanceRecoveryAdap
 	return &MaintenanceRecoveryAdapter{consumer: consumer}, nil
 }
 
+// MaintenanceHeartbeatAdapter adapta o Consumer à porta opcional do
+// coordinator. Ele não conhece nem executa a ordem da manutenção: apenas
+// percorre uma página de leases e mantém a continuação do heartbeat.
+type MaintenanceHeartbeatAdapter struct {
+	consumer *Consumer
+	mu       sync.Mutex
+	cursor   string
+}
+
+var _ commandmaintenance.HeartbeatPort = (*MaintenanceHeartbeatAdapter)(nil)
+
+func NewMaintenanceHeartbeatAdapter(consumer *Consumer) (*MaintenanceHeartbeatAdapter, error) {
+	if consumer == nil || consumer.db == nil || consumer.gate == nil || consumer.outbox == nil {
+		return nil, ErrUnavailable
+	}
+	return &MaintenanceHeartbeatAdapter{consumer: consumer}, nil
+}
+
+// Heartbeat usa exatamente a policy recebida pelo coordinator. BatchSize 128
+// é limitado a 100, More sinaliza continuação sem impedir outbox/recovery, e
+// o cursor reseta ao concluir para revisitar leases no próximo ciclo.
+func (a *MaintenanceHeartbeatAdapter) Heartbeat(ctx context.Context, policy commandmaintenance.Policy) (commandmaintenance.BatchResult, error) {
+	if a == nil || a.consumer == nil || ctx == nil {
+		return commandmaintenance.BatchResult{}, ErrUnavailable
+	}
+	if err := policy.Validate(); err != nil {
+		return commandmaintenance.BatchResult{}, err
+	}
+	limit := policy.BatchSize
+	if limit == 0 {
+		limit = commandmaintenance.DefaultBatchSize
+	}
+	bounded, err := maintenanceAdapterLimit(limit)
+	if err != nil {
+		return commandmaintenance.BatchResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return commandmaintenance.BatchResult{}, err
+	}
+	if !a.mu.TryLock() {
+		return commandmaintenance.BatchResult{}, ErrUnavailable
+	}
+	defer a.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return commandmaintenance.BatchResult{}, err
+	}
+	cursor, heartbeat, err := a.consumer.HeartbeatPass(ctx, a.cursor, bounded, policy.LeaseDuration)
+	processed := heartbeat.Renewed + heartbeat.Rejected
+	if err != nil {
+		// O item que falhou não foi confirmado; o cursor permanece no prefixo
+		// anterior para que a próxima chamada possa revalidá-lo.
+		return commandmaintenance.BatchResult{Processed: processed, More: true}, err
+	}
+	if heartbeat.More {
+		a.cursor = cursor
+	} else {
+		a.cursor = ""
+	}
+	return commandmaintenance.BatchResult{Processed: processed, More: heartbeat.More}, nil
+}
+
 // Recover executa uma única fatia de ReconcileBatch. Uma falha de transação
 // não avança cursor nem inventa Processed; a próxima chamada repete a fatia.
 func (a *MaintenanceRecoveryAdapter) Recover(ctx context.Context, limit int) (commandmaintenance.BatchResult, error) {

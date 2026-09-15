@@ -57,21 +57,24 @@ type ManagerConfig struct {
 
 // Manager orquestra todos os componentes do sistema de jobs.
 type Manager struct {
-	cfg            ManagerConfig
-	registry       *Registry
-	eventBus       *EventBus
-	scheduler      *Scheduler
-	executor       *JobExecutor
-	circuitBreaker *CircuitBreaker
-	hotkeyIDs      map[string][]int // jobID -> hotkey IDs registrados
-	retentionStop  chan struct{}
-	mu             sync.Mutex
-	runtimeMu      sync.Mutex
-	triggerMu      sync.Mutex
-	started        bool
-	compactMu      sync.Mutex
-	lastCompaction time.Time
-	compacting     bool
+	cfg             ManagerConfig
+	registry        *Registry
+	eventBus        *EventBus
+	scheduler       *Scheduler
+	executor        *JobExecutor
+	circuitBreaker  *CircuitBreaker
+	hotkeyIDs       map[string][]int // jobID -> hotkey IDs registrados
+	retentionStop   chan struct{}
+	retentionCancel context.CancelFunc
+	retentionDone   chan struct{}
+	stopping        chan struct{}
+	mu              sync.Mutex
+	runtimeMu       sync.Mutex
+	triggerMu       sync.Mutex
+	started         bool
+	compactMu       sync.Mutex
+	lastCompaction  time.Time
+	compacting      bool
 }
 
 // NewManager cria um Manager com todas as dependencias.
@@ -117,6 +120,9 @@ func NewManager(cfg ManagerConfig) *Manager {
 func (m *Manager) Start() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.stopping != nil {
+		return ErrCommandMaintenanceBusy
+	}
 	m.runtimeMu.Lock()
 	defer m.runtimeMu.Unlock()
 
@@ -170,27 +176,42 @@ func (m *Manager) Start() error {
 // Stop para todos os componentes.
 func (m *Manager) Stop() {
 	m.mu.Lock()
+	if stopped := m.stopping; stopped != nil {
+		m.mu.Unlock()
+		<-stopped
+		return
+	}
+	stopped := make(chan struct{})
+	m.stopping = stopped
+	done := m.retentionDone
+	if m.retentionStop != nil {
+		if m.retentionCancel != nil {
+			m.retentionCancel()
+		}
+		close(m.retentionStop)
+	}
+	// A passagem pode precisar de locks do Manager para encerrar. Primeiro
+	// cancela e aguarda fora deles, mantendo Start/remontagem bloqueados.
+	m.mu.Unlock()
+	if done != nil {
+		<-done
+	}
+	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.runtimeMu.Lock()
 	defer m.runtimeMu.Unlock()
-
-	if !m.started {
-		m.registry.Clear()
-		m.circuitBreaker.Reset()
-		return
+	m.retentionStop, m.retentionCancel, m.retentionDone = nil, nil, nil
+	if m.started {
+		m.scheduler.Stop()
+		m.eventBus.Close()
+		m.unregisterAllHotkeys()
 	}
-
-	if m.retentionStop != nil {
-		close(m.retentionStop)
-		m.retentionStop = nil
-	}
-	m.scheduler.Stop()
-	m.eventBus.Close()
-	m.unregisterAllHotkeys()
 	m.registry.Clear()
 	m.circuitBreaker.Reset()
 
 	m.started = false
+	m.stopping = nil
+	close(stopped)
 	logging.Infof(context.Background(), "jobs.manager", "[Jobs] Manager stopped")
 }
 
@@ -1670,20 +1691,7 @@ func (m *Manager) runRetention(ctx context.Context) {
 		return
 	}
 	if m.cfg.MaintenanceCoordinator != nil {
-		settings, err := config.GetMaintenance()
-		if err != nil {
-			logging.Errorf(ctx, "jobs.manager", "instance maintenance skipped: settings unavailable: %v", err)
-			return
-		}
-		policy, err := commandMaintenancePolicy(settings)
-		if err != nil {
-			logging.Errorf(ctx, "jobs.manager", "instance maintenance skipped: invalid complete policy: %v", err)
-			return
-		}
-		_, err = m.cfg.MaintenanceCoordinator.Run(ctx, policy)
-		if err != nil {
-			logging.Errorf(ctx, "jobs.manager", "instance maintenance failed: %v", err)
-		}
+		m.runCommandMaintenance(ctx)
 		return
 	}
 	maint := maintenanceSettings()
@@ -1782,13 +1790,33 @@ func (m *Manager) startRetentionLoop(ctx context.Context) {
 	}
 	stop := make(chan struct{})
 	m.retentionStop = stop
+	done := make(chan struct{})
+	m.retentionDone = done
+	ctx, cancel := context.WithCancel(ctx)
+	m.retentionCancel = cancel
 	go func() {
-		ticker := time.NewTicker(jobRetentionInterval)
-		defer ticker.Stop()
+		defer close(done)
+		defer cancel()
+		delay := jobRetentionInterval
+		if m.cfg.MaintenanceCoordinator != nil {
+			delay = time.Second
+		}
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
 		for {
 			select {
-			case <-ticker.C:
-				m.runRetention(ctx)
+			case <-timer.C:
+				if ctx.Err() != nil {
+					return
+				}
+				if m.cfg.MaintenanceCoordinator != nil {
+					delay = m.runCommandMaintenance(ctx)
+				} else {
+					m.runRetention(ctx)
+				}
+				timer.Reset(delay)
+			case <-ctx.Done():
+				return
 			case <-stop:
 				return
 			}
