@@ -31,6 +31,7 @@ const (
 	DefaultLeaseDuration = 3 * time.Minute
 	DefaultMaxAttempts   = 8
 	maxRequeueBatch      = 128
+	maxPurgeBatch        = 128
 )
 
 // Store contém apenas operações de outbox e epochs. A decisão de habilitar o
@@ -432,5 +433,82 @@ func (s *Store) RequeueExpiredLeases(ctx context.Context, limit int) (processed 
 		processed = int(result.RowsAffected)
 		return result.Error
 	})
+	return processed, more, err
+}
+
+// PurgeExpired remove somente entregas terminais cujo horizonte de replay
+// venceu. A ocorrência continua sendo a fonte autoritativa de um runtime que
+// ainda possui claim ativa e lease viva; por isso essa relação é rechecada na
+// seleção e no DELETE, dentro da mesma transação. Sem as tabelas de claim e
+// lease, a operação falha fechado e não remove nada.
+func (s *Store) PurgeExpired(ctx context.Context, limit int) (processed int, more bool, err error) {
+	if ctx == nil || limit <= 0 || limit > maxPurgeBatch {
+		return 0, false, ErrInvalidFact
+	}
+	if s == nil || s.db == nil || !s.Available() {
+		return 0, false, ErrSchemaUnavailable
+	}
+	now := s.now().UTC()
+	return s.PurgeExpiredAt(ctx, now, limit)
+}
+
+// PurgeExpiredAt é a forma usada pelo coordenador quando ele já possui o
+// relógio da passagem. Mantém a decisão de retenção determinística e não
+// permite que o caller forneça a ocorrência ou altere sua deadline.
+func (s *Store) PurgeExpiredAt(ctx context.Context, now time.Time, limit int) (processed int, more bool, err error) {
+	if ctx == nil || limit <= 0 || limit > maxPurgeBatch || now.IsZero() {
+		return 0, false, ErrInvalidFact
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, false, err
+	}
+	if s == nil || s.db == nil || !s.Available() {
+		return 0, false, ErrSchemaUnavailable
+	}
+	const liveClaim = `EXISTS (
+		SELECT 1
+		FROM command_layer_activation_state claim
+		JOIN command_job_activation_leases lease
+		  ON lease.activation_id = claim.activation_id
+		 AND lease.user_id = claim.user_id
+		 AND lease.run_id = command_job_activation_outbox.run_id
+		WHERE claim.user_id = command_job_activation_outbox.user_id
+		  AND claim.source_type = 'job'
+		  AND claim.source_event_id = command_job_activation_outbox.source_event_id
+		  AND claim.source_correlation_id = command_job_activation_outbox.run_id
+		  AND claim.state = 'active'
+		  AND (claim.expires_at IS NULL OR claim.expires_at > ?)
+		  AND lease.expires_at > ?
+	)`
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if !tx.Migrator().HasTable("command_layer_activation_state") || !tx.Migrator().HasTable("command_job_activation_leases") {
+			return ErrSchemaUnavailable
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var ids []string
+		if err := tx.Model(&ActivationOutbox{}).
+			Where("delivery_state IN ? AND source_replay_deadline <= ? AND NOT "+liveClaim, []string{DeliveryDelivered, DeliveryDeadLetter}, now, now, now).
+			Order("source_event_id ASC").Limit(limit+1).Pluck("source_event_id", &ids).Error; err != nil {
+			return err
+		}
+		if len(ids) > limit {
+			more = true
+			ids = ids[:limit]
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		result := tx.Where("source_event_id IN ? AND delivery_state IN ? AND source_replay_deadline <= ? AND NOT "+liveClaim, ids, []string{DeliveryDelivered, DeliveryDeadLetter}, now, now, now).Delete(&ActivationOutbox{})
+		processed = int(result.RowsAffected)
+		return result.Error
+	})
+	if err != nil {
+		return 0, false, err
+	}
 	return processed, more, err
 }

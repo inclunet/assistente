@@ -167,6 +167,62 @@ func TestRenewRuntimeFailsClosedWhenOriginalOutboxWasPurged(t *testing.T) {
 	}
 }
 
+func TestPurgeExpiredPreservaFonteDaLeaseVivaEFechaCicloTerminal(t *testing.T) {
+	c, out, fact, _, now := fixture(t)
+	if _, err := out.EnsureReplayPolicyEpoch(context.Background(), commandjobevents.ProducerType, fact.OccurredAt, 30*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	deliver(t, c, out, fact)
+	var claim commandactivation.Claim
+	if err := c.db.Take(&claim).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// O prazo da fonte vence antes da lease. A purga deve conservar a linha
+	// porque RenewRuntime ainda depende dela para provar a continuidade atual.
+	*now = fact.OccurredAt.Add(31 * time.Second)
+	if processed, more, err := out.PurgeExpiredAt(context.Background(), *now, 10); err != nil || processed != 0 || more {
+		t.Fatalf("purga removeu fonte de lease viva: processed=%d more=%v err=%v", processed, more, err)
+	}
+	if _, err := out.Get(context.Background(), fact.SourceEventID); err != nil {
+		t.Fatalf("fonte protegida não sobreviveu à purga: %v", err)
+	}
+	if err := c.RenewRuntime(context.Background(), claim.ActivationID); err != nil {
+		t.Fatalf("renew após deadline da fonte: %v", err)
+	}
+
+	// Uma ocorrência terminal encerra o ciclo e remove a lease própria. Sua
+	// fonte pode então ser purgada após o seu deadline, sem reabrir o ciclo.
+	terminal := fact
+	terminal.SourceEventID, _ = freshID()
+	terminal.RunEventID = terminal.SourceEventID
+	terminal.Sequence = 2
+	terminal.State = commandjobevents.StateCompleted
+	terminal.OccurredAt = *now
+	deliver(t, c, out, terminal)
+	if err := c.db.Where("activation_id = ?", claim.ActivationID).Take(&claim).Error; err != nil {
+		t.Fatal(err)
+	}
+	if claim.State != commandactivation.StateDeactivated {
+		t.Fatalf("claim terminal não fechada: %s", claim.State)
+	}
+	*now = terminal.OccurredAt.Add(31 * time.Second)
+	if processed, more, err := out.PurgeExpiredAt(context.Background(), *now, 10); err != nil || processed != 2 || more {
+		t.Fatalf("purga terminal inesperada: processed=%d more=%v err=%v", processed, more, err)
+	}
+	for _, eventID := range []string{fact.SourceEventID, terminal.SourceEventID} {
+		if _, err := out.Get(context.Background(), eventID); !errors.Is(err, gorm.ErrRecordNotFound) {
+			t.Fatalf("fonte %s ainda disponível após purga terminal: %v", eventID, err)
+		}
+	}
+	if err := c.db.Transaction(func(tx *gorm.DB) error {
+		_, err := out.VerifiedFactTx(context.Background(), tx, terminal.SourceEventID, *now)
+		return err
+	}); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("replay terminal purgado foi reaberto: %v", err)
+	}
+}
+
 type ClaimSnapshot struct {
 	ActivationID                 string
 	SourceEventID                string
