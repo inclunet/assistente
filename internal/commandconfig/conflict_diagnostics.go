@@ -33,6 +33,11 @@ type ConflictDiagnostic struct {
 // carrega o snapshot e usa a projeção completa do host. Não executa comandos
 // nem aceita fatos, IDs ou candidatos fornecidos pelo cliente.
 func (s *CompleteMutationService) CheckConflicts(ctx context.Context, token string, workspace *string) (ConflictDiagnostic, error) {
+	return s.checkConflicts(ctx, token, workspace, Operation("binding_check_conflict"))
+}
+
+// A operação é escolhida apenas pelos entrypoints internos, nunca pelo cliente.
+func (s *CompleteMutationService) checkConflicts(ctx context.Context, token string, workspace *string, operation Operation) (ConflictDiagnostic, error) {
 	if s == nil || s.service == nil || ctx == nil {
 		return ConflictDiagnostic{}, ErrInvalid
 	}
@@ -49,7 +54,7 @@ func (s *CompleteMutationService) CheckConflicts(ctx context.Context, token stri
 		if !validScope(scope) {
 			return "", "", ErrInvalid
 		}
-		if err := s.service.config.Authorize(ctx, principal, cloneScope(scope), Operation("binding_check_conflict")); err != nil {
+		if err := s.service.config.Authorize(ctx, principal, cloneScope(scope), operation); err != nil {
 			return "", "", err
 		}
 		return principal.UserID, principal.SessionID, nil
@@ -68,7 +73,7 @@ func (s *CompleteMutationService) CheckConflicts(ctx context.Context, token stri
 		if current.UserID != principal.UserID || current.SessionID != principal.SessionID {
 			return ErrStale
 		}
-		return s.service.config.Authorize(ctx, current, cloneScope(scope), Operation("binding_check_conflict"))
+		return s.service.config.Authorize(ctx, current, cloneScope(scope), operation)
 	}, func() error {
 		providerVersion, err := s.service.config.Version(ctx)
 		if err != nil {

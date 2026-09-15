@@ -111,6 +111,13 @@ func runActivationMutationHook(ctx context.Context, tx *gorm.DB, diff MutationDi
 		if change.Before == nil {
 			continue
 		}
+		// A regrant has already installed the new authority in this same TX.
+		// Do not interpret the disabled->enabled event transition as a
+		// revocation of the grant just created for it.
+		if change.After != nil && change.Before != nil && !change.Before.Enabled && change.After.Enabled && change.Before.Mode == commandactivation.ModeEvent &&
+			change.After.Mode == commandactivation.ModeEvent && ruleSemanticEqual(*change.Before, *change.After) {
+			continue
+		}
 		keyOwner := commandautomation.Owner{UserID: change.Before.UserID, WorkspaceID: cloneWorkspace(change.Before.WorkspaceID)}
 		key := commandautomation.NaturalKey{Owner: keyOwner,
 			LayerRef: commandautomation.RuleRef{Kind: string(change.Before.LayerRefKind), Ref: change.Before.LayerRef},

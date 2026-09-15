@@ -49,10 +49,16 @@ type MutationIntent struct {
 	LayerRefKind string // layer_restore: builtin ou user
 }
 
+// MutationDiff descreve a mudança e, quando aplicável, o vínculo de decisão.
+// RequiresDecision and DecisionFingerprint describe the authority change
+// without making a preview itself executable. The fingerprint is present only
+// after the common regrant protocol has prepared its exact decision.
 type MutationDiff struct {
 	MutationID                                    string
 	Operation                                     Operation
 	Scope                                         Scope
+	RequiresDecision                              bool
+	DecisionFingerprint                           string
 	BeforeLayers, AfterLayers                     []Layer
 	BeforeBindings, AfterBindings                 []Binding
 	BeforeActivationRules, AfterActivationRules   []commandactivation.Rule
@@ -93,6 +99,8 @@ func (p *PreparedMutation) Diff() MutationDiff {
 		return MutationDiff{}
 	}
 	d := p.diff
+	// O serviço comum exige confirmação para todas as mutações, não apenas regrant.
+	d.RequiresDecision = true
 	d.Scope = cloneScope(d.Scope)
 	b, a := cloneConfigSnapshot(p.before), cloneConfigSnapshot(p.after)
 	d.BeforeLayers, d.AfterLayers = b.Layers, a.Layers

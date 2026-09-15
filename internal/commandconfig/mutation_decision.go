@@ -17,6 +17,9 @@ type ConfirmedMutation struct {
 	receipts *commanddecision.Store
 	epoch    commandsecurity.EpochSnapshot
 	request  commanddecision.Request
+	// applyBeforeHook is used only by composed internal flows. It remains in
+	// the existing receipt transaction and runs before the host hook.
+	applyBeforeHook func(context.Context, *gorm.DB) error
 }
 
 // ConfirmMutation recebe somente portas do host e espera fora do gate. A
@@ -81,6 +84,11 @@ func (s *Store) CommitConfirmedMutation(ctx context.Context, c *ConfirmedMutatio
 		g, err := s.applyMutationTx(ctx, tx, c.prepared)
 		if err != nil {
 			return err
+		}
+		if c.applyBeforeHook != nil {
+			if err := c.applyBeforeHook(ctx, tx); err != nil {
+				return err
+			}
 		}
 		if err := hook(ctx, tx, c.prepared.Diff()); err != nil {
 			return err

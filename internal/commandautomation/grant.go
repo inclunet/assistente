@@ -30,6 +30,46 @@ func (s *Store) Prepare(ctx context.Context, owner Owner, ref RuleRef) (*GrantCh
 	if key.Owner.UserID != owner.UserID || !sameScope(key.Owner.WorkspaceID, owner.WorkspaceID) {
 		return nil, ErrForeignScope
 	}
+	return s.prepareRule(ctx, owner, rule)
+}
+
+// PrepareRule prepara uma concessão usando o ID da regra carregada no banco.
+// O chamador não fornece a chave natural: ela é derivada da regra autoritativa.
+func (s *Store) PrepareRule(ctx context.Context, owner Owner, ruleID string) (*GrantChange, error) {
+	if s == nil || s.db == nil || ctx == nil || !validOwner(owner) || !validUUID7(ruleID) {
+		return nil, ErrInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	var row ruleRow
+	if err := scopeWhere(s.db.WithContext(ctx).Model(&ruleRow{}), owner).Where("id = ?", ruleID).Take(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	rule, err := ruleFromRow(row)
+	if err != nil {
+		return nil, err
+	}
+	return s.prepareRule(ctx, owner, rule)
+}
+
+func (s *Store) prepareRule(ctx context.Context, owner Owner, rule Rule) (*GrantChange, error) {
+	if s == nil || s.db == nil || ctx == nil || !validOwner(owner) || !validRuleChangeOwner(owner, rule) {
+		return nil, ErrInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := validateRule(rule); err != nil || rule.Enabled {
+		return nil, ErrInvalid
+	}
+	key := keyFromRule(rule)
+	if key.Owner.UserID != owner.UserID || !sameScope(key.Owner.WorkspaceID, owner.WorkspaceID) {
+		return nil, ErrForeignScope
+	}
 	maximum, err := maxGeneration(ctx, s.db, key)
 	if err != nil {
 		return nil, err
@@ -43,6 +83,10 @@ func (s *Store) Prepare(ctx context.Context, owner Owner, ref RuleRef) (*GrantCh
 		return nil, err
 	}
 	return &GrantChange{store: s, owner: cloneOwner(owner), rule: cloneRule(rule), maxGeneration: maximum}, nil
+}
+
+func validRuleChangeOwner(owner Owner, rule Rule) bool {
+	return rule.Owner.UserID == owner.UserID && sameScope(rule.Owner.WorkspaceID, owner.WorkspaceID)
 }
 
 // PrepareGrant é um nome explícito equivalente à primitiva de preparação.
@@ -202,6 +246,146 @@ func (s *Store) CommitConfirmedGrant(ctx context.Context, confirmed *ConfirmedGr
 
 func (s *Store) Commit(ctx context.Context, confirmed *ConfirmedGrantChange, epoch commandsecurity.EpochSnapshot, validators ...PolicyValidator) error {
 	return s.CommitConfirmedGrant(ctx, confirmed, epoch, validators...)
+}
+
+// DecisionRequest retorna a cópia da decisão que vincula exatamente o
+// fingerprint da regra, dos produtores e da geração do grant. O corpo já foi
+// removido antes da confirmação e nunca é reintroduzido.
+func (c *ConfirmedGrantChange) DecisionRequest() (commanddecision.Request, error) {
+	if c == nil || c.store == nil || c.change == nil || c.receipts == nil || c.request.Fingerprint == "" || c.request.MutationID == "" {
+		return commanddecision.Request{}, ErrInvalid
+	}
+	request := c.request
+	request.Body = ""
+	return request, nil
+}
+
+// Grant retorna uma cópia do grant produzido pelo protocolo de confirmação.
+func (c *ConfirmedGrantChange) Grant() (Grant, error) {
+	if c == nil || c.store == nil || c.change == nil || ValidateGrant(c.grant) != nil {
+		return Grant{}, ErrInvalid
+	}
+	return cloneGrant(c.grant), nil
+}
+
+// Rule retorna a regra lida durante a preparação. Ela não inclui a autoridade
+// do grant e serve apenas para construir uma prévia; o commit relê a regra.
+func (c *ConfirmedGrantChange) Rule() (Rule, error) {
+	if c == nil || c.store == nil || !validRuleChange(c.change) {
+		return Rule{}, ErrInvalid
+	}
+	return cloneRule(c.change.rule), nil
+}
+
+// Rule retorna uma cópia da regra carregada durante a preparação, antes da
+// confirmação. O método é somente para montar uma prévia; o commit relê o
+// estado autoritativo dentro do TX.
+func (c *GrantChange) Rule() (Rule, error) {
+	if c == nil || c.store == nil || !validRuleChange(c) {
+		return Rule{}, ErrInvalid
+	}
+	return cloneRule(c.rule), nil
+}
+
+func cloneGrant(grant Grant) Grant {
+	grant.Owner = cloneOwner(grant.Owner)
+	grant.RevokedAt = cloneTime(grant.RevokedAt)
+	grant.RevokedBy = cloneString(grant.RevokedBy)
+	grant.RevocationReason = cloneString(grant.RevocationReason)
+	return grant
+}
+
+// ApplyConfirmedGrantTx insere o grant confirmado depois que o writer comum
+// aplicou a regra habilitada no mesmo TX. A regra é comparada novamente por
+// identidade semântica e pelos quatro vínculos de concessão; não abre outra
+// transação nem consome uma segunda receipt.
+func (s *Store) ApplyConfirmedGrantTx(ctx context.Context, tx *gorm.DB, confirmed *ConfirmedGrantChange, epoch commandsecurity.EpochSnapshot) error {
+	if s == nil || s.db == nil || s.db.Config == nil || tx == nil || tx == s.db || tx.Config == nil || !isTransactionDB(tx) || ctx == nil || confirmed == nil || confirmed.store != s || confirmed.receipts == nil || epoch != confirmed.epoch || !sameSQLDatabase(s.db, tx) || !validRuleChange(confirmed.change) {
+		return ErrInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if confirmed.request.Fingerprint != confirmed.grant.AutomationGrantFingerprint || confirmed.request.UserID != epoch.UserID || confirmed.request.SubjectType != "config_mutation" {
+		return ErrStale
+	}
+	var status string
+	if err := tx.Table("command_decision_receipts").Select("status").Where(
+		"decision_id = ? AND subject_id = ? AND user_id = ? AND auth_context_id = ? AND request_fingerprint = ? AND auth_generation = ? AND security_generation = ? AND expires_at = ? AND status = ? AND auth_context_type = ? AND subject_type = ? AND allowed_action_ids = ? AND accepted_action_id = ? AND responded_at IS NOT NULL AND consumed_at IS NOT NULL",
+		confirmed.request.DecisionID, confirmed.request.MutationID, confirmed.request.UserID, confirmed.request.SessionID,
+		confirmed.request.Fingerprint, confirmed.request.AuthGeneration, confirmed.request.SecurityGeneration, confirmed.request.ExpiresAt.UnixMilli(),
+		commanddecision.Consumed, "local_session", confirmed.request.SubjectType, `["apply","deny"]`, commanddecision.ApplyAction).Scan(&status).Error; err != nil {
+		return err
+	}
+	if status != commanddecision.Consumed {
+		return ErrStale
+	}
+	var row ruleRow
+	if err := ruleQuery(tx.WithContext(ctx), confirmed.change.owner, confirmed.change.rule.RuleRef).Take(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrStale
+		}
+		return err
+	}
+	current, err := ruleFromRow(row)
+	if err != nil {
+		return err
+	}
+	if !sameRuleSemantics(current, confirmed.change.rule) || !current.Enabled || !sameRuleGrantMetadata(current, confirmed.grant) {
+		return ErrStale
+	}
+	key := keyFromRule(current)
+	maximum, err := maxGeneration(ctx, tx, key)
+	if err != nil {
+		return err
+	}
+	if maximum >= mathMaxInt64 || confirmed.grant.AutomationGrantGeneration != maximum+1 {
+		return ErrStale
+	}
+	if _, err := activeGrantTx(ctx, tx, confirmed.change.owner, key); err == nil {
+		return ErrStale
+	} else if !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	grant := grantRow{ID: confirmed.grant.ID, UserID: key.Owner.UserID, WorkspaceID: cloneString(key.Owner.WorkspaceID),
+		LayerRefKind: key.LayerRef.Kind, LayerRef: key.LayerRef.Ref, RuleRefKind: key.RuleRef.Kind, RuleRef: key.RuleRef.Ref,
+		RuleFingerprint: confirmed.grant.RuleFingerprint, EventName: JobRunStateEvent,
+		ProducerTypesFingerprint: confirmed.grant.ProducerTypesFingerprint, Generation: confirmed.grant.AutomationGrantGeneration,
+		GrantFingerprint: confirmed.grant.AutomationGrantFingerprint, AuthorizationDecisionID: confirmed.grant.AuthorizationDecisionID,
+		GrantedAt: confirmed.grant.GrantedAt, GrantedBy: confirmed.grant.GrantedBy}
+	if err := tx.Create(&grant).Error; err != nil {
+		return err
+	}
+	return ctx.Err()
+}
+
+func isTransactionDB(db *gorm.DB) bool {
+	if db == nil {
+		return false
+	}
+	connPool := db.ConnPool
+	if db.Statement != nil && db.Statement.ConnPool != nil {
+		connPool = db.Statement.ConnPool
+	}
+	_, ok := connPool.(gorm.TxCommitter)
+	return ok
+}
+
+func sameRuleSemantics(left, right Rule) bool {
+	left, right = cloneRule(left), cloneRule(right)
+	left.Enabled, right.Enabled = false, false
+	left.AuthorizationDecisionID, right.AuthorizationDecisionID = nil, nil
+	left.AutomationGrantID, right.AutomationGrantID = nil, nil
+	left.AutomationGrantGeneration, right.AutomationGrantGeneration = nil, nil
+	left.AutomationGrantFingerprint, right.AutomationGrantFingerprint = nil, nil
+	return reflect.DeepEqual(left, right)
+}
+
+func sameRuleGrantMetadata(rule Rule, grant Grant) bool {
+	return rule.AuthorizationDecisionID != nil && *rule.AuthorizationDecisionID == grant.AuthorizationDecisionID &&
+		rule.AutomationGrantID != nil && *rule.AutomationGrantID == grant.ID &&
+		rule.AutomationGrantGeneration != nil && *rule.AutomationGrantGeneration == grant.AutomationGrantGeneration &&
+		rule.AutomationGrantFingerprint != nil && *rule.AutomationGrantFingerprint == grant.AutomationGrantFingerprint
 }
 
 const mathMaxInt64 = int64(^uint64(0) >> 1)

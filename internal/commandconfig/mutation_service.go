@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandautomation"
 	"assistente/internal/commanddecision"
 	"assistente/internal/commandledger"
 	"assistente/internal/commandsecurity"
@@ -12,9 +13,13 @@ import (
 
 // MutationServiceConfig só é construído no host. Nenhuma dessas portas é
 // desserializável como autoridade do candidato, inclusive Source/Presenter.
+// Automation é a mesma store SQL usada pelo fluxo de regrant. Ela é opcional
+// para manter as mutações não relacionadas a eventos compatíveis; RegrantEventRule
+// falha fechado quando não está montada.
 type MutationServiceConfig struct {
-	Store    *Store
-	Sessions interface {
+	Store      *Store
+	Automation *commandautomation.Store
+	Sessions   interface {
 		AuthenticateLocalAccess(context.Context, string) (auth.LocalSessionPrincipal, error)
 	}
 	Epochs      *commandsecurity.EpochService
@@ -28,6 +33,10 @@ type MutationServiceConfig struct {
 	Version      func(context.Context) (string, error)
 	Render       func(MutationDiff) (string, error)
 	OnMutationTx MutationTxHook
+	// BeforeCommit invalida estado volátil do host no handoff exclusivo,
+	// imediatamente antes do writer. A porta não pode adquirir o gate, abrir
+	// UI ou fazer I/O bloqueante; erro aborta o commit.
+	BeforeCommit func(context.Context, Scope) error
 }
 type MutationService struct{ config MutationServiceConfig }
 
@@ -45,6 +54,61 @@ func (s *MutationService) Apply(ctx context.Context, token string, workspace *st
 	return s.applyPrepared(ctx, token, workspace, intent.Operation, func(ctx context.Context, scope Scope) (*PreparedMutation, error) {
 		return s.config.Store.PrepareMutation(ctx, scope, intent, s.config.Validate)
 	})
+}
+
+// Preview autentica, autoriza e prepara o diff exato sob o epoch atual, mas
+// não cria receipt, não chama presenter e não escreve no banco. A operação
+// efetiva deve voltar a passar por Apply para obter a decisão e o CAS.
+func (s *MutationService) Preview(ctx context.Context, token string, workspace *string, intent MutationIntent) (MutationDiff, error) {
+	if s == nil || ctx == nil {
+		return MutationDiff{}, ErrInvalid
+	}
+	workspace = cloneScope(Scope{WorkspaceID: workspace}).WorkspaceID
+	var principal auth.LocalSessionPrincipal
+	var scope Scope
+	epoch, err := s.config.Epochs.CaptureAuthenticated(ctx, func(ctx context.Context) (string, string, error) {
+		p, err := s.config.Sessions.AuthenticateLocalAccess(ctx, token)
+		if err != nil {
+			return "", "", err
+		}
+		principal = p
+		scope = Scope{UserID: p.UserID, WorkspaceID: workspace}
+		if !validScope(scope) {
+			return "", "", ErrInvalid
+		}
+		if err := s.config.Authorize(ctx, p, cloneScope(scope), intent.Operation); err != nil {
+			return "", "", err
+		}
+		return p.UserID, p.SessionID, nil
+	})
+	if err != nil {
+		return MutationDiff{}, err
+	}
+	var prepared *PreparedMutation
+	err = s.config.Epochs.Admit(ctx, epoch, func(ctx context.Context) error {
+		current, err := s.config.Sessions.AuthenticateLocalAccess(ctx, token)
+		if err != nil {
+			return err
+		}
+		if current.UserID != principal.UserID || current.SessionID != principal.SessionID {
+			return ErrStale
+		}
+		return s.config.Authorize(ctx, current, cloneScope(scope), intent.Operation)
+	}, func() error {
+		version, err := s.config.Version(ctx)
+		if err != nil {
+			return err
+		}
+		if version == "" {
+			return ErrInvalid
+		}
+		prepared, err = s.config.Store.PrepareMutation(ctx, scope, intent, s.config.Validate)
+		return err
+	})
+	if err != nil || prepared == nil {
+		return MutationDiff{}, err
+	}
+	return prepared.Diff(), nil
 }
 
 // applyPrepared é o único percurso de autenticação/decisão/commit também para
@@ -136,6 +200,11 @@ func (s *MutationService) applyPreparedWithRevalidation(ctx context.Context, tok
 		}
 		return nil
 	}, func() error {
+		if s.config.BeforeCommit != nil {
+			if err := s.config.BeforeCommit(ctx, cloneScope(scope)); err != nil {
+				return err
+			}
+		}
 		return s.config.Store.CommitConfirmedMutation(ctx, confirmed, epoch, s.config.OnMutationTx)
 	})
 	if err != nil {
