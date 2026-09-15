@@ -196,3 +196,8 @@ const streamIdleErrorMessage = "streaming_idle_timeout"
 const streamRetriesExhaustedError = "streaming_retries_exhausted"
 
 const streamPromptCacheHintRejectedError = "streaming_prompt_cache_hint_rejected"
+
+// streamTokenRateLimitError identifica um 429 por estouro de cota de tokens do
+// provedor. É não-retryável (a cota reseta por janela; retentar em segundos não
+// ajuda) e o frontend traduz o código para uma mensagem acionável.
+const streamTokenRateLimitError = "streaming_token_rate_limit"

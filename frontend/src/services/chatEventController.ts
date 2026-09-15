@@ -47,6 +47,9 @@ const translateBackendChatError = (message: string) => {
   if (message === 'streaming_prompt_cache_hint_rejected') {
     return i18next.t('chat.errors.streamingPromptCacheHintRejected');
   }
+  if (message === 'streaming_token_rate_limit') {
+    return i18next.t('chat.errors.streamingTokenRateLimit');
+  }
   return message;
 };
 

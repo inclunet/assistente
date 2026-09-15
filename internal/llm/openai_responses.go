@@ -610,6 +610,13 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}
+			if !emittedNonRetryableEffect && looksLikeTokenRateLimit(errMsg) {
+				finishThinking()
+				reportCurrentDiagnostics()
+				markErrorNotRetryable(handler)
+				handler.OnError(streamTokenRateLimitError)
+				return mcpStreamAttemptResult{done: true}
+			}
 			if !emittedNonRetryableEffect && isRetryableError(errMsg) {
 				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{retry: true}
@@ -663,6 +670,13 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedNonRetryableEffect {
 			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{mcpFailure: failure}
+		}
+		if !emittedNonRetryableEffect && looksLikeTokenRateLimit(errStr) {
+			finishThinking()
+			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
+			handler.OnError(streamTokenRateLimitError)
+			return mcpStreamAttemptResult{done: true}
 		}
 		if !emittedNonRetryableEffect && isRetryableError(errStr) {
 			reportCurrentDiagnostics()
