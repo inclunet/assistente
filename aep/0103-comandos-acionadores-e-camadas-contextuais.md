@@ -2,7 +2,7 @@
 
 **Status:** In Progress
 
-### Renderer preparatório de Stream Deck — 15/09/2026
+### Stream Deck real validado — 15/09/2026
 
 `internal/commanddeck` iniciou a base testável de I13.5/C41/C42: o renderer
 valida geometria, controla estado por dispositivo, força frame completo após
@@ -16,20 +16,26 @@ estado seguro e força frame completo seguro em lock/logout. `Driver`/`Handle` e
 app em falha individual, abertura escreve frame seguro antes de ativar, leitura
 com erro desconecta com backoff, e shutdown fecha handles após frame seguro. A
 base também registra um diagnóstico testável de biblioteca/modelos: o candidato
-`rafaelmartins.com/p/streamdeck` fica explicitamente `not ready` até validação de
-licença, manutenção, Windows/Wails, modelos e HID físico. Descoberta detalhada
-agora reporta falhas parciais por dispositivo, e testes multi-device garantem
-isolamento de render/desconexão. A contagem permanece **46/84 critérios locais,
-38 abertos; 2/15 pacotes completos**, porque ainda faltam validação de
-biblioteca HID/licença/build, dispositivo real e adapter físico.
+`rafaelmartins.com/p/streamdeck` ficou explicitamente `not ready` até validação
+de licença, manutenção, Windows/Wails, modelos e HID físico. Descoberta
+detalhada agora reporta falhas parciais por dispositivo, e testes multi-device
+garantem isolamento de render/desconexão.
 
 Atualização de preparação física: `rafaelmartins.com/p/streamdeck` foi integrado
 como dependência real e o `StreamDeckDriver` concreto compila atrás da interface
 existente. O diagnóstico local agora confirma licença BSD-3-Clause, pure Go/sem
-CGO, suporte multiplataforma declarado e modelos básicos; resta somente
-`physical-hid-unverified`. O teste manual opt-in
+CGO, suporte multiplataforma declarado e modelos básicos; antes do teste físico,
+restava somente `physical-hid-unverified`. O teste manual opt-in
 `TestManualStreamDeckPhysicalRoundTrip` e o runbook operacional reduzem o
 fechamento de I13.5 à execução com o Stream Deck conectado.
+
+Validação física executada em 15/09/2026: Stream Deck serial `AL28K2C54852`,
+modelo `Stream Deck`, 15 teclas. A primeira tecla recebeu o frame vermelho, o
+evento `streamdeck.key:AL28K2C54852` / `key:0` foi recebido e o teste terminou
+com `PASS`. I13.5 fica encerrado localmente. A contagem sobe para **47/84
+critérios locais, 37 abertos; 2/15 pacotes completos**. Mapas reais de produto e
+UI do Stream Deck continuam em P04; validação de teclado/foco/janela e ambiente
+ampliado seguem em I13.6.
 
 ### Prova de escopo de diálogo — 15/09/2026
 
@@ -39,7 +45,7 @@ resultado. A composição autenticada do frontend só deixa `decision.respond`
 atravessar uma barreira modal quando a prova corresponde ao `DialogCommandScope`
 topmost atual, com origem `keyboard.local` e ownership local; prova ausente,
 stale, de outro diálogo ou global permanece bloqueada antes de bindings de
-fundo. **46/84 critérios locais, 38 abertos; 2/15 pacotes completos**.
+fundo. **Contagem anterior: 46/84 critérios locais, 38 abertos; 2/15 pacotes completos**.
 
 ### Ocorrências físicas e sequências — 15/09/2026
 

@@ -47,3 +47,12 @@ Cole no acompanhamento:
 - evento recebido;
 - saída final `PASS`;
 - se houve disputa com outro processo.
+
+## Execução registrada — 15/09/2026
+
+- Worktree: `C:\Users\leonardo.gleison\dev\assistente-worktrees\aep-0103-comandos`.
+- Comando: `ASSISTENTE_STREAMDECK_MANUAL=1 go test ./internal/commanddeck -run TestManualStreamDeckPhysicalRoundTrip -count=1 -v`.
+- Resultado: `PASS`.
+- Dispositivo: serial `AL28K2C54852`, modelo `Stream Deck`, 15 teclas.
+- Evento: `{SourceInstance:streamdeck.key:AL28K2C54852 Key:key:0 Kind:1 Repeat:false}`.
+- Observação: o teste abriu o dispositivo, renderizou o frame manual e recebeu a primeira tecla física.

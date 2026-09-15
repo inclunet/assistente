@@ -5,8 +5,8 @@ Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
 ## Continuação — 15/09/2026, renderer preparatório de Stream Deck
 
-Avanço preparatório em **I13.5/C41/C42**, sem fechar o critério agregado de
-hardware. `internal/commanddeck` introduz um renderer puro para dispositivos
+Avanço em **I13.5/C39/C40/C41/C42**, agora fechado após validação física.
+`internal/commanddeck` introduz um renderer puro para dispositivos
 tipo Stream Deck: valida modelo/geometria, mantém estado por dispositivo, emite
 frame completo após abertura/reconexão, volta a diff incremental depois do
 primeiro envio, atualiza somente teclas alteradas e cacheia hashes de imagem por
@@ -20,13 +20,11 @@ futuro driver HID, recusa teclas enquanto o dispositivo está seguro, valida
 pacote agora define também `Driver`/`Handle` e um `Runtime` abstrato: enumera
 dispositivos, abre handle, escreve frame seguro inicial, ativa somente após
 estado seguro, encaminha eventos físicos normalizados, desconecta com backoff em
-erro de leitura e escreve frame seguro no shutdown. O pacote não abre HID real,
-não valida biblioteca/licença, não registra listeners físicos concretos e não
-envia bytes a dispositivo real. Nesta rodada, a mesma base ganhou diagnóstico
+erro de leitura e escreve frame seguro no shutdown. Nesta rodada, a mesma base ganhou diagnóstico
 testável de driver/modelos (`DriverValidation`/`ValidationReport`), com o
-candidato `rafaelmartins.com/p/streamdeck` explicitamente marcado como não
-pronto até confirmação manual de licença, manutenção, Windows/Wails, modelos e
-HID físico. `Runtime.DiscoverDetailed` passou a reportar falhas parciais por
+candidato `rafaelmartins.com/p/streamdeck` inicialmente marcado como não pronto
+até confirmação de licença, manutenção, Windows/Wails, modelos e HID físico.
+`Runtime.DiscoverDetailed` passou a reportar falhas parciais por
 dispositivo sem bloquear os demais, e testes multi-device provam que render e
 remoção de um deck não contaminam outro.
 
@@ -37,17 +35,23 @@ concreto `StreamDeckDriver` implementa `Driver`/`Handle` com `Enumerate`,
 `Close`, mantendo callbacks convertidos para `PhysicalKeyEvent` e renderização
 via geometria real do dispositivo. A biblioteca ficou registrada como
 BSD-3-Clause, pure Go/sem CGO, Windows/Linux/macOS/Wails compatível no
-diagnóstico local; o único motivo restante em `BuiltinCandidateReport` é
-`physical-hid-unverified`. O runbook
+diagnóstico local; antes do teste físico, o único motivo restante em
+`BuiltinCandidateReport` era `physical-hid-unverified`. O runbook
 `docs/operations/streamdeck-manual-validation.md` e o teste opt-in
 `ASSISTENTE_STREAMDECK_MANUAL=1 go test ./internal/commanddeck -run
 TestManualStreamDeckPhysicalRoundTrip -count=1 -v` deixam a etapa manual
 reduzida a conectar o hardware, observar a tecla vermelha, pressionar a primeira
 tecla e confirmar `PASS`.
 
-**Contagem permanece: 46/84 critérios encerrados; 38 abertos; 2/15 pacotes
-completos.** C41/C42 ganharam prova unitária do núcleo de renderização, mas
-seguem dependentes da integração física/P04 para aceite final.
+Validação física executada em 15/09/2026 no worktree: Stream Deck serial
+`AL28K2C54852`, modelo `Stream Deck`, 15 teclas. A primeira tecla recebeu o frame
+vermelho, o teste recebeu `{SourceInstance:streamdeck.key:AL28K2C54852
+Key:key:0 Kind:1 Repeat:false}` e terminou com `PASS`.
+
+**Contagem: 47/84 critérios encerrados; 37 abertos; 2/15 pacotes completos.**
+I13.5 encerrado como infraestrutura de biblioteca/licença/build/modelos HID,
+gerência segura, reconexão/backoff e renderer cache/diff. A população de mapas
+reais no produto permanece em P04 e validação ampliada de foco/janela em I13.6.
 
 Validação focada: `go test ./internal/commanddeck -count=1` passou.
 
@@ -62,7 +66,7 @@ local, originado de `keyboard.local`, com prova que corresponda ao
 `DialogCommandScope` topmost atual; provas ausentes, obsoletas, de outro diálogo
 ou globais continuam bloqueadas antes de bindings de fundo.
 
-**Contagem: 46/84 critérios encerrados; 38 abertos; 2/15 pacotes completos.**
+**Contagem anterior: 46/84 critérios encerrados; 38 abertos; 2/15 pacotes completos.**
 I13.3 encerrado como infraestrutura de reserva/invariante de diálogo. Isso não
 habilita registro global real, HID/Stream Deck, nem migra o `DecisionDialog` para
 o executor genérico; esses limites seguem em I13.5/I13.6 e P01–P06.
@@ -717,7 +721,7 @@ Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` d
 - [x] I13.2 — Implementar ownership local/global por geração, ocorrências UUIDv7, repeat/release/blur/reconexão e contrato de sequências Ctrl+N do inventário.
 - [x] I13.3 — Integrar DialogCommandScope ao stack real e reservar invariantes de decisão antes de bindings/ownership, respeitando input/IME e registro global temporário.
 - [x] I13.4 — Implementar ciclo de vida genérico de adapter, callbacks com geração, suspensão por lock/logout e shutdown; nenhum listener chama handler final.
-- [ ] I13.5 — Validar biblioteca/licença/build/modelos HID e implementar gerência de dispositivos com exclusividade, reconexão/backoff e estado seguro; renderer com cache/diff e frame completo após reabrir.
+- [x] I13.5 — Validar biblioteca/licença/build/modelos HID e implementar gerência de dispositivos com exclusividade, reconexão/backoff e estado seguro; renderer com cache/diff e frame completo após reabrir.
 - [ ] I13.6 — Validar teclado/foco/janela e ao menos um Stream Deck real; falha de hardware não derruba App. Registrar explicitamente dependência de dispositivo e ambiente.
 
 Critério de saída: As entradas e a ponte UI cumprem contratos do núcleo antes de receber a população de comandos do aplicativo.
