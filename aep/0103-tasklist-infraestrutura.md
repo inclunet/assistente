@@ -10,8 +10,11 @@ hardware. `internal/commanddeck` introduz um renderer puro para dispositivos
 tipo Stream Deck: valida modelo/geometria, mantém estado por dispositivo, emite
 frame completo após abertura/reconexão, volta a diff incremental depois do
 primeiro envio, atualiza somente teclas alteradas e cacheia hashes de imagem por
-modelo/tamanho/conteúdo. O pacote não abre HID, não valida biblioteca/licença,
-não registra listeners físicos e não envia bytes a dispositivo real.
+modelo/tamanho/conteúdo. O pacote também ganhou um `Manager` sem HID que impõe
+posse exclusiva lógica, abre sempre em estado seguro, exige ativação por geração,
+renderiza estado seguro em lock/logout, rejeita geração obsoleta e modela
+reconexão com backoff. O pacote não abre HID, não valida biblioteca/licença, não
+registra listeners físicos e não envia bytes a dispositivo real.
 
 **Contagem permanece: 46/84 critérios encerrados; 38 abertos; 2/15 pacotes
 completos.** C41/C42 ganharam prova unitária do núcleo de renderização, mas

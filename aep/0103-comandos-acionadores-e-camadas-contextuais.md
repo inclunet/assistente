@@ -7,9 +7,11 @@
 `internal/commanddeck` iniciou a base testável de I13.5/C41/C42: o renderer
 valida geometria, controla estado por dispositivo, força frame completo após
 abertura/reconexão, aplica diff incremental e cacheia hashes de imagem por
-modelo/tamanho/conteúdo. A contagem permanece **46/84 critérios locais, 38
-abertos; 2/15 pacotes completos**, porque ainda faltam validação de biblioteca
-HID/licença/build, dispositivo real e adapter físico.
+modelo/tamanho/conteúdo. O `Manager` sem HID acrescenta posse exclusiva lógica,
+estado seguro na abertura, ativação por geração, lock/logout seguro, rejeição de
+geração obsoleta e backoff de reconexão. A contagem permanece **46/84 critérios
+locais, 38 abertos; 2/15 pacotes completos**, porque ainda faltam validação de
+biblioteca HID/licença/build, dispositivo real e adapter físico.
 
 ### Prova de escopo de diálogo — 15/09/2026
 
