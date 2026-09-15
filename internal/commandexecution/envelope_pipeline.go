@@ -655,8 +655,10 @@ func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate E
 		if cloneErr != nil {
 			return cloneErr
 		}
-		handle, e = s.config.Handlers[*p.envelope.CommandID].Start(executionCtx, Invocation{ID: p.envelope.InvocationID, CorrelationID: p.envelope.CorrelationID, CommandID: *p.envelope.CommandID, Principal: p.principal, Source: s.config.Source, Envelope: &copyEnvelope})
-		return e
+		return s.lifecycle.handoff(executionCtx, func() error {
+			handle, e = s.config.Handlers[*p.envelope.CommandID].Start(executionCtx, Invocation{ID: p.envelope.InvocationID, CorrelationID: p.envelope.CorrelationID, CommandID: *p.envelope.CommandID, Principal: p.principal, Source: s.config.Source, Envelope: &copyEnvelope})
+			return e
+		})
 	})
 	if release != nil {
 		defer release()

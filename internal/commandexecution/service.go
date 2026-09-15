@@ -241,9 +241,13 @@ func (s *Service) Execute(ctx context.Context, token string, request Request) (r
 	var startErr error
 	var executionCtx context.Context
 	if err := admit(commandledger.Queued, commandledger.Running, func(runCtx context.Context) {
-		enteredStart = true
 		executionCtx = runCtx
-		handle, startErr = s.config.Handlers[p.invocation.CommandID].Start(runCtx, p.invocation)
+		startErr = s.lifecycle.handoff(runCtx, func() error {
+			enteredStart = true
+			var err error
+			handle, err = s.config.Handlers[p.invocation.CommandID].Start(runCtx, p.invocation)
+			return err
+		})
 	}); err != nil {
 		return s.failedAdmission(p, state, err)
 	}

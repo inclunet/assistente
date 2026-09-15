@@ -20,6 +20,20 @@ type executionLifecycle struct {
 
 type executionOperation struct{ cancel context.CancelFunc }
 
+// handoff compartilha a fronteira de fechamento com Shutdown. Somente Start,
+// cujo contrato exige retorno imediato, roda aqui; nunca CAS, UI ou espera.
+func (l *executionLifecycle) handoff(ctx context.Context, start func() error) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return ErrServiceClosed
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return start()
+}
+
 func (l *executionLifecycle) enter(ctx context.Context) (context.Context, func(), error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
@@ -59,9 +73,6 @@ func (s *Service) Shutdown(ctx context.Context) error {
 	if s == nil || ctx == nil {
 		return ErrInvalidRequest
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	l := &s.lifecycle
 	l.mu.Lock()
 	if !l.closed {
@@ -76,6 +87,9 @@ func (s *Service) Shutdown(ctx context.Context) error {
 	}
 	done := l.drained
 	l.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	select {
 	case <-done:
 		return nil

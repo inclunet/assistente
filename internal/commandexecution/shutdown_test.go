@@ -81,6 +81,51 @@ func TestShutdownRejectsEnvelopeBeforeAnyHostCallback(t *testing.T) {
 	}
 }
 
+func TestShutdownWithCancelledContextStillClosesAdmissionAndHandoff(t *testing.T) {
+	s := &Service{}
+	runCtx, release, err := s.lifecycle.enter(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := s.Shutdown(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("shutdown=%v", err)
+	}
+	if runCtx.Err() != context.Canceled {
+		t.Fatal("operation not cancelled")
+	}
+	if _, _, err := s.lifecycle.enter(context.Background()); !errors.Is(err, ErrServiceClosed) {
+		t.Fatalf("admission=%v", err)
+	}
+	called := false
+	if err := s.lifecycle.handoff(context.Background(), func() error { called = true; return nil }); !errors.Is(err, ErrServiceClosed) {
+		t.Fatalf("handoff=%v", err)
+	}
+	if called {
+		t.Fatal("Start entered after shutdown")
+	}
+}
+
+func TestHandoffAndShutdownHaveOneOrderingBoundary(t *testing.T) {
+	s := &Service{}
+	runCtx, release, err := s.lifecycle.enter(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if err := s.lifecycle.handoff(runCtx, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = s.Shutdown(ctx)
+	if err := s.lifecycle.handoff(runCtx, func() error { t.Error("second Start after closure"); return nil }); !errors.Is(err, ErrServiceClosed) {
+		t.Fatalf("handoff=%v", err)
+	}
+}
+
 func TestShutdownTracksPreparationBeforeAnInvocationExists(t *testing.T) {
 	f := newExecutionFixture(t)
 	entered := make(chan struct{})
