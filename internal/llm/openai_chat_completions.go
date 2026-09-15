@@ -347,6 +347,14 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 				return chatStreamAttempt{}
 			}
 
+			if looksLikeTokenRateLimit(errStr) {
+				finishThinking()
+				reportCurrentDiagnostics()
+				markErrorNotRetryable(handler)
+				handler.OnError(streamTokenRateLimitError)
+				return chatStreamAttempt{done: true}
+			}
+
 			if isRetryableError(errStr) {
 				reportCurrentDiagnostics()
 				return chatStreamAttempt{plainRetry: true}

@@ -254,6 +254,7 @@ const es = {
         streamingIdleTimeout: 'El proveedor dejó de responder a mitad de la generación (timeout de inactividad).',
         streamingRetriesExhausted: 'No se pudo completar la respuesta después de varios intentos de conexión.',
         streamingPromptCacheHintRejected: 'El proveedor rechazó la sugerencia de caché incluso después de desactivarla. Comprueba la configuración del gateway o desactiva las sugerencias de caché en el perfil.',
+        streamingTokenRateLimit: 'Se alcanzó la cuota de tokens del proveedor (HTTP 429). Espera a que se renueve la cuota e inténtalo de nuevo.',
       },
       stopReading: 'Detener lectura',
       stopReadingLabel: 'Detener lectura de texto',
