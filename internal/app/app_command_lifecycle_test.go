@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandactivation"
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandbridge"
 	"assistente/internal/commandcatalog"
@@ -229,6 +230,9 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 		t.Fatal(err)
 	}
 	if err := commandconfig.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := commandactivation.Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	previousDB := database.DB()
@@ -555,6 +559,140 @@ func TestAppCommandLifecycleRebuildsPersistedLocalConfigurationAfterAuth(t *test
 	}
 	if err := ShutdownCommandLifecycle(ctx, app); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAppCommandLifecycleRestoresPersistentClaimsIntoActiveLayers(t *testing.T) {
+	ctx := context.Background()
+	app, _ := appLifecycleProductMountFixture(t)
+	if err := ensureCommandLifecycleMountedForCurrentUserForTest(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.commandHost.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+	principal, err := app.currentCommandPrincipal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := database.DB().Create(&commandconfig.Generation{ID: uuid.Must(uuid.NewV7()).String(), UserID: principal.UserID, Generation: 1, UpdatedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	layer := commandconfig.Layer{ID: uuid.Must(uuid.NewV7()).String(), UserID: principal.UserID, Name: "persistente", Enabled: true, Source: "test", CreatedAt: now, UpdatedAt: now}
+	if err := database.DB().Create(&layer).Error; err != nil {
+		t.Fatal(err)
+	}
+	commandID := commandLifecycleSentinelID
+	binding := commandconfig.Binding{
+		ID: uuid.Must(uuid.NewV7()).String(), UserID: principal.UserID, LayerRefKind: "user", LayerRef: layer.ID,
+		TriggerType: "keyboard.local", TriggerSpec: `{"version":1,"code":"KeyM","modifiers":["Control","Shift"]}`,
+		CommandID: &commandID, Arguments: "{}", Condition: `{"version":1,"clauses":[]}`, Effect: "execute", Enabled: true,
+		Source: "test", ReviewStatus: "active", Presentation: "{}",
+	}
+	if err := database.DB().Create(&binding).Error; err != nil {
+		t.Fatal(err)
+	}
+	ruleID := uuid.Must(uuid.NewV7()).String()
+	rule := commandactivation.Rule{
+		ID: ruleID, UserID: principal.UserID, LayerRefKind: commandactivation.UserRef, LayerRef: layer.ID,
+		RuleRefKind: commandactivation.UserRef, RuleRef: ruleID, Mode: commandactivation.ModeManual,
+		Condition: "{}", Lifecycle: commandactivation.LifecyclePersistent, Enabled: true, Source: "test", ReviewStatus: "active",
+	}
+	if err := database.DB().Create(&rule).Error; err != nil {
+		t.Fatal(err)
+	}
+	oldSession := uuid.Must(uuid.NewV7()).String()
+	oldStack := "manual:old-stack"
+	claimID := uuid.Must(uuid.NewV7()).String()
+	claim := commandactivation.Claim{
+		ActivationID: claimID, UserID: principal.UserID, LayerRefKind: commandactivation.UserRef, LayerRef: layer.ID,
+		RuleRefKind: commandactivation.UserRef, RuleRef: ruleID, AuthContextType: "local_session", AuthContextID: oldSession,
+		AuthGeneration: "auth-old", SecurityGeneration: "security-old", SourceType: "manual", SourceInstanceID: &oldSession,
+		State: commandactivation.StateActive, ManualStackKey: &oldStack, ActivatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour),
+	}
+	if err := database.DB().Create(&claim).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := app.rebuildCommandLifecyclePersistedConfiguration(ctx); err != nil {
+		t.Fatalf("rebuild com restore falhou: %v", err)
+	}
+	configuration, activeLayers, err := app.commandHost.UserConfiguration(ctx, principal.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(activeLayers) != 1 || activeLayers[0] != layer.ID {
+		t.Fatalf("camada persistente não foi ativada: %v", activeLayers)
+	}
+	selection, err := configuration.Resolve("keyboard.local:Control+Shift+KeyM", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.Status != commandbindings.Selected || selection.CommandID != commandLifecycleSentinelID || selection.BindingIDs[0] != binding.ID {
+		t.Fatalf("binding da camada restaurada não venceu: %+v", selection)
+	}
+	var restored commandactivation.Claim
+	if err := database.DB().Where("activation_id = ?", claimID).First(&restored).Error; err != nil {
+		t.Fatal(err)
+	}
+	if restored.AuthContextID != principal.SessionID || restored.SecurityGeneration == "security-old" || restored.ManualStackKey == nil || *restored.ManualStackKey == oldStack {
+		t.Fatalf("claim não foi rebindada para a sessão atual: %+v", restored)
+	}
+	if err := ShutdownCommandLifecycle(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAppCommandLifecycleActiveLayerDerivationRejectsUnsafeClaims(t *testing.T) {
+	now := time.Now().UTC()
+	userID := uuid.Must(uuid.NewV7()).String()
+	sessionID := uuid.Must(uuid.NewV7()).String()
+	layerID := uuid.Must(uuid.NewV7()).String()
+	ruleID := uuid.Must(uuid.NewV7()).String()
+	stack := "manual:stack"
+	base := commandconfig.Snapshot{
+		Scope:  commandconfig.Scope{UserID: userID},
+		Layers: []commandconfig.Layer{{ID: layerID, UserID: userID, Enabled: true}},
+		ActivationRules: []commandactivation.Rule{{
+			ID: ruleID, UserID: userID, LayerRefKind: commandactivation.UserRef, LayerRef: layerID,
+			RuleRefKind: commandactivation.UserRef, RuleRef: ruleID, Lifecycle: commandactivation.LifecyclePersistent,
+			Enabled: true, ReviewStatus: "active",
+		}},
+	}
+	claim := commandactivation.Claim{
+		ActivationID: uuid.Must(uuid.NewV7()).String(), UserID: userID, LayerRefKind: commandactivation.UserRef, LayerRef: layerID,
+		RuleRefKind: commandactivation.UserRef, RuleRef: ruleID, AuthContextType: "local_session", AuthContextID: sessionID,
+		AuthGeneration: "auth", SecurityGeneration: "security", SourceType: "manual", State: commandactivation.StateActive,
+		ManualStackKey: &stack, ActivatedAt: now.Add(-time.Hour), UpdatedAt: now,
+	}
+	principal := auth.LocalSessionPrincipal{UserID: userID, SessionID: sessionID}
+	snapshot := base
+	snapshot.ActivationClaims = []commandactivation.Claim{claim}
+	if got := commandLifecycleActiveUserLayerIDs(snapshot, principal, now); len(got) != 1 || got[0] != layerID {
+		t.Fatalf("claim válida não ativou camada: %v", got)
+	}
+	for name, mutate := range map[string]func(*commandconfig.Snapshot){
+		"source": func(s *commandconfig.Snapshot) { s.ActivationClaims[0].SourceType = "context" },
+		"session": func(s *commandconfig.Snapshot) {
+			s.ActivationClaims[0].AuthContextID = uuid.Must(uuid.NewV7()).String()
+		},
+		"expired": func(s *commandconfig.Snapshot) {
+			expired := now.Add(-time.Second)
+			s.ActivationClaims[0].ExpiresAt = &expired
+		},
+		"lifecycle": func(s *commandconfig.Snapshot) { s.ActivationRules[0].Lifecycle = commandactivation.LifecycleSession },
+		"disabled":  func(s *commandconfig.Snapshot) { s.Layers[0].Enabled = false },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := base
+			candidate.Layers = append([]commandconfig.Layer(nil), base.Layers...)
+			candidate.ActivationRules = append([]commandactivation.Rule(nil), base.ActivationRules...)
+			candidate.ActivationClaims = []commandactivation.Claim{claim}
+			mutate(&candidate)
+			if got := commandLifecycleActiveUserLayerIDs(candidate, principal, now); len(got) != 0 {
+				t.Fatalf("claim insegura ativou camada: %v", got)
+			}
+		})
 	}
 }
 

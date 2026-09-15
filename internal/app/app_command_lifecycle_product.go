@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandactivation"
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandbridge"
 	"assistente/internal/commandcatalog"
@@ -14,6 +15,7 @@ import (
 	"assistente/internal/commandcontract"
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandledger"
+	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 	"github.com/google/uuid"
 )
@@ -184,6 +186,20 @@ func (a *App) rebuildCommandLifecyclePersistedConfiguration(ctx context.Context)
 			}},
 		}},
 	}
+	principal, err := a.currentCommandPrincipal()
+	if err != nil {
+		return err
+	}
+	hasGeneration, err := commandLifecycleHasBaseGeneration(ctx, principal.UserID)
+	if err != nil {
+		return err
+	}
+	if !hasGeneration {
+		return a.rebuildCommandLifecycleSentinelConfiguration(ctx)
+	}
+	if err := a.restoreCommandLifecyclePersistentClaims(ctx); err != nil && !errors.Is(err, commandactivation.ErrStale) {
+		return err
+	}
 	loaded, hasSnapshot, err := a.loadCommandLifecyclePersistedConfiguration(ctx, store, options)
 	if err != nil {
 		return err
@@ -199,6 +215,7 @@ type commandLifecycleLoadedConfiguration struct {
 	store         *commandconfig.Store
 	snapshot      commandconfig.Snapshot
 	configuration *commandbindings.Configuration
+	activeLayers  []string
 }
 
 func (a *App) loadCommandLifecyclePersistedConfiguration(ctx context.Context, store *commandconfig.Store, options commandconfig.LocalReadProjection) (commandLifecycleLoadedConfiguration, bool, error) {
@@ -222,11 +239,119 @@ func (a *App) loadCommandLifecyclePersistedConfiguration(ctx context.Context, st
 		}
 		return commandLifecycleLoadedConfiguration{}, false, err
 	}
+	activeLayers := commandLifecycleActiveUserLayerIDs(snapshot, principal, time.Now())
+	options.ActiveUserLayerIDs = activeLayers
 	configuration, err := commandconfig.ProjectLocalRead(ctx, snapshot, options)
 	if err != nil {
 		return commandLifecycleLoadedConfiguration{}, false, err
 	}
-	return commandLifecycleLoadedConfiguration{app: a, store: store, snapshot: snapshot, configuration: configuration}, true, nil
+	return commandLifecycleLoadedConfiguration{app: a, store: store, snapshot: snapshot, configuration: configuration, activeLayers: activeLayers}, true, nil
+}
+
+func (a *App) restoreCommandLifecyclePersistentClaims(ctx context.Context) error {
+	if a == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	a.authMu.RLock()
+	state := a.commandHost
+	a.authMu.RUnlock()
+	if state == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	return state.ChangeUserConfigurationWithEpoch(ctx, func(context.Context) (auth.LocalSessionPrincipal, error) {
+		return a.currentCommandPrincipal()
+	}, func(ctx context.Context, principal auth.LocalSessionPrincipal, epoch commandsecurity.EpochSnapshot) (func(context.Context) error, error) {
+		owner := commandactivation.Owner{
+			Scope:           commandactivation.Scope{UserID: principal.UserID},
+			AuthContextType: "local_session", AuthContextID: principal.SessionID,
+			AuthGeneration: epoch.AuthGeneration, SecurityGeneration: epoch.SecurityGeneration,
+		}
+		return func(commitCtx context.Context) error {
+			service, err := newCommandLifecycleActivationService(owner)
+			if err != nil {
+				return err
+			}
+			_, err = service.RestorePersistent(commitCtx, owner, commandLifecycleRestoreOrigin(principal))
+			return err
+		}, nil
+	})
+}
+
+func newCommandLifecycleActivationService(owner commandactivation.Owner) (*commandactivation.Service, error) {
+	store, err := commandactivation.NewStore(database.DB())
+	if err != nil {
+		return nil, err
+	}
+	return commandactivation.New(database.DB(), &commandsecurity.DispatchGate{}, commandactivation.Ports{
+		Owner: commandactivation.OwnerPortFunc(func(context.Context, commandactivation.Owner) (commandactivation.Owner, error) {
+			return owner, nil
+		}),
+		Layer: commandLifecycleActivationLayerPort{},
+		Origin: commandactivation.OriginPortFunc(func(_ context.Context, _ commandactivation.Owner, origin commandactivation.Origin) (commandactivation.Origin, error) {
+			return origin, nil
+		}),
+		Rule:         store,
+		GenerationTx: store,
+	}, time.Now)
+}
+
+type commandLifecycleActivationLayerPort struct{}
+
+func (commandLifecycleActivationLayerPort) ResolveLayer(ctx context.Context, owner commandactivation.Owner, ref commandactivation.Ref) (commandactivation.Layer, error) {
+	if ref.Kind != commandactivation.UserRef {
+		return commandactivation.Layer{}, commandactivation.ErrNotFound
+	}
+	var layer commandconfig.Layer
+	query := database.DB().WithContext(ctx).Where("id = ? AND user_id = ?", ref.ID, owner.UserID)
+	if owner.WorkspaceID == nil {
+		query = query.Where("workspace_id IS NULL")
+	} else {
+		query = query.Where("workspace_id = ?", *owner.WorkspaceID)
+	}
+	if err := query.First(&layer).Error; err != nil {
+		return commandactivation.Layer{}, commandactivation.ErrNotFound
+	}
+	return commandactivation.Layer{Ref: commandactivation.Ref{Kind: commandactivation.UserRef, ID: layer.ID}, UserID: layer.UserID, WorkspaceID: layer.WorkspaceID, Enabled: layer.Enabled}, nil
+}
+
+func commandLifecycleRestoreOrigin(principal auth.LocalSessionPrincipal) commandactivation.Origin {
+	return commandactivation.Origin{Type: "ui_action", SessionID: principal.SessionID, DeviceID: "command-lifecycle"}
+}
+
+func commandLifecycleActiveUserLayerIDs(snapshot commandconfig.Snapshot, principal auth.LocalSessionPrincipal, now time.Time) []string {
+	rules := map[string]commandactivation.Rule{}
+	for _, rule := range snapshot.ActivationRules {
+		if rule.UserID != snapshot.Scope.UserID || rule.WorkspaceID != nil || !rule.Enabled || rule.ReviewStatus != "active" || rule.Lifecycle != commandactivation.LifecyclePersistent {
+			continue
+		}
+		key := string(rule.LayerRefKind) + "\x00" + rule.LayerRef + "\x00" + string(rule.RuleRefKind) + "\x00" + rule.RuleRef
+		rules[key] = rule
+	}
+	layers := map[string]commandconfig.Layer{}
+	for _, layer := range snapshot.Layers {
+		if layer.UserID == snapshot.Scope.UserID && layer.WorkspaceID == nil && layer.Enabled {
+			layers[layer.ID] = layer
+		}
+	}
+	active := map[string]bool{}
+	var ids []string
+	for _, claim := range snapshot.ActivationClaims {
+		if claim.UserID != snapshot.Scope.UserID || claim.WorkspaceID != nil || claim.State != commandactivation.StateActive ||
+			claim.SourceType != "manual" || claim.AuthContextID != principal.SessionID ||
+			claim.LayerRefKind != commandactivation.UserRef || claim.ExpiresAt != nil && !claim.ExpiresAt.After(now) {
+			continue
+		}
+		key := string(claim.LayerRefKind) + "\x00" + claim.LayerRef + "\x00" + string(claim.RuleRefKind) + "\x00" + claim.RuleRef
+		if _, ok := rules[key]; !ok {
+			continue
+		}
+		if _, ok := layers[claim.LayerRef]; !ok || active[claim.LayerRef] {
+			continue
+		}
+		active[claim.LayerRef] = true
+		ids = append(ids, claim.LayerRef)
+	}
+	return ids
 }
 
 func commandLifecycleHasBaseGeneration(ctx context.Context, userID string) (bool, error) {
@@ -249,7 +374,7 @@ func (loaded commandLifecycleLoadedConfiguration) publish(ctx context.Context) e
 		if principal.UserID != loadedPrincipal {
 			return nil, nil, commandexecution.ErrDenied
 		}
-		return loaded.configuration, nil, nil
+		return loaded.configuration, loaded.activeLayers, nil
 	}, func(ctx context.Context) error {
 		return loaded.store.CheckCurrent(ctx, loaded.snapshot)
 	})

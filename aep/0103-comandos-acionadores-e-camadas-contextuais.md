@@ -42,6 +42,14 @@ No shutdown/drain, o App usa a prova de `CloseAndDrain` para rodar recovery
 bounded de receipts e invocações pendentes antes de destruir dependências,
 sem inferir encerramento por idade ou restart.
 
+Atualização de claims persistentes: quando há geração base de configuração, o
+rebuild produtivo chama `commandactivation.RestorePersistent` com owner/epoch
+derivados do `HostState`, recarrega o snapshot e deriva `ActiveUserLayerIDs`
+somente de claims manuais, ativas, persistentes, da sessão atual, não expiradas,
+com regra ativa e camada de usuário habilitada. A lista derivada é publicada no
+`HostState` junto com a configuração; instalação nova sem geração base continua
+no sentinel sem alterar claims.
+
 ### Stream Deck real validado — 15/09/2026
 
 `internal/commanddeck` iniciou a base testável de I13.5/C41/C42: o renderer
