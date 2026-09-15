@@ -3,6 +3,22 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Continuação — 15/09/2026, renderer preparatório de Stream Deck
+
+Avanço preparatório em **I13.5/C41/C42**, sem fechar o critério agregado de
+hardware. `internal/commanddeck` introduz um renderer puro para dispositivos
+tipo Stream Deck: valida modelo/geometria, mantém estado por dispositivo, emite
+frame completo após abertura/reconexão, volta a diff incremental depois do
+primeiro envio, atualiza somente teclas alteradas e cacheia hashes de imagem por
+modelo/tamanho/conteúdo. O pacote não abre HID, não valida biblioteca/licença,
+não registra listeners físicos e não envia bytes a dispositivo real.
+
+**Contagem permanece: 46/84 critérios encerrados; 38 abertos; 2/15 pacotes
+completos.** C41/C42 ganharam prova unitária do núcleo de renderização, mas
+seguem dependentes da integração física/P04 para aceite final.
+
+Validação focada: `go test ./internal/commanddeck -count=1` passou.
+
 ## Continuação — 15/09/2026, prova de escopo de diálogo
 
 Avanço focado em **I13.3**, ainda sem migrar handlers reais de decisão. A ponte
