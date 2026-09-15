@@ -3,7 +3,42 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
-## Rodada atual — 15/09/2026, continuação das cinco frentes
+## Rodada atual — 15/09/2026, ligação do core e cinco frentes
+
+Seis agentes Luna reutilizados, com revisão e correções centrais. Avanço nos mesmos
+I09/I11/I12/I13/I14, sem criar pacotes novos nem habilitar atalhos de produto.
+
+- **I09:** adapters concretos ligam o Consumer à outbox e à recuperação do coordinator. Lotes são limitados a 100; cursor só avança com commit e reinicia ao completar o ciclo, permitindo revisitar leases que expiraram depois. Concorrência é recusada sem esperar outro ciclo.
+- **I11:** no-op validado retorna `ErrNoChanges`, distinto de entrada inválida, sem decisão, auditoria ou avanço de geração. Owner e referências revogados continuam recusados. Teste do writer confirmado prova que regra de evento entra desabilitada e sem grants/claims.
+- **I12:** o core registra obrigatoriamente os executores construídos por New/NewComplete, fecha admissão permanentemente e espera as operações e sua finalização fora do gate. Só então emite prova das gerações efetivamente emitidas. O ledger sela essa prova e reutiliza o writer existente de recuperação; nenhuma segunda implementação de recovery. Testes reais cobrem finalização bloqueada e falha de CAS seguida de outcome_unknown, sem repetir handler. O coordinator preserva progresso confirmado mesmo ao retornar erro.
+- **I13:** DialogCommandScope chega ao stack real de Modal; somente o topo fornece o scope. Trocar o scope de um modal inferior não o promove. Não há novo listener de teclado nem ownership físico habilitado.
+- **I14:** shutdown do App drena o core antes de destruir dependências, inclusive sem controller montado. Fábrica interna completa compõe HostState, sessão e FactBus reais; decisões usam o presenter do App e a mesma raiz SQL do ledger. Recusa bancos distintos/transações, estado bloqueado, sessão não reconstruída e instalação após shutdown. Continua sem startup de produto.
+
+**Limites de aceite:** a prova nova é do processo atual, não de um processo anterior.
+Restart, cadência única com heartbeat/receipts, transporte autenticado UI/backend,
+importação pública/multi-escopo e hardware continuam pendentes. Timeout não reabre
+o core; nenhum marker persistido sozinho autoriza recuperação. A espera pelo gate
+não ganhou promessa de prazo rígido.
+
+**Contagem: 40/84 critérios encerrados; 44 abertos; 2/15 pacotes completos.**
+I11.4 foi encerrado com testes negativos de serialização e teste transacional de
+regra importada desabilitada, além da preservação de grants/claims de regra
+intocada no destino. Defaults puros e histórico não pertencem ao DTO; referências
+a defaults continuam portáveis. Os demais critérios compostos permanecem abertos.
+Essa contagem não representa percentual de esforço nem cinco pacotes completos.
+
+Validação: suíte Go completa executada nesta rodada: 108 pacotes passaram e
+ACP/acpregistry terminaram com `0xffffffff`, como na investigação anterior.
+Após as últimas correções, todos os command* e App/jobs/database/config/portability/
+questionnaire passaram juntos. A fábrica completa do App passou em três repetições,
+incluindo sessão nova sem mapa reconstruído. Frontend: 311 arquivos/2.909 testes;
+Build e vet Go globais passaram; lint Go final: zero apontamentos.
+TypeScript, ESLint e Stylelint sem erros (1 e 2.159 warnings existentes,
+respectivamente). Nenhum teste removido ou proteção da máquina alterada.
+Sem nova assinatura Wails, bindings gerados ou string visível alterados.
+Race/C-GCC, Bugbot, CI, NVDA e hardware continuam não qualificados; sem push/PR/merge.
+
+## Rodada anterior — 15/09/2026, continuação das cinco frentes
 
 Seis agentes Luna reutilizados; revisão e correções centrais. Sem migração de atalhos, novos segredos ou habilitação de entradas.
 
@@ -370,7 +405,7 @@ Evidência/limite atual: `commandportability` e `portability` registram commandL
 - [ ] I11.1 — Versionar resources.commandLayers no envelope da AEP-0047 e implementar round-trip de deltas/needs_review e escopo portátil.
 - [ ] I11.2 — Resolver UUIDs, refs builtin/user e mapa de workspaces no destino autenticado; conflito foreign_owner não revela conteúdo.
 - [ ] I11.3 — Implementar manter/substituir/cópia com remapeamento transacional; nome conflitante exige escolha explícita.
-- [ ] I11.4 — Excluir grants, claims, defaults puros e histórico; regra event-driven importada fica sem concessão e desabilitada.
+- [x] I11.4 — Excluir grants, claims, defaults puros e histórico; regra event-driven importada fica sem concessão e desabilitada.
 - [ ] I11.5 — Validar referências exatas de credenciais por pattern, não IDs locais; separar export sem segredo e export sensível UI-only com criptografia/decisão da AEP-0047.
 - [ ] I11.6 — Testar importação repetida, referência ausente, dados antigos com segredo bruto e rollback do lote; atualizar AEP-0047.
 
@@ -382,7 +417,7 @@ Estado: **Parcial**. Esforço restante: **G**.
 Dependências: I04, I07, I09, I10.
 Referências: D2.1, D8, D11; AEP-0074-B.
 
-Evidência/limite atual: `commandmaintenance.Coordinator` exige todas as portas e política completa; uma passagem ordena outbox, recuperação, jobs, tools, auditorias e compactação, sem novo loop. Requeue e drain recebem limite; trabalho restante bloqueia limpeza. As seis settings estão persistidas e expostas na UI/i18n; o caminho opcional do Manager relê config por passagem com proteção de overflow. `commandledger.MaintenanceService` separa retenção all-users/system do Store comum, com lotes e proteção de deadlines. `commanddecision.ReconcileSessions` amplia recuperação. Adapters concretos de domínio estão implementados, inclusive retenção de ativações. Faltam prova real de geração encerrada e montagem na cadência única; não considerar o marcador de banco prova de exclusão. O TTL salvo ainda depende do wiring no heartbeat real.
+Evidência/limite atual: `commandmaintenance.Coordinator` exige todas as portas e política completa; uma passagem ordena outbox, recuperação, jobs, tools, auditorias e compactação, sem novo loop. Requeue e drain recebem limite; trabalho restante bloqueia limpeza. As seis settings estão persistidas e expostas na UI/i18n; o caminho opcional do Manager relê config por passagem com proteção de overflow. `commandledger.MaintenanceService` separa retenção all-users/system do Store comum, com lotes e proteção de deadlines. `commanddecision.ReconcileSessions` amplia recuperação. Adapters concretos de domínio estão implementados, inclusive retenção de ativações. Há prova real de drenagem no processo atual; faltam prova para restart e montagem na cadência única. Não considerar o marcador de banco sozinho prova de exclusão. O TTL salvo ainda depende do wiring no heartbeat real.
 
 - [ ] I12.1 — Definir prova de encerramento de geração e exclusão de execuções antigas antes de recuperar pendências, incluindo reinício e outros usuários/sessões.
 - [ ] I12.2 — Reconciliar invocação+ledger atomicamente para outcome_unknown, incluindo system com capability interna; jamais reexecutar efeito.
@@ -393,13 +428,21 @@ Evidência/limite atual: `commandmaintenance.Coordinator` exige todas as portas 
 
 Critério de saída: Reinício e limpeza têm um único dono, cobrem toda a instância e não reabrem execução ou ativação antiga.
 
+Complemento da rodada atual: `EpochService.CloseAndDrain` produz prova real do
+processo atual e `Store.SealDrainedGeneration` a liga à recuperação já existente.
+New/NewComplete registram o lifecycle compartilhado mesmo quando Service é copiado.
+Provas vazias ou de outro core são recusadas; escopos local/system são selados
+idempotentemente. Reinício de processo ainda impede encerrar I12.1; a composição
+produtiva all-users/system ainda impede o aceite agregado de I12.2. O banco não
+ganhou outra implementação de recuperação nem migração de schema nesta rodada.
+
 ### I13 — Infraestrutura das pontes e adapters físicos
 
 Estado: **Parcial — máquina de pressão e observador de sessão**. Esforço restante: **GG**.
 Dependências: I03, I04, I06, I07.
 Referências: D3, D7, D13, D14; AEP-0080, AEP-0091.
 
-Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` definem sessão, capabilities, ack/resultado/cancelamento, geração transportada como string e UUIDv7 de invocação/evento. Shutdown idempotente invalida antes de cancelar, espera lotes admitidos e libera recursos; uma chamada concorrente Go pode cancelar sua espera. Testes cobrem isolamento, handoff curto, repetição e lock/logout. `OccurrenceID` físico é opaco e ainda não representa ocorrência durável do core. O adapter de decisões usa a fila real de questionários com cancelamento por ID; não há transporte Wails da ponte, invariantes de teclado do stack, ownership real local/global ou gerenciador HID montados. Portas devem cumprir o contrato de cancelamento; não há promessa de prazo de shutdown para porta defeituosa.
+Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` definem sessão, capabilities, ack/resultado/cancelamento, geração transportada como string e UUIDv7 de invocação/evento. Shutdown idempotente invalida antes de cancelar, espera lotes admitidos e libera recursos; uma chamada concorrente Go pode cancelar sua espera. Testes cobrem isolamento, handoff curto, repetição e lock/logout. `OccurrenceID` físico é opaco e ainda não representa ocorrência durável do core. O adapter de decisões usa a fila real de questionários com cancelamento por ID; o scope já acompanha o stack real de Modal, mas não há transporte Wails da ponte, despacho das invariantes globais, ownership real local/global ou gerenciador HID montados. Portas devem cumprir o contrato de cancelamento; não há promessa de prazo de shutdown para porta defeituosa.
 
 - [ ] I13.1 — Fechar ponte tipada de despacho UI com ack/resultado/cancelamento, sessão e invocation_id; registrar capabilities sem handlers reais migrados.
 - [ ] I13.2 — Implementar ownership local/global por geração, ocorrências UUIDv7, repeat/release/blur/reconexão e contrato de sequências Ctrl+N do inventário.
@@ -409,6 +452,11 @@ Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` d
 - [ ] I13.6 — Validar teclado/foco/janela e ao menos um Stream Deck real; falha de hardware não derruba App. Registrar explicitamente dependência de dispositivo e ambiente.
 
 Critério de saída: As entradas e a ponte UI cumprem contratos do núcleo antes de receber a população de comandos do aplicativo.
+
+Complemento da rodada atual: o scope já acompanha o Modal real e o topo da pilha.
+Alteração de scope é atualização in-place, sem reempilhar uma instância inferior.
+I13.3 permanece aberto para despacho/invariantes globais, input/IME e ownership;
+o registro do scope não concede autoridade backend e não migra handlers de teclado.
 
 ### I14 — Montagem final no ciclo de vida do App
 
@@ -426,6 +474,12 @@ Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invali
 - [ ] I14.6 — Testar instalação nova, upgrade, restart com pendência, falhas em cada etapa e retomada após erro; nunca mascarar indisponibilidade como mapa vazio pronto.
 
 Critério de saída: A base completa nasce, funciona e encerra dentro do App, ainda sem migrar os comandos existentes.
+
+Complemento da rodada atual: App.Shutdown fecha/drena o core mesmo sem controller,
+preservando dependências se falhar. Instalação de HostState/monitor compartilha a
+barreira terminal de montagem; uma construção rejeitada fecha o Service ainda não
+publicado. A fábrica completa continua interna e restrita a sessão local; sua
+existência não equivale a entradas habilitadas nem a providers UI autenticados.
 
 ### I15 — Qualificação e aceite da infraestrutura
 

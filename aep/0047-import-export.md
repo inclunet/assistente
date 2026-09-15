@@ -6,7 +6,9 @@
 
 Na continuação de 15/09/2026, testes do writer interno confirmam que referência
 ausente falha antes da decisão e erro do hook desfaz o lote. Keep sem mudanças
-não grava nem solicita decisão; a API ainda retorna `ErrInvalid` para esse no-op.
+não grava nem solicita decisão; a API retorna `ErrNoChanges` para esse no-op
+validado, sem mascarar owner ou referências revogados. Teste transacional do
+writer confirmado comprova regra de evento importada desabilitada e sem grants/claims.
 Lote global+workspace é recusado pela API atual de escopo único. Atomicidade
 multi-escopo e UX pública seguem pendentes, sem escritor paralelo.
 

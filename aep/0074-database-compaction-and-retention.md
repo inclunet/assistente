@@ -2,6 +2,13 @@
 
 **Status:** Done
 
+**Ligação do core, extensão In Progress (15/09/2026):** o encerramento real dos
+executores no processo atual agora produz prova para o writer existente do ledger.
+Isso não cobre restart. Adapters concretos de outbox/reconciliação usam lotes,
+continuação e reinício do cursor ao terminar cada ciclo. O coordinator conserva
+contagens confirmadas quando uma porta falha e não compacta após erro. Ainda falta
+montar a cadência única produtiva com heartbeat e todos os domínios de recuperação.
+
 **Continuação AEP-0103 (15/09/2026):** os adapters de jobs/tools agora paginam
 usuários, com cursor em memória por operação, reinício ao mudar política,
 continuação e contagem confirmada em cancelamento/erro. Passagens concorrentes

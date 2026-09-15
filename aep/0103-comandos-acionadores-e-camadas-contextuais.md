@@ -2,6 +2,32 @@
 
 **Status:** In Progress
 
+### Ligação do core — 15/09/2026
+
+O core agora fecha novas admissões e drena obrigatoriamente todos os executores
+registrados antes de emitir prova de suas gerações. O ledger consome essa prova
+no writer de recuperação existente; finalização bloqueada ou com falha foi
+exercitada com executor e SQLite reais, sem reexecução de efeito. App.Shutdown
+preserva dependências se a drenagem falhar. Isso não prova encerramento de um
+processo anterior: restart e montagem da manutenção continuam pendentes.
+Adapters reais ligam outbox/reconciliação ao coordinator e preservam continuação;
+o scope de decisão está no stack real de Modal, sem habilitar despacho físico.
+Importação interna distingue `ErrNoChanges` de entrada inválida e testa regra
+de evento desabilitada, sem concessões. Nenhum atalho de produto foi migrado.
+
+A fábrica interna completa do App compõe sessão, HostState e FactBus reais;
+decisões interativas usam o presenter real e a mesma raiz SQL do ledger. Recusa
+transações/DB estrangeiro, cofre fechado, SO desconhecido e sessão sem mapa
+reconstruído. Não é chamada pelo startup produtivo e não cria fallback para
+providers UI ausentes. Build/vet/lint e 31 pacotes envolvidos passaram após revisão;
+a suíte global da rodada teve 108 pacotes aprovados e falhas de processo em
+ACP/acpregistry. A validação completa permanece pendente.
+
+Contagem atual: **40/84 critérios locais, 44 abertos; 2/15 pacotes completos**.
+I11.4 encerrado com serialização negativa e preservação de grants/claims de regra
+intocada no destino. Não equivale à importação pública habilitada nem à conclusão
+da infraestrutura. As contagens abaixo registram rodadas anteriores.
+
 ### Continuação local de 15/09/2026 — mesmas cinco frentes
 
 Passagens de consumo e heartbeat agora usam lotes/cursor e TTL atual sem criar
