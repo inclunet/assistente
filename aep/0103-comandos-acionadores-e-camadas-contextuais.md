@@ -2,6 +2,29 @@
 
 **Status:** In Progress
 
+### Quinze pacotes existentes — 15/09/2026
+
+Rodada I01–I15 com seis agentes Luna, revisão cruzada e correções centrais.
+Inclui regressão dos fundamentos já entregues, não quinze pacotes novos ou
+quinze conclusões. **42/84 critérios locais, 42 abertos; 2/15 pacotes completos**.
+I11.1 foi encerrado com envelope v1/v2 entre bancos distintos, bindings/regras,
+deltas/needs_review e remapeamento de workspace. Montagem pública, multi-escopo
+e export sensível permanecem pendentes. Legados sensíveis em condição e
+apresentação agora são recusados pela validação compartilhada.
+
+Identidade de job reconsulta o grant real por geração exata, sem manutenção
+na leitura final. Mutação global do App reconstrói o mapa do banco e distingue
+commit de publicação; não repete efeito quando só o rebuild falha. Recuperação
+de receipts e invocações compartilha o coordinator e prova do core atual, não
+prova de restart. Teclado local interno revalida foco/surface e respeita barreira
+modal, sem instalar listener ou migrar comandos de produto.
+
+Qualificação encontrou contenção SQLite, corrigida com retry central de reserva
+e CAS, nunca do handler. Cada tentativa relê o relógio sem renovar deadlines.
+Desempenho integrado continua pendente: medição sintética não qualifica a meta
+experimental nem a experiência de teclado/UI. A tasklist registra as evidências
+atuais e os limites; contagens abaixo são históricas. BASE-PRONTA não atingido.
+
 ### Dez frentes existentes — 15/09/2026
 
 I03/I04/I05/I06/I08/I09/I11/I12/I13/I14 avançaram com seis agentes Luna e

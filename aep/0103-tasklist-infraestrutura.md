@@ -3,7 +3,85 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
-## Rodada atual — 15/09/2026, dez frentes existentes
+## Rodada atual — 15/09/2026, quinze pacotes existentes
+
+Rodada atravessa **I01–I15**, sem criar pacotes. Seis agentes Luna reutilizados,
+com revisão cruzada, implementação e correções centrais. I01/I02 e a parte de
+outbox/heartbeat de I09 recebem regressão, não uma nova implementação artificial.
+Trabalhar nos quinze pacotes não significa concluir os quinze.
+
+- **I03/I13:** entrada interna de teclado local respeita input/IME/repeat,
+  bloqueio modal e reserva da releitura; compara foco completo e surface antes
+  do handoff. Não instala listener. `decision.respond` não atravessa a ponte
+  genérica sem prova de diálogo; respostas reais continuam nos handlers atuais.
+- **I04/I15:** medição integrada revelou SQLITE_BUSY nas transações do ledger.
+  Reserva/CAS usam retry central apenas na transação raiz, nunca no handler;
+  resetam resultados por tentativa e reavaliam relógio sem renovar UUID/prazos.
+  Transação externa não ganha retry interno. Cancelamento após commit não
+  transforma sucesso em falha. Testes cobrem lock real, rollback, cancelamento,
+  replay vencido e preservação de registro existente.
+- **I05/I06/I07/I08:** ciclo regrant→disable→regrant testa hook real, rollback de
+  receipt/grant/geração/auditoria, workspace estrangeiro, cópia e restore sem
+  autoridade herdada. Preview não escreve. Simulação dinâmica e montagem de
+  todas as fontes de ativação continuam pendentes.
+- **I10:** identidade job_service verifica o grant real pela geração exata,
+  UUID, owner e fingerprint. Consulta final somente leitura, testada com SQLite
+  query_only; regrant posterior não autoriza identidade antiga. Runtime ainda
+  é porta confiável de teste, sem montagem produtiva nem inferência de grants.
+- **I11:** envelope interno v1/v2 liga serialização/parse ao writer confirmado.
+  Validação compartilhada recusa segredos legados também em condição e
+  apresentação. Regras importadas são canonizadas na ordem do Store antes do
+  CAS. Export local continua falhando fechado se o global herdado estiver
+  estruturalmente inválido; sem bypass da validação agregada. UI genérica,
+  multi-escopo e exportação sensível permanecem abertos.
+- **I09/I12:** recuperação de receipts usa prova real do core atual, cursor e
+  CAS/evento compartilhado. Coordinator testado com receipts e invocações reais
+  e outros domínios spies; continuação impede compactação. Não prova restart.
+- **I14:** wrapper privado de mutação global reconstrói a partir do banco e
+  vincula a geração à auditoria do commit. Revalida JWT, política e projeção
+  antes de publicar. Resultado distingue `Committed` de `Rebuilt`; conjunto de
+  camadas normaliza ordem/nil/vazio, sem aceitar duplicatas. Sem startup público.
+
+**Contagem: 42/84 critérios encerrados; 42 abertos; 2/15 pacotes completos.**
+I11.1 encerrado como infraestrutura interna: v1/v2, bindings executáveis,
+regras user/builtin, deltas/needs_review e remapeamento entre workspaces distintos
+passam pelo envelope e pelo writer confirmado, com reexportação comparada.
+Regras event-driven entram desabilitadas e sem concessões. Testes não usam JWT
+real nesse percurso, nem habilitam a UI genérica. Nenhum atalho de produto,
+transporte Wails, hardware ou segredo real habilitado. BASE-PRONTA continua
+pendente. Contagens das rodadas anteriores são históricas, não esforço percentual.
+
+Validação: suíte Go geral com dados temporários e módulos readonly teve **108
+pacotes aprovados; ACP/acpregistry falharam com `0xffffffff`**, como na reprodução
+anterior à rodada, ainda sem causa determinada. Após congelar as correções,
+**32 pacotes command*/App/jobs/database/config/portability/questionnaire/
+jobprofilegrant passaram juntos**. Ajustes finais exclusivamente de lint nos
+testes foram revalidados com casos focados de App/ledger/portability. Build e
+vet globais passaram; golangci-lint terminou com **zero apontamentos**.
+Frontend: **312 arquivos/2.933 testes passaram**; TypeScript e linters sem erros
+(1 warning ESLint e 2.159 Stylelint existentes). Corrigida espera assíncrona do
+teste TaskDetailModal: continua exigindo exatamente duas regiões acessíveis.
+Nenhum teste removido, nenhuma assinatura/binding Wails ou texto visível alterado.
+
+Medição final opt-in, Go 1.26.2 Windows/amd64, GOMAXPROCS=22, SQLite temporário
+WAL/NORMAL, quatro conexões e busy_timeout=100 ms, 20 aquecimentos + 200 amostras:
+serial p50 **3,8313 ms**, p95 **5,4742 ms**, p99 **7,0847 ms**; contenção sintética
+p50 **19,0721 ms**, p95 **191,6481 ms**, p99 **317,7258 ms**, 114.809 mutações.
+Cada cenário confirmou um handler e um par terminal por invocação (220).
+O pool da fixture mantém quatro conexões idle para configurar os pragmas,
+enquanto produto usa duas idle e timeout via DSN. Não mede foco/UI/hardware,
+não prova crash-durability e **não atende a meta experimental p95 < 1 ms**.
+I15.3 permanece aberto: retry corrige contenção transitória, não garante baixa
+latência nem sucesso sob saturação persistente. Race/C-GCC, Bugbot, CI, NVDA e
+hardware não qualificados. Sem push/PR/merge.
+
+Próximas saídas continuam nos pacotes existentes: prova de restart e composição
+de todos os domínios (I12/I14); providers e transporte autenticado com montagem
+do App (I03/I06/I10/I13/I14); simulação dinâmica e portabilidade pública/sensível
+(I05/I11); qualificação integrada e decisão sobre contenção (I15). Nenhuma dessas
+pendências foi descartada para melhorar artificialmente a contagem.
+
+## Rodada anterior — 15/09/2026, dez frentes existentes
 
 Frentes: **I03, I04, I05, I06, I08, I09, I11, I12, I13 e I14**.
 Seis agentes Luna reutilizados, com implementação, revisão e correções centrais.
@@ -444,7 +522,7 @@ Referências: D10, D11; AEP-0047.
 
 Evidência/limite atual: `commandportability` e `portability` registram commandLayers e planejam manter/substituir/copiar, com autorização de workspace, catálogo completo e patterns exatos. Contêineres `deltaOnly` preservam personalizações builtin sem camada artificial; camadas, defaults e regras usam portas distintas de referência. Grants/claims/histórico não são portáveis. O import/export genérico continua recusando o recurso. O writer interno confirmado e seu rollback agora são exercitados com hook real; montagem pública, multi-escopo e aceite agregado abaixo permanecem pendentes.
 
-- [ ] I11.1 — Versionar resources.commandLayers no envelope da AEP-0047 e implementar round-trip de deltas/needs_review e escopo portátil.
+- [x] I11.1 — Versionar resources.commandLayers no envelope da AEP-0047 e implementar round-trip de deltas/needs_review e escopo portátil.
 - [ ] I11.2 — Resolver UUIDs, refs builtin/user e mapa de workspaces no destino autenticado; conflito foreign_owner não revela conteúdo.
 - [ ] I11.3 — Implementar manter/substituir/cópia com remapeamento transacional; nome conflitante exige escolha explícita.
 - [x] I11.4 — Excluir grants, claims, defaults puros e histórico; regra event-driven importada fica sem concessão e desabilitada.
