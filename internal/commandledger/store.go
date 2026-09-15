@@ -30,6 +30,34 @@ func New(db *gorm.DB, now func() time.Time) (*Store, error) {
 	return &Store{db: db, now: now, maintenanceSeal: &maintenanceSeal{token: uuid.New()}}, nil
 }
 
+// UsesDatabase identifica somente a raiz SQL associada ao Store. Não expõe a
+// conexão nem concede autorização; serve para validar, antes da montagem de
+// serviços compostos, que duas operações transacionais apontarão para o mesmo
+// banco. A comparação segue a mesma identidade usada por ConsumeForDatabase.
+func (s *Store) UsesDatabase(db *gorm.DB) bool {
+	if s == nil || s.db == nil || s.db.Config == nil || db == nil || db.Config == nil || isTransactionalDB(s.db) || isTransactionalDB(db) {
+		return false
+	}
+	storeSQLDB, err := s.db.DB()
+	if err != nil || storeSQLDB == nil {
+		return false
+	}
+	databaseSQLDB, err := db.DB()
+	return err == nil && databaseSQLDB != nil && storeSQLDB == databaseSQLDB
+}
+
+func isTransactionalDB(db *gorm.DB) bool {
+	if db == nil {
+		return false
+	}
+	connPool := db.ConnPool
+	if db.Statement != nil && db.Statement.ConnPool != nil {
+		connPool = db.Statement.ConnPool
+	}
+	_, ok := connPool.(gorm.TxCommitter)
+	return ok
+}
+
 func (s *Store) Reserve(ctx context.Context, req LocalReadRequest) (Reservation, error) {
 	if s == nil || s.db == nil || ctx == nil {
 		return Reservation{}, ErrInvalidRequest
