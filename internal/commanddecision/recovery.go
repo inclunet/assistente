@@ -3,6 +3,7 @@ package commanddecision
 import (
 	"context"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"assistente/internal/commandsecurity"
@@ -84,28 +85,7 @@ func (s *Store) ReconcileSession(ctx context.Context, current commandsecurity.Ep
 			rows = rows[:limit]
 		}
 		for _, row := range rows {
-			if !validID(row.ID) {
-				return ErrInvalid
-			}
-			state := Cancelled
-			if row.ExpiresMS <= now.UnixMilli() {
-				state = Expired
-			}
-			updates := map[string]any{"status": state, "accepted_action_id": nil}
-			// Preserve quando o usuário respondeu; pending ganha o instante de
-			// encerramento. O evento registra separadamente a recuperação.
-			if row.RespondedAt == nil {
-				updates["responded_at"] = now.UnixMilli()
-			}
-			changed := tx.Model(&receiptRow{}).Where("decision_id = ? AND user_id = ? AND auth_context_id = ? AND status = ? AND auth_generation = ? AND security_generation = ? AND expires_at = ? AND consumed_at IS NULL",
-				row.ID, current.UserID, current.SessionID, row.State, row.AuthGeneration, row.SecurityGeneration, row.ExpiresMS).Updates(updates)
-			if changed.Error != nil {
-				return changed.Error
-			}
-			if changed.RowsAffected != 1 {
-				return ErrStale
-			}
-			if err := appendEvent(tx, row.ID, state, now); err != nil {
+			if err := closeRecoveryReceiptTx(tx, row, now); err != nil {
 				return err
 			}
 			result.Closed++
@@ -116,4 +96,31 @@ func (s *Store) ReconcileSession(ctx context.Context, current commandsecurity.Ep
 		return RecoveryResult{}, err
 	}
 	return result, nil
+}
+
+// closeRecoveryReceiptTx é o writer comum; elegibilidade vem do recovery
+// autenticado da sessão ou da prova opaca de drenagem. Evento e CAS são atômicos.
+func closeRecoveryReceiptTx(tx *gorm.DB, row receiptRow, now time.Time) error {
+	if !validID(row.ID) || !validID(row.UserID) || !validID(row.SessionID) ||
+		(row.State != Pending && row.State != Accepted) || row.AuthContextType != "local_session" ||
+		(row.SubjectType != "config_mutation" && row.SubjectType != "invocation") {
+		return ErrInvalid
+	}
+	state := Cancelled
+	if row.ExpiresMS <= now.UnixMilli() {
+		state = Expired
+	}
+	updates := map[string]any{"status": state, "accepted_action_id": nil}
+	if row.RespondedAt == nil {
+		updates["responded_at"] = now.UnixMilli()
+	}
+	changed := tx.Model(&receiptRow{}).Where("decision_id = ? AND user_id = ? AND auth_context_id = ? AND status = ? AND auth_generation = ? AND security_generation = ? AND expires_at = ? AND auth_context_type = ? AND subject_type = ? AND consumed_at IS NULL",
+		row.ID, row.UserID, row.SessionID, row.State, row.AuthGeneration, row.SecurityGeneration, row.ExpiresMS, row.AuthContextType, row.SubjectType).Updates(updates)
+	if changed.Error != nil {
+		return changed.Error
+	}
+	if changed.RowsAffected != 1 {
+		return ErrStale
+	}
+	return appendEvent(tx, row.ID, state, now)
 }

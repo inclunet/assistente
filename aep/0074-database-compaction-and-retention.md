@@ -2,6 +2,15 @@
 
 **Status:** Done
 
+**Rodada de quinze pacotes AEP-0103 (15/09/2026), extensão In Progress:**
+`commanddecision.CoordinatorRecovery` pagina receipts de todos os owners,
+exclusivamente com prova opaca de gerações drenadas no processo atual, e usa o
+mesmo CAS/evento da recuperação por sessão. Cancelamento e rollback preservam
+commits anteriores e cursor. Teste do coordinator compõe recuperação real de
+decisões e invocações em SQLite e impede compactação durante continuação;
+os demais domínios desse teste são spies. Prova de restart e montagem automática
+de todos os domínios no App continuam pendentes; idade não prova exclusão.
+
 **Rodada de dez frentes AEP-0103 (15/09/2026), extensão In Progress:** o
 coordinator agora recebe heartbeat antes da outbox, com a mesma política lida
 na passagem. O adapter concreto percorre leases em lotes de até 100 e não
