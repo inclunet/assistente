@@ -11,15 +11,23 @@ import (
 )
 
 type Store struct {
-	db  *gorm.DB
-	now func() time.Time
+	db              *gorm.DB
+	now             func() time.Time
+	maintenanceSeal *maintenanceSeal
+}
+
+// maintenanceSeal não pode ser construído por outro pacote. Sua identidade
+// fica presa ao Store criado pelo bootstrap; copiar o Store não cria uma
+// autorização nova para retenção.
+type maintenanceSeal struct {
+	token uuid.UUID
 }
 
 func New(db *gorm.DB, now func() time.Time) (*Store, error) {
 	if db == nil || now == nil {
 		return nil, ErrInvalidRequest
 	}
-	return &Store{db: db, now: now}, nil
+	return &Store{db: db, now: now, maintenanceSeal: &maintenanceSeal{token: uuid.New()}}, nil
 }
 
 func (s *Store) Reserve(ctx context.Context, req LocalReadRequest) (Reservation, error) {

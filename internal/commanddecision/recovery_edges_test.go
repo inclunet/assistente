@@ -216,7 +216,7 @@ func TestReconcileConcurrentCallsHaveOneRecoveryEvent(t *testing.T) {
 		select {
 		case <-release:
 		case <-ctx.Done():
-			tx.AddError(ctx.Err())
+			_ = tx.AddError(ctx.Err())
 		}
 	}); err != nil {
 		t.Fatalf("registrar barreira de concorrência: %v", err)

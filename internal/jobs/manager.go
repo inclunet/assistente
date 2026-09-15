@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"assistente/internal/commandmaintenance"
 	"assistente/internal/config"
 	"assistente/internal/database"
 	"assistente/internal/eventctx"
@@ -48,6 +49,14 @@ type ManagerConfig struct {
 	MsgGateway      *messaging.Gateway
 	SecretStore     SecretStore
 	EmitEvent       func(event string, data any) // Wails EventsEmit
+	// MaintenanceCoordinator é opcional durante a migração do bootstrap. Quando
+	// fornecido, ele é o único dono da passagem; sem ele permanece a cadência
+	// legada, sem criar um segundo loop.
+	MaintenanceCoordinator *commandmaintenance.Coordinator
+	// MaintenancePolicy é obrigatória quando MaintenanceCoordinator é fornecido.
+	// O bootstrap deve compor todos os domínios; Manager não lê settings legados
+	// para preencher uma política parcial nem cria defaults paralelos.
+	MaintenancePolicy *commandmaintenance.Policy
 }
 
 // Manager orquestra todos os componentes do sistema de jobs.
@@ -1662,6 +1671,22 @@ func maintenanceSettings() config.MaintenanceSettings {
 
 func (m *Manager) runRetention(ctx context.Context) {
 	if m.cfg.Repository == nil {
+		return
+	}
+	if m.cfg.MaintenanceCoordinator != nil {
+		if m.cfg.MaintenancePolicy == nil {
+			logging.Errorf(ctx, "jobs.manager", "instance maintenance skipped: complete policy was not provided by bootstrap")
+			return
+		}
+		policy := *m.cfg.MaintenancePolicy
+		if err := policy.Validate(); err != nil {
+			logging.Errorf(ctx, "jobs.manager", "instance maintenance skipped: invalid complete policy: %v", err)
+			return
+		}
+		_, err := m.cfg.MaintenanceCoordinator.Run(ctx, policy)
+		if err != nil {
+			logging.Errorf(ctx, "jobs.manager", "instance maintenance failed: %v", err)
+		}
 		return
 	}
 	maint := maintenanceSettings()

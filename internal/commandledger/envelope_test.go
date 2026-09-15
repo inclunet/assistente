@@ -309,8 +309,8 @@ func TestCompareAndSwapEnvelopeStoresImmutableTerminalResult(t *testing.T) {
 }
 
 func TestCompareAndSwapEnvelopeWithDecisionConsumesReceiptInSameTransaction(t *testing.T) {
-	req, now := envelopeRequest(t)
-	now = time.Now().UTC()
+	req, _ := envelopeRequest(t)
+	now := time.Now().UTC()
 	req.ExpiresAt = now.Add(24 * time.Hour)
 	ledger, db := testStore(t, &now)
 	if err := commanddecision.Migrate(context.Background(), db); err != nil {
@@ -358,8 +358,8 @@ func TestCompareAndSwapEnvelopeWithDecisionConsumesReceiptInSameTransaction(t *t
 }
 
 func TestCompareAndSwapEnvelopeWithDecisionRollsBackConsumedReceiptOnCASConflict(t *testing.T) {
-	req, now := envelopeRequest(t)
-	now = time.Now().UTC()
+	req, _ := envelopeRequest(t)
+	now := time.Now().UTC()
 	req.ExpiresAt = now.Add(24 * time.Hour)
 	ledger, db := testStore(t, &now)
 	if err := commanddecision.Migrate(context.Background(), db); err != nil {

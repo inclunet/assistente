@@ -1756,10 +1756,13 @@ func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return 0, err
 	}
-	cutoff := r.now().Add(-maxAge)
+	now := r.now()
+	cutoff := now.Add(-maxAge)
 	var runIDs []string
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.JobRun{}), "user_id").
-		Where("started_at < ?", cutoff).Pluck("id", &runIDs).Error; err != nil {
+	query := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.JobRun{}), "user_id").
+		Where("started_at < ?", cutoff)
+	query = r.retainableRunQuery(query, now)
+	if err := query.Pluck("id", &runIDs).Error; err != nil {
 		return 0, err
 	}
 	deleted := int64(0)
@@ -1798,6 +1801,7 @@ func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob i
 	ranked := r.db.WithContext(ctx).Model(&database.JobRun{}).
 		Select("id, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC, id DESC) AS rn").
 		Where("user_id = ?", userID)
+	ranked = r.retainableRunQuery(ranked, r.now())
 	var runIDs []string
 	if err := r.db.WithContext(ctx).
 		Table("(?) AS ranked", ranked).
@@ -1822,6 +1826,30 @@ func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob i
 		return 0, err
 	}
 	return int(deleted), nil
+}
+
+// retainableRunQuery protege runs não terminais que ainda sustentam uma
+// ativação. A exclusão só é elegível quando existe simultaneamente uma lease
+// viva e a claim ativa correspondente, no mesmo user/run/activation. Quando a
+// tabela de leases ainda não foi integrada pela migração central, nenhum run
+// não terminal é removido (fail closed).
+func (r *DBRepository) retainableRunQuery(query *gorm.DB, now time.Time) *gorm.DB {
+	terminal := []string{RunStatusCompleted, RunStatusFailed, RunStatusSkipped}
+	if !r.db.Migrator().HasTable("command_job_activation_leases") || !r.db.Migrator().HasTable("command_layer_activation_state") {
+		return query.Where("status IN ?", terminal)
+	}
+	return query.Where(`status IN ? OR (
+		status NOT IN ? AND EXISTS (
+			SELECT 1 FROM command_job_activation_leases lease
+			JOIN command_layer_activation_state claim
+			  ON claim.activation_id = lease.activation_id
+			 AND claim.user_id = lease.user_id
+			 AND claim.state = 'active'
+			WHERE lease.run_id = job_runs.id
+			  AND lease.user_id = job_runs.user_id
+			  AND lease.expires_at > ?
+		)
+	)`, terminal, terminal, now)
 }
 
 func (r *DBRepository) CleanOldEvents(ctx context.Context, maxAge time.Duration) (int, error) {

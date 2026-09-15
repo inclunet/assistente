@@ -36,7 +36,7 @@ func TestReconcileRejectsMissingDependencies(t *testing.T) {
 	req := validRequest()
 	now := req.ReceivedAt
 	s, _ = testStore(t, &now)
-	if ok, err := s.Reconcile(nil, req.Owner, req.InvocationID, func(context.Context, Record) (Status, error) {
+	if ok, err := s.Reconcile(nil, req.Owner, req.InvocationID, func(context.Context, Record) (Status, error) { //nolint:staticcheck // Testa deliberadamente a recusa de contexto nil.
 		t.Fatal("verificador inesperado")
 		return Succeeded, nil
 	}); ok || !errors.Is(err, ErrInvalidRequest) {

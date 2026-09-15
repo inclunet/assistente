@@ -20,13 +20,29 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 	}
 
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.AutoMigrate(&ledgerRow{}, &invocationRow{}); err != nil {
+		if err := tx.AutoMigrate(&ledgerRow{}, &invocationRow{}, &closedGenerationRow{}); err != nil {
 			return err
 		}
-		return tx.Exec(`
+		if err := tx.Exec(`
 CREATE UNIQUE INDEX IF NOT EXISTS ux_command_idempotency_keys_source_event_id
 ON command_idempotency_keys (source_event_id)
 WHERE source_event_id IS NOT NULL
+`).Error; err != nil {
+			return err
+		}
+		// NULL não participa de UNIQUE no SQLite; índices parciais separados
+		// tornam o ciclo system e os ciclos de usuário idempotentes sem FK.
+		if err := tx.Exec(`
+CREATE UNIQUE INDEX IF NOT EXISTS ux_command_closed_generation_user
+ON command_closed_generations (user_id, auth_context_type, auth_context_id, security_generation)
+WHERE user_id IS NOT NULL
+`).Error; err != nil {
+			return err
+		}
+		return tx.Exec(`
+CREATE UNIQUE INDEX IF NOT EXISTS ux_command_closed_generation_system
+ON command_closed_generations (auth_context_type, auth_context_id, security_generation)
+WHERE user_id IS NULL
 `).Error
 	})
 }

@@ -27,7 +27,7 @@ func edgeFixture(t *testing.T) (*gorm.DB, Request) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { sqlDB.Close() })
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestDecisionCancelledDuringAcceptanceNeverRecordsAccepted(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Callback().Update().Remove(hook) })
+	t.Cleanup(func() { _ = db.Callback().Update().Remove(hook) })
 	state, err := s.Decide(ctx, request)
 	if !updated || state != Cancelled || !errors.Is(err, context.Canceled) {
 		t.Fatal("cancelamento na gravação aceitou decisão", state, err)

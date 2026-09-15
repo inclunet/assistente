@@ -16,6 +16,39 @@ type RecoveryResult struct {
 	More   bool
 }
 
+// ReconcileSessions recupera lotes de sessões abandonadas fornecidos por um
+// enumerador interno autoritativo. A lista não é uma lista de IDs recebida da
+// UI: o chamador deve derivá-la do registro de sessões/epochs sob o gate.
+// Cada sessão usa a mesma transação e os mesmos CAS de ReconcileSession.
+// Cancelamento interrompe lotes futuros; lotes já confirmados permanecem
+// confirmados e são reportados em Closed.
+func (s *Store) ReconcileSessions(ctx context.Context, epochs []commandsecurity.EpochSnapshot, limit int) (RecoveryResult, error) {
+	if s == nil || ctx == nil || len(epochs) == 0 || limit < 1 || limit > MaxRecoveryBatch {
+		return RecoveryResult{}, ErrInvalid
+	}
+	var total RecoveryResult
+	for _, epoch := range epochs {
+		if err := ctx.Err(); err != nil {
+			return total, err
+		}
+		remaining := limit - total.Closed
+		if remaining <= 0 {
+			total.More = true
+			return total, nil
+		}
+		result, err := s.ReconcileSession(ctx, epoch, remaining)
+		total.Closed += result.Closed
+		total.More = result.More
+		if err != nil {
+			return total, err
+		}
+		if result.More {
+			return total, nil
+		}
+	}
+	return total, nil
+}
+
 // ReconcileSession encerra somente pending/accepted vencidos ou de um epoch
 // anterior da MESMA sessão. O chamador autenticado deve manter o gate exclusivo
 // e revalidar current antes da chamada. Não autoriza, apresenta, consome nem
