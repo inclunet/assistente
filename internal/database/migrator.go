@@ -320,6 +320,12 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     func(*gorm.DB) error { return errMigrationDeferred },
 	},
+	{
+		Version: 27,
+		Name:    "command_config_import_audit",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

@@ -233,12 +233,12 @@ func TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if diagnostic.SchemaVersion != 19 || diagnostic.AppliedCount != len(schemaMigrations)-5 || !reflect.DeepEqual(diagnostic.PendingVersions, []int{20, 21, 22, 23, 26}) {
+			if diagnostic.SchemaVersion != 19 || diagnostic.AppliedCount != len(schemaMigrations)-6 || !reflect.DeepEqual(diagnostic.PendingVersions, []int{20, 21, 22, 23, 26, 27}) {
 				t.Fatalf("pendências antes da composição de comandos: %#v", diagnostic)
 			}
 			// O registro exige handshake explícito do host; o DDL real desses
 			// callbacks é validado nos testes de commandbootstrap.
-			for _, finish := range []func(context.Context, *gorm.DB, func(*gorm.DB) error) error{ApplyCommandStorageMigration, ApplyCommandEnvelopeMigration, ApplyCommandConfigMigration, ApplyCommandActivationMigration, ApplyCommandJobActivationMigration} {
+			for _, finish := range []func(context.Context, *gorm.DB, func(*gorm.DB) error) error{ApplyCommandStorageMigration, ApplyCommandEnvelopeMigration, ApplyCommandConfigMigration, ApplyCommandActivationMigration, ApplyCommandJobActivationMigration, ApplyCommandImportMigration} {
 				if err := finish(context.Background(), database, func(*gorm.DB) error { return nil }); err != nil {
 					t.Fatal(err)
 				}

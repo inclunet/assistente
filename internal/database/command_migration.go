@@ -33,6 +33,10 @@ func ApplyCommandJobActivationMigration(ctx context.Context, db *gorm.DB, apply 
 	return applyCommandMigration(ctx, db, 26, "command_job_activation_consumer", apply)
 }
 
+func ApplyCommandImportMigration(ctx context.Context, db *gorm.DB, apply func(*gorm.DB) error) error {
+	return applyCommandMigration(ctx, db, 27, "command_config_import_audit", apply)
+}
+
 func applyCommandMigration(ctx context.Context, db *gorm.DB, version int, name string, apply func(*gorm.DB) error) error {
 	if ctx == nil || db == nil || apply == nil {
 		return errors.New("migração de comandos inválida")

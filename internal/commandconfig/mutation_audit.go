@@ -67,7 +67,7 @@ func mutationAuditSchema() string {
 	s := mutationAuditSchemaV1()
 	s = strings.Replace(s, "CHECK (schema_version = 1)", "CHECK (schema_version IN (1,2))", 1)
 	s = strings.Replace(s, "CHECK (scope = 'global')", "CHECK (scope IN ('global','workspace'))", 1)
-	s = strings.Replace(s, "CHECK (operation = 'binding_enabled')", "CHECK (operation IN ('binding_enabled','layer_create','layer_update','layer_delete','layer_enable','layer_disable','layer_restore','binding_create','binding_update','binding_delete','binding_enable','binding_disable','binding_restore','config_restore','rule_create','rule_update','rule_delete','rule_enable','rule_disable','rule_restore','default_upgrade','default_rebase'))", 1)
+	s = strings.Replace(s, "CHECK (operation = 'binding_enabled')", "CHECK (operation IN ('binding_enabled','layer_create','layer_update','layer_delete','layer_enable','layer_disable','layer_restore','binding_create','binding_update','binding_delete','binding_enable','binding_disable','binding_restore','config_restore','config_import','rule_create','rule_update','rule_delete','rule_enable','rule_disable','rule_restore','default_upgrade','default_rebase'))", 1)
 	s = strings.Replace(s, "binding_id TEXT NOT NULL", "binding_id TEXT", 1)
 	s = strings.Replace(s, "before_enabled BOOLEAN NOT NULL", "before_enabled BOOLEAN", 1)
 	s = strings.Replace(s, "after_enabled BOOLEAN NOT NULL", "after_enabled BOOLEAN", 1)

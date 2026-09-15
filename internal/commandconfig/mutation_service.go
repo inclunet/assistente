@@ -50,6 +50,10 @@ func (s *MutationService) Apply(ctx context.Context, token string, workspace *st
 // applyPrepared é o único percurso de autenticação/decisão/commit também para
 // upgrades e rebase. A função de preparação é interna, nunca recebida da UI.
 func (s *MutationService) applyPrepared(ctx context.Context, token string, workspace *string, operation Operation, prepare func(context.Context, Scope) (*PreparedMutation, error)) (MutationDiff, error) {
+	return s.applyPreparedWithRevalidation(ctx, token, workspace, operation, prepare, nil)
+}
+
+func (s *MutationService) applyPreparedWithRevalidation(ctx context.Context, token string, workspace *string, operation Operation, prepare func(context.Context, Scope) (*PreparedMutation, error), revalidateImport func(context.Context) error) (MutationDiff, error) {
 	if s == nil || ctx == nil {
 		return MutationDiff{}, ErrInvalid
 	}
@@ -124,7 +128,13 @@ func (s *MutationService) applyPrepared(ctx context.Context, token string, works
 		if v != version {
 			return ErrStale
 		}
-		return s.config.Validate(ctx, cloneConfigSnapshot(p.after))
+		if err := s.config.Validate(ctx, cloneConfigSnapshot(p.after)); err != nil {
+			return err
+		}
+		if revalidateImport != nil {
+			return revalidateImport(ctx)
+		}
+		return nil
 	}, func() error {
 		return s.config.Store.CommitConfirmedMutation(ctx, confirmed, epoch, s.config.OnMutationTx)
 	})

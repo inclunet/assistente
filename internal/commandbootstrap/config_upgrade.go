@@ -24,8 +24,18 @@ func legacyConfigObject(obj schemaObject) schemaObject {
 // v22–v25 já tinham documentos v2, mas ainda não os verbos de regras.
 // A comparação continua integral; não se aceita um CHECK arbitrário.
 func legacyRulesObject(obj schemaObject) schemaObject {
+	obj = legacyImportObject(obj)
 	if obj.Name == "command_config_mutations" {
 		obj.SQL = strings.Replace(obj.SQL, "'rule_create','rule_update','rule_delete','rule_enable','rule_disable','rule_restore',", "", 1)
+	}
+	return obj
+}
+
+// v26 contém os verbos de regras, mas ainda não config_import. Reconhecer o
+// DDL inteiro preserva a recusa de CHECKs desconhecidos durante o upgrade.
+func legacyImportObject(obj schemaObject) schemaObject {
+	if obj.Name == "command_config_mutations" {
+		obj.SQL = strings.Replace(obj.SQL, "'config_import',", "", 1)
 	}
 	return obj
 }
@@ -47,7 +57,7 @@ func upgradeConfigObjects(tx *gorm.DB, want map[string]schemaObject) error {
 		if normalizeDDL(current) == normalizeDDL(obj) {
 			continue
 		}
-		if normalizeDDL(legacyConfigObject(current)) != normalizeDDL(obj) && normalizeDDL(legacyRulesObject(current)) != normalizeDDL(obj) {
+		if normalizeDDL(legacyConfigObject(current)) != normalizeDDL(obj) && normalizeDDL(legacyRulesObject(current)) != normalizeDDL(obj) && normalizeDDL(legacyImportObject(current)) != normalizeDDL(obj) {
 			return ErrStorage
 		}
 		var columns []struct{ Name string }
