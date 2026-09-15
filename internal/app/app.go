@@ -104,24 +104,26 @@ type App struct {
 	updater          *updater.Updater            // Gerenciador de atualizações automáticas
 	wakeLock         wakelock.Manager            // Previne bloqueio/suspensão quando a janela está em foco
 
-	credMgr           *credentials.Manager
-	credStore         credentials.Store
-	vaultSvc          *auth.VaultService
-	identitySvc       *auth.IdentityService
-	sessionSvc        *auth.SessionService
-	httpAPIServer     *http.Server
-	authMu            sync.RWMutex
-	authSessionMu     sync.Mutex
-	commandEpochsOnce sync.Once
-	commandEpochs     *commandsecurity.EpochService
-	commandEpochsErr  error
-	commandHost       *commandexecution.HostState // protegido por authMu; bootstrap serializado
-	commandOSStarted  bool // protegido por authMu; uma execução por App
-	currentUserID     string
-	currentAuthUser   *AuthUser
-	authKeyringLoad   func() (string, error)
-	authKeyringSave   func(string) error
-	authKeyringDelete func() error
+	credMgr               *credentials.Manager
+	credStore             credentials.Store
+	vaultSvc              *auth.VaultService
+	identitySvc           *auth.IdentityService
+	sessionSvc            *auth.SessionService
+	httpAPIServer         *http.Server
+	authMu                sync.RWMutex
+	authSessionMu         sync.Mutex
+	commandEpochsOnce     sync.Once
+	commandEpochs         *commandsecurity.EpochService
+	commandEpochsErr      error
+	commandHost           *commandexecution.HostState // protegido por authMu; bootstrap serializado
+	commandStorageVersion string                      // prontidão de armazenamento, NÃO de execução; authMu
+	commandStorageErr     error                       // falha retida sem impedir autenticação legada; authMu
+	commandOSStarted      bool                        // protegido por authMu; uma execução por App
+	currentUserID         string
+	currentAuthUser       *AuthUser
+	authKeyringLoad       func() (string, error)
+	authKeyringSave       func(string) error
+	authKeyringDelete     func() error
 
 	// Watcher de arquivos do editor (mudanças externas)
 	editorWatchMu             sync.Mutex

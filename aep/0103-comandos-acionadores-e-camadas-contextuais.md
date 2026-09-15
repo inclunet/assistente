@@ -1323,6 +1323,9 @@ command_event_replay_policy_epochs
   id, producer_type, generation, effective_at, replay_horizon_seconds,
   created_at
 
+command_key_versions
+  id PK UUIDv7, version UNIQUE, digest SHA-256, active
+
 command_job_activation_outbox
   source_event_id PK UUIDv7, user_id, job_database_id, job_slug, run_id,
   sequence, state, occurred_at, root_origin_type, provenance,
@@ -1894,6 +1897,45 @@ consolida a baseline de acompanhamento: pacotes, dependências, critérios de
 saída e rastreabilidade dos critérios finais. Ele não altera os contratos desta
 AEP nem declara concluídos os incrementos parciais abaixo. A infraestrutura e
 a posterior migração/população de comandos possuem marcos separados.
+
+### Evidência I01 — armazenamento e chaves operacionais
+
+`internal/commandbootstrap` compõe as migrações de configuração, receipts e
+ledger. A migração v20 `command_storage_initial` pertence ao registro central
+da AEP-0076: fica adiada na abertura genérica do banco e é concluída pelo host
+com dados e carimbo na mesma transação. O App chama a preparação após carregar
+o cofre, tanto na inicialização quanto em sua reconfiguração. Não há executor,
+mapa ou adapter habilitado por esse passo; prontidão de armazenamento é distinta
+de prontidão de execução. Falha é retida e não impede autenticação legada.
+
+O schema conhecido é validado antes de alteração e após migração, inclusive
+quando já carimbado. Schema desconhecido/índice incompatível falha fechado e
+preserva os dados. A comparação tolera somente reordenação de definições de
+colunas/constraints de tabela; expressões e ordem de colunas dos índices são
+preservadas. SQLite privado em memória fornece a referência a partir das mesmas
+definições dos repositories, evitando manter uma segunda cópia do DDL.
+
+`credentials.Manager.EnsureInstanceSecret` lê o armazenamento exato de instância
+e usa insert-if-absent, nunca upsert destrutivo nem fallback user-scoped. Exige
+persistência e cofre previamente validado. O vencedor de uma corrida é relido e
+decifrado; entrada ilegível/vazia/tipo incorreto não é substituída.
+
+`PrepareKeys` cria a chave de fingerprint apenas em armazenamento sem histórico
+que dependa dela, valida base64 e vincula cada versão a digest não secreto em
+`command_key_versions`. Ausência ou troca de chave já registrada falha fechado.
+`RotateKeys` é uma porta interna de manutenção explícita com versão esperada e
+CAS: conserva versões anteriores e não altera JWT, pepper ou DEK. Todas as
+versões são conservadas indefinidamente nesta etapa, portanto nunca menos que
+o horizonte dos ledgers; eventual coleta segura pertence a I12. Queda depois de
+criar a próxima chave, mas antes de ativar a versão, permite retentar sem trocar
+a chave. A futura composição do executor deve suspender admissões durante a
+rotação e publicar a versão retornada; não existe endpoint público de rotação.
+
+Testes usam bancos/DEKs sintéticos e cobrem primeira abertura, reabertura,
+adoção do schema experimental, drift, rollback/carimbo, concorrência, cofre
+indisponível, recuperação de prontidão e rotação. Validação integral de releases,
+race, ferramentas de lint/review e integração final de execução continuam em
+I15/I14; o AEP permanece In Progress.
 
 ### Evidência incremental — protótipo da Fase 0
 

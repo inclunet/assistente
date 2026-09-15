@@ -13,6 +13,24 @@ o conjunto de origens suportadas.
 
 ## Matriz versionada
 
+### Incremento não publicado — AEP-0103 / I01
+
+A v20 `command_storage_initial` é concluída na composição do host, depois da
+abertura genérica do banco. Caminhos sem esse bootstrap deixam v20 pendente,
+sem habilitar comandos. Usa o histórico central e não remove migrações legadas.
+`internal/commandbootstrap/schema_test.go` cobre banco novo, schema experimental
+pré-I01, reabertura, rejeição de drift sem perda e concorrência; os testes de
+registro verificam a conclusão explícita. O corpus publicado permanece
+obrigatório para a qualificação I15; esta evidência não declara a matriz inteira
+reexecutada nem uma nova release publicada.
+
+Chaves de comandos são cifradas pelo cofre existente e nunca substituídas
+automaticamente quando faltam para um histórico persistido. Indisponibilidade
+de chave/schema desabilita a prontidão de comandos, não o login legado. Não há
+procedimento de exclusão de chaves antigas nesta etapa.
+
+### Caminhos já publicados
+
 | Caminho legado | Call site de produção | Introduzido | Primeira release que depende dele | Cobertura verificável | Risco de remoção |
 |---|---|---:|---:|---|---|
 | Banco com PK `INTEGER` → UUIDv7 | `database.Init` → migração v1 | 5d3d7eb9 (2026-04-26) | 0.2.0 | fixture SQL 0.1.9 + teste de upgrade direto; testes de relações em `migration_uuid_test.go` | Crítico: 0.1.9 não inicia/preserva relações |

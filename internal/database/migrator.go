@@ -276,6 +276,14 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     migrateToolLedgerPhysicalCutover,
 	},
+	{
+		Version: 20,
+		Name:    "command_storage_initial",
+		Phase:   phasePostAutoMigrate,
+		// O host compõe os repositories sem criar ciclo database → credentials
+		// → database. Sem essa composição, comandos permanecem indisponíveis.
+		Run: func(*gorm.DB) error { return errMigrationDeferred },
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

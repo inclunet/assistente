@@ -117,6 +117,22 @@ Ele não inclui caminhos, IDs, conteúdo ou credenciais.
    0.3.0, 0.4.0 e 0.5.0 são semanticamente equivalentes. Proveniência,
    fingerprints e limites ficam no README das fixtures.
 
+## Complemento AEP-0103 — migração de comandos composta pelo host
+
+A v20 `command_storage_initial` foi acrescentada ao registro, sem renumerar
+versões anteriores. Na fase pós-AutoMigrate genérica ela retorna adiamento:
+o pacote database não pode importar repositories que dependem de credentials
+(que já depende de database). O App fornece a composição pela porta interna
+`ApplyCommandStorageMigration`, de versão/nome fixos, após carregar o cofre.
+Não há registro dinâmico global nem segundo histórico de migrações.
+
+Essa porta usa a mesma `schema_migrations` e o mesmo espelho contíguo
+`user_version`, com aplicação e carimbo transacionais. Sem composição, v20
+permanece visivelmente pendente e comandos ficam indisponíveis; o restante do
+App não é bloqueado. Nome incompatível na versão é recusado. Testes do registro
+real verificam o estado pendente, a conclusão explícita e o segundo boot no-op;
+testes de commandbootstrap verificam o schema composto real e sua adoção.
+
 ## Riscos
 
 - **Crash entre aplicar e registrar**: mitigado pela idempotência obrigatória — a migração reroda no próximo boot sem dano. Optou-se por não envolver `Run` + registro numa transação única porque algumas migrações (UUIDv7) já gerenciam transações próprias.

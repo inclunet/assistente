@@ -49,6 +49,7 @@ func (a *App) initCredentialManager() {
 	}
 	a.handleVaultIntegrityOnBoot()
 	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
+	a.initCommandStorage()
 }
 
 // handleVaultIntegrityOnBoot reage ao status de integridade do vault
@@ -152,6 +153,7 @@ func (a *App) registerEnvCredentials(ctx context.Context, credMgr *credentials.M
 }
 
 func (a *App) configureCredentialManager(dek []byte, persist bool) {
+	a.clearCommandStorageReadiness()
 	if a.credStore == nil {
 		a.credStore = credentials.NewDBStore()
 	}
@@ -169,6 +171,7 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 	}
 	a.handleVaultIntegrityOnBoot()
 	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
+	a.initCommandStorage()
 }
 
 // HasMasterKey verifica se uma master key (senha mestre) já foi configurada no banco.
