@@ -255,6 +255,7 @@ const en = {
         streamingIdleTimeout: 'Provider stopped responding mid-generation (idle timeout).',
         streamingRetriesExhausted: 'The response could not be completed after several connection attempts.',
         streamingPromptCacheHintRejected: 'The provider rejected the cache hint even after it was disabled. Check the gateway configuration or disable cache hints in the profile.',
+        streamingTokenRateLimit: 'The provider token quota was reached (HTTP 429). Wait for the quota to reset and try again.',
       },
       stopReading: 'Stop reading',
       stopReadingLabel: 'Stop text reading',

@@ -255,6 +255,7 @@ const ptBR = {
         streamingIdleTimeout: 'O provedor parou de responder no meio da geração (timeout de inatividade).',
         streamingRetriesExhausted: 'Não foi possível concluir a resposta após várias tentativas de conexão.',
         streamingPromptCacheHintRejected: 'O provedor rejeitou a dica de cache mesmo depois de ela ser desativada. Verifique a configuração do gateway ou desative as dicas de cache no perfil.',
+        streamingTokenRateLimit: 'A cota de tokens do provedor foi atingida (HTTP 429). Aguarde a renovação da cota e tente novamente.',
       },
       stopReading: 'Parar leitura',
       stopReadingLabel: 'Parar leitura de texto',
