@@ -230,17 +230,35 @@ func coerceStringEncodedInts(args json.RawMessage, keys ...string) json.RawMessa
 	return coerced
 }
 
+// argParseError classifica a falha de desserialização de argumentos como
+// permanente (InvalidArgs, não-retentável). Assim, jobs encadeados que chamam a
+// tool com argumentos inválidos não entram em loop de retry — o executor já
+// suprime retry quando a tool declara a retryability (tools.Executor →
+// jobs.executor). Cobre o caso residual de argumentos que a coerção não
+// consegue normalizar (ex.: {"type":"abc"} ou JSON malformado).
+func argParseError(err error) tools.ToolResult {
+	return tools.ToolResult{
+		Content: "Error parsing arguments: " + err.Error(),
+		IsError: true,
+		Failure: &tools.ToolFailure{
+			Code:      "invalid_arguments",
+			Kind:      tools.ErrorKindInvalidArgs,
+			Retryable: false,
+		},
+	}
+}
+
 func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	// Tolera inteiros serializados como string (ex.: {"type":"2"}), padrão comum
 	// de LLMs, antes de desserializar nos campos int do struct.
 	args = coerceStringEncodedInts(args, "type", "limit")
 	var params taskNoteArgs
 	if err := json.Unmarshal(args, &params); err != nil {
-		return tools.ToolResult{Content: "Error parsing arguments: " + err.Error(), IsError: true}, nil
+		return argParseError(err), nil
 	}
 	var rawFields map[string]json.RawMessage
 	if err := json.Unmarshal(args, &rawFields); err != nil {
-		return tools.ToolResult{Content: "Error parsing arguments: " + err.Error(), IsError: true}, nil
+		return argParseError(err), nil
 	}
 	params.TaskListID = strings.TrimSpace(params.TaskListID)
 	if params.TaskID != nil {

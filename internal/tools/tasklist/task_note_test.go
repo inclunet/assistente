@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/tools"
 )
 
 // TestParseExternalUpdatedAt_JiraOffset garante que external_updated_at aceita o
@@ -308,6 +309,37 @@ func TestTaskNote_CoercesStringEncodedIntArgs(t *testing.T) {
 	}
 	if len(body.Notes) != 1 || !body.HasMore {
 		t.Fatalf("limit=\"1\" deveria retornar 1 nota com has_more=true: %+v", body)
+	}
+}
+
+// TestTaskNote_InvalidArgsAresPermanentFailure garante que argumentos que a
+// coerção não normaliza (string não-numérica ou JSON malformado) resultam em
+// falha permanente (InvalidArgs, não-retentável), evitando loop de retry em
+// jobs encadeados.
+func TestTaskNote_InvalidArgsArePermanentFailure(t *testing.T) {
+	tool := NewTaskNote(newFakeManager(t))
+	cases := []struct {
+		name string
+		args json.RawMessage
+	}{
+		{name: "type não-numérico", args: json.RawMessage(`{"task_id":"x","type":"abc","content":"y"}`)},
+		{name: "JSON malformado", args: json.RawMessage(`{"type":`)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := tool.Execute(context.Background(), tc.args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.Failure == nil {
+				t.Fatalf("esperava falha estruturada, got %+v", result)
+			}
+			if result.Failure.Code != "invalid_arguments" ||
+				result.Failure.Kind != tools.ErrorKindInvalidArgs ||
+				result.Failure.Retryable {
+				t.Fatalf("falha deveria ser invalid_arguments não-retentável: %+v", result.Failure)
+			}
+		})
 	}
 }
 
