@@ -97,6 +97,67 @@ type TriggerContext struct {
 	EventPayload map[string]any
 	ChainID      string   // ID da cadeia (para circuit breaker)
 	ChainHistory []string // jobs ja executados nesta cadeia
+	// RootOriginType/ID só devem ser preenchidos por adapters autenticados. Em
+	// particular, um evento legado sem essa prova permanece unknown e não ativa
+	// camadas de comando.
+	RootOriginType string
+	RootOriginID   string
+	Provenance     map[string]any
+}
+
+func (e *JobExecutor) persistIncremental(ctx context.Context, run *RunLog, event *RunEvent) error {
+	if e == nil || e.repository == nil {
+		return nil
+	}
+	repo, ok := e.repository.(IncrementalRunRepository)
+	if !ok {
+		return nil
+	}
+	return repo.PersistRunState(ctx, run, event)
+}
+
+func runRoot(trigger *TriggerContext, runID string) (string, string) {
+	if trigger == nil {
+		return "unknown", ""
+	}
+	rootType := strings.TrimSpace(trigger.RootOriginType)
+	rootID := strings.TrimSpace(trigger.RootOriginID)
+	if rootType != "" {
+		return rootType, rootID
+	}
+	// Somente o runtime atual pode derivar as raízes internas simples. Um
+	// trigger event não é promovido a internal_event sem prova do adapter.
+	switch trigger.Type {
+	case TriggerManual:
+		return "manual", runID
+	case TriggerCron:
+		return "cron", runID
+	case TriggerInterval:
+		return "interval", runID
+	case TriggerHotkey:
+		return "user_hotkey", runID
+	default:
+		return "unknown", ""
+	}
+}
+
+func cloneMap(input map[string]any) map[string]any {
+	if len(input) == 0 {
+		return nil
+	}
+	output := make(map[string]any, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
+func newRunEvent(runID string, sequence int, eventType, message string, data map[string]any) RunEvent {
+	id, err := uuid.NewV7()
+	if err != nil {
+		id = uuid.New()
+	}
+	return RunEvent{ID: id.String(), RunID: runID, Sequence: sequence, Timestamp: time.Now(), Type: eventType, Message: message, Data: data}
 }
 
 // Execute executa um job: resolve inputs, chama a tool, processa output, emite eventos.
@@ -125,6 +186,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 	ctx = logging.WithAttrs(ctx, logAttrs...)
 	logger := logging.Logger(ctx, "jobs.executor")
 
+	rootType, rootID := runRoot(trigCtx, runID)
 	rl := &RunLog{
 		RunID: runID,
 		JobID: job.ID,
@@ -137,7 +199,22 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 			Keys:       trigCtx.Keys,
 			When:       trigCtx.When,
 		},
-		StartedAt: time.Now(),
+		Status:         RunStatusQueued,
+		QueuedAt:       time.Now(),
+		RootOriginType: rootType,
+		RootOriginID:   rootID,
+		Provenance:     cloneMap(trigCtx.Provenance),
+	}
+
+	// A fila é persistida antes de qualquer callback/dispatch. O evento
+	// `queued` é a primeira fronteira observável do run.
+	durableCtx := context.WithoutCancel(ctx)
+	queuedEvent := newRunEvent(runID, 1, RunStatusQueued, fmt.Sprintf("[%s] -> %s QUEUED", trigCtx.Type, job.ID), nil)
+	rl.RunEvents = append(rl.RunEvents, queuedEvent)
+	if err := e.persistIncremental(durableCtx, rl, &queuedEvent); err != nil {
+		rl.Status = RunStatusFailed
+		rl.Error = fmt.Sprintf("persist queued run: %v", err)
+		return rl
 	}
 
 	if e.onRunStart != nil {
@@ -146,11 +223,29 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 
 	defer func() {
 		rl.CompletedAt = time.Now()
-		rl.Duration = rl.CompletedAt.Sub(rl.StartedAt).String()
+		if !rl.StartedAt.IsZero() {
+			rl.Duration = rl.CompletedAt.Sub(rl.StartedAt).String()
+		}
+		previousEvents := len(rl.RunEvents)
 		rl.addTerminalRunEvent(job.ID)
 		rl.Replayable = rl.Status != "skipped" && rl.ToolName != "" && rl.ResolvedInputs != nil && !ContainsRedactedValue(rl.ResolvedInputs)
 
-		if e.repository != nil {
+		if _, incremental := e.repository.(IncrementalRunRepository); incremental {
+			var terminal *RunEvent
+			if len(rl.RunEvents) > previousEvents {
+				terminal = &rl.RunEvents[len(rl.RunEvents)-1]
+			} else if len(rl.RunEvents) > 0 {
+				candidate := rl.RunEvents[len(rl.RunEvents)-1]
+				if candidate.Type == RunStatusCompleted || candidate.Type == RunStatusFailed || candidate.Type == RunStatusSkipped {
+					terminal = &candidate
+				}
+			}
+			if terminal != nil {
+				if err := e.persistIncremental(durableCtx, rl, terminal); err != nil {
+					logger.Error("failed to log final job run", slog.Any("error", err))
+				}
+			}
+		} else if e.repository != nil {
 			persistCtx := context.WithoutCancel(ctx)
 			if err := e.repository.LogRun(persistCtx, rl); err != nil {
 				logger.Error("failed to log job run", slog.Any("error", err))
@@ -164,7 +259,8 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		}
 	}()
 
-	rl.addRunEvent("triggered", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
+	triggered := newRunEvent(runID, 0, "triggered", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
+	rl.RunEvents = append(rl.RunEvents, triggered)
 
 	// Circuit breaker: rate limit
 	if err := e.circuitBreaker.CheckRateLimit(job.ID, job.MaxRunsPerHour); err != nil {
@@ -242,6 +338,15 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 			}
 		}
 
+		rl.Status = RunStatusRunning
+		started := newRunEvent(runID, 0, RunStatusRunning, fmt.Sprintf("[%s] STARTED attempt %d", job.ID, attempt+1), map[string]any{"attempt": attempt + 1})
+		rl.RunEvents = append(rl.RunEvents, started)
+		if err := e.persistIncremental(durableCtx, rl, &started); err != nil {
+			rl.Status = RunStatusFailed
+			rl.Error = fmt.Sprintf("persist started run: %v", err)
+			return rl
+		}
+
 		output, err := e.executeSingle(ctx, job, trigCtx, rl)
 		attemptsMade++
 		if err == nil {
@@ -263,9 +368,16 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 			break
 		}
 		if attempt+1 < maxAttempts {
-			rl.addRunEvent("retry_scheduled", fmt.Sprintf("[%s] RETRY SCHEDULED after attempt %d", job.ID, attempt+1), map[string]any{
+			rl.Status = RunStatusRetrying
+			retryEvent := newRunEvent(runID, 0, "retry_scheduled", fmt.Sprintf("[%s] RETRY SCHEDULED after attempt %d", job.ID, attempt+1), map[string]any{
 				"attempt": attempt + 1,
 			})
+			rl.RunEvents = append(rl.RunEvents, retryEvent)
+			if err := e.persistIncremental(durableCtx, rl, &retryEvent); err != nil {
+				rl.Status = RunStatusFailed
+				rl.Error = fmt.Sprintf("persist retry run: %v", err)
+				return rl
+			}
 		}
 	}
 
@@ -890,14 +1002,7 @@ func (rl *RunLog) addRunEvent(eventType, message string, data map[string]any) {
 	if rl == nil {
 		return
 	}
-	rl.RunEvents = append(rl.RunEvents, RunEvent{
-		RunID:     rl.RunID,
-		Sequence:  len(rl.RunEvents) + 1,
-		Timestamp: time.Now(),
-		Type:      eventType,
-		Message:   message,
-		Data:      data,
-	})
+	rl.RunEvents = append(rl.RunEvents, newRunEvent(rl.RunID, len(rl.RunEvents)+1, eventType, message, data))
 }
 
 func (rl *RunLog) addTerminalRunEvent(jobID string) {

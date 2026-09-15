@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 )
@@ -12,6 +13,17 @@ const (
 	JobStatusIdle    JobStatus = "idle"
 	JobStatusRunning JobStatus = "running"
 	JobStatusError   JobStatus = "error"
+)
+
+// Estados persistidos de uma execução. Não devem ser confundidos com
+// JobStatus, que é a projeção resumida usada pelo registry/UI.
+const (
+	RunStatusQueued    = "queued"
+	RunStatusRunning   = "running"
+	RunStatusRetrying  = "retrying"
+	RunStatusCompleted = "completed"
+	RunStatusFailed    = "failed"
+	RunStatusSkipped   = "skipped"
 )
 
 // TriggerType identifica o tipo de trigger que dispara um job.
@@ -172,11 +184,15 @@ type TriggerInfo struct {
 
 // RunLog registra uma execucao individual de um job.
 type RunLog struct {
-	RunID          string         `json:"run_id"`
-	JobID          string         `json:"job_id"`
+	RunID string `json:"run_id"`
+	JobID string `json:"job_id"`
+	// JobDatabaseID é a identidade física do job. JobID continua sendo o slug
+	// público para preservar a superfície existente.
+	JobDatabaseID  string         `json:"-"`
 	ToolName       string         `json:"tool_name,omitempty"`
 	Trigger        TriggerInfo    `json:"trigger"`
-	Status         string         `json:"status"` // completed, failed, retrying, skipped
+	Status         string         `json:"status"` // queued, running, retrying, completed, failed, skipped
+	QueuedAt       time.Time      `json:"queued_at"`
 	StartedAt      time.Time      `json:"started_at"`
 	CompletedAt    time.Time      `json:"completed_at,omitempty"`
 	Duration       string         `json:"duration,omitempty"`
@@ -188,6 +204,11 @@ type RunLog struct {
 	EventsEmitted  []string       `json:"events_emitted,omitempty"`
 	IsDryRun       bool           `json:"is_dry_run,omitempty"`
 	Replayable     bool           `json:"replayable"`
+	// A raiz só é preenchida para runs criados pelo runtime atual. Runs antigos
+	// sem essa prova permanecem inelegíveis para a outbox.
+	RootOriginType string         `json:"-"`
+	RootOriginID   string         `json:"-"`
+	Provenance     map[string]any `json:"-"`
 	RunEvents      []RunEvent     `json:"-"`
 	DomainEvents   []EventEntry   `json:"-"`
 }
@@ -214,6 +235,20 @@ type RunEvent struct {
 	Type      string         `json:"type"`
 	Message   string         `json:"message,omitempty"`
 	Data      map[string]any `json:"data,omitempty"`
+	// A raiz autenticada acompanha a timeline; campos vazios em legado não
+	// autorizam qualquer inferência posterior.
+	RootOriginType string         `json:"-"`
+	RootOriginID   string         `json:"-"`
+	Provenance     map[string]any `json:"-"`
+}
+
+// IncrementalRunRepository é a porta opcional do runtime novo. Mantê-la
+// separada de Repository preserva implementações de teste/compatibilidade que
+// só conhecem o contrato histórico; a implementação DB real a fornece.
+// Cada chamada persiste a transição, a timeline e, quando elegível, a outbox
+// na mesma transação.
+type IncrementalRunRepository interface {
+	PersistRunState(ctx context.Context, run *RunLog, event *RunEvent) error
 }
 
 // JobFilter define filtros de listagem do repository.
