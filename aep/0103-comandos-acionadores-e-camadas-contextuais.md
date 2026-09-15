@@ -10,6 +10,13 @@ catálogo/envelope/JCS/defaults; detalhes de compatibilidade em
 `0103-contratos-versionados.md`. Isso não encerra os critérios finais nem
 habilita adapters ou migra comandos do produto. Status permanece In Progress.
 
+I03 acrescenta FactBus escopado, gerações/caches isolados, snapshots do Manager
+real, captura nativa de foreground e leitores de superfície/foco/diálogo na UI.
+A ponte autenticada UI/backend e o registro das superfícies reais permanecem
+pendentes em I03.1/I14; snapshots enviados pela UI não concedem autoridade.
+Evidências e limitações de validação estão na tasklist, sem marcar critérios
+finais como concluídos por testes isolados.
+
 **Relacionados:** AEP-0001, AEP-0023, AEP-0045, AEP-0046, AEP-0047,
 AEP-0048, AEP-0052, AEP-0058, AEP-0060, AEP-0063, AEP-0067, AEP-0074-B,
 AEP-0080, AEP-0091, AEP-0101

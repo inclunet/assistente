@@ -11,6 +11,48 @@
 // trate Escape/Tab/click-outside quando há múltiplos modais abertos.
 const OPEN_MODAL_STACK: string[] = [];
 
+let fallbackNonceCounter = 0;
+const STARTUP_NONCE = (() => {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // A non-cryptographic opaque nonce is sufficient to distinguish this
+    // frontend process when randomUUID is unavailable (for example in SSR).
+  }
+  fallbackNonceCounter += 1;
+  return `startup-${Date.now().toString(36)}-${fallbackNonceCounter.toString(36)}-${Math.random().toString(36).slice(2)}`;
+})();
+
+let modalStackGeneration = 0;
+
+export interface ModalRegistrySnapshot {
+  readonly generation: string;
+  /** Alias kept explicit for consumers that call this a snapshot generation. */
+  readonly snapshotGeneration: string;
+  readonly generationNumber: number;
+  readonly topID: string | null;
+  readonly ids: readonly string[];
+}
+
+function stacksEqual(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((id, index) => id === right[index]);
+}
+
+function currentGeneration(): string {
+  return `${STARTUP_NONCE}:${modalStackGeneration}`;
+}
+
+function getStackSnapshotBeforeSync(): string[] {
+  return [...OPEN_MODAL_STACK];
+}
+
+function recordStackChange(previous: readonly string[]) {
+  if (!stacksEqual(previous, OPEN_MODAL_STACK)) modalStackGeneration += 1;
+}
+
 let previousBodyOverflow: string | null = null;
 
 function setGlobalModalEffects(enabled: boolean) {
@@ -42,6 +84,8 @@ function setGlobalModalEffects(enabled: boolean) {
 }
 
 function syncGlobalModalEffects() {
+  if (typeof document === 'undefined') return;
+  const previousStack = getStackSnapshotBeforeSync();
   // Safety net: se a stack diz que há modais abertos, mas nenhum overlay
   // está no DOM, a stack ficou dessincronizada (ex: erro de render ou
   // unmount inesperado). Limpa a stack para restaurar a interatividade.
@@ -51,11 +95,40 @@ function syncGlobalModalEffects() {
       OPEN_MODAL_STACK.length = 0;
     }
   }
+  recordStackChange(previousStack);
   setGlobalModalEffects(OPEN_MODAL_STACK.length > 0);
 }
 
 export function isModalOpen(): boolean {
   return OPEN_MODAL_STACK.length > 0;
+}
+
+/**
+ * Reads the authoritative modal stack synchronously. The returned array is a
+ * detached snapshot; callers cannot mutate the registry through it.
+ */
+export function getModalRegistrySnapshot(): ModalRegistrySnapshot {
+  // A read is authoritative even when a prior DOM notification was missed.
+  // syncGlobalModalEffects only mutates the stack when the overlay is truly gone.
+  syncGlobalModalEffects();
+  const generation = currentGeneration();
+  return Object.freeze({
+    generation,
+    snapshotGeneration: generation,
+    generationNumber: modalStackGeneration,
+    topID: OPEN_MODAL_STACK.length > 0 ? OPEN_MODAL_STACK[OPEN_MODAL_STACK.length - 1] : null,
+    ids: Object.freeze([...OPEN_MODAL_STACK]),
+  });
+}
+
+export const readModalRegistrySnapshot = getModalRegistrySnapshot;
+
+export function getModalSnapshotGeneration(): string {
+  return getModalRegistrySnapshot().generation;
+}
+
+export function getTopmostModalID(): string | null {
+  return getModalRegistrySnapshot().topID;
 }
 
 /**
@@ -77,10 +150,12 @@ export function ensureModalCleanup() {
  * de empilhar (best-effort), garantindo que o id apareça uma única vez no topo.
  */
 export function registerOpenModal(id: string) {
+  const previousStack = getStackSnapshotBeforeSync();
   for (let i = OPEN_MODAL_STACK.length - 1; i >= 0; i--) {
     if (OPEN_MODAL_STACK[i] === id) OPEN_MODAL_STACK.splice(i, 1);
   }
   OPEN_MODAL_STACK.push(id);
+  recordStackChange(previousStack);
   syncGlobalModalEffects();
 }
 
@@ -89,9 +164,11 @@ export function registerOpenModal(id: string) {
  * globais. Seguro de chamar mesmo que o id não esteja presente.
  */
 export function unregisterOpenModal(id: string) {
+  const previousStack = getStackSnapshotBeforeSync();
   for (let i = OPEN_MODAL_STACK.length - 1; i >= 0; i--) {
     if (OPEN_MODAL_STACK[i] === id) OPEN_MODAL_STACK.splice(i, 1);
   }
+  recordStackChange(previousStack);
   syncGlobalModalEffects();
 }
 

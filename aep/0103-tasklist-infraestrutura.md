@@ -13,10 +13,10 @@ A fonte normativa permanece `aep/0103-comandos-acionadores-e-camadas-contextuais
 
 Este plano substitui a estimativa informal de “35%” como instrumento de acompanhamento. Não há porcentagem total validada. Test coverage, linhas e commits não medem entrega do AEP.
 
-### Fotografia atual — 14/09/2026, após I02
+### Fotografia atual — 14/09/2026, implementação local de I03
 
 - 15 pacotes de infraestrutura; I01/I02 implementados e validados localmente (2/15); qualificação global I15 pendente.
-- 75 itens restantes de infraestrutura, dos 84 da baseline; I01.1–I02.5 encerrados na implementação local.
+- 70 itens restantes de infraestrutura, dos 84 da baseline; 14 encerrados localmente. I03 não está encerrado: falta a ponte autenticada para os providers da UI.
 - 4 marcos de infraestrutura, seguidos por 6 pacotes de migração/entrega.
 - 83 critérios finais do AEP com responsáveis mapeados no apêndice.
 - M1: I01/I02 entregues localmente, I03 em integração; M2–M4 ainda não encerrados. Contagem de pacotes não é porcentagem de esforço ou do AEP.
@@ -115,14 +115,14 @@ Estado: **Parcial**. Esforço restante: **G**.
 Dependências: I02.
 Referências: D2, D2.1, D7, D8, D12, D14.
 
-Evidência/limite atual: internal/commandcontext oferece freshness/VersionService; HostState atual publica configuração global por usuário; os providers reais completos ainda não estão ligados.
+Evidência: `internal/commandcontext/{scoped_factbus,scoped_generations,cache}.go`, `internal/workspace/command_snapshot.go`, `internal/commandforeground/`, `internal/app/app_command_context.go` e `frontend/src/lib/commandContext{Providers,Session}.ts`. Fontes reais de workspace/aba/perfil e foreground estão disponíveis por factories privadas do App; foco, superfície e diálogo têm leitura escopada no frontend. Falta ligar a ponte autenticada frontend/backend e registrar superfícies reais: um frame da UI não é autoridade no backend. Providers ausentes continuam recusados. Montagem do ciclo de vida permanece em I14, sem migrar atalhos.
 
 - [ ] I03.1 — Implementar providers de surface, diálogo, foco/controle, aba, workspace, perfil e janela; validar ownership na fonte, não confiar no snapshot enviado pela UI.
-- [ ] I03.2 — Implementar ContextFactBus e reconciliação síncrona quando uma notificação se perder ou chegar fora de ordem.
-- [ ] I03.3 — Separar gerações globais, por workspace e de camadas efetivas; mudança em outra conta/workspace não invalida trabalho independente.
-- [ ] I03.4 — Completar políticas exact_version, max_age_ms e event_snapshot no percurso de admissão, com timestamps confiáveis por provider.
-- [ ] I03.5 — Implementar captura de foreground antes de bring-to-front, redação de resumo e degradação explícita onde não houver adapter; não persistir títulos/URLs.
-- [ ] I03.6 — Testar atualização de contexto concorrente, provider ausente e caches positivos/negativos com todas as dimensões de isolamento.
+- [x] I03.2 — Implementar ContextFactBus e reconciliação síncrona quando uma notificação se perder ou chegar fora de ordem.
+- [x] I03.3 — Separar gerações globais, por workspace e de camadas efetivas; mudança em outra conta/workspace não invalida trabalho independente.
+- [x] I03.4 — Completar políticas exact_version, max_age_ms e event_snapshot no percurso de admissão, com timestamps confiáveis por provider.
+- [x] I03.5 — Implementar captura de foreground antes de bring-to-front, redação de resumo e degradação explícita onde não houver adapter; não persistir títulos/URLs.
+- [x] I03.6 — Testar atualização de contexto concorrente, provider ausente e caches positivos/negativos com todas as dimensões de isolamento.
 
 Critério de saída: Todo alvo/contexto usado pelo executor é reconsultável e versionado, inclusive com perda de notificações.
 
@@ -441,7 +441,7 @@ Toda descoberta adicional recebe **Δnn** com origem (critério do AEP, defeito 
 
 ### Próxima atualização obrigatória
 
-Avançar em I02 e preparação de I15.1. Ao fechar I02, publicar primeira calibração de esforço usando I01/I02; ao fechar cada marco, revisar previsão do restante e confirmar se o escopo aumentou.
+Consolidar a rodada autorizada I02–I04, mantendo abertos os critérios dependentes de integração. Antes de iniciar I05, explicitar a porta autenticada ainda necessária em I03.1; não confundir a implementação local do executor com montagem final I14. A calibração observada de I01/I02 está registrada abaixo.
 
 ### Entrega I01 — 14/09/2026
 
@@ -463,6 +463,15 @@ Avançar em I02 e preparação de I15.1. Ao fechar I02, publicar primeira calibr
 - Defaults calculados antes da publicação; apresentação não muda a semântica. Corpus lexical único consumido por ingresso e documentos persistidos; importação I11 reutilizará o contrato.
 - Testes de commandjson/catalog/contract/config passaram, incluindo repetição count=2. Revisão central corrigiu vinculação da política, enum JSON aninhado e separação nullable/enum. Sem comandos de produto migrados; Bugbot/CI/race continuam pendentes.
 - Calibração: I02 demandou três frentes independentes e integração/revisão central, com correções de contratos entre componentes. O custo dominante foi composição/revisão, não digitação. Não há ainda amostra suficiente para converter I03–I15 em dias com faixa defensável; estimativas G/GG permanecem, sem promessa de número de interações.
+
+### Entrega local I03 — 14/09/2026
+
+- I03.2–I03.6: FactBus escopado com provas opacas, releitura síncrona e notificações apenas indicativas; gerações global/workspace/camadas, cache positivo/negativo isolado e rejeição de provider ausente/panic. A admissão do executor I04 consome a mesma prova, sem roundtrip UI/rede dentro do gate.
+- Snapshots do Manager real incluem mudanças em abas inativas, sem exportar conteúdo. Foreground Windows preserva identidade do processo e timestamp capturado antes do foco; resumo não contém títulos/URLs. Outras plataformas falham explicitamente como indisponíveis.
+- Frontend: stack modal versionada, foco sem conteúdo de inputs, registro explícito de superfície e leitura vinculada aos stores reais de autenticação/workspace. Revalida owner antes/depois do getter; logout e troca de sessão/workspace não reutilizam registro antigo. Nenhuma ponte aceita payload da UI como principal autenticado.
+- I03.1 permanece aberto: falta ponte autenticada e registro das superfícies reais. As factories privadas do App não equivalem à montagem I14. Não há promessa de latência ponta a ponta nem validação física/NVDA nesta rodada.
+- Validação: commandcontext, commandforeground e workspace passaram; testes focados do App passaram. TypeScript e ESLint dos arquivos tocados passaram. Vitest: 7 arquivos/90 testes passaram, incluindo contextos, Modal, DecisionDialog, useVirtualModal e workspaceChatModalStore. Dependências copiadas para o worktree de instalação existente com package-lock idêntico; principal não alterado. As expectativas de dois testes novos foram corrigidas para cobrir freeze e duas releituras explícitas, sem remover testes.
+- Δ01 — incompatibilidade de implementação já existente: workspaces/abas reais têm IDs opacos, enquanto o schema experimental de commandconfig exige UUIDv7 para workspace. I03 preserva os IDs reais; adaptar a projeção/migração de configuração em I05, sem renomear dados pessoais. Não é expansão de produto nem autorização para migrar a instalação real nesta rodada.
 
 ## 9. Rastreabilidade integral dos critérios de aceitação
 
