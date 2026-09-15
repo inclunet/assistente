@@ -1889,6 +1889,12 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 
 ## Fases
 
+O [tasklist de infraestrutura e entrega](0103-tasklist-infraestrutura.md)
+consolida a baseline de acompanhamento: pacotes, dependências, critérios de
+saída e rastreabilidade dos critérios finais. Ele não altera os contratos desta
+AEP nem declara concluídos os incrementos parciais abaixo. A infraestrutura e
+a posterior migração/população de comandos possuem marcos separados.
+
 ### Evidência incremental — protótipo da Fase 0
 
 O pacote `internal/commandbindings` inicia o experimento de seleção pura de
