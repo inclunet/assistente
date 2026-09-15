@@ -23,16 +23,23 @@ type HeartbeatResult struct {
 // ReconcileBatch não cria uma cadência. O coordenador único da instância
 // chama lotes antes da retenção de jobs. Cursor é PK, não usuário ativo.
 func (c *Consumer) ReconcileBatch(ctx context.Context, after string, limit int) (string, bool, error) {
+	cursor, done, _, err := c.reconcileBatch(ctx, after, limit)
+	return cursor, done, err
+}
+
+func (c *Consumer) reconcileBatch(ctx context.Context, after string, limit int) (string, bool, int, error) {
 	if c == nil || ctx == nil || limit <= 0 || limit > 100 {
-		return after, false, ErrUnavailable
+		return after, false, 0, ErrUnavailable
 	}
 	cursor, done := after, false
+	processed := 0
 	err := c.gate.WithMutation(ctx, func() error {
 		return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			var leases []Lease
 			if err := tx.Where("activation_id > ?", after).Order("activation_id").Limit(limit).Find(&leases).Error; err != nil {
 				return err
 			}
+			processed = len(leases)
 			done = len(leases) < limit
 			for _, lease := range leases {
 				if err := ctx.Err(); err != nil {
@@ -75,9 +82,11 @@ func (c *Consumer) ReconcileBatch(ctx context.Context, after string, limit int) 
 		})
 	})
 	if err != nil {
-		return after, false, err
+		return after, false, 0, err
 	}
-	return cursor, done, nil
+	// The transaction commits the complete selected page atomically. Count
+	// only rows from that committed page, never a partially applied mutation.
+	return cursor, done, processed, nil
 }
 
 // RenewRuntime é chamado pelo heartbeat confiável antes da metade do TTL.
