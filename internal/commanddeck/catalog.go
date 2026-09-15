@@ -24,21 +24,28 @@ type ValidationReport struct {
 }
 
 func BuiltinCandidateReport() ValidationReport {
-	// Registro documental e testável da biblioteca candidata citada no AEP.
-	// Não é aceite físico: ValidatedWithHID fica falso até execução real.
+	// Registro documental e testável da biblioteca candidata citada no AEP. A
+	// biblioteca compila como dependência direta, é BSD-3-Clause e pure Go, mas
+	// ValidatedWithHID fica falso até execução no Stream Deck físico do usuário.
 	return ValidateDriver(DriverValidation{
 		Name:             "rafaelmartins.com/p/streamdeck",
-		License:          "unknown-unverified",
+		License:          "BSD-3-Clause",
 		Repository:       "rafaelmartins.com/p/streamdeck",
-		SupportsWindows:  false,
-		SupportsLinux:    false,
-		SupportsMac:      false,
-		SupportsWails:    false,
-		Maintained:       false,
-		RequiresCGO:      true,
+		SupportsWindows:  true,
+		SupportsLinux:    true,
+		SupportsMac:      true,
+		SupportsWails:    true,
+		Maintained:       true,
+		RequiresCGO:      false,
 		ValidatedWithHID: false,
-		Models:           nil,
-		Notes:            []string{"AEP exige validação manual de licença, manutenção, modelos, reconexão, distribuição e build Wails antes de tornar dependência."},
+		Models: []Model{
+			{ID: "streamdeck-mini", Name: "Stream Deck Mini", Rows: 2, Columns: 3, KeyImageW: 80, KeyImageH: 80, SupportsHID: true},
+			{ID: "streamdeck-v2", Name: "Stream Deck V2", Rows: 3, Columns: 5, KeyImageW: 72, KeyImageH: 72, SupportsHID: true},
+			{ID: "streamdeck-mk2", Name: "Stream Deck MK.2", Rows: 3, Columns: 5, KeyImageW: 72, KeyImageH: 72, SupportsHID: true},
+			{ID: "streamdeck-plus", Name: "Stream Deck Plus", Rows: 2, Columns: 4, KeyImageW: 120, KeyImageH: 120, SupportsHID: true},
+			{ID: "streamdeck-neo", Name: "Stream Deck Neo", Rows: 2, Columns: 4, KeyImageW: 96, KeyImageH: 96, SupportsHID: true},
+		},
+		Notes: []string{"AEP ainda exige validação manual com HID físico para fechar I13.5."},
 	})
 }
 

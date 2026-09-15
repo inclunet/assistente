@@ -30,6 +30,21 @@ HID físico. `Runtime.DiscoverDetailed` passou a reportar falhas parciais por
 dispositivo sem bloquear os demais, e testes multi-device provam que render e
 remoção de um deck não contaminam outro.
 
+Complemento final antes do hardware: a dependência real
+`rafaelmartins.com/p/streamdeck` foi adicionada e compila no pacote. O driver
+concreto `StreamDeckDriver` implementa `Driver`/`Handle` com `Enumerate`,
+`GetDevice`, `Open`, `Listen`, `AddKeyHandler`, `SetKeyImage`, `ClearKey` e
+`Close`, mantendo callbacks convertidos para `PhysicalKeyEvent` e renderização
+via geometria real do dispositivo. A biblioteca ficou registrada como
+BSD-3-Clause, pure Go/sem CGO, Windows/Linux/macOS/Wails compatível no
+diagnóstico local; o único motivo restante em `BuiltinCandidateReport` é
+`physical-hid-unverified`. O runbook
+`docs/operations/streamdeck-manual-validation.md` e o teste opt-in
+`ASSISTENTE_STREAMDECK_MANUAL=1 go test ./internal/commanddeck -run
+TestManualStreamDeckPhysicalRoundTrip -count=1 -v` deixam a etapa manual
+reduzida a conectar o hardware, observar a tecla vermelha, pressionar a primeira
+tecla e confirmar `PASS`.
+
 **Contagem permanece: 46/84 critérios encerrados; 38 abertos; 2/15 pacotes
 completos.** C41/C42 ganharam prova unitária do núcleo de renderização, mas
 seguem dependentes da integração física/P04 para aceite final.

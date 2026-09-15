@@ -23,6 +23,14 @@ isolamento de render/desconexão. A contagem permanece **46/84 critérios locais
 38 abertos; 2/15 pacotes completos**, porque ainda faltam validação de
 biblioteca HID/licença/build, dispositivo real e adapter físico.
 
+Atualização de preparação física: `rafaelmartins.com/p/streamdeck` foi integrado
+como dependência real e o `StreamDeckDriver` concreto compila atrás da interface
+existente. O diagnóstico local agora confirma licença BSD-3-Clause, pure Go/sem
+CGO, suporte multiplataforma declarado e modelos básicos; resta somente
+`physical-hid-unverified`. O teste manual opt-in
+`TestManualStreamDeckPhysicalRoundTrip` e o runbook operacional reduzem o
+fechamento de I13.5 à execução com o Stream Deck conectado.
+
 ### Prova de escopo de diálogo — 15/09/2026
 
 I13.3 foi encerrado localmente como infraestrutura de reserva/invariante: o

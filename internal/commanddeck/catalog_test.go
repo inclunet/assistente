@@ -2,24 +2,16 @@ package commanddeck
 
 import "testing"
 
-func TestBuiltinCandidateReportIsNotReadyWithoutManualHIDValidation(t *testing.T) {
+func TestBuiltinCandidateReportOnlyWaitsForManualHIDValidation(t *testing.T) {
 	report := BuiltinCandidateReport()
 	if report.Ready {
 		t.Fatalf("candidato builtin não deveria estar pronto sem validação real: %+v", report)
 	}
-	want := map[string]bool{
-		"license-unverified":      true,
-		"maintenance-unverified":  true,
-		"physical-hid-unverified": true,
-		"wails-build-unverified":  true,
-		"windows-unverified":      true,
-		"models-missing":          true,
+	if len(report.Reasons) != 1 || report.Reasons[0] != "physical-hid-unverified" {
+		t.Fatalf("deveria restar somente validação física: %+v", report.Reasons)
 	}
-	for _, reason := range report.Reasons {
-		delete(want, reason)
-	}
-	if len(want) != 0 {
-		t.Fatalf("motivos esperados ausentes: %+v em %+v", want, report.Reasons)
+	if len(report.Models) < 5 {
+		t.Fatalf("modelos suportados não foram registrados: %+v", report.Models)
 	}
 }
 
