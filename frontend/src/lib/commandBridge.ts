@@ -59,6 +59,7 @@ export interface CommandInvocation {
   readonly ownership: CommandOwnership;
   readonly source: CommandSource;
   readonly occurrenceId?: string;
+  readonly sourceEventId?: string;
   readonly eventId?: string;
 }
 
@@ -78,6 +79,7 @@ export interface CommandResult {
   readonly capabilityId: string;
   readonly ownership: CommandOwnership;
   readonly occurrenceId?: string;
+  readonly sourceEventId?: string;
   readonly eventId?: string;
   readonly owner: CommandBridgeOwner;
   readonly status: CommandResultStatus;
@@ -215,7 +217,7 @@ function validSession(session: CommandSession): boolean {
 }
 
 function validInvocation(invocation: CommandInvocation): boolean {
-  if (!validText(invocation?.sessionId) || !validUUID7(invocation?.invocationId) || !validText(invocation?.commandId) || !validGeneration(invocation?.generation) || !validText(invocation?.capabilityId) || !validOwnership(invocation?.ownership) || !validSource(invocation?.source) || (invocation.occurrenceId !== undefined && !validText(invocation.occurrenceId))) return false;
+  if (!validText(invocation?.sessionId) || !validUUID7(invocation?.invocationId) || !validText(invocation?.commandId) || !validGeneration(invocation?.generation) || !validText(invocation?.capabilityId) || !validOwnership(invocation?.ownership) || !validSource(invocation?.source) || (invocation.occurrenceId !== undefined && !validText(invocation.occurrenceId)) || (invocation.sourceEventId !== undefined && !validUUID7(invocation.sourceEventId))) return false;
   if (invocation.source === 'event') return validUUID7(invocation.eventId);
   return invocation.eventId === undefined;
 }
@@ -391,7 +393,7 @@ export function createCommandBridge(config: { readonly port: CommandBridgePort; 
       const current = pending.get(result.invocationId);
       if (!current) throw bridgeError('unknown-invocation');
       const invocation = current.invocation;
-      if (result.sessionId !== invocation.sessionId || result.commandId !== invocation.commandId || result.generation !== invocation.generation || result.capabilityId !== invocation.capabilityId || result.ownership !== invocation.ownership || result.occurrenceId !== invocation.occurrenceId || result.eventId !== invocation.eventId || !sameOwner(result.owner, current.owner)) throw bridgeError('invalid-request');
+      if (result.sessionId !== invocation.sessionId || result.commandId !== invocation.commandId || result.generation !== invocation.generation || result.capabilityId !== invocation.capabilityId || result.ownership !== invocation.ownership || result.occurrenceId !== invocation.occurrenceId || result.sourceEventId !== invocation.sourceEventId || result.eventId !== invocation.eventId || !sameOwner(result.owner, current.owner)) throw bridgeError('invalid-request');
       removePending(result.invocationId);
       const stableResult = Object.freeze({ ...result, owner: cloneOwner(result.owner) });
       for (const listener of listeners) listener(stableResult);

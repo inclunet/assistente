@@ -10,9 +10,12 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"time"
 
 	"assistente/internal/commandbridge"
 	"assistente/internal/commandinput"
+
+	"github.com/google/uuid"
 )
 
 var (
@@ -38,6 +41,8 @@ type Config struct {
 	Owner      commandbridge.Owner
 	Generation uint64
 	Resolve    InvocationFactory
+	Sequences  []Sequence
+	Now        func() time.Time
 }
 
 type Controller struct {
@@ -47,8 +52,23 @@ type Controller struct {
 	owner      commandbridge.Owner
 	generation uint64
 	resolve    InvocationFactory
+	sequences  map[string]Sequence
+	pending    *pendingSequence
+	now        func() time.Time
 	suspended  bool
 	closed     bool
+}
+
+type Sequence struct {
+	PrefixKey string
+	Keys      []string
+	Timeout   time.Duration
+}
+
+type pendingSequence struct {
+	prefix   string
+	deadline time.Time
+	keys     map[string]struct{}
 }
 
 type Event struct {
@@ -63,12 +83,22 @@ func New(config Config) (*Controller, error) {
 		config.Owner.SessionID != config.SessionID || config.Generation == 0 || config.Resolve == nil {
 		return nil, ErrInvalidConfiguration
 	}
+	sequences, err := buildSequences(config.Sequences)
+	if err != nil {
+		return nil, err
+	}
+	now := config.Now
+	if now == nil {
+		now = time.Now
+	}
 	return &Controller{
 		bridge:     config.Bridge,
 		sessionID:  config.SessionID,
 		owner:      config.Owner,
 		generation: config.Generation,
 		resolve:    config.Resolve,
+		sequences:  sequences,
+		now:        now,
 	}, nil
 }
 
@@ -87,6 +117,11 @@ func (c *Controller) Input(ctx context.Context, event Event) (commandbridge.Invo
 	if c.suspended {
 		c.mu.Unlock()
 		return commandbridge.InvocationAck{}, ErrAdapterSuspended
+	}
+	event, pending := c.applySequenceLocked(event)
+	if pending {
+		c.mu.Unlock()
+		return commandbridge.InvocationAck{Accepted: false, Reason: "sequence-pending"}, nil
 	}
 	generation := c.generation
 	sessionID := c.sessionID
@@ -109,6 +144,13 @@ func (c *Controller) Input(ctx context.Context, event Event) (commandbridge.Invo
 	}
 	resolved.SessionID = sessionID
 	resolved.Generation = generation
+	if resolved.SourceEventID == "" && event.Kind == commandinput.KeyDown && !event.Repeat {
+		sourceEvent, err := uuid.NewV7()
+		if err != nil {
+			return commandbridge.InvocationAck{}, err
+		}
+		resolved.SourceEventID = sourceEvent.String()
+	}
 	return bridge.Input(ctx, commandbridge.Input{
 		SessionID:  sessionID,
 		Source:     event.SourceInstance,
@@ -119,6 +161,37 @@ func (c *Controller) Input(ctx context.Context, event Event) (commandbridge.Invo
 		Invocation: resolved,
 		Owner:      owner,
 	})
+}
+
+func (c *Controller) applySequenceLocked(event Event) (Event, bool) {
+	if len(c.sequences) == 0 || event.Kind != commandinput.KeyDown || event.Repeat {
+		if event.Kind == commandinput.KeyUp || event.Kind == commandinput.KeyDown {
+			c.clearExpiredSequenceLocked()
+		}
+		return event, false
+	}
+	now := c.now()
+	if c.pending != nil {
+		if now.After(c.pending.deadline) {
+			c.pending = nil
+		} else if _, ok := c.pending.keys[event.Key]; ok {
+			prefix := c.pending.prefix
+			c.pending = nil
+			event.Key = prefix + " " + event.Key
+			return event, false
+		} else {
+			c.pending = nil
+		}
+	}
+	sequence, ok := c.sequences[event.Key]
+	if !ok {
+		return event, false
+	}
+	c.pending = &pendingSequence{prefix: sequence.PrefixKey, deadline: now.Add(sequence.Timeout), keys: make(map[string]struct{}, len(sequence.Keys))}
+	for _, key := range sequence.Keys {
+		c.pending.keys[key] = struct{}{}
+	}
+	return event, true
 }
 
 func (c *Controller) AdvanceGeneration(ctx context.Context, generation uint64) error {
@@ -149,6 +222,7 @@ func (c *Controller) AdvanceGeneration(ctx context.Context, generation uint64) e
 	if !c.closed && generation > c.generation {
 		c.generation = generation
 		c.suspended = false
+		c.pending = nil
 	}
 	c.mu.Unlock()
 	return nil
@@ -213,10 +287,23 @@ func (c *Controller) lifecycle(ctx context.Context, kind commandbridge.Lifecycle
 		c.mu.Lock()
 		if !c.closed && c.generation == generation {
 			c.suspended = true
+			c.pending = nil
+		}
+		c.mu.Unlock()
+	} else if kind == commandbridge.LifecycleBlur {
+		c.mu.Lock()
+		if !c.closed && c.generation == generation {
+			c.pending = nil
 		}
 		c.mu.Unlock()
 	}
 	return nil
+}
+
+func (c *Controller) clearExpiredSequenceLocked() {
+	if c.pending != nil && c.now().After(c.pending.deadline) {
+		c.pending = nil
+	}
 }
 
 func validOwner(owner commandbridge.Owner) bool {
@@ -230,4 +317,34 @@ func validEvent(event Event) bool {
 		strings.TrimSpace(event.Key) == event.Key && event.Key != "" &&
 		(event.Kind == commandinput.KeyDown || event.Kind == commandinput.KeyUp) &&
 		!(event.Kind == commandinput.KeyUp && event.Repeat)
+}
+
+func buildSequences(values []Sequence) (map[string]Sequence, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	result := make(map[string]Sequence, len(values))
+	for _, sequence := range values {
+		if strings.TrimSpace(sequence.PrefixKey) != sequence.PrefixKey || sequence.PrefixKey == "" ||
+			sequence.Timeout <= 0 || len(sequence.Keys) == 0 {
+			return nil, ErrInvalidConfiguration
+		}
+		keys := make([]string, 0, len(sequence.Keys))
+		seen := make(map[string]struct{}, len(sequence.Keys))
+		for _, key := range sequence.Keys {
+			if strings.TrimSpace(key) != key || key == "" {
+				return nil, ErrInvalidConfiguration
+			}
+			if _, ok := seen[key]; ok {
+				return nil, ErrInvalidConfiguration
+			}
+			seen[key] = struct{}{}
+			keys = append(keys, key)
+		}
+		if _, exists := result[sequence.PrefixKey]; exists {
+			return nil, ErrInvalidConfiguration
+		}
+		result[sequence.PrefixKey] = Sequence{PrefixKey: sequence.PrefixKey, Keys: keys, Timeout: sequence.Timeout}
+	}
+	return result, nil
 }

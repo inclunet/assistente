@@ -65,6 +65,8 @@ describe('command bridge', () => {
     await expect(bridge.invoke({ ...invocation('missing-event'), source: 'event' }, owner)).rejects.toMatchObject({ code: 'invalid-request' });
     await expect(bridge.invoke({ ...invocation('opaque-occurrence'), occurrenceId: 'deck-A/button-7/v2' }, owner)).resolves.toMatchObject({ accepted: true });
     await expect(bridge.invoke({ ...invocation('streamdeck-source'), source: 'streamdeck.key' }, owner)).resolves.toMatchObject({ accepted: true });
+    await expect(bridge.invoke({ ...invocation('source-event'), sourceEventId: testUUID7('source-event-id') }, owner)).resolves.toMatchObject({ accepted: true });
+    await expect(bridge.invoke({ ...invocation('bad-source-event'), sourceEventId: 'not-a-uuid' }, owner)).rejects.toMatchObject({ code: 'invalid-request' });
     await expect(bridge.invoke({ ...invocation('legacy-streamdeck-source'), source: 'streamdeck' as CommandSource }, owner)).rejects.toMatchObject({ code: 'invalid-request' });
   });
 
@@ -79,6 +81,10 @@ describe('command bridge', () => {
     const physical = { ...invocation('inv-physical'), occurrenceId: '8:keyboard6:Ctrl+N' };
     await bridge.invoke(physical, owner);
     await expect(bridge.invoke({ ...physical, invocationId: testUUID7('inv-physical-global'), ownership: 'global' }, owner)).rejects.toMatchObject({ code: 'ownership-conflict' });
+    const sourceEvent = { ...invocation('inv-source-event'), sourceEventId: testUUID7('result-source-event') };
+    await bridge.invoke(sourceEvent, owner);
+    expect(() => bridge.acceptResult(resultFor({ ...sourceEvent, sourceEventId: testUUID7('result-source-event-other') }))).toThrowError(new CommandBridgeError('invalid-request'));
+    expect(() => bridge.acceptResult(resultFor(sourceEvent))).not.toThrow();
   });
 
   it('mantém ownership até cancel confirmado e cancela na mudança de geração', async () => {

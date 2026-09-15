@@ -156,6 +156,11 @@ func TestBridgeResultRequiresExactIdentityAndReleasesClaim(t *testing.T) {
 		t.Fatalf("resultado de owner err=%v", err)
 	}
 	wrong.Owner = owner
+	wrong.SourceEventID = testUUID7(99)
+	if _, err := bridge.AcceptResult(wrong); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("resultado de source event err=%v", err)
+	}
+	wrong.SourceEventID = ""
 	ack, err := bridge.AcceptResult(wrong)
 	if err != nil || !ack.Accepted {
 		t.Fatalf("resultado válido ack=%+v err=%v", ack, err)
@@ -375,8 +380,21 @@ func TestBridgeSourceEnumAndUUID7Semantics(t *testing.T) {
 	if _, err := bridge.Invoke(context.Background(), streamDeck, owner); err != nil {
 		t.Fatalf("origem Stream Deck rejeitada: %v", err)
 	}
+	withSourceEvent := invocation
+	withSourceEvent.InvocationID = testUUID7(27)
+	withSourceEvent.Source = SourceKeyboardLocal
+	withSourceEvent.SourceEventID = testUUID7(28)
+	if _, err := bridge.Invoke(context.Background(), withSourceEvent, owner); err != nil {
+		t.Fatalf("source event UUIDv7 rejeitado: %v", err)
+	}
+	badSourceEvent := invocation
+	badSourceEvent.InvocationID = testUUID7(29)
+	badSourceEvent.SourceEventID = "not-a-uuid"
+	if _, err := bridge.Invoke(context.Background(), badSourceEvent, owner); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("source event inválido aceito: %v", err)
+	}
 	legacyStreamDeck := invocation
-	legacyStreamDeck.InvocationID = testUUID7(26)
+	legacyStreamDeck.InvocationID = testUUID7(30)
 	legacyStreamDeck.Source = Source("streamdeck")
 	if _, err := bridge.Invoke(context.Background(), legacyStreamDeck, owner); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("origem legada Stream Deck aceita: %v", err)

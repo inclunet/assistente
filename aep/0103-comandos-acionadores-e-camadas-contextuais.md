@@ -2,15 +2,25 @@
 
 **Status:** In Progress
 
+### Ocorrências físicas e sequências — 15/09/2026
+
+I13.2 foi encerrado localmente como contrato de infraestrutura: a ponte aceita
+`sourceEventId` UUIDv7 e o adapter gera esse ID somente para o primeiro `down`
+aceito com binding; repeat, release e entrada sem binding não criam ocorrência.
+O adapter também modela sequências como `Ctrl+N` com timeout e limpeza em
+blur/troca de geração. **45/84 critérios locais, 39 abertos; 2/15 pacotes
+completos**. Listeners reais de SO, layout físico, HID/Stream Deck e comandos de
+produto seguem fora desta etapa.
+
 ### Lifecycle de adapters físicos — 15/09/2026
 
 I13.4 foi encerrado localmente com `internal/commandadapter`: listeners físicos
 futuros entregam callbacks a um controller que anexa sessão/owner/geração e faz
 handoff por `commandbridge.Input`, sem chamar handler final nem conhecer catálogo
 de produto. Lock/logout/shutdown suspendem entradas e conclusões atrasadas de
-lifecycle não regredem geração. **44/84 critérios locais, 40 abertos; 2/15
-pacotes completos**. Teclado global real, HID/Stream Deck e comandos de produto
-continuam fora desta etapa.
+lifecycle não regredem geração. **Contagem histórica: 44/84 critérios locais,
+40 abertos; 2/15 pacotes completos**. Teclado global real, HID/Stream Deck e
+comandos de produto continuavam fora desta etapa.
 
 ### Ponte UI/backend — 15/09/2026
 

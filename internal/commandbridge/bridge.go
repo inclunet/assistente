@@ -74,15 +74,16 @@ type Session struct {
 
 // Invocation é o envelope mínimo transportado pela porta confiável.
 type Invocation struct {
-	SessionID    string    `json:"sessionId"`
-	InvocationID string    `json:"invocationId"`
-	CommandID    string    `json:"commandId"`
-	Generation   uint64    `json:"generation,string"`
-	CapabilityID string    `json:"capabilityId"`
-	Ownership    Ownership `json:"ownership"`
-	Source       Source    `json:"source"`
-	OccurrenceID string    `json:"occurrenceId,omitempty"`
-	EventID      string    `json:"eventId,omitempty"`
+	SessionID     string    `json:"sessionId"`
+	InvocationID  string    `json:"invocationId"`
+	CommandID     string    `json:"commandId"`
+	Generation    uint64    `json:"generation,string"`
+	CapabilityID  string    `json:"capabilityId"`
+	Ownership     Ownership `json:"ownership"`
+	Source        Source    `json:"source"`
+	OccurrenceID  string    `json:"occurrenceId,omitempty"`
+	SourceEventID string    `json:"sourceEventId,omitempty"`
+	EventID       string    `json:"eventId,omitempty"`
 }
 
 // InvocationAck confirma somente o encaminhamento; não significa execução.
@@ -93,17 +94,18 @@ type InvocationAck struct {
 }
 
 type Result struct {
-	SessionID    string          `json:"sessionId"`
-	InvocationID string          `json:"invocationId"`
-	CommandID    string          `json:"commandId"`
-	Generation   uint64          `json:"generation,string"`
-	CapabilityID string          `json:"capabilityId"`
-	Ownership    Ownership       `json:"ownership"`
-	OccurrenceID string          `json:"occurrenceId,omitempty"`
-	EventID      string          `json:"eventId,omitempty"`
-	Owner        Owner           `json:"owner"`
-	Status       ResultStatus    `json:"status"`
-	Payload      json.RawMessage `json:"payload,omitempty"`
+	SessionID     string          `json:"sessionId"`
+	InvocationID  string          `json:"invocationId"`
+	CommandID     string          `json:"commandId"`
+	Generation    uint64          `json:"generation,string"`
+	CapabilityID  string          `json:"capabilityId"`
+	Ownership     Ownership       `json:"ownership"`
+	OccurrenceID  string          `json:"occurrenceId,omitempty"`
+	SourceEventID string          `json:"sourceEventId,omitempty"`
+	EventID       string          `json:"eventId,omitempty"`
+	Owner         Owner           `json:"owner"`
+	Status        ResultStatus    `json:"status"`
+	Payload       json.RawMessage `json:"payload,omitempty"`
 }
 
 type ResultStatus string
@@ -401,7 +403,7 @@ func (b *Bridge) AcceptResult(result Result) (ResultAck, error) {
 		return ResultAck{}, ErrUnknownInvocation
 	}
 	want := pending.invocation
-	if result.SessionID != want.SessionID || result.CommandID != want.CommandID || result.Generation != want.Generation || result.CapabilityID != want.CapabilityID || result.Ownership != want.Ownership || result.OccurrenceID != want.OccurrenceID || result.EventID != want.EventID || !sameOwner(result.Owner, pending.owner) {
+	if result.SessionID != want.SessionID || result.CommandID != want.CommandID || result.Generation != want.Generation || result.CapabilityID != want.CapabilityID || result.Ownership != want.Ownership || result.OccurrenceID != want.OccurrenceID || result.SourceEventID != want.SourceEventID || result.EventID != want.EventID || !sameOwner(result.Owner, pending.owner) {
 		return ResultAck{}, ErrInvalidRequest
 	}
 	b.removePendingLocked(result.InvocationID)
@@ -747,7 +749,7 @@ func validCapability(capability Capability) bool {
 }
 
 func validInvocation(invocation Invocation) bool {
-	if !validText(invocation.SessionID) || !validUUIDv7(invocation.InvocationID) || !validText(invocation.CommandID) || invocation.Generation == 0 || !validText(invocation.CapabilityID) || !validOwnership(invocation.Ownership) || !validSource(invocation.Source) || (invocation.OccurrenceID != "" && !validText(invocation.OccurrenceID)) {
+	if !validText(invocation.SessionID) || !validUUIDv7(invocation.InvocationID) || !validText(invocation.CommandID) || invocation.Generation == 0 || !validText(invocation.CapabilityID) || !validOwnership(invocation.Ownership) || !validSource(invocation.Source) || (invocation.OccurrenceID != "" && !validText(invocation.OccurrenceID)) || (invocation.SourceEventID != "" && !validUUIDv7(invocation.SourceEventID)) {
 		return false
 	}
 	if invocation.Source == SourceEvent {
@@ -761,7 +763,7 @@ func validOwnership(ownership Ownership) bool {
 }
 
 func validResult(result Result) bool {
-	return validInvocation(Invocation{SessionID: result.SessionID, InvocationID: result.InvocationID, CommandID: result.CommandID, Generation: result.Generation, CapabilityID: result.CapabilityID, Ownership: result.Ownership, Source: SourceUIAction, OccurrenceID: result.OccurrenceID}) && (result.EventID == "" || validUUIDv7(result.EventID)) && validOwner(result.Owner) && validResultStatus(result.Status)
+	return validInvocation(Invocation{SessionID: result.SessionID, InvocationID: result.InvocationID, CommandID: result.CommandID, Generation: result.Generation, CapabilityID: result.CapabilityID, Ownership: result.Ownership, Source: SourceUIAction, OccurrenceID: result.OccurrenceID, SourceEventID: result.SourceEventID}) && (result.EventID == "" || validUUIDv7(result.EventID)) && validOwner(result.Owner) && validResultStatus(result.Status)
 }
 
 func validResultStatus(status ResultStatus) bool {
