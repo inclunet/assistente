@@ -172,12 +172,11 @@ func BenchmarkResolveSameTriggerCollisions(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			wantBinding := "resolver-bench-collision-binding-" + strconv.Itoa(total-1)
 			winner := total - 1
 			for winner%3 != 2 {
 				winner--
 			}
-			wantBinding = "resolver-bench-collision-binding-" + strconv.Itoa(winner)
+			wantBinding := "resolver-bench-collision-binding-" + strconv.Itoa(winner)
 
 			got, err := resolver.Resolve(trigger, facts, nil)
 			if !resolverBenchmarkResultOK(got, err, Selected, wantCommand, wantBinding) {

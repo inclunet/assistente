@@ -418,7 +418,7 @@ func querySessionState(sessionID uint32) (State, error) {
 	if buffer == nil {
 		return unknownState(), fmt.Errorf("ossession: WTSQuerySessionInformationW returned a nil buffer")
 	}
-	defer procWTSFreeMemory.Call(uintptr(buffer))
+	defer func() { _, _, _ = procWTSFreeMemory.Call(uintptr(buffer)) }()
 	if returned > maxWTSQueryBuffer {
 		return unknownState(), fmt.Errorf("ossession: WTSINFOEX buffer is unreasonably large: %d", returned)
 	}

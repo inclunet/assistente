@@ -105,7 +105,11 @@ func TestEnsureInstanceSecretPersistsAndReopens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reopenedSQL.Close()
+	defer func() {
+		if err := reopenedSQL.Close(); err != nil {
+			t.Errorf("close reopened sqlite: %v", err)
+		}
+	}()
 	database.SetDB(reopened)
 	reopenedMgr := loadedEnsureManager(t, NewDBStore())
 	got, err = reopenedMgr.EnsureInstanceSecret(context.Background(), "internal-auth:test-secret", func() (string, error) {

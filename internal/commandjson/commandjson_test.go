@@ -82,7 +82,7 @@ func TestCanonicalizeAppendixBNumbers(t *testing.T) {
 
 func TestCanonicalizeSortsUTF16AndRecursively(t *testing.T) {
 	raw := []byte(`{"\u20ac":"Euro Sign","\r":"Carriage Return","\ufb33":"Hebrew Letter Dalet With Dagesh","1":"One","\ud83d\ude00":"Emoji: Grinning Face","\u0080":"Control","\u00f6":"Latin Small Letter O With Diaeresis","nested":{"b":1,"a":2}}`)
-	want := `{"\r":"Carriage Return","1":"One","nested":{"a":2,"b":1},"":"Control","ö":"Latin Small Letter O With Diaeresis","€":"Euro Sign","😀":"Emoji: Grinning Face","דּ":"Hebrew Letter Dalet With Dagesh"}`
+	want := `{"\r":"Carriage Return","1":"One","nested":{"a":2,"b":1},"` + "\u0080" + `":"Control","ö":"Latin Small Letter O With Diaeresis","€":"Euro Sign","😀":"Emoji: Grinning Face","דּ":"Hebrew Letter Dalet With Dagesh"}`
 	got, err := Canonicalize(raw)
 	if err != nil {
 		t.Fatalf("Canonicalize() error = %v", err)
@@ -148,7 +148,7 @@ func TestCanonicalizeDepthLimit(t *testing.T) {
 }
 
 func TestMarshalUsesJCSAndDoesNotHTMLEscape(t *testing.T) {
-	value := map[string]any{"z": "<tag>\u2028", "a": -0.0, "n": 1e20}
+	value := map[string]any{"z": "<tag>\u2028", "a": math.Copysign(0, -1), "n": 1e20}
 	got, err := Marshal(value)
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)

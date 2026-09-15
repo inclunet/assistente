@@ -283,7 +283,7 @@ func TestBridgeRejectsOwnerlessAndSystemDelegation(t *testing.T) {
 }
 
 func TestBridgeRejectsCanonicalCatalogMismatchWithoutRunningTool(t *testing.T) {
-	bridge, _, tool, userID, invocationID := newBridgeFixture(t)
+	_, _, tool, userID, invocationID := newBridgeFixture(t)
 	// A rota exige o ID canônico, enquanto o catálogo resolve o nome para outro.
 	registry := tools.NewRegistry()
 	if err := registry.Register(tool); err != nil {

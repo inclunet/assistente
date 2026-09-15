@@ -256,7 +256,7 @@ func (e Envelope) ArgumentsHMAC(ctx context.Context, keyVersion string, keys Fin
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	var document []byte = []byte(`{}`)
+	document := []byte(`{}`)
 	if e.Arguments != nil {
 		canonical, err := commandjson.Canonicalize([]byte(*e.Arguments))
 		if err != nil || len(canonical) == 0 || canonical[0] != '{' {

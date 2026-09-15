@@ -537,9 +537,10 @@ func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate E
 	defer func() {
 		if recover() != nil {
 			err = ErrExecution
-			if status == commandledger.Running {
+			switch status {
+			case commandledger.Running:
 				_ = finish(commandledger.OutcomeUnknown)
-			} else if status == commandledger.Evaluating || status == commandledger.Queued {
+			case commandledger.Evaluating, commandledger.Queued:
 				_ = finish(commandledger.Failed)
 			}
 		}

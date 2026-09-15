@@ -191,7 +191,7 @@ func TestEpochRejectsInvalidAndCancelledBasics(t *testing.T) {
 	if _, err := service.Capture(context.Background(), invalid, validSession); !errors.Is(err, ErrInvalidEpochInput) {
 		t.Fatalf("UUIDv7 não canônico deveria ser rejeitado: %v", err)
 	}
-	if _, err := service.Capture(nil, validUser, validSession); !errors.Is(err, errNilContext) {
+	if _, err := service.Capture(nil, validUser, validSession); !errors.Is(err, errNilContext) { //nolint:staticcheck // Testa deliberadamente a recusa de contexto nil.
 		t.Fatalf("contexto nil em Capture = %v", err)
 	}
 

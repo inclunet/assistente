@@ -45,7 +45,7 @@ func (nativeReader) Capture(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("foreground: OpenProcess: %w", err)
 	}
-	defer windows.CloseHandle(process)
+	defer func() { _ = windows.CloseHandle(process) }()
 
 	if err := checkHandlePID(process, pid); err != nil {
 		return Snapshot{}, err

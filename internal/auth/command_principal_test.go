@@ -193,7 +193,11 @@ func TestCommandPrincipalRejectsDivergentSubjectAndExactJWTExpiry(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("register query failure callback: %v", err)
 	}
-	defer service.db.Callback().Query().Remove(queryFailureCallback)
+	defer func() {
+		if err := service.db.Callback().Query().Remove(queryFailureCallback); err != nil {
+			t.Errorf("remove query failure callback: %v", err)
+		}
+	}()
 	principal, err := service.AuthenticateLocalAccess(context.Background(), issued.AccessToken)
 	if !errors.Is(err, ErrUnauthenticatedLocalSession) {
 		t.Fatalf("expected DB failure to be mapped to sentinel, got %v", err)
@@ -214,7 +218,7 @@ func TestCommandPrincipalPreservesCancellationAndFailsClosed(t *testing.T) {
 	if _, err := service.AuthenticateLocalAccess(canceled, issued.AccessToken); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context cancellation to be preserved, got %v", err)
 	}
-	if _, err := service.AuthenticateLocalAccess(nil, issued.AccessToken); !errors.Is(err, ErrUnauthenticatedLocalSession) {
+	if _, err := service.AuthenticateLocalAccess(nil, issued.AccessToken); !errors.Is(err, ErrUnauthenticatedLocalSession) { //nolint:staticcheck // Testa deliberadamente a recusa de contexto nil.
 		t.Fatalf("expected nil context to fail closed, got %v", err)
 	}
 

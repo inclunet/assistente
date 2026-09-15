@@ -15,7 +15,7 @@ func TestDispatchGateZeroValueAndNilInputsFailClosed(t *testing.T) {
 	if err := gate.WithAdmission(context.Background(), nil); err == nil {
 		t.Fatal("callback nil deveria falhar fechado")
 	}
-	if err := gate.WithMutation(nil, func() error { return nil }); err == nil {
+	if err := gate.WithMutation(nil, func() error { return nil }); err == nil { //nolint:staticcheck // Testa deliberadamente a recusa de contexto nil.
 		t.Fatal("contexto nil deveria falhar fechado")
 	}
 	called := false

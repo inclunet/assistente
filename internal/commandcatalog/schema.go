@@ -97,10 +97,6 @@ func cloneSchemaAt(s *Schema, depth int, active map[*Schema]bool) *Schema {
 	return &out
 }
 
-func cloneSchemaValue(s Schema) Schema {
-	return cloneSchemaValueAt(s, 0, make(map[*Schema]bool))
-}
-
 func cloneSchemaValueAt(s Schema, depth int, active map[*Schema]bool) Schema {
 	cloned := cloneSchemaAt(&s, depth, active)
 	if cloned == nil {
@@ -125,10 +121,6 @@ func cloneInt(value *int) *int {
 	return &out
 }
 
-func cloneJSONValues(values []any) []any {
-	return cloneJSONValuesAt(values, 0, make(map[visit]bool))
-}
-
 type visit struct {
 	kind reflect.Kind
 	ptr  uintptr
@@ -143,10 +135,6 @@ func cloneJSONValuesAt(values []any, depth int, active map[visit]bool) []any {
 		out[i] = cloneJSONValueAt(value, depth, active)
 	}
 	return out
-}
-
-func cloneJSONValue(value any) any {
-	return cloneJSONValueAt(value, 0, make(map[visit]bool))
 }
 
 func cloneJSONValueAt(value any, depth int, active map[visit]bool) any {
@@ -239,7 +227,8 @@ func validateSchemaDefinitionAt(schema *Schema, path string, root bool, depth in
 	if schema.Type != SchemaNumber && schema.Type != SchemaInteger && (schema.Minimum != nil || schema.Maximum != nil) {
 		return fmt.Errorf("%s: limites numéricos em tipo não numérico", path)
 	}
-	if schema.Type == SchemaObject {
+	switch schema.Type {
+	case SchemaObject:
 		if schema.Items != nil {
 			return fmt.Errorf("%s: objeto não possui items", path)
 		}
@@ -265,7 +254,7 @@ func validateSchemaDefinitionAt(schema *Schema, path string, root bool, depth in
 				return err
 			}
 		}
-	} else if schema.Type == SchemaArray {
+	case SchemaArray:
 		if err := validateSchemaDefinitionAt(schema.Items, path+"[]", false, depth+1, active); err != nil {
 			return err
 		}
@@ -298,10 +287,6 @@ func validSchemaType(value SchemaType) bool {
 	default:
 		return false
 	}
-}
-
-func validateEnumValue(value any, path string) error {
-	return validateEnumValueAt(value, path, 0, make(map[visit]bool))
 }
 
 func validateEnumValueAt(value any, path string, depth int, active map[visit]bool) error {

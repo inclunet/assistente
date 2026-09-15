@@ -20,7 +20,6 @@ func unknownState() State { return State{Locked: true} }
 var (
 	errObserverNil = errors.New("ossession: observe must not be nil")
 	errNilContext  = errors.New("ossession: context must not be nil")
-	errUnsupported = errors.New("ossession: unsupported platform")
 	errPumpStopped = errors.New("ossession: native message pump stopped")
 )
 

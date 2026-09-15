@@ -32,7 +32,7 @@ func TestHostChangeGuardsAndNilCommit(t *testing.T) {
 		return func(context.Context) error { commitCalled = true; return nil }, nil
 	}
 
-	if err := state.ChangeUserConfiguration(nil, nil, nil); !errors.Is(err, ErrInvalidHostState) {
+	if err := state.ChangeUserConfiguration(nil, nil, nil); !errors.Is(err, ErrInvalidHostState) { //nolint:staticcheck // Testa deliberadamente a recusa de contexto nil.
 		t.Fatalf("argumentos inválidos = %v", err)
 	}
 	if err := state.ChangeUserConfiguration(context.Background(), nil, prepare); !errors.Is(err, ErrInvalidHostState) {

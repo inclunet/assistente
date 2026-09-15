@@ -79,7 +79,7 @@ func TestServiceFailedQueueCommitNeverStartsOrOverwritesLedger(t *testing.T) {
 	sentinel := errors.New("fixture commit failure")
 	if err := f.db.Callback().Update().Before("gorm:update").Register("fixture:fail-queue", func(tx *gorm.DB) {
 		if tx.Statement.Table == "command_idempotency_keys" {
-			tx.AddError(sentinel)
+			_ = tx.AddError(sentinel)
 		}
 	}); err != nil {
 		t.Fatal(err)
