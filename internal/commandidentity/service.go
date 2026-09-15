@@ -7,6 +7,7 @@ import (
 	"assistente/internal/auth"
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandcontract"
+	"assistente/internal/database"
 )
 
 type Config struct {
@@ -15,6 +16,7 @@ type Config struct {
 	ExternalAdmin      *auth.ExternalIdentityAdminService
 	Epochs             EpochPort
 	JobRuntime         JobRuntime
+	JobGrants          JobGrantStore
 	AuthorizationRules []AuthorizationRule
 }
 
@@ -24,12 +26,16 @@ type Service struct {
 	admin      *auth.ExternalIdentityAdminService
 	epochs     EpochPort
 	jobRuntime JobRuntime
+	jobGrants  JobGrantStore
 	rules      map[string]AuthorizationRule
 }
 
 func New(cfg Config) (*Service, error) {
 	if cfg.Epochs == nil {
 		return nil, ErrEpochUnavailable
+	}
+	if cfg.JobRuntime != nil && cfg.JobGrants == nil {
+		return nil, ErrJobExecutionDenied
 	}
 	rules := make(map[string]AuthorizationRule, len(cfg.AuthorizationRules))
 	for _, rule := range cfg.AuthorizationRules {
@@ -47,7 +53,7 @@ func New(cfg Config) (*Service, error) {
 	return &Service{
 		sessions: cfg.Sessions, external: cfg.External, admin: cfg.ExternalAdmin,
 		epochs:     cfg.Epochs,
-		jobRuntime: cfg.JobRuntime, rules: rules,
+		jobRuntime: cfg.JobRuntime, jobGrants: cfg.JobGrants, rules: rules,
 	}, nil
 }
 
@@ -193,6 +199,9 @@ func (s *Service) resolveJobService(ctx context.Context, req JobServiceRequest, 
 	if err != nil || job.OwnerUserID == "" || job.DatabaseID == "" || job.DatabaseID != req.JobDatabaseID || job.Slug == "" || job.TargetProfileSlug == "" || job.TargetProfileSlug != req.TargetProfileSlug || job.JobDefinitionFingerprint == "" || job.RunID == "" || job.RunID != req.RunID {
 		return TrustedIdentity{}, ErrJobExecutionDenied
 	}
+	if err := s.validateJobGrant(ctx, job); err != nil {
+		return TrustedIdentity{}, err
+	}
 	identity := TrustedIdentity{
 		AuthContextType: commandcontract.AuthJobService, AuthContextID: "job-service:" + job.DatabaseID + ":" + job.RunID,
 		UserID: job.OwnerUserID, ActorType: commandcontract.ActorAutomation, ActorID: job.Slug,
@@ -299,7 +308,21 @@ func (s *Service) AuthorizeJob(ctx context.Context, req AuthorizationRequest) er
 	if err := s.authorizeFreshWithoutJobRevalidate(fresh, req.Definition); err != nil {
 		return err
 	}
-	return s.jobRuntime.RevalidateCommandJob(ctx, req.JobService.Capability, *fresh.Job)
+	if err := s.jobRuntime.RevalidateCommandJob(ctx, req.JobService.Capability, *fresh.Job); err != nil {
+		return err
+	}
+	return s.validateJobGrant(ctx, *fresh.Job)
+}
+
+func (s *Service) validateJobGrant(ctx context.Context, job TrustedJob) error {
+	if ctx == nil || s.jobGrants == nil || job.OwnerUserID == "" || job.DelegationFingerprint == "" {
+		return ErrJobExecutionDenied
+	}
+	valid, err := s.jobGrants.HasValidGeneration(database.WithUserID(ctx, job.OwnerUserID), job.DatabaseID, job.TargetProfileSlug, job.DelegationFingerprint, job.GrantGeneration)
+	if err != nil || !valid {
+		return ErrJobExecutionDenied
+	}
+	return nil
 }
 
 func (s *Service) authorizeFreshWithoutJobRevalidate(identity TrustedIdentity, definition commandcatalog.Definition) error {

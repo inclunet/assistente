@@ -198,8 +198,8 @@ func TestSystemCapabilityRestritaESemOwner(t *testing.T) {
 
 func TestJobServiceExigeCapabilityERuntimeAutenticado(t *testing.T) {
 	epochs := &epochPortStub{}
-	runtime := &jobRuntimeStub{job: TrustedJob{DatabaseID: "job", Slug: "daily", OwnerUserID: "user", TargetProfileSlug: "profile", JobDefinitionFingerprint: "fingerprint", GrantGeneration: 4, RunID: "legacy-run/2021-04-17"}}
-	service, err := New(Config{Epochs: epochs, JobRuntime: runtime, AuthorizationRules: []AuthorizationRule{{CommandID: "maintenance.read", Actors: []commandcontract.ActorType{commandcontract.ActorAutomation}}}})
+	runtime := &jobRuntimeStub{job: TrustedJob{DatabaseID: "job", Slug: "daily", OwnerUserID: "user", TargetProfileSlug: "profile", JobDefinitionFingerprint: "fingerprint", DelegationFingerprint: "delegation", GrantGeneration: 4, RunID: "legacy-run/2021-04-17"}}
+	service, err := New(Config{Epochs: epochs, JobRuntime: runtime, JobGrants: exactJobGrantFixture{}, AuthorizationRules: []AuthorizationRule{{CommandID: "maintenance.read", Actors: []commandcontract.ActorType{commandcontract.ActorAutomation}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

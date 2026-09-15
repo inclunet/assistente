@@ -68,6 +68,7 @@ type TrustedJob struct {
 	OwnerUserID              string
 	TargetProfileSlug        string
 	JobDefinitionFingerprint string
+	DelegationFingerprint    string
 	GrantGeneration          uint64
 	RunID                    string
 }
@@ -161,6 +162,12 @@ func (jobServiceCapability) commandJobServiceCapability() {}
 type JobRuntime interface {
 	ResolveCommandJob(context.Context, JobServiceCapability, JobServiceRequest) (TrustedJob, error)
 	RevalidateCommandJob(context.Context, JobServiceCapability, TrustedJob) error
+}
+
+// JobGrantStore é satisfeito pelo store real da AEP-0101. O contexto recebe
+// somente o owner derivado pelo runtime; nunca um user_id do candidato.
+type JobGrantStore interface {
+	HasValidGeneration(context.Context, string, string, string, uint64) (bool, error)
 }
 
 var _ ResolverPort = (*Service)(nil)

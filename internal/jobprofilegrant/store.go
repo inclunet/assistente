@@ -262,12 +262,28 @@ func ensureEpochTx(tx *gorm.DB, userID, jobID, targetSlug, fingerprint string) (
 }
 
 func (s *Store) HasValid(ctx context.Context, jobID, targetSlug, fingerprint string) (bool, error) {
+	return s.hasValid(ctx, jobID, targetSlug, fingerprint, nil)
+}
+
+// HasValidGeneration revalida a geração exata transportada pelo executor de
+// comandos. Uma reautorização posterior não valida uma invocação antiga.
+// O ID é exclusivamente o UUID persistido, sem fallback por slug.
+// É uma consulta sem manutenção/escritas nem backoff sob o gate do executor.
+func (s *Store) HasValidGeneration(ctx context.Context, jobID, targetSlug, fingerprint string, generation uint64) (bool, error) {
+	return s.hasValid(ctx, jobID, targetSlug, fingerprint, &generation)
+}
+
+func (s *Store) hasValid(ctx context.Context, jobID, targetSlug, fingerprint string, generation *uint64) (bool, error) {
+	if s == nil || s.db == nil || s.now == nil || ctx == nil {
+		return false, ErrAuthorizationNotGranted
+	}
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
 		return false, err
 	}
 	valid := false
-	err = database.WithSQLiteBusyRetry(ctx, "job_profile_grants.has_valid", func() error {
+	query := func() error {
+		valid = false
 		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			config, currentErr := currentDelegationByDatabaseIDDB(ctx, tx, jobID)
 			if currentErr != nil {
@@ -276,27 +292,39 @@ func (s *Store) HasValid(ctx context.Context, jobID, targetSlug, fingerprint str
 			if config.Fingerprint != strings.TrimSpace(fingerprint) {
 				return nil
 			}
-			if revokeErr := revokeStaleTx(tx, userID, config.JobID, config.Fingerprint, s.now().UTC(), "configuração alterada"); revokeErr != nil {
-				return revokeErr
+			// O caminho legado conserva sua manutenção. A consulta de geração
+			// exata apenas recusa fingerprints antigos; nunca os revoga aqui.
+			if generation == nil {
+				if revokeErr := revokeStaleTx(tx, userID, config.JobID, config.Fingerprint, s.now().UTC(), "configuração alterada"); revokeErr != nil {
+					return revokeErr
+				}
 			}
 			var count int64
 			epochGeneration := tx.Model(&database.JobProfileGrantEpoch{}).
 				Select("generation").
 				Where("user_id = ? AND job_id = ? AND target_profile_slug = ? AND delegation_fingerprint = ?",
 					userID, config.JobID, strings.TrimSpace(targetSlug), config.Fingerprint)
-			if countErr := tx.Model(&database.JobProfileGrant{}).
+			query := tx.Model(&database.JobProfileGrant{}).
 				Where("user_id = ? AND job_id = ? AND target_profile_slug = ? AND delegation_fingerprint = ? AND revoked_at IS NULL",
 					userID, config.JobID, strings.TrimSpace(targetSlug), config.Fingerprint).
 				Where("NOT EXISTS (SELECT 1 FROM profile_grant_revocation_intents WHERE profile_grant_revocation_intents.target_profile_slug = job_profile_grants.target_profile_slug)").
-				Where("generation = (?)", epochGeneration).
-				Count(&count).Error; countErr != nil {
+				Where("generation = (?)", epochGeneration)
+			if generation != nil {
+				query = query.Where("generation = ?", *generation)
+			}
+			if countErr := query.Count(&count).Error; countErr != nil {
 				return countErr
 			}
 			valid = count > 0
 			return nil
 		})
-	})
-	return valid, err
+	}
+	if generation != nil {
+		err = query()
+	} else {
+		err = database.WithSQLiteBusyRetry(ctx, "job_profile_grants.has_valid", query)
+	}
+	return valid && err == nil, err
 }
 
 func (s *Store) ListValid(ctx context.Context, jobID string) ([]Grant, DelegationConfig, error) {
