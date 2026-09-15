@@ -48,7 +48,13 @@ func (a *App) observeCommandOSSession(ctx context.Context, watch func(context.Co
 	if err := state.SetOSSessionState(context.Background(), false, true); err != nil {
 		return err
 	}
-	defer state.SetOSSessionState(context.Background(), false, true)
+	defer func() {
+		if err := state.SetOSSessionState(context.Background(), false, true); err != nil {
+			// O reset fail-closed é tentado mesmo no encerramento; se o HostState
+			// recusar a escrita, a falha precisa permanecer observável.
+			logging.Warnf(context.Background(), "app.commands", "Falha ao fechar observação da sessão do SO: %v", err)
+		}
+	}()
 	return watch(ctx, func(observed ossession.State) error {
 		return state.SetOSSessionState(ctx, observed.Known, observed.Locked)
 	})

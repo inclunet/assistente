@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"assistente/internal/configdir"
 )
 
 // writeConfigJSON grava um config.json bruto no diretório de teste e agenda a
@@ -79,19 +81,67 @@ func TestGetMaintenance_ExplicitZeroIsRespected(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	// Usa diretório temporário para config durante testes. Trata o erro
-	// explicitamente: sem isso, tmpDir vazio faria os testes escreverem config
-	// num caminho inesperado. Limpeza é feita inline (os.Exit não roda defers).
+	// O resolver de configuração usa os diretórios derivados do ambiente do
+	// processo; ASSISTENTE_HOME, sozinho, não o isola. Este harness altera
+	// somente o processo de teste, restaura cada variável (inclusive unset) e
+	// nunca executa os testes se a sandbox não puder ser preparada.
 	tmpDir, err := os.MkdirTemp("", "config-test-*")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "erro ao criar diretório temporário de teste: %v\n", err)
 		os.Exit(1)
 	}
-	_ = os.Setenv("ASSISTENTE_HOME", tmpDir)
+
+	envNames := []string{
+		"ASSISTENTE_HOME",
+		"HOME",
+		"USERPROFILE",
+		"APPDATA",
+		"LOCALAPPDATA",
+		"XDG_CONFIG_HOME",
+		"XDG_DATA_HOME",
+		"XDG_STATE_HOME",
+		"XDG_CACHE_HOME",
+	}
+	type envValue struct {
+		value string
+		set   bool
+	}
+	previous := make(map[string]envValue, len(envNames))
+	for _, name := range envNames {
+		value, set := os.LookupEnv(name)
+		previous[name] = envValue{value: value, set: set}
+	}
+
+	restoreEnv := func() {
+		for _, name := range envNames {
+			old := previous[name]
+			if old.set {
+				_ = os.Setenv(name, old.value)
+			} else {
+				_ = os.Unsetenv(name)
+			}
+		}
+	}
+	setSandboxEnv := func() error {
+		for _, name := range envNames {
+			if err := os.Setenv(name, tmpDir); err != nil {
+				return fmt.Errorf("set %s: %w", name, err)
+			}
+		}
+		return nil
+	}
+	if err := setSandboxEnv(); err != nil {
+		restoreEnv()
+		_ = os.RemoveAll(tmpDir)
+		fmt.Fprintf(os.Stderr, "erro ao preparar ambiente temporário de teste: %v\n", err)
+		os.Exit(1)
+	}
+	configdir.ResetForTests()
 
 	code := m.Run()
 
+	configdir.ResetForTests()
+	restoreEnv()
 	_ = os.RemoveAll(tmpDir)
-	_ = os.Unsetenv("ASSISTENTE_HOME")
 	os.Exit(code)
 }

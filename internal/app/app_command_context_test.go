@@ -227,7 +227,7 @@ func TestCommandWorkspaceProviderValidaPrincipalEscopoEContexto(t *testing.T) {
 	if _, err := provider.Snapshot(context.Background(), commandWorkspaceScope(principal, workspaceID), "workspace"); err != nil {
 		t.Fatalf("escopo correto rejeitado: %v", err)
 	}
-	if _, err := provider.Snapshot(nil, commandWorkspaceScope(principal, workspaceID), "workspace"); !errors.Is(err, commandcontext.ErrProviderUnavailable) {
+	if _, err := provider.Snapshot(nil, commandWorkspaceScope(principal, workspaceID), "workspace"); !errors.Is(err, commandcontext.ErrProviderUnavailable) { //nolint:staticcheck // nil é intencional: confirma rejeição fail-closed de contexto ausente.
 		t.Fatalf("contexto nil não rejeitado: %v", err)
 	}
 }

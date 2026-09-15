@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"assistente/controllers"
@@ -19,6 +20,7 @@ import (
 	"assistente/internal/auth"
 	"assistente/internal/chat"
 	"assistente/internal/commandexecution"
+	"assistente/internal/commandruntime"
 	"assistente/internal/commandsecurity"
 	"assistente/internal/connstatus"
 	"assistente/internal/contextprovider"
@@ -115,10 +117,11 @@ type App struct {
 	commandEpochsOnce     sync.Once
 	commandEpochs         *commandsecurity.EpochService
 	commandEpochsErr      error
-	commandHost           *commandexecution.HostState // protegido por authMu; bootstrap serializado
-	commandStorageVersion string                      // prontidão de armazenamento, NÃO de execução; authMu
-	commandStorageErr     error                       // falha retida sem impedir autenticação legada; authMu
-	commandOSStarted      bool                        // protegido por authMu; uma execução por App
+	commandHost           *commandexecution.HostState               // protegido por authMu; bootstrap serializado
+	commandLifecycle      atomic.Pointer[commandruntime.Controller] // montagem real, sem registry global
+	commandStorageVersion string                                    // prontidão de armazenamento, NÃO de execução; authMu
+	commandStorageErr     error                                     // falha retida sem impedir autenticação legada; authMu
+	commandOSStarted      bool                                      // protegido por authMu; uma execução por App
 	currentUserID         string
 	currentAuthUser       *AuthUser
 	authKeyringLoad       func() (string, error)

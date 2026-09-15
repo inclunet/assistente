@@ -26,7 +26,7 @@ func TestCommandStoragePreparesWithoutPublishingExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 	if err := db.AutoMigrate(&database.CredentialEntry{}, &database.CredentialKeyWrap{}); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestCommandStoragePreparesWithoutPublishingExecution(t *testing.T) {
 
 func TestCommandStorageRejectsInvalidDependencies(t *testing.T) {
 	a := &App{}
-	if err := a.prepareCommandStorage(nil, nil, nil); err == nil || a.commandStorageVersion != "" || a.commandStorageErr == nil {
+	if err := a.prepareCommandStorage(nil, nil, nil); err == nil || a.commandStorageVersion != "" || a.commandStorageErr == nil { //nolint:staticcheck // nil é intencional: confirma dependências ausentes e ausência de prontidão.
 		t.Fatal("dependências ausentes aceitas")
 	}
 }

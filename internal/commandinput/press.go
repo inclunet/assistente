@@ -120,6 +120,23 @@ func (t *Tracker) Transition(event Event) (bool, error) {
 	return true, nil
 }
 
+// Blur libera todas as teclas da geração ativa sem criar uma nova geração.
+// Isso é usado quando a janela perde foco: o próximo KeyDown deve ser uma
+// nova borda, mas um callback atrasado de outra geração continua inválido.
+func (t *Tracker) Blur(generation uint64) error {
+	if t == nil || generation == 0 {
+		return ErrInvalidGeneration
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if generation != t.generation {
+		return fmt.Errorf("%w: atual=%d recebida=%d", ErrStaleGeneration, t.generation, generation)
+	}
+	clear(t.pressed)
+	return nil
+}
+
 // Generation devolve a geração ativa para diagnóstico e testes.
 func (t *Tracker) Generation() uint64 {
 	if t == nil {

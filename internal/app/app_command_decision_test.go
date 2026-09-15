@@ -27,8 +27,7 @@ func commandDecisionRequest(id string, expiresIn time.Duration) commanddecision.
 func newCommandDecisionManager(t *testing.T) (*questionnaire.Manager, <-chan map[string]any) {
 	t.Helper()
 	events := make(chan map[string]any, 4)
-	var manager *questionnaire.Manager
-	manager = questionnaire.NewManager(func(event string, data any) {
+	manager := questionnaire.NewManager(func(event string, data any) {
 		if event != questionnaire.EventQuestionnaire {
 			return
 		}
@@ -64,7 +63,7 @@ func finishCommandDecision(t *testing.T, manager *questionnaire.Manager, payload
 	}
 }
 
-func presentCommandDecision(t *testing.T, presenter *commandDecisionPresenter, manager *questionnaire.Manager, events <-chan map[string]any, req commanddecision.Request, answers map[string]any, cancelled bool) (commanddecision.Response, error, map[string]any) {
+func presentCommandDecision(t *testing.T, presenter *commandDecisionPresenter, manager *questionnaire.Manager, events <-chan map[string]any, req commanddecision.Request, answers map[string]any, cancelled bool) (commanddecision.Response, map[string]any, error) {
 	t.Helper()
 	type outcome struct {
 		response commanddecision.Response
@@ -85,7 +84,7 @@ func presentCommandDecision(t *testing.T, presenter *commandDecisionPresenter, m
 	case <-time.After(5 * time.Second):
 		t.Fatal("Present não concluiu em 5s")
 	}
-	return got.response, got.err, payload
+	return got.response, payload, got.err
 }
 
 func TestCommandDecisionPresenterBuildsAccessibleDecisionPayload(t *testing.T) {
@@ -93,7 +92,7 @@ func TestCommandDecisionPresenterBuildsAccessibleDecisionPayload(t *testing.T) {
 	presenter := &commandDecisionPresenter{manager: manager}
 	req := commandDecisionRequest("backend-decision-1", 5*time.Second)
 
-	response, err, payload := presentCommandDecision(t, presenter, manager, events, req,
+	response, payload, err := presentCommandDecision(t, presenter, manager, events, req,
 		map[string]any{
 			questionnaire.AnswerActionID: "attacker-injected-action-id",
 			"decisionId":                 "attacker-injected-decision-id",
@@ -167,7 +166,7 @@ func TestCommandDecisionPresenterAcceptDenyCancelAndIgnoresInjectedDecisionID(t 
 			manager, events := newCommandDecisionManager(t)
 			presenter := &commandDecisionPresenter{manager: manager}
 			req := commandDecisionRequest("backend-"+tt.name, 5*time.Second)
-			response, err, _ := presentCommandDecision(t, presenter, manager, events, req, tt.answers, tt.cancelled)
+			response, _, err := presentCommandDecision(t, presenter, manager, events, req, tt.answers, tt.cancelled)
 			if tt.wantError != nil {
 				if !errors.Is(err, tt.wantError) {
 					t.Fatalf("erro = %v, want %v", err, tt.wantError)
@@ -193,7 +192,7 @@ func TestCommandDecisionPresenterInvocationUsesLocalizedMetadataAndCurrentScope(
 			req.SubjectType = "invocation"
 			req.Destructive = destructive
 
-			response, err, payload := presentCommandDecision(t, presenter, manager, events, req,
+			response, payload, err := presentCommandDecision(t, presenter, manager, events, req,
 				map[string]any{questionnaire.AnswerActionID: commanddecision.ApplyAction}, false)
 			if err != nil {
 				t.Fatalf("Present: %v", err)
@@ -295,7 +294,7 @@ func TestCommandDecisionPresenterGuardsAndPropagatesManagerError(t *testing.T) {
 	}
 	manager, events := newCommandDecisionManager(t)
 	presenter := &commandDecisionPresenter{manager: manager}
-	if _, err := presenter.Present(nil, req); !errors.Is(err, commanddecision.ErrInvalid) {
+	if _, err := presenter.Present(nil, req); !errors.Is(err, commanddecision.ErrInvalid) { //nolint:staticcheck // nil é intencional: confirma rejeição fail-closed de contexto ausente.
 		t.Fatalf("context nil = %v, want ErrInvalid", err)
 	}
 	if _, err := presenter.Present(context.Background(), commandDecisionRequest("expired", -time.Second)); !errors.Is(err, commanddecision.ErrInvalid) {

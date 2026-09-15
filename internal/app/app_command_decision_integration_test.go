@@ -23,7 +23,7 @@ func TestCommandDecisionAdapterPersistsAndConsumesExactBackendReceipt(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { sqlDB.Close() })
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	ctx := context.Background()
 	if err := commanddecision.Migrate(ctx, db); err != nil {
 		t.Fatal(err)
