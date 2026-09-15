@@ -19,6 +19,7 @@ import {
   ensureModalCleanup,
   registerOpenModal,
   unregisterOpenModal,
+  updateOpenModalScope,
 } from './modalRegistry';
 
 const stores = vi.hoisted(() => ({
@@ -83,7 +84,7 @@ function resultFor(invocationValue: CommandInvocation, resultOwner: CommandBridg
   return { ...invocationValue, owner: resultOwner, status: 'succeeded' };
 }
 
-function setup() {
+function setup(withDialog = false) {
   const dispatch = vi.fn(async (value: CommandInvocation) => ({
     invocationId: value.invocationId,
     accepted: true,
@@ -97,11 +98,12 @@ function setup() {
   bridge.openSession(session);
 
   const context = createTrustedCommandContextSession();
-  const cleanupSurface = context.registerSurfaceContext('editor-1', () => surface('editor-1'));
+  const initialSurface = surface('editor-1');
+  const cleanupSurface = context.registerSurfaceContext('editor-1', () => initialSurface);
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   document.body.appendChild(overlay);
-  registerOpenModal('decision-a', scope);
+  if (withDialog) registerOpenModal('decision-a', scope);
 
   return {
     composed: createAuthenticatedCommandBridge({ bridge, context, session, ownership: 'exclusive' }),
@@ -131,8 +133,160 @@ afterEach(() => {
 });
 
 describe('createAuthenticatedCommandBridge', () => {
+  it('reserva repetição do topo antes do resolver e mantém evento para o handler existente', async () => {
+    const { composed, dispatch } = setup(true);
+    const resolve = vi.fn(() => ({ ...invocation(), source: 'keyboard.local' as const }));
+    const event = new KeyboardEvent('keydown', { key: 'R', ctrlKey: true, shiftKey: true, cancelable: true });
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({ kind: 'dialog-reserved', scope });
+    expect(resolve).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+    registerOpenModal('other');
+    try {
+      await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({ kind: 'blocked' });
+      expect(resolve).not.toHaveBeenCalled();
+    } finally {
+      unregisterOpenModal('other');
+    }
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({ kind: 'dialog-reserved', scope });
+    unregisterOpenModal('decision-a');
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toMatchObject({ kind: 'dispatched', ack: { accepted: true } });
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { repeat: true }, { isComposing: true }, { keyCode: 229 },
+  ])('ignora guarda %j antes de reservar ou resolver', async (guard) => {
+    const { composed, dispatch } = setup(true);
+    const resolve = vi.fn();
+    const event = new KeyboardEvent('keydown', { key: 'r', ctrlKey: true, shiftKey: true, cancelable: true, ...guard });
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({ kind: 'ignored' });
+    expect(resolve).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('reserva somente o scope atual quando a fila troca o diálogo no mesmo modal', async () => {
+    const { composed, dispatch } = setup(true);
+    const event = new KeyboardEvent('keydown', { key: 'r', ctrlKey: true, shiftKey: true });
+    const resolve = vi.fn();
+    const next = { ...scope, dialogId: 'decision-b', generation: '2' };
+    updateOpenModalScope('decision-a', next);
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({ kind: 'dialog-reserved', scope: next });
+    updateOpenModalScope('decision-a');
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({ kind: 'blocked' });
+    expect(resolve).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it.each(['input', 'textarea', 'contenteditable', 'monaco'])('preserva digitação em %s', async (kind) => {
+    const { composed, dispatch } = setup(true);
+    const control = document.createElement(kind === 'input' || kind === 'textarea' ? kind : 'div');
+    control.tabIndex = 0;
+    if (kind === 'contenteditable') control.setAttribute('contenteditable', 'true');
+    if (kind === 'monaco') control.className = 'monaco-editor';
+    document.body.appendChild(control);
+    control.focus();
+    const event = new KeyboardEvent('keydown', { key: 'r', ctrlKey: true, shiftKey: true, cancelable: true });
+    const resolve = vi.fn();
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({ kind: 'ignored' });
+    expect(event.defaultPrevented).toBe(false);
+    expect(resolve).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('bloqueia chamada direta e comando de resposta sem prova de diálogo mesmo com capability', async () => {
+    const { composed, bridge, dispatch } = setup(true);
+    const first = invocation();
+    await expect(composed.invoke(first)).resolves.toEqual({ invocationId: first.invocationId, accepted: false, reason: 'dialog-blocked' });
+    bridge.replaceCapabilities([{ id: 'cap-a', commandId: 'decision.respond', generation: '1', owner }]);
+    await expect(composed.invoke({ ...invocation(), commandId: 'decision.respond' })).resolves.toMatchObject({ accepted: false, reason: 'dialog-blocked' });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('relê stack após resolver e impede candidato atravessar abertura de diálogo', async () => {
+    const { composed, dispatch } = setup();
+    const resolve = vi.fn(() => {
+      registerOpenModal('decision-a', scope);
+      return { ...invocation(), source: 'keyboard.local' as const };
+    });
+    await expect(composed.dispatchLocalKeyboard(new KeyboardEvent('keydown', { key: 'x' }), resolve)).resolves.toEqual({ kind: 'blocked' });
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('recusa capacidade alterada no mesmo controle focalizado', async () => {
+    const { composed, dispatch } = setup();
+    const button = document.createElement('button');
+    document.body.appendChild(button);
+    button.focus();
+    const before = composed.readContext()?.frame.focus.control;
+    const result = await composed.dispatchLocalKeyboard(new KeyboardEvent('keydown', { key: 'x' }), () => {
+      button.setAttribute('aria-disabled', 'true');
+      return { ...invocation(), source: 'keyboard.local' };
+    });
+    const after = composed.readContext()?.frame.focus.control;
+    expect(after?.identity).toBe(before?.identity);
+    expect(before?.capabilities.disabled).toBe(false);
+    expect(after?.capabilities.disabled).toBe(true);
+    expect(result).toEqual({ kind: 'blocked' });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('recusa perda de foco da janela sem mudança do controle', async () => {
+    const { composed, dispatch } = setup();
+    const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    await expect(composed.dispatchLocalKeyboard(new KeyboardEvent('keydown', { key: 'x' }), () => {
+      focus.mockReturnValue(false);
+      return { ...invocation(), source: 'keyboard.local' };
+    })).resolves.toEqual({ kind: 'blocked' });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it.each(['version', 'selection', 'freshness'])('recusa mudança de surface: %s', async (change) => {
+    const { composed, context, dispatch } = setup();
+    let value = { ...surface('editor-1'), selection: { kind: 'text', text: 'before' } };
+    context.registerSurfaceContext('editor-1', () => value);
+    await expect(composed.dispatchLocalKeyboard(new KeyboardEvent('keydown', { key: 'x' }), () => {
+      value = change === 'version' ? { ...value, snapshotVersion: 'snapshot-2' }
+        : change === 'selection' ? { ...value, selection: { kind: 'text', text: 'after' } }
+          : { ...value, staleAfterMs: 10_000 };
+      return { ...invocation(), source: 'keyboard.local' };
+    }, 'editor-1')).resolves.toEqual({ kind: 'blocked' });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('usa o frame revalidado sem terceira consulta e aceita JSON com ordem de chaves diferente', async () => {
+    const { composed, context, dispatch } = setup();
+    const stable = surface('editor-1');
+    let reads = 0;
+    context.registerSurfaceContext('editor-1', () => {
+      reads += 1;
+      return { ...stable, selection: { kind: 'text', range: reads === 1 ? { startOffset: 1, endOffset: 2 } : { endOffset: 2, startOffset: 1 } } };
+    });
+    await expect(composed.dispatchLocalKeyboard(new KeyboardEvent('keydown', { key: 'x' }), () => ({
+      ...invocation(), source: 'keyboard.local',
+    }), 'editor-1')).resolves.toMatchObject({ kind: 'dispatched', ack: { accepted: true } });
+    expect(reads).toBe(2);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('caminho interno mantém validação de capability, sessão e dispose', async () => {
+    const { composed, dispatch } = setup();
+    const event = new KeyboardEvent('keydown', { key: 'x' });
+    await expect(composed.dispatchLocalKeyboard(event, () => ({ ...invocation(), source: 'keyboard.local', capabilityId: 'foreign' }))).rejects.toMatchObject({ code: 'capability-denied' });
+    stores.auth.isAuthenticated = false;
+    const resolve = vi.fn();
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).rejects.toMatchObject({ code: 'session-unavailable' });
+    expect(resolve).not.toHaveBeenCalled();
+    await composed.dispose();
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).rejects.toMatchObject({ code: 'bridge-closed' });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it('compõe modal topmost, foco e surface real em frame autenticado', () => {
-    const { composed, cleanupSurface, overlay } = setup();
+    const { composed, cleanupSurface, overlay } = setup(true);
     const control = document.createElement('button');
     document.body.appendChild(control);
     control.focus();

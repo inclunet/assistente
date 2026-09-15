@@ -1,5 +1,6 @@
 import {
   CommandBridgeError,
+  type DialogCommandScope,
   type CommandBridge,
   type CommandBridgeOwner,
   type CommandCancelAck,
@@ -15,6 +16,15 @@ import {
   type OwnedCommandContextFrame,
   type TrustedCommandContextSession,
 } from './commandContextSession';
+import { isEditableKeyboardTarget } from './decisionMnemonic';
+
+export type CommandKeyboardDispatchResult =
+  // Todos os resultados exceto dispatched encerram esta tentativa. ignored
+  // preserva o evento nativo, mas nunca autoriza fallback para outro binding.
+  | { readonly kind: 'ignored' }
+  | { readonly kind: 'dialog-reserved'; readonly scope: DialogCommandScope }
+  | { readonly kind: 'blocked' }
+  | { readonly kind: 'dispatched'; readonly ack: CommandInvocationAck };
 
 /**
  * Composição entre uma sessão entregue pela borda confiável e os leitores
@@ -22,6 +32,12 @@ import {
  * autorização backend; o bridge/host continua decidindo o dispatch.
  */
 export interface AuthenticatedCommandBridge {
+  /** Entrada interna síncrona de resolução; não instala observadores de teclado. */
+  dispatchLocalKeyboard(
+    event: KeyboardEvent,
+    resolve: (context: OwnedCommandContextFrame) => CommandInvocation | undefined,
+    surfaceID?: string,
+  ): Promise<CommandKeyboardDispatchResult>;
   readContext(surfaceID?: string): OwnedCommandContextFrame | undefined;
   invoke(
     invocation: CommandInvocation,
@@ -93,6 +109,19 @@ function closedError(): CommandBridgeError {
   return new CommandBridgeError('bridge-closed');
 }
 
+// Providers devolvem JSON destacado/congelado. Compare também o conteúdo:
+// snapshotVersion sozinho não detecta um provider que reutilize sua versão.
+function sameContextValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  const a = left as Record<string, unknown>;
+  const b = right as Record<string, unknown>;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((key) =>
+    Object.prototype.hasOwnProperty.call(b, key) && sameContextValue(a[key], b[key]));
+}
+
 /**
  * Binda uma sessão autenticada do host aos providers reais da UI.
  *
@@ -141,12 +170,11 @@ export function createAuthenticatedCommandBridge(
     return owned;
   };
 
-  const invoke = async (
+  const invokeInContext = async (
     invocation: CommandInvocation,
-    surfaceID?: string,
+    owned: OwnedCommandContextFrame,
   ): Promise<CommandInvocationAck> => {
     if (disposed) throw closedError();
-    const owned = requireContext(surfaceID);
     if (
       invocation.sessionId !== session.id ||
       invocation.generation !== session.generation ||
@@ -154,7 +182,65 @@ export function createAuthenticatedCommandBridge(
     ) {
       throw new CommandBridgeError('stale-generation');
     }
+    // O DTO atual não vincula decision.respond a dialogId/scope generation.
+    // Até existir essa prova no caminho comum, nem esse commandId permite
+    // atravessar a barreira; respostas seguem os handlers reais da decisão.
+    if (owned.frame.modal.topID !== null) {
+      return { invocationId: invocation.invocationId, accepted: false, reason: 'dialog-blocked' };
+    }
     return bridge.invoke(invocation, owned.owner);
+  };
+
+  const invoke = async (
+    invocation: CommandInvocation,
+    surfaceID?: string,
+  ): Promise<CommandInvocationAck> => {
+    if (disposed) throw closedError();
+    return invokeInContext(invocation, requireContext(surfaceID));
+  };
+
+  const dispatchLocalKeyboard = async (
+    event: KeyboardEvent,
+    resolve: (context: OwnedCommandContextFrame) => CommandInvocation | undefined,
+    surfaceID?: string,
+  ): Promise<CommandKeyboardDispatchResult> => {
+    if (disposed) throw closedError();
+    const owned = requireContext(surfaceID);
+    const guarded = () => event.type !== 'keydown' || event.defaultPrevented ||
+      event.repeat || event.isComposing || event.keyCode === 229 ||
+      isEditableKeyboardTarget(event.target) ||
+      isEditableKeyboardTarget(document.activeElement);
+    if (guarded()) return { kind: 'ignored' };
+    const modal = owned.frame.modal;
+    if (modal.topID !== null) {
+      const scope = modal.dialogCommandScope;
+      if (scope && event.ctrlKey && event.shiftKey && !event.altKey &&
+        !event.metaKey && event.key.toLowerCase() === 'r') {
+        // Reserva antes de qualquer binding/ownership global. Não consome o
+        // evento: o handler existente do DecisionDialog faz o mesmo anúncio.
+        return { kind: 'dialog-reserved', scope };
+      }
+      return { kind: 'blocked' };
+    }
+    const candidate = resolve(owned);
+    if (!candidate) return { kind: 'ignored' };
+    const current = requireContext(surfaceID);
+    if (disposed) throw closedError();
+    // capturedAt do frame muda a cada leitura e não é uma versão. O foco não
+    // tem generation própria: compare todos os fatos, inclusive capacidades
+    // do mesmo elemento. A surface inclui snapshotVersion e freshness.
+    if (guarded() || current.frame.version !== owned.frame.version ||
+      current.frame.modal.generation !== modal.generation ||
+      !sameContextValue(current.frame.focus, owned.frame.focus) ||
+      !sameContextValue(current.frame.surface, owned.frame.surface)) {
+      return { kind: 'blocked' };
+    }
+    if (candidate.source !== 'keyboard.local' || candidate.ownership !== 'local') {
+      throw new CommandBridgeError('invalid-request');
+    }
+    // Sem terceira leitura de getters após comparar: o handoff usa exatamente
+    // o frame revalidado e passa pelas mesmas checagens de invoke.
+    return { kind: 'dispatched', ack: await invokeInContext(candidate, current) };
   };
 
   const lifecycle = async (event: CommandLifecycleEvent): Promise<void> => {
@@ -212,6 +298,7 @@ export function createAuthenticatedCommandBridge(
   };
 
   return Object.freeze({
+    dispatchLocalKeyboard,
     readContext,
     invoke,
     cancel,
