@@ -26,6 +26,7 @@ var (
 	ErrOwnershipConflict    = errors.New("ownership da ponte de comandos em conflito")
 	ErrInvocationReplay     = errors.New("invocação da ponte de comandos repetida")
 	ErrUnknownInvocation    = errors.New("invocação da ponte de comandos desconhecida")
+	ErrBridgeClosed         = errors.New("ponte de comandos encerrada")
 )
 
 type Ownership string
@@ -40,7 +41,7 @@ type Source string
 const (
 	SourceKeyboardLocal  Source = "keyboard.local"
 	SourceKeyboardGlobal Source = "keyboard.global"
-	SourceStreamDeck     Source = "streamdeck"
+	SourceStreamDeck     Source = "streamdeck.key"
 	SourcePalette        Source = "palette"
 	SourceUIAction       Source = "ui.action"
 	SourceChat           Source = "chat"
@@ -141,6 +142,15 @@ type Port interface {
 	Cancel(context.Context, CancelRequest) error
 }
 
+// ShutdownPort é uma capacidade opcional da porta para liberar o adapter.
+// A ponte sempre invalida e cancela seu estado antes de chamá-la; portas que
+// não possuem recursos próprios podem implementar somente Port. Shutdown e
+// Cancel devem honrar o contexto recebido: a ponte aguarda cancelamentos já
+// admitidos e não promete um prazo máximo de encerramento.
+type ShutdownPort interface {
+	Shutdown(context.Context) error
+}
+
 type Config struct {
 	Port         Port
 	Capabilities []Capability
@@ -154,6 +164,10 @@ type Bridge struct {
 	sessions       map[string]*sessionState
 	claims         map[string]struct{}
 	pending        map[string]pendingInvocation
+	closed         bool
+	shutdownDone   chan struct{}
+	shutdownErr    error
+	cancelWG       sync.WaitGroup
 }
 
 type sessionState struct {
@@ -196,6 +210,9 @@ func (b *Bridge) OpenSession(session Session) error {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.closed {
+		return ErrBridgeClosed
+	}
 	if _, exists := b.sessions[session.ID]; exists {
 		return ErrInvalidRequest
 	}
@@ -215,12 +232,21 @@ func (b *Bridge) AdvanceGeneration(ctx context.Context, sessionID string, genera
 	}
 	b.mu.Lock()
 	state, ok := b.sessions[sessionID]
+	if b.closed {
+		b.mu.Unlock()
+		return ErrBridgeClosed
+	}
 	b.mu.Unlock()
 	if !ok {
 		return ErrUnknownSession
 	}
 	state.dispatchGate.Lock()
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		state.dispatchGate.Unlock()
+		return ErrBridgeClosed
+	}
 	if state.locked {
 		b.mu.Unlock()
 		state.dispatchGate.Unlock()
@@ -238,9 +264,10 @@ func (b *Bridge) AdvanceGeneration(ctx context.Context, sessionID string, genera
 		return err
 	}
 	cancel := b.invalidateSessionLocked(sessionID)
+	b.cancelWG.Add(1)
 	b.mu.Unlock()
 	state.dispatchGate.Unlock()
-	return b.cancelAll(ctx, cancel)
+	return b.cancelTracked(ctx, cancel)
 }
 
 // ReplaceCapabilities publica uma nova fotografia de capabilities. O host
@@ -263,6 +290,10 @@ func (b *Bridge) ReplaceCapabilities(capabilities []Capability) error {
 	b.capabilityGate.Lock()
 	defer b.capabilityGate.Unlock()
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return ErrBridgeClosed
+	}
 	b.capabilities = caps
 	b.mu.Unlock()
 	return nil
@@ -275,6 +306,10 @@ func (b *Bridge) Invoke(ctx context.Context, invocation Invocation, owner Owner)
 		return InvocationAck{}, ErrInvalidRequest
 	}
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return InvocationAck{}, ErrBridgeClosed
+	}
 	state, ok := b.sessions[invocation.SessionID]
 	if !ok {
 		b.mu.Unlock()
@@ -314,7 +349,7 @@ func (b *Bridge) Invoke(ctx context.Context, invocation Invocation, owner Owner)
 	b.mu.Lock()
 	current, stillPending := b.pending[invocation.InvocationID]
 	currentCapability, capabilityStillValid := b.capabilities[invocation.CapabilityID]
-	if !stillPending || current.invocation != invocation || state.locked || state.session.Generation != invocation.Generation || !capabilityStillValid || currentCapability.CommandID != invocation.CommandID || currentCapability.Generation != invocation.Generation || !sameOwner(currentCapability.Owner, owner) {
+	if b.closed || !stillPending || current.invocation != invocation || state.locked || state.session.Generation != invocation.Generation || !capabilityStillValid || currentCapability.CommandID != invocation.CommandID || currentCapability.Generation != invocation.Generation || !sameOwner(currentCapability.Owner, owner) {
 		if stillPending {
 			b.removePendingLocked(invocation.InvocationID)
 		}
@@ -356,6 +391,10 @@ func (b *Bridge) AcceptResult(result Result) (ResultAck, error) {
 		return ResultAck{}, ErrInvalidRequest
 	}
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return ResultAck{}, ErrBridgeClosed
+	}
 	defer b.mu.Unlock()
 	pending, ok := b.pending[result.InvocationID]
 	if !ok {
@@ -375,6 +414,10 @@ func (b *Bridge) Cancel(ctx context.Context, request CancelRequest) (CancelAck, 
 		return CancelAck{}, ErrInvalidRequest
 	}
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return CancelAck{}, ErrBridgeClosed
+	}
 	pending, ok := b.pending[request.InvocationID]
 	if !ok {
 		b.mu.Unlock()
@@ -384,7 +427,9 @@ func (b *Bridge) Cancel(ctx context.Context, request CancelRequest) (CancelAck, 
 		b.mu.Unlock()
 		return CancelAck{}, ErrInvalidRequest
 	}
+	b.cancelWG.Add(1)
 	b.mu.Unlock()
+	defer b.cancelWG.Done()
 	if err := b.port.Cancel(ctx, request); err != nil {
 		return CancelAck{}, err
 	}
@@ -416,6 +461,10 @@ func (b *Bridge) Input(ctx context.Context, input Input) (InvocationAck, error) 
 		return InvocationAck{}, ErrInvalidRequest
 	}
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return InvocationAck{}, ErrBridgeClosed
+	}
 	state, ok := b.sessions[input.SessionID]
 	if !ok {
 		b.mu.Unlock()
@@ -470,6 +519,12 @@ func (b *Bridge) Lifecycle(ctx context.Context, event LifecycleEvent) error {
 	if b == nil || ctx == nil || strings.TrimSpace(event.SessionID) == "" {
 		return ErrInvalidRequest
 	}
+	b.mu.Lock()
+	closed := b.closed
+	b.mu.Unlock()
+	if closed {
+		return ErrBridgeClosed
+	}
 	switch event.Kind {
 	case LifecycleGeneration:
 		return b.AdvanceGeneration(ctx, event.SessionID, event.Generation)
@@ -506,6 +561,11 @@ func (b *Bridge) Lifecycle(ctx context.Context, event LifecycleEvent) error {
 		b.mu.Unlock()
 		state.dispatchGate.Lock()
 		b.mu.Lock()
+		if b.closed {
+			b.mu.Unlock()
+			state.dispatchGate.Unlock()
+			return ErrBridgeClosed
+		}
 		if event.Generation != 0 && event.Generation != state.session.Generation {
 			b.mu.Unlock()
 			state.dispatchGate.Unlock()
@@ -513,12 +573,82 @@ func (b *Bridge) Lifecycle(ctx context.Context, event LifecycleEvent) error {
 		}
 		state.locked = true
 		cancel := b.invalidateSessionLocked(event.SessionID)
+		b.cancelWG.Add(1)
 		b.mu.Unlock()
 		state.dispatchGate.Unlock()
-		return b.cancelAll(ctx, cancel)
+		return b.cancelTracked(ctx, cancel)
 	default:
 		return ErrInvalidRequest
 	}
+}
+
+// Shutdown encerra a ponte uma única vez. Ele marca todas as sessões como
+// indisponíveis, limpa pressão e claims, aguarda somente o handoff curto de
+// cada Dispatch, cancela as pendências fora dos gates e por fim libera a
+// porta, quando ela implementa ShutdownPort. O método é idempotente depois
+// da primeira chamada, inclusive quando a porta reporta erro. Uma chamada
+// concorrente pode retornar ctx.Err enquanto a primeira ainda encerra; isso
+// não antecipa a liberação da porta.
+func (b *Bridge) Shutdown(ctx context.Context) error {
+	if b == nil || ctx == nil {
+		return ErrInvalidRequest
+	}
+	b.mu.Lock()
+	if b.closed {
+		done := b.shutdownDone
+		b.mu.Unlock()
+		if done != nil {
+			select {
+			case <-done:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			b.mu.Lock()
+			err := b.shutdownErr
+			b.mu.Unlock()
+			return err
+		}
+		return nil
+	}
+	b.closed = true
+	b.shutdownDone = make(chan struct{})
+	done := b.shutdownDone
+	states := make([]*sessionState, 0, len(b.sessions))
+	for _, state := range b.sessions {
+		states = append(states, state)
+	}
+	b.mu.Unlock()
+
+	cancel := make([]CancelRequest, 0)
+	for _, state := range states {
+		state.dispatchGate.Lock()
+		b.mu.Lock()
+		state.locked = true
+		_ = state.tracker.Blur(state.session.Generation)
+		cancel = append(cancel, b.invalidateSessionLocked(state.session.ID)...)
+		b.mu.Unlock()
+		state.dispatchGate.Unlock()
+	}
+
+	b.cancelWG.Wait()
+	var first error
+	if err := b.cancelAll(ctx, cancel); err != nil {
+		first = err
+	}
+	if shutdownPort, ok := b.port.(ShutdownPort); ok {
+		if err := shutdownPort.Shutdown(ctx); err != nil && first == nil {
+			first = err
+		}
+	}
+	b.mu.Lock()
+	clear(b.sessions)
+	clear(b.capabilities)
+	clear(b.pending)
+	clear(b.claims)
+	b.shutdownErr = first
+	close(done)
+	b.mu.Unlock()
+	return first
 }
 
 func (b *Bridge) invalidateSessionLocked(sessionID string) []CancelRequest {
@@ -541,6 +671,11 @@ func (b *Bridge) cancelAll(ctx context.Context, requests []CancelRequest) error 
 		}
 	}
 	return first
+}
+
+func (b *Bridge) cancelTracked(ctx context.Context, requests []CancelRequest) error {
+	defer b.cancelWG.Done()
+	return b.cancelAll(ctx, requests)
 }
 
 func (b *Bridge) removePendingLocked(invocationID string) {

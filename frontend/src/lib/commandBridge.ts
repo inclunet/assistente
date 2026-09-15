@@ -10,7 +10,7 @@ export type CommandOwnership = 'local' | 'global';
 export type CommandSource =
   | 'keyboard.local'
   | 'keyboard.global'
-  | 'streamdeck'
+  | 'streamdeck.key'
   | 'palette'
   | 'ui.action'
   | 'chat'
@@ -94,6 +94,8 @@ export interface CommandCancelAck {
 export interface CommandBridgePort {
   dispatch(invocation: CommandInvocation): Promise<CommandInvocationAck>;
   cancel(request: CommandCancelRequest): Promise<void>;
+  /** Libera recursos do adapter, quando a porta os possui. */
+  shutdown?: () => Promise<void>;
 }
 
 export type CommandInputKind = 'down' | 'up';
@@ -130,7 +132,8 @@ export class CommandBridgeError extends Error {
     | 'capability-denied'
     | 'ownership-conflict'
     | 'invocation-replay'
-    | 'unknown-invocation';
+    | 'unknown-invocation'
+    | 'bridge-closed';
 
   constructor(code: CommandBridgeError['code'], message = code) {
     super(message);
@@ -148,6 +151,7 @@ export interface CommandBridge {
   cancel(request: CommandCancelRequest): Promise<CommandCancelAck>;
   input(input: CommandInput): Promise<CommandInvocationAck>;
   lifecycle(event: CommandLifecycleEvent): Promise<void>;
+  shutdown(): Promise<void>;
   subscribeResult(listener: CommandResultListener): () => void;
 }
 
@@ -239,7 +243,7 @@ function ownershipClaimKey(invocation: CommandInvocation, owner: CommandBridgeOw
 }
 
 function validSource(value: unknown): value is CommandSource {
-  return ['keyboard.local', 'keyboard.global', 'streamdeck', 'palette', 'ui.action', 'chat', 'cli', 'event', 'system'].includes(value as string);
+  return ['keyboard.local', 'keyboard.global', 'streamdeck.key', 'palette', 'ui.action', 'chat', 'cli', 'event', 'system'].includes(value as string);
 }
 
 export function createCommandBridge(config: { readonly port: CommandBridgePort; readonly capabilities: readonly CommandCapability[] }): CommandBridge {
@@ -262,17 +266,29 @@ export function createCommandBridge(config: { readonly port: CommandBridgePort; 
   const pending = new Map<string, PendingInvocation>();
   const claims = new Set<string>();
   const listeners = new Set<CommandResultListener>();
+  let closed = false;
+  let shutdownPromise: Promise<void> | undefined;
 
-  const cancelRequests = async (requests: readonly CommandCancelRequest[]): Promise<void> => {
-    let firstError: unknown;
-    for (const request of requests) {
-      try {
-        await config.port.cancel({ ...request, owner: cloneOwner(request.owner) });
-      } catch (error) {
-        firstError ??= error;
+  const activeCancellationBatches = new Set<Promise<void>>();
+
+  const cancelRequests = (requests: readonly CommandCancelRequest[]): Promise<void> => {
+    const batch = (async () => {
+      let firstError: unknown;
+      for (const request of requests) {
+        try {
+          await config.port.cancel({ ...request, owner: cloneOwner(request.owner) });
+        } catch (error) {
+          firstError ??= error;
+        }
       }
-    }
-    if (firstError !== undefined) throw firstError;
+      if (firstError !== undefined) throw firstError;
+    })();
+    activeCancellationBatches.add(batch);
+    void batch.then(
+      () => activeCancellationBatches.delete(batch),
+      () => activeCancellationBatches.delete(batch),
+    );
+    return batch;
   };
 
   const removePending = (invocationId: string): void => {
@@ -292,17 +308,33 @@ export function createCommandBridge(config: { readonly port: CommandBridgePort; 
     return requests;
   };
 
+  const invalidateAll = (): CommandCancelRequest[] => {
+    const requests: CommandCancelRequest[] = [];
+    for (const [invocationId, current] of pending) {
+      requests.push({ sessionId: current.invocation.sessionId, invocationId, generation: current.invocation.generation, capabilityId: current.invocation.capabilityId, owner: current.owner });
+      removePending(invocationId);
+    }
+    for (const state of sessions.values()) {
+      state.locked = true;
+      state.pressed.clear();
+    }
+    return requests;
+  };
+
   const bridge: CommandBridge = {
     openSession(session) {
+      if (closed) throw bridgeError('bridge-closed');
       if (!validSession(session) || sessions.has(session.id)) throw bridgeError('invalid-request');
       sessions.set(session.id, { session: cloneSession(session), locked: false, pressed: new Set() });
     },
 
     replaceCapabilities(values) {
+      if (closed) throw bridgeError('bridge-closed');
       capabilities = buildCapabilities(values);
     },
 
     async advanceGeneration(sessionId, generation) {
+      if (closed) throw bridgeError('bridge-closed');
       if (!validText(sessionId) || !validGeneration(generation)) throw bridgeError('invalid-request');
       const state = sessions.get(sessionId);
       if (!state) throw bridgeError('unknown-session');
@@ -314,6 +346,7 @@ export function createCommandBridge(config: { readonly port: CommandBridgePort; 
     },
 
     async invoke(invocation, owner) {
+      if (closed) throw bridgeError('bridge-closed');
       if (!validInvocation(invocation) || !validOwner(owner)) throw bridgeError('invalid-request');
       const state = sessions.get(invocation.sessionId);
       if (!state) throw bridgeError('unknown-session');
@@ -340,6 +373,7 @@ export function createCommandBridge(config: { readonly port: CommandBridgePort; 
     },
 
     acceptResult(result) {
+      if (closed) throw bridgeError('bridge-closed');
       if (!validResult(result)) throw bridgeError('invalid-request');
       const current = pending.get(result.invocationId);
       if (!current) throw bridgeError('unknown-invocation');
@@ -352,17 +386,19 @@ export function createCommandBridge(config: { readonly port: CommandBridgePort; 
     },
 
     async cancel(request) {
+      if (closed) throw bridgeError('bridge-closed');
       if (!validText(request?.sessionId) || !validText(request?.invocationId) || !validGeneration(request?.generation) || !validText(request?.capabilityId) || !validOwner(request.owner)) throw bridgeError('invalid-request');
       const current = pending.get(request.invocationId);
       if (!current) throw bridgeError('unknown-invocation');
       if (current.invocation.sessionId !== request.sessionId || current.invocation.generation !== request.generation || current.invocation.capabilityId !== request.capabilityId || !sameOwner(current.owner, request.owner)) throw bridgeError('invalid-request');
-      await config.port.cancel({ ...request, owner: cloneOwner(request.owner) });
+      await cancelRequests([request]);
       if (pending.get(request.invocationId) !== current) throw bridgeError('unknown-invocation');
       removePending(request.invocationId);
       return Object.freeze({ invocationId: request.invocationId, accepted: true });
     },
 
     async input(input) {
+      if (closed) throw bridgeError('bridge-closed');
       if (!validText(input?.sessionId) || !validText(input?.source) || !validText(input?.key) || !validGeneration(input?.generation) || !validOwner(input.owner)) throw bridgeError('invalid-request');
       const state = sessions.get(input.sessionId);
       if (!state) throw bridgeError('unknown-session');
@@ -383,6 +419,7 @@ export function createCommandBridge(config: { readonly port: CommandBridgePort; 
     },
 
     async lifecycle(event) {
+      if (closed) throw bridgeError('bridge-closed');
       if (!validText(event?.sessionId)) throw bridgeError('invalid-request');
       if (event.kind === 'generation') {
         if (event.generation === undefined) throw bridgeError('invalid-request');
@@ -407,7 +444,47 @@ export function createCommandBridge(config: { readonly port: CommandBridgePort; 
       await cancelRequests(invalidateSession(event.sessionId));
     },
 
+    shutdown() {
+      if (shutdownPromise) return shutdownPromise;
+      closed = true;
+      const requests = invalidateAll();
+      shutdownPromise = (async () => {
+        let firstError: unknown;
+        for (;;) {
+          const activeResults = await Promise.allSettled([...activeCancellationBatches]);
+          for (const result of activeResults) {
+            if (result.status === 'rejected') {
+              firstError ??= result.reason;
+            }
+          }
+          if (activeCancellationBatches.size === 0) {
+            break;
+          }
+        }
+        try {
+          await cancelRequests(requests);
+        } catch (error) {
+          firstError = error;
+        }
+        listeners.clear();
+        sessions.clear();
+        capabilities.clear();
+        pending.clear();
+        claims.clear();
+        if (config.port.shutdown) {
+          try {
+            await config.port.shutdown();
+          } catch (error) {
+            firstError ??= error;
+          }
+        }
+        if (firstError !== undefined) throw firstError;
+      })();
+      return shutdownPromise;
+    },
+
     subscribeResult(listener) {
+      if (closed) throw bridgeError('bridge-closed');
       if (typeof listener !== 'function') throw bridgeError('invalid-request');
       listeners.add(listener);
       return () => listeners.delete(listener);

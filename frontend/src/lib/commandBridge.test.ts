@@ -64,6 +64,8 @@ describe('command bridge', () => {
     await expect(bridge.invoke({ ...invocation('event'), source: 'event', eventId: testUUID7('event-source') }, owner)).resolves.toMatchObject({ accepted: true });
     await expect(bridge.invoke({ ...invocation('missing-event'), source: 'event' }, owner)).rejects.toMatchObject({ code: 'invalid-request' });
     await expect(bridge.invoke({ ...invocation('opaque-occurrence'), occurrenceId: 'deck-A/button-7/v2' }, owner)).resolves.toMatchObject({ accepted: true });
+    await expect(bridge.invoke({ ...invocation('streamdeck-source'), source: 'streamdeck.key' }, owner)).resolves.toMatchObject({ accepted: true });
+    await expect(bridge.invoke({ ...invocation('legacy-streamdeck-source'), source: 'streamdeck' as CommandSource }, owner)).rejects.toMatchObject({ code: 'invalid-request' });
   });
 
   it('fecha resultado apenas com identidade exata e libera local/global', async () => {
@@ -105,6 +107,111 @@ describe('command bridge', () => {
     bridge.acceptResult(resultFor(second));
     await bridge.lifecycle({ kind: 'lock', sessionId: session.id, generation: '1' });
     await expect(bridge.invoke(invocation('inv-c'), owner)).rejects.toMatchObject({ code: 'session-unavailable' });
+  });
+
+  it('limpa pressão em release/blur e reset de geração', async () => {
+    const { bridge, cancel } = fixture();
+    const occurrenceId = '8:keyboard6:Ctrl+N';
+    const first = { ...invocation('lifecycle-first'), occurrenceId };
+    await expect(bridge.input({ sessionId: session.id, source: 'keyboard', key: 'Ctrl+N', generation: '1', kind: 'down', invocation: first, owner })).resolves.toMatchObject({ accepted: true });
+    await bridge.lifecycle({ kind: 'release', sessionId: session.id, generation: '1', input: { sessionId: session.id, source: 'keyboard', key: 'Ctrl+N', generation: '1', kind: 'down', invocation: first, owner } });
+    bridge.acceptResult(resultFor(first));
+
+    const second = { ...invocation('lifecycle-second'), occurrenceId };
+    await expect(bridge.input({ sessionId: session.id, source: 'keyboard', key: 'Ctrl+N', generation: '1', kind: 'down', invocation: second, owner })).resolves.toMatchObject({ accepted: true });
+    await bridge.lifecycle({ kind: 'blur', sessionId: session.id, generation: '1' });
+    bridge.acceptResult(resultFor(second));
+
+    const third = { ...invocation('lifecycle-third'), occurrenceId };
+    await expect(bridge.input({ sessionId: session.id, source: 'keyboard', key: 'Ctrl+N', generation: '1', kind: 'down', invocation: third, owner })).resolves.toMatchObject({ accepted: true });
+    await bridge.advanceGeneration(session.id, '2');
+    expect(cancel).toHaveBeenCalledTimes(1);
+    bridge.replaceCapabilities([{ id: 'cap-next', commandId: 'command.a', generation: '2', owner }]);
+
+    const fourth = { ...invocation('lifecycle-fourth'), generation: '2', capabilityId: 'cap-next', occurrenceId };
+    await expect(bridge.input({ sessionId: session.id, source: 'keyboard', key: 'Ctrl+N', generation: '2', kind: 'down', invocation: fourth, owner })).resolves.toMatchObject({ accepted: true });
+  });
+
+  it('shutdown cancela todas as pendências, desliga a porta uma vez e aguarda concorrentes', async () => {
+    const dispatch = vi.fn(async (value: CommandInvocation) => ({ invocationId: value.invocationId, accepted: true }));
+    const cancel = vi.fn(async () => undefined);
+    let releaseShutdown!: () => void;
+    const shutdownDone = new Promise<void>((resolve) => { releaseShutdown = resolve; });
+    const shutdown = vi.fn(() => shutdownDone);
+    const bridge = createCommandBridge({
+      port: { dispatch, cancel, shutdown },
+      capabilities: [{ id: 'cap-a', commandId: 'command.a', generation: '1', owner }],
+    });
+    bridge.openSession(session);
+    await bridge.invoke(invocation('shutdown-pending'), owner);
+
+    const first = bridge.shutdown();
+    const second = bridge.shutdown();
+    await vi.waitFor(() => expect(shutdown).toHaveBeenCalledTimes(1));
+    expect(shutdown).toHaveBeenCalledTimes(1);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    await expect(bridge.invoke(invocation('shutdown-rejected'), owner)).rejects.toMatchObject({ code: 'bridge-closed' });
+    let finished = false;
+    void second.then(() => { finished = true; });
+    await Promise.resolve();
+    expect(finished).toBe(false);
+    releaseShutdown();
+    await first;
+    await second;
+    await expect(bridge.shutdown()).resolves.toBeUndefined();
+    expect(shutdown).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejeita resultado tardio depois do shutdown', async () => {
+    const { bridge } = fixture();
+    const value = invocation('late-result');
+    await bridge.invoke(value, owner);
+    await bridge.shutdown();
+    expect(() => bridge.acceptResult(resultFor(value))).toThrowError(new CommandBridgeError('bridge-closed'));
+    expect(() => bridge.subscribeResult(() => undefined)).toThrowError(new CommandBridgeError('bridge-closed'));
+  });
+
+  it('aguarda o lote completo de cancelamento antes de desligar a porta', async () => {
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    let firstStarted!: () => void;
+    let secondStarted!: () => void;
+    const firstCancellationStarted = new Promise<void>((resolve) => { firstStarted = resolve; });
+    const secondCancellationStarted = new Promise<void>((resolve) => { secondStarted = resolve; });
+    const firstCancellationRelease = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const secondCancellationRelease = new Promise<void>((resolve) => { releaseSecond = resolve; });
+    let cancellationNumber = 0;
+    const dispatch = vi.fn(async (value: CommandInvocation) => ({ invocationId: value.invocationId, accepted: true }));
+    const cancel = vi.fn(async () => {
+      cancellationNumber += 1;
+      if (cancellationNumber === 1) {
+        firstStarted();
+        await firstCancellationRelease;
+      } else if (cancellationNumber === 2) {
+        secondStarted();
+        await secondCancellationRelease;
+      }
+    });
+    const shutdown = vi.fn(async () => undefined);
+    const bridge = createCommandBridge({
+      port: { dispatch, cancel, shutdown },
+      capabilities: [{ id: 'cap-a', commandId: 'command.a', generation: '1', owner }],
+    });
+    bridge.openSession(session);
+    await bridge.invoke(invocation('batch-first'), owner);
+    await bridge.invoke(invocation('batch-second'), owner);
+
+    const lock = bridge.lifecycle({ kind: 'lock', sessionId: session.id, generation: '1' });
+    await firstCancellationStarted;
+    const closing = bridge.shutdown();
+    releaseFirst();
+    await secondCancellationStarted;
+    expect(shutdown).not.toHaveBeenCalled();
+    releaseSecond();
+    await lock;
+    await closing;
+    expect(cancel).toHaveBeenCalledTimes(2);
+    expect(shutdown).toHaveBeenCalledTimes(1);
   });
 
   it('congela capability, sessão, owners e publica resultado aos listeners', async () => {
