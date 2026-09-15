@@ -372,6 +372,17 @@ func (s *Service) ReconcileContext(ctx context.Context, owner Owner) (Mutation, 
 // chamador é manter a seção exclusiva e incrementar a geração efetiva quando
 // o retorno indicar ActiveLayersChanged.
 func (s *Service) ReconcileLayersTx(ctx context.Context, db *gorm.DB, owner Owner, changes []LayerChange) (Mutation, error) {
+	return s.reconcileLayersTx(ctx, db, owner, changes, s.currentTime())
+}
+
+// ReconcileLayersTxAt vincula os timestamps das claims ao diff composto do
+// host. A API anterior permanece usando o relógio do serviço para chamadas
+// independentes.
+func (s *Service) ReconcileLayersTxAt(ctx context.Context, db *gorm.DB, owner Owner, changes []LayerChange, now time.Time) (Mutation, error) {
+	return s.reconcileLayersTx(ctx, db, owner, changes, now)
+}
+
+func (s *Service) reconcileLayersTx(ctx context.Context, db *gorm.DB, owner Owner, changes []LayerChange, now time.Time) (Mutation, error) {
 	if s == nil || db == nil || ctx == nil || len(changes) == 0 {
 		return Mutation{}, ErrInvalid
 	}
@@ -382,7 +393,6 @@ func (s *Service) ReconcileLayersTx(ctx context.Context, db *gorm.DB, owner Owne
 	if err != nil {
 		return Mutation{}, err
 	}
-	now := s.currentTime()
 	if now.IsZero() {
 		return Mutation{}, ErrInvalid
 	}

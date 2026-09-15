@@ -8,6 +8,8 @@ import (
 	"slices"
 	"time"
 
+	"assistente/internal/commandactivation"
+	"assistente/internal/commandautomation"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -28,6 +30,12 @@ const (
 	BindingDisable Operation = "binding_disable"
 	BindingRestore Operation = "binding_restore"
 	ConfigRestore  Operation = "config_restore"
+	RuleCreate     Operation = "rule_create"
+	RuleUpdate     Operation = "rule_update"
+	RuleDelete     Operation = "rule_delete"
+	RuleEnable     Operation = "rule_enable"
+	RuleDisable    Operation = "rule_disable"
+	RuleRestore    Operation = "rule_restore"
 )
 
 // Intent só descreve a mudança. Scope, validação, decisão e autoridade vêm do
@@ -37,15 +45,20 @@ type MutationIntent struct {
 	ID           string
 	Layer        *Layer
 	Binding      *Binding
+	Rule         *commandactivation.Rule
 	LayerRefKind string // layer_restore: builtin ou user
 }
 
 type MutationDiff struct {
-	MutationID                    string
-	Operation                     Operation
-	Scope                         Scope
-	BeforeLayers, AfterLayers     []Layer
-	BeforeBindings, AfterBindings []Binding
+	MutationID                                    string
+	Operation                                     Operation
+	Scope                                         Scope
+	BeforeLayers, AfterLayers                     []Layer
+	BeforeBindings, AfterBindings                 []Binding
+	BeforeActivationRules, AfterActivationRules   []commandactivation.Rule
+	BeforeAutomationGrants, AfterAutomationGrants []commandautomation.Grant
+	BeforeActivationClaims, AfterActivationClaims []commandactivation.Claim
+	RevocationAt                                  time.Time
 }
 
 type MutationValidator func(context.Context, Snapshot) error
@@ -69,6 +82,9 @@ func cloneConfigSnapshot(s Snapshot) Snapshot {
 	for i := range s.Bindings {
 		s.Bindings[i] = cloneBinding(s.Bindings[i])
 	}
+	s.ActivationRules = cloneActivationRules(s.ActivationRules)
+	s.AutomationGrants = cloneAutomationGrants(s.AutomationGrants)
+	s.ActivationClaims = cloneActivationClaims(s.ActivationClaims)
 	return s
 }
 
@@ -81,6 +97,9 @@ func (p *PreparedMutation) Diff() MutationDiff {
 	b, a := cloneConfigSnapshot(p.before), cloneConfigSnapshot(p.after)
 	d.BeforeLayers, d.AfterLayers = b.Layers, a.Layers
 	d.BeforeBindings, d.AfterBindings = b.Bindings, a.Bindings
+	d.BeforeActivationRules, d.AfterActivationRules = b.ActivationRules, a.ActivationRules
+	d.BeforeAutomationGrants, d.AfterAutomationGrants = b.AutomationGrants, a.AutomationGrants
+	d.BeforeActivationClaims, d.AfterActivationClaims = b.ActivationClaims, a.ActivationClaims
 	return d
 }
 
@@ -119,6 +138,15 @@ func (s *Store) PrepareMutation(ctx context.Context, scope Scope, intent Mutatio
 		return nil, err
 	}
 	after := cloneConfigSnapshot(before)
+	if isRuleOperation(intent.Operation) {
+		exists, err := tableExists(s.db, (commandactivation.Rule{}).TableName())
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, ErrInvalid
+		}
+	}
 	li, bi := -1, -1
 	for i, l := range after.Layers {
 		if l.ID == intent.ID && sameWorkspace(l.WorkspaceID, scope.WorkspaceID) {
@@ -172,6 +200,9 @@ func (s *Store) PrepareMutation(ctx context.Context, scope Scope, intent Mutatio
 			after.Layers = slices.Delete(after.Layers, li, li+1)
 			after.Bindings = slices.DeleteFunc(after.Bindings, func(b Binding) bool {
 				return b.LayerRefKind == "user" && b.LayerRef == l.ID && sameWorkspace(b.WorkspaceID, scope.WorkspaceID)
+			})
+			after.ActivationRules = slices.DeleteFunc(after.ActivationRules, func(rule commandactivation.Rule) bool {
+				return rule.LayerRefKind == commandactivation.UserRef && rule.LayerRef == l.ID && sameWorkspace(rule.WorkspaceID, scope.WorkspaceID)
 			})
 		}
 		if intent.Operation != LayerDelete {
@@ -234,12 +265,20 @@ func (s *Store) PrepareMutation(ctx context.Context, scope Scope, intent Mutatio
 		after.Bindings = slices.DeleteFunc(after.Bindings, func(b Binding) bool {
 			return sameWorkspace(b.WorkspaceID, scope.WorkspaceID) && b.LayerRefKind == intent.LayerRefKind && b.LayerRef == intent.ID
 		})
+		after.ActivationRules = slices.DeleteFunc(after.ActivationRules, func(rule commandactivation.Rule) bool {
+			return sameWorkspace(rule.WorkspaceID, scope.WorkspaceID) && string(rule.LayerRefKind) == intent.LayerRefKind && rule.LayerRef == intent.ID
+		})
 	case ConfigRestore:
 		if intent.ID != "" {
 			return nil, ErrInvalid
 		}
 		after.Bindings = slices.DeleteFunc(after.Bindings, func(b Binding) bool { return sameWorkspace(b.WorkspaceID, scope.WorkspaceID) })
 		after.Layers = slices.DeleteFunc(after.Layers, func(l Layer) bool { return sameWorkspace(l.WorkspaceID, scope.WorkspaceID) })
+		after.ActivationRules = slices.DeleteFunc(after.ActivationRules, func(rule commandactivation.Rule) bool { return sameWorkspace(rule.WorkspaceID, scope.WorkspaceID) })
+	case RuleCreate, RuleUpdate, RuleDelete, RuleEnable, RuleDisable, RuleRestore:
+		if err := prepareRuleMutation(&after, scope, intent, now); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, ErrInvalid
 	}
@@ -261,7 +300,17 @@ func (s *Store) PrepareMutation(ctx context.Context, scope Scope, intent Mutatio
 		}
 		return 0
 	})
-	if reflect.DeepEqual(before.Layers, after.Layers) && reflect.DeepEqual(before.Bindings, after.Bindings) {
+	slices.SortFunc(after.ActivationRules, func(a, b commandactivation.Rule) int {
+		if a.ID < b.ID {
+			return -1
+		}
+		if a.ID > b.ID {
+			return 1
+		}
+		return 0
+	})
+	projectActivationEffects(before, &after, intent.Operation, now)
+	if reflect.DeepEqual(before.Layers, after.Layers) && reflect.DeepEqual(before.Bindings, after.Bindings) && sameAggregateSnapshot(before, after) {
 		return nil, ErrInvalid
 	}
 	if err := validateSnapshot(after); err != nil {
@@ -274,7 +323,7 @@ func (s *Store) PrepareMutation(ctx context.Context, scope Scope, intent Mutatio
 	if err != nil {
 		return nil, err
 	}
-	p := &PreparedMutation{store: s, before: cloneConfigSnapshot(before), after: cloneConfigSnapshot(after), diff: MutationDiff{MutationID: id.String(), Operation: intent.Operation, Scope: cloneScope(scope)}}
+	p := &PreparedMutation{store: s, before: cloneConfigSnapshot(before), after: cloneConfigSnapshot(after), diff: MutationDiff{MutationID: id.String(), Operation: intent.Operation, Scope: cloneScope(scope), RevocationAt: now}}
 	return p, nil
 }
 
@@ -300,6 +349,13 @@ func (s *Store) applyMutationTx(ctx context.Context, tx *gorm.DB, p *PreparedMut
 		return Generation{}, err
 	}
 	if !equalRows(layers, p.before.Layers) || !equalRows(bindings, p.before.Bindings) {
+		return Generation{}, ErrStale
+	}
+	currentAggregate, err := readAggregateSnapshot(ctx, tx, p.before.Scope)
+	if err != nil {
+		return Generation{}, err
+	}
+	if !sameAggregateSnapshot(currentAggregate, p.before) {
 		return Generation{}, ErrStale
 	}
 	var g Generation
@@ -364,7 +420,56 @@ func (s *Store) applyMutationTx(ctx context.Context, tx *gorm.DB, p *PreparedMut
 			return Generation{}, e
 		}
 	}
+	for _, rule := range p.before.ActivationRules {
+		if !hasActivationRule(p.after.ActivationRules, rule.ID) {
+			if err := ruleScopeWhere(tx, rule).Delete(&commandactivation.Rule{}).Error; err != nil {
+				return Generation{}, err
+			}
+		}
+	}
+	for _, rule := range p.after.ActivationRules {
+		var e error
+		if !hasActivationRule(p.before.ActivationRules, rule.ID) {
+			e = tx.Create(&rule).Error
+		} else {
+			for _, old := range p.before.ActivationRules {
+				if old.ID == rule.ID && !reflect.DeepEqual(old, rule) {
+					e = ruleScopeWhere(tx.Model(&commandactivation.Rule{}), rule).Updates(map[string]any{
+						"layer_ref_kind": rule.LayerRefKind, "layer_ref": rule.LayerRef,
+						"rule_ref_kind": rule.RuleRefKind, "rule_ref": rule.RuleRef,
+						"mode": rule.Mode, "condition": rule.Condition, "lifecycle": rule.Lifecycle,
+						"event_name": rule.EventName, "allowed_internal_producer_types": rule.AllowedInternalProducerTypes,
+						"authorization_decision_id": rule.AuthorizationDecisionID, "automation_grant_id": rule.AutomationGrantID,
+						"automation_grant_generation": rule.AutomationGrantGeneration, "automation_grant_fingerprint": rule.AutomationGrantFingerprint,
+						"enabled": rule.Enabled, "source": rule.Source, "replaces_default_id": rule.ReplacesDefaultID,
+						"replaces_default_version": rule.ReplacesDefaultVersion, "replaces_default_fingerprint": rule.ReplacesDefaultFingerprint,
+						"review_status": rule.ReviewStatus,
+					}).Error
+				}
+			}
+		}
+		if e != nil {
+			return Generation{}, e
+		}
+	}
 	return g, ctx.Err()
+}
+
+func hasActivationRule(rows []commandactivation.Rule, id string) bool {
+	for _, row := range rows {
+		if row.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func ruleScopeWhere(tx *gorm.DB, rule commandactivation.Rule) *gorm.DB {
+	query := tx.Where("id = ? AND user_id = ?", rule.ID, rule.UserID)
+	if rule.WorkspaceID == nil {
+		return query.Where("workspace_id IS NULL")
+	}
+	return query.Where("workspace_id = ?", *rule.WorkspaceID)
 }
 func equalRows[T any](a, b []T) bool {
 	return reflect.DeepEqual(append([]T{}, a...), append([]T{}, b...))
@@ -388,15 +493,21 @@ func hasLayer(rows []Layer, id string) bool {
 
 func mutationDocuments(p *PreparedMutation) (string, string, error) {
 	b, e := json.Marshal(struct {
-		Layers   []Layer
-		Bindings []Binding
-	}{p.before.Layers, p.before.Bindings})
+		Layers           []Layer
+		Bindings         []Binding
+		ActivationRules  []commandactivation.Rule
+		AutomationGrants []commandautomation.Grant
+		ActivationClaims []commandactivation.Claim
+	}{p.before.Layers, p.before.Bindings, p.before.ActivationRules, p.before.AutomationGrants, cloneDocumentClaims(p.before.ActivationClaims)})
 	if e != nil {
 		return "", "", e
 	}
 	a, e := json.Marshal(struct {
-		Layers   []Layer
-		Bindings []Binding
-	}{p.after.Layers, p.after.Bindings})
+		Layers           []Layer
+		Bindings         []Binding
+		ActivationRules  []commandactivation.Rule
+		AutomationGrants []commandautomation.Grant
+		ActivationClaims []commandactivation.Claim
+	}{p.after.Layers, p.after.Bindings, p.after.ActivationRules, p.after.AutomationGrants, cloneDocumentClaims(p.after.ActivationClaims)})
 	return string(b), string(a), e
 }

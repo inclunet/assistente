@@ -6,15 +6,18 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"assistente/internal/commandactivation"
+	"assistente/internal/commandautomation"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 type Store struct{ db *gorm.DB }
 type stamp struct {
-	store       *Store
-	scope       Scope
-	generations []Generation
+	store           *Store
+	scope           Scope
+	generations     []Generation
+	providerVersion string
 }
 
 func New(db *gorm.DB) (*Store, error) {
@@ -45,6 +48,40 @@ func (s *Store) Load(ctx context.Context, scope Scope) (Snapshot, error) {
 			return err
 		}
 		snapshot.Generations = generations
+		if exists, err := tableExists(tx, (commandactivation.Rule{}).TableName()); err != nil {
+			return err
+		} else if exists {
+			if err := aggregateScope(tx, scope).Order("workspace_id, id").Find(&snapshot.ActivationRules).Error; err != nil {
+				return err
+			}
+			for _, row := range snapshot.ActivationRules {
+				if err := commandactivation.ValidateRule(row); err != nil {
+					return err
+				}
+			}
+		}
+		if exists, err := tableExists(tx, (commandactivation.Claim{}).TableName()); err != nil {
+			return err
+		} else if exists {
+			if err := aggregateScope(tx, scope).Order("activated_at, activation_id").Find(&snapshot.ActivationClaims).Error; err != nil {
+				return err
+			}
+			for _, row := range snapshot.ActivationClaims {
+				if err := commandactivation.ValidateClaim(row); err != nil {
+					return err
+				}
+			}
+		}
+		if exists, err := tableExists(tx, "command_layer_automation_grants"); err != nil {
+			return err
+		} else if exists {
+			owner := commandautomation.Owner{UserID: scope.UserID, WorkspaceID: cloneWorkspace(scope.WorkspaceID)}
+			grants, err := commandautomation.LoadGrantsTx(ctx, tx, owner)
+			if err != nil {
+				return err
+			}
+			snapshot.AutomationGrants = grants
+		}
 		return validateSnapshot(snapshot)
 	})
 	if err != nil {
@@ -88,6 +125,60 @@ func scoped(tx *gorm.DB, scope Scope) *gorm.DB {
 		return query.Where("workspace_id IS NULL")
 	}
 	return query.Where("(workspace_id IS NULL OR workspace_id = ?)", *scope.WorkspaceID)
+}
+
+func aggregateScope(tx *gorm.DB, scope Scope) *gorm.DB {
+	query := tx.Where("user_id = ?", scope.UserID)
+	if scope.WorkspaceID == nil {
+		return query.Where("workspace_id IS NULL")
+	}
+	return query.Where("workspace_id IS NULL OR workspace_id = ?", *scope.WorkspaceID)
+}
+
+func tableExists(tx *gorm.DB, name string) (bool, error) {
+	var count int64
+	if err := tx.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", name).Scan(&count).Error; err != nil {
+		return false, err
+	}
+	return count == 1, nil
+}
+
+func readAggregateSnapshot(ctx context.Context, tx *gorm.DB, scope Scope) (Snapshot, error) {
+	snapshot := Snapshot{Scope: cloneScope(scope)}
+	if exists, err := tableExists(tx, (commandactivation.Rule{}).TableName()); err != nil {
+		return Snapshot{}, err
+	} else if exists {
+		if err := aggregateScope(tx, scope).Order("workspace_id, id").Find(&snapshot.ActivationRules).Error; err != nil {
+			return Snapshot{}, err
+		}
+		for _, row := range snapshot.ActivationRules {
+			if err := commandactivation.ValidateRule(row); err != nil {
+				return Snapshot{}, err
+			}
+		}
+	}
+	if exists, err := tableExists(tx, (commandactivation.Claim{}).TableName()); err != nil {
+		return Snapshot{}, err
+	} else if exists {
+		if err := aggregateScope(tx, scope).Order("activated_at, activation_id").Find(&snapshot.ActivationClaims).Error; err != nil {
+			return Snapshot{}, err
+		}
+		for _, row := range snapshot.ActivationClaims {
+			if err := commandactivation.ValidateClaim(row); err != nil {
+				return Snapshot{}, err
+			}
+		}
+	}
+	if exists, err := tableExists(tx, "command_layer_automation_grants"); err != nil {
+		return Snapshot{}, err
+	} else if exists {
+		grants, err := commandautomation.LoadGrantsTx(ctx, tx, commandautomation.Owner{UserID: scope.UserID, WorkspaceID: cloneWorkspace(scope.WorkspaceID)})
+		if err != nil {
+			return Snapshot{}, err
+		}
+		snapshot.AutomationGrants = grants
+	}
+	return snapshot, nil
 }
 
 func readGenerations(tx *gorm.DB, scope Scope) ([]Generation, error) {
@@ -194,6 +285,27 @@ func validateSnapshot(snapshot Snapshot) error {
 		default:
 			return ErrInvalid
 		}
+	}
+	seenRules := map[string]bool{}
+	for _, row := range snapshot.ActivationRules {
+		if err := commandactivation.ValidateRule(row); err != nil || row.UserID != snapshot.Scope.UserID || !inScope(row.WorkspaceID, snapshot.Scope) || seenRules[row.ID] {
+			return ErrInvalid
+		}
+		seenRules[row.ID] = true
+	}
+	seenGrants := map[string]bool{}
+	for _, row := range snapshot.AutomationGrants {
+		if err := commandautomation.ValidateGrant(row); err != nil || row.Owner.UserID != snapshot.Scope.UserID || !inScope(row.Owner.WorkspaceID, snapshot.Scope) || seenGrants[row.ID] {
+			return ErrInvalid
+		}
+		seenGrants[row.ID] = true
+	}
+	seenClaims := map[string]bool{}
+	for _, row := range snapshot.ActivationClaims {
+		if err := commandactivation.ValidateClaim(row); err != nil || row.UserID != snapshot.Scope.UserID || !inScope(row.WorkspaceID, snapshot.Scope) || seenClaims[row.ActivationID] {
+			return ErrInvalid
+		}
+		seenClaims[row.ActivationID] = true
 	}
 	return nil
 }

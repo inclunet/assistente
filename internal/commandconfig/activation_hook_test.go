@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/auth"
 	"assistente/internal/commandactivation"
 	"assistente/internal/commandautomation"
 	"assistente/internal/commanddecision"
@@ -141,7 +142,7 @@ func TestActivationHookDisableRevogaGrantEAvancaGeracaoNoMesmoCommit(t *testing.
 	f := newActivationHookFixture(t)
 	layer := f.layer
 	ruleID := storeTestUUID7(t)
-	insertActivationClaim(t, f.db, f.owner, layer.ID, ruleID)
+	claimID := insertActivationClaim(t, f.db, f.owner, layer.ID, ruleID)
 	grantID := insertAutomationGrant(t, f.db, commandautomation.Owner{UserID: f.owner.UserID}, layer.ID, ruleID)
 	confirmed := prepareLayerMutation(t, f, f.base.projection.scope, layer.ID, LayerDisable)
 	if err := f.config.CommitConfirmedMutation(context.Background(), confirmed, f.base.epoch, f.hook(t)); err != nil {
@@ -154,8 +155,136 @@ func TestActivationHookDisableRevogaGrantEAvancaGeracaoNoMesmoCommit(t *testing.
 	if err != nil || generation.Generation != 2 {
 		t.Fatalf("geração de ativação = %+v, erro=%v", generation, err)
 	}
+	previewDiff := confirmed.prepared.Diff()
+	var previewClaim commandactivation.Claim
+	for _, candidate := range previewDiff.AfterActivationClaims {
+		if candidate.ActivationID == claimID {
+			previewClaim = candidate
+			break
+		}
+	}
+	claim, err := f.act.Store().GetClaim(context.Background(), f.owner, claimID)
+	if err != nil || previewClaim.ActivationID == "" || claim.State != previewClaim.State || !sameOptionalString(claim.TerminalReason, previewClaim.TerminalReason) || !claim.UpdatedAt.Equal(previewClaim.UpdatedAt) {
+		t.Fatalf("claim preview/banco divergente: preview=%+v banco=%+v erro=%v", previewClaim, claim, err)
+	}
+	previewGrant := commandautomation.Grant{}
+	for _, candidate := range previewDiff.AfterAutomationGrants {
+		if candidate.ID == grantID {
+			previewGrant = candidate
+			break
+		}
+	}
+	actualGrantAt := grantRevokedAt(t, f.db, grantID)
+	if previewGrant.RevokedAt == nil || !actualGrantAt.Valid || !actualGrantAt.Time.Equal(*previewGrant.RevokedAt) {
+		t.Fatalf("grant preview/banco divergente: preview=%+v banco=%v", previewGrant.RevokedAt, actualGrantAt)
+	}
 	if got := loadDecisionReceiptProbe(t, f.db, confirmed.request.DecisionID); got.Status != commanddecision.Consumed {
 		t.Fatalf("receipt = %q, esperado consumed", got.Status)
+	}
+}
+
+func TestCompleteServiceLayerDisableValidaRegraDesabilitadaEResultadoExato(t *testing.T) {
+	f := newActivationHookFixture(t)
+	if err := f.db.Where("id = ?", f.base.binding.ID).Delete(&Binding{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	ruleID := storeTestUUID7(t)
+	grantID := insertAutomationGrant(t, f.db, commandautomation.Owner{UserID: f.owner.UserID}, f.layer.ID, ruleID)
+	var decisionID string
+	if err := f.db.Table("command_layer_automation_grants").Where("id = ?", grantID).Pluck("authorization_decision_id", &decisionID).Error; err != nil {
+		t.Fatal(err)
+	}
+	eventName, producers := commandautomation.JobRunStateEvent, `["jobs.runtime"]`
+	generation := int64(1)
+	grantFingerprint := "grant-fingerprint"
+	rule := commandactivation.Rule{ID: ruleID, UserID: f.owner.UserID, LayerRefKind: commandactivation.UserRef, LayerRef: f.layer.ID, RuleRefKind: commandactivation.UserRef, RuleRef: ruleID, Mode: commandactivation.ModeEvent, Condition: "{}", Lifecycle: commandactivation.LifecyclePersistent, EventName: &eventName, AllowedInternalProducerTypes: &producers, AuthorizationDecisionID: &decisionID, AutomationGrantID: &grantID, AutomationGrantGeneration: &generation, AutomationGrantFingerprint: &grantFingerprint, Enabled: true, Source: "user", ReviewStatus: "active"}
+	if err := f.db.Create(&rule).Error; err != nil {
+		t.Fatal(err)
+	}
+	claimID := insertActivationClaim(t, f.db, f.owner, f.layer.ID, ruleID)
+	epochs, err := commandsecurity.NewEpochService(&commandsecurity.DispatchGate{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := completeProjectionOptions(completeProjectionRegistry(t))
+	service, err := NewCompleteMutationService(MutationServiceConfig{
+		Store: f.config, Sessions: mutationSessionFixture{auth.LocalSessionPrincipal{UserID: f.base.epoch.UserID, SessionID: f.base.epoch.SessionID}}, Epochs: epochs,
+		Receipts: f.base.receipts, Keys: func(context.Context, string) ([]byte, error) { return bytes.Repeat([]byte{0x42}, 32), nil }, KeyVersion: "v1", DecisionTTL: time.Minute,
+		Authorize: func(context.Context, auth.LocalSessionPrincipal, Scope, Operation) error { return nil }, Version: func(context.Context) (string, error) { return "catalog-v1", nil },
+		Render: func(MutationDiff) (string, error) { return "layer disable", nil }, OnMutationTx: f.hook(t),
+	}, func(context.Context, Scope) (CompleteProjection, error) { return options, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	diff, err := service.Apply(context.Background(), "token", nil, MutationIntent{Operation: LayerDisable, ID: f.layer.ID})
+	if err != nil {
+		t.Fatalf("LayerDisable com validator completo: %v", err)
+	}
+	var afterRule commandactivation.Rule
+	if err := f.db.Where("id = ?", ruleID).Take(&afterRule).Error; err != nil {
+		t.Fatal(err)
+	}
+	claim, err := f.act.Store().GetClaim(context.Background(), f.owner, claimID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterRule.Enabled || afterRule.AutomationGrantID != nil || claim.State != commandactivation.StateStale || claim.TerminalReason == nil || *claim.TerminalReason != "rule_disabled" {
+		t.Fatalf("estado aplicado inesperado: rule=%+v claim=%+v", afterRule, claim)
+	}
+	var previewRule commandactivation.Rule
+	var previewClaim commandactivation.Claim
+	for _, candidate := range diff.AfterActivationRules {
+		if candidate.ID == ruleID {
+			previewRule = candidate
+		}
+	}
+	for _, candidate := range diff.AfterActivationClaims {
+		if candidate.ActivationID == claimID {
+			previewClaim = candidate
+		}
+	}
+	if previewRule.ID == "" || previewRule.Enabled || previewRule.AutomationGrantID != nil || previewClaim.ActivationID == "" || previewClaim.State != claim.State || !sameOptionalString(previewClaim.TerminalReason, claim.TerminalReason) || !previewClaim.UpdatedAt.Equal(claim.UpdatedAt) {
+		t.Fatalf("preview/banco divergente: rule=%+v claimPreview=%+v claimBanco=%+v", previewRule, previewClaim, claim)
+	}
+}
+
+func sameOptionalString(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func TestProjectLayerDisablePreservaRegrasManualEContextNoReenable(t *testing.T) {
+	user, layerID := storeTestUUID7(t), storeTestUUID7(t)
+	manualRuleID, contextRuleID := storeTestUUID7(t), storeTestUUID7(t)
+	before := Snapshot{Scope: Scope{UserID: user}, Layers: []Layer{{ID: layerID, UserID: user, Enabled: true}}, ActivationRules: []commandactivation.Rule{
+		{ID: manualRuleID, UserID: user, LayerRefKind: commandactivation.UserRef, LayerRef: layerID, RuleRefKind: commandactivation.UserRef, RuleRef: manualRuleID, Mode: commandactivation.ModeManual, Enabled: true},
+		{ID: contextRuleID, UserID: user, LayerRefKind: commandactivation.UserRef, LayerRef: layerID, RuleRefKind: commandactivation.UserRef, RuleRef: contextRuleID, Mode: commandactivation.ModeContext, Enabled: true},
+	}, ActivationClaims: []commandactivation.Claim{
+		{ActivationID: storeTestUUID7(t), UserID: user, LayerRefKind: commandactivation.UserRef, LayerRef: layerID, RuleRefKind: commandactivation.UserRef, RuleRef: manualRuleID, State: commandactivation.StateActive},
+		{ActivationID: storeTestUUID7(t), UserID: user, LayerRefKind: commandactivation.UserRef, LayerRef: layerID, RuleRefKind: commandactivation.UserRef, RuleRef: contextRuleID, State: commandactivation.StateActive},
+	}}
+	disabled := cloneConfigSnapshot(before)
+	disabled.Layers[0].Enabled = false
+	projectActivationEffects(before, &disabled, LayerDisable, time.Now().UTC())
+	for _, rule := range disabled.ActivationRules {
+		if !rule.Enabled {
+			t.Fatalf("regra não-evento desabilitada: %+v", rule)
+		}
+	}
+	for _, claim := range disabled.ActivationClaims {
+		if claim.State != commandactivation.StateActive || claim.TerminalReason != nil {
+			t.Fatalf("claim não-evento alterada no disable: %+v", claim)
+		}
+	}
+	reenabled := cloneConfigSnapshot(disabled)
+	reenabled.Layers[0].Enabled = true
+	projectActivationEffects(disabled, &reenabled, LayerEnable, time.Now().UTC())
+	for _, rule := range reenabled.ActivationRules {
+		if !rule.Enabled {
+			t.Fatalf("regra não-evento permaneceu desabilitada no reenable: %+v", rule)
+		}
 	}
 }
 
@@ -190,6 +319,38 @@ func TestActivationHookFalhaDesfazConfigGrantGeracaoEReceipt(t *testing.T) {
 	}
 	if got := loadDecisionReceiptProbe(t, f.db, confirmed.request.DecisionID); got.Status != commanddecision.Accepted {
 		t.Fatalf("receipt após rollback = %q", got.Status)
+	}
+}
+
+func TestCommitRejeitaAggregateDivergenteDoPreviewERollaReceipt(t *testing.T) {
+	f := newActivationHookFixture(t)
+	claimID := insertActivationClaim(t, f.db, f.owner, f.layer.ID, storeTestUUID7(t))
+	grantID := insertAutomationGrant(t, f.db, commandautomation.Owner{UserID: f.owner.UserID}, f.layer.ID, storeTestUUID7(t))
+	confirmed := prepareLayerMutation(t, f, f.base.projection.scope, f.layer.ID, LayerDisable)
+	base := f.hook(t)
+	hook := func(ctx context.Context, tx *gorm.DB, diff MutationDiff) error {
+		if err := base(ctx, tx, diff); err != nil {
+			return err
+		}
+		// Simula uma transição dinâmica que o preview não poderia afirmar.
+		return tx.Model(&commandactivation.Claim{}).Where("activation_id = ?", claimID).Updates(map[string]any{"state": commandactivation.StateStale, "terminal_reason": "late_context"}).Error
+	}
+	if err := f.config.CommitConfirmedMutation(context.Background(), confirmed, f.base.epoch, hook); !errors.Is(err, ErrStale) {
+		t.Fatalf("aggregate divergente aceito: %v", err)
+	}
+	var layer Layer
+	if err := f.db.Where("id = ?", f.layer.ID).Take(&layer).Error; err != nil || !layer.Enabled {
+		t.Fatalf("layer não voltou após rollback: %+v, erro=%v", layer, err)
+	}
+	claim, err := f.act.Store().GetClaim(context.Background(), f.owner, claimID)
+	if err != nil || claim.State != commandactivation.StateActive || claim.TerminalReason != nil {
+		t.Fatalf("claim não voltou após rollback: %+v, erro=%v", claim, err)
+	}
+	if grantRevokedAt(t, f.db, grantID).Valid {
+		t.Fatal("grant revogado sobreviveu ao rollback")
+	}
+	if got := loadDecisionReceiptProbe(t, f.db, confirmed.request.DecisionID); got.Status != commanddecision.Accepted {
+		t.Fatalf("receipt após divergência = %q", got.Status)
 	}
 }
 

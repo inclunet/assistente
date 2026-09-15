@@ -24,6 +24,9 @@ func NewCompleteMutationService(c MutationServiceConfig, projection ProjectionPr
 		if err != nil {
 			return err
 		}
+		if err := validateCompleteActivationAggregate(snapshot, options); err != nil {
+			return err
+		}
 		options.ActiveUserLayerIDs = nil
 		_, err = ProjectComplete(ctx, snapshot, options)
 		return err

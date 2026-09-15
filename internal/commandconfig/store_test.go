@@ -235,7 +235,7 @@ func TestStoreStampPrivadoStoreDiferenteCancelamentoENil(t *testing.T) {
 	if err := store.CheckCurrent(context.Background(), Snapshot{}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("stamp ausente: %v", err)
 	}
-	if _, err := store.Load(nil, Scope{UserID: user}); !errors.Is(err, ErrInvalid) {
+	if _, err := store.Load(nil, Scope{UserID: user}); !errors.Is(err, ErrInvalid) { //nolint:staticcheck // Testa deliberadamente a recusa de contexto nil.
 		t.Fatalf("contexto nil: %v", err)
 	}
 }

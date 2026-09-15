@@ -3,7 +3,6 @@ package commandactivation
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"gorm.io/gorm"
 )
@@ -144,8 +143,4 @@ func ensureTable(tx *gorm.DB, name string) error {
 		return fmt.Errorf("commandactivation: objeto %s não é uma tabela", name)
 	}
 	return nil
-}
-
-func normalizeSQL(value string) string {
-	return strings.Join(strings.Fields(strings.ToLower(value)), " ")
 }

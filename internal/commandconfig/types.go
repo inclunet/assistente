@@ -5,6 +5,9 @@ package commandconfig
 import (
 	"errors"
 	"time"
+
+	"assistente/internal/commandactivation"
+	"assistente/internal/commandautomation"
 )
 
 var (
@@ -71,12 +74,17 @@ type Generation struct {
 
 func (Generation) TableName() string { return "command_config_generations" }
 
-// Snapshot não inclui claims nem regras de ativação: elas exigem restore e
-// reconciliação próprios. Slices retornadas pertencem ao chamador.
+// Snapshot inclui o estado persistente composto que participa do restore. As
+// concessões e claims são histórico/estado derivado: o commit não os restaura
+// por payload, mas o diff os carrega para que a reconciliação e a auditoria
+// sejam atômicas e completas. Slices retornadas pertencem ao chamador.
 type Snapshot struct {
-	Scope       Scope
-	Layers      []Layer
-	Bindings    []Binding
-	Generations []Generation
-	stamp       *stamp
+	Scope            Scope
+	Layers           []Layer
+	Bindings         []Binding
+	Generations      []Generation
+	ActivationRules  []commandactivation.Rule
+	AutomationGrants []commandautomation.Grant
+	ActivationClaims []commandactivation.Claim
+	stamp            *stamp
 }

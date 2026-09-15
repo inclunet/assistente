@@ -20,7 +20,7 @@ func TestBindingEnabledWriterRejectsMissingProposalAndCancelledContext(t *testin
 			t.Fatal("proposta ausente aceita", err)
 		}
 	}
-	if err := fixture.store.CommitBindingEnabled(nil, change); !errors.Is(err, ErrInvalid) {
+	if err := fixture.store.CommitBindingEnabled(nil, change); !errors.Is(err, ErrInvalid) { //nolint:staticcheck // Testa deliberadamente a recusa de contexto nil.
 		t.Fatal("contexto nil aceito", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -52,7 +52,11 @@ func TestBindingEnabledCancellationAfterUpdateRollsBackBothRows(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { fixture.db.Callback().Update().Remove(hook) })
+	t.Cleanup(func() {
+		if err := fixture.db.Callback().Update().Remove(hook); err != nil {
+			t.Errorf("remover callback %q: %v", hook, err)
+		}
+	})
 	if err := fixture.store.CommitBindingEnabled(ctx, change); !errors.Is(err, context.Canceled) {
 		t.Fatal("cancelamento após UPDATE não propagado", err)
 	}

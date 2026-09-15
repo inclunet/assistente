@@ -85,6 +85,16 @@ func (s *Store) CommitConfirmedMutation(ctx context.Context, c *ConfirmedMutatio
 		if err := hook(ctx, tx, c.prepared.Diff()); err != nil {
 			return err
 		}
+		actual, err := readAggregateSnapshot(ctx, tx, c.prepared.after.Scope)
+		if err != nil {
+			return err
+		}
+		if !sameAggregateSnapshot(actual, c.prepared.after) {
+			// O hook pode observar expiração, epoch ou contexto somente no
+			// commit. Nunca grave uma auditoria que chame esse efeito dinâmico
+			// de resultado confirmado pelo preview.
+			return ErrStale
+		}
 		return recordCompleteMutation(tx, c, g)
 	})
 }

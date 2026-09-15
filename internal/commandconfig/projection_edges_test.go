@@ -23,7 +23,7 @@ func TestProjectLocalReadGuardsAndCancellation(t *testing.T) {
 	if result, err := ProjectLocalRead(cancelled, snapshot, options); !errors.Is(err, context.Canceled) || result != nil {
 		t.Fatal("contexto cancelado aceito", err)
 	}
-	if result, err := ProjectLocalRead(nil, snapshot, options); !errors.Is(err, ErrInvalid) || result != nil {
+	if result, err := ProjectLocalRead(nil, snapshot, options); !errors.Is(err, ErrInvalid) || result != nil { //nolint:staticcheck // Testa deliberadamente a recusa de contexto nil.
 		t.Fatal("contexto nil aceito", err)
 	}
 	if result, err := ProjectLocalRead(context.Background(), snapshot, LocalReadProjection{}); !errors.Is(err, ErrInvalid) || result != nil {

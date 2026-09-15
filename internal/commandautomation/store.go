@@ -205,6 +205,44 @@ func (s *Store) LoadActive(ctx context.Context, owner Owner, key NaturalKey) (Gr
 	return grantFromRow(row), nil
 }
 
+// LoadGrantsTx lê o histórico completo de grants no TX fornecido. O escopo de
+// workspace inclui o global e o workspace local, como o projetor de
+// commandconfig; grants revogados permanecem no resultado para o diff de
+// restore e para auditoria. A função não abre transação nem altera estado.
+func LoadGrantsTx(ctx context.Context, tx *gorm.DB, owner Owner) ([]Grant, error) {
+	if ctx == nil || tx == nil || !validOwner(owner) {
+		return nil, ErrInvalid
+	}
+	query := tx.WithContext(ctx).Model(&grantRow{}).Where("user_id = ?", owner.UserID)
+	if owner.WorkspaceID == nil {
+		query = query.Where("workspace_id IS NULL")
+	} else {
+		query = query.Where("workspace_id IS NULL OR workspace_id = ?", *owner.WorkspaceID)
+	}
+	var rows []grantRow
+	if err := query.Order("id").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make([]Grant, len(rows))
+	for i, row := range rows {
+		grant := grantFromRow(row)
+		if err := ValidateGrant(grant); err != nil {
+			return nil, err
+		}
+		result[i] = grant
+	}
+	return result, nil
+}
+
+// ListGrants expõe a mesma leitura fora de uma transação para diagnósticos e
+// integração; mutações continuam restritas às primitivas de grant.
+func (s *Store) ListGrants(ctx context.Context, owner Owner) ([]Grant, error) {
+	if s == nil || s.db == nil {
+		return nil, ErrInvalid
+	}
+	return LoadGrantsTx(ctx, s.db, owner)
+}
+
 func maxGeneration(ctx context.Context, tx *gorm.DB, key NaturalKey) (int64, error) {
 	var value sql.NullInt64
 	if err := grantQuery(tx.WithContext(ctx), key.Owner, key).Select("MAX(automation_grant_generation)").Scan(&value).Error; err != nil {

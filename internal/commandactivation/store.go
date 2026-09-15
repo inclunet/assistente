@@ -539,7 +539,6 @@ func scopeArg(workspace *string) []any {
 	return []any{*workspace}
 }
 
-func validRule(rule Rule) bool    { return validateRule(rule) == nil }
 func validClaim(claim Claim) bool { return validateClaim(claim) == nil }
 
 func validateRule(rule Rule) error {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"sort"
+	"time"
 
 	"assistente/internal/commandactivation"
 	"assistente/internal/commandautomation"
@@ -50,7 +51,7 @@ func runActivationMutationHook(ctx context.Context, tx *gorm.DB, diff MutationDi
 	if ctx == nil || tx == nil || activation == nil || activation.Store() == nil || grants == nil || owner == nil {
 		return ErrInvalid
 	}
-	if diff.Operation == LayerRestore || diff.Operation == ConfigRestore {
+	if (diff.Operation == LayerRestore || diff.Operation == ConfigRestore) && !expandedActivationDiff(diff) {
 		return ErrActivationRestoreRequiresExpandedContract
 	}
 
@@ -61,11 +62,22 @@ func runActivationMutationHook(ctx context.Context, tx *gorm.DB, diff MutationDi
 	if diff.Operation == BindingRestore && anyLayerDelta {
 		return ErrActivationRestoreRequiresExpandedContract
 	}
+	rules, _, err := activationRuleChanges(diff)
+	if err != nil {
+		return err
+	}
 	// Binding-only mutations, including BindingRestore with an unchanged layer
 	// snapshot, have no activation side effect. In particular, do not ask the
 	// owner port to turn a no-op into authority.
-	if len(layers) == 0 {
+	if len(layers) == 0 && len(rules) == 0 {
 		return nil
+	}
+	revocationAt := diff.RevocationAt
+	if revocationAt.IsZero() {
+		// Diffs fabricados por integrações antigas não têm relógio vinculado;
+		// continuam aceitos somente nos caminhos já permitidos, mas não
+		// prometem igualdade de timestamp no documento de auditoria.
+		revocationAt = time.Now().UTC()
 	}
 
 	canonical, err := owner(ctx, diff.Scope)
@@ -83,13 +95,185 @@ func runActivationMutationHook(ctx context.Context, tx *gorm.DB, diff MutationDi
 			if !change.AfterPresent {
 				reason = "layer_deleted"
 			}
-			if err := grants.RevokeLayerTx(ctx, tx, grantOwner, commandautomation.RuleRef{Kind: "user", Ref: change.Ref.ID}, canonical.UserID, reason); err != nil {
+			if err := grants.RevokeLayerTxAt(ctx, tx, grantOwner, commandautomation.RuleRef{Kind: "user", Ref: change.Ref.ID}, canonical.UserID, reason, revocationAt); err != nil {
 				return err
 			}
 		}
 	}
-	_, err = activation.ReconcileLayersTx(ctx, tx, canonical, layers)
+	var layerMutation commandactivation.Mutation
+	if len(layers) > 0 {
+		layerMutation, err = activation.ReconcileLayersTxAt(ctx, tx, canonical, layers, revocationAt)
+		if err != nil {
+			return err
+		}
+	}
+	for _, change := range rules {
+		if change.Before == nil {
+			continue
+		}
+		keyOwner := commandautomation.Owner{UserID: change.Before.UserID, WorkspaceID: cloneWorkspace(change.Before.WorkspaceID)}
+		key := commandautomation.NaturalKey{Owner: keyOwner,
+			LayerRef: commandautomation.RuleRef{Kind: string(change.Before.LayerRefKind), Ref: change.Before.LayerRef},
+			RuleRef:  commandautomation.RuleRef{Kind: string(change.Before.RuleRefKind), Ref: change.Before.RuleRef}}
+		if err := revokeGrantIfPresent(ctx, tx, grants, key, canonical.UserID, ruleChangeReason(change), revocationAt); err != nil {
+			return err
+		}
+		if change.InvalidateClaims {
+			ruleRef := commandactivation.Ref{Kind: change.Before.RuleRefKind, ID: change.Before.RuleRef}
+			if _, err := activation.Store().RevokeInvalidRuleTxAt(ctx, tx, canonical, ruleRef, ruleChangeReason(change), revocationAt); err != nil && !errors.Is(err, commandactivation.ErrNotFound) {
+				return err
+			}
+		}
+	}
+	// ReconcileLayersTx já faz o bump quando a camada muda o conjunto efetivo.
+	// Invalidação de regra ocorre fora dele; compare o conjunto completo para
+	// não deixar o cache observável em uma geração antiga e não tocar claims de
+	// outra regra.
+	beforeEffective := effectiveClaimSet(diff.BeforeActivationClaims, diff.BeforeActivationRules, diff.BeforeLayers, diff.Scope)
+	afterEffective := effectiveClaimSet(diff.AfterActivationClaims, diff.AfterActivationRules, diff.AfterLayers, diff.Scope)
+	if !reflect.DeepEqual(beforeEffective, afterEffective) && !layerMutation.ActiveLayersChanged {
+		if _, err := activation.Store().BumpActiveLayersTx(ctx, tx, canonical); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type activationRuleChange struct {
+	Before           *commandactivation.Rule
+	After            *commandactivation.Rule
+	InvalidateClaims bool
+}
+
+func expandedActivationDiff(diff MutationDiff) bool {
+	return diff.BeforeActivationRules != nil || diff.AfterActivationRules != nil ||
+		diff.BeforeAutomationGrants != nil || diff.AfterAutomationGrants != nil ||
+		diff.BeforeActivationClaims != nil || diff.AfterActivationClaims != nil
+}
+
+func activationRuleChanges(diff MutationDiff) ([]activationRuleChange, bool, error) {
+	before := make(map[string]commandactivation.Rule, len(diff.BeforeActivationRules))
+	after := make(map[string]commandactivation.Rule, len(diff.AfterActivationRules))
+	for _, rule := range diff.BeforeActivationRules {
+		if rule.ID == "" || rule.UserID != diff.Scope.UserID || !inScope(rule.WorkspaceID, diff.Scope) {
+			return nil, false, ErrActivationOwnerScopeMismatch
+		}
+		if _, ok := before[rule.ID]; ok {
+			return nil, false, ErrInvalid
+		}
+		before[rule.ID] = rule
+	}
+	for _, rule := range diff.AfterActivationRules {
+		if rule.ID == "" || rule.UserID != diff.Scope.UserID || !inScope(rule.WorkspaceID, diff.Scope) {
+			return nil, false, ErrActivationOwnerScopeMismatch
+		}
+		if _, ok := after[rule.ID]; ok {
+			return nil, false, ErrInvalid
+		}
+		after[rule.ID] = rule
+	}
+	ids := make([]string, 0, len(before)+len(after))
+	seen := map[string]bool{}
+	for id := range before {
+		ids = append(ids, id)
+		seen[id] = true
+	}
+	for id := range after {
+		if !seen[id] {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	changes := make([]activationRuleChange, 0, len(ids))
+	for _, id := range ids {
+		old, oldOK := before[id]
+		current, currentOK := after[id]
+		if oldOK && currentOK && reflect.DeepEqual(old, current) {
+			continue
+		}
+		var oldPtr, newPtr *commandactivation.Rule
+		if oldOK {
+			value := cloneActivationRule(old)
+			oldPtr = &value
+		}
+		if currentOK {
+			value := cloneActivationRule(current)
+			newPtr = &value
+		}
+		invalidate := oldPtr != nil && (newPtr == nil || !newPtr.Enabled || (oldPtr.Mode == commandactivation.ModeEvent && !ruleSemanticEqual(*oldPtr, *newPtr)))
+		changes = append(changes, activationRuleChange{Before: oldPtr, After: newPtr, InvalidateClaims: invalidate})
+	}
+	return changes, len(changes) > 0, nil
+}
+
+func ruleChangeReason(change activationRuleChange) string {
+	if change.After == nil {
+		return "rule_deleted"
+	}
+	return "rule_disabled"
+}
+
+func revokeGrantIfPresent(ctx context.Context, tx *gorm.DB, grants *commandautomation.Store, key commandautomation.NaturalKey, revokedBy, reason string, now time.Time) error {
+	err := grants.RevokeTxAt(ctx, tx, key.Owner, key, revokedBy, reason, now)
+	if errors.Is(err, commandautomation.ErrNotFound) {
+		return nil
+	}
 	return err
+}
+
+// effectiveClaimSet representa somente claims ativos que ainda têm uma regra
+// habilitada e sua layer habilitada. A chave é a identidade da claim, não a
+// regra: assim, desabilitar uma regra não afeta nem conta claims de outra.
+func effectiveClaimSet(claims []commandactivation.Claim, rules []commandactivation.Rule, layers []Layer, scope Scope) map[string]struct{} {
+	effective := make(map[string]struct{})
+	for _, claim := range claims {
+		if claim.ActivationID == "" || claim.State != commandactivation.StateActive || claim.UserID != scope.UserID || !inScope(claim.WorkspaceID, scope) {
+			continue
+		}
+		rule, ok := effectiveRuleForClaim(claim, rules, scope)
+		if !ok || !rule.Enabled {
+			continue
+		}
+		if claim.LayerRefKind == commandactivation.BuiltinRef {
+			effective[claim.ActivationID] = struct{}{}
+			continue
+		}
+		if claim.LayerRefKind != commandactivation.UserRef || !effectiveUserLayer(claim, rule, layers, scope) {
+			continue
+		}
+		effective[claim.ActivationID] = struct{}{}
+	}
+	return effective
+}
+
+func effectiveRuleForClaim(claim commandactivation.Claim, rules []commandactivation.Rule, scope Scope) (commandactivation.Rule, bool) {
+	var inherited *commandactivation.Rule
+	for i := range rules {
+		rule := rules[i]
+		if rule.UserID != claim.UserID || rule.RuleRefKind != claim.RuleRefKind || rule.RuleRef != claim.RuleRef || rule.LayerRefKind != claim.LayerRefKind || rule.LayerRef != claim.LayerRef || !inScope(rule.WorkspaceID, scope) {
+			continue
+		}
+		if sameWorkspace(rule.WorkspaceID, claim.WorkspaceID) {
+			return rule, true
+		}
+		if rule.WorkspaceID == nil && claim.WorkspaceID != nil {
+			copy := cloneActivationRule(rule)
+			inherited = &copy
+		}
+	}
+	if inherited != nil {
+		return *inherited, true
+	}
+	return commandactivation.Rule{}, false
+}
+
+func effectiveUserLayer(claim commandactivation.Claim, rule commandactivation.Rule, layers []Layer, scope Scope) bool {
+	for _, layer := range layers {
+		if layer.ID == claim.LayerRef && layer.UserID == scope.UserID && layer.Enabled && sameWorkspace(layer.WorkspaceID, rule.WorkspaceID) && sameWorkspace(layer.WorkspaceID, claim.WorkspaceID) {
+			return true
+		}
+	}
+	return false
 }
 
 // activationLayerChanges intentionally projects only presence/enabled state.

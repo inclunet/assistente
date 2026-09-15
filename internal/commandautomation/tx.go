@@ -83,14 +83,26 @@ func revokeTx(ctx context.Context, tx *gorm.DB, owner Owner, key NaturalKey, rev
 // RevokeTx exige uma transação já aberta pelo host/gate e owner derivado de
 // autenticação. Não há writer global que aceite payload de job.
 func RevokeTx(ctx context.Context, tx *gorm.DB, owner Owner, key NaturalKey, revokedBy, reason string) error {
-	return revokeTx(ctx, tx, owner, key, revokedBy, reason, time.Now().UTC())
+	return RevokeTxAt(ctx, tx, owner, key, revokedBy, reason, time.Now().UTC())
+}
+
+// RevokeTxAt usa o instante já vinculado ao diff/receipt pelo host.
+func RevokeTxAt(ctx context.Context, tx *gorm.DB, owner Owner, key NaturalKey, revokedBy, reason string, now time.Time) error {
+	return revokeTx(ctx, tx, owner, key, revokedBy, reason, now)
 }
 
 func (s *Store) RevokeTx(ctx context.Context, tx *gorm.DB, owner Owner, key NaturalKey, revokedBy, reason string) error {
+	return s.RevokeTxAt(ctx, tx, owner, key, revokedBy, reason, s.now())
+}
+
+// RevokeTxAt mantém o instante de revogação já preparado pelo host. Isso
+// permite que o documento after e a linha efetivamente revogada compartilhem
+// o mesmo valor, sem fazer o hook alegações baseadas em um relógio posterior.
+func (s *Store) RevokeTxAt(ctx context.Context, tx *gorm.DB, owner Owner, key NaturalKey, revokedBy, reason string, now time.Time) error {
 	if s == nil || s.db == nil || tx == nil || !sameSQLDatabase(s.db, tx) {
 		return ErrInvalid
 	}
-	return revokeTx(ctx, tx, owner, key, revokedBy, reason, s.now())
+	return revokeTx(ctx, tx, owner, key, revokedBy, reason, now)
 }
 
 func revokeLayerTx(ctx context.Context, tx *gorm.DB, owner Owner, layerRef RuleRef, revokedBy, reason string, now time.Time) error {
@@ -110,14 +122,24 @@ func revokeLayerTx(ctx context.Context, tx *gorm.DB, owner Owner, layerRef RuleR
 // fornecido. É idempotente quando não há grant e nunca abre/fecha transação;
 // o chamador deve compô-la no TX do delete/disable/restore.
 func RevokeLayerTx(ctx context.Context, tx *gorm.DB, owner Owner, layerRef RuleRef, revokedBy, reason string) error {
-	return revokeLayerTx(ctx, tx, owner, layerRef, revokedBy, reason, time.Now().UTC())
+	return RevokeLayerTxAt(ctx, tx, owner, layerRef, revokedBy, reason, time.Now().UTC())
+}
+
+// RevokeLayerTxAt é a variante clock-bound da revogação agregada por layer.
+func RevokeLayerTxAt(ctx context.Context, tx *gorm.DB, owner Owner, layerRef RuleRef, revokedBy, reason string, now time.Time) error {
+	return revokeLayerTx(ctx, tx, owner, layerRef, revokedBy, reason, now)
 }
 
 func (s *Store) RevokeLayerTx(ctx context.Context, tx *gorm.DB, owner Owner, layerRef RuleRef, revokedBy, reason string) error {
+	return s.RevokeLayerTxAt(ctx, tx, owner, layerRef, revokedBy, reason, s.now())
+}
+
+// RevokeLayerTxAt é a variante clock-bound usada por mutações compostas.
+func (s *Store) RevokeLayerTxAt(ctx context.Context, tx *gorm.DB, owner Owner, layerRef RuleRef, revokedBy, reason string, now time.Time) error {
 	if s == nil || s.db == nil || tx == nil || !sameSQLDatabase(s.db, tx) {
 		return ErrInvalid
 	}
-	return revokeLayerTx(ctx, tx, owner, layerRef, revokedBy, reason, s.now())
+	return revokeLayerTx(ctx, tx, owner, layerRef, revokedBy, reason, now)
 }
 
 func sameSQLDatabase(left, right *gorm.DB) bool {
