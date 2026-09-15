@@ -11,7 +11,6 @@ import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { useUIStore } from '../../store/uiStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
-import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
 import { registerWorkspacePanelFocus } from '../workspace/workspacePanelFocusRegistry';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
@@ -126,12 +125,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     if (grid) { grid.focus(); return true; }
     return false;
   }, []);
-
-  useEffect(() => {
-    if (!isActive) return;
-    registerDefaultFocus(focusContentArea);
-    return () => unregisterDefaultFocus(focusContentArea);
-  }, [focusContentArea, isActive]);
 
   const tasks = useMemo(() => taskList?.tasks || [], [taskList?.tasks]);
   const currentViewMode: ViewMode = taskList?.preferredViewMode || 'list';

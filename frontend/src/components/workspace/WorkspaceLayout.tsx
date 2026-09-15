@@ -15,6 +15,7 @@ import { WorkspaceToolbar } from './WorkspaceToolbar';
 import {
   cancelWorkspacePanelFocus,
   pruneWorkspacePanelFocus,
+  requestWorkspacePanelFocus,
   routeWorkspacePanelFocus,
 } from './workspacePanelFocusRegistry';
 import { WorkspaceTabList } from './WorkspaceTabList';
@@ -53,13 +54,12 @@ export function WorkspaceLayout() {
   const markTabShortcutNavigation = useCallback((tabId: string) => {
     if (!isWorkspaceRouteRef.current) return;
     if (tabId === workspace?.activeTabId) {
-      const activeTabType = workspace?.tabs.find((tab) => tab.id === tabId)?.type;
       requestAnimationFrame(() => {
         if (!isWorkspaceRouteRef.current) {
           cancelWorkspacePanelFocus(tabId);
           return;
         }
-        routeWorkspacePanelFocus(tabId, activeTabType);
+        routeWorkspacePanelFocus(tabId);
       });
       return;
     }
@@ -260,7 +260,14 @@ export function WorkspaceLayout() {
         },
         contains: () => !!document.activeElement?.closest?.('.ws-content__panel[data-active="true"] .ws-content-toolbar'),
       },
-      // 4. Content Area (genérico, foco inteligente por tipo de aba)
+      // 4. Content Area — delega ao handler de foco do painel ativo.
+      //
+      // Cada tipo de aba (chat, terminal, editor, tasklist) registra seu próprio
+      // handler no workspacePanelFocusRegistry e sabe focar sua área default
+      // (input do chat/terminal, superfície do editor, board da tasklist). Aqui
+      // apenas roteamos para o painel ativo — sem duplicar o conhecimento de
+      // cada tipo. F6, Escape-para-default e restoreDefaultFocus (retorno de
+      // modal) passam todos por este mesmo ponto.
       {
         id: 'contentArea',
         label: t('landmarks.contentArea', 'Área de conteúdo'),
@@ -271,23 +278,13 @@ export function WorkspaceLayout() {
           const area = document.querySelector('.ws-content__panel[data-active="true"] .ws-content-area') as HTMLElement | null;
           if (!area) return false;
 
-          // Chat/Terminal: foca no textarea do input
-          const textarea = area.querySelector('.chat-input textarea') as HTMLElement | null;
-          if (textarea) { textarea.focus(); return true; }
+          const activeId = useWorkspaceStore.getState().workspace?.activeTabId;
+          if (activeId && requestWorkspacePanelFocus(activeId)) {
+            return true;
+          }
 
-          // Editor renderizado: a unidade de leitura é sempre a área default.
-          const renderedDocument = area.querySelector(
-            '[data-editor-rendered-document="true"]',
-          ) as HTMLElement | null;
-          if (renderedDocument) { renderedDocument.focus(); return true; }
-
-          // Editor editável: foca na superfície de edição.
-          const monaco = area.querySelector('.monaco-editor textarea') as HTMLElement | null;
-          if (monaco) { monaco.focus(); return true; }
-          const rich = area.querySelector('.rich-text-editor__content [contenteditable]') as HTMLElement | null;
-          if (rich) { rich.focus(); return true; }
-
-          // Fallback genérico (tasklist, etc.)
+          // Fallback genérico enquanto o painel ainda não registrou o handler
+          // (ex.: painel lazy montando): primeiro focável ou o próprio container.
           const focusable = area.querySelector('button, input, select, textarea, [tabindex]:not([tabindex="-1"])') as HTMLElement | null;
           if (focusable) { focusable.focus(); return true; }
 
@@ -357,9 +354,8 @@ export function WorkspaceLayout() {
     }
 
     restoreFocusAfterTabShortcutRef.current = null;
-    const activeTabType = workspace?.tabs.find((tab) => tab.id === activeTabId)?.type;
     requestAnimationFrame(() => {
-      routeWorkspacePanelFocus(activeTabId, activeTabType);
+      routeWorkspacePanelFocus(activeTabId);
     });
   }, [activeTabId, isWorkspaceRoute, workspace?.tabs]);
 
