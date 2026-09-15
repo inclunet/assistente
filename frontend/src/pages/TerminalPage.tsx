@@ -7,6 +7,8 @@ import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
 import type { WorkspaceChatModalAdapter } from '../store/workspaceChatModalStore';
 import { useRegisterWorkspaceChatAdapter } from '../hooks/useRegisterWorkspaceChatAdapter';
 import { useWorkspacePanel } from '../components/workspace/WorkspacePanelContext';
+import { registerWorkspacePanelFocus } from '../components/workspace/workspacePanelFocusRegistry';
+import { isModalOpen } from '../components/ui/Modal';
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
@@ -77,6 +79,51 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
       inputRef.current.focus();
     }
   }, [currentSessionId, isActive]);
+
+  // Foco de painel unificado: o WorkspaceLayout roteia o foco da aba ativa via
+  // workspacePanelFocusRegistry (troca por atalho, fechar aba, F6, retorno de
+  // modal). O handler apenas marca um pedido; um efeito foca o input assim que
+  // a sessão está pronta — mesmo padrão de editor/tasklist.
+  const isPanelActiveRef = useRef(isActive);
+  isPanelActiveRef.current = isActive;
+  const [panelFocusNonce, setPanelFocusNonce] = useState(0);
+  const consumedPanelFocusNonceRef = useRef(0);
+
+  useEffect(() => {
+    const tabId = panelTab.id;
+    return registerWorkspacePanelFocus(tabId, () => {
+      if (
+        !isPanelActiveRef.current
+        || isModalOpen()
+        || useWorkspaceChatModalStore.getState().isOpen
+      ) return false;
+      setPanelFocusNonce((nonce) => nonce + 1);
+      return true;
+    });
+  }, [panelTab.id]);
+
+  useEffect(() => {
+    if (
+      panelFocusNonce === 0
+      || consumedPanelFocusNonceRef.current === panelFocusNonce
+      || !isActive
+      || isModalOpen()
+      || !currentSessionId
+    ) {
+      return;
+    }
+    const nonce = panelFocusNonce;
+    const raf = requestAnimationFrame(() => {
+      if (consumedPanelFocusNonceRef.current === nonce) return;
+      if (!isPanelActiveRef.current || isModalOpen()) return;
+      const input = inputRef.current;
+      if (input) {
+        input.focus();
+        consumedPanelFocusNonceRef.current = nonce;
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [panelFocusNonce, isActive, currentSessionId]);
 
   // Ctrl+C para interromper (único atalho que faz sentido no terminal embarcado)
   useEffect(() => {

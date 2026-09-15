@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { hasWorkspacePanelFocusHandler, requestWorkspacePanelFocus } from '../workspace/workspacePanelFocusRegistry';
 import userEvent from '@testing-library/user-event';
 import { MediaCategory, type MediaFile } from '../../services/mediaService';
 
@@ -362,6 +363,37 @@ describe('ChatSessionView', () => {
     executeDeepLinkMock.mockResolvedValue(undefined);
     navigateMock.mockReset();
     useShortcutsHelpStore.setState({ isOpen: false });
+  });
+
+  it('registra handler de foco de painel (variant page) e foca o input ao ser solicitado', async () => {
+    render(
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+        <ChatSessionView variant="page" surface={surface()} onSend={vi.fn()} showShortcutsHelp={false} />
+      </WorkspacePanelProvider>,
+    );
+
+    const input = await screen.findByRole('button', { name: 'send' });
+    input.blur();
+    expect(input).not.toHaveFocus();
+
+    // O WorkspaceLayout roteia o foco via registry; o handler foca o input.
+    act(() => {
+      requestWorkspacePanelFocus('chat-tab');
+    });
+
+    await waitFor(() => expect(input).toHaveFocus());
+  });
+
+  it('não registra handler de foco de painel na variante embedded', () => {
+    render(
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+        <ChatSessionView variant="embedded" surface={surface({ surfaceType: 'embedded' })} onSend={vi.fn()} showShortcutsHelp={false} />
+      </WorkspacePanelProvider>,
+    );
+
+    // A aba hospedeira (ex.: tasklist/editor) é quem registra o foco do painel.
+    // O chat embutido não pode sequestrar o tabId da aba hospedeira.
+    expect(hasWorkspacePanelFocusHandler('chat-tab')).toBe(false);
   });
 
   it('? abre o painel de atalhos quando nenhum modal está aberto', () => {

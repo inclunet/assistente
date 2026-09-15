@@ -21,6 +21,7 @@ import { ContextMenu } from '../menu';
 import { useShortcutsHelpStore } from '../../store/shortcutsHelpStore';
 import { isModalOpen } from '../ui/Modal';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
+import { registerWorkspacePanelFocus } from '../workspace/workspacePanelFocusRegistry';
 import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import { isBackendId } from '../../lib/idUtils';
@@ -147,8 +148,10 @@ function ChatSessionViewContent({
     previousWindowKey: string | null;
   } | null>(null);
   const latestWindowKeyRef = useRef<string | null>(null);
-  const { isActive: isPanelActive } = useWorkspacePanel();
+  const { tab: panelTab, isActive: isPanelActive } = useWorkspacePanel();
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
+  const isPanelActiveRef = useRef(isPanelActive);
+  isPanelActiveRef.current = isPanelActive;
 
   const [showContinueEnabled, setShowContinueEnabled] = useState(false);
   const [activeProfileSlug, setActiveProfileSlug] = useState('');
@@ -704,6 +707,50 @@ function ChatSessionViewContent({
     inputRef,
     messagesContainerRef,
   });
+
+  // Foco de painel unificado (só na variante de aba de workspace). O
+  // WorkspaceLayout roteia o foco da aba ativa via workspacePanelFocusRegistry
+  // (troca por atalho, fechar aba, F6, retorno de modal). O handler marca um
+  // pedido; um efeito foca o input do chat quando ele existe — mesmo padrão de
+  // editor/tasklist/terminal. Variantes embedded/modal não registram (o tabId do
+  // painel pertence à aba hospedeira, ex.: tasklist).
+  const [panelFocusNonce, setPanelFocusNonce] = useState(0);
+  const consumedPanelFocusNonceRef = useRef(0);
+
+  useEffect(() => {
+    if (variant !== 'page') return;
+    const tabId = panelTab.id;
+    return registerWorkspacePanelFocus(tabId, () => {
+      if (!isPanelActiveRef.current || isModalOpen()) return false;
+      setPanelFocusNonce((nonce) => nonce + 1);
+      return true;
+    });
+  }, [variant, panelTab.id]);
+
+  useEffect(() => {
+    if (
+      variant !== 'page'
+      || panelFocusNonce === 0
+      || consumedPanelFocusNonceRef.current === panelFocusNonce
+      || !isPanelActive
+      || isModalOpen()
+    ) {
+      return;
+    }
+    const nonce = panelFocusNonce;
+    const raf = requestAnimationFrame(() => {
+      if (consumedPanelFocusNonceRef.current === nonce) return;
+      if (!isPanelActiveRef.current || isModalOpen()) return;
+      // Não roubar o foco durante a edição do título da aba.
+      if (document.querySelector('.ws-tabs__tab-edit')) return;
+      const input = inputRef.current;
+      if (input) {
+        input.focus();
+        consumedPanelFocusNonceRef.current = nonce;
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [variant, panelFocusNonce, isPanelActive]);
 
   useEffect(() => {
     if (variant !== 'page' || !isInteractiveSurface) return;
