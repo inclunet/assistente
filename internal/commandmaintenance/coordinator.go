@@ -100,6 +100,15 @@ type ToolRetentionPort interface {
 	CleanOldChat(context.Context, Policy) (int64, error)
 }
 
+// BoundedToolRetentionPort é opcional para adapters que precisam paginar o
+// escopo de usuários. Cada operação mantém seu próprio cursor e pode informar
+// que a próxima passagem ainda é necessária, sem criar um loop no coordinator.
+type BoundedToolRetentionPort interface {
+	CleanOldDryRunsBatch(context.Context, Policy) (RetentionResult, error)
+	CleanOrphanChatBatch(context.Context, Policy) (RetentionResult, error)
+	CleanOldChatBatch(context.Context, Policy) (RetentionResult, error)
+}
+
 // CompactionPort encapsula a manutenção física global do SQLite.
 type CompactionPort interface {
 	Compact(context.Context, int64) error
@@ -236,22 +245,23 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	}
 	report.JobsDeleted = jobsResult.Deleted
 	report.MoreRetention = jobsResult.More
-	for _, clean := range []func(context.Context, Policy) (int64, error){
-		c.ports.Tools.CleanOldDryRuns,
-		c.ports.Tools.CleanOrphanChat,
-		c.ports.Tools.CleanOldChat,
+	for _, clean := range []func(context.Context, ToolRetentionPort, Policy) (RetentionResult, error){
+		cleanOldDryRuns,
+		cleanOrphanChat,
+		cleanOldChat,
 	} {
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
-		deleted, err := clean(ctx, policy)
+		result, err := clean(ctx, c.ports.Tools, policy)
 		if err != nil {
 			return report, err
 		}
-		if err := validateDeletedCount(deleted); err != nil {
+		if err := validateDeletedCount(result.Deleted); err != nil {
 			return report, err
 		}
-		report.ToolsDeleted += deleted
+		report.ToolsDeleted += result.Deleted
+		report.MoreRetention = report.MoreRetention || result.More
 	}
 	for _, item := range []struct {
 		port RetentionPort
@@ -284,6 +294,51 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	}
 	report.Compacted = true
 	return report, nil
+}
+
+func cleanOldDryRuns(ctx context.Context, port ToolRetentionPort, policy Policy) (RetentionResult, error) {
+	if bounded, ok := port.(BoundedToolRetentionPort); ok {
+		result, err := bounded.CleanOldDryRunsBatch(ctx, policy)
+		if err != nil {
+			return RetentionResult{}, err
+		}
+		return result, validateDeletedCount(result.Deleted)
+	}
+	deleted, err := port.CleanOldDryRuns(ctx, policy)
+	if err != nil {
+		return RetentionResult{}, err
+	}
+	return RetentionResult{Deleted: deleted}, validateDeletedCount(deleted)
+}
+
+func cleanOrphanChat(ctx context.Context, port ToolRetentionPort, policy Policy) (RetentionResult, error) {
+	if bounded, ok := port.(BoundedToolRetentionPort); ok {
+		result, err := bounded.CleanOrphanChatBatch(ctx, policy)
+		if err != nil {
+			return RetentionResult{}, err
+		}
+		return result, validateDeletedCount(result.Deleted)
+	}
+	deleted, err := port.CleanOrphanChat(ctx, policy)
+	if err != nil {
+		return RetentionResult{}, err
+	}
+	return RetentionResult{Deleted: deleted}, validateDeletedCount(deleted)
+}
+
+func cleanOldChat(ctx context.Context, port ToolRetentionPort, policy Policy) (RetentionResult, error) {
+	if bounded, ok := port.(BoundedToolRetentionPort); ok {
+		result, err := bounded.CleanOldChatBatch(ctx, policy)
+		if err != nil {
+			return RetentionResult{}, err
+		}
+		return result, validateDeletedCount(result.Deleted)
+	}
+	deleted, err := port.CleanOldChat(ctx, policy)
+	if err != nil {
+		return RetentionResult{}, err
+	}
+	return RetentionResult{Deleted: deleted}, validateDeletedCount(deleted)
 }
 
 func validateBatchResult(result BatchResult, limit int) error {

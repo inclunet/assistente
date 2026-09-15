@@ -101,8 +101,18 @@ func (s *Store) RecoverClosedGenerationWithProof(ctx context.Context, proof Clos
 			rows = rows[:limit]
 		}
 		now := s.now().UTC()
+		if now.IsZero() {
+			return ErrInvalidRequest
+		}
 		for _, row := range rows {
-			ledgerQuery := tx.Model(&ledgerRow{}).Where("invocation_id = ? AND auth_context_type = ? AND auth_context_id = ? AND status = ?", row.InvocationID, proof.scope.AuthContextType, proof.scope.AuthContextID, row.Status)
+			// A prova fecha o ciclo, mas não torna um par divergente consistente.
+			// Compare também a identidade imutável antes de avançar qualquer lado.
+			ledgerQuery := tx.Model(&ledgerRow{}).Where("invocation_id = ? AND auth_context_type = ? AND auth_context_id = ? AND request_fingerprint_version = ? AND request_fingerprint = ? AND status = ?", row.InvocationID, proof.scope.AuthContextType, row.AuthContextID, row.RequestFingerprintVersion, row.RequestFingerprint, row.Status)
+			if row.SourceType == nil {
+				ledgerQuery = ledgerQuery.Where("source_type IS NULL")
+			} else {
+				ledgerQuery = ledgerQuery.Where("source_type = ?", *row.SourceType)
+			}
 			if proof.scope.UserID == nil {
 				ledgerQuery = ledgerQuery.Where("user_id IS NULL")
 			} else {
