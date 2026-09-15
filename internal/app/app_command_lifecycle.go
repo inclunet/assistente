@@ -232,6 +232,20 @@ func (a *App) bootstrapCommandLifecycleAfterAuth(ctx context.Context, result *Au
 	}
 }
 
+func (a *App) bootstrapCommandLifecycleAfterUnlock(ctx context.Context) {
+	if a == nil {
+		return
+	}
+	a.authMu.RLock()
+	var result *AuthUser
+	if a.currentAuthUser != nil {
+		copy := *a.currentAuthUser
+		result = &copy
+	}
+	a.authMu.RUnlock()
+	a.bootstrapCommandLifecycleAfterAuth(ctx, result, nil)
+}
+
 func (a *App) authResultStillCurrent(result *AuthUser) bool {
 	if a == nil || result == nil {
 		return false

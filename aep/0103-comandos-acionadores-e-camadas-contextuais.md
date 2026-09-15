@@ -33,8 +33,14 @@ local `keyboard.local`/read/none com `ProjectLocalRead`, revalida
 `Store.CheckCurrent` dentro da publicação e só então troca o mapa no `HostState`.
 Quando ainda não há geração base, cai no sentinel inicial; quando há geração
 inválida/obsoleta, falha fechado e não mascara como mapa vazio. Ainda falta
-recovery/reconciliação durável de restart, receipts/invocações/claims pendentes
-e integração explícita de unlock.
+recovery/reconciliação durável de restart e claims persistentes.
+
+Atualização seguinte de I14.3/I14.5: `SetupVault`/`UnlockVault` agora finalizam
+a barreira de auth antes de relançar o lifecycle para a sessão atual, então o
+desbloqueio do cofre pode reprojetar/publicar comandos sem novo Login/RefreshAuth.
+No shutdown/drain, o App usa a prova de `CloseAndDrain` para rodar recovery
+bounded de receipts e invocações pendentes antes de destruir dependências,
+sem inferir encerramento por idade ou restart.
 
 ### Stream Deck real validado — 15/09/2026
 

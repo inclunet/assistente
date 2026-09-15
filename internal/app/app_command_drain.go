@@ -2,8 +2,13 @@ package app
 
 import (
 	"context"
+	"time"
 
+	"assistente/internal/commanddecision"
 	"assistente/internal/commandexecution"
+	"assistente/internal/commandledger"
+	"assistente/internal/commandsecurity"
+	"assistente/internal/database"
 )
 
 // drainCommandExecutors fecha o mesmo core das fábricas do App. A construção
@@ -19,6 +24,76 @@ func (a *App) drainCommandExecutors(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = core.CloseAndDrain(ctx)
-	return err
+	drained, err := core.CloseAndDrain(ctx)
+	if err != nil {
+		return err
+	}
+	if !a.commandDrainRecoveryReady() {
+		return nil
+	}
+	if err := recoverDrainedCommandDecisions(ctx, drained); err != nil {
+		return err
+	}
+	return recoverDrainedCommandInvocations(ctx, drained)
+}
+
+func (a *App) commandDrainRecoveryReady() bool {
+	if a == nil {
+		return false
+	}
+	a.authMu.RLock()
+	defer a.authMu.RUnlock()
+	return a.commandStorageErr == nil && a.commandStorageVersion != ""
+}
+
+func recoverDrainedCommandDecisions(ctx context.Context, drained commandsecurity.DrainedGenerations) error {
+	if ctx == nil {
+		return commandexecution.ErrInvalidRequest
+	}
+	if !drained.Valid() {
+		return nil
+	}
+	store, err := commanddecision.New(database.DB(), &commandDecisionPresenter{}, time.Now)
+	if err != nil {
+		return err
+	}
+	recovery, err := commanddecision.NewCoordinatorRecovery(store, drained)
+	if err != nil {
+		return err
+	}
+	for {
+		result, err := recovery.Recover(ctx, commanddecision.MaxRecoveryBatch)
+		if err != nil {
+			return err
+		}
+		if !result.More {
+			return nil
+		}
+	}
+}
+
+func recoverDrainedCommandInvocations(ctx context.Context, drained commandsecurity.DrainedGenerations) error {
+	if ctx == nil {
+		return commandexecution.ErrInvalidRequest
+	}
+	if !drained.Valid() {
+		return nil
+	}
+	store, err := commandledger.New(database.DB(), time.Now)
+	if err != nil {
+		return err
+	}
+	recovery, err := commandledger.NewCoordinatorRecovery(store, drained)
+	if err != nil {
+		return err
+	}
+	for {
+		result, err := recovery.Recover(ctx, 32)
+		if err != nil {
+			return err
+		}
+		if !result.More {
+			return nil
+		}
+	}
 }

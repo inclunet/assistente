@@ -558,6 +558,35 @@ func TestAppCommandLifecycleRebuildsPersistedLocalConfigurationAfterAuth(t *test
 	}
 }
 
+func TestAppCommandLifecycleAfterUnlockBootstrapsCurrentSession(t *testing.T) {
+	ctx := context.Background()
+	app, _ := appLifecycleProductMountFixture(t)
+	if err := ensureCommandLifecycleMountedForCurrentUserForTest(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.commandHost.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.commandHost.SetVaultUnlocked(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	app.bootstrapCommandLifecycleAfterUnlock(ctx)
+	if snapshot, err := CommandLifecycleSnapshot(app); err != nil || snapshot.State == commandruntime.StateReady || snapshot.Published {
+		t.Fatalf("unlock falso publicou comandos: %+v err=%v", snapshot, err)
+	}
+	if err := app.commandHost.SetVaultUnlocked(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	app.bootstrapCommandLifecycleAfterUnlock(ctx)
+	snapshot, err := CommandLifecycleSnapshot(app)
+	if err != nil || snapshot.State != commandruntime.StateReady || !snapshot.Published {
+		t.Fatalf("unlock não relançou bootstrap: %+v err=%v", snapshot, err)
+	}
+	if err := ShutdownCommandLifecycle(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAppCommandLifecycleSentinelRebuildRejectsLoggedOutSession(t *testing.T) {
 	app, _ := appLifecycleProductMountFixture(t)
 	if err := ensureCommandLifecycleMountedForCurrentUserForTest(context.Background(), app); err != nil {

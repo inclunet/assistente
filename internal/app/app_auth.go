@@ -121,24 +121,36 @@ func (a *App) GetAuthStatus() (AuthStatus, error) {
 	}, nil
 }
 
-func (a *App) SetupVault(masterPassword string) (string, error) {
-	defer a.beginCommandAuthTransition()()
+func (a *App) SetupVault(masterPassword string) (recovery string, err error) {
+	finish := a.beginCommandAuthTransition()
+	defer func() {
+		finish()
+		if err == nil {
+			a.bootstrapCommandLifecycleAfterUnlock(a.appContext())
+		}
+	}()
 	if err := a.ensureAuthCoreServices(); err != nil {
 		return "", err
 	}
-	recovery, err := a.vaultSvc.Setup(a.appContext(), masterPassword)
+	recovery, err = a.vaultSvc.Setup(a.appContext(), masterPassword)
 	if err == nil {
 		a.markCommandVaultUnlocked()
 	}
 	return recovery, err
 }
 
-func (a *App) UnlockVault(kind, secret string) error {
-	defer a.beginCommandAuthTransition()()
+func (a *App) UnlockVault(kind, secret string) (err error) {
+	finish := a.beginCommandAuthTransition()
+	defer func() {
+		finish()
+		if err == nil {
+			a.bootstrapCommandLifecycleAfterUnlock(a.appContext())
+		}
+	}()
 	if err := a.ensureAuthCoreServices(); err != nil {
 		return err
 	}
-	err := a.vaultSvc.Unlock(a.appContext(), kind, secret)
+	err = a.vaultSvc.Unlock(a.appContext(), kind, secret)
 	if err == nil {
 		a.markCommandVaultUnlocked()
 	}
