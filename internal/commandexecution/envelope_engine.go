@@ -27,16 +27,31 @@ func NewComplete(config Config) (*Service, error) {
 	}
 	config.Handlers = handlers
 	ports := *config.Envelope
+	if config.Envelope.Identity != nil {
+		identityPorts := *config.Envelope.Identity
+		ports.Identity = &identityPorts
+	}
 	config.Envelope = &ports
 	return &Service{config: config, complete: true}, nil
 }
 
 func validateCompleteBootstrap(config Config) error {
-	if config.Sessions == nil || config.Envelope == nil || config.Envelope.Snapshot == nil || config.Envelope.Resolve == nil || config.Envelope.Authorize == nil || config.Envelope.AuthorizeLookup == nil || config.Envelope.Actor == nil || config.Envelope.Context == nil {
+	if config.Envelope == nil || config.Envelope.Context == nil {
+		return ErrInvalidConfiguration
+	}
+	if config.Envelope.Identity != nil {
+		if !config.Envelope.Identity.complete() {
+			return ErrInvalidConfiguration
+		}
+	} else if config.Sessions == nil || config.Envelope.Snapshot == nil || config.Envelope.Resolve == nil || config.Envelope.Authorize == nil || config.Envelope.AuthorizeLookup == nil || config.Envelope.Actor == nil {
 		return ErrInvalidConfiguration
 	}
 	switch config.Source {
 	case commandcatalog.Palette, commandcatalog.UI, commandcatalog.CLI, commandcatalog.Chat, commandcatalog.KeyboardLocal, commandcatalog.KeyboardGlobal, commandcatalog.StreamDeck:
+	case commandcatalog.Event, commandcatalog.System:
+		if config.Envelope.Identity == nil {
+			return ErrInvalidConfiguration
+		}
 	default:
 		return ErrInvalidConfiguration
 	}

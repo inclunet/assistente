@@ -36,6 +36,7 @@ type EnvelopeResolution struct {
 	CommandID  string
 	Arguments  json.RawMessage
 	BindingIDs []string
+	LayerRefs  []string
 }
 
 // EnvelopeConfig é uma porta interna do bootstrap, nunca preenchida por Wails.
@@ -47,6 +48,9 @@ type EnvelopeResolution struct {
 // Context providers também precisam ser locais/não bloqueantes na admissão;
 // um roundtrip à UI/rede não pode ser instalado como provider do gate.
 type EnvelopeConfig struct {
+	// Identity habilita origens não locais por portas internas completas. Quando
+	// presente, nenhum callback local ou fallback é consultado.
+	Identity        *EnvelopeIdentityPorts
 	Snapshot        func(context.Context, auth.LocalSessionPrincipal, EnvelopeCandidate) (commandcontract.Envelope, error)
 	Resolve         func(context.Context, auth.LocalSessionPrincipal, EnvelopeCandidate, commandcontract.Envelope) (EnvelopeResolution, error)
 	Authorize       func(context.Context, auth.LocalSessionPrincipal, commandcontract.Envelope, commandcatalog.Definition) error
@@ -65,12 +69,15 @@ type preparedEnvelope struct {
 	candidate            EnvelopeCandidate
 	epoch                commandsecurity.EpochSnapshot
 	principal            auth.LocalSessionPrincipal
+	identity             EnvelopeAuthenticatedIdentity
 	envelope             commandcontract.Envelope
 	definition           commandcatalog.Definition
 	mode                 commandcontract.ResolutionMode
 	proof                commandcontext.FactProof
 	scope                commandcontext.Scope
 	owner                commandledger.FullOwnership
+	layerRefs            []string
+	hostProvenance       *json.RawMessage
 	inputFingerprint     string
 	argumentsFingerprint string
 	expires              time.Time
@@ -113,19 +120,6 @@ func canonicalCandidate(candidate EnvelopeCandidate) (EnvelopeCandidate, error) 
 	return detached, nil
 }
 
-func (s *Service) envelopeIdentity(ctx context.Context, token string) (auth.LocalSessionPrincipal, commandledger.FullOwnership, error) {
-	p, err := s.config.Sessions.AuthenticateLocalAccess(ctx, token)
-	if err != nil {
-		return p, commandledger.FullOwnership{}, ErrDenied
-	}
-	actor, id, err := s.config.Envelope.Actor(ctx, p)
-	if err != nil {
-		return p, commandledger.FullOwnership{}, ErrDenied
-	}
-	user := p.UserID
-	return p, commandledger.FullOwnership{UserID: &user, AuthContextType: commandcontract.AuthLocalSession, AuthContextID: p.SessionID, ActorType: actor, ActorID: id}, nil
-}
-
 func (s *Service) inputFingerprint(ctx context.Context, c EnvelopeCandidate, o commandledger.FullOwnership, version string) (string, error) {
 	if !keyVersionPattern.MatchString(version) {
 		return "", ErrInvalidRequest
@@ -144,11 +138,16 @@ func (s *Service) inputFingerprint(ctx context.Context, c EnvelopeCandidate, o c
 }
 
 func sameEnvelopeOwner(a, b commandledger.FullOwnership) bool {
-	return a.UserID != nil && b.UserID != nil && *a.UserID == *b.UserID && a.AuthContextType == b.AuthContextType && a.AuthContextID == b.AuthContextID && a.ActorType == b.ActorType && a.ActorID == b.ActorID
+	return (a.UserID == nil) == (b.UserID == nil) && (a.UserID == nil || *a.UserID == *b.UserID) && a.AuthContextType == b.AuthContextType && a.AuthContextID == b.AuthContextID && a.ActorType == b.ActorType && a.ActorID == b.ActorID
 }
 
-func (s *Service) bindHostEnvelope(ctx context.Context, p auth.LocalSessionPrincipal, o commandledger.FullOwnership, c EnvelopeCandidate, epoch commandsecurity.EpochSnapshot) (commandcontract.Envelope, error) {
-	e, err := s.config.Envelope.Snapshot(ctx, p, c)
+func sameEnvelopeContext(a, b EnvelopeAuthenticatedIdentity) bool {
+	return a.ContextPrincipal == b.ContextPrincipal
+}
+
+func (s *Service) bindHostEnvelope(ctx context.Context, identity EnvelopeAuthenticatedIdentity, c EnvelopeCandidate, epoch commandsecurity.EpochSnapshot) (commandcontract.Envelope, error) {
+	o := identity.Ownership
+	e, err := s.snapshotEnvelope(ctx, identity, c)
 	if err != nil {
 		return e, ErrStale
 	}
@@ -159,7 +158,11 @@ func (s *Service) bindHostEnvelope(ctx context.Context, p auth.LocalSessionPrinc
 	e.UserID = o.UserID
 	e.AuthContextType = o.AuthContextType
 	e.AuthContextID = o.AuthContextID
-	e.SessionID = &p.SessionID
+	e.SessionID = nil
+	if identity.WireSessionID != nil {
+		wireSessionID := *identity.WireSessionID
+		e.SessionID = &wireSessionID
+	}
 	e.ActorType = o.ActorType
 	e.ActorID = o.ActorID
 	e.AuthGeneration = epoch.AuthGeneration
@@ -200,18 +203,11 @@ func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeC
 	var p preparedEnvelope
 	p.candidate = c
 	var prior *commandledger.FullRecord
-	epoch, err := s.config.Epochs.CaptureAuthenticated(ctx, func(ctx context.Context) (string, string, error) {
-		principal, owner, err := s.envelopeIdentity(ctx, token)
-		if err != nil {
-			return "", "", err
-		}
-		p.principal = principal
-		p.owner = owner
-		return principal.UserID, principal.SessionID, nil
-	})
+	identity, principal, epoch, err := s.captureEnvelopeIdentity(ctx, token)
 	if err != nil {
 		return p, nil, err
 	}
+	p.identity, p.principal, p.owner = identity, principal, identity.Ownership
 	p.epoch = epoch
 	// Consultar antes de resolver: o mesmo ID nunca vira uma nova intenção após
 	// mudar configuração. O HMAC de ingresso permite comparar sem guardar args.
@@ -232,11 +228,11 @@ func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeC
 			return p, nil, commandledger.ErrConflict
 		}
 		if err := s.config.Epochs.Admit(ctx, epoch, func(ctx context.Context) error {
-			current, owner, err := s.envelopeIdentity(ctx, token)
-			if err != nil || !sameEnvelopeOwner(owner, p.owner) {
+			current, _, err := s.authenticateEnvelope(ctx, token)
+			if err != nil || !sameEnvelopeOwner(current.Ownership, p.owner) || !sameEnvelopeContext(current, p.identity) {
 				return ErrDenied
 			}
-			if s.config.Envelope.AuthorizeLookup(ctx, current, *prior) != nil {
+			if s.authorizeEnvelopeLookup(ctx, current, *prior) != nil {
 				return ErrDenied
 			}
 			return nil
@@ -246,17 +242,17 @@ func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeC
 		return p, prior, nil
 	}
 	err = s.config.Epochs.Admit(ctx, epoch, func(ctx context.Context) error {
-		current, owner, err := s.envelopeIdentity(ctx, token)
-		if err != nil || !sameEnvelopeOwner(owner, p.owner) {
+		current, _, err := s.authenticateEnvelope(ctx, token)
+		if err != nil || !sameEnvelopeOwner(current.Ownership, p.owner) || !sameEnvelopeContext(current, p.identity) {
 			return ErrDenied
 		}
-		p.envelope, err = s.bindHostEnvelope(ctx, current, owner, c, epoch)
+		p.envelope, err = s.bindHostEnvelope(ctx, current, c, epoch)
 		if err != nil {
 			return err
 		}
 		p.mode = commandcontract.ResolutionExecute
 		if c.CommandID == "" {
-			resolution, err := s.config.Envelope.Resolve(ctx, current, c, p.envelope)
+			resolution, err := s.resolveEnvelope(ctx, current, c, p.envelope)
 			if err != nil {
 				p.mode = commandcontract.ResolutionDenied
 				p.denied = true
@@ -264,6 +260,7 @@ func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeC
 			}
 			p.mode = resolution.Mode
 			p.envelope.BindingIDs = append([]string{}, resolution.BindingIDs...)
+			p.layerRefs = append([]string{}, resolution.LayerRefs...)
 			if resolution.CommandID != "" {
 				id := resolution.CommandID
 				p.envelope.CommandID = &id
@@ -278,7 +275,21 @@ func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeC
 	if err != nil {
 		return p, nil, err
 	}
-	p.scope = commandcontext.Scope{UserID: epoch.UserID, AuthContextID: epoch.SessionID, WorkspaceID: p.envelope.WorkspaceID}
+	if p.owner.UserID == nil {
+		if p.envelope.AuthContextType != commandcontract.AuthSystem || p.envelope.SourceType == nil || *p.envelope.SourceType != commandcontract.SourceSystem {
+			p.denied = true
+			p.mode = commandcontract.ResolutionDenied
+		}
+	}
+	if p.owner.UserID != nil {
+		p.scope = commandcontext.Scope{UserID: *p.owner.UserID, AuthContextID: p.owner.AuthContextID, WorkspaceID: p.envelope.WorkspaceID}
+	}
+	// System é deliberadamente sem escopo de workspace/surface/trigger. Ele
+	// só pode alcançar comandos internos read-only com contexto.none.
+	if p.owner.AuthContextType == commandcontract.AuthSystem && (p.envelope.WorkspaceID != nil || p.envelope.SurfaceType != nil || p.envelope.SurfaceID != nil || p.envelope.TriggerType != nil || p.envelope.ObservedTriggerType != nil) {
+		p.denied = true
+		p.mode = commandcontract.ResolutionDenied
+	}
 	p.expires = p.envelope.ReceivedAt.Add(s.config.Retention)
 	if p.envelope.SourceReplayDeadline != nil {
 		p.expires = *p.envelope.SourceReplayDeadline
@@ -302,18 +313,35 @@ func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeC
 				p.envelope.Arguments = &raw
 			}
 			if !p.denied {
-				p.proof, err = s.config.Envelope.Context.Capture(ctx, p.scope, definition.Context)
-				if err != nil {
+				if p.owner.UserID == nil && (!definition.Context.None || definition.Effect != commandcatalog.Read || definition.Decision != commandcatalog.NoDecision || definition.MutatesEffectiveCapability || definition.HasMutableTarget || definition.HandlerClassification != commandcatalog.HandlerInternal) {
 					p.denied = true
 					p.mode = commandcontract.ResolutionDenied
-				} else if !definition.Context.None {
-					version := p.proof.ContextVersion()
-					p.envelope.ContextVersion = &version
-					if captured := p.proof.ProviderCapturedAt(); len(captured) != 0 {
-						p.envelope.ContextCapturedAtByProvider = &captured
+				} else if p.owner.UserID == nil {
+					// Não há facts para o contexto system; o bypass abaixo só vale
+					// para esta combinação fechada, nunca para workspace/surface.
+					p.proof = commandcontext.FactProof{}
+				} else {
+					p.proof, err = s.config.Envelope.Context.Capture(ctx, p.scope, definition.Context)
+					if err != nil {
+						p.denied = true
+						p.mode = commandcontract.ResolutionDenied
+					} else if !definition.Context.None {
+						version := p.proof.ContextVersion()
+						p.envelope.ContextVersion = &version
+						if captured := p.proof.ProviderCapturedAt(); len(captured) != 0 {
+							p.envelope.ContextCapturedAtByProvider = &captured
+						}
 					}
 				}
 			}
+		}
+	}
+	if p.mode == commandcontract.ResolutionExecute && !p.denied && p.definition.ID != "" {
+		p.hostProvenance = cloneRawMessage(p.envelope.Provenance)
+		p.envelope, err = prepareCommandChain(p.envelope, p.definition, p.layerRefs)
+		if err != nil {
+			p.denied = true
+			p.mode = commandcontract.ResolutionDenied
 		}
 	}
 	if p.mode == commandcontract.ResolutionSuppress {
@@ -338,11 +366,11 @@ func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeC
 }
 
 func (s *Service) checkEnvelope(ctx context.Context, token string, p preparedEnvelope) error {
-	principal, owner, err := s.envelopeIdentity(ctx, token)
-	if err != nil || !sameEnvelopeOwner(owner, p.owner) {
+	identity, _, err := s.authenticateEnvelope(ctx, token)
+	if err != nil || !sameEnvelopeOwner(identity.Ownership, p.owner) || !sameEnvelopeContext(identity, p.identity) {
 		return ErrStale
 	}
-	current, err := s.bindHostEnvelope(ctx, principal, owner, p.candidate, p.epoch)
+	current, err := s.bindHostEnvelope(ctx, identity, p.candidate, p.epoch)
 	if err != nil {
 		return err
 	}
@@ -352,7 +380,9 @@ func (s *Service) checkEnvelope(ctx context.Context, token string, p preparedEnv
 		!sameString(current.SurfaceType, p.envelope.SurfaceType) || !sameString(current.SurfaceID, p.envelope.SurfaceID) || !sameString(current.SurfaceSnapshotVersion, p.envelope.SurfaceSnapshotVersion) {
 		return ErrStale
 	}
-	want, err := hostEnvelopeIdentity(p.envelope)
+	comparisonEnvelope := p.envelope
+	comparisonEnvelope.Provenance = p.hostProvenance
+	want, err := hostEnvelopeIdentity(comparisonEnvelope)
 	if err != nil {
 		return ErrStale
 	}
@@ -361,7 +391,7 @@ func (s *Service) checkEnvelope(ctx context.Context, token string, p preparedEnv
 		return ErrStale
 	}
 	if p.candidate.CommandID == "" {
-		resolution, err := s.config.Envelope.Resolve(ctx, principal, p.candidate, current)
+		resolution, err := s.resolveEnvelope(ctx, identity, p.candidate, current)
 		if err != nil || resolution.Mode != p.mode {
 			return ErrStale
 		}
@@ -384,6 +414,11 @@ func (s *Service) checkEnvelope(ctx context.Context, token string, p preparedEnv
 		if err != nil || werr != nil || !bytes.Equal(bindings, wantBindings) {
 			return ErrStale
 		}
+		layers, err := commandjson.Marshal(append([]string{}, resolution.LayerRefs...))
+		wantLayers, werr := commandjson.Marshal(append([]string{}, p.layerRefs...))
+		if err != nil || werr != nil || !bytes.Equal(layers, wantLayers) {
+			return ErrStale
+		}
 	}
 	if p.mode != commandcontract.ResolutionExecute {
 		return nil
@@ -391,14 +426,21 @@ func (s *Service) checkEnvelope(ctx context.Context, token string, p preparedEnv
 	if p.definition.Availability.Status != commandcatalog.Available || !p.definition.AllowsSource(s.config.Source) {
 		return ErrDenied
 	}
-	if err := s.config.Envelope.Context.Revalidate(ctx, p.scope, p.definition.Context, p.proof, s.config.Now()); err != nil {
-		return ErrStale
+	if p.owner.UserID != nil {
+		if err := s.config.Envelope.Context.Revalidate(ctx, p.scope, p.definition.Context, p.proof, s.config.Now()); err != nil {
+			return ErrStale
+		}
+	} else if p.definition.Context.None && p.definition.Effect == commandcatalog.Read && p.definition.Decision == commandcatalog.NoDecision && !p.definition.HasMutableTarget && !p.definition.MutatesEffectiveCapability && p.definition.HandlerClassification == commandcatalog.HandlerInternal {
+		// System não possui Scope/FactProof. Este bypass é restrito ao
+		// comando interno read-only e context.none validado na preparação.
+	} else {
+		return ErrDenied
 	}
 	copyEnvelope, err := detachedEnvelope(p.envelope)
 	if err != nil {
 		return ErrStale
 	}
-	return s.config.Envelope.Authorize(ctx, principal, copyEnvelope, p.definition)
+	return s.authorizeEnvelope(ctx, identity, copyEnvelope, p.definition)
 }
 
 // Compara todo estado derivado pelo host que seleciona um alvo ou autoridade.
@@ -417,6 +459,14 @@ func hostEnvelopeIdentity(e commandcontract.Envelope) ([]byte, error) {
 
 func sameString(a, b *string) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
+
+func cloneRawMessage(value *json.RawMessage) *json.RawMessage {
+	if value == nil {
+		return nil
+	}
+	copyValue := append(json.RawMessage(nil), (*value)...)
+	return &copyValue
 }
 
 // ExecuteEnvelope usa o mesmo Service e as mesmas portas ledger/epoch dos
@@ -504,8 +554,10 @@ func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate E
 		return record, err
 	}
 	var decision *commanddecision.Request
-	if p.definition.Decision == commandcatalog.Interactive {
-		if s.config.Source == commandcatalog.CLI || s.config.Source == commandcatalog.Event || s.config.Source == commandcatalog.System || s.config.Envelope.Decisions == nil || s.config.Envelope.DecisionBody == nil {
+	interactive := p.definition.Decision == commandcatalog.Interactive ||
+		(p.owner.ActorType != commandcontract.ActorUser && p.definition.MutatesEffectiveCapability)
+	if interactive {
+		if s.config.Source == commandcatalog.CLI || s.config.Source == commandcatalog.Event || s.config.Source == commandcatalog.System || p.owner.AuthContextType != commandcontract.AuthLocalSession || s.config.Envelope.Decisions == nil || s.config.Envelope.DecisionBody == nil {
 			err = finish(commandledger.Denied)
 			return record, err
 		}
@@ -523,7 +575,14 @@ func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate E
 		if deadline.After(p.expires) {
 			deadline = p.expires
 		}
-		request := commanddecision.Request{SubjectType: "invocation", DecisionID: uuid.Must(uuid.NewV7()).String(), MutationID: p.envelope.InvocationID, UserID: p.principal.UserID, SessionID: p.principal.SessionID, Fingerprint: *p.envelope.RequestFingerprint, AuthGeneration: p.epoch.AuthGeneration, SecurityGeneration: p.epoch.SecurityGeneration, ExpiresAt: deadline, Body: body}
+		userID, sessionID := "", ""
+		if p.owner.UserID != nil {
+			userID = *p.owner.UserID
+		}
+		if p.identity.WireSessionID != nil {
+			sessionID = *p.identity.WireSessionID
+		}
+		request := commanddecision.Request{SubjectType: "invocation", DecisionID: uuid.Must(uuid.NewV7()).String(), MutationID: p.envelope.InvocationID, UserID: userID, SessionID: sessionID, Fingerprint: *p.envelope.RequestFingerprint, AuthGeneration: p.epoch.AuthGeneration, SecurityGeneration: p.epoch.SecurityGeneration, ExpiresAt: deadline, Body: body}
 		request.Destructive = p.definition.Effect == commandcatalog.Destructive
 		watched, release, e := s.config.Epochs.WatchEpoch(ctx, p.epoch)
 		if e != nil {
@@ -654,22 +713,24 @@ func (s *Service) GetEnvelopeInvocation(ctx context.Context, token, id string) (
 		return record, ErrInvalidRequest
 	}
 	err = protect(func() error {
-		epoch, e := s.config.Epochs.CaptureAuthenticated(ctx, func(ctx context.Context) (string, string, error) {
-			p, o, e := s.envelopeIdentity(ctx, token)
-			if e != nil {
-				return "", "", e
+		identity, _, epoch, e := s.captureEnvelopeIdentity(ctx, token)
+		if e != nil {
+			return e
+		}
+		return s.config.Epochs.Admit(ctx, epoch, func(ctx context.Context) error {
+			current, _, err := s.authenticateEnvelope(ctx, token)
+			if err != nil || !sameEnvelopeOwner(current.Ownership, identity.Ownership) || !sameEnvelopeContext(current, identity) {
+				return ErrDenied
 			}
-			record, e = s.config.Store.GetEnvelopeByID(ctx, o, id)
-			if e != nil {
-				return "", "", e
+			record, err = s.config.Store.GetEnvelopeByID(ctx, current.Ownership, id)
+			if err != nil {
+				return err
 			}
-			if e = s.config.Envelope.AuthorizeLookup(ctx, p, record); e != nil {
-				return "", "", ErrDenied
+			if err := s.authorizeEnvelopeLookup(ctx, current, record); err != nil {
+				return ErrDenied
 			}
-			return p.UserID, p.SessionID, nil
-		})
-		_ = epoch
-		return e
+			return nil
+		}, func() error { return nil })
 	})
 	if err != nil {
 		return commandledger.FullRecord{}, err

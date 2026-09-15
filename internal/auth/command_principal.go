@@ -5,10 +5,14 @@ import (
 	"errors"
 	"time"
 
+	"assistente/internal/database"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 var ErrUnauthenticatedLocalSession = errors.New("sessão local não autenticada")
+
+var ErrActiveUserNotFound = errors.New("usuário local ativo não encontrado")
 
 // LocalSessionPrincipal contém somente identidade derivada pelo backend.
 // Não transporta role, token ou gerações; não é autorização de comando.
@@ -48,6 +52,25 @@ func (s *SessionService) AuthenticateLocalAccess(ctx context.Context, token stri
 		return LocalSessionPrincipal{}, ErrUnauthenticatedLocalSession
 	}
 	return LocalSessionPrincipal{UserID: row.UserID, SessionID: row.SessionID}, nil
+}
+
+// ActiveUserRole relê o role atual da conta depois de autenticar a sessão.
+// Claims antigas nunca são usadas como autorização de comando.
+func (s *SessionService) ActiveUserRole(ctx context.Context, userID string) (string, error) {
+	if s == nil || s.db == nil || ctx == nil || !canonicalSessionUUID(userID) {
+		return "", ErrActiveUserNotFound
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	var user database.User
+	if err := s.db.WithContext(ctx).Where("id = ? AND is_active = ?", userID, true).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", ErrActiveUserNotFound
+		}
+		return "", err
+	}
+	return user.Role, nil
 }
 
 func canonicalSessionUUID(value string) bool {
