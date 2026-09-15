@@ -17,8 +17,12 @@ reconexão com backoff. A borda `DeviceAdapter` recebe eventos normalizados do
 futuro driver HID, recusa teclas enquanto o dispositivo está seguro, valida
 índice/repeat, encaminha `streamdeck.key:<device>`/`key:<index>` ao
 `commandadapter.Controller` e força frame completo seguro em lock/logout. O
-pacote não abre HID, não valida biblioteca/licença, não registra listeners
-físicos e não envia bytes a dispositivo real.
+pacote agora define também `Driver`/`Handle` e um `Runtime` abstrato: enumera
+dispositivos, abre handle, escreve frame seguro inicial, ativa somente após
+estado seguro, encaminha eventos físicos normalizados, desconecta com backoff em
+erro de leitura e escreve frame seguro no shutdown. O pacote não abre HID real,
+não valida biblioteca/licença, não registra listeners físicos concretos e não
+envia bytes a dispositivo real.
 
 **Contagem permanece: 46/84 critérios encerrados; 38 abertos; 2/15 pacotes
 completos.** C41/C42 ganharam prova unitária do núcleo de renderização, mas
