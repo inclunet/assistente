@@ -7,9 +7,10 @@ import (
 )
 
 type runtimeDriverFake struct {
-	devices []PhysicalDevice
-	openErr error
-	handles []*runtimeHandleFake
+	devices         []PhysicalDevice
+	openErr         error
+	openErrByDevice map[DeviceID]error
+	handles         []*runtimeHandleFake
 }
 
 func (d *runtimeDriverFake) Enumerate(context.Context) ([]PhysicalDevice, error) {
@@ -17,12 +18,51 @@ func (d *runtimeDriverFake) Enumerate(context.Context) ([]PhysicalDevice, error)
 }
 
 func (d *runtimeDriverFake) Open(_ context.Context, device PhysicalDevice) (Handle, error) {
+	if d.openErrByDevice != nil {
+		if err := d.openErrByDevice[device.ID]; err != nil {
+			return nil, err
+		}
+	}
 	if d.openErr != nil {
 		return nil, d.openErr
 	}
 	handle := &runtimeHandleFake{device: device.ID}
 	d.handles = append(d.handles, handle)
 	return handle, nil
+}
+
+func TestRuntimeDiscoverDetailedKeepsPartialFailuresObservable(t *testing.T) {
+	controller := &adapterControllerSpy{}
+	manager := NewManager(NewRenderer(), BackoffPolicy{})
+	adapter, err := NewDeviceAdapter(manager, controller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked := errors.New("device busy")
+	driver := &runtimeDriverFake{
+		devices:         []PhysicalDevice{{ID: "deck-a", Model: testModel}, {ID: "deck-b", Model: testModel}},
+		openErrByDevice: map[DeviceID]error{"deck-b": blocked},
+	}
+	runtime, err := NewRuntime(driver, adapter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := runtime.DiscoverDetailed(context.Background())
+	if len(results) != 2 {
+		t.Fatalf("results=%+v", results)
+	}
+	if !results[0].Opened || results[0].Device != "deck-a" || results[0].Err != nil {
+		t.Fatalf("deck-a deveria abrir: %+v", results[0])
+	}
+	if results[1].Opened || !errors.Is(results[1].Err, blocked) {
+		t.Fatalf("deck-b deveria reportar falha parcial: %+v", results[1])
+	}
+	if _, err := manager.Snapshot("deck-a"); err != nil {
+		t.Fatalf("deck-a deveria permanecer ativo: %v", err)
+	}
+	if _, err := manager.Snapshot("deck-b"); !errors.Is(err, ErrInvalidDevice) {
+		t.Fatalf("deck-b não deveria criar estado: %v", err)
+	}
 }
 
 type runtimeHandleFake struct {
@@ -160,5 +200,41 @@ func TestRuntimeRenderSkipsEmptyDiffAndShutdownWritesSafeFrame(t *testing.T) {
 	last := handle.writes[len(handle.writes)-1]
 	if !last.FullFrame || len(last.Updates) != testModel.KeyCount() {
 		t.Fatalf("shutdown deveria escrever frame seguro completo: %+v", last)
+	}
+}
+
+func TestRuntimeMultiDeviceKeepsRenderAndDisconnectIsolated(t *testing.T) {
+	controller := &adapterControllerSpy{}
+	manager := NewManager(NewRenderer(), BackoffPolicy{})
+	adapter, err := NewDeviceAdapter(manager, controller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver := &runtimeDriverFake{devices: []PhysicalDevice{{ID: "deck-a", Model: testModel}, {ID: "deck-b", Model: testModel}}}
+	runtime, err := NewRuntime(driver, adapter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := runtime.Discover(context.Background()); len(errs) != 0 {
+		t.Fatalf("discover errs=%v", errs)
+	}
+	if len(driver.handles) != 2 {
+		t.Fatalf("handles=%d", len(driver.handles))
+	}
+	if err := runtime.Render(context.Background(), Frame{Device: "deck-b", Model: testModel, Keys: map[int]KeyView{1: {Title: "B"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(driver.handles[0].writes) != 1 || len(driver.handles[1].writes) != 2 {
+		t.Fatalf("render de deck-b vazou: a=%d b=%d", len(driver.handles[0].writes), len(driver.handles[1].writes))
+	}
+	driver.handles[0].readErr = errors.New("deck-a removed")
+	if err := runtime.PollOne(context.Background(), "deck-a"); err == nil {
+		t.Fatal("esperava erro de remoção")
+	}
+	if err := runtime.Render(context.Background(), Frame{Device: "deck-b", Model: testModel, Keys: map[int]KeyView{2: {Title: "B2"}}}); err != nil {
+		t.Fatalf("deck-b deveria seguir renderizando: %v", err)
+	}
+	if _, err := manager.Snapshot("deck-b"); err != nil {
+		t.Fatalf("deck-b deveria seguir no manager: %v", err)
 	}
 }

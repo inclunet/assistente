@@ -41,6 +41,12 @@ type Runtime struct {
 	closed  bool
 }
 
+type DiscoverResult struct {
+	Device DeviceID
+	Opened bool
+	Err    error
+}
+
 func NewRuntime(driver Driver, adapter *DeviceAdapter) (*Runtime, error) {
 	if driver == nil || adapter == nil {
 		return nil, ErrDriverUnavailable
@@ -51,23 +57,36 @@ func NewRuntime(driver Driver, adapter *DeviceAdapter) (*Runtime, error) {
 // Discover enumera e tenta abrir cada dispositivo. Falhas individuais não
 // impedem a inicialização do app; o chamador observa os erros retornados.
 func (r *Runtime) Discover(ctx context.Context) []error {
-	if r == nil || ctx == nil {
-		return []error{ErrDriverUnavailable}
-	}
-	if r.closed {
-		return []error{ErrRuntimeClosed}
-	}
-	devices, err := r.driver.Enumerate(ctx)
-	if err != nil {
-		return []error{err}
-	}
-	errs := make([]error, 0)
-	for _, device := range devices {
-		if err := r.openOne(ctx, device); err != nil {
-			errs = append(errs, err)
+	results := r.DiscoverDetailed(ctx)
+	errs := make([]error, 0, len(results))
+	for _, result := range results {
+		if result.Err != nil {
+			errs = append(errs, result.Err)
 		}
 	}
 	return errs
+}
+
+func (r *Runtime) DiscoverDetailed(ctx context.Context) []DiscoverResult {
+	if r == nil || ctx == nil {
+		return []DiscoverResult{{Err: ErrDriverUnavailable}}
+	}
+	if r.closed {
+		return []DiscoverResult{{Err: ErrRuntimeClosed}}
+	}
+	devices, err := r.driver.Enumerate(ctx)
+	if err != nil {
+		return []DiscoverResult{{Err: err}}
+	}
+	results := make([]DiscoverResult, 0, len(devices))
+	for _, device := range devices {
+		if err := r.openOne(ctx, device); err != nil {
+			results = append(results, DiscoverResult{Device: device.ID, Err: err})
+			continue
+		}
+		results = append(results, DiscoverResult{Device: device.ID, Opened: true})
+	}
+	return results
 }
 
 func (r *Runtime) openOne(ctx context.Context, device PhysicalDevice) error {

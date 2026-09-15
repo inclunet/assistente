@@ -22,7 +22,13 @@ dispositivos, abre handle, escreve frame seguro inicial, ativa somente após
 estado seguro, encaminha eventos físicos normalizados, desconecta com backoff em
 erro de leitura e escreve frame seguro no shutdown. O pacote não abre HID real,
 não valida biblioteca/licença, não registra listeners físicos concretos e não
-envia bytes a dispositivo real.
+envia bytes a dispositivo real. Nesta rodada, a mesma base ganhou diagnóstico
+testável de driver/modelos (`DriverValidation`/`ValidationReport`), com o
+candidato `rafaelmartins.com/p/streamdeck` explicitamente marcado como não
+pronto até confirmação manual de licença, manutenção, Windows/Wails, modelos e
+HID físico. `Runtime.DiscoverDetailed` passou a reportar falhas parciais por
+dispositivo sem bloquear os demais, e testes multi-device provam que render e
+remoção de um deck não contaminam outro.
 
 **Contagem permanece: 46/84 critérios encerrados; 38 abertos; 2/15 pacotes
 completos.** C41/C42 ganharam prova unitária do núcleo de renderização, mas
