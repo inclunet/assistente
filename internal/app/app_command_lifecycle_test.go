@@ -22,6 +22,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/questionnaire"
+	"assistente/internal/workspace"
 	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -226,6 +227,9 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 	if err := commandledger.Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
+	previousDB := database.DB()
+	database.SetDB(db)
+	t.Cleanup(func() { database.SetDB(previousDB) })
 	store, err := commandledger.New(db, time.Now)
 	if err != nil {
 		t.Fatal(err)
@@ -242,11 +246,22 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 	if err != nil {
 		t.Fatal(err)
 	}
+	workspaceManager := workspace.NewManager(filepath.Join(t.TempDir(), "assistente-home"))
+	if err := workspaceManager.Initialize(filepath.Join(t.TempDir(), "workspace")); err != nil {
+		t.Fatal(err)
+	}
+	if err := workspaceManager.SetProfile("lifecycle-profile"); err != nil {
+		t.Fatal(err)
+	}
+	if err := workspaceManager.AddTab(workspace.Tab{ID: "tab-lifecycle", Type: workspace.TabTypeEditor, State: map[string]any{"version": float64(1)}}); err != nil {
+		t.Fatal(err)
+	}
 	app := &App{
 		ctx:                   ctx,
 		sessionSvc:            sessions,
 		credMgr:               credentials.NewManager(bytes.Repeat([]byte{8}, 32)),
 		questionnaireMgr:      questionnaire.NewManager(func(string, any) {}),
+		workspaceMgr:          workspaceManager,
 		commandStorageVersion: "v1",
 		authKeyringDelete:     func() error { return nil },
 	}
@@ -428,6 +443,30 @@ func TestAppCommandLifecycleProductMountSpecRejectsMissingProductDependencies(t 
 	}
 	if err := ConfigureCommandLifecycleForApp(app, inputs); !errors.Is(err, errCommandBridgeAlreadyConfigured) {
 		t.Fatalf("bridge divergente aceita/erro errado: %v", err)
+	}
+}
+
+func TestAppCommandLifecycleAfterAuthMountsProductBaseWhenMissing(t *testing.T) {
+	app, _ := appLifecycleProductMountFixture(t)
+	result := app.currentAuthUser
+	if result == nil {
+		t.Fatal("fixture sem auth user")
+	}
+	app.bootstrapCommandLifecycleAfterAuth(context.Background(), result, nil)
+	if _, ok := loadCommandLifecycle(app); !ok {
+		t.Fatal("pós-auth não montou lifecycle produtivo mínimo")
+	}
+	if app.commandHost == nil {
+		t.Fatal("pós-auth não instalou HostState")
+	}
+	if _, ok := loadCommandBridge(app); !ok {
+		t.Fatal("pós-auth não instalou Bridge")
+	}
+	if snapshot := app.commandLifecycle.Load().Snapshot(); snapshot.State != commandruntime.StateFailed && snapshot.State != commandruntime.StateReady {
+		t.Fatalf("bootstrap pós-auth deveria tentar transição observável, got %+v", snapshot)
+	}
+	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -218,6 +218,12 @@ func (a *App) bootstrapCommandLifecycleAfterAuth(ctx context.Context, result *Au
 	if authErr != nil || result == nil || !a.authResultStillCurrent(result) {
 		return
 	}
+	if _, ok := loadCommandLifecycle(a); !ok {
+		if err := a.ensureCommandLifecycleMountedForCurrentUser(ctx); err != nil {
+			logging.Warnf(context.Background(), "app.app", "ciclo de vida de comandos não montado após autenticação: %v", err)
+			return
+		}
+	}
 	if err := a.bootstrapCommandLifecycleIfConfigured(ctx); err != nil {
 		logging.Errorf(context.Background(), "app.app", "ciclo de vida de comandos indisponível após autenticação: %v", err)
 	}

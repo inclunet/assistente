@@ -14,17 +14,17 @@ quando alguma dependência está ausente, duplicada ou nil. Em complemento,
 `ConfigureCommandLifecycleForApp` já preenche esse manifesto a partir das
 dependências reais preparadas pelo bootstrap confiável: registry/handlers/store,
 política/envelope, `HostState`, `commandbridge.Bridge`,
-`commandcontext.FactBus`, presenter de decisão e adapter físico/entrada. Isso
-ainda não fecha I14.2, porque falta ligar essa rota no bootstrap produtivo, mas
-o App já tem portas padrão reais para o `commandruntime.Config`: autenticação na
+`commandcontext.FactBus`, presenter de decisão e adapter físico/entrada. O App
+também tem portas padrão reais para o `commandruntime.Config`: autenticação na
 sessão local atual, geração privada vinculada ao `EpochService`, commit pelo
 gate de segurança, projeção a partir de `HostState.Snapshot`, enable/readiness
 em memória e falha fechada quando host/config/camadas/unlock não estão prontos.
-O teste cobre `BootstrapCommandLifecycle` chegando a `Ready` com HostState
-reconstruído e unlocked. A montagem agora também instala o `HostState` e a
-`commandbridge.Bridge` reais no App e recusa bridge divergente antes de publicar
-runtime. Contagem atual: **48/84 critérios locais, 36 abertos; 3/15 pacotes
-completos**.
+`ensureCommandLifecycleMountedForCurrentUser` liga uma montagem produtiva mínima
+pós-auth com store ledger real, catálogo completo sentinel `lifecycle.ready`,
+providers reais e adapter interno fail-closed; Login/RefreshAuth tentam montar
+sem quebrar a autenticação se alguma dependência ainda estiver indisponível.
+I14.2 fica encerrado localmente. Contagem atual: **49/84 critérios locais, 35
+abertos; 3/15 pacotes completos**.
 
 ### Stream Deck real validado — 15/09/2026
 
@@ -70,7 +70,7 @@ PowerShell visível capturou foreground `windowsterminal.exe`, classe
 `CASCADIA_HOSTING_WINDOW_CLASS`, confirmou hotkey global suportado e reutilizou o
 Stream Deck serial `AL28K2C54852` modelo `Stream Deck`; o teste terminou com
 `PASS`. Com I13.5 e I13.6 fechados, I13 é consolidado como pacote completo; a
-contagem passa a **48/84 critérios locais, 36 abertos; 3/15 pacotes completos**.
+contagem passa a **48/84 critérios locais, 36 abertos; 3/15 pacotes completos** naquele momento.
 A migração de mapas reais e UI continua nos pacotes P01/P04/I14.
 
 ### Prova de escopo de diálogo — 15/09/2026

@@ -3,6 +3,28 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Continuação — 15/09/2026, fechamento de I14.2
+
+I14.2 foi encerrado localmente. Além do `MountSpec`, o App agora possui uma
+montagem produtiva mínima pós-auth: `ensureCommandLifecycleMountedForCurrentUser`
+cria `HostState`, store ledger real sobre `database.DB()`, catálogo completo
+sentinel `lifecycle.ready`, bridge real com adapter interno fail-closed,
+`FactBus` real via providers do App e portas padrão de `commandruntime`.
+`bootstrapCommandLifecycleAfterAuth` tenta essa montagem quando ainda não há
+lifecycle; falha de dependência não quebra Login/RefreshAuth e mantém comandos
+fail-closed. A montagem instala `HostState`/bridge reais e só aceita instâncias
+coerentes. O sentinel não migra comandos antigos nem expõe ação de produto: ele
+serve para provar catálogo/defaults/políticas/stores/presenter/providers/
+dispatcher/adapters sem fallback permissivo.
+
+**Contagem: 49/84 critérios encerrados; 35 abertos; 3/15 pacotes completos.**
+I14.3 permanece aberto para orquestrar rebuild/recovery/projeção efetiva depois
+de login/unlock/restart; I14.4–I14.6 seguem abertos.
+
+Validação: `go test ./internal/commandruntime ./internal/app -run
+"TestAppCommandLifecycle|TestCommandWorkspaceProvider" -count=1`, `go vet
+./internal/commandruntime ./internal/app` e `git diff --check` passaram.
+
 ## Continuação — 15/09/2026, gate de montagem I14.2
 
 Avanço em **I14.2**, ainda sem fechar o subitem. `commandruntime` ganhou
@@ -15,11 +37,10 @@ legada `ConfigureCommandLifecycle(config)` permanece para testes e wiring
 existente, mas a rota de I14 deve usar o manifesto para evitar fallback
 permissivo ou readiness derivada de mocks.
 
-**Contagem: 48/84 critérios encerrados; 36 abertos; 3/15 pacotes completos.**
+**Contagem histórica: 48/84 critérios encerrados; 36 abertos; 3/15 pacotes completos.**
 I13 foi consolidado como terceiro pacote completo após os testes físicos de
-Stream Deck e ambiente físico. I14.2 segue aberto até o App preencher o
-manifesto com as dependências reais de produto e publicar a primeira montagem
-sem comandos migrados.
+Stream Deck e ambiente físico. Este limite foi superado pelo fechamento de
+I14.2 registrado acima.
 
 Validação focada: `go test ./internal/commandruntime ./internal/app -run
 "TestAppCommandLifecycle" -count=1` passou com cache temporário local.
@@ -830,10 +851,10 @@ Estado: **Parcial — hooks e fábricas sem bootstrap de produto**. Esforço res
 Dependências: I01, I02, I03, I04, I05, I06, I07, I08, I09, I10, I11, I12, I13.
 Referências: D2.1, D8, D11, D13.
 
-Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invalida/cancela antes do reset e confirma readiness via core compartilhado; exige todas as portas e recusa projeção vazia. `MountSpec` declara dependências obrigatórias de catálogo, defaults, políticas, stores, presenter, providers, dispatcher e adapters; `NewMounted` recusa manifesto incompleto, duplicado ou nil antes de criar controller. `App.commandLifecycle` é um ponteiro atômico privado, com montagem serializada, barreira terminal de shutdown e desmontagem por CAS, sem registry global. `ConfigureCommandLifecycleMountSpec` liga o manifesto ao App sem instalar runtime quando o contrato falha; `ConfigureCommandLifecycleForApp` preenche esse manifesto com `commandexecution.Config`, `HostState`, `commandbridge.Bridge`, `commandcontext.FactBus`, presenter real de decisão e adapter fornecido pelo host, instala o `HostState` e a bridge reais, e recusa storage sem versão, presenter ausente, adapter nil, bridge divergente e `HostState` de outro epoch. Os testes cobrem falhas/cancelamento, configurações concorrentes, montagem incompleta e bootstrap pronto com portas reais. As chamadas de startup/login/refresh/logout/shutdown estão ligadas condicionalmente ao controller; shutdown espera o worker e mantém dependências em caso de timeout. Ainda falta chamar essa rota no bootstrap produtivo com adapter/catálogo finais e publicar a primeira projeção real sem comandos migrados: não publicar readiness de produto a partir dos mocks.
+Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invalida/cancela antes do reset e confirma readiness via core compartilhado; exige todas as portas e recusa projeção vazia. `MountSpec` declara dependências obrigatórias de catálogo, defaults, políticas, stores, presenter, providers, dispatcher e adapters; `NewMounted` recusa manifesto incompleto, duplicado ou nil antes de criar controller. `App.commandLifecycle` é um ponteiro atômico privado, com montagem serializada, barreira terminal de shutdown e desmontagem por CAS, sem registry global. `ConfigureCommandLifecycleMountSpec` liga o manifesto ao App sem instalar runtime quando o contrato falha; `ConfigureCommandLifecycleForApp` preenche esse manifesto com `commandexecution.Config`, `HostState`, `commandbridge.Bridge`, `commandcontext.FactBus`, presenter real de decisão e adapter fornecido pelo host, instala o `HostState` e a bridge reais, e recusa storage sem versão, presenter ausente, adapter nil, bridge divergente e `HostState` de outro epoch. `ensureCommandLifecycleMountedForCurrentUser` cria a montagem produtiva mínima pós-auth com store ledger real, catálogo completo sentinel, providers reais e adapter interno fail-closed; `bootstrapCommandLifecycleAfterAuth` tenta montar quando necessário sem quebrar Login/RefreshAuth. Os testes cobrem falhas/cancelamento, configurações concorrentes, montagem incompleta, bootstrap pronto com portas reais e montagem pós-auth. Ainda falta I14.3: recuperar/reconciliar, reconstruir e publicar a projeção efetiva após login/unlock/restart.
 
 - [x] I14.1 — Construir esqueleto de bootstrap serializado e readiness observável após I01, sem expor novas rotas nem cadastrar comandos de produto; este subitem pode começar cedo.
-- [ ] I14.2 — Montar catálogo/defaults de contrato, políticas, stores, presenter, providers, dispatcher e adapters com dependências explícitas; sem fallback permissivo.
+- [x] I14.2 — Montar catálogo/defaults de contrato, políticas, stores, presenter, providers, dispatcher e adapters com dependências explícitas; sem fallback permissivo.
 - [ ] I14.3 — Orquestrar login/unlock/restart: autenticar → recuperar/reconciliar → carregar/projetar → publicar → habilitar entradas, revalidando cada transição.
 - [ ] I14.4 — Impedir retomadas concorrentes e publicação de geração antiga; logout/troca de usuário/falha de monitor cancela trabalho e apaga somente estado em memória.
 - [ ] I14.5 — Integrar shutdown, drenagem/cancelamento e manutenção sem goroutines órfãs, mutex durante UI/cofre ou cadências duplicadas.
