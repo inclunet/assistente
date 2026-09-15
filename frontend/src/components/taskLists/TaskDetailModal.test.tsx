@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import TaskDetailModal from './TaskDetailModal';
@@ -117,10 +117,14 @@ describe('TaskDetailModal', () => {
     const body = await screen.findByRole('document');
     expect(body).toHaveClass('modal-body');
     expect(screen.queryByRole('application')).toBeNull();
-    const markdownRegions = await screen.findAllByTestId('task-markdown');
-    expect(markdownRegions).toHaveLength(2);
-    markdownRegions.forEach((region) => {
-      expect(region).toHaveAttribute('data-tab-navigation', 'enabled');
+    // A descrição existe antes de loadTaskNotes resolver. findAllByTestId
+    // aguarda apenas um nó; espere o conjunto completo e seus atributos.
+    await waitFor(() => {
+      const markdownRegions = screen.getAllByTestId('task-markdown');
+      expect(markdownRegions).toHaveLength(2);
+      markdownRegions.forEach((region) => {
+        expect(region).toHaveAttribute('data-tab-navigation', 'enabled');
+      });
     });
   });
 
