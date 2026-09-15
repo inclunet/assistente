@@ -1,10 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-
-const restoreDefaultFocus = vi.fn(() => true);
-vi.mock('../../hooks/useDefaultFocus', () => ({
-  restoreDefaultFocus: () => restoreDefaultFocus(),
-}));
-
+import { describe, expect, it, vi } from 'vitest';
 import {
   pruneWorkspacePanelFocus,
   queueWorkspacePanelFocus,
@@ -17,10 +11,6 @@ function flushRaf(): Promise<void> {
 }
 
 describe('workspacePanelFocusRegistry', () => {
-  afterEach(() => {
-    restoreDefaultFocus.mockClear();
-  });
-
   it('descarta pedidos pendentes de abas removidas', () => {
     const handler = vi.fn(() => true);
 
@@ -32,54 +22,42 @@ describe('workspacePanelFocusRegistry', () => {
     unregister();
   });
 
-  describe('routeWorkspacePanelFocus', () => {
+  describe('routeWorkspacePanelFocus (agnóstico de tipo)', () => {
     it('invoca o handler do painel quando já registrado', () => {
       const handler = vi.fn(() => true);
-      const unregister = registerWorkspacePanelFocus('tab-editor', handler);
+      const unregister = registerWorkspacePanelFocus('tab-a', handler);
 
-      routeWorkspacePanelFocus('tab-editor', 'editor');
+      routeWorkspacePanelFocus('tab-a');
 
       expect(handler).toHaveBeenCalledTimes(1);
-      expect(restoreDefaultFocus).not.toHaveBeenCalled();
       unregister();
     });
 
-    it('enfileira o pedido para painel assíncrono (tasklist) ainda não montado', async () => {
+    it('enfileira o pedido quando o painel ainda não montou, refazendo ao registrar', async () => {
       const handler = vi.fn(() => true);
 
-      routeWorkspacePanelFocus('tab-tasklist', 'tasklist');
+      // Sem handler ainda: o pedido é enfileirado, não perdido.
+      routeWorkspacePanelFocus('tab-lazy');
       expect(handler).not.toHaveBeenCalled();
-      expect(restoreDefaultFocus).not.toHaveBeenCalled();
 
-      // Ao montar e registrar, o pedido pendente é refeito no próximo frame.
-      const unregister = registerWorkspacePanelFocus('tab-tasklist', handler);
+      const unregister = registerWorkspacePanelFocus('tab-lazy', handler);
       await flushRaf();
 
       expect(handler).toHaveBeenCalledTimes(1);
       unregister();
     });
 
-    it('também enfileira o pedido para o editor ainda não montado', async () => {
+    it('enfileira igualmente para qualquer tipo de aba (sem ramo por tipo)', async () => {
       const handler = vi.fn(() => true);
 
-      routeWorkspacePanelFocus('tab-editor-lazy', 'editor');
-      const unregister = registerWorkspacePanelFocus('tab-editor-lazy', handler);
+      // Antes, chat/terminal caíam em restoreDefaultFocus; agora todo painel
+      // registra handler e o roteamento é único: enfileira até montar.
+      routeWorkspacePanelFocus('tab-chat');
+      const unregister = registerWorkspacePanelFocus('tab-chat', handler);
       await flushRaf();
 
       expect(handler).toHaveBeenCalledTimes(1);
       unregister();
-    });
-
-    it('cai no default focus para tipos síncronos (chat/terminal) sem handler', () => {
-      routeWorkspacePanelFocus('tab-chat', 'chat');
-
-      expect(restoreDefaultFocus).toHaveBeenCalledTimes(1);
-    });
-
-    it('cai no default focus quando o tipo é desconhecido', () => {
-      routeWorkspacePanelFocus('tab-unknown', undefined);
-
-      expect(restoreDefaultFocus).toHaveBeenCalledTimes(1);
     });
   });
 });

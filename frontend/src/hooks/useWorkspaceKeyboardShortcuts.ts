@@ -266,8 +266,7 @@ export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShort
           restoreDefaultFocus();
           return;
         }
-        const newActiveType = ws?.tabs.find((tab) => tab.id === newActiveId)?.type;
-        routeWorkspacePanelFocus(newActiveId, newActiveType);
+        routeWorkspacePanelFocus(newActiveId);
       });
     }
 

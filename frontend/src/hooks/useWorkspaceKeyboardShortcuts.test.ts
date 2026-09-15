@@ -194,6 +194,10 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
   });
 
   it('com nenhum modal aberto, Ctrl+T cria aba e Ctrl+W fecha aba', async () => {
+    // A sucessora t2 (chat) registra handler de painel; ao fechar, o foco é
+    // roteado a ele pelo contrato unificado (não mais um default focus separado).
+    const focusPanel = vi.fn(() => true);
+    const unregister = registerWorkspacePanelFocus('t2', focusPanel);
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     dispatchKey({ ctrlKey: true, key: 't' });
@@ -202,11 +206,12 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
     expect(createWorkspaceTab).toHaveBeenCalledWith('chat', expect.any(String));
     expect(addTab).not.toHaveBeenCalled();
     expect(removeTab).toHaveBeenCalledTimes(1);
-    // Fechar a aba restaura o foco depois da promessa e de um quadro, e aqui o
+    // Fechar a aba roteia o foco depois da promessa e de um quadro, e aqui o
     // `requestAnimationFrame` é o do jsdom. Sem esperar por isso, o teste
     // termina com trabalho agendado, e a chamada cai num teste adiante — o do
     // Ctrl+número, que afirma justamente que o foco não foi restaurado.
-    await vi.waitFor(() => expect(restoreDefaultFocus).toHaveBeenCalled());
+    await vi.waitFor(() => expect(focusPanel).toHaveBeenCalled());
+    unregister();
   });
 
   it('com um modal aberto (ex.: painel de atalhos), Ctrl+T e Ctrl+W não agem na UI de fundo', () => {
@@ -352,14 +357,22 @@ describe('useWorkspaceKeyboardShortcuts - foco ao fechar aba', () => {
     }
   });
 
-  it('sucessora chat cai no default focus da página', async () => {
+  it('sucessora chat também passa pelo registry (enfileira até o painel montar)', async () => {
     // canonical: fecha t1 (editor ativo), promove t2 (chat).
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     dispatchKey({ ctrlKey: true, key: 'w' });
 
     await vi.waitFor(() => expect(removeTab).toHaveBeenCalledWith('t1'));
-    await vi.waitFor(() => expect(restoreDefaultFocus).toHaveBeenCalled());
+    await Promise.resolve();
+
+    // Contrato unificado: chat também registra handler de painel. Sem handler
+    // ainda, o pedido é enfileirado — nada de default focus como trilho separado.
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+    const focusPanel = vi.fn(() => true);
+    const unregister = registerWorkspacePanelFocus('t2', focusPanel);
+    expect(focusPanel).toHaveBeenCalledOnce();
+    unregister();
   });
 
   it('sucessora editor delega ao handler do painel (não usa default focus)', async () => {
