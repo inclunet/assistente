@@ -446,14 +446,14 @@ func (b *Bridge) Cancel(ctx context.Context, request CancelRequest) (CancelAck, 
 // Input aplica a normalização de down/repeat/up. Só a primeira borda de down
 // chega a Invoke; repeat, release e callbacks de geração antiga não executam.
 type Input struct {
-	SessionID  string
-	Source     string
-	Key        string
-	Generation uint64
-	Kind       commandinput.EventKind
-	Repeat     bool
-	Invocation Invocation
-	Owner      Owner
+	SessionID  string                 `json:"sessionId"`
+	Source     string                 `json:"source"`
+	Key        string                 `json:"key"`
+	Generation uint64                 `json:"generation,string"`
+	Kind       commandinput.EventKind `json:"kind"`
+	Repeat     bool                   `json:"repeat,omitempty"`
+	Invocation Invocation             `json:"invocation"`
+	Owner      Owner                  `json:"owner"`
 }
 
 func (b *Bridge) Input(ctx context.Context, input Input) (InvocationAck, error) {
@@ -506,11 +506,54 @@ const (
 	LifecycleLogout
 )
 
+func (k LifecycleKind) MarshalJSON() ([]byte, error) {
+	switch k {
+	case LifecycleGeneration:
+		return json.Marshal("generation")
+	case LifecycleRepeat:
+		return json.Marshal("repeat")
+	case LifecycleRelease:
+		return json.Marshal("release")
+	case LifecycleBlur:
+		return json.Marshal("blur")
+	case LifecycleLock:
+		return json.Marshal("lock")
+	case LifecycleLogout:
+		return json.Marshal("logout")
+	default:
+		return nil, ErrInvalidRequest
+	}
+}
+
+func (k *LifecycleKind) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	switch value {
+	case "generation":
+		*k = LifecycleGeneration
+	case "repeat":
+		*k = LifecycleRepeat
+	case "release":
+		*k = LifecycleRelease
+	case "blur":
+		*k = LifecycleBlur
+	case "lock":
+		*k = LifecycleLock
+	case "logout":
+		*k = LifecycleLogout
+	default:
+		return ErrInvalidRequest
+	}
+	return nil
+}
+
 type LifecycleEvent struct {
-	Kind       LifecycleKind
-	SessionID  string
-	Generation uint64
-	Input      *Input
+	Kind       LifecycleKind `json:"kind"`
+	SessionID  string        `json:"sessionId"`
+	Generation uint64        `json:"generation,string,omitempty"`
+	Input      *Input        `json:"input,omitempty"`
 }
 
 // Lifecycle aplica geração, repeat, release, blur, lock e logout. Lock/logout

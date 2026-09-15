@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -298,6 +299,38 @@ func TestBridgeWireUsesTaggedCamelCaseAndStringGeneration(t *testing.T) {
 	want := `{"sessionId":"session-a","invocationId":"01900000-0000-7000-8000-000000000001","commandId":"command.a","generation":"9007199254740993","capabilityId":"cap-a","ownership":"local","occurrenceId":"8:keyboard6:Ctrl+N","owner":{"userId":"user-a","sessionId":"session-a","workspaceId":"workspace-a"},"status":"succeeded"}`
 	if string(value) != want {
 		t.Fatalf("wire = %s\nwant = %s", value, want)
+	}
+	inputValue, err := json.Marshal(Input{
+		SessionID: "session-a", Source: "keyboard", Key: "Ctrl+N", Generation: 9007199254740993, Kind: commandinput.KeyDown,
+		Invocation: Invocation{SessionID: "session-a", InvocationID: testUUID7(2), CommandID: "command.a", Generation: 9007199254740993, CapabilityID: "cap-a", Ownership: OwnershipLocal, Source: SourceKeyboardLocal},
+		Owner:      Owner{UserID: "user-a", SessionID: "session-a", WorkspaceID: "workspace-a"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(inputValue), `"kind":"down"`) || !strings.Contains(string(inputValue), `"generation":"9007199254740993"`) {
+		t.Fatalf("input wire = %s", inputValue)
+	}
+	var decoded Input
+	if err := json.Unmarshal(inputValue, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Kind != commandinput.KeyDown || decoded.Generation != 9007199254740993 {
+		t.Fatalf("input decoded = %+v", decoded)
+	}
+	lifecycleValue, err := json.Marshal(LifecycleEvent{Kind: LifecycleBlur, SessionID: "session-a", Generation: 9007199254740993})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(lifecycleValue) != `{"kind":"blur","sessionId":"session-a","generation":"9007199254740993"}` {
+		t.Fatalf("lifecycle wire = %s", lifecycleValue)
+	}
+	var decodedLifecycle LifecycleEvent
+	if err := json.Unmarshal(lifecycleValue, &decodedLifecycle); err != nil {
+		t.Fatal(err)
+	}
+	if decodedLifecycle.Kind != LifecycleBlur || decodedLifecycle.Generation != 9007199254740993 {
+		t.Fatalf("lifecycle decoded = %+v", decodedLifecycle)
 	}
 }
 

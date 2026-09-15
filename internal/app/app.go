@@ -19,6 +19,7 @@ import (
 	"assistente/internal/apidto"
 	"assistente/internal/auth"
 	"assistente/internal/chat"
+	"assistente/internal/commandbridge"
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandruntime"
 	"assistente/internal/commandsecurity"
@@ -118,6 +119,7 @@ type App struct {
 	commandEpochs           *commandsecurity.EpochService
 	commandEpochsErr        error
 	commandHost             *commandexecution.HostState               // protegido por authMu; bootstrap serializado
+	commandBridge           atomic.Pointer[commandbridge.Bridge]      // ponte UI/backend montada pelo bootstrap confiável
 	commandLifecycle        atomic.Pointer[commandruntime.Controller] // montagem real, sem registry global
 	commandLifecycleMount   sync.Mutex                                // serializa somente construção/publicação, nunca cleanup ou portas
 	commandLifecycleClosing bool                                      // protegido por commandLifecycleMount; shutdown é terminal para este App
@@ -1315,6 +1317,11 @@ func (a *App) Shutdown() {
 	}
 	if err := a.drainCommandExecutors(shutdownCtx); err != nil {
 		logging.Errorf(context.Background(), "app.app", "executores de comandos não drenados; dependências preservadas: %v", err)
+		cancelCommandLifecycle()
+		return
+	}
+	if err := a.shutdownCommandBridgeIfConfigured(shutdownCtx); err != nil {
+		logging.Errorf(context.Background(), "app.app", "ponte de comandos não drenada; dependências preservadas: %v", err)
 		cancelCommandLifecycle()
 		return
 	}

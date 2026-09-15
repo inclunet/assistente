@@ -2,11 +2,21 @@
 
 **Status:** In Progress
 
+### Ponte UI/backend — 15/09/2026
+
+I13.1 foi encerrado localmente: o App monta uma `commandbridge.Bridge` privada,
+expõe métodos Wails para invoke/input/result/cancel/lifecycle e revalida
+usuário/sessão autenticados antes de aceitar payload da UI. O frontend ganhou
+adapter tipado sobre `window.go.app.App`, sem edição manual de bindings gerados.
+**43/84 critérios locais, 41 abertos; 2/15 pacotes completos**. Isso ainda não
+habilita listeners físicos, ownership local/global real, Stream Deck/HID,
+providers autoritativos de contexto ou comandos de produto.
+
 ### Quinze pacotes existentes — 15/09/2026
 
 Rodada I01–I15 com seis agentes Luna, revisão cruzada e correções centrais.
 Inclui regressão dos fundamentos já entregues, não quinze pacotes novos ou
-quinze conclusões. **42/84 critérios locais, 42 abertos; 2/15 pacotes completos**.
+quinze conclusões. **Contagem histórica: 42/84 critérios locais, 42 abertos; 2/15 pacotes completos**.
 I11.1 foi encerrado com envelope v1/v2 entre bancos distintos, bindings/regras,
 deltas/needs_review e remapeamento de workspace. Montagem pública, multi-escopo
 e export sensível permanecem pendentes. Legados sensíveis em condição e

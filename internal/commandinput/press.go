@@ -6,6 +6,7 @@
 package commandinput
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -26,6 +27,33 @@ const (
 	KeyDown EventKind = iota + 1
 	KeyUp
 )
+
+func (k EventKind) MarshalJSON() ([]byte, error) {
+	switch k {
+	case KeyDown:
+		return json.Marshal("down")
+	case KeyUp:
+		return json.Marshal("up")
+	default:
+		return nil, ErrInvalidEvent
+	}
+}
+
+func (k *EventKind) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	switch value {
+	case "down":
+		*k = KeyDown
+	case "up":
+		*k = KeyUp
+	default:
+		return ErrInvalidEvent
+	}
+	return nil
+}
 
 // Event é uma observação de uma tecla de uma instância física.
 // Generation é fornecida pelo host e não é criada por este pacote.

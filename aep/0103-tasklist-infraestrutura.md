@@ -3,6 +3,36 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Continuação — 15/09/2026, ponte UI/backend autenticada
+
+Avanço focado em **I13.1**, sem migrar comandos de produto nem editar bindings
+gerados do Wails. O App agora possui uma montagem privada da ponte
+`commandbridge.Bridge`, métodos exportados para invoke/input/result/cancel/lifecycle
+e drenagem no `Shutdown`. Antes de encaminhar qualquer chamada, o App revalida
+`userId` e `sessionId` contra a sessão autenticada corrente; capability, owner,
+geração e invocation_id continuam validados pela ponte tipada. `Input` e
+`LifecycleEvent` agora têm wire camelCase com generation string e enums textuais
+compatíveis com o TypeScript. O frontend ganhou um adapter `commandBridgeWails`
+que aguarda `window.go` e chama esses métodos sem depender de edição manual de
+`frontend/wailsjs`.
+
+**Contagem: 43/84 critérios encerrados; 41 abertos; 2/15 pacotes completos.**
+I13.1 encerrado como contrato de transporte UI/backend: ack, resultado,
+cancelamento, lifecycle, sessão, generation string e invocation_id atravessam o
+App por tipos compartilhados. Isso ainda não habilita listener de teclado,
+ownership local/global real, Stream Deck/HID, providers de contexto autoritativos
+ou comandos de produto; I13.2–I13.6 e I14 permanecem abertos.
+
+Validação focada: `go test ./internal/commandinput ./internal/commandbridge ./internal/app -run
+"TestPress|TestBridge|TestAppCommandBridge|TestAppCommandLifecycle" -count=1`
+passou.
+Frontend: `npm test -- --run src/lib/commandBridge.test.ts
+src/lib/commandBridgeContext.test.ts src/lib/commandBridgeWails.test.ts` passou
+com **3 arquivos/36 testes**; `npx tsc --noEmit` e `npx eslint
+src/lib/commandBridgeWails.ts src/lib/commandBridgeWails.test.ts` passaram. A
+primeira tentativa do Vitest dentro do sandbox falhou em `spawn EPERM` do
+esbuild; repetida com permissão elevada e paths relativos corretos.
+
 ## Rodada atual — 15/09/2026, quinze pacotes existentes
 
 Rodada atravessa **I01–I15**, sem criar pacotes. Seis agentes Luna reutilizados,
@@ -42,7 +72,7 @@ Trabalhar nos quinze pacotes não significa concluir os quinze.
   antes de publicar. Resultado distingue `Committed` de `Rebuilt`; conjunto de
   camadas normaliza ordem/nil/vazio, sem aceitar duplicatas. Sem startup público.
 
-**Contagem: 42/84 critérios encerrados; 42 abertos; 2/15 pacotes completos.**
+**Contagem histórica: 42/84 critérios encerrados; 42 abertos; 2/15 pacotes completos.**
 I11.1 encerrado como infraestrutura interna: v1/v2, bindings executáveis,
 regras user/builtin, deltas/needs_review e remapeamento entre workspaces distintos
 passam pelo envelope e pelo writer confirmado, com reexportação comparada.
@@ -558,13 +588,13 @@ ganhou outra implementação de recuperação nem migração de schema nesta rod
 
 ### I13 — Infraestrutura das pontes e adapters físicos
 
-Estado: **Parcial — máquina de pressão e observador de sessão**. Esforço restante: **GG**.
+Estado: **Parcial — ponte UI/backend, máquina de pressão e observador de sessão**. Esforço restante: **GG**.
 Dependências: I03, I04, I06, I07.
 Referências: D3, D7, D13, D14; AEP-0080, AEP-0091.
 
-Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` definem sessão, capabilities, ack/resultado/cancelamento, geração transportada como string e UUIDv7 de invocação/evento. Shutdown idempotente invalida antes de cancelar, espera lotes admitidos e libera recursos; uma chamada concorrente Go pode cancelar sua espera. Testes cobrem isolamento, handoff curto, repetição e lock/logout. `OccurrenceID` físico é opaco e ainda não representa ocorrência durável do core. O adapter de decisões usa a fila real de questionários com cancelamento por ID; o scope já acompanha o stack real de Modal, mas não há transporte Wails da ponte, despacho das invariantes globais, ownership real local/global ou gerenciador HID montados. Portas devem cumprir o contrato de cancelamento; não há promessa de prazo de shutdown para porta defeituosa.
+Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` definem sessão, capabilities, ack/resultado/cancelamento, geração transportada como string e UUIDv7 de invocação/evento. `internal/app/app_command_bridge.go` monta a ponte no App e expõe invoke/input/result/cancel/lifecycle por métodos Wails, revalidando usuário/sessão autenticados antes do handoff. `frontend/src/lib/commandBridgeWails.ts` transporta o contrato sem editar bindings gerados. Shutdown idempotente invalida antes de cancelar, espera lotes admitidos e libera recursos; uma chamada concorrente Go pode cancelar sua espera. Testes cobrem isolamento, handoff curto, repetição, lock/logout e transporte App/Wails. `OccurrenceID` físico é opaco e ainda não representa ocorrência durável do core. O adapter de decisões usa a fila real de questionários com cancelamento por ID; o scope já acompanha o stack real de Modal, mas não há despacho das invariantes globais, ownership real local/global ou gerenciador HID montados. Portas devem cumprir o contrato de cancelamento; não há promessa de prazo de shutdown para porta defeituosa.
 
-- [ ] I13.1 — Fechar ponte tipada de despacho UI com ack/resultado/cancelamento, sessão e invocation_id; registrar capabilities sem handlers reais migrados.
+- [x] I13.1 — Fechar ponte tipada de despacho UI com ack/resultado/cancelamento, sessão e invocation_id; registrar capabilities sem handlers reais migrados.
 - [ ] I13.2 — Implementar ownership local/global por geração, ocorrências UUIDv7, repeat/release/blur/reconexão e contrato de sequências Ctrl+N do inventário.
 - [ ] I13.3 — Integrar DialogCommandScope ao stack real e reservar invariantes de decisão antes de bindings/ownership, respeitando input/IME e registro global temporário.
 - [ ] I13.4 — Implementar ciclo de vida genérico de adapter, callbacks com geração, suspensão por lock/logout e shutdown; nenhum listener chama handler final.
