@@ -13,13 +13,13 @@ A fonte normativa permanece `aep/0103-comandos-acionadores-e-camadas-contextuais
 
 Este plano substitui a estimativa informal de “35%” como instrumento de acompanhamento. Não há porcentagem total validada. Test coverage, linhas e commits não medem entrega do AEP.
 
-### Fotografia inicial
+### Fotografia atual — 14/09/2026, após I01
 
-- 15 pacotes de infraestrutura; nenhum integralmente aceito no escopo completo.
-- 84 itens restantes de infraestrutura, distribuídos pelos pacotes abaixo.
+- 15 pacotes de infraestrutura; I01 implementado e validado localmente (1/15); qualificação global I15 pendente.
+- 80 itens restantes de infraestrutura, dos 84 da baseline; I01.1–I01.4 encerrados na implementação local.
 - 4 marcos de infraestrutura, seguidos por 6 pacotes de migração/entrega.
 - 83 critérios finais do AEP com responsáveis mapeados no apêndice.
-- “0 de 15 pacotes fechados” NÃO significa zero código pronto: há componentes substantivos já implementados e testados, listados a seguir.
+- M1: I01 entregue localmente, I02/I03 pendentes; M2–M4 ainda não encerrados. Contagem de pacotes não é porcentagem de esforço ou do AEP.
 - Checkbox aberto significa obrigação ainda não encerrada no escopo descrito. Não marcar um pacote concluído apenas porque passou um teste do subconjunto.
 
 ### O que já existe e será reaproveitado
@@ -80,16 +80,16 @@ O usuário não precisa autorizar cada subitem técnico dentro do escopo já apr
 
 ### I01 — Banco e chaves operacionais
 
-Estado: **Parcial**. Esforço restante: **M**.
+Estado: **Implementado e validado localmente** em `021d18e07`. Qualificação global/CI/Bugbot permanecem explicitamente pendentes em I15 e no fluxo de publicação.
 Dependências: nenhuma de outro pacote; usar serviços existentes.
 Referências: D2.1, D11.
 
-Evidência/limite atual: Migrações isoladas em internal/commandconfig/schema.go, internal/commanddecision/store.go e internal/commandledger/schema.go; provider somente de leitura em internal/commandledger/credential_keys.go.
+Evidência: `internal/commandbootstrap/{schema,keys}.go`, `internal/database/command_migration.go`, `internal/credentials/instance_secret_create.go` e `internal/app/app_command_storage.go`. O App prepara armazenamento no bootstrap/reconfiguração do cofre, sem construir executor ou registrar atalhos. Rotação é manutenção interna, exige admissão suspensa pelo host e conserva todas as versões; aposentadoria seletiva fica em I12 e ligação ao executor em I14.
 
-- [ ] I01.1 — Unificar a ordem e o versionamento das migrações no banco real, com teste de banco novo, upgrade e schema incompatível; falha não publica readiness.
-- [ ] I01.2 — Implementar provisionamento idempotente e carregamento da chave de fingerprint no escopo correto; não reutilizar JWT/pepper nem substituir chave existente ao reiniciar.
-- [ ] I01.3 — Definir versão ativa, retenção das versões antigas pelo maior deadline dos ledgers e procedimento testado de rotação; ausência/corrupção falha fechado.
-- [ ] I01.4 — Testar primeira abertura, reinício, cofre indisponível e concorrência de inicialização usando diretórios e credenciais de teste.
+- [x] I01.1 — Unificar a ordem e o versionamento das migrações no banco real, com teste de banco novo, upgrade e schema incompatível; falha não publica readiness.
+- [x] I01.2 — Implementar provisionamento idempotente e carregamento da chave de fingerprint no escopo correto; não reutilizar JWT/pepper nem substituir chave existente ao reiniciar.
+- [x] I01.3 — Definir versão ativa, retenção das versões antigas pelo maior deadline dos ledgers e procedimento testado de rotação; ausência/corrupção falha fechado.
+- [x] I01.4 — Testar primeira abertura, reinício, cofre indisponível e concorrência de inicialização usando diretórios e credenciais de teste.
 
 Critério de saída: Abrir ou reabrir a instalação prepara o armazenamento e as chaves de forma reproduzível, sem habilitar execução prematuramente.
 
@@ -441,7 +441,19 @@ Toda descoberta adicional recebe **Δnn** com origem (critério do AEP, defeito 
 
 ### Próxima atualização obrigatória
 
-Começar por I01/I02 e preparação de I15.1. Ao fechar os dois primeiros pacotes, publicar primeira calibração de esforço; ao fechar cada marco, revisar previsão do restante e confirmar se o escopo aumentou.
+Avançar em I02 e preparação de I15.1. Ao fechar I02, publicar primeira calibração de esforço usando I01/I02; ao fechar cada marco, revisar previsão do restante e confirmar se o escopo aumentou.
+
+### Entrega I01 — 14/09/2026
+
+- I01.1–I01.4 · commit `021d18e07` · implementação e testes revisados localmente pelo agente principal, com três subagentes em credenciais e testes independentes.
+- Migração v20 no registro central, adiada na abertura genérica e concluída transacionalmente pelo host; aceita schema experimental conhecido, rejeita drift/colisão, preserva dados e carimbo em reabertura.
+- Segredo de fingerprint dedicado, cifrado no cofre existente, criação insert-if-absent e releitura do vencedor; sem reaproveitar JWT/pepper. Metadata UUIDv7 fixa digest/versão ativa. Falhas de cofre/chave/schema não publicam prontidão.
+- Rotação v1→v2 com CAS, preservação da assinatura v1 pelo provider real, rollback e reaproveitamento da chave órfã no retry; nenhuma chave antiga é excluída.
+- Validação: todos os 12 pacotes `internal/command*` passaram com `-count=3`; bootstrap repetido novamente após os últimos testes. Suites focadas de credenciais, registro/migração e App passaram. `go build -mod=readonly ./...`, `go vet -mod=readonly ./...` e `git diff --check` passaram.
+- Testes usaram SQLite temporário e DEKs sintéticas. Não houve abertura do app com dados reais nem acesso deliberado a segredos reais. A suíte global `go test ./...` não foi executada por haver testes legados do App que escrevem configuração compartilhada; isolamento e qualificação completa continuam em I15. Sem testes frontend nesta mudança exclusivamente backend.
+- Bugbot, race detector, corpus completo de upgrades publicados, CI e review remota: não executados nesta entrega; sem push/PR. Não equivaler revisão local do agente a essas aprovações.
+- Esforço observado: três frentes delegadas (criação atômica, testes de schema e testes de chaves), composição/rotação/App e revisão central; correções de ordem não determinística de constraints do GORM e ID UUIDv7 incluídas no próprio I01. Sem aumento da baseline; previsão de calendário ainda aguarda I02.
+- Próximo pacote: I02 — contratos completos de catálogo, documentos e fingerprints. AEP permanece In Progress; comandos atuais não migrados.
 
 ## 9. Rastreabilidade integral dos critérios de aceitação
 
@@ -946,5 +958,4 @@ Responsáveis: I10 / I11 / P05.
 Testes cobrem fallback de defaults, sobreposição, múltiplas camadas, modais, inputs, múltiplas abas, troca de foco, reconexão de dispositivo e prevenção de execução duplicada.
 
 Responsáveis: I15 / P06.
-
 
