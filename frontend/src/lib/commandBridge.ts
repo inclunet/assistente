@@ -31,6 +31,15 @@ export interface DialogCommandScope {
   readonly allowedTriggerSpecs: readonly ['keyboard.local:Ctrl+Shift+R'];
 }
 
+/** Prova explícita de que uma invocação pertence ao diálogo topmost atual. */
+export interface DialogCommandProof {
+  readonly dialogId: string;
+  readonly kind: 'decision';
+  readonly scopeGeneration: string;
+  readonly commandId: typeof DECISION_RESPOND_COMMAND_ID;
+  readonly triggerSpec: typeof DECISION_REPEAT_TRIGGER;
+}
+
 export interface CommandBridgeOwner {
   readonly userId: string;
   readonly sessionId: string;
@@ -61,6 +70,7 @@ export interface CommandInvocation {
   readonly occurrenceId?: string;
   readonly sourceEventId?: string;
   readonly eventId?: string;
+  readonly dialogProof?: DialogCommandProof;
 }
 
 export interface CommandInvocationAck {
@@ -81,6 +91,7 @@ export interface CommandResult {
   readonly occurrenceId?: string;
   readonly sourceEventId?: string;
   readonly eventId?: string;
+  readonly dialogProof?: DialogCommandProof;
   readonly owner: CommandBridgeOwner;
   readonly status: CommandResultStatus;
   readonly payload?: unknown;
@@ -200,6 +211,25 @@ function validUUID7(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
 }
 
+function validDialogProof(proof: DialogCommandProof | undefined, commandId: string): boolean {
+  if (proof === undefined) return true;
+  return validText(proof.dialogId) &&
+    proof.kind === 'decision' &&
+    validGeneration(proof.scopeGeneration) &&
+    proof.commandId === DECISION_RESPOND_COMMAND_ID &&
+    proof.commandId === commandId &&
+    proof.triggerSpec === DECISION_REPEAT_TRIGGER;
+}
+
+function sameDialogProof(left: DialogCommandProof | undefined, right: DialogCommandProof | undefined): boolean {
+  if (left === undefined || right === undefined) return left === undefined && right === undefined;
+  return left.dialogId === right.dialogId &&
+    left.kind === right.kind &&
+    left.scopeGeneration === right.scopeGeneration &&
+    left.commandId === right.commandId &&
+    left.triggerSpec === right.triggerSpec;
+}
+
 function generationAtMost(left: string, right: string): boolean {
   return BigInt(left) <= BigInt(right);
 }
@@ -217,7 +247,7 @@ function validSession(session: CommandSession): boolean {
 }
 
 function validInvocation(invocation: CommandInvocation): boolean {
-  if (!validText(invocation?.sessionId) || !validUUID7(invocation?.invocationId) || !validText(invocation?.commandId) || !validGeneration(invocation?.generation) || !validText(invocation?.capabilityId) || !validOwnership(invocation?.ownership) || !validSource(invocation?.source) || (invocation.occurrenceId !== undefined && !validText(invocation.occurrenceId)) || (invocation.sourceEventId !== undefined && !validUUID7(invocation.sourceEventId))) return false;
+  if (!validText(invocation?.sessionId) || !validUUID7(invocation?.invocationId) || !validText(invocation?.commandId) || !validGeneration(invocation?.generation) || !validText(invocation?.capabilityId) || !validOwnership(invocation?.ownership) || !validSource(invocation?.source) || (invocation.occurrenceId !== undefined && !validText(invocation.occurrenceId)) || (invocation.sourceEventId !== undefined && !validUUID7(invocation.sourceEventId)) || !validDialogProof(invocation.dialogProof, invocation.commandId)) return false;
   if (invocation.source === 'event') return validUUID7(invocation.eventId);
   return invocation.eventId === undefined;
 }
@@ -393,7 +423,7 @@ export function createCommandBridge(config: { readonly port: CommandBridgePort; 
       const current = pending.get(result.invocationId);
       if (!current) throw bridgeError('unknown-invocation');
       const invocation = current.invocation;
-      if (result.sessionId !== invocation.sessionId || result.commandId !== invocation.commandId || result.generation !== invocation.generation || result.capabilityId !== invocation.capabilityId || result.ownership !== invocation.ownership || result.occurrenceId !== invocation.occurrenceId || result.sourceEventId !== invocation.sourceEventId || result.eventId !== invocation.eventId || !sameOwner(result.owner, current.owner)) throw bridgeError('invalid-request');
+      if (result.sessionId !== invocation.sessionId || result.commandId !== invocation.commandId || result.generation !== invocation.generation || result.capabilityId !== invocation.capabilityId || result.ownership !== invocation.ownership || result.occurrenceId !== invocation.occurrenceId || result.sourceEventId !== invocation.sourceEventId || result.eventId !== invocation.eventId || !sameDialogProof(result.dialogProof, invocation.dialogProof) || !sameOwner(result.owner, current.owner)) throw bridgeError('invalid-request');
       removePending(result.invocationId);
       const stableResult = Object.freeze({ ...result, owner: cloneOwner(result.owner) });
       for (const listener of listeners) listener(stableResult);

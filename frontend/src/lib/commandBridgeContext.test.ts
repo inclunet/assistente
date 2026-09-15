@@ -205,6 +205,59 @@ describe('createAuthenticatedCommandBridge', () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
+  it('permite somente decision.respond local com prova do diálogo topmost atual', async () => {
+    const { composed, bridge, dispatch } = setup(true);
+    bridge.replaceCapabilities([{ id: 'cap-a', commandId: 'decision.respond', generation: '1', owner }]);
+    const accepted = {
+      ...invocation(),
+      commandId: 'decision.respond',
+      source: 'keyboard.local' as const,
+      dialogProof: {
+        dialogId: scope.dialogId,
+        kind: 'decision' as const,
+        scopeGeneration: scope.generation,
+        commandId: 'decision.respond' as const,
+        triggerSpec: 'keyboard.local:Ctrl+Shift+R' as const,
+      },
+    };
+
+    await expect(composed.invoke(accepted)).resolves.toEqual({ invocationId: accepted.invocationId, accepted: true });
+    expect(dispatch).toHaveBeenCalledWith(accepted);
+  });
+
+  it('bloqueia prova de diálogo stale, de outro diálogo ou origem global', async () => {
+    const { composed, bridge, dispatch } = setup(true);
+    bridge.replaceCapabilities([{ id: 'cap-a', commandId: 'decision.respond', generation: '1', owner }]);
+    const baseProof = {
+      dialogId: scope.dialogId,
+      kind: 'decision' as const,
+      scopeGeneration: scope.generation,
+      commandId: 'decision.respond' as const,
+      triggerSpec: 'keyboard.local:Ctrl+Shift+R' as const,
+    };
+
+    await expect(composed.invoke({
+      ...invocation(),
+      commandId: 'decision.respond',
+      source: 'keyboard.local',
+      dialogProof: { ...baseProof, scopeGeneration: '2' },
+    })).resolves.toMatchObject({ accepted: false, reason: 'dialog-blocked' });
+    await expect(composed.invoke({
+      ...invocation(),
+      commandId: 'decision.respond',
+      source: 'keyboard.local',
+      dialogProof: { ...baseProof, dialogId: 'decision-b' },
+    })).resolves.toMatchObject({ accepted: false, reason: 'dialog-blocked' });
+    await expect(composed.invoke({
+      ...invocation(),
+      commandId: 'decision.respond',
+      source: 'keyboard.global',
+      ownership: 'global',
+      dialogProof: baseProof,
+    })).resolves.toMatchObject({ accepted: false, reason: 'dialog-blocked' });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it('relê stack após resolver e impede candidato atravessar abertura de diálogo', async () => {
     const { composed, dispatch } = setup();
     const resolve = vi.fn(() => {

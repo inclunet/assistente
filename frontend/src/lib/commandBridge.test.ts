@@ -85,6 +85,24 @@ describe('command bridge', () => {
     await bridge.invoke(sourceEvent, owner);
     expect(() => bridge.acceptResult(resultFor({ ...sourceEvent, sourceEventId: testUUID7('result-source-event-other') }))).toThrowError(new CommandBridgeError('invalid-request'));
     expect(() => bridge.acceptResult(resultFor(sourceEvent))).not.toThrow();
+    bridge.replaceCapabilities([{ id: 'cap-a', commandId: 'decision.respond', generation: '1', owner }]);
+    const dialogInvocation = {
+      ...invocation('inv-dialog'),
+      commandId: 'decision.respond',
+      dialogProof: {
+        dialogId: 'decision-a',
+        kind: 'decision' as const,
+        scopeGeneration: '1',
+        commandId: 'decision.respond' as const,
+        triggerSpec: 'keyboard.local:Ctrl+Shift+R' as const,
+      },
+    };
+    await bridge.invoke(dialogInvocation, owner);
+    expect(() => bridge.acceptResult(resultFor({
+      ...dialogInvocation,
+      dialogProof: { ...dialogInvocation.dialogProof, scopeGeneration: '2' },
+    }))).toThrowError(new CommandBridgeError('invalid-request'));
+    expect(() => bridge.acceptResult(resultFor(dialogInvocation))).not.toThrow();
   });
 
   it('mantém ownership até cancel confirmado e cancela na mudança de geração', async () => {

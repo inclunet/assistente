@@ -3,7 +3,28 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
-## Continuação — 15/09/2026, ocorrências físicas e sequências
+## Continuação — 15/09/2026, prova de escopo de diálogo
+
+Avanço focado em **I13.3**, ainda sem migrar handlers reais de decisão. A ponte
+agora transporta `DialogCommandProof`/`DialogProof` com `dialogId`, geração do
+scope, comando e trigger reservado. O resultado precisa devolver a mesma prova,
+fechando replay/stale result no round-trip. A composição autenticada do
+frontend permite atravessar a barreira modal somente para `decision.respond`
+local, originado de `keyboard.local`, com prova que corresponda ao
+`DialogCommandScope` topmost atual; provas ausentes, obsoletas, de outro diálogo
+ou globais continuam bloqueadas antes de bindings de fundo.
+
+**Contagem: 46/84 critérios encerrados; 38 abertos; 2/15 pacotes completos.**
+I13.3 encerrado como infraestrutura de reserva/invariante de diálogo. Isso não
+habilita registro global real, HID/Stream Deck, nem migra o `DecisionDialog` para
+o executor genérico; esses limites seguem em I13.5/I13.6 e P01–P06.
+
+Validação focada: `go test ./internal/commandbridge -count=1`, `npm test -- --run
+src/lib/commandBridge.test.ts src/lib/commandBridgeContext.test.ts`, `npx tsc
+--noEmit` e `npx eslint src/lib/commandBridge.ts src/lib/commandBridge.test.ts
+src/lib/commandBridgeContext.ts src/lib/commandBridgeContext.test.ts` passaram.
+
+## Continuação anterior — 15/09/2026, ocorrências físicas e sequências
 
 Avanço focado em **I13.2**, ainda sem instalar listeners reais. `commandbridge`
 agora transporta `sourceEventId` opcional, validado como UUIDv7, e exige que o
@@ -14,7 +35,7 @@ sequência: prefixo como `Ctrl+N` abre uma janela com timeout, o ramo autorizado
 vira uma chave composta (`Ctrl+N C`), e timeout/blur/troca de geração limpam o
 estado sem disparo duplo.
 
-**Contagem: 45/84 critérios encerrados; 39 abertos; 2/15 pacotes completos.**
+**Contagem anterior: 45/84 critérios encerrados; 39 abertos; 2/15 pacotes completos.**
 I13.2 encerrado como contrato de infraestrutura para ownership local/global já
 validado pela ponte, geração, ocorrência UUIDv7, repeat/release/blur/reconexão e
 sequências do inventário. Isso ainda não registra hotkeys do SO, não prova
@@ -638,25 +659,27 @@ ganhou outra implementação de recuperação nem migração de schema nesta rod
 
 ### I13 — Infraestrutura das pontes e adapters físicos
 
-Estado: **Parcial — ponte UI/backend, máquina de pressão e observador de sessão**. Esforço restante: **GG**.
+Estado: **Parcial — ponte UI/backend, escopo de diálogo e observador de sessão**. Esforço restante: **GG**.
 Dependências: I03, I04, I06, I07.
 Referências: D3, D7, D13, D14; AEP-0080, AEP-0091.
 
-Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` definem sessão, capabilities, ack/resultado/cancelamento, geração transportada como string, UUIDv7 de invocação/evento e `sourceEventId` UUIDv7 opcional com correspondência no resultado. `internal/app/app_command_bridge.go` monta a ponte no App e expõe invoke/input/result/cancel/lifecycle por métodos Wails, revalidando usuário/sessão autenticados antes do handoff. `frontend/src/lib/commandBridgeWails.ts` transporta o contrato sem editar bindings gerados. `internal/commandadapter` fornece lifecycle genérico para listeners físicos futuros: callbacks com geração, suspensão por lock/logout, shutdown terminal, sourceEventId por ciclo aceito, sequências com timeout e handoff por `commandbridge.Input`, sem handler final. Shutdown idempotente invalida antes de cancelar, espera lotes admitidos e libera recursos; uma chamada concorrente Go pode cancelar sua espera. Testes cobrem isolamento, handoff curto, repetição, lock/logout, transporte App/Wails, lifecycle de adapter, UUIDv7 de ocorrência e sequência Ctrl+N genérica. `OccurrenceID` físico segue opaco para ownership claim; `sourceEventId` representa a ocorrência durável do ciclo aceito. O adapter de decisões usa a fila real de questionários com cancelamento por ID; o scope já acompanha o stack real de Modal, mas não há despacho das invariantes globais nem gerenciador HID montados. Portas devem cumprir o contrato de cancelamento; não há promessa de prazo de shutdown para porta defeituosa.
+Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` definem sessão, capabilities, ack/resultado/cancelamento, geração transportada como string, UUIDv7 de invocação/evento, `sourceEventId` UUIDv7 opcional e `DialogCommandProof`/`DialogProof` com correspondência exata no resultado. `internal/app/app_command_bridge.go` monta a ponte no App e expõe invoke/input/result/cancel/lifecycle por métodos Wails, revalidando usuário/sessão autenticados antes do handoff. `frontend/src/lib/commandBridgeWails.ts` transporta o contrato sem editar bindings gerados. `internal/commandadapter` fornece lifecycle genérico para listeners físicos futuros: callbacks com geração, suspensão por lock/logout, shutdown terminal, sourceEventId por ciclo aceito, sequências com timeout e handoff por `commandbridge.Input`, sem handler final. Shutdown idempotente invalida antes de cancelar, espera lotes admitidos e libera recursos; uma chamada concorrente Go pode cancelar sua espera. Testes cobrem isolamento, handoff curto, repetição, lock/logout, transporte App/Wails, lifecycle de adapter, UUIDv7 de ocorrência, sequência Ctrl+N genérica e reserva de diálogo topmost. `OccurrenceID` físico segue opaco para ownership claim; `sourceEventId` representa a ocorrência durável do ciclo aceito. O adapter de decisões usa a fila real de questionários com cancelamento por ID; o scope acompanha o stack real de Modal e `decision.respond` só atravessa com prova topmost local. Não há gerenciador HID montado nem migração dos handlers reais de decisão. Portas devem cumprir o contrato de cancelamento; não há promessa de prazo de shutdown para porta defeituosa.
 
 - [x] I13.1 — Fechar ponte tipada de despacho UI com ack/resultado/cancelamento, sessão e invocation_id; registrar capabilities sem handlers reais migrados.
 - [x] I13.2 — Implementar ownership local/global por geração, ocorrências UUIDv7, repeat/release/blur/reconexão e contrato de sequências Ctrl+N do inventário.
-- [ ] I13.3 — Integrar DialogCommandScope ao stack real e reservar invariantes de decisão antes de bindings/ownership, respeitando input/IME e registro global temporário.
+- [x] I13.3 — Integrar DialogCommandScope ao stack real e reservar invariantes de decisão antes de bindings/ownership, respeitando input/IME e registro global temporário.
 - [x] I13.4 — Implementar ciclo de vida genérico de adapter, callbacks com geração, suspensão por lock/logout e shutdown; nenhum listener chama handler final.
 - [ ] I13.5 — Validar biblioteca/licença/build/modelos HID e implementar gerência de dispositivos com exclusividade, reconexão/backoff e estado seguro; renderer com cache/diff e frame completo após reabrir.
 - [ ] I13.6 — Validar teclado/foco/janela e ao menos um Stream Deck real; falha de hardware não derruba App. Registrar explicitamente dependência de dispositivo e ambiente.
 
 Critério de saída: As entradas e a ponte UI cumprem contratos do núcleo antes de receber a população de comandos do aplicativo.
 
-Complemento da rodada atual: o scope já acompanha o Modal real e o topo da pilha.
+Complemento da rodada atual: o scope acompanha o Modal real e o topo da pilha.
 Alteração de scope é atualização in-place, sem reempilhar uma instância inferior.
-I13.3 permanece aberto para despacho/invariantes globais, input/IME e ownership;
-o registro do scope não concede autoridade backend e não migra handlers de teclado.
+`decision.respond` só atravessa a composição autenticada quando a prova aponta
+para o diálogo topmost atual, com origem/ownership locais e trigger reservado;
+input/IME/editáveis continuam ignorados antes de reserva. O registro do scope não
+concede autoridade backend sozinho e não migra handlers de teclado.
 
 ### I14 — Montagem final no ciclo de vida do App
 

@@ -175,6 +175,41 @@ func TestBridgeResultRequiresExactIdentityAndReleasesClaim(t *testing.T) {
 	}
 }
 
+func TestBridgeDialogProofRequiresExactRoundTrip(t *testing.T) {
+	bridge, _, owner, invocation := newBridgeFixture(t)
+	if err := bridge.ReplaceCapabilities([]Capability{{ID: "cap-a", CommandID: DecisionRespondCommandID, Generation: 1, Owner: owner}}); err != nil {
+		t.Fatal(err)
+	}
+	invocation.CommandID = DecisionRespondCommandID
+	invocation.Source = SourceKeyboardLocal
+	invocation.DialogProof = &DialogProof{
+		DialogID:        "decision-a",
+		Kind:            "decision",
+		ScopeGeneration: 1,
+		CommandID:       DecisionRespondCommandID,
+		TriggerSpec:     DecisionRepeatTrigger,
+	}
+	if _, err := bridge.Invoke(context.Background(), invocation, owner); err != nil {
+		t.Fatal(err)
+	}
+	wrong := Result{SessionID: invocation.SessionID, InvocationID: invocation.InvocationID, CommandID: invocation.CommandID, Generation: invocation.Generation, CapabilityID: invocation.CapabilityID, Ownership: invocation.Ownership, Owner: owner, Status: ResultSucceeded, DialogProof: &DialogProof{
+		DialogID:        "decision-a",
+		Kind:            "decision",
+		ScopeGeneration: 2,
+		CommandID:       DecisionRespondCommandID,
+		TriggerSpec:     DecisionRepeatTrigger,
+	}}
+	if _, err := bridge.AcceptResult(wrong); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("resultado com dialogProof obsoleto err=%v", err)
+	}
+	valid := wrong
+	valid.DialogProof = invocation.DialogProof
+	ack, err := bridge.AcceptResult(valid)
+	if err != nil || !ack.Accepted {
+		t.Fatalf("resultado válido ack=%+v err=%v", ack, err)
+	}
+}
+
 func TestBridgeLocalGlobalOwnershipIsExclusive(t *testing.T) {
 	bridge, _, owner, invocation := newBridgeFixture(t)
 	invocation.OccurrenceID = "8:keyboard6:Ctrl+N"

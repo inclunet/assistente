@@ -1,5 +1,7 @@
 import {
   CommandBridgeError,
+  DECISION_REPEAT_TRIGGER,
+  DECISION_RESPOND_COMMAND_ID,
   type DialogCommandScope,
   type CommandBridge,
   type CommandBridgeOwner,
@@ -109,6 +111,22 @@ function closedError(): CommandBridgeError {
   return new CommandBridgeError('bridge-closed');
 }
 
+function hasMatchingDialogProof(invocation: CommandInvocation, scope: DialogCommandScope | null): boolean {
+  const proof = invocation.dialogProof;
+  return !!scope &&
+    !!proof &&
+    invocation.commandId === DECISION_RESPOND_COMMAND_ID &&
+    invocation.ownership === 'local' &&
+    invocation.source === 'keyboard.local' &&
+    proof.dialogId === scope.dialogId &&
+    proof.kind === scope.kind &&
+    proof.scopeGeneration === scope.generation &&
+    proof.commandId === DECISION_RESPOND_COMMAND_ID &&
+    proof.triggerSpec === DECISION_REPEAT_TRIGGER &&
+    scope.allowedCommandIds.includes(DECISION_RESPOND_COMMAND_ID) &&
+    scope.allowedTriggerSpecs.includes(DECISION_REPEAT_TRIGGER);
+}
+
 // Providers devolvem JSON destacado/congelado. Compare também o conteúdo:
 // snapshotVersion sozinho não detecta um provider que reutilize sua versão.
 function sameContextValue(left: unknown, right: unknown): boolean {
@@ -182,11 +200,10 @@ export function createAuthenticatedCommandBridge(
     ) {
       throw new CommandBridgeError('stale-generation');
     }
-    // O DTO atual não vincula decision.respond a dialogId/scope generation.
-    // Até existir essa prova no caminho comum, nem esse commandId permite
-    // atravessar a barreira; respostas seguem os handlers reais da decisão.
     if (owned.frame.modal.topID !== null) {
-      return { invocationId: invocation.invocationId, accepted: false, reason: 'dialog-blocked' };
+      if (!hasMatchingDialogProof(invocation, owned.frame.modal.dialogCommandScope)) {
+        return { invocationId: invocation.invocationId, accepted: false, reason: 'dialog-blocked' };
+      }
     }
     return bridge.invoke(invocation, owned.owner);
   };

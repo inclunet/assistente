@@ -2,6 +2,16 @@
 
 **Status:** In Progress
 
+### Prova de escopo de diálogo — 15/09/2026
+
+I13.3 foi encerrado localmente como infraestrutura de reserva/invariante: o
+bridge transporta `DialogCommandProof`/`DialogProof` e exige round-trip exato no
+resultado. A composição autenticada do frontend só deixa `decision.respond`
+atravessar uma barreira modal quando a prova corresponde ao `DialogCommandScope`
+topmost atual, com origem `keyboard.local` e ownership local; prova ausente,
+stale, de outro diálogo ou global permanece bloqueada antes de bindings de
+fundo. **46/84 critérios locais, 38 abertos; 2/15 pacotes completos**.
+
 ### Ocorrências físicas e sequências — 15/09/2026
 
 I13.2 foi encerrado localmente como contrato de infraestrutura: a ponte aceita

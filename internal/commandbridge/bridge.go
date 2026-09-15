@@ -50,6 +50,11 @@ const (
 	SourceSystem         Source = "system"
 )
 
+const (
+	DecisionRespondCommandID = "decision.respond"
+	DecisionRepeatTrigger    = "keyboard.local:Ctrl+Shift+R"
+)
+
 // Owner é copiado no ingresso e comparado por valor em todos os retornos.
 type Owner struct {
 	UserID      string `json:"userId"`
@@ -72,18 +77,30 @@ type Session struct {
 	Owner      Owner  `json:"owner"`
 }
 
+// DialogProof vincula uma invocação ao scope do diálogo topmost observado pela
+// UI. O backend não confia nisso para autorizar sozinho, mas exige round-trip
+// exato quando a prova existe para impedir replay/stale result.
+type DialogProof struct {
+	DialogID        string `json:"dialogId"`
+	Kind            string `json:"kind"`
+	ScopeGeneration uint64 `json:"scopeGeneration,string"`
+	CommandID       string `json:"commandId"`
+	TriggerSpec     string `json:"triggerSpec"`
+}
+
 // Invocation é o envelope mínimo transportado pela porta confiável.
 type Invocation struct {
-	SessionID     string    `json:"sessionId"`
-	InvocationID  string    `json:"invocationId"`
-	CommandID     string    `json:"commandId"`
-	Generation    uint64    `json:"generation,string"`
-	CapabilityID  string    `json:"capabilityId"`
-	Ownership     Ownership `json:"ownership"`
-	Source        Source    `json:"source"`
-	OccurrenceID  string    `json:"occurrenceId,omitempty"`
-	SourceEventID string    `json:"sourceEventId,omitempty"`
-	EventID       string    `json:"eventId,omitempty"`
+	SessionID     string       `json:"sessionId"`
+	InvocationID  string       `json:"invocationId"`
+	CommandID     string       `json:"commandId"`
+	Generation    uint64       `json:"generation,string"`
+	CapabilityID  string       `json:"capabilityId"`
+	Ownership     Ownership    `json:"ownership"`
+	Source        Source       `json:"source"`
+	OccurrenceID  string       `json:"occurrenceId,omitempty"`
+	SourceEventID string       `json:"sourceEventId,omitempty"`
+	EventID       string       `json:"eventId,omitempty"`
+	DialogProof   *DialogProof `json:"dialogProof,omitempty"`
 }
 
 // InvocationAck confirma somente o encaminhamento; não significa execução.
@@ -103,6 +120,7 @@ type Result struct {
 	OccurrenceID  string          `json:"occurrenceId,omitempty"`
 	SourceEventID string          `json:"sourceEventId,omitempty"`
 	EventID       string          `json:"eventId,omitempty"`
+	DialogProof   *DialogProof    `json:"dialogProof,omitempty"`
 	Owner         Owner           `json:"owner"`
 	Status        ResultStatus    `json:"status"`
 	Payload       json.RawMessage `json:"payload,omitempty"`
@@ -403,7 +421,7 @@ func (b *Bridge) AcceptResult(result Result) (ResultAck, error) {
 		return ResultAck{}, ErrUnknownInvocation
 	}
 	want := pending.invocation
-	if result.SessionID != want.SessionID || result.CommandID != want.CommandID || result.Generation != want.Generation || result.CapabilityID != want.CapabilityID || result.Ownership != want.Ownership || result.OccurrenceID != want.OccurrenceID || result.SourceEventID != want.SourceEventID || result.EventID != want.EventID || !sameOwner(result.Owner, pending.owner) {
+	if result.SessionID != want.SessionID || result.CommandID != want.CommandID || result.Generation != want.Generation || result.CapabilityID != want.CapabilityID || result.Ownership != want.Ownership || result.OccurrenceID != want.OccurrenceID || result.SourceEventID != want.SourceEventID || result.EventID != want.EventID || !sameDialogProof(result.DialogProof, want.DialogProof) || !sameOwner(result.Owner, pending.owner) {
 		return ResultAck{}, ErrInvalidRequest
 	}
 	b.removePendingLocked(result.InvocationID)
@@ -749,7 +767,7 @@ func validCapability(capability Capability) bool {
 }
 
 func validInvocation(invocation Invocation) bool {
-	if !validText(invocation.SessionID) || !validUUIDv7(invocation.InvocationID) || !validText(invocation.CommandID) || invocation.Generation == 0 || !validText(invocation.CapabilityID) || !validOwnership(invocation.Ownership) || !validSource(invocation.Source) || (invocation.OccurrenceID != "" && !validText(invocation.OccurrenceID)) || (invocation.SourceEventID != "" && !validUUIDv7(invocation.SourceEventID)) {
+	if !validText(invocation.SessionID) || !validUUIDv7(invocation.InvocationID) || !validText(invocation.CommandID) || invocation.Generation == 0 || !validText(invocation.CapabilityID) || !validOwnership(invocation.Ownership) || !validSource(invocation.Source) || (invocation.OccurrenceID != "" && !validText(invocation.OccurrenceID)) || (invocation.SourceEventID != "" && !validUUIDv7(invocation.SourceEventID)) || !validDialogProof(invocation.DialogProof, invocation.CommandID) {
 		return false
 	}
 	if invocation.Source == SourceEvent {
@@ -763,7 +781,26 @@ func validOwnership(ownership Ownership) bool {
 }
 
 func validResult(result Result) bool {
-	return validInvocation(Invocation{SessionID: result.SessionID, InvocationID: result.InvocationID, CommandID: result.CommandID, Generation: result.Generation, CapabilityID: result.CapabilityID, Ownership: result.Ownership, Source: SourceUIAction, OccurrenceID: result.OccurrenceID, SourceEventID: result.SourceEventID}) && (result.EventID == "" || validUUIDv7(result.EventID)) && validOwner(result.Owner) && validResultStatus(result.Status)
+	return validInvocation(Invocation{SessionID: result.SessionID, InvocationID: result.InvocationID, CommandID: result.CommandID, Generation: result.Generation, CapabilityID: result.CapabilityID, Ownership: result.Ownership, Source: SourceUIAction, OccurrenceID: result.OccurrenceID, SourceEventID: result.SourceEventID, DialogProof: result.DialogProof}) && (result.EventID == "" || validUUIDv7(result.EventID)) && validOwner(result.Owner) && validResultStatus(result.Status)
+}
+
+func validDialogProof(proof *DialogProof, commandID string) bool {
+	if proof == nil {
+		return true
+	}
+	return validText(proof.DialogID) &&
+		proof.Kind == "decision" &&
+		proof.ScopeGeneration > 0 &&
+		proof.CommandID == DecisionRespondCommandID &&
+		proof.CommandID == commandID &&
+		proof.TriggerSpec == DecisionRepeatTrigger
+}
+
+func sameDialogProof(left, right *DialogProof) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func validResultStatus(status ResultStatus) bool {
