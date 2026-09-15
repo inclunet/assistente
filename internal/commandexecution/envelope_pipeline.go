@@ -475,6 +475,11 @@ func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate E
 	if s == nil || !s.complete || s.config.Envelope == nil || ctx == nil {
 		return record, ErrInvalidRequest
 	}
+	ctx, releaseOperation, err := s.lifecycle.enter(ctx)
+	if err != nil {
+		return record, err
+	}
+	defer releaseOperation()
 	candidate, err = canonicalCandidate(candidate)
 	if err != nil {
 		return record, err

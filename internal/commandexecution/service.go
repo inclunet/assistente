@@ -14,8 +14,9 @@ import (
 )
 
 type Service struct {
-	config   Config
-	complete bool
+	config    Config
+	complete  bool
+	lifecycle executionLifecycle
 }
 
 var commandIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
@@ -163,6 +164,11 @@ func (s *Service) Execute(ctx context.Context, token string, request Request) (r
 	if s == nil || ctx == nil || s.complete {
 		return commandledger.Record{}, ErrInvalidRequest
 	}
+	ctx, release, err := s.lifecycle.enter(ctx)
+	if err != nil {
+		return commandledger.Record{}, err
+	}
+	defer release()
 	ctx, cancel := context.WithTimeout(ctx, s.config.ExecutionTimeout)
 	defer cancel()
 	// Antes da reserva, não há invocação confiável para concluir.

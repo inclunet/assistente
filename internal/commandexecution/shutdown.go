@@ -1,0 +1,85 @@
+package commandexecution
+
+import (
+	"context"
+	"errors"
+	"sync"
+)
+
+var ErrServiceClosed = errors.New("executor de comandos encerrado")
+
+// O registro cobre a operação inteira, inclusive preparação, reserva e
+// finalização. Os watches de epoch cobrem apenas suas respectivas fases e
+// portanto não podem ser usados como prova de drenagem do Service.
+type executionLifecycle struct {
+	mu      sync.Mutex
+	closed  bool
+	active  map[*executionOperation]struct{}
+	drained chan struct{}
+}
+
+type executionOperation struct{ cancel context.CancelFunc }
+
+func (l *executionLifecycle) enter(ctx context.Context) (context.Context, func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return nil, nil, ErrServiceClosed
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	op := &executionOperation{cancel: cancel}
+	if l.active == nil {
+		l.active = make(map[*executionOperation]struct{})
+	}
+	l.active[op] = struct{}{}
+	var once sync.Once
+	return runCtx, func() {
+		once.Do(func() {
+			cancel()
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			delete(l.active, op)
+			if l.closed && len(l.active) == 0 {
+				close(l.drained)
+			}
+		})
+	}, nil
+}
+
+// Shutdown fecha a admissão antes de cancelar operações, e espera seu retorno
+// (incluindo CAS finais) fora do DispatchGate. Timeout não reabre a instância:
+// outra chamada pode continuar aguardando. Não chamar de dentro de um handler
+// ou callback do próprio Service. O host deve encerrar todos os Services antes
+// de recuperar uma geração compartilhada; este retorno não é prova de que um
+// efeito externo não cooperativo terminou nem capability de recovery do banco.
+func (s *Service) Shutdown(ctx context.Context) error {
+	if s == nil || ctx == nil {
+		return ErrInvalidRequest
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	l := &s.lifecycle
+	l.mu.Lock()
+	if !l.closed {
+		l.closed = true
+		l.drained = make(chan struct{})
+		for op := range l.active {
+			op.cancel()
+		}
+		if len(l.active) == 0 {
+			close(l.drained)
+		}
+	}
+	done := l.drained
+	l.mu.Unlock()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
