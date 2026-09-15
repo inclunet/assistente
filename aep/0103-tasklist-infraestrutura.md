@@ -13,13 +13,13 @@ A fonte normativa permanece `aep/0103-comandos-acionadores-e-camadas-contextuais
 
 Este plano substitui a estimativa informal de “35%” como instrumento de acompanhamento. Não há porcentagem total validada. Test coverage, linhas e commits não medem entrega do AEP.
 
-### Fotografia atual — 14/09/2026, após I01
+### Fotografia atual — 14/09/2026, após I02
 
-- 15 pacotes de infraestrutura; I01 implementado e validado localmente (1/15); qualificação global I15 pendente.
-- 80 itens restantes de infraestrutura, dos 84 da baseline; I01.1–I01.4 encerrados na implementação local.
+- 15 pacotes de infraestrutura; I01/I02 implementados e validados localmente (2/15); qualificação global I15 pendente.
+- 75 itens restantes de infraestrutura, dos 84 da baseline; I01.1–I02.5 encerrados na implementação local.
 - 4 marcos de infraestrutura, seguidos por 6 pacotes de migração/entrega.
 - 83 critérios finais do AEP com responsáveis mapeados no apêndice.
-- M1: I01 entregue localmente, I02/I03 pendentes; M2–M4 ainda não encerrados. Contagem de pacotes não é porcentagem de esforço ou do AEP.
+- M1: I01/I02 entregues localmente, I03 em integração; M2–M4 ainda não encerrados. Contagem de pacotes não é porcentagem de esforço ou do AEP.
 - Checkbox aberto significa obrigação ainda não encerrada no escopo descrito. Não marcar um pacote concluído apenas porque passou um teste do subconjunto.
 
 ### O que já existe e será reaproveitado
@@ -95,17 +95,17 @@ Critério de saída: Abrir ou reabrir a instalação prepara o armazenamento e a
 
 ### I02 — Contratos completos de catálogo, documentos e fingerprints
 
-Estado: **Parcial**. Esforço restante: **G**.
+Estado: **Implementado e validado localmente**. Qualificação transversal I15 pendente.
 Dependências: interfaces já existentes; pode avançar em paralelo com I01. A montagem real das chaves depende de I01.
 Referências: D2, D2.1, D4, D6, D11.
 
-Evidência/limite atual: internal/commandcatalog valida contratos estáticos; commandledger/signing.go declara projeção fechada de leitura, não canonicalização JSON genérica; commandconfig/documents.go cobre documentos do subconjunto atual.
+Evidência: `commandcatalog.NewComplete`, schemas tipados, `commandcontract.Envelope/SignResolved/SignRefusal`, `commandjson`, `commandconfig.BuildSemanticDefault`; corpus lexical compartilhado em `commandjson/testdata/lexical.json`. Signer legado permanece distinto; adapters/importação e publicação do catálogo real têm pacotes próprios.
 
-- [ ] I02.1 — Completar schema de argumentos, resultado e envelope versionado para origens/contextos previstos; validar grupos opcionais, nulabilidade e limites antes da reserva.
-- [ ] I02.2 — Implementar canonicalização RFC 8785 do conjunto suportado e HMACs com separação de domínio para argumentos, request e demais fingerprints; cobrir números, Unicode, objetos e campos excluídos.
-- [ ] I02.3 — Calcular fingerprint semântico completo dos defaults; apresentação puramente visual não invalida semântica executável.
-- [ ] I02.4 — Fechar contrato de classificação do handler, origens, contexto, sensibilidade, disponibilidade e apresentação localizada; testar catálogo de contratos, sem cadastrar todos os comandos reais.
-- [ ] I02.5 — Definir compatibilidade de versões e corpus de testes compartilhado entre persistência, importação e ingresso.
+- [x] I02.1 — Completar schema de argumentos, resultado e envelope versionado para origens/contextos previstos; validar grupos opcionais, nulabilidade e limites antes da reserva.
+- [x] I02.2 — Implementar canonicalização RFC 8785 do conjunto suportado e HMACs com separação de domínio para argumentos, request e demais fingerprints; cobrir números, Unicode, objetos e campos excluídos.
+- [x] I02.3 — Calcular fingerprint semântico completo dos defaults; apresentação puramente visual não invalida semântica executável.
+- [x] I02.4 — Fechar contrato de classificação do handler, origens, contexto, sensibilidade, disponibilidade e apresentação localizada; testar catálogo de contratos, sem cadastrar todos os comandos reais.
+- [x] I02.5 — Definir compatibilidade de versões e corpus de testes compartilhado entre persistência, importação e ingresso.
 
 Critério de saída: Nenhum consumidor precisa inventar seu próprio formato, identidade de request ou interpretação de segurança.
 
@@ -454,6 +454,15 @@ Avançar em I02 e preparação de I15.1. Ao fechar I02, publicar primeira calibr
 - Bugbot, race detector, corpus completo de upgrades publicados, CI e review remota: não executados nesta entrega; sem push/PR. Não equivaler revisão local do agente a essas aprovações.
 - Esforço observado: três frentes delegadas (criação atômica, testes de schema e testes de chaves), composição/rotação/App e revisão central; correções de ordem não determinística de constraints do GORM e ID UUIDv7 incluídas no próprio I01. Sem aumento da baseline; previsão de calendário ainda aguarda I02.
 - Próximo pacote: I02 — contratos completos de catálogo, documentos e fingerprints. AEP permanece In Progress; comandos atuais não migrados.
+
+
+### Entrega I02 — 14/09/2026
+
+- I02.1–I02.5: catálogo completo opt-in, mutabilidade/classificação conferidas contra handler, schemas fechados, envelope completo, validação estrita e fingerprint semântico com política/decisão/contexto.
+- JCS com vetores numéricos RFC 8785, UTF-16, duplicatas recursivas, limites, Unicode inválido e underflow não suportado. Domínios separados para request/argumentos; signer legado preservado.
+- Defaults calculados antes da publicação; apresentação não muda a semântica. Corpus lexical único consumido por ingresso e documentos persistidos; importação I11 reutilizará o contrato.
+- Testes de commandjson/catalog/contract/config passaram, incluindo repetição count=2. Revisão central corrigiu vinculação da política, enum JSON aninhado e separação nullable/enum. Sem comandos de produto migrados; Bugbot/CI/race continuam pendentes.
+- Calibração: I02 demandou três frentes independentes e integração/revisão central, com correções de contratos entre componentes. O custo dominante foi composição/revisão, não digitação. Não há ainda amostra suficiente para converter I03–I15 em dias com faixa defensável; estimativas G/GG permanecem, sem promessa de número de interações.
 
 ## 9. Rastreabilidade integral dos critérios de aceitação
 
@@ -958,4 +967,3 @@ Responsáveis: I10 / I11 / P05.
 Testes cobrem fallback de defaults, sobreposição, múltiplas camadas, modais, inputs, múltiplas abas, troca de foco, reconexão de dispositivo e prevenção de execução duplicada.
 
 Responsáveis: I15 / P06.
-

@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"assistente/internal/commandbindings"
+	"assistente/internal/commandjson"
 )
 
 const maxDocumentBytes = 64 * 1024
@@ -17,6 +18,12 @@ const maxDocumentBytes = 64 * 1024
 // "code" e "\u0063ode" também são tratados como a mesma chave.
 func strictObject(raw string) (map[string]json.RawMessage, error) {
 	if len(raw) > maxDocumentBytes || !utf8.ValidString(raw) || !validUnicodeEscapes(raw) {
+		return nil, ErrInvalid
+	}
+	// Compartilha o contrato lexical com ingresso e fingerprints: inclusive
+	// duplicatas aninhadas, limites de profundidade e números não representáveis.
+	_, err := commandjson.Canonicalize([]byte(raw))
+	if err != nil {
 		return nil, ErrInvalid
 	}
 

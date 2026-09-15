@@ -4,6 +4,12 @@
 
 **Data:** 2026-09-12
 
+**Acompanhamento da implementação:** `0103-tasklist-infraestrutura.md` contém
+os pacotes e evidências locais. I02 implementa os contratos completos de
+catálogo/envelope/JCS/defaults; detalhes de compatibilidade em
+`0103-contratos-versionados.md`. Isso não encerra os critérios finais nem
+habilita adapters ou migra comandos do produto. Status permanece In Progress.
+
 **Relacionados:** AEP-0001, AEP-0023, AEP-0045, AEP-0046, AEP-0047,
 AEP-0048, AEP-0052, AEP-0058, AEP-0060, AEP-0063, AEP-0067, AEP-0074-B,
 AEP-0080, AEP-0091, AEP-0101

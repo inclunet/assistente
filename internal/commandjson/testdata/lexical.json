@@ -1,0 +1,10 @@
+[
+  {"name":"ordered_object","raw":"{\"version\":1,\"x\":1}","valid":true},
+  {"name":"duplicate_nested","raw":"{\"version\":1,\"x\":{\"a\":1,\"\\u0061\":2}}","valid":false},
+  {"name":"surrogate","raw":"{\"version\":1,\"x\":\"\\ud800\"}","valid":false},
+  {"name":"overflow","raw":"{\"version\":1,\"x\":1e999}","valid":false},
+  {"name":"underflow","raw":"{\"version\":1,\"x\":1e-999}","valid":false},
+  {"name":"trailing","raw":"{\"version\":1}{}","valid":false},
+  {"name":"unicode","raw":"{\"version\":1,\"x\":\"ação 🎹\"}","valid":true},
+  {"name":"equivalent_numbers","raw":"{\"version\":1,\"x\":1.0,\"y\":1e0}","valid":true}
+]
