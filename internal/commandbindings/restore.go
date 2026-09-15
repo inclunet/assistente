@@ -59,7 +59,12 @@ func (c *Configuration) WithoutDeltas(ids []string) (*Configuration, error) {
 	}
 	slices.Sort(deltaIDs)
 	for _, defaultID := range deltaIDs {
-		for _, delta := range c.deltas[defaultID] {
+		// A restauração é um novo snapshot. Ordenar também o grupo evita que
+		// a ordem incidental de inserção altere a materialização de deltas
+		// equivalentes após restore/rebase.
+		group := slices.Clone(c.deltas[defaultID])
+		slices.SortFunc(group, func(a, b Delta) int { return strings.Compare(a.ID, b.ID) })
+		for _, delta := range group {
 			if _, drop := removed[delta.ID]; drop {
 				continue
 			}

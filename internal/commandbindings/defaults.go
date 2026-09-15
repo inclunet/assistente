@@ -132,6 +132,15 @@ func NewConfiguration(defaults []Default, deltas []Delta, custom []Candidate) (*
 		if exists && base.Invariant {
 			return nil, fmt.Errorf("default invariante não admite delta: %s", delta.DefaultID)
 		}
+		// Mesmo quando o fingerprint mudou, a forma do delta continua sendo
+		// entrada de configuração e precisa ser validada antes de virar uma
+		// pendência. Classificar como needs_review não é um bypass para campos
+		// impossíveis de materializar.
+		if exists {
+			if _, err := withDelta(base.Candidate, delta); err != nil {
+				return nil, err
+			}
+		}
 		reason := ""
 		switch {
 		case !exists:
@@ -142,23 +151,24 @@ func NewConfiguration(defaults []Default, deltas []Delta, custom []Candidate) (*
 			// Mesmo fingerprint com acionador distinto viola o contrato do
 			// produtor confiável; não reinterpretar como remapeamento.
 			return nil, fmt.Errorf("acionador diverge do default sem mudança de fingerprint")
-		case delta.ReviewStatus == NeedsReview:
-			if _, err := withDelta(base.Candidate, delta); err != nil {
-				return nil, err
-			}
-			reason = "pending_review"
 		default:
-			if _, err := withDelta(base.Candidate, delta); err != nil {
-				return nil, err
-			}
 			if base.Version != delta.DefaultVersion {
-				c.adjustments = append(c.adjustments, Adjustment{delta.ID, Active, base.Version, "version_advanced"})
+				// O status original é parte do ajuste para que o repository
+				// possa reaplicar somente a versão sem reativar uma pendência.
+				c.adjustments = append(c.adjustments, Adjustment{delta.ID, delta.ReviewStatus, base.Version, "version_advanced"})
 				delta.DefaultVersion = base.Version
+			}
+			// Uma pendência explícita permanece pendente, mas não exige um
+			// segundo ajuste: o avanço de versão acima já é reutilizável.
+			if delta.ReviewStatus == NeedsReview {
+				reason = "pending_review"
 			}
 		}
 		if reason != "" {
 			delta.ReviewStatus = NeedsReview
-			c.adjustments = append(c.adjustments, Adjustment{delta.ID, NeedsReview, delta.DefaultVersion, reason})
+			if reason != "pending_review" {
+				c.adjustments = append(c.adjustments, Adjustment{delta.ID, NeedsReview, delta.DefaultVersion, reason})
+			}
 		}
 		c.deltas[delta.DefaultID] = append(c.deltas[delta.DefaultID], delta)
 		// Uma referência órfã ou default cujo acionador mudou deve bloquear
@@ -218,19 +228,23 @@ func (c *Configuration) Resolve(trigger string, facts Facts, dialog *DialogScope
 				continue
 			}
 			if delta.ReviewStatus == NeedsReview {
-				// Com semântica preservada conhecemos exatamente o contexto
-				// herdado. Uma pendência não deve bloquear outra surface/perfil.
-				if exists && base.Fingerprint == delta.DefaultFingerprint &&
-					(!matches(base.Candidate.Condition, facts) || !matches(delta.Condition, facts)) {
+				// A pendência bloqueia apenas a conjunção efetiva do default e
+				// do estreitamento do delta. Não transforma uma revisão de uma
+				// surface/perfil em bloqueio global do acionador.
+				if exists && trigger != base.Candidate.Trigger && trigger != delta.Trigger {
+					continue
+				}
+				if exists && !matches(base.Candidate.Condition, facts) {
+					continue
+				}
+				if !matches(delta.Condition, facts) {
 					continue
 				}
 				// Pendência nunca é ativação implícita. Fora de diálogo, bloqueia
 				// conservadoramente o acionador antigo/atual. Durante diálogo só
 				// o default do topmost pode bloquear sua própria combinação.
 				if dialog == nil || exists && eligible(base.Candidate, facts, dialog) {
-					if !exists || matches(delta.Condition, facts) || matches(base.Candidate.Condition, facts) {
-						review = append(review, delta.ID)
-					}
+					review = append(review, delta.ID)
 				}
 				continue
 			}

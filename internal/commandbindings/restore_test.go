@@ -216,6 +216,24 @@ func TestWithoutDeltasRemoveMultiplosIDsValidos(t *testing.T) {
 	}
 }
 
+func TestWithoutDeltasOrdenaDeltasNoSnapshotRestaurado(t *testing.T) {
+	d, first := defaultFixture()
+	second := first
+	second.ID = "aaa"
+	first.ID = "zzz"
+	config, err := NewConfiguration([]Default{d}, []Delta{first, second}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := config.WithoutDeltas(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := restored.deltas[d.Candidate.ID]; len(got) != 2 || got[0].ID != "aaa" || got[1].ID != "zzz" {
+		t.Fatalf("deltas não ordenados no snapshot restaurado: %+v", got)
+	}
+}
+
 func TestWithoutDeltasRemoveDeltaOrfao(t *testing.T) {
 	_, delta := defaultFixture()
 	config, err := NewConfiguration(nil, []Delta{delta}, nil)

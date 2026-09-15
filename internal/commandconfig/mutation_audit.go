@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -36,7 +37,7 @@ type BindingMutation struct {
 
 func (BindingMutation) TableName() string { return "command_config_mutations" }
 
-func mutationAuditSchema() string {
+func mutationAuditSchemaV1() string {
 	return fmt.Sprintf(`CREATE TABLE command_config_mutations (
 		mutation_id TEXT NOT NULL PRIMARY KEY CHECK %s,
 		schema_version INTEGER NOT NULL CHECK (schema_version = 1),
@@ -56,6 +57,28 @@ func mutationAuditSchema() string {
 		after_enabled BOOLEAN NOT NULL CHECK (after_enabled IN (0, 1) AND after_enabled <> before_enabled),
 		occurred_at DATETIME NOT NULL
 	)`, uuid7Check("mutation_id"), uuid7Check("user_id"), uuid7Check("session_id"), uuid7Check("binding_id"), uuid7Check("decision_id"), uuid7Check("generation_id"))
+}
+
+// LegacyMutationAuditSchema expõe apenas o DDL v1 conhecido para o upgrade
+// central comparar antes de reconstruir a tabela, nunca para aceitar drift.
+func LegacyMutationAuditSchema() string { return mutationAuditSchemaV1() }
+
+func mutationAuditSchema() string {
+	s := mutationAuditSchemaV1()
+	s = strings.Replace(s, "CHECK (schema_version = 1)", "CHECK (schema_version IN (1,2))", 1)
+	s = strings.Replace(s, "CHECK (scope = 'global')", "CHECK (scope IN ('global','workspace'))", 1)
+	s = strings.Replace(s, "CHECK (operation = 'binding_enabled')", "CHECK (operation IN ('binding_enabled','layer_create','layer_update','layer_delete','layer_enable','layer_disable','layer_restore','binding_create','binding_update','binding_delete','binding_enable','binding_disable','binding_restore','config_restore','default_upgrade','default_rebase'))", 1)
+	s = strings.Replace(s, "binding_id TEXT NOT NULL", "binding_id TEXT", 1)
+	s = strings.Replace(s, "before_enabled BOOLEAN NOT NULL", "before_enabled BOOLEAN", 1)
+	s = strings.Replace(s, "after_enabled BOOLEAN NOT NULL", "after_enabled BOOLEAN", 1)
+	s = strings.Replace(s, "occurred_at DATETIME NOT NULL", fmt.Sprintf(`workspace_id TEXT CHECK (workspace_id IS NULL OR %s),
+		before_document TEXT CHECK (before_document IS NULL OR json_valid(before_document)),
+		after_document TEXT CHECK (after_document IS NULL OR json_valid(after_document)),
+		occurred_at DATETIME NOT NULL,
+		CHECK ((scope = 'global' AND workspace_id IS NULL) OR (scope = 'workspace' AND workspace_id IS NOT NULL)),
+		CHECK ((schema_version = 1 AND operation = 'binding_enabled' AND scope = 'global' AND binding_id IS NOT NULL AND before_enabled IS NOT NULL AND after_enabled IS NOT NULL AND before_document IS NULL AND after_document IS NULL)
+		OR (schema_version = 2 AND operation <> 'binding_enabled' AND before_document IS NOT NULL AND after_document IS NOT NULL AND before_enabled IS NULL AND after_enabled IS NULL))`, workspaceCheck("workspace_id")), 1)
+	return s
 }
 
 func migrateMutationAudit(tx *gorm.DB) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -101,21 +102,30 @@ func readGenerations(tx *gorm.DB, scope Scope) ([]Generation, error) {
 	if len(rows) != want {
 		return nil, ErrInvalid
 	}
-	seen := map[string]bool{}
+	seen := map[struct {
+		local bool
+		id    string
+	}]bool{}
 	for _, row := range rows {
 		if !validID(row.ID) || row.UserID != scope.UserID || row.Generation < 1 || !inScope(row.WorkspaceID, scope) {
 			return nil, ErrInvalid
 		}
-		key := "global"
+		key := struct {
+			local bool
+			id    string
+		}{}
 		if row.WorkspaceID != nil {
-			key = *row.WorkspaceID
+			key.local, key.id = true, *row.WorkspaceID
 		}
 		if seen[key] {
 			return nil, ErrInvalid
 		}
 		seen[key] = true
 	}
-	if !seen["global"] {
+	if !seen[struct {
+		local bool
+		id    string
+	}{}] {
 		return nil, ErrInvalid
 	}
 	return rows, nil
@@ -198,10 +208,13 @@ func validID(value string) bool {
 	return err == nil && id.Version() == 7 && id.Variant() == uuid.RFC4122 && id.String() == value
 }
 func validScope(scope Scope) bool {
-	return validID(scope.UserID) && (scope.WorkspaceID == nil || validID(*scope.WorkspaceID))
+	return validID(scope.UserID) && (scope.WorkspaceID == nil || validWorkspaceID(*scope.WorkspaceID))
+}
+func validWorkspaceID(value string) bool {
+	return len(value) > 0 && len(value) <= 256 && utf8.ValidString(value) && strings.TrimSpace(value) == value && !strings.ContainsRune(value, '\x00')
 }
 func inScope(workspace *string, scope Scope) bool {
-	return workspace == nil || (scope.WorkspaceID != nil && validID(*workspace) && *workspace == *scope.WorkspaceID)
+	return workspace == nil || (scope.WorkspaceID != nil && validWorkspaceID(*workspace) && *workspace == *scope.WorkspaceID)
 }
 func sameWorkspace(a, b *string) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)

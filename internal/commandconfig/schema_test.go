@@ -93,13 +93,26 @@ func TestSchemaConstraints(t *testing.T) {
 	}
 	invalidWorkspace := uuid.New().String()
 	invalidLayer := map[string]any{"id": schemaUUID7(t), "user_id": userID, "workspace_id": invalidWorkspace, "name": "uuid4", "description": "", "enabled": true, "source": "user", "resolution_priority": 1, "created_at": now, "updated_at": now}
-	if err := db.Table("command_layers").Create(invalidLayer).Error; err == nil {
-		t.Fatal("workspace UUIDv4 deveria ser rejeitado")
+	if err := db.Table("command_layers").Create(invalidLayer).Error; err != nil {
+		t.Fatalf("workspace é ID opaco, não PK criada pela AEP: %v", err)
 	}
 	malformedWorkspace := "-" + localWorkspace[1:]
 	malformedLayer := map[string]any{"id": schemaUUID7(t), "user_id": userID, "workspace_id": malformedWorkspace, "name": "malformed", "description": "", "enabled": true, "source": "user", "resolution_priority": 1, "created_at": now, "updated_at": now}
-	if err := db.Table("command_layers").Create(malformedLayer).Error; err == nil {
-		t.Fatal("UUID com hífen hexadecimal extra deveria ser rejeitado")
+	if err := db.Table("command_layers").Create(malformedLayer).Error; err != nil {
+		t.Fatalf("formato não UUID é permitido para workspace opaco: %v", err)
+	}
+	for _, bad := range []string{"", " ", " ws-real", "ws-real\x00suffix"} {
+		row := map[string]any{"id": schemaUUID7(t), "user_id": userID, "workspace_id": bad, "name": "invalid opaque", "description": "", "enabled": true, "source": "user", "resolution_priority": 1, "created_at": now, "updated_at": now}
+		if err := db.Table("command_layers").Create(row).Error; err == nil {
+			t.Fatalf("workspace vazio/ambíguo aceito: %q", bad)
+		}
+	}
+	for _, field := range []string{"id", "user_id"} {
+		row := map[string]any{"id": schemaUUID7(t), "user_id": userID, "workspace_id": "ws-real", "name": "invalid PK", "description": "", "enabled": true, "source": "user", "resolution_priority": 1, "created_at": now, "updated_at": now}
+		row[field] = uuid.NewString()
+		if err := db.Table("command_layers").Create(row).Error; err == nil {
+			t.Fatalf("%s continua exigindo UUIDv7", field)
+		}
 	}
 	duplicate := map[string]any{"id": schemaUUID7(t), "user_id": userID, "name": "global", "description": "", "enabled": true, "source": "user", "resolution_priority": 1, "created_at": now, "updated_at": now}
 	if err := db.Table("command_layers").Create(duplicate).Error; err == nil {

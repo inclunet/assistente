@@ -88,6 +88,52 @@ func TestUpgradeVersaoSemMutarEntrada(t *testing.T) {
 	}
 }
 
+func TestUpgradeVersaoDePendenciaGeraAdjustmentSemReativar(t *testing.T) {
+	d, x := defaultFixture()
+	d.Version = "2"
+	x.ReviewStatus = NeedsReview
+	c, err := NewConfiguration([]Default{d}, []Delta{x}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adjustments := c.Adjustments()
+	if len(adjustments) != 1 || adjustments[0] != (Adjustment{x.ID, NeedsReview, "2", "version_advanced"}) {
+		t.Fatalf("ajuste de versão inesperado: %+v", adjustments)
+	}
+	if c.deltas[x.DefaultID][0].DefaultVersion != "2" || c.deltas[x.DefaultID][0].ReviewStatus != NeedsReview {
+		t.Fatalf("pendência foi reativada ou não avançou: %+v", c.deltas[x.DefaultID][0])
+	}
+	got, err := c.Resolve(x.Trigger, nil, nil)
+	if err != nil || got.Status != ReviewRequired || len(got.BindingIDs) != 1 || got.BindingIDs[0] != x.ID {
+		t.Fatalf("pendência não bloqueou somente sua configuração: got=%+v err=%v", got, err)
+	}
+}
+
+func TestNeedsReviewBloqueiaSomenteConjuncaoDoContexto(t *testing.T) {
+	d, x := defaultFixture()
+	x.ReviewStatus = NeedsReview
+	x.Condition = Facts{Profile: "dev"}
+	c, err := NewConfiguration([]Default{d}, []Delta{x}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		facts  Facts
+		status Status
+	}{
+		{name: "fora do perfil", facts: Facts{Profile: "prod"}, status: Selected},
+		{name: "no perfil pendente", facts: Facts{Profile: "dev"}, status: ReviewRequired},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := c.Resolve(x.Trigger, tc.facts, nil)
+			if err != nil || got.Status != tc.status {
+				t.Fatalf("status inesperado: got=%+v err=%v", got, err)
+			}
+		})
+	}
+}
+
 func TestDeltaInvalido(t *testing.T) {
 	for _, change := range []func(*Default, *Delta){
 		func(d *Default, x *Delta) { d.Invariant = true },

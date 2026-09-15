@@ -14,6 +14,10 @@ func uuid7Check(column string) string {
 	return fmt.Sprintf(uuid7CanonicalSQL, column, column, column, column, column, column, column, column, column, column, column)
 }
 
+func workspaceCheck(column string) string {
+	return fmt.Sprintf("(length(%s) BETWEEN 1 AND 256 AND trim(%s) = %s AND instr(%s, char(0)) = 0)", column, column, column, column)
+}
+
 // Migrate cria somente as tabelas de configuração de comandos. A migração não
 // registra modelos no App nem acessa o banco global; o chamador fornece a
 // conexão explicitamente.
@@ -50,7 +54,7 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 				resolution_priority INTEGER NOT NULL,
 				created_at DATETIME NOT NULL,
 				updated_at DATETIME NOT NULL
-			)`, uuid7Check("id"), uuid7Check("user_id"), uuid7Check("workspace_id")),
+			)`, uuid7Check("id"), uuid7Check("user_id"), workspaceCheck("workspace_id")),
 			fmt.Sprintf(`CREATE TABLE IF NOT EXISTS command_bindings (
 				id TEXT NOT NULL PRIMARY KEY CHECK %s,
 				user_id TEXT NOT NULL CHECK %s,
@@ -79,14 +83,14 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 				CHECK (effect = 'execute' AND command_id IS NOT NULL AND length(trim(command_id)) > 0 OR effect = 'suppress' AND command_id IS NULL),
 				CHECK (effect <> 'suppress' OR arguments = '{}'),
 				CHECK (effect <> 'suppress' OR (replaces_default_id IS NOT NULL AND length(trim(replaces_default_id)) > 0))
-			)`, uuid7Check("id"), uuid7Check("user_id"), uuid7Check("workspace_id")),
+			)`, uuid7Check("id"), uuid7Check("user_id"), workspaceCheck("workspace_id")),
 			fmt.Sprintf(`CREATE TABLE IF NOT EXISTS command_config_generations (
 				id TEXT NOT NULL PRIMARY KEY CHECK %s,
 				user_id TEXT NOT NULL CHECK %s,
 				workspace_id TEXT CHECK (workspace_id IS NULL OR %s),
 				generation INTEGER NOT NULL CHECK (typeof(generation) = 'integer' AND generation >= 1),
 				updated_at DATETIME NOT NULL
-			)`, uuid7Check("id"), uuid7Check("user_id"), uuid7Check("workspace_id")),
+			)`, uuid7Check("id"), uuid7Check("user_id"), workspaceCheck("workspace_id")),
 		}
 		for _, statement := range statements {
 			if err := tx.Exec(statement).Error; err != nil {
