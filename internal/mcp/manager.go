@@ -1824,7 +1824,7 @@ func (m *Manager) checkAndRefreshTokenWithContext(ctx context.Context, slug stri
 		return
 	}
 	if refreshed {
-		logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Token renovado proativamente", slug)
+		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] Token renovado proativamente", slug)
 	}
 }
 
@@ -1898,7 +1898,14 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 		Expiry:       time.Now().Add(-1 * time.Hour),
 	}
 
-	refreshCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	// O refresh deriva de authCtx (o contexto user-scoped usado para LER as
+	// credenciais acima), não do ctx do caller. A persistência do token renovado
+	// é user-scoped: se ela usasse um ctx sem usuário (ex.: m.ctx do loop
+	// proativo), o refresh LIA as credenciais do usuário mas falhava ao GRAVAR
+	// com "authenticated user required" — gravando fora de escopo e emitindo o
+	// falso ERROR observado no assistente.log. Ler e gravar pelo mesmo contexto
+	// mantém a operação inteira consistente com o escopo do usuário.
+	refreshCtx, cancel := context.WithTimeout(authCtx, 15*time.Second)
 	defer cancel()
 
 	newToken, err := oauthCfg.TokenSource(refreshCtx, expiredToken).Token()
@@ -1918,7 +1925,7 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 		return false, err
 	}
 
-	logging.Errorf(ctx, "mcp.manager", "[MCP:%s] Token renovado (novo expiry: %v)", slug, newToken.Expiry.Format(time.RFC3339))
+	logging.Infof(ctx, "mcp.manager", "[MCP:%s] Token renovado (novo expiry: %v)", slug, newToken.Expiry.Format(time.RFC3339))
 	return true, nil
 }
 
