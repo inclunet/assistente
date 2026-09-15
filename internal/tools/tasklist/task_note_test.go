@@ -252,6 +252,101 @@ func TestTaskNote_ListValidationAndNullFilter(t *testing.T) {
 	}
 }
 
+// TestTaskNote_CoercesStringEncodedIntArgs cobre o padrão comum de LLMs de
+// serializar inteiros como string ({"type":"2"}), que antes derrubava o job em
+// loop no unmarshal. type e limit devem ser aceitos tanto como número quanto
+// como string numérica.
+func TestTaskNote_CoercesStringEncodedIntArgs(t *testing.T) {
+	mgr := newFakeManager(t)
+	list := mgr.addTaskList("Fila", defaultStatuses())
+	task := mgr.addTask(list.ID, "Chamado", 1)
+	tool := NewTaskNote(mgr)
+
+	// Escrita: type como string "2" (customer) deve criar a nota normalmente.
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": task.ID,
+		"type":    "2",
+		"content": "type serializado como string",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError || !strings.Contains(result.Content, "Note added") {
+		t.Fatalf("type string deveria ser coagido para int: %+v", result)
+	}
+	notes, err := mgr.GetTaskNotes(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 || notes[0].Type != database.TaskNoteCustomer {
+		t.Fatalf("nota não persistida com type=customer: %+v", notes)
+	}
+
+	// Segunda nota para exercitar a paginação com limit como string.
+	if _, err := mgr.CreateTaskNote(context.Background(), task.ID, database.TaskNoteInternal, "segunda", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	mgr.refreshSnapshots()
+
+	listed, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"list":    true,
+		"task_id": task.ID,
+		"limit":   "1",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed.IsError || !listed.Structured {
+		t.Fatalf("limit string deveria ser coagido para int: %+v", listed)
+	}
+	var body struct {
+		Notes   []map[string]any `json:"notes"`
+		HasMore bool             `json:"has_more"`
+	}
+	if err := json.Unmarshal([]byte(listed.Content), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Notes) != 1 || !body.HasMore {
+		t.Fatalf("limit=\"1\" deveria retornar 1 nota com has_more=true: %+v", body)
+	}
+}
+
+// TestCoerceStringEncodedInts documenta o contrato do helper: só converte string
+// numérica nas chaves pedidas; número, null, string vazia, string não-numérica e
+// chaves ausentes ficam intactos para o unmarshal tratar.
+func TestCoerceStringEncodedInts(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "string numérica vira número", in: `{"type":"2"}`, want: `{"type":2}`},
+		{name: "número é preservado", in: `{"type":2}`, want: `{"type":2}`},
+		{name: "string com espaços", in: `{"limit":" 10 "}`, want: `{"limit":10}`},
+		{name: "string não-numérica intacta", in: `{"type":"abc"}`, want: `{"type":"abc"}`},
+		{name: "string vazia intacta", in: `{"type":""}`, want: `{"type":""}`},
+		{name: "null intacto", in: `{"type":null}`, want: `{"type":null}`},
+		{name: "chave ausente intacta", in: `{"content":"x"}`, want: `{"content":"x"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := coerceStringEncodedInts(json.RawMessage(tc.in), "type", "limit")
+			var gotMap, wantMap map[string]any
+			if err := json.Unmarshal(got, &gotMap); err != nil {
+				t.Fatalf("saída inválida %q: %v", string(got), err)
+			}
+			if err := json.Unmarshal([]byte(tc.want), &wantMap); err != nil {
+				t.Fatal(err)
+			}
+			gotNorm, _ := json.Marshal(gotMap)
+			wantNorm, _ := json.Marshal(wantMap)
+			if string(gotNorm) != string(wantNorm) {
+				t.Fatalf("coerceStringEncodedInts(%q) = %q, quer %q", tc.in, string(gotNorm), string(wantNorm))
+			}
+		})
+	}
+}
+
 func TestTaskNote_LegacyWriteStillWorksWithoutList(t *testing.T) {
 	mgr := newFakeManager(t)
 	list := mgr.addTaskList("Fila", defaultStatuses())

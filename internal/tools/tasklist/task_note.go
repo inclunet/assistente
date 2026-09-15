@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -187,7 +188,52 @@ func (t *TaskNoteTool) resolveTaskID(ctx context.Context, params taskNoteArgs) (
 	return t.mgr.ResolveTaskRef(ctx, listIP, params.TaskListSlug, nil, codeTrim)
 }
 
+// coerceStringEncodedInts torna o parse tolerante a inteiros serializados como
+// string (ex.: {"type":"2"} em vez de {"type":2}), padrão comum de LLMs que, do
+// contrário, faria o job/tool falhar em loop no unmarshal. Só converte as chaves
+// informadas quando o valor é uma string contendo um inteiro válido; qualquer
+// outro valor (número, null, string não-numérica) é preservado para o unmarshal
+// tratar normalmente.
+func coerceStringEncodedInts(args json.RawMessage, keys ...string) json.RawMessage {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(args, &fields); err != nil {
+		return args
+	}
+	changed := false
+	for _, key := range keys {
+		raw, ok := fields[key]
+		if !ok {
+			continue
+		}
+		var str string
+		if err := json.Unmarshal(raw, &str); err != nil {
+			continue // não é string (número, null, objeto): mantém intacto
+		}
+		trimmed := strings.TrimSpace(str)
+		if trimmed == "" {
+			continue
+		}
+		n, err := strconv.Atoi(trimmed)
+		if err != nil {
+			continue // string não-numérica: deixa o unmarshal reportar o erro real
+		}
+		fields[key] = json.RawMessage(strconv.Itoa(n))
+		changed = true
+	}
+	if !changed {
+		return args
+	}
+	coerced, err := json.Marshal(fields)
+	if err != nil {
+		return args
+	}
+	return coerced
+}
+
 func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
+	// Tolera inteiros serializados como string (ex.: {"type":"2"}), padrão comum
+	// de LLMs, antes de desserializar nos campos int do struct.
+	args = coerceStringEncodedInts(args, "type", "limit")
 	var params taskNoteArgs
 	if err := json.Unmarshal(args, &params); err != nil {
 		return tools.ToolResult{Content: "Error parsing arguments: " + err.Error(), IsError: true}, nil
