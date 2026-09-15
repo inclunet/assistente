@@ -108,10 +108,13 @@ func (c *Consumer) liveClaim(ctx context.Context, tx *gorm.DB, lease Lease, now 
 	if err := tx.Where("activation_id = ? AND user_id = ? AND source_type = ?", lease.ActivationID, lease.UserID, "job").Take(&claim).Error; err != nil {
 		return claim, commandactivation.Owner{}, err
 	}
-	if claim.State != commandactivation.StateActive || !lease.ExpiresAt.After(now) || claim.SourceEventID == nil || claim.SourceCorrelationID == nil || *claim.SourceCorrelationID != lease.RunID {
+	if claim.State != commandactivation.StateActive || (claim.ExpiresAt != nil && !claim.ExpiresAt.After(now)) || !lease.ExpiresAt.After(now) || claim.SourceEventID == nil || claim.SourceCorrelationID == nil || *claim.SourceCorrelationID != lease.RunID {
 		return claim, commandactivation.Owner{}, ErrUnavailable
 	}
-	f, err := c.outbox.VerifiedFactTx(ctx, tx, *claim.SourceEventID, now)
+	// Heartbeat prova a continuidade de um runtime já admitido. Ele não é uma
+	// nova admissão do evento e, portanto, não pode exigir que o deadline de
+	// replay ainda esteja no futuro.
+	f, err := c.outbox.VerifiedRuntimeFactTx(ctx, tx, *claim.SourceEventID, now)
 	if err != nil {
 		return claim, commandactivation.Owner{}, err
 	}
