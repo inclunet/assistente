@@ -1,7 +1,10 @@
 import {
   CommandBridgeError,
+  DECISION_REPEAT_TRIGGER,
+  DECISION_RESPOND_COMMAND_ID,
   type CommandBridge,
   type CommandBridgeOwner,
+  type DialogCommandScope,
   type CommandLifecycleEvent,
 } from './commandBridge';
 import {
@@ -23,7 +26,7 @@ export interface CommandDialogRequest {
 
 /** Porta mínima da stack de diálogos existente. */
 export interface CommandDialogUI {
-  request(payload: QuestionnairePayload): Promise<QuestionnaireUIResult>;
+  request(payload: QuestionnairePayload, scope?: DialogCommandScope): Promise<QuestionnaireUIResult>;
   /** Cancela somente o payload indicado, ativo ou enfileirado nessa stack. */
   cancelById(payloadId: string): boolean;
 }
@@ -35,7 +38,7 @@ export interface CommandDialogUI {
  * usa o modal atualmente visível como fallback de ownership.
  */
 export const questionnaireCommandDialogUI: CommandDialogUI = {
-  request: (payload) => useQuestionnaireUIStore.getState().request(payload),
+  request: (payload, scope) => useQuestionnaireUIStore.getState().request(payload, scope),
   cancelById: (payloadId) => useQuestionnaireUIStore.getState().cancelById(payloadId),
 };
 
@@ -52,6 +55,8 @@ interface PendingDialog {
   readonly reject: (error: unknown) => void;
   settled: boolean;
 }
+
+let nextDialogScopeGeneration = 0n;
 
 function validText(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.trim() === value;
@@ -133,6 +138,17 @@ function cloneAndFreeze<T>(value: T, seen = new WeakMap<object, unknown>()): T {
   return Object.freeze(clone) as T;
 }
 
+function scopeFor(payload: QuestionnairePayload): DialogCommandScope {
+  const generation = (++nextDialogScopeGeneration).toString();
+  return Object.freeze({
+    dialogId: payload.id,
+    kind: 'decision' as const,
+    generation,
+    allowedCommandIds: Object.freeze([DECISION_RESPOND_COMMAND_ID]) as ['decision.respond'],
+    allowedTriggerSpecs: Object.freeze([DECISION_REPEAT_TRIGGER]) as ['keyboard.local:Ctrl+Shift+R'],
+  });
+}
+
 function cancelledResult(): QuestionnaireUIResult {
   return { answers: {}, cancelled: true };
 }
@@ -191,6 +207,7 @@ export function createCommandBridgeDialogAdapter(
 
     const stableRequest = cloneAndFreeze(request);
     const payload = stableRequest.payload;
+    const scope = scopeFor(payload);
     return new Promise<QuestionnaireUIResult>((resolve, reject) => {
       const entry: PendingDialog = {
         request: stableRequest,
@@ -203,7 +220,7 @@ export function createCommandBridgeDialogAdapter(
 
       let uiResult: Promise<QuestionnaireUIResult>;
       try {
-        uiResult = ui.request(payload);
+        uiResult = ui.request(payload, scope);
       } catch (error) {
         pending.delete(payload.id);
         entry.settled = true;

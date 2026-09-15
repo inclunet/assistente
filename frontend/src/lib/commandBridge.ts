@@ -18,6 +18,19 @@ export type CommandSource =
   | 'event'
   | 'system';
 
+export const DECISION_RESPOND_COMMAND_ID = 'decision.respond';
+export const DECISION_REPEAT_TRIGGER = 'keyboard.local:Ctrl+Shift+R';
+
+/** Scope do dispatcher enquanto uma decisão está no topo do stack. */
+export interface DialogCommandScope {
+  readonly dialogId: string;
+  readonly kind: 'decision';
+  /** Geração monotônica do scope, distinta da geração da sessão. */
+  readonly generation: string;
+  readonly allowedCommandIds: readonly ['decision.respond'];
+  readonly allowedTriggerSpecs: readonly ['keyboard.local:Ctrl+Shift+R'];
+}
+
 export interface CommandBridgeOwner {
   readonly userId: string;
   readonly sessionId: string;

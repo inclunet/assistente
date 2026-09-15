@@ -5,7 +5,7 @@ import {
   type CommandDialogRequest,
   type CommandDialogUI,
 } from './commandBridgeDialogAdapter';
-import type { CommandBridgeOwner, CommandLifecycleEvent } from './commandBridge';
+import type { CommandBridgeOwner, CommandLifecycleEvent, DialogCommandScope } from './commandBridge';
 import type { QuestionnairePayload } from '../components/ui/QuestionnaireDialog';
 import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 
@@ -48,7 +48,7 @@ function controlledUI(): {
 
 describe('createCommandBridgeDialogAdapter', () => {
   beforeEach(() => {
-    useQuestionnaireUIStore.setState({ active: null, queue: [], _activeResolve: null });
+    useQuestionnaireUIStore.setState({ active: null, activeScope: null, queue: [], _activeResolve: null });
   });
 
   it('usa a stack de questionários existente e cancela apenas o diálogo ativo do próprio id', async () => {
@@ -129,6 +129,25 @@ describe('createCommandBridgeDialogAdapter', () => {
     });
   });
 
+  it('publica no topo o scope fixo da decisão e não transforma actions em command IDs', async () => {
+    const lifecycleHost = { lifecycle: vi.fn(async () => undefined), shutdown: vi.fn(async () => undefined) };
+    const adapter = createCommandBridgeDialogAdapter(lifecycleHost);
+    const first = adapter.present(request('scope-first'));
+    const second = adapter.present(request('scope-second'));
+
+    const scope = useQuestionnaireUIStore.getState().activeScope as DialogCommandScope;
+    expect(scope).toMatchObject({ dialogId: 'scope-first', kind: 'decision' });
+    expect(scope.generation).toMatch(/^[1-9]\d*$/);
+    expect(scope.allowedCommandIds).toEqual(['decision.respond']);
+    expect(scope.allowedTriggerSpecs).toEqual(['keyboard.local:Ctrl+Shift+R']);
+    expect(scope.allowedCommandIds).not.toContain('allow');
+
+    await adapter.lifecycle(lifecycle('logout', '1'));
+    await expect(first).resolves.toEqual({ answers: {}, cancelled: true });
+    await expect(second).resolves.toEqual({ answers: {}, cancelled: true });
+    expect(useQuestionnaireUIStore.getState().activeScope).toBeNull();
+  });
+
   it('rejeita contexto implícito ou payload que não é decisão', async () => {
     const { ui } = controlledUI();
     const adapter = createCommandBridgeDialogAdapter({
@@ -154,6 +173,11 @@ describe('createCommandBridgeDialogAdapter', () => {
         ...payload('duplicate-actions'),
         actions: [{ id: 'same', label: 'A' }, { id: 'same', label: 'B' }],
       },
+    })).rejects.toMatchObject({ code: 'invalid-request' });
+    await expect(adapter.present({
+      ...request(),
+      owner: { ...owner, sessionId: owner.sessionId },
+      payload: { ...payload('bad-label'), actions: [{ id: 'allow', label: {} as never }] },
     })).rejects.toMatchObject({ code: 'invalid-request' });
     expect(ui.request).not.toHaveBeenCalled();
   });
@@ -278,5 +302,22 @@ describe('createCommandBridgeDialogAdapter', () => {
     expect(questionnaireCommandDialogUI.cancelById('owned')).toBe(true);
     expect(resolve).toHaveBeenCalledWith({ answers: {}, cancelled: true });
     expect(useQuestionnaireUIStore.getState().active).toBeNull();
+  });
+
+  it('preserva identidade da sessão: logout de outra sessão não fecha a decisão', async () => {
+    const { ui, results } = controlledUI();
+    const adapter = createCommandBridgeDialogAdapter({
+      lifecycle: vi.fn(async () => undefined),
+      shutdown: vi.fn(async () => undefined),
+    }, ui);
+    const pending = adapter.present(request('other-session'));
+
+    await adapter.lifecycle({ kind: 'logout', sessionId: 'session-other', generation: '1' });
+    expect(ui.cancelById).not.toHaveBeenCalled();
+    results.get('other-session')?.({ answers: { actionId: 'allow' }, cancelled: false });
+    await expect(pending).resolves.toEqual({
+      answers: { actionId: 'allow' },
+      cancelled: false,
+    });
   });
 });

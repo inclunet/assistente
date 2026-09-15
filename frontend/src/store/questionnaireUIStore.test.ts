@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useQuestionnaireUIStore } from './questionnaireUIStore';
 import type { QuestionnairePayload } from '../components/ui/QuestionnaireDialog';
+import type { DialogCommandScope } from '../lib/commandBridge';
 
 function payload(id: string): QuestionnairePayload {
   return {
@@ -13,7 +14,7 @@ function payload(id: string): QuestionnairePayload {
 
 describe('questionnaireUIStore.cancelById', () => {
   beforeEach(() => {
-    useQuestionnaireUIStore.setState({ active: null, queue: [], _activeResolve: null });
+    useQuestionnaireUIStore.setState({ active: null, activeScope: null, queue: [], _activeResolve: null });
   });
 
   it('remove e resolve item enfileirado sem tocar o diálogo ativo', async () => {
@@ -53,5 +54,27 @@ describe('questionnaireUIStore.cancelById', () => {
     expect(useQuestionnaireUIStore.getState().queue).toHaveLength(1);
     useQuestionnaireUIStore.getState().cancelById('queued');
     await expect(queued).resolves.toEqual({ answers: {}, cancelled: true });
+  });
+
+  it('recusa escopo de outro diálogo e conserva cópia imutável ao promover a fila', async () => {
+    const scope = {
+      dialogId: 'queued', kind: 'decision', generation: '1',
+      allowedCommandIds: ['decision.respond'],
+      allowedTriggerSpecs: ['keyboard.local:Ctrl+Shift+R'],
+    } as DialogCommandScope;
+    await expect(useQuestionnaireUIStore.getState().request(payload('foreign'), scope)).rejects.toThrow('scope is invalid');
+    const first = useQuestionnaireUIStore.getState().request(payload('active'));
+    const queued = useQuestionnaireUIStore.getState().request(payload('queued'), scope);
+    Object.assign(scope, { dialogId: 'mutated', generation: '99' });
+    useQuestionnaireUIStore.getState().submit({});
+    await first;
+    const current = useQuestionnaireUIStore.getState().activeScope;
+    expect(current?.dialogId).toBe('queued');
+    expect(current?.generation).toBe('1');
+    expect(Object.isFrozen(current)).toBe(true);
+    expect(Object.isFrozen(current?.allowedCommandIds)).toBe(true);
+    useQuestionnaireUIStore.getState().cancelById('queued');
+    await queued;
+    expect(useQuestionnaireUIStore.getState().activeScope).toBeNull();
   });
 });
