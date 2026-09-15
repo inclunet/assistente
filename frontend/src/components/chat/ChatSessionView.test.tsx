@@ -384,6 +384,34 @@ describe('ChatSessionView', () => {
     await waitFor(() => expect(input).toHaveFocus());
   });
 
+  it('não rouba o foco de uma mensagem ao rotear foco do painel (retorno de menu)', async () => {
+    const { container } = render(
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+        <ChatSessionView variant="page" surface={surface()} onSend={vi.fn()} showShortcutsHelp={false} />
+      </WorkspacePanelProvider>,
+    );
+
+    const input = await screen.findByRole('button', { name: 'send' });
+    // Simula uma mensagem focada (ex.: o `.message-node` ao qual o menu de
+    // contexto restaura o foco depois do Escape).
+    const root = container.querySelector('.chat-session-view') as HTMLElement;
+    const messageNode = document.createElement('button');
+    messageNode.className = 'message-node';
+    messageNode.setAttribute('data-level', '0');
+    root.appendChild(messageNode);
+    messageNode.focus();
+    expect(messageNode).toHaveFocus();
+
+    act(() => {
+      requestWorkspacePanelFocus('chat-tab');
+    });
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+
+    // O roteamento de painel não sobrepõe a restauração intencional de foco.
+    expect(messageNode).toHaveFocus();
+    expect(input).not.toHaveFocus();
+  });
+
   it('não registra handler de foco de painel na variante embedded', () => {
     render(
       <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>

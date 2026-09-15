@@ -116,6 +116,14 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     const raf = requestAnimationFrame(() => {
       if (consumedPanelFocusNonceRef.current === nonce) return;
       if (!isPanelActiveRef.current || isModalOpen()) return;
+      // Não roubar o foco quando ele já está num nó do histórico (o usuário
+      // está navegando a saída anterior); o roteamento de painel não pode
+      // sobrepor essa posição intencional.
+      const active = document.activeElement as HTMLElement | null;
+      if (active && active !== inputRef.current && active.closest('.terminal-node')) {
+        consumedPanelFocusNonceRef.current = nonce;
+        return;
+      }
       const input = inputRef.current;
       if (input) {
         input.focus();

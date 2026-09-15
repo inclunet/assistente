@@ -743,6 +743,20 @@ function ChatSessionViewContent({
       if (!isPanelActiveRef.current || isModalOpen()) return;
       // Não roubar o foco durante a edição do título da aba.
       if (document.querySelector('.ws-tabs__tab-edit')) return;
+      // Não roubar o foco quando ele já está numa mensagem desta conversa: ao
+      // fechar um menu de contexto/modal, o foco é restaurado ao elemento que o
+      // abriu (ex.: o `.message-node`), e o roteamento de painel (F6/retorno de
+      // modal) não pode sobrepor essa restauração intencional.
+      const active = document.activeElement as HTMLElement | null;
+      if (
+        active
+        && active !== inputRef.current
+        && rootRef.current?.contains(active)
+        && active.closest('.message-node')
+      ) {
+        consumedPanelFocusNonceRef.current = nonce;
+        return;
+      }
       const input = inputRef.current;
       if (input) {
         input.focus();
