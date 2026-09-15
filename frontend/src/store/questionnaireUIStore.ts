@@ -19,6 +19,8 @@ interface QuestionnaireUIState {
   request: (data: QuestionnairePayload) => Promise<QuestionnaireUIResult>;
   submit: (answers: Record<string, unknown>) => void;
   cancel: (answers?: Record<string, unknown>) => void;
+  /** Remove e resolve somente o item que tem este id, ativo ou enfileirado. */
+  cancelById: (id: string, answers?: Record<string, unknown>) => boolean;
 }
 
 export const useQuestionnaireUIStore = create<QuestionnaireUIState>((set, get) => ({
@@ -27,8 +29,14 @@ export const useQuestionnaireUIStore = create<QuestionnaireUIState>((set, get) =
   _activeResolve: null,
 
   request: (data) => {
+    if (!data || typeof data.id !== 'string' || data.id.length === 0 || data.id.trim() !== data.id) {
+      return Promise.reject(new Error('questionnaire id is invalid'));
+    }
+    const state = get();
+    if (state.active?.id === data.id || state.queue.some((item) => item.data.id === data.id)) {
+      return Promise.reject(new Error('questionnaire id is already pending'));
+    }
     return new Promise<QuestionnaireUIResult>((resolve) => {
-      const state = get();
       if (state.active) {
         set((s) => ({
           queue: [...s.queue, { data, resolve }],
@@ -66,5 +74,22 @@ export const useQuestionnaireUIStore = create<QuestionnaireUIState>((set, get) =
     } else {
       set({ active: null, queue: [], _activeResolve: null });
     }
+  },
+
+  cancelById: (id, answers) => {
+    if (typeof id !== 'string' || id.length === 0 || id.trim() !== id) return false;
+    const state = get();
+    if (state.active?.id === id) {
+      state.cancel(answers);
+      return true;
+    }
+
+    const index = state.queue.findIndex((item) => item.data.id === id);
+    if (index < 0) return false;
+
+    const item = state.queue[index];
+    item.resolve({ answers: answers ?? {}, cancelled: true });
+    set({ queue: state.queue.filter((_, itemIndex) => itemIndex !== index) });
+    return true;
   },
 }));
