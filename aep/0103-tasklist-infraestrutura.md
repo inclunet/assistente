@@ -3,7 +3,26 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
-## Rodada atual — 15/09/2026, I05–I10
+## Rodada atual — 15/09/2026, I11–I15 e pendências anteriores
+
+- Cinco pacotes novos trabalhados em seis frentes Luna; a sexta fechou pendências de configuração/regras. Revisão e integração central no mesmo worktree.
+- Encerrados localmente nesta rodada: I05.3, I08.3, I09.4, I14.1 e I15.1. Total: **38/84 itens**, 46 abertos. **2/15 pacotes inteiramente encerrados** continuam I01/I02; não equiparar avanço parcial a pacote completo.
+- I05.5 ganhou diagnóstico autenticado, mas o preview de transições dinâmicas ainda exige qualificação. I06/importação e I08/regrant não foram contornados com escritores paralelos.
+- A maior entrega integrada é o consumidor transacional de eventos: revalidação de grant/runtime, CAS, lease própria, ack atômico e barreira contra reabertura de ciclo compactado. Worker/heartbeat e publicação real continuam desabilitados.
+- Próxima sequência concreta: prova real de encerramento/drenagem (I12.1); adapters de manutenção e política completa (I12.3–5); montagem compartilhada do App/UI (I03/I13/I14). Em paralelo, writer confirmado e deltas builtin de I11. Não há novos pacotes de infraestrutura além dos 15 desta lista.
+- Contagem mede critérios encerrados, não porcentagem de esforço do AEP.
+
+### Validação I11–I15
+
+- Backend: build e vet globais passaram. `go test -mod=readonly -count=1 ./...` foi executado com HOME/USERPROFILE/APPDATA/XDG apontando para diretório temporário e GOCACHE/GOTMPDIR isolados, preservando GOPATH/GOMODCACHE. App, config, logging, skills, database, jobs, portability e todos os command* passaram. Restam ACP e acpregistry: processo termina com `exit status 0xffffffff`, inclusive ao repetir isoladamente com `-v`, sem diagnóstico de teste. Não atribuir causa definitiva nem declarar suíte global verde.
+- Frontend: **309 arquivos / 2.882 testes passaram** na repetição com bindings estáveis; TypeScript e ESLint passaram (um warning em arquivo não alterado). Stylelint: zero erros, 2.159 warnings existentes; nenhum CSS modificado.
+- Bindings regenerados pelo binário oficial compilado com `-tags bindings`, sem edição manual. O wrapper `wails generate module` travou e foi interrompido; seu fluxo de geração equivalente concluiu. A tela existente envia `includeCommandLayers: false`, sem habilitar recurso incompleto.
+- I15.1: TestMain de App/config isola configuração em diretórios temporários. Ao repetir a suíte global, preservar primeiro `go env GOPATH`/`GOMODCACHE`, definir diretório temporário nas variáveis de home do processo e usar `-mod=readonly`; não alterar ambiente persistente da máquina.
+- Qualificação adicional: golangci-lint **v2.11.4 passou globalmente com zero apontamentos**, sem limitar a quantidade de achados por categoria. Correções preservam assertivas; testes deliberados de contexto nil têm exceção pontual justificada. Build/vet foram repetidos e passaram.
+- Repetição final Go: **108 pacotes com testes passaram; 2 falharam (ACP/acpregistry)** com o mesmo término de processo. Testes de restore/escopo/serviço completo passaram após a comparação transacional entre estado final e preview.
+- Detector de corrida ainda sem GCC/CGO; Bugbot, CI, hardware e NVDA não qualificados. Nenhum push/PR/merge. Atalhos existentes não migrados e nenhum novo segredo criado.
+
+## Rodada anterior — 15/09/2026, I05–I10
 
 - 33/84 itens encerrados localmente; 51 permanecem abertos. Esta rodada fecha 15 itens adicionais e implementa partes dos demais.
 - Continuam 2/15 pacotes inteiramente encerrados (I01/I02). Não declarar I05–I10 completos enquanto seus critérios agregados e integrações pendentes não estiverem atendidos.
@@ -14,7 +33,7 @@ Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
 ## 1. Objetivo e fonte de verdade
 
-### Validação local desta rodada
+### Validação local da rodada anterior I05–I10
 
 - Passaram as suítes completas de `internal/command...`, `internal/database`, `internal/auth`, `internal/toolinvocations`, `internal/tools` e `internal/jobs`, com `-count=1` e módulos readonly.
 - Passaram build e vet globais e o bootstrap isolado do App (`TestCommandStorage`).
@@ -167,11 +186,11 @@ Estado: **Parcial — implementação e integração local ampliadas em 15/09/20
 Dependências: I02, I03.
 Referências: D4–D7, D10, D11.
 
-Evidência/limite atual: `ProjectComplete`, `CompleteMutationService`, `defaults_mutation.go` e `activation_hook.go`: projeção semântica, CRUD confirmado com CAS, upgrade/rebase preservando override e revogação/reconciliação transacional. `CheckConflicts` usa o resolvedor real com testemunhas e limite explícito; exposição autenticada comum ainda pendente. Restore agregado de layer/conjunto é recusado pelo hook até o diff incluir regras/grants/claims. Paths sensíveis presentes são recusados até I11.
+Evidência/limite atual: `ProjectComplete`, `CompleteMutationService`, `defaults_mutation.go` e `activation_hook.go`: projeção semântica, CRUD confirmado com CAS, upgrade/rebase e revogação/reconciliação transacional. Restore agregado agora inclui regras/grants/claims, receipt consumida e auditoria no mesmo TX; testes verificam revogação e rollback. `CheckConflicts`/`RevalidateConflicts` autenticam e usam escopo privado, epochs e versão do provider. I05.5 permanece aberto para preview exato das transições dinâmicas e adoção por importação/UI. Paths sensíveis persistidos seguem recusados até a integração I11.
 
 - [x] I05.1 — Completar projeção de configuração global + workspace, condições, argumentos, tipos de acionador e apresentação; nenhuma leitura bruta vira autorização.
 - [x] I05.2 — Implementar criar/editar/excluir/habilitar/desabilitar bindings e layers com ownership, validação de referências e CAS de geração.
-- [ ] I05.3 — Implementar restauração persistente por binding, camada e conjunto; não apagar defaults nem conceder grants.
+- [x] I05.3 — Implementar restauração persistente por binding, camada e conjunto; não apagar defaults nem conceder grants.
 - [x] I05.4 — Completar upgrade de defaults: versão sem mudança semântica, needs_review no contexto exato e rebase confirmado; eliminar bloqueio excessivamente amplo do protótipo.
 - [ ] I05.5 — Expor serviço interno único de conflito/diagnóstico e diff exato, reutilizável por UI/chat/importação; testar corrida entre checagem e commit.
 
@@ -183,7 +202,7 @@ Estado: **Parcial — implementação e integração local ampliadas em 15/09/20
 Dependências: I04, I05.
 Referências: D2, D10, D11; AEP-0091.
 
-Evidência/limite atual: O CRUD e os defaults usam receipt/diff/auditoria e o mesmo gate; testes cobrem replay, rollback, alias de preview e mudança de versão durante decisão. Importação, restore agregado, CRUD de regras/grants e montagem do presenter no ciclo de vida continuam abertos; não confundir a factory existente do App com publicação runtime.
+Evidência/limite atual: CRUD/defaults/restore agregado e regras usam receipt/diff/auditoria no mesmo gate; testes cobrem replay, rollback, alias e versão alterada durante decisão. Importação, regrant pelo serviço comum e montagem do presenter continuam abertos; não confundir factory do App com publicação runtime.
 
 - [x] I06.1 — Ampliar receipt para invocação e consumir decisão destrutiva na mesma transação do CAS para queued.
 - [ ] I06.2 — Aplicar diff/receipt/auditoria a todo CRUD, restore, import e alteração de capacidade; incorporar a classificação obrigatória de cada verbo.
@@ -216,11 +235,11 @@ Estado: **Parcial — implementação e integração local ampliadas em 15/09/20
 Dependências: I06, I07.
 Referências: D8, D11; AEP-0101 como limite de separação.
 
-Evidência/limite atual: `commandautomation` possui tabela exclusiva, chave natural escopada, fingerprints e concessão confirmada atômica com a regra. Disable/delete de layer revoga via hook transacional. Ainda falta unificar o CRUD de regras, sua revogação em todas as alterações e a validação em cada consumo de evento; concessão preparada não é autorização runtime.
+Evidência/limite atual: `commandautomation` mantém tabela exclusiva, chave natural escopada, fingerprints e concessão confirmada atômica com regra. O hook comum revoga em CRUD/restore de regras/layers; timestamps são vinculados ao diff e testes cobrem geração/rollback. O novo consumidor revalida grants por evento. Ainda falta expor o fluxo de regrant pelo serviço comum e integrar importação/cópia/restore completo sem transportar autoridade; concessão preparada não é autorização runtime.
 
 - [x] I08.1 — Persistir chave natural por owner/workspace/layer/rule, uma concessão ativa e histórico de gerações/revogações.
 - [ ] I08.2 — Criar/habilitar regra event-driven somente com decisão vinculada ao fingerprint exato da regra e dos produtores.
-- [ ] I08.3 — Revogar atomicamente ao alterar/excluir/desabilitar regra ou camada; reabilitação exige nova decisão.
+- [x] I08.3 — Revogar atomicamente ao alterar/excluir/desabilitar regra ou camada; reabilitação exige nova decisão.
 - [ ] I08.4 — Revalidar ID, geração e fingerprints autoritativos a cada evento; import/cópia/restore nunca transportam concessão.
 - [x] I08.5 — Testar concessão/revogação concorrente, receipt atrasada e isolamento entre grants de delegação e ativação.
 
@@ -232,12 +251,12 @@ Estado: **Parcial — implementação e integração local ampliadas em 15/09/20
 Dependências: I07, I08.
 Referências: D2.1, D8, D11; AEP-0048, AEP-0067, AEP-0074-B.
 
-Evidência/limite atual: `jobs.PersistRunState`, timeline incremental e outbox transacional; `commandjobevents` implementa epochs/deadlines e lease/retry/ack/dead-letter de entrega. Migração v24 prepara queued_at em bancos populados; v23 inclui outbox sem cascade. O adapter de ativação permanece desabilitado: não há CAS por regra, lease/heartbeat de claim ou composição de manutenção. O bootstrap da política ainda precisa criar o epoch inicial antes de produzir/consumir fatos; I09.1–3 reconhecem os contratos implementados, não ativação no App.
+Evidência/limite atual: `commandjobactivation` compõe lease de entrega, fato revalidado, regra/grant, CAS por sequência, ledger e ack no mesmo TX. Há lease própria de claim, renovação autenticada e reconciliação bounded; testes cobrem replay, conflito, fonte perdida, sessão antiga e ciclo compactado. Proveniência persistida de jobs é estrutural e valida a cadeia separada de comandos. Migração v26 preserva auditoria anterior. Falta montagem do worker/heartbeat real, bootstrap do epoch e manutenção; I09.4 reconhece as operações transacionais testadas, não consumidor habilitado no App.
 
 - [x] I09.1 — Migrar timeline/status incremental e queued_at/started_at conforme AEP-0048; persistir Job.DatabaseID, slug, run_event_id e root_origin_type sem inferência retroativa.
 - [x] I09.2 — Inserir fato elegível e outbox na mesma transação; não usar cascade de runs como fronteira de replay.
 - [x] I09.3 — Implementar epochs de política de replay e deadline imutável por ocorrência, preservado quando a retenção mudar.
-- [ ] I09.4 — Implementar consumo com lease, retry, delivered/dead_letter e processamento de cada regra/escopo por CAS de sequência; replay e conflito de fingerprint são distintos.
+- [x] I09.4 — Implementar consumo com lease, retry, delivered/dead_letter e processamento de cada regra/escopo por CAS de sequência; replay e conflito de fingerprint são distintos.
 - [ ] I09.5 — Implementar lease/heartbeat da claim de job, reconciliação autoritativa e anti-loop com command_chain_history separado, limite versionado 16.
 - [ ] I09.6 — Testar queda após commit, entrega duplicada/fora de ordem, count-cap, fonte perdida, raiz externa/unknown e fatos legados ambíguos; atualizar AEPs associados.
 
@@ -262,11 +281,11 @@ Critério de saída: Cada runtime recebe somente autoridade comprovada; nenhuma 
 
 ### I11 — Importação, exportação e referências sensíveis
 
-Estado: **Pendente para commandLayers**. Esforço restante: **G**.
+Estado: **Parcial — DTO/plano seguro, sem writer confirmado**. Esforço restante: **G**.
 Dependências: I02, I05, I06, I08.
 Referências: D10, D11; AEP-0047.
 
-Evidência/limite atual: internal/portability/types.go e service.go ainda não incluem commandLayers. AEP-0103 exige versão/registro explícitos de resources.commandLayers.
+Evidência/limite atual: `commandportability` e `portability` registram commandLayers e planejam manter/substituir/copiar, com autorização de workspace, catálogo completo e patterns exatos. Grants/claims/histórico não são portáveis. O import genérico recusa o recurso; ainda faltam writer/rollback confirmado, round-trip de deltas builtin e montagem na UI. DTO e plano puro não satisfazem os critérios transacionais abaixo.
 
 - [ ] I11.1 — Versionar resources.commandLayers no envelope da AEP-0047 e implementar round-trip de deltas/needs_review e escopo portátil.
 - [ ] I11.2 — Resolver UUIDs, refs builtin/user e mapa de workspaces no destino autenticado; conflito foreign_owner não revela conteúdo.
@@ -283,7 +302,7 @@ Estado: **Parcial**. Esforço restante: **G**.
 Dependências: I04, I07, I09, I10.
 Referências: D2.1, D8, D11; AEP-0074-B.
 
-Evidência/limite atual: commanddecision/ReconcileSession recupera somente sessão atual em lotes; commandledger/RecoverClosedGeneration exige prova externa de encerramento; não é coordenador global. A cadência legada está em internal/jobs/manager.go (runRetention), com compactação em internal/database/maintenance.go.
+Evidência/limite atual: `commandmaintenance.Coordinator` exige todas as portas e política completa; uma passagem ordena outbox, recuperação, jobs, tools, auditorias e compactação, sem novo loop. `commandledger.MaintenanceService` separa retenção all-users/system do Store comum, com lotes e proteção de deadlines. `commanddecision.ReconcileSessions` amplia recuperação. Falta prova real de geração encerrada/drenagem, adapters de domínio e montagem na cadência única; não considerar o marcador de banco prova de exclusão. Settings/UI continuam pendentes.
 
 - [ ] I12.1 — Definir prova de encerramento de geração e exclusão de execuções antigas antes de recuperar pendências, incluindo reinício e outros usuários/sessões.
 - [ ] I12.2 — Reconciliar invocação+ledger atomicamente para outcome_unknown, incluindo system com capability interna; jamais reexecutar efeito.
@@ -300,7 +319,7 @@ Estado: **Parcial — máquina de pressão e observador de sessão**. Esforço r
 Dependências: I03, I04, I06, I07.
 Referências: D3, D7, D13, D14; AEP-0080, AEP-0091.
 
-Evidência/limite atual: commandinput/press.go cobre bordas de pressão; ossession e hooks do App existem. Isso não constitui teclado integrado, ponte de UI ou gerenciador HID.
+Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` definem sessão, capabilities, ack/resultado/cancelamento, geração transportada como string e UUIDv7 de invocação/evento. Testes cobrem isolamento, handoff curto, repetição e lock/logout. `OccurrenceID` físico é opaco e ainda não representa ocorrência durável do core. Não há transporte Wails da ponte, stack de diálogos, ownership real local/global ou gerenciador HID montados.
 
 - [ ] I13.1 — Fechar ponte tipada de despacho UI com ack/resultado/cancelamento, sessão e invocation_id; registrar capabilities sem handlers reais migrados.
 - [ ] I13.2 — Implementar ownership local/global por geração, ocorrências UUIDv7, repeat/release/blur/reconexão e contrato de sequências Ctrl+N do inventário.
@@ -317,9 +336,9 @@ Estado: **Parcial — hooks e fábricas sem bootstrap de produto**. Esforço res
 Dependências: I01, I02, I03, I04, I05, I06, I07, I08, I09, I10, I11, I12, I13.
 Referências: D2.1, D8, D11, D13.
 
-Evidência/limite atual: app_command_execution.go tem fábrica não chamada pelo startup; app_command_os_session.go tem observador; recovery/rebuild ainda são operações internas explicitamente chamadas.
+Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invalida/cancela antes do reset e confirma readiness via core compartilhado; exige todas as portas e recusa projeção vazia. `App.commandLifecycle` é um ponteiro atômico privado, com Configure/Shutdown por CAS, sem registry global. Os testes cobrem falhas/cancelamento e configurações concorrentes. Ainda faltam os adapters reais e chamadas de startup/logout/shutdown: não publicar readiness de produto a partir dos mocks.
 
-- [ ] I14.1 — Construir esqueleto de bootstrap serializado e readiness observável após I01, sem expor novas rotas nem cadastrar comandos de produto; este subitem pode começar cedo.
+- [x] I14.1 — Construir esqueleto de bootstrap serializado e readiness observável após I01, sem expor novas rotas nem cadastrar comandos de produto; este subitem pode começar cedo.
 - [ ] I14.2 — Montar catálogo/defaults de contrato, políticas, stores, presenter, providers, dispatcher e adapters com dependências explícitas; sem fallback permissivo.
 - [ ] I14.3 — Orquestrar login/unlock/restart: autenticar → recuperar/reconciliar → carregar/projetar → publicar → habilitar entradas, revalidando cada transição.
 - [ ] I14.4 — Impedir retomadas concorrentes e publicação de geração antiga; logout/troca de usuário/falha de monitor cancela trabalho e apaga somente estado em memória.
@@ -334,9 +353,9 @@ Estado: **Parcial — testes focados e benchmarks existentes**. Esforço restant
 Dependências: I14.
 Referências: Fase 0, D12, riscos e critérios transversais.
 
-Evidência/limite atual: Há testes unitários/integração selecionada, build/vet e microbenchmarks. Não há comprovação integral de p95, hardware, suíte geral segura e review de entrega.
+Evidência/limite atual: TestMain de App/config isola dados pessoais e a suíte global foi executada; falhas de processo em ACP/acpregistry permanecem. Frontend completo, TypeScript, build/vet e lint foram exercitados. Não há comprovação integral de p95, race, hardware/NVDA ou review de entrega. Microbenchmarks não substituem latência integrada.
 
-- [ ] I15.1 — Isolar os testes legados que escrevem configuração pessoal; disponibilizar suíte geral reproduzível em dados temporários.
+- [x] I15.1 — Isolar os testes legados que escrevem configuração pessoal; disponibilizar suíte geral reproduzível em dados temporários.
 - [ ] I15.2 — Executar backend completo, detector de corrida em ambiente com C/CGO e lint compatível v2; verificar frontend/Wails gerado quando as pontes mudarem.
 - [ ] I15.3 — Medir p50/p95/p99 no caminho integrado com handlers de teste, incluindo SQLite/gate sob mutações, foco e carga; decidir tratamento de contenção contra a meta experimental p95 < 1 ms.
 - [ ] I15.4 — Executar matriz de crash/replay/isolamento/segredos e testes acessíveis da ponte/diálogos; registrar verificações reais de SO, HID e NVDA.
@@ -364,8 +383,8 @@ Delegação: usar modelos econômicos para implementações/testes com escopo de
 
 ## 6. Dependências externas e riscos conhecidos
 
-- **R01 — Testes pessoais:** a suíte geral legada já tentou acessar a pasta real de configuração. I15.1 deve isolar isso; não rodar indiscriminadamente contra dados pessoais.
-- **R02 — Detector de corrida/lint:** último registro aponta ausência de C/CGO configurado e lint v1 incompatível com a configuração v2. Revalidar o ambiente e resolver em I15.2.
+- **R01 — Testes pessoais (mitigado em I15.1):** App/config agora têm TestMain isolado e a suíte global foi exercitada com home temporário. Preservar esse ambiente ao repetir a validação; não executar contra configuração pessoal.
+- **R02 — Detector de corrida/lint (parcialmente mitigado):** lint v2.11.4 passou globalmente nesta rodada; GCC/CGO para race continuam ausentes. I15.2 permanece aberto.
 - **R03 — Revisão:** disponibilidade de Bugbot ainda não comprovada. Revisão de outro agente não substitui a exigência do repositório. Resolver antes de push.
 - **R04 — Hardware/SO:** identificar modelo de Stream Deck e obter janela de teste real para reconexão, lock/unlock e disputa pelo dispositivo. Mocks não encerram I13.6.
 - **R05 — NVDA:** reservar validação manual acessível da infraestrutura compartilhada e, depois, das telas finais. Dependência do ambiente/usuário, não do banco.

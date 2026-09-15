@@ -405,6 +405,28 @@ Cada recurso implementa essas interfaces. Adicionar um novo tipo requer apenas r
 
 Até que as migrações arquiteturais das AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052 sejam concluídas, esta extensibilidade permanece como direção de evolução, não como requisito de implementação imediata desta PR.
 
+### Adendo de implementação AEP-0103 — commandLayers (15/09/2026)
+
+O envelope registra `resources.commandLayers`; seu DTO e planejamento puro
+ficam em `internal/commandportability`. O DTO exclui owner, grants, receipts,
+claims e histórico. O planejamento mantém/desabilita/substitui/copia referências
+sem escrever no banco, exige autorização do workspace de destino e usa o
+catálogo completo para validar paths sensíveis. Referência de credencial usa
+pattern exato, não ID local nem segredo bruto; regra event-driven não recebe
+concessão por importação.
+
+O export canônico passa a emitir versão 2. O envelope versão 1 anteriormente
+emitido é normalizado para versão 2 no parser, sem regenerar IDs; análise e
+importação real desse formato têm regressão. Versões futuras continuam
+recusadas. O adaptador do formato histórico publicado permanece preservado.
+
+Implementação parcial: faltam round-trip dos deltas sobre builtin, writer
+transacional confirmado pelo serviço comum e ligação à UI. O import/export
+genérico recusa commandLayers enquanto essas portas não estiverem montadas;
+não retorna falso sucesso nem exporta subconjunto como backup completo. Plano
+mutável não é prova de autorização. O fluxo sensível criptografado existente
+não foi ampliado para permitir segredo bruto em binding.
+
 ### D14 — Avisos e erros da importação viajam como código, não como texto
 
 O backend não sabe em que idioma a tela está, e o arquivo importado tampouco.

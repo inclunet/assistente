@@ -1977,6 +1977,54 @@ Testes e limites de validação desta rodada são registrados no tasklist após
 a consolidação, sem converter contagem de arquivos/testes em porcentagem do
 AEP nem declarar os seis pacotes inteiros concluídos.
 
+### Rodada I11–I15 e pendências anteriores — 15/09/2026 (parcial)
+
+Seis frentes Luna ampliaram portabilidade, manutenção, pontes, lifecycle,
+qualificação e mutações agregadas. O principal revisou as interfaces e integrou
+o consumidor transacional `commandjobactivation`. Isso não habilita o novo
+executor no produto nem encerra BASE-PRONTA.
+
+O consumidor relê fato/outbox, epoch e deadline originais, identifica job por
+owner + DatabaseID + slug, e revalida regra, grant, fingerprints e autoridade
+do runtime sob o gate compartilhado. Claim, sequência, ledger de evento e ack
+ficam no mesmo TX. Reentrega, conflito de fingerprint e ciclo terminal são
+distintos; remover o detalhe de um ciclo por retenção não permite reabri-lo.
+Lease própria e renovação exigem runtime/sessão/gerações correspondentes;
+reconciliação em lotes torna inativa a claim cuja fonte desapareceu. Faltam
+montar o worker e heartbeat reais, o bootstrap do epoch e a política completa
+de manutenção. `commandjobevents.Adapter` continua desabilitado.
+
+Migração central diferida v26 acrescenta leases sem cascata, unicidade de
+ocorrências/regras e suporte à manutenção. Reconhece o schema anterior completo
+e amplia verbos da auditoria sem perder documentos. Testes cobrem upgrade v25,
+segundo boot, preservação de auditoria e rejeição de drift. Jobs passam a
+persistir somente proveniência estrutural autorizada, incluindo validação de
+`command_chain_history` separado; payload arbitrário de trigger não é copiado.
+
+`commandconfig` amplia o diff privado com regras/grants/claims, restore agregado,
+CRUD de regras e diagnóstico autenticado/versionado. Revogações pertencem ao
+mesmo commit da configuração e da receipt; criar regra event-driven não
+significa conceder autoridade. Importação e concessão event-driven pelo serviço
+comum ainda requerem composição; os serviços não foram publicados no App.
+
+`commandportability` define DTO e planejamento seguro de `resources.commandLayers`
+com catálogo/sensibilidade e referências exatas de credenciais. Não existe
+writer alternativo: import genérico recusa esse recurso até o commit confirmado
+comum existir. Deltas sobre builtin ainda não têm round-trip completo.
+
+`commandmaintenance` fixa a sequência e exige portas/política explícitas antes
+de efeitos; a cadência legada permanece sem coordenador montado. Retenção
+preserva ledgers até seus deadlines e runs não terminais com claim/lease viva.
+A prova efetiva de encerramento de gerações antigas e os seis settings/UI
+continuam pendentes; marcador de banco, sozinho, não comprova drenagem.
+
+`commandbridge` e `commandruntime` implementam contratos tipados e máquinas de
+estado testadas: ack/resultado/cancelamento, geração, pressão e cancelamento da
+inicialização. Não substituem transporte Wails, stack de diálogos, listeners
+SO/HID nem validação física. Testes de App/config usam diretórios temporários.
+Resultados globais e limites de qualificação estão no tasklist; testes com
+portas controladas não provam montagem real ou latência integrada.
+
 ### Evidência I01 — armazenamento e chaves operacionais (baseline)
 
 `internal/commandbootstrap` compõe as migrações de configuração, receipts e

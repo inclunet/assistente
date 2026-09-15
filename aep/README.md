@@ -122,6 +122,10 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 🚧 In Progress |
 | [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico | ✅ Done |
 
+Acompanhamento da AEP-0103: [tasklist de infraestrutura](0103-tasklist-infraestrutura.md),
+atualizado em 15/09/2026 com a rodada parcial I11–I15. A AEP continua In Progress;
+a extensão de manutenção não altera o aceite da retenção legada da AEP-0074-B.
+
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
 > numerados sequencialmente a partir do **maior número existente** (0104 → próximo
 > 0105), salvo decisão explícita de reaproveitar uma lacuna.

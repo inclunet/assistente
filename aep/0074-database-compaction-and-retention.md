@@ -39,14 +39,25 @@ Esta AEP define uma política de **compactação física** combinada a um **refo
 
 ## Estado implementado
 
-Adendo AEP-0103 (15/09/2026): `command_job_activation_outbox` é independente
-das FKs/cascatas de runs e possui deadline de replay copiado da política da
-ocorrência. Count-cap/limpeza de jobs não apaga essa barreira. Esta rodada NÃO
-habilita o consumidor nem altera a retenção para preservar runs sustentados
-por claims: a lease própria de ativação, heartbeat e a ordem de manutenção
-instância-wide permanecem pendentes nos pacotes I09/I12. Também falta ligar
-a retenção da nova origem `command_invocation` de tools. Não usar o TTL de
-lease de entrega da outbox como se fosse lease de claim.
+Adendo AEP-0103 (15/09/2026, atualizado I11–I15): a outbox de ativação é
+independente das cascatas de runs e preserva o deadline original de replay.
+O consumidor transacional e a lease própria de claim existem, mas worker e
+heartbeat reais continuam desabilitados. A retenção de runs preserva um run
+não terminal somente quando existe claim ativa correspondente e lease viva;
+lease de entrega da outbox não substitui essa prova.
+
+`commandmaintenance.Coordinator` implementa uma passagem sem loop próprio,
+com outbox e recuperação antes da limpeza de jobs, limpezas legadas de tools,
+auditorias e compactação. Todas as portas e uma política completa são exigidas
+antes de efeitos; recovery com mais lotes impede a limpeza nesta passagem.
+O Manager só usa esse caminho quando montado pelo bootstrap; caso contrário
+preserva a cadência legada. Não há coordenador global produtivo ainda.
+
+Permanecem em I12/I14: prova de encerramento/drenagem das gerações antigas,
+adapters de manutenção para toda a instância, settings e UI dos seis campos,
+política/retenção de `command_invocation` e montagem única no App. O status
+Done desta AEP descreve a retenção legada entregue, não encerra a extensão
+AEP-0103. Não foram migrados bancos pessoais para validar esta rodada.
 
 | Mecanismo | Onde | Comportamento |
 |---|---|---|
