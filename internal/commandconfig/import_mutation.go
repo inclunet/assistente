@@ -113,7 +113,10 @@ func (s *Store) prepareImportedSnapshot(ctx context.Context, scope Scope, before
 	// que a nova configuração tornou inválido, na mesma transação.
 	now := time.Now().UTC()
 	projectActivationEffects(before, &after, ConfigImport, now)
-	if reflect.DeepEqual(before.Layers, after.Layers) && reflect.DeepEqual(before.Bindings, after.Bindings) && sameAggregateSnapshot(before, after) {
+	// Loaders/merges podem representar um conjunto vazio como nil ou como
+	// slice vazia. Isso não é mudança de configuração: Keep repetido deve ser
+	// no-op e não pode abrir decisão nem avançar a geração.
+	if equalRows(before.Layers, after.Layers) && equalRows(before.Bindings, after.Bindings) && sameAggregateSnapshot(before, after) {
 		return nil, ErrInvalid
 	}
 	if err := validateSnapshot(after); err != nil {
