@@ -55,6 +55,25 @@ reais no produto permanece em P04 e validação ampliada de foco/janela em I13.6
 
 Validação focada: `go test ./internal/commanddeck -count=1` passou.
 
+## Continuação — 15/09/2026, ambiente físico I13.6
+
+Avanço preparatório em **I13.6/C43/C44/C58**, sem fechar o critério agregado.
+`internal/commandphysical` consolida evidências de ambiente físico: foreground
+nativo, suporte a hotkey global, sessão interativa observável/desbloqueada e
+Stream Deck físico validado. O teste manual opt-in
+`ASSISTENTE_PHYSICAL_MANUAL=1 go test ./internal/commandphysical -run
+TestManualPhysicalEnvironment -count=1 -v` gera um relatório fail-closed. A suíte
+automatizada cobre reports completos e ausentes; `commandforeground` e
+`ossession` continuam cobrindo redaction/foreground-before-show e lock/unlock
+fail-closed.
+
+Execução do teste manual pelo processo do agente confirmou a limitação esperada
+do ambiente sem janela foreground: `GetForegroundWindow` retornou identidade
+desconhecida. O runbook `docs/operations/physical-input-validation.md` registra
+que a evidência final precisa ser rodada no PowerShell visível do usuário. A
+contagem permanece **47/84 critérios encerrados; 37 abertos; 2/15 pacotes
+completos** até essa prova manual de foreground/foco/janela.
+
 ## Continuação — 15/09/2026, prova de escopo de diálogo
 
 Avanço focado em **I13.3**, ainda sem migrar handlers reais de decisão. A ponte
