@@ -15,10 +15,12 @@ import { useTranslation } from 'react-i18next';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import {
   registerOpenModal,
+  updateOpenModalScope,
   unregisterOpenModal,
   isTopmostModal,
   isModalOpen,
 } from '../../lib/modalRegistry';
+import type { DialogCommandScope } from '../../lib/commandBridge';
 import './Modal.css';
 
 // O registro de modais abertos (stack global + efeitos globais de inert/aria-hidden)
@@ -55,7 +57,7 @@ export function useIsInsideModal(): boolean {
 }
 
 // Seletor para elementos focáveis
-const FOCUSABLE_SELECTOR = 
+const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
   'textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable]';
 
@@ -105,6 +107,8 @@ export interface ModalProps {
    * demais diálogos mantêm `dialog` (default).
    */
   role?: 'dialog' | 'alertdialog';
+  /** Restrição de comandos UI pertencente a esta instância topmost. */
+  dialogCommandScope?: DialogCommandScope;
 }
 
 export function Modal({
@@ -120,6 +124,7 @@ export function Modal({
   readingMode = false,
   initialFocusSelector,
   role = 'dialog',
+  dialogCommandScope,
 }: ModalProps) {
   const { t } = useTranslation();
   const modalRef = useRef<HTMLDivElement>(null);
@@ -147,18 +152,26 @@ export function Modal({
     const id = modalInstanceIdRef.current;
     if (!isOpen) return;
 
-    registerOpenModal(id);
+    registerOpenModal(id, dialogCommandScope);
 
     return () => {
       unregisterOpenModal(id);
     };
   }, [isOpen]);
 
+  // A troca do scope não pode reempilhar a instância: modais inferiores devem
+  // permanecer inferiores enquanto o modal topmost continua aberto.
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    updateOpenModalScope(modalInstanceIdRef.current, dialogCommandScope);
+  }, [isOpen, dialogCommandScope]);
+
   // Retorna todos os elementos focáveis dentro do modal
   const getFocusableElements = useCallback(() => {
     if (!modalRef.current) return [];
-    return Array.from(modalRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
-      .filter(isVisibleFocusableElement); // Filtra elementos visíveis
+    return Array.from(modalRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+      isVisibleFocusableElement
+    ); // Filtra elementos visíveis
   }, []);
 
   // Restaura foco na área padrão quando isOpen transita de true → false
@@ -205,9 +218,10 @@ export function Modal({
       const focusableElements = getFocusableElements();
       // Procura primeiro um input/textarea/select editável (ignora readonly,
       // usados para exibição de conteúdo), senão usa o primeiro focável
-      const firstInput = focusableElements.find(el =>
-        (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') &&
-        !(el as HTMLInputElement | HTMLTextAreaElement).readOnly
+      const firstInput = focusableElements.find(
+        (el) =>
+          (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') &&
+          !(el as HTMLInputElement | HTMLTextAreaElement).readOnly
       );
 
       // Radiogroup com opção marcada: o foco inicial vai para o rádio
@@ -280,7 +294,7 @@ export function Modal({
     const handleTab = (e: KeyboardEvent) => {
       if (!isTopMost()) return;
       if (e.key !== 'Tab') return;
-      
+
       const focusableElements = getFocusableElements();
       if (focusableElements.length === 0) return;
 
@@ -342,20 +356,15 @@ export function Modal({
         >
           <div className="modal-header">
             {allowClose && (
-              <button 
-                className="modal-close"
-                onClick={onClose}
-                aria-label={t('ui.modal.close')}
-              >
+              <button className="modal-close" onClick={onClose} aria-label={t('ui.modal.close')}>
                 <CloseOutlined aria-hidden="true" />
               </button>
             )}
-            <h1 id={titleId} className="modal-title">{title}</h1>
+            <h1 id={titleId} className="modal-title">
+              {title}
+            </h1>
           </div>
-          <div
-            className="modal-body"
-            role={readingMode ? 'document' : 'application'}
-          >
+          <div className="modal-body" role={readingMode ? 'document' : 'application'}>
             {children}
           </div>
         </div>
@@ -364,4 +373,3 @@ export function Modal({
     document.body
   );
 }
-

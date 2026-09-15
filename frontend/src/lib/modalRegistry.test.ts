@@ -2,9 +2,19 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   ensureModalCleanup,
   getModalRegistrySnapshot,
+  getTopmostDialogCommandScope,
   registerOpenModal,
+  updateOpenModalScope,
   unregisterOpenModal,
 } from './modalRegistry';
+
+const decisionScope = {
+  dialogId: 'modal-test-a',
+  kind: 'decision' as const,
+  generation: '7',
+  allowedCommandIds: ['decision.respond'] as const,
+  allowedTriggerSpecs: ['keyboard.local:Ctrl+Shift+R'] as const,
+};
 
 function addOverlay(): HTMLDivElement {
   const overlay = document.createElement('div');
@@ -75,5 +85,58 @@ describe('modal registry snapshots', () => {
     const snapshot = getModalRegistrySnapshot();
     expect(snapshot.topID).toBeNull();
     expect(snapshot.ids).toEqual([]);
+  });
+
+  it('expõe somente o scope do topmost e bloqueia fallback sem scope', () => {
+    const overlay = addOverlay();
+    registerOpenModal('modal-test-a', decisionScope);
+    expect(getTopmostDialogCommandScope()).toMatchObject(decisionScope);
+
+    registerOpenModal('modal-test-b');
+    const blocked = getModalRegistrySnapshot();
+    expect(blocked.topID).toBe('modal-test-b');
+    expect(blocked.dialogCommandScope).toBeNull();
+    expect(getTopmostDialogCommandScope()).toBeNull();
+
+    unregisterOpenModal('modal-test-b');
+    const restored = getModalRegistrySnapshot();
+    expect(restored.dialogCommandScope).toMatchObject(decisionScope);
+    expect(Object.isFrozen(restored.dialogCommandScope)).toBe(true);
+    expect(Object.isFrozen(restored.dialogCommandScope?.allowedCommandIds)).toBe(true);
+
+    overlay.remove();
+    ensureModalCleanup();
+  });
+
+  it('incrementa a geração quando o scope da mesma instância muda', () => {
+    const overlay = addOverlay();
+    registerOpenModal('modal-test-a', decisionScope);
+    const first = getModalRegistrySnapshot();
+
+    registerOpenModal('modal-test-a', { ...decisionScope, generation: '8' });
+    const second = getModalRegistrySnapshot();
+    expect(second.ids).toEqual(first.ids);
+    expect(second.generationNumber).toBeGreaterThan(first.generationNumber);
+    expect(second.dialogCommandScope?.generation).toBe('8');
+
+    overlay.remove();
+    ensureModalCleanup();
+  });
+
+  it('descarta scope inválido em vez de ampliar a superfície de comandos', () => {
+    const overlay = addOverlay();
+    registerOpenModal('modal-test-a', {
+      ...decisionScope,
+      allowedCommandIds: ['other.command'] as never,
+    });
+    expect(getModalRegistrySnapshot().dialogCommandScope).toBeNull();
+    overlay.remove();
+    ensureModalCleanup();
+  });
+
+  it('não registra scope para uma instância ausente', () => {
+    expect(updateOpenModalScope('modal-test-a', decisionScope)).toBe(false);
+    expect(getModalRegistrySnapshot().ids).toEqual([]);
+    expect(getModalRegistrySnapshot().dialogCommandScope).toBeNull();
   });
 });

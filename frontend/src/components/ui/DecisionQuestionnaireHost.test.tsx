@@ -1,11 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import {
-  DecisionQuestionnaireHost,
-  DECISION_ANSWER_ACTION_ID,
-} from './DecisionQuestionnaireHost';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { DecisionQuestionnaireHost, DECISION_ANSWER_ACTION_ID } from './DecisionQuestionnaireHost';
 import { isDecisionQuestionnaire } from './QuestionnaireDialog';
 import type { QuestionnairePayload } from './QuestionnaireDialog';
+import { getModalRegistrySnapshot } from '../../lib/modalRegistry';
+import { useQuestionnaireUIStore } from '../../store/questionnaireUIStore';
+import type { DialogCommandScope } from '../../lib/commandBridge';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -34,17 +34,37 @@ vi.mock('../../store/settingsStore', () => ({
     selector({ config: { decisionAlertSound: false } }),
 }));
 
+afterEach(() => {
+  useQuestionnaireUIStore.setState({ activeScope: null });
+});
+
 function shellDecision(): QuestionnairePayload {
   return {
     id: 'q1',
     kind: 'decision',
     title: { key: 'app.questionnaire.shell.title', fallback: 'Confirmar execução de comando' },
-    description: { key: 'app.questionnaire.shell.prompt', fallback: 'Permitir a execução deste comando?' },
+    description: {
+      key: 'app.questionnaire.shell.prompt',
+      fallback: 'Permitir a execução deste comando?',
+    },
     body: 'ls -la',
     bodyLabel: { key: 'app.questionnaire.shell.bodyLabel', fallback: 'Comando solicitado' },
     actions: [
-      { id: 'allow', label: { key: 'app.questionnaire.shell.submit', fallback: 'Permitir' }, primary: true, variant: 'primary', polarity: 'affirmative', scope: 'current' },
-      { id: 'deny', label: { key: 'app.questionnaire.shell.cancel', fallback: 'Negar' }, variant: 'outline', polarity: 'negative', scope: 'current' },
+      {
+        id: 'allow',
+        label: { key: 'app.questionnaire.shell.submit', fallback: 'Permitir' },
+        primary: true,
+        variant: 'primary',
+        polarity: 'affirmative',
+        scope: 'current',
+      },
+      {
+        id: 'deny',
+        label: { key: 'app.questionnaire.shell.cancel', fallback: 'Negar' },
+        variant: 'outline',
+        polarity: 'negative',
+        scope: 'current',
+      },
     ],
     questions: [],
   };
@@ -60,13 +80,13 @@ describe('isDecisionQuestionnaire', () => {
       isDecisionQuestionnaire({
         id: 'q2',
         questions: [{ id: 'a', type: 'text', prompt: 'Nome' }],
-      }),
+      })
     ).toBe(false);
   });
 
   it('rejeita decision sem ações', () => {
     expect(
-      isDecisionQuestionnaire({ id: 'q3', kind: 'decision', actions: [], questions: [] }),
+      isDecisionQuestionnaire({ id: 'q3', kind: 'decision', actions: [], questions: [] })
     ).toBe(false);
   });
 });
@@ -78,7 +98,7 @@ describe('DecisionQuestionnaireHost', () => {
         data={{ id: 'q', questions: [] }}
         onAction={vi.fn()}
         onCancel={vi.fn()}
-      />,
+      />
     );
     expect(container).toBeEmptyDOMElement();
   });
@@ -86,11 +106,7 @@ describe('DecisionQuestionnaireHost', () => {
   it('abre DecisionDialog e responde com actionId', () => {
     const onAction = vi.fn();
     render(
-      <DecisionQuestionnaireHost
-        data={shellDecision()}
-        onAction={onAction}
-        onCancel={vi.fn()}
-      />,
+      <DecisionQuestionnaireHost data={shellDecision()} onAction={onAction} onCancel={vi.fn()} />
     );
 
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
@@ -100,15 +116,42 @@ describe('DecisionQuestionnaireHost', () => {
     expect(onAction).toHaveBeenCalledWith({ [DECISION_ANSWER_ACTION_ID]: 'allow' });
   });
 
+  it('liga o activeScope ao item topmost e não preserva scope na troca da fila', () => {
+    const scope = (dialogId: string, generation: string): DialogCommandScope => ({
+      dialogId,
+      kind: 'decision',
+      generation,
+      allowedCommandIds: ['decision.respond'],
+      allowedTriggerSpecs: ['keyboard.local:Ctrl+Shift+R'],
+    });
+    const first = shellDecision();
+    const second = { ...first, id: 'q2' };
+    const firstScope = scope(first.id, '1');
+    const secondScope = scope(second.id, '2');
+
+    act(() => useQuestionnaireUIStore.setState({ activeScope: firstScope }));
+    const view = render(
+      <DecisionQuestionnaireHost data={first} onAction={vi.fn()} onCancel={vi.fn()} />
+    );
+    expect(getModalRegistrySnapshot().dialogCommandScope).toMatchObject(firstScope);
+
+    act(() => useQuestionnaireUIStore.setState({ activeScope: secondScope }));
+    view.rerender(
+      <DecisionQuestionnaireHost data={second} onAction={vi.fn()} onCancel={vi.fn()} />
+    );
+    expect(getModalRegistrySnapshot().dialogCommandScope).toMatchObject(secondScope);
+    expect(getModalRegistrySnapshot().dialogCommandScope?.dialogId).toBe('q2');
+
+    act(() => useQuestionnaireUIStore.setState({ activeScope: null }));
+    expect(getModalRegistrySnapshot().dialogCommandScope).toBeNull();
+    view.unmount();
+  });
+
   it('nega via ação deny (não cancela o diálogo)', () => {
     const onAction = vi.fn();
     const onCancel = vi.fn();
     render(
-      <DecisionQuestionnaireHost
-        data={shellDecision()}
-        onAction={onAction}
-        onCancel={onCancel}
-      />,
+      <DecisionQuestionnaireHost data={shellDecision()} onAction={onAction} onCancel={onCancel} />
     );
     fireEvent.click(screen.getByRole('button', { name: /Negar/i }));
     expect(onAction).toHaveBeenCalledWith({ [DECISION_ANSWER_ACTION_ID]: 'deny' });
@@ -127,21 +170,19 @@ describe('DecisionQuestionnaireHost', () => {
         { id: 'deny', label: 'Negar', polarity: 'negative', scope: 'current' },
       ],
     };
-    render(
-      <DecisionQuestionnaireHost data={data} onAction={onAction} onCancel={vi.fn()} />,
-    );
+    render(<DecisionQuestionnaireHost data={data} onAction={onAction} onCancel={vi.fn()} />);
 
     expect(screen.getByRole('button', { name: 'Uma vez' })).toHaveAttribute(
       'aria-keyshortcuts',
-      expect.stringContaining('Control+Enter'),
+      expect.stringContaining('Control+Enter')
     );
     expect(screen.getByRole('button', { name: 'Conversa' })).toHaveAttribute(
       'aria-keyshortcuts',
-      expect.stringContaining('Shift+Enter'),
+      expect.stringContaining('Shift+Enter')
     );
     expect(screen.getByRole('button', { name: 'Global' })).toHaveAttribute(
       'aria-keyshortcuts',
-      expect.stringContaining('Control+Shift+Enter'),
+      expect.stringContaining('Control+Shift+Enter')
     );
 
     fireEvent.keyDown(document, { key: 'Enter', shiftKey: true });
@@ -157,13 +198,16 @@ describe('DecisionQuestionnaireHost', () => {
       id: 'acp',
       actions: [
         { id: 'allow-once', label: 'Permitir uma vez', polarity: 'affirmative', scope: 'current' },
-        { id: 'allow-always', label: 'Permitir sempre', polarity: 'affirmative', scope: 'persistent' },
+        {
+          id: 'allow-always',
+          label: 'Permitir sempre',
+          polarity: 'affirmative',
+          scope: 'persistent',
+        },
         { id: 'deny', label: 'Negar', polarity: 'negative', scope: 'current' },
       ],
     };
-    render(
-      <DecisionQuestionnaireHost data={data} onAction={onAction} onCancel={vi.fn()} />,
-    );
+    render(<DecisionQuestionnaireHost data={data} onAction={onAction} onCancel={vi.fn()} />);
 
     fireEvent.keyDown(document, {
       key: 'Enter',
@@ -184,14 +228,10 @@ describe('DecisionQuestionnaireHost', () => {
       ],
     };
     const { unmount } = render(
-      <DecisionQuestionnaireHost
-        data={withDanger}
-        onAction={vi.fn()}
-        onCancel={vi.fn()}
-      />,
+      <DecisionQuestionnaireHost data={withDanger} onAction={vi.fn()} onCancel={vi.fn()} />
     );
     expect(screen.getByRole('alertdialog').querySelector('.modal-content')).toHaveClass(
-      'decision-dialog-modal--permission',
+      'decision-dialog-modal--permission'
     );
     unmount();
 
@@ -200,10 +240,10 @@ describe('DecisionQuestionnaireHost', () => {
         data={{ ...withDanger, severity: 'destructive' }}
         onAction={vi.fn()}
         onCancel={vi.fn()}
-      />,
+      />
     );
     expect(screen.getByRole('alertdialog').querySelector('.modal-content')).toHaveClass(
-      'decision-dialog-modal--destructive',
+      'decision-dialog-modal--destructive'
     );
   });
 
@@ -218,22 +258,30 @@ describe('DecisionQuestionnaireHost', () => {
         { id: 'workspace', label: 'Workspace', polarity: 'affirmative', scope: 'persistent' },
         { id: 'profile', label: 'Perfil' },
         { id: 'dir-once', label: 'Pasta uma vez' },
-        { id: 'deny-session', label: 'Negar conversa', polarity: 'negative', scope: 'conversation' },
-        { id: 'deny-workspace', label: 'Negar workspace', polarity: 'negative', scope: 'persistent' },
+        {
+          id: 'deny-session',
+          label: 'Negar conversa',
+          polarity: 'negative',
+          scope: 'conversation',
+        },
+        {
+          id: 'deny-workspace',
+          label: 'Negar workspace',
+          polarity: 'negative',
+          scope: 'persistent',
+        },
         { id: 'deny', label: 'Negar tentativa', polarity: 'negative', scope: 'current' },
       ],
     };
-    render(
-      <DecisionQuestionnaireHost data={data} onAction={onAction} onCancel={vi.fn()} />,
-    );
+    render(<DecisionQuestionnaireHost data={data} onAction={onAction} onCancel={vi.fn()} />);
 
     expect(screen.getByRole('button', { name: 'Tentativa' })).toHaveAttribute(
       'aria-keyshortcuts',
-      expect.stringContaining('Control+Enter'),
+      expect.stringContaining('Control+Enter')
     );
     expect(screen.getByRole('button', { name: 'Pasta uma vez' })).not.toHaveAttribute(
       'aria-keyshortcuts',
-      expect.stringContaining('Control+Enter'),
+      expect.stringContaining('Control+Enter')
     );
     fireEvent.keyDown(document, { key: 'Backspace', ctrlKey: true, shiftKey: true });
     expect(onAction).toHaveBeenCalledWith({
@@ -248,7 +296,7 @@ describe('DecisionQuestionnaireHost', () => {
         data={{ ...shellDecision(), allowCancel: false }}
         onAction={vi.fn()}
         onCancel={onCancel}
-      />,
+      />
     );
     fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
     expect(onCancel).not.toHaveBeenCalled();
@@ -261,7 +309,7 @@ describe('DecisionQuestionnaireHost', () => {
         data={{ ...shellDecision(), allowCancel: true }}
         onAction={vi.fn()}
         onCancel={onCancel}
-      />,
+      />
     );
     fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
     expect(onCancel).toHaveBeenCalled();
@@ -290,15 +338,13 @@ describe('DecisionQuestionnaireHost', () => {
       },
     };
 
-    render(
-      <DecisionQuestionnaireHost data={data} onAction={onAction} onCancel={vi.fn()} />,
-    );
+    render(<DecisionQuestionnaireHost data={data} onAction={onAction} onCancel={vi.fn()} />);
 
     expect(screen.getByRole('group', { name: 'Antes' })).toHaveTextContent('old');
     expect(screen.getByRole('group', { name: 'Depois' })).toHaveTextContent('new');
     expect(screen.getByRole('alertdialog').querySelector('.modal-body')).toHaveAttribute(
       'role',
-      'application',
+      'application'
     );
 
     fireEvent.change(screen.getByLabelText(/Motivo da rejeição/i), {
@@ -343,9 +389,7 @@ describe('DecisionQuestionnaireHost', () => {
       },
     });
     try {
-      render(
-        <DecisionQuestionnaireHost data={data} onAction={vi.fn()} onCancel={vi.fn()} />,
-      );
+      render(<DecisionQuestionnaireHost data={data} onAction={vi.fn()} onCancel={vi.fn()} />);
 
       await waitFor(() => {
         expect(screen.getByRole('document', { name: 'Depois' })).toHaveFocus();
@@ -369,9 +413,7 @@ describe('DecisionQuestionnaireHost', () => {
         label: { fallback: 'Motivo' },
       },
     };
-    render(
-      <DecisionQuestionnaireHost data={data} onAction={vi.fn()} onCancel={onCancel} />,
-    );
+    render(<DecisionQuestionnaireHost data={data} onAction={vi.fn()} onCancel={onCancel} />);
     fireEvent.change(screen.getByLabelText('Motivo'), {
       target: { value: 'depois' },
     });

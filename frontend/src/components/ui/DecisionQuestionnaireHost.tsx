@@ -12,6 +12,7 @@ import {
   type QuestionnaireQuestion,
 } from './QuestionnaireDialog';
 import { resolveQuestionnaireText } from '../../lib/questionnaireText';
+import { useQuestionnaireUIStore } from '../../store/questionnaireUIStore';
 
 /** Chave de Answers alinhada a questionnaire.AnswerActionID (Go). */
 export const DECISION_ANSWER_ACTION_ID = 'actionId';
@@ -39,11 +40,17 @@ export function DecisionQuestionnaireHost({
   const { t } = useTranslation();
 
   const open = isDecisionQuestionnaire(data);
+  // O store é a fonte do pedido topmost da fila. O vínculo por id evita que
+  // um scope antigo sobreviva à troca de item; sem scope, a UI permanece
+  // restrita e não inventa autorização para diálogos montados fora da fila.
+  const activeScope = useQuestionnaireUIStore((state) => state.activeScope);
+  const dialogCommandScope =
+    open && data?.id && activeScope?.dialogId === data.id ? activeScope : undefined;
 
   const title = resolveQuestionnaireText(
     t,
     data?.title,
-    t('ui.questionnaire.defaultTitle', 'Questionário'),
+    t('ui.questionnaire.defaultTitle', 'Questionário')
   );
   const descriptionParts = [
     resolveQuestionnaireText(t, data?.description),
@@ -53,7 +60,7 @@ export function DecisionQuestionnaireHost({
 
   const bodyQuestions = useMemo(
     () => (data?.questions ?? []).filter(questionHasBodyContent),
-    [data?.questions],
+    [data?.questions]
   );
 
   const readingRegions: DecisionReadingRegion[] = useMemo(() => {
@@ -67,16 +74,14 @@ export function DecisionQuestionnaireHost({
     }
     const plain = data?.body?.trim();
     if (!plain) return [];
-    return [{
-      id: 'body',
-      label: resolveQuestionnaireText(
-        t,
-        data?.bodyLabel,
-        t('ui.decisionDialog.detailsRegion'),
-      ),
-      content: plain,
-      autoFocus: true,
-    }];
+    return [
+      {
+        id: 'body',
+        label: resolveQuestionnaireText(t, data?.bodyLabel, t('ui.decisionDialog.detailsRegion')),
+        content: plain,
+        autoFocus: true,
+      },
+    ];
   }, [bodyQuestions, data?.body, data?.bodyLabel, t]);
 
   const rejectReason: DecisionRejectReason | undefined = useMemo(() => {
@@ -95,9 +100,7 @@ export function DecisionQuestionnaireHost({
       id: action.id,
       label: resolveQuestionnaireText(t, action.label, action.id),
       variant: action.variant,
-      shortcut: action.shortcut
-        ? resolveQuestionnaireText(t, action.shortcut)
-        : undefined,
+      shortcut: action.shortcut ? resolveQuestionnaireText(t, action.shortcut) : undefined,
       primary: action.primary,
       polarity: action.polarity,
       scope: action.scope,
@@ -132,6 +135,7 @@ export function DecisionQuestionnaireHost({
       // allowCancel=false esconde o X e desliga ESC/clique fora (sem armadilha
       // de foco); só as ações fecham o diálogo.
       allowClose={allowCancel}
+      dialogCommandScope={dialogCommandScope}
       onAction={(actionId, extras) =>
         onAction({ [DECISION_ANSWER_ACTION_ID]: actionId, ...extras })
       }
