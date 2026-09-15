@@ -1,5 +1,5 @@
-// Package commanddecision mantém recibos de decisão do subconjunto de mutações
-// de configuração. Não autentica, autoriza ou registra presenters por payload.
+// Package commanddecision mantém recibos de decisão de mutações de configuração
+// e invocações locais. Não autentica, autoriza ou registra presenters por payload.
 package commanddecision
 
 import (
@@ -27,8 +27,13 @@ const (
 // Request vem exclusivamente do backend autenticado. Fingerprint é calculado
 // pelo chamador confiável sobre a solicitação completa; não é segredo bruto.
 // Body é o diff já validado a apresentar, nunca persistido neste repository.
-// O subconjunto admite só subject_type=config_mutation e apply/deny.
+// Os subjects config_mutation e invocation permanecem isolados; ações apply/deny.
 type Request struct {
+	// Metadata de apresentação derivada do catálogo; não concede autoridade.
+	Destructive bool
+	// Vazio preserva o contrato legado config_mutation. Invocation usa o mesmo
+	// protocolo de apresentação/consumo e vincula MutationID ao invocation_id.
+	SubjectType                                     string
 	DecisionID, MutationID, UserID, SessionID       string
 	Fingerprint, AuthGeneration, SecurityGeneration string
 	ExpiresAt                                       time.Time

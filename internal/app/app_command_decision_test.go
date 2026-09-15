@@ -184,6 +184,64 @@ func TestCommandDecisionPresenterAcceptDenyCancelAndIgnoresInjectedDecisionID(t 
 	}
 }
 
+func TestCommandDecisionPresenterInvocationUsesLocalizedMetadataAndCurrentScope(t *testing.T) {
+	for _, destructive := range []bool{false, true} {
+		t.Run(map[bool]string{false: "permission", true: "destructive"}[destructive], func(t *testing.T) {
+			manager, events := newCommandDecisionManager(t)
+			presenter := &commandDecisionPresenter{manager: manager}
+			req := commandDecisionRequest("invocation-decision", 5*time.Second)
+			req.SubjectType = "invocation"
+			req.Destructive = destructive
+
+			response, err, payload := presentCommandDecision(t, presenter, manager, events, req,
+				map[string]any{questionnaire.AnswerActionID: commanddecision.ApplyAction}, false)
+			if err != nil {
+				t.Fatalf("Present: %v", err)
+			}
+			if response != (commanddecision.Response{DecisionID: req.DecisionID, ActionID: commanddecision.ApplyAction}) {
+				t.Fatalf("resposta = %#v", response)
+			}
+
+			wantSeverity := questionnaire.DecisionSeverityPermission
+			if destructive {
+				wantSeverity = questionnaire.DecisionSeverityDestructive
+			}
+			if payload["severity"] != wantSeverity {
+				t.Fatalf("severity = %#v, want %q", payload["severity"], wantSeverity)
+			}
+			title := payload["title"].(questionnaire.Text)
+			description := payload["description"].(questionnaire.Text)
+			bodyLabel := payload["bodyLabel"].(questionnaire.Text)
+			if title.Key != "app.questionnaire.commandInvocation.title" || description.Key != "app.questionnaire.commandInvocation.description" || bodyLabel.Key != "app.questionnaire.commandInvocation.bodyLabel" {
+				t.Fatalf("chaves de invocation = title=%#v description=%#v bodyLabel=%#v", title, description, bodyLabel)
+			}
+			actions := payload["actions"].([]questionnaire.DecisionAction)
+			if len(actions) != 2 {
+				t.Fatalf("ações = %#v", actions)
+			}
+			apply := actions[0]
+			if apply.ID != commanddecision.ApplyAction || apply.Label.Key != "app.questionnaire.commandInvocation.apply" || apply.Label.Fallback != "Executar" || apply.Scope != questionnaire.DecisionScopeCurrent || !apply.Primary || apply.Polarity != questionnaire.DecisionPolarityAffirmative {
+				t.Fatalf("ação invocation = %#v", apply)
+			}
+		})
+	}
+}
+
+func TestCommandDecisionPresenterRejectsUnknownSubject(t *testing.T) {
+	manager, events := newCommandDecisionManager(t)
+	presenter := &commandDecisionPresenter{manager: manager}
+	req := commandDecisionRequest("unknown-subject", 5*time.Second)
+	req.SubjectType = "surface"
+	if _, err := presenter.Present(context.Background(), req); !errors.Is(err, commanddecision.ErrInvalid) {
+		t.Fatalf("subject desconhecido aceito: %v", err)
+	}
+	select {
+	case payload := <-events:
+		t.Fatalf("subject desconhecido abriu diálogo: %#v", payload)
+	default:
+	}
+}
+
 func TestCommandDecisionPresenterExpiryCoversQuestionnaireQueue(t *testing.T) {
 	manager, events := newCommandDecisionManager(t)
 	presenter := &commandDecisionPresenter{manager: manager}

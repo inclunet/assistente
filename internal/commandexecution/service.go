@@ -13,7 +13,10 @@ import (
 	"github.com/google/uuid"
 )
 
-type Service struct{ config Config }
+type Service struct {
+	config   Config
+	complete bool
+}
 
 var commandIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
 var keyVersionPattern = regexp.MustCompile(`^v[1-9][0-9]*$`)
@@ -157,7 +160,7 @@ func (s *Service) check(ctx context.Context, token string, p prepared) error {
 // scheduler compartilhado nem bootstrap de produto neste recorte. Reentregas
 // nunca assumem propriedade de invocações já reservadas, mesmo não terminais.
 func (s *Service) Execute(ctx context.Context, token string, request Request) (record commandledger.Record, err error) {
-	if s == nil || ctx == nil {
+	if s == nil || ctx == nil || s.complete {
 		return commandledger.Record{}, ErrInvalidRequest
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.config.ExecutionTimeout)
@@ -291,7 +294,7 @@ func (s *Service) finish(p prepared, from, to commandledger.Status) (commandledg
 // mudança de configuração/segurança falha fechado como conflito. Consulta por
 // ID independente de gerações e resultados redigidos ricos é evolução futura.
 func (s *Service) GetInvocation(ctx context.Context, token string, request Request) (record commandledger.Record, err error) {
-	if s == nil || ctx == nil {
+	if s == nil || ctx == nil || s.complete {
 		return commandledger.Record{}, ErrInvalidRequest
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.config.ExecutionTimeout)

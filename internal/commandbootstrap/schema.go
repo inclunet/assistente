@@ -88,20 +88,29 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 		}
 		for _, obj := range actual {
 			w, ok := want[obj.Name]
-			if !ok || w.Type != obj.Type || w.TblName != obj.TblName || normalizeDDL(w) != normalizeDDL(obj) {
+			if !ok || w.Type != obj.Type || w.TblName != obj.TblName || (normalizeDDL(w) != normalizeDDL(obj) && (complete || normalizeDDL(legacyEnvelopeObject(w)) != normalizeDDL(obj))) {
 				return ErrStorage
 			}
 		}
 		return nil
 	}
-	err = database.ApplyCommandStorageMigration(ctx, db, func(tx *gorm.DB) error {
+	apply := func(tx *gorm.DB) error {
 		if err := check(tx, false); err != nil {
+			return err
+		}
+		if err := upgradeEnvelopeObjects(tx, want); err != nil {
 			return err
 		}
 		if err := migrate(ctx, tx); err != nil {
 			return err
 		}
 		return check(tx, true)
+	}
+	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := database.ApplyCommandStorageMigration(ctx, tx, apply); err != nil {
+			return err
+		}
+		return database.ApplyCommandEnvelopeMigration(ctx, tx, apply)
 	})
 	if err != nil {
 		if ctx.Err() != nil {

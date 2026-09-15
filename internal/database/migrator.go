@@ -284,6 +284,12 @@ var schemaMigrations = []migration{
 		// → database. Sem essa composição, comandos permanecem indisponíveis.
 		Run: func(*gorm.DB) error { return errMigrationDeferred },
 	},
+	{
+		Version: 21,
+		Name:    "command_envelope_ownership",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

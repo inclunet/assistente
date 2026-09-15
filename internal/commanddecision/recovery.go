@@ -41,8 +41,8 @@ func (s *Store) ReconcileSession(ctx context.Context, current commandsecurity.Ep
 	var result RecoveryResult
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var rows []receiptRow
-		query := tx.Where("user_id = ? AND auth_context_id = ? AND auth_context_type = ? AND subject_type = ? AND status IN ? AND (expires_at <= ? OR auth_generation <> ? OR security_generation <> ?)",
-			current.UserID, current.SessionID, "local_session", "config_mutation", []string{Pending, Accepted}, now.UnixMilli(), current.AuthGeneration, current.SecurityGeneration)
+		query := tx.Where("user_id = ? AND auth_context_id = ? AND auth_context_type = ? AND subject_type IN ? AND status IN ? AND (expires_at <= ? OR auth_generation <> ? OR security_generation <> ?)",
+			current.UserID, current.SessionID, "local_session", []string{"config_mutation", "invocation"}, []string{Pending, Accepted}, now.UnixMilli(), current.AuthGeneration, current.SecurityGeneration)
 		if err := query.Order("decision_id").Limit(limit + 1).Find(&rows).Error; err != nil {
 			return err
 		}

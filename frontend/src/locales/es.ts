@@ -4376,6 +4376,12 @@ const es = {
           apply: 'Aplicar',
           deny: 'Denegar',
         },
+        commandInvocation: {
+          title: '¿Ejecutar comando?',
+          description: 'Una invocación de comando está lista para ejecutarse. ¿Desea ejecutarla?',
+          bodyLabel: 'Comando solicitado',
+          apply: 'Ejecutar',
+        },
         network: {
           title: 'Autorizar acceso a un host bloqueado (anti-SSRF)',
           description: 'El asistente intentó acceder a un host que resuelve a una dirección interna/privada ({{category}}). Autoriza solo si confías en este destino.',

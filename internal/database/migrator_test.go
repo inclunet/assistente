@@ -472,16 +472,16 @@ func TestRealRegistry_FreshDBAppliesAllAndIsIdempotent(t *testing.T) {
 	}
 
 	got := schemaMigrationRows(t, db)
-	if len(got) != len(schemaMigrations)-1 {
-		t.Fatalf("esperava %d migrações registradas antes da composição de comandos, tenho %d (%v)", len(schemaMigrations)-1, len(got), got)
+	if len(got) != len(schemaMigrations)-2 {
+		t.Fatalf("esperava %d migrações registradas antes da composição de comandos, tenho %d (%v)", len(schemaMigrations)-2, len(got), got)
 	}
-	for i, m := range schemaMigrations[:len(schemaMigrations)-1] {
+	for i, m := range schemaMigrations[:len(schemaMigrations)-2] {
 		if got[i] != m.Version {
 			t.Fatalf("versão registrada na posição %d: esperava %d, tenho %d", i, m.Version, got[i])
 		}
 	}
-	if uv := userVersion(t, db); uv != schemaMigrations[len(schemaMigrations)-2].Version {
-		t.Fatalf("user_version esperado %d enquanto v20 está pendente, tenho %d", schemaMigrations[len(schemaMigrations)-2].Version, uv)
+	if uv := userVersion(t, db); uv != schemaMigrations[len(schemaMigrations)-3].Version {
+		t.Fatalf("user_version esperado %d enquanto v20/v21 estão pendentes, tenho %d", schemaMigrations[len(schemaMigrations)-3].Version, uv)
 	}
 	var pendingV20 int64
 	if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version = 20").Scan(&pendingV20).Error; err != nil {
@@ -502,6 +502,15 @@ func TestRealRegistry_FreshDBAppliesAllAndIsIdempotent(t *testing.T) {
 	}
 	if callbackCalls != 1 {
 		t.Fatalf("callback de composição chamado %d vezes, esperado 1", callbackCalls)
+	}
+	if uv := userVersion(t, db); uv != 20 {
+		t.Fatalf("v21 não pode avançar implicitamente: %d", uv)
+	}
+	if err := ApplyCommandEnvelopeMigration(db.Statement.Context, db, func(*gorm.DB) error { callbackCalls++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if callbackCalls != 2 {
+		t.Fatalf("callbacks v20/v21 = %d", callbackCalls)
 	}
 	got = schemaMigrationRows(t, db)
 	if len(got) != len(schemaMigrations) {

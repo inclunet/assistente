@@ -21,6 +21,8 @@ const (
 	CancelledStale Status = "cancelled_stale"
 	TimedOut       Status = "timed_out"
 	OutcomeUnknown Status = "outcome_unknown"
+	Suppressed     Status = "suppressed"
+	RejectedStale  Status = "rejected_stale"
 )
 
 var (

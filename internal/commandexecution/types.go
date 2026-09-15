@@ -5,11 +5,13 @@ package commandexecution
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
 	"assistente/internal/auth"
 	"assistente/internal/commandcatalog"
+	"assistente/internal/commandcontract"
 	"assistente/internal/commandledger"
 	"assistente/internal/commandsecurity"
 )
@@ -35,6 +37,7 @@ type Versions struct {
 
 // Invocation é uma cópia sem tokens/segredos entregue exclusivamente ao handler.
 type Invocation struct {
+	Envelope                     *commandcontract.Envelope
 	ID, CorrelationID, CommandID string
 	Principal                    auth.LocalSessionPrincipal
 	Source                       commandcatalog.Source
@@ -42,7 +45,10 @@ type Invocation struct {
 
 // Outcome só admite succeeded, failed ou cancelled, confirmados pelo handler.
 // Sem resultado explícito, o executor não presume ausência de efeitos.
-type Outcome struct{ Status commandledger.Status }
+type Outcome struct {
+	Status commandledger.Status
+	Result json.RawMessage
+}
 
 // ExecutionHandle é retornado por Start sem esperar o trabalho terminar.
 // Done entrega um outcome; Cancel deve ser idempotente e não bloqueante.
@@ -65,6 +71,7 @@ type Handler struct {
 // Registry e Handlers são um snapshot imutável; trocar rotas exige novo serviço
 // e publicar uma nova versão sob o mesmo gate. Source é fixada pelo adapter.
 type Config struct {
+	Envelope            *EnvelopeConfig
 	Sessions            *auth.SessionService
 	Epochs              *commandsecurity.EpochService
 	Store               *commandledger.Store

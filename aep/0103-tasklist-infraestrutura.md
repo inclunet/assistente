@@ -13,13 +13,13 @@ A fonte normativa permanece `aep/0103-comandos-acionadores-e-camadas-contextuais
 
 Este plano substitui a estimativa informal de “35%” como instrumento de acompanhamento. Não há porcentagem total validada. Test coverage, linhas e commits não medem entrega do AEP.
 
-### Fotografia atual — 14/09/2026, implementação local de I03
+### Fotografia atual — 14/09/2026, após a rodada I02–I04
 
 - 15 pacotes de infraestrutura; I01/I02 implementados e validados localmente (2/15); qualificação global I15 pendente.
-- 70 itens restantes de infraestrutura, dos 84 da baseline; 14 encerrados localmente. I03 não está encerrado: falta a ponte autenticada para os providers da UI.
+- 66 itens restantes de infraestrutura, dos 84 da baseline; 18 encerrados localmente. I03 e I04 permanecem parciais pelos limites de integração descritos abaixo; I06.1 foi antecipado como dependência da execução destrutiva.
 - 4 marcos de infraestrutura, seguidos por 6 pacotes de migração/entrega.
 - 83 critérios finais do AEP com responsáveis mapeados no apêndice.
-- M1: I01/I02 entregues localmente, I03 em integração; M2–M4 ainda não encerrados. Contagem de pacotes não é porcentagem de esforço ou do AEP.
+- M1: I01/I02 entregues localmente, I03 com 5/6 itens encerrados; M2: I04 com 3/6 itens encerrados e I06.1 antecipado. M1–M4 ainda não encerrados. Contagem de itens/pacotes não é porcentagem de esforço ou do AEP.
 - Checkbox aberto significa obrigação ainda não encerrada no escopo descrito. Não marcar um pacote concluído apenas porque passou um teste do subconjunto.
 
 ### O que já existe e será reaproveitado
@@ -132,14 +132,16 @@ Estado: **Parcial**. Esforço restante: **GG**.
 Dependências: I02, I03.
 Referências: D2.1, D3, D4, D11, D16.
 
-Evidência/limite atual: internal/commandexecution/types.go restringe o executor a local_session/read direto, sem argumentos, workspace, providers ou decisão; ledger e handles já têm testes desse subconjunto.
+Evidência: `internal/commandexecution/envelope_{engine,pipeline}.go` amplia o MESMO Service com catálogo completo, argumentos, workspace, resolução direta/trigger, políticas de contexto e read/write/destructive; `internal/commandledger/envelope.go` amplia as mesmas tabelas. `NewComplete` exige portas confiáveis e desabilita as entradas legadas nessa instância. O fluxo local é testado com handlers controlados; não há montagem do executor ampliado no App. Autenticação externa/job/system depende de I10 e a projeção persistida completa depende de I05. Esses limites impedem declarar o pacote inteiro concluído.
 
 - [ ] I04.1 — Unificar execução direta e por trigger: resolver, fixar origem vencedora, derivar ator e normalizar argumentos antes de assinar/reservar.
-- [ ] I04.2 — Ampliar reserva e auditoria para argumentos, triggers, origem física/evento, workspace e contexto; preservar IDs canônicos e rejeitar fingerprint divergente.
+- [x] I04.2 — Ampliar reserva e auditoria para argumentos, triggers, origem física/evento, workspace e contexto; preservar IDs canônicos e rejeitar fingerprint divergente.
 - [ ] I04.3 — Persistir recusas pós-autenticação e marcadores terminais suppressed/rejected_stale; reentrega não pode passar a executar após alteração de configuração.
 - [ ] I04.4 — Completar gates evaluating → queued → running para read/write/destructive, revalidando política, catálogo, mapa, contexto e decisão no ponto correto.
-- [ ] I04.5 — Preservar handoff não bloqueante, finalização atômica, resultado redigido, consulta autorizada independente da versão atual e reconciliação auditada de outcome_unknown sem reexecução.
-- [ ] I04.6 — Testar filas, duplicidade, perda de ack, panic, cancelamento, mudança de configuração e falhas transacionais com handlers controlados.
+- [x] I04.5 — Preservar handoff não bloqueante, finalização atômica, resultado redigido, consulta autorizada independente da versão atual e reconciliação auditada de outcome_unknown sem reexecução.
+- [x] I04.6 — Testar filas, duplicidade, perda de ack, panic, cancelamento, mudança de configuração e falhas transacionais com handlers controlados.
+
+Itens ainda abertos, com limite exato: I04.1 tem o fluxo unificado de sessão local, mas não autenticação dos demais contextos; I04.3 persiste recusas quando há envelope autoritativo válido, mas uma falha anterior do Snapshot não produz uma reserva assinável; I04.4 tem os gates completos no fluxo local, faltando exercitá-los nas portas reais de configuração e dos demais contextos. Não ampliar esse escopo por um fallback permissivo.
 
 Critério de saída: O serviço único consegue aplicar os contratos do AEP a todos os tipos previstos de execução, sem depender de handlers de produto.
 
@@ -165,9 +167,9 @@ Estado: **Parcial**. Esforço restante: **G**.
 Dependências: I04, I05.
 Referências: D2, D10, D11; AEP-0091.
 
-Evidência/limite atual: commanddecision e app_command_decision.go persistem/mostram decisões; commandconfig/decision.go consome receipt atomicamente apenas para binding_enabled global.
+Evidência/limite atual: commanddecision e app_command_decision.go persistem/mostram decisões; commandconfig/decision.go consome receipt para binding_enabled global. A rodada I04 acrescentou subject invocation e consumo atômico no CAS para queued, mantendo a UI de decisão existente; o CRUD restante continua pendente.
 
-- [ ] I06.1 — Ampliar receipt para invocação e consumir decisão destrutiva na mesma transação do CAS para queued.
+- [x] I06.1 — Ampliar receipt para invocação e consumir decisão destrutiva na mesma transação do CAS para queued.
 - [ ] I06.2 — Aplicar diff/receipt/auditoria a todo CRUD, restore, import e alteração de capacidade; incorporar a classificação obrigatória de cada verbo.
 - [ ] I06.3 — Registrar presenter autenticado no ciclo apropriado; cancelamento, timeout, logout e resposta tardia não deixam autorização reutilizável.
 - [ ] I06.4 — Revalidar gerações de configuração/grant entre apresentação e commit; negar origem headless onde o contrato exige interlocutor.
@@ -472,6 +474,19 @@ Consolidar a rodada autorizada I02–I04, mantendo abertos os critérios depende
 - I03.1 permanece aberto: falta ponte autenticada e registro das superfícies reais. As factories privadas do App não equivalem à montagem I14. Não há promessa de latência ponta a ponta nem validação física/NVDA nesta rodada.
 - Validação: commandcontext, commandforeground e workspace passaram; testes focados do App passaram. TypeScript e ESLint dos arquivos tocados passaram. Vitest: 7 arquivos/90 testes passaram, incluindo contextos, Modal, DecisionDialog, useVirtualModal e workspaceChatModalStore. Dependências copiadas para o worktree de instalação existente com package-lock idêntico; principal não alterado. As expectativas de dois testes novos foram corrigidas para cobrir freeze e duas releituras explícitas, sem remover testes.
 - Δ01 — incompatibilidade de implementação já existente: workspaces/abas reais têm IDs opacos, enquanto o schema experimental de commandconfig exige UUIDv7 para workspace. I03 preserva os IDs reais; adaptar a projeção/migração de configuração em I05, sem renomear dados pessoais. Não é expansão de produto nem autorização para migrar a instalação real nesta rodada.
+
+### Entrega local I04 e antecipação I06.1 — 14/09/2026
+
+- I02 commit `daf8036c7`; I03 commit `7736e63ee`. Esta seção acompanha o commit temático de I04; hashes finais ficam na fotografia de entrega e no histórico Git.
+- O mesmo Service recebe candidato sem identidade confiável, deriva owner/ator, consulta a reentrega antes de resolver, normaliza argumentos e assina o envelope. Snapshot/Resolve/Authorize são portas locais do bootstrap; não recebem autoridade de Wails. Gate revalida catálogo, mapa, epochs, alvo e providers antes da fila e do Start; espera, diálogo e resultado ficam fora do gate.
+- Ledger/auditoria compartilham reserva e transições transacionais. Ownership inclui ator, request tem HMAC de ingresso para reentrega sem argumentos brutos; lookup reautoriza independentemente do catálogo atual. Suppress/rejected_stale não executam após mudança de configuração. Erro após handoff ou resultado fora do schema produz outcome_unknown, não retry de efeitos. Callback/handler recebe envelope destacado para não alterar a solicitação assinada.
+- I06.1 antecipado por necessidade de I04: receipt subject invocation vinculado à solicitação/owner/epochs e consumido uma única vez na transação evaluating→queued. Expiração menor que a retenção é aceita; falha do CAS reverte consumo. Presenter usa o diálogo existente, ação Executar e escopo current; efeito destrutivo seleciona severity destructive. Chaves de UI nos três idiomas, sem novo diálogo paralelo.
+- Δ02 — requisito persistente de I04/I06.1: migração central v21 acrescenta actor_type/actor_id/input_fingerprint ao ledger e subject invocation ao receipt. Upgrade v20 conhecido preserva dados/índices/carimbos; drift falha fechado e rollback é testado, inclusive colunas antigas em ordem diferente. Não foram criados segredos adicionais nem migrado banco pessoal nesta validação.
+- Δ03 — dependência de aceite antes implícita na baseline: I04 pede todos os contextos, mas I10 depende de I04; I03 pede fontes UI reais, mas a montagem está em I14. A implementação pode avançar em sequência, porém o fechamento integral desses pacotes precisa da integração posterior. Mantidos os IDs e critérios originais abertos; não se reduziu a definição de pronto nem se acrescentou feature.
+- Testes passaram em todos os 15 pacotes command* e em workspace; executor completo repetido count=2 após revisão de isolamento dos callbacks. Passaram testes focados de App/contextos/presenter e database/migrações, build/vet globais e diff-check. Frontend: tsc, lint dos arquivos tocados e 90 testes focados/regressão passaram. Testes usam SQLite/diretórios temporários e credenciais sintéticas; segredos reais não foram usados deliberadamente.
+- Revisão central integrou seis frentes delegadas em modelos econômicos, corrigiu contratos cruzados, deadline de replay, upgrade preservador de dados e imutabilidade. O custo dominante continuou sendo integração/verificação; não há base honesta para promessa de dias/turnos por pacote.
+- Limites de qualificação: go test ./... não executado porque testes legados do App escrevem configuração compartilhada; race indisponível sem compilador C; suíte frontend completa, stylelint global, Bugbot, CI, validação física/NVDA e review remota não executados. Sem push/PR/merge. Comandos existentes não migrados e executor ampliado não ativado no App.
+- Próximo trabalho concreto: fechar a ponte autenticada de I03.1 com prova de ownership/freshness sem chamada bloqueante à UI dentro do gate; depois I05 (projeção e CRUD persistidos). Em I10 concluir ingresso/ator dos demais contextos e, em I14, montar/revalidar o conjunto. Não requer nova decisão do usuário para os subitens técnicos já aprovados, mas não conta como três pacotes encerrados nesta rodada.
 
 ## 9. Rastreabilidade integral dos critérios de aceitação
 

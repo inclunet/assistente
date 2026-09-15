@@ -11,6 +11,8 @@ type ledgerRow struct {
 	UserID                       *string
 	AuthContextType              string `gorm:"type:text;not null"`
 	AuthContextID                string `gorm:"type:text;not null"`
+	ActorType                    *string
+	ActorID                      *string
 	SourceType                   *string
 	SourceInstanceID             *string
 	SourceEventID                *string
@@ -19,6 +21,7 @@ type ledgerRow struct {
 	SourceReplayDeadline         *time.Time
 	RequestFingerprintVersion    string `gorm:"type:text;not null"`
 	RequestFingerprint           string `gorm:"type:text;not null"`
+	InputFingerprint             *string
 	Status                       Status `gorm:"type:text;not null"`
 	ResultSummary                *string
 	ResultRef                    *string

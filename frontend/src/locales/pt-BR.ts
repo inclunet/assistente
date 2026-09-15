@@ -4377,6 +4377,12 @@ const ptBR = {
           apply: 'Aplicar',
           deny: 'Negar',
         },
+        commandInvocation: {
+          title: 'Executar comando?',
+          description: 'Uma invocação de comando está pronta para ser executada. Deseja executar?',
+          bodyLabel: 'Comando solicitado',
+          apply: 'Executar',
+        },
         network: {
           title: 'Autorizar acesso a host bloqueado (anti-SSRF)',
           description: 'O assistente tentou acessar um host que resolve para um endereço interno/privado ({{category}}). Autorize apenas se você confia neste destino.',

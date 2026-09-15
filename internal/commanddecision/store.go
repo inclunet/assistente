@@ -21,7 +21,7 @@ type receiptRow struct {
 	ExpiresMS          int64  `gorm:"column:expires_at;not null"`
 	State              string `gorm:"column:status;not null;check:status IN ('pending','accepted','denied','cancelled','expired','consumed')"`
 	AuthContextType    string `gorm:"not null;check:auth_context_type = 'local_session'"`
-	SubjectType        string `gorm:"not null;check:subject_type = 'config_mutation'"`
+	SubjectType        string `gorm:"not null;check:subject_type IN ('config_mutation','invocation')"`
 	AllowedActionIDs   string `gorm:"not null"`
 	AcceptedActionID   *string
 	RespondedAt        *int64
@@ -84,6 +84,9 @@ func validID(value string) bool {
 	return err == nil && id.Version() == 7 && id.Variant() == uuid.RFC4122 && id.String() == value
 }
 func validRequest(r Request) bool {
+	if r.SubjectType != "" && r.SubjectType != "config_mutation" && r.SubjectType != "invocation" {
+		return false
+	}
 	if !validID(r.DecisionID) || !validID(r.MutationID) || !validID(r.UserID) || !validID(r.SessionID) || r.ExpiresAt.UnixMilli() <= 0 {
 		return false
 	}
@@ -95,9 +98,13 @@ func validRequest(r Request) bool {
 	return true
 }
 func rowOf(r Request) receiptRow {
+	subject := r.SubjectType
+	if subject == "" {
+		subject = "config_mutation"
+	}
 	return receiptRow{ID: r.DecisionID, MutationID: r.MutationID, UserID: r.UserID, SessionID: r.SessionID,
 		Fingerprint: r.Fingerprint, AuthGeneration: r.AuthGeneration, SecurityGeneration: r.SecurityGeneration, ExpiresMS: r.ExpiresAt.UnixMilli(), State: Pending,
-		AuthContextType: "local_session", SubjectType: "config_mutation", AllowedActionIDs: `["apply","deny"]`}
+		AuthContextType: "local_session", SubjectType: subject, AllowedActionIDs: `["apply","deny"]`}
 }
 func appendEvent(tx *gorm.DB, id, state string, now time.Time) error {
 	eventID, err := uuid.NewV7()
@@ -218,7 +225,7 @@ func (s *Store) Consume(ctx context.Context, expected Request, apply func(*gorm.
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		row := rowOf(expected)
 		result := tx.Model(&receiptRow{}).Where("decision_id = ? AND subject_id = ? AND user_id = ? AND auth_context_id = ? AND request_fingerprint = ? AND auth_generation = ? AND security_generation = ? AND expires_at = ? AND expires_at > ? AND status = ? AND auth_context_type = ? AND subject_type = ? AND allowed_action_ids = ? AND accepted_action_id = ? AND responded_at IS NOT NULL AND consumed_at IS NULL",
-			row.ID, row.MutationID, row.UserID, row.SessionID, row.Fingerprint, row.AuthGeneration, row.SecurityGeneration, row.ExpiresMS, s.now().UnixMilli(), Accepted, "local_session", "config_mutation", `["apply","deny"]`, ApplyAction).
+			row.ID, row.MutationID, row.UserID, row.SessionID, row.Fingerprint, row.AuthGeneration, row.SecurityGeneration, row.ExpiresMS, s.now().UnixMilli(), Accepted, "local_session", row.SubjectType, `["apply","deny"]`, ApplyAction).
 			Updates(map[string]any{"status": Consumed, "consumed_at": s.now().UnixMilli()})
 		if result.Error != nil {
 			return result.Error

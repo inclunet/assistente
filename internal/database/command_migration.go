@@ -12,6 +12,16 @@ import (
 // A composição e o carimbo pertencem à mesma transação; callbacks não devem
 // acessar cofre/UI nem usar outra conexão.
 func ApplyCommandStorageMigration(ctx context.Context, db *gorm.DB, apply func(*gorm.DB) error) error {
+	return applyCommandMigration(ctx, db, 20, "command_storage_initial", apply)
+}
+
+// ApplyCommandEnvelopeMigration amplia o schema conhecido v20 sem reescrever
+// seu carimbo. O bootstrap valida o schema de origem antes de qualquer DDL.
+func ApplyCommandEnvelopeMigration(ctx context.Context, db *gorm.DB, apply func(*gorm.DB) error) error {
+	return applyCommandMigration(ctx, db, 21, "command_envelope_ownership", apply)
+}
+
+func applyCommandMigration(ctx context.Context, db *gorm.DB, version int, name string, apply func(*gorm.DB) error) error {
 	if ctx == nil || db == nil || apply == nil {
 		return errors.New("migração de comandos inválida")
 	}
@@ -23,14 +33,14 @@ func ApplyCommandStorageMigration(ctx context.Context, db *gorm.DB, apply func(*
 			return err
 		}
 		var rows []struct{ Name string }
-		if err := tx.Raw("SELECT name FROM schema_migrations WHERE version = 20").Scan(&rows).Error; err != nil {
+		if err := tx.Raw("SELECT name FROM schema_migrations WHERE version = ?", version).Scan(&rows).Error; err != nil {
 			return err
 		}
-		if len(rows) > 1 || (len(rows) == 1 && rows[0].Name != "command_storage_initial") {
+		if len(rows) > 1 || (len(rows) == 1 && rows[0].Name != name) {
 			return errors.New("versão de comandos incompatível")
 		}
 		return runMigrationList(tx, phasePostAutoMigrate, []migration{{
-			Version: 20, Name: "command_storage_initial", Phase: phasePostAutoMigrate, Run: apply,
+			Version: version, Name: name, Phase: phasePostAutoMigrate, Run: apply,
 		}})
 	})
 }

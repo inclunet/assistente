@@ -25,6 +25,35 @@ func (p *commandDecisionPresenter) Present(ctx context.Context, req commanddecis
 		return commanddecision.Response{}, err
 	}
 
+	// O subject é contrato backend; não aceite valores desconhecidos nem deixe
+	// que eles escolham silenciosamente a apresentação de configuração.
+	subjectType := req.SubjectType
+	if subjectType == "" {
+		subjectType = "config_mutation"
+	}
+
+	title := questionnaire.Keyed("app.questionnaire.commandBinding.title", "Aplicar alteração de comandos?")
+	description := questionnaire.Keyed("app.questionnaire.commandBinding.description", "Uma alteração na configuração de comandos está pronta para ser aplicada. Deseja aplicar?")
+	bodyLabel := questionnaire.Keyed("app.questionnaire.commandBinding.bodyLabel", "Alteração solicitada")
+	applyLabel := questionnaire.Keyed("app.questionnaire.commandBinding.apply", "Aplicar")
+	severity := questionnaire.DecisionSeverityPermission
+	applyScope := questionnaire.DecisionScopePersistent
+	switch subjectType {
+	case "config_mutation":
+		// Mantém o contrato visual existente para alteração de configuração.
+	case "invocation":
+		title = questionnaire.Keyed("app.questionnaire.commandInvocation.title", "Executar comando?")
+		description = questionnaire.Keyed("app.questionnaire.commandInvocation.description", "Uma invocação de comando está pronta para ser executada. Deseja executar?")
+		bodyLabel = questionnaire.Keyed("app.questionnaire.commandInvocation.bodyLabel", "Comando solicitado")
+		applyLabel = questionnaire.Keyed("app.questionnaire.commandInvocation.apply", "Executar")
+		applyScope = questionnaire.DecisionScopeCurrent
+		if req.Destructive {
+			severity = questionnaire.DecisionSeverityDestructive
+		}
+	default:
+		return commanddecision.Response{}, commanddecision.ErrInvalid
+	}
+
 	remaining := time.Until(req.ExpiresAt)
 	if remaining <= 0 {
 		return commanddecision.Response{}, commanddecision.ErrInvalid
@@ -37,19 +66,19 @@ func (p *commandDecisionPresenter) Present(ctx context.Context, req commanddecis
 
 	resp, err := p.manager.RequestQuestionnaire(deadlineCtx, questionnaire.RequestPayload{
 		Kind:        questionnaire.KindDecision,
-		Severity:    questionnaire.DecisionSeverityPermission,
-		Title:       questionnaire.Keyed("app.questionnaire.commandBinding.title", "Aplicar alteração de comandos?"),
-		Description: questionnaire.Keyed("app.questionnaire.commandBinding.description", "Uma alteração na configuração de comandos está pronta para ser aplicada. Deseja aplicar?"),
+		Severity:    severity,
+		Title:       title,
+		Description: description,
 		Body:        req.Body,
-		BodyLabel:   questionnaire.Keyed("app.questionnaire.commandBinding.bodyLabel", "Alteração solicitada"),
+		BodyLabel:   bodyLabel,
 		Actions: []questionnaire.DecisionAction{
 			{
 				ID:       commanddecision.ApplyAction,
-				Label:    questionnaire.Keyed("app.questionnaire.commandBinding.apply", "Aplicar"),
+				Label:    applyLabel,
 				Variant:  "primary",
 				Primary:  true,
 				Polarity: questionnaire.DecisionPolarityAffirmative,
-				Scope:    questionnaire.DecisionScopePersistent,
+				Scope:    applyScope,
 			},
 			{
 				ID:       commanddecision.DenyAction,

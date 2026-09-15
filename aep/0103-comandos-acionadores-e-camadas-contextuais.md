@@ -17,6 +17,14 @@ pendentes em I03.1/I14; snapshots enviados pela UI não concedem autoridade.
 Evidências e limitações de validação estão na tasklist, sem marcar critérios
 finais como concluídos por testes isolados.
 
+I04 amplia o mesmo Service/ledger com argumentos, resolução direta/trigger,
+gates de leitura/escrita/destrutivo e consumo transacional de receipt de
+invocação (I06.1 antecipado). Migração central v21 preserva o schema v20
+conhecido. O fluxo de sessão local tem testes com handlers controlados;
+contextos externo/job/system (I10), projeção completa (I05), recusas anteriores
+ao snapshot assinável e montagem no App permanecem pendentes. Não há ativação
+do novo executor nem migração dos atalhos nesta entrega.
+
 **Relacionados:** AEP-0001, AEP-0023, AEP-0045, AEP-0046, AEP-0047,
 AEP-0048, AEP-0052, AEP-0058, AEP-0060, AEP-0063, AEP-0067, AEP-0074-B,
 AEP-0080, AEP-0091, AEP-0101
