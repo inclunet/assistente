@@ -3,12 +3,14 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"assistente/internal/auth"
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandbridge"
 	"assistente/internal/commandcatalog"
+	"assistente/internal/commandconfig"
 	"assistente/internal/commandcontract"
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandledger"
@@ -18,6 +20,7 @@ import (
 
 const commandLifecycleSentinelID = "lifecycle.ready"
 const commandLifecycleRegistryVersion = "lifecycle-v1"
+const commandLifecycleBuiltinLayerID = "lifecycle.builtin"
 
 type commandLifecycleSentinelAdapter struct{}
 
@@ -145,6 +148,138 @@ func (a *App) rebuildCommandLifecycleSentinelConfiguration(ctx context.Context) 
 	}, func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
 		return configuration, nil, nil
 	})
+}
+
+func (a *App) rebuildCommandLifecyclePersistedConfiguration(ctx context.Context) error {
+	if a == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	store, err := commandconfig.New(database.DB())
+	if err != nil {
+		return err
+	}
+	registry, _, err := commandLifecycleSentinelCatalog()
+	if err != nil {
+		return err
+	}
+	options := commandconfig.LocalReadProjection{
+		Registry:           registry,
+		NoArgumentCommands: []string{commandLifecycleSentinelID},
+		BuiltinLayers: []commandconfig.BuiltinLayer{{
+			ID: commandLifecycleBuiltinLayerID, Active: true,
+			Defaults: []commandbindings.Default{{
+				Candidate: commandbindings.Candidate{
+					ID:                "lifecycle.default.ready",
+					Trigger:           "keyboard.local:Control+Shift+KeyL",
+					CommandID:         commandLifecycleSentinelID,
+					ArgumentsKey:      "{}",
+					ExecutionScopeKey: "global",
+					Scope:             commandbindings.Global,
+					Enabled:           true,
+					LayerActive:       true,
+				},
+				Version:     "1",
+				Fingerprint: "lifecycle.default.ready.v1",
+				Invariant:   false,
+			}},
+		}},
+	}
+	loaded, hasSnapshot, err := a.loadCommandLifecyclePersistedConfiguration(ctx, store, options)
+	if err != nil {
+		return err
+	}
+	if !hasSnapshot {
+		return a.rebuildCommandLifecycleSentinelConfiguration(ctx)
+	}
+	return loaded.publish(ctx)
+}
+
+type commandLifecycleLoadedConfiguration struct {
+	app           *App
+	store         *commandconfig.Store
+	snapshot      commandconfig.Snapshot
+	configuration *commandbindings.Configuration
+}
+
+func (a *App) loadCommandLifecyclePersistedConfiguration(ctx context.Context, store *commandconfig.Store, options commandconfig.LocalReadProjection) (commandLifecycleLoadedConfiguration, bool, error) {
+	if store == nil {
+		return commandLifecycleLoadedConfiguration{}, false, commandexecution.ErrInvalidConfiguration
+	}
+	principal, err := a.currentCommandPrincipal()
+	if err != nil {
+		return commandLifecycleLoadedConfiguration{}, false, err
+	}
+	snapshot, err := store.Load(ctx, commandconfig.Scope{UserID: principal.UserID})
+	if err != nil {
+		if errors.Is(err, commandconfig.ErrInvalid) {
+			hasGeneration, generationErr := commandLifecycleHasBaseGeneration(ctx, principal.UserID)
+			if generationErr != nil {
+				return commandLifecycleLoadedConfiguration{}, false, generationErr
+			}
+			if !hasGeneration {
+				return commandLifecycleLoadedConfiguration{}, false, nil
+			}
+		}
+		return commandLifecycleLoadedConfiguration{}, false, err
+	}
+	configuration, err := commandconfig.ProjectLocalRead(ctx, snapshot, options)
+	if err != nil {
+		return commandLifecycleLoadedConfiguration{}, false, err
+	}
+	return commandLifecycleLoadedConfiguration{app: a, store: store, snapshot: snapshot, configuration: configuration}, true, nil
+}
+
+func commandLifecycleHasBaseGeneration(ctx context.Context, userID string) (bool, error) {
+	var count int64
+	err := database.DB().WithContext(ctx).Model(&commandconfig.Generation{}).
+		Where("user_id = ? AND workspace_id IS NULL", userID).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (loaded commandLifecycleLoadedConfiguration) publish(ctx context.Context) error {
+	if loaded.app == nil || loaded.store == nil || loaded.configuration == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	loadedPrincipal := loaded.snapshot.Scope.UserID
+	return loaded.app.rebuildCommandLifecycleConfigurationChecked(ctx, func(ctx context.Context, principal auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
+		if principal.UserID != loadedPrincipal {
+			return nil, nil, commandexecution.ErrDenied
+		}
+		return loaded.configuration, nil, nil
+	}, func(ctx context.Context) error {
+		return loaded.store.CheckCurrent(ctx, loaded.snapshot)
+	})
+}
+
+func (a *App) rebuildCommandLifecycleConfigurationChecked(ctx context.Context,
+	build func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error),
+	check func(context.Context) error,
+) error {
+	if a == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	a.authMu.RLock()
+	state := a.commandHost
+	a.authMu.RUnlock()
+	if state == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	return state.RebuildUserConfiguration(ctx, func(ctx context.Context) (auth.LocalSessionPrincipal, error) {
+		principal, err := a.currentCommandPrincipal()
+		if err != nil {
+			return auth.LocalSessionPrincipal{}, err
+		}
+		if check != nil {
+			if err := check(ctx); err != nil {
+				return auth.LocalSessionPrincipal{}, err
+			}
+		}
+		return principal, nil
+	}, build)
 }
 
 func commandLifecycleSentinelCatalog() (*commandcatalog.Registry, map[string]commandexecution.Handler, error) {

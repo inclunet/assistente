@@ -14,6 +14,7 @@ import (
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandbridge"
 	"assistente/internal/commandcatalog"
+	"assistente/internal/commandconfig"
 	"assistente/internal/commandcontext"
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandledger"
@@ -225,6 +226,9 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 		t.Fatal(err)
 	}
 	if err := commandledger.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := commandconfig.Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	previousDB := database.DB()
@@ -489,6 +493,67 @@ func TestAppCommandLifecycleRebuildsSentinelThenBootstrapsReady(t *testing.T) {
 		t.Fatalf("runtime não ficou ready após rebuild: %+v err=%v", snapshot, err)
 	}
 	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAppCommandLifecycleRebuildsPersistedLocalConfigurationAfterAuth(t *testing.T) {
+	ctx := context.Background()
+	app, _ := appLifecycleProductMountFixture(t)
+	if err := ensureCommandLifecycleMountedForCurrentUserForTest(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.commandHost.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+	principal, err := app.currentCommandPrincipal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := commandconfig.Generation{ID: uuid.Must(uuid.NewV7()).String(), UserID: principal.UserID, Generation: 1, UpdatedAt: time.Now()}
+	if err := database.DB().Create(&generation).Error; err != nil {
+		t.Fatal(err)
+	}
+	defaultID, defaultVersion, defaultFingerprint := "lifecycle.default.ready", "1", "lifecycle.default.ready.v1"
+	binding := commandconfig.Binding{
+		ID:                         uuid.Must(uuid.NewV7()).String(),
+		UserID:                     principal.UserID,
+		LayerRefKind:               "builtin",
+		LayerRef:                   commandLifecycleBuiltinLayerID,
+		TriggerType:                "keyboard.local",
+		TriggerSpec:                `{"version":1,"code":"KeyL","modifiers":["Control","Shift"]}`,
+		Arguments:                  "{}",
+		Condition:                  `{"version":1,"clauses":[]}`,
+		Effect:                     "suppress",
+		Enabled:                    true,
+		Source:                     "test",
+		ReplacesDefaultID:          &defaultID,
+		ReplacesDefaultVersion:     &defaultVersion,
+		ReplacesDefaultFingerprint: &defaultFingerprint,
+		ReviewStatus:               "active",
+		Presentation:               "{}",
+	}
+	if err := database.DB().Create(&binding).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := app.rebuildCommandLifecyclePersistedConfiguration(ctx); err != nil {
+		t.Fatalf("rebuild persistido falhou: %v", err)
+	}
+	configuration, activeLayers, err := app.commandHost.UserConfiguration(ctx, principal.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(activeLayers) != 0 {
+		t.Fatalf("rebuild persistido restaurou claims indevidamente: %v", activeLayers)
+	}
+	selection, err := configuration.Resolve("keyboard.local:Control+Shift+KeyL", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.Status != commandbindings.Suppressed {
+		t.Fatalf("delta persistido não suprimiu o default: %+v", selection)
+	}
+	if err := ShutdownCommandLifecycle(ctx, app); err != nil {
 		t.Fatal(err)
 	}
 }

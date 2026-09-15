@@ -27,10 +27,14 @@ I14.2 fica encerrado localmente. Contagem atual: **49/84 critérios locais, 35
 abertos; 3/15 pacotes completos**.
 
 Atualização de I14.3: o pós-auth agora também tenta reconstruir a configuração
-sentinel inicial com `HostState.RebuildUserConfiguration` antes do Bootstrap. A
-publicação só ocorre se a sessão local atual ainda existir e o HostState observar
-cofre/SO desbloqueados; logout ou ausência de sessão falham fechado. Ainda falta
-recovery/reconciliação durável e projeção efetiva de configurações persistidas.
+inicial com `HostState.RebuildUserConfiguration` antes do Bootstrap. Quando há
+geração local válida, ele carrega `commandconfig.Store`, projeta o subconjunto
+local `keyboard.local`/read/none com `ProjectLocalRead`, revalida
+`Store.CheckCurrent` dentro da publicação e só então troca o mapa no `HostState`.
+Quando ainda não há geração base, cai no sentinel inicial; quando há geração
+inválida/obsoleta, falha fechado e não mascara como mapa vazio. Ainda falta
+recovery/reconciliação durável de restart, receipts/invocações/claims pendentes
+e integração explícita de unlock.
 
 ### Stream Deck real validado — 15/09/2026
 
