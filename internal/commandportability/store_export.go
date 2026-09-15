@@ -16,6 +16,17 @@ import (
 // Catálogo e Trigger são obrigatórios: sem a autoridade de schema/sensibilidade
 // e sem adapter registrado, não há exportação segura.
 func ExportFromStore(ctx context.Context, db *gorm.DB, userID string, refs ReferencePort, layerIDs []string, includeWorkspace bool) ([]LayerExport, error) {
+	return exportFromStore(ctx, db, userID, refs, layerIDs, includeWorkspace, nil)
+}
+
+// ExportScopeFromStore lê somente o escopo exato autorizado pelo host. Ao
+// exportar workspace, globals herdados e outros workspaces não são recursos
+// selecionados. A função compartilha as validações e DTO do export completo.
+func ExportScopeFromStore(ctx context.Context, db *gorm.DB, scope commandconfig.Scope, refs ReferencePort) ([]LayerExport, error) {
+	return exportFromStore(ctx, db, scope.UserID, refs, nil, scope.WorkspaceID != nil, scope.WorkspaceID)
+}
+
+func exportFromStore(ctx context.Context, db *gorm.DB, userID string, refs ReferencePort, layerIDs []string, includeWorkspace bool, exactWorkspace *string) ([]LayerExport, error) {
 	if ctx == nil || db == nil || strings.TrimSpace(userID) == "" || refs.Catalog == nil || !refs.Catalog.Complete() || refs.Trigger == nil {
 		return nil, ErrInvalid
 	}
@@ -25,6 +36,9 @@ func ExportFromStore(ctx context.Context, db *gorm.DB, userID string, refs Refer
 	}
 	var rows []commandconfig.Layer
 	query := db.WithContext(ctx).Where("user_id = ?", userID)
+	if exactWorkspace != nil {
+		query = query.Where("workspace_id = ?", *exactWorkspace)
+	}
 	if len(layerIDs) > 0 {
 		for _, id := range layerIDs {
 			if !validUUID7(id) {
@@ -84,7 +98,7 @@ func ExportFromStore(ctx context.Context, db *gorm.DB, userID string, refs Refer
 		}
 		result = append(result, layers[0])
 	}
-	builtin, err := exportBuiltinDeltas(ctx, db, userID, rows, layerIDs, includeWorkspace, refs)
+	builtin, err := exportBuiltinDeltas(ctx, db, userID, layerIDs, includeWorkspace, exactWorkspace, refs)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +150,7 @@ func validateExportLayer(ctx context.Context, layer *LayerExport, refs Reference
 	return nil
 }
 
-func exportBuiltinDeltas(ctx context.Context, db *gorm.DB, userID string, _ []commandconfig.Layer, layerIDs []string, includeWorkspace bool, refs ReferencePort) ([]LayerExport, error) {
+func exportBuiltinDeltas(ctx context.Context, db *gorm.DB, userID string, layerIDs []string, includeWorkspace bool, exactWorkspace *string, refs ReferencePort) ([]LayerExport, error) {
 	// Uma seleção explícita identifica somente camadas user. Deltas builtin não
 	// são dependências implícitas: só entram no export completo, quando não há
 	// filtro de layerIDs.
@@ -144,6 +158,9 @@ func exportBuiltinDeltas(ctx context.Context, db *gorm.DB, userID string, _ []co
 		return nil, nil
 	}
 	query := db.WithContext(ctx).Where("user_id = ? AND layer_ref_kind = ?", userID, "builtin")
+	if exactWorkspace != nil {
+		query = query.Where("workspace_id = ?", *exactWorkspace)
+	}
 	if !includeWorkspace {
 		query = query.Where("workspace_id IS NULL")
 	}
@@ -158,6 +175,9 @@ func exportBuiltinDeltas(ctx context.Context, db *gorm.DB, userID string, _ []co
 	}
 	if db.Migrator().HasTable((commandactivation.Rule{}).TableName()) {
 		ruleQuery := db.WithContext(ctx).Table((commandactivation.Rule{}).TableName()).Where("user_id = ? AND layer_ref_kind = ?", userID, string(commandactivation.BuiltinRef))
+		if exactWorkspace != nil {
+			ruleQuery = ruleQuery.Where("workspace_id = ?", *exactWorkspace)
+		}
 		if !includeWorkspace {
 			ruleQuery = ruleQuery.Where("workspace_id IS NULL")
 		}

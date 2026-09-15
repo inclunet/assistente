@@ -296,7 +296,15 @@ func (b BindingExport) validate() error {
 	if b.LayerRefKind == "builtin" && (b.ReplacesDefaultID == nil || !validBuiltinReference(*b.ReplacesDefaultID)) {
 		return ErrInvalid
 	}
-	return validateNoSecretDocuments(b.Arguments)
+	// Configuração antiga pode conter segredo também em metadados/condições.
+	// Use a mesma política recursiva da fronteira de argumentos, inclusive
+	// para suppress e para deltas builtin, antes de exportar ou planejar.
+	for _, document := range []string{b.Arguments, b.Condition, b.Presentation} {
+		if err := validateNoSecretDocuments(document); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r ActivationRuleExport) validate() error {

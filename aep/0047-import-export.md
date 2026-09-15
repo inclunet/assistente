@@ -4,6 +4,14 @@
 
 ## Dependências
 
+Rodada de quinze pacotes AEP-0103 (15/09/2026): `ExportCommandEnvelope` e
+`ApplyCommandEnvelope` compõem o envelope v1/v2 com o writer confirmado, sem
+novo caminho de persistência. Export requer escopo previamente autorizado pelo
+host; import revalida autoridade e referências. JSON duplicado, campos estranhos,
+recursos misturados e credenciais são recusados. O limite interno é 64 KiB e um
+escopo por aplicação. A cobertura entre bancos temporários não habilita a UI
+genérica, lotes multi-escopo ou exportação sensível criptografada.
+
 Na rodada de dez frentes de 15/09/2026, o round-trip interno passou a exercitar
 ExportFromStore → ApplyPlanImport → Store real, com deltas builtin,
 `needs_review`, global e workspace. Keep não abre decisão; Replace restaura

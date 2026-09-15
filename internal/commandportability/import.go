@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"slices"
+	"strings"
 
 	"assistente/internal/commandactivation"
 	"assistente/internal/commandconfig"
@@ -286,6 +287,24 @@ func buildImportedSnapshot(plan Plan, before commandconfig.Snapshot, scope comma
 			after.ActivationRules = append(after.ActivationRules, rule)
 		}
 	}
+	// O Store lê regras por workspace_id, id. O envelope agrupa por camada
+	// (incluindo deltaOnly), portanto sua ordem não é a ordem do agregado SQL.
+	// Canonizar o merge evita ErrStale no commit sem relaxar a comparação do
+	// estado confirmado, inclusive com globais herdados no escopo workspace.
+	slices.SortFunc(after.ActivationRules, func(a, b commandactivation.Rule) int {
+		if a.WorkspaceID == nil && b.WorkspaceID != nil {
+			return -1
+		}
+		if a.WorkspaceID != nil && b.WorkspaceID == nil {
+			return 1
+		}
+		if a.WorkspaceID != nil && b.WorkspaceID != nil {
+			if order := strings.Compare(*a.WorkspaceID, *b.WorkspaceID); order != 0 {
+				return order
+			}
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
 	return commandconfig.ImportedSnapshot{Snapshot: after, TouchedLayerIDs: touchedLayerIDs, TouchedBindingIDs: touchedBindingIDs, TouchedRuleIDs: touchedRuleIDs}, nil
 }
 
