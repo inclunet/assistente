@@ -9,6 +9,10 @@ import (
 	"assistente/internal/commandconfig"
 )
 
+// ErrNoChanges é o resultado explícito de um import Keep idempotente que já
+// coincide com o estado persistido. Ele não cria decisão, receipt ou geração.
+var ErrNoChanges = commandconfig.ErrNoChanges
+
 // ApplyPlanImport rederiva um PlanImport imutável e o entrega ao writer
 // confirmado de commandconfig. O chamador fornece somente conteúdo congelado
 // e portas confiáveis; não fornece Store, Snapshot, owner, grants ou receipt.

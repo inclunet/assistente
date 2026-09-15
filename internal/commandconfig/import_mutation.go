@@ -2,6 +2,7 @@ package commandconfig
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"time"
 
@@ -13,6 +14,12 @@ import (
 // command_layers. O valor também precisa estar na allowlist do host que monta
 // MutationServiceConfig.Authorize; esta API não concede essa autorização.
 const ConfigImport Operation = "config_import"
+
+// ErrNoChanges identifica uma importação validada que não altera nenhuma
+// linha. Diferenciar esse resultado de ErrInvalid permite ao chamador tratar
+// reimportação Keep como idempotência sem transformar payload inválido,
+// ownership recusado ou referência revogada em sucesso.
+var ErrNoChanges = errors.New("importação de command_layers sem mudanças")
 
 // ImportedSnapshot é o resultado final de um planejador confiável. Seu escopo
 // e seus registros já foram derivados pelo host; o DTO não pode preencher
@@ -117,7 +124,7 @@ func (s *Store) prepareImportedSnapshot(ctx context.Context, scope Scope, before
 	// slice vazia. Isso não é mudança de configuração: Keep repetido deve ser
 	// no-op e não pode abrir decisão nem avançar a geração.
 	if equalRows(before.Layers, after.Layers) && equalRows(before.Bindings, after.Bindings) && sameAggregateSnapshot(before, after) {
-		return nil, ErrInvalid
+		return nil, ErrNoChanges
 	}
 	if err := validateSnapshot(after); err != nil {
 		return nil, err

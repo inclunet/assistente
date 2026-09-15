@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandactivation"
+	"assistente/internal/commandautomation"
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandconfig"
 	"assistente/internal/commanddecision"
@@ -67,6 +69,12 @@ func newApplyImportFixture(t *testing.T, hook commandconfig.MutationTxHook) appl
 	ctx := context.Background()
 	if err := commandconfig.Migrate(ctx, db); err != nil {
 		t.Fatalf("commandconfig.Migrate: %v", err)
+	}
+	if err := commandactivation.Migrate(ctx, db); err != nil {
+		t.Fatalf("commandactivation.Migrate: %v", err)
+	}
+	if err := commandautomation.Migrate(ctx, db); err != nil {
+		t.Fatalf("commandautomation.Migrate: %v", err)
 	}
 	if err := commanddecision.Migrate(ctx, db); err != nil {
 		t.Fatalf("commanddecision.Migrate: %v", err)
@@ -218,10 +226,13 @@ func applyImportBinding(t *testing.T, layerID string, commandID string) BindingE
 func TestApplyPlanImportKeepExistenteViraNoopIdempotenteSemDecisao(t *testing.T) {
 	f := newApplyImportFixture(t, func(context.Context, *gorm.DB, commandconfig.MutationDiff) error { return nil })
 	refs := applyImportRefs(t, f)
-	input := applyImportLayer(f, "conteúdo diferente", nil)
-	_, err := ApplyPlanImport(context.Background(), f.service, "token", nil, []LayerExport{input}, PlanOptions{Mode: KeepMode}, applyImportOwner(f), refs)
-	if !errors.Is(err, commandconfig.ErrInvalid) {
-		t.Fatalf("Keep idempotente retornou %v, esperado no-op sem mutação", err)
+	inputs := []LayerExport{applyImportLayer(f, "conteúdo diferente", nil), applyImportLayer(f, "conteúdo diferente", nil)}
+	inputs[1].Bindings = []BindingExport{}
+	for _, input := range inputs {
+		_, err := ApplyPlanImport(context.Background(), f.service, "token", nil, []LayerExport{input}, PlanOptions{Mode: KeepMode}, applyImportOwner(f), refs)
+		if !errors.Is(err, ErrNoChanges) {
+			t.Fatalf("Keep idempotente retornou %v, esperado ErrNoChanges", err)
+		}
 	}
 	if f.presenter.calls != 0 {
 		t.Fatalf("no-op abriu decisão: calls=%d", f.presenter.calls)
@@ -233,6 +244,37 @@ func TestApplyPlanImportKeepExistenteViraNoopIdempotenteSemDecisao(t *testing.T)
 	if !reflect.DeepEqual(after.Layers, f.before.Layers) || !reflect.DeepEqual(after.Bindings, f.before.Bindings) || !reflect.DeepEqual(after.Generations, f.before.Generations) {
 		t.Fatalf("Keep no-op alterou o estado: before=%+v after=%+v", f.before, after)
 	}
+}
+
+func TestApplyPlanImportKeepNaoMascaOwnerOuReferenciaRevogados(t *testing.T) {
+	t.Run("owner", func(t *testing.T) {
+		f := newApplyImportFixture(t, func(context.Context, *gorm.DB, commandconfig.MutationDiff) error { return nil })
+		refs := applyImportRefs(t, f)
+		input := applyImportLayer(f, "conteúdo diferente", nil)
+		foreign := func(context.Context, string, string) (Ownership, error) { return ForeignUserOwner, nil }
+		_, err := ApplyPlanImport(context.Background(), f.service, "token", nil, []LayerExport{input}, PlanOptions{Mode: KeepMode}, foreign, refs)
+		if !errors.Is(err, ErrForeignOwner) || errors.Is(err, ErrNoChanges) {
+			t.Fatalf("owner recusado mascarado como no-op: %v", err)
+		}
+		if f.presenter.calls != 0 {
+			t.Fatalf("owner recusado abriu decisão: calls=%d", f.presenter.calls)
+		}
+	})
+	t.Run("referência", func(t *testing.T) {
+		f := newApplyImportFixture(t, func(context.Context, *gorm.DB, commandconfig.MutationDiff) error { return nil })
+		refs := applyImportRefs(t, f)
+		refs.Trigger = func(context.Context, string, string) (string, error) { return "", ErrMissingReference }
+		commandID := applyImportCommand
+		binding := applyImportBinding(t, f.layer.ID, commandID)
+		input := applyImportLayer(f, "referência revogada", &binding)
+		_, err := ApplyPlanImport(context.Background(), f.service, "token", nil, []LayerExport{input}, PlanOptions{Mode: KeepMode}, applyImportOwner(f), refs)
+		if !errors.Is(err, ErrInvalid) || errors.Is(err, ErrNoChanges) {
+			t.Fatalf("referência recusada mascarada como no-op: %v", err)
+		}
+		if f.presenter.calls != 0 {
+			t.Fatalf("referência recusada abriu decisão: calls=%d", f.presenter.calls)
+		}
+	})
 }
 
 func TestApplyPlanImportReferenciaAusenteFalhaAntesDaDecisao(t *testing.T) {
@@ -317,5 +359,39 @@ func TestApplyPlanImportLoteMultiEscopoFalhaFechadoNaAPIDeEscopoUnico(t *testing
 	}
 	if !reflect.DeepEqual(after.Layers, f.before.Layers) || !reflect.DeepEqual(after.Generations, f.before.Generations) {
 		t.Fatalf("lote multi-escopo alterou estado: before=%+v after=%+v", f.before, after)
+	}
+}
+
+func TestApplyPlanImportRegraEventoEntraDesabilitadaESemEfeitos(t *testing.T) {
+	f := newApplyImportFixture(t, func(context.Context, *gorm.DB, commandconfig.MutationDiff) error { return nil })
+	refs := applyImportRefs(t, f)
+	eventName := commandautomation.JobRunStateEvent
+	producers := `["jobs.runtime"]`
+	rule := ActivationRuleExport{
+		ID: applyImportUUID(t), LayerRefKind: "user", LayerRef: f.layer.ID,
+		RuleRefKind: "user", RuleRef: "placeholder", Mode: "event",
+		Condition: applyImportCondition, Lifecycle: "persistent", EventName: &eventName,
+		AllowedInternalProducerTypes: &producers, Enabled: true, ReviewStatus: "active",
+	}
+	rule.RuleRef = rule.ID
+	input := applyImportLayer(f, "com regra de evento", nil)
+	input.ActivationRules = []ActivationRuleExport{rule}
+	diff, err := ApplyPlanImport(context.Background(), f.service, "token", nil, []LayerExport{input}, PlanOptions{Mode: ReplaceMode}, applyImportOwner(f), refs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.presenter.calls != 1 || len(diff.AfterActivationRules) != 1 {
+		t.Fatalf("regra não passou pelo fluxo confirmado: calls=%d diff=%+v", f.presenter.calls, diff)
+	}
+	imported := diff.AfterActivationRules[0]
+	if imported.Enabled || imported.EventName == nil || *imported.EventName != eventName || imported.AutomationGrantID != nil || imported.AuthorizationDecisionID != nil || imported.AutomationGrantGeneration != nil || imported.AutomationGrantFingerprint != nil {
+		t.Fatalf("regra de evento importada indevidamente ativa/concedida: %+v", imported)
+	}
+	after, err := f.store.Load(context.Background(), commandconfig.Scope{UserID: f.user})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.ActivationRules) != 1 || after.ActivationRules[0].Enabled || len(after.AutomationGrants) != 0 || len(after.ActivationClaims) != 0 {
+		t.Fatalf("efeitos de ativação/grants/claims importados: %+v", after)
 	}
 }
