@@ -40,3 +40,15 @@ evidência manual.
 - Lock/unlock contínuo permanece coberto por `internal/ossession`; validar
   bloqueio real da estação pode ser feito depois em uma janela de teste dedicada.
 - Mapas reais de comandos do produto continuam em P04/P01.
+
+## Execução registrada — 15/09/2026
+
+- Worktree: `C:\Users\leonardo.gleison\dev\assistente-worktrees\aep-0103-comandos`.
+- Resultado: `PASS`.
+- Foreground: `windowsterminal.exe`.
+- Classe da janela: `CASCADIA_HOSTING_WINDOW_CLASS`.
+- Foreground version:
+  `8afafeea7f764f9204ebc59929ac358f20736a4e2961eaf72b593fa470c51661`.
+- Hotkey global: suportado.
+- Sessão interativa: conhecida/desbloqueada.
+- Stream Deck: modelo `Stream Deck`, serial `AL28K2C54852`.

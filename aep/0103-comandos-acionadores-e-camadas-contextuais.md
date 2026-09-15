@@ -37,6 +37,17 @@ critérios locais, 37 abertos; 2/15 pacotes completos**. Mapas reais de produto 
 UI do Stream Deck continuam em P04; validação de teclado/foco/janela e ambiente
 ampliado seguem em I13.6.
 
+### Ambiente físico de teclado/foco/janela validado — 15/09/2026
+
+I13.6 foi encerrado localmente com `internal/commandphysical`: foreground nativo,
+hotkey global suportado, sessão interativa conhecida/desbloqueada e Stream Deck
+físico validado são consolidados em relatório fail-closed. A execução manual no
+PowerShell visível capturou foreground `windowsterminal.exe`, classe
+`CASCADIA_HOSTING_WINDOW_CLASS`, confirmou hotkey global suportado e reutilizou o
+Stream Deck serial `AL28K2C54852` modelo `Stream Deck`; o teste terminou com
+`PASS`. A contagem sobe para **48/84 critérios locais, 36 abertos; 2/15 pacotes
+completos**. A migração de mapas reais e UI continua nos pacotes P01/P04.
+
 ### Prova de escopo de diálogo — 15/09/2026
 
 I13.3 foi encerrado localmente como infraestrutura de reserva/invariante: o

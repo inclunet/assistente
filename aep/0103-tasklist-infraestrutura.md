@@ -57,7 +57,8 @@ Validação focada: `go test ./internal/commanddeck -count=1` passou.
 
 ## Continuação — 15/09/2026, ambiente físico I13.6
 
-Avanço preparatório em **I13.6/C43/C44/C58**, sem fechar o critério agregado.
+Avanço em **I13.6/C43/C44/C58**, fechado após validação manual no PowerShell
+visível.
 `internal/commandphysical` consolida evidências de ambiente físico: foreground
 nativo, suporte a hotkey global, sessão interativa observável/desbloqueada e
 Stream Deck físico validado. O teste manual opt-in
@@ -67,12 +68,17 @@ automatizada cobre reports completos e ausentes; `commandforeground` e
 `ossession` continuam cobrindo redaction/foreground-before-show e lock/unlock
 fail-closed.
 
-Execução do teste manual pelo processo do agente confirmou a limitação esperada
-do ambiente sem janela foreground: `GetForegroundWindow` retornou identidade
-desconhecida. O runbook `docs/operations/physical-input-validation.md` registra
-que a evidência final precisa ser rodada no PowerShell visível do usuário. A
-contagem permanece **47/84 critérios encerrados; 37 abertos; 2/15 pacotes
-completos** até essa prova manual de foreground/foco/janela.
+Execução pelo processo do agente confirmou a limitação esperada do ambiente sem
+janela foreground: `GetForegroundWindow` retornou identidade desconhecida. A
+execução manual em 15/09/2026 no PowerShell visível validou o ambiente físico:
+foreground nativo `windowsterminal.exe` com classe
+`CASCADIA_HOSTING_WINDOW_CLASS`, hotkey global suportado, sessão interativa
+conhecida/desbloqueada e Stream Deck serial `AL28K2C54852` modelo `Stream Deck`.
+O teste terminou com `PASS`.
+
+**Contagem: 48/84 critérios encerrados; 36 abertos; 2/15 pacotes completos.**
+I13.6 encerrado como validação de teclado/foco/janela, Stream Deck real e
+degradação explícita de ambiente. Mapas reais do produto continuam em P04/P01.
 
 ## Continuação — 15/09/2026, prova de escopo de diálogo
 
@@ -741,7 +747,7 @@ Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` d
 - [x] I13.3 — Integrar DialogCommandScope ao stack real e reservar invariantes de decisão antes de bindings/ownership, respeitando input/IME e registro global temporário.
 - [x] I13.4 — Implementar ciclo de vida genérico de adapter, callbacks com geração, suspensão por lock/logout e shutdown; nenhum listener chama handler final.
 - [x] I13.5 — Validar biblioteca/licença/build/modelos HID e implementar gerência de dispositivos com exclusividade, reconexão/backoff e estado seguro; renderer com cache/diff e frame completo após reabrir.
-- [ ] I13.6 — Validar teclado/foco/janela e ao menos um Stream Deck real; falha de hardware não derruba App. Registrar explicitamente dependência de dispositivo e ambiente.
+- [x] I13.6 — Validar teclado/foco/janela e ao menos um Stream Deck real; falha de hardware não derruba App. Registrar explicitamente dependência de dispositivo e ambiente.
 
 Critério de saída: As entradas e a ponte UI cumprem contratos do núcleo antes de receber a população de comandos do aplicativo.
 
