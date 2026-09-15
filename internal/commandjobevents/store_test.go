@@ -228,9 +228,9 @@ func TestStoreClaimAckRetryDeadLetterAndExpiredLease(t *testing.T) {
 			t.Fatalf("%s com lease expirada antes da limpeza = %v", name, err)
 		}
 	}
-	requeued, err := store.RequeueExpiredLeases(ctx)
-	if err != nil || requeued != 1 {
-		t.Fatalf("requeue expired = %d, err=%v", requeued, err)
+	requeued, more, err := store.RequeueExpiredLeases(ctx, 2)
+	if err != nil || requeued != 1 || more {
+		t.Fatalf("requeue expired = %d, more=%v, err=%v", requeued, more, err)
 	}
 	if err := store.Ack(ctx, leaseFact.SourceEventID, "worker-c"); !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("ack after expiration = %v, want lease lost", err)

@@ -125,6 +125,12 @@ describe('DataManagementPage', () => {
       runs_per_job_keep: 200,
       chat_tool_calls_retention_days: 0,
       vacuum_min_free_bytes: 16 * 1024 * 1024,
+      command_invocation_retention_days: 30,
+      command_invocations_per_user_keep: 10000,
+      command_invocations_system_keep: 1000,
+      command_activation_terminal_retention_days: 30,
+      command_activation_terminal_keep_per_user: 10000,
+      command_job_activation_lease_seconds: 180,
     });
     mockGetDatabaseStats.mockReset().mockResolvedValue({
       path: '/tmp/conversations.db',
@@ -720,6 +726,12 @@ describe('DataManagementPage', () => {
       expect(screen.getByLabelText('Limite de idade de tool calls de chat (dias)')).toHaveValue(0);
       // vacuum_min_free_bytes (16 MiB em bytes) é exibido como inteiro em MiB.
       expect(screen.getByLabelText('Limiar para compactação completa (MiB)')).toHaveValue(16);
+      expect(screen.getByLabelText('Retenção de auditoria de invocações (dias)')).toHaveValue(30);
+      expect(screen.getByLabelText('Invocações mantidas por usuário')).toHaveValue(10000);
+      expect(screen.getByLabelText('Invocações system mantidas')).toHaveValue(1000);
+      expect(screen.getByLabelText('Retenção de ativações terminais (dias)')).toHaveValue(30);
+      expect(screen.getByLabelText('Ativações terminais mantidas por usuário')).toHaveValue(10000);
+      expect(screen.getByLabelText('Lease de ativação de job (segundos)')).toHaveValue(180);
       expect(screen.getByText('Modo de auto_vacuum').closest('div')).toHaveTextContent('incremental');
     });
 
@@ -732,12 +744,24 @@ describe('DataManagementPage', () => {
           runs_per_job_keep: 200,
           chat_tool_calls_retention_days: 0,
           vacuum_min_free_bytes: 16 * 1024 * 1024,
+          command_invocation_retention_days: 30,
+          command_invocations_per_user_keep: 10000,
+          command_invocations_system_keep: 1000,
+          command_activation_terminal_retention_days: 30,
+          command_activation_terminal_keep_per_user: 10000,
+          command_job_activation_lease_seconds: 180,
         })
         .mockResolvedValueOnce({
           job_retention_hours: 48,
           runs_per_job_keep: 200,
           chat_tool_calls_retention_days: 0,
           vacuum_min_free_bytes: 16 * 1024 * 1024,
+          command_invocation_retention_days: 30,
+          command_invocations_per_user_keep: 10000,
+          command_invocations_system_keep: 1000,
+          command_activation_terminal_retention_days: 30,
+          command_activation_terminal_keep_per_user: 10000,
+          command_job_activation_lease_seconds: 180,
         });
 
       render(<DataManagementPage />);

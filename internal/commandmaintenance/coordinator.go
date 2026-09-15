@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	ErrInvalid        = errors.New("coordenador de manutenção inválido")
-	ErrAlreadyRunning = errors.New("manutenção da instância já está em execução")
+	ErrInvalid            = errors.New("coordenador de manutenção inválido")
+	ErrInvalidBatchResult = errors.New("resultado de lote de manutenção inválido")
+	ErrAlreadyRunning     = errors.New("manutenção da instância já está em execução")
 )
 
 const DefaultBatchSize = 128
@@ -58,8 +59,8 @@ type BatchResult struct {
 // OutboxPort é implementada pelo consumidor de eventos. Drain deve respeitar
 // ctx e não deve iniciar goroutine/loop paralelo pertencente ao coordenador.
 type OutboxPort interface {
-	RequeueExpiredLeases(context.Context) (int, error)
-	Drain(context.Context) error
+	RequeueExpiredLeases(context.Context, int) (int, bool, error)
+	Drain(context.Context, int) (BatchResult, error)
 }
 
 // RecoveryPort representa uma única fatia bounded de recuperação de um
@@ -104,6 +105,7 @@ type Ports struct {
 type Report struct {
 	OutboxRequeued     int
 	OutboxDrained      bool
+	MoreOutbox         bool
 	Recovered          int
 	MoreRecovery       bool
 	JobsDeleted        int64
@@ -161,19 +163,31 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	var report Report
 	// Essa ordem é deliberada: a retenção de jobs só ocorre depois que a
 	// barreira de replay foi reencaminhada e drenada.
-	if n, err := c.ports.Outbox.RequeueExpiredLeases(ctx); err != nil {
+	if n, more, err := c.ports.Outbox.RequeueExpiredLeases(ctx, batch); err != nil {
 		return report, err
 	} else {
+		if err := validateBatchResult(BatchResult{Processed: n, More: more}, batch); err != nil {
+			return report, err
+		}
 		report.OutboxRequeued = n
+		report.MoreOutbox = more
 	}
-	if err := c.ports.Outbox.Drain(ctx); err != nil {
+	outboxResult, err := c.ports.Outbox.Drain(ctx, batch)
+	if err != nil {
 		return report, err
 	}
-	report.OutboxDrained = true
+	if err := validateBatchResult(outboxResult, batch); err != nil {
+		return report, err
+	}
+	report.MoreOutbox = report.MoreOutbox || outboxResult.More
+	report.OutboxDrained = !report.MoreOutbox
 
 	for _, port := range []RecoveryPort{c.ports.Decisions, c.ports.Invocations, c.ports.Claims} {
 		batchResult, err := port.Recover(ctx, batch)
 		if err != nil {
+			return report, err
+		}
+		if err := validateBatchResult(batchResult, batch); err != nil {
 			return report, err
 		}
 		report.Recovered += batchResult.Processed
@@ -181,7 +195,7 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	}
 	// Nenhuma exclusão/compactação pode ocorrer enquanto um domínio ainda
 	// tiver lote pendente. A próxima passagem retoma pelo cursor próprio.
-	if report.MoreRecovery {
+	if report.MoreOutbox || report.MoreRecovery {
 		return report, nil
 	}
 
@@ -219,4 +233,11 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	}
 	report.Compacted = true
 	return report, nil
+}
+
+func validateBatchResult(result BatchResult, limit int) error {
+	if limit <= 0 || result.Processed < 0 || result.Processed > limit {
+		return ErrInvalidBatchResult
+	}
+	return nil
 }

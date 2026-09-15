@@ -9,21 +9,26 @@ import (
 )
 
 type maintenanceOutbox struct {
-	mu    sync.Mutex
-	order *[]string
+	mu           sync.Mutex
+	order        *[]string
+	requeued     int
+	requeueLimit *int
 }
 
-func (p *maintenanceOutbox) RequeueExpiredLeases(context.Context) (int, error) {
+func (p *maintenanceOutbox) RequeueExpiredLeases(_ context.Context, limit int) (int, bool, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	*p.order = append(*p.order, "requeue")
-	return 2, nil
+	if p.requeueLimit != nil {
+		*p.requeueLimit = limit
+	}
+	return p.requeued, false, nil
 }
-func (p *maintenanceOutbox) Drain(context.Context) error {
+func (p *maintenanceOutbox) Drain(context.Context, int) (BatchResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	*p.order = append(*p.order, "drain")
-	return nil
+	return BatchResult{}, nil
 }
 
 type maintenanceRecovery struct {
@@ -78,7 +83,8 @@ func validMaintenancePolicy(batch int) Policy {
 
 func TestCoordinatorOutboxBeforeJobsAndUmaPassagem(t *testing.T) {
 	var order []string
-	outbox := &maintenanceOutbox{order: &order}
+	var gotRequeueLimit int
+	outbox := &maintenanceOutbox{order: &order, requeued: 2, requeueLimit: &gotRequeueLimit}
 	coordinator, err := New(Ports{
 		Outbox:       outbox,
 		Decisions:    maintenanceRecovery{},
@@ -103,6 +109,83 @@ func TestCoordinatorOutboxBeforeJobsAndUmaPassagem(t *testing.T) {
 	}
 	if report.OutboxRequeued != 2 || !report.OutboxDrained || report.Recovered != 0 || report.MoreRecovery || !report.Compacted {
 		t.Fatalf("relatório inesperado: %+v", report)
+	}
+	if gotRequeueLimit != 2 {
+		t.Fatalf("limite de requeue=%d, want 2", gotRequeueLimit)
+	}
+}
+
+func TestCoordinatorNaoRetemEnquantoOutboxTemMaisLotes(t *testing.T) {
+	var order []string
+	var gotLimit int
+	coordinator, err := New(Ports{
+		Outbox: &maintenanceOutboxWithMore{order: &order, limit: &gotLimit, drainMore: true}, Decisions: maintenanceRecovery{}, Invocations: maintenanceRecovery{}, Claims: maintenanceRecovery{},
+		Jobs: maintenanceRetention{name: "jobs", order: &order}, Tools: maintenanceTools{order: &order}, InvocationDB: maintenanceRetention{order: &order},
+		Activations: maintenanceRetention{order: &order}, Compaction: maintenanceCompact{order: &order},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := coordinator.Run(context.Background(), validMaintenancePolicy(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.MoreOutbox || report.OutboxDrained || report.JobsDeleted != 0 || report.Compacted {
+		t.Fatalf("retenção indevida ou relatório inconsistente: %+v", report)
+	}
+	if gotLimit != 1 {
+		t.Fatalf("limite de drain=%d, want 1", gotLimit)
+	}
+	if want := []string{"requeue", "drain"}; !reflect.DeepEqual(order, want) {
+		t.Fatalf("ordem=%v, want %v", order, want)
+	}
+}
+
+func TestCoordinatorMoreOutboxFromRequeueImpedeRetencao(t *testing.T) {
+	var order []string
+	coordinator, err := New(Ports{
+		Outbox: &maintenanceOutboxWithMore{order: &order, requeueMore: true}, Decisions: maintenanceRecovery{}, Invocations: maintenanceRecovery{}, Claims: maintenanceRecovery{},
+		Jobs: maintenanceRetention{name: "jobs", order: &order}, Tools: maintenanceTools{order: &order}, InvocationDB: maintenanceRetention{order: &order},
+		Activations: maintenanceRetention{order: &order}, Compaction: maintenanceCompact{order: &order},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := coordinator.Run(context.Background(), validMaintenancePolicy(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.MoreOutbox || report.OutboxDrained || report.JobsDeleted != 0 || report.Compacted {
+		t.Fatalf("requeue pendente não bloqueou retenção: %+v", report)
+	}
+}
+
+func TestCoordinatorRecusaResultadoDeLoteInconsistente(t *testing.T) {
+	tests := []struct {
+		name      string
+		processed int
+	}{
+		{name: "negative", processed: -1},
+		{name: "above limit", processed: 2},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var order []string
+			coordinator, err := New(Ports{
+				Outbox: &maintenanceOutboxWithResult{order: &order, result: BatchResult{Processed: test.processed}}, Decisions: maintenanceRecovery{}, Invocations: maintenanceRecovery{}, Claims: maintenanceRecovery{},
+				Jobs: maintenanceRetention{name: "jobs", order: &order}, Tools: maintenanceTools{order: &order}, InvocationDB: maintenanceRetention{order: &order},
+				Activations: maintenanceRetention{order: &order}, Compaction: maintenanceCompact{order: &order},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := coordinator.Run(context.Background(), validMaintenancePolicy(1)); err != ErrInvalidBatchResult {
+				t.Fatalf("resultado inválido aceito: %v", err)
+			}
+			if len(order) != 2 {
+				t.Fatalf("recuperação/retenção executada após resultado inválido: %v", order)
+			}
+		})
 	}
 }
 
@@ -214,9 +297,46 @@ type blockingOutbox struct {
 	release chan struct{}
 }
 
-func (p *blockingOutbox) RequeueExpiredLeases(context.Context) (int, error) {
+func (p *blockingOutbox) RequeueExpiredLeases(context.Context, int) (int, bool, error) {
 	close(p.started)
 	<-p.release
-	return 0, nil
+	return 0, false, nil
 }
-func (p *blockingOutbox) Drain(context.Context) error { return nil }
+func (p *blockingOutbox) Drain(_ context.Context, _ int) (BatchResult, error) {
+	return BatchResult{}, nil
+}
+
+type maintenanceOutboxWithMore struct {
+	order       *[]string
+	limit       *int
+	requeueMore bool
+	drainMore   bool
+}
+
+func (p *maintenanceOutboxWithMore) RequeueExpiredLeases(_ context.Context, _ int) (int, bool, error) {
+	*p.order = append(*p.order, "requeue")
+	return 0, p.requeueMore, nil
+}
+
+func (p *maintenanceOutboxWithMore) Drain(_ context.Context, limit int) (BatchResult, error) {
+	*p.order = append(*p.order, "drain")
+	if p.limit != nil {
+		*p.limit = limit
+	}
+	return BatchResult{Processed: 1, More: p.drainMore}, nil
+}
+
+type maintenanceOutboxWithResult struct {
+	order  *[]string
+	result BatchResult
+}
+
+func (p *maintenanceOutboxWithResult) RequeueExpiredLeases(context.Context, int) (int, bool, error) {
+	*p.order = append(*p.order, "requeue")
+	return 0, false, nil
+}
+
+func (p *maintenanceOutboxWithResult) Drain(_ context.Context, _ int) (BatchResult, error) {
+	*p.order = append(*p.order, "drain")
+	return p.result, nil
+}

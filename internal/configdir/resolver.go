@@ -1,6 +1,7 @@
 package configdir
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -132,11 +133,13 @@ func (r *Resolver) Resolve(filename string) (*ResolvedFile, error) {
 				Path:     fullPath,
 				Source:   SourceForPath(fullPath),
 			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("failed to inspect file %s: %w", fullPath, err)
 		}
 	}
 
 	if result == nil {
-		return nil, fmt.Errorf("file not found in any directory: %s", filename)
+		return nil, fmt.Errorf("file not found in any directory: %s: %w", filename, os.ErrNotExist)
 	}
 
 	return result, nil
@@ -207,8 +210,11 @@ func (r *Resolver) Write(filename string, data []byte) error {
 
 	resolved, err := r.Resolve(filename)
 	if err != nil {
-		// Arquivo não existe — criar no home
-		return r.Create(filename, data)
+		if errors.Is(err, os.ErrNotExist) {
+			// Arquivo não existe — criar no home
+			return r.Create(filename, data)
+		}
+		return err
 	}
 
 	// Escreve no arquivo válido

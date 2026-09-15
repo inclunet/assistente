@@ -2050,6 +2050,12 @@ export namespace config {
 	    runs_per_job_keep: number;
 	    chat_tool_calls_retention_days: number;
 	    vacuum_min_free_bytes: number;
+	    command_invocation_retention_days: number;
+	    command_invocations_per_user_keep: number;
+	    command_invocations_system_keep: number;
+	    command_activation_terminal_retention_days: number;
+	    command_activation_terminal_keep_per_user: number;
+	    command_job_activation_lease_seconds: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new MaintenanceSettings(source);
@@ -2061,6 +2067,12 @@ export namespace config {
 	        this.runs_per_job_keep = source["runs_per_job_keep"];
 	        this.chat_tool_calls_retention_days = source["chat_tool_calls_retention_days"];
 	        this.vacuum_min_free_bytes = source["vacuum_min_free_bytes"];
+	        this.command_invocation_retention_days = source["command_invocation_retention_days"];
+	        this.command_invocations_per_user_keep = source["command_invocations_per_user_keep"];
+	        this.command_invocations_system_keep = source["command_invocations_system_keep"];
+	        this.command_activation_terminal_retention_days = source["command_activation_terminal_retention_days"];
+	        this.command_activation_terminal_keep_per_user = source["command_activation_terminal_keep_per_user"];
+	        this.command_job_activation_lease_seconds = source["command_job_activation_lease_seconds"];
 	    }
 	}
 

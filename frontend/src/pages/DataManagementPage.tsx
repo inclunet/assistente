@@ -1129,6 +1129,78 @@ export default function DataManagementPage() {
                   }
                 />
               </FormField>
+              <FormField
+                label={t('dataManagement.commandInvocationRetentionDaysLabel', 'Retenção de auditoria de invocações (dias)')}
+                description={t('dataManagement.commandInvocationRetentionDaysDescription', 'Tempo de retenção da auditoria detalhada de invocações de comandos. Padrão: 30 dias.')}
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={String(maintenance.command_invocation_retention_days)}
+                  onChange={(event) => updateMaintenanceField('command_invocation_retention_days', Number(event.target.value))}
+                />
+              </FormField>
+              <FormField
+                label={t('dataManagement.commandInvocationsPerUserKeepLabel', 'Invocações mantidas por usuário')}
+                description={t('dataManagement.commandInvocationsPerUserKeepDescription', 'Quantidade máxima de auditorias terminais detalhadas mantidas por usuário. Padrão: 10.000.')}
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={String(maintenance.command_invocations_per_user_keep)}
+                  onChange={(event) => updateMaintenanceField('command_invocations_per_user_keep', Number(event.target.value))}
+                />
+              </FormField>
+              <FormField
+                label={t('dataManagement.commandInvocationsSystemKeepLabel', 'Invocações system mantidas')}
+                description={t('dataManagement.commandInvocationsSystemKeepDescription', 'Quantidade máxima de auditorias terminais detalhadas internas mantidas sem usuário. Padrão: 1.000.')}
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={String(maintenance.command_invocations_system_keep)}
+                  onChange={(event) => updateMaintenanceField('command_invocations_system_keep', Number(event.target.value))}
+                />
+              </FormField>
+              <FormField
+                label={t('dataManagement.commandActivationTerminalRetentionDaysLabel', 'Retenção de ativações terminais (dias)')}
+                description={t('dataManagement.commandActivationTerminalRetentionDaysDescription', 'Tempo de retenção da auditoria e do estado terminal das ativações. A barreira de replay do ledger é protegida; estados ativos não são removidos. Padrão: 30 dias.')}
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={String(maintenance.command_activation_terminal_retention_days)}
+                  onChange={(event) => updateMaintenanceField('command_activation_terminal_retention_days', Number(event.target.value))}
+                />
+              </FormField>
+              <FormField
+                label={t('dataManagement.commandActivationTerminalKeepPerUserLabel', 'Ativações terminais mantidas por usuário')}
+                description={t('dataManagement.commandActivationTerminalKeepPerUserDescription', 'Quantidade máxima de ativações terminais mantidas por usuário. Padrão: 10.000.')}
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={String(maintenance.command_activation_terminal_keep_per_user)}
+                  onChange={(event) => updateMaintenanceField('command_activation_terminal_keep_per_user', Number(event.target.value))}
+                />
+              </FormField>
+              <FormField
+                label={t('dataManagement.commandJobActivationLeaseSecondsLabel', 'Lease de ativação de job (segundos)')}
+                description={t('dataManagement.commandJobActivationLeaseSecondsDescription', 'Validade da claim de ativação de job, renovada pelo heartbeat do runtime; não é tempo de processamento do outbox. Padrão: 180 segundos.')}
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={String(maintenance.command_job_activation_lease_seconds)}
+                  onChange={(event) => updateMaintenanceField('command_job_activation_lease_seconds', Number(event.target.value))}
+                />
+              </FormField>
             </div>
 
             {dbStats && (

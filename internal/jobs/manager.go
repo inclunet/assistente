@@ -53,10 +53,6 @@ type ManagerConfig struct {
 	// fornecido, ele é o único dono da passagem; sem ele permanece a cadência
 	// legada, sem criar um segundo loop.
 	MaintenanceCoordinator *commandmaintenance.Coordinator
-	// MaintenancePolicy é obrigatória quando MaintenanceCoordinator é fornecido.
-	// O bootstrap deve compor todos os domínios; Manager não lê settings legados
-	// para preencher uma política parcial nem cria defaults paralelos.
-	MaintenancePolicy *commandmaintenance.Policy
 }
 
 // Manager orquestra todos os componentes do sistema de jobs.
@@ -1674,16 +1670,17 @@ func (m *Manager) runRetention(ctx context.Context) {
 		return
 	}
 	if m.cfg.MaintenanceCoordinator != nil {
-		if m.cfg.MaintenancePolicy == nil {
-			logging.Errorf(ctx, "jobs.manager", "instance maintenance skipped: complete policy was not provided by bootstrap")
+		settings, err := config.GetMaintenance()
+		if err != nil {
+			logging.Errorf(ctx, "jobs.manager", "instance maintenance skipped: settings unavailable: %v", err)
 			return
 		}
-		policy := *m.cfg.MaintenancePolicy
-		if err := policy.Validate(); err != nil {
+		policy, err := commandMaintenancePolicy(settings)
+		if err != nil {
 			logging.Errorf(ctx, "jobs.manager", "instance maintenance skipped: invalid complete policy: %v", err)
 			return
 		}
-		_, err := m.cfg.MaintenanceCoordinator.Run(ctx, policy)
+		_, err = m.cfg.MaintenanceCoordinator.Run(ctx, policy)
 		if err != nil {
 			logging.Errorf(ctx, "jobs.manager", "instance maintenance failed: %v", err)
 		}

@@ -30,6 +30,7 @@ const (
 	DefaultReplayHorizon = 24 * time.Hour
 	DefaultLeaseDuration = 3 * time.Minute
 	DefaultMaxAttempts   = 8
+	maxRequeueBatch      = 128
 )
 
 // Store contém apenas operações de outbox e epochs. A decisão de habilitar o
@@ -391,12 +392,45 @@ func (s *Store) updateLease(ctx context.Context, sourceEventID, owner string, va
 	return nil
 }
 
-// RequeueExpiredLeases é chamado pelo coordenador de manutenção futuro; é
-// exposto agora para tornar a política de lease testável sem habilitar claims.
-func (s *Store) RequeueExpiredLeases(ctx context.Context) (int, error) {
-	if s == nil || s.db == nil || !s.Available() {
-		return 0, ErrSchemaUnavailable
+// RequeueExpiredLeases é chamado pelo coordenador de manutenção. Cada chamada
+// processa no máximo limit rows e informa se havia mais trabalho no momento da
+// seleção; não cria loop nem altera leases que já foram renovadas em paralelo.
+func (s *Store) RequeueExpiredLeases(ctx context.Context, limit int) (processed int, more bool, err error) {
+	if ctx == nil || limit <= 0 || limit > maxRequeueBatch {
+		return 0, false, ErrInvalidFact
 	}
-	res := s.db.WithContext(ctx).Model(&ActivationOutbox{}).Where("delivery_state = ? AND lease_expires_at <= ?", DeliveryProcessing, s.now()).Updates(map[string]any{"delivery_state": DeliveryPending, "lease_owner": nil, "lease_expires_at": nil})
-	return int(res.RowsAffected), res.Error
+	if err := ctx.Err(); err != nil {
+		return 0, false, err
+	}
+	if s == nil || s.db == nil || !s.Available() {
+		return 0, false, ErrSchemaUnavailable
+	}
+	now := s.now()
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var ids []string
+		if err := tx.Model(&ActivationOutbox{}).
+			Where("delivery_state = ? AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?", DeliveryProcessing, now).
+			Order("source_event_id ASC").Limit(limit+1).Pluck("source_event_id", &ids).Error; err != nil {
+			return err
+		}
+		if len(ids) > limit {
+			more = true
+			ids = ids[:limit]
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		result := tx.Model(&ActivationOutbox{}).
+			Where("source_event_id IN ? AND delivery_state = ? AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?", ids, DeliveryProcessing, now).
+			Updates(map[string]any{"delivery_state": DeliveryPending, "lease_owner": nil, "lease_expires_at": nil})
+		processed = int(result.RowsAffected)
+		return result.Error
+	})
+	return processed, more, err
 }
