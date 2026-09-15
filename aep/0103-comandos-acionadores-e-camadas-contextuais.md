@@ -10,10 +10,15 @@ possui `MountSpec`/`MountDependency`, exigindo manifesto explícito para
 catálogo, defaults, políticas, stores, presenter, providers, dispatcher e
 adapters antes de criar o controller. O App ganhou
 `ConfigureCommandLifecycleMountSpec`, que falha fechado sem instalar runtime
-quando alguma dependência está ausente, duplicada ou nil. Isso ainda não fecha
-I14.2, porque falta preencher o manifesto com as dependências reais de produto,
-mas impede que mocks ou fallback permissivo publiquem readiness. Contagem atual:
-**48/84 critérios locais, 36 abertos; 3/15 pacotes completos**.
+quando alguma dependência está ausente, duplicada ou nil. Em complemento,
+`ConfigureCommandLifecycleForApp` já preenche esse manifesto a partir das
+dependências reais preparadas pelo bootstrap confiável: registry/handlers/store,
+política/envelope, `HostState`, `commandbridge.Bridge`,
+`commandcontext.FactBus`, presenter de decisão e adapter físico/entrada. Isso
+ainda não fecha I14.2, porque falta ligar essa rota no bootstrap produtivo e
+publicar a primeira projeção real, mas impede que mocks ou fallback permissivo
+publiquem readiness. Contagem atual: **48/84 critérios locais, 36 abertos; 3/15
+pacotes completos**.
 
 ### Stream Deck real validado — 15/09/2026
 

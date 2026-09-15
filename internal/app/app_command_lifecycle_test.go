@@ -1,18 +1,29 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandbridge"
+	"assistente/internal/commandcatalog"
+	"assistente/internal/commandcontext"
+	"assistente/internal/commandexecution"
+	"assistente/internal/commandledger"
 	"assistente/internal/commandruntime"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/questionnaire"
+	"github.com/glebarez/sqlite"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type appLifecyclePort struct {
@@ -185,6 +196,165 @@ func TestAppCommandLifecycleMountSpecFailsClosedBeforeInstallingRuntime(t *testi
 	}
 	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {
 		t.Fatal(err)
+	}
+}
+
+type appLifecycleBridgePort struct{}
+
+func (appLifecycleBridgePort) Dispatch(context.Context, commandbridge.Invocation) (commandbridge.InvocationAck, error) {
+	return commandbridge.InvocationAck{Accepted: true}, nil
+}
+
+func (appLifecycleBridgePort) Cancel(context.Context, commandbridge.CancelRequest) error { return nil }
+
+func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountInputs) {
+	t.Helper()
+	ctx := context.Background()
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "lifecycle-mount.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	if err := db.AutoMigrate(&database.User{}, &database.Session{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := commandledger.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	store, err := commandledger.New(db, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions, err := auth.NewSessionService(db, auth.SessionConfig{RefreshTokenPepper: bytes.Repeat([]byte{7}, 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{
+		ctx:                   ctx,
+		sessionSvc:            sessions,
+		credMgr:               credentials.NewManager(bytes.Repeat([]byte{8}, 32)),
+		questionnaireMgr:      questionnaire.NewManager(func(string, any) {}),
+		commandStorageVersion: "v1",
+		authKeyringDelete:     func() error { return nil },
+	}
+	epochs, err := app.commandSecurityService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := commandexecution.NewHostState(epochs, "registry-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	locales := map[string]commandcatalog.LocalizedMetadata{}
+	for _, locale := range []string{"pt-BR", "en", "es"} {
+		locales[locale] = commandcatalog.LocalizedMetadata{Name: "Fixture", Description: "Fixture", Category: "Fixture"}
+	}
+	registry, err := commandcatalog.New([]commandcatalog.Registration{{Definition: commandcatalog.Definition{
+		ID:             "fixture.read",
+		Effect:         commandcatalog.Read,
+		Decision:       commandcatalog.NoDecision,
+		Context:        commandcatalog.ContextPolicy{None: true},
+		AllowedSources: []commandcatalog.Source{commandcatalog.Palette},
+		Presentation:   &commandcatalog.Presentation{Version: "1", Locales: locales},
+	}, Handler: commandcatalog.HandlerContract{Effect: commandcatalog.Read}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge, err := commandbridge.New(commandbridge.Config{
+		Port: appLifecycleBridgePort{},
+		Capabilities: []commandbridge.Capability{{
+			ID: uuid.Must(uuid.NewV7()).String(), CommandID: "fixture.read", Generation: 1,
+			Owner: commandbridge.Owner{UserID: uuid.Must(uuid.NewV7()).String(), SessionID: uuid.Must(uuid.NewV7()).String(), WorkspaceID: "workspace-1"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts, err := commandcontext.NewFactBus(map[string]commandcontext.ScopedProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeProbe := &appLifecyclePort{}
+	execution := commandexecution.Config{
+		Envelope:        &commandexecution.EnvelopeConfig{},
+		Sessions:        sessions,
+		Epochs:          epochs,
+		Store:           store,
+		Registry:        registry,
+		RegistryVersion: "registry-v1",
+		Source:          commandcatalog.Palette,
+		Snapshot: func(context.Context, auth.LocalSessionPrincipal) (commandexecution.Versions, error) {
+			return commandexecution.Versions{}, nil
+		},
+		Authorize:           func(context.Context, auth.LocalSessionPrincipal, string, commandcatalog.Source) error { return nil },
+		KeyVersion:          "v1",
+		Now:                 time.Now,
+		Retention:           time.Hour,
+		ExecutionTimeout:    time.Second,
+		FinalizationTimeout: time.Second,
+		Handlers: map[string]commandexecution.Handler{"fixture.read": {
+			Contract: commandcatalog.HandlerContract{Effect: commandcatalog.Read},
+			Start: func(context.Context, commandexecution.Invocation) (commandexecution.ExecutionHandle, error) {
+				return commandexecution.ExecutionHandle{ID: "fixture", Done: make(chan commandexecution.Outcome, 1), Cancel: func() {}}, nil
+			},
+		}},
+	}
+	return app, CommandLifecycleMountInputs{
+		Runtime:   appLifecycleConfig(runtimeProbe),
+		Execution: execution,
+		Host:      state,
+		Bridge:    bridge,
+		Facts:     facts,
+		Adapter:   struct{ name string }{"palette-adapter"},
+	}
+}
+
+func TestAppCommandLifecycleProductMountSpecUsesRealAppDependencies(t *testing.T) {
+	app, inputs := appLifecycleProductMountFixture(t)
+	if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
+		t.Fatalf("montagem de produto recusada: %v", err)
+	}
+	snapshot, err := CommandLifecycleSnapshot(app)
+	if err != nil || snapshot.State != commandruntime.StateCold {
+		t.Fatalf("montagem instalou runtime em estado inesperado: %+v err=%v", snapshot, err)
+	}
+	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAppCommandLifecycleProductMountSpecRejectsMissingProductDependencies(t *testing.T) {
+	app, inputs := appLifecycleProductMountFixture(t)
+	inputs.Adapter = (*appLifecycleBridgePort)(nil)
+	if err := ConfigureCommandLifecycleForApp(app, inputs); !errors.Is(err, commandruntime.ErrMissingDependency) {
+		t.Fatalf("adapter nil aceito/erro errado: %v", err)
+	}
+	if app.commandLifecycle.Load() != nil {
+		t.Fatal("runtime instalado após dependência física nil")
+	}
+
+	app, inputs = appLifecycleProductMountFixture(t)
+	app.questionnaireMgr = nil
+	if err := ConfigureCommandLifecycleForApp(app, inputs); !errors.Is(err, commandruntime.ErrMissingDependency) {
+		t.Fatalf("presenter ausente aceito/erro errado: %v", err)
+	}
+
+	app, inputs = appLifecycleProductMountFixture(t)
+	otherApp := &App{authKeyringDelete: func() error { return nil }}
+	otherEpochs, err := otherApp.commandSecurityService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs.Host, err = commandexecution.NewHostState(otherEpochs, "registry-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigureCommandLifecycleForApp(app, inputs); !errors.Is(err, commandruntime.ErrInvalidConfiguration) {
+		t.Fatalf("HostState de outro epoch aceito/erro errado: %v", err)
 	}
 }
 

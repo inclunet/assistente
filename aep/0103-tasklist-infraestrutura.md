@@ -24,6 +24,20 @@ sem comandos migrados.
 Validação focada: `go test ./internal/commandruntime ./internal/app -run
 "TestAppCommandLifecycle" -count=1` passou com cache temporário local.
 
+Complemento: `ConfigureCommandLifecycleForApp` agora constrói o `MountSpec` a
+partir das dependências reais do App já preparadas pelo bootstrap confiável:
+`commandexecution.Config` com registry/handlers/store/política/envelope,
+`HostState`, `commandbridge.Bridge`, `commandcontext.FactBus`, presenter real de
+decisão e adapter físico/entrada fornecido pelo host. A montagem recusa storage
+sem versão, presenter ausente, adapter nil e `HostState` de outro
+`EpochService`, sem instalar controller. O subitem segue aberto porque essa rota
+ainda precisa ser chamada pelo bootstrap produtivo e publicada com a primeira
+projeção real sem migrar comandos existentes.
+
+Validação adicional: `go test ./internal/commandruntime ./internal/app -run
+"TestAppCommandLifecycle" -count=1`, `go vet ./internal/commandruntime
+./internal/app` e `git diff --check` passaram.
+
 ## Continuação — 15/09/2026, renderer preparatório de Stream Deck
 
 Avanço em **I13.5/C39/C40/C41/C42**, agora fechado após validação física.
@@ -785,7 +799,7 @@ Estado: **Parcial — hooks e fábricas sem bootstrap de produto**. Esforço res
 Dependências: I01, I02, I03, I04, I05, I06, I07, I08, I09, I10, I11, I12, I13.
 Referências: D2.1, D8, D11, D13.
 
-Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invalida/cancela antes do reset e confirma readiness via core compartilhado; exige todas as portas e recusa projeção vazia. `MountSpec` declara dependências obrigatórias de catálogo, defaults, políticas, stores, presenter, providers, dispatcher e adapters; `NewMounted` recusa manifesto incompleto, duplicado ou nil antes de criar controller. `App.commandLifecycle` é um ponteiro atômico privado, com montagem serializada, barreira terminal de shutdown e desmontagem por CAS, sem registry global. `ConfigureCommandLifecycleMountSpec` liga o manifesto ao App sem instalar runtime quando o contrato falha. Os testes cobrem falhas/cancelamento, configurações concorrentes e montagem incompleta. As chamadas de startup/login/refresh/logout/shutdown estão ligadas condicionalmente ao controller; shutdown espera o worker e mantém dependências em caso de timeout. Ainda faltam preencher o manifesto com providers reais e montagem de produto completa: não publicar readiness de produto a partir dos mocks.
+Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invalida/cancela antes do reset e confirma readiness via core compartilhado; exige todas as portas e recusa projeção vazia. `MountSpec` declara dependências obrigatórias de catálogo, defaults, políticas, stores, presenter, providers, dispatcher e adapters; `NewMounted` recusa manifesto incompleto, duplicado ou nil antes de criar controller. `App.commandLifecycle` é um ponteiro atômico privado, com montagem serializada, barreira terminal de shutdown e desmontagem por CAS, sem registry global. `ConfigureCommandLifecycleMountSpec` liga o manifesto ao App sem instalar runtime quando o contrato falha; `ConfigureCommandLifecycleForApp` preenche esse manifesto com `commandexecution.Config`, `HostState`, `commandbridge.Bridge`, `commandcontext.FactBus`, presenter real de decisão e adapter fornecido pelo host, recusando storage sem versão, presenter ausente, adapter nil e `HostState` de outro epoch. Os testes cobrem falhas/cancelamento, configurações concorrentes e montagem incompleta. As chamadas de startup/login/refresh/logout/shutdown estão ligadas condicionalmente ao controller; shutdown espera o worker e mantém dependências em caso de timeout. Ainda falta chamar essa rota no bootstrap produtivo e publicar a primeira projeção real sem comandos migrados: não publicar readiness de produto a partir dos mocks.
 
 - [x] I14.1 — Construir esqueleto de bootstrap serializado e readiness observável após I01, sem expor novas rotas nem cadastrar comandos de produto; este subitem pode começar cedo.
 - [ ] I14.2 — Montar catálogo/defaults de contrato, políticas, stores, presenter, providers, dispatcher e adapters com dependências explícitas; sem fallback permissivo.

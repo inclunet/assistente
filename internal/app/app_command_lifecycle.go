@@ -3,7 +3,11 @@ package app
 import (
 	"context"
 	"errors"
+	"reflect"
 
+	"assistente/internal/commandbridge"
+	"assistente/internal/commandcontext"
+	"assistente/internal/commandexecution"
 	"assistente/internal/commandruntime"
 	"assistente/internal/logging"
 )
@@ -28,6 +32,84 @@ func ConfigureCommandLifecycleMountSpec(a *App, spec commandruntime.MountSpec) e
 	return configureCommandLifecycleController(a, func() (*commandruntime.Controller, error) {
 		return commandruntime.NewMounted(spec)
 	})
+}
+
+// CommandLifecycleMountInputs são as dependências de produto que precisam ser
+// conhecidas pelo App antes de aceitar o runtime final. A estrutura deliberadamente
+// mistura os objetos concretos usados pelas fábricas existentes em vez de recriar
+// stores, políticas ou dispatchers paralelos aqui.
+type CommandLifecycleMountInputs struct {
+	Runtime commandruntime.Config
+
+	Execution commandexecution.Config
+	Host      *commandexecution.HostState
+	Bridge    *commandbridge.Bridge
+	Facts     *commandcontext.FactBus
+	Adapter   any
+}
+
+// ConfigureCommandLifecycleForApp monta o manifesto I14.2 a partir das
+// dependências reais já preparadas pelo bootstrap confiável e só então instala
+// o controller. Ele não registra comandos de produto nem chama Bootstrap.
+func ConfigureCommandLifecycleForApp(a *App, inputs CommandLifecycleMountInputs) error {
+	spec, err := a.commandLifecycleMountSpec(inputs)
+	if err != nil {
+		return err
+	}
+	return ConfigureCommandLifecycleMountSpec(a, spec)
+}
+
+func (a *App) commandLifecycleMountSpec(inputs CommandLifecycleMountInputs) (commandruntime.MountSpec, error) {
+	if a == nil || inputs.Host == nil || inputs.Bridge == nil || inputs.Facts == nil || nilCommandMountDependency(inputs.Adapter) {
+		return commandruntime.MountSpec{}, commandruntime.ErrMissingDependency
+	}
+	execution := inputs.Execution
+	if execution.Registry == nil || len(execution.Handlers) == 0 || execution.Store == nil || execution.Authorize == nil || execution.Envelope == nil {
+		return commandruntime.MountSpec{}, commandruntime.ErrMissingDependency
+	}
+	if execution.RegistryVersion == "" || execution.Retention <= 0 || execution.ExecutionTimeout <= 0 || execution.FinalizationTimeout <= 0 {
+		return commandruntime.MountSpec{}, commandruntime.ErrMissingDependency
+	}
+	a.authMu.RLock()
+	presenter := (*commandDecisionPresenter)(nil)
+	if a.questionnaireMgr != nil {
+		presenter = &commandDecisionPresenter{manager: a.questionnaireMgr}
+	}
+	storageVersion := a.commandStorageVersion
+	storageErr := a.commandStorageErr
+	a.authMu.RUnlock()
+	if presenter == nil || storageErr != nil || storageVersion == "" {
+		return commandruntime.MountSpec{}, commandruntime.ErrMissingDependency
+	}
+	if inputs.Host.Epochs() != execution.Epochs {
+		return commandruntime.MountSpec{}, commandruntime.ErrInvalidConfiguration
+	}
+	return commandruntime.MountSpec{
+		Config: inputs.Runtime,
+		Dependencies: []commandruntime.MountDependency{
+			{Role: commandruntime.MountDependencyCatalog, Name: execution.RegistryVersion, Instance: execution.Registry},
+			{Role: commandruntime.MountDependencyDefaults, Name: "execution-envelope", Instance: execution.Envelope},
+			{Role: commandruntime.MountDependencyPolicies, Name: "execution-authorize", Instance: execution.Authorize},
+			{Role: commandruntime.MountDependencyStores, Name: storageVersion, Instance: execution.Store},
+			{Role: commandruntime.MountDependencyPresenter, Name: "decision-presenter", Instance: presenter},
+			{Role: commandruntime.MountDependencyProviders, Name: "context-fact-bus", Instance: inputs.Facts},
+			{Role: commandruntime.MountDependencyDispatcher, Name: "command-bridge", Instance: inputs.Bridge},
+			{Role: commandruntime.MountDependencyAdapters, Name: string(execution.Source), Instance: inputs.Adapter},
+		},
+	}, nil
+}
+
+func nilCommandMountDependency(value any) bool {
+	if value == nil {
+		return true
+	}
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
 
 func configureCommandLifecycleController(a *App, build func() (*commandruntime.Controller, error)) error {
