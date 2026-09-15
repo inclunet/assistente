@@ -8,17 +8,14 @@ import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useWorkspaceKeyboardShortcuts } from '../../hooks/useWorkspaceKeyboardShortcuts';
 import { useWorkspaceChatBridge } from '../../hooks/useWorkspaceChatBridge';
 import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
-import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { useVoiceAccessibilityWorkspaceResolver } from '../../services/voiceAccessibility/workspaceResolver';
 import { ensureModalCleanup } from '../ui/Modal';
 import { Topbar } from '../layout/Topbar';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
 import {
   cancelWorkspacePanelFocus,
-  hasWorkspacePanelFocusHandler,
   pruneWorkspacePanelFocus,
-  queueWorkspacePanelFocus,
-  requestWorkspacePanelFocus,
+  routeWorkspacePanelFocus,
 } from './workspacePanelFocusRegistry';
 import { WorkspaceTabList } from './WorkspaceTabList';
 import { WorkspaceContent } from './WorkspaceContent';
@@ -62,13 +59,7 @@ export function WorkspaceLayout() {
           cancelWorkspacePanelFocus(tabId);
           return;
         }
-        if (hasWorkspacePanelFocusHandler(tabId)) {
-          requestWorkspacePanelFocus(tabId);
-        } else if (activeTabType === 'editor') {
-          queueWorkspacePanelFocus(tabId);
-        } else {
-          restoreDefaultFocus();
-        }
+        routeWorkspacePanelFocus(tabId, activeTabType);
       });
       return;
     }
@@ -368,13 +359,7 @@ export function WorkspaceLayout() {
     restoreFocusAfterTabShortcutRef.current = null;
     const activeTabType = workspace?.tabs.find((tab) => tab.id === activeTabId)?.type;
     requestAnimationFrame(() => {
-      if (hasWorkspacePanelFocusHandler(activeTabId)) {
-        requestWorkspacePanelFocus(activeTabId);
-      } else if (activeTabType === 'editor') {
-        queueWorkspacePanelFocus(activeTabId);
-      } else {
-        restoreDefaultFocus();
-      }
+      routeWorkspacePanelFocus(activeTabId, activeTabType);
     });
   }, [activeTabId, isWorkspaceRoute, workspace?.tabs]);
 

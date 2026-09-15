@@ -11,7 +11,7 @@ type MockWorkspaceState = {
     activeTabId: string;
     tabs: Array<{
       id: string;
-      type: 'chat' | 'editor';
+      type: 'chat' | 'editor' | 'tasklist';
       title: string;
       position: number;
       conversationId?: string;
@@ -265,6 +265,30 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
     );
 
     expect(focusPanel).not.toHaveBeenCalled();
+    const unregister = registerWorkspacePanelFocus('tab-2', focusPanel);
+    expect(focusPanel).toHaveBeenCalledOnce();
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+    unregister();
+  });
+
+  it('preserva o pedido até o quadro/tasklist lazy registrar foco', () => {
+    storeMock.state.workspace.tabs[1].type = 'tasklist';
+    const focusPanel = vi.fn(() => true);
+    const { rerender } = renderWorkspaceLayout();
+
+    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-2');
+    storeMock.state.workspace.activeTabId = 'tab-2';
+    rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <WorkspaceLayout />
+      </MemoryRouter>,
+    );
+
+    // O board ainda não montou: nada de foco síncrono nem fallback prematuro.
+    expect(focusPanel).not.toHaveBeenCalled();
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+
+    // Ao montar e registrar, o pedido enfileirado é atendido.
     const unregister = registerWorkspacePanelFocus('tab-2', focusPanel);
     expect(focusPanel).toHaveBeenCalledOnce();
     expect(restoreDefaultFocus).not.toHaveBeenCalled();
