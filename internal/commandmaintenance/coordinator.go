@@ -191,41 +191,46 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	if err := ctx.Err(); err != nil {
 		return report, err
 	}
-	if n, more, err := c.ports.Outbox.RequeueExpiredLeases(ctx, batch); err != nil {
+	n, more, err := c.ports.Outbox.RequeueExpiredLeases(ctx, batch)
+	result := BatchResult{Processed: n, More: more}
+	if validationErr := validateBatchResult(result, batch); validationErr != nil {
+		return report, validationErr
+	}
+	report.OutboxRequeued = n
+	report.MoreOutbox = more
+	if err != nil {
+		report.MoreOutbox = true
 		return report, err
-	} else {
-		if err := validateBatchResult(BatchResult{Processed: n, More: more}, batch); err != nil {
-			return report, err
-		}
-		report.OutboxRequeued = n
-		report.MoreOutbox = more
 	}
 	if err := ctx.Err(); err != nil {
 		return report, err
 	}
 	outboxResult, err := c.ports.Outbox.Drain(ctx, batch)
-	if err != nil {
-		return report, err
-	}
-	if err := validateBatchResult(outboxResult, batch); err != nil {
-		return report, err
+	if validationErr := validateBatchResult(outboxResult, batch); validationErr != nil {
+		return report, validationErr
 	}
 	report.MoreOutbox = report.MoreOutbox || outboxResult.More
 	report.OutboxDrained = !report.MoreOutbox
+	if err != nil {
+		report.OutboxDrained = false
+		report.MoreOutbox = true
+		return report, err
+	}
 
 	for _, port := range []RecoveryPort{c.ports.Decisions, c.ports.Invocations, c.ports.Claims} {
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
 		batchResult, err := port.Recover(ctx, batch)
-		if err != nil {
-			return report, err
-		}
-		if err := validateBatchResult(batchResult, batch); err != nil {
-			return report, err
+		if validationErr := validateBatchResult(batchResult, batch); validationErr != nil {
+			return report, validationErr
 		}
 		report.Recovered += batchResult.Processed
 		report.MoreRecovery = report.MoreRecovery || batchResult.More
+		if err != nil {
+			report.MoreRecovery = true
+			return report, err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return report, err
@@ -240,11 +245,12 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 		return report, err
 	}
 	jobsResult, err := retain(ctx, c.ports.Jobs, policy)
-	if err != nil {
-		return report, err
-	}
 	report.JobsDeleted = jobsResult.Deleted
 	report.MoreRetention = jobsResult.More
+	if err != nil {
+		report.MoreRetention = true
+		return report, err
+	}
 	for _, clean := range []func(context.Context, ToolRetentionPort, Policy) (RetentionResult, error){
 		cleanOldDryRuns,
 		cleanOrphanChat,
@@ -254,14 +260,15 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 			return report, err
 		}
 		result, err := clean(ctx, c.ports.Tools, policy)
-		if err != nil {
-			return report, err
-		}
-		if err := validateDeletedCount(result.Deleted); err != nil {
-			return report, err
+		if validationErr := validateDeletedCount(result.Deleted); validationErr != nil {
+			return report, validationErr
 		}
 		report.ToolsDeleted += result.Deleted
 		report.MoreRetention = report.MoreRetention || result.More
+		if err != nil {
+			report.MoreRetention = true
+			return report, err
+		}
 	}
 	for _, item := range []struct {
 		port RetentionPort
@@ -274,11 +281,12 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 			return report, err
 		}
 		result, err := retain(ctx, item.port, policy)
-		if err != nil {
-			return report, err
-		}
 		*item.dest = result.Deleted
 		report.MoreRetention = report.MoreRetention || result.More
+		if err != nil {
+			report.MoreRetention = true
+			return report, err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return report, err
@@ -299,46 +307,67 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 func cleanOldDryRuns(ctx context.Context, port ToolRetentionPort, policy Policy) (RetentionResult, error) {
 	if bounded, ok := port.(BoundedToolRetentionPort); ok {
 		result, err := bounded.CleanOldDryRunsBatch(ctx, policy)
-		if err != nil {
-			return RetentionResult{}, err
+		if validationErr := validateDeletedCount(result.Deleted); validationErr != nil {
+			return RetentionResult{}, validationErr
 		}
-		return result, validateDeletedCount(result.Deleted)
+		if err != nil {
+			result.More = true
+		}
+		return result, err
 	}
 	deleted, err := port.CleanOldDryRuns(ctx, policy)
-	if err != nil {
-		return RetentionResult{}, err
+	if validationErr := validateDeletedCount(deleted); validationErr != nil {
+		return RetentionResult{}, validationErr
 	}
-	return RetentionResult{Deleted: deleted}, validateDeletedCount(deleted)
+	result := RetentionResult{Deleted: deleted}
+	if err != nil {
+		result.More = true
+	}
+	return result, err
 }
 
 func cleanOrphanChat(ctx context.Context, port ToolRetentionPort, policy Policy) (RetentionResult, error) {
 	if bounded, ok := port.(BoundedToolRetentionPort); ok {
 		result, err := bounded.CleanOrphanChatBatch(ctx, policy)
-		if err != nil {
-			return RetentionResult{}, err
+		if validationErr := validateDeletedCount(result.Deleted); validationErr != nil {
+			return RetentionResult{}, validationErr
 		}
-		return result, validateDeletedCount(result.Deleted)
+		if err != nil {
+			result.More = true
+		}
+		return result, err
 	}
 	deleted, err := port.CleanOrphanChat(ctx, policy)
-	if err != nil {
-		return RetentionResult{}, err
+	if validationErr := validateDeletedCount(deleted); validationErr != nil {
+		return RetentionResult{}, validationErr
 	}
-	return RetentionResult{Deleted: deleted}, validateDeletedCount(deleted)
+	result := RetentionResult{Deleted: deleted}
+	if err != nil {
+		result.More = true
+	}
+	return result, err
 }
 
 func cleanOldChat(ctx context.Context, port ToolRetentionPort, policy Policy) (RetentionResult, error) {
 	if bounded, ok := port.(BoundedToolRetentionPort); ok {
 		result, err := bounded.CleanOldChatBatch(ctx, policy)
-		if err != nil {
-			return RetentionResult{}, err
+		if validationErr := validateDeletedCount(result.Deleted); validationErr != nil {
+			return RetentionResult{}, validationErr
 		}
-		return result, validateDeletedCount(result.Deleted)
+		if err != nil {
+			result.More = true
+		}
+		return result, err
 	}
 	deleted, err := port.CleanOldChat(ctx, policy)
-	if err != nil {
-		return RetentionResult{}, err
+	if validationErr := validateDeletedCount(deleted); validationErr != nil {
+		return RetentionResult{}, validationErr
 	}
-	return RetentionResult{Deleted: deleted}, validateDeletedCount(deleted)
+	result := RetentionResult{Deleted: deleted}
+	if err != nil {
+		result.More = true
+	}
+	return result, err
 }
 
 func validateBatchResult(result BatchResult, limit int) error {
@@ -351,22 +380,23 @@ func validateBatchResult(result BatchResult, limit int) error {
 func retain(ctx context.Context, port RetentionPort, policy Policy) (RetentionResult, error) {
 	if bounded, ok := port.(BoundedRetentionPort); ok {
 		result, err := bounded.RetainBatch(ctx, policy)
+		if validationErr := validateDeletedCount(result.Deleted); validationErr != nil {
+			return RetentionResult{}, validationErr
+		}
 		if err != nil {
-			return RetentionResult{}, err
+			result.More = true
 		}
-		if err := validateDeletedCount(result.Deleted); err != nil {
-			return RetentionResult{}, err
-		}
-		return result, nil
+		return result, err
 	}
 	deleted, err := port.Retain(ctx, policy)
+	if validationErr := validateDeletedCount(deleted); validationErr != nil {
+		return RetentionResult{}, validationErr
+	}
+	result := RetentionResult{Deleted: deleted}
 	if err != nil {
-		return RetentionResult{}, err
+		result.More = true
 	}
-	if err := validateDeletedCount(deleted); err != nil {
-		return RetentionResult{}, err
-	}
-	return RetentionResult{Deleted: deleted}, nil
+	return result, err
 }
 
 func validateDeletedCount(deleted int64) error {
