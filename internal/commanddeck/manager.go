@@ -144,6 +144,9 @@ func (m *Manager) RenderSafe(device DeviceID) (RenderPlan, error) {
 	if err != nil {
 		return RenderPlan{}, err
 	}
+	if err := m.renderer.InvalidateDevice(device); err != nil {
+		return RenderPlan{}, err
+	}
 	plan, err := m.renderer.Render(Frame{Device: device, Model: state.model, Keys: map[int]KeyView{}})
 	if err != nil {
 		return RenderPlan{}, err
