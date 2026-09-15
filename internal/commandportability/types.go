@@ -16,7 +16,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const ExportVersion = 1
+const ExportVersion = 2
 
 type ScopeKind string
 
@@ -41,6 +41,16 @@ type LayerExport struct {
 	ResolutionPriority int                    `json:"resolutionPriority"`
 	ActivationRules    []ActivationRuleExport `json:"activationRules,omitempty"`
 	Bindings           []BindingExport        `json:"bindings,omitempty"`
+	// BuiltinDeltas são personalizações do usuário que apontam para uma
+	// camada builtin. Não são defaults puros e não carregam grants/claims.
+	BuiltinDeltas     []BindingExport        `json:"builtinDeltas,omitempty"`
+	BuiltinRuleDeltas []ActivationRuleExport `json:"builtinRuleDeltas,omitempty"`
+	// DeltaOnly é o discriminador explícito do contêiner canônico por escopo.
+	// Quando true, o objeto não é uma camada: ID/nome/descrição ficam vazios,
+	// Enabled é true, prioridade é zero e somente os dois campos de deltas são
+	// aceitos. Sem esse discriminador, ID ausente é inválido e não vira
+	// silenciosamente um contêiner.
+	DeltaOnly bool `json:"deltaOnly,omitempty"`
 }
 
 // ActivationRuleExport exclui authorization_decision_id, automation_grant_*,
@@ -130,9 +140,19 @@ const (
 // ReferencePort é composto por portas confiáveis do destino. Não é montado a
 // partir do arquivo ou da UI.
 type ReferencePort struct {
-	Catalog           *commandcatalog.Registry
-	Command           func(context.Context, string) error
-	BuiltinLayer      func(context.Context, string) error
+	Catalog *commandcatalog.Registry
+	Command func(context.Context, string) error
+	// BuiltinLayer valida a identidade estável da camada builtin referenciada
+	// pelo delta (por exemplo, application.defaults).
+	BuiltinLayer func(context.Context, string) error
+	// BuiltinDefault valida o ID do default builtin substituído; ele não é um
+	// ID de camada nem um ID de binding persistido.
+	BuiltinDefault func(context.Context, string) error
+	// BuiltinRuleReference valida a identidade estável de uma regra builtin.
+	BuiltinRuleReference func(context.Context, string) error
+	// BuiltinRule informa se a chave natural da regra builtin já existe no
+	// destino autenticado. Cópia sem esta prova falha fechado.
+	BuiltinRule       func(context.Context, string, string, string) (bool, error)
 	CredentialPattern func(context.Context, string) (CredentialStatus, error)
 	// Workspace resolve um ID apresentado à porta e retorna o mesmo ID
 	// canônico/autorizado. Um WorkspaceMap não substitui esta prova.
@@ -171,6 +191,7 @@ var (
 	ErrMissingReference    = errors.New("referência de command_layer ausente")
 	ErrSensitiveValue      = errors.New("valor sensível bruto em command_layer")
 	ErrUnsupported         = errors.New("operação de command_layers exige pipeline confiável do aplicativo")
+	ErrBuiltinRuleConflict = errors.New("regra builtin já existe no escopo de destino")
 )
 
 func (s PortableScope) validate() error {
@@ -190,32 +211,74 @@ func (s PortableScope) validate() error {
 }
 
 func (l LayerExport) validate() error {
-	if !validUUID7(l.ID) || l.Name == "" || strings.TrimSpace(l.Name) != l.Name || l.Description != strings.TrimSpace(l.Description) || l.ResolutionPriority < 0 {
-		return ErrInvalid
-	}
 	if err := l.Scope.validate(); err != nil {
 		return err
+	}
+	if l.DeltaOnly {
+		if l.ID != "" || l.Name != "" || l.Description != "" || l.ResolutionPriority != 0 || !l.Enabled || len(l.Bindings) != 0 || len(l.ActivationRules) != 0 || len(l.BuiltinDeltas) == 0 && len(l.BuiltinRuleDeltas) == 0 {
+			return ErrInvalid
+		}
+	} else if !validUUID7(l.ID) || l.Name == "" || strings.TrimSpace(l.Name) != l.Name || l.Description != strings.TrimSpace(l.Description) || l.ResolutionPriority < 0 || len(l.BuiltinDeltas) != 0 || len(l.BuiltinRuleDeltas) != 0 {
+		return ErrInvalid
 	}
 	seen := map[string]struct{}{}
 	for _, binding := range l.Bindings {
 		if err := binding.validate(); err != nil {
 			return err
 		}
+		if binding.LayerRefKind != "user" {
+			return ErrInvalid
+		}
 		if _, ok := seen[binding.ID]; ok {
 			return ErrInvalid
 		}
 		seen[binding.ID] = struct{}{}
 	}
+	for _, binding := range l.BuiltinDeltas {
+		if err := binding.validate(); err != nil {
+			return err
+		}
+		if binding.LayerRefKind != "builtin" {
+			return ErrInvalid
+		}
+		if _, ok := seen[binding.ID]; ok {
+			return ErrInvalid
+		}
+		seen[binding.ID] = struct{}{}
+	}
+	seenRules := map[string]struct{}{}
 	for _, rule := range l.ActivationRules {
 		if err := rule.validate(); err != nil {
 			return err
 		}
+		if rule.LayerRefKind != "user" {
+			return ErrInvalid
+		}
+		if _, ok := seenRules[rule.ID]; ok {
+			return ErrInvalid
+		}
+		seenRules[rule.ID] = struct{}{}
+	}
+	for _, rule := range l.BuiltinRuleDeltas {
+		if err := rule.validate(); err != nil {
+			return err
+		}
+		if rule.LayerRefKind != "builtin" {
+			return ErrInvalid
+		}
+		if _, ok := seenRules[rule.ID]; ok {
+			return ErrInvalid
+		}
+		seenRules[rule.ID] = struct{}{}
 	}
 	return nil
 }
 
 func (b BindingExport) validate() error {
-	if !validUUID7(b.ID) || b.LayerRefKind != "user" || b.LayerRef == "" || b.TriggerType == "" || b.TriggerSpec == "" || b.Arguments == "" || b.Condition == "" || b.Presentation == "" || b.ReviewStatus == "" {
+	if !validUUID7(b.ID) || (b.LayerRefKind != "user" && b.LayerRefKind != "builtin") || b.LayerRef == "" || b.TriggerType == "" || b.TriggerSpec == "" || b.Arguments == "" || b.Condition == "" || b.Presentation == "" || b.ReviewStatus == "" {
+		return ErrInvalid
+	}
+	if b.LayerRefKind == "builtin" && !validBuiltinReference(b.LayerRef) {
 		return ErrInvalid
 	}
 	if b.Effect != "execute" && b.Effect != "suppress" {
@@ -230,11 +293,20 @@ func (b BindingExport) validate() error {
 	if (b.ReplacesDefaultID == nil) != (b.ReplacesDefaultVersion == nil) || (b.ReplacesDefaultID == nil) != (b.ReplacesDefaultFingerprint == nil) {
 		return ErrInvalid
 	}
+	if b.LayerRefKind == "builtin" && (b.ReplacesDefaultID == nil || !validBuiltinReference(*b.ReplacesDefaultID)) {
+		return ErrInvalid
+	}
 	return validateNoSecretDocuments(b.Arguments)
 }
 
 func (r ActivationRuleExport) validate() error {
-	if !validUUID7(r.ID) || r.LayerRefKind != "user" || r.LayerRef == "" || (r.RuleRefKind != "user" && r.RuleRefKind != "builtin") || r.RuleRef == "" || r.Mode == "" || r.Condition == "" || r.Lifecycle == "" || r.ReviewStatus == "" {
+	if !validUUID7(r.ID) || (r.LayerRefKind != "user" && r.LayerRefKind != "builtin") || r.LayerRef == "" || (r.RuleRefKind != "user" && r.RuleRefKind != "builtin") || r.RuleRef == "" || r.Mode == "" || r.Condition == "" || r.Lifecycle == "" || r.ReviewStatus == "" {
+		return ErrInvalid
+	}
+	if r.LayerRefKind == "builtin" && !validBuiltinReference(r.LayerRef) {
+		return ErrInvalid
+	}
+	if r.RuleRefKind == "builtin" && !validBuiltinReference(r.RuleRef) {
 		return ErrInvalid
 	}
 	if (r.ReplacesDefaultID == nil) != (r.ReplacesDefaultVersion == nil) || (r.ReplacesDefaultID == nil) != (r.ReplacesDefaultFingerprint == nil) {
@@ -246,6 +318,25 @@ func (r ActivationRuleExport) validate() error {
 func validUUID7(value string) bool {
 	id, err := uuid.Parse(value)
 	return err == nil && id.Version() == uuid.Version(7) && id.Variant() == uuid.RFC4122 && id.String() == value
+}
+
+func validBuiltinReference(value string) bool {
+	parts := strings.Split(value, ".")
+	if len(parts) < 2 || strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		for i, char := range part {
+			if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' && i > 0 || char == '_' && i > 0 {
+				continue
+			}
+			return false
+		}
+	}
+	return true
 }
 
 func cloneString(value *string) *string {
@@ -276,6 +367,23 @@ func cloneLayerExport(source LayerExport) LayerExport {
 		clone.ActivationRules[i].ReplacesDefaultVersion = cloneString(rule.ReplacesDefaultVersion)
 		clone.ActivationRules[i].ReplacesDefaultFingerprint = cloneString(rule.ReplacesDefaultFingerprint)
 	}
+	clone.BuiltinDeltas = make([]BindingExport, len(source.BuiltinDeltas))
+	for i, binding := range source.BuiltinDeltas {
+		clone.BuiltinDeltas[i] = binding
+		clone.BuiltinDeltas[i].CommandID = cloneString(binding.CommandID)
+		clone.BuiltinDeltas[i].ReplacesDefaultID = cloneString(binding.ReplacesDefaultID)
+		clone.BuiltinDeltas[i].ReplacesDefaultVersion = cloneString(binding.ReplacesDefaultVersion)
+		clone.BuiltinDeltas[i].ReplacesDefaultFingerprint = cloneString(binding.ReplacesDefaultFingerprint)
+	}
+	clone.BuiltinRuleDeltas = make([]ActivationRuleExport, len(source.BuiltinRuleDeltas))
+	for i, rule := range source.BuiltinRuleDeltas {
+		clone.BuiltinRuleDeltas[i] = rule
+		clone.BuiltinRuleDeltas[i].EventName = cloneString(rule.EventName)
+		clone.BuiltinRuleDeltas[i].AllowedInternalProducerTypes = cloneString(rule.AllowedInternalProducerTypes)
+		clone.BuiltinRuleDeltas[i].ReplacesDefaultID = cloneString(rule.ReplacesDefaultID)
+		clone.BuiltinRuleDeltas[i].ReplacesDefaultVersion = cloneString(rule.ReplacesDefaultVersion)
+		clone.BuiltinRuleDeltas[i].ReplacesDefaultFingerprint = cloneString(rule.ReplacesDefaultFingerprint)
+	}
 	return clone
 }
 
@@ -285,6 +393,7 @@ func FromSnapshot(snapshot commandconfig.Snapshot) ([]LayerExport, error) {
 		return nil, ErrInvalid
 	}
 	layers := make(map[string]LayerExport, len(snapshot.Layers))
+	deltas := make(map[string]*LayerExport)
 	for _, row := range snapshot.Layers {
 		scope := PortableScope{Kind: GlobalScope}
 		if row.WorkspaceID != nil {
@@ -299,38 +408,30 @@ func FromSnapshot(snapshot commandconfig.Snapshot) ([]LayerExport, error) {
 		}
 		layers[row.ID] = layer
 	}
+	seenBindings := map[string]struct{}{}
 	for _, row := range snapshot.Bindings {
-		if row.LayerRefKind == "builtin" {
-			return nil, ErrUnsupported
-		}
-		if row.LayerRefKind != "user" {
-			return nil, ErrInvalid
-		}
-		layer, ok := layers[row.LayerRef]
-		if !ok {
-			return nil, ErrInvalid
-		}
-		if !samePortableWorkspace(row.WorkspaceID, layer.Scope) {
-			return nil, ErrInvalid
-		}
 		binding := BindingExport{ID: row.ID, LayerRefKind: row.LayerRefKind, LayerRef: row.LayerRef, TriggerType: row.TriggerType, TriggerSpec: row.TriggerSpec, CommandID: cloneString(row.CommandID), Arguments: row.Arguments, Condition: row.Condition, Effect: row.Effect, Enabled: row.Enabled, ResolutionPriority: row.ResolutionPriority, ReplacesDefaultID: cloneString(row.ReplacesDefaultID), ReplacesDefaultVersion: cloneString(row.ReplacesDefaultVersion), ReplacesDefaultFingerprint: cloneString(row.ReplacesDefaultFingerprint), ReviewStatus: row.ReviewStatus, Presentation: row.Presentation}
 		if err := binding.validate(); err != nil {
 			return nil, err
 		}
-		layer.Bindings = append(layer.Bindings, binding)
-		layers[row.LayerRef] = layer
+		if _, exists := seenBindings[binding.ID]; exists {
+			return nil, ErrInvalid
+		}
+		seenBindings[binding.ID] = struct{}{}
+		if row.LayerRefKind == "user" {
+			layer, ok := layers[row.LayerRef]
+			if !ok || !samePortableWorkspace(row.WorkspaceID, layer.Scope) {
+				return nil, ErrInvalid
+			}
+			layer.Bindings = append(layer.Bindings, binding)
+			layers[row.LayerRef] = layer
+			continue
+		}
+		group := deltaGroup(deltas, portableScopeFromWorkspace(row.WorkspaceID))
+		group.BuiltinDeltas = append(group.BuiltinDeltas, binding)
 	}
+	seenRules := map[string]struct{}{}
 	for _, row := range snapshot.ActivationRules {
-		if row.LayerRefKind != commandactivation.UserRef {
-			return nil, ErrUnsupported
-		}
-		layer, ok := layers[row.LayerRef]
-		if !ok {
-			return nil, ErrInvalid
-		}
-		if !samePortableWorkspace(row.WorkspaceID, layer.Scope) {
-			return nil, ErrInvalid
-		}
 		rule := ActivationRuleExport{
 			ID:                           row.ID,
 			LayerRefKind:                 string(row.LayerRefKind),
@@ -351,13 +452,21 @@ func FromSnapshot(snapshot commandconfig.Snapshot) ([]LayerExport, error) {
 		if err := rule.validate(); err != nil {
 			return nil, err
 		}
-		for _, existing := range layer.ActivationRules {
-			if existing.ID == rule.ID {
+		if _, exists := seenRules[rule.ID]; exists {
+			return nil, ErrInvalid
+		}
+		seenRules[rule.ID] = struct{}{}
+		if row.LayerRefKind == commandactivation.UserRef {
+			layer, ok := layers[row.LayerRef]
+			if !ok || !samePortableWorkspace(row.WorkspaceID, layer.Scope) {
 				return nil, ErrInvalid
 			}
+			layer.ActivationRules = append(layer.ActivationRules, rule)
+			layers[row.LayerRef] = layer
+			continue
 		}
-		layer.ActivationRules = append(layer.ActivationRules, rule)
-		layers[row.LayerRef] = layer
+		group := deltaGroup(deltas, portableScopeFromWorkspace(row.WorkspaceID))
+		group.BuiltinRuleDeltas = append(group.BuiltinRuleDeltas, rule)
 	}
 	result := make([]LayerExport, 0, len(layers))
 	for _, layer := range layers {
@@ -365,8 +474,42 @@ func FromSnapshot(snapshot commandconfig.Snapshot) ([]LayerExport, error) {
 		slices.SortFunc(layer.ActivationRules, func(a, b ActivationRuleExport) int { return strings.Compare(a.ID, b.ID) })
 		result = append(result, layer)
 	}
-	slices.SortFunc(result, func(a, b LayerExport) int { return strings.Compare(a.ID, b.ID) })
+	for _, group := range deltas {
+		slices.SortFunc(group.BuiltinDeltas, func(a, b BindingExport) int { return strings.Compare(a.ID, b.ID) })
+		slices.SortFunc(group.BuiltinRuleDeltas, func(a, b ActivationRuleExport) int { return strings.Compare(a.ID, b.ID) })
+		result = append(result, *group)
+	}
+	slices.SortFunc(result, compareLayerExport)
 	return result, nil
+}
+
+func portableScopeFromWorkspace(workspace *string) PortableScope {
+	if workspace == nil {
+		return PortableScope{Kind: GlobalScope}
+	}
+	return PortableScope{Kind: WorkspaceScope, WorkspaceID: *workspace}
+}
+
+func deltaGroup(groups map[string]*LayerExport, scope PortableScope) *LayerExport {
+	key := string(scope.Kind) + ":" + scope.WorkspaceID
+	group, ok := groups[key]
+	if !ok {
+		group = &LayerExport{Scope: scope, Enabled: true, DeltaOnly: true}
+		groups[key] = group
+	}
+	return group
+}
+
+func compareLayerExport(a, b LayerExport) int {
+	if a.ID != "" || b.ID != "" {
+		if a.ID != b.ID {
+			return strings.Compare(a.ID, b.ID)
+		}
+	}
+	if a.Scope.Kind != b.Scope.Kind {
+		return strings.Compare(string(a.Scope.Kind), string(b.Scope.Kind))
+	}
+	return strings.Compare(a.Scope.WorkspaceID, b.Scope.WorkspaceID)
 }
 
 func samePortableWorkspace(workspace *string, scope PortableScope) bool {
@@ -390,16 +533,28 @@ func PlanImport(ctx context.Context, layers []LayerExport, options PlanOptions, 
 	ruleRemap := make(map[string]string)
 	seen := make(map[string]struct{}, len(layers))
 	seenRules := make(map[string]struct{})
+	seenBindings := make(map[string]struct{})
+	seenBuiltinRuleKeys := make(map[string]struct{})
 	for _, input := range layers {
 		source := cloneLayerExport(input)
 		if err := source.validate(); err != nil {
 			return Plan{}, err
 		}
-		if _, ok := seen[source.ID]; ok {
-			return Plan{}, ErrInvalid
+		deltaOnly := source.DeltaOnly
+		if !deltaOnly {
+			if _, ok := seen[source.ID]; ok {
+				return Plan{}, ErrInvalid
+			}
+			seen[source.ID] = struct{}{}
 		}
-		seen[source.ID] = struct{}{}
-		for _, rule := range source.ActivationRules {
+		for _, binding := range append(slices.Clone(source.Bindings), source.BuiltinDeltas...) {
+			if _, ok := seenBindings[binding.ID]; ok {
+				return Plan{}, ErrInvalid
+			}
+			seenBindings[binding.ID] = struct{}{}
+		}
+		allRules := append(slices.Clone(source.ActivationRules), source.BuiltinRuleDeltas...)
+		for _, rule := range allRules {
 			if _, ok := seenRules[rule.ID]; ok {
 				return Plan{}, ErrInvalid
 			}
@@ -409,9 +564,41 @@ func PlanImport(ctx context.Context, layers []LayerExport, options PlanOptions, 
 		if err != nil {
 			return Plan{}, err
 		}
+		for _, rule := range allRules {
+			if rule.LayerRefKind != string(commandactivation.BuiltinRef) {
+				continue
+			}
+			key := builtinRuleNaturalKey(targetScope, rule)
+			if _, ok := seenBuiltinRuleKeys[key]; ok {
+				return Plan{}, ErrInvalid
+			}
+			seenBuiltinRuleKeys[key] = struct{}{}
+		}
+		if options.Mode == CopyMode {
+			for _, rule := range allRules {
+				if rule.LayerRefKind != string(commandactivation.BuiltinRef) {
+					continue
+				}
+				if refs.BuiltinRule == nil {
+					return Plan{}, ErrMissingReference
+				}
+				exists, err := refs.BuiltinRule(ctx, targetScope.WorkspaceID, rule.LayerRef, rule.RuleRef)
+				if err != nil {
+					return Plan{}, err
+				}
+				if exists {
+					return Plan{}, ErrBuiltinRuleConflict
+				}
+			}
+		}
 		action, targetID := options.Mode, source.ID
 		owner := AbsentOwner
-		if options.Mode == CopyMode {
+		if deltaOnly {
+			if err := validateDeltaOwnership(ctx, targetScope.WorkspaceID, source.BuiltinDeltas, source.BuiltinRuleDeltas, options.Mode, ownership); err != nil {
+				return Plan{}, err
+			}
+			targetID = ""
+		} else if options.Mode == CopyMode {
 			id, err := uuid.NewV7()
 			if err != nil {
 				return Plan{}, err
@@ -429,7 +616,9 @@ func PlanImport(ctx context.Context, layers []LayerExport, options PlanOptions, 
 				action = KeepMode
 			}
 		}
-		if rename := options.RenameByLayer[source.ID]; rename != "" {
+		if deltaOnly {
+			// Deltas-only não possuem nome nem camada persistente para renomear.
+		} else if rename := options.RenameByLayer[source.ID]; rename != "" {
 			if strings.TrimSpace(rename) != rename {
 				return Plan{}, ErrNameConflict
 			}
@@ -446,9 +635,11 @@ func PlanImport(ctx context.Context, layers []LayerExport, options PlanOptions, 
 		if err := validateReferences(ctx, &source, refs, &plan); err != nil {
 			return Plan{}, err
 		}
-		remap[source.ID] = targetID
+		if !deltaOnly {
+			remap[source.ID] = targetID
+		}
 		if options.Mode == CopyMode {
-			for _, rule := range source.ActivationRules {
+			for _, rule := range allRules {
 				id, err := uuid.NewV7()
 				if err != nil {
 					return Plan{}, err
@@ -460,6 +651,35 @@ func PlanImport(ctx context.Context, layers []LayerExport, options PlanOptions, 
 	}
 	for i := range plan.Layers {
 		item := &plan.Layers[i]
+		if item.Layer.DeltaOnly {
+			for j := range item.Layer.BuiltinDeltas {
+				if options.Mode == CopyMode {
+					id, err := uuid.NewV7()
+					if err != nil {
+						return Plan{}, err
+					}
+					item.Layer.BuiltinDeltas[j].ID = id.String()
+				}
+			}
+			for j := range item.Layer.BuiltinRuleDeltas {
+				rule := &item.Layer.BuiltinRuleDeltas[j]
+				if options.Mode == CopyMode {
+					mapped, ok := ruleRemap[rule.ID]
+					if !ok {
+						return Plan{}, ErrMissingReference
+					}
+					rule.ID = mapped
+				}
+				if rule.RuleRefKind == "user" {
+					mapped, ok := mapRuleReference(rule.RuleRef, ruleRemap, seenRules, options.Mode)
+					if !ok {
+						return Plan{}, ErrMissingReference
+					}
+					rule.RuleRef = mapped
+				}
+			}
+			continue
+		}
 		item.Layer.ID = item.TargetID
 		for j := range item.Layer.Bindings {
 			binding := &item.Layer.Bindings[j]
@@ -479,6 +699,15 @@ func PlanImport(ctx context.Context, layers []LayerExport, options PlanOptions, 
 			}
 			binding.LayerRef = mapped
 		}
+		for j := range item.Layer.BuiltinDeltas {
+			if options.Mode == CopyMode {
+				id, err := uuid.NewV7()
+				if err != nil {
+					return Plan{}, err
+				}
+				item.Layer.BuiltinDeltas[j].ID = id.String()
+			}
+		}
 		for j := range item.Layer.ActivationRules {
 			rule := &item.Layer.ActivationRules[j]
 			if options.Mode == CopyMode {
@@ -494,19 +723,77 @@ func PlanImport(ctx context.Context, layers []LayerExport, options PlanOptions, 
 			}
 			rule.LayerRef = mappedLayer
 			if rule.RuleRefKind == "user" {
-				mappedRule, ok := ruleRemap[rule.RuleRef]
-				if options.Mode != CopyMode {
-					mappedRule = rule.RuleRef
-					_, ok = seenRules[rule.RuleRef]
-				}
+				mappedRule, ok := mapRuleReference(rule.RuleRef, ruleRemap, seenRules, options.Mode)
 				if !ok {
 					return Plan{}, ErrMissingReference
 				}
 				rule.RuleRef = mappedRule
 			}
 		}
+		for j := range item.Layer.BuiltinRuleDeltas {
+			rule := &item.Layer.BuiltinRuleDeltas[j]
+			if options.Mode == CopyMode {
+				mapped, ok := ruleRemap[rule.ID]
+				if !ok {
+					return Plan{}, ErrMissingReference
+				}
+				rule.ID = mapped
+			}
+			if rule.RuleRefKind == "user" {
+				mapped, ok := mapRuleReference(rule.RuleRef, ruleRemap, seenRules, options.Mode)
+				if !ok {
+					return Plan{}, ErrMissingReference
+				}
+				rule.RuleRef = mapped
+			}
+		}
 	}
 	return plan, nil
+}
+
+func validateDeltaOwnership(ctx context.Context, workspace string, bindings []BindingExport, rules []ActivationRuleExport, mode PlanMode, ownership OwnershipPort) error {
+	if mode == CopyMode {
+		return nil
+	}
+	for _, id := range append(deltaBindingIDs(bindings), deltaRuleIDs(rules)...) {
+		owner, err := ownership(ctx, workspace, id)
+		if err != nil {
+			return err
+		}
+		if owner == ForeignUserOwner || owner == AmbiguousOwnership {
+			return ErrForeignOwner
+		}
+	}
+	return nil
+}
+
+func deltaBindingIDs(bindings []BindingExport) []string {
+	ids := make([]string, 0, len(bindings))
+	for _, binding := range bindings {
+		ids = append(ids, binding.ID)
+	}
+	return ids
+}
+
+func deltaRuleIDs(rules []ActivationRuleExport) []string {
+	ids := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		ids = append(ids, rule.ID)
+	}
+	return ids
+}
+
+func mapRuleReference(id string, remap map[string]string, seen map[string]struct{}, mode PlanMode) (string, bool) {
+	if mode == CopyMode {
+		mapped, ok := remap[id]
+		return mapped, ok
+	}
+	_, ok := seen[id]
+	return id, ok
+}
+
+func builtinRuleNaturalKey(scope PortableScope, rule ActivationRuleExport) string {
+	return string(scope.Kind) + "\x00" + scope.WorkspaceID + "\x00" + rule.LayerRef + "\x00" + rule.RuleRefKind + "\x00" + rule.RuleRef
 }
 
 func resolveScope(ctx context.Context, source PortableScope, options PlanOptions, refs ReferencePort, plan *Plan) (PortableScope, bool, error) {
@@ -541,10 +828,16 @@ func resolveScope(ctx context.Context, source PortableScope, options PlanOptions
 }
 
 func validateReferences(ctx context.Context, layer *LayerExport, refs ReferencePort, plan *Plan) error {
-	for i := range layer.Bindings {
-		binding := &layer.Bindings[i]
+	bindings := append(slices.Clone(layer.Bindings), layer.BuiltinDeltas...)
+	for i := range bindings {
+		binding := &bindings[i]
 		if err := validateCatalogBinding(ctx, binding, refs); err != nil {
 			return err
+		}
+		if binding.LayerRefKind == "builtin" {
+			if refs.BuiltinLayer == nil || refs.BuiltinLayer(ctx, binding.LayerRef) != nil {
+				return ErrMissingReference
+			}
 		}
 		if binding.CommandID != nil && refs.Command != nil {
 			if err := refs.Command(ctx, *binding.CommandID); err != nil {
@@ -553,10 +846,10 @@ func validateReferences(ctx context.Context, layer *LayerExport, refs ReferenceP
 			}
 		}
 		if binding.ReplacesDefaultID != nil {
-			if refs.BuiltinLayer == nil {
+			if refs.BuiltinDefault == nil {
 				return ErrMissingReference
 			}
-			if err := refs.BuiltinLayer(ctx, *binding.ReplacesDefaultID); err != nil {
+			if err := refs.BuiltinDefault(ctx, *binding.ReplacesDefaultID); err != nil {
 				binding.Enabled = false
 				plan.Warnings = append(plan.Warnings, Warning{Code: "default_unavailable", Identifier: *binding.ReplacesDefaultID})
 			}
@@ -565,12 +858,37 @@ func validateReferences(ctx context.Context, layer *LayerExport, refs ReferenceP
 			return err
 		}
 	}
-	for i := range layer.ActivationRules {
-		if layer.ActivationRules[i].EventName != nil {
-			layer.ActivationRules[i].Enabled = false
-			plan.Warnings = append(plan.Warnings, Warning{Code: "event_rule_disabled", Identifier: layer.ActivationRules[i].ID})
+	rules := append(slices.Clone(layer.ActivationRules), layer.BuiltinRuleDeltas...)
+	for i := range rules {
+		rule := &rules[i]
+		if rule.LayerRefKind == "builtin" {
+			if refs.BuiltinLayer == nil || refs.BuiltinLayer(ctx, rule.LayerRef) != nil {
+				return ErrMissingReference
+			}
+		}
+		if rule.RuleRefKind == "builtin" {
+			if refs.BuiltinRuleReference == nil || refs.BuiltinRuleReference(ctx, rule.RuleRef) != nil {
+				return ErrMissingReference
+			}
+		}
+		if rule.ReplacesDefaultID != nil {
+			if refs.BuiltinDefault == nil {
+				return ErrMissingReference
+			}
+			if err := refs.BuiltinDefault(ctx, *rule.ReplacesDefaultID); err != nil {
+				rule.Enabled = false
+				plan.Warnings = append(plan.Warnings, Warning{Code: "default_unavailable", Identifier: *rule.ReplacesDefaultID})
+			}
+		}
+		if rule.EventName != nil {
+			rule.Enabled = false
+			plan.Warnings = append(plan.Warnings, Warning{Code: "event_rule_disabled", Identifier: rule.ID})
 		}
 	}
+	copy(layer.Bindings, bindings[:len(layer.Bindings)])
+	copy(layer.BuiltinDeltas, bindings[len(layer.Bindings):])
+	copy(layer.ActivationRules, rules[:len(layer.ActivationRules)])
+	copy(layer.BuiltinRuleDeltas, rules[len(layer.ActivationRules):])
 	return nil
 }
 
@@ -784,7 +1102,7 @@ func validateNoSecretDocuments(raw string) error {
 // autorização nem prova de escopo; o commit deve rederivar owner, escopo,
 // referências, catálogo e CAS dentro da própria transação.
 func (p Plan) Snapshot(userID string) (commandconfig.Snapshot, error) {
-	if userID == "" {
+	if userID == "" || p.Version != ExportVersion {
 		return commandconfig.Snapshot{}, ErrInvalid
 	}
 	snapshot := commandconfig.Snapshot{Scope: commandconfig.Scope{UserID: userID}}
@@ -794,21 +1112,43 @@ func (p Plan) Snapshot(userID string) (commandconfig.Snapshot, error) {
 		if item.TargetScope.Kind == WorkspaceScope {
 			workspacePtr = &workspace
 		}
-		snapshot.Layers = append(snapshot.Layers, commandconfig.Layer{ID: item.TargetID, UserID: userID, WorkspaceID: workspacePtr, Name: item.Layer.Name, Description: item.Layer.Description, Enabled: item.Enabled && item.Layer.Enabled, Source: "user", ResolutionPriority: item.Layer.ResolutionPriority})
+		if !item.Layer.DeltaOnly && item.TargetID != "" {
+			snapshot.Layers = append(snapshot.Layers, commandconfig.Layer{ID: item.TargetID, UserID: userID, WorkspaceID: cloneString(workspacePtr), Name: item.Layer.Name, Description: item.Layer.Description, Enabled: item.Enabled && item.Layer.Enabled, Source: "user", ResolutionPriority: item.Layer.ResolutionPriority})
+		}
 		for _, binding := range item.Layer.Bindings {
-			var bindingWorkspace *string
-			if workspacePtr != nil {
-				value := *workspacePtr
-				bindingWorkspace = &value
+			if binding.LayerRefKind != "user" || item.TargetID == "" {
+				return commandconfig.Snapshot{}, ErrInvalid
 			}
-			snapshot.Bindings = append(snapshot.Bindings, commandconfig.Binding{ID: binding.ID, UserID: userID, WorkspaceID: bindingWorkspace, LayerRefKind: "user", LayerRef: item.TargetID, TriggerType: binding.TriggerType, TriggerSpec: binding.TriggerSpec, CommandID: cloneString(binding.CommandID), Arguments: binding.Arguments, Condition: binding.Condition, Effect: binding.Effect, Enabled: binding.Enabled && item.Enabled, Source: "user", ResolutionPriority: binding.ResolutionPriority, ReplacesDefaultID: cloneString(binding.ReplacesDefaultID), ReplacesDefaultVersion: cloneString(binding.ReplacesDefaultVersion), ReplacesDefaultFingerprint: cloneString(binding.ReplacesDefaultFingerprint), ReviewStatus: binding.ReviewStatus, Presentation: binding.Presentation})
+			snapshot.Bindings = append(snapshot.Bindings, portableBindingSnapshot(binding, userID, workspacePtr, item.TargetID, item.Enabled))
 		}
 		for _, exportedRule := range item.Layer.ActivationRules {
-			ruleWorkspace := cloneString(workspacePtr)
-			snapshot.ActivationRules = append(snapshot.ActivationRules, commandactivation.Rule{ID: exportedRule.ID, UserID: userID, WorkspaceID: ruleWorkspace, LayerRefKind: commandactivation.RefKind(exportedRule.LayerRefKind), LayerRef: item.TargetID, RuleRefKind: commandactivation.RefKind(exportedRule.RuleRefKind), RuleRef: exportedRule.RuleRef, Mode: commandactivation.Mode(exportedRule.Mode), Condition: exportedRule.Condition, Lifecycle: commandactivation.Lifecycle(exportedRule.Lifecycle), EventName: cloneString(exportedRule.EventName), AllowedInternalProducerTypes: cloneString(exportedRule.AllowedInternalProducerTypes), Enabled: exportedRule.Enabled && item.Enabled, Source: "user", ReplacesDefaultID: cloneString(exportedRule.ReplacesDefaultID), ReplacesDefaultVersion: cloneString(exportedRule.ReplacesDefaultVersion), ReplacesDefaultFingerprint: cloneString(exportedRule.ReplacesDefaultFingerprint), ReviewStatus: exportedRule.ReviewStatus})
+			if exportedRule.LayerRefKind != "user" || item.TargetID == "" {
+				return commandconfig.Snapshot{}, ErrInvalid
+			}
+			snapshot.ActivationRules = append(snapshot.ActivationRules, portableRuleSnapshot(exportedRule, userID, workspacePtr, item.TargetID, item.Enabled))
+		}
+		for _, binding := range item.Layer.BuiltinDeltas {
+			if binding.LayerRefKind != "builtin" {
+				return commandconfig.Snapshot{}, ErrInvalid
+			}
+			snapshot.Bindings = append(snapshot.Bindings, portableBindingSnapshot(binding, userID, workspacePtr, binding.LayerRef, item.Enabled))
+		}
+		for _, exportedRule := range item.Layer.BuiltinRuleDeltas {
+			if exportedRule.LayerRefKind != "builtin" {
+				return commandconfig.Snapshot{}, ErrInvalid
+			}
+			snapshot.ActivationRules = append(snapshot.ActivationRules, portableRuleSnapshot(exportedRule, userID, workspacePtr, exportedRule.LayerRef, item.Enabled))
 		}
 	}
 	return snapshot, nil
+}
+
+func portableBindingSnapshot(binding BindingExport, userID string, workspace *string, layerRef string, layerEnabled bool) commandconfig.Binding {
+	return commandconfig.Binding{ID: binding.ID, UserID: userID, WorkspaceID: cloneString(workspace), LayerRefKind: binding.LayerRefKind, LayerRef: layerRef, TriggerType: binding.TriggerType, TriggerSpec: binding.TriggerSpec, CommandID: cloneString(binding.CommandID), Arguments: binding.Arguments, Condition: binding.Condition, Effect: binding.Effect, Enabled: binding.Enabled && layerEnabled, Source: "user", ResolutionPriority: binding.ResolutionPriority, ReplacesDefaultID: cloneString(binding.ReplacesDefaultID), ReplacesDefaultVersion: cloneString(binding.ReplacesDefaultVersion), ReplacesDefaultFingerprint: cloneString(binding.ReplacesDefaultFingerprint), ReviewStatus: binding.ReviewStatus, Presentation: binding.Presentation}
+}
+
+func portableRuleSnapshot(rule ActivationRuleExport, userID string, workspace *string, layerRef string, layerEnabled bool) commandactivation.Rule {
+	return commandactivation.Rule{ID: rule.ID, UserID: userID, WorkspaceID: cloneString(workspace), LayerRefKind: commandactivation.RefKind(rule.LayerRefKind), LayerRef: layerRef, RuleRefKind: commandactivation.RefKind(rule.RuleRefKind), RuleRef: rule.RuleRef, Mode: commandactivation.Mode(rule.Mode), Condition: rule.Condition, Lifecycle: commandactivation.Lifecycle(rule.Lifecycle), EventName: cloneString(rule.EventName), AllowedInternalProducerTypes: cloneString(rule.AllowedInternalProducerTypes), Enabled: rule.Enabled && layerEnabled, Source: "user", ReplacesDefaultID: cloneString(rule.ReplacesDefaultID), ReplacesDefaultVersion: cloneString(rule.ReplacesDefaultVersion), ReplacesDefaultFingerprint: cloneString(rule.ReplacesDefaultFingerprint), ReviewStatus: rule.ReviewStatus}
 }
 
 func (p Plan) ValidateWithCompleteProjection(ctx context.Context, userID string, projection commandconfig.CompleteProjection) error {

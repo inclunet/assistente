@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"assistente/internal/commandactivation"
 	"assistente/internal/commandconfig"
 	"gorm.io/gorm"
 )
@@ -20,9 +21,6 @@ func ExportFromStore(ctx context.Context, db *gorm.DB, userID string, refs Refer
 	}
 	store, err := commandconfig.New(db)
 	if err != nil {
-		return nil, err
-	}
-	if err := rejectBuiltinDeltas(ctx, db, userID); err != nil {
 		return nil, err
 	}
 	var rows []commandconfig.Layer
@@ -64,13 +62,6 @@ func ExportFromStore(ctx context.Context, db *gorm.DB, userID string, refs Refer
 		if err != nil {
 			return nil, err
 		}
-		for _, binding := range snapshot.Bindings {
-			if binding.LayerRefKind == "builtin" {
-				// Este formato ainda não possui um contêiner seguro para deltas
-				// soltos sobre uma camada builtin. Recusar evita export parcial.
-				return nil, ErrUnsupported
-			}
-		}
 		selected := commandconfig.Snapshot{Scope: scope, Layers: []commandconfig.Layer{row}}
 		for _, binding := range snapshot.Bindings {
 			if binding.LayerRef == row.ID && binding.LayerRefKind == "user" {
@@ -93,33 +84,101 @@ func ExportFromStore(ctx context.Context, db *gorm.DB, userID string, refs Refer
 		}
 		result = append(result, layers[0])
 	}
-	slices.SortFunc(result, func(a, b LayerExport) int { return strings.Compare(a.ID, b.ID) })
-	return result, nil
-}
-
-func rejectBuiltinDeltas(ctx context.Context, db *gorm.DB, userID string) error {
-	for _, table := range []string{"command_bindings", "command_layer_activation_rules"} {
-		var count int64
-		if err := db.WithContext(ctx).Table(table).Where("user_id = ? AND layer_ref_kind = ?", userID, "builtin").Count(&count).Error; err != nil {
-			return err
-		}
-		if count > 0 {
-			return ErrUnsupported
-		}
+	builtin, err := exportBuiltinDeltas(ctx, db, userID, rows, layerIDs, includeWorkspace, refs)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	result = append(result, builtin...)
+	slices.SortFunc(result, compareLayerExport)
+	return result, nil
 }
 
 func validateExportLayer(ctx context.Context, layer *LayerExport, refs ReferencePort) error {
 	if err := layer.validate(); err != nil {
 		return err
 	}
-	for i := range layer.Bindings {
-		if err := validateCatalogBinding(ctx, &layer.Bindings[i], refs); err != nil {
+	bindings := append(slices.Clone(layer.Bindings), layer.BuiltinDeltas...)
+	for i := range bindings {
+		if err := validateCatalogBinding(ctx, &bindings[i], refs); err != nil {
+			return err
+		}
+		if bindings[i].LayerRefKind == string(commandactivation.BuiltinRef) {
+			if refs.BuiltinLayer == nil || refs.BuiltinLayer(ctx, bindings[i].LayerRef) != nil {
+				return ErrMissingReference
+			}
+		}
+		if bindings[i].ReplacesDefaultID != nil {
+			if refs.BuiltinDefault == nil || refs.BuiltinDefault(ctx, *bindings[i].ReplacesDefaultID) != nil {
+				return ErrMissingReference
+			}
+		}
+		if err := validateCredentialReferences(ctx, bindings[i].Arguments, refs.CredentialPattern, &Plan{}); err != nil {
 			return err
 		}
 	}
+	for _, rule := range append(slices.Clone(layer.ActivationRules), layer.BuiltinRuleDeltas...) {
+		if rule.LayerRefKind == string(commandactivation.BuiltinRef) {
+			if refs.BuiltinLayer == nil || refs.BuiltinLayer(ctx, rule.LayerRef) != nil {
+				return ErrMissingReference
+			}
+		}
+		if rule.RuleRefKind == string(commandactivation.BuiltinRef) {
+			if refs.BuiltinRuleReference == nil || refs.BuiltinRuleReference(ctx, rule.RuleRef) != nil {
+				return ErrMissingReference
+			}
+		}
+		if rule.ReplacesDefaultID != nil {
+			if refs.BuiltinDefault == nil || refs.BuiltinDefault(ctx, *rule.ReplacesDefaultID) != nil {
+				return ErrMissingReference
+			}
+		}
+	}
 	return nil
+}
+
+func exportBuiltinDeltas(ctx context.Context, db *gorm.DB, userID string, _ []commandconfig.Layer, layerIDs []string, includeWorkspace bool, refs ReferencePort) ([]LayerExport, error) {
+	// Uma seleção explícita identifica somente camadas user. Deltas builtin não
+	// são dependências implícitas: só entram no export completo, quando não há
+	// filtro de layerIDs.
+	if len(layerIDs) > 0 {
+		return nil, nil
+	}
+	query := db.WithContext(ctx).Where("user_id = ? AND layer_ref_kind = ?", userID, "builtin")
+	if !includeWorkspace {
+		query = query.Where("workspace_id IS NULL")
+	}
+	var bindings []commandconfig.Binding
+	if err := query.Order("workspace_id, id").Find(&bindings).Error; err != nil {
+		return nil, err
+	}
+	groups := make(map[string]*LayerExport)
+	for _, binding := range bindings {
+		group := deltaGroup(groups, portableScopeFromWorkspace(binding.WorkspaceID))
+		group.BuiltinDeltas = append(group.BuiltinDeltas, BindingExport{ID: binding.ID, LayerRefKind: binding.LayerRefKind, LayerRef: binding.LayerRef, TriggerType: binding.TriggerType, TriggerSpec: binding.TriggerSpec, CommandID: cloneString(binding.CommandID), Arguments: binding.Arguments, Condition: binding.Condition, Effect: binding.Effect, Enabled: binding.Enabled, ResolutionPriority: binding.ResolutionPriority, ReplacesDefaultID: cloneString(binding.ReplacesDefaultID), ReplacesDefaultVersion: cloneString(binding.ReplacesDefaultVersion), ReplacesDefaultFingerprint: cloneString(binding.ReplacesDefaultFingerprint), ReviewStatus: binding.ReviewStatus, Presentation: binding.Presentation})
+	}
+	if db.Migrator().HasTable((commandactivation.Rule{}).TableName()) {
+		ruleQuery := db.WithContext(ctx).Table((commandactivation.Rule{}).TableName()).Where("user_id = ? AND layer_ref_kind = ?", userID, string(commandactivation.BuiltinRef))
+		if !includeWorkspace {
+			ruleQuery = ruleQuery.Where("workspace_id IS NULL")
+		}
+		var rules []activationRuleRow
+		if err := ruleQuery.Order("workspace_id, id").Find(&rules).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range rules {
+			group := deltaGroup(groups, portableScopeFromWorkspace(row.WorkspaceID))
+			group.BuiltinRuleDeltas = append(group.BuiltinRuleDeltas, ActivationRuleExport{ID: row.ID, LayerRefKind: row.LayerRefKind, LayerRef: row.LayerRef, RuleRefKind: row.RuleRefKind, RuleRef: row.RuleRef, Mode: row.Mode, Condition: row.Condition, Lifecycle: row.Lifecycle, EventName: cloneString(row.EventName), AllowedInternalProducerTypes: cloneString(row.AllowedInternalProducerTypes), Enabled: row.Enabled, ReplacesDefaultID: cloneString(row.ReplacesDefaultID), ReplacesDefaultVersion: cloneString(row.ReplacesDefaultVersion), ReplacesDefaultFingerprint: cloneString(row.ReplacesDefaultFingerprint), ReviewStatus: row.ReviewStatus})
+		}
+	}
+	result := make([]LayerExport, 0, len(groups))
+	for _, group := range groups {
+		if err := validateExportLayer(ctx, group, refs); err != nil {
+			return nil, err
+		}
+		result = append(result, *group)
+	}
+	slices.SortFunc(result, compareLayerExport)
+	return result, nil
 }
 
 type activationRuleRow struct {
@@ -142,6 +201,9 @@ type activationRuleRow struct {
 }
 
 func exportActivationRules(ctx context.Context, db *gorm.DB, userID, layerID string, workspace *string) ([]ActivationRuleExport, error) {
+	if !db.Migrator().HasTable((commandactivation.Rule{}).TableName()) {
+		return nil, nil
+	}
 	query := db.WithContext(ctx).Table("command_layer_activation_rules").Where("user_id = ? AND layer_ref_kind = ? AND layer_ref = ?", userID, "user", layerID)
 	if workspace == nil {
 		query = query.Where("workspace_id IS NULL")

@@ -55,6 +55,30 @@ func portabilityRefs(t *testing.T) ReferencePort {
 	return portabilityRefsWithSensitivePaths(t, nil)
 }
 
+func portabilityRefsWithBuiltin(t *testing.T) ReferencePort {
+	t.Helper()
+	refs := portabilityRefs(t)
+	refs.BuiltinLayer = func(_ context.Context, id string) error {
+		if id != "application.defaults" {
+			return errors.New("camada builtin ausente")
+		}
+		return nil
+	}
+	refs.BuiltinDefault = func(_ context.Context, id string) error {
+		if id != "builtin.tab.new" && id != "builtin.rule" {
+			return errors.New("default builtin ausente")
+		}
+		return nil
+	}
+	refs.BuiltinRuleReference = func(_ context.Context, id string) error {
+		if id != "builtin.rule" {
+			return errors.New("regra builtin ausente")
+		}
+		return nil
+	}
+	return refs
+}
+
 func portabilityRefsWithSensitivePaths(t *testing.T, sensitivePaths []string) ReferencePort {
 	t.Helper()
 	locales := map[string]commandcatalog.LocalizedMetadata{
@@ -184,15 +208,163 @@ func TestFromSnapshotRoundTripRegrasGlobalEWorkspace(t *testing.T) {
 	}
 }
 
-func TestFromSnapshotNaoIgnoraDeltaBuiltin(t *testing.T) {
+func TestFromSnapshotRoundTripDeltaBuiltinSemCamadaUser(t *testing.T) {
 	user, bindingID := portabilityUUID(t), portabilityUUID(t)
+	layerID := portabilityUUID(t)
 	snapshot := commandconfig.Snapshot{
 		Scope:    commandconfig.Scope{UserID: user},
-		Layers:   []commandconfig.Layer{{ID: portabilityUUID(t), UserID: user, Name: "Global", Source: "user"}},
+		Layers:   []commandconfig.Layer{{ID: layerID, UserID: user, Name: "Global", Source: "user"}},
 		Bindings: []commandconfig.Binding{{ID: bindingID, UserID: user, LayerRefKind: "builtin", LayerRef: "application.defaults", TriggerType: "keyboard.local", TriggerSpec: `{}`, Arguments: `{}`, Condition: `{}`, Effect: "suppress", Enabled: true, Source: "user", ReviewStatus: "active", Presentation: `{}`, ReplacesDefaultID: stringPtr("builtin.tab.new"), ReplacesDefaultVersion: stringPtr("1"), ReplacesDefaultFingerprint: stringPtr("fp")}},
 	}
-	if _, err := FromSnapshot(snapshot); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("delta builtin foi ignorado: %v", err)
+	exported, err := FromSnapshot(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deltaContainer LayerExport
+	for _, candidate := range exported {
+		if candidate.DeltaOnly {
+			deltaContainer = candidate
+		}
+	}
+	if len(exported) != 2 || !deltaContainer.DeltaOnly || len(deltaContainer.BuiltinDeltas) != 1 || deltaContainer.BuiltinDeltas[0].ID != bindingID {
+		t.Fatalf("delta builtin não foi separado em contêiner explícito: %+v", exported)
+	}
+	plan, err := PlanImport(context.Background(), exported, PlanOptions{Mode: KeepMode}, func(context.Context, string, string) (Ownership, error) { return AbsentOwner, nil }, portabilityRefsWithBuiltin(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := plan.Snapshot(user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Layers) != 1 || len(got.Bindings) != 1 || got.Bindings[0].LayerRefKind != "builtin" || got.Bindings[0].LayerRef != "application.defaults" {
+		t.Fatalf("round-trip builtin alterou escopo/ref: %+v", got)
+	}
+}
+
+func TestPlanImportRejeitaContenedorDeltaAmbiguo(t *testing.T) {
+	layer := portabilityLayer(t)
+	layer.ID = ""
+	layer.Name = "Atalhos"
+	if _, err := PlanImport(context.Background(), []LayerExport{layer}, PlanOptions{Mode: KeepMode}, func(context.Context, string, string) (Ownership, error) { return AbsentOwner, nil }, portabilityRefs(t)); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("camada sem ID foi reinterpretada como contêiner: %v", err)
+	}
+}
+
+func TestFromSnapshotRoundTripDeltasBuiltinGlobalEWorkspace(t *testing.T) {
+	user := portabilityUUID(t)
+	workspace := "source-workspace"
+	globalBinding, workspaceBinding := portabilityUUID(t), portabilityUUID(t)
+	globalWorkspace, workspaceWorkspace := (*string)(nil), &workspace
+	snapshot := commandconfig.Snapshot{Scope: commandconfig.Scope{UserID: user}, Bindings: []commandconfig.Binding{
+		{ID: globalBinding, UserID: user, WorkspaceID: globalWorkspace, LayerRefKind: "builtin", LayerRef: "application.defaults", TriggerType: "keyboard.local", TriggerSpec: `{}`, Arguments: `{}`, Condition: `{}`, Effect: "suppress", Enabled: true, Source: "user", ReviewStatus: "active", Presentation: `{}`, ReplacesDefaultID: stringPtr("builtin.tab.new"), ReplacesDefaultVersion: stringPtr("1"), ReplacesDefaultFingerprint: stringPtr("fp-global")},
+		{ID: workspaceBinding, UserID: user, WorkspaceID: workspaceWorkspace, LayerRefKind: "builtin", LayerRef: "application.defaults", TriggerType: "keyboard.local", TriggerSpec: `{}`, Arguments: `{}`, Condition: `{}`, Effect: "suppress", Enabled: true, Source: "user", ReviewStatus: "active", Presentation: `{}`, ReplacesDefaultID: stringPtr("builtin.tab.new"), ReplacesDefaultVersion: stringPtr("1"), ReplacesDefaultFingerprint: stringPtr("fp-workspace")},
+	}}
+	exported, err := FromSnapshot(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exported) != 2 || !exported[0].DeltaOnly || !exported[1].DeltaOnly || exported[0].Scope.Kind != GlobalScope || exported[1].Scope.WorkspaceID != workspace {
+		t.Fatalf("escopos builtin não foram agrupados de forma determinística: %+v", exported)
+	}
+	plan, err := PlanImport(context.Background(), exported, PlanOptions{Mode: CopyMode, WorkspaceMap: map[string]string{workspace: "destination-workspace"}}, func(context.Context, string, string) (Ownership, error) { return AbsentOwner, nil }, portabilityRefsWithBuiltin(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := plan.Snapshot(user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Layers) != 0 || len(got.Bindings) != 2 {
+		t.Fatalf("contêiner delta criou camada fake: %+v", got)
+	}
+	var globalCount, workspaceCount int
+	for _, binding := range got.Bindings {
+		if binding.ID == globalBinding || binding.ID == workspaceBinding {
+			t.Fatalf("cópia reutilizou ID do delta: %+v", binding)
+		}
+		if binding.WorkspaceID == nil {
+			globalCount++
+		} else if *binding.WorkspaceID == "destination-workspace" {
+			workspaceCount++
+		}
+	}
+	if globalCount != 1 || workspaceCount != 1 {
+		t.Fatalf("round-trip duplicou ou perdeu escopo global/workspace: %+v", got.Bindings)
+	}
+}
+
+func TestPlanImportBuiltinDeltaUsaSensitivePathsDoCatalogo(t *testing.T) {
+	command := "workspace.tab.new"
+	delta := LayerExport{Scope: PortableScope{Kind: GlobalScope}, Enabled: true, DeltaOnly: true, BuiltinDeltas: []BindingExport{{
+		ID: portabilityUUID(t), LayerRefKind: "builtin", LayerRef: "application.defaults", TriggerType: "keyboard.local", TriggerSpec: `{"version":1,"code":"KeyA","modifiers":[]}`, CommandID: &command, Arguments: `{"query":"segredo"}`, Condition: `{"version":1,"clauses":[]}`, Effect: "execute", Enabled: true, ReviewStatus: "active", Presentation: `{}`, ReplacesDefaultID: stringPtr("builtin.tab.new"), ReplacesDefaultVersion: stringPtr("1"), ReplacesDefaultFingerprint: stringPtr("fp"),
+	}}}
+	refs := portabilityRefsWithSensitivePaths(t, []string{"/query"})
+	refs.BuiltinLayer = func(context.Context, string) error { return nil }
+	refs.BuiltinDefault = func(context.Context, string) error { return nil }
+	if _, err := PlanImport(context.Background(), []LayerExport{delta}, PlanOptions{Mode: KeepMode}, func(context.Context, string, string) (Ownership, error) { return AbsentOwner, nil }, refs); !errors.Is(err, ErrSensitiveValue) {
+		t.Fatalf("SensitivePaths não protegeu delta builtin: %v", err)
+	}
+}
+
+func TestPlanImportBuiltinDistingueCamadaDeDefault(t *testing.T) {
+	command := "workspace.tab.new"
+	delta := LayerExport{Scope: PortableScope{Kind: GlobalScope}, Enabled: true, DeltaOnly: true, BuiltinDeltas: []BindingExport{{
+		ID: portabilityUUID(t), LayerRefKind: "builtin", LayerRef: "application.defaults", TriggerType: "keyboard.local", TriggerSpec: `{}`, CommandID: &command, Arguments: `{}`, Condition: `{}`, Effect: "execute", Enabled: true, ReviewStatus: "active", Presentation: `{}`, ReplacesDefaultID: stringPtr("builtin.tab.new"), ReplacesDefaultVersion: stringPtr("1"), ReplacesDefaultFingerprint: stringPtr("fp"),
+	}}}
+	ownership := func(context.Context, string, string) (Ownership, error) { return AbsentOwner, nil }
+	refs := portabilityRefsWithBuiltin(t)
+	refs.BuiltinLayer = nil
+	if _, err := PlanImport(context.Background(), []LayerExport{delta}, PlanOptions{Mode: KeepMode}, ownership, refs); !errors.Is(err, ErrMissingReference) {
+		t.Fatalf("delta sem porta da camada builtin foi aceito: %v", err)
+	}
+	refs = portabilityRefsWithBuiltin(t)
+	refs.BuiltinDefault = nil
+	if _, err := PlanImport(context.Background(), []LayerExport{delta}, PlanOptions{Mode: KeepMode}, ownership, refs); !errors.Is(err, ErrMissingReference) {
+		t.Fatalf("delta sem porta do default builtin foi aceito: %v", err)
+	}
+}
+
+func TestPlanImportRegraUserEmCamadaBuiltinSemDefault(t *testing.T) {
+	ruleID := portabilityUUID(t)
+	rule := ActivationRuleExport{ID: ruleID, LayerRefKind: "builtin", LayerRef: "application.defaults", RuleRefKind: "user", RuleRef: ruleID, Mode: "always", Condition: `{}`, Lifecycle: "persistent", Enabled: true, ReviewStatus: "active"}
+	delta := LayerExport{Scope: PortableScope{Kind: GlobalScope}, Enabled: true, DeltaOnly: true, BuiltinRuleDeltas: []ActivationRuleExport{rule}}
+	refs := portabilityRefsWithBuiltin(t)
+	plan, err := PlanImport(context.Background(), []LayerExport{delta}, PlanOptions{Mode: KeepMode}, func(context.Context, string, string) (Ownership, error) { return AbsentOwner, nil }, refs)
+	if err != nil {
+		t.Fatalf("regra user em camada builtin válida foi recusada: %v", err)
+	}
+	if len(plan.Layers) != 1 || len(plan.Layers[0].Layer.BuiltinRuleDeltas) != 1 || plan.Layers[0].Layer.BuiltinRuleDeltas[0].ReplacesDefaultID != nil {
+		t.Fatalf("metadados de default foram exigidos ou alterados: %+v", plan)
+	}
+}
+
+func TestPlanImportBuiltinRuleNaturalKeyUsaEscopoDestino(t *testing.T) {
+	rule := func(id, workspace string) LayerExport {
+		return LayerExport{Scope: PortableScope{Kind: WorkspaceScope, WorkspaceID: workspace}, Enabled: true, DeltaOnly: true, BuiltinRuleDeltas: []ActivationRuleExport{{
+			ID: id, LayerRefKind: "builtin", LayerRef: "application.defaults", RuleRefKind: "builtin", RuleRef: "builtin.rule", Mode: "always", Condition: `{}`, Lifecycle: "persistent", Enabled: true, ReviewStatus: "active",
+		}}}
+	}
+	layers := []LayerExport{rule(portabilityUUID(t), "source-a"), rule(portabilityUUID(t), "source-b")}
+	refs := portabilityRefsWithBuiltin(t)
+	refs.BuiltinRule = func(context.Context, string, string, string) (bool, error) { return false, nil }
+	_, err := PlanImport(context.Background(), layers, PlanOptions{Mode: CopyMode, WorkspaceMap: map[string]string{"source-a": "destination", "source-b": "destination"}}, func(context.Context, string, string) (Ownership, error) { return AbsentOwner, nil }, refs)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("natural key duplicada após remapeamento foi aceita: %v", err)
+	}
+}
+
+func TestPlanImportCopyBuiltinRuleNaoDuplicaChaveNatural(t *testing.T) {
+	rule := ActivationRuleExport{ID: portabilityUUID(t), LayerRefKind: "builtin", LayerRef: "application.defaults", RuleRefKind: "builtin", RuleRef: "builtin.rule", Mode: "always", Condition: `{}`, Lifecycle: "persistent", Enabled: true, ReviewStatus: "active", ReplacesDefaultID: stringPtr("builtin.rule"), ReplacesDefaultVersion: stringPtr("1"), ReplacesDefaultFingerprint: stringPtr("fp")}
+	delta := LayerExport{Scope: PortableScope{Kind: GlobalScope}, Enabled: true, DeltaOnly: true, BuiltinRuleDeltas: []ActivationRuleExport{rule}}
+	refs := portabilityRefsWithBuiltin(t)
+	refs.BuiltinRule = func(context.Context, string, string, string) (bool, error) { return true, nil }
+	if _, err := PlanImport(context.Background(), []LayerExport{delta}, PlanOptions{Mode: CopyMode}, func(context.Context, string, string) (Ownership, error) { return AbsentOwner, nil }, refs); !errors.Is(err, ErrBuiltinRuleConflict) {
+		t.Fatalf("cópia duplicada de regra builtin foi aceita: %v", err)
+	}
+	refs.BuiltinRule = nil
+	if _, err := PlanImport(context.Background(), []LayerExport{delta}, PlanOptions{Mode: CopyMode}, func(context.Context, string, string) (Ownership, error) { return AbsentOwner, nil }, refs); !errors.Is(err, ErrMissingReference) {
+		t.Fatalf("cópia de regra builtin sem lookup autoritativo foi aceita: %v", err)
 	}
 }
 
