@@ -2,6 +2,8 @@ package commandconfig
 
 import (
 	"context"
+	"slices"
+	"strings"
 
 	"assistente/internal/auth"
 	"assistente/internal/commandbindings"
@@ -21,6 +23,10 @@ type ConflictDiagnostic struct {
 	userID     string
 	sessionID  string
 	epoch      commandsecurity.EpochSnapshot
+	// activeUserLayerIDs é a fotografia privada da ativação dinâmica usada na
+	// projeção. Ela não é uma autoridade pública nem pode ser substituída pelo
+	// payload do chamador; serve apenas para detectar mudança antes da decisão.
+	activeUserLayerIDs []string
 }
 
 // CheckConflicts autentica o token, autoriza somente a ação de diagnóstico,
@@ -53,6 +59,7 @@ func (s *CompleteMutationService) CheckConflicts(ctx context.Context, token stri
 	}
 	var snapshot Snapshot
 	var witnesses []commandbindings.ConflictWitness
+	var dynamicActive []string
 	if err := s.service.config.Epochs.Admit(ctx, epoch, func(ctx context.Context) error {
 		current, err := s.service.config.Sessions.AuthenticateLocalAccess(ctx, token)
 		if err != nil {
@@ -78,7 +85,11 @@ func (s *CompleteMutationService) CheckConflicts(ctx context.Context, token stri
 		if err != nil {
 			return err
 		}
-		options.ActiveUserLayerIDs = nil
+		activeUserLayerIDs, err := validatePreviewActiveUserLayerIDs(loaded, options.ActiveUserLayerIDs)
+		if err != nil {
+			return err
+		}
+		options.ActiveUserLayerIDs = activeUserLayerIDs
 		configuration, err := ProjectComplete(ctx, loaded, options)
 		if err != nil {
 			return err
@@ -92,12 +103,16 @@ func (s *CompleteMutationService) CheckConflicts(ctx context.Context, token stri
 		}
 		loaded.stamp.providerVersion = providerVersion
 		snapshot = loaded
+		// A lista vem da porta confiável do host e só é retida depois de a
+		// projeção completa validá-la contra o snapshot carregado.
+		dynamicActive = slices.Clone(activeUserLayerIDs)
 		return nil
 	}); err != nil {
 		return ConflictDiagnostic{}, err
 	}
 	return ConflictDiagnostic{Scope: cloneScope(snapshot.Scope), Generation: cloneGenerations(snapshot.Generations), Witnesses: witnesses,
-		store: s.service.config.Store, snapshot: snapshot, userID: principal.UserID, sessionID: principal.SessionID, epoch: epoch}, nil
+		store: s.service.config.Store, snapshot: snapshot, userID: principal.UserID, sessionID: principal.SessionID, epoch: epoch,
+		activeUserLayerIDs: slices.Clone(dynamicActive)}, nil
 }
 
 // RevalidateConflicts autentica novamente e faz o check de geração antes do
@@ -130,8 +145,41 @@ func (s *CompleteMutationService) RevalidateConflicts(ctx context.Context, token
 		if version == "" || version != stamp.providerVersion {
 			return ErrStale
 		}
+		options, err := s.projection(ctx, cloneScope(scope))
+		if err != nil {
+			return err
+		}
+		activeUserLayerIDs, err := validatePreviewActiveUserLayerIDs(diagnostic.snapshot, options.ActiveUserLayerIDs)
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(activeUserLayerIDs, diagnostic.activeUserLayerIDs) {
+			return ErrStale
+		}
 		return nil
 	}, func() error {
 		return diagnostic.store.CheckCurrent(ctx, diagnostic.snapshot)
 	})
+}
+
+// canonicalActiveUserLayerIDs transforma a fotografia dinâmica em uma forma
+// determinística para comparação. O conjunto é fornecido por uma porta
+// confiável, mas ainda é validado para que uma projeção inconsistente falhe
+// fechado e não seja confundida com ausência de ativação.
+func canonicalActiveUserLayerIDs(ids []string) ([]string, error) {
+	result := slices.Clone(ids)
+	for _, id := range result {
+		if id == "" || strings.TrimSpace(id) != id {
+			return nil, ErrInvalid
+		}
+	}
+	// A ordem da porta não é semântica. Ordenar antes de verificar duplicatas
+	// torna o stamp estável sem alterar o conjunto projetado.
+	slices.Sort(result)
+	for i := 1; i < len(result); i++ {
+		if result[i-1] == result[i] {
+			return nil, ErrInvalid
+		}
+	}
+	return result, nil
 }
