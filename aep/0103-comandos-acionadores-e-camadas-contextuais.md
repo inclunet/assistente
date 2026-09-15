@@ -2,6 +2,19 @@
 
 **Status:** In Progress
 
+### Gate de montagem do App — 15/09/2026
+
+Após a validação física de I13.5/I13.6, I13 passa a ser contabilizado como o
+terceiro pacote completo da infraestrutura. Em I14.2, `commandruntime` agora
+possui `MountSpec`/`MountDependency`, exigindo manifesto explícito para
+catálogo, defaults, políticas, stores, presenter, providers, dispatcher e
+adapters antes de criar o controller. O App ganhou
+`ConfigureCommandLifecycleMountSpec`, que falha fechado sem instalar runtime
+quando alguma dependência está ausente, duplicada ou nil. Isso ainda não fecha
+I14.2, porque falta preencher o manifesto com as dependências reais de produto,
+mas impede que mocks ou fallback permissivo publiquem readiness. Contagem atual:
+**48/84 critérios locais, 36 abertos; 3/15 pacotes completos**.
+
 ### Stream Deck real validado — 15/09/2026
 
 `internal/commanddeck` iniciou a base testável de I13.5/C41/C42: o renderer
@@ -45,8 +58,9 @@ físico validado são consolidados em relatório fail-closed. A execução manua
 PowerShell visível capturou foreground `windowsterminal.exe`, classe
 `CASCADIA_HOSTING_WINDOW_CLASS`, confirmou hotkey global suportado e reutilizou o
 Stream Deck serial `AL28K2C54852` modelo `Stream Deck`; o teste terminou com
-`PASS`. A contagem sobe para **48/84 critérios locais, 36 abertos; 2/15 pacotes
-completos**. A migração de mapas reais e UI continua nos pacotes P01/P04.
+`PASS`. Com I13.5 e I13.6 fechados, I13 é consolidado como pacote completo; a
+contagem passa a **48/84 critérios locais, 36 abertos; 3/15 pacotes completos**.
+A migração de mapas reais e UI continua nos pacotes P01/P04/I14.
 
 ### Prova de escopo de diálogo — 15/09/2026
 

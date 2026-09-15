@@ -126,6 +126,19 @@ func appLifecycleConfig(probe *appLifecyclePort) commandruntime.Config {
 	}
 }
 
+func appLifecycleMountSpec(probe *appLifecyclePort) commandruntime.MountSpec {
+	return commandruntime.MountSpec{Config: appLifecycleConfig(probe), Dependencies: []commandruntime.MountDependency{
+		{Role: commandruntime.MountDependencyCatalog, Name: "catalogo-app", Instance: struct{}{}},
+		{Role: commandruntime.MountDependencyDefaults, Name: "defaults-app", Instance: struct{}{}},
+		{Role: commandruntime.MountDependencyPolicies, Name: "politicas-app", Instance: struct{}{}},
+		{Role: commandruntime.MountDependencyStores, Name: "stores-app", Instance: struct{}{}},
+		{Role: commandruntime.MountDependencyPresenter, Name: "presenter-app", Instance: struct{}{}},
+		{Role: commandruntime.MountDependencyProviders, Name: "providers-app", Instance: struct{}{}},
+		{Role: commandruntime.MountDependencyDispatcher, Name: "dispatcher-app", Instance: struct{}{}},
+		{Role: commandruntime.MountDependencyAdapters, Name: "adapters-app", Instance: struct{}{}},
+	}}
+}
+
 func TestAppCommandLifecycleBridgeRequiresMountedRuntimeAndRunsTransitions(t *testing.T) {
 	app := &App{}
 	if _, err := CommandLifecycleSnapshot(app); err == nil {
@@ -153,6 +166,25 @@ func TestAppCommandLifecycleBridgeRequiresMountedRuntimeAndRunsTransitions(t *te
 	}
 	if _, err := CommandLifecycleSnapshot(app); err == nil {
 		t.Fatal("runtime permaneceu montado após shutdown")
+	}
+}
+
+func TestAppCommandLifecycleMountSpecFailsClosedBeforeInstallingRuntime(t *testing.T) {
+	app := &App{}
+	probe := &appLifecyclePort{}
+	spec := appLifecycleMountSpec(probe)
+	spec.Dependencies = spec.Dependencies[:len(spec.Dependencies)-1]
+	if err := ConfigureCommandLifecycleMountSpec(app, spec); !errors.Is(err, commandruntime.ErrMissingDependency) {
+		t.Fatalf("montagem incompleta foi aceita/erro errado: %v", err)
+	}
+	if app.commandLifecycle.Load() != nil {
+		t.Fatal("controller instalado apesar de manifesto incompleto")
+	}
+	if err := ConfigureCommandLifecycleMountSpec(app, appLifecycleMountSpec(probe)); err != nil {
+		t.Fatalf("manifesto completo recusado: %v", err)
+	}
+	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {
+		t.Fatal(err)
 	}
 }
 

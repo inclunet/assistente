@@ -3,6 +3,27 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Continuação — 15/09/2026, gate de montagem I14.2
+
+Avanço em **I14.2**, ainda sem fechar o subitem. `commandruntime` ganhou
+`MountSpec`/`MountDependency`: um manifesto obrigatório para catálogo, defaults,
+políticas, stores, presenter, providers, dispatcher e adapters. A montagem
+final agora tem uma entrada explícita `NewMounted` e o App expõe
+`ConfigureCommandLifecycleMountSpec`, que recusa dependência ausente, duplicada,
+nome vazio ou instância nil antes de instalar qualquer controller. A entrada
+legada `ConfigureCommandLifecycle(config)` permanece para testes e wiring
+existente, mas a rota de I14 deve usar o manifesto para evitar fallback
+permissivo ou readiness derivada de mocks.
+
+**Contagem: 48/84 critérios encerrados; 36 abertos; 3/15 pacotes completos.**
+I13 foi consolidado como terceiro pacote completo após os testes físicos de
+Stream Deck e ambiente físico. I14.2 segue aberto até o App preencher o
+manifesto com as dependências reais de produto e publicar a primeira montagem
+sem comandos migrados.
+
+Validação focada: `go test ./internal/commandruntime ./internal/app -run
+"TestAppCommandLifecycle" -count=1` passou com cache temporário local.
+
 ## Continuação — 15/09/2026, renderer preparatório de Stream Deck
 
 Avanço em **I13.5/C39/C40/C41/C42**, agora fechado após validação física.
@@ -76,7 +97,7 @@ foreground nativo `windowsterminal.exe` com classe
 conhecida/desbloqueada e Stream Deck serial `AL28K2C54852` modelo `Stream Deck`.
 O teste terminou com `PASS`.
 
-**Contagem: 48/84 critérios encerrados; 36 abertos; 2/15 pacotes completos.**
+**Contagem: 48/84 critérios encerrados; 36 abertos; 3/15 pacotes completos após consolidação de I13.**
 I13.6 encerrado como validação de teclado/foco/janela, Stream Deck real e
 degradação explícita de ambiente. Mapas reais do produto continuam em P04/P01.
 
@@ -736,11 +757,11 @@ ganhou outra implementação de recuperação nem migração de schema nesta rod
 
 ### I13 — Infraestrutura das pontes e adapters físicos
 
-Estado: **Parcial — ponte UI/backend, escopo de diálogo e observador de sessão**. Esforço restante: **GG**.
+Estado: **Completo localmente — infraestrutura de ponte/adapters físicos validada**. Esforço restante: **0 no pacote; população de comandos fica em P01–P06/I14**.
 Dependências: I03, I04, I06, I07.
 Referências: D3, D7, D13, D14; AEP-0080, AEP-0091.
 
-Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` definem sessão, capabilities, ack/resultado/cancelamento, geração transportada como string, UUIDv7 de invocação/evento, `sourceEventId` UUIDv7 opcional e `DialogCommandProof`/`DialogProof` com correspondência exata no resultado. `internal/app/app_command_bridge.go` monta a ponte no App e expõe invoke/input/result/cancel/lifecycle por métodos Wails, revalidando usuário/sessão autenticados antes do handoff. `frontend/src/lib/commandBridgeWails.ts` transporta o contrato sem editar bindings gerados. `internal/commandadapter` fornece lifecycle genérico para listeners físicos futuros: callbacks com geração, suspensão por lock/logout, shutdown terminal, sourceEventId por ciclo aceito, sequências com timeout e handoff por `commandbridge.Input`, sem handler final. Shutdown idempotente invalida antes de cancelar, espera lotes admitidos e libera recursos; uma chamada concorrente Go pode cancelar sua espera. Testes cobrem isolamento, handoff curto, repetição, lock/logout, transporte App/Wails, lifecycle de adapter, UUIDv7 de ocorrência, sequência Ctrl+N genérica e reserva de diálogo topmost. `OccurrenceID` físico segue opaco para ownership claim; `sourceEventId` representa a ocorrência durável do ciclo aceito. O adapter de decisões usa a fila real de questionários com cancelamento por ID; o scope acompanha o stack real de Modal e `decision.respond` só atravessa com prova topmost local. Não há gerenciador HID montado nem migração dos handlers reais de decisão. Portas devem cumprir o contrato de cancelamento; não há promessa de prazo de shutdown para porta defeituosa.
+Evidência/limite atual: `commandbridge` e `frontend/src/lib/commandBridge.ts` definem sessão, capabilities, ack/resultado/cancelamento, geração transportada como string, UUIDv7 de invocação/evento, `sourceEventId` UUIDv7 opcional e `DialogCommandProof`/`DialogProof` com correspondência exata no resultado. `internal/app/app_command_bridge.go` monta a ponte no App e expõe invoke/input/result/cancel/lifecycle por métodos Wails, revalidando usuário/sessão autenticados antes do handoff. `frontend/src/lib/commandBridgeWails.ts` transporta o contrato sem editar bindings gerados. `internal/commandadapter` fornece lifecycle genérico para listeners físicos: callbacks com geração, suspensão por lock/logout, shutdown terminal, sourceEventId por ciclo aceito, sequências com timeout e handoff por `commandbridge.Input`, sem handler final. Shutdown idempotente invalida antes de cancelar, espera lotes admitidos e libera recursos; uma chamada concorrente Go pode cancelar sua espera. Testes cobrem isolamento, handoff curto, repetição, lock/logout, transporte App/Wails, lifecycle de adapter, UUIDv7 de ocorrência, sequência Ctrl+N genérica e reserva de diálogo topmost. `OccurrenceID` físico segue opaco para ownership claim; `sourceEventId` representa a ocorrência durável do ciclo aceito. O adapter de decisões usa a fila real de questionários com cancelamento por ID; o scope acompanha o stack real de Modal e `decision.respond` só atravessa com prova topmost local. `internal/commanddeck` implementa gerência segura de Stream Deck, renderer cache/diff, runtime abstrato, driver real `rafaelmartins.com/p/streamdeck` e validação manual com hardware serial `AL28K2C54852`; `internal/commandphysical` consolida foreground nativo, hotkey global, sessão observável e Stream Deck físico em relatório fail-closed. A migração dos handlers reais de produto e população dos mapas permanece fora de I13, em P01–P06/I14. Portas devem cumprir o contrato de cancelamento; não há promessa de prazo de shutdown para porta defeituosa.
 
 - [x] I13.1 — Fechar ponte tipada de despacho UI com ack/resultado/cancelamento, sessão e invocation_id; registrar capabilities sem handlers reais migrados.
 - [x] I13.2 — Implementar ownership local/global por geração, ocorrências UUIDv7, repeat/release/blur/reconexão e contrato de sequências Ctrl+N do inventário.
@@ -764,7 +785,7 @@ Estado: **Parcial — hooks e fábricas sem bootstrap de produto**. Esforço res
 Dependências: I01, I02, I03, I04, I05, I06, I07, I08, I09, I10, I11, I12, I13.
 Referências: D2.1, D8, D11, D13.
 
-Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invalida/cancela antes do reset e confirma readiness via core compartilhado; exige todas as portas e recusa projeção vazia. `App.commandLifecycle` é um ponteiro atômico privado, com montagem serializada, barreira terminal de shutdown e desmontagem por CAS, sem registry global. Os testes cobrem falhas/cancelamento e configurações concorrentes. As chamadas de startup/login/refresh/logout/shutdown estão ligadas condicionalmente ao controller; shutdown espera o worker e mantém dependências em caso de timeout. Ainda faltam providers e montagem real completa: não publicar readiness de produto a partir dos mocks.
+Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invalida/cancela antes do reset e confirma readiness via core compartilhado; exige todas as portas e recusa projeção vazia. `MountSpec` declara dependências obrigatórias de catálogo, defaults, políticas, stores, presenter, providers, dispatcher e adapters; `NewMounted` recusa manifesto incompleto, duplicado ou nil antes de criar controller. `App.commandLifecycle` é um ponteiro atômico privado, com montagem serializada, barreira terminal de shutdown e desmontagem por CAS, sem registry global. `ConfigureCommandLifecycleMountSpec` liga o manifesto ao App sem instalar runtime quando o contrato falha. Os testes cobrem falhas/cancelamento, configurações concorrentes e montagem incompleta. As chamadas de startup/login/refresh/logout/shutdown estão ligadas condicionalmente ao controller; shutdown espera o worker e mantém dependências em caso de timeout. Ainda faltam preencher o manifesto com providers reais e montagem de produto completa: não publicar readiness de produto a partir dos mocks.
 
 - [x] I14.1 — Construir esqueleto de bootstrap serializado e readiness observável após I01, sem expor novas rotas nem cadastrar comandos de produto; este subitem pode começar cedo.
 - [ ] I14.2 — Montar catálogo/defaults de contrato, políticas, stores, presenter, providers, dispatcher e adapters com dependências explícitas; sem fallback permissivo.

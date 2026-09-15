@@ -159,6 +159,53 @@ func TestAppCommandLifecycleRejectsMissingPorts(t *testing.T) {
 	}
 }
 
+func TestAppCommandLifecycleMountedSpecRequiresExplicitDependencies(t *testing.T) {
+	probe := &lifecycleProbe{}
+	spec := MountSpec{Config: probe.config(), Dependencies: []MountDependency{
+		{Role: MountDependencyCatalog, Name: "catalogo-persistido", Instance: struct{}{}},
+		{Role: MountDependencyDefaults, Name: "defaults-versionados", Instance: struct{}{}},
+		{Role: MountDependencyPolicies, Name: "politicas", Instance: struct{}{}},
+		{Role: MountDependencyStores, Name: "stores-sql", Instance: struct{}{}},
+		{Role: MountDependencyPresenter, Name: "presenter-app", Instance: struct{}{}},
+		{Role: MountDependencyProviders, Name: "providers-contexto", Instance: struct{}{}},
+		{Role: MountDependencyDispatcher, Name: "dispatcher-core", Instance: struct{}{}},
+		{Role: MountDependencyAdapters, Name: "adapters-fisicos", Instance: struct{}{}},
+	}}
+	runtime, err := NewMounted(spec)
+	if err != nil {
+		t.Fatalf("spec completo recusado: %v", err)
+	}
+	if err := runtime.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	missing := spec
+	missing.Dependencies = missing.Dependencies[:len(missing.Dependencies)-1]
+	if _, err := NewMounted(missing); !errors.Is(err, ErrMissingDependency) {
+		t.Fatalf("spec sem adapters foi aceito/erro errado: %v", err)
+	}
+
+	duplicate := spec
+	duplicate.Dependencies = append(append([]MountDependency(nil), spec.Dependencies...), MountDependency{Role: MountDependencyCatalog, Name: "outro-catalogo", Instance: struct{}{}})
+	if _, err := NewMounted(duplicate); !errors.Is(err, ErrInvalidConfiguration) {
+		t.Fatalf("spec duplicado foi aceito/erro errado: %v", err)
+	}
+
+	nilDependency := spec
+	nilDependency.Dependencies = append([]MountDependency(nil), spec.Dependencies...)
+	nilDependency.Dependencies[0].Instance = (*lifecycleProbe)(nil)
+	if _, err := NewMounted(nilDependency); !errors.Is(err, ErrMissingDependency) {
+		t.Fatalf("spec com ponteiro nil foi aceito/erro errado: %v", err)
+	}
+
+	unknown := spec
+	unknown.Dependencies = append([]MountDependency(nil), spec.Dependencies...)
+	unknown.Dependencies[0].Role = MountDependencyRole("catalogo")
+	if _, err := NewMounted(unknown); !errors.Is(err, ErrInvalidConfiguration) {
+		t.Fatalf("spec com role desconhecido foi aceito/erro errado: %v", err)
+	}
+}
+
 func TestAppCommandLifecycleDoesNotReadyEmptyProjection(t *testing.T) {
 	probe := &lifecycleProbe{empty: true}
 	runtime, err := New(probe.config())

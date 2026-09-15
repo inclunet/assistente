@@ -20,6 +20,7 @@ var (
 	ErrNotReady             = errors.New("runtime de comandos não está pronto")
 	ErrStopped              = errors.New("runtime de comandos encerrado")
 	ErrTransition           = errors.New("transição do runtime de comandos falhou")
+	ErrMissingDependency    = errors.New("dependência obrigatória do runtime de comandos ausente")
 )
 
 type State string
@@ -135,6 +136,86 @@ type Config struct {
 	CleanupTimeout time.Duration
 }
 
+// MountDependencyRole identifica uma dependência externa que deve ser montada
+// pelo App antes do controller existir. O contrato é intencionalmente
+// declarativo: o runtime não interpreta catálogo, stores ou providers, mas
+// recusa uma montagem que não prove explicitamente que eles vieram de adapters
+// reais.
+type MountDependencyRole string
+
+const (
+	MountDependencyCatalog    MountDependencyRole = "catalog"
+	MountDependencyDefaults   MountDependencyRole = "defaults"
+	MountDependencyPolicies   MountDependencyRole = "policies"
+	MountDependencyStores     MountDependencyRole = "stores"
+	MountDependencyPresenter  MountDependencyRole = "presenter"
+	MountDependencyProviders  MountDependencyRole = "providers"
+	MountDependencyDispatcher MountDependencyRole = "dispatcher"
+	MountDependencyAdapters   MountDependencyRole = "adapters"
+)
+
+var requiredMountDependencyRoles = []MountDependencyRole{
+	MountDependencyCatalog,
+	MountDependencyDefaults,
+	MountDependencyPolicies,
+	MountDependencyStores,
+	MountDependencyPresenter,
+	MountDependencyProviders,
+	MountDependencyDispatcher,
+	MountDependencyAdapters,
+}
+
+// MountDependency é uma prova curta de wiring. Instance deve ser o adapter real
+// usado pelo App; nil, ponteiros nil e nomes vazios são recusados para evitar
+// fallback silencioso ou "mapa vazio pronto".
+type MountDependency struct {
+	Role     MountDependencyRole
+	Name     string
+	Instance any
+}
+
+// MountSpec é o envelope de montagem final do App. Ele separa duas coisas que
+// antes ficavam implícitas: as portas do controller e o catálogo de
+// dependências de produto que precisa existir antes de habilitar entradas.
+type MountSpec struct {
+	Config       Config
+	Dependencies []MountDependency
+}
+
+func (s MountSpec) validate() error {
+	if err := s.Config.validate(); err != nil {
+		return err
+	}
+	seen := make(map[MountDependencyRole]MountDependency, len(s.Dependencies))
+	for _, dependency := range s.Dependencies {
+		if dependency.Role == "" || dependency.Name == "" || nilPort(dependency.Instance) {
+			return fmt.Errorf("%w: %s", ErrMissingDependency, dependency.Role)
+		}
+		if !knownMountDependencyRole(dependency.Role) {
+			return fmt.Errorf("%w: dependência desconhecida %s", ErrInvalidConfiguration, dependency.Role)
+		}
+		if _, exists := seen[dependency.Role]; exists {
+			return fmt.Errorf("%w: dependência duplicada %s", ErrInvalidConfiguration, dependency.Role)
+		}
+		seen[dependency.Role] = dependency
+	}
+	for _, role := range requiredMountDependencyRoles {
+		if _, ok := seen[role]; !ok {
+			return fmt.Errorf("%w: %s", ErrMissingDependency, role)
+		}
+	}
+	return nil
+}
+
+func knownMountDependencyRole(role MountDependencyRole) bool {
+	for _, required := range requiredMountDependencyRoles {
+		if role == required {
+			return true
+		}
+	}
+	return false
+}
+
 func (c Config) validate() error {
 	if nilPort(c.Authenticator) || nilPort(c.Recovery) || nilPort(c.Projector) ||
 		nilPort(c.Publisher) || nilPort(c.Inputs) || nilPort(c.Core) ||
@@ -203,6 +284,17 @@ func New(config Config) (*Controller, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
+	return newController(config), nil
+}
+
+func NewMounted(spec MountSpec) (*Controller, error) {
+	if err := spec.validate(); err != nil {
+		return nil, err
+	}
+	return newController(spec.Config), nil
+}
+
+func newController(config Config) *Controller {
 	root, cancel := context.WithCancel(context.Background())
 	c := &Controller{
 		config:        config,
@@ -216,7 +308,7 @@ func New(config Config) (*Controller, error) {
 	c.activeCancel.Store(context.CancelFunc(func() {}))
 	c.activeGeneration.Store(Generation{})
 	go c.loop()
-	return c, nil
+	return c
 }
 
 func (c *Controller) loop() {

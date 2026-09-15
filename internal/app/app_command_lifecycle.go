@@ -15,6 +15,22 @@ var errCommandLifecycleAlreadyConfigured = errors.New("ciclo de vida de comandos
 // projeção, publicação, entradas, geração e readiness. A função não é método
 // Wails e não inicia comandos por conta própria.
 func ConfigureCommandLifecycle(a *App, config commandruntime.Config) error {
+	return configureCommandLifecycleController(a, func() (*commandruntime.Controller, error) {
+		return commandruntime.New(config)
+	})
+}
+
+// ConfigureCommandLifecycleMountSpec registra a montagem final com manifesto
+// explícito de dependências. Use esta entrada para I14: ela falha fechado
+// quando catálogo/defaults/políticas/stores/presenter/providers/dispatcher ou
+// adapters não foram realmente conectados pelo App.
+func ConfigureCommandLifecycleMountSpec(a *App, spec commandruntime.MountSpec) error {
+	return configureCommandLifecycleController(a, func() (*commandruntime.Controller, error) {
+		return commandruntime.NewMounted(spec)
+	})
+}
+
+func configureCommandLifecycleController(a *App, build func() (*commandruntime.Controller, error)) error {
 	if a == nil {
 		return commandruntime.ErrInvalidConfiguration
 	}
@@ -29,7 +45,7 @@ func ConfigureCommandLifecycle(a *App, config commandruntime.Config) error {
 	if a.commandLifecycleClosing {
 		return commandruntime.ErrStopped
 	}
-	runtime, err := commandruntime.New(config)
+	runtime, err := build()
 	if err != nil {
 		return err
 	}
