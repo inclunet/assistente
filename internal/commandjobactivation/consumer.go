@@ -63,6 +63,53 @@ func New(db *gorm.DB, gate *commandsecurity.DispatchGate, ports Ports, lease, re
 
 type Result struct{ Applied, Replayed, Ignored, Conflicts int }
 
+// PassResult é o resultado de uma única passagem bounded. Claimed conta as
+// ocorrências que receberam a lease de entrega; Processed conta somente as
+// que foram consumidas e confirmadas. Em caso de erro, os contadores refletem
+// o que já foi confirmado e as ocorrências restantes permanecem protegidas
+// pela lease até expirar/reencaminhar.
+type PassResult struct {
+	Claimed, Processed int
+	Applied, Replayed  int
+	Ignored, Conflicts int
+	More               bool
+}
+
+// RunPass expõe uma passagem síncrona para o lifecycle da instância. Ele não
+// cria goroutine, timer ou segunda cadência: reivindica um lote, consome cada
+// ocorrência pelo Consumer comum e retorna. deliveryOwner é uma capacidade
+// opaca de entrega, nunca a identidade do usuário ou do job.
+func (c *Consumer) RunPass(ctx context.Context, deliveryOwner string, limit int) (PassResult, error) {
+	var result PassResult
+	if c == nil || c.db == nil || c.gate == nil || c.outbox == nil || ctx == nil || strings.TrimSpace(deliveryOwner) == "" || limit <= 0 || limit > 100 {
+		return result, ErrUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	rows, more, err := c.outbox.ClaimBatch(ctx, deliveryOwner, limit)
+	if err != nil {
+		return result, err
+	}
+	result.Claimed = len(rows)
+	result.More = more
+	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		outcome, err := c.Consume(ctx, row.SourceEventID, deliveryOwner)
+		if err != nil {
+			return result, err
+		}
+		result.Processed++
+		result.Applied += outcome.Applied
+		result.Replayed += outcome.Replayed
+		result.Ignored += outcome.Ignored
+		result.Conflicts += outcome.Conflicts
+	}
+	return result, nil
+}
+
 // Consume recebe apenas a identidade de entrega. Nenhum owner, regra,
 // sequência, fingerprint ou deadline do candidato vira autoridade.
 // Ack e processamento de todas as regras compartilham a mesma transação.

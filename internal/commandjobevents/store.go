@@ -309,27 +309,48 @@ func (s *Store) Get(ctx context.Context, sourceEventID string) (*ActivationOutbo
 // Claim reserva pendências (ou leases vencidas) atomically. O owner é opaco e
 // não é usado como identidade de usuário.
 func (s *Store) Claim(ctx context.Context, owner string, limit int) ([]ActivationOutbox, error) {
-	if s == nil || s.db == nil || strings.TrimSpace(owner) == "" {
-		return nil, ErrInvalidFact
-	}
 	if limit <= 0 {
 		limit = 1
 	}
 	if limit > 100 {
 		limit = 100
 	}
+	claimed, _, err := s.ClaimBatch(ctx, owner, limit)
+	return claimed, err
+}
+
+// ClaimBatch reivindica no máximo limit ocorrências e informa se havia outra
+// pendência no instante da seleção. A identidade do owner é somente a
+// capacidade opaca de entrega; autenticação e autorização do fato acontecem
+// depois, em Consumer.Consume.
+func (s *Store) ClaimBatch(ctx context.Context, owner string, limit int) ([]ActivationOutbox, bool, error) {
+	if s == nil || s.db == nil || ctx == nil || strings.TrimSpace(owner) == "" || limit <= 0 || limit > 100 {
+		return nil, false, ErrInvalidFact
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	if !s.Available() {
-		return nil, ErrSchemaUnavailable
+		return nil, false, ErrSchemaUnavailable
 	}
 	now := s.now()
 	expiry := now.Add(s.leaseDuration)
 	var claimed []ActivationOutbox
+	var more bool
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var rows []ActivationOutbox
-		if err := tx.Where("delivery_state = ? OR (delivery_state = ? AND lease_expires_at <= ?)", DeliveryPending, DeliveryProcessing, now).Order("created_at ASC, source_event_id ASC").Limit(limit).Find(&rows).Error; err != nil {
+		if err := tx.Where("delivery_state = ? OR (delivery_state = ? AND lease_expires_at <= ?)", DeliveryPending, DeliveryProcessing, now).
+			Order("created_at ASC, source_event_id ASC").Limit(limit + 1).Find(&rows).Error; err != nil {
 			return err
 		}
+		more = len(rows) > limit
+		if more {
+			rows = rows[:limit]
+		}
 		for _, row := range rows {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			res := tx.Model(&ActivationOutbox{}).Where("source_event_id = ? AND (delivery_state = ? OR (delivery_state = ? AND lease_expires_at <= ?))", row.SourceEventID, DeliveryPending, DeliveryProcessing, now).
 				Updates(map[string]any{"delivery_state": DeliveryProcessing, "lease_owner": owner, "lease_expires_at": expiry, "attempts": gorm.Expr("attempts + 1")})
 			if res.Error != nil {
@@ -343,9 +364,12 @@ func (s *Store) Claim(ctx context.Context, owner string, limit int) ([]Activatio
 				claimed = append(claimed, row)
 			}
 		}
-		return nil
+		return ctx.Err()
 	})
-	return claimed, err
+	if err != nil {
+		return nil, false, err
+	}
+	return claimed, more, nil
 }
 
 func (s *Store) Ack(ctx context.Context, sourceEventID, owner string) error {

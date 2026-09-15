@@ -147,3 +147,36 @@ func TestRequeueExpiredLeasesValidatesLimitAndCancellation(t *testing.T) {
 		t.Fatalf("cancelamento alterou lease: %+v", row)
 	}
 }
+
+func TestClaimBatchPreservesExactContinuationAndOwnerLease(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	clock := time.Now().UTC().Truncate(time.Microsecond)
+	store.configure(func() time.Time { return clock }, time.Minute, time.Hour, 2)
+	if _, err := store.EnsureReplayPolicyEpoch(ctx, ProducerType, clock.Add(-time.Minute), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	var facts []Fact
+	for i := 0; i < 3; i++ {
+		fact := testFact(t, clock.Add(time.Duration(i)*time.Second))
+		fact.Sequence = i + 1
+		insertTestFact(t, store, fact)
+		facts = append(facts, fact)
+	}
+	claimed, more, err := store.ClaimBatch(ctx, "worker-a", 2)
+	if err != nil || len(claimed) != 2 || !more {
+		t.Fatalf("first claim=(%d,%v,%v), want (2,true,nil)", len(claimed), more, err)
+	}
+	for _, row := range claimed {
+		if row.LeaseOwner == nil || *row.LeaseOwner != "worker-a" || row.LeaseExpiresAt == nil {
+			t.Fatalf("owner/lease ausentes: %+v", row)
+		}
+	}
+	claimed, more, err = store.ClaimBatch(ctx, "worker-b", 2)
+	if err != nil || len(claimed) != 1 || more {
+		t.Fatalf("second claim=(%d,%v,%v), want (1,false,nil)", len(claimed), more, err)
+	}
+	if claimed[0].SourceEventID != facts[2].SourceEventID {
+		t.Fatalf("ordem de claim=%s, want %s", claimed[0].SourceEventID, facts[2].SourceEventID)
+	}
+}
