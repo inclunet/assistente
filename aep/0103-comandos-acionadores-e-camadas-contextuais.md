@@ -1919,7 +1919,65 @@ saída e rastreabilidade dos critérios finais. Ele não altera os contratos des
 AEP nem declara concluídos os incrementos parciais abaixo. A infraestrutura e
 a posterior migração/população de comandos possuem marcos separados.
 
-### Evidência I01 — armazenamento e chaves operacionais
+### Rodada I05–I10 — consolidação em 15/09/2026 (parcial)
+
+Esta rodada amplia a infraestrutura, não migra a população de comandos nem
+habilita atalhos no produto. `commandconfig.ProjectComplete` valida catálogo,
+argumentos, condições e portas de acionador; `CompleteMutationService` unifica
+autenticação, preview privado, confirmação, revalidação, CAS e auditoria para
+CRUD e upgrade/rebase de defaults. A auditoria `command_config_mutations`
+schema v2 acrescenta scope/workspace e documentos antes/depois; schema v1 e
+seus receipts existentes são preservados no upgrade v22. Os documentos
+persistidos não podem conter valores em paths sensíveis: referências portáveis
+de credenciais ainda dependem de I11 e são recusadas neste recorte.
+
+`commandactivation` acrescenta regras, claims, pin/toggle/back, expiração,
+restore autenticado e recomposição contextual. A tabela técnica
+`command_layer_activation_generations` usa PK UUIDv7 e uma geração monotônica
+por usuário/escopo global ou workspace; atualização e claims pertencem ao
+mesmo TX, sem publicar incremento em memória antes de commit. Não substitui
+os epochs de autenticação nem a geração da configuração.
+
+`NewActivationMutationHook` compõe disable/delete de layers, revogação de
+grants e reconciliação de claims no TX da receipt/configuração. Restore de
+layer/conjunto continua explicitamente recusado nesse fluxo: o diff ainda
+precisa incluir regras/grants/claims, não apenas bindings/layers. O restore
+isolado do repository não representa restauração agregada pronta.
+
+`commandautomation` mantém grants exclusivos de ativação, separados dos
+grants de delegação de jobs, com fingerprints JCS/HMAC e consumo atômico de
+receipt. CRUD completo de regras e consumo de cada evento ainda precisam
+compor essas provas; existência de um grant ou de uma linha habilitada não
+autoriza fallback. A migração v23 registra regras, claims, grants, gerações,
+outbox e epochs de replay, sem habilitar os consumidores.
+
+O runtime de jobs passa a gravar timeline incremental; v24 prepara
+`queued_at` antes do AutoMigrate de bancos populados. A outbox independente
+preserva ID de ocorrência, fingerprint e deadline imutável. O consumidor de
+ativação permanece desabilitado: CAS por regra, lease/heartbeat de claim,
+reconciliação e manutenção I12 ainda não estão ligados. Lease de entrega da
+outbox não é lease da claim de job. O epoch inicial do produtor também deve
+ser criado pelo bootstrap da política antes de habilitar produção/consumo.
+
+O MESMO executor aceita portas internas de identidade local/external/job/system
+e usa o MESMO `commandsecurity.EpochService`, sem relógio de segurança paralelo.
+`commandidentity.CoreEpochs` adapta essa instância; política reconsulta a
+origem, em vez de confiar em campos de uma projeção fornecida. A migração v25
+prepara o vínculo administrativo externo/FK, mas a adoção pelo middleware e
+readiness externo permanecem pendentes; não há JIT ou adapter físico externo.
+`commandtoolbridge` delega ao executor comum de tools com origem
+`command_invocation`, contrato tipado e redação propagada. Montagem dos
+runtimes reais, ponte UI de I03, integração de grants AEP-0101 e qualificação
+global continuam itens abertos no tasklist.
+
+O executor valida `command_chain_history` separado do histórico de jobs,
+limite versionado 16 e repetição de command ID antes da reserva; referências
+de layers vêm da resolução confiável, nunca são inferidas de binding IDs.
+Testes e limites de validação desta rodada são registrados no tasklist após
+a consolidação, sem converter contagem de arquivos/testes em porcentagem do
+AEP nem declarar os seis pacotes inteiros concluídos.
+
+### Evidência I01 — armazenamento e chaves operacionais (baseline)
 
 `internal/commandbootstrap` compõe as migrações de configuração, receipts e
 ledger. A migração v20 `command_storage_initial` pertence ao registro central

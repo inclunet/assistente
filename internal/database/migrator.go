@@ -290,6 +290,30 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     func(*gorm.DB) error { return errMigrationDeferred },
 	},
+	{
+		Version: 22,
+		Name:    "command_config_complete",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 23,
+		Name:    "command_activation_durable",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 24,
+		Name:    "command_job_queued_at_backfill",
+		Phase:   phasePreAutoMigrate,
+		Run:     migrateCommandJobQueuedAt,
+	},
+	{
+		Version: 25,
+		Name:    "external_identity_mapping",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateExternalIdentityMapping,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

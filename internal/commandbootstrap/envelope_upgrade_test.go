@@ -23,7 +23,8 @@ type envelopeV20Fixture struct {
 // makeKnownV20Fixture cria primeiro o schema atual em um SQLite temporário,
 // deriva os DDLs conhecidos e reconstrói o banco legado na mesma ordem de
 // objects. Isso evita copiar DDL manual e garante que o fixture acompanhe o
-// contrato atual; legacyEnvelopeObject é a única transformação permitida.
+// contrato atual; as transformações conhecidas removem as ampliações v21/v22
+// e as tabelas v23, sem admitir DDL arbitrária no migrador de produção.
 func makeKnownV20Fixture(t *testing.T) envelopeV20Fixture {
 	t.Helper()
 	currentPath := filepath.Join(t.TempDir(), "current-reference.db")
@@ -39,7 +40,10 @@ func makeKnownV20Fixture(t *testing.T) envelopeV20Fixture {
 	path := filepath.Join(t.TempDir(), "known-v20.db")
 	legacy := openBootstrapTestDB(t, path)
 	for _, currentObject := range known {
-		legacyObject := legacyEnvelopeObject(currentObject)
+		if !preActivationObject(currentObject) {
+			continue
+		}
+		legacyObject := legacyEnvelopeObject(legacyConfigObject(currentObject))
 		if strings.TrimSpace(legacyObject.SQL) == "" {
 			continue
 		}

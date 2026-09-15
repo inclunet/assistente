@@ -76,8 +76,20 @@ Cada invocação informa de onde veio:
 | `job_run` | `job_runs.id` |
 | `tool_catalog` | teste manual do catálogo |
 | `system` | automação interna |
+| `command_invocation` | `command_invocations.invocation_id`, com owner autenticado |
 
 `origin_id` é string para não acoplar a tabela a uma única FK. Quando houver origem conhecida e estável, o código valida a existência antes de executar.
+
+Adendo AEP-0103 (15/09/2026, integração ainda não publicada no App): a ponte
+`commandtoolbridge` exige rota tipada e ID canônico visível de catálogo,
+preserva `command_invocation` como origem e delega ao MESMO
+`toolinvocations.Service`. Não há execução direta nem fallback para usuário
+system. Paths sensíveis do contrato acompanham input/output e os artefatos
+retomáveis de resultados grandes; diagnóstico livre que possa repetir segredo
+é omitido no armazenamento. Falha de adaptação do resultado depois de efeito
+não equivale a prova de falha sem efeito: o comando usa `outcome_unknown`.
+O registro das rotas reais e a retenção de origem de comando permanecem
+dependências de montagem/manutenção da AEP-0103; esta adição não as habilita.
 
 ### D5 — Logs efêmeros e retenção própria
 

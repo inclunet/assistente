@@ -325,20 +325,32 @@ func rebuildCanonicalChatMessages(tx *gorm.DB) error {
 }
 
 func rebuildOperationalJobRuns(tx *gorm.DB) error {
+	// Cutover legado pode rodar DEPOIS da v24/AutoMigrate. Preservar as
+	// colunas operacionais novas evita perdê-las na reconstrução da v19.
+	if err := migrateCommandJobQueuedAt(tx); err != nil {
+		return err
+	}
+	for _, column := range []string{"root_origin_type", "root_origin_id", "provenance"} {
+		if !tx.Migrator().HasColumn("job_runs", column) {
+			if err := tx.Exec("ALTER TABLE job_runs ADD COLUMN " + column + " TEXT").Error; err != nil {
+				return err
+			}
+		}
+	}
 	var before int64
 	if err := tx.Table("job_runs").Count(&before).Error; err != nil {
 		return err
 	}
 	statements := []string{
-		"CREATE TABLE `job_runs_cutover` (`id` text,`created_at` datetime,`updated_at` datetime,`user_id` text NOT NULL,`job_id` text NOT NULL,`trigger_id` text NOT NULL,`status` text NOT NULL,`started_at` datetime NOT NULL,`completed_at` datetime,`duration_ms` integer,`error` text,`retry_count` integer,`is_dry_run` numeric,`trigger_data` text,`events_emitted` text,PRIMARY KEY (`id`),CONSTRAINT `fk_job_runs_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`),CONSTRAINT `fk_job_runs_trigger` FOREIGN KEY (`trigger_id`) REFERENCES `job_triggers`(`id`),CONSTRAINT `fk_jobs_runs` FOREIGN KEY (`job_id`) REFERENCES `jobs`(`id`))",
+		"CREATE TABLE `job_runs_cutover` (`id` text,`created_at` datetime,`updated_at` datetime,`user_id` text NOT NULL,`job_id` text NOT NULL,`trigger_id` text NOT NULL,`status` text NOT NULL,`queued_at` datetime NOT NULL,`started_at` datetime,`completed_at` datetime,`duration_ms` integer,`error` text,`retry_count` integer,`is_dry_run` numeric,`trigger_data` text,`events_emitted` text,`root_origin_type` text,`root_origin_id` text,`provenance` text,PRIMARY KEY (`id`),CONSTRAINT `fk_job_runs_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`),CONSTRAINT `fk_job_runs_trigger` FOREIGN KEY (`trigger_id`) REFERENCES `job_triggers`(`id`),CONSTRAINT `fk_jobs_runs` FOREIGN KEY (`job_id`) REFERENCES `jobs`(`id`))",
 		`INSERT INTO job_runs_cutover (
 			id, created_at, updated_at, user_id, job_id, trigger_id, status,
 			started_at, completed_at, duration_ms, error, retry_count, is_dry_run,
-			trigger_data, events_emitted
+			trigger_data, events_emitted, queued_at, root_origin_type, root_origin_id, provenance
 		)
 		SELECT id, created_at, updated_at, user_id, job_id, trigger_id, status,
 			started_at, completed_at, duration_ms, error, retry_count, is_dry_run,
-			trigger_data, events_emitted
+			trigger_data, events_emitted, queued_at, root_origin_type, root_origin_id, provenance
 		FROM job_runs`,
 		`DROP TABLE job_runs`,
 		`ALTER TABLE job_runs_cutover RENAME TO job_runs`,
@@ -373,6 +385,8 @@ func recreateCutoverIndexes(tx *gorm.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_job_runs_trigger_id ON job_runs (trigger_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_job_runs_status ON job_runs (status)`,
 		`CREATE INDEX IF NOT EXISTS idx_job_runs_started_at ON job_runs (started_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_job_runs_queued_at ON job_runs (queued_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_job_runs_root_origin_type ON job_runs (root_origin_type)`,
 		`CREATE INDEX IF NOT EXISTS idx_job_runs_is_dry_run ON job_runs (is_dry_run)`,
 		`CREATE INDEX IF NOT EXISTS idx_job_runs_user_job_started_at ON job_runs (user_id, job_id, started_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_job_runs_user_started_at ON job_runs (user_id, started_at)`,

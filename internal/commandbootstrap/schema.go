@@ -8,8 +8,11 @@ import (
 	"sort"
 	"strings"
 
+	"assistente/internal/commandactivation"
+	"assistente/internal/commandautomation"
 	"assistente/internal/commandconfig"
 	"assistente/internal/commanddecision"
+	"assistente/internal/commandjobevents"
 	"assistente/internal/commandledger"
 	"assistente/internal/database"
 	"github.com/glebarez/sqlite"
@@ -27,10 +30,13 @@ const keySchema = `CREATE TABLE IF NOT EXISTS command_key_versions (
 )`
 
 func migrate(ctx context.Context, db *gorm.DB) error {
-	for _, step := range []func(context.Context, *gorm.DB) error{commandconfig.Migrate, commanddecision.Migrate, commandledger.Migrate} {
+	for _, step := range []func(context.Context, *gorm.DB) error{commandconfig.Migrate, commanddecision.Migrate, commandledger.Migrate, commandactivation.Migrate, commandautomation.Migrate} {
 		if err := step(ctx, db); err != nil {
 			return err
 		}
+	}
+	if err := db.WithContext(ctx).AutoMigrate(commandjobevents.Models()...); err != nil {
+		return err
 	}
 	if err := db.Exec(keySchema).Error; err != nil {
 		return err
@@ -88,7 +94,7 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 		}
 		for _, obj := range actual {
 			w, ok := want[obj.Name]
-			if !ok || w.Type != obj.Type || w.TblName != obj.TblName || (normalizeDDL(w) != normalizeDDL(obj) && (complete || normalizeDDL(legacyEnvelopeObject(w)) != normalizeDDL(obj))) {
+			if !ok || w.Type != obj.Type || w.TblName != obj.TblName || (normalizeDDL(w) != normalizeDDL(obj) && (complete || (normalizeDDL(legacyEnvelopeObject(w)) != normalizeDDL(obj) && normalizeDDL(legacyConfigObject(w)) != normalizeDDL(obj) && normalizeDDL(legacyEnvelopeObject(legacyConfigObject(w))) != normalizeDDL(obj)))) {
 				return ErrStorage
 			}
 		}
@@ -96,6 +102,9 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 	}
 	apply := func(tx *gorm.DB) error {
 		if err := check(tx, false); err != nil {
+			return err
+		}
+		if err := upgradeConfigObjects(tx, want); err != nil {
 			return err
 		}
 		if err := upgradeEnvelopeObjects(tx, want); err != nil {
@@ -110,7 +119,13 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 		if err := database.ApplyCommandStorageMigration(ctx, tx, apply); err != nil {
 			return err
 		}
-		return database.ApplyCommandEnvelopeMigration(ctx, tx, apply)
+		if err := database.ApplyCommandEnvelopeMigration(ctx, tx, apply); err != nil {
+			return err
+		}
+		if err := database.ApplyCommandConfigMigration(ctx, tx, apply); err != nil {
+			return err
+		}
+		return database.ApplyCommandActivationMigration(ctx, tx, apply)
 	})
 	if err != nil {
 		if ctx.Err() != nil {

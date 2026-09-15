@@ -45,6 +45,7 @@ type legacyMigrationJobRun struct {
 	JobID         string
 	TriggerID     string
 	Status        string
+	QueuedAt      time.Time
 	StartedAt     time.Time
 	CompletedAt   *time.Time
 	DurationMs    int64
@@ -203,6 +204,7 @@ func TestToolLedgerBackfillJobAdotaInvocacaoPublicada(t *testing.T) {
 		JobID:       job.ID,
 		TriggerID:   trigger.ID,
 		Status:      "completed",
+		QueuedAt:    now,
 		StartedAt:   now,
 		CompletedAt: &now,
 		ToolName:    "search",
@@ -261,8 +263,8 @@ func TestToolLedgerBackfillJobLegadoComVariosRunsBloqueiaAssociacao(t *testing.T
 	trigger := JobTrigger{UUIDModel: UUIDModel{ID: "ledger-ambiguous-trigger"}, UserID: userA.ID, JobID: job.ID, Type: "manual", Enabled: true}
 	now := time.Now().UTC()
 	runs := []legacyMigrationJobRun{
-		{UUIDModel: UUIDModel{ID: "ledger-ambiguous-run-a"}, UserID: userA.ID, JobID: job.ID, TriggerID: trigger.ID, Status: "completed", StartedAt: now, ToolName: "search", Inputs: `{}`, Output: `{"run":"a"}`},
-		{UUIDModel: UUIDModel{ID: "ledger-ambiguous-run-b"}, UserID: userA.ID, JobID: job.ID, TriggerID: trigger.ID, Status: "completed", StartedAt: now.Add(time.Second), ToolName: "search", Inputs: `{}`, Output: `{"run":"b"}`},
+		{UUIDModel: UUIDModel{ID: "ledger-ambiguous-run-a"}, UserID: userA.ID, JobID: job.ID, TriggerID: trigger.ID, Status: "completed", QueuedAt: now, StartedAt: now, ToolName: "search", Inputs: `{}`, Output: `{"run":"a"}`},
+		{UUIDModel: UUIDModel{ID: "ledger-ambiguous-run-b"}, UserID: userA.ID, JobID: job.ID, TriggerID: trigger.ID, Status: "completed", QueuedAt: now.Add(time.Second), StartedAt: now.Add(time.Second), ToolName: "search", Inputs: `{}`, Output: `{"run":"b"}`},
 	}
 	invocation := ToolInvocation{
 		UUIDModel:     UUIDModel{ID: "ledger-ambiguous-job-invocation"},

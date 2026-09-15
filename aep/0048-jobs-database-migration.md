@@ -52,6 +52,23 @@ Antes desta AEP, o sistema de jobs era 100% baseado em filesystem:
 
 ## Estado implementado
 
+### Adendo AEP-0103 — timeline incremental (15/09/2026)
+
+O executor passa a persistir criação `queued`, início real e agendamento de
+retry antes das respectivas fronteiras de despacho/efeito/espera. O término
+atualiza o mesmo run. `queued_at` é obrigatório; `started_at` pode ser NULL
+enquanto aguarda despacho. A migração pré-AutoMigrate v24 preenche somente o
+timestamp histórico a partir de `started_at`, preservando IDs e sem inventar
+origem causal nem produzir eventos retroativos.
+
+`DBRepository.PersistRunState` compõe run, evento ordenado e, quando elegível,
+`command_job_activation_outbox` na mesma transação. Apenas os fatos v1
+explicitamente permitidos pela AEP-0103 são candidatos; eventos legados sem
+proveniência comprovada não viram autoridade. A outbox não possui FK/cascade
+para runs/eventos. O consumidor de ativação continua desabilitado até a
+integração de claims, grants, lease/heartbeat e manutenção; persistir um fato
+não concede permissão para executar comandos.
+
 - Models e `DBRepository` vivem em `internal/database/models_jobs.go` e
   `internal/jobs/repository.go`.
 - `Manager` exige `Repository`; `BaseDir` só identifica a fonte da importação

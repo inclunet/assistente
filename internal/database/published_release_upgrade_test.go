@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -229,6 +230,20 @@ func TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently(t *testing.T) {
 			}
 
 			diagnostic, err := buildUpgradeDiagnostic(database)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diagnostic.SchemaVersion != 19 || diagnostic.AppliedCount != len(schemaMigrations)-4 || !reflect.DeepEqual(diagnostic.PendingVersions, []int{20, 21, 22, 23}) {
+				t.Fatalf("pendências antes da composição de comandos: %#v", diagnostic)
+			}
+			// O registro exige handshake explícito do host; o DDL real desses
+			// callbacks é validado nos testes de commandbootstrap.
+			for _, finish := range []func(context.Context, *gorm.DB, func(*gorm.DB) error) error{ApplyCommandStorageMigration, ApplyCommandEnvelopeMigration, ApplyCommandConfigMigration, ApplyCommandActivationMigration} {
+				if err := finish(context.Background(), database, func(*gorm.DB) error { return nil }); err != nil {
+					t.Fatal(err)
+				}
+			}
+			diagnostic, err = buildUpgradeDiagnostic(database)
 			if err != nil {
 				t.Fatal(err)
 			}

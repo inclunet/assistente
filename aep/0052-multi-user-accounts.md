@@ -192,6 +192,18 @@ No modo local, não listar usuários cadastrados: login é sempre por **username
 
 ### D8. External mode: validação JWKS e enforcement por scopes/roles
 
+Adendo preparatório AEP-0103 (15/09/2026): comandos externos exigirão vínculo
+administrativo exato `(issuer, subject) → users.id`, usuário local ativo e
+revogação coordenada pelo mesmo gate/epoch do executor. As primitivas de
+`ExternalIdentityRepository`/`ExternalCommandAuthenticator` não fazem JIT,
+não reutilizam o último token e não habilitam adapters físicos. A presença
+da tabela não publica readiness: a adoção explícita pelo middleware e o
+bootstrap administrativo ainda são pré-condições antes de montar essa rota.
+O middleware externo legado NÃO foi migrado nesta rodada; não tratar o novo
+autenticador como substituição já ativa nem inferir `sub == users.id` para
+comandos. Validação JWKS final sob o gate usa somente chave já carregada;
+cache ausente falha fechado, sem busca de rede dentro do gate.
+
 - Validar JWT do IdP via JWKS.
 - Enforce server-side por scopes/roles do token.
 - Algoritmos aceitos devem ser controlados via allowlist (ex.: RS256/ES256/EdDSA conforme IdP).
@@ -1136,4 +1148,3 @@ mensagens curtas via i18n (Bloco 5).
   contexto desktop o usuário escolhe onde escrever. Em deployment
   CLI-via-web (não suportado pelo projeto hoje) seria validação
   extra.
-

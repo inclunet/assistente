@@ -169,6 +169,13 @@ O rebuild usa shadow tables e `INSERT` explícito em uma transação, recria
 índices e FTS, e valida um segundo boot idempotente. Após o drop, rollback
 suportado significa restaurar o backup; recriar colunas vazias é proibido.
 
+Compatibilidade AEP-0103 (2026-09-15): o rebuild operacional preserva também
+`queued_at`, `root_origin_type`, `root_origin_id` e `provenance`, mantendo
+`started_at` nullable para runs ainda na fila. O backfill histórico usa apenas
+o `started_at` existente, sem inventar raiz causal. A regressão cobre esses
+fatos e a reabertura dos bancos publicados; os gates e o backup acima continuam
+obrigatórios.
+
 ### D10 — Observabilidade sem conteúdo sensível
 
 Logs configuráveis `info`, `debug` e `trace`, escopados aos componentes do

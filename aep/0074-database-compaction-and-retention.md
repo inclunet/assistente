@@ -39,6 +39,15 @@ Esta AEP define uma política de **compactação física** combinada a um **refo
 
 ## Estado implementado
 
+Adendo AEP-0103 (15/09/2026): `command_job_activation_outbox` é independente
+das FKs/cascatas de runs e possui deadline de replay copiado da política da
+ocorrência. Count-cap/limpeza de jobs não apaga essa barreira. Esta rodada NÃO
+habilita o consumidor nem altera a retenção para preservar runs sustentados
+por claims: a lease própria de ativação, heartbeat e a ordem de manutenção
+instância-wide permanecem pendentes nos pacotes I09/I12. Também falta ligar
+a retenção da nova origem `command_invocation` de tools. Não usar o TTL de
+lease de entrega da outbox como se fosse lease de claim.
+
 | Mecanismo | Onde | Comportamento |
 |---|---|---|
 | Retenção runs/eventos (24h, configurável) | `internal/jobs/manager.go` (`runRetention`, loop 24h + `Start`) | Remove `job_runs`/`job_events`/`job_run_events` por idade; cascata em `tool_invocations` (`origin_type=job_run`) |

@@ -472,16 +472,22 @@ func TestRealRegistry_FreshDBAppliesAllAndIsIdempotent(t *testing.T) {
 	}
 
 	got := schemaMigrationRows(t, db)
-	if len(got) != len(schemaMigrations)-2 {
-		t.Fatalf("esperava %d migrações registradas antes da composição de comandos, tenho %d (%v)", len(schemaMigrations)-2, len(got), got)
+	if len(got) != len(schemaMigrations)-4 {
+		t.Fatalf("esperava %d migrações registradas antes da composição de comandos, tenho %d (%v)", len(schemaMigrations)-4, len(got), got)
 	}
-	for i, m := range schemaMigrations[:len(schemaMigrations)-2] {
+	var expectedApplied []migration
+	for _, m := range schemaMigrations {
+		if m.Version < 20 || m.Version > 23 {
+			expectedApplied = append(expectedApplied, m)
+		}
+	}
+	for i, m := range expectedApplied {
 		if got[i] != m.Version {
 			t.Fatalf("versão registrada na posição %d: esperava %d, tenho %d", i, m.Version, got[i])
 		}
 	}
-	if uv := userVersion(t, db); uv != schemaMigrations[len(schemaMigrations)-3].Version {
-		t.Fatalf("user_version esperado %d enquanto v20/v21 estão pendentes, tenho %d", schemaMigrations[len(schemaMigrations)-3].Version, uv)
+	if uv := userVersion(t, db); uv != 19 {
+		t.Fatalf("user_version esperado 19 enquanto v20–v23 estão pendentes, tenho %d", uv)
 	}
 	var pendingV20 int64
 	if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version = 20").Scan(&pendingV20).Error; err != nil {
@@ -511,6 +517,24 @@ func TestRealRegistry_FreshDBAppliesAllAndIsIdempotent(t *testing.T) {
 	}
 	if callbackCalls != 2 {
 		t.Fatalf("callbacks v20/v21 = %d", callbackCalls)
+	}
+	if uv := userVersion(t, db); uv != 21 {
+		t.Fatalf("v22 avançou implicitamente: %d", uv)
+	}
+	if err := ApplyCommandConfigMigration(db.Statement.Context, db, func(*gorm.DB) error { callbackCalls++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if callbackCalls != 3 {
+		t.Fatalf("callbacks v20/v21/v22 = %d", callbackCalls)
+	}
+	if uv := userVersion(t, db); uv != 22 {
+		t.Fatalf("v23 avançou implicitamente: %d", uv)
+	}
+	if err := ApplyCommandActivationMigration(db.Statement.Context, db, func(*gorm.DB) error { callbackCalls++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if callbackCalls != 4 {
+		t.Fatalf("callbacks v20–v23 = %d", callbackCalls)
 	}
 	got = schemaMigrationRows(t, db)
 	if len(got) != len(schemaMigrations) {
