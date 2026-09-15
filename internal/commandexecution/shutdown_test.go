@@ -11,7 +11,7 @@ import (
 )
 
 func TestShutdownWaitsForWholeOperationAndCanResumeAfterTimeout(t *testing.T) {
-	s := &Service{}
+	s := &Service{lifecycle: &executionLifecycle{}}
 	runCtx, release, err := s.lifecycle.enter(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +72,7 @@ func TestShutdownCancelsRunningExecutionAndWaitsForLedgerFinalization(t *testing
 }
 
 func TestShutdownRejectsEnvelopeBeforeAnyHostCallback(t *testing.T) {
-	s := &Service{complete: true, config: Config{Envelope: &EnvelopeConfig{}}}
+	s := &Service{lifecycle: &executionLifecycle{}, complete: true, config: Config{Envelope: &EnvelopeConfig{}}}
 	if err := s.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestShutdownRejectsEnvelopeBeforeAnyHostCallback(t *testing.T) {
 }
 
 func TestShutdownWithCancelledContextStillClosesAdmissionAndHandoff(t *testing.T) {
-	s := &Service{}
+	s := &Service{lifecycle: &executionLifecycle{}}
 	runCtx, release, err := s.lifecycle.enter(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +109,7 @@ func TestShutdownWithCancelledContextStillClosesAdmissionAndHandoff(t *testing.T
 }
 
 func TestHandoffAndShutdownHaveOneOrderingBoundary(t *testing.T) {
-	s := &Service{}
+	s := &Service{lifecycle: &executionLifecycle{}}
 	runCtx, release, err := s.lifecycle.enter(context.Background())
 	if err != nil {
 		t.Fatal(err)

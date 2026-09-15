@@ -23,6 +23,9 @@ type executionOperation struct{ cancel context.CancelFunc }
 // handoff compartilha a fronteira de fechamento com Shutdown. Somente Start,
 // cujo contrato exige retorno imediato, roda aqui; nunca CAS, UI ou espera.
 func (l *executionLifecycle) handoff(ctx context.Context, start func() error) error {
+	if l == nil {
+		return ErrInvalidRequest
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.closed {
@@ -35,6 +38,9 @@ func (l *executionLifecycle) handoff(ctx context.Context, start func() error) er
 }
 
 func (l *executionLifecycle) enter(ctx context.Context) (context.Context, func(), error) {
+	if l == nil {
+		return nil, nil, ErrInvalidRequest
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -70,10 +76,16 @@ func (l *executionLifecycle) enter(ctx context.Context) (context.Context, func()
 // de recuperar uma geração compartilhada; este retorno não é prova de que um
 // efeito externo não cooperativo terminou nem capability de recovery do banco.
 func (s *Service) Shutdown(ctx context.Context) error {
-	if s == nil || ctx == nil {
+	if s == nil || ctx == nil || s.lifecycle == nil {
 		return ErrInvalidRequest
 	}
-	l := &s.lifecycle
+	return s.lifecycle.shutdown(ctx)
+}
+
+func (l *executionLifecycle) shutdown(ctx context.Context) error {
+	if l == nil || ctx == nil {
+		return ErrInvalidRequest
+	}
 	l.mu.Lock()
 	if !l.closed {
 		l.closed = true

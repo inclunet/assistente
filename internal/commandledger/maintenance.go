@@ -19,9 +19,8 @@ type GenerationScope struct {
 }
 
 // ClosedGenerationProof é deliberadamente opaco. Não há construtor público:
-// o lifecycle/core ainda precisa fornecer o selo real depois de invalidar e
-// drenar a geração sob seu gate. Assim, um scope ou bool do caller não vira
-// prova de encerramento.
+// SealDrainedGeneration exige a prova do core fechado e executores drenados.
+// Assim, um scope, bool ou marker do caller não vira prova de encerramento.
 type ClosedGenerationProof struct {
 	scope  GenerationScope
 	marker string

@@ -32,6 +32,7 @@ func (s *EpochService) BeginTransition(ctx context.Context) (func(), error) {
 			return err
 		}
 		s.security = generation
+		s.issuedSecurity[generation] = struct{}{}
 		clear(s.sessions)
 		s.cancelExecutions("", true)
 		s.transitions++

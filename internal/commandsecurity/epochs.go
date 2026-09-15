@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 )
@@ -21,15 +22,19 @@ type sessionEpoch struct{ user, generation string }
 // antes de Capture. Não registra sessões, não autentica, não autoriza e não
 // representa o estado locked: o revalidador real deve recusar enquanto bloqueado.
 type EpochService struct {
-	gate        *DispatchGate
-	startup     string
-	sequence    uint64
-	security    string
-	sessions    map[string]sessionEpoch
-	transitions uint64
-	disabled    bool
-	watchesMu   sync.Mutex
-	watches     map[*executionWatch]struct{}
+	gate           *DispatchGate
+	startup        string
+	sequence       uint64
+	security       string
+	sessions       map[string]sessionEpoch
+	transitions    uint64
+	disabled       bool
+	watchesMu      sync.Mutex
+	watches        map[*executionWatch]struct{}
+	executorDrains []func(context.Context) error // somente sob gate; registro obrigatório nos construtores
+	closing        bool
+	issuedSecurity map[string]struct{}
+	drainRunning   atomic.Bool
 }
 
 func NewEpochService(gate *DispatchGate) (*EpochService, error) {
@@ -40,7 +45,8 @@ func NewEpochService(gate *DispatchGate) (*EpochService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &EpochService{gate: gate, startup: id.String(), security: id.String() + ":0", sessions: map[string]sessionEpoch{}}, nil
+	generation := id.String() + ":0"
+	return &EpochService{gate: gate, startup: id.String(), security: generation, sessions: map[string]sessionEpoch{}, issuedSecurity: map[string]struct{}{generation: {}}}, nil
 }
 
 func epochID(value string) bool {
@@ -157,6 +163,9 @@ func (s *EpochService) mutate(ctx context.Context, userID, sessionID string, sec
 		return ErrInvalidEpochInput
 	}
 	return s.gate.WithMutation(ctx, func() error {
+		if s.closing {
+			return ErrStaleEpoch
+		}
 		if current, ok := s.sessions[sessionID]; ok && current.user != userID {
 			return ErrInvalidEpochInput
 		}
@@ -168,6 +177,7 @@ func (s *EpochService) mutate(ctx context.Context, userID, sessionID string, sec
 				return err
 			}
 			s.security = generation
+			s.issuedSecurity[generation] = struct{}{}
 		}
 		if sessionID != "" {
 			delete(s.sessions, sessionID)
@@ -191,6 +201,9 @@ func (s *EpochService) MutateUserConfiguration(ctx context.Context, userID strin
 		return ErrInvalidEpochInput
 	}
 	return s.gate.WithMutation(ctx, func() error {
+		if s.closing {
+			return ErrStaleEpoch
+		}
 		s.cancelExecutionsForUser(userID)
 		return action()
 	})

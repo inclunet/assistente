@@ -1313,6 +1313,11 @@ func (a *App) Shutdown() {
 			return
 		}
 	}
+	if err := a.drainCommandExecutors(shutdownCtx); err != nil {
+		logging.Errorf(context.Background(), "app.app", "executores de comandos não drenados; dependências preservadas: %v", err)
+		cancelCommandLifecycle()
+		return
+	}
 	cancelCommandLifecycle()
 	a.wakeLock.Release()
 	// Sinaliza o cancelamento às goroutines de background e aguarda o join

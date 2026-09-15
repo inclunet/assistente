@@ -90,6 +90,9 @@ func (s *EpochService) MutateContext(ctx context.Context, p ContextPrincipal, ac
 		return e
 	}
 	return s.gate.WithMutation(ctx, func() error {
+		if s.closing {
+			return ErrStaleEpoch
+		}
 		if current, ok := s.sessions[key]; ok && current.user != p.UserID {
 			return ErrInvalidEpochInput
 		}

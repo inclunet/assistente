@@ -16,7 +16,7 @@ import (
 type Service struct {
 	config    Config
 	complete  bool
-	lifecycle executionLifecycle
+	lifecycle *executionLifecycle // compartilhado inclusive se o valor Service for copiado
 }
 
 var commandIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
@@ -45,7 +45,15 @@ func New(config Config) (*Service, error) {
 		copyHandlers[id] = handler
 	}
 	config.Handlers = copyHandlers
-	return &Service{config: config}, nil
+	return newRegisteredService(config, false)
+}
+
+func newRegisteredService(config Config, complete bool) (*Service, error) {
+	service := &Service{config: config, complete: complete, lifecycle: &executionLifecycle{}}
+	if err := config.Epochs.RegisterExecutorDrain(context.Background(), service.lifecycle.shutdown); err != nil {
+		return nil, err
+	}
+	return service, nil
 }
 
 func nonblank(s string) bool { return s != "" && strings.TrimSpace(s) == s }

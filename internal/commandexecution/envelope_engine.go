@@ -32,7 +32,7 @@ func NewComplete(config Config) (*Service, error) {
 		ports.Identity = &identityPorts
 	}
 	config.Envelope = &ports
-	return &Service{config: config, complete: true}, nil
+	return newRegisteredService(config, true)
 }
 
 func validateCompleteBootstrap(config Config) error {
