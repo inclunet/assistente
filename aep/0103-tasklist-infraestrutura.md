@@ -3,7 +3,21 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
-## Rodada atual — 15/09/2026, integração I09/I11/I12/I13/I14
+## Rodada atual — 15/09/2026, continuação das cinco frentes
+
+Seis agentes Luna reutilizados; revisão e correções centrais. Sem migração de atalhos, novos segredos ou habilitação de entradas.
+
+- **I09:** `RunPass` reivindica e consome lote pela transação comum. `HeartbeatPass` percorre leases com cursor/More e TTL atual por passagem, sem alterar o Consumer compartilhado. Revalida fonte, autorização, grant e runtime sob gate; não revive lease vencida. Sem timer/goroutine nova. Agendamento produtivo ainda pendente.
+- **I11:** comparação de conjuntos vazios normalizada; Keep repetido é recusado como ausência de mutação (`ErrInvalid`), sem decisão ou incremento. Testes reais de ApplyPlanImport cobrem referência ausente, rollback de lote pelo hook e recusa de global+workspace na API de escopo único. Não confundir no-op seguro com UX pública/idempotência multi-escopo concluída.
+- **I12:** adapters reais paginam usuários com cursor por operação, reiniciam ao mudar política, preservam contagem confirmada e continuação em erro/cancelamento. Admissão concorrente no mesmo owner é recusada; More de tools também bloqueia compactação. Limite é de usuários, não linhas de cada limpeza. Recuperação com proof existente agora compara fingerprint/versão/fonte do par e rejeita relógio zero; rollback do lote testado.
+- **I13:** DialogCommandScope acompanha fila/diálogo ativo, com allowlist fixa `decision.respond` e invariante local de releitura. Scope de outro diálogo é recusado e copiado de forma imutável. O dispatcher de Modal/Wails e ownership físico continuam não montados.
+- **I14:** Stop sinaliza o worker sem depender de enqueue bloqueante, inclusive com contexto cancelado. Rebootstrap retira a geração anterior, também quando readiness inicial falha. App serializa construção/publicação e fecha admissão de montagem permanentemente no shutdown, antes de soltar o mutex e aguardar o worker. Corridas de montagem e cleanup do candidato rejeitado cobertas.
+
+**Contagem mantida: 39/84 critérios; 45 abertos; 2/15 pacotes completos.** A revisão não aceitou substituir a prova real de drenagem por callback/marker: I12.1 continua pendente, sem caminho alternativo de recuperação. O fluxo produtivo ainda depende de dono único que invalide o core, impeça novos executores e aguarde todos os Services da geração.
+
+Validação final: todos os pacotes command* e App/jobs/database/config/portability/questionnaire passaram juntos, com home temporário e módulos readonly. Jobs/manutenção foram repetidos após o último ajuste de contagem parcial. Runtime passou em 10 repetições; lifecycle do App em 3. Frontend completo: 311 arquivos/2.902 testes; TypeScript e ESLint dos arquivos alterados passaram. Build/vet globais e lint Go passaram. A suíte global da rodada anterior teve 108 pacotes aprovados e ACP/acpregistry com `0xffffffff`; não foi repetida inteira neste novo diff, nem declarada verde. Race, Bugbot, CI, NVDA e hardware continuam não qualificados.
+
+## Rodada anterior — 15/09/2026, integração I09/I11/I12/I13/I14
 
 Seis subagentes Luna, revisão e integração central; nenhuma entrada de produto habilitada.
 
@@ -402,7 +416,7 @@ Estado: **Parcial — hooks e fábricas sem bootstrap de produto**. Esforço res
 Dependências: I01, I02, I03, I04, I05, I06, I07, I08, I09, I10, I11, I12, I13.
 Referências: D2.1, D8, D11, D13.
 
-Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invalida/cancela antes do reset e confirma readiness via core compartilhado; exige todas as portas e recusa projeção vazia. `App.commandLifecycle` é um ponteiro atômico privado, com Configure/Shutdown por CAS, sem registry global. Os testes cobrem falhas/cancelamento e configurações concorrentes. As chamadas de startup/login/refresh/logout/shutdown estão ligadas condicionalmente ao controller; shutdown espera o worker e mantém dependências em caso de timeout. Ainda faltam providers e montagem real completa: não publicar readiness de produto a partir dos mocks.
+Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invalida/cancela antes do reset e confirma readiness via core compartilhado; exige todas as portas e recusa projeção vazia. `App.commandLifecycle` é um ponteiro atômico privado, com montagem serializada, barreira terminal de shutdown e desmontagem por CAS, sem registry global. Os testes cobrem falhas/cancelamento e configurações concorrentes. As chamadas de startup/login/refresh/logout/shutdown estão ligadas condicionalmente ao controller; shutdown espera o worker e mantém dependências em caso de timeout. Ainda faltam providers e montagem real completa: não publicar readiness de produto a partir dos mocks.
 
 - [x] I14.1 — Construir esqueleto de bootstrap serializado e readiness observável após I01, sem expor novas rotas nem cadastrar comandos de produto; este subitem pode começar cedo.
 - [ ] I14.2 — Montar catálogo/defaults de contrato, políticas, stores, presenter, providers, dispatcher e adapters com dependências explícitas; sem fallback permissivo.

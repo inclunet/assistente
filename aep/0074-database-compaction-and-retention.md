@@ -2,6 +2,13 @@
 
 **Status:** Done
 
+**Continuação AEP-0103 (15/09/2026):** os adapters de jobs/tools agora paginam
+usuários, com cursor em memória por operação, reinício ao mudar política,
+continuação e contagem confirmada em cancelamento/erro. Passagens concorrentes
+no mesmo owner são recusadas. O limite é de usuários, não linhas de cada limpeza;
+More de tools também impede compactação. Consumo e heartbeat são passagens sem
+timer, ainda dependentes de montagem na cadência produtiva única.
+
 **Extensão AEP-0103, ainda In Progress (15/09/2026):** adapters concretos de
 jobs/tools preservam as limpezas existentes por usuário; compactação reutiliza
 o throttle do Manager e propaga falhas. Retenção de ativações e invocações protege

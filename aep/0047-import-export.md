@@ -4,6 +4,12 @@
 
 ## Dependências
 
+Na continuação de 15/09/2026, testes do writer interno confirmam que referência
+ausente falha antes da decisão e erro do hook desfaz o lote. Keep sem mudanças
+não grava nem solicita decisão; a API ainda retorna `ErrInvalid` para esse no-op.
+Lote global+workspace é recusado pela API atual de escopo único. Atomicidade
+multi-escopo e UX pública seguem pendentes, sem escritor paralelo.
+
 **Integração AEP-0103 (15/09/2026):** `commandportability.ApplyPlanImport`
 encaminha o plano ao writer comum confirmado de configuração. Receipt, auditoria
 `config_import` (migração 27), geração e alterações são transacionais; referências

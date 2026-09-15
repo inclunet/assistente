@@ -2,6 +2,18 @@
 
 **Status:** In Progress
 
+### Continuação local de 15/09/2026 — mesmas cinco frentes
+
+Passagens de consumo e heartbeat agora usam lotes/cursor e TTL atual sem criar
+uma cadência nova. Jobs/tools paginam usuários e informam continuação; as limpezas
+internas por usuário ainda não têm limite de linhas. Escopo restritivo de decisão
+acompanha a fila da UI, mas não está registrado no dispatcher de Modal/Wails.
+Shutdown fecha a montagem do App e sinaliza o worker mesmo com contexto cancelado;
+rebootstrap limpa a geração anterior. Importação exercita no-op, referência ausente,
+rollback e recusa de lote multi-escopo. A prova produtiva de geração drenada continua
+pendente e não ganhou um substituto baseado em callback. Contagem permanece 39/84,
+2/15 pacotes completos; entradas produtivas seguem desabilitadas.
+
 ### Integração local de 15/09/2026 — I09/I11/I12/I13/I14
 
 O writer interno de importação usa decisão/CAS comuns e revalida referências
