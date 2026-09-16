@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"assistente/internal/logging"
 	"gorm.io/gorm"
 )
 
@@ -1190,10 +1191,15 @@ func UpsertTaskNoteByExternalWithContext(ctx context.Context, p UpsertTaskNoteBy
 	}
 	if existing != nil {
 		if existing.TaskID != p.TaskID {
-			return nil, false, fmt.Errorf(
-				"nota com source=%q external_id=%q já existe na task %s; recusado vincular à task %s",
-				src, ext, existing.TaskID, p.TaskID,
-			)
+			// A nota externa já está vinculada a outra task. Revincular quebraria
+			// a unicidade de (source, external_id) e, no fan-out de sync de
+			// tickets, isso reaparecia repetidamente como "job attempt failed"
+			// no assistente.log — retry nunca resolve um conflito determinístico.
+			// Já existe a nota: é no-op idempotente (skip), não erro retentável.
+			logging.Infof(ctx, "database.tasklist",
+				"nota externa source=%q external_id=%q já vinculada à task %s; ignorando vínculo com %s",
+				src, ext, existing.TaskID, p.TaskID)
+			return existing, false, nil
 		}
 		if p.Type == nil {
 			updates := map[string]interface{}{
@@ -1249,10 +1255,12 @@ func UpsertTaskNoteByExternalWithContext(ctx context.Context, p UpsertTaskNoteBy
 			return nil, false, fmt.Errorf("criação conflitante e reconsulta falhou: %w", createErr)
 		}
 		if again.TaskID != p.TaskID {
-			return nil, false, fmt.Errorf(
-				"nota com source=%q external_id=%q já existe na task %s; recusado vincular à task %s",
-				src, ext, again.TaskID, p.TaskID,
-			)
+			// Corrida perdida para a mesma referência externa já ligada a outra
+			// task: mesmo no-op idempotente do caminho acima (skip, sem retry).
+			logging.Infof(ctx, "database.tasklist",
+				"nota externa source=%q external_id=%q já vinculada à task %s; ignorando vínculo com %s",
+				src, ext, again.TaskID, p.TaskID)
+			return again, false, nil
 		}
 		if err := applyTaskNoteExternalUpsertUpdatesWithContext(ctx, again.ID, p); err != nil {
 			return nil, false, err
