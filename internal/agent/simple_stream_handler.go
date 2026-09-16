@@ -149,7 +149,9 @@ func (h *SimpleStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse str
 func (h *SimpleStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 	if event.IsCompleted {
 		if event.Error != "" {
-			logging.Errorf(context.Background(), "agent.simple-stream-handler", "[MCP Native] ❌ %s (server=%s, id=%s) FALHOU: %s",
+			// Falha já emitida ao frontend e logada em ERRO correlacionado pelo
+			// provider (fonte única). Aqui só um Debug, sem duplicar o ERRO.
+			logging.Debugf(context.Background(), "agent.simple-stream-handler", "[MCP Native] ❌ %s (server=%s, id=%s) FALHOU: %s",
 				event.Name, event.ServerLabel, event.ID, truncateString(event.Error, MaxResultDisplaySize))
 		} else {
 			logging.Infof(context.Background(), "agent.simple-stream-handler", "[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",

@@ -155,7 +155,10 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 		}
 
 		if event.Error != "" {
-			logging.Errorf(context.Background(), "agent.agentic-stream-handler", "[MCP Native] ❌ %s (server=%s, id=%s) FALHOU: %s",
+			// A falha já foi emitida ao frontend (ToolEnd/ToolFailure acima) e
+			// logada em ERRO correlacionado pelo provider (fonte única). Aqui
+			// fica só um Debug para diagnóstico, sem duplicar o ERRO.
+			logging.Debugf(context.Background(), "agent.agentic-stream-handler", "[MCP Native] ❌ %s (server=%s, id=%s) FALHOU: %s",
 				event.Name, event.ServerLabel, event.ID, errSummary)
 		} else {
 			logging.Infof(context.Background(), "agent.agentic-stream-handler", "[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
