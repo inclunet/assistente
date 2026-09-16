@@ -5,6 +5,26 @@ Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
 ## Continuação — 15/09/2026, diagnóstico dos bloqueios de I15.2
 
+## Continuação — 16/09/2026, retenção respeita replay horizon também na auditoria
+
+Avanço em **I12.5/C59–C62**, sem fechar o pacote I12. A retenção de
+`command_invocations` agora aplica o mesmo limite de replay durável já usado
+para o ledger: auditorias terminais vindas de evento só podem ser compactadas
+quando `source_replay_deadline` existe e já venceu. Auditoria de evento sem
+deadline persistido, ou com deadline futuro, permanece retida mesmo quando
+estoura idade/cap. Isso evita perder o rastro necessário para replay/diagnóstico
+enquanto a ocorrência ainda está dentro do horizonte durável.
+
+Teste novo cobre quatro casos no mesmo lote: auditoria terminal sem evento,
+evento sem deadline, evento com deadline futuro e evento com deadline vencido.
+Somente o registro sem evento e o evento com deadline vencido são removidos.
+
+**Contagem mantida: 53/84 critérios encerrados; 31 abertos; 4/15 pacotes
+completos.** I12 continua aberto porque a composição produtiva do App ainda
+precisa montar o `commandjobactivation.Consumer` com portas reais de
+autorização/runtime/fingerprint; sem isso, não há como afirmar cadência única
+completa para outbox/claims/leases sem criar adaptação artificial.
+
 Avanço diagnóstico em **I15.2**, ainda sem fechar o subitem. As falhas de
 `internal/acp` e `internal/acpregistry` foram reduzidas para um problema de
 startup do binário de teste: `go test -list .` também encerra com

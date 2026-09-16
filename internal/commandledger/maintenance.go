@@ -216,12 +216,13 @@ FROM (
            ) AS keep_rank
     FROM command_invocations
     WHERE status IN ?
+      AND (source_event_id IS NULL OR (source_replay_deadline IS NOT NULL AND source_replay_deadline <= ?))
 )
 WHERE (user_id IS NULL AND keep_rank > ?)
    OR (user_id IS NOT NULL AND keep_rank > ?)
    OR received_at < ?
 ORDER BY invocation_id
-LIMIT ?`, terminalStatuses, policy.SystemKeep, policy.PerUserKeep, cutoff, policy.BatchSize+1).Scan(&invocationIDs).Error; err != nil {
+LIMIT ?`, terminalStatuses, policy.Now.UTC(), policy.SystemKeep, policy.PerUserKeep, cutoff, policy.BatchSize+1).Scan(&invocationIDs).Error; err != nil {
 			return err
 		}
 		if len(invocationIDs) > policy.BatchSize {

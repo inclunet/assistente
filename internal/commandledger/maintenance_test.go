@@ -216,6 +216,72 @@ func TestRetainRequiresPersistedReplayDeadlineForEventLedger(t *testing.T) {
 	}
 }
 
+func TestRetainRequiresPersistedReplayDeadlineForEventAudit(t *testing.T) {
+	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	store, db := testStore(t, &now)
+	maintenance, err := store.NewMaintenanceService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := now.Add(-48 * time.Hour)
+	userID := uuid.Must(uuid.NewV7()).String()
+	authContextID := uuid.Must(uuid.NewV7()).String()
+	systemInvocationID := uuid.Must(uuid.NewV7()).String()
+	eventNoDeadlineID := uuid.Must(uuid.NewV7()).String()
+	eventLiveDeadlineID := uuid.Must(uuid.NewV7()).String()
+	eventExpiredDeadlineID := uuid.Must(uuid.NewV7()).String()
+	eventNoDeadline, eventLiveDeadline, eventExpiredDeadline := "event-no-deadline", "event-live-deadline", "event-expired-deadline"
+	base := invocationRow{
+		SchemaVersion: 1, UserID: &userID, AuthContextType: "local_session", AuthContextID: authContextID,
+		AuthGeneration: "auth", SecurityGeneration: "sec", RegistryVersion: "registry", BindingIDs: "[]",
+		ActorType: "user", ActorID: userID, ArgumentsSummary: "{}", ArgumentsFingerprint: "args",
+		CorrelationID: "corr", RequestFingerprintVersion: "v1", RequestFingerprint: "fp",
+		Risk: "low", PolicyDecision: "allowed", Status: Denied, ReceivedAt: old, CompletedAt: maintenanceTimePtr(old),
+	}
+	rows := []invocationRow{
+		base,
+		base,
+		base,
+		base,
+	}
+	rows[0].InvocationID = systemInvocationID
+	rows[1].InvocationID = eventNoDeadlineID
+	rows[1].SourceEventID = &eventNoDeadline
+	rows[2].InvocationID = eventLiveDeadlineID
+	rows[2].SourceEventID = &eventLiveDeadline
+	rows[2].SourceReplayDeadline = maintenanceTimePtr(now.Add(time.Hour))
+	rows[3].InvocationID = eventExpiredDeadlineID
+	rows[3].SourceEventID = &eventExpiredDeadline
+	rows[3].SourceReplayDeadline = maintenanceTimePtr(old)
+	for i := range rows {
+		rows[i].RequestFingerprint = rows[i].InvocationID
+		rows[i].CorrelationID = "corr-" + rows[i].InvocationID
+		if err := db.Create(&rows[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := maintenance.Retain(context.Background(), InvocationRetentionPolicy{Now: now, MaxAge: 24 * time.Hour, PerUserKeep: 10, SystemKeep: 10, BatchSize: 128})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.InvocationsDeleted != 2 {
+		t.Fatalf("auditorias removidas=%d, esperado só sem evento e evento expirado", result.InvocationsDeleted)
+	}
+	var remaining []string
+	if err := db.Model(&invocationRow{}).Order("invocation_id").Pluck("invocation_id", &remaining).Error; err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{eventNoDeadlineID: true, eventLiveDeadlineID: true}
+	if len(remaining) != len(want) {
+		t.Fatalf("auditorias restantes=%v", remaining)
+	}
+	for _, id := range remaining {
+		if !want[id] {
+			t.Fatalf("auditoria inesperada restante: %s em %v", id, remaining)
+		}
+	}
+}
+
 func TestMaintenanceServiceSealIsBoundToItsStore(t *testing.T) {
 	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
 	store, _ := testStore(t, &now)
