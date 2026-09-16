@@ -558,6 +558,11 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 				errMsg := ""
 				if mcpResult.IsError {
 					errMsg = output
+					// ERRO único e correlacionado da falha MCP nativa (paridade
+					// com o provider Responses). O handler do agent apenas emite
+					// os eventos estruturados para o frontend e loga em Debug.
+					logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] MCP native call FAILED: %s",
+						mcpFailureLogFields(serverName, toolName, errMsg))
 				}
 				emittedNonRetryableEffect = true
 				handler.OnMCPToolEvent(MCPToolEvent{
