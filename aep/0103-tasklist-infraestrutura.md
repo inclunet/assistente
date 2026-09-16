@@ -3,6 +3,17 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Continuação — 16/09/2026, reconciliação de critérios de contrato/base
+
+Fechamento de **C60, C63, C64, C72, C75 e C80** por evidência local já
+implementada e validada. O lote não fecha pacote novo: ele reduz lacunas de
+aceite que estavam abertas na tasklist, mas já tinham suporte em código/teste.
+
+Validação executada:
+`go test ./internal/commandcatalog ./internal/commandcontext ./internal/commandexecution ./internal/commandtoolbridge ./internal/commanddecision ./internal/tools/shell ./internal/commandpolicy -run "TestRegistroRecusaContratosInseguros|TestDestrutivoExigeInteracaoEExcluiTodaOrigemHeadless|TestLeituraSemContextoSomenteSemAlvoOuMutabilidade|TestPoliticasTemporais|TestServiceLogoutDuringHandleWaitReleasesGateAndDoesNotRepeatStart|TestBridge|Test.*Receipt|Test.*Consume|Test.*Command|Test.*Policy" -count=1`.
+
+**Contagem: 60/84 critérios encerrados; 24 abertos; 4/15 pacotes completos.**
+
 ## Continuação — 15/09/2026, diagnóstico dos bloqueios de I15.2
 
 ## Continuação — 16/09/2026, retenção respeita replay horizon também na auditoria
@@ -1724,6 +1735,13 @@ Responsáveis: I03.
 
 `handler.Start` confirma handoff sem bloquear; logout/mutação concorrente não espera o trabalho longo nem entra em deadlock.
 
+**Fechado em 16/09/2026.** Evidência local: `commandexecution.Handler.Start`
+documenta e é exercitado como handoff não bloqueante; `commandtoolbridge`
+falha teste se `Start` bloquear ou se `Done` concluir antes do handle, e
+`commandexecution` cobre logout durante espera do handle liberando o
+`DispatchGate` sem reexecutar `Start`. A validação focada passou em
+`internal/commandexecution` e `internal/commandtoolbridge`.
+
 Responsáveis: I04 / I13 / I15.
 
 ### C61
@@ -1742,11 +1760,25 @@ Responsáveis: I03 / I05.
 
 Cada comando declara `context_policy`; nas policies que declaram providers, provider ausente ou versão/TTL inválido falha fechado.
 
+**Fechado em 16/09/2026.** Evidência local: `commandcatalog.New` recusa
+contrato sem contexto declarado, `none` misturado com facts, provider/fact
+vazio, modo desconhecido, TTL inválido e snapshot/event_snapshot sem idade;
+`commandcontext` valida freshness para `exact_version`, `max_age_ms` e
+`event_snapshot` sem promover snapshot ausente/velho a contexto fresco. A
+validação focada passou em `internal/commandcatalog` e
+`internal/commandcontext`.
+
 Responsáveis: I02 / I03 / I04.
 
 ### C64
 
 `context_policy = none` é rejeitado para qualquer comando não read-only.
+
+**Fechado em 16/09/2026.** Evidência local: o catálogo rejeita escrita sem
+contexto e também rejeita leitura `none` quando há alvo mutável ou mutação de
+capacidade; somente leitura sem alvo/mutabilidade é aceita. Coberto por
+`TestRegistroRecusaContratosInseguros` e
+`TestLeituraSemContextoSomenteSemAlvoOuMutabilidade`.
 
 Responsáveis: I02 / I04.
 
@@ -1803,6 +1835,12 @@ Responsáveis: I02 / I04 / I10.
 
 `effect_class` e mutabilidade vêm do contrato do handler; metadata divergente impede o registro.
 
+**Fechado em 16/09/2026.** Evidência local: `commandcatalog.Registration`
+combina `Definition` com `HandlerContract`, e `New`/`NewComplete` recusam
+efeito, `HasMutableTarget` e `MutatesEffectiveCapability` divergentes. O teste
+`TestRegistroRecusaContratosInseguros` cobre divergência de efeito e
+mutabilidade.
+
 Responsáveis: I02 / I06.
 
 ### C73
@@ -1820,6 +1858,12 @@ Responsáveis: I04 / I06.
 ### C75
 
 `cli`, `event` e `system` não registram/executam comando destrutivo; qualquer origem sem presenter interativo falha fechado.
+
+**Fechado em 16/09/2026.** Evidência local: o catálogo só aceita comando
+destrutivo com decisão interativa e recusa `cli`, `event` e `system` mesmo
+quando misturados com origem visual. Como comandos executáveis precisam passar
+pelo catálogo, essas origens headless falham antes do registro. Coberto por
+`TestDestrutivoExigeInteracaoEExcluiTodaOrigemHeadless`.
 
 Responsáveis: I02 / I06 / I10.
 
@@ -1850,6 +1894,11 @@ Responsáveis: I13.
 ### C80
 
 Shell continua passando exclusivamente por `internal/commandpolicy`.
+
+**Fechado em 16/09/2026.** Evidência local: `internal/tools/shell/run_command.go`
+importa `internal/commandpolicy`, avalia comandos em `evaluateCommand` via
+`commandpolicy.Evaluate` e os testes de shell/policy cobrem allowlist, deny,
+parse/redação e bloqueios compostos sem caminho alternativo de autorização.
 
 Responsáveis: I10.
 
