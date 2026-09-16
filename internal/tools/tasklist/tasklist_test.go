@@ -2223,7 +2223,11 @@ func TestUpsertTaskNote_ExternalRequiresBothKeys(t *testing.T) {
 	}
 }
 
-func TestUpsertTaskNote_ExternalConflictDifferentTask(t *testing.T) {
+// TestUpsertTaskNote_ExternalJaVinculadaEhNoOp garante que, no nível da tool,
+// reapontar uma referência externa já vinculada a outra task é um no-op
+// idempotente (sem erro, sem revincular) em vez de um conflito retentável —
+// evitando o loop de "job attempt failed" observado no assistente.log.
+func TestUpsertTaskNote_ExternalJaVinculadaEhNoOp(t *testing.T) {
 	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task1 := mgr.addTask(tl.ID, "T1", 1)
@@ -2244,8 +2248,15 @@ func TestUpsertTaskNote_ExternalConflictDifferentTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !r2.IsError || !strings.Contains(r2.Content, "já existe") {
-		t.Fatalf("expected conflict error, got: %s", r2.Content)
+	if r2.IsError {
+		t.Fatalf("referência já vinculada deveria ser no-op, não erro: %s", r2.Content)
+	}
+	// Não deve revincular: a nota permanece na task1.
+	if strings.Contains(r2.Content, task2.ID) {
+		t.Fatalf("no-op não deveria revincular para task2: %s", r2.Content)
+	}
+	if !strings.Contains(r2.Content, task1.ID) {
+		t.Fatalf("no-op deveria referenciar a task original (task1): %s", r2.Content)
 	}
 }
 

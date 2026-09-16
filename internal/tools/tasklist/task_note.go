@@ -560,9 +560,13 @@ func (t *TaskNoteTool) upsertExternalNote(ctx context.Context, taskID string, co
 	}
 
 	resultJSON, _ := json.Marshal(resultMap)
-	md := map[string]any{"note_id": note.ID, "task_id": taskID, "action": action, "source": source, "external_id": externalID}
+	// Reporta a task REAL da nota (note.TaskID), não a task de entrada: quando a
+	// referência externa já está vinculada a outra task, o upsert é no-op e a
+	// nota permanece na task original — reportar o task_id de entrada seria
+	// enganoso ("updated on task X" sem revincular).
+	md := map[string]any{"note_id": note.ID, "task_id": note.TaskID, "action": action, "source": source, "external_id": externalID}
 	return tools.ToolResult{
-		Content:  fmt.Sprintf("Note %s on task %s (%s):\n%s", action, taskID, typeLabel, string(resultJSON)),
+		Content:  fmt.Sprintf("Note %s on task %s (%s):\n%s", action, note.TaskID, typeLabel, string(resultJSON)),
 		Metadata: md,
 	}, nil
 }
