@@ -234,6 +234,50 @@ func TestAdoptOrphans_WithDBSkipsFilesystemWrites(t *testing.T) {
 	}
 }
 
+// TestImportLegacyChannels_PulaConversaDeletada reproduz o cenário do
+// assistente.log: um channels/*.json legado aponta para uma conversa que já foi
+// deletada. Antes, o import falhava com ERROR ruidoso a cada startup
+// ("erro ao importar channels legado telegram.json: conversa foi deletada").
+// Agora o vínculo obsoleto é tratado como skip benigno (sem falha nem erro).
+func TestImportLegacyChannels_PulaConversaDeletada(t *testing.T) {
+	setupTempHome(t)
+	db := setupChannelsDB(t)
+
+	dir := filepath.Join(configdir.GetHomeDir(), "channels")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Config legado referencia a conversa seedada "c-1"...
+	payload, _ := json.Marshal(ChannelConfig{
+		Enabled:       true,
+		MaxContacts:   1,
+		Conversations: map[string]string{"1": "c-1"},
+	})
+	if err := os.WriteFile(filepath.Join(dir, "telegram.json"), payload, 0600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	// ...mas a conversa foi deletada antes do import.
+	if err := db.Delete(&database.Conversation{}, "id = ?", "c-1").Error; err != nil {
+		t.Fatalf("delete conversation: %v", err)
+	}
+
+	ctx := database.WithUserID(context.Background(), "user-ana")
+	result, err := ImportLegacyChannelsWithContext(ctx, nil)
+	if err != nil {
+		t.Fatalf("import não deveria retornar erro fatal: %v", err)
+	}
+	if result.Failed != 0 {
+		t.Fatalf("conversa deletada deveria ser skip, não falha: %+v", result)
+	}
+	if len(result.Errors) != 0 {
+		t.Fatalf("import não deveria emitir erro por vínculo obsoleto: %v", result.Errors)
+	}
+	// O canal não é persistido enquanto o vínculo apontar para conversa ausente.
+	if id, _, e := ChannelIDBySlug("telegram"); e == nil && id != "" {
+		t.Fatalf("canal não deveria ser importado com vínculo obsoleto: id=%q", id)
+	}
+}
+
 func TestImportLegacyChannels_Idempotent(t *testing.T) {
 	setupTempHome(t)
 	db := setupChannelsDB(t)
