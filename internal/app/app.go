@@ -20,6 +20,7 @@ import (
 	"assistente/internal/auth"
 	"assistente/internal/chat"
 	"assistente/internal/commandbridge"
+	"assistente/internal/commandcatalog"
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandruntime"
 	"assistente/internal/commandsecurity"
@@ -120,6 +121,7 @@ type App struct {
 	commandEpochsErr        error
 	commandHost             *commandexecution.HostState               // protegido por authMu; bootstrap serializado
 	commandBridge           atomic.Pointer[commandbridge.Bridge]      // ponte UI/backend montada pelo bootstrap confiável
+	commandRegistry         *commandcatalog.Registry                  // snapshot canônico exposto para catálogo/palette; authMu
 	commandLifecycle        atomic.Pointer[commandruntime.Controller] // montagem real, sem registry global
 	commandLifecycleMount   sync.Mutex                                // serializa somente construção/publicação, nunca cleanup ou portas
 	commandLifecycleClosing bool                                      // protegido por commandLifecycleMount; shutdown é terminal para este App
@@ -352,6 +354,10 @@ type App struct {
 	// sendMessageFromChannel permanece no *App.
 	chatAPI *wailsapi.Chat
 
+	// commandCatalogAPI é o bind Wails de catálogo/Command Palette (AEP-0103).
+	// Criado em main e wired quando o snapshot canônico de comandos é montado.
+	commandCatalogAPI *wailsapi.CommandCatalog
+
 	// acpCommandsAPI é o bind Wails do domínio acp_commands (AEP-0088). Criado
 	// em main e wired após initACP (reusa acpMgr).
 	acpCommandsAPI *wailsapi.ACPCommands
@@ -476,6 +482,15 @@ func SetToolsAPI(a *App, api *wailsapi.Tools) {
 		return
 	}
 	a.toolsAPI = api
+}
+
+// SetCommandCatalogAPI registra o bind Wails do catálogo de comandos antes do Run.
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetCommandCatalogAPI(a *App, api *wailsapi.CommandCatalog) {
+	if a == nil {
+		return
+	}
+	a.commandCatalogAPI = api
 }
 
 // ListAvailableTools expõe o catálogo runtime para o CLI (não entra no Bind Wails).
@@ -1215,6 +1230,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireSkills()
 	a.wireAllowlist()
 	a.wireTools()
+	a.wireCommandCatalog()
 	a.wireUpdater()
 	a.wireNetTrust()
 	a.wireFSTrust()

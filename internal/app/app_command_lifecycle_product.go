@@ -126,8 +126,10 @@ func (a *App) ensureCommandLifecycleMountedForCurrentUser(ctx context.Context) e
 		return err
 	}
 	a.authMu.Lock()
+	a.commandRegistry = registry
 	a.startCommandOSSessionMonitorLocked()
 	a.authMu.Unlock()
+	a.wireCommandCatalog()
 	return nil
 }
 

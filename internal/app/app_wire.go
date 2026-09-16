@@ -56,6 +56,16 @@ func (a *App) wireTools() {
 	}
 }
 
+func (a *App) wireCommandCatalog() {
+	if a.commandCatalogAPI == nil {
+		return
+	}
+	a.authMu.RLock()
+	registry := a.commandRegistry
+	a.authMu.RUnlock()
+	wailsapi.AttachCommandCatalog(a.commandCatalogAPI, wailsSession{app: a}, registry)
+}
+
 // wireUpdater monta o UpdaterController e associa o bind Wails (AEP-0088).
 func (a *App) wireUpdater() {
 	a.updaterCtrl = controllers.NewUpdaterController(controllers.UpdaterControllerConfig{

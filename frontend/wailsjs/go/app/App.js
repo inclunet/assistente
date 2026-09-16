@@ -6,6 +6,26 @@ export function CanPersistCredentials() {
   return window['go']['app']['App']['CanPersistCredentials']();
 }
 
+export function CommandBridgeAcceptResult(arg1) {
+  return window['go']['app']['App']['CommandBridgeAcceptResult'](arg1);
+}
+
+export function CommandBridgeCancel(arg1) {
+  return window['go']['app']['App']['CommandBridgeCancel'](arg1);
+}
+
+export function CommandBridgeInput(arg1) {
+  return window['go']['app']['App']['CommandBridgeInput'](arg1);
+}
+
+export function CommandBridgeInvoke(arg1, arg2) {
+  return window['go']['app']['App']['CommandBridgeInvoke'](arg1, arg2);
+}
+
+export function CommandBridgeLifecycle(arg1) {
+  return window['go']['app']['App']['CommandBridgeLifecycle'](arg1);
+}
+
 export function Context() {
   return window['go']['app']['App']['Context']();
 }
