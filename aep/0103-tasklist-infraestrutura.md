@@ -3,6 +3,20 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Continuação — 16/09/2026, reconciliação até 70 critérios
+
+Fechamento de **C61, C62, C65, C71, C73, C74, C76, C77, C78 e C79** com
+evidência local e validação focada. Não fecha pacote novo: estes critérios
+atravessam I03/I04/I05/I10/I13/I14/I15, mas ainda restam itens de integração,
+cadência, importação e produto que impedem declarar BASE-PRONTA.
+
+Validações executadas:
+`go test ./internal/commandexecution ./internal/commandcontext ./internal/commandcatalog ./internal/commanddecision ./internal/commandidentity ./internal/commandcontract ./internal/commandadapter -run "TestService.*|Test.*Generation|Test.*Cache|TestCheckReadiness|TestCompleteGenericIdentity|TestResolve|TestAuthorize|Test.*External|Test.*System|Test.*Decision|Test.*Consume|Test.*Headless|Test.*Lifecycle|Test.*Suspended|Test.*Lock|Test.*Modal|Test.*Source" -count=1`.
+
+`npm test -- --run src/lib/modalRegistry.test.ts src/lib/commandBridgeContext.test.ts src/lib/commandBridgeDialogAdapter.test.ts src/store/questionnaireUIStore.test.ts`.
+
+**Contagem: 70/84 critérios encerrados; 14 abertos; 4/15 pacotes completos.**
+
 ## Continuação — 16/09/2026, reconciliação de critérios de contrato/base
 
 Fechamento de **C60, C63, C64, C72, C75 e C80** por evidência local já
@@ -1748,11 +1762,26 @@ Responsáveis: I04 / I13 / I15.
 
 Versões do catálogo e da configuração são revalidadas ao retirar da fila; binding alterado não executa resolução antiga.
 
+**Fechado em 16/09/2026.** Evidência local: `commandexecution.Service.check`
+reautentica e compara `Registry`, `GlobalConfig`, `ActiveLayers` e
+`RegistryVersion` capturados antes de cada gate. O caminho
+`evaluating → queued → running` chama esse check em cada `Admit`, e
+`GetInvocation` também revalida source/fingerprint antes de consultar. Testes
+focados de `internal/commandexecution` passaram para mudança de geração,
+stale e gates.
+
 Responsáveis: I03 / I04 / I05.
 
 ### C62
 
 Cache de resolução inclui usuário, workspace, acionador, origem, `context_version` e todas as versões/gerações de catálogo, configuração e camadas ativas.
+
+**Fechado em 16/09/2026.** Evidência local: `commandcontext.CacheKey` contém
+`UserID`, `WorkspaceID`, `TriggerIdentity`, `SourceType`, `ContextVersion`,
+`RegistryVersion`, `GlobalConfigGeneration`, `WorkspaceConfigGeneration` e
+`ActiveLayersGeneration`, preservando `nil` de workspace e recusando chaves
+incompletas. Testes focados de `internal/commandcontext` validam isolamento,
+gerações e cópias detached.
 
 Responsáveis: I03 / I05.
 
@@ -1785,6 +1814,14 @@ Responsáveis: I02 / I04.
 ### C65
 
 Contextos local, JWT externo, job e system têm fontes de identidade e revogação explícitas; `EpochService` invalida trabalho obsoleto.
+
+**Fechado em 16/09/2026.** Evidência local: `commandidentity.Service` resolve
+local session, token externo mapeado, job_service e system por portas distintas;
+externo reconsulta mapeamento/revogação, job reconsulta runtime/grant, system
+exige capability interna e todos capturam epochs pelo `EpochService`. O
+envelope valida combinações de auth/source e `commandexecution` rejeita
+identidade stale. Testes focados de `commandidentity`, `commandcontract` e
+`commandexecution` passaram.
 
 Responsáveis: I10 / I14.
 
@@ -1829,6 +1866,13 @@ Responsáveis: I10.
 
 Cada comando declara origens permitidas e o serviço bloqueia origem não autorizada, incluindo comandos visuais solicitados pela CLI.
 
+**Fechado em 16/09/2026.** Evidência local: o catálogo exige
+`AllowedSources`, `CheckReadiness` recusa origem proibida/desconhecida e o
+executor chama `CheckReadiness(commandID, Source)` no bootstrap e na admissão.
+Além disso, readiness só libera comandos read/no-decision prontos para execução
+direta; comandos visuais/interativos não passam pela CLI. Coberto por testes de
+readiness, policy e pipeline.
+
 Responsáveis: I02 / I04 / I10.
 
 ### C72
@@ -1847,11 +1891,24 @@ Responsáveis: I02 / I06.
 
 CLI não executa comando que exija diálogo/decisão interativa.
 
+**Fechado em 16/09/2026.** Evidência local: `commandcatalog.CheckReadiness`
+recusa `Decision != none`; no pipeline completo, comandos interativos ou
+destrutivos exigem presenter e falham fechado quando a origem é `cli`, `event`
+ou `system`. Testes focados cobrem readiness interativa e headless destrutivo
+sem iniciar handler.
+
 Responsáveis: I04 / I10 / P05.
 
 ### C74
 
 Comando destrutivo só avança com receipt de decisão criada no backend, vinculada à solicitação e consumida uma vez no CAS para `queued`.
+
+**Fechado em 16/09/2026.** Evidência local: o pipeline cria
+`commanddecision.Request` no backend com `DecisionID` UUIDv7, subject
+`invocation`, fingerprint da solicitação e epochs; `commanddecision.Store`
+consome accepted uma única vez com todos os campos esperados; o ledger usa
+`CompareAndSwapEnvelopeWithDecision` para vincular a decisão ao CAS para
+`queued`. Testes de decision/consume e pipeline destrutivo passaram.
 
 Responsáveis: I04 / I06.
 
@@ -1871,11 +1928,25 @@ Responsáveis: I02 / I06 / I10.
 
 Em autenticação externa, adapters físicos permanecem indisponíveis até existir vínculo local explícito e revogável com um principal externo.
 
+**Fechado em 16/09/2026.** Evidência local: `commandexecution` rejeita
+identidade externa combinada com origem física (`keyboard.*`/`streamdeck.key`)
+e `commandcontract` mantém auth/source coerentes. O teste
+`TestCompleteGenericIdentityRejectsInvalidAndPhysicalExternal` cobre o caso
+“external físico” sem iniciar handler; a política externa permanece limitada a
+origens não físicas até existir broker/vínculo futuro.
+
 Responsáveis: I10 / I13 — broker físico externo fora do escopo atual.
 
 ### C77
 
 Estação bloqueada suspende hotkeys globais e dispositivos físicos e apresenta estado seguro até revalidar a sessão após desbloqueio.
+
+**Fechado em 16/09/2026.** Evidência local: `commandadapter.Controller.Lock`
+e `Logout` publicam lifecycle e colocam o adapter em `suspended`, recusando
+novos inputs até `AdvanceGeneration` revalidar e limpar pendências; o host de
+execução trata OS desconhecido/bloqueado como `Unlocked=false`. Testes focados
+de `commandadapter`, `commandexecution` e `app_command_os_session` cobrem lock,
+suspensão, avanço de geração e estado seguro.
 
 Responsáveis: I13 / I14.
 
@@ -1883,11 +1954,23 @@ Responsáveis: I13 / I14.
 
 Diálogo topmost bloqueia fallback para camadas inferiores e os atalhos obrigatórios da AEP-0091 não aceitam tombstone.
 
+**Fechado em 16/09/2026.** Evidência local: `modalRegistry` expõe somente o
+`DialogCommandScope` do modal topmost; modal superior sem scope retorna `null`
+e bloqueia fallback. `cloneDialogCommandScope` só aceita `decision.respond` e
+`decision.repeat` com geração válida, descartando escopos/tombstones inválidos.
+Vitest focado passou para registry, contexto e adapter de diálogo.
+
 Responsáveis: I03 / I05 / I13.
 
 ### C79
 
 Dispatcher reserva atalhos invariantes do diálogo antes de qualquer binding configurável.
+
+**Fechado em 16/09/2026.** Evidência local: `commandBridgeContext` consulta o
+scope topmost antes de resolver binding configurável; invocações sem proof de
+diálogo compatível retornam `dialog-blocked`, enquanto o adapter de diálogo
+publica somente `decision.respond` e `decision.repeat`. Vitest focado cobriu
+ordem de reserva, proof de diálogo e bloqueio de fallback.
 
 Responsáveis: I13.
 
