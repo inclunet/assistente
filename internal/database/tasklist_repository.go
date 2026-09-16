@@ -1159,7 +1159,9 @@ func applyTaskNoteExternalUpsertUpdatesWithContext(ctx context.Context, noteID s
 		updates["type"] = *p.Type
 	}
 	noteIDs := taskNoteQuery(ctx, db.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.id = ?", noteID))
-	return db.WithContext(ctx).Model(&TaskNote{}).Where("id = ?", noteID).Where("id IN (?)", noteIDs).Updates(updates).Error
+	return WithSQLiteBusyRetry(ctx, "tasklist.note.external_upsert.update", func() error {
+		return db.WithContext(ctx).Model(&TaskNote{}).Where("id = ?", noteID).Where("id IN (?)", noteIDs).Updates(updates).Error
+	})
 }
 
 // UpsertTaskNoteByExternalWithContext cria ou atualiza uma nota de forma
@@ -1234,14 +1236,17 @@ func UpsertTaskNoteByExternalWithContext(ctx context.Context, p UpsertTaskNoteBy
 		ExternalUpdatedAt: p.ExternalUpdatedAt,
 	}
 
-	if err := db.WithContext(ctx).Create(note).Error; err != nil {
-		if !isSQLiteUniqueConstraintError(err) {
-			return nil, false, err
+	createErr := WithSQLiteBusyRetry(ctx, "tasklist.note.external_upsert.create", func() error {
+		return db.WithContext(ctx).Create(note).Error
+	})
+	if createErr != nil {
+		if !isSQLiteUniqueConstraintError(createErr) {
+			return nil, false, createErr
 		}
 		// Corrida: outra goroutine criou a mesma referência — reconsultar e atualizar.
 		again, e2 := FindTaskNoteByExternalRefWithContext(ctx, src, ext)
 		if e2 != nil || again == nil {
-			return nil, false, fmt.Errorf("criação conflitante e reconsulta falhou: %w", err)
+			return nil, false, fmt.Errorf("criação conflitante e reconsulta falhou: %w", createErr)
 		}
 		if again.TaskID != p.TaskID {
 			return nil, false, fmt.Errorf(
@@ -1261,7 +1266,9 @@ func UpsertTaskNoteByExternalWithContext(ctx context.Context, p UpsertTaskNoteBy
 
 func finishNoteUpdateWithContext(ctx context.Context, noteID string, updates map[string]interface{}) (*TaskNote, bool, error) {
 	noteIDs := taskNoteQuery(ctx, db.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.id = ?", noteID))
-	if err := db.WithContext(ctx).Model(&TaskNote{}).Where("id = ?", noteID).Where("id IN (?)", noteIDs).Updates(updates).Error; err != nil {
+	if err := WithSQLiteBusyRetry(ctx, "tasklist.note.finish_update", func() error {
+		return db.WithContext(ctx).Model(&TaskNote{}).Where("id = ?", noteID).Where("id IN (?)", noteIDs).Updates(updates).Error
+	}); err != nil {
 		return nil, false, err
 	}
 	out, err := GetTaskNoteWithContext(ctx, noteID)
