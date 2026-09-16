@@ -1812,7 +1812,7 @@ func (m *Manager) logEvent(slug, eventType, message string, data map[string]any)
 		Data:      payload,
 		Timestamp: time.Now(),
 	}); err != nil {
-		if benignCtxCancel(nil, err) {
+		if benignCtxCancel(context.Background(), err) {
 			logging.Debugf(context.Background(), "mcp.manager", "[MCP:%s] persistência de log %s cancelada (shutdown): %v", slug, eventType, err)
 		} else {
 			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao persistir log %s: %v", slug, eventType, err)
