@@ -453,6 +453,62 @@ func TestCheckAndRefreshToken_RefreshesExpiringToken(t *testing.T) {
 	}
 }
 
+// TestCheckAndRefreshToken_PersistsSobContextoDoUsuario garante que o token
+// renovado é persistido no MESMO escopo de usuário usado para lê-lo. Antes, a
+// leitura usava credentialContext() (com usuário) mas a persistência derivava do
+// ctx do caller (m.ctx do loop proativo, sem usuário): o refresh lia as
+// credenciais do usuário e as gravava fora de escopo, o que no store real falha
+// com "authenticated user required" (falso ERROR observado no assistente.log).
+func TestCheckAndRefreshToken_PersistsSobContextoDoUsuario(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "new-access-token",
+			"refresh_token": "new-refresh-token",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+		})
+	}))
+	defer tokenServer.Close()
+
+	m := newTestManager()
+	// credentialContext() (leitura) tem usuário; m.ctx (usado pelo caller na
+	// persistência) não. A regressão só some quando leitura e persistência usam o
+	// mesmo escopo de usuário.
+	userCtx := database.WithUserID(context.Background(), "user-refresh")
+	m.SetAuthContextProvider(func() context.Context { return userCtx })
+	m.servers["test"] = &ServerStatus{
+		Slug: "test",
+		Config: ServerConfig{
+			AuthType:       AuthOAuth2PKCE,
+			OAuth2ClientID: "test-client",
+			OAuth2TokenURL: tokenServer.URL,
+			OAuth2AuthURL:  "http://unused/auth",
+		},
+	}
+
+	soonExpiry := time.Now().Add(30 * time.Second).Unix()
+	// Credenciais gravadas SOB o escopo do usuário.
+	_ = m.credMgr.RegisterPatternWithContext(userCtx, userTokensPattern("test"), &credentials.AuthConfig{
+		Type:       "oauth2",
+		Token:      "old-access-token",
+		RefreshURL: "old-refresh-token",
+		ExpiresAt:  soonExpiry,
+	})
+
+	m.checkAndRefreshToken("test")
+
+	// Lê no mesmo escopo do usuário: só encontra o token renovado se a
+	// persistência tiver usado o contexto do usuário.
+	auth, err := m.credMgr.GetByPatternWithContext(userCtx, userTokensPattern("test"))
+	if err != nil {
+		t.Fatalf("erro lendo token: %v", err)
+	}
+	if auth.Token != "new-access-token" {
+		t.Errorf("token renovado deveria estar persistido no escopo do usuário; got %q", auth.Token)
+	}
+}
+
 func TestCheckAndRefreshToken_HandlesRefreshFailure(t *testing.T) {
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
