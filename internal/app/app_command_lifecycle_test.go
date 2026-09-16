@@ -739,6 +739,36 @@ func TestAppCommandLifecycleResetForgetsPublishedHostConfiguration(t *testing.T)
 	}
 }
 
+func TestAppCommandLifecycleShutdownForgetsPublishedHostConfiguration(t *testing.T) {
+	ctx := context.Background()
+	app, _ := appLifecycleProductMountFixture(t)
+	if err := ensureCommandLifecycleMountedForCurrentUserForTest(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.commandHost.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.rebuildCommandLifecycleSentinelConfiguration(ctx); err != nil {
+		t.Fatal(err)
+	}
+	principal, err := app.currentCommandPrincipal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := app.commandHost.UserConfiguration(ctx, principal.UserID); err != nil {
+		t.Fatalf("fixture não publicou configuração inicial: %v", err)
+	}
+	if err := app.shutdownCommandLifecycleIfConfigured(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := app.commandHost.UserConfiguration(ctx, principal.UserID); !errors.Is(err, commandexecution.ErrHostUserNotPublished) {
+		t.Fatalf("shutdown não removeu configuração volátil do host: %v", err)
+	}
+	if app.commandLifecycle.Load() != nil {
+		t.Fatal("shutdown não desmontou lifecycle")
+	}
+}
+
 func TestAppCommandLifecycleRuntimeRejectsStaleHostProjectionAtPublish(t *testing.T) {
 	ctx := context.Background()
 	app, inputs := appLifecycleProductMountFixture(t)

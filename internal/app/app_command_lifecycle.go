@@ -299,6 +299,7 @@ func ShutdownCommandLifecycle(ctx context.Context, a *App) error {
 	if runtime == nil {
 		return commandruntime.ErrInvalidConfiguration
 	}
+	a.resetCommandHostSession(false)
 	return a.shutdownMountedCommandLifecycle(ctx, runtime)
 }
 
@@ -340,6 +341,7 @@ func (a *App) shutdownCommandLifecycleIfConfigured(ctx context.Context) error {
 	if runtime == nil {
 		return nil
 	}
+	a.resetCommandHostSession(false)
 	return a.shutdownMountedCommandLifecycle(ctx, runtime)
 }
 

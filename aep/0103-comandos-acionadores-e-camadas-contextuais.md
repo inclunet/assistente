@@ -74,6 +74,10 @@ reset/shutdown concorrentes e falha/cancelamento do monitor de SO, I14.4 fica
 encerrado localmente. Contagem atual: **51/84 critérios locais, 33 abertos;
 3/15 pacotes completos**.
 
+Avanço de I14.5: shutdown do lifecycle também remove a configuração volátil do
+usuário atual no `HostState` antes de aguardar o worker parar, evitando mapa
+consultável enquanto bridge, drain e demais dependências ainda estão encerrando.
+
 ### Stream Deck real validado — 15/09/2026
 
 `internal/commanddeck` iniciou a base testável de I13.5/C41/C42: o renderer

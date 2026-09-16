@@ -3,6 +3,23 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Continuação — 15/09/2026, shutdown limpa HostState em I14.5
+
+Avanço em **I14.5**, ainda sem fechar o subitem. O shutdown do lifecycle agora
+também esquece a configuração volátil do usuário atual no `HostState` antes de
+aguardar `Stop`/`WaitStopped`. Assim, durante encerramento conservador, o mapa
+que o executor consulta deixa de estar disponível antes de bridge, drain e demais
+dependências serem desmontados. A limpeza continua só em memória: persistência
+de comandos/camadas não é apagada.
+
+Teste novo publica configuração no `HostState`, chama
+`shutdownCommandLifecycleIfConfigured` e exige que a leitura posterior retorne
+`ErrHostUserNotPublished`, além de confirmar que o controller foi desmontado.
+
+**Contagem mantida: 51/84 critérios encerrados; 33 abertos; 3/15 pacotes
+completos.** I14.5 segue aberto para fechar a qualificação completa de bridge,
+drain e manutenção/cadências duplicadas no shutdown integrado.
+
 ## Continuação — 15/09/2026, fechamento de I14.4
 
 I14.4 foi encerrado localmente. Além das travas anteriores de sessão no publish
