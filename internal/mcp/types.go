@@ -150,6 +150,12 @@ type ServerStatus struct {
 
 	Reconnecting              bool `json:"-"`
 	ConsecutiveHealthFailures int  `json:"-"`
+
+	// NeedsReauth indica que o token OAuth do servidor expirou e não pôde ser
+	// renovado silenciosamente (sem/refresh_token inválido, invalid_grant). Nesse
+	// estado o servidor NÃO entra no caminho MCP nativo com um Bearer morto; o
+	// usuário precisa reautorizar explicitamente (AEP-0105).
+	NeedsReauth bool `json:"-"`
 }
 
 // ServerInfo é a versão exportada para o frontend (sem campos sensíveis como env).
@@ -160,6 +166,9 @@ type ServerInfo struct {
 	Description   string            `json:"description,omitempty"`
 	Transport     TransportType     `json:"transport"`
 	Status        ConnectionStatus  `json:"status"`
+	// AuthType expõe ao frontend o tipo de autenticação configurado, permitindo
+	// habilitar a ação de reautorização apenas para servidores OAuth2 PKCE.
+	AuthType      AuthType          `json:"authType,omitempty"`
 	Error         string            `json:"error,omitempty"`
 	ToolCount     int               `json:"toolCount"`
 	Tools         []MCPToolInfo     `json:"tools"`
@@ -169,8 +178,11 @@ type ServerInfo struct {
 	Prompts       []MCPPromptInfo   `json:"prompts"`
 	Enabled       bool              `json:"enabled"`
 	AutoConnect   bool              `json:"autoConnect"`
-	ConnectedAt   string            `json:"connectedAt,omitempty"`
-	LastPing      string            `json:"lastPing,omitempty"`
+	// NeedsReauth expõe ao frontend que o servidor precisa de reautorização OAuth
+	// interativa (token expirado sem refresh possível — AEP-0105).
+	NeedsReauth bool   `json:"needsReauth"`
+	ConnectedAt string `json:"connectedAt,omitempty"`
+	LastPing    string `json:"lastPing,omitempty"`
 	// Campos de config visíveis (sem env)
 	Command string   `json:"command,omitempty"`
 	Args    []string `json:"args,omitempty"`
@@ -231,6 +243,7 @@ func (s *ServerStatus) toServerInfo() ServerInfo {
 		Description:   s.Config.Description,
 		Transport:     s.Config.Transport,
 		Status:        s.Status,
+		AuthType:      s.Config.AuthType,
 		Error:         s.Error,
 		ToolCount:     len(s.Tools),
 		Tools:         s.Tools,
@@ -240,6 +253,7 @@ func (s *ServerStatus) toServerInfo() ServerInfo {
 		Prompts:       s.Prompts,
 		Enabled:       s.Config.Enabled,
 		AutoConnect:   s.Config.AutoConnect,
+		NeedsReauth:   s.NeedsReauth,
 		Command:       s.Config.Command,
 		Args:          s.Config.Args,
 		URL:           s.Config.URL,

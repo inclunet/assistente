@@ -296,6 +296,8 @@ func loadConversationToolInvocationExports(
 				Input:              row.Input,
 				Output:             row.Output,
 				Metadata:           row.Metadata,
+				ModelIteration:     row.ModelIteration,
+				External:           row.External,
 				DisplayName:        row.DisplayName,
 				InputPreview:       row.InputPreview,
 				OutputPreview:      row.OutputPreview,
@@ -942,6 +944,7 @@ func importConversationToolInvocations(
 		toolName := strings.TrimSpace(exported.ToolName)
 		catalogID := catalogIDs[toolName]
 		turnID := strings.TrimSpace(exported.TurnID)
+		modelIteration, external := importedModelCallProjection(exported)
 		attempt := exported.Attempt
 		if attempt < 1 {
 			attempt = 1
@@ -969,6 +972,8 @@ func importConversationToolInvocations(
 			Input:               exported.Input,
 			Output:              exported.Output,
 			Metadata:            exported.Metadata,
+			ModelIteration:      modelIteration,
+			External:            external,
 			DisplayName:         exported.DisplayName,
 			InputPreview:        exported.InputPreview,
 			OutputPreview:       exported.OutputPreview,
@@ -997,6 +1002,33 @@ func importConversationToolInvocations(
 		}
 	}
 	return nil
+}
+
+// importedModelCallProjection aceita exports anteriores à materialização sem
+// transformar metadata em fonte de leitura permanente. O parse acontece uma
+// única vez no write/import; exports novos carregam os campos explicitamente.
+func importedModelCallProjection(exported ToolInvocationExport) (int, bool) {
+	iteration := exported.ModelIteration
+	external := exported.External
+	if strings.TrimSpace(exported.Metadata) == "" {
+		return iteration, external
+	}
+	var legacy struct {
+		External bool `json:"external"`
+		Display  struct {
+			Iteration *int `json:"iteration"`
+		} `json:"display"`
+	}
+	if json.Unmarshal([]byte(exported.Metadata), &legacy) != nil {
+		return iteration, external
+	}
+	if iteration == 0 && legacy.Display.Iteration != nil {
+		iteration = *legacy.Display.Iteration
+	}
+	if !external {
+		external = legacy.External
+	}
+	return iteration, external
 }
 
 // messageLinkKind diz qual das duas referências da mensagem está sendo

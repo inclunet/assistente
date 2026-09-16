@@ -40,7 +40,7 @@ func TestKnownV25UpgradePreservesMutationAuditAndAddsRuntimeBarriers(t *testing.
 	if err := legacy.Exec("CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at DATETIME NOT NULL)").Error; err != nil {
 		t.Fatal(err)
 	}
-	for v, n := range map[int]string{20: "command_storage_initial", 21: "command_envelope_ownership", 22: "command_config_complete", 23: "command_activation_durable"} {
+	for v, n := range map[int]string{21: "command_storage_initial", 22: "command_envelope_ownership", 23: "command_config_complete", 24: "command_activation_durable"} {
 		if err := legacy.Exec("INSERT INTO schema_migrations VALUES(?,?,?)", v, n, now).Error; err != nil {
 			t.Fatal(err)
 		}

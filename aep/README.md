@@ -121,14 +121,15 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
 | [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 🚧 In Progress |
 | [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico | ✅ Done |
+| [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress |
 
 Acompanhamento da AEP-0103: [tasklist de infraestrutura](0103-tasklist-infraestrutura.md),
 atualizado em 15/09/2026 com ocorrências físicas UUIDv7, sequências de adapter, lifecycle genérico de adapters físicos, ponte UI/backend autenticada para dispatch, resultado, cancelamento e lifecycle, prova de escopo de diálogo topmost para `decision.respond`, Stream Deck real validado no driver seguro, validação física de teclado/foco/janela, pacote I14 completo com gate de montagem, login/unlock/restart, bloqueio de publicação antiga, shutdown integrado e retry após falha, além da rodada nos quinze pacotes existentes: envelope versionado com round-trip, grant exato de job, rebuild após mutação, recuperação de receipts, guardas de teclado e correção de contenção SQL (53/84 critérios; 4/15 pacotes completos). A AEP continua In Progress;
 a extensão de manutenção não altera o aceite da retenção legada da AEP-0074-B.
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0104 → próximo
-> 0105), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0105 → próximo
+> 0106), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 

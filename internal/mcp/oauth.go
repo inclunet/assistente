@@ -1271,8 +1271,11 @@ func generateState() string {
 	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
 
-// buildPKCEHTTPClient cria um *http.Client que implementa OAuth2 PKCE.
-// Tenta reutilizar tokens e credenciais do credential manager.
+// buildPKCERoundTripper monta o pkceRoundTripper com o bootstrap de client_id e
+// tokens do credential manager. É a base compartilhada por buildPKCEHTTPClient
+// (conexão normal) e pela reautorização interativa sob demanda
+// (Manager.ReauthorizeServer, AEP-0105), que chama rt.authorize diretamente sem
+// depender de um 401 incidental.
 //
 // `authCtxProvider` devolve o ctx user-scoped vigente — usado para
 // gravar/ler credenciais com o user_id correto. Em background, o
@@ -1282,7 +1285,7 @@ func generateState() string {
 //
 // `onConfigUpdate` é chamado quando o config precisa ser persistido
 // (ex: porta após DCR).
-func buildPKCEHTTPClient(cfg ServerConfig, credMgr *credentials.Manager, emitEvent emitFunc, slug string, onConfigUpdate func(ServerConfig), authCtxProvider func() context.Context) *http.Client {
+func buildPKCERoundTripper(cfg ServerConfig, credMgr *credentials.Manager, emitEvent emitFunc, slug string, onConfigUpdate func(ServerConfig), authCtxProvider func() context.Context) *pkceRoundTripper {
 	rt := &pkceRoundTripper{
 		base:            newMCPTransport(),
 		credMgr:         credMgr,
@@ -1323,6 +1326,13 @@ func buildPKCEHTTPClient(cfg ServerConfig, credMgr *credentials.Manager, emitEve
 		rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(rt.longLivedCtx(), token))
 	}
 
+	return rt
+}
+
+// buildPKCEHTTPClient cria um *http.Client que implementa OAuth2 PKCE.
+// Tenta reutilizar tokens e credenciais do credential manager.
+func buildPKCEHTTPClient(cfg ServerConfig, credMgr *credentials.Manager, emitEvent emitFunc, slug string, onConfigUpdate func(ServerConfig), authCtxProvider func() context.Context) *http.Client {
+	rt := buildPKCERoundTripper(cfg, credMgr, emitEvent, slug, onConfigUpdate, authCtxProvider)
 	return &http.Client{Transport: rt}
 }
 

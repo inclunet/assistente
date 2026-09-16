@@ -119,7 +119,7 @@ Ele não inclui caminhos, IDs, conteúdo ou credenciais.
 
 ## Complemento AEP-0103 — migração de comandos composta pelo host
 
-A v20 `command_storage_initial` foi acrescentada ao registro, sem renumerar
+A v21 `command_storage_initial` foi acrescentada ao registro, sem renumerar
 versões anteriores. Na fase pós-AutoMigrate genérica ela retorna adiamento:
 o pacote database não pode importar repositories que dependem de credentials
 (que já depende de database). O App fornece a composição pela porta interna

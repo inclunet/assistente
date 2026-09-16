@@ -5,6 +5,7 @@ import {
   ConnectMCPServer,
   DisconnectMCPServer,
   ReconnectMCPServer,
+  ReauthorizeMCPServer,
   SaveMCPServer,
   DeleteMCPServer,
   GetMCPServerTools,
@@ -28,6 +29,7 @@ interface MCPState {
   connect: (slug: string) => Promise<void>;
   disconnect: (slug: string) => Promise<void>;
   reconnect: (slug: string) => Promise<void>;
+  reauthorize: (slug: string) => Promise<void>;
   save: (slug: string, config: ServerConfig) => Promise<void>;
   remove: (slug: string) => Promise<void>;
   getTools: (slug: string) => Promise<MCPToolInfo[]>;
@@ -82,6 +84,17 @@ export const useMCPStore = create<MCPState>((set, get) => ({
     } catch (err) {
       logger.error(`[MCP] Erro ao reconectar '${slug}':`, err);
       await get().loadServers();
+    }
+  },
+
+  reauthorize: async (slug: string) => {
+    try {
+      await ReauthorizeMCPServer(slug);
+      await get().loadServers();
+    } catch (err) {
+      logger.error(`[MCP] Erro ao reautorizar '${slug}':`, err);
+      await get().loadServers();
+      throw err;
     }
   },
 
@@ -170,6 +183,16 @@ export const useMCPStore = create<MCPState>((set, get) => ({
 
     // Tools/resources/prompts mudaram (refresh periódico ou reconexão)
     unsubs.push(EventsOn('mcp:tools_changed', () => {
+      get().loadServers();
+    }));
+
+    // Token OAuth expirado sem refresh possível: precisa de reautorização (AEP-0105)
+    unsubs.push(EventsOn('mcp:server_needs_reauth', () => {
+      get().loadServers();
+    }));
+
+    // Reautorização concluída / token renovado com sucesso (AEP-0105)
+    unsubs.push(EventsOn('mcp:server_reauthorized', () => {
       get().loadServers();
     }));
 

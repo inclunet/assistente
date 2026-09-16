@@ -42,7 +42,7 @@ func TestKnownV21ConfigUpgradePreservesRowsAndAcceptsRealWorkspace(t *testing.T)
 	if e := legacy.Exec("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at DATETIME NOT NULL)").Error; e != nil {
 		t.Fatal(e)
 	}
-	for v, n := range map[int]string{20: "command_storage_initial", 21: "command_envelope_ownership"} {
+	for v, n := range map[int]string{21: "command_storage_initial", 22: "command_envelope_ownership"} {
 		if e := legacy.Exec("INSERT INTO schema_migrations VALUES (?,?,?)", v, n, now).Error; e != nil {
 			t.Fatal(e)
 		}
@@ -69,7 +69,7 @@ func TestKnownV21ConfigUpgradePreservesRowsAndAcceptsRealWorkspace(t *testing.T)
 		t.Fatalf("reabertura: %v", e)
 	}
 	var count int64
-	if e := legacy.Table("schema_migrations").Where("version = 22 AND name = ?", "command_config_complete").Count(&count).Error; e != nil || count != 1 {
+	if e := legacy.Table("schema_migrations").Where("version = 23 AND name = ?", "command_config_complete").Count(&count).Error; e != nil || count != 1 {
 		t.Fatalf("carimbo v22: %d %v", count, e)
 	}
 }

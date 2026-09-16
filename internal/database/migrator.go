@@ -278,6 +278,14 @@ var schemaMigrations = []migration{
 	},
 	{
 		Version: 20,
+		Name:    "tool_invocations_model_call_projection",
+		// PÓS: AutoMigrate adiciona as colunas materializadas antes do backfill
+		// e da criação dos índices parciais.
+		Phase: phasePostAutoMigrate,
+		Run:   migrateToolModelCallProjection,
+	},
+	{
+		Version: 21,
 		Name:    "command_storage_initial",
 		Phase:   phasePostAutoMigrate,
 		// O host compõe os repositories sem criar ciclo database → credentials
@@ -285,43 +293,43 @@ var schemaMigrations = []migration{
 		Run: func(*gorm.DB) error { return errMigrationDeferred },
 	},
 	{
-		Version: 21,
+		Version: 22,
 		Name:    "command_envelope_ownership",
 		Phase:   phasePostAutoMigrate,
 		Run:     func(*gorm.DB) error { return errMigrationDeferred },
 	},
 	{
-		Version: 22,
+		Version: 23,
 		Name:    "command_config_complete",
 		Phase:   phasePostAutoMigrate,
 		Run:     func(*gorm.DB) error { return errMigrationDeferred },
 	},
 	{
-		Version: 23,
+		Version: 24,
 		Name:    "command_activation_durable",
 		Phase:   phasePostAutoMigrate,
 		Run:     func(*gorm.DB) error { return errMigrationDeferred },
 	},
 	{
-		Version: 24,
+		Version: 25,
 		Name:    "command_job_queued_at_backfill",
 		Phase:   phasePreAutoMigrate,
 		Run:     migrateCommandJobQueuedAt,
 	},
 	{
-		Version: 25,
+		Version: 26,
 		Name:    "external_identity_mapping",
 		Phase:   phasePostAutoMigrate,
 		Run:     migrateExternalIdentityMapping,
 	},
 	{
-		Version: 26,
+		Version: 27,
 		Name:    "command_job_activation_consumer",
 		Phase:   phasePostAutoMigrate,
 		Run:     func(*gorm.DB) error { return errMigrationDeferred },
 	},
 	{
-		Version: 27,
+		Version: 28,
 		Name:    "command_config_import_audit",
 		Phase:   phasePostAutoMigrate,
 		Run:     func(*gorm.DB) error { return errMigrationDeferred },

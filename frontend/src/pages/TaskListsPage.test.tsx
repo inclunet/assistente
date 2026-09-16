@@ -264,6 +264,8 @@ describe('TaskListsPage', { timeout: 60_000 }, () => {
       expect(screen.getByText('Lista Alfa')).toBeInTheDocument();
       expect(screen.getByText('Lista Beta')).toBeInTheDocument();
     });
+    expect(mockFetchAllTaskLists).toHaveBeenCalledTimes(1);
+    expect(mockLoadTaskList).not.toHaveBeenCalled();
   });
 
   it('mostra estado vazio quando não há listas', async () => {

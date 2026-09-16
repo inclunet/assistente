@@ -288,6 +288,26 @@ ser tentado novamente para a mesma URL depois de resultado parcial ou falha.
 Escolher **Configurar manualmente** apenas abre os campos completos; isso não
 transforma uma descoberta bem-sucedida em mensagem de falha.
 
+### Reautorização OAuth (token expirado)
+
+O token de acesso OAuth de servidores como o Atlassian expira periodicamente. O
+Assistente tenta renová-lo automaticamente em segundo plano usando o
+`refresh_token`. Quando a renovação não é possível (o provedor não emitiu
+`refresh_token`, ou ele foi revogado/consumido), o servidor passa a exibir o
+selo **"Reautorização necessária"** na coluna de status e é temporariamente
+retirado do modo nativo — assim o Assistente não envia um token vencido ao
+provedor de IA.
+
+Para resolver, selecione o servidor e use a ação **Reautorizar** (disponível no
+menu de ações da linha e na barra de ferramentas, apenas para servidores
+OAuth2 PKCE). Uma janela do navegador será aberta para você autenticar
+novamente; ao concluir, o token é renovado, o servidor reconecta e o selo
+desaparece. **Reautorizar** é diferente de **Reconectar**: reconectar apenas
+reabre a conexão com o mesmo token, enquanto reautorizar refaz o login OAuth.
+
+> Dica de acessibilidade: a ação anuncia via leitor de telas que uma janela do
+> navegador será aberta e confirma quando a reautorização termina.
+
 ---
 
 ## Exemplo 8: Servidor Multi-tenancy

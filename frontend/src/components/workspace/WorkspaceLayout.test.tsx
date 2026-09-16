@@ -11,7 +11,7 @@ type MockWorkspaceState = {
     activeTabId: string;
     tabs: Array<{
       id: string;
-      type: 'chat' | 'editor';
+      type: 'chat' | 'editor' | 'tasklist';
       title: string;
       position: number;
       conversationId?: string;
@@ -82,7 +82,10 @@ vi.mock('antd', () => ({
 }));
 
 vi.mock('../../store/workspaceStore', () => ({
-  useWorkspaceStore: (selector: (state: unknown) => unknown) => selector(storeMock.state),
+  useWorkspaceStore: Object.assign(
+    (selector: (state: unknown) => unknown) => selector(storeMock.state),
+    { getState: () => storeMock.state },
+  ),
 }));
 
 vi.mock('../../hooks/useDocumentTitle', () => ({
@@ -217,8 +220,9 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
     expect(restoreDefaultFocus).not.toHaveBeenCalled();
   });
 
-  it('atalho global de aba restaura foco na area default apos troca', () => {
+  it('atalho global de aba enfileira o foco do painel (chat) ate ele registrar', () => {
     storeMock.state.workspace.tabs[1].type = 'chat';
+    const focusPanel = vi.fn(() => true);
     const { rerender } = renderWorkspaceLayout();
 
     shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-2');
@@ -230,8 +234,14 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
       </MemoryRouter>,
     );
 
-    expect(restoreDefaultFocus).toHaveBeenCalled();
-    expect(screen.getByTestId('default-focus')).toHaveFocus();
+    // Contrato unificado: sem handler ainda, o pedido fica enfileirado — nada de
+    // restoreDefaultFocus como caminho separado para chat/terminal.
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+    expect(focusPanel).not.toHaveBeenCalled();
+
+    const unregister = registerWorkspacePanelFocus('tab-2', focusPanel);
+    expect(focusPanel).toHaveBeenCalledOnce();
+    unregister();
   });
 
   it('delega o foco ao controller da aba ativada antes do fallback genérico', () => {
@@ -271,6 +281,30 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
     unregister();
   });
 
+  it('preserva o pedido até o quadro/tasklist lazy registrar foco', () => {
+    storeMock.state.workspace.tabs[1].type = 'tasklist';
+    const focusPanel = vi.fn(() => true);
+    const { rerender } = renderWorkspaceLayout();
+
+    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-2');
+    storeMock.state.workspace.activeTabId = 'tab-2';
+    rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <WorkspaceLayout />
+      </MemoryRouter>,
+    );
+
+    // O board ainda não montou: nada de foco síncrono nem fallback prematuro.
+    expect(focusPanel).not.toHaveBeenCalled();
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+
+    // Ao montar e registrar, o pedido enfileirado é atendido.
+    const unregister = registerWorkspacePanelFocus('tab-2', focusPanel);
+    expect(focusPanel).toHaveBeenCalledOnce();
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+    unregister();
+  });
+
   it('não enfileira novamente quando um controller registrado recusa foco', () => {
     const refusedFocus = vi.fn(() => false);
     const unregisterRefused = registerWorkspacePanelFocus('tab-2', refusedFocus);
@@ -292,7 +326,9 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
     unregisterReplacement();
   });
 
-  it('restaura foco na aba anterior quando a ativação por atalho falha', () => {
+  it('roteia foco ao painel da aba anterior quando a ativação por atalho falha', () => {
+    const focusTab1 = vi.fn(() => true);
+    const unregister = registerWorkspacePanelFocus('tab-1', focusTab1);
     const { rerender } = renderWorkspaceLayout();
 
     shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-2');
@@ -316,11 +352,16 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
       </MemoryRouter>,
     );
 
-    expect(restoreDefaultFocus).toHaveBeenCalled();
-    expect(screen.getByTestId('default-focus')).toHaveFocus();
+    // Rollback volta para tab-1 e o foco é roteado ao handler do painel dela,
+    // não a um caminho separado de default focus.
+    expect(focusTab1).toHaveBeenCalled();
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+    unregister();
   });
 
-  it('usa o documento renderizado como foco padrão da área de conteúdo', () => {
+  it('a área de conteúdo delega o foco ao handler do painel ativo', () => {
+    const focusPanel = vi.fn(() => true);
+    const unregister = registerWorkspacePanelFocus('tab-1', focusPanel);
     renderWorkspaceLayout();
     const calls = vi.mocked(useLandmarkNavigation).mock.calls;
     const options = calls[calls.length - 1]?.[0] as {
@@ -331,13 +372,34 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
 
     expect(options.defaultLandmarkId).toBe('contentArea');
     expect(contentArea?.focus()).toBe(true);
+    // Sem duplicar o conhecimento de cada tipo: o landmark só roteia ao painel.
+    expect(focusPanel).toHaveBeenCalled();
+    unregister();
+  });
+
+  it('a área de conteúdo cai em foco genérico quando o painel ainda não registrou handler', () => {
+    renderWorkspaceLayout();
+    const calls = vi.mocked(useLandmarkNavigation).mock.calls;
+    const options = calls[calls.length - 1]?.[0] as {
+      landmarks: Landmark[];
+      defaultLandmarkId?: string;
+    };
+    const contentArea = options.landmarks.find((landmark) => landmark.id === 'contentArea');
+
+    // Sem handler para a aba ativa, o fallback foca o primeiro elemento focável
+    // do painel — sem travar a navegação por F6.
+    expect(contentArea?.focus()).toBe(true);
     expect(screen.getByRole('button', { name: 'Documento renderizado' })).toHaveFocus();
   });
 
-  it('Ctrl+1..9 na aba já ativa restaura foco imediato sem mudar activeTabId', () => {
+  it('Ctrl+1..9 na aba já ativa enfileira o foco do painel (sem default focus separado)', () => {
+    const focusPanel = vi.fn(() => true);
     renderWorkspaceLayout();
     shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-1');
-    expect(restoreDefaultFocus).toHaveBeenCalled();
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+    const unregister = registerWorkspacePanelFocus('tab-1', focusPanel);
+    expect(focusPanel).toHaveBeenCalledOnce();
+    unregister();
   });
 
   it('Ctrl+1..9 na aba já ativa enfileira foco lazy do editor', () => {

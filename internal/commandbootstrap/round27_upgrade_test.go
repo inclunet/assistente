@@ -30,7 +30,7 @@ func TestV26UpgradePreservesAuditAndAddsImportOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	for version, name := range map[int]string{20: "command_storage_initial", 21: "command_envelope_ownership", 22: "command_config_complete", 23: "command_activation_durable", 26: "command_job_activation_consumer"} {
+	for version, name := range map[int]string{21: "command_storage_initial", 22: "command_envelope_ownership", 23: "command_config_complete", 24: "command_activation_durable", 27: "command_job_activation_consumer"} {
 		if err := db.Exec("INSERT INTO schema_migrations VALUES(?,?,?)", version, name, now).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -57,7 +57,7 @@ func TestV26UpgradePreservesAuditAndAddsImportOperation(t *testing.T) {
 		t.Fatalf("auditoria alterada: %+v", saved)
 	}
 	var stamps int64
-	if err := db.Table("schema_migrations").Where("version = 27 AND name = ?", "command_config_import_audit").Count(&stamps).Error; err != nil || stamps != 1 {
+	if err := db.Table("schema_migrations").Where("version = 28 AND name = ?", "command_config_import_audit").Count(&stamps).Error; err != nil || stamps != 1 {
 		t.Fatalf("carimbo=%d err=%v", stamps, err)
 	}
 	row["mutation_id"], row["decision_id"], row["operation"] = id(), id(), "config_import"

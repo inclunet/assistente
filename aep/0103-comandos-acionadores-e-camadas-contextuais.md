@@ -2349,7 +2349,7 @@ portas controladas não provam montagem real ou latência integrada.
 ### Evidência I01 — armazenamento e chaves operacionais (baseline)
 
 `internal/commandbootstrap` compõe as migrações de configuração, receipts e
-ledger. A migração v20 `command_storage_initial` pertence ao registro central
+ledger. A migração v21 `command_storage_initial` pertence ao registro central
 da AEP-0076: fica adiada na abertura genérica do banco e é concluída pelo host
 com dados e carimbo na mesma transação. O App chama a preparação após carregar
 o cofre, tanto na inicialização quanto em sua reconfiguração. Não há executor,

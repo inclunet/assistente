@@ -1,9 +1,10 @@
 import { forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { WorkspaceTab } from '../../store/workspaceStore';
 import TaskListView from './TaskListView';
+import { requestWorkspacePanelFocus } from '../workspace/workspacePanelFocusRegistry';
 
 const openCreateModalMock = vi.fn();
 const registerWorkspaceChatAdapterMock = vi.hoisted(() => vi.fn());
@@ -30,9 +31,12 @@ const taskListStoreState = vi.hoisted(() => ({
   loadingByTaskListId: new Map<string, boolean>(),
   loadingTaskPagesByListId: new Map<string, boolean>(),
   taskPageLoadErrors: new Map<string, string>(),
+  errors: new Map<string, string>(),
   loadTaskList: vi.fn(),
   loadMoreTasks: vi.fn(),
   loadAllTasksForBoard: vi.fn(),
+  cancelBoardTaskLoad: vi.fn(),
+  clearError: vi.fn(),
   setViewMode: vi.fn(),
   cloneTaskList: vi.fn(),
   clearTaskList: vi.fn(),
@@ -135,7 +139,12 @@ vi.mock('./KanbanBoard', () => ({
     useImperativeHandle(ref, () => ({
       openCreateModal: openCreateModalMock,
     }));
-    return <div>kanban-board</div>;
+    // Espelha o contrato de foco real: container focável com role="grid".
+    return (
+      <div className="kanban-board" role="grid" tabIndex={0}>
+        kanban-board
+      </div>
+    );
   }),
 }));
 
@@ -164,10 +173,15 @@ describe('TaskListView', () => {
     taskListStoreState.loadMoreTasks.mockReset();
     taskListStoreState.loadAllTasksForBoard.mockReset();
     taskListStoreState.loadAllTasksForBoard.mockResolvedValue(205);
-    taskListStoreState.taskPages = new Map();
+    taskListStoreState.cancelBoardTaskLoad.mockReset();
+    taskListStoreState.taskPages = new Map([
+      ['tasklist-1', { nextCursor: '', hasMore: false, totalCount: 0 }],
+    ]);
     taskListStoreState.loadingByTaskListId = new Map();
     taskListStoreState.loadingTaskPagesByListId = new Map();
     taskListStoreState.taskPageLoadErrors = new Map();
+    taskListStoreState.errors = new Map();
+    taskListStoreState.clearError.mockReset();
     taskListStoreState.listBoardCustomActions.mockReset();
     taskListStoreState.listBoardCustomActions.mockResolvedValue([]);
     taskListStoreState.setTaskListConversation.mockReset();
@@ -181,6 +195,34 @@ describe('TaskListView', () => {
         workflow: { id: 'workflow-1', taskListId: 'tasklist-1', statuses: [], allowedTransitions: {}, initialStatusId: 1 },
       }],
     ]);
+  });
+
+  it('carrega a primeira página quando o cache contém apenas metadados', async () => {
+    taskListStoreState.taskPages = new Map();
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    expect(screen.getByText('Carregando...')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(taskListStoreState.loadTaskList).toHaveBeenCalledTimes(1);
+      expect(taskListStoreState.loadTaskList).toHaveBeenCalledWith('tasklist-1');
+    });
+  });
+
+  it('expõe erro da primeira página e permite retry acessível', async () => {
+    const user = userEvent.setup();
+    taskListStoreState.taskLists = new Map();
+    taskListStoreState.taskPages = new Map();
+    taskListStoreState.errors = new Map([
+      ['loadTaskList:tasklist-1', 'falha transitória'],
+    ]);
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    expect(screen.getByText('falha transitória')).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith('falha transitória', 'assertive');
+    await user.click(screen.getByRole('button', { name: 'Tentar novamente' }));
+
+    expect(taskListStoreState.clearError).toHaveBeenCalledWith('loadTaskList:tasklist-1');
+    expect(taskListStoreState.loadTaskList).toHaveBeenCalledWith('tasklist-1');
   });
 
   it('não responde a atalhos globais quando o painel está inativo', async () => {
@@ -428,6 +470,85 @@ describe('TaskListView', () => {
 
     await Promise.resolve();
     expect(taskListStoreState.setTaskListConversation).not.toHaveBeenCalled();
+  });
+
+  function kanbanListReady() {
+    taskListStoreState.taskLists = new Map([
+      ['tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Board',
+        preferredViewMode: 'kanban',
+        tasks: [{ id: 'task-1', taskListId: 'tasklist-1', title: 'Card', statusId: 1, order: 0 }],
+        workflow: {
+          id: 'workflow-1',
+          taskListId: 'tasklist-1',
+          statuses: [{ id: 1, order: 0, label: 'A fazer' }],
+          allowedTransitions: {},
+          initialStatusId: 1,
+        },
+      }],
+    ]);
+    taskListStoreState.taskPages = new Map([
+      ['tasklist-1', { nextCursor: '', hasMore: false, totalCount: 1 }],
+    ]);
+  }
+
+  it('registra handler de foco de painel e foca a área default do board quando pronto', async () => {
+    workspacePanelState.isActive = true;
+    kanbanListReady();
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    // Simula o WorkspaceLayout roteando o foco para este painel.
+    let accepted = false;
+    act(() => {
+      accepted = requestWorkspacePanelFocus('tasklist-tab');
+    });
+    expect(accepted).toBe(true);
+
+    await waitFor(() => {
+      expect(document.querySelector('.kanban-board')).toHaveFocus();
+    });
+  });
+
+  it('adia o foco do painel até o board terminar de carregar', async () => {
+    workspacePanelState.isActive = true;
+    // Estado inicial: sem taskList/taskPage → tela "Carregando...".
+    taskListStoreState.taskLists = new Map();
+    taskListStoreState.taskPages = new Map();
+    const { rerender } = render(<TaskListView taskListId="tasklist-1" />);
+
+    expect(screen.getByText('Carregando...')).toBeInTheDocument();
+
+    // Pedido de foco chega durante o carregamento: aceito, mas ainda sem board.
+    let accepted = false;
+    act(() => {
+      accepted = requestWorkspacePanelFocus('tasklist-tab');
+    });
+    expect(accepted).toBe(true);
+    await Promise.resolve();
+    expect(document.querySelector('.kanban-board')).toBeNull();
+
+    // Board carrega: o pedido pendente é atendido sem nova interação.
+    kanbanListReady();
+    rerender(<TaskListView taskListId="tasklist-1" />);
+
+    await waitFor(() => {
+      expect(document.querySelector('.kanban-board')).toHaveFocus();
+    });
+  });
+
+  it('não atende pedido de foco quando o painel está inativo', async () => {
+    workspacePanelState.isActive = false;
+    kanbanListReady();
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    let accepted = true;
+    act(() => {
+      accepted = requestWorkspacePanelFocus('tasklist-tab');
+    });
+    expect(accepted).toBe(false);
+    await Promise.resolve();
+    expect(document.querySelector('.kanban-board')).not.toHaveFocus();
   });
 
   it('não re-vincula quando a lista já aponta para a conversa do chat', async () => {

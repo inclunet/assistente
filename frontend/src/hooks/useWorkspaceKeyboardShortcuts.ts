@@ -23,6 +23,7 @@ import { useShortcutsHelpStore } from '../store/shortcutsHelpStore';
 import { isModalOpen } from '../components/ui/Modal';
 import { useAnnouncer } from './useAnnouncer';
 import { restoreDefaultFocus } from './useDefaultFocus';
+import { routeWorkspacePanelFocus } from '../components/workspace/workspacePanelFocusRegistry';
 import { createWorkspaceTab } from '../lib/createWorkspaceTab';
 import { useUIStore } from '../store/uiStore';
 import { logger } from '../utils/logger';
@@ -182,7 +183,7 @@ export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShort
       if (event.ctrlKey && event.key === 'w' && !event.shiftKey && !event.altKey && activeTabId) {
         event.preventDefault();
         if (isModalOpen()) return;
-        void removeTab(activeTabId).then(() => requestAnimationFrame(() => restoreDefaultFocus()));
+        void removeTab(activeTabId).then(focusAfterTabClose);
         return;
       }
 
@@ -190,7 +191,7 @@ export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShort
       if (event.ctrlKey && event.key === 'F4' && activeTabId) {
         event.preventDefault();
         if (isModalOpen()) return;
-        void removeTab(activeTabId).then(() => requestAnimationFrame(() => restoreDefaultFocus()));
+        void removeTab(activeTabId).then(focusAfterTabClose);
         return;
       }
 
@@ -251,6 +252,23 @@ export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShort
         }
       }
     };
+
+    // Após fechar uma aba, o backend escolhe a sucessora (mesma posição). O foco
+    // precisa seguir o mesmo contrato da troca por atalho: se a sucessora for um
+    // painel assíncrono (editor/tasklist) que ainda não montou, enfileira; senão
+    // usa o handler do painel ou o default da página. Lê o estado atual da store
+    // para não depender de closures obsoletas.
+    function focusAfterTabClose() {
+      requestAnimationFrame(() => {
+        const ws = useWorkspaceStore.getState().workspace;
+        const newActiveId = ws?.activeTabId;
+        if (!newActiveId) {
+          restoreDefaultFocus();
+          return;
+        }
+        routeWorkspacePanelFocus(newActiveId);
+      });
+    }
 
     function navigateTab(direction: 1 | -1) {
       if (tabs.length <= 1) return;

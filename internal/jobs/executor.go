@@ -940,6 +940,14 @@ func (e *JobExecutor) applyPayloadTemplate(ctx context.Context, job *Job, output
 		return output
 	}
 
+	// Template que renderiza vazio (ex.: campos ausentes em .output/.event em
+	// jobs de intervalo) significa "sem override": cai de volta no output sem
+	// ruído. Evita o falso WARN "unexpected end of JSON input" repetido a cada
+	// disparo (observado ~40x no assistente.log para um único job).
+	if strings.TrimSpace(renderedStr) == "" {
+		return output
+	}
+
 	var result map[string]any
 	if err := json.Unmarshal([]byte(renderedStr), &result); err != nil {
 		logging.Logger(ctx, "jobs.executor").Warn("payload_template JSON parse failed", slog.Any("error", err))

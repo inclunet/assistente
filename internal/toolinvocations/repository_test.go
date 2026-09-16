@@ -651,3 +651,128 @@ func TestRepositoryCleanOrphanChat(t *testing.T) {
 		t.Fatalf("chat-orphan deveria ter sido removido, got %#v", remaining)
 	}
 }
+
+// TestResolveToolCatalogID_UsaCacheComTTL prova que uma resolução positiva é
+// servida do cache em memória (sem tocar o banco) dentro do TTL e volta a
+// consultar o banco depois que a entrada expira. O efeito é observável: após a
+// primeira resolução, a linha é apagada do banco; enquanto o TTL vale, a
+// resolução ainda retorna o ID cacheado; passado o TTL, retorna "não encontrado".
+func TestResolveToolCatalogID_UsaCacheComTTL(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	clock := time.Now()
+	repo.now = func() time.Time { return clock }
+
+	toolID, err := repo.ResolveToolCatalogID(userA, "echo")
+	if err != nil {
+		t.Fatalf("resolve inicial: %v", err)
+	}
+	if toolID == "" {
+		t.Fatal("ID vazio na resolução inicial")
+	}
+
+	// Remove a linha do catálogo: qualquer resolução subsequente que atinja o
+	// banco falharia. Só o cache pode continuar respondendo.
+	if err := database.DB().Where("name = ?", "echo").Delete(&database.ToolCatalog{}).Error; err != nil {
+		t.Fatalf("delete catálogo: %v", err)
+	}
+
+	cached, err := repo.ResolveToolCatalogID(userA, "echo")
+	if err != nil {
+		t.Fatalf("resolve dentro do TTL deveria vir do cache: %v", err)
+	}
+	if cached != toolID {
+		t.Fatalf("cache retornou ID divergente: got=%s want=%s", cached, toolID)
+	}
+
+	// Avança o relógio além do TTL: a entrada expira e a resolução volta ao banco
+	// (agora vazio), retornando "não encontrado".
+	clock = clock.Add(toolCatalogResolveCacheTTL + time.Second)
+	if _, err := repo.ResolveToolCatalogID(userA, "echo"); !errors.Is(err, ErrToolCatalogNotFound) {
+		t.Fatalf("após expirar o TTL, esperado ErrToolCatalogNotFound, got %v", err)
+	}
+}
+
+// TestResolveToolCatalogID_CacheIsoladoPorUsuario garante que o cache é chaveado
+// por usuário: a entrada cacheada de um usuário nunca é servida a outro (AEP-0104).
+func TestResolveToolCatalogID_CacheIsoladoPorUsuario(t *testing.T) {
+	repo, userA, userB := setupRepositoryTest(t)
+	clock := time.Now()
+	repo.now = func() time.Time { return clock }
+
+	ownerA := "user-a"
+	ownerB := "user-b"
+	seedRow := func(id, owner string) {
+		if err := database.DB().Create(&database.ToolCatalog{
+			UUIDModel:          database.UUIDModel{ID: id},
+			UserID:             &owner,
+			Name:               "scoped_tool",
+			DisplayName:        "scoped_tool",
+			Origin:             tools.ToolOriginMCPBridge,
+			AvailabilityStatus: tools.ToolAvailabilityAvailable,
+		}).Error; err != nil {
+			t.Fatalf("seed %s: %v", id, err)
+		}
+	}
+	seedRow("scoped-a", ownerA)
+	seedRow("scoped-b", ownerB)
+
+	gotA, err := repo.ResolveToolCatalogID(userA, "scoped_tool")
+	if err != nil || gotA != "scoped-a" {
+		t.Fatalf("userA resolve=%s err=%v, esperado scoped-a", gotA, err)
+	}
+	gotB, err := repo.ResolveToolCatalogID(userB, "scoped_tool")
+	if err != nil || gotB != "scoped-b" {
+		t.Fatalf("userB resolve=%s err=%v, esperado scoped-b (não pode servir cache de A)", gotB, err)
+	}
+
+	// Remove ambas as linhas: dentro do TTL cada usuário só pode receber a SUA
+	// própria entrada cacheada.
+	if err := database.DB().Where("name = ?", "scoped_tool").Delete(&database.ToolCatalog{}).Error; err != nil {
+		t.Fatalf("delete catálogos: %v", err)
+	}
+	if got, err := repo.ResolveToolCatalogID(userA, "scoped_tool"); err != nil || got != "scoped-a" {
+		t.Fatalf("cache userA=%s err=%v, esperado scoped-a", got, err)
+	}
+	if got, err := repo.ResolveToolCatalogID(userB, "scoped_tool"); err != nil || got != "scoped-b" {
+		t.Fatalf("cache userB=%s err=%v, esperado scoped-b", got, err)
+	}
+}
+
+// TestResolveToolCatalogID_NaoCacheiaArchival garante que uma resolução que cai
+// numa entrada archival (placeholder) não é fixada: assim que a tool real aparece
+// no catálogo, a próxima resolução prefere a real (a ordenação desprioriza
+// archival).
+func TestResolveToolCatalogID_NaoCacheiaArchival(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+
+	archID, err := repo.ResolveOrCreateArchivalToolCatalogID(userA, "arch_tool")
+	if err != nil {
+		t.Fatalf("cria archival: %v", err)
+	}
+	first, err := repo.ResolveToolCatalogID(userA, "arch_tool")
+	if err != nil || first != archID {
+		t.Fatalf("resolve archival=%s err=%v, esperado %s", first, err, archID)
+	}
+
+	// Surge a tool real (não-archival) com o mesmo nome. Se o archival tivesse
+	// sido cacheado, a resolução continuaria retornando archID.
+	owner := "user-a"
+	if err := database.DB().Create(&database.ToolCatalog{
+		UUIDModel:          database.UUIDModel{ID: "arch-real"},
+		UserID:             &owner,
+		Name:               "arch_tool",
+		DisplayName:        "arch_tool",
+		Origin:             tools.ToolOriginMCPBridge,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}).Error; err != nil {
+		t.Fatalf("seed real: %v", err)
+	}
+
+	got, err := repo.ResolveToolCatalogID(userA, "arch_tool")
+	if err != nil {
+		t.Fatalf("resolve após tool real: %v", err)
+	}
+	if got != "arch-real" {
+		t.Fatalf("resolve=%s, esperado arch-real (archival não pode ter sido cacheado)", got)
+	}
+}

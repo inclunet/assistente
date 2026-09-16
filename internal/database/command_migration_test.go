@@ -29,7 +29,7 @@ func openCommandMigrationTestDB(t *testing.T) *gorm.DB {
 func commandMigrationStampCount(t *testing.T, db *gorm.DB) int64 {
 	t.Helper()
 	var count int64
-	if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version = 20 AND name = ?", "command_storage_initial").Scan(&count).Error; err != nil {
+	if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version = 21 AND name = ?", "command_storage_initial").Scan(&count).Error; err != nil {
 		t.Fatalf("ler v20: %v", err)
 	}
 	return count
@@ -124,7 +124,7 @@ func TestApplyCommandStorageMigrationRejectsConflictingV20Name(t *testing.T) {
 				t.Fatal("callback executado apesar da colisão de nome")
 			}
 			var name string
-			if err := db.Raw("SELECT name FROM schema_migrations WHERE version = 20").Scan(&name).Error; err != nil {
+			if err := db.Raw("SELECT name FROM schema_migrations WHERE version = 21").Scan(&name).Error; err != nil {
 				t.Fatal(err)
 			}
 			if name != conflictingName {

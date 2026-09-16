@@ -213,10 +213,24 @@ func TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently(t *testing.T) {
 				 WHERE origin_type = 'chat'
 				   AND conversation_id IS NOT NULL
 				   AND turn_id IS NOT NULL
+				   AND model_iteration = CASE
+				         WHEN json_valid(metadata)
+				          AND json_type(metadata, '$.display.iteration') IN ('integer', 'real')
+				         THEN CAST(json_extract(metadata, '$.display.iteration') AS INTEGER)
+				         ELSE 0
+				       END
+				   AND external = 0
 				   AND input_hash <> ''
 				   AND output_hash <> ''
 				   AND migration_provenance = ?`, toolLedgerMigrationProvenance); got != 2 {
 				t.Fatalf("backfill de chat publicado incompleto: %d", got)
+			}
+			if got := queryCount(t, database, `
+				SELECT COUNT(*) FROM pragma_index_list('tool_invocations')
+				 WHERE name IN (?, ?)`,
+				toolModelCallsConversationIndex, toolModelCallsTurnIndex,
+			); got != 2 {
+				t.Fatalf("índices de model calls ausentes após upgrade publicado: %d", got)
 			}
 			if got := queryCount(t, database, `
 				SELECT COUNT(*)
@@ -233,7 +247,7 @@ func TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if diagnostic.SchemaVersion != 19 || diagnostic.AppliedCount != len(schemaMigrations)-6 || !reflect.DeepEqual(diagnostic.PendingVersions, []int{20, 21, 22, 23, 26, 27}) {
+			if diagnostic.SchemaVersion != 20 || diagnostic.AppliedCount != len(schemaMigrations)-6 || !reflect.DeepEqual(diagnostic.PendingVersions, []int{21, 22, 23, 24, 27, 28}) {
 				t.Fatalf("pendências antes da composição de comandos: %#v", diagnostic)
 			}
 			// O registro exige handshake explícito do host; o DDL real desses

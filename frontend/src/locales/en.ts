@@ -255,6 +255,7 @@ const en = {
         streamingIdleTimeout: 'Provider stopped responding mid-generation (idle timeout).',
         streamingRetriesExhausted: 'The response could not be completed after several connection attempts.',
         streamingPromptCacheHintRejected: 'The provider rejected the cache hint even after it was disabled. Check the gateway configuration or disable cache hints in the profile.',
+        streamingTokenRateLimit: 'The provider token quota was reached (HTTP 429). Wait for the quota to reset and try again.',
       },
       stopReading: 'Stop reading',
       stopReadingLabel: 'Stop text reading',
@@ -1096,13 +1097,22 @@ const en = {
     },
 
     mcp: {
-      status: { connected: 'Connected', connecting: 'Connecting...', disconnected: 'Disconnected', error: 'Error' },
+      status: {
+        connected: 'Connected',
+        connecting: 'Connecting...',
+        disconnected: 'Disconnected',
+        error: 'Error',
+        needsReauth: 'Reauthorization required',
+        needsReauthHint: 'The OAuth token expired and could not be refreshed. Click "Reauthorize" to authenticate again.',
+      },
       announce: {
         editorClosed: 'Editor closed',
         serverRemoved: 'Server removed',
         serverConnected: 'Server {{name}} connected',
         serverDisconnected: 'Server {{name}} disconnected',
         serverReconnected: 'Server {{name}} reconnected',
+        reauthorizing: 'Reauthorizing server {{name}}. A browser window will open.',
+        serverReauthorized: 'Server {{name}} reauthorized',
       },
       error: {
         slugRequired: 'Slug (identifier) is required',
@@ -1113,6 +1123,7 @@ const en = {
         connectFailed: 'Error connecting',
         disconnectFailed: 'Error disconnecting',
         reconnectFailed: 'Error reconnecting',
+        reauthorizeFailed: 'Error reauthorizing',
       },
       toast: {
         created: 'MCP server created!',
@@ -1122,6 +1133,7 @@ const en = {
         serverConnected: 'Server "{{name}}" connected!',
         serverDisconnected: 'Server "{{name}}" disconnected',
         serverReconnected: 'Server "{{name}}" reconnected!',
+        serverReauthorized: 'Server "{{name}}" reauthorized!',
       },
       confirm: {
         removeTitle: 'Remove MCP Server',
@@ -1131,6 +1143,7 @@ const en = {
       actions: {
         connectDisconnect: 'Connect/Disconnect',
         reconnect: 'Reconnect',
+        reauthorize: 'Reauthorize',
         removeServer: 'Remove server',
         duplicate: 'Duplicate',
         connect: 'Connect',

@@ -1,6 +1,9 @@
 # AEP-0104 — Tool invocations como ledger canônico
 
 **Status:** Done — ledger exclusivo, backfill e cutover físico entregues
+(endurecido para bancos legados grandes: `hash_mismatch` é aviso de auditoria
+não bloqueante e o `foreign_key_check` do cutover é escopado às tabelas
+reconstruídas — ver D5, D9 e "Endurecimento da migração v18/v19")
 
 ## Resumo
 
@@ -60,6 +63,21 @@ archival é determinístico, indisponível para execução e existe apenas para
 preservar identidade histórica quando a entrada original não pode ser
 resolvida.
 
+A resolução `nome -> tool_catalog_id` roda a CADA invocação (chat e jobs) e,
+sob carga de jobs, o `SELECT` correspondente vira o maior ofensor de contenção
+do writer SQLite (observado até ~80s e `context deadline exceeded`). O
+`toolinvocations.DBRepository` mantém um cache em memória desse mapeamento,
+alinhado à invariante 8 (escopo por usuário):
+
+- chave composta `(user_id, nome)` — nenhuma entrada de um usuário é servida a
+  outro;
+- só entradas **positivas e não-archival** são cacheadas — o mapeamento é
+  estável (upsert reusa o mesmo ID; detach preserva a linha), enquanto archival
+  é placeholder que a ordenação suplanta quando a tool real aparece;
+- "não encontrado" nunca é cacheado (tool nova resolve na próxima chamada);
+- TTL curto (60s) limita a janela de staleness em eventos raros de
+  exclusão+recriação de linha do catálogo.
+
 ### D2 — Projeção leve
 
 Janela e `turnPatch` retornam `ToolInvocationSummary` em
@@ -111,8 +129,22 @@ Estados avançam monotonicamente quando o conjunto legado não muda. Durante a
 janela transitória entre as fases 2 e 3, uma nova escrita legada invalida a
 prova anterior: o recurso volta de `backfilled` para `pending` até o backfill
 incremental conferir o novo conjunto. Ambiguidade, owner vazio, JSON inválido
-sem representação segura ou diferença de hash bloqueiam o avanço e produzem
-diagnóstico sem payload.
+sem representação segura ou perda real de linhas (`count_mismatch`) bloqueiam o
+avanço e produzem diagnóstico sem payload.
+
+**Divergência apenas de hash (`hash_mismatch`) é aviso de auditoria não
+bloqueante.** Quando os dados estão presentes (contagens conferem) e só o hash
+diverge, a reconciliação conclui o recurso (`backfilled`) preservando
+`last_error_code='hash_mismatch'` para auditoria e emitindo um `warn` sem
+payload. O motivo é estrutural: para invocações já existentes, o ledger contém
+o dado autoritativo de runtime (envelope canônico `{"content":…}` ou output já
+gravado), que legitimamente não coincide, por hash, com o output legado bruto
+do recurso. Comparar `digestValue` (legado bruto) com `digestCanonicalOutput`
+(ledger) é comparar representações normalizadas de formas diferentes, então a
+divergência é sistemática e benigna. Manter esses recursos `pending` para
+sempre travava a inicialização em bancos grandes com histórico. `count_mismatch`
+e ambiguidade continuam bloqueando por representarem perda ou associação
+duvidosa.
 
 ### D6 — Backfill retomável e idempotente
 
@@ -162,8 +194,16 @@ e espaço livre. O gate exige:
 - zero itens `pending`;
 - zero ambiguidades;
 - zero linhas ou payloads técnicos sem representação integral no ledger;
-- igualdade de contagens e hashes;
-- `foreign_key_check` vazio e `integrity_check=ok`.
+- igualdade de contagens (perda de linhas = `count_mismatch` = bloqueio);
+  divergência apenas de hash é aviso de auditoria e não bloqueia (ver D5);
+- `integrity_check=ok` e `foreign_key_check` **escopado às tabelas
+  reconstruídas pelo cutover** (`chat_messages` e `job_runs`).
+
+O `foreign_key_check` é escopado de propósito: o cutover só reconstrói
+`chat_messages` e `job_runs`, então um check GLOBAL abortaria por órfãos
+PRÉ-EXISTENTES em tabelas não tocadas (ex.: `chat_tabs`→`conversations`,
+`http_endpoints`→`http_agents`), problemas alheios ao ledger que travariam a
+migração. `integrity_check` permanece global.
 
 O rebuild usa shadow tables e `INSERT` explícito em uma transação, recria
 índices e FTS, e valida um segundo boot idempotente. Após o drop, rollback
@@ -236,9 +276,12 @@ transacionalmente do owner. Testes em `internal/toolinvocations` e
 o contador `tool_invocation_persistence_failures_total`.
 
 Token stats contam iterações técnicas por `(conversation_id, turn_id,
-metadata.display.iteration)` no ledger. Por isso, iterações locais sem texto
-não precisam criar uma linha `assistant` vazia nem qualquer marcador técnico
-em `chat_messages`.
+model_iteration)` no ledger. A migração v20 materializa `model_iteration` e
+`external` a partir do metadata já migrado, e os escritores mantêm ambos no
+ledger. A contagem usa índices parciais por conversa/turno, sem interpretar
+JSON nem consultar `chat_messages`. Por isso, iterações locais sem texto não
+precisam criar uma linha `assistant` vazia nem qualquer marcador técnico em
+`chat_messages`.
 
 ### Fase 4 — Consumidores canônicos
 
@@ -300,6 +343,45 @@ backup e segundo boot sem alteração. Modelos, repositories, timeline,
 sumarização, estatísticas, histórico e portabilidade não contêm dual-read ou
 dual-write; `CreateMessageWithContext` rejeita `role=tool`.
 
+## Endurecimento da migração v18/v19 (bancos legados grandes)
+
+Em bancos grandes de produção com histórico (evidência real: ~2,8 GB, ~9.264
+recursos), o cutover travava a inicialização e deixava o usuário preso em
+"Autenticação indisponível" (o `InitDatabase` abortava de forma fatal antes de
+subir os serviços de auth). Duas causas, ambas benignas quanto à integridade
+dos dados:
+
+1. **`hash_mismatch` sistemático em recursos já migrados.** 9.103 recursos
+   (9.052 `job_run` + 49 `conversation`) ficaram `pending` com
+   `hash_mismatch`, todos com `legacy_rows == ledger_rows` — os dados FORAM
+   migrados; só o hash divergia. A causa é comparar o hash do output legado
+   bruto (`digestValue`) com o hash do output canônico/runtime do ledger
+   (`digestCanonicalOutput`), representações normalizadas de formas diferentes
+   (ver D5). Correção: `hash_mismatch` passou a ser terminal (`backfilled`)
+   preservando `last_error_code` para auditoria e emitindo `warn`; o gate da
+   v18 e o gate da v19 deixaram de bloquear por hash/digest. `count_mismatch`
+   e ambiguidade continuam bloqueando.
+2. **`foreign_key_check` GLOBAL abortando por órfãos alheios.** A validação da
+   v19 achava 32 órfãos PRÉ-EXISTENTES em tabelas fora do cutover
+   (`chat_tabs`→`conversations`, `http_endpoints`→`http_agents`). Correção: o
+   `foreign_key_check` foi escopado às tabelas efetivamente reconstruídas
+   (`chat_messages` e `job_runs`); `integrity_check` permanece global (ver D9).
+
+Evidência (testes em `internal/database`):
+
+- `TestToolLedgerBackfillDivergenciaDeHashConcluiSemSobrescreverLedger`:
+  recurso só com `hash_mismatch` conclui (`backfilled`), preserva o código,
+  não sobrescreve o ledger e não bloqueia o gate da v19.
+- `TestToolLedgerBackfillCountMismatchContinuaBloqueando`: `count_mismatch`
+  segue pendente e bloqueia o gate.
+- `TestValidateCutoverIgnoraOrfaoEmTabelaNaoLedger` e
+  `TestValidateCutoverFalhaComOrfaoEmTabelaDoCutover`: órfão em tabela
+  não-ledger não aborta o cutover; órfão em `chat_messages`/`job_runs` ainda
+  aborta.
+- Fixtures publicadas (`TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently`,
+  `TestPublishedReleaseCutoverCreatesRestorableBackup`) permanecem verdes: nelas
+  os hashes conferem e o cutover conclui como antes.
+
 ## Entrega em PRs empilhados
 
 1. `arquitetura/tool-invocations-canonicas` sobre `main`;
@@ -328,8 +410,10 @@ retargetado para `main`.
 ## Critérios de aceitação
 
 - [x] 100% do legado representado no ledger; ambiguidades iguais a zero.
-- [x] Contagens e hashes normalizados iguais antes/depois.
-- [x] `integrity_check=ok`, `foreign_key_check` vazio e segundo boot no-op.
+- [x] Contagens iguais antes/depois; divergência apenas de hash é registrada
+      como aviso de auditoria (`hash_mismatch`), não bloqueia (ver D5).
+- [x] `integrity_check=ok`, `foreign_key_check` das tabelas reconstruídas
+      (`chat_messages`, `job_runs`) vazio e segundo boot no-op.
 - [x] Todos os fluxos novos persistem somente no ledger.
 - [x] Estado `canonical` executa zero consultas/parsers legados.
 - [x] Janela usa quantidade constante de queries; detalhes usam uma query por

@@ -58,7 +58,7 @@ func makeKnownV20Fixture(t *testing.T) envelopeV20Fixture {
 	)`).Error; err != nil {
 		t.Fatalf("criar carimbos v20: %v", err)
 	}
-	if err := legacy.Exec(`INSERT INTO schema_migrations (version, name, applied_at) VALUES (20, 'command_storage_initial', ?)`, time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)).Error; err != nil {
+	if err := legacy.Exec(`INSERT INTO schema_migrations (version, name, applied_at) VALUES (21, 'command_storage_initial', ?)`, time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)).Error; err != nil {
 		t.Fatalf("carimbar v20: %v", err)
 	}
 
@@ -236,7 +236,7 @@ func reorderKnownV20ReceiptColumns(t *testing.T, db *gorm.DB) {
 
 func TestMigrateKnownV20ToV21PreservesLedgerReceiptsDataStampsAndReopen(t *testing.T) {
 	fixture := makeKnownV20Fixture(t)
-	if migrationStamp(t, fixture.db, 20, "command_storage_initial") != 1 || migrationStamp(t, fixture.db, 21, "command_envelope_ownership") != 0 {
+	if migrationStamp(t, fixture.db, 21, "command_storage_initial") != 1 || migrationStamp(t, fixture.db, 22, "command_envelope_ownership") != 0 {
 		t.Fatal("fixture não está exatamente em v20")
 	}
 	if hasColumn(t, fixture.db, "command_idempotency_keys", "actor_type") || hasColumn(t, fixture.db, "command_idempotency_keys", "actor_id") || hasColumn(t, fixture.db, "command_idempotency_keys", "input_fingerprint") {
@@ -246,7 +246,7 @@ func TestMigrateKnownV20ToV21PreservesLedgerReceiptsDataStampsAndReopen(t *testi
 	if err := Migrate(context.Background(), fixture.db); err != nil {
 		t.Fatalf("upgrade v20→v21: %v", err)
 	}
-	if migrationStamp(t, fixture.db, 20, "command_storage_initial") != 1 || migrationStamp(t, fixture.db, 21, "command_envelope_ownership") != 1 {
+	if migrationStamp(t, fixture.db, 21, "command_storage_initial") != 1 || migrationStamp(t, fixture.db, 22, "command_envelope_ownership") != 1 {
 		t.Fatal("carimbos não preservaram v20 e não publicaram v21")
 	}
 	if !hasColumn(t, fixture.db, "command_idempotency_keys", "actor_type") || !hasColumn(t, fixture.db, "command_idempotency_keys", "actor_id") || !hasColumn(t, fixture.db, "command_idempotency_keys", "input_fingerprint") {
@@ -291,7 +291,7 @@ func TestMigrateKnownV20ToV21PreservesLedgerReceiptsDataStampsAndReopen(t *testi
 	if err := Migrate(context.Background(), reopened); err != nil {
 		t.Fatalf("reabrir schema v21: %v", err)
 	}
-	if migrationStamp(t, reopened, 20, "command_storage_initial") != 1 || migrationStamp(t, reopened, 21, "command_envelope_ownership") != 1 {
+	if migrationStamp(t, reopened, 21, "command_storage_initial") != 1 || migrationStamp(t, reopened, 22, "command_envelope_ownership") != 1 {
 		t.Fatal("reabertura duplicou ou removeu carimbo")
 	}
 	if !hasColumn(t, reopened, "command_idempotency_keys", "actor_type") {
@@ -310,7 +310,7 @@ func TestMigrateKnownV20DriftFailsClosedAndRollsBackUpgrade(t *testing.T) {
 	if err := Migrate(context.Background(), fixture.db); !errors.Is(err, ErrStorage) {
 		t.Fatalf("drift aceito: %v", err)
 	}
-	if migrationStamp(t, fixture.db, 20, "command_storage_initial") != 1 || migrationStamp(t, fixture.db, 21, "command_envelope_ownership") != 0 {
+	if migrationStamp(t, fixture.db, 21, "command_storage_initial") != 1 || migrationStamp(t, fixture.db, 22, "command_envelope_ownership") != 0 {
 		t.Fatal("falha de drift publicou carimbo")
 	}
 	if hasColumn(t, fixture.db, "command_idempotency_keys", "actor_type") || hasColumn(t, fixture.db, "command_idempotency_keys", "actor_id") || hasColumn(t, fixture.db, "command_idempotency_keys", "input_fingerprint") {
@@ -335,7 +335,7 @@ func TestMigrateKnownV20ReceiptReorderedColumnsPreservesData(t *testing.T) {
 	if err := Migrate(context.Background(), fixture.db); err != nil {
 		t.Fatalf("upgrade v20→v21 com colunas de receipt reordenadas: %v", err)
 	}
-	if migrationStamp(t, fixture.db, 20, "command_storage_initial") != 1 || migrationStamp(t, fixture.db, 21, "command_envelope_ownership") != 1 {
+	if migrationStamp(t, fixture.db, 21, "command_storage_initial") != 1 || migrationStamp(t, fixture.db, 22, "command_envelope_ownership") != 1 {
 		t.Fatal("upgrade reordenado não publicou os carimbos esperados")
 	}
 	var inputFingerprint *string

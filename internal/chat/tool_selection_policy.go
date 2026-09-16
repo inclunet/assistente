@@ -63,6 +63,15 @@ type ProfileToolConfig struct {
 	// PreferredPackages lista pacotes (ToolCatalogEntry.Package) priorizados no
 	// ranking do planner para este perfil/superfície.
 	PreferredPackages []string
+	// SkillAllowedTools e SkillDeniedTools carregam a allowlist/denylist do skill
+	// invocado no turno (AEP-0072 D5). São a MESMA fonte de verdade do gate do
+	// executor (tools.ExecutionContext.AllowedTools/DeniedTools): quando presentes,
+	// tools fora da allowlist (se não-vazia) ou dentro da denylist deixam de ser
+	// anunciadas ao modelo, além de continuarem bloqueadas na execução (defesa em
+	// profundidade). Escopo LOCAL/builtin; a allowlist de MCP nativo é outro
+	// conceito (ver filterToolNamesForNativeMCPAllowlist).
+	SkillAllowedTools []string
+	SkillDeniedTools  []string
 }
 
 // ---------------------------------------------------------------------------

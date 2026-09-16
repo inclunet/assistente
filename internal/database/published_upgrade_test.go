@@ -90,7 +90,7 @@ func TestPublishedDatabase019UpgradesDirectlyToLatest(t *testing.T) {
 	// O banco publicado termina a fase database, mas não pode inventar a
 	// composição do host de comandos. As migrações 24/25 já rodaram e o
 	// watermark deve permanecer em 19 enquanto 20–23 estiverem pendentes.
-	if diagnostic.SchemaVersion != 19 || diagnostic.AppliedCount != len(schemaMigrations)-6 || !reflect.DeepEqual(diagnostic.PendingVersions, []int{20, 21, 22, 23, 26, 27}) {
+	if diagnostic.SchemaVersion != 20 || diagnostic.AppliedCount != len(schemaMigrations)-6 || !reflect.DeepEqual(diagnostic.PendingVersions, []int{21, 22, 23, 24, 27, 28}) {
 		t.Fatalf("diagnóstico antes da composição do host: %#v", diagnostic)
 	}
 	// Este teste do registro valida o handshake explícito; DDL e preservação

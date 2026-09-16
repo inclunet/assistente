@@ -92,6 +92,8 @@ type ToolInvocationExport struct {
 	Input              string     `json:"input,omitempty"`
 	Output             string     `json:"output,omitempty"`
 	Metadata           string     `json:"metadata,omitempty"`
+	ModelIteration     int        `json:"modelIteration,omitempty"`
+	External           bool       `json:"external,omitempty"`
 	DisplayName        string     `json:"displayName,omitempty"`
 	InputPreview       string     `json:"inputPreview,omitempty"`
 	OutputPreview      string     `json:"outputPreview,omitempty"`

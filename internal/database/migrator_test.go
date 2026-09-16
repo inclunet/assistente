@@ -490,7 +490,7 @@ func TestRealRegistry_FreshDBAppliesAllAndIsIdempotent(t *testing.T) {
 		t.Fatalf("user_version esperado 19 enquanto v20–v23 estão pendentes, tenho %d", uv)
 	}
 	var pendingV20 int64
-	if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version = 20").Scan(&pendingV20).Error; err != nil {
+	if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version = 21").Scan(&pendingV20).Error; err != nil {
 		t.Fatal(err)
 	}
 	if pendingV20 != 0 {

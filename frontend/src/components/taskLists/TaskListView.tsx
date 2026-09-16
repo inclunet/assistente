@@ -11,7 +11,7 @@ import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { useUIStore } from '../../store/uiStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
-import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
+import { registerWorkspacePanelFocus } from '../workspace/workspacePanelFocusRegistry';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
 import { Button } from '../ui/Button';
@@ -49,9 +49,11 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
   const taskList = useTaskListStore((s) => s.taskLists.get(taskListId));
   const taskPage = useTaskListStore((s) => s.taskPages?.get(taskListId));
+  const initialLoadErrorKey = `loadTaskList:${taskListId}`;
+  const initialLoadError = useTaskListStore((s) => s.errors?.get(initialLoadErrorKey));
   const isLoadingTaskPage = useTaskListStore((s) => s.loadingTaskPagesByListId?.has(taskListId) ?? false);
   const taskPageLoadError = useTaskListStore((s) => s.taskPageLoadErrors?.get(taskListId));
-  const { loadTaskList, loadMoreTasks, loadAllTasksForBoard, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
+  const { loadTaskList, loadMoreTasks, loadAllTasksForBoard, cancelBoardTaskLoad, clearError, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
   const { runCustomAction } = useCustomActions();
 
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
@@ -67,6 +69,18 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   );
 
   const boardActionsReqRef = useRef(0);
+  const announcedInitialLoadErrorRef = useRef<string | null>(null);
+  const initialLoadRequestRef = useRef<string | null>(null);
+  const requestInitialLoad = useCallback(() => {
+    if (initialLoadRequestRef.current === taskListId) return;
+    initialLoadRequestRef.current = taskListId;
+    void Promise.resolve(loadTaskList(taskListId)).finally(() => {
+      if (initialLoadRequestRef.current === taskListId) {
+        initialLoadRequestRef.current = null;
+      }
+    });
+  }, [loadTaskList, taskListId]);
+
   const reloadBoardActions = useCallback(() => {
     // Guard por request-id: se taskListId mudar enquanto a Promise anterior ainda
     // está pendente, a resposta antiga não deve sobrescrever a lista mais recente.
@@ -81,10 +95,20 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   }, [reloadBoardActions]);
 
   useEffect(() => {
-    if (!taskList) {
-      void loadTaskList(taskListId);
+    if ((!taskList || !taskPage) && !initialLoadError) {
+      requestInitialLoad();
     }
-  }, [taskListId, taskList, loadTaskList]);
+  }, [taskList, taskPage, initialLoadError, requestInitialLoad]);
+
+  useEffect(() => {
+    if (!initialLoadError) {
+      announcedInitialLoadErrorRef.current = null;
+      return;
+    }
+    if (announcedInitialLoadErrorRef.current === initialLoadError) return;
+    announcedInitialLoadErrorRef.current = initialLoadError;
+    announce(initialLoadError, 'assertive');
+  }, [initialLoadError, announce]);
 
   const contentAreaRef = useRef<HTMLDivElement>(null);
 
@@ -101,12 +125,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     if (grid) { grid.focus(); return true; }
     return false;
   }, []);
-
-  useEffect(() => {
-    if (!isActive) return;
-    registerDefaultFocus(focusContentArea);
-    return () => unregisterDefaultFocus(focusContentArea);
-  }, [focusContentArea, isActive]);
 
   const tasks = useMemo(() => taskList?.tasks || [], [taskList?.tasks]);
   const currentViewMode: ViewMode = taskList?.preferredViewMode || 'list';
@@ -126,6 +144,52 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
       isMountedRef.current = false;
     };
   }, []);
+
+  // Foco de painel assíncrono (tasklist/kanban).
+  //
+  // Ao entrar na aba (Ctrl+Tab/PageUp-Down/Ctrl+N ou ao fechar outra aba), o
+  // `WorkspaceLayout` roteia o foco via `workspacePanelFocusRegistry`. Como o
+  // board carrega páginas de forma assíncrona (tela "Carregando..." antes de
+  // `taskList`/`taskPage`), não dá para focar no instante da troca: replicamos o
+  // padrão do editor (nonce + efeito "quando pronto"). O handler apenas marca um
+  // pedido; um efeito refaz o foco assim que a superfície está renderizada.
+  const panelTabId = panelTab?.id;
+  const [panelFocusNonce, setPanelFocusNonce] = useState(0);
+  const consumedPanelFocusNonceRef = useRef(0);
+
+  useEffect(() => {
+    if (!panelTabId) return;
+    return registerWorkspacePanelFocus(panelTabId, () => {
+      if (!isPanelActiveRef.current || isModalOpen()) return false;
+      setPanelFocusNonce((nonce) => nonce + 1);
+      return true;
+    });
+  }, [panelTabId]);
+
+  useEffect(() => {
+    if (
+      panelFocusNonce === 0 ||
+      consumedPanelFocusNonceRef.current === panelFocusNonce ||
+      !isActive ||
+      isModalOpen() ||
+      !taskList ||
+      !taskPage
+    ) {
+      return;
+    }
+    const nonce = panelFocusNonce;
+    const raf = requestAnimationFrame(() => {
+      if (consumedPanelFocusNonceRef.current === nonce) return;
+      if (!isPanelActiveRef.current || isModalOpen()) return;
+      // Só marca o pedido como consumido quando o foco realmente pousa na
+      // superfície; se o board ainda não montou, deixamos o nonce pendente para
+      // um novo commit (cards carregando, troca de modo) tentar de novo.
+      if (focusContentArea()) {
+        consumedPanelFocusNonceRef.current = nonce;
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [panelFocusNonce, isActive, taskList, taskPage, currentViewMode, focusContentArea]);
 
   const handleLoadBoardPages = useCallback(async (observerGeneration: number) => {
     const shouldAnnounce = () => (
@@ -166,8 +230,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
       if (boardLoadObserverGenerationRef.current === observerGeneration) {
         boardLoadObserverGenerationRef.current += 1;
       }
+      cancelBoardTaskLoad(taskListId);
     };
-  }, [isActive, currentViewMode, hasTaskPage, taskListId, requestBoardBackgroundLoad]);
+  }, [isActive, currentViewMode, hasTaskPage, taskListId, requestBoardBackgroundLoad, cancelBoardTaskLoad]);
 
   useEffect(() => {
     if (
@@ -436,7 +501,24 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     });
   }, [chatBoundConversationId, taskList, taskListId, setTaskListConversation, announce, addToast, t]);
 
-  if (!taskList) {
+  if (!taskPage && initialLoadError) {
+    return (
+      <div className="tasklist-loading">
+        <span>{initialLoadError}</span>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => {
+            clearError(initialLoadErrorKey);
+            requestInitialLoad();
+          }}
+        >
+          {t('common.retry', 'Tentar novamente')}
+        </Button>
+      </div>
+    );
+  }
+  if (!taskList || !taskPage) {
     return <div className="tasklist-loading">{t('tasklist.loading', 'Carregando...')}</div>;
   }
 

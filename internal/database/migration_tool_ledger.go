@@ -31,7 +31,23 @@ const (
 	toolLedgerMigrationProvenance = "aep-0104-v18"
 	toolLedgerArchiveOrigin       = "archival"
 	toolLedgerArchiveUnavailable  = "unavailable"
+
+	// toolLedgerErrorCountMismatch sinaliza perda real de linhas entre o
+	// legado e o ledger: é bloqueante e mantém o recurso pendente.
+	toolLedgerErrorCountMismatch = "count_mismatch"
+	// toolLedgerErrorHashMismatch sinaliza divergência apenas de hash com os
+	// dados presentes (contagens conferem). É um aviso de auditoria não
+	// bloqueante: a reconciliação conclui preservando o código para auditoria.
+	toolLedgerErrorHashMismatch = "hash_mismatch"
 )
+
+// toolLedgerErrorIsBlocking indica se um código de erro deve manter o recurso
+// pendente. Apenas hash_mismatch (dados presentes, divergência benigna de
+// hash) é tratado como aviso não bloqueante; qualquer outro código diferente
+// de vazio bloqueia. Ambiguidade é avaliada à parte via AmbiguousCount.
+func toolLedgerErrorIsBlocking(code string) bool {
+	return code != "" && code != toolLedgerErrorHashMismatch
+}
 
 type legacyToolCall struct {
 	CallID             string
@@ -169,18 +185,29 @@ func migrateToolLedgerBackfill(database *gorm.DB) error {
 				if report.LastErrorCode == "" &&
 					state.ResourceType == toolLedgerResourceConversation &&
 					state.LegacyRows != state.LedgerRows {
-					report.LastErrorCode = "count_mismatch"
+					report.LastErrorCode = toolLedgerErrorCountMismatch
 				} else if report.LastErrorCode == "" &&
 					(state.LegacyInputDigest != state.LedgerInputDigest ||
 						state.LegacyOutputDigest != state.LedgerOutputDigest) {
-					report.LastErrorCode = "hash_mismatch"
+					report.LastErrorCode = toolLedgerErrorHashMismatch
 				}
 				state.AmbiguousCount = report.AmbiguousCount
 				state.LastErrorCode = report.LastErrorCode
 				state.LastProcessedKey = report.LastProcessedKey
 				state.LegacyHighWatermark = report.LegacyHighWatermark
-				if report.AmbiguousCount == 0 && report.LastErrorCode == "" {
+				// hash_mismatch é terminal (backfilled) quando os dados estão
+				// presentes: preservamos o código para auditoria e apenas
+				// avisamos. count_mismatch e ambiguidade seguem pendentes.
+				if report.AmbiguousCount == 0 && !toolLedgerErrorIsBlocking(report.LastErrorCode) {
 					state.State = toolLedgerStateBackfilled
+					if report.LastErrorCode == toolLedgerErrorHashMismatch {
+						logging.Warnf(
+							context.Background(),
+							"database.tool-ledger.backfill",
+							"hash_mismatch benigno concluído resource_type=%s resource_id=%s legacy_rows=%d ledger_rows=%d",
+							state.ResourceType, state.ResourceID, state.LegacyRows, state.LedgerRows,
+						)
+					}
 				} else {
 					state.State = toolLedgerStatePending
 				}
@@ -212,7 +239,8 @@ func migrateToolLedgerBackfill(database *gorm.DB) error {
 	}
 	var pending int64
 	if err := database.Model(&ToolLedgerMigrationState{}).
-		Where("state <> ? OR ambiguous_count > 0 OR last_error_code <> ''", toolLedgerStateBackfilled).
+		Where("state <> ? OR ambiguous_count > 0 OR last_error_code = ?",
+			toolLedgerStateBackfilled, toolLedgerErrorCountMismatch).
 		Count(&pending).Error; err != nil {
 		return err
 	}
@@ -636,6 +664,8 @@ func upsertMigratedChatInvocation(tx *gorm.DB, userID, conversationID string, ca
 			"display_name":         call.Name,
 			"input":                canonicalInput,
 			"output":               canonicalOutput,
+			"model_iteration":      call.Iteration,
+			"external":             false,
 			"input_preview":        structuralPreview(canonicalInput),
 			"output_preview":       structuralPreview(result),
 			"input_bytes":          len([]byte(canonicalInput)),
@@ -673,6 +703,8 @@ func upsertMigratedChatInvocation(tx *gorm.DB, userID, conversationID string, ca
 		Input:               input,
 		Output:              output,
 		Metadata:            migratedDisplayMetadata(call),
+		ModelIteration:      call.Iteration,
+		External:            false,
 		DisplayName:         call.Name,
 		InputPreview:        structuralPreview(input),
 		OutputPreview:       structuralPreview(result),

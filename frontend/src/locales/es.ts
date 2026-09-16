@@ -254,6 +254,7 @@ const es = {
         streamingIdleTimeout: 'El proveedor dejó de responder a mitad de la generación (timeout de inactividad).',
         streamingRetriesExhausted: 'No se pudo completar la respuesta después de varios intentos de conexión.',
         streamingPromptCacheHintRejected: 'El proveedor rechazó la sugerencia de caché incluso después de desactivarla. Comprueba la configuración del gateway o desactiva las sugerencias de caché en el perfil.',
+        streamingTokenRateLimit: 'Se alcanzó la cuota de tokens del proveedor (HTTP 429). Espera a que se renueve la cuota e inténtalo de nuevo.',
       },
       stopReading: 'Detener lectura',
       stopReadingLabel: 'Detener lectura de texto',
@@ -1095,13 +1096,22 @@ const es = {
     },
 
     mcp: {
-      status: { connected: 'Conectado', connecting: 'Conectando...', disconnected: 'Desconectado', error: 'Error' },
+      status: {
+        connected: 'Conectado',
+        connecting: 'Conectando...',
+        disconnected: 'Desconectado',
+        error: 'Error',
+        needsReauth: 'Reautorización necesaria',
+        needsReauthHint: 'El token OAuth expiró y no se pudo renovar. Haz clic en "Reautorizar" para autenticarte de nuevo.',
+      },
       announce: {
         editorClosed: 'Editor cerrado',
         serverRemoved: 'Servidor eliminado',
         serverConnected: 'Servidor {{name}} conectado',
         serverDisconnected: 'Servidor {{name}} desconectado',
         serverReconnected: 'Servidor {{name}} reconectado',
+        reauthorizing: 'Reautorizando servidor {{name}}. Se abrirá una ventana del navegador.',
+        serverReauthorized: 'Servidor {{name}} reautorizado',
       },
       error: {
         slugRequired: 'Slug (identificador) es obligatorio',
@@ -1112,6 +1122,7 @@ const es = {
         connectFailed: 'Error al conectar',
         disconnectFailed: 'Error al desconectar',
         reconnectFailed: 'Error al reconectar',
+        reauthorizeFailed: 'Error al reautorizar',
       },
       toast: {
         created: '¡Servidor MCP creado!',
@@ -1121,6 +1132,7 @@ const es = {
         serverConnected: '¡Servidor "{{name}}" conectado!',
         serverDisconnected: 'Servidor "{{name}}" desconectado',
         serverReconnected: '¡Servidor "{{name}}" reconectado!',
+        serverReauthorized: '¡Servidor "{{name}}" reautorizado!',
       },
       confirm: {
         removeTitle: 'Eliminar servidor MCP',
@@ -1130,6 +1142,7 @@ const es = {
       actions: {
         connectDisconnect: 'Conectar/Desconectar',
         reconnect: 'Reconectar',
+        reauthorize: 'Reautorizar',
         removeServer: 'Eliminar servidor',
         duplicate: 'Duplicar',
         connect: 'Conectar',

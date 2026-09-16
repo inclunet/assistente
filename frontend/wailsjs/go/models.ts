@@ -2725,6 +2725,7 @@ export namespace database {
 	    conversation_id?: string;
 	    workflow?: TaskListWorkflow;
 	    tasks?: Task[];
+	    task_count: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new TaskList(source);
@@ -2745,6 +2746,7 @@ export namespace database {
 	        this.conversation_id = source["conversation_id"];
 	        this.workflow = this.convertValues(source["workflow"], TaskListWorkflow);
 	        this.tasks = this.convertValues(source["tasks"], Task);
+	        this.task_count = source["task_count"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -4243,6 +4245,7 @@ export namespace mcp {
 	    description?: string;
 	    transport: string;
 	    status: string;
+	    authType?: string;
 	    error?: string;
 	    toolCount: number;
 	    tools: MCPToolInfo[];
@@ -4252,6 +4255,7 @@ export namespace mcp {
 	    prompts: MCPPromptInfo[];
 	    enabled: boolean;
 	    autoConnect: boolean;
+	    needsReauth: boolean;
 	    connectedAt?: string;
 	    lastPing?: string;
 	    command?: string;
@@ -4270,6 +4274,7 @@ export namespace mcp {
 	        this.description = source["description"];
 	        this.transport = source["transport"];
 	        this.status = source["status"];
+	        this.authType = source["authType"];
 	        this.error = source["error"];
 	        this.toolCount = source["toolCount"];
 	        this.tools = this.convertValues(source["tools"], MCPToolInfo);
@@ -4279,6 +4284,7 @@ export namespace mcp {
 	        this.prompts = this.convertValues(source["prompts"], MCPPromptInfo);
 	        this.enabled = source["enabled"];
 	        this.autoConnect = source["autoConnect"];
+	        this.needsReauth = source["needsReauth"];
 	        this.connectedAt = source["connectedAt"];
 	        this.lastPing = source["lastPing"];
 	        this.command = source["command"];

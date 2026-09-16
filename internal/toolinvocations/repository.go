@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"assistente/internal/database"
@@ -21,6 +22,20 @@ var (
 	ErrCanonicalToolCatalogIDRequired = errors.New("canonical tool catalog ID required")
 	ErrCanonicalToolCatalogMismatch   = errors.New("canonical tool catalog ID does not match tool name")
 )
+
+// toolCatalogResolveCacheTTL limita a validade de cada mapeamento
+// (user_id, nome) -> tool_catalog_id em memória. A resolução é feita a CADA
+// invocação de tool (chat e jobs); sob carga de jobs, esse SELECT vira o maior
+// ofensor de contenção do writer SQLite (observado até 80s e "context deadline
+// exceeded" no assistente.log). O mapeamento é estável (upsert reusa o mesmo ID
+// e o detach preserva a linha), então um TTL curto elimina ~99% das leituras sem
+// risco relevante de staleness. Ver AEP-0104.
+const toolCatalogResolveCacheTTL = 60 * time.Second
+
+type toolCatalogCacheEntry struct {
+	id        string
+	expiresAt time.Time
+}
 
 type Repository interface {
 	Create(ctx context.Context, inv *Invocation) error
@@ -40,10 +55,20 @@ type Repository interface {
 type DBRepository struct {
 	db  *gorm.DB
 	now func() time.Time
+
+	// catalogCache guarda mapeamentos (user_id, nome) -> tool_catalog_id com TTL.
+	// Chaveado por usuário para preservar isolamento (AEP-0104): nenhuma entrada
+	// de um usuário é servida a outro. Só resoluções não-archival são cacheadas.
+	catalogCacheMu sync.RWMutex
+	catalogCache   map[string]toolCatalogCacheEntry
 }
 
 func NewDBRepository(db *gorm.DB) *DBRepository {
-	return &DBRepository{db: db, now: time.Now}
+	return &DBRepository{
+		db:           db,
+		now:          time.Now,
+		catalogCache: make(map[string]toolCatalogCacheEntry),
+	}
 }
 
 func (r *DBRepository) retry(ctx context.Context, operation string, fn func() error) error {
@@ -202,6 +227,8 @@ func (r *DBRepository) Complete(ctx context.Context, id string, inv *Invocation)
 				"status":              status,
 				"output":              string(inv.Output),
 				"metadata":            string(inv.Metadata),
+				"model_iteration":     inv.ModelIteration,
+				"external":            inv.External,
 				"output_preview":      inv.OutputPreview,
 				"output_bytes":        inv.OutputBytes,
 				"output_hash":         inv.OutputHash,
@@ -409,6 +436,9 @@ func (r *DBRepository) ResolveToolCatalogID(ctx context.Context, toolName string
 	if name == "" {
 		return "", fmt.Errorf("tool name is required")
 	}
+	if id, ok := r.lookupCatalogCache(userID, name); ok {
+		return id, nil
+	}
 	var row database.ToolCatalog
 	q := r.db.WithContext(ctx)
 	// Alguns testes/migrações parciais não criam mcp_servers; não pode falhar por isso.
@@ -432,12 +462,51 @@ func (r *DBRepository) ResolveToolCatalogID(ctx context.Context, toolName string
 			First(&row).Error
 	})
 	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// Não cacheia "não encontrado": uma tool nova pode ser inserida no catálogo
+		// a qualquer momento e precisa resolver imediatamente na próxima chamada.
 		return "", fmt.Errorf("%w: %s", ErrToolCatalogNotFound, name)
 	}
 	if err != nil {
 		return "", err
 	}
+	// Só cacheia resoluções estáveis (não-archival). Uma entrada archival é um
+	// placeholder que a ordenação suplanta assim que a tool real aparece no
+	// catálogo; fixá-la retornaria o ID errado até o TTL expirar.
+	if !strings.EqualFold(strings.TrimSpace(row.Origin), ToolOriginArchival) {
+		r.storeCatalogCache(userID, name, row.ID)
+	}
 	return row.ID, nil
+}
+
+// catalogCacheKey compõe a chave (user_id, nome) com separador que não ocorre em
+// UUIDs nem em nomes de tool, evitando colisão entre pares distintos.
+func (r *DBRepository) catalogCacheKey(userID, name string) string {
+	return userID + "\x00" + name
+}
+
+// lookupCatalogCache devolve o tool_catalog_id cacheado para (userID, nome) se a
+// entrada existir e ainda estiver dentro do TTL.
+func (r *DBRepository) lookupCatalogCache(userID, name string) (string, bool) {
+	r.catalogCacheMu.RLock()
+	entry, ok := r.catalogCache[r.catalogCacheKey(userID, name)]
+	r.catalogCacheMu.RUnlock()
+	if !ok || !r.now().Before(entry.expiresAt) {
+		return "", false
+	}
+	return entry.id, true
+}
+
+// storeCatalogCache registra (userID, nome) -> id com validade limitada pelo TTL.
+func (r *DBRepository) storeCatalogCache(userID, name, id string) {
+	r.catalogCacheMu.Lock()
+	if r.catalogCache == nil {
+		r.catalogCache = make(map[string]toolCatalogCacheEntry)
+	}
+	r.catalogCache[r.catalogCacheKey(userID, name)] = toolCatalogCacheEntry{
+		id:        id,
+		expiresAt: r.now().Add(toolCatalogResolveCacheTTL),
+	}
+	r.catalogCacheMu.Unlock()
 }
 
 // ResolveOrCreateArchivalToolCatalogID preserva identidade de uma tool
@@ -554,6 +623,8 @@ func invocationDomainToModel(inv Invocation) database.ToolInvocation {
 		Input:              string(inv.Input),
 		Output:             string(inv.Output),
 		Metadata:           string(inv.Metadata),
+		ModelIteration:     inv.ModelIteration,
+		External:           inv.External,
 		DisplayName:        strings.TrimSpace(inv.DisplayName),
 		InputPreview:       inv.InputPreview,
 		OutputPreview:      inv.OutputPreview,
@@ -603,6 +674,8 @@ func invocationModelToDomain(row database.ToolInvocation) Invocation {
 		Input:              json.RawMessage(row.Input),
 		Output:             json.RawMessage(row.Output),
 		Metadata:           json.RawMessage(row.Metadata),
+		ModelIteration:     row.ModelIteration,
+		External:           row.External,
 		DisplayName:        row.DisplayName,
 		InputPreview:       row.InputPreview,
 		OutputPreview:      row.OutputPreview,

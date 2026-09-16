@@ -57,7 +57,7 @@ func seedBootstrapLayer(t *testing.T, db *gorm.DB) string {
 func assertCommandStamp(t *testing.T, db *gorm.DB, want bool) {
 	t.Helper()
 	var count int64
-	if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version = 20 AND name = ?", "command_storage_initial").Scan(&count).Error; err != nil {
+	if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version = 21 AND name = ?", "command_storage_initial").Scan(&count).Error; err != nil {
 		t.Fatalf("ler carimbo v20: %v", err)
 	}
 	if (count == 1) != want {
@@ -289,7 +289,7 @@ func assertCommandStampAbsent(t *testing.T, db *gorm.DB) {
 	}
 	if count != 0 {
 		var stamps int64
-		if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version = 20").Scan(&stamps).Error; err != nil {
+		if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version = 21").Scan(&stamps).Error; err != nil {
 			t.Fatal(err)
 		}
 		if stamps != 0 {

@@ -15,7 +15,7 @@ o conjunto de origens suportadas.
 
 ### Incremento não publicado — AEP-0103 / I01
 
-A v20 `command_storage_initial` é concluída na composição do host, depois da
+A v21 `command_storage_initial` é concluída na composição do host, depois da
 abertura genérica do banco. Caminhos sem esse bootstrap deixam v20 pendente,
 sem habilitar comandos. Usa o histórico central e não remove migrações legadas.
 `internal/commandbootstrap/schema_test.go` cobre banco novo, schema experimental
@@ -35,7 +35,7 @@ procedimento de exclusão de chaves antigas nesta etapa.
 |---|---|---:|---:|---|---|
 | Banco com PK `INTEGER` → UUIDv7 | `database.Init` → migração v1 | 5d3d7eb9 (2026-04-26) | 0.2.0 | fixture SQL 0.1.9 + teste de upgrade direto; testes de relações em `migration_uuid_test.go` | Crítico: 0.1.9 não inicia/preserva relações |
 | Adoção de rows sem `user_id` | login/refresh → `AdoptLegacyData` | AEP-0052 (2026-05) | 0.2.0 | `multiuser_migration_test.go` e `credential_loss_repro_test.go` | Crítico: dados pré-multiusuário ficam invisíveis |
-| Migrações numeradas v1–v15 | `database.Init`, antes/depois de `AutoMigrate` | 78c26b94 (2026-06-21) | 0.2.0 (v1–v12) | registry, idempotência, fixtures 0.1.9–0.5.0 e diagnóstico local | Crítico: quebra bancos de qualquer release anterior ao passo removido |
+| Migrações numeradas v1–v20 | `database.Init`, antes/depois de `AutoMigrate` | 78c26b94 (2026-06-21) | 0.2.0 (v1–v12) | registry, idempotência, fixtures 0.1.9–0.5.0 e diagnóstico local; v20 preserva iteração/origem externa do ledger em colunas materializadas | Crítico: quebra bancos de qualquer release anterior ao passo removido |
 | `refresh_url` plaintext → campo cifrado | migração v9 + recriptografia do cofre | 5381ff3b (2026-06-10) | 0.2.0 | `bloco6_migrations_test.go`, `reencrypt_legacy_test.go` | Crítico: perda de refresh token ou segredo em claro |
 | Export de conversas com `metadata.version="2.0"` e IDs numéricos | `AnalyzeImportData`/`ImportData` → `parseExportFile` | f3737a82 (2026-01-26) | 0.1.9 | fixture realista 0.1.9, adaptador determinístico e teste idempotente | Alto: backups gerados pela 0.1.9 ficam inutilizáveis |
 | Export canônico `version: 2` | mesmos call sites de análise/importação | AEP-0047 (2026-04) | 0.2.0 | fixture comum e parse parametrizado para 0.2.0–0.5.0 | Crítico: backups de todas as releases atuais |

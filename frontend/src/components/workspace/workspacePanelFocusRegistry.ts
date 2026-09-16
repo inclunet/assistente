@@ -45,3 +45,22 @@ export function pruneWorkspacePanelFocus(validTabIds: ReadonlySet<string>): void
     }
   }
 }
+
+/**
+ * Decide para onde mandar o foco ao ativar/fechar uma aba, unificando o contrato
+ * usado na troca por atalho, na navegação por número e ao fechar aba.
+ *
+ * Todo painel de workspace (chat, terminal, editor, tasklist) registra um
+ * handler de foco próprio, então a decisão é única e agnóstica de tipo:
+ *
+ * 1. Se o painel já registrou o handler, invoca-o.
+ * 2. Senão (painel ainda lazy/não montado), enfileira o pedido para ser refeito
+ *    assim que o painel montar e registrar o handler.
+ */
+export function routeWorkspacePanelFocus(tabId: string): void {
+  if (hasWorkspacePanelFocusHandler(tabId)) {
+    requestWorkspacePanelFocus(tabId);
+  } else {
+    queueWorkspacePanelFocus(tabId);
+  }
+}

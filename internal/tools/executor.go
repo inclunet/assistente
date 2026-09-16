@@ -627,8 +627,17 @@ func validateExecutionContextToolAccess(ctx context.Context, toolName string) er
 	if !ok {
 		return nil
 	}
+	// Deny explícito vence tudo, inclusive o conjunto base protegido: se o dono
+	// da skill negou a tool por nome, respeitamos.
 	if containsString(ec.DeniedTools, toolName) {
 		return fmt.Errorf("tool '%s' bloqueada pela denylist do skill '%s'", toolName, ec.InvokedSkillSlug)
+	}
+	// O conjunto base protegido (control-plane + base de runtime) é isento do
+	// narrowing IMPLÍCITO da allowlist da skill. Sem isso, uma skill com
+	// allowlist focada no seu domínio amputaria o runtime (perderia memory,
+	// tool_catalog, load_skill, etc.) no restante do turno.
+	if IsProtectedBaseTool(toolName) {
+		return nil
 	}
 	if len(ec.AllowedTools) > 0 && !containsString(ec.AllowedTools, toolName) {
 		return fmt.Errorf("skill '%s' não permite uso da tool '%s'", ec.InvokedSkillSlug, toolName)

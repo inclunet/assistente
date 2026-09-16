@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { WorkspacePanelProvider } from '../components/workspace/WorkspacePanelContext';
+import { requestWorkspacePanelFocus } from '../components/workspace/workspacePanelFocusRegistry';
 
 const storeMocks = vi.hoisted(() => ({
   loadSessions: vi.fn(),
@@ -179,6 +180,20 @@ describe('TerminalPage', () => {
   it('exibe o titulo da sessao ativa', () => {
     renderTerminalPage();
     expect(screen.getByRole('heading', { name: 'Terminal 1' })).toBeInTheDocument();
+  });
+
+  it('registra handler de foco de painel e foca o input ao ser solicitado', async () => {
+    renderTerminalPage();
+    const input = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    input.blur();
+    expect(input).not.toHaveFocus();
+
+    // O WorkspaceLayout roteia o foco via registry; o handler foca o input.
+    act(() => {
+      requestWorkspacePanelFocus('terminal-tab');
+    });
+
+    await vi.waitFor(() => expect(input).toHaveFocus());
   });
 
   it('cria um terminal explicitamente e conecta a aba', async () => {

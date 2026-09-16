@@ -1097,6 +1097,7 @@ func TestConversationToolInvocationsCanonicalRoundTrip(t *testing.T) {
 		Input:              `{"token":"integral"}`,
 		Output:             `{"content":"CANONICO"}`,
 		Metadata:           `{"display":{"name":"search","iteration":1}}`,
+		ModelIteration:     1,
 		InputHash:          "hash-input",
 		OutputHash:         "hash-output",
 		ResultAvailability: "available",
@@ -1120,7 +1121,8 @@ func TestConversationToolInvocationsCanonicalRoundTrip(t *testing.T) {
 		t.Fatalf("export canônico incompleto: %+v", exported)
 	}
 	if exported[0].ToolInvocations[0].Output != invocation.Output ||
-		exported[0].ToolInvocations[0].Attempt != 2 {
+		exported[0].ToolInvocations[0].Attempt != 2 ||
+		exported[0].ToolInvocations[0].ModelIteration != 1 {
 		t.Fatalf("ledger perdeu payload/tentativa: %+v", exported[0].ToolInvocations[0])
 	}
 	for _, message := range exported[0].Messages {
@@ -1138,7 +1140,7 @@ func TestConversationToolInvocationsCanonicalRoundTrip(t *testing.T) {
 	}
 	if restored.Output != invocation.Output || restored.Input != invocation.Input ||
 		restored.Attempt != invocation.Attempt || restored.ConversationID == nil ||
-		*restored.ConversationID != conv.ID {
+		*restored.ConversationID != conv.ID || restored.ModelIteration != 1 {
 		t.Fatalf("roundtrip alterou ledger: %+v", restored)
 	}
 	var roleToolCount int64
@@ -1149,6 +1151,15 @@ func TestConversationToolInvocationsCanonicalRoundTrip(t *testing.T) {
 	}
 	if roleToolCount != 0 {
 		t.Fatalf("import canônico recriou role=tool: %d", roleToolCount)
+	}
+}
+
+func TestImportedModelCallProjectionAdoptsLegacyMetadata(t *testing.T) {
+	iteration, external := importedModelCallProjection(ToolInvocationExport{
+		Metadata: `{"external":true,"display":{"iteration":9}}`,
+	})
+	if iteration != 9 || !external {
+		t.Fatalf("projeção de export legado=(%d,%v), esperado=(9,true)", iteration, external)
 	}
 }
 

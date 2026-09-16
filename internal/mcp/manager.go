@@ -1209,6 +1209,102 @@ func (m *Manager) reconnectWithContext(ctx context.Context, slug string) error {
 	return m.connectWithContext(ctx, slug)
 }
 
+// buildPKCERoundTripperForServer monta o pkceRoundTripper de um servidor
+// reutilizando a infra de OAuth PKCE (discovery, DCR, device/PKCE flow) com o
+// callback de persistência de config e o ctx user-scoped do Manager.
+func (m *Manager) buildPKCERoundTripperForServer(slug string, cfg ServerConfig) *pkceRoundTripper {
+	onConfigUpdate := func(updated ServerConfig) {
+		if err := m.SaveConfig(slug, updated); err != nil {
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Erro ao persistir config após atualização OAuth: %v", slug, err)
+		}
+	}
+	return buildPKCERoundTripper(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate, m.credentialContext)
+}
+
+// ReauthorizeServer força o fluxo OAuth interativo (abre o browser) de um
+// servidor MCP, independentemente de ele estar em modo nativo ou bridge e sem
+// depender de um 401 incidental (AEP-0105). Reutiliza a infra existente
+// (pkceRoundTripper.authorize) e respeita o oauthFlowArbiter global, que
+// serializa flows interativos entre servidores. Só é aplicável a servidores
+// AuthOAuth2PKCE. Ao concluir, os tokens são persistidos pelo próprio authorize
+// e o servidor é reconectado para adotar o token novo e atualizar as offerings.
+func (m *Manager) ReauthorizeServer(ctx context.Context, slug string) error {
+	if m.credMgr == nil {
+		return fmt.Errorf("gerenciador de credenciais indisponível")
+	}
+	if ctx == nil {
+		ctx = m.ctx
+	}
+
+	m.mu.RLock()
+	status, ok := m.servers[slug]
+	if !ok {
+		m.mu.RUnlock()
+		return fmt.Errorf("servidor MCP '%s' não encontrado", slug)
+	}
+	cfg := status.Config
+	m.mu.RUnlock()
+
+	if cfg.AuthType != AuthOAuth2PKCE {
+		return fmt.Errorf("reautorização interativa só é suportada em servidores OAuth2 PKCE (servidor '%s' usa auth '%s')", slug, cfg.AuthType)
+	}
+
+	logging.Infof(ctx, "mcp.manager", "[MCP:%s] Reautorização interativa solicitada", slug)
+	rt := m.buildPKCERoundTripperForServer(slug, cfg)
+	if err := rt.authorize(ctx); err != nil {
+		return fmt.Errorf("reautorização OAuth do servidor '%s' falhou: %w", slug, err)
+	}
+
+	// authorize já persistiu os tokens novos. Limpa o sinal de reauth e reconecta
+	// para o transport adotar o token renovado e atualizar tools/resources/prompts.
+	m.clearNeedsReauth(slug)
+	if err := m.reconnectWithContext(ctx, slug); err != nil {
+		logging.Errorf(ctx, "mcp.manager", "[MCP:%s] Reautorização concluída, mas a reconexão falhou: %v", slug, err)
+		return fmt.Errorf("reautorização concluída, mas a reconexão do servidor '%s' falhou: %w", slug, err)
+	}
+	logging.Infof(ctx, "mcp.manager", "[MCP:%s] Reautorização concluída e servidor reconectado", slug)
+	return nil
+}
+
+// signalNeedsReauth marca um servidor como precisando de reautorização OAuth
+// interativa e emite o evento tipado mcp:server_needs_reauth para a UI. Emite
+// apenas na transição (false→true) para não repetir o alerta a cada turno de
+// chat (GetEligibleNativeMCPServers roda por turno). AEP-0105.
+func (m *Manager) signalNeedsReauth(slug, name, reason string) {
+	m.mu.Lock()
+	changed := false
+	if s, ok := m.servers[slug]; ok && !s.NeedsReauth {
+		s.NeedsReauth = true
+		changed = true
+	}
+	m.mu.Unlock()
+	if !changed {
+		return
+	}
+	logging.Warnf(context.Background(), "mcp.manager", "[MCP:%s] Token OAuth expirado e não renovável — reautorização necessária: %s", slug, reason)
+	m.logEvent(slug, "needs_reauth", reason, nil)
+	m.emit("mcp:server_needs_reauth", MCPServerReauthEvent{
+		Slug:   slug,
+		Name:   name,
+		Reason: reason,
+	})
+}
+
+// clearNeedsReauth limpa o sinal de reauth de um servidor (após renovação bem
+// sucedida ou reautorização) e emite mcp:server_reauthorized apenas na transição.
+func (m *Manager) clearNeedsReauth(slug string) {
+	m.mu.Lock()
+	changed := false
+	if s, ok := m.servers[slug]; ok && s.NeedsReauth {
+		s.NeedsReauth = false
+		changed = true
+	}
+	m.mu.Unlock()
+	if changed {
+		m.emit("mcp:server_reauthorized", map[string]string{"slug": slug})
+	}
+}
+
 // List retorna informações de todos os servidores (formato frontend-safe).
 func (m *Manager) List() []ServerInfo {
 	m.mu.RLock()
@@ -1470,7 +1566,7 @@ func (m *Manager) createTransport(ctx context.Context, slug string, cfg ServerCo
 		}
 
 		if cfg.DisableSSE {
-			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Standalone SSE desabilitado por configuração", slug)
+			logStandaloneSSEDisabled(slug)
 		}
 
 		return transport, nil
@@ -1486,14 +1582,9 @@ func (m *Manager) createTransport(ctx context.Context, slug string, cfg ServerCo
 func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Client {
 	switch cfg.AuthType {
 	case AuthOAuth2PKCE:
-		onConfigUpdate := func(updated ServerConfig) {
-			if err := m.SaveConfig(slug, updated); err != nil {
-				logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Erro ao persistir config após atualização OAuth: %v", slug, err)
-			}
-		}
-		client := buildPKCEHTTPClient(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate, m.credentialContext)
+		rt := m.buildPKCERoundTripperForServer(slug, cfg)
 		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com OAuth2 PKCE", slug)
-		return client
+		return &http.Client{Transport: rt}
 
 	case AuthOAuth2ClientCredentials:
 		_, clientSecret := loadClientCreds(m.credentialContext(), m.credMgr, slug)
@@ -1733,7 +1824,7 @@ func (m *Manager) checkAndRefreshTokenWithContext(ctx context.Context, slug stri
 		return
 	}
 	if refreshed {
-		logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Token renovado proativamente", slug)
+		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] Token renovado proativamente", slug)
 	}
 }
 
@@ -1807,7 +1898,14 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 		Expiry:       time.Now().Add(-1 * time.Hour),
 	}
 
-	refreshCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	// O refresh deriva de authCtx (o contexto user-scoped usado para LER as
+	// credenciais acima), não do ctx do caller. A persistência do token renovado
+	// é user-scoped: se ela usasse um ctx sem usuário (ex.: m.ctx do loop
+	// proativo), o refresh LIA as credenciais do usuário mas falhava ao GRAVAR
+	// com "authenticated user required" — gravando fora de escopo e emitindo o
+	// falso ERROR observado no assistente.log. Ler e gravar pelo mesmo contexto
+	// mantém a operação inteira consistente com o escopo do usuário.
+	refreshCtx, cancel := context.WithTimeout(authCtx, 15*time.Second)
 	defer cancel()
 
 	newToken, err := oauthCfg.TokenSource(refreshCtx, expiredToken).Token()
@@ -1827,7 +1925,7 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 		return false, err
 	}
 
-	logging.Errorf(ctx, "mcp.manager", "[MCP:%s] Token renovado (novo expiry: %v)", slug, newToken.Expiry.Format(time.RFC3339))
+	logging.Infof(ctx, "mcp.manager", "[MCP:%s] Token renovado (novo expiry: %v)", slug, newToken.Expiry.Format(time.RFC3339))
 	return true, nil
 }
 
@@ -2125,6 +2223,15 @@ func logReconnectSuccess(slug string) {
 	logging.Infof(context.Background(), "mcp.manager", "[MCP] Reconexão bem-sucedida para '%s'", slug)
 }
 
+// logStandaloneSSEDisabled registra que o canal SSE standalone foi desabilitado
+// por configuração. É um estado benigno: o servidor continua conectando via HTTP
+// streamable/polling. Por isso o nível é INFO — a mensagem só documenta a
+// configuração vigente e não sinaliza falha (evita poluir o log com ~12 ERROR
+// por sessão).
+func logStandaloneSSEDisabled(slug string) {
+	logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] Standalone SSE desabilitado por configuração", slug)
+}
+
 // ReadResource lê o conteúdo de um resource MCP.
 func (m *Manager) ReadResource(slug, uri string) (string, error) {
 	m.mu.RLock()
@@ -2365,6 +2472,28 @@ type NativeMCPServer struct {
 	ToolNames []string // nomes das tools registradas (namespaced, para filtragem)
 }
 
+// MCPServerReauthEvent é o payload tipado do evento mcp:server_needs_reauth,
+// emitido quando o token OAuth de um servidor expira e não pode ser renovado
+// silenciosamente (AEP-0105). O frontend tipa o payload à mão (espelho deste
+// struct), conforme a regra de eventos do AGENTS.md.
+type MCPServerReauthEvent struct {
+	Slug   string `json:"slug"`
+	Name   string `json:"name"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// nativeMCPCandidate é o snapshot imutável de um servidor candidato a MCP nativo,
+// coletado sob RLock. A resolução de token (que pode disparar refresh e adquirir
+// locks) acontece FORA do lock a partir deste snapshot, evitando deadlock/corrida
+// no RWMutex do Manager (AEP-0105).
+type nativeMCPCandidate struct {
+	slug      string
+	name      string
+	url       string
+	authType  AuthType
+	toolNames []string
+}
+
 // RecoveryResult descreve o resultado de uma tentativa best-effort de recuperação
 // de um servidor MCP para chamadas futuras do chat.
 type RecoveryResult struct {
@@ -2389,15 +2518,15 @@ func isNativeMCPEligibleURL(rawURL string) bool {
 	return false
 }
 
-// GetEligibleNativeMCPServers retorna servidores HTTP conectados e com tools,
-// elegíveis para MCP nativo (SSE ou Streamable HTTP).
-// Servidores STDIO são excluídos — não podem ser acessados remotamente.
-// Servidores HTTP com URL insegura (HTTP em host não-local) são excluídos.
-func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
+// collectNativeMCPCandidates coleta, sob RLock, o snapshot dos servidores
+// candidatos a MCP nativo (conectados, HTTP, com tools, URL segura,
+// prefer_bridge=false). A resolução de token — que pode disparar refresh e
+// adquirir locks — acontece FORA deste lock (AEP-0105), a partir do snapshot.
+func (m *Manager) collectNativeMCPCandidates() []nativeMCPCandidate {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var result []NativeMCPServer
+	var candidates []nativeMCPCandidate
 	for slug, status := range m.servers {
 		if status.Status != StatusConnected {
 			continue
@@ -2422,42 +2551,49 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 			continue
 		}
 
-		srv := NativeMCPServer{
-			Slug: slug,
-			Name: status.Config.Name,
-			URL:  status.Config.URL,
+		c := nativeMCPCandidate{
+			slug:     slug,
+			name:     status.Config.Name,
+			url:      status.Config.URL,
+			authType: status.Config.AuthType,
 		}
-
-		// Coleta nomes das tools registradas (fullName = namespaced)
 		for _, t := range status.Tools {
-			srv.ToolNames = append(srv.ToolNames, t.FullName)
+			c.toolNames = append(c.toolNames, t.FullName)
 		}
-		sort.Strings(srv.ToolNames)
+		sort.Strings(c.toolNames)
+		candidates = append(candidates, c)
+	}
+	return candidates
+}
 
-		// Resolve auth token se disponível (escopado pelo user vigente)
-		if m.credMgr != nil {
-			authCtx := m.credentialContext()
-			if auth, err := m.credMgr.GetByPatternWithContext(authCtx, userTokensPattern(slug)); err == nil && auth != nil && auth.Token != "" {
-				srv.AuthToken = auth.Token
-				logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token OAuth resolvido (pattern=%s, len=%d, expires=%d)",
-					slug, userTokensPattern(slug), len(auth.Token), auth.ExpiresAt)
-			} else {
-				if hostname := hostnameFromURL(status.Config.URL); hostname != "" {
-					if auth, err := m.credMgr.GetByPatternWithContext(authCtx, hostname); err == nil && auth != nil && auth.Token != "" {
-						srv.AuthToken = auth.Token
-						logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token resolvido por hostname (pattern=%s)", slug, hostname)
-					} else {
-						logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: NENHUM token encontrado (oauth=%s, hostname=%s)",
-							slug, userTokensPattern(slug), hostname)
-					}
-				} else {
-					logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: NENHUM token encontrado (oauth=%s, sem hostname)",
-						slug, userTokensPattern(slug))
-				}
-			}
+// GetEligibleNativeMCPServers retorna servidores HTTP conectados e com tools,
+// elegíveis para MCP nativo (SSE ou Streamable HTTP).
+// Servidores STDIO são excluídos — não podem ser acessados remotamente.
+// Servidores HTTP com URL insegura (HTTP em host não-local) são excluídos.
+//
+// Nunca entrega um Bearer OAuth expirado em silêncio (AEP-0105): quando o token
+// de um servidor OAuth2 PKCE está expirado/perto de expirar, tenta refresh
+// forçado; se o refresh falhar (sem/refresh_token inválido, invalid_grant), o
+// servidor é sinalizado como precisando de reautorização e EXCLUÍDO do caminho
+// nativo, em vez de mandar um token morto ao provider.
+func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
+	candidates := m.collectNativeMCPCandidates()
+	ctx := m.credentialContext()
+
+	var result []NativeMCPServer
+	for _, c := range candidates {
+		token, ok := m.resolveNativeAuthToken(ctx, c)
+		if !ok {
+			// Reauth sinalizada; não entrega Bearer morto ao provider.
+			continue
 		}
-
-		result = append(result, srv)
+		result = append(result, NativeMCPServer{
+			Slug:      c.slug,
+			Name:      c.name,
+			URL:       c.url,
+			AuthToken: token,
+			ToolNames: c.toolNames,
+		})
 	}
 	sort.SliceStable(result, func(i, j int) bool {
 		if result[i].Slug != result[j].Slug {
@@ -2466,6 +2602,76 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 		return result[i].Name < result[j].Name
 	})
 	return result
+}
+
+// nativeTokenExpiredOrNear informa se um token OAuth (com expiração conhecida)
+// está expirado ou perto de expirar. ExpiresAt==0 (expiração desconhecida) é
+// tratado de forma conservadora como "não force" — mantém o comportamento
+// histórico de entregar o token como está.
+func nativeTokenExpiredOrNear(expiresAt int64) bool {
+	if expiresAt == 0 {
+		return false
+	}
+	return time.Until(time.Unix(expiresAt, 0)) <= tokenRefreshThreshold
+}
+
+// resolveNativeAuthToken resolve, FORA do lock do Manager, o Bearer a usar no
+// passthrough nativo do servidor candidato. Retorna ok=false apenas quando o
+// servidor exige OAuth, o token está expirado e não foi possível renová-lo — o
+// caller então NÃO deve incluir o servidor no caminho nativo. Para servidores
+// sem token (ex.: AuthNone) retorna ("", true), preservando o comportamento
+// anterior de entregar sem Bearer.
+func (m *Manager) resolveNativeAuthToken(ctx context.Context, c nativeMCPCandidate) (string, bool) {
+	if m.credMgr == nil {
+		return "", true
+	}
+
+	auth, err := m.credMgr.GetByPatternWithContext(ctx, userTokensPattern(c.slug))
+	if err == nil && auth != nil && auth.Token != "" {
+		if c.authType == AuthOAuth2PKCE && nativeTokenExpiredOrNear(auth.ExpiresAt) {
+			refreshed, rerr := m.refreshOAuthTokenBestEffort(ctx, c.slug, true)
+			if !refreshed {
+				m.signalNeedsReauth(c.slug, c.name, reauthReasonFromError(rerr))
+				return "", false
+			}
+			fresh, ferr := m.credMgr.GetByPatternWithContext(ctx, userTokensPattern(c.slug))
+			if ferr != nil || fresh == nil || fresh.Token == "" {
+				m.signalNeedsReauth(c.slug, c.name, "token renovado mas indisponível no cofre")
+				return "", false
+			}
+			m.clearNeedsReauth(c.slug)
+			logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token OAuth renovado antes do MCP nativo (novo expires=%d)",
+				c.slug, fresh.ExpiresAt)
+			return fresh.Token, true
+		}
+		m.clearNeedsReauth(c.slug)
+		logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token OAuth resolvido (pattern=%s, len=%d, expires=%d)",
+			c.slug, userTokensPattern(c.slug), len(auth.Token), auth.ExpiresAt)
+		return auth.Token, true
+	}
+
+	// Sem token OAuth: tenta resolver por hostname (Bearer) como antes.
+	if hostname := hostnameFromURL(c.url); hostname != "" {
+		if hostAuth, hostErr := m.credMgr.GetByPatternWithContext(ctx, hostname); hostErr == nil && hostAuth != nil && hostAuth.Token != "" {
+			logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token resolvido por hostname (pattern=%s)", c.slug, hostname)
+			return hostAuth.Token, true
+		}
+		logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: NENHUM token encontrado (oauth=%s, hostname=%s)",
+			c.slug, userTokensPattern(c.slug), hostname)
+		return "", true
+	}
+	logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: NENHUM token encontrado (oauth=%s, sem hostname)",
+		c.slug, userTokensPattern(c.slug))
+	return "", true
+}
+
+// reauthReasonFromError deriva uma razão legível para o sinal de reauth a partir
+// do erro do refresh forçado (nil quando não havia refresh_token utilizável).
+func reauthReasonFromError(err error) string {
+	if err == nil {
+		return "refresh_token ausente ou inválido"
+	}
+	return fmt.Sprintf("falha ao renovar token: %v", err)
 }
 
 func sortMCPBridges(bridges []*MCPToolBridge) {

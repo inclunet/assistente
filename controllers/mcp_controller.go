@@ -59,6 +59,15 @@ func (c *MCPController) ReconnectMCPServer(slug string) error {
 	return c.mcpMgr.Reconnect(slug)
 }
 
+// ReauthorizeMCPServer força o fluxo OAuth interativo (browser) do servidor,
+// distinto de reconectar (AEP-0105). Só se aplica a servidores OAuth2 PKCE.
+func (c *MCPController) ReauthorizeMCPServer(ctx context.Context, slug string) error {
+	if err := c.guardMgr(); err != nil {
+		return err
+	}
+	return c.mcpMgr.ReauthorizeServer(ctx, slug)
+}
+
 func (c *MCPController) SaveMCPServer(slug string, cfg mcpmgr.ServerConfig) error {
 	if err := c.guardMgr(); err != nil {
 		return err

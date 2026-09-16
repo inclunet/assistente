@@ -54,6 +54,17 @@ func TestHydrationAndTaskListIndexMigrationAndQueryPlans(t *testing.T) {
 		  LIMIT 101`,
 		"idx_tasks_list_parent_order",
 	)
+	assertQueryPlanUsesIndex(t, testDB,
+		`EXPLAIN QUERY PLAN
+		 SELECT task_lists.*,
+		        (SELECT COUNT(*) FROM tasks
+		          WHERE tasks.task_list_id = task_lists.id
+		            AND tasks.parent_id IS NULL) AS task_count
+		   FROM task_lists
+		  WHERE task_lists.user_id = 'user-a'
+		  ORDER BY task_lists.created_at DESC`,
+		"idx_tasks_list_parent_order",
+	)
 
 	var indexMigration migration
 	for _, candidate := range schemaMigrations {

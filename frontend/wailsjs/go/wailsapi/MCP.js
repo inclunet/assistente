@@ -58,6 +58,10 @@ export function ReadMCPResource(arg1, arg2) {
   return window['go']['wailsapi']['MCP']['ReadMCPResource'](arg1, arg2);
 }
 
+export function ReauthorizeMCPServer(arg1) {
+  return window['go']['wailsapi']['MCP']['ReauthorizeMCPServer'](arg1);
+}
+
 export function ReconnectMCPServer(arg1) {
   return window['go']['wailsapi']['MCP']['ReconnectMCPServer'](arg1);
 }
