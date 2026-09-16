@@ -1670,12 +1670,12 @@ func (m *Manager) runRetention(ctx context.Context) {
 	if deleted, err := m.cfg.Repository.CleanOldRunEvents(ctx, jobsAge); err != nil {
 		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention run events failed: %v", err)
 	} else if deleted > 0 {
-		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention removed %d run event(s)", deleted)
+		logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d run event(s)", deleted)
 	}
 	if deleted, err := m.cfg.Repository.CleanOldEvents(ctx, jobsAge); err != nil {
 		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention events failed: %v", err)
 	} else if deleted > 0 {
-		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention removed %d event(s)", deleted)
+		logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d event(s)", deleted)
 	}
 	if deleted, err := m.cfg.Repository.CleanOldRuns(ctx, jobsAge); err != nil {
 		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention runs failed: %v", err)

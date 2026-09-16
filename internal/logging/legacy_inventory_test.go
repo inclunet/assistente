@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	expectedLegacyFormatCount  = 769
-	expectedLegacyFormatDigest = "f1bdc5ef3b7524173a7b26e5b9c25acf0d9faeb54c950654d4b5e21c0de31bec"
+	expectedLegacyFormatCount  = 770
+	expectedLegacyFormatDigest = "c200cc4998de9b13a262fcbc6280bc9b358594109551a3ffa91f6506efaf8fc6"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.
