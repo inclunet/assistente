@@ -190,6 +190,15 @@ func ImportLegacyChannelsWithContext(ctx context.Context, credMgr *credentials.M
 				return false, err
 			}
 			if err := Save(item.Slug, cfg); err != nil {
+				// Config legado aponta para uma conversa já deletada: é um vínculo
+				// obsoleto, não uma falha de importação. Pula o canal (skip) em vez
+				// de emitir ERROR ruidoso a cada startup — mesmo tratamento benigno
+				// de ErrConversationDeleted feito em chat/handler.go.
+				if errors.Is(err, database.ErrConversationDeleted) {
+					logging.Warnf(ctx, "channels.legacy-import",
+						"[Channels] pulando %s: referencia conversa deletada", item.Slug)
+					return false, nil
+				}
 				return false, err
 			}
 			return true, nil
