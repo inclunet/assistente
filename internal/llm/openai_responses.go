@@ -561,9 +561,17 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		case "response.mcp_list_tools.completed":
 			logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing done (server-side)")
 		case "response.mcp_list_tools.failed":
-			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing FAILED (server-side)")
 			ev := event.AsResponseMcpListToolsFailed()
-			if failure := inferMCPFailure(MCPFailureStageListTools, "", ev.RawJSON(), "", mcpServers); failure != nil && !emittedNonRetryableEffect {
+			failure := inferMCPFailure(MCPFailureStageListTools, "", ev.RawJSON(), "", mcpServers)
+			if mcpFailureRecoverablyHandled(failure, emittedNonRetryableEffect) {
+				// Recuperável: a degradação (MCP-DEGRADE/MCP-RECOVER) trata e loga
+				// o desfecho. WARN evita ERRO falso-positivo quando o turno se
+				// recupera via retry_without_server.
+				logging.Warnf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing falhou (server-side); recuperável via degradação")
+			} else {
+				logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing FAILED (server-side)")
+			}
+			if failure != nil && !emittedNonRetryableEffect {
 				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}
@@ -656,7 +664,16 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	wd.Stop()
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
-		logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Responses stream error: %s", errStr)
+
+		// Classifica ANTES de logar: uma falha de handshake/listagem MCP
+		// recuperável é tratada pela degradação (retry_without_server) logo
+		// abaixo, e o ERRO seria falso-positivo quando o turno se recupera.
+		mcpHandshakeFailure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers)
+		if mcpFailureRecoverablyHandled(mcpHandshakeFailure, emittedNonRetryableEffect) {
+			logging.Warnf(ctx, "llm.openai-responses", "[OpenAIProvider] Responses stream error (recuperável via degradação MCP): %s", errStr)
+		} else {
+			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Responses stream error: %s", errStr)
+		}
 
 		// Cancelamento do usuário (contexto pai): nunca retentar.
 		if ctx.Err() != nil {
@@ -686,9 +703,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		if !emittedNonRetryableEffect && looksLikePromptCacheHintUnsupported(errStr) {
 			return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
 		}
-		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedNonRetryableEffect {
+		if mcpHandshakeFailure != nil && !emittedNonRetryableEffect {
 			reportCurrentDiagnostics()
-			return mcpStreamAttemptResult{mcpFailure: failure}
+			return mcpStreamAttemptResult{mcpFailure: mcpHandshakeFailure}
 		}
 		if !emittedNonRetryableEffect && looksLikeTokenRateLimit(errStr) {
 			finishThinking()
