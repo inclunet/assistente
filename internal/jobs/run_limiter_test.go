@@ -67,6 +67,24 @@ func TestRunLimiter_AbortaComCtxCancelado(t *testing.T) {
 	}
 }
 
+// TestRunLimiter_AbortaComCtxCanceladoMesmoComSlotLivre garante o guard
+// determinístico: mesmo com slots livres, um ctx já cancelado nunca reserva slot
+// (sem depender da escolha aleatória do select). Repete para reduzir a chance de
+// um falso verde caso a corrida do select fosse reintroduzida.
+func TestRunLimiter_AbortaComCtxCanceladoMesmoComSlotLivre(t *testing.T) {
+	l := newRunLimiter(8)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for i := 0; i < 100; i++ {
+		if l.acquire(ctx) {
+			t.Fatal("acquire com slot livre mas ctx cancelado deveria retornar false")
+		}
+	}
+	if len(l.sem) != 0 {
+		t.Fatalf("nenhum slot deveria ter sido reservado; ocupados=%d", len(l.sem))
+	}
+}
+
 // TestRunLimiter_DefaultQuandoNaoConfigurado garante o teto padrão para valores
 // <= 0.
 func TestRunLimiter_DefaultQuandoNaoConfigurado(t *testing.T) {
