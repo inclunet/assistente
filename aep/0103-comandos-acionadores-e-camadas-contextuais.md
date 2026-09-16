@@ -67,6 +67,13 @@ a configuração volátil do usuário atual no `HostState`; durante transição 
 auth, o executor deixa de ver o mapa antigo até que um rebuild autenticado
 publique uma nova configuração.
 
+Fechamento de I14.4: o runtime produtivo também revalida a projeção contra o
+`HostState` atual no `Publish` e antes de `SetEnabled`, recusando configuração,
+camadas ou unlock antigos entre etapas. Somado aos testes de reset/readiness,
+reset/shutdown concorrentes e falha/cancelamento do monitor de SO, I14.4 fica
+encerrado localmente. Contagem atual: **51/84 critérios locais, 33 abertos;
+3/15 pacotes completos**.
+
 ### Stream Deck real validado — 15/09/2026
 
 `internal/commanddeck` iniciou a base testável de I13.5/C41/C42: o renderer

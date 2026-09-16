@@ -92,9 +92,12 @@ func (r *appCommandLifecycleRuntime) Project(ctx context.Context, generation com
 	}, nil
 }
 
-func (r *appCommandLifecycleRuntime) Publish(_ context.Context, projection commandruntime.Projection) error {
+func (r *appCommandLifecycleRuntime) Publish(ctx context.Context, projection commandruntime.Projection) error {
 	if projection.Entries <= 0 || projection.Generation.Value == "" {
 		return commandruntime.ErrNotReady
+	}
+	if err := r.validateProjectionCurrent(ctx, projection); err != nil {
+		return err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -125,6 +128,15 @@ func (r *appCommandLifecycleRuntime) SetEnabled(ctx context.Context, generation 
 		return nil
 	}
 	if err := r.ValidateCurrent(ctx, generation, commandruntime.BoundaryBeforeEnable); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	projection, ok := r.published[generation.Value]
+	r.mu.Unlock()
+	if !ok {
+		return commandruntime.ErrNotReady
+	}
+	if err := r.validateProjectionCurrent(ctx, projection); err != nil {
 		return err
 	}
 	r.mu.Lock()
@@ -258,6 +270,21 @@ func (r *appCommandLifecycleRuntime) revalidate(ctx context.Context, snapshot co
 	}
 	if !versions.Unlocked {
 		return commandruntime.ErrNotReady
+	}
+	return nil
+}
+
+func (r *appCommandLifecycleRuntime) validateProjectionCurrent(ctx context.Context, projection commandruntime.Projection) error {
+	value, ok := projection.Value.(appCommandLifecycleProjection)
+	if !ok || value.Principal.UserID == "" || value.Principal.SessionID == "" {
+		return commandruntime.ErrInvalidConfiguration
+	}
+	versions, err := r.inputs.Host.Snapshot(ctx, value.Principal)
+	if err != nil {
+		return err
+	}
+	if !versions.Unlocked || versions != value.Versions {
+		return commandsecurity.ErrStaleEpoch
 	}
 	return nil
 }

@@ -739,6 +739,67 @@ func TestAppCommandLifecycleResetForgetsPublishedHostConfiguration(t *testing.T)
 	}
 }
 
+func TestAppCommandLifecycleRuntimeRejectsStaleHostProjectionAtPublish(t *testing.T) {
+	ctx := context.Background()
+	app, inputs := appLifecycleProductMountFixture(t)
+	runtimePort, err := newAppCommandLifecycleRuntime(app, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, err := runtimePort.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := runtimePort.Project(ctx, generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := inputs.Host.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtimePort.Publish(ctx, projection); !errors.Is(err, commandexecution.ErrHostUserNotPublished) {
+		t.Fatalf("publish aceitou projeção stale do HostState: %v", err)
+	}
+	runtimePort.mu.Lock()
+	_, published := runtimePort.published[generation.Value]
+	runtimePort.mu.Unlock()
+	if published {
+		t.Fatal("projeção stale ficou publicada")
+	}
+}
+
+func TestAppCommandLifecycleRuntimeRejectsStaleHostProjectionAtEnable(t *testing.T) {
+	ctx := context.Background()
+	app, inputs := appLifecycleProductMountFixture(t)
+	runtimePort, err := newAppCommandLifecycleRuntime(app, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, err := runtimePort.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := runtimePort.Project(ctx, generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtimePort.Publish(ctx, projection); err != nil {
+		t.Fatal(err)
+	}
+	if err := inputs.Host.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtimePort.SetEnabled(ctx, generation, true); !errors.Is(err, commandexecution.ErrHostUserNotPublished) {
+		t.Fatalf("enable aceitou projeção stale do HostState: %v", err)
+	}
+	runtimePort.mu.Lock()
+	enabled := runtimePort.enabled
+	runtimePort.mu.Unlock()
+	if enabled == generation {
+		t.Fatal("geração stale ficou habilitada")
+	}
+}
+
 func TestAppCommandLifecycleRestartDoesNotInferLedgerRecoveryWithoutDrainProof(t *testing.T) {
 	ctx := context.Background()
 	app, _ := appLifecycleProductMountFixture(t)
