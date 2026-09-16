@@ -93,8 +93,8 @@ func fixture(t *testing.T) (*Consumer, *commandjobevents.Store, commandjobevents
 	}
 	f := commandjobevents.Fact{SchemaVersion: event, EventName: event, SourceEventID: id(), UserID: user, JobDatabaseID: job, JobSlug: "job-slug", RunID: "opaque:run", Sequence: 1, State: "queued", OccurredAt: now, RootOriginType: "manual", RootOriginID: "root", Provenance: map[string]any{"_source": "job", "_source_job_id": "job-slug", "_chain_id": "chain", "_chain_history": []any{}}}
 	f.RunEventID = f.SourceEventID
-	ports := Ports{Authorize: func(_ context.Context, _ *gorm.DB, u string, w *string) (commandactivation.Owner, error) {
-		return commandactivation.Owner{Scope: commandactivation.Scope{UserID: u, WorkspaceID: clone(w)}, AuthContextType: "local_session", AuthContextID: "session", AuthGeneration: "1", SecurityGeneration: "1"}, nil
+	ports := Ports{Authorize: func(_ context.Context, _ *gorm.DB, fact commandjobevents.Fact, w *string) (commandactivation.Owner, error) {
+		return commandactivation.Owner{Scope: commandactivation.Scope{UserID: fact.UserID, WorkspaceID: clone(w)}, AuthContextType: "local_session", AuthContextID: "session", AuthGeneration: "1", SecurityGeneration: "1"}, nil
 	}, Layer: func(context.Context, *gorm.DB, commandactivation.Owner, commandactivation.Rule) (bool, error) {
 		return true, nil
 	}, Condition: func(context.Context, *gorm.DB, commandactivation.Owner, commandactivation.Rule, commandjobevents.Fact) (bool, error) {
@@ -210,7 +210,7 @@ func TestConsumeTamperedGrantDisablesAndDoesNotActivate(t *testing.T) {
 
 func TestConsumeRollsBackAllRulesAndAckOnAuthFailure(t *testing.T) {
 	c, out, f, _, _ := fixture(t)
-	c.ports.Authorize = func(context.Context, *gorm.DB, string, *string) (commandactivation.Owner, error) {
+	c.ports.Authorize = func(context.Context, *gorm.DB, commandjobevents.Fact, *string) (commandactivation.Owner, error) {
 		return commandactivation.Owner{}, ErrUnavailable
 	}
 	if err := c.db.Transaction(func(tx *gorm.DB) error { return out.InsertFactTx(tx, f) }); err != nil {

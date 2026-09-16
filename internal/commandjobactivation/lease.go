@@ -212,7 +212,7 @@ func (c *Consumer) liveClaim(ctx context.Context, tx *gorm.DB, lease Lease, now 
 	if err := verifyJob(tx, f); err != nil {
 		return claim, commandactivation.Owner{}, err
 	}
-	owner, err := c.ports.Authorize(ctx, tx, claim.UserID, clone(claim.WorkspaceID))
+	owner, err := c.ports.Authorize(ctx, tx, detachedFact(f), clone(claim.WorkspaceID))
 	if err != nil {
 		return claim, owner, err
 	}

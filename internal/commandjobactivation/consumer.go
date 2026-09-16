@@ -26,7 +26,7 @@ var ErrUnavailable = errors.New("command job activation unavailable")
 // Authorize rederiva sessão/epochs atuais e acesso ao workspace da regra.
 // Runtime confirma que este run continua vivo no runtime, não só no SQLite.
 type Ports struct {
-	Authorize  func(context.Context, *gorm.DB, string, *string) (commandactivation.Owner, error)
+	Authorize  func(context.Context, *gorm.DB, commandjobevents.Fact, *string) (commandactivation.Owner, error)
 	Layer      func(context.Context, *gorm.DB, commandactivation.Owner, commandactivation.Rule) (bool, error)
 	Condition  func(context.Context, *gorm.DB, commandactivation.Owner, commandactivation.Rule, commandjobevents.Fact) (bool, error)
 	Runtime    func(context.Context, *gorm.DB, commandjobevents.Fact) (RuntimeIdentity, error)
@@ -137,7 +137,7 @@ func (c *Consumer) Consume(ctx context.Context, eventID, deliveryOwner string) (
 				return err
 			}
 			for _, rule := range rules {
-				owner, err := c.ports.Authorize(ctx, tx, fact.UserID, clone(rule.WorkspaceID))
+				owner, err := c.ports.Authorize(ctx, tx, detachedFact(fact), clone(rule.WorkspaceID))
 				if err != nil {
 					return err
 				}

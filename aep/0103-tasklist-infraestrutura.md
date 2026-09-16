@@ -17,10 +17,15 @@ físico, root autenticado e status atual antes de devolver
 `RuntimeIdentity`. Runs legados sem essa prova, status divergente ou fatos
 terminais falham fechado.
 
-Isso remove uma adaptação implícita perigosa: a outbox de job continua podendo
-representar fatos de `manual/cron/interval`, mas esses fatos não conseguem
-renovar/criar ativação persistente sem a prova de runtime autenticado. O teste
-novo cobre o caminho feliz e rejeições de run legado, run stale e fato terminal.
+O contrato do consumer também passou a entregar o `Fact` para a porta
+`Authorize`, em vez de apenas `userID/workspaceID`. Isso permite que o adapter
+produtivo derive owner/sessão/epochs do run que gerou a ocorrência, sem depender
+de sessão global atual e sem iterar usuários por inferência. A outbox de job
+continua podendo representar fatos de `manual/cron/interval`, mas esses fatos
+não conseguem renovar/criar ativação persistente sem a prova de runtime
+autenticado. O teste novo cobre o caminho feliz e rejeições de run legado, run
+stale e fato terminal; a suíte de `commandjobactivation` cobre a nova assinatura
+em consumo, rollback e heartbeat.
 
 **Contagem mantida: 53/84 critérios encerrados; 31 abertos; 4/15 pacotes
 completos.** O próximo passo para converter esse avanço em fechamento é montar

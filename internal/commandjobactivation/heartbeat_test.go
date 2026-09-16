@@ -63,13 +63,13 @@ func TestHeartbeatPassCancellationReportsCommittedPrefix(t *testing.T) {
 	calls := 0
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	c.ports.Authorize = func(ctx context.Context, tx *gorm.DB, userID string, workspaceID *string) (commandactivation.Owner, error) {
+	c.ports.Authorize = func(ctx context.Context, tx *gorm.DB, fact commandjobevents.Fact, workspaceID *string) (commandactivation.Owner, error) {
 		calls++
 		if calls == 2 {
 			cancel()
 			return commandactivation.Owner{}, context.Canceled
 		}
-		return originalAuthorize(ctx, tx, userID, workspaceID)
+		return originalAuthorize(ctx, tx, fact, workspaceID)
 	}
 
 	cursor, result, err := c.HeartbeatPass(ctx, "", 2, 45*time.Second)
