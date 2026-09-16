@@ -95,6 +95,11 @@ passa na maior parte da árvore, mas ainda falha em `internal/acp` e
 `internal/acpregistry` por encerramento de processo `0xffffffff`. Race, NVDA,
 hardware e review permanecem pendentes.
 
+Diagnóstico seguinte de I15.2: `internal/acp` e `internal/acpregistry` encerram
+antes de listar testes ou emitir `GODEBUG=inittrace`; os binários de teste
+compilados retornam `-1` diretamente. `golangci-lint` v2.11.4 carrega config e
+pacotes, mas termina antes da análise com `no go files to analyze`.
+
 ### Stream Deck real validado — 15/09/2026
 
 `internal/commanddeck` iniciou a base testável de I13.5/C41/C42: o renderer

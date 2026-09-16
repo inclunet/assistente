@@ -3,6 +3,30 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Continuação — 15/09/2026, diagnóstico dos bloqueios de I15.2
+
+Avanço diagnóstico em **I15.2**, ainda sem fechar o subitem. As falhas de
+`internal/acp` e `internal/acpregistry` foram reduzidas para um problema de
+startup do binário de teste: `go test -list .` também encerra com
+`exit status 0xffffffff`; binários gerados por `go test -c` executados
+diretamente encerram com `$LASTEXITCODE=-1` antes mesmo de `GODEBUG=inittrace=1`
+emitir qualquer linha. Renomear os executáveis não altera o resultado. Não há
+`ASSISTENTE_ACP_*` no ambiente, nem `os.Exit(-1)` nos pacotes. O ponto comum
+observado é a cadeia de dependências de `internal/acp` usada também por
+`internal/acpregistry`; o processo morre antes da listagem de testes, então não
+há teste individual para bisectar via `-run`.
+
+`golangci-lint` também foi repetido com escopo explícito e config carregada:
+`golangci-lint run ./internal/app ./internal/commandruntime ./internal/commandexecution ./internal/commandbridge --config .golangci.yml -v`
+carrega a config v2, reconhece o módulo `assistente`, ativa
+`errcheck/govet/ineffassign/staticcheck/unused` e carrega pacotes, mas ainda
+termina antes da análise com `context loading failed: no go files to analyze`.
+
+**Contagem mantida: 53/84 critérios encerrados; 31 abertos; 4/15 pacotes
+completos.** Próximo passo de I15.2 é investigar o crash pré-runtime dos
+binários ACP/acpregistry e a incompatibilidade local do golangci-lint v2, ou
+confirmar em CI/ambiente alternativo.
+
 ## Continuação — 15/09/2026, rodada ampla de qualificação I15.2
 
 Avanço em **I15.2**, ainda sem fechar o subitem. A rodada ampla foi repetida
