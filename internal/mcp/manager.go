@@ -297,8 +297,25 @@ func (m *Manager) markServerToolsUnavailable(slug, reason string) {
 		ctx = database.WithUserID(context.Background(), ownerUserID)
 	}
 	if _, err := catalog.MarkServerToolsUnavailable(ctx, serverID, nil, reason); err != nil {
-		logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao marcar tools indisponíveis no catálogo: %v", slug, err)
+		if benignCtxCancel(ctx, err) {
+			logging.Debugf(context.Background(), "mcp.manager", "[MCP:%s] marcação de tools indisponíveis cancelada (shutdown): %v", slug, err)
+		} else {
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao marcar tools indisponíveis no catálogo: %v", slug, err)
+		}
 	}
+}
+
+// benignCtxCancel indica que a falha é apenas efeito de cancelamento do
+// contexto-pai (shutdown/troca de usuário/timeout de login), não uma anomalia.
+// Nesses casos logamos em Debug em vez de ERRO, para não poluir o log durante o
+// encerramento. IMPORTANTE: um context.DeadlineExceeded "solto" no erro (sem o
+// ctx-pai encerrado) NÃO é considerado benigno — é o caso de timeout real de
+// handshake MCP por conexão (connectTimeout), que deve continuar em ERRO.
+func benignCtxCancel(ctx context.Context, err error) bool {
+	if ctx != nil && ctx.Err() != nil {
+		return true
+	}
+	return errors.Is(err, context.Canceled)
 }
 
 func (m *Manager) StartLogRetention(interval, maxAge time.Duration) {
@@ -503,12 +520,16 @@ func (m *Manager) AutoConnectAll(ctx context.Context) {
 	for _, slug := range slugs {
 		select {
 		case <-ctx.Done():
-			logging.Errorf(ctx, "mcp.manager", "[MCP] AutoConnectAll cancelado: %v", ctx.Err())
+			logging.Debugf(ctx, "mcp.manager", "[MCP] AutoConnectAll interrompido (shutdown): %v", ctx.Err())
 			return
 		default:
 		}
 		if err := m.connectWithContext(ctx, slug); err != nil {
-			logging.Errorf(ctx, "mcp.manager", "[MCP] AutoConnectAll: erro ao conectar '%s': %v", slug, err)
+			if benignCtxCancel(ctx, err) {
+				logging.Debugf(ctx, "mcp.manager", "[MCP] AutoConnectAll: conexão de '%s' cancelada (shutdown): %v", slug, err)
+			} else {
+				logging.Errorf(ctx, "mcp.manager", "[MCP] AutoConnectAll: erro ao conectar '%s': %v", slug, err)
+			}
 		}
 	}
 }
@@ -1791,7 +1812,11 @@ func (m *Manager) logEvent(slug, eventType, message string, data map[string]any)
 		Data:      payload,
 		Timestamp: time.Now(),
 	}); err != nil {
-		logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao persistir log %s: %v", slug, eventType, err)
+		if benignCtxCancel(nil, err) {
+			logging.Debugf(context.Background(), "mcp.manager", "[MCP:%s] persistência de log %s cancelada (shutdown): %v", slug, eventType, err)
+		} else {
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao persistir log %s: %v", slug, eventType, err)
+		}
 	}
 }
 
