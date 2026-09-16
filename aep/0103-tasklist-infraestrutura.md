@@ -3,6 +3,28 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Continuação — 16/09/2026, fechamento automatizável sem apoio manual
+
+Fechamento de **C09, C28, C29, C30, C31, C54, C66, C68, C69, C70 e C82** com
+evidência local automatizada. Permanecem fora deste lote os critérios que
+exigem validação manual/produto, como NVDA, uso real da Command Palette/tela,
+fluxos finais de import/export e aceite integrado.
+
+Validação executada:
+`go test ./internal/commandautomation ./internal/commandactivation ./internal/commandconfig ./internal/commandjobactivation ./internal/commandjobevents ./internal/commandidentity ./internal/commandmaintenance ./internal/commandcontract ./internal/app -run "Test.*(Grant|Revoke|Rule|Event|Activation|Builtin|Import|External|RevokeExternal|Admin|Mapping|Outbox|Lease|Replay|Source|Unknown|Legacy|Fingerprint|Candidate|Owner|Workspace|System|Maintenance|Coordinator|Command|Config|Export|Credential|Recovery)" -count=1`.
+
+Observação: a tentativa de incluir `./internal/tools/deeplink` na mesma
+validação falhou antes dos testes por download bloqueado de `testify` no
+sandbox; em seguida, o pacote foi validado fora do sandbox com:
+`go test ./internal/tools/deeplink -count=1`.
+
+**Contagem: 81/84 critérios encerrados; 3 abertos; 4/15 pacotes completos.**
+
+Pendências restantes para fechar com apoio manual/final: validação da Command
+Palette por teclado/NVDA, validação da configuração por teclado/NVDA e matriz
+final integrada de regressão/aceite. Esses pontos dependem de execução no app
+real e observação humana do ambiente/acessibilidade, não apenas de suíte local.
+
 ## Continuação — 16/09/2026, reconciliação até 70 critérios
 
 Fechamento de **C61, C62, C65, C71, C73, C74, C76, C77, C78 e C79** com
@@ -1443,6 +1465,14 @@ Responsáveis: I04 / I13.
 
 Execução por agente e automação preserva e revalida os gates da AEP-0101; origem headless não herda a identidade do usuário para autorizar mutações.
 
+**Fechado em 16/09/2026.** Evidência local: `commandidentity.Service`
+rederiva identidade de agente/job/system no gate final; job_service relê runtime
+e grant de delegação, exige `Decision == none` e revalida o job antes de
+autorizar. System só entra com capability interna e comandos read/internal.
+Origem headless não recebe presenter nem reaproveita sessão local para mutação.
+Testes focados de `commandidentity` e `commandexecution` cobrem grants de job,
+system restrito e rejeição de projeção/role forjados.
+
 Responsáveis: I10.
 
 ### C10
@@ -1557,11 +1587,25 @@ Responsáveis: I09.
 
 Count-cap/cascade de runs não remove a outbox antes do deadline; startup recupera leases e reprocessa pendências antes da retenção de jobs.
 
+**Fechado em 16/09/2026.** Evidência local: `commandjobevents` protege outbox
+até o deadline, `commandjobactivation` reencaminha leases expiradas em lote e
+`commandmaintenance.Coordinator` executa heartbeat/outbox/recovery antes da
+retenção de jobs, bloqueando retenção/compactação enquanto houver `More`.
+Testes focados cobrem purge preservando fonte/lease viva, requeue, batches e
+ordem outbox antes de jobs.
+
 Responsáveis: I09 / I12.
 
 ### C29
 
 Estado de ativação persistido é reconciliado em modo seguro no startup e preserva autenticação, geração e proveniência anti-loop da AEP-0067.
+
+**Fechado em 16/09/2026.** Evidência local: claims persistem
+`auth_context_type/id`, `auth_generation`, `security_generation`,
+`provenance`, fingerprint de evento e correlação; o consumer só renova claim
+quando runtime/lease batem com essas gerações. Recovery/maintenance reprocessam
+em modo bounded antes da retenção. Testes de replay/lease/runtime alterado e
+source lost cobrem fechamento seguro sem ressuscitar ciclo.
 
 Responsáveis: I07 / I09 / I12 / I14.
 
@@ -1569,11 +1613,24 @@ Responsáveis: I07 / I09 / I12 / I14.
 
 Claim de job sem lease e fonte autoritativa válidas fica inativa.
 
+**Fechado em 16/09/2026.** Evidência local: `effectiveLayer` só considera
+claim de `source_type = job` quando existe lease viva correspondente, e
+`apply` exige runtime atual antes de criar/renovar lease. Testes
+`TestSourceLostAndRuntimeChangedMakeClaimInactive`,
+`TestLeaseHeartbeatAndExpiryCannotResurrect` e os testes de replay de lease
+cobrem fonte perdida, runtime anterior e terminal sem ressurreição.
+
 Responsáveis: I09 / I12.
 
 ### C31
 
 Replay de ativação fora da retenção é rejeitado, e ownership vem do principal autenticado, não do payload.
+
+**Fechado em 16/09/2026.** Evidência local: fatos vêm de
+`VerifiedFactTx`, `verifyJob` e da porta `Authorize`/`Runtime`, não do payload
+do candidato; replay fora do deadline não reaceita ocorrência nem runtime
+antigo. Testes de `commandjobactivation` cobrem rejeição após replay deadline,
+grant revogado, runtime anterior, outbox purgada e conflito de fingerprint.
 
 Responsáveis: I09 / I12.
 
@@ -1713,6 +1770,12 @@ Responsáveis: I09.
 
 Recuperação de startup atualiza auditoria e ledger para `outcome_unknown` na mesma transação.
 
+**Fechado em 16/09/2026.** Evidência local:
+`commandmaintenance.Coordinator` compõe `commanddecision` e `commandledger`
+com prova de geração drenada; `TestCoordinatorComposesRealReceiptAndInvocationRecovery`
+fecha receipts pendentes e invocações como `outcome_unknown` por lotes antes
+de compactar, usando bancos reais e preservando continuação quando `More`.
+
 Responsáveis: I12 / I14.
 
 ### C55
@@ -1829,6 +1892,14 @@ Responsáveis: I10 / I14.
 
 Ativação event-driven usa grants próprios de camada, com chave natural, geração monotônica, histórico de revogação e revalidação autoritativa por evento; não reutiliza nem amplia grants de delegação da AEP-0101.
 
+**Fechado em 16/09/2026.** Evidência local: `commandautomation` deriva
+`NaturalKey` da regra persistida, calcula fingerprint/generation próprios,
+consome receipt de configuração ao gravar grant e mantém histórico de
+revogação. `commandjobactivation.validateGrant` revalida ID, geração,
+fingerprint, rule/layer refs e decisão no evento; grants de delegação de job
+são verificados separadamente por `commandidentity`. Testes de grants, regrant,
+revogação e tamper de grant passaram.
+
 Responsáveis: I08.
 
 ### C67
@@ -1848,17 +1919,38 @@ Responsáveis: I09.
 
 Evento de ativação recebido é candidato sem autoridade; dispatcher deriva owner, workspace, regra, layer e epochs antes do envelope interno.
 
+**Fechado em 16/09/2026.** Evidência local: `Consumer.Consume` aceita somente
+`source_event_id` e `deliveryOwner`; relê o fato verificado, regras ativas e
+deriva owner/workspace/epochs via porta `Authorize` dentro da transação/gate.
+Layer, condition, runtime e grant são revalidados antes de aplicar. Testes de
+consumer cobrem rollback em auth failure, owner de delivery separado e
+fingerprint/replay.
+
 Responsáveis: I08 / I09.
 
 ### C69
 
 Regras e layers builtin/user usam refs polimórficas consistentes no schema, grants, estado, ownership, importação e restore.
 
+**Fechado em 16/09/2026.** Evidência local: `commandconfig` valida refs
+`builtin/user` em layers, regras, grants e claims; builtin precisa existir na
+projeção completa e user precisa pertencer ao mesmo escopo/workspace. Grants
+ativos sem regra correspondente invalidam a projeção, e restore não recria
+grants/claims. Testes de `commandconfig`/`commandactivation` cobrem refs
+polimórficas, restore, revogação e agregados completos.
+
 Responsáveis: I05 / I07 / I08 / I11.
 
 ### C70
 
 Após o PR atualizar a AEP-0052, identidade externa só acessa usuário local por mapeamento administrativo exato de emissor e subject; antes disso, o command manager fica indisponível nesse modo.
+
+**Fechado em 16/09/2026.** Evidência local:
+`auth.ExternalIdentityRepository` resolve por issuer/subject exatos;
+`commandidentity.ResolveExternalToken` permanece indisponível sem readiness do
+repositório/middleware e `Authorize` reconsulta cache verificado, ignorando role
+forjado. Revogação administrativa invalida o epoch real do contexto externo.
+Testes focados cobrem mapeamento exato, readiness, revogação e revalidação.
 
 Responsáveis: I10.
 
@@ -1994,6 +2086,15 @@ Responsáveis: I12.
 ### C82
 
 Deep links e configurações importadas não concedem execução arbitrária.
+
+**Fechado em 16/09/2026.** Evidência local: `open_deep_link` só aceita URI
+`assistente://` não vazia, documenta que não concede acesso a conteúdo nem
+permissões, proíbe inventar IDs/rotas e delega validações de rota/parâmetros ao
+parser frontend. A descrição também explicita que terminal/new usa o fluxo de
+terminal do frontend, não o `run_command`. Testes de `internal/tools/deeplink`
+cobrem contrato, schema sem propriedades extras, prefixo obrigatório e rejeição
+de HTTP/JSON inválido. Config import continua sem transportar grants/histórico
+conforme validações de `commandconfig` usadas neste lote.
 
 Responsáveis: I10 / I11 / P05.
 
