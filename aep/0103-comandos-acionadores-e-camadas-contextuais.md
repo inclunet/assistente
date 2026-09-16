@@ -57,6 +57,11 @@ invocações ou receipts pendentes em recuperados apenas por inferir que houve
 restart; reconciliação continua exigindo prova de drain ou manutenção posterior.
 Contagem atual: **50/84 critérios locais, 34 abertos; 3/15 pacotes completos**.
 
+Avanço de I14.4: a publicação de configuração persistida agora fica vinculada
+ao `userID/sessionID` capturado no load. Se a sessão local muda antes do commit,
+o publish é rejeitado, evitando que rebuild atrasado de uma sessão anterior
+sobrescreva o estado volátil da sessão atual.
+
 ### Stream Deck real validado — 15/09/2026
 
 `internal/commanddeck` iniciou a base testável de I13.5/C41/C42: o renderer

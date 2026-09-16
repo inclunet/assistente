@@ -643,6 +643,72 @@ func TestAppCommandLifecycleRestoresPersistentClaimsIntoActiveLayers(t *testing.
 	}
 }
 
+func TestAppCommandLifecycleRejectsLoadedConfigurationAfterSessionChange(t *testing.T) {
+	ctx := context.Background()
+	app, _ := appLifecycleProductMountFixture(t)
+	if err := ensureCommandLifecycleMountedForCurrentUserForTest(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.commandHost.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+	principal, err := app.currentCommandPrincipal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DB().Create(&commandconfig.Generation{ID: uuid.Must(uuid.NewV7()).String(), UserID: principal.UserID, Generation: 1, UpdatedAt: time.Now().UTC()}).Error; err != nil {
+		t.Fatal(err)
+	}
+	store, err := commandconfig.New(database.DB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, _, err := commandLifecycleSentinelCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, hasSnapshot, err := app.loadCommandLifecyclePersistedConfiguration(ctx, store, commandconfig.LocalReadProjection{
+		Registry:           registry,
+		NoArgumentCommands: []string{commandLifecycleSentinelID},
+		BuiltinLayers: []commandconfig.BuiltinLayer{{
+			ID: commandLifecycleBuiltinLayerID, Active: true,
+			Defaults: []commandbindings.Default{{
+				Candidate: commandbindings.Candidate{
+					ID:                "lifecycle.default.ready",
+					Trigger:           "keyboard.local:Control+Shift+KeyL",
+					CommandID:         commandLifecycleSentinelID,
+					ArgumentsKey:      "{}",
+					ExecutionScopeKey: "global",
+					Scope:             commandbindings.Global,
+					Enabled:           true,
+					LayerActive:       true,
+				},
+				Version:     "1",
+				Fingerprint: "lifecycle.default.ready.v1",
+			}},
+		}},
+	})
+	if err != nil || !hasSnapshot {
+		t.Fatalf("load persistido falhou: has=%v err=%v", hasSnapshot, err)
+	}
+	staleSession := principal.SessionID
+	app.authMu.Lock()
+	app.currentAuthUser.SessionID = uuid.Must(uuid.NewV7()).String()
+	app.authMu.Unlock()
+	if err := loaded.publish(ctx); !errors.Is(err, commandexecution.ErrDenied) {
+		t.Fatalf("publicação stale não foi rejeitada: %v", err)
+	}
+	app.authMu.RLock()
+	currentSession := app.currentAuthUser.SessionID
+	app.authMu.RUnlock()
+	if currentSession == staleSession {
+		t.Fatal("fixture não simulou troca de sessão")
+	}
+	if err := ShutdownCommandLifecycle(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAppCommandLifecycleRestartDoesNotInferLedgerRecoveryWithoutDrainProof(t *testing.T) {
 	ctx := context.Background()
 	app, _ := appLifecycleProductMountFixture(t)

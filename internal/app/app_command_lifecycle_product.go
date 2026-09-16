@@ -213,6 +213,7 @@ func (a *App) rebuildCommandLifecyclePersistedConfiguration(ctx context.Context)
 type commandLifecycleLoadedConfiguration struct {
 	app           *App
 	store         *commandconfig.Store
+	principal     auth.LocalSessionPrincipal
 	snapshot      commandconfig.Snapshot
 	configuration *commandbindings.Configuration
 	activeLayers  []string
@@ -245,7 +246,7 @@ func (a *App) loadCommandLifecyclePersistedConfiguration(ctx context.Context, st
 	if err != nil {
 		return commandLifecycleLoadedConfiguration{}, false, err
 	}
-	return commandLifecycleLoadedConfiguration{app: a, store: store, snapshot: snapshot, configuration: configuration, activeLayers: activeLayers}, true, nil
+	return commandLifecycleLoadedConfiguration{app: a, store: store, principal: principal, snapshot: snapshot, configuration: configuration, activeLayers: activeLayers}, true, nil
 }
 
 func (a *App) restoreCommandLifecyclePersistentClaims(ctx context.Context) error {
@@ -366,12 +367,11 @@ func commandLifecycleHasBaseGeneration(ctx context.Context, userID string) (bool
 }
 
 func (loaded commandLifecycleLoadedConfiguration) publish(ctx context.Context) error {
-	if loaded.app == nil || loaded.store == nil || loaded.configuration == nil {
+	if loaded.app == nil || loaded.store == nil || loaded.configuration == nil || loaded.principal.UserID == "" || loaded.principal.SessionID == "" {
 		return commandexecution.ErrInvalidConfiguration
 	}
-	loadedPrincipal := loaded.snapshot.Scope.UserID
 	return loaded.app.rebuildCommandLifecycleConfigurationChecked(ctx, func(ctx context.Context, principal auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
-		if principal.UserID != loadedPrincipal {
+		if principal != loaded.principal || principal.UserID != loaded.snapshot.Scope.UserID {
 			return nil, nil, commandexecution.ErrDenied
 		}
 		return loaded.configuration, loaded.activeLayers, nil
