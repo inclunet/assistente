@@ -273,6 +273,9 @@ func ResetCommandLifecycle(ctx context.Context, a *App, reason string) error {
 // resetCommandLifecycleIfConfigured é o hook de logout/troca de principal.
 // Ausência de montagem preserva integralmente o fluxo legado.
 func (a *App) resetCommandLifecycleIfConfigured(ctx context.Context, reason string) error {
+	if a != nil {
+		a.resetCommandHostSession(false)
+	}
 	if _, ok := loadCommandLifecycle(a); !ok {
 		return nil
 	}

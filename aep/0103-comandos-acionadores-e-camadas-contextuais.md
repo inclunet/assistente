@@ -62,6 +62,11 @@ ao `userID/sessionID` capturado no load. Se a sessão local muda antes do commit
 o publish é rejeitado, evitando que rebuild atrasado de uma sessão anterior
 sobrescreva o estado volátil da sessão atual.
 
+Avanço adicional de I14.4: resets de login/refresh/logout agora também removem
+a configuração volátil do usuário atual no `HostState`; durante transição de
+auth, o executor deixa de ver o mapa antigo até que um rebuild autenticado
+publique uma nova configuração.
+
 ### Stream Deck real validado — 15/09/2026
 
 `internal/commanddeck` iniciou a base testável de I13.5/C41/C42: o renderer

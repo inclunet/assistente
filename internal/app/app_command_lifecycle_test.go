@@ -709,6 +709,36 @@ func TestAppCommandLifecycleRejectsLoadedConfigurationAfterSessionChange(t *test
 	}
 }
 
+func TestAppCommandLifecycleResetForgetsPublishedHostConfiguration(t *testing.T) {
+	ctx := context.Background()
+	app, _ := appLifecycleProductMountFixture(t)
+	if err := ensureCommandLifecycleMountedForCurrentUserForTest(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.commandHost.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.rebuildCommandLifecycleSentinelConfiguration(ctx); err != nil {
+		t.Fatal(err)
+	}
+	principal, err := app.currentCommandPrincipal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := app.commandHost.UserConfiguration(ctx, principal.UserID); err != nil {
+		t.Fatalf("fixture não publicou configuração inicial: %v", err)
+	}
+	if err := app.resetCommandLifecycleIfConfigured(ctx, "refresh"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := app.commandHost.UserConfiguration(ctx, principal.UserID); !errors.Is(err, commandexecution.ErrHostUserNotPublished) {
+		t.Fatalf("reset não removeu configuração volátil do host: %v", err)
+	}
+	if err := ShutdownCommandLifecycle(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAppCommandLifecycleRestartDoesNotInferLedgerRecoveryWithoutDrainProof(t *testing.T) {
 	ctx := context.Background()
 	app, _ := appLifecycleProductMountFixture(t)
