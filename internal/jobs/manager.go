@@ -48,6 +48,60 @@ type ManagerConfig struct {
 	MsgGateway      *messaging.Gateway
 	SecretStore     SecretStore
 	EmitEvent       func(event string, data any) // Wails EventsEmit
+	// MaxConcurrentRuns limita quantas execuções automáticas de job rodam ao
+	// mesmo tempo (scheduler + cadeias de evento). <= 0 usa
+	// defaultMaxConcurrentRuns. Ver AEP-0106.
+	MaxConcurrentRuns int
+}
+
+// defaultMaxConcurrentRuns é o teto padrão de execuções automáticas de job
+// simultâneas. Alinhado ao pool do SQLite (sqliteMaxOpenConns=4): o fan-out sem
+// limite do EventBus disparava dezenas de runs concorrentes contra 1 writer
+// SQLite, causando SLOW SQL/SQLITE_BUSY e "context deadline exceeded" que
+// ABORTAVAM tools e jobs (ver AEP-0106). Limitar a concorrência na raiz remove a
+// tempestade sem sacrificar o encadeamento (o publicador não espera o run
+// downstream). Configurável via ManagerConfig.MaxConcurrentRuns.
+const defaultMaxConcurrentRuns = 4
+
+// runLimiter é um semáforo de contagem (canal com buffer) que limita execuções
+// concorrentes de job. É imutável após a criação, então pode ser lido no hot
+// path sem lock — evitando qualquer deadlock com o Stop (que segura m.mu ao
+// drenar o EventBus).
+type runLimiter struct {
+	sem chan struct{}
+}
+
+func newRunLimiter(max int) *runLimiter {
+	if max <= 0 {
+		max = defaultMaxConcurrentRuns
+	}
+	return &runLimiter{sem: make(chan struct{}, max)}
+}
+
+// acquire reserva um slot, respeitando o cancelamento do contexto. Retorna false
+// quando o ctx é cancelado antes de conseguir o slot (nesse caso NÃO se deve
+// executar nem chamar release).
+func (l *runLimiter) acquire(ctx context.Context) bool {
+	if l == nil || l.sem == nil {
+		return true
+	}
+	select {
+	case l.sem <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// release devolve um slot. Só deve ser chamado após um acquire bem-sucedido.
+func (l *runLimiter) release() {
+	if l == nil || l.sem == nil {
+		return
+	}
+	select {
+	case <-l.sem:
+	default:
+	}
 }
 
 // Manager orquestra todos os componentes do sistema de jobs.
@@ -57,6 +111,7 @@ type Manager struct {
 	eventBus       *EventBus
 	scheduler      *Scheduler
 	executor       *JobExecutor
+	runLimiter     *runLimiter
 	circuitBreaker *CircuitBreaker
 	hotkeyIDs      map[string][]int // jobID -> hotkey IDs registrados
 	retentionStop  chan struct{}
@@ -79,6 +134,7 @@ func NewManager(cfg ManagerConfig) *Manager {
 		cfg:            cfg,
 		registry:       registry,
 		eventBus:       eventBus,
+		runLimiter:     newRunLimiter(cfg.MaxConcurrentRuns),
 		circuitBreaker: circuitBreaker,
 		hotkeyIDs:      make(map[string][]int),
 	}
@@ -1607,6 +1663,14 @@ func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerCont
 			return
 		}
 	}
+	// Limita a concorrência de execução (AEP-0106). O slot é adquirido só depois
+	// dos guards (job desabilitado/tool indisponível não consome slot) e liberado
+	// ao fim do run. Se o ctx for cancelado antes do slot, aborta sem executar.
+	if !m.runLimiter.acquire(ctx) {
+		logging.Debugf(ctx, "jobs.manager", "[Jobs] %s: execução abortada ao aguardar slot de concorrência (contexto cancelado)", current.ID)
+		return
+	}
+	defer m.runLimiter.release()
 	m.executor.Execute(ctx, current, trigCtx)
 }
 
