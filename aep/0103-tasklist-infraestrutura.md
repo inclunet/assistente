@@ -7,6 +7,26 @@ Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
 ## Continuação — 16/09/2026, retenção respeita replay horizon também na auditoria
 
+## Continuação — 16/09/2026, prova real de runtime para ativação por jobs
+
+Avanço em **I09/I12/C67/C68**, ainda sem fechar o pacote. `internal/jobs`
+agora expõe uma porta real para `commandjobactivation`: a identidade de runtime
+de comando é gravada como fragmento canônico de proveniência e, ao consumir uma
+ocorrência não terminal de job, a porta relê `job_runs`, confere usuário, job
+físico, root autenticado e status atual antes de devolver
+`RuntimeIdentity`. Runs legados sem essa prova, status divergente ou fatos
+terminais falham fechado.
+
+Isso remove uma adaptação implícita perigosa: a outbox de job continua podendo
+representar fatos de `manual/cron/interval`, mas esses fatos não conseguem
+renovar/criar ativação persistente sem a prova de runtime autenticado. O teste
+novo cobre o caminho feliz e rejeições de run legado, run stale e fato terminal.
+
+**Contagem mantida: 53/84 critérios encerrados; 31 abertos; 4/15 pacotes
+completos.** O próximo passo para converter esse avanço em fechamento é montar
+o `commandjobactivation.Consumer` produtivo no App com esta porta, as portas
+reais de owner/layer/condition e o key provider de fingerprint.
+
 Avanço em **I12.5/C59–C62**, sem fechar o pacote I12. A retenção de
 `command_invocations` agora aplica o mesmo limite de replay durável já usado
 para o ledger: auditorias terminais vindas de evento só podem ser compactadas
