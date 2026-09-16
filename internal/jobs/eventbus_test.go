@@ -137,19 +137,22 @@ func TestEventBus_DroppedEventWarningIsThrottledPerEvent(t *testing.T) {
 	now := time.Date(2026, 9, 13, 8, 0, 0, 0, time.UTC)
 	eb.now = func() time.Time { return now }
 
-	if dropped, warn := eb.recordDropped("pipeline.card"); dropped != 1 || !warn {
-		t.Fatalf("primeiro descarte = (%d, %v), want (1, true)", dropped, warn)
+	// perEvent conta por nome de evento; total é o contador global. O WARN é
+	// throttled por nome de evento.
+	if perEvent, total, warn := eb.recordDropped("pipeline.card"); perEvent != 1 || total != 1 || !warn {
+		t.Fatalf("1º descarte = (perEvent=%d, total=%d, warn=%v), want (1, 1, true)", perEvent, total, warn)
 	}
-	if dropped, warn := eb.recordDropped("pipeline.card"); dropped != 2 || warn {
-		t.Fatalf("descarte dentro do throttle = (%d, %v), want (2, false)", dropped, warn)
+	if perEvent, total, warn := eb.recordDropped("pipeline.card"); perEvent != 2 || total != 2 || warn {
+		t.Fatalf("descarte dentro do throttle = (perEvent=%d, total=%d, warn=%v), want (2, 2, false)", perEvent, total, warn)
 	}
-	if dropped, warn := eb.recordDropped("outro.evento"); dropped != 3 || !warn {
-		t.Fatalf("primeiro descarte de outro evento = (%d, %v), want (3, true)", dropped, warn)
+	// Outro evento: perEvent reinicia em 1 (honesto), mas o total global segue.
+	if perEvent, total, warn := eb.recordDropped("outro.evento"); perEvent != 1 || total != 3 || !warn {
+		t.Fatalf("1º descarte de outro evento = (perEvent=%d, total=%d, warn=%v), want (1, 3, true)", perEvent, total, warn)
 	}
 
 	now = now.Add(droppedEventWarningInterval)
-	if dropped, warn := eb.recordDropped("pipeline.card"); dropped != 4 || !warn {
-		t.Fatalf("descarte após throttle = (%d, %v), want (4, true)", dropped, warn)
+	if perEvent, total, warn := eb.recordDropped("pipeline.card"); perEvent != 3 || total != 4 || !warn {
+		t.Fatalf("descarte após throttle = (perEvent=%d, total=%d, warn=%v), want (3, 4, true)", perEvent, total, warn)
 	}
 }
 
