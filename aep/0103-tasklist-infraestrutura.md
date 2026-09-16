@@ -3,6 +3,23 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Continuação — 15/09/2026, fechamento de I14.6 e do pacote I14
+
+I14.6 foi encerrado localmente, fechando também o pacote **I14 — Montagem final
+no ciclo de vida do App**. A matriz de testes agora cobre instalação nova sem
+geração base caindo no sentinel sem alterar claims, configuração persistida,
+restore de claims persistentes, restart com pendência sem falsa reconciliação,
+falhas antes de readiness, retomada após erro quando o ambiente volta a ficar
+pronto, falha/cancelamento do monitor de SO, shutdown integrado e falhas de
+drain preservando dependências.
+
+Teste novo cobre retry após falha inicial: um bootstrap sem ambiente pronto
+fica `failed` e não publica readiness; depois de observar SO desbloqueado e
+reconstruir configuração, o mesmo lifecycle consegue publicar `Ready`.
+
+**Contagem: 53/84 critérios encerrados; 31 abertos; 4/15 pacotes completos.**
+O próximo pacote natural passa a ser I15, qualificação/aceite da infraestrutura.
+
 ## Continuação — 15/09/2026, fechamento de I14.5
 
 I14.5 foi encerrado localmente. O shutdown integrado agora tem prova end-to-end
@@ -1049,7 +1066,7 @@ concede autoridade backend sozinho e não migra handlers de teclado.
 
 ### I14 — Montagem final no ciclo de vida do App
 
-Estado: **Parcial — hooks e fábricas sem bootstrap de produto**. Esforço restante: **G**.
+Estado: **Completo localmente**. Esforço restante: **0**.
 Dependências: I01, I02, I03, I04, I05, I06, I07, I08, I09, I10, I11, I12, I13.
 Referências: D2.1, D8, D11, D13.
 
@@ -1060,7 +1077,7 @@ Evidência/limite atual: `commandruntime.Controller` serializa bootstrap, invali
 - [x] I14.3 — Orquestrar login/unlock/restart: autenticar → recuperar/reconciliar → carregar/projetar → publicar → habilitar entradas, revalidando cada transição.
 - [x] I14.4 — Impedir retomadas concorrentes e publicação de geração antiga; logout/troca de usuário/falha de monitor cancela trabalho e apaga somente estado em memória.
 - [x] I14.5 — Integrar shutdown, drenagem/cancelamento e manutenção sem goroutines órfãs, mutex durante UI/cofre ou cadências duplicadas.
-- [ ] I14.6 — Testar instalação nova, upgrade, restart com pendência, falhas em cada etapa e retomada após erro; nunca mascarar indisponibilidade como mapa vazio pronto.
+- [x] I14.6 — Testar instalação nova, upgrade, restart com pendência, falhas em cada etapa e retomada após erro; nunca mascarar indisponibilidade como mapa vazio pronto.
 
 Critério de saída: A base completa nasce, funciona e encerra dentro do App, ainda sem migrar os comandos existentes.
 

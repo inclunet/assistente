@@ -83,6 +83,12 @@ drena o domínio de executores, fecha a bridge, bloqueia novas admissões/remont
 e preserva dependências quando o drain falha. Contagem atual: **52/84 critérios
 locais, 32 abertos; 3/15 pacotes completos**.
 
+Fechamento de I14.6/I14: a matriz local agora cobre instalação nova/sentinel,
+persistência, claims, restart com pendência sem falsa reconciliação, falhas antes
+de readiness, retomada após erro, monitor de SO e shutdown integrado. I14 fica
+completo localmente. Contagem atual: **53/84 critérios locais, 31 abertos;
+4/15 pacotes completos**.
+
 ### Stream Deck real validado — 15/09/2026
 
 `internal/commanddeck` iniciou a base testável de I13.5/C41/C42: o renderer

@@ -781,12 +781,6 @@ func TestAppCommandLifecycleShutdownDrainsBridgeAndBlocksRemount(t *testing.T) {
 	app.authMu.Lock()
 	app.commandStorageVersion = ""
 	app.authMu.Unlock()
-	if err := app.commandHost.SetOSSessionState(ctx, true, false); err != nil {
-		t.Fatal(err)
-	}
-	if err := app.rebuildCommandLifecycleSentinelConfiguration(ctx); err != nil {
-		t.Fatal(err)
-	}
 	if err := BootstrapCommandLifecycle(ctx, app); err != nil {
 		t.Fatal(err)
 	}
@@ -811,6 +805,35 @@ func TestAppCommandLifecycleShutdownDrainsBridgeAndBlocksRemount(t *testing.T) {
 	}
 	if err := ConfigureCommandBridge(app, inputs.Bridge); !errors.Is(err, commandbridge.ErrBridgeClosed) {
 		t.Fatalf("shutdown integrado permitiu remontar bridge: %v", err)
+	}
+}
+
+func TestAppCommandLifecycleRetriesAfterInitialNotReadyFailure(t *testing.T) {
+	ctx := context.Background()
+	app, _ := appLifecycleProductMountFixture(t)
+	if err := ensureCommandLifecycleMountedForCurrentUserForTest(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+	if err := BootstrapCommandLifecycle(ctx, app); err == nil {
+		t.Fatalf("bootstrap sem ambiente pronto = %v", err)
+	}
+	if snapshot, err := CommandLifecycleSnapshot(app); err != nil || snapshot.State != commandruntime.StateFailed || snapshot.Published {
+		t.Fatalf("falha inicial foi mascarada como pronta: %+v err=%v", snapshot, err)
+	}
+	if err := app.commandHost.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.rebuildCommandLifecycleSentinelConfiguration(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := BootstrapCommandLifecycle(ctx, app); err != nil {
+		t.Fatalf("retry após ambiente pronto falhou: %v", err)
+	}
+	if snapshot, err := CommandLifecycleSnapshot(app); err != nil || snapshot.State != commandruntime.StateReady || !snapshot.Published {
+		t.Fatalf("retry não publicou readiness: %+v err=%v", snapshot, err)
+	}
+	if err := ShutdownCommandLifecycle(ctx, app); err != nil {
+		t.Fatal(err)
 	}
 }
 
