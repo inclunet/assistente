@@ -89,6 +89,12 @@ de readiness, retomada após erro, monitor de SO e shutdown integrado. I14 fica
 completo localmente. Contagem atual: **53/84 critérios locais, 31 abertos;
 4/15 pacotes completos**.
 
+Avanço de I15.2: a qualificação ampla foi repetida com temporários externos ao
+repo. `go vet ./...`, frontend lint e frontend build passam; `go test ./...`
+passa na maior parte da árvore, mas ainda falha em `internal/acp` e
+`internal/acpregistry` por encerramento de processo `0xffffffff`. Race, NVDA,
+hardware e review permanecem pendentes.
+
 ### Stream Deck real validado — 15/09/2026
 
 `internal/commanddeck` iniciou a base testável de I13.5/C41/C42: o renderer

@@ -51,7 +51,8 @@ const MAX_EDITOR_SELECTION_CHARACTERS = 20_000;
 
 function exceedsUnicodeCharacterLimit(text: string, max: number): boolean {
   let count = 0;
-  for (const _character of text) {
+  for (const character of text) {
+    void character;
     count += 1;
     if (count > max) return true;
   }

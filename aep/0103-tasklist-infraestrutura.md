@@ -3,6 +3,33 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Continuação — 15/09/2026, rodada ampla de qualificação I15.2
+
+Avanço em **I15.2**, ainda sem fechar o subitem. A rodada ampla foi repetida
+com cache/temporários fora do repositório para não poluir testes de inventário.
+Resultados:
+
+- `go test ./... -count=1`: passou na maior parte da árvore, incluindo App,
+  command*, database, jobs, llm, tools, workspace, wailsapi e integrações; ainda
+  falha em `internal/acp` e `internal/acpregistry` com `exit status 0xffffffff`,
+  sem stack de teste. A falha de `internal/logging` observada quando `GOTMPDIR`
+  estava dentro do repo foi reexecutada separadamente e passou com temp externo.
+- `go test ./internal/acp ./internal/acpregistry ./internal/logging -count=1 -v`:
+  confirmou `internal/logging` verde e preservou as duas falhas de processo em
+  ACP/acpregistry.
+- `go vet ./...`: passou.
+- `npm --prefix frontend run lint`: passou sem warnings após remover o warning
+  `_character` não usado em `useEditorInlineChat`.
+- `npm --prefix frontend run build`: passou quando executado fora do sandbox; no
+  sandbox, o build falha antes da análise com `spawn EPERM` ao iniciar esbuild.
+- `golangci-lint` v2.11.4 está instalado, mas `golangci-lint run` e
+  `golangci-lint run ./...` falham antes da análise com `context loading failed:
+  no go files to analyze`.
+
+**Contagem mantida: 53/84 critérios encerrados; 31 abertos; 4/15 pacotes
+completos.** I15.2 permanece aberto por causa das falhas ACP/acpregistry, race
+não executado neste ambiente e golangci-lint não analisando o módulo.
+
 ## Continuação — 15/09/2026, fechamento de I14.6 e do pacote I14
 
 I14.6 foi encerrado localmente, fechando também o pacote **I14 — Montagem final
@@ -1089,11 +1116,11 @@ existência não equivale a entradas habilitadas nem a providers UI autenticados
 
 ### I15 — Qualificação e aceite da infraestrutura
 
-Estado: **Parcial — testes focados e benchmarks existentes**. Esforço restante: **G**.
+Estado: **Parcial — qualificação ampla em andamento**. Esforço restante: **G**.
 Dependências: I14.
 Referências: Fase 0, D12, riscos e critérios transversais.
 
-Evidência/limite atual: TestMain de App/config isola dados pessoais e a suíte global foi executada; falhas de processo em ACP/acpregistry permanecem. Frontend completo, TypeScript, build/vet e lint foram exercitados. Não há comprovação integral de p95, race, hardware/NVDA ou review de entrega. Microbenchmarks não substituem latência integrada.
+Evidência/limite atual: TestMain de App/config isola dados pessoais e a suíte global foi executada com temporários externos ao repo. A maior parte de `go test ./...` passa, incluindo App, command*, database, jobs, tools e integrações; `internal/acp` e `internal/acpregistry` ainda falham por encerramento de processo `0xffffffff`. `go vet ./...` passa. Frontend `eslint` e `tsc && vite build` passam; build precisa rodar fora do sandbox por `spawn EPERM` do esbuild. `golangci-lint` v2.11.4 está disponível, mas falha antes da análise com “no go files to analyze”. Não há comprovação integral de race, p95, hardware/NVDA ou review de entrega. Microbenchmarks não substituem latência integrada.
 
 - [x] I15.1 — Isolar os testes legados que escrevem configuração pessoal; disponibilizar suíte geral reproduzível em dados temporários.
 - [ ] I15.2 — Executar backend completo, detector de corrida em ambiente com C/CGO e lint compatível v2; verificar frontend/Wails gerado quando as pontes mudarem.
