@@ -78,6 +78,11 @@ Avanço de I14.5: shutdown do lifecycle também remove a configuração volátil
 usuário atual no `HostState` antes de aguardar o worker parar, evitando mapa
 consultável enquanto bridge, drain e demais dependências ainda estão encerrando.
 
+Fechamento de I14.5: shutdown integrado agora tem prova de que encerra lifecycle,
+drena o domínio de executores, fecha a bridge, bloqueia novas admissões/remontagens
+e preserva dependências quando o drain falha. Contagem atual: **52/84 critérios
+locais, 32 abertos; 3/15 pacotes completos**.
+
 ### Stream Deck real validado — 15/09/2026
 
 `internal/commanddeck` iniciou a base testável de I13.5/C41/C42: o renderer

@@ -20,6 +20,7 @@ import (
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandledger"
 	"assistente/internal/commandruntime"
+	"assistente/internal/commandsecurity"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
@@ -766,6 +767,50 @@ func TestAppCommandLifecycleShutdownForgetsPublishedHostConfiguration(t *testing
 	}
 	if app.commandLifecycle.Load() != nil {
 		t.Fatal("shutdown não desmontou lifecycle")
+	}
+}
+
+func TestAppCommandLifecycleShutdownDrainsBridgeAndBlocksRemount(t *testing.T) {
+	ctx := context.Background()
+	app, inputs := appLifecycleProductMountFixture(t)
+	app.ctx, app.cancel = context.WithCancel(ctx)
+	defer app.cancel()
+	if err := ConfigureCommandLifecycleForApp(app, inputs); err != nil {
+		t.Fatal(err)
+	}
+	app.authMu.Lock()
+	app.commandStorageVersion = ""
+	app.authMu.Unlock()
+	if err := app.commandHost.SetOSSessionState(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.rebuildCommandLifecycleSentinelConfiguration(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := BootstrapCommandLifecycle(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+
+	app.Shutdown()
+
+	if lifecycle, ok := loadCommandLifecycle(app); ok || lifecycle != nil {
+		t.Fatal("shutdown integrado deixou lifecycle montado")
+	}
+	if bridge, ok := loadCommandBridge(app); ok || bridge != nil {
+		t.Fatal("shutdown integrado deixou bridge montada")
+	}
+	core, err := app.commandSecurityService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := core.RegisterExecutorDrain(ctx, func(context.Context) error { return nil }); !errors.Is(err, commandsecurity.ErrStaleEpoch) {
+		t.Fatalf("shutdown integrado não fechou admissões de executores: %v", err)
+	}
+	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(&appLifecyclePort{})); !errors.Is(err, commandruntime.ErrStopped) {
+		t.Fatalf("shutdown integrado permitiu remontar lifecycle: %v", err)
+	}
+	if err := ConfigureCommandBridge(app, inputs.Bridge); !errors.Is(err, commandbridge.ErrBridgeClosed) {
+		t.Fatalf("shutdown integrado permitiu remontar bridge: %v", err)
 	}
 }
 
