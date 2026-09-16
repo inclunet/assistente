@@ -9,7 +9,8 @@ Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
 ## Continuação — 16/09/2026, prova real de runtime para ativação por jobs
 
-Avanço em **I09/I12/C67/C68**, ainda sem fechar o pacote. `internal/jobs`
+Fechamento de **C67** e avanço em **I09/I12/C68**, ainda sem fechar os pacotes.
+`internal/jobs`
 agora expõe uma porta real para `commandjobactivation`: a identidade de runtime
 de comando é gravada como fragmento canônico de proveniência e, ao consumir uma
 ocorrência não terminal de job, a porta relê `job_runs`, confere usuário, job
@@ -27,8 +28,8 @@ autenticado. O teste novo cobre o caminho feliz e rejeições de run legado, run
 stale e fato terminal; a suíte de `commandjobactivation` cobre a nova assinatura
 em consumo, rollback e heartbeat.
 
-**Contagem mantida: 53/84 critérios encerrados; 31 abertos; 4/15 pacotes
-completos.** O próximo passo para converter esse avanço em fechamento é montar
+**Contagem: 54/84 critérios encerrados; 30 abertos; 4/15 pacotes completos.**
+O próximo passo para converter esse avanço em fechamento de pacote é montar
 o `commandjobactivation.Consumer` produtivo no App com esta porta, as portas
 reais de owner/layer/condition e o key provider de fingerprint.
 
@@ -1764,6 +1765,13 @@ Responsáveis: I08.
 ### C67
 
 Adapter de jobs exige `job_slug = Job.ID` e `job_database_id = Job.DatabaseID`, confirma ambos por owner e permanece desabilitado para fatos legados ambíguos.
+
+**Fechado em 16/09/2026.** Evidência local: fatos elegíveis só são inseridos
+quando `job_database_id` é UUIDv7, `job_slug` vem do job persistido e raiz
+externa/unknown não é elegível; o consumo revalida `user_id`, slug e ID físico
+em `verifyJob`; a nova porta `jobs.CommandRuntimeIdentityFromFact` relê
+`job_runs`, confere root/status e exige proveniência de runtime autenticado.
+Runs legados sem essa prova, stale ou terminais falham fechado.
 
 Responsáveis: I09.
 
