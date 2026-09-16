@@ -85,6 +85,12 @@ func (l *runLimiter) acquire(ctx context.Context) bool {
 	if l == nil || l.sem == nil {
 		return true
 	}
+	// Se o contexto já está cancelado, aborta sem reservar slot. Sem esse guard,
+	// com slot livre E ctx cancelado os dois cases do select ficam prontos e o Go
+	// escolhe um ao acaso, podendo executar um run já cancelado (viola AEP-0106).
+	if ctx.Err() != nil {
+		return false
+	}
 	select {
 	case l.sem <- struct{}{}:
 		return true
@@ -1642,8 +1648,32 @@ func (m *Manager) emitJobUpdates(jobs []Job) {
 	m.emitEvent("jobs:updated", map[string]any{"ids": ids})
 }
 
+// jobRunnable reavalia, com a versão mais atual do registry (pode ter mudado via
+// hot reload), se o job ainda deve rodar: habilitado e, para triggers
+// automáticos de tool MCP, com a tool disponível. Retorna a versão corrente e
+// true quando pode executar; caso contrário loga o skip (quando aplicável) e
+// retorna false.
+func (m *Manager) jobRunnable(ctx context.Context, jobID string, trigCtx *TriggerContext) (*Job, bool) {
+	current := m.registry.Get(jobID)
+	if current == nil || !m.effectiveJobEnabled(current) {
+		return nil, false
+	}
+	if trigCtx != nil && trigCtx.Type != TriggerManual && strings.HasPrefix(current.Tool, "mcp_") {
+		if m.cfg.ToolRegistry == nil {
+			m.logSkippedUnavailableTool(ctx, current, trigCtx, "tool registry is not available")
+			return nil, false
+		}
+		if _, ok := m.cfg.ToolRegistry.Get(current.Tool); !ok {
+			m.logSkippedUnavailableTool(ctx, current, trigCtx, fmt.Sprintf("MCP tool %q is not available yet", current.Tool))
+			return nil, false
+		}
+	}
+	return current, true
+}
+
 func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerContext) {
-	// Busca a versao mais atual do registry (pode ter sido atualizada via hot reload)
+	// Pré-check barato antes de escopar/enfileirar: job removido ou desabilitado
+	// nem entra na fila do semáforo.
 	current := m.registry.Get(job.ID)
 	if current == nil || !m.effectiveJobEnabled(current) {
 		return
@@ -1653,15 +1683,11 @@ func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerCont
 		logging.Infof(ctx, "jobs.manager", "[Jobs] %s: authenticated context required: %v", current.ID, err)
 		return
 	}
-	if trigCtx != nil && trigCtx.Type != TriggerManual && strings.HasPrefix(current.Tool, "mcp_") {
-		if m.cfg.ToolRegistry == nil {
-			m.logSkippedUnavailableTool(ctx, current, trigCtx, "tool registry is not available")
-			return
-		}
-		if _, ok := m.cfg.ToolRegistry.Get(current.Tool); !ok {
-			m.logSkippedUnavailableTool(ctx, current, trigCtx, fmt.Sprintf("MCP tool %q is not available yet", current.Tool))
-			return
-		}
+	// Guards completos já com o ctx escopado (o skip de tool MCP indisponível é
+	// persistido e exige user_id no contexto).
+	current, ok := m.jobRunnable(ctx, job.ID, trigCtx)
+	if !ok {
+		return
 	}
 	// Limita a concorrência de execução (AEP-0106). O slot é adquirido só depois
 	// dos guards (job desabilitado/tool indisponível não consome slot) e liberado
@@ -1671,6 +1697,12 @@ func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerCont
 		return
 	}
 	defer m.runLimiter.release()
+	// Reavalia com a versão mais recente após aguardar o slot: enquanto o run
+	// esperava vaga, o job pode ter sido desabilitado, excluído ou perdido a tool.
+	current, ok = m.jobRunnable(ctx, job.ID, trigCtx)
+	if !ok {
+		return
+	}
 	m.executor.Execute(ctx, current, trigCtx)
 }
 
