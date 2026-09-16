@@ -46,15 +46,44 @@ func configuredGORMLogger() logger.Interface {
 	if gormLogOutput != nil {
 		output = logging.DuplicateTo(output, gormLogOutput)
 	}
-	return logger.New(
+	base := logger.New(
 		stdlog.New(output, "\r\n", stdlog.LstdFlags),
 		logger.Config{
 			SlowThreshold:             200 * time.Millisecond,
 			LogLevel:                  gormLogLevel,
 			IgnoreRecordNotFoundError: false,
-			Colorful:                  true,
+			// Colorful=false: o logger do GORM escreve também no arquivo de log
+			// (via gormLogOutput), e códigos ANSI de cor sujavam o arquivo.
+			Colorful: false,
 		},
 	)
+	return busyQuietLogger{Interface: base}
+}
+
+// busyQuietLogger envolve o logger do GORM para NÃO repassar erros de
+// SQLITE_BUSY/"database is locked". Esses erros são transitórios e já tratados
+// por WithSQLiteBusyRetry (que loga WARN apenas quando o lock é persistente);
+// sem esta guarda, cada tentativa retentada rendia uma linha de erro do GORM —
+// centenas por sessão sob contenção do pipeline de jobs.
+type busyQuietLogger struct {
+	logger.Interface
+}
+
+// LogMode preserva o wrapper ao trocar de nível (GORM chama LogMode em
+// db.Debug()/Session). Sem isso, a supressão se perderia.
+func (l busyQuietLogger) LogMode(level logger.LogLevel) logger.Interface {
+	return busyQuietLogger{Interface: l.Interface.LogMode(level)}
+}
+
+// Trace é onde o GORM registra a query e eventual erro. Para busy transitório,
+// repassamos com err=nil: a query só aparece se for lenta (SLOW SQL), sem a
+// linha de erro falso-positivo. Erros reais seguem inalterados.
+func (l busyQuietLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	if IsSQLiteBusyError(err) {
+		l.Interface.Trace(ctx, begin, fc, nil)
+		return
+	}
+	l.Interface.Trace(ctx, begin, fc, err)
 }
 
 // ErrConversationDeleted é retornado quando se tenta salvar mensagem em conversa que foi deletada
