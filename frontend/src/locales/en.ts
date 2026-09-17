@@ -118,6 +118,7 @@ const en = {
       cancelGenerationLabel: 'Cancel generation (Esc)',
       listen: 'Listen',
       progressLabel: 'Assistant progress',
+      waitingForNextStep: 'Waiting for the assistant’s next step...',
       codeBlockSpeechLabel: 'code block',
       step: 'Step',
       editPlaceholder: 'Edit your message...',

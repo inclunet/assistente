@@ -892,6 +892,10 @@ export function startChatEventController({
 
     const session = getCurrentSession();
     const newSegments: TurnSegment[] = [...session.completedSegments];
+    if (event.content) {
+      if (event.content.trim()) turnHadAssistantText = true;
+      newSegments.push({ type: 'text', content: event.content });
+    }
     if (session.activeToolCalls.length > 0) {
       newSegments.push({
         type: 'tool_calls',
@@ -901,12 +905,9 @@ export function startChatEventController({
           function: { name: tc.name, arguments: tc.args || '' },
           result: tc.summary,
           origin: tc.origin,
+          status: tc.status,
         })),
       });
-    }
-    if (event.content) {
-      if (event.content.trim()) turnHadAssistantText = true;
-      newSegments.push({ type: 'text', content: event.content });
     }
     patchCurrentSession({
       completedSegments: newSegments,

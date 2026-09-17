@@ -117,6 +117,7 @@ const es = {
       outputLimitReached: 'El proveedor informó que alcanzó el límite de generación. Usa “Continuar respuesta” o pide dividir la tarea en partes más pequeñas.',
       listen: 'Escuchar',
       progressLabel: 'Progreso del asistente',
+      waitingForNextStep: 'Esperando el siguiente paso del asistente...',
       codeBlockSpeechLabel: 'bloque de código',
       step: 'Paso',
       editPlaceholder: 'Edita tu mensaje...',

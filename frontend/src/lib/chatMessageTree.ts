@@ -24,6 +24,7 @@ export interface StreamingToolCall {
   function: { name: string; arguments: string };
   result?: string;
   origin?: ToolOrigin;
+  status?: 'running' | 'done' | 'error';
 }
 
 export interface TurnSegment {
