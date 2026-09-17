@@ -113,19 +113,22 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   // memória; turnos persistidos vêm com `turnSegments` canônicos do backend
   // (Issue #150) para preservar a cadeia de raciocínio em UMA única entrada.
   const persistedTurnSegments = getMessageTurnSegments(message);
-  const rawTurnSegments = persistedTurnSegments || completedSegments || [];
+  const rawTurnSegments = effectiveIsStreaming && completedSegments !== undefined
+    ? completedSegments
+    : persistedTurnSegments || completedSegments || [];
   const persistedToolInvocations = (persistedTurnSegments ?? [])
     .flatMap((segment) => segment.toolInvocations ?? []);
   const toolNames = rawTurnSegments.flatMap((segment) => [
     ...(segment.toolInvocations ?? []).map((invocation) => invocation.name),
     ...(segment.toolCalls ?? []).map((call) => call.function.name),
   ]);
-  const hasAgenticSegments = !!(persistedTurnSegments || (completedSegments && completedSegments.length > 0));
+  const hasAgenticSegments = rawTurnSegments.length > 0
+    || (effectiveIsStreaming && (effectiveToolCalls?.length ?? 0) > 0);
   const isAgenticStreaming = effectiveIsStreaming && hasAgenticSegments;
 
   // Turnos sem texto, mas com invocações no ledger, recebem somente um
   // placeholder de apresentação; nenhum ChatMessage técnico é fabricado.
-  const isToolOnlyTurn = !effectiveContent &&
+  const isToolOnlyTurn = !effectiveIsStreaming && !effectiveContent &&
     rawTurnSegments.some((segment) => (segment.toolInvocations?.length ?? 0) > 0 || (segment.toolCalls?.length ?? 0) > 0);
   const placeholderContent = isToolOnlyTurn ? t('chat.toolOnlyTurnPlaceholder') : effectiveContent;
   const shouldInjectToolOnlyPlaceholder =
@@ -187,7 +190,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
   // Quando `text_edit` é usado, o conteúdo do assistente pode vir poluído com fences (ex.: ```markdown).
   // Como a UI já mostra as tool calls, omitimos o corpo textual para evitar ruído.
-  const displayContent = isEditing ? externalEditContent : (toolCallsHasTextEdit ? '' : placeholderContent);
+  const displayContent = isEditing ? externalEditContent : (toolCallsHasTextEdit && !effectiveIsStreaming ? '' : placeholderContent);
   const segmentCount = (persistedTurnSegments || completedSegments || []).length;
   const shouldDeferHeavyContent =
     !effectiveIsStreaming &&
@@ -587,7 +590,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                         callId: call.id,
                         name: call.function.name,
                         args: call.function.arguments,
-                        status: 'done',
+                        status: call.status ?? 'done',
                         summary: call.result,
                         origin: call.origin ?? 'builtin',
                       }))}
@@ -604,14 +607,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
             {/* Current iteration keeps busy state without local aria-live updates. */}
             <div aria-busy={effectiveIsStreaming}>
-              {effectiveIsStreaming && effectiveToolCalls && effectiveToolCalls.length > 0 && (
-                <ToolCallsSection
-                  activeToolCalls={effectiveToolCalls}
-                  tabNavigationEnabled={isReading}
-                />
-              )}
-
-              {effectiveIsStreaming && displayContent && !persistedTurnSegments && (
+              {effectiveIsStreaming && displayContent && (
                 <div className="chat-message__text">
                   <MarkdownRenderer
                     content={displayContent}
@@ -623,9 +619,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                   />
                 </div>
               )}
-              {effectiveIsStreaming && !displayContent && !persistedTurnSegments && (
+              {effectiveIsStreaming && effectiveToolCalls && effectiveToolCalls.length > 0 && (
+                <ToolCallsSection
+                  activeToolCalls={effectiveToolCalls}
+                  tabNavigationEnabled={isReading}
+                />
+              )}
+              {effectiveIsStreaming && !displayContent && !effectiveToolCalls?.some((call) => call.status === 'running') && (
                 <div className="chat-message__text">
-                  <span className="chat-message__cursor">▋</span>
+                  {t('chat.waitingForNextStep')}
+                  <span className="chat-message__cursor" aria-hidden="true">▋</span>
                 </div>
               )}
             </div>

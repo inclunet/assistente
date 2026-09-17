@@ -107,6 +107,14 @@ o novo envio ou retry iniciado pela interface.
 
 ## Fluidez da lista de mensagens
 
+Durante a execução, os textos intermediários e as ferramentas aparecem na
+timeline sem esperar a resposta final. A ferramenta pendente mantém seu estado
+de execução; os passos anteriores continuam disponíveis, inclusive falhas.
+Entre rodadas sem texto, a interface informa que aguarda a próxima etapa.
+O aviso de turno sem resposta é reservado ao turno encerrado, nunca à espera
+por uma ferramenta. Ao terminar, o resultado persistido substitui o estado ao
+vivo. Isso não altera a duração permitida para trabalhos longos.
+
 Atualizações do rascunho e do estado da sessão preservam as mensagens que não
 mudaram, evitando renderizações repetidas da lista. Navegação por teclado,
 menus, foco e paginação continuam disponíveis. O conteúdo da resposta em

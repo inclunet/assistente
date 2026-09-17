@@ -253,6 +253,27 @@ function createAdapter(initialConversationIds: string[]) {
 }
 
 describe('chatEventController', () => {
+  it('preserva texto antes das ferramentas e falhas entre duas rodadas', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
+
+    emitEvent('chat:tool_start', { ...identity, name: 'search', callId: 'call-1' });
+    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('running');
+    expect(sessions['conversation-1'].completedSegments).toEqual([]);
+    emitEvent('chat:tool_end', { ...identity, name: 'search', callId: 'call-1', status: 'error', summary: 'Indisponível' });
+    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Vou pesquisar.' });
+    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'call-2' });
+    expect(sessions['conversation-1'].completedSegments.map((segment) => segment.type)).toEqual(['text', 'tool_calls']);
+    expect(sessions['conversation-1'].completedSegments[1].toolCalls?.[0].status).toBe('error');
+    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'call-2', status: 'ok' });
+    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Vou consultar outra fonte.' });
+
+    expect(sessions['conversation-1'].completedSegments.map((segment) => segment.type)).toEqual(['text', 'tool_calls', 'text', 'tool_calls']);
+    expect(sessions['conversation-1'].completedSegments[3].toolCalls?.[0].status).toBe('done');
+    expect(sessions['conversation-1'].activeToolCalls).toEqual([]);
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     resetChatEventHubForTests();

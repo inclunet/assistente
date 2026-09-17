@@ -306,6 +306,15 @@ item transitório sem snapshot completo.
 
 #### 2.4 `chat:done` carrega o patch autoritativo mínimo do turno
 
+Durante streaming, os segmentos transitórios da execução corrente têm
+precedência sobre um snapshot persistido anterior da mesma mensagem. Texto
+corrente e ferramentas pendentes são renderizados antes do término; o aviso
+de turno sem resposta só se aplica ao estado terminal. Segmentos concluídos
+preservam texto antes das ferramentas da rodada e o status observado de cada
+chamada. `chat:done.turnPatch` retoma a autoridade ao encerrar o turno.
+Regressões: `ChatMessage.liveProgress.test.tsx` e
+`chatEventController.test.ts`. O contrato permanece **Accepted**.
+
 ```go
 type ChatDoneEvent struct {
     ChatEventEnvelope
