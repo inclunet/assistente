@@ -1737,7 +1737,7 @@ func probeSSESupport(parentCtx context.Context, mcpURL string, authClient *http.
 	case strings.Contains(ct, "text/event-stream"):
 		return true, ""
 	default:
-		logging.Errorf(context.Background(), "mcp.manager", "[MCP:probe] SSE probe: HTTP %d, Content-Type: %s", resp.StatusCode, ct)
+		logging.Debugf(context.Background(), "mcp.manager", "[MCP:probe] SSE probe: HTTP %d, Content-Type: %s", resp.StatusCode, ct)
 		return true, "" // ambiguous — assume supported, let SDK handle it
 	}
 }
