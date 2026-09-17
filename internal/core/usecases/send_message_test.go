@@ -200,7 +200,7 @@ func newMediaTestUseCaseWithEmitter(
 	providerSvc := providers.NewService(providers.ServiceConfig{Registry: registry, Store: providers.NewDBStore()})
 	streamMgr := chat.NewStreamingManager(nil)
 	interactor := chat.NewInteractor(chat.InteractorConfig{
-		Emitter:     events.NoopEmitter{},
+		Emitter:     emitter,
 		Repo:        chat.NewDBMessageStore(),
 		ConvRepo:    chat.NewDBConversationStore(),
 		ProviderSvc: providerSvc,
@@ -221,6 +221,48 @@ func newMediaTestUseCaseWithEmitter(
 type mediaEventEmitter struct {
 	failed chan ports.MediaProcessingEvent
 	events chan ports.MediaProcessingEvent
+}
+
+type preparationCancelEmitter struct {
+	onReady func()
+}
+
+func (e *preparationCancelEmitter) Emit(name string, _ any) {
+	if name == "chat:messages_ready" {
+		e.onReady()
+	}
+}
+
+func TestSendMessageUseCase_CancelaAntesDeIniciarStream(t *testing.T) {
+	setupTestDB(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	mgr := setupProfileDir(t)
+	setupProfileWith(t, mgr, minValidProfile("Cancel preparation", "media-test"))
+	conv, err := database.CreateConversationWithContext(ctx, "cancel-preparation", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	emitter := &preparationCancelEmitter{}
+	uc, streamMgr := newMediaTestUseCaseWithEmitter(t, mgr, nil, emitter)
+	ready := false
+	emitter.onReady = func() {
+		ready = true
+		streamMgr.Cancel(conv.ID)
+	}
+	_, err = uc.Execute(usecases.SendMessageRequest{
+		Ctx: ctx, ConversationID: conv.ID, UserContent: "cancelar na preparação", Source: "wails",
+	})
+	if !ready || !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelamento deve alcançar a preparação: ready=%v err=%v", ready, err)
+	}
+	// A saída síncrona não pode deixar a conversa bloqueada.
+	nextCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	_, _, finish, err := streamMgr.Begin(nextCtx, conv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finish()
 }
 
 func (e mediaEventEmitter) Emit(name string, payload any) {

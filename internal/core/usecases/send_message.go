@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 type deferredMediaContextKey struct{}
@@ -125,15 +126,17 @@ func NewSendMessageUseCase(cfg SendMessageConfig) *SendMessageUseCase {
 
 // SendMessageRequest encapsula os parâmetros de entrada do Use Case.
 type SendMessageRequest struct {
-	Ctx            context.Context
-	ConversationID string
-	RetryMessageID string
-	UserContent    string
-	UserMedia      string
-	Params         llm.ChatParams
-	Source         string
-	prepared       *chat.PrepareContextResponse
-	mediaStreamGen uint64
+	Ctx             context.Context
+	ConversationID  string
+	RetryMessageID  string
+	UserContent     string
+	UserMedia       string
+	Params          llm.ChatParams
+	Source          string
+	prepared        *chat.PrepareContextResponse
+	finishExecution func()
+	// OnFinished limpa recursos do chamador após a última persistência/evento.
+	OnFinished func()
 }
 
 // Execute executa o pipeline de mensagem: prepara contexto → persiste → monta prompt
@@ -160,6 +163,31 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		return "", database.ErrConversationDeleted
 	}
 	defer releaseConversation()
+	ownsExecution := req.finishExecution == nil
+	if ownsExecution {
+		var err error
+		ctx, _, req.finishExecution, err = uc.streamMgr.Begin(ctx, req.ConversationID, req.Params.SurfaceExecutionID)
+		if err != nil {
+			return "", err
+		}
+		releaseExecution := req.finishExecution
+		req.finishExecution = sync.OnceFunc(func() {
+			defer releaseExecution()
+			if req.OnFinished != nil {
+				req.OnFinished()
+			}
+		})
+		req.Ctx = ctx
+	}
+	handedOff := false
+	defer func() {
+		if !handedOff && ownsExecution {
+			req.finishExecution()
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if req.Params.AllowAssistantPrefill && req.RetryMessageID == "" {
 		errMsg := "continuação explícita requer RetryMessage (mensagem para retry)"
 		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
@@ -211,15 +239,14 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		STTLanguage: sttLanguage,
 	})
 	if mediaResolution.NeedsSTT && !isDeferredMediaContext(ctx) {
-		asyncCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-		asyncCtx = context.WithValue(asyncCtx, deferredMediaContextKey{}, true)
-		mediaStreamGen := uc.streamMgr.Register(req.ConversationID, cancel)
+		asyncCtx := context.WithValue(ctx, deferredMediaContextKey{}, true)
 		surfaceOrigin := ports.NewChatSurfaceOrigin(
 			req.ConversationID,
 			pctx.Params.SurfaceSessionKey,
 			pctx.Params.SurfaceID,
 			pctx.Params.SurfaceType,
 			pctx.Params.SurfaceTabID,
+			pctx.Params.SurfaceExecutionID,
 		)
 		uc.emitter.Emit("chat:media_processing", ports.MediaProcessingEvent{
 			ConversationID: req.ConversationID,
@@ -228,11 +255,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		})
 		req.Ctx = asyncCtx
 		req.prepared = pctx
-		req.mediaStreamGen = mediaStreamGen
+		handedOff = true
 		go func() {
 			defer func() {
 				if recovered := recover(); recovered != nil {
-					uc.streamMgr.UnregisterIfCurrent(req.ConversationID, req.mediaStreamGen)
+					defer req.finishExecution()
 					logging.Errorf(asyncCtx, "usecases.send-message", "[STT] panic recuperado no processamento assíncrono da conversa %s: %v", req.ConversationID, recovered)
 					func() {
 						defer func() { _ = recover() }()
@@ -251,7 +278,8 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				}
 			}()
 			if _, asyncErr := uc.Execute(req); asyncErr != nil {
-				uc.streamMgr.UnregisterIfCurrent(req.ConversationID, req.mediaStreamGen)
+				// O wrapper ainda precisa publicar o terminal antes de liberar o próximo envio.
+				defer req.finishExecution()
 				if errors.Is(asyncErr, context.Canceled) || errors.Is(asyncCtx.Err(), context.Canceled) {
 					logging.Infof(asyncCtx, "usecases.send-message", "[STT] processamento assíncrono cancelado para a conversa %s", req.ConversationID)
 					uc.emitter.Emit("chat:media_processing", ports.MediaProcessingEvent{
@@ -322,6 +350,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		params.SurfaceID,
 		params.SurfaceType,
 		params.SurfaceTabID,
+		params.SurfaceExecutionID,
 	)
 
 	var userMsg *chat.Message
@@ -346,12 +375,12 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				SurfaceOrigin:  surfaceOrigin,
 			})
 			if status == "cancelled" {
-				uc.streamMgr.UnregisterIfCurrent(req.ConversationID, req.mediaStreamGen)
 				uc.emitter.Emit("chat:done", ports.DoneEvent{
 					ConversationID: req.ConversationID,
 					Reason:         "cancelled",
 					SurfaceOrigin:  surfaceOrigin,
 				})
+				req.finishExecution()
 				return req.ConversationID, nil
 			}
 			userContent = chat.AudioTranscriptionFallback(sttLanguage, mediaResolution.AudioMimeType)
@@ -626,14 +655,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		}
 	}
 
-	// Cria contexto cancelável por conversa — permite barge-in cancelar o LLM em andamento.
-	convCtx := ctx
-	streamGeneration := req.mediaStreamGen
-	if !isDeferredMediaContext(ctx) {
-		var convCancel context.CancelFunc
-		convCtx, convCancel = context.WithCancel(ctx)
-		streamGeneration = uc.streamMgr.Register(req.ConversationID, convCancel)
+	// O contexto registrado no início também cobre toda a preparação.
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
+	convCtx := ctx
 
 	// Roteia para o loop agêntico sempre que houver tools em modo adapter (inclui o
 	// caso em que o caminho nativo removeu todas as bridges): assim o fallback
@@ -668,10 +694,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				agentCtx = tools.WithOpenEditorPaths(agentCtx, paths)
 			}
 		}
+		handedOff = true
 		go func() {
 			// Registrado antes do recover para executar por último (LIFO): a
 			// recuperação também pode persistir e deve permanecer sob o gate.
-			defer uc.streamMgr.UnregisterIfCurrent(req.ConversationID, streamGeneration)
+			defer req.finishExecution()
 			defer func() {
 				r := recover()
 				uc.agentSvc.HandleRecoveredPanic(agentCtx, req.ConversationID, userMsg.ID, "runAgenticLoop", r, surfaceOrigin)
@@ -689,9 +716,10 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		}()
 	} else {
 		recoveryEnabled, recoveryMaxAttempts := resolveStreamingRecoverySettings(activeProfile)
+		handedOff = true
 		go func() {
 			// Mantém o contexto registrado até o handler de panic concluir eventuais writes.
-			defer uc.streamMgr.UnregisterIfCurrent(req.ConversationID, streamGeneration)
+			defer req.finishExecution()
 			defer func() {
 				r := recover()
 				uc.agentSvc.HandleRecoveredPanic(convCtx, req.ConversationID, userMsg.ID, "StreamChat", r, surfaceOrigin)

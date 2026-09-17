@@ -237,7 +237,15 @@ export interface ChatEventControllerHandle {
   done: Promise<void>;
 }
 
-const activeControllers = new Map<string, () => void>();
+const activeControllers = new Map<string, { cleanup: () => void; executionId?: string }>();
+
+export function getChatEventControllerCleanup(conversationId: string) {
+  return activeControllers.get(conversationId.toString())?.cleanup;
+}
+
+export function getChatEventControllerExecutionId(conversationId: string) {
+  return activeControllers.get(conversationId.toString())?.executionId;
+}
 
 /**
  * Origem já conhecida da ferramenta. O evento de fim costuma repeti-la, mas se
@@ -247,12 +255,12 @@ const knownToolOrigin = (session: ChatEventSession, callId: string): ToolOrigin 
   session.activeToolCalls.find((tc) => tc.callId === callId)?.origin;
 
 export function stopChatEventController(conversationId: string) {
-  const cleanup = activeControllers.get(conversationId.toString());
+  const cleanup = activeControllers.get(conversationId.toString())?.cleanup;
   if (cleanup) cleanup();
 }
 
 export function stopAllChatEventControllers() {
-  activeControllers.forEach((cleanup) => cleanup());
+  activeControllers.forEach(({ cleanup }) => cleanup());
   activeControllers.clear();
   clearChatTurnRoutes();
 }
@@ -316,7 +324,7 @@ export function startChatEventController({
   let unsubError = noop;
   let unsubSpeak = noop;
 
-  const isActive = () => activeControllers.has(conversationIdStr);
+  const isActive = () => activeControllers.get(conversationIdStr)?.cleanup === cleanup;
   const getEventOrigin = (event: { surfaceOrigin?: ChatSurfaceOrigin }) => event.surfaceOrigin ?? origin;
 
   const ensureAssistantNode = (messageId?: string | null) => {
@@ -533,13 +541,14 @@ export function startChatEventController({
     );
   };
 
-  const existingCleanup = activeControllers.get(conversationIdStr);
+  const existingCleanup = activeControllers.get(conversationIdStr)?.cleanup;
   if (existingCleanup) existingCleanup();
 
   const turnEvents = createChatTurnEventRouter(
     conversationIdStr,
     () => currentTurnId,
     (turnId) => { currentTurnId = turnId; },
+    origin?.executionId,
   );
 
   unsubError = turnEvents.on('chat:error', (event: ChatErrorEvent) => {
@@ -958,7 +967,7 @@ export function startChatEventController({
     cleanup();
   });
 
-  activeControllers.set(conversationIdStr, cleanup);
+  activeControllers.set(conversationIdStr, { cleanup, executionId: origin?.executionId });
 
   return {
     cleanup,

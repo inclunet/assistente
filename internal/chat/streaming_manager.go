@@ -22,6 +22,8 @@ type StreamingManager struct {
 	mu           sync.Mutex
 	contexts     map[string]context.CancelFunc
 	generations  map[string]uint64
+	completions  map[string]chan struct{}
+	executions   map[string]map[string]context.CancelFunc
 	reservations map[string]int
 	deleted      map[string]time.Time
 	nextGen      uint64
@@ -37,10 +39,115 @@ func NewStreamingManager(notifier *messaging.ResponseNotifier) *StreamingManager
 	return &StreamingManager{
 		contexts:         make(map[string]context.CancelFunc),
 		generations:      make(map[string]uint64),
+		completions:      make(map[string]chan struct{}),
+		executions:       make(map[string]map[string]context.CancelFunc),
 		reservations:     make(map[string]int),
 		deleted:          make(map[string]time.Time),
 		now:              time.Now,
 		responseNotifier: notifier,
+	}
+}
+
+// Begin cobre preparação, streaming e persistência com o mesmo cancelamento.
+// Um novo envio aguarda a saída do worker anterior, inclusive após Cancel.
+func (m *StreamingManager) Begin(ctx context.Context, conversationID string, executionIDs ...string) (context.Context, uint64, func(), error) {
+	conversationID = strings.TrimSpace(conversationID)
+	ctx, cancel := context.WithCancel(ctx)
+	executionID := ""
+	if len(executionIDs) > 0 {
+		executionID = strings.TrimSpace(executionIDs[0])
+	}
+	if executionID != "" {
+		m.mu.Lock()
+		if m.executions[conversationID] == nil {
+			m.executions[conversationID] = make(map[string]context.CancelFunc)
+		}
+		if m.executions[conversationID][executionID] != nil {
+			m.mu.Unlock()
+			cancel()
+			return nil, 0, nil, ErrConversationActive
+		}
+		m.executions[conversationID][executionID] = cancel
+		m.mu.Unlock()
+	}
+	removeExecution := func() {
+		cancel()
+		if executionID != "" {
+			m.mu.Lock()
+			delete(m.executions[conversationID], executionID)
+			if len(m.executions[conversationID]) == 0 {
+				delete(m.executions, conversationID)
+			}
+			m.mu.Unlock()
+		}
+	}
+	acquired := false
+	defer func() {
+		if !acquired {
+			removeExecution()
+		}
+	}()
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, 0, nil, err
+		}
+		m.mu.Lock()
+		if m.isDeletedLocked(conversationID) {
+			m.mu.Unlock()
+			return nil, 0, nil, ErrConversationDeleted
+		}
+		if previous := m.completions[conversationID]; previous != nil {
+			m.mu.Unlock()
+			select {
+			case <-previous:
+				continue
+			case <-ctx.Done():
+				return nil, 0, nil, ctx.Err()
+			}
+		}
+		if m.contexts[conversationID] != nil {
+			m.mu.Unlock()
+			return nil, 0, nil, ErrConversationActive
+		}
+		if err := ctx.Err(); err != nil {
+			m.mu.Unlock()
+			return nil, 0, nil, err
+		}
+		m.nextGen++
+		generation := m.nextGen
+		done := make(chan struct{})
+		m.contexts[conversationID] = cancel
+		m.generations[conversationID] = generation
+		m.completions[conversationID] = done
+		m.mu.Unlock()
+		var once sync.Once
+		finish := func() {
+			once.Do(func() {
+				removeExecution()
+				m.mu.Lock()
+				if m.generations[conversationID] == generation {
+					delete(m.contexts, conversationID)
+					delete(m.generations, conversationID)
+				}
+				if m.completions[conversationID] == done {
+					delete(m.completions, conversationID)
+				}
+				close(done)
+				m.mu.Unlock()
+			})
+		}
+		acquired = true
+		return ctx, generation, finish, nil
+	}
+}
+
+// CancelExecution cancela somente o envio escolhido, inclusive enquanto aguarda
+// a finalização do worker anterior. Não descarta outros itens da fila.
+func (m *StreamingManager) CancelExecution(conversationID, executionID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if cancel := m.executions[strings.TrimSpace(conversationID)][strings.TrimSpace(executionID)]; cancel != nil {
+		cancel()
 	}
 }
 
@@ -185,8 +292,11 @@ func (m *StreamingManager) Cancel(conversationID string) {
 	cancel, ok := m.contexts[conversationID]
 	if ok {
 		cancel()
-		delete(m.contexts, conversationID)
-		delete(m.generations, conversationID)
+		// Execuções gerenciadas só liberam a conversa após o worker sair.
+		if m.completions[conversationID] == nil {
+			delete(m.contexts, conversationID)
+			delete(m.generations, conversationID)
+		}
 	}
 	m.mu.Unlock()
 

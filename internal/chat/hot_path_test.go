@@ -179,7 +179,7 @@ func (r *batchHistoryRepo) GetConversationSummary(context.Context, string) (stri
 
 func (r *batchHistoryRepo) GetMessages(context.Context, string, *string) ([]Message, error) {
 	r.messagesCalls++
-	return r.stubRepo.messages, nil
+	return r.messages, nil
 }
 
 func (r *batchHistoryRepo) CreateUserMessageAndLoadHistory(_ context.Context, opts MessageOptions, _ int) (*Message, *HistoryWindow, error) {
@@ -251,7 +251,7 @@ func TestRecordUserMessageUsesSingleBatchCallAndEmitsAfterCommit(t *testing.T) {
 
 func TestRetryLoadsFullRootsToAnchorSelectedMessage(t *testing.T) {
 	repo := newBatchHistoryRepo()
-	repo.stubRepo.messages = []Message{{
+	repo.messages = []Message{{
 		UUIDModel:      database.UUIDModel{ID: "user-1"},
 		ConversationID: "conv-1",
 		Role:           "user",

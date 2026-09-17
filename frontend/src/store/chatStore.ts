@@ -3,7 +3,7 @@ import {
   SendMessage,
   RetryMessage,
 } from '@wailsjs/go/wailsapi/Chat';
-import { CancelStreamingForConversation } from '@wailsjs/go/wailsapi/LLMModels';
+import { CancelStreamingForConversation, CancelStreamingExecution } from '@wailsjs/go/wailsapi/LLMModels';
 import {
   AssignConversationToChannel,
   UnassignConversationFromChannel,
@@ -23,6 +23,8 @@ import { playSendSound } from '../services/audioFeedback';
 import { isChatConversationActive } from '../services/chatArbitration';
 import {
   startChatEventController,
+  getChatEventControllerCleanup,
+  getChatEventControllerExecutionId,
   stopAllChatEventControllers,
   stopChatEventController,
   type ChatEventSession,
@@ -610,11 +612,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     }
 
     playSendSound();
+    const executionOrigin = options?.origin
+      ? { ...options.origin, executionId: crypto.randomUUID() }
+      : undefined;
     const controller = startChatEventController({
       conversationId,
       initialUserContent: content,
       initialMediaFiles: mediaFiles,
-      origin: options?.origin,
+      origin: executionOrigin,
       adapter: chatEventAdapter,
     });
 
@@ -637,6 +642,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         surfaceStateJson: paramsOverride?.surfaceStateJson,
         surfaceContextJson: paramsOverride?.surfaceContextJson,
         surfaceSessionKey: options?.origin?.sessionKey,
+        surfaceExecutionId: executionOrigin?.executionId,
         surfaceId: options?.origin?.surfaceId,
         surfaceType: options?.origin?.surfaceType,
         surfaceTabId: options?.origin?.tabId,
@@ -1348,6 +1354,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
       const sessionKey = options?.origin?.sessionKey;
       const session = getSession(get(), conversationId, sessionKey);
+      const cancelledController = getChatEventControllerCleanup(conversationId);
+      const cancelledExecutionId = getChatEventControllerExecutionId(conversationId);
       const streamingMessageId = session.streamingMessageId;
       const timeline = getConversationTimeline(get(), conversationId);
       const flattenedMessages = flattenThreadedMessages(timeline?.threadedMessages);
@@ -1362,7 +1370,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
       try {
         cancelMediaSerialization(conversationId);
-        await CancelStreamingForConversation(conversationId);
+        if (cancelledExecutionId) {
+          await CancelStreamingExecution(conversationId, cancelledExecutionId);
+        } else {
+          await CancelStreamingForConversation(conversationId);
+        }
+        // Um terminal pode liberar a fila enquanto o binding retorna. Não
+        // finalize o controller do próximo envio por usar a mesma conversa.
+        if (getChatEventControllerCleanup(conversationId) !== cancelledController) return;
         stopChatEventController(conversationId);
         setConversationLoading(conversationId, false, options?.origin?.sessionKey);
 

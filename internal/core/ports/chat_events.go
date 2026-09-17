@@ -12,6 +12,7 @@ const (
 
 // ChatSurfaceOrigin identifies the frontend surface that initiated a chat turn.
 type ChatSurfaceOrigin struct {
+	ExecutionID    string `json:"executionId,omitempty"`
 	SessionKey     string `json:"sessionKey"`
 	ConversationID string `json:"conversationId"`
 	TabID          string `json:"tabId,omitempty"`
@@ -19,17 +20,21 @@ type ChatSurfaceOrigin struct {
 	SurfaceType    string `json:"surfaceType"`
 }
 
-func NewChatSurfaceOrigin(conversationID, sessionKey, surfaceID, surfaceType, tabID string) *ChatSurfaceOrigin {
+func NewChatSurfaceOrigin(conversationID, sessionKey, surfaceID, surfaceType, tabID string, executionIDs ...string) *ChatSurfaceOrigin {
 	if sessionKey == "" || surfaceID == "" || surfaceType == "" {
 		return nil
 	}
-	return &ChatSurfaceOrigin{
+	origin := &ChatSurfaceOrigin{
 		SessionKey:     sessionKey,
 		ConversationID: conversationID,
 		TabID:          tabID,
 		SurfaceID:      surfaceID,
 		SurfaceType:    surfaceType,
 	}
+	if len(executionIDs) > 0 {
+		origin.ExecutionID = executionIDs[0]
+	}
+	return origin
 }
 
 // ThinkingEvent is the payload for chat:thinking.

@@ -92,6 +92,14 @@ cada evento recebido reinicia a contagem. Um provedor que continue enviando
 eventos ou heartbeats pode manter uma geração longa ativa; o aplicativo não
 interrompe uma resposta saudável apenas por sua duração total.
 
+## Cancelamento e próximos envios
+
+Cancelar alcança também a preparação da resposta, inclusive a transcrição de
+áudio. O próximo envio da mesma conversa aguarda o encerramento do trabalho
+anterior; mensagens já enfileiradas são preservadas. Outras conversas continuam
+independentes. Eventos atrasados de uma execução cancelada não devem encerrar
+o novo envio ou retry iniciado pela interface.
+
 ## Limite do texto
 
 O texto de cada nova mensagem pode ocupar até **512 KiB em UTF-8**. Letras
