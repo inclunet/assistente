@@ -1,5 +1,5 @@
 import { logger } from '../utils/logger';
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { Message, useChatStore } from '../store/chatStore';
 import { MenuItem } from '../components/menu';
 import { getMessageMenuItems, MenuItemsOptions } from '../lib/messageMenuItems';
@@ -25,35 +25,41 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
   // Guarda referência ao elemento que abriu o menu para restaurar foco
   const triggerElementRef = useRef<HTMLElement | null>(null);
   const triggerConversationIdRef = useRef<string | null>(null);
+  const latestOptionsRef = useRef(options);
 
-  const showMenu = useCallback(
-    (event: React.MouseEvent, message: Message, isUser: boolean) => {
-      event.preventDefault();
-      
-      // Guarda o elemento que abriu o menu (ou o target do evento)
-      triggerElementRef.current = (event.currentTarget as HTMLElement) || (event.target as HTMLElement);
-      triggerConversationIdRef.current = String(message.conversationId || '') || null;
-      
-      // Verifica estado de expansão do reasoning no momento de mostrar o menu
-      const reasoningExpanded = options.isReasoningExpanded 
-        ? (typeof options.isReasoningExpanded === 'function' 
-            ? options.isReasoningExpanded(message.id) 
-            : options.isReasoningExpanded)
-        : false;
-      
-      const items = getMessageMenuItems(message, {
-        ...options,
-        isUser,
-        onAnnounce: options.onAnnounce,
-        isReasoningExpanded: reasoningExpanded,
-      });
+  // Mantém as ações abertas pelo menu atuais sem recriar os callbacks a cada
+  // render. A escrita acontece no layout effect para que um callback disparado
+  // depois do commit nunca leia opções de um render concorrente incompleto.
+  useLayoutEffect(() => {
+    latestOptionsRef.current = options;
+  }, [options]);
 
-      setMenuItems(items);
-      setMenuPosition({ x: event.clientX, y: event.clientY });
-      setMenuVisible(true);
-    },
-    [options]
-  );
+  const showMenu = useCallback((event: React.MouseEvent, message: Message, isUser: boolean) => {
+    event.preventDefault();
+
+    // Guarda o elemento que abriu o menu (ou o target do evento)
+    triggerElementRef.current = (event.currentTarget as HTMLElement) || (event.target as HTMLElement);
+    triggerConversationIdRef.current = String(message.conversationId || '') || null;
+
+    // Verifica estado de expansão do reasoning no momento de mostrar o menu
+    const currentOptions = latestOptionsRef.current;
+    const reasoningExpanded = currentOptions.isReasoningExpanded
+      ? (typeof currentOptions.isReasoningExpanded === 'function'
+          ? currentOptions.isReasoningExpanded(message.id)
+          : currentOptions.isReasoningExpanded)
+      : false;
+
+    const items = getMessageMenuItems(message, {
+      ...currentOptions,
+      isUser,
+      onAnnounce: currentOptions.onAnnounce,
+      isReasoningExpanded: reasoningExpanded,
+    });
+
+    setMenuItems(items);
+    setMenuPosition({ x: event.clientX, y: event.clientY });
+    setMenuVisible(true);
+  }, []);
 
   const hideMenu = useCallback(() => {
     setMenuVisible(false);
@@ -62,8 +68,9 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
     setTimeout(() => {
       // Verifica se deve pular a restauração de foco (ex: edição iniciada)
       const conversationId = triggerConversationIdRef.current;
-      const shouldSkip = conversationId && options.sessionKey
-        ? useChatStore.getState().consumeSkipFocusRestore(conversationId, options.sessionKey)
+      const sessionKey = options.sessionKey;
+      const shouldSkip = conversationId && sessionKey
+        ? useChatStore.getState().consumeSkipFocusRestore(conversationId, sessionKey)
         : false;
       if (shouldSkip) {
         triggerElementRef.current = null;

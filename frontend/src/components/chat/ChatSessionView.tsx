@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Button } from 'antd';
 import { useEditorStore } from '../../store/editorStore';
-import { useChatStore } from '../../store/chatStore';
+import { useChatStore, type Message } from '../../store/chatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { ttsService } from '../../services/tts';
 import { clearToolInvocationDetailsCache } from '../../services/toolInvocationDetailsCache';
@@ -482,6 +482,7 @@ function ChatSessionViewContent({
     [activeProfileSlug, navigate, origin, profileSlug, speakMessage, t],
   );
 
+  const targetConversationId = conversation?.id;
   const handleDeleteMessage = useCallback(
     async (message: { id: string | number }) => {
       const messageId = String(message.id);
@@ -490,9 +491,8 @@ function ChatSessionViewContent({
         await DeleteMessage(messageId);
         clearToolInvocationDetailsCache();
         announce(t('chat.announce.messageDeleted'));
-        const conv = getSessionConversation();
-        if (conv?.id) {
-          await loadConversationSession(conv.id, { refreshSurfaceWindows: true });
+        if (targetConversationId) {
+          await loadConversationSession(targetConversationId, { refreshSurfaceWindows: true });
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -515,7 +515,7 @@ function ChatSessionViewContent({
         });
       }
     },
-    [announce, conversationId, getSessionConversation, loadConversationSession, t, variant],
+    [announce, loadConversationSession, t, targetConversationId],
   );
 
   const sendToEditor = useCallback(
@@ -1026,9 +1026,9 @@ function ChatSessionViewContent({
     }
   };
 
-  const handleReachEnd = () => {
+  const handleReachEnd = useCallback(() => {
     inputRef.current?.focus();
-  };
+  }, []);
 
   const runWindowLoad = useCallback(async (
     kind: 'start' | 'end' | 'older' | 'newer',
@@ -1064,22 +1064,22 @@ function ChatSessionViewContent({
     }
   }, [session?.messageWindow]);
 
-  const handleJumpToStart = () => runWindowLoad('start', 'navigation', loadStartMessages, () => {
+  const handleJumpToStart = useCallback(() => runWindowLoad('start', 'navigation', loadStartMessages, () => {
     requestAnimationFrame(() => {
       const container = messagesContainerRef.current;
       const firstMessage = container?.querySelector('[data-message-node]') as HTMLElement | null;
       firstMessage?.focus();
     });
-  });
+  }), [loadStartMessages, runWindowLoad]);
 
-  const handleJumpToEnd = () => runWindowLoad('end', 'navigation', loadEndMessages, () => {
+  const handleJumpToEnd = useCallback(() => runWindowLoad('end', 'navigation', loadEndMessages, () => {
     requestAnimationFrame(() => {
       const container = messagesContainerRef.current;
       const rootMessages = container?.querySelectorAll<HTMLElement>('[data-message-node][data-level="0"]');
       const lastMessage = rootMessages?.[rootMessages.length - 1] ?? null;
       lastMessage?.focus();
     });
-  });
+  }), [loadEndMessages, runWindowLoad]);
 
   const handleLoadOlderMessages = useCallback(
     (trigger: MessageWindowLoadTrigger) => runWindowLoad('older', trigger, loadOlderMessages),
@@ -1089,6 +1089,21 @@ function ChatSessionViewContent({
   const handleLoadNewerMessages = useCallback(
     (trigger: MessageWindowLoadTrigger) => runWindowLoad('newer', trigger, loadNewerMessages),
     [loadNewerMessages, runWindowLoad],
+  );
+
+  const handleMessageContextMenu = useCallback(
+    (event: React.MouseEvent, message: Message) => showMenu(event, message, message.role === 'user'),
+    [showMenu],
+  );
+  const messageListOrigin = useMemo(
+    () => ({
+      conversationId: origin.conversationId ?? undefined,
+      sessionKey: origin.sessionKey,
+      surfaceId: origin.surfaceId,
+      surfaceType: origin.surfaceType,
+      tabId: origin.tabId,
+    }),
+    [origin.conversationId, origin.sessionKey, origin.surfaceId, origin.surfaceType, origin.tabId],
   );
 
   const rootClass =
@@ -1120,12 +1135,12 @@ function ChatSessionViewContent({
           onJumpToStart={handleJumpToStart}
           onJumpToEnd={handleJumpToEnd}
           ref={messagesContainerRef}
-          onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
+          onContextMenu={handleMessageContextMenu}
           onSpeak={handleSpeakRequest}
           onDelete={handleDeleteMessage}
           editorTargets={editorTargets}
           onSendToEditor={sendToEditor}
-          origin={{ ...origin, conversationId: origin.conversationId ?? undefined }}
+          origin={messageListOrigin}
         />
 
         {effectiveSendError && (

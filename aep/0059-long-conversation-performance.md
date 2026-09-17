@@ -1,6 +1,6 @@
 # AEP-0059: Performance de Conversas Longas
 
-## Status: In Progress — janela, timeline, detalhes lazy e contagem indexada de tools entregues; demais conteúdos pesados seguem pendentes
+## Status: In Progress — janela, timeline, detalhes lazy, contagem indexada e memoização da lista entregues; demais conteúdos pesados seguem pendentes
 
 ## Relação com a AEP-0056
 
@@ -245,6 +245,29 @@ Critério prático:
   demonstram DOM janelado, navegação materializada, preservação de scroll e
   anúncios sem duplicação; esta fase não encontrou evidência que justificasse
   alterar o limiar acessível.
+
+#### Estabilidade das propriedades da lista
+
+`ChatSessionView` e `MessageList` preservam a identidade dos callbacks de
+navegação e das propriedades que não mudaram. Isso permite que a memoização
+dos nós existentes sobreviva a atualizações de sessão, em vez de propagar
+novas funções/objetos para todos os itens visíveis. Dependências relevantes
+continuam atualizando as ações: estabilidade não pode capturar estado antigo
+de paginação, exclusão, menus ou origem da superfície.
+
+O recorte preserva o renderer Markdown, sanitização, Mermaid, virtualização,
+foco e o protocolo de eventos. Ele não implementa parsing incremental da
+resposta em construção nem elimina o custo de renderizar texto que mudou.
+Esses custos continuam pendentes de uma otimização específica e medida.
+
+Evidência funcional: `MessageList.performance.test.tsx`, com viewport sintética
+de 700 px e virtualizer real, compara 10 mudanças de loading em históricos de
+100/500/1000 nós. Na base `1060a783e`, o nó memoizado instrumentado renderiza
+110 vezes adicionais; após a otimização, zero. A fixture exige que existam nós
+montados (não aceita uma janela vazia como sucesso). Ao alterar o conteúdo de
+um entre dois nós, os renders caem de dois para um. O teste também verifica
+troca de callbacks, paginação e bloqueio durante carregamento. São contadores
+de trabalho no limite da lista, não benchmark de Markdown, WebView ou NVDA.
 
 ### Fase 4 — Virtualização acessível ⏳
 
