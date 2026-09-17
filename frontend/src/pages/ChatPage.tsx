@@ -37,7 +37,7 @@ export default function ChatPage() {
         throw new Error(t('chat.errors.chatTabNotReady'));
       }
       const sendOrigin = normalizeChatSurfaceOrigin(context.origin, conversationId);
-      await sendChatSurfaceMessage(
+      return sendChatSurfaceMessage(
         conversationId,
         content,
         mediaFiles,

@@ -26,6 +26,7 @@ import {
   stopAllChatEventControllers,
   stopChatEventController,
   type ChatEventSession,
+  type ChatEventControllerHandle,
 } from '../services/chatEventController';
 import { handleExternalChatIncoming } from '../services/externalChatController';
 import {
@@ -176,13 +177,13 @@ interface ChatStore {
     mediaFiles?: MediaFile[],
     paramsOverride?: Partial<llm.ChatParams>,
     options?: { origin?: ChatSurfaceOrigin },
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   retryMessageToConversation: (
     conversationId: string,
     messageId: string,
     paramsOverride?: Partial<llm.ChatParams>,
     options?: { origin?: ChatSurfaceOrigin },
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   cancelStreaming: (conversationId: string, options?: { origin?: ChatSurfaceOrigin }) => Promise<void>;
   cancelConversationTurn: (conversationId: string) => void;
 
@@ -425,27 +426,40 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     nextNodes: MessageNode[] | undefined,
   ): MessageWindowState | undefined => {
     if (!window || !nextNodes) return window;
-    const previousCount = previousNodes?.length ?? 0;
-    const nextCount = nextNodes.length;
-    const appendedCount = Math.max(0, nextCount - previousCount);
+    const previousKeys = new Set((previousNodes ?? []).map(getTimelineNodeKey));
+    const appendedNodes = nextNodes.filter((node) => !previousKeys.has(getTimelineNodeKey(node)));
+    const appendedCount = appendedNodes.length;
     const explicitIndexes = nextNodes
+      .map((node) => node.originalIndex)
+      .filter((index): index is number => index !== undefined);
+    const appendedExplicitIndexes = appendedNodes
       .map((node) => node.originalIndex)
       .filter((index): index is number => index !== undefined);
     const explicitStartIndex = explicitIndexes.length ? Math.min(...explicitIndexes) : undefined;
     const explicitEndIndex = explicitIndexes.length ? Math.max(...explicitIndexes) : undefined;
+    const appendedExplicitEndIndex = appendedExplicitIndexes.length
+      ? Math.max(...appendedExplicitIndexes)
+      : undefined;
 
     const appendedToVisibleEnd = appendedCount > 0 && !window.hasAfter;
     const startIndex = explicitStartIndex !== undefined
       ? Math.min(window.startIndex, explicitStartIndex)
       : window.startIndex;
-    const endIndex = explicitEndIndex !== undefined
-      ? Math.max(window.endIndex, explicitEndIndex, appendedToVisibleEnd ? window.endIndex + appendedCount : explicitEndIndex)
-      : window.hasAfter ? window.endIndex : window.endIndex + appendedCount;
+    const endIndex = appendedToVisibleEnd
+      ? Math.max(
+        window.endIndex,
+        explicitEndIndex ?? window.endIndex,
+        appendedExplicitEndIndex ?? window.endIndex,
+        window.endIndex + appendedCount,
+      )
+      : explicitEndIndex !== undefined
+        ? Math.max(window.endIndex, explicitEndIndex)
+        : window.endIndex;
     const totalCount = Math.max(
-      window.totalCount + (explicitEndIndex === undefined ? appendedCount : 0),
+      window.totalCount + appendedCount,
       explicitEndIndex !== undefined ? explicitEndIndex + 1 : 0,
       endIndex + 1,
-      nextCount,
+      nextNodes.length,
     );
 
     return {
@@ -505,6 +519,21 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           appendVisibleMessages?: boolean;
         };
         const targetSessionKey = patch.surfaceOrigin?.sessionKey;
+        const restoreCanonicalConversation = <TPatches extends Partial<ChatStore>>(patches: TPatches): TPatches => {
+          const canonicalConversation = getConversationTimeline(state, conversationId);
+          const sessions = patches.sessionsByConversationId;
+          if (!canonicalConversation || !sessions?.[conversationId]) return patches;
+          return {
+            ...patches,
+            sessionsByConversationId: {
+              ...sessions,
+              [conversationId]: {
+                ...sessions[conversationId],
+                conversation: canonicalConversation,
+              },
+            },
+          } as TPatches;
+        };
         if (targetSessionKey) {
           const session = getSession(state, conversationId, targetSessionKey);
           const visibleThreadedMessages = sessionPatch.visibleThreadedMessages
@@ -520,11 +549,83 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const messageWindow = sessionPatch.conversation && !sessionPatch.messageWindow
             ? reconcileLiveMessageWindow(session.messageWindow, session.visibleThreadedMessages, visibleThreadedMessages)
             : sessionPatch.messageWindow;
-          return patchSession(state, conversationId, {
+          const targetPatches = patchSession(state, conversationId, {
             ...sessionPatch,
             ...(visibleThreadedMessages !== undefined ? { visibleThreadedMessages } : {}),
             ...(messageWindow ? { messageWindow } : {}),
           }, targetSessionKey);
+
+          if (!sessionPatch.conversation) return restoreCanonicalConversation(targetPatches);
+
+          // A conversation patch updates the canonical timeline once, then
+          // reconciles only the persisted portion into the other surfaces. A
+          // surface reading history must keep its own window, scroll and draft;
+          // a streaming/transient node belongs only to the surface that owns it.
+          const canonicalNodes = getConversationTimeline(
+            { ...state, ...targetPatches },
+            conversationId,
+          )?.threadedMessages.filter(isPersistedMessageNode) ?? [];
+          const surfaceSessionsByKey = {
+            ...(targetPatches.surfaceSessionsByKey ?? state.surfaceSessionsByKey),
+          };
+          const canonicalByKey = new Map(canonicalNodes.map((node) => [getTimelineNodeKey(node), node]));
+          for (const [surfaceKey, surfaceSession] of Object.entries(surfaceSessionsByKey)) {
+            if (surfaceKey === targetSessionKey || surfaceSession.conversationId !== conversationId) continue;
+            const visibleNodes = surfaceSession.visibleThreadedMessages;
+            if (!visibleNodes) continue;
+
+            const visibleKeys = new Set(visibleNodes.map(getTimelineNodeKey));
+            const shouldAppend = !surfaceSession.messageWindow?.hasAfter;
+            const updatedVisibleNodes = visibleNodes.map((node) => {
+              const canonicalNode = canonicalByKey.get(getTimelineNodeKey(node));
+              if (!canonicalNode) return node;
+              if (isPersistedMessageNode(node) && !isPersistedMessageNode(canonicalNode)) return node;
+              return mergeMessageNode(node, canonicalNode);
+            });
+            const unseenCanonicalNodes = canonicalNodes.filter((node) => {
+              if (visibleKeys.has(getTimelineNodeKey(node))) return false;
+              if (!shouldAppend) return false;
+              const originalIndex = node.originalIndex;
+              if (originalIndex !== undefined && surfaceSession.messageWindow) {
+                return originalIndex > surfaceSession.messageWindow.endIndex;
+              }
+              return true;
+            });
+            const nextVisibleNodes = shouldAppend
+              ? capRenderedNodesAtEnd(sortTimelineNodes([...updatedVisibleNodes, ...unseenCanonicalNodes]))
+              : updatedVisibleNodes;
+            const nextWindow = surfaceSession.messageWindow
+              ? shouldAppend
+                ? reconcileLiveMessageWindow(
+                  surfaceSession.messageWindow,
+                  visibleNodes,
+                  nextVisibleNodes,
+                )
+                : {
+                  ...surfaceSession.messageWindow,
+                  totalCount: Math.max(surfaceSession.messageWindow.totalCount, canonicalNodes.length),
+                  hasBefore: surfaceSession.messageWindow.startIndex > 0,
+                  hasAfter: true,
+                }
+              : undefined;
+            surfaceSessionsByKey[surfaceKey] = {
+              ...surfaceSession,
+              visibleThreadedMessages: nextVisibleNodes,
+              ...(nextWindow ? {
+                messageWindow: {
+                  ...nextWindow,
+                  totalCount: Math.max(nextWindow.totalCount, canonicalNodes.length),
+                  hasBefore: nextWindow.startIndex > 0,
+                  hasAfter: nextWindow.totalCount > 0 && nextWindow.endIndex < nextWindow.totalCount - 1,
+                },
+                hasOlderMessages: nextWindow.startIndex > 0,
+              } : {}),
+            };
+          }
+          return {
+            ...targetPatches,
+            surfaceSessionsByKey,
+          };
         }
 
         const basePatches = patchSession(state, conversationId, sessionPatch);
@@ -564,10 +665,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           return basePatches;
         }
 
-        return {
+        return restoreCanonicalConversation({
           ...basePatches,
           surfaceSessionsByKey,
-        };
+        });
       });
     },
     patchConversation: (
@@ -595,20 +696,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     paramsOverride?: Partial<llm.ChatParams>,
     retryMessageId?: string,
     options?: { origin?: ChatSurfaceOrigin },
-  ) => {
-    if (mediaFiles && mediaFiles.length > 0) {
-      const totalSize = mediaFiles.reduce((acc, f) => acc + f.file.size, 0);
-      const estimatedBase64Size = Math.ceil(totalSize * 1.37);
-      if (estimatedBase64Size > MAX_MEDIA_SIZE) {
-        announce(i18next.t('chat.validation.mediaTooLarge', {
-          defaultValue: 'Arquivos de mídia muito grandes (~{{size}}MB). Máximo permitido: {{max}}MB',
-          size: Math.round(estimatedBase64Size / 1024 / 1024),
-          max: Math.round(MAX_MEDIA_SIZE / 1024 / 1024),
-        }));
-        return;
-      }
-    }
-
+  ): Promise<{ accepted: boolean; controller?: ChatEventControllerHandle }> => {
     playSendSound();
     const controller = startChatEventController({
       conversationId,
@@ -646,18 +734,43 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       } else {
         await SendMessage(conversationId, content, mediaJson, mergedParams);
       }
-      return controller;
+      return { accepted: true, controller };
     } catch (error: unknown) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         controller.handleSendCancellation();
-        return;
+        return { accepted: false, controller };
       }
       const errorMsg = isMediaSerializationError(error)
         ? i18next.t('chat.errors.mediaSerializationFailed')
         : getErrorMessage(error);
       controller.handleSendFailure(errorMsg);
-      return controller;
+      return { accepted: false, controller };
     }
+  };
+
+  const validateSendPayload = (content: string, mediaFiles?: MediaFile[]): boolean => {
+    const contentBytes = getUtf8ByteLength(content);
+    if (contentBytes > MAX_MESSAGE_CONTENT_BYTES) {
+      announce(i18next.t('chat.validation.messageTooLarge', {
+        sizeBytes: contentBytes,
+        maxKiB: MAX_MESSAGE_CONTENT_KIB,
+      }), 'assertive');
+      return false;
+    }
+
+    if (mediaFiles && mediaFiles.length > 0) {
+      const totalSize = mediaFiles.reduce((acc, f) => acc + f.file.size, 0);
+      const estimatedBase64Size = Math.ceil(totalSize * 1.37);
+      if (estimatedBase64Size > MAX_MEDIA_SIZE) {
+        announce(i18next.t('chat.validation.mediaTooLarge', {
+          defaultValue: 'Arquivos de mídia muito grandes (~{{size}}MB). Máximo permitido: {{max}}MB',
+          size: Math.round(estimatedBase64Size / 1024 / 1024),
+          max: Math.round(MAX_MEDIA_SIZE / 1024 / 1024),
+        }), 'assertive');
+        return false;
+      }
+    }
+    return true;
   };
 
   return {
@@ -1279,43 +1392,36 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!conversationId) {
         logger.error('[Chat] sendMessageToConversation sem conversationId explícito');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
-        return;
+        return false;
       }
-      const contentBytes = getUtf8ByteLength(content);
-      if (contentBytes > MAX_MESSAGE_CONTENT_BYTES) {
-        announce(i18next.t('chat.validation.messageTooLarge', {
-          sizeBytes: contentBytes,
-          maxKiB: MAX_MESSAGE_CONTENT_KIB,
-        }), 'assertive');
-        return;
-      }
+      if (!validateSendPayload(content, mediaFiles)) return false;
       if (!getConversationTimeline(get(), conversationId)) {
         await get().loadConversationSession(conversationId);
       }
       const sessionKey = options?.origin?.sessionKey;
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
       if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
-      let markAccepted!: () => void;
-      const accepted = new Promise<void>((resolve) => { markAccepted = resolve; });
+      let markAccepted!: (accepted: boolean) => void;
+      const accepted = new Promise<boolean>((resolve) => { markAccepted = resolve; });
       void turnQueue.enqueue(conversationId, async () => {
           if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
-          const controller = await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
-          markAccepted();
-          await controller?.done;
+          const result = await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
+          markAccepted(result.accepted);
+          await result.controller?.done;
         }).catch((error) => {
-          markAccepted();
+          markAccepted(false);
           if (!isConversationTurnQueueClearedError(error)) {
             logger.error('[Chat] falha inesperada na fila do turno', error);
           }
         });
-      await accepted;
+      return accepted;
     },
 
     retryMessageToConversation: async (conversationId, messageId, paramsOverride, options) => {
       if (!conversationId || !messageId) {
         logger.error('[Chat] retryMessageToConversation sem conversationId/messageId válido');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
-        return;
+        return false;
       }
       if (!getConversationTimeline(get(), conversationId)) {
         await get().loadConversationSession(conversationId);
@@ -1323,20 +1429,20 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const sessionKey = options?.origin?.sessionKey;
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
       if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
-      let markAccepted!: () => void;
-      const accepted = new Promise<void>((resolve) => { markAccepted = resolve; });
+      let markAccepted!: (accepted: boolean) => void;
+      const accepted = new Promise<boolean>((resolve) => { markAccepted = resolve; });
       void turnQueue.enqueue(conversationId, async () => {
           if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
-          const controller = await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
-          markAccepted();
-          await controller?.done;
+          const result = await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
+          markAccepted(result.accepted);
+          await result.controller?.done;
         }).catch((error) => {
-          markAccepted();
+          markAccepted(false);
           if (!isConversationTurnQueueClearedError(error)) {
             logger.error('[Chat] falha inesperada na fila de retry', error);
           }
         });
-      await accepted;
+      return accepted;
     },
 
     cancelStreaming: async (conversationId, options) => {

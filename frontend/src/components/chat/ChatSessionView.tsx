@@ -45,7 +45,7 @@ export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
   surface: ChatSurfaceIdentity;
   /** Envio da mensagem (ex.: sendMessage da store ou adaptador do chat modal) */
-  onSend: (content: string, mediaFiles: MediaFile[] | undefined, origin: ChatSurfaceOrigin) => Promise<void>;
+  onSend: (content: string, mediaFiles: MediaFile[] | undefined, origin: ChatSurfaceOrigin) => Promise<boolean | void>;
   /** Solicitação de troca de conversa (controlada pelo dono da superfície). */
   onRequestConversationChange?: ChatToolbarConversationChangeHandler;
   showShortcutsHelp?: boolean;
@@ -983,14 +983,14 @@ function ChatSessionViewContent({
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isInteractiveSurface, effectiveSendError, sessionSendFailureMessage, conversationId, origin.sessionKey, clearConversationSendFailure, announce, t]);
 
-  const handleSendMessage = async (content: string, mediaFiles?: MediaFile[]) => {
+  const handleSendMessage = async (content: string, mediaFiles?: MediaFile[]): Promise<boolean> => {
     try {
       setSendError(null);
       setLastFailedMessage(null);
       setDismissedSessionSendError(null);
       lastAnnouncedSessionSendFailureRef.current = null;
       if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
-      await controller.sendMessage(content, mediaFiles);
+      return await controller.sendMessage(content, mediaFiles);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('[ChatSessionView] send error:', errorMessage);
@@ -1003,6 +1003,7 @@ function ChatSessionViewContent({
         severity: ErrorSeverity.RECOVERABLE,
         onRetry: () => handleRetry(),
       });
+      return false;
     }
   };
 

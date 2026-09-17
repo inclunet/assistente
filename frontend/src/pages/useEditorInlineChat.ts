@@ -581,6 +581,10 @@ export function useEditorInlineChat({
           useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
           setIsAsking(false);
         },
+        onSendRejected: () => {
+          stopTrackingAssistedFileChange();
+          setIsAsking(false);
+        },
       };
     } catch (e: unknown) {
       logger.error('[useEditorInlineChat] inline chat error:', e);

@@ -232,8 +232,9 @@ describe('chatStore validation', () => {
     document.body.appendChild(focusedInput);
     focusedInput.focus();
 
-    await useChatStore.getState().sendMessageToConversation(defaultConversationId, bigContent);
+    const accepted = await useChatStore.getState().sendMessageToConversation(defaultConversationId, bigContent);
 
+    expect(accepted).toBe(false);
     expect(mockAnnounce).toHaveBeenCalledTimes(1);
     expect(mockAnnounce).toHaveBeenCalledWith(
       'Mensagem muito grande (524289 bytes). Máximo permitido: 512 KiB.',
@@ -247,8 +248,9 @@ describe('chatStore validation', () => {
   it('accepts message at exact max content size', async () => {
     const exactContent = 'x'.repeat(512 * 1024);
 
-    await useChatStore.getState().sendMessageToConversation(defaultConversationId, exactContent);
+    const accepted = await useChatStore.getState().sendMessageToConversation(defaultConversationId, exactContent);
 
+    expect(accepted).toBe(true);
     expect(mockSendMessage).toHaveBeenCalled();
   });
 
@@ -335,7 +337,7 @@ describe('chatStore validation', () => {
   it('rejects media exceeding max size', async () => {
     const fakeFile = new File([new ArrayBuffer(15 * 1024 * 1024)], 'big.bin', { type: 'application/octet-stream' });
 
-    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello', [{
+    const accepted = await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello', [{
       id: 'test-1',
       file: fakeFile,
       category: MediaCategory.DOCUMENT,
@@ -348,6 +350,7 @@ describe('chatStore validation', () => {
       preview: '',
     }]);
 
+    expect(accepted).toBe(false);
     expect(mockAnnounce).toHaveBeenCalledTimes(1);
     expect(mockAnnounce.mock.calls[0][0]).toContain('mídia');
     expect(mockSendMessage).not.toHaveBeenCalled();
@@ -1056,6 +1059,191 @@ describe('chatStore validation', () => {
     emitEvent('chat:done', { conversationId: defaultConversationId });
     send.resolve();
     await pending;
+  });
+
+  it('fan-out canônico alcança a superfície latest sem materializar placeholder na superfície histórica', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `latest:${defaultConversationId}`;
+    const historySessionKey = `history:${defaultConversationId}`;
+    const historyCacheNode = createMessageNode('history-cache-message') as unknown as MessageNode;
+    historyCacheNode.originalIndex = 0;
+    const oldNode = createMessageNode('old-message') as unknown as MessageNode;
+    oldNode.originalIndex = 4;
+    const oldDraftMedia = { id: 'history-media' } as unknown as import('../services/mediaService').MediaFile;
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [historyCacheNode, oldNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          visibleThreadedMessages: [oldNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 5,
+            startIndex: 4,
+            endIndex: 4,
+            hasBefore: true,
+            hasAfter: false,
+          },
+        },
+        [historySessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, historySessionKey),
+          draftMessage: 'rascunho histórico',
+          draftMediaFiles: [oldDraftMedia],
+          scrollTop: 480,
+          scrollAnchorMessageId: 'old-message',
+          visibleThreadedMessages: [oldNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 5,
+            startIndex: 1,
+            endIndex: 1,
+            hasBefore: true,
+            hasAfter: true,
+          },
+        },
+      },
+    });
+
+    mockSendMessage.mockImplementationOnce(() => {
+      emitEvent('chat:messages_ready', {
+        conversationId: defaultConversationId,
+        userMessageId: 'new-user-message',
+        userContent: 'novo texto',
+      });
+      emitEvent('chat:stream', {
+        conversationId: defaultConversationId,
+        messageId: 'new-assistant-message',
+        content: 'resposta parcial',
+        done: false,
+      });
+      return Promise.resolve();
+    });
+
+    const accepted = await useChatStore.getState().sendMessageToConversation(
+      defaultConversationId,
+      'novo texto',
+      undefined,
+      undefined,
+      { origin: {
+        conversationId: defaultConversationId,
+        sessionKey: originSessionKey,
+        surfaceId: 'latest',
+        surfaceType: 'page',
+        tabId: 'latest',
+      } },
+    );
+
+    expect(accepted).toBe(true);
+    const state = useChatStore.getState();
+    expect(state.timelinesByConversationId[defaultConversationId]?.threadedMessages.map((node) => node.message.id))
+      .toEqual(['history-cache-message', 'old-message', 'new-user-message']);
+    expect(state.surfaceSessionsByKey[originSessionKey]?.visibleThreadedMessages?.map((node) => node.message.id))
+      .toEqual(['old-message', 'new-user-message', 'new-assistant-message']);
+    expect(state.surfaceSessionsByKey[historySessionKey]?.visibleThreadedMessages?.map((node) => node.message.id))
+      .toEqual(['old-message']);
+    expect(state.surfaceSessionsByKey[historySessionKey]?.draftMessage).toBe('rascunho histórico');
+    expect(state.surfaceSessionsByKey[historySessionKey]?.draftMediaFiles).toEqual([oldDraftMedia]);
+    expect(state.surfaceSessionsByKey[historySessionKey]?.scrollTop).toBe(480);
+    expect(state.surfaceSessionsByKey[historySessionKey]?.scrollAnchorMessageId).toBe('old-message');
+  });
+
+  it('mantém a janela latest no fim após dois turnos com nós novos sem índice', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const latestSessionKey = `latest-two-turns:${defaultConversationId}`;
+    const indexedNodes = Array.from({ length: 5 }, (_, index) => {
+      const node = createMessageNode(`indexed-${index}`) as unknown as MessageNode;
+      node.originalIndex = index;
+      return node;
+    });
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: indexedNodes,
+        },
+      },
+      surfaceSessionsByKey: {
+        [latestSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, latestSessionKey),
+          visibleThreadedMessages: indexedNodes,
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 5,
+            startIndex: 0,
+            endIndex: 4,
+            hasBefore: false,
+            hasAfter: false,
+          },
+        },
+      },
+    });
+
+    const emitTurn = (userMessageId: string, assistantMessageId: string) => {
+      emitEvent('chat:messages_ready', {
+        conversationId: defaultConversationId,
+        userMessageId,
+        userContent: userMessageId,
+      });
+      emitEvent('chat:stream', {
+        conversationId: defaultConversationId,
+        messageId: assistantMessageId,
+        content: assistantMessageId,
+        done: true,
+      });
+      emitEvent('chat:done', {
+        conversationId: defaultConversationId,
+        assistantMessageId,
+        hadToolCalls: false,
+      });
+    };
+    mockSendMessage
+      .mockImplementationOnce(() => {
+        emitTurn('user-turn-1', 'assistant-turn-1');
+        return Promise.resolve();
+      })
+      .mockImplementationOnce(() => {
+        emitTurn('user-turn-2', 'assistant-turn-2');
+        return Promise.resolve();
+      });
+
+    const origin = {
+      conversationId: defaultConversationId,
+      sessionKey: latestSessionKey,
+      surfaceId: 'latest-two-turns',
+      surfaceType: 'page' as const,
+      tabId: 'latest-two-turns',
+    };
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'turno 1', undefined, undefined, { origin });
+    expect(useChatStore.getState().surfaceSessionsByKey[latestSessionKey]?.messageWindow).toMatchObject({
+      endIndex: 6,
+      totalCount: 7,
+      hasAfter: false,
+    });
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'turno 2', undefined, undefined, { origin });
+    const latest = useChatStore.getState().surfaceSessionsByKey[latestSessionKey];
+    expect(latest?.visibleThreadedMessages?.map((node) => node.message.id)).toEqual([
+      ...indexedNodes.map((node) => node.message.id),
+      'user-turn-1',
+      'assistant-turn-1',
+      'user-turn-2',
+      'assistant-turn-2',
+    ]);
+    expect(latest?.messageWindow).toMatchObject({
+      endIndex: 8,
+      totalCount: 9,
+      hasAfter: false,
+    });
   });
 
   it('mantém rascunho e anexos isolados por superfície', async () => {

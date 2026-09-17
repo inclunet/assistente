@@ -17,6 +17,7 @@ const storeMocks = vi.hoisted(() => ({
 const terminalPageMocks = vi.hoisted(() => ({
   registeredAdapter: null as unknown,
   slashMenuEnabled: undefined as boolean | undefined,
+  onSend: null as ((message: string) => Promise<boolean | void>) | null,
 }));
 
 const workspaceMocks = vi.hoisted(() => ({
@@ -75,9 +76,10 @@ vi.mock('../components/chat/ChatInput', async () => {
     ChatInput: React.forwardRef<HTMLTextAreaElement, {
       placeholder: string;
       slashMenuEnabled?: boolean;
-      onSend: (message: string) => void;
+      onSend: (message: string) => Promise<boolean | void>;
     }>(({ placeholder, slashMenuEnabled, onSend }, ref) => {
       terminalPageMocks.slashMenuEnabled = slashMenuEnabled;
+      terminalPageMocks.onSend = onSend;
       return (
         <textarea
           ref={ref}
@@ -163,6 +165,7 @@ describe('TerminalPage', () => {
     workspaceMocks.updateTab.mockReset();
     terminalPageMocks.registeredAdapter = null;
     terminalPageMocks.slashMenuEnabled = undefined;
+    terminalPageMocks.onSend = null;
     storeState.historyBySession = { 'term-1': [] };
   });
 
@@ -248,6 +251,13 @@ describe('TerminalPage', () => {
 
     expect(terminalPageMocks.slashMenuEnabled).toBe(false);
     expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', '/');
+  });
+
+  it('retorna aceitação explícita para o ChatInput limpar o comando enviado', async () => {
+    renderTerminalPage();
+
+    await expect(terminalPageMocks.onSend?.('pwd')).resolves.toBe(true);
+    expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', 'pwd');
   });
 
   it('usa o mesmo histórico no preview e no envio do chat', async () => {

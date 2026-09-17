@@ -86,3 +86,18 @@ mantém o rascunho e o foco para correção.
 
 Anexos não entram nessa contagem: mídia e arquivos têm validação própria. O
 limite protege a comunicação interna, a serialização e o uso de memória.
+
+## Superfícies e rascunhos
+
+Cada painel, aba ou modal de chat mantém seu próprio rascunho, anexos, foco,
+scroll e janela do histórico. Duas superfícies que apontam para a mesma
+conversa compartilham a timeline persistida, mas uma superfície que está lendo
+mensagens antigas não é reposicionada quando chega uma mensagem nova em outra.
+
+Ao enviar, o texto e os anexos são limpos imediatamente para que o compositor
+fique pronto para outra ação. Se o envio for rejeitado — por exemplo, por
+exceder o limite de 512 KiB ou o tamanho permitido de mídia — o rascunho é
+restaurado. Se você começar a digitar enquanto o envio ainda é preparado, o
+novo texto é preservado e o envio duplicado é bloqueado até a aceitação ser
+resolvida. Itens transitórios de streaming aparecem somente na superfície que
+originou o turno; as outras superfícies exibem apenas o que foi persistido.
