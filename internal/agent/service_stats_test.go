@@ -10,6 +10,7 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/messaging"
 )
 
 // TestSaveAndFinish_DoneEvent_WithLoopStats verifica que chat:done carrega
@@ -177,6 +178,60 @@ func TestSaveAndFinish_PreservaDesfechoQuandoPatchFalha(t *testing.T) {
 		return
 	}
 	t.Fatal("chat:done não emitido")
+}
+
+func TestSaveAndFinish_FinalizeFailureIsTerminalAndRecoverable(t *testing.T) {
+	emitter := &mockEmitter{}
+	repo := &mockMsgRepo{updateError: errors.New("db indisponível")}
+	notifier := messaging.NewResponseNotifier()
+	defer notifier.Stop()
+	callbackCalled := make(chan struct{}, 1)
+	notifier.Register("conv-1", messaging.ResponseCallback{
+		Callback: func(string, string) { callbackCalled <- struct{}{} },
+	})
+
+	var summarizeCalls, speechCalls int
+	svc := NewService(ServiceConfig{
+		Emitter:          emitter,
+		MsgRepo:          repo,
+		ResponseNotifier: notifier,
+		TriggerSummarize: func(context.Context, string, string) { summarizeCalls++ },
+		OnSpeechRequest:  func(string, string, string, string, string, string, bool) { speechCalls++ },
+	})
+
+	svc.SaveAndFinish(context.Background(), "conv-1", "turn-1", "assistant-1", AgenticResult{
+		FullResponse: "resposta parcial recuperável",
+		NativeMCPEvents: []llm.MCPToolEvent{{
+			ID: "call-1",
+		}},
+	}, "", &LoopStats{IterationCount: 1, ToolCallCount: 1}, nil)
+
+	select {
+	case <-callbackCalled:
+		t.Fatal("falha de finalização não deveria notificar sucesso")
+	default:
+	}
+	if summarizeCalls != 0 || speechCalls != 0 {
+		t.Fatalf("efeitos derivados de sucesso disparados após falha: summarize=%d speech=%d", summarizeCalls, speechCalls)
+	}
+
+	events := emitter.getEvents()
+	var done *ports.DoneEvent
+	for _, event := range events {
+		if event.name == "chat:stream" {
+			t.Fatal("falha de finalização não deveria emitir chat:stream concluído")
+		}
+		if event.name == "chat:done" {
+			candidate := event.data.(ports.DoneEvent)
+			done = &candidate
+		}
+	}
+	if done == nil {
+		t.Fatal("falha de finalização deveria emitir chat:done terminal")
+	}
+	if done.Reason != "error" || done.ErrorMessage != ports.ChatErrorInternal || done.AssistantMessageID != "assistant-1" {
+		t.Fatalf("desfecho terminal incorreto: %+v", *done)
+	}
 }
 
 func TestBuildTurnPatchSobreviveAoCancelamentoDoTurno(t *testing.T) {

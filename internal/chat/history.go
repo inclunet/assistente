@@ -4,6 +4,7 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -79,6 +80,66 @@ func (h *HistoryLoader) Load(ctx context.Context, conversationID string) ([]Mess
 	}
 
 	return h.filter(ctx, conversationID, dbMessages, existingSummary)
+}
+
+// LoadThroughMessage carrega somente a janela até a mensagem raiz selecionada.
+// É usado por retry para que mensagens e resumo posteriores à pergunta escolhida
+// não contaminem o novo turno.
+func (h *HistoryLoader) LoadThroughMessage(ctx context.Context, conversationID, messageID string) ([]Message, string, error) {
+	if h.Repo == nil {
+		return nil, "", errors.New("repositório de mensagens indisponível")
+	}
+	existingSummary, summaryUpToID, err := h.Repo.GetConversationSummary(ctx, conversationID)
+	if err != nil {
+		logging.Errorf(ctx, "chat.history", "[HISTORY] Erro ao buscar resumo da conversa %s: %v", conversationID, err)
+		existingSummary = ""
+		summaryUpToID = ""
+	}
+
+	allRootMessages, err := h.Repo.GetMessages(ctx, conversationID, nil)
+	if err != nil {
+		return nil, "", err
+	}
+
+	selectedIndex := -1
+	for index, message := range allRootMessages {
+		if message.ID == messageID {
+			selectedIndex = index
+			if message.ParentID != nil {
+				return nil, "", fmt.Errorf("mensagem %s não é uma pergunta raiz", messageID)
+			}
+			break
+		}
+	}
+	if selectedIndex < 0 {
+		return nil, "", fmt.Errorf("mensagem %s não encontrada no histórico da conversa", messageID)
+	}
+
+	// Um resumo que alcança a pergunta selecionada já pode conter mensagens
+	// posteriores ao ponto de retry. Descartá-lo evita duplicação e vazamento de
+	// contexto posterior; o próprio histórico ancorado é a fonte de verdade.
+	if summaryUpToID != "" {
+		summaryIndex := -1
+		for index, message := range allRootMessages {
+			if message.ID == summaryUpToID {
+				summaryIndex = index
+				break
+			}
+		}
+		switch {
+		case summaryIndex < 0:
+			existingSummary = ""
+		case summaryIndex < selectedIndex:
+			allRootMessages = allRootMessages[summaryIndex+1 : selectedIndex+1]
+			return h.filter(ctx, conversationID, allRootMessages, existingSummary)
+		default:
+			existingSummary = ""
+		}
+	} else {
+		existingSummary = ""
+	}
+
+	return h.filter(ctx, conversationID, allRootMessages[:selectedIndex+1], existingSummary)
 }
 
 // filter preserva a semântica histórica de truncamento e limpeza. Tanto o

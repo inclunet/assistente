@@ -496,6 +496,10 @@ type RecordUserMessageRequest struct {
 	ActiveProfile  *profiles.Profile
 	// MaxContextMessages, se > 0, sobrescreve o limite do perfil ao carregar histórico.
 	MaxContextMessages int
+	// ExplicitContinuation distingue a ação explícita "Continuar resposta" de
+	// um retry normal. Só a continuação pode anexar o assistant canônico como
+	// prefill/fonte do fallback por mensagem de usuário.
+	ExplicitContinuation bool
 }
 
 // RecordUserMessageResponse contém a mensagem salva e o histórico da conversa carregado.
@@ -525,6 +529,9 @@ func (i *Interactor) GetRetryableUserMessage(ctx context.Context, conversationID
 	}
 	if userMsg.Role != "user" {
 		return nil, fmt.Errorf("mensagem %s não é do usuário", messageID)
+	}
+	if userMsg.ParentID != nil {
+		return nil, fmt.Errorf("mensagem %s não é uma pergunta raiz", messageID)
 	}
 	return userMsg, nil
 }
@@ -602,10 +609,50 @@ func (i *Interactor) ReuseLoadedUserMessage(ctx context.Context, req RecordUserM
 		Repo:    i.repo,
 		MaxMsgs: maxCtxMsgs,
 	}
-	messages, summary, err := loader.Load(ctx, req.ConversationID)
+	messages, summary, err := loader.LoadThroughMessage(ctx, req.ConversationID, userMsg.ID)
 	if err != nil {
 		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar histórico: " + err.Error()})
 		return nil, err
+	}
+
+	if !req.ExplicitContinuation {
+		return &RecordUserMessageResponse{
+			UserMsg:             userMsg,
+			Messages:            messages,
+			ConversationSummary: summary,
+		}, nil
+	}
+
+	// A resposta do turno selecionado só é necessária para continuação explícita.
+	// Ela permanece como a última mensagem candidata do payload; providers que
+	// não suportam prefill removem esse trailing assistant antes do envio.
+	turnMessages, err := i.repo.GetMessagesByTurnID(ctx, req.ConversationID, userMsg.ParentID, userMsg.ID, 100)
+	if err != nil {
+		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar resposta do retry: " + err.Error()})
+		return nil, err
+	}
+	// O primeiro assistant raiz do turno é o placeholder canônico, atualizado
+	// com a resposta final. Assistants posteriores são snapshots/intermediários
+	// do ciclo de tools e não podem vazar para o prefill de continuação.
+	var selectedAssistant *Message
+	for _, message := range turnMessages {
+		if message.Role != "assistant" {
+			continue
+		}
+		if message.TurnID == nil || *message.TurnID != userMsg.ID {
+			continue
+		}
+		selectedAssistant = &message
+		break
+	}
+	if selectedAssistant != nil && (strings.TrimSpace(selectedAssistant.Content) != "" ||
+		strings.TrimSpace(selectedAssistant.Media) != "" || strings.TrimSpace(selectedAssistant.Audio) != "") {
+		assistantMessages, _, formatErr := loader.format(ctx, []Message{*selectedAssistant}, "")
+		if formatErr != nil {
+			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao formatar resposta do retry: " + formatErr.Error()})
+			return nil, formatErr
+		}
+		messages = append(messages, assistantMessages...)
 	}
 
 	return &RecordUserMessageResponse{

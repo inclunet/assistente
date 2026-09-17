@@ -96,6 +96,24 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
   única vez em `baseContent` e depois somente deltas. O frontend não compara
   prefixos para adivinhar qual tentativa está ativa.
 
+### 8) Retry ancorado e finalização persistente (adendo PR2)
+
+- `RetryMessage` só aceita uma pergunta raiz persistida. O backend carrega o
+  histórico até a pergunta selecionada e descarta mensagens e resumo posteriores;
+  portanto, ao repetir U1 em `U1/A1/U2/A2`, o payload não reutiliza U2/A2 nem um
+  resumo que os contenha.
+- A mídia da pergunta e as políticas de contexto continuam sendo aplicadas pela
+  mesma janela/loader. A resposta do turno selecionado pode ser anexada somente
+  como candidato de continuação explícita; requests normais continuam removendo
+  `assistant` trailing antes do provider.
+- Persistir a resposta final é um gate terminal. Se a finalização falhar, o
+  backend tenta preservar o parcial no placeholder existente e emite apenas um
+  `chat:done` com `reason=error`, `errorMessage=internal_error` e o ID da
+  mensagem recuperável. Não emite sucesso para canais, `chat:stream` concluído,
+  TTS ou sumarização; o ledger de MCP nativo continua sendo persistido antes
+  da finalização como evidência de ações já executadas. Nenhuma tool é repetida
+  automaticamente. O caminho simple usa o mesmo gate compartilhado.
+
 ## Fases
 
 - [x] **Docs**: escrever este AEP e aplicar adendos mínimos em AEPs antigas com exemplos/contratos desatualizados.
@@ -104,12 +122,14 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
 - [x] **Persistência do assistant no início do turno**: criar/reusar placeholder do assistant no backend e garantir `messageId` consistente no `chat:stream`.
 - [x] **Auto-recuperação**: implementar retry interno até N tentativas (default 3).
 - [x] **Continuação explícita**: implementar “Continuar resposta” via `RetryMessage` em modo de continuação, atualizando a mesma mensagem do assistant. Quando o provider/modelo não suporta prefill, usar fallback por mensagem de usuário (Issue #124).
-- [x] **Testes**: Go + Vitest cobrindo cancelamento, auto-recuperação e ausência de prefill acidental.
+- [x] **Testes**: Go + Vitest cobrindo cancelamento, auto-recuperação, ausência de prefill acidental, retry ancorado e falha terminal de persistência.
 
 ### Evidências
 
 - Recuperação e continuação: `internal/agent/streaming_recovery_test.go` e
   `internal/agent/continuation_test.go`.
+- Retry ancorado e persistência terminal: `internal/chat/interactor_test.go` e
+  `internal/agent/service_stats_test.go`.
 - Cancelamento e UX: `frontend/src/components/chat/ChatInput.test.tsx`,
   `ChatSessionView.test.tsx` e `frontend/src/lib/messageMenuItems.test.ts`.
 - Configuração de perfil: `frontend/src/components/profiles/ProfileChatSection.test.tsx`.
