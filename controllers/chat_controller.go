@@ -36,6 +36,10 @@ type ChatControllerConfig struct {
 	OpenEditorPaths  func() []string
 }
 
+type sendMessageExecutor interface {
+	Execute(usecases.SendMessageRequest) (string, error)
+}
+
 // ChatController é o adapter primário (Inbound) para o pipeline de envio de mensagens.
 // Orquestra o bridge canal↔Wails e delega o pipeline de mensagem ao SendMessageUseCase.
 type ChatController struct {
@@ -44,7 +48,7 @@ type ChatController struct {
 	convRepo         chat.ConversationRepository
 	msgGateway       *messaging.Gateway
 	responseNotifier *messaging.ResponseNotifier
-	sendMsgUC        *usecases.SendMessageUseCase
+	sendMsgUC        sendMessageExecutor
 	loadedToolStore  *tools.LoadedToolStore
 }
 
@@ -88,6 +92,11 @@ func (c *ChatController) SendMessage(ctx context.Context, conversationID string,
 		UserMedia:      userMedia,
 		Params:         params,
 		Source:         "wails",
+		OnFinished: func() {
+			if bridgeTrace != "" && c.responseNotifier != nil {
+				c.responseNotifier.CancelTrace(conversationID, bridgeTrace)
+			}
+		},
 	})
 	if err != nil && bridgeTrace != "" && c.responseNotifier != nil {
 		// Erro síncrono antes do Notify: remove só este bridge (não o gateway).
@@ -108,6 +117,11 @@ func (c *ChatController) RetryMessage(ctx context.Context, conversationID string
 		RetryMessageID: messageID,
 		Params:         params,
 		Source:         "wails",
+		OnFinished: func() {
+			if bridgeTrace != "" && c.responseNotifier != nil {
+				c.responseNotifier.CancelTrace(conversationID, bridgeTrace)
+			}
+		},
 	})
 	if err != nil && bridgeTrace != "" && c.responseNotifier != nil {
 		c.responseNotifier.CancelTrace(conversationID, bridgeTrace)
@@ -158,7 +172,8 @@ func (c *ChatController) ResetLoadedToolsForConversation(conversationID string) 
 
 // registerChannelBridge registra um callback para reenviar a resposta do assistente
 // ao canal de mensageria de origem (bridge Wails → canal externo).
-// Retorna o TraceID do bridge (vazio se não registrou) para CancelTrace em erro síncrono.
+// Retorna o TraceID do bridge (vazio se não registrou) para cleanup ao concluir
+// a execução ou quando o envio falha antes de adquirir seu lifecycle.
 func (c *ChatController) registerChannelBridge(ctx context.Context, conversationID string) string {
 	conv, err := c.convRepo.GetConversationInfo(ctx, conversationID)
 	if err != nil || conv == nil || conv.Channel == "" || conv.ContactID == "" {

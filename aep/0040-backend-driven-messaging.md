@@ -618,6 +618,29 @@ Estas regras são permanentes e devem ser respeitadas por qualquer mudança futu
 ---
 
 ## Referências
+
+### Evidência de isolamento do ciclo de execução
+
+- O contrato continua **Accepted**: `StreamingManager.Begin` registra cancelamento
+  antes da preparação e mantém exclusividade por conversa até o worker sair.
+  Cancelar não libera antecipadamente o próximo envio nem descarta a fila.
+- Envios/retries da interface propagam `surfaceExecutionId` em `ChatParams` e
+  `surfaceOrigin.executionId` nos eventos. Esse identificador correlaciona uma
+  execução; não é ID de mensagem. Retries preservam o `turnId` persistido.
+- O hub rejeita terminais de outra execução antes de vincular o turno. O retorno
+  atrasado de uma chamada de cancelamento não limpa um controller substituto.
+  `LLMModels.CancelStreamingExecution` cancela também uma execução identificada
+  que ainda aguarda a anterior; a API por conversa permanece para canais legados.
+  Rotas externas sem identidade de execução continuam compatíveis; fala sem
+  origem permanece sob arbitragem global.
+- Evidências: `internal/chat/execution_test.go`, teste de cancelamento durante
+  preparação em `internal/core/usecases/send_message_test.go`,
+  `frontend/src/services/chatEventHub.test.ts`, `chatTurnQueue.test.ts` e
+  teste de retorno tardio do cancelamento em `chatStore.validation.test.ts`.
+- Recursos do chamador são liberados uma única vez em `OnFinished`, antes de
+  liberar a próxima execução. O bridge Wails→canal remove apenas seu trace
+  remanescente após cancelamento/falha; sucesso já o consumiu no notifier.
+
 - AEP-0010: Streaming Architecture
 - AEP-0006: Chat Architecture Fix
 - AEP-0039: Tool Calling Revamp (Fase 1 complementar)

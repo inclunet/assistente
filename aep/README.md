@@ -57,7 +57,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0037](0037-sdk-migration-chat-provider.md) | SDK Migration + ChatProvider Interface | 🚧 In Progress |
 | [0038](0038-voice-model-refactor.md) | Refatoração do Modelo de Voz (por Role) | ✅ Done |
 | [0039](0039-tool-calling-revamp.md) | Tool Calling — Revamp & Enhancements | 🚧 In Progress |
-| [0040](0040-backend-driven-messaging.md) | Backend-Driven Messaging — Desacoplamento Frontend↔Mensagens | ✔️ Accepted |
+| [0040](0040-backend-driven-messaging.md) | Backend-Driven Messaging — Desacoplamento Frontend↔Mensagens; isolamento de execução documentado | ✔️ Accepted |
 | [0041](0041-proactive-tts.md) | TTS Proativo (Backend-Driven) | 🚧 In Progress |
 | [0042](0042-chat-surface-context.md) | Chat Surface Context | 🚧 In Progress |
 | [0043](0043-tts-stt-voices.md) | Evolução TTS/STT: Vozes (Assistant + User) | 🗄️ Superseded |
