@@ -57,7 +57,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0037](0037-sdk-migration-chat-provider.md) | SDK Migration + ChatProvider Interface | 🚧 In Progress |
 | [0038](0038-voice-model-refactor.md) | Refatoração do Modelo de Voz (por Role) | ✅ Done |
 | [0039](0039-tool-calling-revamp.md) | Tool Calling — Revamp & Enhancements | 🚧 In Progress |
-| [0040](0040-backend-driven-messaging.md) | Backend-Driven Messaging — Desacoplamento Frontend↔Mensagens; isolamento, progresso ao vivo e anúncios arbitrados | ✔️ Accepted |
+| [0040](0040-backend-driven-messaging.md) | Backend-Driven Messaging — Desacoplamento Frontend↔Mensagens; isolamento, progresso cronológico e anúncios arbitrados | ✔️ Accepted |
 | [0041](0041-proactive-tts.md) | TTS Proativo (Backend-Driven) | 🚧 In Progress |
 | [0042](0042-chat-surface-context.md) | Chat Surface Context | 🚧 In Progress |
 | [0043](0043-tts-stt-voices.md) | Evolução TTS/STT: Vozes (Assistant + User) | 🗄️ Superseded |
@@ -120,7 +120,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
 | [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
 | [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 📝 Draft |
-| [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico | ✅ Done |
+| [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; cronologia por rodada e conclusão terminal | ✅ Done |
 | [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress |
 | [0106](0106-contencao-do-pipeline-de-jobs.md) | Contenção do pipeline de jobs (limite de concorrência + cache por slug) | 🚧 In Progress |
 

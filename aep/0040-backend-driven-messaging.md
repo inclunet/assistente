@@ -315,6 +315,13 @@ chamada. `chat:done.turnPatch` retoma a autoridade ao encerrar o turno.
 Regressões: `ChatMessage.liveProgress.test.tsx` e
 `chatEventController.test.ts`. O contrato permanece **Accepted**.
 
+A apresentação concluída preserva a ordem dos segmentos canônicos: atividade
+antes da resposta final. A conclusão terminal fica fora da região recolhível,
+depois dela, sem duplicação ao expandir/recolher; textos seguidos de ferramentas
+não são promovidos artificialmente a resposta final. O aviso tool-only encerra
+o turno visual. Não há recolhimento automático nem novos anúncios de conteúdo.
+Regressões: `ChatMessage.chronology.test.tsx` e `chat-chronology.spec.ts`.
+
 ```go
 type ChatDoneEvent struct {
     ChatEventEnvelope
