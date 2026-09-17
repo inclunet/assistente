@@ -100,6 +100,14 @@ anterior; mensagens já enfileiradas são preservadas. Outras conversas continua
 independentes. Eventos atrasados de uma execução cancelada não devem encerrar
 o novo envio ou retry iniciado pela interface.
 
+## Fluidez da lista de mensagens
+
+Atualizações do rascunho e do estado da sessão preservam as mensagens que não
+mudaram, evitando renderizações repetidas da lista. Navegação por teclado,
+menus, foco e paginação continuam disponíveis. O conteúdo da resposta em
+andamento ainda precisa ser renderizado quando muda; esta otimização não
+altera a velocidade de geração do provedor.
+
 ## Limite do texto
 
 O texto de cada nova mensagem pode ocupar até **512 KiB em UTF-8**. Letras

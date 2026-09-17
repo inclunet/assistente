@@ -6,6 +6,7 @@ import { MediaCategory, type MediaFile } from '../../services/mediaService';
 
 const updateMessageMock = vi.fn();
 const updateMessagePinnedMock = vi.fn();
+const deleteMessageMock = vi.hoisted(() => vi.fn());
 const showMenuMock = vi.fn();
 const hideMenuMock = vi.fn();
 const copyMessageMock = vi.fn();
@@ -27,8 +28,12 @@ const activeConversation: { id: string; title: string; threadedMessages: MockThr
 };
 
 const modalState = vi.hoisted(() => ({ open: false }));
-const contextMenuState = vi.hoisted(() => ({ visible: true }));
+const contextMenuState = vi.hoisted(() => ({ visible: true, realHook: false }));
 const runtimeEventHandlers = vi.hoisted(() => new Map<string, (data: unknown) => void>());
+const messageListRenderMock = vi.hoisted(() => vi.fn());
+const translateMock = vi.hoisted(() => (key: string, options?: { start?: number; end?: number; total?: number }) => (
+  options?.total !== undefined ? `${key}:${options.start}-${options.end}-${options.total}` : key
+));
 const handleErrorMock = vi.hoisted(() => vi.fn());
 const requestConfirmMock = vi.hoisted(() => vi.fn());
 const executeDeepLinkMock = vi.hoisted(() => vi.fn());
@@ -54,9 +59,7 @@ vi.mock('../ui/Modal', async (importOriginal) => {
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
-    t: (key: string, options?: { start?: number; end?: number; total?: number }) => (
-      options?.total !== undefined ? `${key}:${options.start}-${options.end}-${options.total}` : key
-    ),
+    t: translateMock,
   }),
 }));
 
@@ -128,26 +131,32 @@ vi.mock('../../hooks/useChatKeyboardNav', () => ({
   useChatKeyboardNav: () => {},
 }));
 
-vi.mock('../../hooks/useContextMenu', () => ({
-  useContextMenu: () => ({
-    menuVisible: contextMenuState.visible,
-    menuPosition: { x: 1, y: 2 },
-    menuItems: [{ id: 'copy', label: 'Copiar' }],
-    showMenu: showMenuMock,
-    hideMenu: hideMenuMock,
-  }),
+vi.mock('../../hooks/useContextMenu', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../hooks/useContextMenu')>();
+  return {
+  useContextMenu: (options: Parameters<typeof actual.useContextMenu>[0]) => {
+    const realMenu = actual.useContextMenu(options);
+    return {
+      menuVisible: contextMenuState.visible,
+      menuPosition: { x: 1, y: 2 },
+      menuItems: [{ id: 'copy', label: 'Copiar' }],
+      showMenu: contextMenuState.realHook ? realMenu.showMenu : showMenuMock,
+      hideMenu: hideMenuMock,
+    };
+  },
   useMessageActions: () => ({
     copyMessage: copyMessageMock,
     speakMessage: speakMessageMock,
   }),
-}));
+};
+});
 
 vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
   EditorGetDraftPath: vi.fn().mockResolvedValue(''),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
-  DeleteMessage: vi.fn(),
+  DeleteMessage: (...args: unknown[]) => deleteMessageMock(...args),
   ToggleMessagePin: vi.fn(),
 }));
 
@@ -188,24 +197,34 @@ vi.mock('./MessageList', async () => {
   return {
     MessageList: React.forwardRef<HTMLDivElement, {
       onContextMenu?: (event: MouseEvent, message: { id: string; role: string }) => void;
+      onReachEnd?: () => void;
+      onDelete?: (message: { id: string }) => Promise<void>;
       threadedMessages?: Array<{ id?: string; message?: { id: string; role?: string; isStreaming?: boolean; turnId?: string; content?: string } }>;
       shouldShowContinue?: (message: { id: string; role?: string; isStreaming?: boolean; turnId?: string; content?: string }) => boolean;
       onSpeak?: (message: { id: string; role: string; content: string }) => void;
       onJumpToStart?: () => Promise<void> | void;
       onJumpToEnd?: () => Promise<void> | void;
       onLoadNewer?: (trigger: 'scroll' | 'navigation') => Promise<void> | void;
+      isLoading?: boolean;
+      origin?: unknown;
     }>((
     {
       onContextMenu,
+      onReachEnd,
+      onDelete,
       threadedMessages = [],
       shouldShowContinue,
       onJumpToStart,
       onJumpToEnd,
       onLoadNewer,
       onSpeak,
+      isLoading,
+      origin,
     },
     ref: React.Ref<HTMLDivElement>,
-  ) => (
+  ) => {
+    messageListRenderMock({ onContextMenu, onReachEnd, onDelete, threadedMessages, isLoading, origin });
+    return (
     <div ref={ref} data-testid="message-list">
       <div
         role="list"
@@ -251,7 +270,8 @@ vi.mock('./MessageList', async () => {
       ))}
       </div>
     </div>
-  )),
+    );
+  }),
   };
 });
 
@@ -338,6 +358,7 @@ describe('ChatSessionView', () => {
     hideMenuMock.mockReset();
     chatStoreState.setConversationScrollState.mockReset();
     chatStoreState.loadBoundaryMessagesForConversation.mockReset();
+    deleteMessageMock.mockReset();
     chatStoreState.sessionsByConversationId[conversationId].isLoading = false;
     chatStoreState.sessionsByConversationId[conversationId].conversation = activeConversation;
     chatStoreState.sessionsByConversationId[conversationId].hasOlderMessages = false;
@@ -348,6 +369,7 @@ describe('ChatSessionView', () => {
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryContent?: string | null }).sendFailureRetryContent = null;
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryMediaFiles = [];
     (activeConversation.threadedMessages as unknown[]) = [];
+    messageListRenderMock.mockClear();
     (announce as ReturnType<typeof vi.fn>).mockReset();
     announceRequestMock.mockClear();
     chatStoreState.cancelStreaming.mockReset();
@@ -356,6 +378,7 @@ describe('ChatSessionView', () => {
     handleErrorMock.mockReset();
     modalState.open = false;
     contextMenuState.visible = true;
+    contextMenuState.realHook = false;
     runtimeEventHandlers.clear();
     requestConfirmMock.mockReset();
     requestConfirmMock.mockResolvedValue(false);
@@ -921,6 +944,85 @@ describe('ChatSessionView', () => {
       surfaceId: 'embedded:workspace-chat-modal:tab-1',
       surfaceType: 'embedded',
     }));
+  });
+
+  it('preserva props estáveis da lista durante progresso e atualização de draft', async () => {
+    contextMenuState.realHook = true;
+    const chatSurface = surface({ surfaceType: 'embedded' });
+    const surfaceSessions = chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>;
+    surfaceSessions[chatSurface.sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
+      isLoading: false,
+      draftMessage: '',
+    };
+    const createView = () => (
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+        <ChatSessionView
+          variant="embedded"
+          surface={chatSurface}
+          onSend={vi.fn()}
+          showShortcutsHelp={false}
+        />
+      </WorkspacePanelProvider>
+    );
+
+    const { rerender } = render(createView());
+    await waitFor(() => expect(messageListRenderMock).toHaveBeenCalled());
+    const firstProps = messageListRenderMock.mock.calls[messageListRenderMock.mock.calls.length - 1]?.[0] as {
+      onContextMenu?: unknown;
+      onReachEnd?: unknown;
+      onDelete?: unknown;
+      origin?: unknown;
+    };
+    messageListRenderMock.mockClear();
+
+    surfaceSessions[chatSurface.sessionKey] = {
+      ...surfaceSessions[chatSurface.sessionKey],
+      isLoading: true,
+      draftMessage: 'rascunho digitado durante progresso',
+    };
+    rerender(createView());
+
+    await waitFor(() => expect(messageListRenderMock).toHaveBeenCalled());
+    const updatedProps = messageListRenderMock.mock.calls[messageListRenderMock.mock.calls.length - 1]?.[0] as {
+      onContextMenu?: unknown;
+      onReachEnd?: unknown;
+      onDelete?: unknown;
+      origin?: unknown;
+      isLoading?: boolean;
+    };
+    expect(updatedProps.isLoading).toBe(true);
+    expect(updatedProps.onContextMenu).toBe(firstProps.onContextMenu);
+    expect(updatedProps.onReachEnd).toBe(firstProps.onReachEnd);
+    expect(updatedProps.onDelete).toBe(firstProps.onDelete);
+    expect(updatedProps.origin).toBe(firstProps.origin);
+  });
+
+  it('mantém a conversa da exclusão quando a superfície muda durante o await', async () => {
+    const nextId = '01926b90-7a5a-7c4e-8d3f-000000000002';
+    const sessions = chatStoreState.sessionsByConversationId as Record<string, typeof chatStoreState.sessionsByConversationId[typeof conversationId]>;
+    sessions[nextId] = {
+      ...sessions[conversationId],
+      conversation: { id: nextId, title: 'Outra conversa', threadedMessages: [] },
+    };
+    let finishDelete!: () => void;
+    deleteMessageMock.mockImplementation(() => new Promise<void>((resolve) => { finishDelete = resolve; }));
+    const view = (id: string) => (
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+        <ChatSessionView variant="embedded" surface={surface({ conversationId: id, surfaceType: 'embedded' })} onSend={vi.fn()} showShortcutsHelp={false} />
+      </WorkspacePanelProvider>
+    );
+    const { rerender } = render(view(conversationId));
+    await waitFor(() => expect(messageListRenderMock).toHaveBeenCalled());
+    const props = messageListRenderMock.mock.lastCall![0] as { onDelete: (message: { id: string }) => Promise<void> };
+    let pending!: Promise<void>;
+    act(() => { pending = props.onDelete({ id: conversationId }); });
+    rerender(view(nextId));
+    chatStoreState.loadConversationSession.mockClear();
+    await act(async () => { finishDelete(); await pending; });
+    expect(chatStoreState.loadConversationSession).toHaveBeenCalledWith(conversationId, { refreshSurfaceWindows: true });
+    expect(chatStoreState.loadConversationSession).not.toHaveBeenCalledWith(nextId, { refreshSurfaceWindows: true });
+    delete sessions[nextId];
   });
 
   it('não mostra continuar resposta para mensagem com ID sintético', async () => {

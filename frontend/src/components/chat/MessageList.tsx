@@ -338,7 +338,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     }, behavior === 'smooth' ? 500 : 0);
   };
 
-  const handleLoadOlder = (trigger: MessageWindowLoadTrigger) => {
+  const handleLoadOlder = useCallback((trigger: MessageWindowLoadTrigger) => {
     const container = innerContainerRef.current;
     const snapshot = container
       ? { scrollHeight: container.scrollHeight, scrollTop: container.scrollTop }
@@ -353,31 +353,32 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
         }
       }, 0);
     });
-  };
+  }, [onLoadOlder]);
 
-  const handleLoadNewer = (trigger: MessageWindowLoadTrigger) => {
+  const handleLoadNewer = useCallback((trigger: MessageWindowLoadTrigger) => {
     const result = onLoadNewer?.(trigger);
     void Promise.resolve(result);
-  };
+  }, [onLoadNewer]);
 
-  const handleReachStart = () => {
+  const handleReachStart = useCallback(() => {
     if (hasOlderMessages && onLoadOlder && !isLoadingMessageWindow) {
       handleLoadOlder('navigation');
       return;
     }
     void Promise.resolve(onReachStart?.());
-  };
-  const effectiveReachStart = (hasOlderMessages && onLoadOlder) || onReachStart
-    ? handleReachStart
-    : undefined;
+  }, [handleLoadOlder, hasOlderMessages, isLoadingMessageWindow, onLoadOlder, onReachStart]);
+  const effectiveReachStart = useMemo(
+    () => ((hasOlderMessages && onLoadOlder) || onReachStart ? handleReachStart : undefined),
+    [handleReachStart, hasOlderMessages, onLoadOlder, onReachStart],
+  );
 
-  const handleReachEnd = () => {
+  const handleReachEnd = useCallback(() => {
     if (hasNewerMessages && onLoadNewer && !isLoadingMessageWindow && canLoadNewerFromDisplayEnd) {
       handleLoadNewer('navigation');
       return;
     }
     onReachEnd?.();
-  };
+  }, [canLoadNewerFromDisplayEnd, handleLoadNewer, hasNewerMessages, isLoadingMessageWindow, onLoadNewer, onReachEnd]);
 
   useLayoutEffect(() => {
     const pendingRestore = pendingScrollRestoreRef.current;

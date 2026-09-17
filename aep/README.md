@@ -74,7 +74,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0056](0056-workspace-self-contained-tabs.md) | Workspace com Abas Autocontidas | ✅ Done |
 | [0057](0057-chat-session-identity.md) | Sessões de Superfície e Timeline de Chat — fan-out e rascunho PR3 | ✅ Done |
 | [0058](0058-global-accessibility-voice-arbitration.md) | Arbitragem Global de Acessibilidade e Voz | ✅ Done |
-| [0059](0059-long-conversation-performance.md) | Performance de Conversas Longas | 🚧 In Progress |
+| [0059](0059-long-conversation-performance.md) | Performance de Conversas Longas | 🚧 In Progress — janela, timeline, detalhes lazy, contagem indexada e memoização da lista entregues; demais conteúdos pesados seguem pendentes |
 | [0060](0060-command-policy-parser.md) | Parser e Política de Comandos | ✅ Done |
 | [0061](0061-credential-loss-incident-and-defenses.md) | Incidente de Perda de Credenciais e Defesas | ✔️ Accepted |
 | [0062](0062-profile-application-and-local-provider-auth.md) | Aplicação de Perfil e Auth de Provider Local | ✅ Done |
