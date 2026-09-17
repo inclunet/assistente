@@ -64,54 +64,54 @@ func (r *DBRepository) UpsertTool(ctx context.Context, entry *tools.ToolCatalogE
 		return err
 	}
 	var persistedID string
-	err = r.retry(ctx, "upsert_tool", func() error {
-		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			var existing database.ToolCatalog
-			query := tx
-			if normalized.Origin == tools.ToolOriginBuiltin {
-				query = query.Where("origin = ? AND name = ? AND mcp_server_id IS NULL", normalized.Origin, normalized.Name)
-			} else {
-				query = query.Where("user_id = ? AND mcp_server_id = ? AND name = ?", normalized.UserID, normalized.MCPServerID, normalized.Name)
-			}
-			err := query.First(&existing).Error
-			switch {
-			case errors.Is(err, gorm.ErrRecordNotFound):
-				if normalized.Origin != tools.ToolOriginBuiltin {
-					var detached database.ToolCatalog
-					reattachErr := tx.
-						Where("user_id = ? AND origin = ? AND name = ? AND mcp_server_id IS NULL", normalized.UserID, normalized.Origin, normalized.Name).
-						Order("updated_at DESC, id DESC").
-						First(&detached).Error
-					switch {
-					case reattachErr == nil:
-						row.ID = detached.ID
-						row.CreatedAt = detached.CreatedAt
-						if err := tx.Model(&detached).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
-							return err
-						}
-						persistedID = detached.ID
-						return nil
-					case !errors.Is(reattachErr, gorm.ErrRecordNotFound):
-						return reattachErr
+	// Adquire o writer lock antes de ler: em WAL, promover um snapshot de
+	// leitura após outro writer commitar causa SQLITE_BUSY_SNAPSHOT.
+	err = database.WithSQLiteImmediateTransaction(ctx, r.db, "toolcatalog.upsert_tool", func(tx *gorm.DB) error {
+		var existing database.ToolCatalog
+		query := tx
+		if normalized.Origin == tools.ToolOriginBuiltin {
+			query = query.Where("origin = ? AND name = ? AND mcp_server_id IS NULL", normalized.Origin, normalized.Name)
+		} else {
+			query = query.Where("user_id = ? AND mcp_server_id = ? AND name = ?", normalized.UserID, normalized.MCPServerID, normalized.Name)
+		}
+		err := query.First(&existing).Error
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			if normalized.Origin != tools.ToolOriginBuiltin {
+				var detached database.ToolCatalog
+				reattachErr := tx.
+					Where("user_id = ? AND origin = ? AND name = ? AND mcp_server_id IS NULL", normalized.UserID, normalized.Origin, normalized.Name).
+					Order("updated_at DESC, id DESC").
+					First(&detached).Error
+				switch {
+				case reattachErr == nil:
+					row.ID = detached.ID
+					row.CreatedAt = detached.CreatedAt
+					if err := tx.Model(&detached).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
+						return err
 					}
+					persistedID = detached.ID
+					return nil
+				case !errors.Is(reattachErr, gorm.ErrRecordNotFound):
+					return reattachErr
 				}
-				if err := tx.Create(&row).Error; err != nil {
-					return err
-				}
-				persistedID = row.ID
-				return nil
-			case err != nil:
-				return err
-			default:
-				row.ID = existing.ID
-				row.CreatedAt = existing.CreatedAt
-				if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
-					return err
-				}
-				persistedID = existing.ID
-				return nil
 			}
-		})
+			if err := tx.Create(&row).Error; err != nil {
+				return err
+			}
+			persistedID = row.ID
+			return nil
+		case err != nil:
+			return err
+		default:
+			row.ID = existing.ID
+			row.CreatedAt = existing.CreatedAt
+			if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
+				return err
+			}
+			persistedID = existing.ID
+			return nil
+		}
 	})
 	if err != nil {
 		return err
