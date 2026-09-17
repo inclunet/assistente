@@ -15,7 +15,7 @@ import type { apidto, skills } from '../../../wailsjs/go/models';
 import './ChatInput.css';
 
 export interface ChatInputProps {
-  onSend: (message: string, mediaFiles?: MediaFile[]) => void;
+  onSend: (message: string, mediaFiles?: MediaFile[]) => boolean | void | Promise<boolean | void>;
   onCancelStreaming?: () => void;
   isStreaming?: boolean;
   disabled?: boolean;
@@ -84,6 +84,9 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const handleMediaFilesChange = isMediaFilesControlled ? onMediaFilesChange : undefined;
   const message = isMessageControlled ? controlledMessage : localMessage;
   const mediaFiles = isMediaFilesControlled ? controlledMediaFiles : localMediaFiles;
+  const messageRef = useRef(message);
+  const sendInFlightRef = useRef(false);
+  const [isSendPending, setIsSendPending] = useState(false);
   // Só indicamos "rascunho salvo" quando o estado é persistido pela superfície
   // (auto-save por aba/conversa). Texto e anexos são dimensões independentes:
   // o indicador aparece se houver rascunho persistido de texto OU de anexos.
@@ -92,6 +95,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const hasControlledMediaDraft = isMediaFilesControlled && mediaFiles.length > 0;
   const showDraftSaved = hasControlledTextDraft || hasControlledMediaDraft;
   const mediaFilesRef = useRef<MediaFile[]>(mediaFiles);
+
+  useEffect(() => {
+    messageRef.current = message;
+  }, [message]);
 
   useEffect(() => {
     mediaFilesRef.current = mediaFiles;
@@ -109,6 +116,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   }, [showDraftSaved, announce, t]);
 
   const setMessage = useCallback((nextMessage: string) => {
+    messageRef.current = nextMessage;
     if (handleMessageChange) {
       handleMessageChange(nextMessage);
       return;
@@ -144,13 +152,79 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     };
   }, [profileSlug, slashMenuEnabled]);
 
+  const closeSlashMenu = useCallback((shouldAnnounce = false) => {
+    const wasOpen = slashMenuWasOpenRef.current;
+    slashMenuWasOpenRef.current = false;
+    setShowSlashMenu(false);
+    if (shouldAnnounce && wasOpen) {
+      announce(t('chat.slashMenuClosed'), 'polite');
+    }
+  }, [announce, t]);
+
+  const mediaFilesMatch = (current: MediaFile[], snapshot: MediaFile[]): boolean => (
+    current.length === snapshot.length
+    && current.every((mediaFile, index) => mediaFile === snapshot[index] || mediaFile.id === snapshot[index]?.id)
+  );
+
+  const submitMessage = useCallback((
+    rawMessage: string,
+    draftMediaFiles: MediaFile[],
+    options: { preserveMessage?: boolean } = {},
+  ) => {
+    const trimmedMessage = rawMessage.trim();
+    if ((!trimmedMessage && draftMediaFiles.length === 0) || disabled || isProcessing || sendInFlightRef.current) {
+      return;
+    }
+
+    sendInFlightRef.current = true;
+    setIsSendPending(true);
+    const sentMediaFiles = draftMediaFiles.length > 0 ? draftMediaFiles : undefined;
+    const pendingDraftMessage = rawMessage;
+    const pendingDraftMediaFiles = [...draftMediaFiles];
+
+    // O snapshot continua visível até a aceitação explícita. Assim uma
+    // rejeição síncrona/assíncrona nunca perde texto ou anexos e, se a pessoa
+    // editar durante o await, o sucesso também não apaga o novo rascunho.
+    closeSlashMenu(true);
+    let sendResult: boolean | void | Promise<boolean | void>;
+    try {
+      sendResult = onSend(trimmedMessage, sentMediaFiles);
+    } catch {
+      sendInFlightRef.current = false;
+      setIsSendPending(false);
+      return;
+    }
+
+    const finish = () => {
+        sendInFlightRef.current = false;
+        setIsSendPending(false);
+    };
+    const settle = (accepted: boolean | void) => {
+      if (accepted === true) {
+        if (!options.preserveMessage && messageRef.current === pendingDraftMessage) {
+          setMessage('');
+        }
+        if (mediaFilesMatch(mediaFilesRef.current, pendingDraftMediaFiles)) {
+          setMediaFiles([]);
+        }
+      }
+      finish();
+    };
+    if (sendResult && typeof (sendResult as Promise<boolean | void>).then === 'function') {
+      Promise.resolve(sendResult).then(settle, finish);
+    } else {
+      settle(sendResult as boolean | void);
+    }
+
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    }
+  }, [closeSlashMenu, disabled, isProcessing, onSend, setMediaFiles, setMessage, textareaRef]);
+
   // Handler para transcrição de voz
   const handleVoiceTranscription = (text: string) => {
-    if (text.trim()) {
-      // Envia diretamente o texto transcrito
-      onSend(text.trim(), mediaFiles.length > 0 ? mediaFiles : undefined);
-      setMediaFiles([]);
-    }
+    if (text.trim()) submitMessage(text, mediaFilesRef.current, { preserveMessage: true });
   };
 
   // As duas origens do menu numa lista só, que é a que as setas percorrem e a
@@ -210,14 +284,6 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     updateSlashMenu(message);
   }, [message, updateSlashMenu]);
 
-  const closeSlashMenu = useCallback((shouldAnnounce = false) => {
-    const wasOpen = slashMenuWasOpenRef.current;
-    slashMenuWasOpenRef.current = false;
-    setShowSlashMenu(false);
-    if (shouldAnnounce && wasOpen) {
-      announce(t('chat.slashMenuClosed'), 'polite');
-    }
-  }, [announce, t]);
   const handleSlashMenuClose = useCallback(() => {
     closeSlashMenu(true);
   }, [closeSlashMenu]);
@@ -256,22 +322,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   }, [message]);
 
   const handleSend = () => {
-    const trimmedMessage = message.trim();
-    if ((trimmedMessage || mediaFiles.length > 0) && !disabled && !isProcessing) {
-      onSend(trimmedMessage, mediaFiles.length > 0 ? mediaFiles : undefined);
-      setMessage('');
-      setMediaFiles([]);
-      closeSlashMenu(true);
-
-      // Reset textarea height and restore focus
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-        // Ensure focus returns to textarea after send
-        requestAnimationFrame(() => {
-          textareaRef.current?.focus();
-        });
-      }
-    }
+    submitMessage(message, mediaFiles);
   };
 
   const handleFileSelect = async (files: File[]) => {
@@ -407,7 +458,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!disabled && !isStreaming) {
+      if (!disabled && !isStreaming && !isSendPending) {
         handleSend();
       }
     }
@@ -526,7 +577,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         ) : (
           <Button
             onClick={handleSend}
-            disabled={disabled || (!message.trim() && mediaFiles.length === 0) || isProcessing}
+            disabled={disabled || (!message.trim() && mediaFiles.length === 0) || isProcessing || isSendPending}
             variant="primary"
             size="md"
             className="chat-input__button"

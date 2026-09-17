@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 
 import { useEditorInlineChatPatch } from './useEditorInlineChatPatch';
@@ -9,11 +9,15 @@ let messages: Array<{ role?: string; content?: string }>;
 const getConversationMessagesMock = vi.fn(() => messages);
 
 let eventHandler: ((data: unknown) => void) | null = null;
+let unsubscribeCount = 0;
 const eventsOnMock = vi.fn((eventName: string, handler: (data: unknown) => void) => {
   if (eventName === 'chat:done') {
     eventHandler = handler;
   }
-  return () => {};
+  return () => {
+    unsubscribeCount += 1;
+    if (eventHandler === handler) eventHandler = null;
+  };
 });
 
 vi.mock('../store/chatStore', () => ({
@@ -32,6 +36,11 @@ describe('useEditorInlineChatPatch', () => {
     getConversationMessagesMock.mockClear();
     eventsOnMock.mockClear();
     eventHandler = null;
+    unsubscribeCount = 0;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('retorna erro quando não há patch no corpo', async () => {
@@ -78,5 +87,23 @@ describe('useEditorInlineChatPatch', () => {
     });
 
     await expect(promise).resolves.toBe(conversationId);
+  });
+
+  it('cancela waitForChatDone e remove timer/listener com AbortSignal', async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useEditorInlineChatPatch());
+    const controller = new AbortController();
+    const promise = result.current.waitForChatDone(conversationId, 5 * 60 * 1000, controller.signal);
+
+    // O consumidor rejeitado trata a promise antes de qualquer await posterior.
+    void promise.catch(() => undefined);
+    act(() => controller.abort());
+
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+    expect(unsubscribeCount).toBe(1);
+    expect(eventHandler).toBeNull();
+
+    act(() => vi.advanceTimersByTime(5 * 60 * 1000));
+    expect(unsubscribeCount).toBe(1);
   });
 });
