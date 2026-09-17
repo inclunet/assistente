@@ -40,6 +40,7 @@ export type WorkspaceChatSendPlan = {
   mediaFiles?: MediaFile[];
   paramsOverride?: Partial<llm.ChatParams>;
   afterSend?: () => Promise<void>;
+  onSendRejected?: () => void;
   onSendError?: (error: unknown) => void;
 } | null;
 
