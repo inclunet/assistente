@@ -127,6 +127,17 @@ O aviso de turno sem resposta é reservado ao turno encerrado, nunca à espera
 por uma ferramenta. Ao terminar, o resultado persistido substitui o estado ao
 vivo. Isso não altera a duração permitida para trabalhos longos.
 
+O turno é apresentado de cima para baixo: mensagens intermediárias, ferramentas
+da rodada, próximas etapas e resposta final. A conclusão fica depois da
+atividade, inclusive após reabrir a conversa. O controle de recolher a cadeia
+oculta os detalhes sem mover a conclusão para cima nem duplicá-la; a cadeia
+não é recolhida automaticamente ao terminar. Em turnos sem texto, o aviso de
+ausência de resposta aparece depois das ferramentas.
+
+Alguns modelos enviam poucas mensagens intermediárias. Nesses casos, o chat
+continua mostrando o estado real das ferramentas e os avisos de progresso,
+sem inventar uma descrição do que o modelo pretende fazer.
+
 Atualizações do rascunho e do estado da sessão preservam as mensagens que não
 mudaram, evitando renderizações repetidas da lista. Navegação por teclado,
 menus, foco e paginação continuam disponíveis. O conteúdo da resposta em

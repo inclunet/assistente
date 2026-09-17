@@ -103,7 +103,7 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativo(t *testing.T) {
 	turnID := "turn-1"
 	base := time.Date(2026, 9, 8, 20, 0, 0, 0, time.UTC)
 	repo := &mockMsgRepo{turnMessages: []chat.Message{
-		{UUIDModel: database.UUIDModel{ID: "assistant-placeholder", CreatedAt: base}, ConversationID: "conv-1", Role: "assistant", TurnID: &turnID, Content: "resposta final", PromptTokens: 50, CompletionTokens: 12, TotalTokens: 62},
+		{UUIDModel: database.UUIDModel{ID: "assistant-placeholder", CreatedAt: base, UpdatedAt: base.Add(4 * time.Second)}, ConversationID: "conv-1", Role: "assistant", TurnID: &turnID, Content: "resposta final", PromptTokens: 50, CompletionTokens: 12, TotalTokens: 62},
 		{UUIDModel: database.UUIDModel{ID: "assistant-1", CreatedAt: base.Add(time.Second)}, ConversationID: "conv-1", Role: "assistant", TurnID: &turnID, Content: "vou atualizar o plano"},
 		{UUIDModel: database.UUIDModel{ID: "assistant-2", CreatedAt: base.Add(3 * time.Second)}, ConversationID: "conv-1", Role: "assistant", TurnID: &turnID, Content: "agora vou consultar"},
 	}}
@@ -153,6 +153,11 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativo(t *testing.T) {
 	}
 	if len(done.TurnPatch.Message.TurnSegments) != 3 {
 		t.Fatalf("esperava três segmentos conversacionais, recebeu %+v", done.TurnPatch.Message.TurnSegments)
+	}
+	for index, expected := range []string{"vou atualizar o plano", "agora vou consultar", "resposta final"} {
+		if done.TurnPatch.Message.TurnSegments[index].Content != expected {
+			t.Fatalf("patch reordenou o turno no segmento %d: %+v", index, done.TurnPatch.Message.TurnSegments)
+		}
 	}
 }
 

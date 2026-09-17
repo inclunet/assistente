@@ -128,19 +128,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
   // Turnos sem texto, mas com invocações no ledger, recebem somente um
   // placeholder de apresentação; nenhum ChatMessage técnico é fabricado.
-  const isToolOnlyTurn = !effectiveIsStreaming && !effectiveContent &&
+  const isToolOnlyTurn = !effectiveIsStreaming && !effectiveContent.trim() &&
     rawTurnSegments.some((segment) => (segment.toolInvocations?.length ?? 0) > 0 || (segment.toolCalls?.length ?? 0) > 0);
   const placeholderContent = isToolOnlyTurn ? t('chat.toolOnlyTurnPlaceholder') : effectiveContent;
-  const shouldInjectToolOnlyPlaceholder =
-    isToolOnlyTurn &&
-    rawTurnSegments.length > 0 &&
-    !rawTurnSegments.some((seg) => seg.type === 'text' && !!seg.content);
-  const displaySegments: TurnSegment[] = shouldInjectToolOnlyPlaceholder
-    ? [
-        { type: 'text', content: t('chat.toolOnlyTurnPlaceholder') } as TurnSegment,
-        ...rawTurnSegments,
-      ]
-    : rawTurnSegments;
+  const displaySegments = rawTurnSegments;
 
   // Issues #160/#163: em turnos agênticos (texto → tools → … → texto final) o
   // leitor de tela deve anunciar APENAS a CONCLUSÃO do turno — não trechos
@@ -178,6 +169,27 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     }
     return placeholderContent || '';
   }, [effectiveIsStreaming, effectiveContent, content, displaySegments, placeholderContent]);
+
+  // O backend determina a cronologia. Separar somente a conclusão que já está
+  // no fim mantém sua posição ao recolher a atividade; texto seguido de tools
+  // continua no ponto original, mesmo quando é o último texto disponível.
+  let lastVisibleSegmentIndex = displaySegments.length - 1;
+  while (lastVisibleSegmentIndex >= 0) {
+    const segment = displaySegments[lastVisibleSegmentIndex];
+    if (segment.content?.trim() || segment.toolInvocations?.length || segment.toolCalls?.length) break;
+    lastVisibleSegmentIndex -= 1;
+  }
+  const lastVisibleSegment = displaySegments[lastVisibleSegmentIndex];
+  const hasTrailingConclusion = !effectiveIsStreaming
+    && lastVisibleSegment?.type === 'text'
+    && lastVisibleSegment.content === conclusionContent;
+  const chainSegments = hasTrailingConclusion
+    ? displaySegments.slice(0, lastVisibleSegmentIndex)
+    : displaySegments;
+  const hasConclusionInChain = chainSegments.some((segment) =>
+    segment.type === 'text' && segment.content === conclusionContent);
+  const showConclusionAfterChain = !effectiveIsStreaming && !!conclusionContent
+    && (hasTrailingConclusion || !hasConclusionInChain || !isChainExpanded);
 
   // Usa editContent externo se está editando
   const editContent = isEditing ? externalEditContent : effectiveContent;
@@ -540,28 +552,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                 {isChainExpanded ? t('chat.collapseChain') : t('chat.expandChain')}
               </button>
             )}
-            {/* Issue #163: com a cadeia recolhida (economia), ainda exibimos a
-                CONCLUSÃO do turno — mesma fonte de verdade do aria-label — para a
-                mensagem não ficar vazia. As tool calls e os segmentos
-                intermediários ficam ocultos até expandir. Fica FORA da região
-                controlada pelo toggle (chainRegionId) para manter `aria-expanded`
-                coerente com o conteúdo da cadeia. */}
-            {!isAgenticStreaming && !isChainExpanded && conclusionContent && (
-              <div className="chat-message__text chat-message__text--segment chat-message__text--conclusion-preview">
-                {canRenderHeavyContent ? (
-                  <MarkdownRenderer
-                    content={conclusionContent}
-                    tabNavigation={renderedTabNavigation}
-                    interactiveButtons={!!onSendToEditor}
-                    enableSendToEditorButtons={!!onSendToEditor}
-                    editorTargets={editorTargets}
-                    onSendToEditor={onSendToEditor}
-                  />
-                ) : (
-                  <span>{t('chat.largeMessageDeferred')}</span>
-                )}
-              </div>
-            )}
             {/* Completed segments stay navigable without creating a local live region;
                 progress announcements are brokered globally with surface origin. */}
             <div
@@ -569,7 +559,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               aria-label={isAgenticStreaming ? t('chat.progressLabel') : undefined}
               className="chat-message__segments-log"
             >
-              {(isAgenticStreaming || isChainExpanded) && (canRenderHeavyContent ? displaySegments.map((seg, idx) => (
+              {(isAgenticStreaming || isChainExpanded) && (canRenderHeavyContent ? chainSegments.map((seg, idx) => (
                 <React.Fragment key={idx}>
                   {seg.type === 'text' && seg.content && (
                     <div className="chat-message__text chat-message__text--segment">
@@ -604,6 +594,25 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                 </div>
               ))}
             </div>
+
+            {/* Conclusão fora da região recolhível, sempre depois da atividade.
+                O placeholder tool-only também descreve o estado final, não o início. */}
+            {showConclusionAfterChain && (
+              <div className="chat-message__text chat-message__text--segment chat-message__text--conclusion-preview">
+                {canRenderHeavyContent ? (
+                  <MarkdownRenderer
+                    content={conclusionContent}
+                    tabNavigation={renderedTabNavigation}
+                    interactiveButtons={!!onSendToEditor}
+                    enableSendToEditorButtons={!!onSendToEditor}
+                    editorTargets={editorTargets}
+                    onSendToEditor={onSendToEditor}
+                  />
+                ) : (
+                  <span>{t('chat.largeMessageDeferred')}</span>
+                )}
+              </div>
+            )}
 
             {/* Current iteration keeps busy state without local aria-live updates. */}
             <div aria-busy={effectiveIsStreaming}>
