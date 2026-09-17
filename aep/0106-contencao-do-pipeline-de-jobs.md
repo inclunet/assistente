@@ -1,6 +1,6 @@
 # AEP-0106 — Contenção do pipeline de jobs (limite de concorrência + cache por slug)
 
-- **Status**: In Progress — Fase 1 (limite de concorrência) entregue; Fase 2 (cache de resolução por slug) pendente
+- **Status**: In Progress — Fase 1 (limite de concorrência) e Fase 2 (cache de resolução por slug) entregues; falta validar a redução no log após deploy
 - **Autor**: Leonardo Gleison Ferreira
 - **Data**: 2026-09-16
 
@@ -61,16 +61,22 @@ Propriedades:
 - **Configurável** via `ManagerConfig.MaxConcurrentRuns`; padrão
   `defaultMaxConcurrentRuns = 4`, alinhado ao `sqliteMaxOpenConns = 4`.
 
-### D2 — Cache de resolução job/trigger por slug (Fase 2 — pendente)
+### D2 — Cache de resolução job/trigger por slug (Fase 2)
 
 `DBRepository.jobRowBySlug` (`WHERE user_id = ? AND slug = ?`) é chamado a cada
 run (`LogRun` e afins) e aparece entre os sites quentes de contenção. A resolução
-`(user_id, slug) → job` será cacheada em memória, escopada por usuário
-(invariante análoga à do AEP-0104), com invalidação explícita nas mutações de job
-(create/update/delete/enable/disable) e TTL curto como rede de segurança. A
-resolução composta de trigger (`triggerIDForRun`) não será cacheada nesta fase
-por ter chave composta e criar o trigger manual ausente — risco/superfície
-maiores que o ganho.
+`(user_id, slug) → job` é cacheada em memória, escopada por usuário (invariante
+análoga à do AEP-0104): a chave `userID\x00slug` garante que nenhuma entrada de um
+usuário seja servida a outro. Cada mutação de job
+(`CreateJob`/`SaveJob`/`DeleteJob`/`DeletePipeline`) invalida **todas** as
+entradas do usuário — limpar o usuário inteiro (mutações são raras frente às
+leituras) evita qualquer chave perdida, inclusive delete+recreate com novo ID. Um
+TTL curto (60s) é rede de segurança para caminhos de escrita não previstos (ex.:
+migração de slug no boot). O cache guarda e devolve **cópias** da linha, isolando
+os callers (que só leem `jobRow.ID`).
+
+A resolução composta de trigger (`triggerIDForRun`) não é cacheada por ter chave
+composta e criar o trigger manual ausente — risco/superfície maiores que o ganho.
 
 ## Fases
 
@@ -82,11 +88,13 @@ maiores que o ganho.
 - [x] Testes: teto de concorrência, aborto com ctx cancelado, default para
       valores `<= 0`, release defensivo (`run_limiter_test.go`).
 
-### Fase 2 — Cache de resolução por slug (pendente)
+### Fase 2 — Cache de resolução por slug
 
-- [ ] Cache `(user_id, slug) → job` em `DBRepository`, escopado por usuário.
-- [ ] Invalidação nas mutações de job + TTL curto.
-- [ ] Testes de hit/miss, isolamento entre usuários e invalidação.
+- [x] Cache `(user_id, slug) → job` em `DBRepository`, escopado por usuário.
+- [x] Invalidação por-usuário em `CreateJob`/`SaveJob`/`DeleteJob`/`DeletePipeline`
+      + TTL curto (60s) de rede de segurança.
+- [x] Testes de hit servido do cache, invalidação em mutação, expiração por TTL e
+      isolamento entre usuários (`job_row_cache_test.go`).
 
 ## Riscos
 
@@ -102,7 +110,7 @@ maiores que o ganho.
 
 - [x] Nenhuma execução automática ultrapassa `MaxConcurrentRuns` simultâneas.
 - [x] Cancelamento de contexto ao aguardar slot não executa o run nem vaza slot.
-- [ ] `jobRowBySlug` servido por cache user-scoped com invalidação nas mutações
+- [x] `jobRowBySlug` servido por cache user-scoped com invalidação nas mutações
       (Fase 2).
 - [ ] Redução observável de `SLOW SQL`/`SQLITE_BUSY`/`context deadline exceeded`
       no log após deploy.
