@@ -179,7 +179,7 @@ func (r *batchHistoryRepo) GetConversationSummary(context.Context, string) (stri
 
 func (r *batchHistoryRepo) GetMessages(context.Context, string, *string) ([]Message, error) {
 	r.messagesCalls++
-	return nil, nil
+	return r.stubRepo.messages, nil
 }
 
 func (r *batchHistoryRepo) CreateUserMessageAndLoadHistory(_ context.Context, opts MessageOptions, _ int) (*Message, *HistoryWindow, error) {
@@ -249,8 +249,14 @@ func TestRecordUserMessageUsesSingleBatchCallAndEmitsAfterCommit(t *testing.T) {
 	}
 }
 
-func TestRetryUsesCanonicalHistoryWindowWithoutFullConversation(t *testing.T) {
+func TestRetryLoadsFullRootsToAnchorSelectedMessage(t *testing.T) {
 	repo := newBatchHistoryRepo()
+	repo.stubRepo.messages = []Message{{
+		UUIDModel:      database.UUIDModel{ID: "user-1"},
+		ConversationID: "conv-1",
+		Role:           "user",
+		Content:        "mensagem",
+	}}
 	interactor := NewInteractor(InteractorConfig{Emitter: &spyEmitter{}, Repo: repo})
 	user := &Message{
 		UUIDModel:      database.UUIDModel{ID: "user-1"},
@@ -265,8 +271,8 @@ func TestRetryUsesCanonicalHistoryWindowWithoutFullConversation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReuseLoadedUserMessage: %v", err)
 	}
-	if repo.windowCalls != 1 || repo.summaryCalls != 0 || repo.messagesCalls != 0 {
-		t.Fatalf("janela canônica não foi exclusiva: window=%d summary=%d messages=%d",
+	if repo.windowCalls != 0 || repo.summaryCalls != 1 || repo.messagesCalls != 1 {
+		t.Fatalf("retry não carregou raízes completas para ancoragem: window=%d summary=%d messages=%d",
 			repo.windowCalls, repo.summaryCalls, repo.messagesCalls)
 	}
 	if len(result.Messages) != 1 {

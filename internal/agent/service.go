@@ -137,6 +137,9 @@ func (s *Service) StreamSimpleWithRecovery(
 		// Só a última tentativa deve finalizar o streaming com erro.
 		h.SuppressTerminalError(attempt < attempts)
 		streamer.StreamChat(ctx, messages, params, h)
+		if h.TerminalEmitted() {
+			return
+		}
 		if ctx.Err() != nil {
 			partialContent, partialReasoning := h.Finalize()
 			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
@@ -257,7 +260,9 @@ type LoopStats struct {
 }
 
 // SaveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
-// Se houve MCP tool calls nativas, persiste no banco antes da mensagem final.
+// A persistência da mensagem final é um gate: sem ela, o turno termina em erro
+// recuperável e nenhum efeito de sucesso (notificação, TTS, resumo ou replay de
+// tools) é disparado.
 // loopStats é opcional — se nil, apenas os campos enriquecidos derivados das estatísticas do loop ficam vazios.
 func (s *Service) SaveAndFinish(
 	ctx context.Context,
@@ -267,8 +272,12 @@ func (s *Service) SaveAndFinish(
 	profileSlug string,
 	loopStats *LoopStats,
 	surfaceOrigin *ports.ChatSurfaceOrigin,
-) {
+) bool {
 	var savedMsgID string
+	// MCP nativo é evidência de uma ação já executada pelo provider. Ele deve
+	// ser registrado antes da finalização da mensagem: uma falha posterior no
+	// update do assistant não pode apagar o ledger e induzir um retry a repetir
+	// uma ação real.
 	if conversationID != "" && turnID != "" && len(result.NativeMCPEvents) > 0 {
 		finalIteration := 0
 		if loopStats != nil && loopStats.IterationCount > 0 {
@@ -298,10 +307,17 @@ func (s *Service) SaveAndFinish(
 		var err error
 		savedMsgID, err = chat.FinalizeAssistantMessage(ctx, s.msgRepo, assistantMessageID, opts)
 		if errors.Is(err, chat.ErrConversationGone) {
-			return
+			return false
 		}
 		if err != nil {
 			logging.Errorf(ctx, "agent.service", "[Agent] erro ao salvar resposta final: %v", err)
+			s.persistAssistantPartialBestEffort(ctx, assistantMessageID, result.FullResponse, result.Reasoning)
+			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+				s.emitFinalizationCancelledDone(conversationID, turnID, assistantMessageID, surfaceOrigin)
+				return true
+			}
+			s.emitFinalizationErrorDone(conversationID, turnID, assistantMessageID, surfaceOrigin)
+			return true
 		}
 	}
 	if savedMsgID == "" {
@@ -419,6 +435,34 @@ func (s *Service) SaveAndFinish(
 	}
 
 	s.emitTokenStats(conversationID)
+	return true
+}
+
+func (s *Service) emitFinalizationCancelledDone(conversationID, turnID, assistantMessageID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
+	if s == nil || s.emitter == nil {
+		return
+	}
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID:     conversationID,
+		TurnID:             turnID,
+		AssistantMessageID: assistantMessageID,
+		Reason:             "cancelled",
+		SurfaceOrigin:      surfaceOrigin,
+	})
+}
+
+func (s *Service) emitFinalizationErrorDone(conversationID, turnID, assistantMessageID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
+	if s == nil || s.emitter == nil {
+		return
+	}
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID:     conversationID,
+		TurnID:             turnID,
+		AssistantMessageID: assistantMessageID,
+		Reason:             "error",
+		ErrorMessage:       ports.ChatErrorInternal,
+		SurfaceOrigin:      surfaceOrigin,
+	})
 }
 
 func optionalTokenCount(value *int) any {

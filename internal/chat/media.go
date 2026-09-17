@@ -103,6 +103,17 @@ func (l *MediaHistoryLoader) Load(ctx context.Context, conversationID string) ([
 	return l.format(ctx, dbMessages, existingSummary)
 }
 
+// LoadThroughMessage carrega e formata o histórico até a pergunta raiz
+// selecionada, sem incluir mensagens ou resumo posteriores.
+func (l *MediaHistoryLoader) LoadThroughMessage(ctx context.Context, conversationID, messageID string) ([]llm.Message, string, error) {
+	h := HistoryLoader{Repo: l.Repo, MaxMsgs: l.MaxMsgs}
+	dbMessages, existingSummary, err := h.LoadThroughMessage(ctx, conversationID, messageID)
+	if err != nil {
+		return nil, "", err
+	}
+	return l.format(ctx, dbMessages, existingSummary)
+}
+
 // LoadWindow reutiliza o mesmo HistoryLoader e a mesma conversão de mídia sobre
 // uma janela já carregada pela transação de persistência.
 func (l *MediaHistoryLoader) LoadWindow(ctx context.Context, conversationID string, window *HistoryWindow) ([]llm.Message, string, error) {

@@ -51,6 +51,7 @@ type inMemoryMsgRepo struct {
 	createErr          error
 	rejectCanceledCtx  bool
 	canceledCtxUpdates int
+	cancelOnUpdate     context.CancelFunc
 }
 
 func (r *inMemoryMsgRepo) CreateMessage(ctx context.Context, opts chat.MessageOptions) (*chat.Message, error) {
@@ -68,6 +69,11 @@ func (r *inMemoryMsgRepo) CreateMessage(ctx context.Context, opts chat.MessageOp
 }
 
 func (r *inMemoryMsgRepo) UpdateMessageContentAndReasoning(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, model string) error {
+	if r.cancelOnUpdate != nil {
+		cancel := r.cancelOnUpdate
+		r.cancelOnUpdate = nil
+		cancel()
+	}
 	if err := ctx.Err(); err != nil && r.rejectCanceledCtx {
 		r.canceledCtxUpdates++
 		return err
@@ -504,6 +510,32 @@ func TestStreamSimpleWithRecovery_ContextCancelEmitsDone(t *testing.T) {
 	}
 	if repo.canceledCtxUpdates != 0 {
 		t.Fatalf("partial persistence used canceled context %d time(s)", repo.canceledCtxUpdates)
+	}
+}
+
+func TestStreamSimpleWithRecovery_FinalizeCancellationEmitsSingleTerminal(t *testing.T) {
+	em := &captureEmitter{}
+	ctx, cancel := context.WithCancel(context.Background())
+	repo := &inMemoryMsgRepo{rejectCanceledCtx: true, cancelOnUpdate: cancel}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
+		func(h llm.StreamHandler) {
+			h.OnDone("resposta", llm.Usage{}, "modelo")
+		},
+	}}
+
+	svc.StreamSimpleWithRecovery(ctx, streamer, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{}, "c1", "t1", "", nil, false, 1)
+
+	doneEvents := em.find("chat:done")
+	if len(doneEvents) != 1 {
+		t.Fatalf("expected one terminal chat:done, got %d", len(doneEvents))
+	}
+	done := doneEvents[0].data.(ports.DoneEvent)
+	if done.Reason != "cancelled" || done.ErrorMessage != "" {
+		t.Fatalf("cancellation terminal contract was unexpected: %+v", done)
+	}
+	if len(em.find("chat:stream")) != 0 {
+		t.Fatal("finalize cancellation should not emit successful chat:stream terminal")
 	}
 }
 

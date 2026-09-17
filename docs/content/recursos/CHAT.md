@@ -36,6 +36,21 @@ enfileirados. Conversas diferentes continuam respondendo em paralelo. Ao
 terminar um turno com ferramentas, o chat atualiza apenas a resposta daquele
 turno, preservando a posição e a janela de histórico que você estava lendo.
 
+## Retry e persistência
+
+Repetir uma mensagem usa a pergunta raiz selecionada como âncora. O histórico e
+as políticas de contexto são carregados somente até essa pergunta; mensagens,
+respostas e resumo posteriores não entram no novo payload. Mídias da pergunta
+continuam disponíveis. A resposta do turno pode ser usada para **Continuar
+resposta** quando essa ação explícita estiver habilitada; em um retry normal, o
+backend não envia `assistant` trailing acidentalmente.
+
+Se a gravação da resposta final falhar, o chat encerra o turno com erro
+recuperável e mantém o ID da mensagem/placeholder para uma nova ação explícita.
+Não há notificação de sucesso, TTS ou sumarização nesse caso, e ferramentas não
+são repetidas automaticamente. O erro técnico fica no log; a interface recebe
+o código estável `internal_error`.
+
 ## Limites e truncamentos
 
 O chat diferencia seis situações:
