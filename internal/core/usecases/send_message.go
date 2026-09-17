@@ -410,10 +410,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			retryUserMsg.Content = userContent
 		}
 		rmsg, err := uc.chatInteractor.ReuseLoadedUserMessage(ctx, chat.RecordUserMessageRequest{
-			ConversationID:     req.ConversationID,
-			Source:             req.Source,
-			ActiveProfile:      activeProfile,
-			MaxContextMessages: params.MaxContextMessages,
+			ConversationID:       req.ConversationID,
+			Source:               req.Source,
+			ActiveProfile:        activeProfile,
+			MaxContextMessages:   params.MaxContextMessages,
+			ExplicitContinuation: params.AllowAssistantPrefill || params.ContinueViaUserMessage,
 		}, retryUserMsg)
 		if err != nil {
 			return "", err

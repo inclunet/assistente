@@ -47,6 +47,7 @@ type mockMsgRepo struct {
 	turnMessagesContextErr error
 	turnMessagesParentID   *string
 	messagesByID           map[string]*chat.Message
+	updateError            error
 }
 
 func (m *mockMsgRepo) CreateMessage(_ context.Context, opts chat.MessageOptions) (*chat.Message, error) {
@@ -57,7 +58,7 @@ func (m *mockMsgRepo) CreateMessage(_ context.Context, opts chat.MessageOptions)
 }
 
 func (m *mockMsgRepo) UpdateMessageContentAndReasoning(_ context.Context, _ string, _ string, _ string, _, _, _ int, _ string) error {
-	return nil
+	return m.updateError
 }
 func (m *mockMsgRepo) GetMessage(_ context.Context, messageID string) (*chat.Message, error) {
 	if message := m.messagesByID[messageID]; message != nil {

@@ -22,6 +22,7 @@ type SimpleStreamHandler struct {
 	profileSlug           string // Profile slug for TTS resolution
 	lastError             string
 	suppressTerminalError bool
+	terminalEmitted       bool
 	finish                llm.FinishInfo
 	usage                 llm.Usage
 	// activity acompanha um turno conduzido por agente externo (AEP-0084):
@@ -139,6 +140,13 @@ func (h *SimpleStreamHandler) SuppressTerminalError(v bool) {
 	h.suppressTerminalError = v
 }
 
+// TerminalEmitted informa ao loop simples que OnDone já produziu o evento
+// terminal. Isso evita um segundo chat:done de cancelamento quando a própria
+// finalização detecta context.Canceled.
+func (h *SimpleStreamHandler) TerminalEmitted() bool {
+	return h != nil && h.terminalEmitted
+}
+
 // OnToolCalls is the safety fallback for when simple streaming unexpectedly receives tool calls.
 // Delegates to OnDone to preserve any textual response.
 func (h *SimpleStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse string, usage llm.Usage, model string) {
@@ -175,7 +183,7 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 
 	// Delegate save, notify, and event emission to the Service (same as agentic path).
 	// The user message remains a standalone item; the assistant response carries the turn id.
-	h.svc.SaveAndFinish(h.ctx, h.ConversationID, h.userMessageID, h.assistantMessageID, AgenticResult{
+	h.terminalEmitted = h.svc.SaveAndFinish(h.ctx, h.ConversationID, h.userMessageID, h.assistantMessageID, AgenticResult{
 		FullResponse: finalContent,
 		Reasoning:    accumulatedReasoning,
 		Usage:        usage,

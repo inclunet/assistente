@@ -123,3 +123,78 @@ func TestHistoryLoader_PlaceholderAssistantVazioIsCleared(t *testing.T) {
 		t.Fatalf("expected only user message, got %+v", msgs)
 	}
 }
+
+func TestHistoryLoader_LoadThroughMessage_FallsBackForOldMessageAndRetainsPriorSummary(t *testing.T) {
+	repo := &stubRepo{
+		summary: "resumo anterior",
+		sumUpTo: "a-0",
+		messages: []database.ChatMessage{
+			{UUIDModel: database.UUIDModel{ID: "u-0"}, Role: "user", Content: "anterior"},
+			{UUIDModel: database.UUIDModel{ID: "a-0"}, Role: "assistant", Content: "resposta anterior"},
+			{UUIDModel: database.UUIDModel{ID: "u-1"}, Role: "user", Content: "selecionada"},
+			{UUIDModel: database.UUIDModel{ID: "a-1"}, Role: "assistant", Content: "resposta selecionada"},
+			{UUIDModel: database.UUIDModel{ID: "u-2"}, Role: "user", Content: "posterior"},
+			{UUIDModel: database.UUIDModel{ID: "a-2"}, Role: "assistant", Content: "resposta posterior"},
+		},
+	}
+
+	messages, summary, err := (&HistoryLoader{Repo: repo, MaxMsgs: 50}).LoadThroughMessage(context.Background(), "conv-1", "u-1")
+	if err != nil {
+		t.Fatalf("LoadThroughMessage: %v", err)
+	}
+	if summary != "resumo anterior" {
+		t.Fatalf("summary anterior perdido no fallback: %q", summary)
+	}
+	if len(messages) != 1 || messages[0].ID != "u-1" {
+		t.Fatalf("janela ancorada incorreta: %+v", messages)
+	}
+}
+
+func TestHistoryLoader_LoadThroughMessage_DropsPosteriorSummary(t *testing.T) {
+	repo := &stubRepo{
+		summary: "resumo que inclui posterior",
+		sumUpTo: "a-2",
+		messages: []database.ChatMessage{
+			{UUIDModel: database.UUIDModel{ID: "u-0"}, Role: "user", Content: "anterior"},
+			{UUIDModel: database.UUIDModel{ID: "a-0"}, Role: "assistant", Content: "resposta anterior"},
+			{UUIDModel: database.UUIDModel{ID: "u-1"}, Role: "user", Content: "selecionada"},
+			{UUIDModel: database.UUIDModel{ID: "a-1"}, Role: "assistant", Content: "resposta selecionada"},
+			{UUIDModel: database.UUIDModel{ID: "u-2"}, Role: "user", Content: "posterior"},
+			{UUIDModel: database.UUIDModel{ID: "a-2"}, Role: "assistant", Content: "resposta posterior"},
+		},
+	}
+
+	messages, summary, err := (&HistoryLoader{Repo: repo, MaxMsgs: 50}).LoadThroughMessage(context.Background(), "conv-1", "u-1")
+	if err != nil {
+		t.Fatalf("LoadThroughMessage: %v", err)
+	}
+	if summary != "" {
+		t.Fatalf("summary posterior vazou para retry: %q", summary)
+	}
+	if len(messages) != 3 || messages[2].ID != "u-1" {
+		t.Fatalf("histórico não foi cortado em U1: %+v", messages)
+	}
+}
+
+func TestHistoryLoader_LoadThroughMessage_TargetNearWindowStartKeepsPreviousMessages(t *testing.T) {
+	repo := &stubRepo{
+		summary: "resumo até A0",
+		sumUpTo: "a-0",
+		messages: []database.ChatMessage{
+			{UUIDModel: database.UUIDModel{ID: "u-0"}, Role: "user", Content: "resumida"},
+			{UUIDModel: database.UUIDModel{ID: "a-0"}, Role: "assistant", Content: "resumida"},
+			{UUIDModel: database.UUIDModel{ID: "u-1"}, Role: "user", Content: "anterior válida"},
+			{UUIDModel: database.UUIDModel{ID: "a-1"}, Role: "assistant", Content: "resposta anterior válida"},
+			{UUIDModel: database.UUIDModel{ID: "u-2"}, Role: "user", Content: "alvo no início da janela recente"},
+			{UUIDModel: database.UUIDModel{ID: "a-2"}, Role: "assistant", Content: "posterior ao alvo"},
+		},
+	}
+
+	messages, summary, err := (&HistoryLoader{Repo: repo, MaxMsgs: 50}).LoadThroughMessage(context.Background(), "conv-1", "u-2")
+	if err != nil {
+		t.Fatalf("LoadThroughMessage: %v", err)
+	}
+	if summary != "resumo até A0" || len(messages) != 3 || messages[0].ID != "u-1" || messages[2].ID != "u-2" {
+		t.Fatalf("contexto anterior ao alvo foi truncado: summary=%q messages=%+v", summary, messages)
+	}
+}
