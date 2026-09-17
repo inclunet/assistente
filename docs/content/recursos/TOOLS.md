@@ -52,6 +52,45 @@ cabem integralmente no limite ou produzem erro explícito. MCP nativo é executa
 no provedor e, por isso, não passa pela proteção local; nesse modo aplicam-se os
 limites do próprio provedor.
 
+### Respostas HTTP grandes
+
+`http_request` mantém o comportamento atual por padrão (`auto`, `text`, `json`
+e `raw`). Para uma API que devolve um JSON grande, use `extract_mode: "file"`:
+
+```json
+{
+  "url": "https://api.example.com/runs/15f4c620-b2af-11f1-861b-f0d192625af9",
+  "method": "GET",
+  "extract_mode": "file",
+  "output_path": "workflows-run.json"
+}
+```
+
+O corpo é baixado em streaming para a pasta de artefatos HTTP do workspace,
+com limite de segurança de 10 MiB. O modelo recebe somente status, tipo,
+tamanho, SHA-256, headers de resposta não sensíveis e o caminho seguro do
+arquivo; `Set-Cookie`, `Authorization` e outros headers de credencial nunca
+são retornados. `output_path` aceita apenas um nome de arquivo simples e é
+rejeitado se tentar escapar da pasta controlada.
+
+Para extrair somente campos de um JSON grande, use o seletor restrito de
+`jsonpath`. Ele não executa jq, scripts ou comandos e suporta campos por ponto
+e descendência recursiva:
+
+```json
+{
+  "url": "https://api.example.com/runs/15f4c620-b2af-11f1-861b-f0d192625af9",
+  "extract_mode": "jsonpath",
+  "jsonpath": "$..metadata.name",
+  "max_response_size": 4096
+}
+```
+
+O limite é aplicado ao resultado extraído, não ao documento original. JSON
+inválido, seletor inválido e resultado extraído grande produzem erros explícitos.
+Para processamentos adicionais, leia o `path` retornado no modo `file` com
+`read_file` ou use `run_command` com uma ferramenta local apropriada.
+
 ## MCP nos perfis padrão
 
 Os perfis **Padrão** e **Programação** deixam todas as tools MCP disponíveis

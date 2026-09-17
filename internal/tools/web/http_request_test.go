@@ -3,8 +3,11 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -640,3 +643,182 @@ func TestHTTPRequest_RejectsInvalidTolerantArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestHTTPRequestFileModeStreamsLargeResponseAndHidesSecrets(t *testing.T) {
+	const secret = "Bearer should-not-be-returned"
+	payload := `{"items":["` + strings.Repeat("x", 500*1024) + `"]}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("ETag", "run-123")
+		w.Header().Set("Set-Cookie", "session=secret")
+		w.Header().Set("Authorization", secret)
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer ts.Close()
+
+	dir := t.TempDir()
+	tool := newTestHTTPRequest()
+	if err := tool.SetArtifactDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": "file", "output_path": filepath.Join(dir, "run.json")})
+	result, err := tool.Execute(context.Background(), args)
+	if err != nil || result.IsError {
+		t.Fatalf("download em arquivo falhou: err=%v result=%+v", err, result)
+	}
+	if len(result.Content) > 4096 || strings.Contains(result.Content, strings.Repeat("x", 100)) || strings.Contains(result.Content, secret) || strings.Contains(result.Content, "session=secret") {
+		t.Fatalf("retorno model-facing contém payload ou segredo: %q", result.Content)
+	}
+	var summary map[string]any
+	if err := json.Unmarshal([]byte(result.Content), &summary); err != nil {
+		t.Fatalf("resumo não é JSON: %v", err)
+	}
+	path, ok := summary["path"].(string)
+	realDir, _ := filepath.EvalSymlinks(dir)
+	if !ok || filepath.Dir(path) != realDir || filepath.Base(path) != "run.json" {
+		t.Fatalf("path inesperado: %v (dir=%s)", summary["path"], dir)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != payload || int64(len(data)) != int64(summary["size_bytes"].(float64)) || summary["truncated"] != false {
+		t.Fatalf("artefato incorreto: bytes=%d summary=%v", len(data), summary)
+	}
+	if summary["headers"].(map[string]any)["ETag"] != "run-123" {
+		t.Fatalf("header relevante ausente: %v", summary["headers"])
+	}
+	if _, leaked := summary["headers"].(map[string]any)["Set-Cookie"]; leaked {
+		t.Fatal("Set-Cookie vazou no resumo")
+	}
+}
+
+func TestHTTPRequestFileModeRejectsPathTraversal(t *testing.T) {
+	called := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		_, _ = w.Write([]byte("should not be requested"))
+	}))
+	defer ts.Close()
+
+	dir := t.TempDir()
+	tool := newTestHTTPRequest()
+	if err := tool.SetArtifactDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": "file", "output_path": "..\\escape.json"})
+	result, err := tool.Execute(context.Background(), args)
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "invalid_output_path" {
+		t.Fatalf("path traversal não foi rejeitado: err=%v result=%+v", err, result)
+	}
+	if called {
+		t.Fatal("path inválido disparou requisição HTTP")
+	}
+}
+
+func TestHTTPRequestJSONPathExtractsDeepFieldFromLargeJSON(t *testing.T) {
+	payload := `{"noise":"` + strings.Repeat("n", 500*1024) + `","children":[{"metadata":{"name":"deploy-to-prod"}}]}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer ts.Close()
+
+	args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": "jsonpath", "jsonpath": "$..metadata.name", "max_response_size": 1024})
+	result, err := newTestHTTPRequest().Execute(context.Background(), args)
+	if err != nil || result.IsError || !result.Structured {
+		t.Fatalf("jsonpath falhou: err=%v result=%+v", err, result)
+	}
+	if result.Content != "[\n  \"deploy-to-prod\"\n]" {
+		t.Fatalf("resultado jsonpath inesperado: %q", result.Content)
+	}
+}
+
+func TestHTTPRequestJSONPathReportsInvalidJSONAndQuery(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		path string
+		code string
+	}{
+		{name: "JSON inválido", body: "não-json", path: "$..name", code: "jsonpath_invalid_json"},
+		{name: "query inválida", body: `{"name":"ok"}`, path: "$..[?(@.name)]", code: "jsonpath_invalid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer ts.Close()
+			args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": "jsonpath", "jsonpath": tc.path})
+			result, err := newTestHTTPRequest().Execute(context.Background(), args)
+			if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != tc.code {
+				t.Fatalf("erro jsonpath incorreto: err=%v result=%+v", err, result)
+			}
+			if strings.Contains(result.Content, tc.body) && tc.body != "não-json" {
+				t.Fatal("erro devolveu o documento completo")
+			}
+		})
+	}
+}
+
+func TestHTTPRequestJSONPathLimitsExtractedResultNotSourceDocument(t *testing.T) {
+	payload := `{"names":["` + strings.Repeat("a", 5000) + `"]}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer ts.Close()
+
+	args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": "jsonpath", "jsonpath": "$.names", "max_response_size": 128})
+	result, err := newTestHTTPRequest().Execute(context.Background(), args)
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "jsonpath_result_too_large" {
+		t.Fatalf("limite do resultado extraído não aplicado: err=%v result=%+v", err, result)
+	}
+	if strings.Contains(result.Content, strings.Repeat("a", 100)) {
+		t.Fatal("erro devolveu o resultado extraído parcialmente")
+	}
+}
+
+func TestHTTPArtifactStoreCleansArtifacts(t *testing.T) {
+	store := newHTTPArtifactStore()
+	dir := t.TempDir()
+	if err := store.SetDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := store.writeResponse(context.Background(), strings.NewReader("payload"), "payload.json", httpMaxResponseBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(artifact.Path); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Cleanup(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(artifact.Path); !os.IsNotExist(err) {
+		t.Fatalf("artefato não foi limpo: %v", err)
+	}
+}
+
+func TestHTTPArtifactStoreRemovesPartialDownload(t *testing.T) {
+	store := newHTTPArtifactStore()
+	if err := store.SetDir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	_, err := store.writeResponse(context.Background(), failingReader{}, "failed.json", httpMaxResponseBody)
+	if err == nil || !strings.Contains(err.Error(), "falha ao baixar") {
+		t.Fatalf("falha de download não foi reportada: %v", err)
+	}
+	entries, err := os.ReadDir(store.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("download parcial deixou arquivos: %v", entries)
+	}
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, fmt.Errorf("origem indisponível") }
