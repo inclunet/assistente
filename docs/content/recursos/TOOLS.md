@@ -52,6 +52,58 @@ cabem integralmente no limite ou produzem erro explícito. MCP nativo é executa
 no provedor e, por isso, não passa pela proteção local; nesse modo aplicam-se os
 limites do próprio provedor.
 
+### Respostas HTTP grandes
+
+`http_request` mantém o comportamento atual por padrão (`auto`, `text`, `json`
+e `raw`). Para uma API que devolve um JSON grande, use `extract_mode: "file"`:
+
+```json
+{
+  "url": "https://api.example.com/runs/15f4c620-b2af-11f1-861b-f0d192625af9",
+  "method": "GET",
+  "extract_mode": "file",
+  "output_path": "workflows-run.json"
+}
+```
+
+O corpo é baixado em streaming para a pasta de artefatos HTTP do workspace,
+com limite de segurança de 10 MiB. O modelo recebe somente status, tipo,
+tamanho, SHA-256, headers de resposta não sensíveis e o caminho seguro do
+arquivo; `Set-Cookie`, `Authorization` e outros headers de credencial nunca
+são retornados. Headers permitidos acima de 128 bytes são omitidos.
+`output_path` aceita um nome simples ou caminho absoluto diretamente dentro
+da pasta controlada; caminhos externos, subpastas e arquivos existentes são
+rejeitados. Se omitido, é gerado um nome único. O download não é limitado por
+`max_response_size`: acima de 10 MiB ele falha e remove o arquivo parcial.
+Artefatos expiram após 30 minutos e são removidos no encerramento do app;
+somente arquivos criados pela instância são removidos. Um encerramento abrupto
+do processo pode deixar arquivos para remoção manual.
+
+Para extrair somente campos de um JSON grande, use o seletor restrito de
+`jsonpath`. Ele não executa jq, scripts ou comandos e suporta campos por ponto
+e descendência recursiva no primeiro segmento (expressões de até 2048 bytes):
+
+```json
+{
+  "url": "https://api.example.com/runs/15f4c620-b2af-11f1-861b-f0d192625af9",
+  "extract_mode": "jsonpath",
+  "jsonpath": "$..metadata.name",
+  "max_response_size": 4096
+}
+```
+
+O limite é aplicado ao resultado extraído, não ao documento original (que
+continua sujeito ao teto de download de 10 MiB e é parseado na memória do executor). JSON
+inválido, seletor inválido e resultado extraído grande produzem erros explícitos.
+Para processamentos adicionais, leia o `path` retornado no modo `file` com
+`read_file` ou use `run_command` com uma ferramenta local apropriada.
+
+Por exemplo, substitua o caminho abaixo pelo `path` retornado e execute localmente:
+
+```sh
+jq -r '.. | objects | select((.metadata.name? // "") | test("deploy-to-prod")) | .metadata.name' /caminho/retornado/workflows-run.json
+```
+
 ## MCP nos perfis padrão
 
 Os perfis **Padrão** e **Programação** deixam todas as tools MCP disponíveis

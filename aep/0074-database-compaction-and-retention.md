@@ -53,6 +53,13 @@ Testes de compactação, conversão de bancos legados e retenção ficam em
 `internal/database/maintenance_test.go`, `sqlite_policy_test.go`,
 `internal/toolinvocations/repository_test.go` e testes de retenção de jobs.
 
+O upsert do catálogo usa `WithSQLiteImmediateTransaction`: obtém o writer lock
+antes de consultar a linha existente, evitando a promoção de um snapshot WAL
+obsoleto (`SQLITE_BUSY_SNAPSHOT`) durante boots concorrentes. O retry permanece
+centralizado e cancelável. A regressão `TestDBRepositoryUpsertToolRetriesTransientSQLiteBusy`
+verifica que nenhuma consulta ao catálogo ocorre antes da aquisição do lock;
+`TestServiceRepeatedBootCatalogSyncWithThreeMCPServers` mantém dez boots concorrentes.
+
 ## Decisões
 
 ### D1 — `auto_vacuum=INCREMENTAL` para bancos novos

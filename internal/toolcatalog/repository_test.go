@@ -86,7 +86,15 @@ func TestDBRepositoryUpsertToolRetriesTransientSQLiteBusy(t *testing.T) {
 	busyObserved := make(chan struct{})
 	var busyOnce sync.Once
 	var busyAttempts atomic.Int32
-	if err := repo.db.Callback().Update().After("gorm:update").Register("test:observe_busy_update", func(tx *gorm.DB) {
+	var catalogReads atomic.Int32
+	if err := repo.db.Callback().Query().Before("gorm:query").Register("test:observe_catalog_read", func(tx *gorm.DB) {
+		if tx.Statement.Table == "tool_catalog" {
+			catalogReads.Add(1)
+		}
+	}); err != nil {
+		t.Fatalf("register query callback: %v", err)
+	}
+	if err := repo.db.Callback().Raw().After("gorm:raw").Register("test:observe_busy_begin", func(tx *gorm.DB) {
 		if database.IsSQLiteBusyError(tx.Error) {
 			busyAttempts.Add(1)
 			busyOnce.Do(func() { close(busyObserved) })
@@ -105,6 +113,9 @@ func TestDBRepositoryUpsertToolRetriesTransientSQLiteBusy(t *testing.T) {
 	case <-busyObserved:
 	case <-time.After(2 * time.Second):
 		t.Fatal("upsert não encontrou o writer lock")
+	}
+	if got := catalogReads.Load(); got != 0 {
+		t.Fatalf("catálogo lido antes de adquirir writer lock: %d consultas", got)
 	}
 	if _, err := lockConn.ExecContext(context.Background(), "COMMIT"); err != nil {
 		t.Fatalf("release writer lock: %v", err)
@@ -159,7 +170,7 @@ func TestDBRepositoryUpsertToolBusyRetryRespectsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var cancelOnce sync.Once
-	if err := repo.db.Callback().Update().After("gorm:update").Register("test:cancel_on_busy_update", func(tx *gorm.DB) {
+	if err := repo.db.Callback().Raw().After("gorm:raw").Register("test:cancel_on_busy_begin", func(tx *gorm.DB) {
 		if database.IsSQLiteBusyError(tx.Error) {
 			cancelOnce.Do(cancel)
 		}
