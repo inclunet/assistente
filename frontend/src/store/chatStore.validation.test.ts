@@ -227,6 +227,7 @@ describe('chatStore validation', () => {
   afterEach(() => {
     useChatStore.getState().handleDatabaseReset();
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('rejects message exceeding max content size', async () => {
@@ -1068,12 +1069,18 @@ describe('chatStore validation', () => {
   });
 
   it('fan-out canônico alcança a superfície latest sem materializar placeholder na superfície histórica', async () => {
+    // O histórico precisa ser anterior ao envio mesmo quando o teste inteiro
+    // roda no mesmo milissegundo. IDs sintéticos não codificam cronologia.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-17T12:00:00Z'));
     const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
     const originSessionKey = `latest:${defaultConversationId}`;
     const historySessionKey = `history:${defaultConversationId}`;
     const historyCacheNode = createMessageNode('history-cache-message') as unknown as MessageNode;
+    historyCacheNode.message.createdAt = '2026-09-17T11:58:00Z';
     historyCacheNode.originalIndex = 0;
     const oldNode = createMessageNode('old-message') as unknown as MessageNode;
+    oldNode.message.createdAt = '2026-09-17T11:59:00Z';
     oldNode.originalIndex = 4;
     const oldDraftMedia = { id: 'history-media' } as unknown as import('../services/mediaService').MediaFile;
     useChatStore.setState({
