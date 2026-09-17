@@ -334,9 +334,22 @@ const reconcileWindowForVisibleMessages = (
   const explicitIndexes = nodes
     .map((node) => node.originalIndex)
     .filter((index): index is number => index !== undefined);
+  if (explicitIndexes.length === 0) {
+    const endIndex = window.hasAfter
+      ? window.endIndex
+      : Math.max(window.endIndex, window.startIndex + nodes.length - 1);
+    const totalCount = Math.max(window.totalCount, totalCountHint, endIndex + 1);
+    return {
+      ...window,
+      totalCount,
+      endIndex,
+      hasBefore: window.startIndex > 0,
+      hasAfter: totalCount > 0 && endIndex < totalCount - 1,
+    };
+  }
   const unindexedNodeCount = nodes.filter((node) => node.originalIndex === undefined).length;
-  const startIndex = explicitIndexes.length ? Math.min(...explicitIndexes) : Math.min(window.startIndex, totalCountHint - 1);
-  const indexedEnd = explicitIndexes.length ? Math.max(...explicitIndexes) : startIndex + nodes.length - 1;
+  const startIndex = Math.min(...explicitIndexes);
+  const indexedEnd = Math.max(...explicitIndexes);
   const accountedUnindexedTail = Math.max(0, window.endIndex - indexedEnd);
   const newUnindexedTailCount = Math.max(0, unindexedNodeCount - accountedUnindexedTail);
   const endIndex = window.hasAfter
