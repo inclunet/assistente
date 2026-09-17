@@ -483,6 +483,7 @@ func TestLLMModelsMethodsNotOnUnauthAllowlist(t *testing.T) {
 		"GetModelCatalogByProvider",
 		"RefreshModelCatalogByProvider",
 		"CancelStreamingForConversation",
+		"CancelStreamingExecution",
 	} {
 		if slices.Contains(UnauthenticatedAppMethods, name) {
 			t.Fatalf("%s está em wailsapi.LLMModels; não pertence à allowlist de *App", name)

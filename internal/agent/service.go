@@ -414,7 +414,9 @@ func (s *Service) SaveAndFinish(
 	if s.triggerSummarize != nil {
 		go func() {
 			defer s.recoverFromPanic(conversationID, "triggerSummarize")
-			s.triggerSummarize(ctx, conversationID, profileSlug)
+			// O resumo é trabalho posterior à persistência, não parte do turno
+			// cujo contexto será encerrado assim que o worker retornar.
+			s.triggerSummarize(context.WithoutCancel(ctx), conversationID, profileSlug)
 		}()
 	}
 

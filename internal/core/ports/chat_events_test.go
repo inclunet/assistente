@@ -6,6 +6,17 @@ import (
 	"testing"
 )
 
+func TestChatSurfaceOriginExecutionSurvivesSerialization(t *testing.T) {
+	origin := NewChatSurfaceOrigin("c", "session", "surface", "page", "tab", "execution-2")
+	data, err := json.Marshal(DoneEvent{ConversationID: "c", TurnID: "same-user", SurfaceOrigin: origin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"executionId":"execution-2"`) {
+		t.Fatalf("identidade ausente: %s", data)
+	}
+}
+
 func TestStreamEventSerializaSomenteDeltaCorrelacionado(t *testing.T) {
 	outputTokens := 7
 	reasoningTokens := 5

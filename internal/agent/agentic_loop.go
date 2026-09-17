@@ -776,7 +776,7 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 	if r.svc.triggerSummarize != nil {
 		go func() {
 			defer r.svc.recoverFromPanic(r.conversationID, "triggerSummarize")
-			r.svc.triggerSummarize(ctx, r.conversationID, r.params.ProfileSlug)
+			r.svc.triggerSummarize(context.WithoutCancel(ctx), r.conversationID, r.params.ProfileSlug)
 		}()
 	}
 }

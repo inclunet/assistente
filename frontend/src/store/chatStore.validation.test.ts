@@ -10,6 +10,7 @@ vi.mock('../hooks/useAnnouncer', () => ({
 
 const mockSendMessage = vi.fn().mockResolvedValue(undefined);
 const mockRetryMessage = vi.fn().mockResolvedValue(undefined);
+const mockCancelStreaming = vi.fn().mockResolvedValue(undefined);
 const mockGetMessages = vi.fn().mockResolvedValue([]);
 const mockGetRecentMessages = vi.fn().mockResolvedValue([]);
 const mockGetMessagesBefore = vi.fn().mockResolvedValue([]);
@@ -30,7 +31,8 @@ vi.mock('@wailsjs/go/wailsapi/Chat', () => ({
 }));
 
 vi.mock('@wailsjs/go/wailsapi/LLMModels', () => ({
-  CancelStreamingForConversation: vi.fn(),
+  CancelStreamingForConversation: (...args: unknown[]) => mockCancelStreaming(...args),
+  CancelStreamingExecution: (...args: unknown[]) => mockCancelStreaming(...args),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Messaging', () => ({
@@ -163,6 +165,7 @@ describe('chatStore validation', () => {
     eventListeners.clear();
     mockAnnounce.mockClear();
     mockSendMessage.mockClear();
+    mockCancelStreaming.mockReset().mockResolvedValue(undefined);
     mockRetryMessage.mockClear();
     mockGetMessages.mockReset();
     mockGetMessages.mockResolvedValue([]);
@@ -884,7 +887,10 @@ describe('chatStore validation', () => {
 
     await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello', undefined, undefined, { origin });
 
-    expect(useChatStore.getState().surfaceSessionsByKey[origin.sessionKey]?.surfaceOrigin).toEqual(origin);
+    expect(useChatStore.getState().surfaceSessionsByKey[origin.sessionKey]?.surfaceOrigin).toEqual({
+      ...origin,
+      executionId: expect.any(String),
+    });
   });
 
   it('propaga eventos sem origem para superfícies existentes da conversa', async () => {
@@ -1846,6 +1852,42 @@ describe('chatStore validation', () => {
     expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
   });
 
+  it('resposta tardia do cancelamento não limpa o controller do próximo envio', async () => {
+    const cancellation = deferred<void>();
+    mockCancelStreaming.mockImplementationOnce(() => cancellation.promise);
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira');
+    const cancel = useChatStore.getState().cancelStreaming(defaultConversationId);
+    emitEvent('chat:done', { conversationId: defaultConversationId });
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'segunda');
+    cancellation.resolve();
+    await cancel;
+
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.isLoading).toBe(true);
+    emitEvent('chat:stream', {
+      conversationId: defaultConversationId,
+      messageId: 'second-assistant',
+      content: 'segundo envio ativo',
+      done: false,
+    });
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.streamingMessageId)
+      .toBe('second-assistant');
+    emitEvent('chat:done', { conversationId: defaultConversationId });
+  });
+
+  it('cancela a identidade do controller ativo mesmo quando solicitado por outra superfície', async () => {
+    const origin = {
+      conversationId: defaultConversationId,
+      sessionKey: `page:a:${defaultConversationId}`,
+      surfaceId: 'page:a',
+      surfaceType: 'page' as const,
+    };
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira', undefined, undefined, { origin });
+    const executionId = mockSendMessage.mock.calls[0][3].surfaceExecutionId;
+    expect(executionId).toEqual(expect.any(String));
+    await useChatStore.getState().cancelStreaming(defaultConversationId);
+    expect(mockCancelStreaming).toHaveBeenCalledWith(defaultConversationId, executionId);
+  });
+
   it('mantem envios de conversas diferentes em paralelo', async () => {
     const firstSend = deferred<void>();
     const otherConversationId = '01926b90-7a5a-7c4e-8d3f-000000000007';
@@ -2046,15 +2088,18 @@ describe('chatStore validation', () => {
         },
       },
     });
-    mockSendMessage.mockImplementationOnce(() => {
+    mockSendMessage.mockImplementationOnce((_id, _content, _media, params) => {
+      const surfaceOrigin = { executionId: params.surfaceExecutionId };
       emitEvent('chat:messages_ready', {
         conversationId: defaultConversationId,
+        surfaceOrigin,
         userMessageId: 'surface-user-message',
         userContent: 'oi',
       });
       emitEvent('chat:stream', {
         conversationId: defaultConversationId,
         messageId: 'surface-assistant-message',
+        surfaceOrigin,
         content: 'resposta parcial',
         done: false,
       });

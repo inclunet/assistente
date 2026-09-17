@@ -263,6 +263,18 @@ test.describe('Chat — erro no envio', () => {
       { timeout: 5_000 },
     );
 
+    // Um terminal atrasado do envio anterior não pode encerrar o novo controller.
+    const sends = (await wails.getCallLog()).filter((call) => call.fn === 'SendMessage');
+    const previousParams = sends[0].args[3] as { surfaceExecutionId: string };
+    const currentParams = sends[1].args[3] as { surfaceExecutionId: string };
+    expect(previousParams.surfaceExecutionId).toBeTruthy();
+    expect(currentParams.surfaceExecutionId).not.toBe(previousParams.surfaceExecutionId);
+    await wails.emit('chat:done', {
+      conversationId,
+      assistantMessageId: firstFailedAssistantMessageId,
+      surfaceOrigin: { executionId: previousParams.surfaceExecutionId },
+    });
+
     await wails.emit('chat:messages_ready', {
       conversationId,
       userMessageId: secondAttemptUserMessageId,

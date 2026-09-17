@@ -64,6 +64,32 @@ func TestExecuteReservaConversaAntesDoPipeline(t *testing.T) {
 	}
 }
 
+func TestExecuteLiberaNovaExecucaoComContextoDeMidiaHerdado(t *testing.T) {
+	streamMgr := chat.NewStreamingManager(nil)
+	uc := NewSendMessageUseCase(SendMessageConfig{StreamMgr: streamMgr, Emitter: events.NoopEmitter{}})
+	ctx := database.WithUserID(context.Background(), "user-1")
+	ctx = context.WithValue(ctx, deferredMediaContextKey{}, true)
+	finished := 0
+	_, err := uc.Execute(SendMessageRequest{
+		Ctx: ctx, ConversationID: "child-conversation",
+		Params:     llm.ChatParams{AllowAssistantPrefill: true},
+		OnFinished: func() { finished++ },
+	})
+	if err == nil {
+		t.Fatal("esperava falha síncrona de validação")
+	}
+	if finished != 1 {
+		t.Fatalf("cleanup de recursos deve executar uma vez: %d", finished)
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	_, _, finish, err := streamMgr.Begin(waitCtx, "child-conversation")
+	if err != nil {
+		t.Fatalf("contexto herdado não pode impedir cleanup: %v", err)
+	}
+	finish()
+}
+
 // A expansão dinâmica do use case delega agora a chat.ToolSelectionPolicy
 // (AEP-0077 F3, #119). Este teste fixa a regra de opt-in via a API pública que
 // o pipeline de envio consome: perfil sem tools fixas (enabled nil) descarta
