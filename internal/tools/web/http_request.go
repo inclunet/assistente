@@ -348,8 +348,10 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 	if a.ExtractMode != "" {
 		extractMode = a.ExtractMode
 	}
-	if extractMode == "jsonpath" && strings.TrimSpace(a.JSONPath) == "" {
-		return tools.ToolResult{Content: "jsonpath é obrigatório quando extract_mode=jsonpath", IsError: true, Failure: &tools.ToolFailure{Code: "jsonpath_invalid", Kind: tools.ErrorKindInvalidArgs, Retryable: false}}, nil
+	if extractMode == "jsonpath" {
+		if _, err := parseRestrictedJSONPath(a.JSONPath); err != nil {
+			return tools.ToolResult{Content: err.Error(), IsError: true, Failure: &tools.ToolFailure{Code: "jsonpath_invalid", Kind: tools.ErrorKindInvalidArgs, Retryable: false}}, nil
+		}
 	}
 	if extractMode == "file" && t.artifacts == nil {
 		t.artifacts = newHTTPArtifactStore()
@@ -409,6 +411,10 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 	defer func() { _ = resp.Body.Close() }()
 
 	if extractMode == "file" {
+		// Headers são controlados pelo servidor: mesmo os permitidos têm limite.
+		if len(resp.Header.Get("Content-Type")) > 128 {
+			resp.Header.Del("Content-Type")
+		}
 		if err := t.artifacts.cleanupExpired(time.Now()); err != nil {
 			return tools.ToolResult{Content: fmt.Sprintf("Erro ao preparar limpeza de artefatos HTTP: %v", err), IsError: true}, nil
 		}
@@ -441,7 +447,7 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 			"artifact_path": artifact.Path, "sha256": artifact.SHA256, "truncated": false,
 		}
 		return tools.ToolResult{
-			Content: artifactSummaryContent(resp.StatusCode, resp.Status, contentType, relevantArtifactHeaders(resp.Header), artifact),
+			Content: artifactSummaryContent(resp.StatusCode, http.StatusText(resp.StatusCode), contentType, relevantArtifactHeaders(resp.Header), artifact),
 			IsError: resp.StatusCode >= 400, Structured: true, Metadata: metadata,
 			Annotations: &tools.ResultAnnotations{HTTPResponse: httpResponseAnnotation(a.URL, method, resp)},
 		}, nil
@@ -491,7 +497,7 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}, nil
 	}
 	expectsStructured := extractMode != "raw" &&
-		(extractMode == "json" || isJSONMediaType(contentType))
+		(extractMode == "json" || extractMode == "jsonpath" || isJSONMediaType(contentType))
 	if expectsStructured && !utf8.Valid(body) {
 		return tools.ToolResult{
 			Content: "Resposta JSON não é UTF-8 válida e não pode ser preservada integralmente.",
@@ -545,7 +551,7 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 			extracted = responseContent
 		}
 	case "jsonpath":
-		extracted, err = extractRestrictedJSONPath(responseContent, a.JSONPath)
+		extracted, err = extractRestrictedJSONPath(ctx, responseContent, a.JSONPath, maxLength)
 		if err != nil {
 			return tools.ToolResult{
 				Content: err.Error(), IsError: true,

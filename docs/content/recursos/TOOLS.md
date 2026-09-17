@@ -70,12 +70,18 @@ O corpo é baixado em streaming para a pasta de artefatos HTTP do workspace,
 com limite de segurança de 10 MiB. O modelo recebe somente status, tipo,
 tamanho, SHA-256, headers de resposta não sensíveis e o caminho seguro do
 arquivo; `Set-Cookie`, `Authorization` e outros headers de credencial nunca
-são retornados. `output_path` aceita apenas um nome de arquivo simples e é
-rejeitado se tentar escapar da pasta controlada.
+são retornados. Headers permitidos acima de 128 bytes são omitidos.
+`output_path` aceita um nome simples ou caminho absoluto diretamente dentro
+da pasta controlada; caminhos externos, subpastas e arquivos existentes são
+rejeitados. Se omitido, é gerado um nome único. O download não é limitado por
+`max_response_size`: acima de 10 MiB ele falha e remove o arquivo parcial.
+Artefatos expiram após 30 minutos e são removidos no encerramento do app;
+somente arquivos criados pela instância são removidos. Um encerramento abrupto
+do processo pode deixar arquivos para remoção manual.
 
 Para extrair somente campos de um JSON grande, use o seletor restrito de
 `jsonpath`. Ele não executa jq, scripts ou comandos e suporta campos por ponto
-e descendência recursiva:
+e descendência recursiva no primeiro segmento (expressões de até 2048 bytes):
 
 ```json
 {
@@ -86,10 +92,17 @@ e descendência recursiva:
 }
 ```
 
-O limite é aplicado ao resultado extraído, não ao documento original. JSON
+O limite é aplicado ao resultado extraído, não ao documento original (que
+continua sujeito ao teto de download de 10 MiB e é parseado na memória do executor). JSON
 inválido, seletor inválido e resultado extraído grande produzem erros explícitos.
 Para processamentos adicionais, leia o `path` retornado no modo `file` com
 `read_file` ou use `run_command` com uma ferramenta local apropriada.
+
+Por exemplo, substitua o caminho abaixo pelo `path` retornado e execute localmente:
+
+```sh
+jq -r '.. | objects | select((.metadata.name? // "") | test("deploy-to-prod")) | .metadata.name' /caminho/retornado/workflows-run.json
+```
 
 ## MCP nos perfis padrão
 
