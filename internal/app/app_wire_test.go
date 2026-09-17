@@ -662,6 +662,37 @@ func TestWireLLMModelsAttachesBind(t *testing.T) {
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
+	if err := api.CancelStreamingExecution("c1", "execution-1"); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("cancel sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireLLMModelsCancelExecutionTargetsIdentity(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		providerSvc:    providers.NewService(providers.ServiceConfig{}),
+		profileManager: profiles.NewManager(),
+		streamMgr:      chat.NewStreamingManager(nil),
+		currentUserID:  "user-1",
+	}
+	ctx, _, finish, err := a.streamMgr.Begin(context.Background(), "c1", "execution-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(finish)
+	a.wireLLMModels()
+	if err := a.llmModelsAPI.CancelStreamingExecution("c1", "other-execution"); err != nil {
+		t.Fatal(err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("cancelamento de outra identidade atingiu a execução ativa")
+	}
+	if err := a.llmModelsAPI.CancelStreamingExecution("c1", "execution-1"); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatalf("contexto após cancelamento identificado: %v", ctx.Err())
+	}
 }
 
 func TestWireChatAttachesBind(t *testing.T) {

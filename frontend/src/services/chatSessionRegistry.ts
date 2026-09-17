@@ -19,6 +19,8 @@ export type ChatSessionKey = string;
 export type ChatSurfaceType = 'page' | 'embedded' | 'modal' | 'external';
 
 export interface ChatSurfaceOrigin {
+  /** Identifica este envio/retry, sem criar uma mensagem local. */
+  executionId?: string;
   sessionKey: ChatSessionKey;
   conversationId: string | null;
   tabId?: string;
