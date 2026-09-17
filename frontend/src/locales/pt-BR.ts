@@ -118,6 +118,7 @@ const ptBR = {
       outputLimitReached: 'O provedor informou que atingiu o limite de geração. Use “Continuar resposta” ou peça para dividir a tarefa em partes menores.',
       listen: 'Ouvir',
       progressLabel: 'Progresso do assistente',
+      waitingForNextStep: 'Aguardando a próxima etapa do assistente...',
       codeBlockSpeechLabel: 'bloco de código',
       step: 'Passo',
       editPlaceholder: 'Edite sua mensagem...',
