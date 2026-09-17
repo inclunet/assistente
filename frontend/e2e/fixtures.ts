@@ -85,6 +85,29 @@ export const test = base.extend<{ wails: WailsMock }>({
       },
 
       async emit(event: string, data?: unknown) {
+        // O backend ecoa a origem do envio em eventos do turno. Fixtures que
+        // omitem a origem usam a última chamada desta conversa; origens
+        // explícitas (incluindo eventos atrasados) nunca são substituídas.
+        if (event.startsWith('chat:') && data && typeof data === 'object'
+          && 'conversationId' in data && !('surfaceOrigin' in data)) {
+          const surfaceOrigin = await page.evaluate((conversationId) => {
+            const call = window.__wailsMock.getCallLog().slice().reverse().find((entry) => (
+              (entry.fn === 'SendMessage' || entry.fn === 'RetryMessage')
+              && entry.args[0] === conversationId
+            ));
+            const params = call?.args[call.fn === 'SendMessage' ? 3 : 2] as Record<string, string> | undefined;
+            if (!params?.surfaceExecutionId) return undefined;
+            return {
+              conversationId,
+              executionId: params.surfaceExecutionId,
+              sessionKey: params.surfaceSessionKey,
+              surfaceId: params.surfaceId,
+              surfaceType: params.surfaceType,
+              tabId: params.surfaceTabId,
+            };
+          }, data.conversationId);
+          if (surfaceOrigin) data = { ...data, surfaceOrigin };
+        }
         // Converte fixtures legadas de streaming acumulado para o protocolo
         // delta; cenários novos podem enviar delta/sequence diretamente.
         if (event === 'chat:stream' && data && typeof data === 'object' && 'content' in data) {
