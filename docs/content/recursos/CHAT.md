@@ -45,6 +45,11 @@ continuam disponíveis. A resposta do turno pode ser usada para **Continuar
 resposta** quando essa ação explícita estiver habilitada; em um retry normal, o
 backend não envia `assistant` trailing acidentalmente.
 
+Em conversas longas, essa preparação busca uma janela limitada diretamente no
+banco, sem carregar a conversa inteira para repetir uma pergunta antiga. As
+regras do limite de contexto e do resumo são preservadas. Isso reduz o trabalho
+local do retry, mas não muda a velocidade de geração do provedor.
+
 Se a gravação da resposta final falhar, o chat encerra o turno com erro
 recuperável e mantém o ID da mensagem/placeholder para uma nova ação explícita.
 Não há notificação de sucesso, TTS ou sumarização nesse caso, e ferramentas não

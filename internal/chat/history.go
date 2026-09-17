@@ -89,6 +89,20 @@ func (h *HistoryLoader) LoadThroughMessage(ctx context.Context, conversationID, 
 	if h.Repo == nil {
 		return nil, "", errors.New("repositório de mensagens indisponível")
 	}
+	if windowRepo, ok := h.Repo.(AnchoredHistoryWindowRepository); ok {
+		window, err := windowRepo.LoadHistoryWindowThroughMessage(ctx, conversationID, messageID, h.maxMessages())
+		if err != nil {
+			return nil, "", err
+		}
+		if window == nil {
+			return nil, "", errors.New("janela de histórico ancorada indisponível")
+		}
+		summary := window.Summary
+		if window.SummaryUpToMessageID == "" || !window.SummaryBoundaryAvailable {
+			summary = ""
+		}
+		return h.filter(ctx, conversationID, window.Messages, summary)
+	}
 	existingSummary, summaryUpToID, err := h.Repo.GetConversationSummary(ctx, conversationID)
 	if err != nil {
 		logging.Errorf(ctx, "chat.history", "[HISTORY] Erro ao buscar resumo da conversa %s: %v", conversationID, err)
