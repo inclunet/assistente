@@ -107,6 +107,20 @@ o novo envio ou retry iniciado pela interface.
 
 ## Fluidez da lista de mensagens
 
+## Acompanhamento por leitor de tela
+
+O chat informa o início das ferramentas enquanto ainda estão pendentes, sem
+esperar o fim da rodada. Eventos próximos são agrupados em uma janela curta de
+250 ms: ferramentas que já terminaram são anunciadas como concluídas, não como
+se ainda estivessem executando. Os avisos identificam as ferramentas; falhas e
+novas tentativas continuam sendo anunciadas pelo serviço global.
+
+O progresso respeita a superfície ativa e a proteção de leitura existentes.
+Não há regiões de anúncio extras por mensagem nem mudança de foco. Ao cancelar
+ou encerrar a execução, avisos transitórios pendentes são descartados.
+
+## Fluidez durante atualizações
+
 Atualizações do rascunho e do estado da sessão preservam as mensagens que não
 mudaram, evitando renderizações repetidas da lista. Navegação por teclado,
 menus, foco e paginação continuam disponíveis. O conteúdo da resposta em

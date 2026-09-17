@@ -24,6 +24,7 @@ import {
 } from './chatArbitration';
 import { announceWithOrigin } from './voiceAccessibility/announcerBroker';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
+import { createChatProgressAnnouncer } from './chatProgressAnnouncer';
 import type { ChatSurfaceOrigin, MessageWindowState } from './chatSessionRegistry';
 import { clearChatTurnRoutes, createChatTurnEventRouter } from './chatEventHub';
 import { invalidateToolInvocationDetails } from './toolInvocationDetailsCache';
@@ -326,6 +327,29 @@ export function startChatEventController({
 
   const isActive = () => activeControllers.get(conversationIdStr)?.cleanup === cleanup;
   const getEventOrigin = (event: { surfaceOrigin?: ChatSurfaceOrigin }) => event.surfaceOrigin ?? origin;
+  const progressAnnouncer = createChatProgressAnnouncer({
+    announce: (groups) => {
+      const messages = groups.map(({ state, tools }) => {
+        const names = Array.from(new Set(tools.map((tool) => tool.name))).join(', ');
+        if (!names) return '';
+        const fromApp = tools.every((tool) => isAppToolEvent(tool.origin));
+        return i18next.t(
+          state === 'done'
+            ? (fromApp ? 'chat.toolDone' : 'chat.agentToolDone')
+            : (fromApp ? 'chat.toolRunning' : 'chat.agentToolRunning'),
+          { name: names },
+        );
+      }).filter(Boolean);
+      if (messages.length === 0) return;
+      const eventOrigin = groups.flatMap((group) => group.tools).find((tool) => tool.surfaceOrigin)?.surfaceOrigin ?? origin;
+      announceForActiveChatConversation(
+        conversationId,
+        messages.join('; '),
+        'polite',
+        eventOrigin,
+      );
+    },
+  });
 
   const ensureAssistantNode = (messageId?: string | null) => {
     const backendMessageId = messageId && messageId !== '' ? messageId : null;
@@ -408,6 +432,7 @@ export function startChatEventController({
     unsubDone();
     unsubError();
     unsubSpeak();
+    progressAnnouncer.dispose();
     turnEvents.unregister();
     activeControllers.delete(conversationIdStr);
     adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
@@ -787,6 +812,14 @@ export function startChatEventController({
         )
         : [...session.activeToolCalls, { name: event.name, callId: event.callId, args: event.args, status: 'running' as const, summary: event.summary, origin: event.origin }],
     });
+    if (!external) {
+      progressAnnouncer.toolStarted({
+        callId: event.callId,
+        name: event.name,
+        origin: event.origin,
+        surfaceOrigin: getEventOrigin(event),
+      });
+    }
     if (external) {
       const runningMessage = isAppToolEvent(event.origin ?? knownToolOrigin(session, event.callId))
         ? i18next.t('chat.toolRunning', { name: event.name })
@@ -799,6 +832,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
+    if (!external) progressAnnouncer.toolEnded(event.callId, event.status);
     ensureAssistantNode(event.assistantMessageId);
     const session = getCurrentSession();
     patchCurrentSession({
@@ -831,17 +865,20 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
+    if (!external) progressAnnouncer.toolFailed(event.callId, event.willRetry);
     ensureAssistantNode(event.assistantMessageId);
     if (event.willRetry) {
       announceForActiveChatConversation(conversationId, i18next.t('chat.toolRetrying', { name: event.name }), 'polite', getEventOrigin(event));
       return;
     }
-    announce(
-      isAppToolEvent(event.origin ?? knownToolOrigin(getCurrentSession(), event.callId))
+    announceWithOrigin({
+      message: isAppToolEvent(event.origin ?? knownToolOrigin(getCurrentSession(), event.callId))
         ? i18next.t('chat.toolFailed', { name: event.name })
         : i18next.t('chat.agentToolFailed', { name: event.name }),
-      'assertive',
-    );
+      origin: getChatConversationVoiceOrigin(conversationId, undefined, getEventOrigin(event)),
+      eventType: 'error',
+      announcePriority: 'assertive',
+    });
     playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
   });
 
@@ -850,12 +887,12 @@ export function startChatEventController({
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
     ensureAssistantNode(event.assistantMessageId);
+    if (!external) progressAnnouncer.finishSegment();
     if (!event.hasMore) return;
 
     const session = getCurrentSession();
     const newSegments: TurnSegment[] = [...session.completedSegments];
     if (session.activeToolCalls.length > 0) {
-      const toolCount = session.activeToolCalls.length;
       newSegments.push({
         type: 'tool_calls',
         toolCalls: session.activeToolCalls.map(tc => ({
@@ -866,14 +903,6 @@ export function startChatEventController({
           origin: tc.origin,
         })),
       });
-      if (!external) {
-        announceForActiveChatConversation(
-          conversationId,
-          toolCount === 1 ? session.activeToolCalls[0].name : `${toolCount} ferramentas`,
-          'polite',
-          getEventOrigin(event),
-        );
-      }
     }
     if (event.content) {
       if (event.content.trim()) turnHadAssistantText = true;
@@ -895,6 +924,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
+    if (!external) progressAnnouncer.finishSegment();
 
     if (event.errorMessage) {
       // O snapshot persistido contém apenas o parcial. Aplique-o antes do

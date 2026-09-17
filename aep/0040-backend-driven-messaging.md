@@ -611,6 +611,16 @@ Estas regras são permanentes e devem ser respeitadas por qualquer mudança futu
 - **Controllers filtram eventos por conversa.** Um controller de aba/conversa só processa eventos do seu `conversationId`; isso permite respostas simultâneas em abas diferentes sem uma conversa bloquear a outra.
 
 ### Serviços globais da interface
+
+O controller do turno agrupa anúncios de ferramentas internas em janelas de
+250 ms e publica um resumo do estado corrente no announcer global. Início de
+ferramenta longa é anunciado antes de sua conclusão; ferramentas rápidas são
+anunciadas como concluídas. Nomes e estados são preservados, sem anúncios por
+token. Falhas mantêm a origem estruturada para arbitragem; cleanup descarta
+timers do controller encerrado. Isso não cria outra região live nem altera o
+protocolo backend. O contrato permanece **Accepted**.
+Evidências: `chatProgressAnnouncer.test.ts`, `chatEventController.test.ts` e
+`e2e/chat/chat-live-announcements.spec.ts`.
 - **Announcer é global e único.** Não há múltiplas live regions por aba. Controllers solicitam anúncios a uma política central, que anuncia progresso normal apenas para a aba ativa e eventos relevantes de abas inativas com contexto de aba/conversa.
 - **TTS é globalmente exclusivo.** Duas abas podem responder em paralelo, mas não podem falar ao mesmo tempo. A arbitragem usa a configuração/perfil efetivo da aba que originou a fala, ou da aba ativa quando a ação for iniciada manualmente.
 - **STT local só funciona na aba ativa.** Abas inativas em keep-alive não podem ouvir microfone, transcrever nem enviar mensagens por captura local. Entradas de canais externos, como Telegram, Slack ou Signal, seguem o fluxo backend-driven de canais e independem da aba ativa da interface.

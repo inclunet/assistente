@@ -846,6 +846,191 @@ describe('chatEventController', () => {
     });
   });
 
+  it('anuncia progresso interno pendente antes de uma ferramenta longa terminar', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      name: 'buscar',
+      callId: 'call-1',
+      origin: 'builtin',
+    });
+
+    expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(249);
+    expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.toolRunning',
+      'polite',
+      undefined,
+    );
+    emitEvent('chat:tool_end', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      name: 'buscar',
+      callId: 'call-1',
+      status: 'ok',
+      origin: 'builtin',
+    });
+    vi.advanceTimersByTime(250);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(2);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenLastCalledWith(
+      'conversation-1',
+      'chat.toolDone',
+      'polite',
+      undefined,
+    );
+  });
+
+  it('agrupa ferramentas internas rápidas no primeiro tool_end sem duplicar a rajada', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    for (const [callId, name] of [['call-1', 'buscar'], ['call-2', 'ler arquivo']]) {
+      emitEvent('chat:tool_start', {
+        conversationId: 'conversation-1',
+        turnId: 'turn-1',
+        name,
+        callId,
+        origin: 'builtin',
+      });
+    }
+    emitEvent('chat:tool_end', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      name: 'buscar',
+      callId: 'call-1',
+      status: 'ok',
+      origin: 'builtin',
+    });
+    emitEvent('chat:tool_end', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      name: 'ler arquivo',
+      callId: 'call-2',
+      status: 'ok',
+      origin: 'builtin',
+    });
+    vi.advanceTimersByTime(250);
+
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.toolDone',
+      'polite',
+      undefined,
+    );
+  });
+
+  it('cancela progresso pendente ao desmontar e preserva a origem da superfície', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    const surfaceOrigin = {
+      tabId: 'tab-1',
+      surfaceId: 'tab-1',
+      sessionKey: 'tab-1:conversation-1',
+      conversationId: 'conversation-1',
+      surfaceType: 'page' as const,
+    };
+    const handle = startChatEventController({ conversationId: 'conversation-1', origin: surfaceOrigin, adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      name: 'buscar',
+      callId: 'call-1',
+      origin: 'builtin',
+      surfaceOrigin,
+    });
+    handle.cleanup();
+    vi.advanceTimersByTime(250);
+
+    expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalled();
+  });
+
+  it('isola o anúncio de progresso entre conversas mesmo quando uma termina', () => {
+    const { adapter } = createAdapter(['conversation-1', 'conversation-2']);
+    const first = startChatEventController({ conversationId: 'conversation-1', adapter });
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      name: 'primeira',
+      callId: 'call-1',
+      origin: 'builtin',
+    });
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-2',
+      name: 'segunda',
+      callId: 'call-2',
+      origin: 'builtin',
+    });
+    first.cleanup();
+    vi.advanceTimersByTime(250);
+
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-2',
+      'chat.toolRunning',
+      'polite',
+      undefined,
+    );
+  });
+
+  it('anuncia retry/falha uma vez e não repete progresso do mesmo callId', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      name: 'buscar',
+      callId: 'call-1',
+      origin: 'builtin',
+    });
+    emitEvent('chat:tool_failure', {
+      conversationId: 'conversation-1',
+      name: 'buscar',
+      callId: 'call-1',
+      origin: 'builtin',
+      willRetry: true,
+    });
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      name: 'buscar',
+      callId: 'call-1',
+      origin: 'builtin',
+    });
+    vi.advanceTimersByTime(250);
+
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(2);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.toolRetrying',
+      'polite',
+      undefined,
+    );
+
+    emitEvent('chat:tool_failure', {
+      conversationId: 'conversation-1',
+      name: 'buscar',
+      callId: 'call-1',
+      origin: 'builtin',
+      willRetry: false,
+    });
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledTimes(1);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(2);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenLastCalledWith(
+      'conversation-1',
+      'chat.toolRunning',
+      'polite',
+      undefined,
+    );
+  });
+
   it('guarda a origem da ferramenta do agente para a UI não creditá-la ao app', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
