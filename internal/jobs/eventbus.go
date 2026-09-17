@@ -4,6 +4,7 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -127,7 +128,18 @@ func (eb *EventBus) Publish(ctx context.Context, eventName string, payload map[s
 		eb.mu.RUnlock()
 		perEvent, total, warn := eb.recordDropped(eventName)
 		if warn {
-			logging.Logger(ctx, "jobs.eventbus").Warn(
+			// Sucesso de job terminal sem consumidor é semântica normal de
+			// pub/sub (ninguém precisa reagir), não anomalia — registra em DEBUG
+			// para não poluir. Qualquer outro evento sem listener (ex.:
+			// `.failure` ou evento de domínio) pode indicar cadeia quebrada e
+			// permanece em WARN. Em ambos os casos, Stats().EventsDropped já
+			// contabiliza o descarte, então a visibilidade métrica é preservada.
+			logger := logging.Logger(ctx, "jobs.eventbus")
+			logFn := logger.Warn
+			if strings.HasSuffix(eventName, ".success") {
+				logFn = logger.Debug
+			}
+			logFn(
 				"event dropped because it has no enabled listeners",
 				slog.String("event_name", eventName),
 				slog.String("reason", "no_enabled_listeners"),
