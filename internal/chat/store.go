@@ -34,6 +34,12 @@ type HistoryWindowRepository interface {
 	LoadHistoryWindow(ctx context.Context, conversationID string, maxMessages int) (*HistoryWindow, error)
 }
 
+// AnchoredHistoryWindowRepository limita a leitura ao alvo de retry, sem
+// perder o início do contexto nem incluir mensagens/resumos posteriores.
+type AnchoredHistoryWindowRepository interface {
+	LoadHistoryWindowThroughMessage(ctx context.Context, conversationID, messageID string, maxMessages int) (*HistoryWindow, error)
+}
+
 // UserMessageBatchRepository persiste a mensagem e carrega sua janela de
 // histórico na mesma transação. O evento messages_ready só pode ser emitido
 // depois que esta operação retornar com sucesso.
