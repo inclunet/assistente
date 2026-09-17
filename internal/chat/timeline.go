@@ -31,39 +31,45 @@ func normalizeInvocationSummary(call TurnSegmentToolCall) TurnSegmentToolCall {
 	return call
 }
 
-func groupCanonicalInvocations(calls []TurnSegmentToolCall) map[string][]TurnSegmentToolCall {
-	groups := make(map[string][]TurnSegmentToolCall)
+type canonicalInvocationGroup struct {
+	iteration int
+	calls     []TurnSegmentToolCall
+}
+
+func groupCanonicalInvocations(calls []TurnSegmentToolCall) []canonicalInvocationGroup {
+	byIteration := make(map[int][]TurnSegmentToolCall)
 	for _, raw := range calls {
 		call := normalizeInvocationSummary(raw)
-		key := strings.TrimSpace(call.AssistantMessageID)
-		if key == "" {
-			key = "iteration:" + itoa(max(call.Iteration, 1))
-		}
-		groups[key] = append(groups[key], call)
+		byIteration[call.Iteration] = append(byIteration[call.Iteration], call)
 	}
-	for key := range groups {
-		sort.SliceStable(groups[key], func(i, j int) bool {
-			if groups[key][i].Iteration != groups[key][j].Iteration {
-				return groups[key][i].Iteration < groups[key][j].Iteration
-			}
-			return groups[key][i].ID < groups[key][j].ID
-		})
+	groups := make([]canonicalInvocationGroup, 0, len(byIteration))
+	for iteration, calls := range byIteration {
+		groups = append(groups, canonicalInvocationGroup{iteration: iteration, calls: calls})
 	}
+	// Iterações são numéricas e começam em zero. Dentro da rodada, preservar
+	// a ordem queued_at,id da projeção; call IDs do provedor são opacos.
+	sort.Slice(groups, func(i, j int) bool { return groups[i].iteration < groups[j].iteration })
 	return groups
 }
 
-func itoa(value int) string {
-	if value == 0 {
-		return "0"
+func timelineMessageWrittenAfter(left, right Message) bool {
+	leftTime, rightTime := left.CreatedAt, right.CreatedAt
+	if left.UpdatedAt.After(leftTime) {
+		leftTime = left.UpdatedAt
 	}
-	var digits [20]byte
-	index := len(digits)
-	for value > 0 {
-		index--
-		digits[index] = byte('0' + value%10)
-		value /= 10
+	if right.UpdatedAt.After(rightTime) {
+		rightTime = right.UpdatedAt
 	}
-	return string(digits[index:])
+	if !leftTime.Equal(rightTime) {
+		return leftTime.After(rightTime)
+	}
+	if (left.TotalTokens > 0) != (right.TotalTokens > 0) {
+		return left.TotalTokens > 0
+	}
+	if !left.CreatedAt.Equal(right.CreatedAt) {
+		return left.CreatedAt.After(right.CreatedAt)
+	}
+	return left.ID > right.ID
 }
 
 // ConsolidateTimelineTurn constrói a timeline apenas com mensagens
@@ -80,44 +86,93 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolCalls []TurnSegme
 		return ordered[i].CreatedAt.Before(ordered[j].CreatedAt)
 	})
 
-	representative := ordered[0]
-	hasFinalUsage := false
+	// A fala que originou tools locais é intermediária. Não promovê-la a
+	// conclusão se uma edição posterior atualizar seu timestamp. MCP nativo
+	// pode apontar para o próprio registro final e não é esse marcador.
+	intermediateIDs := make(map[string]bool)
+	for _, call := range invocationToolCalls {
+		if id := strings.TrimSpace(call.AssistantMessageID); id != "" && call.Origin != "mcp_native" {
+			intermediateIDs[id] = true
+		}
+	}
+	hasFinalCandidate := false
 	for _, message := range ordered {
-		if message.Role == "assistant" {
-			if message.TotalTokens > 0 {
-				representative = message
-				hasFinalUsage = true
-			} else if !hasFinalUsage {
+		if message.Role == "assistant" && !intermediateIDs[message.ID] {
+			hasFinalCandidate = true
+			break
+		}
+	}
+	representative := ordered[0]
+	hasAssistant := false
+	for _, message := range ordered {
+		if message.Role == "assistant" && (!hasFinalCandidate || !intermediateIDs[message.ID]) {
+			// O registro final pode ser criado antes das rodadas e atualizado
+			// no encerramento. Usar a escrita, não só criação ou usage.
+			if !hasAssistant || timelineMessageWrittenAfter(message, representative) {
 				representative = message
 			}
+			hasAssistant = true
 		}
 	}
 
 	groups := groupCanonicalInvocations(invocationToolCalls)
 	segments := make([]TurnSegment, 0, len(ordered)+len(groups))
-	consumed := make(map[string]struct{})
-	for _, message := range ordered {
-		if message.Role != "assistant" {
-			continue
+	messageGroup := make(map[string]int)
+	finalHasLocalCalls := false
+	for index, group := range groups {
+		for _, call := range group.calls {
+			id := strings.TrimSpace(call.AssistantMessageID)
+			if id == "" {
+				continue
+			}
+			if _, found := messageGroup[id]; !found {
+				messageGroup[id] = index
+			}
+			if id == representative.ID && call.Origin != "mcp_native" {
+				finalHasLocalCalls = true
+			}
 		}
+	}
+	appendText := func(message Message) {
 		if strings.TrimSpace(message.Content) != "" {
 			segments = append(segments, TurnSegment{Type: "text", Content: message.Content})
 		}
-		if calls := groups[message.ID]; len(calls) > 0 {
-			segments = append(segments, TurnSegment{Type: "tool_calls", ToolCalls: calls})
-			consumed[message.ID] = struct{}{}
+	}
+	// Vínculos do ledger colocam a fala antes das tools da própria rodada.
+	// Texto antigo sem vínculo preserva sua ordem antes da próxima fala ligada;
+	// sem nenhum vínculo disponível, mantém-se texto → tools, sem inventar IDs.
+	textBuckets := make([][]Message, len(groups)+1)
+	messageBuckets := make([]int, len(ordered))
+	nextBucket := len(groups)
+	if len(messageGroup) == 0 {
+		nextBucket = 0
+	}
+	for index := len(ordered) - 1; index >= 0; index-- {
+		message := ordered[index]
+		if message.ID == representative.ID && !finalHasLocalCalls {
+			continue
+		}
+		if bucket, found := messageGroup[message.ID]; found {
+			nextBucket = bucket
+		}
+		messageBuckets[index] = nextBucket
+	}
+	for index, message := range ordered {
+		if message.Role == "assistant" && (message.ID != representative.ID || finalHasLocalCalls) {
+			bucket := messageBuckets[index]
+			textBuckets[bucket] = append(textBuckets[bucket], message)
 		}
 	}
-
-	keys := make([]string, 0, len(groups))
-	for key := range groups {
-		if _, ok := consumed[key]; !ok {
-			keys = append(keys, key)
+	for index, texts := range textBuckets {
+		for _, message := range texts {
+			appendText(message)
+		}
+		if index < len(groups) {
+			segments = append(segments, TurnSegment{Type: "tool_calls", ToolCalls: groups[index].calls})
 		}
 	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		segments = append(segments, TurnSegment{Type: "tool_calls", ToolCalls: groups[key]})
+	if hasAssistant && !finalHasLocalCalls {
+		appendText(representative)
 	}
 	if len(invocationToolCalls) == 0 && len(ordered) <= 1 {
 		segments = nil

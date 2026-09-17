@@ -661,7 +661,7 @@ describe('ChatMessage', () => {
     expect(lastArgs.displayContent).not.toContain('intermediário');
   });
 
-  it('injeta placeholder textual antes das tools quando o turno tool-only tem apenas turnSegments', () => {
+  it('mostra o estado terminal depois das tools quando o turno tool-only tem apenas turnSegments', () => {
     const message = new chat.EnrichedMessage({
       id: 'tool-only-segmented',
       conversationId,
@@ -686,9 +686,9 @@ describe('ChatMessage', () => {
     expect(placeholder).toBeInTheDocument();
     expect(tools).toBeInTheDocument();
     expect(container.querySelectorAll('.chat-message')).toHaveLength(1);
-    // Placeholder precisa vir ANTES das tools na ordem do DOM para que o NVDA
-    // anuncie o contexto antes do bloco de ferramentas.
-    expect(placeholder.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // O estado terminal descreve o resultado do turno e encerra a cronologia.
+    // O nome acessível da mensagem continua oferecendo o resumo para o NVDA.
+    expect(tools.compareDocumentPosition(placeholder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   // Issue #163 (Parte A): a cadeia inteira do turno (segmentos de texto E tool
