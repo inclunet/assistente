@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -129,6 +130,60 @@ func TestEventBus_PublishNoListeners(t *testing.T) {
 	}
 	if got := eb.Stats().EventsDropped; got != 1 {
 		t.Fatalf("events_dropped = %d, want 1", got)
+	}
+}
+
+// levelCaptureHandler captura o nível de cada record emitido, para asserir em
+// que severidade um evento descartado é logado.
+type levelCaptureHandler struct {
+	mu      sync.Mutex
+	byEvent map[string]slog.Level
+}
+
+func (h *levelCaptureHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *levelCaptureHandler) Handle(_ context.Context, r slog.Record) error {
+	var name string
+	r.Attrs(func(a slog.Attr) bool {
+		if a.Key == "event_name" {
+			name = a.Value.String()
+			return false
+		}
+		return true
+	})
+	h.mu.Lock()
+	h.byEvent[name] = r.Level
+	h.mu.Unlock()
+	return nil
+}
+
+func (h *levelCaptureHandler) WithAttrs(attrs []slog.Attr) slog.Handler { return h }
+func (h *levelCaptureHandler) WithGroup(string) slog.Handler            { return h }
+
+// TestEventBus_DroppedSuccessLogsDebugOthersWarn garante que o descarte de um
+// evento `.success` sem consumidor (semântica normal de pub/sub em job terminal)
+// é logado em DEBUG, enquanto qualquer outro evento sem listener permanece em
+// WARN (possível cadeia quebrada). Em ambos, o contador segue incrementando.
+func TestEventBus_DroppedSuccessLogsDebugOthersWarn(t *testing.T) {
+	capture := &levelCaptureHandler{byEvent: make(map[string]slog.Level)}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(capture))
+	defer slog.SetDefault(previous)
+
+	eb := NewEventBus()
+	eb.Publish(context.Background(), "job.terminal.success", map[string]any{})
+	eb.Publish(context.Background(), "job.terminal.failure", map[string]any{})
+
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	if got, ok := capture.byEvent["job.terminal.success"]; !ok || got != slog.LevelDebug {
+		t.Fatalf("drop de `.success` = nível %v (presente=%v), want DEBUG", got, ok)
+	}
+	if got, ok := capture.byEvent["job.terminal.failure"]; !ok || got != slog.LevelWarn {
+		t.Fatalf("drop de não-`.success` = nível %v (presente=%v), want WARN", got, ok)
+	}
+	if got := eb.Stats().EventsDropped; got != 2 {
+		t.Fatalf("events_dropped = %d, want 2 (contador preservado independe do nível)", got)
 	}
 }
 
