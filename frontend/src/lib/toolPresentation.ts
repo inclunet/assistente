@@ -73,7 +73,8 @@ export function presentTool(name: string, origin?: ToolOrigin, serverLabel?: str
     case 'list_directory': return { labelKey: 'chat.toolListDirectory', target: fileTarget };
     case 'search_files':
     case 'grep_search': return { labelKey: 'chat.toolSearchFiles', target: fileTarget };
-    case 'web_search': return { labelKey: 'chat.toolSearchWeb', target: webTarget };
+    case 'web_search':
+    case 'search_web': return { labelKey: 'chat.toolSearchWeb', target: webTarget };
     case 'web_fetch':
     case 'http_request': return { labelKey: 'chat.toolAccessUrl', target: webTarget };
     default: return { labelKey: 'chat.toolGeneric', labelValues: { name } };

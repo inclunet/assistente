@@ -3,7 +3,6 @@ import { CheckCircleOutlined, CloseCircleOutlined, DownOutlined, LoadingOutlined
 import type { toolinvocations } from '@wailsjs/go/models';
 import { BrowserOpenURL } from '@wailsjs/runtime/runtime';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import type { ToolInvocationSummary } from '../../lib/chatMessageTree';
 import { executeDeepLink } from '../../lib/deepLinks';
 import { presentTool, type ToolPresentation } from '../../lib/toolPresentation';
@@ -57,7 +56,6 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
   tabNavigationEnabled = false,
 }) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const userId = useAuthStore((state) => state.user?.userId ?? '');
   const [isExpanded, setIsExpanded] = useState(false);
   const [selected, setSelected] = useState<InvocationForDetails | null>(null);
@@ -84,7 +82,10 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
       BrowserOpenURL(presentation.target.url);
       return;
     }
-    void executeDeepLink({ type: 'tab:new', tabType: 'editor', file: presentation.target.path }, { navigate });
+    // Esta seção também aparece em superfícies isoladas sem Router. Abrir uma
+    // aba de editor só precisa da navegação de workspace; a rota raiz é a
+    // mesma, portanto a dependência de navegação pode ser neutra aqui.
+    void executeDeepLink({ type: 'tab:new', tabType: 'editor', file: presentation.target.path }, { navigate: () => undefined });
   };
 
   const openDetails = async (invocation: InvocationForDetails) => {

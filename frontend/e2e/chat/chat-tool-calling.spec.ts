@@ -72,14 +72,14 @@ test.describe('Chat — tool calls (histórico)', () => {
     await expect(toolSection).toBeVisible();
   });
 
-  test('header da seção de tool calls mostra nome da ferramenta', async ({ page, wails }) => {
+  test('header da seção de tool calls comunica o conjunto de ferramentas', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
 
     const title = page.locator('.tool-calls-section__title');
-    await expect(title).toContainText('search_web');
+    await expect(title).toContainText(/Ferramentas utilizadas|Tools used|Herramientas utilizadas/);
   });
 
   test('seção de tool calls é expansível via clique', async ({ page, wails }) => {
@@ -98,7 +98,7 @@ test.describe('Chat — tool calls (histórico)', () => {
     await expect(content).toBeVisible();
   });
 
-  test('seção expandida mostra argumentos da ferramenta', async ({ page, wails }) => {
+  test('seção expandida preserva uma prévia e ação de auditoria', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
@@ -107,12 +107,11 @@ test.describe('Chat — tool calls (histórico)', () => {
     // Expande
     await page.locator('.tool-calls-section__header').click();
 
-    const args = page.locator('.tool-calls-section__args');
-    await expect(args).toBeVisible();
-    await expect(args).toContainText('query');
+    await expect(page.locator('.tool-calls-section__result-summary')).toContainText('results');
+    await expect(page.getByRole('button', { name: /Detalhes técnicos|Technical details|Detalles técnicos/i })).toBeVisible();
   });
 
-  test('seção expandida mostra resultado da ferramenta', async ({ page, wails }) => {
+  test('seção expandida comunica o estado terminal da ferramenta', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
@@ -120,9 +119,7 @@ test.describe('Chat — tool calls (histórico)', () => {
 
     await page.locator('.tool-calls-section__header').click();
 
-    const result = page.locator('.tool-calls-section__result-content');
-    await expect(result).toBeVisible();
-    await expect(result).toContainText('results');
+    await expect(page.locator('.tool-calls-section__state')).toContainText(/Concluída|Completed|Completada/);
   });
 
   test('carrega payload integral somente ao pedir detalhes', async ({ page, wails }) => {
@@ -144,7 +141,7 @@ test.describe('Chat — tool calls (histórico)', () => {
     }]);
     await wails.waitForApp();
     await page.locator('.tool-calls-section__header').click();
-    await page.getByRole('button', { name: /Mostrar tudo|Show all|Mostrar todo/i }).click();
+    await page.getByRole('button', { name: /Detalhes técnicos|Technical details|Detalles técnicos/i }).click();
 
     await expect(page.locator('.tool-calls-section__args')).toContainText('clima hoje');
     await expect(page.locator('.tool-calls-section__result-content')).toContainText('Ensolarado');
