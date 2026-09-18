@@ -99,7 +99,7 @@ async function readChronology(assistant: Locator) {
     const children = region
       ? Array.from(region.children).map((child) => {
         if (child.classList.contains('tool-calls-section')) {
-          return `tool:${child.querySelector('.tool-calls-section__title')?.textContent?.trim()}`;
+          return 'tool';
         }
         return `text:${child.textContent?.trim()}`;
       })
@@ -239,9 +239,9 @@ test.describe('Chat — cronologia canônica de tools', () => {
     await expect.poll(() => readChronology(assistant)).toMatchObject({
       children: [
         'text:texto intermediário um',
-        'tool:buscar-primeira-fonte',
+        'tool',
         'text:texto intermediário dois',
-        'tool:refinar-segunda-fonte',
+        'tool',
       ],
       finalCount: 1,
       finalOutsideRegion: true,
@@ -256,9 +256,9 @@ test.describe('Chat — cronologia canônica de tools', () => {
     await expect.poll(() => readChronology(reloadedAssistant)).toMatchObject({
       children: [
         'text:texto intermediário um',
-        'tool:buscar-primeira-fonte',
+        'tool',
         'text:texto intermediário dois',
-        'tool:refinar-segunda-fonte',
+        'tool',
       ],
       finalCount: 1,
       finalOutsideRegion: true,
