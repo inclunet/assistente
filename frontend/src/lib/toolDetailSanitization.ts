@@ -7,9 +7,9 @@ const SENSITIVE_TOKENS = [
 ];
 
 function sensitiveKey(key: string): boolean {
-  const normalized = key.toLowerCase().replaceAll('-', '_');
+  const normalized = key.toLowerCase().replace(/-/g, '_');
   const compact = normalized.replace(/[_. ]/g, '');
-  return SENSITIVE_TOKENS.some((token) => normalized.includes(token) || compact.includes(token.replaceAll('_', '')));
+  return SENSITIVE_TOKENS.some((token) => normalized.includes(token) || compact.includes(token.replace(/_/g, '')));
 }
 
 function sensitiveString(value: string): boolean {
