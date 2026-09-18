@@ -158,4 +158,24 @@ describe('ToolCallsSection', () => {
     expect(screen.getByText('chat.toolReadFile')).toBeInTheDocument();
   });
 
+  it('mantém estados persistidos canônicos perceptíveis sem prometer sucesso', () => {
+    render(
+      <ToolCallsSection
+        toolInvocations={[
+          { invocationId: 'queued', callId: 'queued', name: 'search_files', status: 'queued', hasDetails: false, resultAvailability: 'pending', outputPreview: 'parcial' },
+          { invocationId: 'failed', callId: 'failed', name: 'search_files', status: 'failed', hasDetails: false, resultAvailability: 'available' },
+          { invocationId: 'cancelled', callId: 'cancelled', name: 'search_files', status: 'cancelled', hasDetails: false, resultAvailability: 'available' },
+          { invocationId: 'unknown', callId: 'unknown', name: 'search_files', status: 'unexpected', hasDetails: false, resultAvailability: 'available' },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.getAllByText('chat.toolStatusRunning')).toHaveLength(1);
+    expect(screen.getByText('chat.toolStatusFailed')).toBeInTheDocument();
+    expect(screen.getByText('chat.toolStatusCancelled')).toBeInTheDocument();
+    expect(screen.getByText('chat.toolStatusUnknown')).toBeInTheDocument();
+    expect(screen.getByText('chat.partialOutput: parcial')).toBeInTheDocument();
+  });
+
 });

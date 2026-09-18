@@ -279,6 +279,7 @@ const en = {
       toolStatusSucceeded: 'Completed',
       toolStatusFailed: 'Failed',
       toolStatusCancelled: 'Cancelled',
+      toolStatusUnknown: 'Status unavailable',
       toolReadFile: 'Reading file',
       toolEditFile: 'Editing file',
       toolListDirectory: 'Listing files',

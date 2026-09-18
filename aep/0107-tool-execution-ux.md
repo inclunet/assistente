@@ -134,8 +134,8 @@ Essa separação evita que output parcial pareça sucesso e mantém o fluxo de c
 
 - [x] Mapear a máquina de estados do ledger para cabeçalho persistente do card.
 - [x] Indicar saída parcial durante execução e manter atualizações em modo isolado.
-- [ ] Implementar estados de sucesso, falha e cancelamento com texto acessível.
-- [ ] Cobrir transições de estado, inclusive output antes da conclusão.
+- [x] Implementar estados de sucesso, falha e cancelamento com texto acessível.
+- [x] Cobrir transições de estado, inclusive output antes da conclusão.
 
 ### Fase 2 — Apresentação amigável e detalhes
 
@@ -166,7 +166,9 @@ Essa separação evita que output parcial pareça sucesso e mantém o fluxo de c
 
 A implementação iniciou no frontend em `frontend/src/components/chat/ToolCallsSection.tsx` e `frontend/src/lib/toolPresentation.ts`. O adaptador é deliberadamente allowlist para tools nativas; MCP usa exclusivamente o rótulo público do provedor. O card mantém estado textual, identifica saída parcial e abre detalhes técnicos sob demanda. Arquivos nativos e URLs HTTP(S) viram alvos acionáveis pelo editor e navegador externo já existentes.
 
-As transições completas do runtime e o contrato estruturado de resultados de busca permanecem nas fases 1 e 3, respectivamente.
+Os resultados de busca nativos agora usam um contrato estruturado versionado e
+carregado sob demanda. Ainda faltam paginação do modal e a eventual avaliação
+de decodificadores MCP explicitamente opt-in.
 
 ## Riscos
 

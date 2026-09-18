@@ -22,11 +22,26 @@ interface ToolCallsSectionProps {
 
 type InvocationForDetails = ToolInvocationSummary & { args?: string; summary?: string };
 
-function statusKey(status: string): string {
-  if (status === 'running') return 'chat.toolStatusRunning';
-  if (status === 'failed' || status === 'error') return 'chat.toolStatusFailed';
-  if (status === 'cancelled' || status === 'canceled') return 'chat.toolStatusCancelled';
-  return 'chat.toolStatusSucceeded';
+type ToolDisplayStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
+
+/** Mantém a timeline conservadora: estado fora do contrato jamais parece sucesso. */
+function displayStatus(status: string | undefined): ToolDisplayStatus {
+  switch (status?.trim().toLowerCase()) {
+    case 'queued':
+    case 'pending':
+    case 'running': return 'running';
+    case 'succeeded':
+    case 'completed': return 'succeeded'; // registros anteriores à normalização do ledger
+    case 'failed':
+    case 'error': return 'failed';
+    case 'cancelled':
+    case 'canceled': return 'cancelled';
+    default: return 'unknown';
+  }
+}
+
+function statusKey(status: ToolDisplayStatus): string {
+  return `chat.toolStatus${status.charAt(0).toUpperCase()}${status.slice(1)}`;
 }
 
 function formatArgs(raw: string): string {
@@ -68,7 +83,7 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
 
   const calls = activeToolCalls?.length ? activeToolCalls : toolInvocations;
   const isStreaming = !!activeToolCalls?.length;
-  const isRunning = calls?.some((call) => call.status === 'running') ?? false;
+  const isRunning = calls?.some((call) => displayStatus(call.status) === 'running') ?? false;
   const summaryText = isRunning
     ? `${t('chat.executing')} ${calls?.length ?? 0} ${t('chat.toolsRunning')}`
     : `${calls?.length ?? 0} ${t('chat.toolsUsed')}`;
@@ -140,17 +155,18 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
         <ul className="tool-calls-section__list">
           {calls.map((call, index) => {
             const presentation = presentations[index];
-            const isActive = call.status === 'running';
+            const callStatus = displayStatus(call.status);
+            const isActive = callStatus === 'running';
             const preview = isStreaming ? (call as ToolCallStatus).summary : (call as ToolInvocationSummary).outputPreview;
             const invocation = call as InvocationForDetails;
-            return <li key={call.callId} className={`tool-calls-section__item tool-calls-section__item--${call.status}`} onContextMenu={(event) => {
+            return <li key={call.callId} className={`tool-calls-section__item tool-calls-section__item--${callStatus}`} onContextMenu={(event) => {
               event.preventDefault();
               void openDetails(invocation);
             }}>
               <div className="tool-calls-section__item-header">
-                <span className="tool-calls-section__status-icon" aria-hidden="true">{isActive ? <LoadingOutlined spin /> : (call.status === 'failed' || call.status === 'error') ? <CloseCircleOutlined /> : <CheckCircleOutlined />}</span>
+                <span className="tool-calls-section__status-icon" aria-hidden="true">{isActive ? <LoadingOutlined spin /> : callStatus === 'failed' || callStatus === 'cancelled' ? <CloseCircleOutlined /> : callStatus === 'succeeded' ? <CheckCircleOutlined /> : <ToolOutlined />}</span>
                 <span className="tool-calls-section__intent">{t(presentation.labelKey, presentation.labelValues)}</span>
-                <span className={`tool-calls-section__state tool-calls-section__state--${call.status}`}>{t(statusKey(call.status))}</span>
+                <span className={`tool-calls-section__state tool-calls-section__state--${callStatus}`}>{t(statusKey(callStatus))}</span>
                 {!isStreaming && !!(call as ToolInvocationSummary).durationMs && <span className="tool-calls-section__duration">{formatDuration((call as ToolInvocationSummary).durationMs!)}</span>}
               </div>
               {presentation.target && <button type="button" className="tool-calls-section__target" onClick={() => void openTarget(presentation.target)} tabIndex={tabNavigationEnabled ? 0 : -1}>{presentation.target.label}</button>}
