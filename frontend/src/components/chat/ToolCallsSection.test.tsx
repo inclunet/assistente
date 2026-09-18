@@ -101,6 +101,28 @@ describe('ToolCallsSection', () => {
     expect(screen.queryByText('texto arbitrário')).not.toBeInTheDocument();
   });
 
+  it('pagina resultados estruturados sem carregar detalhes adicionais', async () => {
+    const items = Array.from({ length: 21 }, (_, index) => ({
+      kind: 'file', title: `arquivo-${index + 1}.ts`, target: { kind: 'file', path: `C:/repo/arquivo-${index + 1}.ts` },
+    }));
+    loadDetails.mockResolvedValue(new Map([['inv-paged', {
+      invocationId: 'inv-paged', metadata: JSON.stringify({ search_result_presentation: { version: 1, total: 21, items } }),
+    }]]));
+    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+      invocationId: 'inv-paged', callId: 'call-paged', name: 'search_files', status: 'succeeded',
+      hasDetails: true, resultAvailability: 'available', hasSearchResults: true, searchResultCount: 21,
+    }]} />);
+
+    fireEvent.click(screen.getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: 'chat.viewSearchResults' }));
+    expect(await screen.findByText('arquivo-20.ts')).toBeInTheDocument();
+    expect(screen.queryByText('arquivo-21.ts')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'chat.nextPage' }));
+    expect(screen.getByText('arquivo-21.ts')).toBeInTheDocument();
+    expect(screen.queryByText('arquivo-1.ts')).not.toBeInTheDocument();
+    expect(loadDetails).toHaveBeenCalledTimes(1);
+  });
+
   it('não introduz violações axe no resumo persistido expandido', async () => {
     const { container } = render(
       <ToolCallsSection
