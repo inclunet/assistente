@@ -1,6 +1,6 @@
 # AEP-0107 — Experiência de execução de tools: estado, contexto e resultados acionáveis
 
-**Status:** Draft
+**Status:** In Progress
 
 ## Resumo
 
@@ -132,17 +132,19 @@ Essa separação evita que output parcial pareça sucesso e mantém o fluxo de c
 
 ### Fase 1 — Estado canônico na timeline
 
-- [ ] Mapear a máquina de estados do ledger para cabeçalho persistente do card.
-- [ ] Indicar saída parcial durante execução e manter atualizações em modo isolado.
+- [x] Mapear a máquina de estados do ledger para cabeçalho persistente do card.
+- [x] Indicar saída parcial durante execução e manter atualizações em modo isolado.
 - [ ] Implementar estados de sucesso, falha e cancelamento com texto acessível.
 - [ ] Cobrir transições de estado, inclusive output antes da conclusão.
 
 ### Fase 2 — Apresentação amigável e detalhes
 
-- [ ] Criar adaptadores para as tools nativas prioritárias.
-- [ ] Internacionalizar microcopy e aplicar redução/sanitização de paths, URLs e argumentos sensíveis.
-- [ ] Criar modal de detalhes técnicos lazy, com menu de contexto e equivalente por teclado.
-- [ ] Adotar fallback MCP por provedor e preservar sinais de segurança.
+- [x] Criar adaptadores para as tools nativas prioritárias.
+- [x] Internacionalizar microcopy e aplicar redução de paths e URLs no texto primário.
+- [ ] Definir e aplicar sanitização adicional para argumentos sensíveis antes de exibi-los nos detalhes.
+- [x] Criar modal de detalhes técnicos lazy, com menu de contexto e equivalente por teclado.
+- [x] Adotar fallback MCP por provedor.
+- [ ] Integrar sinais explícitos de segurança e aprovação à apresentação resumida.
 
 ### Fase 3 — Destinos e resultados estruturados
 
@@ -159,6 +161,12 @@ Essa separação evita que output parcial pareça sucesso e mantém o fluxo de c
 - Alterar o protocolo MCP para exigir intenção, locale ou rótulo de UI.
 - Gerar ou inferir rótulos semânticos para MCPs a partir de modelos, nomes ou argumentos.
 - Remover a saída técnica, o ledger ou as políticas de aprovação existentes.
+
+## Implementação
+
+A implementação iniciou no frontend em `frontend/src/components/chat/ToolCallsSection.tsx` e `frontend/src/lib/toolPresentation.ts`. O adaptador é deliberadamente allowlist para tools nativas; MCP usa exclusivamente o rótulo público do provedor. O card mantém estado textual, identifica saída parcial e abre detalhes técnicos sob demanda. Arquivos nativos e URLs HTTP(S) viram alvos acionáveis pelo editor e navegador externo já existentes.
+
+As transições completas do runtime e o contrato estruturado de resultados de busca permanecem nas fases 1 e 3, respectivamente.
 
 ## Riscos
 

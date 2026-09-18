@@ -14,8 +14,13 @@ vi.mock('../../store/authStore', () => ({
     selector({ user: { userId: 'user-a' } }),
 }));
 
-vi.mock('react-i18next', () => ({
+vi.mock('react-i18next', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-i18next')>()),
   useTranslation: () => ({ t: (key: string) => key }),
+}));
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => vi.fn(),
 }));
 
 describe('ToolCallsSection', () => {
@@ -26,7 +31,8 @@ describe('ToolCallsSection', () => {
       />
     );
 
-    expect(screen.getByText('Search')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.getByText('chat.toolGeneric')).toBeInTheDocument();
   });
 
   it('torna os controles focáveis somente durante a leitura', () => {
@@ -64,15 +70,14 @@ describe('ToolCallsSection', () => {
     );
 
     expect(loadDetails).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: /search/i }));
+    fireEvent.click(screen.getByRole('button'));
     expect(screen.getByText('prévia')).toBeInTheDocument();
-    const detailsButton = screen.getByRole('button', { name: 'chat.showAll' });
+    const detailsButton = screen.getByRole('button', { name: 'chat.technicalDetails' });
     expect(detailsButton).toHaveAttribute('tabindex', '0');
     fireEvent.click(detailsButton);
 
     await waitFor(() => expect(loadDetails).toHaveBeenCalledWith('user-a', ['inv-1']));
     expect(await screen.findByText('resultado integral')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'chat.showLess' })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('não introduz violações axe no resumo persistido expandido', async () => {
@@ -91,11 +96,11 @@ describe('ToolCallsSection', () => {
         }]}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: /search/i }));
+    fireEvent.click(screen.getByRole('button'));
     expect(await axe(container)).toHaveNoViolations();
   });
 
-  it('renderiza origem, servidor e duração da projeção canônica', () => {
+  it('usa fallback plug-and-play do provedor MCP e duração da projeção canônica', () => {
     render(
       <ToolCallsSection
         toolInvocations={[{
@@ -112,8 +117,7 @@ describe('ToolCallsSection', () => {
       />,
     );
     fireEvent.click(screen.getByRole('button'));
-    expect(screen.getByText('chat.toolOriginMcpNative')).toBeInTheDocument();
-    expect(screen.getByText('Atlassian')).toBeInTheDocument();
+    expect(screen.getByText('chat.toolMcpProvider')).toBeInTheDocument();
     expect(screen.getByText('1.5s')).toBeInTheDocument();
   });
 
@@ -129,8 +133,8 @@ describe('ToolCallsSection', () => {
 
     fireEvent.click(screen.getByRole('button'));
 
-    expect(screen.getByText('chat.toolOriginAcpAgent')).toBeInTheDocument();
-    expect(screen.queryByText('chat.toolOriginBuiltin')).not.toBeInTheDocument();
+    expect(screen.getAllByText('chat.toolGeneric')).toHaveLength(1);
+    expect(screen.getByText('chat.toolReadFile')).toBeInTheDocument();
   });
 
 });
