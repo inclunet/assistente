@@ -22,6 +22,7 @@ interface ToolCallsSectionProps {
 }
 
 type InvocationForDetails = ToolInvocationSummary & { args?: string; summary?: string };
+const SEARCH_RESULTS_PAGE_SIZE = 20;
 
 type ToolDisplayStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
 
@@ -81,6 +82,7 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
   const [searchPresentation, setSearchPresentation] = useState<SearchResultPresentation | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchLoadError, setSearchLoadError] = useState(false);
+  const [searchPage, setSearchPage] = useState(0);
 
   const calls = activeToolCalls?.length ? activeToolCalls : toolInvocations;
   const isStreaming = !!activeToolCalls?.length;
@@ -113,6 +115,7 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
     setSearchSelected(invocation);
     setSearchPresentation(null);
     setSearchLoadError(false);
+    setSearchPage(0);
     if (!invocation.invocationId) return;
     setSearchLoading(true);
     try {
@@ -143,6 +146,12 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
       announce(t('chat.toolDetailsLoadError'), 'assertive');
     } finally { setLoading(false); }
   };
+
+  const searchPageCount = searchPresentation ? Math.max(1, Math.ceil(searchPresentation.items.length / SEARCH_RESULTS_PAGE_SIZE)) : 0;
+  const visibleSearchItems = searchPresentation?.items.slice(
+    searchPage * SEARCH_RESULTS_PAGE_SIZE,
+    (searchPage + 1) * SEARCH_RESULTS_PAGE_SIZE,
+  ) ?? [];
 
   return <>
     <div className={`tool-calls-section ${isExpanded ? 'tool-calls-section--expanded' : ''} ${isRunning ? 'tool-calls-section--running' : ''}`}>
@@ -194,11 +203,16 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
       {searchPresentation && !searchLoading && !searchLoadError && <>
         <p className="tool-calls-section__search-summary">{t('chat.searchResultsSummary', { count: searchPresentation.total })}{searchPresentation.truncated ? ` ${t('chat.searchResultsTruncated')}` : ''}</p>
         <ul className="tool-calls-section__search-results">
-          {searchPresentation.items.map((item, index) => <li key={`${item.title}-${index}`} className="tool-calls-section__search-result">
+          {visibleSearchItems.map((item, index) => <li key={`${item.title}-${searchPage * SEARCH_RESULTS_PAGE_SIZE + index}`} className="tool-calls-section__search-result">
             {item.target ? <button type="button" className="tool-calls-section__target" onClick={() => void openTarget(item.target)}>{item.title}</button> : <span>{item.title}</span>}
             {item.snippet && <p>{item.snippet}</p>}
           </li>)}
         </ul>
+        {searchPageCount > 1 && <nav className="tool-calls-section__search-pagination" aria-label={t('chat.searchResultsPagination')}>
+          <Button type="button" variant="ghost" size="sm" disabled={searchPage === 0} onClick={() => setSearchPage((page) => Math.max(0, page - 1))}>{t('chat.previousPage')}</Button>
+          <span>{t('chat.searchResultsPage', { current: searchPage + 1, total: searchPageCount })}</span>
+          <Button type="button" variant="ghost" size="sm" disabled={searchPage + 1 >= searchPageCount} onClick={() => setSearchPage((page) => Math.min(searchPageCount - 1, page + 1))}>{t('chat.nextPage')}</Button>
+        </nav>}
       </>}
     </Modal>
   </>;

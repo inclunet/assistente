@@ -148,9 +148,9 @@ Essa separação evita que output parcial pareça sucesso e mantém o fluxo de c
 
 ### Fase 3 — Destinos e resultados estruturados
 
-- [ ] Permitir abertura segura de arquivos no editor e URLs no navegador externo.
-- [ ] Adaptar buscas nativas ao contrato `SearchResultPresentation`.
-- [ ] Implementar modal de resultados, limites e paginação.
+- [x] Permitir abertura segura de arquivos no editor e URLs no navegador externo.
+- [x] Adaptar buscas nativas ao contrato `SearchResultPresentation`.
+- [x] Implementar modal de resultados, limites e paginação.
 - [ ] Avaliar decodificadores explícitos para outputs MCP compatíveis, sem heurística sobre texto livre.
 
 ## Não objetivos
@@ -166,8 +166,8 @@ Essa separação evita que output parcial pareça sucesso e mantém o fluxo de c
 
 A implementação iniciou no frontend em `frontend/src/components/chat/ToolCallsSection.tsx` e `frontend/src/lib/toolPresentation.ts`. O adaptador é deliberadamente allowlist para tools nativas; MCP usa exclusivamente o rótulo público do provedor. O card mantém estado textual, identifica saída parcial e abre detalhes técnicos sob demanda. Arquivos nativos e URLs HTTP(S) viram alvos acionáveis pelo editor e navegador externo já existentes.
 
-Os resultados de busca nativos agora usam um contrato estruturado versionado e
-carregado sob demanda. Ainda faltam paginação do modal e a eventual avaliação
+Os resultados de busca nativos agora usam um contrato estruturado versionado,
+carregado sob demanda e paginado no modal. Ainda falta a eventual avaliação
 de decodificadores MCP explicitamente opt-in.
 
 ## Riscos
