@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import type { ToolInvocationSummary } from '../../lib/chatMessageTree';
 import { presentTool, type ToolPresentation } from '../../lib/toolPresentation';
 import { parseSearchResultPresentation, type SearchResultPresentation, type SearchResultTarget } from '../../lib/searchResultPresentation';
+import { sanitizeToolDetailArguments } from '../../lib/toolDetailSanitization';
 import { announce } from '../../hooks/useAnnouncer';
 import { loadToolInvocationDetails } from '../../services/toolInvocationDetailsCache';
 import { useAuthStore } from '../../store/authStore';
@@ -51,9 +52,9 @@ function formatArgs(raw: string): string {
 function detailArguments(detail: toolinvocations.Detail): string {
   try {
     const metadata = JSON.parse(detail.metadata ?? '') as { display?: { arguments?: unknown } };
-    if (typeof metadata.display?.arguments === 'string') return metadata.display.arguments;
+    if (typeof metadata.display?.arguments === 'string') return sanitizeToolDetailArguments(metadata.display.arguments);
   } catch { /* mantém entrada integral */ }
-  return detail.input ?? '';
+  return sanitizeToolDetailArguments(detail.input ?? '');
 }
 
 function detailResult(detail: toolinvocations.Detail): string {
