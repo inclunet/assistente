@@ -29,6 +29,7 @@ type Summary struct {
 	ResultAvailability string `json:"resultAvailability"`
 	HasSearchResults   bool   `json:"hasSearchResults,omitempty"`
 	SearchResultCount  int    `json:"searchResultCount,omitempty"`
+	SecurityOutcome    string `json:"securityOutcome,omitempty"`
 	AssistantMessageID string `json:"-"`
 }
 
@@ -111,6 +112,7 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 		MetadataIteration    int
 		SearchResultsVersion int
 		SearchResultCount    int
+		SecurityOutcome      string
 		AssistantMessageID   string
 		InputPreview         string
 		OutputPreview        string
@@ -146,6 +148,7 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN CAST(COALESCE(json_extract(tool_invocations.metadata, '$.display.iteration'), 0) AS INTEGER) ELSE 0 END AS metadata_iteration, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN CAST(COALESCE(json_extract(tool_invocations.metadata, '$.search_result_presentation.version'), 0) AS INTEGER) ELSE 0 END AS search_results_version, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN CAST(COALESCE(json_extract(tool_invocations.metadata, '$.search_result_presentation.total'), 0) AS INTEGER) ELSE 0 END AS search_result_count, "+
+					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.security_signals[0].outcome') AS TEXT), '') ELSE '' END AS security_outcome, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.assistant_message_id') AS TEXT), '') ELSE '' END AS assistant_message_id, "+
 					"tool_invocations.input_preview, tool_invocations.output_preview, "+
 					"tool_invocations.input_bytes, tool_invocations.output_bytes, tool_invocations.result_availability, "+
@@ -188,6 +191,7 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 				ResultAvailability: availability,
 				HasSearchResults:   item.SearchResultsVersion == 1,
 				SearchResultCount:  item.SearchResultCount,
+				SecurityOutcome:    item.SecurityOutcome,
 				AssistantMessageID: item.AssistantMessageID,
 			})
 			projectionBytes += uint64(len(item.ID) + len(item.ToolCallID) + len(name) + len(origin) +
