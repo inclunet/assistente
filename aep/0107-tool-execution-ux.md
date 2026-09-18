@@ -141,7 +141,7 @@ Essa separação evita que output parcial pareça sucesso e mantém o fluxo de c
 
 - [x] Criar adaptadores para as tools nativas prioritárias.
 - [x] Internacionalizar microcopy e aplicar redução de paths e URLs no texto primário.
-- [ ] Definir e aplicar sanitização adicional para argumentos sensíveis antes de exibi-los nos detalhes.
+- [x] Definir e aplicar sanitização adicional para argumentos sensíveis antes de exibi-los nos detalhes.
 - [x] Criar modal de detalhes técnicos lazy, com menu de contexto e equivalente por teclado.
 - [x] Adotar fallback MCP por provedor.
 - [ ] Integrar sinais explícitos de segurança e aprovação à apresentação resumida.
