@@ -27,6 +27,8 @@ type Summary struct {
 	OutputBytes        int64  `json:"outputBytes,omitempty"`
 	HasDetails         bool   `json:"hasDetails"`
 	ResultAvailability string `json:"resultAvailability"`
+	HasSearchResults   bool   `json:"hasSearchResults,omitempty"`
+	SearchResultCount  int    `json:"searchResultCount,omitempty"`
 	AssistantMessageID string `json:"-"`
 }
 
@@ -99,26 +101,28 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 		)`
 	}
 	type row struct {
-		ID                 string
-		ToolCallID         string
-		Status             string
-		DisplayName        string
-		MetadataName       string
-		MetadataOrigin     string
-		MetadataServer     string
-		MetadataIteration  int
-		AssistantMessageID string
-		InputPreview       string
-		OutputPreview      string
-		InputBytes         int64
-		OutputBytes        int64
-		ResultAvailability string
-		DurationMs         int64
-		QueuedAt           time.Time
-		ToolName           string
-		ToolDisplayName    string
-		ToolOrigin         string
-		ResolvedTurnID     string `gorm:"column:resolved_turn_id"`
+		ID                   string
+		ToolCallID           string
+		Status               string
+		DisplayName          string
+		MetadataName         string
+		MetadataOrigin       string
+		MetadataServer       string
+		MetadataIteration    int
+		SearchResultsVersion int
+		SearchResultCount    int
+		AssistantMessageID   string
+		InputPreview         string
+		OutputPreview        string
+		InputBytes           int64
+		OutputBytes          int64
+		ResultAvailability   string
+		DurationMs           int64
+		QueuedAt             time.Time
+		ToolName             string
+		ToolDisplayName      string
+		ToolOrigin           string
+		ResolvedTurnID       string `gorm:"column:resolved_turn_id"`
 	}
 	const batchSize = 400
 	started := time.Now()
@@ -140,6 +144,8 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.origin') AS TEXT), '') ELSE '' END AS metadata_origin, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.server_label') AS TEXT), '') ELSE '' END AS metadata_server, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN CAST(COALESCE(json_extract(tool_invocations.metadata, '$.display.iteration'), 0) AS INTEGER) ELSE 0 END AS metadata_iteration, "+
+					"CASE WHEN json_valid(tool_invocations.metadata) THEN CAST(COALESCE(json_extract(tool_invocations.metadata, '$.search_result_presentation.version'), 0) AS INTEGER) ELSE 0 END AS search_results_version, "+
+					"CASE WHEN json_valid(tool_invocations.metadata) THEN CAST(COALESCE(json_extract(tool_invocations.metadata, '$.search_result_presentation.total'), 0) AS INTEGER) ELSE 0 END AS search_result_count, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.assistant_message_id') AS TEXT), '') ELSE '' END AS assistant_message_id, "+
 					"tool_invocations.input_preview, tool_invocations.output_preview, "+
 					"tool_invocations.input_bytes, tool_invocations.output_bytes, tool_invocations.result_availability, "+
@@ -180,6 +186,8 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 				OutputBytes:        item.OutputBytes,
 				HasDetails:         item.InputBytes > 0 || item.OutputBytes > 0 || availability == "available",
 				ResultAvailability: availability,
+				HasSearchResults:   item.SearchResultsVersion == 1,
+				SearchResultCount:  item.SearchResultCount,
 				AssistantMessageID: item.AssistantMessageID,
 			})
 			projectionBytes += uint64(len(item.ID) + len(item.ToolCallID) + len(name) + len(origin) +

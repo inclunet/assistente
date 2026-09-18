@@ -652,6 +652,7 @@ func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch
 			"files_matched": len(groups),
 			"files_scanned": filesScanned,
 			"truncated":     truncation != grepTruncatedNone,
+			tools.SearchResultPresentationMetadataKey: t.searchResultPresentation(basePath, matches, matchCount, truncation != grepTruncatedNone),
 		},
 	}
 	if truncation != grepTruncatedNone {
@@ -664,6 +665,29 @@ func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch
 		}}
 	}
 	return result
+}
+
+func (t *GrepSearch) searchResultPresentation(basePath string, matches []grepMatch, total int, truncated bool) tools.SearchResultPresentation {
+	fullBase, err := t.resolvePath(basePath)
+	if err != nil {
+		fullBase = t.workDir
+	}
+	items := make([]tools.SearchResultItem, 0, total)
+	for _, match := range matches {
+		if !match.IsMatch {
+			continue
+		}
+		path := match.File
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(fullBase, path)
+		}
+		items = append(items, tools.SearchResultItem{
+			Kind: "file", Title: fmt.Sprintf("%s:%d", filepath.Base(path), match.LineNumber),
+			Snippet: strings.TrimSpace(match.LineText),
+			Target:  &tools.SearchResultTarget{Kind: "file", Path: path},
+		})
+	}
+	return tools.SearchResultPresentation{Version: 1, Total: total, Truncated: truncated, Items: items}
 }
 
 func countGrepMatches(matches []grepMatch) int {

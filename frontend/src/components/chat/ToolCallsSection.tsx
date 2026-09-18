@@ -4,6 +4,7 @@ import type { toolinvocations } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
 import type { ToolInvocationSummary } from '../../lib/chatMessageTree';
 import { presentTool, type ToolPresentation } from '../../lib/toolPresentation';
+import { parseSearchResultPresentation, type SearchResultPresentation, type SearchResultTarget } from '../../lib/searchResultPresentation';
 import { announce } from '../../hooks/useAnnouncer';
 import { loadToolInvocationDetails } from '../../services/toolInvocationDetailsCache';
 import { useAuthStore } from '../../store/authStore';
@@ -60,6 +61,10 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
   const [detail, setDetail] = useState<toolinvocations.Detail | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [searchSelected, setSearchSelected] = useState<InvocationForDetails | null>(null);
+  const [searchPresentation, setSearchPresentation] = useState<SearchResultPresentation | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchLoadError, setSearchLoadError] = useState(false);
 
   const calls = activeToolCalls?.length ? activeToolCalls : toolInvocations;
   const isStreaming = !!activeToolCalls?.length;
@@ -74,18 +79,36 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
 
   if (!calls?.length) return null;
 
-  const openTarget = async (presentation: ToolPresentation) => {
-    if (!presentation.target) return;
-    if (presentation.target.kind === 'url') {
+  const openTarget = async (target: NonNullable<ToolPresentation['target']> | SearchResultTarget | undefined) => {
+    if (!target) return;
+    if (target.kind === 'url') {
       const { BrowserOpenURL } = await import('@wailsjs/runtime/runtime');
-      BrowserOpenURL(presentation.target.url);
+      BrowserOpenURL(target.url);
       return;
     }
     // Esta seção também aparece em superfícies isoladas sem Router. Abrir uma
     // aba de editor só precisa da navegação de workspace; a rota raiz é a
     // mesma, portanto a dependência de navegação pode ser neutra aqui.
     const { executeDeepLink } = await import('../../lib/deepLinks');
-    await executeDeepLink({ type: 'tab:new', tabType: 'editor', file: presentation.target.path }, { navigate: () => undefined });
+    await executeDeepLink({ type: 'tab:new', tabType: 'editor', file: target.path }, { navigate: () => undefined });
+  };
+
+  const openSearchResults = async (invocation: InvocationForDetails) => {
+    setSearchSelected(invocation);
+    setSearchPresentation(null);
+    setSearchLoadError(false);
+    if (!invocation.invocationId) return;
+    setSearchLoading(true);
+    try {
+      const details = await loadToolInvocationDetails(userId, [invocation.invocationId]);
+      const loaded = details.get(invocation.invocationId);
+      const presentation = loaded && parseSearchResultPresentation(loaded.metadata);
+      if (!presentation) throw new Error('search presentation unavailable');
+      setSearchPresentation(presentation);
+    } catch {
+      setSearchLoadError(true);
+      announce(t('chat.searchResultsLoadError'), 'assertive');
+    } finally { setSearchLoading(false); }
   };
 
   const openDetails = async (invocation: InvocationForDetails) => {
@@ -130,8 +153,9 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
                 <span className={`tool-calls-section__state tool-calls-section__state--${call.status}`}>{t(statusKey(call.status))}</span>
                 {!isStreaming && !!(call as ToolInvocationSummary).durationMs && <span className="tool-calls-section__duration">{formatDuration((call as ToolInvocationSummary).durationMs!)}</span>}
               </div>
-              {presentation.target && <button type="button" className="tool-calls-section__target" onClick={() => void openTarget(presentation)} tabIndex={tabNavigationEnabled ? 0 : -1}>{presentation.target.label}</button>}
+              {presentation.target && <button type="button" className="tool-calls-section__target" onClick={() => void openTarget(presentation.target)} tabIndex={tabNavigationEnabled ? 0 : -1}>{presentation.target.label}</button>}
               {preview && <p className="tool-calls-section__result-summary">{isActive ? `${t('chat.partialOutput')}: ${preview}` : preview}</p>}
+              {!isStreaming && invocation.hasSearchResults && <Button className="tool-calls-section__result-toggle" onClick={() => void openSearchResults(invocation)} type="button" variant="ghost" size="sm" tabIndex={tabNavigationEnabled ? 0 : -1}>{t('chat.viewSearchResults', { count: invocation.searchResultCount ?? 0 })}</Button>}
               <Button className="tool-calls-section__result-toggle" onClick={() => void openDetails(invocation)} type="button" variant="ghost" size="sm" tabIndex={tabNavigationEnabled ? 0 : -1}>{t('chat.technicalDetails')}</Button>
             </li>;
           })}
@@ -145,6 +169,19 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
         <p className="tool-calls-section__technical-name">{selected.name}</p>
         <section className="tool-calls-section__section"><h2 className="tool-calls-section__section-heading">{t('chat.parameters')}</h2><pre className="tool-calls-section__args">{formatArgs(detail ? detailArguments(detail) : selected.inputPreview ?? selected.args ?? '')}</pre></section>
         <section className="tool-calls-section__section"><h2 className="tool-calls-section__section-heading">{t('chat.response')}</h2><pre className="tool-calls-section__result-content">{detail ? detailResult(detail) : selected.outputPreview ?? selected.summary ?? t('chat.toolDetailsUnavailable')}</pre></section>
+      </>}
+    </Modal>
+    <Modal isOpen={!!searchSelected} onClose={() => setSearchSelected(null)} title={t('chat.searchResults')} size="lg" readingMode>
+      {searchLoading && <p>{t('chat.loadingSearchResults')}</p>}
+      {searchLoadError && <p>{t('chat.searchResultsLoadError')}</p>}
+      {searchPresentation && !searchLoading && !searchLoadError && <>
+        <p className="tool-calls-section__search-summary">{t('chat.searchResultsSummary', { count: searchPresentation.total })}{searchPresentation.truncated ? ` ${t('chat.searchResultsTruncated')}` : ''}</p>
+        <ul className="tool-calls-section__search-results">
+          {searchPresentation.items.map((item, index) => <li key={`${item.title}-${index}`} className="tool-calls-section__search-result">
+            {item.target ? <button type="button" className="tool-calls-section__target" onClick={() => void openTarget(item.target)}>{item.title}</button> : <span>{item.title}</span>}
+            {item.snippet && <p>{item.snippet}</p>}
+          </li>)}
+        </ul>
       </>}
     </Modal>
   </>;

@@ -16,6 +16,8 @@ export interface ToolInvocationSummary {
   outputBytes?: number;
   hasDetails: boolean;
   resultAvailability: string;
+  hasSearchResults?: boolean;
+  searchResultCount?: number;
 }
 
 export interface StreamingToolCall {
