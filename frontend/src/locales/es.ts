@@ -278,6 +278,7 @@ const es = {
       toolStatusSucceeded: 'Completada',
       toolStatusFailed: 'Falló',
       toolStatusCancelled: 'Cancelada',
+      toolStatusUnknown: 'Estado no disponible',
       toolReadFile: 'Leyendo archivo',
       toolEditFile: 'Editando archivo',
       toolListDirectory: 'Listando archivos',

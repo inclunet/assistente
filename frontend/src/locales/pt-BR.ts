@@ -279,6 +279,7 @@ const ptBR = {
       toolStatusSucceeded: 'Concluída',
       toolStatusFailed: 'Falhou',
       toolStatusCancelled: 'Cancelada',
+      toolStatusUnknown: 'Status indisponível',
       toolReadFile: 'Lendo arquivo',
       toolEditFile: 'Editando arquivo',
       toolListDirectory: 'Listando arquivos',
