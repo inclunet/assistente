@@ -123,7 +123,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; cronologia por rodada e conclusão terminal | ✅ Done |
 | [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress |
 | [0106](0106-contencao-do-pipeline-de-jobs.md) | Contenção do pipeline de jobs (limite de concorrência + cache por slug) | 🚧 In Progress |
-| [0107](0107-tool-execution-ux.md) | Experiência de execução de tools: estado, contexto e resultados acionáveis | 📝 Draft |
+| [0107](0107-tool-execution-ux.md) | Experiência de execução de tools: estado, contexto e resultados acionáveis | 🚧 In Progress |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
 > numerados sequencialmente a partir do **maior número existente** (0107 → próximo

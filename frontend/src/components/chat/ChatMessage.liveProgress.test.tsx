@@ -235,7 +235,7 @@ describe('progresso live de ChatMessage', () => {
 
     const { rerender } = renderMessage(surface, message);
 
-    expect(screen.getByRole('button', { name: /buscar-documentos/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /chat.toolsRunningLabel/ })).toBeInTheDocument();
     expect(screen.queryByText('chat.toolOnlyTurnPlaceholder')).not.toBeInTheDocument();
     expect(screen.queryByText('chat.waitingForNextStep')).not.toBeInTheDocument();
 
@@ -268,7 +268,7 @@ describe('progresso live de ChatMessage', () => {
     );
 
     expect(screen.getByText('chat.toolOnlyTurnPlaceholder')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /buscar-documentos/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /chat.toolsUsedLabel/ })).toBeInTheDocument();
   });
 
   it('renderiza duas rodadas, texto corrente antes das tools correntes e espera sem tool running', () => {
@@ -303,7 +303,7 @@ describe('progresso live de ChatMessage', () => {
     renderMessage(surface, message);
 
     const currentText = screen.getByText('texto da segunda rodada');
-    const currentTool = screen.getByRole('button', { name: /buscar-corrente/ });
+    const currentTool = screen.getByRole('button', { name: /chat.toolsRunningLabel/ });
     expect(screen.getByText('texto da primeira rodada')).toBeInTheDocument();
     expect(currentText).toBeInTheDocument();
     expect(currentTool).toBeInTheDocument();
@@ -391,7 +391,7 @@ describe('progresso live de ChatMessage', () => {
 
     expect(screen.getByText('intermediário ao vivo')).toBeInTheDocument();
     expect(screen.getByText('resposta canônica')).toBeInTheDocument();
-    expect(screen.getByText('ferramenta-final')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /chat.toolsUsedLabel/ })).toBeInTheDocument();
     expect(screen.queryByText('texto corrente')).not.toBeInTheDocument();
     expect(useChatStore.getState().liveMessageContentByConversationId).toEqual({});
     expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey]).toMatchObject({
