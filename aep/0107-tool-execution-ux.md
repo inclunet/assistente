@@ -1,6 +1,6 @@
 # AEP-0107 — Experiência de execução de tools: estado, contexto e resultados acionáveis
 
-**Status:** In Progress
+**Status:** Complete
 
 ## Resumo
 
@@ -151,7 +151,7 @@ Essa separação evita que output parcial pareça sucesso e mantém o fluxo de c
 - [x] Permitir abertura segura de arquivos no editor e URLs no navegador externo.
 - [x] Adaptar buscas nativas ao contrato `SearchResultPresentation`.
 - [x] Implementar modal de resultados, limites e paginação.
-- [ ] Avaliar decodificadores explícitos para outputs MCP compatíveis, sem heurística sobre texto livre.
+- [x] Avaliar decodificadores explícitos para outputs MCP compatíveis, sem heurística sobre texto livre. Decisão: não introduzir decodificadores nesta fase; MCP permanece plug and play pelo provedor. Um contrato futuro deverá ser explicitamente opt-in e versionado pelo servidor.
 
 ## Não objetivos
 
