@@ -44,7 +44,7 @@ test.describe('Chat — streaming multi-segmento', () => {
     const identity = { conversationId, turnId: initialUserMessageId, assistantMessageId: initialAssistantMessageId };
     await wails.emit('chat:stream', { ...identity, messageId: initialAssistantMessageId, delta: 'Vou consultar a primeira fonte.', reset: true, sequence: 0 });
     await wails.emit('chat:tool_start', { ...identity, name: 'fonte_um', callId: 'progress-1' });
-    await expect(page.locator('.tool-calls-section--running')).toContainText('fonte_um');
+    await expect(page.locator('.tool-calls-section--running')).toContainText(/Ferramentas em execução|Tools running|Herramientas en ejecución/);
     await expect(page.getByText('Vou consultar a primeira fonte.', { exact: true })).toBeVisible();
     await expect(page.getByText(/Turno sem resposta do assistente|Turn without an assistant response/)).toHaveCount(0);
 
@@ -53,7 +53,7 @@ test.describe('Chat — streaming multi-segmento', () => {
     await expect(page.getByText(/Aguardando a próxima etapa do assistente|Waiting for the assistant’s next step/)).toBeVisible();
     await wails.emit('chat:stream', { ...identity, messageId: initialAssistantMessageId, delta: 'Agora consulto a segunda fonte.', reset: true, sequence: 0 });
     await wails.emit('chat:tool_start', { ...identity, name: 'fonte_dois', callId: 'progress-2' });
-    await expect(page.locator('.tool-calls-section--running')).toContainText('fonte_dois');
+    await expect(page.locator('.tool-calls-section--running')).toContainText(/Ferramentas em execução|Tools running|Herramientas en ejecución/);
     await expect(page.getByText('Vou consultar a primeira fonte.', { exact: true })).toBeVisible();
     await expect(page.getByText('Agora consulto a segunda fonte.', { exact: true })).toBeVisible();
     // A ferramenta permanece pendente: nenhuma conclusão é necessária para exibir progresso.

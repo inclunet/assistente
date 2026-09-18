@@ -1,10 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { CheckCircleOutlined, CloseCircleOutlined, DownOutlined, LoadingOutlined, ToolOutlined } from '@ant-design/icons';
 import type { toolinvocations } from '@wailsjs/go/models';
-import { BrowserOpenURL } from '@wailsjs/runtime/runtime';
 import { useTranslation } from 'react-i18next';
 import type { ToolInvocationSummary } from '../../lib/chatMessageTree';
-import { executeDeepLink } from '../../lib/deepLinks';
 import { presentTool, type ToolPresentation } from '../../lib/toolPresentation';
 import { announce } from '../../hooks/useAnnouncer';
 import { loadToolInvocationDetails } from '../../services/toolInvocationDetailsCache';
@@ -76,16 +74,18 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
 
   if (!calls?.length) return null;
 
-  const openTarget = (presentation: ToolPresentation) => {
+  const openTarget = async (presentation: ToolPresentation) => {
     if (!presentation.target) return;
     if (presentation.target.kind === 'url') {
+      const { BrowserOpenURL } = await import('@wailsjs/runtime/runtime');
       BrowserOpenURL(presentation.target.url);
       return;
     }
     // Esta seção também aparece em superfícies isoladas sem Router. Abrir uma
     // aba de editor só precisa da navegação de workspace; a rota raiz é a
     // mesma, portanto a dependência de navegação pode ser neutra aqui.
-    void executeDeepLink({ type: 'tab:new', tabType: 'editor', file: presentation.target.path }, { navigate: () => undefined });
+    const { executeDeepLink } = await import('../../lib/deepLinks');
+    await executeDeepLink({ type: 'tab:new', tabType: 'editor', file: presentation.target.path }, { navigate: () => undefined });
   };
 
   const openDetails = async (invocation: InvocationForDetails) => {
@@ -130,7 +130,7 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
                 <span className={`tool-calls-section__state tool-calls-section__state--${call.status}`}>{t(statusKey(call.status))}</span>
                 {!isStreaming && !!(call as ToolInvocationSummary).durationMs && <span className="tool-calls-section__duration">{formatDuration((call as ToolInvocationSummary).durationMs!)}</span>}
               </div>
-              {presentation.target && <button type="button" className="tool-calls-section__target" onClick={() => openTarget(presentation)} tabIndex={tabNavigationEnabled ? 0 : -1}>{presentation.target.label}</button>}
+              {presentation.target && <button type="button" className="tool-calls-section__target" onClick={() => void openTarget(presentation)} tabIndex={tabNavigationEnabled ? 0 : -1}>{presentation.target.label}</button>}
               {preview && <p className="tool-calls-section__result-summary">{isActive ? `${t('chat.partialOutput')}: ${preview}` : preview}</p>}
               <Button className="tool-calls-section__result-toggle" onClick={() => void openDetails(invocation)} type="button" variant="ghost" size="sm" tabIndex={tabNavigationEnabled ? 0 : -1}>{t('chat.technicalDetails')}</Button>
             </li>;
