@@ -5,8 +5,8 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 Este diretório é o **repositório único** de decisões arquiteturais do projeto
 (ver `CLAUDE.md`). Não criar outro diretório para AEPs — tudo fica em `aep/`.
 
-> **Inventário (2026-09-13):** este índice contém **103 documentos principais
-> para 102 números ocupados**. A diferença é a colisão histórica 0074, representada
+> **Inventário (2026-09-18):** este índice contém **106 documentos principais
+> para 105 números ocupados**. A diferença é a colisão histórica 0074, representada
 > temporariamente como 0074-A e 0074-B até sua renumeração. Séries multi-arquivo
 > têm o principal listado na tabela e os demais em
 > [Apêndices por AEP](#apêndices-por-aep). Convenção em
@@ -123,10 +123,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; cronologia por rodada e conclusão terminal | ✅ Done |
 | [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress |
 | [0106](0106-contencao-do-pipeline-de-jobs.md) | Contenção do pipeline de jobs (limite de concorrência + cache por slug) | 🚧 In Progress |
+| [0107](0107-tool-execution-ux.md) | Experiência de execução de tools: estado, contexto e resultados acionáveis | 📝 Draft |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0106 → próximo
-> 0107), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0107 → próximo
+> 0108), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 
