@@ -854,18 +854,21 @@ func (s *Service) buildInvocationDisplayMetadata(call tools.ToolCall, iteration 
 // nem conteúdo de integrações MCP para a camada de interface.
 func (s *Service) buildInvocationMetadata(call tools.ToolCall, iteration int, durationMs int64, external bool, result tools.ToolResult) json.RawMessage {
 	base := s.buildInvocationDisplayMetadata(call, iteration, durationMs, external)
-	if external || (call.Function.Name != "search_files" && call.Function.Name != "grep_search") {
-		return base
-	}
-	presentation, ok := result.Metadata[tools.SearchResultPresentationMetadataKey].(tools.SearchResultPresentation)
-	if !ok || presentation.Version != 1 {
+	if external {
 		return base
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(base, &payload); err != nil || payload == nil {
 		return base
 	}
-	payload[tools.SearchResultPresentationMetadataKey] = presentation
+	if call.Function.Name == "search_files" || call.Function.Name == "grep_search" {
+		if presentation, ok := result.Metadata[tools.SearchResultPresentationMetadataKey].(tools.SearchResultPresentation); ok && presentation.Version == 1 {
+			payload[tools.SearchResultPresentationMetadataKey] = presentation
+		}
+	}
+	if signals, ok := result.Metadata[tools.SecuritySignalsMetadataKey].([]tools.SecuritySignal); ok && len(signals) > 0 {
+		payload[tools.SecuritySignalsMetadataKey] = signals
+	}
 	merged, err := json.Marshal(payload)
 	if err != nil {
 		return base

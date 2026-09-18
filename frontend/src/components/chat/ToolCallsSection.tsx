@@ -177,6 +177,7 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
                 <span className="tool-calls-section__status-icon" aria-hidden="true">{isActive ? <LoadingOutlined spin /> : callStatus === 'failed' || callStatus === 'cancelled' ? <CloseCircleOutlined /> : callStatus === 'succeeded' ? <CheckCircleOutlined /> : <ToolOutlined />}</span>
                 <span className="tool-calls-section__intent">{t(presentation.labelKey, presentation.labelValues)}</span>
                 <span className={`tool-calls-section__state tool-calls-section__state--${callStatus}`}>{t(statusKey(callStatus))}</span>
+                {!isStreaming && (invocation.securityOutcome === 'approved' || invocation.securityOutcome === 'blocked') && <span className={`tool-calls-section__security tool-calls-section__security--${invocation.securityOutcome}`}>{t(invocation.securityOutcome === 'approved' ? 'chat.toolSecurityApproved' : 'chat.toolSecurityBlocked')}</span>}
                 {!isStreaming && !!(call as ToolInvocationSummary).durationMs && <span className="tool-calls-section__duration">{formatDuration((call as ToolInvocationSummary).durationMs!)}</span>}
               </div>
               {presentation.target && <button type="button" className="tool-calls-section__target" onClick={() => void openTarget(presentation.target)} tabIndex={tabNavigationEnabled ? 0 : -1}>{presentation.target.label}</button>}

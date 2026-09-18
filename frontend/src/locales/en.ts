@@ -280,6 +280,8 @@ const en = {
       toolStatusFailed: 'Failed',
       toolStatusCancelled: 'Cancelled',
       toolStatusUnknown: 'Status unavailable',
+      toolSecurityApproved: 'Approved',
+      toolSecurityBlocked: 'Blocked by security',
       toolReadFile: 'Reading file',
       toolEditFile: 'Editing file',
       toolListDirectory: 'Listing files',

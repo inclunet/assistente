@@ -18,6 +18,7 @@ export interface ToolInvocationSummary {
   resultAvailability: string;
   hasSearchResults?: boolean;
   searchResultCount?: number;
+  securityOutcome?: 'approved' | 'blocked';
 }
 
 export interface StreamingToolCall {

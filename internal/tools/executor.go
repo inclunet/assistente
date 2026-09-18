@@ -177,8 +177,14 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 		// Expõe à tool o limite efetivo de resultado deste executor, para que
 		// tools com saída estruturada possam falhar de forma controlada em vez de
 		// serem truncadas (o que invalidaria, p.ex., um JSON canônico).
-		execCtx := WithMaxResultSize(toolCtx, e.config.MaxResultSize)
+		execCtx := WithSecuritySignalCollector(WithMaxResultSize(toolCtx, e.config.MaxResultSize))
 		result, err := tool.Execute(execCtx, args)
+		if signals := SecuritySignalsFrom(execCtx); len(signals) > 0 {
+			if result.Metadata == nil {
+				result.Metadata = map[string]any{}
+			}
+			result.Metadata[SecuritySignalsMetadataKey] = signals
+		}
 		if err != nil {
 			errKind := ErrorKindUnknown
 			retryable := false
