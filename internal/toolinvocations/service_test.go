@@ -49,6 +49,29 @@ func TestOutputForPersistence_CapsLargeOutputAndDropsLargeMetadata(t *testing.T)
 	}
 }
 
+func TestBuildInvocationMetadataPersistsOnlyNativeSearchPresentation(t *testing.T) {
+	svc := &Service{}
+	call := tools.ToolCall{Function: tools.FunctionCall{Name: "search_files", Arguments: `{}`}}
+	presentation := tools.SearchResultPresentation{Version: 1, Total: 1, Items: []tools.SearchResultItem{{Kind: "file", Title: "main.go"}}}
+	metadata := svc.buildInvocationMetadata(call, 1, 2, false, tools.ToolResult{Metadata: map[string]any{
+		tools.SearchResultPresentationMetadataKey: presentation,
+	}})
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(metadata, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := payload[tools.SearchResultPresentationMetadataKey]; !ok {
+		t.Fatalf("contrato de busca não persistido: %s", metadata)
+	}
+
+	mcp := svc.buildInvocationMetadata(call, 1, 2, true, tools.ToolResult{Metadata: map[string]any{
+		tools.SearchResultPresentationMetadataKey: presentation,
+	}})
+	if strings.Contains(string(mcp), tools.SearchResultPresentationMetadataKey) {
+		t.Fatalf("metadata de integração externa não deveria virar apresentação: %s", mcp)
+	}
+}
+
 func TestOutputForPersistence_DropsNonSerializableMetadataAndStillCapsSize(t *testing.T) {
 	max := 256
 	svc := &Service{persistMaxResultSize: max}

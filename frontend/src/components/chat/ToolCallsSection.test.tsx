@@ -80,6 +80,27 @@ describe('ToolCallsSection', () => {
     expect(await screen.findByText('resultado integral')).toBeInTheDocument();
   });
 
+  it('abre resultados estruturados de uma busca sem interpretar a saída textual', async () => {
+    loadDetails.mockResolvedValue(new Map([['inv-search', {
+      invocationId: 'inv-search', input: '{}', output: '{"content":"texto arbitrário"}',
+      metadata: JSON.stringify({ search_result_presentation: {
+        version: 1, total: 1, truncated: false,
+        items: [{ kind: 'file', title: 'arquivo.ts', snippet: '10: match', target: { kind: 'file', path: 'C:/repo/arquivo.ts' } }],
+      } }),
+    }]]));
+    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+      invocationId: 'inv-search', callId: 'call-search', name: 'search_files', status: 'succeeded',
+      hasDetails: true, resultAvailability: 'available', hasSearchResults: true, searchResultCount: 1,
+    }]} />);
+
+    fireEvent.click(screen.getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: 'chat.viewSearchResults' }));
+
+    expect(await screen.findByText('arquivo.ts')).toBeInTheDocument();
+    expect(screen.getByText('10: match')).toBeInTheDocument();
+    expect(screen.queryByText('texto arbitrário')).not.toBeInTheDocument();
+  });
+
   it('não introduz violações axe no resumo persistido expandido', async () => {
     const { container } = render(
       <ToolCallsSection

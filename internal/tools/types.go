@@ -61,6 +61,35 @@ type ToolResult struct {
 	Failure *ToolFailure `json:"failure,omitempty"`
 }
 
+// SearchResultPresentationMetadataKey é o único contrato de resultados de
+// busca que a interface pode interpretar. Ele vive em Metadata para nunca ser
+// reenviado ao modelo nem ser inferido do texto de saída de uma tool.
+const SearchResultPresentationMetadataKey = "search_result_presentation"
+
+// SearchResultPresentation descreve resultados acionáveis emitidos por tools
+// nativas. Integrações MCP não preenchem este contrato por convenção: o
+// consumidor não deve tentar deduzir resultados de JSON, Markdown ou texto de
+// terceiros (AEP-0107).
+type SearchResultPresentation struct {
+	Version   int                `json:"version"`
+	Total     int                `json:"total"`
+	Truncated bool               `json:"truncated,omitempty"`
+	Items     []SearchResultItem `json:"items"`
+}
+
+type SearchResultItem struct {
+	Kind    string              `json:"kind"`
+	Title   string              `json:"title"`
+	Snippet string              `json:"snippet,omitempty"`
+	Target  *SearchResultTarget `json:"target,omitempty"`
+}
+
+type SearchResultTarget struct {
+	Kind string `json:"kind"`
+	Path string `json:"path,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+
 // ToolFailure é o contrato estruturado de falha entre a tool, o executor
 // comum e seus chamadores (chat, jobs e dry-run).
 type ToolFailure struct {

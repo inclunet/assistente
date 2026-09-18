@@ -309,7 +309,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		inv.RetryabilityKnown = exec.RetryabilityKnown
 		inv.CompletedAt = &completedAt
 		inv.DurationMs = exec.DurationMs
-		inv.Metadata = s.buildInvocationDisplayMetadata(persistenceCall, req.Iteration, exec.DurationMs, false)
+		inv.Metadata = s.buildInvocationMetadata(persistenceCall, req.Iteration, exec.DurationMs, false, exec.Result)
 		opCtx, cancel := s.persistOpCtx(persistCtx)
 		err := s.repo.Complete(opCtx, inv.ID, &inv)
 		cancel()
@@ -847,6 +847,30 @@ func (s *Service) buildInvocationDisplayMetadata(call tools.ToolCall, iteration 
 		arguments = redactArgumentsJSON(call.Function.Arguments)
 	}
 	return buildInvocationDisplayMetadata(call, arguments, iteration, durationMs, external, s.persistMaxInputSize)
+}
+
+// buildInvocationMetadata acrescenta somente o contrato de apresentação
+// explicitamente emitido por buscas nativas. Nunca promove metadata genérica
+// nem conteúdo de integrações MCP para a camada de interface.
+func (s *Service) buildInvocationMetadata(call tools.ToolCall, iteration int, durationMs int64, external bool, result tools.ToolResult) json.RawMessage {
+	base := s.buildInvocationDisplayMetadata(call, iteration, durationMs, external)
+	if external || (call.Function.Name != "search_files" && call.Function.Name != "grep_search") {
+		return base
+	}
+	presentation, ok := result.Metadata[tools.SearchResultPresentationMetadataKey].(tools.SearchResultPresentation)
+	if !ok || presentation.Version != 1 {
+		return base
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(base, &payload); err != nil || payload == nil {
+		return base
+	}
+	payload[tools.SearchResultPresentationMetadataKey] = presentation
+	merged, err := json.Marshal(payload)
+	if err != nil {
+		return base
+	}
+	return merged
 }
 
 func buildInvocationDisplayMetadata(call tools.ToolCall, arguments string, iteration int, durationMs int64, external bool, maxBytes int) json.RawMessage {

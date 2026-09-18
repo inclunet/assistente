@@ -299,3 +299,32 @@
   flex-shrink: 0;
   margin-left: auto;
 }
+
+.tool-calls-section__search-summary {
+  margin: 0 0 12px;
+  color: var(--text-muted);
+}
+
+.tool-calls-section__search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tool-calls-section__search-result {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.tool-calls-section__search-result:last-child {
+  border-bottom: none;
+}
+
+.tool-calls-section__search-result p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono, 'Fira Code', monospace);
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
