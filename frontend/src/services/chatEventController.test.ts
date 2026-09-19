@@ -274,6 +274,41 @@ describe('chatEventController', () => {
     expect(sessions['conversation-1'].activeToolCalls).toEqual([]);
   });
 
+  it('mantém cancelamento distinto de falha no estado ao vivo e no anúncio', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-cancel', assistantMessageId: 'assistant-cancel' };
+
+    emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-cancel', origin: 'builtin' });
+    emitEvent('chat:tool_end', {
+      ...identity,
+      name: 'run_command',
+      callId: 'call-cancel',
+      status: 'error',
+      errorKind: 'cancelled',
+      origin: 'builtin',
+    });
+
+    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('cancelled');
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.toolRunCommand. chat.toolStatusCancelled',
+      'polite',
+      undefined,
+    );
+    expect(mockAnnounceWithOrigin).not.toHaveBeenCalled();
+
+    emitEvent('chat:tool_failure', {
+      ...identity,
+      name: 'run_command',
+      callId: 'call-cancel',
+      errorKind: 'cancelled',
+      willRetry: false,
+      origin: 'builtin',
+    });
+    expect(mockAnnounceWithOrigin).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     resetChatEventHubForTests();
@@ -886,7 +921,7 @@ describe('chatEventController', () => {
 
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
-      'chat.toolRunning',
+      'chat.toolGeneric. chat.toolStatusRunning',
       'polite',
       undefined,
     );
@@ -902,7 +937,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(2);
     expect(mockAnnounceForActiveChatConversation).toHaveBeenLastCalledWith(
       'conversation-1',
-      'chat.toolDone',
+      'chat.toolGeneric. chat.toolStatusSucceeded',
       'polite',
       undefined,
     );
@@ -942,7 +977,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
-      'chat.toolDone',
+      'chat.toolGeneric. chat.toolStatusSucceeded; chat.toolGeneric. chat.toolStatusSucceeded',
       'polite',
       undefined,
     );
@@ -996,7 +1031,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-2',
-      'chat.toolRunning',
+      'chat.toolGeneric. chat.toolStatusRunning',
       'polite',
       undefined,
     );
@@ -1030,7 +1065,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(2);
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
-      'chat.toolRetrying',
+      'chat.toolGeneric. chat.toolStatusRetrying',
       'polite',
       undefined,
     );
@@ -1046,7 +1081,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(2);
     expect(mockAnnounceForActiveChatConversation).toHaveBeenLastCalledWith(
       'conversation-1',
-      'chat.toolRunning',
+      'chat.toolGeneric. chat.toolStatusRunning',
       'polite',
       undefined,
     );
@@ -1393,7 +1428,7 @@ describe('chatEventController', () => {
     expect(mockAnnounce).toHaveBeenCalledWith('Maria via telegram: olá externo');
   });
 
-  it('anuncia a ferramenta do agente como dele mesmo quando o fim não repete a origem', () => {
+  it('anuncia a ferramenta do agente sem expor seu nome técnico quando o fim não repete a origem', () => {
     const { adapter } = createAdapter(['conversation-1']);
 
     startChatEventController({
@@ -1421,10 +1456,37 @@ describe('chatEventController', () => {
 
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
-      'chat.agentToolDone',
+      'chat.toolGeneric. chat.toolStatusSucceeded',
       'polite',
       undefined,
     );
+  });
+
+  it('preserva o provedor MCP no anúncio amigável de falha mesmo quando a falha omite a origem', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({
+      conversationId: 'conversation-1',
+      external: { channel: 'telegram', from: 'Maria', text: 'fallback externo' },
+      adapter,
+    });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      name: 'crm_internal_lookup_v2',
+      callId: 'call-mcp',
+      origin: 'mcp_native',
+      serverLabel: 'CRM Exemplo',
+    });
+    emitEvent('chat:tool_failure', {
+      conversationId: 'conversation-1',
+      name: 'crm_internal_lookup_v2',
+      callId: 'call-mcp',
+      willRetry: false,
+    });
+
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'chat.toolMcpProvider. chat.toolStatusFailed',
+    }));
   });
 
   it('aplica patch canônico multi-segmento sem recarregar snapshot completo', () => {

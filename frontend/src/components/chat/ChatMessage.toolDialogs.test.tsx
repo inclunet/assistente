@@ -63,7 +63,6 @@ describe('ChatMessage tool dialog host', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /chat\.toolsRunningLabel/ }));
     fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('chat.toolStatusRunning');
 
@@ -160,7 +159,6 @@ describe('ChatMessage tool dialog host', () => {
         />
       </ToolInvocationDialogsProvider>
     );
-    fireEvent.click(screen.getByRole('button', { name: /chat\.toolsUsedLabel/ }));
     fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
     expect(await screen.findByText('segredo')).toBeInTheDocument();
     currentUser.id = 'user-b';
@@ -236,7 +234,6 @@ describe('ChatMessage tool dialog host', () => {
         />
       </ToolInvocationDialogsProvider>
     );
-    fireEvent.click(screen.getByRole('button', { name: /chat\.toolsUsedLabel/ }));
     fireEvent.click(screen.getByRole('button', { name: 'chat.viewSearchResults' }));
     currentUser.id = 'user-c';
     await act(async () => {

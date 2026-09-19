@@ -77,13 +77,13 @@ func (h *SimpleStreamHandler) OnError(err string) {
 	if h.suppressTerminalError && !h.ErrorNotRetryable() {
 		h.DiscardStreamReasoning()
 		_, _ = h.Finalize()
-		h.closePendingAgentTools()
+		h.closePendingAgentTools(h.pendingToolErrorKind())
 		return
 	}
 	h.FlushStream()
 	h.FinishThinkingIfActive()
 	_, _ = h.Finalize()
-	h.closePendingAgentTools()
+	h.closePendingAgentTools(h.pendingToolErrorKind())
 	streamEvent := events.StreamEvent{
 		MessageID:            h.AssistantMessageID,
 		Done:                 true,
@@ -174,7 +174,7 @@ func (h *SimpleStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
 	remainingSpeech, readInSegments := h.UnreadTail()
 	accumulatedContent, accumulatedReasoning := h.Finalize()
-	h.closePendingAgentTools()
+	h.closePendingAgentTools(h.pendingToolErrorKind())
 
 	finalContent := fullResponse
 	if finalContent == "" {
@@ -195,4 +195,11 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 		ReadInSegments:  readInSegments,
 		RemainingSpeech: remainingSpeech,
 	}, h.profileSlug, nil, h.SurfaceOrigin)
+}
+
+func (h *SimpleStreamHandler) pendingToolErrorKind() string {
+	if h.ctx != nil && errors.Is(h.ctx.Err(), context.Canceled) {
+		return "cancelled"
+	}
+	return "unknown"
 }
