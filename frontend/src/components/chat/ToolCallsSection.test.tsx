@@ -200,4 +200,84 @@ describe('ToolCallsSection', () => {
     expect(screen.getByText('chat.partialOutput: parcial')).toBeInTheDocument();
   });
 
+  it('trata done do streaming como concluído', () => {
+    render(<ToolCallsSection activeToolCalls={[{ name: 'search', callId: 'done', status: 'done', args: '{"token":"secret"}' }]} tabNavigationEnabled />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.getByText('chat.toolStatusSucceeded')).toBeInTheDocument();
+  });
+
+  it('sanitiza o fallback de argumentos no modal e acompanha a transição do ativo', async () => {
+    const props = { activeToolCalls: [{ name: 'search', callId: 'same', status: 'running' as const, args: '{"password":"secret"}', summary: 'parcial' }] };
+    const { rerender } = render(<ToolCallsSection {...props} tabNavigationEnabled />);
+    fireEvent.click(screen.getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
+    expect(screen.getByRole('dialog').querySelector('.tool-calls-section__args')).toHaveTextContent('[redacted]');
+    expect(screen.getByRole('dialog')).toHaveTextContent('chat.toolStatusRunning');
+
+    loadDetails.mockResolvedValue(new Map([['inv-transition', {
+      invocationId: 'inv-transition', input: '{"password":"secret"}', output: '{"content":"integral"}', metadata: '{}',
+    }]]));
+    rerender(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+      invocationId: 'inv-transition', callId: 'same', name: 'search', status: 'succeeded',
+      inputPreview: '{"password":"[redacted]"}', outputPreview: 'preview', hasDetails: true, resultAvailability: 'available',
+    }]} />);
+    expect(screen.getByRole('dialog')).toHaveTextContent('chat.toolStatusSucceeded');
+    expect(await screen.findByText('integral')).toBeInTheDocument();
+  });
+
+  it('mantém o modal acessível durante loading e restaura foco após fechar', async () => {
+    loadDetails.mockResolvedValue(new Map([['inv-modal', {
+      invocationId: 'inv-modal', input: '{}', output: '{"content":"ok"}', metadata: '{}',
+    }]]));
+    const { container } = render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+      invocationId: 'inv-modal', callId: 'modal', name: 'search', status: 'succeeded', hasDetails: true, resultAvailability: 'available',
+    }]} />);
+    fireEvent.click(screen.getByRole('button'));
+    const details = screen.getByRole('button', { name: 'chat.technicalDetails' });
+    details.focus();
+    fireEvent.click(details);
+    expect(await screen.findByText('ok')).toBeInTheDocument();
+    expect(await axe(container)).toHaveNoViolations();
+    fireEvent.click(screen.getByRole('button', { name: 'ui.modal.close' }));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(document.activeElement).toBe(details);
+  });
+
+  it('não aplica resposta obsoleta ao fechar e abrir outra invocação', async () => {
+    let resolveFirst!: (value: Map<string, unknown>) => void;
+    const first = new Promise<Map<string, unknown>>((resolve) => { resolveFirst = resolve; });
+    loadDetails.mockImplementation((_: string, ids: string[]) => ids[0] === 'first' ? first : Promise.resolve(new Map([['second', {
+      invocationId: 'second', input: '{}', output: '{"content":"segundo"}', metadata: '{}',
+    }]])));
+    const { rerender } = render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+      invocationId: 'first', callId: 'first', name: 'search', status: 'succeeded', hasDetails: true, resultAvailability: 'available',
+    }]} />);
+    fireEvent.click(screen.getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ui.modal.close' }));
+    rerender(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+      invocationId: 'second', callId: 'second', name: 'search', status: 'succeeded', hasDetails: true, resultAvailability: 'available',
+    }]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
+    resolveFirst(new Map([['first', { invocationId: 'first', input: '{}', output: '{"content":"primeiro"}', metadata: '{}' }]]));
+    expect(await screen.findByText('segundo')).toBeInTheDocument();
+    expect(screen.queryByText('primeiro')).not.toBeInTheDocument();
+  });
+
+  it('avisa limite da busca e pagina os 100 itens preservados', async () => {
+    const items = Array.from({ length: 150 }, (_, index) => ({ kind: 'text', title: `resultado-${index + 1}` }));
+    loadDetails.mockResolvedValue(new Map([['inv-limit', { invocationId: 'inv-limit', metadata: JSON.stringify({ search_result_presentation: { version: 1, total: 150, items } }) }]]));
+    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+      invocationId: 'inv-limit', callId: 'limit', name: 'search_files', status: 'succeeded', hasDetails: true, hasSearchResults: true, searchResultCount: 150, resultAvailability: 'available',
+    }]} />);
+    fireEvent.click(screen.getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: 'chat.viewSearchResults' }));
+    expect(await screen.findByText(/resultado-20/)).toBeInTheDocument();
+    expect(screen.queryByText('resultado-101')).not.toBeInTheDocument();
+    expect(screen.getByText(/chat.searchResultsTruncated/)).toBeInTheDocument();
+    for (let page = 0; page < 4; page += 1) fireEvent.click(screen.getByRole('button', { name: 'chat.nextPage' }));
+    expect(screen.getByText('resultado-100')).toBeInTheDocument();
+    expect(screen.queryByText('resultado-101')).not.toBeInTheDocument();
+  });
+
 });

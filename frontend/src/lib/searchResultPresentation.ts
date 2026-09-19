@@ -60,6 +60,12 @@ export function parseSearchResultPresentation(metadata: string | undefined): Sea
       const itemTarget = target(item.target);
       items.push({ kind, title, ...(snippet ? { snippet } : {}), ...(itemTarget ? { target: itemTarget } : {}) });
     }
-    return { total: value.total as number, truncated: value.truncated === true, items };
+    // O limite local é deliberado (AEP-0102), mas nunca pode fazer uma
+    // resposta maior parecer completa para a pessoa usuária.
+    return {
+      total: value.total as number,
+      truncated: value.truncated === true || items.length < (value.total as number),
+      items,
+    };
   } catch { return undefined; }
 }

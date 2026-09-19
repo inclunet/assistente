@@ -22,4 +22,13 @@ describe('parseSearchResultPresentation', () => {
       },
     }))).toEqual({ total: 1, truncated: false, items: [{ kind: 'url', title: 'arquivo' }] });
   });
+
+  it('sinaliza limite defensivo quando total excede os itens preservados', () => {
+    const items = Array.from({ length: 101 }, (_, index) => ({ kind: 'text', title: `item-${index}` }));
+    const parsed = parseSearchResultPresentation(JSON.stringify({
+      search_result_presentation: { version: 1, total: 150, items },
+    }));
+    expect(parsed?.items).toHaveLength(100);
+    expect(parsed?.truncated).toBe(true);
+  });
 });
