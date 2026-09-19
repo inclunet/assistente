@@ -199,7 +199,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     const calls = new Map<string, ToolInvocationDialogCall>();
     const put = (call: ToolInvocationDialogCall) => calls.set(call.callId, call);
     rawTurnSegments.forEach((segment) => {
-      segment.toolCalls?.forEach((call) => put({ callId: call.id, name: call.function.name, args: call.function.arguments, status: call.status ?? 'done', summary: call.result, origin: call.origin ?? 'builtin' }));
+      segment.toolCalls?.forEach((call) => put({ callId: call.id, name: call.function.name, args: call.function.arguments, status: call.status ?? 'done', summary: call.result, origin: call.origin ?? 'builtin', serverLabel: call.serverLabel }));
     });
     effectiveToolCalls?.forEach(put);
     rawTurnSegments.forEach((segment) => segment.toolInvocations?.forEach((call: ToolInvocationSummary) => put(call)));
@@ -599,6 +599,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                         status: call.status ?? 'done',
                         summary: call.result,
                         origin: call.origin ?? 'builtin',
+                        serverLabel: call.serverLabel,
                       }))}
                       tabNavigationEnabled={isReading}
                     />

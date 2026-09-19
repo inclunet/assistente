@@ -11,6 +11,20 @@ export interface ToolPresentation {
   target?: ToolTarget;
 }
 
+type TranslateToolPresentation = (
+  key: string,
+  values?: Record<string, string>,
+) => string;
+
+/** Fonte única do texto curto usado no card e no anúncio acessível. */
+export function formatToolPresentation(
+  presentation: ToolPresentation,
+  translate: TranslateToolPresentation,
+): string {
+  const action = translate(presentation.labelKey, presentation.labelValues);
+  return presentation.target ? `${action}: ${presentation.target.label}` : action;
+}
+
 function parseArguments(raw?: string): Record<string, unknown> | undefined {
   if (!raw) return undefined;
   try {
@@ -52,11 +66,13 @@ function urlTarget(value: string): ToolTarget | undefined {
  */
 export function presentTool(name: string, origin?: ToolOrigin, serverLabel?: string, rawArgs?: string): ToolPresentation {
   if (origin === 'mcp_bridge' || origin === 'mcp_native') {
-    return { labelKey: 'chat.toolMcpProvider', labelValues: { provider: serverLabel || 'MCP' } };
+    return serverLabel?.trim()
+      ? { labelKey: 'chat.toolMcpProvider', labelValues: { provider: serverLabel.trim() } }
+      : { labelKey: 'chat.toolMcpIntegration' };
   }
 
   if (origin !== undefined && origin !== 'builtin') {
-    return { labelKey: 'chat.toolGeneric', labelValues: { name } };
+    return { labelKey: 'chat.toolGeneric' };
   }
 
   const args = parseArguments(rawArgs);
@@ -70,13 +86,13 @@ export function presentTool(name: string, origin?: ToolOrigin, serverLabel?: str
     case 'write_file':
     case 'edit_file':
     case 'apply_patch': return { labelKey: 'chat.toolEditFile', target: fileTarget };
-    case 'list_directory': return { labelKey: 'chat.toolListDirectory', target: fileTarget };
+    case 'list_directory': return { labelKey: 'chat.toolListDirectory' };
     case 'search_files':
-    case 'grep_search': return { labelKey: 'chat.toolSearchFiles', target: fileTarget };
+    case 'grep_search': return { labelKey: 'chat.toolSearchFiles' };
     case 'web_search':
     case 'search_web': return { labelKey: 'chat.toolSearchWeb', target: webTarget };
     case 'web_fetch':
     case 'http_request': return { labelKey: 'chat.toolAccessUrl', target: webTarget };
-    default: return { labelKey: 'chat.toolGeneric', labelValues: { name } };
+    default: return { labelKey: 'chat.toolGeneric' };
   }
 }

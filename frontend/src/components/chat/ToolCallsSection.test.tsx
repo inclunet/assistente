@@ -31,8 +31,8 @@ describe('ToolCallsSection', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button'));
     expect(screen.getByText('chat.toolGeneric')).toBeInTheDocument();
+    expect(screen.queryByText('Search')).not.toBeInTheDocument();
   });
 
   it('torna os controles focáveis somente durante a leitura', () => {
@@ -70,7 +70,6 @@ describe('ToolCallsSection', () => {
     );
 
     expect(loadDetails).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button'));
     expect(screen.getByText('prévia')).toBeInTheDocument();
     const detailsButton = screen.getByRole('button', { name: 'chat.technicalDetails' });
     expect(detailsButton).toHaveAttribute('tabindex', '0');
@@ -93,7 +92,6 @@ describe('ToolCallsSection', () => {
       hasDetails: true, resultAvailability: 'available', hasSearchResults: true, searchResultCount: 1,
     }]} />);
 
-    fireEvent.click(screen.getByRole('button'));
     fireEvent.click(screen.getByRole('button', { name: 'chat.viewSearchResults' }));
 
     expect(await screen.findByText('arquivo.ts')).toBeInTheDocument();
@@ -113,7 +111,6 @@ describe('ToolCallsSection', () => {
       hasDetails: true, resultAvailability: 'available', hasSearchResults: true, searchResultCount: 21,
     }]} />);
 
-    fireEvent.click(screen.getByRole('button'));
     fireEvent.click(screen.getByRole('button', { name: 'chat.viewSearchResults' }));
     expect(await screen.findByText('arquivo-20.ts')).toBeInTheDocument();
     expect(screen.queryByText('arquivo-21.ts')).not.toBeInTheDocument();
@@ -139,7 +136,6 @@ describe('ToolCallsSection', () => {
         }]}
       />,
     );
-    fireEvent.click(screen.getByRole('button'));
     expect(await axe(container)).toHaveNoViolations();
   });
 
@@ -159,7 +155,6 @@ describe('ToolCallsSection', () => {
         }]}
       />,
     );
-    fireEvent.click(screen.getByRole('button'));
     expect(screen.getByText('chat.toolMcpProvider')).toBeInTheDocument();
     expect(screen.getByText('1.5s')).toBeInTheDocument();
   });
@@ -174,10 +169,9 @@ describe('ToolCallsSection', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button'));
-
     expect(screen.getAllByText('chat.toolGeneric')).toHaveLength(1);
     expect(screen.getByText('chat.toolReadFile')).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
   });
 
   it('mantém estados persistidos canônicos perceptíveis sem prometer sucesso', () => {
@@ -192,7 +186,6 @@ describe('ToolCallsSection', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button'));
     expect(screen.getAllByText('chat.toolStatusRunning')).toHaveLength(1);
     expect(screen.getByText('chat.toolStatusFailed')).toBeInTheDocument();
     expect(screen.getByText('chat.toolStatusCancelled')).toBeInTheDocument();
@@ -202,14 +195,12 @@ describe('ToolCallsSection', () => {
 
   it('trata done do streaming como concluído', () => {
     render(<ToolCallsSection activeToolCalls={[{ name: 'search', callId: 'done', status: 'done', args: '{"token":"secret"}' }]} tabNavigationEnabled />);
-    fireEvent.click(screen.getByRole('button'));
     expect(screen.getByText('chat.toolStatusSucceeded')).toBeInTheDocument();
   });
 
   it('sanitiza o fallback de argumentos no modal e acompanha a transição do ativo', async () => {
     const props = { activeToolCalls: [{ name: 'search', callId: 'same', status: 'running' as const, args: '{"password":"secret"}', summary: 'parcial' }] };
     const { rerender } = render(<ToolCallsSection {...props} tabNavigationEnabled />);
-    fireEvent.click(screen.getByRole('button'));
     fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
     expect(screen.getByRole('dialog').querySelector('.tool-calls-section__args')).toHaveTextContent('[redacted]');
     expect(screen.getByRole('dialog')).toHaveTextContent('chat.toolStatusRunning');
@@ -232,7 +223,6 @@ describe('ToolCallsSection', () => {
     const { container } = render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
       invocationId: 'inv-modal', callId: 'modal', name: 'search', status: 'succeeded', hasDetails: true, resultAvailability: 'available',
     }]} />);
-    fireEvent.click(screen.getByRole('button'));
     const details = screen.getByRole('button', { name: 'chat.technicalDetails' });
     details.focus();
     fireEvent.click(details);
@@ -252,7 +242,6 @@ describe('ToolCallsSection', () => {
     const { rerender } = render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
       invocationId: 'first', callId: 'first', name: 'search', status: 'succeeded', hasDetails: true, resultAvailability: 'available',
     }]} />);
-    fireEvent.click(screen.getByRole('button'));
     fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
     fireEvent.click(screen.getByRole('button', { name: 'ui.modal.close' }));
     rerender(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
@@ -270,7 +259,6 @@ describe('ToolCallsSection', () => {
     render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
       invocationId: 'inv-limit', callId: 'limit', name: 'search_files', status: 'succeeded', hasDetails: true, hasSearchResults: true, searchResultCount: 150, resultAvailability: 'available',
     }]} />);
-    fireEvent.click(screen.getByRole('button'));
     fireEvent.click(screen.getByRole('button', { name: 'chat.viewSearchResults' }));
     expect(await screen.findByText(/resultado-20/)).toBeInTheDocument();
     expect(screen.queryByText('resultado-101')).not.toBeInTheDocument();

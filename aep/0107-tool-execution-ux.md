@@ -153,6 +153,13 @@ Essa separação evita que output parcial pareça sucesso e mantém o fluxo de c
 - [x] Implementar modal de resultados, limites e paginação.
 - [x] Avaliar decodificadores explícitos para outputs MCP compatíveis, sem heurística sobre texto livre. Decisão: não introduzir decodificadores nesta fase; MCP permanece plug and play pelo provedor. Um contrato futuro deverá ser explicitamente opt-in e versionado pelo servidor.
 
+### Fase 4 — Correção de aderência na superfície e nos anúncios
+
+- [x] Remover o agrupador recolhível por rodada e exibir cada invocação diretamente como card cronológico.
+- [x] Usar a mesma apresentação amigável do card nos anúncios de início, conclusão, falha e nova tentativa.
+- [x] Preservar argumentos e nome público do provedor no agregador acessível, sem anunciar nomes técnicos ou paths absolutos.
+- [x] Cobrir cards sempre visíveis, navegação por teclado, acessibilidade e anúncios localizados em testes.
+
 ## Não objetivos
 
 - Criar um navegador de arquivos próprio.
@@ -204,6 +211,15 @@ A validação local inclui a suíte completa Go e Vitest, build, vet, lints,
 TypeScript e detector de corrida nos pacotes afetados. A revisão independente
 local não tem pendências acionáveis. Não houve validação manual com NVDA nesta
 rodada; a cobertura automatizada de acessibilidade não a substitui.
+
+### Correção pós-integração
+
+O teste manual do build integrado revelou duas divergências da decisão original:
+os anúncios acessíveis ainda interpolavam nomes técnicos e a timeline escondia
+as invocações sob um resumo por rodada. A Fase 4 elimina ambos os caminhos
+legados. Card e leitor de telas passam a consumir a mesma função de apresentação;
+cada invocação permanece visível em sua posição cronológica, com detalhes
+técnicos disponíveis somente sob demanda.
 
 ## Riscos
 

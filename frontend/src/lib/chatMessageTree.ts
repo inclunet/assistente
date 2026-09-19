@@ -27,6 +27,7 @@ export interface StreamingToolCall {
   function: { name: string; arguments: string };
   result?: string;
   origin?: ToolOrigin;
+  serverLabel?: string;
   status?: 'running' | 'done' | 'error';
 }
 

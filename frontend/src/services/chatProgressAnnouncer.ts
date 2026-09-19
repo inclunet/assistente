@@ -6,7 +6,9 @@ export const CHAT_PROGRESS_BURST_WINDOW_MS = 250;
 export interface ChatProgressTool {
   callId: string;
   name: string;
+  args?: string;
   origin?: ToolOrigin;
+  serverLabel?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
 
@@ -55,10 +57,12 @@ export function createChatProgressAnnouncer({
   const getUnannounced = () => Array.from(pending.values()).filter(
     (tool) => tool.state === 'pending' || tool.state === 'completed',
   );
-  const publicTool = ({ callId, name, origin, surfaceOrigin }: PendingTool): ChatProgressTool => ({
+  const publicTool = ({ callId, name, args, origin, serverLabel, surfaceOrigin }: PendingTool): ChatProgressTool => ({
     callId,
     name,
+    args,
     origin,
+    serverLabel,
     surfaceOrigin,
   });
 
@@ -98,7 +102,9 @@ export function createChatProgressAnnouncer({
       if (current) {
         if (current.state === 'done') return;
         current.name = tool.name;
+        current.args = tool.args ?? current.args;
         current.origin = tool.origin ?? current.origin;
+        current.serverLabel = tool.serverLabel ?? current.serverLabel;
         current.surfaceOrigin = tool.surfaceOrigin ?? current.surfaceOrigin;
         // A duplicate start for an already announced or completed call must
         // not reopen it. A retry removes the old entry before this point.
