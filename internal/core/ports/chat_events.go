@@ -194,6 +194,7 @@ type ToolEndEvent struct {
 	Name               string             `json:"name,omitempty"`
 	CallID             string             `json:"callId"`
 	Status             string             `json:"status"`
+	ErrorKind          string             `json:"errorKind,omitempty"`
 	Summary            string             `json:"summary,omitempty"`
 	Error              string             `json:"error,omitempty"`
 	ServerLabel        string             `json:"serverLabel,omitempty"`

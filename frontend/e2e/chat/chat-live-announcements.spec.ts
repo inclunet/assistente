@@ -20,13 +20,15 @@ test('anuncia ferramenta pendente antes do fim e depois sua conclusão', async (
   const identity = { conversationId, turnId: userMessageId, assistantMessageId, callId: 'pending-call', name: 'consulta_demora' };
   await wails.emit('chat:tool_start', identity);
   const status = page.locator('.sr-announcer [role="status"]');
-  await expect(status).toContainText('consulta_demora');
-  await expect(page.locator('.tool-calls-section--running')).toContainText(/Ferramentas em execução|Tools running|Herramientas en ejecución/);
+  await expect(status).toContainText(/Executando ferramenta|Running tool|Ejecutando herramienta/);
+  await expect(status).not.toContainText('consulta_demora');
+  await expect(page.locator('.tool-calls-section__item--running')).toBeVisible();
   await expect(input).toBeFocused();
   const runningAnnouncement = await status.textContent();
 
   await wails.emit('chat:tool_end', { ...identity, status: 'ok', summary: 'Consulta concluída' });
-  await expect(status).toContainText('consulta_demora');
+  await expect(status).toContainText(/Concluída|Completed|Completada/);
+  await expect(status).not.toContainText('consulta_demora');
   await expect(status).not.toHaveText(runningAnnouncement ?? '');
   await expect(input).toBeFocused();
   await expect(page.locator('.sr-announcer')).toHaveCount(1);

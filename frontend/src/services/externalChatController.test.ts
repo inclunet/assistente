@@ -66,6 +66,7 @@ describe('externalChatController', () => {
       from: 'Maria',
       text: 'oi',
       conversationId: 'conversation-1',
+      traceId: 'trace-1',
     }, adapter);
 
     expect(adapter.loadConversationSession).toHaveBeenCalledWith('conversation-1');
@@ -82,6 +83,7 @@ describe('externalChatController', () => {
         sessionKey: 'external:telegram:Maria:conversation-1',
         surfaceId: 'external:telegram:Maria',
         surfaceType: 'external',
+        executionId: 'trace-1',
       }),
       adapter: chatEventAdapter,
     });

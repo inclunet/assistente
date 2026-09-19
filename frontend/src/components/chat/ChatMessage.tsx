@@ -16,6 +16,7 @@ import { useChatMessageLiveState } from './ChatSessionContext';
 import { isAgentMessage } from '../../lib/chatUtils';
 import { formatRelativeTime } from '../../lib/dateUtils';
 import { buildChatMessageAriaLabel } from '../../lib/chatMessageAriaLabel';
+import { formatToolPresentation, presentTool } from '../../lib/toolPresentation';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import './ChatMessage.css';
 
@@ -119,10 +120,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     : persistedTurnSegments || completedSegments || [];
   const persistedToolInvocations = (persistedTurnSegments ?? [])
     .flatMap((segment) => segment.toolInvocations ?? []);
-  const toolNames = rawTurnSegments.flatMap((segment) => [
-    ...(segment.toolInvocations ?? []).map((invocation) => invocation.name),
-    ...(segment.toolCalls ?? []).map((call) => call.function.name),
-  ]);
   const hasAgenticSegments = rawTurnSegments.length > 0
     || (effectiveIsStreaming && (effectiveToolCalls?.length ?? 0) > 0);
   const isAgenticStreaming = effectiveIsStreaming && hasAgenticSegments;
@@ -199,12 +196,21 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     const calls = new Map<string, ToolInvocationDialogCall>();
     const put = (call: ToolInvocationDialogCall) => calls.set(call.callId, call);
     rawTurnSegments.forEach((segment) => {
-      segment.toolCalls?.forEach((call) => put({ callId: call.id, name: call.function.name, args: call.function.arguments, status: call.status ?? 'done', summary: call.result, origin: call.origin ?? 'builtin' }));
+      segment.toolCalls?.forEach((call) => put({ callId: call.id, name: call.function.name, args: call.function.arguments, status: call.status ?? 'done', summary: call.result, origin: call.origin ?? 'builtin', serverLabel: call.serverLabel }));
     });
     effectiveToolCalls?.forEach(put);
     rawTurnSegments.forEach((segment) => segment.toolInvocations?.forEach((call: ToolInvocationSummary) => put(call)));
     return [...calls.values()];
   }, [effectiveToolCalls, rawTurnSegments]);
+  const toolLabels = useMemo(() => dialogCalls.map((call) => formatToolPresentation(
+    presentTool(
+      call.name,
+      call.origin,
+      call.serverLabel,
+      'args' in call ? call.args : ('inputPreview' in call ? call.inputPreview : undefined),
+    ),
+    (key, values) => t(key, values),
+  )), [dialogCalls, t]);
 
   // Usa editContent externo se está editando
   const editContent = isEditing ? externalEditContent : effectiveContent;
@@ -261,6 +267,13 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     const roleLabel = getDisplayRole();
     const relativeTime = formatRelativeTime(timestamp);
     const timePrefix = role === 'user' ? t('chat.sent') : t('chat.received');
+    const localized = {
+      responding: t('chat.typing'),
+      reasoning: t('chat.reasoning'),
+      textEditApplied: t('chat.ariaTextEditApplied'),
+      noTextContent: t('chat.pins.noTextContent'),
+      playAudioHint: t('chat.ariaPlayAudioHint'),
+    };
 
     // Issue #160: em turnos agênticos o anúncio usa só a conclusão do turno; nos
     // demais (mensagem simples) mantém-se o conteúdo principal `displayContent`.
@@ -282,9 +295,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         isReasoningExpanded: false,
         reasoning: null,
         streamingReasoning: null,
-        toolNames,
+        toolLabels,
         toolCallsHasTextEdit,
         codeBlockLabel: t('chat.codeBlockSpeechLabel'),
+        localized,
       });
     }
 
@@ -298,9 +312,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       isReasoningExpanded,
       reasoning: effectiveReasoning,
       streamingReasoning,
-      toolNames,
+      toolLabels,
       toolCallsHasTextEdit,
       codeBlockLabel: t('chat.codeBlockSpeechLabel'),
+      localized,
     });
   };
 
@@ -599,6 +614,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                         status: call.status ?? 'done',
                         summary: call.result,
                         origin: call.origin ?? 'builtin',
+                        serverLabel: call.serverLabel,
                       }))}
                       tabNavigationEnabled={isReading}
                     />

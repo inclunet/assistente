@@ -1,7 +1,7 @@
 import { logger } from '../utils/logger';
 import i18next from 'i18next';
 import { chat } from '../../wailsjs/go/models';
-import { isAppToolEvent, type ToolCallStatus, type ToolOrigin } from '../types/chat';
+import { type ToolCallStatus, type ToolOrigin } from '../types/chat';
 import type { MediaFile } from './mediaService';
 import { announce } from '../hooks/useAnnouncer';
 import {
@@ -23,6 +23,7 @@ import {
   playChatErrorSoundIfActive,
 } from './chatArbitration';
 import { announceWithOrigin } from './voiceAccessibility/announcerBroker';
+import { formatToolPresentation, presentTool } from '../lib/toolPresentation';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
 import { createChatProgressAnnouncer } from './chatProgressAnnouncer';
 import type { ChatSurfaceOrigin, MessageWindowState } from './chatSessionRegistry';
@@ -101,6 +102,7 @@ interface ChatToolStartEvent {
   args?: string;
   summary?: string;
   origin?: ToolOrigin;
+  serverLabel?: string;
   turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
@@ -111,8 +113,10 @@ interface ChatToolEndEvent {
   callId: string;
   name?: string;
   status?: string;
+  errorKind?: string;
   summary?: string;
   origin?: ToolOrigin;
+  serverLabel?: string;
   attempt?: number;
   turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
@@ -124,6 +128,7 @@ interface ChatToolFailureEvent {
   name: string;
   callId: string;
   origin?: ToolOrigin;
+  errorKind?: string;
   willRetry?: boolean;
   turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
@@ -169,6 +174,16 @@ interface ChatMediaProcessingEvent {
   status: 'started' | 'completed' | 'failed' | 'cancelled';
   error?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
+}
+
+function terminalToolStatus(event: ChatToolEndEvent): 'done' | 'error' | 'cancelled' {
+  const status = event.status?.toLowerCase();
+  if (event.errorKind === 'cancelled' || status === 'cancelled' || status === 'canceled') return 'cancelled';
+  if (status === 'error' || status === 'failed') return 'error';
+  if (status === 'ok' || status === 'done' || status === 'completed' || status === 'succeeded' || status === 'success') return 'done';
+  // Um tool_end é terminal. Status ausente ou desconhecido não pode promover
+  // uma execução a sucesso; o snapshot canônico corrigirá o estado ao final.
+  return 'error';
 }
 
 interface ChatTurnPatch {
@@ -248,13 +263,6 @@ export function getChatEventControllerExecutionId(conversationId: string) {
   return activeControllers.get(conversationId.toString())?.executionId;
 }
 
-/**
- * Origem já conhecida da ferramenta. O evento de fim costuma repeti-la, mas se
- * vier sem ela o anúncio não pode creditar ao app o que o agente fez.
- */
-const knownToolOrigin = (session: ChatEventSession, callId: string): ToolOrigin | undefined =>
-  session.activeToolCalls.find((tc) => tc.callId === callId)?.origin;
-
 export function stopChatEventController(conversationId: string) {
   const cleanup = activeControllers.get(conversationId.toString())?.cleanup;
   if (cleanup) cleanup();
@@ -291,6 +299,7 @@ export function startChatEventController({
   let pendingVisualContent: string | null = null;
   let animationFrameId: number | null = null;
   let streamingCommitted = false;
+  const announcedCancellationCallIds = new Set<string>();
   let resolveDone: () => void = () => {};
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve;
@@ -329,17 +338,11 @@ export function startChatEventController({
   const getEventOrigin = (event: { surfaceOrigin?: ChatSurfaceOrigin }) => event.surfaceOrigin ?? origin;
   const progressAnnouncer = createChatProgressAnnouncer({
     announce: (groups) => {
-      const messages = groups.map(({ state, tools }) => {
-        const names = Array.from(new Set(tools.map((tool) => tool.name))).join(', ');
-        if (!names) return '';
-        const fromApp = tools.every((tool) => isAppToolEvent(tool.origin));
-        return i18next.t(
-          state === 'done'
-            ? (fromApp ? 'chat.toolDone' : 'chat.agentToolDone')
-            : (fromApp ? 'chat.toolRunning' : 'chat.agentToolRunning'),
-          { name: names },
-        );
-      }).filter(Boolean);
+      const messages = groups.flatMap(({ state, tools }) => tools.map((tool) => {
+        const presentation = presentTool(tool.name, tool.origin, tool.serverLabel, tool.args);
+        const action = formatToolPresentation(presentation, (key, values) => i18next.t(key, values));
+        return `${action}. ${i18next.t(state === 'done' ? 'chat.toolStatusSucceeded' : 'chat.toolStatusRunning')}`;
+      }));
       if (messages.length === 0) return;
       const eventOrigin = groups.flatMap((group) => group.tools).find((tool) => tool.surfaceOrigin)?.surfaceOrigin ?? origin;
       announceForActiveChatConversation(
@@ -685,7 +688,12 @@ export function startChatEventController({
         getEventOrigin(event),
       );
     } else if (event.status === 'failed') {
-      announce(i18next.t('chat.mediaProcessing.failed'), 'assertive');
+      announceWithOrigin({
+        message: i18next.t('chat.mediaProcessing.failed'),
+        origin: getChatConversationVoiceOrigin(conversationId, undefined, getEventOrigin(event)),
+        eventType: 'error',
+        announcePriority: 'assertive',
+      });
     } else if (event.status === 'cancelled') {
       announceForActiveChatConversation(
         conversationId,
@@ -807,23 +815,26 @@ export function startChatEventController({
       activeToolCalls: existing >= 0
         ? session.activeToolCalls.map((tc) =>
           tc.callId === event.callId
-            ? { ...tc, name: event.name, callId: event.callId, args: event.args ?? tc.args, status: 'running' as const, summary: event.summary, origin: event.origin ?? tc.origin }
+            ? { ...tc, name: event.name, callId: event.callId, args: event.args ?? tc.args, status: 'running' as const, summary: event.summary, origin: event.origin ?? tc.origin, serverLabel: event.serverLabel ?? tc.serverLabel }
             : tc
         )
-        : [...session.activeToolCalls, { name: event.name, callId: event.callId, args: event.args, status: 'running' as const, summary: event.summary, origin: event.origin }],
+        : [...session.activeToolCalls, { name: event.name, callId: event.callId, args: event.args, status: 'running' as const, summary: event.summary, origin: event.origin, serverLabel: event.serverLabel }],
     });
     if (!external) {
       progressAnnouncer.toolStarted({
         callId: event.callId,
         name: event.name,
+        args: event.args,
         origin: event.origin,
+        serverLabel: event.serverLabel,
         surfaceOrigin: getEventOrigin(event),
       });
     }
     if (external) {
-      const runningMessage = isAppToolEvent(event.origin ?? knownToolOrigin(session, event.callId))
-        ? i18next.t('chat.toolRunning', { name: event.name })
-        : i18next.t('chat.agentToolRunning', { name: event.name });
+      const runningMessage = `${formatToolPresentation(
+        presentTool(event.name, event.origin, event.serverLabel, event.args),
+        (key, values) => i18next.t(key, values),
+      )}. ${i18next.t('chat.toolStatusRunning')}`;
       announceForActiveChatConversation(conversationId, runningMessage, 'polite', getEventOrigin(event));
     }
   });
@@ -832,32 +843,49 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
-    if (!external) progressAnnouncer.toolEnded(event.callId, event.status);
+    const terminalStatus = terminalToolStatus(event);
+    const cancelled = terminalStatus === 'cancelled';
+    if (!external) progressAnnouncer.toolEnded(event.callId, terminalStatus === 'done' ? 'ok' : 'error');
     ensureAssistantNode(event.assistantMessageId);
     const session = getCurrentSession();
     patchCurrentSession({
       activeToolCalls: session.activeToolCalls.map((tc) =>
         tc.callId === event.callId
-          ? { ...tc, status: (event.status === 'error' ? 'error' : 'done') as 'done' | 'error', summary: event.summary, origin: event.origin ?? tc.origin }
+          ? { ...tc, status: terminalStatus, summary: event.summary, origin: event.origin ?? tc.origin, serverLabel: event.serverLabel ?? tc.serverLabel }
           : tc
       ),
     });
-    if (!external) return;
-    const fromApp = isAppToolEvent(event.origin ?? knownToolOrigin(session, event.callId));
-    if (event.status !== 'error') {
-      const doneMessage = fromApp
-        ? i18next.t('chat.toolDone', { name: event.name })
-        : i18next.t('chat.agentToolDone', { name: event.name });
+    if (!external && !cancelled) return;
+    const finishedCall = session.activeToolCalls.find((tool) => tool.callId === event.callId);
+    if (cancelled) {
+      const cancelledMessage = `${formatToolPresentation(
+        presentTool(event.name ?? finishedCall?.name ?? '', event.origin ?? finishedCall?.origin, event.serverLabel ?? finishedCall?.serverLabel, finishedCall?.args),
+        (key, values) => i18next.t(key, values),
+      )}. ${i18next.t('chat.toolStatusCancelled')}`;
+      announceForActiveChatConversation(conversationId, cancelledMessage, 'polite', getEventOrigin(event));
+      announcedCancellationCallIds.add(event.callId);
+      return;
+    }
+    if (terminalStatus === 'done') {
+      const doneMessage = `${formatToolPresentation(
+        presentTool(event.name ?? finishedCall?.name ?? '', event.origin ?? finishedCall?.origin, event.serverLabel ?? finishedCall?.serverLabel, finishedCall?.args),
+        (key, values) => i18next.t(key, values),
+      )}. ${i18next.t('chat.toolStatusSucceeded')}`;
       announceForActiveChatConversation(conversationId, doneMessage, 'polite', getEventOrigin(event));
       return;
     }
     if (!('attempt' in event)) {
-      announce(
-        fromApp
-          ? i18next.t('chat.toolFailed', { name: event.name })
-          : i18next.t('chat.agentToolFailed', { name: event.name }),
-        'assertive',
+      const failedCall = session.activeToolCalls.find((tool) => tool.callId === event.callId);
+      const failedLabel = formatToolPresentation(
+        presentTool(event.name ?? failedCall?.name ?? '', event.origin ?? failedCall?.origin, event.serverLabel ?? failedCall?.serverLabel, failedCall?.args),
+        (key, values) => i18next.t(key, values),
       );
+      announceWithOrigin({
+        message: `${failedLabel}. ${i18next.t('chat.toolStatusFailed')}`,
+        origin: getChatConversationVoiceOrigin(conversationId, undefined, getEventOrigin(event)),
+        eventType: 'error',
+        announcePriority: 'assertive',
+      });
     }
   });
 
@@ -867,14 +895,39 @@ export function startChatEventController({
     currentTurnId = event.turnId || currentTurnId;
     if (!external) progressAnnouncer.toolFailed(event.callId, event.willRetry);
     ensureAssistantNode(event.assistantMessageId);
+    const session = getCurrentSession();
+    const failedCall = session.activeToolCalls.find((tool) => tool.callId === event.callId);
+    if (event.errorKind === 'cancelled') {
+      patchCurrentSession({
+        activeToolCalls: session.activeToolCalls.map((tool) =>
+          tool.callId === event.callId ? { ...tool, status: 'cancelled' as const } : tool
+        ),
+      });
+      if (!announcedCancellationCallIds.has(event.callId)) {
+        const cancelledLabel = formatToolPresentation(
+          presentTool(event.name ?? failedCall?.name ?? '', event.origin ?? failedCall?.origin, failedCall?.serverLabel, failedCall?.args),
+          (key, values) => i18next.t(key, values),
+        );
+        announceForActiveChatConversation(
+          conversationId,
+          `${cancelledLabel}. ${i18next.t('chat.toolStatusCancelled')}`,
+          'polite',
+          getEventOrigin(event),
+        );
+        announcedCancellationCallIds.add(event.callId);
+      }
+      return;
+    }
+    const failedLabel = formatToolPresentation(
+      presentTool(event.name ?? failedCall?.name ?? '', event.origin ?? failedCall?.origin, failedCall?.serverLabel, failedCall?.args),
+      (key, values) => i18next.t(key, values),
+    );
     if (event.willRetry) {
-      announceForActiveChatConversation(conversationId, i18next.t('chat.toolRetrying', { name: event.name }), 'polite', getEventOrigin(event));
+      announceForActiveChatConversation(conversationId, `${failedLabel}. ${i18next.t('chat.toolStatusRetrying')}`, 'polite', getEventOrigin(event));
       return;
     }
     announceWithOrigin({
-      message: isAppToolEvent(event.origin ?? knownToolOrigin(getCurrentSession(), event.callId))
-        ? i18next.t('chat.toolFailed', { name: event.name })
-        : i18next.t('chat.agentToolFailed', { name: event.name }),
+      message: `${failedLabel}. ${i18next.t('chat.toolStatusFailed')}`,
       origin: getChatConversationVoiceOrigin(conversationId, undefined, getEventOrigin(event)),
       eventType: 'error',
       announcePriority: 'assertive',
@@ -905,6 +958,7 @@ export function startChatEventController({
           function: { name: tc.name, arguments: tc.args || '' },
           result: tc.summary,
           origin: tc.origin,
+          serverLabel: tc.serverLabel,
           status: tc.status,
         })),
       });
@@ -955,6 +1009,9 @@ export function startChatEventController({
     }
 
     if (event.reason === 'output_limit') {
+      // O patch é autoritativo. Aplique-o antes de decidir se precisamos do
+      // aviso visual de fallback, para que ele não apague o aviso em seguida.
+      applyTurnPatch(event.turnPatch);
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       const message = i18next.t('chat.outputLimitReached');
@@ -970,7 +1027,15 @@ export function startChatEventController({
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming(backendAssistantId, currentTurnId);
+      cleanup();
+      return;
+    }
+
+    if (event.reason === 'cancelled' || event.finishReason === 'cancelled') {
+      const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
+      finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
       applyTurnPatch(event.turnPatch);
+      patchCurrentSession({ lastInterruptedMessageId: backendAssistantId || currentAssistantNodeId });
       cleanup();
       return;
     }

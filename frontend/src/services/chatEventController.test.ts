@@ -274,6 +274,88 @@ describe('chatEventController', () => {
     expect(sessions['conversation-1'].activeToolCalls).toEqual([]);
   });
 
+  it('mantém cancelamento distinto de falha no estado ao vivo e no anúncio', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-cancel', assistantMessageId: 'assistant-cancel' };
+
+    emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-cancel', origin: 'builtin' });
+    emitEvent('chat:tool_end', {
+      ...identity,
+      name: 'run_command',
+      callId: 'call-cancel',
+      status: 'error',
+      errorKind: 'cancelled',
+      origin: 'builtin',
+    });
+
+    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('cancelled');
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.toolRunCommand. chat.toolStatusCancelled',
+      'polite',
+      undefined,
+    );
+    expect(mockAnnounceWithOrigin).not.toHaveBeenCalled();
+
+    emitEvent('chat:tool_failure', {
+      ...identity,
+      name: 'run_command',
+      callId: 'call-cancel',
+      errorKind: 'cancelled',
+      willRetry: false,
+      origin: 'builtin',
+    });
+    expect(mockAnnounceWithOrigin).not.toHaveBeenCalled();
+  });
+
+  it('anuncia cancelamento recebido somente como tool_failure uma única vez', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-cancel', assistantMessageId: 'assistant-cancel' };
+    emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-cancel-only', origin: 'builtin' });
+
+    emitEvent('chat:tool_failure', {
+      ...identity,
+      name: 'run_command',
+      callId: 'call-cancel-only',
+      errorKind: 'cancelled',
+      willRetry: false,
+      origin: 'builtin',
+    });
+    emitEvent('chat:tool_failure', {
+      ...identity,
+      name: 'run_command',
+      callId: 'call-cancel-only',
+      errorKind: 'cancelled',
+      willRetry: false,
+      origin: 'builtin',
+    });
+
+    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('cancelled');
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.toolRunCommand. chat.toolStatusCancelled',
+      'polite',
+      undefined,
+    );
+  });
+
+  it('não promove status terminal legado ou desconhecido a sucesso', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-status', assistantMessageId: 'assistant-status' };
+
+    emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-legacy', origin: 'builtin' });
+    emitEvent('chat:tool_end', { ...identity, name: 'run_command', callId: 'call-legacy', status: 'cancelled', origin: 'builtin' });
+    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('cancelled');
+
+    emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-unknown', origin: 'builtin' });
+    emitEvent('chat:tool_end', { ...identity, name: 'run_command', callId: 'call-unknown', status: 'mystery', origin: 'builtin' });
+    expect(sessions['conversation-1'].activeToolCalls[1].status).toBe('error');
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     resetChatEventHubForTests();
@@ -720,6 +802,39 @@ describe('chatEventController', () => {
     expect(messages[1].message.content).not.toContain('Erro:');
   });
 
+  it('preserva o aviso de limite quando o patch persistido está vazio', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      reason: 'output_limit',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-limit-patch',
+      turnPatch: {
+        message: {
+          id: 'assistant-limit-patch',
+          conversationId: 'conversation-1',
+          turnId: 'user-1',
+          content: '',
+          createdAt: '2026-09-19T10:00:00Z',
+          timestamp: 1,
+        },
+      },
+    });
+
+    const message = sessions['conversation-1'].conversation?.threadedMessages[1].message;
+    expect(message?.content).toBe('chat.outputLimitReached');
+    expect(message?.isStreaming).toBe(false);
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-limit-patch');
+  });
+
   it('em erro no chat:stream usa messageId persistido para interrupção', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     const surfaceOrigin = {
@@ -886,7 +1001,7 @@ describe('chatEventController', () => {
 
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
-      'chat.toolRunning',
+      'chat.toolGeneric. chat.toolStatusRunning',
       'polite',
       undefined,
     );
@@ -902,7 +1017,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(2);
     expect(mockAnnounceForActiveChatConversation).toHaveBeenLastCalledWith(
       'conversation-1',
-      'chat.toolDone',
+      'chat.toolGeneric. chat.toolStatusSucceeded',
       'polite',
       undefined,
     );
@@ -942,7 +1057,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
-      'chat.toolDone',
+      'chat.toolGeneric. chat.toolStatusSucceeded; chat.toolGeneric. chat.toolStatusSucceeded',
       'polite',
       undefined,
     );
@@ -996,7 +1111,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-2',
-      'chat.toolRunning',
+      'chat.toolGeneric. chat.toolStatusRunning',
       'polite',
       undefined,
     );
@@ -1030,7 +1145,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(2);
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
-      'chat.toolRetrying',
+      'chat.toolGeneric. chat.toolStatusRetrying',
       'polite',
       undefined,
     );
@@ -1046,7 +1161,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(2);
     expect(mockAnnounceForActiveChatConversation).toHaveBeenLastCalledWith(
       'conversation-1',
-      'chat.toolRunning',
+      'chat.toolGeneric. chat.toolStatusRunning',
       'polite',
       undefined,
     );
@@ -1393,7 +1508,7 @@ describe('chatEventController', () => {
     expect(mockAnnounce).toHaveBeenCalledWith('Maria via telegram: olá externo');
   });
 
-  it('anuncia a ferramenta do agente como dele mesmo quando o fim não repete a origem', () => {
+  it('anuncia a ferramenta do agente sem expor seu nome técnico quando o fim não repete a origem', () => {
     const { adapter } = createAdapter(['conversation-1']);
 
     startChatEventController({
@@ -1421,10 +1536,37 @@ describe('chatEventController', () => {
 
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
-      'chat.agentToolDone',
+      'chat.toolGeneric. chat.toolStatusSucceeded',
       'polite',
       undefined,
     );
+  });
+
+  it('preserva o provedor MCP no anúncio amigável de falha mesmo quando a falha omite a origem', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({
+      conversationId: 'conversation-1',
+      external: { channel: 'telegram', from: 'Maria', text: 'fallback externo' },
+      adapter,
+    });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      name: 'crm_internal_lookup_v2',
+      callId: 'call-mcp',
+      origin: 'mcp_native',
+      serverLabel: 'CRM Exemplo',
+    });
+    emitEvent('chat:tool_failure', {
+      conversationId: 'conversation-1',
+      name: 'crm_internal_lookup_v2',
+      callId: 'call-mcp',
+      willRetry: false,
+    });
+
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'chat.toolMcpProvider. chat.toolStatusFailed',
+    }));
   });
 
   it('aplica patch canônico multi-segmento sem recarregar snapshot completo', () => {
@@ -1551,6 +1693,63 @@ describe('chatEventController', () => {
     );
   });
 
+  it('não anuncia conclusão quando o turno termina cancelado', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-cancelled',
+      assistantMessageId: 'assistant-cancelled',
+      hadToolCalls: true,
+      reason: 'cancelled',
+    });
+
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-cancelled');
+    expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.progressLabel',
+      'polite',
+      undefined,
+    );
+    expect(mockAnnounceChatBackgroundResponseDone).not.toHaveBeenCalled();
+  });
+
+  it('aplica o patch autoritativo ao terminar cancelado', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-cancelled',
+      messageId: 'assistant-cancelled',
+      content: 'conteúdo transitório',
+      done: false,
+    });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-cancelled',
+      assistantMessageId: 'assistant-cancelled',
+      reason: 'cancelled',
+      turnPatch: {
+        message: {
+          id: 'assistant-cancelled',
+          conversationId: 'conversation-1',
+          turnId: 'turn-cancelled',
+          content: 'parcial persistido',
+          createdAt: '2026-09-19T10:00:00Z',
+          timestamp: 1,
+        },
+      },
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages).toHaveLength(1);
+    expect(messages[0].message.content).toBe('parcial persistido');
+    expect(messages[0].message.isStreaming).toBe(false);
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-cancelled');
+  });
+
   it('cobre superfície inativa com o anúncio de resposta em segundo plano', () => {
     const { adapter } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
@@ -1618,7 +1817,11 @@ describe('chatEventController', () => {
       'polite',
       undefined,
     );
-    expect(mockAnnounce).toHaveBeenCalledWith('chat.mediaProcessing.failed', 'assertive');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'chat.mediaProcessing.failed',
+      eventType: 'error',
+      announcePriority: 'assertive',
+    }));
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
       'chat.mediaProcessing.cancelled',

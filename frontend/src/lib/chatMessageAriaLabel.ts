@@ -13,11 +13,19 @@ export type ChatMessageAriaLabelArgs = {
   reasoning?: string | null;
   streamingReasoning?: string | null;
 
-  toolNames?: string[];
+  /** Rótulos já localizados pela mesma camada de apresentação dos cards. */
+  toolLabels?: string[];
   toolCallsHasTextEdit?: boolean;
 
   /** Rótulo i18n falado no lugar de blocos de código. */
   codeBlockLabel?: string;
+  localized: {
+    responding: string;
+    reasoning: string;
+    textEditApplied: string;
+    noTextContent: string;
+    playAudioHint: string;
+  };
 };
 
 export function buildChatMessageAriaLabel(args: ChatMessageAriaLabelArgs): string {
@@ -27,26 +35,28 @@ export function buildChatMessageAriaLabel(args: ChatMessageAriaLabelArgs): strin
   let contentPreview = preview;
   if (!contentPreview) {
     if (args.isStreaming) {
-      contentPreview = 'Respondendo...';
+      contentPreview = args.localized.responding;
     } else {
-      const toolNames = args.toolNames ?? [];
-      if (toolNames.length > 0) {
-        contentPreview = `Executou ferramenta${toolNames.length > 1 ? 's' : ''}: ${toolNames.join(', ')}`;
-      } else if (args.toolCallsHasTextEdit) {
-        contentPreview = 'Aplicou uma alteração no texto via ferramenta.';
+      if (args.toolCallsHasTextEdit) {
+        contentPreview = args.localized.textEditApplied;
       } else {
-        contentPreview = 'Sem conteúdo textual.';
+        const toolLabels = args.toolLabels ?? [];
+        if (toolLabels.length > 0) {
+          contentPreview = toolLabels.join('. ');
+        } else {
+          contentPreview = args.localized.noTextContent;
+        }
       }
     }
   }
 
   const reasoningText = (args.reasoning || args.streamingReasoning || '').trim();
   const reasoningLabel = args.isReasoningExpanded && reasoningText
-    ? ` Raciocínio: ${stripMarkdown(reasoningText, stripOptions)}.`
+    ? ` ${args.localized.reasoning}: ${stripMarkdown(reasoningText, stripOptions)}.`
     : '';
 
   const playHint = args.role === 'assistant' && !args.isStreaming
-    ? ' Pressione Espaço para reproduzir áudio.'
+    ? ` ${args.localized.playAudioHint}`
     : '';
 
   return `${args.roleLabel}: ${contentPreview}.${reasoningLabel} ${args.timePrefix} ${args.relativeTime}.${playHint}`;

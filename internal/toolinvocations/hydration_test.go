@@ -47,6 +47,7 @@ func TestLoadChatToolInvocationDisplaysForTurnIDsPreservesCompletenessOrderAndLa
 				OriginType:    OriginChat,
 				OriginID:      turnID,
 				ToolCallID:    fmt.Sprintf("call-%d", call),
+				Attempt:       1,
 				Status:        StatusSucceeded,
 				Output:        fmt.Sprintf(`{"content":"%s-%d"}`, turnID, call),
 				QueuedAt:      base.Add(time.Duration(turn*10+call) * time.Millisecond),
@@ -65,12 +66,22 @@ func TestLoadChatToolInvocationDisplaysForTurnIDsPreservesCompletenessOrderAndLa
 		OriginID:      turnIDs[0],
 		ToolCallID:    "call-1",
 		Status:        StatusSucceeded,
+		Attempt:       2,
 		Output:        `{"content":"retry-mais-recente"}`,
-		QueuedAt:      base.Add(time.Hour),
+		// Timestamp anterior à tentativa 1 de call-1: Attempt deve prevalecer.
+		QueuedAt: base.Add(500 * time.Microsecond),
 	}
 	retryCompleted := retry.QueuedAt.Add(time.Millisecond)
 	retry.CompletedAt = &retryCompleted
 	if err := testDB.Create(&retry).Error; err != nil {
+		t.Fatal(err)
+	}
+	blankCallID := retry
+	blankCallID.ID = ""
+	blankCallID.ToolCallID = "   "
+	blankCallID.Output = `{"content":"não deve entrar"}`
+	blankCallID.QueuedAt = base.Add(750 * time.Microsecond)
+	if err := testDB.Create(&blankCallID).Error; err != nil {
 		t.Fatal(err)
 	}
 

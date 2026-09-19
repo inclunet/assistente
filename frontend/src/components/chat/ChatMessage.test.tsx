@@ -369,7 +369,7 @@ describe('ChatMessage', () => {
     render(<ChatMessage message={message} />);
 
     expect(buildAriaLabelMock).toHaveBeenCalledWith(expect.objectContaining({
-      toolNames: ['search_documents'],
+      toolLabels: ['chat.toolGeneric'],
     }));
     expect(screen.queryByTestId('toolcalls')).not.toBeInTheDocument();
   });

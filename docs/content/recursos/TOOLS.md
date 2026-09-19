@@ -27,11 +27,17 @@ capacidade; ele não aprova sua execução.
 
 ## Acompanhar ferramentas no chat
 
-Cada ferramenta apresenta seu estado por texto, além do ícone: em execução,
-concluída, falhou ou cancelada. Enquanto a execução não terminou, a saída
-disponível é identificada como parcial. Ferramentas nativas usam descrições
-localizadas; integrações MCP usam o nome público do provedor, sem exigir
-adaptações no servidor.
+Cada execução aparece diretamente na posição cronológica como um card próprio;
+não é necessário expandir um agrupamento da rodada. O card apresenta seu estado
+por texto, além do ícone: em execução, concluída, falhou ou cancelada. Enquanto
+a execução não terminou, a saída disponível é identificada como parcial.
+Ferramentas nativas usam descrições localizadas; integrações MCP usam o nome
+público do provedor, sem exigir adaptações no servidor.
+
+Os anúncios do leitor de telas usam a mesma descrição amigável e o mesmo estado
+do card. Nomes internos de tools e caminhos absolutos ficam restritos aos
+detalhes técnicos; por exemplo, o anúncio principal pode dizer `Lendo arquivo:
+config.ts. Em execução` ou `Consultando Atlassian. Concluída`.
 
 Use **Ver detalhes técnicos**, por teclado ou pelo contexto da ferramenta,
 para consultar os parâmetros sanitizados e a resposta. O modal acompanha as

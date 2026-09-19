@@ -137,6 +137,7 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 		Name:               track.name,
 		CallID:             callID,
 		Status:             status,
+		ErrorKind:          errorKind,
 		Summary:            title,
 		Error:              failure,
 		Origin:             OriginACPAgent,
@@ -177,7 +178,10 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 // quando o turno acaba — processo morto, cancelamento ou aviso de conclusão que
 // nunca veio. Sem isso a ferramenta ficaria girando na tela até o fim do turno e
 // sumiria sem explicação; ninguém saberia que ela não terminou.
-func (h *SimpleStreamHandler) closePendingAgentTools() {
+func (h *SimpleStreamHandler) closePendingAgentTools(errorKind string) {
+	if errorKind == "" {
+		errorKind = "unknown"
+	}
 	h.activity.mu.Lock()
 	pendentes := make([]pendingAgentTool, 0, len(h.activity.running))
 	for callID, track := range h.activity.running {
@@ -206,15 +210,30 @@ func (h *SimpleStreamHandler) closePendingAgentTools() {
 			Name:               pendente.track.name,
 			CallID:             pendente.callID,
 			Status:             "error",
+			ErrorKind:          errorKind,
 			Origin:             OriginACPAgent,
 			DurationMs:         duracao,
 			SurfaceOrigin:      h.SurfaceOrigin,
 		})
+		if errorKind != "cancelled" {
+			EmitToolFailure(h.Emitter, ports.ToolFailureEvent{
+				ConversationID:     h.ConversationID,
+				TurnID:             h.TurnID,
+				AssistantMessageID: h.AssistantMessageID,
+				Name:               pendente.track.name,
+				CallID:             pendente.callID,
+				ErrorKind:          errorKind,
+				Retryable:          false,
+				DurationMs:         duracao,
+				Origin:             OriginACPAgent,
+				SurfaceOrigin:      h.SurfaceOrigin,
+			})
+		}
 		h.activity.mu.Lock()
 		h.activity.segmentTools = append(h.activity.segmentTools, ports.ToolSummary{
 			Name:       pendente.track.name,
 			Status:     "error",
-			ErrorKind:  "unknown",
+			ErrorKind:  errorKind,
 			DurationMs: duracao,
 			Origin:     OriginACPAgent,
 		})

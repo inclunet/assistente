@@ -72,52 +72,43 @@ test.describe('Chat — tool calls (histórico)', () => {
     await expect(toolSection).toBeVisible();
   });
 
-  test('header da seção de tool calls comunica o conjunto de ferramentas', async ({ page, wails }) => {
+  test('cada tool call aparece diretamente como card amigável', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
 
-    const title = page.locator('.tool-calls-section__title');
-    await expect(title).toContainText(/Ferramentas utilizadas|Tools used|Herramientas utilizadas/);
+    const card = page.locator('.tool-calls-section__item');
+    await expect(card).toHaveCount(1);
+    await expect(card.locator('.tool-calls-section__intent')).toContainText(/Buscando na web|Searching the web|Buscando en la web/);
+    await expect(card).not.toContainText('search_web');
   });
 
-  test('seção de tool calls é expansível via clique', async ({ page, wails }) => {
+  test('card fica visível sem expansão', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
 
-    const header = page.locator('.tool-calls-section__header');
-    await expect(header).toHaveAttribute('aria-expanded', 'false');
-
-    await header.click();
-    await expect(header).toHaveAttribute('aria-expanded', 'true');
-
-    const content = page.locator('.tool-calls-section__content');
-    await expect(content).toBeVisible();
+    await expect(page.locator('.tool-calls-section__item')).toBeVisible();
+    await expect(page.locator('.tool-calls-section__header')).toHaveCount(0);
   });
 
-  test('seção expandida preserva uma prévia e ação de auditoria', async ({ page, wails }) => {
+  test('card preserva uma prévia e ação de auditoria', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
-
-    // Expande
-    await page.locator('.tool-calls-section__header').click();
 
     await expect(page.locator('.tool-calls-section__result-summary')).toContainText('results');
     await expect(page.getByRole('button', { name: /Detalhes técnicos|Technical details|Detalles técnicos/i })).toBeVisible();
   });
 
-  test('seção expandida comunica o estado terminal da ferramenta', async ({ page, wails }) => {
+  test('card comunica o estado terminal da ferramenta', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
-
-    await page.locator('.tool-calls-section__header').click();
 
     await expect(page.locator('.tool-calls-section__state')).toContainText(/Concluída|Completed|Completada/);
   });
@@ -140,26 +131,20 @@ test.describe('Chat — tool calls (histórico)', () => {
       queuedAt: now,
     }]);
     await wails.waitForApp();
-    await page.locator('.tool-calls-section__header').click();
     await page.getByRole('button', { name: /Detalhes técnicos|Technical details|Detalles técnicos/i }).click();
 
     await expect(page.locator('.tool-calls-section__args')).toContainText('clima hoje');
     await expect(page.locator('.tool-calls-section__result-content')).toContainText('Ensolarado');
   });
 
-  test('seção de tool calls tem aria-expanded e role=region corretos', async ({ page, wails }) => {
+  test('conjunto e cards usam semântica de lista', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
 
-    const header = page.locator('.tool-calls-section__header');
-    await expect(header).toHaveAttribute('aria-expanded');
-
-    // Expande e verifica region
-    await header.click();
-    const region = page.locator('.tool-calls-section__content[role="region"]');
-    await expect(region).toBeVisible();
+    await expect(page.locator('.tool-calls-section')).toHaveAttribute('role', 'list');
+    await expect(page.locator('.tool-calls-section__item')).toHaveAttribute('role', 'listitem');
   });
 });
 
@@ -295,7 +280,7 @@ test.describe('Chat — tool calls (streaming)', () => {
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
 
     // Verifica que a seção mostra estado de running
-    const runningSection = page.locator('.tool-calls-section--running');
+    const runningSection = page.locator('.tool-calls-section__item--running');
     await expect(runningSection).toBeVisible({ timeout: 3_000 });
 
     // Finaliza o tool call (muda de running para done)
