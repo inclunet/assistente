@@ -309,6 +309,20 @@ describe('chatEventController', () => {
     expect(mockAnnounceWithOrigin).not.toHaveBeenCalled();
   });
 
+  it('não promove status terminal legado ou desconhecido a sucesso', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-status', assistantMessageId: 'assistant-status' };
+
+    emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-legacy', origin: 'builtin' });
+    emitEvent('chat:tool_end', { ...identity, name: 'run_command', callId: 'call-legacy', status: 'cancelled', origin: 'builtin' });
+    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('cancelled');
+
+    emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-unknown', origin: 'builtin' });
+    emitEvent('chat:tool_end', { ...identity, name: 'run_command', callId: 'call-unknown', status: 'mystery', origin: 'builtin' });
+    expect(sessions['conversation-1'].activeToolCalls[1].status).toBe('error');
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     resetChatEventHubForTests();
@@ -753,6 +767,39 @@ describe('chatEventController', () => {
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
     expect(messages[1].message.content).toBe('chat.outputLimitReached');
     expect(messages[1].message.content).not.toContain('Erro:');
+  });
+
+  it('preserva o aviso de limite quando o patch persistido está vazio', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      reason: 'output_limit',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-limit-patch',
+      turnPatch: {
+        message: {
+          id: 'assistant-limit-patch',
+          conversationId: 'conversation-1',
+          turnId: 'user-1',
+          content: '',
+          createdAt: '2026-09-19T10:00:00Z',
+          timestamp: 1,
+        },
+      },
+    });
+
+    const message = sessions['conversation-1'].conversation?.threadedMessages[1].message;
+    expect(message?.content).toBe('chat.outputLimitReached');
+    expect(message?.isStreaming).toBe(false);
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-limit-patch');
   });
 
   it('em erro no chat:stream usa messageId persistido para interrupção', () => {
@@ -1611,6 +1658,63 @@ describe('chatEventController', () => {
       'polite',
       undefined,
     );
+  });
+
+  it('não anuncia conclusão quando o turno termina cancelado', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-cancelled',
+      assistantMessageId: 'assistant-cancelled',
+      hadToolCalls: true,
+      reason: 'cancelled',
+    });
+
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-cancelled');
+    expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.progressLabel',
+      'polite',
+      undefined,
+    );
+    expect(mockAnnounceChatBackgroundResponseDone).not.toHaveBeenCalled();
+  });
+
+  it('aplica o patch autoritativo ao terminar cancelado', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-cancelled',
+      messageId: 'assistant-cancelled',
+      content: 'conteúdo transitório',
+      done: false,
+    });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-cancelled',
+      assistantMessageId: 'assistant-cancelled',
+      reason: 'cancelled',
+      turnPatch: {
+        message: {
+          id: 'assistant-cancelled',
+          conversationId: 'conversation-1',
+          turnId: 'turn-cancelled',
+          content: 'parcial persistido',
+          createdAt: '2026-09-19T10:00:00Z',
+          timestamp: 1,
+        },
+      },
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages).toHaveLength(1);
+    expect(messages[0].message.content).toBe('parcial persistido');
+    expect(messages[0].message.isStreaming).toBe(false);
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-cancelled');
   });
 
   it('cobre superfície inativa com o anúncio de resposta em segundo plano', () => {

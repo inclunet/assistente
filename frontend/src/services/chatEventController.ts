@@ -176,6 +176,16 @@ interface ChatMediaProcessingEvent {
   surfaceOrigin?: ChatSurfaceOrigin;
 }
 
+function terminalToolStatus(event: ChatToolEndEvent): 'done' | 'error' | 'cancelled' {
+  const status = event.status?.toLowerCase();
+  if (event.errorKind === 'cancelled' || status === 'cancelled' || status === 'canceled') return 'cancelled';
+  if (status === 'error' || status === 'failed') return 'error';
+  if (status === 'ok' || status === 'done' || status === 'completed' || status === 'succeeded' || status === 'success') return 'done';
+  // Um tool_end é terminal. Status ausente ou desconhecido não pode promover
+  // uma execução a sucesso; o snapshot canônico corrigirá o estado ao final.
+  return 'error';
+}
+
 interface ChatTurnPatch {
   message: {
     id: string;
@@ -827,14 +837,15 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
-    const cancelled = event.errorKind === 'cancelled';
-    if (!external) progressAnnouncer.toolEnded(event.callId, event.status);
+    const terminalStatus = terminalToolStatus(event);
+    const cancelled = terminalStatus === 'cancelled';
+    if (!external) progressAnnouncer.toolEnded(event.callId, terminalStatus === 'done' ? 'ok' : 'error');
     ensureAssistantNode(event.assistantMessageId);
     const session = getCurrentSession();
     patchCurrentSession({
       activeToolCalls: session.activeToolCalls.map((tc) =>
         tc.callId === event.callId
-          ? { ...tc, status: (cancelled ? 'cancelled' : event.status === 'error' ? 'error' : 'done') as 'done' | 'error' | 'cancelled', summary: event.summary, origin: event.origin ?? tc.origin, serverLabel: event.serverLabel ?? tc.serverLabel }
+          ? { ...tc, status: terminalStatus, summary: event.summary, origin: event.origin ?? tc.origin, serverLabel: event.serverLabel ?? tc.serverLabel }
           : tc
       ),
     });
@@ -848,7 +859,7 @@ export function startChatEventController({
       announceForActiveChatConversation(conversationId, cancelledMessage, 'polite', getEventOrigin(event));
       return;
     }
-    if (event.status !== 'error') {
+    if (terminalStatus === 'done') {
       const doneMessage = `${formatToolPresentation(
         presentTool(event.name ?? finishedCall?.name ?? '', event.origin ?? finishedCall?.origin, event.serverLabel ?? finishedCall?.serverLabel, finishedCall?.args),
         (key, values) => i18next.t(key, values),
@@ -976,6 +987,9 @@ export function startChatEventController({
     }
 
     if (event.reason === 'output_limit') {
+      // O patch é autoritativo. Aplique-o antes de decidir se precisamos do
+      // aviso visual de fallback, para que ele não apague o aviso em seguida.
+      applyTurnPatch(event.turnPatch);
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       const message = i18next.t('chat.outputLimitReached');
@@ -991,7 +1005,15 @@ export function startChatEventController({
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming(backendAssistantId, currentTurnId);
+      cleanup();
+      return;
+    }
+
+    if (event.reason === 'cancelled' || event.finishReason === 'cancelled') {
+      const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
+      finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
       applyTurnPatch(event.turnPatch);
+      patchCurrentSession({ lastInterruptedMessageId: backendAssistantId || currentAssistantNodeId });
       cleanup();
       return;
     }
