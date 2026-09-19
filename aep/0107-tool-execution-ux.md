@@ -221,6 +221,11 @@ legados. Card e leitor de telas passam a consumir a mesma função de apresenta�
 cada invocação permanece visível em sua posição cronológica, com detalhes
 técnicos disponíveis somente sob demanda.
 
+Uma revisão posterior do ciclo completo também tornou `errorKind=cancelled`
+parte do evento terminal ao vivo. Assim, uma interrupção permanece
+`Cancelada` tanto durante o streaming quanto depois da recarga do ledger, sem
+ser anunciada como falha nem disparar feedback assertivo de erro.
+
 ## Riscos
 
 - **Promessa incorreta de sucesso:** mitigada ao derivar estado exclusivamente do lifecycle canônico e marcar output não terminal como parcial.

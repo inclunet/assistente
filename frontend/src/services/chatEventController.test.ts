@@ -274,6 +274,41 @@ describe('chatEventController', () => {
     expect(sessions['conversation-1'].activeToolCalls).toEqual([]);
   });
 
+  it('mantém cancelamento distinto de falha no estado ao vivo e no anúncio', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-cancel', assistantMessageId: 'assistant-cancel' };
+
+    emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-cancel', origin: 'builtin' });
+    emitEvent('chat:tool_end', {
+      ...identity,
+      name: 'run_command',
+      callId: 'call-cancel',
+      status: 'error',
+      errorKind: 'cancelled',
+      origin: 'builtin',
+    });
+
+    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('cancelled');
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.toolRunCommand. chat.toolStatusCancelled',
+      'polite',
+      undefined,
+    );
+    expect(mockAnnounceWithOrigin).not.toHaveBeenCalled();
+
+    emitEvent('chat:tool_failure', {
+      ...identity,
+      name: 'run_command',
+      callId: 'call-cancel',
+      errorKind: 'cancelled',
+      willRetry: false,
+      origin: 'builtin',
+    });
+    expect(mockAnnounceWithOrigin).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     resetChatEventHubForTests();

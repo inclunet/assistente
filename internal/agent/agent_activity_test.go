@@ -282,6 +282,9 @@ func TestFerramentaCanceladaNaoViraAnuncioDeFalha(t *testing.T) {
 	if fim.Status != "error" {
 		t.Errorf("status=%q, esperava error para a ferramenta interrompida", fim.Status)
 	}
+	if fim.ErrorKind != "cancelled" {
+		t.Errorf("errorKind=%q, esperava cancelled", fim.ErrorKind)
+	}
 }
 
 func TestSegmentoFechadoFalaOTextoSemEsperarOTurno(t *testing.T) {
@@ -467,6 +470,22 @@ func TestTurnoQueTerminaEmErroTambemEncerraAFerramentaPendente(t *testing.T) {
 	}
 	if fins[0].(ports.ToolEndEvent).CallID != "call-8" {
 		t.Errorf("callID=%q, esperava a ferramenta pendente", fins[0].(ports.ToolEndEvent).CallID)
+	}
+}
+
+func TestCancelamentoDoTurnoEncerraFerramentaPendenteComoCancelada(t *testing.T) {
+	emitter := &mockEmitter{}
+	handler := novoHandlerDeAgente(t, emitter, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	handler.ctx = ctx
+
+	handler.OnAgentToolEvent(llm.AgentToolEvent{ID: "call-9", Kind: "read", Status: llm.AgentToolRunning})
+	cancel()
+	handler.closePendingAgentTools(handler.pendingToolErrorKind())
+
+	fim := eventosPorNome(emitter, "chat:tool_end")[0].(ports.ToolEndEvent)
+	if fim.Status != "error" || fim.ErrorKind != "cancelled" {
+		t.Errorf("fim=%+v, esperava encerramento classificado como cancelled", fim)
 	}
 }
 

@@ -28,7 +28,7 @@ export interface StreamingToolCall {
   result?: string;
   origin?: ToolOrigin;
   serverLabel?: string;
-  status?: 'running' | 'done' | 'error';
+  status?: 'running' | 'done' | 'error' | 'cancelled';
 }
 
 export interface TurnSegment {
