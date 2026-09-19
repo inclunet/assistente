@@ -13,7 +13,8 @@ export type ChatMessageAriaLabelArgs = {
   reasoning?: string | null;
   streamingReasoning?: string | null;
 
-  toolNames?: string[];
+  /** Rótulos já localizados pela mesma camada de apresentação dos cards. */
+  toolLabels?: string[];
   toolCallsHasTextEdit?: boolean;
 
   /** Rótulo i18n falado no lugar de blocos de código. */
@@ -29,13 +30,15 @@ export function buildChatMessageAriaLabel(args: ChatMessageAriaLabelArgs): strin
     if (args.isStreaming) {
       contentPreview = 'Respondendo...';
     } else {
-      const toolNames = args.toolNames ?? [];
-      if (toolNames.length > 0) {
-        contentPreview = `Executou ferramenta${toolNames.length > 1 ? 's' : ''}: ${toolNames.join(', ')}`;
-      } else if (args.toolCallsHasTextEdit) {
+      if (args.toolCallsHasTextEdit) {
         contentPreview = 'Aplicou uma alteração no texto via ferramenta.';
       } else {
-        contentPreview = 'Sem conteúdo textual.';
+        const toolLabels = args.toolLabels ?? [];
+        if (toolLabels.length > 0) {
+          contentPreview = toolLabels.join('. ');
+        } else {
+          contentPreview = 'Sem conteúdo textual.';
+        }
       }
     }
   }

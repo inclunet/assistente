@@ -16,6 +16,7 @@ import { useChatMessageLiveState } from './ChatSessionContext';
 import { isAgentMessage } from '../../lib/chatUtils';
 import { formatRelativeTime } from '../../lib/dateUtils';
 import { buildChatMessageAriaLabel } from '../../lib/chatMessageAriaLabel';
+import { formatToolPresentation, presentTool } from '../../lib/toolPresentation';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import './ChatMessage.css';
 
@@ -119,10 +120,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     : persistedTurnSegments || completedSegments || [];
   const persistedToolInvocations = (persistedTurnSegments ?? [])
     .flatMap((segment) => segment.toolInvocations ?? []);
-  const toolNames = rawTurnSegments.flatMap((segment) => [
-    ...(segment.toolInvocations ?? []).map((invocation) => invocation.name),
-    ...(segment.toolCalls ?? []).map((call) => call.function.name),
-  ]);
   const hasAgenticSegments = rawTurnSegments.length > 0
     || (effectiveIsStreaming && (effectiveToolCalls?.length ?? 0) > 0);
   const isAgenticStreaming = effectiveIsStreaming && hasAgenticSegments;
@@ -205,6 +202,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     rawTurnSegments.forEach((segment) => segment.toolInvocations?.forEach((call: ToolInvocationSummary) => put(call)));
     return [...calls.values()];
   }, [effectiveToolCalls, rawTurnSegments]);
+  const toolLabels = useMemo(() => dialogCalls.map((call) => formatToolPresentation(
+    presentTool(
+      call.name,
+      call.origin,
+      call.serverLabel,
+      'args' in call ? call.args : ('inputPreview' in call ? call.inputPreview : undefined),
+    ),
+    (key, values) => t(key, values),
+  )), [dialogCalls, t]);
 
   // Usa editContent externo se está editando
   const editContent = isEditing ? externalEditContent : effectiveContent;
@@ -282,7 +288,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         isReasoningExpanded: false,
         reasoning: null,
         streamingReasoning: null,
-        toolNames,
+        toolLabels,
         toolCallsHasTextEdit,
         codeBlockLabel: t('chat.codeBlockSpeechLabel'),
       });
@@ -298,7 +304,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       isReasoningExpanded,
       reasoning: effectiveReasoning,
       streamingReasoning,
-      toolNames,
+      toolLabels,
       toolCallsHasTextEdit,
       codeBlockLabel: t('chat.codeBlockSpeechLabel'),
     });
