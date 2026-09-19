@@ -104,6 +104,7 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 	type row struct {
 		ID                   string
 		ToolCallID           string
+		Attempt              int
 		Status               string
 		DisplayName          string
 		MetadataName         string
@@ -130,6 +131,8 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 	started := time.Now()
 	queryCount := uint64(0)
 	projectionBytes := uint64(0)
+	indexByTurnCall := make(map[string]map[string]int)
+	attemptByTurnCall := make(map[string]map[string]int)
 	for start := 0; start < len(turnIDs); start += batchSize {
 		end := start + batchSize
 		if end > len(turnIDs) {
@@ -140,7 +143,7 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 		if err := db.WithContext(ctx).
 			Model(&database.ToolInvocation{}).
 			Select(
-				"tool_invocations.id, tool_invocations.tool_call_id, tool_invocations.status, "+
+				"tool_invocations.id, tool_invocations.tool_call_id, tool_invocations.attempt, tool_invocations.status, "+
 					"tool_invocations.display_name, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.name') AS TEXT), '') ELSE '' END AS metadata_name, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.origin') AS TEXT), '') ELSE '' END AS metadata_origin, "+
@@ -177,7 +180,7 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 			if availability == "" {
 				availability = "available"
 			}
-			result[item.ResolvedTurnID] = append(result[item.ResolvedTurnID], Summary{
+			summary := Summary{
 				InvocationID:       item.ID,
 				CallID:             item.ToolCallID,
 				Name:               name,
@@ -196,7 +199,25 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 				SearchResultCount:  item.SearchResultCount,
 				SecurityOutcome:    item.SecurityOutcome,
 				AssistantMessageID: item.AssistantMessageID,
-			})
+			}
+			indexByCall := indexByTurnCall[item.ResolvedTurnID]
+			if indexByCall == nil {
+				indexByCall = make(map[string]int)
+				indexByTurnCall[item.ResolvedTurnID] = indexByCall
+				attemptByTurnCall[item.ResolvedTurnID] = make(map[string]int)
+			}
+			if index, exists := indexByCall[item.ToolCallID]; exists {
+				// Attempt é autoritativo para retries. Em dados legados com o mesmo
+				// número, a ordem cronológica da consulta mantém a linha mais recente.
+				if item.Attempt >= attemptByTurnCall[item.ResolvedTurnID][item.ToolCallID] {
+					result[item.ResolvedTurnID][index] = summary
+					attemptByTurnCall[item.ResolvedTurnID][item.ToolCallID] = item.Attempt
+				}
+			} else {
+				indexByCall[item.ToolCallID] = len(result[item.ResolvedTurnID])
+				attemptByTurnCall[item.ResolvedTurnID][item.ToolCallID] = item.Attempt
+				result[item.ResolvedTurnID] = append(result[item.ResolvedTurnID], summary)
+			}
 			projectionBytes += uint64(len(item.ID) + len(item.ToolCallID) + len(name) + len(origin) +
 				len(item.InputPreview) + len(item.OutputPreview) + len(availability))
 		}

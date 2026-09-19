@@ -309,6 +309,39 @@ describe('chatEventController', () => {
     expect(mockAnnounceWithOrigin).not.toHaveBeenCalled();
   });
 
+  it('anuncia cancelamento recebido somente como tool_failure uma única vez', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-cancel', assistantMessageId: 'assistant-cancel' };
+    emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-cancel-only', origin: 'builtin' });
+
+    emitEvent('chat:tool_failure', {
+      ...identity,
+      name: 'run_command',
+      callId: 'call-cancel-only',
+      errorKind: 'cancelled',
+      willRetry: false,
+      origin: 'builtin',
+    });
+    emitEvent('chat:tool_failure', {
+      ...identity,
+      name: 'run_command',
+      callId: 'call-cancel-only',
+      errorKind: 'cancelled',
+      willRetry: false,
+      origin: 'builtin',
+    });
+
+    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('cancelled');
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.toolRunCommand. chat.toolStatusCancelled',
+      'polite',
+      undefined,
+    );
+  });
+
   it('não promove status terminal legado ou desconhecido a sucesso', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });

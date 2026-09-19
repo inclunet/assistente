@@ -165,6 +165,8 @@ const ptBR = {
       modelReasoning: 'Raciocínio do modelo',
       reasoning: 'Raciocínio',
       toolOnlyTurnPlaceholder: 'Turno sem resposta do assistente. Os resultados de ferramenta preservados aparecem abaixo.',
+      ariaTextEditApplied: 'Aplicou uma alteração no texto por meio de uma ferramenta.',
+      ariaPlayAudioHint: 'Pressione Espaço para reproduzir o áudio.',
       slashCommands: 'Slash commands',
       noSlashItemsFound: 'Nenhum comando encontrado',
       availableSkills: 'Skills disponíveis',

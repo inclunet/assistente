@@ -215,6 +215,20 @@ func (h *SimpleStreamHandler) closePendingAgentTools(errorKind string) {
 			DurationMs:         duracao,
 			SurfaceOrigin:      h.SurfaceOrigin,
 		})
+		if errorKind != "cancelled" {
+			EmitToolFailure(h.Emitter, ports.ToolFailureEvent{
+				ConversationID:     h.ConversationID,
+				TurnID:             h.TurnID,
+				AssistantMessageID: h.AssistantMessageID,
+				Name:               pendente.track.name,
+				CallID:             pendente.callID,
+				ErrorKind:          errorKind,
+				Retryable:          false,
+				DurationMs:         duracao,
+				Origin:             OriginACPAgent,
+				SurfaceOrigin:      h.SurfaceOrigin,
+			})
+		}
 		h.activity.mu.Lock()
 		h.activity.segmentTools = append(h.activity.segmentTools, ports.ToolSummary{
 			Name:       pendente.track.name,

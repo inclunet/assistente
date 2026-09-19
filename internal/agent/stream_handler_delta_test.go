@@ -274,7 +274,7 @@ func TestSimpleStreamHandlerFlushesBeforeToolAndError(t *testing.T) {
 	handler.OnError("falhou")
 
 	names := capturedNames(emitter)
-	want := []string{"chat:stream", "chat:tool_start", "chat:stream", "chat:tool_end", "chat:stream"}
+	want := []string{"chat:stream", "chat:tool_start", "chat:stream", "chat:tool_end", "chat:tool_failure", "chat:stream"}
 	if len(names) != len(want) {
 		t.Fatalf("ordem=%v, esperava %v", names, want)
 	}

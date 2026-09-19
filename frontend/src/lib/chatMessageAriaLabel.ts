@@ -19,6 +19,13 @@ export type ChatMessageAriaLabelArgs = {
 
   /** Rótulo i18n falado no lugar de blocos de código. */
   codeBlockLabel?: string;
+  localized: {
+    responding: string;
+    reasoning: string;
+    textEditApplied: string;
+    noTextContent: string;
+    playAudioHint: string;
+  };
 };
 
 export function buildChatMessageAriaLabel(args: ChatMessageAriaLabelArgs): string {
@@ -28,16 +35,16 @@ export function buildChatMessageAriaLabel(args: ChatMessageAriaLabelArgs): strin
   let contentPreview = preview;
   if (!contentPreview) {
     if (args.isStreaming) {
-      contentPreview = 'Respondendo...';
+      contentPreview = args.localized.responding;
     } else {
       if (args.toolCallsHasTextEdit) {
-        contentPreview = 'Aplicou uma alteração no texto via ferramenta.';
+        contentPreview = args.localized.textEditApplied;
       } else {
         const toolLabels = args.toolLabels ?? [];
         if (toolLabels.length > 0) {
           contentPreview = toolLabels.join('. ');
         } else {
-          contentPreview = 'Sem conteúdo textual.';
+          contentPreview = args.localized.noTextContent;
         }
       }
     }
@@ -45,11 +52,11 @@ export function buildChatMessageAriaLabel(args: ChatMessageAriaLabelArgs): strin
 
   const reasoningText = (args.reasoning || args.streamingReasoning || '').trim();
   const reasoningLabel = args.isReasoningExpanded && reasoningText
-    ? ` Raciocínio: ${stripMarkdown(reasoningText, stripOptions)}.`
+    ? ` ${args.localized.reasoning}: ${stripMarkdown(reasoningText, stripOptions)}.`
     : '';
 
   const playHint = args.role === 'assistant' && !args.isStreaming
-    ? ' Pressione Espaço para reproduzir áudio.'
+    ? ` ${args.localized.playAudioHint}`
     : '';
 
   return `${args.roleLabel}: ${contentPreview}.${reasoningLabel} ${args.timePrefix} ${args.relativeTime}.${playHint}`;

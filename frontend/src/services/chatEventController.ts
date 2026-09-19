@@ -299,6 +299,7 @@ export function startChatEventController({
   let pendingVisualContent: string | null = null;
   let animationFrameId: number | null = null;
   let streamingCommitted = false;
+  const announcedCancellationCallIds = new Set<string>();
   let resolveDone: () => void = () => {};
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve;
@@ -857,6 +858,7 @@ export function startChatEventController({
         (key, values) => i18next.t(key, values),
       )}. ${i18next.t('chat.toolStatusCancelled')}`;
       announceForActiveChatConversation(conversationId, cancelledMessage, 'polite', getEventOrigin(event));
+      announcedCancellationCallIds.add(event.callId);
       return;
     }
     if (terminalStatus === 'done') {
@@ -894,6 +896,19 @@ export function startChatEventController({
           tool.callId === event.callId ? { ...tool, status: 'cancelled' as const } : tool
         ),
       });
+      if (!announcedCancellationCallIds.has(event.callId)) {
+        const cancelledLabel = formatToolPresentation(
+          presentTool(event.name ?? failedCall?.name ?? '', event.origin ?? failedCall?.origin, failedCall?.serverLabel, failedCall?.args),
+          (key, values) => i18next.t(key, values),
+        );
+        announceForActiveChatConversation(
+          conversationId,
+          `${cancelledLabel}. ${i18next.t('chat.toolStatusCancelled')}`,
+          'polite',
+          getEventOrigin(event),
+        );
+        announcedCancellationCallIds.add(event.callId);
+      }
       return;
     }
     const failedLabel = formatToolPresentation(

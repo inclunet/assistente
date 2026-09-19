@@ -267,6 +267,13 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     const roleLabel = getDisplayRole();
     const relativeTime = formatRelativeTime(timestamp);
     const timePrefix = role === 'user' ? t('chat.sent') : t('chat.received');
+    const localized = {
+      responding: t('chat.typing'),
+      reasoning: t('chat.reasoning'),
+      textEditApplied: t('chat.ariaTextEditApplied'),
+      noTextContent: t('chat.pins.noTextContent'),
+      playAudioHint: t('chat.ariaPlayAudioHint'),
+    };
 
     // Issue #160: em turnos agênticos o anúncio usa só a conclusão do turno; nos
     // demais (mensagem simples) mantém-se o conteúdo principal `displayContent`.
@@ -291,6 +298,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         toolLabels,
         toolCallsHasTextEdit,
         codeBlockLabel: t('chat.codeBlockSpeechLabel'),
+        localized,
       });
     }
 
@@ -307,6 +315,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       toolLabels,
       toolCallsHasTextEdit,
       codeBlockLabel: t('chat.codeBlockSpeechLabel'),
+      localized,
     });
   };
 

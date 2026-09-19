@@ -452,8 +452,9 @@ func TestFerramentaSemDesfechoNaoFicaGirandoAteOFimDoTurno(t *testing.T) {
 	if fim.CallID != "call-7" || fim.Status != "error" {
 		t.Errorf("fim=%+v, esperava a ferramenta pendente encerrada como error", fim)
 	}
-	if len(eventosPorNome(emitter, "chat:tool_failure")) != 0 {
-		t.Error("ferramenta sem desfecho não vira anúncio assertivo de falha")
+	falhas := eventosPorNome(emitter, "chat:tool_failure")
+	if len(falhas) != 1 || falhas[0].(ports.ToolFailureEvent).CallID != "call-7" {
+		t.Errorf("ferramenta sem desfecho deve emitir falha estruturada, recebi %+v", falhas)
 	}
 }
 
@@ -486,6 +487,9 @@ func TestCancelamentoDoTurnoEncerraFerramentaPendenteComoCancelada(t *testing.T)
 	fim := eventosPorNome(emitter, "chat:tool_end")[0].(ports.ToolEndEvent)
 	if fim.Status != "error" || fim.ErrorKind != "cancelled" {
 		t.Errorf("fim=%+v, esperava encerramento classificado como cancelled", fim)
+	}
+	if len(eventosPorNome(emitter, "chat:tool_failure")) != 0 {
+		t.Error("cancelamento não deve virar falha assertiva")
 	}
 }
 

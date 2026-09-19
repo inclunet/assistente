@@ -164,6 +164,8 @@ const es = {
       modelReasoning: 'Razonamiento del modelo',
       reasoning: 'Razonamiento',
       toolOnlyTurnPlaceholder: 'Turno sin respuesta del asistente. Los resultados de herramientas preservados aparecen abajo.',
+      ariaTextEditApplied: 'Aplicó un cambio en el texto mediante una herramienta.',
+      ariaPlayAudioHint: 'Presiona Espacio para reproducir el audio.',
       slashCommands: 'Slash commands',
       noSlashItemsFound: 'Ningún comando encontrado',
       availableSkills: 'Skills disponibles',

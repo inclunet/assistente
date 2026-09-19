@@ -165,6 +165,8 @@ const en = {
       modelReasoning: 'Model reasoning',
       reasoning: 'Reasoning',
       toolOnlyTurnPlaceholder: 'Turn without an assistant response. Preserved tool results appear below.',
+      ariaTextEditApplied: 'Applied a text change using a tool.',
+      ariaPlayAudioHint: 'Press Space to play audio.',
       slashCommands: 'Slash commands',
       noSlashItemsFound: 'No command found',
       availableSkills: 'Available Skills',
