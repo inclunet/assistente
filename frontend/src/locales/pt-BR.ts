@@ -278,6 +278,7 @@ const ptBR = {
       toolActivity: 'Atividade de ferramentas',
       toolDetails: 'Detalhes das ferramentas',
       technicalDetails: 'Detalhes técnicos',
+      toolTargetOpenFailed: 'Não foi possível abrir este destino.',
       toolStatusRunning: 'Em execução',
       toolStatusSucceeded: 'Concluída',
       toolStatusFailed: 'Falhou',

@@ -277,6 +277,7 @@ const es = {
       toolActivity: 'Actividad de herramientas',
       toolDetails: 'Detalles de las herramientas',
       technicalDetails: 'Detalles técnicos',
+      toolTargetOpenFailed: 'No se pudo abrir este destino.',
       toolStatusRunning: 'En ejecución',
       toolStatusSucceeded: 'Completada',
       toolStatusFailed: 'Falló',

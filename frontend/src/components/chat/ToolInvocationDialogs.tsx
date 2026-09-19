@@ -16,6 +16,7 @@ import {
   type SearchResultTarget,
 } from '../../lib/searchResultPresentation';
 import { sanitizeToolDetailArguments } from '../../lib/toolDetailSanitization';
+import { openToolNavigationTarget } from '../../lib/toolTargetNavigation';
 import { announce } from '../../hooks/useAnnouncer';
 import { loadToolInvocationDetails } from '../../services/toolInvocationDetailsCache';
 import { useAuthStore } from '../../store/authStore';
@@ -287,15 +288,10 @@ export function ToolInvocationDialogsProvider({
     ) ?? [];
   const openTarget = async (target: NonNullable<SearchResultTarget> | undefined) => {
     if (!target) return;
-    if (target.kind === 'url') {
-      const { BrowserOpenURL } = await import('@wailsjs/runtime/runtime');
-      BrowserOpenURL(target.url);
-    } else {
-      const { executeDeepLink } = await import('../../lib/deepLinks');
-      await executeDeepLink(
-        { type: 'tab:new', tabType: 'editor', file: target.path },
-        { navigate: () => undefined }
-      );
+    try {
+      await openToolNavigationTarget(target);
+    } catch {
+      announce(t('chat.toolTargetOpenFailed'), 'assertive');
     }
   };
   return (

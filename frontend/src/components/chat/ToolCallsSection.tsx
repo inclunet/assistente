@@ -5,6 +5,8 @@ import type { ToolInvocationSummary } from '../../lib/chatMessageTree';
 import { formatToolPresentation, presentTool } from '../../lib/toolPresentation';
 import { type ToolCallStatus } from '../../types/chat';
 import { formatDuration } from '../../utils/format';
+import { announce } from '../../hooks/useAnnouncer';
+import { openToolNavigationTarget } from '../../lib/toolTargetNavigation';
 import { Button } from '../ui/Button';
 import { ToolInvocationDialogsProvider, useToolInvocationDialogs, displayToolStatus, type InvocationForDetails } from './ToolInvocationDialogs';
 import './ToolCallsSection.css';
@@ -42,10 +44,13 @@ const ToolCallsSectionContent = React.memo<ToolCallsSectionProps>(function ToolC
             const preview = isStreaming ? (call as ToolCallStatus).summary : (call as ToolInvocationSummary).outputPreview;
             const invocation = call as InvocationForDetails;
             const target = presentation.target;
-            const openTarget = () => {
+            const openTarget = async () => {
               if (!target) return;
-              if (target.kind === 'url') void import('@wailsjs/runtime/runtime').then(({ BrowserOpenURL }) => BrowserOpenURL(target.url));
-              else void import('../../lib/deepLinks').then(({ executeDeepLink }) => executeDeepLink({ type: 'tab:new', tabType: 'editor', file: target.path }, { navigate: () => undefined }));
+              try {
+                await openToolNavigationTarget(target);
+              } catch {
+                announce(t('chat.toolTargetOpenFailed'), 'assertive');
+              }
             };
             return <div role="listitem" key={call.callId} className={`tool-calls-section__item tool-calls-section__item--${callStatus}`} onContextMenu={(event) => {
               event.preventDefault();
@@ -54,7 +59,7 @@ const ToolCallsSectionContent = React.memo<ToolCallsSectionProps>(function ToolC
               <div className="tool-calls-section__item-header">
                 <span className="tool-calls-section__status-icon" aria-hidden="true">{isActive ? <LoadingOutlined spin /> : callStatus === 'failed' || callStatus === 'cancelled' ? <CloseCircleOutlined /> : callStatus === 'succeeded' ? <CheckCircleOutlined /> : <ToolOutlined />}</span>
                 {target
-                  ? <button type="button" className="tool-calls-section__intent tool-calls-section__intent--target" onClick={openTarget} tabIndex={tabNavigationEnabled ? 0 : -1}>{friendlyLabel}</button>
+                  ? <button type="button" className="tool-calls-section__intent tool-calls-section__intent--target" onClick={() => void openTarget()} tabIndex={tabNavigationEnabled ? 0 : -1}>{friendlyLabel}</button>
                   : <span className="tool-calls-section__intent">{friendlyLabel}</span>}
                 <span className={`tool-calls-section__state tool-calls-section__state--${callStatus}`}>{t(`chat.toolStatus${callStatus.charAt(0).toUpperCase()}${callStatus.slice(1)}`)}</span>
                 {!isStreaming && (invocation.securityOutcome === 'approved' || invocation.securityOutcome === 'blocked') && <span className={`tool-calls-section__security tool-calls-section__security--${invocation.securityOutcome}`}>{t(invocation.securityOutcome === 'approved' ? 'chat.toolSecurityApproved' : 'chat.toolSecurityBlocked')}</span>}

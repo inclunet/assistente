@@ -1,9 +1,19 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ToolCallsSection } from './ToolCallsSection';
 import { axe } from '../../test/a11yAxe';
 
 const loadDetails = vi.fn();
+const openToolNavigationTarget = vi.fn();
+const announce = vi.fn();
+
+vi.mock('../../lib/toolTargetNavigation', () => ({
+  openToolNavigationTarget: (...args: unknown[]) => openToolNavigationTarget(...args),
+}));
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  announce: (...args: unknown[]) => announce(...args),
+}));
 
 vi.mock('../../services/toolInvocationDetailsCache', () => ({
   loadToolInvocationDetails: (...args: unknown[]) => loadDetails(...args),
@@ -24,6 +34,12 @@ vi.mock('react-router-dom', () => ({
 }));
 
 describe('ToolCallsSection', () => {
+  beforeEach(() => {
+    openToolNavigationTarget.mockReset();
+    openToolNavigationTarget.mockResolvedValue(undefined);
+    announce.mockReset();
+  });
+
   it('renderiza tool calls ativos', () => {
     render(
       <ToolCallsSection
@@ -97,6 +113,35 @@ describe('ToolCallsSection', () => {
     expect(await screen.findByText('arquivo.ts')).toBeInTheDocument();
     expect(screen.getByText('10: match')).toBeInTheDocument();
     expect(screen.queryByText('texto arbitrário')).not.toBeInTheDocument();
+  });
+
+  it('anuncia quando não consegue abrir um destino de ferramenta', async () => {
+    openToolNavigationTarget.mockRejectedValueOnce(new Error('falha'));
+    render(<ToolCallsSection tabNavigationEnabled activeToolCalls={[{
+      name: 'read_file', callId: 'read-1', status: 'running', args: '{"path":"C:/repo/arquivo.ts"}',
+    }]} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /chat\.toolReadFile/ }));
+
+    await waitFor(() => expect(announce).toHaveBeenCalledWith('chat.toolTargetOpenFailed', 'assertive'));
+  });
+
+  it('anuncia quando não consegue abrir um resultado de busca', async () => {
+    loadDetails.mockResolvedValue(new Map([['inv-open-failure', {
+      invocationId: 'inv-open-failure', metadata: JSON.stringify({ search_result_presentation: {
+        version: 1, total: 1, items: [{ kind: 'url', title: 'Resultado', target: { kind: 'url', url: 'https://example.com' } }],
+      } }),
+    }]]));
+    openToolNavigationTarget.mockRejectedValueOnce(new Error('falha'));
+    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+      invocationId: 'inv-open-failure', callId: 'search-open-failure', name: 'search_web', status: 'succeeded',
+      hasDetails: true, resultAvailability: 'available', hasSearchResults: true, searchResultCount: 1,
+    }]} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'chat.viewSearchResults' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Resultado' }));
+
+    await waitFor(() => expect(announce).toHaveBeenCalledWith('chat.toolTargetOpenFailed', 'assertive'));
   });
 
   it('pagina resultados estruturados sem carregar detalhes adicionais', async () => {

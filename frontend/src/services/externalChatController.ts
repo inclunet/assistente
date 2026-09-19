@@ -14,6 +14,7 @@ export interface ExternalChatIncomingData {
   fromId?: string;
   text: string;
   conversationId: string;
+  traceId?: string;
   newConversation?: boolean;
 }
 
@@ -35,7 +36,10 @@ function buildExternalSurfaceOrigin(data: ExternalChatIncomingData): ChatSurface
     surfaceId: `external:${data.channel}:${participant}`,
     surfaceType: 'external',
   });
-  return createChatSurfaceOrigin(identity);
+  return {
+    ...createChatSurfaceOrigin(identity),
+    ...(data.traceId ? { executionId: data.traceId } : {}),
+  };
 }
 
 export async function handleExternalChatIncoming(

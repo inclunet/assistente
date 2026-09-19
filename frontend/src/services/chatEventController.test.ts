@@ -1817,7 +1817,11 @@ describe('chatEventController', () => {
       'polite',
       undefined,
     );
-    expect(mockAnnounce).toHaveBeenCalledWith('chat.mediaProcessing.failed', 'assertive');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'chat.mediaProcessing.failed',
+      eventType: 'error',
+      announcePriority: 'assertive',
+    }));
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
       'chat.mediaProcessing.cancelled',

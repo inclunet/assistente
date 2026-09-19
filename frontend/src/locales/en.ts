@@ -278,6 +278,7 @@ const en = {
       toolActivity: 'Tool activity',
       toolDetails: 'Tool details',
       technicalDetails: 'Technical details',
+      toolTargetOpenFailed: 'Could not open this destination.',
       toolStatusRunning: 'Running',
       toolStatusSucceeded: 'Completed',
       toolStatusFailed: 'Failed',

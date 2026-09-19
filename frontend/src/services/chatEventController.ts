@@ -688,7 +688,12 @@ export function startChatEventController({
         getEventOrigin(event),
       );
     } else if (event.status === 'failed') {
-      announce(i18next.t('chat.mediaProcessing.failed'), 'assertive');
+      announceWithOrigin({
+        message: i18next.t('chat.mediaProcessing.failed'),
+        origin: getChatConversationVoiceOrigin(conversationId, undefined, getEventOrigin(event)),
+        eventType: 'error',
+        announcePriority: 'assertive',
+      });
     } else if (event.status === 'cancelled') {
       announceForActiveChatConversation(
         conversationId,
@@ -875,10 +880,12 @@ export function startChatEventController({
         presentTool(event.name ?? failedCall?.name ?? '', event.origin ?? failedCall?.origin, event.serverLabel ?? failedCall?.serverLabel, failedCall?.args),
         (key, values) => i18next.t(key, values),
       );
-      announce(
-        `${failedLabel}. ${i18next.t('chat.toolStatusFailed')}`,
-        'assertive',
-      );
+      announceWithOrigin({
+        message: `${failedLabel}. ${i18next.t('chat.toolStatusFailed')}`,
+        origin: getChatConversationVoiceOrigin(conversationId, undefined, getEventOrigin(event)),
+        eventType: 'error',
+        announcePriority: 'assertive',
+      });
     }
   });
 
