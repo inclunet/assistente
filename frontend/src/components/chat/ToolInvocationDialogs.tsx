@@ -57,6 +57,8 @@ export function displayToolStatus(status: string | undefined): ToolDisplayStatus
       return 'succeeded';
     case 'failed':
     case 'error':
+    case 'timed_out':
+    case 'timeout':
       return 'failed';
     case 'cancelled':
     case 'canceled':

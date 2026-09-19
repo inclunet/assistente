@@ -198,6 +198,22 @@ describe('ToolCallsSection', () => {
     expect(screen.getByText('chat.toolStatusSucceeded')).toBeInTheDocument();
   });
 
+  it('apresenta timeout persistido como falha terminal', () => {
+    render(<ToolCallsSection toolInvocations={[
+      {
+        invocationId: 'inv-timed-out', callId: 'call-timed-out', name: 'search',
+        status: 'timed_out', hasDetails: true, resultAvailability: 'available',
+      },
+      {
+        invocationId: 'inv-timeout', callId: 'call-timeout', name: 'search',
+        status: 'timeout', hasDetails: true, resultAvailability: 'available',
+      },
+    ]} />);
+
+    expect(screen.getAllByText('chat.toolStatusFailed')).toHaveLength(2);
+    expect(screen.queryByText('chat.toolStatusUnknown')).not.toBeInTheDocument();
+  });
+
   it('sanitiza o fallback de argumentos no modal e acompanha a transição do ativo', async () => {
     const props = { activeToolCalls: [{ name: 'search', callId: 'same', status: 'running' as const, args: '{"password":"secret"}', summary: 'parcial' }] };
     const { rerender } = render(<ToolCallsSection {...props} tabNavigationEnabled />);
