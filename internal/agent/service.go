@@ -525,6 +525,9 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 			OutputBytes:        summary.OutputBytes,
 			HasDetails:         summary.HasDetails,
 			ResultAvailability: summary.ResultAvailability,
+			HasSearchResults:   summary.HasSearchResults,
+			SearchResultCount:  summary.SearchResultCount,
+			SecurityOutcome:    summary.SecurityOutcome,
 			AssistantMessageID: summary.AssistantMessageID,
 		}
 		callsByTurn[turnID] = append(callsByTurn[turnID], call)
@@ -562,6 +565,8 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 				InputPreview: call.InputPreview, OutputPreview: call.OutputPreview,
 				InputBytes: call.InputBytes, OutputBytes: call.OutputBytes,
 				HasDetails: call.HasDetails, ResultAvailability: call.ResultAvailability,
+				HasSearchResults: call.HasSearchResults, SearchResultCount: call.SearchResultCount,
+				SecurityOutcome: call.SecurityOutcome,
 			})
 		}
 		patch.Message.TurnSegments = append(patch.Message.TurnSegments, target)

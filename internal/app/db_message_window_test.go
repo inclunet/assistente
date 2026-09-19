@@ -334,13 +334,12 @@ func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMes
 		DryRun:        false,
 		Input:         `{"query":"foo"}`,
 		Output:        `{"content":"resultado por invocacao","is_error":false}`,
-		Metadata:      fmt.Sprintf(`{"display":{"version":1,"type":"function","name":"search","arguments":"{\"q\":\"foo\"}","origin":"builtin","assistant_message_id":%q,"iteration":1,"duration_ms":42}}`, intermediate.ID),
+		Metadata:      fmt.Sprintf(`{"display":{"version":1,"type":"function","name":"search","arguments":"{\"q\":\"foo\"}","origin":"builtin","assistant_message_id":%q,"iteration":1,"duration_ms":42},"search_result_presentation":{"version":1,"total":2},"security_signals":[{"version":1,"outcome":"approved"}]}`, intermediate.ID),
 		QueuedAt:      time.Now(),
 		DurationMs:    42,
 	}).Error; err != nil {
 		t.Fatalf("create tool invocation: %v", err)
 	}
-
 	window, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
 		ConversationID: conv.ID,
 		Scope:          chat.MessageWindowScopeConversation,
@@ -359,7 +358,7 @@ func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMes
 		t.Fatalf("expected text -> tool_calls -> final text segments, got %+v", turnNode.Message.TurnSegments)
 	}
 	call := turnNode.Message.TurnSegments[1].ToolCalls[0]
-	if call.InvocationID != "inv-new-l3-free" || call.ID != "tool-1" || call.Name != "search" || call.DurationMs != 42 {
+	if call.InvocationID != "inv-new-l3-free" || call.ID != "tool-1" || call.Name != "search" || call.DurationMs != 42 || !call.HasSearchResults || call.SearchResultCount != 2 || call.SecurityOutcome != "approved" {
 		t.Fatalf("expected lightweight invocation summary, got %+v", call)
 	}
 }

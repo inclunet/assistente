@@ -42,6 +42,9 @@ type TurnSegmentToolCall struct {
 	OutputBytes        int64  `json:"outputBytes,omitempty"`
 	HasDetails         bool   `json:"hasDetails"`
 	ResultAvailability string `json:"resultAvailability"`
+	HasSearchResults   bool   `json:"hasSearchResults,omitempty"`
+	SearchResultCount  int    `json:"searchResultCount,omitempty"`
+	SecurityOutcome    string `json:"securityOutcome,omitempty"`
 	// AssistantMessageID é metadado interno de hidratação para associar a
 	// invocação à mensagem assistant que representou a iteração.
 	AssistantMessageID string `json:"-"`

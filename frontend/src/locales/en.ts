@@ -303,7 +303,7 @@ const en = {
       loadingSearchResults: 'Loading results...',
       searchResultsLoadError: 'Could not load the search results.',
       searchResultsSummary: '{{count}} result(s)',
-      searchResultsTruncated: 'The search was limited.',
+      searchResultsTruncated: 'Showing {{shown}} of {{total}} results; narrow the search to see fewer results.',
       searchResultsPagination: 'Search results pagination',
       searchResultsPage: 'Page {{current}} of {{total}}',
       previousPage: 'Previous',

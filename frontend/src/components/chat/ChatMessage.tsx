@@ -5,11 +5,12 @@ import {
   MessageOutlined, MobileOutlined, SoundOutlined, PauseCircleOutlined,
 } from '@ant-design/icons';
 import type { Message, TurnSegment } from '../../store/chatStore';
-import { getMessageTurnSegments } from '../../lib/chatMessageTree';
+import { getMessageTurnSegments, type ToolInvocationSummary } from '../../lib/chatMessageTree';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
 import { ReasoningSection } from './ReasoningSection';
 import { ToolCallsSection } from './ToolCallsSection';
+import { ToolInvocationDialogsProvider, type ToolInvocationDialogCall } from './ToolInvocationDialogs';
 import type { ToolCallStatus } from '../../types/chat';
 import { useChatMessageLiveState } from './ChatSessionContext';
 import { isAgentMessage } from '../../lib/chatUtils';
@@ -190,6 +191,20 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     segment.type === 'text' && segment.content === conclusionContent);
   const showConclusionAfterChain = !effectiveIsStreaming && !!conclusionContent
     && (hasTrailingConclusion || !hasConclusionInChain || !isChainExpanded);
+
+  // O host dos diálogos vive no ChatMessage, fora das Sections temporárias.
+  // A projeção canônica é inserida por último para prevalecer sobre dados ativos
+  // atrasados quando o segmento termina e chega um patch do ledger.
+  const dialogCalls = useMemo<ToolInvocationDialogCall[]>(() => {
+    const calls = new Map<string, ToolInvocationDialogCall>();
+    const put = (call: ToolInvocationDialogCall) => calls.set(call.callId, call);
+    rawTurnSegments.forEach((segment) => {
+      segment.toolCalls?.forEach((call) => put({ callId: call.id, name: call.function.name, args: call.function.arguments, status: call.status ?? 'done', summary: call.result, origin: call.origin ?? 'builtin' }));
+    });
+    effectiveToolCalls?.forEach(put);
+    rawTurnSegments.forEach((segment) => segment.toolInvocations?.forEach((call: ToolInvocationSummary) => put(call)));
+    return [...calls.values()];
+  }, [effectiveToolCalls, rawTurnSegments]);
 
   // Usa editContent externo se está editando
   const editContent = isEditing ? externalEditContent : effectiveContent;
@@ -452,6 +467,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   }, [isHeavyContentReady, shouldDeferHeavyContent]);
 
   return (
+    <ToolInvocationDialogsProvider currentCalls={dialogCalls}>
     <div
       ref={messageRef}
       className={`chat-message chat-message--${role} ${isEditing ? 'chat-message--editing' : ''} ${isReading ? 'chat-message--reading' : ''}`}
@@ -708,5 +724,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         )}
       </div>
     </div>
+    </ToolInvocationDialogsProvider>
   );
 });

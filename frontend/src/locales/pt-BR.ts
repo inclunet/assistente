@@ -303,7 +303,7 @@ const ptBR = {
       loadingSearchResults: 'Carregando resultados...',
       searchResultsLoadError: 'Não foi possível carregar os resultados da busca.',
       searchResultsSummary: '{{count}} resultado(s)',
-      searchResultsTruncated: 'A busca foi limitada.',
+      searchResultsTruncated: 'Exibindo {{shown}} de {{total}} resultados; restrinja a busca para ver menos resultados.',
       searchResultsPagination: 'Paginação dos resultados da busca',
       searchResultsPage: 'Página {{current}} de {{total}}',
       previousPage: 'Anterior',

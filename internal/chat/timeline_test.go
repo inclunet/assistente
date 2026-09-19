@@ -23,6 +23,9 @@ func canonicalTurnFixture() (string, []database.ChatMessage, []TurnSegmentToolCa
 		Iteration:          1,
 		HasDetails:         true,
 		ResultAvailability: "available",
+		HasSearchResults:   true,
+		SearchResultCount:  2,
+		SecurityOutcome:    "approved",
 		AssistantMessageID: "assistant-1",
 	}}
 	return turnID, messages, calls
@@ -38,7 +41,7 @@ func TestConsolidateTimelineTurnUsaSomenteLedgerCanonico(t *testing.T) {
 		t.Fatalf("esperava texto/tool/texto: %+v", result.Segments)
 	}
 	tool := result.Segments[1].ToolCalls[0]
-	if tool.InvocationID != "inv-1" || tool.Name != "read_file" || !tool.HasDetails {
+	if tool.InvocationID != "inv-1" || tool.Name != "read_file" || !tool.HasDetails || !tool.HasSearchResults || tool.SearchResultCount != 2 || tool.SecurityOutcome != "approved" {
 		t.Fatalf("resumo canônico incorreto: %+v", tool)
 	}
 }

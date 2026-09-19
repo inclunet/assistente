@@ -140,3 +140,52 @@ func TestProjectionDetailsValidaLimite(t *testing.T) {
 		t.Fatal("limite deve considerar também IDs repetidos recebidos")
 	}
 }
+
+func TestProjectionSecurityOutcomeUsesBlockedPrecedence(t *testing.T) {
+	testDB := setupProjectionReadTest(t)
+	conv := database.Conversation{UUIDModel: database.UUIDModel{ID: "conv-security"}, UserID: "user-security"}
+	if err := testDB.Create(&conv).Error; err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name, metadata, expected string
+	}{
+		{"blocked-first", `{"security_signals":[{"version":1,"outcome":"blocked"},{"version":1,"outcome":"approved"}]}`, "blocked"},
+		{"approved-only", `{"security_signals":[{"version":1,"outcome":"approved"}]}`, "approved"},
+		{"null", `{"security_signals":null}`, ""},
+		{"string", `{"security_signals":"oops"}`, ""},
+		{"object", `{"security_signals":{"version":1,"outcome":"blocked"}}`, ""},
+		{"scalar-array", `{"security_signals":["oops",null,2]}`, ""},
+		{"version-2", `{"security_signals":[{"version":2,"outcome":"blocked"}]}`, ""},
+		{"version-string", `{"security_signals":[{"version":"1","outcome":"blocked"}]}`, ""},
+		{"version-string-junk", `{"security_signals":[{"version":"1junk","outcome":"blocked"}]}`, ""},
+		{"version-float", `{"security_signals":[{"version":1.5,"outcome":"blocked"}]}`, ""},
+		{"version-bool", `{"security_signals":[{"version":true,"outcome":"blocked"}]}`, ""},
+	}
+	turnIDs := make([]string, 0, len(cases))
+	for index, tc := range cases {
+		turn := "turn-security-" + tc.name
+		turnIDs = append(turnIDs, turn)
+		if err := testDB.Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: turn}, ConversationID: conv.ID, Role: "user"}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := testDB.Create(&database.ToolInvocation{
+			UUIDModel: database.UUIDModel{ID: "inv-security-" + tc.name}, UserID: conv.UserID,
+			OriginType: OriginChat, OriginID: turn, ConversationID: &conv.ID, TurnID: &turn,
+			ToolCallID: "call-security-" + tc.name, Status: StatusSucceeded, ResultAvailability: "available",
+			Metadata: tc.metadata, QueuedAt: time.Now().UTC().Add(time.Duration(index) * time.Millisecond),
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	summaries, err := LoadSummariesForTurnIDsWithUser(context.Background(), conv.UserID, turnIDs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range cases {
+		turn := "turn-security-" + tc.name
+		if got := summaries[turn][0].SecurityOutcome; got != tc.expected {
+			t.Errorf("%s: outcome=%q, esperado %q", tc.name, got, tc.expected)
+		}
+	}
+}

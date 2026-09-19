@@ -94,6 +94,9 @@ type TurnPatchToolInvocation struct {
 	OutputBytes        int64  `json:"outputBytes,omitempty"`
 	HasDetails         bool   `json:"hasDetails"`
 	ResultAvailability string `json:"resultAvailability"`
+	HasSearchResults   bool   `json:"hasSearchResults,omitempty"`
+	SearchResultCount  int    `json:"searchResultCount,omitempty"`
+	SecurityOutcome    string `json:"securityOutcome,omitempty"`
 }
 
 // DoneEvent is the payload for chat:done.

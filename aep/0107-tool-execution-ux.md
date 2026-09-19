@@ -1,6 +1,6 @@
 # AEP-0107 — Experiência de execução de tools: estado, contexto e resultados acionáveis
 
-**Status:** In Progress
+**Status:** Done
 
 ## Resumo
 
@@ -151,7 +151,7 @@ Essa separação evita que output parcial pareça sucesso e mantém o fluxo de c
 - [x] Permitir abertura segura de arquivos no editor e URLs no navegador externo.
 - [x] Adaptar buscas nativas ao contrato `SearchResultPresentation`.
 - [x] Implementar modal de resultados, limites e paginação.
-- [ ] Avaliar decodificadores explícitos para outputs MCP compatíveis, sem heurística sobre texto livre.
+- [x] Avaliar decodificadores explícitos para outputs MCP compatíveis, sem heurística sobre texto livre. Decisão: não introduzir decodificadores nesta fase; MCP permanece plug and play pelo provedor. Um contrato futuro deverá ser explicitamente opt-in e versionado pelo servidor.
 
 ## Não objetivos
 
@@ -166,9 +166,44 @@ Essa separação evita que output parcial pareça sucesso e mantém o fluxo de c
 
 A implementação iniciou no frontend em `frontend/src/components/chat/ToolCallsSection.tsx` e `frontend/src/lib/toolPresentation.ts`. O adaptador é deliberadamente allowlist para tools nativas; MCP usa exclusivamente o rótulo público do provedor. O card mantém estado textual, identifica saída parcial e abre detalhes técnicos sob demanda. Arquivos nativos e URLs HTTP(S) viram alvos acionáveis pelo editor e navegador externo já existentes.
 
-Os resultados de busca nativos agora usam um contrato estruturado versionado,
-carregado sob demanda e paginado no modal. Ainda falta a eventual avaliação
-de decodificadores MCP explicitamente opt-in.
+Os resultados de busca nativos usam um contrato estruturado versionado,
+carregado sob demanda e paginado no modal. A avaliação de decodificadores MCP
+foi concluída: eles não serão introduzidos nesta fase, conforme a Fase 3.
+
+### Revisão de integração — PR #809
+
+A revisão da série identificou sete correções necessárias antes do encerramento:
+
+- [x] Propagar os indicadores de busca e segurança do ledger até o histórico e o patch do turno.
+- [x] Sanitizar também os argumentos transitórios exibidos sem detalhes persistidos.
+- [x] Reconhecer o estado transitório `done` como sucesso.
+- [x] Atualizar estado e saída do modal aberto durante a execução.
+- [x] Tornar explícito qualquer limite adicional aplicado aos resultados de busca.
+- [x] Agregar decisões de segurança, com precedência de bloqueio sobre aprovação.
+- [x] Preservar decisões já coletadas nos caminhos de cancelamento e timeout.
+
+Evidências verificáveis:
+
+- `internal/app/db_message_window_test.go` e `internal/agent/service_stats_test.go`
+  exercitam o ledger real e os caminhos de histórico e patch; os bindings foram
+  regenerados a partir dos tipos Go.
+- `ToolCallsSection.test.tsx` cobre argumentos transitórios sanitizados, estados,
+  foco, resposta atrasada, paginação e acessibilidade. O parser mantém um teto
+  defensivo de 100 itens, explicitando quantos foram materializados e orientando
+  restringir a busca; cada página contém até 20 itens.
+- `ChatMessage.toolDialogs.test.tsx` cobre o modal aberto durante a transição
+  ativo → segmento → patch terminal canônico e o isolamento na troca de usuário.
+  O host `ToolInvocationDialogsProvider` permanece no nível da mensagem, sem
+  mover os cards da sua posição cronológica.
+- `internal/toolinvocations/projection_read_test.go` cobre bloqueio com
+  precedência, formatos inválidos e versão estritamente inteira igual a 1.
+- `internal/tools/executor_test.go` cobre preservação dos sinais em sucesso,
+  panic, cancelamento e timeout, inclusive quando o worker ainda não retornou.
+
+A validação local inclui a suíte completa Go e Vitest, build, vet, lints,
+TypeScript e detector de corrida nos pacotes afetados. A revisão independente
+local não tem pendências acionáveis. Não houve validação manual com NVDA nesta
+rodada; a cobertura automatizada de acessibilidade não a substitui.
 
 ## Riscos
 

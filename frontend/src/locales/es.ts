@@ -302,7 +302,7 @@ const es = {
       loadingSearchResults: 'Cargando resultados...',
       searchResultsLoadError: 'No se pudieron cargar los resultados de búsqueda.',
       searchResultsSummary: '{{count}} resultado(s)',
-      searchResultsTruncated: 'La búsqueda fue limitada.',
+      searchResultsTruncated: 'Se muestran {{shown}} de {{total}} resultados; limita la búsqueda para ver menos resultados.',
       searchResultsPagination: 'Paginación de resultados de búsqueda',
       searchResultsPage: 'Página {{current}} de {{total}}',
       previousPage: 'Anterior',
