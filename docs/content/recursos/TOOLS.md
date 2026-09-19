@@ -25,6 +25,33 @@ política do perfil, disponibilidade, allowlists, confirmações e orçamento de
 schemas. Para operações sensíveis, o carregamento apenas disponibiliza a
 capacidade; ele não aprova sua execução.
 
+## Acompanhar ferramentas no chat
+
+Cada ferramenta apresenta seu estado por texto, além do ícone: em execução,
+concluída, falhou ou cancelada. Enquanto a execução não terminou, a saída
+disponível é identificada como parcial. Ferramentas nativas usam descrições
+localizadas; integrações MCP usam o nome público do provedor, sem exigir
+adaptações no servidor.
+
+Use **Ver detalhes técnicos**, por teclado ou pelo contexto da ferramenta,
+para consultar os parâmetros sanitizados e a resposta. O modal acompanha as
+atualizações da chamada enquanto estiver aberto, incluindo a passagem para o
+resultado persistido ao terminar. Escape fecha o modal e devolve o foco ao
+controle de origem.
+
+Buscas nativas compatíveis oferecem **Ver resultados**. O modal apresenta
+20 itens por página; arquivos abrem no editor e sites no navegador externo.
+O modal preserva no máximo 100 itens para exibição. Quando a lista estiver
+limitada, o aviso informa a contagem apresentada e orienta restringir a busca;
+ela não deve ser interpretada como o conjunto completo de resultados.
+
+Os indicadores de autorização refletem decisões explícitas registradas pelo
+host, não inferências sobre o texto da ferramenta. Se uma operação tiver
+aprovação em uma etapa e bloqueio em outra, o bloqueio prevalece no resumo.
+Decisões já registradas permanecem disponíveis mesmo que a execução seja
+cancelada ou exceda o tempo limite. A ausência de indicador não significa
+aprovação; o estado da execução continua sendo uma informação separada.
+
 ## Resultados grandes
 
 Resultados model-facing não recebem frases de truncamento dentro do conteúdo.
