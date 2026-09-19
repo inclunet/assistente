@@ -11,6 +11,10 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/messaging"
+	"assistente/internal/tools"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 // TestSaveAndFinish_DoneEvent_WithLoopStats verifica que chat:done carrega
@@ -261,6 +265,51 @@ func TestBuildTurnPatchSobreviveAoCancelamentoDoTurno(t *testing.T) {
 	}
 	if patch == nil || patch.Message.Content != "conteúdo parcial persistido" {
 		t.Fatalf("patch parcial ausente após cancelamento: %+v", patch)
+	}
+}
+
+func TestBuildTurnPatchPropagaResultadosEBloqueioDoLedger(t *testing.T) {
+	turnID := "turn-ledger"
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	previous := database.DB()
+	database.SetDB(db)
+	t.Cleanup(func() { database.SetDB(previous) })
+	if err := db.AutoMigrate(&database.User{}, &database.Conversation{}, &database.ChatMessage{}, &database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: "user-a"}, Username: "agent-test", DisplayName: "Agent Test", PasswordHash: "x", Role: database.UserRoleUser, IsActive: true}).Error; err != nil {
+		t.Fatalf("user: %v", err)
+	}
+	if err := db.Create(&database.Conversation{UUIDModel: database.UUIDModel{ID: "conv-ledger"}, UserID: "user-a", Title: "Ledger"}).Error; err != nil {
+		t.Fatalf("conversation: %v", err)
+	}
+	if err := db.Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: "assistant-ledger"}, ConversationID: "conv-ledger", Role: "assistant", Content: "resposta", TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("message: %v", err)
+	}
+	catalog := database.ToolCatalog{Name: "search", DisplayName: "search", Origin: tools.ToolOriginBuiltin, AvailabilityStatus: tools.ToolAvailabilityAvailable}
+	if err := db.Create(&catalog).Error; err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	repo := &mockMsgRepo{turnMessages: []chat.Message{{UUIDModel: database.UUIDModel{ID: "assistant-ledger", CreatedAt: time.Now()}, ConversationID: "conv-ledger", Role: "assistant", TurnID: &turnID, Content: "resposta"}}}
+	metadata := `{"display":{"name":"search","assistant_message_id":"assistant-ledger","iteration":1},"search_result_presentation":{"version":1,"total":3},"security_signals":[{"version":1,"outcome":"blocked"}]}`
+	conversationID := "conv-ledger"
+	if err := db.Create(&database.ToolInvocation{UUIDModel: database.UUIDModel{ID: "inv-ledger"}, UserID: "user-a", ToolCatalogID: catalog.ID, OriginType: "chat", OriginID: "assistant-ledger", ConversationID: &conversationID, TurnID: &turnID, ToolCallID: "call-ledger", Status: "succeeded", Metadata: metadata, ResultAvailability: "available"}).Error; err != nil {
+		t.Fatalf("invocation: %v", err)
+	}
+	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+	patch, err := svc.buildTurnPatch(database.WithUserID(context.Background(), "user-a"), "conv-ledger", turnID)
+	if err != nil {
+		t.Fatalf("build patch: %v", err)
+	}
+	if patch == nil || len(patch.Message.TurnSegments) < 2 || len(patch.Message.TurnSegments[1].ToolInvocations) == 0 {
+		t.Fatalf("patch sem invocação: %+v", patch)
+	}
+	call := patch.Message.TurnSegments[1].ToolInvocations[0]
+	if !call.HasSearchResults || call.SearchResultCount != 3 || call.SecurityOutcome != "blocked" {
+		t.Fatalf("metadata perdida no patch: %+v", call)
 	}
 }
 

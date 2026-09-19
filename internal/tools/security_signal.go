@@ -25,7 +25,11 @@ type securitySignalCollector struct {
 type securitySignalContextKey struct{}
 
 func WithSecuritySignalCollector(ctx context.Context) context.Context {
-	return context.WithValue(ctx, securitySignalContextKey{}, &securitySignalCollector{})
+	return withSecuritySignalCollector(ctx, &securitySignalCollector{})
+}
+
+func withSecuritySignalCollector(ctx context.Context, collector *securitySignalCollector) context.Context {
+	return context.WithValue(ctx, securitySignalContextKey{}, collector)
 }
 
 func RecordSecuritySignal(ctx context.Context, signal SecuritySignal) {
@@ -40,6 +44,13 @@ func RecordSecuritySignal(ctx context.Context, signal SecuritySignal) {
 
 func SecuritySignalsFrom(ctx context.Context) []SecuritySignal {
 	collector, _ := ctx.Value(securitySignalContextKey{}).(*securitySignalCollector)
+	if collector == nil {
+		return nil
+	}
+	return collector.snapshot()
+}
+
+func (collector *securitySignalCollector) snapshot() []SecuritySignal {
 	if collector == nil {
 		return nil
 	}

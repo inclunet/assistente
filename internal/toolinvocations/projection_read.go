@@ -110,9 +110,9 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 		MetadataOrigin       string
 		MetadataServer       string
 		MetadataIteration    int
-		SearchResultsVersion int
-		SearchResultCount    int
-		SecurityOutcome      string
+		SearchResultsVersion int    `gorm:"column:search_results_version"`
+		SearchResultCount    int    `gorm:"column:search_result_count"`
+		SecurityOutcome      string `gorm:"column:security_outcome"`
 		AssistantMessageID   string
 		InputPreview         string
 		OutputPreview        string
@@ -148,7 +148,10 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN CAST(COALESCE(json_extract(tool_invocations.metadata, '$.display.iteration'), 0) AS INTEGER) ELSE 0 END AS metadata_iteration, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN CAST(COALESCE(json_extract(tool_invocations.metadata, '$.search_result_presentation.version'), 0) AS INTEGER) ELSE 0 END AS search_results_version, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN CAST(COALESCE(json_extract(tool_invocations.metadata, '$.search_result_presentation.total'), 0) AS INTEGER) ELSE 0 END AS search_result_count, "+
-					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.security_signals[0].outcome') AS TEXT), '') ELSE '' END AS security_outcome, "+
+					// Uma invocação pode pedir autorização para mais de um alvo (por
+					// exemplo, origem e destino de um move). A primeira evidência não
+					// representa a decisão efetiva: qualquer bloqueio deve prevalecer.
+					"CASE WHEN json_valid(tool_invocations.metadata) AND json_type(tool_invocations.metadata, '$.security_signals') = 'array' THEN COALESCE((SELECT CASE WHEN EXISTS (SELECT 1 FROM json_each(tool_invocations.metadata, '$.security_signals') WHERE json_valid(value) AND json_type(value) = 'object' AND json_type(value, '$.version') = 'integer' AND json_extract(value, '$.version') = 1 AND json_extract(value, '$.outcome') = 'blocked') THEN 'blocked' WHEN EXISTS (SELECT 1 FROM json_each(tool_invocations.metadata, '$.security_signals') WHERE json_valid(value) AND json_type(value) = 'object' AND json_type(value, '$.version') = 'integer' AND json_extract(value, '$.version') = 1 AND json_extract(value, '$.outcome') = 'approved') THEN 'approved' ELSE '' END), '') ELSE '' END AS security_outcome, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.assistant_message_id') AS TEXT), '') ELSE '' END AS assistant_message_id, "+
 					"tool_invocations.input_preview, tool_invocations.output_preview, "+
 					"tool_invocations.input_bytes, tool_invocations.output_bytes, tool_invocations.result_availability, "+
