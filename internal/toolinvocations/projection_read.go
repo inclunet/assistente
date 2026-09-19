@@ -164,10 +164,16 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 			).
 			Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
 			Where(
-				"tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND "+resolvedTurnSQL+" IN ? AND TRIM(tool_invocations.tool_call_id) <> ''",
+				"tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND "+resolvedTurnSQL+" IN ? AND TRIM(tool_invocations.tool_call_id) <> '' AND (tool_invocations.completed_at IS NOT NULL OR tool_invocations.status IN (?, ?, ?, ?, ?, ?))",
 				userID,
 				OriginChat,
 				turnIDs[start:end],
+				StatusQueued,
+				StatusRunning,
+				StatusSucceeded,
+				StatusFailed,
+				StatusCancelled,
+				StatusTimedOut,
 			).
 			Order("resolved_turn_id, tool_invocations.queued_at, tool_invocations.id").
 			Find(&rows).Error; err != nil {

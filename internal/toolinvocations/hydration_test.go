@@ -76,6 +76,14 @@ func TestLoadChatToolInvocationDisplaysForTurnIDsPreservesCompletenessOrderAndLa
 	if err := testDB.Create(&retry).Error; err != nil {
 		t.Fatal(err)
 	}
+	blankCallID := retry
+	blankCallID.ID = ""
+	blankCallID.ToolCallID = "   "
+	blankCallID.Output = `{"content":"não deve entrar"}`
+	blankCallID.QueuedAt = base.Add(750 * time.Microsecond)
+	if err := testDB.Create(&blankCallID).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	got, err := LoadChatToolInvocationDisplaysForTurnIDsWithUser(context.Background(), "user-a", turnIDs)
 	if err != nil {
