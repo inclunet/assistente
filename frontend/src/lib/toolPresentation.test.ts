@@ -27,9 +27,21 @@ describe('presentTool', () => {
 
   it('não transforma escopos de busca e listagem em links de arquivo', () => {
     const args = '{"path":"C:\\\\repo\\\\src"}';
+    const search = presentTool('search_files', 'builtin', undefined, args);
+    const listing = presentTool('list_directory', 'builtin', undefined, args);
 
-    expect(presentTool('search_files', 'builtin', undefined, args).target).toBeUndefined();
-    expect(presentTool('list_directory', 'builtin', undefined, args).target).toBeUndefined();
+    expect(search).toMatchObject({ subjectLabel: 'src' });
+    expect(listing).toMatchObject({ subjectLabel: 'src' });
+    expect(search.target).toBeUndefined();
+    expect(listing.target).toBeUndefined();
+    expect(formatToolPresentation(search, (key) => key)).toBe('chat.toolSearchFiles: src');
+  });
+
+  it('apresenta comandos nativos sem expor o comando executado', () => {
+    expect(presentTool('run_command', 'builtin', undefined, '{"command":"echo segredo"}')).toEqual({
+      labelKey: 'chat.toolRunCommand',
+    });
+    expect(presentTool('terminal_session', 'builtin')).toEqual({ labelKey: 'chat.toolRunCommand' });
   });
 
   it('formata a mesma frase amigável usada pelo card e pelo leitor de telas', () => {

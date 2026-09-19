@@ -287,6 +287,7 @@ const en = {
       toolEditFile: 'Editing file',
       toolListDirectory: 'Listing files',
       toolSearchFiles: 'Searching files',
+      toolRunCommand: 'Running command',
       toolSearchWeb: 'Searching the web',
       toolAccessUrl: 'Accessing site',
       toolMcpProvider: 'Consulting {{provider}}',

@@ -287,6 +287,7 @@ const ptBR = {
       toolEditFile: 'Editando arquivo',
       toolListDirectory: 'Listando arquivos',
       toolSearchFiles: 'Buscando arquivos',
+      toolRunCommand: 'Executando comando',
       toolSearchWeb: 'Buscando na web',
       toolAccessUrl: 'Acessando site',
       toolMcpProvider: 'Consultando {{provider}}',

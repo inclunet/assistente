@@ -8,6 +8,8 @@ export interface ToolPresentation {
   /** Chave i18n; a UI é responsável por localizar a frase. */
   labelKey: string;
   labelValues?: Record<string, string>;
+  /** Contexto curto exibido sem transformá-lo necessariamente em link. */
+  subjectLabel?: string;
   target?: ToolTarget;
 }
 
@@ -22,7 +24,8 @@ export function formatToolPresentation(
   translate: TranslateToolPresentation,
 ): string {
   const action = translate(presentation.labelKey, presentation.labelValues);
-  return presentation.target ? `${action}: ${presentation.target.label}` : action;
+  const subject = presentation.target?.label ?? presentation.subjectLabel;
+  return subject ? `${action}: ${subject}` : action;
 }
 
 function parseArguments(raw?: string): Record<string, unknown> | undefined {
@@ -79,6 +82,7 @@ export function presentTool(name: string, origin?: ToolOrigin, serverLabel?: str
   const path = textArgument(args, 'path', 'filePath', 'file');
   const url = textArgument(args, 'url', 'uri', 'href');
   const fileTarget = path ? { kind: 'file' as const, path, label: fileLabel(path) } : undefined;
+  const pathLabel = path ? fileLabel(path) : undefined;
   const webTarget = url ? urlTarget(url) : undefined;
 
   switch (name) {
@@ -86,9 +90,11 @@ export function presentTool(name: string, origin?: ToolOrigin, serverLabel?: str
     case 'write_file':
     case 'edit_file':
     case 'apply_patch': return { labelKey: 'chat.toolEditFile', target: fileTarget };
-    case 'list_directory': return { labelKey: 'chat.toolListDirectory' };
+    case 'list_directory': return { labelKey: 'chat.toolListDirectory', subjectLabel: pathLabel };
     case 'search_files':
-    case 'grep_search': return { labelKey: 'chat.toolSearchFiles' };
+    case 'grep_search': return { labelKey: 'chat.toolSearchFiles', subjectLabel: pathLabel };
+    case 'run_command':
+    case 'terminal_session': return { labelKey: 'chat.toolRunCommand' };
     case 'web_search':
     case 'search_web': return { labelKey: 'chat.toolSearchWeb', target: webTarget };
     case 'web_fetch':

@@ -286,6 +286,7 @@ const es = {
       toolEditFile: 'Editando archivo',
       toolListDirectory: 'Listando archivos',
       toolSearchFiles: 'Buscando archivos',
+      toolRunCommand: 'Ejecutando comando',
       toolSearchWeb: 'Buscando en la web',
       toolAccessUrl: 'Accediendo al sitio',
       toolMcpProvider: 'Consultando {{provider}}',
