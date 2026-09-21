@@ -72,6 +72,23 @@
   border: 1px solid var(--border-default);
 }
 
+.task-detail__status-button {
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  min-height: 36px;
+  cursor: pointer;
+}
+
+.task-detail__status-button:hover {
+  background: var(--bg-hover);
+}
+
+.task-detail__status-button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 .task-detail__copy-code {
   min-height: 36px;
   max-width: 100%;
