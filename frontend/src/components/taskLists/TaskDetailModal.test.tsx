@@ -210,8 +210,13 @@ describe('TaskDetailModal', () => {
     );
 
     // Badge de conversa e picker passam a refletir o vínculo do cache.
-    expect(await screen.findByRole('button', { name: 'Conversa vinculada' })).toBeInTheDocument();
+    const conversationButton = await screen.findByRole('button', { name: 'Conversa vinculada' });
     expect(screen.getByRole('button', { name: /Alterar conversa vinculada/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Vincular conversa/ })).not.toBeInTheDocument();
+
+    // O botão abre a conversa vinculada via deep link.
+    const user = userEvent.setup();
+    await user.click(conversationButton);
+    expect(mockOpenTaskLink).toHaveBeenCalledWith('assistente://conversation/5', expect.any(Object));
   });
 });
