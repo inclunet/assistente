@@ -596,7 +596,7 @@ func (s *session) abandonTurn(ctx context.Context, seq uint64, done <-chan promp
 	return s.awaitCancelled(seq, done, timer.C)
 }
 
-// watchStall vigia a inatividade do turno em voo e fecha stalled quando o
+// watchStall vigia a inatividade do turno em voo e avisa em stalled quando o
 // agente passa do prazo sem nenhum sinal. A conferência é por sondagem —
 // entrega e permissão carimbam lastActivity por outros caminhos — e a
 // goroutine morre com stallStop, que o Prompt fecha em todo retorno.
