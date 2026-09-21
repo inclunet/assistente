@@ -14,8 +14,8 @@ func novaSessaoVigiada(t *testing.T) *session {
 	t.Helper()
 	leitura, escrita := io.Pipe()
 	t.Cleanup(func() {
-		leitura.Close()
-		escrita.Close()
+		_ = leitura.Close()
+		_ = escrita.Close()
 	})
 	cn := &conn{
 		handler:  denyAll{},
