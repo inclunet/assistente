@@ -228,21 +228,23 @@ describe('TaskDetailModal', () => {
     expect(mockOpenTaskLink).toHaveBeenCalledWith('assistente://conversation/5', expect.any(Object));
   });
 
-  it('troca o status sem fechar o modal, com toast e anúncio', async () => {
+  it('troca o status pelo menu sem fechar o modal, com toast e anúncio', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     render(<MemoryRouter><TaskDetailModal isOpen onClose={onClose} task={task} statuses={statuses} /></MemoryRouter>);
-    await user.selectOptions(await screen.findByRole('combobox', { name: 'Status' }), '2');
+    await user.click(screen.getByRole('button', { name: 'Alterar status: A Fazer' }));
+    await user.click(await screen.findByRole('menuitem', { name: '🔄 Em Progresso' }));
     expect(mockUpdateTaskStatus).toHaveBeenCalledWith('10', 2);
     expect(mockAnnounce).toHaveBeenCalledWith('Status atualizado para Em Progresso');
     expect(mockAddToast).toHaveBeenCalledWith('Status atualizado para Em Progresso', 'success', undefined, undefined, { suppressAnnounce: true });
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('não chama update ao reselecionar o status atual', async () => {
+  it('menu de status filtra o status atual', async () => {
+    const user = userEvent.setup();
     render(<MemoryRouter><TaskDetailModal isOpen onClose={vi.fn()} task={task} statuses={statuses} /></MemoryRouter>);
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Status' }), { target: { value: '1' } });
-    expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
-    expect(mockAnnounce).not.toHaveBeenCalledWith(expect.stringContaining('Status atualizado'));
+    await user.click(screen.getByRole('button', { name: 'Alterar status: A Fazer' }));
+    expect(await screen.findByRole('menuitem', { name: '🔄 Em Progresso' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: '⌛ A Fazer' })).not.toBeInTheDocument();
   });
 });

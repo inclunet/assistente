@@ -7,6 +7,8 @@ import { Modal } from '../ui/Modal';
 import { DialogActions } from '../ui/DialogActions';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { HistoryPicker } from '../pickers/HistoryPicker';
+import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
+import { ContextMenu, type MenuItem } from '../menu';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useUIStore } from '../../store/uiStore';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -83,7 +85,12 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
 
   const [conversationSaving, setConversationSaving] = useState(false);
-  const [statusSaving, setStatusSaving] = useState(false);
+  const {
+    menu: statusMenu,
+    openForTrigger: openStatusMenu,
+    closeMenu: closeStatusMenu,
+    onSelectItem: onSelectStatusItem,
+  } = useAnchoredContextMenu();
 
   // Versão viva da task: o update otimista de setTaskConversation (e outras
   // edições) atualiza o cache do store, mas a prop continua com o snapshot.
@@ -224,11 +231,10 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const status = viewTask ? statuses.find((s) => s.id === viewTask.statusId) : undefined;
   const isDueDatePast = viewTask?.dueDate && new Date(viewTask.dueDate) < new Date();
 
-  // Troca de status sem fechar o modal: usa o mesmo update otimista do Kanban;
-  // o viewTask (versão viva do cache) reflete a troca na hora.
+  // Troca de status sem fechar o modal: mesmo padrão do Kanban (botão que abre
+  // menu ancorado), com o update otimista; a versão viva do cache reflete na hora.
   const handleStatusChange = useCallback(async (statusId: number) => {
     if (!viewTask || statusId === viewTask.statusId) return;
-    setStatusSaving(true);
     try {
       await updateTaskStatus(viewTask.id, statusId);
       const target = statuses.find((s) => s.id === statusId);
@@ -238,10 +244,25 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
-    } finally {
-      setStatusSaving(false);
     }
   }, [viewTask, statuses, updateTaskStatus, addToast, announce, t]);
+
+  const openStatusMenuFor = useCallback((trigger: HTMLElement) => {
+    if (!viewTask) return;
+    const items: MenuItem[] = statuses
+      .filter((s) => s.id !== viewTask.statusId)
+      .map((s) => ({
+        id: `move-${s.id}`,
+        label: `${s.icon} ${s.label}`,
+        action: () => void handleStatusChange(s.id),
+      }));
+    if (items.length === 0) return;
+    openStatusMenu(
+      trigger,
+      t('tasklist.changeStatus', 'Alterar status: {{status}}', { status: status?.label ?? '' }),
+      items,
+    );
+  }, [viewTask, statuses, status, openStatusMenu, handleStatusChange, t]);
 
   return (
     <Modal
@@ -257,20 +278,17 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
       {/* Badges: status, code, link, due date */}
       <div className="task-detail__header">
         {status && (
-          <select
-            className="task-detail__status-picker"
+          <button
+            type="button"
+            className="task-detail__badge task-detail__badge--status task-detail__status-button"
             style={{ borderColor: status.color }}
-            value={viewTask.statusId}
-            onChange={(e) => void handleStatusChange(Number(e.target.value))}
-            aria-label={t('tasklist.status', 'Status')}
-            disabled={statusSaving}
+            onClick={(e) => openStatusMenuFor(e.currentTarget)}
+            aria-haspopup="menu"
+            aria-expanded={statusMenu.visible}
+            aria-label={t('tasklist.changeStatus', 'Alterar status: {{status}}', { status: status.label })}
           >
-            {statuses.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.icon} {s.label}
-              </option>
-            ))}
-          </select>
+            {status.icon} {status.label}
+          </button>
         )}
         {viewTask.code && (
           <Button
@@ -457,6 +475,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
       </div>
       </>
       )}
+      <ContextMenu {...statusMenu} onClose={closeStatusMenu} onSelect={onSelectStatusItem} />
     </Modal>
   );
 }

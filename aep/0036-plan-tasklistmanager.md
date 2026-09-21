@@ -36,13 +36,13 @@ as verificações manuais pendentes da AEP; o status permanece `In Progress`.
 ## Refinamento dos detalhes: troca de status sem fechar
 
 Nos detalhes do card, o status deixa de ser um badge estático e passa a ser
-um seletor (`<select>` nativo, com `aria-label`) com os status do workflow,
-reaproveitando o `updateTaskStatus` com update otimista já usado pelo Kanban.
-A troca acontece sem fechar o modal, com toast e anúncio acessível, e a versão
-viva do cache reflete o novo status na hora.
+um botão que abre o `ContextMenu` ancorado (mesmo padrão do "Mover para…" do
+Kanban) com os demais status do workflow. A troca usa o `updateTaskStatus`
+com update otimista, sem fechar o modal, com toast e anúncio acessível, e a
+versão viva do cache reflete o novo status na hora.
 
 Evidência: `frontend/src/components/taskLists/TaskDetailModal.test.tsx` cobre
-troca, toast/anúncio e reseleção do status atual (sem chamada redundante).
+troca pelo menu, toast/anúncio e filtragem do status atual.
 
 ## TL;DR
 

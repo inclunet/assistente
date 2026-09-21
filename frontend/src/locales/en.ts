@@ -4065,6 +4065,7 @@ const en = {
       codeCopied: 'Code copied',
       codeCopyFailed: 'Could not copy the code. Try again.',
       openCardLink: 'Open card link',
+      changeStatus: 'Change status: {{status}}',
       statusUpdated: 'Status updated to {{status}}',
       title: 'Task Lists',
       lists: 'Lists',
