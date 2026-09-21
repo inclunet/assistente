@@ -129,7 +129,7 @@ func TestRespostaDoAgenteVenceOPrazoDeGraca(t *testing.T) {
 		expirado := make(chan time.Time, 1)
 		expirado <- time.Now()
 
-		stop, err := s.awaitCancelled(1, done, expirado)
+		stop, err := s.awaitCancelled(1, done, expirado, false)
 		if err != nil || stop != StopCancelled {
 			t.Fatalf("a confirmação do agente foi ignorada: stop=%q err=%v", stop, err)
 		}
@@ -148,7 +148,7 @@ func TestRespostaDoAgenteVenceOPrazoDeGraca(t *testing.T) {
 	}
 	expirado := make(chan time.Time, 1)
 	expirado <- time.Now()
-	if _, err := s.awaitCancelled(1, make(chan promptOutcome), expirado); !errors.Is(err, ErrCancelNotConfirmed) {
+	if _, err := s.awaitCancelled(1, make(chan promptOutcome), expirado, false); !errors.Is(err, ErrCancelNotConfirmed) {
 		t.Errorf("sem resposta o prazo deveria valer, obtive: %v", err)
 	}
 }

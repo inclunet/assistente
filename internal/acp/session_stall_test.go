@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -90,6 +91,32 @@ func TestWatchStallIgnoraTurnoAntigo(t *testing.T) {
 	case <-travou:
 		t.Fatal("watchdog do turno velho disparou no turno novo")
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestPrazoEstouradoCarregaOrigemDoAbandono(t *testing.T) {
+	// A origem (watchdog x pedido de quem chamou) viaja no PromptError para a
+	// mensagem dizer a verdade sobre quem interrompeu (AEP-0108 D2).
+	for _, travado := range []bool{false, true} {
+		s := &session{
+			id:             "sess-teste",
+			turnSlot:       make(chan struct{}, 1),
+			unconfirmedSig: make(chan struct{}),
+			closedSig:      make(chan struct{}),
+		}
+		expirado := make(chan time.Time, 1)
+		expirado <- time.Now()
+		_, err := s.awaitCancelled(7, make(chan promptOutcome), expirado, travado)
+		var falha *PromptError
+		if !errors.As(err, &falha) {
+			t.Fatalf("travado=%v: erro não é PromptError: %T", travado, err)
+		}
+		if !errors.Is(err, ErrCancelNotConfirmed) {
+			t.Fatalf("travado=%v: esperava ErrCancelNotConfirmed, veio %v", travado, err)
+		}
+		if falha.Stalled != travado {
+			t.Errorf("travado=%v: Stalled=%v no PromptError", travado, falha.Stalled)
+		}
 	}
 }
 

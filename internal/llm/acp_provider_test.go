@@ -963,6 +963,7 @@ func TestFalhaDoTurnoVirouFraseQueDizOEstadoDoAgente(t *testing.T) {
 		nome    string
 		err     error
 		aceito  bool
+		travado bool
 		trata   string
 		naoQuer string
 	}{
@@ -974,13 +975,16 @@ func TestFalhaDoTurnoVirouFraseQueDizOEstadoDoAgente(t *testing.T) {
 		// Sem confirmação do "pare", o agente pode continuar mexendo no disco:
 		// pedir de novo sem conferir repetiria edição e comando.
 		{nome: "cancelamento sem confirmação", err: acp.ErrCancelNotConfirmed, aceito: true, trata: "pode ainda estar trabalhando"},
+		// Quando quem calou foi o watchdog, a frase não pode dizer "interrupção
+		// do turno": a pessoa não pediu para parar nada (AEP-0108 D2).
+		{nome: "watchdog calou agente parado", err: acp.ErrCancelNotConfirmed, aceito: true, travado: true, trata: "parou de responder", naoQuer: "interrupção do turno"},
 		{nome: "conversa excluída", err: acp.ErrConversationGone, aceito: true, trata: "conversa foi encerrada"},
 		{nome: "falha qualquer antes do envio", err: errors.New("cano quebrado"), trata: "cano quebrado"},
 		{nome: "falha qualquer depois do aceite", err: errors.New("cano quebrado"), aceito: true, trata: "pode ter feito parte do pedido"},
 	}
 	for _, caso := range casos {
 		t.Run(caso.nome, func(t *testing.T) {
-			got := turnErrorMessage(&acp.PromptError{Accepted: caso.aceito, Err: caso.err}, caso.aceito)
+			got := turnErrorMessage(&acp.PromptError{Accepted: caso.aceito, Stalled: caso.travado, Err: caso.err}, caso.aceito)
 			if !strings.Contains(got, caso.trata) {
 				t.Errorf("mensagem = %q, quer conter %q", got, caso.trata)
 			}
