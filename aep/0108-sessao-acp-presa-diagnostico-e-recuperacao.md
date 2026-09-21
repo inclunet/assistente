@@ -53,7 +53,9 @@ recuperação e proibição de `assistant` vazio em erro.
 
 - Em `ErrSessionLost`/`ErrCancelNotConfirmed`, o `Manager` fecha a sessão morta,
    abre nova sessão ACP na mesma conversa (retomando por `loadSession`,
-   `manager.go:883`) e retenta o turno **uma vez**, anunciando o que houve.
+   `manager.go:883`) e retenta o turno **uma vez**. O aviso do que houve trafega
+   como evento de chat (AEP-0040, nunca mensagem local no frontend) para o
+   `announce()`/TTS arbitrados o apresentarem (AEP-0058).
 - Sem empilhamento: vale o pipeline único `SendMessage`/`RetryMessage` (AEP-0040);
   nada de fluxo alternativo de envio.
 
