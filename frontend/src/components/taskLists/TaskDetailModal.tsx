@@ -159,7 +159,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const handleCopyCode = useCallback(async () => {
     if (!task?.code) return;
     try {
-      if (!navigator.clipboard?.writeText) throw new Error('clipboard indisponível');
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard-unavailable');
       await navigator.clipboard.writeText(task.code);
       const message = t('tasklist.codeCopied', 'Código copiado');
       addToast(message, 'success', undefined, undefined, { suppressAnnounce: true });

@@ -115,7 +115,7 @@ describe('TaskDetailModal', () => {
     expect(mockOpenTaskLink).not.toHaveBeenCalled();
     expect(mockAnnounce).toHaveBeenCalledWith('Código copiado');
     expect(mockAddToast).toHaveBeenCalledWith('Código copiado', 'success', undefined, undefined, { suppressAnnounce: true });
-    expect(button).toBeInTheDocument();
+    expect(button).toHaveAccessibleName('Copiar código EXT-0042');
     await user.click(screen.getByRole('button', { name: 'Abrir link do card' }));
     expect(mockOpenTaskLink).toHaveBeenCalledWith('https://example.com/card/42', expect.any(Object));
   });

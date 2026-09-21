@@ -9,8 +9,7 @@
 .task-detail__header {
   display: flex;
   flex-wrap: wrap;
-  column-gap: 12px;
-  row-gap: 8px;
+  gap: 8px 12px;
   align-items: center;
   padding: 16px 24px 0;
 }
