@@ -229,7 +229,6 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
             className="task-detail__copy-code"
             onClick={() => void handleCopyCode()}
             aria-label={t('tasklist.copyCode', 'Copiar código {{code}}', { code: task.code })}
-            title={t('tasklist.copyCode', 'Copiar código {{code}}', { code: task.code })}
           >
             <CopyOutlined aria-hidden="true" />
             {task.code}

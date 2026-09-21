@@ -30,7 +30,7 @@ a área de transferência por clique, Enter ou Espaço. O link externo mantém
 uma ação separada. Sucesso e falha têm feedback visual e anúncio acessível.
 
 Evidência: `frontend/src/components/taskLists/TaskDetailModal.test.tsx` cobre
-cópia, teclado, foco, falha e preservação do link. Esse refinamento não encerra
+cópia, teclado, falha e preservação do link. Esse refinamento não encerra
 as verificações manuais pendentes da AEP; o status permanece `In Progress`.
 
 ## TL;DR
