@@ -19,6 +19,7 @@ import {
   CHAT_NOTICE_MODEL_NOT_APPLIED,
   CHAT_NOTICE_MODEL_NOT_OFFERED,
   CHAT_NOTICE_AGENT_MEMORY_LOST,
+  CHAT_NOTICE_AGENT_SESSION_RECOVERED,
   CHAT_NOTICE_MODE_SKIPS_PERMISSION,
   CHAT_NOTICE_MODE_ASKS_PERMISSION,
 } from './chatNotice';
@@ -147,6 +148,15 @@ describe('chatNoticeMessage', () => {
     });
 
     expect(message).toContain('app.chatNotice.agentMemoryLost|');
+  });
+
+  it('conta que a sessão perdida foi descartada e o turno segue noutra', () => {
+    const message = chatNoticeMessage(t, {
+      conversationId: 'conversa-1',
+      kind: CHAT_NOTICE_AGENT_SESSION_RECOVERED,
+    });
+
+    expect(message).toContain('app.chatNotice.agentSessionRecovered|');
   });
 
   it('conta que o modo escolhido dispensa a autorização, nomeando o modo', () => {

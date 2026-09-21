@@ -143,6 +143,19 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	}
 
 	if err != nil {
+		if errors.Is(err, acp.ErrSessionLost) {
+			// A sessão em memória não serve mais a ninguém: sem descartá-la,
+			// a próxima tentativa (auto-recuperação) bateria na mesma sessão
+			// morta em vez de retomar pelo identificador guardado ou abrir
+			// outra (AEP-0108 D3).
+			conv.Invalidate()
+			if !accepted {
+				// O pedido nem chegou ao agente, então a tentativa seguinte
+				// reconecta de verdade — e a pessoa precisa saber que o turno
+				// recomeçou noutra sessão, não que a resposta sumiu.
+				notifyTurn(handler, TurnNotice{Kind: TurnNoticeSessionRecovered})
+			}
+		}
 		if accepted {
 			// A auto-recuperação reinvoca StreamChat sozinha depois de um erro
 			// de transporte. Para um provider HTTP isso é inofensivo; aqui
