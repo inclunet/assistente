@@ -9,7 +9,8 @@
 .task-detail__header {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  column-gap: 12px;
+  row-gap: 8px;
   align-items: center;
   padding: 16px 24px 0;
 }
@@ -72,10 +73,18 @@
   border: 1px solid var(--border-default);
 }
 
-.task-detail__badge--code {
+.task-detail__copy-code {
+  min-height: 36px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: start;
   background: var(--bg-surface);
   color: var(--text-secondary);
   font-family: var(--font-mono);
+}
+
+.task-detail__open-link {
+  min-height: 36px;
 }
 
 .task-detail__badge--link {

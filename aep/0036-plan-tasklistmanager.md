@@ -22,6 +22,17 @@
 > - Evolução posterior (eventos de domínio + custom actions de card): ver
 >   **AEP-0067**.
 
+## Refinamento dos detalhes: referência externa copiável
+
+O campo `Task.Code` permanece a referência externa do card. Nos detalhes, ele
+é exibido em botão próprio, separado do status, e copia o valor integral para
+a área de transferência por clique, Enter ou Espaço. O link externo mantém
+uma ação separada. Sucesso e falha têm feedback visual e anúncio acessível.
+
+Evidência: `frontend/src/components/taskLists/TaskDetailModal.test.tsx` cobre
+cópia, teclado, foco, falha e preservação do link. Esse refinamento não encerra
+as verificações manuais pendentes da AEP; o status permanece `In Progress`.
+
 ## TL;DR
 
 Implementar um **sistema de gerenciamento de TaskLists reutilizáveis** que funciona em 3 contextos:
