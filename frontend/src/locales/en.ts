@@ -4065,6 +4065,7 @@ const en = {
       codeCopied: 'Code copied',
       codeCopyFailed: 'Could not copy the code. Try again.',
       openCardLink: 'Open card link',
+      goToConversation: 'Go to linked conversation',
       title: 'Task Lists',
       lists: 'Lists',
       allLists: 'All Lists',

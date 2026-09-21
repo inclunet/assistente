@@ -199,7 +199,10 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const handleConversationClick = useCallback(() => {
     if (!viewTask?.conversationId) return;
     openTaskLink(`assistente://conversation/${viewTask.conversationId}`, { navigate });
-  }, [viewTask, navigate]);
+    // A navegação troca o contexto por trás do modal; fecha para não dar a
+    // impressão de que nada aconteceu (o Modal restaura o foco ao fechar).
+    onClose();
+  }, [viewTask, navigate, onClose]);
 
   // Aplica o vínculo imediatamente ao selecionar no HistoryPicker (id) ou ao
   // escolher "Nenhuma"/desvincular (null), espelhando a UX do picker do chat.
@@ -289,7 +292,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
             onClick={handleConversationClick}
             title={viewTask.conversationId}
           >
-            <MessageOutlined aria-hidden="true" /> {t('tasklist.conversation', 'Conversa vinculada')}
+            <MessageOutlined aria-hidden="true" /> {t('tasklist.goToConversation', 'Ir para conversa vinculada')}
           </Button>
         )}
       </div>

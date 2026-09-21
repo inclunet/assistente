@@ -203,20 +203,22 @@ describe('TaskDetailModal', () => {
     // KanbanBoard/TasksTable passam a task como snapshot em useState; o update
     // otimista do store atualiza o cache, e o modal deve preferir a versão viva.
     mockTaskLists.set('1', { tasks: [{ ...task, conversationId: '5' }] });
+    const onClose = vi.fn();
     render(
       <MemoryRouter>
-        <TaskDetailModal isOpen onClose={vi.fn()} task={task} statuses={statuses} />
+        <TaskDetailModal isOpen onClose={onClose} task={task} statuses={statuses} />
       </MemoryRouter>,
     );
 
     // Badge de conversa e picker passam a refletir o vínculo do cache.
-    const conversationButton = await screen.findByRole('button', { name: 'Conversa vinculada' });
+    const conversationButton = await screen.findByRole('button', { name: 'Ir para conversa vinculada' });
     expect(screen.getByRole('button', { name: /Alterar conversa vinculada/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Vincular conversa/ })).not.toBeInTheDocument();
 
-    // O botão abre a conversa vinculada via deep link.
+    // O botão abre a conversa vinculada via deep link e fecha o modal.
     const user = userEvent.setup();
     await user.click(conversationButton);
     expect(mockOpenTaskLink).toHaveBeenCalledWith('assistente://conversation/5', expect.any(Object));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
