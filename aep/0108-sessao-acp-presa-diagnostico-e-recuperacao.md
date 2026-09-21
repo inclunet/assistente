@@ -31,8 +31,9 @@ recuperação e proibição de `assistant` vazio em erro.
 - `waitForTurn` loga quando começa a esperar (sessão, há quanto tempo o slot está
   tomado via `turnInFlight`) e quando sai da fila (admitido, `ErrCancelNotConfirmed`,
   `ErrSessionLost`, `ErrSessionClosed`, cancelamento do contexto).
-- UI: estado "aguardando turno anterior" por conversa (AEP-0100) com ação Cancelar
-  (`session/cancel`), anunciado via `announce()` (AEP-0091, sem só-cor).
+- UI: estado "aguardando turno anterior" por conversa, com ação Cancelar
+  (`session/cancel`), anunciado via `useAnnouncer` (nunca só-cor; announcer único,
+  AEP-0058).
 
 ### D2. Heartbeat com fail-fast
 
@@ -68,8 +69,10 @@ recuperação e proibição de `assistant` vazio em erro.
 ### D4. Nunca persistir `assistant` vazio em erro
 
 - Falha de turno ACP persiste texto de erro (sanitizado, D11 do AEP-0084) em vez de
-  `content` vazio, com `announce()` do motivo. Dois `assistant` de 0 chars no caso
-  real apagaram o rastro na UI.
+  `content` vazio, com `announce()` do motivo (AEP-0058). O caminho de parcial
+  (`persistAssistantPartialBestEffort`) já existe; a regra cobre o caso de
+  zero conteúdo — os dois `assistant` de 0 chars do caso real apagaram o rastro
+  na UI.
 
 ## Fases
 
@@ -86,8 +89,9 @@ recuperação e proibição de `assistant` vazio em erro.
 - Heartbeat agressivo demais derruba sessão saudável (mitigação: só em ociosidade,
   timeout generoso, sem `session/cancel` real).
 - Retry duplicar efeito colateral no agente (mitigação: 1 retry só quando o turno
-  **não** foi aceito — `Accepted=false`; turno aceito segue "sem repetição",
-  AEP-0064).
+  **não** foi aceito — `Accepted=false`; turno aceito não se repete porque pode
+  ter editado arquivo/rodado comando, regra de `internal/agent/service.go`
+  (`ErrorNotRetryable`, AEP-0084 D4)).
 - Falso não-confirmado por lentidão do agente (mitigação: watchdog conta
   inatividade de `session/update`, não tempo total; timeout generoso, nunca
   sondar sessão ociosa com `session/cancel` real).
