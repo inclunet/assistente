@@ -159,12 +159,13 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const handleCopyCode = useCallback(async () => {
     if (!task?.code) return;
     try {
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard indisponível');
       await navigator.clipboard.writeText(task.code);
-      const message = t('tasklist.codeCopied');
+      const message = t('tasklist.codeCopied', 'Código copiado');
       addToast(message, 'success', undefined, undefined, { suppressAnnounce: true });
       announce(message);
     } catch {
-      const message = t('tasklist.codeCopyFailed');
+      const message = t('tasklist.codeCopyFailed', 'Não foi possível copiar o código. Tente novamente.');
       addToast(message, 'error', undefined, undefined, { suppressAnnounce: true });
       announce(message);
     }
@@ -227,8 +228,8 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
             size="sm"
             className="task-detail__copy-code"
             onClick={() => void handleCopyCode()}
-            aria-label={t('tasklist.copyCode', { code: task.code })}
-            title={t('tasklist.copyCode', { code: task.code })}
+            aria-label={t('tasklist.copyCode', 'Copiar código {{code}}', { code: task.code })}
+            title={t('tasklist.copyCode', 'Copiar código {{code}}', { code: task.code })}
           >
             <CopyOutlined aria-hidden="true" />
             {task.code}
@@ -242,7 +243,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
             className="task-detail__open-link"
             onClick={handleLinkClick}
           >
-            <LinkOutlined aria-hidden="true" /> {t('tasklist.openCardLink')}
+            <LinkOutlined aria-hidden="true" /> {t('tasklist.openCardLink', 'Abrir link do card')}
           </Button>
         )}
         {task.assigneeName && (

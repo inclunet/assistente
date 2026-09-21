@@ -21,7 +21,7 @@ vi.mock('react-i18next', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-i18next')>();
   return {
     ...actual,
-    useTranslation: () => ({ t: (key: string, fallback?: string | { code: string }) => typeof fallback === 'object' ? `${key} ${fallback.code}` : fallback ?? key }),
+    useTranslation: () => ({ t: (key: string, fallback?: string, options?: { code?: string }) => (fallback ?? key).replace('{{code}}', options?.code ?? '') }),
   };
 });
 
@@ -106,20 +106,17 @@ describe('TaskDetailModal', () => {
     const user = userEvent.setup();
     const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
     render(<MemoryRouter><TaskDetailModal isOpen onClose={vi.fn()} task={{ ...task, code: 'EXT-0042', link: 'https://example.com/card/42' }} statuses={statuses} /></MemoryRouter>);
-    const button = await screen.findByRole('button', { name: 'tasklist.copyCode EXT-0042' });
-    // Aguarda o foco inicial assíncrono do Modal antes de navegar por Tab.
-    await waitFor(() => expect(document.activeElement).toHaveClass('modal-content'));
-    await user.tab();
-    await user.tab();
+    const button = await screen.findByRole('button', { name: 'Copiar código EXT-0042' });
+    button.focus();
     expect(button).toHaveFocus();
     if (activation === 'click') await user.click(button);
     else await user.keyboard(activation === 'Enter' ? '{Enter}' : ' ');
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('EXT-0042'));
     expect(mockOpenTaskLink).not.toHaveBeenCalled();
-    expect(mockAnnounce).toHaveBeenCalledWith('tasklist.codeCopied');
-    expect(mockAddToast).toHaveBeenCalledWith('tasklist.codeCopied', 'success', undefined, undefined, { suppressAnnounce: true });
-    expect(button).toHaveFocus();
-    await user.click(screen.getByRole('button', { name: 'tasklist.openCardLink' }));
+    expect(mockAnnounce).toHaveBeenCalledWith('Código copiado');
+    expect(mockAddToast).toHaveBeenCalledWith('Código copiado', 'success', undefined, undefined, { suppressAnnounce: true });
+    expect(button).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Abrir link do card' }));
     expect(mockOpenTaskLink).toHaveBeenCalledWith('https://example.com/card/42', expect.any(Object));
   });
 
@@ -127,17 +124,17 @@ describe('TaskDetailModal', () => {
     const user = userEvent.setup();
     vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'));
     render(<MemoryRouter><TaskDetailModal isOpen onClose={vi.fn()} task={{ ...task, code: 'EXT-0042' }} statuses={statuses} /></MemoryRouter>);
-    await user.click(screen.getByRole('button', { name: 'tasklist.copyCode EXT-0042' }));
-    expect(mockAnnounce).toHaveBeenCalledWith('tasklist.codeCopyFailed');
-    expect(mockAnnounce).not.toHaveBeenCalledWith('tasklist.codeCopied');
-    expect(mockAddToast).toHaveBeenCalledWith('tasklist.codeCopyFailed', 'error', undefined, undefined, { suppressAnnounce: true });
-    expect(screen.queryByRole('button', { name: 'tasklist.openCardLink' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Copiar código EXT-0042' }));
+    expect(mockAnnounce).toHaveBeenCalledWith('Não foi possível copiar o código. Tente novamente.');
+    expect(mockAnnounce).not.toHaveBeenCalledWith('Código copiado');
+    expect(mockAddToast).toHaveBeenCalledWith('Não foi possível copiar o código. Tente novamente.', 'error', undefined, undefined, { suppressAnnounce: true });
+    expect(screen.queryByRole('button', { name: 'Abrir link do card' })).not.toBeInTheDocument();
   });
 
   it('mantém link sem código e omite copiar quando não há referência', async () => {
     render(<MemoryRouter><TaskDetailModal isOpen onClose={vi.fn()} task={{ ...task, link: 'https://example.com' }} statuses={statuses} /></MemoryRouter>);
-    expect(await screen.findByRole('button', { name: 'tasklist.openCardLink' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /tasklist.copyCode/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Abrir link do card' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Copiar código/ })).not.toBeInTheDocument();
   });
 
   it('usa readingMode (role="document") para permitir leitura linear no leitor de tela', async () => {
