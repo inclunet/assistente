@@ -1367,7 +1367,10 @@ func (s *Service) persistErrorWhenEmpty(ctx context.Context, assistantMessageID,
 	}
 	conteudo := "Falha na resposta do agente: " + acp.SanitizeContent(errText)
 	if err := s.msgRepo.UpdateMessageContentAndReasoning(persistCtx, assistantMessageID, conteudo, msg.Reasoning, msg.PromptTokens, msg.CompletionTokens, msg.TotalTokens, msg.Model); err != nil {
-		logging.Warnf(ctx, "agent.service", "[Agent] aviso: falha ao persistir erro da mensagem assistant %s: %v", assistantMessageID, err)
+		// Sem prefixo [Agent]: o inventário de logging legado (issue #675)
+		// congela os formatos com prefixo de componente em minúsculas, e código
+		// novo não deve aumentar essa lista.
+		logging.Warnf(ctx, "agent.service", "aviso: falha ao persistir erro da mensagem assistant %s: %v", assistantMessageID, err)
 	}
 }
 
