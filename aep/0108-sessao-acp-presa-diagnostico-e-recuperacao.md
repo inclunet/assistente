@@ -36,17 +36,24 @@ recuperação e proibição de `assistant` vazio em erro.
 
 ### D2. Heartbeat com fail-fast
 
-- Sonda periódica em sessão ACP ociosa (capacidades/handshake leve) com timeout
-  curto; ao estourar, fecha `cn.dead` para `waitForTurn` acordar com
-  `ErrSessionLost` em vez de esperar para sempre.
+- Processo morto com pipe fechado já é detectado hoje: `watch()` fecha `dead`
+  quando `rpc.Done()` fecha (`client.go`), e `waitForTurn` escuta os dois. O
+  buraco real é o agente **vivo mas sem resposta** (não responde o
+  `session/prompt`, não morre, pipe aberto) — foi esse o sintoma às 11:48/12:21.
+- Por isso a sonda periódica (só em sessão **ociosa**, nunca com turno em voo)
+  não fecha `cn.dead` ao estourar: `dead` significa "processo caiu" e o `conn` é
+  compartilhado por sessão do mesmo processo — marcá-lo mentiria o diagnóstico e
+  derrubaria conversas saudáveis. O estouro segue o caminho já previsto no D10 do
+  AEP-0084: marca o turno como não confirmado (`unconfirmed`, `ErrCancelNotConfirmed`)
+  para o próximo turno ser **recusado com o motivo**, nunca enfileirado em silêncio.
 - `Prompt` mantém as checagens de `cn.isDead()` na entrada/saída; o heartbeat só
-  adiciona o ponto de detecção que falta no meio.
+  adiciona o ponto de detecção que falta no meio: resposta que nunca chega.
 
 ### D3. Recuperação automática (1 retry)
 
 - Em `ErrSessionLost`/`ErrCancelNotConfirmed`, o `Manager` fecha a sessão morta,
-  abre nova sessão ACP na mesma conversa (retomando por `loadSession`,
-  `manager.go`) e retenta o turno **uma vez**, anunciando o que houve.
+   abre nova sessão ACP na mesma conversa (retomando por `loadSession`,
+   `manager.go:883`) e retenta o turno **uma vez**, anunciando o que houve.
 - Sem empilhamento: vale o pipeline único `SendMessage`/`RetryMessage` (AEP-0040);
   nada de fluxo alternativo de envio.
 
@@ -79,7 +86,8 @@ recuperação e proibição de `assistant` vazio em erro.
 
 - [ ] Turno ACP sem resposta gera log de espera + estado visível com Cancelar.
 - [ ] Processo ACP morto sem fechar pipe vira `ErrSessionLost` em tempo limitado
-      (teste com fakeagent/processo).
+      (teste com fakeagent/processo); agente vivo sem resposta vira
+      `ErrCancelNotConfirmed` via heartbeat (nunca `markDead`, que é por `conn`).
 - [ ] `ErrSessionLost`/`ErrCancelNotConfirmed` recupera com nova sessão + 1 retry
       anunciado (quando não aceito).
 - [ ] Nenhum caminho de erro ACP persiste `assistant` com conteúdo vazio.
