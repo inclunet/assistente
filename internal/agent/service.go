@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"assistente/internal/acp"
 	"assistente/internal/logging"
 	"context"
 	"crypto/sha256"
@@ -155,12 +156,14 @@ func (s *Service) StreamSimpleWithRecovery(
 		if h.ErrorNotRetryable() {
 			partialContent, partialReasoning := h.Finalize()
 			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
+			s.persistErrorWhenEmpty(ctx, h.AssistantMessageID, h.LastError())
 			logging.Errorf(ctx, "agent.service", "[Chat] streaming interrompido sem repetição possível (conversa %s): %s", conversationID, h.LastError())
 			return
 		}
 		if attempt == attempts {
 			partialContent, partialReasoning := h.Finalize()
 			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
+			s.persistErrorWhenEmpty(ctx, h.AssistantMessageID, h.LastError())
 		}
 		if attempt < attempts {
 			logging.Errorf(context.Background(), "agent.service", "[Chat] streaming interrompido (conversa %s, tentativa %d/%d): %s", conversationID, attempt, attempts, h.LastError())
@@ -1344,6 +1347,30 @@ func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assista
 
 	if err := s.msgRepo.UpdateMessageContentAndReasoning(persistCtx, assistantMessageID, content, reasoning, promptTokens, completionTokens, totalTokens, model); err != nil {
 		logging.Warnf(ctx, "agent.service", "[Agent] aviso: falha ao persistir conteúdo parcial da mensagem assistant %s: %v", assistantMessageID, err)
+	}
+}
+
+// persistErrorWhenEmpty grava o texto do erro no placeholder quando o turno
+// termina sem nenhum conteúdo (AEP-0108 D4). Placeholder vazio apaga o rastro
+// na UI; com o motivo salvo, a conclusão normal o anuncia/fala. Cancelamento
+// de quem chamou não passa por aqui — não é falha. O texto é sanitizado por
+// ser fronteira de dado não confiável (parte dele vem do agente).
+func (s *Service) persistErrorWhenEmpty(ctx context.Context, assistantMessageID, errText string) {
+	assistantMessageID = strings.TrimSpace(assistantMessageID)
+	if assistantMessageID == "" || strings.TrimSpace(errText) == "" || s.msgRepo == nil {
+		return
+	}
+	persistCtx := context.WithoutCancel(ctx)
+	msg, err := s.msgRepo.GetMessage(persistCtx, assistantMessageID)
+	if err != nil || msg == nil || strings.TrimSpace(msg.Content) != "" {
+		return
+	}
+	conteudo := "Falha na resposta do agente: " + acp.SanitizeContent(errText)
+	if err := s.msgRepo.UpdateMessageContentAndReasoning(persistCtx, assistantMessageID, conteudo, msg.Reasoning, msg.PromptTokens, msg.CompletionTokens, msg.TotalTokens, msg.Model); err != nil {
+		// Sem prefixo [Agent]: o inventário de logging legado (issue #675)
+		// congela os formatos com prefixo de componente em minúsculas, e código
+		// novo não deve aumentar essa lista.
+		logging.Warnf(ctx, "agent.service", "aviso: falha ao persistir erro da mensagem assistant %s: %v", assistantMessageID, err)
 	}
 }
 

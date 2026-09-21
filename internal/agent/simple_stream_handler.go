@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"assistente/internal/acp"
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/events"
@@ -8,6 +9,7 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"errors"
+	"strings"
 )
 
 // SimpleStreamHandler implements llm.StreamHandler for the non-agentic (no-tool) path.
@@ -179,6 +181,13 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 	finalContent := fullResponse
 	if finalContent == "" {
 		finalContent = accumulatedContent
+	}
+	// AEP-0108 D4: turno que termina sem conteúdo e com erro não pode deixar o
+	// placeholder assistant vazio no banco — o vazio apaga o rastro na UI. O
+	// texto do erro (sanitizado, fronteira de dado não confiável) vira o
+	// conteúdo, e a conclusão normal o anuncia/fala como qualquer resposta.
+	if strings.TrimSpace(finalContent) == "" && strings.TrimSpace(h.lastError) != "" {
+		finalContent = "Falha na resposta do agente: " + acp.SanitizeContent(h.lastError)
 	}
 
 	// Delegate save, notify, and event emission to the Service (same as agentic path).

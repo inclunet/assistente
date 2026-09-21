@@ -23,6 +23,15 @@ const cancelGrace = 30 * time.Second
 // saída do app por causa de um agente que não responde.
 const closeTimeout = 5 * time.Second
 
+// stallTimeout é quanto um turno em voo pode ficar sem nenhum sinal do agente
+// (update, permissão, fim) antes de ser tratado como preso. Sem ele, um agente
+// vivo que para de responder segura o turnSlot para sempre e os turnos
+// seguintes enfileiram em silêncio (AEP-0108 D2).
+const stallTimeout = 10 * time.Minute
+
+// stallPoll é o intervalo com que o watchdog confere a inatividade do turno.
+const stallPoll = time.Minute
+
 // legacySetModelMethod é o seletor de modelo anterior ao configOptions. Escrito
 // à mão porque o SDK deixou de tipá-lo quando o formato estável virou o caminho
 // único — e é justamente o tipo de coisa que a chamada crua existe para cobrir
@@ -50,6 +59,10 @@ type session struct {
 	// closeWait é quanto o encerramento espera pela despedida do agente. Campo
 	// pelo mesmo motivo de grace.
 	closeWait time.Duration
+	// stallTimeout e stallPoll são o prazo de inatividade do watchdog e o
+	// intervalo de conferência. Campos pelo mesmo motivo de grace.
+	stallTimeout time.Duration
+	stallPoll    time.Duration
 
 	// sinkMu protege a entrega, e não só a leitura do sink. Segurar a trava
 	// durante a chamada é o que faz o fim do turno esperar a entrega em
@@ -89,6 +102,11 @@ type session struct {
 	// pedidos de permissão ainda pendentes (exigência do ACP), e é por aqui que
 	// o transporte fica sabendo.
 	cancelSig chan struct{}
+
+	// lastActivity é o instante do último sinal do agente (update entregue,
+	// pedido de permissão, início de turno). É o que o watchdog de inatividade
+	// (AEP-0108 D2) lê para decidir se o turno em voo prendeu.
+	lastActivity time.Time
 }
 
 func (s *session) isClosed() bool {
@@ -105,10 +123,13 @@ func newSession(id, cwd string, cn *conn, options []ConfigOption) *session {
 		turnSlot:       make(chan struct{}, 1),
 		grace:          cancelGrace,
 		closeWait:      closeTimeout,
+		stallTimeout:   stallTimeout,
+		stallPoll:      stallPoll,
 		options:        copyOptions(options),
 		cancelSig:      make(chan struct{}),
 		unconfirmedSig: make(chan struct{}),
 		closedSig:      make(chan struct{}),
+		lastActivity:   time.Now(),
 	}
 	s.turnSlot <- struct{}{}
 	return s
@@ -234,6 +255,7 @@ func (s *session) setSink(sink UpdateSink) {
 // de modelo por conta própria, inclusive entre turnos, e esquecer isso deixaria
 // a pessoa achando que fala com outro modelo.
 func (s *session) deliver(update Update) {
+	s.noteActivity()
 	switch update.Kind {
 	case UpdateConfigOptions:
 		// Quem escuta recebe o mesmo conjunto que passamos a guardar, e não o
@@ -295,7 +317,22 @@ func (s *session) acquireTurn(ctx context.Context) error {
 	// O canal é lido antes da espera: quem já está na fila quando o prazo de
 	// cancelamento estoura precisa ser acordado, não descobrir só na próxima vez
 	// que tentar.
-	return s.waitForTurn(ctx, s.unconfirmedCancel(), s.closedSignal())
+	//
+	// A espera é logada na entrada e na saída com o desfecho: sem isso, um turno
+	// preso deixa os seguintes enfileirados em silêncio e o log não conta nada
+	// (AEP-0108 D1).
+	waitStart := time.Now()
+	logging.Warnf(ctx, logComponent,
+		"[ACP] turno na sessão %q aguardando o turno anterior liberar a vez", s.id)
+	err := s.waitForTurn(ctx, s.unconfirmedCancel(), s.closedSignal())
+	if err != nil {
+		logging.Warnf(context.WithoutCancel(ctx), logComponent,
+			"[ACP] turno na sessão %q saiu da fila após %s sem a vez: %v", s.id, time.Since(waitStart).Round(time.Millisecond), err)
+		return err
+	}
+	logging.Infof(ctx, logComponent,
+		"[ACP] turno na sessão %q admitido após %s de fila", s.id, time.Since(waitStart).Round(time.Millisecond))
+	return nil
 }
 
 // takeTurn confirma a vez recém-pegada, e é por onde passam todos os caminhos
@@ -362,6 +399,7 @@ func (s *session) startTurn() uint64 {
 	default:
 	}
 	s.turnSeq++
+	s.lastActivity = time.Now()
 	return s.turnSeq
 }
 
@@ -380,6 +418,31 @@ func (s *session) signalCancel() {
 // que o agente ignora — o contrário, deixar de cancelar, é que custa caro.
 func (s *session) turnInFlight() bool {
 	return len(s.turnSlot) == 0
+}
+
+// noteActivity carimba o último sinal do agente. Todo tráfego agente→app da
+// sessão passa por aqui (updates via deliver, permissões via requestPermission)
+// ou pelo início do turno — é o relógio que o watchdog de inatividade lê.
+func (s *session) noteActivity() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastActivity = time.Now()
+}
+
+// idleSince diz há quanto tempo o agente não dá sinal.
+func (s *session) idleSince() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return time.Since(s.lastActivity)
+}
+
+// currentSeq devolve o número do turno em andamento sob trava: o prazo do
+// watchdog pode estourar no instante em que o turno seguinte começa, e ler sem
+// trava seria corrida — além de culpar o turno errado.
+func (s *session) currentSeq() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.turnSeq
 }
 
 func (s *session) closedSignal() <-chan struct{} {
@@ -455,6 +518,13 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 	s.setSink(sink)
 	defer s.setSink(nil)
 
+	// O watchdog de inatividade (AEP-0108 D2) cobre o caso que nenhum contexto
+	// cobre: agente vivo que para de responder com o turno em voo. Sem ele, o
+	// turnSlot fica preso e os turnos seguintes enfileiram em silêncio.
+	stallStop := make(chan struct{})
+	defer close(stallStop)
+	stalled := s.watchStall(seq, stallStop)
+
 	done := make(chan promptOutcome, 1)
 	go func() {
 		defer s.releaseTurn()
@@ -487,31 +557,84 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 		return s.finishTurn(out)
 	case <-s.closedSig:
 		return s.closedOutcome(done)
+	case <-stalled:
+		return s.abandonTurn(ctx, seq, done, "sem atividade do agente")
 	case <-ctx.Done():
-		// A entrega continua ligada durante o prazo de graça, de propósito. O
-		// que o agente emite enquanto se recolhe é justamente o desfecho do que
-		// ele já tinha começado — a ferramenta que terminou de gravar o arquivo,
-		// o comando que ainda rodou. Calar isso aqui deixaria a lista de
-		// ferramentas parada em "em andamento" e esconderia da pessoa uma
-		// escrita em disco que aconteceu de verdade.
-		//
-		// O envio do cancelamento não pode segurar o prazo: escrever para o
-		// agente é I/O que pode travar, e travaria quem chamou justamente na
-		// hora em que ele pediu para parar. Contra um agente vivo que parou de
-		// ler a entrada, essa goroutine fica parada até o cano quebrar — o que
-		// acontece quando o processo morre, no Close do cliente ou por conta
-		// dele mesmo. Prazo não resolveria: o SDK confere o contexto antes de
-		// escrever e depois entra num Write que não olha mais nada.
-		go func() {
-			if err := s.Cancel(context.Background()); err != nil {
-				logging.Warnf(context.Background(), logComponent,
-					"[ACP] falha ao cancelar turno da sessão %q: %v", s.id, err)
-			}
-		}()
-		timer := time.NewTimer(s.grace)
-		defer timer.Stop()
-		return s.awaitCancelled(seq, done, timer.C)
+		return s.abandonTurn(ctx, seq, done, "pedido de quem chamou")
 	}
+}
+
+// abandonTurn trata a desistência da espera pelo fim do turno: pedido de quem
+// chamou (contexto) ou inatividade do agente (watchdog). O desfecho é o mesmo
+// nos dois casos — session/cancel e espera da confirmação no prazo de graça —
+// porque quem está solto pode estar mexendo no disco do mesmo jeito.
+func (s *session) abandonTurn(ctx context.Context, seq uint64, done <-chan promptOutcome, motivo string) (StopReason, error) {
+	logging.Warnf(context.WithoutCancel(ctx), logComponent,
+		"[ACP] turno da sessão %q abandonado (%s); enviando session/cancel", s.id, motivo)
+	// A entrega continua ligada durante o prazo de graça, de propósito. O
+	// que o agente emite enquanto se recolhe é justamente o desfecho do que
+	// ele já tinha começado — a ferramenta que terminou de gravar o arquivo,
+	// o comando que ainda rodou. Calar isso aqui deixaria a lista de
+	// ferramentas parada em "em andamento" e esconderia da pessoa uma
+	// escrita em disco que aconteceu de verdade.
+	//
+	// O envio do cancelamento não pode segurar o prazo: escrever para o
+	// agente é I/O que pode travar, e travaria quem chamou justamente na
+	// hora em que ele pediu para parar. Contra um agente vivo que parou de
+	// ler a entrada, essa goroutine fica parada até o cano quebrar — o que
+	// acontece quando o processo morre, no Close do cliente ou por conta
+	// dele mesmo. Prazo não resolveria: o SDK confere o contexto antes de
+	// escrever e depois entra num Write que não olha mais nada.
+	go func() {
+		if err := s.Cancel(context.Background()); err != nil {
+			logging.Warnf(context.Background(), logComponent,
+				"[ACP] falha ao cancelar turno da sessão %q: %v", s.id, err)
+		}
+	}()
+	timer := time.NewTimer(s.grace)
+	defer timer.Stop()
+	return s.awaitCancelled(seq, done, timer.C)
+}
+
+// watchStall vigia a inatividade do turno em voo e avisa em stalled quando o
+// agente passa do prazo sem nenhum sinal. A conferência é por sondagem —
+// entrega e permissão carimbam lastActivity por outros caminhos — e a
+// goroutine morre com stallStop, que o Prompt fecha em todo retorno.
+func (s *session) watchStall(seq uint64, stallStop <-chan struct{}) <-chan struct{} {
+	stalled := make(chan struct{}, 1)
+	poll := s.stallPoll
+	if poll <= 0 {
+		poll = stallPoll
+	}
+	timeout := s.stallTimeout
+	if timeout <= 0 {
+		timeout = stallTimeout
+	}
+	go func() {
+		ticker := time.NewTicker(poll)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stallStop:
+				return
+			case <-ticker.C:
+				if s.currentSeq() != seq || s.isClosed() || s.cn.isDead() {
+					return
+				}
+				if ocioso := s.idleSince(); ocioso >= timeout {
+					logging.Warnf(context.Background(), logComponent,
+						"[ACP] turno da sessão %q sem atividade do agente há %s; tratando como preso",
+						s.id, ocioso.Round(time.Millisecond))
+					select {
+					case stalled <- struct{}{}:
+					default:
+					}
+					return
+				}
+			}
+		}
+	}()
+	return stalled
 }
 
 // closedOutcome resolve um turno cuja conversa foi excluída. Se a goroutine já

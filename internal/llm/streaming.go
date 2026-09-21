@@ -101,6 +101,12 @@ const (
 // mudou é o que o agente sabe, e só ela pode decidir o que vale recontar.
 const TurnNoticeAgentMemoryLost TurnNoticeKind = "agent_memory_lost"
 
+// TurnNoticeSessionRecovered: a sessão do agente se perdeu no meio do turno e
+// foi descartada; o turno segue numa sessão nova (AEP-0108 D3). Diferente da
+// memória perdida, aqui nada do histórico se perdeu do lado do app — o que
+// mudou foi só o identificador da sessão do lado do agente.
+const TurnNoticeSessionRecovered TurnNoticeKind = "agent_session_recovered"
+
 // TurnNotice é um aviso sobre o próprio turno: não é a resposta, não é falha e
 // não encerra nada.
 type TurnNotice struct {
