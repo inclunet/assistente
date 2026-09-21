@@ -15,6 +15,7 @@ vi.mock('../../lib/deepLinks', () => ({ openTaskLink: (...args: unknown[]) => mo
 const mockLoadTaskNotes = vi.fn();
 const mockListCardCustomActions = vi.fn();
 const mockSetTaskConversation = vi.fn();
+const mockUpdateTaskStatus = vi.fn();
 const mockTaskLists = vi.hoisted(() => new Map());
 const mockGetConversations = vi.hoisted(() => vi.fn());
 
@@ -22,7 +23,11 @@ vi.mock('react-i18next', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-i18next')>();
   return {
     ...actual,
-    useTranslation: () => ({ t: (key: string, fallback?: string, options?: { code?: string }) => (fallback ?? key).replace('{{code}}', options?.code ?? '') }),
+    useTranslation: () => ({ t: (key: string, fallback?: string, options?: Record<string, string>) => {
+      let text = fallback ?? key;
+      for (const [name, value] of Object.entries(options ?? {})) text = text.replace(`{{${name}}}`, value);
+      return text;
+    } }),
   };
 });
 
@@ -52,6 +57,7 @@ vi.mock('../../store/taskListStore', () => ({
     deleteTaskNote: vi.fn(),
     listCardCustomActions: mockListCardCustomActions,
     setTaskConversation: mockSetTaskConversation,
+    updateTaskStatus: mockUpdateTaskStatus,
     taskLists: mockTaskLists,
   }),
 }));
@@ -78,6 +84,7 @@ vi.mock('../ui/MarkdownRenderer', () => ({
 
 const statuses: TaskListWorkflowStatus[] = [
   { id: 1, order: 0, label: 'A Fazer', color: 'gray', icon: '⌛' },
+  { id: 2, order: 1, label: 'Em Progresso', color: 'blue', icon: '🔄' },
 ];
 
 const task = {
@@ -100,6 +107,7 @@ describe('TaskDetailModal', () => {
     mockLoadTaskNotes.mockResolvedValue([]);
     mockListCardCustomActions.mockResolvedValue([]);
     mockSetTaskConversation.mockResolvedValue(undefined);
+    mockUpdateTaskStatus.mockResolvedValue(undefined);
     mockGetConversations.mockResolvedValue([
       { id: '5', title: 'Conversa X', updatedAt: '2024-01-02' },
     ]);
@@ -218,5 +226,23 @@ describe('TaskDetailModal', () => {
     const user = userEvent.setup();
     await user.click(conversationButton);
     expect(mockOpenTaskLink).toHaveBeenCalledWith('assistente://conversation/5', expect.any(Object));
+  });
+
+  it('troca o status sem fechar o modal, com toast e anúncio', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<MemoryRouter><TaskDetailModal isOpen onClose={onClose} task={task} statuses={statuses} /></MemoryRouter>);
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Status' }), '2');
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith('10', 2);
+    expect(mockAnnounce).toHaveBeenCalledWith('Status atualizado para Em Progresso');
+    expect(mockAddToast).toHaveBeenCalledWith('Status atualizado para Em Progresso', 'success', undefined, undefined, { suppressAnnounce: true });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('não chama update ao reselecionar o status atual', async () => {
+    render(<MemoryRouter><TaskDetailModal isOpen onClose={vi.fn()} task={task} statuses={statuses} /></MemoryRouter>);
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Status' }), { target: { value: '1' } });
+    expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
+    expect(mockAnnounce).not.toHaveBeenCalledWith(expect.stringContaining('Status atualizado'));
   });
 });

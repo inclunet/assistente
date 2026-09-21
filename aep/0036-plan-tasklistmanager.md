@@ -33,6 +33,17 @@ Evidência: `frontend/src/components/taskLists/TaskDetailModal.test.tsx` cobre
 cópia, teclado, falha e preservação do link. Esse refinamento não encerra
 as verificações manuais pendentes da AEP; o status permanece `In Progress`.
 
+## Refinamento dos detalhes: troca de status sem fechar
+
+Nos detalhes do card, o status deixa de ser um badge estático e passa a ser
+um seletor (`<select>` nativo, com `aria-label`) com os status do workflow,
+reaproveitando o `updateTaskStatus` com update otimista já usado pelo Kanban.
+A troca acontece sem fechar o modal, com toast e anúncio acessível, e a versão
+viva do cache reflete o novo status na hora.
+
+Evidência: `frontend/src/components/taskLists/TaskDetailModal.test.tsx` cobre
+troca, toast/anúncio e reseleção do status atual (sem chamada redundante).
+
 ## TL;DR
 
 Implementar um **sistema de gerenciamento de TaskLists reutilizáveis** que funciona em 3 contextos:

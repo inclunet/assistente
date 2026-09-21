@@ -32,7 +32,7 @@ Cada lista de tarefas possui:
 | Ação | Descrição |
 |---|---|
 | **Criar tarefa** | Com título, descrição e tarefa-pai (subtarefas) |
-| **Atualizar status** | Mover tarefa entre status (validado pelo workflow) |
+| **Atualizar status** | Mover tarefa entre status (validado pelo workflow), no Kanban ou no seletor de status dos detalhes do card |
 | **Reordenar** | Arrastar tarefas dentro de um status |
 | **Subtarefas** | Criar tarefas filhas para quebrar em partes menores |
 

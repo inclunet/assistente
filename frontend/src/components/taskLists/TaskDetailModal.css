@@ -72,6 +72,18 @@
   border: 1px solid var(--border-default);
 }
 
+.task-detail__status-picker {
+  height: 32px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
 .task-detail__copy-code {
   min-height: 36px;
   max-width: 100%;

@@ -71,7 +71,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const { t } = useTranslation();
   const navigate = useNavigate();
   const requestConfirm = useConfirm();
-  const { loadTaskNotes, createTaskNote, updateTaskNote, deleteTaskNote, listCardCustomActions, setTaskConversation, taskLists } = useTaskListStore();
+  const { loadTaskNotes, createTaskNote, updateTaskNote, deleteTaskNote, listCardCustomActions, setTaskConversation, updateTaskStatus, taskLists } = useTaskListStore();
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { runCustomAction } = useCustomActions();
@@ -83,6 +83,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
 
   const [conversationSaving, setConversationSaving] = useState(false);
+  const [statusSaving, setStatusSaving] = useState(false);
 
   // Versão viva da task: o update otimista de setTaskConversation (e outras
   // edições) atualiza o cache do store, mas a prop continua com o snapshot.
@@ -223,6 +224,25 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const status = viewTask ? statuses.find((s) => s.id === viewTask.statusId) : undefined;
   const isDueDatePast = viewTask?.dueDate && new Date(viewTask.dueDate) < new Date();
 
+  // Troca de status sem fechar o modal: usa o mesmo update otimista do Kanban;
+  // o viewTask (versão viva do cache) reflete a troca na hora.
+  const handleStatusChange = useCallback(async (statusId: number) => {
+    if (!viewTask || statusId === viewTask.statusId) return;
+    setStatusSaving(true);
+    try {
+      await updateTaskStatus(viewTask.id, statusId);
+      const target = statuses.find((s) => s.id === statusId);
+      const msg = t('tasklist.statusUpdated', 'Status atualizado para {{status}}', { status: target?.label ?? '' });
+      addToast(msg, 'success', undefined, undefined, { suppressAnnounce: true });
+      announce(msg);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
+    } finally {
+      setStatusSaving(false);
+    }
+  }, [viewTask, statuses, updateTaskStatus, addToast, announce, t]);
+
   return (
     <Modal
       isOpen={isOpen}
@@ -237,9 +257,20 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
       {/* Badges: status, code, link, due date */}
       <div className="task-detail__header">
         {status && (
-          <span className="task-detail__badge task-detail__badge--status" style={{ borderColor: status.color }}>
-            {status.icon} {status.label}
-          </span>
+          <select
+            className="task-detail__status-picker"
+            style={{ borderColor: status.color }}
+            value={viewTask.statusId}
+            onChange={(e) => void handleStatusChange(Number(e.target.value))}
+            aria-label={t('tasklist.status', 'Status')}
+            disabled={statusSaving}
+          >
+            {statuses.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.icon} {s.label}
+              </option>
+            ))}
+          </select>
         )}
         {viewTask.code && (
           <Button
