@@ -558,17 +558,19 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 	case <-s.closedSig:
 		return s.closedOutcome(done)
 	case <-stalled:
-		return s.abandonTurn(ctx, seq, done, "sem atividade do agente")
+		return s.abandonTurn(ctx, seq, done, "sem atividade do agente", true)
 	case <-ctx.Done():
-		return s.abandonTurn(ctx, seq, done, "pedido de quem chamou")
+		return s.abandonTurn(ctx, seq, done, "pedido de quem chamou", false)
 	}
 }
 
 // abandonTurn trata a desistência da espera pelo fim do turno: pedido de quem
 // chamou (contexto) ou inatividade do agente (watchdog). O desfecho é o mesmo
 // nos dois casos — session/cancel e espera da confirmação no prazo de graça —
-// porque quem está solto pode estar mexendo no disco do mesmo jeito.
-func (s *session) abandonTurn(ctx context.Context, seq uint64, done <-chan promptOutcome, motivo string) (StopReason, error) {
+// porque quem está solto pode estar mexendo no disco do mesmo jeito. O que
+// muda é a origem (stalled), que viaja no PromptError para a mensagem dizer a
+// verdade sobre quem interrompeu.
+func (s *session) abandonTurn(ctx context.Context, seq uint64, done <-chan promptOutcome, motivo string, stalled bool) (StopReason, error) {
 	logging.Warnf(context.WithoutCancel(ctx), logComponent,
 		"[ACP] turno da sessão %q abandonado (%s); enviando session/cancel", s.id, motivo)
 	// A entrega continua ligada durante o prazo de graça, de propósito. O
@@ -593,7 +595,7 @@ func (s *session) abandonTurn(ctx context.Context, seq uint64, done <-chan promp
 	}()
 	timer := time.NewTimer(s.grace)
 	defer timer.Stop()
-	return s.awaitCancelled(seq, done, timer.C)
+	return s.awaitCancelled(seq, done, timer.C, stalled)
 }
 
 // watchStall vigia a inatividade do turno em voo e avisa em stalled quando o
@@ -659,7 +661,7 @@ func (s *session) closedOutcome(done <-chan promptOutcome) (StopReason, error) {
 // diria que o agente não confirmou o cancelamento quando ele acabou de
 // confirmar — deixando a sessão marcada e recusando o próximo turno por um
 // motivo que não existe.
-func (s *session) awaitCancelled(seq uint64, done <-chan promptOutcome, expired <-chan time.Time) (StopReason, error) {
+func (s *session) awaitCancelled(seq uint64, done <-chan promptOutcome, expired <-chan time.Time, stalled bool) (StopReason, error) {
 	select {
 	case out := <-done:
 		return s.finishTurn(out)
@@ -674,7 +676,7 @@ func (s *session) awaitCancelled(seq uint64, done <-chan promptOutcome, expired 
 		// A sessão fica marcada para que o próximo turno seja recusado com
 		// esse mesmo motivo, em vez de esperar calado na fila.
 		s.markCancelUnconfirmed(seq)
-		return StopCancelled, &PromptError{Accepted: true, Err: ErrCancelNotConfirmed}
+		return StopCancelled, &PromptError{Accepted: true, Stalled: stalled, Err: ErrCancelNotConfirmed}
 	}
 }
 
@@ -922,7 +924,11 @@ type PromptError struct {
 	// Accepted verdadeiro significa que o pedido saiu para o agente sem falhar.
 	// Repetir o turno automaticamente é inseguro.
 	Accepted bool
-	Err      error
+	// Stalled verdadeiro significa que o cancelamento partiu do watchdog de
+	// inatividade (AEP-0108 D2), e não de um pedido de quem chamou: quem lê o
+	// erro não deve dizer à pessoa que ela interrompeu o turno.
+	Stalled bool
+	Err     error
 }
 
 func (e *PromptError) Error() string {
