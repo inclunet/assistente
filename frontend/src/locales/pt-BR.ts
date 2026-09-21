@@ -4061,6 +4061,10 @@ const ptBR = {
       },
     },
     tasklist: {
+      copyCode: 'Copiar código {{code}}',
+      codeCopied: 'Código copiado',
+      codeCopyFailed: 'Não foi possível copiar o código. Tente novamente.',
+      openCardLink: 'Abrir link do card',
       title: 'Listas de Tarefas',
       lists: 'Listas',
       allLists: 'Todas as Listas',

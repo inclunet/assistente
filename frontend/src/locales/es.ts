@@ -4061,6 +4061,10 @@ const es = {
       },
     },
     tasklist: {
+      copyCode: 'Copiar código {{code}}',
+      codeCopied: 'Código copiado',
+      codeCopyFailed: 'No se pudo copiar el código. Inténtalo de nuevo.',
+      openCardLink: 'Abrir enlace de la tarjeta',
       title: 'Listas de Tareas',
       lists: 'Listas',
       allLists: 'Todas las listas',

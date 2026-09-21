@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
-import { CalendarOutlined, DeleteOutlined, EditOutlined, FileTextOutlined, LinkOutlined, MessageOutlined, RobotOutlined, SettingOutlined } from '@ant-design/icons';
+import { CalendarOutlined, CopyOutlined, DeleteOutlined, EditOutlined, FileTextOutlined, LinkOutlined, MessageOutlined, RobotOutlined, SettingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { DialogActions } from '../ui/DialogActions';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
@@ -155,6 +156,21 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     resetForm();
   }, [resetForm]);
 
+  const handleCopyCode = useCallback(async () => {
+    if (!task?.code) return;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard-unavailable');
+      await navigator.clipboard.writeText(task.code);
+      const message = t('tasklist.codeCopied', 'Código copiado');
+      addToast(message, 'success', undefined, undefined, { suppressAnnounce: true });
+      announce(message);
+    } catch {
+      const message = t('tasklist.codeCopyFailed', 'Não foi possível copiar o código. Tente novamente.');
+      addToast(message, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(message);
+    }
+  }, [task, t, addToast, announce]);
+
   const handleLinkClick = useCallback(() => {
     if (!task?.link) return;
     openTaskLink(task.link, { navigate });
@@ -206,27 +222,28 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
           </span>
         )}
         {task.code && (
-          <span
-            className={`task-detail__badge task-detail__badge--code${task.link ? ' task-detail__badge--link' : ''}`}
-            onClick={task.link ? handleLinkClick : undefined}
-            role={task.link ? 'link' : undefined}
-            tabIndex={task.link ? 0 : undefined}
-            onKeyDown={task.link ? (e) => { if (e.key === 'Enter') handleLinkClick(); } : undefined}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="task-detail__copy-code"
+            onClick={() => void handleCopyCode()}
+            aria-label={t('tasklist.copyCode', 'Copiar código {{code}}', { code: task.code })}
           >
+            <CopyOutlined aria-hidden="true" />
             {task.code}
-            {task.link && <> <LinkOutlined aria-hidden="true" /></>}
-          </span>
+          </Button>
         )}
-        {!task.code && task.link && (
-          <span
-            className="task-detail__badge task-detail__badge--link"
+        {task.link && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="task-detail__open-link"
             onClick={handleLinkClick}
-            role="link"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleLinkClick(); }}
           >
-            <LinkOutlined aria-hidden="true" /> Link
-          </span>
+            <LinkOutlined aria-hidden="true" /> {t('tasklist.openCardLink', 'Abrir link do card')}
+          </Button>
         )}
         {task.assigneeName && (
           <span className="task-detail__badge task-detail__badge--assignee" title={task.assigneeId || undefined}>
