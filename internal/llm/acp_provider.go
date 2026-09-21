@@ -310,6 +310,14 @@ func turnAccepted(err error) bool {
 func turnErrorMessage(err error, accepted bool) string {
 	switch {
 	case errors.Is(err, acp.ErrCancelNotConfirmed):
+		// Quem interrompeu diz qual frase vale: o watchdog calou um agente que
+		// parou de responder; a pessoa, um turno que ela mesma abortou. Dizer
+		// "interrupção" no primeiro caso culparia a pessoa pelo que o app fez
+		// sozinho (AEP-0108 D2).
+		var falha *acp.PromptError
+		if errors.As(err, &falha) && falha.Stalled {
+			return "O agente parou de responder e o turno foi interrompido. Ele pode ainda estar trabalhando nos arquivos. Confira o estado antes de pedir de novo."
+		}
 		return "O agente não confirmou a interrupção do turno e pode ainda estar trabalhando nos arquivos. Confira o estado antes de pedir de novo."
 	case errors.Is(err, acp.ErrSessionLost) && !accepted:
 		return "O processo do agente caiu antes de receber o pedido. Envie novamente para reconectar."

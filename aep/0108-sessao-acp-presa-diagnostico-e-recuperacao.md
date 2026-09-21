@@ -87,6 +87,10 @@ recuperação e proibição de `assistant` vazio em erro.
   (`persistAssistantPartialBestEffort`) já existe; a regra cobre o caso de
   zero conteúdo — os dois `assistant` de 0 chars do caso real apagaram o rastro
   na UI.
+- A frase do `ErrCancelNotConfirmed` distingue a origem (`PromptError.Stalled`):
+  watchdog diz "o agente parou de responder"; pedido da pessoa mantém
+  "não confirmou a interrupção". Sem isso, o app culparia a pessoa pelo que fez
+  sozinho.
 
 ## Fases
 
