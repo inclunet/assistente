@@ -15,6 +15,7 @@ vi.mock('../../lib/deepLinks', () => ({ openTaskLink: (...args: unknown[]) => mo
 const mockLoadTaskNotes = vi.fn();
 const mockListCardCustomActions = vi.fn();
 const mockSetTaskConversation = vi.fn();
+const mockTaskLists = vi.hoisted(() => new Map());
 const mockGetConversations = vi.hoisted(() => vi.fn());
 
 vi.mock('react-i18next', async (importOriginal) => {
@@ -51,6 +52,7 @@ vi.mock('../../store/taskListStore', () => ({
     deleteTaskNote: vi.fn(),
     listCardCustomActions: mockListCardCustomActions,
     setTaskConversation: mockSetTaskConversation,
+    taskLists: mockTaskLists,
   }),
 }));
 
@@ -94,6 +96,7 @@ const task = {
 describe('TaskDetailModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTaskLists.clear();
     mockLoadTaskNotes.mockResolvedValue([]);
     mockListCardCustomActions.mockResolvedValue([]);
     mockSetTaskConversation.mockResolvedValue(undefined);
@@ -194,5 +197,21 @@ describe('TaskDetailModal', () => {
     fireEvent.mouseDown(noneOption);
 
     expect(mockSetTaskConversation).toHaveBeenCalledWith('10', null);
+  });
+
+  it('reflete o vínculo do cache mesmo com a prop desatualizada (snapshot do clique)', async () => {
+    // KanbanBoard/TasksTable passam a task como snapshot em useState; o update
+    // otimista do store atualiza o cache, e o modal deve preferir a versão viva.
+    mockTaskLists.set('1', { tasks: [{ ...task, conversationId: '5' }] });
+    render(
+      <MemoryRouter>
+        <TaskDetailModal isOpen onClose={vi.fn()} task={task} statuses={statuses} />
+      </MemoryRouter>,
+    );
+
+    // Badge de conversa e picker passam a refletir o vínculo do cache.
+    expect(await screen.findByRole('link', { name: 'Conversa vinculada' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Alterar conversa vinculada/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Vincular conversa/ })).not.toBeInTheDocument();
   });
 });
