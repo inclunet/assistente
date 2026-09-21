@@ -4066,6 +4066,8 @@ const es = {
       codeCopyFailed: 'No se pudo copiar el código. Inténtalo de nuevo.',
       openCardLink: 'Abrir enlace de la tarjeta',
       goToConversation: 'Ir a la conversación vinculada',
+      changeStatus: 'Cambiar estado: {{status}}',
+      statusUpdated: 'Estado actualizado a {{status}}',
       title: 'Listas de Tareas',
       lists: 'Listas',
       allLists: 'Todas las listas',

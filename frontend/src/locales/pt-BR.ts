@@ -4066,6 +4066,8 @@ const ptBR = {
       codeCopyFailed: 'Não foi possível copiar o código. Tente novamente.',
       openCardLink: 'Abrir link do card',
       goToConversation: 'Ir para conversa vinculada',
+      changeStatus: 'Alterar status: {{status}}',
+      statusUpdated: 'Status atualizado para {{status}}',
       title: 'Listas de Tarefas',
       lists: 'Listas',
       allLists: 'Todas as Listas',
