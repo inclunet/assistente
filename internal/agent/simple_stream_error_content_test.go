@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"assistente/internal/chat"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 )
 
@@ -75,5 +77,38 @@ func TestOnDoneComConteudoMantemResposta(t *testing.T) {
 
 	if conteudo := repo.conteudos[handler.assistantMessageID]; conteudo != "resposta do agente" {
 		t.Errorf("conteúdo=%q, esperava a resposta intacta", conteudo)
+	}
+}
+
+// persistErrorWhenEmpty cobre o caminho de erro puro (sem OnDone): o loop
+// simples termina na tentativa final só com OnError, e o placeholder ficaria
+// vazio sem esta gravação.
+func TestPersistErrorWhenEmptyGravaErroNoPlaceholderVazio(t *testing.T) {
+	repo := &repoCapturaConteudo{}
+	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+
+	svc.persistErrorWhenEmpty(context.Background(), "msg-1", "processo do agente caiu")
+
+	conteudo, ok := repo.conteudos["msg-1"]
+	if !ok {
+		t.Fatal("placeholder vazio não recebeu o texto do erro")
+	}
+	if !strings.HasPrefix(conteudo, "Falha na resposta do agente:") || !strings.Contains(conteudo, "processo do agente caiu") {
+		t.Errorf("conteúdo=%q, esperava o motivo do erro", conteudo)
+	}
+}
+
+func TestPersistErrorWhenEmptyPreservaConteudoExistente(t *testing.T) {
+	repo := &repoCapturaConteudo{mockMsgRepo: mockMsgRepo{
+		messagesByID: map[string]*chat.Message{
+			"msg-1": {UUIDModel: database.UUIDModel{ID: "msg-1"}, Content: "parcial do agente"},
+		},
+	}}
+	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+
+	svc.persistErrorWhenEmpty(context.Background(), "msg-1", "processo do agente caiu")
+
+	if conteudo, ok := repo.conteudos["msg-1"]; ok {
+		t.Errorf("conteúdo parcial %q foi sobrescrito pelo erro", conteudo)
 	}
 }

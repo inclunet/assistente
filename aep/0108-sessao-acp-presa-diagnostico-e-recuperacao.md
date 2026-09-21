@@ -1,6 +1,7 @@
 # AEP-0108 — Sessão ACP presa: diagnóstico e recuperação
 
-**Status:** Draft
+**Status:** In Progress — Fases 1–3 implementadas; pendentes estado na UI com
+Cancelar (D1, parte visual) e sonda em sessão ociosa (D2, cobertura a).
 
 ## Resumo
 
@@ -53,16 +54,29 @@ recuperação e proibição de `assistant` vazio em erro.
   `session/update` por X) — watchdog de inatividade com o mesmo desfecho
   `unconfirmed`. O caso das 11:48 era o (b): slot ocupado por prompt pendurado,
   então só sonda ociosa não o pegaria.
+- Implementado (b): `watchStall` com `stallTimeout` 10min / `stallPoll` 1min
+  (campos, como `grace`), carimbo em `deliver`/`requestPermission`/`startTurn`,
+  desfecho pelo caminho de abandono do `Prompt` (`abandonTurn`). A cobertura (a)
+  ficou **adiada**: não há método leve universal no ACP para sondar (re-handshake
+  é pesado e específico por agente), e um `SendRequest` de sonda pode ele mesmo
+  pendurar no `Write` contra agente que parou de ler; morte de processo com pipe
+  fechado segue detectada por `watch()`/`rpc.Done()`.
 - `Prompt` mantém as checagens de `cn.isDead()` na entrada/saída; o heartbeat só
   adiciona o ponto de detecção que falta no meio: resposta que nunca chega.
 
-### D3. Recuperação automática (1 retry)
+### D3. Recuperação automática
 
-- Em `ErrSessionLost`/`ErrCancelNotConfirmed`, o `Manager` fecha a sessão morta,
-  abre nova sessão ACP na mesma conversa (retomando por `loadSession`,
-  `manager.go:883`) e retenta o turno **uma vez**. O aviso do que houve trafega
-   como evento de chat (AEP-0040, nunca mensagem local no frontend) para o
-   `announce()`/TTS arbitrados o apresentarem (AEP-0058).
+- Em `ErrSessionLost`, o provider invalida a conversa (`Conversation.Invalidate`)
+  para a tentativa seguinte retomar pelo identificador guardado ou abrir outra
+  (`manager.go:883`, já testado em `TestDepoisDeInvalidarOProximoTurnoTentaRetomarAMesmaSessao`).
+  A retentativa em si é a auto-recuperação existente do loop simples
+  (`streamingRecoveryEnabled`, AEP-0064, default 3 tentativas), que reinvoca
+  `StreamChat` quando o erro não foi marcado `NotRetryable` — e `ErrSessionLost`
+  não aceito não é. Repetir é seguro aqui justamente porque o pedido nunca
+  chegou ao agente (`Accepted=false`).
+- O aviso trafega como `chat:notice` de kind novo (`agent_session_recovered`,
+  com chave nos 3 locales) quando o pedido nem chegou ao agente; com aceite, só
+  o invalida, e a mensagem de erro já orienta a conferir o estado.
 - Sem empilhamento: vale o pipeline único `SendMessage`/`RetryMessage` (AEP-0040);
   nada de fluxo alternativo de envio.
 
@@ -76,34 +90,40 @@ recuperação e proibição de `assistant` vazio em erro.
 
 ## Fases
 
-1. **Fase 1 — Observabilidade (D1 + D4):** logs de fila, estado na UI, erro
-   persistido/anunciado. Sem mudança de comportamento de transporte.
-2. **Fase 2 — Fail-fast (D2):** sonda em sessão ociosa + watchdog de inatividade
-   em turno em voo, ambos com desfecho `unconfirmed`; teste de processo morto
-   sem fechar o pipe e de agente vivo sem resposta.
-3. **Fase 3 — Recuperação (D3):** fechar/reabrir + 1 retry com anúncio; teste de
-   `ErrSessionLost` e `ErrCancelNotConfirmed`.
+1. **Fase 1 — Observabilidade (D1 + D4):** logs de fila (`acquireTurn`), erro
+   persistido no placeholder vazio (`persistErrorWhenEmpty` + `OnDone`).
+   ✅ Implementada (testes `TestOnDone*`, `TestPersistErrorWhenEmpty*`).
+   Pendente a parte visual do D1 (estado na UI com Cancelar).
+2. **Fase 2 — Fail-fast (D2, cobertura b):** watchdog de inatividade em turno em
+   voo (`watchStall`, `stallTimeout` 10min/`stallPoll` 1min, desfecho
+   `unconfirmed`). ✅ Implementada (testes `TestWatchStall*`,
+   `TestDeliverCarimbaAtividade`). Cobertura (a), sonda ociosa, adiada (ver D2).
+3. **Fase 3 — Recuperação (D3):** `Invalidate` em `ErrSessionLost` + aviso
+   `agent_session_recovered` (3 locales + vitest). ✅ Implementada (teste
+   `TestSessaoPerdidaInvalidaEAvisaSessaoNova`; retomada já coberta por
+   `TestDepoisDeInvalidarOProximoTurnoTentaRetomarAMesmaSessao`).
 
 ## Riscos
 
-- Heartbeat agressivo demais derruba sessão saudável (mitigação: só em ociosidade,
-  timeout generoso, sem `session/cancel` real).
-- Retry duplicar efeito colateral no agente (mitigação: 1 retry só quando o turno
-  **não** foi aceito — `Accepted=false`; turno aceito não se repete porque pode
-  ter editado arquivo/rodado comando, regra de `internal/agent/service.go`
+- Watchdog lento demais ou agressivo demais (mitigação: conta inatividade de
+  updates, não tempo total; 10min default; campos ajustáveis em teste).
+- Retry duplicar efeito colateral no agente (mitigação: só repete o não aceito
+  — `Accepted=false`; turno aceito não se repete porque pode ter editado
+  arquivo/rodado comando, regra de `internal/agent/service.go`
   (`ErrorNotRetryable`, AEP-0084 D4)).
 - Falso não-confirmado por lentidão do agente (mitigação: watchdog conta
-  inatividade de `session/update`, não tempo total; timeout generoso, nunca
-  sondar sessão ociosa com `session/cancel` real).
+  inatividade de `session/update`, não tempo total; timeout generoso).
 
 ## Critérios de aceitação
 
-- [ ] Turno ACP sem resposta gera log de espera + estado visível com Cancelar.
-- [ ] Processo ACP morto sem fechar pipe vira `ErrSessionLost` em tempo limitado
-      (sonda ociosa com `SendRequest` falhando); agente vivo sem resposta vira
-      `ErrCancelNotConfirmed` via watchdog de inatividade (nunca `markDead`,
-      que é por `conn` e derrubaria as demais sessões do processo).
-- [ ] `ErrSessionLost`/`ErrCancelNotConfirmed` recupera com nova sessão + 1 retry
-      anunciado (quando não aceito).
-- [ ] Nenhum caminho de erro ACP persiste `assistant` com conteúdo vazio.
-- [ ] Testes Go cobrindo fila, heartbeat e recuperação; `go build/vet/test` verdes.
+- [x] Turno ACP sem resposta gera log de espera (estado visível com Cancelar
+      pendente — parte visual do D1).
+- [x] Agente vivo sem resposta vira `ErrCancelNotConfirmed` via watchdog de
+      inatividade (nunca `markDead`, que é por `conn`).
+- [ ] Processo ACP morto sem fechar pipe com sessão ociosa (sonda da cobertura
+      a — adiada, ver D2).
+- [x] `ErrSessionLost` não aceito invalida a sessão e avisa (`agent_session_recovered`);
+      a tentativa seguinte retoma/abre nova.
+- [x] Nenhum caminho de erro do loop simples persiste `assistant` vazio
+      (`persistErrorWhenEmpty` + `OnDone`).
+- [x] Testes Go cobrindo fila, watchdog e recuperação; `go build/vet/test` verdes.
