@@ -295,7 +295,22 @@ func (s *session) acquireTurn(ctx context.Context) error {
 	// O canal é lido antes da espera: quem já está na fila quando o prazo de
 	// cancelamento estoura precisa ser acordado, não descobrir só na próxima vez
 	// que tentar.
-	return s.waitForTurn(ctx, s.unconfirmedCancel(), s.closedSignal())
+	//
+	// A espera é logada na entrada e na saída com o desfecho: sem isso, um turno
+	// preso deixa os seguintes enfileirados em silêncio e o log não conta nada
+	// (AEP-0108 D1).
+	waitStart := time.Now()
+	logging.Warnf(ctx, logComponent,
+		"[ACP] turno na sessão %q aguardando o turno anterior liberar a vez", s.id)
+	err := s.waitForTurn(ctx, s.unconfirmedCancel(), s.closedSignal())
+	if err != nil {
+		logging.Warnf(context.WithoutCancel(ctx), logComponent,
+			"[ACP] turno na sessão %q saiu da fila após %s sem a vez: %v", s.id, time.Since(waitStart).Round(time.Millisecond), err)
+		return err
+	}
+	logging.Infof(ctx, logComponent,
+		"[ACP] turno na sessão %q admitido após %s de fila", s.id, time.Since(waitStart).Round(time.Millisecond))
+	return nil
 }
 
 // takeTurn confirma a vez recém-pegada, e é por onde passam todos os caminhos
