@@ -86,20 +86,8 @@
   min-height: 36px;
 }
 
-.task-detail__badge--link {
-  color: var(--color-info);
-  cursor: pointer;
-  text-decoration: none;
-}
-
-.task-detail__badge--link:hover {
-  text-decoration: underline;
-}
-
-.task-detail__badge--link:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: var(--radius-sm);
+.task-detail__conversation-link {
+  min-height: 36px;
 }
 
 /* Conversation link editor */

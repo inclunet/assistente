@@ -210,7 +210,7 @@ describe('TaskDetailModal', () => {
     );
 
     // Badge de conversa e picker passam a refletir o vínculo do cache.
-    expect(await screen.findByRole('link', { name: 'Conversa vinculada' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Conversa vinculada' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Alterar conversa vinculada/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Vincular conversa/ })).not.toBeInTheDocument();
   });

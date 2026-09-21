@@ -281,17 +281,16 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
           </span>
         )}
         {viewTask.conversationId && (
-          <span
-            className="task-detail__badge task-detail__badge--link"
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="task-detail__conversation-link"
             onClick={handleConversationClick}
-            role="link"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleConversationClick(); } }}
             title={viewTask.conversationId}
-            aria-label={t('tasklist.conversation', 'Conversa vinculada')}
           >
             <MessageOutlined aria-hidden="true" /> {t('tasklist.conversation', 'Conversa vinculada')}
-          </span>
+          </Button>
         )}
       </div>
 
