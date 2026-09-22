@@ -17,11 +17,6 @@
   line-height: 1.4;
 }
 
-.custom-actions-editor__mono {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-}
-
 .custom-actions-editor__footer {
   display: flex;
   align-items: center;

@@ -240,30 +240,25 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
     {
       key: 'label',
       label: t('tasklist.customActions.field.label', 'Rótulo'),
-      width: '25%',
+      width: '30%',
       format: (_value, item) => (
         <span>{item.icon ? <span aria-hidden="true">{item.icon} </span> : null}{item.label || item.id}</span>
       ),
     },
     {
-      key: 'id',
-      label: t('tasklist.customActions.field.id', 'ID'),
-      width: '20%',
-      format: (_value, item) => <code className="custom-actions-editor__mono">{item.id}</code>,
-    },
-    {
       key: 'surfaces',
       label: t('tasklist.customActions.field.surfaces', 'Onde aparece'),
-      width: '25%',
+      width: '30%',
       truncate: true,
       format: (_value, item) => surfaceLabels((k, f) => t(k, f), item.surfaces),
     },
     {
-      key: 'trigger',
-      label: t('tasklist.customActions.trigger', 'Gatilho'),
-      width: '20%',
+      key: 'action',
+      label: t('tasklist.customActions.action', 'Ação'),
+      width: '25%',
       truncate: true,
-      format: (_value, item) => item.event || item.link || '—',
+      format: (_value, item) => item.link
+        || t('tasklist.customActions.publishesEvent', 'Publica evento'),
     },
     {
       key: 'danger',

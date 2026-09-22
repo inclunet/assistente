@@ -64,6 +64,10 @@ describe('CustomActionsEditor', () => {
     render(<CustomActionsEditor taskListId="1" onClose={vi.fn()} />);
     expect(await screen.findByRole('grid', { name: 'Lista de ações customizadas' })).toBeInTheDocument();
     expect(screen.getByRole('row', { name: /Investigar/ })).toBeInTheDocument();
+    // Grid enxuto: sem ID/evento técnico; ação sem link mostra texto amigável.
+    expect(screen.getByRole('columnheader', { name: 'Ação' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'ID' })).not.toBeInTheDocument();
+    expect(screen.getByText('Publica evento')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Nova ação' })).toBeInTheDocument();
     // Sem linha focada, Editar/Apagar começam desabilitados.
     expect(screen.getByRole('button', { name: 'Editar' })).toBeDisabled();

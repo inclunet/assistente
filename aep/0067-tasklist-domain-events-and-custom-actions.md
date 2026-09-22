@@ -142,7 +142,9 @@ detalhes (`TaskDetailModal`) e/ou pelo menu do board.
   `TemplateEditor` (payload/link/when, com autocomplete sobre `.task`).
 - Evolução posterior: o editor foi refeito no padrão do sistema (Toolbar com
   Nova/Editar/Apagar + `DataGrid` + modal de edição por ação), mantendo a
-  persistência em lote do JSON. Evidência:
+  persistência em lote do JSON. O grid mostra só colunas voltadas ao usuário
+  (Rótulo, Onde aparece, Ação, Destrutiva); ID e nome do evento ficam no modal.
+  Evidência:
   `frontend/src/components/taskLists/CustomActionsEditor.test.tsx`.
 
 Ver o schema completo em "Schema de custom_actions" abaixo.
