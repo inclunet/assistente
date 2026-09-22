@@ -4273,7 +4273,7 @@ const en = {
         moveUp: 'Move up',
         moveDown: 'Move down',
         newStatus: 'New status',
-        editStatus: 'Edit status',
+        editStatusNamed: 'Edit status: {{label}}',
         statusAdded: 'Status added',
         statusUpdated: 'Status updated',
         statusRemoved: 'Status removed',

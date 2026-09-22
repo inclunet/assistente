@@ -515,7 +515,9 @@ export default function WorkflowEditor({
         isOpen={itemModal !== null}
         onClose={closeItemModal}
         title={itemModal?.mode === 'edit'
-          ? t('tasklist.workflow.editStatus', 'Editar status')
+          ? t('tasklist.workflow.editStatusNamed', 'Editar status: {{label}}', {
+            label: statuses.find((s) => s.id === itemModal.id)?.label || `#${itemModal.id}`,
+          })
           : t('tasklist.workflow.newStatus', 'Novo status')}
       >
         <div className="workflow-status-form">

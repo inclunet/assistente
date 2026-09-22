@@ -98,6 +98,7 @@ describe('WorkflowEditor', () => {
     fireEvent.focus(grid);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Editar' })).toBeEnabled());
     await user.click(screen.getByRole('button', { name: 'Editar' }));
+    expect(await screen.findByRole('heading', { name: 'Editar status: A Fazer' })).toBeInTheDocument();
     const nameInput = await screen.findByLabelText(/Nome/);
     expect(nameInput).toHaveValue('A Fazer');
     fireEvent.change(nameInput, { target: { value: 'Na Fila' } });

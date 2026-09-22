@@ -4274,7 +4274,7 @@ const ptBR = {
         moveUp: 'Mover acima',
         moveDown: 'Mover abaixo',
         newStatus: 'Novo status',
-        editStatus: 'Editar status',
+        editStatusNamed: 'Editar status: {{label}}',
         statusAdded: 'Status adicionado',
         statusUpdated: 'Status atualizado',
         statusRemoved: 'Status removido',
