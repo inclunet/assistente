@@ -297,15 +297,9 @@ export default function WorkflowEditor({
 
   const columns: DataGridColumn<TaskListWorkflowStatus>[] = useMemo(() => [
     {
-      key: 'id',
-      label: t('tasklist.workflow.statusId', 'ID'),
-      width: '10%',
-      format: (_value, item) => <code className="workflow-editor__mono">#{item.id}</code>,
-    },
-    {
       key: 'label',
       label: t('tasklist.workflow.statusLabel', 'Nome'),
-      width: '30%',
+      width: '35%',
       format: (_value, item) => (
         <span>{item.icon ? <span aria-hidden="true">{item.icon} </span> : null}{item.label}</span>
       ),
@@ -313,19 +307,13 @@ export default function WorkflowEditor({
     {
       key: 'color',
       label: t('tasklist.workflow.statusColor', 'Cor'),
-      width: '20%',
+      width: '25%',
       format: (_value, item) => colorName((k, f) => t(k, f), item.color),
-    },
-    {
-      key: 'icon',
-      label: t('tasklist.workflow.statusIcon', 'Ícone'),
-      width: '10%',
-      format: (_value, item) => item.icon || '—',
     },
     {
       key: 'initial',
       label: t('tasklist.workflow.initialStatus', 'Status Inicial'),
-      width: '15%',
+      width: '20%',
       format: (_value, item) => (item.id === initialStatusId
         ? t('common.yes', 'Sim')
         : t('common.no', 'Não')),
