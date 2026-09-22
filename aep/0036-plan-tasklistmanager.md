@@ -48,8 +48,9 @@ troca pelo menu, toast/anúncio e filtragem do status atual.
 
 A seção de status do `WorkflowEditor` (lista inline com ~15 controles por
 linha, sem nomes acessíveis) foi refeita no padrão do sistema: Toolbar
-(Novo/Editar/Apagar) + `DataGrid` (ID, Nome, Cor, Ícone, Inicial, com
-reordenação por Alt+Setas e edição por Enter) + modal de edição por status.
+(Novo/Editar/Apagar) + `DataGrid` (Nome, Cor, Inicial — só colunas voltadas
+ao usuário, sem ID/ícone técnico —, com reordenação por Alt+Setas e edição
+por Enter) + modal de edição por status.
 Transições (matriz), migração e status inicial foram preservados, ganhando
 `aria-pressed`, grupos com nome e rótulos (a navegação por NVDA passou a ter
 contexto por status e estado dos toggles).
