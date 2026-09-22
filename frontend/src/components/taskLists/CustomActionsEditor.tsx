@@ -179,7 +179,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
       title: t('tasklist.customActions.deleteConfirmTitle', 'Apagar ação'),
       message: t(
         'tasklist.customActions.deleteConfirm',
-        'Apagar a ação "{label}"? A remoção só vale após Salvar.',
+        'Apagar a ação "{{label}}"? A remoção só vale após Salvar.',
         { label: action.label || action.id },
       ),
     });
