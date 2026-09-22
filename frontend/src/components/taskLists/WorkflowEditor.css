@@ -49,11 +49,6 @@
   line-height: 1.4;
 }
 
-.workflow-editor__mono {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-}
-
 .workflow-status-form {
   display: flex;
   flex-direction: column;
