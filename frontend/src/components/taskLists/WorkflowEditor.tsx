@@ -1,7 +1,18 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
 import { DialogActions } from '../ui/DialogActions';
+import { Toolbar } from '../ui/Toolbar';
+import { DataGrid, type DataGridColumn } from '../ui/DataGrid';
+import { MenuButton } from '../layout/MenuButton';
+import { Modal } from '../ui/Modal';
+import { FormField } from '../ui/FormField';
+import { Input } from '../ui/Input';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { useConfirm } from '../../hooks/useConfirm';
+import { useGridFocus } from '../../hooks/useGridFocus';
+import { useUIStore } from '../../store/uiStore';
 import type {
   TaskListWorkflowStatus,
   WorkflowTransitions,
@@ -24,6 +35,14 @@ const COLOR_PRESETS: { token: string; nameKey: string }[] = [
   { token: 'var(--text-muted)', nameKey: 'tasklist.workflow.color.gray' },
 ];
 
+function colorName(
+  t: (key: string, fallback: string) => string,
+  token: string,
+): string {
+  const preset = COLOR_PRESETS.find((p) => p.token === token);
+  return preset ? t(preset.nameKey, preset.token) : token;
+}
+
 interface WorkflowEditorProps {
   workflow: TaskListWorkflow;
   taskCountsByStatus?: Record<number, number>;
@@ -36,6 +55,16 @@ interface WorkflowEditorProps {
   onCancel: () => void;
 }
 
+interface StatusDraft {
+  label: string;
+  icon: string;
+  color: string;
+}
+
+function emptyDraft(colorToken: string): StatusDraft {
+  return { label: '', icon: '⬜', color: colorToken };
+}
+
 export default function WorkflowEditor({
   workflow,
   taskCountsByStatus = {},
@@ -43,6 +72,10 @@ export default function WorkflowEditor({
   onCancel,
 }: WorkflowEditorProps) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
+  const addToast = useUIStore((s) => s.addToast);
+  const requestConfirm = useConfirm();
+  const { handleGridReady, requestGridFocus } = useGridFocus();
 
   const [statuses, setStatuses] = useState<TaskListWorkflowStatus[]>(
     () => [...workflow.statuses].sort((a, b) => a.order - b.order),
@@ -55,6 +88,12 @@ export default function WorkflowEditor({
   const [removedStatuses, setRemovedStatuses] = useState<TaskListWorkflowStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [focused, setFocused] = useState<TaskListWorkflowStatus | null>(null);
+
+  // Modal de edição por status: 'create' parte do vazio, 'edit' do focado.
+  const [itemModal, setItemModal] = useState<{ mode: 'create' } | { mode: 'edit'; id: number } | null>(null);
+  const [draft, setDraft] = useState<StatusDraft>(() => emptyDraft(COLOR_PRESETS[0].token));
+  const newButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const nextId = useCallback(() => {
     const allIds = [...statuses, ...removedStatuses].map(s => s.id);
@@ -62,62 +101,97 @@ export default function WorkflowEditor({
     return maxId + 1;
   }, [statuses, removedStatuses]);
 
-  const handleAddStatus = useCallback(() => {
-    const newId = nextId();
-    setStatuses(prev => [
-      ...prev,
-      {
-        id: newId,
-        order: prev.length,
-        label: '',
-        color: COLOR_PRESETS[prev.length % COLOR_PRESETS.length].token,
-        icon: '⬜',
-      },
-    ]);
-  }, [nextId]);
+  const openNewStatus = useCallback(() => {
+    setDraft(emptyDraft(COLOR_PRESETS[statuses.length % COLOR_PRESETS.length].token));
+    setItemModal({ mode: 'create' });
+  }, [statuses.length]);
 
-  const handleRemoveStatus = useCallback((statusId: number) => {
-    const status = statuses.find(s => s.id === statusId);
-    if (!status) return;
+  const openEditStatus = useCallback((status: TaskListWorkflowStatus) => {
+    setDraft({ label: status.label, icon: status.icon, color: status.color });
+    setItemModal({ mode: 'edit', id: status.id });
+  }, []);
 
-    const count = taskCountsByStatus[statusId] ?? 0;
+  const closeItemModal = useCallback(() => {
+    setItemModal(null);
+    // Volta o foco ao grid para seguir editando em série por teclado.
+    requestAnimationFrame(() => { requestGridFocus(); });
+  }, [requestGridFocus]);
+
+  const confirmItemModal = useCallback(() => {
+    const label = draft.label.trim();
+    if (!label) {
+      const msg = t('tasklist.workflow.emptyStatusName', 'Dê um nome ao status');
+      addToast(msg, 'error');
+      announce(msg);
+      return;
+    }
+    if (itemModal?.mode === 'edit') {
+      setStatuses(prev => prev.map(s => (s.id === itemModal.id ? { ...s, ...draft, label } : s)));
+      announce(t('tasklist.workflow.statusUpdated', 'Status atualizado'));
+    } else {
+      const newStatus: TaskListWorkflowStatus = {
+        id: nextId(),
+        order: statuses.length,
+        label,
+        color: draft.color,
+        icon: draft.icon.trim() || '⬜',
+      };
+      setStatuses(prev => [...prev, newStatus]);
+      setFocused(newStatus);
+      announce(t('tasklist.workflow.statusAdded', 'Status adicionado'));
+    }
+    setError(null);
+    closeItemModal();
+  }, [draft, itemModal, nextId, statuses.length, t, addToast, announce, closeItemModal]);
+
+  const deleteStatus = useCallback(async (status: TaskListWorkflowStatus) => {
+    const count = taskCountsByStatus[status.id] ?? 0;
+    const confirmed = await requestConfirm({
+      title: t('tasklist.workflow.removeStatus', 'Remover Status'),
+      message: count > 0
+        ? t('tasklist.workflow.statusInUse', 'Status "{{label}}" (ID: {{id}}) está em uso por {{count}} tarefa(s)', {
+          label: status.label || `#${status.id}`,
+          id: String(status.id),
+          count,
+        })
+        : t('tasklist.workflow.confirmRemoveStatus', 'Remover status "{{label}}"?', {
+          label: status.label || `#${status.id}`,
+        }),
+    });
+    if (!confirmed) return;
+
     if (count > 0) {
       setRemovedStatuses(prev => [...prev, status]);
     }
-
-    setStatuses(prev => prev.filter(s => s.id !== statusId).map((s, i) => ({ ...s, order: i })));
+    setStatuses(prev => prev.filter(s => s.id !== status.id).map((s, i) => ({ ...s, order: i })));
+    setFocused(prev => (prev?.id === status.id ? null : prev));
 
     setTransitions(prev => {
       const updated = { ...prev };
-      delete updated[statusId];
+      delete updated[status.id];
       for (const [key, targets] of Object.entries(updated)) {
-        updated[Number(key)] = targets.filter(id => id !== statusId);
+        updated[Number(key)] = targets.filter(id => id !== status.id);
       }
       return updated;
     });
 
-    if (initialStatusId === statusId) {
-      setInitialStatusId(prev => {
-        const remaining = statuses.filter(s => s.id !== statusId);
-        return remaining.length > 0 ? remaining[0].id : prev;
-      });
+    if (initialStatusId === status.id) {
+      const remaining = statuses.filter(s => s.id !== status.id);
+      if (remaining.length > 0) setInitialStatusId(remaining[0].id);
     }
-  }, [statuses, taskCountsByStatus, initialStatusId]);
+    announce(t('tasklist.workflow.statusRemoved', 'Status removido'));
+    // A linha some e o foco cairia no body: devolve ao grid (ou ao Novo,
+    // se a trava de mínimo impedir — nesse caso nada muda).
+    requestAnimationFrame(() => {
+      if (!requestGridFocus()) newButtonRef.current?.focus();
+    });
+  }, [statuses, taskCountsByStatus, initialStatusId, requestConfirm, t, announce, requestGridFocus]);
 
-  const handleUpdateStatus = useCallback((statusId: number, field: keyof TaskListWorkflowStatus, value: string | number) => {
-    setStatuses(prev =>
-      prev.map(s => (s.id === statusId ? { ...s, [field]: value } : s)),
-    );
-  }, []);
-
-  const handleMoveStatus = useCallback((statusId: number, direction: -1 | 1) => {
+  const handleMoveStatus = useCallback((fromIndex: number, toIndex: number) => {
     setStatuses(prev => {
-      const idx = prev.findIndex(s => s.id === statusId);
-      if (idx < 0) return prev;
-      const newIdx = idx + direction;
-      if (newIdx < 0 || newIdx >= prev.length) return prev;
+      if (toIndex < 0 || toIndex >= prev.length) return prev;
       const updated = [...prev];
-      [updated[idx], updated[newIdx]] = [updated[newIdx], updated[idx]];
+      [updated[fromIndex], updated[toIndex]] = [updated[toIndex], updated[fromIndex]];
       return updated.map((s, i) => ({ ...s, order: i }));
     });
   }, []);
@@ -154,7 +228,7 @@ export default function WorkflowEditor({
       }
       ids.add(s.id);
       if (!s.label.trim()) {
-        return `Status ID ${s.id}: nome não pode estar vazio`;
+        return t('tasklist.workflow.emptyStatusName', 'Status ID {{id}}: nome não pode estar vazio', { id: String(s.id) });
       }
     }
 
@@ -175,6 +249,7 @@ export default function WorkflowEditor({
     const validationError = validate();
     if (validationError) {
       setError(validationError);
+      announce(validationError);
       return;
     }
 
@@ -200,7 +275,73 @@ export default function WorkflowEditor({
     } finally {
       setIsSaving(false);
     }
-  }, [validate, statuses, transitions, initialStatusId, removedWithTasks, statusMigration, onSave]);
+  }, [validate, statuses, transitions, initialStatusId, removedWithTasks, statusMigration, onSave, announce]);
+
+  const getRowActions = useCallback((status: TaskListWorkflowStatus) => [
+    {
+      id: 'edit',
+      label: t('tasklist.edit', 'Editar'),
+      icon: <EditOutlined aria-hidden="true" />,
+      onClick: () => openEditStatus(status),
+      disabled: isSaving,
+    },
+    {
+      id: 'delete',
+      label: t('tasklist.delete', 'Deletar'),
+      icon: <DeleteOutlined aria-hidden="true" />,
+      onClick: () => void deleteStatus(status),
+      danger: true,
+      disabled: isSaving || statuses.length <= 1,
+    },
+  ], [t, openEditStatus, deleteStatus, isSaving, statuses.length]);
+
+  const columns: DataGridColumn<TaskListWorkflowStatus>[] = useMemo(() => [
+    {
+      key: 'id',
+      label: t('tasklist.workflow.statusId', 'ID'),
+      width: '10%',
+      format: (_value, item) => <code className="workflow-editor__mono">#{item.id}</code>,
+    },
+    {
+      key: 'label',
+      label: t('tasklist.workflow.statusLabel', 'Nome'),
+      width: '30%',
+      format: (_value, item) => (
+        <span>{item.icon ? <span aria-hidden="true">{item.icon} </span> : null}{item.label}</span>
+      ),
+    },
+    {
+      key: 'color',
+      label: t('tasklist.workflow.statusColor', 'Cor'),
+      width: '20%',
+      format: (_value, item) => colorName((k, f) => t(k, f), item.color),
+    },
+    {
+      key: 'icon',
+      label: t('tasklist.workflow.statusIcon', 'Ícone'),
+      width: '10%',
+      format: (_value, item) => item.icon || '—',
+    },
+    {
+      key: 'initial',
+      label: t('tasklist.workflow.initialStatus', 'Status Inicial'),
+      width: '15%',
+      format: (_value, item) => (item.id === initialStatusId
+        ? t('common.yes', 'Sim')
+        : t('common.no', 'Não')),
+    },
+    {
+      key: 'actions',
+      label: '',
+      width: '5%',
+      format: (_value, item) => (
+        <MenuButton
+          items={getRowActions(item)}
+          buttonLabel={t('common.actions', 'Ações')}
+        />
+      ),
+    },
+  ], [t, getRowActions, initialStatusId]);
 
   return (
     <div className="workflow-editor">
@@ -210,121 +351,71 @@ export default function WorkflowEditor({
       <div className="workflow-section">
         <div className="workflow-section-header">
           <h3 className="workflow-section-title">{t('tasklist.workflow.statuses', 'Statuses')}</h3>
-          <Button variant="secondary" onClick={handleAddStatus} disabled={isSaving}>
-            {t('tasklist.workflow.addStatus', 'Adicionar Status')}
-          </Button>
         </div>
 
-        <div className="workflow-status-list">
-          {statuses.map((status, idx) => (
-            <div
-              key={status.id}
-              className={`workflow-status-item ${status.id === initialStatusId ? 'workflow-status-item--initial' : ''}`}
-            >
-              <span className="workflow-status-id">#{status.id}</span>
+        <Toolbar
+          ariaLabel={t('tasklist.workflow.statusToolbar', 'Barra de ferramentas de status')}
+          actions={[
+            {
+              key: 'new-status',
+              label: t('tasklist.workflow.addStatus', 'Adicionar Status'),
+              icon: <PlusOutlined aria-hidden="true" />,
+              onClick: openNewStatus,
+              variant: 'primary',
+              buttonRef: newButtonRef,
+              disabled: isSaving,
+            },
+            {
+              key: 'edit-status',
+              label: t('tasklist.edit', 'Editar'),
+              icon: <EditOutlined aria-hidden="true" />,
+              onClick: () => focused && openEditStatus(focused),
+              disabled: !focused || isSaving,
+            },
+            {
+              key: 'delete-status',
+              label: t('tasklist.delete', 'Deletar'),
+              icon: <DeleteOutlined aria-hidden="true" />,
+              onClick: () => focused && void deleteStatus(focused),
+              disabled: !focused || isSaving || statuses.length <= 1,
+              variant: 'danger',
+            },
+          ]}
+        />
 
-              <input
-                className="workflow-status-label-input"
-                type="text"
-                value={status.label}
-                onChange={(e) => handleUpdateStatus(status.id, 'label', e.target.value)}
-                placeholder={t('tasklist.workflow.statusLabelPlaceholder', 'Ex: Em Andamento')}
-                disabled={isSaving}
-                maxLength={50}
-              />
-
-              <div
-                className="workflow-color-presets"
-                role="group"
-                aria-label={t('tasklist.workflow.colorGroup', 'Cor do status')}
-              >
-                {COLOR_PRESETS.map(({ token, nameKey }) => {
-                  const name = t(nameKey);
-                  const isActive = status.color === token;
-                  return (
-                    <button
-                      key={token}
-                      className={`workflow-color-preset ${isActive ? 'workflow-color-preset--active' : ''}`}
-                      style={{ backgroundColor: token }}
-                      onClick={() => handleUpdateStatus(status.id, 'color', token)}
-                      title={name}
-                      aria-label={name}
-                      aria-pressed={isActive}
-                      type="button"
-                      disabled={isSaving}
-                    />
-                  );
-                })}
-              </div>
-
-              <input
-                className="workflow-status-icon-input"
-                type="text"
-                value={status.icon}
-                onChange={(e) => handleUpdateStatus(status.id, 'icon', e.target.value)}
-                placeholder={t('tasklist.workflow.statusIconPlaceholder', '⏳')}
-                disabled={isSaving}
-                maxLength={4}
-              />
-
-              <div className="workflow-status-actions">
-                <button
-                  className={`workflow-status-action-btn ${status.id === initialStatusId ? 'workflow-status-action-btn--initial' : ''}`}
-                  onClick={() => setInitialStatusId(status.id)}
-                  title={t('tasklist.workflow.initialStatus', 'Status Inicial')}
-                  type="button"
-                  disabled={isSaving}
-                >
-                  {status.id === initialStatusId ? '★' : '☆'}
-                </button>
-                <button
-                  className="workflow-status-action-btn"
-                  onClick={() => handleMoveStatus(status.id, -1)}
-                  disabled={idx === 0 || isSaving}
-                  title={t('tasklist.workflow.moveUp', 'Mover acima')}
-                  type="button"
-                >
-                  ▲
-                </button>
-                <button
-                  className="workflow-status-action-btn"
-                  onClick={() => handleMoveStatus(status.id, 1)}
-                  disabled={idx === statuses.length - 1 || isSaving}
-                  title={t('tasklist.workflow.moveDown', 'Mover abaixo')}
-                  type="button"
-                >
-                  ▼
-                </button>
-                <button
-                  className="workflow-status-action-btn workflow-status-action-btn--danger"
-                  onClick={() => handleRemoveStatus(status.id)}
-                  disabled={statuses.length <= 1 || isSaving}
-                  title={t('tasklist.workflow.removeStatus', 'Remover Status')}
-                  type="button"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+        <DataGrid
+          items={statuses}
+          columns={columns}
+          getItemId={(item) => item.id}
+          label={t('tasklist.workflow.statusGrid', 'Lista de status do workflow')}
+          autoFocusOnMount={false}
+          onFocusChange={(item) => setFocused(item)}
+          onActivate={(item) => openEditStatus(item)}
+          onMoveItem={handleMoveStatus}
+          getRowActions={getRowActions}
+          onGridReady={handleGridReady}
+        />
+        <p className="workflow-editor__hint">
+          {t('tasklist.workflow.moveHint', 'Use Alt+Setas para reordenar o status focado.')}
+        </p>
       </div>
 
       {/* Migration Warnings */}
       {removedWithTasks.length > 0 && (
         <div className="workflow-section">
           {removedWithTasks.map((removed) => (
-            <div key={removed.id} className="workflow-migration-warning">
+            <div key={removed.id} className="workflow-migration-warning" role="group" aria-label={t('tasklist.workflow.migrationGroup', 'Migração do status {{label}}', { label: removed.label || `#${removed.id}` })}>
               <strong>
-                {t('tasklist.workflow.tasksUsingStatus', { count: taskCountsByStatus[removed.id] ?? 0 })}
+                {t('tasklist.workflow.tasksUsingStatus', '{{count}} tarefa(s) usando este status', { count: taskCountsByStatus[removed.id] ?? 0 })}
               </strong>
               {' — '}{removed.icon} {removed.label} (ID: {removed.id})
               <div className="workflow-migration-row">
-                <span>{t('tasklist.workflow.migrateTasksTo', 'Migrar tarefas para')}:</span>
+                <span id={`migrate-label-${removed.id}`}>{t('tasklist.workflow.migrateTasksTo', 'Migrar tarefas para')}:</span>
                 <select
                   className="workflow-migration-select"
                   value={statusMigration[removed.id] || ''}
                   onChange={(e) => handleMigrationChange(removed.id, Number(e.target.value))}
+                  aria-labelledby={`migrate-label-${removed.id}`}
                 >
                   <option value="">—</option>
                   {statuses.map((s) => (
@@ -347,6 +438,7 @@ export default function WorkflowEditor({
             value={initialStatusId}
             onChange={(e) => setInitialStatusId(Number(e.target.value))}
             disabled={isSaving}
+            aria-label={t('tasklist.workflow.initialStatus', 'Status Inicial')}
           >
             {statuses.map((s) => (
               <option key={s.id} value={s.id}>{s.icon} {s.label}</option>
@@ -363,11 +455,18 @@ export default function WorkflowEditor({
 
         <div className="workflow-transitions-grid">
           {statuses.map((fromStatus) => (
-            <div key={fromStatus.id} className="workflow-transition-row">
-              <span className="workflow-transition-from">
+            <div
+              key={fromStatus.id}
+              className="workflow-transition-row"
+              role="group"
+              aria-label={t('tasklist.workflow.transitionsFrom', 'Transições de {{label}}', {
+                label: fromStatus.label.trim() || `#${fromStatus.id}`,
+              })}
+            >
+              <span className="workflow-transition-from" aria-hidden="true">
                 {fromStatus.icon} {fromStatus.label}
               </span>
-              <span className="workflow-transition-arrow">→</span>
+              <span className="workflow-transition-arrow" aria-hidden="true">→</span>
               <div className="workflow-transition-targets">
                 {statuses
                   .filter(s => s.id !== fromStatus.id)
@@ -380,6 +479,7 @@ export default function WorkflowEditor({
                         onClick={() => handleToggleTransition(fromStatus.id, toStatus.id)}
                         disabled={isSaving}
                         type="button"
+                        aria-pressed={isActive}
                       >
                         {toStatus.icon} {toStatus.label}
                       </button>
@@ -410,6 +510,73 @@ export default function WorkflowEditor({
           </Button>
         }
       />
+
+      <Modal
+        isOpen={itemModal !== null}
+        onClose={closeItemModal}
+        title={itemModal?.mode === 'edit'
+          ? t('tasklist.workflow.editStatusNamed', 'Editar status: {{label}}', {
+            label: statuses.find((s) => s.id === itemModal.id)?.label || `#${itemModal.id}`,
+          })
+          : t('tasklist.workflow.newStatus', 'Novo status')}
+      >
+        <div className="workflow-status-form">
+          <FormField label={t('tasklist.workflow.statusLabel', 'Nome')} required>
+            <Input
+              type="text"
+              value={draft.label}
+              placeholder={t('tasklist.workflow.statusLabelPlaceholder', 'Ex: Em Andamento')}
+              onChange={(e) => setDraft((prev) => ({ ...prev, label: e.target.value }))}
+              maxLength={50}
+            />
+          </FormField>
+          <FormField label={t('tasklist.workflow.statusIcon', 'Ícone')}>
+            <Input
+              type="text"
+              value={draft.icon}
+              placeholder={t('tasklist.workflow.statusIconPlaceholder', 'Ex: ⏳')}
+              onChange={(e) => setDraft((prev) => ({ ...prev, icon: e.target.value }))}
+              maxLength={4}
+            />
+          </FormField>
+          <FormField label={t('tasklist.workflow.statusColor', 'Cor')}>
+            <div
+              className="workflow-color-presets"
+              role="group"
+              aria-label={t('tasklist.workflow.colorGroup', 'Cor do status')}
+            >
+              {COLOR_PRESETS.map(({ token, nameKey }) => {
+                const name = t(nameKey, token);
+                const isActive = draft.color === token;
+                return (
+                  <button
+                    key={token}
+                    className={`workflow-color-preset ${isActive ? 'workflow-color-preset--active' : ''}`}
+                    style={{ backgroundColor: token }}
+                    onClick={() => setDraft((prev) => ({ ...prev, color: token }))}
+                    title={name}
+                    aria-label={name}
+                    aria-pressed={isActive}
+                    type="button"
+                  />
+                );
+              })}
+            </div>
+          </FormField>
+          <DialogActions
+            primary={
+              <Button type="button" variant="primary" onClick={confirmItemModal}>
+                {t('tasklist.customActions.apply', 'Aplicar')}
+              </Button>
+            }
+            secondary={
+              <Button type="button" variant="secondary" onClick={closeItemModal}>
+                {t('common.cancel', 'Cancelar')}
+              </Button>
+            }
+          />
+        </div>
+      </Modal>
     </div>
   );
 }
