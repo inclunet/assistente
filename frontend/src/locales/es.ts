@@ -4313,7 +4313,7 @@ const es = {
         requiredFields: 'Completa el ID y la Etiqueta de la acción',
         duplicateId: 'Ya existe una acción con este ID',
         deleteConfirmTitle: 'Eliminar acción',
-        deleteConfirm: '¿Eliminar la acción "{label}"? La eliminación solo vale tras Guardar.',
+        deleteConfirm: '¿Eliminar la acción "{{label}}"? La eliminación solo vale tras Guardar.',
         saved: 'Acciones personalizadas guardadas',
         saveError: 'Error al guardar acciones: {{error}}',
         runError: 'Error al ejecutar acción: {{error}}',

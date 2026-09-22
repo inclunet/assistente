@@ -4313,7 +4313,7 @@ const en = {
         requiredFields: 'Fill in the action ID and Label',
         duplicateId: 'An action with this ID already exists',
         deleteConfirmTitle: 'Delete action',
-        deleteConfirm: 'Delete the action "{label}"? Removal only takes effect after Save.',
+        deleteConfirm: 'Delete the action "{{label}}"? Removal only takes effect after Save.',
         saved: 'Custom actions saved',
         saveError: 'Failed to save actions: {{error}}',
         runError: 'Failed to run action: {{error}}',

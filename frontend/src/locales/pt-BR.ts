@@ -4314,7 +4314,7 @@ const ptBR = {
         requiredFields: 'Preencha ID e Rótulo da ação',
         duplicateId: 'Já existe uma ação com este ID',
         deleteConfirmTitle: 'Apagar ação',
-        deleteConfirm: 'Apagar a ação "{label}"? A remoção só vale após Salvar.',
+        deleteConfirm: 'Apagar a ação "{{label}}"? A remoção só vale após Salvar.',
         saved: 'Ações customizadas salvas',
         saveError: 'Falha ao salvar ações: {{error}}',
         runError: 'Falha ao executar ação: {{error}}',

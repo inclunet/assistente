@@ -13,7 +13,11 @@ vi.mock('react-i18next', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-i18next')>();
   return {
     ...actual,
-    useTranslation: () => ({ t: (_key: string, fallback?: string) => fallback ?? _key }),
+    useTranslation: () => ({ t: (_key: string, fallback?: string, options?: Record<string, string>) => {
+      let text = fallback ?? _key;
+      for (const [name, value] of Object.entries(options ?? {})) text = text.replace(`{{${name}}}`, value);
+      return text;
+    } }),
   };
 });
 
@@ -141,7 +145,9 @@ describe('CustomActionsEditor', () => {
     await user.click(rowButtons[0]);
     await user.click(await screen.findByRole('menuitem', { name: 'Deletar' }));
 
-    expect(mockRequestConfirm).toHaveBeenCalled();
+    expect(mockRequestConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('"Investigar"'),
+    }));
     await waitFor(() => expect(screen.queryByRole('row', { name: /Investigar/ })).not.toBeInTheDocument());
 
     await user.click(screen.getByRole('button', { name: 'Salvar' }));
