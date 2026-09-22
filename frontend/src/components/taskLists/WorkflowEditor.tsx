@@ -376,7 +376,6 @@ export default function WorkflowEditor({
           columns={columns}
           getItemId={(item) => item.id}
           label={t('tasklist.workflow.statusGrid', 'Lista de status do workflow')}
-          autoFocusOnMount={false}
           onFocusChange={(item) => setFocused(item)}
           onActivate={(item) => openEditStatus(item)}
           onMoveItem={handleMoveStatus}

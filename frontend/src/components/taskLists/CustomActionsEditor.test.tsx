@@ -69,9 +69,11 @@ describe('CustomActionsEditor', () => {
     expect(screen.queryByRole('columnheader', { name: 'ID' })).not.toBeInTheDocument();
     expect(screen.getByText('Publica evento')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Nova ação' })).toBeInTheDocument();
-    // Sem linha focada, Editar/Apagar começam desabilitados.
-    expect(screen.getByRole('button', { name: 'Editar' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Deletar' })).toBeDisabled();
+    // O grid foca a primeira linha ao montar: Editar/Apagar já nascem prontos.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Editar' })).toBeEnabled());
+    expect(screen.getByRole('button', { name: 'Deletar' })).toBeEnabled();
+    // E o foco já está dentro do grid ao entrar na tela.
+    expect(screen.getByRole('grid').contains(document.activeElement)).toBe(true);
   });
 
   it('cria ação pelo modal e persiste no Salvar', async () => {

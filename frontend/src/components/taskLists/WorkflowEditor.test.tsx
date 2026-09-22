@@ -58,8 +58,11 @@ describe('WorkflowEditor', () => {
     expect(await screen.findByRole('grid', { name: 'Lista de status do workflow' })).toBeInTheDocument();
     expect(screen.getByRole('row', { name: /A Fazer/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Adicionar Status' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Editar' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Deletar' })).toBeDisabled();
+    // O grid foca a primeira linha ao montar: Editar/Apagar já nascem prontos,
+    // e o foco já está dentro do grid ao entrar na tela.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Editar' })).toBeEnabled());
+    expect(screen.getByRole('button', { name: 'Deletar' })).toBeEnabled();
+    expect(screen.getByRole('grid').contains(document.activeElement)).toBe(true);
   });
 
   it('cria status pelo modal e persiste no Salvar', async () => {
