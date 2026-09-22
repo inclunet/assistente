@@ -332,7 +332,6 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
           columns={columns}
           getItemId={(item) => item._uiId}
           label={t('tasklist.customActions.grid', 'Lista de ações customizadas')}
-          autoFocusOnMount={false}
           onFocusChange={(item) => setFocused(item)}
           onActivate={(item) => openEditAction(item)}
           getRowActions={getRowActions}
