@@ -44,6 +44,19 @@ versão viva do cache reflete o novo status na hora.
 Evidência: `frontend/src/components/taskLists/TaskDetailModal.test.tsx` cobre
 troca pelo menu, toast/anúncio e filtragem do status atual.
 
+## Refinamento do editor de workflow: padrão toolbar + grid + modal
+
+A seção de status do `WorkflowEditor` (lista inline com ~15 controles por
+linha, sem nomes acessíveis) foi refeita no padrão do sistema: Toolbar
+(Novo/Editar/Apagar) + `DataGrid` (ID, Nome, Cor, Ícone, Inicial, com
+reordenação por Alt+Setas e edição por Enter) + modal de edição por status.
+Transições (matriz), migração e status inicial foram preservados, ganhando
+`aria-pressed`, grupos com nome e rótulos (a navegação por NVDA passou a ter
+contexto por status e estado dos toggles).
+
+Evidência: `frontend/src/components/taskLists/WorkflowEditor.test.tsx` cobre
+listagem, criação/edição/remoção, migração, reordenação e transições.
+
 ## TL;DR
 
 Implementar um **sistema de gerenciamento de TaskLists reutilizáveis** que funciona em 3 contextos:
