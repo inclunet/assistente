@@ -179,6 +179,16 @@ describe('CustomActionsEditor', () => {
     await waitFor(() => expect(document.activeElement).toHaveAccessibleName('Nova ação'));
   });
 
+  it('Enter na linha abre a edição (atalho de teclado do grid)', async () => {
+    render(<CustomActionsEditor taskListId="1" onClose={vi.fn()} />);
+    const grid = await screen.findByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: 'Enter' });
+    expect(await screen.findByRole('heading', { name: 'Editar ação' })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Rótulo/)).toHaveValue('Investigar');
+  });
+
   it('desabilita a toolbar durante o salvamento', async () => {
     const user = userEvent.setup();
     let resolveSave!: () => void;
