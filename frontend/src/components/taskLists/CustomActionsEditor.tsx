@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
@@ -98,6 +98,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
   // Modal de edição por ação: 'create' parte do vazio, 'edit' do item focado.
   const [itemModal, setItemModal] = useState<{ mode: 'create' } | { mode: 'edit'; uiId: string } | null>(null);
   const [draft, setDraft] = useState<EditableAction>(emptyAction);
+  const newButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -186,7 +187,12 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
     setActions((prev) => prev.filter((a) => a._uiId !== action._uiId));
     setFocused((prev) => (prev?._uiId === action._uiId ? null : prev));
     announce(t('tasklist.customActions.deleted', 'Ação apagada'));
-  }, [requestConfirm, t, announce]);
+    // A linha some e o foco cairia no body: devolve ao grid (ou ao Novo,
+    // se a lista esvaziou e o grid desmontou).
+    requestAnimationFrame(() => {
+      if (!requestGridFocus()) newButtonRef.current?.focus();
+    });
+  }, [requestConfirm, t, announce, requestGridFocus]);
 
   const handleSave = useCallback(async () => {
     setIsSaving(true);
@@ -218,6 +224,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
       label: t('tasklist.edit', 'Editar'),
       icon: <EditOutlined aria-hidden="true" />,
       onClick: () => openEditAction(action),
+      disabled: isSaving,
     },
     {
       id: 'delete',
@@ -225,8 +232,9 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
       icon: <DeleteOutlined aria-hidden="true" />,
       onClick: () => void deleteAction(action),
       danger: true,
+      disabled: isSaving,
     },
-  ], [t, openEditAction, deleteAction]);
+  ], [t, openEditAction, deleteAction, isSaving]);
 
   const columns: DataGridColumn<EditableAction>[] = useMemo(() => [
     {
@@ -298,20 +306,22 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
             icon: <PlusOutlined aria-hidden="true" />,
             onClick: openNewAction,
             variant: 'primary',
+            buttonRef: newButtonRef,
+            disabled: isSaving,
           },
           {
             key: 'edit-action',
             label: t('tasklist.edit', 'Editar'),
             icon: <EditOutlined aria-hidden="true" />,
             onClick: () => focused && openEditAction(focused),
-            disabled: !focused,
+            disabled: !focused || isSaving,
           },
           {
             key: 'delete-action',
             label: t('tasklist.delete', 'Deletar'),
             icon: <DeleteOutlined aria-hidden="true" />,
             onClick: () => focused && void deleteAction(focused),
-            disabled: !focused,
+            disabled: !focused || isSaving,
             variant: 'danger',
           },
         ]}

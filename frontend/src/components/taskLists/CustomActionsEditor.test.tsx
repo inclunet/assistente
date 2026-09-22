@@ -154,4 +154,42 @@ describe('CustomActionsEditor', () => {
     expect(onClose).toHaveBeenCalled();
     expect(mockSetTaskListCustomActions).not.toHaveBeenCalled();
   });
+
+  it('devolve o foco ao grid ao fechar o modal de item', async () => {
+    const user = userEvent.setup();
+    render(<CustomActionsEditor taskListId="1" onClose={vi.fn()} />);
+    const grid = await screen.findByRole('grid');
+    await user.click(screen.getByRole('button', { name: 'Nova ação' }));
+    fireEvent.change(screen.getByLabelText(/ID/), { target: { value: 'x' } });
+    fireEvent.change(screen.getByLabelText(/Rótulo/), { target: { value: 'X' } });
+    await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+    await waitFor(() => expect(grid.contains(document.activeElement)).toBe(true));
+  });
+
+  it('apagando a última ação, o foco vai para Nova ação', async () => {
+    const user = userEvent.setup();
+    render(<CustomActionsEditor taskListId="1" onClose={vi.fn()} />);
+    await screen.findByRole('grid');
+
+    const rowButtons = await screen.findAllByRole('button', { name: 'Ações' });
+    await user.click(rowButtons[0]);
+    await user.click(await screen.findByRole('menuitem', { name: 'Deletar' }));
+
+    await waitFor(() => expect(screen.queryByRole('grid')).not.toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).toHaveAccessibleName('Nova ação'));
+  });
+
+  it('desabilita a toolbar durante o salvamento', async () => {
+    const user = userEvent.setup();
+    let resolveSave!: () => void;
+    mockSetTaskListCustomActions.mockImplementationOnce(() => new Promise<void>((res) => { resolveSave = res; }));
+    render(<CustomActionsEditor taskListId="1" onClose={vi.fn()} />);
+    await screen.findByRole('grid');
+
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+    expect(screen.getByRole('button', { name: 'Nova ação' })).toBeDisabled();
+
+    resolveSave();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Nova ação' })).toBeEnabled());
+  });
 });
