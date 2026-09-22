@@ -345,7 +345,7 @@ export default function WorkflowEditor({
 
   return (
     <div className="workflow-editor">
-      {error && <div className="workflow-editor-error" role="alert">{error}</div>}
+      {error && <div className="workflow-editor-error">{error}</div>}
 
       {/* Statuses Section */}
       <div className="workflow-section">
