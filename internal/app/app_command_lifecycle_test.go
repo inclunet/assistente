@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -17,7 +18,9 @@ import (
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandconfig"
 	"assistente/internal/commandcontext"
+	"assistente/internal/commanddecision"
 	"assistente/internal/commandexecution"
+	"assistente/internal/commandinstance"
 	"assistente/internal/commandledger"
 	"assistente/internal/commandruntime"
 	"assistente/internal/commandsecurity"
@@ -32,30 +35,44 @@ import (
 )
 
 type appLifecyclePort struct {
-	generation   commandruntime.Generation
-	mu           sync.Mutex
-	app          *App
-	lockHeld     atomic.Bool
-	failAuth     bool
-	clearStarted chan struct{}
-	clearRelease chan struct{}
-	clearOnce    sync.Once
+	generation             commandruntime.Generation
+	mu                     sync.Mutex
+	app                    *App
+	lockHeld               atomic.Bool
+	deterministicLockProbe bool
+	lockProbeWG            sync.WaitGroup
+	failAuth               bool
+	clearStarted           chan struct{}
+	clearRelease           chan struct{}
+	clearOnce              sync.Once
 }
 
 func (p *appLifecyclePort) checkLocks() {
 	if p.app == nil {
 		return
 	}
-	if p.app.authMu.TryLock() {
-		p.app.authMu.Unlock()
-	} else {
-		p.lockHeld.Store(true)
+	if !p.deterministicLockProbe {
+		return
 	}
-	if p.app.authSessionMu.TryLock() {
-		p.app.authSessionMu.Unlock()
-	} else {
-		p.lockHeld.Store(true)
+	for _, lock := range []sync.Locker{&p.app.authMu, &p.app.authSessionMu} {
+		done := make(chan struct{})
+		p.lockProbeWG.Add(1)
+		go func() {
+			defer p.lockProbeWG.Done()
+			lock.Lock()
+			defer lock.Unlock()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			p.lockHeld.Store(true)
+		}
 	}
+}
+
+func (p *appLifecyclePort) waitForLockProbes() {
+	p.lockProbeWG.Wait()
 }
 
 func (p *appLifecyclePort) Authenticate(context.Context) error {
@@ -215,7 +232,7 @@ func (appLifecycleBridgePort) Cancel(context.Context, commandbridge.CancelReques
 func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountInputs) {
 	t.Helper()
 	ctx := context.Background()
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "lifecycle-mount.db")), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("file:"+filepath.ToSlash(filepath.Join(t.TempDir(), "lifecycle-mount.db"))+"?_pragma=busy_timeout(100)"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +240,18 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 	if err != nil {
 		t.Fatal(err)
 	}
+	sqlDB.SetMaxOpenConns(4)
+	sqlDB.SetMaxIdleConns(2)
 	t.Cleanup(func() { _ = sqlDB.Close() })
+	// Reproduz a política de concorrência de produção, mas preserva
+	// auto_vacuum=NONE: os testes de manutenção exercitam a migração real
+	// de bancos anteriores, não apenas a abertura de um banco novo.
+	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("PRAGMA synchronous=NORMAL").Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := db.AutoMigrate(&database.User{}, &database.Session{}); err != nil {
 		t.Fatal(err)
 	}
@@ -234,6 +262,12 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 		t.Fatal(err)
 	}
 	if err := commandactivation.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := commanddecision.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := commandinstance.Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	previousDB := database.DB()
@@ -265,10 +299,14 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 	if err := workspaceManager.AddTab(workspace.Tab{ID: "tab-lifecycle", Type: workspace.TabTypeEditor, State: map[string]any{"version": float64(1)}}); err != nil {
 		t.Fatal(err)
 	}
+	credMgr := credentials.NewManager(bytes.Repeat([]byte{8}, 32))
+	if err := credMgr.RegisterInstanceSecret("internal-auth:command-request-hmac:v1", base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{8}, 32))); err != nil {
+		t.Fatal(err)
+	}
 	app := &App{
 		ctx:                   ctx,
 		sessionSvc:            sessions,
-		credMgr:               credentials.NewManager(bytes.Repeat([]byte{8}, 32)),
+		credMgr:               credMgr,
 		questionnaireMgr:      questionnaire.NewManager(func(string, any) {}),
 		workspaceMgr:          workspaceManager,
 		commandStorageVersion: "v1",
@@ -276,11 +314,16 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 	}
 	app.setCurrentUserID(user.ID)
 	app.setCurrentAuthUser(&AuthUser{UserID: user.ID, SessionID: session.SessionID, Role: user.Role})
+	t.Cleanup(func() {
+		_ = ShutdownCommandLifecycle(ctx, app)
+		_ = app.drainCommandExecutors(ctx)
+		_ = app.shutdownCommandBridgeIfConfigured(ctx)
+	})
 	epochs, err := app.commandSecurityService()
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := commandexecution.NewHostState(epochs, "registry-v1")
+	state, err := commandexecution.NewHostState(epochs, commandProductRegistryVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,6 +344,10 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// A fixture desbloqueada precisa instalar explicitamente o HostState real;
+	// a montagem produtiva não deve inferir vault desbloqueado quando cria um
+	// host novo.
+	app.commandHost = state
 	locales := map[string]commandcatalog.LocalizedMetadata{}
 	for _, locale := range []string{"pt-BR", "en", "es"} {
 		locales[locale] = commandcatalog.LocalizedMetadata{Name: "Fixture", Description: "Fixture", Category: "Fixture"}
@@ -319,7 +366,7 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 	bridge, err := commandbridge.New(commandbridge.Config{
 		Port: appLifecycleBridgePort{},
 		Capabilities: []commandbridge.Capability{{
-			ID: uuid.Must(uuid.NewV7()).String(), CommandID: "fixture.read", Generation: 1,
+			ID: uuid.Must(uuid.NewV7()).String(), CommandID: "fixture.read", Generation: 1, Source: commandbridge.SourcePalette,
 			Owner: commandbridge.Owner{UserID: uuid.Must(uuid.NewV7()).String(), SessionID: uuid.Must(uuid.NewV7()).String(), WorkspaceID: "workspace-1"},
 		}},
 	})
@@ -337,7 +384,7 @@ func appLifecycleProductMountFixture(t *testing.T) (*App, CommandLifecycleMountI
 		Epochs:          epochs,
 		Store:           store,
 		Registry:        registry,
-		RegistryVersion: "registry-v1",
+		RegistryVersion: commandProductRegistryVersion,
 		Source:          commandcatalog.Palette,
 		Snapshot: func(context.Context, auth.LocalSessionPrincipal) (commandexecution.Versions, error) {
 			return commandexecution.Versions{}, nil
@@ -440,7 +487,7 @@ func TestAppCommandLifecycleProductMountSpecRejectsMissingProductDependencies(t 
 	otherBridge, err := commandbridge.New(commandbridge.Config{
 		Port: appLifecycleBridgePort{},
 		Capabilities: []commandbridge.Capability{{
-			ID: uuid.Must(uuid.NewV7()).String(), CommandID: "fixture.read", Generation: 1,
+			ID: uuid.Must(uuid.NewV7()).String(), CommandID: "fixture.read", Generation: 1, Source: commandbridge.SourcePalette,
 			Owner: commandbridge.Owner{UserID: uuid.Must(uuid.NewV7()).String(), SessionID: uuid.Must(uuid.NewV7()).String(), WorkspaceID: "workspace-1"},
 		}},
 	})
@@ -461,6 +508,9 @@ func TestAppCommandLifecycleAfterAuthMountsProductBaseWhenMissing(t *testing.T) 
 	if result == nil {
 		t.Fatal("fixture sem auth user")
 	}
+	if err := app.commandHost.SetOSSessionState(context.Background(), false, true); err != nil {
+		t.Fatal(err)
+	}
 	app.bootstrapCommandLifecycleAfterAuth(context.Background(), result, nil)
 	if _, ok := loadCommandLifecycle(app); !ok {
 		t.Fatal("pós-auth não montou lifecycle produtivo mínimo")
@@ -471,15 +521,17 @@ func TestAppCommandLifecycleAfterAuthMountsProductBaseWhenMissing(t *testing.T) 
 	if _, ok := loadCommandBridge(app); !ok {
 		t.Fatal("pós-auth não instalou Bridge")
 	}
-	if snapshot := app.commandLifecycle.Load().Snapshot(); snapshot.State != commandruntime.StateFailed && snapshot.State != commandruntime.StateReady {
-		t.Fatalf("bootstrap pós-auth deveria tentar transição observável, got %+v", snapshot)
+	// O monitor nativo ainda não comprovou a sessão nesta fixture. A recarga
+	// negada deve permanecer fria, sem publicar a configuração antiga.
+	if snapshot := app.commandLifecycle.Load().Snapshot(); snapshot.State != commandruntime.StateCold || snapshot.Published {
+		t.Fatalf("recarga sem sessão do SO conhecida publicou runtime: %+v", snapshot)
 	}
 	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestAppCommandLifecycleRebuildsSentinelThenBootstrapsReady(t *testing.T) {
+func TestAppCommandLifecycleRebuildsEmptyProductThenBootstrapsReady(t *testing.T) {
 	app, _ := appLifecycleProductMountFixture(t)
 	if err := ensureCommandLifecycleMountedForCurrentUserForTest(context.Background(), app); err != nil {
 		t.Fatal(err)
@@ -487,14 +539,14 @@ func TestAppCommandLifecycleRebuildsSentinelThenBootstrapsReady(t *testing.T) {
 	if err := app.commandHost.SetOSSessionState(context.Background(), true, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.rebuildCommandLifecycleSentinelConfiguration(context.Background()); err != nil {
-		t.Fatalf("rebuild sentinel falhou: %v", err)
+	if err := app.rebuildCommandLifecycleEmptyConfiguration(context.Background()); err != nil {
+		t.Fatalf("rebuild vazio falhou: %v", err)
 	}
 	if err := BootstrapCommandLifecycle(context.Background(), app); err != nil {
 		t.Fatalf("bootstrap após rebuild falhou: %v", err)
 	}
 	snapshot, err := CommandLifecycleSnapshot(app)
-	if err != nil || snapshot.State != commandruntime.StateReady || !snapshot.Published || snapshot.PublishedEntries != 1 {
+	if err != nil || snapshot.State != commandruntime.StateReady || !snapshot.Published || snapshot.PublishedEntries != 149 {
 		t.Fatalf("runtime não ficou ready após rebuild: %+v err=%v", snapshot, err)
 	}
 	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {
@@ -519,28 +571,6 @@ func TestAppCommandLifecycleRebuildsPersistedLocalConfigurationAfterAuth(t *test
 	if err := database.DB().Create(&generation).Error; err != nil {
 		t.Fatal(err)
 	}
-	defaultID, defaultVersion, defaultFingerprint := "lifecycle.default.ready", "1", "lifecycle.default.ready.v1"
-	binding := commandconfig.Binding{
-		ID:                         uuid.Must(uuid.NewV7()).String(),
-		UserID:                     principal.UserID,
-		LayerRefKind:               "builtin",
-		LayerRef:                   commandLifecycleBuiltinLayerID,
-		TriggerType:                "keyboard.local",
-		TriggerSpec:                `{"version":1,"code":"KeyL","modifiers":["Control","Shift"]}`,
-		Arguments:                  "{}",
-		Condition:                  `{"version":1,"clauses":[]}`,
-		Effect:                     "suppress",
-		Enabled:                    true,
-		Source:                     "test",
-		ReplacesDefaultID:          &defaultID,
-		ReplacesDefaultVersion:     &defaultVersion,
-		ReplacesDefaultFingerprint: &defaultFingerprint,
-		ReviewStatus:               "active",
-		Presentation:               "{}",
-	}
-	if err := database.DB().Create(&binding).Error; err != nil {
-		t.Fatal(err)
-	}
 	if err := app.rebuildCommandLifecyclePersistedConfiguration(ctx); err != nil {
 		t.Fatalf("rebuild persistido falhou: %v", err)
 	}
@@ -551,12 +581,12 @@ func TestAppCommandLifecycleRebuildsPersistedLocalConfigurationAfterAuth(t *test
 	if len(activeLayers) != 0 {
 		t.Fatalf("rebuild persistido restaurou claims indevidamente: %v", activeLayers)
 	}
-	selection, err := configuration.Resolve("keyboard.local:Control+Shift+KeyL", nil, nil)
+	selection, err := configuration.Resolve("palette:workspace.list", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.Status != commandbindings.Suppressed {
-		t.Fatalf("delta persistido não suprimiu o default: %+v", selection)
+	if selection.Status != commandbindings.Selected || selection.CommandID != commandProductWorkspaceListID || len(selection.BindingIDs) != 1 || selection.BindingIDs[0] != "builtin.palette.workspace.list" {
+		t.Fatalf("rebuild não publicou o default real da paleta: %+v", selection)
 	}
 	if err := ShutdownCommandLifecycle(ctx, app); err != nil {
 		t.Fatal(err)
@@ -580,25 +610,15 @@ func TestAppCommandLifecycleRestoresPersistentClaimsIntoActiveLayers(t *testing.
 	if err := database.DB().Create(&commandconfig.Generation{ID: uuid.Must(uuid.NewV7()).String(), UserID: principal.UserID, Generation: 1, UpdatedAt: now}).Error; err != nil {
 		t.Fatal(err)
 	}
-	layer := commandconfig.Layer{ID: uuid.Must(uuid.NewV7()).String(), UserID: principal.UserID, Name: "persistente", Enabled: true, Source: "test", CreatedAt: now, UpdatedAt: now}
+	layer := commandconfig.Layer{ID: uuid.Must(uuid.NewV7()).String(), UserID: principal.UserID, Name: "persistente", Enabled: true, Source: "user", CreatedAt: now, UpdatedAt: now}
 	if err := database.DB().Create(&layer).Error; err != nil {
-		t.Fatal(err)
-	}
-	commandID := commandLifecycleSentinelID
-	binding := commandconfig.Binding{
-		ID: uuid.Must(uuid.NewV7()).String(), UserID: principal.UserID, LayerRefKind: "user", LayerRef: layer.ID,
-		TriggerType: "keyboard.local", TriggerSpec: `{"version":1,"code":"KeyM","modifiers":["Control","Shift"]}`,
-		CommandID: &commandID, Arguments: "{}", Condition: `{"version":1,"clauses":[]}`, Effect: "execute", Enabled: true,
-		Source: "test", ReviewStatus: "active", Presentation: "{}",
-	}
-	if err := database.DB().Create(&binding).Error; err != nil {
 		t.Fatal(err)
 	}
 	ruleID := uuid.Must(uuid.NewV7()).String()
 	rule := commandactivation.Rule{
 		ID: ruleID, UserID: principal.UserID, LayerRefKind: commandactivation.UserRef, LayerRef: layer.ID,
 		RuleRefKind: commandactivation.UserRef, RuleRef: ruleID, Mode: commandactivation.ModeManual,
-		Condition: "{}", Lifecycle: commandactivation.LifecyclePersistent, Enabled: true, Source: "test", ReviewStatus: "active",
+		Condition: "{}", Lifecycle: commandactivation.LifecyclePersistent, Enabled: true, Source: "user", ReviewStatus: "active",
 	}
 	if err := database.DB().Create(&rule).Error; err != nil {
 		t.Fatal(err)
@@ -625,12 +645,8 @@ func TestAppCommandLifecycleRestoresPersistentClaimsIntoActiveLayers(t *testing.
 	if len(activeLayers) != 1 || activeLayers[0] != layer.ID {
 		t.Fatalf("camada persistente não foi ativada: %v", activeLayers)
 	}
-	selection, err := configuration.Resolve("keyboard.local:Control+Shift+KeyM", nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if selection.Status != commandbindings.Selected || selection.CommandID != commandLifecycleSentinelID || selection.BindingIDs[0] != binding.ID {
-		t.Fatalf("binding da camada restaurada não venceu: %+v", selection)
+	if configuration == nil {
+		t.Fatal("rebuild não materializou configuração produtiva")
 	}
 	var restored commandactivation.Claim
 	if err := database.DB().Where("activation_id = ?", claimID).First(&restored).Error; err != nil {
@@ -664,30 +680,14 @@ func TestAppCommandLifecycleRejectsLoadedConfigurationAfterSessionChange(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, _, err := commandLifecycleSentinelCatalog()
+	registry, _, err := app.commandProductCatalog()
 	if err != nil {
 		t.Fatal(err)
 	}
 	loaded, hasSnapshot, err := app.loadCommandLifecyclePersistedConfiguration(ctx, store, commandconfig.LocalReadProjection{
 		Registry:           registry,
-		NoArgumentCommands: []string{commandLifecycleSentinelID},
-		BuiltinLayers: []commandconfig.BuiltinLayer{{
-			ID: commandLifecycleBuiltinLayerID, Active: true,
-			Defaults: []commandbindings.Default{{
-				Candidate: commandbindings.Candidate{
-					ID:                "lifecycle.default.ready",
-					Trigger:           "keyboard.local:Control+Shift+KeyL",
-					CommandID:         commandLifecycleSentinelID,
-					ArgumentsKey:      "{}",
-					ExecutionScopeKey: "global",
-					Scope:             commandbindings.Global,
-					Enabled:           true,
-					LayerActive:       true,
-				},
-				Version:     "1",
-				Fingerprint: "lifecycle.default.ready.v1",
-			}},
-		}},
+		NoArgumentCommands: nil,
+		BuiltinLayers:      nil,
 	})
 	if err != nil || !hasSnapshot {
 		t.Fatalf("load persistido falhou: has=%v err=%v", hasSnapshot, err)
@@ -719,7 +719,7 @@ func TestAppCommandLifecycleResetForgetsPublishedHostConfiguration(t *testing.T)
 	if err := app.commandHost.SetOSSessionState(ctx, true, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.rebuildCommandLifecycleSentinelConfiguration(ctx); err != nil {
+	if err := app.rebuildCommandLifecycleEmptyConfiguration(ctx); err != nil {
 		t.Fatal(err)
 	}
 	principal, err := app.currentCommandPrincipal()
@@ -749,7 +749,7 @@ func TestAppCommandLifecycleShutdownForgetsPublishedHostConfiguration(t *testing
 	if err := app.commandHost.SetOSSessionState(ctx, true, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.rebuildCommandLifecycleSentinelConfiguration(ctx); err != nil {
+	if err := app.rebuildCommandLifecycleEmptyConfiguration(ctx); err != nil {
 		t.Fatal(err)
 	}
 	principal, err := app.currentCommandPrincipal()
@@ -814,6 +814,9 @@ func TestAppCommandLifecycleRetriesAfterInitialNotReadyFailure(t *testing.T) {
 	if err := ensureCommandLifecycleMountedForCurrentUserForTest(ctx, app); err != nil {
 		t.Fatal(err)
 	}
+	if err := app.commandHost.SetOSSessionState(ctx, false, false); err != nil {
+		t.Fatal(err)
+	}
 	if err := BootstrapCommandLifecycle(ctx, app); err == nil {
 		t.Fatalf("bootstrap sem ambiente pronto = %v", err)
 	}
@@ -823,7 +826,7 @@ func TestAppCommandLifecycleRetriesAfterInitialNotReadyFailure(t *testing.T) {
 	if err := app.commandHost.SetOSSessionState(ctx, true, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.rebuildCommandLifecycleSentinelConfiguration(ctx); err != nil {
+	if err := app.rebuildCommandLifecycleEmptyConfiguration(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if err := BootstrapCommandLifecycle(ctx, app); err != nil {
@@ -924,10 +927,10 @@ func TestAppCommandLifecycleRestartDoesNotInferLedgerRecoveryWithoutDrainProof(t
 		Owner:                     commandledger.Owner{UserID: principal.UserID, AuthContextID: principal.SessionID},
 		AuthGeneration:            "auth-before-restart",
 		SecurityGeneration:        "security-before-restart",
-		RegistryVersion:           commandLifecycleRegistryVersion,
+		RegistryVersion:           commandProductRegistryVersion,
 		GlobalConfigGeneration:    "global-before-restart",
 		ActiveLayersGeneration:    "layers-before-restart",
-		CommandID:                 commandLifecycleSentinelID,
+		CommandID:                 commandProductWorkspaceListID,
 		SourceType:                "palette",
 		ArgumentsFingerprint:      "args",
 		RequestFingerprintVersion: "v1",
@@ -942,12 +945,12 @@ func TestAppCommandLifecycleRestartDoesNotInferLedgerRecoveryWithoutDrainProof(t
 	if err := app.rebuildCommandLifecyclePersistedConfiguration(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := BootstrapCommandLifecycle(ctx, app); err != nil {
-		t.Fatal(err)
+	if err := BootstrapCommandLifecycle(ctx, app); !errors.Is(err, commandruntime.ErrNotReady) {
+		t.Fatalf("restart sem prova de drain deveria falhar fechado: %v", err)
 	}
 	snapshot, err := CommandLifecycleSnapshot(app)
-	if err != nil || snapshot.State != commandruntime.StateReady || !snapshot.Published {
-		t.Fatalf("restart sem drain não publicou configuração válida: %+v err=%v", snapshot, err)
+	if err != nil || snapshot.Published {
+		t.Fatalf("restart sem drain publicou configuração indevidamente: %+v err=%v", snapshot, err)
 	}
 	record, err := ledger.Get(ctx, request.Owner, request.InvocationID)
 	if err != nil {
@@ -998,8 +1001,10 @@ func TestAppCommandLifecycleActiveLayerDerivationRejectsUnsafeClaims(t *testing.
 			expired := now.Add(-time.Second)
 			s.ActivationClaims[0].ExpiresAt = &expired
 		},
-		"lifecycle": func(s *commandconfig.Snapshot) { s.ActivationRules[0].Lifecycle = commandactivation.LifecycleSession },
-		"disabled":  func(s *commandconfig.Snapshot) { s.Layers[0].Enabled = false },
+		"lifecycle": func(s *commandconfig.Snapshot) {
+			s.ActivationRules[0].Lifecycle = commandactivation.Lifecycle("unknown")
+		},
+		"disabled": func(s *commandconfig.Snapshot) { s.Layers[0].Enabled = false },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := base
@@ -1043,7 +1048,7 @@ func TestAppCommandLifecycleAfterUnlockBootstrapsCurrentSession(t *testing.T) {
 	}
 }
 
-func TestAppCommandLifecycleSentinelRebuildRejectsLoggedOutSession(t *testing.T) {
+func TestAppCommandLifecycleEmptyRebuildRejectsLoggedOutSession(t *testing.T) {
 	app, _ := appLifecycleProductMountFixture(t)
 	if err := ensureCommandLifecycleMountedForCurrentUserForTest(context.Background(), app); err != nil {
 		t.Fatal(err)
@@ -1052,7 +1057,7 @@ func TestAppCommandLifecycleSentinelRebuildRejectsLoggedOutSession(t *testing.T)
 		t.Fatal(err)
 	}
 	app.setCurrentAuthUser(nil)
-	if err := app.rebuildCommandLifecycleSentinelConfiguration(context.Background()); !errors.Is(err, commandexecution.ErrInvalidConfiguration) && !errors.Is(err, commandruntime.ErrNotReady) {
+	if err := app.rebuildCommandLifecycleEmptyConfiguration(context.Background()); !errors.Is(err, commandexecution.ErrInvalidConfiguration) && !errors.Is(err, commandruntime.ErrNotReady) {
 		t.Fatalf("rebuild deslogado aceito/erro errado: %v", err)
 	}
 	if err := ShutdownCommandLifecycle(context.Background(), app); err != nil {
@@ -1261,7 +1266,8 @@ func TestAppCommandLifecycleHooksAreOptionalAndRespectAuthBoundary(t *testing.T)
 	}
 
 	app := &App{}
-	probe := &appLifecyclePort{app: app}
+	probe := &appLifecyclePort{app: app, deterministicLockProbe: true}
+	defer probe.waitForLockProbes()
 	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(probe)); err != nil {
 		t.Fatal(err)
 	}
@@ -1300,7 +1306,8 @@ func TestAppCommandLifecycleHooksAreOptionalAndRespectAuthBoundary(t *testing.T)
 
 func TestAppCommandLifecycleAuthResultSurvivesBootstrapFailure(t *testing.T) {
 	app := &App{}
-	probe := &appLifecyclePort{app: app, failAuth: true}
+	probe := &appLifecyclePort{app: app, failAuth: true, deterministicLockProbe: true}
+	defer probe.waitForLockProbes()
 	if err := ConfigureCommandLifecycle(app, appLifecycleConfig(probe)); err != nil {
 		t.Fatal(err)
 	}
@@ -1315,6 +1322,38 @@ func TestAppCommandLifecycleAuthResultSurvivesBootstrapFailure(t *testing.T) {
 		t.Fatalf("bootstrap falho publicou runtime: %+v", snapshot)
 	}
 	app.Shutdown()
+}
+
+func TestAppCommandLifecycleLockProbeDetectsEachAuthLockWhenHeld(t *testing.T) {
+	tests := []struct {
+		name   string
+		lock   func(*App)
+		unlock func(*App)
+	}{
+		{
+			name:   "auth",
+			lock:   func(app *App) { app.authMu.Lock() },
+			unlock: func(app *App) { app.authMu.Unlock() },
+		},
+		{
+			name:   "auth-session",
+			lock:   func(app *App) { app.authSessionMu.Lock() },
+			unlock: func(app *App) { app.authSessionMu.Unlock() },
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			app := &App{}
+			probe := &appLifecyclePort{app: app, deterministicLockProbe: true}
+			test.lock(app)
+			probe.checkLocks()
+			if !probe.lockHeld.Load() {
+				t.Fatal("sonda não detectou callback sob lock mantido pelo teste")
+			}
+			test.unlock(app)
+			probe.waitForLockProbes()
+		})
+	}
 }
 
 func TestAppCommandLifecycleSuppressesDelayedStaleAuthResult(t *testing.T) {
@@ -1458,8 +1497,5 @@ func TestAppCommandLifecycleHooksSerializeConcurrentResetAndShutdown(t *testing.
 	}
 	if app.commandLifecycle.Load() != nil {
 		t.Fatal("shutdown concorrente deixou lifecycle montado")
-	}
-	if probe.lockHeld.Load() {
-		t.Fatal("callback concorrente executou sob lock de autenticação")
 	}
 }

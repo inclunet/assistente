@@ -1,9 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
+import { useEffect } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { PageMutationResult } from '../lib/commandPageMutation';
 
-const mockDuplicateProfile = vi.fn();
+const mockReadProfileCommandTarget = vi.fn();
+const mockRequestFormPageMutation = vi.fn();
+const mockRequestRootPageMutation = vi.fn();
+let formMutationOptions: any;
+let rootMutationOptions: any;
 const mockNavigate = vi.fn();
 const mockSetActiveTab = vi.fn();
 const mockRequestOpen = vi.fn();
@@ -11,22 +17,37 @@ let mockConversationId = 'conversation-1';
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
+  useLocation: () => ({ pathname: '/profiles' }),
+}));
+
+vi.mock('../store/authStore', () => ({
+  useAuthStore: Object.assign(
+    (selector?: (state: Record<string, unknown>) => unknown) => {
+      const state = { isAuthenticated: true, user: { userId: 'user-1', sessionId: 'session-1' } };
+      return selector ? selector(state) : state;
+    },
+    {
+      getState: () => ({ isAuthenticated: true, user: { userId: 'user-1', sessionId: 'session-1' } }),
+      subscribe: () => () => {},
+    },
+  ),
 }));
 
 vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: Object.assign(
     (selector?: (state: Record<string, unknown>) => unknown) => {
       const state = {
-        workspace: { tabs: [{ id: 'chat-tab', type: 'chat', conversationId: mockConversationId }] },
+        workspace: { id: 'workspace-1', activeTabId: 'profiles-tab', tabs: [{ id: 'chat-tab', type: 'chat', conversationId: mockConversationId }] },
         setActiveTab: mockSetActiveTab,
       };
       return selector ? selector(state) : state;
     },
     {
       getState: () => ({
-        workspace: { tabs: [{ id: 'chat-tab', type: 'chat', conversationId: mockConversationId }] },
+        workspace: { id: 'workspace-1', activeTabId: 'profiles-tab', tabs: [{ id: 'chat-tab', type: 'chat', conversationId: mockConversationId }] },
         setActiveTab: mockSetActiveTab,
       }),
+      subscribe: () => () => {},
     },
   ),
 }));
@@ -56,11 +77,6 @@ vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
   ]),
   GetActiveProfileSlug: vi.fn().mockResolvedValue('padrao'),
   GetProfileSearchPaths: vi.fn().mockResolvedValue([]),
-  SetActiveProfile: vi.fn().mockResolvedValue(undefined),
-  CreateProfile: vi.fn().mockResolvedValue('novo-perfil'),
-  UpdateProfile: vi.fn().mockResolvedValue(undefined),
-  DeleteProfile: vi.fn().mockResolvedValue(undefined),
-  DuplicateProfile: (slug: string) => mockDuplicateProfile(slug),
   GetProfile: vi.fn().mockResolvedValue({
     name: 'Perfil Padrão',
     description: '',
@@ -108,6 +124,21 @@ vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
       response_mode: 'mirror',
     },
   }),
+}));
+
+vi.mock('../lib/commandPageMutationWails', () => ({
+  readProfileCommandTarget: (...args: unknown[]) => mockReadProfileCommandTarget(...args),
+}));
+
+vi.mock('../lib/commandPageMutation', () => ({
+  usePageMutationCommands: (options: any) => {
+    if (options.allowedCommands.includes('profiles.create')) {
+      formMutationOptions = options;
+      return { request: mockRequestFormPageMutation };
+    }
+    rootMutationOptions = options;
+    return { request: mockRequestRootPageMutation };
+  },
 }));
 
 vi.mock('@wailsjs/go/wailsapi/LLMModels', () => ({
@@ -243,12 +274,50 @@ vi.mock('../components/ui/EditorPanel', () => ({
 }));
 
 import ProfilesPage from './ProfilesPage';
-import { GetProfile, UpdateProfile } from '@wailsjs/go/wailsapi/Profiles';
+import { GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 import { useNavigationStore } from '../store/navigationStore';
+import { capturePagePresentationTarget, PAGE_PRESENTATION_COMMAND_EVENT } from '../lib/commandPagePresentation';
+import { act } from 'react';
+
+type ProfileLoadResult = Awaited<ReturnType<typeof GetProfile>>;
+
+function mutationResult(commandId: string, request: { targetId?: string; profile?: { name?: string } }): PageMutationResult {
+  if (commandId === 'profiles.duplicate') return { id: 'perfil-padrao-copia', title: 'Perfil Padrão (Cópia)' };
+  if (commandId === 'profiles.create') return { id: 'novo-perfil', title: request.profile?.name || 'Novo Perfil' };
+  return { id: request.targetId || 'padrao', title: request.profile?.name || 'Perfil Padrão' };
+}
+
+async function executeMockPageMutation(commandId: string, options: any) {
+  const prepared = options.prepare(commandId);
+  if (!prepared) return { status: 'cancelled' };
+  const request = await prepared.readRequest();
+  const result = mutationResult(commandId, request);
+  await prepared.succeeded?.(result);
+  return { status: 'succeeded', result };
+}
+
+function PresentationHarness({ pathname = '/profiles' }: { pathname?: string }) {
+  useEffect(() => {
+    const handle = (event: Event) => {
+      const detail = (event as CustomEvent<{ commandID?: string; instanceId?: string }>).detail;
+      if (!detail?.commandID || !detail.instanceId) return;
+      const target = capturePagePresentationTarget(() => pathname, detail.commandID, detail.instanceId);
+      if (!target) return;
+      if (target.open(detail.commandID as never)) event.preventDefault();
+    };
+    window.addEventListener(PAGE_PRESENTATION_COMMAND_EVENT, handle);
+    return () => window.removeEventListener(PAGE_PRESENTATION_COMMAND_EVENT, handle);
+  }, [pathname]);
+  return null;
+}
+
+function renderProfilesPage() {
+  return render(<><PresentationHarness /><ProfilesPage /></>);
+}
 
 describe('ProfilesPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
-    mockDuplicateProfile.mockReset();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     mockAddToast.mockReset();
     mockAnnounce.mockReset();
     mockNavigate.mockReset();
@@ -256,16 +325,24 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
     mockRequestOpen.mockReset();
     mockConversationId = 'conversation-1';
     useNavigationStore.getState().clearPendingEdit();
-    vi.mocked(UpdateProfile).mockClear();
-    mockDuplicateProfile.mockResolvedValue('perfil-padrao-copia');
+    mockReadProfileCommandTarget.mockReset();
+    mockReadProfileCommandTarget.mockImplementation(async (slug: string) => ({
+      profile: slug ? await GetProfile(slug) : undefined,
+      fingerprint: slug ? `fp-${slug}` : 'fp-create',
+    }));
+    mockRequestFormPageMutation.mockReset();
+    mockRequestRootPageMutation.mockReset();
+    mockRequestFormPageMutation.mockImplementation((commandId: string) => executeMockPageMutation(commandId, formMutationOptions));
+    mockRequestRootPageMutation.mockImplementation((commandId: string) => executeMockPageMutation(commandId, rootMutationOptions));
   });
 
   it('abre editor ao criar novo perfil e renderiza abas do editor', async () => {
     const user = userEvent.setup();
-    render(<ProfilesPage />);
+    renderProfilesPage();
 
     const newButton = await screen.findByRole('button', { name: 'Novo Perfil' });
     await user.click(newButton);
+
 
     // Aba "Geral" é a padrão — ProfileGeneralSection visível
     await waitFor(() => {
@@ -314,9 +391,113 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
     });
   });
 
+  it('não reabre criação por Ctrl+N legado fora do registry', async () => {
+    renderProfilesPage();
+
+    await waitFor(() => expect(screen.getByText('Perfil Padrão')).toBeInTheDocument());
+
+    fireEvent.keyDown(window, { key: 'n', ctrlKey: true });
+
+    expect(screen.queryByRole('button', { name: 'Salvar' })).not.toBeInTheDocument();
+  });
+
+  it('usa no create o fingerprint capturado ao abrir o formulário', async () => {
+    const user = userEvent.setup();
+    renderProfilesPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Novo Perfil' }));
+    await screen.findByRole('button', { name: 'Salvar' });
+    await waitFor(() => expect(mockReadProfileCommandTarget).toHaveBeenCalledWith(''));
+
+    const readsAtOpen = mockReadProfileCommandTarget.mock.calls.filter(([slug]) => slug === '').length;
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(mockRequestFormPageMutation).toHaveBeenCalledWith('profiles.create'));
+    expect(mockReadProfileCommandTarget.mock.calls.filter(([slug]) => slug === '')).toHaveLength(readsAtOpen);
+  });
+
+  it('descarta carregamento de edição pendente quando Novo Perfil invalida o contexto', async () => {
+    const user = userEvent.setup();
+    let resolveProfile!: (profile: ProfileLoadResult) => void;
+    vi.mocked(GetProfile).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveProfile = resolve;
+      }),
+    );
+
+    renderProfilesPage();
+    await waitFor(() => expect(screen.getByText('Perfil Padrão')).toBeInTheDocument());
+
+    const editButtons = screen.getAllByRole('button', { name: 'Editar perfil' });
+    await user.click(editButtons[editButtons.length - 1]);
+    await user.click(await screen.findByRole('button', { name: 'Novo Perfil' }));
+
+    expect(screen.getByDisplayValue('Novo Perfil')).toBeInTheDocument();
+
+    const staleProfile = {
+      name: 'Perfil Padrão',
+      description: 'resposta atrasada',
+      icon: 'chatbox',
+      chat: { model: '', temperature: 0.7, max_tokens: 4096, top_p: 1.0, response_timeout: 180 },
+      voice: {},
+      input: { enabled: true, stt_provider: 'webspeech', language: 'pt-BR', feedback_sounds: true, triggers: [] },
+      channels: { response_mode: 'mirror' },
+    } as unknown as ProfileLoadResult;
+    await act(async () => {
+      resolveProfile(staleProfile);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(screen.getByDisplayValue('Novo Perfil')).toBeInTheDocument());
+    expect(screen.queryByDisplayValue('resposta atrasada')).not.toBeInTheDocument();
+  });
+
+  it.each(['blur', 'compositionstart'] as const)(
+    'descarta GetProfile pendente após %s sem abrir editor',
+    async (invalidation) => {
+      const user = userEvent.setup();
+      let resolveProfile!: (profile: ProfileLoadResult) => void;
+      vi.mocked(GetProfile).mockImplementationOnce(
+        () => new Promise((resolve) => {
+          resolveProfile = resolve;
+        }),
+      );
+
+      renderProfilesPage();
+      await waitFor(() => expect(screen.getByText('Perfil Padrão')).toBeInTheDocument());
+      const editButtons = screen.getAllByRole('button', { name: 'Editar perfil' });
+      await user.click(editButtons[editButtons.length - 1]);
+
+      if (invalidation === 'blur') {
+        fireEvent.blur(window);
+      } else {
+        fireEvent.compositionStart(document);
+      }
+
+      const staleProfile = {
+        name: 'Perfil Padrão',
+        description: 'resposta após invalidação',
+        icon: 'chatbox',
+        chat: { model: '', temperature: 0.7, max_tokens: 4096, top_p: 1.0, response_timeout: 180 },
+        voice: {},
+        input: { enabled: true, stt_provider: 'webspeech', language: 'pt-BR', feedback_sounds: true, triggers: [] },
+        channels: { response_mode: 'mirror' },
+      } as unknown as ProfileLoadResult;
+      await act(async () => {
+        resolveProfile(staleProfile);
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Salvar' })).not.toBeInTheDocument();
+      });
+      expect(screen.queryByDisplayValue('resposta após invalidação')).not.toBeInTheDocument();
+    },
+  );
+
   it('duplica um perfil via menu de acoes', async () => {
     const user = userEvent.setup();
-    render(<ProfilesPage />);
+    renderProfilesPage();
 
     await waitFor(() => {
       expect(screen.getByText('Perfil Padrão')).toBeInTheDocument();
@@ -326,7 +507,7 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
     await user.click(duplicateButtons[duplicateButtons.length - 1]);
 
     await waitFor(() => {
-      expect(mockDuplicateProfile).toHaveBeenCalledWith('padrao');
+      expect(mockRequestRootPageMutation).toHaveBeenCalledWith('profiles.duplicate');
     });
 
     await waitFor(() => {
@@ -353,7 +534,7 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
       },
     });
 
-    render(<ProfilesPage />);
+    renderProfilesPage();
 
     await waitFor(() => {
       const voiceTab = screen.getAllByRole('tab').find(
@@ -381,7 +562,7 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
       },
     });
 
-    render(<ProfilesPage />);
+    renderProfilesPage();
     await screen.findByRole('button', { name: 'Cancelar' });
     await user.click(screen.getByRole('button', { name: 'Cancelar' }));
 
@@ -403,11 +584,11 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
       },
     });
 
-    render(<ProfilesPage />);
+    renderProfilesPage();
     await screen.findByRole('button', { name: 'Salvar' });
     await user.click(screen.getByRole('button', { name: 'Salvar' }));
 
-    await waitFor(() => expect(vi.mocked(UpdateProfile)).toHaveBeenCalled());
+    await waitFor(() => expect(mockRequestFormPageMutation).toHaveBeenCalledWith('profiles.update'));
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
     await waitFor(() => expect(mockSetActiveTab).toHaveBeenCalledWith('chat-tab'));
   });
@@ -415,9 +596,11 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
   it('impede cancelar ou fechar enquanto o perfil está sendo salvo', async () => {
     const user = userEvent.setup();
     let finishUpdate!: () => void;
-    vi.mocked(UpdateProfile).mockImplementationOnce(
-      () => new Promise<void>((resolve) => {
-        finishUpdate = resolve;
+    mockRequestFormPageMutation.mockImplementationOnce(
+      () => new Promise<{ status: string; result?: PageMutationResult }>((resolve) => {
+        finishUpdate = () => {
+          void executeMockPageMutation('profiles.update', formMutationOptions).then(resolve);
+        };
       }),
     );
     useNavigationStore.getState().requestResourceEdit('profiles', 'padrao', 'edit', {
@@ -431,7 +614,7 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
       },
     });
 
-    render(<ProfilesPage />);
+    renderProfilesPage();
     await user.click(await screen.findByRole('button', { name: 'Salvar' }));
 
     const cancelButton = screen.getByRole('button', { name: 'Cancelar' });
@@ -458,7 +641,7 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
       },
     });
 
-    render(<ProfilesPage />);
+    renderProfilesPage();
     await screen.findByRole('button', { name: 'Cancelar' });
     await user.click(screen.getByRole('button', { name: 'Cancelar' }));
 

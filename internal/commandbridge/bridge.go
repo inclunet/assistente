@@ -62,11 +62,13 @@ type Owner struct {
 	WorkspaceID string `json:"workspaceId"`
 }
 
-// Capability é uma autorização opaca, vinculada a comando, owner e geração.
+// Capability é uma autorização opaca, vinculada a comando, origem, owner e
+// geração. Toda capability deve declarar explicitamente a origem permitida.
 type Capability struct {
 	ID         string `json:"id"`
 	CommandID  string `json:"commandId"`
 	Generation uint64 `json:"generation,string"`
+	Source     Source `json:"source,omitempty"`
 	Owner      Owner  `json:"owner"`
 }
 
@@ -322,9 +324,26 @@ func (b *Bridge) ReplaceCapabilities(capabilities []Capability) error {
 // Invoke registra a pendência antes do callback. Isso fecha a janela em que
 // uma porta poderia devolver o resultado imediatamente.
 func (b *Bridge) Invoke(ctx context.Context, invocation Invocation, owner Owner) (InvocationAck, error) {
+	return b.invoke(ctx, invocation, owner, true)
+}
+
+// InvokeIngress é o ingresso para superfícies não confiáveis, como Wails.
+// Ele preserva o contrato de dispatch, mas não aceita que o chamador se faça
+// passar por teclado ou hardware. Adapters confiáveis devem usar Invoke.
+func (b *Bridge) InvokeIngress(ctx context.Context, invocation Invocation, owner Owner) (InvocationAck, error) {
+	return b.invoke(ctx, invocation, owner, false)
+}
+
+func (b *Bridge) invoke(ctx context.Context, invocation Invocation, owner Owner, trustedSource bool) (InvocationAck, error) {
 	if b == nil || ctx == nil || !validInvocation(invocation) || !validOwner(owner) {
 		return InvocationAck{}, ErrInvalidRequest
 	}
+	if !trustedSource && physicalSource(invocation.Source) {
+		return InvocationAck{}, ErrCapabilityDenied
+	}
+	// A caller and a port may both retain and mutate pointer fields. Keep the
+	// accepted invocation independent from both sides of the handoff.
+	invocation = detachInvocation(invocation)
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -344,7 +363,7 @@ func (b *Bridge) Invoke(ctx context.Context, invocation Invocation, owner Owner)
 		return InvocationAck{}, ErrStaleGeneration
 	}
 	capability, ok := b.capabilities[invocation.CapabilityID]
-	if !ok || capability.CommandID != invocation.CommandID || capability.Generation != invocation.Generation || !sameOwner(capability.Owner, owner) {
+	if !ok || capability.CommandID != invocation.CommandID || capability.Generation != invocation.Generation || !capabilityAllowsSource(capability, invocation.Source) || !sameOwner(capability.Owner, owner) {
 		b.mu.Unlock()
 		return InvocationAck{}, ErrCapabilityDenied
 	}
@@ -369,7 +388,7 @@ func (b *Bridge) Invoke(ctx context.Context, invocation Invocation, owner Owner)
 	b.mu.Lock()
 	current, stillPending := b.pending[invocation.InvocationID]
 	currentCapability, capabilityStillValid := b.capabilities[invocation.CapabilityID]
-	if b.closed || !stillPending || current.invocation != invocation || state.locked || state.session.Generation != invocation.Generation || !capabilityStillValid || currentCapability.CommandID != invocation.CommandID || currentCapability.Generation != invocation.Generation || !sameOwner(currentCapability.Owner, owner) {
+	if b.closed || !stillPending || current.invocation != invocation || state.locked || state.session.Generation != invocation.Generation || !capabilityStillValid || currentCapability.CommandID != invocation.CommandID || currentCapability.Generation != invocation.Generation || !capabilityAllowsSource(currentCapability, invocation.Source) || !sameOwner(currentCapability.Owner, owner) {
 		if stillPending {
 			b.removePendingLocked(invocation.InvocationID)
 		}
@@ -380,7 +399,9 @@ func (b *Bridge) Invoke(ctx context.Context, invocation Invocation, owner Owner)
 	}
 	b.mu.Unlock()
 
-	ack, err := b.port.Dispatch(ctx, invocation)
+	// The port receives another snapshot so it cannot mutate the pending proof
+	// while the result correlation is still in flight.
+	ack, err := b.port.Dispatch(ctx, detachInvocation(invocation))
 	b.capabilityGate.RUnlock()
 	state.dispatchGate.RUnlock()
 	if err != nil || !ack.Accepted {
@@ -477,8 +498,22 @@ type Input struct {
 }
 
 func (b *Bridge) Input(ctx context.Context, input Input) (InvocationAck, error) {
+	return b.input(ctx, input, true)
+}
+
+// InputIngress é o ingresso para superfícies não confiáveis, como Wails.
+// Eventos físicos precisam ser produzidos pelo adapter confiável e não por um
+// payload vindo da UI.
+func (b *Bridge) InputIngress(ctx context.Context, input Input) (InvocationAck, error) {
+	return b.input(ctx, input, false)
+}
+
+func (b *Bridge) input(ctx context.Context, input Input, trustedSource bool) (InvocationAck, error) {
 	if b == nil || ctx == nil || strings.TrimSpace(input.Source) == "" || strings.TrimSpace(input.Key) == "" {
 		return InvocationAck{}, ErrInvalidRequest
+	}
+	if !trustedSource && physicalSource(input.Invocation.Source) {
+		return InvocationAck{}, ErrCapabilityDenied
 	}
 	b.mu.Lock()
 	if b.closed {
@@ -494,6 +529,31 @@ func (b *Bridge) Input(ctx context.Context, input Input) (InvocationAck, error) 
 		b.mu.Unlock()
 		return InvocationAck{}, ErrSessionUnavailable
 	}
+	invocation := input.Invocation
+	if invocation.SessionID != input.SessionID || invocation.Generation != input.Generation {
+		b.mu.Unlock()
+		return InvocationAck{}, ErrInvalidRequest
+	}
+	normalized := normalizeOccurrence(input.Source, input.Key)
+	if invocation.OccurrenceID == "" {
+		invocation.OccurrenceID = normalized
+	} else if invocation.OccurrenceID != normalized {
+		b.mu.Unlock()
+		return InvocationAck{}, ErrInvalidRequest
+	}
+	if !validInvocation(invocation) || !validOwner(input.Owner) {
+		b.mu.Unlock()
+		return InvocationAck{}, ErrInvalidRequest
+	}
+	if invocation.Generation != state.session.Generation || !sameOwner(input.Owner, state.session.Owner) {
+		b.mu.Unlock()
+		return InvocationAck{}, ErrStaleGeneration
+	}
+	capability, capabilityOK := b.capabilities[invocation.CapabilityID]
+	if !capabilityOK || capability.CommandID != invocation.CommandID || capability.Generation != invocation.Generation || !capabilityAllowsSource(capability, invocation.Source) || !sameOwner(capability.Owner, input.Owner) {
+		b.mu.Unlock()
+		return InvocationAck{}, ErrCapabilityDenied
+	}
 	edge, err := state.tracker.Transition(commandinput.Event{SourceInstance: input.Source, Key: input.Key, Generation: input.Generation, Kind: input.Kind, Repeat: input.Repeat})
 	b.mu.Unlock()
 	if err != nil {
@@ -502,17 +562,7 @@ func (b *Bridge) Input(ctx context.Context, input Input) (InvocationAck, error) 
 	if input.Kind == commandinput.KeyUp || !edge {
 		return InvocationAck{Accepted: false, Reason: "not-a-dispatch-edge"}, nil
 	}
-	if input.Invocation.SessionID != input.SessionID || input.Invocation.Generation != input.Generation {
-		return InvocationAck{}, ErrInvalidRequest
-	}
-	normalized := normalizeOccurrence(input.Source, input.Key)
-	invocation := input.Invocation
-	if invocation.OccurrenceID == "" {
-		invocation.OccurrenceID = normalized
-	} else if invocation.OccurrenceID != normalized {
-		return InvocationAck{}, ErrInvalidRequest
-	}
-	return b.Invoke(ctx, invocation, input.Owner)
+	return b.invoke(ctx, invocation, input.Owner, trustedSource)
 }
 
 type LifecycleKind uint8
@@ -645,6 +695,16 @@ func (b *Bridge) Lifecycle(ctx context.Context, event LifecycleEvent) error {
 	}
 }
 
+// LifecycleIngress é o ingresso para superfícies não confiáveis, como Wails.
+// Repeat/release carregam um Input nested, mas não podem fabricar um evento
+// físico nem alterar o tracker antes de passar por um adapter confiável.
+func (b *Bridge) LifecycleIngress(ctx context.Context, event LifecycleEvent) error {
+	if event.Input != nil && physicalSource(event.Input.Invocation.Source) {
+		return ErrCapabilityDenied
+	}
+	return b.Lifecycle(ctx, event)
+}
+
 // Shutdown encerra a ponte uma única vez. Ele marca todas as sessões como
 // indisponíveis, limpa pressão e claims, aguarda somente o handoff curto de
 // cada Dispatch, cancela as pendências fora dos gates e por fim libera a
@@ -763,7 +823,15 @@ func validSession(session Session) bool {
 }
 
 func validCapability(capability Capability) bool {
-	return strings.TrimSpace(capability.ID) == capability.ID && capability.ID != "" && strings.TrimSpace(capability.CommandID) == capability.CommandID && capability.CommandID != "" && capability.Generation > 0 && validOwner(capability.Owner)
+	return strings.TrimSpace(capability.ID) == capability.ID && capability.ID != "" && strings.TrimSpace(capability.CommandID) == capability.CommandID && capability.CommandID != "" && capability.Generation > 0 && validSource(capability.Source) && validOwner(capability.Owner)
+}
+
+func physicalSource(source Source) bool {
+	return source == SourceKeyboardLocal || source == SourceKeyboardGlobal || source == SourceStreamDeck
+}
+
+func capabilityAllowsSource(capability Capability, source Source) bool {
+	return capability.Source == source
 }
 
 func validInvocation(invocation Invocation) bool {
@@ -801,6 +869,14 @@ func sameDialogProof(left, right *DialogProof) bool {
 		return left == nil && right == nil
 	}
 	return *left == *right
+}
+
+func detachInvocation(invocation Invocation) Invocation {
+	if invocation.DialogProof != nil {
+		proof := *invocation.DialogProof
+		invocation.DialogProof = &proof
+	}
+	return invocation
 }
 
 func validResultStatus(status ResultStatus) bool {

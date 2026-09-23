@@ -94,6 +94,10 @@ func (r recordingOutbox) Drain(context.Context, int) (commandmaintenance.BatchRe
 	return commandmaintenance.BatchResult{Processed: 0, More: r.more}, nil
 }
 
+func (recordingOutbox) PurgeExpired(context.Context, int) (int, bool, error) {
+	return 0, false, nil
+}
+
 type emptyMaintenanceRecovery struct{}
 
 func (emptyMaintenanceRecovery) Recover(context.Context, int) (commandmaintenance.BatchResult, error) {

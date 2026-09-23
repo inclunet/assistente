@@ -1,16 +1,22 @@
 import { useTranslation } from 'react-i18next';
-import { SHORTCUTS } from '../../constants/chat';
+import {
+  useCommandSequencePrefixHint,
+  useCommandShortcutHints,
+} from '../../lib/commandShortcutHints';
 import { Modal } from './Modal';
 import './KeyboardShortcutsHelp.css';
 
 export interface KeyboardShortcutsHelpProps {
   isOpen: boolean;
   onClose: () => void;
+  surfaceType?: string;
 }
 
 interface ShortcutEntry {
-  keys: string;
+  commandIds?: readonly string[];
+  keys?: string;
   description: string;
+  native?: boolean;
 }
 
 interface ShortcutCategory {
@@ -20,6 +26,32 @@ interface ShortcutCategory {
 }
 
 const ESC_HINT_ID = 'keyboard-shortcuts-esc-hint';
+const UNAVAILABLE_KEY = 'ui.shortcuts.unavailable';
+const NEW_TAB_SEQUENCE_COMMANDS = [
+  'workspace.tab.chat.create', 'workspace.tab.editor.create',
+  'workspace.tab.terminal.create', 'workspace.tab.tasklist.create',
+] as const;
+
+const command = (commandId: string, description: string): ShortcutEntry => ({
+  commandIds: [commandId],
+  description,
+});
+
+const commands = (commandIds: readonly string[], description: string): ShortcutEntry => ({
+  commandIds,
+  description,
+});
+
+const nativeGesture = (keys: string, description: string): ShortcutEntry => ({
+  keys,
+  description,
+  native: true,
+});
+
+const legacyGesture = (keys: string, description: string): ShortcutEntry => ({
+  keys,
+  description,
+});
 
 /**
  * Painel de atalhos de teclado.
@@ -31,68 +63,81 @@ const ESC_HINT_ID = 'keyboard-shortcuts-esc-hint';
  * fundo, e o `Modal` cuida de focus trap, ESC no topo do stack e inert/aria
  * no fundo. O contrato da store `shortcutsHelpStore` (isOpen/onClose) é mantido.
  */
-export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelpProps) {
+export function KeyboardShortcutsHelp({ isOpen, onClose, surfaceType }: KeyboardShortcutsHelpProps) {
   const { t } = useTranslation();
+  const shortcutHint = useCommandShortcutHints(surfaceType);
+  const sequencePrefixHint = useCommandSequencePrefixHint(NEW_TAB_SEQUENCE_COMMANDS, surfaceType);
+
+  const project = (entry: ShortcutEntry): string => {
+    if (!entry.commandIds) return entry.keys ?? t(UNAVAILABLE_KEY);
+    const hints = [...new Set(entry.commandIds.map(shortcutHint).filter((hint): hint is string => Boolean(hint)))];
+    return hints.length > 0 ? hints.join(', ') : t(UNAVAILABLE_KEY);
+  };
+
+  const tabNumberCommands = Array.from({ length: 9 }, (_, index) => `workspace.tab.${[
+    'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth',
+  ][index]}`);
 
   const categories: ShortcutCategory[] = [
     {
       id: 'navigation',
       title: t('ui.shortcuts.categories.navigation'),
       items: [
-        { keys: 'Ctrl+T', description: t('ui.shortcuts.newChatTab') },
-        { keys: SHORTCUTS.NEW_TAB, description: t('ui.shortcuts.openNewTabMenu') },
-        { keys: 'Ctrl+W', description: t('ui.shortcuts.closeTab') },
-        { keys: 'Ctrl+Tab', description: t('ui.shortcuts.nextTab') },
-        { keys: 'Ctrl+Shift+Tab', description: t('ui.shortcuts.previousTab') },
-        { keys: 'Ctrl+1…9', description: t('ui.shortcuts.goToTab') },
-        { keys: 'Ctrl+PageDown / Ctrl+PageUp', description: t('ui.shortcuts.navigateTabs') },
+        command('workspace.tab.chat.create', t('ui.shortcuts.newChatTab')),
+        { keys: sequencePrefixHint ?? t(UNAVAILABLE_KEY), description: t('ui.shortcuts.openNewTabMenu') },
+        commands(['workspace.tab.close'], t('ui.shortcuts.closeTab')),
+        commands(['workspace.tab.next'], t('ui.shortcuts.nextTab')),
+        commands(['workspace.tab.previous'], t('ui.shortcuts.previousTab')),
+        commands(tabNumberCommands, t('ui.shortcuts.goToTab')),
+        commands(['workspace.tab.next', 'workspace.tab.previous'], t('ui.shortcuts.navigateTabs')),
       ],
     },
     {
       id: 'chat',
       title: t('ui.shortcuts.categories.chat'),
       items: [
-        { keys: 'Ctrl+Enter', description: t('ui.shortcuts.sendMessage') },
-        { keys: SHORTCUTS.CLEAR_CONVERSATION, description: t('ui.shortcuts.clearConversation') },
-        { keys: SHORTCUTS.HISTORY, description: t('ui.shortcuts.openHistory') },
-        { keys: SHORTCUTS.MODELS, description: t('ui.shortcuts.selectModel') },
-        { keys: SHORTCUTS.PROFILES, description: t('ui.shortcuts.interactionProfiles') },
-        { keys: SHORTCUTS.SPEAK_MESSAGE, description: t('ui.shortcuts.playAudio') },
-        { keys: SHORTCUTS.MESSAGE_DETAILS, description: t('ui.shortcuts.viewDetails') },
-        { keys: 'Shift+F10', description: t('ui.shortcuts.contextMenu') },
-        { keys: '↑', description: t('ui.shortcuts.prevMessage') },
-        { keys: '↓', description: t('ui.shortcuts.nextMessage') },
+        command('chat.message.send', t('ui.shortcuts.sendMessage')),
+        command('chat.conversation.clear', t('ui.shortcuts.clearConversation')),
+        command('chat.history.open', t('ui.shortcuts.openHistory')),
+        command('chat.model.open', t('ui.shortcuts.selectModel')),
+        command('chat.profile.open', t('ui.shortcuts.interactionProfiles')),
+        nativeGesture('Space', t('ui.shortcuts.playAudio')),
+        nativeGesture('Enter', t('ui.shortcuts.viewDetails')),
+        nativeGesture('Shift+F10', t('ui.shortcuts.contextMenu')),
+        nativeGesture('↑', t('ui.shortcuts.prevMessage')),
+        nativeGesture('↓', t('ui.shortcuts.nextMessage')),
       ],
     },
     {
       id: 'decision',
       title: t('ui.shortcuts.categories.decision'),
       items: [
-        { keys: 'Ctrl+Enter', description: t('ui.shortcuts.decisionAffirmCurrent') },
-        { keys: 'Ctrl+Backspace', description: t('ui.shortcuts.decisionRejectCurrent') },
-        { keys: 'Shift+Enter', description: t('ui.shortcuts.decisionAffirmConversation') },
-        { keys: 'Shift+Backspace', description: t('ui.shortcuts.decisionRejectConversation') },
-        { keys: 'Ctrl+Shift+Enter', description: t('ui.shortcuts.decisionAffirmPersistent') },
-        { keys: 'Ctrl+Shift+Backspace', description: t('ui.shortcuts.decisionRejectPersistent') },
-        { keys: 'Alt+A…Z', description: t('ui.shortcuts.decisionMnemonic') },
-        { keys: 'Ctrl+Shift+R', description: t('ui.shortcuts.repeatDecisionPrompt') },
+        nativeGesture('Ctrl+Enter', t('ui.shortcuts.decisionAffirmCurrent')),
+        nativeGesture('Ctrl+Backspace', t('ui.shortcuts.decisionRejectCurrent')),
+        nativeGesture('Shift+Enter', t('ui.shortcuts.decisionAffirmConversation')),
+        nativeGesture('Shift+Backspace', t('ui.shortcuts.decisionRejectConversation')),
+        nativeGesture('Ctrl+Shift+Enter', t('ui.shortcuts.decisionAffirmPersistent')),
+        nativeGesture('Ctrl+Shift+Backspace', t('ui.shortcuts.decisionRejectPersistent')),
+        nativeGesture('Alt+A…Z', t('ui.shortcuts.decisionMnemonic')),
+        nativeGesture('Ctrl+Shift+R', t('ui.shortcuts.repeatDecisionPrompt')),
       ],
     },
     {
       id: 'general',
       title: t('ui.shortcuts.categories.general'),
       items: [
-        { keys: 'Ctrl+?', description: t('ui.shortcuts.showHelp') },
-        { keys: 'F1', description: t('ui.shortcuts.openHelpPage') },
-        { keys: 'Alt+M', description: t('ui.shortcuts.openMenu') },
-        { keys: 'Alt+W / Alt+Backspace', description: t('ui.shortcuts.goToWorkspace') },
-        { keys: 'Alt+C', description: t('ui.shortcuts.goToSettings') },
-        { keys: 'Alt+H', description: t('ui.shortcuts.goToHistory') },
-        { keys: 'Alt+L', description: t('ui.shortcuts.goToMemories') },
-        { keys: 'Alt+T', description: t('ui.shortcuts.goToTasklists') },
-        { keys: 'Alt+J', description: t('ui.shortcuts.goToJobs') },
-        { keys: 'Alt+P', description: t('ui.shortcuts.goToProfiles') },
-        { keys: 'Esc', description: t('ui.shortcuts.closeDialog') },
+        command('navigation.palette.open', t('commandPalette.title', { defaultValue: 'Command Palette' })),
+        legacyGesture('Ctrl+?', t('ui.shortcuts.showHelp')),
+        command('navigation.help.open', t('ui.shortcuts.openHelpPage')),
+        command('navigation.menu.open', t('ui.shortcuts.openMenu')),
+        command('navigation.workspace.open', t('ui.shortcuts.goToWorkspace')),
+        command('navigation.settings.open', t('ui.shortcuts.goToSettings')),
+        command('navigation.history.open', t('ui.shortcuts.goToHistory')),
+        command('navigation.memories.open', t('ui.shortcuts.goToMemories')),
+        command('navigation.tasklists.open', t('ui.shortcuts.goToTasklists')),
+        command('navigation.jobs.open', t('ui.shortcuts.goToJobs')),
+        command('navigation.profiles.open', t('ui.shortcuts.goToProfiles')),
+        nativeGesture('Esc', t('ui.shortcuts.closeDialog')),
       ],
     },
   ];
@@ -107,6 +152,9 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
       ariaDescribedBy={ESC_HINT_ID}
     >
       <div className="keyboard-shortcuts-content">
+        <p className="keyboard-shortcuts-native-note">
+          {t('ui.shortcuts.nativeGesturesNote')}
+        </p>
         {categories.map((category) => (
           <section
             key={category.id}
@@ -121,8 +169,13 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
             </h3>
             {category.items.map((shortcut, index) => (
               <div key={index} className="keyboard-shortcut-item">
-                <kbd className="keyboard-shortcut-keys">{shortcut.keys}</kbd>
-                <span className="keyboard-shortcut-description">{shortcut.description}</span>
+                <kbd className="keyboard-shortcut-keys">{project(shortcut)}</kbd>
+                <span className="keyboard-shortcut-description">
+                  {shortcut.description}
+                  {shortcut.native && (
+                    <span className="keyboard-shortcut-native-label"> ({t('ui.shortcuts.componentGesture')})</span>
+                  )}
+                </span>
               </div>
             ))}
           </section>

@@ -2,6 +2,7 @@ package shell
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -24,14 +25,13 @@ func resolveProjectWorkDir(projectRoot, requested string) (string, error) {
 		return "", fmt.Errorf("não foi possível resolver working_directory: %w", err)
 	}
 
-	// Quando os caminhos existem, resolve symlinks para impedir escapes indiretos.
-	canonicalRoot := root
-	if resolved, resolveErr := filepath.EvalSymlinks(root); resolveErr == nil {
-		canonicalRoot = resolved
+	canonicalRoot, err := canonicalizeProjectPath(root)
+	if err != nil {
+		return "", fmt.Errorf("não foi possível canonicalizar o diretório do projeto: %w", err)
 	}
-	canonicalTarget := target
-	if resolved, resolveErr := filepath.EvalSymlinks(target); resolveErr == nil {
-		canonicalTarget = resolved
+	canonicalTarget, err := canonicalizeProjectPath(target)
+	if err != nil {
+		return "", fmt.Errorf("não foi possível canonicalizar working_directory: %w", err)
 	}
 
 	relative, err := filepath.Rel(canonicalRoot, canonicalTarget)
@@ -42,6 +42,45 @@ func resolveProjectWorkDir(projectRoot, requested string) (string, error) {
 		return "", fmt.Errorf("working_directory deve permanecer dentro do diretório do projeto")
 	}
 	return canonicalTarget, nil
+}
+
+// canonicalizeProjectPath resolves the existing portion of a path and then
+// appends any non-existing suffix. EvalSymlinks cannot resolve a target that
+// has not been created yet; using its lexical spelling in that case can mix a
+// canonical long Windows path with an 8.3 alias from the other operand.
+func canonicalizeProjectPath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+
+	missing := make([]string, 0, 2)
+	current := filepath.Clean(absolute)
+	for {
+		resolved, resolveErr := filepath.EvalSymlinks(current)
+		if resolveErr == nil {
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return resolved, nil
+		}
+		if !os.IsNotExist(resolveErr) {
+			return "", resolveErr
+		}
+		if info, lstatErr := os.Lstat(current); lstatErr == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return "", fmt.Errorf("não foi possível resolver symlink em working_directory: %w", resolveErr)
+			}
+		} else if !os.IsNotExist(lstatErr) {
+			return "", lstatErr
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", resolveErr
+		}
+		missing = append(missing, filepath.Base(current))
+		current = parent
+	}
 }
 
 func looksLikeForeignAbsolutePath(path string) bool {

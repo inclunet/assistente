@@ -36,6 +36,8 @@ type MutationServiceConfig struct {
 	// BeforeCommit invalida estado volátil do host no handoff exclusivo,
 	// imediatamente antes do writer. A porta não pode adquirir o gate, abrir
 	// UI ou fazer I/O bloqueante; erro aborta o commit.
+	// ImportBatch chama uma vez com UserID e WorkspaceID=nil para invalidar
+	// o mapa inteiro do usuário, não apenas o primeiro escopo do lote.
 	BeforeCommit func(context.Context, Scope) error
 }
 type MutationService struct{ config MutationServiceConfig }

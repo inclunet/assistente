@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import i18next from 'i18next';
 import { useChatStore } from '../../store/chatStore';
 import type { MediaFile } from '../../services/mediaService';
+import type { ChatMessagingExecution } from '../../lib/commandChatMessaging';
 import type { llm } from '../../../wailsjs/go/models';
 import {
   getConversationTimeline,
@@ -15,6 +16,7 @@ import {
 } from './ChatSessionContext';
 
 export interface ChatSurfaceSendContext {
+  command?: ChatMessagingExecution;
   conversationId: string | null;
   origin: ChatSurfaceOrigin;
 }
@@ -31,18 +33,19 @@ export async function sendChatSurfaceMessage(
   mediaFiles: MediaFile[] | undefined,
   paramsOverride: Partial<llm.ChatParams> | undefined,
   origin: ChatSurfaceOrigin | undefined,
+  command?: ChatMessagingExecution,
 ) {
   await useChatStore.getState().sendMessageToConversation(
     conversationId,
     content,
     mediaFiles,
     paramsOverride,
-    { origin },
+    { origin, command },
   );
 }
 
 export interface ChatSurfaceController extends ChatSessionContextValue {
-  sendMessage: (content: string, mediaFiles?: MediaFile[]) => Promise<void>;
+  sendMessage: (content: string, mediaFiles?: MediaFile[], command?: ChatMessagingExecution) => Promise<void>;
 }
 
 export interface ChatSurfaceControllerOptions {
@@ -55,12 +58,13 @@ export function useChatSurfaceController({
   const chatSession = useChatSession();
   const sendMessageToConversation = useChatStore((state) => state.sendMessageToConversation);
 
-  const sendMessage = useCallback(async (content: string, mediaFiles?: MediaFile[]) => {
+  const sendMessage = useCallback(async (content: string, mediaFiles?: MediaFile[], command?: ChatMessagingExecution) => {
     const targetConversationId = chatSession.conversationId ?? chatSession.origin.conversationId;
     if (onSend) {
       await onSend(content, mediaFiles, {
         conversationId: targetConversationId,
         origin: chatSession.origin,
+        command,
       });
       return;
     }
@@ -70,7 +74,7 @@ export function useChatSurfaceController({
     }
 
     const origin = normalizeChatSurfaceOrigin(chatSession.origin, targetConversationId);
-    await sendMessageToConversation(targetConversationId, content, mediaFiles, undefined, { origin });
+    await sendMessageToConversation(targetConversationId, content, mediaFiles, undefined, { origin, command });
   }, [chatSession.conversationId, chatSession.origin, onSend, sendMessageToConversation]);
 
   return {

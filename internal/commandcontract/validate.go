@@ -394,7 +394,15 @@ func validateDocuments(e *Envelope) error {
 		if err != nil || len(canonical) == 0 || canonical[0] != '{' {
 			return fmt.Errorf("%w: documento %s deve ser objeto JSON canônico", ErrInvalidEnvelope, name)
 		}
-		if name == "trigger_spec" || name == "provenance" {
+		if name == "trigger_spec" {
+			triggerType := e.TriggerType
+			if triggerType == nil {
+				triggerType = e.ObservedTriggerType
+			}
+			if triggerType == nil || ValidateTriggerDocumentVersion(*triggerType, *document) != nil {
+				return fmt.Errorf("%w: versão de trigger_spec não suportada", ErrInvalidEnvelope)
+			}
+		} else if name == "provenance" {
 			if err := validateVersionedDocument([]byte(*document), name); err != nil {
 				return err
 			}
@@ -421,6 +429,17 @@ func validateDocuments(e *Envelope) error {
 // checked as an integer so values such as 1.0, "1", null, and future versions
 // cannot pass as version 1.
 func validateVersionedDocument(raw []byte, name string) error {
+	return validateDocumentVersion(raw, name, false)
+}
+
+// ValidateTriggerDocumentVersion valida somente o envelope estrutural do
+// documento. A gramática específica continua sob responsabilidade da porta
+// confiável do acionador; v2 existe exclusivamente para keyboard.local.
+func ValidateTriggerDocumentVersion(triggerType string, raw []byte) error {
+	return validateDocumentVersion(raw, "trigger_spec", triggerType == string(SourceKeyboardLocal))
+}
+
+func validateDocumentVersion(raw []byte, name string, localKeyboard bool) error {
 	canonical, err := commandjson.Canonicalize(raw)
 	if err != nil || len(canonical) == 0 || canonical[0] != '{' {
 		return fmt.Errorf("%w: documento %s inválido", ErrInvalidEnvelope, name)
@@ -434,7 +453,7 @@ func validateVersionedDocument(raw []byte, name string) error {
 		return fmt.Errorf("%w: documento %s exige version", ErrInvalidEnvelope, name)
 	}
 	var version int
-	if err := json.Unmarshal(rawVersion, &version); err != nil || version != EnvelopeVersion {
+	if err := json.Unmarshal(rawVersion, &version); err != nil || (version != EnvelopeVersion && !(localKeyboard && version == 2)) {
 		return fmt.Errorf("%w: versão do documento %s não suportada", ErrInvalidEnvelope, name)
 	}
 	return nil

@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, type ButtonProps } from './Button';
-import { Modal, useModalIsTopmost } from './Modal';
+import { Modal, useModalId, useModalIsTopmost } from './Modal';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { playSound, SOUND_TYPES } from '../../services/audioFeedback';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -19,6 +19,10 @@ import {
   type ResolvedDecisionShortcuts,
 } from '../../lib/decisionShortcuts';
 import type { DialogCommandScope } from '../../lib/commandBridge';
+import {
+  ownsDecisionRepeatNatively,
+  registerDecisionRepeatHotkey,
+} from '../../lib/decisionRepeatHotkey';
 import { DocumentReadingRegion, DocumentReadingRegionGroup } from './DocumentReadingRegion';
 import './DecisionDialog.css';
 
@@ -137,6 +141,17 @@ function DecisionDialogHotkeys({
   onRepeat: () => void;
 }) {
   const isTopmost = useModalIsTopmost();
+  const modalId = useModalId();
+  const onRepeatRef = useRef(onRepeat);
+
+  useEffect(() => {
+    onRepeatRef.current = onRepeat;
+  }, [onRepeat]);
+
+  useEffect(() => {
+    if (!modalId) return undefined;
+    return registerDecisionRepeatHotkey(modalId, () => onRepeatRef.current());
+  }, [modalId]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -144,7 +159,12 @@ function DecisionDialogHotkeys({
       if (e.isComposing || e.keyCode === 229) return;
 
       if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === 'r') {
-        if (isEditableKeyboardTarget(e.target)) return;
+        if (e.repeat || isEditableKeyboardTarget(e.target)) return;
+        if (ownsDecisionRepeatNatively(e)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
         onRepeat();

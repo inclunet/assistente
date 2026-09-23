@@ -10,6 +10,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,6 +18,7 @@ import (
 // Usa configdir.Resolver para resolução multi-diretório.
 type Manager struct {
 	resolver *configdir.Resolver
+	mu       sync.RWMutex
 }
 
 // NewManager cria um novo gerenciador de perfis
@@ -28,6 +30,15 @@ func NewManager() *Manager {
 
 // List retorna todos os perfis resolvidos (sem duplicatas, maior prioridade ganha)
 func (m *Manager) List() ([]ProfileInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.recoverLocked(); err != nil {
+		return nil, err
+	}
+	return m.listLocked()
+}
+
+func (m *Manager) listLocked() ([]ProfileInfo, error) {
 	files, err := m.resolver.List()
 	if err != nil {
 		return nil, err
@@ -79,6 +90,15 @@ func (m *Manager) List() ([]ProfileInfo, error) {
 // callsite — para `providers.Service.ResolveProfileDefaults` o
 // significado de `$default` já é explícito e auditável.
 func (m *Manager) Get(slug string) (*Profile, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.recoverLocked(); err != nil {
+		return nil, err
+	}
+	return m.getLocked(slug)
+}
+
+func (m *Manager) getLocked(slug string) (*Profile, error) {
 	filename := slug + ".json"
 
 	data, _, err := m.resolver.Read(filename)
@@ -120,43 +140,22 @@ func normalizeRoutingFields(p *Profile) {
 
 // Create cria um novo perfil no diretório home (~/.assistente/profiles/)
 func (m *Manager) Create(profile *Profile) (string, error) {
-	if err := profile.Validate(); err != nil {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.recoverLocked(); err != nil {
 		return "", err
 	}
-
-	slug := Slugify(profile.Name)
-	filename := slug + ".json"
-
-	// Verifica se já existe
-	if m.resolver.Exists(filename) {
-		return "", fmt.Errorf("profile already exists: %s", slug)
-	}
-
-	data, err := json.MarshalIndent(profile, "", "  ")
-	if err != nil {
-		return "", err
-	}
-
-	if err := m.resolver.Create(filename, data); err != nil {
-		return "", err
-	}
-
-	return slug, nil
+	return m.commitLegacyLocked("create", "", profile)
 }
 
 // Duplicate cria uma copia de um perfil existente no diretorio home.
 func (m *Manager) Duplicate(slug string) (string, error) {
-	profile, err := m.Get(slug)
-	if err != nil {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.recoverLocked(); err != nil {
 		return "", err
 	}
-
-	newProfile := *profile
-	newProfile.Name = m.nextCopyName(profile.Name)
-	newProfile.Active = false
-	newProfile.BuiltinVersion = ""
-
-	return m.Create(&newProfile)
+	return m.commitLegacyLocked("duplicate", slug, nil)
 }
 
 // Update atualiza o perfil no arquivo válido (maior prioridade).
@@ -173,67 +172,24 @@ func (m *Manager) Duplicate(slug string) (string, error) {
 // escolher entre eles — comportamento não-determinístico já observado em
 // produção (perfis embedded com active=true gravados duas vezes).
 func (m *Manager) Update(slug string, profile *Profile) error {
-	if err := profile.Validate(); err != nil {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.recoverLocked(); err != nil {
 		return err
 	}
-
-	filename := slug + ".json"
-
-	data, err := json.MarshalIndent(profile, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	if err := m.resolver.Write(filename, data); err != nil {
-		return err
-	}
-
-	if profile.Active {
-		if err := m.deactivateOthers(slug); err != nil {
-			logging.Errorf(context.Background(), "profiles.manager", "[Profiles] Update(%q) marcou Active=true mas falhou ao desativar outros: %v", slug, err)
-		}
-	}
-
-	return nil
-}
-
-// deactivateOthers desativa todos os perfis exceto `keepSlug`.
-// Idempotente: perfis já inativos não são reescritos.
-func (m *Manager) deactivateOthers(keepSlug string) error {
-	files, err := m.resolver.List()
-	if err != nil {
-		return err
-	}
-	for _, f := range files {
-		if !strings.HasSuffix(f.Filename, ".json") {
-			continue
-		}
-		otherSlug := strings.TrimSuffix(f.Filename, ".json")
-		if otherSlug == keepSlug {
-			continue
-		}
-		other, err := m.Get(otherSlug)
-		if err != nil || !other.Active {
-			continue
-		}
-		other.Active = false
-		filename := otherSlug + ".json"
-		data, mErr := json.MarshalIndent(other, "", "  ")
-		if mErr != nil {
-			logging.Errorf(context.Background(), "profiles.manager", "[Profiles] erro ao serializar %q durante deactivate: %v", otherSlug, mErr)
-			continue
-		}
-		if wErr := m.resolver.Write(filename, data); wErr != nil {
-			logging.Errorf(context.Background(), "profiles.manager", "[Profiles] erro ao gravar %q desativado: %v", otherSlug, wErr)
-		}
-	}
-	return nil
+	_, err := m.commitLegacyLocked("update", slug, profile)
+	return err
 }
 
 // Delete remove o perfil válido (maior prioridade)
 func (m *Manager) Delete(slug string) error {
-	filename := slug + ".json"
-	return m.resolver.Delete(filename)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.recoverLocked(); err != nil {
+		return err
+	}
+	_, err := m.commitLegacyLocked("delete", slug, nil)
+	return err
 }
 
 // GetActive retorna o perfil marcado como Active: true em seu JSON.
@@ -250,7 +206,12 @@ func (m *Manager) Delete(slug string) error {
 // Fallback (nenhum Active=true): prefere "padrao" sobre o primeiro perfil
 // arbitrário (a ordem de iteração de filesystem não é determinística).
 func (m *Manager) GetActive() (*Profile, error) {
-	profile, _, err := m.resolveActive()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.recoverLocked(); err != nil {
+		return nil, err
+	}
+	profile, _, err := m.resolveActiveLocked(true)
 	return profile, err
 }
 
@@ -261,7 +222,12 @@ func (m *Manager) GetActive() (*Profile, error) {
 // slug errado caso uma segunda resolução tolerante caísse silenciosamente em
 // "padrao".
 func (m *Manager) GetActiveAndSlug() (*ActiveProfile, error) {
-	profile, slug, err := m.resolveActive()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.recoverLocked(); err != nil {
+		return nil, err
+	}
+	profile, slug, err := m.resolveActiveLocked(true)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +256,7 @@ func (m *Manager) GetActiveAndSlug() (*ActiveProfile, error) {
 // por mtime vs. ordem de listagem), o que fazia gravar/ler atingir slugs
 // diferentes mesmo sem concorrência, quando havia múltiplos active=true ou
 // arquivos corrompidos.
-func (m *Manager) resolveActive() (*Profile, string, error) {
+func (m *Manager) resolveActiveLocked(autoHeal bool) (*Profile, string, error) {
 	files, err := m.resolver.List()
 	if err != nil {
 		return nil, "", fmt.Errorf("erro ao listar perfis: %w", err)
@@ -307,7 +273,7 @@ func (m *Manager) resolveActive() (*Profile, string, error) {
 		}
 
 		slug := strings.TrimSuffix(f.Filename, ".json")
-		profile, err := m.Get(slug)
+		profile, err := m.getLocked(slug)
 		if err != nil {
 			continue
 		}
@@ -332,19 +298,13 @@ func (m *Manager) resolveActive() (*Profile, string, error) {
 	if len(actives) > 1 {
 		winner := pickMostRecentActive(actives)
 		logging.Infof(context.Background(), "profiles.manager", "[Profiles] %d perfis com active=true detectados; mantendo %q (mais recente) e desativando demais", len(actives), winner.slug)
-		for _, c := range actives {
-			if c.slug == winner.slug {
-				continue
-			}
-			c.profile.Active = false
-			filename := c.slug + ".json"
-			data, err := json.MarshalIndent(c.profile, "", "  ")
+		if autoHeal {
+			changes, err := m.deactivateChangesLocked(actives, winner.slug)
 			if err != nil {
-				logging.Errorf(context.Background(), "profiles.manager", "[Profiles] auto-cura: erro ao serializar %q: %v", c.slug, err)
-				continue
+				return nil, "", err
 			}
-			if err := m.resolver.Write(filename, data); err != nil {
-				logging.Errorf(context.Background(), "profiles.manager", "[Profiles] auto-cura: erro ao desativar %q: %v", c.slug, err)
+			if err := m.commitChangesLocked(changes); err != nil {
+				return nil, "", fmt.Errorf("auto-cura de perfis ativos: %w", err)
 			}
 		}
 		return winner.profile, winner.slug, nil
@@ -401,47 +361,13 @@ func statMTime(path string) (time.Time, error) {
 // SetActive marca um perfil como Active: true e desativa os outros
 // NOTA: Migrado para usar Profile.Active em vez de config.json
 func (m *Manager) SetActive(slug string) error {
-	// Verifica se o perfil existe
-	profile, err := m.Get(slug)
-	if err != nil {
-		return fmt.Errorf("profile not found: %s", slug)
-	}
-
-	// Marca como ativo
-	profile.Active = true
-	if err := m.Update(slug, profile); err != nil {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.recoverLocked(); err != nil {
 		return err
 	}
-
-	// Desativa os outros
-	files, err := m.resolver.List()
-	if err != nil {
-		return nil // Não é erro crítico
-	}
-
-	for _, f := range files {
-		if !strings.HasSuffix(f.Filename, ".json") {
-			continue
-		}
-		otherSlug := strings.TrimSuffix(f.Filename, ".json")
-		if otherSlug == slug {
-			continue
-		}
-
-		other, err := m.Get(otherSlug)
-		if err != nil {
-			continue
-		}
-
-		if other.Active {
-			other.Active = false
-			if updateErr := m.Update(otherSlug, other); updateErr != nil {
-				return fmt.Errorf("failed to deactivate profile %s: %w", otherSlug, updateErr)
-			}
-		}
-	}
-
-	return nil
+	_, err := m.commitLegacyLocked("activate", slug, nil)
+	return err
 }
 
 // GetActiveSlug retorna o slug do perfil ativo aplicando a MESMA regra de
@@ -455,21 +381,33 @@ func (m *Manager) SetActive(slug string) error {
 // active=true (ver o efeito colateral documentado lá). Em estado saudável é só
 // leitura, mas callers em caminhos quentes devem estar cientes do I/O eventual.
 func (m *Manager) GetActiveSlug() string {
-	_, slug, err := m.resolveActive()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.recoverLocked(); err != nil {
+		return ""
+	}
+	_, slug, err := m.resolveActiveLocked(true)
 	if err != nil || slug == "" {
-		return "padrao"
+		return ""
 	}
 	return slug
 }
 
 // GetSearchPaths retorna os caminhos de busca do resolver
 func (m *Manager) GetSearchPaths() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.resolver.GetSearchPaths()
 }
 
 // EnsureDefaults ensures the profiles home directory exists.
 // Builtin profiles are now installed by App.installBuiltinProfiles() from embedded JSON files.
 func (m *Manager) EnsureDefaults() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.recoverLocked(); err != nil {
+		return err
+	}
 	return m.resolver.EnsureHomeDir()
 }
 

@@ -2,6 +2,7 @@ package commandportability
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"assistente/internal/commandactivation"
@@ -131,6 +132,59 @@ func TestExportFromStoreSelecaoUserNaoIncluiDeltaBuiltinNaoSolicitado(t *testing
 	}
 	if len(exported) != 1 || exported[0].DeltaOnly || exported[0].ID != layerID {
 		t.Fatalf("seleção de camada incluiu delta builtin não solicitado: %+v", exported)
+	}
+}
+
+func TestExportFromStoreRecusaWorkspaceSemAutorizacaoCanonica(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&commandconfig.Layer{}, &commandconfig.Binding{}, &commandconfig.Generation{}); err != nil {
+		t.Fatal(err)
+	}
+	userID := portableStoreUUID(t)
+	workspace := "workspace-privado"
+	if err := db.Create(&commandconfig.Layer{ID: portableStoreUUID(t), UserID: userID, WorkspaceID: &workspace, Name: "Privada", Source: "user", Enabled: true}).Error; err != nil {
+		t.Fatal(err)
+	}
+	refs := portabilityRefsWithBuiltin(t)
+	refs.Workspace = func(context.Context, string) (string, error) { return "", nil }
+	if _, err := ExportFromStore(context.Background(), db, userID, refs, nil, true); !errors.Is(err, ErrWorkspaceResolution) {
+		t.Fatalf("exportou workspace sem prova canônica: %v", err)
+	}
+}
+
+func TestExportScopeFromStoreValidaEscopoExato(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&commandconfig.Layer{}, &commandconfig.Binding{}, &commandconfig.Generation{}); err != nil {
+		t.Fatal(err)
+	}
+	userID := portableStoreUUID(t)
+	workspace := "workspace-exato"
+	globalID, workspaceID := portableStoreUUID(t), portableStoreUUID(t)
+	if err := db.Create([]commandconfig.Layer{
+		{ID: globalID, UserID: userID, Name: "Global", Source: "user", Enabled: true},
+		{ID: workspaceID, UserID: userID, WorkspaceID: &workspace, Name: "Workspace", Source: "user", Enabled: true},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create([]commandconfig.Generation{
+		{ID: portableStoreUUID(t), UserID: userID, Generation: 1},
+		{ID: portableStoreUUID(t), UserID: userID, WorkspaceID: &workspace, Generation: 1},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	refs := portabilityRefsWithBuiltin(t)
+	exported, err := ExportScopeFromStore(context.Background(), db, commandconfig.Scope{UserID: userID, WorkspaceID: &workspace}, refs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exported) != 1 || exported[0].ID != workspaceID || exported[0].Scope != (PortableScope{Kind: WorkspaceScope, WorkspaceID: workspace}) {
+		t.Fatalf("exporto fora do escopo exato: %+v", exported)
 	}
 }
 

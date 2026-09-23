@@ -41,7 +41,7 @@ function fixture() {
   const cancel = vi.fn(async () => undefined);
   const bridge = createCommandBridge({
     port: { dispatch, cancel },
-    capabilities: [{ id: 'cap-a', commandId: 'command.a', generation: '1', owner }],
+    capabilities: [{ id: 'cap-a', commandId: 'command.a', generation: '1', source: 'ui.action', owner }],
   });
   bridge.openSession(session);
   return { bridge, dispatch, cancel };
@@ -61,13 +61,25 @@ describe('command bridge', () => {
     const { bridge } = fixture();
     await expect(bridge.invoke({ ...invocation('bad-source'), source: 'untrusted.source' as CommandSource }, owner)).rejects.toMatchObject({ code: 'invalid-request' });
     await expect(bridge.invoke({ ...invocation('bad-id'), invocationId: 'not-a-uuid' }, owner)).rejects.toMatchObject({ code: 'invalid-request' });
+    bridge.replaceCapabilities([{ id: 'cap-a', commandId: 'command.a', generation: '1', source: 'event', owner }]);
     await expect(bridge.invoke({ ...invocation('event'), source: 'event', eventId: testUUID7('event-source') }, owner)).resolves.toMatchObject({ accepted: true });
+    bridge.replaceCapabilities([{ id: 'cap-a', commandId: 'command.a', generation: '1', source: 'ui.action', owner }]);
     await expect(bridge.invoke({ ...invocation('missing-event'), source: 'event' }, owner)).rejects.toMatchObject({ code: 'invalid-request' });
     await expect(bridge.invoke({ ...invocation('opaque-occurrence'), occurrenceId: 'deck-A/button-7/v2' }, owner)).resolves.toMatchObject({ accepted: true });
+    bridge.replaceCapabilities([{ id: 'cap-a', commandId: 'command.a', generation: '1', source: 'streamdeck.key', owner }]);
     await expect(bridge.invoke({ ...invocation('streamdeck-source'), source: 'streamdeck.key' }, owner)).resolves.toMatchObject({ accepted: true });
+    bridge.replaceCapabilities([{ id: 'cap-a', commandId: 'command.a', generation: '1', source: 'ui.action', owner }]);
     await expect(bridge.invoke({ ...invocation('source-event'), sourceEventId: testUUID7('source-event-id') }, owner)).resolves.toMatchObject({ accepted: true });
     await expect(bridge.invoke({ ...invocation('bad-source-event'), sourceEventId: 'not-a-uuid' }, owner)).rejects.toMatchObject({ code: 'invalid-request' });
     await expect(bridge.invoke({ ...invocation('legacy-streamdeck-source'), source: 'streamdeck' as CommandSource }, owner)).rejects.toMatchObject({ code: 'invalid-request' });
+  });
+
+  it('vincula origem física à capability e rejeita origem física não declarada', async () => {
+    const { bridge, dispatch } = fixture();
+    bridge.replaceCapabilities([{ id: 'cap-a', commandId: 'command.a', generation: '1', source: 'keyboard.local', owner }]);
+    await expect(bridge.invoke({ ...invocation('forged-source'), source: 'streamdeck.key' }, owner)).rejects.toMatchObject({ code: 'capability-denied' });
+    await expect(bridge.invoke({ ...invocation('trusted-physical'), source: 'keyboard.local' }, owner)).resolves.toMatchObject({ accepted: true });
+    expect(dispatch).toHaveBeenCalledTimes(1);
   });
 
   it('fecha resultado apenas com identidade exata e libera local/global', async () => {
@@ -85,7 +97,7 @@ describe('command bridge', () => {
     await bridge.invoke(sourceEvent, owner);
     expect(() => bridge.acceptResult(resultFor({ ...sourceEvent, sourceEventId: testUUID7('result-source-event-other') }))).toThrowError(new CommandBridgeError('invalid-request'));
     expect(() => bridge.acceptResult(resultFor(sourceEvent))).not.toThrow();
-    bridge.replaceCapabilities([{ id: 'cap-a', commandId: 'decision.respond', generation: '1', owner }]);
+    bridge.replaceCapabilities([{ id: 'cap-a', commandId: 'decision.respond', generation: '1', source: 'ui.action', owner }]);
     const dialogInvocation = {
       ...invocation('inv-dialog'),
       commandId: 'decision.respond',
@@ -150,7 +162,7 @@ describe('command bridge', () => {
     await expect(bridge.input({ sessionId: session.id, source: 'keyboard', key: 'Ctrl+N', generation: '1', kind: 'down', invocation: third, owner })).resolves.toMatchObject({ accepted: true });
     await bridge.advanceGeneration(session.id, '2');
     expect(cancel).toHaveBeenCalledTimes(1);
-    bridge.replaceCapabilities([{ id: 'cap-next', commandId: 'command.a', generation: '2', owner }]);
+    bridge.replaceCapabilities([{ id: 'cap-next', commandId: 'command.a', generation: '2', source: 'ui.action', owner }]);
 
     const fourth = { ...invocation('lifecycle-fourth'), generation: '2', capabilityId: 'cap-next', occurrenceId };
     await expect(bridge.input({ sessionId: session.id, source: 'keyboard', key: 'Ctrl+N', generation: '2', kind: 'down', invocation: fourth, owner })).resolves.toMatchObject({ accepted: true });
@@ -164,7 +176,7 @@ describe('command bridge', () => {
     const shutdown = vi.fn(() => shutdownDone);
     const bridge = createCommandBridge({
       port: { dispatch, cancel, shutdown },
-      capabilities: [{ id: 'cap-a', commandId: 'command.a', generation: '1', owner }],
+      capabilities: [{ id: 'cap-a', commandId: 'command.a', generation: '1', source: 'ui.action', owner }],
     });
     bridge.openSession(session);
     await bridge.invoke(invocation('shutdown-pending'), owner);
@@ -219,7 +231,7 @@ describe('command bridge', () => {
     const shutdown = vi.fn(async () => undefined);
     const bridge = createCommandBridge({
       port: { dispatch, cancel, shutdown },
-      capabilities: [{ id: 'cap-a', commandId: 'command.a', generation: '1', owner }],
+      capabilities: [{ id: 'cap-a', commandId: 'command.a', generation: '1', source: 'ui.action', owner }],
     });
     bridge.openSession(session);
     await bridge.invoke(invocation('batch-first'), owner);
@@ -243,7 +255,7 @@ describe('command bridge', () => {
     const seen: CommandResult[] = [];
     bridge.subscribeResult((value) => seen.push(value));
     const mutableOwner = { ...owner };
-    const mutableCapability = { id: 'cap-a', commandId: 'command.a', generation: '1', owner: mutableOwner };
+    const mutableCapability = { id: 'cap-a', commandId: 'command.a', generation: '1', source: 'ui.action' as const, owner: mutableOwner };
     const second = createCommandBridge({ port: { dispatch: async (value) => ({ invocationId: value.invocationId, accepted: true }), cancel: async () => undefined }, capabilities: [mutableCapability] });
     const mutableSession = { id: session.id, generation: '1', owner: mutableOwner };
     second.openSession(mutableSession);

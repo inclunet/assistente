@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event';
 
 const mockAnalyzeImportData = vi.fn();
 const mockExportData = vi.fn();
+const mockImportDataWithResolutions = vi.fn();
+const mockListWorkspaces = vi.fn();
 const mockGetAllTaskLists = vi.fn();
 const mockGetConversations = vi.fn();
 const mockGetLLMProvidersWithStatus = vi.fn();
@@ -20,11 +22,30 @@ const mockAnnounce = vi.fn();
 const mockNavigate = vi.fn();
 let mockSearch = '';
 let mockPathname = '/settings/data';
+const mockTranslation = vi.hoisted(() => (_key: string, fallbackOrOptions?: string | Record<string, unknown>) => {
+  if (typeof fallbackOrOptions === 'string') return fallbackOrOptions;
+  const options = fallbackOrOptions ?? {};
+  let value = (options.defaultValue as string | undefined) ?? _key;
+  // Marca as mensagens de portabilidade para o teste distinguir o texto
+  // que passou pela tradução do que veio cru do backend.
+  if (_key.startsWith('portability.messages.')) value = `[i18n] ${value}`;
+  const replacements = { ...options, ...((options.replace as Record<string, unknown> | undefined) ?? {}) };
+  for (const [placeholder, replacement] of Object.entries(replacements)) {
+    if (placeholder === 'defaultValue' || placeholder === 'replace') continue;
+    value = value.split(`{{${placeholder}}}`).join(String(replacement));
+  }
+  return value;
+});
 
 vi.mock('@wailsjs/go/wailsapi/ExportImport', () => ({
   AnalyzeImportData: (payload: string, password: string) => mockAnalyzeImportData(payload, password),
   ExportData: (payload: unknown) => mockExportData(payload),
   ImportData: (payload: string, password: string) => mockImportData(payload, password),
+  ImportDataWithResolutions: (request: unknown) => mockImportDataWithResolutions(request),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Workspace', () => ({
+  ListWorkspaces: () => mockListWorkspaces(),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
@@ -68,27 +89,15 @@ vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({ announce: mockAnnounce }),
 }));
 
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router-dom', async importOriginal => ({
+  ...await importOriginal<typeof import('react-router-dom')>(),
   useLocation: () => ({ pathname: mockPathname, search: mockSearch }),
   useNavigate: () => mockNavigate,
 }));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (_key: string, fallbackOrOptions?: string | Record<string, unknown>) => {
-      if (typeof fallbackOrOptions === 'string') return fallbackOrOptions;
-      const options = fallbackOrOptions ?? {};
-      let value = (options.defaultValue as string | undefined) ?? _key;
-      // Marca as mensagens de portabilidade para o teste distinguir o texto
-      // que passou pela tradução do que veio cru do backend.
-      if (_key.startsWith('portability.messages.')) value = `[i18n] ${value}`;
-      const replacements = { ...options, ...((options.replace as Record<string, unknown> | undefined) ?? {}) };
-      for (const [placeholder, replacement] of Object.entries(replacements)) {
-        if (placeholder === 'defaultValue' || placeholder === 'replace') continue;
-        value = value.split(`{{${placeholder}}}`).join(String(replacement));
-      }
-      return value;
-    },
+    t: mockTranslation,
   }),
 }));
 
@@ -118,6 +127,16 @@ describe('DataManagementPage', () => {
       skippedOther: 0,
       message: 'ok',
     });
+    mockImportDataWithResolutions.mockReset().mockResolvedValue({
+      success: true,
+      imported: 1,
+      skipped: 0,
+      failed: 0,
+      warnings: [],
+      errors: [],
+      message: '',
+    });
+    mockListWorkspaces.mockReset().mockResolvedValue([]);
     mockListMCPServers.mockReset().mockResolvedValue([]);
     mockListMemoryRecords.mockReset().mockResolvedValue({ records: [], total: 0 });
     mockGetMaintenanceSettings.mockReset().mockResolvedValue({
@@ -397,6 +416,34 @@ describe('DataManagementPage', () => {
     });
   });
 
+  it('remove o painel de comandos quando o arquivo seguinte é genérico', async () => {
+    const user = userEvent.setup();
+    const commandJson = JSON.stringify({
+      version: 2,
+      resources: { commandLayers: [{ id: 'layer-1', name: 'Atalhos', scope: { kind: 'global' } }] },
+    });
+    const genericJson = JSON.stringify({
+      version: 2,
+      options: { includeCredentials: false, includeAudio: false },
+      resources: { conversations: [], providers: [], taskLists: [] },
+    });
+    mockOpenImportFileDialog
+      .mockResolvedValueOnce({ name: 'commands.json', content: commandJson })
+      .mockResolvedValueOnce({ name: 'backup.json', content: genericJson });
+    mockAnalyzeImportData.mockResolvedValue({ conflictCount: 0 });
+
+    render(<DataManagementPage />);
+    await user.click(screen.getByRole('button', { name: 'Selecionar arquivo JSON' }));
+    expect(await screen.findByText('Importar camadas de comandos')).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole('button', { name: 'Trocar arquivo' })[0]);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Importar camadas de comandos')).not.toBeInTheDocument();
+      expect(screen.getByText('backup.json')).toBeInTheDocument();
+    });
+  });
+
   it('traduz avisos e motivos de conflito da analise', async () => {
     const user = userEvent.setup();
     const jsonData = JSON.stringify({
@@ -646,6 +693,9 @@ describe('DataManagementPage', () => {
       expect(mockAnalyzeImportData).toHaveBeenCalledWith(jsonData, '');
     });
     expect(mockNavigate).toHaveBeenCalledWith('/settings/data', { replace: true });
+    expect(mockImportData).not.toHaveBeenCalled();
+    expect(mockImportDataWithResolutions).not.toHaveBeenCalled();
+    expect(mockExportData).not.toHaveBeenCalled();
   });
 
   it('permite repetir a mesma action depois que a querystring e limpa', async () => {
@@ -704,6 +754,9 @@ describe('DataManagementPage', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/settings/data', { replace: true });
     });
     expect(mockOpenImportFileDialog).not.toHaveBeenCalled();
+    expect(mockExportData).not.toHaveBeenCalled();
+    expect(mockDownloadJSON).not.toHaveBeenCalled();
+    expect(mockImportData).not.toHaveBeenCalled();
   });
 
   it('ignora action na URL quando a aba de dados esta oculta', async () => {

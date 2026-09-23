@@ -57,14 +57,17 @@ func (a *App) initJobs() {
 			Error("Falha ao reconciliar exclusões pendentes de profiles", "error", err)
 	}
 	a.jobMgr = jobs.NewManager(jobs.ManagerConfig{
-		BaseDir:         baseDir,
-		Repository:      jobs.NewDBRepository(database.DB()),
-		ContextProvider: a.jobsAuthenticatedContext,
-		ToolRegistry:    a.toolRegistry,
-		ToolInvocations: a.toolInvocationSvc,
-		HotkeyManager:   a.hotkeyCtrl.Manager(),
-		MsgGateway:      a.msgGateway,
-		SecretStore:     &credentialSecretStore{app: a},
+		DispatchCommandHotkey:  a.dispatchCommandJobHotkey,
+		CommandRuntimeIdentity: a.captureCommandJobIdentity,
+		BaseDir:                baseDir,
+		Repository:             jobs.NewDBRepository(database.DB()),
+		ContextProvider:        a.jobsAuthenticatedContext,
+		ToolRegistry:           a.toolRegistry,
+		ToolInvocations:        a.toolInvocationSvc,
+		HotkeyManager:          a.commandGlobalHotkeyRegistrar(),
+		MsgGateway:             a.msgGateway,
+		SecretStore:            &credentialSecretStore{app: a},
+		JobProfileGrants:       a.jobGrantStore,
 		EmitEvent: func(event string, data any) {
 			a.emitter.Emit(event, data)
 		},

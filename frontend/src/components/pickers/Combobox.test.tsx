@@ -308,4 +308,176 @@ describe('Combobox - allowFreeInput', () => {
     const button = screen.getByRole('button');
     expect(button).toBeDisabled();
   });
+
+  it('expõe busy sem desabilitar o trigger', () => {
+    render(
+      <Combobox
+        items={mockItems}
+        selected="gpt-4"
+        onSelect={vi.fn()}
+        busy
+      />,
+    );
+    const button = screen.getByRole('button');
+    expect(button).toHaveAttribute('aria-busy', 'true');
+    expect(button).not.toBeDisabled();
+  });
+
+  it('aguarda open=true controlado antes de focar a busca', async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const triggerRef = { current: null as HTMLButtonElement | null };
+    const { rerender } = render(
+      <Combobox
+        items={mockItems}
+        selected="gpt-4"
+        onSelect={vi.fn()}
+        open={false}
+        onOpenChange={onOpenChange}
+        triggerRef={triggerRef}
+        triggerAriaLabel="Abrir seletor de comando"
+      />,
+    );
+    const trigger = screen.getByRole('button', { name: 'Abrir seletor de comando' });
+    expect(triggerRef.current).toBe(trigger);
+    await user.click(trigger);
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+
+    rerender(
+      <Combobox
+        items={mockItems}
+        selected="gpt-4"
+        onSelect={vi.fn()}
+        open
+        onOpenChange={onOpenChange}
+        triggerRef={triggerRef}
+        triggerAriaLabel="Abrir seletor de comando"
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveFocus());
+  });
+
+  it('notifica dismiss controlado somente depois de open virar false', async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const onAfterDismiss = vi.fn();
+    const triggerRef = { current: null as HTMLButtonElement | null };
+    const { rerender } = render(
+      <Combobox
+        items={mockItems}
+        selected="gpt-4"
+        onSelect={vi.fn()}
+        open
+        onOpenChange={onOpenChange}
+        onAfterDismiss={onAfterDismiss}
+        triggerRef={triggerRef}
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveFocus());
+    await user.keyboard('{Escape}');
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onAfterDismiss).not.toHaveBeenCalled();
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
+
+    rerender(
+      <Combobox
+        items={mockItems}
+        selected="gpt-4"
+        onSelect={vi.fn()}
+        open={false}
+        onOpenChange={onOpenChange}
+        onAfterDismiss={onAfterDismiss}
+        triggerRef={triggerRef}
+      />,
+    );
+    await waitFor(() => expect(onAfterDismiss).toHaveBeenCalledOnce());
+    expect(triggerRef.current).not.toHaveFocus();
+  });
+
+  it('notifica seleção controlada somente depois do fechamento externo', async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const onAfterSelect = vi.fn();
+    const onSelect = vi.fn();
+    const { rerender } = render(
+      <Combobox
+        items={mockItems}
+        selected=""
+        onSelect={onSelect}
+        open
+        onOpenChange={onOpenChange}
+        onAfterSelect={onAfterSelect}
+      />,
+    );
+    await user.click(screen.getByRole('option', { name: 'GPT-4' }));
+    expect(onSelect).toHaveBeenCalledWith('gpt-4', expect.objectContaining({ value: 'gpt-4' }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onAfterSelect).not.toHaveBeenCalled();
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
+
+    rerender(
+      <Combobox
+        items={mockItems}
+        selected="gpt-4"
+        onSelect={onSelect}
+        open={false}
+        onOpenChange={onOpenChange}
+        onAfterSelect={onAfterSelect}
+      />,
+    );
+    await waitFor(() => expect(onAfterSelect).toHaveBeenCalledOnce());
+  });
+
+  it('reseta filtro ao reabrir externamente sem refocar em rerender aberto', async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <Combobox
+        items={mockItems}
+        selected=""
+        onSelect={vi.fn()}
+        open
+        onOpenChange={onOpenChange}
+      />,
+    );
+    const input = screen.getByRole('combobox');
+    await user.type(input, 'gpt');
+    expect(input).toHaveValue('gpt');
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    outside.focus();
+    rerender(
+      <Combobox
+        items={mockItems}
+        selected=""
+        onSelect={vi.fn()}
+        open
+        onOpenChange={onOpenChange}
+      />,
+    );
+    expect(input).toHaveValue('gpt');
+    expect(document.activeElement).toBe(outside);
+
+    rerender(
+      <Combobox
+        items={mockItems}
+        selected=""
+        onSelect={vi.fn()}
+        open={false}
+        onOpenChange={onOpenChange}
+      />,
+    );
+    rerender(
+      <Combobox
+        items={mockItems}
+        selected=""
+        onSelect={vi.fn()}
+        open
+        onOpenChange={onOpenChange}
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveValue(''));
+  });
 });

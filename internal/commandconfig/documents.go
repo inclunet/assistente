@@ -168,6 +168,14 @@ func versionOne(fields map[string]json.RawMessage) bool {
 	return version == 1
 }
 
+func jsonInt(raw json.RawMessage) (int, bool) {
+	var value int
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
 func jsonString(raw json.RawMessage) (string, bool) {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
@@ -226,7 +234,45 @@ func decodeKeyboard(typeName, raw string) (string, error) {
 		return "", ErrInvalid
 	}
 	fields, err := strictObject(raw)
-	if err != nil || !exactFields(fields, "version", "code", "modifiers") || !versionOne(fields) {
+	if err != nil {
+		return "", ErrInvalid
+	}
+	version, ok := jsonInt(fields["version"])
+	if !ok {
+		return "", ErrInvalid
+	}
+	switch version {
+	case 1:
+		return decodeKeyboardV1(fields)
+	case 2:
+		return decodeKeyboardV2(fields)
+	default:
+		return "", ErrInvalid
+	}
+}
+
+func decodeKeyboardGlobal(raw string) (string, error) {
+	fields, err := strictObject(raw)
+	if err != nil {
+		return "", ErrInvalid
+	}
+	version, ok := jsonInt(fields["version"])
+	if !ok || version != 1 {
+		return "", ErrInvalid
+	}
+	identity, err := decodeKeyboardV1(fields)
+	if err != nil {
+		return "", err
+	}
+	return "keyboard.global:" + strings.TrimPrefix(identity, "keyboard.local:"), nil
+}
+
+func decodeKeyboardV1(fields map[string]json.RawMessage) (string, error) {
+	return decodeKeyboardV1WithPrefix("keyboard.local", fields)
+}
+
+func decodeKeyboardV1WithPrefix(prefix string, fields map[string]json.RawMessage) (string, error) {
+	if !exactFields(fields, "version", "code", "modifiers") || !versionOne(fields) {
 		return "", ErrInvalid
 	}
 
@@ -256,7 +302,8 @@ func decodeKeyboard(typeName, raw string) (string, error) {
 	}
 
 	var identity strings.Builder
-	identity.WriteString("keyboard.local:")
+	identity.WriteString(prefix)
+	identity.WriteByte(':')
 	for _, modifier := range []string{control, alt, shift, meta} {
 		if present[modifier] {
 			identity.WriteString(modifier)
@@ -265,6 +312,170 @@ func decodeKeyboard(typeName, raw string) (string, error) {
 	}
 	identity.WriteString(code)
 	return identity.String(), nil
+}
+
+type KeyboardLocalStep struct {
+	Code      string   `json:"code"`
+	Modifiers []string `json:"modifiers"`
+}
+
+type KeyboardLocalSequence struct {
+	Version int                 `json:"version"`
+	Steps   []KeyboardLocalStep `json:"steps"`
+}
+
+func decodeKeyboardV2(fields map[string]json.RawMessage) (string, error) {
+	if !exactFields(fields, "version", "steps") {
+		return "", ErrInvalid
+	}
+	steps, ok := jsonArray(fields["steps"])
+	if !ok || len(steps) != 2 {
+		return "", ErrInvalid
+	}
+	parsed := make([]KeyboardLocalStep, 2)
+	for i, raw := range steps {
+		stepFields, err := strictObject(string(raw))
+		if err != nil || !exactFields(stepFields, "code", "modifiers") {
+			return "", ErrInvalid
+		}
+		code, ok := jsonString(stepFields["code"])
+		if !ok || !validKeyboardCode(code) || (i == 1 && code == "Escape") {
+			return "", ErrInvalid
+		}
+		modifiers, ok := canonicalKeyboardModifiers(stepFields["modifiers"], i == 0, i == 1)
+		if !ok {
+			return "", ErrInvalid
+		}
+		parsed[i] = KeyboardLocalStep{Code: code, Modifiers: modifiers}
+	}
+	return keyboardSequenceIdentity(parsed[0], parsed[1]), nil
+}
+
+func canonicalKeyboardModifiers(raw json.RawMessage, requirePrimary, requireEmpty bool) ([]string, bool) {
+	modifiers, ok := jsonArray(raw)
+	if !ok {
+		return nil, false
+	}
+	values := make([]string, len(modifiers))
+	for i, rawModifier := range modifiers {
+		value, ok := jsonString(rawModifier)
+		if !ok {
+			return nil, false
+		}
+		values[i] = value
+	}
+	return canonicalKeyboardModifierValues(values, requirePrimary, requireEmpty)
+}
+
+func canonicalKeyboardModifierValues(modifiers []string, requirePrimary, requireEmpty bool) ([]string, bool) {
+	const (
+		control = "Control"
+		alt     = "Alt"
+		shift   = "Shift"
+		meta    = "Meta"
+	)
+	allowed := map[string]bool{control: true, alt: true, shift: true, meta: true}
+	present := make(map[string]bool, len(modifiers))
+	for _, modifier := range modifiers {
+		if !allowed[modifier] || present[modifier] {
+			return nil, false
+		}
+		present[modifier] = true
+	}
+	if requirePrimary && !present[control] && !present[alt] && !present[meta] {
+		return nil, false
+	}
+	if requireEmpty && len(modifiers) != 0 {
+		return nil, false
+	}
+	ordered := make([]string, 0, len(present))
+	for _, modifier := range []string{control, alt, shift, meta} {
+		if present[modifier] {
+			ordered = append(ordered, modifier)
+		}
+	}
+	return ordered, true
+}
+
+func keyboardSequenceIdentity(first, second KeyboardLocalStep) string {
+	var identity strings.Builder
+	identity.WriteString("keyboard.local:")
+	for _, modifier := range first.Modifiers {
+		identity.WriteString(modifier)
+		identity.WriteByte('+')
+	}
+	identity.WriteString(first.Code)
+	identity.WriteByte(' ')
+	identity.WriteString(second.Code)
+	return identity.String()
+}
+
+// EncodeKeyboardLocalIdentity devolve o documento JSON canônico de uma
+// identidade keyboard.local v1 ou v2. É o inverso explícito de Normalize e
+// serve para round-trip sem aceitar aliases ou ordens alternativas.
+func EncodeKeyboardLocalIdentity(identity string) ([]byte, error) {
+	const prefix = "keyboard.local:"
+	if !strings.HasPrefix(identity, prefix) {
+		return nil, ErrInvalid
+	}
+	rest := strings.TrimPrefix(identity, prefix)
+	if strings.Contains(rest, " ") {
+		parts := strings.Split(rest, " ")
+		if len(parts) != 2 {
+			return nil, ErrInvalid
+		}
+		firstParts := strings.Split(parts[0], "+")
+		if len(firstParts) < 2 {
+			return nil, ErrInvalid
+		}
+		modifiers := firstParts[:len(firstParts)-1]
+		first := KeyboardLocalStep{Code: firstParts[len(firstParts)-1], Modifiers: modifiers}
+		second := KeyboardLocalStep{Code: parts[1]}
+		canonicalModifiers, ok := canonicalKeyboardModifierValues(modifiers, true, false)
+		if !ok || !validKeyboardCode(first.Code) || !validKeyboardCode(second.Code) || second.Code == "Escape" || !slicesEqual(canonicalModifiers, modifiers) || keyboardSequenceIdentity(first, second) != identity {
+			return nil, ErrInvalid
+		}
+		return json.Marshal(KeyboardLocalSequence{Version: 2, Steps: []KeyboardLocalStep{
+			{Code: first.Code, Modifiers: first.Modifiers},
+			{Code: second.Code, Modifiers: []string{}},
+		}})
+	}
+	parts := strings.Split(rest, "+")
+	if len(parts) == 0 || !validKeyboardCode(parts[len(parts)-1]) {
+		return nil, ErrInvalid
+	}
+	modifiers := parts[:len(parts)-1]
+	ordered, ok := canonicalKeyboardModifierValues(modifiers, false, false)
+	if !ok || !slicesEqual(ordered, modifiers) {
+		return nil, ErrInvalid
+	}
+	return json.Marshal(struct {
+		Version   int      `json:"version"`
+		Code      string   `json:"code"`
+		Modifiers []string `json:"modifiers"`
+	}{Version: 1, Code: parts[len(parts)-1], Modifiers: modifiers})
+}
+
+func slicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// MatchCondition usa a mesma gramática estrita da configuração persistida.
+// Fatos ausentes não satisfazem cláusulas, inclusive comparações com false.
+func MatchCondition(raw string, facts commandbindings.Facts) (bool, error) {
+	condition, err := decodeCondition(raw)
+	if err != nil {
+		return false, err
+	}
+	return commandbindings.MatchCondition(condition, facts)
 }
 
 func decodeCondition(raw string) (commandbindings.Facts, error) {

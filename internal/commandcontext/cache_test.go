@@ -37,18 +37,20 @@ func TestResolutionCacheChaveiaTodasDimensoesENilWorkspaceTipado(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := cacheFixtureKey(t)
-	result := commandbindings.Result{Status: commandbindings.Selected, CommandID: "workspace.tab.new", BindingIDs: []string{"binding"}}
+	result := commandbindings.Result{Status: commandbindings.Selected, CommandID: "workspace.tab.new", BindingIDs: []string{"binding"}, LayerRefs: []string{"default"}}
 	if err := cache.Put(base, result); err != nil {
 		t.Fatal(err)
 	}
 	result.BindingIDs[0] = "mutated-input"
+	result.LayerRefs[0] = "mutated-input"
 	got, ok := cache.Get(base)
-	if !ok || !reflect.DeepEqual(got.BindingIDs, []string{"binding"}) {
+	if !ok || !reflect.DeepEqual(got.BindingIDs, []string{"binding"}) || !reflect.DeepEqual(got.LayerRefs, []string{"default"}) {
 		t.Fatalf("resultado não detached: %#v %v", got, ok)
 	}
 	got.BindingIDs[0] = "mutated-output"
+	got.LayerRefs[0] = "mutated-output"
 	again, _ := cache.Get(base)
-	if again.BindingIDs[0] != "binding" {
+	if again.BindingIDs[0] != "binding" || again.LayerRefs[0] != "default" {
 		t.Fatal("cache entregou slice interno")
 	}
 
@@ -82,6 +84,35 @@ func TestResolutionCacheChaveiaTodasDimensoesENilWorkspaceTipado(t *testing.T) {
 	}
 	if _, ok := cache.Get(globalKey); !ok {
 		t.Fatal("workspace nil tipado não foi preservado")
+	}
+}
+
+func TestResolutionCacheIsolaLayerRefsPorStatus(t *testing.T) {
+	for _, status := range []commandbindings.Status{commandbindings.Selected, commandbindings.NoMatch, commandbindings.Suppressed} {
+		t.Run(string(status), func(t *testing.T) {
+			cache := MustNewResolutionCache(1)
+			key := cacheFixtureKey(t)
+			bindingIDs := []string{"binding"}
+			layerRefs := []string{"layer"}
+			result := commandbindings.Result{Status: status, BindingIDs: bindingIDs, LayerRefs: layerRefs}
+			if err := cache.Put(key, result); err != nil {
+				t.Fatal(err)
+			}
+
+			bindingIDs[0] = "mutated-input"
+			layerRefs[0] = "mutated-input"
+			got, ok := cache.Get(key)
+			if !ok || !reflect.DeepEqual(got.BindingIDs, []string{"binding"}) || !reflect.DeepEqual(got.LayerRefs, []string{"layer"}) {
+				t.Fatalf("resultado não detached após Put: %#v %v", got, ok)
+			}
+
+			got.BindingIDs[0] = "mutated-output"
+			got.LayerRefs[0] = "mutated-output"
+			again, _ := cache.Get(key)
+			if !reflect.DeepEqual(again.BindingIDs, []string{"binding"}) || !reflect.DeepEqual(again.LayerRefs, []string{"layer"}) {
+				t.Fatalf("resultado não detached após Get: %#v", again)
+			}
+		})
 	}
 }
 

@@ -10,8 +10,8 @@ import (
 )
 
 // DomainEventSink publica eventos de domínio normalizados no EventBus de jobs
-// (AEP-0067). É satisfeito estruturalmente por *jobs.Manager. Mantido como
-// interface local para não acoplar o pacote tasklist ao pacote jobs.
+// (AEP-0067). O App conecta o sink autenticado específico de tasklists.
+// Mantido como interface local para não acoplar tasklist ao pacote jobs.
 type DomainEventSink interface {
 	PublishDomainEvent(ctx context.Context, name string, payload map[string]any) error
 	// HasDomainListener informa se há job inscrito no evento; permite pular a

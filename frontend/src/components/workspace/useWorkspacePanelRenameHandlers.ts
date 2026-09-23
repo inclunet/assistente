@@ -10,7 +10,7 @@ export function useWorkspacePanelRenameHandlers() {
     });
     const unregisterTaskList = registerTabRenameHandler('tasklist', (id, newTitle) => {
       if (id) {
-        void useTaskListStore.getState().updateTaskList(id, newTitle);
+        void useTaskListStore.getState().updateTaskList(id, newTitle).catch(() => undefined);
       }
     });
 

@@ -4,9 +4,11 @@ import i18next from 'i18next';
 import type { MediaFile } from '../services/mediaService';
 import type { llm } from '../../wailsjs/go/models';
 import { useWorkspaceStore } from './workspaceStore';
-import { isModalOpen } from '../lib/modalRegistry';
+import { useAuthStore } from './authStore';
+import { useEditorStore } from './editorStore';
+import { getModalRegistrySnapshot, isModalOpen } from '../lib/modalRegistry';
+import { isBackendId } from '../lib/idUtils';
 import { useUIStore } from './uiStore';
-import { ensureWorkspaceTabConversationId } from '../lib/workspaceConversation';
 import { ttsService } from '../services/tts';
 import { messageAudioService } from '../services/messageAudio';
 import {
@@ -53,7 +55,19 @@ export interface WorkspaceChatModalAdapter {
   ) => Promise<WorkspaceChatSendPlan>;
 }
 
+export interface PreparedWorkspaceChatOpen {
+  isCurrent(): boolean;
+  dispose(): void;
+  present(conversationID: string): boolean;
+}
+
+export type WorkspaceChatCommandDispatcher = (tabID: string) => Promise<void>;
+
 const adapters = new Map<string, WorkspaceChatModalAdapter>();
+const adapterGenerations = new Map<string, number>();
+let nextAdapterGenerationID = 0;
+let openingGeneration = 0;
+let workspaceChatCommandDispatcher: WorkspaceChatCommandDispatcher | null = null;
 
 // Serializa a persistência do vínculo de conversa na aba (latest-wins POR ABA): as
 // escritas são encadeadas POR aba e cada uma só executa se ainda for a mais recente
@@ -71,9 +85,12 @@ export function registerWorkspaceChatModalAdapter(
 ) {
   if (!adapter) {
     adapters.delete(tabId);
+    adapterGenerations.delete(tabId);
     return;
   }
   adapters.set(tabId, adapter);
+  nextAdapterGenerationID += 1;
+  adapterGenerations.set(tabId, nextAdapterGenerationID);
 }
 
 export function getWorkspaceChatModalAdapter(
@@ -81,6 +98,176 @@ export function getWorkspaceChatModalAdapter(
 ): WorkspaceChatModalAdapter | null {
   if (!tabId) return null;
   return adapters.get(tabId) ?? null;
+}
+
+export function registerWorkspaceChatCommandDispatcher(
+  dispatcher: WorkspaceChatCommandDispatcher | null,
+): () => void {
+  workspaceChatCommandDispatcher = dispatcher;
+  return () => {
+    if (workspaceChatCommandDispatcher === dispatcher) workspaceChatCommandDispatcher = null;
+  };
+}
+
+function isVisibleWorkspaceLayout(): boolean {
+  const layout = document.querySelector<HTMLElement>('.workspace-layout');
+  if (!layout?.isConnected) return false;
+  for (let current: HTMLElement | null = layout; current; current = current.parentElement) {
+    if (current.hidden || current.hasAttribute('inert') || current.getAttribute('aria-hidden') === 'true') return false;
+  }
+  return true;
+}
+
+function currentWorkspaceTab(tabId: string) {
+  const workspace = useWorkspaceStore.getState().workspace;
+  if (!workspace || workspace.activeTabId !== tabId) return undefined;
+  const tab = workspace.tabs.find((candidate) => candidate.id === tabId);
+  return tab ? { workspace, tab } : undefined;
+}
+
+function isReadOnlyEditor(tabID: string): boolean {
+  return useEditorStore.getState().documents[tabID]?.readOnly === true;
+}
+
+function activeWorkspacePanel(tabID: string): HTMLElement | null {
+  const panel = [...document.querySelectorAll<HTMLElement>('.ws-content__panel[data-tab-id]')]
+    .find((candidate) => candidate.dataset.tabId === tabID) ?? null;
+  if (!panel?.isConnected || panel.hidden || panel.getAttribute('aria-hidden') === 'true' || panel.dataset.active === 'false') {
+    return null;
+  }
+  return panel;
+}
+
+export function canPrepareWorkspaceChatOpen(tabID: string): boolean {
+  if (typeof document === 'undefined' || isModalOpen() || !document.hasFocus() || !isVisibleWorkspaceLayout()) return false;
+  const auth = useAuthStore.getState();
+  const active = currentWorkspaceTab(tabID);
+  if (!auth.isAuthenticated || !auth.user || !active) return false;
+  if (active.tab.type === 'editor' && isReadOnlyEditor(tabID)) return false;
+  return active.tab.type === 'chat' || getWorkspaceChatModalAdapter(tabID) !== null;
+}
+
+export async function prepareWorkspaceChatOpen(
+  tabID: string,
+  sourceIsCurrent: () => boolean = () => true,
+): Promise<PreparedWorkspaceChatOpen | undefined> {
+  const requestGeneration = ++openingGeneration;
+  const isSourceCurrent = () => {
+    try {
+      return sourceIsCurrent();
+    } catch {
+      return false;
+    }
+  };
+  if (!isSourceCurrent() || !canPrepareWorkspaceChatOpen(tabID)) return undefined;
+
+  const auth = useAuthStore.getState();
+  const active = currentWorkspaceTab(tabID);
+  if (!auth.user || !active) return undefined;
+  const adapter = active.tab.type === 'chat' ? null : getWorkspaceChatModalAdapter(tabID);
+  const adapterGeneration = adapterGenerations.get(tabID) ?? 0;
+  const modalGeneration = getModalRegistrySnapshot().generation;
+  const captured = {
+    ownerId: auth.user.userId,
+    sessionId: auth.user.sessionId,
+    workspaceId: active.workspace.id,
+    activeTabId: active.tab.id,
+    routeIdentity: window.location.pathname + window.location.search + window.location.hash,
+    modalGeneration,
+  };
+  let invalidated = false;
+  let disposed = false;
+  const preparedSend = adapter?.send ?? null;
+
+  const invalidateAuth = () => {
+    const current = useAuthStore.getState();
+    if (!current.isAuthenticated || current.user?.userId !== captured.ownerId || current.user?.sessionId !== captured.sessionId) invalidated = true;
+  };
+  const invalidateWorkspace = () => {
+    const current = currentWorkspaceTab(tabID);
+    if (!current || current.workspace.id !== captured.workspaceId || current.tab.id !== captured.activeTabId) invalidated = true;
+  };
+  const unsubscribeAuth = useAuthStore.subscribe(invalidateAuth);
+  const unsubscribeWorkspace = useWorkspaceStore.subscribe(invalidateWorkspace);
+  const onBlur = () => { invalidated = true; };
+  window.addEventListener('blur', onBlur);
+
+  const isCurrent = () => {
+    if (invalidated || disposed || requestGeneration !== openingGeneration || useWorkspaceChatModalStore.getState().isOpen || !isSourceCurrent() || !canPrepareWorkspaceChatOpen(tabID)) return false;
+    const currentAuth = useAuthStore.getState();
+    const current = currentWorkspaceTab(tabID);
+    return (
+      currentAuth.user?.userId === captured.ownerId &&
+      currentAuth.user?.sessionId === captured.sessionId &&
+      current?.workspace.id === captured.workspaceId &&
+      current.tab.id === captured.activeTabId &&
+      (window.location.pathname + window.location.search + window.location.hash) === captured.routeIdentity &&
+      getModalRegistrySnapshot().generation === captured.modalGeneration &&
+      (adapterGenerations.get(tabID) ?? 0) === adapterGeneration &&
+      getWorkspaceChatModalAdapter(tabID) === adapter &&
+      (adapter ? adapter.send === preparedSend : true)
+    );
+  };
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    invalidated = true;
+    unsubscribeAuth();
+    unsubscribeWorkspace();
+    window.removeEventListener('blur', onBlur);
+  };
+
+  if (adapter) {
+    let result: WorkspaceChatModalPrepareResult;
+    try {
+      result = await adapter.prepare();
+    } catch (error) {
+      logger.error('[workspaceChatModal] prepare() falhou:', error);
+      if (isCurrent()) {
+        useUIStore.getState().addToast(i18next.t('workspace.chatModal.prepareFailed'), 'error');
+      }
+      dispose();
+      return undefined;
+    }
+    if (!result.ok) {
+      if (result.message && isCurrent()) useUIStore.getState().addToast(result.message, 'info');
+      dispose();
+      return undefined;
+    }
+    if (!isCurrent()) {
+      dispose();
+      return undefined;
+    }
+    const prepared = result;
+    return {
+      isCurrent,
+      dispose,
+      present: (conversationID) => {
+        if (!isBackendId(conversationID) || !isCurrent()) return false;
+        const boundSurface = createChatSurfaceIdentity({
+          conversationId: conversationID,
+          surfaceId: buildWorkspaceModalChatSurfaceId(tabID),
+          surfaceType: 'modal',
+          tabId: tabID,
+        });
+        useWorkspaceChatModalStore.getState().open(prepared.contextDisplay, prepared.meta, tabID, conversationID, boundSurface, preparedSend!);
+        return true;
+      },
+    };
+  }
+
+  return {
+    isCurrent,
+    dispose,
+    present: (conversationID) => {
+      if (conversationID !== '' || !isCurrent()) return false;
+      const panel = activeWorkspacePanel(tabID);
+      const input = panel?.querySelector('.chat-page .chat-input__textarea') as HTMLTextAreaElement | null;
+      if (!panel || !input || !input.isConnected) return false;
+      input.focus();
+      return true;
+    },
+  };
 }
 
 interface WorkspaceChatModalState {
@@ -131,6 +318,7 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
   adapterError: null,
 
   open: (contextDisplay, meta, boundTabId, boundConversationId, boundSurface, send) => {
+    openingGeneration += 1;
     set({
       isOpen: true,
       boundTabId,
@@ -145,6 +333,7 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
   },
 
   close: () => {
+    openingGeneration += 1;
     ttsService.stop();
     messageAudioService.stopCurrentAudio();
     set({
@@ -166,91 +355,26 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
   setAdapterError: (msg) => set({ adapterError: msg }),
 
   // ---------------------------------------------------------------------------
-  // Fronteira de orquestração (cross-store INTENCIONAL e isolada aqui).
+  // Fronteira de orquestração (cross-store INTENCIONAL e delimitada).
   //
-  // `requestOpen` e `setBoundConversation` são os ÚNICOS pontos deste store que leem
-  // outros stores (`useWorkspaceStore`/`useUIStore`) via `getState()`. Isso é um
-  // padrão aceito do Zustand (acesso pontual a estado irmão, não uma inversão de
-  // camadas como importar um componente React) e fica deliberadamente concentrado
-  // nestes dois métodos para manter o restante do store puro/observável.
-  //
-  // Diretriz: NÃO espalhe novas leituras cross-store pelos demais métodos. Se a
-  // orquestração crescer, extraia para um service/hook em `lib/` ou `hooks/` chamado
-  // pela UI, mantendo este store responsável apenas pelo próprio estado visual.
+  // A preparação exportada acima lê pontualmente auth, workspace, editor,
+  // registro de modais e DOM para validar a origem antes de apresentar. Aqui,
+  // `requestOpen` apenas entrega ao dispatcher comum; `setBoundConversation`
+  // persiste a troca no workspace. Essas são as únicas fronteiras de orquestração
+  // deste store; o restante permanece visual, puro e observável.
   // ---------------------------------------------------------------------------
   requestOpen: async (tabId) => {
-    const workspaceStore = useWorkspaceStore.getState();
-    const tab = workspaceStore.workspace?.tabs.find((item) => item.id === tabId) ?? null;
-    if (!tab) return;
-
     if (get().isOpen) {
       get().bumpFocus();
       return;
     }
-
-    if (isModalOpen()) {
-      useUIStore.getState().addToast(
-        i18next.t('workspace.chatModal.modalBlocked'),
-        'info',
-      );
-      return;
-    }
-
-    if (tab.type === 'chat') {
-      const input = document.querySelector('.chat-page .chat-input__textarea') as HTMLTextAreaElement | null;
-      if (input) {
-        input.focus();
-      }
-      return;
-    }
-
-    const adapter = getWorkspaceChatModalAdapter(tab.id);
-    if (!adapter) {
-      useUIStore.getState().addToast(
-        i18next.t('workspace.chatModal.panelNotSupported'),
-        'info',
-      );
-      return;
-    }
-
-    let result: WorkspaceChatModalPrepareResult;
+    const dispatcher = workspaceChatCommandDispatcher;
+    if (!dispatcher) return;
     try {
-      result = await adapter.prepare();
-    } catch (e) {
-      logger.error('[workspaceChatModal] prepare() falhou:', e);
-      useUIStore.getState().addToast(
-        i18next.t('workspace.chatModal.prepareFailed'),
-        'error',
-      );
-      return;
+      await dispatcher(tabId);
+    } catch (error) {
+      logger.error('[workspaceChatModal] dispatcher falhou:', error);
     }
-
-    if (!result.ok) {
-      if (result.message) {
-        useUIStore.getState().addToast(result.message, 'info');
-      }
-      return;
-    }
-
-    let conversationId: string;
-    try {
-      conversationId = await ensureWorkspaceTabConversationId(tab);
-    } catch (e) {
-      logger.error('[workspaceChatModal] falha ao garantir conversa:', e);
-      useUIStore.getState().addToast(
-        i18next.t('editor.chatModal.newConversationError'),
-        'error',
-      );
-      return;
-    }
-
-    const boundSurface = createChatSurfaceIdentity({
-      conversationId,
-      surfaceId: buildWorkspaceModalChatSurfaceId(tab.id),
-      surfaceType: 'modal',
-      tabId: tab.id,
-    });
-    get().open(result.contextDisplay, result.meta, tab.id, conversationId, boundSurface, adapter.send);
   },
 
   setBoundConversation: (conversationId) => {

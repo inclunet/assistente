@@ -41,6 +41,20 @@ func (a *MaintenanceOutboxAdapter) RequeueExpiredLeases(ctx context.Context, lim
 	return a.consumer.outbox.RequeueExpiredLeases(ctx, bounded)
 }
 
+// PurgeExpired remove somente entregas terminais fora do horizonte de replay.
+// A Store revalida claim e lease viva na seleção e no DELETE, na mesma
+// transação; o adapter apenas preserva o limite bounded do coordinator.
+func (a *MaintenanceOutboxAdapter) PurgeExpired(ctx context.Context, limit int) (int, bool, error) {
+	if a == nil || a.consumer == nil || ctx == nil {
+		return 0, false, ErrUnavailable
+	}
+	bounded, err := maintenanceAdapterLimit(limit)
+	if err != nil {
+		return 0, false, err
+	}
+	return a.consumer.outbox.PurgeExpired(ctx, bounded)
+}
+
 // Drain usa RunPass e, portanto, o mesmo Consumer comum de eventos. Em caso
 // de erro, Processed conta apenas consumos confirmados; a ocorrência que
 // falhou não é escondida e More permanece verdadeiro para continuação segura.
@@ -127,8 +141,9 @@ func (a *MaintenanceHeartbeatAdapter) Heartbeat(ctx context.Context, policy comm
 	cursor, heartbeat, err := a.consumer.HeartbeatPass(ctx, a.cursor, bounded, policy.LeaseDuration)
 	processed := heartbeat.Renewed + heartbeat.Rejected
 	if err != nil {
-		// O item que falhou não foi confirmado; o cursor permanece no prefixo
-		// anterior para que a próxima chamada possa revalidá-lo.
+		// Cada item tem sua própria transação. Retoma depois do prefixo
+		// confirmado, sem saltar o item que falhou nem renovar o prefixo de novo.
+		a.cursor = cursor
 		return commandmaintenance.BatchResult{Processed: processed, More: true}, err
 	}
 	if heartbeat.More {

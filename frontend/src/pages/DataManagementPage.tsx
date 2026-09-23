@@ -14,6 +14,8 @@ import { Button } from '../components/ui/Button';
 import { Checkbox } from '../components/ui/Checkbox';
 import { FormField } from '../components/ui/FormField';
 import { Input } from '../components/ui/Input';
+import { CommandLayerImportPanel, inspectCommandLayerImport, type CommandLayerImportSelection } from '../components/import/CommandLayerImportPanel';
+import { CommandLayerExportPanel } from '../components/import/CommandLayerExportPanel';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import { downloadJSON, generateFilename, ImportFileError, IMPORT_FILE_ERROR_CODES, openImportFileDialog } from '../lib/exportImport';
@@ -228,18 +230,36 @@ export default function DataManagementPage() {
   const [isExporting, setIsExporting] = useState(false);
 
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  const [commandLayerImport, setCommandLayerImport] = useState<CommandLayerImportSelection | null>(null);
   const [importAnalysis, setImportAnalysis] = useState<ImportAnalysis | null>(null);
   const [lastImportResult, setLastImportResult] = useState<ImportResultSummary | null>(null);
   const [isAnalyzingImport, setIsAnalyzingImport] = useState(false);
   const [importPassword, setImportPassword] = useState('');
   const [importPasswordError, setImportPasswordError] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  const [commandLayerImportBusy, setCommandLayerImportBusy] = useState(false);
+  const [commandLayerImportSelectionSequence, setCommandLayerImportSelectionSequence] = useState(0);
   const importAnalysisInFlightRef = useRef(false);
   const importAnalysisInFlightKeyRef = useRef<string | null>(null);
   const pendingImportAnalysisRef = useRef<{ jsonData: string; password: string; key: string } | null>(null);
   const lastAnalyzedImportRef = useRef<string | null>(null);
   const activeImportAnalysisKeyRef = useRef<string | null>(null);
   const handledActionSearchRef = useRef<string | null>(null);
+  const commandLayerImportBusyRef = useRef(false);
+  const commandLayerImportBusyKeyRef = useRef<string | null>(null);
+
+  const handleCommandLayerImportBusyChange = useCallback((busy: boolean, selectionKey: string) => {
+    if (busy) {
+      commandLayerImportBusyKeyRef.current = selectionKey;
+      commandLayerImportBusyRef.current = true;
+      setCommandLayerImportBusy(true);
+      return;
+    }
+    if (commandLayerImportBusyKeyRef.current !== selectionKey) return;
+    commandLayerImportBusyKeyRef.current = null;
+    commandLayerImportBusyRef.current = false;
+    setCommandLayerImportBusy(false);
+  }, []);
 
   const [maintenance, setMaintenance] = useState<config.MaintenanceSettings | null>(null);
   const [dbStats, setDbStats] = useState<database.DatabaseStats | null>(null);
@@ -538,6 +558,7 @@ export default function DataManagementPage() {
 
   const resetImportState = useCallback(() => {
     setImportPreview(null);
+    setCommandLayerImport(null);
     setImportAnalysis(null);
     setLastImportResult(null);
     setImportPassword('');
@@ -559,11 +580,30 @@ export default function DataManagementPage() {
     if (error instanceof SyntaxError) {
       return t('history.importInvalidJson', 'O arquivo selecionado não contém um JSON válido.');
     }
+    if (error instanceof Error && error.message === 'mixed-command-layers-import') {
+      return t('commandImport.mixedResources', 'Arquivos de camadas de comandos não podem misturar outros recursos. Selecione um arquivo somente de commandLayers.');
+    }
     return t('history.importInvalidFile', 'O arquivo selecionado não é um export canônico suportado.');
   }, [t]);
 
   const selectImportFile = useCallback(async () => {
     const selectedFile = await openImportFileDialog('.json,application/json');
+    const commandLayerInspection = inspectCommandLayerImport(selectedFile.content);
+    if (commandLayerInspection.kind === 'mixed') {
+      throw new Error('mixed-command-layers-import');
+    }
+    if (commandLayerInspection.kind === 'commandLayers') {
+      setCommandLayerImport(null);
+      setCommandLayerImportSelectionSequence((previous) => previous + 1);
+      setImportPreview(null);
+      setImportAnalysis(null);
+      setLastImportResult(null);
+      setImportPassword('');
+      setImportPasswordError('');
+      setCommandLayerImport({ fileName: selectedFile.name, jsonData: selectedFile.content });
+      return;
+    }
+    setCommandLayerImport(null);
     const preview = buildImportPreview(selectedFile.name, selectedFile.content);
     setImportPreview(preview);
     setImportAnalysis(null);
@@ -579,6 +619,7 @@ export default function DataManagementPage() {
   }, [analyzeImportPayload]);
 
   const handleSelectImportFile = useCallback(async () => {
+    if (commandLayerImportBusyRef.current) return;
     try {
       await selectImportFile();
     } catch (error) {
@@ -590,6 +631,10 @@ export default function DataManagementPage() {
       if (message) announce(message, 'assertive');
     }
   }, [announce, getImportErrorMessage, resetImportState, selectImportFile]);
+
+  const commandLayerImportSelectionKey = commandLayerImport
+    ? `${commandLayerImportSelectionSequence}:${commandLayerImport.fileName}`
+    : '';
 
   const handleConfirmImport = useCallback(async () => {
     if (lastImportResult) {
@@ -931,8 +976,8 @@ export default function DataManagementPage() {
         </div>
 
         <div className="data-management-card__actions data-management-card__actions--start">
-          <Button type="button" variant="secondary" onClick={() => void handleSelectImportFile()} disabled={isImporting}>
-            {importPreview ? t('history.importChangeFile', 'Trocar arquivo') : t('dataManagement.selectImportFile', 'Selecionar arquivo JSON')}
+          <Button type="button" variant="secondary" onClick={() => void handleSelectImportFile()} disabled={isImporting || commandLayerImportBusy || commandLayerImportBusyRef.current}>
+            {importPreview || commandLayerImport ? t('history.importChangeFile', 'Trocar arquivo') : t('dataManagement.selectImportFile', 'Selecionar arquivo JSON')}
           </Button>
           {importPreview && (
             <Button type="button" variant="ghost" onClick={resetImportState} disabled={isImporting}>
@@ -940,6 +985,18 @@ export default function DataManagementPage() {
             </Button>
           )}
         </div>
+
+        <CommandLayerExportPanel />
+
+        {commandLayerImport && (
+            <CommandLayerImportPanel
+              key={commandLayerImportSelectionKey}
+              selection={commandLayerImport}
+              onChangeFile={() => void handleSelectImportFile()}
+              selectionKey={commandLayerImportSelectionKey}
+              onBusyChange={handleCommandLayerImportBusyChange}
+            />
+        )}
 
         {importPreview && (
           <dl className="data-management__summary">

@@ -423,7 +423,7 @@ func TestConsumeConcurrentExactlyOneCallback(t *testing.T) {
 	for err := range errs {
 		if err == nil {
 			successes++
-		} else if !errors.Is(err, ErrStale) && !isTransientSQLiteError(err) {
+		} else if !errors.Is(err, ErrStale) {
 			t.Errorf("erro inesperado no consumo concorrente: %v", err)
 		}
 	}
@@ -432,6 +432,35 @@ func TestConsumeConcurrentExactlyOneCallback(t *testing.T) {
 	}
 	if loadReceipt(t, db, request.DecisionID).State != Consumed || countEvents(t, db, request.DecisionID) != 3 || countEffects(t, db) != 1 {
 		t.Fatal("estado concorrente final inconsistente")
+	}
+}
+
+func TestConsumeCASRejectsIncompleteOrDifferentAcceptance(t *testing.T) {
+	for _, tc := range []struct {
+		name, column string
+		value        any
+	}{
+		{"missing response", "responded_at", nil},
+		{"missing action", "accepted_action_id", nil},
+		{"denied action", "accepted_action_id", DenyAction},
+		{"different allowed actions", "allowed_action_ids", `["apply"]`},
+		{"already consumed timestamp", "consumed_at", int64(1)},
+		{"different subject", "subject_type", "invocation"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, db, _, request := acceptedFixture(t)
+			if err := db.Model(&receiptRow{}).Where("decision_id = ?", request.DecisionID).Update(tc.column, tc.value).Error; err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			err := store.Consume(context.Background(), request, func(*gorm.DB) error { calls++; return nil })
+			if !errors.Is(err, ErrStale) || calls != 0 {
+				t.Fatalf("aceitação inconsistente consumida: err=%v calls=%d", err, calls)
+			}
+			if loadReceipt(t, db, request.DecisionID).State != Accepted || countEvents(t, db, request.DecisionID) != 2 || countEffects(t, db) != 0 {
+				t.Fatal("tentativa inválida alterou receipt, auditoria ou efeito")
+			}
+		})
 	}
 }
 

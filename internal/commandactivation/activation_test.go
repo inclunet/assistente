@@ -151,6 +151,25 @@ func TestPinToggleBackRespeitamOrigemEClaimsIndependentes(t *testing.T) {
 	}
 }
 
+func TestPinEToggleRejeitamClaimExistenteDeEpochInvalidado(t *testing.T) {
+	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	service, _, owner, layer, rule, _ := serviceFixture(t, &now)
+	origin := Origin{Type: "ui_action", SessionID: "session-same", DeviceID: "keyboard-a"}
+	if _, err := service.Pin(context.Background(), owner, layer, Ref{Kind: UserRef, ID: rule.ID}, origin, nil); err != nil {
+		t.Fatal(err)
+	}
+	invalidated := owner
+	invalidated.AuthGeneration = "auth-2"
+	invalidated.SecurityGeneration = "security-2"
+	service.ports.Owner = OwnerPortFunc(func(context.Context, Owner) (Owner, error) { return invalidated, nil })
+	if _, err := service.Pin(context.Background(), owner, layer, Ref{Kind: UserRef, ID: rule.ID}, origin, nil); !errors.Is(err, ErrStale) {
+		t.Fatalf("pin deveria rejeitar claim de epoch anterior: %v", err)
+	}
+	if _, err := service.Toggle(context.Background(), owner, layer, Ref{Kind: UserRef, ID: rule.ID}, origin, nil); !errors.Is(err, ErrStale) {
+		t.Fatalf("toggle deveria rejeitar claim de epoch anterior: %v", err)
+	}
+}
+
 func TestExpireÉIdempotenteENãoRessuscita(t *testing.T) {
 	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
 	service, store, owner, layer, rule, _ := serviceFixture(t, &now)
@@ -223,6 +242,219 @@ func TestRestorePersistentRebindSóComNovosEpochsEOrigem(t *testing.T) {
 	claim, err = store.GetClaim(context.Background(), newOwner, created.Claim.ActivationID)
 	if err != nil || claim.State != StateInactive || claim.TerminalReason == nil || *claim.TerminalReason != "origin_unavailable" {
 		t.Fatalf("claim sem origem não ficou inativa para revisão: %+v %v", claim, err)
+	}
+}
+
+func TestRestoreForWorkspacePreservaClaimEfemeraExataMasRestartNaoPreserva(t *testing.T) {
+	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	service, store, owner, layer, rule, _ := serviceFixture(t, &now)
+	rule.Lifecycle = LifecycleSession
+	if err := store.db.Save(&rule).Error; err != nil {
+		t.Fatal(err)
+	}
+	origin := Origin{Type: "ui_action", SessionID: "session-current", DeviceID: "keyboard-a"}
+	created, err := service.Pin(context.Background(), owner, layer, Ref{Kind: UserRef, ID: rule.ID}, origin, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutation, err := service.RestoreForWorkspace(context.Background(), owner, origin)
+	if err != nil || mutation.Changed {
+		t.Fatalf("troca de workspace alterou claim efêmera exata: %+v %v", mutation, err)
+	}
+	claim, err := store.GetClaim(context.Background(), owner, created.Claim.ActivationID)
+	if err != nil || claim.State != StateActive {
+		t.Fatalf("claim não preservada na troca de workspace: %+v %v", claim, err)
+	}
+	if _, err := service.RestorePersistent(context.Background(), owner, origin); err != nil {
+		t.Fatal(err)
+	}
+	claim, err = store.GetClaim(context.Background(), owner, created.Claim.ActivationID)
+	if err != nil || claim.State != StateInactive {
+		t.Fatalf("restart preservou claim efêmera indevidamente: %+v %v", claim, err)
+	}
+}
+
+func TestRestorePersistentMistoMantémClaimsAtivasNoMesmoEscopo(t *testing.T) {
+	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	db := activationDB(t)
+	store, err := NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := activationOwner(t)
+	globalLayer := Ref{Kind: UserRef, ID: activationID(t)}
+	localLayer := Ref{Kind: UserRef, ID: activationID(t)}
+	globalRule := manualRule(t, owner, globalLayer, LifecyclePersistent)
+	localRule := manualRule(t, owner, localLayer, LifecyclePersistent)
+	globalRule.RuleRefKind, globalRule.RuleRef = BuiltinRef, "restore.global"
+	localRule.RuleRefKind, localRule.RuleRef = BuiltinRef, "restore.local"
+	if err := store.CreateRule(context.Background(), globalRule); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateRule(context.Background(), localRule); err != nil {
+		t.Fatal(err)
+	}
+	layers := map[string]Layer{
+		globalLayer.ID: {Ref: globalLayer, UserID: owner.UserID, Enabled: true},
+		localLayer.ID:  {Ref: localLayer, UserID: owner.UserID, Enabled: true},
+	}
+	service, err := New(db, &commandsecurity.DispatchGate{}, Ports{
+		Owner: OwnerPortFunc(func(context.Context, Owner) (Owner, error) { return owner, nil }),
+		Layer: LayerPortFunc(func(_ context.Context, _ Owner, ref Ref) (Layer, error) {
+			layer, ok := layers[ref.ID]
+			if !ok {
+				return Layer{}, ErrNotFound
+			}
+			return layer, nil
+		}),
+		Origin: OriginPortFunc(func(_ context.Context, _ Owner, origin Origin) (Origin, error) { return origin, nil }),
+	}, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin := Origin{Type: "ui_action", SessionID: "restore-session-1", DeviceID: "keyboard-a"}
+	globalPersistent, err := service.Pin(context.Background(), owner, globalLayer, Ref{Kind: BuiltinRef, ID: globalRule.RuleRef}, origin, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localPersistent, err := service.Pin(context.Background(), owner, localLayer, Ref{Kind: BuiltinRef, ID: localRule.RuleRef}, origin, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newOwner := owner
+	newOwner.AuthContextID, newOwner.AuthGeneration, newOwner.SecurityGeneration = "restore-session-2", "auth-2", "security-2"
+	service.ports.Owner = OwnerPortFunc(func(context.Context, Owner) (Owner, error) { return newOwner, nil })
+	mutation, err := service.RestorePersistent(context.Background(), owner, Origin{Type: "ui_action", SessionID: "restore-session-2", DeviceID: "keyboard-b"})
+	if err != nil {
+		t.Fatalf("restore misto: %+v %v", mutation, err)
+	}
+	if !mutation.Changed || mutation.ActiveLayersChanged || len(mutation.Generations) != 0 {
+		t.Fatalf("escopos/gerações incorretos: %+v", mutation)
+	}
+	claims, err := store.ListClaims(context.Background(), newOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := map[string]State{}
+	for _, claim := range claims {
+		states[claim.ActivationID] = claim.State
+	}
+	if states[globalPersistent.Claim.ActivationID] != StateActive || states[localPersistent.Claim.ActivationID] != StateActive {
+		t.Fatalf("restore reativou/encerrou claim errada: %+v", states)
+	}
+}
+
+func TestRestorePersistentResolveRegraRealPreservaGlobalEWorkspaceSemTocarOutro(t *testing.T) {
+	now := time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC)
+	db := activationDB(t)
+	store, err := NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseOwner := activationOwner(t)
+	currentWorkspace := "workspace-current"
+	otherWorkspace := "workspace-other"
+	globalOwner := baseOwner
+	globalOwner.WorkspaceID = nil
+	currentOwner := baseOwner
+	currentOwner.WorkspaceID = &currentWorkspace
+	otherOwner := baseOwner
+	otherOwner.WorkspaceID = &otherWorkspace
+
+	globalLayer := Ref{Kind: UserRef, ID: activationID(t)}
+	currentLayer := Ref{Kind: UserRef, ID: activationID(t)}
+	otherLayer := Ref{Kind: UserRef, ID: activationID(t)}
+	globalRule := manualRule(t, globalOwner, globalLayer, LifecyclePersistent)
+	currentRule := manualRule(t, currentOwner, currentLayer, LifecyclePersistent)
+	otherRule := manualRule(t, otherOwner, otherLayer, LifecyclePersistent)
+	currentRule.WorkspaceID = &currentWorkspace
+	otherRule.WorkspaceID = &otherWorkspace
+	if err := store.CreateRule(context.Background(), globalRule); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateRule(context.Background(), currentRule); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateRule(context.Background(), otherRule); err != nil {
+		t.Fatal(err)
+	}
+	layers := map[string]Layer{
+		globalLayer.ID:  {Ref: globalLayer, UserID: baseOwner.UserID, Enabled: true},
+		currentLayer.ID: {Ref: currentLayer, UserID: baseOwner.UserID, WorkspaceID: &currentWorkspace, Enabled: true},
+		otherLayer.ID:   {Ref: otherLayer, UserID: baseOwner.UserID, WorkspaceID: &otherWorkspace, Enabled: true},
+	}
+	owners := map[string]Owner{
+		"":               globalOwner,
+		currentWorkspace: currentOwner,
+		otherWorkspace:   otherOwner,
+	}
+	service, err := New(db, &commandsecurity.DispatchGate{}, Ports{
+		Owner: OwnerPortFunc(func(_ context.Context, asserted Owner) (Owner, error) {
+			owner, ok := owners[workspaceKey(asserted.WorkspaceID)]
+			if !ok {
+				return Owner{}, ErrForeignOwner
+			}
+			return owner, nil
+		}),
+		Layer: LayerPortFunc(func(_ context.Context, owner Owner, ref Ref) (Layer, error) {
+			for _, layer := range layers {
+				if layer.Ref == ref && layer.UserID == owner.UserID && sameWorkspace(layer.WorkspaceID, owner.WorkspaceID) {
+					return layer, nil
+				}
+			}
+			return Layer{}, ErrNotFound
+		}),
+		// RulePort fica omitido de propósito: New instala o Store real.
+		Origin: OriginPortFunc(func(_ context.Context, _ Owner, origin Origin) (Origin, error) { return origin, nil }),
+	}, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldOrigin := Origin{Type: "ui_action", SessionID: "restore-old", DeviceID: "keyboard-a"}
+	globalClaim, err := service.Pin(context.Background(), globalOwner, globalLayer, Ref{Kind: UserRef, ID: globalRule.ID}, oldOrigin, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentClaim, err := service.Pin(context.Background(), currentOwner, currentLayer, Ref{Kind: UserRef, ID: currentRule.ID}, oldOrigin, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherClaim, err := service.Pin(context.Background(), otherOwner, otherLayer, Ref{Kind: UserRef, ID: otherRule.ID}, oldOrigin, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newCurrentOwner := currentOwner
+	newCurrentOwner.AuthContextID = "restore-new-session"
+	newCurrentOwner.AuthGeneration = "restore-auth-2"
+	newCurrentOwner.SecurityGeneration = "restore-security-2"
+	owners[currentWorkspace] = newCurrentOwner
+	mutation, err := service.RestorePersistent(context.Background(), currentOwner, Origin{Type: "ui_action", SessionID: "restore-new-session", DeviceID: "keyboard-b"})
+	if err != nil {
+		t.Fatalf("restore global+workspace: %+v %v", mutation, err)
+	}
+
+	for _, want := range []struct {
+		owner Owner
+		claim Claim
+	}{
+		{newCurrentOwner, globalClaim.Claim},
+		{newCurrentOwner, currentClaim.Claim},
+	} {
+		claim, err := store.GetClaim(context.Background(), want.owner, want.claim.ActivationID)
+		if err != nil {
+			t.Fatalf("claim restaurada ausente (%s): %v", want.claim.ActivationID, err)
+		}
+		if claim.State != StateActive || claim.AuthContextID != newCurrentOwner.AuthContextID || claim.AuthGeneration != newCurrentOwner.AuthGeneration {
+			t.Fatalf("claim global/workspace não restaurada: %+v", claim)
+		}
+	}
+	untouched, err := store.GetClaim(context.Background(), otherOwner, otherClaim.Claim.ActivationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if untouched.State != StateActive || untouched.AuthContextID != otherClaim.Claim.AuthContextID || untouched.AuthGeneration != otherClaim.Claim.AuthGeneration {
+		t.Fatalf("claim de outro workspace foi alterada: %+v", untouched)
 	}
 }
 

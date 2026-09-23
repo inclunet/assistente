@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"assistente/internal/commandinstance"
 	"github.com/google/uuid"
 )
 
@@ -22,19 +23,23 @@ type sessionEpoch struct{ user, generation string }
 // antes de Capture. Não registra sessões, não autentica, não autoriza e não
 // representa o estado locked: o revalidador real deve recusar enquanto bloqueado.
 type EpochService struct {
-	gate           *DispatchGate
-	startup        string
-	sequence       uint64
-	security       string
-	sessions       map[string]sessionEpoch
-	transitions    uint64
-	disabled       bool
-	watchesMu      sync.Mutex
-	watches        map[*executionWatch]struct{}
-	executorDrains []func(context.Context) error // somente sob gate; registro obrigatório nos construtores
-	closing        bool
-	issuedSecurity map[string]struct{}
-	drainRunning   atomic.Bool
+	gate            *DispatchGate
+	startup         string
+	sequence        uint64
+	security        string
+	sessions        map[string]sessionEpoch
+	transitions     uint64
+	disabled        bool
+	watchesMu       sync.Mutex
+	watches         map[*executionWatch]struct{}
+	executorDrains  []func(context.Context) error // somente sob gate; registro obrigatório nos construtores
+	closing         bool
+	issuedSecurity  map[string]struct{}
+	drainRunning    atomic.Bool
+	instance        *commandinstance.Lease // gate; vinculada antes do primeiro executor
+	drained         bool                   // gate; só após join bem-sucedido de todos os executores
+	instanceGate    chan struct{}          // bootstrap/release; espera cancelável, nunca sob gate
+	instanceBinding bool                   // gate; bloqueia registro de executor durante I/O de bind
 }
 
 func NewEpochService(gate *DispatchGate) (*EpochService, error) {
@@ -46,7 +51,7 @@ func NewEpochService(gate *DispatchGate) (*EpochService, error) {
 		return nil, err
 	}
 	generation := id.String() + ":0"
-	return &EpochService{gate: gate, startup: id.String(), security: generation, sessions: map[string]sessionEpoch{}, issuedSecurity: map[string]struct{}{generation: {}}}, nil
+	return &EpochService{gate: gate, startup: id.String(), security: generation, sessions: map[string]sessionEpoch{}, issuedSecurity: map[string]struct{}{generation: {}}, instanceGate: make(chan struct{}, 1)}, nil
 }
 
 func epochID(value string) bool {
@@ -194,8 +199,9 @@ func (s *EpochService) mutate(ctx context.Context, userID, sessionID string, sec
 // sem invalidar a segurança global de usuários não afetados. O host deve
 // avançar as gerações do escopo alterado antes de publicar o snapshot. Não é
 // autorização nem transação de banco; callback curto e sem reentrada no gate.
-// Contextos de execução desse usuário são cancelados antes do callback, mesmo
-// se ele falhar; as demais contas permanecem intactas.
+// Contextos de preparação/execução de comandos desse usuário são cancelados
+// antes do callback, mesmo se ele falhar; fontes de WatchSecurityEpoch e as
+// demais contas permanecem intactas. Isso não invalida autenticação/segurança.
 func (s *EpochService) MutateUserConfiguration(ctx context.Context, userID string, action func() error) error {
 	if !s.valid() || action == nil || !epochID(userID) {
 		return ErrInvalidEpochInput

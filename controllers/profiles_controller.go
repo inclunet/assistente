@@ -6,6 +6,7 @@ import (
 	"assistente/internal/logging"
 	"assistente/internal/profiles"
 	"context"
+	"encoding/json"
 	"fmt"
 )
 
@@ -16,18 +17,89 @@ type ProfilesController struct {
 	emitter          ports.Emitter
 	contextProviders *contextprovider.Registry
 	onProfileChanged func(slug string) // callback para reinicializar LLM/Speech/Hotkeys
-	deleteProfile    func(context.Context, string, func() error) error
-	mutateProfiles   func(func() error) error
+	commitMutation   CommitProfileMutation
+}
+
+// CommitProfileMutation entrega uma mutação preparada ao coordenador da App.
+// O coordenador deve executar a mutação e chamar publish somente depois de um
+// commit bem-sucedido. O slug recebido por publish é o resultado efetivo da
+// operação (em particular, o slug gerado para create/duplicate).
+type CommitProfileMutation func(context.Context, *profiles.CommandMutation, func(string) error) (string, error)
+
+// PreparedProfileMutation conserva o plano e a publicação do domínio juntos.
+// O conteúdo é capturado na preparação; não é autoridade fornecida pela UI.
+type PreparedProfileMutation struct {
+	Mutation *profiles.CommandMutation
+	Publish  func(string) error
+}
+
+func (c *ProfilesController) PrepareCommandMutation(operation, slug string, profile *profiles.Profile, fingerprint string) (*PreparedProfileMutation, error) {
+	_, previousActive, currentFingerprint, err := c.profileMgr.ReadActiveCommandTarget()
+	if err != nil {
+		return nil, err
+	}
+	if fingerprint != currentFingerprint {
+		return nil, profiles.ErrStaleCommandMutation
+	}
+	var frozen *profiles.Profile
+	if profile != nil {
+		data, err := json.Marshal(profile)
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(data, &frozen); err != nil {
+			return nil, err
+		}
+	}
+	mutation, err := c.profileMgr.PrepareCommandMutation(operation, slug, frozen, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+	return &PreparedProfileMutation{Mutation: mutation, Publish: func(resultSlug string) error {
+		if operation == profiles.CommandMutationDelete {
+			c.emit("profile:deleted", map[string]interface{}{"slug": resultSlug})
+			return nil
+		}
+		value, err := c.profileMgr.Get(resultSlug)
+		if err != nil {
+			return err
+		}
+		_, active, _, err := c.profileMgr.ReadActiveCommandTarget()
+		if err != nil {
+			return err
+		}
+		refresh := operation == profiles.CommandMutationActivate ||
+			(operation == profiles.CommandMutationCreate && (frozen.Active || active != previousActive)) ||
+			(operation == profiles.CommandMutationUpdate && (resultSlug == previousActive || active != previousActive))
+		if refresh && c.onProfileChanged != nil {
+			if active == "" {
+				active = resultSlug
+			}
+			c.onProfileChanged(active)
+		}
+		event := "profile:created"
+		if operation == profiles.CommandMutationUpdate {
+			event = "profile:updated"
+		}
+		if operation == profiles.CommandMutationActivate {
+			event = "profile:changed"
+		}
+		payload := map[string]interface{}{"slug": resultSlug}
+		if operation != profiles.CommandMutationActivate && value != nil {
+			payload["name"] = value.Name
+		}
+		c.emit(event, payload)
+		return nil
+	}}, nil
 }
 
 // ProfilesControllerConfig agrupa as dependências do ProfilesController.
 type ProfilesControllerConfig struct {
-	ProfileMgr       *profiles.Manager
-	Emitter          ports.Emitter
-	ContextProviders *contextprovider.Registry
-	OnProfileChanged func(slug string)
-	DeleteProfile    func(context.Context, string, func() error) error
-	MutateProfiles   func(func() error) error
+	ProfileMgr            *profiles.Manager
+	Emitter               ports.Emitter
+	ContextProviders      *contextprovider.Registry
+	OnProfileChanged      func(slug string)
+	CommitProfileMutation CommitProfileMutation
 }
 
 // NewProfilesController cria um ProfilesController com suas dependências.
@@ -37,8 +109,7 @@ func NewProfilesController(cfg ProfilesControllerConfig) *ProfilesController {
 		emitter:          cfg.Emitter,
 		contextProviders: cfg.ContextProviders,
 		onProfileChanged: cfg.OnProfileChanged,
-		deleteProfile:    cfg.DeleteProfile,
-		mutateProfiles:   cfg.MutateProfiles,
+		commitMutation:   cfg.CommitProfileMutation,
 	}
 }
 
@@ -64,71 +135,65 @@ func (c *ProfilesController) GetActiveProfileAndSlug() (*profiles.ActiveProfile,
 	return c.profileMgr.GetActiveAndSlug()
 }
 
-func (c *ProfilesController) SetActiveProfile(slug string) error {
-	if err := c.mutateProfileFiles(func() error { return c.profileMgr.SetActive(slug) }); err != nil {
-		return err
+// Os callers nativos e o catálogo compartilham plano e publicação.
+func (c *ProfilesController) prepareNativeMutation(operation, slug string, profile *profiles.Profile) (*PreparedProfileMutation, error) {
+	fingerprint, err := c.profileMgr.CommandMutationSnapshot(slug)
+	if err != nil {
+		return nil, err
 	}
-	if c.onProfileChanged != nil {
-		c.onProfileChanged(slug)
-	}
-	c.emitter.Emit("profile:changed", map[string]interface{}{"slug": slug})
-	return nil
+	return c.PrepareCommandMutation(operation, slug, profile, fingerprint)
 }
 
-func (c *ProfilesController) CreateProfile(profile profiles.Profile) (string, error) {
-	slug, err := c.profileMgr.Create(&profile)
+func (c *ProfilesController) runNativeMutation(ctx context.Context, operation, slug string, profile *profiles.Profile) (string, error) {
+	prepared, err := c.prepareNativeMutation(operation, slug, profile)
 	if err != nil {
 		return "", err
 	}
-	c.emitter.Emit("profile:created", map[string]interface{}{"slug": slug, "name": profile.Name})
-	return slug, nil
+	return c.commitPreparedMutation(ctx, prepared.Mutation, prepared.Publish)
 }
 
-func (c *ProfilesController) DuplicateProfile(slug string) (string, error) {
-	newSlug, err := c.profileMgr.Duplicate(slug)
-	if err != nil {
-		return "", err
-	}
-	if profile, err := c.profileMgr.Get(newSlug); err == nil && profile != nil {
-		c.emitter.Emit("profile:created", map[string]interface{}{"slug": newSlug, "name": profile.Name})
-	}
-	return newSlug, nil
+func (c *ProfilesController) SetActiveProfileContext(ctx context.Context, slug string) error {
+	_, err := c.runNativeMutation(ctx, profiles.CommandMutationActivate, slug, nil)
+	return err
 }
 
-func (c *ProfilesController) UpdateProfile(slug string, profile profiles.Profile) error {
-	if err := c.mutateProfileFiles(func() error { return c.profileMgr.Update(slug, &profile) }); err != nil {
-		return err
-	}
-	if slug == c.profileMgr.GetActiveSlug() && c.onProfileChanged != nil {
-		logging.Infof(context.Background(), "controllers.profiles-controller", "[Profile] Perfil ativo atualizado, disparando onProfileChanged")
-		c.onProfileChanged(slug)
-	}
-	c.emitter.Emit("profile:updated", map[string]interface{}{"slug": slug, "name": profile.Name})
-	return nil
+func (c *ProfilesController) CreateProfileContext(ctx context.Context, profile profiles.Profile) (string, error) {
+	return c.runNativeMutation(ctx, profiles.CommandMutationCreate, "", &profile)
 }
 
-func (c *ProfilesController) DeleteProfile(slug string) error {
-	return c.DeleteProfileContext(context.Background(), slug)
+func (c *ProfilesController) DuplicateProfileContext(ctx context.Context, slug string) (string, error) {
+	return c.runNativeMutation(ctx, profiles.CommandMutationDuplicate, slug, nil)
+}
+
+func (c *ProfilesController) UpdateProfileContext(ctx context.Context, slug string, profile profiles.Profile) error {
+	_, err := c.runNativeMutation(ctx, profiles.CommandMutationUpdate, slug, &profile)
+	return err
 }
 
 func (c *ProfilesController) DeleteProfileContext(ctx context.Context, slug string) error {
-	deleteFile := func() error {
-		if slug == c.profileMgr.GetActiveSlug() {
-			return fmt.Errorf("não é possível deletar o perfil ativo")
-		}
-		return c.profileMgr.Delete(slug)
+	_, err := c.runNativeMutation(ctx, profiles.CommandMutationDelete, slug, nil)
+	return err
+}
+
+func (c *ProfilesController) commitPreparedMutation(ctx context.Context, mutation *profiles.CommandMutation, publish func(string) error) (string, error) {
+	ctx = ctxOrBackground(ctx)
+	if c.commitMutation == nil {
+		return "", fmt.Errorf("coordenador de mutações de perfil não configurado")
 	}
-	var err error
-	if c.deleteProfile != nil {
-		err = c.deleteProfile(ctx, slug, deleteFile)
-	} else {
-		err = deleteFile()
+	return c.commitMutation(ctx, mutation, publish)
+}
+
+func (c *ProfilesController) emit(event string, payload any) {
+	if c.emitter != nil {
+		c.emitter.Emit(event, payload)
 	}
-	if err != nil {
-		return err
+}
+
+func ctxOrBackground(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
 	}
-	c.emitter.Emit("profile:deleted", map[string]interface{}{"slug": slug})
-	return nil
+	return ctx
 }
 
 func (c *ProfilesController) GetProfileSearchPaths() []string {
@@ -146,11 +211,22 @@ func (c *ProfilesController) GetContextProviders() []contextprovider.ProviderMet
 // UpdateProfileMediaSupport atualiza o MediaSupport de um perfil e salva.
 // Chamado quando detectamos que um modelo não suporta determinado tipo de mídia.
 func (c *ProfilesController) UpdateProfileMediaSupport(mediaType string, supported bool) {
-	profile, err := c.profileMgr.GetActive()
-	if err != nil || profile == nil {
-		return
+	if err := c.UpdateProfileMediaSupportContext(context.Background(), mediaType, supported); err != nil {
+		logging.Errorf(context.Background(), "controllers.profiles-controller", "[MediaSupport] Erro ao salvar perfil: %v", err)
 	}
+}
 
+// UpdateProfileMediaSupportContext atualiza MediaSupport pela mutação
+// coordenada, sem disparar OnProfileChanged: a detecção automática não exige
+// reinicialização do runtime.
+func (c *ProfilesController) UpdateProfileMediaSupportContext(ctx context.Context, mediaType string, supported bool) error {
+	profile, activeSlug, fingerprint, err := c.profileMgr.ReadActiveCommandTarget()
+	if err != nil {
+		return err
+	}
+	if profile == nil || activeSlug == "" {
+		return fmt.Errorf("perfil ativo não encontrado")
+	}
 	if profile.MediaSupport == nil {
 		profile.MediaSupport = &profiles.MediaSupport{}
 	}
@@ -164,22 +240,17 @@ func (c *ProfilesController) UpdateProfileMediaSupport(mediaType string, support
 		profile.MediaSupport.Document = &supported
 	case "video":
 		profile.MediaSupport.Video = &supported
+	default:
+		return nil
 	}
 
-	slug := c.profileMgr.GetActiveSlug()
-	if slug == "" {
-		return
+	mutation, err := c.profileMgr.PrepareCommandMutation(profiles.CommandMutationUpdate, activeSlug, profile, fingerprint)
+	if err != nil {
+		return err
 	}
-	if err := c.mutateProfileFiles(func() error { return c.profileMgr.Update(slug, profile) }); err != nil {
-		logging.Errorf(context.Background(), "controllers.profiles-controller", "[MediaSupport] Erro ao salvar perfil: %v", err)
-	} else {
-		logging.Infof(context.Background(), "controllers.profiles-controller", "[MediaSupport] Perfil atualizado: %s=%v", mediaType, supported)
-	}
-}
-
-func (c *ProfilesController) mutateProfileFiles(mutate func() error) error {
-	if c.mutateProfiles != nil {
-		return c.mutateProfiles(mutate)
-	}
-	return mutate()
+	_, err = c.commitPreparedMutation(ctx, mutation, func(string) error {
+		logging.Infof(ctxOrBackground(ctx), "controllers.profiles-controller", "[MediaSupport] Perfil atualizado: %s=%v", mediaType, supported)
+		return nil
+	})
+	return err
 }

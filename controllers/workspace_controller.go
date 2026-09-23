@@ -1,7 +1,9 @@
 package controllers
 
 import (
+	"context"
 	"fmt"
+	"sync"
 
 	"assistente/internal/core/ports"
 	"assistente/internal/workspace"
@@ -11,19 +13,25 @@ import (
 type WorkspaceControllerConfig struct {
 	WorkspaceMgr *workspace.Manager
 	Emitter      ports.Emitter
+	// OnWorkspaceSwitched é chamado após a troca persistida e antes do evento
+	// público, para o bootstrap interno reconstruir a geração dependente.
+	OnWorkspaceSwitched func()
 }
 
 // WorkspaceController é o Inbound Adapter para gerenciamento de workspaces e abas.
 type WorkspaceController struct {
-	workspaceMgr *workspace.Manager
-	emitter      ports.Emitter
+	workspaceMgr        *workspace.Manager
+	emitter             ports.Emitter
+	switchMu            sync.Mutex
+	onWorkspaceSwitched func()
 }
 
 // NewWorkspaceController cria um WorkspaceController com as dependências injetadas.
 func NewWorkspaceController(cfg WorkspaceControllerConfig) *WorkspaceController {
 	return &WorkspaceController{
-		workspaceMgr: cfg.WorkspaceMgr,
-		emitter:      cfg.Emitter,
+		workspaceMgr:        cfg.WorkspaceMgr,
+		emitter:             cfg.Emitter,
+		onWorkspaceSwitched: cfg.OnWorkspaceSwitched,
 	}
 }
 
@@ -54,12 +62,17 @@ func (c *WorkspaceController) CreateWorkspace(name string) (*workspace.Workspace
 }
 
 func (c *WorkspaceController) SwitchWorkspace(workspaceID string) (*workspace.Workspace, error) {
+	c.switchMu.Lock()
+	defer c.switchMu.Unlock()
 	if c.workspaceMgr == nil {
 		return nil, fmt.Errorf("workspace manager not initialized")
 	}
 	ws, err := c.workspaceMgr.Switch(workspaceID)
 	if err != nil {
 		return nil, err
+	}
+	if c.onWorkspaceSwitched != nil {
+		c.onWorkspaceSwitched()
 	}
 	c.emitter.Emit("workspace:switched", ws)
 	return ws, nil
@@ -132,8 +145,24 @@ func (c *WorkspaceController) SetActiveWorkspaceTab(tabID string) error {
 	if err := c.workspaceMgr.SetActiveTab(tabID); err != nil {
 		return err
 	}
-	c.emitter.Emit("workspace:tab_activated", tabID)
+	// O evento carrega uma reconciliação do estado atual, já carimbada pelo
+	// Manager. Não é uma auditoria da operação nem depende do tabID isolado.
+	c.emitter.Emit("workspace:tab_activated", c.workspaceMgr.Active())
 	return nil
+}
+
+// SetActiveWorkspaceTabForWorkspace seleciona uma aba somente no workspace
+// explicitamente capturado pelo caller e publica o snapshot resultante.
+func (c *WorkspaceController) SetActiveWorkspaceTabForWorkspace(ctx context.Context, workspaceID, tabID string) (*workspace.Workspace, error) {
+	if c.workspaceMgr == nil {
+		return nil, fmt.Errorf("workspace manager not initialized")
+	}
+	ws, err := c.workspaceMgr.SetActiveWorkspaceTabForWorkspace(ctx, workspaceID, tabID)
+	if err != nil {
+		return nil, err
+	}
+	c.emitter.Emit("workspace:tab_activated", ws)
+	return ws, nil
 }
 
 func (c *WorkspaceController) UpdateWorkspaceTab(tabID string, updates map[string]any) error {

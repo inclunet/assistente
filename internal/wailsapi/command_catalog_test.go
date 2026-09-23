@@ -28,16 +28,29 @@ func TestCommandCatalogRequiresAuthenticatedSession(t *testing.T) {
 	t.Parallel()
 	wantErr := errors.New("sem sessão")
 	api := NewCommandCatalog()
-	AttachCommandCatalog(api, stubSession{err: wantErr}, commandCatalogFixture(t))
+	AttachCommandCatalog(api, stubSession{err: wantErr}, commandCatalogFixture(t), nil)
 	if _, err := api.ListCommands(apidto.CommandCatalogFilter{}); !errors.Is(err, wantErr) {
 		t.Fatalf("ListCommands: got %v, want %v", err, wantErr)
+	}
+}
+
+func TestCommandCatalogWithoutBackendReadinessIsUnavailable(t *testing.T) {
+	t.Parallel()
+	api := NewCommandCatalog()
+	AttachCommandCatalog(api, stubSession{ctx: context.Background()}, commandCatalogFixture(t), nil)
+	list, err := api.ListCommands(apidto.CommandCatalogFilter{Source: string(commandcatalog.Palette)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list[1].Available || !strings.Contains(list[1].ReadinessReason, "runtime") {
+		t.Fatalf("catálogo sem callback não fechou: %#v", list[1])
 	}
 }
 
 func TestCommandCatalogListsSearchesAndDescribes(t *testing.T) {
 	t.Parallel()
 	api := NewCommandCatalog()
-	AttachCommandCatalog(api, stubSession{ctx: context.Background()}, commandCatalogFixture(t))
+	AttachCommandCatalog(api, stubSession{ctx: context.Background()}, commandCatalogFixture(t), func(context.Context, commandcatalog.Definition, commandcatalog.Source) error { return nil })
 
 	list, err := api.ListCommands(apidto.CommandCatalogFilter{Locale: "pt-BR", Source: string(commandcatalog.Palette)})
 	if err != nil {
@@ -94,6 +107,44 @@ func TestCommandCatalogUsesWithUserNotRequireAuth(t *testing.T) {
 	}
 	if !strings.Contains(body, "WithUser(session,") {
 		t.Fatal("command_catalog.go deve chamar WithUser(session,")
+	}
+}
+
+func TestCommandCatalogWriteRequiresTrustedRuntimePolicy(t *testing.T) {
+	t.Parallel()
+	definition, _ := commandCatalogFixture(t).Lookup("fixture.ready")
+	definition.Effect = commandcatalog.Write
+	definition.HasMutableTarget = true
+	definition.HandlerClassification = commandcatalog.HandlerBackend
+	definition.Context = commandcatalog.ContextPolicy{Facts: []commandcatalog.ContextFact{{Provider: "workspace", Fact: "active_tab", Mode: commandcatalog.ExactVersion}}}
+	registry, err := commandcatalog.NewComplete([]commandcatalog.Registration{{Definition: definition, Handler: commandcatalog.HandlerContract{
+		Effect: definition.Effect, HasMutableTarget: true, Route: definition.HandlerRoute, Classification: definition.HandlerClassification,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"absent", "denied", "ready"} {
+		t.Run(mode, func(t *testing.T) {
+			api := NewCommandCatalog()
+			var readiness CommandCatalogReadiness
+			if mode != "absent" {
+				readiness = func(_ context.Context, got commandcatalog.Definition, source commandcatalog.Source) error {
+					if got.ID != definition.ID || source != commandcatalog.Palette || mode == "denied" {
+						return commandcatalog.ErrNotReady
+					}
+					return nil
+				}
+			}
+			AttachCommandCatalog(api, stubSession{ctx: context.Background()}, registry, readiness)
+			items, err := api.ListCommands(apidto.CommandCatalogFilter{Source: "palette"})
+			if err != nil || len(items) != 1 || items[0].Available != (mode == "ready") {
+				t.Fatalf("policy=%s items=%+v error=%v", mode, items, err)
+			}
+			items, err = api.ListCommands(apidto.CommandCatalogFilter{Source: "keyboard.global"})
+			if err != nil || len(items) != 1 || items[0].Available {
+				t.Fatalf("origem não permitida: items=%+v error=%v", items, err)
+			}
+		})
 	}
 }
 

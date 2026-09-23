@@ -30,8 +30,13 @@ func (a *App) initWorkspace() {
 		logging.Infof(context.Background(), "app.app-workspace", "Workspace ativo: %s (%s)", ws.Name, ws.ID)
 	}
 
+	a.configureWorkspaceController()
+}
+
+func (a *App) configureWorkspaceController() {
 	a.workspaceCtrl = controllers.NewWorkspaceController(controllers.WorkspaceControllerConfig{
-		WorkspaceMgr: a.workspaceMgr,
-		Emitter:      a.emitter,
+		WorkspaceMgr:        a.workspaceMgr,
+		Emitter:             a.emitter,
+		OnWorkspaceSwitched: a.reloadCommandsAfterWorkspaceSwitch,
 	})
 }

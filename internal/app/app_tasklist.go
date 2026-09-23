@@ -80,3 +80,11 @@ func (a *App) newTaskListService() *tasklist.Service {
 		Emitter: a.emitter,
 	})
 }
+
+// Somente o produtor de domínio conhecido recebe a origem interna autenticada.
+// Custom actions continuam usando PublishDomainEvent, sem elevar payloads.
+func (a *App) wireTaskListDomainEvents() {
+	if a.taskSvc != nil && a.jobMgr != nil {
+		a.taskSvc.SetDomainEventSink(a.jobMgr.TasklistDomainEventSink())
+	}
+}

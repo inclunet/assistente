@@ -104,7 +104,7 @@ func (p *Profiles) SetActiveProfile(slug string) error {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, ctrl.SetActiveProfile(slug)
+		return struct{}{}, ctrl.SetActiveProfileContext(ctx, slug)
 	})
 	return err
 }
@@ -116,7 +116,7 @@ func (p *Profiles) CreateProfile(profile profiles.Profile) (string, error) {
 		return "", err
 	}
 	return WithUser(session, func(ctx context.Context) (string, error) {
-		return ctrl.CreateProfile(profile)
+		return ctrl.CreateProfileContext(ctx, profile)
 	})
 }
 
@@ -127,7 +127,7 @@ func (p *Profiles) DuplicateProfile(slug string) (string, error) {
 		return "", err
 	}
 	return WithUser(session, func(ctx context.Context) (string, error) {
-		return ctrl.DuplicateProfile(slug)
+		return ctrl.DuplicateProfileContext(ctx, slug)
 	})
 }
 
@@ -138,7 +138,7 @@ func (p *Profiles) UpdateProfile(slug string, profile profiles.Profile) error {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, ctrl.UpdateProfile(slug, profile)
+		return struct{}{}, ctrl.UpdateProfileContext(ctx, slug, profile)
 	})
 	return err
 }
@@ -187,8 +187,8 @@ var knownProfileMediaTypes = map[string]struct{}{
 }
 
 // UpdateProfileMediaSupport atualiza o MediaSupport do perfil ativo e salva.
-// O controller não retorna error (falhas são logadas); a borda só propaga
-// ErrProfilesNotWired / falha de auth via WithUser.
+// A borda propaga a falha de persistência, além de ErrProfilesNotWired / falha
+// de auth via WithUser.
 // mediaType desconhecido: WithUser ainda roda (auth), mas não chama o controller.
 func (p *Profiles) UpdateProfileMediaSupport(mediaType string, supported bool) error {
 	session, ctrl, err := p.deps()
@@ -199,8 +199,7 @@ func (p *Profiles) UpdateProfileMediaSupport(mediaType string, supported bool) e
 		if _, ok := knownProfileMediaTypes[mediaType]; !ok {
 			return struct{}{}, nil
 		}
-		ctrl.UpdateProfileMediaSupport(mediaType, supported)
-		return struct{}{}, nil
+		return struct{}{}, ctrl.UpdateProfileMediaSupportContext(ctx, mediaType, supported)
 	})
 	return err
 }

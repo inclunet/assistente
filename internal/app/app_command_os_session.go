@@ -48,15 +48,58 @@ func (a *App) observeCommandOSSession(ctx context.Context, watch func(context.Co
 	if err := state.SetOSSessionState(context.Background(), false, true); err != nil {
 		return err
 	}
+	// A primeira observação chega depois da montagem e pode chegar depois
+	// do bootstrap de autenticação. Unlock invalida os mapas no HostState;
+	// portanto precisa reconstruí-los, não apenas mudar o bit de segurança.
+	// I/O de reconstrução nunca bloqueia a recepção do próximo lock do SO.
+	workerCtx, stopWorker := context.WithCancel(ctx)
+	pending := make(chan context.Context, 1)
+	workerDone := make(chan struct{})
+	go func() {
+		defer close(workerDone)
+		for {
+			select {
+			case <-workerCtx.Done():
+				return
+			case rebuildCtx := <-pending:
+				if rebuildCtx.Err() != nil {
+					continue
+				}
+				a.bootstrapCommandLifecycleAfterOSUnlock(rebuildCtx, state)
+			}
+		}
+	}()
+	var cancelObservation context.CancelFunc
 	defer func() {
+		stopWorker()
+		if cancelObservation != nil {
+			cancelObservation()
+		}
 		if err := state.SetOSSessionState(context.Background(), false, true); err != nil {
 			// O reset fail-closed é tentado mesmo no encerramento; se o HostState
 			// recusar a escrita, a falha precisa permanecer observável.
 			logging.Warnf(context.Background(), "app.commands", "Falha ao fechar observação da sessão do SO: %v", err)
 		}
+		<-workerDone
 	}()
 	return watch(ctx, func(observed ossession.State) error {
-		return state.SetOSSessionState(ctx, observed.Known, observed.Locked)
+		if cancelObservation != nil {
+			cancelObservation()
+		}
+		if err := state.SetOSSessionState(ctx, observed.Known, observed.Locked); err != nil {
+			return err
+		}
+		if observed.Known && !observed.Locked {
+			var rebuildCtx context.Context
+			rebuildCtx, cancelObservation = context.WithCancel(workerCtx)
+			// Só a observação mais recente importa; nunca acumular unlocks.
+			select {
+			case <-pending:
+			default:
+			}
+			pending <- rebuildCtx
+		}
+		return nil
 	})
 }
 

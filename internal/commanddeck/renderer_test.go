@@ -68,6 +68,37 @@ func TestRendererSendsOnlyChangedKeysAfterFullFrame(t *testing.T) {
 	}
 }
 
+func TestRendererClearsKeysRemovedFromSnapshot(t *testing.T) {
+	renderer := NewRenderer()
+	if err := renderer.OpenDevice("deck-a", testModel); err != nil {
+		t.Fatal(err)
+	}
+	frame := Frame{Device: "deck-a", Model: testModel, Keys: map[int]KeyView{
+		0: {Title: "A"}, 1: {Title: "B", ImageID: "b", ImageRGBA: []byte{1}},
+	}}
+	if _, err := renderer.Render(frame); err != nil {
+		t.Fatal(err)
+	}
+	for _, removed := range []int{1, 0} {
+		delete(frame.Keys, removed)
+		plan, err := renderer.Render(frame)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if plan.FullFrame || len(plan.Updates) != 1 || plan.Updates[0].Index != removed {
+			t.Fatalf("remoção deve enviar somente tecla removida: %+v", plan)
+		}
+		view := plan.Updates[0].View
+		if view.Title != "" || view.ImageID != "" || len(view.ImageRGBA) != 0 || view.State != "" || view.Announce != "" {
+			t.Fatalf("tecla removida deve ficar vazia: %+v", view)
+		}
+		again, err := renderer.Render(frame)
+		if err != nil || len(again.Updates) != 0 {
+			t.Fatalf("remoção deve ser idempotente: %+v, %v", again, err)
+		}
+	}
+}
+
 func TestRendererRejectsInvalidFramesAndDevices(t *testing.T) {
 	renderer := NewRenderer()
 	if _, err := renderer.Render(Frame{Device: "deck-a", Model: testModel}); !errors.Is(err, ErrInvalidDevice) {

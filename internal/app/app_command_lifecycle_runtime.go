@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandruntime"
 	"assistente/internal/commandsecurity"
+	"assistente/internal/database"
 	"github.com/google/uuid"
 )
 
@@ -58,9 +60,61 @@ func (r *appCommandLifecycleRuntime) Authenticate(ctx context.Context) error {
 	return err
 }
 
-func (r *appCommandLifecycleRuntime) Recover(context.Context, commandruntime.Generation) error {
-	// I14.3 ligará receipts/outbox/reconciliação durável. Por enquanto a porta é
-	// explícita e inerte: não mascara indisponibilidade como mapa pronto.
+func (r *appCommandLifecycleRuntime) Recover(ctx context.Context, _ commandruntime.Generation) error {
+	if ctx == nil {
+		return commandruntime.ErrInvalidConfiguration
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	db := database.DB()
+	if db == nil {
+		return commandruntime.ErrNotReady
+	}
+	// Só gerações registradas por participantes do protocolo de exclusão
+	// podem ser reconciliadas. Geração atual e registros desconhecidos ficam
+	// intactos e continuam sujeitos ao preflight global abaixo.
+	if r.epochs != nil {
+		proof, err := r.epochs.RestartProof(ctx, db)
+		if err != nil {
+			return fmt.Errorf("%w: autoridade de recovery: %w", commandruntime.ErrNotReady, err)
+		}
+		if proof.Valid() {
+			closed := commandsecurity.FromRestartProof(proof)
+			if err := recoverDrainedCommandDecisions(ctx, closed); err != nil {
+				return fmt.Errorf("%w: recovery de decisões: %w", commandruntime.ErrNotReady, err)
+			}
+			if err := recoverDrainedCommandInvocations(ctx, closed); err != nil {
+				return fmt.Errorf("%w: recovery de invocações: %w", commandruntime.ErrNotReady, err)
+			}
+		}
+	}
+	var pending struct {
+		Invocations int64
+		Ledgers     int64
+		Decisions   int64
+	}
+	// Este é um safety interlock: sem prova de encerramento interprocesso,
+	// nenhuma linha desconhecida é alterada. A consulta é global de
+	// propósito: inclui system, outros usuários e também uma eventual operação
+	// ainda viva neste processo. Pendência restante impede publicar o mapa.
+	err := db.WithContext(ctx).Raw(`
+		SELECT
+			(SELECT COUNT(*) FROM command_invocations WHERE status IN ('evaluating', 'queued', 'running')) AS invocations,
+			(SELECT COUNT(*) FROM command_idempotency_keys WHERE status IN ('evaluating', 'queued', 'running')) AS ledgers,
+			(SELECT COUNT(*) FROM command_decision_receipts WHERE status IN ('pending', 'accepted')) AS decisions`).Scan(&pending).Error
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return fmt.Errorf("%w: preflight de recovery: %v", commandruntime.ErrNotReady, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if pending.Invocations != 0 || pending.Ledgers != 0 || pending.Decisions != 0 {
+		return fmt.Errorf("%w: há trabalho recuperável pendente (invocações=%d, ledger=%d, decisões=%d)", commandruntime.ErrNotReady, pending.Invocations, pending.Ledgers, pending.Decisions)
+	}
 	return nil
 }
 

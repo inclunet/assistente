@@ -312,6 +312,39 @@ func TestRevocationInvalidatesPendingAuthorizationAndPreservesAudit(t *testing.T
 	}
 }
 
+func TestRevokeProfileGlobalDeferredPublishesReceiptExactlyOnce(t *testing.T) {
+	store, _, userA, _, jobA, _ := grantTestStore(t)
+	snapshot, err := store.AuthorizationSnapshot(userA, jobA.ID, "especialista")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Grant(userA, jobA.ID, "especialista", snapshot.Config.Fingerprint, "desktop", snapshot.Generation); err != nil {
+		t.Fatal(err)
+	}
+	var notifications int
+	store.SetJobsDisabledCallback(func(jobs []DisabledJob) {
+		if len(jobs) != 1 || jobs[0].Slug != jobA.Slug {
+			t.Fatalf("notificação inesperada: %#v", jobs)
+		}
+		notifications++
+	})
+	receipt, err := store.RevokeProfileGlobalDeferred(userA, "especialista", "profile excluído")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notifications != 0 {
+		t.Fatalf("notificação publicada antes do recibo: %d", notifications)
+	}
+	if receipt == nil {
+		t.Fatal("revogação com job afetado deveria devolver recibo")
+	}
+	receipt()
+	receipt()
+	if notifications != 1 {
+		t.Fatalf("recibo publicou %d notificações, want 1", notifications)
+	}
+}
+
 func TestProfileRevocationIntentFailsClosedAndRecoversAfterCrash(t *testing.T) {
 	store, db, userA, _, jobA, _ := grantTestStore(t)
 	snapshot, err := store.AuthorizationSnapshot(userA, jobA.ID, "especialista")
@@ -335,6 +368,33 @@ func TestProfileRevocationIntentFailsClosedAndRecoversAfterCrash(t *testing.T) {
 	_ = db.Model(&database.JobProfileGrant{}).Where("revoked_at IS NULL").Count(&active).Error
 	if intents != 0 || active != 0 {
 		t.Fatalf("recovery não concluiu revogação: intents=%d active=%d", intents, active)
+	}
+}
+
+func TestBeginProfileRevocationPreservesExistingIntentAndBarrier(t *testing.T) {
+	store, db, userA, _, jobA, _ := grantTestStore(t)
+	snapshot, err := store.AuthorizationSnapshot(userA, jobA.ID, "especialista")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Grant(userA, jobA.ID, "especialista", snapshot.Config.Fingerprint, "desktop", snapshot.Generation); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BeginProfileRevocation(userA, "especialista", "identidade-primeira", "primeira exclusão"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BeginProfileRevocation(userA, "especialista", "identidade-segunda", "segunda exclusão"); !errors.Is(err, ErrProfileRevocationPending) {
+		t.Fatalf("segunda intenção deveria ser recusada: %v", err)
+	}
+	var intent database.ProfileGrantRevocationIntent
+	if err := db.Where("target_profile_slug = ?", "especialista").First(&intent).Error; err != nil {
+		t.Fatal(err)
+	}
+	if intent.OriginalIdentity != "identidade-primeira" || intent.RequestedBy != "primeira exclusão" {
+		t.Fatalf("intenção original foi sobrescrita: %#v", intent)
+	}
+	if valid, err := store.HasValid(userA, jobA.ID, "especialista", snapshot.Config.Fingerprint); err != nil || valid {
+		t.Fatalf("barreira fail-closed foi perdida: valid=%v err=%v", valid, err)
 	}
 }
 

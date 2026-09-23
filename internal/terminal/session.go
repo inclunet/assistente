@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -89,19 +90,25 @@ type commandStartCallback func(sessionID, commandID, command, source string)
 
 // Session encapsula uma sessão PTY persistente com um shell.
 type Session struct {
-	id         string
-	name       string
-	ptySession ptyx.Session
-	ptyReader  io.Reader
-	ptyWriter  io.Writer
-	state      SessionState
-	shell      string
-	cwd        string
-	mu         sync.Mutex
-	ioMu       sync.Mutex
-	history    []HistoryEntry
-	createdAt  time.Time
-	lastUsed   time.Time
+	id                string
+	sessionVersion    uint64
+	name              string
+	ptySession        ptyx.Session
+	ptyReader         io.Reader
+	ptyWriter         io.Writer
+	state             SessionState
+	commandGeneration uint64
+	// commandPending cobre a janela entre beginCommand e o write inicial.
+	// Não é uma prova de PID nem do estado de um subprocesso natural.
+	commandPending   bool
+	managedCommandID string
+	shell            string
+	cwd              string
+	mu               sync.Mutex
+	ioMu             sync.Mutex
+	history          []HistoryEntry
+	createdAt        time.Time
+	lastUsed         time.Time
 
 	// outputBuf acumula todo o output do PTY em background (para RunCommand com markers)
 	outputBuf bytes.Buffer
@@ -132,6 +139,16 @@ type Session struct {
 	exitOnce        sync.Once
 	ptyCloseOnce    sync.Once
 	explicitClose   bool
+}
+
+var nextSessionVersion atomic.Uint64
+
+func newSessionVersion() uint64 {
+	version := nextSessionVersion.Add(1)
+	if version == 0 {
+		version = nextSessionVersion.Add(1)
+	}
+	return version
 }
 
 const (
@@ -202,6 +219,7 @@ func newSession(name, workDir, shell string, onOutput outputCallback, onRawOutpu
 
 	s := &Session{
 		id:             uuid.NewString(),
+		sessionVersion: newSessionVersion(),
 		name:           name,
 		ptySession:     ptySession,
 		ptyReader:      ptyReader,
@@ -378,6 +396,9 @@ func (s *Session) closePTY(kill bool) {
 }
 
 func (s *Session) markExited(err error) {
+	s.ioMu.Lock()
+	defer s.ioMu.Unlock()
+
 	s.exitOnce.Do(func() {
 		s.mu.Lock()
 		s.state = StateExited
@@ -389,23 +410,36 @@ func (s *Session) markExited(err error) {
 	})
 }
 
-func (s *Session) beginCommand() error {
+func (s *Session) beginCommandWithID(commandID string) error {
+	s.ioMu.Lock()
+	defer s.ioMu.Unlock()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.state != StateIdle {
 		return fmt.Errorf("sessão %s não está disponível (estado: %s)", s.id, s.state.String())
 	}
+	if commandID == "" {
+		commandID = uuid.NewString()
+	}
 	s.state = StateRunning
+	s.commandGeneration++
+	s.commandPending = true
+	s.managedCommandID = commandID
 	s.lastUsed = time.Now()
 	return nil
 }
 
 func (s *Session) finishCommand() {
+	s.ioMu.Lock()
+	defer s.ioMu.Unlock()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.state == StateRunning {
 		s.state = StateIdle
 	}
+	s.commandPending = false
 }
 
 // RunCommand executa um comando na sessão PTY e retorna o output.
@@ -413,9 +447,15 @@ func (s *Session) finishCommand() {
 func (s *Session) RunCommand(ctx context.Context, command string, timeout time.Duration, source, commandID string) (*HistoryEntry, error) {
 	defer s.finishCommand()
 
+	s.mu.Lock()
 	if commandID == "" {
-		commandID = uuid.NewString()
+		commandID = s.managedCommandID
+		if commandID == "" {
+			commandID = uuid.NewString()
+		}
 	}
+	s.managedCommandID = commandID
+	s.mu.Unlock()
 	entry := &HistoryEntry{
 		ID:        commandID,
 		Command:   command,
@@ -464,6 +504,9 @@ func (s *Session) RunCommand(ctx context.Context, command string, timeout time.D
 		return nil, fmt.Errorf("sessão %s não possui writer PTY", s.id)
 	}
 	nWritten, err := s.ptyWriter.Write([]byte(wrappedCmd + enter))
+	s.mu.Lock()
+	s.commandPending = false
+	s.mu.Unlock()
 	s.ioMu.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("falha ao enviar comando para sessão %s: %w", s.id, err)
@@ -700,11 +743,6 @@ func (s *Session) State() SessionState {
 // Usado para comandos do usuário no Terminal Page e para input de programas interativos.
 // Não bloqueia — o output vem via streaming (onRawOutput).
 func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
-	if err := s.beginCommand(); err != nil {
-		return nil, err
-	}
-	defer s.finishCommand()
-
 	// Windows ConPTY espera CR (\r) para simular Enter.
 	// Unix PTY espera LF (\n) para executar o comando.
 	enter := "\n"
@@ -715,6 +753,10 @@ func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
 	if commandID == "" {
 		commandID = uuid.NewString()
 	}
+	if err := s.beginCommandWithID(commandID); err != nil {
+		return nil, err
+	}
+	defer s.finishCommand()
 	entry := &HistoryEntry{
 		ID:        commandID,
 		Command:   input,
@@ -738,6 +780,9 @@ func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
 		return nil, fmt.Errorf("sessão %s não possui writer PTY", s.id)
 	}
 	_, err := s.ptyWriter.Write([]byte(input + enter))
+	s.mu.Lock()
+	s.commandPending = false
+	s.mu.Unlock()
 	s.ioMu.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("falha ao enviar input para sessão %s: %w", s.id, err)
@@ -763,9 +808,8 @@ func (s *Session) Interrupt() error {
 	if s.ptyWriter == nil {
 		return fmt.Errorf("sessão %s não possui writer PTY", s.id)
 	}
-	_, err := s.ptyWriter.Write([]byte{0x03}) // Ctrl+C = ETX
-	if err != nil {
-		return fmt.Errorf("falha ao enviar Ctrl+C para sessão %s: %w", s.id, err)
+	if err := writeInterruptByte(s.ptyWriter, s.id); err != nil {
+		return err
 	}
 	logging.Infof(context.Background(), "terminal.session", "[Terminal] Ctrl+C enviado para sessão %s", s.id)
 	return nil
@@ -774,10 +818,19 @@ func (s *Session) Interrupt() error {
 // Close encerra a sessão PTY e libera recursos.
 func (s *Session) Close() error {
 	s.ensureLifecycleChannels()
+	s.ioMu.Lock()
+	return s.closeWithIOLock()
+}
+
+// closeWithIOLock executa o cleanup assumindo que ioMu está reservado pelo
+// chamador. Ele libera ioMu assim que Kill/estado closing terminam, antes de
+// aguardar o processo e drenar o leitor.
+func (s *Session) closeWithIOLock() error {
 	s.mu.Lock()
 	if s.state == StateClosing {
 		closeDone := s.closeDone
 		s.mu.Unlock()
+		s.ioMu.Unlock()
 		<-closeDone
 		s.mu.Lock()
 		err := s.closeErr
@@ -787,6 +840,7 @@ func (s *Session) Close() error {
 	if s.state == StateExited {
 		err := s.closeErr
 		s.mu.Unlock()
+		s.ioMu.Unlock()
 		return err
 	}
 
@@ -799,7 +853,6 @@ func (s *Session) Close() error {
 	// Primeiro encerra a árvore de processos. Kill no ptyx usa
 	// TerminateProcess no Windows; Wait confirma a saída antes de liberar os
 	// handles. O leitor permanece aberto nesse intervalo para drenar o ConPTY.
-	s.ioMu.Lock()
 	var killErr error
 	if s.ptySession != nil {
 		killErr = s.ptySession.Kill()
@@ -829,6 +882,20 @@ func (s *Session) Close() error {
 	s.mu.Unlock()
 	s.closeDoneOnce.Do(func() { close(s.closeDone) })
 	return closeErr
+}
+
+// closeCapturedSession é usado somente por CloseOperation depois de
+// PrepareClose reservar ioMu. A segunda comparação fecha a janela entre a
+// captura e o efeito, inclusive contra saída natural da sessão.
+func (s *Session) closeCapturedSession(token *closeSnapshotToken) error {
+	s.mu.Lock()
+	if !s.matchesCloseSnapshot(token) {
+		s.mu.Unlock()
+		s.ioMu.Unlock()
+		return ErrCloseStale
+	}
+	s.mu.Unlock()
+	return s.closeWithIOLock()
 }
 
 func isExpectedTermination(err error) bool {

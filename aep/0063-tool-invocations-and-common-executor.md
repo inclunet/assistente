@@ -93,6 +93,15 @@ dependências de montagem/manutenção da AEP-0103; esta adição não as habili
 
 ### D5 — Logs efêmeros e retenção própria
 
+Adendo AEP-0103 (17/09/2026, R05.2 ainda parcial): `commandtoolbridge`
+preserva conversa/turno, identidade estrutural da superfície e profile de
+origem. Profile de destino nunca substitui o profile-pai usado para avaliar
+delegação cross-profile. O caminho de jobs usa o mesmo ToolInvocationService,
+com `origin_type=job_run`; o vínculo ao comando fica na cadeia estrutural do
+run, sem reutilizar o ID da invocação técnica. Policies de paths da tool
+delegada são fixadas pelo bootstrap e limitadas ao job alvo, não a seus
+descendentes. Nada disso cria grants ou publica novas rotas no App.
+
 `tool_invocations` tem retenção por origem conforme a
 [AEP-0074-B — Compactação e Retenção do Banco de Dados](0074-database-compaction-and-retention.md).
 Invocações de chat integram a timeline da conversa e, por padrão, acompanham
@@ -401,6 +410,30 @@ técnica vive exclusivamente no ledger.
 | Testes cobrindo chat, job e dry-run no mesmo executor | Atendido | `service_tool_calls_persistence_test.go`, `executor_toolinvocations_test.go`, `manager_toolinvocations_test.go`, `internal/wailsapi/jobs_dryrun_test.go` |
 
 ## Relação com issues
+
+### Integração interna com comandos — AEP-0103, 17/09/2026
+
+Seção 38: a preparação da origem de eventos acontece no worker da ponte,
+antes de `Execute`, e sua revalidação final usa `BeforeExecute` após a
+persistência. O runtime carimba a origem privada do comando/da camada reativa
+no contexto da tool; efeitos sobre tasklists preservam essa raiz e a cadeia
+no job descendente. Isso não cria run artificial nem amplia grants. Cleanup
+da preparação preserva owner, cancelamento e deadline do pedido original.
+
+A montagem local de alvo fixo do App usa `ToolInvocationService`, com a mesma
+identidade de banco e registry do bootstrap. `BeforeExecute` revalida a
+autorização após `Create`/`MarkRunning`, antes da tool. Recusa, panic e
+cancelamento produzem resultado genérico, sem persistir mensagens do guard.
+Falhas de persistência não autorizam a execução; na falha de finalização de
+uma recusa, a remoção da linha é best-effort, não uma garantia contra perda
+do banco/processo. A qualificação de recuperação continua pendente.
+
+`ExpectedToolGeneration` fixa o registro autorizado: o executor captura tool
+e geração atomicamente, recusando substituição com o mesmo nome. Chamadores
+existentes sem pin continuam com sua política atual. Não há novo executor,
+allowlist de shell ou permissão implícita para profiles. A confirmação do
+comando não substitui políticas próprias da tool. Esse corte não publica
+comandos de tools nem certifica as identidades agent/job ou ciclo reativo.
 
 - Fecha a issue de unificação de execução e storage de tool calls.
 - Inclui a base para a issue de dry-run/teste de tools pelo catálogo.

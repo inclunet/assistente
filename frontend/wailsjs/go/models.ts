@@ -969,6 +969,162 @@ export namespace apidto {
 	        this.hasLink = source["hasLink"];
 	    }
 	}
+	export class EditorCommandCommitRequest {
+	    ticket: string;
+	    handoffId: string;
+	    token: string;
+	    confirmOverwrite: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new EditorCommandCommitRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ticket = source["ticket"];
+	        this.handoffId = source["handoffId"];
+	        this.token = source["token"];
+	        this.confirmOverwrite = source["confirmOverwrite"];
+	    }
+	}
+	export class EditorCommandPreparation {
+	    token: string;
+	    path: string;
+	    cancelled: boolean;
+	    requiresOverwrite: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new EditorCommandPreparation(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.token = source["token"];
+	        this.path = source["path"];
+	        this.cancelled = source["cancelled"];
+	        this.requiresOverwrite = source["requiresOverwrite"];
+	    }
+	}
+	export class FileDialogLabels {
+	    title: string;
+	    markdownFilter: string;
+	    allFilesFilter: string;
+	    defaultFilename: string;
+
+	    static createFrom(source: any = {}) {
+	        return new FileDialogLabels(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.markdownFilter = source["markdownFilter"];
+	        this.allFilesFilter = source["allFilesFilter"];
+	        this.defaultFilename = source["defaultFilename"];
+	    }
+	}
+	export class EditorCommandPrepareRequest {
+	    ticket: string;
+	    handoffId: string;
+	    content?: string;
+	    labels: FileDialogLabels;
+	    suggestedFilename?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new EditorCommandPrepareRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ticket = source["ticket"];
+	        this.handoffId = source["handoffId"];
+	        this.content = source["content"];
+	        this.labels = this.convertValues(source["labels"], FileDialogLabels);
+	        this.suggestedFilename = source["suggestedFilename"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class EditorOpenResult {
+	    path: string;
+	    content: string;
+	    projected: boolean;
+	    format?: string;
+	    readOnly: boolean;
+	    pages?: number;
+	    warnings?: string[];
+	    warningCode?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new EditorOpenResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.content = source["content"];
+	        this.projected = source["projected"];
+	        this.format = source["format"];
+	        this.readOnly = source["readOnly"];
+	        this.pages = source["pages"];
+	        this.warnings = source["warnings"];
+	        this.warningCode = source["warningCode"];
+	    }
+	}
+	export class EditorCommandResult {
+	    status: string;
+	    tabId: string;
+	    path: string;
+	    opened?: EditorOpenResult;
+	    written: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new EditorCommandResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.tabId = source["tabId"];
+	        this.path = source["path"];
+	        this.opened = this.convertValues(source["opened"], EditorOpenResult);
+	        this.written = source["written"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class EditorFileInfo {
 	    path: string;
 	    exists: boolean;
@@ -1009,32 +1165,7 @@ export namespace apidto {
 	        this.createdAt = source["createdAt"];
 	    }
 	}
-	export class EditorOpenResult {
-	    path: string;
-	    content: string;
-	    projected: boolean;
-	    format?: string;
-	    readOnly: boolean;
-	    pages?: number;
-	    warnings?: string[];
-	    warningCode?: string;
 
-	    static createFrom(source: any = {}) {
-	        return new EditorOpenResult(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
-	        this.content = source["content"];
-	        this.projected = source["projected"];
-	        this.format = source["format"];
-	        this.readOnly = source["readOnly"];
-	        this.pages = source["pages"];
-	        this.warnings = source["warnings"];
-	        this.warningCode = source["warningCode"];
-	    }
-	}
 	export class EditorState {
 	    fileModeByPath?: Record<string, string>;
 	    mergeSessionsByTabId?: Record<string, EditorMergeSession>;
@@ -1081,24 +1212,7 @@ export namespace apidto {
 	        this.label = source["label"];
 	    }
 	}
-	export class FileDialogLabels {
-	    title: string;
-	    markdownFilter: string;
-	    allFilesFilter: string;
-	    defaultFilename: string;
 
-	    static createFrom(source: any = {}) {
-	        return new FileDialogLabels(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.title = source["title"];
-	        this.markdownFilter = source["markdownFilter"];
-	        this.allFilesFilter = source["allFilesFilter"];
-	        this.defaultFilename = source["defaultFilename"];
-	    }
-	}
 	export class MCPServerAuthInfo {
 	    hasAuth: boolean;
 	    authType: string;
@@ -1642,6 +1756,866 @@ export namespace app {
 	        this.role = source["role"];
 	    }
 	}
+	export class ChatEditorCommandPlan {
+	    tabId: string;
+	    draftId?: string;
+	    filePath?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ChatEditorCommandPlan(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tabId = source["tabId"];
+	        this.draftId = source["draftId"];
+	        this.filePath = source["filePath"];
+	    }
+	}
+	export class ChatEditorCommandTarget {
+	    workspace?: workspace.Workspace;
+	    tabId: string;
+	    draftId?: string;
+	    filePath?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ChatEditorCommandTarget(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.workspace = this.convertValues(source["workspace"], workspace.Workspace);
+	        this.tabId = source["tabId"];
+	        this.draftId = source["draftId"];
+	        this.filePath = source["filePath"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandBindingEdit {
+	    id: string;
+	    layerId: string;
+	    commandId: string;
+	    triggerType: string;
+	    triggerSpec: string;
+	    enabled: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandBindingEdit(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.layerId = source["layerId"];
+	        this.commandId = source["commandId"];
+	        this.triggerType = source["triggerType"];
+	        this.triggerSpec = source["triggerSpec"];
+	        this.enabled = source["enabled"];
+	    }
+	}
+	export class CommandWorkspaceMetadata {
+	    id: string;
+	    name: string;
+	    profile: string;
+	    tab_count: number;
+	    is_active: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandWorkspaceMetadata(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.profile = source["profile"];
+	        this.tab_count = source["tab_count"];
+	        this.is_active = source["is_active"];
+	    }
+	}
+	export class CommandOutput {
+	    kind: string;
+	    workspaces: CommandWorkspaceMetadata[];
+
+	    static createFrom(source: any = {}) {
+	        return new CommandOutput(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.workspaces = this.convertValues(source["workspaces"], CommandWorkspaceMetadata);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandExecutionResult {
+	    invocationId: string;
+	    status: string;
+	    resultSummary?: string;
+	    errorCode?: string;
+	    output?: CommandOutput;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandExecutionResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.invocationId = source["invocationId"];
+	        this.status = source["status"];
+	        this.resultSummary = source["resultSummary"];
+	        this.errorCode = source["errorCode"];
+	        this.output = this.convertValues(source["output"], CommandOutput);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandLayerEdit {
+	    id: string;
+	    name: string;
+	    description: string;
+	    enabled: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandLayerEdit(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.enabled = source["enabled"];
+	    }
+	}
+
+	export class CommandPageMutationRequest {
+	    targetId: string;
+	    expectedFingerprint: string;
+	    title: string;
+	    description: string;
+	    profile?: profiles.Profile;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandPageMutationRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.targetId = source["targetId"];
+	        this.expectedFingerprint = source["expectedFingerprint"];
+	        this.title = source["title"];
+	        this.description = source["description"];
+	        this.profile = this.convertValues(source["profile"], profiles.Profile);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandPageMutationResult {
+	    id: string;
+	    title: string;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandPageMutationResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	    }
+	}
+	export class CommandProfileTarget {
+	    profile?: profiles.Profile;
+	    fingerprint: string;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandProfileTarget(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.profile = this.convertValues(source["profile"], profiles.Profile);
+	        this.fingerprint = source["fingerprint"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandSettingsAdjustment {
+	    deltaId: string;
+	    status: string;
+	    currentDefaultVersion: string;
+	    reason: string;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsAdjustment(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.deltaId = source["deltaId"];
+	        this.status = source["status"];
+	        this.currentDefaultVersion = source["currentDefaultVersion"];
+	        this.reason = source["reason"];
+	    }
+	}
+	export class CommandSettingsConditionClause {
+	    field: string;
+	    op: string;
+	    value: any;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsConditionClause(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.field = source["field"];
+	        this.op = source["op"];
+	        this.value = source["value"];
+	    }
+	}
+	export class CommandSettingsCondition {
+	    version: number;
+	    clauses: CommandSettingsConditionClause[];
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsCondition(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.clauses = this.convertValues(source["clauses"], CommandSettingsConditionClause);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandSettingsBinding {
+	    id: string;
+	    layerId: string;
+	    workspaceId?: string;
+	    commandId: string;
+	    triggerType: string;
+	    triggerSpec: string;
+	    enabled: boolean;
+	    persistedEnabled: boolean;
+	    suppressed: boolean;
+	    customized: boolean;
+	    readOnly: boolean;
+	    inherited?: boolean;
+	    defaultId: string;
+	    reviewStatus: string;
+	    arguments?: Record<string, any>;
+	    presentation?: Record<string, any>;
+	    condition: CommandSettingsCondition;
+	    effect?: string;
+	    resolutionPriority: number;
+	    replacesDefaultVersion?: string;
+	    replacesDefaultFingerprint?: string;
+	    currentDefaultVersion?: string;
+	    currentDefaultFingerprint?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsBinding(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.layerId = source["layerId"];
+	        this.workspaceId = source["workspaceId"];
+	        this.commandId = source["commandId"];
+	        this.triggerType = source["triggerType"];
+	        this.triggerSpec = source["triggerSpec"];
+	        this.enabled = source["enabled"];
+	        this.persistedEnabled = source["persistedEnabled"];
+	        this.suppressed = source["suppressed"];
+	        this.customized = source["customized"];
+	        this.readOnly = source["readOnly"];
+	        this.inherited = source["inherited"];
+	        this.defaultId = source["defaultId"];
+	        this.reviewStatus = source["reviewStatus"];
+	        this.arguments = source["arguments"];
+	        this.presentation = source["presentation"];
+	        this.condition = this.convertValues(source["condition"], CommandSettingsCondition);
+	        this.effect = source["effect"];
+	        this.resolutionPriority = source["resolutionPriority"];
+	        this.replacesDefaultVersion = source["replacesDefaultVersion"];
+	        this.replacesDefaultFingerprint = source["replacesDefaultFingerprint"];
+	        this.currentDefaultVersion = source["currentDefaultVersion"];
+	        this.currentDefaultFingerprint = source["currentDefaultFingerprint"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandSettingsBindingInput {
+	    id?: string;
+	    layerId: string;
+	    commandId?: string;
+	    triggerType: string;
+	    triggerSpec: string;
+	    arguments?: Record<string, any>;
+	    condition?: CommandSettingsCondition;
+	    effect: string;
+	    enabled: boolean;
+	    resolutionPriority: number;
+	    replacesDefaultId?: string;
+	    replacesDefaultVersion?: string;
+	    replacesDefaultFingerprint?: string;
+	    presentation?: Record<string, any>;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsBindingInput(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.layerId = source["layerId"];
+	        this.commandId = source["commandId"];
+	        this.triggerType = source["triggerType"];
+	        this.triggerSpec = source["triggerSpec"];
+	        this.arguments = source["arguments"];
+	        this.condition = this.convertValues(source["condition"], CommandSettingsCondition);
+	        this.effect = source["effect"];
+	        this.enabled = source["enabled"];
+	        this.resolutionPriority = source["resolutionPriority"];
+	        this.replacesDefaultId = source["replacesDefaultId"];
+	        this.replacesDefaultVersion = source["replacesDefaultVersion"];
+	        this.replacesDefaultFingerprint = source["replacesDefaultFingerprint"];
+	        this.presentation = source["presentation"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandSettingsCommand {
+	    id: string;
+	    name: string;
+	    description: string;
+	    allowedSources: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsCommand(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.allowedSources = source["allowedSources"];
+	    }
+	}
+
+
+	export class CommandSettingsDefaultRef {
+	    id: string;
+	    version: string;
+	    fingerprint: string;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsDefaultRef(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.version = source["version"];
+	        this.fingerprint = source["fingerprint"];
+	    }
+	}
+	export class CommandSettingsDefaultInput {
+	    bindingId: string;
+	    default: CommandSettingsDefaultRef;
+	    condition?: CommandSettingsCondition;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsDefaultInput(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.bindingId = source["bindingId"];
+	        this.default = this.convertValues(source["default"], CommandSettingsDefaultRef);
+	        this.condition = this.convertValues(source["condition"], CommandSettingsCondition);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+	export class CommandSettingsDiagnostic {
+	    code: string;
+	    severity: string;
+	    resourceId?: string;
+	    resourceIds?: string[];
+	    trigger?: string;
+	    message: string;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsDiagnostic(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.severity = source["severity"];
+	        this.resourceId = source["resourceId"];
+	        this.resourceIds = source["resourceIds"];
+	        this.trigger = source["trigger"];
+	        this.message = source["message"];
+	    }
+	}
+	export class CommandSettingsLayer {
+	    id: string;
+	    name: string;
+	    description: string;
+	    builtin: boolean;
+	    enabled: boolean;
+	    active: boolean;
+	    manualReady: boolean;
+	    manualActive: boolean;
+	    resolutionPriority: number;
+	    workspaceId?: string;
+	    activationModes?: string[];
+	    activeKnown: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsLayer(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.builtin = source["builtin"];
+	        this.enabled = source["enabled"];
+	        this.active = source["active"];
+	        this.manualReady = source["manualReady"];
+	        this.manualActive = source["manualActive"];
+	        this.resolutionPriority = source["resolutionPriority"];
+	        this.workspaceId = source["workspaceId"];
+	        this.activationModes = source["activationModes"];
+	        this.activeKnown = source["activeKnown"];
+	    }
+	}
+	export class CommandSettingsLayerInput {
+	    id?: string;
+	    name: string;
+	    description: string;
+	    enabled: boolean;
+	    resolutionPriority: number;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsLayerInput(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.enabled = source["enabled"];
+	        this.resolutionPriority = source["resolutionPriority"];
+	    }
+	}
+	export class CommandSettingsMutation {
+	    committed: boolean;
+	    published: boolean;
+	    id: string;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsMutation(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.committed = source["committed"];
+	        this.published = source["published"];
+	        this.id = source["id"];
+	    }
+	}
+	export class CommandSettingsRuleInput {
+	    id?: string;
+	    layerId: string;
+	    mode: string;
+	    condition?: CommandSettingsCondition;
+	    lifecycle: string;
+	    eventName?: string;
+	    allowedInternalProducerTypes?: string;
+	    enabled: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsRuleInput(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.layerId = source["layerId"];
+	        this.mode = source["mode"];
+	        this.condition = this.convertValues(source["condition"], CommandSettingsCondition);
+	        this.lifecycle = source["lifecycle"];
+	        this.eventName = source["eventName"];
+	        this.allowedInternalProducerTypes = source["allowedInternalProducerTypes"];
+	        this.enabled = source["enabled"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandSettingsMutationRequest {
+	    locale?: string;
+	    scope: string;
+	    operation: string;
+	    id?: string;
+	    layerRefKind?: string;
+	    expectedRevision: number;
+	    expectedFingerprint: string;
+	    layer?: CommandSettingsLayerInput;
+	    binding?: CommandSettingsBindingInput;
+	    rule?: CommandSettingsRuleInput;
+	    default?: CommandSettingsDefaultInput;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsMutationRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.locale = source["locale"];
+	        this.scope = source["scope"];
+	        this.operation = source["operation"];
+	        this.id = source["id"];
+	        this.layerRefKind = source["layerRefKind"];
+	        this.expectedRevision = source["expectedRevision"];
+	        this.expectedFingerprint = source["expectedFingerprint"];
+	        this.layer = this.convertValues(source["layer"], CommandSettingsLayerInput);
+	        this.binding = this.convertValues(source["binding"], CommandSettingsBindingInput);
+	        this.rule = this.convertValues(source["rule"], CommandSettingsRuleInput);
+	        this.default = this.convertValues(source["default"], CommandSettingsDefaultInput);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandSettingsRule {
+	    manualActive: boolean;
+	    manualExpiresAt?: number;
+	    id: string;
+	    layerId: string;
+	    workspaceId?: string;
+	    mode: string;
+	    condition: CommandSettingsCondition;
+	    lifecycle: string;
+	    eventName?: string;
+	    allowedInternalProducerTypes?: string;
+	    enabled: boolean;
+	    source: string;
+	    reviewStatus: string;
+	    grantGeneration?: number;
+	    grantFingerprint?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsRule(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.manualActive = source["manualActive"];
+	        this.manualExpiresAt = source["manualExpiresAt"];
+	        this.id = source["id"];
+	        this.layerId = source["layerId"];
+	        this.workspaceId = source["workspaceId"];
+	        this.mode = source["mode"];
+	        this.condition = this.convertValues(source["condition"], CommandSettingsCondition);
+	        this.lifecycle = source["lifecycle"];
+	        this.eventName = source["eventName"];
+	        this.allowedInternalProducerTypes = source["allowedInternalProducerTypes"];
+	        this.enabled = source["enabled"];
+	        this.source = source["source"];
+	        this.reviewStatus = source["reviewStatus"];
+	        this.grantGeneration = source["grantGeneration"];
+	        this.grantFingerprint = source["grantFingerprint"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+	export class CommandSettingsSnapshot {
+	    scope?: string;
+	    revision?: number;
+	    fingerprint?: string;
+	    layers: CommandSettingsLayer[];
+	    bindings: CommandSettingsBinding[];
+	    rules?: CommandSettingsRule[];
+	    diagnostics?: CommandSettingsDiagnostic[];
+	    adjustments?: CommandSettingsAdjustment[];
+	    commands: CommandSettingsCommand[];
+	    keyboardOperational: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsSnapshot(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scope = source["scope"];
+	        this.revision = source["revision"];
+	        this.fingerprint = source["fingerprint"];
+	        this.layers = this.convertValues(source["layers"], CommandSettingsLayer);
+	        this.bindings = this.convertValues(source["bindings"], CommandSettingsBinding);
+	        this.rules = this.convertValues(source["rules"], CommandSettingsRule);
+	        this.diagnostics = this.convertValues(source["diagnostics"], CommandSettingsDiagnostic);
+	        this.adjustments = this.convertValues(source["adjustments"], CommandSettingsAdjustment);
+	        this.commands = this.convertValues(source["commands"], CommandSettingsCommand);
+	        this.keyboardOperational = source["keyboardOperational"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandTaskListTarget {
+	    taskList?: database.TaskList;
+	    fingerprint: string;
+
+	    static createFrom(source: any = {}) {
+	        return new CommandTaskListTarget(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.taskList = this.convertValues(source["taskList"], database.TaskList);
+	        this.fingerprint = source["fingerprint"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
 	export class CreateAdminRequest {
 	    username: string;
 	    displayName: string;
@@ -1658,6 +2632,261 @@ export namespace app {
 	        this.password = source["password"];
 	    }
 	}
+	export class GlobalVoiceHandoff {
+	    ticket: string;
+	    invocationId: string;
+	    commandId: string;
+	    handoffId: string;
+	    profile_slug: string;
+	    trigger_type: string;
+	    bring_to_front: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new GlobalVoiceHandoff(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ticket = source["ticket"];
+	        this.invocationId = source["invocationId"];
+	        this.commandId = source["commandId"];
+	        this.handoffId = source["handoffId"];
+	        this.profile_slug = source["profile_slug"];
+	        this.trigger_type = source["trigger_type"];
+	        this.bring_to_front = source["bring_to_front"];
+	    }
+	}
+	export class LocalCommandShortcutStep {
+	    code: string;
+	    modifiers: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new LocalCommandShortcutStep(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.modifiers = source["modifiers"];
+	    }
+	}
+	export class LocalCommandShortcut {
+	    version: number;
+	    code: string;
+	    modifiers: string[];
+	    steps?: LocalCommandShortcutStep[];
+
+	    static createFrom(source: any = {}) {
+	        return new LocalCommandShortcut(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.code = source["code"];
+	        this.modifiers = source["modifiers"];
+	        this.steps = this.convertValues(source["steps"], LocalCommandShortcutStep);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class LocalCommandKeyboardBinding {
+	    shortcut: LocalCommandShortcut;
+	    commandId: string;
+	    handler: string;
+
+	    static createFrom(source: any = {}) {
+	        return new LocalCommandKeyboardBinding(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.shortcut = this.convertValues(source["shortcut"], LocalCommandShortcut);
+	        this.commandId = source["commandId"];
+	        this.handler = source["handler"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class LocalCommandKeyboardContext {
+	    surfaceId: string;
+	    surfaceType: string;
+	    profile?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new LocalCommandKeyboardContext(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.surfaceId = source["surfaceId"];
+	        this.surfaceType = source["surfaceType"];
+	        this.profile = source["profile"];
+	    }
+	}
+	export class LocalCommandKeyboardContextualBinding {
+	    fallbackToSequences?: boolean;
+	    shortcut: LocalCommandShortcut;
+	    bySurface: Record<string, LocalCommandKeyboardBinding>;
+	    bySurfaceId?: Record<string, any>;
+	    byProfile?: Record<string, LocalCommandKeyboardContextualBinding>;
+	    sequenceFallbacks?: Record<string, any>;
+	    fallback?: LocalCommandKeyboardBinding;
+
+	    static createFrom(source: any = {}) {
+	        return new LocalCommandKeyboardContextualBinding(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fallbackToSequences = source["fallbackToSequences"];
+	        this.shortcut = this.convertValues(source["shortcut"], LocalCommandShortcut);
+	        this.bySurface = this.convertValues(source["bySurface"], LocalCommandKeyboardBinding, true);
+	        this.bySurfaceId = source["bySurfaceId"];
+	        this.byProfile = this.convertValues(source["byProfile"], LocalCommandKeyboardContextualBinding, true);
+	        this.sequenceFallbacks = source["sequenceFallbacks"];
+	        this.fallback = this.convertValues(source["fallback"], LocalCommandKeyboardBinding);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class LocalCommandPaletteCondition {
+	    commandId: string;
+	    bySurface: Record<string, boolean>;
+	    bySurfaceId?: Record<string, any>;
+	    byProfile?: Record<string, LocalCommandPaletteCondition>;
+	    fallback: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new LocalCommandPaletteCondition(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.commandId = source["commandId"];
+	        this.bySurface = source["bySurface"];
+	        this.bySurfaceId = source["bySurfaceId"];
+	        this.byProfile = this.convertValues(source["byProfile"], LocalCommandPaletteCondition, true);
+	        this.fallback = source["fallback"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class LocalCommandKeyboardMap {
+	    validUntil?: number;
+	    generation: string;
+	    ownerId: string;
+	    sessionId: string;
+	    workspaceId: string;
+	    bindings: LocalCommandKeyboardBinding[];
+	    contextualBindings?: LocalCommandKeyboardContextualBinding[];
+	    localPaletteCommands: string[];
+	    localPaletteConditions?: LocalCommandPaletteCondition[];
+	    contextualPaletteConditions?: LocalCommandPaletteCondition[];
+
+	    static createFrom(source: any = {}) {
+	        return new LocalCommandKeyboardMap(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.validUntil = source["validUntil"];
+	        this.generation = source["generation"];
+	        this.ownerId = source["ownerId"];
+	        this.sessionId = source["sessionId"];
+	        this.workspaceId = source["workspaceId"];
+	        this.bindings = this.convertValues(source["bindings"], LocalCommandKeyboardBinding);
+	        this.contextualBindings = this.convertValues(source["contextualBindings"], LocalCommandKeyboardContextualBinding);
+	        this.localPaletteCommands = source["localPaletteCommands"];
+	        this.localPaletteConditions = this.convertValues(source["localPaletteConditions"], LocalCommandPaletteCondition);
+	        this.contextualPaletteConditions = this.convertValues(source["contextualPaletteConditions"], LocalCommandPaletteCondition);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+
+
 	export class LoginRequest {
 	    username: string;
 	    password: string;
@@ -2461,6 +3690,45 @@ export namespace commandbridge {
 	        this.invocationId = source["invocationId"];
 	        this.accepted = source["accepted"];
 	        this.reason = source["reason"];
+	    }
+	}
+
+}
+
+export namespace commandui {
+
+	export class Handoff {
+	    ticket: string;
+	    invocationId: string;
+	    commandId: string;
+	    handoffId: string;
+
+	    static createFrom(source: any = {}) {
+	        return new Handoff(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ticket = source["ticket"];
+	        this.invocationId = source["invocationId"];
+	        this.commandId = source["commandId"];
+	        this.handoffId = source["handoffId"];
+	    }
+	}
+	export class Reservation {
+	    ticket: string;
+	    invocationId: string;
+	    commandId: string;
+
+	    static createFrom(source: any = {}) {
+	        return new Reservation(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ticket = source["ticket"];
+	        this.invocationId = source["invocationId"];
+	        this.commandId = source["commandId"];
 	    }
 	}
 
@@ -3407,6 +4675,63 @@ export namespace database {
 
 }
 
+export namespace hotkey {
+
+	export class OwnershipCombination {
+	    key: number;
+	    modifiers: number;
+
+	    static createFrom(source: any = {}) {
+	        return new OwnershipCombination(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.modifiers = source["modifiers"];
+	    }
+	}
+	export class OwnershipFrame {
+	    version: number;
+	    instanceId: string;
+	    revision: number;
+	    platform: string;
+	    combinations: OwnershipCombination[];
+
+	    static createFrom(source: any = {}) {
+	        return new OwnershipFrame(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.instanceId = source["instanceId"];
+	        this.revision = source["revision"];
+	        this.platform = source["platform"];
+	        this.combinations = this.convertValues(source["combinations"], OwnershipCombination);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace jobprofilegrant {
 
 	export class Grant {
@@ -4115,7 +5440,22 @@ export namespace jobs {
 
 export namespace llm {
 
+	export class ChatCommandMetadata {
+	    ticket: string;
+	    handoffId: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ChatCommandMetadata(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ticket = source["ticket"];
+	        this.handoffId = source["handoffId"];
+	    }
+	}
 	export class ChatParams {
+	    command?: ChatCommandMetadata;
 	    model: string;
 	    maxTokens: number;
 	    maxTokensMode?: string;
@@ -4144,6 +5484,7 @@ export namespace llm {
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.command = this.convertValues(source["command"], ChatCommandMetadata);
 	        this.model = source["model"];
 	        this.maxTokens = source["maxTokens"];
 	        this.maxTokensMode = source["maxTokensMode"];
@@ -4166,6 +5507,24 @@ export namespace llm {
 	        this.surfaceType = source["surfaceType"];
 	        this.surfaceTabId = source["surfaceTabId"];
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class DebugDumpConfig {
 	    Enabled: boolean;
@@ -6827,6 +8186,8 @@ export namespace workspace {
 	    // Go type: time
 	    last_used: any;
 	    tabs: TabsState;
+	    snapshot_epoch: string;
+	    snapshot_sequence: string;
 
 	    static createFrom(source: any = {}) {
 	        return new Workspace(source);
@@ -6840,6 +8201,8 @@ export namespace workspace {
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.last_used = this.convertValues(source["last_used"], null);
 	        this.tabs = this.convertValues(source["tabs"], TabsState);
+	        this.snapshot_epoch = source["snapshot_epoch"];
+	        this.snapshot_sequence = source["snapshot_sequence"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

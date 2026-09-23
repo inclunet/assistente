@@ -2,6 +2,7 @@ package commanddeck
 
 import (
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"sync"
@@ -9,13 +10,21 @@ import (
 	streamdeck "rafaelmartins.com/p/streamdeck"
 )
 
+var ErrStreamDeckEventOverflow = errors.New("buffer de eventos do stream deck cheio")
+
 type StreamDeckDriver struct{}
 
 func NewStreamDeckDriver() *StreamDeckDriver {
 	return &StreamDeckDriver{}
 }
 
-func (d *StreamDeckDriver) Enumerate(context.Context) ([]PhysicalDevice, error) {
+func (d *StreamDeckDriver) Enumerate(ctx context.Context) ([]PhysicalDevice, error) {
+	if ctx == nil {
+		return nil, ErrDriverUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	devices, err := streamdeck.Enumerate()
 	if err != nil {
 		return nil, err
@@ -35,21 +44,38 @@ func (d *StreamDeckDriver) Open(ctx context.Context, device PhysicalDevice) (Han
 	if ctx == nil {
 		return nil, ErrDriverUnavailable
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	dev, err := streamdeck.GetDevice(string(device.ID))
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if err := dev.Open(); err != nil {
 		return nil, err
 	}
-	handle := &streamDeckHandle{device: dev, events: make(chan PhysicalKeyEvent, int(device.Model.KeyCount())*2)}
+	eventCapacity := int(device.Model.KeyCount()) * 2
+	if eventCapacity < 1 {
+		eventCapacity = 1
+	}
+	handle := &streamDeckHandle{
+		device:      dev,
+		events:      make(chan PhysicalKeyEvent, eventCapacity),
+		eventClosed: make(chan struct{}),
+		listenDone:  make(chan struct{}),
+	}
 	if err := dev.ForEachKey(func(key streamdeck.KeyID) error {
 		return dev.AddKeyHandler(key, func(_ *streamdeck.Device, pressed *streamdeck.Key) error {
 			index := int(pressed.GetID()) - 1
-			handle.emit(PhysicalKeyEvent{Index: index, Down: true})
+			if err := handle.emit(PhysicalKeyEvent{Index: index, Down: true}); err != nil {
+				return err
+			}
 			go func() {
 				pressed.WaitForRelease()
-				handle.emit(PhysicalKeyEvent{Index: index, Down: false})
+				_ = handle.emit(PhysicalKeyEvent{Index: index, Down: false})
 			}()
 			return nil
 		})
@@ -58,35 +84,75 @@ func (d *StreamDeckDriver) Open(ctx context.Context, device PhysicalDevice) (Han
 		return nil, err
 	}
 	go func() {
+		defer close(handle.listenDone)
 		errCh := make(chan error, 1)
-		if err := dev.Listen(errCh); err != nil {
-			handle.fail(err)
+		errWatchDone := make(chan struct{})
+		go func() {
+			defer close(errWatchDone)
+			for {
+				select {
+				case err := <-errCh:
+					if err != nil {
+						handle.fail(err)
+					}
+				case <-handle.eventClosed:
+					return
+				}
+			}
+		}()
+		if err := handle.terminalError(); err != nil {
+			<-errWatchDone
 			return
 		}
-		if err := <-errCh; err != nil {
-			handle.fail(err)
+		listenErr := dev.Listen(errCh)
+		if listenErr != nil {
+			handle.fail(listenErr)
+		} else if handle.terminalError() == nil {
+			handle.fail(ErrInvalidDevice)
 		}
+		<-errWatchDone
 	}()
 	return handle, nil
 }
 
 type streamDeckHandle struct {
-	mu     sync.Mutex
-	device *streamdeck.Device
-	events chan PhysicalKeyEvent
-	err    error
-	closed bool
+	mu          sync.Mutex
+	ioMu        sync.Mutex
+	device      streamDeckDevice
+	events      chan PhysicalKeyEvent
+	eventClosed chan struct{}
+	listenDone  chan struct{}
+	releaseOnce sync.Once
+	releaseErr  error
+	err         error
+	closed      bool
+}
+
+type streamDeckDevice interface {
+	Close() error
+	ClearKey(streamdeck.KeyID) error
+	SetKeyColor(streamdeck.KeyID, color.Color) error
+	SetKeyImage(streamdeck.KeyID, image.Image) error
+	GetKeyImageRectangle() (image.Rectangle, error)
 }
 
 func (h *streamDeckHandle) Write(ctx context.Context, plan RenderPlan) error {
 	if ctx == nil {
 		return ErrDriverUnavailable
 	}
+	h.ioMu.Lock()
+	defer h.ioMu.Unlock()
+	if err := h.terminalError(); err != nil {
+		return err
+	}
 	for _, update := range plan.Updates {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+		if err := h.terminalError(); err != nil {
+			return err
 		}
 		key := streamdeck.KeyID(update.Index + 1)
 		if update.View.ImageID == "" || len(update.View.ImageRGBA) == 0 {
@@ -113,47 +179,73 @@ func (h *streamDeckHandle) Read(ctx context.Context) (PhysicalKeyEvent, error) {
 	if ctx == nil {
 		return PhysicalKeyEvent{}, ErrDriverUnavailable
 	}
-	select {
-	case event, ok := <-h.events:
-		if !ok {
-			if h.err != nil {
-				return PhysicalKeyEvent{}, h.err
+	for {
+		if err := ctx.Err(); err != nil {
+			return PhysicalKeyEvent{}, err
+		}
+		if err := h.terminalError(); err != nil {
+			return PhysicalKeyEvent{}, err
+		}
+		select {
+		case event := <-h.events:
+			if err := ctx.Err(); err != nil {
+				return PhysicalKeyEvent{}, err
+			}
+			if err := h.terminalError(); err != nil {
+				return PhysicalKeyEvent{}, err
+			}
+			return event, nil
+		case <-h.eventClosed:
+			if err := ctx.Err(); err != nil {
+				return PhysicalKeyEvent{}, err
+			}
+			if err := h.terminalError(); err != nil {
+				return PhysicalKeyEvent{}, err
 			}
 			return PhysicalKeyEvent{}, ErrInvalidDevice
+		case <-ctx.Done():
+			return PhysicalKeyEvent{}, ctx.Err()
 		}
-		return event, nil
-	case <-ctx.Done():
-		return PhysicalKeyEvent{}, ctx.Err()
 	}
 }
 
-func (h *streamDeckHandle) Close(context.Context) error {
-	h.mu.Lock()
-	if h.closed {
-		h.mu.Unlock()
-		return nil
+func (h *streamDeckHandle) Close(ctx context.Context) error {
+	h.terminate(ErrInvalidDevice)
+	err := h.release()
+	if h.listenDone != nil {
+		if ctx == nil {
+			<-h.listenDone
+		} else {
+			select {
+			case <-h.listenDone:
+			case <-ctx.Done():
+				return errors.Join(err, ctx.Err())
+			}
+		}
 	}
-	h.closed = true
-	close(h.events)
-	device := h.device
-	h.mu.Unlock()
-	return device.Close()
+	return err
 }
 
-func (h *streamDeckHandle) emit(event PhysicalKeyEvent) {
-	h.mu.Lock()
-	closed := h.closed
-	h.mu.Unlock()
-	if closed {
-		return
-	}
+func (h *streamDeckHandle) emit(event PhysicalKeyEvent) error {
 	select {
+	case <-h.eventClosed:
+		return h.terminalError()
 	case h.events <- event:
+		return h.terminalError()
 	default:
+		h.fail(ErrStreamDeckEventOverflow)
+		return h.terminalError()
 	}
 }
 
 func (h *streamDeckHandle) fail(err error) {
+	if err == nil {
+		err = ErrInvalidDevice
+	}
+	h.terminate(err)
+}
+
+func (h *streamDeckHandle) terminate(err error) {
 	h.mu.Lock()
 	if h.closed {
 		h.mu.Unlock()
@@ -161,8 +253,29 @@ func (h *streamDeckHandle) fail(err error) {
 	}
 	h.err = err
 	h.closed = true
-	close(h.events)
+	close(h.eventClosed)
 	h.mu.Unlock()
+}
+
+func (h *streamDeckHandle) terminalError() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.err != nil {
+		return h.err
+	}
+	if h.closed {
+		return ErrInvalidDevice
+	}
+	return nil
+}
+
+func (h *streamDeckHandle) release() error {
+	h.releaseOnce.Do(func() {
+		h.ioMu.Lock()
+		h.releaseErr = h.device.Close()
+		h.ioMu.Unlock()
+	})
+	return h.releaseErr
 }
 
 func modelFromStreamDeck(device *streamdeck.Device) Model {

@@ -2,9 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"log"
 	"log/slog"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestSilenceDefaultLogsAlsoSilencesSlog(t *testing.T) {
@@ -30,6 +34,23 @@ func TestSilenceDefaultLogsAlsoSilencesSlog(t *testing.T) {
 	if slogBuf.Len() > 0 {
 		t.Fatalf("slog was not silenced: %q", slogBuf.String())
 	}
+}
+
+func TestExecuteCLICleansUpAfterCommandFailure(t *testing.T) {
+	previous := rootCancel
+	t.Cleanup(func() { rootCancel = previous })
+	ctx, cancel := context.WithCancel(context.Background())
+	rootCancel = cancel
+	want := errors.New("command denied")
+	cmd := &cobra.Command{Use: "test", SilenceErrors: true, SilenceUsage: true, RunE: func(*cobra.Command, []string) error { return want }}
+	cmd.SetArgs([]string{})
+	if err := executeCLI(cmd); !errors.Is(err, want) {
+		t.Fatalf("error = %v", err)
+	}
+	if ctx.Err() == nil || rootCancel != nil {
+		t.Fatal("failed command left CLI context alive")
+	}
+	cleanupRootApp() // O PostRun e o defer podem chamar a mesma limpeza.
 }
 
 func TestEnableVerboseLogsEnablesSlogDebug(t *testing.T) {

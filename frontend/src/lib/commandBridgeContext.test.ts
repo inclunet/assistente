@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  createAuthenticatedCommandBridge,
-} from './commandBridgeContext';
+import { createAuthenticatedCommandBridge } from './commandBridgeContext';
 import {
   createCommandBridge,
   type CommandBridge,
@@ -9,6 +7,7 @@ import {
   type CommandInvocation,
   type CommandResult,
   type CommandSession,
+  type CommandSource,
   type DialogCommandScope,
 } from './commandBridge';
 import {
@@ -23,6 +22,7 @@ import {
 } from './modalRegistry';
 
 const stores = vi.hoisted(() => ({
+  listeners: new Set<() => void>(),
   auth: {
     isAuthenticated: true,
     user: { userId: 'user-a', sessionId: 'session-a' } as {
@@ -34,11 +34,23 @@ const stores = vi.hoisted(() => ({
 }));
 
 vi.mock('../store/authStore', () => ({
-  useAuthStore: { getState: () => stores.auth },
+  useAuthStore: {
+    getState: () => stores.auth,
+    subscribe: (listener: () => void) => {
+      stores.listeners.add(listener);
+      return () => stores.listeners.delete(listener);
+    },
+  },
 }));
 
 vi.mock('../store/workspaceStore', () => ({
-  useWorkspaceStore: { getState: () => stores.workspace },
+  useWorkspaceStore: {
+    getState: () => stores.workspace,
+    subscribe: (listener: () => void) => {
+      stores.listeners.add(listener);
+      return () => stores.listeners.delete(listener);
+    },
+  },
 }));
 
 const owner: CommandBridgeOwner = {
@@ -57,16 +69,17 @@ const scope: DialogCommandScope = {
 
 let invocationNumber = 0;
 
-function invocation(generation = '1'): CommandInvocation {
+function invocation(generation = '1', source: CommandSource = 'ui.action'): CommandInvocation {
   invocationNumber += 1;
   return {
     sessionId: session.id,
     invocationId: `01900000-0000-7000-8000-${String(invocationNumber).padStart(12, '0')}`,
     commandId: 'command.a',
     generation,
-    capabilityId: generation === '1' ? 'cap-a' : 'cap-next',
+    capabilityId:
+      generation === '1' ? (source === 'keyboard.local' ? 'cap-keyboard' : 'cap-a') : 'cap-next',
     ownership: 'local',
-    source: 'ui.action',
+    source,
   };
 }
 
@@ -80,7 +93,10 @@ function surface(surfaceID: string, capturedAt = new Date().toISOString()) {
   };
 }
 
-function resultFor(invocationValue: CommandInvocation, resultOwner: CommandBridgeOwner): CommandResult {
+function resultFor(
+  invocationValue: CommandInvocation,
+  resultOwner: CommandBridgeOwner
+): CommandResult {
   return { ...invocationValue, owner: resultOwner, status: 'succeeded' };
 }
 
@@ -93,7 +109,16 @@ function setup(withDialog = false) {
   const shutdown = vi.fn(async () => undefined);
   const bridge = createCommandBridge({
     port: { dispatch, cancel, shutdown },
-    capabilities: [{ id: 'cap-a', commandId: 'command.a', generation: '1', owner }],
+    capabilities: [
+      { id: 'cap-a', commandId: 'command.a', generation: '1', source: 'ui.action', owner },
+      {
+        id: 'cap-keyboard',
+        commandId: 'command.a',
+        generation: '1',
+        source: 'keyboard.local',
+        owner,
+      },
+    ],
   });
   bridge.openSession(session);
 
@@ -106,7 +131,12 @@ function setup(withDialog = false) {
   if (withDialog) registerOpenModal('decision-a', scope);
 
   return {
-    composed: createAuthenticatedCommandBridge({ bridge, context, session, ownership: 'exclusive' }),
+    composed: createAuthenticatedCommandBridge({
+      bridge,
+      context,
+      session,
+      ownership: 'exclusive',
+    }),
     bridge,
     context,
     dispatch,
@@ -126,6 +156,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  stores.listeners.clear();
   unregisterOpenModal('decision-a');
   ensureModalCleanup();
   document.body.replaceChildren();
@@ -135,37 +166,62 @@ afterEach(() => {
 describe('createAuthenticatedCommandBridge', () => {
   it('reserva repetição do topo antes do resolver e mantém evento para o handler existente', async () => {
     const { composed, dispatch } = setup(true);
-    const resolve = vi.fn(() => ({ ...invocation(), source: 'keyboard.local' as const }));
-    const event = new KeyboardEvent('keydown', { key: 'R', ctrlKey: true, shiftKey: true, cancelable: true });
-    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({ kind: 'dialog-reserved', scope });
+    const resolve = vi.fn(() => invocation('1', 'keyboard.local'));
+    const event = new KeyboardEvent('keydown', {
+      key: 'R',
+      ctrlKey: true,
+      shiftKey: true,
+      cancelable: true,
+    });
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({
+      kind: 'dialog-reserved',
+      scope,
+    });
     expect(resolve).not.toHaveBeenCalled();
     expect(dispatch).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(false);
     registerOpenModal('other');
     try {
-      await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({ kind: 'blocked' });
+      await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({
+        kind: 'blocked',
+      });
       expect(resolve).not.toHaveBeenCalled();
     } finally {
       unregisterOpenModal('other');
     }
-    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({ kind: 'dialog-reserved', scope });
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({
+      kind: 'dialog-reserved',
+      scope,
+    });
     unregisterOpenModal('decision-a');
-    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toMatchObject({ kind: 'dispatched', ack: { accepted: true } });
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toMatchObject({
+      kind: 'dispatched',
+      ack: { accepted: true },
+    });
     expect(resolve).toHaveBeenCalledTimes(1);
     expect(dispatch).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    { repeat: true }, { isComposing: true }, { keyCode: 229 },
-  ])('ignora guarda %j antes de reservar ou resolver', async (guard) => {
-    const { composed, dispatch } = setup(true);
-    const resolve = vi.fn();
-    const event = new KeyboardEvent('keydown', { key: 'r', ctrlKey: true, shiftKey: true, cancelable: true, ...guard });
-    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({ kind: 'ignored' });
-    expect(resolve).not.toHaveBeenCalled();
-    expect(dispatch).not.toHaveBeenCalled();
-    expect(event.defaultPrevented).toBe(false);
-  });
+  it.each([{ repeat: true }, { isComposing: true }, { keyCode: 229 }])(
+    'ignora guarda %j antes de reservar ou resolver',
+    async (guard) => {
+      const { composed, dispatch } = setup(true);
+      const resolve = vi.fn();
+      const event = new KeyboardEvent('keydown', {
+        key: 'r',
+        ctrlKey: true,
+        shiftKey: true,
+        cancelable: true,
+        ...guard,
+      });
+      await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({
+        kind: 'ignored',
+      });
+      expect(resolve).not.toHaveBeenCalled();
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
+    }
+  );
 
   it('reserva somente o scope atual quando a fila troca o diálogo no mesmo modal', async () => {
     const { composed, dispatch } = setup(true);
@@ -173,41 +229,74 @@ describe('createAuthenticatedCommandBridge', () => {
     const resolve = vi.fn();
     const next = { ...scope, dialogId: 'decision-b', generation: '2' };
     updateOpenModalScope('decision-a', next);
-    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({ kind: 'dialog-reserved', scope: next });
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({
+      kind: 'dialog-reserved',
+      scope: next,
+    });
     updateOpenModalScope('decision-a');
-    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({ kind: 'blocked' });
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({
+      kind: 'blocked',
+    });
     expect(resolve).not.toHaveBeenCalled();
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it.each(['input', 'textarea', 'contenteditable', 'monaco'])('preserva digitação em %s', async (kind) => {
-    const { composed, dispatch } = setup(true);
-    const control = document.createElement(kind === 'input' || kind === 'textarea' ? kind : 'div');
-    control.tabIndex = 0;
-    if (kind === 'contenteditable') control.setAttribute('contenteditable', 'true');
-    if (kind === 'monaco') control.className = 'monaco-editor';
-    document.body.appendChild(control);
-    control.focus();
-    const event = new KeyboardEvent('keydown', { key: 'r', ctrlKey: true, shiftKey: true, cancelable: true });
-    const resolve = vi.fn();
-    await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({ kind: 'ignored' });
-    expect(event.defaultPrevented).toBe(false);
-    expect(resolve).not.toHaveBeenCalled();
-    expect(dispatch).not.toHaveBeenCalled();
-  });
+  it.each(['input', 'textarea', 'contenteditable', 'monaco'])(
+    'preserva digitação em %s',
+    async (kind) => {
+      const { composed, dispatch } = setup(true);
+      const control = document.createElement(
+        kind === 'input' || kind === 'textarea' ? kind : 'div'
+      );
+      control.tabIndex = 0;
+      if (kind === 'contenteditable') control.setAttribute('contenteditable', 'true');
+      if (kind === 'monaco') control.className = 'monaco-editor';
+      document.body.appendChild(control);
+      control.focus();
+      const event = new KeyboardEvent('keydown', {
+        key: 'r',
+        ctrlKey: true,
+        shiftKey: true,
+        cancelable: true,
+      });
+      const resolve = vi.fn();
+      await expect(composed.dispatchLocalKeyboard(event, resolve)).resolves.toEqual({
+        kind: 'ignored',
+      });
+      expect(event.defaultPrevented).toBe(false);
+      expect(resolve).not.toHaveBeenCalled();
+      expect(dispatch).not.toHaveBeenCalled();
+    }
+  );
 
   it('bloqueia chamada direta e comando de resposta sem prova de diálogo mesmo com capability', async () => {
     const { composed, bridge, dispatch } = setup(true);
     const first = invocation();
-    await expect(composed.invoke(first)).resolves.toEqual({ invocationId: first.invocationId, accepted: false, reason: 'dialog-blocked' });
-    bridge.replaceCapabilities([{ id: 'cap-a', commandId: 'decision.respond', generation: '1', owner }]);
-    await expect(composed.invoke({ ...invocation(), commandId: 'decision.respond' })).resolves.toMatchObject({ accepted: false, reason: 'dialog-blocked' });
+    await expect(composed.invoke(first)).resolves.toEqual({
+      invocationId: first.invocationId,
+      accepted: false,
+      reason: 'dialog-blocked',
+    });
+    bridge.replaceCapabilities([
+      { id: 'cap-a', commandId: 'decision.respond', generation: '1', source: 'ui.action', owner },
+    ]);
+    await expect(
+      composed.invoke({ ...invocation(), commandId: 'decision.respond' })
+    ).resolves.toMatchObject({ accepted: false, reason: 'dialog-blocked' });
     expect(dispatch).not.toHaveBeenCalled();
   });
 
   it('permite somente decision.respond local com prova do diálogo topmost atual', async () => {
     const { composed, bridge, dispatch } = setup(true);
-    bridge.replaceCapabilities([{ id: 'cap-a', commandId: 'decision.respond', generation: '1', owner }]);
+    bridge.replaceCapabilities([
+      {
+        id: 'cap-a',
+        commandId: 'decision.respond',
+        generation: '1',
+        source: 'keyboard.local',
+        owner,
+      },
+    ]);
     const accepted = {
       ...invocation(),
       commandId: 'decision.respond',
@@ -221,13 +310,24 @@ describe('createAuthenticatedCommandBridge', () => {
       },
     };
 
-    await expect(composed.invoke(accepted)).resolves.toEqual({ invocationId: accepted.invocationId, accepted: true });
+    await expect(composed.invoke(accepted)).resolves.toEqual({
+      invocationId: accepted.invocationId,
+      accepted: true,
+    });
     expect(dispatch).toHaveBeenCalledWith(accepted);
   });
 
   it('bloqueia prova de diálogo stale, de outro diálogo ou origem global', async () => {
     const { composed, bridge, dispatch } = setup(true);
-    bridge.replaceCapabilities([{ id: 'cap-a', commandId: 'decision.respond', generation: '1', owner }]);
+    bridge.replaceCapabilities([
+      {
+        id: 'cap-a',
+        commandId: 'decision.respond',
+        generation: '1',
+        source: 'keyboard.local',
+        owner,
+      },
+    ]);
     const baseProof = {
       dialogId: scope.dialogId,
       kind: 'decision' as const,
@@ -236,25 +336,31 @@ describe('createAuthenticatedCommandBridge', () => {
       triggerSpec: 'keyboard.local:Ctrl+Shift+R' as const,
     };
 
-    await expect(composed.invoke({
-      ...invocation(),
-      commandId: 'decision.respond',
-      source: 'keyboard.local',
-      dialogProof: { ...baseProof, scopeGeneration: '2' },
-    })).resolves.toMatchObject({ accepted: false, reason: 'dialog-blocked' });
-    await expect(composed.invoke({
-      ...invocation(),
-      commandId: 'decision.respond',
-      source: 'keyboard.local',
-      dialogProof: { ...baseProof, dialogId: 'decision-b' },
-    })).resolves.toMatchObject({ accepted: false, reason: 'dialog-blocked' });
-    await expect(composed.invoke({
-      ...invocation(),
-      commandId: 'decision.respond',
-      source: 'keyboard.global',
-      ownership: 'global',
-      dialogProof: baseProof,
-    })).resolves.toMatchObject({ accepted: false, reason: 'dialog-blocked' });
+    await expect(
+      composed.invoke({
+        ...invocation(),
+        commandId: 'decision.respond',
+        source: 'keyboard.local',
+        dialogProof: { ...baseProof, scopeGeneration: '2' },
+      })
+    ).resolves.toMatchObject({ accepted: false, reason: 'dialog-blocked' });
+    await expect(
+      composed.invoke({
+        ...invocation(),
+        commandId: 'decision.respond',
+        source: 'keyboard.local',
+        dialogProof: { ...baseProof, dialogId: 'decision-b' },
+      })
+    ).resolves.toMatchObject({ accepted: false, reason: 'dialog-blocked' });
+    await expect(
+      composed.invoke({
+        ...invocation(),
+        commandId: 'decision.respond',
+        source: 'keyboard.global',
+        ownership: 'global',
+        dialogProof: baseProof,
+      })
+    ).resolves.toMatchObject({ accepted: false, reason: 'dialog-blocked' });
     expect(dispatch).not.toHaveBeenCalled();
   });
 
@@ -262,9 +368,11 @@ describe('createAuthenticatedCommandBridge', () => {
     const { composed, dispatch } = setup();
     const resolve = vi.fn(() => {
       registerOpenModal('decision-a', scope);
-      return { ...invocation(), source: 'keyboard.local' as const };
+      return invocation('1', 'keyboard.local');
     });
-    await expect(composed.dispatchLocalKeyboard(new KeyboardEvent('keydown', { key: 'x' }), resolve)).resolves.toEqual({ kind: 'blocked' });
+    await expect(
+      composed.dispatchLocalKeyboard(new KeyboardEvent('keydown', { key: 'x' }), resolve)
+    ).resolves.toEqual({ kind: 'blocked' });
     expect(resolve).toHaveBeenCalledTimes(1);
     expect(dispatch).not.toHaveBeenCalled();
   });
@@ -275,10 +383,13 @@ describe('createAuthenticatedCommandBridge', () => {
     document.body.appendChild(button);
     button.focus();
     const before = composed.readContext()?.frame.focus.control;
-    const result = await composed.dispatchLocalKeyboard(new KeyboardEvent('keydown', { key: 'x' }), () => {
-      button.setAttribute('aria-disabled', 'true');
-      return { ...invocation(), source: 'keyboard.local' };
-    });
+    const result = await composed.dispatchLocalKeyboard(
+      new KeyboardEvent('keydown', { key: 'x' }),
+      () => {
+        button.setAttribute('aria-disabled', 'true');
+        return invocation('1', 'keyboard.local');
+      }
+    );
     const after = composed.readContext()?.frame.focus.control;
     expect(after?.identity).toBe(before?.identity);
     expect(before?.capabilities.disabled).toBe(false);
@@ -290,25 +401,39 @@ describe('createAuthenticatedCommandBridge', () => {
   it('recusa perda de foco da janela sem mudança do controle', async () => {
     const { composed, dispatch } = setup();
     const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
-    await expect(composed.dispatchLocalKeyboard(new KeyboardEvent('keydown', { key: 'x' }), () => {
-      focus.mockReturnValue(false);
-      return { ...invocation(), source: 'keyboard.local' };
-    })).resolves.toEqual({ kind: 'blocked' });
+    await expect(
+      composed.dispatchLocalKeyboard(new KeyboardEvent('keydown', { key: 'x' }), () => {
+        focus.mockReturnValue(false);
+        return invocation('1', 'keyboard.local');
+      })
+    ).resolves.toEqual({ kind: 'blocked' });
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it.each(['version', 'selection', 'freshness'])('recusa mudança de surface: %s', async (change) => {
-    const { composed, context, dispatch } = setup();
-    let value = { ...surface('editor-1'), selection: { kind: 'text', text: 'before' } };
-    context.registerSurfaceContext('editor-1', () => value);
-    await expect(composed.dispatchLocalKeyboard(new KeyboardEvent('keydown', { key: 'x' }), () => {
-      value = change === 'version' ? { ...value, snapshotVersion: 'snapshot-2' }
-        : change === 'selection' ? { ...value, selection: { kind: 'text', text: 'after' } }
-          : { ...value, staleAfterMs: 10_000 };
-      return { ...invocation(), source: 'keyboard.local' };
-    }, 'editor-1')).resolves.toEqual({ kind: 'blocked' });
-    expect(dispatch).not.toHaveBeenCalled();
-  });
+  it.each(['version', 'selection', 'freshness'])(
+    'recusa mudança de surface: %s',
+    async (change) => {
+      const { composed, context, dispatch } = setup();
+      let value = { ...surface('editor-1'), selection: { kind: 'text', text: 'before' } };
+      context.registerSurfaceContext('editor-1', () => value);
+      await expect(
+        composed.dispatchLocalKeyboard(
+          new KeyboardEvent('keydown', { key: 'x' }),
+          () => {
+            value =
+              change === 'version'
+                ? { ...value, snapshotVersion: 'snapshot-2' }
+                : change === 'selection'
+                  ? { ...value, selection: { kind: 'text', text: 'after' } }
+                  : { ...value, staleAfterMs: 10_000 };
+            return invocation('1', 'keyboard.local');
+          },
+          'editor-1'
+        )
+      ).resolves.toEqual({ kind: 'blocked' });
+      expect(dispatch).not.toHaveBeenCalled();
+    }
+  );
 
   it('usa o frame revalidado sem terceira consulta e aceita JSON com ordem de chaves diferente', async () => {
     const { composed, context, dispatch } = setup();
@@ -316,11 +441,23 @@ describe('createAuthenticatedCommandBridge', () => {
     let reads = 0;
     context.registerSurfaceContext('editor-1', () => {
       reads += 1;
-      return { ...stable, selection: { kind: 'text', range: reads === 1 ? { startOffset: 1, endOffset: 2 } : { endOffset: 2, startOffset: 1 } } };
+      return {
+        ...stable,
+        selection: {
+          kind: 'text',
+          range: reads === 1 ? { startOffset: 1, endOffset: 2 } : { endOffset: 2, startOffset: 1 },
+        },
+      };
     });
-    await expect(composed.dispatchLocalKeyboard(new KeyboardEvent('keydown', { key: 'x' }), () => ({
-      ...invocation(), source: 'keyboard.local',
-    }), 'editor-1')).resolves.toMatchObject({ kind: 'dispatched', ack: { accepted: true } });
+    await expect(
+      composed.dispatchLocalKeyboard(
+        new KeyboardEvent('keydown', { key: 'x' }),
+        () => ({
+          ...invocation('1', 'keyboard.local'),
+        }),
+        'editor-1'
+      )
+    ).resolves.toMatchObject({ kind: 'dispatched', ack: { accepted: true } });
     expect(reads).toBe(2);
     expect(dispatch).toHaveBeenCalledTimes(1);
   });
@@ -328,13 +465,22 @@ describe('createAuthenticatedCommandBridge', () => {
   it('caminho interno mantém validação de capability, sessão e dispose', async () => {
     const { composed, dispatch } = setup();
     const event = new KeyboardEvent('keydown', { key: 'x' });
-    await expect(composed.dispatchLocalKeyboard(event, () => ({ ...invocation(), source: 'keyboard.local', capabilityId: 'foreign' }))).rejects.toMatchObject({ code: 'capability-denied' });
+    await expect(
+      composed.dispatchLocalKeyboard(event, () => ({
+        ...invocation('1', 'keyboard.local'),
+        capabilityId: 'foreign',
+      }))
+    ).rejects.toMatchObject({ code: 'capability-denied' });
     stores.auth.isAuthenticated = false;
     const resolve = vi.fn();
-    await expect(composed.dispatchLocalKeyboard(event, resolve)).rejects.toMatchObject({ code: 'session-unavailable' });
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).rejects.toMatchObject({
+      code: 'session-unavailable',
+    });
     expect(resolve).not.toHaveBeenCalled();
     await composed.dispose();
-    await expect(composed.dispatchLocalKeyboard(event, resolve)).rejects.toMatchObject({ code: 'bridge-closed' });
+    await expect(composed.dispatchLocalKeyboard(event, resolve)).rejects.toMatchObject({
+      code: 'bridge-closed',
+    });
     expect(dispatch).not.toHaveBeenCalled();
   });
 
@@ -356,7 +502,7 @@ describe('createAuthenticatedCommandBridge', () => {
   });
 
   it('recusa owner trocado, surface stale e geração antiga antes do dispatch', async () => {
-    const { composed, dispatch, bridge, cleanupSurface, overlay } = setup();
+    const { composed, dispatch, bridge, context, cleanupSurface, overlay } = setup();
     const current = invocation();
     await expect(composed.invoke(current, 'editor-1')).resolves.toMatchObject({ accepted: true });
 
@@ -367,9 +513,12 @@ describe('createAuthenticatedCommandBridge', () => {
     });
 
     stores.auth.user = { userId: 'user-a', sessionId: 'session-a' };
+    // Retornar ao owner anterior não ressuscita a lease da superfície.
+    expect(composed.readContext('editor-1')).toBeUndefined();
+    const newCleanup = context.registerSurfaceContext('editor-1', () => surface('editor-1'));
     const staleContext = createTrustedCommandContextSession();
     const staleCleanup = staleContext.registerSurfaceContext('old-surface', () =>
-      surface('old-surface', new Date(Date.now() - 10_000).toISOString()),
+      surface('old-surface', new Date(Date.now() - 10_000).toISOString())
     );
     const staleComposed = createAuthenticatedCommandBridge({
       bridge,
@@ -383,11 +532,17 @@ describe('createAuthenticatedCommandBridge', () => {
     });
 
     await composed.lifecycle({ kind: 'generation', sessionId: session.id, generation: '2' });
-    await expect(composed.invoke({ ...invocation('1'), invocationId: '01900000-0000-7000-8000-000000000099' }, 'editor-1')).rejects.toMatchObject({
+    await expect(
+      composed.invoke(
+        { ...invocation('1'), invocationId: '01900000-0000-7000-8000-000000000099' },
+        'editor-1'
+      )
+    ).rejects.toMatchObject({
       code: 'stale-generation',
     });
     expect(dispatch).toHaveBeenCalledTimes(1);
 
+    newCleanup();
     staleCleanup();
     cleanupSurface();
     overlay.remove();
@@ -401,8 +556,14 @@ describe('createAuthenticatedCommandBridge', () => {
       workspaceId: 'workspace-b',
     };
     bridge.replaceCapabilities([
-      { id: 'cap-a', commandId: 'command.a', generation: '1', owner },
-      { id: 'cap-b', commandId: 'command.a', generation: '1', owner: otherOwner },
+      { id: 'cap-a', commandId: 'command.a', generation: '1', source: 'ui.action', owner },
+      {
+        id: 'cap-b',
+        commandId: 'command.a',
+        generation: '1',
+        source: 'ui.action',
+        owner: otherOwner,
+      },
     ]);
     bridge.openSession({ id: otherOwner.sessionId, generation: '1', owner: otherOwner });
 
@@ -451,7 +612,9 @@ describe('createAuthenticatedCommandBridge', () => {
     replacement.context.dispose();
     mutableConfig.context = replacement.context;
 
-    await expect(composed.invoke(invocation(), 'editor-1')).resolves.toMatchObject({ accepted: true });
+    await expect(composed.invoke(invocation(), 'editor-1')).resolves.toMatchObject({
+      accepted: true,
+    });
     expect(first.dispatch).toHaveBeenCalledTimes(1);
     expect(replacement.dispatch).not.toHaveBeenCalled();
     await composed.dispose();
@@ -468,11 +631,13 @@ describe('createAuthenticatedCommandBridge', () => {
         accepted: true,
       })),
       cancel: vi.fn(async () => ({ invocationId: 'cancelled', accepted: true })),
-      lifecycle: vi.fn((event: { generation?: string }) =>
-        new Promise<void>((resolve) => {
-          if (event.generation) releases.set(event.generation, resolve);
-          else resolve();
-        })),
+      lifecycle: vi.fn(
+        (event: { generation?: string }) =>
+          new Promise<void>((resolve) => {
+            if (event.generation) releases.set(event.generation, resolve);
+            else resolve();
+          })
+      ),
       shutdown: vi.fn(async () => undefined),
       subscribeResult: vi.fn(() => () => undefined),
     } as unknown as CommandBridge;
@@ -483,17 +648,35 @@ describe('createAuthenticatedCommandBridge', () => {
       ownership: 'exclusive',
     });
 
-    const generationTwo = composed.lifecycle({ kind: 'generation', sessionId: session.id, generation: '2' });
-    const generationThree = composed.lifecycle({ kind: 'generation', sessionId: session.id, generation: '3' });
+    const generationTwo = composed.lifecycle({
+      kind: 'generation',
+      sessionId: session.id,
+      generation: '2',
+    });
+    const generationThree = composed.lifecycle({
+      kind: 'generation',
+      sessionId: session.id,
+      generation: '3',
+    });
     releases.get('3')?.();
     await generationThree;
     releases.get('2')?.();
     await generationTwo;
 
-    await expect(composed.invoke({ ...invocation('2'), invocationId: '01900000-0000-7000-8000-000000000099' }, 'editor-1')).rejects.toMatchObject({
+    await expect(
+      composed.invoke(
+        { ...invocation('2'), invocationId: '01900000-0000-7000-8000-000000000099' },
+        'editor-1'
+      )
+    ).rejects.toMatchObject({
       code: 'stale-generation',
     });
-    await expect(composed.invoke({ ...invocation('3'), invocationId: '01900000-0000-7000-8000-000000000100' }, 'editor-1')).resolves.toMatchObject({ accepted: true });
+    await expect(
+      composed.invoke(
+        { ...invocation('3'), invocationId: '01900000-0000-7000-8000-000000000100' },
+        'editor-1'
+      )
+    ).resolves.toMatchObject({ accepted: true });
     expect(fakeBridge.invoke).toHaveBeenCalledTimes(1);
 
     await composed.dispose();

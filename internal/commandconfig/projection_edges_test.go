@@ -31,12 +31,33 @@ func TestProjectLocalReadGuardsAndCancellation(t *testing.T) {
 	}
 	workspace := snapshot
 	workspace.Scope.WorkspaceID = storeTestPtr(storeTestUUID7(t))
-	if result, err := ProjectLocalRead(context.Background(), workspace, options); !errors.Is(err, ErrInvalid) || result != nil {
-		t.Fatal("workspace não suportado aceito", err)
+	if result, err := ProjectLocalRead(context.Background(), workspace, options); err != nil || result == nil {
+		t.Fatal("workspace vazio rejeitado", err)
+	}
+	foreign := workspace
+	foreign.Layers = []Layer{{ID: storeTestUUID7(t), UserID: storeTestUUID7(t), Name: "foreign", Description: "foreign", Enabled: true, Source: "user"}}
+	if result, err := ProjectLocalRead(context.Background(), foreign, options); !errors.Is(err, ErrInvalid) || result != nil {
+		t.Fatal("camada foreign aceita", err)
 	}
 	options.ActiveUserLayerIDs = []string{storeTestUUID7(t)}
 	if result, err := ProjectLocalRead(context.Background(), snapshot, options); !errors.Is(err, ErrInvalid) || result != nil {
 		t.Fatal("ativação de camada inexistente aceita", err)
+	}
+}
+
+func TestProjectLocalReadAtivaCamadasGlobalEWorkspace(t *testing.T) {
+	registry, err := commandcatalog.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, workspace := storeTestUUID7(t), storeTestUUID7(t)
+	snapshot := Snapshot{Scope: Scope{UserID: user, WorkspaceID: &workspace}, Layers: []Layer{
+		{ID: storeTestUUID7(t), UserID: user, Name: "global", Description: "global", Enabled: true, Source: "user"},
+		{ID: storeTestUUID7(t), UserID: user, WorkspaceID: &workspace, Name: "workspace", Description: "workspace", Enabled: true, Source: "user"},
+	}}
+	options := LocalReadProjection{Registry: registry, ActiveUserLayerIDs: []string{snapshot.Layers[0].ID, snapshot.Layers[1].ID}}
+	if configuration, err := ProjectLocalRead(context.Background(), snapshot, options); err != nil || configuration == nil {
+		t.Fatalf("camadas global+workspace rejeitadas: %v", err)
 	}
 }
 

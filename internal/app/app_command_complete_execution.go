@@ -55,29 +55,8 @@ func (a *App) newCommandCompleteExecutor(config commandexecution.Config, state *
 	envelope.AuthorizeLookup = a.guardCommandAuthorizeLookup(prepared.sessions, prepared.manager, config.Envelope.AuthorizeLookup)
 	envelope.Actor = a.guardCommandActor(prepared.sessions, prepared.manager, config.Envelope.Actor)
 
-	if hasInteractiveCommand(config.Registry) {
-		if envelope.DecisionTTL <= 0 || envelope.DecisionBody == nil || a.questionnaireMgr == nil {
-			return nil, commandexecution.ErrInvalidConfiguration
-		}
-		// Store carrega um presenter privado; não há como provar aqui que um
-		// valor recebido pelo bootstrap não é um presenter de teste ou de outra
-		// origem. Portanto a fábrica exige a origem única (DB global + presenter
-		// do App) e não aceita um store externo nesta variante.
-		if envelope.Decisions != nil {
-			return nil, commandexecution.ErrInvalidConfiguration
-		}
-		decisionDB := database.DB()
-		if decisionDB == nil || !decisionDB.Migrator().HasTable("command_decision_receipts") || !decisionDB.Migrator().HasTable("command_decision_receipt_events") {
-			return nil, commandexecution.ErrInvalidConfiguration
-		}
-		if config.Store == nil || !config.Store.UsesDatabase(decisionDB) {
-			return nil, commandexecution.ErrInvalidConfiguration
-		}
-		decisionStore, storeErr := commanddecision.New(decisionDB, &commandDecisionPresenter{manager: a.questionnaireMgr}, config.Now)
-		if storeErr != nil {
-			return nil, commandexecution.ErrInvalidConfiguration
-		}
-		envelope.Decisions = decisionStore
+	if err := a.bindCommandInvocationDecisions(config, &envelope); err != nil {
+		return nil, err
 	}
 
 	config = prepared.config
@@ -91,6 +70,35 @@ func (a *App) newCommandCompleteExecutor(config commandexecution.Config, state *
 		return nil, err
 	}
 	return service, nil
+}
+
+// As duas fábricas locais usam o mesmo presenter do App e o mesmo banco do
+// ledger. Nenhuma aceita store externo como atalho para uma confirmação.
+// A montagem acontece fora do DispatchGate; apenas o consumo do receipt é
+// atômico com a fila no executor comum.
+func (a *App) bindCommandInvocationDecisions(config commandexecution.Config, envelope *commandexecution.EnvelopeConfig) error {
+	if a == nil || envelope == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	if !hasInteractiveCommand(config.Registry) {
+		return nil
+	}
+	a.authMu.RLock()
+	manager := a.questionnaireMgr
+	a.authMu.RUnlock()
+	if envelope.DecisionTTL <= 0 || envelope.DecisionBody == nil || manager == nil || envelope.Decisions != nil || config.Now == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	decisionDB := database.DB()
+	if decisionDB == nil || !decisionDB.Migrator().HasTable("command_decision_receipts") || !decisionDB.Migrator().HasTable("command_decision_receipt_events") || config.Store == nil || !config.Store.UsesDatabase(decisionDB) {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	store, err := commanddecision.New(decisionDB, &commandDecisionPresenter{manager: manager}, config.Now)
+	if err != nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	envelope.Decisions = store
+	return nil
 }
 
 func (a *App) currentCommandPrincipal() (auth.LocalSessionPrincipal, error) {

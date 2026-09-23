@@ -57,6 +57,16 @@ describe('MessageList', () => {
     expect(screen.getByText('chat.emptyTitle')).toBeInTheDocument();
   });
 
+  it('expõe região vazia por ref com foco programático sem adicionar parada de Tab', () => {
+    const ref = React.createRef<HTMLDivElement>();
+    render(<MessageList ref={ref} threadedMessages={[]} />);
+    const region = screen.getByRole('region', { name: 'chat.messageListLabel' });
+    expect(ref.current).toBe(region);
+    expect(region).toHaveAttribute('tabindex', '-1');
+    region.focus();
+    expect(region).toHaveFocus();
+  });
+
   it('renderiza mensagens e loading', () => {
     const node = createNode();
     render(

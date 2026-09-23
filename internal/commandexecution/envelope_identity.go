@@ -179,29 +179,64 @@ func (s *Service) resolveEnvelopePorts() *EnvelopeIdentityPorts {
 }
 
 func (s *Service) snapshotEnvelope(ctx context.Context, identity EnvelopeAuthenticatedIdentity, candidate EnvelopeCandidate) (commandcontract.Envelope, error) {
+	candidate = cloneEnvelopeCandidate(candidate)
+	owner := cloneEnvelopeOwnership(identity.Ownership)
 	if ports := s.resolveEnvelopePorts(); ports != nil {
-		return ports.Snapshot(ctx, identity.Ownership, candidate)
+		return ports.Snapshot(ctx, owner, candidate)
 	}
 	return s.config.Envelope.Snapshot(ctx, envelopePrincipal(identity), candidate)
 }
 
 func (s *Service) resolveEnvelope(ctx context.Context, identity EnvelopeAuthenticatedIdentity, candidate EnvelopeCandidate, envelope commandcontract.Envelope) (EnvelopeResolution, error) {
-	if ports := s.resolveEnvelopePorts(); ports != nil {
-		return ports.Resolve(ctx, identity.Ownership, candidate, envelope)
+	candidate = cloneEnvelopeCandidate(candidate)
+	detached, err := detachedEnvelope(envelope)
+	if err != nil {
+		return EnvelopeResolution{}, err
 	}
-	return s.config.Envelope.Resolve(ctx, envelopePrincipal(identity), candidate, envelope)
+	owner := cloneEnvelopeOwnership(identity.Ownership)
+	if ports := s.resolveEnvelopePorts(); ports != nil {
+		return ports.Resolve(ctx, owner, candidate, detached)
+	}
+	return s.config.Envelope.Resolve(ctx, envelopePrincipal(identity), candidate, detached)
 }
 
 func (s *Service) authorizeEnvelope(ctx context.Context, identity EnvelopeAuthenticatedIdentity, envelope commandcontract.Envelope, definition commandcatalog.Definition) error {
+	owner := cloneEnvelopeOwnership(identity.Ownership)
 	if ports := s.resolveEnvelopePorts(); ports != nil {
-		return ports.Authorize(ctx, identity.Ownership, envelope, definition)
+		return ports.Authorize(ctx, owner, envelope, definition)
 	}
 	return s.config.Envelope.Authorize(ctx, envelopePrincipal(identity), envelope, definition)
 }
 
 func (s *Service) authorizeEnvelopeLookup(ctx context.Context, identity EnvelopeAuthenticatedIdentity, record commandledger.FullRecord) error {
+	owner := cloneEnvelopeOwnership(identity.Ownership)
+	detached := cloneEnvelopeRecord(record)
 	if ports := s.resolveEnvelopePorts(); ports != nil {
-		return ports.AuthorizeLookup(ctx, identity.Ownership, record)
+		return ports.AuthorizeLookup(ctx, owner, detached)
 	}
-	return s.config.Envelope.AuthorizeLookup(ctx, envelopePrincipal(identity), record)
+	return s.config.Envelope.AuthorizeLookup(ctx, envelopePrincipal(identity), detached)
+}
+
+func cloneEnvelopeOwnership(owner commandledger.FullOwnership) commandledger.FullOwnership {
+	owner.UserID = cloneEnvelopeString(owner.UserID)
+	return owner
+}
+
+func cloneEnvelopeRecord(record commandledger.FullRecord) commandledger.FullRecord {
+	record.Ownership = cloneEnvelopeOwnership(record.Ownership)
+	record.Envelope = record.Envelope.Clone()
+	record.ResultSummary = cloneEnvelopeString(record.ResultSummary)
+	record.ResultRef = cloneEnvelopeString(record.ResultRef)
+	record.ErrorCode = cloneEnvelopeString(record.ErrorCode)
+	record.SourceType = cloneEnvelopeSourceType(record.SourceType)
+	record.SourceEventID = cloneEnvelopeString(record.SourceEventID)
+	return record
+}
+
+func cloneEnvelopeSourceType(source *commandcontract.SourceType) *commandcontract.SourceType {
+	if source == nil {
+		return nil
+	}
+	copyValue := *source
+	return &copyValue
 }

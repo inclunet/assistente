@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"assistente/internal/commandjobactivation"
 	"assistente/internal/commandmaintenance"
 	"assistente/internal/config"
 	"assistente/internal/database"
@@ -23,6 +24,7 @@ import (
 	"assistente/internal/tools"
 
 	"github.com/google/uuid"
+	nativehotkey "golang.design/x/hotkey"
 )
 
 var (
@@ -38,43 +40,61 @@ type SecretStore interface {
 	GetSecret(ctx context.Context, key string) (string, error)
 }
 
+// HotkeyRegistrar é a fronteira mínima entre o Manager e o adaptador físico.
+// O callback só é produzido pelo registrador confiável; payloads externos não
+// participam da criação do TriggerContext.
+type HotkeyRegistrar interface {
+	Register(modifiers []nativehotkey.Modifier, key nativehotkey.Key, callback hotkey.HotkeyCallback) (int, error)
+	Unregister(id int) error
+}
+
 // ManagerConfig contem as dependencias externas do Manager.
 type ManagerConfig struct {
-	BaseDir         string // Diretório legado usado apenas como fonte da importação inicial.
-	Repository      Repository
-	ContextProvider func() context.Context
-	ToolRegistry    *tools.Registry
-	ToolInvocations *toolinvocations.Service
-	HotkeyManager   *hotkey.Manager
-	MsgGateway      *messaging.Gateway
-	SecretStore     SecretStore
-	EmitEvent       func(event string, data any) // Wails EventsEmit
+	BaseDir               string // Diretório legado usado apenas como fonte da importação inicial.
+	Repository            Repository
+	ContextProvider       func() context.Context
+	ToolRegistry          *tools.Registry
+	ToolInvocations       *toolinvocations.Service
+	HotkeyManager         HotkeyRegistrar
+	DispatchCommandHotkey func(context.Context, CommandHotkeyOccurrence) error
+	MsgGateway            *messaging.Gateway
+	SecretStore           SecretStore
+	JobProfileGrants      *jobprofilegrant.Store
+	EmitEvent             func(event string, data any) // Wails EventsEmit
 	// MaintenanceCoordinator é opcional durante a migração do bootstrap. Quando
 	// fornecido, ele é o único dono da passagem; sem ele permanece a cadência
 	// legada, sem criar um segundo loop.
 	MaintenanceCoordinator *commandmaintenance.Coordinator
+	CommandRuntimeIdentity func(context.Context) (commandjobactivation.RuntimeIdentity, context.Context, func(), error)
 }
 
 // Manager orquestra todos os componentes do sistema de jobs.
 type Manager struct {
-	cfg             ManagerConfig
-	registry        *Registry
-	eventBus        *EventBus
-	scheduler       *Scheduler
-	executor        *JobExecutor
-	circuitBreaker  *CircuitBreaker
-	hotkeyIDs       map[string][]int // jobID -> hotkey IDs registrados
-	retentionStop   chan struct{}
-	retentionCancel context.CancelFunc
-	retentionDone   chan struct{}
-	stopping        chan struct{}
-	mu              sync.Mutex
-	runtimeMu       sync.Mutex
-	triggerMu       sync.Mutex
-	started         bool
-	compactMu       sync.Mutex
-	lastCompaction  time.Time
-	compacting      bool
+	cfg                      ManagerConfig
+	registry                 *Registry
+	eventBus                 *EventBus
+	scheduler                *Scheduler
+	executor                 *JobExecutor
+	circuitBreaker           *CircuitBreaker
+	hotkeyIDs                map[string][]int // jobID -> hotkey IDs registrados
+	retentionStop            chan struct{}
+	retentionCancel          context.CancelFunc
+	retentionDone            chan struct{}
+	stopping                 chan struct{}
+	mu                       sync.Mutex
+	runtimeMu                sync.Mutex
+	triggerMu                sync.Mutex
+	hotkeyLifetimeMu         sync.Mutex
+	hotkeyLifetimes          map[string]map[int]*hotkeyRegistrationLifetime
+	started                  bool
+	compactMu                sync.Mutex
+	commandRuntimeMu         sync.Mutex
+	commandRuntime           map[string]commandRuntimeEntry
+	commandRuntimeAccepting  bool
+	commandRuntimeToken      uint64
+	commandMaintenanceClosed bool
+	lastCompaction           time.Time
+	compacting               bool
 }
 
 // NewManager cria um Manager com todas as dependencias.
@@ -84,26 +104,32 @@ func NewManager(cfg ManagerConfig) *Manager {
 	circuitBreaker := NewCircuitBreaker()
 
 	m := &Manager{
-		cfg:            cfg,
-		registry:       registry,
-		eventBus:       eventBus,
-		circuitBreaker: circuitBreaker,
-		hotkeyIDs:      make(map[string][]int),
+		cfg:             cfg,
+		registry:        registry,
+		eventBus:        eventBus,
+		circuitBreaker:  circuitBreaker,
+		hotkeyIDs:       make(map[string][]int),
+		hotkeyLifetimes: make(map[string]map[int]*hotkeyRegistrationLifetime),
 	}
 
 	// Monta o executor somente com o ledger canônico disponível. Ausência dessa
 	// dependência é erro de wiring e deve interromper a inicialização, não
 	// degradar para execução direta.
 	executor, err := NewJobExecutor(ExecutorConfig{
-		ToolRegistry:    cfg.ToolRegistry,
-		ToolInvocations: cfg.ToolInvocations,
-		EventBus:        eventBus,
-		Repository:      cfg.Repository,
-		CircuitBreaker:  circuitBreaker,
-		SecretStore:     cfg.SecretStore,
-		NotifyFunc:      m.notifyChannels,
-		OnRunStart:      m.onRunStart,
-		OnRunEnd:        m.onRunEnd,
+		ToolRegistry:             cfg.ToolRegistry,
+		ToolInvocations:          cfg.ToolInvocations,
+		EventBus:                 eventBus,
+		Repository:               cfg.Repository,
+		CircuitBreaker:           circuitBreaker,
+		SecretStore:              cfg.SecretStore,
+		NotifyFunc:               m.notifyChannels,
+		OnRunStart:               m.onRunStart,
+		OnRunEnd:                 m.onRunEnd,
+		CommandRuntimeIdentity:   cfg.CommandRuntimeIdentity,
+		CommandJobServiceContext: m.commandJobServiceContext,
+		CommandRuntimeToken:      m.commandRuntimeTokenValue,
+		OnCommandRuntimeStart:    m.registerCommandRuntime,
+		OnCommandRuntimeEnd:      m.unregisterCommandRuntime,
 	})
 	if err != nil {
 		panic(err)
@@ -122,6 +148,9 @@ func (m *Manager) Start() error {
 	defer m.mu.Unlock()
 	if m.stopping != nil {
 		return ErrCommandMaintenanceBusy
+	}
+	if m.commandMaintenanceClosed {
+		return ErrCommandMaintenanceUnavailable
 	}
 	m.runtimeMu.Lock()
 	defer m.runtimeMu.Unlock()
@@ -165,10 +194,15 @@ func (m *Manager) Start() error {
 
 	// Inicia o scheduler
 	m.scheduler.Start()
-	m.runRetention(ctx)
-	m.startRetentionLoop(ctx)
-
+	m.enableCommandRuntimeTracking()
+	// Portas de manutenção podem consultar o runtime. Não as execute sob
+	// mu/runtimeMu de Start: a passagem inicial pertence ao mesmo loop que
+	// Stop cancela e drena. O caminho legado mantém sua inicialização atual.
+	if m.cfg.MaintenanceCoordinator == nil {
+		m.runRetention(ctx)
+	}
 	m.started = true
+	m.startRetentionLoop(ctx)
 	logging.Infof(context.Background(), "jobs.manager", "[Jobs] Manager started")
 	return nil
 }
@@ -184,15 +218,18 @@ func (m *Manager) Stop() {
 	stopped := make(chan struct{})
 	m.stopping = stopped
 	done := m.retentionDone
-	if m.retentionStop != nil {
-		if m.retentionCancel != nil {
-			m.retentionCancel()
-		}
-		close(m.retentionStop)
-	}
+	retentionStop := m.retentionStop
+	retentionCancel := m.retentionCancel
 	// A passagem pode precisar de locks do Manager para encerrar. Primeiro
 	// cancela e aguarda fora deles, mantendo Start/remontagem bloqueados.
 	m.mu.Unlock()
+	if retentionCancel != nil {
+		retentionCancel()
+	}
+	m.invalidateCommandRuntimeTracking()
+	if retentionStop != nil {
+		close(retentionStop)
+	}
 	if done != nil {
 		<-done
 	}
@@ -426,6 +463,9 @@ func (m *Manager) RunJobContext(ctx context.Context, id string) (*RunLog, error)
 		Type:         TriggerManual,
 		EventPayload: make(map[string]any),
 	}
+	// A tool de jobs pode chamar esta entrada durante outro run. "manual"
+	// descreve a entrada, mas não substitui a raiz privada já autenticada.
+	inheritCommandEventOrigin(ctx, trigCtx)
 	rl := m.executor.Execute(ctx, job, trigCtx)
 	return rl, nil
 }
@@ -1463,6 +1503,7 @@ func (m *Manager) registerTriggersLocked(job *Job) {
 					ChainID:      chainID,
 					ChainHistory: chainHistory,
 				}
+				inheritCommandEventOrigin(ctx, trigCtx)
 
 				// O run downstream roda em goroutine de fan-out do EventBus, mas o
 				// publicador retorna sem esperar. Se herdarmos o ctx do publicador
@@ -1504,22 +1545,59 @@ func (m *Manager) registerJobHotkey(job *Job, keys string, when string) {
 		return
 	}
 
-	jobCopy := *job
+	binding, err := m.prepareHotkeyBinding(m.context(), job, keys, when)
+	if err != nil {
+		logging.Errorf(context.Background(), "jobs.manager", "[Jobs] Hotkey prepare error for %s (%s): %v", job.ID, keys, err)
+		return
+	}
+	lifetimeCtx, lifetimeCancel := context.WithCancel(context.Background())
+	lifetime := &hotkeyRegistrationLifetime{ctx: lifetimeCtx, cancel: lifetimeCancel}
 	id, err := m.cfg.HotkeyManager.Register(modifiers, key, func() {
-		ctx := m.context()
-		trigCtx := &TriggerContext{
-			Type:         TriggerHotkey,
-			Keys:         keys,
-			When:         when,
-			EventPayload: make(map[string]any),
+		if !lifetime.active.Load() {
+			return
 		}
-		m.executeJob(ctx, &jobCopy, trigCtx)
+		ctx := m.context()
+		runCtx, runCancel := context.WithCancel(ctx)
+		defer runCancel()
+		go func() {
+			select {
+			case <-lifetime.ctx.Done():
+				runCancel()
+			case <-runCtx.Done():
+			}
+		}()
+		ctx = runCtx
+		if m.cfg.DispatchCommandHotkey == nil {
+			logging.Errorf(context.Background(), "jobs.manager", "[Jobs] %s: hotkey dispatcher unavailable; execution refused", binding.jobSlug)
+			return
+		}
+		occurrence := CommandHotkeyOccurrence{manager: m, binding: binding, lifetime: lifetime}
+		if err := occurrence.Validate(ctx); err != nil {
+			logging.Infof(context.Background(), "jobs.manager", "[Jobs] %s: hotkey binding is stale or unavailable, skipping: %v", binding.jobSlug, err)
+			return
+		}
+		if binding.when != "" {
+			ok, evalErr := EvaluateCondition(binding.when, &TemplateContext{Event: map[string]any{}, Now: time.Now()})
+			if evalErr != nil {
+				logging.Errorf(context.Background(), "jobs.manager", "[Jobs] %s: hotkey when eval error: %v", binding.jobSlug, evalErr)
+				return
+			}
+			if !ok {
+				logging.Infof(context.Background(), "jobs.manager", "[Jobs] %s: hotkey when condition not met, skipping", binding.jobSlug)
+				return
+			}
+		}
+		if err := m.cfg.DispatchCommandHotkey(ctx, occurrence); err != nil {
+			logging.Infof(context.Background(), "jobs.manager", "[Jobs] %s: hotkey dispatch refused: %v", binding.jobSlug, err)
+		}
 	})
 	if err != nil {
+		lifetimeCancel()
 		logging.Errorf(context.Background(), "jobs.manager", "[Jobs] Hotkey register error for %s (%s): %v", job.ID, keys, err)
 		return
 	}
 
+	m.addHotkeyLifetime(job.ID, id, lifetime)
 	m.hotkeyIDs[job.ID] = append(m.hotkeyIDs[job.ID], id)
 	logging.Infof(context.Background(), "jobs.manager", "[Jobs] Hotkey registered for %s: %s", job.ID, keys)
 }
@@ -1530,6 +1608,7 @@ func (m *Manager) unregisterJobHotkeys(jobID string) {
 	}
 
 	for _, id := range m.hotkeyIDs[jobID] {
+		m.invalidateHotkeyLifetime(jobID, id)
 		if err := m.cfg.HotkeyManager.Unregister(id); err != nil {
 			logging.Errorf(context.Background(), "jobs.manager", "[Jobs] Hotkey unregister error for %s (id=%d): %v", jobID, id, err)
 		}
@@ -1618,9 +1697,17 @@ func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerCont
 	if current == nil || !m.effectiveJobEnabled(current) {
 		return
 	}
+	if binding, ok := ctx.Value(preparedHotkeyDispatchKey{}).(preparedHotkeyBinding); ok && !m.preparedHotkeyStillCurrent(ctx, binding, current) {
+		logging.Infof(context.Background(), "jobs.manager", "[Jobs] %s: hotkey dispatch changed before scoped context, skipping", binding.jobSlug)
+		return
+	}
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		logging.Infof(ctx, "jobs.manager", "[Jobs] %s: authenticated context required: %v", current.ID, err)
+		return
+	}
+	if binding, ok := ctx.Value(preparedHotkeyDispatchKey{}).(preparedHotkeyBinding); ok && !m.preparedHotkeyStillCurrent(ctx, binding, current) {
+		logging.Infof(context.Background(), "jobs.manager", "[Jobs] %s: hotkey dispatch changed after scoped context, skipping", binding.jobSlug)
 		return
 	}
 	if trigCtx != nil && trigCtx.Type != TriggerManual && strings.HasPrefix(current.Tool, "mcp_") {
@@ -1632,6 +1719,10 @@ func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerCont
 			m.logSkippedUnavailableTool(ctx, current, trigCtx, fmt.Sprintf("MCP tool %q is not available yet", current.Tool))
 			return
 		}
+	}
+	if binding, ok := ctx.Value(preparedHotkeyDispatchKey{}).(preparedHotkeyBinding); ok && !m.preparedHotkeyStillCurrent(ctx, binding, current) {
+		logging.Infof(context.Background(), "jobs.manager", "[Jobs] %s: hotkey dispatch changed before executor, skipping", binding.jobSlug)
+		return
 	}
 	m.executor.Execute(ctx, current, trigCtx)
 }
@@ -1799,7 +1890,7 @@ func (m *Manager) startRetentionLoop(ctx context.Context) {
 		defer cancel()
 		delay := jobRetentionInterval
 		if m.cfg.MaintenanceCoordinator != nil {
-			delay = time.Second
+			delay = 0
 		}
 		timer := time.NewTimer(delay)
 		defer timer.Stop()
@@ -1905,6 +1996,12 @@ func cloneJob(job *Job) (*Job, error) {
 		return nil, fmt.Errorf("clone job %s: %w", job.ID, err)
 	}
 	copy.PipelineEnabled = job.PipelineEnabled
+	// Inputs uses omitempty for transport, but the definition fingerprint
+	// distinguishes an empty object from null. A detached copy must preserve
+	// the persisted definition, including jobs that require no inputs.
+	if job.Inputs != nil && copy.Inputs == nil {
+		copy.Inputs = make(map[string]any)
+	}
 	return &copy, nil
 }
 

@@ -55,6 +55,13 @@ function focusGrid() {
 // ─── Backward compatibility (list mode) ────────────────────────────
 
 describe('DataGrid (list mode — backward compat)', () => {
+  it('abre as mesmas ações da linha pelo botão de mouse e executa uma vez', async () => {
+    const action = vi.fn();
+    render(<DataGrid items={items.slice(0, 1)} columns={[...columns, { key: 'actions', label: 'Ações', action: true }]} getRowActions={() => [{ id: 'edit', label: 'Editar item', action }]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ações' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Editar item' }));
+    expect(action).toHaveBeenCalledTimes(1);
+  });
   it('renderiza itens e colunas', () => {
     render(<DataGrid items={items} columns={columns} autoFocusOnMount={false} />);
     expect(screen.getByText('Alpha')).toBeInTheDocument();

@@ -22,6 +22,7 @@ interface TTSStreamEvent {
 
 // Callbacks para o stream player
 export interface StreamPlayerCallbacks {
+  isCurrent?: () => boolean;
   onStart?: () => void;
   onEnd?: () => void;
   onError?: (error: Error) => void;
@@ -80,6 +81,7 @@ export class TTSStreamPlayer {
     
     this.sessionId = sessionId;
     this.callbacks = callbacks;
+    if (!this.allowCurrent()) return;
     this.state = 'buffering';
     this.firstChunkLogged = false;
     if (this.useFallback) {
@@ -118,6 +120,7 @@ export class TTSStreamPlayer {
    * Handler para evento de início
    */
   private handleStart(): void {
+    if (!this.allowCurrent()) return;
     if (this.useFallback) {
       this.fallbackChunks = [];
     } else if (!this.mediaSource) {
@@ -129,6 +132,7 @@ export class TTSStreamPlayer {
    * Handler para chunks de áudio
    */
   private handleChunk(event: TTSStreamEvent): void {
+    if (!this.allowCurrent()) return;
     if (!event.chunkBase64) return;
     
     // Decodifica base64 para Uint8Array
@@ -150,6 +154,7 @@ export class TTSStreamPlayer {
    * Handler para fim do streaming
    */
   private handleDone(): void {
+    if (!this.allowCurrent()) return;
     if (this.useFallback) {
       this.playFallback();
     } else {
@@ -248,6 +253,7 @@ export class TTSStreamPlayer {
    * Tenta iniciar a reprodução se houver buffer suficiente
    */
   private tryStartPlayback(): void {
+    if (!this.allowCurrent()) return;
     if (!this.audioElement || !this.sourceBuffer) return;
     if (!this.audioElement.paused) return;
     if (this.state !== 'buffering') return;
@@ -272,6 +278,7 @@ export class TTSStreamPlayer {
    * Processa chunks pendentes
    */
   private processPendingChunks(): void {
+    if (!this.allowCurrent()) return;
     if (this.isUpdating || !this.sourceBuffer || this.pendingChunks.length === 0) {
       return;
     }
@@ -318,6 +325,7 @@ export class TTSStreamPlayer {
    * Modo fallback: junta chunks e reproduz
    */
   private playFallback(): void {
+    if (!this.allowCurrent()) return;
     if (this.fallbackChunks.length === 0) {
       this.callbacks.onEnd?.();
       return;
@@ -381,6 +389,7 @@ export class TTSStreamPlayer {
    * Retoma a reprodução
    */
   resume(): void {
+    if (!this.allowCurrent()) return;
     if (this.audioElement && this.state === 'paused') {
       this.audioElement.play().catch(() => {
         // Ignora erros ao retomar
@@ -394,6 +403,13 @@ export class TTSStreamPlayer {
    */
   getState(): PlayerState {
     return this.state;
+  }
+  private allowCurrent(): boolean {
+    if (!this.callbacks.isCurrent || this.callbacks.isCurrent()) return true;
+    const onError = this.callbacks.onError;
+    this.stop();
+    onError?.(new Error('chat-message-stale'));
+    return false;
   }
 
   /**

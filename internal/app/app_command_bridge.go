@@ -68,7 +68,7 @@ func (a *App) CommandBridgeInvoke(invocation commandbridge.Invocation, owner com
 	if err := a.validateCommandBridgeOwner(owner); err != nil {
 		return commandbridge.InvocationAck{}, err
 	}
-	return bridge.Invoke(a.commandBridgeContext(), invocation, owner)
+	return bridge.InvokeIngress(a.commandBridgeContext(), invocation, owner)
 }
 
 func (a *App) CommandBridgeInput(input commandbridge.Input) (commandbridge.InvocationAck, error) {
@@ -79,7 +79,7 @@ func (a *App) CommandBridgeInput(input commandbridge.Input) (commandbridge.Invoc
 	if err := a.validateCommandBridgeOwner(input.Owner); err != nil {
 		return commandbridge.InvocationAck{}, err
 	}
-	return bridge.Input(a.commandBridgeContext(), input)
+	return bridge.InputIngress(a.commandBridgeContext(), input)
 }
 
 func (a *App) CommandBridgeAcceptResult(result commandbridge.Result) (commandbridge.ResultAck, error) {
@@ -109,15 +109,14 @@ func (a *App) CommandBridgeLifecycle(event commandbridge.LifecycleEvent) error {
 	if !ok {
 		return commandbridge.ErrInvalidConfiguration
 	}
-	if event.Kind == commandbridge.LifecycleLock || event.Kind == commandbridge.LifecycleLogout {
-		a.authMu.RLock()
-		current := a.currentAuthUser
-		a.authMu.RUnlock()
-		if current == nil || event.SessionID != current.SessionID {
-			return commandbridge.ErrSessionUnavailable
-		}
+	a.authMu.RLock()
+	current := a.currentAuthUser
+	valid := current != nil && a.currentUserID != "" && current.UserID == a.currentUserID && event.SessionID == current.SessionID
+	a.authMu.RUnlock()
+	if !valid {
+		return commandbridge.ErrSessionUnavailable
 	}
-	return bridge.Lifecycle(a.commandBridgeContext(), event)
+	return bridge.LifecycleIngress(a.commandBridgeContext(), event)
 }
 
 func (a *App) shutdownCommandBridgeIfConfigured(ctx context.Context) error {

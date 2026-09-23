@@ -54,13 +54,21 @@ type Outcome struct {
 // ExecutionHandle é retornado por Start sem esperar o trabalho terminar.
 // Done entrega um outcome; Cancel deve ser idempotente e não bloqueante.
 type ExecutionHandle struct {
-	ID     string
-	Done   <-chan Outcome
-	Cancel func()
+	ID              string
+	Done            <-chan Outcome
+	Cancel          func()
+	CommitOwnership *CommitOwnership
 }
 
 type Handler struct {
 	Contract commandcatalog.HandlerContract
+	// ExecutionTimeout é uma exceção hostside do pipeline completo, limitada a
+	// cinco minutos. Zero conserva Config.ExecutionTimeout. Nunca vem da UI.
+	ExecutionTimeout time.Duration
+	// RuntimeOwnsDeadline permite somente a handlers de jobs no pipeline
+	// completo entregar ao runtime o parent original depois do Start. O
+	// preparo, decisão e fila continuam limitados por ExecutionTimeout.
+	RuntimeOwnsDeadline bool
 	// Start não pode readquirir o gate, aguardar rede/UI/trabalho nem bloquear.
 	// Qualquer erro/panic após entrar em Start é inconclusivo nesta versão.
 	Start func(context.Context, Invocation) (ExecutionHandle, error)

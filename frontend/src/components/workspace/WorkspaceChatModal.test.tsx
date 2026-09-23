@@ -1,7 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import type React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useEffect, type ReactNode } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
+import { captureLandmarkNavigationTarget, LANDMARK_COMMAND_EVENT, type LandmarkCommandRequest } from '../../lib/commandLandmarkNavigation';
+import { registerOpenModal, unregisterOpenModal } from '../../lib/modalRegistry';
 
 const hoisted = vi.hoisted(() => {
   const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
@@ -63,14 +65,21 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('../ui/Modal', () => ({
-  Modal: ({ isOpen, title, children }: { isOpen: boolean; title: string; children: React.ReactNode }) => (
+  Modal: ({ isOpen, title, children }: { isOpen: boolean; title: string; children: ReactNode }) => {
+    useEffect(() => {
+      if (!isOpen) return;
+      registerOpenModal('workspace-modal-test');
+      return () => unregisterOpenModal('workspace-modal-test');
+    }, [isOpen]);
+    return (
     isOpen ? (
-      <section aria-label={title} className="modal-overlay">
+      <section aria-label={title} className="modal-overlay" data-modal-id="workspace-modal-test">
         <h1>{title}</h1>
         {children}
       </section>
     ) : null
-  ),
+    );
+  },
   useModalIsTopmost: () => hoisted.isWorkspaceModalTopmost,
   isModalOpen: () => true,
 }));
@@ -138,15 +147,23 @@ vi.mock('../../store/workspaceChatModalStore', () => ({
 vi.mock('../../store/workspaceStore', () => ({
   useWorkspaceStore: Object.assign(
     (selector?: (state: { workspace: { tabs: Array<typeof activeTab> } }) => unknown) => {
-      const state = { workspace: { tabs: [hoisted.activeTab] } };
+      const state = { workspace: { id: 'workspace-a', activeTabId: hoisted.activeTab.id, tabs: [hoisted.activeTab] } };
       return typeof selector === 'function' ? selector(state) : state;
     },
     {
-      getState: () => ({ workspace: { tabs: [hoisted.activeTab] } }),
+      getState: () => ({ workspace: { id: 'workspace-a', activeTabId: hoisted.activeTab.id, tabs: [hoisted.activeTab] } }),
+      subscribe: () => () => undefined,
     },
   ),
   useActiveTab: () => hoisted.activeTab,
   useWorkspaceTabs: () => [hoisted.activeTab],
+}));
+
+vi.mock('../../store/authStore', () => ({
+  useAuthStore: {
+    getState: () => ({ isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a', role: 'user' } }),
+    subscribe: () => () => undefined,
+  },
 }));
 
 vi.mock('../../store/chatStore', () => ({
@@ -192,6 +209,32 @@ function BackgroundLandmarks({ onFocus }: { onFocus: () => boolean }) {
 }
 
 describe('WorkspaceChatModal', () => {
+  // The unit host supplies local dispatch; Topbar + real modal integration is
+  // covered separately by Topbar.landmarks.integration.test.tsx.
+  let removeDispatcher: () => void;
+  beforeEach(() => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const execute = (id: string, instanceId?: string) => {
+      const target = captureLandmarkNavigationTarget(() => window.location.pathname, instanceId);
+      try { return target?.canOpen(id) === true && target.open(id); }
+      finally { target?.dispose(); }
+    };
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== 'F6' || event.repeat || event.isComposing || event.defaultPrevented) return;
+      if (execute(event.shiftKey ? 'navigation.landmark.previous' : 'navigation.landmark.next')) event.preventDefault();
+    };
+    const request = (event: Event) => {
+      const detail = (event as CustomEvent<LandmarkCommandRequest>).detail;
+      if (execute(detail.commandID, detail.instanceId)) event.preventDefault();
+    };
+    window.addEventListener('keydown', keydown, true);
+    window.addEventListener(LANDMARK_COMMAND_EVENT, request);
+    removeDispatcher = () => {
+      window.removeEventListener('keydown', keydown, true);
+      window.removeEventListener(LANDMARK_COMMAND_EVENT, request);
+    };
+  });
+  afterEach(() => { removeDispatcher(); vi.restoreAllMocks(); });
   beforeEach(() => {
     capturedChatPanelProps.onRequestConversationChange = undefined;
     capturedChatPanelProps.onSend = undefined;
@@ -271,6 +314,7 @@ describe('WorkspaceChatModal', () => {
       undefined,
       paramsOverride,
       expect.objectContaining({ conversationId, tabId: 'tab-editor' }),
+      undefined,
     );
   });
 

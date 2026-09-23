@@ -34,51 +34,69 @@ func (c *Consumer) reconcileBatch(ctx context.Context, after string, limit int) 
 	cursor, done := after, false
 	processed := 0
 	err := c.gate.WithMutation(ctx, func() error {
-		return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			var leases []Lease
-			if err := tx.Where("activation_id > ?", after).Order("activation_id").Limit(limit).Find(&leases).Error; err != nil {
-				return err
-			}
-			processed = len(leases)
-			done = len(leases) < limit
-			for _, lease := range leases {
-				if err := ctx.Err(); err != nil {
+		return c.withContext(ctx, func(txCtx context.Context) error {
+			return c.db.WithContext(txCtx).Transaction(func(tx *gorm.DB) error {
+				var leases []Lease
+				if err := tx.Where("activation_id > ?", after).Order("activation_id").Limit(limit).Find(&leases).Error; err != nil {
 					return err
 				}
-				cursor = lease.ActivationID
-				claim, _, err := c.liveClaim(ctx, tx, lease, c.now().UTC())
-				if err == nil {
-					continue
+				processed = len(leases)
+				done = len(leases) < limit
+				// An empty batch cannot change availability. In particular, the
+				// initial maintenance pass must not invalidate a command captured
+				// concurrently when there are no job activations to reconcile.
+				// Nonempty batches still invalidate before validation/mutation,
+				// conservatively including failures and transaction rollbacks.
+				if len(leases) > 0 {
+					if err := c.advanceRevision(); err != nil {
+						return err
+					}
 				}
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				// Revogar disponibilidade é seguro mesmo se a prova estiver ausente.
-				// Não apagar a claim/ledger, não renovar lease nem executar efeitos.
-				update := tx.Model(&commandactivation.Claim{}).Where("activation_id = ? AND user_id = ? AND source_type = ? AND state = ?", lease.ActivationID, lease.UserID, "job", commandactivation.StateActive).Updates(map[string]any{"state": commandactivation.StateInactive, "terminal_reason": "source_unavailable", "updated_at": c.now().UTC()})
-				if update.Error != nil {
-					return update.Error
-				}
-				if update.RowsAffected > 0 {
-					if claim.ActivationID == "" {
-						if err := tx.Where("activation_id = ? AND user_id = ?", lease.ActivationID, lease.UserID).Take(&claim).Error; err != nil {
+				for _, lease := range leases {
+					if err := txCtx.Err(); err != nil {
+						return err
+					}
+					cursor = lease.ActivationID
+					claim, _, err := c.liveClaim(txCtx, tx, lease, c.now().UTC())
+					if err == nil {
+						continue
+					}
+					if txCtx.Err() != nil {
+						return txCtx.Err()
+					}
+					if !heartbeatRejection(err) {
+						return err
+					}
+					// Revogar disponibilidade é seguro mesmo se a prova estiver ausente.
+					// Não apagar a claim/ledger, não renovar lease nem executar efeitos.
+					update := tx.Model(&commandactivation.Claim{}).Where("activation_id = ? AND user_id = ? AND source_type = ? AND state = ?", lease.ActivationID, lease.UserID, "job", commandactivation.StateActive).Updates(map[string]any{"state": commandactivation.StateInactive, "terminal_reason": "source_unavailable", "updated_at": c.now().UTC()})
+					if update.Error != nil {
+						return update.Error
+					}
+					if update.RowsAffected > 0 {
+						if claim.ActivationID == "" {
+							if err := tx.Where("activation_id = ? AND user_id = ?", lease.ActivationID, lease.UserID).Take(&claim).Error; err != nil {
+								return err
+							}
+						}
+						store, err := commandactivation.NewStore(tx)
+						if err != nil {
+							return err
+						}
+						o := commandactivation.Owner{Scope: commandactivation.Scope{UserID: claim.UserID, WorkspaceID: clone(claim.WorkspaceID)}, AuthContextType: claim.AuthContextType, AuthContextID: claim.AuthContextID, AuthGeneration: claim.AuthGeneration, SecurityGeneration: claim.SecurityGeneration}
+						if _, err := store.BumpActiveLayersTx(txCtx, tx, o); err != nil {
 							return err
 						}
 					}
-					store, err := commandactivation.NewStore(tx)
-					if err != nil {
-						return err
-					}
-					o := commandactivation.Owner{Scope: commandactivation.Scope{UserID: claim.UserID, WorkspaceID: clone(claim.WorkspaceID)}, AuthContextType: claim.AuthContextType, AuthContextID: claim.AuthContextID, AuthGeneration: claim.AuthGeneration, SecurityGeneration: claim.SecurityGeneration}
-					if _, err := store.BumpActiveLayersTx(ctx, tx, o); err != nil {
+					if err := tx.Where("id = ?", lease.ID).Delete(&Lease{}).Error; err != nil {
 						return err
 					}
 				}
-				if err := tx.Where("id = ?", lease.ID).Delete(&Lease{}).Error; err != nil {
+				if err := txCtx.Err(); err != nil {
 					return err
 				}
-			}
-			return nil
+				return nil
+			})
 		})
 	})
 	if err != nil {
@@ -96,7 +114,8 @@ func (c *Consumer) RenewRuntime(ctx context.Context, activationID string) error 
 	if c == nil {
 		return ErrUnavailable
 	}
-	return c.renewRuntimeWithTTL(ctx, activationID, c.lease)
+	lease, _ := c.durations(ctx)
+	return c.renewRuntimeWithTTL(ctx, activationID, lease)
 }
 
 // HeartbeatPass renova uma página bounded de leases já existentes. O cursor é
@@ -152,32 +171,41 @@ func (c *Consumer) renewRuntimeWithTTL(ctx context.Context, activationID string,
 		return ErrUnavailable
 	}
 	return c.gate.WithMutation(ctx, func() error {
-		return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			var lease Lease
-			if err := tx.Where("activation_id = ?", activationID).Take(&lease).Error; err != nil {
+		return c.withContext(ctx, func(txCtx context.Context) error {
+			if err := c.advanceRevision(); err != nil {
 				return err
 			}
-			now := c.now().UTC()
-			claim, _, err := c.liveClaim(ctx, tx, lease, now)
-			if err != nil {
-				return err
-			}
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			update := tx.Model(&Lease{}).Where("id = ? AND runtime_generation = ? AND expires_at = ? AND expires_at > ?", lease.ID, lease.RuntimeGeneration, lease.ExpiresAt, now).Updates(map[string]any{"expires_at": now.Add(ttl), "updated_at": now})
-			if update.Error != nil {
-				return update.Error
-			}
-			if update.RowsAffected != 1 {
-				return ErrUnavailable
-			}
-			// Ativo não expira por idade de auditoria enquanto tem fonte viva.
-			deadline := now.Add(c.retention)
-			if claim.ExpiresAt != nil && claim.ExpiresAt.After(deadline) {
-				deadline = *claim.ExpiresAt
-			}
-			return tx.Model(&commandactivation.Claim{}).Where("activation_id = ? AND state = ?", claim.ActivationID, commandactivation.StateActive).Update("expires_at", deadline).Error
+			return c.db.WithContext(txCtx).Transaction(func(tx *gorm.DB) error {
+				var lease Lease
+				if err := tx.Where("activation_id = ?", activationID).Take(&lease).Error; err != nil {
+					return err
+				}
+				now := c.now().UTC()
+				claim, _, err := c.liveClaim(txCtx, tx, lease, now)
+				if err != nil {
+					return err
+				}
+				if err := txCtx.Err(); err != nil {
+					return err
+				}
+				update := tx.Model(&Lease{}).Where("id = ? AND runtime_generation = ? AND expires_at = ? AND expires_at > ?", lease.ID, lease.RuntimeGeneration, lease.ExpiresAt, now).Updates(map[string]any{"expires_at": now.Add(ttl), "updated_at": now})
+				if update.Error != nil {
+					return update.Error
+				}
+				if update.RowsAffected != 1 {
+					return ErrUnavailable
+				}
+				// Ativo não expira por idade de auditoria enquanto tem fonte viva.
+				_, retention := c.durations(txCtx)
+				deadline := now.Add(retention)
+				if claim.ExpiresAt != nil && claim.ExpiresAt.After(deadline) {
+					deadline = *claim.ExpiresAt
+				}
+				if err := tx.Model(&commandactivation.Claim{}).Where("activation_id = ? AND state = ?", claim.ActivationID, commandactivation.StateActive).Update("expires_at", deadline).Error; err != nil {
+					return err
+				}
+				return txCtx.Err()
+			})
 		})
 	})
 }
@@ -234,15 +262,24 @@ func (c *Consumer) liveClaim(ctx context.Context, tx *gorm.DB, lease Lease, now 
 		return claim, owner, err
 	}
 	enabled, err := c.ports.Layer(ctx, tx, detachedOwner(owner), detachedRule(rule))
-	if err != nil || !enabled {
+	if err != nil {
+		return claim, owner, err
+	}
+	if !enabled {
 		return claim, owner, ErrUnavailable
 	}
 	active, err := c.ports.Condition(ctx, tx, detachedOwner(owner), detachedRule(rule), detachedFact(f))
-	if err != nil || !active {
+	if err != nil {
+		return claim, owner, err
+	}
+	if !active {
 		return claim, owner, ErrUnavailable
 	}
 	runtime, err := c.ports.Runtime(ctx, tx, detachedFact(f))
-	if err != nil || !runtime.matches(owner) || runtime.Generation != lease.RuntimeGeneration {
+	if err != nil {
+		return claim, owner, err
+	}
+	if !runtime.matches(owner) || runtime.Generation != lease.RuntimeGeneration {
 		return claim, owner, ErrUnavailable
 	}
 	return claim, owner, nil

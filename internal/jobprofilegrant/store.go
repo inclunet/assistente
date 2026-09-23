@@ -29,6 +29,7 @@ var (
 	ErrProfileExpressionRequired = errors.New("input profile do job é obrigatório")
 	ErrAuthorizationNotGranted   = errors.New("authorization_not_granted")
 	ErrGrantGenerationChanged    = errors.New("grant_generation_changed")
+	ErrProfileRevocationPending  = errors.New("profile revocation already pending")
 )
 
 // DelegationConfig é o recorte de segurança usado no fingerprint.
@@ -517,13 +518,17 @@ func (s *Store) BeginProfileRevocation(ctx context.Context, targetSlug, original
 		RequestedBy:       strings.TrimSpace(actor),
 	}
 	return database.WithSQLiteBusyRetry(ctx, "job_profile_grants.begin_profile_revocation", func() error {
-		return s.db.WithContext(ctx).Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "target_profile_slug"}},
-			DoUpdates: clause.Assignments(map[string]any{
-				"original_identity": row.OriginalIdentity,
-				"requested_by":      row.RequestedBy,
-			}),
-		}).Create(&row).Error
+		result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "target_profile_slug"}},
+			DoNothing: true,
+		}).Create(&row)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrProfileRevocationPending
+		}
+		return nil
 	})
 }
 
@@ -551,9 +556,29 @@ func (s *Store) ReconcileProfileRevocations(ctx context.Context) error {
 }
 
 func (s *Store) RevokeProfileGlobal(ctx context.Context, targetSlug, actor string) error {
+	notify, err := s.RevokeProfileGlobalDeferred(ctx, targetSlug, actor)
+	if err != nil {
+		return err
+	}
+	if notify != nil {
+		notify()
+	}
+	return nil
+}
+
+// RevokeProfileGlobalDeferred revoga grants e desabilita os jobs na mesma
+// transação, mas devolve a publicação da reconciliação para o caller. Isso é
+// necessário quando a transação é chamada durante o lock do profiles.Manager:
+// o callback de produção pode reler o Manager e não pode reentrar nele antes
+// de o commit coordenado liberar seu lock.
+func (s *Store) RevokeProfileGlobalDeferred(ctx context.Context, targetSlug, actor string) (func(), error) {
 	now := s.now().UTC()
 	var disabled []DisabledJob
 	err := database.WithSQLiteBusyRetry(ctx, "job_profile_grants.revoke_profile", func() error {
+		// WithSQLiteBusyRetry pode executar a operação mais de uma vez; cada
+		// tentativa precisa produzir um recibo novo, nunca acumular jobs de uma
+		// tentativa que acabou em rollback.
+		disabled = nil
 		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			if err := tx.Model(&database.JobProfileGrantEpoch{}).
 				Where("target_profile_slug = ?", strings.TrimSpace(targetSlug)).
@@ -589,10 +614,17 @@ func (s *Store) RevokeProfileGlobal(ctx context.Context, targetSlug, actor strin
 				Delete(&database.ProfileGrantRevocationIntent{}).Error
 		})
 	})
-	if err == nil {
-		s.notifyJobsDisabled(disabled)
+	if err != nil {
+		return nil, err
 	}
-	return err
+	if len(disabled) == 0 {
+		return nil, nil
+	}
+	jobs := append([]DisabledJob(nil), disabled...)
+	// O recibo é idempotente: uma falha do caller não pode publicar duas vezes
+	// a mesma reconciliação se ele repetir a etapa de entrega.
+	var once sync.Once
+	return func() { once.Do(func() { s.notifyJobsDisabled(jobs) }) }, nil
 }
 
 func disableJobWithoutGrantTx(tx *gorm.DB, userID, jobID string) (*DisabledJob, error) {

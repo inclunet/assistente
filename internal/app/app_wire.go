@@ -3,10 +3,13 @@ package app
 import (
 	"assistente/controllers"
 	"assistente/internal/acpinstall"
+	"assistente/internal/commandcatalog"
+	"assistente/internal/commandruntime"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/wailsapi"
+	"assistente/internal/workspace"
 	"context"
 	"fmt"
 )
@@ -63,7 +66,147 @@ func (a *App) wireCommandCatalog() {
 	a.authMu.RLock()
 	registry := a.commandRegistry
 	a.authMu.RUnlock()
-	wailsapi.AttachCommandCatalog(a.commandCatalogAPI, wailsSession{app: a}, registry)
+	wailsapi.AttachCommandCatalog(a.commandCatalogAPI, wailsSession{app: a}, registry, func(ctx context.Context, definition commandcatalog.Definition, source commandcatalog.Source) error {
+		if ctx == nil {
+			return commandcatalog.ErrNotReady
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if source != commandcatalog.Palette {
+			return commandcatalog.ErrNotReady
+		}
+		product := a.commandProduct.Load()
+		if product == nil || product.service == nil || product.bridge == nil || product.sessionSvc == nil || product.host == nil {
+			return commandcatalog.ErrNotReady
+		}
+		product.mu.Lock()
+		closed := product.closed
+		product.mu.Unlock()
+		if closed || !product.dependenciesMatch(a) {
+			return commandcatalog.ErrNotReady
+		}
+		if _, err := product.sessionSvc.RevalidateLocalSession(ctx, product.principal); err != nil {
+			return commandcatalog.ErrNotReady
+		}
+		// A descoberta precisa reconciliar a projeção contextual pelo mesmo
+		// caminho da execução. Mudanças de aba/perfil ou heartbeat de jobs
+		// invalidam o guard, mas não tornam todos os comandos indisponíveis
+		// permanentemente. Refresh não restaura claims nem ignora os gates.
+		if err := product.refreshCommandJobProjection(ctx); err != nil {
+			return commandcatalog.ErrNotReady
+		}
+		versions, err := product.host.Snapshot(ctx, product.principal)
+		if err != nil || !versions.Unlocked {
+			return commandcatalog.ErrNotReady
+		}
+		snapshot, err := CommandLifecycleSnapshot(a)
+		if err != nil || snapshot.State != commandruntime.StateReady || !snapshot.Published {
+			return commandcatalog.ErrNotReady
+		}
+		a.authMu.RLock()
+		currentRegistry := a.commandRegistry
+		currentUser := a.currentAuthUser
+		currentUserID := a.currentUserID
+		terminalManager := a.terminalMgr
+		a.authMu.RUnlock()
+		if currentRegistry != registry || currentUser == nil || currentUserID != product.principal.UserID || currentUser.SessionID != product.principal.SessionID {
+			return commandcatalog.ErrNotReady
+		}
+		current, ok := currentRegistry.Lookup(definition.ID)
+		if !ok || current.ID != definition.ID || current.Availability.Status != commandcatalog.Available {
+			return commandcatalog.ErrNotReady
+		}
+		if current.HandlerClassification != commandcatalog.HandlerBackend &&
+			(current.HandlerClassification != commandcatalog.HandlerUI || product.ui == nil) {
+			return commandcatalog.ErrNotReady
+		}
+		if isChatMessageCommand(current.ID) {
+			if _, err := a.captureChatMessageTarget(ctx, product); err != nil {
+				return commandcatalog.ErrNotReady
+			}
+		}
+		if isWorkspaceMutationCommand(current.ID) {
+			if isPageMutationCommand(current.ID) {
+				a.authMu.RLock()
+				ready := a.taskSvc != nil
+				if isProfileMutationCommand(current.ID) {
+					ready = a.profileManager != nil && a.profilesCtrl != nil
+				}
+				a.authMu.RUnlock()
+				if !ready {
+					return commandcatalog.ErrNotReady
+				}
+			}
+			if current.ID == commandTerminalInterruptID {
+				if _, _, _, err := a.captureTerminalInterrupt(ctx, product); err != nil {
+					return commandcatalog.ErrNotReady
+				}
+			}
+			validEffect := current.Effect == commandcatalog.Write && current.Decision == commandcatalog.NoDecision
+			if current.ID == commandMessageDeleteID || pageMutationDestructive(current.ID) {
+				validEffect = current.Effect == commandcatalog.Destructive && current.Decision == commandcatalog.Interactive
+			}
+			if isChatActionCommand(current.ID) {
+				if _, _, err := a.captureChatAction(ctx, product, current.ID); err != nil {
+					return commandcatalog.ErrNotReady
+				}
+			}
+			if current.ID == commandConversationClearID {
+				validEffect = current.Effect == commandcatalog.Destructive && current.Decision == commandcatalog.Interactive
+				if err := a.conversationClearReady(ctx, product); err != nil {
+					return commandcatalog.ErrNotReady
+				}
+			}
+			if current.ID == commandTerminalSessionCloseID {
+				if _, _, _, err := a.captureTerminalClose(ctx, product); err != nil {
+					return commandcatalog.ErrNotReady
+				}
+				validEffect = current.Effect == commandcatalog.Destructive && current.Decision == commandcatalog.Interactive
+			}
+			// Esta escrita tem submissão própria, alvo versionado e confirmação
+			// do backend. Não ampliar o preflight read-only dos demais comandos.
+			if product.ui == nil || product.workspaceMgr == nil ||
+				!validEffect || !current.HasMutableTarget ||
+				current.HandlerClassification != commandcatalog.HandlerBackend ||
+				current.MutatesEffectiveCapability != isProfileMutationCommand(current.ID) ||
+				!current.AllowsSource(commandcatalog.Palette) || current.Context.None ||
+				len(current.Context.Facts) != 1 || current.Context.Facts[0].Provider != "workspace" ||
+				current.Context.Facts[0].Fact != "active_tab" || current.Context.Facts[0].Mode != commandcatalog.ExactVersion {
+				return commandcatalog.ErrNotReady
+			}
+			if target, err := product.workspaceMgr.CommandSnapshot(); err != nil || target.WorkspaceID != product.workspaceID {
+				return commandcatalog.ErrNotReady
+			}
+			if (current.ID == commandWorkspaceTabTerminalCreateID || current.ID == commandTerminalSessionCreateID || current.ID == commandTerminalSessionCloseID) && terminalManager == nil {
+				return commandcatalog.ErrNotReady
+			}
+			if current.ID == commandTerminalSessionCreateID || current.ID == commandTerminalSessionCloseID {
+				target, err := product.workspaceMgr.CommandSnapshot()
+				if err != nil || target.Tab.Type != workspace.TabTypeTerminal {
+					return commandcatalog.ErrNotReady
+				}
+			}
+		} else if isCommandLayerAction(current.ID) {
+			if !commandLayerPaletteReady(ctx, product, current) {
+				return commandcatalog.ErrNotReady
+			}
+		} else if isAuditedUIContextualCommand(current.ID) {
+			if current.Effect != commandcatalog.Write || !current.HasMutableTarget || current.HandlerClassification != commandcatalog.HandlerUI || current.Decision != commandcatalog.NoDecision || current.MutatesEffectiveCapability || !current.AllowsSource(commandcatalog.Palette) || current.Context.None || len(current.Context.Facts) != 1 || current.Context.Facts[0].Provider != "workspace" || current.Context.Facts[0].Fact != "active_tab" || current.Context.Facts[0].Mode != commandcatalog.ExactVersion {
+				return commandcatalog.ErrNotReady
+			}
+		} else if _, err := currentRegistry.CheckReadiness(definition.ID, commandcatalog.Palette); err != nil {
+			return err
+		}
+		if a.commandProduct.Load() != product {
+			return commandcatalog.ErrNotReady
+		}
+		currentPrincipal, err := a.currentCommandPrincipal()
+		if err != nil || currentPrincipal != product.principal {
+			return commandcatalog.ErrNotReady
+		}
+		return nil
+	})
 }
 
 // wireUpdater monta o UpdaterController e associa o bind Wails (AEP-0088).
@@ -90,12 +233,7 @@ func (a *App) wireProfiles() {
 			a.reinitSpeechFromActiveProfile(slug)
 			a.registerActiveProfileHotkeys()
 		},
-		DeleteProfile: func(ctx context.Context, slug string, deleteFile func() error) error {
-			return a.profileAccessService().DeleteProfile(ctx, slug, deleteFile)
-		},
-		MutateProfiles: func(mutate func() error) error {
-			return a.profileAccessService().MutateProfiles(mutate)
-		},
+		CommitProfileMutation: a.commitProfileMutation,
 	})
 	if a.profilesAPI != nil {
 		wailsapi.AttachProfiles(a.profilesAPI, wailsSession{app: a}, a.profilesCtrl)
@@ -124,9 +262,8 @@ func (a *App) reinitSpeechFromActiveProfile(slug string) {
 // wireHotkeys monta o HotkeysController e associa o bind Wails (AEP-0088).
 func (a *App) wireHotkeys() {
 	a.hotkeyCtrl = controllers.NewHotkeysController(controllers.HotkeysControllerConfig{
-		ProfileMgr: a.profileManager,
-		Emitter:    a.emitter,
-		WindowPort: a.windowPort,
+		DispatchCommandHotkey: a.dispatchCommandProfileHotkey,
+		ProfileMgr:            a.profileManager,
 	})
 	if a.hotkeysAPI != nil {
 		wailsapi.AttachHotkeys(a.hotkeysAPI, wailsSession{app: a}, a.hotkeyCtrl)
@@ -179,6 +316,7 @@ func (a *App) wireSettings() {
 			_, err := a.conversationsCtrl.ClearConversations(ctx)
 			return err
 		},
+		BeforeDatabaseReset: a.beforeCommandDatabaseReset,
 		DeleteProfile: func(slug string) error {
 			return a.profileAccessService().DeleteProfile(context.Background(), slug, func() error {
 				return a.profileManager.Delete(slug)
@@ -298,11 +436,15 @@ func (a *App) wireMessaging() {
 func (a *App) wireEditor() {
 	if a.editorAPI != nil {
 		wailsapi.AttachEditor(a.editorAPI, wailsSession{app: a}, wailsapi.EditorHooks{
-			AppContext:    func() context.Context { return a.ctx },
-			Dialog:        func() ports.SystemDialogPort { return a.dialogPort },
-			MarkSelfWrite: a.markEditorSelfWrite,
-			WatchFile:     a.editorWatchFile,
-			UnwatchFile:   a.editorUnwatchFile,
+			AppContext:           func() context.Context { return a.ctx },
+			Dialog:               func() ports.SystemDialogPort { return a.dialogPort },
+			CaptureDialogSession: a.captureEditorDialogSession,
+			MarkSelfWrite:        a.markEditorSelfWrite,
+			WatchFile:            a.editorWatchFile,
+			UnwatchFile:          a.editorUnwatchFile,
+			CommandTarget:        a.editorCommandTarget,
+			CommandPrepare:       a.editorCommandPrepare,
+			CommandCommit:        a.editorCommandCommit,
 		})
 	}
 }
@@ -321,6 +463,8 @@ func (a *App) wireExportImport() {
 		AppVersion,
 		a.prepareConversationRestoration,
 	)
+	wailsapi.AttachCommandImport(a.exportImportAPI, a.importCommandLayers)
+	wailsapi.AttachCommandExport(a.exportImportAPI, a.exportCommandLayers)
 }
 
 // wireLegacyCleanup associa o bind Wails de cleanup de JSON legado (AEP-0088).
@@ -434,7 +578,8 @@ func (a *App) wireChat() {
 	if a.chatAPI == nil {
 		a.chatAPI = wailsapi.NewChat()
 	}
-	wailsapi.AttachChat(a.chatAPI, wailsSession{app: a}, a.chatCtrl)
+	wailsapi.AttachChat(a.chatAPI, commandChatSession{wailsSession{app: a}}, a.chatCtrl)
+	wailsapi.AttachChatCommandHook(a.chatAPI, a.commitChatSubmission)
 }
 
 // wireACPCommands associa o bind Wails ao Manager ACP já criado em initACP (AEP-0088).

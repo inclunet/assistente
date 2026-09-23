@@ -30,7 +30,7 @@ function WorkspaceTabPanel({ tab, isActive }: { tab: WorkspaceTab; isActive: boo
       hidden={!isActive}
       aria-hidden={!isActive}
     >
-      <WorkspacePanelProvider value={{ tab, isActive }}>
+      <WorkspacePanelProvider value={{ tab, isActive, rootRef: panelRef }}>
         <Suspense fallback={<Loading />}>
           <WorkspaceDomainPanel
             tab={tab}

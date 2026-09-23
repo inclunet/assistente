@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,9 @@ import (
 )
 
 var ErrKeys = errors.New("chaves de comandos indisponíveis ou incompatíveis")
+
+// Diagnóstico estável, sem incluir a assinatura, versão ou segredo recebido.
+var ErrFingerprintReference = fmt.Errorf("%w: referência de fingerprint inválida", ErrKeys)
 
 // Só serializa operações raras de bootstrap/rotação neste processo. A criação
 // da credencial e o CAS de versão também são atômicos no banco entre processos.
@@ -155,9 +159,8 @@ func prepareKeys(ctx context.Context, db *gorm.DB, manager *credentials.Manager)
 			return "", ErrKeys
 		}
 		for _, fingerprint := range fingerprints {
-			version, _, ok := strings.Cut(fingerprint, ":")
-			if !ok || !known[version] {
-				return "", ErrKeys
+			if !storedFingerprintAvailable(fingerprint, known) {
+				return "", ErrFingerprintReference
 			}
 		}
 	}
@@ -165,6 +168,31 @@ func prepareKeys(ctx context.Context, db *gorm.DB, manager *credentials.Manager)
 		return "", err
 	}
 	return active, nil
+}
+
+// Os signers canônicos (configuração, grants e envelopes) retornam digest
+// hexadecimal: a versão já participa do domínio HMAC. O signer anterior de
+// configuração retorna vN:digest. Não confundir digest opaco com referência
+// a versão inexistente. A verificação acima exige TODAS as chaves registradas;
+// não inferimos versão para digest opaco, não coletamos chaves e não reescrevemos
+// receipts. Isto só verifica prontidão: não autentica nem consome uma decisão.
+func storedFingerprintAvailable(fingerprint string, known map[string]bool) bool {
+	digest := fingerprint
+	if version, value, tagged := strings.Cut(fingerprint, ":"); tagged {
+		if !known[version] {
+			return false
+		}
+		digest = value
+	}
+	if len(known) == 0 || len(digest) != sha256.Size*2 {
+		return false
+	}
+	for _, c := range digest {
+		if !(c >= '0' && c <= '9') && !(c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func keyError(ctx context.Context) error {

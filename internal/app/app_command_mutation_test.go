@@ -22,7 +22,9 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/questionnaire"
+	"assistente/internal/workspace"
 	"github.com/glebarez/sqlite"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -340,6 +342,68 @@ func TestCommandMutationFactoryUsesRealDBAndPresenterAndRevalidatesSession(t *te
 	if err != nil || resolved.CommandID != "fixture.complete" {
 		t.Fatalf("binding recém-persistido ausente: %+v %v", resolved, err)
 	}
+	t.Run("publicacao-preserva-workspace-ativo-independente-do-alvo", func(t *testing.T) {
+		wm := workspace.NewManager(filepath.Join(t.TempDir(), "home"))
+		if err := wm.Initialize(filepath.Join(t.TempDir(), "workspace")); err != nil {
+			t.Fatal(err)
+		}
+		if err := wm.AddTab(workspace.Tab{ID: "mutation-tab", Type: workspace.TabTypeEditor, State: map[string]any{"version": float64(1)}}); err != nil {
+			t.Fatal(err)
+		}
+		app.workspaceMgr = wm
+		t.Cleanup(func() { app.workspaceMgr = nil })
+		principal := auth.LocalSessionPrincipal{UserID: user.ID, SessionID: first.SessionID}
+		publicationScope, err := app.commandMutationCurrentScope(principal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.EnsureScope(ctx, publicationScope); err != nil {
+			t.Fatal(err)
+		}
+		localLayer := commandconfig.Layer{ID: uuid.Must(uuid.NewV7()).String(), UserID: user.ID, WorkspaceID: publicationScope.WorkspaceID, Name: "local ativa", Enabled: true, Source: "user"}
+		if err := db.Create(&localLayer).Error; err != nil {
+			t.Fatal(err)
+		}
+		localBinding := rebuiltResult.Diff.AfterBindings[0]
+		localBinding.ID = uuid.Must(uuid.NewV7()).String()
+		localBinding.WorkspaceID, localBinding.LayerRef = publicationScope.WorkspaceID, localLayer.ID
+		if err := db.Create(&localBinding).Error; err != nil {
+			t.Fatal(err)
+		}
+		options.ActiveUserLayerIDs = []string{diff.AfterLayers[0].ID, localLayer.ID}
+		inactive := "workspace-inativo"
+		if err := store.EnsureScope(ctx, commandconfig.Scope{UserID: user.ID, WorkspaceID: &inactive}); err != nil {
+			t.Fatal(err)
+		}
+		for _, target := range []struct {
+			name      string
+			workspace *string
+		}{{"global", nil}, {"ativo", publicationScope.WorkspaceID}, {"inativo", &inactive}} {
+			apply = func(ctx context.Context, token string, _ *string, intent commandconfig.MutationIntent) (commandconfig.MutationDiff, error) {
+				var err error
+				rebuiltResult, err = applier.ApplyScoped(ctx, token, target.workspace, intent)
+				return rebuiltResult.Diff, err
+			}
+			if _, err := applyDecision(first.AccessToken, "alvo-"+target.name); err != nil {
+				t.Fatalf("%s: %v", target.name, err)
+			}
+			if !rebuiltResult.Committed || !rebuiltResult.Rebuilt {
+				t.Fatalf("%s: %+v", target.name, rebuiltResult)
+			}
+			configuration, _, err := state.UserConfiguration(ctx, user.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			selected, err := configuration.Resolve("keyboard.local:KeyA", nil, nil)
+			if err != nil || !slices.Contains(selected.BindingIDs, localBinding.ID) {
+				t.Fatalf("%s apagou binding do workspace ativo: %+v %v", target.name, selected, err)
+			}
+			var persisted commandconfig.Layer
+			if err := db.Where("name = ?", "alvo-"+target.name).First(&persisted).Error; err != nil || !sameCommandWorkspace(persisted.WorkspaceID, target.workspace) {
+				t.Fatalf("%s mudou alvo da escrita: %+v %v", target.name, persisted, err)
+			}
+		}
+	})
 	options.ActiveUserLayerIDs = nil
 	for _, representation := range []string{"nil-vazio", "ordem"} {
 		setInputs := factoryInputs

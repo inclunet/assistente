@@ -16,6 +16,18 @@ type maintenanceOutbox struct {
 	requeueLimit *int
 }
 
+type maintenanceOutboxWithPurge struct {
+	maintenanceOutbox
+	purged int
+	more   bool
+}
+
+func (p *maintenanceOutboxWithPurge) PurgeExpired(context.Context, int) (int, bool, error) {
+	*p.order = append(*p.order, "purge")
+	p.purged++
+	return p.purged, p.more, nil
+}
+
 func (p *maintenanceOutbox) RequeueExpiredLeases(_ context.Context, limit int) (int, bool, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -30,6 +42,33 @@ func (p *maintenanceOutbox) Drain(context.Context, int) (BatchResult, error) {
 	defer p.mu.Unlock()
 	*p.order = append(*p.order, "drain")
 	return BatchResult{}, nil
+}
+
+func (p *maintenanceOutbox) PurgeExpired(context.Context, int) (int, bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return 0, false, nil
+}
+
+func TestCoordinatorUsesOptionalBoundedOutboxPurgeBeforeRetention(t *testing.T) {
+	order := []string{}
+	outbox := &maintenanceOutboxWithPurge{maintenanceOutbox: maintenanceOutbox{order: &order}}
+	coordinator, err := New(Ports{
+		Outbox: outbox, Decisions: maintenanceRecovery{}, Invocations: maintenanceRecovery{}, Claims: maintenanceRecovery{},
+		Jobs: maintenanceRetention{name: "jobs", order: &order}, Tools: maintenanceTools{order: &order},
+		InvocationDB: maintenanceRetention{name: "invocations", order: &order}, Activations: maintenanceRetention{name: "activations", order: &order},
+		Compaction: maintenanceCompact{order: &order},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := coordinator.Run(context.Background(), validMaintenancePolicy(2))
+	if err != nil || report.OutboxPurged != 1 || !report.Compacted {
+		t.Fatalf("purga=%+v err=%v", report, err)
+	}
+	if !reflect.DeepEqual(order[:4], []string{"requeue", "drain", "purge", "jobs"}) {
+		t.Fatalf("ordem inicial=%v", order)
+	}
 }
 
 type maintenanceRecovery struct {
@@ -449,6 +488,10 @@ type blockingOutbox struct {
 	release chan struct{}
 }
 
+func (p *blockingOutbox) PurgeExpired(context.Context, int) (int, bool, error) {
+	return 0, false, nil
+}
+
 func (p *blockingOutbox) RequeueExpiredLeases(context.Context, int) (int, bool, error) {
 	close(p.started)
 	<-p.release
@@ -478,6 +521,10 @@ func (p *maintenanceOutboxWithMore) Drain(_ context.Context, limit int) (BatchRe
 	return BatchResult{Processed: 1, More: p.drainMore}, nil
 }
 
+func (p *maintenanceOutboxWithMore) PurgeExpired(context.Context, int) (int, bool, error) {
+	return 0, false, nil
+}
+
 type maintenanceOutboxWithResult struct {
 	order  *[]string
 	result BatchResult
@@ -491,6 +538,10 @@ func (p *maintenanceOutboxWithResult) RequeueExpiredLeases(context.Context, int)
 func (p *maintenanceOutboxWithResult) Drain(_ context.Context, _ int) (BatchResult, error) {
 	*p.order = append(*p.order, "drain")
 	return p.result, nil
+}
+
+func (p *maintenanceOutboxWithResult) PurgeExpired(context.Context, int) (int, bool, error) {
+	return 0, false, nil
 }
 
 type cancelingOutbox struct {
@@ -514,6 +565,11 @@ func (p *cancelingOutbox) RequeueExpiredLeases(context.Context, int) (int, bool,
 func (p *cancelingOutbox) Drain(context.Context, int) (BatchResult, error) {
 	p.mark("drain")
 	return BatchResult{}, nil
+}
+
+func (p *cancelingOutbox) PurgeExpired(context.Context, int) (int, bool, error) {
+	p.mark("purge")
+	return 0, false, nil
 }
 
 type cancelingRecovery struct {

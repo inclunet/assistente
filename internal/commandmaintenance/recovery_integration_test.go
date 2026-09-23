@@ -31,6 +31,9 @@ func (*otherDomains) RequeueExpiredLeases(context.Context, int) (int, bool, erro
 func (*otherDomains) Drain(context.Context, int) (commandmaintenance.BatchResult, error) {
 	return commandmaintenance.BatchResult{}, nil
 }
+func (*otherDomains) PurgeExpired(context.Context, int) (int, bool, error) {
+	return 0, false, nil
+}
 func (*otherDomains) Recover(context.Context, int) (commandmaintenance.BatchResult, error) {
 	return commandmaintenance.BatchResult{}, nil
 }

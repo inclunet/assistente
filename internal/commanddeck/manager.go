@@ -2,6 +2,7 @@ package commanddeck
 
 import (
 	"errors"
+	"sync"
 	"time"
 )
 
@@ -48,6 +49,7 @@ type DeviceSnapshot struct {
 // Manager orquestra estado seguro e reconexão sem abrir HID. Um adapter real
 // chama esses métodos depois de possuir/liberar handles físicos.
 type Manager struct {
+	mu       sync.Mutex
 	renderer *Renderer
 	backoff  BackoffPolicy
 	now      func() time.Time
@@ -77,6 +79,11 @@ func NewManager(renderer *Renderer, policy BackoffPolicy) *Manager {
 }
 
 func (m *Manager) SetClock(now func() time.Time) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if now != nil {
 		m.now = now
 	}
@@ -89,6 +96,12 @@ func (m *Manager) Open(device DeviceID, model Model) (RenderPlan, error) {
 	if err := model.validate(); err != nil {
 		return RenderPlan{}, err
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.openLocked(device, model)
+}
+
+func (m *Manager) openLocked(device DeviceID, model Model) (RenderPlan, error) {
 	current, exists := m.devices[device]
 	if exists && current.status != DeviceDisconnected {
 		return RenderPlan{}, ErrDeviceAlreadyOpen
@@ -102,7 +115,7 @@ func (m *Manager) Open(device DeviceID, model Model) (RenderPlan, error) {
 	}
 	state := managedDevice{model: model, status: DeviceSafe, generation: current.generation + 1, reconnects: current.reconnects, nextBackoff: nextBackoff}
 	m.devices[device] = state
-	plan, err := m.RenderSafe(device)
+	plan, err := m.renderSafeLocked(device)
 	if err != nil {
 		return RenderPlan{}, err
 	}
@@ -113,11 +126,16 @@ func (m *Manager) Open(device DeviceID, model Model) (RenderPlan, error) {
 }
 
 func (m *Manager) Activate(device DeviceID, generation uint64) error {
-	state, err := m.state(device)
+	if m == nil {
+		return ErrInvalidDevice
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state, err := m.stateLocked(device)
 	if err != nil {
 		return err
 	}
-	if generation != state.generation {
+	if state.status != DeviceSafe || generation != state.generation {
 		return ErrInvalidDevice
 	}
 	state.status = DeviceConnected
@@ -126,7 +144,12 @@ func (m *Manager) Activate(device DeviceID, generation uint64) error {
 }
 
 func (m *Manager) Render(frame Frame) (RenderPlan, error) {
-	state, err := m.state(frame.Device)
+	if m == nil {
+		return RenderPlan{}, ErrInvalidDevice
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state, err := m.stateLocked(frame.Device)
 	if err != nil {
 		return RenderPlan{}, err
 	}
@@ -140,9 +163,21 @@ func (m *Manager) Render(frame Frame) (RenderPlan, error) {
 }
 
 func (m *Manager) RenderSafe(device DeviceID) (RenderPlan, error) {
-	state, err := m.state(device)
+	if m == nil {
+		return RenderPlan{}, ErrInvalidDevice
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.renderSafeLocked(device)
+}
+
+func (m *Manager) renderSafeLocked(device DeviceID) (RenderPlan, error) {
+	state, err := m.stateLocked(device)
 	if err != nil {
 		return RenderPlan{}, err
+	}
+	if state.status == DeviceDisconnected {
+		return RenderPlan{}, ErrDeviceSafe
 	}
 	if err := m.renderer.InvalidateDevice(device); err != nil {
 		return RenderPlan{}, err
@@ -158,6 +193,11 @@ func (m *Manager) RenderSafe(device DeviceID) (RenderPlan, error) {
 }
 
 func (m *Manager) LockOrLogout() []RenderPlan {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	plans := make([]RenderPlan, 0, len(m.devices))
 	for device, state := range m.devices {
 		if state.status == DeviceDisconnected {
@@ -165,7 +205,7 @@ func (m *Manager) LockOrLogout() []RenderPlan {
 		}
 		state.generation++
 		m.devices[device] = state
-		if plan, err := m.RenderSafe(device); err == nil {
+		if plan, err := m.renderSafeLocked(device); err == nil {
 			plans = append(plans, plan)
 		}
 	}
@@ -173,9 +213,21 @@ func (m *Manager) LockOrLogout() []RenderPlan {
 }
 
 func (m *Manager) Disconnect(device DeviceID) (time.Duration, error) {
-	state, err := m.state(device)
+	if m == nil {
+		return 0, ErrInvalidDevice
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state, err := m.stateLocked(device)
 	if err != nil {
 		return 0, err
+	}
+	if state.status == DeviceDisconnected {
+		remaining := state.nextReconnect.Sub(m.now())
+		if remaining < 0 {
+			remaining = 0
+		}
+		return remaining, nil
 	}
 	state.status = DeviceDisconnected
 	state.generation++
@@ -185,9 +237,10 @@ func (m *Manager) Disconnect(device DeviceID) (time.Duration, error) {
 	delay := state.nextBackoff
 	state.nextReconnect = m.now().Add(delay)
 	state.reconnects++
-	state.nextBackoff *= 2
-	if state.nextBackoff > m.backoff.Max {
+	if state.nextBackoff > m.backoff.Max/2 {
 		state.nextBackoff = m.backoff.Max
+	} else {
+		state.nextBackoff *= 2
 	}
 	m.devices[device] = state
 	m.renderer.RemoveDevice(device)
@@ -195,7 +248,12 @@ func (m *Manager) Disconnect(device DeviceID) (time.Duration, error) {
 }
 
 func (m *Manager) CanReconnect(device DeviceID) bool {
-	state, err := m.state(device)
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state, err := m.stateLocked(device)
 	if err != nil || state.status != DeviceDisconnected {
 		return false
 	}
@@ -203,15 +261,20 @@ func (m *Manager) CanReconnect(device DeviceID) bool {
 }
 
 func (m *Manager) Snapshot(device DeviceID) (DeviceSnapshot, error) {
-	state, err := m.state(device)
+	if m == nil {
+		return DeviceSnapshot{}, ErrInvalidDevice
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state, err := m.stateLocked(device)
 	if err != nil {
 		return DeviceSnapshot{}, err
 	}
 	return DeviceSnapshot{Device: device, Model: state.model, Status: state.status, Generation: state.generation, NextBackoff: state.nextBackoff, Reconnects: state.reconnects, SafeFrameSent: state.safeFrameSent}, nil
 }
 
-func (m *Manager) state(device DeviceID) (managedDevice, error) {
-	if m == nil || !validText(string(device)) {
+func (m *Manager) stateLocked(device DeviceID) (managedDevice, error) {
+	if !validText(string(device)) {
 		return managedDevice{}, ErrInvalidDevice
 	}
 	state, ok := m.devices[device]

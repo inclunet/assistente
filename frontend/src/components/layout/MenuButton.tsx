@@ -23,6 +23,7 @@ interface MenuButtonProps {
   currentItemId?: string;
   buttonLabel?: string;
   tabIndex?: number;
+  onAfterSelect?: () => void;
 }
 
 export interface MenuButtonRef {
@@ -42,7 +43,7 @@ export interface MenuButtonRef {
  * - Tab: Fecha menu e move foco
  */
 export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
-  function MenuButton({ items, currentItemId, buttonLabel, tabIndex }, ref) {
+  function MenuButton({ items, currentItemId, buttonLabel, tabIndex, onAfterSelect: onAfterSelectProp }, ref) {
   const { t } = useTranslation();
   const resolvedButtonLabel = buttonLabel ?? t('menu.navLabel');
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -84,7 +85,10 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
     onSelectItem,
   } = useAnchoredContextMenu({
     onAfterSelect: () => {
-      requestAnimationFrame(() => restoreDefaultFocus());
+      requestAnimationFrame(() => {
+        restoreDefaultFocus();
+        onAfterSelectProp?.();
+      });
     },
     onAfterDismiss: () => {
       resolveTriggerElement()?.focus();

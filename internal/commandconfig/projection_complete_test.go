@@ -28,6 +28,10 @@ func completeProjectionUUID(t *testing.T) string {
 }
 
 func completeProjectionRegistry(t *testing.T, extra ...commandcatalog.Registration) *commandcatalog.Registry {
+	return completeProjectionRegistryWithSources(t, []commandcatalog.Source{commandcatalog.KeyboardLocal, commandcatalog.KeyboardGlobal}, extra...)
+}
+
+func completeProjectionRegistryWithSources(t *testing.T, sources []commandcatalog.Source, extra ...commandcatalog.Registration) *commandcatalog.Registry {
 	t.Helper()
 	locales := map[string]commandcatalog.LocalizedMetadata{
 		"pt-BR": {Name: "Novo", Description: "Cria", Category: "Workspace"},
@@ -37,7 +41,7 @@ func completeProjectionRegistry(t *testing.T, extra ...commandcatalog.Registrati
 	registration := commandcatalog.Registration{
 		Definition: commandcatalog.Definition{
 			ID: completeProjectionCommand, Effect: commandcatalog.Read, Decision: commandcatalog.NoDecision,
-			AllowedSources:  []commandcatalog.Source{commandcatalog.KeyboardLocal, commandcatalog.KeyboardGlobal},
+			AllowedSources:  sources,
 			Context:         commandcatalog.ContextPolicy{None: true},
 			Presentation:    &commandcatalog.Presentation{Version: "1", Locales: locales},
 			ArgumentsSchema: &commandcatalog.Schema{Type: commandcatalog.SchemaObject},
@@ -144,6 +148,9 @@ func TestProjectCompleteMaterializaGlobalEWorkspaceComPortaConfiavel(t *testing.
 	if !slices.Contains(got.BindingIDs, workspaceID) || len(got.BindingIDs) != 3 {
 		t.Fatalf("composição global/workspace não preservou a proveniência: got=%v", got.BindingIDs)
 	}
+	if !reflect.DeepEqual(got.LayerRefs, []string{globalLayer.ID, workspaceLayer.ID, "application.defaults"}) {
+		t.Fatalf("camadas efetivas incorretas: got=%v", got.LayerRefs)
+	}
 }
 
 func TestProjectCompleteRejeitaTriggerSemPortaOuIdentidadeLivre(t *testing.T) {
@@ -164,6 +171,34 @@ func TestProjectCompleteRejeitaTriggerSemPortaOuIdentidadeLivre(t *testing.T) {
 	})
 	if configuration, err := ProjectComplete(context.Background(), snapshot, options); !errors.Is(err, ErrInvalid) || configuration != nil {
 		t.Fatalf("identidade não namespaceada pela origem aceita: configuration=%v err=%v", configuration, err)
+	}
+}
+
+func TestProjectCompleteGlobalExigePortaGlobalEAllowedSource(t *testing.T) {
+	user := completeProjectionUUID(t)
+	layer := Layer{ID: completeProjectionUUID(t), UserID: user, Name: "Global", Description: "fixture", Enabled: true, Source: "user", ResolutionPriority: 2}
+	row := completeProjectionBinding(t, user, nil, layer, completeProjectionUUID(t))
+	row.TriggerType = string(commandcatalog.KeyboardGlobal)
+	row.TriggerSpec = `{"version":1,"code":"KeyA","modifiers":["Control"]}`
+	snapshot := Snapshot{Scope: Scope{UserID: user}, Layers: []Layer{layer}, Bindings: []Binding{row}}
+	registry := completeProjectionRegistryWithSources(t, []commandcatalog.Source{commandcatalog.KeyboardGlobal})
+
+	options := completeProjectionOptions(registry)
+	options.BuiltinLayers = nil
+	options.TriggerPorts = map[commandcatalog.Source]TriggerPort{}
+	if configuration, err := ProjectComplete(context.Background(), snapshot, options); !errors.Is(err, ErrInvalid) || configuration != nil {
+		t.Fatalf("global sem porta aceita: configuration=%v err=%v", configuration, err)
+	}
+
+	options.TriggerPorts[commandcatalog.KeyboardGlobal] = KeyboardGlobalTriggerPort{}
+	options.ActiveUserLayerIDs = []string{layer.ID}
+	configuration, err := ProjectComplete(context.Background(), snapshot, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := configuration.Resolve("keyboard.global:Control+KeyA", nil, nil)
+	if err != nil || got.Status != commandbindings.Selected || got.CommandID != completeProjectionCommand || len(got.BindingIDs) != 1 || got.BindingIDs[0] != row.ID {
+		t.Fatalf("global explicitamente projetado de forma inesperada: got=%+v err=%v", got, err)
 	}
 }
 

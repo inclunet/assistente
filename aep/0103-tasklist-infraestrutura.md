@@ -3,6 +3,36 @@ Documento de acompanhamento, não nova AEP nem alteração dos contratos.
 Baseline v1: 14/09/2026 • código examinado: `11c10c578051c7276b7345cd608d6460a3b1803c`.
 Branch: `feat/aep-0103-comandos`. AEP principal continua **In Progress**.
 
+## Acompanhamento vigente — revisão de 16/09/2026
+
+Este documento passa a ser **histórico**. Usar a [tasklist de conclusão integral](0103-tasklist-conclusao.md) e a [revisão técnica](0103-revisao-integral-2026-09-16.md) para acompanhar o trabalho restante.
+
+**Correção de contagem:** há 84 itens Ixx.n de infraestrutura, com 53 checkboxes marcados e 31 abertos neste arquivo, e 83 critérios finais C01–C83 distintos. As 28 anotações posteriores de fechamento local de Cxx foram somadas ao contador Ixx, produzindo 81/84 indevidamente. As contagens narrativas 60/84, 70/84 e 81/84 abaixo ficam preservadas apenas como histórico, **não como progresso válido**. Os 53 marcados também não são recertificação de integração: I13/I14 têm provas parciais/sentinela e precisam do aceite completo previsto no plano novo.
+
+Não restam apenas testes manuais: composição produtiva, consumer/manutenção/recovery, migração do catálogo, palette executável, configuração, dispositivos integrados e entradas de chat/CLI ainda têm trabalho de implementação. Nenhuma evidência válida foi descartada; nenhum contrato do AEP foi reduzido.
+
+## Continuação — 16/09/2026, validação manual de atalhos e picker
+
+Validação manual reportada no app real com cópia local do banco: atalhos
+pré-existentes continuam funcionando, o bloqueio de atalhos por modal está
+funcionando e não houve regressão perceptível de responsividade. O defeito
+manual encontrado em `Ctrl+T` foi corrigido: o atalho agora cria aba de chat
+mesmo com foco em campo editável, mantendo a suspensão quando há modal aberto.
+
+A Command Palette deixou de ser um modal próprio e passou a usar o picker
+ancorado compartilhado da topbar (`Ctrl+K` e botão "Comandos"), reaproveitando
+busca, navegação por teclado, foco e padrão visual dos demais pickers. A
+validação manual confirmou que o picker abre e interage corretamente, mas a
+lista aparece vazia no app real; portanto a população/integração do catálogo
+produtivo permanece pendente e não fecha os critérios finais de Command
+Palette.
+
+Validações executadas:
+`npm test -- --run src/components/layout/Topbar.test.tsx src/components/ui/KeyboardShortcutsHelp.test.tsx src/hooks/useWorkspaceKeyboardShortcuts.test.ts`
+e `npm run build`.
+
+**Contagem mantida: 81/84 critérios encerrados; 3 abertos; 4/15 pacotes completos.**
+
 ## Continuação — 16/09/2026, fechamento automatizável sem apoio manual
 
 Fechamento de **C09, C28, C29, C30, C31, C54, C66, C68, C69, C70 e C82** com

@@ -30,6 +30,11 @@ type taskListMetadataReader interface {
 	GetTaskListMetadata(ctx context.Context, id string) (*database.TaskList, error)
 }
 
+type commandMutationStore interface {
+	ReadCommandTarget(ctx context.Context, id string) (*database.TaskList, string, error)
+	CommitCommandMutation(ctx context.Context, request database.TaskListCommandMutationRequest) (*database.TaskList, error)
+}
+
 // NewService cria um Service com as dependências fornecidas.
 func NewService(cfg ServiceConfig) *Service {
 	return &Service{store: cfg.Store, emitter: cfg.Emitter, domain: cfg.DomainEvents}
@@ -47,6 +52,27 @@ func (s *Service) getTaskListMetadata(ctx context.Context, id string) (*database
 	}
 	// Compatibilidade com stores externos e fakes anteriores ao read model.
 	return s.store.GetTaskList(ctx, id)
+}
+
+// ReadCommandTarget lê a entidade e o fingerprint autoritativo no mesmo
+// snapshot. A UI deve usar o par retornado para abrir qualquer formulário de
+// edição, clonagem ou exclusão.
+func (s *Service) ReadCommandTarget(ctx context.Context, id string) (*database.TaskList, string, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, "", err
+	}
+	store, ok := s.store.(commandMutationStore)
+	if !ok {
+		return nil, "", ErrCommandMutationUnavailable
+	}
+	return store.ReadCommandTarget(ctx, id)
+}
+
+// CommandMutationSnapshot é mantido como atalho compatível. O caminho
+// produtivo deve preferir ReadCommandTarget para não separar payload e guard.
+func (s *Service) CommandMutationSnapshot(ctx context.Context, id string) (string, error) {
+	_, fingerprint, err := s.ReadCommandTarget(ctx, id)
+	return fingerprint, err
 }
 
 // ── Task List ──────────────────────────────────────────────────────────────────

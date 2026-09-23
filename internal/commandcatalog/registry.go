@@ -500,6 +500,11 @@ func validScope(value Scope) bool {
 	}
 }
 
+// ValidateSensitivePaths valida a sintaxe e unicidade dos JSON Pointers de
+// uma política interna de delegação. O catálogo completo também verifica os
+// paths contra seus schemas; runtimes com inputs próprios validam essa parte.
+func ValidateSensitivePaths(paths SensitivePaths) error { return validatePaths(paths) }
+
 func validatePaths(paths SensitivePaths) error {
 	seen := map[string]struct{}{}
 	for kind, values := range map[string][]string{"input": paths.Input, "output": paths.Output} {

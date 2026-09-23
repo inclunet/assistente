@@ -11,6 +11,7 @@ import (
 	"assistente/internal/auth"
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandcontract"
+	"assistente/internal/commandjson"
 	"assistente/internal/commandledger"
 )
 
@@ -63,6 +64,48 @@ func TestEnvelopeSuppressionStaleIsDurableAndNeverFallsThrough(t *testing.T) {
 	var count int64
 	if err := f.db.Table("command_invocations").Where("invocation_id = ?", c.InvocationID).Count(&count).Error; err != nil || count != 0 {
 		t.Fatalf("marcador criou auditoria: %d %v", count, err)
+	}
+}
+
+func TestEnvelopeResolutionCallbacksCannotMutateCandidateOrPreparedEnvelope(t *testing.T) {
+	f := newEnvelopePipelineFixture(t)
+	candidate := f.trigger(newTestUUID())
+	originalSpec, err := commandjson.Canonicalize(candidate.TriggerSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resolvedSpecs []string
+	var resolvedCorrelations []string
+	f.service.config.Envelope.Snapshot = func(ctx context.Context, principal auth.LocalSessionPrincipal, candidate EnvelopeCandidate) (commandcontract.Envelope, error) {
+		if len(candidate.Arguments) != 0 {
+			candidate.Arguments[0] = '['
+		}
+		return f.snapshot(ctx, principal, candidate)
+	}
+	f.service.config.Envelope.Resolve = func(_ context.Context, _ auth.LocalSessionPrincipal, candidate EnvelopeCandidate, envelope commandcontract.Envelope) (EnvelopeResolution, error) {
+		resolvedSpecs = append(resolvedSpecs, string(candidate.TriggerSpec))
+		resolvedCorrelations = append(resolvedCorrelations, envelope.CorrelationID)
+		if len(candidate.TriggerSpec) != 0 {
+			candidate.TriggerSpec[0] = '['
+		}
+		envelope.CorrelationID = "mutated-by-resolver"
+		// O struct já passa por valor; o risco real está nos campos indiretos.
+		if envelope.GlobalConfigGeneration == nil {
+			t.Fatal("snapshot de teste sem geração global")
+		}
+		*envelope.GlobalConfigGeneration = "mutated-by-resolver"
+		return EnvelopeResolution{Mode: commandcontract.ResolutionSuppress, BindingIDs: []string{"binding.suppressed"}}, nil
+	}
+
+	record, err := f.service.ExecuteEnvelope(context.Background(), f.token, candidate)
+	if err != nil || record.Status != commandledger.Suppressed {
+		t.Fatalf("callback mutável alterou admissão: status=%s err=%v", record.Status, err)
+	}
+	if len(resolvedSpecs) != 2 || resolvedSpecs[0] != string(originalSpec) || resolvedSpecs[1] != string(originalSpec) {
+		t.Fatalf("trigger mudou entre resolução e revalidação: %v", resolvedSpecs)
+	}
+	if len(resolvedCorrelations) != 2 || resolvedCorrelations[0] != candidate.CorrelationID || resolvedCorrelations[1] != candidate.CorrelationID {
+		t.Fatalf("envelope preparado foi mutado pelo resolvedor: correlations=%v", resolvedCorrelations)
 	}
 }
 

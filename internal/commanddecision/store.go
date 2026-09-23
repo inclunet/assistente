@@ -219,45 +219,31 @@ func present(presenter Presenter, ctx context.Context, request Request) (respons
 // modo que receipt e binding compartilhem o mesmo banco; o ledger de comandos
 // write ainda não está integrado.
 func (s *Store) Consume(ctx context.Context, expected Request, apply func(*gorm.DB) error) error {
-	if s == nil || s.db == nil || s.now == nil || ctx == nil || apply == nil || !validRequest(expected) {
+	var db *gorm.DB
+	if s != nil {
+		db = s.db
+	}
+	if isTransactionalDB(db) {
 		return ErrInvalid
 	}
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		row := rowOf(expected)
-		result := tx.Model(&receiptRow{}).Where("decision_id = ? AND subject_id = ? AND user_id = ? AND auth_context_id = ? AND request_fingerprint = ? AND auth_generation = ? AND security_generation = ? AND expires_at = ? AND expires_at > ? AND status = ? AND auth_context_type = ? AND subject_type = ? AND allowed_action_ids = ? AND accepted_action_id = ? AND responded_at IS NOT NULL AND consumed_at IS NULL",
-			row.ID, row.MutationID, row.UserID, row.SessionID, row.Fingerprint, row.AuthGeneration, row.SecurityGeneration, row.ExpiresMS, s.now().UnixMilli(), Accepted, "local_session", row.SubjectType, `["apply","deny"]`, ApplyAction).
-			Updates(map[string]any{"status": Consumed, "consumed_at": s.now().UnixMilli()})
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected != 1 {
-			return ErrStale
-		}
-		if !time.UnixMilli(row.ExpiresMS).After(s.now()) {
-			return ErrStale
-		}
-		if err := appendEvent(tx, row.ID, Consumed, s.now()); err != nil {
-			return err
-		}
-		if err := apply(tx); err != nil {
-			return err
-		}
-		if !time.UnixMilli(row.ExpiresMS).After(s.now()) {
-			return ErrStale
-		}
-		return ctx.Err()
-	})
+	return s.consumeBatch(ctx, db, []Request{expected}, apply)
 }
 
 // ConsumeForDatabase valida que o banco da composição é a raiz não
-// transacional do Store e delega o consumo à única transação aberta por
-// Consume. O callback continua recebendo somente a transação criada por
-// Consume.
+// transacional do Store e delega o consumo à única transação aberta pelo core.
+// O callback continua recebendo somente a transação criada pelo core.
 func (s *Store) ConsumeForDatabase(ctx context.Context, db *gorm.DB, expected Request, apply func(*gorm.DB) error) error {
+	return s.ConsumeBatchForDatabase(ctx, db, []Request{expected}, apply)
+}
+
+// ConsumeBatchForDatabase consome, atomicamente, um conjunto de receipts
+// accepted e aplica um único efeito na mesma base raiz do Store. Todas as
+// referências são verificadas antes de qualquer mudança persistente; o
+// callback deve usar exclusivamente a transação recebida.
+func (s *Store) ConsumeBatchForDatabase(ctx context.Context, db *gorm.DB, expected []Request, apply func(*gorm.DB) error) error {
 	if s == nil || s.db == nil || s.db.Config == nil || db == nil || db.Config == nil || isTransactionalDB(s.db) || isTransactionalDB(db) {
 		return ErrInvalid
 	}
-
 	storeSQLDB, err := s.db.DB()
 	if err != nil || storeSQLDB == nil {
 		return ErrInvalid
@@ -266,8 +252,70 @@ func (s *Store) ConsumeForDatabase(ctx context.Context, db *gorm.DB, expected Re
 	if err != nil || databaseSQLDB == nil || storeSQLDB != databaseSQLDB {
 		return ErrInvalid
 	}
+	return s.consumeBatch(ctx, db, expected, apply)
+}
 
-	return s.Consume(ctx, expected, apply)
+func (s *Store) consumeBatch(ctx context.Context, db *gorm.DB, expected []Request, apply func(*gorm.DB) error) error {
+	if s == nil || s.db == nil || s.now == nil || ctx == nil || db == nil || apply == nil || len(expected) == 0 {
+		return ErrInvalid
+	}
+	expected = append([]Request(nil), expected...)
+	seen := make(map[string]struct{}, len(expected))
+	for i, request := range expected {
+		if !validRequest(request) {
+			return ErrInvalid
+		}
+		if _, exists := seen[request.DecisionID]; exists {
+			return ErrInvalid
+		}
+		seen[request.DecisionID] = struct{}{}
+		if i > 0 && (request.UserID != expected[0].UserID || request.SessionID != expected[0].SessionID ||
+			request.AuthGeneration != expected[0].AuthGeneration || request.SecurityGeneration != expected[0].SecurityGeneration) {
+			return ErrInvalid
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, request := range expected {
+			now := s.now()
+			if !time.UnixMilli(request.ExpiresAt.UnixMilli()).After(now) {
+				return ErrStale
+			}
+			// Acquire the SQLite writer before creating a read snapshot. A SELECT
+			// followed by UPDATE can fail with BUSY_SNAPSHOT when another receipt
+			// commits meanwhile, even with busy_timeout. The complete authorization
+			// predicate belongs in this CAS; no callback is retried or moved outside
+			// the transaction, and a later invalid receipt rolls back the batch.
+			want := rowOf(request)
+			result := tx.Model(&receiptRow{}).
+				Where("decision_id = ? AND subject_id = ? AND user_id = ? AND auth_context_id = ?", want.ID, want.MutationID, want.UserID, want.SessionID).
+				Where("request_fingerprint = ? AND auth_generation = ? AND security_generation = ?", want.Fingerprint, want.AuthGeneration, want.SecurityGeneration).
+				Where("expires_at = ? AND expires_at > ?", want.ExpiresMS, now.UnixMilli()).
+				Where("status = ? AND auth_context_type = ? AND subject_type = ?", Accepted, "local_session", want.SubjectType).
+				Where("allowed_action_ids = ? AND accepted_action_id = ? AND responded_at IS NOT NULL AND consumed_at IS NULL", `["apply","deny"]`, ApplyAction).
+				Updates(map[string]any{"status": Consumed, "consumed_at": now.UnixMilli()})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 || !time.UnixMilli(request.ExpiresAt.UnixMilli()).After(s.now()) {
+				return ErrStale
+			}
+			if err := appendEvent(tx, request.DecisionID, Consumed, s.now()); err != nil {
+				return err
+			}
+		}
+		if err := apply(tx); err != nil {
+			return err
+		}
+		for _, request := range expected {
+			if !time.UnixMilli(request.ExpiresAt.UnixMilli()).After(s.now()) {
+				return ErrStale
+			}
+		}
+		return ctx.Err()
+	})
 }
 
 func isTransactionalDB(db *gorm.DB) bool {

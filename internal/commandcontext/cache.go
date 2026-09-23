@@ -143,6 +143,7 @@ func NewResultCache(capacity int) (*ResolutionCache, error) {
 
 func cloneResult(result commandbindings.Result) commandbindings.Result {
 	result.BindingIDs = append([]string(nil), result.BindingIDs...)
+	result.LayerRefs = append([]string(nil), result.LayerRefs...)
 	return result
 }
 

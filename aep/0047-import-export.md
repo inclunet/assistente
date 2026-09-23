@@ -4,6 +4,58 @@
 
 ## Dependências
 
+Continuação AEP-0103 (17/09/2026, seção 45): a exportação comum de camadas
+está disponível no painel de Dados. Usa o envelope v2 exclusivo de comandos,
+sem valores de credenciais e sem fallback de backup parcial. A fachada delega
+ao host autenticado; o teste real exporta global+workspace e importa como
+cópia com decisões e publicação. O fluxo sensível segue pendente como ação
+separada de UI; não se promove IncludeCredentials no export comum. A rota
+de importação atual ainda recusa envelopes mistos com credenciais.
+
+Continuação AEP-0103 (17/09/2026, seção 44): a entrada desktop de importação
+de `resources.commandLayers` usa a sessão local revalidada e o pipeline
+transacional comum, sem JWT fornecido pela UI. A fachada existente encaminha
+esses arquivos antes do restore genérico; recursos misturados, mesmo vazios,
+são recusados. A tela de Dados oferece política explícita, nomes e mapeamento
+de workspaces, aguarda as confirmações e apresenta relatório redigido.
+Commit sem publicação retorna relatório e não é repetido automaticamente.
+A exportação pública/sensível permanece pendente. As notas seguintes são
+históricas; não descrevem mais a disponibilidade atual da importação desktop.
+
+Continuação AEP-0103 (17/09/2026, seção 43): o envelope de lote retorna
+relatório redigido do plano aplicado, com destinos reais de cópias, escolhas
+keep/replace/copy e avisos agregados por código. Não expõe argumentos,
+patterns de credenciais ou conteúdo de outro usuário. No-op é explícito;
+rollback não retorna relatório de sucesso. Ainda não habilita a fachada
+genérica ou UI: falta a composição desktop autenticada completa.
+
+Continuação AEP-0103 (17/09/2026, seção 42): lote composto no applier
+interno do App. Após a única transação, reconstrói uma vez a união do
+workspace ativo e revalida todos os escopos alterados. O resultado distingue
+commit persistido de publicação concluída, sem repetição automática em caso
+de falha pós-commit. Isso não publica a API/UX genérica nem a exportação
+sensível. As limitações das notas anteriores são históricas.
+
+Continuação AEP-0103 (17/09/2026, seção 41): `ApplyCommandEnvelopeBatch`
+adiciona importação interna global+workspaces, com o mesmo parser estrito
+e limite de 64 KiB. Até 64 escopos, resolvidos explicitamente e autorizados
+antes de qualquer leitura de configuração. Há uma decisão por escopo alterado,
+todas antes da única transação que consome os receipts e grava dados/gerações/
+auditorias; negar qualquer decisão impede o lote inteiro. Keep integral não
+abre decisões. O serviço valida também a união final dos escopos; workspaces
+são aplicados antes do global para preservar seus CAS de dados herdados.
+O envelope continua recusando credenciais e recursos misturados. Ainda não
+monta o lote no applier/App/UI nem habilita exportação sensível. Notas de
+rodadas anteriores abaixo descrevem as limitações existentes naquelas datas.
+
+Continuação AEP-0103 (17/09/2026, seção 40 da tasklist): o applier interno
+do App recebe o envelope pelo mesmo pipeline de confirmação e reconstrução
+das mutações comuns. Owner vem do token autenticado, sobrescrevendo eventual
+marker no contexto. Posse de UUIDs, conflitos de nome e disponibilidade de
+patterns usam portas SQL reais do destino; não há leitura/descriptografia
+de tokens. Isso não habilita ainda a API genérica, lotes multi-escopo nem
+exportação de conteúdo sensível.
+
 Rodada de quinze pacotes AEP-0103 (15/09/2026): `ExportCommandEnvelope` e
 `ApplyCommandEnvelope` compõem o envelope v1/v2 com o writer confirmado, sem
 novo caminho de persistência. Export requer escopo previamente autorizado pelo

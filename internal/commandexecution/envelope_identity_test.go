@@ -80,6 +80,64 @@ func TestNewCompleteCopiesGenericPortsAtPublication(t *testing.T) {
 	}
 }
 
+func TestGenericIdentityCallbacksCannotMutateOwnershipOrLookupRecord(t *testing.T) {
+	f := newGenericEnvelopeFixture(t, commandcatalog.Palette, commandcontract.AuthExternalToken, commandcontract.ActorUser, "external:alias", "issuer:alias")
+	f.service.config.Envelope.Identity.Snapshot = func(_ context.Context, owner commandledger.FullOwnership, _ EnvelopeCandidate) (commandcontract.Envelope, error) {
+		*owner.UserID = "mutated-by-snapshot"
+		return commandcontract.Envelope{RegistryVersion: "registry-v1", GlobalConfigGeneration: stringPtr("global-v1"), ActiveLayersGeneration: stringPtr("layers-v1")}, nil
+	}
+	f.service.config.Envelope.Identity.Resolve = func(_ context.Context, owner commandledger.FullOwnership, _ EnvelopeCandidate, _ commandcontract.Envelope) (EnvelopeResolution, error) {
+		*owner.UserID = "mutated-by-resolve"
+		return EnvelopeResolution{Mode: commandcontract.ResolutionSuppress, BindingIDs: []string{"binding.suppressed"}}, nil
+	}
+	f.service.config.Envelope.Identity.Authorize = func(_ context.Context, owner commandledger.FullOwnership, _ commandcontract.Envelope, _ commandcatalog.Definition) error {
+		*owner.UserID = "mutated-by-authorize"
+		return nil
+	}
+	candidate := EnvelopeCandidate{InvocationID: genericUUID(), CorrelationID: genericUUID(), CommandID: "generic.read", Arguments: json.RawMessage(`{}`)}
+	record, err := f.service.ExecuteEnvelope(context.Background(), "opaque-token", candidate)
+	if err != nil || record.Status != commandledger.Succeeded || record.Ownership.UserID == nil || *record.Ownership.UserID != f.contextPrincipal.UserID {
+		t.Fatalf("ownership escapou dos callbacks: status=%s owner=%v err=%v", record.Status, record.Ownership.UserID, err)
+	}
+	identity, _, resolveErr := f.service.authenticateEnvelope(context.Background(), "opaque-token")
+	if resolveErr != nil {
+		t.Fatal(resolveErr)
+	}
+	if _, resolveErr := f.service.resolveEnvelope(context.Background(), identity, candidate, record.Envelope); resolveErr != nil || identity.Ownership.UserID == nil || *identity.Ownership.UserID != f.contextPrincipal.UserID {
+		t.Fatalf("ownership escapou do resolver: owner=%v err=%v", identity.Ownership.UserID, resolveErr)
+	}
+
+	f.service.config.Envelope.Identity.AuthorizeLookup = func(_ context.Context, owner commandledger.FullOwnership, lookup commandledger.FullRecord) error {
+		*owner.UserID = "mutated-by-lookup-owner"
+		if lookup.Ownership.UserID != nil {
+			*lookup.Ownership.UserID = "mutated-by-lookup-record"
+		}
+		if lookup.Envelope.UserID != nil {
+			*lookup.Envelope.UserID = "mutated-by-lookup-envelope"
+		}
+		if lookup.Envelope.Arguments != nil {
+			*lookup.Envelope.Arguments = json.RawMessage(`{"leak":true}`)
+		}
+		if lookup.ResultSummary != nil {
+			*lookup.ResultSummary = "mutated-by-lookup-result"
+		}
+		return nil
+	}
+	got, err := f.service.GetEnvelopeInvocation(context.Background(), "opaque-token", candidate.InvocationID)
+	if err != nil || got.Ownership.UserID == nil || *got.Ownership.UserID != f.contextPrincipal.UserID || got.Envelope.UserID == nil || *got.Envelope.UserID != f.contextPrincipal.UserID || got.Envelope.Arguments == nil || string(*got.Envelope.Arguments) == `{"leak":true}` {
+		t.Fatalf("registro escapou mutação do lookup: owner=%v envelope=%v args=%v err=%v", got.Ownership.UserID, got.Envelope.UserID, got.Envelope.Arguments, err)
+	}
+	marker := EnvelopeCandidate{InvocationID: genericUUID(), CorrelationID: genericUUID(), TriggerType: string(commandcontract.SourcePalette), TriggerSpec: json.RawMessage(`{"version":1}`), Arguments: json.RawMessage(`{}`)}
+	marked, err := f.service.ExecuteEnvelope(context.Background(), "opaque-token", marker)
+	if err != nil || marked.Status != commandledger.Suppressed {
+		t.Fatalf("marcador suppressed: status=%s err=%v", marked.Status, err)
+	}
+	markerRecord, err := f.service.GetEnvelopeInvocation(context.Background(), "opaque-token", marker.InvocationID)
+	if err != nil || markerRecord.Status != commandledger.Suppressed {
+		t.Fatalf("lookup do marcador suppressed: status=%s err=%v", markerRecord.Status, err)
+	}
+}
+
 func TestCompleteGenericIdentityRevocationCancelsQueuedRun(t *testing.T) {
 	f := newGenericEnvelopeFixture(t, commandcatalog.Palette, commandcontract.AuthExternalToken, commandcontract.ActorUser, "external:revoke", "issuer:revoke")
 	queued := make(chan struct{})
@@ -211,7 +269,12 @@ func newGenericEnvelopeFixture(t *testing.T, source commandcatalog.Source, authT
 		} else {
 			callbackContextUser = ""
 		}
-		return EnvelopeAuthenticatedIdentity{Ownership: commandledger.FullOwnership{UserID: userID, AuthContextType: authType, AuthContextID: authID, ActorType: actor, ActorID: func() string { if actor == commandcontract.ActorUser { return user }; return "generic-actor" }()}, ContextPrincipal: commandsecurity.ContextPrincipal{UserID: callbackContextUser, Type: string(authType), ID: contextID}}, nil
+		return EnvelopeAuthenticatedIdentity{Ownership: commandledger.FullOwnership{UserID: userID, AuthContextType: authType, AuthContextID: authID, ActorType: actor, ActorID: func() string {
+			if actor == commandcontract.ActorUser {
+				return user
+			}
+			return "generic-actor"
+		}()}, ContextPrincipal: commandsecurity.ContextPrincipal{UserID: callbackContextUser, Type: string(authType), ID: contextID}}, nil
 	}
 	f.identity.Snapshot = func(context.Context, commandledger.FullOwnership, EnvelopeCandidate) (commandcontract.Envelope, error) {
 		e := commandcontract.Envelope{RegistryVersion: "registry-v1"}
@@ -225,10 +288,21 @@ func newGenericEnvelopeFixture(t *testing.T, source commandcatalog.Source, authT
 		}
 		return e, nil
 	}
-	f.identity.Resolve = func(context.Context, commandledger.FullOwnership, EnvelopeCandidate, commandcontract.Envelope) (EnvelopeResolution, error) { return EnvelopeResolution{}, errors.New("não deveria resolver comando direto") }
-	f.identity.Authorize = func(context.Context, commandledger.FullOwnership, commandcontract.Envelope, commandcatalog.Definition) error { f.authorizes.Add(1); return nil }
-	f.identity.AuthorizeLookup = func(context.Context, commandledger.FullOwnership, commandledger.FullRecord) error { f.authorizes.Add(1); return nil }
-	config := Config{Envelope: &EnvelopeConfig{Identity: f.identity, Context: bus}, Epochs: base.epochs, Store: base.store, Registry: registry, RegistryVersion: "registry-v1", Handlers: map[string]Handler{"generic.read": {Contract: commandcatalog.HandlerContract{Effect: commandcatalog.Read, Route: "internal/generic/read", Classification: commandcatalog.HandlerInternal}, Start: func(context.Context, Invocation) (ExecutionHandle, error) { f.starts.Add(1); return pipelineCompletedHandle(commandledger.Succeeded), nil }}}, Source: source, Keys: keys, KeyVersion: "v1", Now: func() time.Time { return base.now }, Retention: time.Hour, ExecutionTimeout: 2 * time.Second, FinalizationTimeout: 2 * time.Second}
+	f.identity.Resolve = func(context.Context, commandledger.FullOwnership, EnvelopeCandidate, commandcontract.Envelope) (EnvelopeResolution, error) {
+		return EnvelopeResolution{}, errors.New("não deveria resolver comando direto")
+	}
+	f.identity.Authorize = func(context.Context, commandledger.FullOwnership, commandcontract.Envelope, commandcatalog.Definition) error {
+		f.authorizes.Add(1)
+		return nil
+	}
+	f.identity.AuthorizeLookup = func(context.Context, commandledger.FullOwnership, commandledger.FullRecord) error {
+		f.authorizes.Add(1)
+		return nil
+	}
+	config := Config{Envelope: &EnvelopeConfig{Identity: f.identity, Context: bus}, Epochs: base.epochs, Store: base.store, Registry: registry, RegistryVersion: "registry-v1", Handlers: map[string]Handler{"generic.read": {Contract: commandcatalog.HandlerContract{Effect: commandcatalog.Read, Route: "internal/generic/read", Classification: commandcatalog.HandlerInternal}, Start: func(context.Context, Invocation) (ExecutionHandle, error) {
+		f.starts.Add(1)
+		return pipelineCompletedHandle(commandledger.Succeeded), nil
+	}}}, Source: source, Keys: keys, KeyVersion: "v1", Now: func() time.Time { return base.now }, Retention: time.Hour, ExecutionTimeout: 2 * time.Second, FinalizationTimeout: 2 * time.Second}
 	f.service, err = NewComplete(config)
 	if err != nil {
 		t.Fatal(err)
@@ -236,7 +310,9 @@ func newGenericEnvelopeFixture(t *testing.T, source commandcatalog.Source, authT
 	return f
 }
 
-func commandcontextForGeneric() (*commandcontext.FactBus, error) { return commandcontext.NewFactBus(nil) }
+func commandcontextForGeneric() (*commandcontext.FactBus, error) {
+	return commandcontext.NewFactBus(nil)
+}
 
 func genericUUID() string { return newTestUUID() }
 

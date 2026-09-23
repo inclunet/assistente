@@ -363,3 +363,48 @@ func TestCommandEnvelopeRecusaLegadoSensivelPeloCatalogo(t *testing.T) {
 		t.Fatal("segredo abriu decisão")
 	}
 }
+
+func TestCommandEnvelopeImpedeTrocaDoEscopoSolicitadoAntesDaDecisao(t *testing.T) {
+	f := newApplyImportFixture(t, func(context.Context, *gorm.DB, commandconfig.MutationDiff) error { return nil })
+	refs := envelopeRefs(t, "workspace-alvo")
+	raw, err := ExportCommandEnvelope(context.Background(), f.db, commandconfig.Scope{UserID: f.user}, refs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := "workspace-alvo"
+	_, err = ApplyCommandEnvelope(context.Background(), f.service, "token", &target, raw, cp.PlanOptions{Mode: cp.ReplaceMode}, func(context.Context, string, string) (cp.Ownership, error) {
+		return cp.CurrentUserOwner, nil
+	}, refs)
+	if !errors.Is(err, cp.ErrWorkspaceResolution) {
+		t.Fatalf("envelope global foi aplicado em workspace: %v", err)
+	}
+	if f.presenter.calls != 0 {
+		t.Fatal("escopo incompatível abriu decisão")
+	}
+}
+
+func TestCommandEnvelopeNaoAceitaWorkspaceMapForaDoAlvo(t *testing.T) {
+	f := newApplyImportFixture(t, func(context.Context, *gorm.DB, commandconfig.MutationDiff) error { return nil })
+	sourceWorkspace, requestedWorkspace, mappedWorkspace := "workspace-origem", "workspace-alvo", "workspace-mapeado"
+	layer := cp.LayerExport{ID: applyImportUUID(t), Scope: cp.PortableScope{Kind: cp.WorkspaceScope, WorkspaceID: sourceWorkspace}, Name: "camada", Enabled: true}
+	raw, err := json.Marshal(ExportFile{Version: ExportVersion, Resources: ExportResources{CommandLayers: []cp.LayerExport{layer}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := envelopeRefs(t, requestedWorkspace)
+	refs.Workspace = func(_ context.Context, id string) (string, error) {
+		if id != sourceWorkspace && id != requestedWorkspace && id != mappedWorkspace {
+			return "", cp.ErrWorkspaceResolution
+		}
+		return id, nil
+	}
+	_, err = ApplyCommandEnvelope(context.Background(), f.service, "token", &requestedWorkspace, raw, cp.PlanOptions{Mode: cp.CopyMode, WorkspaceMap: map[string]string{sourceWorkspace: mappedWorkspace}}, func(context.Context, string, string) (cp.Ownership, error) {
+		return cp.AbsentOwner, nil
+	}, refs)
+	if !errors.Is(err, cp.ErrWorkspaceResolution) {
+		t.Fatalf("WorkspaceMap trocou o alvo pedido: %v", err)
+	}
+	if f.presenter.calls != 0 {
+		t.Fatal("remapeamento fora do alvo abriu decisão")
+	}
+}

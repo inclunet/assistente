@@ -64,6 +64,15 @@ type JobGrantStore interface {
 	RevokeProfileGlobal(context.Context, string, string) error
 }
 
+// coordinatedJobGrantStore é exigido somente pelo caminho novo de exclusão
+// coordenada. A variante deferred executa a transação de grants sem publicar
+// a reconciliação dos jobs enquanto o Manager de profiles ainda está sob lock.
+// Stores legados continuam válidos para DeleteProfile.
+type coordinatedJobGrantStore interface {
+	JobGrantStore
+	RevokeProfileGlobalDeferred(context.Context, string, string) (func(), error)
+}
+
 type Service struct {
 	profiles        ProfileStore
 	asker           Asker
@@ -399,6 +408,12 @@ func (s *Service) DeleteProfile(ctx context.Context, targetSlug string, deletePr
 		return err
 	}
 	if err := deleteProfile(); err != nil {
+		if errors.Is(err, profiles.ErrCommandMutationOutcomeUnknown) {
+			// A exclusão pode ter deixado o journal pronto para roll-forward.
+			// Cancelar a intenção aqui reabriria grants para um profile que o
+			// reconciliador ainda pode remover.
+			return err
+		}
 		if cancelErr := s.grants.CancelProfileRevocation(ctx, targetSlug); cancelErr != nil {
 			return errors.Join(err, cancelErr)
 		}
@@ -425,6 +440,142 @@ func (s *Service) DeleteProfile(ctx context.Context, targetSlug string, deletePr
 		return fmt.Errorf("revogar grants após excluir profile; arquivo restaurado: %w", err)
 	}
 	return nil
+}
+
+// CommitProfileMutation coordena uma mutação já preparada do Manager de
+// profiles com os grants persistidos. O callback de grants devolvido pela
+// variante deferred só é publicado depois que CommitCoordinated liberou o
+// lock do Manager e este serviço liberou profileMu.
+func (s *Service) CommitProfileMutation(ctx context.Context, mutation *profiles.CommandMutation) (string, error) {
+	if s == nil || s.profiles == nil {
+		return "", errors.New("serviço de profiles indisponível")
+	}
+	if ctx == nil {
+		return "", errors.New("contexto de mutação de profile indisponível")
+	}
+	if mutation == nil {
+		return "", fmt.Errorf("%w: nil mutation", profiles.ErrInvalidCommandMutation)
+	}
+
+	s.profileMu.Lock()
+	result, notify, err := func() (string, func(), error) {
+		defer s.profileMu.Unlock()
+		return s.commitProfileMutationLocked(ctx, mutation)
+	}()
+	if err != nil {
+		return "", err
+	}
+	if notify != nil {
+		notify()
+	}
+	return result, nil
+}
+
+func (s *Service) commitProfileMutationLocked(ctx context.Context, mutation *profiles.CommandMutation) (string, func(), error) {
+	var intentSlug string
+	var intentStarted bool
+	var notify func()
+	var coordinatedStore coordinatedJobGrantStore
+
+	result, err := mutation.CommitCoordinated(
+		func(impact profiles.MutationImpact) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			epochSlugs, err := s.profileEpochTargetsLocked(impact)
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(impact.DeletedSlug) != "" {
+				if s.grants == nil {
+					return errors.New("store de grants indisponível")
+				}
+				var ok bool
+				coordinatedStore, ok = s.grants.(coordinatedJobGrantStore)
+				if !ok {
+					return fmt.Errorf("%w: revogação coordenada de profile indisponível", ErrGrantStoreUnavailable)
+				}
+				intentSlug = strings.TrimSpace(impact.DeletedSlug)
+				if err := s.grants.BeginProfileRevocation(ctx, intentSlug, impact.OriginalTargetIdentity, "profile excluído"); err != nil {
+					// Um erro na escrita inicial pode ter ocorrido depois do
+					// commit no SQLite. Não há evidência suficiente para cancelar
+					// a intenção.
+					return err
+				}
+				intentStarted = true
+			}
+			for _, slug := range epochSlugs {
+				s.bumpProfileEpochLocked(slug)
+			}
+			return nil
+		},
+		func(impact profiles.MutationImpact) error {
+			if strings.TrimSpace(impact.DeletedSlug) == "" {
+				return nil
+			}
+			if s.grants == nil {
+				return errors.New("store de grants indisponível")
+			}
+			if coordinatedStore == nil {
+				return fmt.Errorf("%w: revogação coordenada de profile indisponível", ErrGrantStoreUnavailable)
+			}
+			var err error
+			notify, err = coordinatedStore.RevokeProfileGlobalDeferred(context.WithoutCancel(ctx), strings.TrimSpace(impact.DeletedSlug), "profile excluído")
+			return err
+		},
+	)
+	if err == nil {
+		return result, notify, nil
+	}
+
+	// CommitCoordinated só autoriza a limpeza da intenção quando confirma que
+	// o journal foi revertido. Falha de rollback, journal ou callback mantém a
+	// intenção para o reconciliador e deve permanecer fail-closed.
+	if intentStarted && errors.Is(err, profiles.ErrCommandMutationRolledBack) {
+		cancelErr := s.grants.CancelProfileRevocation(context.WithoutCancel(ctx), intentSlug)
+		if cancelErr != nil {
+			return "", nil, errors.Join(err, cancelErr, profiles.ErrCommandMutationOutcomeUnknown)
+		}
+		return "", nil, err
+	}
+	return "", nil, err
+}
+
+func (s *Service) bumpProfileEpochLocked(slug string) {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return
+	}
+	if s.profileEpoch == nil {
+		s.profileEpoch = make(map[string]uint64)
+	}
+	s.profileEpoch[slug]++
+}
+
+func (s *Service) profileEpochTargetsLocked(impact profiles.MutationImpact) ([]string, error) {
+	targets := make([]string, 0, len(impact.AffectedSlugs)+1)
+	seen := make(map[string]struct{}, len(impact.AffectedSlugs)+1)
+	appendTarget := func(slug string) {
+		slug = strings.TrimSpace(slug)
+		if slug == "" {
+			return
+		}
+		if _, ok := seen[slug]; ok {
+			return
+		}
+		seen[slug] = struct{}{}
+		targets = append(targets, slug)
+	}
+	for _, slug := range impact.AffectedSlugs {
+		appendTarget(slug)
+	}
+	appendTarget(impact.DeletedSlug)
+	for _, slug := range targets {
+		if s.profileEpoch[slug] == ^uint64(0) {
+			return nil, fmt.Errorf("epoch do profile esgotado: %s", slug)
+		}
+	}
+	return targets, nil
 }
 
 func (s *Service) RevokeJobTarget(ctx context.Context, jobID, targetSlug string) error {

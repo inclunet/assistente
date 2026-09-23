@@ -232,7 +232,7 @@ func TestCommandWorkspaceProviderValidaPrincipalEscopoEContexto(t *testing.T) {
 	}
 }
 
-func TestNewCommandFactBusRegistraBackendsEDeixaPortasUIPendentes(t *testing.T) {
+func TestNewCommandFactBusRegistraSomenteProvidersBackend(t *testing.T) {
 	app, principal, _, workspaceID := newCommandWorkspaceProviderFixture(t)
 	bus, err := app.newCommandFactBus(principal)
 	if err != nil {
@@ -240,13 +240,21 @@ func TestNewCommandFactBusRegistraBackendsEDeixaPortasUIPendentes(t *testing.T) 
 	}
 
 	workspaceScope := commandWorkspaceScope(principal, workspaceID)
-	for _, fact := range []string{"workspace", "active_tab", "profile"} {
-		proof, err := bus.Capture(context.Background(), workspaceScope, commandFactPolicy("workspace", fact))
+	for _, tc := range []struct {
+		provider string
+		fact     string
+	}{
+		{provider: "workspace", fact: "workspace"},
+		{provider: "workspace", fact: "active_tab"},
+		{provider: "workspace", fact: "profile"},
+		{provider: "profile", fact: "profile"},
+	} {
+		proof, err := bus.Capture(context.Background(), workspaceScope, commandFactPolicy(tc.provider, tc.fact))
 		if err != nil {
-			t.Fatalf("fact backend %q indisponível: %v", fact, err)
+			t.Fatalf("fact backend %s/%s indisponível: %v", tc.provider, tc.fact, err)
 		}
 		if proof.ContextVersion() == "" {
-			t.Fatalf("fact backend %q não devolveu versão", fact)
+			t.Fatalf("fact backend %s/%s não devolveu versão", tc.provider, tc.fact)
 		}
 	}
 	combined := commandcatalog.ContextPolicy{Facts: []commandcatalog.ContextFact{
@@ -269,8 +277,43 @@ func TestNewCommandFactBusRegistraBackendsEDeixaPortasUIPendentes(t *testing.T) 
 	for _, provider := range []string{"surface", "dialog", "focus", "window", "window_ui"} {
 		_, err := bus.Capture(context.Background(), workspaceScope, commandFactPolicy(provider, provider))
 		if !errors.Is(err, commandcontext.ErrMissingSnapshot) {
-			t.Fatalf("porta UI %q foi inventada ou erro incorreto: %v", provider, err)
+			t.Fatalf("fato visual %q foi exposto ao FactBus ou erro incorreto: %v", provider, err)
 		}
+	}
+}
+
+func TestNewCommandFactBusProfileRejeitaLogoutSessaoSubstituidaETrocaWorkspace(t *testing.T) {
+	app, principal, manager, workspaceID := newCommandWorkspaceProviderFixture(t)
+	bus, err := app.newCommandFactBus(principal)
+	if err != nil {
+		t.Fatalf("newCommandFactBus: %v", err)
+	}
+	scope := commandWorkspaceScope(principal, workspaceID)
+	policy := commandFactPolicy("profile", "profile")
+	if _, err := bus.Capture(context.Background(), scope, policy); err != nil {
+		t.Fatalf("profile backend inicial indisponível: %v", err)
+	}
+
+	app.setCurrentAuthUser(nil)
+	if _, err := bus.Capture(context.Background(), scope, policy); !errors.Is(err, commandcontext.ErrProviderUnavailable) {
+		t.Fatalf("profile aceitou logout: %v", err)
+	}
+
+	app.setCurrentAuthUser(&AuthUser{UserID: principal.UserID, SessionID: uuid.Must(uuid.NewV7()).String()})
+	if _, err := bus.Capture(context.Background(), scope, policy); !errors.Is(err, commandcontext.ErrProviderUnavailable) {
+		t.Fatalf("profile aceitou sessão substituída: %v", err)
+	}
+
+	app.setCurrentAuthUser(&AuthUser{UserID: principal.UserID, SessionID: principal.SessionID})
+	other, err := manager.Create("workspace alternativo")
+	if err != nil {
+		t.Fatalf("Create workspace alternativo: %v", err)
+	}
+	if _, err := manager.Switch(other.ID); err != nil {
+		t.Fatalf("Switch workspace alternativo: %v", err)
+	}
+	if _, err := bus.Capture(context.Background(), scope, policy); !errors.Is(err, commandcontext.ErrProviderUnavailable) {
+		t.Fatalf("profile aceitou workspace substituído: %v", err)
 	}
 }
 

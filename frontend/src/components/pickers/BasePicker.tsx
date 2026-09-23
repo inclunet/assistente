@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type HTMLAttributes, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, type HTMLAttributes, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Combobox, ComboboxItem } from './Combobox';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -33,6 +33,7 @@ interface BasePickerProps {
   onAnnounce?: (message: string) => void;
   shortcut?: string;
   onOpen?: () => void;
+  triggerRef?: Ref<HTMLButtonElement>;
   loading?: boolean;
   error?: string | null;
   emptyState?: ReactNode;
@@ -109,6 +110,7 @@ export const BasePicker = ({
   onAnnounce,
   shortcut,
   onOpen,
+  triggerRef,
   loading = false,
   error,
   emptyState,
@@ -268,6 +270,7 @@ export const BasePicker = ({
       onAnnounce={onAnnounce}
       shortcut={shortcut}
       onOpen={onOpen}
+      triggerRef={triggerRef}
       allowFreeInput={allowFreeInput}
       onAfterSelect={onAfterSelect}
     />

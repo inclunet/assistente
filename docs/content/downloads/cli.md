@@ -67,6 +67,52 @@ Ele guia você por:
 
 ## Comandos disponíveis
 
+### Catálogo de comandos e acionadores
+
+```powershell
+asst commands list
+asst commands describe workspace.list
+```
+
+A saída é JSON e inclui `executable` e `unavailable_reason`. O grupo restaura
+a sessão local já salva pelo aplicativo; sem sessão válida ou cofre
+desbloqueado, falha fechado. Não passe senhas ou tokens em argumentos.
+Use o mesmo diretório de dados e feche a outra instância do Assistente antes
+de iniciar a CLI: a exclusão de instância do executor também vale no terminal.
+
+**No catálogo atual, nenhum dos 149 comandos declara suporte à origem CLI.**
+Listar e descrever já estão disponíveis; comandos de workspace, editor, foco
+e decisões continuam indisponíveis. A CLI não controla a janela aberta e não
+oferece `--yes` ou confirmação textual para contornar essa restrição.
+
+O protocolo de execução, reservado aos comandos que declararem suporte à CLI,
+é:
+
+```text
+asst commands execute <ID_DO_COMANDO> --arguments '{}'
+asst commands status --request-id <ID_DEVOLVIDO>
+asst commands retry <ID_DO_COMANDO> --request-id <ID_DEVOLVIDO> --arguments '{}'
+```
+
+`execute` gera e devolve `request_id`; não aceita um ID escolhido pelo caller.
+`retry` exige uma solicitação existente da mesma sessão e origem, com o mesmo
+comando e argumentos. Reapresentar o ID consulta o resultado existente, sem
+repetir o efeito. Um ID inexistente, de outra sessão ou de outra origem é
+recusado. A consulta não devolve argumentos, segredos ou o resultado bruto
+persistido. Erros retornam código de saída diferente de zero; quando há ID
+da solicitação, o JSON o preserva.
+
+Este grupo não inicializa automaticamente hotkeys nativas nem Stream Deck.
+Também não reativa jobs, canais, conexões automáticas MCP, monitor LLM ou
+servidor HTTP ao restaurar a sessão. Os serviços comuns de autenticação,
+catálogo e executor continuam sendo os mesmos do aplicativo.
+No estado atual, o runtime exige observação válida da sessão do Windows.
+Em plataformas sem esse observador, permanece indisponível; os demais grupos
+da CLI conservam seus próprios contratos de plataforma. A inicialização
+aguarda até cinco segundos pela publicação autenticada, sem presumir que o
+SO ou o cofre estejam desbloqueados.
+Consulte também [Comandos e acionadores](../../recursos/COMANDOS/).
+
 ### Chat
 
 ```bash

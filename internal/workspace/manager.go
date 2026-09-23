@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -40,17 +41,32 @@ func isValidUUIDv7(s string) bool {
 // Manager gerencia workspaces: CRUD, persistência YAML e índice global.
 type Manager struct {
 	mu                    sync.RWMutex
+	snapshotState
 	active                *Workspace
 	activePath            string // diretório base do workspace ativo (contém .assistente/)
 	homeDir               string // ~/.assistente/
 	activeMigrationFailed bool   // true se o workspace ativo falhou ao salvar migração
+	commandEpoch          uint64 // época monotônica das mutações semânticas observáveis
 }
 
 // NewManager cria um novo workspace manager.
 // homeDir é o diretório ~/.assistente/ (onde ficam workspaces avulsos e o índice).
 func NewManager(homeDir string) *Manager {
 	return &Manager{
-		homeDir: homeDir,
+		homeDir:        homeDir,
+		snapshotState: snapshotState{snapshotEpoch: newSnapshotEpoch()},
+	}
+}
+
+// replaceActiveLocked troca o workspace ativo e registra a troca semântica
+// como uma única mutação atômica. O chamador já deve possuir m.mu.
+func (m *Manager) replaceActiveLocked(ws *Workspace, path string) {
+	before, beforeValid := m.commandMutationFingerprintLocked()
+	m.active = ws
+	m.activePath = path
+	after, afterValid := m.commandMutationFingerprintLocked()
+	if beforeValid != afterValid || (beforeValid && before != after) {
+		m.commandMutationEpochLocked()
 	}
 }
 
@@ -85,8 +101,7 @@ func (m *Manager) Initialize(workDir string) error {
 			if errors.Is(err, ErrMigrationSaveFailed) {
 				m.activeMigrationFailed = true
 			}
-			m.active = ws
-			m.activePath = workDir
+			m.replaceActiveLocked(ws, workDir)
 			m.touchIndex(ws, workDir)
 			initOK = true
 			return nil
@@ -97,8 +112,7 @@ func (m *Manager) Initialize(workDir string) error {
 		if err := m.saveWorkspace(ws, workDir); err != nil {
 			return fmt.Errorf("failed to create workspace at %s: %w", workDir, err)
 		}
-		m.active = ws
-		m.activePath = workDir
+		m.replaceActiveLocked(ws, workDir)
 		m.touchIndex(ws, workDir)
 		initOK = true
 		return nil
@@ -114,8 +128,7 @@ func (m *Manager) Initialize(workDir string) error {
 					if errors.Is(err, ErrMigrationSaveFailed) {
 						m.activeMigrationFailed = true
 					}
-					m.active = ws
-					m.activePath = entry.Path
+					m.replaceActiveLocked(ws, entry.Path)
 					initOK = true
 					return nil
 				}
@@ -132,8 +145,7 @@ func (m *Manager) Initialize(workDir string) error {
 			if errors.Is(err, ErrMigrationSaveFailed) {
 				m.activeMigrationFailed = true
 			}
-			m.active = ws
-			m.activePath = defaultPath
+			m.replaceActiveLocked(ws, defaultPath)
 			m.touchIndex(ws, defaultPath)
 			initOK = true
 			return nil
@@ -145,8 +157,7 @@ func (m *Manager) Initialize(workDir string) error {
 	if err := m.saveWorkspace(ws, defaultPath); err != nil {
 		return fmt.Errorf("failed to create default workspace: %w", err)
 	}
-	m.active = ws
-	m.activePath = defaultPath
+	m.replaceActiveLocked(ws, defaultPath)
 	m.touchIndex(ws, defaultPath)
 	initOK = true
 	return nil
@@ -156,7 +167,32 @@ func (m *Manager) Initialize(workDir string) error {
 func (m *Manager) Active() *Workspace {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.active
+	return m.cloneActiveSnapshotLocked(m.active)
+}
+
+// ActiveID retorna apenas a identidade do workspace ativo, sem copiar o
+// estado completo. É apropriado para checks quentes de dependências.
+func (m *Manager) ActiveID() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.active == nil {
+		return ""
+	}
+	return m.active.ID
+}
+
+// cloneWorkspace cria uma cópia independente para APIs de leitura. O
+// chamador controla o lock; esta função não adquire mutex.
+func cloneWorkspace(source *Workspace) *Workspace {
+	if source == nil {
+		return nil
+	}
+	cloned := *source
+	cloned.Tabs.Items = make([]Tab, len(source.Tabs.Items))
+	for i, tab := range source.Tabs.Items {
+		cloned.Tabs.Items[i] = cloneTab(tab)
+	}
+	return &cloned
 }
 
 // ActivePath retorna o diretório base do workspace ativo.
@@ -168,17 +204,15 @@ func (m *Manager) ActivePath() string {
 
 // Save persiste o workspace ativo em disco.
 func (m *Manager) Save() error {
-	m.mu.RLock()
-	ws := m.active
-	path := m.activePath
-	m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	if ws == nil {
+	if m.active == nil {
 		return fmt.Errorf("no active workspace")
 	}
 
-	ws.LastUsed = time.Now()
-	return m.saveWorkspace(ws, path)
+	m.active.LastUsed = time.Now()
+	return m.saveWorkspace(m.active, m.activePath)
 }
 
 // List retorna todos os workspaces conhecidos no índice.
@@ -253,14 +287,13 @@ func (m *Manager) Switch(workspaceID string) (*Workspace, error) {
 				return nil, fmt.Errorf("failed to load workspace %s: %w", workspaceID, err)
 			}
 
-			m.active = ws
-			m.activePath = entry.Path
+			m.replaceActiveLocked(ws, entry.Path)
 
 			// Atualiza last_opened no índice
 			idx.LastOpened = workspaceID
 			_ = m.saveIndex(idx)
 
-			return ws, nil
+			return m.cloneActiveSnapshotLocked(ws), nil
 		}
 	}
 
@@ -338,7 +371,11 @@ func (m *Manager) SetProfile(profileSlug string) error {
 		return fmt.Errorf("no active workspace")
 	}
 
+	semanticChanged := m.active.Profile != profileSlug
 	m.active.Profile = profileSlug
+	if semanticChanged {
+		m.commandMutationEpochLocked()
+	}
 	return m.saveWorkspace(m.active, m.activePath)
 }
 
@@ -380,12 +417,30 @@ func (m *Manager) AddTab(tab Tab) error {
 	if err := tab.Validate(); err != nil {
 		return err
 	}
+	// O workspace não pode manter aliases para objetos mutáveis do caller.
+	tab = cloneTab(tab)
+	if err := m.addTabLocked(tab); err != nil {
+		return err
+	}
+	return m.saveWorkspace(m.active, m.activePath)
+}
+
+// addTabLocked aplica a mutação de aba ao workspace ativo. O chamador deve
+// possuir m.mu e já ter validado/desanexado tab; persistência fica a cargo do
+// chamador para permitir operações transacionais sobre um clone.
+func (m *Manager) addTabLocked(tab Tab) error {
+	if m.active == nil {
+		return fmt.Errorf("no active workspace")
+	}
 
 	// Regra: no máximo 1 aba por conteúdo por workspace
 	if existing := m.findDuplicateTab(&tab); existing != nil {
 		// Já existe — ativa essa aba em vez de criar duplicata
-		m.active.Tabs.Active = existing.ID
-		return m.saveWorkspace(m.active, m.activePath)
+		if m.active.Tabs.Active != existing.ID {
+			m.active.Tabs.Active = existing.ID
+			m.commandMutationEpochLocked()
+		}
+		return nil
 	}
 
 	// Posição no final se não especificada
@@ -395,8 +450,9 @@ func (m *Manager) AddTab(tab Tab) error {
 
 	m.active.Tabs.Items = append(m.active.Tabs.Items, tab)
 	m.active.Tabs.Active = tab.ID
+	m.commandMutationEpochLocked()
 
-	return m.saveWorkspace(m.active, m.activePath)
+	return nil
 }
 
 // RemoveTab remove uma aba do workspace ativo.
@@ -407,39 +463,10 @@ func (m *Manager) RemoveTab(tabID string) error {
 	if m.active == nil {
 		return fmt.Errorf("no active workspace")
 	}
-
-	idx := -1
-	for i, t := range m.active.Tabs.Items {
-		if t.ID == tabID {
-			idx = i
-			break
-		}
+	if err := m.removeTabLocked(tabID); err != nil {
+		return err
 	}
-
-	if idx == -1 {
-		return fmt.Errorf("tab not found: %s", tabID)
-	}
-
-	// Remove a aba
-	m.active.Tabs.Items = append(m.active.Tabs.Items[:idx], m.active.Tabs.Items[idx+1:]...)
-
-	// Se era a aba ativa, promove a próxima
-	if m.active.Tabs.Active == tabID {
-		if len(m.active.Tabs.Items) > 0 {
-			nextIdx := idx
-			if nextIdx >= len(m.active.Tabs.Items) {
-				nextIdx = len(m.active.Tabs.Items) - 1
-			}
-			m.active.Tabs.Active = m.active.Tabs.Items[nextIdx].ID
-		} else {
-			m.active.Tabs.Active = ""
-		}
-	}
-
-	// Recalcula posições
-	for i := range m.active.Tabs.Items {
-		m.active.Tabs.Items[i].Position = i
-	}
+	m.commandMutationEpochLocked()
 
 	return m.saveWorkspace(m.active, m.activePath)
 }
@@ -456,8 +483,10 @@ func (m *Manager) SetActiveTab(tabID string) error {
 	if m.active.FindTab(tabID) == nil {
 		return fmt.Errorf("tab not found: %s", tabID)
 	}
-
-	m.active.Tabs.Active = tabID
+	if m.active.Tabs.Active != tabID {
+		m.active.Tabs.Active = tabID
+		m.commandMutationEpochLocked()
+	}
 	return m.saveWorkspace(m.active, m.activePath)
 }
 
@@ -503,7 +532,7 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 			if v == nil {
 				delete(tab.State, k)
 			} else {
-				tab.State[k] = v
+				tab.State[k] = cloneWorkspaceValue(v)
 			}
 		}
 	}
@@ -515,7 +544,7 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 			if v == nil {
 				delete(tab.ProfileOverride, k)
 			} else {
-				tab.ProfileOverride[k] = v
+				tab.ProfileOverride[k] = cloneWorkspaceValue(v)
 			}
 		}
 		if len(tab.ProfileOverride) == 0 {
@@ -529,17 +558,70 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 		*tab = previousTab
 		return err
 	}
+	if commandTabSemanticallyChanged(&previousTab, tab) {
+		m.commandMutationEpochLocked()
+	}
 	return nil
 }
 
 func cloneTab(tab Tab) Tab {
 	if tab.ProfileOverride != nil {
-		tab.ProfileOverride = maps.Clone(tab.ProfileOverride)
+		tab.ProfileOverride = cloneWorkspaceMap(tab.ProfileOverride)
 	}
 	if tab.State != nil {
-		tab.State = maps.Clone(tab.State)
+		tab.State = cloneWorkspaceMap(tab.State)
 	}
 	return tab
+}
+
+func cloneWorkspaceMap(source map[string]any) map[string]any {
+	cloned := make(map[string]any, len(source))
+	for key, value := range source {
+		cloned[key] = cloneWorkspaceValue(value)
+	}
+	return cloned
+}
+
+// cloneWorkspaceValue desanexa os contêineres mutáveis aceitos em State e
+// ProfileOverride, preservando seus tipos concretos para não alterar o YAML.
+func cloneWorkspaceValue(value any) any {
+	if value == nil {
+		return nil
+	}
+	return cloneWorkspaceReflect(reflect.ValueOf(value)).Interface()
+}
+
+func cloneWorkspaceReflect(value reflect.Value) reflect.Value {
+	switch value.Kind() {
+	case reflect.Interface:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		cloned := cloneWorkspaceReflect(value.Elem())
+		wrapped := reflect.New(value.Type()).Elem()
+		wrapped.Set(cloned)
+		return wrapped
+	case reflect.Map:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		cloned := reflect.MakeMapWithSize(value.Type(), value.Len())
+		for _, key := range value.MapKeys() {
+			cloned.SetMapIndex(key, cloneWorkspaceReflect(value.MapIndex(key)))
+		}
+		return cloned
+	case reflect.Slice:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		cloned := reflect.MakeSlice(value.Type(), value.Len(), value.Len())
+		for i := 0; i < value.Len(); i++ {
+			cloned.Index(i).Set(cloneWorkspaceReflect(value.Index(i)))
+		}
+		return cloned
+	default:
+		return value
+	}
 }
 
 // ValidateTabConversation confirma o alvo antes de abrir uma decisão. A
@@ -599,6 +681,9 @@ func (m *Manager) UpdateTabProfileForConversation(tabID, conversationID, profile
 	if err := m.saveWorkspace(m.active, m.activePath); err != nil {
 		tab.ProfileOverride = previousOverride
 		return err
+	}
+	if previousSlug != profileSlug {
+		m.commandMutationEpochLocked()
 	}
 	return nil
 }
@@ -676,6 +761,7 @@ func (m *Manager) MoveTabToWorkspace(tabID, targetWorkspaceID string) error {
 	for i := range m.active.Tabs.Items {
 		m.active.Tabs.Items[i].Position = i
 	}
+	m.commandMutationEpochLocked()
 
 	// Adiciona ao workspace alvo
 	tabCopy.Position = len(targetWs.Tabs.Items)
@@ -700,6 +786,10 @@ func (m *Manager) ReorderTabs(orderedIDs []string) error {
 	if m.active == nil {
 		return fmt.Errorf("no active workspace")
 	}
+	beforeIDs := make([]string, len(m.active.Tabs.Items))
+	for i := range m.active.Tabs.Items {
+		beforeIDs[i] = m.active.Tabs.Items[i].ID
+	}
 
 	tabMap := make(map[string]*Tab, len(m.active.Tabs.Items))
 	for i := range m.active.Tabs.Items {
@@ -722,6 +812,20 @@ func (m *Manager) ReorderTabs(orderedIDs []string) error {
 	}
 
 	m.active.Tabs.Items = reordered
+	if len(beforeIDs) != len(reordered) {
+		m.commandMutationEpochLocked()
+	} else {
+		changed := false
+		for i := range reordered {
+			if beforeIDs[i] != reordered[i].ID {
+				changed = true
+				break
+			}
+		}
+		if changed {
+			m.commandMutationEpochLocked()
+		}
+	}
 	return m.saveWorkspace(m.active, m.activePath)
 }
 

@@ -1,9 +1,10 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, type RefObject } from 'react';
 import type { WorkspaceTab } from '../../store/workspaceStore';
 
 interface WorkspacePanelContextValue {
   tab: WorkspaceTab;
   isActive: boolean;
+  rootRef?: RefObject<HTMLElement>;
 }
 
 const WorkspacePanelContext = createContext<WorkspacePanelContextValue | null>(null);

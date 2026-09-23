@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"assistente/internal/commandactivation"
@@ -32,6 +33,9 @@ type Ports struct {
 	Runtime    func(context.Context, *gorm.DB, commandjobevents.Fact) (RuntimeIdentity, error)
 	Keys       commandautomation.FingerprintKeyProvider
 	KeyVersion string
+	// WithContext mantém a fonte externa travada durante a transação. É
+	// opcional para consumidores que não dependem de uma fonte externa.
+	WithContext func(context.Context, func(context.Context) error) error
 }
 
 // RuntimeIdentity vem do run vivo, incluindo as gerações em que foi admitido.
@@ -49,6 +53,14 @@ type Consumer struct {
 	ports            Ports
 	now              func() time.Time
 	lease, retention time.Duration
+	revision         atomic.Uint64
+}
+
+func (c *Consumer) withContext(ctx context.Context, fn func(context.Context) error) error {
+	if c.ports.WithContext == nil {
+		return fn(ctx)
+	}
+	return c.ports.WithContext(ctx, fn)
 }
 
 func New(db *gorm.DB, gate *commandsecurity.DispatchGate, ports Ports, lease, retention time.Duration, now func() time.Time) (*Consumer, error) {
@@ -70,6 +82,7 @@ type Result struct{ Applied, Replayed, Ignored, Conflicts int }
 // pela lease até expirar/reencaminhar.
 type PassResult struct {
 	Claimed, Processed int
+	DeadLettered       int
 	Applied, Replayed  int
 	Ignored, Conflicts int
 	More               bool
@@ -99,7 +112,42 @@ func (c *Consumer) RunPass(ctx context.Context, deliveryOwner string, limit int)
 		}
 		outcome, err := c.Consume(ctx, row.SourceEventID, deliveryOwner)
 		if err != nil {
-			return result, err
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, commandjobevents.ErrLeaseLost) {
+				return result, err
+			}
+			errorCode, permanent := classifyDeliveryFailure(err)
+			var transitionErr error
+			if permanent {
+				transitionErr = c.outbox.DeadLetter(ctx, row.SourceEventID, deliveryOwner, errorCode)
+			} else {
+				transitionErr = c.outbox.Retry(ctx, row.SourceEventID, deliveryOwner, errorCode)
+			}
+			if transitionErr != nil {
+				return result, errors.Join(err, transitionErr)
+			}
+			if permanent {
+				result.Processed++
+				result.DeadLettered++
+			} else {
+				// Retry pode ter convertido a oitava tentativa em dead-letter.
+				// Observe o estado durável para não sinalizar trabalho inexistente.
+				retried, getErr := c.outbox.Get(ctx, row.SourceEventID)
+				if getErr != nil {
+					return result, errors.Join(err, getErr)
+				}
+				if retried.DeliveryState == commandjobevents.DeliveryDeadLetter {
+					result.Processed++
+					result.DeadLettered++
+				} else {
+					// Retry deixou uma ocorrência pendente. Não há segunda
+					// tentativa nesta passagem; a próxima cadência é necessária.
+					result.More = true
+				}
+			}
+			// A falha já registrada não deve abortar os demais itens do lote.
+			// O item permanece bounded por Retry/DeadLetter e o próximo ciclo
+			// continua sendo controlado pelo coordinator.
+			continue
 		}
 		result.Processed++
 		result.Applied += outcome.Applied
@@ -108,6 +156,30 @@ func (c *Consumer) RunPass(ctx context.Context, deliveryOwner string, limit int)
 		result.Conflicts += outcome.Conflicts
 	}
 	return result, nil
+}
+
+// classifyDeliveryFailure é deliberadamente conservadora: somente erros que
+// provam que a ocorrência nunca será válida são dead-lettered. Falhas de
+// banco, runtime, chaves ou portas desconhecidas seguem retry bounded.
+func classifyDeliveryFailure(err error) (string, bool) {
+	switch {
+	case errors.Is(err, commandjobevents.ErrInvalidFact):
+		return "invalid_fact", true
+	case errors.Is(err, commandjobevents.ErrFingerprintConflict):
+		return "fingerprint_conflict", true
+	case errors.Is(err, commandautomation.ErrInvalid):
+		return "invalid_authorization", true
+	case errors.Is(err, commandautomation.ErrStale):
+		return "stale_authorization", true
+	case errors.Is(err, commandautomation.ErrNotFound), errors.Is(err, gorm.ErrRecordNotFound):
+		return "source_not_found", true
+	case errors.Is(err, commandautomation.ErrForeignScope):
+		return "foreign_scope", true
+	case errors.Is(err, commandautomation.ErrFingerprint):
+		return "fingerprint_invalid", true
+	default:
+		return "transient_consume_failure", false
+	}
 }
 
 // Consume recebe apenas a identidade de entrega. Nenhum owner, regra,
@@ -119,99 +191,104 @@ func (c *Consumer) Consume(ctx context.Context, eventID, deliveryOwner string) (
 		return result, ErrUnavailable
 	}
 	err := c.gate.WithMutation(ctx, func() error {
-		return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			now := c.now().UTC()
-			var row commandjobevents.ActivationOutbox
-			if err := tx.Where("source_event_id = ? AND delivery_state = ? AND lease_owner = ? AND lease_expires_at > ?", eventID, commandjobevents.DeliveryProcessing, deliveryOwner, now).Take(&row).Error; err != nil {
-				return commandjobevents.ErrLeaseLost
-			}
-			fact, err := c.outbox.VerifiedFactTx(ctx, tx, eventID, now)
-			if err != nil {
+		return c.withContext(ctx, func(txCtx context.Context) error {
+			if err := c.advanceRevision(); err != nil {
 				return err
 			}
-			if err := verifyJob(tx, fact); err != nil {
-				return err
-			}
-			var rules []commandactivation.Rule
-			if err := tx.Where("user_id = ? AND mode = ? AND enabled = ? AND review_status = ?", fact.UserID, "event", true, "active").Order("workspace_id, rule_ref_kind, rule_ref").Find(&rules).Error; err != nil {
-				return err
-			}
-			for _, rule := range rules {
-				owner, err := c.ports.Authorize(ctx, tx, detachedFact(fact), clone(rule.WorkspaceID))
+			return c.db.WithContext(txCtx).Transaction(func(tx *gorm.DB) error {
+				now := c.now().UTC()
+				var row commandjobevents.ActivationOutbox
+				if err := tx.Where("source_event_id = ? AND delivery_state = ? AND lease_owner = ? AND lease_expires_at > ?", eventID, commandjobevents.DeliveryProcessing, deliveryOwner, now).Take(&row).Error; err != nil {
+					return commandjobevents.ErrLeaseLost
+				}
+				fact, err := c.outbox.VerifiedFactTx(txCtx, tx, eventID, now)
 				if err != nil {
 					return err
 				}
-				if !sameScope(owner.WorkspaceID, rule.WorkspaceID) || owner.UserID != fact.UserID || owner.AuthContextType == "" || owner.AuthContextID == "" || owner.AuthGeneration == "" || owner.SecurityGeneration == "" {
-					return ErrUnavailable
-				}
-				enabled, err := c.ports.Layer(ctx, tx, detachedOwner(owner), detachedRule(rule))
-				if err != nil {
+				if err := verifyJob(tx, fact); err != nil {
 					return err
 				}
-				if !enabled {
-					result.Ignored++
-					continue
+				var rules []commandactivation.Rule
+				if err := tx.Where("user_id = ? AND mode = ? AND enabled = ? AND review_status = ?", fact.UserID, "event", true, "active").Order("workspace_id, rule_ref_kind, rule_ref").Find(&rules).Error; err != nil {
+					return err
 				}
-				if err := c.validateGrant(ctx, tx, rule); err != nil {
-					// Persistir a desabilitação, sem conceder outra autoridade ou aceitar
-					// a ocorrência. Uma nova decisão é necessária para reabilitar.
-					if errors.Is(err, commandautomation.ErrNotFound) || errors.Is(err, commandautomation.ErrStale) || errors.Is(err, commandautomation.ErrInvalid) {
-						activation, e := commandactivation.NewStore(tx)
-						if e != nil {
-							return e
-						}
-						change, e := activation.RevokeInvalidRuleTx(ctx, tx, owner, commandactivation.Ref{Kind: rule.RuleRefKind, ID: rule.RuleRef}, "grant_invalid")
-						if e != nil {
-							return e
-						}
-						config, e := commandconfig.New(tx)
-						if e != nil {
-							return e
-						}
-						if _, e = config.BumpGenerationTx(ctx, tx, commandconfig.Scope{UserID: owner.UserID, WorkspaceID: clone(owner.WorkspaceID)}); e != nil {
-							return e
-						}
-						if change.EffectiveClaims > 0 {
-							if _, e = activation.BumpActiveLayersTx(ctx, tx, owner); e != nil {
-								return e
-							}
-						}
+				for _, rule := range rules {
+					owner, err := c.ports.Authorize(txCtx, tx, detachedFact(fact), clone(rule.WorkspaceID))
+					if err != nil {
+						return err
+					}
+					if !sameScope(owner.WorkspaceID, rule.WorkspaceID) || owner.UserID != fact.UserID || owner.AuthContextType == "" || owner.AuthContextID == "" || owner.AuthGeneration == "" || owner.SecurityGeneration == "" {
+						return ErrUnavailable
+					}
+					enabled, err := c.ports.Layer(txCtx, tx, detachedOwner(owner), detachedRule(rule))
+					if err != nil {
+						return err
+					}
+					if !enabled {
 						result.Ignored++
 						continue
 					}
-					return err
+					if err := c.validateGrant(txCtx, tx, rule); err != nil {
+						// Persistir a desabilitação, sem conceder outra autoridade ou aceitar
+						// a ocorrência. Uma nova decisão é necessária para reabilitar.
+						if errors.Is(err, commandautomation.ErrNotFound) || errors.Is(err, commandautomation.ErrStale) || errors.Is(err, commandautomation.ErrInvalid) {
+							activation, e := commandactivation.NewStore(tx)
+							if e != nil {
+								return e
+							}
+							change, e := activation.RevokeInvalidRuleTx(txCtx, tx, owner, commandactivation.Ref{Kind: rule.RuleRefKind, ID: rule.RuleRef}, "grant_invalid")
+							if e != nil {
+								return e
+							}
+							config, e := commandconfig.New(tx)
+							if e != nil {
+								return e
+							}
+							if _, e = config.BumpGenerationTx(txCtx, tx, commandconfig.Scope{UserID: owner.UserID, WorkspaceID: clone(owner.WorkspaceID)}); e != nil {
+								return e
+							}
+							if change.EffectiveClaims > 0 {
+								if _, e = activation.BumpActiveLayersTx(txCtx, tx, owner); e != nil {
+									return e
+								}
+							}
+							result.Ignored++
+							continue
+						}
+						return err
+					}
+					matched, err := c.ports.Condition(txCtx, tx, detachedOwner(owner), detachedRule(rule), detachedFact(fact))
+					if err != nil {
+						return err
+					}
+					if !matched && !terminalFact(fact) {
+						result.Ignored++
+						continue
+					}
+					outcome, err := c.apply(txCtx, tx, owner, rule, fact, now)
+					if err != nil {
+						return err
+					}
+					switch outcome {
+					case "applied":
+						result.Applied++
+					case "replay":
+						result.Replayed++
+					case "conflict":
+						result.Conflicts++
+					default:
+						result.Ignored++
+					}
 				}
-				matched, err := c.ports.Condition(ctx, tx, detachedOwner(owner), detachedRule(rule), detachedFact(fact))
-				if err != nil {
-					return err
+				ack := tx.Model(&commandjobevents.ActivationOutbox{}).Where("source_event_id = ? AND delivery_state = ? AND lease_owner = ? AND lease_expires_at > ?", eventID, commandjobevents.DeliveryProcessing, deliveryOwner, c.now().UTC()).Updates(map[string]any{"delivery_state": commandjobevents.DeliveryDelivered, "lease_owner": nil, "lease_expires_at": nil, "delivered_at": now})
+				if ack.Error != nil {
+					return ack.Error
 				}
-				if !matched && !terminalFact(fact) {
-					result.Ignored++
-					continue
+				if ack.RowsAffected != 1 {
+					return commandjobevents.ErrLeaseLost
 				}
-				outcome, err := c.apply(ctx, tx, owner, rule, fact, now)
-				if err != nil {
-					return err
-				}
-				switch outcome {
-				case "applied":
-					result.Applied++
-				case "replay":
-					result.Replayed++
-				case "conflict":
-					result.Conflicts++
-				default:
-					result.Ignored++
-				}
-			}
-			ack := tx.Model(&commandjobevents.ActivationOutbox{}).Where("source_event_id = ? AND delivery_state = ? AND lease_owner = ? AND lease_expires_at > ?", eventID, commandjobevents.DeliveryProcessing, deliveryOwner, c.now().UTC()).Updates(map[string]any{"delivery_state": commandjobevents.DeliveryDelivered, "lease_owner": nil, "lease_expires_at": nil, "delivered_at": now})
-			if ack.Error != nil {
-				return ack.Error
-			}
-			if ack.RowsAffected != 1 {
-				return commandjobevents.ErrLeaseLost
-			}
-			return nil
+				return nil
+			})
 		})
 	})
 	if err != nil {
@@ -231,6 +308,9 @@ func verifyJob(tx *gorm.DB, f commandjobevents.Fact) error {
 	var count int64
 	if err := tx.Table("job_runs").Where("id = ? AND user_id = ? AND job_id = ?", f.RunID, f.UserID, job.ID).Count(&count).Error; err != nil {
 		return err
+	}
+	if count == 0 {
+		return commandautomation.ErrNotFound
 	}
 	if count != 1 {
 		return ErrUnavailable

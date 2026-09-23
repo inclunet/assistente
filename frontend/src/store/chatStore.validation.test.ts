@@ -214,7 +214,6 @@ describe('chatStore validation', () => {
           expandedThreads: new Set<string>(),
           expandedReasonings: new Set<string>(),
           editingMessageId: null,
-          readingMessageId: null,
           skipFocusRestore: false,
         },
       },
@@ -224,6 +223,117 @@ describe('chatStore validation', () => {
   afterEach(() => {
     useChatStore.getState().handleDatabaseReset();
     vi.restoreAllMocks();
+  });
+
+  it('envio auditado reutiliza SendMessage e serializa somente a correlação', async () => {
+    const isCurrent = vi.fn(() => true);
+    const handoff = { ticket: 'ticket-send', handoffId: 'handoff-send' };
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'conteúdo', undefined, undefined, {
+      command: { handoff, isCurrent },
+    });
+    expect(mockSendMessage).toHaveBeenCalledExactlyOnceWith(defaultConversationId, 'conteúdo', '', expect.objectContaining({ command: handoff }));
+    expect(mockRetryMessage).not.toHaveBeenCalled();
+    expect(mockSendMessage.mock.calls[0][3].command).not.toHaveProperty('isCurrent');
+    expect(JSON.parse(JSON.stringify(mockSendMessage.mock.calls[0][3])).command).toEqual(handoff);
+    expect(isCurrent).toHaveBeenCalled();
+  });
+
+  it('retry auditado conserva o ID persistido e não cria outro envio', async () => {
+    const handoff = { ticket: 'ticket-retry', handoffId: 'handoff-retry' };
+    await useChatStore.getState().retryMessageToConversation(defaultConversationId, 'persisted-message', undefined, {
+      command: { handoff, isCurrent: () => true },
+    });
+    expect(mockRetryMessage).toHaveBeenCalledExactlyOnceWith(defaultConversationId, 'persisted-message', expect.objectContaining({ command: handoff }));
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('guarda obsoleta recusa antes de enviar ou iniciar o turno', async () => {
+    await expect(useChatStore.getState().sendMessageToConversation(defaultConversationId, 'rascunho', undefined, undefined, {
+      command: { handoff: { ticket: 'ticket', handoffId: 'handoff' }, isCurrent: () => false },
+    })).rejects.toThrow('chat-messaging-stale');
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(useChatStore.getState().getMessagingPipelineRevision(defaultConversationId)).toBe(0);
+  });
+
+  it('validação do envio auditado anuncia o limite sem chamar Wails', async () => {
+    await expect(useChatStore.getState().sendMessageToConversation(defaultConversationId, 'x'.repeat(512 * 1024 + 1), undefined, undefined, {
+      command: { handoff: { ticket: 'ticket', handoffId: 'handoff' }, isCurrent: () => true },
+    })).rejects.toThrow('chat-messaging-stale');
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockAnnounce).toHaveBeenCalledWith('Mensagem muito grande (524289 bytes). Máximo permitido: 512 KiB.', 'assertive');
+  });
+
+  it('revalida o alvo depois da serialização assíncrona dos anexos', async () => {
+    const serializer = await import('../services/mediaSerialization');
+    const gate = deferred<string>();
+    const serialize = vi.spyOn(serializer, 'serializeMediaForConversation').mockReturnValue(gate.promise);
+    let current = true;
+    const file = new File(['anexo'], 'a.txt', { type: 'text/plain' });
+    const send = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'rascunho', [{
+      id: 'media', file, category: MediaCategory.DOCUMENT, mimeType: 'text/plain', extension: '.txt',
+      fileName: 'a.txt', fileSize: file.size, fileSizeFormatted: '5 B', icon: '', preview: '',
+    }], undefined, { command: { handoff: { ticket: 'ticket', handoffId: 'handoff' }, isCurrent: () => current } });
+    const rejected = expect(send).rejects.toThrow('chat-messaging-stale');
+    await vi.waitFor(() => expect(serialize).toHaveBeenCalledOnce());
+    current = false;
+    gate.resolve('[]');
+    await rejected;
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId].isLoading).toBe(false);
+  });
+
+  it('erro de transporte auditado não oferece retry como nova mensagem', async () => {
+    mockSendMessage.mockRejectedValueOnce(new Error('resposta perdida após possível persistência'));
+    await expect(useChatStore.getState().sendMessageToConversation(defaultConversationId, 'não duplicar', undefined, undefined, {
+      command: { handoff: { ticket: 'ticket', handoffId: 'handoff' }, isCurrent: () => true },
+    })).rejects.toThrow('resposta perdida');
+    const session = useChatStore.getState().sessionsByConversationId[defaultConversationId];
+    expect(session.sendFailureRetryable).toBe(false);
+    expect(session.sendFailureRetryContent).toBeNull();
+    expect(mockSendMessage).toHaveBeenCalledOnce();
+    expect(mockRetryMessage).not.toHaveBeenCalled();
+  });
+
+  it('limpeza tardia de cancelamento não encerra um pipeline posterior', async () => {
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira');
+    const previous = useChatStore.getState().getMessagingPipelineRevision(defaultConversationId);
+    emitEvent('chat:done', { conversationId: defaultConversationId });
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'segunda');
+    const current = useChatStore.getState().getMessagingPipelineRevision(defaultConversationId);
+    expect(current).toBeGreaterThan(previous);
+    useChatStore.getState().finishCommandCancellation(defaultConversationId, `conversation:${defaultConversationId}`, previous);
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId].isLoading).toBe(true);
+    useChatStore.getState().finishCommandCancellation(defaultConversationId, `conversation:${defaultConversationId}`, current);
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId].isLoading).toBe(false);
+  });
+
+  it('revisão do rascunho detecta alteração ABA', () => {
+    const key = `conversation:${defaultConversationId}`;
+    const state = useChatStore.getState();
+    state.setConversationDraftMessage(defaultConversationId, 'A', key);
+    const initial = state.getDraftRevision(key);
+    state.setConversationDraftMessage(defaultConversationId, 'B', key);
+    state.setConversationDraftMessage(defaultConversationId, 'A', key);
+    expect(state.getDraftRevision(key)).toBeGreaterThan(initial);
+  });
+
+  it('cancelamento confirmado finaliza a resposta parcial e conserva o alvo de retry', async () => {
+    const userId = '01926b90-7a5a-7c4e-8d3f-000000000010';
+    const assistantId = '01926b90-7a5a-7c4e-8d3f-000000000011';
+    mockSendMessage.mockImplementationOnce(async () => {
+      emitEvent('chat:messages_ready', { conversationId: defaultConversationId, userMessageId: userId, userContent: 'pergunta', turnId: userId });
+      emitEvent('chat:stream', { conversationId: defaultConversationId, messageId: assistantId, turnId: userId, content: 'resposta parcial', done: false });
+    });
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'pergunta');
+    const revision = useChatStore.getState().getMessagingPipelineRevision(defaultConversationId);
+    useChatStore.getState().finishCommandCancellation(defaultConversationId, `conversation:${defaultConversationId}`, revision);
+    const session = useChatStore.getState().sessionsByConversationId[defaultConversationId];
+    expect(session.isLoading).toBe(false);
+    expect(session.lastInterruptedMessageId).toBe(assistantId);
+    const response = useChatStore.getState().getConversationMessages(defaultConversationId).find(message => message.id === assistantId);
+    expect(response?.isStreaming).toBe(false);
+    expect(response?.turnId).toBe(userId);
+    expect(response?.content).toBe('resposta parcial');
   });
 
   it('rejects message exceeding max content size', async () => {
@@ -413,7 +523,6 @@ describe('chatStore validation', () => {
       expandedThreads: new Set<string>(),
       expandedReasonings: new Set<string>(),
       editingMessageId: null,
-      readingMessageId: null,
       skipFocusRestore: false,
       visibleThreadedMessages: [currentNode],
       messageWindow: {

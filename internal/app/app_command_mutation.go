@@ -7,6 +7,7 @@ import (
 	"assistente/internal/auth"
 	"assistente/internal/commandactivation"
 	"assistente/internal/commandautomation"
+	"assistente/internal/commandbindings"
 	"assistente/internal/commandconfig"
 	"assistente/internal/commanddecision"
 	"assistente/internal/commandexecution"
@@ -31,6 +32,12 @@ type commandCompleteMutationInputs struct {
 	Render       func(commandconfig.MutationDiff) (string, error)
 	OnMutationTx commandconfig.MutationTxHook
 	DecisionTTL  time.Duration
+	// A composição desktop conserva proveniência e guard de fontes reativas.
+	BuildConfiguration func(context.Context, commandconfig.Scope, commandconfig.Snapshot, commandconfig.CompleteProjection) (*commandbindings.Configuration, []string, func(context.Context) error, error)
+}
+
+type commandMutationSessions interface {
+	AuthenticateLocalAccess(context.Context, string) (auth.LocalSessionPrincipal, error)
 }
 
 // newCommandCompleteMutationService compõe o serviço integral de mutações
@@ -43,6 +50,10 @@ type commandCompleteMutationInputs struct {
 // construído a partir de database.DB(). Não há Store recebido do chamador que
 // possa apontar para outra raiz, outra transação ou outro tenant.
 func (a *App) newCommandCompleteMutationService(inputs commandCompleteMutationInputs) (*commandconfig.CompleteMutationService, error) {
+	return a.newCommandCompleteMutationServiceAuthenticated(inputs, nil)
+}
+
+func (a *App) newCommandCompleteMutationServiceAuthenticated(inputs commandCompleteMutationInputs, authenticator commandMutationSessions) (*commandconfig.CompleteMutationService, error) {
 	if a == nil || inputs.Projection == nil || inputs.Authorize == nil || inputs.Version == nil || inputs.Render == nil || inputs.OnMutationTx == nil || inputs.DecisionTTL <= 0 {
 		return nil, commandexecution.ErrInvalidConfiguration
 	}
@@ -54,6 +65,9 @@ func (a *App) newCommandCompleteMutationService(inputs commandCompleteMutationIn
 	a.authMu.RUnlock()
 	if state == nil || sessions == nil || manager == nil || epochs == nil || state.Epochs() != epochs || storageErr != nil || storageVersion == "" || questionnaireManager == nil {
 		return nil, commandexecution.ErrInvalidConfiguration
+	}
+	if authenticator == nil {
+		authenticator = sessions
 	}
 
 	db := database.DB()
@@ -98,7 +112,23 @@ func (a *App) newCommandCompleteMutationService(inputs commandCompleteMutationIn
 		if err != nil {
 			return commandconfig.CompleteProjection{}, err
 		}
-		options.ActiveUserLayerIDs = append([]string(nil), active...)
+		// O mapa da tela pode conter camadas de outro workspace. O diagnóstico
+		// de uma mutação global/inativa deve usar somente as claims efetivas que
+		// pertencem ao escopo selecionado, sem importar camadas da tela para ele.
+		snapshot, err := store.Load(ctx, scope)
+		if err != nil {
+			return commandconfig.CompleteProjection{}, err
+		}
+		allowed := make(map[string]bool, len(snapshot.Layers))
+		for _, layer := range snapshot.Layers {
+			allowed[layer.ID] = layer.Enabled
+		}
+		options.ActiveUserLayerIDs = nil
+		for _, id := range active {
+			if allowed[id] {
+				options.ActiveUserLayerIDs = append(options.ActiveUserLayerIDs, id)
+			}
+		}
 		return options, nil
 	}
 
@@ -142,7 +172,7 @@ func (a *App) newCommandCompleteMutationService(inputs commandCompleteMutationIn
 	service, err := commandconfig.NewCompleteMutationService(commandconfig.MutationServiceConfig{
 		Store:        store,
 		Automation:   automation,
-		Sessions:     sessions,
+		Sessions:     authenticator,
 		Epochs:       epochs,
 		Receipts:     receipts,
 		Keys:         keys,

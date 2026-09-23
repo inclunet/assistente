@@ -86,6 +86,11 @@ func (c *Configuration) WithoutDeltas(ids []string) (*Configuration, error) {
 	if err != nil {
 		return nil, err
 	}
+	result, err = result.WithLayerProvenance(c.layerProvenance)
+	if err != nil {
+		return nil, err
+	}
+	result.validUntil = c.validUntil
 	if c.adjustments == nil {
 		result.adjustments = nil
 		return result, nil

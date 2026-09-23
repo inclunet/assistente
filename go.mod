@@ -32,6 +32,7 @@ require (
 	github.com/zalando/go-keyring v0.2.8
 	golang.design/x/hotkey v0.4.1
 	golang.org/x/crypto v0.44.0
+	golang.org/x/image v0.45.0
 	golang.org/x/net v0.47.0
 	golang.org/x/oauth2 v0.34.0
 	golang.org/x/sys v0.47.0
@@ -99,7 +100,6 @@ require (
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.opencensus.io v0.24.0 // indirect
-	golang.org/x/image v0.45.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	google.golang.org/grpc v1.66.2 // indirect

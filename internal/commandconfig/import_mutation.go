@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
+	"strings"
 	"time"
 
 	"assistente/internal/commandactivation"
@@ -99,7 +101,29 @@ func (s *Store) prepareImportedSnapshot(ctx context.Context, scope Scope, before
 	}
 	after := cloneConfigSnapshot(before)
 	after.Layers = append([]Layer(nil), imported.Snapshot.Layers...)
+	// Timestamps são metadados do destino. Fixá-los antes da confirmação
+	// impede que o ORM acrescente valores não presentes no diff assinado.
+	now := time.Now().UTC()
+	for i := range after.Layers {
+		row := &after.Layers[i]
+		if !containsID(imported.TouchedLayerIDs, row.ID) {
+			continue
+		}
+		row.CreatedAt, row.UpdatedAt = now, now
+		for _, old := range before.Layers {
+			if old.ID != row.ID {
+				continue
+			}
+			row.CreatedAt, row.UpdatedAt = old.CreatedAt, old.UpdatedAt
+			if !reflect.DeepEqual(old, *row) {
+				row.UpdatedAt = now
+			}
+			break
+		}
+	}
 	after.Bindings = append([]Binding(nil), imported.Snapshot.Bindings...)
+	slices.SortFunc(after.Layers, func(a, b Layer) int { return strings.Compare(a.ID, b.ID) })
+	slices.SortFunc(after.Bindings, func(a, b Binding) int { return strings.Compare(a.ID, b.ID) })
 	after.ActivationRules = cloneActivationRules(imported.Snapshot.ActivationRules)
 	for i := range after.ActivationRules {
 		if !containsID(imported.TouchedRuleIDs, after.ActivationRules[i].ID) {
@@ -118,7 +142,6 @@ func (s *Store) prepareImportedSnapshot(ctx context.Context, scope Scope, before
 	// Nunca copie grants/claims do arquivo. Grants e claims atuais permanecem
 	// no snapshot para que projectActivationEffects possa revogar somente o
 	// que a nova configuração tornou inválido, na mesma transação.
-	now := time.Now().UTC()
 	projectActivationEffects(before, &after, ConfigImport, now)
 	// Loaders/merges podem representar um conjunto vazio como nil ou como
 	// slice vazia. Isso não é mudança de configuração: Keep repetido deve ser

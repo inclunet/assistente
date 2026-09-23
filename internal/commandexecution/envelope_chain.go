@@ -6,18 +6,13 @@ import (
 	"assistente/internal/commandjson"
 	"encoding/json"
 	"strings"
-	"unicode/utf8"
 )
 
 // CommandMaxChainDepth é o limite versionado do protocolo de comandos v1.
 // Não altera _chain_history, cuja interpretação pertence ao runtime de jobs.
-const CommandMaxChainDepth = 16
+const CommandMaxChainDepth = commandcontract.CommandChainMaxDepth
 
-type commandChainEntry struct {
-	CommandID    string   `json:"command_id"`
-	InvocationID string   `json:"invocation_id"`
-	LayerRefs    []string `json:"layer_refs"`
-}
+type commandChainEntry = commandcontract.CommandChainEntry
 
 func prepareCommandChain(e commandcontract.Envelope, definition commandcatalog.Definition, layerRefs []string) (commandcontract.Envelope, error) {
 	if e.Provenance == nil {
@@ -25,7 +20,20 @@ func prepareCommandChain(e commandcontract.Envelope, definition commandcatalog.D
 		if (e.AuthContextType == commandcontract.AuthJobService || (e.SourceType != nil && *e.SourceType == commandcontract.SourceType(commandcatalog.Event))) && (definition.Effect != commandcatalog.Read || definition.MutatesEffectiveCapability) {
 			return e, ErrDenied
 		}
-		return e, nil
+		if definition.HandlerClassification != commandcatalog.HandlerJob && definition.HandlerClassification != commandcatalog.HandlerTool {
+			return e, nil
+		}
+		// Uma delegação direta inaugura a cadeia antes da reserva. O handler
+		// de jobs não deve inventar uma entrada depois da autorização/ledger.
+		if e.AuthContextType != commandcontract.AuthLocalSession || e.ActorType != commandcontract.ActorUser || !validID(e.InvocationID) {
+			return e, ErrDenied
+		}
+		seed, err := commandjson.Marshal(map[string]any{"version": 1, "_chain_id": e.InvocationID, "_chain_history": []string{}, "command_chain_history": []commandcontract.CommandChainEntry{}})
+		if err != nil {
+			return e, ErrDenied
+		}
+		provenance := json.RawMessage(seed)
+		e.Provenance = &provenance
 	}
 	var doc map[string]json.RawMessage
 	canonical, err := commandjson.Canonicalize(*e.Provenance)
@@ -44,14 +52,11 @@ func prepareCommandChain(e commandcontract.Envelope, definition commandcatalog.D
 			return e, ErrDenied
 		}
 	}
-	var history []commandChainEntry
+	var history []commandcontract.CommandChainEntry
 	if present {
-		if len(raw) == 0 || raw[0] != '[' {
-			return e, ErrDenied
-		}
-		decoder := json.NewDecoder(strings.NewReader(string(raw)))
-		decoder.DisallowUnknownFields()
-		if decoder.Decode(&history) != nil {
+		var decodeErr error
+		history, decodeErr = commandcontract.DecodeCommandChainHistory(raw)
+		if decodeErr != nil {
 			return e, ErrDenied
 		}
 	}
@@ -61,16 +66,14 @@ func prepareCommandChain(e commandcontract.Envelope, definition commandcatalog.D
 	seen := map[string]bool{}
 	invocations := map[string]bool{}
 	for _, entry := range history {
-		if !commandIDPattern.MatchString(entry.CommandID) || !validID(entry.InvocationID) || entry.LayerRefs == nil || !validChainLayers(entry.LayerRefs) || seen[entry.CommandID] || invocations[entry.InvocationID] {
-			return e, ErrDenied
-		}
 		seen[entry.CommandID] = true
 		invocations[entry.InvocationID] = true
 	}
-	if seen[definition.ID] || invocations[e.InvocationID] || !validChainLayers(layerRefs) || (e.TriggerType != nil && len(layerRefs) == 0) {
+	entry := commandcontract.CommandChainEntry{CommandID: definition.ID, InvocationID: e.InvocationID, LayerRefs: append([]string{}, layerRefs...)}
+	if seen[definition.ID] || invocations[e.InvocationID] || entry.Validate() != nil || (e.TriggerType != nil && len(layerRefs) == 0) {
 		return e, ErrDenied
 	}
-	history = append(history, commandChainEntry{CommandID: definition.ID, InvocationID: e.InvocationID, LayerRefs: append([]string{}, layerRefs...)})
+	history = append(history, entry)
 	encoded, err := commandjson.Marshal(history)
 	if err != nil {
 		return e, ErrDenied
@@ -83,18 +86,4 @@ func prepareCommandChain(e commandcontract.Envelope, definition commandcatalog.D
 	value := json.RawMessage(encoded)
 	e.Provenance = &value
 	return e, nil
-}
-
-func validChainLayers(refs []string) bool {
-	if len(refs) > 256 {
-		return false
-	}
-	seen := map[string]bool{}
-	for _, ref := range refs {
-		if ref == "" || len(ref) > 256 || !utf8.ValidString(ref) || strings.TrimSpace(ref) != ref || strings.ContainsRune(ref, '\x00') || seen[ref] {
-			return false
-		}
-		seen[ref] = true
-	}
-	return true
 }

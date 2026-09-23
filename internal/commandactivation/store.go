@@ -356,6 +356,38 @@ func (t *Tx) latestManualClaimAtScope(ctx context.Context, owner Owner, layer, r
 	return row, nil
 }
 
+func (t *Tx) latestManualClaimsForStack(ctx context.Context, owner Owner, stackKey string) ([]Claim, error) {
+	if t == nil || t.db == nil || ctx == nil || strings.TrimSpace(stackKey) == "" || validateOwner(owner) != nil {
+		return nil, ErrInvalid
+	}
+	var rows []Claim
+	q := t.db.WithContext(ctx).Where("user_id = ? AND source_type = ? AND manual_stack_key = ? AND state = ?", owner.UserID, "manual", stackKey, StateActive)
+	q = q.Where(scopePredicate(owner.WorkspaceID), scopeArg(owner.WorkspaceID)...)
+	if err := q.Order("activated_at DESC, activation_id DESC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if err := validateClaim(row); err != nil {
+			return nil, err
+		}
+	}
+	return rows, nil
+}
+
+func (t *Tx) expireManualClaimsAtScope(ctx context.Context, owner Owner, layer, rule Ref, stackKey string, workspace *string, now time.Time) (int, error) {
+	if t == nil || t.db == nil || ctx == nil || now.IsZero() || strings.TrimSpace(stackKey) == "" || validateOwner(owner) != nil || validateRef(layer) != nil || validateRef(rule) != nil {
+		return 0, ErrInvalid
+	}
+	q := t.db.WithContext(ctx).Model(&Claim{}).
+		Where("user_id = ? AND layer_ref_kind = ? AND layer_ref = ? AND rule_ref_kind = ? AND rule_ref = ? AND source_type = ? AND manual_stack_key = ? AND state = ? AND expires_at IS NOT NULL AND expires_at <= ?", owner.UserID, layer.Kind, layer.ID, rule.Kind, rule.ID, "manual", stackKey, StateActive, now.UTC()).
+		Where(scopePredicate(workspace), scopeArg(workspace)...)
+	result := q.Updates(map[string]any{"state": StateExpired, "terminal_reason": "expiry", "updated_at": now.UTC()})
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return int(result.RowsAffected), nil
+}
+
 func (t *Tx) ActiveContextClaim(ctx context.Context, owner Owner, layer, rule Ref) (Claim, error) {
 	if t == nil || t.db == nil || ctx == nil {
 		return Claim{}, ErrInvalid

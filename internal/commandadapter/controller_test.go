@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -293,7 +294,7 @@ func TestControllerLockLogoutAndShutdownSuspendCallbacks(t *testing.T) {
 		kinds = append(kinds, event.Kind)
 	}
 	want := []commandbridge.LifecycleKind{commandbridge.LifecycleLock, commandbridge.LifecycleGeneration, commandbridge.LifecycleLogout, commandbridge.LifecycleLock}
-	if fmt.Sprint(kinds) != fmt.Sprint(want) {
+	if !slices.Equal(kinds, want) {
 		t.Fatalf("lifecycles=%v want=%v", kinds, want)
 	}
 }

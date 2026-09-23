@@ -81,28 +81,34 @@ func (s *Store) CommitConfirmedMutation(ctx context.Context, c *ConfirmedMutatio
 		return ErrInvalid
 	}
 	return c.receipts.ConsumeForDatabase(ctx, s.db, c.request, func(tx *gorm.DB) error {
-		g, err := s.applyMutationTx(ctx, tx, c.prepared)
-		if err != nil {
-			return err
-		}
-		if c.applyBeforeHook != nil {
-			if err := c.applyBeforeHook(ctx, tx); err != nil {
-				return err
-			}
-		}
-		if err := hook(ctx, tx, c.prepared.Diff()); err != nil {
-			return err
-		}
-		actual, err := readAggregateSnapshot(ctx, tx, c.prepared.after.Scope)
-		if err != nil {
-			return err
-		}
-		if !sameAggregateSnapshot(actual, c.prepared.after) {
-			// O hook pode observar expiração, epoch ou contexto somente no
-			// commit. Nunca grave uma auditoria que chame esse efeito dinâmico
-			// de resultado confirmado pelo preview.
-			return ErrStale
-		}
-		return recordCompleteMutation(tx, c, g)
+		return s.commitConfirmedMutationTx(ctx, tx, c, hook)
 	})
+}
+
+// Compartilhado pelo commit unitário e pelo lote, sempre na transação
+// que consome os receipts. Nunca abre outra transação nem confirma UI.
+func (s *Store) commitConfirmedMutationTx(ctx context.Context, tx *gorm.DB, c *ConfirmedMutation, hook MutationTxHook) error {
+	g, err := s.applyMutationTx(ctx, tx, c.prepared)
+	if err != nil {
+		return err
+	}
+	if c.applyBeforeHook != nil {
+		if err := c.applyBeforeHook(ctx, tx); err != nil {
+			return err
+		}
+	}
+	if err := hook(ctx, tx, c.prepared.Diff()); err != nil {
+		return err
+	}
+	actual, err := readAggregateSnapshot(ctx, tx, c.prepared.after.Scope)
+	if err != nil {
+		return err
+	}
+	if !sameAggregateSnapshot(actual, c.prepared.after) {
+		// O hook pode observar expiração, epoch ou contexto somente no
+		// commit. Nunca grave uma auditoria que chame esse efeito dinâmico
+		// de resultado confirmado pelo preview.
+		return ErrStale
+	}
+	return recordCompleteMutation(tx, c, g)
 }

@@ -180,9 +180,34 @@ func (m *StreamingManager) UnregisterIfCurrent(conversationID string, generation
 // Cancel cancels the in-flight LLM response for the given conversation (barge-in).
 // It is a no-op when there is no streaming in progress for that conversation.
 func (m *StreamingManager) Cancel(conversationID string) {
+	m.cancelGeneration(conversationID, 0, false)
+}
+
+// CurrentGeneration captures the active response identity, not just its conversation.
+func (m *StreamingManager) CurrentGeneration(conversationID string) (uint64, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	generation, ok := m.generations[strings.TrimSpace(conversationID)]
+	return generation, ok && m.contexts[strings.TrimSpace(conversationID)] != nil
+}
+
+// CancelIfCurrent cannot cancel a newer response registered after admission.
+func (m *StreamingManager) CancelIfCurrent(conversationID string, generation uint64) bool {
+	return m.cancelGeneration(conversationID, generation, true)
+}
+
+func (m *StreamingManager) cancelGeneration(conversationID string, generation uint64, exact bool) bool {
 	conversationID = strings.TrimSpace(conversationID)
 	m.mu.Lock()
 	cancel, ok := m.contexts[conversationID]
+	if exact && m.generations[conversationID] != generation {
+		m.mu.Unlock()
+		return false
+	}
+	if exact && generation == 0 && !ok {
+		m.mu.Unlock()
+		return true // Captured absence: frontend may cancel its serialization/queue.
+	}
 	if ok {
 		cancel()
 		delete(m.contexts, conversationID)
@@ -196,6 +221,7 @@ func (m *StreamingManager) Cancel(conversationID string) {
 		}
 		logging.Infof(context.Background(), "chat.streaming-manager", "[LLM] Streaming cancelado para conversa %s (barge-in)", conversationID)
 	}
+	return ok
 }
 
 func (m *StreamingManager) isDeletedLocked(conversationID string) bool {

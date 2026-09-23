@@ -968,6 +968,13 @@ export function DataGrid<T = unknown>({
           onClick={(e) => {
             e.stopPropagation();
             e.preventDefault();
+            if (column.key === 'actions' && getRowActions) {
+              const actions = normalizeRowActions(getRowActions(item));
+              if (actions.length > 0) {
+                openContextMenuForTrigger(e.currentTarget, column.actionLabel || label, actions);
+              }
+              return;
+            }
             onCellAction?.(item, column, rowIndex, colIndex);
           }}
         >

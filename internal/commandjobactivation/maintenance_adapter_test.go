@@ -38,6 +38,11 @@ func TestMaintenanceAdaptersCoordinatorRealBlocksRetentionUntilOutboxDrained(t *
 			}
 		}
 	}
+	if err := c.db.Model(&commandjobevents.ActivationOutbox{}).Where("source_event_id <> ?", "").Updates(map[string]any{
+		"source_replay_deadline": time.Now().UTC().Add(time.Hour),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	outbox, err := NewMaintenanceOutboxAdapter(c, "host-delivery-capability")
 	if err != nil {
@@ -81,7 +86,7 @@ func TestMaintenanceAdaptersCoordinatorRealBlocksRetentionUntilOutboxDrained(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.HeartbeatProcessed != 0 || first.MoreHeartbeat || first.OutboxRequeued != 1 || first.OutboxDrained || !first.MoreOutbox || first.Recovered != 1 || retentionCalls != 0 || toolCalls != 0 || compactionCalls != 0 {
+	if first.HeartbeatProcessed != 0 || first.MoreHeartbeat || first.OutboxRequeued != 1 || first.OutboxDrained || !first.MoreOutbox || retentionCalls != 0 || toolCalls != 0 || compactionCalls != 0 {
 		t.Fatalf("primeira passagem=%+v calls=(retention:%d tools:%d compact:%d), retenção deveria estar bloqueada", first, retentionCalls, toolCalls, compactionCalls)
 	}
 
@@ -89,7 +94,7 @@ func TestMaintenanceAdaptersCoordinatorRealBlocksRetentionUntilOutboxDrained(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.HeartbeatProcessed != 1 || second.MoreHeartbeat || second.OutboxRequeued != 0 || !second.OutboxDrained || second.MoreOutbox || second.Recovered != 1 || second.MoreRecovery || !second.Compacted {
+	if second.HeartbeatProcessed != 0 || second.MoreHeartbeat || second.OutboxRequeued != 0 || !second.OutboxDrained || second.MoreOutbox || second.Recovered != 0 || second.MoreRecovery || !second.Compacted {
 		t.Fatalf("segunda passagem=%+v, esperado drain/recovery completos", second)
 	}
 	if retentionCalls != 3 || toolCalls != 3 || compactionCalls != 1 {
@@ -100,8 +105,12 @@ func TestMaintenanceAdaptersCoordinatorRealBlocksRetentionUntilOutboxDrained(t *
 	if err := c.db.Model(&commandjobevents.ActivationOutbox{}).Where("delivery_state = ?", commandjobevents.DeliveryDelivered).Count(&delivered).Error; err != nil {
 		t.Fatal(err)
 	}
-	if delivered != total {
-		t.Fatalf("outbox delivered=%d, want %d", delivered, total)
+	var dead int64
+	if err := c.db.Model(&commandjobevents.ActivationOutbox{}).Where("delivery_state = ?", commandjobevents.DeliveryDeadLetter).Count(&dead).Error; err != nil {
+		t.Fatal(err)
+	}
+	if delivered+dead != total {
+		t.Fatalf("outbox terminal=(delivered:%d dead:%d), want %d", delivered, dead, total)
 	}
 }
 

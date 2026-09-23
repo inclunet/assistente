@@ -271,6 +271,56 @@ func TestEnvelopePipelineTriggerResolveESuppress(t *testing.T) {
 	}
 }
 
+func TestEnvelopePipelineRecusaContextVersionAlteradaEntreFilaEExecucao(t *testing.T) {
+	f := newEnvelopePipelineFixture(t)
+	var stamp atomic.Int32
+	f.resolve = func(EnvelopeCandidate) (EnvelopeResolution, error) {
+		version := "context-v1"
+		if stamp.Add(1) > 1 {
+			version = "context-v2"
+		}
+		return EnvelopeResolution{Mode: commandcontract.ResolutionExecute, CommandID: "pipe.write", Arguments: json.RawMessage(`{}`), BindingIDs: []string{"binding.pipeline"}, ContextVersion: version}, nil
+	}
+	record, err := f.service.ExecuteEnvelope(context.Background(), f.token, f.trigger(newTestUUID()))
+	if err != nil || record.Status != commandledger.CancelledStale || f.startCalls.Load() != 0 {
+		t.Fatalf("context version alterada alcançou execução: status=%s err=%v starts=%d", record.Status, err, f.startCalls.Load())
+	}
+}
+
+func TestEnvelopePipelineResolutionContextVersionMustRemainExact(t *testing.T) {
+	for _, tc := range []struct {
+		name, initial, current string
+		succeeds               bool
+	}{
+		{"stable", "context-v1", "context-v1", true},
+		{"removed", "context-v1", "", false},
+		{"added", "", "context-v1", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newEnvelopePipelineFixture(t)
+			var calls atomic.Int32
+			f.resolve = func(EnvelopeCandidate) (EnvelopeResolution, error) {
+				version := tc.initial
+				if calls.Add(1) > 1 {
+					version = tc.current
+				}
+				return EnvelopeResolution{Mode: commandcontract.ResolutionExecute, CommandID: "pipe.write", Arguments: json.RawMessage(`{}`), BindingIDs: []string{"binding.pipeline"}, ContextVersion: version}, nil
+			}
+			record, err := f.service.ExecuteEnvelope(context.Background(), f.token, f.trigger(newTestUUID()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.succeeds {
+				if record.Status != commandledger.Succeeded || f.startCalls.Load() != 1 {
+					t.Fatalf("stable context blocked: %s starts=%d", record.Status, f.startCalls.Load())
+				}
+			} else if record.Status != commandledger.CancelledStale || f.startCalls.Load() != 0 {
+				t.Fatalf("context change executed: %s starts=%d", record.Status, f.startCalls.Load())
+			}
+		})
+	}
+}
+
 func TestEnvelopePipelineDuplicateDifferentArgsAndCatalogChange(t *testing.T) {
 	f := newEnvelopePipelineFixture(t)
 	id := newTestUUID()

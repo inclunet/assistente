@@ -37,6 +37,7 @@ export { isModalOpen, ensureModalCleanup } from '../../lib/modalRegistry';
  * (ex.: setas/zoom do ImageViewerModal) só ajam quando o modal estiver ativo.
  */
 const ModalTopmostContext = createContext<(() => boolean) | null>(null);
+const ModalIdentityContext = createContext<string | null>(null);
 
 // Fallback estável por referência para uso fora de um Modal: sem stack
 // concorrente, considera-se sempre o topo. Constante de módulo para não
@@ -54,6 +55,11 @@ export function useModalIsTopmost(): () => boolean {
 
 export function useIsInsideModal(): boolean {
   return useContext(ModalTopmostContext) !== null;
+}
+
+/** Identidade estável da instância Modal ancestral, para registros de superfície. */
+export function useModalId(): string | null {
+  return useContext(ModalIdentityContext);
 }
 
 // Seletor para elementos focáveis
@@ -341,9 +347,11 @@ export function Modal({
   if (!isOpen) return null;
 
   return createPortal(
-    <ModalTopmostContext.Provider value={topmostValue}>
+    <ModalIdentityContext.Provider value={modalInstanceIdRef.current}>
+      <ModalTopmostContext.Provider value={topmostValue}>
       <div
         className="modal-overlay"
+        data-modal-id={modalInstanceIdRef.current}
         role={role}
         aria-modal="true"
         aria-labelledby={titleId}
@@ -369,7 +377,8 @@ export function Modal({
           </div>
         </div>
       </div>
-    </ModalTopmostContext.Provider>,
+      </ModalTopmostContext.Provider>
+    </ModalIdentityContext.Provider>,
     document.body
   );
 }

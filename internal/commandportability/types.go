@@ -825,8 +825,12 @@ func resolveScope(ctx context.Context, source PortableScope, options PlanOptions
 		}
 	}
 	if destination == "" {
+		// O ID de origem é somente uma referência portátil. Sem uma prova
+		// canônica do destino, ele não pode virar workspace persistido nem
+		// autoridade de escrita. Falhar antes de criar PlannedLayer também
+		// impede que Snapshot/Apply transportem esse escopo por acidente.
 		plan.Warnings = append(plan.Warnings, Warning{Code: "workspace_unresolved", Identifier: source.WorkspaceID})
-		return PortableScope{Kind: WorkspaceScope, WorkspaceID: source.WorkspaceID}, false, nil
+		return PortableScope{}, false, ErrWorkspaceResolution
 	}
 	target := PortableScope{Kind: WorkspaceScope, WorkspaceID: destination}
 	if err := target.validate(); err != nil {
@@ -862,8 +866,12 @@ func validateReferences(ctx context.Context, layer *LayerExport, refs ReferenceP
 				plan.Warnings = append(plan.Warnings, Warning{Code: "default_unavailable", Identifier: *binding.ReplacesDefaultID})
 			}
 		}
-		if err := validateCredentialReferences(ctx, binding.Arguments, refs.CredentialPattern, plan); err != nil {
+		credentialOK, err := validateCredentialReferences(ctx, binding.Arguments, refs.CredentialPattern, plan)
+		if err != nil {
 			return err
+		}
+		if !credentialOK {
+			binding.Enabled = false
 		}
 	}
 	rules := append(slices.Clone(layer.ActivationRules), layer.BuiltinRuleDeltas...)
@@ -1010,11 +1018,12 @@ func isExactCredentialReference(value any) bool {
 	return ok && pattern != "" && strings.TrimSpace(pattern) == pattern && !strings.ContainsRune(pattern, '\x00')
 }
 
-func validateCredentialReferences(ctx context.Context, raw string, port func(context.Context, string) (CredentialStatus, error), plan *Plan) error {
+func validateCredentialReferences(ctx context.Context, raw string, port func(context.Context, string) (CredentialStatus, error), plan *Plan) (bool, error) {
 	var root any
 	if err := json.Unmarshal([]byte(raw), &root); err != nil {
-		return ErrInvalid
+		return false, ErrInvalid
 	}
+	available := true
 	var visit func(any) error
 	visit = func(node any) error {
 		switch value := node.(type) {
@@ -1043,6 +1052,7 @@ func validateCredentialReferences(ctx context.Context, raw string, port func(con
 					return err
 				}
 				if status != CredentialAvailable {
+					available = false
 					code := "credential_missing"
 					switch status {
 					case CredentialForeign:
@@ -1062,7 +1072,10 @@ func validateCredentialReferences(ctx context.Context, raw string, port func(con
 		}
 		return nil
 	}
-	return visit(root)
+	if err := visit(root); err != nil {
+		return false, err
+	}
+	return available, nil
 }
 
 func isSecretKey(key string) bool {

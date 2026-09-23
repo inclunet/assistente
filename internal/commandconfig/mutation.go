@@ -405,7 +405,12 @@ func (s *Store) applyMutationTx(ctx context.Context, tx *gorm.DB, p *PreparedMut
 		} else {
 			for _, old := range p.before.Layers {
 				if old.ID == l.ID && !reflect.DeepEqual(old, l) {
-					e = tx.Model(&Layer{}).Where("id = ? AND user_id = ?", l.ID, l.UserID).Select("name", "description", "enabled", "resolution_priority", "updated_at").Updates(l).Error
+					// O timestamp faz parte do preview confirmado. Updates com
+					// struct o substituiria automaticamente pelo relógio do ORM.
+					e = tx.Model(&Layer{}).Where("id = ? AND user_id = ?", l.ID, l.UserID).Updates(map[string]any{
+						"name": l.Name, "description": l.Description, "enabled": l.Enabled,
+						"resolution_priority": l.ResolutionPriority, "updated_at": l.UpdatedAt,
+					}).Error
 				}
 			}
 		}

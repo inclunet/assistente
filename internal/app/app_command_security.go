@@ -10,7 +10,8 @@ import (
 // inicialização fica retido: comandos falham fechados sem impedir logout legado.
 func (a *App) commandSecurityService() (*commandsecurity.EpochService, error) {
 	a.commandEpochsOnce.Do(func() {
-		a.commandEpochs, a.commandEpochsErr = commandsecurity.NewEpochService(&commandsecurity.DispatchGate{})
+		a.commandGate = &commandsecurity.DispatchGate{}
+		a.commandEpochs, a.commandEpochsErr = commandsecurity.NewEpochService(a.commandGate)
 	})
 	return a.commandEpochs, a.commandEpochsErr
 }

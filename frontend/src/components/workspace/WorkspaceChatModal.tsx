@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Modal, useModalIsTopmost } from '../ui/Modal';
 import { ChatPanel, useEffectiveProfileSlug, type ChatPanelSendContext } from '../chat/ChatPanel';
 import { sendChatSurfaceMessage, useChatConversationTimeline } from '../chat/ChatSurfaceController';
+import { ChatMessagingStaleError } from '../../lib/commandChatMessaging';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { useWorkspaceStore, useActiveTab, useWorkspaceTabs } from '../../store/workspaceStore';
 import { useUIStore } from '../../store/uiStore';
@@ -188,6 +189,7 @@ export function WorkspaceChatModal() {
 
   const handleSend = useCallback(
     async (content: string, mediaFiles: MediaFile[] | undefined, context: ChatPanelSendContext) => {
+      if (context.command && !context.command.isCurrent()) throw new ChatMessagingStaleError();
       const {
         boundTabId: tabId,
         boundConversationId: storedConversationId,
@@ -195,6 +197,7 @@ export function WorkspaceChatModal() {
         boundSend,
       } = useWorkspaceChatModalStore.getState();
       if (!boundSend || !tabId) {
+        if (context.command) throw new ChatMessagingStaleError();
         useUIStore.getState().addToast(t('workspace.chatModal.adapterUnavailable'), 'error');
         handleClose();
         return;
@@ -203,6 +206,7 @@ export function WorkspaceChatModal() {
       const ws = useWorkspaceStore.getState().workspace;
       const tab = ws?.tabs.find((x) => x.id === tabId);
       if (!tab) {
+        if (context.command) throw new ChatMessagingStaleError();
         useUIStore.getState().addToast(t('workspace.chatModal.adapterUnavailable'), 'error');
         handleClose();
         return;
@@ -214,7 +218,8 @@ export function WorkspaceChatModal() {
       // `setBoundConversation` atualiza o vínculo de forma síncrona, mas persiste a aba
       // via `updateTab()` (assíncrono); ler a aba aqui poderia devolver o ID antigo e
       // mandar a mensagem para a conversa errada se o envio acontecer logo após a troca.
-      let targetConversationId = storedConversationId;
+      let targetConversationId = context.command ? context.conversationId : storedConversationId;
+      if (context.command && (!targetConversationId || targetConversationId !== storedConversationId)) throw new ChatMessagingStaleError();
       if (!targetConversationId || !isBackendId(targetConversationId)) {
         try {
           targetConversationId = await ensureWorkspaceTabConversationId(tab);
@@ -235,7 +240,8 @@ export function WorkspaceChatModal() {
         tabId,
         conversationId: targetConversationId,
       });
-      if (!sendPlan) return;
+      if (!sendPlan) { if (context.command) throw new ChatMessagingStaleError(); return; }
+      if (context.command && !context.command.isCurrent()) throw new ChatMessagingStaleError();
 
       try {
         const sendOrigin = normalizeChatSurfaceOrigin(context.origin, targetConversationId);
@@ -245,9 +251,11 @@ export function WorkspaceChatModal() {
           sendPlan.mediaFiles,
           sendPlan.paramsOverride,
           sendOrigin,
+          context.command,
         );
         await sendPlan.afterSend?.();
       } catch (error) {
+        if (context.command) throw error;
         sendPlan.onSendError?.(error);
         if (!sendPlan.onSendError) {
           throw error;

@@ -54,6 +54,11 @@ const navigateSpy = vi.fn();
 const toggleMenuSpy = vi.fn();
 const announceSpy = vi.fn();
 
+vi.mock('@wailsjs/runtime/runtime', () => ({
+  EventsOn: vi.fn(() => () => undefined),
+  EventsOff: vi.fn(),
+}));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, fb?: string) => fb || key,
@@ -84,6 +89,7 @@ vi.mock('../store/workspaceStore', () => ({
         exportWorkspace: vi.fn(),
         importWorkspace: vi.fn(),
       }),
+      subscribe: () => () => undefined,
     },
   ),
 }));

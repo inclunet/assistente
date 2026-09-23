@@ -1,6 +1,6 @@
 import type { RefObject } from 'react';
 
-import type { EditorInsertRequest, EditorMode, EditorDocument } from '../../store/editorStore';
+import type { EditorMode, EditorDocument } from '../../store/editorStore';
 import type { AddToastFn, FileMenuItem } from './types';
 import type { RichTextEditorHandle } from '../../components/editor/RichTextEditor';
 
@@ -12,9 +12,6 @@ export type EditorMenuBaseContext = {
 };
 
 export type InsertMenuContext = EditorMenuBaseContext & {
-  applyInsertRequest: (req: EditorInsertRequest) => Promise<boolean>;
-  appendMarkdownToDocument: (content: string) => void;
-  focusEditorSoon: () => void;
   addToast: AddToastFn;
 };
 

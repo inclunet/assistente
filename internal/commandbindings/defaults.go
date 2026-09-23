@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Default é um binding versionado fornecido pelo aplicativo. Fingerprint é
@@ -48,9 +49,13 @@ type Delta struct {
 	Condition          Facts
 	Enabled            bool
 	LayerActive        bool
-	ReviewStatus       ReviewStatus
-	LayerPriority      int
-	BindingPriority    int
+	// LayerConditions are activation gates owned by the layer/rule domain.
+	// They are OR-ed and do not participate in binding specificity.
+	LayerConditions []Facts
+	ReviewStatus    ReviewStatus
+	LayerPriority   int
+	BindingPriority int
+	LayerRef        string
 }
 
 // Adjustment comunica ao repository futuro o avanço de versão ou uma pendência.
@@ -71,11 +76,54 @@ const (
 // Supressão/recusa aqui são apenas decisões puras. O futuro executor precisa
 // revalidar contexto e reservar o ledger antes de consumir o acionamento (D4).
 type Configuration struct {
-	defaults    map[string]Default
-	deltas      map[string][]Delta
-	byTrigger   map[string][]string
-	custom      *Resolver
-	adjustments []Adjustment
+	validUntil      time.Time
+	defaults        map[string]Default
+	deltas          map[string][]Delta
+	byTrigger       map[string][]string
+	custom          *Resolver
+	adjustments     []Adjustment
+	layerProvenance map[string][]LayerProvenance
+}
+
+// WithValidityDeadline attaches the host's earliest activation deadline to an
+// immutable projection. Adapters must not keep using this snapshot after it.
+func (c *Configuration) WithValidityDeadline(deadline time.Time) *Configuration {
+	if c == nil {
+		return nil
+	}
+	clone := *c
+	clone.validUntil = deadline
+	return &clone
+}
+
+func (c *Configuration) ValidUntil() time.Time {
+	if c == nil {
+		return time.Time{}
+	}
+	return c.validUntil
+}
+
+// TriggerIdentities retorna cópia ordenada do índice para publicação de mapas
+// de adapters. Não resolve nem autoriza comandos; não é usado por keydown.
+func (c *Configuration) TriggerIdentities() []string {
+	if c == nil {
+		return nil
+	}
+	identities := make(map[string]bool, len(c.byTrigger))
+	for identity := range c.byTrigger {
+		identities[identity] = true
+	}
+	if c.custom != nil {
+		for identity := range c.custom.byTrigger {
+			identities[identity] = true
+		}
+	}
+	result := make([]string, 0, len(identities))
+	for identity := range identities {
+		result = append(result, identity)
+	}
+	slices.Sort(result)
+	return result
 }
 
 func NewConfiguration(defaults []Default, deltas []Delta, custom []Candidate) (*Configuration, error) {
@@ -100,6 +148,10 @@ func NewConfiguration(defaults []Default, deltas []Delta, custom []Candidate) (*
 		}
 		ids[d.Candidate.ID] = true
 		d.Candidate.Condition = maps.Clone(d.Candidate.Condition)
+		if err := validateLayerConditions(d.Candidate.LayerConditions); err != nil {
+			return nil, err
+		}
+		d.Candidate.LayerConditions = cloneLayerConditions(d.Candidate.LayerConditions)
 		c.defaults[d.Candidate.ID] = d
 		c.byTrigger[d.Candidate.Trigger] = append(c.byTrigger[d.Candidate.Trigger], d.Candidate.ID)
 	}
@@ -128,6 +180,10 @@ func NewConfiguration(defaults []Default, deltas []Delta, custom []Candidate) (*
 			return nil, err
 		}
 		delta.Condition = maps.Clone(delta.Condition)
+		if err := validateLayerConditions(delta.LayerConditions); err != nil {
+			return nil, err
+		}
+		delta.LayerConditions = cloneLayerConditions(delta.LayerConditions)
 		base, exists := c.defaults[delta.DefaultID]
 		if exists && base.Invariant {
 			return nil, fmt.Errorf("default invariante não admite delta: %s", delta.DefaultID)
@@ -185,6 +241,116 @@ func NewConfiguration(defaults []Default, deltas []Delta, custom []Candidate) (*
 
 func (c *Configuration) Adjustments() []Adjustment { return slices.Clone(c.adjustments) }
 
+// RequiredFacts retorna os fatos que podem alterar a decisão para trigger.
+// Considera o bucket já composto de candidatos, defaults e deltas. Deltas de
+// um default também entram quando o trigger é o acionador original, pois uma
+// pendência pode continuar bloqueando esse acionador mesmo quando o delta
+// aponta para outro trigger.
+func (c *Configuration) RequiredFacts(trigger string) []Field {
+	fields := make(map[Field]struct{})
+	add := func(condition Facts) {
+		for field := range condition {
+			fields[field] = struct{}{}
+		}
+	}
+	addLayer := func(conditions []Facts) {
+		for _, condition := range conditions {
+			add(condition)
+		}
+	}
+	for _, candidate := range c.custom.byTrigger[trigger] {
+		if candidate.Enabled && candidate.LayerActive {
+			add(candidate.Condition)
+			addLayer(candidate.LayerConditions)
+		}
+	}
+	for _, id := range c.byTrigger[trigger] {
+		base, exists := c.defaults[id]
+		baseActive := exists && base.Candidate.Enabled && base.Candidate.LayerActive
+		if baseActive && base.Candidate.Trigger == trigger {
+			add(base.Candidate.Condition)
+			addLayer(base.Candidate.LayerConditions)
+		}
+		for _, delta := range c.deltas[id] {
+			if delta.ReviewStatus == NeedsReview && (delta.Trigger == trigger || exists && base.Candidate.Trigger == trigger) {
+				// NeedsReview continua bloqueando conservadoramente conforme
+				// Resolve, inclusive se a configuração efetiva estiver inativa.
+				if exists {
+					add(base.Candidate.Condition)
+					addLayer(base.Candidate.LayerConditions)
+				}
+				add(delta.Condition)
+				continue
+			}
+			if delta.ReviewStatus == Active && baseActive && base.Candidate.Trigger == trigger && delta.Trigger == trigger && delta.Enabled && delta.LayerActive {
+				add(delta.Condition)
+				addLayer(delta.LayerConditions)
+			}
+		}
+	}
+	result := make([]Field, 0, len(fields))
+	for field := range fields {
+		result = append(result, field)
+	}
+	slices.Sort(result)
+	return result
+}
+
+// FieldValues retorna os valores literais de um fato que participam da decisão
+// do acionador. O resultado inclui condições de bindings, gates de camada e
+// pendências de revisão, mas nunca inventa um valor ausente.
+func (c *Configuration) FieldValues(trigger string, field Field) []string {
+	if c == nil {
+		return nil
+	}
+	values := map[string]struct{}{}
+	add := func(facts Facts) {
+		if value, ok := facts[field].(string); ok && value != "" {
+			values[value] = struct{}{}
+		}
+	}
+	addLayer := func(conditions []Facts) {
+		for _, condition := range conditions {
+			add(condition)
+		}
+	}
+	for _, candidate := range c.custom.byTrigger[trigger] {
+		if candidate.Enabled && candidate.LayerActive {
+			add(candidate.Condition)
+			addLayer(candidate.LayerConditions)
+		}
+	}
+	for _, id := range c.byTrigger[trigger] {
+		base, exists := c.defaults[id]
+		if exists && base.Candidate.Trigger == trigger {
+			add(base.Candidate.Condition)
+			addLayer(base.Candidate.LayerConditions)
+		}
+		for _, delta := range c.deltas[id] {
+			if delta.Trigger == trigger || exists && base.Candidate.Trigger == trigger {
+				if exists && delta.Trigger == trigger && base.Candidate.Trigger != trigger {
+					add(base.Candidate.Condition)
+					addLayer(base.Candidate.LayerConditions)
+				}
+				add(delta.Condition)
+				addLayer(delta.LayerConditions)
+			}
+		}
+	}
+	result := make([]string, 0, len(values))
+	for value := range values {
+		result = append(result, value)
+	}
+	slices.Sort(result)
+	return result
+}
+
+// SurfaceValues retorna os valores literais de surface.type que participam da
+// decisão do acionador. Mantém a API histórica como atalho para FieldValues.
+func (c *Configuration) SurfaceValues(trigger string) []string {
+	return c.FieldValues(trigger, SurfaceType)
+}
+
 func withDelta(base Candidate, delta Delta) (Candidate, error) {
 	condition := maps.Clone(base.Condition)
 	if condition == nil {
@@ -198,12 +364,18 @@ func withDelta(base Candidate, delta Delta) (Candidate, error) {
 	}
 	base.ID, base.Condition = delta.ID, condition
 	base.LayerPriority, base.BindingPriority = delta.LayerPriority, delta.BindingPriority
+	if delta.LayerRef != "" {
+		base.LayerRef = delta.LayerRef
+	}
 	if delta.Effect == Execute {
 		base.CommandID, base.ArgumentsKey = delta.CommandID, delta.ArgumentsKey
 	}
 	// Enabled/LayerActive são compostos com os do default, nunca ampliados.
 	base.Enabled = base.Enabled && delta.Enabled
 	base.LayerActive = base.LayerActive && delta.LayerActive
+	if delta.LayerConditions != nil {
+		base.LayerConditions = cloneLayerConditions(delta.LayerConditions)
+	}
 	if _, err := New([]Candidate{base}); err != nil {
 		return Candidate{}, err
 	}
@@ -219,6 +391,7 @@ func (c *Configuration) Resolve(trigger string, facts Facts, dialog *DialogScope
 	}
 	candidates := slices.Clone(c.custom.byTrigger[trigger])
 	suppressed := []string{}
+	suppressionCandidates := []Candidate{}
 	review := []string{}
 	for _, id := range c.byTrigger[trigger] {
 		base, exists := c.defaults[id]
@@ -261,6 +434,7 @@ func (c *Configuration) Resolve(trigger string, facts Facts, dialog *DialogScope
 			removed = true
 			if delta.Effect == Suppress {
 				suppressed = append(suppressed, delta.ID)
+				suppressionCandidates = append(suppressionCandidates, candidate)
 			} else {
 				candidates = append(candidates, candidate)
 			}
@@ -271,7 +445,7 @@ func (c *Configuration) Resolve(trigger string, facts Facts, dialog *DialogScope
 	}
 	if len(review) > 0 {
 		slices.Sort(review)
-		return Result{Status: ReviewRequired, BindingIDs: review}, nil
+		return Result{Status: ReviewRequired, BindingIDs: review, LayerRefs: layerRefsForDeltas(c.deltaEntriesForTrigger(trigger), review)}, nil
 	}
 	// Somente o bucket do acionador é materializado; não varre o catálogo.
 	r, err := New(candidates)
@@ -279,9 +453,95 @@ func (c *Configuration) Resolve(trigger string, facts Facts, dialog *DialogScope
 		return Result{}, err
 	}
 	result, err := r.Resolve(trigger, facts, dialog)
+	if err == nil && len(suppressed) > 0 && result.Status == Selected && suppressionWins(suppressionCandidates, candidates, result.BindingIDs) {
+		slices.Sort(suppressed)
+		return Result{Status: Suppressed, BindingIDs: suppressed, LayerRefs: layerRefsForDeltas(c.deltaEntriesForTrigger(trigger), suppressed)}, nil
+	}
 	if err == nil && len(suppressed) > 0 && (result.Status == NoMatch || result.Status == Blocked) {
 		slices.Sort(suppressed)
-		return Result{Status: Suppressed, BindingIDs: suppressed}, nil
+		return Result{Status: Suppressed, BindingIDs: suppressed, LayerRefs: layerRefsForDeltas(c.deltaEntriesForTrigger(trigger), suppressed)}, nil
 	}
 	return result, err
+}
+
+func suppressionWins(suppressions, candidates []Candidate, selectedIDs []string) bool {
+	selected := make([]Candidate, 0, len(selectedIDs))
+	for _, id := range selectedIDs {
+		for _, candidate := range candidates {
+			if candidate.ID == id {
+				selected = append(selected, candidate)
+				break
+			}
+		}
+	}
+	for _, suppression := range suppressions {
+		wins := true
+		compared := false
+		for _, candidate := range selected {
+			if sameTarget(suppression, candidate) {
+				continue
+			}
+			compared = true
+			// candidatePrecedes compara primeiro o escopo D7 e depois a
+			// especificidade. Um tombstone só sombreia quando nenhum candidato
+			// diferente do mesmo alvo o precede; não deixe a condição do tombstone
+			// pular a precedência de Surface sobre Global.
+			if candidatePrecedes(candidate, suppression) {
+				wins = false
+				break
+			}
+		}
+		if wins && compared {
+			return true
+		}
+	}
+	return false
+}
+
+func candidatePrecedes(a, b Candidate) bool {
+	if a.Scope != b.Scope {
+		return a.Scope < b.Scope
+	}
+	if dominates(a.Condition, b.Condition) {
+		return true
+	}
+	if dominates(b.Condition, a.Condition) {
+		return false
+	}
+	return a.LayerPriority > b.LayerPriority ||
+		(a.LayerPriority == b.LayerPriority && a.BindingPriority > b.BindingPriority)
+}
+
+func (c *Configuration) deltaEntriesForTrigger(trigger string) [][]Delta {
+	entries := make([][]Delta, 0, len(c.byTrigger[trigger]))
+	for _, id := range c.byTrigger[trigger] {
+		if deltas := c.deltas[id]; len(deltas) > 0 {
+			entries = append(entries, deltas)
+		}
+	}
+	return entries
+}
+
+func layerRefsForDeltas(entries [][]Delta, bindingIDs []string) []string {
+	byID := make(map[string]string, len(bindingIDs))
+	for _, deltas := range entries {
+		for _, delta := range deltas {
+			byID[delta.ID] = delta.LayerRef
+		}
+	}
+	refs := make(map[string]struct{})
+	for _, id := range bindingIDs {
+		if ref := byID[id]; ref != "" {
+			refs[ref] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(refs))
+	if len(refs) == 0 {
+		return nil
+	}
+	for ref := range refs {
+		result = append(result, ref)
+	}
+	slices.Sort(result)
+	return result
 }

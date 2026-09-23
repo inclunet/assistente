@@ -12,6 +12,7 @@ import (
 	"assistente/internal/commandautomation"
 	"assistente/internal/commandconfig"
 	"assistente/internal/commanddecision"
+	"assistente/internal/commandinstance"
 	"assistente/internal/commandjobactivation"
 	"assistente/internal/commandjobevents"
 	"assistente/internal/commandledger"
@@ -42,7 +43,10 @@ func migrate(ctx context.Context, db *gorm.DB) error {
 	if err := db.Exec(keySchema).Error; err != nil {
 		return err
 	}
-	return db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_command_key_active ON command_key_versions(active) WHERE active = 1").Error
+	if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_command_key_active ON command_key_versions(active) WHERE active = 1").Error; err != nil {
+		return err
+	}
+	return commandinstance.Migrate(ctx, db)
 }
 
 type schemaObject struct{ Type, Name, TblName, SQL string }
@@ -132,7 +136,10 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 		if err := database.ApplyCommandJobActivationMigration(ctx, tx, apply); err != nil {
 			return err
 		}
-		return database.ApplyCommandImportMigration(ctx, tx, apply)
+		if err := database.ApplyCommandImportMigration(ctx, tx, apply); err != nil {
+			return err
+		}
+		return database.ApplyCommandInstanceMigration(ctx, tx, apply)
 	})
 	if err != nil {
 		if ctx.Err() != nil {

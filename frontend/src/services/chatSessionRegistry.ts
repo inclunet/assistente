@@ -149,7 +149,6 @@ export interface ChatSurfaceSession {
   expandedThreads: Set<string>;
   expandedReasonings: Set<string>;
   editingMessageId: string | null;
-  readingMessageId: string | null;
   skipFocusRestore: boolean;
 }
 
@@ -194,7 +193,6 @@ export const createEmptyChatSurfaceSession = (
   expandedThreads: new Set<string>(),
   expandedReasonings: new Set<string>(),
   editingMessageId: null,
-  readingMessageId: null,
   skipFocusRestore: false,
 });
 

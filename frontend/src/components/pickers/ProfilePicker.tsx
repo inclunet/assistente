@@ -17,6 +17,7 @@ export interface ProfilePickerProps {
   icon?: ReactNode;
   maxWidth?: string;
   onAnnounce?: (message: string) => void;
+  shortcut?: string;
   /** Called after a profile is selected. Use to customize focus restoration. */
   onAfterSelect?: () => void;
   /**
@@ -41,6 +42,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
       icon = <MessageOutlined />,
       maxWidth,
       onAnnounce,
+      shortcut,
       onAfterSelect,
       value,
     },
@@ -194,6 +196,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
         icon={icon}
         maxWidth={maxWidth}
         onAnnounce={onAnnounce}
+        shortcut={shortcut}
         loading={loading}
         loadingLabel={loadingLabel}
         error={error}

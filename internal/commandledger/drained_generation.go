@@ -19,7 +19,7 @@ func (s *Store) SealDrainedGeneration(ctx context.Context, drained commandsecuri
 		user := *scope.UserID
 		scope.UserID = &user
 	}
-	if s == nil || s.db == nil || s.now == nil || ctx == nil || validGenerationScope(scope) != nil || !drained.Includes(scope.SecurityGeneration) {
+	if s == nil || s.db == nil || s.now == nil || ctx == nil || validGenerationScope(scope) != nil || !drained.AllowsDatabase(s.db) || !drained.Includes(scope.SecurityGeneration) {
 		return ClosedGenerationProof{}, ErrInvalidRequest
 	}
 	var marker string

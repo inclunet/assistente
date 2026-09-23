@@ -2,156 +2,97 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { KeyboardShortcutsHelp } from './KeyboardShortcutsHelp';
 import { isModalOpen } from './Modal';
-import {
-  expectDisplayedShortcutsAreCanonical,
-  getDisplayedShortcutCombos,
-} from '../../test/a11yHelpers';
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-  }),
+const mocks = vi.hoisted(() => {
+  let projectedHints: Record<string, string | undefined> = {};
+  const useCommandShortcutHints = vi.fn((surfaceType?: string) => {
+    void surfaceType;
+    return (commandId: string) => projectedHints[commandId];
+  });
+  const useCommandSequencePrefixHint = vi.fn(() => undefined as string | undefined);
+  return {
+    useCommandShortcutHints,
+    useCommandSequencePrefixHint,
+    setProjectedHints: (hints: Record<string, string | undefined>) => { projectedHints = hints; },
+  };
+});
+
+vi.mock('../../lib/commandShortcutHints', () => ({
+  useCommandSequencePrefixHint: mocks.useCommandSequencePrefixHint,
+  useCommandShortcutHints: mocks.useCommandShortcutHints,
 }));
 
-/*
- * Lista canônica de combinações de atalho que o app DE FATO trata. É a fonte
- * única de verdade: quando um atalho é adicionado/renomeado no código, esta
- * lista deve ser atualizada. O teste abaixo afirma que toda combinação
- * exibida no painel pertence a esta lista — pegando regressões em que o
- * painel passa a mostrar um atalho sem handler real correspondente.
- *
- * `Ctrl+M` voltou ao painel com o handler escopado da Issue #705. `Ctrl+I`
- * continua ausente (perfis usam `Ctrl+P` no ChatToolbar). A navegação entre abas usa
- * `Ctrl+PageDown / Ctrl+PageUp`; `Ctrl+P` aparece apenas para "Perfis de
- * interação". Mantenha esta lista em sincronia com `KeyboardShortcutsHelp`.
- */
-const CANONICAL_SHORTCUT_COMBOS = [
-  // Navegação
-  'Ctrl+T',                       // nova aba de chat
-  'Ctrl+N',                       // menu de criação de aba
-  'Ctrl+W',                       // fechar aba
-  'Ctrl+Tab',                     // próxima aba
-  'Ctrl+Shift+Tab',               // aba anterior
-  'Ctrl+1…9',                     // ir para aba N
-  'Ctrl+PageDown / Ctrl+PageUp',  // navegação entre abas
-  // Chat
-  'Ctrl+Enter',                   // enviar mensagem
-  'Ctrl+L',                       // limpar conversa
-  'Ctrl+H',                       // histórico
-  'Ctrl+M',                       // seletor de modelos do chat ativo
-  'Ctrl+P',                       // perfis de interação (ChatToolbar)
-  'Space',                        // falar mensagem
-  'Enter',                        // detalhes da mensagem
-  'Shift+F10',                    // menu de contexto
-  '↑',                            // mensagem anterior
-  '↓',                            // próxima mensagem
-  // Geral
-  'Ctrl+?',                       // ajuda
-  'F1',                           // página de ajuda
-  'Alt+M',                        // abrir menu
-  'Alt+W / Alt+Backspace',        // voltar ao workspace
-  'Alt+C',                        // configurações
-  'Alt+H',                        // histórico
-  'Alt+L',                        // memórias
-  'Alt+T',                        // listas de tarefas
-  'Alt+J',                        // jobs
-  'Alt+P',                        // perfis
-  // DecisionDialog (metadados explícitos de polaridade + escopo)
-  'Ctrl+Backspace',
-  'Shift+Enter',
-  'Shift+Backspace',
-  'Ctrl+Shift+Enter',
-  'Ctrl+Shift+Backspace',
-  'Alt+A…Z',
-  'Ctrl+Shift+R',                 // repetir pergunta do DecisionDialog (AEP-0091)
-  'Esc',                          // fechar diálogos
-];
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
+}));
 
 describe('KeyboardShortcutsHelp', () => {
   it('renderiza quando aberto e fecha no Escape', () => {
     const onClose = vi.fn();
-
     render(<KeyboardShortcutsHelp isOpen={true} onClose={onClose} />);
-
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     fireEvent.keyDown(document, { key: 'Escape' });
-
     expect(onClose).toHaveBeenCalled();
   });
 
   it('nao renderiza quando fechado', () => {
     render(<KeyboardShortcutsHelp isOpen={false} onClose={() => {}} />);
-
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('agrupa os atalhos por categorias', () => {
+  it('agrupa as categorias e preserva os gestos invariantes', () => {
     render(<KeyboardShortcutsHelp isOpen={true} onClose={() => {}} />);
-
     expect(screen.getByText('ui.shortcuts.categories.navigation')).toBeInTheDocument();
     expect(screen.getByText('ui.shortcuts.categories.chat')).toBeInTheDocument();
     expect(screen.getByText('ui.shortcuts.categories.general')).toBeInTheDocument();
     expect(screen.getByText('Ctrl+?')).toBeInTheDocument();
+    expect(screen.getByText('ui.shortcuts.sendMessage')).toBeInTheDocument();
+    expect(screen.getByText('ui.shortcuts.decisionAffirmCurrent')).toBeInTheDocument();
+    expect(document.querySelectorAll('.keyboard-shortcut-native-label').length).toBeGreaterThan(0);
   });
 
-  it('exibe os atalhos reais de modelos e perfis, sem atalhos fantasmas', () => {
-    render(<KeyboardShortcutsHelp isOpen={true} onClose={() => {}} />);
-
-    // "Perfis de interação" reflete o handler real (ChatToolbar: Ctrl+P), não Ctrl+I.
-    expect(screen.getByText('Ctrl+P')).toBeInTheDocument();
-    expect(screen.queryByText('Ctrl+I')).toBeNull();
-    expect(screen.getByText('ui.shortcuts.interactionProfiles')).toBeInTheDocument();
-
-    // Chave i18n renomeada para refletir o comportamento de Ctrl+N (abre o menu de criação de aba).
-    expect(screen.getByText('ui.shortcuts.openNewTabMenu')).toBeInTheDocument();
-    expect(screen.queryByText('ui.shortcuts.newConversation')).toBeNull();
-
-    expect(screen.getByText('Ctrl+M')).toBeInTheDocument();
-    expect(screen.getByText('ui.shortcuts.selectModel')).toBeInTheDocument();
+  it('mostra remapeamento e não anuncia associação suprimida', () => {
+    mocks.setProjectedHints({
+      'chat.message.send': 'Ctrl+Shift+Enter',
+      'chat.model.open': 'Alt+Shift+M',
+      'chat.profile.open': undefined,
+    });
+    render(<KeyboardShortcutsHelp isOpen={true} onClose={() => {}} surfaceType="chat" />);
+    expect(screen.getByText('Alt+Shift+M')).toBeInTheDocument();
+    expect(screen.getAllByText('Ctrl+Shift+Enter')).toHaveLength(2);
+    expect(screen.getAllByText('Ctrl+Enter')).toHaveLength(1);
+    expect(screen.queryByText('Ctrl+M')).toBeNull();
+    expect(screen.getAllByText('ui.shortcuts.unavailable').length).toBeGreaterThan(0);
+    expect(screen.getByText('ui.shortcuts.nativeGesturesNote')).toBeInTheDocument();
+    expect(mocks.useCommandShortcutHints).toHaveBeenLastCalledWith('chat');
   });
 
-  it('mostra a navegação de abas real (PageDown/PageUp), não como Ctrl+P', () => {
-    render(<KeyboardShortcutsHelp isOpen={true} onClose={() => {}} />);
-
-    // A navegação entre abas usa Ctrl+PageDown/PageUp; Ctrl+P é o seletor de
-    // perfil (exibido na categoria de chat), não navegação.
-    expect(screen.getByText('Ctrl+PageDown / Ctrl+PageUp')).toBeInTheDocument();
-    expect(screen.getByText('ui.shortcuts.navigateTabs')).toBeInTheDocument();
+  it('usa apenas o prefixo efetivo das sequências para o menu de nova aba', () => {
+    mocks.useCommandSequencePrefixHint.mockReturnValue('Ctrl+N');
+    render(<KeyboardShortcutsHelp isOpen={true} onClose={() => {}} surfaceType="navigation" />);
+    expect(screen.getByText('Ctrl+N')).toBeInTheDocument();
+    expect(screen.queryByText('Ctrl+N C')).toBeNull();
+    expect(mocks.useCommandSequencePrefixHint).toHaveBeenCalledWith([
+      'workspace.tab.chat.create', 'workspace.tab.editor.create',
+      'workspace.tab.terminal.create', 'workspace.tab.tasklist.create',
+    ], 'navigation');
   });
 
-  it('registra-se no stack de modal compartilhado enquanto aberto (isModalOpen)', () => {
+  it('representa carregamento ou mapa inválido sem inventar defaults', () => {
+    mocks.setProjectedHints({});
+    render(<KeyboardShortcutsHelp isOpen={true} onClose={() => {}} surfaceType="editor" />);
+    expect(screen.queryByText('Ctrl+M')).toBeNull();
+    expect(screen.queryByText('Alt+M')).toBeNull();
+    expect(screen.getAllByText('ui.shortcuts.unavailable').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Ctrl+Enter')).toHaveLength(1);
+    expect(mocks.useCommandShortcutHints).toHaveBeenLastCalledWith('editor');
+  });
+
+  it('registra-se no stack de modal compartilhado enquanto aberto', () => {
     expect(isModalOpen()).toBe(false);
-
     const { rerender } = render(<KeyboardShortcutsHelp isOpen={true} onClose={() => {}} />);
     expect(isModalOpen()).toBe(true);
-
     rerender(<KeyboardShortcutsHelp isOpen={false} onClose={() => {}} />);
     expect(isModalOpen()).toBe(false);
-  });
-
-  it('toda combinação exibida corresponde a um atalho canônico', () => {
-    // O painel usa o Modal compartilhado, que renderiza via portal em
-    // document.body — por isso consultamos `baseElement` (e não `container`).
-    const { baseElement } = render(<KeyboardShortcutsHelp isOpen={true} onClose={() => {}} />);
-
-    const displayed = getDisplayedShortcutCombos(baseElement);
-    expect(displayed.length).toBeGreaterThan(0);
-
-    expectDisplayedShortcutsAreCanonical({
-      displayed,
-      canonical: CANONICAL_SHORTCUT_COMBOS,
-    });
-  });
-
-  it('o helper detecta um atalho exibido sem handler canônico (regressão)', () => {
-    // Simula o painel passando a exibir um atalho que não existe no código.
-    const displayedComRegressao = [...CANONICAL_SHORTCUT_COMBOS, 'Ctrl+Shift+Z'];
-
-    expect(() =>
-      expectDisplayedShortcutsAreCanonical({
-        displayed: displayedComRegressao,
-        canonical: CANONICAL_SHORTCUT_COMBOS,
-      }),
-    ).toThrow();
   });
 });

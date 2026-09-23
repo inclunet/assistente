@@ -49,7 +49,7 @@ func appCommandBridgeFixture(t *testing.T) (*App, *appCommandBridgePort, command
 	port := &appCommandBridgePort{}
 	bridge, err := commandbridge.New(commandbridge.Config{
 		Port:         port,
-		Capabilities: []commandbridge.Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Owner: owner}},
+		Capabilities: []commandbridge.Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Source: commandbridge.SourceUIAction, Owner: owner}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -93,6 +93,58 @@ func TestAppCommandBridgeRequiresMountedBridgeAndCurrentAuth(t *testing.T) {
 	}
 }
 
+func TestAppCommandBridgeIngressRejectsForgedPhysicalSources(t *testing.T) {
+	app, port, owner, invocation := appCommandBridgeFixture(t)
+	physical := invocation
+	physical.InvocationID = appCommandBridgeUUID(11)
+	physical.Source = commandbridge.SourceKeyboardGlobal
+	if _, err := app.CommandBridgeInvoke(physical, owner); !errors.Is(err, commandbridge.ErrCapabilityDenied) {
+		t.Fatalf("origem física forjada aceita: %v", err)
+	}
+	input := commandbridge.Input{
+		SessionID: owner.SessionID, Source: "keyboard", Key: "Ctrl+N", Generation: 1,
+		Kind: commandinput.KeyDown, Invocation: physical, Owner: owner,
+	}
+	if _, err := app.CommandBridgeInput(input); !errors.Is(err, commandbridge.ErrCapabilityDenied) {
+		t.Fatalf("input físico forjado aceito: %v", err)
+	}
+	if len(port.dispatched) != 0 {
+		t.Fatalf("origem física forjada chegou à porta: %d", len(port.dispatched))
+	}
+}
+
+func TestAppCommandBridgeLifecycleIngressRequiresCurrentAuthForEveryEvent(t *testing.T) {
+	app, port, owner, invocation := appCommandBridgeFixture(t)
+	otherSession := owner
+	otherSession.SessionID = "session-b"
+	otherSession.UserID = "user-b"
+	events := []commandbridge.LifecycleEvent{
+		{Kind: commandbridge.LifecycleGeneration, SessionID: otherSession.SessionID, Generation: 2},
+		{Kind: commandbridge.LifecycleBlur, SessionID: otherSession.SessionID, Generation: 1},
+		{Kind: commandbridge.LifecycleRepeat, SessionID: otherSession.SessionID, Generation: 1},
+		{Kind: commandbridge.LifecycleRelease, SessionID: otherSession.SessionID, Generation: 1},
+		{Kind: commandbridge.LifecycleLock, SessionID: otherSession.SessionID, Generation: 1},
+		{Kind: commandbridge.LifecycleLogout, SessionID: otherSession.SessionID, Generation: 1},
+	}
+	for _, event := range events {
+		if err := app.CommandBridgeLifecycle(event); !errors.Is(err, commandbridge.ErrSessionUnavailable) {
+			t.Fatalf("evento %q aceitou sessão não autenticada: %v", event.Kind, err)
+		}
+	}
+	physical := invocation
+	physical.InvocationID = appCommandBridgeUUID(12)
+	physical.Source = commandbridge.SourceKeyboardGlobal
+	if err := app.CommandBridgeLifecycle(commandbridge.LifecycleEvent{
+		Kind: commandbridge.LifecycleRepeat, SessionID: owner.SessionID, Generation: 1,
+		Input: &commandbridge.Input{SessionID: "forged-session", Source: "keyboard", Key: "Ctrl+N", Generation: 1, Invocation: physical, Owner: owner},
+	}); !errors.Is(err, commandbridge.ErrCapabilityDenied) {
+		t.Fatalf("repeat físico nested aceito: %v", err)
+	}
+	if len(port.dispatched) != 0 {
+		t.Fatalf("repeat físico nested alterou o handoff: %d", len(port.dispatched))
+	}
+}
+
 func TestAppCommandBridgeDispatchResultCancelAndLifecycleUseMountedBridge(t *testing.T) {
 	app, port, owner, invocation := appCommandBridgeFixture(t)
 	ack, err := app.CommandBridgeInvoke(invocation, owner)
@@ -132,7 +184,7 @@ func TestAppCommandBridgeShutdownIsTerminalAndClosesAdmission(t *testing.T) {
 	}
 	bridge, err := commandbridge.New(commandbridge.Config{
 		Port:         port,
-		Capabilities: []commandbridge.Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Owner: commandbridge.Owner{UserID: "user-a", SessionID: "session-a", WorkspaceID: "workspace-a"}}},
+		Capabilities: []commandbridge.Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Source: commandbridge.SourceUIAction, Owner: commandbridge.Owner{UserID: "user-a", SessionID: "session-a", WorkspaceID: "workspace-a"}}},
 	})
 	if err != nil {
 		t.Fatal(err)

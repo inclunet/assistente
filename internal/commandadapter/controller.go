@@ -46,17 +46,20 @@ type Config struct {
 }
 
 type Controller struct {
-	mu         sync.Mutex
-	bridge     Bridge
-	sessionID  string
-	owner      commandbridge.Owner
-	generation uint64
-	resolve    InvocationFactory
-	sequences  map[string]Sequence
-	pending    *pendingSequence
-	now        func() time.Time
-	suspended  bool
-	closed     bool
+	mu          sync.Mutex
+	bridge      Bridge
+	sessionID   string
+	owner       commandbridge.Owner
+	generation  uint64
+	resolve     InvocationFactory
+	sequences   map[string]Sequence
+	pending     *pendingSequence
+	releases    map[sequenceRelease]string
+	now         func() time.Time
+	suspended   bool
+	closed      bool
+	revision    uint64
+	transitions uint64
 }
 
 type Sequence struct {
@@ -66,9 +69,15 @@ type Sequence struct {
 }
 
 type pendingSequence struct {
+	source   string
 	prefix   string
 	deadline time.Time
 	keys     map[string]struct{}
+}
+
+type sequenceRelease struct {
+	source string
+	key    string
 }
 
 type Event struct {
@@ -109,12 +118,19 @@ func (c *Controller) Input(ctx context.Context, event Event) (commandbridge.Invo
 	if !validEvent(event) {
 		return commandbridge.InvocationAck{}, ErrInvalidEvent
 	}
+	if err := ctx.Err(); err != nil {
+		return commandbridge.InvocationAck{}, err
+	}
 	c.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		c.mu.Unlock()
+		return commandbridge.InvocationAck{}, err
+	}
 	if c.closed {
 		c.mu.Unlock()
 		return commandbridge.InvocationAck{}, ErrAdapterClosed
 	}
-	if c.suspended {
+	if c.suspended || c.transitions != 0 {
 		c.mu.Unlock()
 		return commandbridge.InvocationAck{}, ErrAdapterSuspended
 	}
@@ -124,6 +140,7 @@ func (c *Controller) Input(ctx context.Context, event Event) (commandbridge.Invo
 		return commandbridge.InvocationAck{Accepted: false, Reason: "sequence-pending"}, nil
 	}
 	generation := c.generation
+	revision := c.revision
 	sessionID := c.sessionID
 	owner := c.owner
 	resolve := c.resolve
@@ -142,9 +159,27 @@ func (c *Controller) Input(ctx context.Context, event Event) (commandbridge.Invo
 	if !ok {
 		return commandbridge.InvocationAck{Accepted: false, Reason: "no-binding"}, nil
 	}
+	// Resolve pode atravessar blur, bloqueio ou troca de geração. A entrega
+	// curta à bridge é serializada com a invalidação, não com a resolução.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return commandbridge.InvocationAck{}, err
+	}
+	if c.closed {
+		return commandbridge.InvocationAck{}, ErrAdapterClosed
+	}
+	if c.suspended || c.transitions != 0 {
+		return commandbridge.InvocationAck{}, ErrAdapterSuspended
+	}
+	if c.revision != revision || c.generation != generation {
+		return commandbridge.InvocationAck{}, ErrStaleGeneration
+	}
 	resolved.SessionID = sessionID
 	resolved.Generation = generation
-	if resolved.SourceEventID == "" && event.Kind == commandinput.KeyDown && !event.Repeat {
+	// Identidade de ocorrência pertence à borda confiável, não ao resolvedor.
+	resolved.SourceEventID = ""
+	if event.Kind == commandinput.KeyDown && !event.Repeat {
 		sourceEvent, err := uuid.NewV7()
 		if err != nil {
 			return commandbridge.InvocationAck{}, err
@@ -164,6 +199,14 @@ func (c *Controller) Input(ctx context.Context, event Event) (commandbridge.Invo
 }
 
 func (c *Controller) applySequenceLocked(event Event) (Event, bool) {
+	release := sequenceRelease{source: event.SourceInstance, key: event.Key}
+	if key, exists := c.releases[release]; exists && (event.Kind == commandinput.KeyUp || event.Repeat) {
+		event.Key = key
+		if event.Kind == commandinput.KeyUp {
+			delete(c.releases, release)
+		}
+		return event, false
+	}
 	if len(c.sequences) == 0 || event.Kind != commandinput.KeyDown || event.Repeat {
 		if event.Kind == commandinput.KeyUp || event.Kind == commandinput.KeyDown {
 			c.clearExpiredSequenceLocked()
@@ -172,12 +215,18 @@ func (c *Controller) applySequenceLocked(event Event) (Event, bool) {
 	}
 	now := c.now()
 	if c.pending != nil {
-		if now.After(c.pending.deadline) {
+		if !now.Before(c.pending.deadline) {
 			c.pending = nil
+		} else if c.pending.source != event.SourceInstance {
+			return event, false
 		} else if _, ok := c.pending.keys[event.Key]; ok {
 			prefix := c.pending.prefix
 			c.pending = nil
 			event.Key = prefix + " " + event.Key
+			if c.releases == nil {
+				c.releases = make(map[sequenceRelease]string)
+			}
+			c.releases[release] = event.Key
 			return event, false
 		} else {
 			c.pending = nil
@@ -187,7 +236,7 @@ func (c *Controller) applySequenceLocked(event Event) (Event, bool) {
 	if !ok {
 		return event, false
 	}
-	c.pending = &pendingSequence{prefix: sequence.PrefixKey, deadline: now.Add(sequence.Timeout), keys: make(map[string]struct{}, len(sequence.Keys))}
+	c.pending = &pendingSequence{source: event.SourceInstance, prefix: sequence.PrefixKey, deadline: now.Add(sequence.Timeout), keys: make(map[string]struct{}, len(sequence.Keys))}
 	for _, key := range sequence.Keys {
 		c.pending.keys[key] = struct{}{}
 	}
@@ -207,6 +256,11 @@ func (c *Controller) AdvanceGeneration(ctx context.Context, generation uint64) e
 		c.mu.Unlock()
 		return ErrStaleGeneration
 	}
+	c.revision++
+	c.transitions++
+	c.pending = nil
+	c.releases = nil
+	defer c.finishTransition()
 	sessionID := c.sessionID
 	bridge := c.bridge
 	c.mu.Unlock()
@@ -250,6 +304,9 @@ func (c *Controller) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	c.closed = true
+	c.revision++
+	c.pending = nil
+	c.releases = nil
 	c.suspended = true
 	sessionID := c.sessionID
 	generation := c.generation
@@ -271,6 +328,11 @@ func (c *Controller) lifecycle(ctx context.Context, kind commandbridge.Lifecycle
 		c.mu.Unlock()
 		return ErrAdapterClosed
 	}
+	c.revision++
+	c.transitions++
+	c.pending = nil
+	c.releases = nil
+	defer c.finishTransition()
 	sessionID := c.sessionID
 	generation := c.generation
 	bridge := c.bridge
@@ -300,8 +362,14 @@ func (c *Controller) lifecycle(ctx context.Context, kind commandbridge.Lifecycle
 	return nil
 }
 
+func (c *Controller) finishTransition() {
+	c.mu.Lock()
+	c.transitions--
+	c.mu.Unlock()
+}
+
 func (c *Controller) clearExpiredSequenceLocked() {
-	if c.pending != nil && c.now().After(c.pending.deadline) {
+	if c.pending != nil && !c.now().Before(c.pending.deadline) {
 		c.pending = nil
 	}
 }
@@ -316,7 +384,7 @@ func validEvent(event Event) bool {
 	return strings.TrimSpace(event.SourceInstance) == event.SourceInstance && event.SourceInstance != "" &&
 		strings.TrimSpace(event.Key) == event.Key && event.Key != "" &&
 		(event.Kind == commandinput.KeyDown || event.Kind == commandinput.KeyUp) &&
-		!(event.Kind == commandinput.KeyUp && event.Repeat)
+		(event.Kind != commandinput.KeyUp || !event.Repeat)
 }
 
 func buildSequences(values []Sequence) (map[string]Sequence, error) {

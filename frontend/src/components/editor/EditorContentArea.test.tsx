@@ -11,8 +11,6 @@ const richEditorHandle = {
   flushMarkdown: vi.fn(),
   getMarkdown: vi.fn(),
   openLinkDialog: vi.fn(),
-  applyMermaidById: vi.fn(),
-  removeMermaidById: vi.fn(),
 };
 const announceMock = vi.hoisted(() => vi.fn());
 const isModalOpenMock = vi.hoisted(() => vi.fn(() => false));
@@ -170,8 +168,6 @@ describe('EditorContentArea Reveal rich mode', () => {
     richEditorHandle.flushMarkdown.mockReset();
     richEditorHandle.getMarkdown.mockReset();
     richEditorHandle.openLinkDialog.mockReset();
-    richEditorHandle.applyMermaidById.mockReset();
-    richEditorHandle.removeMermaidById.mockReset();
     announceMock.mockReset();
     fakeRichEditorInstance.commands.focus.mockReset();
     clearRichEditorHistoryMock.mockReset();
@@ -454,6 +450,36 @@ describe('EditorContentArea document view', () => {
     expect(onOpenMermaid).toHaveBeenCalledTimes(2);
     expect(onOpenMermaid).toHaveBeenNthCalledWith(1, 0);
     expect(onOpenMermaid).toHaveBeenNthCalledWith(2, 0);
+  });
+
+  it.each(['consumed', 'repeat', 'ime', '229', 'altgraph', 'readonly', 'modal'] as const)('preview Mermaid bloqueia %s sem abrir/remover', guard => {
+    const onOpenMermaid = vi.fn(); const onRemoveMermaid = vi.fn();
+    renderContentArea({ id: 'mermaid-guard', title: 'diagrama.md', markdown: '```mermaid\ngraph TD\nA-->B\n```', mode: 'view', readOnly: guard === 'readonly' }, { onOpenMermaid, onRemoveMermaid });
+    const diagram = screen.getByRole('img', { name: 'editor.presentation.mermaidDiagramLabel' });
+    if (guard === 'modal') isModalOpenMock.mockReturnValue(true);
+    for (const key of ['Enter', 'Delete', 'Backspace', 'x']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, repeat: guard === 'repeat', isComposing: guard === 'ime', keyCode: guard === '229' ? 229 : 0 });
+      if (guard === 'consumed') event.preventDefault();
+      if (guard === 'altgraph') Object.defineProperty(event, 'getModifierState', { value: (modifier: string) => modifier === 'AltGraph' });
+      fireEvent(diagram, event);
+    }
+    expect(onOpenMermaid).not.toHaveBeenCalled(); expect(onRemoveMermaid).not.toHaveBeenCalled();
+  });
+
+  it('preview consome somente gestos Mermaid normais e preserva navegação repetida', () => {
+    const onOpenMermaid = vi.fn(); const onRemoveMermaid = vi.fn(); const parentKey = vi.fn();
+    render(<div onKeyDown={parentKey}>{contentAreaElement({ id: 'mermaid-normal', title: 'diagrama.md', markdown: '```mermaid\ngraph TD\nA-->B\n```', mode: 'view' }, { onOpenMermaid, onRemoveMermaid })}</div>);
+    const diagram = screen.getByRole('img', { name: 'editor.presentation.mermaidDiagramLabel' });
+    for (const key of ['Enter', 'Delete', 'Backspace', 'x']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      fireEvent(diagram, event); expect(event.defaultPrevented).toBe(true);
+    }
+    expect(onOpenMermaid.mock.calls).toEqual([[0], [0, { insertText: 'x' }]]);
+    expect(onRemoveMermaid.mock.calls).toEqual([[0], [0]]);
+    expect(parentKey).not.toHaveBeenCalled();
+    const arrow = new KeyboardEvent('keydown', { key: 'ArrowRight', repeat: true, bubbles: true, cancelable: true });
+    fireEvent(diagram, arrow);
+    expect(arrow.defaultPrevented).toBe(false); expect(parentKey).toHaveBeenCalledTimes(1);
   });
 
   it('entra numa ilha documental distinta sem prender Tab, Shift+Tab ou F6', async () => {

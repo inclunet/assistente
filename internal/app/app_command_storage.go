@@ -6,6 +6,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/logging"
 	"context"
+	"errors"
 	"gorm.io/gorm"
 )
 
@@ -20,7 +21,26 @@ func (a *App) clearCommandStorageReadiness() {
 // Não constrói executor, publica mapa, abre diálogo nem registra atalhos.
 func (a *App) initCommandStorage() {
 	if err := a.prepareCommandStorage(a.internalBootstrapCtx(), database.DB(), a.credMgr); err != nil {
-		logging.Warnf(context.Background(), "app.commands.storage", "Armazenamento de comandos indisponível; execução permanece desabilitada")
+		logging.Warnf(context.Background(), "app.commands.storage", "Armazenamento de comandos indisponível; execução permanece desabilitada; diagnóstico=%s", commandStorageFailureCode(err))
+	}
+}
+
+// Só códigos fechados chegam ao log: erros de drivers/providers podem conter
+// caminhos, SQL ou dados privados. Não registrar err.Error() arbitrário.
+func commandStorageFailureCode(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "cancelled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	case errors.Is(err, commandbootstrap.ErrFingerprintReference):
+		return "stored_fingerprint_invalid"
+	case errors.Is(err, commandbootstrap.ErrKeys):
+		return "keys_unavailable_or_incompatible"
+	case errors.Is(err, commandbootstrap.ErrStorage):
+		return "schema_or_storage_unavailable"
+	default:
+		return "storage_initialization_failed"
 	}
 }
 

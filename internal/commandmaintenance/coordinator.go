@@ -62,6 +62,7 @@ type BatchResult struct {
 type OutboxPort interface {
 	RequeueExpiredLeases(context.Context, int) (int, bool, error)
 	Drain(context.Context, int) (BatchResult, error)
+	PurgeExpired(context.Context, int) (int, bool, error)
 }
 
 // RecoveryPort representa uma única fatia bounded de recuperação de um
@@ -134,11 +135,15 @@ type Ports struct {
 }
 
 type Report struct {
+	// Stage identifica a última etapa iniciada, inclusive em erro. Não contém
+	// owner, payload, segredo ou argumento de comando.
+	Stage              string
 	HeartbeatProcessed int
 	MoreHeartbeat      bool
 	OutboxRequeued     int
 	OutboxDrained      bool
 	MoreOutbox         bool
+	OutboxPurged       int
 	Recovered          int
 	MoreRecovery       bool
 	MoreRetention      bool
@@ -174,6 +179,7 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	if err := policy.Validate(); err != nil {
 		return Report{}, err
 	}
+	ctx = context.WithValue(ctx, policyContextKey{}, policy)
 	batch := policy.BatchSize
 	if batch == 0 {
 		batch = DefaultBatchSize
@@ -196,6 +202,7 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 
 	var report Report
 	if c.ports.Heartbeat != nil {
+		report.Stage = "heartbeat"
 		result, err := c.ports.Heartbeat.Heartbeat(ctx, policy)
 		if validationErr := validateBatchResult(result, batch); validationErr != nil {
 			return report, validationErr
@@ -211,6 +218,7 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	if err := ctx.Err(); err != nil {
 		return report, err
 	}
+	report.Stage = "outbox.requeue"
 	n, more, err := c.ports.Outbox.RequeueExpiredLeases(ctx, batch)
 	result := BatchResult{Processed: n, More: more}
 	if validationErr := validateBatchResult(result, batch); validationErr != nil {
@@ -225,6 +233,7 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	if err := ctx.Err(); err != nil {
 		return report, err
 	}
+	report.Stage = "outbox.drain"
 	outboxResult, err := c.ports.Outbox.Drain(ctx, batch)
 	if validationErr := validateBatchResult(outboxResult, batch); validationErr != nil {
 		return report, validationErr
@@ -236,12 +245,38 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 		report.MoreOutbox = true
 		return report, err
 	}
+	if err := ctx.Err(); err != nil {
+		return report, err
+	}
+	report.Stage = "outbox.purge"
+	purged, more, purgeErr := c.ports.Outbox.PurgeExpired(ctx, batch)
+	if purged < 0 || purged > batch {
+		return report, ErrInvalidBatchResult
+	}
+	report.OutboxPurged = purged
+	if more {
+		report.MoreOutbox = true
+		report.OutboxDrained = false
+	}
+	if purgeErr != nil {
+		report.MoreOutbox = true
+		report.OutboxDrained = false
+		return report, purgeErr
+	}
 
-	for _, port := range []RecoveryPort{c.ports.Decisions, c.ports.Invocations, c.ports.Claims} {
+	for _, item := range []struct {
+		stage string
+		port  RecoveryPort
+	}{
+		{"recovery.decisions", c.ports.Decisions},
+		{"recovery.invocations", c.ports.Invocations},
+		{"recovery.claims", c.ports.Claims},
+	} {
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
-		batchResult, err := port.Recover(ctx, batch)
+		report.Stage = item.stage
+		batchResult, err := item.port.Recover(ctx, batch)
 		if validationErr := validateBatchResult(batchResult, batch); validationErr != nil {
 			return report, validationErr
 		}
@@ -264,6 +299,7 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	if err := ctx.Err(); err != nil {
 		return report, err
 	}
+	report.Stage = "retention.jobs"
 	jobsResult, err := retain(ctx, c.ports.Jobs, policy)
 	report.JobsDeleted = jobsResult.Deleted
 	report.MoreRetention = jobsResult.More
@@ -271,15 +307,19 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 		report.MoreRetention = true
 		return report, err
 	}
-	for _, clean := range []func(context.Context, ToolRetentionPort, Policy) (RetentionResult, error){
-		cleanOldDryRuns,
-		cleanOrphanChat,
-		cleanOldChat,
+	for _, item := range []struct {
+		stage string
+		clean func(context.Context, ToolRetentionPort, Policy) (RetentionResult, error)
+	}{
+		{"retention.tools.dry_runs", cleanOldDryRuns},
+		{"retention.tools.orphan_chat", cleanOrphanChat},
+		{"retention.tools.old_chat", cleanOldChat},
 	} {
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
-		result, err := clean(ctx, c.ports.Tools, policy)
+		report.Stage = item.stage
+		result, err := item.clean(ctx, c.ports.Tools, policy)
 		if validationErr := validateDeletedCount(result.Deleted); validationErr != nil {
 			return report, validationErr
 		}
@@ -291,15 +331,17 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 		}
 	}
 	for _, item := range []struct {
-		port RetentionPort
-		dest *int64
+		stage string
+		port  RetentionPort
+		dest  *int64
 	}{
-		{c.ports.InvocationDB, &report.InvocationsDeleted},
-		{c.ports.Activations, &report.ActivationsDeleted},
+		{"retention.invocations", c.ports.InvocationDB, &report.InvocationsDeleted},
+		{"retention.activations", c.ports.Activations, &report.ActivationsDeleted},
 	} {
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
+		report.Stage = item.stage
 		result, err := retain(ctx, item.port, policy)
 		*item.dest = result.Deleted
 		report.MoreRetention = report.MoreRetention || result.More
@@ -317,10 +359,12 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	if err := ctx.Err(); err != nil {
 		return report, err
 	}
+	report.Stage = "compaction"
 	if err := c.ports.Compaction.Compact(ctx, policy.VacuumMinFreeBytes); err != nil {
 		return report, err
 	}
 	report.Compacted = true
+	report.Stage = "complete"
 	return report, nil
 }
 

@@ -2,75 +2,19 @@
  * Atalhos globais de teclado do workspace.
  *
  * Abas:
- * - Ctrl+T: Nova aba de chat (ação rápida)
- * - Ctrl+N: Menu "Criar..." — seguido de C(hat), E(ditor), R(terminal), T(asklist)
- * - Ctrl+W / Ctrl+F4: Fechar aba ativa
- * - Ctrl+Tab / Ctrl+PageDown: Próxima aba
- * - Ctrl+Shift+Tab / Ctrl+PageUp: Aba anterior
- * - Ctrl+1..9: Vai direto para aba N
- *
- * Workspace:
- * - Ctrl+Shift+N: Novo workspace
+ * Workspace: atalhos de criação e mutação são resolvidos pelo mapa efetivo
+ * no Topbar; este hook mantém apenas atalhos locais legados ainda não migrados.
  */
 
-import { useEffect, useRef } from 'react';
-import i18next from 'i18next';
-import { useWorkspaceStore, type TabType } from '../store/workspaceStore';
-import { useShallow } from 'zustand/shallow';
-import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
-import { useEditorStore } from '../store/editorStore';
+import { useEffect } from 'react';
 import { useShortcutsHelpStore } from '../store/shortcutsHelpStore';
-import { isModalOpen } from '../components/ui/Modal';
-import { useAnnouncer } from './useAnnouncer';
-import { restoreDefaultFocus } from './useDefaultFocus';
-import { routeWorkspacePanelFocus } from '../components/workspace/workspacePanelFocusRegistry';
-import { createWorkspaceTab } from '../lib/createWorkspaceTab';
-import { useUIStore } from '../store/uiStore';
-import { logger } from '../utils/logger';
 
-const CHORD_TIMEOUT_MS = 1500;
-
-function reportTabCreationError(error: unknown) {
-  logger.error('[WorkspaceShortcuts] Erro ao criar aba:', error);
-  useUIStore.getState().addToast(i18next.t('workspace.tabCreateFailed'), 'error');
-}
-
-// Títulos resolvidos via i18next.t(titleKey) no momento do uso (CHORD_MAP é
-// const de módulo, avaliada uma vez): assim a aba criada respeita o idioma
-// corrente, inclusive após troca em runtime. Reutiliza chaves existentes.
-const CHORD_MAP: Record<string, { type: TabType; titleKey: string }> = {
-  c: { type: 'chat', titleKey: 'chat.newConversation' },
-  e: { type: 'editor', titleKey: 'editor.fallback.newDoc' },
-  r: { type: 'terminal', titleKey: 'workspace.newTerminal' },
-  t: { type: 'tasklist', titleKey: 'workspace.newTasklist' },
-};
-
-export interface UseWorkspaceKeyboardShortcutsOptions {
-  onTabShortcutNavigation?: (tabId: string) => void;
-}
-
-export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShortcutsOptions = {}) {
-  const { onTabShortcutNavigation } = options;
-  const { workspace, removeTab, setActiveTab, createWorkspace } = useWorkspaceStore(
-    useShallow((s) => ({ workspace: s.workspace, removeTab: s.removeTab, setActiveTab: s.setActiveTab, createWorkspace: s.createWorkspace }))
-  );
-  const { announce } = useAnnouncer();
-
-  const tabs = workspace?.tabs || [];
-  const activeTabId = workspace?.activeTabId || null;
-
-  const chordPendingRef = useRef(false);
-  const chordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
+export function useWorkspaceKeyboardShortcuts() {
   useEffect(() => {
-    return () => {
-      if (chordTimerRef.current) clearTimeout(chordTimerRef.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement;
+    const handleShortcutsHelpKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph')) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
 
       // Ctrl+? (Ctrl+Shift+/): alterna o painel global de atalhos.
       // Trata variações de layout: alguns teclados emitem `?` direto (o caractere
@@ -86,216 +30,33 @@ export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShort
       ) {
         event.preventDefault();
         useShortcutsHelpStore.getState().toggle();
-        return;
       }
+    };
 
-      // Ctrl+Shift+I: chat modal do painel (adaptador registado pela aba ativa)
+    const reserveDevToolsShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph')) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      // Ctrl+Shift+I fica reservado contra o DevTools. A execução é feita
+      // exclusivamente pelo mapa efetivo/contextual do Topbar; não há fallback
+      // legado nem abertura direta do modal neste listener.
       if (
         event.ctrlKey &&
         event.shiftKey &&
         (event.code === 'KeyI' || event.key === 'i' || event.key === 'I') &&
         !event.altKey
       ) {
-        // Sempre previne o default (DevTools do navegador), mesmo com um modal
-        // aberto; mas não aciona o chat modal enquanto isModalOpen() for true
-        // (não agir na UI de fundo / não empilhar modais).
         event.preventDefault();
-        if (isModalOpen()) return;
-        if (!activeTabId) return;
-        const activeWorkspaceTab = tabs.find((tab) => tab.id === activeTabId);
-        if (
-          activeWorkspaceTab?.type === 'editor' &&
-          useEditorStore.getState().documents[activeTabId]?.readOnly
-        ) {
-          return;
-        }
-        void useWorkspaceChatModalStore.getState().requestOpen(activeTabId);
-        return;
-      }
-
-      const isDataGrid = target.closest('.datagrid-container') !== null;
-      if (isDataGrid) return;
-
-      // Chord mode: aguardando segunda tecla após Ctrl+N
-      if (chordPendingRef.current && !event.ctrlKey && !event.altKey && !event.metaKey) {
-        // Se um modal (ex.: o painel de atalhos) abriu durante o chord, cancela
-        // sem agir na UI de fundo.
-        if (isModalOpen()) {
-          chordPendingRef.current = false;
-          if (chordTimerRef.current) {
-            clearTimeout(chordTimerRef.current);
-            chordTimerRef.current = null;
-          }
-          return;
-        }
-        const key = event.key.toLowerCase();
-        const match = CHORD_MAP[key];
-        if (match) {
-          event.preventDefault();
-          event.stopPropagation();
-          const title = i18next.t(match.titleKey);
-          void createWorkspaceTab(match.type, title)
-            .catch(reportTabCreationError);
-        }
-        chordPendingRef.current = false;
-        if (chordTimerRef.current) {
-          clearTimeout(chordTimerRef.current);
-          chordTimerRef.current = null;
-        }
-        if (match) return;
-      }
-
-      // Ctrl+Shift+N: Novo workspace
-      if (event.ctrlKey && event.shiftKey && event.key === 'N') {
-        event.preventDefault();
-        if (isModalOpen()) return;
-        void createWorkspace(`Workspace ${Date.now().toString(36)}`);
-        return;
-      }
-
-      // Ctrl+N: Abre chord para criar aba por tipo + abre menu visual
-      if (event.ctrlKey && event.key === 'n' && !event.shiftKey && !event.altKey) {
-        event.preventDefault();
-        if (isModalOpen()) return;
-        chordPendingRef.current = true;
-        if (chordTimerRef.current) clearTimeout(chordTimerRef.current);
-        chordTimerRef.current = setTimeout(() => {
-          chordPendingRef.current = false;
-          chordTimerRef.current = null;
-        }, CHORD_TIMEOUT_MS);
-        window.dispatchEvent(new CustomEvent('workspace:open-new-tab-menu'));
-        announce(i18next.t('workspace.createTabChordHint'));
-        return;
-      }
-
-      // Ctrl+T: Nova aba de chat (ação rápida)
-      if (event.ctrlKey && event.key === 't' && !event.shiftKey && !event.altKey) {
-        const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
-        if (isInput) return;
-        event.preventDefault();
-        if (isModalOpen()) return;
-        void createWorkspaceTab('chat', i18next.t('chat.newConversation'))
-          .catch(reportTabCreationError);
-        return;
-      }
-
-      // Ctrl+W: Fechar aba ativa
-      if (event.ctrlKey && event.key === 'w' && !event.shiftKey && !event.altKey && activeTabId) {
-        event.preventDefault();
-        if (isModalOpen()) return;
-        void removeTab(activeTabId).then(focusAfterTabClose);
-        return;
-      }
-
-      // Ctrl+F4: Fechar aba ativa (alternativo)
-      if (event.ctrlKey && event.key === 'F4' && activeTabId) {
-        event.preventDefault();
-        if (isModalOpen()) return;
-        void removeTab(activeTabId).then(focusAfterTabClose);
-        return;
-      }
-
-      // Ctrl+Tab / Ctrl+PageDown/Up: delega para escopos de abas aninhados
-      const insideTabScope = target.closest('[data-tab-scope]') !== null;
-
-      // Ctrl+Tab: Próxima aba
-      if (event.ctrlKey && event.key === 'Tab' && !event.shiftKey) {
-        if (insideTabScope) return;
-        event.preventDefault();
-        navigateTab(1);
-        return;
-      }
-
-      // Ctrl+Shift+Tab: Aba anterior
-      if (event.ctrlKey && event.key === 'Tab' && event.shiftKey) {
-        if (insideTabScope) return;
-        event.preventDefault();
-        navigateTab(-1);
-        return;
-      }
-
-      // Ctrl+PageDown: Próxima aba
-      if (event.ctrlKey && event.key === 'PageDown') {
-        if (insideTabScope) return;
-        event.preventDefault();
-        navigateTab(1);
-        return;
-      }
-
-      // Ctrl+PageUp: Aba anterior
-      if (event.ctrlKey && event.key === 'PageUp') {
-        if (insideTabScope) return;
-        event.preventDefault();
-        navigateTab(-1);
-        return;
-      }
-
-      // Ctrl+1-9: Vai direto para aba N
-      if (event.ctrlKey && !event.shiftKey && !event.altKey) {
-        const num = parseInt(event.key, 10);
-        if (num >= 1 && num <= 9) {
-          event.preventDefault();
-          if (isModalOpen()) {
-            announce(i18next.t('workspace.closeDialogBeforeChangingTabs'));
-            return;
-          }
-          const targetTab = tabs[num - 1];
-          if (targetTab) {
-            setActiveTab(targetTab.id);
-            if (onTabShortcutNavigation) {
-              onTabShortcutNavigation(targetTab.id);
-            } else {
-              requestAnimationFrame(() => restoreDefaultFocus());
-            }
-            announce(i18next.t('workspace.announce.tabPosition', { title: targetTab.title, position: num, total: tabs.length }));
-          }
-        }
       }
     };
 
-    // Após fechar uma aba, o backend escolhe a sucessora (mesma posição). O foco
-    // precisa seguir o mesmo contrato da troca por atalho: se a sucessora for um
-    // painel assíncrono (editor/tasklist) que ainda não montou, enfileira; senão
-    // usa o handler do painel ou o default da página. Lê o estado atual da store
-    // para não depender de closures obsoletas.
-    function focusAfterTabClose() {
-      requestAnimationFrame(() => {
-        const ws = useWorkspaceStore.getState().workspace;
-        const newActiveId = ws?.activeTabId;
-        if (!newActiveId) {
-          restoreDefaultFocus();
-          return;
-        }
-        routeWorkspacePanelFocus(newActiveId);
-      });
-    }
-
-    function navigateTab(direction: 1 | -1) {
-      if (tabs.length <= 1) return;
-      if (isModalOpen()) {
-        announce(i18next.t('workspace.closeDialogBeforeChangingTabs'));
-        return;
-      }
-      const currentIndex = tabs.findIndex(t => t.id === activeTabId);
-      if (currentIndex === -1) return;
-
-      let nextIndex = currentIndex + direction;
-      if (nextIndex >= tabs.length) nextIndex = 0;
-      if (nextIndex < 0) nextIndex = tabs.length - 1;
-
-      const nextTab = tabs[nextIndex];
-      if (nextTab) {
-        setActiveTab(nextTab.id);
-        if (onTabShortcutNavigation) {
-          onTabShortcutNavigation(nextTab.id);
-        } else {
-          requestAnimationFrame(() => restoreDefaultFocus());
-        }
-        announce(i18next.t('workspace.announce.tabPosition', { title: nextTab.title, position: nextIndex + 1, total: tabs.length }));
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [tabs, activeTabId, removeTab, setActiveTab, createWorkspace, announce, onTabShortcutNavigation]);
+    // Preserve Ctrl+? in window capture. Keep the DevTools reservation on
+    // document capture so editors cannot stop it from a child listener.
+    window.addEventListener('keydown', handleShortcutsHelpKeyDown, true);
+    document.addEventListener('keydown', reserveDevToolsShortcut, true);
+    return () => {
+      window.removeEventListener('keydown', handleShortcutsHelpKeyDown, true);
+      document.removeEventListener('keydown', reserveDevToolsShortcut, true);
+    };
+  }, []);
 }

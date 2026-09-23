@@ -50,6 +50,8 @@ export interface CommandCapability {
   readonly id: string;
   readonly commandId: string;
   readonly generation: string;
+  /** Origem única permitida por esta capability. */
+  readonly source: CommandSource;
   readonly owner: CommandBridgeOwner;
 }
 
@@ -253,7 +255,11 @@ function validInvocation(invocation: CommandInvocation): boolean {
 }
 
 function validCapability(capability: CommandCapability): boolean {
-  return validText(capability?.id) && validText(capability?.commandId) && validGeneration(capability?.generation) && validOwner(capability.owner);
+  return validText(capability?.id) && validText(capability?.commandId) && validGeneration(capability?.generation) && validSource(capability?.source) && validOwner(capability.owner);
+}
+
+function capabilityAllowsSource(capability: CommandCapability, source: CommandSource): boolean {
+  return capability.source === source;
 }
 
 function validResult(result: CommandResult): boolean {
@@ -398,7 +404,7 @@ export function createCommandBridge(config: { readonly port: CommandBridgePort; 
       if (state.locked) throw bridgeError('session-unavailable');
       if (invocation.generation !== state.session.generation || !sameOwner(owner, state.session.owner)) throw bridgeError('stale-generation');
       const capability = capabilities.get(invocation.capabilityId);
-      if (!capability || capability.commandId !== invocation.commandId || capability.generation !== invocation.generation || !sameOwner(capability.owner, owner)) throw bridgeError('capability-denied');
+      if (!capability || capability.commandId !== invocation.commandId || capability.generation !== invocation.generation || !capabilityAllowsSource(capability, invocation.source) || !sameOwner(capability.owner, owner)) throw bridgeError('capability-denied');
       if (pending.has(invocation.invocationId)) throw bridgeError('invocation-replay');
       const stableOwner = cloneOwner(owner);
       const claimKey = invocation.occurrenceId === undefined ? '' : ownershipClaimKey(invocation, stableOwner);

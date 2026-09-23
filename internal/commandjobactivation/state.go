@@ -102,7 +102,8 @@ func (c *Consumer) apply(ctx context.Context, tx *gorm.DB, owner commandactivati
 			return "", err
 		}
 	}
-	deadline := now.Add(c.retention)
+	leaseDuration, retention := c.durations(ctx)
+	deadline := now.Add(retention)
 	if f.SourceReplayDeadline.After(deadline) {
 		deadline = f.SourceReplayDeadline
 	}
@@ -185,7 +186,7 @@ func (c *Consumer) apply(ctx context.Context, tx *gorm.DB, owner commandactivati
 			if e != nil {
 				return "", e
 			}
-			if e = tx.Create(&Lease{ID: id, ActivationID: claim.ActivationID, UserID: owner.UserID, RunID: f.RunID, RuntimeGeneration: runtimeGeneration, ExpiresAt: now.Add(c.lease), UpdatedAt: now}).Error; e != nil {
+			if e = tx.Create(&Lease{ID: id, ActivationID: claim.ActivationID, UserID: owner.UserID, RunID: f.RunID, RuntimeGeneration: runtimeGeneration, ExpiresAt: now.Add(leaseDuration), UpdatedAt: now}).Error; e != nil {
 				return "", e
 			}
 		}

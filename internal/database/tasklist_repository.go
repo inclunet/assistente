@@ -144,12 +144,30 @@ func GetAllTaskListsWithContext(ctx context.Context) ([]TaskList, error) {
 // UpdateTaskListWithContext atualiza title e description de uma tasklist do
 // usuário do contexto.
 func UpdateTaskListWithContext(ctx context.Context, id string, title, description string) error {
+	var current TaskList
+	query := ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id")
+	if err := query.Where("id = ?", id).First(&current).Error; err != nil {
+		return err
+	}
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"title":       title,
 			"description": description,
+			"updated_at":  nextTaskListUpdatedAt(current.UpdatedAt),
 		}).Error
+}
+
+// SQLite persiste timestamps com precisão de milissegundos nesta aplicação.
+// Garantir avanço estrito aqui evita que duas mutações sucessivas produzam o
+// mesmo fingerprint observável e atravessem uma proteção ABA.
+func nextTaskListUpdatedAt(previous time.Time) time.Time {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	previous = previous.UTC().Truncate(time.Millisecond)
+	if !now.After(previous) {
+		return previous.Add(time.Millisecond)
+	}
+	return now
 }
 
 // SetTaskListViewModeWithContext define o modo de visualização (list ou
@@ -443,9 +461,15 @@ func GetTaskCountsByStatusWithContext(ctx context.Context, taskListID string) (m
 // slug: nil = não altera slug; ponteiro para string vazia = limpa slug;
 // valor = define slug normalizado.
 func UpdateTaskListFullWithContext(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error {
+	var current TaskList
+	if err := ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").
+		Where("id = ?", id).First(&current).Error; err != nil {
+		return err
+	}
 	updates := map[string]interface{}{
 		"title":       title,
 		"description": description,
+		"updated_at":  nextTaskListUpdatedAt(current.UpdatedAt),
 	}
 	if preferredViewMode == "list" || preferredViewMode == "kanban" {
 		updates["preferred_view_mode"] = preferredViewMode

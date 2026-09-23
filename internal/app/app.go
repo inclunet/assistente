@@ -33,6 +33,7 @@ import (
 	"assistente/internal/deeplinkprotocol"
 	"assistente/internal/events"
 	"assistente/internal/fstrust"
+	"assistente/internal/hotkey"
 	"assistente/internal/jobprofilegrant"
 	"assistente/internal/jobs"
 	"assistente/internal/llm"
@@ -117,6 +118,10 @@ type App struct {
 	authMu                  sync.RWMutex
 	authSessionMu           sync.Mutex
 	commandEpochsOnce       sync.Once
+	commandGate             *commandsecurity.DispatchGate
+	commandMaintenanceBuild sync.Mutex
+	commandMaintenance      atomic.Pointer[appCommandMaintenance]
+	commandJobAuthority     atomic.Pointer[appCommandJobAuthority]
 	commandEpochs           *commandsecurity.EpochService
 	commandEpochsErr        error
 	commandHost             *commandexecution.HostState               // protegido por authMu; bootstrap serializado
@@ -125,9 +130,13 @@ type App struct {
 	commandLifecycle        atomic.Pointer[commandruntime.Controller] // montagem real, sem registry global
 	commandLifecycleMount   sync.Mutex                                // serializa somente construção/publicação, nunca cleanup ou portas
 	commandLifecycleClosing bool                                      // protegido por commandLifecycleMount; shutdown é terminal para este App
-	commandStorageVersion   string                                    // prontidão de armazenamento, NÃO de execução; authMu
-	commandStorageErr       error                                     // falha retida sem impedir autenticação legada; authMu
-	commandOSStarted        bool                                      // protegido por authMu; uma execução por App
+	commandProductBuild     sync.Mutex
+	commandBootstrapOnce    sync.Once
+	commandBootstrap        chan struct{} // serializa reconstruções por autenticação/cofre/SO
+	commandProduct          atomic.Pointer[commandProductRuntime]
+	commandStorageVersion   string // prontidão de armazenamento, NÃO de execução; authMu
+	commandStorageErr       error  // falha retida sem impedir autenticação legada; authMu
+	commandOSStarted        bool   // protegido por authMu; uma execução por App
 	currentUserID           string
 	currentAuthUser         *AuthUser
 	authKeyringLoad         func() (string, error)
@@ -212,30 +221,32 @@ type App struct {
 	dialogPort ports.SystemDialogPort
 
 	// Controllers (Inbound Adapters — camada Fase 2 da migração para Clean Arch)
-	msgCtrl           *controllers.MessagingController
-	mcpCtrl           *controllers.MCPController
-	profilesCtrl      *controllers.ProfilesController
-	llmCtrl           *controllers.LLMController
-	skillsCtrl        *controllers.SkillsController
-	settingsCtrl      *controllers.SettingsController
-	chatCtrl          *controllers.ChatController
-	taskListCtrl      *controllers.TaskListController
-	conversationsCtrl *controllers.ConversationsController
-	memoryCtrl        *controllers.MemoryController
-	speechCtrl        *controllers.SpeechController
-	jobsCtrl          *controllers.JobsController
-	workspaceCtrl     *controllers.WorkspaceController
-	tokensCtrl        *controllers.TokensController
-	toolsCtrl         *controllers.ToolsController
-	updaterCtrl       *controllers.UpdaterController
-	credentialsCtrl   *controllers.CredentialsController
-	welcomeCtrl       *controllers.WelcomeController
-	terminalCtrl      *controllers.TerminalController
-	allowlistCtrl     *controllers.AllowlistController
-	signalCtrl        *controllers.SignalController
-	hotkeyCtrl        *controllers.HotkeysController
-	netTrustCtrl      *controllers.NetTrustController
-	fsTrustCtrl       *controllers.FSTrustController
+	msgCtrl               *controllers.MessagingController
+	mcpCtrl               *controllers.MCPController
+	profilesCtrl          *controllers.ProfilesController
+	llmCtrl               *controllers.LLMController
+	skillsCtrl            *controllers.SkillsController
+	settingsCtrl          *controllers.SettingsController
+	chatCtrl              *controllers.ChatController
+	taskListCtrl          *controllers.TaskListController
+	conversationsCtrl     *controllers.ConversationsController
+	memoryCtrl            *controllers.MemoryController
+	speechCtrl            *controllers.SpeechController
+	jobsCtrl              *controllers.JobsController
+	workspaceCtrl         *controllers.WorkspaceController
+	tokensCtrl            *controllers.TokensController
+	toolsCtrl             *controllers.ToolsController
+	updaterCtrl           *controllers.UpdaterController
+	credentialsCtrl       *controllers.CredentialsController
+	welcomeCtrl           *controllers.WelcomeController
+	terminalCtrl          *controllers.TerminalController
+	allowlistCtrl         *controllers.AllowlistController
+	signalCtrl            *controllers.SignalController
+	hotkeyCtrl            *controllers.HotkeysController
+	globalHotkeyOwnership *hotkey.OwnershipBarrier
+	decisionRepeatHotkeys *decisionRepeatHotkeys
+	netTrustCtrl          *controllers.NetTrustController
+	fsTrustCtrl           *controllers.FSTrustController
 
 	// tokensAPI é o bind Wails do domínio tokens (AEP-0088). Criado em main e
 	// wired após NewTokensController.
@@ -353,6 +364,10 @@ type App struct {
 	// SendMessage e RetryMessage. Criado em main e wired após NewChatController.
 	// sendMessageFromChannel permanece no *App.
 	chatAPI *wailsapi.Chat
+	// Somente o bootstrap GUI registra o bind antes do startup. A CLI cria
+	// sua fachada internamente e não recebe autoridade interativa de comandos.
+	chatDesktopIngress bool
+	commandCLIOnly     bool // entrypoint de consulta/execução, sem serviços autônomos
 
 	// commandCatalogAPI é o bind Wails de catálogo/Command Palette (AEP-0103).
 	// Criado em main e wired quando o snapshot canônico de comandos é montado.
@@ -732,6 +747,7 @@ func SetChatAPI(a *App, api *wailsapi.Chat) {
 		return
 	}
 	a.chatAPI = api
+	a.chatDesktopIngress = api != nil
 }
 
 // ChatAPI expõe o bind de chat para a CLI (não entra no Bind Wails).
@@ -1118,16 +1134,20 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.initGlobalHotkeys()
 
 	// Registra hotkeys do perfil ativo
-	a.registerActiveProfileHotkeys()
+	// A inscrição aguarda o mapa de ownership aplicado pela UI. Não bloquear
+	// OnStartup: a WebView precisa concluir o boot para confirmar esse mapa.
+	a.bgWG.Add(1)
+	go func() {
+		defer a.bgWG.Done()
+		a.registerActiveProfileHotkeys()
+	}()
 
 	// Inicializa o sistema de jobs (event-driven automation)
 	a.initJobs()
 
 	// Liga a ponte de eventos de domínio das tasklists ao EventBus de jobs (AEP-0067).
 	// O Service é criado antes do jobMgr, então o sink é injetado aqui.
-	if a.taskSvc != nil {
-		a.taskSvc.SetDomainEventSink(a.jobMgr)
-	}
+	a.wireTaskListDomainEvents()
 
 	// Inicializa o updater
 	a.initUpdater()
@@ -1161,7 +1181,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		if a.msgGateway != nil {
 			a.msgGateway.SetCancelStream(a.streamMgr.Cancel)
 		}
-		a.msgCtrl.StartAdapters("")
+		if !a.commandCLIOnly {
+			a.msgCtrl.StartAdapters("")
+		}
 	}
 	// Subagent manager (AEP-0068): criado após o ChatController para reusar a
 	// MESMA SendMessageUseCase (sem fluxo alternativo de envio — AEP-0040).
@@ -1253,8 +1275,10 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireSignal()
 	a.wireTerminal()
 
-	if err := a.startHTTPAPI(); err != nil {
-		return err
+	if !a.commandCLIOnly {
+		if err := a.startHTTPAPI(); err != nil {
+			return err
+		}
 	}
 	// Também cobre um host de comandos instalado antes do ciclo de vida.
 	// Sem host, o bootstrap continua sem observador nem comandos ativados.
@@ -1268,6 +1292,10 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// depois da transição, sempre fora dos locks de autenticação.
 	if err := a.bootstrapCommandLifecycleAtStartup(a.appContext()); err != nil {
 		return fmt.Errorf("erro ao inicializar ciclo de vida de comandos: %w", err)
+	}
+
+	if a.commandCLIOnly {
+		return nil
 	}
 
 	// Verifica atualizações no startup (não bloqueante). Rastreada em bgWG para
@@ -1315,6 +1343,15 @@ func (a *App) waitBackground(timeout time.Duration) {
 
 // Shutdown encerra todos os serviços do app.
 func (a *App) Shutdown() {
+	if a.decisionRepeatHotkeys != nil {
+		a.decisionRepeatHotkeys.active.Store(nil)
+	}
+	if a.globalHotkeyOwnership != nil {
+		a.globalHotkeyOwnership.Close()
+	}
+	if a.decisionRepeatHotkeys != nil {
+		a.decisionRepeatHotkeys.shutdown()
+	}
 	// Desabilita e invalida entradas antes de cancelar/destruir os adapters do
 	// App. O hook não adquire authMu/authSessionMu nem é chamado sob outro lock.
 	// O timeout limita a espera do App; uma porta que ignore o contexto não pode

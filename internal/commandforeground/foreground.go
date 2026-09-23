@@ -83,6 +83,19 @@ type Snapshot struct {
 	Summary    Summary   `json:"summary"`
 }
 
+// ValidateSnapshot validates the physical-origin contract without exposing
+// identity internals. maxAge is enforced when positive; callers choose the
+// policy budget rather than the adapter inventing one.
+func ValidateSnapshot(snapshot Snapshot, maxAge time.Duration) error {
+	if snapshot.Identity.IsZero() || snapshot.CapturedAt.IsZero() || time.Until(snapshot.CapturedAt) > 0 || strings.TrimSpace(snapshot.Version) == "" || strings.TrimSpace(snapshot.Summary.Executable) == "" || strings.TrimSpace(snapshot.Summary.WindowClass) == "" || strings.TrimSpace(snapshot.Summary.ProviderVersion) == "" {
+		return ErrInvalidSnapshot
+	}
+	if maxAge > 0 && time.Since(snapshot.CapturedAt) > maxAge {
+		return ErrInvalidSnapshot
+	}
+	return nil
+}
+
 // CaptureBeforeShow captura o foreground antes de executar show. Falha na
 // captura é fail-closed: show não é chamado. Uma falha de show conserva e
 // devolve o snapshot que já foi capturado; este helper nunca captura de novo

@@ -7,6 +7,9 @@ import {
   registerSurfaceContext,
   type SurfaceContext,
 } from './commandContextProviders';
+import {
+  acquireCommandFocusTracking,
+} from './commandFocusContext';
 
 const cleanups: Array<() => void> = [];
 
@@ -47,6 +50,7 @@ describe('command context providers', () => {
       readOnly: false,
       disabled: false,
     });
+    expect(first.composition).toBe('inactive');
     expect(first.control?.identity).toBe(second.control?.identity);
     expect(first.control?.identity).not.toContain('secret');
     expect(Object.isFrozen(first.control)).toBe(true);
@@ -74,6 +78,155 @@ describe('command context providers', () => {
       contentEditable: true,
       editable: true,
     });
+  });
+
+  it('tracks IME conservatively, including lost composition notifications', () => {
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    const release = acquireCommandFocusTracking();
+    cleanups.push(release);
+
+    expect(ReadFocusContext().composition).toBe('unknown');
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    expect(ReadFocusContext().composition).toBe('active');
+    input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, isComposing: true }));
+    expect(ReadFocusContext().composition).toBe('active');
+    input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, keyCode: 229 }));
+    expect(ReadFocusContext().composition).toBe('active');
+    // Sem composiçãoend, a leitura seguinte não inventa inactive.
+    expect(ReadFocusContext().composition).toBe('active');
+    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+    expect(ReadFocusContext().composition).toBe('inactive');
+  });
+
+  it('trata blur como perda de prova e usa o DOM atual após reentrada', () => {
+    const input = document.createElement('input');
+    const button = document.createElement('button');
+    document.body.append(input, button);
+    const release = acquireCommandFocusTracking();
+    cleanups.push(release);
+
+    input.focus();
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    expect(ReadFocusContext().composition).toBe('active');
+    button.focus();
+    expect(ReadFocusContext().control?.capabilities.button).toBe(true);
+    expect(ReadFocusContext().composition).toBe('inactive');
+
+    let reentrant: ReturnType<typeof ReadFocusContext> | undefined;
+    const onCompositionStart = () => {
+      reentrant = ReadFocusContext();
+    };
+    input.addEventListener('compositionstart', onCompositionStart);
+    input.focus();
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    input.removeEventListener('compositionstart', onCompositionStart);
+    expect(reentrant?.composition).toBe('active');
+  });
+
+  it('invalida composição no blur da janela mesmo sem blur do input', () => {
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    const release = acquireCommandFocusTracking();
+    cleanups.push(release);
+
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+    expect(ReadFocusContext().composition).toBe('inactive');
+
+    window.dispatchEvent(new Event('blur'));
+    expect(document.activeElement).toBe(input);
+    expect(ReadFocusContext().composition).toBe('unknown');
+  });
+
+  it('não aceita compositionend atrasado do elemento que perdeu o foco', () => {
+    const first = document.createElement('input');
+    const second = document.createElement('input');
+    document.body.append(first, second);
+    const release = acquireCommandFocusTracking();
+    cleanups.push(release);
+
+    first.focus();
+    first.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    expect(ReadFocusContext().composition).toBe('active');
+
+    second.focus();
+    expect(ReadFocusContext().composition).toBe('unknown');
+    first.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+
+    // O fim observado no input antigo não prova o estado do novo input.
+    expect(ReadFocusContext().composition).toBe('unknown');
+    second.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    second.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+    expect(ReadFocusContext().composition).toBe('inactive');
+  });
+
+  it('perde a evidência quando activeElement muda sem qualquer notificação', () => {
+    const first = document.createElement('input');
+    const second = document.createElement('input');
+    document.body.append(first, second);
+    const release = acquireCommandFocusTracking();
+    cleanups.push(release);
+
+    first.focus();
+    first.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    expect(ReadFocusContext().composition).toBe('active');
+
+    const originalActiveElement = Object.getOwnPropertyDescriptor(document, 'activeElement');
+    Object.defineProperty(document, 'activeElement', {
+      configurable: true,
+      get: () => second,
+    });
+    try {
+      // Não houve focusout/focusin: a leitura deve comparar a fonte atual.
+      expect(ReadFocusContext().composition).toBe('unknown');
+
+      // Eventos do elemento antigo não podem marcar o novo foco como ativo.
+      first.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true }));
+      first.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+      expect(ReadFocusContext().composition).toBe('unknown');
+    } finally {
+      if (originalActiveElement) {
+        Object.defineProperty(document, 'activeElement', originalActiveElement);
+      } else {
+        delete (document as unknown as Record<string, unknown>).activeElement;
+      }
+    }
+  });
+
+  it('faz refcount, remove listeners no último release e reinstala em estado unknown', () => {
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    const first = acquireCommandFocusTracking();
+    const second = acquireCommandFocusTracking();
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    expect(ReadFocusContext().composition).toBe('active');
+    first();
+    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+    expect(ReadFocusContext().composition).toBe('inactive');
+    second();
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    expect(ReadFocusContext().composition).toBe('unknown');
+
+    const reinstalled = acquireCommandFocusTracking();
+    cleanups.push(reinstalled);
+    expect(ReadFocusContext().composition).toBe('unknown');
+  });
+
+  it('dispose do tracker não deixa composição antiga nem listener eterno', () => {
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    const release = acquireCommandFocusTracking();
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    expect(ReadFocusContext().composition).toBe('active');
+    release();
+    expect(ReadFocusContext().composition).toBe('unknown');
+    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+    expect(ReadFocusContext().composition).toBe('unknown');
   });
 
   it('does not expose a detached active element as a current control', () => {
@@ -187,6 +340,7 @@ describe('command context providers', () => {
     expect(frame.version).toBe(1);
     expect(frame.modal).toHaveProperty('topID');
     expect(frame.surface?.surfaceId).toBe('surface-frame');
+    expect(frame.profile).toBeNull();
     expect(Object.isFrozen(frame)).toBe(true);
   });
 });

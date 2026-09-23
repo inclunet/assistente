@@ -787,6 +787,9 @@ func (a *App) emitRuntimePartialInit(result runtimeReloadResult) {
 // timer no frontend).
 func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 	result := &runtimeReloadResult{}
+	if a.commandCLIOnly {
+		return *result
+	}
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
 	}
@@ -811,6 +814,16 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 		if currentUserID != userID {
 			logging.Warnf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] jobs não iniciados: sessão mudou durante reload")
 			return
+		}
+		// O domínio legado continua disponível antes de haver armazenamento de
+		// comandos. Uma montagem habilitada que falha nunca cai silenciosamente
+		// na retenção legada, que não conhece a ordem outbox/leases.
+		if a.commandDrainRecoveryReady() || a.commandMaintenance.Load() != nil {
+			if err := a.configureCommandMaintenance(ctx); err != nil {
+				logging.Errorf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] manutenção de comandos não montada: %v", err)
+				result.add(runtimeSubsystemJobs, err)
+				return
+			}
 		}
 		if err := a.jobMgr.Start(); err != nil {
 			logging.Errorf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)

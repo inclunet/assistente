@@ -9,9 +9,10 @@ import (
 )
 
 // CoordinatorRecovery percorre pendências de toda a instância, mas somente
-// recupera gerações comprovadamente drenadas por este processo. O cursor limita
+// recupera gerações comprovadamente fechadas (drain local ou protocolo de
+// exclusão interprocesso vinculado a este banco). O cursor limita
 // linhas examinadas, inclusive as pertencentes a outro core ainda ativo. Não é
-// uma prova de restart e não recebe lista de usuários vinda da UI.
+// uma prova por inferência de restart e não recebe lista de usuários da UI.
 type CoordinatorRecovery struct {
 	store   *Store
 	drained commandsecurity.DrainedGenerations
@@ -20,7 +21,7 @@ type CoordinatorRecovery struct {
 }
 
 func NewCoordinatorRecovery(store *Store, drained commandsecurity.DrainedGenerations) (*CoordinatorRecovery, error) {
-	if store == nil || store.db == nil || store.now == nil || !drained.Valid() {
+	if store == nil || store.db == nil || store.now == nil || !drained.Valid() || !drained.AllowsDatabase(store.db) {
 		return nil, ErrInvalidRequest
 	}
 	return &CoordinatorRecovery{store: store, drained: drained}, nil
@@ -32,7 +33,7 @@ var _ commandmaintenance.RecoveryPort = (*CoordinatorRecovery)(nil)
 // A escrita é exclusivamente RecoverClosedGenerationWithProof; não há CAS ou
 // classificação de resultado paralelos neste adapter.
 func (a *CoordinatorRecovery) Recover(ctx context.Context, limit int) (commandmaintenance.BatchResult, error) {
-	if a == nil || a.store == nil || ctx == nil || limit < 1 || limit > 128 || !a.drained.Valid() {
+	if a == nil || a.store == nil || ctx == nil || limit < 1 || limit > 128 || !a.drained.Valid() || !a.drained.AllowsDatabase(a.store.db) {
 		return commandmaintenance.BatchResult{}, ErrInvalidRequest
 	}
 	if err := ctx.Err(); err != nil {

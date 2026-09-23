@@ -10,12 +10,26 @@ import (
 // adapters reais deste Manager. Não é uma API de usuário nem habilita comandos.
 // Montagem é única e somente enquanto frio; erro não altera o caminho legado.
 func (m *Manager) ConfigureCommandMaintenance(ports commandmaintenance.Ports) error {
+	return m.configureCommandMaintenance(ports, false)
+}
+
+// ReconfigureCommandMaintenance substitui as portas após Stop/join, por exemplo
+// ao trocar o cofre ou a sessão. Falha mantém o coordenador anterior intacto.
+// Não reabre um Manager encerrado pelo core de comandos.
+func (m *Manager) ReconfigureCommandMaintenance(ports commandmaintenance.Ports) error {
+	return m.configureCommandMaintenance(ports, true)
+}
+
+func (m *Manager) configureCommandMaintenance(ports commandmaintenance.Ports, replace bool) error {
 	if m == nil {
 		return ErrCommandMaintenanceUnavailable
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.started || m.stopping != nil || m.retentionStop != nil || m.cfg.MaintenanceCoordinator != nil {
+	if m.commandMaintenanceClosed {
+		return ErrCommandMaintenanceUnavailable
+	}
+	if m.started || m.stopping != nil || m.retentionStop != nil || (!replace && m.cfg.MaintenanceCoordinator != nil) || (replace && m.cfg.MaintenanceCoordinator == nil) {
 		return ErrCommandMaintenanceBusy
 	}
 	adapters, err := NewCommandMaintenanceAdapters(m)

@@ -18,8 +18,10 @@ import (
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandledger"
 	"assistente/internal/database"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 
 	"github.com/google/uuid"
 )
@@ -38,9 +40,17 @@ var canonicalCommandID = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)
 // Definition é opcional para permitir a montagem em duas fases; quando
 // presente, seus metadados de handler e paths sensíveis são verificados.
 type Route struct {
-	CommandID      string
-	ToolName       string
-	ToolCatalogID  string
+	CommandID     string
+	ToolName      string
+	ToolCatalogID string
+	// Authorize é uma porta de bootstrap. Ela roda no worker, via
+	// ExecuteRequest.BeforeExecute, nunca durante Start/gate.
+	Authorize      func(context.Context, commandexecution.Invocation) error
+	ToolGeneration uint64
+	// PrepareContext instala a origem privada/contexto de domínio no worker,
+	// depois do snapshot da invocação e antes do executor comum. O release
+	// devolvido é chamado ao fim ou quando a preparação falha.
+	PrepareContext func(context.Context, commandexecution.Invocation) (context.Context, func(), error)
 	SensitivePaths commandcatalog.SensitivePaths
 	Contract       commandcatalog.HandlerContract
 	Definition     commandcatalog.Definition
@@ -175,12 +185,20 @@ func (b *Bridge) start(ctx context.Context, route Route, invocation commandexecu
 	if !json.Valid(arguments) {
 		return commandexecution.ExecutionHandle{}, ErrInvalidInvocation
 	}
+	if err := validateSubagentProfileArgument(route.ToolName, invocation.Envelope, arguments); err != nil {
+		return commandexecution.ExecutionHandle{}, err
+	}
+	toolContext, origin, err := bridgeToolContext(invocation)
+	if err != nil {
+		return commandexecution.ExecutionHandle{}, err
+	}
+	snapshot := cloneBridgeInvocation(invocation)
 
 	toolCall := tools.ToolCall{
-		ID: invocation.ID, Type: "function",
+		ID: snapshot.ID, Type: "function",
 		Function: tools.FunctionCall{Name: route.ToolName, Arguments: string(arguments)},
 	}
-	executionCtx, cancel := context.WithCancel(database.WithUserID(ctx, invocation.Principal.UserID))
+	executionCtx, cancel := context.WithCancel(invocationctx.With(database.WithUserID(ctx, invocation.Principal.UserID), toolContext))
 	done := make(chan commandexecution.Outcome, 1)
 	var cancelOnce sync.Once
 	handle := commandexecution.ExecutionHandle{ID: invocation.ID, Done: done, Cancel: func() { cancelOnce.Do(cancel) }}
@@ -193,16 +211,262 @@ func (b *Bridge) start(ctx context.Context, route Route, invocation commandexecu
 				done <- commandexecution.Outcome{Status: commandledger.OutcomeUnknown}
 			}
 		}()
-		result := b.service.Execute(executionCtx, toolinvocations.ExecuteRequest{
+		var beforeExecute func(context.Context) error
+		if route.Authorize != nil {
+			beforeExecute = func(checkCtx context.Context) error {
+				return route.Authorize(checkCtx, snapshot)
+			}
+		}
+		serviceCtx := executionCtx
+		var prepareRelease func()
+		outcomeSent := false
+		defer func() {
+			if recover() != nil && !outcomeSent {
+				if prepareRelease != nil {
+					releaseBridgeContext(prepareRelease)
+				}
+				done <- commandexecution.Outcome{Status: commandledger.OutcomeUnknown}
+			}
+		}()
+		if route.PrepareContext != nil {
+			preparedCtx, release, prepareErr := callPrepareContext(route.PrepareContext, executionCtx, snapshot)
+			if release != nil {
+				prepareRelease = onceRelease(release)
+			}
+			if prepareErr != nil || preparedCtx == nil {
+				if prepareRelease != nil {
+					prepareRelease()
+				}
+				if prepareErr != nil {
+					done <- commandexecution.Outcome{Status: commandledger.Failed}
+				} else {
+					done <- commandexecution.Outcome{Status: commandledger.OutcomeUnknown}
+				}
+				return
+			}
+			if err := executionCtx.Err(); err != nil || preparedCtx.Err() != nil {
+				if prepareRelease != nil {
+					releaseBridgeContext(prepareRelease)
+				}
+				done <- commandexecution.Outcome{Status: commandledger.OutcomeUnknown}
+				return
+			}
+			if owner, ok := database.UserIDFromContext(executionCtx); ok {
+				preparedCtx = database.WithUserID(preparedCtx, owner)
+			}
+			if originalInvocationContext, ok := invocationctx.Get(executionCtx); ok {
+				preparedCtx = invocationctx.With(preparedCtx, originalInvocationContext)
+			}
+			var cancelCombined func()
+			serviceCtx, cancelCombined = mergeBridgeContexts(executionCtx, preparedCtx)
+			defer cancelCombined()
+		}
+		result := b.service.Execute(serviceCtx, toolinvocations.ExecuteRequest{
 			Call: toolCall, ToolCatalogID: route.ToolCatalogID,
-			Origin:                        toolinvocations.Origin{Type: toolinvocations.OriginCommandInvocation, ID: invocation.ID},
+			Origin:                        origin,
 			SensitivePaths:                route.SensitivePaths,
 			RequireCompleteResult:         true,
 			RequireCanonicalToolCatalogID: true,
+			ExpectedToolGeneration:        route.ToolGeneration,
+			BeforeExecute:                 beforeExecute,
 		})
-		done <- outcomeFor(route, result)
+		outcome := outcomeFor(route, result)
+		if prepareRelease != nil && !releaseBridgeContext(prepareRelease) {
+			outcome = commandexecution.Outcome{Status: commandledger.OutcomeUnknown}
+		}
+		done <- outcome
+		outcomeSent = true
 	}()
 	return handle, nil
+}
+
+func callPrepareContext(prepare func(context.Context, commandexecution.Invocation) (context.Context, func(), error), ctx context.Context, snapshot commandexecution.Invocation) (prepared context.Context, release func(), err error) {
+	defer func() {
+		if recover() != nil {
+			err = ErrInvalidInvocation
+		}
+	}()
+	return prepare(ctx, snapshot)
+}
+
+func onceRelease(release func()) func() {
+	var once sync.Once
+	return func() { once.Do(release) }
+}
+
+func releaseBridgeContext(release func()) (ok bool) {
+	if release == nil {
+		return true
+	}
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+	release()
+	return true
+}
+
+func mergeBridgeContexts(original, prepared context.Context) (context.Context, func()) {
+	combined, cancel := context.WithCancel(prepared)
+	stopOriginal := context.AfterFunc(original, cancel)
+	merged := combined
+	var cancelDeadline context.CancelFunc
+	if deadline, ok := original.Deadline(); ok {
+		merged, cancelDeadline = context.WithDeadline(combined, deadline)
+	}
+	return merged, func() {
+		stopOriginal()
+		if cancelDeadline != nil {
+			cancelDeadline()
+		}
+		cancel()
+	}
+}
+
+func cloneBridgeInvocation(invocation commandexecution.Invocation) commandexecution.Invocation {
+	clone := invocation
+	if invocation.Envelope != nil {
+		envelope := invocation.Envelope.Clone()
+		clone.Envelope = &envelope
+	}
+	return clone
+}
+
+func bridgeToolContext(invocation commandexecution.Invocation) (invocationctx.InvocationContext, toolinvocations.Origin, error) {
+	envelope := invocation.Envelope
+	if envelope == nil {
+		return invocationctx.InvocationContext{}, toolinvocations.Origin{}, ErrInvalidInvocation
+	}
+	conversationID, turnID, err := pairedUUIDs(envelope.ConversationID, envelope.TurnID)
+	if err != nil {
+		return invocationctx.InvocationContext{}, toolinvocations.Origin{}, err
+	}
+	surfaceType, surfaceID, surfaceVersion, err := surfaceIdentity(envelope)
+	if err != nil {
+		return invocationctx.InvocationContext{}, toolinvocations.Origin{}, err
+	}
+	sourceProfile, _, err := profileIdentity(envelope)
+	if err != nil {
+		return invocationctx.InvocationContext{}, toolinvocations.Origin{}, err
+	}
+	if envelope.ActorType != "" && envelope.ActorID == "" {
+		return invocationctx.InvocationContext{}, toolinvocations.Origin{}, ErrInvalidInvocation
+	}
+	if envelope.ActorType == commandcontract.ActorUser && envelope.ActorID != invocation.Principal.UserID {
+		return invocationctx.InvocationContext{}, toolinvocations.Origin{}, ErrOwnerRequired
+	}
+
+	var surfaceContext map[string]any
+	if surfaceType != "" {
+		surfaceContext = map[string]any{
+			"surfaceType":     surfaceType,
+			"surfaceId":       surfaceID,
+			"snapshotVersion": surfaceVersion,
+		}
+	}
+	return invocationctx.InvocationContext{
+			ConversationID: conversationID,
+			TurnID:         turnID,
+			ProfileSlug:    sourceProfile,
+			Source:         string(invocation.Source),
+			TabType:        surfaceType,
+			SurfaceTabID:   surfaceID,
+			SurfaceContext: surfaceContext,
+		}, toolinvocations.Origin{
+			Type:           toolinvocations.OriginCommandInvocation,
+			ID:             invocation.ID,
+			ConversationID: conversationID,
+			TurnID:         turnID,
+		}, nil
+}
+
+// validateSubagentProfileArgument valida apenas a superfície especial da tool
+// subagent. Tools genéricas não ganham semântica implícita para um campo
+// chamado profile. Quando o envelope declara um destino, o argumento efetivo
+// precisa ser esse destino; argumento omitido herda o source profile e só é
+// aceito quando os dois perfis coincidem.
+func validateSubagentProfileArgument(toolName string, envelope *commandcontract.Envelope, arguments json.RawMessage) error {
+	if toolName != jobprofilegrant.ToolSubagent || envelope == nil || envelope.TargetProfileSlug == nil {
+		return nil
+	}
+	target := *envelope.TargetProfileSlug
+	source := ""
+	if envelope.SourceProfileSlug != nil {
+		source = *envelope.SourceProfileSlug
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(arguments, &fields); err != nil || fields == nil {
+		return ErrInvalidInvocation
+	}
+	rawProfile, present := fields["profile"]
+	if !present {
+		if source != target {
+			return ErrInvalidInvocation
+		}
+		return nil
+	}
+	var profile *string
+	if err := json.Unmarshal(rawProfile, &profile); err != nil || profile == nil || *profile != target {
+		return ErrInvalidInvocation
+	}
+	return nil
+}
+
+func pairedUUIDs(conversationID, turnID *string) (string, string, error) {
+	if (conversationID == nil) != (turnID == nil) {
+		return "", "", ErrInvalidInvocation
+	}
+	if conversationID == nil {
+		return "", "", nil
+	}
+	if !validUUIDv7(strings.TrimSpace(*conversationID)) || !validUUIDv7(strings.TrimSpace(*turnID)) || strings.TrimSpace(*conversationID) != *conversationID || strings.TrimSpace(*turnID) != *turnID {
+		return "", "", ErrInvalidInvocation
+	}
+	return *conversationID, *turnID, nil
+}
+
+func surfaceIdentity(envelope *commandcontract.Envelope) (string, string, string, error) {
+	values := []*string{envelope.SurfaceType, envelope.SurfaceID, envelope.SurfaceSnapshotVersion}
+	present := 0
+	for _, value := range values {
+		if value != nil {
+			present++
+			if strings.TrimSpace(*value) == "" || strings.TrimSpace(*value) != *value || strings.ContainsRune(*value, '\x00') {
+				return "", "", "", ErrInvalidInvocation
+			}
+		}
+	}
+	if present != 0 && present != len(values) {
+		return "", "", "", ErrInvalidInvocation
+	}
+	if present == 0 {
+		return "", "", "", nil
+	}
+	return *envelope.SurfaceType, *envelope.SurfaceID, *envelope.SurfaceSnapshotVersion, nil
+}
+
+func profileIdentity(envelope *commandcontract.Envelope) (string, string, error) {
+	var source, target string
+	if envelope.SourceProfileSlug != nil {
+		source = *envelope.SourceProfileSlug
+	}
+	if envelope.TargetProfileSlug != nil {
+		target = *envelope.TargetProfileSlug
+	}
+	if source != strings.TrimSpace(source) || target != strings.TrimSpace(target) ||
+		(envelope.SourceProfileSlug != nil && source == "") ||
+		(envelope.TargetProfileSlug != nil && target == "") ||
+		strings.ContainsRune(source, '\x00') || strings.ContainsRune(target, '\x00') || (source == "" && target != "") {
+		return "", "", ErrInvalidInvocation
+	}
+	if envelope.ActorType == commandcontract.ActorAgent && (source == "" || target == "") {
+		return "", "", ErrInvalidInvocation
+	}
+	if envelope.ActorType == commandcontract.ActorUser && target != "" {
+		return "", "", ErrInvalidInvocation
+	}
+	return source, target, nil
 }
 
 func outcomeFor(route Route, result toolinvocations.ExecuteResult) commandexecution.Outcome {

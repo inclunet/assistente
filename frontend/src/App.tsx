@@ -29,6 +29,8 @@ import { summaryErrorMessage } from './lib/summaryError';
 import { chatNoticeMessage, chatNoticeTone, type ChatNoticeEvent } from './lib/chatNotice';
 import { useBackendQuestionnaire } from './hooks/useBackendQuestionnaire';
 import { AuthGate } from './components/auth/AuthGate';
+import { CommandContextProvider } from './lib/commandContextReact';
+import { acquireGlobalCommandOwnership } from './lib/commandGlobalOwnershipWails';
 
 function useAntdLocale(lang: string): Locale | undefined {
     const [locale, setLocale] = useState<Locale | undefined>(undefined);
@@ -65,6 +67,12 @@ function getCurrentAuthSnapshot() {
 }
 
 function App() {
+    useEffect(() => {
+        const ownership = acquireGlobalCommandOwnership({
+            subscribe: (listener) => EventsOn('command:global-ownership', listener),
+        });
+        return ownership.dispose;
+    }, []);
     const { theme } = useTheme();
     const { t, i18n } = useTranslation();
     const navigate = useNavigate();
@@ -399,7 +407,7 @@ function App() {
             <ScreenReaderAnnouncer />
             <ToastHost />
             <AuthGate>
-                <Outlet />
+                <CommandContextProvider><Outlet /></CommandContextProvider>
                 <ConfirmHost />
                 <DecisionQuestionnaireHost
                     data={questionnaireData}

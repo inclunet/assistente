@@ -21,6 +21,7 @@ import (
 	"assistente/internal/questionnaire"
 	"assistente/internal/tasklist"
 	"assistente/internal/tools"
+	commandtool "assistente/internal/tools/command"
 	deeplinktool "assistente/internal/tools/deeplink"
 	feedtool "assistente/internal/tools/feed"
 	"assistente/internal/tools/filesystem"
@@ -274,6 +275,8 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry = tools.NewRegistry()
 	a.toolExecutor = tools.NewExecutor(a.toolRegistry, tools.DefaultExecutorConfig())
 	a.toolRegistry.MustRegister(tools.NewReadToolResult())
+	a.toolRegistry.MustRegister(commandtool.NewCatalog(commandAgentTools{app: a}))
+	a.toolRegistry.MustRegister(commandtool.NewConfig(commandAgentTools{app: a}))
 	profileAccess := a.profileAccessService()
 
 	// Determina diretório de trabalho para as tools de filesystem

@@ -154,6 +154,44 @@ describe('useEditableList', () => {
     expect(addToastMock).toHaveBeenCalledWith('Erro de validação', 'error');
   });
 
+  it('modo somente leitura falha explicitamente sem iniciar escrita ou confirmação', async () => {
+    const { result } = renderHook(() =>
+      useEditableList<Item>(
+        {
+          loadItems: vi.fn().mockResolvedValue([]),
+          loadItem: vi.fn().mockResolvedValue({ id: '1', name: 'Item 1' }),
+        },
+        {
+          entityName: 'Item',
+          createDefault: () => ({ id: 'new', name: 'Novo' }),
+        },
+      ),
+    );
+
+    act(() => {
+      result.current.openNew();
+    });
+    await act(async () => {
+      await result.current.save();
+    });
+    expect(addToastMock).toHaveBeenCalledWith('editableList.createError', 'error');
+    expect(confirmMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.openEdit({ id: '1', name: 'Item 1' });
+    });
+    await act(async () => {
+      await result.current.save();
+    });
+    expect(addToastMock).toHaveBeenCalledWith('editableList.updateError', 'error');
+
+    await act(async () => {
+      await result.current.deleteItem({ id: '1', name: 'Item 1' });
+    });
+    expect(addToastMock).toHaveBeenCalledWith('editableList.deleteError', 'error');
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
   it('deleteItem respeita confirm e chama delete', async () => {
     const { result, operations } = setup();
 

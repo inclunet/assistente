@@ -1,11 +1,13 @@
 package portability
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
 
 	"assistente/internal/commandportability"
+	"assistente/internal/database"
 	"github.com/google/uuid"
 )
 
@@ -66,6 +68,25 @@ func TestImportCommandLayersNaoFingeSucessoSemWriter(t *testing.T) {
 	}
 	if _, err := ImportConversationsWithContext(nil, string(raw), nil, ""); !errors.Is(err, commandportability.ErrUnsupported) { //nolint:staticcheck // A API legada aceita nil; isso não deve contornar a indisponibilidade do writer.
 		t.Fatalf("import sem writer não foi bloqueado: %v", err)
+	}
+}
+
+func TestPlanCommandLayersImportRecusaEnvelopeMisto(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "plan-user")
+	raw := `{"version":2,"options":{},"resources":{"commandLayers":[],"conversations":[]}}`
+	if _, err := PlanCommandLayersImport(ctx, raw, commandportability.PlanOptions{}, nil, commandportability.ReferencePort{}); !errors.Is(err, commandportability.ErrInvalid) {
+		t.Fatalf("envelope commandLayers vazio/misto não foi rejeitado: %v", err)
+	}
+
+	raw = `{"version":2,"options":{},"resources":{"commandLayers":[{"id":"01a0a4b1-191a-7354-9630-9eb5d9b0883a","scope":{"kind":"global"},"name":"Atalhos","enabled":true}],"conversations":[{"id":"conversation-forbidden"}]}}`
+	if _, err := PlanCommandLayersImport(ctx, raw, commandportability.PlanOptions{}, nil, commandportability.ReferencePort{}); !errors.Is(err, commandportability.ErrUnsupported) {
+		t.Fatalf("envelope misto foi aceito: %v", err)
+	}
+}
+
+func TestExportCommandLayersWithContextRecusaWorkspaceAmbiguo(t *testing.T) {
+	if _, err := ExportCommandLayersWithContext(context.Background(), commandportability.ReferencePort{}, nil, true); !errors.Is(err, commandportability.ErrWorkspaceResolution) {
+		t.Fatalf("export workspace sem escopo exato não foi rejeitado: %v", err)
 	}
 }
 

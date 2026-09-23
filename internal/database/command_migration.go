@@ -37,6 +37,11 @@ func ApplyCommandImportMigration(ctx context.Context, db *gorm.DB, apply func(*g
 	return applyCommandMigration(ctx, db, 28, "command_config_import_audit", apply)
 }
 
+// ApplyCommandInstanceMigration compõe o ownership persistido de processos.
+func ApplyCommandInstanceMigration(ctx context.Context, db *gorm.DB, apply func(*gorm.DB) error) error {
+	return applyCommandMigration(ctx, db, 29, "command_process_generations", apply)
+}
+
 func applyCommandMigration(ctx context.Context, db *gorm.DB, version int, name string, apply func(*gorm.DB) error) error {
 	if ctx == nil || db == nil || apply == nil {
 		return errors.New("migração de comandos inválida")

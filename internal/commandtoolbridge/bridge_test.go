@@ -15,8 +15,10 @@ import (
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandledger"
 	"assistente/internal/database"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 
 	"github.com/google/uuid"
 )
@@ -109,6 +111,7 @@ type bridgeTool struct {
 	started  chan struct{}
 	release  chan struct{}
 	received chan json.RawMessage
+	contexts chan context.Context
 	content  string
 }
 
@@ -119,6 +122,9 @@ func (t *bridgeTool) Parameters() json.RawMessage {
 }
 func (t *bridgeTool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	t.received <- append(json.RawMessage(nil), args...)
+	if t.contexts != nil {
+		t.contexts <- ctx
+	}
 	select {
 	case <-t.started:
 	default:
@@ -145,7 +151,7 @@ func (t *bridgeTool) Execute(ctx context.Context, args json.RawMessage) (tools.T
 func newBridgeFixture(t *testing.T) (*Bridge, *bridgeRepository, *bridgeTool, string, string) {
 	t.Helper()
 	registry := tools.NewRegistry()
-	tool := &bridgeTool{started: make(chan struct{}), release: make(chan struct{}), received: make(chan json.RawMessage, 1)}
+	tool := &bridgeTool{started: make(chan struct{}), release: make(chan struct{}), received: make(chan json.RawMessage, 1), contexts: make(chan context.Context, 1)}
 	if err := registry.Register(tool); err != nil {
 		t.Fatal(err)
 	}
@@ -162,6 +168,137 @@ func newBridgeFixture(t *testing.T) (*Bridge, *bridgeRepository, *bridgeTool, st
 	userID, _ := uuid.NewV7()
 	invocationID, _ := uuid.NewV7()
 	return bridge, repo, tool, userID.String(), invocationID.String()
+}
+
+func TestBridgePreservesRealServiceCorrelationAndToolContext(t *testing.T) {
+	bridge, repo, tool, userID, invocationID := newBridgeFixture(t)
+	handler, ok := bridge.Handler(bridgeCommandID)
+	if !ok {
+		t.Fatal("handler não encontrado")
+	}
+	invocation := commandInvocation(userID, invocationID)
+	conversationID := uuid.Must(uuid.NewV7()).String()
+	turnID := uuid.Must(uuid.NewV7()).String()
+	surfaceType, surfaceID, surfaceVersion := "chat", "tab-chat", "surface-v3"
+	sourceProfile, targetProfile := "parent-profile", "tool-profile"
+	invocation.Envelope.ConversationID = &conversationID
+	invocation.Envelope.TurnID = &turnID
+	invocation.Envelope.SurfaceType = &surfaceType
+	invocation.Envelope.SurfaceID = &surfaceID
+	invocation.Envelope.SurfaceSnapshotVersion = &surfaceVersion
+	invocation.Envelope.SourceProfileSlug = &sourceProfile
+	invocation.Envelope.TargetProfileSlug = &targetProfile
+	invocation.Envelope.ActorType = commandcontract.ActorAgent
+	invocation.Envelope.ActorID = "agent-1"
+
+	handle, err := handler.Start(context.Background(), invocation)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	select {
+	case toolCtx := <-tool.contexts:
+		captured, ok := invocationctx.Get(toolCtx)
+		if !ok {
+			t.Fatal("tool não recebeu InvocationContext")
+		}
+		if captured.ConversationID != conversationID || captured.TurnID != turnID || captured.ProfileSlug != sourceProfile || captured.TabType != surfaceType || captured.SurfaceTabID != surfaceID {
+			t.Fatalf("contexto propagado = %+v", captured)
+		}
+		if captured.SurfaceContext["surfaceType"] != surfaceType || captured.SurfaceContext["surfaceId"] != surfaceID || captured.SurfaceContext["snapshotVersion"] != surfaceVersion || len(captured.SurfaceContext) != 3 {
+			t.Fatalf("metadados de delegação/surface = %#v", captured.SurfaceContext)
+		}
+		if _, ok := captured.SurfaceContext["targetProfile"]; ok {
+			t.Fatalf("target profile não deve ser fabricado no SurfaceContext: %#v", captured.SurfaceContext)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("tool não recebeu contexto")
+	}
+	repo.mu.Lock()
+	persisted := repo.inv
+	repo.mu.Unlock()
+	if persisted.OriginType != toolinvocations.OriginCommandInvocation || persisted.OriginID != invocationID || persisted.ConversationID != conversationID || persisted.TurnID != turnID {
+		t.Fatalf("correlação persistida = %+v", persisted)
+	}
+	close(tool.release)
+	select {
+	case outcome := <-handle.Done:
+		if outcome.Status != commandledger.Succeeded {
+			t.Fatalf("status = %s, want succeeded", outcome.Status)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("resultado não recebido")
+	}
+}
+
+func TestBridgeRejectsIncoherentContextCombinations(t *testing.T) {
+	bridge, _, _, userID, invocationID := newBridgeFixture(t)
+	handler, _ := bridge.Handler(bridgeCommandID)
+	cases := []struct {
+		name string
+		edit func(*commandexecution.Invocation)
+	}{
+		{name: "conversation sem turn", edit: func(inv *commandexecution.Invocation) {
+			id := uuid.Must(uuid.NewV7()).String()
+			inv.Envelope.ConversationID = &id
+		}},
+		{name: "surface parcial", edit: func(inv *commandexecution.Invocation) {
+			typ := "chat"
+			inv.Envelope.SurfaceType = &typ
+		}},
+		{name: "target profile sem source", edit: func(inv *commandexecution.Invocation) {
+			target := "tool-profile"
+			inv.Envelope.TargetProfileSlug = &target
+		}},
+		{name: "agent sem profiles", edit: func(inv *commandexecution.Invocation) {
+			inv.Envelope.ActorType = commandcontract.ActorAgent
+			inv.Envelope.ActorID = "agent-1"
+		}},
+		{name: "actor user foreign", edit: func(inv *commandexecution.Invocation) {
+			inv.Envelope.ActorType = commandcontract.ActorUser
+			inv.Envelope.ActorID = uuid.Must(uuid.NewV7()).String()
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			invocation := commandInvocation(userID, invocationID)
+			tc.edit(&invocation)
+			if _, err := handler.Start(context.Background(), invocation); err == nil {
+				t.Fatal("combinação incoerente aceita")
+			}
+		})
+	}
+}
+
+func TestSubagentTargetProfileMatchesOnlyItsArgumentOrInheritedSource(t *testing.T) {
+	source, target := "parent-profile", "child-profile"
+	envelope := &commandcontract.Envelope{SourceProfileSlug: &source, TargetProfileSlug: &target}
+	cases := []struct {
+		name string
+		args string
+		want bool
+	}{
+		{name: "target literal", args: `{"profile":"child-profile"}`, want: true},
+		{name: "divergent literal", args: `{"profile":"other-profile"}`},
+		{name: "omitted inherits different source", args: `{}`},
+		{name: "null is not omission", args: `{"profile":null}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateSubagentProfileArgument(jobprofilegrant.ToolSubagent, envelope, json.RawMessage(tc.args))
+			if (err == nil) != tc.want {
+				t.Fatalf("validação = %v, want success=%v", err, tc.want)
+			}
+		})
+	}
+
+	same := "same-profile"
+	inherited := &commandcontract.Envelope{SourceProfileSlug: &same, TargetProfileSlug: &same}
+	if err := validateSubagentProfileArgument(jobprofilegrant.ToolSubagent, inherited, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("omissão deveria herdar source quando coincide com target: %v", err)
+	}
+	if err := validateSubagentProfileArgument("generic-tool", envelope, json.RawMessage(`{"profile":"other-profile"}`)); err != nil {
+		t.Fatalf("tool genérica não deve interpretar profile: %v", err)
+	}
 }
 
 func commandInvocation(userID, invocationID string) commandexecution.Invocation {

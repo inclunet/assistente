@@ -8,8 +8,10 @@ import (
 	"log/slog"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
+	"assistente/internal/commandjobactivation"
 	"assistente/internal/eventctx"
 	"assistente/internal/jobprofilegrant"
 	"assistente/internal/logging"
@@ -31,8 +33,13 @@ type JobExecutor struct {
 	notifyFunc      NotifyFunc
 
 	// Callback emitido no inicio/fim de cada run (para atualizar UI)
-	onRunStart func(jobID string, runID string)
-	onRunEnd   func(jobID string, runLog *RunLog)
+	onRunStart               func(jobID string, runID string)
+	onRunEnd                 func(jobID string, runLog *RunLog)
+	commandRuntimeIdentity   func(context.Context) (commandjobactivation.RuntimeIdentity, context.Context, func(), error)
+	commandJobServiceContext func(context.Context, *Job, string, context.Context) (context.Context, error)
+	commandRuntimeToken      func() uint64
+	onCommandRuntimeStart    func(runID string, identity commandjobactivation.RuntimeIdentity, watchCtx context.Context, token uint64) bool
+	onCommandRuntimeEnd      func(runID string)
 }
 
 // NotifyFunc envia notificacao para canais (chat, telegram, etc.)
@@ -51,15 +58,20 @@ func (e *attemptFailure) Unwrap() error { return e.err }
 
 // ExecutorConfig configura o JobExecutor.
 type ExecutorConfig struct {
-	ToolRegistry    *tools.Registry
-	ToolInvocations *toolinvocations.Service
-	EventBus        *EventBus
-	Repository      Repository
-	CircuitBreaker  *CircuitBreaker
-	SecretStore     SecretStore
-	NotifyFunc      NotifyFunc
-	OnRunStart      func(jobID string, runID string)
-	OnRunEnd        func(jobID string, runLog *RunLog)
+	ToolRegistry             *tools.Registry
+	ToolInvocations          *toolinvocations.Service
+	EventBus                 *EventBus
+	Repository               Repository
+	CircuitBreaker           *CircuitBreaker
+	SecretStore              SecretStore
+	NotifyFunc               NotifyFunc
+	OnRunStart               func(jobID string, runID string)
+	OnRunEnd                 func(jobID string, runLog *RunLog)
+	CommandRuntimeIdentity   func(context.Context) (commandjobactivation.RuntimeIdentity, context.Context, func(), error)
+	CommandJobServiceContext func(context.Context, *Job, string, context.Context) (context.Context, error)
+	CommandRuntimeToken      func() uint64
+	OnCommandRuntimeStart    func(runID string, identity commandjobactivation.RuntimeIdentity, watchCtx context.Context, token uint64) bool
+	OnCommandRuntimeEnd      func(runID string)
 }
 
 // NewJobExecutor cria um executor com as dependências fornecidas.
@@ -74,15 +86,20 @@ func NewJobExecutor(cfg ExecutorConfig) (*JobExecutor, error) {
 		return nil, errors.New("job executor: tool invocation ledger not configured")
 	}
 	return &JobExecutor{
-		toolRegistry:    cfg.ToolRegistry,
-		toolInvocations: cfg.ToolInvocations,
-		eventBus:        cfg.EventBus,
-		repository:      cfg.Repository,
-		circuitBreaker:  cfg.CircuitBreaker,
-		secretStore:     cfg.SecretStore,
-		notifyFunc:      cfg.NotifyFunc,
-		onRunStart:      cfg.OnRunStart,
-		onRunEnd:        cfg.OnRunEnd,
+		toolRegistry:             cfg.ToolRegistry,
+		toolInvocations:          cfg.ToolInvocations,
+		eventBus:                 cfg.EventBus,
+		repository:               cfg.Repository,
+		circuitBreaker:           cfg.CircuitBreaker,
+		secretStore:              cfg.SecretStore,
+		notifyFunc:               cfg.NotifyFunc,
+		onRunStart:               cfg.OnRunStart,
+		onRunEnd:                 cfg.OnRunEnd,
+		commandRuntimeIdentity:   cfg.CommandRuntimeIdentity,
+		commandJobServiceContext: cfg.CommandJobServiceContext,
+		commandRuntimeToken:      cfg.CommandRuntimeToken,
+		onCommandRuntimeStart:    cfg.OnCommandRuntimeStart,
+		onCommandRuntimeEnd:      cfg.OnCommandRuntimeEnd,
 	}, nil
 }
 
@@ -152,6 +169,20 @@ func newRunEvent(runID string, sequence int, eventType, message string, data map
 // Execute executa um job: resolve inputs, chama a tool, processa output, emite eventos.
 // Respeita error_policy com retry/backoff.
 func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerContext) *RunLog {
+	ctx = withoutCommandJobServiceMarker(ctx)
+	// A autorização da delegação pertence ao primeiro job, não a eventos ou
+	// chamadas de jobs descendentes. A raiz/cadeia privada continua preservada.
+	if ctx != nil {
+		if parent, ok := ctx.Value(commandEventOriginKey{}).(commandEventOrigin); ok && len(parent.history) > 0 {
+			// Uma delegação herdada do mesmo handler ainda precisa revalidar
+			// cada tentativa. Um job descendente, porém, não pode reutilizar o
+			// dispatch/autorização do pai.
+			dispatch, delegated := ctx.Value(commandJobDispatchKey{}).(commandJobDispatch)
+			if !delegated || dispatch.jobID != job.DatabaseID || len(parent.history) != dispatch.chainDepth {
+				ctx = context.WithValue(ctx, commandJobDispatchKey{}, struct{}{})
+			}
+		}
+	}
 	if trigCtx == nil {
 		trigCtx = &TriggerContext{Type: TriggerManual}
 	}
@@ -161,6 +192,8 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		runUUID = uuid.New()
 	}
 	runID := "run_" + runUUID.String()
+	runLifetime, runLifetimeCancel := context.WithCancel(ctx)
+	defer runLifetimeCancel()
 	logAttrs := []slog.Attr{
 		slog.String("job_id", job.ID),
 		slog.String("run_id", runID),
@@ -176,6 +209,41 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 	logger := logging.Logger(ctx, "jobs.executor")
 
 	rootType, rootID := runRoot(trigCtx, runID)
+	var runtimeIdentity commandjobactivation.RuntimeIdentity
+	var runtimeWatchCtx context.Context
+	var runtimeRelease func()
+	var runtimeToken uint64
+	var runtimeEndBeforeTerminal func()
+	if e.commandRuntimeIdentity != nil {
+		if e.commandRuntimeToken != nil {
+			runtimeToken = e.commandRuntimeToken()
+		}
+		identity, watchCtx, release, admissionErr := e.commandRuntimeIdentity(ctx)
+		runtimeRelease = release
+		if runtimeRelease != nil {
+			defer runtimeRelease()
+		}
+		if admissionErr == nil && watchCtx != nil && watchCtx.Err() == nil {
+			identity.Generation = runUUID.String()
+			if _, proofErr := CommandRuntimeIdentityProvenance(identity); proofErr == nil {
+				runtimeIdentity = identity
+				runtimeWatchCtx = watchCtx
+			}
+		}
+	}
+	// A sessão pode mudar entre o listener e esta captura. Uma raiz interna
+	// não pode receber a identidade nova e aparentar pertencer à nova sessão.
+	if !commandEventRuntimeMatches(ctx, runtimeIdentity) {
+		if _, delegated := ctx.Value(commandJobDispatchKey{}).(commandJobDispatch); delegated {
+			return &RunLog{RunID: runID, JobID: job.ID, Status: RunStatusFailed, Error: "command job identity changed before queued"}
+		}
+		rootType, rootID = "unknown", ""
+	}
+	if dispatch, delegated := ctx.Value(commandJobDispatchKey{}).(commandJobDispatch); delegated {
+		if dispatch.jobID != job.DatabaseID || dispatch.revalidate == nil || dispatch.revalidate(ctx) != nil {
+			return &RunLog{RunID: runID, JobID: job.ID, Status: RunStatusFailed, Error: "command job authorization changed before queued"}
+		}
+	}
 	rl := &RunLog{
 		RunID: runID,
 		JobID: job.ID,
@@ -199,9 +267,17 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		rl.Error = "invalid command provenance"
 		return rl
 	}
+	delete(rl.Provenance, commandRuntimeIdentityProvenanceKey)
+	if runtimeWatchCtx != nil {
+		proof, proofErr := CommandRuntimeIdentityProvenance(runtimeIdentity)
+		if proofErr == nil {
+			rl.Provenance[commandRuntimeIdentityProvenanceKey] = proof[commandRuntimeIdentityProvenanceKey]
+		}
+	}
+	ctx = e.withCommandEventOrigin(ctx, job, trigCtx, rl)
 
-	// A fila é persistida antes de qualquer callback/dispatch. O evento
-	// `queued` é a primeira fronteira observável do run.
+	// A fila é persistida antes dos callbacks e da emissão de identidade.
+	// A preparação privada abaixo fica coberta pela finalização terminal.
 	durableCtx := context.WithoutCancel(ctx)
 	queuedEvent := newRunEvent(runID, 1, RunStatusQueued, fmt.Sprintf("[%s] -> %s QUEUED", trigCtx.Type, job.ID), nil)
 	rl.RunEvents = append(rl.RunEvents, queuedEvent)
@@ -210,12 +286,29 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		rl.Error = fmt.Sprintf("persist queued run: %v", err)
 		return rl
 	}
-
+	if runtimeWatchCtx != nil && e.onCommandRuntimeStart != nil && e.onCommandRuntimeStart(runID, runtimeIdentity, runtimeWatchCtx, runtimeToken) {
+		var runtimeEndOnce sync.Once
+		endCommandRuntime := func() {
+			runtimeEndOnce.Do(func() {
+				if e.onCommandRuntimeEnd != nil {
+					e.onCommandRuntimeEnd(runID)
+				}
+			})
+		}
+		// O fallback invalida a prova mesmo se um callback falhar antes
+		// da instalação do defer de persistência terminal.
+		defer endCommandRuntime()
+		runtimeEndBeforeTerminal = endCommandRuntime
+	}
 	if e.onRunStart != nil {
 		e.onRunStart(job.ID, runID)
 	}
 
 	defer func() {
+		runLifetimeCancel()
+		if runtimeEndBeforeTerminal != nil {
+			runtimeEndBeforeTerminal()
+		}
 		rl.CompletedAt = time.Now()
 		if !rl.StartedAt.IsZero() {
 			rl.Duration = rl.CompletedAt.Sub(rl.StartedAt).String()
@@ -252,6 +345,18 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 			e.onRunEnd(job.ID, rl)
 		}
 	}()
+
+	if e.commandJobServiceContext != nil {
+		serviceCtx, serviceErr := e.commandJobServiceContext(ctx, job, runID, runLifetime)
+		if serviceErr != nil {
+			rl.Status = RunStatusFailed
+			rl.Error = "command job identity unavailable"
+			return rl
+		}
+		if serviceCtx != nil {
+			ctx = serviceCtx
+		}
+	}
 
 	triggered := newRunEvent(runID, 0, "triggered", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
 	rl.RunEvents = append(rl.RunEvents, triggered)
@@ -462,6 +567,20 @@ func (e *JobExecutor) ExecuteDryRun(ctx context.Context, job *Job, trigCtx *Trig
 }
 
 func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *TriggerContext, rl *RunLog) (map[string]any, error) {
+	// Um retry não herda autorização antiga. A verificação continua fora de
+	// transação/gate e usa a mesma definição e geração de grant da delegação.
+	if dispatch, delegated := ctx.Value(commandJobDispatchKey{}).(commandJobDispatch); delegated && dispatch.jobID == job.DatabaseID {
+		if dispatch.revalidate == nil {
+			return nil, permanentAttemptFailure(ErrCommandJobDenied, tools.ErrorKindAuthorization, "command_job_authorization_changed")
+		}
+		if err := dispatch.revalidate(ctx); err != nil {
+			var classified *attemptFailure
+			if errors.As(err, &classified) {
+				return nil, err
+			}
+			return nil, permanentAttemptFailure(ErrCommandJobDenied, tools.ErrorKindAuthorization, "command_job_authorization_changed")
+		}
+	}
 	// Carimba proveniência no ctx do run (AEP-0067): mutações de domínio feitas
 	// pela tool (ex.: task_list) durante este run são marcadas como _source="job".
 	// Isso flui ctx -> tool -> tasklist.Service, que injeta no payload do evento,
@@ -526,6 +645,12 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	}
 
 	resolvedInputs = CoerceInputs(resolvedInputs, tool.Parameters())
+	if dispatch, delegated := ctx.Value(commandJobDispatchKey{}).(commandJobDispatch); delegated && dispatch.profileTarget != "" {
+		profile, valid := resolvedInputs["profile"].(string)
+		if dispatch.jobID != job.DatabaseID || job.Tool != jobprofilegrant.ToolSubagent || !valid || strings.TrimSpace(profile) != dispatch.profileTarget || dispatch.revalidate == nil || dispatch.revalidate(ctx) != nil {
+			return nil, permanentAttemptFailure(ErrCommandJobDenied, tools.ErrorKindAuthorization, "command_job_profile_changed")
+		}
+	}
 
 	persistedInputs := RedactResolvedInputs(job.Inputs, resolvedInputs)
 	if rl != nil {
@@ -640,7 +765,7 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 		originType = toolinvocations.OriginJobRun
 		originID = rl.RunID
 	}
-	recorded := e.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
+	request := toolinvocations.ExecuteRequest{
 		Call: tools.ToolCall{
 			ID:   callID,
 			Type: "function",
@@ -660,7 +785,11 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 		// explicitamente o payload quando seu limite separado não comporta tudo.
 		ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
 		RequireCompleteResult:  true,
-	})
+	}
+	if dispatch, ok := ctx.Value(commandJobDispatchKey{}).(commandJobDispatch); ok && dispatch.jobID == job.DatabaseID {
+		request.SensitivePaths = dispatch.paths
+	}
+	recorded := e.toolInvocations.Execute(ctx, request)
 	if !recorded.Persisted {
 		return tools.ToolExecutionResult{
 			CallID:            recorded.Execution.CallID,

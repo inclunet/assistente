@@ -249,7 +249,8 @@ export function createAuthenticatedCommandBridge(
     if (guarded() || current.frame.version !== owned.frame.version ||
       current.frame.modal.generation !== modal.generation ||
       !sameContextValue(current.frame.focus, owned.frame.focus) ||
-      !sameContextValue(current.frame.surface, owned.frame.surface)) {
+      !sameContextValue(current.frame.surface, owned.frame.surface) ||
+      !sameContextValue(current.frame.profile, owned.frame.profile)) {
       return { kind: 'blocked' };
     }
     if (candidate.source !== 'keyboard.local' || candidate.ownership !== 'local') {

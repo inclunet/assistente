@@ -3,8 +3,11 @@ package profileaccess
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/eventctx"
 	"assistente/internal/jobprofilegrant"
@@ -49,10 +52,14 @@ type fakeJobGrants struct {
 	revoked    int
 	generation uint64
 	revokeErr  error
+	beginErr   error
 	currentErr error
 	validErr   error
 	begun      int
 	canceled   int
+	notified   int
+	beginHook  func()
+	revokeHook func()
 }
 
 func (f *fakeJobGrants) AuthorizationSnapshot(ctx context.Context, jobID, _ string) (jobprofilegrant.AuthorizationSnapshot, error) {
@@ -94,7 +101,10 @@ func (f *fakeJobGrants) Revoke(context.Context, string, string, string) error {
 }
 func (f *fakeJobGrants) BeginProfileRevocation(context.Context, string, string, string) error {
 	f.begun++
-	return nil
+	if f.beginHook != nil {
+		f.beginHook()
+	}
+	return f.beginErr
 }
 func (f *fakeJobGrants) CancelProfileRevocation(context.Context, string) error {
 	f.canceled++
@@ -103,6 +113,16 @@ func (f *fakeJobGrants) CancelProfileRevocation(context.Context, string) error {
 func (f *fakeJobGrants) RevokeProfileGlobal(context.Context, string, string) error {
 	f.revoked++
 	return f.revokeErr
+}
+func (f *fakeJobGrants) RevokeProfileGlobalDeferred(context.Context, string, string) (func(), error) {
+	f.revoked++
+	if f.revokeErr != nil {
+		if f.revokeHook != nil {
+			f.revokeHook()
+		}
+		return nil, f.revokeErr
+	}
+	return func() { f.notified++ }, nil
 }
 
 func (f *fakeAsker) Ask(_ context.Context, _ questionnaire.Surface, payload questionnaire.RequestPayload) (questionnaire.Response, error) {
@@ -125,6 +145,82 @@ func profileStoreFixture() fakeProfileStore {
 			"custom": {Name: "Custom"},
 		},
 	}
+}
+
+func realProfileManager(t *testing.T) *profiles.Manager {
+	t.Helper()
+	tempDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	oldUserProfile := os.Getenv("USERPROFILE")
+	oldCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Setenv("HOME", tempDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Setenv("USERPROFILE", tempDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal(err)
+	}
+	configdir.ResetForTests()
+	t.Cleanup(func() {
+		_ = os.Chdir(oldCwd)
+		_ = os.Setenv("HOME", oldHome)
+		_ = os.Setenv("USERPROFILE", oldUserProfile)
+		configdir.ResetForTests()
+	})
+	manager := profiles.NewManager()
+	if err := manager.EnsureDefaults(); err != nil {
+		t.Fatal(err)
+	}
+	return manager
+}
+
+func preparedProfileMutation(t *testing.T, manager *profiles.Manager, operation, slug string, profile *profiles.Profile) (*profiles.CommandMutation, string) {
+	t.Helper()
+	fingerprint, err := manager.CommandMutationSnapshot(slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutation, err := manager.PrepareCommandMutation(operation, slug, profile, fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mutation, fingerprint
+}
+
+func deletionProfileFixture(t *testing.T, name string) (*profiles.Manager, string) {
+	t.Helper()
+	manager := realProfileManager(t)
+	anchor := profiles.DefaultProfile()
+	anchor.Name = "Âncora " + name
+	anchor.Active = true
+	if _, err := manager.Create(anchor); err != nil {
+		t.Fatal(err)
+	}
+	profile := profiles.DefaultProfile()
+	profile.Name = name
+	profile.Active = false
+	slug, err := manager.Create(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return manager, slug
+}
+
+func profileFilePath(t *testing.T, manager *profiles.Manager, slug string) string {
+	t.Helper()
+	for _, root := range manager.GetSearchPaths() {
+		path := filepath.Join(root, slug+".json")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	t.Fatalf("arquivo do profile %q não encontrado nas raízes %#v", slug, manager.GetSearchPaths())
+	return ""
 }
 
 func TestListIncludesCustomDescriptionsAndCurrentProfile(t *testing.T) {
@@ -403,6 +499,235 @@ func TestDeleteProfileFailureDoesNotRevokeGrants(t *testing.T) {
 	})
 	if !errors.Is(err, deleteErr) || grants.revoked != 0 {
 		t.Fatalf("exclusão falha não pode revogar grants: revoked=%d err=%v", grants.revoked, err)
+	}
+}
+
+func TestDeleteProfileOutcomeUnknownKeepsRevocationIntent(t *testing.T) {
+	grants := &fakeJobGrants{}
+	service := NewService(profileStoreFixture(), nil, nil, nil).WithJobGrants(grants)
+	err := service.DeleteProfile(context.Background(), "custom", func() error {
+		return profiles.ErrCommandMutationOutcomeUnknown
+	})
+	if !errors.Is(err, profiles.ErrCommandMutationOutcomeUnknown) {
+		t.Fatalf("erro de outcome desconhecido perdido: %v", err)
+	}
+	if grants.canceled != 0 {
+		t.Fatalf("intenção incerta foi cancelada: %d", grants.canceled)
+	}
+}
+
+func TestCommitProfileMutationDeleteCoordinatesSuccessAndPublishesAfterCommit(t *testing.T) {
+	manager, slug := deletionProfileFixture(t, "Coordenado")
+	grants := &fakeJobGrants{}
+	service := NewService(manager, nil, nil, nil).WithJobGrants(grants)
+	mutation, _ := preparedProfileMutation(t, manager, profiles.CommandMutationDelete, slug, nil)
+
+	got, err := service.CommitProfileMutation(context.Background(), mutation)
+	if err != nil || got != slug {
+		t.Fatalf("commit = %q, err=%v", got, err)
+	}
+	if _, err := manager.Get(slug); err == nil {
+		t.Fatal("profile excluído ainda está presente")
+	}
+	if grants.begun != 1 || grants.revoked != 1 || grants.canceled != 0 || grants.notified != 1 {
+		t.Fatalf("coordenação de grants inesperada: begun=%d revoked=%d canceled=%d notified=%d", grants.begun, grants.revoked, grants.canceled, grants.notified)
+	}
+}
+
+func TestCommitProfileMutationRejectsStaleCASAndABAWithoutGrantEffects(t *testing.T) {
+	manager, slug := deletionProfileFixture(t, "CAS profile")
+	profile := profiles.DefaultProfile()
+	profile.Name = "CAS profile"
+	profile.Active = false
+	current, err := manager.Get(slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile = current
+	grants := &fakeJobGrants{}
+	service := NewService(manager, nil, nil, nil).WithJobGrants(grants)
+	mutation, _ := preparedProfileMutation(t, manager, profiles.CommandMutationDelete, slug, nil)
+	changed := *profile
+	changed.Description = "mudança concorrente"
+	if err := manager.Update(slug, &changed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CommitProfileMutation(context.Background(), mutation); !errors.Is(err, profiles.ErrStaleCommandMutation) {
+		t.Fatalf("CAS não recusou mutação obsoleta: %v", err)
+	}
+	if grants.begun != 0 || grants.revoked != 0 || grants.canceled != 0 {
+		t.Fatalf("CAS obsoleto produziu efeitos de grant: %#v", grants)
+	}
+
+	original := changed
+	original.Description = profile.Description
+	if err := manager.Update(slug, &original); err != nil {
+		t.Fatal(err)
+	}
+	abaMutation, _ := preparedProfileMutation(t, manager, profiles.CommandMutationDelete, slug, nil)
+	aba := original
+	aba.Description = "ABA intermediário"
+	if err := manager.Update(slug, &aba); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Update(slug, &original); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CommitProfileMutation(context.Background(), abaMutation); !errors.Is(err, profiles.ErrStaleCommandMutation) {
+		t.Fatalf("ABA não foi recusado: %v", err)
+	}
+}
+
+func TestCommitProfileMutationRejectsActiveProfileBeforeGrantIntent(t *testing.T) {
+	manager, slug := deletionProfileFixture(t, "Ativo coordenado")
+	grants := &fakeJobGrants{}
+	service := NewService(manager, nil, nil, nil).WithJobGrants(grants)
+	mutation, _ := preparedProfileMutation(t, manager, profiles.CommandMutationDelete, slug, nil)
+	if err := manager.SetActive(slug); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CommitProfileMutation(context.Background(), mutation); !errors.Is(err, profiles.ErrStaleCommandMutation) {
+		t.Fatalf("mutação deveria ser recusada pelo CAS após ativação concorrente: %v", err)
+	}
+	if grants.begun != 0 || grants.revoked != 0 {
+		t.Fatalf("recusa de preparação produziu efeitos: %#v", grants)
+	}
+}
+
+func TestCommitProfileMutationGrantFailureRollsBackAndCancelsIntent(t *testing.T) {
+	manager, slug := deletionProfileFixture(t, "Falha grant")
+	revokeErr := errors.New("SQLite indisponível")
+	grants := &fakeJobGrants{revokeErr: revokeErr}
+	service := NewService(manager, nil, nil, nil).WithJobGrants(grants)
+	mutation, _ := preparedProfileMutation(t, manager, profiles.CommandMutationDelete, slug, nil)
+
+	if _, err := service.CommitProfileMutation(context.Background(), mutation); !errors.Is(err, profiles.ErrCommandMutationRolledBack) || !errors.Is(err, revokeErr) {
+		t.Fatalf("falha de grant não reportou rollback: %v", err)
+	}
+	if restored, err := manager.Get(slug); err != nil || restored == nil {
+		t.Fatalf("rollback não restaurou profile: profile=%#v err=%v", restored, err)
+	}
+	if grants.begun != 1 || grants.revoked != 1 || grants.canceled != 1 || grants.notified != 0 {
+		t.Fatalf("efeitos após falha de grant inesperados: %#v", grants)
+	}
+}
+
+func TestCommitProfileMutationInitialIntentFailureKeepsUnknownOutcome(t *testing.T) {
+	manager, slug := deletionProfileFixture(t, "Falha intenção")
+	beginErr := errors.New("falha ao gravar intenção")
+	grants := &fakeJobGrants{beginErr: beginErr}
+	service := NewService(manager, nil, nil, nil).WithJobGrants(grants)
+	mutation, _ := preparedProfileMutation(t, manager, profiles.CommandMutationDelete, slug, nil)
+
+	if _, err := service.CommitProfileMutation(context.Background(), mutation); !errors.Is(err, beginErr) {
+		t.Fatalf("falha inicial não foi propagada: %v", err)
+	}
+	if grants.canceled != 0 || grants.revoked != 0 {
+		t.Fatalf("falha inicial cancelou ou revogou indevidamente: %#v", grants)
+	}
+	if _, err := manager.Get(slug); err != nil {
+		t.Fatalf("arquivo foi alterado apesar da falha inicial: %v", err)
+	}
+}
+
+func TestCommitProfileMutationJournalFailureKeepsIntentWithoutNotification(t *testing.T) {
+	manager, slug := deletionProfileFixture(t, "Falha journal")
+	profilePath := profileFilePath(t, manager, slug)
+	journalPath := filepath.Join(filepath.Dir(profilePath), ".profile-mutation.journal")
+	grants := &fakeJobGrants{}
+	grants.beginHook = func() {
+		if err := os.Mkdir(journalPath, 0755); err != nil {
+			t.Fatalf("bloquear journal: %v", err)
+		}
+	}
+	service := NewService(manager, nil, nil, nil).WithJobGrants(grants)
+	mutation, _ := preparedProfileMutation(t, manager, profiles.CommandMutationDelete, slug, nil)
+
+	if _, err := service.CommitProfileMutation(context.Background(), mutation); !errors.Is(err, profiles.ErrCommandMutationOutcomeUnknown) {
+		t.Fatalf("falha de journal não foi incerta: %v", err)
+	}
+	if grants.canceled != 0 || grants.revoked != 0 || grants.notified != 0 {
+		t.Fatalf("falha de journal publicou/cancelou indevidamente: %#v", grants)
+	}
+	if _, err := os.Stat(profilePath); err != nil {
+		t.Fatalf("arquivo do profile mudou apesar da falha de journal: %v", err)
+	}
+	if info, err := os.Stat(journalPath); err != nil || !info.IsDir() {
+		t.Fatalf("sentinela do journal não permaneceu: info=%#v err=%v", info, err)
+	}
+}
+
+func TestCommitProfileMutationRollbackFailureKeepsIntent(t *testing.T) {
+	manager, slug := deletionProfileFixture(t, "Falha rollback")
+	profilePath := profileFilePath(t, manager, slug)
+	revokeErr := errors.New("falha de revogação")
+	grants := &fakeJobGrants{revokeErr: revokeErr}
+	grants.revokeHook = func() {
+		if err := os.WriteFile(profilePath, []byte("estado externo"), 0644); err != nil {
+			t.Fatalf("bloquear rollback: %v", err)
+		}
+	}
+	service := NewService(manager, nil, nil, nil).WithJobGrants(grants)
+	mutation, _ := preparedProfileMutation(t, manager, profiles.CommandMutationDelete, slug, nil)
+
+	if _, err := service.CommitProfileMutation(context.Background(), mutation); !errors.Is(err, profiles.ErrCommandMutationOutcomeUnknown) {
+		t.Fatalf("falha de rollback não foi incerta: %v", err)
+	}
+	if grants.canceled != 0 || grants.notified != 0 {
+		t.Fatalf("falha de rollback cancelou/publicou indevidamente: %#v", grants)
+	}
+	if data, err := os.ReadFile(profilePath); err != nil || string(data) != "estado externo" {
+		t.Fatalf("estado externo foi sobrescrito: data=%q err=%v", data, err)
+	}
+}
+
+func TestCommitProfileMutationRejectsNilAndCanceledContextBeforeEffects(t *testing.T) {
+	manager, slug := deletionProfileFixture(t, "Contexto")
+	grants := &fakeJobGrants{}
+	service := NewService(manager, nil, nil, nil).WithJobGrants(grants)
+	mutation, _ := preparedProfileMutation(t, manager, profiles.CommandMutationDelete, slug, nil)
+	if _, err := service.CommitProfileMutation(nil, mutation); err == nil {
+		t.Fatal("contexto nulo deveria ser recusado")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := service.CommitProfileMutation(ctx, mutation); !errors.Is(err, context.Canceled) {
+		t.Fatalf("contexto cancelado não foi recusado antes dos efeitos: %v", err)
+	}
+	if grants.begun != 0 || grants.revoked != 0 || grants.canceled != 0 {
+		t.Fatalf("contexto cancelado produziu efeitos: %#v", grants)
+	}
+	if _, err := manager.Get(slug); err != nil {
+		t.Fatalf("profile mudou com contexto cancelado: %v", err)
+	}
+}
+
+func TestAuthorizeJobTargetInvalidatedByCommittedProfileEpoch(t *testing.T) {
+	manager, slug := deletionProfileFixture(t, "Epoch")
+	updated, err := manager.Get(slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint, err := manager.CommandMutationSnapshot(slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutation, err := manager.PrepareCommandMutation(profiles.CommandMutationUpdate, slug, updated, fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := jobprofilegrant.DelegationConfig{JobID: "job-db", JobName: "Job", ProfileExpression: slug, Fingerprint: "fp"}
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{config, config, config}}
+	asker := &fakeAsker{resp: questionnaire.Response{Answers: map[string]any{questionnaire.AnswerActionID: ActionAllow}}}
+	service := NewService(manager, asker, nil, nil).WithJobGrants(grants)
+	asker.onAsk = func() {
+		if _, err := service.CommitProfileMutation(context.Background(), mutation); err != nil {
+			t.Errorf("update concorrente: %v", err)
+		}
+	}
+	allowed, err := service.AuthorizeJobTarget(context.Background(), questionnaire.DesktopSurface(""), "job-db", slug)
+	if allowed || err == nil || grants.granted != 0 {
+		t.Fatalf("epoch do profile não invalidou autorização pendente: allowed=%v granted=%d err=%v", allowed, grants.granted, err)
 	}
 }
 

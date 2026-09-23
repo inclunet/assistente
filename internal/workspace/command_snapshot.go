@@ -1,10 +1,13 @@
 package workspace
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 
@@ -13,9 +16,12 @@ import (
 
 var (
 	ErrCommandSnapshotNilManager           = errors.New("workspace command snapshot: manager nil")
+	ErrCommandSnapshotNilContext           = errors.New("workspace command snapshot: context nil")
+	ErrCommandSnapshotNilCallback          = errors.New("workspace command snapshot: callback nil")
 	ErrCommandSnapshotUninitialized        = errors.New("workspace command snapshot: manager não inicializado")
 	ErrCommandSnapshotActiveTabUnavailable = errors.New("workspace command snapshot: aba ativa indisponível")
 	ErrCommandSnapshotInvalidData          = errors.New("workspace command snapshot: dados inválidos")
+	ErrCommandSnapshotEpochExhausted       = errors.New("workspace command snapshot: epoch esgotado")
 )
 
 const maxCommandSnapshotIdentifierLength = 4096
@@ -72,6 +78,42 @@ func (m *Manager) CommandSnapshot() (CommandSnapshot, error) {
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	return m.commandSnapshotLocked()
+}
+
+// WithCommandSnapshot mantém o read lock durante toda a execução de fn para
+// que a projeção e o estado que ela autoriza permaneçam estáveis. fn não deve
+// reler o Manager nem chamar mutadores enquanto o callback estiver ativo.
+func (m *Manager) WithCommandSnapshot(ctx context.Context, fn func(CommandSnapshot) error) error {
+	if m == nil {
+		return ErrCommandSnapshotNilManager
+	}
+	if ctx == nil {
+		return ErrCommandSnapshotNilContext
+	}
+	if fn == nil {
+		return ErrCommandSnapshotNilCallback
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	snapshot, err := m.commandSnapshotLocked()
+	if err != nil {
+		return err
+	}
+	return fn(snapshot)
+}
+
+func (m *Manager) commandSnapshotLocked() (CommandSnapshot, error) {
+	if m.commandEpoch == math.MaxUint64 {
+		return CommandSnapshot{}, ErrCommandSnapshotEpochExhausted
+	}
 
 	if m.active == nil {
 		return CommandSnapshot{}, ErrCommandSnapshotUninitialized
@@ -156,8 +198,56 @@ func (m *Manager) CommandSnapshot() (CommandSnapshot, error) {
 		WorkspaceProfile: semantic.WorkspaceProfile,
 		StateVersion:     activeStateVersion,
 		Fingerprint:      fingerprintText,
-		Version:          "command-snapshot:v1:" + fingerprintText,
+		Version:          fmt.Sprintf("command-snapshot:v1:%s:%d", fingerprintText, m.commandEpoch),
 	}, nil
+}
+
+// commandMutationEpochLocked avança a época sem wrap. Deve ser chamado por
+// mutadores sob m.mu; o reader CommandSnapshot apenas observa o valor.
+func (m *Manager) commandMutationEpochLocked() {
+	if m.commandEpoch < math.MaxUint64 {
+		m.commandEpoch++
+	}
+}
+
+func (m *Manager) commandMutationFingerprintLocked() (string, bool) {
+	snapshot, err := m.commandSnapshotLocked()
+	if err != nil {
+		return "", false
+	}
+	return snapshot.Fingerprint, true
+}
+
+func commandTabSemanticallyChanged(before, after *Tab) bool {
+	if before == nil || after == nil {
+		return before != after
+	}
+	if before.ConversationID != after.ConversationID {
+		return true
+	}
+	if _, err := commandProfileOverrideSlug(before); err != nil {
+		return true
+	}
+	if _, err := commandProfileOverrideSlug(after); err != nil {
+		return true
+	}
+	beforeSlug, beforeSlugOK := before.ProfileOverride["slug"]
+	afterSlug, afterSlugOK := after.ProfileOverride["slug"]
+	if !beforeSlugOK || !afterSlugOK {
+		if beforeSlugOK != afterSlugOK {
+			return true
+		}
+	} else if !reflect.DeepEqual(beforeSlug, afterSlug) {
+		return true
+	}
+	beforeState, beforeErr := fingerprintState(before.State)
+	afterState, afterErr := fingerprintState(after.State)
+	if beforeErr != nil || afterErr != nil {
+		// Estado inválido torna a projeção indisponível; falha fechada, nunca
+		// um falso no-op e nunca uma comparação dinâmica potencialmente insegura.
+		return true
+	}
+	return beforeState != afterState
 }
 
 func commandProfileOverrideSlug(tab *Tab) (string, error) {

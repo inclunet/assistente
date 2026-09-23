@@ -1,13 +1,14 @@
-import { logger } from '../../utils/logger';
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Alert, Button } from 'antd';
-import { useEditorStore } from '../../store/editorStore';
-import { useChatStore } from '../../store/chatStore';
+import { useChatStore, type Message } from '../../store/chatStore';
+import { requestConfirm } from '../../store/confirmStore';
+import { executeDeepLink } from '../../lib/deepLinks';
+import { handleError, ErrorSeverity } from '../../utils/errorHandler';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { ttsService } from '../../services/tts';
-import { clearToolInvocationDetailsCache } from '../../services/toolInvocationDetailsCache';
+import { useChatMessageCommands, isChatMessageCommand } from './useChatMessageCommands';
 import { MessageList, type MessageWindowLoadTrigger } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatToolbar, type ChatToolbarConversationChangeHandler } from './ChatToolbar';
@@ -19,22 +20,23 @@ import type {
 } from '../../services/chatSessionRegistry';
 import { ContextMenu } from '../menu';
 import { useShortcutsHelpStore } from '../../store/shortcutsHelpStore';
-import { isModalOpen } from '../ui/Modal';
+import { isModalOpen, useModalId, useModalIsTopmost } from '../ui/Modal';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { registerWorkspacePanelFocus } from '../workspace/workspacePanelFocusRegistry';
 import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
-import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
+import { useContextMenu } from '../../hooks/useContextMenu';
 import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
-import { DeleteMessage, ToggleMessagePin } from '@wailsjs/go/wailsapi/Conversations';
-import { EditorGetDraftPath } from '@wailsjs/go/wailsapi/Editor';
+import type { ChatMessagingExecution } from '../../lib/commandChatMessaging';
+import { captureChatMessagingTarget, registerChatMessagingSurface, requestChatMessagingCommand, ChatMessagingStaleError, type ChatMessagingCommandID } from '../../lib/commandChatMessaging';
+import { useAuthStore } from '../../store/authStore';
+import { registerChatNavigationSurface, requestChatNavigationCommand, getChatMessageNavigationInstanceId, captureChatNavigationTarget, type ChatNavigationTarget } from '../../lib/commandChatNavigation';
+import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
+import { getTopmostModalID } from '../../lib/modalRegistry';
 import { GetActiveProfile, GetActiveProfileSlug } from '@wailsjs/go/wailsapi/Profiles';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce, useAnnouncer } from '../../hooks/useAnnouncer';
-import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
-import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
-import { requestConfirm } from '../../store/confirmStore';
-import { executeDeepLink } from '../../lib/deepLinks';
+import type { EditorSendTargetOption, ChatSendToEditorPayload } from '../../lib/editorSendMenu';
 import {
   useChatSurfaceController,
   type ChatSurfaceController,
@@ -45,7 +47,7 @@ export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
   surface: ChatSurfaceIdentity;
   /** Envio da mensagem (ex.: sendMessage da store ou adaptador do chat modal) */
-  onSend: (content: string, mediaFiles: MediaFile[] | undefined, origin: ChatSurfaceOrigin) => Promise<void>;
+  onSend: (content: string, mediaFiles: MediaFile[] | undefined, origin: ChatSurfaceOrigin, command?: ChatMessagingExecution) => Promise<void>;
   /** Solicitação de troca de conversa (controlada pelo dono da superfície). */
   onRequestConversationChange?: ChatToolbarConversationChangeHandler;
   showShortcutsHelp?: boolean;
@@ -96,7 +98,7 @@ function ChatSessionViewControllerBridge({
   profileSlug,
 }: ChatSessionViewProps) {
   const controller = useChatSurfaceController({
-    onSend: (content, mediaFiles, context) => onSend(content, mediaFiles, context.origin),
+    onSend: (content, mediaFiles, context) => onSend(content, mediaFiles, context.origin, context.command),
   });
 
   return (
@@ -122,7 +124,6 @@ function ChatSessionViewContent({
   controller,
 }: ChatSessionViewContentProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const { announceRequest } = useAnnouncer();
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -138,7 +139,6 @@ function ChatSessionViewContent({
   const hasAutoFocusedRef = useRef(false);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
-  const voiceSetupPromptPendingRef = useRef(false);
   const pendingWindowAnnouncementRef = useRef<{
     kind: 'start' | 'end' | 'older' | 'newer';
     trigger: MessageWindowLoadTrigger;
@@ -152,6 +152,11 @@ function ChatSessionViewContent({
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
   const isPanelActiveRef = useRef(isPanelActive);
   isPanelActiveRef.current = isPanelActive;
+  const canFocusWorkspacePanelImmediately = useCallback(() => {
+    if (variant !== 'page' || !isPanelActiveRef.current || isModalOpen()) return false;
+    const input = inputRef.current;
+    return Boolean(input?.isConnected && !input.disabled);
+  }, [variant]);
 
   const [showContinueEnabled, setShowContinueEnabled] = useState(false);
   const [activeProfileSlug, setActiveProfileSlug] = useState('');
@@ -170,13 +175,9 @@ function ChatSessionViewContent({
     loadEndMessages,
     loadMessageChildren,
     loadConversationSession,
-    retryMessageToConversation,
     updateConversationMessage,
     updateConversationMessagePinned,
-    toggleConversationReasoningExpanded,
     isConversationReasoningExpanded,
-    startConversationEditing,
-    startConversationReading,
     origin,
     conversationId,
     draftMessage,
@@ -192,14 +193,7 @@ function ChatSessionViewContent({
   // barra do campo de mensagem (AEP-0084 D8).
   const agentCommands = useAgentSessionCommands(conversationId);
 
-  const cancelStreaming = useChatStore((state) => state.cancelStreaming);
   const clearConversationSendFailure = useChatStore((state) => state.clearConversationSendFailure);
-
-  const handleCancelStreaming = useCallback(async () => {
-    const targetConversationId = conversation?.id ?? conversationId;
-    if (!targetConversationId) return;
-    await cancelStreaming(targetConversationId, { origin });
-  }, [cancelStreaming, conversation?.id, conversationId, origin]);
   const getSessionConversation = useCallback(() => conversation, [conversation]);
   const visibleMessageCount = useMemo(() => {
     if (!threadedMessages.length) return 0;
@@ -397,6 +391,183 @@ function ChatSessionViewContent({
   const effectiveFailedMessage = lastFailedMessage ?? (sessionSendFailureRetryable ? sessionSendFailureRetry : null);
   const canRetryEffectiveSendError = !!effectiveFailedMessage && (!!sendError || sessionSendFailureRetryable);
 
+  const { pathname } = useLocation();
+  const modalId = useModalId();
+  const modalIsTopmost = useModalIsTopmost();
+  const messagingInstance = useRef(`chat-messaging-${crypto.randomUUID()}`);
+  const voiceSetupPromptPendingRef = useRef(false);
+  const navigate = useNavigate();
+  const messagingLive = useRef({ controller, conversationId, origin, draftMessage, draftMediaFiles, effectiveFailedMessage, isLoading, isInteractiveSurface, pathname, modalIsTopmost });
+  messagingLive.current = { controller, conversationId, origin, draftMessage, draftMediaFiles, effectiveFailedMessage, isLoading, isInteractiveSurface, pathname, modalIsTopmost };
+  const messagingUser = useAuthStore(state => state.user);
+  const navigationInstance = useRef(`chat-navigation-${crypto.randomUUID()}`);
+  const menuNavigationTargets = useRef(new WeakMap<Message, { read?: ChatNavigationTarget; reasoning?: ChatNavigationTarget }>());
+  const menuNavigationLeases = useRef<ChatNavigationTarget[]>([]);
+  const disposeMenuNavigation = useCallback(() => {
+    menuNavigationLeases.current.splice(0).forEach(target => target.dispose());
+  }, []);
+  useEffect(() => disposeMenuNavigation, [disposeMenuNavigation]);
+  useEffect(() => {
+    const root = rootRef.current;
+    const owner = useAuthStore.getState().user;
+    const workspace = useWorkspaceStore.getState().workspace;
+    if (!root || !owner || !workspace || !conversationId) return;
+    const sessionKey = origin.sessionKey;
+    const current = () => {
+      const live = messagingLive.current;
+      const auth = useAuthStore.getState();
+      const ws = useWorkspaceStore.getState().workspace;
+      const snapshot = useChatStore.getState().surfaceSessionsByKey[sessionKey];
+      return root.isConnected && auth.isAuthenticated && auth.user?.userId === owner.userId &&
+        auth.user.sessionId === owner.sessionId && ws?.id === workspace.id && ws.activeTabId === panelTab.id &&
+        live.pathname === pathname && live.isInteractiveSurface && live.conversationId === conversationId &&
+        live.origin.sessionKey === sessionKey && live.origin.surfaceId === origin.surfaceId &&
+        live.origin.surfaceType === origin.surfaceType && snapshot?.conversationId === conversationId;
+    };
+    const destination = (id: string) => id === 'chat.focus.input' ? inputRef.current :
+      root.querySelector<HTMLElement>('.message-list__list,.message-list--empty');
+    return registerChatNavigationSurface({
+      root, instanceId: navigationInstance.current,
+      allowedCommands: ['chat.focus.input', 'chat.focus.messages'],
+      readContext: () => ({ pathname, ownerId: owner.userId, sessionId: owner.sessionId,
+        workspaceId: workspace.id, tabId: panelTab.id, conversationId, chatSessionKey: sessionKey,
+        modalId: modalId ?? undefined }),
+      isCurrent: current,
+      subscribe: changed => {
+        const off = [useAuthStore.subscribe(changed), useWorkspaceStore.subscribe(changed),
+          useChatStore.subscribe(changed), useWorkspaceChatModalStore.subscribe(changed)];
+        return () => off.forEach(dispose => dispose());
+      },
+      canOpen: id => {
+        const target = destination(id);
+        return current() && !!target?.isConnected && !(target instanceof HTMLTextAreaElement && target.disabled);
+      },
+      open: id => {
+        const target = destination(id);
+        if (!current() || !target?.isConnected || target instanceof HTMLTextAreaElement && target.disabled) return false;
+        target.focus();
+        return document.activeElement === target;
+      },
+    });
+  }, [conversationId, origin.sessionKey, origin.surfaceId, origin.surfaceType, panelTab.id, pathname, modalId, messagingUser, isInteractiveSurface]);
+  const messageCommands = useChatMessageCommands(rootRef, conversationId, origin.sessionKey, announce);
+  const messageCommandsRef = useRef(messageCommands);
+  messageCommandsRef.current = messageCommands;
+  useEffect(() => {
+    const root = rootRef.current;
+    const owner = useAuthStore.getState().user;
+    const workspace = useWorkspaceStore.getState().workspace;
+    if (!root || !owner || !workspace || !conversationId) return;
+    const sessionKey = origin.sessionKey;
+    const capturedPath = pathname;
+    const current = () => {
+      const live = messagingLive.current;
+      const auth = useAuthStore.getState();
+      const ws = useWorkspaceStore.getState().workspace;
+      const tab = ws?.tabs.find(item => item.id === panelTab.id);
+      const modal = useWorkspaceChatModalStore.getState();
+      return auth.isAuthenticated && auth.user?.userId === owner.userId && auth.user.sessionId === owner.sessionId &&
+        ws?.id === workspace.id && ws.activeTabId === panelTab.id && Boolean(tab) &&
+        live.conversationId === conversationId && live.origin.sessionKey === sessionKey && live.pathname === capturedPath &&
+        tab?.conversationId === conversationId &&
+        (!modalId || modal.isOpen && modal.boundConversationId === conversationId && modal.boundTabId === panelTab.id);
+    };
+    const available = () => current() && messagingLive.current.isInteractiveSurface &&
+      (modalId ? getTopmostModalID() === modalId && messagingLive.current.modalIsTopmost() : !isModalOpen());
+    return registerChatMessagingSurface({
+      root, instanceId: messagingInstance.current, queueKey: conversationId, modalId: modalId ?? undefined,
+      isCurrent: current,
+      canStart: (id, keyboardTarget) => {
+        if (!available()) return false;
+        if (isChatMessageCommand(id)) return messageCommandsRef.current.canStart(id, keyboardTarget);
+        if (keyboardTarget instanceof Element && keyboardTarget.closest('.monaco-editor,.xterm,[role="terminal"],.chat-message__edit,[role="menu"],[role="listbox"]')) return false;
+        if (keyboardTarget instanceof Element && keyboardTarget.closest('input,textarea,select,[contenteditable]') && !root.contains(keyboardTarget)) return false;
+        return id !== 'chat.response.cancel' || messagingLive.current.isLoading;
+      },
+      subscribe: changed => {
+        const off = [useAuthStore.subscribe(changed), useWorkspaceStore.subscribe(changed), useWorkspaceChatModalStore.subscribe(changed), useChatStore.subscribe(changed), messageCommandsRef.current.subscribe(changed)];
+        return () => off.forEach(dispose => dispose());
+      },
+      prepare: (id, override) => {
+        if (isChatMessageCommand(id)) return messageCommandsRef.current.prepare(id, override, current, available);
+        const live = messagingLive.current;
+        const options = override ? { ...override as { content?: string; media?: MediaFile[]; messageId?: string; continue?: boolean; voice?: boolean; recovery?: boolean } } : undefined;
+        const store = useChatStore.getState();
+        const snapshot = store.surfaceSessionsByKey[sessionKey];
+        if (!snapshot || snapshot.conversationId !== conversationId) return undefined;
+        const draftRevision = store.getDraftRevision(sessionKey);
+        const content = options?.content ?? snapshot.draftMessage;
+        // O callback do input pode anteceder o próximo render. Assim como a
+        // revisão, anexos do rascunho vêm da store, não de props antigas.
+        const media = (options?.recovery ? snapshot.sendFailureRetryMediaFiles : snapshot.draftMediaFiles).map(item => ({ ...item }));
+        if (id === 'chat.message.send' && options?.content !== undefined && !options.voice && !options.recovery && content.trim() !== snapshot.draftMessage.trim()) return undefined;
+        if (options?.recovery && (!snapshot.sendFailureRetryable || content !== (snapshot.sendFailureRetryContent ?? ''))) return undefined;
+        const interruptedId = snapshot.lastInterruptedMessageId;
+        const interrupted = interruptedId ? useChatStore.getState().getConversationMessages(conversationId).find(message => message.id === interruptedId) : undefined;
+        const fallbackRetryId = interrupted?.turnId;
+        const messageId = id === 'chat.message.retry' ? (options?.messageId ?? fallbackRetryId) : undefined;
+        if (id === 'chat.message.retry' && (!messageId || !isBackendId(messageId))) return undefined;
+        if (id !== 'chat.response.cancel' && !messageId && !content.trim() && !media.length) return undefined;
+        const pipelineRevision = store.getMessagingPipelineRevision(conversationId);
+        let runRevision: number | undefined;
+        let pipelineStarted = false;
+        let disposed = false;
+        let invalid = false;
+        const isCurrent = () => {
+          const valid = !disposed && !invalid && current() &&
+            (!pipelineStarted || useChatStore.getState().getMessagingPipelineRevision(conversationId) === runRevision) &&
+            (id === 'chat.response.cancel' ? useChatStore.getState().getMessagingPipelineRevision(conversationId) === pipelineRevision :
+              (id !== 'chat.message.send' || useChatStore.getState().getDraftRevision(sessionKey) === draftRevision));
+          if (!valid) invalid = true;
+          return valid;
+        };
+        const canCommit = () => isCurrent() && available();
+        const commandOrigin = { ...live.origin };
+        const send = live.controller.sendMessage;
+        return {
+          isCurrent, canCommit,
+          waitForAdmission: id === 'chat.response.cancel' ? undefined : () => useChatStore.getState().waitForMessagingAdmission(conversationId),
+          async execute(handoff) {
+            if (!canCommit()) throw new ChatMessagingStaleError();
+            const command = { handoff, isCurrent: canCommit, onPipelineStarted: (revision: number) => { runRevision = revision; pipelineStarted = true; } };
+            if (id === 'chat.response.cancel') {
+              useChatStore.getState().finishCommandCancellation(conversationId, sessionKey, pipelineRevision);
+            } else if (messageId) {
+              await useChatStore.getState().retryMessageToConversation(conversationId, messageId, { allowAssistantPrefill: options?.continue === true }, { origin: commandOrigin, command });
+            } else {
+              await send(content.trim(), media.length ? media : undefined, command);
+            }
+          },
+          succeeded() {
+            if (!current()) return;
+            setLastFailedMessage(null);
+            setSendError(null);
+            const latest = useChatStore.getState();
+            if (id === 'chat.message.send' && !options?.recovery && latest.getDraftRevision(sessionKey) === draftRevision) {
+              if (options?.voice) latest.setConversationDraftMediaFiles(conversationId, [], sessionKey);
+              else latest.clearConversationDraft(conversationId, sessionKey);
+            }
+            if (id === 'chat.message.retry' || options?.recovery) latest.clearConversationSendFailure(conversationId, sessionKey);
+          },
+          settled(status) {
+            if (id !== 'chat.response.cancel' && runRevision !== undefined && current() && status !== 'succeeded' && status !== 'outcome_unknown') {
+              useChatStore.getState().finishCommandCancellation(conversationId, sessionKey, runRevision, false);
+            }
+          },
+          dispose() { disposed = true; },
+        };
+      },
+    });
+  }, [conversationId, origin.sessionKey, panelTab.id, modalId, pathname, messagingUser]);
+  const requestMessaging = useCallback((id: ChatMessagingCommandID, override?: unknown) => {
+    const target = captureChatMessagingTarget(() => messagingLive.current.pathname, id, messagingInstance.current, undefined, override);
+    const accepted = !!target && requestChatMessagingCommand(id, messagingInstance.current, target);
+    if (id === 'chat.message.edit.save' && !accepted) announce(t('chat.editSaveError'));
+    if (id === 'chat.message.send_to_editor' && !accepted) announce(t('commandPalette.executionFailed'));
+    return accepted;
+  }, [t]);
+  const handleCancelStreaming = useCallback(() => { requestMessaging('chat.response.cancel'); }, [requestMessaging]);
+
   const wsTabs = useWorkspaceStore((state) => state.workspace?.tabs);
 
   const editorTargets = useMemo<EditorSendTargetOption[]>(
@@ -410,18 +581,34 @@ function ChatSessionViewContent({
     [wsTabs, t],
   );
 
-  const { copyMessage, speakMessage } = useMessageActions({
-    onAnnounce: announce,
-  });
-
   const handleSpeakRequest = useCallback(
-    async (message: Parameters<typeof speakMessage>[0]) => {
+    async (message: Message) => {
       if (ttsService.hasVoiceConfig()) {
-        await speakMessage(message);
+        requestMessaging('chat.message.speak', { messageId: message.id });
         return;
       }
       if (voiceSetupPromptPendingRef.current) return;
 
+      const capturedOwner = useAuthStore.getState().user;
+      const capturedWorkspace = useWorkspaceStore.getState().workspace;
+      const capturedOrigin = { ...origin };
+      const capturedPath = messagingLive.current.pathname;
+      let invalid = false;
+      const current = () => {
+        const auth = useAuthStore.getState().user;
+        const ws = useWorkspaceStore.getState().workspace;
+        const modal = useWorkspaceChatModalStore.getState();
+        const valid = !invalid && rootRef.current?.isConnected && auth?.userId === capturedOwner?.userId &&
+          auth?.sessionId === capturedOwner?.sessionId && ws?.id === capturedWorkspace?.id &&
+          ws?.activeTabId === capturedOrigin.tabId && ws?.tabs.find(tab => tab.id === capturedOrigin.tabId)?.conversationId === conversationId &&
+          messagingLive.current.pathname === capturedPath && messagingLive.current.conversationId === conversationId &&
+          useChatStore.getState().getConversationMessages(conversationId!).find(item => item.id === message.id) === message &&
+          (!modalId || modal.isOpen && modal.boundTabId === capturedOrigin.tabId && modal.boundConversationId === conversationId);
+        if (!valid) invalid = true;
+        return Boolean(valid);
+      };
+      if (!current() || !messagingLive.current.isInteractiveSurface || (modalId ? !modalIsTopmost() : isModalOpen())) return;
+      const off = [useAuthStore.subscribe(current), useWorkspaceStore.subscribe(current), useWorkspaceChatModalStore.subscribe(current), useChatStore.subscribe(current)];
       voiceSetupPromptPendingRef.current = true;
       try {
         const shouldConfigure = await requestConfirm({
@@ -431,9 +618,10 @@ function ChatSessionViewContent({
           cancelText: t('common.cancel'),
           variant: 'info',
         });
-        if (!shouldConfigure) return;
+        if (!shouldConfigure || !current()) return;
 
         const targetProfileSlug = profileSlug || activeProfileSlug || await GetActiveProfileSlug();
+        if (!current()) return;
         if (!targetProfileSlug) {
           announce(t('chat.voiceSetup.profileUnavailable'));
           return;
@@ -466,6 +654,7 @@ function ChatSessionViewContent({
           },
         );
       } catch (error) {
+        if (!current()) return;
         handleError(error, {
           source: 'ChatSessionView.voiceSetup',
           userMessage: t('chat.voiceSetup.error'),
@@ -476,137 +665,43 @@ function ChatSessionViewContent({
           },
         });
       } finally {
+        off.forEach(dispose => dispose());
         voiceSetupPromptPendingRef.current = false;
       }
     },
-    [activeProfileSlug, navigate, origin, profileSlug, speakMessage, t],
+    [activeProfileSlug, navigate, origin, profileSlug, requestMessaging, t, conversationId, modalId, modalIsTopmost],
   );
 
-  const handleDeleteMessage = useCallback(
-    async (message: { id: string | number }) => {
-      const messageId = String(message.id);
-      if (!isBackendId(messageId)) return;
-      try {
-        await DeleteMessage(messageId);
-        clearToolInvocationDetailsCache();
-        announce(t('chat.announce.messageDeleted'));
-        const conv = getSessionConversation();
-        if (conv?.id) {
-          await loadConversationSession(conv.id, { refreshSurfaceWindows: true });
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const lower = errorMessage.toLowerCase();
-        const userCanceled =
-          lower.includes('cancelada') ||
-          lower.includes('cancelado') ||
-          lower.includes('canceled') ||
-          lower.includes('cancelled');
-        if (userCanceled) {
-          announce(t('chat.announce.deleteCancelled'));
-          return;
-        }
+  const handleDeleteMessage = useCallback((message: { id: string | number }) => {
+    requestMessaging('chat.message.delete', { messageId: String(message.id) });
+  }, [requestMessaging]);
 
-        handleError(error, {
-          source: 'ChatSessionView.onDelete',
-          userMessage: ErrorMessages.CHAT.DELETE_FAILED,
-          severity: ErrorSeverity.RECOVERABLE,
-          metadata: { messageId },
-        });
-      }
-    },
-    [announce, conversationId, getSessionConversation, loadConversationSession, t, variant],
-  );
-
-  const sendToEditor = useCallback(
-    async (payload: SendToEditorPayload) => {
-      const content = String(payload?.content ?? '');
-      if (!content) return;
-
-      const title = payload.title || t('editor.fallback.fromChat');
-      const { addTab, setActiveTab } = useWorkspaceStore.getState();
-      const ensureActiveEditorTab = async (tabId: string) => {
-        await setActiveTab(tabId);
-        return useWorkspaceStore.getState().workspace?.activeTabId === tabId;
-      };
-      const createDraftEditorTab = async () => {
-        const draftId =
-          typeof crypto !== 'undefined' && crypto.randomUUID
-            ? crypto.randomUUID()
-            : `editor-${Date.now()}`;
-        const draftPath = String((await EditorGetDraftPath(draftId)) ?? '');
-        const tabId = await addTab('editor', title, { filePath: draftPath, draftId });
-        const activated = await ensureActiveEditorTab(tabId);
-        if (!activated) return null;
-        useEditorStore.getState().createDocument({
-          id: tabId,
-          title,
-          markdown: '',
-          mode: 'markdown',
-          filePath: draftPath,
-          draftId,
-        });
-        return tabId;
-      };
-
-      if (payload.target === 'new_document') {
-        const tabId = await createDraftEditorTab();
-        if (!tabId) return;
-        useEditorStore.getState().requestInsert({
-          target: 'document',
-          targetDocumentId: tabId,
-          format: payload.format,
-          title,
-          content,
-          focus: true,
-        });
-        return;
-      }
-
-      const targetDocumentId = String(payload.targetDocumentId || '').trim();
-      if (!targetDocumentId) return;
-
-      const activated = await ensureActiveEditorTab(targetDocumentId);
-      if (!activated) return;
-
-      useEditorStore.getState().requestInsert({
-        target: 'document',
-        targetDocumentId,
-        format: payload.format,
-        title,
-        content,
-        focus: true,
-      });
-    },
-    [t],
-  );
+  const sendToEditor = useCallback((payload: ChatSendToEditorPayload) => {
+    requestMessaging('chat.message.send_to_editor', { messageId: payload.messageId, transfer: payload });
+  }, [requestMessaging]);
 
   const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({
     sessionKey: origin.sessionKey,
-    onCopy: copyMessage,
+    onCopy: (message, markdown) => { requestMessaging(markdown ? 'chat.message.copy_markdown' : 'chat.message.copy', { messageId: message.id }); },
     onReadMessage: (message) => {
-      if (conversation?.id) {
-        startConversationReading(conversation.id, message.id);
-      }
+      const target = menuNavigationTargets.current.get(message)?.read;
+      if (target?.canOpen('chat.message.read.open')) requestChatNavigationCommand('chat.message.read.open', target.instanceId);
+      disposeMenuNavigation();
     },
-    onSpeak: speakMessage,
+    onSpeak: handleSpeakRequest,
     onEdit: (message) => {
-      if (conversation?.id) {
-        startConversationEditing(conversation.id, message.id);
-      }
+      requestMessaging('chat.message.edit.open', { messageId: message.id });
     },
     onResend: async (message) => {
       const conversationId = getSessionConversation()?.id;
       if (!conversationId || !isBackendId(message.id)) return;
-      await retryMessageToConversation(conversationId, message.id, undefined, { origin });
-      announce(t('chat.announce.messageResent'));
+      requestMessaging('chat.message.retry', { messageId: message.id });
     },
     onContinue: async (message) => {
       const conversationId = getSessionConversation()?.id;
       const turnId = String(message.turnId || '').trim();
       if (!conversationId || !turnId) return;
-      await retryMessageToConversation(conversationId, turnId, { allowAssistantPrefill: true }, { origin });
-      announce(t('chat.announce.continuingResponse'));
+      requestMessaging('chat.message.retry', { messageId: turnId, continue: true });
     },
     shouldShowContinue: (message) => {
       if (!showContinueEnabled) return false;
@@ -627,26 +722,11 @@ function ChatSessionViewContent({
     },
     onSendToEditor: sendToEditor,
     editorTargets,
-    onPin: async (message) => {
-      if (!isBackendId(message.id)) return;
-      try {
-        const result = await ToggleMessagePin(message.id);
-        announce(result.pinned ? t('chat.announce.messagePinned') : t('chat.announce.messageUnpinned'));
-      } catch (error) {
-        handleError(error, {
-          source: 'ChatSessionView.onPin',
-          userMessage: t('chat.pins.toggleError'),
-          severity: ErrorSeverity.RECOVERABLE,
-          metadata: { messageId: message.id },
-        });
-      }
-    },
+    onPin: (message) => { requestMessaging('chat.message.pin.toggle', { messageId: message.id }); },
     onToggleReasoning: (message) => {
-      const targetConversationId = conversation?.id;
-      if (!targetConversationId) return;
-      const isExpanded = isConversationReasoningExpanded(targetConversationId, message.id);
-      toggleConversationReasoningExpanded(targetConversationId, message.id);
-      announce(isExpanded ? t('chat.reasoningHidden') : t('chat.reasoningShown'));
+      const target = menuNavigationTargets.current.get(message)?.reasoning;
+      if (target?.canOpen('chat.message.reasoning.toggle')) requestChatNavigationCommand('chat.message.reasoning.toggle', target.instanceId);
+      disposeMenuNavigation();
     },
     isReasoningExpanded: (messageId: string) => (
       conversation?.id
@@ -657,10 +737,14 @@ function ChatSessionViewContent({
   });
 
   useEffect(() => {
+    if (!menuVisible) disposeMenuNavigation();
+  }, [menuVisible, disposeMenuNavigation]);
+
+  useEffect(() => {
     if (!isInteractiveSurface || !isLoading) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 || event.getModifierState('AltGraph')) return;
       // Com um modal aberto (ex.: painel de atalhos), o Escape deve fechar o
       // modal — não cancelar o streaming nem o menu na UI de fundo.
       if (isModalOpen()) return;
@@ -690,8 +774,10 @@ function ChatSessionViewContent({
       const root = rootRef.current;
       if (!root || !root.contains(event.target as Node | null)) return;
 
-      event.preventDefault();
-      input.focus();
+      if (requestChatNavigationCommand('chat.focus.input', navigationInstance.current)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
     };
 
     // Registrado na fase de borbulhamento (sem captura) para que handlers locais
@@ -724,8 +810,14 @@ function ChatSessionViewContent({
       if (!isPanelActiveRef.current || isModalOpen()) return false;
       setPanelFocusNonce((nonce) => nonce + 1);
       return true;
-    });
-  }, [variant, panelTab.id]);
+    }, () => {
+      if (!canFocusWorkspacePanelImmediately()) return false;
+      const input = inputRef.current;
+      if (!input) return false;
+      input.focus();
+      return document.activeElement === input;
+    }, canFocusWorkspacePanelImmediately);
+  }, [canFocusWorkspacePanelImmediately, panelTab.id, variant]);
 
   useEffect(() => {
     if (
@@ -839,10 +931,11 @@ function ChatSessionViewContent({
 
   useEffect(() => {
     const handleMessageUpdated = (data: unknown) => {
-      const eventData = data as { message_id?: number | string; content?: string };
-      if (eventData.message_id && eventData.content !== undefined && conversationId) {
-        updateConversationMessage(conversationId, String(eventData.message_id), eventData.content);
-      }
+      if (!data || typeof data !== 'object' || !conversationId) return;
+      const eventData = data as { conversationId?: unknown; messageId?: unknown; content?: unknown };
+      if (eventData.conversationId !== conversationId || typeof eventData.messageId !== 'string' ||
+          !isBackendId(eventData.messageId) || typeof eventData.content !== 'string') return;
+      updateConversationMessage(conversationId, eventData.messageId, eventData.content);
     };
 
     const unsubscribe = EventsOn('message:updated', handleMessageUpdated);
@@ -983,46 +1076,13 @@ function ChatSessionViewContent({
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isInteractiveSurface, effectiveSendError, sessionSendFailureMessage, conversationId, origin.sessionKey, clearConversationSendFailure, announce, t]);
 
-  const handleSendMessage = async (content: string, mediaFiles?: MediaFile[]) => {
-    try {
-      setSendError(null);
-      setLastFailedMessage(null);
-      setDismissedSessionSendError(null);
-      lastAnnouncedSessionSendFailureRef.current = null;
-      if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
-      await controller.sendMessage(content, mediaFiles);
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('[ChatSessionView] send error:', errorMessage);
-      setLastFailedMessage({ content, media: mediaFiles });
-      setSendError(ErrorMessages.CHAT.SEND_FAILED);
-
-      handleError(error, {
-        source: 'ChatSessionView.handleSendMessage',
-        userMessage: ErrorMessages.CHAT.SEND_FAILED,
-        severity: ErrorSeverity.RECOVERABLE,
-        onRetry: () => handleRetry(),
-      });
-    }
+  const handleSendMessage = async (content: string, mediaFiles?: MediaFile[], options?: { voice?: boolean }) => {
+    requestMessaging('chat.message.send', { content, media: mediaFiles, voice: options?.voice === true });
   };
 
   const handleRetry = async () => {
-    if (!effectiveFailedMessage) return;
-
-    try {
-      setSendError(null);
-      setDismissedSessionSendError(null);
-      lastAnnouncedSessionSendFailureRef.current = null;
-      if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
-      await controller.sendMessage(effectiveFailedMessage.content, effectiveFailedMessage.media);
-      setLastFailedMessage(null);
-    } catch (error) {
-      handleError(error, {
-        source: 'ChatSessionView.handleRetry',
-        userMessage: ErrorMessages.CHAT.SEND_FAILED,
-        severity: ErrorSeverity.RECOVERABLE,
-      });
-    }
+    if (!effectiveFailedMessage || !sessionSendFailureRetryable) return;
+    requestMessaging('chat.message.send', { content: effectiveFailedMessage.content, media: effectiveFailedMessage.media, recovery: true });
   };
 
   const handleReachEnd = () => {
@@ -1119,8 +1179,25 @@ function ChatSessionViewContent({
           onJumpToStart={handleJumpToStart}
           onJumpToEnd={handleJumpToEnd}
           ref={messagesContainerRef}
-          onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
+          onContextMenu={(event, message) => {
+            const capturedMessage = { ...message, convertValues: message.convertValues };
+            const root = rootRef.current;
+            const instance = root && getChatMessageNavigationInstanceId(root, message.id);
+            disposeMenuNavigation();
+            if (instance) {
+              const readPathname = () => messagingLive.current.pathname;
+              const read = captureChatNavigationTarget(readPathname, 'chat.message.read.open', instance);
+              const reasoning = captureChatNavigationTarget(readPathname, 'chat.message.reasoning.toggle', instance);
+              menuNavigationTargets.current.set(capturedMessage, { read, reasoning });
+              menuNavigationLeases.current = [read, reasoning].filter((target): target is ChatNavigationTarget => !!target);
+            }
+            showMenu(event, capturedMessage, message.role === 'user');
+          }}
           onSpeak={handleSpeakRequest}
+          onCopy={(message, markdown) => { requestMessaging(markdown ? 'chat.message.copy_markdown' : 'chat.message.copy', { messageId: message.id }); }}
+          onEdit={(message) => { requestMessaging('chat.message.edit.open', { messageId: message.id }); }}
+          onSaveEdit={(message) => { requestMessaging('chat.message.edit.save', { messageId: message.id }); }}
+          commandPathname={pathname}
           onDelete={handleDeleteMessage}
           editorTargets={editorTargets}
           onSendToEditor={sendToEditor}
@@ -1157,6 +1234,7 @@ function ChatSessionViewContent({
         )}
 
         <ChatInput
+          clearOnSend={false}
           onSend={handleSendMessage}
           disabled={variant === 'embedded' ? false : isLoading}
           isStreaming={isLoading}
@@ -1188,6 +1266,7 @@ function ChatSessionViewContent({
       </div>
 
       <ContextMenu
+        restoreFocusOnClose={false}
         visible={menuVisible}
         items={menuItems}
         x={menuPosition.x}

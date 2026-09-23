@@ -11,7 +11,7 @@ import {
 } from '../store/editorStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
-import { getMaybeContent, normalizeEditorDocumentResult } from '../lib/editorContent';
+import { getErrorMessage, getMaybeContent, normalizeEditorDocumentResult } from '../lib/editorContent';
 import { EditorDeleteDraft, EditorGetDraftPath, EditorLoadState, EditorReadDraft, EditorReadFile, EditorSaveState } from '@wailsjs/go/wailsapi/Editor';
 import { apidto } from '@wailsjs/go/models';
 import type { UseEditorMergeResult } from './useEditorMerge';
@@ -159,10 +159,16 @@ export function useEditorDocument({
                   ? { format: loaded.format, pages: loaded.pages, warnings: loaded.warnings, warningCode: loaded.warningCode }
                   : null;
               }
+            } else if (draftId) {
+              markdown = getMaybeContent(await EditorReadDraft(draftId));
             }
-          } catch {
+          } catch (error) {
             markdown = '';
-            loadError = !!filePath && !isDraftPath;
+            // A reserved new draft has no file until its first autosave.
+            // Other storage failures must not turn an existing draft into an
+            // editable empty document that would overwrite the saved content.
+            const missingDraft = getErrorMessage(error) === 'draft não encontrado';
+            loadError = filePath && !isDraftPath ? true : !!draftId && !missingDraft;
             readOnly = loadError;
           }
 
@@ -180,7 +186,7 @@ export function useEditorDocument({
           loadedTabs.push({
             id: tabId,
             title,
-            markdown: readOnly ? markdown : markdown || DEFAULT_MD,
+            markdown: readOnly || draftId ? markdown : markdown || DEFAULT_MD,
             mode,
             filePath: filePath || null,
             draftId: filePath ? null : draftId || null,

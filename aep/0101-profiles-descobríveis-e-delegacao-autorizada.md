@@ -4,6 +4,14 @@
 
 ## Resumo
 
+Extensão AEP-0103 (17/09/2026), seção 39 da tasklist de conclusão:
+implementada a ligação de `job_service` ao contexto privado do executor
+real. O recorte inicial é subagent com profile literal; templates e demais
+origens permanecem fora desse adapter. A geração do grant e a definição que
+iniciou o run não podem ser renovadas implicitamente pela revalidação.
+Qualificação e limites de integração são rastreados na AEP-0103; esta extensão
+não representa conclusão de R05.1/R05.2.
+
 Extensão AEP-0103 (15/09/2026), ainda In Progress no sistema de comandos:
 `HasValidGeneration` consulta o UUID persistido, owner, fingerprint e geração
 exata do grant/epoch, recusando revogação e intenção de exclusão do profile.
@@ -247,6 +255,16 @@ cancela a intenção sincronamente antes de retornar.
 Revogar um target delega a decisão de desabilitar ao mesmo transaction do
 store que revalida fingerprint e grants restantes; adapters não repetem essa
 decisão com snapshots anteriores.
+
+Integração com a AEP-0103 (20/09/2026): mutações preparadas da tela derivam
+os slugs afetados no backend e repetem CAS antes da intenção de revogação.
+Exclusão confirmada seguida de falha de revogação restaura os bytes originais
+por journal; somente restauração confirmada permite cancelar a intenção.
+Erro de gravação com resultado indeterminado não é tratado como exclusão
+sem efeito, pois a recuperação pode concluir o journal. A intenção permanece
+bloqueante. Uma nova tentativa não pode sobrescrever uma intenção pendente.
+Notificações de jobs são publicadas uma única vez depois de liberar os locks
+dos perfis; a revogação e desabilitação persistidas continuam na mesma TX.
 
 ## Fases
 

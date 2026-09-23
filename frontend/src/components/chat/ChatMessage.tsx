@@ -15,7 +15,7 @@ import { useChatMessageLiveState } from './ChatSessionContext';
 import { isAgentMessage } from '../../lib/chatUtils';
 import { formatRelativeTime } from '../../lib/dateUtils';
 import { buildChatMessageAriaLabel } from '../../lib/chatMessageAriaLabel';
-import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
+import type { ChatSendToEditorPayload, EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import './ChatMessage.css';
 
 const HEAVY_MARKDOWN_CONTENT_LENGTH = 8_000;
@@ -54,7 +54,7 @@ export interface ChatMessageProps {
 
   // Envio de blocos para o editor
   editorTargets?: EditorSendTargetOption[];
-  onSendToEditor?: (payload: SendToEditorPayload) => void;
+  onSendToEditor?: (payload: ChatSendToEditorPayload) => void;
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
@@ -84,6 +84,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 }) => {
   const { t } = useTranslation();
   const { role, content, timestamp, isStreaming, reasoning } = message;
+  const sourceMessageId = message.id;
+  const sendBlockToEditor = useMemo(() => onSendToEditor
+    ? (payload: SendToEditorPayload) => onSendToEditor({
+        ...payload, messageId: sourceMessageId, originalContent: content,
+      })
+    : undefined, [onSendToEditor, sourceMessageId, content]);
   const messageRef = useRef<HTMLDivElement>(null);
   const chainRegionId = useId();
   // Issue #163: a cadeia do turno (segmentos intermediários + tool calls) ganha
@@ -284,7 +290,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       }
       // Ctrl+Enter salva
       if (e.key === 'Enter' && e.ctrlKey && onSaveEdit) {
+        if (e.defaultPrevented || e.repeat || e.nativeEvent.isComposing || e.keyCode === 229 || e.altKey || e.metaKey) return;
         e.preventDefault();
+        e.stopPropagation();
         onSaveEdit();
         return;
       }
@@ -329,7 +337,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     // Teclas quando NÃO está editando
     // Spacebar - reproduz TTS da mensagem (assistente ou usuário)
     if (e.key === ' ' && !effectiveIsStreaming) {
+      if (e.defaultPrevented || e.repeat || e.nativeEvent.isComposing || e.keyCode === 229) return;
       e.preventDefault();
+      e.stopPropagation();
       if (onSpeak) {
         onSpeak(message);
       }
@@ -552,7 +562,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                     interactiveButtons={!!onSendToEditor}
                     enableSendToEditorButtons={!!onSendToEditor}
                     editorTargets={editorTargets}
-                    onSendToEditor={onSendToEditor}
+                    onSendToEditor={sendBlockToEditor}
                   />
                 ) : (
                   <span>{t('chat.largeMessageDeferred')}</span>
@@ -576,7 +586,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                         interactiveButtons={!!onSendToEditor}
                         enableSendToEditorButtons={!!onSendToEditor}
                         editorTargets={editorTargets}
-                        onSendToEditor={onSendToEditor}
+                        onSendToEditor={sendBlockToEditor}
                       />
                     </div>
                   )}
@@ -619,7 +629,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                     interactiveButtons={!!onSendToEditor}
                     enableSendToEditorButtons={!!onSendToEditor}
                     editorTargets={editorTargets}
-                    onSendToEditor={onSendToEditor}
+                    onSendToEditor={sendBlockToEditor}
                   />
                 </div>
               )}
@@ -681,7 +691,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                       interactiveButtons={!!onSendToEditor}
                       enableSendToEditorButtons={!!onSendToEditor}
                       editorTargets={editorTargets}
-                      onSendToEditor={onSendToEditor}
+                      onSendToEditor={sendBlockToEditor}
                     />
                     ) : (
                       <span>{t('chat.largeMessageDeferred')}</span>

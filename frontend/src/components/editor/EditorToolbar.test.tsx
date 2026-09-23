@@ -1,11 +1,19 @@
 import { createRef } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EditorToolbar } from './EditorToolbar';
 import type { MenuItem } from '../menu';
 import type { EditorDocument } from '../../store/editorStore';
 import type { TipTapEditor } from '../../pages/editorTypes';
+
+const shortcutHints = vi.hoisted(() => ({
+  current: {} as Record<string, string | undefined>,
+}));
+
+vi.mock('../../lib/commandShortcutHints', () => ({
+  useCommandShortcutHints: () => (commandID: string) => shortcutHints.current[commandID],
+}));
 
 vi.mock('react-i18next', () => ({
   initReactI18next: {
@@ -25,6 +33,17 @@ describe('EditorToolbar', () => {
     markdown: '',
     mode: 'rich',
   };
+
+  beforeEach(() => {
+    shortcutHints.current = {
+      'editor.menu.file.open': 'Alt+F',
+      'editor.menu.format.open': 'Alt+R',
+      'editor.menu.mode.open': 'Alt+M',
+      'editor.slides.open': 'Alt+S',
+      'editor.menu.insert.open': 'Alt+I',
+      'editor.presentation.fullscreen': 'F5',
+    };
+  });
 
   it('usa rótulos derivados no picker de slides Reveal', () => {
     const onOpenMenu = vi.fn<(anchor: HTMLElement, ariaLabel: string, items: MenuItem[]) => void>();
@@ -91,12 +110,12 @@ describe('EditorToolbar', () => {
 
     const buttons = screen.getAllByRole('button');
     expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
-      'editor.buttons.file',
-      'editor.buttons.format',
+      'editor.buttons.file, Alt+F',
+      'editor.buttons.format, Alt+R',
       'editor.buttons.insert, Alt+I',
       'Abertura, Alt+S',
       'editor.presentation.fullscreen, F5',
-      'editor.buttons.mode',
+      'editor.buttons.mode, Alt+M',
       'Chat',
     ]);
 
@@ -105,5 +124,58 @@ describe('EditorToolbar', () => {
     fireEvent.keyDown(toolbar, { key: 'End' });
 
     expect(screen.getByRole('button', { name: 'Chat' })).toHaveFocus();
+  });
+
+  it('reage a remapeamento e supressão sem alterar foco nem ação dos controles', () => {
+    const onOpenMenu = vi.fn<(anchor: HTMLElement, ariaLabel: string, items: MenuItem[]) => void>();
+    const onCreateSlide = vi.fn();
+    const onRequestFullscreen = vi.fn();
+
+    const { rerender } = render(
+      <EditorToolbar
+        activeTab={activeTab}
+        isAsking={false}
+        richEditorRef={createRef<TipTapEditor | null>()}
+        actions={[]}
+        onOpenMenu={onOpenMenu}
+        fileMenuItems={[]}
+        formatMenuItems={[]}
+        insertMenuItems={[]}
+        modeMenuItems={[]}
+        revealSlidePicker={{ enabled: true, slideCount: 1, currentSlideIndex: 0, onSelectSlide: vi.fn(), onCreateSlide }}
+        revealFullscreen={{ enabled: true, onRequest: onRequestFullscreen }}
+      />
+    );
+
+    shortcutHints.current = {
+      'editor.slides.open': 'Alt+Shift+S',
+      'editor.menu.insert.open': undefined,
+      'editor.presentation.fullscreen': 'Ctrl+F5',
+    };
+    rerender(
+      <EditorToolbar
+        activeTab={activeTab}
+        isAsking={false}
+        richEditorRef={createRef<TipTapEditor | null>()}
+        actions={[]}
+        onOpenMenu={onOpenMenu}
+        fileMenuItems={[]}
+        formatMenuItems={[]}
+        insertMenuItems={[]}
+        modeMenuItems={[]}
+        revealSlidePicker={{ enabled: true, slideCount: 1, currentSlideIndex: 0, onSelectSlide: vi.fn(), onCreateSlide }}
+        revealFullscreen={{ enabled: true, onRequest: onRequestFullscreen }}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'Slide 1, Alt+Shift+S' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'editor.buttons.insert' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'editor.presentation.fullscreen, Ctrl+F5' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Slide 1, Alt+Shift+S' }));
+    fireEvent.click(screen.getByRole('button', { name: 'editor.presentation.fullscreen, Ctrl+F5' }));
+    expect(onOpenMenu).toHaveBeenCalledTimes(1);
+    expect(onCreateSlide).not.toHaveBeenCalled();
+    expect(onRequestFullscreen).toHaveBeenCalledTimes(1);
   });
 });

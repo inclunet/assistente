@@ -2,6 +2,37 @@
 
 **Status:** Done
 
+**Extensão AEP-0103, 17/09/2026 — seção 27:** cada passagem do coordenador
+publica a fotografia validada de MaintenanceSettings no contexto interno.
+Criação/renovação de leases e retenção de ativações usam a mesma fotografia,
+sem alterar durações compartilhadas nem reabrir deadlines persistidos. A
+próxima passagem observa novos settings. O App permite recuperação de claims
+sem fonte mesmo sem workspace/UI disponível, mas não permite ativação ou
+renovação nesse estado. Erros de transação continuam erros, não ausência de
+contexto. O diagnóstico de falhas inclui etapa e contadores confirmados.
+Aceites e limites estão na tasklist; o gate integrado de restart de todos os
+domínios ainda não está certificado. Done acima continua restrito ao legado.
+
+**Atualização da extensão AEP-0103, seção 26 (16/09/2026):** a composição real
+está ligada no App antes de jobs.Start quando o armazenamento de comandos está
+pronto. Usa o timer existente, recuperação vinculada ao mesmo banco, heartbeat,
+outbox/purga bounded, retenções de comandos e adapters legados de jobs/tools e
+compactação. Falha de montagem impede Start; não instala fallback silencioso.
+Shutdown cancela e aguarda a passagem antes de liberar a instância. R04.1 está
+aceito; atualização dinâmica dos settings do Consumer e gate integrado de
+recuperação multiusuário/system permanecem pendentes. As notas abaixo são
+históricas; Done continua limitado ao escopo legado.
+
+**Extensão AEP-0103, 16/09/2026 — In Progress:** com o coordenador configurado,
+a passagem inicial agora pertence à única goroutine cancelável de manutenção,
+sem executar portas sob os locks de `Manager.Start`. Stop também drena essa
+primeira passagem. Heartbeat retoma o prefixo confirmado após falha; erros
+transitórios não viram rejeição definitiva e retenção sinaliza continuação
+após rollback. A composição completa do Consumer e a chamada produtiva de
+ConfigureCommandMaintenance ainda faltam. O recovery de restart registrado
+já está ligado ao bootstrap (seção 24 da tasklist AEP-0103); isso não habilita
+a cadência periódica completa. Done acima permanece restrito ao escopo legado.
+
 **Rodada de quinze pacotes AEP-0103 (15/09/2026), extensão In Progress:**
 `commanddecision.CoordinatorRecovery` pagina receipts de todos os owners,
 exclusivamente com prova opaca de gerações drenadas no processo atual, e usa o

@@ -1,8 +1,17 @@
 import type { SurfaceContext } from './chatSurface';
+import { createSurfaceSnapshotVersion } from './chatSurface';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import {
   getModalRegistrySnapshot,
   type ModalRegistrySnapshot,
 } from './modalRegistry';
+import {
+  readCommandCompositionState,
+  type CommandCompositionState,
+} from './commandFocusContext';
+
+export { acquireCommandFocusTracking } from './commandFocusContext';
+export type { CommandCompositionState } from './commandFocusContext';
 
 export type { SurfaceContext } from './chatSurface';
 
@@ -45,6 +54,13 @@ export interface FocusSnapshot {
   readonly hasFocus: boolean;
   readonly detached: boolean;
   readonly control: FocusedControlSnapshot | null;
+  readonly composition: CommandCompositionState;
+}
+
+/** Perfil efetivo vindo do store de workspace/aba, nunca do payload do evento. */
+export interface ProfileContext {
+  readonly slug: string;
+  readonly snapshotVersion: string;
 }
 
 export type SurfaceContextReadStatus = 'available' | 'missing' | 'invalid' | 'stale';
@@ -63,6 +79,7 @@ export interface CommandContextFrame {
   readonly modal: ModalRegistrySnapshot;
   readonly focus: FocusSnapshot;
   readonly surface: Readonly<SurfaceContext> | null;
+  readonly profile: ProfileContext | null;
 }
 
 const surfaceGetters = new Map<string, { readonly getter: SurfaceContextGetter }>();
@@ -360,7 +377,7 @@ function readFocusedControl(element: Element): FocusedControlSnapshot {
 /** Reads the current document focus synchronously without exposing DOM content or identifiers. */
 export function ReadFocusContext(): FocusSnapshot {
   if (typeof document === 'undefined') {
-    return Object.freeze({ hasFocus: false, detached: false, control: null });
+    return Object.freeze({ hasFocus: false, detached: false, control: null, composition: 'unknown' });
   }
 
   let hasFocus = false;
@@ -371,15 +388,47 @@ export function ReadFocusContext(): FocusSnapshot {
   }
   const active = document.activeElement;
   if (!active || active === document.body || typeof Element === 'undefined' || !(active instanceof Element)) {
-    return Object.freeze({ hasFocus, detached: false, control: null });
+    return Object.freeze({ hasFocus, detached: false, control: null, composition: 'inactive' });
   }
   const detached = !active.isConnected || !document.documentElement.contains(active);
-  if (detached) return Object.freeze({ hasFocus, detached: true, control: null });
-  return Object.freeze({ hasFocus, detached: false, control: readFocusedControl(active) });
+  if (detached) return Object.freeze({ hasFocus, detached: true, control: null, composition: 'unknown' });
+  const control = readFocusedControl(active);
+  return Object.freeze({
+    hasFocus,
+    detached: false,
+    control,
+    composition: readCommandCompositionState(document, control.capabilities.editable),
+  });
+}
+
+function profileSlug(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.trim() === '') return undefined;
+  return value.trim();
 }
 
 /**
- * Typed synchronous frame for the future backend adapter. This is a read API:
+ * Lê o perfil efetivo da fonte canônica local. A cascata é a mesma usada pela
+ * UI: override da aba ativa, depois perfil do workspace. Ausência é explícita
+ * e não cai para um slug inventado/default.
+ */
+export function ReadProfileContext(): ProfileContext | null {
+  const workspace = useWorkspaceStore.getState().workspace;
+  if (!workspace) return null;
+  const activeTab = Array.isArray(workspace.tabs)
+    ? workspace.tabs.find((tab) => tab.id === workspace.activeTabId)
+    : undefined;
+  const override = activeTab?.profileOverride?.slug;
+  const slug = profileSlug(override) ?? profileSlug(workspace.profile);
+  if (!slug) return null;
+  const source = `${workspace.id}\u0000${workspace.activeTabId ?? ''}\u0000${slug}`;
+  return Object.freeze({
+    slug,
+    snapshotVersion: createSurfaceSnapshotVersion('profile', workspace.id, source),
+  });
+}
+
+/**
+ * Typed synchronous frame for local UI revalidation. This is a read API:
  * it does not persist, audit, infer tabs, subscribe to events, or authenticate
  * the principal. The frontend is a source of UI facts, not an auth boundary.
  */
@@ -390,6 +439,7 @@ export function ReadCommandContextFrame(surfaceID?: string): CommandContextFrame
     modal: getModalRegistrySnapshot(),
     focus: ReadFocusContext(),
     surface: surfaceID === undefined ? null : ReadSurfaceContext(surfaceID) ?? null,
+    profile: ReadProfileContext(),
   });
 }
 

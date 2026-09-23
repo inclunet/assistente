@@ -10,8 +10,9 @@ import (
 )
 
 // CoordinatorRecovery percorre todos os usuários com cursor privado. Somente
-// gerações emitidas e drenadas pelo core local podem ser encerradas; idade,
-// ausência de sessão e restart não constituem prova de drenagem.
+// gerações drenadas pelo core local ou cobertas pela prova opaca de exclusão
+// interprocesso deste banco podem ser encerradas. Idade, ausência de sessão
+// e mero restart não constituem prova.
 type CoordinatorRecovery struct {
 	store   *Store
 	drained commandsecurity.DrainedGenerations
@@ -20,7 +21,7 @@ type CoordinatorRecovery struct {
 }
 
 func NewCoordinatorRecovery(store *Store, drained commandsecurity.DrainedGenerations) (*CoordinatorRecovery, error) {
-	if store == nil || store.db == nil || store.now == nil || !drained.Valid() || isTransactionalDB(store.db) {
+	if store == nil || store.db == nil || store.now == nil || !drained.Valid() || !drained.AllowsDatabase(store.db) || isTransactionalDB(store.db) {
 		return nil, ErrInvalid
 	}
 	return &CoordinatorRecovery{store: store, drained: drained}, nil
@@ -33,7 +34,7 @@ var _ commandmaintenance.RecoveryPort = (*CoordinatorRecovery)(nil)
 // More indica continuação da varredura, não prova que outro core está drenado.
 // Ao terminar, reinicia o cursor para revisitar o início na próxima passagem.
 func (a *CoordinatorRecovery) Recover(ctx context.Context, limit int) (commandmaintenance.BatchResult, error) {
-	if a == nil || a.store == nil || ctx == nil || limit < 1 || limit > MaxRecoveryBatch || !a.drained.Valid() {
+	if a == nil || a.store == nil || ctx == nil || limit < 1 || limit > MaxRecoveryBatch || !a.drained.Valid() || !a.drained.AllowsDatabase(a.store.db) {
 		return commandmaintenance.BatchResult{}, ErrInvalid
 	}
 	if err := ctx.Err(); err != nil {

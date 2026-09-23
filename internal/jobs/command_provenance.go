@@ -1,10 +1,9 @@
 package jobs
 
 import (
-	"encoding/json"
 	"errors"
-	"strings"
 
+	"assistente/internal/commandcontract"
 	"assistente/internal/commandjson"
 )
 
@@ -25,27 +24,9 @@ func (e *JobExecutor) commandRunProvenance(job *Job, trigger *TriggerContext, ru
 	if err != nil {
 		return nil, err
 	}
-	var chain []struct {
-		CommandID    string   `json:"command_id"`
-		InvocationID string   `json:"invocation_id"`
-		LayerRefs    []string `json:"layer_refs"`
-	}
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&chain); err != nil || chain == nil || len(chain) > 16 {
+	chain, err := commandcontract.DecodeCommandChainHistory(raw)
+	if err != nil {
 		return nil, errors.New("invalid command chain provenance")
-	}
-	seen := map[string]bool{}
-	for _, item := range chain {
-		if item.CommandID == "" || strings.TrimSpace(item.CommandID) != item.CommandID || strings.ContainsRune(item.CommandID, '\x00') || !isUUIDv7(item.InvocationID) || item.LayerRefs == nil || seen[item.CommandID] {
-			return nil, errors.New("invalid command chain provenance")
-		}
-		for _, ref := range item.LayerRefs {
-			if strings.TrimSpace(ref) != ref || ref == "" || strings.ContainsRune(ref, '\x00') {
-				return nil, errors.New("invalid command chain provenance")
-			}
-		}
-		seen[item.CommandID] = true
 	}
 	result["command_chain_history"] = chain
 	return result, nil

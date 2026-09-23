@@ -20,6 +20,7 @@ type testPort struct {
 	ack         InvocationAck
 	dispatchErr error
 	cancelErr   error
+	mutateProof bool
 }
 
 func testUUID7(number int) string {
@@ -83,6 +84,9 @@ func (p *handoffPort) Cancel(context.Context, CancelRequest) error { return nil 
 func (p *testPort) Dispatch(_ context.Context, invocation Invocation) (InvocationAck, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.mutateProof && invocation.DialogProof != nil {
+		invocation.DialogProof.DialogID = "mutated-by-port"
+	}
 	p.dispatched = append(p.dispatched, invocation)
 	if p.dispatchErr != nil {
 		return InvocationAck{}, p.dispatchErr
@@ -105,7 +109,7 @@ func newBridgeFixture(t *testing.T) (*Bridge, *testPort, Owner, Invocation) {
 	t.Helper()
 	port := &testPort{}
 	owner := Owner{UserID: "user-a", SessionID: "session-a", WorkspaceID: "workspace-a"}
-	bridge, err := New(Config{Port: port, Capabilities: []Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Owner: owner}}})
+	bridge, err := New(Config{Port: port, Capabilities: []Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Source: SourceUIAction, Owner: owner}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,6 +140,51 @@ func TestBridgeDispatchesOnlyAfterCapabilityAndOwnerChecks(t *testing.T) {
 	}
 	if len(port.dispatched) != 1 {
 		t.Fatalf("owner inválido chegou à porta: %d", len(port.dispatched))
+	}
+}
+
+func TestBridgeCapabilityBindsSourceAndIngressRejectsPhysicalForgery(t *testing.T) {
+	bridge, port, owner, invocation := newBridgeFixture(t)
+	if err := bridge.ReplaceCapabilities([]Capability{{ID: "cap-a", CommandID: invocation.CommandID, Generation: 1, Source: SourceKeyboardLocal, Owner: owner}}); err != nil {
+		t.Fatal(err)
+	}
+
+	forged := invocation
+	forged.InvocationID = testUUID7(12)
+	forged.Source = SourceStreamDeck
+	if _, err := bridge.Invoke(context.Background(), forged, owner); !errors.Is(err, ErrCapabilityDenied) {
+		t.Fatalf("origem diferente da capability aceita: %v", err)
+	}
+	if _, err := bridge.InvokeIngress(context.Background(), Invocation{
+		SessionID: owner.SessionID, InvocationID: testUUID7(14), CommandID: invocation.CommandID,
+		Generation: 1, CapabilityID: invocation.CapabilityID, Ownership: OwnershipLocal,
+		Source: SourceKeyboardLocal,
+	}, owner); !errors.Is(err, ErrCapabilityDenied) {
+		t.Fatalf("ingresso físico Wails aceito: %v", err)
+	}
+
+	physical := invocation
+	physical.InvocationID = testUUID7(15)
+	physical.Source = SourceKeyboardLocal
+	ack, err := bridge.Invoke(context.Background(), physical, owner)
+	if err != nil || !ack.Accepted {
+		t.Fatalf("handoff físico confiável rejeitado: ack=%+v err=%v", ack, err)
+	}
+	if len(port.dispatched) != 1 {
+		t.Fatalf("dispatch inesperado após forged source: %d", len(port.dispatched))
+	}
+	if _, err := bridge.Cancel(context.Background(), CancelRequest{
+		SessionID: owner.SessionID, InvocationID: physical.InvocationID, Generation: 1,
+		CapabilityID: physical.CapabilityID, Owner: owner,
+	}); err != nil {
+		t.Fatalf("cancel do handoff físico: %v", err)
+	}
+	input := Input{
+		SessionID: owner.SessionID, Source: "keyboard", Key: "Ctrl+N", Generation: 1,
+		Kind: commandinput.KeyDown, Invocation: physical, Owner: owner,
+	}
+	if _, err := bridge.InputIngress(context.Background(), input); !errors.Is(err, ErrCapabilityDenied) {
+		t.Fatalf("input físico Wails aceito: %v", err)
 	}
 }
 
@@ -177,7 +226,7 @@ func TestBridgeResultRequiresExactIdentityAndReleasesClaim(t *testing.T) {
 
 func TestBridgeDialogProofRequiresExactRoundTrip(t *testing.T) {
 	bridge, _, owner, invocation := newBridgeFixture(t)
-	if err := bridge.ReplaceCapabilities([]Capability{{ID: "cap-a", CommandID: DecisionRespondCommandID, Generation: 1, Owner: owner}}); err != nil {
+	if err := bridge.ReplaceCapabilities([]Capability{{ID: "cap-a", CommandID: DecisionRespondCommandID, Generation: 1, Source: SourceKeyboardLocal, Owner: owner}}); err != nil {
 		t.Fatal(err)
 	}
 	invocation.CommandID = DecisionRespondCommandID
@@ -207,6 +256,66 @@ func TestBridgeDialogProofRequiresExactRoundTrip(t *testing.T) {
 	ack, err := bridge.AcceptResult(valid)
 	if err != nil || !ack.Accepted {
 		t.Fatalf("resultado válido ack=%+v err=%v", ack, err)
+	}
+}
+
+func TestBridgeInputValidatesBeforeTransitionIncludingRelease(t *testing.T) {
+	bridge, _, owner, invocation := newBridgeFixture(t)
+	input := Input{
+		SessionID: owner.SessionID, Source: "keyboard", Key: "Ctrl+N", Generation: 1,
+		Kind: commandinput.KeyDown, Invocation: invocation, Owner: owner,
+	}
+	wrongOwner := owner
+	wrongOwner.UserID = "user-b"
+	if _, err := bridge.Input(context.Background(), Input{SessionID: input.SessionID, Source: input.Source, Key: input.Key, Generation: input.Generation, Kind: input.Kind, Invocation: input.Invocation, Owner: wrongOwner}); !errors.Is(err, ErrStaleGeneration) {
+		t.Fatalf("down com owner inválido err=%v", err)
+	}
+	if ack, err := bridge.Input(context.Background(), input); err != nil || !ack.Accepted {
+		t.Fatalf("down válido após owner inválido ack=%+v err=%v", ack, err)
+	}
+
+	badRelease := input
+	badRelease.Kind = commandinput.KeyUp
+	badRelease.Owner = wrongOwner
+	if _, err := bridge.Input(context.Background(), badRelease); !errors.Is(err, ErrStaleGeneration) {
+		t.Fatalf("release com owner inválido err=%v", err)
+	}
+	if _, err := bridge.AcceptResult(Result{
+		SessionID: owner.SessionID, InvocationID: invocation.InvocationID, CommandID: invocation.CommandID,
+		Generation: 1, CapabilityID: invocation.CapabilityID, Ownership: invocation.Ownership,
+		OccurrenceID: normalizeOccurrence(input.Source, input.Key), Owner: owner, Status: ResultSucceeded,
+	}); err != nil {
+		t.Fatalf("resultado do down inicial: %v", err)
+	}
+	secondDown := input
+	secondDown.Invocation.InvocationID = testUUID7(90)
+	if ack, err := bridge.Input(context.Background(), secondDown); err != nil || ack.Accepted {
+		t.Fatalf("release inválido consumiu down ack=%+v err=%v", ack, err)
+	}
+}
+
+func TestBridgeDetachesDialogProofFromCallerAndPort(t *testing.T) {
+	port := &testPort{mutateProof: true}
+	owner := Owner{UserID: "user-a", SessionID: "session-a", WorkspaceID: "workspace-a"}
+	bridge, err := New(Config{Port: port, Capabilities: []Capability{{ID: "cap-a", CommandID: DecisionRespondCommandID, Generation: 1, Source: SourceKeyboardLocal, Owner: owner}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bridge.OpenSession(Session{ID: owner.SessionID, Generation: 1, Owner: owner}); err != nil {
+		t.Fatal(err)
+	}
+	proof := &DialogProof{DialogID: "decision-a", Kind: "decision", ScopeGeneration: 1, CommandID: DecisionRespondCommandID, TriggerSpec: DecisionRepeatTrigger}
+	invocation := Invocation{SessionID: owner.SessionID, InvocationID: testUUID7(91), CommandID: DecisionRespondCommandID, Generation: 1, CapabilityID: "cap-a", Ownership: OwnershipLocal, Source: SourceKeyboardLocal, DialogProof: proof}
+	if _, err := bridge.Invoke(context.Background(), invocation, owner); err != nil {
+		t.Fatal(err)
+	}
+	proof.DialogID = "mutated-by-caller"
+	result := Result{SessionID: invocation.SessionID, InvocationID: invocation.InvocationID, CommandID: invocation.CommandID, Generation: invocation.Generation, CapabilityID: invocation.CapabilityID, Ownership: invocation.Ownership, Owner: owner, Status: ResultSucceeded, DialogProof: &DialogProof{DialogID: "decision-a", Kind: "decision", ScopeGeneration: 1, CommandID: DecisionRespondCommandID, TriggerSpec: DecisionRepeatTrigger}}
+	if ack, err := bridge.AcceptResult(result); err != nil || !ack.Accepted {
+		t.Fatalf("roundtrip da prova detached ack=%+v err=%v", ack, err)
+	}
+	if port.dispatched[0].DialogProof.DialogID != "mutated-by-port" {
+		t.Fatalf("porta não recebeu cópia mutável isolada: %+v", port.dispatched[0].DialogProof)
 	}
 }
 
@@ -257,8 +366,8 @@ func TestBridgePhysicalClaimIsScopedByOwnerWorkspaceOccurrenceAndGeneration(t *t
 		t.Fatal(err)
 	}
 	if err := bridge.ReplaceCapabilities([]Capability{
-		{ID: "cap-a", CommandID: "command.a", Generation: 1, Owner: owner},
-		{ID: "cap-b", CommandID: "command.a", Generation: 1, Owner: otherOwner},
+		{ID: "cap-a", CommandID: "command.a", Generation: 1, Source: SourceUIAction, Owner: owner},
+		{ID: "cap-b", CommandID: "command.a", Generation: 1, Source: SourceUIAction, Owner: otherOwner},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +389,7 @@ func TestBridgeGenerationRequiresCapabilitySnapshotOfNewGeneration(t *testing.T)
 	if _, err := bridge.Invoke(context.Background(), next, owner); !errors.Is(err, ErrCapabilityDenied) {
 		t.Fatalf("capability antiga aceita: %v", err)
 	}
-	if err := bridge.ReplaceCapabilities([]Capability{{ID: "cap-next", CommandID: "command.a", Generation: 2, Owner: owner}}); err != nil {
+	if err := bridge.ReplaceCapabilities([]Capability{{ID: "cap-next", CommandID: "command.a", Generation: 2, Source: SourceUIAction, Owner: owner}}); err != nil {
 		t.Fatal(err)
 	}
 	next.CapabilityID = "cap-next"
@@ -292,7 +401,7 @@ func TestBridgeGenerationRequiresCapabilitySnapshotOfNewGeneration(t *testing.T)
 func TestBridgePortDispatchIsAQuickHandoffAndLogoutDoesNotWaitForExecution(t *testing.T) {
 	port := &handoffPort{started: make(chan struct{}), release: make(chan struct{}), done: make(chan struct{})}
 	owner := Owner{UserID: "user-a", SessionID: "session-a", WorkspaceID: "workspace-a"}
-	bridge, err := New(Config{Port: port, Capabilities: []Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Owner: owner}}})
+	bridge, err := New(Config{Port: port, Capabilities: []Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Source: SourceUIAction, Owner: owner}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,6 +500,9 @@ func TestBridgeSourceEnumAndUUID7Semantics(t *testing.T) {
 	event.InvocationID = testUUID7(21)
 	event.Source = SourceEvent
 	event.EventID = testUUID7(22)
+	if err := bridge.ReplaceCapabilities([]Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Source: SourceEvent, Owner: owner}}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := bridge.Invoke(context.Background(), event, owner); err != nil {
 		t.Fatalf("evento UUID7 rejeitado: %v", err)
 	}
@@ -399,6 +511,9 @@ func TestBridgeSourceEnumAndUUID7Semantics(t *testing.T) {
 	missingEventID.Source = SourceEvent
 	if _, err := bridge.Invoke(context.Background(), missingEventID, owner); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("evento sem EventID aceito: %v", err)
+	}
+	if err := bridge.ReplaceCapabilities([]Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Source: SourceUIAction, Owner: owner}}); err != nil {
+		t.Fatal(err)
 	}
 	opaqueOccurrence := invocation
 	opaqueOccurrence.InvocationID = testUUID7(24)
@@ -412,6 +527,9 @@ func TestBridgeSourceEnumAndUUID7Semantics(t *testing.T) {
 	if string(streamDeck.Source) != "streamdeck.key" {
 		t.Fatalf("origem Stream Deck = %q", streamDeck.Source)
 	}
+	if err := bridge.ReplaceCapabilities([]Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Source: SourceStreamDeck, Owner: owner}}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := bridge.Invoke(context.Background(), streamDeck, owner); err != nil {
 		t.Fatalf("origem Stream Deck rejeitada: %v", err)
 	}
@@ -419,6 +537,9 @@ func TestBridgeSourceEnumAndUUID7Semantics(t *testing.T) {
 	withSourceEvent.InvocationID = testUUID7(27)
 	withSourceEvent.Source = SourceKeyboardLocal
 	withSourceEvent.SourceEventID = testUUID7(28)
+	if err := bridge.ReplaceCapabilities([]Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Source: SourceKeyboardLocal, Owner: owner}}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := bridge.Invoke(context.Background(), withSourceEvent, owner); err != nil {
 		t.Fatalf("source event UUIDv7 rejeitado: %v", err)
 	}
@@ -532,7 +653,7 @@ func TestBridgeLifecycleResetBlurAndReleaseClearAdapterState(t *testing.T) {
 	if len(port.cancelled) != 1 || port.cancelled[0].InvocationID != third.Invocation.InvocationID {
 		t.Fatalf("reset não cancelou a pendência: %+v", port.cancelled)
 	}
-	if err := bridge.ReplaceCapabilities([]Capability{{ID: "cap-next", CommandID: "command.a", Generation: 2, Owner: owner}}); err != nil {
+	if err := bridge.ReplaceCapabilities([]Capability{{ID: "cap-next", CommandID: "command.a", Generation: 2, Source: SourceUIAction, Owner: owner}}); err != nil {
 		t.Fatalf("capability da nova geração: %v", err)
 	}
 	fourth := third
@@ -550,7 +671,7 @@ func TestBridgeShutdownCancelsAllSessionsAndReleasesAdapterOnce(t *testing.T) {
 	port := &shutdownPort{testPort: base}
 	owner := Owner{UserID: "user-a", SessionID: "session-a", WorkspaceID: "workspace-a"}
 	other := Owner{UserID: "user-b", SessionID: "session-b", WorkspaceID: "workspace-b"}
-	bridge, err := New(Config{Port: port, Capabilities: []Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Owner: owner}, {ID: "cap-b", CommandID: "command.a", Generation: 1, Owner: other}}})
+	bridge, err := New(Config{Port: port, Capabilities: []Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Source: SourceUIAction, Owner: owner}, {ID: "cap-b", CommandID: "command.a", Generation: 1, Source: SourceUIAction, Owner: other}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -598,7 +719,7 @@ func TestBridgeShutdownCallsPortAfterCancelError(t *testing.T) {
 	base := &testPort{cancelErr: cancelErr}
 	port := &shutdownPort{testPort: base, shutdownErr: shutdownErr}
 	owner := Owner{UserID: "user-a", SessionID: "session-a", WorkspaceID: "workspace-a"}
-	bridge, err := New(Config{Port: port, Capabilities: []Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Owner: owner}}})
+	bridge, err := New(Config{Port: port, Capabilities: []Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Source: SourceUIAction, Owner: owner}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,7 +745,7 @@ func TestBridgeConcurrentShutdownWithCancelledContextDoesNotDeadlock(t *testing.
 	base := &testPort{cancelErr: context.Canceled}
 	port := &shutdownPort{testPort: base}
 	owner := Owner{UserID: "user-a", SessionID: "session-a", WorkspaceID: "workspace-a"}
-	bridge, err := New(Config{Port: port, Capabilities: []Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Owner: owner}}})
+	bridge, err := New(Config{Port: port, Capabilities: []Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Source: SourceUIAction, Owner: owner}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -662,7 +783,7 @@ func TestBridgeConcurrentShutdownContextMayLeaveFirstOwnerBlocked(t *testing.T) 
 	base := &testPort{}
 	port := &blockingCancelPort{testPort: base, cancelStarted: make(chan struct{}), releaseCancel: make(chan struct{})}
 	owner := Owner{UserID: "user-a", SessionID: "session-a", WorkspaceID: "workspace-a"}
-	bridge, err := New(Config{Port: port, Capabilities: []Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Owner: owner}}})
+	bridge, err := New(Config{Port: port, Capabilities: []Capability{{ID: "cap-a", CommandID: "command.a", Generation: 1, Source: SourceUIAction, Owner: owner}}})
 	if err != nil {
 		t.Fatal(err)
 	}

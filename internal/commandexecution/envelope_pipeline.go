@@ -37,6 +37,12 @@ type EnvelopeResolution struct {
 	Arguments  json.RawMessage
 	BindingIDs []string
 	LayerRefs  []string
+	// ContextVersion é um stamp opaco do resolvedor confiável. Não faz parte
+	// do envelope persistido nem pode ser fornecido pelo chamador.
+	ContextVersion string
+	// Provenance é fornecida somente pelo resolvedor confiável do bootstrap;
+	// nunca é lida do EnvelopeCandidate.
+	Provenance *json.RawMessage
 }
 
 // EnvelopeConfig é uma porta interna do bootstrap, nunca preenchida por Wails.
@@ -66,23 +72,25 @@ type EnvelopeConfig struct {
 }
 
 type preparedEnvelope struct {
-	candidate            EnvelopeCandidate
-	epoch                commandsecurity.EpochSnapshot
-	principal            auth.LocalSessionPrincipal
-	identity             EnvelopeAuthenticatedIdentity
-	envelope             commandcontract.Envelope
-	definition           commandcatalog.Definition
-	mode                 commandcontract.ResolutionMode
-	proof                commandcontext.FactProof
-	scope                commandcontext.Scope
-	owner                commandledger.FullOwnership
-	layerRefs            []string
-	hostProvenance       *json.RawMessage
-	inputFingerprint     string
-	argumentsFingerprint string
-	expires              time.Time
-	denied               bool
-	snapshotFailed       bool
+	candidate              EnvelopeCandidate
+	epoch                  commandsecurity.EpochSnapshot
+	principal              auth.LocalSessionPrincipal
+	identity               EnvelopeAuthenticatedIdentity
+	envelope               commandcontract.Envelope
+	definition             commandcatalog.Definition
+	mode                   commandcontract.ResolutionMode
+	proof                  commandcontext.FactProof
+	scope                  commandcontext.Scope
+	owner                  commandledger.FullOwnership
+	layerRefs              []string
+	contextVersion         string
+	hostSnapshotProvenance *json.RawMessage
+	hostProvenance         *json.RawMessage
+	inputFingerprint       string
+	argumentsFingerprint   string
+	expires                time.Time
+	denied                 bool
+	snapshotFailed         bool
 }
 
 func canonicalCandidate(candidate EnvelopeCandidate) (EnvelopeCandidate, error) {
@@ -111,10 +119,10 @@ func canonicalCandidate(candidate EnvelopeCandidate) (EnvelopeCandidate, error) 
 	if json.Unmarshal(canonical, &detached) != nil {
 		return EnvelopeCandidate{}, ErrInvalidRequest
 	}
-	// Não afrouxar version:1 inteiro de trigger através da canonicalização.
+	// Valida a versão no documento original: a canonicalização não pode tornar
+	// 1.0/2.0 inteiros válidos. Somente keyboard.local possui documento v2.
 	if candidate.TriggerType != "" {
-		var doc map[string]json.RawMessage
-		if json.Unmarshal(candidate.TriggerSpec, &doc) != nil || string(doc["version"]) != "1" {
+		if commandcontract.ValidateTriggerDocumentVersion(candidate.TriggerType, candidate.TriggerSpec) != nil {
 			return EnvelopeCandidate{}, ErrInvalidRequest
 		}
 	}
@@ -229,7 +237,7 @@ func (s *Service) snapshotFailureRefusal(identity EnvelopeAuthenticatedIdentity,
 		UserID:             cloneEnvelopeString(o.UserID),
 		AuthContextType:    o.AuthContextType,
 		AuthContextID:      o.AuthContextID,
-		AuthGeneration:    epoch.AuthGeneration,
+		AuthGeneration:     epoch.AuthGeneration,
 		SecurityGeneration: epoch.SecurityGeneration,
 		ActorType:          o.ActorType,
 		ActorID:            o.ActorID,
@@ -271,6 +279,17 @@ func cloneEnvelopeString(value *string) *string {
 	}
 	copyValue := *value
 	return &copyValue
+}
+
+func cloneEnvelopeCandidate(candidate EnvelopeCandidate) EnvelopeCandidate {
+	clone := candidate
+	clone.Arguments = append(json.RawMessage(nil), candidate.Arguments...)
+	clone.TriggerSpec = append(json.RawMessage(nil), candidate.TriggerSpec...)
+	if candidate.WorkspaceID != nil {
+		workspaceID := *candidate.WorkspaceID
+		clone.WorkspaceID = &workspaceID
+	}
+	return clone
 }
 
 func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeCandidate) (preparedEnvelope, *commandledger.FullRecord, error) {
@@ -330,6 +349,7 @@ func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeC
 		if err != nil {
 			return err
 		}
+		p.hostSnapshotProvenance = cloneRawMessage(p.envelope.Provenance)
 		p.mode = commandcontract.ResolutionExecute
 		if c.CommandID == "" {
 			resolution, err := s.resolveEnvelope(ctx, current, c, p.envelope)
@@ -338,9 +358,17 @@ func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeC
 				p.denied = true
 				return nil
 			}
+			mergedProvenance, provenanceErr := mergeResolutionProvenance(p.hostSnapshotProvenance, resolution.Provenance)
+			if provenanceErr != nil {
+				p.mode = commandcontract.ResolutionDenied
+				p.denied = true
+				return nil
+			}
+			p.envelope.Provenance = mergedProvenance
 			p.mode = resolution.Mode
 			p.envelope.BindingIDs = append([]string{}, resolution.BindingIDs...)
 			p.layerRefs = append([]string{}, resolution.LayerRefs...)
+			p.contextVersion = resolution.ContextVersion
 			if resolution.CommandID != "" {
 				id := resolution.CommandID
 				p.envelope.CommandID = &id
@@ -416,12 +444,16 @@ func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeC
 			}
 		}
 	}
+	// A proveniência efetiva pré-chain é fixada para todos os modos. Em
+	// particular, suppress não pode transformar uma proveniência do host em
+	// ausência durante a revalidação.
+	p.hostProvenance = cloneRawMessage(p.envelope.Provenance)
 	if p.mode == commandcontract.ResolutionExecute && !p.denied && p.definition.ID != "" {
-		p.hostProvenance = cloneRawMessage(p.envelope.Provenance)
 		p.envelope, err = prepareCommandChain(p.envelope, p.definition, p.layerRefs)
 		if err != nil {
-			p.denied = true
-			p.mode = commandcontract.ResolutionDenied
+			// Proveniência de cadeia inválida é uma entrada rejeitada antes de
+			// qualquer reserva/auditoria; não deve ganhar um ledger de execução.
+			return p, nil, ErrDenied
 		}
 	}
 	if p.mode == commandcontract.ResolutionSuppress {
@@ -461,7 +493,7 @@ func (s *Service) checkEnvelope(ctx context.Context, token string, p preparedEnv
 		return ErrStale
 	}
 	comparisonEnvelope := p.envelope
-	comparisonEnvelope.Provenance = p.hostProvenance
+	comparisonEnvelope.Provenance = p.hostSnapshotProvenance
 	want, err := hostEnvelopeIdentity(comparisonEnvelope)
 	if err != nil {
 		return ErrStale
@@ -482,8 +514,15 @@ func (s *Service) checkEnvelope(ctx context.Context, token string, p preparedEnv
 		if resolution.CommandID != id {
 			return ErrStale
 		}
+		mergedProvenance, provenanceErr := mergeResolutionProvenance(current.Provenance, resolution.Provenance)
+		if provenanceErr != nil || !sameRawMessage(mergedProvenance, p.hostProvenance) {
+			return ErrStale
+		}
 		if len(resolution.Arguments) == 0 {
 			resolution.Arguments = json.RawMessage(`{}`)
+		}
+		if resolution.ContextVersion != p.contextVersion {
+			return ErrStale
 		}
 		arguments, err := commandjson.Canonicalize(resolution.Arguments)
 		if err != nil || p.envelope.Arguments == nil || !bytes.Equal(arguments, *p.envelope.Arguments) {
@@ -523,6 +562,18 @@ func (s *Service) checkEnvelope(ctx context.Context, token string, p preparedEnv
 	return s.authorizeEnvelope(ctx, identity, copyEnvelope, p.definition)
 }
 
+func sameRawMessage(a, b *json.RawMessage) bool {
+	canonicalA, errA := canonicalProvenance(a)
+	canonicalB, errB := canonicalProvenance(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	if canonicalA == nil || canonicalB == nil {
+		return canonicalA == nil && canonicalB == nil
+	}
+	return bytes.Equal(*canonicalA, *canonicalB)
+}
+
 // Compara todo estado derivado pelo host que seleciona um alvo ou autoridade.
 // Timestamps locais e foreground event_snapshot não substituem a prova inicial.
 func hostEnvelopeIdentity(e commandcontract.Envelope) ([]byte, error) {
@@ -549,31 +600,97 @@ func cloneRawMessage(value *json.RawMessage) *json.RawMessage {
 	return &copyValue
 }
 
-// ExecuteEnvelope usa o mesmo Service e as mesmas portas ledger/epoch dos
-// comandos legados. A espera da fila, decisão e resultado fica fora do gate.
-func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate EnvelopeCandidate) (record commandledger.FullRecord, err error) {
-	if s == nil || !s.complete || s.config.Envelope == nil || ctx == nil {
-		return record, ErrInvalidRequest
+func canonicalProvenance(value *json.RawMessage) (*json.RawMessage, error) {
+	if value == nil {
+		return nil, nil
 	}
-	ctx, releaseOperation, err := s.lifecycle.enter(ctx)
+	canonical, err := commandjson.Canonicalize(*value)
+	if err != nil || len(canonical) == 0 {
+		return nil, ErrDenied
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(canonical, &object) != nil || object == nil {
+		return nil, ErrDenied
+	}
+	copyValue := append(json.RawMessage(nil), canonical...)
+	return &copyValue, nil
+}
+
+func mergeResolutionProvenance(host, resolved *json.RawMessage) (*json.RawMessage, error) {
+	hostCanonical, err := canonicalProvenance(host)
 	if err != nil {
-		return record, err
+		return nil, err
+	}
+	resolvedCanonical, err := canonicalProvenance(resolved)
+	if err != nil {
+		return nil, err
+	}
+	if resolvedCanonical == nil {
+		return hostCanonical, nil
+	}
+	if hostCanonical == nil {
+		return resolvedCanonical, nil
+	}
+	if !bytes.Equal(*hostCanonical, *resolvedCanonical) {
+		return nil, ErrDenied
+	}
+	return hostCanonical, nil
+}
+
+// ExecuteEnvelope preserva a API histórica e descarta o resultado efêmero.
+func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate EnvelopeCandidate) (record commandledger.FullRecord, err error) {
+	record, _, err = s.ExecuteEnvelopeWithResult(ctx, token, candidate)
+	return record, err
+}
+
+// ExecuteEnvelopeWithResult executa o mesmo pipeline e só devolve o resultado
+// bruto desta execução quando o handler terminou com sucesso e a persistência
+// terminal também foi confirmada. Replay nunca reexecuta nem recupera output.
+func (s *Service) ExecuteEnvelopeWithResult(ctx context.Context, token string, candidate EnvelopeCandidate) (record commandledger.FullRecord, output json.RawMessage, err error) {
+	defer func() {
+		if err != nil || record.Status != commandledger.Succeeded {
+			output = nil
+		}
+	}()
+	if s == nil || !s.complete || s.config.Envelope == nil || ctx == nil {
+		return record, nil, ErrInvalidRequest
+	}
+	operationCtx, releaseOperation, err := s.lifecycle.enter(ctx)
+	if err != nil {
+		return record, nil, err
 	}
 	defer releaseOperation()
 	candidate, err = canonicalCandidate(candidate)
 	if err != nil {
-		return record, err
+		return record, nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.config.ExecutionTimeout)
-	defer cancel()
+	// Resolver/autenticar e todas as fases até Start continuam limitados pelo
+	// prazo padrão. Só um handler de job explicitamente opt-in entrega ao seu
+	// runtime o parent original após Start; caller e lifecycle permanecem
+	// canceláveis em ambos os casos.
+	startedAt := time.Now()
+	prepareCtx, cancelPreparation := context.WithTimeout(operationCtx, s.config.ExecutionTimeout)
+	defer cancelPreparation()
 	var p preparedEnvelope
 	var prior *commandledger.FullRecord
-	if err = protect(func() error { var e error; p, prior, e = s.prepareEnvelope(ctx, token, candidate); return e }); err != nil {
-		return record, err
+	if err = protect(func() error { var e error; p, prior, e = s.prepareEnvelope(prepareCtx, token, candidate); return e }); err != nil {
+		return record, nil, err
 	}
+	if err := prepareCtx.Err(); err != nil {
+		return record, nil, err
+	}
+	cancelPreparation()
 	if prior != nil {
-		return *prior, nil
+		return *prior, nil, nil
 	}
+	handler := s.config.Handlers[p.definition.ID]
+	timeout := s.config.ExecutionTimeout
+	if custom := handler.ExecutionTimeout; custom > 0 {
+		timeout = custom
+	}
+	preDispatchCtx, cancelPreDispatch := context.WithDeadline(operationCtx, startedAt.Add(timeout))
+	defer cancelPreDispatch()
+	runtimeOwnsDeadline := handler.RuntimeOwnsDeadline
 	risk := string(p.definition.Risk)
 	if risk == "" {
 		risk = "low"
@@ -581,7 +698,7 @@ func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate E
 	var reservation commandledger.EnvelopeReservation
 	reserve := func(stale bool) error {
 		var e error
-		reservation, e = s.config.Store.ReserveEnvelope(ctx, commandledger.EnvelopeRequest{Envelope: p.envelope, Mode: p.mode, ArgumentsFingerprint: p.argumentsFingerprint, InputFingerprint: p.inputFingerprint, ExpiresAt: p.expires, Risk: risk, RejectedStale: stale})
+		reservation, e = s.config.Store.ReserveEnvelope(preDispatchCtx, commandledger.EnvelopeRequest{Envelope: p.envelope, Mode: p.mode, ArgumentsFingerprint: p.argumentsFingerprint, InputFingerprint: p.inputFingerprint, ExpiresAt: p.expires, Risk: risk, RejectedStale: stale})
 		return e
 	}
 	// Consumo do tombstone e sua revalidação compartilham o gate; nenhuma
@@ -589,7 +706,7 @@ func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate E
 	if p.mode == commandcontract.ResolutionSuppress {
 		attempted := false
 		err = protect(func() error {
-			return s.config.Epochs.Admit(ctx, p.epoch, func(ctx context.Context) error { return s.checkEnvelope(ctx, token, p) }, func() error { attempted = true; return reserve(false) })
+			return s.config.Epochs.Admit(preDispatchCtx, p.epoch, func(ctx context.Context) error { return s.checkEnvelope(ctx, token, p) }, func() error { attempted = true; return reserve(false) })
 		})
 		if err != nil && !attempted {
 			err = reserve(true)
@@ -598,15 +715,15 @@ func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate E
 		err = reserve(false)
 	}
 	if err != nil {
-		return record, err
+		return record, nil, err
 	}
 	record = reservation.Record
 	if !reservation.Created || p.mode != commandcontract.ResolutionExecute || record.Status != commandledger.Evaluating {
-		return record, nil
+		return record, nil, nil
 	}
 	status := commandledger.Evaluating
 	finish := func(to commandledger.Status) error {
-		cleanup, release := context.WithTimeout(context.WithoutCancel(ctx), s.config.FinalizationTimeout)
+		cleanup, release := context.WithTimeout(context.WithoutCancel(preDispatchCtx), s.config.FinalizationTimeout)
 		defer release()
 		changed, e := s.config.Store.CompareAndSwapEnvelope(cleanup, p.owner, p.envelope.InvocationID, status, to)
 		if e != nil {
@@ -631,13 +748,13 @@ func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate E
 		}
 	}()
 	// Nunca abrir decisão para solicitação cuja política/contexto já recusam.
-	if checkErr := s.config.Epochs.Admit(ctx, p.epoch, func(ctx context.Context) error { return s.checkEnvelope(ctx, token, p) }, func() error { return nil }); checkErr != nil {
+	if checkErr := s.config.Epochs.Admit(preDispatchCtx, p.epoch, func(ctx context.Context) error { return s.checkEnvelope(ctx, token, p) }, func() error { return nil }); checkErr != nil {
 		to := commandledger.CancelledStale
 		if errors.Is(checkErr, ErrDenied) {
 			to = commandledger.Denied
 		}
 		err = finish(to)
-		return record, err
+		return record, nil, err
 	}
 	var decision *commanddecision.Request
 	interactive := p.definition.Decision == commandcatalog.Interactive ||
@@ -645,17 +762,17 @@ func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate E
 	if interactive {
 		if s.config.Source == commandcatalog.CLI || s.config.Source == commandcatalog.Event || s.config.Source == commandcatalog.System || p.owner.AuthContextType != commandcontract.AuthLocalSession || s.config.Envelope.Decisions == nil || s.config.Envelope.DecisionBody == nil {
 			err = finish(commandledger.Denied)
-			return record, err
+			return record, nil, err
 		}
 		copyEnvelope, e := detachedEnvelope(p.envelope)
 		if e != nil {
 			err = finish(commandledger.Denied)
-			return record, err
+			return record, nil, err
 		}
 		body, e := s.config.Envelope.DecisionBody(p.definition, copyEnvelope)
 		if e != nil {
 			err = finish(commandledger.Denied)
-			return record, err
+			return record, nil, err
 		}
 		deadline := s.config.Now().Add(s.config.Envelope.DecisionTTL)
 		if deadline.After(p.expires) {
@@ -670,26 +787,26 @@ func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate E
 		}
 		request := commanddecision.Request{SubjectType: "invocation", DecisionID: uuid.Must(uuid.NewV7()).String(), MutationID: p.envelope.InvocationID, UserID: userID, SessionID: sessionID, Fingerprint: *p.envelope.RequestFingerprint, AuthGeneration: p.epoch.AuthGeneration, SecurityGeneration: p.epoch.SecurityGeneration, ExpiresAt: deadline, Body: body}
 		request.Destructive = p.definition.Effect == commandcatalog.Destructive
-		watched, release, e := s.config.Epochs.WatchEpoch(ctx, p.epoch)
+		watched, release, e := s.config.Epochs.WatchEpoch(preDispatchCtx, p.epoch)
 		if e != nil {
 			err = finish(commandledger.CancelledStale)
-			return record, err
+			return record, nil, err
 		}
 		state, e := s.config.Envelope.Decisions.Decide(watched, request)
 		release()
 		if e != nil || state != commanddecision.Accepted {
 			err = finish(commandledger.Denied)
-			return record, err
+			return record, nil, err
 		}
 		decision = &request
 	}
-	err = s.config.Epochs.Admit(ctx, p.epoch, func(ctx context.Context) error { return s.checkEnvelope(ctx, token, p) }, func() error {
+	err = s.config.Epochs.Admit(preDispatchCtx, p.epoch, func(ctx context.Context) error { return s.checkEnvelope(ctx, token, p) }, func() error {
 		var changed bool
 		var e error
 		if decision != nil {
-			changed, e = s.config.Store.CompareAndSwapEnvelopeWithDecision(ctx, p.owner, p.envelope.InvocationID, *decision, s.config.Envelope.Decisions)
+			changed, e = s.config.Store.CompareAndSwapEnvelopeWithDecision(preDispatchCtx, p.owner, p.envelope.InvocationID, *decision, s.config.Envelope.Decisions)
 		} else {
-			changed, e = s.config.Store.CompareAndSwapEnvelope(ctx, p.owner, p.envelope.InvocationID, commandledger.Evaluating, commandledger.Queued)
+			changed, e = s.config.Store.CompareAndSwapEnvelope(preDispatchCtx, p.owner, p.envelope.InvocationID, commandledger.Evaluating, commandledger.Queued)
 		}
 		if e != nil {
 			return e
@@ -706,23 +823,40 @@ func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate E
 			to = commandledger.Denied
 		}
 		err = finish(to)
-		return record, err
+		return record, nil, err
 	}
 	if s.config.Envelope.AwaitQueue != nil {
 		copyEnvelope, e := detachedEnvelope(p.envelope)
 		if e != nil {
 			err = finish(commandledger.CancelledStale)
-			return record, err
+			return record, nil, err
 		}
-		if e := s.config.Envelope.AwaitQueue(ctx, copyEnvelope); e != nil {
+		if e := s.config.Envelope.AwaitQueue(preDispatchCtx, copyEnvelope); e != nil {
 			err = finish(commandledger.CancelledStale)
-			return record, err
+			return record, nil, err
 		}
 	}
 	var handle ExecutionHandle
 	var runCtx context.Context
-	release, admitErr := s.config.Epochs.AdmitExecution(ctx, p.epoch, func(ctx context.Context) error { return s.checkEnvelope(ctx, token, p) }, func(executionCtx context.Context) error {
-		changed, e := s.config.Store.CompareAndSwapEnvelope(ctx, p.owner, p.envelope.InvocationID, commandledger.Queued, commandledger.Running)
+	admissionCtx := preDispatchCtx
+	if runtimeOwnsDeadline {
+		admissionCtx = operationCtx
+	}
+	release, admitErr := s.config.Epochs.AdmitExecution(admissionCtx, p.epoch, func(validationCtx context.Context) error {
+		if runtimeOwnsDeadline {
+			if err := preDispatchCtx.Err(); err != nil {
+				return err
+			}
+			validationCtx = preDispatchCtx
+		}
+		return s.checkEnvelope(validationCtx, token, p)
+	}, func(executionCtx context.Context) error {
+		if runtimeOwnsDeadline {
+			if err := preDispatchCtx.Err(); err != nil {
+				return err
+			}
+		}
+		changed, e := s.config.Store.CompareAndSwapEnvelope(preDispatchCtx, p.owner, p.envelope.InvocationID, commandledger.Queued, commandledger.Running)
 		if e != nil {
 			return e
 		}
@@ -735,8 +869,25 @@ func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate E
 		if cloneErr != nil {
 			return cloneErr
 		}
+		if decision != nil {
+			// O receipt já foi consumido atomicamente na transição para queued.
+			// Entregue essa decisão derivada ao handler, sem aceitar um ID do
+			// candidato nem alterar o snapshot/fingerprint pré-autorização.
+			decisionID := decision.DecisionID
+			copyEnvelope.AuthorizationDecisionID = &decisionID
+		}
+		if runtimeOwnsDeadline {
+			if err := preDispatchCtx.Err(); err != nil {
+				return err
+			}
+		}
 		return s.lifecycle.handoff(executionCtx, func() error {
-			handle, e = s.config.Handlers[*p.envelope.CommandID].Start(executionCtx, Invocation{ID: p.envelope.InvocationID, CorrelationID: p.envelope.CorrelationID, CommandID: *p.envelope.CommandID, Principal: p.principal, Source: s.config.Source, Envelope: &copyEnvelope})
+			if runtimeOwnsDeadline {
+				if err := preDispatchCtx.Err(); err != nil {
+					return err
+				}
+			}
+			handle, e = handler.Start(executionCtx, Invocation{ID: p.envelope.InvocationID, CorrelationID: p.envelope.CorrelationID, CommandID: *p.envelope.CommandID, Principal: p.principal, Source: s.config.Source, Envelope: &copyEnvelope})
 			return e
 		})
 	})
@@ -750,11 +901,14 @@ func (s *Service) ExecuteEnvelope(ctx context.Context, token string, candidate E
 			to = commandledger.OutcomeUnknown
 		}
 		err = finish(to)
-		return record, err
+		return record, nil, err
 	}
-	result := awaitEnvelopeOutcome(runCtx, handle, p.definition)
+	result, output := awaitEnvelopeOutcomeWithResult(runCtx, handle, p.definition)
 	err = finish(result)
-	return record, err
+	if err != nil || result != commandledger.Succeeded || record.Status != commandledger.Succeeded {
+		return record, nil, err
+	}
+	return record, output, nil
 }
 
 func detachedEnvelope(e commandcontract.Envelope) (commandcontract.Envelope, error) {
@@ -769,31 +923,138 @@ func detachedEnvelope(e commandcontract.Envelope) (commandcontract.Envelope, err
 	return result, nil
 }
 
-func awaitEnvelopeOutcome(ctx context.Context, handle ExecutionHandle, definition commandcatalog.Definition) commandledger.Status {
-	if handle.ID == "" || handle.Done == nil || handle.Cancel == nil || ctx == nil || ctx.Err() != nil {
+func awaitEnvelopeOutcomeWithResult(ctx context.Context, handle ExecutionHandle, definition commandcatalog.Definition) (commandledger.Status, json.RawMessage) {
+	if ctx == nil {
 		safeCancel(handle.Cancel)
-		return commandledger.OutcomeUnknown
+		return commandledger.OutcomeUnknown, nil
 	}
+	if handle.ID == "" || handle.Done == nil || handle.Cancel == nil {
+		safeCancel(handle.Cancel)
+		return commandledger.OutcomeUnknown, nil
+	}
+	if ctx.Err() != nil {
+		if ownershipApplies(definition) && handle.CommitOwnership != nil {
+			return awaitAfterEnvelopeCancellation(handle, definition)
+		}
+		safeCancel(handle.Cancel)
+		return commandledger.OutcomeUnknown, nil
+	}
+	if ownershipApplies(definition) && handle.CommitOwnership != nil {
+		return awaitEnvelopeWithCommitOwnership(ctx, handle, definition)
+	}
+	return awaitEnvelopeNormally(ctx, handle, definition)
+}
+
+func ownershipApplies(definition commandcatalog.Definition) bool {
+	return definition.MutatesEffectiveCapability && definition.HandlerClassification == commandcatalog.HandlerBackend
+}
+
+func awaitEnvelopeNormally(ctx context.Context, handle ExecutionHandle, definition commandcatalog.Definition) (commandledger.Status, json.RawMessage) {
 	select {
 	case <-ctx.Done():
 		safeCancel(handle.Cancel)
-		return commandledger.OutcomeUnknown
+		return commandledger.OutcomeUnknown, nil
 	case outcome, ok := <-handle.Done:
+		// Se o resultado e o cancelamento ficaram prontos juntos, o
+		// cancelamento vence: não entregar payload após o contexto morrer.
+		if err := ctx.Err(); err != nil {
+			safeCancel(handle.Cancel)
+			return commandledger.OutcomeUnknown, nil
+		}
 		if !ok {
 			safeCancel(handle.Cancel)
-			return commandledger.OutcomeUnknown
+			return commandledger.OutcomeUnknown, nil
 		}
 		if outcome.Status == commandledger.Succeeded {
-			if _, err := definition.ValidateResult(outcome.Result); err != nil {
-				return commandledger.OutcomeUnknown
+			validated, err := definition.ValidateResult(outcome.Result)
+			if err != nil {
+				return commandledger.OutcomeUnknown, nil
 			}
-			return outcome.Status
+			return outcome.Status, append(json.RawMessage(nil), validated...)
 		}
 		if outcome.Status == commandledger.Failed || outcome.Status == commandledger.Cancelled {
-			return outcome.Status
+			return outcome.Status, nil
 		}
-		return commandledger.OutcomeUnknown
+		return commandledger.OutcomeUnknown, nil
 	}
+}
+
+func awaitEnvelopeWithCommitOwnership(ctx context.Context, handle ExecutionHandle, definition commandcatalog.Definition) (commandledger.Status, json.RawMessage) {
+	select {
+	case outcome, ok := <-handle.Done:
+		if err := ctx.Err(); err != nil {
+			if handle.CommitOwnership.abortIfPending() {
+				safeCancel(handle.Cancel)
+				return commandledger.OutcomeUnknown, nil
+			}
+			deadline, claimed := handle.CommitOwnership.claimedDeadline()
+			if !claimed {
+				safeCancel(handle.Cancel)
+				return commandledger.OutcomeUnknown, nil
+			}
+			// Done já foi consumido. A claim autoriza confirmar o outcome após
+			// cancelar o contexto antigo, mas nunca depois do prazo próprio.
+			return normalizeClaimedEnvelopeOutcome(deadline, outcome, ok, definition, handle.Cancel)
+		}
+		return normalizeEnvelopeOutcome(outcome, ok, definition, handle.Cancel)
+	case <-ctx.Done():
+		return awaitAfterEnvelopeCancellation(handle, definition)
+	}
+}
+
+func awaitAfterEnvelopeCancellation(handle ExecutionHandle, definition commandcatalog.Definition) (commandledger.Status, json.RawMessage) {
+	if handle.CommitOwnership == nil || handle.CommitOwnership.abortIfPending() {
+		safeCancel(handle.Cancel)
+		return commandledger.OutcomeUnknown, nil
+	}
+	return awaitClaimedEnvelopeOutcome(handle, definition)
+}
+
+func awaitClaimedEnvelopeOutcome(handle ExecutionHandle, definition commandcatalog.Definition) (commandledger.Status, json.RawMessage) {
+	deadline, ok := handle.CommitOwnership.claimedDeadline()
+	if !ok {
+		safeCancel(handle.Cancel)
+		return commandledger.OutcomeUnknown, nil
+	}
+	remaining := time.Until(deadline)
+	if remaining < 0 {
+		remaining = 0
+	}
+	timer := time.NewTimer(remaining)
+	defer timer.Stop()
+	select {
+	case outcome, ok := <-handle.Done:
+		return normalizeClaimedEnvelopeOutcome(deadline, outcome, ok, definition, handle.Cancel)
+	case <-timer.C:
+		safeCancel(handle.Cancel)
+		return commandledger.OutcomeUnknown, nil
+	}
+}
+
+func normalizeClaimedEnvelopeOutcome(deadline time.Time, outcome Outcome, ok bool, definition commandcatalog.Definition, cancel func()) (commandledger.Status, json.RawMessage) {
+	if !time.Now().Before(deadline) {
+		safeCancel(cancel)
+		return commandledger.OutcomeUnknown, nil
+	}
+	return normalizeEnvelopeOutcome(outcome, ok, definition, cancel)
+}
+
+func normalizeEnvelopeOutcome(outcome Outcome, ok bool, definition commandcatalog.Definition, cancel func()) (commandledger.Status, json.RawMessage) {
+	if !ok {
+		safeCancel(cancel)
+		return commandledger.OutcomeUnknown, nil
+	}
+	if outcome.Status == commandledger.Succeeded {
+		validated, err := definition.ValidateResult(outcome.Result)
+		if err != nil {
+			return commandledger.OutcomeUnknown, nil
+		}
+		return outcome.Status, append(json.RawMessage(nil), validated...)
+	}
+	if outcome.Status == commandledger.Failed || outcome.Status == commandledger.Cancelled {
+		return outcome.Status, nil
+	}
+	return commandledger.OutcomeUnknown, nil
 }
 
 func (s *Service) GetEnvelopeInvocation(ctx context.Context, token, id string) (record commandledger.FullRecord, err error) {

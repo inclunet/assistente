@@ -90,12 +90,12 @@ func TestPublishedDatabase019UpgradesDirectlyToLatest(t *testing.T) {
 	// O banco publicado termina a fase database, mas não pode inventar a
 	// composição do host de comandos. As migrações 24/25 já rodaram e o
 	// watermark deve permanecer em 19 enquanto 20–23 estiverem pendentes.
-	if diagnostic.SchemaVersion != 20 || diagnostic.AppliedCount != len(schemaMigrations)-6 || !reflect.DeepEqual(diagnostic.PendingVersions, []int{21, 22, 23, 24, 27, 28}) {
+	if diagnostic.SchemaVersion != 20 || diagnostic.AppliedCount != len(schemaMigrations)-7 || !reflect.DeepEqual(diagnostic.PendingVersions, []int{21, 22, 23, 24, 27, 28, 29}) {
 		t.Fatalf("diagnóstico antes da composição do host: %#v", diagnostic)
 	}
 	// Este teste do registro valida o handshake explícito; DDL e preservação
 	// dos dados de comandos são exercitados nos testes reais de commandbootstrap.
-	for _, finish := range []func(context.Context, *gorm.DB, func(*gorm.DB) error) error{ApplyCommandStorageMigration, ApplyCommandEnvelopeMigration, ApplyCommandConfigMigration, ApplyCommandActivationMigration, ApplyCommandJobActivationMigration, ApplyCommandImportMigration} {
+	for _, finish := range []func(context.Context, *gorm.DB, func(*gorm.DB) error) error{ApplyCommandStorageMigration, ApplyCommandEnvelopeMigration, ApplyCommandConfigMigration, ApplyCommandActivationMigration, ApplyCommandJobActivationMigration, ApplyCommandImportMigration, ApplyCommandInstanceMigration} {
 		if err := finish(context.Background(), database, func(*gorm.DB) error { return nil }); err != nil {
 			t.Fatal(err)
 		}

@@ -416,12 +416,53 @@ func TestPlanImportExigePatternDeCredencialSemValorBruto(t *testing.T) {
 		return CredentialMissing, nil
 	}
 	plan, err := PlanImport(context.Background(), []LayerExport{layer}, PlanOptions{Mode: KeepMode}, func(context.Context, string, string) (Ownership, error) { return AbsentOwner, nil }, refs)
-	if err != nil || len(plan.Warnings) != 1 || plan.Warnings[0].Code != "credential_missing" || gotPattern != "api.example" {
+	if err != nil || len(plan.Warnings) != 1 || plan.Warnings[0].Code != "credential_missing" || gotPattern != "api.example" || plan.Layers[0].Layer.Bindings[0].Enabled {
 		t.Fatalf("pattern exato não foi resolvido: plan=%+v err=%v pattern=%q", plan, err, gotPattern)
 	}
 	layer.Bindings[0].Arguments = `{"token":"valor-real"}`
 	if _, err := PlanImport(context.Background(), []LayerExport{layer}, PlanOptions{Mode: KeepMode}, func(context.Context, string, string) (Ownership, error) { return AbsentOwner, nil }, portabilityRefs(t)); !errors.Is(err, ErrSensitiveValue) {
 		t.Fatalf("segredo bruto aceito: %v", err)
+	}
+}
+
+func TestPlanImportCredencialIndisponivelDesabilitaBinding(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status CredentialStatus
+		code   string
+	}{
+		{name: "missing", status: CredentialMissing, code: "credential_missing"},
+		{name: "foreign", status: CredentialForeign, code: "credential_foreign_owner"},
+		{name: "ambiguous", status: CredentialAmbiguous, code: "credential_ambiguous"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			layer := portabilityLayer(t)
+			layer.Bindings[0].Arguments = `{"credential":{"kind":"credential","pattern":"api.example"}}`
+			refs := portabilityRefs(t)
+			refs.CredentialPattern = func(_ context.Context, pattern string) (CredentialStatus, error) {
+				if pattern != "api.example" {
+					t.Fatalf("pattern inesperado: %q", pattern)
+				}
+				return tc.status, nil
+			}
+			plan, err := PlanImport(context.Background(), []LayerExport{layer}, PlanOptions{Mode: KeepMode}, func(context.Context, string, string) (Ownership, error) { return AbsentOwner, nil }, refs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(plan.Layers) != 1 || plan.Layers[0].Layer.Bindings[0].Enabled {
+				t.Fatalf("binding indisponível permaneceu habilitado: %+v", plan)
+			}
+			if len(plan.Warnings) != 1 || plan.Warnings[0].Code != tc.code {
+				t.Fatalf("warning incorreto: %+v", plan.Warnings)
+			}
+			snapshot, err := plan.Snapshot("user-destino")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(snapshot.Bindings) != 1 || snapshot.Bindings[0].Enabled {
+				t.Fatalf("snapshot reabilitou binding: %+v", snapshot.Bindings)
+			}
+		})
 	}
 }
 
@@ -444,6 +485,16 @@ func TestPlanImportNaoConfiaSoNoWorkspaceMap(t *testing.T) {
 	refs.Workspace = func(_ context.Context, id string) (string, error) { return id, nil }
 	if _, err := PlanImport(context.Background(), []LayerExport{layer}, PlanOptions{Mode: CopyMode, WorkspaceMap: map[string]string{"source-workspace": "dest-workspace"}}, func(context.Context, string, string) (Ownership, error) { return AbsentOwner, nil }, refs); err != nil {
 		t.Fatalf("workspace autorizado foi rejeitado: %v", err)
+	}
+}
+
+func TestPlanImportWorkspaceNaoResolvidoFalhaAntesDePersistirOrigem(t *testing.T) {
+	layer := portabilityLayer(t)
+	refs := portabilityRefs(t)
+	refs.Workspace = func(context.Context, string) (string, error) { return "", nil }
+	plan, err := PlanImport(context.Background(), []LayerExport{layer}, PlanOptions{Mode: CopyMode}, func(context.Context, string, string) (Ownership, error) { return AbsentOwner, nil }, refs)
+	if !errors.Is(err, ErrWorkspaceResolution) || plan.Layers != nil {
+		t.Fatalf("workspace não resolvido não falhou fechado: plan=%+v err=%v", plan, err)
 	}
 }
 

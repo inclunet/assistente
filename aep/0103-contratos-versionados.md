@@ -5,6 +5,11 @@ Complemento operacional de D2/D2.1/D6, sem habilitar adapters ou handlers de pro
 ## Compatibilidade
 
 - Versões de documento são inteiros explícitos; versão desconhecida é recusada, não reinterpretada como a atual.
+- O envelope e a proveniência permanecem v1. `trigger_spec` de `keyboard.local`
+  admite v1 (combinação) e v2 (sequência de dois passos, conforme o contrato do
+  teclado); outras origens continuam v1. A versão é validada antes da
+  canonicalização, recusando `2.0` e `"2"`; a porta específica valida a gramática
+  antes da resolução. A versão do trigger não promove a versão do envelope.
 - O schema tipado do catálogo é um subconjunto fechado: objeto, array, string, número, inteiro, booleano e null, com limites e enum. Propriedade opcional e valor nullable são condições diferentes. Objetos rejeitam propriedades desconhecidas. Recursos fora do subconjunto exigem evolução explícita do contrato, não passagem sem validação.
 - JSON usado em assinatura segue RFC 8785: ordenação de propriedades por UTF-16, números IEEE-754/ECMAScript, sem normalização Unicode. Entrada inválida, chaves duplicadas (também aninhadas), surrogate isolado, profundidade ou tamanho excessivo são recusados antes da assinatura.
 - IDs e valores inteiros que precisam de precisão além de IEEE-754 devem ser representados como strings no schema. A canonicalização numérica não promete preservar inteiros arbitrários.

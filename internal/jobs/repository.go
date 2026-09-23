@@ -1758,16 +1758,16 @@ func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (
 	}
 	now := r.now()
 	cutoff := now.Add(-maxAge)
-	var runIDs []string
-	query := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.JobRun{}), "user_id").
-		Where("started_at < ?", cutoff)
-	query = r.retainableRunQuery(query, now)
-	if err := query.Pluck("id", &runIDs).Error; err != nil {
-		return 0, err
-	}
 	deleted := int64(0)
 	hasToolInvocations := r.db.Migrator().HasTable(&database.ToolInvocation{})
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var runIDs []string
+		query := database.ScopeByUser(ctx, tx.Model(&database.JobRun{}), "user_id").
+			Where("julianday(COALESCE(started_at, queued_at)) < julianday(?)", cutoff.UTC())
+		query = r.retainableRunQuery(query, now)
+		if err := query.Pluck("id", &runIDs).Error; err != nil {
+			return err
+		}
 		if err := r.deleteRunDependenciesByIDsTx(ctx, tx, runIDs, hasToolInvocations); err != nil {
 			return err
 		}
@@ -1798,23 +1798,19 @@ func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob i
 	// Evita a subquery correlacionada O(n²) por job — relevante justamente nos
 	// jobs de alta frequência que este cap quer conter. O desempate por id trata
 	// started_at idêntico.
-	ranked := r.db.WithContext(ctx).Model(&database.JobRun{}).
-		Select("id, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC, id DESC) AS rn").
-		Where("user_id = ?", userID)
-	ranked = r.retainableRunQuery(ranked, r.now())
-	var runIDs []string
-	if err := r.db.WithContext(ctx).
-		Table("(?) AS ranked", ranked).
-		Where("rn > ?", keepPerJob).
-		Pluck("id", &runIDs).Error; err != nil {
-		return 0, err
-	}
-	if len(runIDs) == 0 {
-		return 0, nil
-	}
 	deleted := int64(0)
 	hasToolInvocations := r.db.Migrator().HasTable(&database.ToolInvocation{})
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Seleção e remoção usam o mesmo snapshot transacional: uma lease
+		// não pode ser concedida entre a escolha do run e sua exclusão.
+		ranked := tx.Model(&database.JobRun{}).
+			Select("id, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY julianday(COALESCE(started_at, queued_at)) DESC, id DESC) AS rn").
+			Where("user_id = ?", userID)
+		ranked = r.retainableRunQuery(ranked, r.now())
+		var runIDs []string
+		if err := tx.Table("(?) AS ranked", ranked).Where("rn > ?", keepPerJob).Pluck("id", &runIDs).Error; err != nil {
+			return err
+		}
 		if err := r.deleteRunDependenciesByIDsTx(ctx, tx, runIDs, hasToolInvocations); err != nil {
 			return err
 		}
@@ -1829,17 +1825,17 @@ func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob i
 }
 
 // retainableRunQuery protege runs não terminais que ainda sustentam uma
-// ativação. A exclusão só é elegível quando existe simultaneamente uma lease
-// viva e a claim ativa correspondente, no mesmo user/run/activation. Quando a
+// ativação. Um run não terminal só é elegível para exclusão quando NÃO existe
+// lease viva com claim ativa correspondente, no mesmo user/run/activation. Quando a
 // tabela de leases ainda não foi integrada pela migração central, nenhum run
 // não terminal é removido (fail closed).
 func (r *DBRepository) retainableRunQuery(query *gorm.DB, now time.Time) *gorm.DB {
 	terminal := []string{RunStatusCompleted, RunStatusFailed, RunStatusSkipped}
-	if !r.db.Migrator().HasTable("command_job_activation_leases") || !r.db.Migrator().HasTable("command_layer_activation_state") {
+	if !query.Migrator().HasTable("command_job_activation_leases") || !query.Migrator().HasTable("command_layer_activation_state") {
 		return query.Where("status IN ?", terminal)
 	}
 	return query.Where(`status IN ? OR (
-		status NOT IN ? AND EXISTS (
+		status NOT IN ? AND NOT EXISTS (
 			SELECT 1 FROM command_job_activation_leases lease
 			JOIN command_layer_activation_state claim
 			  ON claim.activation_id = lease.activation_id
@@ -1847,9 +1843,9 @@ func (r *DBRepository) retainableRunQuery(query *gorm.DB, now time.Time) *gorm.D
 			 AND claim.state = 'active'
 			WHERE lease.run_id = job_runs.id
 			  AND lease.user_id = job_runs.user_id
-			  AND lease.expires_at > ?
+			  AND julianday(lease.expires_at) > julianday(?)
 		)
-	)`, terminal, terminal, now)
+	)`, terminal, terminal, now.UTC())
 }
 
 func (r *DBRepository) CleanOldEvents(ctx context.Context, maxAge time.Duration) (int, error) {

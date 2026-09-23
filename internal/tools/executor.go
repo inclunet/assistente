@@ -29,6 +29,10 @@ const (
 
 // ExecutorConfig contém configurações do executor de ferramentas.
 type ExecutorConfig struct {
+	// ExpectedToolGeneration, quando diferente de zero, fixa a identidade da
+	// tool capturada pelo chamador. Zero preserva o comportamento legado.
+	ExpectedToolGeneration uint64
+
 	// ToolTimeout é o timeout para execução de cada ferramenta individual
 	ToolTimeout time.Duration
 
@@ -120,7 +124,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 	}
 
 	// Busca a ferramenta no registry
-	tool, ok := e.registry.Get(toolName)
+	tool, generation, ok := e.registry.GetWithGeneration(toolName)
 	if !ok {
 		return ToolExecutionResult{
 			CallID:   call.ID,
@@ -131,6 +135,23 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			},
 			Error:             fmt.Errorf("ferramenta '%s' não encontrada", toolName),
 			ErrorKind:         ErrorKindNotFound,
+			Retryable:         false,
+			RetryabilityKnown: true,
+			DurationMs:        time.Since(start).Milliseconds(),
+		}
+	}
+	if e.config.ExpectedToolGeneration != 0 && generation != e.config.ExpectedToolGeneration {
+		err := fmt.Errorf("geração da ferramenta '%s' mudou: esperada %d, atual %d", toolName, e.config.ExpectedToolGeneration, generation)
+		return ToolExecutionResult{
+			CallID:   call.ID,
+			ToolName: toolName,
+			Result: ToolResult{
+				Content: err.Error(),
+				IsError: true,
+				Failure: &ToolFailure{Code: "tool_generation_mismatch", Kind: ErrorKindAuthorization, Retryable: false},
+			},
+			Error:             err,
+			ErrorKind:         ErrorKindAuthorization,
 			Retryable:         false,
 			RetryabilityKnown: true,
 			DurationMs:        time.Since(start).Milliseconds(),

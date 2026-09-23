@@ -4,6 +4,7 @@
 package commandbindings
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -75,7 +76,57 @@ type Candidate struct {
 	BindingPriority   int
 	Enabled           bool
 	LayerActive       bool
-	DialogID          string
+	// LayerConditions are activation gates owned by the layer/rule domain.
+	// They are OR-ed and deliberately kept separate from Condition, which is
+	// the binding condition used by D7 specificity.
+	LayerConditions []Facts
+	DialogID        string
+	LayerRef        string
+}
+
+// MarshalJSON mantém a identidade JSON dos candidatos legados estável.
+// A ausência dos novos gates não pode virar null no documento semântico.
+// LayerRef já fazia parte do contrato serializado e permanece inalterado. Uma slice
+// não-nil, inclusive vazia, continua sendo emitida para preservar a distinção
+// entre “sem gate” (nil) e “nenhum gate satisfaz” ([]).
+func (c Candidate) MarshalJSON() ([]byte, error) {
+	type candidateJSON struct {
+		ID                string
+		Trigger           string
+		CommandID         string
+		ArgumentsKey      string
+		ExecutionScopeKey string
+		Scope             Scope
+		Condition         Facts
+		LayerPriority     int
+		BindingPriority   int
+		Enabled           bool
+		LayerActive       bool
+		LayerConditions   *[]Facts `json:",omitempty"`
+		DialogID          string
+		LayerRef          string
+	}
+
+	var layerConditions *[]Facts
+	if c.LayerConditions != nil {
+		layerConditions = &c.LayerConditions
+	}
+	return json.Marshal(candidateJSON{
+		ID:                c.ID,
+		Trigger:           c.Trigger,
+		CommandID:         c.CommandID,
+		ArgumentsKey:      c.ArgumentsKey,
+		ExecutionScopeKey: c.ExecutionScopeKey,
+		Scope:             c.Scope,
+		Condition:         c.Condition,
+		LayerPriority:     c.LayerPriority,
+		BindingPriority:   c.BindingPriority,
+		Enabled:           c.Enabled,
+		LayerActive:       c.LayerActive,
+		LayerConditions:   layerConditions,
+		DialogID:          c.DialogID,
+		LayerRef:          c.LayerRef,
+	})
 }
 
 // DialogScope representa exclusivamente o diálogo topmost, já derivado pelo
@@ -104,6 +155,7 @@ type Result struct {
 	ArgumentsKey      string
 	ExecutionScopeKey string
 	BindingIDs        []string
+	LayerRefs         []string
 }
 
 // Resolver é um snapshot imutável, indexado por acionador, sem banco ou handlers.
@@ -132,6 +184,9 @@ func New(candidates []Candidate) (*Resolver, error) {
 		if err := c.Condition.validate(); err != nil {
 			return nil, fmt.Errorf("binding %s: %w", c.ID, err)
 		}
+		if err := validateLayerConditions(c.LayerConditions); err != nil {
+			return nil, fmt.Errorf("camada do binding %s: %w", c.ID, err)
+		}
 		// O normalizador futuro deve obter o tipo da identidade no provider.
 		// Exigir ambos mantém identidade > tipo sob a regra de inclusão de D7,
 		// sem inventar uma ordem entre campos independentes.
@@ -141,9 +196,21 @@ func New(candidates []Candidate) (*Resolver, error) {
 			}
 		}
 		c.Condition = maps.Clone(c.Condition)
+		c.LayerConditions = cloneLayerConditions(c.LayerConditions)
 		r.byTrigger[c.Trigger] = append(r.byTrigger[c.Trigger], c)
 	}
 	return r, nil
+}
+
+// MatchCondition avalia igualdade exata apenas sobre fatos conhecidos e válidos.
+func MatchCondition(condition, facts Facts) (bool, error) {
+	if err := condition.validate(); err != nil {
+		return false, err
+	}
+	if err := facts.validate(); err != nil {
+		return false, err
+	}
+	return matches(condition, facts), nil
 }
 
 func matches(condition, facts Facts) bool {
@@ -164,7 +231,7 @@ func sameTarget(a, b Candidate) bool {
 }
 
 func eligible(c Candidate, facts Facts, dialog *DialogScope) bool {
-	if !c.Enabled || !c.LayerActive || !matches(c.Condition, facts) {
+	if !c.Enabled || !c.LayerActive || !matches(c.Condition, facts) || !matchesAnyLayerCondition(c.LayerConditions, facts) {
 		return false
 	}
 	if c.Scope == Foreground && facts[AppFocused] != false {
@@ -176,6 +243,38 @@ func eligible(c Candidate, facts Facts, dialog *DialogScope) bool {
 			slices.Contains(dialog.AllowedTriggers, c.Trigger)
 	}
 	return c.Scope != Dialog
+}
+
+func matchesAnyLayerCondition(conditions []Facts, facts Facts) bool {
+	if conditions == nil {
+		return true
+	}
+	for _, condition := range conditions {
+		if matches(condition, facts) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateLayerConditions(conditions []Facts) error {
+	for _, condition := range conditions {
+		if err := condition.validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cloneLayerConditions(conditions []Facts) []Facts {
+	if conditions == nil {
+		return nil
+	}
+	clone := make([]Facts, len(conditions))
+	for i, condition := range conditions {
+		clone[i] = maps.Clone(condition)
+	}
+	return clone
 }
 
 // Resolve escolhe entre candidatos ativos do acionador. Primeiro elimina escopos
@@ -204,7 +303,7 @@ func (r *Resolver) Resolve(trigger string, facts Facts, dialog *DialogScope) (Re
 		}
 		return Result{Status: Selected, CommandID: c.CommandID,
 			ArgumentsKey: c.ArgumentsKey, ExecutionScopeKey: c.ExecutionScopeKey,
-			BindingIDs: []string{c.ID}}, nil
+			BindingIDs: []string{c.ID}, LayerRefs: layerRefsForCandidates([]Candidate{c}, []string{c.ID})}, nil
 	}
 	var candidates []Candidate
 	bestScope := Global
@@ -269,5 +368,28 @@ func (r *Resolver) Resolve(trigger string, facts Facts, dialog *DialogScope) (Re
 		}
 	}
 	slices.Sort(result.BindingIDs)
+	result.LayerRefs = layerRefsForCandidates(r.byTrigger[trigger], result.BindingIDs)
 	return result, nil
+}
+
+func layerRefsForCandidates(candidates []Candidate, bindingIDs []string) []string {
+	byID := make(map[string]string, len(candidates))
+	for _, candidate := range candidates {
+		byID[candidate.ID] = candidate.LayerRef
+	}
+	refs := make(map[string]struct{})
+	for _, id := range bindingIDs {
+		if ref := byID[id]; ref != "" {
+			refs[ref] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(refs))
+	if len(refs) == 0 {
+		return nil
+	}
+	for ref := range refs {
+		result = append(result, ref)
+	}
+	slices.Sort(result)
+	return result
 }

@@ -485,6 +485,10 @@ func (commandMaintenanceNoopPort) Drain(context.Context, int) (commandmaintenanc
 	return commandmaintenance.BatchResult{}, nil
 }
 
+func (commandMaintenanceNoopPort) PurgeExpired(context.Context, int) (int, bool, error) {
+	return 0, false, nil
+}
+
 func (commandMaintenanceNoopPort) Recover(context.Context, int) (commandmaintenance.BatchResult, error) {
 	return commandmaintenance.BatchResult{}, nil
 }

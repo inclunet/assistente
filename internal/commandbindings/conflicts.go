@@ -131,10 +131,20 @@ func conflictFields(c *Configuration, trigger string) []Field {
 			for field := range base.Candidate.Condition {
 				set[field] = struct{}{}
 			}
+			for _, condition := range base.Candidate.LayerConditions {
+				for field := range condition {
+					set[field] = struct{}{}
+				}
+			}
 		}
 		for _, delta := range c.deltas[id] {
 			for field := range delta.Condition {
 				set[field] = struct{}{}
+			}
+			for _, condition := range delta.LayerConditions {
+				for field := range condition {
+					set[field] = struct{}{}
+				}
 			}
 		}
 	}
@@ -142,6 +152,11 @@ func conflictFields(c *Configuration, trigger string) []Field {
 		for _, candidate := range c.custom.byTrigger[trigger] {
 			for field := range candidate.Condition {
 				set[field] = struct{}{}
+			}
+			for _, condition := range candidate.LayerConditions {
+				for field := range condition {
+					set[field] = struct{}{}
+				}
 			}
 		}
 	}
@@ -197,14 +212,23 @@ func conflictFactValues(c *Configuration, trigger string, fields []Field) ([][]a
 		for _, id := range c.byTrigger[trigger] {
 			if base, ok := c.defaults[id]; ok {
 				add(base.Candidate.Condition)
+				for _, condition := range base.Candidate.LayerConditions {
+					add(condition)
+				}
 			}
 			for _, delta := range c.deltas[id] {
 				add(delta.Condition)
+				for _, condition := range delta.LayerConditions {
+					add(condition)
+				}
 			}
 		}
 		if c.custom != nil {
 			for _, candidate := range c.custom.byTrigger[trigger] {
 				add(candidate.Condition)
+				for _, condition := range candidate.LayerConditions {
+					add(condition)
+				}
 			}
 		}
 		ordered := make([]string, 0, len(values))

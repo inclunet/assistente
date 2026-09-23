@@ -564,11 +564,8 @@ func PlanCommandLayersImport(ctx context.Context, jsonData string, options comma
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return commandportability.Plan{}, err
 	}
-	file, _, err := parseExportFile(jsonData)
+	file, err := parseCommandLayersEnvelope([]byte(jsonData))
 	if err != nil {
-		return commandportability.Plan{}, err
-	}
-	if err := normalizeExportVersion(file); err != nil {
 		return commandportability.Plan{}, err
 	}
 	return commandportability.PlanImport(ctx, file.Resources.CommandLayers, options, ownership, refs)
@@ -581,11 +578,17 @@ func ExportCommandLayersWithContext(ctx context.Context, refs commandportability
 	if ctx == nil {
 		return nil, commandportability.ErrInvalid
 	}
+	// A bool não carrega um workspace exato nem a prova de autorização dele.
+	// Falhar fechado evita que esta porta legada exporte múltiplos escopos; o
+	// envelope dedicado recebe Scope e usa ExportScopeFromStore.
+	if includeWorkspace {
+		return nil, commandportability.ErrWorkspaceResolution
+	}
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return commandportability.ExportFromStore(ctx, database.DB(), userID, refs, layerIDs, includeWorkspace)
+	return commandportability.ExportFromStore(ctx, database.DB(), userID, refs, layerIDs, false)
 }
 
 func validateCredentialEnvelope(file *ExportFile) error {

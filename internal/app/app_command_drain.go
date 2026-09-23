@@ -29,12 +29,15 @@ func (a *App) drainCommandExecutors(ctx context.Context) error {
 		return err
 	}
 	if !a.commandDrainRecoveryReady() {
-		return nil
+		return core.ReleaseInstance(ctx)
 	}
 	if err := recoverDrainedCommandDecisions(ctx, drained); err != nil {
 		return err
 	}
-	return recoverDrainedCommandInvocations(ctx, drained)
+	if err := recoverDrainedCommandInvocations(ctx, drained); err != nil {
+		return err
+	}
+	return core.ReleaseInstance(ctx)
 }
 
 func (a *App) commandDrainRecoveryReady() bool {

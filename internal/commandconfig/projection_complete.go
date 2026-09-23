@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"assistente/internal/commandactivation"
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandjson"
@@ -80,6 +81,14 @@ func ProjectComplete(ctx context.Context, snapshot Snapshot, options CompletePro
 	if err != nil {
 		return nil, err
 	}
+	userActivation := make(map[string]layerActivationProjection, len(layers))
+	for id, state := range layers {
+		projected, err := projectLayerActivation(snapshot, commandactivation.UserRef, id, state.layer.WorkspaceID, state.layer.Enabled, active[id])
+		if err != nil {
+			return nil, ErrInvalid
+		}
+		userActivation[id] = projected
+	}
 	builtins, defaultOwners, defaults, err := completeBuiltinLayers(ctx, options)
 	if err != nil {
 		return nil, err
@@ -91,7 +100,7 @@ func ProjectComplete(ctx context.Context, snapshot Snapshot, options CompletePro
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		candidate, delta, isDelta, err := completeBinding(ctx, snapshot.Scope, row, layers, active, builtins, defaultOwners, options)
+		candidate, delta, isDelta, err := completeBinding(ctx, snapshot.Scope, row, layers, userActivation, builtins, defaultOwners, options)
 		if err != nil {
 			return nil, ErrInvalid
 		}
@@ -185,6 +194,7 @@ func completeBuiltinLayers(ctx context.Context, options CompleteProjection) (map
 				}
 			}
 			d.Candidate.LayerActive = layer.Active
+			d.Candidate.LayerRef = layer.ID
 			if d.Candidate.LayerPriority != layer.ResolutionPriority {
 				return nil, nil, nil, ErrInvalid
 			}
@@ -195,7 +205,7 @@ func completeBuiltinLayers(ctx context.Context, options CompleteProjection) (map
 	return builtins, owners, defaults, nil
 }
 
-func completeBinding(ctx context.Context, scope Scope, row Binding, layers map[string]completeLayerState, active map[string]bool, builtins map[string]BuiltinLayer, defaultOwners map[string]string, options CompleteProjection) (commandbindings.Candidate, commandbindings.Delta, bool, error) {
+func completeBinding(ctx context.Context, scope Scope, row Binding, layers map[string]completeLayerState, userActivation map[string]layerActivationProjection, builtins map[string]BuiltinLayer, defaultOwners map[string]string, options CompleteProjection) (commandbindings.Candidate, commandbindings.Delta, bool, error) {
 	source, ok := completeSource(row.TriggerType)
 	if !ok || !registeredTriggerPort(options.TriggerPorts, source) {
 		return commandbindings.Candidate{}, commandbindings.Delta{}, false, ErrInvalid
@@ -212,7 +222,7 @@ func completeBinding(ctx context.Context, scope Scope, row Binding, layers map[s
 		return commandbindings.Candidate{}, commandbindings.Delta{}, false, ErrInvalid
 	}
 
-	layerActive, layerPriority, err := completeBindingLayer(row, layers, active, builtins)
+	layerActive, layerPriority, layerConditions, err := completeBindingLayer(row, layers, userActivation, builtins)
 	if err != nil {
 		return commandbindings.Candidate{}, commandbindings.Delta{}, false, ErrInvalid
 	}
@@ -266,8 +276,9 @@ func completeBinding(ctx context.Context, scope Scope, row Binding, layers map[s
 			DefaultFingerprint: *row.ReplacesDefaultFingerprint, Trigger: trigger,
 			Effect: commandbindings.DeltaEffect(row.Effect), CommandID: commandID, ArgumentsKey: deltaArgumentsKey(row.Effect, arguments),
 			Condition: condition, Enabled: row.Enabled, LayerActive: layerActive,
-			ReviewStatus: commandbindings.ReviewStatus(row.ReviewStatus), LayerPriority: layerPriority,
-			BindingPriority: row.ResolutionPriority,
+			LayerConditions: layerConditions,
+			ReviewStatus:    commandbindings.ReviewStatus(row.ReviewStatus), LayerPriority: layerPriority,
+			BindingPriority: row.ResolutionPriority, LayerRef: row.LayerRef,
 		}, true, nil
 	}
 	if row.LayerRefKind != "user" || row.ReviewStatus != "active" {
@@ -280,7 +291,7 @@ func completeBinding(ctx context.Context, scope Scope, row Binding, layers map[s
 	return commandbindings.Candidate{ID: row.ID, Trigger: trigger, CommandID: commandID,
 		ArgumentsKey: string(arguments), ExecutionScopeKey: executionScope, Scope: commandbindings.ExplicitLayer,
 		Condition: condition, LayerPriority: layerPriority, BindingPriority: row.ResolutionPriority,
-		Enabled: row.Enabled, LayerActive: layerActive}, commandbindings.Delta{}, false, nil
+		Enabled: row.Enabled, LayerActive: layerActive, LayerConditions: layerConditions, LayerRef: row.LayerRef}, commandbindings.Delta{}, false, nil
 }
 
 func deltaArgumentsKey(effect string, arguments []byte) string {
@@ -290,22 +301,26 @@ func deltaArgumentsKey(effect string, arguments []byte) string {
 	return string(arguments)
 }
 
-func completeBindingLayer(row Binding, layers map[string]completeLayerState, active map[string]bool, builtins map[string]BuiltinLayer) (bool, int, error) {
+func completeBindingLayer(row Binding, layers map[string]completeLayerState, userActivation map[string]layerActivationProjection, builtins map[string]BuiltinLayer) (bool, int, []commandbindings.Facts, error) {
 	switch row.LayerRefKind {
 	case "user":
 		state, ok := layers[row.LayerRef]
 		if !ok || !sameWorkspace(state.layer.WorkspaceID, row.WorkspaceID) {
-			return false, 0, ErrInvalid
+			return false, 0, nil, ErrInvalid
 		}
-		return active[row.LayerRef] && state.layer.Enabled, state.layer.ResolutionPriority, nil
+		projected, ok := userActivation[row.LayerRef]
+		if !ok {
+			return false, 0, nil, ErrInvalid
+		}
+		return projected.active, state.layer.ResolutionPriority, projected.conditions, nil
 	case "builtin":
 		layer, ok := builtins[row.LayerRef]
 		if !ok || row.ReplacesDefaultID == nil {
-			return false, 0, ErrInvalid
+			return false, 0, nil, ErrInvalid
 		}
-		return layer.Active, layer.ResolutionPriority, nil
+		return layer.Active, layer.ResolutionPriority, nil, nil
 	default:
-		return false, 0, ErrInvalid
+		return false, 0, nil, ErrInvalid
 	}
 }
 

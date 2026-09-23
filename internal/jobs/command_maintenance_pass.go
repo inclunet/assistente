@@ -24,7 +24,7 @@ func (m *Manager) runCommandMaintenance(ctx context.Context) time.Duration {
 	}
 	report, err := m.cfg.MaintenanceCoordinator.Run(ctx, policy)
 	if err != nil {
-		logging.Errorf(ctx, "jobs.manager", "instance maintenance failed: %v", err)
+		logging.Errorf(ctx, "jobs.manager", "instance maintenance failed: stage=%s heartbeat=%d outbox_requeued=%d outbox_purged=%d recovered=%d jobs_deleted=%d tools_deleted=%d invocations_deleted=%d activations_deleted=%d: %v", report.Stage, report.HeartbeatProcessed, report.OutboxRequeued, report.OutboxPurged, report.Recovered, report.JobsDeleted, report.ToolsDeleted, report.InvocationsDeleted, report.ActivationsDeleted, err)
 	}
 	return commandMaintenanceDelay(policy, report, err)
 }

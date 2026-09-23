@@ -158,12 +158,16 @@ func applyImportRegistry(t *testing.T) *commandcatalog.Registry {
 		Definition: commandcatalog.Definition{
 			ID: applyImportCommand, Effect: commandcatalog.Read, Decision: commandcatalog.NoDecision,
 			AllowedSources: []commandcatalog.Source{commandcatalog.KeyboardLocal}, Context: commandcatalog.ContextPolicy{None: true},
-			Presentation:    &commandcatalog.Presentation{Version: "1", Locales: locales},
-			ArgumentsSchema: &commandcatalog.Schema{Type: commandcatalog.SchemaObject},
-			ResultSchema:    &commandcatalog.Schema{Type: commandcatalog.SchemaObject},
-			Risk:            commandcatalog.RiskLow,
-			Persistence:     commandcatalog.PersistencePolicy{Arguments: commandcatalog.PersistenceRedacted, Result: commandcatalog.PersistenceSummary, Audit: commandcatalog.PersistenceRedacted},
-			Scopes:          []commandcatalog.Scope{commandcatalog.ScopeGlobal}, Availability: commandcatalog.Availability{Status: commandcatalog.Available},
+			Presentation: &commandcatalog.Presentation{Version: "1", Locales: locales},
+			ArgumentsSchema: &commandcatalog.Schema{Type: commandcatalog.SchemaObject, Properties: map[string]commandcatalog.Schema{
+				"credential": {Type: commandcatalog.SchemaObject, Optional: true, Properties: map[string]commandcatalog.Schema{
+					"kind": {Type: commandcatalog.SchemaString}, "pattern": {Type: commandcatalog.SchemaString},
+				}, Required: []string{"kind", "pattern"}},
+			}},
+			ResultSchema: &commandcatalog.Schema{Type: commandcatalog.SchemaObject},
+			Risk:         commandcatalog.RiskLow,
+			Persistence:  commandcatalog.PersistencePolicy{Arguments: commandcatalog.PersistenceRedacted, Result: commandcatalog.PersistenceSummary, Audit: commandcatalog.PersistenceRedacted},
+			Scopes:       []commandcatalog.Scope{commandcatalog.ScopeGlobal}, Availability: commandcatalog.Availability{Status: commandcatalog.Available},
 			HandlerRoute: "internal/workspace/tab/new", HandlerClassification: commandcatalog.HandlerInternal,
 		},
 		Handler: commandcatalog.HandlerContract{Effect: commandcatalog.Read, Route: "internal/workspace/tab/new", Classification: commandcatalog.HandlerInternal},
@@ -299,6 +303,67 @@ func TestApplyPlanImportReferenciaAusenteFalhaAntesDaDecisao(t *testing.T) {
 	}
 	if !reflect.DeepEqual(after.Layers, f.before.Layers) || !reflect.DeepEqual(after.Bindings, f.before.Bindings) || !reflect.DeepEqual(after.Generations, f.before.Generations) {
 		t.Fatalf("referência ausente alterou o estado: before=%+v after=%+v", f.before, after)
+	}
+}
+
+func TestApplyPlanImportCredencialIndisponivelPersisteBindingDesabilitado(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status CredentialStatus
+	}{
+		{name: "missing", status: CredentialMissing},
+		{name: "foreign", status: CredentialForeign},
+		{name: "ambiguous", status: CredentialAmbiguous},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newApplyImportFixture(t, func(context.Context, *gorm.DB, commandconfig.MutationDiff) error { return nil })
+			refs := applyImportRefs(t, f)
+			refs.CredentialPattern = func(_ context.Context, pattern string) (CredentialStatus, error) {
+				if pattern != "api.example" {
+					t.Fatalf("pattern inesperado: %q", pattern)
+				}
+				return tc.status, nil
+			}
+			binding := applyImportBinding(t, f.layer.ID, applyImportCommand)
+			binding.Arguments = `{"credential":{"kind":"credential","pattern":"api.example"}}`
+			input := applyImportLayer(f, "credencial indisponível", &binding)
+			diff, err := ApplyPlanImport(context.Background(), f.service, "token", nil, []LayerExport{input}, PlanOptions{Mode: ReplaceMode}, applyImportOwner(f), refs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(diff.AfterBindings) != 1 || diff.AfterBindings[0].Enabled {
+				t.Fatalf("diff reabilitou binding: %+v", diff.AfterBindings)
+			}
+			after, err := f.store.Load(context.Background(), commandconfig.Scope{UserID: f.user})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(after.Bindings) != 1 || after.Bindings[0].Enabled {
+				t.Fatalf("snapshot aplicado reabilitou binding: %+v", after.Bindings)
+			}
+		})
+	}
+}
+
+func TestApplyPlanImportWorkspaceNaoResolvidoNaoPersisteOrigem(t *testing.T) {
+	f := newApplyImportFixture(t, func(context.Context, *gorm.DB, commandconfig.MutationDiff) error { return nil })
+	refs := applyImportRefs(t, f)
+	refs.Workspace = func(context.Context, string) (string, error) { return "", nil }
+	workspace := "workspace-origem"
+	input := LayerExport{ID: applyImportUUID(t), Scope: PortableScope{Kind: WorkspaceScope, WorkspaceID: workspace}, Name: "não resolvida", Description: "importada", Enabled: true, ResolutionPriority: 1}
+	_, err := ApplyPlanImport(context.Background(), f.service, "token", nil, []LayerExport{input}, PlanOptions{Mode: CopyMode}, applyImportOwner(f), refs)
+	if !errors.Is(err, ErrWorkspaceResolution) {
+		t.Fatalf("workspace não resolvido retornou %v", err)
+	}
+	if f.presenter.calls != 0 {
+		t.Fatalf("workspace não resolvido abriu decisão: calls=%d", f.presenter.calls)
+	}
+	after, err := f.store.Load(context.Background(), commandconfig.Scope{UserID: f.user})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(after.Layers, f.before.Layers) || !reflect.DeepEqual(after.Bindings, f.before.Bindings) || !reflect.DeepEqual(after.Generations, f.before.Generations) {
+		t.Fatalf("workspace não resolvido alterou o destino: before=%+v after=%+v", f.before, after)
 	}
 }
 

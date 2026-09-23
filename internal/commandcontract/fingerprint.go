@@ -310,6 +310,11 @@ func putTime(out map[string]any, name string, value *time.Time) {
 
 func stringPtr(value string) *string { return &value }
 
+// Clone devolve uma cópia independente, sem validar nem autorizar o envelope.
+// Também preserva o valor zero usado por markers do ledger sem auditoria.
+// A validação de ingressos continua pertencendo ao contrato de decode/sign.
+func (e Envelope) Clone() Envelope { return cloneEnvelope(e) }
+
 func cloneEnvelope(e Envelope) Envelope {
 	result := e
 	result.BindingIDs = slices.Clone(e.BindingIDs)

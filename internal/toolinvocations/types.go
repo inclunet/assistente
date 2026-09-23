@@ -1,6 +1,7 @@
 package toolinvocations
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
@@ -74,6 +75,13 @@ type Origin struct {
 
 type ExecuteRequest struct {
 	Call tools.ToolCall
+	// BeforeExecute é um guard privado de bootstrap. Ele roda depois que a
+	// invocação foi persistida como running e antes de entregar a tool ao
+	// executor; nunca é serializado nem substitui a policy da tool.
+	BeforeExecute func(context.Context) error
+	// ExpectedToolGeneration impede reutilizar um executor derivado após uma
+	// troca da geração de tools.
+	ExpectedToolGeneration uint64
 	// PersistedArguments substitui apenas os argumentos gravados no ledger e
 	// no snapshot de exibição. A execução continua usando Call sem alteração.
 	// Chamadores que resolvem templates secretos devem fornecer a versão

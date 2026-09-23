@@ -3,6 +3,8 @@ import {
   ensureModalCleanup,
   getModalRegistrySnapshot,
   getTopmostDialogCommandScope,
+  getTopmostChatPresentationCommandIds,
+  registerChatPresentationModalScope,
   registerOpenModal,
   updateOpenModalScope,
   unregisterOpenModal,
@@ -31,6 +33,34 @@ afterEach(() => {
 });
 
 describe('modal registry snapshots', () => {
+  it.each(['chat.pinned.open', 'chat.tokens.open'])('permite %s somente no scope topmost explícito', (commandID) => {
+    addOverlay();
+    registerOpenModal('modal-test-a');
+    const dispose = registerChatPresentationModalScope('modal-test-a', [commandID]);
+    expect(dispose).toBeTypeOf('function');
+    expect(getTopmostChatPresentationCommandIds()).toEqual([commandID]);
+    const generation = getModalRegistrySnapshot().generation;
+    registerOpenModal('modal-test-b');
+    expect(getTopmostChatPresentationCommandIds()).toBeNull();
+    unregisterOpenModal('modal-test-b');
+    expect(getTopmostChatPresentationCommandIds()).toEqual([commandID]);
+    expect(getModalRegistrySnapshot().generation).not.toBe(generation);
+    dispose?.();
+    expect(getTopmostChatPresentationCommandIds()).toBeNull();
+  });
+
+  it('recusa clear e IDs desconhecidos sem ampliar scope de apresentação ou decisão', () => {
+    addOverlay();
+    registerOpenModal('modal-test-a');
+    for (const commandID of ['chat.conversation.clear', 'chat.future.open']) {
+      expect(registerChatPresentationModalScope('modal-test-a', [commandID])).toBeUndefined();
+      expect(getTopmostChatPresentationCommandIds()).toBeNull();
+    }
+    registerOpenModal('modal-test-a', decisionScope);
+    expect(registerChatPresentationModalScope('modal-test-a', ['chat.tokens.open'])).toBeUndefined();
+    expect(getTopmostDialogCommandScope()).toMatchObject(decisionScope);
+  });
+
   it('exposes the real top id and changes generation only on stack changes', () => {
     const overlay = addOverlay();
     const initial = getModalRegistrySnapshot();

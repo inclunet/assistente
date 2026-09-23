@@ -563,10 +563,7 @@ func (c *ConversationsController) DeleteMessage(ctx context.Context, messageID s
 	if err := database.DeleteMessageWithContext(ctx, messageID); err != nil {
 		return err
 	}
-	c.emit("message:deleted", ports.MessageDeletedEvent{
-		ConversationID: convID,
-		MessageID:      messageID,
-	})
+	c.messageDeleted(convID, messageID)
 	return nil
 }
 
@@ -583,11 +580,7 @@ func (c *ConversationsController) UpdateMessage(ctx context.Context, messageID s
 	); err != nil {
 		return err
 	}
-	c.emit("message:updated", ports.MessageUpdatedEvent{
-		ConversationID: msg.ConversationID,
-		MessageID:      messageID,
-		Content:        newContent,
-	})
+	c.messageUpdated(msg.ConversationID, messageID, newContent)
 	return nil
 }
 
@@ -597,11 +590,7 @@ func (c *ConversationsController) ToggleMessagePin(ctx context.Context, messageI
 	if err != nil {
 		return nil, err
 	}
-	c.emit("message:pin_changed", ports.MessagePinChangedEvent{
-		ConversationID: msg.ConversationID,
-		MessageID:      msg.ID,
-		Pinned:         msg.Pinned,
-	})
+	c.messagePinChanged(msg)
 	return msg, nil
 }
 
@@ -719,17 +708,72 @@ func (c *ConversationsController) RenameConversation(ctx context.Context, conver
 
 // ClearConversation apaga todas as mensagens e limpa estado efêmero.
 func (c *ConversationsController) ClearConversation(ctx context.Context, conversationID string) error {
+	return c.clearConversation(ctx, conversationID, func() error {
+		return database.ClearConversationContentWithContext(ctx, conversationID)
+	})
+}
+
+// GetConversationContentRevision captura o conteúdo antes da confirmação.
+func (c *ConversationsController) GetConversationContentRevision(ctx context.Context, conversationID string) (string, error) {
+	return database.GetConversationContentRevisionWithContext(ctx, conversationID)
+}
+
+// ClearConversationIfUnchanged compara e limpa atomicamente sob o lifecycle;
+// ErrConversationContentChanged exige nova captura/confirmação pelo caller.
+func (c *ConversationsController) ClearConversationIfUnchanged(ctx context.Context, conversationID, expectedRevision string) error {
+	return c.clearConversation(ctx, conversationID, func() error {
+		return database.ClearConversationContentIfUnchangedWithinLifecycleWithContext(ctx, conversationID, expectedRevision)
+	})
+}
+
+// ClearConversationIfUnchangedGuarded permite ao App adquirir auth/workspace
+// DEPOIS de runtime/lifecycle. O guard deve chamar commit sincronamente no máximo
+// uma vez, mantendo seus locks até retornar (incluindo os efeitos pós-commit).
+func (c *ConversationsController) ClearConversationIfUnchangedGuarded(ctx context.Context, conversationID, expectedRevision string, guard func(commit func() error) error) error {
+	if guard == nil {
+		return errors.New("conversation clear guard required")
+	}
+	return c.clearConversationGuarded(ctx, conversationID, func() error {
+		return database.ClearConversationContentIfUnchangedWithinLifecycleWithContext(ctx, conversationID, expectedRevision)
+	}, guard)
+}
+
+func (c *ConversationsController) clearConversation(ctx context.Context, conversationID string, clear func() error) error {
+	return c.clearConversationGuarded(ctx, conversationID, clear, func(commit func() error) error { return commit() })
+}
+
+func (c *ConversationsController) clearConversationGuarded(ctx context.Context, conversationID string, clear func() error, guard func(func() error) error) error {
+	// Valida ownership antes de fechar os gates runtime. Ordem igual ao delete:
+	// runtime -> lifecycle -> transação. Clear preserva a conversa, logo libera
+	// sempre com false (sem tombstone), inclusive depois de um commit bem sucedido.
 	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
 		return err
 	}
-	if err := database.DeleteAllMessagesWithContext(ctx, conversationID); err != nil {
-		return err
+	if c.prepareBatchDelete != nil {
+		finalize, err := c.prepareBatchDelete(ctx, []string{conversationID})
+		if err != nil {
+			return err
+		}
+		if finalize != nil {
+			defer finalize(false)
+		}
 	}
+	return database.WithConversationLifecycle(ctx, func() error {
+		return guard(func() error {
+			if err := clear(); err != nil {
+				return err
+			}
+			c.conversationCleared(ctx, conversationID)
+			return nil
+		})
+	})
+}
+
+func (c *ConversationsController) conversationCleared(ctx context.Context, conversationID string) {
 	c.resetScoped(ctx, conversationID)
 	c.emit("conversation:cleared", map[string]interface{}{
 		"conversation_id": conversationID,
 	})
-	return nil
 }
 
 // DeleteMessages remove mensagens específicas de uma conversa.

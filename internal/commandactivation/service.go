@@ -115,11 +115,19 @@ func (s *Service) manual(ctx context.Context, asserted Owner, layer, rule Ref, o
 		}
 		return s.store.WithTx(ctx, func(tx *Tx) error {
 			generationOwner := ownerAtWorkspace(canonical, resolvedLayer.WorkspaceID)
+			if _, err := tx.expireManualClaimsAtScope(ctx, canonical, layer, rule, stackKey, resolvedLayer.WorkspaceID, now); err != nil {
+				return err
+			}
 			active, findErr := tx.latestManualClaimAtScope(ctx, canonical, layer, rule, stackKey, resolvedLayer.WorkspaceID)
 			if findErr != nil && !errors.Is(findErr, ErrNotFound) {
 				return findErr
 			}
 			if findErr == nil {
+				if active.AuthContextType != canonical.AuthContextType || active.AuthContextID != canonical.AuthContextID ||
+					active.AuthGeneration != canonical.AuthGeneration || active.SecurityGeneration != canonical.SecurityGeneration ||
+					active.SourceInstanceID == nil || *active.SourceInstanceID != canonicalOriginValue.DeviceID {
+					return ErrStale
+				}
 				if !toggle {
 					mutation = Mutation{Claim: active, EffectiveClaims: 1}
 					return nil
@@ -210,6 +218,78 @@ func (s *Service) Back(ctx context.Context, owner Owner, layer, rule Ref, origin
 	return mutation, err
 }
 
+// BackLatest encerra a claim manual válida mais recente da origem, sem exigir
+// que a UI conheça a camada ou a regra. As referências persistidas são
+// resolvidas dentro da transação antes da desativação.
+func (s *Service) BackLatest(ctx context.Context, owner Owner, origin Origin) (Mutation, error) {
+	if s == nil || ctx == nil || s.store == nil || s.gate == nil {
+		return Mutation{}, ErrInvalid
+	}
+	var mutation Mutation
+	err := s.gate.WithMutation(ctx, func() error {
+		canonical, err := s.authorize(ctx, owner)
+		if err != nil {
+			return err
+		}
+		canonicalOriginValue, err := s.origin(ctx, canonical, origin)
+		if err != nil {
+			return err
+		}
+		stackKey, err := ManualStackKey(canonicalOriginValue)
+		if err != nil {
+			return err
+		}
+		now := s.currentTime()
+		if now.IsZero() {
+			return ErrInvalid
+		}
+		return s.store.WithTx(ctx, func(tx *Tx) error {
+			claims, err := tx.latestManualClaimsForStack(ctx, canonical, stackKey)
+			if err != nil {
+				return err
+			}
+			for _, claim := range claims {
+				if claim.ExpiresAt != nil && !claim.ExpiresAt.After(now) {
+					continue
+				}
+				layerRef := Ref{Kind: claim.LayerRefKind, ID: claim.LayerRef}
+				ruleRef := Ref{Kind: claim.RuleRefKind, ID: claim.RuleRef}
+				claimOwner := ownerAtWorkspace(canonical, claim.WorkspaceID)
+				_, resolvedRule, resolveErr := s.resolvePair(ctx, claimOwner, layerRef, ruleRef)
+				if resolveErr != nil {
+					if errors.Is(resolveErr, ErrNotFound) || errors.Is(resolveErr, ErrForeignOwner) {
+						continue
+					}
+					return resolveErr
+				}
+				if !resolvedRule.Enabled || resolvedRule.ReviewStatus != "active" ||
+					(resolvedRule.Mode != ModeManual && resolvedRule.Mode != ModeToggle) ||
+					claim.AuthContextType != canonical.AuthContextType || claim.AuthContextID != canonical.AuthContextID ||
+					claim.AuthGeneration != canonical.AuthGeneration || claim.SecurityGeneration != canonical.SecurityGeneration ||
+					claim.SourceInstanceID == nil || *claim.SourceInstanceID != canonicalOriginValue.DeviceID {
+					continue
+				}
+				changed, err := tx.deactivateClaimAt(ctx, canonical, claim.ActivationID, "manual_back", now)
+				if err != nil {
+					return err
+				}
+				if !changed {
+					continue
+				}
+				mutation = Mutation{Changed: true, ActiveLayersChanged: true, Claim: claim}
+				snapshot, err := s.bumpGeneration(ctx, tx.db, claimOwner)
+				if err != nil {
+					return err
+				}
+				mutation.Generations = append(mutation.Generations, snapshot)
+				return nil
+			}
+			return ErrNotFound
+		})
+	})
+	return mutation, err
+}
+
 func (s *Service) Expire(ctx context.Context, owner Owner) (Mutation, error) {
 	if s == nil || ctx == nil || s.store == nil {
 		return Mutation{}, ErrInvalid
@@ -229,9 +309,12 @@ func (s *Service) Expire(ctx context.Context, owner Owner) (Mutation, error) {
 			if err != nil {
 				return err
 			}
-			count, effective := 0, 0
+			count := 0
+			generationOwners := make(map[string]Owner)
 			for _, claim := range claims {
-				if claim.State != StateActive || claim.ExpiresAt == nil || claim.ExpiresAt.After(now) {
+				// Jobs/eventos têm seu próprio ciclo de vida e scheduler. Expire é
+				// deliberadamente limitado às claims manuais temporárias.
+				if claim.SourceType != "manual" || claim.State != StateActive || claim.ExpiresAt == nil || claim.ExpiresAt.After(now) {
 					continue
 				}
 				changed, err := tx.expireClaimAt(ctx, canonical, claim.ActivationID, now)
@@ -242,18 +325,25 @@ func (s *Service) Expire(ctx context.Context, owner Owner) (Mutation, error) {
 					continue
 				}
 				count++
-				layer, err := s.ports.Layer.ResolveLayer(ctx, canonical, Ref{Kind: claim.LayerRefKind, ID: claim.LayerRef})
-				if err == nil && layer.Enabled {
-					effective++
+				claimOwner := ownerAtWorkspace(canonical, claim.WorkspaceID)
+				layer, layerErr := s.ports.Layer.ResolveLayer(ctx, claimOwner, Ref{Kind: claim.LayerRefKind, ID: claim.LayerRef})
+				rule, ruleErr := s.resolveRuleTx(ctx, tx, claimOwner, Ref{Kind: claim.RuleRefKind, ID: claim.RuleRef})
+				if layerErr == nil && ruleErr == nil && layer.Enabled && rule.Enabled && rule.ReviewStatus == "active" &&
+					sameWorkspace(layer.WorkspaceID, claim.WorkspaceID) && sameWorkspace(rule.WorkspaceID, claim.WorkspaceID) {
+					generationOwners[workspaceKey(claim.WorkspaceID)] = claimOwner
 				}
 			}
-			mutation = Mutation{Changed: count > 0, EffectiveClaims: 0, ActiveLayersChanged: effective > 0}
-			if effective > 0 {
-				snapshot, err := s.bumpGeneration(ctx, tx.db, canonical)
-				if err == nil {
-					mutation.Generations = append(mutation.Generations, snapshot)
+			mutation = Mutation{Changed: count > 0, EffectiveClaims: 0, ActiveLayersChanged: len(generationOwners) > 0}
+			if len(generationOwners) > 0 {
+				for _, generationOwner := range restoreWorkspaceOrder(canonical.WorkspaceID, generationOwners) {
+					snapshot, err := s.bumpGeneration(ctx, tx.db, generationOwner)
+					if err == nil {
+						mutation.Generations = append(mutation.Generations, snapshot)
+					}
+					if err != nil {
+						return err
+					}
 				}
-				return err
 			}
 			return nil
 		})
@@ -520,6 +610,16 @@ func validChangeWorkspace(change, owner *string) bool {
 // temporary claims are ended; a missing origin/layer makes the persistent
 // claim inactive for review instead of silently reviving it.
 func (s *Service) RestorePersistent(ctx context.Context, owner Owner, origin Origin) (Mutation, error) {
+	return s.restore(ctx, owner, origin, false)
+}
+
+// RestoreForWorkspace preserva claims efêmeras ainda válidas durante uma
+// troca de workspace. O caminho de restart continua em RestorePersistent.
+func (s *Service) RestoreForWorkspace(ctx context.Context, owner Owner, origin Origin) (Mutation, error) {
+	return s.restore(ctx, owner, origin, true)
+}
+
+func (s *Service) restore(ctx context.Context, owner Owner, origin Origin, preserveCurrentEphemeral bool) (Mutation, error) {
 	if s == nil || ctx == nil || s.ports.Origin == nil {
 		return Mutation{}, ErrNoOriginPort
 	}
@@ -540,30 +640,64 @@ func (s *Service) RestorePersistent(ctx context.Context, owner Owner, origin Ori
 			if err != nil {
 				return err
 			}
-			if originErr != nil || stackErr != nil {
-				return s.restoreUnavailableOrigin(ctx, tx, canonical, claims, now, &mutation)
-			}
 			changed, effectiveChanged := false, false
+			generationOwners := make(map[string]Owner)
 			for _, claim := range claims {
 				if claim.SourceType != "manual" || claim.State != StateActive {
 					continue
 				}
-				rule, ruleErr := s.resolveRuleTx(ctx, tx, canonical, Ref{Kind: claim.RuleRefKind, ID: claim.RuleRef})
-				layer, layerErr := s.ports.Layer.ResolveLayer(ctx, canonical, Ref{Kind: claim.LayerRefKind, ID: claim.LayerRef})
-				if ruleErr != nil || layerErr != nil || rule.Lifecycle != LifecyclePersistent {
-					if err := tx.updateClaim(ctx, canonical, claim.ActivationID, map[string]any{"state": StateInactive, "terminal_reason": "restore_review", "updated_at": now}); err != nil {
+				// A lista agrega global + workspace, mas a resolução da regra é
+				// exata. Consultar com o owner agregado perderia regras globais.
+				claimOwner := ownerAtWorkspace(canonical, claim.WorkspaceID)
+				rule, ruleErr := s.resolveRuleTx(ctx, tx, claimOwner, Ref{Kind: claim.RuleRefKind, ID: claim.RuleRef})
+				layer, layerErr := s.ports.Layer.ResolveLayer(ctx, claimOwner, Ref{Kind: claim.LayerRefKind, ID: claim.LayerRef})
+				exact := ruleErr == nil && layerErr == nil && rule.UserID == canonical.UserID && layer.UserID == canonical.UserID &&
+					sameWorkspace(rule.WorkspaceID, claim.WorkspaceID) && sameWorkspace(layer.WorkspaceID, claim.WorkspaceID)
+				wasEffective := exact && layer.Enabled && rule.Enabled
+				ephemeralExpiryValid := (rule.Lifecycle == LifecycleSession && claim.ExpiresAt == nil) ||
+					(rule.Lifecycle == LifecycleTemporary && claim.ExpiresAt != nil && claim.ExpiresAt.After(now))
+				preserve := preserveCurrentEphemeral && exact && layer.Enabled && rule.Enabled && rule.ReviewStatus == "active" &&
+					(rule.Lifecycle == LifecycleSession || rule.Lifecycle == LifecycleTemporary) && ephemeralExpiryValid && originErr == nil && stackErr == nil &&
+					claim.ManualStackKey != nil && *claim.ManualStackKey == stackKey && claim.SourceInstanceID != nil && *claim.SourceInstanceID == reboundOrigin.DeviceID &&
+					claim.AuthContextType == canonical.AuthContextType && claim.AuthContextID == canonical.AuthContextID &&
+					claim.AuthGeneration == canonical.AuthGeneration && claim.SecurityGeneration == canonical.SecurityGeneration
+				if preserve {
+					continue
+				}
+
+				if !exact || originErr != nil || stackErr != nil || rule.Lifecycle != LifecyclePersistent || claim.ExpiresAt != nil && !claim.ExpiresAt.After(now) {
+					state, reason := StateInactive, "restore_review"
+					switch {
+					case exact && claim.ExpiresAt != nil && !claim.ExpiresAt.After(now):
+						state, reason = StateExpired, "expiry"
+					case exact && rule.Lifecycle == LifecycleSession:
+						reason = "restart_session"
+					case exact && rule.Lifecycle == LifecycleTemporary:
+						reason = "restart_temporary"
+					case exact && (originErr != nil || stackErr != nil) && rule.Lifecycle == LifecyclePersistent:
+						reason = "origin_unavailable"
+					}
+					if err := tx.updateClaim(ctx, canonical, claim.ActivationID, map[string]any{"state": state, "terminal_reason": reason, "updated_at": now}); err != nil {
 						return err
 					}
 					changed = true
-					if layerErr == nil && layer.Enabled {
+					if wasEffective {
 						effectiveChanged = true
+						generationOwners[workspaceKey(claim.WorkspaceID)] = claimOwner
 					}
 					continue
 				}
-				if claim.AuthContextID == canonical.AuthContextID || claim.AuthGeneration == canonical.AuthGeneration || claim.SecurityGeneration == canonical.SecurityGeneration || claim.ManualStackKey == nil || *claim.ManualStackKey == stackKey {
+				device := reboundOrigin.DeviceID
+				alreadyRestored := claim.AuthContextType == canonical.AuthContextType && claim.AuthContextID == canonical.AuthContextID &&
+					claim.AuthGeneration == canonical.AuthGeneration && claim.SecurityGeneration == canonical.SecurityGeneration &&
+					claim.ManualStackKey != nil && *claim.ManualStackKey == stackKey && claim.SourceInstanceID != nil && *claim.SourceInstanceID == device
+				if alreadyRestored {
+					continue
+				}
+				if claim.AuthContextType == canonical.AuthContextType && claim.AuthContextID == canonical.AuthContextID &&
+					claim.AuthGeneration == canonical.AuthGeneration && claim.SecurityGeneration == canonical.SecurityGeneration {
 					return ErrStale
 				}
-				device := reboundOrigin.DeviceID
 				if err := tx.updateClaim(ctx, canonical, claim.ActivationID, map[string]any{"auth_context_type": canonical.AuthContextType, "auth_context_id": canonical.AuthContextID, "auth_generation": canonical.AuthGeneration, "security_generation": canonical.SecurityGeneration, "manual_stack_key": stackKey, "source_instance_id": device, "updated_at": now}); err != nil {
 					return err
 				}
@@ -571,11 +705,13 @@ func (s *Service) RestorePersistent(ctx context.Context, owner Owner, origin Ori
 			}
 			mutation = Mutation{Changed: changed, ActiveLayersChanged: effectiveChanged}
 			if effectiveChanged {
-				snapshot, err := s.bumpGeneration(ctx, tx.db, canonical)
-				if err == nil {
+				for _, workspace := range restoreWorkspaceOrder(canonical.WorkspaceID, generationOwners) {
+					snapshot, err := s.bumpGeneration(ctx, tx.db, workspace)
+					if err != nil {
+						return err
+					}
 					mutation.Generations = append(mutation.Generations, snapshot)
 				}
-				return err
 			}
 			return nil
 		})
@@ -583,30 +719,24 @@ func (s *Service) RestorePersistent(ctx context.Context, owner Owner, origin Ori
 	return mutation, err
 }
 
-func (s *Service) restoreUnavailableOrigin(ctx context.Context, tx *Tx, owner Owner, claims []Claim, now time.Time, mutation *Mutation) error {
-	changed, effective := false, false
-	for _, claim := range claims {
-		if claim.SourceType != "manual" || claim.State != StateActive {
-			continue
-		}
-		layer, layerErr := s.ports.Layer.ResolveLayer(ctx, owner, Ref{Kind: claim.LayerRefKind, ID: claim.LayerRef})
-		if err := tx.updateClaim(ctx, owner, claim.ActivationID, map[string]any{"state": StateInactive, "terminal_reason": "origin_unavailable", "updated_at": now}); err != nil {
-			return err
-		}
-		changed = true
-		if layerErr == nil && layer.Enabled {
-			effective = true
+func workspaceKey(workspace *string) string {
+	if workspace == nil {
+		return ""
+	}
+	return *workspace
+}
+
+func restoreWorkspaceOrder(workspace *string, owners map[string]Owner) []Owner {
+	result := make([]Owner, 0, len(owners))
+	if owner, ok := owners[""]; ok {
+		result = append(result, ownerAtWorkspace(owner, nil))
+	}
+	if workspace != nil {
+		if owner, ok := owners[*workspace]; ok {
+			result = append(result, ownerAtWorkspace(owner, workspace))
 		}
 	}
-	*mutation = Mutation{Changed: changed, ActiveLayersChanged: effective}
-	if effective {
-		snapshot, err := s.bumpGeneration(ctx, tx.db, owner)
-		if err == nil {
-			(*mutation).Generations = append((*mutation).Generations, snapshot)
-		}
-		return err
-	}
-	return nil
+	return result
 }
 
 func (s *Service) authorize(ctx context.Context, asserted Owner) (Owner, error) {

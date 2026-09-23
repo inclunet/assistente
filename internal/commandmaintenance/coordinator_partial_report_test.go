@@ -23,6 +23,10 @@ func (partialOutbox) Drain(context.Context, int) (BatchResult, error) {
 	return BatchResult{Processed: 1, More: true}, errPartialMaintenance
 }
 
+func (partialOutbox) PurgeExpired(context.Context, int) (int, bool, error) {
+	return 0, false, nil
+}
+
 type partialRetention struct {
 	deleted int64
 	err     error
@@ -84,7 +88,7 @@ func TestCoordinatorPreservaOutboxParcialEmErro(t *testing.T) {
 	if !errors.Is(err, errPartialMaintenance) {
 		t.Fatalf("error = %v, want partial error", err)
 	}
-	if report.OutboxRequeued != 1 || !report.MoreOutbox || report.OutboxDrained || report.Compacted {
+	if report.Stage != "outbox.drain" || report.OutboxRequeued != 1 || !report.MoreOutbox || report.OutboxDrained || report.Compacted {
 		t.Fatalf("partial outbox report = %+v", report)
 	}
 }

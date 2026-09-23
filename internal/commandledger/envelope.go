@@ -80,9 +80,11 @@ type FullRecord struct {
 	ResultSummary             *string
 	ResultRef                 *string
 	ErrorCode                 *string
-	SourceEventID             *string
-	ReceivedAt                time.Time
-	ExpiresAt                 time.Time
+	// SourceType vem da chave durável, inclusive em marcadores sem auditoria.
+	SourceType    *commandcontract.SourceType
+	SourceEventID *string
+	ReceivedAt    time.Time
+	ExpiresAt     time.Time
 }
 
 type EnvelopeReservation struct {
@@ -636,7 +638,7 @@ func invocationFromEnvelope(envelope commandcontract.Envelope, req EnvelopeReque
 		SourceProfileSlug: cloneString(envelope.SourceProfileSlug), TargetProfileSlug: cloneString(envelope.TargetProfileSlug),
 		AuthorizationDecisionID: cloneString(envelope.AuthorizationDecisionID), DelegationFingerprint: cloneString(envelope.DelegationFingerprint),
 		GrantGeneration: cloneString(envelope.GrantGeneration), JobID: cloneString(envelope.JobID), JobSlug: cloneString(envelope.JobSlug),
-		JobDefinitionFingerprint: cloneString(envelope.JobDefinitionFingerprint), RunID: cloneString(envelope.RunID), Provenance: redactedIfPresent(envelope.Provenance),
+		JobDefinitionFingerprint: cloneString(envelope.JobDefinitionFingerprint), RunID: cloneString(envelope.RunID), Provenance: redactedProvenanceIfPresent(envelope.Provenance),
 		CorrelationID: envelope.CorrelationID, RequestFingerprintVersion: *envelope.RequestFingerprintVersion, RequestFingerprint: *envelope.RequestFingerprint,
 		Risk: req.Risk, PolicyDecision: policy, Status: status, ClientRequestedAt: cloneTime(envelope.ClientRequestedAt), ReceivedAt: envelope.ReceivedAt,
 	}
@@ -718,8 +720,8 @@ func sameOwnership(row ledgerRow, owner FullOwnership) bool {
 func fullRecord(ledger ledgerRow, invocation *invocationRow) FullRecord {
 	record := FullRecord{ID: ledger.ID, Key: ledger.Key, InvocationID: ledger.InvocationID, Status: ledger.Status,
 		RequestFingerprintVersion: ledger.RequestFingerprintVersion, RequestFingerprint: ledger.RequestFingerprint,
-		InputFingerprint: valueOrEmpty(ledger.InputFingerprint),
-		ResultSummary:    cloneString(ledger.ResultSummary), ResultRef: cloneString(ledger.ResultRef), SourceEventID: cloneString(ledger.SourceEventID),
+		InputFingerprint: valueOrEmpty(ledger.InputFingerprint), SourceType: sourceTypePtr(ledger.SourceType),
+		ResultSummary: cloneString(ledger.ResultSummary), ResultRef: cloneString(ledger.ResultRef), SourceEventID: cloneString(ledger.SourceEventID),
 		ReceivedAt: ledger.ReceivedAt, ExpiresAt: ledger.ExpiresAt, Ownership: FullOwnership{UserID: cloneString(ledger.UserID), AuthContextType: commandcontract.AuthContextType(ledger.AuthContextType), AuthContextID: ledger.AuthContextID}}
 	if ledger.ActorType != nil {
 		record.Ownership.ActorType = commandcontract.ActorType(*ledger.ActorType)
@@ -769,6 +771,99 @@ func redactedIfPresent[T any](value *T) *string {
 		return nil
 	}
 	return envelopeStringPtr(redactedDocument)
+}
+
+// redactedProvenanceIfPresent mantém somente o contrato estrutural de
+// proveniência. Identidade de runtime, claims e payload arbitrário de trigger
+// nunca entram no documento de auditoria. Proveniência inválida vira o marcador
+// redigido padrão, para que uma reserva negada/terminal continue persistível
+// sem reter bytes controlados pelo solicitante.
+func redactedProvenanceIfPresent(value *json.RawMessage) *string {
+	if value == nil {
+		return nil
+	}
+	canonical, err := commandjson.Canonicalize(*value)
+	if err != nil {
+		return envelopeStringPtr(redactedDocument)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(canonical, &document); err != nil || document == nil {
+		return envelopeStringPtr(redactedDocument)
+	}
+	var version int
+	rawVersion, ok := document["version"]
+	if !ok || json.Unmarshal(rawVersion, &version) != nil || version != 1 {
+		return envelopeStringPtr(redactedDocument)
+	}
+	if rawRedacted, ok := document["redacted"]; ok {
+		var redacted bool
+		if json.Unmarshal(rawRedacted, &redacted) != nil {
+			return envelopeStringPtr(redactedDocument)
+		}
+	}
+	curated := map[string]json.RawMessage{
+		"version": json.RawMessage(`1`), "redacted": json.RawMessage(`true`),
+	}
+	for _, field := range []string{"_source", "_source_job_id", "_chain_id"} {
+		if raw, ok := document[field]; ok {
+			valid := validRedactedProvenanceString(raw)
+			if field == "_source_job_id" {
+				valid = validRedactedProvenanceStringAllowEmpty(raw)
+			}
+			if !valid {
+				return envelopeStringPtr(redactedDocument)
+			}
+			curated[field] = append(json.RawMessage(nil), raw...)
+		}
+	}
+	if raw, ok := document["_chain_history"]; ok {
+		var history []string
+		if json.Unmarshal(raw, &history) != nil || history == nil || !validRedactedProvenanceHistory(history) {
+			return envelopeStringPtr(redactedDocument)
+		}
+		curated["_chain_history"] = append(json.RawMessage(nil), raw...)
+	}
+	if raw, ok := document["command_chain_history"]; ok {
+		history, err := commandcontract.DecodeCommandChainHistory(raw)
+		if err != nil {
+			return envelopeStringPtr(redactedDocument)
+		}
+		encoded, err := commandjson.Marshal(history)
+		if err != nil {
+			return envelopeStringPtr(redactedDocument)
+		}
+		curated["command_chain_history"] = encoded
+	}
+	encoded, err := commandjson.Marshal(curated)
+	if err != nil {
+		return envelopeStringPtr(redactedDocument)
+	}
+	return envelopeStringPtr(string(encoded))
+}
+
+func validRedactedProvenanceString(raw json.RawMessage) bool {
+	return validRedactedProvenanceStringValue(raw, false)
+}
+
+func validRedactedProvenanceStringAllowEmpty(raw json.RawMessage) bool {
+	return validRedactedProvenanceStringValue(raw, true)
+}
+
+func validRedactedProvenanceStringValue(raw json.RawMessage, allowEmpty bool) bool {
+	var value *string
+	if json.Unmarshal(raw, &value) != nil || value == nil {
+		return false
+	}
+	return (allowEmpty || *value != "") && strings.TrimSpace(*value) == *value && !strings.ContainsRune(*value, '\x00')
+}
+
+func validRedactedProvenanceHistory(history []string) bool {
+	for _, value := range history {
+		if value == "" || strings.TrimSpace(value) != value || strings.ContainsRune(value, '\x00') {
+			return false
+		}
+	}
+	return true
 }
 
 func sourceString(value *commandcontract.SourceType) *string {

@@ -3,11 +3,14 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandbootstrap"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"github.com/glebarez/sqlite"
@@ -75,5 +78,23 @@ func TestCommandStorageRejectsInvalidDependencies(t *testing.T) {
 	a := &App{}
 	if err := a.prepareCommandStorage(nil, nil, nil); err == nil || a.commandStorageVersion != "" || a.commandStorageErr == nil { //nolint:staticcheck // nil é intencional: confirma dependências ausentes e ausência de prontidão.
 		t.Fatal("dependências ausentes aceitas")
+	}
+}
+
+func TestCommandStorageDiagnosticCodesDoNotExposeProviderDetails(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code string
+	}{
+		{context.Canceled, "cancelled"},
+		{context.DeadlineExceeded, "deadline_exceeded"},
+		{commandbootstrap.ErrStorage, "schema_or_storage_unavailable"},
+		{commandbootstrap.ErrKeys, "keys_unavailable_or_incompatible"},
+		{fmt.Errorf("private provider details: %w", commandbootstrap.ErrFingerprintReference), "stored_fingerprint_invalid"},
+		{errors.New("private provider details"), "storage_initialization_failed"},
+	} {
+		if got := commandStorageFailureCode(tc.err); got != tc.code {
+			t.Fatalf("diagnóstico = %q, esperado %q", got, tc.code)
+		}
 	}
 }

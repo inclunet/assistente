@@ -1,0 +1,15 @@
+/* Classes seguem BEM, conforme o contrato de nomes da página. */
+/* stylelint-disable selector-class-pattern, declaration-block-single-line-max-declarations */
+.command-settings-page { padding: 24px; min-height: 100%; color: var(--text-primary); }
+.command-settings__header, .command-settings__binding-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.command-settings__header p, .command-settings__detail > p { color: var(--text-secondary); }
+.command-settings__layout { display: grid; grid-template-columns: minmax(280px, 0.9fr) minmax(360px, 1.5fr); gap: 24px; min-height: 420px; }
+.command-settings__detail { border-left: 1px solid var(--border-subtle); padding-left: 24px; }
+.command-settings__warning { background: var(--color-warning-dim); border: 1px solid var(--color-warning); padding: 12px; margin: 16px 0; }
+.command-settings__error { color: var(--color-danger); margin: 12px 0; }
+.command-settings__actions { display: inline-flex; gap: 4px; }
+.command-settings__form { display: grid; gap: 16px; }
+.command-settings__info { color: var(--text-secondary); font-size: var(--font-size-sm); }
+.command-settings__restore { border-top: 1px solid var(--border-subtle); padding-top: 12px; }
+
+@media (width <= 900px) { .command-settings__layout { grid-template-columns: 1fr; } .command-settings__detail { border-left: 0; border-top: 1px solid var(--border-subtle); padding: 24px 0 0; } }

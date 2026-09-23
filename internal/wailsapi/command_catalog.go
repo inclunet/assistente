@@ -14,10 +14,20 @@ import (
 // Ele é somente leitura/execução via serviço confiável: não mantém listas
 // paralelas no frontend e exige sessão autenticada para qualquer consulta.
 type CommandCatalog struct {
-	mu       sync.RWMutex
-	session  Session
-	registry *commandcatalog.Registry
+	mu        sync.RWMutex
+	session   Session
+	registry  *commandcatalog.Registry
+	readiness CommandCatalogReadiness
 }
+
+// CommandCatalogReadiness é fornecido pelo bootstrap confiável. O catálogo
+// continua declarando AllowedSources, mas só esta porta conhece quais delas
+// têm adapter operacional publicado no runtime atual. Ela também deve validar
+// a política de preparação: o preflight read-only legado não descreve handlers
+// de escrita montados pelo produto. Esta porta não é controlada pelo frontend.
+type CommandCatalogReadiness func(context.Context, commandcatalog.Definition, commandcatalog.Source) error
+
+var errCommandCatalogBackendUnavailable = errors.New("catálogo de comandos indisponível no runtime")
 
 func NewCommandCatalog() *CommandCatalog {
 	return &CommandCatalog{}
@@ -25,7 +35,7 @@ func NewCommandCatalog() *CommandCatalog {
 
 // AttachCommandCatalog associa Session e snapshot canônico ao bind.
 // Função de pacote para não entrar no Bind do Wails.
-func AttachCommandCatalog(api *CommandCatalog, session Session, registry *commandcatalog.Registry) {
+func AttachCommandCatalog(api *CommandCatalog, session Session, registry *commandcatalog.Registry, readiness CommandCatalogReadiness) {
 	if api == nil {
 		return
 	}
@@ -33,23 +43,24 @@ func AttachCommandCatalog(api *CommandCatalog, session Session, registry *comman
 	defer api.mu.Unlock()
 	api.session = session
 	api.registry = registry
+	api.readiness = readiness
 }
 
-func (api *CommandCatalog) deps() (Session, *commandcatalog.Registry, error) {
+func (api *CommandCatalog) deps() (Session, *commandcatalog.Registry, CommandCatalogReadiness, error) {
 	api.mu.RLock()
 	defer api.mu.RUnlock()
 	if api.session == nil || api.registry == nil {
-		return nil, nil, ErrCommandCatalogNotWired
+		return nil, nil, nil, ErrCommandCatalogNotWired
 	}
-	return api.session, api.registry, nil
+	return api.session, api.registry, api.readiness, nil
 }
 
 func (api *CommandCatalog) ListCommands(filter apidto.CommandCatalogFilter) ([]apidto.CommandCatalogItem, error) {
-	session, registry, err := api.deps()
+	session, registry, readiness, err := api.deps()
 	if err != nil {
 		return nil, err
 	}
-	return WithUser(session, func(context.Context) ([]apidto.CommandCatalogItem, error) {
+	return WithUser(session, func(ctx context.Context) ([]apidto.CommandCatalogItem, error) {
 		locale := normalizeCommandLocale(filter.Locale)
 		source := commandCatalogSource(filter.Source)
 		definitions := registry.List()
@@ -58,7 +69,7 @@ func (api *CommandCatalog) ListCommands(filter apidto.CommandCatalogFilter) ([]a
 		}
 		out := make([]apidto.CommandCatalogItem, 0, len(definitions))
 		for _, definition := range definitions {
-			out = append(out, commandCatalogItemFrom(registry, definition, locale, source))
+			out = append(out, commandCatalogItemFrom(ctx, definition, locale, source, readiness))
 		}
 		return out, nil
 	})
@@ -66,11 +77,11 @@ func (api *CommandCatalog) ListCommands(filter apidto.CommandCatalogFilter) ([]a
 
 func (api *CommandCatalog) DescribeCommand(id string, filter apidto.CommandCatalogFilter) (apidto.CommandCatalogDetail, error) {
 	id = strings.TrimSpace(id)
-	session, registry, err := api.deps()
+	session, registry, readiness, err := api.deps()
 	if err != nil {
 		return apidto.CommandCatalogDetail{}, err
 	}
-	return WithUser(session, func(context.Context) (apidto.CommandCatalogDetail, error) {
+	return WithUser(session, func(ctx context.Context) (apidto.CommandCatalogDetail, error) {
 		if id == "" {
 			return apidto.CommandCatalogDetail{}, errors.New("comando sem identificador")
 		}
@@ -79,7 +90,7 @@ func (api *CommandCatalog) DescribeCommand(id string, filter apidto.CommandCatal
 			return apidto.CommandCatalogDetail{}, commandcatalog.ErrNotReady
 		}
 		locale := normalizeCommandLocale(filter.Locale)
-		item := commandCatalogItemFrom(registry, definition, locale, commandCatalogSource(filter.Source))
+		item := commandCatalogItemFrom(ctx, definition, locale, commandCatalogSource(filter.Source), readiness)
 		return apidto.CommandCatalogDetail{
 			CommandCatalogItem:         item,
 			ArgumentsSchema:            definition.ArgumentsSchema,
@@ -109,7 +120,7 @@ func commandCatalogSource(source string) commandcatalog.Source {
 	}
 }
 
-func commandCatalogItemFrom(registry *commandcatalog.Registry, definition commandcatalog.Definition, locale string, source commandcatalog.Source) apidto.CommandCatalogItem {
+func commandCatalogItemFrom(ctx context.Context, definition commandcatalog.Definition, locale string, source commandcatalog.Source, readiness CommandCatalogReadiness) apidto.CommandCatalogItem {
 	metadata := commandcatalog.LocalizedMetadata{}
 	presentationVersion := ""
 	icon := ""
@@ -119,8 +130,19 @@ func commandCatalogItemFrom(registry *commandcatalog.Registry, definition comman
 		icon = definition.Presentation.Icon
 	}
 	readinessReason := ""
-	if _, err := registry.CheckReadiness(definition.ID, source); err != nil {
-		readinessReason = err.Error()
+	// Invariantes de descoberta são comuns; efeitos e alvos suportados são
+	// responsabilidade da política confiável publicada junto do runtime.
+	if !definition.AllowsSource(source) {
+		readinessReason = "origem não permitida para o comando"
+	} else if definition.Presentation == nil {
+		readinessReason = "apresentação do comando ausente"
+	}
+	if readiness == nil {
+		readinessReason = errCommandCatalogBackendUnavailable.Error()
+	} else if readinessReason == "" {
+		if err := readiness(ctx, definition, source); err != nil {
+			readinessReason = err.Error()
+		}
 	}
 	return apidto.CommandCatalogItem{
 		ID:                  definition.ID,

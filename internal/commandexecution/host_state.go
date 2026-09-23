@@ -53,6 +53,7 @@ type hostUserState struct {
 	activeLayers        []string
 	globalConfig        string
 	activeLayersVersion string
+	projectionGuard     func(context.Context) error
 }
 
 // NewHostState cria um estado seguro: o cofre começa fechado e o estado da
@@ -104,22 +105,189 @@ func (s *HostState) Snapshot(ctx context.Context, principal auth.LocalSessionPri
 	}
 
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	if err := ctx.Err(); err != nil {
+		s.mu.RUnlock()
 		return Versions{}, err
 	}
 	if s.disabled {
+		s.mu.RUnlock()
 		return Versions{}, ErrHostStateDisabled
 	}
 	user, ok := s.users[principal.UserID]
 	if !ok || user.configuration == nil {
+		s.mu.RUnlock()
 		return Versions{}, ErrHostUserNotPublished
+	}
+	if user.projectionGuard == nil {
+		result := Versions{
+			Registry:     s.registryVersion,
+			GlobalConfig: user.globalConfig,
+			ActiveLayers: user.activeLayersVersion,
+			Unlocked:     s.vaultUnlocked && s.osKnown && !s.osLocked && user.readySession == principal.SessionID,
+		}
+		s.mu.RUnlock()
+		return result, nil
+	}
+	counter, configuration, session, guard := s.counter, user.configuration, user.readySession, user.projectionGuard
+	s.mu.RUnlock()
+	if err := guard(ctx); err != nil {
+		return Versions{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return Versions{}, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.disabled {
+		return Versions{}, ErrHostStateDisabled
+	}
+	current, ok := s.users[principal.UserID]
+	if !ok || current.configuration == nil {
+		return Versions{}, ErrHostUserNotPublished
+	}
+	if s.counter != counter || current.configuration != configuration || current.readySession != session {
+		return Versions{}, ErrStale
 	}
 	return Versions{
 		Registry:     s.registryVersion,
-		GlobalConfig: user.globalConfig,
-		ActiveLayers: user.activeLayersVersion,
-		Unlocked:     s.vaultUnlocked && s.osKnown && !s.osLocked && user.readySession == principal.SessionID,
+		GlobalConfig: current.globalConfig,
+		ActiveLayers: current.activeLayersVersion,
+		Unlocked:     s.vaultUnlocked && s.osKnown && !s.osLocked && current.readySession == principal.SessionID,
+	}, nil
+}
+
+// WithPublishedVersions cerca um handoff local com a versão publicada exata.
+// Não consulta projectionGuard: o caller deve fazer Snapshot completo antes
+// de entrar no gate e revalidar seus epochs sob esse gate. fn não pode fazer
+// I/O nem reentrar no HostState; somente o claim efêmero pertence a este lock.
+func (s *HostState) WithPublishedVersions(ctx context.Context, principal auth.LocalSessionPrincipal, expected Versions, fn func() error) error {
+	if s == nil || ctx == nil || fn == nil {
+		return ErrInvalidHostState
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	user, ok := s.users[principal.UserID]
+	if s.disabled || !ok || user.configuration == nil {
+		return ErrHostUserNotPublished
+	}
+	actual := Versions{Registry: s.registryVersion, GlobalConfig: user.globalConfig, ActiveLayers: user.activeLayersVersion,
+		Unlocked: s.vaultUnlocked && s.osKnown && !s.osLocked && user.readySession == principal.SessionID}
+	if !actual.Unlocked || actual != expected {
+		return ErrStale
+	}
+	return fn()
+}
+
+// InteractiveSessionReady permite apresentar novamente uma decisão já visível,
+// inclusive sobre desbloqueio do cofre. Não autoriza comandos: esses continuam
+// exigindo SourceSecurityReady, principal e todas as demais revalidações.
+func (s *HostState) InteractiveSessionReady(ctx context.Context) (bool, error) {
+	if s == nil || ctx == nil {
+		return false, ErrInvalidHostState
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if s.disabled {
+		return false, ErrHostStateDisabled
+	}
+	return s.osKnown && !s.osLocked, nil
+}
+
+// SourceSecurityReady verifica somente o estado de segurança local necessário
+// para uma fonte autenticada: host ativo, cofre desbloqueado e sessão do SO
+// conhecida/desbloqueada. Não exige configuração, sessão publicada, versões
+// ou projectionGuard; uma recomposição/restore pode apagar users sem tornar a
+// fonte de segurança indisponível.
+func (s *HostState) SourceSecurityReady(ctx context.Context) (bool, error) {
+	if s == nil || ctx == nil {
+		return false, ErrInvalidHostState
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if s.disabled {
+		return false, ErrHostStateDisabled
+	}
+	return s.vaultUnlocked && s.osKnown && !s.osLocked, nil
+}
+
+// ResolutionSnapshot captura a configuração, as camadas ativas e as versões
+// que pertencem à mesma projeção pronta do usuário. A leitura é inteiramente
+// local; o guard roda fora do mutex e o counter é conferido novamente antes
+// do retorno. Não adquire o DispatchGate nem chama o EpochService. Uma
+// projeção só é pronta para resolução quando a sessão
+// publicada é exatamente a sessão do principal e cofre/SO estão desbloqueados.
+func (s *HostState) ResolutionSnapshot(ctx context.Context, principal auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, Versions, error) {
+	if s == nil || ctx == nil {
+		return nil, nil, Versions{}, ErrInvalidHostState
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, Versions{}, err
+	}
+	if !validHostID(principal.UserID) || !validHostID(principal.SessionID) {
+		return nil, nil, Versions{}, ErrInvalidHostPrincipal
+	}
+
+	s.mu.RLock()
+	if err := ctx.Err(); err != nil {
+		s.mu.RUnlock()
+		return nil, nil, Versions{}, err
+	}
+	if s.disabled {
+		s.mu.RUnlock()
+		return nil, nil, Versions{}, ErrHostStateDisabled
+	}
+	user, ok := s.users[principal.UserID]
+	if !ok || user.configuration == nil || user.readySession != principal.SessionID || !s.vaultUnlocked || !s.osKnown || s.osLocked {
+		s.mu.RUnlock()
+		return nil, nil, Versions{}, ErrHostUserNotPublished
+	}
+	if user.projectionGuard == nil {
+		configuration, layers, versions := user.configuration, cloneStrings(user.activeLayers), Versions{
+			Registry:     s.registryVersion,
+			GlobalConfig: user.globalConfig,
+			ActiveLayers: user.activeLayersVersion,
+			Unlocked:     true,
+		}
+		s.mu.RUnlock()
+		return configuration, layers, versions, nil
+	}
+	counter, configuration, session, guard := s.counter, user.configuration, user.readySession, user.projectionGuard
+	s.mu.RUnlock()
+	if err := guard(ctx); err != nil {
+		return nil, nil, Versions{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, Versions{}, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.disabled {
+		return nil, nil, Versions{}, ErrHostStateDisabled
+	}
+	current, ok := s.users[principal.UserID]
+	if !ok || current.configuration == nil || current.readySession != principal.SessionID || !s.vaultUnlocked || !s.osKnown || s.osLocked {
+		return nil, nil, Versions{}, ErrHostUserNotPublished
+	}
+	if s.counter != counter || current.configuration != configuration || current.readySession != session {
+		return nil, nil, Versions{}, ErrStale
+	}
+	return current.configuration, cloneStrings(current.activeLayers), Versions{
+		Registry:     s.registryVersion,
+		GlobalConfig: current.globalConfig,
+		ActiveLayers: current.activeLayersVersion,
+		Unlocked:     true,
 	}, nil
 }
 
@@ -154,6 +322,7 @@ func (s *HostState) PublishUserConfiguration(ctx context.Context, userID string,
 		}
 		user.configuration = configuration
 		user.readySession = ""
+		user.projectionGuard = nil
 		user.globalConfig = generations[0]
 		if needActiveGeneration {
 			user.activeLayersVersion = generations[1]

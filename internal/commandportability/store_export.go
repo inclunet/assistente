@@ -30,6 +30,11 @@ func exportFromStore(ctx context.Context, db *gorm.DB, userID string, refs Refer
 	if ctx == nil || db == nil || strings.TrimSpace(userID) == "" || refs.Catalog == nil || !refs.Catalog.Complete() || refs.Trigger == nil {
 		return nil, ErrInvalid
 	}
+	if exactWorkspace != nil {
+		if err := authorizeExportWorkspace(ctx, *exactWorkspace, refs); err != nil {
+			return nil, err
+		}
+	}
 	store, err := commandconfig.New(db)
 	if err != nil {
 		return nil, err
@@ -60,6 +65,13 @@ func exportFromStore(ctx context.Context, db *gorm.DB, userID string, refs Refer
 	}
 	if err := query.Order("id").Find(&rows).Error; err != nil {
 		return nil, err
+	}
+	for _, row := range rows {
+		if row.WorkspaceID != nil {
+			if err := authorizeExportWorkspace(ctx, *row.WorkspaceID, refs); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if len(layerIDs) > 0 && len(rows) != len(uniqueStrings(layerIDs)) {
 		return nil, ErrInvalid
@@ -107,6 +119,17 @@ func exportFromStore(ctx context.Context, db *gorm.DB, userID string, refs Refer
 	return result, nil
 }
 
+func authorizeExportWorkspace(ctx context.Context, workspace string, refs ReferencePort) error {
+	if refs.Workspace == nil || strings.TrimSpace(workspace) != workspace || workspace == "" {
+		return ErrWorkspaceResolution
+	}
+	authorized, err := refs.Workspace(ctx, workspace)
+	if err != nil || authorized != workspace {
+		return ErrWorkspaceResolution
+	}
+	return nil
+}
+
 func validateExportLayer(ctx context.Context, layer *LayerExport, refs ReferencePort) error {
 	if err := layer.validate(); err != nil {
 		return err
@@ -126,7 +149,7 @@ func validateExportLayer(ctx context.Context, layer *LayerExport, refs Reference
 				return ErrMissingReference
 			}
 		}
-		if err := validateCredentialReferences(ctx, bindings[i].Arguments, refs.CredentialPattern, &Plan{}); err != nil {
+		if _, err := validateCredentialReferences(ctx, bindings[i].Arguments, refs.CredentialPattern, &Plan{}); err != nil {
 			return err
 		}
 	}
@@ -168,6 +191,13 @@ func exportBuiltinDeltas(ctx context.Context, db *gorm.DB, userID string, layerI
 	if err := query.Order("workspace_id, id").Find(&bindings).Error; err != nil {
 		return nil, err
 	}
+	for _, binding := range bindings {
+		if binding.WorkspaceID != nil {
+			if err := authorizeExportWorkspace(ctx, *binding.WorkspaceID, refs); err != nil {
+				return nil, err
+			}
+		}
+	}
 	groups := make(map[string]*LayerExport)
 	for _, binding := range bindings {
 		group := deltaGroup(groups, portableScopeFromWorkspace(binding.WorkspaceID))
@@ -186,6 +216,11 @@ func exportBuiltinDeltas(ctx context.Context, db *gorm.DB, userID string, layerI
 			return nil, err
 		}
 		for _, row := range rules {
+			if row.WorkspaceID != nil {
+				if err := authorizeExportWorkspace(ctx, *row.WorkspaceID, refs); err != nil {
+					return nil, err
+				}
+			}
 			group := deltaGroup(groups, portableScopeFromWorkspace(row.WorkspaceID))
 			group.BuiltinRuleDeltas = append(group.BuiltinRuleDeltas, ActivationRuleExport{ID: row.ID, LayerRefKind: row.LayerRefKind, LayerRef: row.LayerRef, RuleRefKind: row.RuleRefKind, RuleRef: row.RuleRef, Mode: row.Mode, Condition: row.Condition, Lifecycle: row.Lifecycle, EventName: cloneString(row.EventName), AllowedInternalProducerTypes: cloneString(row.AllowedInternalProducerTypes), Enabled: row.Enabled, ReplacesDefaultID: cloneString(row.ReplacesDefaultID), ReplacesDefaultVersion: cloneString(row.ReplacesDefaultVersion), ReplacesDefaultFingerprint: cloneString(row.ReplacesDefaultFingerprint), ReviewStatus: row.ReviewStatus})
 		}

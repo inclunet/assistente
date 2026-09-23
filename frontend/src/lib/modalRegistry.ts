@@ -17,6 +17,12 @@ import {
 // trate Escape/Tab/click-outside quando há múltiplos modais abertos.
 const OPEN_MODAL_STACK: string[] = [];
 const OPEN_MODAL_SCOPES = new Map<string, DialogCommandScope>();
+interface ChatPresentationModalScopeRecord {
+  readonly commandIds: readonly string[];
+  readonly token: object;
+}
+
+const OPEN_MODAL_CHAT_SCOPES = new Map<string, ChatPresentationModalScopeRecord>();
 
 let fallbackNonceCounter = 0;
 const STARTUP_NONCE = (() => {
@@ -33,6 +39,7 @@ const STARTUP_NONCE = (() => {
 })();
 
 let modalStackGeneration = 0;
+const modalStackListeners = new Set<() => void>();
 
 export interface ModalRegistrySnapshot {
   readonly generation: string;
@@ -43,6 +50,7 @@ export interface ModalRegistrySnapshot {
   readonly ids: readonly string[];
   /** Scope somente do modal topmost; null também quando ele bloqueia fallback. */
   readonly dialogCommandScope: DialogCommandScope | null;
+  readonly chatPresentationCommandIds: readonly string[] | null;
 }
 
 function stacksEqual(left: readonly string[], right: readonly string[]): boolean {
@@ -92,6 +100,30 @@ function recordStackChange(
 ) {
   if (!stacksEqual(previous, OPEN_MODAL_STACK) || !scopesEqual(previousScopes, OPEN_MODAL_SCOPES)) {
     modalStackGeneration += 1;
+    for (const listener of modalStackListeners) {
+      try {
+        listener();
+      } catch {
+        // A consumer must not prevent the registry from updating.
+      }
+    }
+  }
+}
+
+/** Observa mudanças reais de stack/scope sem criar dependência com React. */
+export function subscribeModalRegistry(listener: () => void): () => void {
+  modalStackListeners.add(listener);
+  return () => modalStackListeners.delete(listener);
+}
+
+function notifyModalStackGenerationChange(): void {
+  modalStackGeneration += 1;
+  for (const listener of modalStackListeners) {
+    try {
+      listener();
+    } catch {
+      // A notificação é best-effort; o estado da stack continua autoritativo.
+    }
   }
 }
 
@@ -195,6 +227,10 @@ export function getModalRegistrySnapshot(): ModalRegistrySnapshot {
       OPEN_MODAL_STACK.length > 0
         ? (OPEN_MODAL_SCOPES.get(OPEN_MODAL_STACK[OPEN_MODAL_STACK.length - 1]) ?? null)
         : null,
+    chatPresentationCommandIds:
+      OPEN_MODAL_STACK.length > 0
+        ? (OPEN_MODAL_CHAT_SCOPES.get(OPEN_MODAL_STACK[OPEN_MODAL_STACK.length - 1])?.commandIds ?? null)
+        : null,
   });
 }
 
@@ -211,6 +247,39 @@ export function getTopmostModalID(): string | null {
 /** Retorna somente o scope do modal topmost; modal superior sem scope bloqueia fallback. */
 export function getTopmostDialogCommandScope(): DialogCommandScope | null {
   return getModalRegistrySnapshot().dialogCommandScope;
+}
+
+export function getTopmostChatPresentationCommandIds(): readonly string[] | null {
+  return getModalRegistrySnapshot().chatPresentationCommandIds;
+}
+
+export function registerChatPresentationModalScope(
+  id: string,
+  commandIds: readonly string[],
+): (() => void) | undefined {
+  if (!OPEN_MODAL_STACK.includes(id) || OPEN_MODAL_SCOPES.has(id) || commandIds.length === 0) return undefined;
+  const allowed = [...commandIds];
+  if (new Set(allowed).size !== allowed.length || allowed.some((commandID) =>
+    commandID !== 'chat.model.open' && commandID !== 'chat.history.open' && commandID !== 'chat.profile.open' &&
+    commandID !== 'chat.pinned.open' && commandID !== 'chat.tokens.open'
+  )) return undefined;
+  const token = {};
+  const previous = OPEN_MODAL_CHAT_SCOPES.get(id);
+  const next = { commandIds: Object.freeze(allowed), token };
+  OPEN_MODAL_CHAT_SCOPES.set(id, next);
+  if (!previous || previous.commandIds.length !== next.commandIds.length || previous.commandIds.some((value, index) => value !== next.commandIds[index])) {
+    notifyModalStackGenerationChange();
+  }
+  return () => {
+    if (OPEN_MODAL_CHAT_SCOPES.get(id)?.token !== token) return;
+    OPEN_MODAL_CHAT_SCOPES.delete(id);
+    notifyModalStackGenerationChange();
+  };
+}
+
+export function unregisterChatPresentationModalScope(id: string): void {
+  const existing = OPEN_MODAL_CHAT_SCOPES.delete(id);
+  if (existing) notifyModalStackGenerationChange();
 }
 
 /**
@@ -238,6 +307,7 @@ export function registerOpenModal(id: string, dialogCommandScope?: DialogCommand
     if (OPEN_MODAL_STACK[i] === id) OPEN_MODAL_STACK.splice(i, 1);
   }
   OPEN_MODAL_SCOPES.delete(id);
+  if (OPEN_MODAL_CHAT_SCOPES.delete(id)) notifyModalStackGenerationChange();
   OPEN_MODAL_STACK.push(id);
   const stableScope = cloneDialogCommandScope(dialogCommandScope);
   if (stableScope) OPEN_MODAL_SCOPES.set(id, stableScope);
@@ -275,6 +345,7 @@ export function unregisterOpenModal(id: string) {
     if (OPEN_MODAL_STACK[i] === id) OPEN_MODAL_STACK.splice(i, 1);
   }
   OPEN_MODAL_SCOPES.delete(id);
+  if (OPEN_MODAL_CHAT_SCOPES.delete(id)) notifyModalStackGenerationChange();
   recordStackChange(previousStack, previousScopes);
   syncGlobalModalEffects();
 }

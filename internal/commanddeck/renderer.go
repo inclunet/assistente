@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 )
@@ -173,8 +172,9 @@ func (r *Renderer) Render(frame Frame) (RenderPlan, error) {
 		return RenderPlan{}, ErrInvalidModel
 	}
 	plan := RenderPlan{Device: frame.Device, FullFrame: state.forceFull}
-	indices := desiredIndices(frame.Model, state.forceFull, frame.Keys)
-	for _, index := range indices {
+	// Frame é completo: posições omitidas precisam apagar a apresentação anterior.
+	// Comparamos todas as posições, mas enviamos somente as que mudaram.
+	for index := 0; index < frame.Model.KeyCount(); index++ {
 		view := frame.Keys[index]
 		hash := r.viewHash(frame.Model, view)
 		if state.forceFull || state.rendered[index] != hash {
@@ -201,22 +201,6 @@ func validateFrame(frame Frame) error {
 		}
 	}
 	return nil
-}
-
-func desiredIndices(model Model, full bool, keys map[int]KeyView) []int {
-	if full {
-		values := make([]int, model.KeyCount())
-		for i := range values {
-			values[i] = i
-		}
-		return values
-	}
-	values := make([]int, 0, len(keys))
-	for index := range keys {
-		values = append(values, index)
-	}
-	sort.Ints(values)
-	return values
 }
 
 func (r *Renderer) viewHash(model Model, view KeyView) string {

@@ -83,6 +83,8 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
       return;
     }
     pendingFinalStatsRef.current = null;
+    let current = true;
+    setStats(null);
 
     // Carrega estatísticas iniciais
     const loadStats = async () => {
@@ -90,6 +92,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
         setLoading(true);
         setError(null);
         const result = await GetConversationTokenStats(conversationId);
+        if (!current) return;
         const pendingFinalStats = pendingFinalStatsRef.current;
         if (pendingFinalStats?.conversationId === conversationId) {
           setStats(mergeRealtimeTokenStats(result, pendingFinalStats));
@@ -98,10 +101,11 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
           setStats(result);
         }
       } catch (err) {
+        if (!current) return;
         logger.error('[TokenStatsModal] Erro ao carregar estatísticas:', err);
         setError(t('tokenStats.loadError'));
       } finally {
-        setLoading(false);
+        if (current) setLoading(false);
       }
     };
 
@@ -109,7 +113,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
 
     // Escuta atualizações em tempo real
     const unsubscribe = EventsOn('chat:token_stats', (data: Partial<TokenStats> & { conversationId: string }) => {
-      if (data.conversationId === conversationId) {
+      if (current && data.conversationId === conversationId) {
         setStats((current) => {
           if (current) {
             return mergeRealtimeTokenStats(current, data);
@@ -121,12 +125,13 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
     });
 
     const unsubscribeRealtime = EventsOn('chat:token_stats_update', (data: Partial<TokenStats> & { conversationId: string }) => {
-      if (data.conversationId === conversationId) {
+      if (current && data.conversationId === conversationId) {
         setStats((current) => current ? mergeRealtimeTokenStats(current, data) : current);
       }
     });
 
     return () => {
+      current = false;
       unsubscribe();
       unsubscribeRealtime();
     };
@@ -503,4 +508,3 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
     </Modal>
   );
 };
-

@@ -1099,34 +1099,39 @@ func (r *MessageRepository) ClearConversationContentWithContext(ctx context.Cont
 		return nil
 	}
 	// Valida posse/escopo antes de mutar (mesma checagem dos helpers originais).
-	if _, err := NewConversationRepository(db).GetConversationInfoWithContext(ctx, conversationID); err != nil {
-		return err
-	}
-	return db.Transaction(func(tx *gorm.DB) error {
-		// 1) Tool invocations de chat (coletadas a partir das mensagens que ainda
-		//    existem) — dentro do mesmo tx para que um rollback as preserve.
-		if err := deleteChatToolInvocationsForConversationTx(ctx, tx, conversationID); err != nil {
-			return fmt.Errorf("erro ao limpar tool invocations da sub-conversa: %w", err)
+	return withSQLiteImmediateTransaction(ctx, db, "conversation.clear_content", func(tx *gorm.DB) error {
+		if _, err := NewConversationRepository(tx).GetConversationInfoWithContext(ctx, conversationID); err != nil {
+			return err
 		}
-		// 2) Mensagens (histórico).
-		messageIDs := scopedMessageQuery(ctx, tx.Model(&ChatMessage{}).
-			Select("chat_messages.id").
-			Where("chat_messages.conversation_id = ?", conversationID))
-		if err := tx.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error; err != nil {
-			return fmt.Errorf("erro ao limpar histórico da sub-conversa: %w", err)
-		}
-		// 3) Resumo (summary).
-		if err := ScopeByUser(ctx, tx.WithContext(ctx).Model(&Conversation{}), "user_id").
-			Where("id = ?", conversationID).
-			Updates(map[string]interface{}{
-				"summary":                  "",
-				"summary_up_to_message_id": "",
-				"summarizing_in_progress":  false,
-			}).Error; err != nil {
-			return fmt.Errorf("erro ao limpar resumo da sub-conversa: %w", err)
-		}
-		return nil
+		return clearConversationContentTx(ctx, tx, conversationID)
 	})
+}
+
+// clearConversationContentTx exige posse já validada dentro da transação.
+func clearConversationContentTx(ctx context.Context, tx *gorm.DB, conversationID string) error {
+	// 1) Tool invocations de chat (coletadas a partir das mensagens que ainda
+	//    existem) — dentro do mesmo tx para que um rollback as preserve.
+	if err := deleteChatToolInvocationsForConversationTx(ctx, tx, conversationID); err != nil {
+		return fmt.Errorf("erro ao limpar tool invocations da sub-conversa: %w", err)
+	}
+	// 2) Mensagens (histórico).
+	messageIDs := scopedMessageQuery(ctx, tx.Model(&ChatMessage{}).
+		Select("chat_messages.id").
+		Where("chat_messages.conversation_id = ?", conversationID))
+	if err := tx.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error; err != nil {
+		return fmt.Errorf("erro ao limpar histórico da sub-conversa: %w", err)
+	}
+	// 3) Resumo (summary).
+	if err := ScopeByUser(ctx, tx.WithContext(ctx).Model(&Conversation{}), "user_id").
+		Where("id = ?", conversationID).
+		Updates(map[string]interface{}{
+			"summary":                  "",
+			"summary_up_to_message_id": "",
+			"summarizing_in_progress":  false,
+		}).Error; err != nil {
+		return fmt.Errorf("erro ao limpar resumo da sub-conversa: %w", err)
+	}
+	return nil
 }
 
 // ClearAllConversationsWithContext apaga mensagens e conversas pertencentes ao

@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
+	"time"
 
 	"assistente/internal/commandbridge"
 	"assistente/internal/commandcontext"
@@ -63,28 +65,33 @@ func ConfigureCommandLifecycleForApp(a *App, inputs CommandLifecycleMountInputs)
 	if err != nil {
 		return err
 	}
-	if err := a.installCommandHost(inputs.Host); err != nil {
+	// Uma montagem recusada não pode instalar parcialmente host/monitor/bridge
+	// e impedir a tentativa seguinte. O worker novo começa frio e nenhuma porta
+	// é chamada por NewMounted; publique tudo no mesmo lock usado pelo shutdown.
+	a.commandLifecycleMount.Lock()
+	defer a.commandLifecycleMount.Unlock()
+	if a.commandLifecycleClosing {
+		return commandruntime.ErrStopped
+	}
+	if a.commandLifecycle.Load() != nil {
+		return errCommandLifecycleAlreadyConfigured
+	}
+	if bridge := a.commandBridge.Load(); bridge != nil && bridge != inputs.Bridge {
+		return errCommandBridgeAlreadyConfigured
+	}
+	a.authMu.Lock()
+	defer a.authMu.Unlock()
+	if a.commandHost != nil && a.commandHost != inputs.Host {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	runtime, err := commandruntime.NewMounted(spec)
+	if err != nil {
 		return err
 	}
-	if err := configureCommandBridgeForLifecycle(a, inputs.Bridge); err != nil {
-		return err
-	}
-	return ConfigureCommandLifecycleMountSpec(a, spec)
-}
-
-func configureCommandBridgeForLifecycle(a *App, bridge *commandbridge.Bridge) error {
-	if a == nil || bridge == nil {
-		return commandruntime.ErrMissingDependency
-	}
-	if current, ok := loadCommandBridge(a); ok {
-		if current != bridge {
-			return errCommandBridgeAlreadyConfigured
-		}
-		return nil
-	}
-	if err := ConfigureCommandBridge(a, bridge); err != nil {
-		return err
-	}
+	a.commandHost = inputs.Host
+	a.commandBridge.Store(inputs.Bridge)
+	a.commandLifecycle.Store(runtime)
+	a.startCommandOSSessionMonitorLocked()
 	return nil
 }
 
@@ -95,15 +102,33 @@ func commandLifecycleRuntimeConfigEmpty(config commandruntime.Config) bool {
 }
 
 func (a *App) commandLifecycleMountSpec(inputs CommandLifecycleMountInputs) (commandruntime.MountSpec, error) {
-	if a == nil || inputs.Host == nil || inputs.Bridge == nil || inputs.Facts == nil || nilCommandMountDependency(inputs.Adapter) {
-		return commandruntime.MountSpec{}, commandruntime.ErrMissingDependency
+	if a == nil {
+		return commandruntime.MountSpec{}, fmt.Errorf("%w: app", commandruntime.ErrMissingDependency)
 	}
 	execution := inputs.Execution
-	if execution.Registry == nil || len(execution.Handlers) == 0 || execution.Store == nil || execution.Authorize == nil || execution.Envelope == nil {
-		return commandruntime.MountSpec{}, commandruntime.ErrMissingDependency
+	for _, dependency := range []struct {
+		name  string
+		value any
+	}{
+		{"host", inputs.Host}, {"bridge", inputs.Bridge}, {"context-fact-bus", inputs.Facts},
+		{"adapter", inputs.Adapter}, {"registry", execution.Registry}, {"ledger-store", execution.Store},
+		{"authorize", execution.Authorize}, {"envelope", execution.Envelope},
+	} {
+		if nilCommandMountDependency(dependency.value) {
+			return commandruntime.MountSpec{}, fmt.Errorf("%w: %s", commandruntime.ErrMissingDependency, dependency.name)
+		}
 	}
-	if execution.RegistryVersion == "" || execution.Retention <= 0 || execution.ExecutionTimeout <= 0 || execution.FinalizationTimeout <= 0 {
-		return commandruntime.MountSpec{}, commandruntime.ErrMissingDependency
+	for _, requirement := range []struct {
+		name  string
+		valid bool
+	}{
+		{"handlers", len(execution.Handlers) > 0}, {"registry-version", execution.RegistryVersion != ""},
+		{"retention", execution.Retention > 0}, {"execution-timeout", execution.ExecutionTimeout > 0},
+		{"finalization-timeout", execution.FinalizationTimeout > 0},
+	} {
+		if !requirement.valid {
+			return commandruntime.MountSpec{}, fmt.Errorf("%w: %s", commandruntime.ErrMissingDependency, requirement.name)
+		}
 	}
 	a.authMu.RLock()
 	presenter := (*commandDecisionPresenter)(nil)
@@ -113,8 +138,11 @@ func (a *App) commandLifecycleMountSpec(inputs CommandLifecycleMountInputs) (com
 	storageVersion := a.commandStorageVersion
 	storageErr := a.commandStorageErr
 	a.authMu.RUnlock()
-	if presenter == nil || storageErr != nil || storageVersion == "" {
-		return commandruntime.MountSpec{}, commandruntime.ErrMissingDependency
+	if presenter == nil {
+		return commandruntime.MountSpec{}, fmt.Errorf("%w: decision-presenter", commandruntime.ErrMissingDependency)
+	}
+	if storageErr != nil || storageVersion == "" {
+		return commandruntime.MountSpec{}, fmt.Errorf("%w: command-storage", commandruntime.ErrMissingDependency)
 	}
 	if inputs.Host.Epochs() != execution.Epochs {
 		return commandruntime.MountSpec{}, commandruntime.ErrInvalidConfiguration
@@ -215,21 +243,100 @@ func (a *App) bootstrapCommandLifecycleIfConfigured(ctx context.Context) error {
 // a transição de autenticação permanece válida e o controller fica fail-closed
 // (sem publicação/entradas prontas), preservando o contrato legado do App.
 func (a *App) bootstrapCommandLifecycleAfterAuth(ctx context.Context, result *AuthUser, authErr error) {
+	if a == nil {
+		return
+	}
+	// Uma recarga explícita deve retirar o mapa antigo mesmo se seu contexto
+	// já foi cancelado. O worker de observação usa aquisição cancelável abaixo.
+	_ = a.lockCommandBootstrap(context.Background())
+	defer a.unlockCommandBootstrap()
+	a.bootstrapCommandLifecycleAfterAuthLocked(ctx, result, authErr)
+}
+
+func (a *App) lockCommandBootstrap(ctx context.Context) error {
+	a.commandBootstrapOnce.Do(func() { a.commandBootstrap = make(chan struct{}, 1) })
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case a.commandBootstrap <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			a.unlockCommandBootstrap()
+			return err
+		}
+		return nil
+	}
+}
+
+func (a *App) unlockCommandBootstrap() { <-a.commandBootstrap }
+
+func (a *App) bootstrapCommandLifecycleAfterOSUnlock(ctx context.Context, host *commandexecution.HostState) {
+	if err := a.lockCommandBootstrap(ctx); err != nil {
+		return
+	}
+	defer a.unlockCommandBootstrap()
+	a.authMu.RLock()
+	var result *AuthUser
+	sessions, credentials := a.sessionSvc, a.credMgr
+	if a.commandHost == host && a.currentAuthUser != nil && a.commandLifecycle.Load() != nil {
+		copy := *a.currentAuthUser
+		result = &copy
+	}
+	a.authMu.RUnlock()
+	if ctx.Err() != nil || result == nil || sessions == nil {
+		return
+	}
+	principal, err := a.currentCommandPrincipal()
+	if err != nil || principal.UserID != result.UserID || principal.SessionID != result.SessionID {
+		return
+	}
+	current, err := sessions.RevalidateLocalSession(ctx, principal)
+	if err != nil || current != principal || !a.commandPrincipalMatches(sessions, credentials, principal) {
+		return
+	}
+	a.bootstrapCommandLifecycleAfterAuthLocked(ctx, result, nil)
+}
+
+func (a *App) bootstrapCommandLifecycleAfterAuthLocked(ctx context.Context, result *AuthUser, authErr error) {
 	if authErr != nil || result == nil || !a.authResultStillCurrent(result) {
 		return
 	}
-	if _, ok := loadCommandLifecycle(a); !ok {
+	if _, ok := loadCommandLifecycle(a); !ok || a.commandProduct.Load() != nil {
 		if err := a.ensureCommandLifecycleMountedForCurrentUser(ctx); err != nil {
 			logging.Warnf(context.Background(), "app.app", "ciclo de vida de comandos não montado após autenticação: %v", err)
 			return
 		}
 	}
+	// Retire a publicação anterior antes de tentar recarregar. Uma falha de
+	// storage não pode deixar a geração anterior habilitada nem republicá-la.
+	// O cancelamento da autenticação não cancela a limpeza de segurança.
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	resetErr := ResetCommandLifecycle(cleanupCtx, a, "configuration_reload")
+	a.authMu.RLock()
+	host := a.commandHost
+	a.authMu.RUnlock()
+	if host != nil {
+		resetErr = errors.Join(resetErr, host.ForgetUserConfiguration(cleanupCtx, result.UserID))
+	}
+	cancel()
+	if resetErr != nil {
+		logging.Errorf(context.Background(), "app.app", "runtime de comandos não pôde ser desabilitado antes da recarga: %v", resetErr)
+		return
+	}
 	if err := a.rebuildCommandLifecyclePersistedConfiguration(ctx); err != nil {
 		logging.Warnf(context.Background(), "app.app", "configuração inicial de comandos indisponível após autenticação: %v", err)
+		return
 	}
 	if err := a.bootstrapCommandLifecycleIfConfigured(ctx); err != nil {
 		logging.Errorf(context.Background(), "app.app", "ciclo de vida de comandos indisponível após autenticação: %v", err)
+		return
 	}
+	// A publicação da projeção antecede a habilitação do lifecycle. Avise
+	// novamente quando a UI já pode ler o mapa, inclusive após a primeira
+	// observação do SO ou um unlock tardio, sem depender de novo login.
+	if a.emitter != nil {
+		a.emitter.Emit("command:keyboard-map-changed", nil)
+	}
+	logging.Infof(ctx, "app.commands", "Configuração de comandos publicada após revalidação da sessão")
 }
 
 func (a *App) bootstrapCommandLifecycleAfterUnlock(ctx context.Context) {

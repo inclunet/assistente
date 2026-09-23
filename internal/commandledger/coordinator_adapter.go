@@ -31,7 +31,7 @@ func (a *CoordinatorRetention) RetainBatch(ctx context.Context, policy commandma
 		return commandmaintenance.RetentionResult{}, ErrInvalidRequest
 	}
 	if err := ctx.Err(); err != nil {
-		return commandmaintenance.RetentionResult{}, err
+		return commandmaintenance.RetentionResult{More: true}, err
 	}
 	if err := policy.Validate(); err != nil {
 		return commandmaintenance.RetentionResult{}, err
@@ -41,8 +41,15 @@ func (a *CoordinatorRetention) RetainBatch(ctx context.Context, policy commandma
 		PerUserKeep: policy.InvocationsPerUser, SystemKeep: policy.InvocationsSystemKeep,
 		BatchSize: policy.BatchSize,
 	})
-	if err != nil {
-		return commandmaintenance.RetentionResult{}, err
+	// A passagem do serviço é transacional: rollback devolve contagem zero.
+	// Preserve esse resultado e sinalize retomada em erro; commits de lotes
+	// anteriores não são desfeitos nem contados novamente por este adapter.
+	adapted := commandmaintenance.RetentionResult{
+		Deleted: result.InvocationsDeleted + result.LedgersDeleted,
+		More:    result.More,
 	}
-	return commandmaintenance.RetentionResult{Deleted: result.InvocationsDeleted + result.LedgersDeleted, More: result.More}, nil
+	if err != nil {
+		adapted.More = true
+	}
+	return adapted, err
 }

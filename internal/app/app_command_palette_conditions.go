@@ -1,0 +1,219 @@
+package app
+
+import (
+	"encoding/json"
+	"slices"
+	"strings"
+
+	"assistente/internal/commandbindings"
+	"assistente/internal/commandcatalog"
+)
+
+// LocalCommandPaletteCondition é uma projeção somente de apresentação para
+// comandos locais ou contextuais duráveis. Ela não autoriza nem executa nada e não é persistida.
+type LocalCommandPaletteCondition struct {
+	CommandID   string                                  `json:"commandId"`
+	BySurface   map[string]bool                         `json:"bySurface"`
+	BySurfaceID map[string]map[string]bool              `json:"bySurfaceId,omitempty"`
+	ByProfile   map[string]LocalCommandPaletteCondition `json:"byProfile,omitempty"`
+	Fallback    bool                                    `json:"fallback"`
+}
+
+func localPaletteUIConditions(configuration *commandbindings.Configuration, registry *commandcatalog.Registry) []LocalCommandPaletteCondition {
+	return paletteConditionsForClass(configuration, registry, commandExecutionLocalUI)
+}
+
+func contextualPaletteUIConditions(configuration *commandbindings.Configuration, registry *commandcatalog.Registry) []LocalCommandPaletteCondition {
+	conditions := paletteConditionsForClass(configuration, registry, commandExecutionDurable)
+	conditions = append(conditions, paletteConditionsForClass(configuration, registry, commandExecutionAuditedUI)...)
+	slices.SortFunc(conditions, func(left, right LocalCommandPaletteCondition) int {
+		return strings.Compare(left.CommandID, right.CommandID)
+	})
+	return conditions
+}
+
+func paletteConditionsForClass(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, class commandExecutionClass) []LocalCommandPaletteCondition {
+	if configuration == nil || registry == nil {
+		return []LocalCommandPaletteCondition{}
+	}
+	conditions := make([]LocalCommandPaletteCondition, 0)
+	for _, identity := range configuration.TriggerIdentities() {
+		if !strings.HasPrefix(identity, "palette:") {
+			continue
+		}
+		if condition, ok := paletteConditionForClass(configuration, registry, identity, class); ok {
+			conditions = append(conditions, condition)
+		}
+	}
+	slices.SortFunc(conditions, func(left, right LocalCommandPaletteCondition) int {
+		return strings.Compare(left.CommandID, right.CommandID)
+	})
+	return conditions
+}
+
+func localPaletteUICondition(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string) (LocalCommandPaletteCondition, bool) {
+	return paletteConditionForClass(configuration, registry, identity, commandExecutionLocalUI)
+}
+
+func paletteConditionForClass(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string, class commandExecutionClass) (LocalCommandPaletteCondition, bool) {
+	if configuration == nil || registry == nil || !strings.HasPrefix(identity, "palette:") {
+		return LocalCommandPaletteCondition{}, false
+	}
+	fields := configuration.RequiredFacts(identity)
+	if len(fields) == 0 {
+		return LocalCommandPaletteCondition{}, false
+	}
+	hasSurfaceType, hasSurfaceID, hasProfile := false, false, false
+	for _, field := range fields {
+		switch field {
+		case commandbindings.AppFocused:
+		case commandbindings.SurfaceType:
+			hasSurfaceType = true
+		case commandbindings.SurfaceID:
+			hasSurfaceID = true
+		case commandbindings.Profile:
+			hasProfile = true
+		default:
+			// Process/device values are intentionally not enumerated. A local
+			// palette projection must never expose arbitrary user data.
+			return LocalCommandPaletteCondition{}, false
+		}
+	}
+	definitionID := strings.TrimPrefix(identity, "palette:")
+	if hasSurfaceID && isContextualPagePaletteCommand(definitionID) {
+		// Page targets are captured by their own protocol, never surface IDs.
+		// RequiredFacts includes inherited conditions and suppression barriers.
+		return LocalCommandPaletteCondition{}, false
+	}
+	definition, ok := registry.Lookup(definitionID)
+	if !ok || definition.ID != definitionID || !paletteConditionClassEligible(definition, class) || hasSurfaceID && !hasSurfaceType {
+		return LocalCommandPaletteCondition{}, false
+	}
+	unknownProfile := ""
+	if hasProfile {
+		unknownProfile = contextualFallbackProfile(configuration.FieldValues(identity, commandbindings.Profile))
+	}
+	condition := localPaletteConditionLeaf(configuration, registry, identity, definitionID, unknownProfile, hasSurfaceType, hasSurfaceID, hasProfile, class)
+	if hasProfile {
+		condition.ByProfile = make(map[string]LocalCommandPaletteCondition)
+		for _, profile := range configuration.FieldValues(identity, commandbindings.Profile) {
+			condition.ByProfile[profile] = localPaletteConditionLeaf(configuration, registry, identity, definitionID, profile, hasSurfaceType, hasSurfaceID, true, class)
+		}
+	}
+	if condition.CommandID == "" {
+		return LocalCommandPaletteCondition{}, false
+	}
+	return condition, true
+}
+
+func localPaletteConditionLeaf(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity, definitionID, profile string, hasSurfaceType, hasSurfaceID, includeProfile bool, class commandExecutionClass) LocalCommandPaletteCondition {
+	leaf := LocalCommandPaletteCondition{CommandID: definitionID, BySurface: map[string]bool{}}
+	baseFacts := commandbindings.Facts{commandbindings.AppFocused: true}
+	if includeProfile && profile != "" {
+		baseFacts[commandbindings.Profile] = profile
+	}
+	leaf.Fallback = paletteSelectionForClass(configuration, registry, identity, definitionID, baseFacts, class)
+	if hasSurfaceType {
+		for _, surface := range configuration.FieldValues(identity, commandbindings.SurfaceType) {
+			facts := clonePaletteFacts(baseFacts)
+			facts[commandbindings.SurfaceType] = surface
+			leaf.BySurface[surface] = paletteSelectionForClass(configuration, registry, identity, definitionID, facts, class)
+		}
+	}
+	if hasSurfaceID && hasSurfaceType {
+		leaf.BySurfaceID = make(map[string]map[string]bool)
+		for _, surface := range configuration.FieldValues(identity, commandbindings.SurfaceType) {
+			leaf.BySurfaceID[surface] = make(map[string]bool)
+			for _, surfaceID := range configuration.FieldValues(identity, commandbindings.SurfaceID) {
+				facts := clonePaletteFacts(baseFacts)
+				facts[commandbindings.SurfaceType] = surface
+				facts[commandbindings.SurfaceID] = surfaceID
+				leaf.BySurfaceID[surface][surfaceID] = paletteSelectionForClass(configuration, registry, identity, definitionID, facts, class)
+			}
+		}
+	}
+	return leaf
+}
+
+func localPaletteUISelection(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity, definitionID string, facts commandbindings.Facts) bool {
+	return paletteSelectionForClass(configuration, registry, identity, definitionID, facts, commandExecutionLocalUI)
+}
+
+func paletteConditionClassEligible(definition commandcatalog.Definition, class commandExecutionClass) bool {
+	return definition.AllowsSource(commandcatalog.Palette) && commandExecutionClassForDefinition(definition) == class &&
+		(class == commandExecutionLocalUI || (class == commandExecutionDurable || class == commandExecutionAuditedUI) && isContextualPaletteWorkspaceCommand(definition.ID) ||
+			class == commandExecutionDurable && (isContextualPagePaletteCommand(definition.ID) || isCommandLayerAction(definition.ID)))
+}
+
+func paletteSelectionForClass(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity, definitionID string, facts commandbindings.Facts, class commandExecutionClass) bool {
+	resolved, err := configuration.Resolve(identity, facts, nil)
+	if err != nil || resolved.Status != commandbindings.Selected || resolved.CommandID != definitionID || resolved.ExecutionScopeKey != "global" {
+		return false
+	}
+	definition, ok := registry.Lookup(definitionID)
+	if !ok || definition.ID != definitionID || !paletteConditionClassEligible(definition, class) {
+		return false
+	}
+	if isCommandLayerAction(definitionID) {
+		if surface, present := facts[commandbindings.SurfaceType]; present {
+			value, valid := surface.(string)
+			if !valid || !localKeyboardWorkspaceSurface(value) {
+				return false
+			}
+		}
+		_, err := definition.ValidateArguments([]byte(resolved.ArgumentsKey))
+		return err == nil
+	}
+	return emptyPaletteArguments(resolved.ArgumentsKey)
+}
+
+func emptyPaletteArguments(raw string) bool {
+	var object map[string]json.RawMessage
+	if strings.TrimSpace(raw) == "" || json.Unmarshal([]byte(raw), &object) != nil {
+		return false
+	}
+	return object != nil && len(object) == 0
+}
+
+func clonePaletteFacts(in commandbindings.Facts) commandbindings.Facts {
+	out := make(commandbindings.Facts, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneLocalCommandPaletteConditions(in []LocalCommandPaletteCondition) []LocalCommandPaletteCondition {
+	if in == nil {
+		return nil
+	}
+	out := make([]LocalCommandPaletteCondition, len(in))
+	for i, condition := range in {
+		out[i] = cloneLocalCommandPaletteCondition(condition)
+	}
+	return out
+}
+
+func cloneLocalCommandPaletteCondition(in LocalCommandPaletteCondition) LocalCommandPaletteCondition {
+	out := LocalCommandPaletteCondition{CommandID: in.CommandID, Fallback: in.Fallback}
+	out.BySurface = make(map[string]bool, len(in.BySurface))
+	for key, value := range in.BySurface {
+		out.BySurface[key] = value
+	}
+	if in.BySurfaceID != nil {
+		out.BySurfaceID = make(map[string]map[string]bool, len(in.BySurfaceID))
+		for surface, ids := range in.BySurfaceID {
+			out.BySurfaceID[surface] = make(map[string]bool, len(ids))
+			for id, value := range ids {
+				out.BySurfaceID[surface][id] = value
+			}
+		}
+	}
+	if in.ByProfile != nil {
+		out.ByProfile = make(map[string]LocalCommandPaletteCondition, len(in.ByProfile))
+		for profile, branch := range in.ByProfile {
+			out.ByProfile[profile] = cloneLocalCommandPaletteCondition(branch)
+		}
+	}
+	return out
+}

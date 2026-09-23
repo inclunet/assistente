@@ -15,7 +15,9 @@ import type { apidto, skills } from '../../../wailsjs/go/models';
 import './ChatInput.css';
 
 export interface ChatInputProps {
-  onSend: (message: string, mediaFiles?: MediaFile[]) => void;
+  onSend: (message: string, mediaFiles?: MediaFile[], options?: { voice?: boolean }) => void;
+  /** Terminal consumes synchronously; chat clears only after audited admission. */
+  clearOnSend?: boolean;
   onCancelStreaming?: () => void;
   isStreaming?: boolean;
   disabled?: boolean;
@@ -42,6 +44,7 @@ export interface ChatInputProps {
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   {
     onSend,
+    clearOnSend = true,
     onCancelStreaming,
     isStreaming = false,
     disabled = false,
@@ -148,8 +151,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const handleVoiceTranscription = (text: string) => {
     if (text.trim()) {
       // Envia diretamente o texto transcrito
-      onSend(text.trim(), mediaFiles.length > 0 ? mediaFiles : undefined);
-      setMediaFiles([]);
+      onSend(text.trim(), mediaFiles.length > 0 ? mediaFiles : undefined, { voice: true });
+      if (clearOnSend) setMediaFiles([]);
     }
   };
 
@@ -259,8 +262,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     const trimmedMessage = message.trim();
     if ((trimmedMessage || mediaFiles.length > 0) && !disabled && !isProcessing) {
       onSend(trimmedMessage, mediaFiles.length > 0 ? mediaFiles : undefined);
-      setMessage('');
-      setMediaFiles([]);
+      if (clearOnSend) { setMessage(''); setMediaFiles([]); }
       closeSlashMenu(true);
 
       // Reset textarea height and restore focus
@@ -355,6 +357,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.defaultPrevented || e.nativeEvent.isComposing || e.keyCode === 229 ||
+        (e.repeat && ['Enter', 'Escape', 'Tab'].includes(e.key))) return;
     // Navegação no menu slash
     if (isSlashMenuOpen) {
       const totalFiltered = filteredSlashItems.length;
@@ -406,6 +410,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     }
 
     if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
       e.preventDefault();
       if (!disabled && !isStreaming) {
         handleSend();

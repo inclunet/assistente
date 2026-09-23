@@ -2,7 +2,1078 @@
 
 **Status:** In Progress
 
+**Acompanhamento vigente — seção137 (22/09/2026):** dos 84 critérios finais,
+**76 têm implementação identificada (90,5%), 8 são parciais e 0 ausentes**.
+Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
+A seção136 corrige o consumo concorrente de receipts com CAS completo como
+primeira operação da transação, preservando autorização, auditoria e rollback.
+Na seção137, convergência de camadas e callbacks de diálogo/job recebem provas
+adicionais; inventário atualizado para v40. App completo com ordem aleatória
+passou e preservou log integral, sem reproduzir ou explicar a intermitência
+anterior. Latência ponta a ponta e gates seguem abertos.
+Saídas maiores: **11 A / 14 I / 22 P / 1 N = 48**; 25/48 com implementação
+identificada incluindo aceitas (52,1%). Gates: **1/12 aceito, R04**.
+C34/C35/C36 e R11.1/R11.3 têm implementação identificada: tools públicas de
+chat, CRUD/restore/import com diff e decisão, exportação sem credenciais e
+execução com ActorAgent no executor comum. A sessão é capturada no ingresso
+GUI e revalidada; canais, jobs, subagentes e CLI não herdam essa autoridade.
+O catálogo expõe 149 IDs; quatro permitem execute pelo chat neste lote.
+CLI list/describe/execute/retry/status implementada: C71/C73 e R11.2 chegam a I.
+Sessão e lookup autorizados, UUIDv7 no ingresso e replay pelo ledger comum;
+sem confirmação textual alternativa ou inicialização de hardware/serviços
+autônomos. Nenhum dos 149 comandos atuais permite CLI: discovery é funcional,
+ações visuais/interativas continuam indisponíveis conforme D14. C02 e a
+qualificação por família permanecem parciais; não houve ampliação de origens.
+C22 volta a I após a correção de Δ18: condições do Deck são preparadas por
+snapshot antes da entrada física, sem varrer catálogo por pressionamento.
+Fatos nativos continuam atuais; configuração/registry/gerações stale recusam
+a entrada. C62 agora tem LRU de seleção montado no executor produtivo, com
+chave contextual completa, invalidação e cópias de proveniência. Autorização
+e guards continuam por invocação. R06.3 (latência integrada) segue parcial.
+C04/C06 fecham a borda de plataforma por recusa explícita de captura global
+fora do Windows, desde suporte anunciado e bootstrap até o adapter nativo.
+Isso não implementa hotkeys Linux/macOS; teclado local e paleta são mantidos.
+C77 possui prova global de lock/unlock com perfil persistido: ocorrências
+antigas não revivem e a retomada passa pela revalidação/bootstrap produtivos.
+C78/C79 possuem reserva nativa temporária de Ctrl+Shift+R para o
+DecisionDialog topmost, prioritária sobre bindings configuráveis, com lease,
+identidade de conexão/revisão e liberação sem ressuscitar registros removidos.
+Repetir o anúncio não confirma a decisão; inputs/IME e callbacks antigos
+são filtrados. Aceite físico/NVDA continua pendente.
+R07.3 passa a implementado após a composição de ownership e a recusa explícita
+fora da plataforma qualificada; o gate R07 continua aberto pelas outras saídas.
+Catálogo v40: **149 comandos / 61 locais / 67 defaults locais**; 81 IDs no
+Deck contextual não significam 81 critérios concluídos. Apresentação Deck
+e qualificações finais permanecem.
+Reconciliação documental na seção129; implementação e testes de Δ18 na
+seção130, cache e testes na seção131, plataforma na seção132 e reserva do
+diálogo na seção133; tools e portabilidade do agente na seção134; CLI na seção135.
+Estado individual e próximos passos na
+[tasklist atualizada](0103-tasklist-conclusao.md#137-convergência-de-origens-e-qualificação-rastreável--22092026).
+
+**Seção128 — Mermaid no Stream Deck contextual (22/09/2026):** 81 IDs
+(79 + aplicar/remover Mermaid), com foco/tipo/aba/perfil e células somente
+no editor. Perfil isolado exige a matriz UI; binding incondicional mantém
+seu percurso anterior. Paleta inalterada. Integração e regressões amplas
+PASS: App 464,744 s; frontend 450 arquivos / 5.617 testes; build/vet,
+TypeScript/Vite e lint focado. Modal de origem, confirmação, foco e oferta
+única qualificados automaticamente; aceites físicos/NVDA pendentes.
+Camadas já qualificadas na seção126; sem alterar a baseline dos 84 critérios
+ou encerrar BASE-PRONTA. AEP permanece **In Progress**.
+
+**Seção127 — páginas no Stream Deck contextual (22/09/2026):** 79 IDs
+elegíveis (73 anteriores + seis mutações de listas/perfis). Páginas admitem
+foco, tipo de tela e perfil, nunca ID de aba; listas usam `tasklists`, perfis
+usam `profiles`, e duplicar/limpar lista também admitem `tasklist`.
+Projeção e ingresso compartilham `deckPageCommandSurface`; barreiras herdadas
+e caminhos nativos anteriores são preservados. Oferta física única e alvo
+preparado usam o protocolo existente; mapa/conexão/geração ficam estáveis até
+a admissão, sem I/O sob o gate. Qualificação automatizada integrada PASS:
+App 273,020 s; frontend 448 arquivos / 5.578 testes; build/vet, TypeScript/Vite
+e lint focado. Aceites físicos/NVDA pendentes na seção127.
+Mermaid continua fora; AEP permanece **In Progress**.
+
+**Seção126 — camadas no Stream Deck contextual (22/09/2026):**
+73 IDs elegíveis: 70 comandos de workspace e `layer.activate`, `layer.toggle`
+e `layer.back`, além das apresentações LOCAL_UI já suportadas. Quatro campos
+visuais nas superfícies do workspace; perfil isolado sem ramo local conserva
+o caminho nativo. Uma oferta física de uso único chega à API
+`ExecuteContextualDeckLayerCommand`, sem reserva UI; argumentos, regra e
+escopo vêm do host. A pilha é compartilhada pelas teclas do mesmo dispositivo.
+Um predicado em memória dentro de `GenerationTx`, com comparação de versões
+publicadas/snapshot protegida até a claim, protege a admissão; a própria
+publicação que invalida o mapa não apaga sucesso confirmado. Checks focados
+PASS; backend focado de camadas Deck PASS (59,409 s), regressão de claim A-B-A
+da paleta PASS (23,835 s), `go vet` PASS e bindings Wails gerados.
+Backend amplo PASS (358,565 s), em base anterior às últimas correções de
+claim do teclado/condições nativas. Build frontend com TypeScript PASS
+(Vite 1 min 3 s); suíte frontend completa PASS (447 arquivos/5529 testes,
+87,59 s), após tornar determinístico o relógio do teste de prazo.
+Regressão backend final PASS (249,874 s), incluindo guarda do mapa até a claim
+e preservação de condições nativas. Páginas/Mermaid e aceites manuais pendentes.
+Não encerra o AEP, os 84 itens históricos ou BASE-PRONTA.
+
+**Seção125 — Stream Deck contextual do workspace (21/09/2026):**
+70 comandos de workspace (72 da paleta menos as duas mutações Mermaid)
+admitem foco, tipo de tela, aba e perfil, em união com apresentações LOCAL_UI.
+Um único evento físico seleciona um único ramo: o local executa na UI sem
+roundtrip de execução/ledger; o durável consome oferta opaca vinculada ao
+evento físico do host e ao snapshot, de uso único e TTL de 10 segundos.
+Camadas, mutações de páginas e Mermaid ficam fora desta ampliação; condições
+visuais não se misturam a processo/dispositivo. Testes focados e backend
+registrados na seção125. Suíte frontend completa (445 arquivos/5480 testes),
+build frontend com TypeScript, build/vet de `internal/app` e diff check PASS;
+regressão backend ampla PASS (194,531 s); aceites manuais pendentes.
+O AEP permanece **In Progress**, sem encerramento dos demais gates.
+
+**Seção124 — ações de camada na paleta contextual (21/09/2026):**
+ativar, alternar e voltar camada admitem foco, tipo de tela, aba e perfil a
+partir das quatro superfícies do workspace. A seleção conserva os argumentos
+persistidos e o executor de camada existente; não aceita regra ou alvo da UI.
+A UI valida a origem antes da submissão; o backend revalida mapa, sessão,
+snapshot e alvo. A publicação que invalida o próprio mapa não apaga o sucesso
+já confirmado. Não amplia condições visuais do teclado/Deck nem habilita
+camadas contextuais nas páginas sem aba. Qualificação na seção124; In Progress.
+
+**Seção123 — paleta contextual nas páginas (21/09/2026):** duplicar, excluir
+e limpar listas; duplicar, excluir e ativar perfis passam a admitir condições
+de foco, tipo de tela e perfil. A origem visual é a página real, não a aba
+de fundo. Duplicar/limpar também admitem a lista aberta no workspace.
+O alvo continua capturado e validado pelo protocolo de mutação existente.
+Não admite `surface.id` neste grupo nem expõe criação/edição dentro de modais.
+Qualificação e pendências na seção123 da tasklist; status **In Progress**.
+
+**Seção122 — paleta contextual nas abas (21/09/2026):** extensão das condições
+visuais para ações de mensagens, limpeza de conversa, terminal, formatação e
+arquivos do editor. Cada grupo mantém preparação, decisão e conclusão próprias.
+Arquivos admitem continuação após diálogo nativo somente para o alvo já
+preparado, com sessão, gerações, prazo e snapshot canônico ainda válidos.
+Não habilita condições visuais para mutações das páginas de listas/perfis,
+ações de camada ou ações duráveis do Stream Deck. Qualificação e aceites na
+seção122 da tasklist de conclusão; o AEP permanece In Progress.
+
+**Seção121 — paleta contextual com efeito durável (21/09/2026):**
+condições de foco, tipo de tela, aba e perfil para as dez ações de criação e
+fechamento de abas, criação de workspace, abertura de chat e modos do editor
+que usam o coordenador de commit do workspace. A UI preserva a origem anterior
+ao picker; o backend valida o alvo canônico e continua sendo o único escritor.
+Não amplia o suporte visual dos demais handlers duráveis nem do Stream Deck.
+Qualificação e pendências na seção121 da tasklist de conclusão.
+
+**Seção120 — condições visuais no Stream Deck (implementado, 21/09/2026):**
+projeção canônica dos comandos de apresentação local por tecla, com decisão
+visual síncrona na UI, editor por origem e validação de contexto. O dispositivo
+apresenta os comandos potenciais, sem inferir foco no backend. Ações duráveis
+com condições visuais e o aceite físico/NVDA continuam pendentes. Evidências
+de qualificação na seção120 da tasklist.
+
+**Seção119 — condições visuais na paleta (implementado, 21/09/2026):**
+projeção de condições para comandos de apresentação local, com decisão de
+camadas no resolvedor comum e revalidação visual na UI. Não habilita condições
+visuais para efeitos backend nem para o Stream Deck por inferência. Evidências
+e pendências registradas na seção119 da tasklist; aceite manual permanece aberto.
+
+**Seção118 — condições físicas e ações de camada (21/09/2026):**
+editor por origem, dispositivo pelo nome e ações `layer.activate`, `layer.toggle`
+e `layer.back` no fluxo comum de teclado, paleta e Stream Deck. Regressões de
+backend, frontend e defaults por API passaram. Permanecem condições visuais nas
+demais origens e aceite manual; não declara R02/R09/R10 encerrados. Evidências
+e pendências na seção118 da tasklist de conclusão.
+
+**Seção117 — perfil no teclado local (21/09/2026):** projeção por perfil em
+memória nas quatro abas do workspace, composta com tipo/identidade da aba;
+observação validada pelo backend e lease local invalidada por transições A-B-A.
+Seleção de perfil pelo nome e ajuda de atalhos usam o contexto efetivo. Evidências
+e limitações na seção117 da tasklist; demais fatos/origens e aceites continuam abertos.
+
+**Seção116 — condições operacionais (21/09/2026):** teclado por aba específica,
+com seleção pelo título, composição com regras e barreiras explícitas; o host
+valida tipo/identidade e mantém a revalidação até o efeito. Resolução por perfil
+nas origens suportadas usa a fonte do workspace e uma versão transitória
+preservada entre preparação e revalidação, sem nova tabela ou auditoria por
+tecla local. Stream Deck reavalia por pressionamento e atualiza/limpa rótulos
+sem reconectar ao trocar de perfil. Diagnósticos distinguem fatos suportados por origem. Evidências,
+limites e aceites restantes na seção116 da tasklist; não encerra todo R02/R09.
+
+**Seção115 — ciclo manual de camadas (21/09/2026):** configuração e execução
+de regras persistentes, de sessão e temporárias; fixar, alternar, desativar e
+retornar à última ativação do escopo. Expiração host-side com deadline também
+no mapa local, preservação do prazo ao editar e distinção entre troca de
+workspace e restart. Roteiro manual acumulado em `docs/content/recursos/COMANDOS.md`.
+Não fecha por extensão todos os fatos contextuais, origens ou gates R02/R09.
+
+**Seção114 — gravador de sequências (21/09/2026):** o controle compartilhado
+agora grava duas etapas para teclado local nas configurações global e do
+workspace. Captura atômica, anúncios acessíveis e cancelamento preservam o
+valor anterior; edição mantém v2. O gravador não tem timeout; o executor
+mantém 1,5s. Roteiro manual atualizado, aceite NVDA acumulado com os demais
+lotes. Backend, catálogo e banco inalterados; evidências na tasklist.
+Frontend completo **431 arquivos/5.181 testes**, recorte de integração,
+TypeScript, lint e build frontend **PASS**.
+
+**Seção113 — teclado contextual e sequências (21/09/2026):** implementação
+validada automaticamente. Regras por tipo de superfície passam a contemplar
+ações backend/auditadas em abas canônicas, além das ações locais de interface.
+O host revalida a aba; foco e lease continuam sob autoridade da UI. Sequências
+v2 preservam a origem entre os passos e usam a mesma resolução. O aceite
+manual será acumulado com os lotes anteriores; nenhuma nova contagem global.
+App, cinco domínios e frontend completo (431 arquivos/5.165 testes) PASS.
+A limitação do gravador a combinações simples foi removida na seção114;
+demais limites e evidências estão na tasklist.
+
+**Seção112 — integração oficial (21/09/2026):** bindings de configuração
+escopada gerados pelo Wails e validados através dos wrappers reais. TypeScript,
+frontend completo (431 arquivos/5.154 testes) e contratos backend passaram.
+Envio compartilhado usa a classe oficial ChatParams, preservando correlação.
+Aceite no aplicativo/NVDA continua pendente; nenhuma nova contagem global.
+
+**Seção111 — configuração por escopo e regras (21/09/2026):** editor global e
+do workspace, personalizações reversíveis, prioridades, regras e revisão de
+defaults ligados ao serviço confirmado. O snapshot de edição é revalidado
+antes do commit; publicação preserva voz/jobs e atualiza o mapa local. Regras
+síncronas participam do resolvedor em memória sem ampliar a especificidade
+do binding. Diagnósticos deixam explícitos conflitos e limites de adapters.
+Catálogo v38 **146/61/67** inalterado. Evidências e limites na seção111 da
+tasklist; isso não encerra imagem/estados do Deck, portabilidade avançada,
+todos os ciclos de ativação ou o aceite físico/NVDA do AEP.
+
+**Seção110 — perfis dinâmicos e duração de jobs (21/09/2026):** o alvo de
+profile é preparado pelo resolvedor existente, vinculado ao grant por expressão
+e geração, e conferido novamente contra os inputs reais antes de cada tentativa.
+Mudança de alvo, revogação/regrant ou template vazio recusam sem herança implícita.
+O handler de job pode delegar o prazo após o handoff ao runtime existente;
+preparação/decisão/fila permanecem limitadas, e cancelamento, lifecycle, epochs
+e deadline do chamador continuam válidos. Outros handlers não recebem essa
+exceção. Catálogo v38 **146/61/67**, sem novos atalhos; gates e evidências na
+seção110 da tasklist. Aceites físicos permanecem separados.
+
+**Seção109 — ingresso comum de voz e jobs (21/09/2026):** os callbacks
+nativos passam a entregar ocorrências privadas ao resolvedor/executor, com
+bindings derivados da configuração autoritativa de perfil e job. Voz recebe
+handoff único vinculado a perfil/superfície; jobs usam o runtime existente após
+admissão da interface e confirmação. Catálogo v37 **146/61/67**: os dois novos
+comandos são exclusivos de `keyboard.global`, sem novos atalhos locais.
+Na entrega109, perfil dinâmico e orçamento compartilhado de cinco minutos
+ainda eram lacunas; sua evolução está registrada na seção110. Evidências
+da entrega original permanecem na seção109 da tasklist.
+
+**Seção108 — reserva Windows compartilhada com o teclado local (21/09/2026):**
+os registros produtivos de voz/jobs aguardam a exclusão da combinação no DOM
+antes de registrar no sistema operacional. Retirada libera o DOM somente
+depois da remoção nativa. A ponte permanece ativa fora do login e é compartilhada
+com a barra de ferramentas, sem consulta ao backend por tecla. Isso implementa
+a coordenação dos observadores, **não** a publicação dos bindings nem a troca
+dos callbacks de voz/jobs pelo executor comum. Catálogo v36 **144/61/67**
+inalterado; aceite físico e demais gates na seção108 da tasklist.
+
+**Seção107 — contrato global e exclusividade de registro (21/09/2026):**
+gramática de acorde `keyboard.global` v1 disponível na projeção; o registro
+nativo reserva cada combinação exclusivamente durante registro e retirada.
+O handler de jobs exige preparação confiável para preservar o trigger de
+hotkey e sua condição. Isso ainda não liga voz/jobs ao executor no produto:
+faltam publicação autoritativa dos bindings e sincronização de ownership
+com o teclado local. Catálogo v36 **144/61/67** inalterado; gates na tasklist.
+
+**Seção106 — backend Windows de hotkeys (21/09/2026):** registro Win32 próprio
+transporta `MOD_NOREPEAT` sem truncamento, cancela entrega pendente e encerra
+a inscrição sem esperar release. Operações nativas usam a mesma thread dedicada.
+Isso fecha a implementação da borda nativa da seção105, não a migração dos
+ingressos voz/jobs para `keyboard.global`. Validação física permanece pendente;
+catálogo v36 **144/61/67** inalterado. Evidências na seção106 da tasklist.
+
+**Seção105 — preparação dos ingressos de voz/jobs (21/09/2026):** correções
+dos caminhos existentes precedem a troca para o executor comum. Callbacks de
+perfil têm geração e são aposentados antes de recarregar a configuração;
+desativar input de voz impede registro. A publicação de `keyboard.global`,
+projeção dos triggers existentes e substituição integral dos ingressos ainda
+não estão concluídas. Catálogo permanece v36, 144/61/67; sem recontagem dos84.
+Gates e evidências na seção105 da tasklist.
+
+**Seção104 — Histórico e lista no workspace (20/09/2026):** catálogo v36
+**144/61/67**. Ctrl+N do Histórico usa binding contextual de retorno ao workspace;
+abertura de tarefa, duplicação e limpeza da lista aberta convergem aos comandos
+comuns. Limpeza é backend destrutivo com decisão e transação/CAS. N/D/Ctrl+L
+são gestos fixos dos controles com requests comuns, não novos defaults globais.
+Tasklist seção104 registra evidências e aceite manual pendente; sem recontagem
+global dos84 critérios. As entradas abaixo são históricas.
+
+**Seção103 — reconciliação de migração (20/09/2026):** inventário histórico
+separado das pendências vigentes; broker de arquivos e mutações de perfis
+reconciliados. Residuais comprovados: Ctrl+N do Histórico, Ctrl+L/N/D da lista
+aberta no workspace e hotkeys de voz/perfil e jobs. Plano e gates na seção103
+da tasklist. Catálogo v35 permanece 142/60/66; sem nova contagem dos 84 critérios
+ou aceite manual. Esta rodada só altera documentação.
+
+**Seção102 — mutações de perfis no executor (20/09/2026):** catálogo v35,
+**142 comandos / 60 locais / 66 defaults**. Criar, editar, duplicar, excluir
+e ativar perfis usam preparação contextual, fingerprint e commit coordenado
+por botões, paleta, teclado pessoal e Stream Deck. O backend reivindica o
+commit sob validação exata de epochs antes de invalidar a própria admissão;
+o executor aguarda o desfecho por prazo limitado, sem ignorar cancelamentos
+anteriores. A reconstrução do mapa ocorre depois da finalização do ledger.
+Exclusão exige decisão e mantém compensação/grants da seção101. Conteúdo do
+perfil não é argumento persistido nem resultado do ledger. Sem novos atalhos
+padrão; baseline **58 I / 24 P / 2 N** não recontada. Gates na seção102 da
+tasklist; aceite manual continua acumulado. As seções abaixo são históricas.
+
+**Seção101 — coordenação de perfis (20/09/2026):** writers nativos do
+controller passam por mutação preparada e coordenação de arquivos/grants.
+O App cerca a escrita e publicação com invalidação de epochs, retira o mapa
+anterior e reconstrói somente após resultado conhecido. Falhas de exclusão
+preservam a compensação da AEP-0101; resultado incerto conserva a intenção.
+Esta integração **não** adiciona as cinco mutações de perfis ao catálogo:
+handoff específico de capability e ingressos de comandos continuam pendentes.
+Catálogo **137 / 60 / 66**, baseline **58 I / 24 P / 2 N** preservados;
+evidências e gates na seção101 da tasklist.
+
+**Seção100 — mutações e lifecycle (20/09/2026):** catálogo v34
+com **137 comandos / 60 locais / 66 defaults**. Quatro operações de listas
+ganham preparo, CAS e transação backend; exclusão usa decisão de uso único.
+Duas operações de sessão terminal ganham criação/vínculo e fechamento com
+teardown protegido. UI integrada e regressão frontend de 2593 testes aprovada;
+gate manual aberto na seção100 da tasklist. Base de persistência de perfis
+recebeu journal e fingerprint, mas
+CRUD/ativação de perfis **não** estão migrados: falta coordenar arquivo,
+grants e capability epochs. Baseline **58 I / 24 P / 2 N** inalterada.
+
+**Seção99 — interrupção contextual do terminal (19/09/2026):**
+`terminal.command.interrupt` passa por reserva, comparação do alvo visível,
+handoff e commit backend. Paleta, tecla pessoal, Deck e controles nativos
+compartilham o efeito; Ctrl+C permanece gesto exclusivo da superfície, com
+cópia de seleção preservada. Snapshot opaco prende sessão e geração de input
+gerenciado, não PID de subprocesso natural; não persiste texto do terminal.
+Produto v33: **131 comandos / 60 locais / 66 defaults**. Não migra criar/fechar
+processos nem CRUD/ativação de perfis/listas. Corrigido separadamente o salvar
+edição de lista que anunciava sucesso sem persistir. Baseline **58 I / 24 P /
+2 N** preservada; gates e lacunas de domínio na seção99 da tasklist.
+
+**Seção98 — apresentação de tarefas, perfis e terminal (19/09/2026):**
+nove ações compartilham paleta, teclado local e Stream Deck: abrir criação,
+abrir edição e focar busca nas páginas de listas/perfis; abrir seletor de
+sessões, focar entrada e histórico no terminal. Ctrl+N passa pelo mapa
+contextual nas duas páginas, preservando sequências do workspace fora delas.
+Produto v32: **130 comandos / 60 locais / 66 defaults**. Não migra CRUD,
+ativação de perfil nem criação/interrupção/encerramento de processos.
+Baseline **58 I / 24 P / 2 N** inalterada; gates na seção98 da tasklist.
+Automação consolidada aprovada: 2443 testes frontend/151 arquivos, suíte
+backend de comandos, TypeScript e ESLint. Aceite manual e geração oficial
+de bindings continuam pendentes; não foi executado Wails neste lote.
+
+**Seção97 — rótulos derivados do mapa efetivo (19/09/2026):** ajuda,
+menu principal, paleta, workspace, chat e editor consultam a projeção aceita
+pelo teclado, sem defaults artificiais durante supressão/invalidação.
+Rótulos não concedem disponibilidade: os guards de execução continuam iguais.
+Sequências anunciam prefixo no menu e combinação completa na ação. Gestos
+próprios de componentes permanecem distintos dos bindings configuráveis.
+Sem novos comandos/defaults; produto v31 e baseline **58 I / 24 P / 2 N**
+inalterados. Evidências e aceite manual na seção97 da tasklist.
+
+**Seção96 — apresentação e navegação contextual do chat (19/09/2026):**
+implementadas sete ações de foco, leitura, menu, raciocínio e threads que
+compartilham o dispatcher local, sem ledger. A mensagem é capturada antes
+da paleta ou menu, com isolamento de conversa/sessão/superfície; abertura de
+leitura não é TTS. Sem novos defaults nem captura global de setas/Enter/R.
+Produto v31: catálogo121/locais51/defaults64. Gates e evidências na seção96
+da tasklist; baseline global **58 I / 24 P / 2 N** inalterada. Automação
+concluída, com geração oficial de bindings e aceite manual pendentes.
+
+**Seção95 — navegação entre regiões (19/09/2026):** implementada,
+`navigation.landmark.next`, `.previous` e `.default` são apresentação local
+sem ledger. F6/Shift+F6 pertencem ao mapa central; Escape permanece gesto
+contextual após os componentes. A paleta captura a região de origem antes
+de mover o foco, e modal só admite navegação das regiões de sua instância
+topmost habilitada, sem fallback para a página de fundo. Não amplia os
+atalhos de decisão nem a allowlist de repetição automática. Baseline global
+**58 I / 24 P / 2 N** inalterada; evidências e gates na seção95 da tasklist.
+Produto v30: catálogo114/locais44/bindings padrão64. Validação automatizada
+concluída; geração oficial de bindings e aceite manual acumulado pendentes.
+
+**Seção94 — edição de diagramas Mermaid (19/09/2026):** implementadas
+abertura local e aplicação/remoção auditadas. O bloco e a
+instância do documento são capturados antes da espera; confirmar não procura
+outro editor. O modal Mermaid possui escopo visual fechado, distinto de
+`DecisionDialog`: aplicar/remover capturam a sessão topmost e fecham somente
+essa instância antes do handoff normal. Isso não amplia `DialogCommandProof`
+nem declara que o backend autentica fatos do DOM. Paleta permanece fora dos
+modais. Teclado e Deck preservam sua origem/reserva. Evidências e pendências
+na seção94 da tasklist; baseline global **58 I / 24 P / 2 N** inalterada.
+Bindings oficiais e aceite manual continuam pendentes. Os três atalhos de
+confirmação são controles invariantes do formulário, não novos defaults
+globais remapeáveis; associações pessoais aos comandos continuam disponíveis.
+Produto v29: catálogo111/locais41/bindings padrão62.
+
+**Seção93 — transferência chat → editor (19/09/2026):**
+`chat.message.send_to_editor` transfere por padrão a mensagem selecionada
+inteira em Markdown para um novo documento. Menus mantêm recortes de
+código/tabela/link, formatos e destinos explícitos, com identidade e conteúdo
+original da fonte capturados. A admissão prepara antes de Take; sucesso exige
+ACK da aplicação real no editor, não mero enfileiramento. A transição autorizada
+preserva as guardas de origem/destino e não admite retarget nem retry automático.
+Falha após Take usa cancelamento e reconciliação como resultado desconhecido;
+uma aba já criada pode permanecer e deve ser conferida antes de nova tentativa.
+Rascunhos sem arquivo restauram o autosave; vazio/rascunho inexistente não
+recebe texto padrão, e outras falhas impedem sobrescrita. Produto v28:
+catálogo108/locais40/bindings padrão62, sem nova tecla padrão.
+Evidências focadas e limites na seção93 da tasklist;
+bindings oficiais e aceite manual pendentes. Baseline **58 I / 24 P / 2 N**
+inalterada, sem conclusão integral do AEP.
+
+**Seção92 — salvar edição de mensagem (19/09/2026):** `chat.message.edit.save`
+migra o salvamento do formulário existente para preparação efêmera e commit
+backend de uso único. Botão/Ctrl+Enter local, paleta, teclado configurável e
+Deck preservam mensagem, base original e rascunho capturados. O commit compara
+a revisão na transação, preserva metadados e recusa geração ativa sem cancelá-la.
+O evento tipado atualiza somente a conversa correspondente. Texto novo durante
+a espera não é descartado; resultado desconhecido não dispara retry.
+Catálogo107/locais40/defaults62, sem novas teclas padrão. Evidências e gates
+na seção92 da tasklist; bindings oficiais e aceite manual ainda pendentes.
+O envio ao editor, ainda não migrado na seção92, é tratado na seção93 acima.
+Baseline global inalterada, sem declaração de conclusão integral do AEP.
+
+**Seção91 — ações sobre a mensagem selecionada (19/09/2026):** implementadas
+e validadas automaticamente: copiar texto/Markdown, falar, abrir edição, fixar/desfixar e
+excluir. Abrir edição é apresentação local sem ledger; não migra salvar a
+edição. Demais efeitos exigem admissão com a mensagem capturada, sem conteúdo
+no ledger; exclusão exige a decisão backend de uso único. Não migra envio ao
+editor nem comandos internos de blocos. Catálogo 106, locais 40, defaults 62.
+Regressão frontend 1.257 testes/62 arquivos PASS; App consolidado, vet,
+TypeScript e lint PASS. Geração oficial de bindings e aceite manual pendentes.
+Gates na tasklist, seção91; baseline global inalterada.
+
+**Seção90 — envio, cancelamento e nova tentativa (19/09/2026):** migração
+implementada e validada automaticamente de `chat.message.send`, `chat.response.cancel` e
+`chat.message.retry`. São operações auditadas, não apresentação local.
+O contrato mantém o pipeline único da AEP-0040 e exige correlação de uso
+único, alvo capturado e proteção contra reenvio em resultado desconhecido.
+Gates e evidências em `0103-tasklist-conclusao.md`, seção90. Não declarado
+concluído: regeneração oficial dos bindings aguarda autorização; baseline
+global e aceite manual permanecem inalterados.
+
+**Seção89 — consultas da conversa (19/09/2026):** `chat.pinned.open` e
+`chat.tokens.open` abrem os modais existentes de mensagens fixadas e
+estatísticas de tokens por botão, paleta, teclado configurável e Stream Deck.
+São apresentação local, sem ledger por acionamento e sem novas teclas padrão.
+O alvo é a conversa ativa e permanece fixado; mudança de contexto invalida a
+apresentação. Catálogo 97, locais 39, defaults 62. Ações internas dos modais
+não são declaradas migradas. Aceite manual acumulado e baseline global
+preservada; AEP In Progress.
+
+**Seção88 — Limpar conversa (19/09/2026):** botão, Ctrl+L configurável,
+paleta e Stream Deck passam por `chat.conversation.clear`, comando destrutivo
+com decisão interativa no backend. A conversa é capturada antes da confirmação;
+conteúdo alterado, geração ativa ou contexto obsoleto impedem a limpeza.
+Mensagens, resumo e registros de ferramentas são apagados atomicamente.
+Catálogo 95, locais 37, defaults 62. Não inclui envio/retry, exclusão de
+mensagens individuais ou outras ações de chat. Aceite manual acumulado;
+baseline 58 I / 24 P / 2 N preservada, sem conclusão integral do AEP.
+
+**Seção87 — Markdown e templates de slides (19/09/2026):** as seis
+inserções Markdown (tabela, código, Mermaid, listas e citação) reutilizam
+os comandos auditados existentes, agora com captura de modelo, versão e
+seleção Monaco. Onze templates `editor.slide.insert.*` entram no catálogo;
+menu e criação de slide na toolbar usam o mesmo executor. Slides acrescentam
+conteúdo ao documento completo; não substituem a seleção do slide rico.
+Catálogo 94, locais 37, defaults 61, sem novas teclas padrão. Tabelas Markdown
+fixam cabeçalho; conteúdo e parâmetros de formulário continuam efêmeros.
+Aceite manual acumulado e baseline 58 I / 24 P / 2 N preservada.
+Evidências e limites na seção87 da tasklist; o AEP não está concluído.
+
+**Seção86 — inserções e células (19/09/2026):** quatro comandos de conteúdo
+(`editor.format.link.set`, `.table.insert`, `.code_block.insert`,
+`.mermaid.insert`) e dois de navegação local (`editor.table.cell.next`,
+`.previous`). Links e tabelas usam preparação efêmera pelo formulário
+compartilhado, captura da seleção e validação antes do commit. Navegação não
+cria linhas nem grava ledger. Ctrl+K permanece exclusivo da paleta. Catálogo
+83, locais 37, defaults 61; não há novas teclas padrão. Aceite manual
+acumulado, baseline global preservada; evidências e limites na seção86 da
+tasklist. Markdown, templates de slides e edição Tab nativa não são
+declarados migrados por este lote.
+
+**Seção85 — blocos e tabelas (19/09/2026):** mais 25 ações no executor
+de formatação: parágrafo, H1–H6, listas, citação, código, limpar marcas,
+remover link e 12 alterações de tabela. Paleta, menu e Deck preservam o alvo
+capturado, incluindo CellSelection. Onze defaults existentes do TipTap migram
+para bindings configuráveis; Ctrl+Alt exige observação explícita de Ctrl e
+Alt esquerdo, sem liberar AltGr ou eventos ambíguos. Catálogo 77, locais 35,
+defaults 61. Inserção/edição de link com diálogo, criação de tabela com
+dimensões e navegação de células continuam fora deste lote. Aceite manual
+acumulado, sem alteração da baseline global; evidências na seção85 da tasklist.
+
+**Seção84 — formatação rica (19/09/2026):** negrito, itálico e tachado
+entram pelo executor UI auditado, com Ctrl+B/I/Shift+X, paleta, menu e Deck.
+A seleção e a instância são capturadas antes da espera; mudança de documento,
+seleção ou contexto cancela, sem retarget. Conteúdo não entra na auditoria.
+Catálogo 52, locais 35, defaults 50. Testes e aceite manual separado na
+seção84 da tasklist; baseline global preservada.
+
+**Seção83 — arquivos do editor (19/09/2026):** `editor.file.open`,
+`editor.file.save` e `editor.file.save_copy` usam preparação efêmera e commit
+no broker, com os defaults Ctrl+O, Ctrl+S e Ctrl+Shift+S no contexto editor.
+Paleta, menu e reserva Stream Deck compartilham o mesmo percurso. Conteúdo
+não integra argumentos auditáveis nem resultado persistido. O diálogo tem
+prazo total de cinco minutos; o commit mantém limite próprio de 35 segundos.
+A perda de foco causada pelo diálogo não invalida um handoff de teclado já
+tomado; sessão, configuração, epoch e snapshot do workspace continuam exigidos.
+O receipt valida identidade e bytes antes da substituição, sem prometer CAS
+interprocessos contra a janela entre validação e rename. Abertura seleciona
+uma aba existente do mesmo arquivo ou cria outra, sem substituir o documento
+fonte. Catálogo 49, locais 35, defaults 47. Evidências e pendências na seção83
+da tasklist; aceite manual e baseline global não são promovidos por contagem.
+
+### Estado reconciliado — 18/09/2026
+
+**Reconciliação após a seção 75 (registro 76):** 58/84 critérios finais com
+implementação identificada (**69,0% por critério, não por esforço ou aceite**),
+24 parciais e 2 sem a funcionalidade de produto prevista. Saídas maiores:
+11/48 aceitas, 5 implementadas sem aceite, 29 parciais e 3 não implementadas.
+A+I = 16/48 (33,3%); **1/12 gates aceito (R04)**. Os estados e evidências por
+item estão na [tasklist vigente](0103-tasklist-conclusao.md).
+Nenhum aceite final C foi presumido pela revisão documental; implementação,
+validação e entrega integral permanecem medidas distintas. Os 53/84 itens
+I marcados são somente históricos e não entram nessa porcentagem.
+C84 é a cláusula já aprovada de apresentação sem auditoria por tecla; não
+renumera C01–C83 nem acrescenta escopo novo. **AEP In Progress**.
+
+Lote79: migração dos menus Arquivo/Formatar/Modo, seletor de slides e
+fullscreen do editor. Alt+S/F5 no mapa configurável; cinco comandos locais,
+com instância do editor revalidada e sem ledger de abertura. Na fotografia
+histórica da seção79, eram 42 comandos e 34 locais. Alt+I permaneceu
+legado por colisão contextual com importação; salvar/abrir arquivos, mudar
+modo e editar conteúdo não foram classificados como apresentação. Evidências
+e aceite manual do lote na seção79 da tasklist; contagem global preservada.
+Validação automática: 481 testes frontend, tipos, lint, App ampliado e vet
+PASS. Aceite físico/manual pendente, sem fechamento integral de R07.
+
+Registro histórico da seção80: `editor.menu.insert.open` foi incorporado à apresentação contextual
+do editor. Alt+I abre Inserir somente quando o editor ativo, visível e apto é
+capturado; fora dele, `navigation.data.import.open` continua sendo a ação de
+Importar. Não há fallback para listener legado nem seleção/escrita de conteúdo
+por esse comando. Catálogo: 43 comandos, 35 locais, 41 defaults (37 v1 +
+quatro v2) e 40 combinações efetivas. Frontend 456/11 PASS, `tsc` e ESLint PASS;
+Backend: suíte do resolvedor, regressão ampliada de comandos App (104,529 s)
+e `go vet` PASS. Aceite manual do editor permanece pendente; salvar/abrir
+arquivos, mudar modo e editar conteúdo ainda não haviam sido migrados.
+
+Seção81: `editor.mode.markdown`, `editor.mode.rich` e `editor.mode.view`
+migram Alt+1/2/3 e as escolhas do menu para o commit durável, também usado
+pela paleta e pelo Deck. Somente `displayMode` é persistido, com alvo
+versionado, CAS e aplicação visual após confirmação. Catálogo 46, locais 35,
+defaults 44 (40 v1 + quatro v2), 43 combinações. Evidências e checklist manual
+na seção81 da tasklist; sem promoção automática de critérios globais.
+
+Lote seguinte (tasklist, seção 78), autorizado após a inspeção 77:
+`chat.model.open`, `chat.history.open` e `chat.profile.open` usam teclado,
+paleta e Deck, com defaults Ctrl+M/H/P e os pickers existentes. O chat modal
+tem escopo fechado de apresentação topmost, separado do scope de decisão.
+A paleta captura a instância antes da busca; nenhum comando escolhe modelo,
+perfil ou conversa nem grava ledger pela abertura. Catálogo: 37 comandos,
+29 locais e 38 bindings (34 v1 + quatro v2). Ctrl+L permanece legado.
+Aceite manual pendente; contagem global acima preservada.
+
+**Seção 75 implementada e validada automaticamente:** `workspace.chat.open` migra Ctrl+Shift+I, paleta,
+Stream Deck e botões existentes para o executor contextual. Preparação dos
+adapters permanece local; criação/vínculo passam pela fronteira autenticada
+com snapshot versionado e validação de proprietário. Reutiliza conversa
+existente; falha ao persistir vínculo compensa somente a conversa recém-criada.
+Em aba de chat, só foca a entrada. Não envia mensagens automaticamente.
+Apresentação ocorre após sucesso e releitura do snapshot pela API existente,
+sem transportar seleção/conteúdo em argumentos ou resultados persistidos.
+Readonly, composição, cancelamento e troca de contexto bloqueiam abertura
+indevida; Ctrl+Shift+I permanece reservado contra DevTools mesmo suprimido.
+Catálogo atual: 34 comandos, 26 locais e 35 bindings (31 v1 + quatro v2).
+690 testes frontend em 22 arquivos, tipos, lint, App ampliado, workspace e vet
+PASS. Evidências na seção 75 da tasklist; aceite manual em lote pendente.
+Não promete atomicidade SQLite/YAML em queda do processo. AEP In Progress.
+
+**Seção 74 implementada e validada automaticamente:** `workspace.create` migra Ctrl+Shift+N, paleta,
+Stream Deck e a ação Novo workspace do menu para uma escrita contextual.
+O snapshot versionado do workspace/aba protege a **origem**, não designa o
+workspace a criar. A ação pode partir de qualquer tela com sessão/workspace
+prontos; mudanças de contexto antes do commit cancelam a solicitação.
+Reutiliza admissão, ledger e handoff das escritas de workspace; o nome legado
+da porta de transporte `CommitWorkspaceTabCommand` não escolhe a operação.
+O novo workspace e seu índice são persistidos com erros explícitos e
+compensação em falha anterior à publicação. Não troca o ativo nem `LastOpened`.
+Não há promessa de transação entre arquivos resistente a queda do processo.
+Índice ausente/inválido recusa a criação; falha de publicação preserva os bytes
+anteriores e compensa somente o diretório novo. Os dois menus de workspace
+aguardam fechamento e restauração de foco, preservando a origem da seleção.
+Catálogo atual: 33 comandos, 26 locais e 34 bindings (30 v1 + quatro v2).
+Regressão: 589 testes frontend em 17 arquivos, TypeScript, ESLint,
+App amplo (37,780 s), workspace e vet PASS. Aceite manual pendente em lote.
+Ctrl+Shift+I ficou fora da seção 74 e foi migrado na seção 75; AEP integral continua In Progress.
+
+**Seção 73 implementada e validada automaticamente:** F1 passa ao mapa efetivo de `navigation.help.open`.
+O contrato de apresentação preserva uma exceção fechada: somente ajuda acionada
+pelo teclado local pode navegar durante um modal, inclusive quando remapeada.
+Não vale para outro comando associado a F1, paleta, Stream Deck ou execução
+backend; não altera a prova de `decision.respond` na bridge. Autenticação,
+proprietário, sessão, foco e composição continuam obrigatórios. Sem ledger.
+F1 sem modificadores é admitido; outras teclas sem modificadores continuam
+recusadas no ingresso simples. Supressão não tem fallback legado.
+Catálogo permanece com 32 comandos e 26 locais; mapa passa a 33 bindings
+(29 v1 + quatro v2). Ao concluir a seção 73, Ctrl+Shift+N/I ainda não eram comandos migrados: criação
+de workspace e criação/vínculo de conversa exigem fronteira durável própria.
+Corrigida também a abertura atrasada do chat: troca de workspace/aba/modal,
+substituição de adapter ou nova solicitação invalida a apresentação pendente,
+inclusive após sair e voltar ao contexto anterior. Isso não desfaz escrita
+backend já iniciada. Regressão: 516 testes frontend em 15 arquivos PASS;
+testes App focados/amplos, tipos, lint e vet PASS. Aceite manual pendente.
+
+**Seção 72 implementada e validada automaticamente:** Ctrl+K, Alt+E e Alt+I migram para defaults
+do mapa efetivo e comandos de apresentação local, sem auditoria por tecla.
+Abrir a paleta e os fluxos de Dados não autoriza importação/exportação de dados.
+O aceite manual das seções 71–72 será feito em lote, por escolha do mantenedor.
+F1 e demais atalhos contextuais ficam explicitamente fora deste recorte.
+Catálogo atual: 32 comandos, 26 locais, 32 bindings (28 v1 + quatro v2).
+474 testes frontend em 14 arquivos, TypeScript, ESLint, regressões backend
+focadas e `go vet ./internal/app` PASS. Sem Wails, ACP, PTY real ou banco real.
+
+**Seção 71 implementada e validada automaticamente:** migração de Ctrl+N seguida de C/E/R/T e do
+menu de criação. Sequências de dois passos usam documento `keyboard.local`
+v2 (`version: 2`, `steps` com dois objetos `code`/`modifiers`); atalhos v1 e
+seus fingerprints permanecem inalterados. O prefixo exige Control, Alt ou Meta;
+o segundo passo não tem modificadores e Escape é reservado para cancelar.
+O prefixo mantém apenas estado local por 1.500 ms, sem invocação/ledger.
+O segundo passo resolve um binding completo e passa pelo executor contextual.
+Seleção pelo botão/menu é uma paleta especializada, não um evento de teclado
+sintético. Após a seção 71, o mapa padrão continha 29 bindings: os 25 v1 preservados e quatro
+sequências v2. Ao usar setas/Enter, o menu compartilhado assume a seleção;
+a segunda tecla física continua usando o ingresso keyboard.local.
+Evidências: 449 testes frontend em 14 arquivos, TypeScript, ESLint focado,
+regressão App/commandconfig e `go vet ./internal/app` PASS. Sem Wails, ACP,
+PTY real ou banco real. Aceite manual com NVDA pendente; roteiro e gates na
+seção 71 da tasklist e em `docs/content/recursos/COMANDOS.md`.
+
+**Seção 69 implementada e aceita manualmente:** o mantenedor confirmou a fluidez dos comandos
+e o Stream Deck do recorte 68. A paleta passa a usar o Combobox compartilhado
+com o picker de modelos, em substituição ao Menu com busca, e Ctrl+K admite
+campos de texto nativos. Aceite do usuário: “pode continuar. validamos. se
+aparecer algo errado arrumamos.” O relato não é uma nova medição de latência
+nem aceite integral dos 84 itens.
+Validação desta correção: 314 testes frontend em 15 arquivos, TypeScript e
+ESLint focado PASS. Pickers existentes preservados; sem execução Wails/Go.
+
+### Seção 70 — `workspace.tab.terminal.create` implementado
+
+`workspace.tab.terminal.create` é o recorte implementado e pré-requisito para
+tratar Ctrl+N como uma migração segura. O frontend integrado implementa as três origens previstas,
+com admissão contextual e as proteções de owner, sessão e workspace:
+`terminalId` identifica a sessão viva. Na seção 70, o catálogo tinha 29 comandos, 23 de
+apresentação local e 25 bindings (29 bindings após a seção 71). O evento `session_created` é deduplicado sem perder o histórico; uma
+surface existente recarrega a sessão quando perde o evento, sem recriá-la. A
+criação frontend usa commit único e invalida owner, sessão ou workspace
+obsoletos. O backend usa manager real, preserva o cwd, aplica guards de
+snapshot/auth, CAS e compensação; testes fake cobrem lifecycle e erros de join.
+Ctrl+N ficou fora da seção 70; sua migração está na seção 71. O aceite manual do terminal permanece
+pendente; PTY real e end-to-end físico das três origens não foram testados.
+
+Evidência atual: frontend **317 testes em 10 arquivos PASS**, TypeScript e
+lint PASS; pacote `workspace` completo PASS (1,716 s) e `go vet` de App/workspace
+PASS. Regressão App final: PASS (53,621 s) no recorte de comandos; fixture de
+readiness com manager ausente foi corrigido. Não foram executados Wails, ACP,
+PTY real ou banco real. Só o aceite manual do novo terminal permanece pendente.
+
+**Revisão aprovada pelo mantenedor: política por efeito (seção 68 implementada
+e validada automaticamente; aceite manual pendente).** Navegação/apresentação local deixa de exigir invocação,
+ledger, auditoria ou handoff persistente por acionamento. Esta decisão
+substitui, para essa classe explícita, as exigências universais anteriores.
+Persistir a última seleção não equivale a registrar cada tecla. Operações de
+domínio e efeitos sensíveis mantêm suas validações e proteções próprias.
+
+Na seção 68: 28 comandos, sendo 23 de apresentação local; mapa padrão com
+25 combinações. Ctrl+Tab/Shift+Tab/PageUp/PageDown/1…9 agora usam o novo mapa,
+sem fallback legado concorrente, com repeat apenas na navegação. A última
+seleção é persistida de forma coalescente; criar/fechar aguarda essa seleção e
+revalida o alvo, sem retargeting. Testes cobrem falha/reconciliação, logout com
+gravação pendente, Escape e recuperação de foco sem roubar foco externo.
+541 testes frontend (25 arquivos), regressões backend focadas, TypeScript,
+ESLint e vet PASS. Não constitui medição de latência com IPC/render nem aceite
+NVDA/Stream Deck. Critérios e evidências atuais: seção 68 da tasklist.
+
+Seção 67 substituída pela seção 68: permanece a aprovação de repetição
+automática seletiva para navegação (D3), mas não a tentativa de processar cada
+ocorrência pelo ledger. As evidências abaixo são históricas; o fechamento da
+solução local e seu gate manual atual estão na seção 68 da tasklist.
+
+Seção 66, entrega parcial validada: família de 11 comandos de navegação de abas nas três
+origens e ordenação de snapshots de transporte. Catálogo 28, mapa padrão 12.
+Alvos explícitos são comparados à resolução autoritativa; os atalhos rápidos
+legados não foram substituídos. Gate de ocorrências consecutivas e latência
+integrada ainda aberto. Frontend 604 testes (17 arquivos), regressões backend,
+TypeScript, ESLint e vet PASS. Amostra backend: mediana 26,28 ms, p95 27,74 ms,
+sem IPC/renderização; não comprova orçamento de 1 ms. Atualizações locais
+legadas fora dos snapshots permanecem explícitas na tasklist. AEP In Progress.
+
+Seção 65: `workspace.tab.close` com Ctrl+W/Ctrl+F4, paleta e Deck. Alvo ativo
+versionado, fechamento/substituição da última aba em uma gravação, sem criar
+conversa ou excluir recursos. Foco pós-sucesso limitado à sucessora prevista;
+sem fila tardia. Catálogo 17, mapa padrão 12. Regressões App/workspace PASS;
+frontend 351 testes integrados e mais três casos de foco PASS (354 distintos).
+Aceite manual pendente; troca de abas, terminal e sequências não migrados.
+AEP permanece In Progress.
+
+Seção 64: criação contextual de editor e lista de tarefas acrescentada ao
+contrato de chat. Catálogo de 16 comandos; dez atalhos padrão preservados.
+Novos tipos usam paleta e bindings pessoais de teclado/Deck, sem aceitar tipos
+arbitrários. Handoffs concorrentes são isolados por ID. Frontend: 312 testes
+em 12 arquivos PASS; regressões backend App/workspace, TypeScript, ESLint e
+go vet PASS. Terminal, sequências
+Ctrl+N e fechamento/troca de abas não migrados; aceite manual dos novos tipos
+pendente. AEP In Progress.
+
+Seção 63: navegação conhecida permite input/textarea nas entradas de teclado e
+Stream Deck. Exceção explícita à exigência de composição `inactive`: somente
+esses comandos de navegação podem aceitar `unknown` em campo nativo, sem
+reinterpretá-lo como `inactive`. Composição `active` continua recusada; contexto,
+owner, foco, modal, superfície e revalidação continuam obrigatórios. Não se aplica
+a mutações, comandos contextuais, IDs futuros, Monaco ou contenteditable.
+O usuário confirmou o funcionamento da criação de chat e a restrição ao contexto
+autorizado; reportou o bloqueio de navegação em texto tratado nesta seção.
+Validação: 218 testes frontend (9 arquivos), TypeScript e ESLint PASS.
+Aceite manual desta correção pendente; AEP permanece In Progress.
+
+Seção 62: criação de aba de chat com alvo versionado, commit de escrita backend
+e Ctrl+T no mapa padrão. Paleta e Deck compartilham o contrato. Frontend 263
+testes PASS; regressão final integrada das origens backend PASS (App, 45,221s).
+Aceite manual pendente; demais tipos de aba/atalhos não migrados. In Progress.
+
+Seção 61: integração contextual de `workspace.panel.focus` com alvo visual
+capturado e revalidado para paleta, teclado pessoal e Stream Deck. Somente
+foco imediato em painel pronto; criação/fechamento de abas e chat contextual
+assíncrono continuam pendentes. Matriz frontend 354 PASS, testes backend
+focados, TypeScript, ESLint e vet PASS; aceite manual pendente. In Progress.
+
+Seção 60: nomes das camadas passam a Comandos padrão e Mapa de teclado padrão,
+sem mudança de identidade. Migração de workspace/abas parada, conforme pedido,
+nas lacunas de execução assíncrona e teclado contextual descritas na tasklist.
+Nenhum comando adicional declarado migrado; AEP permanece In Progress.
+
+Seção 58: por decisão explícita do usuário, a configuração física passa a
+capturar a tecla pressionada, sem seletor de aparelho, serial ou entrada manual.
+Identidade permanece interna à persistência; captura temporária não executa
+comandos, expira e é invalidada pela sessão. Substitui a UX da seção 57.
+Aceite manual da nova captura pendente; AEP permanece In Progress.
+
+Seção 57: usuário confirmou sucesso do fluxo físico básico no App. A tela
+passa a receber descoberta read-only de modelos/seriais/geometrias, inclusive
+sem bindings, preservando entrada manual. A seleção detectada e os cenários
+manuais de reconexão/lock/restart não são presumidos aceitos. In Progress.
+
+Seção 56: aceite manual da seção 55 confirmado pelo usuário (paleta,
+Alt+C e configurações funcionando). Integração de `navigation.menu.open`
+com Alt+M e primeiro ingresso de Stream Deck para navegação/ajuda, por
+bindings globais de camada pessoal. Driver e executor compartilham a sessão
+autenticada; não há injeção de teclas nem execução física disfarçada de paleta.
+Recorte e validações na tasklist; aceite básico posterior na seção 57.
+
+Seção 55: o novo log registra `SQLITE_BUSY` nos dois bootstraps, durante
+restauração de claims e preparação do escopo. Essas transações passam a
+usar retry limitado da política SQLite existente. A restauração espera fora
+do gate, revalida a mesma sessão e captura epochs novos por tentativa;
+cancelamento e falha persistente permanecem fechados. Não há retry de
+execução de comandos. Evidências na tasklist; aceite manual ainda pendente.
+
+Seção 54: o aceite manual da seção 53 falhou (paleta 11/0, teclado e
+configurações indisponíveis). Reproduzida a corrida entre autenticação e a
+primeira observação do SO: a recusa inicial permanecia após o unlock porque
+o monitor descartava mapas sem reconstruí-los. Reconstrução autenticada
+cancelável fora do recebimento de eventos e notificação após readiness
+restabelecem o percurso; lock/falha do monitor continuam fechados.
+Evidências e limites na seção 54 da tasklist; aceite real ainda pendente.
+
+Seção 53: reproduzida a paleta com 11 comandos e nenhum disponível quando
+a projeção contextual fica obsoleta. A consulta agora usa a mesma atualização
+de projeção da execução, preservando os bloqueios de sessão e cofre.
+Migração de oito combinações de navegação para a camada padrão de teclado,
+sem fallback legado; supressão/restauração e prioridade de camada pessoal.
+F1, menu, importação/exportação e atalhos de abas não migram nesta rodada.
+Aceite manual continua pendente; evidências na seção 53 da tasklist.
+
+Seção 50: correção do bootstrap após salvar configurações. A verificação
+de prontidão reconhece os formatos reais de fingerprint: digest hexadecimal
+canônico (versão vinculada ao domínio HMAC) e `vN:digest`. Todas as versões
+de chave registradas continuam obrigatórias; nenhuma chave ou receipt é
+recriada/reescrita, nem uma decisão é autorizada por essa leitura. Diagnóstico
+fechado de falha e UI que distingue erro de carga de teclado indisponível.
+Reprodução e regressão em bancos de teste; reinício no banco do usuário
+ainda requer aceite. Não se amplia o escopo funcional da seção 49.
+
+Seção 49: primeiro ingresso de teclado local conectado ao mapa ativo e ao
+picker compartilhado, para `workspace.list`. Resolução em memória, origem
+`keyboard.local` no executor comum e invalidação de gerações; nenhuma chamada
+ao backend para combinações ausentes do mapa. Exige Control/Alt/Meta, fora
+de campos editáveis e modais, sem conflitos nem condições contextuais.
+Não migra os atalhos legados nem habilita teclado global/Stream Deck.
+Geração Wails e aceite manual continuam pendentes; D3/D7/D15 não estão
+integralmente aceitos. Evidências e limites na seção 49 da tasklist.
+
+Seção 48 (histórico): ativação manual das camadas globais ligada à tela, usando regras
+persistentes e claims do serviço existente. Preparar não ativa; Pin/Back
+atuam na origem UI autenticada e publicam novamente o mapa. A ativação
+alimenta a resolução produtiva da paleta. Teclado personalizado e aceite
+visual continuam pendentes; não se presume fechamento integral de D15.
+
+Seção 47: primeiro recorte do editor D15 em **Configurações → Comandos e
+acionadores**, com camadas globais, captura de teclado, persistência confirmada
+e supressão/restauração de padrões da paleta. Geração de bindings Wails e
+validação visual ficam a cargo do usuário nesta máquina. Configuração salva
+não significa teclado operacional: ingresso físico e ativação de camadas
+pessoais ainda não estão ligados por esta tela. D15 permanece parcial.
+
+Seção 46: por decisão do usuário, novas extensões de portabilidade ficam para
+depois do uso cotidiano. A paleta ganha nove comandos de navegação para telas
+existentes, pelo handoff UI autenticado, além dos dois comandos anteriores.
+Busca inclui descrição, categoria e aliases; desmontagem causada pela própria
+navegação não cancela sua confirmação. Não há migração dos atalhos legados,
+editor de bindings ou ingresso produtivo de Stream Deck entregue neste recorte.
+O AEP permanece In Progress, sem novos aceites integrais de R/C/I.
+
+Seção 45: exportação comum desktop conectada ao painel de Dados e às APIs
+existentes, com leitura transacional consistente, autorização de escopo e
+revalidação de sessão/época antes de liberar o JSON. Roundtrip público como
+cópia preserva originais e cria IDs novos após confirmação. A ação sensível
+continua separada e indisponível; IncludeCredentials/senha são recusados no
+export comum conforme D10. R05.3 em validação integral; R05.4 parcial.
+
+Seção 44: importação desktop conectada à fachada `ExportImport` e à tela
+de Dados. O host deriva usuário/sessão, autoriza workspaces e compõe projeção
+e reconciliação de ativação no commit real. Políticas manter/substituir/copiar,
+renomeação e remapeamento são escolhas explícitas; o relatório distingue
+persistência de publicação. Não há geração manual de bindings ou writer
+paralelo. Exportação pública/sensível e aceite integral R05.3/R05.4 permanecem
+pendentes. As notas anteriores abaixo preservam o histórico.
+
+Seção 43: relatório redigido propagado do plano realmente aplicado até o
+applier do App. Cópias retornam seus IDs persistidos, sem replanejamento;
+Keep retorna no-op explícito e falha de rebuild preserva o relatório do
+commit. Avisos são agregados por código, sem patterns ou conteúdo privado.
+Corrigido o writer de camadas existentes para preservar o timestamp do
+preview confirmado. A entrada desktop ainda precisa compor autenticação
+local, autorização de workspace e hook de ativação; API/UX pública não foi
+habilitada. R05.3/R05.4 permanecem parciais.
+
+Seção 42: o applier interno do App compõe o lote global+workspaces com
+uma reconstrução do mapa do workspace ativo após o commit. A publicação
+confere a auditoria e a geração exata de cada escopo alterado, inclusive os
+não ativos. Falha pós-commit retorna `Committed=true, Rebuilt=false`, sem
+repetir a importação. Transporte/UX pública, relatório público e exportação
+sensível continuam pendentes; R05.3/R05.4 seguem parciais. As notas abaixo
+registram o estado histórico de cada rodada.
+
+Seção 41: o backend de importação passa a aceitar lote global+workspaces
+numa única transação por `ApplyCommandEnvelopeBatch`. Todos os escopos são
+autorizados antes da leitura; cada diff alterado exige confirmação antes de
+qualquer escrita. Recibos, CAS, dados e auditorias revertem juntos. A união
+final global+workspace é validada além dos previews individuais. O applier
+do App permanece unitário; montagem multi-escopo no App/UI e export sensível
+ainda faltam. R05.3/R05.4 permanecem parciais, sem novo aceite integral.
+
+Seção 40: importação interna de envelope ligada ao applier do App, com
+owner derivado do token e portas SQL reais para UUIDs, nomes e patterns de
+credenciais. O caminho compartilha confirmação, commit auditado, suspensão
+e reconstrução das mutações comuns. Credenciais são consultadas somente por
+metadados, sem descriptografia. R05.3/R05.4 permanecem parciais: transporte
+público, lote multi-escopo e export sensível continuam pendentes.
+
+Seção 39: `job_service` ganha adapter do Manager real, ligado ao contexto
+privado e ao lifetime do run, com definição e grant congelados/revalidados.
+O App fornece seu store de grants. O recorte é subagent com profile literal;
+isso não publica uma entrada de comandos de automação nem conclui R05.1/R05.2.
+Evidências e limites na seção 39 da tasklist; contagens permanecem inalteradas.
+
+Seção 38: tools passam a transportar a origem privada de eventos do runtime,
+sem criar um job intermediário. O executor inaugura a cadeia para delegações
+locais diretas; camadas reativas exigem a origem verificada da projeção.
+A montagem revalida essa prova antes da tool, após persistir a invocação.
+Qualificação e limites estão na seção 38 da tasklist; R05.2/R03.4 continuam
+parciais, sem publicação de catálogo nem novos aceites.
+
+Seção 37: montagem interna de comando local → tool pelo executor comum,
+com ID canônico, schema e geração fixados; autorização revalidada no worker
+antes do efeito, depois de persistir a invocação. Teste integrado cobre
+confirmação, replay sem efeito duplicado, redação e mudanças durante o diálogo.
+Não publica catálogo nem habilita delegação reativa, de agents ou de profiles.
+**R05.2 parcial; 11/48 R, 1/12 gates, 0/83 C, 53/84 históricos I**.
+Evidências e limites na seção 37 da tasklist. Notas seguintes são históricas.
+
+Seção 36: delegação local reativa preserva raiz e cadeias verificadas na
+outbox. O App relê fontes autorizadas antes das tentativas; raiz divergente
+ou fonte encerrada não vira clique manual. Dispatch não é herdado por jobs
+descendentes. Teste integrado com catálogo controlado não publica `job.run`
+nem fecha R05.2/R03.4. **11/48 R, 1/12 gates, 0/83 C, 53/84 históricos I**.
+Evidências e limites na seção 36 da tasklist. As notas abaixo são históricas.
+
+Seção 35: decisões desktop reais são ligadas à montagem interna do App para
+jobs. `App.newCommandJobHandler` fixa owner, sessão, definição e alvo; para
+`subagent` literal, valida profile/provider e exige o grant exato com seu
+fingerprint e geração fixa antes da fila e em cada tentativa. Regrant
+posterior não valida um handler antigo, e a decisão do comando não concede nem
+substitui grant. Profile omitido mantém a herança da AEP-0101; templates
+dinâmicos permanecem fora desta montagem fixa. **R05.2 parcial; 11/48 saídas
+R, 1/12 gates, 0/83 C, 53/84 históricos I**. Sem publicação de `job.run`;
+catálogo R07, raiz reativa e origens ainda não compostas permanecem fora desta
+seção. As notas da AEP-0048 sobre `PrepareCommandJob`/`CommandHandler` e da
+AEP-0101 sobre grants exatos continuam vigentes.
+
+Seção 34: ponte comando → runtime real de jobs implementada para usuário
+local, com alvo fixado pelo bootstrap, confirmação interativa obrigatória,
+revalidação por tentativa e resultado durável. Ponte de tools preserva o
+profile de origem e a correlação, sem promover o alvo a chamador.
+**R05.2 parcial; 11/48 saídas R, 1/12 gates, 0/83 C, 53/84 históricos I**.
+Faltam composição de autorização no App, raiz reativa completa e entradas
+agent/job_service/catálogo R07. Evidências e limites na seção 34 da tasklist.
+As notas abaixo são históricas.
+
+Seção 33: **R03.2 aceito; 11/48 saídas R, 1/12 gates, 0/83 critérios C,
+53/84 históricos I**. Tasklists reais produzem origem interna autenticada;
+hotkey passa pelo callback registrado pelo Manager. Cadeias têm validação
+compartilhada e múltiplos jobs simultâneos estão qualificados no App.
+R03.4 segue aberto pelo ciclo comando → novo job → evento → comando,
+dependente de R05.2/R07. App e nove pacotes de infraestrutura passaram;
+limites e ocorrência de cleanup do teste Go estão na tasklist. As notas
+abaixo são históricas.
+
+Seção 32: proveniência verificada da outbox acompanha as camadas selecionadas
+até o envelope; o executor revalida a origem, acrescenta o comando e recusa
+loops/limite antes da reserva. Auditoria conserva somente metadados estruturais.
+**10/48 saídas R e 1/12 gates**, sem novo aceite C/I: ainda falta qualificar
+a composição comando → job → evento → comando e multiorigem no App (R03.4),
+além dos ingressos restantes de R03.2. Notas abaixo são históricas.
+
+Seção 31: herança privada de origem/cadeia entre jobs integrada ao Manager;
+retenção de runs protegidos corrigida e recuperação/rollback da outbox
+qualificados. **10/48 saídas R e 1/12 gates**, sem novo aceite C/I. R03.4
+continua aberto especificamente pela ponte de proveniência da claim de job
+ao envelope do comando resolvido; testes isolados do limite 16 não a
+substituem. R03.2 ainda requer ingressos restantes. Notas abaixo são históricas.
+
+Seção 30: claims autorizadas de jobs agora entram no mapa efetivo do resolvedor
+do App, com guard de lease/runtime/condição e refresh sem depender de
+notificação. Renovação equivalente preserva comandos em andamento; caminho
+estável da projeção não consulta SQLite. **10/48 saídas R, 1/12 gates, 0/83
+critérios C e 53/84 históricos I**, sem novo aceite de gate. R03.2/R03.4 ainda
+exigem ingressos/replay e demais provas integradas. Notas abaixo são históricas.
+
+Seção 29: **R03.1/R03.3 aceitos; 10/48 saídas R, 1/12 gates, 0/83 critérios
+finais C e 53/84 históricos I**. A fonte viva de jobs agora sobrevive a
+publicações de configuração sem perder invalidação de segurança; condições,
+heartbeat e ciclos independentes têm provas complementares. R03 permanece
+aberto: projeção das claims no resolvedor, ingressos e replay ainda pendentes.
+As contagens das notas seguintes são históricas.
+
+Seção 28: **Gate R04 aceito**, com restart de App/core/Manager sobre SQLite
+temporário, recuperação multiusuário/system, limpeza legada, compactação e
+proteção de job vivo além do TTL inicial até sua conclusão real. O cenário
+passou três repetições e revelou/corrigiu comparação UTC/local na outbox.
+Contagem vigente: **8/48 saídas R, 1/12 gates, 0/83 critérios finais C e
+53/84 históricos I**. Não certifica crash de processo nem encerra R03/R01
+ou o AEP. Evidências e limites estão na tasklist. As notas abaixo são históricas.
+
+Seção 27: **R04.3 e R04.4 aceitos**, com recuperação paginada multiusuário,
+rollback/retomada, política imutável por passagem e diagnóstico de etapas.
+Contagem atual: **8/48 saídas R, 0/12 gates, 0/83 critérios finais C e 53/84
+históricos I**. R04 tem quatro saídas aceitas, mas o gate aguarda qualificação
+conjunta de restart no App com todos os domínios e trabalho vivo. R03 e a
+projeção das mudanças de claims permanecem abertos. As notas seguintes são
+históricas; não prevalecem sobre esta contagem.
+
+Seção 26 da tasklist: R04.1 aceito. Consumer e adapters reais são montados
+antes de jobs.Start, na única cadência existente. Identidade de jobs exige
+registro vivo no Manager, watch do epoch e linha persistida; terminalidade
+não é prova de vida. Shutdown aguarda o join da manutenção. Contagem vigente:
+**6/48 saídas R, 0/12 gates R, 0/83 critérios finais C, 53/84 históricos I**.
+R03.1 e R04.3/R04.4 continuam parciais: contexto completo, projeção de claims,
+qualificação multiusuário e atualização dinâmica da política ainda faltam.
+Os parágrafos seguintes registram as rodadas anteriores, não a contagem atual.
+
+Seção 25 da tasklist: manutenção inicial do coordenador migra para sua única
+goroutine cancelável, fora dos locks de Start; heartbeat retoma o prefixo
+confirmado após erro, e falhas transitórias não são confundidas com rejeições
+definitivas de claims. Retenção informa continuação após rollback. Montagem
+do Consumer com portas reais no App e ligação antes de jobs.Start continuam
+pendentes; contagem permanece 5/48 saídas R, sem novo gate certificado.
+
+Seção 24 da tasklist: recovery registrado está ligado ao bootstrap. A nova
+migração v29 associa startups privados à identidade física do banco sob lock
+nativo. Somente namespaces anteriores comprovados podem ser reconciliados;
+geração atual, desconhecida ou de outra cópia permanece fora da prova. O App
+recupera receipts e ledger/audit antes de publicar, sem reexecutar efeitos.
+O reset do banco encerra comandos antes do fechamento/remoção. A qualificação
+desta rodada e seus limites estão na tasklist; a cadência completa de R04 e
+BASE-PRONTA ainda não estão concluídas. **Contagem vigente: 5/48 saídas R**
+(R01.1–R01.4 e R04.2), **0/12 gates R, 0/83 critérios finais C e 53/84 itens
+históricos I**. Testes dos pacotes afetados e vet passaram; ACP/acpregistry
+falharam na suíte global e isoladamente com `0xffffffff`, causa não determinada.
+O gate R01 permanece em validação de regressão, com suas quatro saídas aceitas.
+
+Atualização da seção 23 da tasklist: troca produtiva de workspace retira a
+publicação anterior, aposenta o runtime e reconstrói a configuração do destino
+antes do evento à UI. Falha de leitura deixa comandos indisponíveis e permite
+nova tentativa, sem desfazer a troca ou reutilizar deltas antigos. A composição
+visual recebeu testes integrados. **R01.1 aceito** com ownership real,
+notificação perdida, mutação concorrente e provider ausente cobertos pela
+composição de provas UI/backend. Contagem naquela rodada: **3/48 saídas R**, ainda
+**0/12 gates R, 0/83 critérios finais C e 53/84 itens históricos I**. R01.4
+continuava aberto: faltava recuperação interprocesso segura, agora na seção 24.
+
+Atualização da seção 22 da tasklist: **R01.3 aceito**, com ingresso público
+pela composição real, suppress/rejected_stale duráveis, replay e confirmação
+de ledger/CAS anteriores ao handoff visual. A rodada corrige validação antes
+do tracker, correlação de ocorrência e referências mutáveis entre callbacks.
+Contagem naquela rodada: **2/48 saídas R**, mantendo **0/12 gates R, 0/83 critérios
+finais C e 53/84 itens históricos I**. R01.1/R01.4 e BASE-PRONTA seguem abertos;
+isso não habilita listeners físicos nem condições sem autoridade montada.
+
+Atualização da seção 19 da tasklist: R01.2 tem aceite da montagem produtiva do
+executor completo/projeção persistida, com diagnósticos de dependências e
+execução dos handlers reais. Naquela rodada eram **1/48 saídas R**, não o
+fechamento de R01 ou dos 84 itens históricos. A rodada também endurece
+contexto contra ABA de aba/perfil, leases visuais aposentadas e evidência IME
+de outro elemento; providers/acionadores/recovery ainda têm trabalho restante.
+
+Execução posterior à revisão: seis frentes paralelas corrigiram importação de credenciais/escopos, retries/dead-letter, fronteira pública da bridge, restore de claims, atomicidade da montagem e invalidação na recarga. A rodada real de produto agora usa `newCommandDesktopExecutor` e `commandconfig.ProjectComplete`, com autenticação pela sessão local sem JWT, bridge assíncrona e shutdown com join. Naquela rodada, o catálogo gerava a lista internamente sem entregá-la à UI; essa limitação foi resolvida na seção 14. O `Recover` do lifecycle faz preflight global somente leitura e fail-closed; sem prova interprocesso, não reconcilia pendências. A qualificação histórica dessa rodada teve frontend com 315 arquivos e 2.966 testes PASS, mas backend com 112 pacotes PASS, 8 sem testes e `internal/acpregistry` FAIL em 8.747s (`exit ffffffff`); o binário compilou, mas sua execução direta também reprovou sem output, com causa não certificada. A rodada posterior da seção 12 passou com 3.000 testes frontend e suíte Go completa; isso não explica a falha intermitente de acpregistry. Evidências e limitações históricas estão nas [seções 10 e 11 da tasklist](0103-tasklist-conclusao.md#11-rodada-real-de-produto--16092026). Esses fechamentos locais não certificam BASE-PRONTA.
+
+A [revisão integral](0103-revisao-integral-2026-09-16.md) e a [tasklist de conclusão](0103-tasklist-conclusao.md) são o acompanhamento vigente. A implementação já tem uma baseline real de executor desktop e projeção completa, mas ainda faltam a generalização dos providers/transporte de UI, automação/manutenção/recovery, ingressos físicos e migração dos comandos. O picker executa `workspace.list` e apresenta a lista autenticada sem persistir seu conteúdo (seção 14); `help.shortcuts.show` e os nove comandos de navegação usam handoff registrado com confirmação de resultado (seções 13 e 46). Os atalhos legados permanecem inalterados. A seção 47 registra o primeiro editor de configurações globais D15, ainda dependente da geração de bindings para uso no aplicativo e sem ingresso produtivo de teclado personalizado. A consolidação corrigiu desbloqueio presumido, reutilização de dependências obsoletas e disponibilidade de origens desconectadas; os cenários estão documentados na seção 11.
+
+Os **84 itens de infraestrutura** do plano histórico são distintos dos **83 critérios de aceitação** ao final deste AEP. Os checkboxes históricos somam 53 marcados/31 abertos; a contagem posterior 81/84 misturou 28 fechamentos locais de critérios C com itens I e foi retirada como medida válida. Evidência de primitivas/sentinela não encerra os percursos integrados. As atualizações antigas abaixo são histórico do subconjunto entregue, não substituem o aceite integral. A divisão contextual D2/D8 foi atualizada com aprovação explícita do usuário; as demais decisões permanecem vigentes.
+
+### Teclado local de navegação — 17/09/2026
+
+A seção 52 registra correção do teclado do picker compartilhado: eventos
+do campo de pesquisa não são novamente processados pelo menu pai. A lista
+da paleta independe de atalhos personalizados e anuncia totais/disponibilidade;
+os novos destinos aceitam configuração de teclas, mas não receberam novas
+combinações padrão. O aceite NVDA da correção ainda depende do usuário.
+
+A seção 51 da tasklist amplia o teclado personalizado aos nove comandos
+`navigation.*.open`, além de `workspace.list`. O host publica combinação,
+comando e tipo de handler; a UI não escolhe o comando no ingresso, que
+resolve novamente o binding real com origem `keyboard.local`. A navegação
+reutiliza reserva, autorização, handoff e confirmação de resultado da paleta.
+O mapa é revalidado antes do handoff; a troca de página do próprio efeito
+não cancela sua confirmação. Atalhos legados e prioridade de campos/modais
+permanecem. O usuário confirmou o primeiro atalho com camada ativa; os novos
+destinos ainda exigem aceite no app. Não certifica D3/D7/D15 integralmente.
+
+### Resolução produtiva da paleta — 16/09/2026
+
+Atualização da seção 18 da tasklist: `help.shortcuts.show` também resolve o
+default/delta persistido, com reserva UI obrigatória e sem redirecionamento
+para handler backend. Antes de entregar o handoff, o App revalida a admissão
+após a espera. Supressão/recusa não executam o efeito visual. Essa integração
+não encerra os providers, os acionadores físicos ou o recovery de R01.
+
+A seleção backend da paleta agora resolve o snapshot real de `commandconfig`
+publicado pelo lifecycle, incluindo defaults, deltas de supressão e pendências
+de revisão. A bridge usa o mesmo percurso, sem bypass direto do binding. A
+leitura de configuração/camadas/versões é atômica em `HostState`; as camadas
+contribuintes vêm dos bindings efetivos. O dispatcher conserva autorização,
+CAS e ledger existentes. A projeção global+workspace é publicada como unidade;
+seu stamp volátil invalida ambos os escopos quando qualquer parte muda.
+
+O primeiro default produtivo é a seleção `palette:workspace.list`; seu
+fingerprint inclui a semântica executável e exclui apresentação visual. Essa
+entrega não migra atalhos nem promove a paleta a origem física. Condições com
+autoridade ainda ausente são recusadas sem fallback. Handoff de UI e origens
+físicas continuam com seus contratos próprios; R01 e BASE-PRONTA seguem abertos.
+Evidências da rodada ficam na seção 15 da tasklist de conclusão.
+
 ### Gate de montagem do App — 15/09/2026
+
+A rodada de lifecycle físico de 16/09 (seção 17 da tasklist) corrigiu rollback
+de abertura, falha de frame, callbacks obsoletos, concorrência de handles e
+liberação após erro do driver. Ela também identificou um limite na dependência
+fixada: a espera por release não possui cancelamento explícito no fechamento.
+O aceite de shutdown físico e a montagem no App permanecem abertos; a prova
+manual histórica não cobre remoção/fechamento com tecla pressionada.
+
+Atualização de robustez (16/09): o controller de entrada isola prefixos por
+fonte, correlaciona release/repeat com a tecla composta e invalida resoluções
+em andamento nas transições de lifecycle. A identidade do evento é emitida
+pelo adapter, não preservada do resolvedor. A seção 16 da tasklist registra
+as regressões e seus limites: isso não monta listeners físicos no produto
+nem fecha R01/BASE-PRONTA.
 
 Após a validação física de I13.5/I13.6, I13 passa a ser contabilizado como o
 terceiro pacote completo da infraestrutura. Em I14.2, `commandruntime` agora
@@ -19,20 +1090,19 @@ também tem portas padrão reais para o `commandruntime.Config`: autenticação 
 sessão local atual, geração privada vinculada ao `EpochService`, commit pelo
 gate de segurança, projeção a partir de `HostState.Snapshot`, enable/readiness
 em memória e falha fechada quando host/config/camadas/unlock não estão prontos.
-`ensureCommandLifecycleMountedForCurrentUser` liga uma montagem produtiva mínima
-pós-auth com store ledger real, catálogo completo sentinel `lifecycle.ready`,
-providers reais e adapter interno fail-closed; Login/RefreshAuth tentam montar
-sem quebrar a autenticação se alguma dependência ainda estiver indisponível.
-I14.2 fica encerrado localmente. Contagem atual: **49/84 critérios locais, 35
-abertos; 3/15 pacotes completos**.
+`ensureCommandLifecycleMountedForCurrentUser` liga, pós-auth, o executor desktop
+real por `newCommandDesktopExecutor`, o catálogo produtivo e a projeção completa
+por `commandconfig.ProjectComplete`, com providers e adapter fail-closed;
+Login/RefreshAuth tentam montar sem quebrar a autenticação se alguma dependência
+ainda estiver indisponível. I14.2 fica encerrado localmente.
 
 Atualização de I14.3: o pós-auth agora também tenta reconstruir a configuração
 inicial com `HostState.RebuildUserConfiguration` antes do Bootstrap. Quando há
 geração local válida, ele carrega `commandconfig.Store`, projeta o subconjunto
 local `keyboard.local`/read/none com `ProjectLocalRead`, revalida
 `Store.CheckCurrent` dentro da publicação e só então troca o mapa no `HostState`.
-Quando ainda não há geração base, cai no sentinel inicial; quando há geração
-inválida/obsoleta, falha fechado e não mascara como mapa vazio. Ainda falta
+Quando ainda não há geração base, mantém o host fechado sem publicar mapa; quando
+há geração inválida/obsoleta, falha fechado e não mascara como mapa vazio. Ainda falta
 recovery/reconciliação durável de restart e claims persistentes.
 
 Atualização seguinte de I14.3/I14.5: `SetupVault`/`UnlockVault` agora finalizam
@@ -47,8 +1117,8 @@ rebuild produtivo chama `commandactivation.RestorePersistent` com owner/epoch
 derivados do `HostState`, recarrega o snapshot e deriva `ActiveUserLayerIDs`
 somente de claims manuais, ativas, persistentes, da sessão atual, não expiradas,
 com regra ativa e camada de usuário habilitada. A lista derivada é publicada no
-`HostState` junto com a configuração; instalação nova sem geração base continua
-no sentinel sem alterar claims.
+`HostState` junto com a configuração; instalação nova sem geração base permanece
+fechada sem alterar claims.
 
 Fechamento qualificado de I14.3: restart de processo agora foi coberto pelo
 contrato local do lifecycle. O App reabre carregando/projetando/publicando uma
@@ -83,7 +1153,7 @@ drena o domínio de executores, fecha a bridge, bloqueia novas admissões/remont
 e preserva dependências quando o drain falha. Contagem atual: **52/84 critérios
 locais, 32 abertos; 3/15 pacotes completos**.
 
-Fechamento de I14.6/I14: a matriz local agora cobre instalação nova/sentinel,
+Fechamento de I14.6/I14: a matriz local agora cobre instalação nova sem publicação,
 persistência, claims, restart com pendência sem falsa reconciliação, falhas antes
 de readiness, retomada após erro, monitor de SO e shutdown integrado. I14 fica
 completo localmente. Contagem atual: **53/84 critérios locais, 31 abertos;
@@ -419,7 +1489,8 @@ somente para leitura que não depende de alvo atual. `event_snapshot` exige
 `max_age_ms > 0` e timestamp autenticado do provider.
 `internal/commandcontext.VersionService` registra providers e monta
 `context_version` como fingerprint dos pares `(fact_name, fact_version)`.
-Providers iniciais:
+Providers iniciais, respeitando a divisão de autoridade abaixo (os providers
+visuais não são registrados no `VersionService` Go como espelhos da UI):
 
 - surface: consulta `surfaceId`/`snapshotVersion` pelo contrato da AEP-0080;
 - diálogo: geração do stack topmost;
@@ -429,7 +1500,7 @@ Providers iniciais:
 - job: `run_id` + último `job_run_events.sequence`;
 - sessão/lock: epochs do `EpochService`.
 
-Na revalidação, cada provider compara a versão atual ou a idade exigida pelo
+Na revalidação em seu domínio, cada provider compara a versão atual ou a idade exigida pelo
 comando. Provider ausente, versão incomparável ou TTL vencido torna o comando
 indisponível/falha fechado; não há heurística comum aplicada a contextos
 diferentes.
@@ -473,6 +1544,184 @@ consumida ou geração alterada não executa. `authorization_decision_id` é o
 Mutação confirmável de configuração usa o mesmo contrato com
 `subject_type = config_mutation` e consome a receipt ao gravar a mudança.
 Origem sem presenter registrado nunca cria receipt afirmativa.
+
+#### Divisão de autoridade contextual UI/backend — aprovada em 16/09/2026
+
+A seção 21 da tasklist registra os providers mínimos das quatro páginas de
+workspace, compartilhados pelo escopo React e consumidos pela preparação
+contextual do catálogo. Não habilita seleção/conteúdo, migração de atalhos ou
+condições visuais como autoridade backend; R01.1 continua parcial.
+
+A seção 20 da tasklist registra a integração da superfície explícita da
+Topbar com o catálogo e os executores visuais. A sessão é descartada em
+mudanças de navegação/owner; isso não generaliza os providers para outras
+telas nem encerra R01.1. O AEP permanece In Progress.
+
+Implementação e evidências desta mudança são acompanhadas nas seções 12 e 13
+da [tasklist de conclusão](0103-tasklist-conclusao.md). O handoff local de
+execução registrada é montado para `help.shortcuts.show` (palette); isso não
+constitui migração geral dos comandos ou fechamento integral de R01.
+
+### Política de execução por efeito — revisão de 18/09/2026
+
+Uma entrada no catálogo não implica necessidade de auditoria persistente.
+A classificação é confiável, declarada pelo produto, não escolhida pelo
+binding, payload ou frontend:
+
+- **Apresentação local:** navegar entre telas/abas, abrir menu/ajuda e mover
+  foco. Executa na UI, sincronamente após validar owner, rota, superfície,
+  modal, foco e composição. Não cria `command_invocations`, chave de
+  idempotência nem histórico por tecla. No recorte atual: `navigation.*`,
+  `help.shortcuts.show`, `workspace.panel.focus` e os onze comandos de
+  navegação `workspace.tab.next/previous/first` até `ninth`.
+- **Pickers de chat (ampliação autorizada em 18/09/2026):**
+  `chat.model.open`, `chat.history.open` e `chat.profile.open` apenas abrem
+  os pickers existentes; não selecionam modelo/perfil/conversa, não enviam
+  mensagem e não limpam conteúdo. São apresentação local sem ledger. Os
+  defaults Ctrl+M/H/P são configuráveis; a superfície ativa e suas capacidades
+  são revalidadas na UI. Um binding global não torna o comando disponível
+  fora de um chat apto. Ctrl+L fica fora dessa classificação.
+- **Consultas do chat (lote89):** `chat.pinned.open` e `chat.tokens.open`
+  abrem os modais existentes da conversa capturada, sob as mesmas restrições
+  de owner/sessão, aba ativa, superfície visível, foco, composição e modal
+  topmost. Não fixam/desfixam mensagens, não limpam conteúdo e não alteram o
+  contexto do modelo. São apresentação local sem ledger e sem novos defaults;
+  a configuração pode associar teclado e Stream Deck. O escopo de chat permite
+  esses dois IDs explicitamente, sem permitir comandos arbitrários ou limpeza.
+- **Apresentação do editor (lotes79–80):** `editor.menu.file.open`,
+  `editor.menu.format.open`, `editor.menu.insert.open`,
+  `editor.menu.mode.open`, `editor.slides.open` e
+  `editor.presentation.fullscreen` abrem controles existentes ou solicitam
+  fullscreen do renderer, sem salvar, formatar, inserir conteúdo ou persistir
+  modo. Inserir apenas abre o menu; não insere conteúdo. Apenas a instância
+  visível do editor ativo é elegível; modal, overlay, composição e contexto
+  obsoleto bloqueiam. Readonly ou modo view bloqueiam especificamente Inserir;
+  Formatar requer editor rico editável, slides requerem Reveal rico e
+  fullscreen requer Reveal em visualização. Arquivo e Modo seguem suas
+  capacidades próprias. Alt+I é contextual: no editor apto resolve Inserir;
+  fora dele resolve Importar conforme o mapa efetivo, sem fallback legado.
+  Alt+S/F5 são defaults configuráveis. Fullscreen depende do suporte/permissão
+  do WebView; não contorna exigências de gesto confiável.
+- **Apresentação de páginas (lote98):** `tasklists.create.open`,
+  `tasklists.edit.open`, `tasklists.search.focus`, `profiles.create.open`,
+  `profiles.edit.open`, `profiles.search.focus`, `terminal.sessions.open`,
+  `terminal.focus.input` e `terminal.focus.history` apenas abrem controles
+  existentes ou movem foco. Capturam página/instância e seleção/sessão antes
+  da paleta; mudança de identidade, alvo, rota, modal ou composição invalida
+  a captura. Edição não salva; abrir formulário não cria registro. Não se
+  estende essa classificação a CRUD, ativação ou processos do terminal.
+- **Operação de domínio:** consultas e alterações comuns possuem autenticação,
+  validação e persistência adequadas à operação. Não herdam automaticamente o
+  protocolo completo porque aparecem no catálogo. A seleção da última aba é
+  uma operação explícita de workspace/aba, não uma invocação auditada. Outros
+  handlers existentes só mudam mediante revisão concreta de seus efeitos;
+  esta decisão não elimina suas proteções por inferência.
+- **Execução com consequências:** envio, processos, exclusão, efeitos externos
+  e demais comandos classificados para execução durável continuam no executor
+  com autorização, prevenção de duplicidade, resultado e auditoria exigidos
+  pelo domínio. Criar e fechar abas permanecem nesse percurso neste recorte;
+  não são presumidos puramente visuais.
+
+O mapa local é uma projeção autenticada dos bindings resolvidos pelo host,
+incluindo supressões e camadas; não é uma autorização para efeitos de domínio.
+Na projeção contextual da seção80, o host publica `contextualBindings` para
+combinações simples de apresentação que dependem somente de `surface.type`.
+Cada entrada contém resoluções `bySurface` e um `fallback` para outras
+superfícies conhecidas. `null` é uma barreira explícita, inclusive em
+supressão, conflito ou revisão pendente; nunca autoriza experimentar o
+comando global. A UI lê o provider vigente a cada acionamento e recusa
+contexto desconhecido, sem consultar banco ou IPC por tecla. Não resolve
+prioridades nem traduz IDs de comandos no cliente. A seção113 amplia essa
+projeção para sequências v2 e operações auditadas nas surfaces reais das abas
+chat/editor/terminal/tasklist. A UI captura uma lease de contexto e envia
+somente a observação de tipo/ID da surface; o host não aceita command ID,
+owner ou argumentos de execução nesse ingresso. A observação deve coincidir
+com a aba canônica, e o snapshot de workspace capturado é revalidado durante
+a resolução/admissão e antes do handoff. Não se transforma a aba em provider
+visual: foco/modal/IME e a lease da surface continuam sendo conferidos na UI.
+Outros fatos e operações contextuais em páginas sem essa correspondência
+continuam explicitamente indisponíveis, sem fallback para execução global.
+As sequências fixam o contexto no prefixo e recusam uma continuação obsoleta;
+barreira de uma sequência não suprime outras identidades com o mesmo prefixo.
+No lote98, um prefixo simples contextual pode coexistir com sequências v2
+já existentes. O host publica `fallbackToSequences: true` somente quando a
+resolução da superfície alternativa é `NoMatch`. Na UI isso permite continuar
+para as sequências apenas em superfície conhecida sem ramo próprio e sem
+fallback simples. Ramo explícito `null`, supressão/conflito, superfície
+desconhecida ou flag ausente continuam barreiras; nunca se tenta a sequência
+após falhar um comando contextual. Ajuda e rótulos seguem a mesma prioridade.
+Somente a lista fechada de apresentação pode usar o caminho local. Atualização
+de mapa, logout, mudança de owner e perda de foco invalidam a projeção local
+antes de recarregá-la. Não se promete revalidação síncrona do estado remoto
+por tecla: a política de apresentação usa a última projeção válida publicada
+na UI. Ela não permite executar efeitos privilegiados com uma autorização
+antiga. A paleta também respeita a resolução efetiva, não apenas o catálogo.
+
+Stream Deck mantém descoberta/captura/normalização e checagens de geração,
+owner e configuração no host; apresentação local usa evento efêmero tipado,
+sem reserva no ledger. A UI rejeita geração/owner/contexto divergentes. Eventos
+visuais não são reexecutados após reconexão. Teclado global e origens headless
+não ganham esse caminho por inferência.
+
+A aba visual muda imediatamente. A última seleção é persistida separadamente,
+com alvo explícito e coalescência das seleções ainda não enviadas: não há fila
+durável de cada troca. Falha reconcilia o estado sem aplicar resposta de outra
+sessão/workspace. Antes de uma operação dependente da aba canônica, aguarda-se
+a seleção pendente e revalida-se o alvo originalmente capturado, sem retarget.
+Foco/anúncio visual não afirma que houve uma transação de auditoria.
+
+As regras abaixo de reserva, `CommandInvocation`, handoff e ledger aplicam-se
+ao percurso durável, não aos comandos de apresentação local acima. A exceção
+também se aplica a supressão local: combinação suprimida não dispara IPC nem
+grava uma chave por tecla. A infraestrutura auditada continua válida para
+seus consumidores e não deve ser usada como condição de navegação básica.
+
+O contexto é revalidado no domínio que possui sua fonte autoritativa. Esta
+decisão substitui a interpretação de que o backend consulta DOM/foco por Wails
+dentro do `DispatchGate`; não substitui autenticação, autorização ou ledger.
+
+- **Backend:** sessão, cofre, gerações de segurança/configuração, identidade e
+  versão do alvo persistido, workspace/aba/perfil canônicos e fatos nativos
+  pertencem aos providers locais do backend. O gate continua curto e não
+  aguarda Wails, resposta da UI ou conclusão de efeitos.
+- **UI:** foco e capacidades do controle, superfície visual explícita, modal
+  topmost e composição IME são relidos sincronamente na UI imediatamente
+  antes do efeito visual. Uma observação enviada por Wails não é provider
+  autoritativo do backend, mesmo que tenha versão ou TTL recente.
+- Uma preparação visual é local, opaca, de uso único e vinculada à instância
+  UI, usuário/sessão, workspace/aba e contexto capturado. A aplicação consome
+  a preparação e relê as fontes; só inicia o efeito síncrono se ainda forem
+  equivalentes. Não há `await` entre essa revalidação e o efeito. Ausência de
+  fonte exigida, blur, composição ativa/desconhecida, logout, descarte da
+  instância ou divergência recusa o efeito; nunca procura outro alvo.
+  A exceção de navegação da seção 63 admite somente composição `unknown`
+  nos campos nativos especificados; não flexibiliza composição `active`.
+- Notificações invalidam preparações/caches e ajudam a observar transições,
+  mas não autorizam o efeito. A checagem final consulta novamente DOM,
+  registries e stores, inclusive quando uma notificação não foi entregue.
+  Mudança de aba é verificada mesmo se o perfil permanecer igual. IME usa
+  estado explícito `active | inactive | unknown`; uma leitura sem evidência
+  suficiente não transforma `unknown` em `inactive`.
+- **Comandos duráveis que atravessam os dois lados:** o backend autentica, autoriza,
+  reserva a invocação e entrega somente um handoff tipado, correlacionado e de
+  uso único para a sessão/instância admitidas. A UI valida o contexto local
+  novamente antes do efeito e devolve o resultado correlacionado. Ack de
+  recebimento não significa efeito concluído. Recusa visual antes do efeito
+  não vira sucesso; perda de confirmação após handoff continua sujeita a
+  `outcome_unknown`, sem reexecução automática. Enquanto esse percurso não
+  estiver montado para um comando, ele permanece indisponível.
+- Comando de backend recebe um **alvo explícito**, autenticado e revalidado
+  no backend, nunca “o controle/aba que estiver ativo quando a resposta
+  chegar”. Troca de foco depois da submissão não desfaz um efeito backend já
+  admitido; seu retorno não pode aplicar efeito visual em outro contexto.
+  Operação que exigir foco ainda atual no instante do efeito deve executar
+  essa parte no domínio UI ou permanecer indisponível; TTL/cache não simulam
+  essa garantia.
+
+A proteção local de apresentação (por exemplo, aplicar o resultado da
+consulta do catálogo no picker) não concede permissão para comandos nem
+substitui o ponto único de execução abaixo. Ela também não transforma o
+catálogo de consulta em um executor alternativo.
 
 Comandos de UI podem ser executados no frontend por uma ponte tipada. Comandos
 de backend são enviados ao serviço correspondente. Jobs usam o runtime de jobs;
@@ -542,8 +1791,11 @@ ingresso nunca substitui timestamp ausente por `received_at`, pois isso faria
 snapshot antigo parecer novo; valor de cliente não confiável é ignorado.
 Política `max_age_ms` ou `event_snapshot` exige entrada para cada provider e
 falha fechado quando alguma faltar. `exact_version` pode omitir a entrada
-daquele provider, pois reconsulta sincronamente a versão autoritativa e exige
-igualdade antes do despacho. `none` não declara provider e omite o mapa e
+daquele provider, pois reconsulta sincronamente a versão autoritativa em seu
+próprio domínio e exige igualdade antes do despacho/efeito correspondente.
+O mapa de providers do envelope backend não aceita um espelho de DOM/foco
+como autoridade; as precondições visuais pertencem à preparação local descrita
+na divisão UI/backend. `none` não declara provider backend e omite o mapa e
 `context_version`. Versões/epochs monotônicos ficam em `context_version`, não
 são serializados como timestamp.
 
@@ -902,9 +2154,22 @@ diretamente a ação final. Uma entrada física gera no máximo uma execução, 
 quando mais de um observador puder enxergá-la.
 
 Cada adapter físico normaliza primeiro uma transição `up → down` e só depois
-gera `source_event_id`. Em `keyboard.local`, `keydown` com
+gera `source_event_id`. Por padrão, em `keyboard.local`, `keydown` com
 `KeyboardEvent.repeat = true` é descartado e `keyup` libera a combinação; perda
 de foco, blur ou troca de geração limpa o estado pressionado sem disparar ação.
+
+**Exceção aprovada pelo mantenedor em 18/09/2026:** comandos explícitos de
+navegação de abas podem aceitar repetição automática local. A política é uma
+lista fechada de comandos, conferida também no host; criar/fechar abas e outros
+efeitos continuam sem repetição. Um repeat só é elegível após down observado
+da mesma combinação e geração ainda pressionada, nunca isoladamente. Cada
+repeat aceito produz uma ação local distinta, sem deduplicar pressionamentos
+legítimos e sem persistir invocação/ledger da apresentação. Não reutiliza
+autorizações para efeitos de domínio. A seleção visual usa o estado síncrono
+atual; somente sua persistência pendente pode ser coalescida. Setas futuras devem
+respeitar ownership do controle e só aderem mediante suporte explícito; esta
+decisão não captura setas globalmente nem altera teclado global ou Stream Deck.
+
 O adapter global solicita a opção nativa de no-repeat quando disponível e
 mantém a mesma máquina de estado de pressão/liberação; plataforma que não
 consiga garantir essa borda não anuncia suporte ao binding global. Stream Deck
@@ -1134,6 +2399,16 @@ mapeando respostas para o comando fixo `decision.respond`; payload não injeta
 command IDs arbitrários. O topo do stack é a fonte autoritativa e mudanças
 incrementam `generation`.
 
+Para os três pickers de chat, o escopo de apresentação modal é distinto do
+escopo de decisão: só o chat pertencente à instância topmost pode abrir seus
+pickers, com a allowlist fechada acima e handlers montados. Um modal sobre
+ele bloqueia esses comandos; fechar/remontar/trocar a conversa invalida o
+alvo anterior. Nenhum payload amplia a allowlist de `DecisionDialog`.
+Teclado e Stream Deck reutilizam essa ação local; a paleta existente continua
+fora dos modais e captura o chat de origem antes de abrir sua busca, sem
+redirecionar uma seleção pendente para outra instância de chat. Não é uma
+autorização genérica para abrir a paleta ou navegar atrás de um modal.
+
 Diálogo bloqueante no topo é barreira, não apenas camada prioritária. Enquanto
 existir, somente bindings declarados pelo `DialogCommandScope` topmost são
 avaliados. Se não houver candidato permitido, o acionador é consumido ou
@@ -1360,25 +2635,32 @@ job run em andamento                   → ativa Execução
 streamdeck.key.5 → layer.toggle        → alterna Trabalho
 ```
 
-Mudanças de tela/estado notificam um `ContextFactBus` in-process e não durável,
+Mudanças de estado notificam um `ContextFactBus` do respectivo domínio,
+in-process e não durável,
 separado de `LayerActivationEvent`, com
 `{ provider_id, instance_id, version, captured_at }`. Produtores confiáveis são
-a ponte tipada da UI e adapters do SO; duplicata de versão é idempotente. A
+os registries locais da UI e os providers backend/adapters do SO, sem promover
+uma notificação remota a snapshot autoritativo; duplicata de versão é idempotente. A
 notificação apenas invalida cache: antes de cada resolução, o `VersionService`
 consulta o snapshot atual do provider, portanto perda/reordenação não conserva
 camada incorreta. O monitor de janela em primeiro plano é adapter específico por
 sistema operacional; no Windows, não depende do software do Stream Deck.
 
-Consumidor do `ContextFactBus` adquire `DispatchGate` exclusivo antes de trocar
+No backend, o consumidor do `ContextFactBus` adquire `DispatchGate` exclusivo antes de trocar
 snapshot e recalcular claims. Troca de snapshot sempre altera a versão do
 provider em `context_version`, mas só incrementa o contador global/workspace de
 `active_layers_generation` quando o conjunto efetivo de claims mudar.
-Resolução/admissão lê providers sob o gate compartilhado. Se a versão
+Resolução/admissão lê somente providers locais backend sob o gate compartilhado. Se a versão
 autoritativa diferir da versão usada no último cálculo de claims, libera o gate
 compartilhado, adquire o exclusivo, compara novamente, reconcilia
 sincronamente snapshot/claims/gerações e reinicia a resolução. Assim,
 notificação perdida ou mudança já observada não conserva camada antiga nem
-atravessa o CAS/início com geração antiga.
+atravessa o CAS/início com geração antiga. Para fatos visuais, a UI relê sua
+fonte antes do efeito síncrono, conforme a divisão de autoridade da D2. Não há
+roundtrip Wails sob o gate, nem alegação de atomicidade entre o DOM e o CAS
+backend. Condições visuais de camadas não podem autorizar efeitos backend
+usando apenas uma notificação espelhada; a projeção/entrada precisa respeitar
+os dois domínios e continuar indisponível quando faltar essa composição.
 
 Para jobs, a integração publica o fato contextual interno versionado
 `command-context.job-run-state.v1`, cujo `event_name` é exatamente esse nome,
@@ -2167,9 +3449,12 @@ O detalhe de uma camada possui duas seções principais:
 2. **Comandos desta camada**.
 
 A lista de comandos mostra acionador, comando, condição e conflito. Opções
-específicas aparecem somente quando relevantes; bindings de Stream Deck expõem
-posição, imagem, título e estados, enquanto bindings de teclado oferecem captura
-da combinação.
+específicas aparecem somente quando relevantes. Teclado e Stream Deck oferecem
+captura do acionador: o usuário pressiona a combinação ou a tecla física.
+No Stream Deck, o próprio evento identifica o aparelho e a posição; serial e
+IDs são internos, sem seletor ou configuração manual de aparelho desconectado.
+A posição é exibida com nome amigável; imagem, título e estados continuam no
+escopo específico do Stream Deck. Durante captura, não há despacho de comandos.
 
 Camadas padrão podem ser inspecionadas. Editá-las cria overrides reversíveis,
 sem alterar o default versionado.
@@ -2194,6 +3479,26 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - Diálogos bloqueantes e foco obedecem AEP-0091.
 - Eventos externos não ativam camadas nesta versão; suporte futuro exige
   contrato de identidade e grants em AEP própria.
+
+### D17 — Modo persistente do editor no lote81
+
+`editor.mode.markdown`, `editor.mode.rich` e `editor.mode.view` são comandos
+duráveis, com `Alt+1`, `Alt+2` e `Alt+3` como defaults, respectivamente. O
+contrato usa `Begin/Take/Commit`, alvo mutável `workspace/active_tab` com
+`ExactVersion` e CAS no backend. O `Commit` só altera `Tab.State.displayMode`;
+conteúdo, arquivos e os demais campos da aba permanecem intactos.
+
+A UI prepara e faz flush do estado rico antes da confirmação, mas só aplica o
+novo modo depois da decisão confirmada. Se workspace, aba, documento, foco ou
+versão mudarem durante a preparação, a operação é descartada sem roubar o
+foco do controle que o usuário passou a usar. Replays e ABA são recusados por
+enumeração e versão, inclusive quando repetem o mesmo modo; falha de storage
+restaura o estado e a versão anteriores.
+
+Composição IME ativa sempre bloqueia o comando. `UnknownIME` é um estado
+distinto: somente pode prosseguir para controles `native`/`rich` suportados e
+quando o registry válido os reconhece; não é exceção para IME ativo, não libera
+modos fora desse registro e não permite execução sem alvo contextual atual.
 
 ## Fases
 
@@ -3231,171 +4536,182 @@ real e definir tratamento de indisponibilidade sem execução com mapa obsoleto.
 
 ## Critérios de aceitação
 
-- [ ] Existe registro canônico e pesquisável de comandos com IDs, argumentos,
+IDs estabilizados pela reconciliação de 18/09/2026 e relidos em 22/09/2026:
+C01–C83 preservam a
+baseline; C84 identifica a cláusula de apresentação local já acrescentada
+na seção 68. Existem **84 critérios finais**, distintos dos 84 itens históricos
+de infraestrutura. Estado de implementação e evidências de cada um estão na
+[matriz vigente](0103-tasklist-conclusao.md#5-matriz-reconciliada-dos-84-critérios-finais).
+Checkbox é aceite final, não ausência de código.
+
+- [ ] C01 — Existe registro canônico e pesquisável de comandos com IDs, argumentos,
   disponibilidade, risco, aliases localizados e apresentação.
-- [ ] Teclado local, hotkey global, Stream Deck, Command Palette, chat e CLI
+- [ ] C02 — Teclado local, hotkey global, Stream Deck, Command Palette, chat e CLI
   podem convergir para o mesmo comando sem handlers finais duplicados.
-- [ ] Todo acionamento que resolve para execução produz `CommandInvocation` e
+- [ ] C03 — Todo acionamento classificado para execução durável produz `CommandInvocation` e
   passa por `CommandExecutionService`, com sessão, proveniência, autorização,
   deduplicação e auditoria antes do handler final; `effect = suppress` é
   consumido sem criar invocação.
-- [ ] A reserva atômica por evento impede reentrega, e ownership exclusivo
+- [ ] C84 — Apresentação local utiliza a projeção efetiva e valida o contexto na UI,
+  sem invocação/ledger por tecla; persistência da última seleção é separada.
+- [ ] C04 — A reserva atômica por evento impede reentrega, e ownership exclusivo
   impede duplicidade entre teclado local/global e listeners de dispositivo.
-- [ ] Solicitações diretas e triggers sem `source_event_id` usam
+- [ ] C05 — Solicitações diretas e triggers sem `source_event_id` usam
   `invocation:<invocation_id>`; eventos usam `event:<source_event_id>`.
-- [ ] Manter uma tecla pressionada não repete comando: o adapter descarta
-  `KeyboardEvent.repeat`/repetição nativa antes de gerar `source_event_id` e
-  testes cobrem release, blur e reconexão.
-- [ ] Retirada de `queued` revalida todos os gates no mesmo CAS para `running`.
-- [ ] Cada instância física usa geração própria e índice parcial de eventos;
+- [ ] C06 — Manter uma tecla pressionada não repete comandos fora da lista explícita
+  de navegação local da D3: repeats elegíveis têm ocorrência independente;
+  demais repeats são descartados antes de gerar `source_event_id`. Testes
+  cobrem identidade da combinação, release, blur, reconexão e saturação.
+- [ ] C07 — Retirada de `queued` revalida todos os gates no mesmo CAS para `running`.
+- [ ] C08 — Cada instância física usa geração própria e índice parcial de eventos;
   invocações diretas deduplicam somente pela PK UUIDv7.
-- [ ] Execução por agente e automação preserva e revalida os gates da AEP-0101;
+- [ ] C09 — Execução por agente e automação preserva e revalida os gates da AEP-0101;
   origem headless não herda a identidade do usuário para autorizar mutações.
-- [ ] Usuário e ator são derivados pelo backend; payload não escolhe identidade
+- [ ] C10 — Usuário e ator são derivados pelo backend; payload não escolhe identidade
   de autorização/auditoria.
-- [ ] Camadas padrão do aplicativo e das surfaces permanecem ativas e um binding
+- [ ] C11 — Camadas padrão do aplicativo e das surfaces permanecem ativas e um binding
   ausente em camada superior cai para o default.
-- [ ] Overrides afetam somente o acionador e contexto declarados.
-- [ ] Tombstone bloqueia o default no contexto declarado, enquanto
+- [ ] C12 — Overrides afetam somente o acionador e contexto declarados.
+- [ ] C13 — Tombstone bloqueia o default no contexto declarado, enquanto
   personalização apenas desabilitada permite fallback.
-- [ ] Tombstones são aplicados antes da deduplicação e nunca produzem invocação.
-- [ ] Tombstone que consome um acionador grava marcador terminal no ledger;
+- [ ] C14 — Tombstones são aplicados antes da deduplicação e nunca produzem invocação.
+- [ ] C15 — Tombstone que consome um acionador grava marcador terminal no ledger;
   reentrega do mesmo evento não passa a executar um default após mudança de
   configuração.
-- [ ] Acionamento stale não grava `suppressed`, mas recebe marcador terminal
+- [ ] C16 — Acionamento stale não grava `suppressed`, mas recebe marcador terminal
   `rejected_stale`; o mesmo ID nunca executa em reentrega posterior.
-- [ ] Override de default persiste ID e versão do default substituído.
-- [ ] É possível restaurar um binding, uma camada ou todas as personalizações.
-- [ ] Conflitos são detectados considerando a possível interseção de contextos,
+- [ ] C17 — Override de default persiste ID e versão do default substituído.
+- [ ] C18 — É possível restaurar um binding, uma camada ou todas as personalizações.
+- [ ] C19 — Conflitos são detectados considerando a possível interseção de contextos,
   e empate não executa dois comandos.
-- [ ] Escopo, especificidade e prioridades persistidas produzem resolução
+- [ ] C20 — Escopo, especificidade e prioridades persistidas produzem resolução
   determinística após importação/restart; empate termina em conflito fail-closed.
-- [ ] Bindings equivalentes por comando, argumentos e escopo produzem uma única
+- [ ] C21 — Bindings equivalentes por comando, argumentos e escopo produzem uma única
   invocação com proveniência preservada.
-- [ ] O resolvedor não consulta SQLite nem percorre o catálogo completo a cada
+- [ ] C22 — O resolvedor não consulta SQLite nem percorre o catálogo completo a cada
   acionamento.
-- [ ] Mudanças de surface, foco, workspace, janela externa e eventos podem
+- [ ] C23 — Mudanças de surface, foco, workspace, janela externa e eventos podem
   ativar e desativar camadas de forma determinística.
-- [ ] Desabilitar camada a remove imediatamente do mapa sem ressuscitar claims
+- [ ] C24 — Desabilitar camada a remove imediatamente do mapa sem ressuscitar claims
   stale ao reabilitá-la; expiração local é idempotente após restart.
-- [ ] Ativações por evento têm ID, sequência, correlação e deduplicação; evento
+- [ ] C25 — Ativações por evento têm ID, sequência, correlação e deduplicação; evento
   atrasado não encerra ciclo mais novo.
-- [ ] Claim e ledger de ativação preservam o escopo global/workspace, inclusive
+- [ ] C26 — Claim e ledger de ativação preservam o escopo global/workspace, inclusive
   para refs `builtin`; eventos e replay de outro workspace falham fechado.
-- [ ] A primeira versão aceita apenas fatos de `job_run_events` espelhados
+- [ ] C27 — A primeira versão aceita apenas fatos de `job_run_events` espelhados
   transacionalmente na outbox durável; EventBus best-effort e produtores
   externos falham fechado.
-- [ ] Count-cap/cascade de runs não remove a outbox antes do deadline; startup
+- [ ] C28 — Count-cap/cascade de runs não remove a outbox antes do deadline; startup
   recupera leases e reprocessa pendências antes da retenção de jobs.
-- [ ] Estado de ativação persistido é reconciliado em modo seguro no startup e
+- [ ] C29 — Estado de ativação persistido é reconciliado em modo seguro no startup e
   preserva autenticação, geração e proveniência anti-loop da AEP-0067.
-- [ ] Claim de job sem lease e fonte autoritativa válidas fica inativa.
-- [ ] Replay de ativação fora da retenção é rejeitado, e ownership vem do
+- [ ] C30 — Claim de job sem lease e fonte autoritativa válidas fica inativa.
+- [ ] C31 — Replay de ativação fora da retenção é rejeitado, e ownership vem do
   principal autenticado, não do payload.
-- [ ] A Command Palette busca e descreve comandos disponíveis e indisponíveis
+- [ ] C32 — A Command Palette busca e descreve comandos disponíveis e indisponíveis
   com motivo, mas executa somente os disponíveis.
-- [ ] A Command Palette tem navegação completa por teclado, anúncios e
+- [ ] C33 — A Command Palette tem navegação completa por teclado, anúncios e
   restauração de foco cobertos por testes e validação NVDA.
-- [ ] A configuração por chat usa tools estruturadas, IDs reais e confirmações
+- [ ] C34 — A configuração por chat usa tools estruturadas, IDs reais e confirmações
   de segurança.
-- [ ] Toda mutação persistente solicitada por agente mostra diff, exige decisão
+- [ ] C35 — Toda mutação persistente solicitada por agente mostra diff, exige decisão
   explícita e falha fechado sem interlocutor.
-- [ ] `command_catalog.execute` aplica o mesmo gate a comandos que alteram
+- [ ] C36 — `command_catalog.execute` aplica o mesmo gate a comandos que alteram
   capacidade efetiva, incluindo ativação de camada.
-- [ ] A tela de configuração oferece lista de camadas, detalhe de ativação e
+- [ ] C37 — A tela de configuração oferece lista de camadas, detalhe de ativação e
   bindings, captura de teclas e explicação do resultado efetivo.
-- [ ] Toda configuração é operável por teclado e NVDA sem depender de grade,
+- [ ] C38 — Toda configuração é operável por teclado e NVDA sem depender de grade,
   arrastar, imagem ou cor.
-- [ ] O Assistente controla ao menos um modelo de Stream Deck diretamente por
+- [ ] C39 — O Assistente controla ao menos um modelo de Stream Deck diretamente por
   Go, sem software oficial, com reconexão e shutdown limpo.
-- [ ] Sem sessão autenticada, e durante logout ou troca de usuário, o Stream
+- [ ] C40 — Sem sessão autenticada, e durante logout ou troca de usuário, o Stream
   Deck fica em estado seguro e rejeita callbacks de gerações anteriores.
-- [ ] O Stream Deck atualiza somente teclas cujo conteúdo efetivo mudou e usa
+- [ ] C41 — O Stream Deck atualiza somente teclas cujo conteúdo efetivo mudou e usa
   cache de imagens.
-- [ ] Abertura/reconexão do Stream Deck invalida o diff e força frame completo.
-- [ ] Camadas baseadas no programa em primeiro plano funcionam no Windows e
+- [ ] C42 — Abertura/reconexão do Stream Deck invalida o diff e força frame completo.
+- [ ] C43 — Camadas baseadas no programa em primeiro plano funcionam no Windows e
   degradam explicitamente em plataformas sem adapter.
-- [ ] Contexto externo é capturado antes de bring-to-front e não muda no meio do
+- [ ] C44 — Contexto externo é capturado antes de bring-to-front e não muda no meio do
   acionamento.
-- [ ] Comandos disparados fora de foco preservam permissões, decisões e
+- [ ] C45 — Comandos disparados fora de foco preservam permissões, decisões e
   auditoria do executor de destino.
-- [ ] Exportação/importação preserva UUIDs e escopos, relata referências e
+- [ ] C46 — Exportação/importação preserva UUIDs e escopos, relata referências e
   conflitos e não transfere grants nem histórico de invocações.
-- [ ] Binding persistente e export não contêm segredos brutos; delegação a tool
+- [ ] C47 — Binding persistente e export não contêm segredos brutos; delegação a tool
   propaga redação ou permanece indisponível.
-- [ ] Referência importada de credencial resolve pattern exato no usuário de
+- [ ] C48 — Referência importada de credencial resolve pattern exato no usuário de
   destino ou deixa o binding desabilitado.
-- [ ] `command_invocations` tem payload redigido, origem rastreável, índices e
+- [ ] C49 — `command_invocations` tem payload redigido, origem rastreável, índices e
   retenção por idade e quantidade, sem prometer reconstruir o snapshot completo.
-- [ ] `command_invocations.invocation_id` é a PK canônica da invocação,
+- [ ] C50 — `command_invocations.invocation_id` é a PK canônica da invocação,
   consulta e correlação com tools; o ledger tem PK própria `id` e referências
   UNIQUE explícitas.
-- [ ] Reentrega dentro da janela retorna status/resultado redigido sem repetir o
+- [ ] C51 — Reentrega dentro da janela retorna status/resultado redigido sem repetir o
   handler; invocações interrompidas por queda viram `outcome_unknown`.
-- [ ] Evento durável preserva a chave pelo horizonte de replay da fonte e,
+- [ ] C52 — Evento durável preserva a chave pelo horizonte de replay da fonte e,
   depois dele, é rejeitado por `source_occurred_at` autenticado em vez de ser
   tratado como solicitação nova.
-- [ ] Ativações por evento persistem o mesmo epoch/deadline imutável da fonte;
+- [ ] C53 — Ativações por evento persistem o mesmo epoch/deadline imutável da fonte;
   aumentar retenção não reabre ocorrência antiga.
-- [ ] Recuperação de startup atualiza auditoria e ledger para
+- [ ] C54 — Recuperação de startup atualiza auditoria e ledger para
   `outcome_unknown` na mesma transação.
-- [ ] Reutilizar `invocation_id` com request fingerprint diferente falha
+- [ ] C55 — Reutilizar `invocation_id` com request fingerprint diferente falha
   fechado.
-- [ ] Caps de auditoria não removem os ledgers antes de `expires_at`; compactar
+- [ ] C56 — Caps de auditoria não removem os ledgers antes de `expires_at`; compactar
   registro recente não permite nova execução ou ativação.
-- [ ] Consulta de invocação aplica propriedade por usuário e autorização do
+- [ ] C57 — Consulta de invocação aplica propriedade por usuário e autorização do
   ator, sem lookup cross-user apenas pela PK.
-- [ ] Sessão, geração de segurança e staleness de contexto são revalidados
+- [ ] C58 — Sessão, geração de segurança e staleness de contexto são revalidados
   imediatamente antes de todo handler.
-- [ ] Policies `max_age_ms`/`event_snapshot` falham fechado sem timestamp de
+- [ ] C59 — Policies `max_age_ms`/`event_snapshot` falham fechado sem timestamp de
   cada provider; ingresso não transforma snapshot sem `capturedAt` em contexto
   recém-capturado.
-- [ ] `handler.Start` confirma handoff sem bloquear; logout/mutação concorrente
+- [ ] C60 — `handler.Start` confirma handoff sem bloquear; logout/mutação concorrente
   não espera o trabalho longo nem entra em deadlock.
-- [ ] Versões do catálogo e da configuração são revalidadas ao retirar da fila;
+- [ ] C61 — Versões do catálogo e da configuração são revalidadas ao retirar da fila;
   binding alterado não executa resolução antiga.
-- [ ] Cache de resolução inclui usuário, workspace, acionador, origem,
+- [ ] C62 — Cache de resolução inclui usuário, workspace, acionador, origem,
   `context_version` e todas as versões/gerações de catálogo, configuração e
   camadas ativas.
-- [ ] Cada comando declara `context_policy`; nas policies que declaram
+- [ ] C63 — Cada comando declara `context_policy`; nas policies que declaram
   providers, provider ausente ou versão/TTL inválido falha fechado.
-- [ ] `context_policy = none` é rejeitado para qualquer comando não read-only.
-- [ ] Contextos local, JWT externo, job e system têm fontes de identidade e
+- [ ] C64 — `context_policy = none` é rejeitado para qualquer comando não read-only.
+- [ ] C65 — Contextos local, JWT externo, job e system têm fontes de identidade e
   revogação explícitas; `EpochService` invalida trabalho obsoleto.
-- [ ] Ativação event-driven usa grants próprios de camada, com chave natural,
+- [ ] C66 — Ativação event-driven usa grants próprios de camada, com chave natural,
   geração monotônica, histórico de revogação e revalidação autoritativa por
   evento; não reutiliza nem amplia grants de delegação da AEP-0101.
-- [ ] Adapter de jobs exige `job_slug = Job.ID` e
+- [ ] C67 — Adapter de jobs exige `job_slug = Job.ID` e
   `job_database_id = Job.DatabaseID`, confirma ambos por owner e permanece
   desabilitado para fatos legados ambíguos.
-- [ ] Evento de ativação recebido é candidato sem autoridade; dispatcher
+- [ ] C68 — Evento de ativação recebido é candidato sem autoridade; dispatcher
   deriva owner, workspace, regra, layer e epochs antes do envelope interno.
-- [ ] Regras e layers builtin/user usam refs polimórficas consistentes no
+- [ ] C69 — Regras e layers builtin/user usam refs polimórficas consistentes no
   schema, grants, estado, ownership, importação e restore.
-- [ ] Após o PR atualizar a AEP-0052, identidade externa só acessa usuário
+- [ ] C70 — Após o PR atualizar a AEP-0052, identidade externa só acessa usuário
   local por mapeamento administrativo exato de emissor e subject; antes disso,
   o command manager fica indisponível nesse modo.
-- [ ] Cada comando declara origens permitidas e o serviço bloqueia origem não
+- [ ] C71 — Cada comando declara origens permitidas e o serviço bloqueia origem não
   autorizada, incluindo comandos visuais solicitados pela CLI.
-- [ ] `effect_class` e mutabilidade vêm do contrato do handler; metadata
+- [ ] C72 — `effect_class` e mutabilidade vêm do contrato do handler; metadata
   divergente impede o registro.
-- [ ] CLI não executa comando que exija diálogo/decisão interativa.
-- [ ] Comando destrutivo só avança com receipt de decisão criada no backend,
+- [ ] C73 — CLI não executa comando que exija diálogo/decisão interativa.
+- [ ] C74 — Comando destrutivo só avança com receipt de decisão criada no backend,
   vinculada à solicitação e consumida uma vez no CAS para `queued`.
-- [ ] `cli`, `event` e `system` não registram/executam comando destrutivo;
+- [ ] C75 — `cli`, `event` e `system` não registram/executam comando destrutivo;
   qualquer origem sem presenter interativo falha fechado.
-- [ ] Em autenticação externa, adapters físicos permanecem indisponíveis até
+- [ ] C76 — Em autenticação externa, adapters físicos permanecem indisponíveis até
   existir vínculo local explícito e revogável com um principal externo.
-- [ ] Estação bloqueada suspende hotkeys globais e dispositivos físicos e
+- [ ] C77 — Estação bloqueada suspende hotkeys globais e dispositivos físicos e
   apresenta estado seguro até revalidar a sessão após desbloqueio.
-- [ ] Diálogo topmost bloqueia fallback para camadas inferiores e os atalhos
+- [ ] C78 — Diálogo topmost bloqueia fallback para camadas inferiores e os atalhos
   obrigatórios da AEP-0091 não aceitam tombstone.
-- [ ] Dispatcher reserva atalhos invariantes do diálogo antes de qualquer
+- [ ] C79 — Dispatcher reserva atalhos invariantes do diálogo antes de qualquer
   binding configurável.
-- [ ] Shell continua passando exclusivamente por `internal/commandpolicy`.
-- [ ] Manutenção em escopo de instância cobre todos os usuários e registros
+- [ ] C80 — Shell continua passando exclusivamente por `internal/commandpolicy`.
+- [ ] C81 — Manutenção em escopo de instância cobre todos os usuários e registros
   `system` em uma única cadência.
-- [ ] Deep links e configurações importadas não concedem execução arbitrária.
-- [ ] Testes cobrem fallback de defaults, sobreposição, múltiplas camadas,
+- [ ] C82 — Deep links e configurações importadas não concedem execução arbitrária.
+- [ ] C83 — Testes cobrem fallback de defaults, sobreposição, múltiplas camadas,
   modais, inputs, múltiplas abas, troca de foco, reconexão de dispositivo e
   prevenção de execução duplicada.

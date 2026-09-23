@@ -8,6 +8,13 @@ import (
 	"golang.design/x/hotkey"
 )
 
+const (
+	ModCtrl  hotkey.Modifier = hotkey.ModCtrl
+	ModShift hotkey.Modifier = hotkey.ModShift
+	ModAlt   hotkey.Modifier = hotkey.ModOption
+	ModWin   hotkey.Modifier = hotkey.ModCmd
+)
+
 // parseKeyStringImpl implementação específica para Darwin/macOS
 // Usa códigos de tecla do macOS (kVK_* constants)
 func parseKeyStringImpl(key string) (hotkey.Key, error) {

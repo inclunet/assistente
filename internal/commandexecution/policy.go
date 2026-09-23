@@ -17,6 +17,21 @@ import (
 // revogação e troca de usuário devem ser coordenadas pelo mesmo EpochService
 // do executor.
 func NewLocalReadAuthorizer(db *gorm.DB, allowedRoles map[string][]string) (func(context.Context, auth.LocalSessionPrincipal, string, commandcatalog.Source) error, error) {
+	return newLocalReadAuthorizer(db, allowedRoles, func(source commandcatalog.Source) bool {
+		return source == commandcatalog.Palette || source == commandcatalog.UI || source == commandcatalog.CLI || source == commandcatalog.KeyboardLocal
+	})
+}
+
+// NewLocalStreamDeckReadAuthorizer constrói a autorização local read-only
+// exclusiva para acionadores Stream Deck. Mantém as mesmas verificações de
+// sessão, usuário ativo, expiração e role de NewLocalReadAuthorizer.
+func NewLocalStreamDeckReadAuthorizer(db *gorm.DB, allowedRoles map[string][]string) (func(context.Context, auth.LocalSessionPrincipal, string, commandcatalog.Source) error, error) {
+	return newLocalReadAuthorizer(db, allowedRoles, func(source commandcatalog.Source) bool {
+		return source == commandcatalog.StreamDeck
+	})
+}
+
+func newLocalReadAuthorizer(db *gorm.DB, allowedRoles map[string][]string, sourceAllowed func(commandcatalog.Source) bool) (func(context.Context, auth.LocalSessionPrincipal, string, commandcatalog.Source) error, error) {
 	if db == nil || len(allowedRoles) == 0 {
 		return nil, ErrInvalidConfiguration
 	}
@@ -49,7 +64,7 @@ func NewLocalReadAuthorizer(db *gorm.DB, allowedRoles map[string][]string) (func
 			return err
 		}
 		if !validID(principal.UserID) || !validID(principal.SessionID) ||
-			(source != commandcatalog.Palette && source != commandcatalog.UI && source != commandcatalog.CLI) {
+			!sourceAllowed(source) {
 			return ErrDenied
 		}
 		roles, ok := policy[commandID]

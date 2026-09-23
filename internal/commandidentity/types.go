@@ -145,16 +145,19 @@ type ExecutionPorts struct {
 	Authorizer AuthorizerPort
 }
 
-func SystemCapabilityForBootstrap() SystemCapability       { return systemCapability{} }
-func JobServiceCapabilityForRuntime() JobServiceCapability { return jobServiceCapability{} }
+func SystemCapabilityForBootstrap() SystemCapability { return systemCapability{} }
+func JobServiceCapabilityForRuntime() JobServiceCapability {
+	return &jobServiceCapability{nonce: 1}
+}
 
 type systemCapability struct{}
 
 func (systemCapability) commandSystemCapability() {}
 
-type jobServiceCapability struct{}
+// Tamanho não zero garante identidade de ponteiro distinta entre emissões.
+type jobServiceCapability struct{ nonce byte }
 
-func (jobServiceCapability) commandJobServiceCapability() {}
+func (*jobServiceCapability) commandJobServiceCapability() {}
 
 // JobRuntime é o adapter tipado do runtime já existente. Ele deve consultar
 // owner, definição, profile e grants no seu contexto autoritativo, não por um

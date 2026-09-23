@@ -46,15 +46,6 @@ export type EditorPatch = {
   notes?: string;
 };
 
-/** Sessão de edição de um bloco Mermaid no editor rico. */
-export interface RichMermaidSession {
-  mermaidBlockId: string;
-  initialCode: string;
-  insertText: string;
-  apply: (nextCode: string) => void;
-  remove: () => void;
-}
-
 /** Snapshot da seleção no editor Markdown (Monaco). */
 export interface MarkdownSelectionSnapshot {
   selectedText: string;

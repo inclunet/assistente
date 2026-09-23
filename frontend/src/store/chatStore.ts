@@ -10,6 +10,7 @@ import {
 } from '@wailsjs/go/wailsapi/Messaging';
 import { EnsureConversation } from '@wailsjs/go/wailsapi/Conversations';
 import { MediaFile } from '../services/mediaService';
+import { ChatMessagingStaleError, type ChatMessagingExecution } from '../lib/commandChatMessaging';
 import {
   cancelMediaSerialization,
   isMediaSerializationError,
@@ -137,8 +138,6 @@ interface ChatStore {
   setConversationEditingMessageId: (conversationId: string, id: string | null, sessionKey: string) => void;
   startConversationEditing: (conversationId: string, id: string, sessionKey: string) => void;
   consumeSkipFocusRestore: (conversationId: string, sessionKey: string) => boolean;
-  setConversationReadingMessageId: (conversationId: string, id: string | null, sessionKey: string) => void;
-  startConversationReading: (conversationId: string, id: string, sessionKey: string) => void;
   setConversationDraftMessage: (conversationId: string, message: string, sessionKey: string) => void;
   setConversationDraftMediaFiles: (conversationId: string, mediaFiles: MediaFile[], sessionKey: string) => void;
   clearConversationDraft: (conversationId: string, sessionKey: string) => void;
@@ -175,15 +174,19 @@ interface ChatStore {
     content: string,
     mediaFiles?: MediaFile[],
     paramsOverride?: Partial<llm.ChatParams>,
-    options?: { origin?: ChatSurfaceOrigin },
+    options?: { origin?: ChatSurfaceOrigin; command?: ChatMessagingExecution },
   ) => Promise<void>;
   retryMessageToConversation: (
     conversationId: string,
     messageId: string,
     paramsOverride?: Partial<llm.ChatParams>,
-    options?: { origin?: ChatSurfaceOrigin },
+    options?: { origin?: ChatSurfaceOrigin; command?: ChatMessagingExecution },
   ) => Promise<void>;
   cancelStreaming: (conversationId: string, options?: { origin?: ChatSurfaceOrigin }) => Promise<void>;
+  waitForMessagingAdmission: (conversationId: string) => Promise<void>;
+  finishCommandCancellation: (conversationId: string, sessionKey: string | undefined, pipelineRevision: number, announceCancelled?: boolean) => void;
+  getMessagingPipelineRevision: (conversationId: string) => number;
+  getDraftRevision: (sessionKey: string) => number;
   cancelConversationTurn: (conversationId: string) => void;
 
   getConversationMessages: (conversationId: string) => Message[];
@@ -206,6 +209,8 @@ interface ChatStore {
 
 export const useChatStore = create<ChatStore>()((set, get) => {
   const turnQueue = createConversationTurnQueue();
+  const pipelineRevisions = new Map<string, number>();
+  const draftRevisions = new Map<string, number>();
 
   const getSession = (state: ChatStore, conversationId: string, sessionKey?: string): ChatConversationSession => (
     getChatSession(state, conversationId, sessionKey)
@@ -594,8 +599,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     mediaFiles?: MediaFile[],
     paramsOverride?: Partial<llm.ChatParams>,
     retryMessageId?: string,
-    options?: { origin?: ChatSurfaceOrigin },
+    options?: { origin?: ChatSurfaceOrigin; command?: ChatMessagingExecution },
   ) => {
+    if (options?.command && !options.command.isCurrent()) throw new ChatMessagingStaleError();
     if (mediaFiles && mediaFiles.length > 0) {
       const totalSize = mediaFiles.reduce((acc, f) => acc + f.file.size, 0);
       const estimatedBase64Size = Math.ceil(totalSize * 1.37);
@@ -605,10 +611,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           size: Math.round(estimatedBase64Size / 1024 / 1024),
           max: Math.round(MAX_MEDIA_SIZE / 1024 / 1024),
         }));
+        if (options?.command) throw new ChatMessagingStaleError();
         return;
       }
     }
 
+    pipelineRevisions.set(conversationId, (pipelineRevisions.get(conversationId) ?? 0) + 1);
+    options?.command?.onPipelineStarted?.(pipelineRevisions.get(conversationId)!);
     playSendSound();
     const controller = startChatEventController({
       conversationId,
@@ -617,13 +626,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       origin: options?.origin,
       adapter: chatEventAdapter,
     });
-
+    let submitted = false;
     try {
       const mediaJson = mediaFiles && mediaFiles.length > 0
         ? await serializeMediaForConversation(conversationId, mediaFiles)
         : '';
+      if (options?.command && !options.command.isCurrent()) throw new ChatMessagingStaleError();
 
-      const mergedParams: llm.ChatParams = {
+      const mergedParams = new llm.ChatParams({
         model: paramsOverride?.model ?? '',
         temperature: paramsOverride?.temperature ?? 0,
         maxTokens: paramsOverride?.maxTokens ?? 0,
@@ -640,7 +650,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         surfaceId: options?.origin?.surfaceId,
         surfaceType: options?.origin?.surfaceType,
         surfaceTabId: options?.origin?.tabId,
-      };
+        ...(options?.command ? { command: { ...options.command.handoff } } : {}),
+      } satisfies Omit<llm.ChatParams, 'convertValues'>);
+      submitted = true;
       if (retryMessageId) {
         await RetryMessage(conversationId, retryMessageId, mergedParams);
       } else {
@@ -648,6 +660,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
       return controller;
     } catch (error: unknown) {
+      if (options?.command) {
+        if (error instanceof ChatMessagingStaleError || (error instanceof DOMException && error.name === 'AbortError') || isMediaSerializationError(error)) {
+          controller.handleSendCancellation();
+          throw new ChatMessagingStaleError();
+        }
+        // The backend may have persisted the user message. Never offer replay
+        // as a new send after an uncertain transport result; keep event routing.
+        set(state => patchSession(state, conversationId, { sendFailureRetryable: false, sendFailureRetryContent: null, sendFailureRetryMediaFiles: [] }, options.origin?.sessionKey));
+        throw error;
+      }
       if (error instanceof DOMException && error.name === 'AbortError') {
         controller.handleSendCancellation();
         return;
@@ -655,7 +677,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const errorMsg = isMediaSerializationError(error)
         ? i18next.t('chat.errors.mediaSerializationFailed')
         : getErrorMessage(error);
-      controller.handleSendFailure(errorMsg);
+      controller.handleSendFailure(errorMsg, !submitted);
       return controller;
     }
   };
@@ -676,23 +698,18 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set((state) => patchSession(state, conversationId, { editingMessageId: id, skipFocusRestore: true }, sessionKey));
     },
 
-    setConversationReadingMessageId: (conversationId, id, sessionKey) => {
-      set((state) => patchSession(state, conversationId, { readingMessageId: id }, sessionKey));
-    },
-
-    startConversationReading: (conversationId, id, sessionKey) => {
-      set((state) => patchSession(state, conversationId, { readingMessageId: id, skipFocusRestore: true }, sessionKey));
-    },
-
     setConversationDraftMessage: (conversationId, message, sessionKey) => {
+      draftRevisions.set(sessionKey, (draftRevisions.get(sessionKey) ?? 0) + 1);
       set((state) => patchSurfaceSession(state, conversationId, { draftMessage: message }, sessionKey));
     },
 
     setConversationDraftMediaFiles: (conversationId, mediaFiles, sessionKey) => {
+      draftRevisions.set(sessionKey, (draftRevisions.get(sessionKey) ?? 0) + 1);
       set((state) => patchSurfaceSession(state, conversationId, { draftMediaFiles: mediaFiles }, sessionKey));
     },
 
     clearConversationDraft: (conversationId, sessionKey) => {
+      draftRevisions.set(sessionKey, (draftRevisions.get(sessionKey) ?? 0) + 1);
       set((state) => {
         const session = getSession(state, conversationId, sessionKey);
         if (session.draftMessage === '' && session.draftMediaFiles.length === 0) {
@@ -1276,6 +1293,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOverride, options) => {
+      if (options?.command && (!conversationId || !options.command.isCurrent())) throw new ChatMessagingStaleError();
       if (!conversationId) {
         logger.error('[Chat] sendMessageToConversation sem conversationId explícito');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
@@ -1287,6 +1305,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           sizeBytes: contentBytes,
           maxKiB: MAX_MESSAGE_CONTENT_KIB,
         }), 'assertive');
+        if (options?.command) throw new ChatMessagingStaleError();
         return;
       }
       if (!getConversationTimeline(get(), conversationId)) {
@@ -1296,14 +1315,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
       if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
       let markAccepted!: () => void;
-      const accepted = new Promise<void>((resolve) => { markAccepted = resolve; });
+      let rejectAccepted!: (error: unknown) => void;
+      const accepted = new Promise<void>((resolve, reject) => { markAccepted = resolve; rejectAccepted = reject; });
       void turnQueue.enqueue(conversationId, async () => {
           if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
           const controller = await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
           markAccepted();
           await controller?.done;
         }).catch((error) => {
-          markAccepted();
+          if (options?.command) rejectAccepted(isConversationTurnQueueClearedError(error) ? new ChatMessagingStaleError() : error);
+          else markAccepted();
           if (!isConversationTurnQueueClearedError(error)) {
             logger.error('[Chat] falha inesperada na fila do turno', error);
           }
@@ -1312,6 +1333,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     retryMessageToConversation: async (conversationId, messageId, paramsOverride, options) => {
+      if (options?.command && (!conversationId || !messageId || !options.command.isCurrent())) throw new ChatMessagingStaleError();
       if (!conversationId || !messageId) {
         logger.error('[Chat] retryMessageToConversation sem conversationId/messageId válido');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
@@ -1324,14 +1346,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
       if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
       let markAccepted!: () => void;
-      const accepted = new Promise<void>((resolve) => { markAccepted = resolve; });
+      let rejectAccepted!: (error: unknown) => void;
+      const accepted = new Promise<void>((resolve, reject) => { markAccepted = resolve; rejectAccepted = reject; });
       void turnQueue.enqueue(conversationId, async () => {
           if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
           const controller = await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
           markAccepted();
           await controller?.done;
         }).catch((error) => {
-          markAccepted();
+          if (options?.command) rejectAccepted(isConversationTurnQueueClearedError(error) ? new ChatMessagingStaleError() : error);
+          else markAccepted();
           if (!isConversationTurnQueueClearedError(error)) {
             logger.error('[Chat] falha inesperada na fila de retry', error);
           }
@@ -1339,6 +1363,29 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       await accepted;
     },
 
+    waitForMessagingAdmission: async (conversationId) => {
+      await turnQueue.enqueue(conversationId, async () => {});
+    },
+    getMessagingPipelineRevision: conversationId => pipelineRevisions.get(conversationId) ?? 0,
+    getDraftRevision: sessionKey => draftRevisions.get(sessionKey) ?? 0,
+    finishCommandCancellation: (conversationId, sessionKey, pipelineRevision, announceCancelled = true) => {
+      if ((pipelineRevisions.get(conversationId) ?? 0) !== pipelineRevision) return;
+      pipelineRevisions.set(conversationId, pipelineRevision + 1);
+      const session = getSession(get(), conversationId, sessionKey);
+      const streamingMessageId = session.streamingMessageId;
+      const messages = flattenThreadedMessages(getConversationTimeline(get(), conversationId)?.threadedMessages);
+      const streamingNodeId = [...messages].reverse().find(message => message.role === 'assistant' && message.isStreaming)?.id;
+      cancelMediaSerialization(conversationId);
+      stopChatEventController(conversationId);
+      setConversationLoading(conversationId, false, sessionKey);
+      if (streamingMessageId || streamingNodeId) {
+        const nodeId = streamingNodeId || streamingMessageId!;
+        const finalId = streamingMessageId || streamingNodeId;
+        set(state => patchConversation(state, conversationId, conversation => finalizeStreamingNode(conversation, nodeId, finalId)));
+        set(state => patchSession(state, conversationId, { lastInterruptedMessageId: finalId || null }, sessionKey));
+      }
+      if (announceCancelled) announce(i18next.t('chat.announce.streamingCancelled'));
+    },
     cancelStreaming: async (conversationId, options) => {
       if (!conversationId) {
         logger.error('[Chat] cancelStreaming sem conversationId explícito');
@@ -1347,36 +1394,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
 
       const sessionKey = options?.origin?.sessionKey;
-      const session = getSession(get(), conversationId, sessionKey);
-      const streamingMessageId = session.streamingMessageId;
-      const timeline = getConversationTimeline(get(), conversationId);
-      const flattenedMessages = flattenThreadedMessages(timeline?.threadedMessages);
-      let streamingNodeId: string | null = null;
-      for (let i = flattenedMessages.length - 1; i >= 0; i -= 1) {
-        const message = flattenedMessages[i];
-        if (message.role === 'assistant' && message.isStreaming) {
-          streamingNodeId = message.id;
-          break;
-        }
-      }
+      const revision = get().getMessagingPipelineRevision(conversationId);
 
       try {
         cancelMediaSerialization(conversationId);
         await CancelStreamingForConversation(conversationId);
-        stopChatEventController(conversationId);
-        setConversationLoading(conversationId, false, options?.origin?.sessionKey);
-
-        if (streamingMessageId || streamingNodeId) {
-          const nodeIdToFinalize = streamingNodeId || streamingMessageId;
-          const finalMessageId = streamingMessageId || streamingNodeId || undefined;
-          set((state) => patchConversation(state, conversationId, (conversation) => (
-            finalizeStreamingNode(conversation, nodeIdToFinalize!, finalMessageId)
-          )));
-          set((state) => patchSession(state, conversationId, {
-            lastInterruptedMessageId: finalMessageId || null,
-          }, sessionKey));
-        }
-        announce(i18next.t('chat.announce.streamingCancelled'));
+        get().finishCommandCancellation(conversationId, sessionKey, revision);
       } catch (error: unknown) {
         const errorMsg = getErrorMessage(error);
         logger.error('[Chat] falha ao cancelar streaming', error);

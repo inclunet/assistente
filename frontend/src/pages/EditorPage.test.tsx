@@ -39,6 +39,7 @@ const editorPageMocks = vi.hoisted(() => {
     richSelectionListener: null as (() => void) | null,
     richDocText: 'selected rich text',
     markdownEditor: null as unknown,
+    markdownDomNode: null as HTMLElement | null,
     markdownFocus: vi.fn(),
     markdownSetSelection: vi.fn(),
     markdownSetPosition: vi.fn(),
@@ -51,6 +52,18 @@ const editorPageMocks = vi.hoisted(() => {
     richViewFocus: vi.fn(),
     requestQuestionnaire: vi.fn(),
     richEditor: null as unknown,
+    editorListeners: new Set<(state: unknown) => void>(),
+    workspaceState: {
+      id: 'ws-1',
+      tabs: [] as Array<{ id: string; type: string }>,
+      activeTabId: null as string | null,
+    },
+    authState: {
+      user: null as { userId: string; sessionId: string; role: string } | null,
+      isAuthenticated: false,
+    },
+    commandSurfaceGetter: null as (() => unknown) | null,
+    commandSurfaceSubscribe: null as ((invalidate: () => void) => () => void) | null,
     chatModalIsOpen: true,
     requestOpen: vi.fn(),
     closeModal: vi.fn(),
@@ -67,6 +80,9 @@ const editorPageMocks = vi.hoisted(() => {
     },
     emitMarkdownModelContentChange: () => {
       state.markdownModelContentListener?.();
+    },
+    notifyEditorStore: () => {
+      for (const listener of [...state.editorListeners]) listener(editorStoreState);
     },
   };
   state.markdownEditor = {
@@ -99,6 +115,7 @@ const editorPageMocks = vi.hoisted(() => {
       };
     },
     focus: state.markdownFocus,
+    getDomNode: () => state.markdownDomNode,
     setSelection: state.markdownSetSelection,
     setPosition: state.markdownSetPosition,
     revealRangeInCenter: state.markdownRevealRangeInCenter,
@@ -184,7 +201,6 @@ const editorStoreState = {
   setEditorProfileSlug: vi.fn(),
   hydrate: vi.fn(),
   setDocMode: vi.fn(),
-  consumePendingInsert: vi.fn().mockReturnValue(null),
   getDocument: vi.fn(),
   removeDocument: vi.fn(),
   workspaceHydration: { workspaceId: 'ws-1', status: 'loaded' as const },
@@ -213,7 +229,23 @@ vi.mock('../store/settingsStore', () => ({
 vi.mock('../store/editorStore', () => ({
   useEditorStore: Object.assign(
     (selector: (state: typeof editorStoreState) => unknown) => selector(editorStoreState),
-    { getState: () => editorStoreState, subscribe: () => () => {} }
+    {
+      getState: () => editorStoreState,
+      subscribe: (listener: (state: unknown) => void) => {
+        editorPageMocks.editorListeners.add(listener);
+        return () => editorPageMocks.editorListeners.delete(listener);
+      },
+    }
+  ),
+}));
+
+vi.mock('../store/authStore', () => ({
+  useAuthStore: Object.assign(
+    (selector: (state: typeof editorPageMocks.authState) => unknown) => selector(editorPageMocks.authState),
+    {
+      getState: () => editorPageMocks.authState,
+      subscribe: () => () => {},
+    },
   ),
 }));
 
@@ -222,13 +254,24 @@ vi.mock('../store/workspaceStore', () => ({
     (selector: (state: Record<string, unknown>) => unknown) => selector({
       addTab: vi.fn(),
       updateTab: updateWorkspaceTabSpy,
-      workspace: { id: 'ws-1', tabs: [], profile: undefined },
+      workspace: { ...editorPageMocks.workspaceState, profile: undefined },
       getActiveTab: () => undefined,
       isInitialized: true,
     }),
-    { getState: () => ({ workspace: { id: 'ws-1', tabs: [] }, addTab: vi.fn(), getActiveTab: () => undefined }), subscribe: () => () => {} }
+    { getState: () => ({ workspace: editorPageMocks.workspaceState, addTab: vi.fn(), getActiveTab: () => undefined }), subscribe: () => () => {} }
   ),
   useActiveTab: () => undefined,
+}));
+
+vi.mock('../components/workspace/useWorkspaceCommandSurface', () => ({
+  useWorkspaceCommandSurface: (
+    _surfaceType: string,
+    getter: () => unknown,
+    subscribe?: (invalidate: () => void) => () => void,
+  ) => {
+    editorPageMocks.commandSurfaceGetter = getter;
+    editorPageMocks.commandSurfaceSubscribe = subscribe ?? null;
+  },
 }));
 
 vi.mock('../store/chatStore', () => ({
@@ -424,13 +467,27 @@ vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
 }));
 
 import EditorPage from './EditorPage';
-import { requestWorkspacePanelFocus } from '../components/workspace/workspacePanelFocusRegistry';
+import {
+  canFocusWorkspacePanelImmediately,
+  getWorkspacePanelImmediateFocusHandler,
+  requestWorkspacePanelFocus,
+} from '../components/workspace/workspacePanelFocusRegistry';
+import { captureEditorPresentationTarget } from '../lib/commandEditorPresentation';
+import { captureEditorModeTarget } from '../lib/commandEditorMode';
 
 describe('EditorPage', () => {
   beforeEach(() => {
     editorStoreState.documents = {};
+    editorPageMocks.editorListeners.clear();
+    editorPageMocks.workspaceState = { id: 'ws-1', tabs: [], activeTabId: null };
+    editorPageMocks.authState = { user: null, isAuthenticated: false };
+    editorPageMocks.commandSurfaceGetter = null;
+    editorPageMocks.commandSurfaceSubscribe = null;
     editorPageMocks.registeredAdapter = null;
     editorPageMocks.editorContentAreaProps = null;
+    editorPageMocks.markdownDomNode?.remove();
+    editorPageMocks.markdownDomNode = document.createElement('textarea');
+    document.body.append(editorPageMocks.markdownDomNode);
     editorPageMocks.mountEditorsAutomatically = true;
     editorPageMocks.initialRevealSlideIndex = 0;
     editorPageMocks.markdownModelValue = '';
@@ -444,6 +501,7 @@ describe('EditorPage', () => {
     editorPageMocks.richSelectionListener = null;
     editorPageMocks.richDocText = 'selected rich text';
     editorPageMocks.markdownFocus.mockReset();
+    editorPageMocks.markdownFocus.mockImplementation(() => editorPageMocks.markdownDomNode?.focus());
     editorPageMocks.markdownSetSelection.mockReset();
     editorPageMocks.markdownSetPosition.mockReset();
     editorPageMocks.markdownRevealRangeInCenter.mockReset();
@@ -500,6 +558,169 @@ describe('EditorPage', () => {
     vi.mocked(EditorGetFileInfo).mockResolvedValue({ exists: true, isDir: false, size: 20, modTimeMs: 2000 } as never);
     vi.mocked(GetProfile).mockReset();
     vi.mocked(GetProfile).mockResolvedValue({ chat: { disable_tools: false } } as Awaited<ReturnType<typeof GetProfile>>);
+  });
+
+  it('getter do command surface relê documento e recusa ausência ou retarget sem render/notify', () => {
+    const tab = { id: 'tab-1', type: 'editor' as const, title: 'Doc', position: 0 };
+    editorPageMocks.workspaceState = { id: 'ws-1', tabs: [tab], activeTabId: tab.id };
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'A', mode: 'markdown' },
+    };
+
+    const { unmount } = render(<EditorPage documentId="tab-1" workspaceTab={tab} />);
+    const getter = editorPageMocks.commandSurfaceGetter;
+    expect(getter).toBeTypeOf('function');
+    expect(getter?.()).toMatchObject({
+      surfaceType: 'editor',
+      surfaceId: 'tab-1',
+      metadata: { documentId: 'tab-1', mode: 'markdown' },
+    });
+
+    editorStoreState.documents = {};
+    expect(getter?.()).toBeNull();
+
+    editorStoreState.documents = {
+      'tab-2': { id: 'tab-2', title: 'Novo', markdown: 'B', mode: 'markdown' },
+    };
+    editorPageMocks.workspaceState = {
+      id: 'ws-1',
+      tabs: [{ id: 'tab-2', type: 'editor' }],
+      activeTabId: 'tab-2',
+    };
+    expect(getter?.()).toBeNull();
+    unmount();
+  });
+
+  it.each([
+    ['editor.menu.file.open', 'markdown', 'editor.aria.fileMenu'],
+    ['editor.menu.format.open', 'rich', 'editor.aria.formatMenu'],
+    ['editor.menu.mode.open', 'markdown', 'editor.aria.modeMenu'],
+    ['editor.slides.open', 'rich', 'editor.presentation.goToSlide'],
+  ] as const)('%s abre o menu existente a partir do botão da paleta, sem mutar documento', async (commandID, mode, menuLabel) => {
+    const tab = { id: 'tab-1', type: 'editor' as const, title: 'Deck', position: 0 };
+    editorPageMocks.workspaceState = { id: 'ws-1', tabs: [tab], activeTabId: tab.id };
+    editorPageMocks.authState = { user: { userId: 'owner-1', sessionId: 'session-1', role: 'user' }, isAuthenticated: true };
+    editorStoreState.documents = { 'tab-1': { id: 'tab-1', title: 'Deck', mode,
+      markdown: '<!-- .slide: class="title-slide" -->\n\n# Primeiro\n\n---\n\n## Segundo', filePath: 'deck.md' } };
+    const view = render(<><header className="topbar"><button>Paleta de teste</button></header>
+      <EditorPage documentId="tab-1" workspaceTab={tab} /></>);
+    try {
+      const paletteButton = screen.getByRole('button', { name: 'Paleta de teste' });
+      paletteButton.focus();
+      await waitFor(() => {
+        const probe = captureEditorPresentationTarget(() => '/');
+        expect(probe?.canOpen(commandID, paletteButton)).toBe(true);
+        probe?.dispose();
+      });
+      const lease = captureEditorPresentationTarget(() => '/')!;
+      openToolbarMenuSpy.mockClear();
+      vi.mocked(EditorWriteFile).mockClear();
+      editorStoreState.setDocMode.mockClear();
+      editorStoreState.setDocMarkdown.mockClear();
+      // Sem dispatcher, o evento antigo não pode abrir slides por fora do mapa.
+      fireEvent.keyDown(paletteButton, { key: 's', code: 'KeyS', altKey: true });
+      expect(openToolbarMenuSpy).not.toHaveBeenCalled();
+      act(() => { expect(lease.open(commandID)).toBe(true); });
+      expect(openToolbarMenuSpy).toHaveBeenCalledExactlyOnceWith(expect.any(HTMLButtonElement), menuLabel, expect.any(Array));
+      expect(lease.open(commandID)).toBe(false);
+      expect(EditorWriteFile).not.toHaveBeenCalled();
+      expect(editorStoreState.setDocMode).not.toHaveBeenCalled();
+      expect(editorStoreState.setDocMarkdown).not.toHaveBeenCalled();
+    } finally { view.unmount(); }
+  });
+
+  it('fullscreen usa o pedido do renderer e F5 não conserva listener paralelo', () => {
+    const tab = { id: 'tab-1', type: 'editor' as const, title: 'Deck', position: 0 };
+    editorPageMocks.workspaceState = { id: 'ws-1', tabs: [tab], activeTabId: tab.id };
+    editorPageMocks.authState = { user: { userId: 'owner-1', sessionId: 'session-1', role: 'user' }, isAuthenticated: true };
+    editorStoreState.documents = { 'tab-1': { id: 'tab-1', title: 'Deck', mode: 'view',
+      markdown: '<!-- .slide: class="title-slide" -->\n\n# Primeiro\n\n---\n\n## Segundo', filePath: 'deck.md' } };
+    const view = render(<EditorPage documentId="tab-1" workspaceTab={tab} />);
+    try {
+      const button = screen.getByRole('button', { name: /editor.presentation.fullscreen/ });
+      button.focus();
+      const before = Number(editorPageMocks.editorContentAreaProps?.revealFullscreenRequestNonce);
+      fireEvent.keyDown(button, { key: 'F5', code: 'F5' });
+      expect(editorPageMocks.editorContentAreaProps?.revealFullscreenRequestNonce).toBe(before);
+      const lease = captureEditorPresentationTarget(() => '/')!;
+      act(() => { expect(lease.open('editor.presentation.fullscreen')).toBe(true); });
+      expect(editorPageMocks.editorContentAreaProps?.revealFullscreenRequestNonce).toBe(before + 1);
+      expect(lease.open('editor.presentation.fullscreen')).toBe(false);
+    } finally { view.unmount(); }
+  });
+
+  it('registra a superfície real do editor e recusa target externo ou capacidade stale', () => {
+    const tab = { id: 'tab-1', type: 'editor' as const, title: 'Doc', position: 0 };
+    editorPageMocks.workspaceState = { id: 'ws-1', tabs: [tab], activeTabId: tab.id };
+    editorPageMocks.authState = {
+      user: { userId: 'owner-1', sessionId: 'session-1', role: 'user' },
+      isAuthenticated: true,
+    };
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'A', mode: 'markdown', readOnly: false },
+    };
+
+    const { unmount, rerender } = render(<EditorPage documentId="tab-1" workspaceTab={tab} />);
+    const lease = captureEditorPresentationTarget(() => '/')!;
+    expect(lease).toBeDefined();
+    expect(lease.documentId).toBe('tab-1');
+    expect(lease.canOpen('editor.menu.file.open', document.body)).toBe(true);
+    const callsBeforeLegacyAltI = openToolbarMenuSpy.mock.calls.length;
+    fireEvent.keyDown(window, { key: 'i', altKey: true, ctrlKey: false, metaKey: false, shiftKey: false });
+    expect(openToolbarMenuSpy).toHaveBeenCalledTimes(callsBeforeLegacyAltI);
+    expect(lease.canOpen('editor.menu.insert.open', document.body)).toBe(true);
+    expect(lease.open('editor.menu.insert.open')).toBe(true);
+    expect(openToolbarMenuSpy).toHaveBeenCalledTimes(callsBeforeLegacyAltI + 1);
+
+    const foreign = document.createElement('input');
+    document.body.append(foreign);
+    expect(lease.canOpen('editor.menu.file.open', foreign)).toBe(false);
+
+    editorStoreState.documents['tab-1'].readOnly = true;
+    editorPageMocks.notifyEditorStore();
+    expect(lease.isCurrent()).toBe(false);
+    expect(lease.open('editor.menu.file.open')).toBe(false);
+
+    editorStoreState.documents['tab-1'].readOnly = false;
+    rerender(<EditorPage documentId="tab-1" workspaceTab={tab} />);
+    const renewedLease = captureEditorPresentationTarget(() => '/')!;
+    expect(renewedLease.canOpen('editor.menu.file.open', document.body)).toBe(true);
+    editorStoreState.documents['tab-1'].mode = 'view';
+    rerender(<EditorPage documentId="tab-1" workspaceTab={tab} />);
+    const viewLease = captureEditorPresentationTarget(() => '/')!;
+    expect(viewLease.canOpen('editor.menu.insert.open', document.body)).toBe(false);
+    rerender(<EditorPage documentId="tab-1" workspaceTab={tab} isPanelActive={false} />);
+    expect(captureEditorPresentationTarget(() => '/')).toBeUndefined();
+    unmount();
+    foreign.remove();
+  });
+
+  it('subscribe invalida modo A→B→A, mas ignora apenas markdown', () => {
+    const tab = { id: 'tab-1', type: 'editor' as const, title: 'Doc', position: 0 };
+    editorPageMocks.workspaceState = { id: 'ws-1', tabs: [tab], activeTabId: tab.id };
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'A', mode: 'markdown' },
+    };
+    const { unmount } = render(<EditorPage documentId="tab-1" workspaceTab={tab} />);
+    const subscribe = editorPageMocks.commandSurfaceSubscribe;
+    expect(subscribe).toBeTypeOf('function');
+    const invalidate = vi.fn();
+    const unsubscribe = subscribe?.(invalidate);
+
+    editorStoreState.documents['tab-1'].mode = 'rich';
+    editorPageMocks.notifyEditorStore();
+    expect(invalidate).toHaveBeenCalledTimes(1);
+
+    editorStoreState.documents['tab-1'].mode = 'markdown';
+    editorPageMocks.notifyEditorStore();
+    expect(invalidate).toHaveBeenCalledTimes(2);
+
+    editorStoreState.documents['tab-1'].markdown = 'conteúdo alterado';
+    editorPageMocks.notifyEditorStore();
+    expect(invalidate).toHaveBeenCalledTimes(2);
+
+    unsubscribe?.();
+    unmount();
   });
 
   async function createEditorChatSendPlan(markdown = 'Alpha\nselected markdown\nOmega') {
@@ -684,7 +905,7 @@ describe('EditorPage', () => {
     }
   });
 
-  it('abre menu Inserir com Alt+I quando disponível', () => {
+  it('não executa mais o listener legado Alt+I', () => {
     editorStoreState.documents = {
       'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'markdown' },
     };
@@ -694,14 +915,11 @@ describe('EditorPage', () => {
     const insertButton = screen.getByRole('button', { name: 'editor.buttons.insert' });
     fireEvent.keyDown(window, { key: 'i', altKey: true });
 
-    expect(openToolbarMenuSpy).toHaveBeenCalledWith(
-      insertButton,
-      'editor.aria.insertMenu',
-      expect.any(Array)
-    );
+    expect(insertButton).toBeInTheDocument();
+    expect(openToolbarMenuSpy).not.toHaveBeenCalled();
   });
 
-  it('alterna modos principais com Alt+1, Alt+2 e Alt+3', () => {
+  it('não mantém listener legado para Alt+1, Alt+2 e Alt+3', () => {
     editorStoreState.documents = {
       'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'rich' },
     };
@@ -712,72 +930,8 @@ describe('EditorPage', () => {
     fireEvent.keyDown(window, { key: '2', altKey: true });
     fireEvent.keyDown(window, { key: '3', altKey: true });
 
-    expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(1, 'tab-1', 'markdown');
-    expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(2, 'tab-1', 'rich');
-    expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(3, 'tab-1', 'view');
-  });
-
-  it('persiste o modo escolhido no state da própria aba', async () => {
-    editorStoreState.documents = {
-      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'markdown' },
-    };
-
-    render(<EditorPage documentId="tab-1" />);
-    fireEvent.keyDown(window, { key: '3', altKey: true });
-
-    await waitFor(() => {
-      expect(updateWorkspaceTabSpy).toHaveBeenCalledWith('tab-1', {
-        state: { displayMode: 'view' },
-      });
-    });
-  });
-
-  it('envia a última troca de modo sem aguardar persistência anterior', () => {
-    updateWorkspaceTabSpy.mockImplementationOnce(() => new Promise<void>(() => undefined));
-    editorStoreState.documents = {
-      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'rich' },
-    };
-
-    render(<EditorPage documentId="tab-1" />);
-    fireEvent.keyDown(window, { key: '1', altKey: true });
-    fireEvent.keyDown(window, { key: '3', altKey: true });
-
-    expect(updateWorkspaceTabSpy).toHaveBeenNthCalledWith(1, 'tab-1', {
-      state: { displayMode: 'markdown' },
-    });
-    expect(updateWorkspaceTabSpy).toHaveBeenNthCalledWith(2, 'tab-1', {
-      state: { displayMode: 'view' },
-    });
-  });
-
-  it('emite e consome um pedido de leitura a cada Alt+3, inclusive já em view', () => {
-    editorStoreState.documents = {
-      'tab-1': {
-        id: 'tab-1',
-        title: 'Doc',
-        markdown: 'text',
-        mode: 'view',
-        readOnly: true,
-      },
-    };
-
-    render(<EditorPage documentId="tab-1" />);
-
-    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toBeNull();
-    fireEvent.keyDown(window, { key: '3', altKey: true });
-    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toEqual({ nonce: 1 });
-
-    act(() => {
-      (editorPageMocks.editorContentAreaProps?.onRenderedReadingRequestConsumed as (
-        nonce: number,
-      ) => void)(1);
-    });
-    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toBeNull();
-
-    fireEvent.keyDown(window, { key: '3', altKey: true });
-    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toEqual({ nonce: 2 });
-    expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(1, 'tab-1', 'view');
-    expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(2, 'tab-1', 'view');
+    expect(editorStoreState.setDocMode).not.toHaveBeenCalled();
+    expect(updateWorkspaceTabSpy).not.toHaveBeenCalled();
   });
 
   it('reutiliza o pedido de leitura ao receber foco da troca de aba', async () => {
@@ -819,6 +973,47 @@ describe('EditorPage', () => {
       expect(requestWorkspacePanelFocus('tab-1')).toBe(false);
     });
     expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toBeNull();
+  });
+
+  it('expõe foco imediato do Monaco e move o foco sincronicamente', () => {
+    editorPageMocks.chatModalIsOpen = false;
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'markdown' },
+    };
+
+    render(<EditorPage documentId="tab-1" isPanelActive />);
+    const immediate = getWorkspacePanelImmediateFocusHandler('tab-1');
+    expect(immediate).toBeTypeOf('function');
+    expect(canFocusWorkspacePanelImmediately('tab-1')).toBe(true);
+    editorPageMocks.markdownDomNode?.blur();
+
+    act(() => {
+      expect(immediate?.()).toBe(true);
+    });
+    expect(editorPageMocks.markdownDomNode).toHaveFocus();
+  });
+
+  it('recusa foco imediato do Editor quando a aba está inativa, modal aberto ou controle não está pronto', () => {
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'markdown' },
+    };
+
+    const inactive = render(<EditorPage documentId="tab-1" isPanelActive={false} />);
+    expect(canFocusWorkspacePanelImmediately('tab-1')).toBe(false);
+    expect(getWorkspacePanelImmediateFocusHandler('tab-1')?.()).toBe(false);
+    inactive.unmount();
+
+    editorPageMocks.chatModalIsOpen = true;
+    const modal = render(<EditorPage documentId="tab-1" isPanelActive />);
+    expect(canFocusWorkspacePanelImmediately('tab-1')).toBe(false);
+    expect(getWorkspacePanelImmediateFocusHandler('tab-1')?.()).toBe(false);
+    modal.unmount();
+
+    editorPageMocks.chatModalIsOpen = false;
+    editorPageMocks.mountEditorsAutomatically = false;
+    render(<EditorPage documentId="tab-1" isPanelActive />);
+    expect(canFocusWorkspacePanelImmediately('tab-1')).toBe(false);
+    expect(getWorkspacePanelImmediateFocusHandler('tab-1')?.()).toBe(false);
   });
 
   it('mantém pedido de foco pendente até o Monaco terminar de montar', async () => {
@@ -895,6 +1090,8 @@ describe('EditorPage', () => {
     };
 
     render(<EditorPage documentId="tab-1" />);
+    const modeRequest = vi.fn((event: Event) => event.preventDefault());
+    window.addEventListener('commands:editor-mode', modeRequest);
     await user.click(screen.getByRole('button', { name: 'editor.buttons.mode' }));
     const lastMenuCall = openToolbarMenuSpy.mock.calls[openToolbarMenuSpy.mock.calls.length - 1];
     const menuItems = lastMenuCall?.[2] as Array<{
@@ -904,8 +1101,43 @@ describe('EditorPage', () => {
 
     act(() => menuItems.find((item) => item.id === 'mode-view')?.action?.());
 
-    expect(editorStoreState.setDocMode).toHaveBeenCalledWith('tab-1', 'view');
-    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toEqual({ nonce: 1 });
+    expect(modeRequest).toHaveBeenCalledTimes(1);
+    expect((modeRequest.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
+      commandID: 'editor.mode.view',
+    });
+    expect(editorStoreState.setDocMode).not.toHaveBeenCalled();
+    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toBeNull();
+    window.removeEventListener('commands:editor-mode', modeRequest);
+  });
+
+  it('aplica o modo confirmado sem roubar foco alterado durante o backend', () => {
+    editorPageMocks.chatModalIsOpen = false;
+    const tab = { id: 'tab-1', type: 'editor' as const, title: 'Doc', position: 0 };
+    editorPageMocks.workspaceState = { id: 'ws-1', tabs: [tab], activeTabId: tab.id };
+    editorPageMocks.authState = {
+      user: { userId: 'owner-1', sessionId: 'session-1', role: 'user' },
+      isAuthenticated: true,
+    };
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'rich' },
+    };
+
+    const { unmount } = render(<EditorPage documentId="tab-1" workspaceTab={tab} isPanelActive />);
+    const capturedFocus = document.createElement('button');
+    document.querySelector('.editor-page')?.append(capturedFocus);
+    capturedFocus.focus();
+    const lease = captureEditorModeTarget(() => '/', 'editor.mode.markdown');
+    expect(lease?.prepare()).toBe(true);
+
+    const otherFocus = document.createElement('input');
+    document.body.append(otherFocus);
+    otherFocus.focus();
+    editorPageMocks.markdownFocus.mockClear();
+    expect(lease?.applyCommitted()).toBe(true);
+    expect(editorStoreState.setDocMode).toHaveBeenCalledWith('tab-1', 'markdown');
+    expect(editorPageMocks.markdownFocus).not.toHaveBeenCalled();
+    otherFocus.remove();
+    unmount();
   });
 
   it('não executa atalhos de arquivo quando o painel está inativo', async () => {

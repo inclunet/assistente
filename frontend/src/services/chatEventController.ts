@@ -233,7 +233,7 @@ interface ChatEventControllerOptions {
 export interface ChatEventControllerHandle {
   cleanup: () => void;
   handleSendCancellation: () => void;
-  handleSendFailure: (message: string) => void;
+  handleSendFailure: (message: string, provenNotSubmitted?: boolean) => void;
   done: Promise<void>;
 }
 
@@ -972,7 +972,7 @@ export function startChatEventController({
         streamingMessageId: null,
       });
     },
-    handleSendFailure: (message: string) => {
+    handleSendFailure: (message: string, provenNotSubmitted = false) => {
       if (cleanupExecuted) return;
       logger.error('[Chat] Error sending message:', message);
       playChatErrorSoundIfActive(conversationId, origin);
@@ -984,9 +984,9 @@ export function startChatEventController({
         streamingMessageId: null,
         sendFailureMessage,
         sendFailureAnnounced: false,
-        sendFailureRetryable: true,
-        sendFailureRetryContent: initialUserContent || null,
-        sendFailureRetryMediaFiles: initialMediaFiles ?? [],
+        sendFailureRetryable: provenNotSubmitted,
+        sendFailureRetryContent: provenNotSubmitted ? initialUserContent || null : null,
+        sendFailureRetryMediaFiles: provenNotSubmitted ? initialMediaFiles ?? [] : [],
       });
     },
   };

@@ -2,6 +2,25 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildEditorDestinationSubmenu } from './editorSendMenu';
 
 describe('editorSendMenu', () => {
+  it('captura payload e destino sem reler objetos modificados após abrir o menu', () => {
+    const onSendToEditor = vi.fn();
+    const payload = { format: 'markdown' as const, content: 'original', title: 'Título', messageId: 'a', originalContent: 'mensagem inteira' };
+    const target = { id: 'doc-a', title: 'Documento A' };
+    const items = buildEditorDestinationSubmenu({
+      baseId: 'snapshot', editorTargets: [target],
+      formats: [{ id: 'md', label: 'Markdown', payload }], onSendToEditor,
+      newDocumentLabel: 'Novo', fallbackDocumentTitle: 'Editor',
+    });
+    Object.assign(payload, { content: 'novo', title: 'Novo', messageId: 'b', originalContent: 'outra' });
+    target.id = 'doc-b';
+    items[0].submenu?.[0].action?.();
+    items[2].submenu?.[0].action?.();
+    expect(onSendToEditor.mock.calls).toEqual([
+      [{ format: 'markdown', content: 'original', title: 'Título', messageId: 'a', originalContent: 'mensagem inteira', target: 'document', targetDocumentId: 'doc-a' }],
+      [{ format: 'markdown', content: 'original', title: 'Título', messageId: 'a', originalContent: 'mensagem inteira', target: 'new_document' }],
+    ]);
+  });
+
   it('inclui destinos validos e novo documento com submenu de formatos', () => {
     const onSendToEditor = vi.fn();
 

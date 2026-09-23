@@ -37,6 +37,9 @@ func New(config Config) (*Service, error) {
 	}
 	copyHandlers := make(map[string]Handler, len(config.Handlers))
 	for id, handler := range config.Handlers {
+		if handler.ExecutionTimeout != 0 || handler.RuntimeOwnsDeadline {
+			return nil, ErrInvalidConfiguration
+		}
 		definition, err := config.Registry.CheckReadiness(id, config.Source)
 		if err != nil || !definition.Context.None || len(definition.Context.Facts) != 0 || handler.Start == nil ||
 			handler.Contract.Effect != definition.Effect || handler.Contract.MutatesEffectiveCapability != definition.MutatesEffectiveCapability {

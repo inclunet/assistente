@@ -6,9 +6,10 @@ import (
 )
 
 type executionWatch struct {
-	user    string
-	session string
-	cancel  context.CancelFunc
+	user                   string
+	session                string
+	cancel                 context.CancelFunc
+	configurationSensitive bool
 }
 
 // WatchEpoch acompanha preparação/decisão fora do gate. Não admite execução
@@ -27,6 +28,23 @@ func (s *EpochService) WatchEpoch(ctx context.Context, snapshot EpochSnapshot) (
 	return watched, release, nil
 }
 
+// WatchSecurityEpoch acompanha a vida da fonte (por exemplo, um run de job),
+// não uma resolução de binding. Publicar configuração não encerra a fonte;
+// logout, lock, shutdown, invalidação do epoch e cancelamento do pai continuam
+// cancelando a inscrição. Não autoriza camada: grants/condições são revalidados
+// pelo consumidor a cada uso da fonte. release é obrigatório e idempotente.
+func (s *EpochService) WatchSecurityEpoch(ctx context.Context, snapshot EpochSnapshot) (context.Context, func(), error) {
+	var watched context.Context
+	release, err := s.admitExecution(ctx, snapshot, func(context.Context) error { return nil }, func(runCtx context.Context) error {
+		watched = runCtx
+		return nil
+	}, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	return watched, release, nil
+}
+
 // AdmitExecution faz a mesma revalidação de Admit e associa ao handoff um
 // contexto cancelado por invalidação do epoch. A inscrição ocorre sob o gate,
 // sem janela antes de Start. O chamador deve deferir release após o retorno;
@@ -34,12 +52,16 @@ func (s *EpochService) WatchEpoch(ctx context.Context, snapshot EpochSnapshot) (
 // Invalidação cancela SOMENTE contextos internos: nunca chama Cancel do handler
 // nem aguarda efeitos sob o gate. Um efeito já iniciado não é desfeito.
 func (s *EpochService) AdmitExecution(ctx context.Context, snapshot EpochSnapshot, revalidate func(context.Context) error, handoff func(context.Context) error) (release func(), err error) {
+	return s.admitExecution(ctx, snapshot, revalidate, handoff, true)
+}
+
+func (s *EpochService) admitExecution(ctx context.Context, snapshot EpochSnapshot, revalidate func(context.Context) error, handoff func(context.Context) error, configurationSensitive bool) (release func(), err error) {
 	if handoff == nil {
 		return nil, ErrInvalidEpochInput
 	}
 	err = s.Admit(ctx, snapshot, revalidate, func() error {
 		runCtx, cancel := context.WithCancel(ctx)
-		watch := &executionWatch{user: snapshot.UserID, session: snapshot.SessionID, cancel: cancel}
+		watch := &executionWatch{user: snapshot.UserID, session: snapshot.SessionID, cancel: cancel, configurationSensitive: configurationSensitive}
 		s.watchesMu.Lock()
 		if s.watches == nil {
 			s.watches = make(map[*executionWatch]struct{})

@@ -168,6 +168,23 @@ func TestSummaryHasOnlyAllowlistedFields(t *testing.T) {
 	}
 }
 
+func TestValidateSnapshotRejectsFutureAndExpiredPhysicalOrigins(t *testing.T) {
+	base := Snapshot{Identity: Identity{window: 1, process: 2}, Version: "v1", CapturedAt: time.Now().UTC(), Summary: Summary{Executable: "code.exe", WindowClass: "fixture", ProviderVersion: ProviderVersion}}
+	if err := ValidateSnapshot(base, time.Minute); err != nil {
+		t.Fatalf("snapshot válido rejeitado: %v", err)
+	}
+	future := base
+	future.CapturedAt = time.Now().UTC().Add(time.Second)
+	if !errors.Is(ValidateSnapshot(future, time.Minute), ErrInvalidSnapshot) {
+		t.Fatal("snapshot futuro aceito")
+	}
+	expired := base
+	expired.CapturedAt = time.Now().UTC().Add(-2 * time.Minute)
+	if !errors.Is(ValidateSnapshot(expired, time.Minute), ErrInvalidSnapshot) {
+		t.Fatal("snapshot expirado aceito")
+	}
+}
+
 func validSnapshot() Snapshot {
 	return Snapshot{
 		Identity:   Identity{window: 1, process: 2},

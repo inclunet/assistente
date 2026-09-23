@@ -2,6 +2,7 @@ package commandexecution
 
 import (
 	"fmt"
+	"time"
 
 	"assistente/internal/commandcatalog"
 )
@@ -81,12 +82,18 @@ func validateCompleteHandlerContracts(registry *commandcatalog.Registry, handler
 		return ErrInvalidConfiguration
 	}
 	for id, handler := range handlers {
+		if handler.ExecutionTimeout < 0 || handler.ExecutionTimeout > 5*time.Minute {
+			return fmt.Errorf("%w: handler %q com timeout inválido", ErrInvalidConfiguration, id)
+		}
 		if handler.Start == nil {
 			return fmt.Errorf("%w: handler %q sem Start", ErrInvalidConfiguration, id)
 		}
 		definition, ok := registry.Lookup(id)
 		if !ok {
 			return fmt.Errorf("%w: handler %q ausente no catálogo", ErrInvalidConfiguration, id)
+		}
+		if handler.RuntimeOwnsDeadline && definition.HandlerClassification != commandcatalog.HandlerJob {
+			return fmt.Errorf("%w: handler %q só pode entregar o deadline ao runtime de job", ErrInvalidConfiguration, id)
 		}
 		if err := commandcatalog.ValidateDefinitionComplete(definition, handler.Contract); err != nil {
 			return fmt.Errorf("%w: contrato do handler %q: %v", ErrInvalidConfiguration, id, err)

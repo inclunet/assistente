@@ -58,6 +58,75 @@ func TestCommandPrincipalAuthenticatesIssuedSession(t *testing.T) {
 	}
 }
 
+func TestCommandPrincipalRevalidatesLocalSessionState(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*SessionService, *TokenPair, *database.User, time.Time) error
+	}{
+		{
+			name: "revoked session",
+			mutate: func(service *SessionService, issued *TokenPair, _ *database.User, _ time.Time) error {
+				return service.Logout(context.Background(), issued.RefreshToken)
+			},
+		},
+		{
+			name: "expired session",
+			mutate: func(service *SessionService, issued *TokenPair, _ *database.User, now time.Time) error {
+				return service.db.Model(&database.Session{}).Where("id = ?", issued.SessionID).Update("expires_at", now.Add(-time.Second)).Error
+			},
+		},
+		{
+			name: "inactive user",
+			mutate: func(service *SessionService, _ *TokenPair, user *database.User, _ time.Time) error {
+				return service.db.Model(&database.User{}).Where("id = ?", user.ID).Update("is_active", false).Error
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service, user, now := newCommandPrincipalFixture(t)
+			issued, err := service.IssueSession(context.Background(), user, "desktop")
+			if err != nil {
+				t.Fatal(err)
+			}
+			principal := LocalSessionPrincipal{UserID: user.ID, SessionID: issued.SessionID}
+			if got, err := service.RevalidateLocalSession(context.Background(), principal); err != nil || got != principal {
+				t.Fatalf("sessão válida não revalidou: principal=%+v err=%v", got, err)
+			}
+			if err := test.mutate(service, issued, user, now); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := service.RevalidateLocalSession(context.Background(), principal); !errors.Is(err, ErrUnauthenticatedLocalSession) || got != (LocalSessionPrincipal{}) {
+				t.Fatalf("estado inválido não foi rejeitado: principal=%+v err=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestCommandPrincipalRevalidateRejectsEmptyAndCrossUserPrincipal(t *testing.T) {
+	service, user, _ := newCommandPrincipalFixture(t)
+	issued, err := service.IssueSession(context.Background(), user, "desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherUserID, err := uuid.NewV7()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, principal := range map[string]LocalSessionPrincipal{
+		"empty":         {},
+		"empty user":    {SessionID: issued.SessionID},
+		"empty session": {UserID: user.ID},
+		"cross user":    {UserID: otherUserID.String(), SessionID: issued.SessionID},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got, err := service.RevalidateLocalSession(context.Background(), principal); !errors.Is(err, ErrUnauthenticatedLocalSession) || got != (LocalSessionPrincipal{}) {
+				t.Fatalf("principal inválido foi aceito: principal=%+v err=%v", got, err)
+			}
+		})
+	}
+}
+
 func TestCommandPrincipalLogoutRevokesStillSignedJWT(t *testing.T) {
 	service, user, _ := newCommandPrincipalFixture(t)
 	issued, err := service.IssueSession(context.Background(), user, "command-test")
