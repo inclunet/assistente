@@ -4301,7 +4301,7 @@ const en = {
         add: 'Add action',
         remove: 'Remove action',
         newAction: 'New action',
-        editAction: 'Edit action',
+        editActionNamed: 'Edit action: {{label}}',
         apply: 'Apply',
         action: 'Action',
         publishesEvent: 'Publishes event',

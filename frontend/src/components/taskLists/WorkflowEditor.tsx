@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
@@ -94,6 +94,21 @@ export default function WorkflowEditor({
   const [itemModal, setItemModal] = useState<{ mode: 'create' } | { mode: 'edit'; id: number } | null>(null);
   const [draft, setDraft] = useState<StatusDraft>(() => emptyDraft(COLOR_PRESETS[0].token));
   const newButtonRef = useRef<HTMLButtonElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const didInitialGridFocus = useRef(false);
+
+  // Ao entrar na tela, o foco vai para o grid — mesmo que o Modal pai já
+  // tenha focado a toolbar. Nunca rouba foco de fora do editor.
+  useEffect(() => {
+    if (statuses.length === 0 || didInitialGridFocus.current) return;
+    didInitialGridFocus.current = true;
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body || rootRef.current?.contains(active)) {
+        requestGridFocus();
+      }
+    });
+  }, [statuses.length, requestGridFocus]);
 
   const nextId = useCallback(() => {
     const allIds = [...statuses, ...removedStatuses].map(s => s.id);
@@ -332,7 +347,7 @@ export default function WorkflowEditor({
   ], [t, getRowActions, initialStatusId]);
 
   return (
-    <div className="workflow-editor">
+    <div className="workflow-editor" ref={rootRef}>
       {error && <div className="workflow-editor-error">{error}</div>}
 
       {/* Statuses Section */}
@@ -376,7 +391,6 @@ export default function WorkflowEditor({
           columns={columns}
           getItemId={(item) => item.id}
           label={t('tasklist.workflow.statusGrid', 'Lista de status do workflow')}
-          autoFocusOnMount={false}
           onFocusChange={(item) => setFocused(item)}
           onActivate={(item) => openEditStatus(item)}
           onMoveItem={handleMoveStatus}

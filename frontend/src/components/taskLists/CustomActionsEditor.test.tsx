@@ -69,9 +69,11 @@ describe('CustomActionsEditor', () => {
     expect(screen.queryByRole('columnheader', { name: 'ID' })).not.toBeInTheDocument();
     expect(screen.getByText('Publica evento')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Nova ação' })).toBeInTheDocument();
-    // Sem linha focada, Editar/Apagar começam desabilitados.
-    expect(screen.getByRole('button', { name: 'Editar' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Deletar' })).toBeDisabled();
+    // O grid foca a primeira linha ao montar: Editar/Apagar já nascem prontos.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Editar' })).toBeEnabled());
+    expect(screen.getByRole('button', { name: 'Deletar' })).toBeEnabled();
+    // E o foco já está dentro do grid ao entrar na tela.
+    expect(screen.getByRole('grid').contains(document.activeElement)).toBe(true);
   });
 
   it('cria ação pelo modal e persiste no Salvar', async () => {
@@ -195,7 +197,7 @@ describe('CustomActionsEditor', () => {
     fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     fireEvent.keyDown(grid, { key: 'Enter' });
-    expect(await screen.findByRole('heading', { name: 'Editar ação' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Editar ação: Investigar' })).toBeInTheDocument();
     expect(screen.getByLabelText(/Rótulo/)).toHaveValue('Investigar');
   });
 
@@ -211,5 +213,24 @@ describe('CustomActionsEditor', () => {
 
     resolveSave();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Nova ação' })).toBeEnabled());
+  });
+
+  it('não rouba foco de fora do editor ao carregar', async () => {
+    let resolveLoad!: (value: { actions: unknown[] }) => void;
+    mockGetTaskListCustomActions.mockImplementationOnce(
+      () => new Promise<{ actions: unknown[] }>((res) => { resolveLoad = res; }),
+    );
+    render(
+      <div>
+        <button type="button">Externo</button>
+        <CustomActionsEditor taskListId="1" onClose={vi.fn()} />
+      </div>,
+    );
+    const ext = screen.getByRole('button', { name: 'Externo' });
+    ext.focus();
+    resolveLoad({ actions: [{ id: 'x', label: 'X' }] });
+    await screen.findByRole('grid');
+    await new Promise<void>((r) => { window.setTimeout(r, 50); });
+    expect(document.activeElement).toBe(ext);
   });
 });

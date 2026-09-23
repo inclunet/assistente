@@ -94,6 +94,8 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [focused, setFocused] = useState<EditableAction | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const didInitialGridFocus = useRef(false);
 
   // Modal de edição por ação: 'create' parte do vazio, 'edit' do item focado.
   const [itemModal, setItemModal] = useState<{ mode: 'create' } | { mode: 'edit'; uiId: string } | null>(null);
@@ -114,6 +116,19 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
       });
     return () => { cancelled = true; };
   }, [taskListId, getTaskListCustomActions]);
+
+  // Ao entrar na tela (dados carregados), o foco vai para o grid — mesmo que
+  // o Modal pai já tenha focado a toolbar. Nunca rouba foco de fora do editor.
+  useEffect(() => {
+    if (isLoading || actions.length === 0 || didInitialGridFocus.current) return;
+    didInitialGridFocus.current = true;
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body || rootRef.current?.contains(active)) {
+        requestGridFocus();
+      }
+    });
+  }, [isLoading, actions.length, requestGridFocus]);
 
   const openNewAction = useCallback(() => {
     setDraft(emptyAction());
@@ -284,7 +299,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
   }
 
   return (
-    <div className="custom-actions-editor">
+    <div className="custom-actions-editor" ref={rootRef}>
       <p className="custom-actions-editor__hint">
         {t(
           'tasklist.customActions.hint',
@@ -332,7 +347,6 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
           columns={columns}
           getItemId={(item) => item._uiId}
           label={t('tasklist.customActions.grid', 'Lista de ações customizadas')}
-          autoFocusOnMount={false}
           onFocusChange={(item) => setFocused(item)}
           onActivate={(item) => openEditAction(item)}
           getRowActions={getRowActions}
@@ -360,7 +374,11 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
         isOpen={itemModal !== null}
         onClose={closeItemModal}
         title={itemModal?.mode === 'edit'
-          ? t('tasklist.customActions.editAction', 'Editar ação')
+          ? t('tasklist.customActions.editActionNamed', 'Editar ação: {{label}}', {
+            label: actions.find((a) => a._uiId === itemModal.uiId)?.label
+              || actions.find((a) => a._uiId === itemModal.uiId)?.id
+              || '',
+          })
           : t('tasklist.customActions.newAction', 'Nova ação')}
       >
         <div className="custom-action-form">

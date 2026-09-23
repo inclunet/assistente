@@ -4302,7 +4302,7 @@ const ptBR = {
         add: 'Adicionar ação',
         remove: 'Remover ação',
         newAction: 'Nova ação',
-        editAction: 'Editar ação',
+        editActionNamed: 'Editar ação: {{label}}',
         apply: 'Aplicar',
         action: 'Ação',
         publishesEvent: 'Publica evento',
