@@ -4079,6 +4079,8 @@ const es = {
       noTasks: 'Sin tareas en esta lista',
       createTaskHint: 'Use Ctrl+N o haga clic en "Nueva tarea" arriba',
       editList: 'Editar Lista',
+      settings: 'Configuración',
+      listUpdated: 'Lista actualizada',
       deleteConfirmTitle: 'Eliminar Lista',
       deleteConfirmMessage: '¿Estás seguro de que deseas eliminar "{{name}}"? Esta acción no se puede deshacer.',
       createdSuccess: '¡Lista "{{name}}" creada exitosamente!',

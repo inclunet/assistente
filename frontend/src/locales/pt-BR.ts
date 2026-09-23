@@ -4079,6 +4079,8 @@ const ptBR = {
       noTasks: 'Nenhuma tarefa nesta lista',
       createTaskHint: 'Use Ctrl+N ou clique em "Nova Tarefa" acima',
       editList: 'Editar Lista',
+      settings: 'Configurações',
+      listUpdated: 'Lista atualizada',
       deleteConfirmTitle: 'Deletar Lista',
       deleteConfirmMessage: 'Tem certeza que deseja deletar "{{name}}"? Esta ação não pode ser desfeita.',
       createdSuccess: 'Lista "{{name}}" criada com sucesso!',

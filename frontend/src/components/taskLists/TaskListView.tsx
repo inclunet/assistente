@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } from 'react';
-import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, ThunderboltOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, EditOutlined, LinkOutlined, MessageOutlined, PlusOutlined, ThunderboltOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
@@ -15,6 +15,12 @@ import { registerWorkspacePanelFocus } from '../workspace/workspacePanelFocusReg
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
 import { Button } from '../ui/Button';
+import { DialogActions } from '../ui/DialogActions';
+import { FormField } from '../ui/FormField';
+import { Input } from '../ui/Input';
+import { Textarea } from '../ui/Textarea';
+import { MenuButton } from '../layout/MenuButton';
+import { HistoryPicker } from '../pickers/HistoryPicker';
 import { openTaskLink } from '../../lib/deepLinks';
 import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
@@ -28,6 +34,9 @@ const CustomActionsEditor = lazy(() => import('./CustomActionsEditor'));
 interface TaskListViewProps {
   taskListId: string;
 }
+
+// Valor sentinela do item "Nenhuma" no HistoryPicker (não pode colidir com ID de conversa).
+const CONVERSATION_NONE = '__none__';
 
 /**
  * Renderiza o conteúdo de uma TaskList individual (toolbar + table/kanban).
@@ -53,12 +62,17 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const initialLoadError = useTaskListStore((s) => s.errors?.get(initialLoadErrorKey));
   const isLoadingTaskPage = useTaskListStore((s) => s.loadingTaskPagesByListId?.has(taskListId) ?? false);
   const taskPageLoadError = useTaskListStore((s) => s.taskPageLoadErrors?.get(taskListId));
-  const { loadTaskList, loadMoreTasks, loadAllTasksForBoard, cancelBoardTaskLoad, clearError, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
+  const { loadTaskList, loadMoreTasks, loadAllTasksForBoard, cancelBoardTaskLoad, clearError, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
   const { runCustomAction } = useCustomActions();
 
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
   const [isWorkflowEditorOpen, setIsWorkflowEditorOpen] = useState(false);
   const [isCustomActionsEditorOpen, setIsCustomActionsEditorOpen] = useState(false);
+  const [isEditListOpen, setIsEditListOpen] = useState(false);
+  const [isConversationOpen, setIsConversationOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
   const [boardActions, setBoardActions] = useState<CustomActionView[]>([]);
   const [taskCountsByStatus, setTaskCountsByStatus] = useState<Record<number, number>>({});
 
@@ -483,6 +497,47 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     openTaskLink(`assistente://conversation/${taskList.conversationId}`, { navigate });
   }, [taskList?.conversationId, navigate]);
 
+  const handleOpenEditList = useCallback(() => {
+    setEditTitle(taskList?.title ?? '');
+    setEditDescription(taskList?.description ?? '');
+    setIsEditListOpen(true);
+  }, [taskList?.title, taskList?.description]);
+
+  const handleSaveList = useCallback(async () => {
+    if (!editTitle.trim()) {
+      const msg = t('tasklist.emptyTitle', 'Título não pode estar vazio');
+      addToast(msg, 'error');
+      announce(msg);
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await updateTaskList(taskListId, editTitle.trim(), editDescription.trim());
+      const msg = t('tasklist.listUpdated', 'Lista atualizada');
+      addToast(msg, 'success', undefined, undefined, { suppressAnnounce: true });
+      announce(msg);
+      setIsEditListOpen(false);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
+    } finally {
+      setEditSaving(false);
+    }
+  }, [editTitle, editDescription, taskListId, updateTaskList, addToast, announce, t]);
+
+  const applyListConversation = useCallback(async (conversationId: string | null) => {
+    try {
+      await setTaskListConversation(taskListId, conversationId);
+      const msg = t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado');
+      addToast(msg, 'success', undefined, undefined, { suppressAnnounce: true });
+      announce(msg);
+      setIsConversationOpen(false);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
+    }
+  }, [taskListId, setTaskListConversation, addToast, announce, t]);
+
   // Auto-vínculo: quando o chat embutido desta aba abre com uma conversa, a lista
   // passa a apontar para ela (inclusive ao iniciar uma conversa nova pelo chat).
   // Sem feedback visual extra — é um efeito implícito do uso do chat.
@@ -572,45 +627,64 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               onClick: () => void runCustomAction(ca, taskListId, ''),
               variant: (ca.danger ? 'danger' : 'secondary') as 'danger' | 'secondary',
             })),
-            {
-              key: 'custom-actions',
-              label: t('tasklist.customActions.configure', 'Ações customizadas'),
-              icon: <ThunderboltOutlined />,
-              onClick: () => setIsCustomActionsEditorOpen(true),
-              variant: 'secondary' as const,
-            },
-            {
-              key: 'edit-workflow',
-              label: t('tasklist.workflow.editWorkflow', 'Editar Workflow'),
-              icon: '⚙️',
-              onClick: handleOpenWorkflowEditor,
-              variant: 'secondary' as const,
-            },
-            {
-              key: 'clone-list',
-              label: t('tasklist.duplicate', 'Duplicar'),
-              icon: <CopyOutlined />,
-              shortcut: 'D',
-              onClick: handleClone,
-              variant: 'secondary' as const,
-            },
-            {
-              key: 'clear-list',
-              label: t('tasklist.clear', 'Limpar'),
-              icon: <ClearOutlined />,
-              shortcut: 'Ctrl+L',
-              onClick: () => void handleClear(),
-              variant: 'danger' as const,
-              disabled: !hasTasks,
-            },
-            {
-              key: 'delete-list',
-              label: t('tasklist.delete', 'Apagar'),
-              icon: <DeleteOutlined />,
-              onClick: handleDelete,
-              variant: 'danger' as const,
-            },
           ]}
+          rightEnd={
+            <MenuButton
+              buttonLabel={t('tasklist.settings', 'Configurações')}
+              items={[
+                {
+                  id: 'edit-list',
+                  label: t('tasklist.editList', 'Editar Lista'),
+                  icon: <EditOutlined aria-hidden="true" />,
+                  onClick: handleOpenEditList,
+                },
+                {
+                  id: 'edit-workflow',
+                  label: t('tasklist.workflow.editWorkflow', 'Editar Workflow'),
+                  icon: <span aria-hidden="true">⚙️</span>,
+                  onClick: handleOpenWorkflowEditor,
+                },
+                {
+                  id: 'custom-actions',
+                  label: t('tasklist.customActions.configure', 'Ações customizadas'),
+                  icon: <ThunderboltOutlined aria-hidden="true" />,
+                  onClick: () => setIsCustomActionsEditorOpen(true),
+                },
+                {
+                  id: 'link-conversation',
+                  label: taskList.conversationId
+                    ? t('tasklist.changeConversation', 'Alterar conversa vinculada')
+                    : t('tasklist.linkConversation', 'Vincular conversa'),
+                  icon: <LinkOutlined aria-hidden="true" />,
+                  onClick: () => setIsConversationOpen(true),
+                },
+                { separator: true, id: 'sep-1' },
+                {
+                  id: 'clone-list',
+                  label: t('tasklist.duplicate', 'Duplicar'),
+                  icon: <CopyOutlined aria-hidden="true" />,
+                  shortcut: 'D',
+                  onClick: handleClone,
+                },
+                {
+                  id: 'clear-list',
+                  label: t('tasklist.clear', 'Limpar'),
+                  icon: <ClearOutlined aria-hidden="true" />,
+                  shortcut: 'Ctrl+L',
+                  onClick: () => void handleClear(),
+                  disabled: !hasTasks,
+                },
+                { separator: true, id: 'sep-2' },
+                {
+                  id: 'delete-list',
+                  label: t('tasklist.delete', 'Apagar'),
+                  icon: <DeleteOutlined aria-hidden="true" />,
+                  onClick: handleDelete,
+                  danger: true,
+                },
+              ]}
+            />
+          }
         />
       </div>
 
@@ -699,6 +773,72 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               onCancel={() => setIsWorkflowEditorOpen(false)}
             />
           </Suspense>
+        </Modal>
+      )}
+
+      {isEditListOpen && (
+        <Modal
+          isOpen={isEditListOpen}
+          onClose={() => setIsEditListOpen(false)}
+          title={t('tasklist.editList', 'Editar Lista')}
+        >
+          <FormField label={t('tasklist.title', 'Título')} required>
+            <Input
+              type="text"
+              value={editTitle}
+              placeholder={t('tasklist.titlePlaceholder', 'Título da lista')}
+              onChange={(e) => setEditTitle(e.target.value)}
+              disabled={editSaving}
+              maxLength={200}
+            />
+          </FormField>
+          <FormField label={t('tasklist.description', 'Descrição')}>
+            <Textarea
+              value={editDescription}
+              placeholder={t('tasklist.descriptionPlaceholder', 'Adicione mais detalhes...')}
+              onChange={(e) => setEditDescription(e.target.value)}
+              disabled={editSaving}
+              rows={4}
+              maxLength={1000}
+            />
+          </FormField>
+          <DialogActions
+            primary={
+              <Button type="button" variant="primary" onClick={() => void handleSaveList()} disabled={editSaving} loading={editSaving}>
+                {t('common.save', 'Salvar')}
+              </Button>
+            }
+            secondary={
+              <Button type="button" variant="secondary" onClick={() => setIsEditListOpen(false)} disabled={editSaving}>
+                {t('common.cancel', 'Cancelar')}
+              </Button>
+            }
+          />
+        </Modal>
+      )}
+
+      {isConversationOpen && (
+        <Modal
+          isOpen={isConversationOpen}
+          onClose={() => setIsConversationOpen(false)}
+          title={taskList.conversationId
+            ? t('tasklist.conversation', 'Conversa vinculada')
+            : t('tasklist.linkConversation', 'Vincular conversa')}
+        >
+          <HistoryPicker
+            value={taskList.conversationId}
+            onChange={(id) => void applyListConversation(id)}
+            onSelectExtra={() => void applyListConversation(null)}
+            extraItems={taskList.conversationId
+              ? [{ value: CONVERSATION_NONE, label: t('tasklist.conversationNone', 'Nenhuma') }]
+              : undefined}
+            label={taskList.conversationId
+              ? t('tasklist.changeConversation', 'Alterar conversa vinculada')
+              : t('tasklist.linkConversation', 'Vincular conversa')}
+            description={t('tasklist.conversationDescription', 'Associe esta lista a uma conversa (opcional)')}
+            maxWidth="100%"
+            onAnnounce={announce}
+          />
         </Modal>
       )}
     </div>

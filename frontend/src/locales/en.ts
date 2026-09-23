@@ -4079,6 +4079,8 @@ const en = {
       noTasks: 'No tasks in this list',
       createTaskHint: 'Use Ctrl+N or click on "New Task" above',
       editList: 'Edit List',
+      settings: 'Settings',
+      listUpdated: 'List updated',
       deleteConfirmTitle: 'Delete List',
       deleteConfirmMessage: 'Are you sure you want to delete "{{name}}"? This action cannot be undone.',
       createdSuccess: 'List "{{name}}" created successfully!',
