@@ -1,6 +1,6 @@
 # AEP-0103 — Tasklist de conclusão integral
 
-Baseline inicial de 16/09/2026; reconciliação de 23/09/2026 atualizada pela seção143. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
+Baseline inicial de 16/09/2026; reconciliação de 23/09/2026 atualizada pela seção145. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.
 
@@ -757,9 +757,9 @@ Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `internal/app/app_comm
 
 - [ ] C38 — Toda configuração é operável por teclado e NVDA sem depender de grade, arrastar, imagem ou cor.
 
-**Implementação: P — parcial.** Controles existentes são textuais, localizados e operáveis por lista/teclado. As seções142–143 acrescentam títulos Deck por idioma e sete ícones selecionáveis por nome, aplicados ao dispositivo. Ainda faltam imagem personalizada e variantes de estado. Aceite NVDA integral também falta, mas não é sozinho a razão de P.
+**Implementação: P — parcial.** Controles existentes são textuais, localizados e operáveis por lista/teclado. As seções142–144 acrescentam títulos Deck por idioma, sete ícones selecionáveis por nome e imagens personalizadas, aplicados ao dispositivo. A seção145 acrescenta feedback transitório ligado ao resultado real do executor, com anúncio acessível. Ainda faltam estados persistentes ligado/desligado e personalização por estado. Aceite físico/NVDA integral também falta, mas não é sozinho a razão de P.
 
-Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `frontend/src/pages/CommandSettingsPage.test.tsx`, `docs/content/recursos/COMANDOS.md`; seções129 e142. Gates: R09.
+Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `frontend/src/pages/CommandSettingsPage.test.tsx`, `internal/app/app_command_deck_feedback_announce_test.go`, `frontend/src/lib/subscribeCommandDeckFeedback.test.ts`, `docs/content/recursos/COMANDOS.md`; seções129 e142–145. Gates: R09.
 
 ### C39
 
@@ -9090,3 +9090,65 @@ mas não se afirma causa resolvida. TypeScript, ESLint focado, vet, verificador
 AEP, diff-check e integridade sem bytes NUL **PASS**.
 Sem Wails, suíte do pacote ACP, executáveis diagnósticos personalizados,
 banco pessoal, push ou PR.
+
+## 145. Feedback real de execução no Stream Deck — 23/09/2026
+
+O acompanhamento temporário é específico do executor Stream Deck. Não modifica
+o caminho rápido de navegação nem cria um segundo ledger: guarda somente o
+estado mais recente de cada acionador em memória, com capacidade limitada.
+Espera precede a chamada ao executor; execução começa na entrada do handler;
+conclusão depende do resultado terminal retornado pelo pipeline comum.
+Falha, recusa, cancelamento, timeout e resultado desconhecido não viram sucesso.
+
+O renderer consulta esse estado fora do key-down e incorpora as mudanças ao diff
+de frames. O feedback pertence à instância física, geração e versões do mapa;
+conclusões antigas não sobrescrevem novas execuções. Reconexão, bloqueio,
+captura e reconstrução invalidam a apresentação anterior. Um resultado final
+é transitório; não representa estado persistente de camada ou de ferramenta.
+
+Texto localizado em pt-BR/en/es acompanha a apresentação física. Após uma
+escrita bem-sucedida do frame, o anúncio acessível exige sessão revalidada,
+mapa local correspondente e instância ainda viva. O consumidor usa o announcer
+compartilhado, valida owner/workspace/geração/expiração, elimina duplicatas e
+recusa regressão de estado. O evento não contém serial nem autoriza ações.
+
+Limites mantidos explícitos: eventos locais rápidos não recebem confirmação
+artificial nem nova auditoria; estados persistentes ligado/desligado e imagens
+personalizadas por estado continuam pendentes. O aceite físico/NVDA permanece
+manual. **78 I / 6 P / 0 N = 84; C38 continua P.** Saídas R e gates permanecem
+**11 A / 14 I / 22 P / 1 N = 48; 1/12 aceito**. Nenhum checkbox foi promovido.
+
+Evidências da seção145:
+
+- Recorte final de feedback: **17 testes de topo PASS, 25,983 s**, log
+  `command-c38-feedback-reviewed-20260923.log`. Inclui driver simulado →
+  executor real → frame/announcer → retorno ao estado normal; conclusão real
+  com sucesso, falha e cancelamento; reconexão, geração, sobreposição,
+  expiração, limite, Unicode e pixels do título em 16×16.
+- `commanddeck`, `commandexecution` e `commandui`: **PASS**, log
+  `command-c38-feedback-domains-20260923.log`.
+- Frontend completo: **466 arquivos / 5.824 testes PASS, 440,84 s**, com
+  `--maxWorkers=2`; log `frontend/command-c38-feedback-frontend-full-20260923.log`.
+  TypeScript e ESLint focado **PASS**. Vet App/Deck/executor/broker **PASS**,
+  log `command-c38-feedback-vet-final-20260923.log`.
+- Tentativas intermediárias preservadas: fixture de reconexão sem cancelador
+  provocou panic; teste de expiração em edição reteve mutex e atingiu timeout.
+  Ambos foram corrigidos nos testes, sem remover cenários ou relaxar asserções;
+  o recorte final acima passou. Vet iniciado durante edição encontrou método
+  ainda não escrito; a execução final também passou.
+
+Implementação paralela: **Zeno** (executor), **Hubble** (renderer) e **Boyle**
+(frontend), todos Luna. Main integrou os anúncios, provas App e documentação.
+App completo: **1.223 testes de topo PASS, 496,600 s**, log
+`command-c38-feedback-app-full-20260923.log`. Refinamentos finais do renderer,
+testes de falha/cancelamento e preservação do contexto original das ações de
+camada foram requalificados no recorte Deck completo: **113 testes de topo
+PASS, 199,164 s**, log `command-c38-feedback-deck-final-20260923.log`.
+O teste opt-in de latência física permanece pulado; não há nova medição HID.
+Revisão independente **Hume (Luna)**: três verificações, incluindo conferência
+final dos 21 arquivos. P2 do título ausente em raster 16×16 corrigido com prova
+de pixels; restauração do contexto original das ações de camada conferida.
+Resultado final: **sem P1/P2 ou pendências adicionais**. Diff-check, integridade
+sem bytes NUL e verificador de status AEP também passaram.
+Não houve Wails, pacote ACP, executáveis diagnósticos personalizados, acesso
+ao banco pessoal, push ou PR. Aceite físico/NVDA continua separado.

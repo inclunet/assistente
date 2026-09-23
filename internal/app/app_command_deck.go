@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image"
-	"image/color"
-	"image/draw"
 	"reflect"
 	"strconv"
 	"strings"
@@ -24,21 +21,19 @@ import (
 	"assistente/internal/commandinput"
 	"assistente/internal/commandruntime"
 	"github.com/google/uuid"
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/gofont/goregular"
-	"golang.org/x/image/font/opentype"
-	"golang.org/x/image/math/fixed"
 )
 
 type commandDeckBinding struct {
-	commandID, title string
-	icon             string
-	imageRef         string
-	imagePNG         []byte
-	identity         string
-	profileBound     bool
-	conditions       []LocalCommandPaletteCondition
-	origin           commandOriginContext
+	commandID, title     string
+	icon                 string
+	imageRef             string
+	imagePNG             []byte
+	feedbackState        string
+	feedbackInvocationID string
+	identity             string
+	profileBound         bool
+	conditions           []LocalCommandPaletteCondition
+	origin               commandOriginContext
 }
 type commandDeckMap map[string]map[int]commandDeckBinding
 
@@ -66,15 +61,16 @@ type CommandDeckLocalUIEvent struct {
 // The native driver is the only producer. No public Wails method can forge
 // a physical occurrence. Each map owns its epoch, handles and pressed state.
 type commandDeckController struct {
-	p          *commandProductRuntime
-	ctx        context.Context
-	versions   commandexecution.Versions
-	identities map[string]map[int][]commandDeckCompiledTrigger
-	mu         sync.Mutex
-	pressed    map[string]bool
-	instances  map[string]commandDeckInstance
-	models     map[string]string
-	generation uint64
+	p                 *commandProductRuntime
+	ctx               context.Context
+	versions          commandexecution.Versions
+	identities        map[string]map[int][]commandDeckCompiledTrigger
+	mu                sync.Mutex
+	pressed           map[string]bool
+	instances         map[string]commandDeckInstance
+	models            map[string]string
+	generation        uint64
+	feedbackAnnounced map[string]string
 }
 
 type commandDeckInstance struct {
@@ -517,7 +513,7 @@ func (p *commandProductRuntime) runDeckEpoch(ctx context.Context, driver command
 		}
 		bindings = commandDeckMap{}
 	}
-	controller := &commandDeckController{p: p, ctx: watch, versions: versions, identities: identities, pressed: map[string]bool{}, instances: map[string]commandDeckInstance{}, models: map[string]string{}, generation: p.deckInputGeneration()}
+	controller := &commandDeckController{p: p, ctx: watch, versions: versions, identities: identities, pressed: map[string]bool{}, instances: map[string]commandDeckInstance{}, models: map[string]string{}, generation: p.deckInputGeneration(), feedbackAnnounced: map[string]string{}}
 	manager := commanddeck.NewManager(nil, commanddeck.BackoffPolicy{Initial: time.Second, Max: 8 * time.Second})
 	adapter, err := commanddeck.NewDeviceAdapter(manager, controller)
 	if err != nil {
@@ -545,13 +541,14 @@ func (p *commandProductRuntime) runDeckEpoch(ctx context.Context, driver command
 		if p.getDeckLocale() != locale || p.currentDeckCapture() != capture || p.deckInputGeneration() != controller.generation {
 			return
 		}
-		latestBindings, latestVersions, latestErr := p.deckMap(watch)
+		freshBindings, latestVersions, latestErr := p.deckMap(watch)
 		if latestErr != nil {
 			return
 		}
 		if latestVersions != versions {
 			return
 		}
+		latestBindings := controller.overlayDeckFeedback(watch, freshBindings)
 		mapDirty := !reflect.DeepEqual(bindings, latestBindings)
 		if mapDirty {
 			bindings = latestBindings
@@ -581,9 +578,23 @@ func (p *commandProductRuntime) runDeckEpoch(ctx context.Context, driver command
 				if result.Opened {
 					controller.opened(string(result.Device))
 				}
+				renderBindings := bindings[string(result.Device)]
+				if result.Opened {
+					// A reconnect creates a new input instance. Rebuild the local
+					// overlay after opening it so a frame can never inherit the
+					// previous instance's invocation feedback.
+					refreshed := controller.overlayDeckFeedback(watch, freshBindings)
+					renderBindings = refreshed[string(result.Device)]
+					if bindings[string(result.Device)] == nil {
+						bindings[string(result.Device)] = map[int]commandDeckBinding{}
+					}
+					for index, binding := range renderBindings {
+						bindings[string(result.Device)][index] = binding
+					}
+				}
 				frame := commanddeck.Frame{Device: result.Device, Model: snapshot.Model, Keys: map[int]commanddeck.KeyView{}}
 				retryImages := false
-				for index, binding := range bindings[string(result.Device)] {
+				for index, binding := range renderBindings {
 					if index >= snapshot.Model.KeyCount() {
 						continue
 					}
@@ -598,6 +609,7 @@ func (p *commandProductRuntime) runDeckEpoch(ctx context.Context, driver command
 				if err := runtime.Render(watch, frame); err != nil {
 					continue
 				}
+				controller.announceDeckFeedback(watch, string(result.Device), renderBindings)
 			}
 			pollMu.Lock()
 			if !polling[result.Device] {
@@ -699,7 +711,16 @@ func commandDeckKeyView(binding commandDeckBinding, locale string, model command
 	if len(binding.imagePNG) != 0 {
 		imageID += ":" + binding.imageRef
 	}
-	return commanddeck.KeyView{Title: binding.title, Announce: binding.title, State: state, ImageID: imageID, ImageRGBA: commandDeckPresentationImage(binding.title, icon, binding.imagePNG, model)}
+	if binding.feedbackState != "" {
+		state = binding.feedbackState
+		imageID += ":feedback:" + binding.feedbackState + ":" + binding.feedbackInvocationID
+	}
+	statusLabel := commandDeckFeedbackStatusLabel(locale, binding.feedbackState)
+	announce := binding.title
+	if statusLabel != "" {
+		announce += " — " + statusLabel
+	}
+	return commanddeck.KeyView{Title: binding.title, Announce: announce, State: state, ImageID: imageID, ImageRGBA: commandDeckPresentationImageWithStatus(binding.title, icon, binding.imagePNG, statusLabel, model)}
 }
 
 func commandDeckTitle(configuration *commandbindings.Configuration, bindingIDs []string, definition commandcatalog.Definition, locale string) string {
@@ -715,48 +736,5 @@ func commandDeckTitle(configuration *commandbindings.Configuration, bindingIDs [
 }
 
 func commandDeckPresentationImage(title, icon string, customPNG []byte, model commanddeck.Model) []byte {
-	img := image.NewRGBA(image.Rect(0, 0, model.KeyImageW, model.KeyImageH))
-	draw.Draw(img, img.Bounds(), image.NewUniform(color.RGBA{24, 24, 24, 255}), image.Point{}, draw.Src)
-	y := 14
-	custom := commandDeckDecodeImage(customPNG)
-	if (custom != nil || commandDeckIconSupported(icon)) && model.KeyImageW >= 20 && model.KeyImageH >= 40 {
-		size := min(32, model.KeyImageW-4, model.KeyImageH/2-4)
-		x := (model.KeyImageW - size) / 2
-		if custom != nil {
-			commandDeckDrawImage(img, custom, image.Rect(x, 2, x+size, 2+size))
-		} else {
-			commandDeckDrawIcon(img, icon, image.Rect(x, 2, x+size, 2+size))
-		}
-		y += size + 4
-	}
-	parsed, err := opentype.Parse(goregular.TTF)
-	if err != nil {
-		return img.Pix
-	}
-	face, err := opentype.NewFace(parsed, &opentype.FaceOptions{Size: 11, DPI: 72, Hinting: font.HintingFull})
-	if err != nil {
-		return img.Pix
-	}
-	defer face.Close()
-	drawer := font.Drawer{Dst: img, Src: image.White, Face: face}
-	line := ""
-	for _, word := range strings.Fields(title) {
-		candidate := strings.TrimSpace(line + " " + word)
-		if drawer.MeasureString(candidate).Ceil() > model.KeyImageW-4 && line != "" {
-			drawer.Dot = fixed.P(2, y)
-			drawer.DrawString(line)
-			y += 14
-			line = word
-		} else {
-			line = candidate
-		}
-		if y > model.KeyImageH-3 {
-			break
-		}
-	}
-	if y <= model.KeyImageH-3 {
-		drawer.Dot = fixed.P(2, y)
-		drawer.DrawString(line)
-	}
-	return img.Pix
+	return commandDeckPresentationImageWithStatus(title, icon, customPNG, "", model)
 }

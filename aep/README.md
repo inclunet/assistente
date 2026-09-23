@@ -16,7 +16,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
-AEP-0103, seção144 após reconciliação129 (23/09/2026): **In Progress**.
+AEP-0103, seção145 após reconciliação129 (23/09/2026): **In Progress**.
 **78/84 critérios com implementação identificada (92,9%); 6 parciais e
 0 ausentes**, sem novo aceite final. Saídas R: **11 A / 14 I / 22 P / 1 N**,
 25/48 implementadas incluindo aceitas (52,1%); **1/12 gates aceito**.
@@ -47,6 +47,10 @@ por usuário fora dos documentos de configuração. Gravação confirmada atômi
 limites e limpeza transacional; aplicação em frames alterados, fora do key-down.
 Arquivos de imagem não acompanham exportações de configuração. C38 segue
 parcial por variantes e aceite NVDA; contagem e gates permanecem inalterados.
+Seção145: feedback transitório do executor real nas teclas e anúncio acessível,
+isolados por sessão, geração e conexão; não acrescenta auditoria à navegação.
+Estados persistentes ligado/desligado, personalização por estado e aceite físico
+seguem pendentes. C38, contagens e gates não são promovidos por esse recorte.
 Seção136: corrigida disputa SQLite no consumo de receipts, com CAS completo,
 sem retry de efeitos; qualificação integrada ampliada sem novos aceites.
 Seção137: provas adicionais de camadas por origem e callbacks diálogo/job;

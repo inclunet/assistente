@@ -225,9 +225,10 @@ func (a *App) beginAdmittedContextualDeckUICommand(admission *contextualDeckAdmi
 			return commandexecution.EnvelopeCandidate{}, commandexecution.ErrStale
 		}
 		state.occurrences[invocationID] = commandDeckOccurrence{ctx: offer.ctx, versions: offer.versions, originVersion: admission.originVersion, identity: admission.identity, serial: offer.serial, instanceID: offer.instanceID, generation: offer.generation, visual: proof, page: admission.page, keyboard: admission.keyboard, controller: offer.controller}
+		state.registerDeckFeedbackLocked(invocationID, state.occurrences[invocationID])
 		return commandexecution.EnvelopeCandidate{InvocationID: invocationID, CorrelationID: invocationID, TriggerType: string(commandcatalog.StreamDeck), TriggerSpec: admission.raw, Arguments: json.RawMessage(`{}`)}, nil
 	}, func(ctx context.Context, candidate commandexecution.EnvelopeCandidate) (commandledger.FullRecord, error) {
-		return state.service.ExecuteEnvelope(ctx, "", candidate)
+		return state.executeEnvelopeWithFeedback(ctx, "", candidate)
 	}, admission.valid, nil, func() { state.remove(invocationID) })
 	if err != nil {
 		state.remove(invocationID)

@@ -88,6 +88,7 @@ func (a *App) ExecuteContextualDeckLayerCommand(offerID, generation string, obse
 	state.occurrences[invocationID] = commandDeckOccurrence{ctx: ctx, versions: offer.versions,
 		originVersion: admission.originVersion, identity: admission.identity, serial: offer.serial,
 		instanceID: offer.instanceID, generation: offer.generation, visual: admission.proof}
+	state.registerDeckFeedbackLocked(invocationID, state.occurrences[invocationID])
 	state.mu.Unlock()
 	defer state.remove(invocationID)
 	p.mu.Lock()
@@ -103,7 +104,7 @@ func (a *App) ExecuteContextualDeckLayerCommand(offerID, generation string, obse
 	ctx = context.WithValue(ctx, contextualDeckLayerKey{}, occurrence)
 	candidate := commandexecution.EnvelopeCandidate{InvocationID: invocationID, CorrelationID: invocationID,
 		TriggerType: string(commandcatalog.StreamDeck), TriggerSpec: admission.raw, Arguments: json.RawMessage(`{}`)}
-	record, err := state.service.ExecuteEnvelope(ctx, "", candidate)
+	record, err := state.executeEnvelopeWithFeedback(ctx, "", candidate)
 	result = commandProductResult(record)
 	if err != nil {
 		return result, err

@@ -70,6 +70,7 @@ import { captureEditorPresentationTarget, isEditorPresentationCommand, type Edit
 import { captureLandmarkNavigationTarget, isLandmarkNavigationCommand, LANDMARK_COMMAND_EVENT } from '../../lib/commandLandmarkNavigation';
 import { captureChatNavigationTarget, isChatNavigationCommand, CHAT_NAVIGATION_COMMAND_IDS, CHAT_NAVIGATION_COMMAND_EVENT, type ChatNavigationTarget } from '../../lib/commandChatNavigation';
 import { capturePagePresentationTarget, isPagePresentationCommand, PAGE_PRESENTATION_COMMAND_IDS, PAGE_PRESENTATION_COMMAND_EVENT, type PagePresentationTarget } from '../../lib/commandPagePresentation';
+import { subscribeCommandDeckFeedback } from '../../lib/subscribeCommandDeckFeedback';
 
 import { captureEditorModeTarget, isEditorModeCommand, EDITOR_MODE_COMMAND_IDS, EDITOR_MODE_COMMAND_EVENT, type EditorModeTargetLease } from '../../lib/commandEditorMode';
 import { captureEditorFileTarget, isEditorFileCommand, type EditorFileTargetLease } from '../../lib/commandEditorFile';
@@ -1532,6 +1533,30 @@ export function Topbar() {
       localKeyboardGenerationRef.current = null;
       localKeyboardOwnerRef.current = null;
     };
+    const unsubscribeDeckFeedback = subscribeCommandDeckFeedback({
+      announce: (message) => creationPresentationRef.current.announce(message),
+      translate: (state, title) => creationPresentationRef.current.t(`commandDeckFeedback.${state}`, { title }),
+      getContext: () => {
+        const auth = useAuthStore.getState();
+        const currentWorkspace = useWorkspaceStore.getState().workspace;
+        const owner = localKeyboardOwnerRef.current;
+        const ownsCurrentAuth = !!(auth.isAuthenticated && auth.user && owner &&
+          owner.ownerId === auth.user.userId && owner.sessionId === auth.user.sessionId);
+        return {
+          authenticated: ownsCurrentAuth,
+          owner: ownsCurrentAuth && owner ? {
+            userId: owner.ownerId,
+            sessionId: owner.sessionId,
+            workspaceId: owner.workspaceId,
+          } : null,
+          workspaceId: currentWorkspace?.id ?? null,
+          generation: localKeyboardGenerationRef.current,
+          paletteDeadline: localPaletteDeadlineRef.current,
+        };
+      },
+      requireFocus: true,
+      hasFocus: () => document.hasFocus(),
+    });
     const invalidateLocalPresentation = () => {
       localCommandExecutionRef.current?.cancelPresentation();
       void localCommandContextualExecutionRef.current?.cancel();
@@ -2488,6 +2513,7 @@ export function Topbar() {
       unsubscribeGlobalJobAdmission();
       globalVoiceTicketsRef.current.clear();
       unsubscribeDeckReservation();
+      unsubscribeDeckFeedback();
       unsubscribeDeckLocalUI();
       unsubscribeDeckContextualUI();
       window.removeEventListener('focus', refreshKeyboardOnFocus, true);

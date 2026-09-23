@@ -81,6 +81,17 @@ const en = {
       results: '{{total}} commands listed; {{available}} available to run. Use the down arrow to navigate.',
     },
 
+    commandDeckFeedback: {
+      waiting: 'Stream Deck: waiting for {{title}}.',
+      running: 'Stream Deck: running {{title}}.',
+      succeeded: 'Stream Deck: {{title}} — Succeeded.',
+      failed: 'Stream Deck: {{title}} failed.',
+      denied: 'Stream Deck: {{title}} was denied.',
+      cancelled: 'Stream Deck: {{title}} was cancelled.',
+      timed_out: 'Stream Deck: {{title}} timed out.',
+      outcome_unknown: 'Stream Deck: could not confirm {{title}}.',
+    },
+
     commandShortcutCapture: {
       mode: 'Recording type',
       current: 'Current shortcut: {{shortcut}}.',

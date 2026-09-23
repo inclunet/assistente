@@ -42,6 +42,7 @@ type commandDeckExecution struct {
 	service     *commandexecution.Service
 	occurrences map[string]commandDeckOccurrence
 	offers      map[string]commandDeckContextualOffer
+	feedback    *commandDeckFeedbackState
 }
 
 type commandDeckTrigger struct {
@@ -134,11 +135,16 @@ func (a *App) newCommandDeckExecutor(p *commandProductRuntime, base commandexecu
 		return policy(ctx, owner, *record.Envelope.CommandID, commandcatalog.StreamDeck)
 	}
 	config.Envelope = &envelope
+	state := &commandDeckExecution{
+		occurrences: make(map[string]commandDeckOccurrence),
+		feedback:    newCommandDeckFeedbackState(),
+	}
+	config.Handlers = copyDeckFeedbackHandlers(state, config.Handlers)
 	service, err := a.newCommandDesktopExecutor(config, host)
 	if err != nil {
 		return nil, err
 	}
-	state := &commandDeckExecution{service: service, occurrences: make(map[string]commandDeckOccurrence)}
+	state.service = service
 	return state, nil
 }
 
@@ -188,6 +194,7 @@ func (p *commandProductRuntime) beginDeckDurableCommand(ctx context.Context, ser
 		return "", commandexecution.ErrStale
 	}
 	state.occurrences[invocationID] = commandDeckOccurrence{ctx: ctx, versions: versions, originVersion: captured.version, identity: identity, serial: serial, instanceID: instanceID, generation: generation, foreground: cloneForegroundSnapshot(captured.foreground)}
+	state.registerDeckFeedbackLocked(invocationID, state.occurrences[invocationID])
 	state.mu.Unlock()
 	p.mu.Lock()
 	if p.closed || p.deckCapture != nil || p.deckCaptureGeneration != generation {
@@ -200,7 +207,7 @@ func (p *commandProductRuntime) beginDeckDurableCommand(ctx context.Context, ser
 	go func() {
 		defer p.workers.Done()
 		defer state.remove(invocationID)
-		record, executeErr := state.service.ExecuteEnvelope(ctx, "", commandexecution.EnvelopeCandidate{InvocationID: invocationID, CorrelationID: invocationID, TriggerType: string(commandcatalog.StreamDeck), TriggerSpec: raw, Arguments: json.RawMessage(`{}`)})
+		record, executeErr := state.executeEnvelopeWithFeedback(ctx, "", commandexecution.EnvelopeCandidate{InvocationID: invocationID, CorrelationID: invocationID, TriggerType: string(commandcatalog.StreamDeck), TriggerSpec: raw, Arguments: json.RawMessage(`{}`)})
 		if executeErr != nil || record.Status != commandledger.Succeeded {
 			// O executor já persiste o estado terminal; não há handoff visual
 			// para relatar. Manter a leitura explícita evita perder falhas.
@@ -263,10 +270,11 @@ func (p *commandProductRuntime) beginDeckCommandWithOrigin(ctx context.Context, 
 			return commandexecution.EnvelopeCandidate{}, commandexecution.ErrStale
 		}
 		state.occurrences[invocationID] = commandDeckOccurrence{ctx: ctx, versions: versions, originVersion: profileStamp, identity: identity, serial: serial, instanceID: instanceID, generation: generation, foreground: cloneForegroundSnapshot(origin.foreground)}
+		state.registerDeckFeedbackLocked(invocationID, state.occurrences[invocationID])
 		return commandexecution.EnvelopeCandidate{InvocationID: invocationID, CorrelationID: invocationID,
 			TriggerType: string(commandcatalog.StreamDeck), TriggerSpec: raw, Arguments: json.RawMessage(`{}`)}, nil
 	}, func(runCtx context.Context, candidate commandexecution.EnvelopeCandidate) (commandledger.FullRecord, error) {
-		return state.service.ExecuteEnvelope(runCtx, "", candidate)
+		return state.executeEnvelopeWithFeedback(runCtx, "", candidate)
 	}, func() bool {
 		if ctx.Err() != nil || p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) || !p.deckExecutionAllowed(generation) {
 			return false
@@ -338,6 +346,14 @@ func (s *commandDeckExecution) remove(invocationID string) {
 	}
 	s.mu.Lock()
 	delete(s.occurrences, invocationID)
+	if s.feedback != nil {
+		for identity, entry := range s.feedback.active {
+			if entry.invocationID == invocationID {
+				delete(s.feedback.active, identity)
+				break
+			}
+		}
+	}
 	s.mu.Unlock()
 }
 

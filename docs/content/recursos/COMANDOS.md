@@ -954,7 +954,7 @@ aceita até 256 caracteres. Salve e confirme a alteração para aplicá-la.
 Deixe um idioma vazio para usar o nome localizado do comando naquele idioma.
 Apagar um título não apaga a associação, o comando ou os outros idiomas. O nome
 do comando na paleta também não muda: o título pertence à tecla configurada.
-Os títulos são recuperados ao reabrir o editor. Variantes automáticas de imagem
+Os títulos são recuperados ao reabrir o editor. Imagens diferentes escolhidas
 por estado de execução ainda não estão disponíveis.
 
 O campo **Ícone** oferece configurações, conversa, pasta, reproduzir, parar,
@@ -998,6 +998,28 @@ o nome localizado do comando, evitando apresentar uma associação arbitrária.
 O ícone também só aparece quando todas as associações elegíveis concordam na
 mesma opção; se alguma não tiver ícone ou usar outro, permanece somente o texto.
 
+#### Resultado da execução na tecla
+
+Comandos do Stream Deck que passam pelo executor com acompanhamento de resultado
+mostram um estado textual temporário: aguardando, executando, concluído, falhou,
+negado, cancelado, tempo esgotado ou resultado desconhecido. O estado aparece
+junto da apresentação da tecla e é anunciado pelo leitor de telas quando o
+Assistente está em foco, na mesma sessão e no mesmo mapa de comandos.
+O envio de uma ação para a interface não significa que ela foi concluída:
+o indicador de conclusão depende da confirmação efetiva do executor.
+
+A apresentação é atualizada em ciclos de aproximadamente um segundo; operações
+rápidas podem mostrar apenas o resultado final. O resultado final fica disponível
+por três segundos e depois a tecla retorna à apresentação normal. Uma nova
+execução da mesma tecla substitui a anterior; uma conclusão atrasada não toma
+seu lugar. Desconexão, troca de mapa ou bloqueio invalidam o feedback antigo.
+
+Atalhos locais rápidos, como navegação, continuam sem auditoria adicional e não
+exibem conclusão artificial: esses eventos não possuem confirmação de resultado
+no backend. Os indicadores não criam registros adicionais no banco. Estados
+persistentes ligado/desligado e imagens específicas por estado continuam
+pendentes; o resultado temporário não substitui a indicação de camada ativa.
+
 Validação manual acumulada:
 
 - [ ] Edite uma tecla, percorra os campos de título por Tab e confira seus
@@ -1020,6 +1042,14 @@ Validação manual acumulada:
   mantendo título e comando. Reabra o aplicativo e confira a persistência.
 - [ ] Escolha um arquivo maior que 1 MiB ou de outro formato: confira o erro
   anunciado e a preservação da associação anterior.
+- [ ] Associe uma tecla a **Copiar mensagem**, abra uma conversa e selecione
+  uma mensagem. Com o Assistente em foco e NVDA ligado, pressione a tecla:
+  confira o resultado temporário e seu anúncio, sem repetição a cada atualização.
+- [ ] Aguarde o retorno à apresentação normal. Desconecte e reconecte o
+  dispositivo: o resultado anterior não deve reaparecer nem ser anunciado.
+- [ ] Confira que teclas de navegação continuam rápidas e não anunciam uma
+  conclusão inventada. Bloqueie/desbloqueie a estação: nenhum resultado antigo
+  deve reaparecer após a reconstrução do mapa.
 
 A captura não ativa camadas. Se outro programa estiver usando o aparelho,
 libere o dispositivo antes de tentar novamente.

@@ -80,6 +80,17 @@ const es = {
       results: '{{total}} comandos en la lista; {{available}} disponibles para ejecutar. Usa la flecha abajo para navegar.',
     },
 
+    commandDeckFeedback: {
+      waiting: 'Stream Deck: esperando {{title}}.',
+      running: 'Stream Deck: ejecutando {{title}}.',
+      succeeded: 'Stream Deck: {{title}} — Completado.',
+      failed: 'Stream Deck: {{title}} falló.',
+      denied: 'Stream Deck: {{title}} fue denegado.',
+      cancelled: 'Stream Deck: {{title}} fue cancelado.',
+      timed_out: 'Stream Deck: {{title}} expiró.',
+      outcome_unknown: 'Stream Deck: no se pudo confirmar {{title}}.',
+    },
+
     commandShortcutCapture: {
       mode: 'Tipo de grabación',
       current: 'Atajo actual: {{shortcut}}.',

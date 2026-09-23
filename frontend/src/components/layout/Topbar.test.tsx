@@ -942,6 +942,32 @@ describe('Topbar teclado local — controller e guard reais', () => {
     expect(keyboardState.loadMap).toHaveBeenCalledTimes(loads);
   });
 
+  it('não anuncia feedback antigo quando a autenticação muda antes do cleanup do efeito', async () => {
+    const view = await mountKeyboard();
+    const feedback = keyboardState.handlers.get('command:deck-feedback');
+    expect(feedback).toBeDefined();
+
+    announceSpy.mockClear();
+    feedback?.({
+      invocationId: 'deck-feedback-auth-a', state: 'waiting', title: 'Open chat',
+      userId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
+      generation: 'g1', expiresAt: Date.now() + 3_000,
+    });
+    expect(announceSpy).toHaveBeenCalledWith('commandDeckFeedback.waiting');
+
+    announceSpy.mockClear();
+    authState.user = { ...authState.user, userId: 'user-b' };
+    // Deliberately do not notify the store listener: the callback must still
+    // compare the live auth principal with the keyboard map owner.
+    feedback?.({
+      invocationId: 'deck-feedback-auth-b', state: 'waiting', title: 'Open chat',
+      userId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
+      generation: 'g1', expiresAt: Date.now() + 3_000,
+    });
+    expect(announceSpy).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
   it('recarrega no focus da janela e ignora blur de um filho para reset do mapa', async () => {
     const view = await mountKeyboard();
     const loads = keyboardState.loadMap.mock.calls.length;

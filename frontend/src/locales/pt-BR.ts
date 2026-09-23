@@ -81,6 +81,17 @@ const ptBR = {
       results: '{{total}} comandos na lista; {{available}} disponíveis para executar. Use a seta para baixo para navegar.',
     },
 
+    commandDeckFeedback: {
+      waiting: 'Stream Deck: aguardando {{title}}.',
+      running: 'Stream Deck: executando {{title}}.',
+      succeeded: 'Stream Deck: {{title}} — Concluído.',
+      failed: 'Stream Deck: {{title}} falhou.',
+      denied: 'Stream Deck: {{title}} negado.',
+      cancelled: 'Stream Deck: {{title}} cancelado.',
+      timed_out: 'Stream Deck: {{title}} expirou.',
+      outcome_unknown: 'Stream Deck: não foi possível confirmar {{title}}.',
+    },
+
     commandShortcutCapture: {
       mode: 'Tipo de gravação',
       current: 'Atalho atual: {{shortcut}}.',
