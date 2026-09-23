@@ -214,4 +214,23 @@ describe('CustomActionsEditor', () => {
     resolveSave();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Nova ação' })).toBeEnabled());
   });
+
+  it('não rouba foco de fora do editor ao carregar', async () => {
+    let resolveLoad!: (value: { actions: unknown[] }) => void;
+    mockGetTaskListCustomActions.mockImplementationOnce(
+      () => new Promise<{ actions: unknown[] }>((res) => { resolveLoad = res; }),
+    );
+    render(
+      <div>
+        <button type="button">Externo</button>
+        <CustomActionsEditor taskListId="1" onClose={vi.fn()} />
+      </div>,
+    );
+    const ext = screen.getByRole('button', { name: 'Externo' });
+    ext.focus();
+    resolveLoad({ actions: [{ id: 'x', label: 'X' }] });
+    await screen.findByRole('grid');
+    await new Promise<void>((r) => { window.setTimeout(r, 50); });
+    expect(document.activeElement).toBe(ext);
+  });
 });

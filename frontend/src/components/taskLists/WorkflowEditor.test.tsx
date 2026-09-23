@@ -151,4 +151,5 @@ describe('WorkflowEditor', () => {
     await user.click(chips[0]);
     expect(chips[0]).toHaveAttribute('aria-pressed', 'false');
   });
+
 });
