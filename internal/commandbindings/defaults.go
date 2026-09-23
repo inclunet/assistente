@@ -81,6 +81,7 @@ type Configuration struct {
 	deltas          map[string][]Delta
 	byTrigger       map[string][]string
 	custom          *Resolver
+	presentation    *PresentationSnapshot
 	adjustments     []Adjustment
 	layerProvenance map[string][]LayerProvenance
 }
@@ -101,6 +102,35 @@ func (c *Configuration) ValidUntil() time.Time {
 		return time.Time{}
 	}
 	return c.validUntil
+}
+
+// WithPresentation associa uma projeção textual imutável sem alterar a
+// identidade/execução da configuração. O snapshot é clonado para que nem o
+// objeto recebido possa ser reutilizado como alias interno.
+func (c *Configuration) WithPresentation(presentation *PresentationSnapshot) *Configuration {
+	if c == nil {
+		return nil
+	}
+	clone := *c
+	clone.presentation = presentation.clone()
+	return &clone
+}
+
+// Presentation devolve um clone independente do snapshot textual.
+func (c *Configuration) Presentation() *PresentationSnapshot {
+	if c == nil {
+		return nil
+	}
+	return c.presentation.clone()
+}
+
+// TitleForBindings consulta a apresentação somente para os IDs já retornados
+// pela resolução. IDs inelegíveis nunca chegam a este contrato.
+func (c *Configuration) TitleForBindings(bindingIDs []string, locale string) (string, bool) {
+	if c == nil {
+		return "", false
+	}
+	return c.presentation.TitleForBindings(bindingIDs, locale)
 }
 
 // TriggerIdentities retorna cópia ordenada do índice para publicação de mapas

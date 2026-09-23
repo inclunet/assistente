@@ -64,6 +64,12 @@ func contextualDeckUIConditions(configuration *commandbindings.Configuration, re
 }
 
 func deckUIConditions(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string, eligible func(commandcatalog.Definition) bool) []LocalCommandPaletteCondition {
+	return deckUIConditionsObserved(configuration, registry, identity, eligible, nil)
+}
+
+// observe receives only selections that survived all branch eligibility checks.
+// It is used by frame presentation; the input projection keeps the same contract.
+func deckUIConditionsObserved(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string, eligible func(commandcatalog.Definition) bool, observe func(commandbindings.Result)) []LocalCommandPaletteCondition {
 	if configuration == nil || registry == nil || !strings.HasPrefix(identity, "streamdeck.key:") {
 		return nil
 	}
@@ -116,6 +122,9 @@ func deckUIConditions(configuration *commandbindings.Configuration, registry *co
 					mermaidAllowed := !isMermaidMutation(definition.ID) || surface == "editor"
 					if pageAllowed && mermaidAllowed {
 						commandID = definition.ID
+						if observe != nil {
+							observe(resolved)
+						}
 					}
 				}
 			}
@@ -245,7 +254,20 @@ func commandDeckLocalUIEligible(definition commandcatalog.Definition) bool {
 	return commandDeckDefinitionEligible(definition) && commandExecutionClassForDefinition(definition) == commandExecutionLocalUI && definition.AllowsSource(commandcatalog.StreamDeck)
 }
 
-func localDeckConditionTitle(conditions []LocalCommandPaletteCondition, registry *commandcatalog.Registry, locale string) string {
+// All potential branches for a command must agree on its custom title. The
+// host does not know which visual branch is active, so divergence falls back
+// to the localized command name, just like divergent equivalent bindings.
+func localDeckPresentationTitle(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string, conditions []LocalCommandPaletteCondition, locale string) string {
+	idsByCommand := make(map[string][]string)
+	deckUIConditionsObserved(configuration, registry, identity, func(definition commandcatalog.Definition) bool {
+		return commandDeckLocalUIEligible(definition) || commandDeckContextualUIEligible(definition)
+	}, func(result commandbindings.Result) {
+		for _, id := range result.BindingIDs {
+			if !slices.Contains(idsByCommand[result.CommandID], id) {
+				idsByCommand[result.CommandID] = append(idsByCommand[result.CommandID], id)
+			}
+		}
+	})
 	names := make([]string, 0, len(conditions))
 	seen := make(map[string]struct{}, len(conditions))
 	for _, condition := range conditions {
@@ -254,10 +276,8 @@ func localDeckConditionTitle(conditions []LocalCommandPaletteCondition, registry
 		}
 		seen[condition.CommandID] = struct{}{}
 		name := condition.CommandID
-		if definition, ok := registry.Lookup(condition.CommandID); ok && definition.Presentation != nil {
-			if metadata, ok := definition.Presentation.Locales[locale]; ok && strings.TrimSpace(metadata.Name) != "" {
-				name = metadata.Name
-			}
+		if definition, ok := registry.Lookup(condition.CommandID); ok {
+			name = commandDeckTitle(configuration, idsByCommand[condition.CommandID], definition, locale)
 		}
 		names = append(names, name)
 	}

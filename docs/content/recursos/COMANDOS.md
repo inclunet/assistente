@@ -943,6 +943,36 @@ sem foco; o dispositivo não traz o aplicativo para frente automaticamente.
 O usuário confirmou a execução básica no aparelho em 18/09/2026. A nova captura
 de teclas e os cenários específicos de desconectar/reconectar,
 bloquear/desbloquear e reiniciar ainda exigem conferência manual.
+
+#### Títulos personalizados das teclas
+
+Ao criar ou editar um acionador **Stream Deck**, você pode preencher um título
+para português, inglês e espanhol. Os campos são textuais e acessíveis por Tab;
+não é necessário selecionar uma imagem nem operar uma grade visual. Cada título
+aceita até 256 caracteres. Salve e confirme a alteração para aplicá-la.
+
+Deixe um idioma vazio para usar o nome localizado do comando naquele idioma.
+Apagar um título não apaga a associação, o comando ou os outros idiomas. O nome
+do comando na paleta também não muda: o título pertence à tecla configurada.
+Os títulos são recuperados ao reabrir o editor. A edição de imagens e variantes
+de estado ainda não está disponível.
+
+Quando uma tecla pode executar comandos diferentes conforme o contexto visual,
+ela continua mostrando os comandos potenciais, separados por barra. Um título
+personalizado só substitui o nome de um comando se suas associações candidatas
+concordarem no mesmo título para o idioma atual; em caso de divergência, aparece
+o nome localizado do comando, evitando apresentar uma associação arbitrária.
+
+Validação manual acumulada:
+
+- [ ] Edite uma tecla, percorra os campos de título por Tab e confira seus
+  rótulos com NVDA. Preencha português e inglês, salve e confirme.
+- [ ] Reabra o acionador e confira os dois valores. Com a camada ativa, confira
+  o título físico e troque o idioma das configurações para inglês.
+- [ ] Apague o título em inglês, salve e confirme: a tecla deve voltar ao nome
+  do comando em inglês, mantendo o título personalizado em português.
+- [ ] Pressione a tecla antes e depois da edição: o comando e suas restrições
+  de contexto devem permanecer iguais.
 A captura não ativa camadas. Se outro programa estiver usando o aparelho,
 libere o dispositivo antes de tentar novamente.
 

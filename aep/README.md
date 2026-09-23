@@ -16,7 +16,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
-AEP-0103, seção141 após reconciliação129 (23/09/2026): **In Progress**.
+AEP-0103, seção142 após reconciliação129 (23/09/2026): **In Progress**.
 **78/84 critérios com implementação identificada (92,9%); 6 parciais e
 0 ausentes**, sem novo aceite final. Saídas R: **11 A / 14 I / 22 P / 1 N**,
 25/48 implementadas incluindo aceitas (52,1%); **1/12 gates aceito**.
@@ -35,6 +35,10 @@ grants/regrant e ligação do registry/tool subagent ao Manager/SQLite reais.
 Profile autorizado observado no Send controlado, run/subconversa persistidos;
 job por contexto canônico não é E2E scheduler/LLM. Fronteira externa e
 consumidor genérico command→tool continuam pendentes em R05.1/R05.2.
+Seção142: títulos personalizados do Deck por idioma, edição textual acessível,
+persistência confirmada e aplicação ao dispositivo com fallback localizado.
+Diff passa a incluir apresentação. C38 continua parcial por imagem/ícone,
+variantes de estado e aceite NVDA; contagem e gates não mudam.
 Seção136: corrigida disputa SQLite no consumo de receipts, com CAS completo,
 sem retry de efeitos; qualificação integrada ampliada sem novos aceites.
 Seção137: provas adicionais de camadas por origem e callbacks diálogo/job;
@@ -55,7 +59,7 @@ reserva nativa temporária de Ctrl+Shift+R, stack real de diálogos, precedênci
 sobre configuração e teardown, sem confirmar decisões. R07.3 tem implementação
 identificada; seu gate agregado permanece aberto. Latência integrada,
 aceite físico/NVDA e demais gates continuam pendentes;
-[estados, evidências e próximos passos](0103-tasklist-conclusao.md#141-autoridade-de-agentes-e-automações--23092026).
+[estados, evidências e próximos passos](0103-tasklist-conclusao.md#142-títulos-personalizados-do-stream-deck--23092026).
 
 AEP-0103, seção128 (22/09/2026): 81 IDs no Deck contextual (79 anteriores +
 aplicar/remover Mermaid), quatro fatos visuais restritos ao editor, inclusive

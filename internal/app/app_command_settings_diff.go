@@ -50,6 +50,7 @@ func renderCommandSettingsDiff(locale string, diff commandconfig.MutationDiff) (
 				command = *row.CommandID
 			}
 			out["binding:"+row.ID] = entry{words["kind"]: words["binding"], words["layer"]: layerName(row.LayerRef), words["command"]: command, words["trigger"]: trigger, words["arguments"]: row.Arguments, words["condition"]: row.Condition, words["enabled"]: row.Enabled, words["priority"]: row.ResolutionPriority, words["effect"]: row.Effect, words["review"]: row.ReviewStatus}
+			out["binding:"+row.ID][words["presentation"]] = row.Presentation
 			if row.ReplacesDefaultVersion != nil {
 				out["binding:"+row.ID][words["version"]] = *row.ReplacesDefaultVersion
 			}
@@ -132,6 +133,12 @@ func commandSettingsDiffWords(locale string) map[string]string {
 	out := make(map[string]string, len(keys))
 	for i, key := range keys {
 		out[key] = values[i]
+	}
+	out["presentation"] = "Apresentação"
+	if locale == "en" {
+		out["presentation"] = "Presentation"
+	} else if locale == "es" {
+		out["presentation"] = "Presentación"
 	}
 	return out
 }

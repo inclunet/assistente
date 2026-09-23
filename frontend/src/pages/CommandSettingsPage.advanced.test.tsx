@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CommandSettingsSnapshot } from '../types/commandSettingsTypes';
+import type { CommandSettingsSnapshot, CommandSettingsMutationRequest } from '../types/commandSettingsTypes';
 
 const bridge = vi.hoisted(() => ({
   get: vi.fn(), mutate: vi.fn(), prepare: vi.fn(), activate: vi.fn(),
@@ -36,6 +36,64 @@ async function bindingAction(name: string) {
 }
 
 describe('CommandSettingsPage contrato avançado', () => {
+  function deckConfiguration() {
+    const snapshot = configuration();
+    snapshot.commands[0].allowedSources.push('streamdeck.key');
+    snapshot.bindings[0] = { ...snapshot.bindings[0], reviewStatus: 'active',
+      triggerType: 'streamdeck.key', triggerSpec: '{"version":1,"device":"deck","key":0}',
+      presentation: { version: 1, icon: 'settings', status_label_keys: { active: 'status.active' },
+        title_by_locale: { 'pt-BR': 'Antes', en: 'Before', es: 'Antes' } } };
+    return snapshot;
+  }
+
+  it('salva títulos normalizados, remove locale vazio e reabre após reload preservando metadados', async () => {
+    const snapshot = deckConfiguration();
+    bridge.get.mockImplementation(async () => structuredClone(snapshot));
+    bridge.mutate.mockImplementation(async (request: CommandSettingsMutationRequest) => {
+      snapshot.bindings[0] = { ...snapshot.bindings[0], ...request.binding };
+      return { committed: true, published: true, id: snapshot.bindings[0].id };
+    });
+    const page = render(<CommandSettingsPage />);
+    await bindingAction('commandSettings.actions.editBinding');
+    fireEvent.change(screen.getByLabelText('commandSettings.presentation.locales.ptBR'), { target: { value: '  Meu título  ' } });
+    fireEvent.change(screen.getByLabelText('commandSettings.presentation.locales.en'), { target: { value: '   ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(bridge.get).toHaveBeenCalledTimes(2));
+    expect(bridge.mutate).toHaveBeenCalledWith(expect.objectContaining({ binding: expect.objectContaining({
+      presentation: { version: 1, icon: 'settings', status_label_keys: { active: 'status.active' },
+        title_by_locale: { 'pt-BR': 'Meu título', es: 'Antes' } },
+    }) }));
+    page.unmount();
+    render(<CommandSettingsPage />);
+    await bindingAction('commandSettings.actions.editBinding');
+    expect(screen.getByLabelText('commandSettings.presentation.locales.ptBR')).toHaveValue('Meu título');
+    expect(screen.getByLabelText('commandSettings.presentation.locales.en')).toHaveValue('');
+    expect(screen.getByLabelText('commandSettings.presentation.locales.es')).toHaveValue('Antes');
+  });
+
+  it.each(['bad\0title', '😀'.repeat(257)])('bloqueia título inválido também após alternar origem (%#)', async title => {
+    bridge.get.mockResolvedValue(deckConfiguration());
+    render(<CommandSettingsPage />);
+    await bindingAction('commandSettings.actions.editBinding');
+    fireEvent.change(screen.getByLabelText('commandSettings.presentation.locales.en'), { target: { value: title } });
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('commandSettings.form.source'), { target: { value: 'palette' } });
+    expect(screen.queryByLabelText('commandSettings.presentation.locales.en')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    expect(bridge.mutate).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('commandSettings.form.source'), { target: { value: 'streamdeck.key' } });
+    expect(screen.getByLabelText('commandSettings.presentation.locales.en')).toHaveValue(title);
+    fireEvent.change(screen.getByLabelText('commandSettings.presentation.locales.en'), { target: { value: '😀'.repeat(256) } });
+    fireEvent.change(screen.getByLabelText('commandSettings.form.source'), { target: { value: 'palette' } });
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(bridge.mutate).toHaveBeenCalledWith(expect.objectContaining({ binding: expect.objectContaining({
+      triggerType: 'palette', presentation: expect.objectContaining({ icon: 'settings',
+        title_by_locale: { 'pt-BR': 'Antes', en: '😀'.repeat(256), es: 'Antes' } }),
+    }) })));
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     bridge.get.mockResolvedValue(configuration());

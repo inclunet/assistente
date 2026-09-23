@@ -16,6 +16,11 @@ import { StreamDeckCaptureFields } from '../components/commands/StreamDeckCaptur
 import { CommandConditionEditor } from '../components/commands/CommandConditionEditor';
 import { CommandObjectFieldsEditor } from '../components/commands/CommandObjectFieldsEditor';
 import { CommandLayerActionFields } from '../components/commands/CommandLayerActionFields';
+import {
+  CommandPresentationEditor,
+  isCommandPresentationValid,
+  normalizeCommandPresentation,
+} from '../components/commands/CommandPresentationEditor';
 import { isCommandLayerAction } from '../lib/commandLayerActions';
 import type { MenuItem } from '../components/menu';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -835,7 +840,10 @@ export default function CommandSettingsPage() {
       return void mutate(() => scopedMutation({
         operation: editor.value.id ? 'binding_update' : 'binding_create',
         id: editor.value.id,
-        binding: editor.value,
+        binding: {
+          ...editor.value,
+          presentation: normalizeCommandPresentation(editor.value.presentation),
+        },
       }));
     }
     return void mutate(() => scopedMutation({
@@ -897,6 +905,7 @@ export default function CommandSettingsPage() {
           ? !!editor.value.replacesDefaultId
           : eligibleCommands.some((command) => command.id === editor.value.commandId)) &&
         argumentsValid &&
+        isCommandPresentationValid(editor.value.presentation) &&
         (editor.value.triggerType === 'palette'
             ? true
           : editor.value.triggerType === 'streamdeck.key'
@@ -1288,15 +1297,22 @@ export default function CommandSettingsPage() {
                     disabled={busy}
                   />
                 ) : editor.value.triggerType === 'streamdeck.key' ? (
-                  <StreamDeckCaptureFields
-                    value={editor.value.triggerSpec}
-                    capture={deckCapture}
-                    captureActive={captureRequestId.current === deckCapture?.requestId}
-                    disabled={busy}
-                    t={t}
-                    onCapture={() => void beginCapture()}
-                    onCancel={() => cancelCapture()}
-                  />
+                  <>
+                    <StreamDeckCaptureFields
+                      value={editor.value.triggerSpec}
+                      capture={deckCapture}
+                      captureActive={captureRequestId.current === deckCapture?.requestId}
+                      disabled={busy}
+                      t={t}
+                      onCapture={() => void beginCapture()}
+                      onCancel={() => cancelCapture()}
+                    />
+                    <CommandPresentationEditor
+                      value={editor.value.presentation}
+                      disabled={busy}
+                      onChange={(presentation) => updateBindingField({ presentation })}
+                    />
+                  </>
                 ) : (
                   <p>{t('commandSettings.form.paletteInfo')}</p>
                 )}

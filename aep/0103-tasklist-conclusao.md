@@ -1,6 +1,6 @@
 # AEP-0103 — Tasklist de conclusão integral
 
-Baseline inicial de 16/09/2026; reconciliação de 23/09/2026 atualizada pela seção141. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
+Baseline inicial de 16/09/2026; reconciliação de 23/09/2026 atualizada pela seção142. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.
 
@@ -757,9 +757,9 @@ Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `internal/app/app_comm
 
 - [ ] C38 — Toda configuração é operável por teclado e NVDA sem depender de grade, arrastar, imagem ou cor.
 
-**Implementação: P — parcial.** Controles existentes são textuais, localizados e operáveis por lista/teclado. A configuração completa ainda carece de edição textual de apresentação Deck (imagem/título/estados); preservar o campo presentation não oferece sua edição. Aceite NVDA integral também falta, mas não é sozinho a razão de P.
+**Implementação: P — parcial.** Controles existentes são textuais, localizados e operáveis por lista/teclado. A seção142 acrescenta edição textual de títulos Deck por idioma e sua aplicação ao dispositivo. Ainda faltam edição de imagem/ícone e variantes de estado. Aceite NVDA integral também falta, mas não é sozinho a razão de P.
 
-Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `frontend/src/pages/CommandSettingsPage.test.tsx`, `docs/content/recursos/COMANDOS.md`; seção129. Gates: R09.
+Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `frontend/src/pages/CommandSettingsPage.test.tsx`, `docs/content/recursos/COMANDOS.md`; seções129 e142. Gates: R09.
 
 ### C39
 
@@ -8851,3 +8851,87 @@ Regressão final: `go test ./internal/app -count=1 -timeout=12m -json`,
 Somente testes e documentação alterados; frontend não foi modificado nesta
 rodada. Sem Wails, pacote ACP, banco pessoal, push ou PR. Revisão independente
 também verificou a reconciliação documental final, sem achados pendentes.
+
+## 142. Títulos personalizados do Stream Deck — 23/09/2026
+
+Continuação de C38, sem promover o critério inteiro. O editor textual oferece
+títulos opcionais para pt-BR, en e es, com labels, validação de 256 codepoints,
+recusa de NUL e preservação dos demais metadados. Vazio remove a personalização
+daquele idioma; o Deck usa o nome localizado do comando como fallback, sem
+emprestar o título de outro idioma. Não altera o nome na paleta.
+
+A projeção transporta os títulos por ID do binding materializado em snapshot
+imutável, separado de Candidate e da identidade de execução. Deltas conservam
+seu próprio título; restore remove sua apresentação sem mutar o snapshot anterior.
+O renderer consulta apenas seleções elegíveis. Em empates equivalentes ou ramos
+visuais do mesmo comando, títulos divergentes usam o nome localizado; vários
+comandos potenciais continuam separados por barra. Nenhuma leitura de banco
+ou imagem foi adicionada ao caminho de pressionamento do teclado.
+
+O teste de persistência descobriu um defeito real: o diff de confirmação omitia
+Presentation, tratando uma edição só de título como mudança vazia e recusando-a.
+O campo agora aparece no antes/depois em três idiomas, sem expor o identificador
+físico do dispositivo. Testes App percorrem criação, atualização, remoção,
+confirmação, SQLite isolado e reconstrução da configuração. Entradas inválidas
+são recusadas antes da confirmação e não persistem bindings.
+
+Evidências iniciais:
+
+- `app_command_settings_presentation_test.go`: persistência/releitura,
+  remoção por idioma, recusa de entradas inválidas e diff localizado.
+- `commandbindings/presentation_test.go`: isolamento de aliases, títulos
+  por locale exato, empate e restore, preservando resolução de execução.
+- `commandconfig/projection_complete_presentation_test.go`: IDs de deltas,
+  fallback de binding desabilitado e publicação de mudança só de título.
+- Frontend completo: **465 arquivos / 5.798 testes PASS, 105,45 s**, log
+  `frontend/command-c38-frontend-all-20260923.log`.
+- `commandbindings`, `commandconfig` e `commanddeck`: **PASS**, log
+  `command-c38-domains-20260923.log`.
+
+Durante a edição, houve interrupção dos workers e dois arquivos Deck ficaram
+incompletos. Foram recuperados do conteúdo versionado e os patches reaplicados;
+a validação final precisa cobrir os arquivos recuperados, não só resultados
+anteriores à interrupção.
+
+**Contagem preservada: 78 I / 6 P / 0 N = 84 (92,9%).** C38 continua P por
+imagem/ícone e variantes de estado, além do aceite NVDA pendente. Saídas R e
+gates permanecem **11 A / 14 I / 22 P / 1 N**, **1/12 aceito**. Roteiro manual
+acumulado em `docs/content/recursos/COMANDOS.md`. Sem migração de banco, Wails,
+testes ACP, executáveis diagnósticos personalizados, banco pessoal, push ou PR.
+
+Complementos da validação:
+
+- Editor/página: **86 testes em 3 arquivos PASS**, incluindo Tab/Shift+Tab,
+  digitação, axe, salvar/reabrir após reload e alternância de origem sem perda
+  de metadados. TypeScript e ESLint dos arquivos alterados: **PASS**.
+- `app_command_deck_presentation_test.go`: configuração confirmada chega ao
+  mapa contextual e ao renderer real; edição gera diff de uma tecla, frame
+  inalterado não gera update, locale ausente restaura nome do catálogo.
+  Matriz de equivalentes/branches inclui bindings desabilitados, inativos e
+  de contexto inelegível sem vazamento de títulos.
+- Recorte App final: testes **PASS, 18,015 s**; o comando terminou com código
+  1 na limpeza do temporário padrão `app.test.exe`, em uso por outro processo.
+  Não é falha de asserção e não se atribui a causa ao antivírus sem evidência.
+  Log `command-c38-presentation-final-20260923.log`; sem executável customizado.
+- `go vet` de App, commandbindings, commandconfig e commanddeck: **PASS**.
+  Verificador dos AEPs, diff-check e varredura dos arquivos alterados por NUL:
+  **PASS** após recuperação.
+
+Frontend final consolidado, incluindo os testes adicionais de integração:
+**465 arquivos / 5.801 testes PASS, 106,49 s**, log
+`frontend/command-c38-frontend-final-20260923.log`.
+
+Regressão completa App: **PASS, 491,599 s, 1.198 testes de topo aprovados**,
+comando encerrou com código zero. Log `command-c38-app-all-20260923.log`.
+Essa execução cobre o código produtivo final recuperado e os testes de settings;
+os três testes de topo adicionais do renderer foram acrescentados depois da
+compilação e estão no recorte final citado acima. Não se conta esse recorte como
+aceite físico de hardware ou qualificação NVDA.
+
+Revisão independente: **Lagrange (Luna)**, diff deste lote. Um apontamento
+inicial sobre as APIs simplificadas Save/Delete foi retirado após verificar o
+contrato de recusa deliberada de bindings ricos: protege metadados e não é a
+porta usada pela tela, que usa MutateCommandSettings. Os wrappers simplificados
+não têm consumidores produtivos no frontend. Nenhum P1/P2 ou achado pendente
+após reavaliação. Implementação delegada a **Noether e Erdos (Luna)**, com
+integração, correção do diff de confirmação e regressões conduzidas pelo main.

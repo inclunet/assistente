@@ -292,7 +292,7 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 			binding.identity = identity
 			binding.conditions = append(binding.conditions, conditions...)
 			binding.profileBound = true
-			binding.title = localDeckConditionTitle(binding.conditions, p.registry, locale)
+			binding.title = localDeckPresentationTitle(configuration, p.registry, identity, binding.conditions, locale)
 			bindings[spec.Device][spec.Key] = binding
 			continue
 		}
@@ -324,12 +324,7 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 		if !ok || !commandDeckDefinitionEligible(definition) {
 			continue
 		}
-		title := definition.ID
-		if definition.Presentation != nil {
-			if meta, ok := definition.Presentation.Locales[locale]; ok {
-				title = meta.Name
-			}
-		}
+		title := commandDeckTitle(configuration, resolved.BindingIDs, definition, locale)
 		if bindings[spec.Device] == nil {
 			bindings[spec.Device] = map[int]commandDeckBinding{}
 		}
@@ -586,13 +581,7 @@ func (p *commandProductRuntime) runDeckEpoch(ctx context.Context, driver command
 					if index >= snapshot.Model.KeyCount() {
 						continue
 					}
-					imageID := binding.commandID + ":" + locale
-					state := "ready"
-					if len(binding.conditions) != 0 {
-						state = "conditional"
-						imageID = binding.identity + ":" + binding.title + ":" + locale
-					}
-					frame.Keys[index] = commanddeck.KeyView{Title: binding.title, Announce: binding.title, State: state, ImageID: imageID, ImageRGBA: commandDeckTitleImage(binding.title, snapshot.Model)}
+					frame.Keys[index] = commandDeckKeyView(binding, locale, snapshot.Model)
 				}
 				if err := runtime.Render(watch, frame); err != nil {
 					continue
@@ -681,6 +670,28 @@ func (p *commandProductRuntime) deckStatus(status string, devices []commandDeckD
 			Devices []commandDeckDeviceStatus `json:"devices"`
 		}{status, devices})
 	}
+}
+
+func commandDeckKeyView(binding commandDeckBinding, locale string, model commanddeck.Model) commanddeck.KeyView {
+	imageID := binding.commandID + ":" + binding.title + ":" + locale
+	state := "ready"
+	if len(binding.conditions) != 0 {
+		state = "conditional"
+		imageID = binding.identity + ":" + binding.title + ":" + locale
+	}
+	return commanddeck.KeyView{Title: binding.title, Announce: binding.title, State: state, ImageID: imageID, ImageRGBA: commandDeckTitleImage(binding.title, model)}
+}
+
+func commandDeckTitle(configuration *commandbindings.Configuration, bindingIDs []string, definition commandcatalog.Definition, locale string) string {
+	if title, ok := configuration.TitleForBindings(bindingIDs, locale); ok {
+		return title
+	}
+	if definition.Presentation != nil {
+		if metadata, ok := definition.Presentation.Locales[locale]; ok && strings.TrimSpace(metadata.Name) != "" {
+			return metadata.Name
+		}
+	}
+	return definition.ID
 }
 
 func commandDeckTitleImage(title string, model commanddeck.Model) []byte {

@@ -96,13 +96,24 @@ func ProjectComplete(ctx context.Context, snapshot Snapshot, options CompletePro
 
 	custom := make([]commandbindings.Candidate, 0, len(snapshot.Bindings))
 	deltas := make([]commandbindings.Delta, 0, len(snapshot.Bindings))
+	presentations := make(map[string]commandbindings.BindingPresentation, len(snapshot.Bindings))
 	for _, row := range snapshot.Bindings {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		presentation, err := completeBindingPresentation(row.Presentation)
+		if err != nil {
+			return nil, ErrInvalid
+		}
 		candidate, delta, isDelta, err := completeBinding(ctx, snapshot.Scope, row, layers, userActivation, builtins, defaultOwners, options)
 		if err != nil {
 			return nil, ErrInvalid
+		}
+		if presentation != nil {
+			// O ID do registro é também o ID do candidato materializado: tanto
+			// binding novo quanto delta precisam conservar a apresentação fora
+			// da identidade de execução.
+			presentations[row.ID] = *presentation
 		}
 		if isDelta {
 			deltas = append(deltas, delta)
@@ -118,7 +129,7 @@ func ProjectComplete(ctx context.Context, snapshot Snapshot, options CompletePro
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return configuration, nil
+	return configuration.WithPresentation(commandbindings.NewPresentationSnapshot(presentations)), nil
 }
 
 type completeLayerState struct {
@@ -448,6 +459,22 @@ func validateCompletePresentation(raw string) error {
 		return ErrInvalid
 	}
 	return nil
+}
+
+func completeBindingPresentation(raw string) (*commandbindings.BindingPresentation, error) {
+	fields, err := strictObject(raw)
+	if err != nil || !versionOne(fields) {
+		return nil, ErrInvalid
+	}
+	rawTitles, ok := fields["title_by_locale"]
+	if !ok {
+		return nil, nil
+	}
+	var titles map[string]string
+	if err := json.Unmarshal(rawTitles, &titles); err != nil || titles == nil {
+		return nil, ErrInvalid
+	}
+	return &commandbindings.BindingPresentation{TitleByLocale: titles}, nil
 }
 
 func validPresentationKey(raw json.RawMessage) bool {

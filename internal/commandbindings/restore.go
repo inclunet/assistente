@@ -91,6 +91,12 @@ func (c *Configuration) WithoutDeltas(ids []string) (*Configuration, error) {
 		return nil, err
 	}
 	result.validUntil = c.validUntil
+	result.presentation = c.presentation.clone()
+	if result.presentation != nil {
+		for id := range removed {
+			delete(result.presentation.byBindingID, id)
+		}
+	}
 	if c.adjustments == nil {
 		result.adjustments = nil
 		return result, nil
