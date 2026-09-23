@@ -756,7 +756,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           onClose={() => setIsEditListOpen(false)}
           title={t('tasklist.editList', 'Editar Lista')}
         >
-          <FormField label={t('tasklist.title', 'Título')} required>
+          <FormField label={t('tasklist.titleLabel', 'Título')} required>
             <Input
               type="text"
               value={editTitle}

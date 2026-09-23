@@ -4094,6 +4094,7 @@ const es = {
       viewModeList: 'Lista',
       createNew: 'Crear nueva lista',
       create: 'Crear',
+      titleLabel: 'Título',
       titlePlaceholder: 'Título de la lista',
       emptyTitle: 'El título no puede estar vacío',
       noLists: 'No hay listas de tareas creadas',

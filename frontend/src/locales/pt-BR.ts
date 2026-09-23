@@ -4094,6 +4094,7 @@ const ptBR = {
       viewModeList: 'Lista',
       createNew: 'Criar nova lista',
       create: 'Criar',
+      titleLabel: 'Título',
       titlePlaceholder: 'Título da lista',
       emptyTitle: 'Título não pode estar vazio',
       noLists: 'Nenhuma lista de tarefas criada',

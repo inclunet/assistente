@@ -4094,6 +4094,7 @@ const en = {
       viewModeList: 'List',
       createNew: 'Create new list',
       create: 'Create',
+      titleLabel: 'Title',
       titlePlaceholder: 'List title',
       emptyTitle: 'Title cannot be empty',
       noLists: 'No task lists created',
