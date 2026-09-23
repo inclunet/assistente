@@ -1,6 +1,6 @@
 import { forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { WorkspaceTab } from '../../store/workspaceStore';
 import TaskListView from './TaskListView';
@@ -46,6 +46,7 @@ const taskListStoreState = vi.hoisted(() => ({
   listBoardCustomActions: vi.fn(),
   triggerCustomAction: vi.fn(),
   setTaskListConversation: vi.fn(),
+  updateTaskList: vi.fn(),
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -87,7 +88,7 @@ vi.mock('../../store/workspaceChatModalStore', () => {
 
 vi.mock('../../store/uiStore', () => ({
   useUIStore: (selector: (state: { addToast: ReturnType<typeof vi.fn> }) => unknown) => selector({
-    addToast: vi.fn(),
+    addToast: toastMock,
   }),
 }));
 
@@ -95,13 +96,17 @@ vi.mock('../../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({ announce: announceMock }),
 }));
 
+const confirmMock = vi.hoisted(() => vi.fn());
+const toastMock = vi.hoisted(() => vi.fn());
+
 vi.mock('../../hooks/useConfirm', () => ({
-  useConfirm: () => vi.fn().mockResolvedValue(false),
+  useConfirm: () => confirmMock,
 }));
 
 vi.mock('../../hooks/useDefaultFocus', () => ({
   registerDefaultFocus: vi.fn(),
   unregisterDefaultFocus: vi.fn(),
+  restoreDefaultFocus: vi.fn(),
 }));
 
 vi.mock('../../hooks/useRegisterWorkspaceChatAdapter', () => ({
@@ -114,13 +119,20 @@ vi.mock('../ui/Modal', () => ({
 }));
 
 vi.mock('../ui/Toolbar', () => ({
-  Toolbar: ({ actions }: { actions?: Array<{ key: string; label: string; onClick?: () => void }> }) => (
+  Toolbar: ({
+    actions,
+    rightEnd,
+  }: {
+    actions?: Array<{ key: string; label: string; onClick?: () => void }>;
+    rightEnd?: ReactNode;
+  }) => (
     <div>
       {actions?.map((action) => (
         <button key={action.key} type="button" onClick={action.onClick}>
           {action.label}
         </button>
       ))}
+      {rightEnd}
     </div>
   ),
 }));
@@ -169,6 +181,9 @@ describe('TaskListView', () => {
     openCreateModalMock.mockReset();
     registerWorkspaceChatAdapterMock.mockReset();
     announceMock.mockReset();
+    toastMock.mockReset();
+    confirmMock.mockReset();
+    confirmMock.mockResolvedValue(false);
     taskListStoreState.loadTaskList.mockReset();
     taskListStoreState.loadMoreTasks.mockReset();
     taskListStoreState.loadAllTasksForBoard.mockReset();
@@ -186,6 +201,8 @@ describe('TaskListView', () => {
     taskListStoreState.listBoardCustomActions.mockResolvedValue([]);
     taskListStoreState.setTaskListConversation.mockReset();
     taskListStoreState.setTaskListConversation.mockResolvedValue(undefined);
+    taskListStoreState.updateTaskList.mockReset();
+    taskListStoreState.updateTaskList.mockResolvedValue(undefined);
     taskListStoreState.taskLists = new Map([
       ['tasklist-1', {
         id: 'tasklist-1',
@@ -569,5 +586,64 @@ describe('TaskListView', () => {
 
     await Promise.resolve();
     expect(taskListStoreState.setTaskListConversation).not.toHaveBeenCalled();
+  });
+
+  it('menu Configurações reúne edição, workflow, ações, duplicar, limpar e apagar', async () => {
+    const user = userEvent.setup();
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+
+    for (const name of ['Editar Lista', 'Editar Workflow', 'Ações customizadas', /Duplicar/, /Limpar/, 'Apagar']) {
+      expect(await screen.findByRole('menuitem', { name })).toBeInTheDocument();
+    }
+    // Sem vínculo manual (AEP-0073): o vínculo da lista é só via chat embutido.
+    expect(screen.queryByRole('menuitem', { name: /conversa/i })).not.toBeInTheDocument();
+    // Ações movidas para o menu não poluem mais a toolbar.
+    expect(screen.queryByRole('button', { name: 'Editar Workflow' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Ações customizadas' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Duplicar' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Nova Tarefa' })).toBeInTheDocument();
+  });
+
+  it('edita título e descrição da lista pelo menu', async () => {
+    const user = userEvent.setup();
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Editar Lista' }));
+
+    const titleInput = await screen.findByLabelText(/Título/);
+    expect(titleInput).toHaveValue('Lista');
+    fireEvent.change(titleInput, { target: { value: 'Lista Nova' } });
+    fireEvent.change(screen.getByLabelText('Descrição'), { target: { value: 'Desc' } });
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(taskListStoreState.updateTaskList).toHaveBeenCalledWith('tasklist-1', 'Lista Nova', 'Desc'));
+    expect(announceMock).toHaveBeenCalledWith('Lista atualizada');
+  });
+
+  it('mostra erro e mantém o modal aberto quando salvar a lista falha', async () => {
+    const user = userEvent.setup();
+    taskListStoreState.updateTaskList.mockRejectedValueOnce(new Error('falha no backend'));
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Editar Lista' }));
+
+    fireEvent.change(await screen.findByLabelText(/Título/), { target: { value: 'Outro' } });
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith('falha no backend', 'error'));
+    expect(toastMock).not.toHaveBeenCalledWith('Lista atualizada', expect.anything(), expect.anything(), expect.anything(), expect.anything());
+    // Sem sucesso: o modal segue aberto para corrigir e tentar de novo.
+    expect(screen.getByLabelText(/Título/)).toBeInTheDocument();
+  });
+
+  it('apaga a lista pelo menu com confirmação', async () => {
+    const user = userEvent.setup();
+    confirmMock.mockResolvedValue(true);
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Apagar' }));
+
+    await waitFor(() => expect(taskListStoreState.deleteTaskList).toHaveBeenCalledWith('tasklist-1'));
   });
 });
