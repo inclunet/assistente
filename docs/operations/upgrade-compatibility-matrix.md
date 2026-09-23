@@ -29,7 +29,16 @@ automaticamente quando faltam para um histórico persistido. Indisponibilidade
 de chave/schema desabilita a prontidão de comandos, não o login legado. Não há
 procedimento de exclusão de chaves antigas nesta etapa.
 
-### Caminhos já publicados
+### Incremento não publicado — AEP-0103 / auditoria administrativa externa
+
+A v31 `external_identity_admin_audit` acrescenta armazenamento de auditoria,
+sem alterar a v26 dos vínculos ou converter identidades existentes. O teste
+`TestExternalIdentityAdminAuditPublishedUpgradesAndSecondBoot` executou o
+upgrade das fixtures 0.1.9, 0.2.0, 0.3.0, 0.4.0 e 0.5.0 e o segundo boot,
+verificando carimbo v31 e schema canônico preservado. Isso não publica uma
+release, não certifica downgrade e não habilita o executor externo.
+
+### Caminhos já publicados — inventário
 
 | Caminho legado | Call site de produção | Introduzido | Primeira release que depende dele | Cobertura verificável | Risco de remoção |
 |---|---|---:|---:|---|---|

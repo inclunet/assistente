@@ -71,6 +71,13 @@ Validação manual acumulada:
 - [ ] Exportar uma camada de teste e reimportar como cópia; conferir o relatório
   e a confirmação, sem alterar configurações reais inadvertidamente. Resultado: ____.
 
+## Autenticação externa
+
+Para instalações com autenticação por provedor externo, o
+[cadastro administrativo de identidades](../../guias/EXTERNAL_IDENTITIES/)
+prepara os vínculos necessários à migração. Ele não habilita o executor externo
+nesta etapa e não é necessário para os comandos do aplicativo no modo local.
+
 ## Repetir uma decisão aberta
 
 Enquanto um diálogo de decisão estiver no topo, **Ctrl+Shift+R** repete a

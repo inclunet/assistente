@@ -143,6 +143,22 @@ vivos, nem certifica downgrade para releases anteriores.
 
 ## Complemento AEP-0103 — migração de comandos composta pelo host
 
+### Auditoria administrativa de identidades externas (v31)
+
+A v31 `external_identity_admin_audit` cria `external_identity_admin_audits`
+na fase pós-AutoMigrate. A função canônica `MigrateExternalIdentityAdminAudit`
+é transacional e valida o schema em reexecução. FKs apontam ator e alvo para
+usuários existentes; um índice único parcial por issuer limita a ação
+`bootstrap` a uma ocorrência. Ações `create` não disputam essa unicidade.
+Não há token armazenado, readiness ou alteração da migração v26 dos vínculos.
+
+O serviço insere auditoria como primeira escrita e confirma vínculo e auditoria
+juntos. Falha na autorização relida ou na gravação desfaz ambos. As fixtures
+publicadas 0.1.9–0.5.0 atravessam upgrade e segundo boot na prova específica
+`TestExternalIdentityAdminAuditPublishedUpgradesAndSecondBoot`.
+
+### Composição de comandos
+
 A v21 `command_storage_initial` foi acrescentada ao registro, sem renumerar
 versões anteriores. Na fase pós-AutoMigrate genérica ela retorna adiamento:
 o pacote database não pode importar repositories que dependem de credentials

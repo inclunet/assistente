@@ -130,6 +130,7 @@ func splitExternalScopes(value string) []string {
 }
 
 type ExternalIdentityAdminConfig struct {
+	Issuer      string
 	AdminScopes []string
 	AdminRoles  []string
 }
@@ -169,7 +170,10 @@ func ExternalIdentityContextID(issuer, subject string) string {
 }
 
 func NewExternalIdentityAdminService(verifier ExternalTokenVerifier, repo *ExternalIdentityRepository, cfg ExternalIdentityAdminConfig) (*ExternalIdentityAdminService, error) {
-	if verifier == nil || repo == nil || (len(cleanValues(cfg.AdminScopes)) == 0 && len(cleanValues(cfg.AdminRoles)) == 0) {
+	if repo == nil || repo.db == nil {
+		return nil, ErrExternalIdentityNotReady
+	}
+	if verifier == nil || (len(cleanValues(cfg.AdminScopes)) == 0 && len(cleanValues(cfg.AdminRoles)) == 0) {
 		return nil, ErrExternalAdministratorRequired
 	}
 	cfg.AdminScopes = cleanValues(cfg.AdminScopes)

@@ -1,10 +1,10 @@
 # AEP-0103 — Tasklist de conclusão integral
 
-Baseline inicial de 16/09/2026; reconciliação de 23/09/2026 atualizada pela seção148. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
+Baseline inicial de 16/09/2026; reconciliação de 23/09/2026 atualizada pela seção149. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.
 
-## 1. Progresso reconciliado — 23/09/2026, após a seção148
+## 1. Progresso reconciliado — 23/09/2026, após a seção149
 
 A seção129 registra a reconciliação documental; as seções130–133 implementam
 a correção de Δ18/C22, o cache produtivo de C62 e a recusa global fora da
@@ -258,7 +258,7 @@ Arquivos de referência: `internal/commandidentity`; `internal/commandtoolbridge
 
 - [ ] R05.1 — Fechar local/agent/job_service/system e fronteira externa com fontes autoritativas; revogar identidade/grant entre fila e Start bloqueia o handler; modo externo respeita readiness administrativa e não habilita dispositivos físicos.
 
-  **Estado reconciliado: Parcial.** Identidades e revogação local/agent/job/system e núcleo externo existem. `NewExternalCommandAuthenticator` e administração de mapeamento ainda não têm ligação produtiva localizada fora dos testes; falta montagem administrativa/middleware e matriz final por origem, não reescrever o autenticador. Evidência: `internal/commandidentity`, `internal/auth/command_external.go`, `internal/app/app_command_global_execution.go`; seção129.
+  **Estado reconciliado: Parcial.** Identidades e revogação local/agent/job/system e núcleo externo existem. A seção149 monta bootstrap/cadastro administrativo auditado na API HTTP. `NewExternalCommandAuthenticator` ainda não está no ingresso produtivo: faltam readiness/cutover do middleware, identidade por token e revogação no mesmo gate do executor. Evidência: `internal/commandidentity`, `internal/auth/external_identity_enrollment.go`, `internal/httpapi/external_identities.go`, `internal/app/app_httpapi.go`; seções129 e149.
 - [ ] R05.2 — Conectar delegação a tools/jobs ao executor comum, preservando owner/profile, decisões/grants exatos, correlação command_invocation e redação de input/output; shell permanece em commandpolicy.
 
   **Estado reconciliado: Parcial.** `newCommandJobHandler` tem consumidor produtivo nos jobs globais; delegação/redação de tools possui biblioteca e provas, mas `newCommandToolHandler` não tem consumidor de produto localizado. Falta conectar as tools públicas e qualificar sua identidade/correlação; shell continua no executor comum. Evidência: `internal/app/app_command_global_execution.go`, `internal/app/app_command_tool_handler.go`, `internal/commandtoolbridge`; seções34–39,109–110 e129.
@@ -1019,9 +1019,9 @@ Evidência: `internal/commandactivation`, `internal/commandconfig`, `internal/co
 
 - [ ] C70 — Após o PR atualizar a AEP-0052, identidade externa só acessa usuário local por mapeamento administrativo exato de emissor e subject; antes disso, o command manager fica indisponível nesse modo.
 
-**Implementação: P — parcial.** Mapeamento administrativo exato, readiness e revogação têm implementação de biblioteca. Não foi encontrado caller produtivo do autenticador/administração no command manager nem fechamento coordenado com AEP-0052. A recusa atual é segura, mas não entrega o modo externo mapeado.
+**Implementação: P — parcial.** A seção149 liga o bootstrap e o cadastro administrativo auditado à API HTTP do App, com issuer/scopes exatos e alvo local existente. Não publica readiness nem altera o middleware legado. Faltam cutover coordenado com AEP-0052, ingresso do autenticador no executor e matriz de revogação. A recusa do executor externo permanece obrigatória e não equivale a entregar esse modo.
 
-Evidência: `internal/auth/command_external.go`, `internal/auth/command_external_identity.go`; seção129. Gates: R05.
+Evidência: `internal/auth/command_external.go`, `internal/auth/command_external_identity.go`, `internal/auth/external_identity_enrollment.go`, `internal/httpapi/external_identities_test.go`, `internal/app/app_httpapi_external_identity_test.go`; seções129 e149. Gates: R05.
 
 ### C71
 
@@ -9423,3 +9423,72 @@ Não se promove nenhum checkbox de aceite, saída R ou gate:
 **11 A / 14 I / 22 P / 1 N = 48; 1/12 aceito**. O fechamento agregado de R12
 inclui hardware/NVDA, isolamento/desempenho e review/CI, independentemente da
 classificação de implementação dos critérios.
+
+## 149. Cadastro administrativo externo montado — 23/09/2026
+
+Primeiro percurso produtivo de preparação de C65/C70/R05.1, sem liberar o
+executor externo antes de seus pré-requisitos:
+
+- `external.identity_admin_scopes` opt-in, sem novo segredo. Issuer configurado
+  e todos os scopes exigidos pelo serviço; role `admin` não é substituto.
+- `POST /auth/external/identities/bootstrap` aceita apenas `{}`; deriva ator
+  e alvo do `sub` assinado, que precisa coincidir com usuário local ativo.
+- `POST /auth/external/identities` exige administrador já vinculado/ativo e
+  bootstrap registrado, para vincular explicitamente outro subject do mesmo
+  issuer a usuário existente. Sem JIT, upsert silencioso ou usuário atual.
+- A v31 cria auditoria com ator/alvo/ação/horário, sem token, com FKs e índice
+  parcial que permite somente um bootstrap por issuer. Auditoria é a primeira
+  escrita da transação; autoridade e alvo são relidos sob a mesma transação
+  antes do vínculo. Falha desfaz ambos. Nenhuma DDL ocorre na solicitação.
+- Corpo limitado, campos desconhecidos rejeitados, rate limit e respostas
+  sem detalhes de contas/SQL. Fora do modo externo, rotas retornam 404;
+  sem configuração administrativa, 503. Sucesso é 201 e conflito é 409.
+- `startHTTPAPI` usa `newHTTPAPIHandler`, exercitado por teste de montagem do
+  App com JWT/JWKS e SQLite reais, sem abrir o listener público ou o app.
+
+Não há cutover de `/auth/me`, readiness administrativa publicada, ingresso de
+comandos ou revogação remota nova neste lote. D6 da AEP-0052 segue canônica.
+A divergência já existente entre auth_context_id por token (AEP) e por conta
+(biblioteca) foi apresentada ao usuário; não foi alterada sem essa decisão.
+Documentação de usuário explica explicitamente a limitação e o opt-in.
+
+Qualificação inicial:
+
+- HTTP com JWT assinado/JWKS local, recusas de issuer/scope/subject, payload,
+  administrador revogado, duplicidade e executor ainda indisponível: **PASS**.
+- Montagem do App: **PASS, 22,409 s**,
+  `command-external-enrollment-app-20260923.log`.
+- Suítes auth/httpapi/commandidentity/config: **PASS**,
+  `command-external-enrollment-domains-20260923.log` (antes dos novos testes
+  finais de enrollment; não é evidência antecipada desses testes).
+- Migração/schema/FKs/rollback e cinco fixtures publicadas com segundo boot:
+  **PASS, 4,938 s**, `command-external-enrollment-migration-final-20260923.log`.
+  A primeira tentativa revelou uma referência de tipo no pacote errado no
+  teste novo; corrigida para usar a migração real v26 e SQL da tabela canônica.
+
+**80 I / 4 P / 0 N = 84**, sem promoção de C65/C70. Saídas/gates preservados:
+**11 A / 14 I / 22 P / 1 N = 48; 1/12 aceito**. Próxima entrega de C65/C70:
+identidade por token e revogação coordenada, seguida de readiness/migração
+explícita do middleware e ingresso produtivo no executor, com a matriz de
+isolamento/revogação. Não são novos critérios ou aceite manual deste cadastro.
+
+Fechamento técnico da seção149:
+
+- Suítes finais auth/httpapi/commandidentity/config **PASS** em
+  `command-external-enrollment-domains-final-20260923.log`. O teste corrigido
+  distingue administrador sem mapping de mapping legado sem bootstrap e
+  mantém a cobertura das duas recusas e de rollback.
+- Concorrência em duas conexões SQLite: **20 repetições PASS, 2,605 s**,
+  `command-external-enrollment-concurrency-20260923.log`.
+- HTTP após recusar também `null` e arrays: **PASS, 6,012 s**.
+- Regressão de migrations/registry/upgrades/schema: **PASS, 2,819 s**,
+  `command-external-enrollment-schema-regression-20260923.log`. Inclui a
+  restrição final de igualdade entre subject legado e IDs no bootstrap.
+- `go vet` dos cinco pacotes alterados, diff-check e verificador de status
+  dos AEPs **PASS**. Frontend/Wails não foram alterados nem executados.
+- Implementação paralela **Anscombe (Luna)** em auth e **Epicurus (Luna)**
+  em schema; main integrou rotas, configuração, montagem produtiva, testes
+  HTTP/App e documentação. Revisão independente **Turing (Luna)** em duas
+  conferências: **sem achados acionáveis pendentes**, incluindo parser final,
+  atomicidade e guarda de bootstrap. Testes continuam evidência separada.
+- Sem pacote ACP, executável diagnóstico próprio, banco pessoal, push ou PR.

@@ -204,6 +204,17 @@ autenticador como substituição já ativa nem inferir `sub == users.id` para
 comandos. Validação JWKS final sob o gate usa somente chave já carregada;
 cache ausente falha fechado, sem busca de rede dentro do gate.
 
+Complemento de 23/09/2026 (AEP-0103, seção149): o cadastro preparatório agora
+tem montagem produtiva na API HTTP. `identity_admin_scopes` habilita duas rotas
+administrativas: bootstrap do próprio `sub` legado para usuário local ativo e
+criação posterior por administrador já mapeado, sempre no issuer configurado.
+Todos os scopes administrativos são obrigatórios; roles não os substituem.
+A v31 registra ator/alvo/ação sem JWT, na mesma transação do vínculo, com um
+único bootstrap por issuer. Isso **não altera D6**, não publica readiness e
+não muda o principal de `/auth/me`: o cutover do middleware e a montagem do
+executor externo continuam pendentes. O cadastro não é um modo de executar
+comandos externos antes dessas etapas.
+
 - Validar JWT do IdP via JWKS.
 - Enforce server-side por scopes/roles do token.
 - Algoritmos aceitos devem ser controlados via allowlist (ex.: RS256/ES256/EdDSA conforme IdP).

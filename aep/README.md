@@ -16,10 +16,14 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
-AEP-0103, seção148 após reconciliação129 (23/09/2026): **In Progress**.
+AEP-0103, seção149 após reconciliação129 (23/09/2026): **In Progress**.
 **80/84 critérios com implementação identificada (95,2%); 4 parciais e
 0 ausentes**, sem novo aceite final. Saídas R: **11 A / 14 I / 22 P / 1 N**,
 25/48 implementadas incluindo aceitas (52,1%); **1/12 gates aceito**.
+Seção149: cadastro administrativo externo montado na API HTTP do App, com
+bootstrap único, vínculo explícito e auditoria transacional v31. AEP-0052 D6
+e middleware permanecem vigentes; não há readiness ou executor externo
+habilitado. C65/C70 continuam parciais, sem promoção de contagens ou gates.
 Seção148, C83 P→I: diálogo e job conflitante compartilham o Manager produtivo, com
 captura do SO controlada e cópia defensiva dos modificadores do registro.
 Matriz de regressão atravessa defaults/camadas, inputs, abas/foco, reconexão

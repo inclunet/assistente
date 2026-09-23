@@ -16,3 +16,4 @@ Documentação de referência para build, release e versionamento do Assistente.
 | [Release Quickstart](RELEASE_QUICKSTART/) | Quick start para processo de release |
 | [Versionamento](VERSIONING/) | Esquema de versionamento do projeto |
 | [Atualizações e compatibilidade](UPGRADES/) | Upgrade direto desde qualquer versão publicada |
+| [Identidades externas](EXTERNAL_IDENTITIES/) | Preparação administrativa de vínculos para autenticação externa |

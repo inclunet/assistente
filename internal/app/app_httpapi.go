@@ -14,6 +14,7 @@ import (
 
 	"assistente/internal/auth"
 	"assistente/internal/config"
+	"assistente/internal/database"
 	"assistente/internal/httpapi"
 )
 
@@ -37,25 +38,10 @@ func (a *App) startHTTPAPI() error {
 		return err
 	}
 
-	var external *auth.ExternalAuthenticator
-	if authCfg.Mode == "external" {
-		external = auth.NewExternalAuthenticator(auth.ExternalAuthConfig{
-			Issuer:            authCfg.External.Issuer,
-			Audience:          authCfg.External.Audience,
-			JWKSURL:           authCfg.External.JWKSURL,
-			AllowedAlgorithms: authCfg.External.AllowedAlgorithms,
-			RequiredScopes:    authCfg.External.RequiredScopes,
-			RoleClaim:         authCfg.External.RoleClaim,
-		})
+	handler, err := a.newHTTPAPIHandler(authCfg)
+	if err != nil {
+		return err
 	}
-
-	handler := httpapi.New(httpapi.Config{
-		Vault:    a.vaultSvc,
-		IDs:      a.identitySvc,
-		Sessions: a.currentSessionService,
-		Mode:     authCfg.Mode,
-		External: external,
-	}).Handler()
 
 	listener, err := net.Listen("tcp", authCfg.HTTP.BindAddress)
 	if err != nil {
@@ -95,6 +81,37 @@ func (a *App) startHTTPAPI() error {
 	}()
 	logging.Infof(context.Background(), "app.app-httpapi", "[httpapi] escutando em %s (mode=%s tls=%v)", listener.Addr().String(), authCfg.Mode, authCfg.HTTP.TLSEnabled)
 	return nil
+}
+
+// newHTTPAPIHandler monta a autenticação e as rotas antes de abrir o listener.
+// Cadastro administrativo não publica readiness do executor externo.
+func (a *App) newHTTPAPIHandler(cfg *config.AuthConfig) (http.Handler, error) {
+	if a == nil || cfg == nil {
+		return nil, errors.New("configuração HTTP indisponível")
+	}
+	var external *auth.ExternalAuthenticator
+	if cfg.Mode == "external" {
+		external = auth.NewExternalAuthenticator(auth.ExternalAuthConfig{
+			Issuer: cfg.External.Issuer, Audience: cfg.External.Audience,
+			JWKSURL: cfg.External.JWKSURL, AllowedAlgorithms: cfg.External.AllowedAlgorithms,
+			RequiredScopes: cfg.External.RequiredScopes, RoleClaim: cfg.External.RoleClaim,
+		})
+	}
+	var admin *auth.ExternalIdentityAdminService
+	if external != nil && len(cfg.External.IdentityAdminScopes) > 0 {
+		var err error
+		admin, err = auth.NewExternalIdentityAdminService(external,
+			auth.NewExternalIdentityRepository(database.DB()), auth.ExternalIdentityAdminConfig{
+				Issuer: cfg.External.Issuer, AdminScopes: cfg.External.IdentityAdminScopes,
+			})
+		if err != nil {
+			return nil, fmt.Errorf("configurar cadastro de identidades externas: %w", err)
+		}
+	}
+	return httpapi.New(httpapi.Config{
+		Vault: a.vaultSvc, IDs: a.identitySvc, Sessions: a.currentSessionService,
+		Mode: cfg.Mode, External: external, ExternalIdentityAdmin: admin,
+	}).Handler(), nil
 }
 
 // guardDevInsecure aplica heurísticas para evitar que dev_insecure=true

@@ -357,6 +357,12 @@ var schemaMigrations = []migration{
 			return MigrateMessageRevisions(database)
 		},
 	},
+	{
+		Version: 31,
+		Name:    "external_identity_admin_audit",
+		Phase:   phasePostAutoMigrate,
+		Run:     MigrateExternalIdentityAdminAudit,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

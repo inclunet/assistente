@@ -14,13 +14,14 @@ import (
 )
 
 type Server struct {
-	vault    *auth.VaultService
-	ids      *auth.IdentityService
-	session  *auth.SessionService
-	sessions func() *auth.SessionService
-	mode     string
-	external *auth.ExternalAuthenticator
-	mux      *http.ServeMux
+	vault                 *auth.VaultService
+	ids                   *auth.IdentityService
+	session               *auth.SessionService
+	sessions              func() *auth.SessionService
+	mode                  string
+	external              *auth.ExternalAuthenticator
+	externalIdentityAdmin *auth.ExternalIdentityAdminService
+	mux                   *http.ServeMux
 
 	// jwksCache (B20 do review) absorve picos de tráfego em
 	// /.well-known/jwks.json sem segurar lock no signer a cada request.
@@ -38,12 +39,13 @@ type Server struct {
 }
 
 type Config struct {
-	Vault    *auth.VaultService
-	IDs      *auth.IdentityService
-	Session  *auth.SessionService
-	Sessions func() *auth.SessionService
-	Mode     string
-	External *auth.ExternalAuthenticator
+	Vault                 *auth.VaultService
+	IDs                   *auth.IdentityService
+	Session               *auth.SessionService
+	Sessions              func() *auth.SessionService
+	Mode                  string
+	External              *auth.ExternalAuthenticator
+	ExternalIdentityAdmin *auth.ExternalIdentityAdminService
 	// AuthRate / AuthBurst e JWKSRate / JWKSBurst permitem ajustar os
 	// limites por deploy. Defaults conservadores aplicados quando não
 	// configurados — evitam que um teste/integração local "sem cargo"
@@ -72,15 +74,16 @@ func New(cfg Config) *Server {
 		jwksBurst = 100
 	}
 	s := &Server{
-		vault:       cfg.Vault,
-		ids:         cfg.IDs,
-		session:     cfg.Session,
-		sessions:    cfg.Sessions,
-		mode:        cfg.Mode,
-		external:    cfg.External,
-		mux:         http.NewServeMux(),
-		authLimiter: newRateLimiter(authRate, authBurst),
-		jwksLimiter: newRateLimiter(jwksRate, jwksBurst),
+		vault:                 cfg.Vault,
+		ids:                   cfg.IDs,
+		session:               cfg.Session,
+		sessions:              cfg.Sessions,
+		mode:                  cfg.Mode,
+		external:              cfg.External,
+		externalIdentityAdmin: cfg.ExternalIdentityAdmin,
+		mux:                   http.NewServeMux(),
+		authLimiter:           newRateLimiter(authRate, authBurst),
+		jwksLimiter:           newRateLimiter(jwksRate, jwksBurst),
 	}
 	if s.mode == "" {
 		s.mode = "local"
@@ -108,6 +111,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /auth/refresh", s.rateLimit(s.authLimiter, "auth.refresh", s.handleRefresh))
 	s.mux.HandleFunc("POST /auth/logout", s.handleLogout)
 	s.mux.HandleFunc("GET /auth/me", s.handleMe)
+	s.mux.HandleFunc("POST /auth/external/identities/bootstrap", s.rateLimit(s.authLimiter, "auth.external.bootstrap", s.handleExternalIdentityBootstrap))
+	s.mux.HandleFunc("POST /auth/external/identities", s.rateLimit(s.authLimiter, "auth.external.identity.create", s.handleExternalIdentityCreate))
 	s.mux.HandleFunc("GET /.well-known/jwks.json", s.rateLimit(s.jwksLimiter, "auth.jwks", s.handleJWKS))
 }
 
