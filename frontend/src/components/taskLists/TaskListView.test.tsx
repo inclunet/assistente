@@ -137,30 +137,6 @@ vi.mock('../ui/Toolbar', () => ({
   ),
 }));
 
-vi.mock('../pickers/HistoryPicker', () => ({
-  HistoryPicker: ({
-    value,
-    onChange,
-    onSelectExtra,
-  }: {
-    value?: string;
-    onChange: (id: string) => void;
-    onSelectExtra?: () => void;
-  }) => (
-    <div>
-      <span data-testid="picker-value">{value ?? 'none'}</span>
-      <button type="button" onClick={() => onChange('conv-9')}>
-        escolher-conversa
-      </button>
-      {onSelectExtra && (
-        <button type="button" onClick={onSelectExtra}>
-          nenhuma-conversa
-        </button>
-      )}
-    </div>
-  ),
-}));
-
 vi.mock('./TasksTable', () => ({
   default: forwardRef((_props, ref) => {
     useImperativeHandle(ref, () => ({
@@ -612,14 +588,16 @@ describe('TaskListView', () => {
     expect(taskListStoreState.setTaskListConversation).not.toHaveBeenCalled();
   });
 
-  it('menu Configurações reúne edição, workflow, ações, conversa, duplicar, limpar e apagar', async () => {
+  it('menu Configurações reúne edição, workflow, ações, duplicar, limpar e apagar', async () => {
     const user = userEvent.setup();
     render(<TaskListView taskListId="tasklist-1" />);
     await user.click(screen.getByRole('button', { name: 'Configurações' }));
 
-    for (const name of ['Editar Lista', 'Editar Workflow', 'Ações customizadas', 'Vincular conversa', /Duplicar/, /Limpar/, 'Apagar']) {
+    for (const name of ['Editar Lista', 'Editar Workflow', 'Ações customizadas', /Duplicar/, /Limpar/, 'Apagar']) {
       expect(await screen.findByRole('menuitem', { name })).toBeInTheDocument();
     }
+    // Sem vínculo manual (AEP-0073): o vínculo da lista é só via chat embutido.
+    expect(screen.queryByRole('menuitem', { name: /conversa/i })).not.toBeInTheDocument();
     // Ações movidas para o menu não poluem mais a toolbar.
     expect(screen.queryByRole('button', { name: 'Editar Workflow' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Ações customizadas' })).not.toBeInTheDocument();
@@ -643,19 +621,6 @@ describe('TaskListView', () => {
     expect(announceMock).toHaveBeenCalledWith('Lista atualizada');
   });
 
-  it('vincula conversa pelo menu e fecha o modal', async () => {
-    const user = userEvent.setup();
-    render(<TaskListView taskListId="tasklist-1" />);
-    await user.click(screen.getByRole('button', { name: 'Configurações' }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Vincular conversa' }));
-
-    expect(await screen.findByTestId('picker-value')).toHaveTextContent('none');
-    await user.click(screen.getByRole('button', { name: 'escolher-conversa' }));
-
-    await waitFor(() => expect(taskListStoreState.setTaskListConversation).toHaveBeenCalledWith('tasklist-1', 'conv-9'));
-    await waitFor(() => expect(screen.queryByTestId('picker-value')).not.toBeInTheDocument());
-  });
-
   it('mostra erro e mantém o modal aberto quando salvar a lista falha', async () => {
     const user = userEvent.setup();
     taskListStoreState.updateTaskList.mockRejectedValueOnce(new Error('falha no backend'));
@@ -670,30 +635,6 @@ describe('TaskListView', () => {
     expect(toastMock).not.toHaveBeenCalledWith('Lista atualizada', expect.anything(), expect.anything(), expect.anything(), expect.anything());
     // Sem sucesso: o modal segue aberto para corrigir e tentar de novo.
     expect(screen.getByLabelText(/Título/)).toBeInTheDocument();
-  });
-
-  it('desvincula a conversa pelo menu e fecha o modal', async () => {
-    const user = userEvent.setup();
-    taskListStoreState.taskLists = new Map([
-      ['tasklist-1', {
-        id: 'tasklist-1',
-        title: 'Lista',
-        preferredViewMode: 'list',
-        conversationId: '9',
-        tasks: [],
-        workflow: { id: 'workflow-1', taskListId: 'tasklist-1', statuses: [], allowedTransitions: {}, initialStatusId: 1 },
-      }],
-    ]);
-    render(<TaskListView taskListId="tasklist-1" />);
-    await user.click(screen.getByRole('button', { name: 'Configurações' }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Alterar conversa vinculada' }));
-
-    expect(await screen.findByTestId('picker-value')).toHaveTextContent('9');
-    await user.click(screen.getByRole('button', { name: 'nenhuma-conversa' }));
-
-    await waitFor(() => expect(taskListStoreState.setTaskListConversation).toHaveBeenCalledWith('tasklist-1', null));
-    expect(announceMock).toHaveBeenCalledWith('Vínculo de conversa atualizado');
-    await waitFor(() => expect(screen.queryByTestId('picker-value')).not.toBeInTheDocument());
   });
 
   it('apaga a lista pelo menu com confirmação', async () => {

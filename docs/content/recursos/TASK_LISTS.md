@@ -30,9 +30,9 @@ Cada lista de tarefas possui:
 ### Configurações da lista
 
 O botão **Configurações** na toolbar da lista reúne as ações administrativas:
-editar a lista, editar o workflow, ações customizadas, vincular ou desvincular
-uma conversa, duplicar, limpar e apagar. Vincular uma conversa associa a lista
-a ela; desvincular remove a associação sem apagar nada.
+editar a lista, editar o workflow, ações customizadas, duplicar, limpar e
+apagar. O vínculo da lista com uma conversa é automático, via chat embutido
+da aba.
 
 ### Tarefas
 

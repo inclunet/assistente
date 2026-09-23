@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } from 'react';
-import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, EditOutlined, LinkOutlined, MessageOutlined, PlusOutlined, ThunderboltOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, EditOutlined, MessageOutlined, PlusOutlined, ThunderboltOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
@@ -20,7 +20,6 @@ import { FormField } from '../ui/FormField';
 import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
 import { MenuButton } from '../layout/MenuButton';
-import { HistoryPicker } from '../pickers/HistoryPicker';
 import { openTaskLink } from '../../lib/deepLinks';
 import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
@@ -34,9 +33,6 @@ const CustomActionsEditor = lazy(() => import('./CustomActionsEditor'));
 interface TaskListViewProps {
   taskListId: string;
 }
-
-// Valor sentinela do item "Nenhuma" no HistoryPicker (não pode colidir com ID de conversa).
-const CONVERSATION_NONE = '__none__';
 
 /**
  * Renderiza o conteúdo de uma TaskList individual (toolbar + table/kanban).
@@ -69,7 +65,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const [isWorkflowEditorOpen, setIsWorkflowEditorOpen] = useState(false);
   const [isCustomActionsEditorOpen, setIsCustomActionsEditorOpen] = useState(false);
   const [isEditListOpen, setIsEditListOpen] = useState(false);
-  const [isConversationOpen, setIsConversationOpen] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editSaving, setEditSaving] = useState(false);
@@ -525,19 +520,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     }
   }, [editTitle, editDescription, taskListId, updateTaskList, addToast, announce, t]);
 
-  const applyListConversation = useCallback(async (conversationId: string | null) => {
-    try {
-      await setTaskListConversation(taskListId, conversationId);
-      const msg = t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado');
-      addToast(msg, 'success', undefined, undefined, { suppressAnnounce: true });
-      announce(msg);
-      setIsConversationOpen(false);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
-    }
-  }, [taskListId, setTaskListConversation, addToast, announce, t]);
-
   // Auto-vínculo: quando o chat embutido desta aba abre com uma conversa, a lista
   // passa a apontar para ela (inclusive ao iniciar uma conversa nova pelo chat).
   // Sem feedback visual extra — é um efeito implícito do uso do chat.
@@ -649,14 +631,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
                   label: t('tasklist.customActions.configure', 'Ações customizadas'),
                   icon: <ThunderboltOutlined aria-hidden="true" />,
                   onClick: () => setIsCustomActionsEditorOpen(true),
-                },
-                {
-                  id: 'link-conversation',
-                  label: taskList.conversationId
-                    ? t('tasklist.changeConversation', 'Alterar conversa vinculada')
-                    : t('tasklist.linkConversation', 'Vincular conversa'),
-                  icon: <LinkOutlined aria-hidden="true" />,
-                  onClick: () => setIsConversationOpen(true),
                 },
                 { separator: true, id: 'sep-1' },
                 {
@@ -817,30 +791,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
         </Modal>
       )}
 
-      {isConversationOpen && (
-        <Modal
-          isOpen={isConversationOpen}
-          onClose={() => setIsConversationOpen(false)}
-          title={taskList.conversationId
-            ? t('tasklist.conversation', 'Conversa vinculada')
-            : t('tasklist.linkConversation', 'Vincular conversa')}
-        >
-          <HistoryPicker
-            value={taskList.conversationId}
-            onChange={(id) => void applyListConversation(id)}
-            onSelectExtra={() => void applyListConversation(null)}
-            extraItems={taskList.conversationId
-              ? [{ value: CONVERSATION_NONE, label: t('tasklist.conversationNone', 'Nenhuma') }]
-              : undefined}
-            label={taskList.conversationId
-              ? t('tasklist.changeConversation', 'Alterar conversa vinculada')
-              : t('tasklist.linkConversation', 'Vincular conversa')}
-            description={t('tasklist.conversationDescription', 'Associe esta lista a uma conversa (opcional)')}
-            maxWidth="100%"
-            onAnnounce={announce}
-          />
-        </Modal>
-      )}
     </div>
   );
 }
