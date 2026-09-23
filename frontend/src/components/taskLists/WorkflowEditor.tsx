@@ -9,6 +9,7 @@ import { MenuButton } from '../layout/MenuButton';
 import { Modal } from '../ui/Modal';
 import { FormField } from '../ui/FormField';
 import { Input } from '../ui/Input';
+import { Checkbox } from '../ui/Checkbox';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useGridFocus } from '../../hooks/useGridFocus';
@@ -59,10 +60,12 @@ interface StatusDraft {
   label: string;
   icon: string;
   color: string;
+  transitions: number[];
+  initial: boolean;
 }
 
 function emptyDraft(colorToken: string): StatusDraft {
-  return { label: '', icon: '⬜', color: colorToken };
+  return { label: '', icon: '⬜', color: colorToken, transitions: [], initial: false };
 }
 
 export default function WorkflowEditor({
@@ -122,15 +125,30 @@ export default function WorkflowEditor({
   }, [statuses.length]);
 
   const openEditStatus = useCallback((status: TaskListWorkflowStatus) => {
-    setDraft({ label: status.label, icon: status.icon, color: status.color });
+    setDraft({
+      label: status.label,
+      icon: status.icon,
+      color: status.color,
+      transitions: [...(transitions[status.id] ?? [])],
+      initial: status.id === initialStatusId,
+    });
     setItemModal({ mode: 'edit', id: status.id });
-  }, []);
+  }, [transitions, initialStatusId]);
 
   const closeItemModal = useCallback(() => {
     setItemModal(null);
     // Volta o foco ao grid para seguir editando em série por teclado.
     requestAnimationFrame(() => { requestGridFocus(); });
   }, [requestGridFocus]);
+
+  const toggleDraftTransition = useCallback((targetId: number) => {
+    setDraft((prev) => {
+      const current = new Set(prev.transitions);
+      if (current.has(targetId)) current.delete(targetId);
+      else current.add(targetId);
+      return { ...prev, transitions: Array.from(current) };
+    });
+  }, []);
 
   const confirmItemModal = useCallback(() => {
     const label = draft.label.trim();
@@ -141,23 +159,36 @@ export default function WorkflowEditor({
       return;
     }
     if (itemModal?.mode === 'edit') {
-      setStatuses(prev => prev.map(s => (s.id === itemModal.id ? { ...s, ...draft, label } : s)));
+      const id = itemModal.id;
+      setStatuses(prev => prev.map(s => (s.id === id
+        ? { ...s, label, icon: draft.icon, color: draft.color }
+        : s)));
+      setTransitions(prev => ({ ...prev, [id]: [...draft.transitions] }));
+      if (draft.initial) {
+        setInitialStatusId(id);
+      } else if (initialStatusId === id) {
+        const firstOther = statuses.find(s => s.id !== id);
+        if (firstOther) setInitialStatusId(firstOther.id);
+      }
       announce(t('tasklist.workflow.statusUpdated', 'Status atualizado'));
     } else {
+      const id = nextId();
       const newStatus: TaskListWorkflowStatus = {
-        id: nextId(),
+        id,
         order: statuses.length,
         label,
         color: draft.color,
         icon: draft.icon.trim() || '⬜',
       };
       setStatuses(prev => [...prev, newStatus]);
+      setTransitions(prev => ({ ...prev, [id]: [...draft.transitions] }));
+      if (draft.initial) setInitialStatusId(id);
       setFocused(newStatus);
       announce(t('tasklist.workflow.statusAdded', 'Status adicionado'));
     }
     setError(null);
     closeItemModal();
-  }, [draft, itemModal, nextId, statuses.length, t, addToast, announce, closeItemModal]);
+  }, [draft, itemModal, nextId, statuses, initialStatusId, t, addToast, announce, closeItemModal]);
 
   const deleteStatus = useCallback(async (status: TaskListWorkflowStatus) => {
     const count = taskCountsByStatus[status.id] ?? 0;
@@ -208,17 +239,6 @@ export default function WorkflowEditor({
       const updated = [...prev];
       [updated[fromIndex], updated[toIndex]] = [updated[toIndex], updated[fromIndex]];
       return updated.map((s, i) => ({ ...s, order: i }));
-    });
-  }, []);
-
-  const handleToggleTransition = useCallback((fromId: number, toId: number) => {
-    setTransitions(prev => {
-      const current = prev[fromId] || [];
-      const has = current.includes(toId);
-      return {
-        ...prev,
-        [fromId]: has ? current.filter(id => id !== toId) : [...current, toId],
-      };
     });
   }, []);
 
@@ -430,73 +450,8 @@ export default function WorkflowEditor({
         </div>
       )}
 
-      {/* Initial Status */}
-      <div className="workflow-section">
-        <div className="workflow-section-header">
-          <h3 className="workflow-section-title">{t('tasklist.workflow.initialStatus', 'Status Inicial')}</h3>
-        </div>
-        <div className="workflow-initial-status">
-          <select
-            value={initialStatusId}
-            onChange={(e) => setInitialStatusId(Number(e.target.value))}
-            disabled={isSaving}
-            aria-label={t('tasklist.workflow.initialStatus', 'Status Inicial')}
-          >
-            {statuses.map((s) => (
-              <option key={s.id} value={s.id}>{s.icon} {s.label}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Transitions Section */}
-      <div className="workflow-section">
-        <div className="workflow-section-header">
-          <h3 className="workflow-section-title">{t('tasklist.workflow.transitions', 'Transições')}</h3>
-        </div>
-
-        <div className="workflow-transitions-grid">
-          {statuses.map((fromStatus) => (
-            <div
-              key={fromStatus.id}
-              className="workflow-transition-row"
-              role="group"
-              aria-label={t('tasklist.workflow.transitionsFrom', 'Transições de {{label}}', {
-                label: fromStatus.label.trim() || `#${fromStatus.id}`,
-              })}
-            >
-              <span className="workflow-transition-from" aria-hidden="true">
-                {fromStatus.icon} {fromStatus.label}
-              </span>
-              <span className="workflow-transition-arrow" aria-hidden="true">→</span>
-              <div className="workflow-transition-targets">
-                {statuses
-                  .filter(s => s.id !== fromStatus.id)
-                  .map((toStatus) => {
-                    const isActive = (transitions[fromStatus.id] || []).includes(toStatus.id);
-                    return (
-                      <button
-                        key={toStatus.id}
-                        className={`workflow-transition-chip ${isActive ? 'workflow-transition-chip--active' : ''}`}
-                        onClick={() => handleToggleTransition(fromStatus.id, toStatus.id)}
-                        disabled={isSaving}
-                        type="button"
-                        aria-pressed={isActive}
-                      >
-                        {toStatus.icon} {toStatus.label}
-                      </button>
-                    );
-                  })}
-                {statuses.length <= 1 && (
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    {t('tasklist.workflow.noTransitions', 'Sem transições')}
-                  </span>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* Initial Status + Transitions agora vivem no modal de edição por
+          status; aqui restam migração (condicional) e as ações finais. */}
 
       {/* Actions — AEP-0090: primária antes de cancelar */}
       <DialogActions
@@ -565,6 +520,30 @@ export default function WorkflowEditor({
               })}
             </div>
           </FormField>
+          <FormField label={t('tasklist.workflow.allowedTransitions', 'Pode transicionar para')}>
+            <div
+              className="workflow-status-form__transitions"
+              role="group"
+              aria-label={t('tasklist.workflow.allowedTransitions', 'Pode transicionar para')}
+            >
+              {statuses
+                .filter((s) => s.id !== (itemModal?.mode === 'edit' ? itemModal.id : -1))
+                .map((s) => (
+                  <Checkbox
+                    key={s.id}
+                    label={`${s.icon} ${s.label}`}
+                    checked={draft.transitions.includes(s.id)}
+                    onChange={() => toggleDraftTransition(s.id)}
+                  />
+                ))}
+            </div>
+          </FormField>
+          <Checkbox
+            label={t('tasklist.workflow.initialStatus', 'Status Inicial')}
+            checked={draft.initial}
+            onChange={(e) => setDraft((prev) => ({ ...prev, initial: e.target.checked }))}
+            disabled={statuses.length <= 1}
+          />
           <DialogActions
             primary={
               <Button type="button" variant="primary" onClick={confirmItemModal}>

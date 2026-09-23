@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import WorkflowEditor from './WorkflowEditor';
+import { Modal } from '../ui/Modal';
 import type { TaskListWorkflow } from '../../types/tasklist';
 
 const mockAddToast = vi.fn();
@@ -142,14 +143,68 @@ describe('WorkflowEditor', () => {
     expect(migration).toEqual({ 2: 1 });
   });
 
-  it('chips de transição expõem estado e alternam', async () => {
+  it('transições configuradas no modal por status e persistem', async () => {
     const user = userEvent.setup();
-    render(<WorkflowEditor workflow={workflow} onSave={vi.fn()} onCancel={vi.fn()} />);
-    expect(await screen.findByRole('group', { name: 'Transições de A Fazer' })).toBeInTheDocument();
-    const chips = screen.getAllByRole('button', { name: /Em Progresso/ });
-    expect(chips[0]).toHaveAttribute('aria-pressed', 'true');
-    await user.click(chips[0]);
-    expect(chips[0]).toHaveAttribute('aria-pressed', 'false');
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<WorkflowEditor workflow={workflow} onSave={onSave} onCancel={vi.fn()} />);
+    const grid = await screen.findByRole('grid');
+    fireEvent.focus(grid);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Editar' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Editar' }));
+
+    // Grupo de transições do status 1 reflete o workflow (1→2 ativo).
+    expect(await screen.findByRole('group', { name: 'Pode transicionar para' })).toBeInTheDocument();
+    const target = screen.getByRole('checkbox', { name: '🔄 Em Progresso' });
+    expect(target).toBeChecked();
+    await user.click(target);
+    expect(target).not.toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+
+    await user.click(screen.getByRole('button', { name: 'Salvar Workflow' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const [, transitions] = onSave.mock.calls[0];
+    expect(transitions).toEqual({ 1: [], 2: [] });
   });
 
+  it('checkbox define o status inicial e persiste', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<WorkflowEditor workflow={workflow} onSave={onSave} onCancel={vi.fn()} />);
+    const grid = await screen.findByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Editar' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Editar' }));
+
+    const initialBox = await screen.findByRole('checkbox', { name: 'Status Inicial' });
+    expect(initialBox).not.toBeChecked();
+    await user.click(initialBox);
+    await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+
+    await user.click(screen.getByRole('button', { name: 'Salvar Workflow' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const [, , initialId] = onSave.mock.calls[0];
+    expect(initialId).toBe(2);
+  });
+
+  it('abre o modal de item aninhado com formulário completo', async () => {
+    // O foco inicial em modal aninhado depende de visibilidade real (jsdom
+    // marca tudo como invisível e o Modal cai no container); o mecanismo de
+    // auto-focus em si é coberto pelo Modal.test. Aqui provamos a abertura
+    // aninhada com o formulário completo por cima do modal pai.
+    const user = userEvent.setup();
+    render(
+      <Modal isOpen title="Editar Workflow" onClose={vi.fn()}>
+        <WorkflowEditor workflow={workflow} onSave={vi.fn()} onCancel={vi.fn()} />
+      </Modal>,
+    );
+    const grid = await screen.findByRole('grid');
+    fireEvent.focus(grid);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Editar' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Editar' }));
+    expect(await screen.findByRole('heading', { name: 'Editar status: A Fazer' })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Nome/)).toHaveValue('A Fazer');
+    expect(screen.getByRole('checkbox', { name: '🔄 Em Progresso' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Status Inicial' })).toBeChecked();
+  });
 });

@@ -50,7 +50,7 @@ código para acessar o sistema de origem.
 Cada lista tem seu próprio workflow com:
 
 - **Status**: Lista de status possíveis (ex: A Fazer, Em Progresso, Concluído)
-- **Transições**: Regras de quais status podem avançar para quais
+- **Transições**: Regras de quais status podem avançar para quais (configuradas no detalhe de cada status)
 - **Reordenação**: Status podem ser reordenados
 
 ## Modos de Visualização
