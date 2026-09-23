@@ -42,7 +42,7 @@ vi.mock('./MediaPreview', () => ({
 vi.mock('./VoiceButton', () => ({
   VoiceButton: ({ onTranscription }: { onTranscription: (text: string) => void }) => {
     voiceState.transcribe = onTranscription;
-    return <button data-testid="voice-button" onClick={() => onTranscription('voz')} />;
+    return <button data-testid="voice-button" onClick={() => onTranscription('transcrição')}>voz</button>;
   },
 }));
 
@@ -73,7 +73,7 @@ describe('ChatInput', () => {
   });
 
   it('envia mensagem ao pressionar Enter', () => {
-    const onSend = vi.fn();
+    const onSend = vi.fn(() => true);
 
     render(<ChatInput onSend={onSend} />);
 
@@ -115,7 +115,7 @@ describe('ChatInput', () => {
 
   it.each([true, false])('clearOnSend=%s controla limpeza de texto e mídia', (clearOnSend) => {
     const media = mediaResult([new File(['data'], 'file.txt')], 'send');
-    const onSend = vi.fn(); const change = vi.fn(); const changeMedia = vi.fn();
+    const onSend = vi.fn(() => true); const change = vi.fn(); const changeMedia = vi.fn();
     render(<ChatInput onSend={onSend} message="rascunho" mediaFiles={media}
       onMessageChange={change} onMediaFilesChange={changeMedia} clearOnSend={clearOnSend} />);
     fireEvent.keyDown(screen.getByLabelText('chat.messageLabel'), { key: 'Enter' });
@@ -130,14 +130,37 @@ describe('ChatInput', () => {
   });
 
   it.each([true, false])('voz informa origem explícita e respeita clearOnSend=%s sem limpar texto', (clearOnSend) => {
-    const onSend = vi.fn(); const change = vi.fn(); const changeMedia = vi.fn();
+    const onSend = vi.fn(() => true); const change = vi.fn(); const changeMedia = vi.fn();
     render(<ChatInput onSend={onSend} voiceEnabled clearOnSend={clearOnSend}
       message="" onMessageChange={change} mediaFiles={[]} onMediaFilesChange={changeMedia} />);
     fireEvent.click(screen.getByTestId('voice-button'));
-    expect(onSend).toHaveBeenCalledExactlyOnceWith('voz', undefined, { voice: true });
+    expect(onSend).toHaveBeenCalledExactlyOnceWith('transcrição', undefined, { voice: true });
     expect(change).not.toHaveBeenCalled();
     if (clearOnSend) expect(changeMedia).toHaveBeenCalledExactlyOnceWith([]);
     else expect(changeMedia).not.toHaveBeenCalled();
+  });
+
+  it('clearOnSend=false preserva o rascunho quando o callback síncrono retorna void', () => {
+    const onSend = vi.fn(); const change = vi.fn(); const changeMedia = vi.fn();
+    const media = mediaResult([new File(['data'], 'file.txt')], 'send');
+    render(
+      <ChatInput
+        onSend={onSend}
+        clearOnSend={false}
+        message="rascunho"
+        mediaFiles={media}
+        onMessageChange={change}
+        onMediaFilesChange={changeMedia}
+        slashMenuEnabled={false}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByLabelText('chat.messageLabel'), { key: 'Enter' });
+
+    expect(onSend).toHaveBeenCalledExactlyOnceWith('rascunho', media);
+    expect(change).not.toHaveBeenCalled();
+    expect(changeMedia).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('chat.messageLabel')).toHaveValue('rascunho');
   });
 
   it('mantém origem de voz mesmo quando transcrição coincide com texto digitado', () => {
@@ -327,7 +350,7 @@ describe('ChatInput', () => {
   });
 
   it('esconde indicador de rascunho após enviar a mensagem', () => {
-    const onSend = vi.fn();
+    const onSend = vi.fn(() => true);
 
     function ControlledDraftInput() {
       const [message, setMessage] = useState('Mensagem com rascunho');
@@ -349,6 +372,114 @@ describe('ChatInput', () => {
 
     expect(onSend).toHaveBeenCalledWith('Mensagem com rascunho', undefined);
     expect(screen.queryByText('chat.draftSaved')).not.toBeInTheDocument();
+  });
+
+  it('preserva texto e anexos visíveis quando o envio é rejeitado', async () => {
+    const onSend = vi.fn().mockResolvedValue(false);
+    const originalMedia = mediaResult([new File(['a'], 'original.txt')], 'original');
+
+    function ControlledDraftInput() {
+      const [message, setMessage] = useState('rascunho rejeitado');
+      const [mediaFiles, setMediaFiles] = useState<MediaFile[]>(originalMedia);
+      return (
+        <>
+          <ChatInput
+            onSend={onSend}
+            message={message}
+            mediaFiles={mediaFiles}
+            onMessageChange={setMessage}
+            onMediaFilesChange={setMediaFiles}
+            slashMenuEnabled={false}
+          />
+          <div data-testid="rejected-draft-state">
+            {message}|{mediaFiles.map((file) => file.fileName).join(',')}
+          </div>
+        </>
+      );
+    }
+
+    render(<ControlledDraftInput />);
+    const textarea = screen.getByLabelText('chat.messageLabel');
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    expect(screen.getByTestId('rejected-draft-state')).toHaveTextContent('rascunho rejeitado|original.txt');
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('rejected-draft-state')).toHaveTextContent('rascunho rejeitado|original.txt');
+  });
+
+  it('voz não apaga texto digitado enquanto a transcrição aguarda aceitação', async () => {
+    const send = deferred<boolean>();
+    const onSend = vi.fn(() => send.promise);
+
+    function ControlledVoiceInput() {
+      const [message, setMessage] = useState('');
+      return (
+        <>
+          <ChatInput
+            onSend={onSend}
+            message={message}
+            onMessageChange={setMessage}
+            voiceEnabled
+            slashMenuEnabled={false}
+          />
+          <div data-testid="voice-draft-state">{message}</div>
+        </>
+      );
+    }
+
+    render(<ControlledVoiceInput />);
+    fireEvent.click(screen.getByTestId('voice-button'));
+    const textarea = screen.getByLabelText('chat.messageLabel');
+    fireEvent.change(textarea, { target: { value: 'texto novo' } });
+
+    await act(async () => {
+      send.resolve(true);
+      await send.promise;
+    });
+
+    expect(onSend).toHaveBeenCalledWith('transcrição', undefined, { voice: true });
+    expect(screen.getByTestId('voice-draft-state')).toHaveTextContent('texto novo');
+  });
+
+  it('restaura rascunho e anexos quando o envio é rejeitado, sem apagar texto novo nem reenviar', async () => {
+    const send = deferred<boolean>();
+    const onSend = vi.fn(() => send.promise);
+    const originalMedia = mediaResult([new File(['a'], 'original.txt')], 'original');
+
+    function ControlledDraftInput() {
+      const [message, setMessage] = useState('mensagem grande');
+      const [mediaFiles, setMediaFiles] = useState<MediaFile[]>(originalMedia);
+      return (
+        <>
+          <ChatInput
+            onSend={onSend}
+            message={message}
+            mediaFiles={mediaFiles}
+            onMessageChange={setMessage}
+            onMediaFilesChange={setMediaFiles}
+            slashMenuEnabled={false}
+          />
+          <div data-testid="draft-state">{message}|{mediaFiles.map((file) => file.fileName).join(',')}</div>
+        </>
+      );
+    }
+
+    render(<ControlledDraftInput />);
+    const textarea = screen.getByLabelText('chat.messageLabel');
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    fireEvent.change(textarea, { target: { value: 'texto digitado depois' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('draft-state')).toHaveTextContent('texto digitado depois|');
+
+    await act(async () => {
+      send.resolve(false);
+      await send.promise;
+    });
+
+    expect(screen.getByTestId('draft-state')).toHaveTextContent('texto digitado depois|');
+    expect(screen.getByTestId('draft-state')).not.toHaveTextContent('mensagem grande');
   });
 
   it('não cria live region local (indicador é puramente visual com aria-hidden)', () => {

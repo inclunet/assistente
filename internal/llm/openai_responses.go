@@ -315,6 +315,11 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	var finishedToolCalls []ToolCall
 
 	activeMCPCalls := make(map[string]*pendingMCPCall) // keyed by item_id
+	// mcpFailureLogged garante ERRO único por falha de mcp_call, keyed por
+	// item_id. Uma falha nativa chega por dois eventos (response.mcp_call.failed
+	// + response.output_item.done, em ordem que varia entre proxies); sem essa
+	// guarda, cada falha rendia dois ERROs no provider.
+	mcpFailureLogged := make(map[string]bool)
 
 	var eventCount int
 
@@ -447,11 +452,18 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				}
 				emittedNonRetryableEffect = true
 				// O output item de um mcp_call carrega o motivo real da falha em
-				// Error (além de server_label/name/output). Logamos aqui em ERRO
-				// para tornar a causa diagnosticável sem correlação manual.
+				// Error (além de server_label/name/output). Este é o ERRO único e
+				// correlacionado (conv/turn/user) da falha; response.mcp_call.failed
+				// apenas a sinaliza sem texto. Se aquele evento chegou antes mas o
+				// output item veio sem texto de erro, emitimos aqui o fallback.
 				if strings.TrimSpace(ev.Item.Error) != "" {
 					logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP native call FAILED: %s",
 						mcpFailureLogFields(ev.Item.ServerLabel, ev.Item.Name, ev.Item.Error))
+					mcpFailureLogged[ev.Item.ID] = true
+				} else if ok && mc.Failed && !mcpFailureLogged[ev.Item.ID] {
+					logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP call FAILED: itemID=%s server=%q tool=%q",
+						ev.Item.ID, ev.Item.ServerLabel, ev.Item.Name)
+					mcpFailureLogged[ev.Item.ID] = true
 				}
 				handler.OnMCPToolEvent(MCPToolEvent{
 					ID:          ev.Item.ID,
@@ -521,17 +533,24 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		case "response.mcp_call.failed":
 			ev := event.AsResponseMcpCallFailed()
 			// O evento .failed traz só o itemID; server_label/name vivem no item
-			// pendente. Incluímos ambos para que o log aponte o servidor e a tool
-			// que falharam, complementando o output item (que carrega o texto do
-			// erro) quando este for emitido.
+			// pendente. NÃO logamos ERRO aqui para evitar a duplicidade que
+			// aparecia junto de "MCP native call FAILED": marcamos a falha e o ERRO
+			// único e correlacionado sai em response.output_item.done (com o texto
+			// do erro). Se o item já foi finalizado/removido (output_item.done com
+			// erro já logou), o log foi feito; caso contrário, emitimos o fallback.
 			fallbackServer := ""
 			toolName := ""
 			if mc, ok := activeMCPCalls[ev.ItemID]; ok {
 				fallbackServer = mc.ServerLabel
 				toolName = mc.Name
+				mc.Failed = true
+				logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP call failed (aguardando detalhe): itemID=%s server=%q tool=%q",
+					ev.ItemID, fallbackServer, toolName)
+			} else if !mcpFailureLogged[ev.ItemID] {
+				logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP call FAILED: itemID=%s server=%q tool=%q",
+					ev.ItemID, fallbackServer, toolName)
+				mcpFailureLogged[ev.ItemID] = true
 			}
-			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP call FAILED: itemID=%s server=%q tool=%q",
-				ev.ItemID, fallbackServer, toolName)
 			if failure := inferMCPFailure(MCPFailureStageCall, "", ev.RawJSON(), fallbackServer, mcpServers); failure != nil && !emittedNonRetryableEffect {
 				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{mcpFailure: failure}
@@ -542,9 +561,17 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		case "response.mcp_list_tools.completed":
 			logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing done (server-side)")
 		case "response.mcp_list_tools.failed":
-			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing FAILED (server-side)")
 			ev := event.AsResponseMcpListToolsFailed()
-			if failure := inferMCPFailure(MCPFailureStageListTools, "", ev.RawJSON(), "", mcpServers); failure != nil && !emittedNonRetryableEffect {
+			failure := inferMCPFailure(MCPFailureStageListTools, "", ev.RawJSON(), "", mcpServers)
+			if mcpFailureRecoverablyHandled(failure, emittedNonRetryableEffect) {
+				// Recuperável: a degradação (MCP-DEGRADE/MCP-RECOVER) trata e loga
+				// o desfecho. WARN evita ERRO falso-positivo quando o turno se
+				// recupera via retry_without_server.
+				logging.Warnf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing falhou (server-side); recuperável via degradação")
+			} else {
+				logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing FAILED (server-side)")
+			}
+			if failure != nil && !emittedNonRetryableEffect {
 				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}
@@ -637,7 +664,16 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	wd.Stop()
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
-		logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Responses stream error: %s", errStr)
+
+		// Classifica ANTES de logar: uma falha de handshake/listagem MCP
+		// recuperável é tratada pela degradação (retry_without_server) logo
+		// abaixo, e o ERRO seria falso-positivo quando o turno se recupera.
+		mcpHandshakeFailure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers)
+		if mcpFailureRecoverablyHandled(mcpHandshakeFailure, emittedNonRetryableEffect) {
+			logging.Warnf(ctx, "llm.openai-responses", "[OpenAIProvider] Responses stream error (recuperável via degradação MCP): %s", errStr)
+		} else {
+			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Responses stream error: %s", errStr)
+		}
 
 		// Cancelamento do usuário (contexto pai): nunca retentar.
 		if ctx.Err() != nil {
@@ -667,9 +703,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		if !emittedNonRetryableEffect && looksLikePromptCacheHintUnsupported(errStr) {
 			return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
 		}
-		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedNonRetryableEffect {
+		if mcpHandshakeFailure != nil && !emittedNonRetryableEffect {
 			reportCurrentDiagnostics()
-			return mcpStreamAttemptResult{mcpFailure: failure}
+			return mcpStreamAttemptResult{mcpFailure: mcpHandshakeFailure}
 		}
 		if !emittedNonRetryableEffect && looksLikeTokenRateLimit(errStr) {
 			finishThinking()
@@ -721,6 +757,26 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	// fallback/falha durante o stream), então não o reatribuímos aqui.
 	emittedNonRetryableEffect = flushPendingCompletedMCPCalls(activeMCPCalls, handler) ||
 		emittedNonRetryableEffect
+
+	// Fallback de log para falhas cujo response.output_item.done nunca chegou
+	// (só houve response.mcp_call.failed). Sem ele, o ERRO — que deixamos de
+	// emitir no evento .failed para não duplicar — se perderia. Ordenado para
+	// tornar o log determinístico.
+	if len(activeMCPCalls) > 0 {
+		failedItemIDs := make([]string, 0, len(activeMCPCalls))
+		for itemID, mc := range activeMCPCalls {
+			if mc != nil && mc.Failed && !mcpFailureLogged[itemID] {
+				failedItemIDs = append(failedItemIDs, itemID)
+			}
+		}
+		sort.Strings(failedItemIDs)
+		for _, itemID := range failedItemIDs {
+			mc := activeMCPCalls[itemID]
+			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP call FAILED: itemID=%s server=%q tool=%q",
+				mc.ID, mc.ServerLabel, mc.Name)
+			mcpFailureLogged[itemID] = true
+		}
+	}
 
 	if isThinking && thinkingBuffer.Len() > 0 {
 		select {

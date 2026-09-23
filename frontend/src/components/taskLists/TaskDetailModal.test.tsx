@@ -7,16 +7,27 @@ import type { Task, TaskListWorkflowStatus } from '../../types/tasklist';
 
 /* ── Mocks ─────────────────────────────────────────────────── */
 
+const mockAnnounce = vi.fn();
+const mockAddToast = vi.fn();
+const mockOpenTaskLink = vi.fn();
+vi.mock('../../lib/deepLinks', () => ({ openTaskLink: (...args: unknown[]) => mockOpenTaskLink(...args) }));
+
 const mockLoadTaskNotes = vi.fn();
 const mockListCardCustomActions = vi.fn();
 const mockSetTaskConversation = vi.fn();
+const mockUpdateTaskStatus = vi.fn();
+const mockTaskLists = vi.hoisted(() => new Map());
 const mockGetConversations = vi.hoisted(() => vi.fn());
 
 vi.mock('react-i18next', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-i18next')>();
   return {
     ...actual,
-    useTranslation: () => ({ t: (_key: string, fallback?: string) => fallback ?? _key }),
+    useTranslation: () => ({ t: (key: string, fallback?: string, options?: Record<string, string>) => {
+      let text = fallback ?? key;
+      for (const [name, value] of Object.entries(options ?? {})) text = text.replace(`{{${name}}}`, value);
+      return text;
+    } }),
   };
 });
 
@@ -29,12 +40,12 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 }));
 
 vi.mock('../../hooks/useAnnouncer', () => ({
-  useAnnouncer: () => ({ announce: vi.fn() }),
+  useAnnouncer: () => ({ announce: mockAnnounce }),
 }));
 
 vi.mock('../../store/uiStore', () => ({
   useUIStore: (selector: (state: { addToast: ReturnType<typeof vi.fn> }) => unknown) => selector({
-    addToast: vi.fn(),
+    addToast: mockAddToast,
   }),
 }));
 
@@ -46,6 +57,8 @@ vi.mock('../../store/taskListStore', () => ({
     deleteTaskNote: vi.fn(),
     listCardCustomActions: mockListCardCustomActions,
     setTaskConversation: mockSetTaskConversation,
+    updateTaskStatus: mockUpdateTaskStatus,
+    taskLists: mockTaskLists,
   }),
 }));
 
@@ -71,6 +84,7 @@ vi.mock('../ui/MarkdownRenderer', () => ({
 
 const statuses: TaskListWorkflowStatus[] = [
   { id: 1, order: 0, label: 'A Fazer', color: 'gray', icon: '⌛' },
+  { id: 2, order: 1, label: 'Em Progresso', color: 'blue', icon: '🔄' },
 ];
 
 const task = {
@@ -89,12 +103,49 @@ const task = {
 describe('TaskDetailModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTaskLists.clear();
     mockLoadTaskNotes.mockResolvedValue([]);
     mockListCardCustomActions.mockResolvedValue([]);
     mockSetTaskConversation.mockResolvedValue(undefined);
+    mockUpdateTaskStatus.mockResolvedValue(undefined);
     mockGetConversations.mockResolvedValue([
       { id: '5', title: 'Conversa X', updatedAt: '2024-01-02' },
     ]);
+  });
+
+  it.each(['click', 'Enter', ' '])('copia o código exato via %s sem abrir o link', async (activation) => {
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+    render(<MemoryRouter><TaskDetailModal isOpen onClose={vi.fn()} task={{ ...task, code: 'EXT-0042', link: 'https://example.com/card/42' }} statuses={statuses} /></MemoryRouter>);
+    const button = await screen.findByRole('button', { name: 'Copiar código EXT-0042' });
+    button.focus();
+    expect(button).toHaveFocus();
+    if (activation === 'click') await user.click(button);
+    else await user.keyboard(activation === 'Enter' ? '{Enter}' : ' ');
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('EXT-0042'));
+    expect(mockOpenTaskLink).not.toHaveBeenCalled();
+    expect(mockAnnounce).toHaveBeenCalledWith('Código copiado');
+    expect(mockAddToast).toHaveBeenCalledWith('Código copiado', 'success', undefined, undefined, { suppressAnnounce: true });
+    expect(button).toHaveAccessibleName('Copiar código EXT-0042');
+    await user.click(screen.getByRole('button', { name: 'Abrir link do card' }));
+    expect(mockOpenTaskLink).toHaveBeenCalledWith('https://example.com/card/42', expect.any(Object));
+  });
+
+  it('informa falha de cópia sem anunciar sucesso', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'));
+    render(<MemoryRouter><TaskDetailModal isOpen onClose={vi.fn()} task={{ ...task, code: 'EXT-0042' }} statuses={statuses} /></MemoryRouter>);
+    await user.click(screen.getByRole('button', { name: 'Copiar código EXT-0042' }));
+    expect(mockAnnounce).toHaveBeenCalledWith('Não foi possível copiar o código. Tente novamente.');
+    expect(mockAnnounce).not.toHaveBeenCalledWith('Código copiado');
+    expect(mockAddToast).toHaveBeenCalledWith('Não foi possível copiar o código. Tente novamente.', 'error', undefined, undefined, { suppressAnnounce: true });
+    expect(screen.queryByRole('button', { name: 'Abrir link do card' })).not.toBeInTheDocument();
+  });
+
+  it('mantém link sem código e omite copiar quando não há referência', async () => {
+    render(<MemoryRouter><TaskDetailModal isOpen onClose={vi.fn()} task={{ ...task, link: 'https://example.com' }} statuses={statuses} /></MemoryRouter>);
+    expect(await screen.findByRole('button', { name: 'Abrir link do card' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Copiar código/ })).not.toBeInTheDocument();
   });
 
   it('usa readingMode (role="document") para permitir leitura linear no leitor de tela', async () => {
@@ -158,5 +209,48 @@ describe('TaskDetailModal', () => {
     fireEvent.mouseDown(noneOption);
 
     expect(mockSetTaskConversation).toHaveBeenCalledWith('10', null);
+  });
+
+  it('reflete o vínculo do cache mesmo com a prop desatualizada (snapshot do clique)', async () => {
+    // KanbanBoard/TasksTable passam a task como snapshot em useState; o update
+    // otimista do store atualiza o cache, e o modal deve preferir a versão viva.
+    mockTaskLists.set('1', { tasks: [{ ...task, conversationId: '5' }] });
+    const onClose = vi.fn();
+    render(
+      <MemoryRouter>
+        <TaskDetailModal isOpen onClose={onClose} task={task} statuses={statuses} />
+      </MemoryRouter>,
+    );
+
+    // Badge de conversa e picker passam a refletir o vínculo do cache.
+    const conversationButton = await screen.findByRole('button', { name: 'Ir para conversa vinculada' });
+    expect(screen.getByRole('button', { name: /Alterar conversa vinculada/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Vincular conversa/ })).not.toBeInTheDocument();
+
+    // O botão abre a conversa vinculada via deep link e fecha o modal.
+    const user = userEvent.setup();
+    await user.click(conversationButton);
+    expect(mockOpenTaskLink).toHaveBeenCalledWith('assistente://conversation/5', expect.any(Object));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('troca o status pelo menu sem fechar o modal, com toast e anúncio', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<MemoryRouter><TaskDetailModal isOpen onClose={onClose} task={task} statuses={statuses} /></MemoryRouter>);
+    await user.click(screen.getByRole('button', { name: 'Alterar status: A Fazer' }));
+    await user.click(await screen.findByRole('menuitem', { name: '🔄 Em Progresso' }));
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith('10', 2);
+    expect(mockAnnounce).toHaveBeenCalledWith('Status atualizado para Em Progresso');
+    expect(mockAddToast).toHaveBeenCalledWith('Status atualizado para Em Progresso', 'success', undefined, undefined, { suppressAnnounce: true });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('menu de status filtra o status atual', async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><TaskDetailModal isOpen onClose={vi.fn()} task={task} statuses={statuses} /></MemoryRouter>);
+    await user.click(screen.getByRole('button', { name: 'Alterar status: A Fazer' }));
+    expect(await screen.findByRole('menuitem', { name: '🔄 Em Progresso' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: '⌛ A Fazer' })).not.toBeInTheDocument();
   });
 });

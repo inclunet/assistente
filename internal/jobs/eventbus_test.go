@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -132,24 +133,81 @@ func TestEventBus_PublishNoListeners(t *testing.T) {
 	}
 }
 
+// levelCaptureHandler captura o nível de cada record emitido, para asserir em
+// que severidade um evento descartado é logado.
+type levelCaptureHandler struct {
+	mu      sync.Mutex
+	byEvent map[string]slog.Level
+}
+
+func (h *levelCaptureHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *levelCaptureHandler) Handle(_ context.Context, r slog.Record) error {
+	var name string
+	r.Attrs(func(a slog.Attr) bool {
+		if a.Key == "event_name" {
+			name = a.Value.String()
+			return false
+		}
+		return true
+	})
+	h.mu.Lock()
+	h.byEvent[name] = r.Level
+	h.mu.Unlock()
+	return nil
+}
+
+func (h *levelCaptureHandler) WithAttrs(attrs []slog.Attr) slog.Handler { return h }
+func (h *levelCaptureHandler) WithGroup(string) slog.Handler            { return h }
+
+// TestEventBus_DroppedSuccessLogsDebugOthersWarn garante que o descarte de um
+// evento `.success` sem consumidor (semântica normal de pub/sub em job terminal)
+// é logado em DEBUG, enquanto qualquer outro evento sem listener permanece em
+// WARN (possível cadeia quebrada). Em ambos, o contador segue incrementando.
+func TestEventBus_DroppedSuccessLogsDebugOthersWarn(t *testing.T) {
+	capture := &levelCaptureHandler{byEvent: make(map[string]slog.Level)}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(capture))
+	defer slog.SetDefault(previous)
+
+	eb := NewEventBus()
+	eb.Publish(context.Background(), "job.terminal.success", map[string]any{})
+	eb.Publish(context.Background(), "job.terminal.failure", map[string]any{})
+
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	if got, ok := capture.byEvent["job.terminal.success"]; !ok || got != slog.LevelDebug {
+		t.Fatalf("drop de `.success` = nível %v (presente=%v), want DEBUG", got, ok)
+	}
+	if got, ok := capture.byEvent["job.terminal.failure"]; !ok || got != slog.LevelWarn {
+		t.Fatalf("drop de não-`.success` = nível %v (presente=%v), want WARN", got, ok)
+	}
+	if got := eb.Stats().EventsDropped; got != 2 {
+		t.Fatalf("events_dropped = %d, want 2 (contador preservado independe do nível)", got)
+	}
+}
+
 func TestEventBus_DroppedEventWarningIsThrottledPerEvent(t *testing.T) {
 	eb := NewEventBus()
 	now := time.Date(2026, 9, 13, 8, 0, 0, 0, time.UTC)
 	eb.now = func() time.Time { return now }
 
-	if dropped, warn := eb.recordDropped("pipeline.card"); dropped != 1 || !warn {
-		t.Fatalf("primeiro descarte = (%d, %v), want (1, true)", dropped, warn)
+	// perEvent conta por nome de evento; total é o contador global. O WARN é
+	// throttled por nome de evento.
+	if perEvent, total, warn := eb.recordDropped("pipeline.card"); perEvent != 1 || total != 1 || !warn {
+		t.Fatalf("1º descarte = (perEvent=%d, total=%d, warn=%v), want (1, 1, true)", perEvent, total, warn)
 	}
-	if dropped, warn := eb.recordDropped("pipeline.card"); dropped != 2 || warn {
-		t.Fatalf("descarte dentro do throttle = (%d, %v), want (2, false)", dropped, warn)
+	if perEvent, total, warn := eb.recordDropped("pipeline.card"); perEvent != 2 || total != 2 || warn {
+		t.Fatalf("descarte dentro do throttle = (perEvent=%d, total=%d, warn=%v), want (2, 2, false)", perEvent, total, warn)
 	}
-	if dropped, warn := eb.recordDropped("outro.evento"); dropped != 3 || !warn {
-		t.Fatalf("primeiro descarte de outro evento = (%d, %v), want (3, true)", dropped, warn)
+	// Outro evento: perEvent reinicia em 1 (honesto), mas o total global segue.
+	if perEvent, total, warn := eb.recordDropped("outro.evento"); perEvent != 1 || total != 3 || !warn {
+		t.Fatalf("1º descarte de outro evento = (perEvent=%d, total=%d, warn=%v), want (1, 3, true)", perEvent, total, warn)
 	}
 
 	now = now.Add(droppedEventWarningInterval)
-	if dropped, warn := eb.recordDropped("pipeline.card"); dropped != 4 || !warn {
-		t.Fatalf("descarte após throttle = (%d, %v), want (4, true)", dropped, warn)
+	if perEvent, total, warn := eb.recordDropped("pipeline.card"); perEvent != 3 || total != 4 || !warn {
+		t.Fatalf("descarte após throttle = (perEvent=%d, total=%d, warn=%v), want (3, 4, true)", perEvent, total, warn)
 	}
 }
 

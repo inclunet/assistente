@@ -23,6 +23,13 @@ A ferramenta atual `web_fetch` possui limitações significativas:
 - `max_response_size`;
 - `extract_mode`.
 
+O contrato também oferece `extract_mode: "file"` para materializar o corpo
+completo em um artefato local efêmero e `extract_mode: "jsonpath"` para extrair
+campos de JSON no executor. `output_path` é opcional no modo `file` e só aceita
+um nome de arquivo dentro da pasta de artefatos configurada pelo host;
+`jsonpath` aceita apenas seletores de campos por ponto e descendência recursiva
+(por exemplo, `$..metadata.name`), sem filtros, scripts ou execução de jq.
+
 Não existem argumentos `auth_basic`, `auth_bearer` ou `timeout_seconds` no
 schema nem em `httpRequestArgs`. Credenciais são resolvidas pela URL no cliente
 central de `internal/tools/http`, que recebe o `credentials.Manager` no
@@ -320,6 +327,11 @@ a.toolRegistry.MustRegister(web.NewWebSearch())
   `internal/tools/http`.
 - [x] Guardrails anti-SSRF e confirmação de operações mutáveis permanecem no
   pipeline compartilhado.
+- [x] Respostas grandes podem ser baixadas em streaming para artefato local,
+  com metadados model-facing pequenos, TTL e limpeza no encerramento.
+- [x] JSON grande pode ser reduzido no executor por jsonpath restrito, com o
+  limite aplicado ao resultado extraído e erros explícitos para JSON/query
+  inválidos e resultados acima do limite.
 
 ---
 

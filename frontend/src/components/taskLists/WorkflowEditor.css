@@ -42,121 +42,17 @@
 
 /* Status List */
 
-.workflow-status-list {
+.workflow-editor__hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+}
+
+.workflow-status-form {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.workflow-status-item {
-  display: grid;
-  grid-template-columns: 40px 1fr 80px 50px auto;
-  gap: var(--spacing-sm);
-  align-items: center;
-  padding: var(--spacing-sm);
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  transition: border-color 0.15s ease;
-}
-
-.workflow-status-item:hover {
-  border-color: var(--border-default);
-}
-
-.workflow-status-item--initial {
-  border-color: var(--accent);
-  background-color: color-mix(in srgb, var(--accent) 5%, var(--bg-surface));
-}
-
-.workflow-status-id {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  text-align: center;
-  font-family: var(--font-mono, monospace);
-  background: var(--bg-muted);
-  border-radius: var(--radius-sm);
-  padding: 2px 4px;
-}
-
-.workflow-status-label-input {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  background-color: var(--bg-input);
-  color: var(--text-primary);
-  font-size: 0.875rem;
-  font-family: inherit;
-}
-
-.workflow-status-label-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--focus-ring);
-}
-
-.workflow-status-color-input {
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  padding: 2px;
-  background: var(--bg-input);
-}
-
-.workflow-status-icon-input {
-  width: 50px;
-  padding: var(--spacing-xs);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  background-color: var(--bg-input);
-  color: var(--text-primary);
-  font-size: 0.875rem;
-  text-align: center;
-}
-
-.workflow-status-icon-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--focus-ring);
-}
-
-.workflow-status-actions {
-  display: flex;
-  gap: 2px;
-  align-items: center;
-}
-
-.workflow-status-action-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font-size: 0.875rem;
-  line-height: 1;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.workflow-status-action-btn:hover {
-  background-color: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.workflow-status-action-btn--danger:hover {
-  background-color: color-mix(in srgb, var(--color-danger) 15%, transparent);
-  color: var(--color-danger);
-}
-
-.workflow-status-action-btn--initial {
-  color: var(--accent);
-}
-
-.workflow-status-action-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
+  gap: 12px;
 }
 
 /* Migration Warning */

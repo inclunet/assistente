@@ -360,9 +360,10 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
 
   useWorkspaceCommandSurface('terminal', readTerminalCommandSurface, subscribeTerminalCommandSurface);
 
-  const handleSendInput = useCallback(async (input: string) => {
-    if (!currentSessionId) return;
+  const handleSendInput = useCallback(async (input: string): Promise<boolean> => {
+    if (!currentSessionId) return false;
     await sendInput(currentSessionId, input);
+    return true;
   }, [currentSessionId, sendInput]);
 
   const bindSession = useCallback(async (sessionId: string) => {

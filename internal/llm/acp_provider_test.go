@@ -826,6 +826,63 @@ func TestProcessoDoAgenteCaidoViraMensagemAcionavel(t *testing.T) {
 	}
 }
 
+func TestSessaoPerdidaInvalidaEAvisaSessaoNova(t *testing.T) {
+	// AEP-0108 D3: sessão perdida é descartada para a próxima tentativa
+	// retomar pelo identificador guardado (ou abrir outra), e a pessoa é
+	// avisada de que o turno recomeça noutra sessão.
+	casos := []struct {
+		nome       string
+		aceito     bool
+		querAviso  bool
+		querErroEm string
+	}{
+		{"caiu antes de receber", false, true, "antes de receber o pedido"},
+		{"caiu no meio", true, false, "caiu no meio do turno"},
+	}
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			sessao := &agenteFalso{err: &acp.PromptError{Accepted: caso.aceito, Err: acp.ErrSessionLost}}
+			mgr := servicoDeAgentes(t, sessao, acp.Capabilities{})
+			provider := NewACPChatProvider(&ProviderConfig{
+				ID:         "cursor",
+				Name:       "Cursor",
+				APIFormat:  APIFormatACP,
+				ACPCommand: "cursor-agent",
+				Model:      "auto",
+			}, mgr)
+			handler := &espiao{}
+
+			conv, err := mgr.Conversation(t.Context(), provider.spec(), "conversa-1")
+			if err != nil {
+				t.Fatalf("conversa: %v", err)
+			}
+			if conv.Session() == nil {
+				t.Fatal("conversa sem sessão antes do turno")
+			}
+
+			provider.StreamChat(t.Context(),
+				[]Message{{Role: "user", Content: "oi"}},
+				ChatParams{ConversationID: "conversa-1"}, handler)
+
+			if !strings.Contains(handler.erro, caso.querErroEm) {
+				t.Errorf("erro = %q, quer conter %q", handler.erro, caso.querErroEm)
+			}
+			achouAviso := false
+			for _, aviso := range handler.avisos {
+				if aviso.Kind == TurnNoticeSessionRecovered {
+					achouAviso = true
+				}
+			}
+			if achouAviso != caso.querAviso {
+				t.Errorf("aviso de sessão refeita = %v, quer %v (avisos: %+v)", achouAviso, caso.querAviso, handler.avisos)
+			}
+			if conv.Session() != nil {
+				t.Error("sessão perdida continua em uso; a próxima tentativa bateria na mesma sessão morta")
+			}
+		})
+	}
+}
+
 func TestRecusaComTextoEntregaOQueOAgenteEscreveu(t *testing.T) {
 	sessao := &agenteFalso{
 		stop:    acp.StopRefusal,
@@ -906,6 +963,7 @@ func TestFalhaDoTurnoVirouFraseQueDizOEstadoDoAgente(t *testing.T) {
 		nome    string
 		err     error
 		aceito  bool
+		travado bool
 		trata   string
 		naoQuer string
 	}{
@@ -917,13 +975,16 @@ func TestFalhaDoTurnoVirouFraseQueDizOEstadoDoAgente(t *testing.T) {
 		// Sem confirmação do "pare", o agente pode continuar mexendo no disco:
 		// pedir de novo sem conferir repetiria edição e comando.
 		{nome: "cancelamento sem confirmação", err: acp.ErrCancelNotConfirmed, aceito: true, trata: "pode ainda estar trabalhando"},
+		// Quando quem calou foi o watchdog, a frase não pode dizer "interrupção
+		// do turno": a pessoa não pediu para parar nada (AEP-0108 D2).
+		{nome: "watchdog calou agente parado", err: acp.ErrCancelNotConfirmed, aceito: true, travado: true, trata: "parou de responder", naoQuer: "interrupção do turno"},
 		{nome: "conversa excluída", err: acp.ErrConversationGone, aceito: true, trata: "conversa foi encerrada"},
 		{nome: "falha qualquer antes do envio", err: errors.New("cano quebrado"), trata: "cano quebrado"},
 		{nome: "falha qualquer depois do aceite", err: errors.New("cano quebrado"), aceito: true, trata: "pode ter feito parte do pedido"},
 	}
 	for _, caso := range casos {
 		t.Run(caso.nome, func(t *testing.T) {
-			got := turnErrorMessage(&acp.PromptError{Accepted: caso.aceito, Err: caso.err}, caso.aceito)
+			got := turnErrorMessage(&acp.PromptError{Accepted: caso.aceito, Stalled: caso.travado, Err: caso.err}, caso.aceito)
 			if !strings.Contains(got, caso.trata) {
 				t.Errorf("mensagem = %q, quer conter %q", got, caso.trata)
 			}

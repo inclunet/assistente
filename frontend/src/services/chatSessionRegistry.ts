@@ -19,6 +19,8 @@ export type ChatSessionKey = string;
 export type ChatSurfaceType = 'page' | 'embedded' | 'modal' | 'external';
 
 export interface ChatSurfaceOrigin {
+  /** Identifica este envio/retry, sem criar uma mensagem local. */
+  executionId?: string;
   sessionKey: ChatSessionKey;
   conversationId: string | null;
   tabId?: string;
@@ -330,8 +332,27 @@ const reconcileWindowForVisibleMessages = (
   const explicitIndexes = nodes
     .map((node) => node.originalIndex)
     .filter((index): index is number => index !== undefined);
-  const startIndex = explicitIndexes.length ? Math.min(...explicitIndexes) : Math.min(window.startIndex, totalCountHint - 1);
-  const endIndex = explicitIndexes.length ? Math.max(...explicitIndexes) : startIndex + nodes.length - 1;
+  if (explicitIndexes.length === 0) {
+    const endIndex = window.hasAfter
+      ? window.endIndex
+      : Math.max(window.endIndex, window.startIndex + nodes.length - 1);
+    const totalCount = Math.max(window.totalCount, totalCountHint, endIndex + 1);
+    return {
+      ...window,
+      totalCount,
+      endIndex,
+      hasBefore: window.startIndex > 0,
+      hasAfter: totalCount > 0 && endIndex < totalCount - 1,
+    };
+  }
+  const unindexedNodeCount = nodes.filter((node) => node.originalIndex === undefined).length;
+  const startIndex = Math.min(...explicitIndexes);
+  const indexedEnd = Math.max(...explicitIndexes);
+  const accountedUnindexedTail = Math.max(0, window.endIndex - indexedEnd);
+  const newUnindexedTailCount = Math.max(0, unindexedNodeCount - accountedUnindexedTail);
+  const endIndex = window.hasAfter
+    ? Math.max(window.endIndex, indexedEnd)
+    : Math.max(indexedEnd, window.endIndex + newUnindexedTailCount);
   const totalCount = Math.max(window.totalCount, totalCountHint, endIndex + 1);
 
   return {
@@ -515,15 +536,27 @@ export function patchChatConversation<TState extends ChatSessionRegistryState>(
   const timeline = getConversationTimeline(state, conversationId);
   if (!timeline) return state;
   const conversation = updater(timeline);
+  const canonicalMessageCount = toTimelineCacheConversation(conversation).threadedMessages.length;
   const currentSession = getChatSession(state, conversationId);
   const surfaceSessionsByKey = { ...(state.surfaceSessionsByKey ?? {}) };
   for (const [sessionKey, surfaceSession] of Object.entries(surfaceSessionsByKey)) {
     if (surfaceSession.conversationId !== conversationId || !surfaceSession.visibleThreadedMessages) {
       continue;
     }
+    const currentVisibleNodes = surfaceSession.visibleThreadedMessages;
+    const visibleKeys = new Set(currentVisibleNodes.map(getTimelineNodeKey));
     const surfaceConversation = updater({
       ...timeline,
-      threadedMessages: surfaceSession.visibleThreadedMessages,
+      threadedMessages: currentVisibleNodes,
+    });
+    const keepNewPersistedNodes = !surfaceSession.messageWindow?.hasAfter;
+    const nextVisibleNodes = surfaceConversation.threadedMessages.filter((node) => {
+      if (isPersistedTimelineNode(node)) {
+        return keepNewPersistedNodes || visibleKeys.has(getTimelineNodeKey(node));
+      }
+      // Streaming/tool nodes are local to the surface that already owns them;
+      // never materialize a new transient placeholder in another surface.
+      return visibleKeys.has(getTimelineNodeKey(node));
     });
     const keepVisibleBoundary = surfaceSession.messageWindow?.startIndex === 0
       && surfaceSession.messageWindow?.hasBefore === false
@@ -531,13 +564,18 @@ export function patchChatConversation<TState extends ChatSessionRegistryState>(
       : 'end';
     surfaceSessionsByKey[sessionKey] = {
       ...surfaceSession,
-      visibleThreadedMessages: capVisibleSurfaceMessages(surfaceConversation.threadedMessages, keepVisibleBoundary),
+      visibleThreadedMessages: capVisibleSurfaceMessages(nextVisibleNodes, keepVisibleBoundary),
     };
-    const messageWindow = reconcileWindowForVisibleMessages(
-      surfaceSession.messageWindow,
-      surfaceSessionsByKey[sessionKey].visibleThreadedMessages ?? [],
-      conversation.threadedMessages.length,
-    );
+    const messageWindow = surfaceSession.messageWindow?.hasAfter
+      ? {
+        ...surfaceSession.messageWindow,
+        totalCount: Math.max(surfaceSession.messageWindow.totalCount, canonicalMessageCount),
+      }
+      : reconcileWindowForVisibleMessages(
+        surfaceSession.messageWindow,
+        surfaceSessionsByKey[sessionKey].visibleThreadedMessages ?? [],
+        canonicalMessageCount,
+      );
     surfaceSessionsByKey[sessionKey] = {
       ...surfaceSessionsByKey[sessionKey],
       messageWindow,

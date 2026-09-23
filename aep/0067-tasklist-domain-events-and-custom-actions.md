@@ -186,6 +186,12 @@ detalhes (`TaskDetailModal`) e/ou pelo menu do board.
 - Frontend: `CustomActionsEditor` (modal em `TaskListView`, padrão do
   `WorkflowEditor`) reusando `Combobox` + `ListKnownEvents` (nome do evento) e
   `TemplateEditor` (payload/link/when, com autocomplete sobre `.task`).
+- Evolução posterior: o editor foi refeito no padrão do sistema (Toolbar com
+  Nova/Editar/Apagar + `DataGrid` + modal de edição por ação), mantendo a
+  persistência em lote do JSON. O grid mostra só colunas voltadas ao usuário
+  (Rótulo, Onde aparece, Ação, Destrutiva); ID e nome do evento ficam no modal.
+  Evidência:
+  `frontend/src/components/taskLists/CustomActionsEditor.test.tsx`.
 
 Ver o schema completo em "Schema de custom_actions" abaixo.
 

@@ -10,6 +10,7 @@ vi.mock('../hooks/useAnnouncer', () => ({
 
 const mockSendMessage = vi.fn().mockResolvedValue(undefined);
 const mockRetryMessage = vi.fn().mockResolvedValue(undefined);
+const mockCancelStreaming = vi.fn().mockResolvedValue(undefined);
 const mockGetMessages = vi.fn().mockResolvedValue([]);
 const mockGetRecentMessages = vi.fn().mockResolvedValue([]);
 const mockGetMessagesBefore = vi.fn().mockResolvedValue([]);
@@ -30,7 +31,8 @@ vi.mock('@wailsjs/go/wailsapi/Chat', () => ({
 }));
 
 vi.mock('@wailsjs/go/wailsapi/LLMModels', () => ({
-  CancelStreamingForConversation: vi.fn(),
+  CancelStreamingForConversation: (...args: unknown[]) => mockCancelStreaming(...args),
+  CancelStreamingExecution: (...args: unknown[]) => mockCancelStreaming(...args),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Messaging', () => ({
@@ -163,6 +165,7 @@ describe('chatStore validation', () => {
     eventListeners.clear();
     mockAnnounce.mockClear();
     mockSendMessage.mockClear();
+    mockCancelStreaming.mockReset().mockResolvedValue(undefined);
     mockRetryMessage.mockClear();
     mockGetMessages.mockReset();
     mockGetMessages.mockResolvedValue([]);
@@ -223,6 +226,7 @@ describe('chatStore validation', () => {
   afterEach(() => {
     useChatStore.getState().handleDatabaseReset();
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('envio auditado reutiliza SendMessage e serializa somente a correlação', async () => {
@@ -342,8 +346,9 @@ describe('chatStore validation', () => {
     document.body.appendChild(focusedInput);
     focusedInput.focus();
 
-    await useChatStore.getState().sendMessageToConversation(defaultConversationId, bigContent);
+    const accepted = await useChatStore.getState().sendMessageToConversation(defaultConversationId, bigContent);
 
+    expect(accepted).toBe(false);
     expect(mockAnnounce).toHaveBeenCalledTimes(1);
     expect(mockAnnounce).toHaveBeenCalledWith(
       'Mensagem muito grande (524289 bytes). Máximo permitido: 512 KiB.',
@@ -357,8 +362,9 @@ describe('chatStore validation', () => {
   it('accepts message at exact max content size', async () => {
     const exactContent = 'x'.repeat(512 * 1024);
 
-    await useChatStore.getState().sendMessageToConversation(defaultConversationId, exactContent);
+    const accepted = await useChatStore.getState().sendMessageToConversation(defaultConversationId, exactContent);
 
+    expect(accepted).toBe(true);
     expect(mockSendMessage).toHaveBeenCalled();
   });
 
@@ -445,7 +451,7 @@ describe('chatStore validation', () => {
   it('rejects media exceeding max size', async () => {
     const fakeFile = new File([new ArrayBuffer(15 * 1024 * 1024)], 'big.bin', { type: 'application/octet-stream' });
 
-    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello', [{
+    const accepted = await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello', [{
       id: 'test-1',
       file: fakeFile,
       category: MediaCategory.DOCUMENT,
@@ -458,6 +464,7 @@ describe('chatStore validation', () => {
       preview: '',
     }]);
 
+    expect(accepted).toBe(false);
     expect(mockAnnounce).toHaveBeenCalledTimes(1);
     expect(mockAnnounce.mock.calls[0][0]).toContain('mídia');
     expect(mockSendMessage).not.toHaveBeenCalled();
@@ -993,7 +1000,10 @@ describe('chatStore validation', () => {
 
     await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello', undefined, undefined, { origin });
 
-    expect(useChatStore.getState().surfaceSessionsByKey[origin.sessionKey]?.surfaceOrigin).toEqual(origin);
+    expect(useChatStore.getState().surfaceSessionsByKey[origin.sessionKey]?.surfaceOrigin).toEqual({
+      ...origin,
+      executionId: expect.any(String),
+    });
   });
 
   it('propaga eventos sem origem para superfícies existentes da conversa', async () => {
@@ -1165,6 +1175,204 @@ describe('chatStore validation', () => {
     emitEvent('chat:done', { conversationId: defaultConversationId });
     send.resolve();
     await pending;
+  });
+
+  it('fan-out canônico alcança a superfície latest sem materializar placeholder na superfície histórica', async () => {
+    // O histórico precisa ser anterior ao envio mesmo quando o teste inteiro
+    // roda no mesmo milissegundo. IDs sintéticos não codificam cronologia.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-17T12:00:00Z'));
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const originSessionKey = `latest:${defaultConversationId}`;
+    const historySessionKey = `history:${defaultConversationId}`;
+    const historyCacheNode = createMessageNode('history-cache-message') as unknown as MessageNode;
+    historyCacheNode.message.createdAt = '2026-09-17T11:58:00Z';
+    historyCacheNode.originalIndex = 0;
+    const oldNode = createMessageNode('old-message') as unknown as MessageNode;
+    oldNode.message.createdAt = '2026-09-17T11:59:00Z';
+    oldNode.originalIndex = 4;
+    const oldDraftMedia = { id: 'history-media' } as unknown as import('../services/mediaService').MediaFile;
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: [historyCacheNode, oldNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [originSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, originSessionKey),
+          visibleThreadedMessages: [oldNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 5,
+            startIndex: 4,
+            endIndex: 4,
+            hasBefore: true,
+            hasAfter: false,
+          },
+        },
+        [historySessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, historySessionKey),
+          draftMessage: 'rascunho histórico',
+          draftMediaFiles: [oldDraftMedia],
+          scrollTop: 480,
+          scrollAnchorMessageId: 'old-message',
+          visibleThreadedMessages: [oldNode],
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 5,
+            startIndex: 1,
+            endIndex: 1,
+            hasBefore: true,
+            hasAfter: true,
+          },
+        },
+      },
+    });
+
+    mockSendMessage.mockImplementationOnce((_id, _content, _media, params) => {
+      const surfaceOrigin = { executionId: params.surfaceExecutionId };
+      emitEvent('chat:messages_ready', {
+        conversationId: defaultConversationId,
+        surfaceOrigin,
+        userMessageId: 'new-user-message',
+        userContent: 'novo texto',
+      });
+      emitEvent('chat:stream', {
+        conversationId: defaultConversationId,
+        messageId: 'new-assistant-message',
+        surfaceOrigin,
+        content: 'resposta parcial',
+        done: false,
+      });
+      return Promise.resolve();
+    });
+
+    const accepted = await useChatStore.getState().sendMessageToConversation(
+      defaultConversationId,
+      'novo texto',
+      undefined,
+      undefined,
+      { origin: {
+        conversationId: defaultConversationId,
+        sessionKey: originSessionKey,
+        surfaceId: 'latest',
+        surfaceType: 'page',
+        tabId: 'latest',
+      } },
+    );
+
+    expect(accepted).toBe(true);
+    const state = useChatStore.getState();
+    expect(state.timelinesByConversationId[defaultConversationId]?.threadedMessages.map((node) => node.message.id))
+      .toEqual(['history-cache-message', 'old-message', 'new-user-message']);
+    expect(state.surfaceSessionsByKey[originSessionKey]?.visibleThreadedMessages?.map((node) => node.message.id))
+      .toEqual(['old-message', 'new-user-message', 'new-assistant-message']);
+    expect(state.surfaceSessionsByKey[historySessionKey]?.visibleThreadedMessages?.map((node) => node.message.id))
+      .toEqual(['old-message']);
+    expect(state.surfaceSessionsByKey[historySessionKey]?.draftMessage).toBe('rascunho histórico');
+    expect(state.surfaceSessionsByKey[historySessionKey]?.draftMediaFiles).toEqual([oldDraftMedia]);
+    expect(state.surfaceSessionsByKey[historySessionKey]?.scrollTop).toBe(480);
+    expect(state.surfaceSessionsByKey[historySessionKey]?.scrollAnchorMessageId).toBe('old-message');
+  });
+
+  it('mantém a janela latest no fim após dois turnos com nós novos sem índice', async () => {
+    const { createEmptyChatSession } = await import('../services/chatSessionRegistry');
+    const latestSessionKey = `latest-two-turns:${defaultConversationId}`;
+    const indexedNodes = Array.from({ length: 5 }, (_, index) => {
+      const node = createMessageNode(`indexed-${index}`) as unknown as MessageNode;
+      node.originalIndex = index;
+      return node;
+    });
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [defaultConversationId]: {
+          id: defaultConversationId,
+          title: 'Conversa',
+          threadedMessages: indexedNodes,
+        },
+      },
+      surfaceSessionsByKey: {
+        [latestSessionKey]: {
+          ...createEmptyChatSession(defaultConversationId, latestSessionKey),
+          visibleThreadedMessages: indexedNodes,
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: defaultConversationId,
+            totalCount: 5,
+            startIndex: 0,
+            endIndex: 4,
+            hasBefore: false,
+            hasAfter: false,
+          },
+        },
+      },
+    });
+
+    const emitTurn = (userMessageId: string, assistantMessageId: string, executionId: string) => {
+      const surfaceOrigin = { executionId };
+      emitEvent('chat:messages_ready', {
+        conversationId: defaultConversationId,
+        surfaceOrigin,
+        userMessageId,
+        userContent: userMessageId,
+      });
+      emitEvent('chat:stream', {
+        conversationId: defaultConversationId,
+        surfaceOrigin,
+        messageId: assistantMessageId,
+        content: assistantMessageId,
+        done: true,
+      });
+      emitEvent('chat:done', {
+        conversationId: defaultConversationId,
+        surfaceOrigin,
+        assistantMessageId,
+        hadToolCalls: false,
+      });
+    };
+    mockSendMessage
+      .mockImplementationOnce((_id, _content, _media, params) => {
+        emitTurn('user-turn-1', 'assistant-turn-1', params.surfaceExecutionId);
+        return Promise.resolve();
+      })
+      .mockImplementationOnce((_id, _content, _media, params) => {
+        emitTurn('user-turn-2', 'assistant-turn-2', params.surfaceExecutionId);
+        return Promise.resolve();
+      });
+
+    const origin = {
+      conversationId: defaultConversationId,
+      sessionKey: latestSessionKey,
+      surfaceId: 'latest-two-turns',
+      surfaceType: 'page' as const,
+      tabId: 'latest-two-turns',
+    };
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'turno 1', undefined, undefined, { origin });
+    expect(useChatStore.getState().surfaceSessionsByKey[latestSessionKey]?.messageWindow).toMatchObject({
+      endIndex: 6,
+      totalCount: 7,
+      hasAfter: false,
+    });
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'turno 2', undefined, undefined, { origin });
+    const latest = useChatStore.getState().surfaceSessionsByKey[latestSessionKey];
+    expect(latest?.visibleThreadedMessages?.map((node) => node.message.id)).toEqual([
+      ...indexedNodes.map((node) => node.message.id),
+      'user-turn-1',
+      'assistant-turn-1',
+      'user-turn-2',
+      'assistant-turn-2',
+    ]);
+    expect(latest?.messageWindow).toMatchObject({
+      endIndex: 8,
+      totalCount: 9,
+      hasAfter: false,
+    });
   });
 
   it('mantém rascunho e anexos isolados por superfície', async () => {
@@ -1955,6 +2163,42 @@ describe('chatStore validation', () => {
     expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
   });
 
+  it('resposta tardia do cancelamento não limpa o controller do próximo envio', async () => {
+    const cancellation = deferred<void>();
+    mockCancelStreaming.mockImplementationOnce(() => cancellation.promise);
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira');
+    const cancel = useChatStore.getState().cancelStreaming(defaultConversationId);
+    emitEvent('chat:done', { conversationId: defaultConversationId });
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'segunda');
+    cancellation.resolve();
+    await cancel;
+
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.isLoading).toBe(true);
+    emitEvent('chat:stream', {
+      conversationId: defaultConversationId,
+      messageId: 'second-assistant',
+      content: 'segundo envio ativo',
+      done: false,
+    });
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.streamingMessageId)
+      .toBe('second-assistant');
+    emitEvent('chat:done', { conversationId: defaultConversationId });
+  });
+
+  it('cancela a identidade do controller ativo mesmo quando solicitado por outra superfície', async () => {
+    const origin = {
+      conversationId: defaultConversationId,
+      sessionKey: `page:a:${defaultConversationId}`,
+      surfaceId: 'page:a',
+      surfaceType: 'page' as const,
+    };
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira', undefined, undefined, { origin });
+    const executionId = mockSendMessage.mock.calls[0][3].surfaceExecutionId;
+    expect(executionId).toEqual(expect.any(String));
+    await useChatStore.getState().cancelStreaming(defaultConversationId);
+    expect(mockCancelStreaming).toHaveBeenCalledWith(defaultConversationId, executionId);
+  });
+
   it('mantem envios de conversas diferentes em paralelo', async () => {
     const firstSend = deferred<void>();
     const otherConversationId = '01926b90-7a5a-7c4e-8d3f-000000000007';
@@ -2155,15 +2399,18 @@ describe('chatStore validation', () => {
         },
       },
     });
-    mockSendMessage.mockImplementationOnce(() => {
+    mockSendMessage.mockImplementationOnce((_id, _content, _media, params) => {
+      const surfaceOrigin = { executionId: params.surfaceExecutionId };
       emitEvent('chat:messages_ready', {
         conversationId: defaultConversationId,
+        surfaceOrigin,
         userMessageId: 'surface-user-message',
         userContent: 'oi',
       });
       emitEvent('chat:stream', {
         conversationId: defaultConversationId,
         messageId: 'surface-assistant-message',
+        surfaceOrigin,
         content: 'resposta parcial',
         done: false,
       });

@@ -32,9 +32,18 @@ Cada lista de tarefas possui:
 | Ação | Descrição |
 |---|---|
 | **Criar tarefa** | Com título, descrição e tarefa-pai (subtarefas) |
-| **Atualizar status** | Mover tarefa entre status (validado pelo workflow) |
+| **Atualizar status** | Mover tarefa entre status (validado pelo workflow), no Kanban ou no seletor de status dos detalhes do card |
 | **Reordenar** | Arrastar tarefas dentro de um status |
 | **Subtarefas** | Criar tarefas filhas para quebrar em partes menores |
+
+### Copiar o código de um card
+
+Nos detalhes do card, o código de referência externa aparece como um botão,
+separado do status. Clique nele ou use Tab e Enter/Espaço para copiar o código
+para a área de transferência. A confirmação é exibida e anunciada pelo leitor
+de telas. Se a cópia falhar, uma mensagem permite identificar a falha e tentar
+novamente. Quando há um link cadastrado, use **Abrir link do card** ao lado do
+código para acessar o sistema de origem.
 
 ### Workflow
 

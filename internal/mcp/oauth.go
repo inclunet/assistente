@@ -579,7 +579,7 @@ func (rt *pkceRoundTripper) authorize(ctx context.Context) error {
 
 	// 4. Se device_authorization_endpoint disponível → device flow
 	if rt.cfg.OAuth2DeviceAuthURL != "" {
-		logging.Errorf(ctx, "mcp.oauth", "[MCP:%s] Tentando Device Authorization Flow", rt.serverSlug)
+		logging.Infof(ctx, "mcp.oauth", "[MCP:%s] Tentando Device Authorization Flow", rt.serverSlug)
 		err := rt.authorizeDeviceFlow(ctx)
 		if err == nil {
 			return nil

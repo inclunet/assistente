@@ -12,6 +12,7 @@ const (
 
 // ChatSurfaceOrigin identifies the frontend surface that initiated a chat turn.
 type ChatSurfaceOrigin struct {
+	ExecutionID    string `json:"executionId,omitempty"`
 	SessionKey     string `json:"sessionKey"`
 	ConversationID string `json:"conversationId"`
 	TabID          string `json:"tabId,omitempty"`
@@ -19,17 +20,21 @@ type ChatSurfaceOrigin struct {
 	SurfaceType    string `json:"surfaceType"`
 }
 
-func NewChatSurfaceOrigin(conversationID, sessionKey, surfaceID, surfaceType, tabID string) *ChatSurfaceOrigin {
+func NewChatSurfaceOrigin(conversationID, sessionKey, surfaceID, surfaceType, tabID string, executionIDs ...string) *ChatSurfaceOrigin {
 	if sessionKey == "" || surfaceID == "" || surfaceType == "" {
 		return nil
 	}
-	return &ChatSurfaceOrigin{
+	origin := &ChatSurfaceOrigin{
 		SessionKey:     sessionKey,
 		ConversationID: conversationID,
 		TabID:          tabID,
 		SurfaceID:      surfaceID,
 		SurfaceType:    surfaceType,
 	}
+	if len(executionIDs) > 0 {
+		origin.ExecutionID = executionIDs[0]
+	}
+	return origin
 }
 
 // ThinkingEvent is the payload for chat:thinking.
@@ -89,6 +94,9 @@ type TurnPatchToolInvocation struct {
 	OutputBytes        int64  `json:"outputBytes,omitempty"`
 	HasDetails         bool   `json:"hasDetails"`
 	ResultAvailability string `json:"resultAvailability"`
+	HasSearchResults   bool   `json:"hasSearchResults,omitempty"`
+	SearchResultCount  int    `json:"searchResultCount,omitempty"`
+	SecurityOutcome    string `json:"securityOutcome,omitempty"`
 }
 
 // DoneEvent is the payload for chat:done.
@@ -186,6 +194,7 @@ type ToolEndEvent struct {
 	Name               string             `json:"name,omitempty"`
 	CallID             string             `json:"callId"`
 	Status             string             `json:"status"`
+	ErrorKind          string             `json:"errorKind,omitempty"`
 	Summary            string             `json:"summary,omitempty"`
 	Error              string             `json:"error,omitempty"`
 	ServerLabel        string             `json:"serverLabel,omitempty"`

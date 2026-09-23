@@ -4,6 +4,7 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,7 +35,11 @@ type EventBus struct {
 	eventsDropped atomic.Uint64
 	dropMu        sync.Mutex
 	lastDropWarn  map[string]time.Time
-	now           func() time.Time
+	// droppedByEvent conta descartes por nome de evento, para o log reportar a
+	// contagem honesta daquele evento (o total global, antes reportado no lugar,
+	// dava a impressão enganosa de que UM evento havia caído milhares de vezes).
+	droppedByEvent map[string]uint64
+	now            func() time.Time
 }
 
 type namedHandler struct {
@@ -45,9 +50,10 @@ type namedHandler struct {
 // NewEventBus cria um event bus vazio.
 func NewEventBus() *EventBus {
 	return &EventBus{
-		handlers:     make(map[string][]namedHandler),
-		lastDropWarn: make(map[string]time.Time),
-		now:          time.Now,
+		handlers:       make(map[string][]namedHandler),
+		lastDropWarn:   make(map[string]time.Time),
+		droppedByEvent: make(map[string]uint64),
+		now:            time.Now,
 	}
 }
 
@@ -120,13 +126,25 @@ func (eb *EventBus) Publish(ctx context.Context, eventName string, payload map[s
 	copy(handlers, eb.handlers[eventName])
 	if len(handlers) == 0 {
 		eb.mu.RUnlock()
-		dropped, warn := eb.recordDropped(eventName)
+		perEvent, total, warn := eb.recordDropped(eventName)
 		if warn {
-			logging.Logger(ctx, "jobs.eventbus").Warn(
+			// Sucesso de job terminal sem consumidor é semântica normal de
+			// pub/sub (ninguém precisa reagir), não anomalia — registra em DEBUG
+			// para não poluir. Qualquer outro evento sem listener (ex.:
+			// `.failure` ou evento de domínio) pode indicar cadeia quebrada e
+			// permanece em WARN. Em ambos os casos, Stats().EventsDropped já
+			// contabiliza o descarte, então a visibilidade métrica é preservada.
+			logger := logging.Logger(ctx, "jobs.eventbus")
+			logFn := logger.Warn
+			if strings.HasSuffix(eventName, ".success") {
+				logFn = logger.Debug
+			}
+			logFn(
 				"event dropped because it has no enabled listeners",
 				slog.String("event_name", eventName),
 				slog.String("reason", "no_enabled_listeners"),
-				slog.Uint64("events_dropped", dropped),
+				slog.Uint64("events_dropped", perEvent),
+				slog.Uint64("events_dropped_total", total),
 				slog.Duration("warning_throttle", droppedEventWarningInterval),
 			)
 		}
@@ -168,18 +186,23 @@ func (eb *EventBus) Publish(ctx context.Context, eventName string, payload map[s
 	return true
 }
 
-func (eb *EventBus) recordDropped(eventName string) (uint64, bool) {
-	dropped := eb.eventsDropped.Add(1)
+// recordDropped registra o descarte de um evento sem consumidores e devolve a
+// contagem daquele evento (perEvent), o total global (total) e se o WARN deve
+// ser emitido agora (throttle por nome de evento).
+func (eb *EventBus) recordDropped(eventName string) (perEvent uint64, total uint64, warn bool) {
+	total = eb.eventsDropped.Add(1)
 	now := eb.now()
 
 	eb.dropMu.Lock()
 	defer eb.dropMu.Unlock()
+	eb.droppedByEvent[eventName]++
+	perEvent = eb.droppedByEvent[eventName]
 	last := eb.lastDropWarn[eventName]
 	if !last.IsZero() && now.Sub(last) < droppedEventWarningInterval {
-		return dropped, false
+		return perEvent, total, false
 	}
 	eb.lastDropWarn[eventName] = now
-	return dropped, true
+	return perEvent, total, true
 }
 
 // Stats retorna um snapshot consistente das métricas do barramento.

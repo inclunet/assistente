@@ -3104,6 +3104,9 @@ export namespace chat {
 	    outputBytes?: number;
 	    hasDetails: boolean;
 	    resultAvailability: string;
+	    hasSearchResults?: boolean;
+	    searchResultCount?: number;
+	    securityOutcome?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new TurnSegmentToolCall(source);
@@ -3125,6 +3128,9 @@ export namespace chat {
 	        this.outputBytes = source["outputBytes"];
 	        this.hasDetails = source["hasDetails"];
 	        this.resultAvailability = source["resultAvailability"];
+	        this.hasSearchResults = source["hasSearchResults"];
+	        this.searchResultCount = source["searchResultCount"];
+	        this.securityOutcome = source["securityOutcome"];
 	    }
 	}
 	export class TurnSegment {
@@ -5474,6 +5480,7 @@ export namespace llm {
 	    surfaceStateJson?: string;
 	    surfaceContextJson?: string;
 	    surfaceSessionKey?: string;
+	    surfaceExecutionId?: string;
 	    surfaceId?: string;
 	    surfaceType?: string;
 	    surfaceTabId?: string;
@@ -5503,6 +5510,7 @@ export namespace llm {
 	        this.surfaceStateJson = source["surfaceStateJson"];
 	        this.surfaceContextJson = source["surfaceContextJson"];
 	        this.surfaceSessionKey = source["surfaceSessionKey"];
+	        this.surfaceExecutionId = source["surfaceExecutionId"];
 	        this.surfaceId = source["surfaceId"];
 	        this.surfaceType = source["surfaceType"];
 	        this.surfaceTabId = source["surfaceTabId"];

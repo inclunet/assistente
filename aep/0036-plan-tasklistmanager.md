@@ -22,6 +22,42 @@
 > - Evolução posterior (eventos de domínio + custom actions de card): ver
 >   **AEP-0067**.
 
+## Refinamento dos detalhes: referência externa copiável
+
+O campo `Task.Code` permanece a referência externa do card. Nos detalhes, ele
+é exibido em botão próprio, separado do status, e copia o valor integral para
+a área de transferência por clique, Enter ou Espaço. O link externo mantém
+uma ação separada. Sucesso e falha têm feedback visual e anúncio acessível.
+
+Evidência: `frontend/src/components/taskLists/TaskDetailModal.test.tsx` cobre
+cópia, teclado, falha e preservação do link. Esse refinamento não encerra
+as verificações manuais pendentes da AEP; o status permanece `In Progress`.
+
+## Refinamento dos detalhes: troca de status sem fechar
+
+Nos detalhes do card, o status deixa de ser um badge estático e passa a ser
+um botão que abre o `ContextMenu` ancorado (mesmo padrão do "Mover para…" do
+Kanban) com os demais status do workflow. A troca usa o `updateTaskStatus`
+com update otimista, sem fechar o modal, com toast e anúncio acessível, e a
+versão viva do cache reflete o novo status na hora.
+
+Evidência: `frontend/src/components/taskLists/TaskDetailModal.test.tsx` cobre
+troca pelo menu, toast/anúncio e filtragem do status atual.
+
+## Refinamento do editor de workflow: padrão toolbar + grid + modal
+
+A seção de status do `WorkflowEditor` (lista inline com ~15 controles por
+linha, sem nomes acessíveis) foi refeita no padrão do sistema: Toolbar
+(Novo/Editar/Apagar) + `DataGrid` (Nome, Cor, Inicial — só colunas voltadas
+ao usuário, sem ID/ícone técnico —, com reordenação por Alt+Setas e edição
+por Enter) + modal de edição por status.
+Transições (matriz), migração e status inicial foram preservados, ganhando
+`aria-pressed`, grupos com nome e rótulos (a navegação por NVDA passou a ter
+contexto por status e estado dos toggles).
+
+Evidência: `frontend/src/components/taskLists/WorkflowEditor.test.tsx` cobre
+listagem, criação/edição/remoção, migração, reordenação e transições.
+
 ## TL;DR
 
 Implementar um **sistema de gerenciamento de TaskLists reutilizáveis** que funciona em 3 contextos:

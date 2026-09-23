@@ -42,7 +42,7 @@ export function createConversationTurnQueue(): ConversationTurnQueue {
         return task();
       });
 
-    const tail = run.finally(() => {
+    const tail = run.catch(() => undefined).finally(() => {
       if (tails.get(conversationId) === state && state.tail === tail && state.generation === generation) {
         tails.delete(conversationId);
       }

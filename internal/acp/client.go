@@ -670,6 +670,8 @@ func (c *conn) requestPermission(ctx context.Context, params json.RawMessage) (a
 	if sess == nil {
 		return sdk.RequestPermissionResponse{Outcome: sdk.NewRequestPermissionOutcomeCancelled()}, nil
 	}
+	// Pedido de permissão é sinal de vida do agente: move o relógio do watchdog.
+	sess.noteActivity()
 
 	// O ACP obriga quem manda session/cancel a responder "cancelado" a todo
 	// pedido de permissão pendente. Além do protocolo, é o que fecha o diálogo

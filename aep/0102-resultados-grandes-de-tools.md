@@ -88,6 +88,12 @@ JSON e não ofereciam retomada exata.
     exatidão raw consideram somente o trecho solicitado; com `limit` positivo,
     o streaming encerra assim que esse recorte e seu separador forem conhecidos,
     e aplica o teto de linhas à quantidade efetivamente encontrada.
+20. `http_request` oferece materialização explícita em artefato local por
+    `extract_mode=file`: o download usa streaming, o modelo recebe somente
+    metadados pequenos e a pasta controlada é limpa por TTL ou no encerramento
+    do app. `extract_mode=jsonpath` executa no executor um subconjunto restrito
+    de seletores de campos, aplicando `max_response_size` ao resultado extraído;
+    filtros, scripts e comandos não são aceitos.
 
 ## Fases
 
@@ -118,3 +124,5 @@ JSON e não ofereciam retomada exata.
   silencioso em jobs ou na auditoria.
 - [x] Limitação de MCP nativo está explícita.
 - [x] Documentação de usuário e contratos relacionados foram atualizados.
+- [x] Respostas HTTP grandes podem ser materializadas ou reduzidas localmente
+  sem inserir o documento original no contexto do modelo.

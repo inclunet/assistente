@@ -1,6 +1,6 @@
 # AEP-0057: Sessões de Superfície e Timeline de Chat
 
-## Status: Done — identidade e isolamento consolidados nos PRs #110–#113
+## Status: Done — identidade e isolamento consolidados nos PRs #110–#113; fan-out e preservação do compositor no PR3
 
 ## Relação com a AEP-0056
 
@@ -265,3 +265,37 @@ Evidências: PRs #110–#113,
 - [x] Modal é vinculado à superfície antes de preparar/enviar.
 - [x] Modal, painel e embedded recebem contexto equivalente.
 - [x] `activeTabId` não decide conversa, envio ou retry.
+
+## Adendo PR3 — superfícies e rascunho
+
+O PR3 fecha a borda operacional entre a timeline canônica e o compositor de
+cada superfície:
+
+- patches que materializam mensagem persistida atualizam a timeline por
+  `conversationId` e reconciliam as superfícies interessadas;
+- uma superfície que está no histórico antigo mantém sua janela, âncora de
+  scroll, foco e rascunho, enquanto a superfície latest pode receber o novo
+  turno;
+- nós de streaming e outros nós transitórios permanecem restritos à
+  superfície de origem e não viram placeholders nas demais superfícies;
+- o contrato de envio retorna aceitação explícita. Rejeições de tamanho não
+  lançam erro nem entram em retry automático;
+- `ChatInput` limpa texto e anexos imediatamente após chamar `onSend`, impede
+  duplo envio durante a aceitação assíncrona e restaura o snapshot rejeitado
+  somente se nenhum novo texto/anexo tiver sido digitado.
+
+Evidências: `frontend/src/store/chatStore.validation.test.ts` cobre duas
+superfícies com janelas latest/histórica, fan-out persistido e isolamento de
+draft/scroll; `frontend/src/components/chat/ChatInput.test.tsx` cobre a
+rejeição assíncrona, preservação condicional do rascunho e bloqueio de duplo
+envio.
+
+### Critérios adicionais do PR3
+
+- [x] Mensagem de user persistida chega à timeline e à superfície latest sem
+  inserir assistant transitório nas superfícies históricas.
+- [x] Janela histórica, scroll, foco e drafts permanecem locais à superfície.
+- [x] Texto acima de 512 KiB em UTF-8 e mídia excedente retornam rejeição
+  explícita sem apagar o rascunho.
+- [x] O envio assíncrono não apaga texto digitado depois do início e não
+  permite duplo envio.

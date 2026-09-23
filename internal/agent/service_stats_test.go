@@ -10,6 +10,11 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/messaging"
+	"assistente/internal/tools"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 // TestSaveAndFinish_DoneEvent_WithLoopStats verifica que chat:done carrega
@@ -102,7 +107,7 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativo(t *testing.T) {
 	turnID := "turn-1"
 	base := time.Date(2026, 9, 8, 20, 0, 0, 0, time.UTC)
 	repo := &mockMsgRepo{turnMessages: []chat.Message{
-		{UUIDModel: database.UUIDModel{ID: "assistant-placeholder", CreatedAt: base}, ConversationID: "conv-1", Role: "assistant", TurnID: &turnID, Content: "resposta final", PromptTokens: 50, CompletionTokens: 12, TotalTokens: 62},
+		{UUIDModel: database.UUIDModel{ID: "assistant-placeholder", CreatedAt: base, UpdatedAt: base.Add(4 * time.Second)}, ConversationID: "conv-1", Role: "assistant", TurnID: &turnID, Content: "resposta final", PromptTokens: 50, CompletionTokens: 12, TotalTokens: 62},
 		{UUIDModel: database.UUIDModel{ID: "assistant-1", CreatedAt: base.Add(time.Second)}, ConversationID: "conv-1", Role: "assistant", TurnID: &turnID, Content: "vou atualizar o plano"},
 		{UUIDModel: database.UUIDModel{ID: "assistant-2", CreatedAt: base.Add(3 * time.Second)}, ConversationID: "conv-1", Role: "assistant", TurnID: &turnID, Content: "agora vou consultar"},
 	}}
@@ -153,6 +158,11 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativo(t *testing.T) {
 	if len(done.TurnPatch.Message.TurnSegments) != 3 {
 		t.Fatalf("esperava três segmentos conversacionais, recebeu %+v", done.TurnPatch.Message.TurnSegments)
 	}
+	for index, expected := range []string{"vou atualizar o plano", "agora vou consultar", "resposta final"} {
+		if done.TurnPatch.Message.TurnSegments[index].Content != expected {
+			t.Fatalf("patch reordenou o turno no segmento %d: %+v", index, done.TurnPatch.Message.TurnSegments)
+		}
+	}
 }
 
 func TestSaveAndFinish_PreservaDesfechoQuandoPatchFalha(t *testing.T) {
@@ -179,6 +189,60 @@ func TestSaveAndFinish_PreservaDesfechoQuandoPatchFalha(t *testing.T) {
 	t.Fatal("chat:done não emitido")
 }
 
+func TestSaveAndFinish_FinalizeFailureIsTerminalAndRecoverable(t *testing.T) {
+	emitter := &mockEmitter{}
+	repo := &mockMsgRepo{updateError: errors.New("db indisponível")}
+	notifier := messaging.NewResponseNotifier()
+	defer notifier.Stop()
+	callbackCalled := make(chan struct{}, 1)
+	notifier.Register("conv-1", messaging.ResponseCallback{
+		Callback: func(string, string) { callbackCalled <- struct{}{} },
+	})
+
+	var summarizeCalls, speechCalls int
+	svc := NewService(ServiceConfig{
+		Emitter:          emitter,
+		MsgRepo:          repo,
+		ResponseNotifier: notifier,
+		TriggerSummarize: func(context.Context, string, string) { summarizeCalls++ },
+		OnSpeechRequest:  func(string, string, string, string, string, string, bool) { speechCalls++ },
+	})
+
+	svc.SaveAndFinish(context.Background(), "conv-1", "turn-1", "assistant-1", AgenticResult{
+		FullResponse: "resposta parcial recuperável",
+		NativeMCPEvents: []llm.MCPToolEvent{{
+			ID: "call-1",
+		}},
+	}, "", &LoopStats{IterationCount: 1, ToolCallCount: 1}, nil)
+
+	select {
+	case <-callbackCalled:
+		t.Fatal("falha de finalização não deveria notificar sucesso")
+	default:
+	}
+	if summarizeCalls != 0 || speechCalls != 0 {
+		t.Fatalf("efeitos derivados de sucesso disparados após falha: summarize=%d speech=%d", summarizeCalls, speechCalls)
+	}
+
+	events := emitter.getEvents()
+	var done *ports.DoneEvent
+	for _, event := range events {
+		if event.name == "chat:stream" {
+			t.Fatal("falha de finalização não deveria emitir chat:stream concluído")
+		}
+		if event.name == "chat:done" {
+			candidate := event.data.(ports.DoneEvent)
+			done = &candidate
+		}
+	}
+	if done == nil {
+		t.Fatal("falha de finalização deveria emitir chat:done terminal")
+	}
+	if done.Reason != "error" || done.ErrorMessage != ports.ChatErrorInternal || done.AssistantMessageID != "assistant-1" {
+		t.Fatalf("desfecho terminal incorreto: %+v", *done)
+	}
+}
+
 func TestBuildTurnPatchSobreviveAoCancelamentoDoTurno(t *testing.T) {
 	turnID := "turn-cancelado"
 	repo := &mockMsgRepo{turnMessages: []chat.Message{{
@@ -201,6 +265,51 @@ func TestBuildTurnPatchSobreviveAoCancelamentoDoTurno(t *testing.T) {
 	}
 	if patch == nil || patch.Message.Content != "conteúdo parcial persistido" {
 		t.Fatalf("patch parcial ausente após cancelamento: %+v", patch)
+	}
+}
+
+func TestBuildTurnPatchPropagaResultadosEBloqueioDoLedger(t *testing.T) {
+	turnID := "turn-ledger"
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	previous := database.DB()
+	database.SetDB(db)
+	t.Cleanup(func() { database.SetDB(previous) })
+	if err := db.AutoMigrate(&database.User{}, &database.Conversation{}, &database.ChatMessage{}, &database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: "user-a"}, Username: "agent-test", DisplayName: "Agent Test", PasswordHash: "x", Role: database.UserRoleUser, IsActive: true}).Error; err != nil {
+		t.Fatalf("user: %v", err)
+	}
+	if err := db.Create(&database.Conversation{UUIDModel: database.UUIDModel{ID: "conv-ledger"}, UserID: "user-a", Title: "Ledger"}).Error; err != nil {
+		t.Fatalf("conversation: %v", err)
+	}
+	if err := db.Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: "assistant-ledger"}, ConversationID: "conv-ledger", Role: "assistant", Content: "resposta", TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("message: %v", err)
+	}
+	catalog := database.ToolCatalog{Name: "search", DisplayName: "search", Origin: tools.ToolOriginBuiltin, AvailabilityStatus: tools.ToolAvailabilityAvailable}
+	if err := db.Create(&catalog).Error; err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	repo := &mockMsgRepo{turnMessages: []chat.Message{{UUIDModel: database.UUIDModel{ID: "assistant-ledger", CreatedAt: time.Now()}, ConversationID: "conv-ledger", Role: "assistant", TurnID: &turnID, Content: "resposta"}}}
+	metadata := `{"display":{"name":"search","assistant_message_id":"assistant-ledger","iteration":1},"search_result_presentation":{"version":1,"total":3},"security_signals":[{"version":1,"outcome":"blocked"}]}`
+	conversationID := "conv-ledger"
+	if err := db.Create(&database.ToolInvocation{UUIDModel: database.UUIDModel{ID: "inv-ledger"}, UserID: "user-a", ToolCatalogID: catalog.ID, OriginType: "chat", OriginID: "assistant-ledger", ConversationID: &conversationID, TurnID: &turnID, ToolCallID: "call-ledger", Status: "succeeded", Metadata: metadata, ResultAvailability: "available"}).Error; err != nil {
+		t.Fatalf("invocation: %v", err)
+	}
+	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+	patch, err := svc.buildTurnPatch(database.WithUserID(context.Background(), "user-a"), "conv-ledger", turnID)
+	if err != nil {
+		t.Fatalf("build patch: %v", err)
+	}
+	if patch == nil || len(patch.Message.TurnSegments) < 2 || len(patch.Message.TurnSegments[1].ToolInvocations) == 0 {
+		t.Fatalf("patch sem invocação: %+v", patch)
+	}
+	call := patch.Message.TurnSegments[1].ToolInvocations[0]
+	if !call.HasSearchResults || call.SearchResultCount != 3 || call.SecurityOutcome != "blocked" {
+		t.Fatalf("metadata perdida no patch: %+v", call)
 	}
 }
 

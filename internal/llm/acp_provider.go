@@ -143,6 +143,19 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	}
 
 	if err != nil {
+		if errors.Is(err, acp.ErrSessionLost) {
+			// A sessão em memória não serve mais a ninguém: sem descartá-la,
+			// a próxima tentativa (auto-recuperação) bateria na mesma sessão
+			// morta em vez de retomar pelo identificador guardado ou abrir
+			// outra (AEP-0108 D3).
+			conv.Invalidate()
+			if !accepted {
+				// O pedido nem chegou ao agente, então a tentativa seguinte
+				// reconecta de verdade — e a pessoa precisa saber que o turno
+				// recomeçou noutra sessão, não que a resposta sumiu.
+				notifyTurn(handler, TurnNotice{Kind: TurnNoticeSessionRecovered})
+			}
+		}
 		if accepted {
 			// A auto-recuperação reinvoca StreamChat sozinha depois de um erro
 			// de transporte. Para um provider HTTP isso é inofensivo; aqui
@@ -297,6 +310,14 @@ func turnAccepted(err error) bool {
 func turnErrorMessage(err error, accepted bool) string {
 	switch {
 	case errors.Is(err, acp.ErrCancelNotConfirmed):
+		// Quem interrompeu diz qual frase vale: o watchdog calou um agente que
+		// parou de responder; a pessoa, um turno que ela mesma abortou. Dizer
+		// "interrupção" no primeiro caso culparia a pessoa pelo que o app fez
+		// sozinho (AEP-0108 D2).
+		var falha *acp.PromptError
+		if errors.As(err, &falha) && falha.Stalled {
+			return "O agente parou de responder e o turno foi interrompido. Ele pode ainda estar trabalhando nos arquivos. Confira o estado antes de pedir de novo."
+		}
 		return "O agente não confirmou a interrupção do turno e pode ainda estar trabalhando nos arquivos. Confira o estado antes de pedir de novo."
 	case errors.Is(err, acp.ErrSessionLost) && !accepted:
 		return "O processo do agente caiu antes de receber o pedido. Envie novamente para reconectar."

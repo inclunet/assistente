@@ -1,10 +1,10 @@
 # AEP-0103 — Tasklist de conclusão integral
 
-Baseline inicial de 16/09/2026; reconciliação de 22/09/2026 atualizada pela seção137. Branch `feat/aep-0103-comandos`, HEAD `7e88945ec585e4352c4548aad8cd14e4db0134c1` mais alterações locais existentes. Status do AEP: **In Progress**.
+Baseline inicial de 16/09/2026; reconciliação de 22/09/2026 atualizada pela seção138. Branch `feat/aep-0103-comandos`; checkpoint `c9bead64c` preserva o trabalho anterior à integração de `origin/main` (`714a47c4e`). Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.
 
-## 1. Progresso reconciliado — 22/09/2026, após a seção137
+## 1. Progresso reconciliado — 22/09/2026, após a seção138
 
 A seção129 registra a reconciliação documental; as seções130–133 implementam
 a correção de Δ18/C22, o cache produtivo de C62 e a recusa global fora da
@@ -8522,3 +8522,66 @@ Placar preservado: **76 I / 8 P / 0 N = 84**; saídas **11 A / 14 I / 22 P /
 1 N**, gates **1/12**. Sem novo aceite manual, banco pessoal, pacote de testes
 ACP, Wails ou executável customizado. Mudanças desta rodada são de testes e
 rastreabilidade; não anunciam nova funcionalidade ao usuário.
+
+## 138. Integração da main e regressão cruzada — 22/09/2026
+
+### Preservação e integração
+
+- Checkpoint local `c9bead64c` preserva código, testes, documentação e bindings
+  do AEP antes da integração. Caches `.gocache*`, `work/go-cache`, `work/go-tmp`,
+  logs e bancos não foram incluídos. Não houve limpeza desses arquivos.
+- `origin/main` atualizado por fetch: `714a47c4e`, 154 commits exclusivos da
+  main no início da integração. Merge local, sem rebase nem alteração da main.
+- Foram encontrados 14 arquivos conflitantes. A resolução combina comandos,
+  capturas e guards do AEP-0103 com retorno de aceitação do envio, cronologia e
+  apresentação de tools, cancelamento por execução, limite de concorrência e
+  cache de jobs da main; não escolhe um lado integralmente.
+- `frontend/wailsjs` regenerado com `wails generate module`, explicitamente
+  autorizado pelo usuário. Somente normalização mecânica de espaços finais
+  após geração; nenhum tipo foi escrito à mão. O aplicativo não foi aberto.
+- Índice AEP reconciliado: 107 documentos / 106 números ocupados. AEP-0103
+  permanece In Progress; os AEPs novos da main foram mantidos. O verificador
+  interpretava a palavra “rascunho” no complemento do status Done do AEP-0057
+  como Draft; a redação desse complemento foi desambiguada, sem trocar status.
+
+### Validação da integração
+
+- Suíte completa de `internal/app`: PASS (376,234 s). Pacotes de comandos,
+  tools de comandos, controllers, wailsapi, tools e jobs: PASS. Também passaram
+  chat e toolinvocations. `go vet ./...`: PASS. Testes ACP não foram executados.
+- Frontend completo: 462/463 arquivos e 5.743/5.744 testes passaram. A única
+  falha usou a versão anterior do teste de exclusão durante a resolução; ele
+  aguardava o handler legado, que não é executado pelo pipeline do AEP.
+  O teste final verifica preparação real, troca de superfície e cancelamento
+  antes do commit, sem excluir cobertura nem restaurar o handler antigo.
+- Regressão final após a resolução: **41 arquivos / 744 testes PASS**, incluindo
+  chat, terminal, modal de workspace, store, serviços de chat e paleta. A suíte
+  completa não foi repetida após essa correção; os resultados são distintos.
+- TypeScript e ESLint dos dez arquivos de frontend resolvidos: PASS.
+  Verificador AEP: PASS (107 documentos / 106 números); `git diff --check`: PASS.
+- Logs locais ignorados: `merge-main-app-20260922.log`,
+  `merge-main-command-regression-20260922.log`,
+  `merge-main-frontend-all-20260922.log` e
+  `merge-main-frontend-focused-final-20260922.log`.
+- Nenhum aplicativo foi aberto, banco pessoal acessado ou push realizado.
+  O merge é integração local, não aprovação integral para publicação.
+
+### Falha preexistente identificada durante a regressão
+
+`TestMessageCommandPinRevisionDetectsABA` falhou no pacote database e em
+**4/30** repetições locais; revisão independente repetiu **2/30** falhas.
+`message_repository.go`, `message_command_revision.go` e seu teste estão
+idênticos ao checkpoint anterior ao merge. A assinatura calcula hash da
+mensagem, e fixar/desafixar volta o campo pinned ao valor original; colisão
+de updated_at torna a revisão indistinguível. A investigação aponta dependência
+da resolução do relógio como causa provável, não falha de integração da main.
+
+Esse achado fica **aberto**, sem sleeps no teste, relaxamento de asserções ou
+alegação de suíte database verde. Próxima correção deve tornar a revisão
+durável e independente de coincidências de timestamp, qualificando os writers
+de mensagem. Não se introduziu migração de banco para esconder essa pendência
+durante o merge. Logs: `merge-main-backend-domains-20260922.log` e
+`merge-main-pin-repeat-20260922.log` (locais, ignorados pelo Git).
+
+Placar preservado: **76 I / 8 P / 0 N**, saídas **11 A / 14 I / 22 P / 1 N**,
+gates **1/12**. Integrar main não é fechar critério ou conceder aceite manual.

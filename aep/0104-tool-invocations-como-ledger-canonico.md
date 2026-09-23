@@ -92,6 +92,20 @@ Output integral, input integral e metadata técnica não fazem parte desses
 payloads. A representação escalar `message.toolCalls` é removida; não existe
 duplicação entre `toolCalls` e `turnSegments`.
 
+A consolidação ordena rodadas pelo número de iteração (incluindo zero), não
+por chave textual ou ID de chamada. Invocações sem fala associada continuam
+entre as rodadas e antes da conclusão; chamadas paralelas mantêm a ordem
+`queued_at,id` da projeção. A fala vinculada a uma rodada precede suas tools.
+O registro final pode ter sido criado antes do loop: sem usage, a seleção
+considera sua atualização persistida, não somente `created_at`. Textos legados
+sem vínculo preservam sua ordem relativa antes da próxima fala vinculada; não
+se fabricam timestamps ou mensagens para preencher informação ausente.
+
+Evidências: regressões de `internal/chat/timeline_test.go`, leitura real em
+`internal/app/db_chronology_test.go` e ordem do patch terminal em
+`internal/agent/service_stats_test.go`. O contrato permanece **Done**; não há
+alteração de schema nem nova representação persistida.
+
 ### D3 — Detalhes batch/lazy
 
 Um binding batch recebe no máximo 100 IDs e executa uma consulta por lote. O

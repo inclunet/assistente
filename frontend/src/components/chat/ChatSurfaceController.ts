@@ -25,7 +25,7 @@ export type ChatSurfaceSendHandler = (
   content: string,
   mediaFiles: MediaFile[] | undefined,
   context: ChatSurfaceSendContext,
-) => Promise<void>;
+) => Promise<boolean | void>;
 
 export async function sendChatSurfaceMessage(
   conversationId: string,
@@ -34,8 +34,8 @@ export async function sendChatSurfaceMessage(
   paramsOverride: Partial<llm.ChatParams> | undefined,
   origin: ChatSurfaceOrigin | undefined,
   command?: ChatMessagingExecution,
-) {
-  await useChatStore.getState().sendMessageToConversation(
+): Promise<boolean> {
+  return useChatStore.getState().sendMessageToConversation(
     conversationId,
     content,
     mediaFiles,
@@ -45,7 +45,7 @@ export async function sendChatSurfaceMessage(
 }
 
 export interface ChatSurfaceController extends ChatSessionContextValue {
-  sendMessage: (content: string, mediaFiles?: MediaFile[], command?: ChatMessagingExecution) => Promise<void>;
+  sendMessage: (content: string, mediaFiles?: MediaFile[], command?: ChatMessagingExecution) => Promise<boolean>;
 }
 
 export interface ChatSurfaceControllerOptions {
@@ -58,15 +58,14 @@ export function useChatSurfaceController({
   const chatSession = useChatSession();
   const sendMessageToConversation = useChatStore((state) => state.sendMessageToConversation);
 
-  const sendMessage = useCallback(async (content: string, mediaFiles?: MediaFile[], command?: ChatMessagingExecution) => {
+  const sendMessage = useCallback(async (content: string, mediaFiles?: MediaFile[], command?: ChatMessagingExecution): Promise<boolean> => {
     const targetConversationId = chatSession.conversationId ?? chatSession.origin.conversationId;
     if (onSend) {
-      await onSend(content, mediaFiles, {
+      return (await onSend(content, mediaFiles, {
         conversationId: targetConversationId,
         origin: chatSession.origin,
         command,
-      });
-      return;
+      })) !== false;
     }
 
     if (!targetConversationId) {
@@ -74,7 +73,7 @@ export function useChatSurfaceController({
     }
 
     const origin = normalizeChatSurfaceOrigin(chatSession.origin, targetConversationId);
-    await sendMessageToConversation(targetConversationId, content, mediaFiles, undefined, { origin, command });
+    return sendMessageToConversation(targetConversationId, content, mediaFiles, undefined, { origin, command });
   }, [chatSession.conversationId, chatSession.origin, onSend, sendMessageToConversation]);
 
   return {

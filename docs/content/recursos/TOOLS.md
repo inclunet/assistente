@@ -25,6 +25,39 @@ política do perfil, disponibilidade, allowlists, confirmações e orçamento de
 schemas. Para operações sensíveis, o carregamento apenas disponibiliza a
 capacidade; ele não aprova sua execução.
 
+## Acompanhar ferramentas no chat
+
+Cada execução aparece diretamente na posição cronológica como um card próprio;
+não é necessário expandir um agrupamento da rodada. O card apresenta seu estado
+por texto, além do ícone: em execução, concluída, falhou ou cancelada. Enquanto
+a execução não terminou, a saída disponível é identificada como parcial.
+Ferramentas nativas usam descrições localizadas; integrações MCP usam o nome
+público do provedor, sem exigir adaptações no servidor.
+
+Os anúncios do leitor de telas usam a mesma descrição amigável e o mesmo estado
+do card. Nomes internos de tools e caminhos absolutos ficam restritos aos
+detalhes técnicos; por exemplo, o anúncio principal pode dizer `Lendo arquivo:
+config.ts. Em execução` ou `Consultando Atlassian. Concluída`.
+
+Use **Ver detalhes técnicos**, por teclado ou pelo contexto da ferramenta,
+para consultar os parâmetros sanitizados e a resposta. O modal acompanha as
+atualizações da chamada enquanto estiver aberto, incluindo a passagem para o
+resultado persistido ao terminar. Escape fecha o modal e devolve o foco ao
+controle de origem.
+
+Buscas nativas compatíveis oferecem **Ver resultados**. O modal apresenta
+20 itens por página; arquivos abrem no editor e sites no navegador externo.
+O modal preserva no máximo 100 itens para exibição. Quando a lista estiver
+limitada, o aviso informa a contagem apresentada e orienta restringir a busca;
+ela não deve ser interpretada como o conjunto completo de resultados.
+
+Os indicadores de autorização refletem decisões explícitas registradas pelo
+host, não inferências sobre o texto da ferramenta. Se uma operação tiver
+aprovação em uma etapa e bloqueio em outra, o bloqueio prevalece no resumo.
+Decisões já registradas permanecem disponíveis mesmo que a execução seja
+cancelada ou exceda o tempo limite. A ausência de indicador não significa
+aprovação; o estado da execução continua sendo uma informação separada.
+
 ## Resultados grandes
 
 Resultados model-facing não recebem frases de truncamento dentro do conteúdo.
@@ -51,6 +84,58 @@ JSON canônico e qualquer resultado `raw` nunca são cortados silenciosamente:
 cabem integralmente no limite ou produzem erro explícito. MCP nativo é executado
 no provedor e, por isso, não passa pela proteção local; nesse modo aplicam-se os
 limites do próprio provedor.
+
+### Respostas HTTP grandes
+
+`http_request` mantém o comportamento atual por padrão (`auto`, `text`, `json`
+e `raw`). Para uma API que devolve um JSON grande, use `extract_mode: "file"`:
+
+```json
+{
+  "url": "https://api.example.com/runs/15f4c620-b2af-11f1-861b-f0d192625af9",
+  "method": "GET",
+  "extract_mode": "file",
+  "output_path": "workflows-run.json"
+}
+```
+
+O corpo é baixado em streaming para a pasta de artefatos HTTP do workspace,
+com limite de segurança de 10 MiB. O modelo recebe somente status, tipo,
+tamanho, SHA-256, headers de resposta não sensíveis e o caminho seguro do
+arquivo; `Set-Cookie`, `Authorization` e outros headers de credencial nunca
+são retornados. Headers permitidos acima de 128 bytes são omitidos.
+`output_path` aceita um nome simples ou caminho absoluto diretamente dentro
+da pasta controlada; caminhos externos, subpastas e arquivos existentes são
+rejeitados. Se omitido, é gerado um nome único. O download não é limitado por
+`max_response_size`: acima de 10 MiB ele falha e remove o arquivo parcial.
+Artefatos expiram após 30 minutos e são removidos no encerramento do app;
+somente arquivos criados pela instância são removidos. Um encerramento abrupto
+do processo pode deixar arquivos para remoção manual.
+
+Para extrair somente campos de um JSON grande, use o seletor restrito de
+`jsonpath`. Ele não executa jq, scripts ou comandos e suporta campos por ponto
+e descendência recursiva no primeiro segmento (expressões de até 2048 bytes):
+
+```json
+{
+  "url": "https://api.example.com/runs/15f4c620-b2af-11f1-861b-f0d192625af9",
+  "extract_mode": "jsonpath",
+  "jsonpath": "$..metadata.name",
+  "max_response_size": 4096
+}
+```
+
+O limite é aplicado ao resultado extraído, não ao documento original (que
+continua sujeito ao teto de download de 10 MiB e é parseado na memória do executor). JSON
+inválido, seletor inválido e resultado extraído grande produzem erros explícitos.
+Para processamentos adicionais, leia o `path` retornado no modo `file` com
+`read_file` ou use `run_command` com uma ferramenta local apropriada.
+
+Por exemplo, substitua o caminho abaixo pelo `path` retornado e execute localmente:
+
+```sh
+jq -r '.. | objects | select((.metadata.name? // "") | test("deploy-to-prod")) | .metadata.name' /caminho/retornado/workflows-run.json
+```
 
 ## MCP nos perfis padrão
 

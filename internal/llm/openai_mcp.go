@@ -49,6 +49,11 @@ type pendingMCPCall struct {
 	// Completed marca que recebemos response.mcp_call.completed mas ainda não
 	// finalizamos via response.output_item.done. Usado pelo fallback pós-stream.
 	Completed bool
+	// Failed marca que recebemos response.mcp_call.failed. O ERRO único e
+	// correlacionado da falha sai em response.output_item.done (que carrega o
+	// texto do erro) ou, se esse item nunca vier, no fallback de fim de stream —
+	// nunca no próprio evento .failed, que geraria log duplicado.
+	Failed bool
 }
 
 // buildNativeMCPTools converte os MCP servers configurados em tools type:"mcp"

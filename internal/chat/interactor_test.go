@@ -148,7 +148,11 @@ func TestBuildDynamicContextPropagatesTypedToolSelectionStatus(t *testing.T) {
 }
 
 type retryMessageRepoStub struct {
-	getMessage func(messageID string) (*database.ChatMessage, error)
+	getMessage    func(messageID string) (*database.ChatMessage, error)
+	messages      []Message
+	turnMessages  []Message
+	summary       string
+	summaryUpToID string
 }
 
 type staticWorkspaceProvider struct {
@@ -302,15 +306,15 @@ func (r *retryMessageRepoStub) GetMessage(_ context.Context, messageID string) (
 }
 
 func (r *retryMessageRepoStub) GetMessages(_ context.Context, _ string, _ *string) ([]Message, error) {
-	return nil, nil
+	return r.messages, nil
 }
 
 func (r *retryMessageRepoStub) GetMessagesByTurnID(_ context.Context, _ string, _ *string, _ string, _ int) ([]Message, error) {
-	return nil, nil
+	return r.turnMessages, nil
 }
 
 func (r *retryMessageRepoStub) GetConversationSummary(_ context.Context, _ string) (string, string, error) {
-	return "", "", nil
+	return r.summary, r.summaryUpToID, nil
 }
 
 func (r *retryMessageRepoStub) GetDetailedTokenStats(_ context.Context, _ string, _ string) (*DetailedTokenStats, error) {
@@ -524,6 +528,86 @@ func TestGetRetryableUserMessage_ReturnsErrorWhenRepositoryIsUnavailable(t *test
 	}
 	if err.Error() != "repositório de mensagens indisponível" {
 		t.Fatalf("expected repository unavailable error, got %v", err)
+	}
+}
+
+func TestGetRetryableUserMessage_RejectsThreadUser(t *testing.T) {
+	parentID := "root-1"
+	interactor := NewInteractor(InteractorConfig{
+		Repo: &retryMessageRepoStub{
+			getMessage: func(_ string) (*database.ChatMessage, error) {
+				return &database.ChatMessage{
+					UUIDModel:      database.UUIDModel{ID: "thread-user"},
+					ConversationID: "conv-1",
+					Role:           "user",
+					ParentID:       &parentID,
+				}, nil
+			},
+		},
+	})
+
+	msg, err := interactor.GetRetryableUserMessage(context.Background(), "conv-1", "thread-user")
+	if msg != nil {
+		t.Fatalf("expected nil message, got %+v", msg)
+	}
+	if err == nil || err.Error() != "mensagem thread-user não é uma pergunta raiz" {
+		t.Fatalf("expected root-question validation error, got %v", err)
+	}
+}
+
+func TestReuseLoadedUserMessage_AnchorsRetryAtSelectedTurnAndPreservesExplicitContinuation(t *testing.T) {
+	turnOne := "u-1"
+	turnTwo := "u-2"
+	repo := &retryMessageRepoStub{
+		messages: []Message{
+			{UUIDModel: database.UUIDModel{ID: "u-1"}, ConversationID: "conv-1", Role: "user", Content: "pergunta 1", Media: `[{"type":"image/png","data":"abc"}]`, TurnID: &turnOne},
+			{UUIDModel: database.UUIDModel{ID: "a-1"}, ConversationID: "conv-1", Role: "assistant", Content: "resposta 1", TurnID: &turnOne},
+			{UUIDModel: database.UUIDModel{ID: "u-2"}, ConversationID: "conv-1", Role: "user", Content: "pergunta 2", TurnID: &turnTwo},
+			{UUIDModel: database.UUIDModel{ID: "a-2"}, ConversationID: "conv-1", Role: "assistant", Content: "resposta 2", TurnID: &turnTwo},
+		},
+		turnMessages: []Message{
+			{UUIDModel: database.UUIDModel{ID: "a-1"}, ConversationID: "conv-1", Role: "assistant", Content: "resposta 1", TurnID: &turnOne},
+			{UUIDModel: database.UUIDModel{ID: "a-1-tool-snapshot"}, ConversationID: "conv-1", Role: "assistant", Content: "snapshot intermediário de tool", TurnID: &turnOne},
+			{UUIDModel: database.UUIDModel{ID: "a-2"}, ConversationID: "conv-1", Role: "assistant", Content: "resposta 2", TurnID: &turnTwo},
+		},
+		summary:       "resumo que inclui a pergunta 2",
+		summaryUpToID: "a-2",
+	}
+	interactor := NewInteractor(InteractorConfig{Emitter: &spyEmitter{}, Repo: repo})
+	selected := repo.messages[0]
+
+	response, err := interactor.ReuseLoadedUserMessage(context.Background(), RecordUserMessageRequest{
+		ConversationID:       "conv-1",
+		MaxContextMessages:   50,
+		ExplicitContinuation: true,
+	}, &selected)
+	if err != nil {
+		t.Fatalf("reuse retry: %v", err)
+	}
+	if response.ConversationSummary != "" {
+		t.Fatalf("posterior summary leaked into retry payload: %q", response.ConversationSummary)
+	}
+	if got := len(response.Messages); got != 2 {
+		t.Fatalf("expected selected user plus its assistant continuation candidate, got %d messages", got)
+	}
+	if response.Messages[0].MessageID != "u-1" || response.Messages[1].MessageID != "a-1" {
+		t.Fatalf("unexpected effective retry payload ids: %+v", response.Messages)
+	}
+	if response.Messages[0].Role != "user" || response.Messages[1].Role != "assistant" {
+		t.Fatalf("unexpected retry roles: %+v", response.Messages)
+	}
+	if _, ok := response.Messages[0].Content.([]interface{}); !ok {
+		t.Fatalf("user media was not preserved in retry payload: %#v", response.Messages[0].Content)
+	}
+
+	normalRetry, err := interactor.ReuseLoadedUserMessage(context.Background(), RecordUserMessageRequest{
+		ConversationID: "conv-1",
+	}, &selected)
+	if err != nil {
+		t.Fatalf("reuse normal retry: %v", err)
+	}
+	if len(normalRetry.Messages) != 1 || normalRetry.Messages[0].MessageID != "u-1" {
+		t.Fatalf("retry normal não deve anexar assistant: %+v", normalRetry.Messages)
 	}
 }
 

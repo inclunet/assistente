@@ -2,7 +2,7 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção137 (22/09/2026):** dos 84 critérios finais,
+**Acompanhamento vigente — seção138 (22/09/2026):** dos 84 critérios finais,
 **76 têm implementação identificada (90,5%), 8 são parciais e 0 ausentes**.
 Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
 A seção136 corrige o consumo concorrente de receipts com CAS completo como
@@ -11,6 +11,9 @@ Na seção137, convergência de camadas e callbacks de diálogo/job recebem prov
 adicionais; inventário atualizado para v40. App completo com ordem aleatória
 passou e preservou log integral, sem reproduzir ou explicar a intermitência
 anterior. Latência ponta a ponta e gates seguem abertos.
+Seção138 integra a main `714a47c4e`, preservando o checkpoint `c9bead64c`.
+Regressão revelou falha preexistente de revisão ABA ao fixar/desafixar mensagem;
+o diagnóstico e os limites de validação estão registrados na tasklist.
 Saídas maiores: **11 A / 14 I / 22 P / 1 N = 48**; 25/48 com implementação
 identificada incluindo aceitas (52,1%). Gates: **1/12 aceito, R04**.
 C34/C35/C36 e R11.1/R11.3 têm implementação identificada: tools públicas de
@@ -49,7 +52,7 @@ Reconciliação documental na seção129; implementação e testes de Δ18 na
 seção130, cache e testes na seção131, plataforma na seção132 e reserva do
 diálogo na seção133; tools e portabilidade do agente na seção134; CLI na seção135.
 Estado individual e próximos passos na
-[tasklist atualizada](0103-tasklist-conclusao.md#137-convergência-de-origens-e-qualificação-rastreável--22092026).
+[tasklist atualizada](0103-tasklist-conclusao.md#138-integração-da-main-e-regressão-cruzada--22092026).
 
 **Seção128 — Mermaid no Stream Deck contextual (22/09/2026):** 81 IDs
 (79 + aplicar/remover Mermaid), com foco/tipo/aba/perfil e células somente

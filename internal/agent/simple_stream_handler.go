@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"assistente/internal/acp"
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/events"
@@ -8,6 +9,7 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"errors"
+	"strings"
 )
 
 // SimpleStreamHandler implements llm.StreamHandler for the non-agentic (no-tool) path.
@@ -22,6 +24,7 @@ type SimpleStreamHandler struct {
 	profileSlug           string // Profile slug for TTS resolution
 	lastError             string
 	suppressTerminalError bool
+	terminalEmitted       bool
 	finish                llm.FinishInfo
 	usage                 llm.Usage
 	// activity acompanha um turno conduzido por agente externo (AEP-0084):
@@ -76,13 +79,13 @@ func (h *SimpleStreamHandler) OnError(err string) {
 	if h.suppressTerminalError && !h.ErrorNotRetryable() {
 		h.DiscardStreamReasoning()
 		_, _ = h.Finalize()
-		h.closePendingAgentTools()
+		h.closePendingAgentTools(h.pendingToolErrorKind())
 		return
 	}
 	h.FlushStream()
 	h.FinishThinkingIfActive()
 	_, _ = h.Finalize()
-	h.closePendingAgentTools()
+	h.closePendingAgentTools(h.pendingToolErrorKind())
 	streamEvent := events.StreamEvent{
 		MessageID:            h.AssistantMessageID,
 		Done:                 true,
@@ -139,6 +142,13 @@ func (h *SimpleStreamHandler) SuppressTerminalError(v bool) {
 	h.suppressTerminalError = v
 }
 
+// TerminalEmitted informa ao loop simples que OnDone já produziu o evento
+// terminal. Isso evita um segundo chat:done de cancelamento quando a própria
+// finalização detecta context.Canceled.
+func (h *SimpleStreamHandler) TerminalEmitted() bool {
+	return h != nil && h.terminalEmitted
+}
+
 // OnToolCalls is the safety fallback for when simple streaming unexpectedly receives tool calls.
 // Delegates to OnDone to preserve any textual response.
 func (h *SimpleStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse string, usage llm.Usage, model string) {
@@ -149,7 +159,9 @@ func (h *SimpleStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse str
 func (h *SimpleStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 	if event.IsCompleted {
 		if event.Error != "" {
-			logging.Errorf(context.Background(), "agent.simple-stream-handler", "[MCP Native] ❌ %s (server=%s, id=%s) FALHOU: %s",
+			// Falha já emitida ao frontend e logada em ERRO correlacionado pelo
+			// provider (fonte única). Aqui só um Debug, sem duplicar o ERRO.
+			logging.Debugf(context.Background(), "agent.simple-stream-handler", "[MCP Native] ❌ %s (server=%s, id=%s) FALHOU: %s",
 				event.Name, event.ServerLabel, event.ID, truncateString(event.Error, MaxResultDisplaySize))
 		} else {
 			logging.Infof(context.Background(), "agent.simple-stream-handler", "[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
@@ -164,16 +176,23 @@ func (h *SimpleStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
 	remainingSpeech, readInSegments := h.UnreadTail()
 	accumulatedContent, accumulatedReasoning := h.Finalize()
-	h.closePendingAgentTools()
+	h.closePendingAgentTools(h.pendingToolErrorKind())
 
 	finalContent := fullResponse
 	if finalContent == "" {
 		finalContent = accumulatedContent
 	}
+	// AEP-0108 D4: turno que termina sem conteúdo e com erro não pode deixar o
+	// placeholder assistant vazio no banco — o vazio apaga o rastro na UI. O
+	// texto do erro (sanitizado, fronteira de dado não confiável) vira o
+	// conteúdo, e a conclusão normal o anuncia/fala como qualquer resposta.
+	if strings.TrimSpace(finalContent) == "" && strings.TrimSpace(h.lastError) != "" {
+		finalContent = "Falha na resposta do agente: " + acp.SanitizeContent(h.lastError)
+	}
 
 	// Delegate save, notify, and event emission to the Service (same as agentic path).
 	// The user message remains a standalone item; the assistant response carries the turn id.
-	h.svc.SaveAndFinish(h.ctx, h.ConversationID, h.userMessageID, h.assistantMessageID, AgenticResult{
+	h.terminalEmitted = h.svc.SaveAndFinish(h.ctx, h.ConversationID, h.userMessageID, h.assistantMessageID, AgenticResult{
 		FullResponse: finalContent,
 		Reasoning:    accumulatedReasoning,
 		Usage:        usage,
@@ -185,4 +204,11 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 		ReadInSegments:  readInSegments,
 		RemainingSpeech: remainingSpeech,
 	}, h.profileSlug, nil, h.SurfaceOrigin)
+}
+
+func (h *SimpleStreamHandler) pendingToolErrorKind() string {
+	if h.ctx != nil && errors.Is(h.ctx.Err(), context.Canceled) {
+		return "cancelled"
+	}
+	return "unknown"
 }

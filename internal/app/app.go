@@ -109,6 +109,8 @@ type App struct {
 	updater          *updater.Updater            // Gerenciador de atualizações automáticas
 	wakeLock         wakelock.Manager            // Previne bloqueio/suspensão quando a janela está em foco
 
+	httpResponseArtifacts interface{ CleanupArtifacts() error } // Artefatos efêmeros de http_request
+
 	credMgr                 *credentials.Manager
 	credStore               credentials.Store
 	vaultSvc                *auth.VaultService
@@ -1386,6 +1388,9 @@ func (a *App) Shutdown() {
 		a.cancel()
 	}
 	a.waitBackground(shutdownBackgroundTimeout)
+	if a.httpResponseArtifacts != nil {
+		_ = a.httpResponseArtifacts.CleanupArtifacts()
+	}
 
 	a.stopAllEditorWatches()
 	a.stopConnectionMonitor()

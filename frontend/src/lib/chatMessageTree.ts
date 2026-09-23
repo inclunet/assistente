@@ -16,6 +16,9 @@ export interface ToolInvocationSummary {
   outputBytes?: number;
   hasDetails: boolean;
   resultAvailability: string;
+  hasSearchResults?: boolean;
+  searchResultCount?: number;
+  securityOutcome?: 'approved' | 'blocked';
 }
 
 export interface StreamingToolCall {
@@ -24,6 +27,8 @@ export interface StreamingToolCall {
   function: { name: string; arguments: string };
   result?: string;
   origin?: ToolOrigin;
+  serverLabel?: string;
+  status?: 'running' | 'done' | 'error' | 'cancelled';
 }
 
 export interface TurnSegment {

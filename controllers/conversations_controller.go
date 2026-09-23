@@ -897,6 +897,9 @@ func toolInvocationSummariesToTurnSegments(summaries map[string][]toolinvocation
 				OutputBytes:        call.OutputBytes,
 				HasDetails:         call.HasDetails,
 				ResultAvailability: call.ResultAvailability,
+				HasSearchResults:   call.HasSearchResults,
+				SearchResultCount:  call.SearchResultCount,
+				SecurityOutcome:    call.SecurityOutcome,
 				AssistantMessageID: call.AssistantMessageID,
 			})
 		}

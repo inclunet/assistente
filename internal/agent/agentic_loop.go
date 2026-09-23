@@ -554,6 +554,7 @@ func (r *agenticLoopRunner) retryRetryableTools(ctx context.Context, toolCalls [
 				Name:               retryName,
 				CallID:             execResult.CallID,
 				Status:             "error",
+				ErrorKind:          string(execResult.ErrorKind),
 				Summary:            truncateString(execResult.Result.Content, MaxResultDisplaySize),
 				Origin:             retryOrigin,
 				ServerLabel:        retryServerLabel,
@@ -627,6 +628,7 @@ func (r *agenticLoopRunner) emitToolEndsAndAccount(execResults []tools.ToolExecu
 			Name:               logicalName,
 			CallID:             execResult.CallID,
 			Status:             status,
+			ErrorKind:          string(execResult.ErrorKind),
 			Summary:            truncateString(execResult.Result.Content, MaxResultDisplaySize),
 			Origin:             origin,
 			ServerLabel:        serverLabel,
@@ -776,7 +778,7 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 	if r.svc.triggerSummarize != nil {
 		go func() {
 			defer r.svc.recoverFromPanic(r.conversationID, "triggerSummarize")
-			r.svc.triggerSummarize(ctx, r.conversationID, r.params.ProfileSlug)
+			r.svc.triggerSummarize(context.WithoutCancel(ctx), r.conversationID, r.params.ProfileSlug)
 		}()
 	}
 }

@@ -27,6 +27,9 @@ type Summary struct {
 	OutputBytes        int64  `json:"outputBytes,omitempty"`
 	HasDetails         bool   `json:"hasDetails"`
 	ResultAvailability string `json:"resultAvailability"`
+	HasSearchResults   bool   `json:"hasSearchResults,omitempty"`
+	SearchResultCount  int    `json:"searchResultCount,omitempty"`
+	SecurityOutcome    string `json:"securityOutcome,omitempty"`
 	AssistantMessageID string `json:"-"`
 }
 
@@ -99,31 +102,37 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 		)`
 	}
 	type row struct {
-		ID                 string
-		ToolCallID         string
-		Status             string
-		DisplayName        string
-		MetadataName       string
-		MetadataOrigin     string
-		MetadataServer     string
-		MetadataIteration  int
-		AssistantMessageID string
-		InputPreview       string
-		OutputPreview      string
-		InputBytes         int64
-		OutputBytes        int64
-		ResultAvailability string
-		DurationMs         int64
-		QueuedAt           time.Time
-		ToolName           string
-		ToolDisplayName    string
-		ToolOrigin         string
-		ResolvedTurnID     string `gorm:"column:resolved_turn_id"`
+		ID                   string
+		ToolCallID           string
+		Attempt              int
+		Status               string
+		DisplayName          string
+		MetadataName         string
+		MetadataOrigin       string
+		MetadataServer       string
+		MetadataIteration    int
+		SearchResultsVersion int    `gorm:"column:search_results_version"`
+		SearchResultCount    int    `gorm:"column:search_result_count"`
+		SecurityOutcome      string `gorm:"column:security_outcome"`
+		AssistantMessageID   string
+		InputPreview         string
+		OutputPreview        string
+		InputBytes           int64
+		OutputBytes          int64
+		ResultAvailability   string
+		DurationMs           int64
+		QueuedAt             time.Time
+		ToolName             string
+		ToolDisplayName      string
+		ToolOrigin           string
+		ResolvedTurnID       string `gorm:"column:resolved_turn_id"`
 	}
 	const batchSize = 400
 	started := time.Now()
 	queryCount := uint64(0)
 	projectionBytes := uint64(0)
+	indexByTurnCall := make(map[string]map[string]int)
+	attemptByTurnCall := make(map[string]map[string]int)
 	for start := 0; start < len(turnIDs); start += batchSize {
 		end := start + batchSize
 		if end > len(turnIDs) {
@@ -134,12 +143,18 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 		if err := db.WithContext(ctx).
 			Model(&database.ToolInvocation{}).
 			Select(
-				"tool_invocations.id, tool_invocations.tool_call_id, tool_invocations.status, "+
+				"tool_invocations.id, tool_invocations.tool_call_id, tool_invocations.attempt, tool_invocations.status, "+
 					"tool_invocations.display_name, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.name') AS TEXT), '') ELSE '' END AS metadata_name, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.origin') AS TEXT), '') ELSE '' END AS metadata_origin, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.server_label') AS TEXT), '') ELSE '' END AS metadata_server, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN CAST(COALESCE(json_extract(tool_invocations.metadata, '$.display.iteration'), 0) AS INTEGER) ELSE 0 END AS metadata_iteration, "+
+					"CASE WHEN json_valid(tool_invocations.metadata) THEN CAST(COALESCE(json_extract(tool_invocations.metadata, '$.search_result_presentation.version'), 0) AS INTEGER) ELSE 0 END AS search_results_version, "+
+					"CASE WHEN json_valid(tool_invocations.metadata) THEN CAST(COALESCE(json_extract(tool_invocations.metadata, '$.search_result_presentation.total'), 0) AS INTEGER) ELSE 0 END AS search_result_count, "+
+					// Uma invocação pode pedir autorização para mais de um alvo (por
+					// exemplo, origem e destino de um move). A primeira evidência não
+					// representa a decisão efetiva: qualquer bloqueio deve prevalecer.
+					"CASE WHEN json_valid(tool_invocations.metadata) AND json_type(tool_invocations.metadata, '$.security_signals') = 'array' THEN COALESCE((SELECT CASE WHEN EXISTS (SELECT 1 FROM json_each(tool_invocations.metadata, '$.security_signals') WHERE json_valid(value) AND json_type(value) = 'object' AND json_type(value, '$.version') = 'integer' AND json_extract(value, '$.version') = 1 AND json_extract(value, '$.outcome') = 'blocked') THEN 'blocked' WHEN EXISTS (SELECT 1 FROM json_each(tool_invocations.metadata, '$.security_signals') WHERE json_valid(value) AND json_type(value) = 'object' AND json_type(value, '$.version') = 'integer' AND json_extract(value, '$.version') = 1 AND json_extract(value, '$.outcome') = 'approved') THEN 'approved' ELSE '' END), '') ELSE '' END AS security_outcome, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.assistant_message_id') AS TEXT), '') ELSE '' END AS assistant_message_id, "+
 					"tool_invocations.input_preview, tool_invocations.output_preview, "+
 					"tool_invocations.input_bytes, tool_invocations.output_bytes, tool_invocations.result_availability, "+
@@ -149,10 +164,16 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 			).
 			Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
 			Where(
-				"tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND "+resolvedTurnSQL+" IN ? AND TRIM(tool_invocations.tool_call_id) <> ''",
+				"tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND "+resolvedTurnSQL+" IN ? AND TRIM(tool_invocations.tool_call_id) <> '' AND (tool_invocations.completed_at IS NOT NULL OR tool_invocations.status IN (?, ?, ?, ?, ?, ?))",
 				userID,
 				OriginChat,
 				turnIDs[start:end],
+				StatusQueued,
+				StatusRunning,
+				StatusSucceeded,
+				StatusFailed,
+				StatusCancelled,
+				StatusTimedOut,
 			).
 			Order("resolved_turn_id, tool_invocations.queued_at, tool_invocations.id").
 			Find(&rows).Error; err != nil {
@@ -165,7 +186,7 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 			if availability == "" {
 				availability = "available"
 			}
-			result[item.ResolvedTurnID] = append(result[item.ResolvedTurnID], Summary{
+			summary := Summary{
 				InvocationID:       item.ID,
 				CallID:             item.ToolCallID,
 				Name:               name,
@@ -180,8 +201,29 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 				OutputBytes:        item.OutputBytes,
 				HasDetails:         item.InputBytes > 0 || item.OutputBytes > 0 || availability == "available",
 				ResultAvailability: availability,
+				HasSearchResults:   item.SearchResultsVersion == 1,
+				SearchResultCount:  item.SearchResultCount,
+				SecurityOutcome:    item.SecurityOutcome,
 				AssistantMessageID: item.AssistantMessageID,
-			})
+			}
+			indexByCall := indexByTurnCall[item.ResolvedTurnID]
+			if indexByCall == nil {
+				indexByCall = make(map[string]int)
+				indexByTurnCall[item.ResolvedTurnID] = indexByCall
+				attemptByTurnCall[item.ResolvedTurnID] = make(map[string]int)
+			}
+			if index, exists := indexByCall[item.ToolCallID]; exists {
+				// Attempt é autoritativo para retries. Em dados legados com o mesmo
+				// número, a ordem cronológica da consulta mantém a linha mais recente.
+				if item.Attempt >= attemptByTurnCall[item.ResolvedTurnID][item.ToolCallID] {
+					result[item.ResolvedTurnID][index] = summary
+					attemptByTurnCall[item.ResolvedTurnID][item.ToolCallID] = item.Attempt
+				}
+			} else {
+				indexByCall[item.ToolCallID] = len(result[item.ResolvedTurnID])
+				attemptByTurnCall[item.ResolvedTurnID][item.ToolCallID] = item.Attempt
+				result[item.ResolvedTurnID] = append(result[item.ResolvedTurnID], summary)
+			}
 			projectionBytes += uint64(len(item.ID) + len(item.ToolCallID) + len(name) + len(origin) +
 				len(item.InputPreview) + len(item.OutputPreview) + len(availability))
 		}

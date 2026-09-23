@@ -47,7 +47,7 @@ export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
   surface: ChatSurfaceIdentity;
   /** Envio da mensagem (ex.: sendMessage da store ou adaptador do chat modal) */
-  onSend: (content: string, mediaFiles: MediaFile[] | undefined, origin: ChatSurfaceOrigin, command?: ChatMessagingExecution) => Promise<void>;
+  onSend: (content: string, mediaFiles: MediaFile[] | undefined, origin: ChatSurfaceOrigin, command?: ChatMessagingExecution) => Promise<boolean | void>;
   /** Solicitação de troca de conversa (controlada pelo dono da superfície). */
   onRequestConversationChange?: ChatToolbarConversationChangeHandler;
   showShortcutsHelp?: boolean;
@@ -1077,7 +1077,7 @@ function ChatSessionViewContent({
   }, [isInteractiveSurface, effectiveSendError, sessionSendFailureMessage, conversationId, origin.sessionKey, clearConversationSendFailure, announce, t]);
 
   const handleSendMessage = async (content: string, mediaFiles?: MediaFile[], options?: { voice?: boolean }) => {
-    requestMessaging('chat.message.send', { content, media: mediaFiles, voice: options?.voice === true });
+    return requestMessaging('chat.message.send', { content, media: mediaFiles, voice: options?.voice === true });
   };
 
   const handleRetry = async () => {
@@ -1085,9 +1085,9 @@ function ChatSessionViewContent({
     requestMessaging('chat.message.send', { content: effectiveFailedMessage.content, media: effectiveFailedMessage.media, recovery: true });
   };
 
-  const handleReachEnd = () => {
+  const handleReachEnd = useCallback(() => {
     inputRef.current?.focus();
-  };
+  }, []);
 
   const runWindowLoad = useCallback(async (
     kind: 'start' | 'end' | 'older' | 'newer',
@@ -1123,22 +1123,22 @@ function ChatSessionViewContent({
     }
   }, [session?.messageWindow]);
 
-  const handleJumpToStart = () => runWindowLoad('start', 'navigation', loadStartMessages, () => {
+  const handleJumpToStart = useCallback(() => runWindowLoad('start', 'navigation', loadStartMessages, () => {
     requestAnimationFrame(() => {
       const container = messagesContainerRef.current;
       const firstMessage = container?.querySelector('[data-message-node]') as HTMLElement | null;
       firstMessage?.focus();
     });
-  });
+  }), [loadStartMessages, runWindowLoad]);
 
-  const handleJumpToEnd = () => runWindowLoad('end', 'navigation', loadEndMessages, () => {
+  const handleJumpToEnd = useCallback(() => runWindowLoad('end', 'navigation', loadEndMessages, () => {
     requestAnimationFrame(() => {
       const container = messagesContainerRef.current;
       const rootMessages = container?.querySelectorAll<HTMLElement>('[data-message-node][data-level="0"]');
       const lastMessage = rootMessages?.[rootMessages.length - 1] ?? null;
       lastMessage?.focus();
     });
-  });
+  }), [loadEndMessages, runWindowLoad]);
 
   const handleLoadOlderMessages = useCallback(
     (trigger: MessageWindowLoadTrigger) => runWindowLoad('older', trigger, loadOlderMessages),
@@ -1148,6 +1148,34 @@ function ChatSessionViewContent({
   const handleLoadNewerMessages = useCallback(
     (trigger: MessageWindowLoadTrigger) => runWindowLoad('newer', trigger, loadNewerMessages),
     [loadNewerMessages, runWindowLoad],
+  );
+
+  const handleMessageContextMenu = useCallback(
+    (event: React.MouseEvent, message: Message) => {
+      const capturedMessage = { ...message, convertValues: message.convertValues };
+      const root = rootRef.current;
+      const instance = root && getChatMessageNavigationInstanceId(root, message.id);
+      disposeMenuNavigation();
+      if (instance) {
+        const readPathname = () => messagingLive.current.pathname;
+        const read = captureChatNavigationTarget(readPathname, 'chat.message.read.open', instance);
+        const reasoning = captureChatNavigationTarget(readPathname, 'chat.message.reasoning.toggle', instance);
+        menuNavigationTargets.current.set(capturedMessage, { read, reasoning });
+        menuNavigationLeases.current = [read, reasoning].filter((target): target is ChatNavigationTarget => !!target);
+      }
+      showMenu(event, capturedMessage, message.role === 'user');
+    },
+    [disposeMenuNavigation, showMenu],
+  );
+  const messageListOrigin = useMemo(
+    () => ({
+      conversationId: origin.conversationId ?? undefined,
+      sessionKey: origin.sessionKey,
+      surfaceId: origin.surfaceId,
+      surfaceType: origin.surfaceType,
+      tabId: origin.tabId,
+    }),
+    [origin.conversationId, origin.sessionKey, origin.surfaceId, origin.surfaceType, origin.tabId],
   );
 
   const rootClass =
@@ -1179,20 +1207,7 @@ function ChatSessionViewContent({
           onJumpToStart={handleJumpToStart}
           onJumpToEnd={handleJumpToEnd}
           ref={messagesContainerRef}
-          onContextMenu={(event, message) => {
-            const capturedMessage = { ...message, convertValues: message.convertValues };
-            const root = rootRef.current;
-            const instance = root && getChatMessageNavigationInstanceId(root, message.id);
-            disposeMenuNavigation();
-            if (instance) {
-              const readPathname = () => messagingLive.current.pathname;
-              const read = captureChatNavigationTarget(readPathname, 'chat.message.read.open', instance);
-              const reasoning = captureChatNavigationTarget(readPathname, 'chat.message.reasoning.toggle', instance);
-              menuNavigationTargets.current.set(capturedMessage, { read, reasoning });
-              menuNavigationLeases.current = [read, reasoning].filter((target): target is ChatNavigationTarget => !!target);
-            }
-            showMenu(event, capturedMessage, message.role === 'user');
-          }}
+          onContextMenu={handleMessageContextMenu}
           onSpeak={handleSpeakRequest}
           onCopy={(message, markdown) => { requestMessaging(markdown ? 'chat.message.copy_markdown' : 'chat.message.copy', { messageId: message.id }); }}
           onEdit={(message) => { requestMessaging('chat.message.edit.open', { messageId: message.id }); }}
@@ -1201,7 +1216,7 @@ function ChatSessionViewContent({
           onDelete={handleDeleteMessage}
           editorTargets={editorTargets}
           onSendToEditor={sendToEditor}
-          origin={{ ...origin, conversationId: origin.conversationId ?? undefined }}
+          origin={messageListOrigin}
         />
 
         {effectiveSendError && (

@@ -29,6 +29,7 @@ const terminalPageMocks = vi.hoisted(() => ({
   slashMenuEnabled: undefined as boolean | undefined,
   surfaceGetter: null as (() => unknown) | null,
   modalOpen: false,
+  onSend: null as ((message: string) => Promise<boolean | void>) | null,
 }));
 
 const workspaceMocks = vi.hoisted(() => ({
@@ -99,9 +100,10 @@ vi.mock('../components/chat/ChatInput', async () => {
     ChatInput: React.forwardRef<HTMLTextAreaElement, {
       placeholder: string;
       slashMenuEnabled?: boolean;
-      onSend: (message: string) => void;
+      onSend: (message: string) => Promise<boolean | void>;
     }>(({ placeholder, slashMenuEnabled, onSend }, ref) => {
       terminalPageMocks.slashMenuEnabled = slashMenuEnabled;
+      terminalPageMocks.onSend = onSend;
       return (
         <textarea
           ref={ref}
@@ -226,6 +228,7 @@ describe('TerminalPage', () => {
     terminalPageMocks.surfaceGetter = null;
     terminalPageMocks.modalOpen = false;
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    terminalPageMocks.onSend = null;
     storeState.historyBySession = { 'term-1': [] };
     storeState.activeEntryBySession = { 'term-1': null };
     storeState.sessions = [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp', state: 'running', shell: 'sh' }];
@@ -505,6 +508,13 @@ describe('TerminalPage', () => {
 
     expect(terminalPageMocks.slashMenuEnabled).toBe(false);
     expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', '/');
+  });
+
+  it('retorna aceitação explícita para o ChatInput limpar o comando enviado', async () => {
+    renderTerminalPage();
+
+    await expect(terminalPageMocks.onSend?.('pwd')).resolves.toBe(true);
+    expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', 'pwd');
   });
 
   it('usa o mesmo histórico no preview e no envio do chat', async () => {

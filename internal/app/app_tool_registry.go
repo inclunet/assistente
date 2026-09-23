@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"assistente/internal/allowlist"
@@ -334,6 +335,10 @@ func (a *App) initToolRegistry() {
 
 	// HTTPRequest com CredentialManager (autenticação automática por domínio)
 	httpReqTool := web.NewHTTPRequest(a.credMgr)
+	if err := httpReqTool.SetArtifactDir(filepath.Join(workDir, ".assistente-http-artifacts")); err != nil {
+		logging.Logger(context.Background(), "app.app-tool-registry").Error("Erro ao configurar artefatos HTTP", "error", err)
+	}
+	a.httpResponseArtifacts = httpReqTool
 	if netAuthorizer != nil {
 		httpReqTool.SetNetworkAuthorizer(netAuthorizer)
 	}

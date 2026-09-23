@@ -567,6 +567,11 @@ func (a *App) wireLLMModels() {
 			CancelStreaming: func(conversationID string) {
 				CancelStreamingForConversation(a, conversationID)
 			},
+			CancelExecution: func(conversationID, executionID string) {
+				if a.streamMgr != nil {
+					a.streamMgr.CancelExecution(conversationID, executionID)
+				}
+			},
 		},
 	)
 }

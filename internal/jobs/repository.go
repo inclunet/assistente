@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"assistente/internal/commandjobevents"
@@ -70,6 +71,25 @@ type DBRepository struct {
 	db            *gorm.DB
 	now           func() time.Time
 	commandEvents *commandjobevents.Store
+
+	// jobRowCache guarda mapeamentos (user_id, slug) -> linha de job com TTL.
+	// jobRowBySlug é chamado a CADA run (LogRun e afins) e, sob carga do
+	// pipeline, esse SELECT está entre os maiores ofensores de contenção do
+	// writer SQLite. O mapeamento é estável (slug é a identidade do job por
+	// usuário), então um cache user-scoped com invalidação nas mutações elimina a
+	// releitura repetida. Ver AEP-0106 (Fase 2).
+	jobRowCacheMu sync.RWMutex
+	jobRowCache   map[string]jobRowCacheEntry
+}
+
+// jobRowResolveCacheTTL limita a validade de cada entrada como rede de
+// segurança (além da invalidação explícita nas mutações), cobrindo caminhos de
+// escrita não previstos (ex.: migração de slug no boot).
+const jobRowResolveCacheTTL = 60 * time.Second
+
+type jobRowCacheEntry struct {
+	job       database.Job
+	expiresAt time.Time
 }
 
 const sqliteDeleteBatchSize = 500
@@ -90,7 +110,12 @@ func stringBatches(values []string, size int) [][]string {
 }
 
 func NewDBRepository(db *gorm.DB) *DBRepository {
-	return &DBRepository{db: db, now: time.Now, commandEvents: commandjobevents.NewStore(db)}
+	return &DBRepository{
+		db:            db,
+		now:           time.Now,
+		commandEvents: commandjobevents.NewStore(db),
+		jobRowCache:   make(map[string]jobRowCacheEntry),
+	}
 }
 
 func (r *DBRepository) retry(ctx context.Context, operation string, fn func() error) error {
@@ -370,6 +395,7 @@ func (r *DBRepository) DeletePipeline(ctx context.Context, slug string) error {
 	if err != nil {
 		return err
 	}
+	defer r.invalidateJobRowCacheForUser(ctx)
 	return r.retry(ctx, "delete_pipeline", func() error {
 		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			var row database.JobPipeline
@@ -467,6 +493,7 @@ func (r *DBRepository) CreateJob(ctx context.Context, job *Job) error {
 	if err != nil {
 		return err
 	}
+	defer r.invalidateJobRowCacheForUser(ctx)
 	if job == nil {
 		return fmt.Errorf("job is required")
 	}
@@ -534,6 +561,7 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 	if err != nil {
 		return err
 	}
+	defer r.invalidateJobRowCacheForUser(ctx)
 	if job == nil {
 		return fmt.Errorf("job is required")
 	}
@@ -685,6 +713,7 @@ func (r *DBRepository) DeleteJob(ctx context.Context, slug string) error {
 	if err != nil {
 		return err
 	}
+	defer r.invalidateJobRowCacheForUser(ctx)
 	return r.retry(ctx, "delete_job", func() error {
 		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			var row database.Job
@@ -2092,12 +2121,74 @@ func isUniqueConstraintError(err error) bool {
 }
 
 func (r *DBRepository) jobRowBySlug(ctx context.Context, slug string) (*database.Job, error) {
+	normalized := normalizeSlug(slug)
+	userID, _ := database.UserIDFromContext(ctx)
+	if userID != "" {
+		if cached, ok := r.lookupJobRowCache(userID, normalized); ok {
+			// Devolve uma cópia: os callers só leem (jobRow.ID), mas isolar evita
+			// que uma mutação acidental futura corrompa a entrada compartilhada.
+			row := cached
+			return &row, nil
+		}
+	}
+
 	var row database.Job
 	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("slug = ?", normalizeSlug(slug)).First(&row).Error; err != nil {
+		Where("slug = ?", normalized).First(&row).Error; err != nil {
 		return nil, err
 	}
+	if userID != "" {
+		r.storeJobRowCache(userID, normalized, row)
+	}
 	return &row, nil
+}
+
+// jobRowCacheKey compõe a chave (user_id, slug) com separador que não ocorre em
+// UUIDs nem em slugs, evitando colisão entre pares distintos.
+func (r *DBRepository) jobRowCacheKey(userID, slug string) string {
+	return userID + "\x00" + slug
+}
+
+func (r *DBRepository) lookupJobRowCache(userID, slug string) (database.Job, bool) {
+	r.jobRowCacheMu.RLock()
+	entry, ok := r.jobRowCache[r.jobRowCacheKey(userID, slug)]
+	r.jobRowCacheMu.RUnlock()
+	if !ok || !r.now().Before(entry.expiresAt) {
+		return database.Job{}, false
+	}
+	return entry.job, true
+}
+
+func (r *DBRepository) storeJobRowCache(userID, slug string, job database.Job) {
+	r.jobRowCacheMu.Lock()
+	if r.jobRowCache == nil {
+		r.jobRowCache = make(map[string]jobRowCacheEntry)
+	}
+	r.jobRowCache[r.jobRowCacheKey(userID, slug)] = jobRowCacheEntry{
+		job:       job,
+		expiresAt: r.now().Add(jobRowResolveCacheTTL),
+	}
+	r.jobRowCacheMu.Unlock()
+}
+
+// invalidateJobRowCacheForUser remove todas as entradas de um usuário. É
+// chamado por TODA mutação de job (create/save/delete/pipeline): como slug é a
+// identidade e mutações são raras frente às leituras, limpar o usuário inteiro
+// evita qualquer chave perdida (ex.: delete+recreate com novo ID) sem
+// complicar cada site de escrita.
+func (r *DBRepository) invalidateJobRowCacheForUser(ctx context.Context) {
+	userID, _ := database.UserIDFromContext(ctx)
+	if userID == "" {
+		return
+	}
+	prefix := userID + "\x00"
+	r.jobRowCacheMu.Lock()
+	for k := range r.jobRowCache {
+		if strings.HasPrefix(k, prefix) {
+			delete(r.jobRowCache, k)
+		}
+	}
+	r.jobRowCacheMu.Unlock()
 }
 
 func (r *DBRepository) triggerIDForRun(ctx context.Context, userID, jobID string, info TriggerInfo) (string, error) {

@@ -79,6 +79,41 @@ describe('useContextMenu', () => {
     expect(result.current.menuItems).toHaveLength(1);
   });
 
+  it('mantém showMenu estável e usa as ações da opção mais recente', () => {
+    const firstDelete = vi.fn();
+    const latestDelete = vi.fn();
+    const firstOptions = { onDelete: firstDelete };
+    const { result, rerender } = renderHook(
+      ({ options }) => useContextMenu(options),
+      { initialProps: { options: firstOptions } },
+    );
+    const stableShowMenu = result.current.showMenu;
+
+    rerender({ options: { onDelete: latestDelete } });
+
+    const target = document.createElement('button');
+    const event = {
+      preventDefault: vi.fn(),
+      currentTarget: target,
+      target,
+      clientX: 1,
+      clientY: 2,
+    } as unknown as ReactMouseEvent;
+    act(() => {
+      result.current.showMenu(event, { id: 1, content: 'Oi' } as never, true);
+    });
+
+    expect(result.current.showMenu).toBe(stableShowMenu);
+    expect(getMessageMenuItemsMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ onDelete: latestDelete }),
+    );
+    expect(getMessageMenuItemsMock).not.toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ onDelete: firstDelete }),
+    );
+  });
+
   it('restaura foco ao esconder menu', async () => {
     vi.useFakeTimers();
     const { result } = renderHook(() => useContextMenu({}));

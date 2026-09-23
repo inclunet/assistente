@@ -82,22 +82,58 @@ async function waitForEditorPatch(opts: FindLatestEditorPatchOptions): Promise<F
   return findBodyPatch(opts);
 }
 
-function waitForChatDone(expectedConversationId?: string, timeoutMs = 5 * 60 * 1000): Promise<string> {
+function waitForChatDone(
+  expectedConversationId?: string,
+  timeoutMs = 5 * 60 * 1000,
+  signal?: AbortSignal,
+): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    let timer: number;
-    const unsub = EventsOn('chat:done', (data: unknown) => {
+    let timer: number | undefined;
+    let unsub: (() => void) | null = null;
+    let settled = false;
+    const cleanup = () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        timer = undefined;
+      }
+      unsub?.();
+      unsub = null;
+      signal?.removeEventListener('abort', onAbort);
+    };
+    const resolveOnce = (conversationId: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(conversationId);
+    };
+    const rejectOnce = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const onAbort = () => {
+      const error = new Error('Aguardando chat:done cancelado');
+      error.name = 'AbortError';
+      rejectOnce(error);
+    };
+
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+    unsub = EventsOn('chat:done', (data: unknown) => {
       const eventData = data as { conversationId?: string };
       const convId = eventData?.conversationId;
       if (typeof convId !== 'string') return;
       if (expectedConversationId && convId !== expectedConversationId) return;
-      window.clearTimeout(timer);
-      unsub();
-      resolve(convId);
+      resolveOnce(convId);
     });
 
     timer = window.setTimeout(() => {
-      unsub();
-      reject(new Error('Timeout aguardando chat:done'));
+      rejectOnce(new Error('Timeout aguardando chat:done'));
     }, timeoutMs);
   });
 }

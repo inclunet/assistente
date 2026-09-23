@@ -318,6 +318,23 @@ describe('WorkspaceChatModal', () => {
     );
   });
 
+  it('executa cleanup explícito quando o store rejeita o envio booleanamente', async () => {
+    const onSendRejected = vi.fn();
+    boundSendMock.mockResolvedValue({
+      content: 'Explique',
+      onSendRejected,
+    });
+    sendChatSurfaceMessageMock.mockResolvedValue(false);
+
+    render(<WorkspaceChatModal />);
+    const accepted = await capturedChatPanelProps.onSend?.('Explique', undefined, {
+      origin: workspaceChatModalState.boundSurface,
+    });
+
+    expect(accepted).toBe(false);
+    expect(onSendRejected).toHaveBeenCalledTimes(1);
+  });
+
   it('nao rouba foco quando outro modal esta no topo', async () => {
     isWorkspaceModalTopmost.mockReturnValue(false);
 

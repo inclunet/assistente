@@ -62,6 +62,10 @@ export function CancelUICommand(arg1) {
   return window['go']['app']['App']['CancelUICommand'](arg1);
 }
 
+export function CloseDecisionRepeatHotkeySession(arg1) {
+  return window['go']['app']['App']['CloseDecisionRepeatHotkeySession'](arg1);
+}
+
 export function CommandBridgeAcceptResult(arg1) {
   return window['go']['app']['App']['CommandBridgeAcceptResult'](arg1);
 }
@@ -186,6 +190,10 @@ export function OpenChatEditorCommand(arg1, arg2, arg3) {
   return window['go']['app']['App']['OpenChatEditorCommand'](arg1, arg2, arg3);
 }
 
+export function OpenDecisionRepeatHotkeySession() {
+  return window['go']['app']['App']['OpenDecisionRepeatHotkeySession']();
+}
+
 export function PrepareChatEditorCommand(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['PrepareChatEditorCommand'](arg1, arg2, arg3, arg4);
 }
@@ -252,6 +260,10 @@ export function SetCommandLayerActive(arg1, arg2) {
 
 export function SetCommandLayerActiveForScope(arg1, arg2, arg3) {
   return window['go']['app']['App']['SetCommandLayerActiveForScope'](arg1, arg2, arg3);
+}
+
+export function SetDecisionRepeatHotkey(arg1, arg2, arg3) {
+  return window['go']['app']['App']['SetDecisionRepeatHotkey'](arg1, arg2, arg3);
 }
 
 export function SetDefaultCommandSuppressed(arg1, arg2) {

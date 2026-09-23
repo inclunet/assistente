@@ -31,6 +31,35 @@ const userMessage = {
 };
 
 test.describe('Chat — streaming multi-segmento', () => {
+  test('mantém progresso visível antes do término de duas rodadas', async ({ page, wails }) => {
+    await wails.setResponse('GetMessages', [userMessage]);
+    await wails.setResponse('SendMessage', initialAssistantMessageId);
+    await wails.setResponse('EnsureConversation', baseConversation);
+    await wails.waitForApp();
+    const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable();
+    await textarea.fill('Consulte duas fontes');
+    await textarea.press('Enter');
+    await page.waitForFunction(() => window.__wailsMock.getCallLog().some((call: { fn: string }) => call.fn === 'SendMessage'));
+    const identity = { conversationId, turnId: initialUserMessageId, assistantMessageId: initialAssistantMessageId };
+    await wails.emit('chat:stream', { ...identity, messageId: initialAssistantMessageId, delta: 'Vou consultar a primeira fonte.', reset: true, sequence: 0 });
+    await wails.emit('chat:tool_start', { ...identity, name: 'fonte_um', callId: 'progress-1' });
+    await expect(page.locator('.tool-calls-section__item--running')).toBeVisible();
+    await expect(page.getByText('Vou consultar a primeira fonte.', { exact: true })).toBeVisible();
+    await expect(page.getByText(/Turno sem resposta do assistente|Turn without an assistant response/)).toHaveCount(0);
+
+    await wails.emit('chat:tool_end', { ...identity, name: 'fonte_um', callId: 'progress-1', status: 'ok' });
+    await wails.emit('chat:segment_done', { ...identity, content: 'Vou consultar a primeira fonte.', hasMore: true });
+    await expect(page.getByText(/Aguardando a próxima etapa do assistente|Waiting for the assistant’s next step/)).toBeVisible();
+    await wails.emit('chat:stream', { ...identity, messageId: initialAssistantMessageId, delta: 'Agora consulto a segunda fonte.', reset: true, sequence: 0 });
+    await wails.emit('chat:tool_start', { ...identity, name: 'fonte_dois', callId: 'progress-2' });
+    await expect(page.locator('.tool-calls-section__item--running')).toBeVisible();
+    await expect(page.getByText('Vou consultar a primeira fonte.', { exact: true })).toBeVisible();
+    await expect(page.getByText('Agora consulto a segunda fonte.', { exact: true })).toBeVisible();
+    // A ferramenta permanece pendente: nenhuma conclusão é necessária para exibir progresso.
+    await expect(page.getByText(/Turno sem resposta do assistente|Turn without an assistant response/)).toHaveCount(0);
+  });
+
   test('exibe segmentos text → tool → text em sequência', async ({ page, wails }) => {
     await wails.setResponse('GetMessages', [userMessage]);
     await wails.setResponse('SendMessage', initialAssistantMessageId);
@@ -262,6 +291,18 @@ test.describe('Chat — erro no envio', () => {
       undefined,
       { timeout: 5_000 },
     );
+
+    // Um terminal atrasado do envio anterior não pode encerrar o novo controller.
+    const sends = (await wails.getCallLog()).filter((call) => call.fn === 'SendMessage');
+    const previousParams = sends[0].args[3] as { surfaceExecutionId: string };
+    const currentParams = sends[1].args[3] as { surfaceExecutionId: string };
+    expect(previousParams.surfaceExecutionId).toBeTruthy();
+    expect(currentParams.surfaceExecutionId).not.toBe(previousParams.surfaceExecutionId);
+    await wails.emit('chat:done', {
+      conversationId,
+      assistantMessageId: firstFailedAssistantMessageId,
+      surfaceOrigin: { executionId: previousParams.surfaceExecutionId },
+    });
 
     await wails.emit('chat:messages_ready', {
       conversationId,

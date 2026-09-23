@@ -181,11 +181,16 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 	defer cancel()
 
 	// Executa com recover para capturar panics
+	// O coletor pertence à execução, e não à goroutine: assim sinais emitidos
+	// antes de timeout/cancelamento também podem ser anexados ao resultado que
+	// o executor devolve imediatamente.
+	collector := &securitySignalCollector{}
+	execCtx := withSecuritySignalCollector(WithMaxResultSize(toolCtx, e.config.MaxResultSize), collector)
 	resultCh := make(chan ToolExecutionResult, 1)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				resultCh <- ToolExecutionResult{
+				panicResult := ToolExecutionResult{
 					CallID:   call.ID,
 					ToolName: toolName,
 					Result: ToolResult{
@@ -198,14 +203,16 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					RetryabilityKnown: true,
 					DurationMs:        time.Since(start).Milliseconds(),
 				}
+				attachSecuritySignals(&panicResult.Result, collector)
+				resultCh <- panicResult
 			}
 		}()
 
 		// Expõe à tool o limite efetivo de resultado deste executor, para que
 		// tools com saída estruturada possam falhar de forma controlada em vez de
 		// serem truncadas (o que invalidaria, p.ex., um JSON canônico).
-		execCtx := WithMaxResultSize(toolCtx, e.config.MaxResultSize)
 		result, err := tool.Execute(execCtx, args)
+		attachSecuritySignals(&result, collector)
 		if err != nil {
 			errKind := ErrorKindUnknown
 			retryable := false
@@ -368,7 +375,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 		elapsed := time.Since(start).Milliseconds()
 		if ctx.Err() != nil {
 			// Contexto pai cancelado (usuário cancelou) — não é timeout
-			return ToolExecutionResult{
+			cancelled := ToolExecutionResult{
 				CallID:   call.ID,
 				ToolName: toolName,
 				Result: ToolResult{
@@ -381,9 +388,11 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				RetryabilityKnown: true,
 				DurationMs:        elapsed,
 			}
+			attachSecuritySignals(&cancelled.Result, collector)
+			return cancelled
 		}
 		// Timeout da tool
-		return ToolExecutionResult{
+		timedOut := ToolExecutionResult{
 			CallID:   call.ID,
 			ToolName: toolName,
 			Result: ToolResult{
@@ -396,7 +405,23 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			RetryabilityKnown: true,
 			DurationMs:        elapsed,
 		}
+		attachSecuritySignals(&timedOut.Result, collector)
+		return timedOut
 	}
+}
+
+func attachSecuritySignals(result *ToolResult, collector *securitySignalCollector) {
+	if result == nil || collector == nil {
+		return
+	}
+	signals := collector.snapshot()
+	if len(signals) == 0 {
+		return
+	}
+	if result.Metadata == nil {
+		result.Metadata = make(map[string]any)
+	}
+	result.Metadata[SecuritySignalsMetadataKey] = signals
 }
 
 func outputWindowOf(result ToolResult) *OutputWindowAnnotation {

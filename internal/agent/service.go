@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"assistente/internal/acp"
 	"assistente/internal/logging"
 	"context"
 	"crypto/sha256"
@@ -137,6 +138,9 @@ func (s *Service) StreamSimpleWithRecovery(
 		// Só a última tentativa deve finalizar o streaming com erro.
 		h.SuppressTerminalError(attempt < attempts)
 		streamer.StreamChat(ctx, messages, params, h)
+		if h.TerminalEmitted() {
+			return
+		}
 		if ctx.Err() != nil {
 			partialContent, partialReasoning := h.Finalize()
 			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
@@ -152,12 +156,14 @@ func (s *Service) StreamSimpleWithRecovery(
 		if h.ErrorNotRetryable() {
 			partialContent, partialReasoning := h.Finalize()
 			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
+			s.persistErrorWhenEmpty(ctx, h.AssistantMessageID, h.LastError())
 			logging.Errorf(ctx, "agent.service", "[Chat] streaming interrompido sem repetição possível (conversa %s): %s", conversationID, h.LastError())
 			return
 		}
 		if attempt == attempts {
 			partialContent, partialReasoning := h.Finalize()
 			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
+			s.persistErrorWhenEmpty(ctx, h.AssistantMessageID, h.LastError())
 		}
 		if attempt < attempts {
 			logging.Errorf(context.Background(), "agent.service", "[Chat] streaming interrompido (conversa %s, tentativa %d/%d): %s", conversationID, attempt, attempts, h.LastError())
@@ -257,7 +263,9 @@ type LoopStats struct {
 }
 
 // SaveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
-// Se houve MCP tool calls nativas, persiste no banco antes da mensagem final.
+// A persistência da mensagem final é um gate: sem ela, o turno termina em erro
+// recuperável e nenhum efeito de sucesso (notificação, TTS, resumo ou replay de
+// tools) é disparado.
 // loopStats é opcional — se nil, apenas os campos enriquecidos derivados das estatísticas do loop ficam vazios.
 func (s *Service) SaveAndFinish(
 	ctx context.Context,
@@ -267,8 +275,12 @@ func (s *Service) SaveAndFinish(
 	profileSlug string,
 	loopStats *LoopStats,
 	surfaceOrigin *ports.ChatSurfaceOrigin,
-) {
+) bool {
 	var savedMsgID string
+	// MCP nativo é evidência de uma ação já executada pelo provider. Ele deve
+	// ser registrado antes da finalização da mensagem: uma falha posterior no
+	// update do assistant não pode apagar o ledger e induzir um retry a repetir
+	// uma ação real.
 	if conversationID != "" && turnID != "" && len(result.NativeMCPEvents) > 0 {
 		finalIteration := 0
 		if loopStats != nil && loopStats.IterationCount > 0 {
@@ -298,10 +310,17 @@ func (s *Service) SaveAndFinish(
 		var err error
 		savedMsgID, err = chat.FinalizeAssistantMessage(ctx, s.msgRepo, assistantMessageID, opts)
 		if errors.Is(err, chat.ErrConversationGone) {
-			return
+			return false
 		}
 		if err != nil {
 			logging.Errorf(ctx, "agent.service", "[Agent] erro ao salvar resposta final: %v", err)
+			s.persistAssistantPartialBestEffort(ctx, assistantMessageID, result.FullResponse, result.Reasoning)
+			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+				s.emitFinalizationCancelledDone(conversationID, turnID, assistantMessageID, surfaceOrigin)
+				return true
+			}
+			s.emitFinalizationErrorDone(conversationID, turnID, assistantMessageID, surfaceOrigin)
+			return true
 		}
 	}
 	if savedMsgID == "" {
@@ -414,11 +433,41 @@ func (s *Service) SaveAndFinish(
 	if s.triggerSummarize != nil {
 		go func() {
 			defer s.recoverFromPanic(conversationID, "triggerSummarize")
-			s.triggerSummarize(ctx, conversationID, profileSlug)
+			// O resumo é trabalho posterior à persistência, não parte do turno
+			// cujo contexto será encerrado assim que o worker retornar.
+			s.triggerSummarize(context.WithoutCancel(ctx), conversationID, profileSlug)
 		}()
 	}
 
 	s.emitTokenStats(conversationID)
+	return true
+}
+
+func (s *Service) emitFinalizationCancelledDone(conversationID, turnID, assistantMessageID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
+	if s == nil || s.emitter == nil {
+		return
+	}
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID:     conversationID,
+		TurnID:             turnID,
+		AssistantMessageID: assistantMessageID,
+		Reason:             "cancelled",
+		SurfaceOrigin:      surfaceOrigin,
+	})
+}
+
+func (s *Service) emitFinalizationErrorDone(conversationID, turnID, assistantMessageID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
+	if s == nil || s.emitter == nil {
+		return
+	}
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID:     conversationID,
+		TurnID:             turnID,
+		AssistantMessageID: assistantMessageID,
+		Reason:             "error",
+		ErrorMessage:       ports.ChatErrorInternal,
+		SurfaceOrigin:      surfaceOrigin,
+	})
 }
 
 func optionalTokenCount(value *int) any {
@@ -479,6 +528,9 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 			OutputBytes:        summary.OutputBytes,
 			HasDetails:         summary.HasDetails,
 			ResultAvailability: summary.ResultAvailability,
+			HasSearchResults:   summary.HasSearchResults,
+			SearchResultCount:  summary.SearchResultCount,
+			SecurityOutcome:    summary.SecurityOutcome,
 			AssistantMessageID: summary.AssistantMessageID,
 		}
 		callsByTurn[turnID] = append(callsByTurn[turnID], call)
@@ -516,6 +568,8 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 				InputPreview: call.InputPreview, OutputPreview: call.OutputPreview,
 				InputBytes: call.InputBytes, OutputBytes: call.OutputBytes,
 				HasDetails: call.HasDetails, ResultAvailability: call.ResultAvailability,
+				HasSearchResults: call.HasSearchResults, SearchResultCount: call.SearchResultCount,
+				SecurityOutcome: call.SecurityOutcome,
 			})
 		}
 		patch.Message.TurnSegments = append(patch.Message.TurnSegments, target)
@@ -1293,6 +1347,30 @@ func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assista
 
 	if err := s.msgRepo.UpdateMessageContentAndReasoning(persistCtx, assistantMessageID, content, reasoning, promptTokens, completionTokens, totalTokens, model); err != nil {
 		logging.Warnf(ctx, "agent.service", "[Agent] aviso: falha ao persistir conteúdo parcial da mensagem assistant %s: %v", assistantMessageID, err)
+	}
+}
+
+// persistErrorWhenEmpty grava o texto do erro no placeholder quando o turno
+// termina sem nenhum conteúdo (AEP-0108 D4). Placeholder vazio apaga o rastro
+// na UI; com o motivo salvo, a conclusão normal o anuncia/fala. Cancelamento
+// de quem chamou não passa por aqui — não é falha. O texto é sanitizado por
+// ser fronteira de dado não confiável (parte dele vem do agente).
+func (s *Service) persistErrorWhenEmpty(ctx context.Context, assistantMessageID, errText string) {
+	assistantMessageID = strings.TrimSpace(assistantMessageID)
+	if assistantMessageID == "" || strings.TrimSpace(errText) == "" || s.msgRepo == nil {
+		return
+	}
+	persistCtx := context.WithoutCancel(ctx)
+	msg, err := s.msgRepo.GetMessage(persistCtx, assistantMessageID)
+	if err != nil || msg == nil || strings.TrimSpace(msg.Content) != "" {
+		return
+	}
+	conteudo := "Falha na resposta do agente: " + acp.SanitizeContent(errText)
+	if err := s.msgRepo.UpdateMessageContentAndReasoning(persistCtx, assistantMessageID, conteudo, msg.Reasoning, msg.PromptTokens, msg.CompletionTokens, msg.TotalTokens, msg.Model); err != nil {
+		// Sem prefixo [Agent]: o inventário de logging legado (issue #675)
+		// congela os formatos com prefixo de componente em minúsculas, e código
+		// novo não deve aumentar essa lista.
+		logging.Warnf(ctx, "agent.service", "aviso: falha ao persistir erro da mensagem assistant %s: %v", assistantMessageID, err)
 	}
 }
 

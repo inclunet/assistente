@@ -200,7 +200,7 @@ export function WorkspaceChatModal() {
         if (context.command) throw new ChatMessagingStaleError();
         useUIStore.getState().addToast(t('workspace.chatModal.adapterUnavailable'), 'error');
         handleClose();
-        return;
+        return false;
       }
 
       const ws = useWorkspaceStore.getState().workspace;
@@ -209,7 +209,7 @@ export function WorkspaceChatModal() {
         if (context.command) throw new ChatMessagingStaleError();
         useUIStore.getState().addToast(t('workspace.chatModal.adapterUnavailable'), 'error');
         handleClose();
-        return;
+        return false;
       }
 
       // A conversa vinculada ao modal (boundConversationId) é a fonte de verdade do
@@ -226,26 +226,26 @@ export function WorkspaceChatModal() {
         } catch (e) {
           logger.error('[workspaceChatModal] falha ao garantir conversa no envio:', e);
           useUIStore.getState().addToast(t('editor.chatModal.newConversationError'), 'error');
-          return;
+          return false;
         }
       }
 
       if (!targetConversationId) {
         logger.error('[workspaceChatModal] conversationId ausente após ensure — envio cancelado');
         useUIStore.getState().addToast(t('editor.chatModal.newConversationError'), 'error');
-        return;
+        return false;
       }
 
       const sendPlan = await boundSend(content, mediaFiles, meta, {
         tabId,
         conversationId: targetConversationId,
       });
-      if (!sendPlan) { if (context.command) throw new ChatMessagingStaleError(); return; }
+      if (!sendPlan) { if (context.command) throw new ChatMessagingStaleError(); return false; }
       if (context.command && !context.command.isCurrent()) throw new ChatMessagingStaleError();
 
       try {
         const sendOrigin = normalizeChatSurfaceOrigin(context.origin, targetConversationId);
-        await sendChatSurfaceMessage(
+        const accepted = await sendChatSurfaceMessage(
           targetConversationId,
           sendPlan.content,
           sendPlan.mediaFiles,
@@ -253,13 +253,19 @@ export function WorkspaceChatModal() {
           sendOrigin,
           context.command,
         );
+        if (!accepted) {
+          sendPlan.onSendRejected?.();
+          return false;
+        }
         await sendPlan.afterSend?.();
+        return true;
       } catch (error) {
         if (context.command) throw error;
         sendPlan.onSendError?.(error);
         if (!sendPlan.onSendError) {
           throw error;
         }
+        return false;
       }
     },
     [handleClose, t],

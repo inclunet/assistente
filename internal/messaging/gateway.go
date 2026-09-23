@@ -467,6 +467,7 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 			"text":            msg.Text,
 			"messageId":       msg.ID,
 			"conversationId":  conversationID,
+			"traceId":         traceID,
 			"newConversation": created,
 			"hasAttachments":  hasAttachments,
 			"audioOnly":       msg.IsAudioOnly(),
@@ -502,6 +503,18 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	// 7. Chama o mesmo SendMessage que o Wails usa (com o conversationID dedicado)
 	//    Usa o perfil do canal (se configurado) em vez do perfil ativo global.
 	params := llm.ChatParams{}
+	participant := msg.From.ID
+	if participant == "" {
+		participant = msg.From.DisplayName
+	}
+	if participant == "" {
+		participant = "unknown"
+	}
+	surfaceID := fmt.Sprintf("external:%s:%s", msg.Channel, participant)
+	params.SurfaceExecutionID = traceID
+	params.SurfaceID = surfaceID
+	params.SurfaceType = "external"
+	params.SurfaceSessionKey = fmt.Sprintf("%s:%s", surfaceID, conversationID)
 	if channelProfile != "" {
 		params.ProfileSlug = channelProfile
 		logging.Infof(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, channelProfile)
@@ -513,6 +526,19 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	_, err = g.sendMessage(sendCtx, conversationID, msg.Text, mediaJSON, params, msg.Channel)
 	if err != nil {
 		logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao processar mensagem: %v", traceID, conversationID, msg.Channel, err)
+		if g.emitEvent != nil {
+			g.emitEvent("chat:error", map[string]any{
+				"conversationId": conversationID,
+				"error":          err.Error(),
+				"surfaceOrigin": map[string]any{
+					"conversationId": conversationID,
+					"sessionKey":     params.SurfaceSessionKey,
+					"surfaceId":      params.SurfaceID,
+					"surfaceType":    params.SurfaceType,
+					"executionId":    params.SurfaceExecutionID,
+				},
+			})
+		}
 		// B7: o callback deste turno nunca seria invocado porque
 		// sendMessage falhou antes do agentic loop chegar a saveAndFinish
 		// (que dispara Notify). CancelTrace (não Cancel) evita apagar a

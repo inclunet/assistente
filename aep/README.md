@@ -5,8 +5,8 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 Este diretório é o **repositório único** de decisões arquiteturais do projeto
 (ver `CLAUDE.md`). Não criar outro diretório para AEPs — tudo fica em `aep/`.
 
-> **Inventário (2026-09-22):** este índice contém **104 documentos principais
-> para 103 números ocupados**. A diferença é a colisão histórica 0074, representada
+> **Inventário (2026-09-22):** este índice contém **107 documentos principais
+> para 106 números ocupados**. A diferença é a colisão histórica 0074, representada
 > temporariamente como 0074-A e 0074-B até sua renumeração. Séries multi-arquivo
 > têm o principal listado na tabela e os demais em
 > [Apêndices por AEP](#apêndices-por-aep). Convenção em
@@ -16,7 +16,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
-AEP-0103, seção137 após reconciliação129 (22/09/2026): **In Progress**.
+AEP-0103, seção138 após reconciliação129 (22/09/2026): **In Progress**.
 **76/84 critérios com implementação identificada (90,5%); 8 parciais e
 0 ausentes**, sem novo aceite final. Saídas R: **11 A / 14 I / 22 P / 1 N**,
 25/48 implementadas incluindo aceitas (52,1%); **1/12 gates aceito**.
@@ -33,6 +33,9 @@ sem retry de efeitos; qualificação integrada ampliada sem novos aceites.
 Seção137: provas adicionais de camadas por origem e callbacks diálogo/job;
 inventário reconciliado com v40. App completo passou com ordem aleatória e
 log integral; a intermitência anterior não foi reproduzida nem encerrada.
+Seção138: integração da main `714a47c4e`, com checkpoint local recuperável.
+Falha preexistente de revisão ABA ao fixar/desafixar mensagem identificada;
+permanece aberta e não é apresentada como regressão corrigida pelo merge.
 Catálogo v40: 149 comandos / 61 locais / 67 defaults; 81 IDs do Deck são
 outro denominador. Δ18 corrigido: matriz estática preparada antes da entrada
 física, com recusa de snapshot stale e fatos nativos atuais por tecla.
@@ -44,7 +47,7 @@ reserva nativa temporária de Ctrl+Shift+R, stack real de diálogos, precedênci
 sobre configuração e teardown, sem confirmar decisões. R07.3 tem implementação
 identificada; seu gate agregado permanece aberto. Latência integrada,
 aceite físico/NVDA e demais gates continuam pendentes;
-[estados, evidências e próximos passos](0103-tasklist-conclusao.md#137-convergência-de-origens-e-qualificação-rastreável--22092026).
+[estados, evidências e próximos passos](0103-tasklist-conclusao.md#138-integração-da-main-e-regressão-cruzada--22092026).
 
 AEP-0103, seção128 (22/09/2026): 81 IDs no Deck contextual (79 anteriores +
 aplicar/remover Mermaid), quatro fatos visuais restritos ao editor, inclusive
@@ -731,7 +734,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0037](0037-sdk-migration-chat-provider.md) | SDK Migration + ChatProvider Interface | 🚧 In Progress |
 | [0038](0038-voice-model-refactor.md) | Refatoração do Modelo de Voz (por Role) | ✅ Done |
 | [0039](0039-tool-calling-revamp.md) | Tool Calling — Revamp & Enhancements | 🚧 In Progress |
-| [0040](0040-backend-driven-messaging.md) | Backend-Driven Messaging — Desacoplamento Frontend↔Mensagens | ✔️ Accepted |
+| [0040](0040-backend-driven-messaging.md) | Backend-Driven Messaging — Desacoplamento Frontend↔Mensagens; isolamento, progresso cronológico e anúncios arbitrados | ✔️ Accepted |
 | [0041](0041-proactive-tts.md) | TTS Proativo (Backend-Driven) | 🚧 In Progress |
 | [0042](0042-chat-surface-context.md) | Chat Surface Context | 🚧 In Progress |
 | [0043](0043-tts-stt-voices.md) | Evolução TTS/STT: Vozes (Assistant + User) | 🗄️ Superseded |
@@ -746,14 +749,14 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0052](0052-multi-user-accounts.md) | Sistema de Contas de Usuário | 🚧 In Progress |
 | [0053](0053-mcp-graceful-degradation.md) | Degradação graciosa de MCP nativo no chat | 🚧 In Progress |
 | [0056](0056-workspace-self-contained-tabs.md) | Workspace com Abas Autocontidas | ✅ Done |
-| [0057](0057-chat-session-identity.md) | Sessões de Superfície e Timeline de Chat | ✅ Done |
+| [0057](0057-chat-session-identity.md) | Sessões de Superfície e Timeline de Chat — fan-out e rascunho PR3 | ✅ Done |
 | [0058](0058-global-accessibility-voice-arbitration.md) | Arbitragem Global de Acessibilidade e Voz | ✅ Done |
-| [0059](0059-long-conversation-performance.md) | Performance de Conversas Longas | 🚧 In Progress |
+| [0059](0059-long-conversation-performance.md) | Performance de Conversas Longas | 🚧 In Progress — janela, timeline, detalhes lazy, contagem indexada e memoização da lista entregues; demais conteúdos pesados seguem pendentes |
 | [0060](0060-command-policy-parser.md) | Parser e Política de Comandos | ✅ Done |
 | [0061](0061-credential-loss-incident-and-defenses.md) | Incidente de Perda de Credenciais e Defesas | ✔️ Accepted |
 | [0062](0062-profile-application-and-local-provider-auth.md) | Aplicação de Perfil e Auth de Provider Local | ✅ Done |
 | [0063](0063-tool-invocations-and-common-executor.md) | Tool Invocations e Executor Comum | ✅ Done |
-| [0064](0064-streaming-recovery-explicito.md) | Recuperação explícita de resposta interrompida (continuação) e cancelamento de geração | ✅ Done |
+| [0064](0064-streaming-recovery-explicito.md) | Recuperação explícita de resposta interrompida (continuação) e cancelamento de geração | ✅ Done — recuperação, retry ancorado com leitura limitada e persistência terminal |
 | [0065](0065-llm-rate-limiting.md) | Rate Limiting nas Chamadas ao Provedor LLM | ✅ Done |
 | [0066](0066-connection-status-indicator.md) | Indicador de Status de Conexão com a API LLM | ✅ Done |
 | [0067](0067-tasklist-domain-events-and-custom-actions.md) | Eventos de Domínio de Tasklists e Custom Actions | 🚧 In Progress |
@@ -794,8 +797,11 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
 | [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
 | [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 🚧 In Progress |
-| [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico | ✅ Done |
+| [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; cronologia por rodada e conclusão terminal | ✅ Done |
 | [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress |
+| [0106](0106-contencao-do-pipeline-de-jobs.md) | Contenção do pipeline de jobs (limite de concorrência + cache por slug) | 🚧 In Progress |
+| [0107](0107-tool-execution-ux.md) | Experiência de execução de tools: estado, contexto e resultados acionáveis | ✅ Done |
+| [0108](0108-sessao-acp-presa-diagnostico-e-recuperacao.md) | Sessão ACP presa: diagnóstico e recuperação | 🚧 In Progress |
 
 Correções paralelas posteriores à revisão da AEP-0103 estão registradas nas seções 10 e 11 da tasklist de conclusão: bridge, importação, restore, outbox, lifecycle e a primeira rodada real de produto. O executor desktop usa `newCommandDesktopExecutor` e `commandconfig.ProjectComplete`; autenticação é por sessão local sem JWT, a bridge é assíncrona com shutdown/join, e recovery é preflight somente leitura fail-closed sem reconciliação interprocesso. A limitação inicial de entrega somente de resumo/status foi resolvida na seção 14: `workspace.list` entrega resultado efêmero no picker compartilhado. A seção 15 liga a seleção da paleta à resolução de configuração persistida, supressão e recusa sem fallback, inclusive na bridge. A falha histórica de `internal/acpregistry` não reapareceu nas suítes completas das seções 12–14, mas sua causa não foi certificada. Providers/transporte de UI, origens físicas, recovery R04 e o aceite BASE-PRONTA permanecem pendentes.
 
@@ -816,8 +822,8 @@ obsoleta não abre UI. Isso não migra a operação de troca de workspace nem
 fecha o gate completo de catálogo, configuração ou BASE-PRONTA.
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0105 → próximo
-> 0106), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0108 → próximo
+> 0109), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 

@@ -40,6 +40,8 @@ export function CancelCommandDeckCapture(arg1:string):Promise<void>;
 
 export function CancelUICommand(arg1:string):Promise<void>;
 
+export function CloseDecisionRepeatHotkeySession(arg1:string):Promise<void>;
+
 export function CommandBridgeAcceptResult(arg1:commandbridge.Result):Promise<commandbridge.ResultAck>;
 
 export function CommandBridgeCancel(arg1:commandbridge.CancelRequest):Promise<commandbridge.CancelAck>;
@@ -102,6 +104,8 @@ export function MutateCommandSettings(arg1:app.CommandSettingsMutationRequest):P
 
 export function OpenChatEditorCommand(arg1:string,arg2:string,arg3:string):Promise<app.ChatEditorCommandTarget>;
 
+export function OpenDecisionRepeatHotkeySession():Promise<string>;
+
 export function PrepareChatEditorCommand(arg1:string,arg2:string,arg3:string,arg4:string):Promise<app.ChatEditorCommandPlan>;
 
 export function PrepareChatMessageCommand(arg1:string,arg2:string):Promise<void>;
@@ -135,6 +139,8 @@ export function SaveCommandLayer(arg1:app.CommandLayerEdit):Promise<app.CommandS
 export function SetCommandLayerActive(arg1:string,arg2:boolean):Promise<app.CommandSettingsMutation>;
 
 export function SetCommandLayerActiveForScope(arg1:string,arg2:string,arg3:boolean):Promise<app.CommandSettingsMutation>;
+
+export function SetDecisionRepeatHotkey(arg1:string,arg2:number,arg3:string):Promise<void>;
 
 export function SetDefaultCommandSuppressed(arg1:string,arg2:boolean):Promise<app.CommandSettingsMutation>;
 

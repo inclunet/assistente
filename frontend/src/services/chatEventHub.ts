@@ -19,10 +19,12 @@ export type ChatTurnEventName = (typeof CHAT_TURN_EVENT_NAMES)[number];
 interface RoutedChatEvent {
   conversationId: string;
   turnId?: string;
+  surfaceOrigin?: { executionId?: string };
 }
 
 export interface ChatTurnRoute {
   conversationId: string;
+  executionId?: string;
   getTurnId: () => string | null;
   bindTurnId: (turnId: string) => void;
   handlers: Partial<Record<ChatTurnEventName, (event: never) => void>>;
@@ -37,6 +39,14 @@ function dispatch(name: ChatTurnEventName, payload: unknown) {
   if (!event.conversationId) return;
   const route = routes.get(event.conversationId);
   if (!route) return;
+
+  // Retry mantém turnId; somente a identidade da execução distingue seu
+  // terminal de um terminal atrasado da tentativa anterior.
+  if (route.executionId && event.surfaceOrigin?.executionId !== route.executionId) {
+    // Fala é arbitrada globalmente e pode vir sem origem de execução.
+    // Erros de preparação sem origem chegam também pelo retorno do binding.
+    if (name !== 'chat:speak' || event.surfaceOrigin?.executionId) return;
+  }
 
   const eventTurnId = typeof event.turnId === 'string' ? event.turnId.trim() : '';
   const activeTurnId = route.getTurnId()?.trim() ?? '';
@@ -73,9 +83,10 @@ export function createChatTurnEventRouter(
   conversationId: string,
   getTurnId: () => string | null,
   bindTurnId: (turnId: string) => void,
+  executionId?: string,
 ) {
   const handlers: ChatTurnRoute['handlers'] = {};
-  const unregister = registerChatTurnRoute({ conversationId, getTurnId, bindTurnId, handlers });
+  const unregister = registerChatTurnRoute({ conversationId, executionId, getTurnId, bindTurnId, handlers });
   return {
     on: <T,>(name: ChatTurnEventName, handler: (event: T) => void) => {
       const routedHandler = handler as (event: never) => void;

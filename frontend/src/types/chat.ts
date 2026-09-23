@@ -24,7 +24,8 @@ export interface ToolCallStatus {
   name: string;
   callId: string;
   args?: string;
-  status: 'running' | 'done' | 'error';
+  status: 'running' | 'done' | 'error' | 'cancelled';
   summary?: string;
   origin?: ToolOrigin;
+  serverLabel?: string;
 }
