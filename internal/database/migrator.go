@@ -340,6 +340,23 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     func(*gorm.DB) error { return errMigrationDeferred },
 	},
+	{
+		Version: 30,
+		Name:    "chat_message_durable_revisions",
+		Phase:   phasePostAutoMigrate,
+		Run: func(database *gorm.DB) error {
+			// The deferred v19 cutover rebuilds chat_messages. Installing
+			// triggers before it completes would silently lose them later.
+			applied, err := appliedMigrationVersions(database)
+			if err != nil {
+				return err
+			}
+			if !applied[19] {
+				return errMigrationDeferred
+			}
+			return MigrateMessageRevisions(database)
+		},
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

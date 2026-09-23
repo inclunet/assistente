@@ -1,10 +1,10 @@
 # AEP-0103 — Tasklist de conclusão integral
 
-Baseline inicial de 16/09/2026; reconciliação de 22/09/2026 atualizada pela seção138. Branch `feat/aep-0103-comandos`; checkpoint `c9bead64c` preserva o trabalho anterior à integração de `origin/main` (`714a47c4e`). Status do AEP: **In Progress**.
+Baseline inicial de 16/09/2026; reconciliação de 22/09/2026 atualizada pela seção139. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.
 
-## 1. Progresso reconciliado — 22/09/2026, após a seção138
+## 1. Progresso reconciliado — 22/09/2026, após a seção139
 
 A seção129 registra a reconciliação documental; as seções130–133 implementam
 a correção de Δ18/C22, o cache produtivo de C62 e a recusa global fora da
@@ -8585,3 +8585,67 @@ durante o merge. Logs: `merge-main-backend-domains-20260922.log` e
 
 Placar preservado: **76 I / 8 P / 0 N**, saídas **11 A / 14 I / 22 P / 1 N**,
 gates **1/12**. Integrar main não é fechar critério ou conceder aceite manual.
+
+## 139. Revisão durável de mensagens contra ABA — 22/09/2026
+
+### Correção
+
+- A falha aberta na seção138 não é tratada com sleeps nem relaxamento de
+  asserções. A v30 `chat_message_durable_revisions` adiciona revisão interna
+  por mensagem, independente da precisão de `updated_at`.
+- Triggers SQLite de INSERT/UPDATE/DELETE mantêm `chat_message_revisions`
+  atomicamente. O nonce muda mesmo em SQL direto, UpdateColumn, bulk e troca
+  de ID; exclusão limpa o metadado e reinserção não ressuscita a revisão.
+  Não é auditoria por tecla, credencial ou histórico acumulativo.
+- Snapshot de mensagem combina payload e revisão persistida. Snapshot de
+  conversa inclui revisões ordenadas, preservando a consulta de ownership e
+  a comparação/escrita dentro do BEGIN IMMEDIATE existente. Metadados
+  ausentes recusam preparação/commit, sem fallback para timestamps.
+- Migração transacional e idempotente faz backfill sem alterar payloads.
+  A v30 aguarda o cutover v19 quando adiado, pois ele recria a tabela de
+  mensagens; instalar triggers antes dele os perderia na retomada. O teste
+  0.1.9 cobre adiamento, adoção do owner e aplicação após a reconstrução.
+  Nenhum campo público ou binding Wails muda. Fixtures do App executam a
+  mesma migração registrada em produção, sem mecanismo alternativo de teste.
+- O escopo é ABA de linhas de mensagem: não declara resolvida toda possível
+  sequência ABA de outras tabelas, nem restauração física com capturas vivas.
+
+### Evidências e limites
+
+- Testes determinísticos de relógio congelado, SQL/bulk, rollback, reinserção,
+  metadados ausentes e dois handles de banco em arquivo estão em
+  `internal/database/message_revision_storage_test.go`.
+- Upgrade das fixtures 0.1.9–0.5.0 e segundo boot real preservam tokens,
+  payload e timestamps; pin ABA invalida a revisão após o upgrade.
+  `TestMessageRevisionsPublishedUpgradesAndSecondBoot` e o teste original
+  `TestMessageCommandPinRevisionDetectsABA` passaram em **30 repetições**.
+- Regressão completa `internal/database`: **PASS, 20,562 s**, incluindo
+  o caminho adiado v19→v30 e rollback da migração. Log local ignorado:
+  `message-revision-database-final-20260922.log`.
+- Suíte completa `internal/app`: **PASS, 325,209 s**; recorte final de comandos
+  de mensagem, editor e limpeza: **PASS, 30,620 s**, incluindo a prova no App
+  de pin ABA com `updated_at` deliberadamente inalterado. Logs locais:
+  `message-revision-app-all-20260922.log` e
+  `message-revision-app-focused-final-20260922.log`.
+- Upgrade, rollback/retry de migração e falha original: **30 repetições PASS,
+  18,129 s** (`message-revision-upgrade-repeat-final-20260922.log`).
+- Agente Luna implementou a suíte adicional; revisão principal exigiu separar
+  pin/texto, verificar commits recusados e eliminar Skip de concorrência.
+  Suíte final `Test(MessageRevisionStorage|MessageCommand|ConversationContent)`:
+  **30 repetições PASS**. `go vet` de database/App, verificador AEP e
+  `git diff --check`: PASS. Sem alteração de frontend nesta rodada.
+- Revisão independente por outro agente Luna: nenhum bloqueio produtivo no
+  escopo ABA; apontou fixture parcial do controller sem a migração, corrigida
+  para usar o mesmo instalador canônico. A migração não é reparador de schema
+  adulterado: `IF NOT EXISTS` não valida triggers previamente substituídos.
+  O nonce é identidade interna, não segredo; o runtime valida presença e
+  comprimento, e o gerador SQLite produz hexadecimal. A reinserção com mesmo
+  ID/payload/datas foi qualificada diretamente; não se declara certificado
+  todo o fluxo de restore físico a partir desses testes.
+- Regressão adicional: **controllers PASS (15,867 s)** e **portability PASS
+  (14,625 s)**, log `message-revision-controller-portability-20260922.log`.
+
+Placar preservado: **76 I / 8 P / 0 N**, saídas **11 A / 14 I / 22 P / 1 N**,
+gates **1/12**. Correção de segurança de concorrência não equivale a aceite
+manual ou conclusão integral de C02/C09/C83. Sem banco pessoal, app aberto,
+teste do pacote ACP, executável diagnóstico customizado ou push.

@@ -23,6 +23,9 @@ func clearControllerFixture(t *testing.T) (*gorm.DB, context.Context, string, st
 	if err := db.AutoMigrate(&database.Conversation{}, &database.ChatMessage{}, &database.ToolInvocation{}); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.MigrateMessageRevisions(db); err != nil {
+		t.Fatal(err)
+	}
 	previous := database.DB()
 	database.SetDB(db)
 	t.Cleanup(func() {

@@ -76,11 +76,25 @@ func conversationContentRevisionTx(ctx context.Context, tx *gorm.DB, id string) 
 	if _, err := NewConversationRepository(tx).GetConversationInfoWithContext(ctx, id); err != nil {
 		return "", err
 	}
+	// Include durable mutation nonces, not merely values that can return to A
+	// after A→B→A. Refuse incomplete metadata rather than weaken the snapshot.
+	var missing int64
+	if err := tx.WithContext(ctx).Table("chat_messages AS m").
+		Joins("LEFT JOIN chat_message_revisions AS r ON r.message_id = m.id").
+		Where("m.conversation_id = ? AND (r.message_id IS NULL OR length(r.revision) <> 64)", id).
+		Count(&missing).Error; err != nil {
+		return "", err
+	}
+	if missing != 0 {
+		return "", ErrConversationContentChanged
+	}
 	// Inclui todas as colunas persistidas (inclusive payloads e timestamps):
 	// count/max(id)/updated_at isolados não detectam edições de conteúdo.
 	queries := []*gorm.DB{
 		tx.Table("conversations").Where("id = ? AND user_id = ?", id, userID),
 		tx.Table("chat_messages").Where("conversation_id = ?", id),
+		tx.Table("chat_message_revisions").Select("message_id AS id, revision").
+			Where("message_id IN (?)", tx.Model(&ChatMessage{}).Select("id").Where("conversation_id = ?", id)),
 	}
 	hasInvocations, err := sqliteTableExists(ctx, tx, &ToolInvocation{})
 	if err != nil {

@@ -49,6 +49,9 @@ func TestConversationContentCompareWaitsForWriterAndRejectsNewMessage(t *testing
 	if err := conn.AutoMigrate(&Conversation{}, &ChatMessage{}); err != nil {
 		t.Fatal(err)
 	}
+	if err := MigrateMessageRevisions(conn); err != nil {
+		t.Fatal(err)
+	}
 	conversation := Conversation{UserID: testUserID, Title: "Writer"}
 	if err := conn.Create(&conversation).Error; err != nil {
 		t.Fatal(err)

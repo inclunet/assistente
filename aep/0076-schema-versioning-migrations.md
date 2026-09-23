@@ -117,6 +117,30 @@ Ele não inclui caminhos, IDs, conteúdo ou credenciais.
    0.3.0, 0.4.0 e 0.5.0 são semanticamente equivalentes. Proveniência,
    fingerprints e limites ficam no README das fixtures.
 
+## Complemento AEP-0103 — revisões duráveis de mensagens (v30)
+
+A v30 `chat_message_durable_revisions` é pós-AutoMigrate e transacional.
+Se a v19 estiver adiada, a v30 também aguarda: o cutover da v19 recria
+`chat_messages` e removeria triggers instalados antecipadamente. A v30 só
+é registrada depois de concluir essa dependência, inclusive em upgrade 0.1.9.
+Cria `chat_message_revisions` (ID da mensagem e nonce hexadecimal de 32 bytes)
+e triggers INSERT/UPDATE/DELETE em `chat_messages`. Cada escrita renova a
+revisão na mesma transação, inclusive SQL direto e bulk; excluir remove o
+metadado e reinserir o mesmo ID gera uma nova revisão. Não é log de comandos
+nem segredo de autenticação; não contém texto de mensagem e não vai para a UI.
+
+O backfill preenche apenas mensagens sem revisão, sem modificar seu payload
+ou timestamps. A função canônica `MigrateMessageRevisions` é a mesma usada
+pelo registro produtivo e pelos bancos parciais dos testes de integração.
+Os snapshots de comando/conversa incluem essas revisões e recusam metadados
+ausentes em vez de retornar ao hash baseado só em conteúdo e relógio.
+
+`TestMessageRevisionsPublishedUpgradesAndSecondBoot` qualifica fixtures de
+0.1.9–0.5.0 pelo upgrade e segundo boot reais, incluindo preservação e ABA.
+Restauração física de um banco inteiro continua exigindo aposentadoria do
+runtime e suas capturas; esta migração não autoriza restauração com comandos
+vivos, nem certifica downgrade para releases anteriores.
+
 ## Complemento AEP-0103 — migração de comandos composta pelo host
 
 A v21 `command_storage_initial` foi acrescentada ao registro, sem renumerar

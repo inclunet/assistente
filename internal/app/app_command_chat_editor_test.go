@@ -259,6 +259,9 @@ func TestCommandChatEditorKeyboardSurvivesOwnMapReset(t *testing.T) {
 	if err := database.DB().AutoMigrate(&database.Conversation{}, &database.ChatMessage{}); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.MigrateMessageRevisions(database.DB()); err != nil {
+		t.Fatal(err)
+	}
 	conv, err := database.CreateConversationWithContext(database.WithUserID(context.Background(), a.currentUserID), "source", "")
 	if err != nil {
 		t.Fatal(err)
@@ -318,6 +321,9 @@ func TestCommandChatEditorKeyboardSurvivesOwnMapReset(t *testing.T) {
 func TestCommandChatEditorDeckPreservesSource(t *testing.T) {
 	a := deckChatPickerFixture(t, commandMessageSendEditorID)
 	if err := database.DB().AutoMigrate(&database.Conversation{}, &database.ChatMessage{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateMessageRevisions(database.DB()); err != nil {
 		t.Fatal(err)
 	}
 	ctx := database.WithUserID(context.Background(), a.currentUserID)

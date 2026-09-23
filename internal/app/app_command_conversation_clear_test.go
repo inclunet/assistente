@@ -30,6 +30,9 @@ func clearCommandFixture(t *testing.T, kind workspace.TabType) (*App, <-chan map
 	if err := database.DB().AutoMigrate(&database.Conversation{}, &database.ChatMessage{}); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.MigrateMessageRevisions(database.DB()); err != nil {
+		t.Fatal(err)
+	}
 	conv, err := database.CreateConversationWithContext(database.WithUserID(ctx, a.currentUserID), "clear", "")
 	if err != nil {
 		t.Fatal(err)

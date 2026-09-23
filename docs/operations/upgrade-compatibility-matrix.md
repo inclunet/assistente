@@ -114,6 +114,19 @@ As fixtures acima fecham as lacunas dos bancos publicados
 [#686](https://github.com/inclunet/assistente/issues/686). Todos os caminhos
 correspondentes permanecem obrigatórios pela política universal.
 
+## Revisões internas de mensagem (AEP-0103, v30)
+
+A migração `chat_message_durable_revisions` cria metadados internos e triggers
+SQLite, sem mudar conteúdo, IDs ou timestamps das mensagens. O backfill cria
+um nonce para cada mensagem existente e não troca revisões já presentes.
+Quando o cutover v19 está adiado por falta de owner, v30 aguarda sua conclusão
+antes de instalar triggers. O teste 0.1.9 cobre adoção e retomada desse caminho.
+`TestMessageRevisionsPublishedUpgradesAndSecondBoot` executa as fixtures
+0.1.9–0.5.0 pelo upgrade real e segundo boot, verificando preservação das
+revisões e invalidação após fixar/desafixar sem atualizar timestamps.
+Nenhum banco pessoal é usado. A matriz certifica upgrade; não certifica
+downgrade para binários antigos nem restauração de snapshots com comandos vivos.
+
 ## Regra para evolução
 
 Toda release nova deve acrescentar sua tag ao teste de compatibilidade e,

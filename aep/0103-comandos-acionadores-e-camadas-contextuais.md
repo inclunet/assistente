@@ -2,7 +2,7 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção138 (22/09/2026):** dos 84 critérios finais,
+**Acompanhamento vigente — seção139 (22/09/2026):** dos 84 critérios finais,
 **76 têm implementação identificada (90,5%), 8 são parciais e 0 ausentes**.
 Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
 A seção136 corrige o consumo concorrente de receipts com CAS completo como
@@ -12,8 +12,12 @@ adicionais; inventário atualizado para v40. App completo com ordem aleatória
 passou e preservou log integral, sem reproduzir ou explicar a intermitência
 anterior. Latência ponta a ponta e gates seguem abertos.
 Seção138 integra a main `714a47c4e`, preservando o checkpoint `c9bead64c`.
-Regressão revelou falha preexistente de revisão ABA ao fixar/desafixar mensagem;
-o diagnóstico e os limites de validação estão registrados na tasklist.
+Regressão revelou falha preexistente de revisão ABA ao fixar/desafixar mensagem.
+A seção139 substitui a dependência exclusiva de conteúdo/timestamp por nonce
+durável por mensagem, renovado transacionalmente pelos writers SQLite. A v30
+faz backfill sem alterar mensagens; os digests de comandos e conversa incluem
+essa revisão. Ausência de metadados recusa a operação, sem fallback inseguro.
+Evidências e limites estão registrados na tasklist; sem novo aceite manual.
 Saídas maiores: **11 A / 14 I / 22 P / 1 N = 48**; 25/48 com implementação
 identificada incluindo aceitas (52,1%). Gates: **1/12 aceito, R04**.
 C34/C35/C36 e R11.1/R11.3 têm implementação identificada: tools públicas de

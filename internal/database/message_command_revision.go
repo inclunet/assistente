@@ -13,7 +13,8 @@ import (
 var ErrMessageContentChanged = errors.New("message changed before command")
 
 // The editor's original text and the complete revision are checked/read from
-// the same transaction, before the command is admitted. Neither is persisted.
+// the same transaction, before the command is admitted. The digest is ephemeral;
+// its mutation nonce is maintained durably by SQLite.
 func MessageEditCommandSnapshotWithContext(ctx context.Context, conversationID, messageID, originalContent string) (string, error) {
 	return messageOriginalCommandSnapshot(ctx, conversationID, messageID, originalContent, true)
 }
@@ -75,7 +76,14 @@ func messageCommandRevisionTx(ctx context.Context, tx *gorm.DB, conversationID, 
 		}
 		return conversationContentRevisionTx(ctx, tx, conversationID)
 	}
-	raw, err := json.Marshal(message)
+	storedRevision, err := messageStoredRevisionTx(ctx, tx, messageID)
+	if err != nil {
+		return "", err
+	}
+	raw, err := json.Marshal(struct {
+		Message  *ChatMessage
+		Revision string
+	}{message, storedRevision})
 	if err != nil {
 		return "", err
 	}

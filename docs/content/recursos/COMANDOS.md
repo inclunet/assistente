@@ -11,6 +11,13 @@ separa configurações **globais** das do **workspace atual**. Na visão do
 workspace, itens globais herdados continuam visíveis, mas são editados no
 escopo global. Restaurar o workspace não apaga a configuração global.
 
+## Mensagens alteradas durante um comando
+
+Se uma mensagem for alterada após preparar uma ação, a ação antiga é recusada.
+Isso vale mesmo quando alguém fixa e desafixa rapidamente, ou edita e volta
+ao texto anterior. Confira o estado atual e execute o comando novamente;
+a confirmação anterior não autoriza agir sobre uma nova revisão da mensagem.
+
 ## Gerenciar pelo chat
 
 Para consultar o catálogo pelo terminal, veja o grupo

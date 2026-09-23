@@ -16,7 +16,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
-AEP-0103, seção138 após reconciliação129 (22/09/2026): **In Progress**.
+AEP-0103, seção139 após reconciliação129 (22/09/2026): **In Progress**.
 **76/84 critérios com implementação identificada (90,5%); 8 parciais e
 0 ausentes**, sem novo aceite final. Saídas R: **11 A / 14 I / 22 P / 1 N**,
 25/48 implementadas incluindo aceitas (52,1%); **1/12 gates aceito**.
@@ -34,8 +34,9 @@ Seção137: provas adicionais de camadas por origem e callbacks diálogo/job;
 inventário reconciliado com v40. App completo passou com ordem aleatória e
 log integral; a intermitência anterior não foi reproduzida nem encerrada.
 Seção138: integração da main `714a47c4e`, com checkpoint local recuperável.
-Falha preexistente de revisão ABA ao fixar/desafixar mensagem identificada;
-permanece aberta e não é apresentada como regressão corrigida pelo merge.
+Falha preexistente de revisão ABA ao fixar/desafixar mensagem identificada
+no merge e tratada na seção139: revisão durável por mensagem, triggers
+transacionais e migração v30, sem depender de timestamps ou alterar atalhos.
 Catálogo v40: 149 comandos / 61 locais / 67 defaults; 81 IDs do Deck são
 outro denominador. Δ18 corrigido: matriz estática preparada antes da entrada
 física, com recusa de snapshot stale e fatos nativos atuais por tecla.
@@ -47,7 +48,7 @@ reserva nativa temporária de Ctrl+Shift+R, stack real de diálogos, precedênci
 sobre configuração e teardown, sem confirmar decisões. R07.3 tem implementação
 identificada; seu gate agregado permanece aberto. Latência integrada,
 aceite físico/NVDA e demais gates continuam pendentes;
-[estados, evidências e próximos passos](0103-tasklist-conclusao.md#138-integração-da-main-e-regressão-cruzada--22092026).
+[estados, evidências e próximos passos](0103-tasklist-conclusao.md#139-revisão-durável-de-mensagens-contra-aba--22092026).
 
 AEP-0103, seção128 (22/09/2026): 81 IDs no Deck contextual (79 anteriores +
 aplicar/remover Mermaid), quatro fatos visuais restritos ao editor, inclusive

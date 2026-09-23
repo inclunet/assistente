@@ -176,7 +176,9 @@ func TestCommandChatMessageStaleAndCancel(t *testing.T) {
 			case "pin-aba":
 				original := m.UpdatedAt
 				for _, value := range []bool{true, false} {
-					if err := database.DB().Model(&m).Update("pinned", value).Error; err != nil {
+					// Bypass GORM's timestamp update: rejection must come from
+					// the durable revision, even with an identical final payload.
+					if err := database.DB().Model(&m).UpdateColumn("pinned", value).Error; err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -184,8 +186,8 @@ func TestCommandChatMessageStaleAndCancel(t *testing.T) {
 				if err := database.DB().First(&current, "id = ?", m.ID).Error; err != nil {
 					t.Fatal(err)
 				}
-				if current.Pinned || current.UpdatedAt.Equal(original) {
-					t.Fatal("ABA fixture did not advance revision")
+				if current.Pinned || !current.UpdatedAt.Equal(original) {
+					t.Fatal("ABA fixture must preserve pinned and updated_at")
 				}
 			case "source-generation":
 				if err := a.commandHost.SetActiveLayers(context.Background(), a.currentUserID, []string{"changed"}); err != nil {
@@ -222,6 +224,9 @@ func TestCommandChatMessageStaleAndCancel(t *testing.T) {
 func TestCommandChatMessageDeckPreservesSource(t *testing.T) {
 	a := deckChatPickerFixture(t, commandMessageCopyID)
 	if err := database.DB().AutoMigrate(&database.Conversation{}, &database.ChatMessage{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateMessageRevisions(database.DB()); err != nil {
 		t.Fatal(err)
 	}
 	ctx := database.WithUserID(context.Background(), a.currentUserID)
