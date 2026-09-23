@@ -197,7 +197,7 @@ describe('CustomActionsEditor', () => {
     fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     fireEvent.keyDown(grid, { key: 'Enter' });
-    expect(await screen.findByRole('heading', { name: 'Editar ação' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Editar ação: Investigar' })).toBeInTheDocument();
     expect(screen.getByLabelText(/Rótulo/)).toHaveValue('Investigar');
   });
 

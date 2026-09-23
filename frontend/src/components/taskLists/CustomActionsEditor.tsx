@@ -374,7 +374,11 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
         isOpen={itemModal !== null}
         onClose={closeItemModal}
         title={itemModal?.mode === 'edit'
-          ? t('tasklist.customActions.editAction', 'Editar ação')
+          ? t('tasklist.customActions.editActionNamed', 'Editar ação: {{label}}', {
+            label: actions.find((a) => a._uiId === itemModal.uiId)?.label
+              || actions.find((a) => a._uiId === itemModal.uiId)?.id
+              || '',
+          })
           : t('tasklist.customActions.newAction', 'Nova ação')}
       >
         <div className="custom-action-form">

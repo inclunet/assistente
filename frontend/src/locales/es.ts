@@ -4301,7 +4301,7 @@ const es = {
         add: 'Agregar acción',
         remove: 'Quitar acción',
         newAction: 'Nueva acción',
-        editAction: 'Editar acción',
+        editActionNamed: 'Editar acción: {{label}}',
         apply: 'Aplicar',
         action: 'Acción',
         publishesEvent: 'Publica evento',
