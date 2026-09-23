@@ -55,20 +55,53 @@ describe('CommandSettingsPage contrato avançado', () => {
     });
     const page = render(<CommandSettingsPage />);
     await bindingAction('commandSettings.actions.editBinding');
+    fireEvent.change(screen.getByLabelText('commandSettings.presentation.icon.label'), { target: { value: 'folder' } });
     fireEvent.change(screen.getByLabelText('commandSettings.presentation.locales.ptBR'), { target: { value: '  Meu título  ' } });
     fireEvent.change(screen.getByLabelText('commandSettings.presentation.locales.en'), { target: { value: '   ' } });
     fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
     await waitFor(() => expect(bridge.get).toHaveBeenCalledTimes(2));
     expect(bridge.mutate).toHaveBeenCalledWith(expect.objectContaining({ binding: expect.objectContaining({
-      presentation: { version: 1, icon: 'settings', status_label_keys: { active: 'status.active' },
+      presentation: { version: 1, icon: 'folder', status_label_keys: { active: 'status.active' },
         title_by_locale: { 'pt-BR': 'Meu título', es: 'Antes' } },
     }) }));
     page.unmount();
     render(<CommandSettingsPage />);
     await bindingAction('commandSettings.actions.editBinding');
+    expect(screen.getByLabelText('commandSettings.presentation.icon.label')).toHaveValue('folder');
     expect(screen.getByLabelText('commandSettings.presentation.locales.ptBR')).toHaveValue('Meu título');
     expect(screen.getByLabelText('commandSettings.presentation.locales.en')).toHaveValue('');
     expect(screen.getByLabelText('commandSettings.presentation.locales.es')).toHaveValue('Antes');
+  });
+
+  it('remove o ícone desconhecido ao salvar e recarregar sem perder metadados', async () => {
+    const snapshot = deckConfiguration();
+    snapshot.bindings[0] = {
+      ...snapshot.bindings[0],
+      presentation: { version: 1, icon: 'legacy-deck-token', status_label_keys: { active: 'status.active' },
+        title_by_locale: { 'pt-BR': 'Antes', en: 'Before', es: 'Antes' } },
+    };
+    bridge.get.mockImplementation(async () => structuredClone(snapshot));
+    bridge.mutate.mockImplementation(async (request: CommandSettingsMutationRequest) => {
+      snapshot.bindings[0] = { ...snapshot.bindings[0], ...request.binding };
+      return { committed: true, published: true, id: snapshot.bindings[0].id };
+    });
+
+    const page = render(<CommandSettingsPage />);
+    await bindingAction('commandSettings.actions.editBinding');
+    const icon = screen.getByLabelText('commandSettings.presentation.icon.label');
+    expect(icon).toHaveValue('legacy-deck-token');
+    fireEvent.change(icon, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(bridge.mutate).toHaveBeenCalledWith(expect.objectContaining({ binding: expect.objectContaining({
+      presentation: { version: 1, status_label_keys: { active: 'status.active' },
+        title_by_locale: { 'pt-BR': 'Antes', en: 'Before', es: 'Antes' } },
+    }) })));
+
+    page.unmount();
+    render(<CommandSettingsPage />);
+    await bindingAction('commandSettings.actions.editBinding');
+    expect(screen.getByLabelText('commandSettings.presentation.icon.label')).toHaveValue('');
+    expect(screen.getByLabelText('commandSettings.presentation.locales.ptBR')).toHaveValue('Antes');
   });
 
   it.each(['bad\0title', '😀'.repeat(257)])('bloqueia título inválido também após alternar origem (%#)', async title => {

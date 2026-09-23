@@ -944,7 +944,7 @@ O usuário confirmou a execução básica no aparelho em 18/09/2026. A nova capt
 de teclas e os cenários específicos de desconectar/reconectar,
 bloquear/desbloquear e reiniciar ainda exigem conferência manual.
 
-#### Títulos personalizados das teclas
+#### Títulos e ícones das teclas
 
 Ao criar ou editar um acionador **Stream Deck**, você pode preencher um título
 para português, inglês e espanhol. Os campos são textuais e acessíveis por Tab;
@@ -957,11 +957,23 @@ do comando na paleta também não muda: o título pertence à tecla configurada.
 Os títulos são recuperados ao reabrir o editor. A edição de imagens e variantes
 de estado ainda não está disponível.
 
+O campo **Ícone** oferece configurações, conversa, pasta, reproduzir, parar,
+voltar e estrela. Escolha pelo nome, usando o teclado, e salve/ confirme a
+alteração. **Sem ícone** restaura a tecla somente com texto. O ícone aparece
+acima do título; não altera a ação nem substitui o texto ou o anúncio.
+Em geometrias muito pequenas, o texto tem prioridade e o ícone não é desenhado.
+
+Um ícone desconhecido já salvo é preservado e indicado como indisponível no
+seletor. Ele não é carregado de arquivo ou da internet: a tecla usa só o título.
+Você pode substituí-lo por uma opção disponível ou removê-lo.
+
 Quando uma tecla pode executar comandos diferentes conforme o contexto visual,
 ela continua mostrando os comandos potenciais, separados por barra. Um título
 personalizado só substitui o nome de um comando se suas associações candidatas
 concordarem no mesmo título para o idioma atual; em caso de divergência, aparece
 o nome localizado do comando, evitando apresentar uma associação arbitrária.
+O ícone também só aparece quando todas as associações elegíveis concordam na
+mesma opção; se alguma não tiver ícone ou usar outro, permanece somente o texto.
 
 Validação manual acumulada:
 
@@ -973,6 +985,11 @@ Validação manual acumulada:
   do comando em inglês, mantendo o título personalizado em português.
 - [ ] Pressione a tecla antes e depois da edição: o comando e suas restrições
   de contexto devem permanecer iguais.
+- [ ] Pelo teclado, escolha **Pasta** no campo **Ícone**, salve e confirme.
+  Reabra o acionador: a seleção e os títulos devem estar preservados.
+- [ ] Confira o ícone acima do título no dispositivo. Troque para **Conversa**
+  e depois **Sem ícone**; confirme cada alteração. A ação deve continuar igual.
+
 A captura não ativa camadas. Se outro programa estiver usando o aparelho,
 libere o dispositivo antes de tentar novamente.
 

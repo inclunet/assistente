@@ -14,7 +14,7 @@ func TestProjectCompletePresentationUsesMaterializedBindingIDs(t *testing.T) {
 	row := completeProjectionBinding(t, user, nil, layer, completeProjectionUUID(t))
 	row.LayerRefKind, row.LayerRef = "builtin", "application.defaults"
 	row.ReplacesDefaultID, row.ReplacesDefaultVersion, row.ReplacesDefaultFingerprint = stringPtr("builtin.tab.new"), stringPtr("1"), stringPtr("fp-v1")
-	row.Presentation = `{"version":1,"title_by_locale":{"pt-BR":"Título materializado","en":"Override"}}`
+	row.Presentation = `{"version":1,"title_by_locale":{"pt-BR":"Título materializado","en":"Override"},"icon":"deck-edit"}`
 	options := completeProjectionOptions(completeProjectionRegistry(t))
 	snapshot := Snapshot{Scope: Scope{UserID: user}, Bindings: []Binding{row}}
 	config, err := ProjectComplete(context.Background(), snapshot, options)
@@ -28,10 +28,16 @@ func TestProjectCompletePresentationUsesMaterializedBindingIDs(t *testing.T) {
 	if title, ok := config.TitleForBindings(result.BindingIDs, "pt-BR"); !ok || title != "Título materializado" {
 		t.Fatalf("title: %q %v", title, ok)
 	}
+	if icon := config.IconForBindings(result.BindingIDs); icon != "deck-edit" {
+		t.Fatalf("icon: %q", icon)
+	}
 	if _, ok := config.TitleForBindings([]string{"builtin.tab.new"}, "en"); ok {
 		t.Fatal("delta title leaked to default")
 	}
-	snapshot.Bindings[0].Presentation = `{"version":1}`
+	if icon := config.IconForBindings([]string{"builtin.tab.new"}); icon != "" {
+		t.Fatalf("delta icon leaked to default: %q", icon)
+	}
+	snapshot.Bindings[0].Presentation = `{"version":1,"icon":"deck-icon-only"}`
 	withoutTitle, err := ProjectComplete(context.Background(), snapshot, options)
 	if err != nil {
 		t.Fatal(err)
@@ -46,8 +52,14 @@ func TestProjectCompletePresentationUsesMaterializedBindingIDs(t *testing.T) {
 	if _, ok := withoutTitle.TitleForBindings(other.BindingIDs, "en"); ok {
 		t.Fatal("removed title survived")
 	}
+	if icon := withoutTitle.IconForBindings(other.BindingIDs); icon != "deck-icon-only" {
+		t.Fatalf("icon-only presentation: %q", icon)
+	}
 	if title, _ := config.TitleForBindings(result.BindingIDs, "en"); title != "Override" {
 		t.Fatal("old snapshot changed")
+	}
+	if icon := config.IconForBindings(result.BindingIDs); icon != "deck-edit" {
+		t.Fatalf("old icon snapshot changed: %q", icon)
 	}
 
 	row.Enabled = false
@@ -62,5 +74,8 @@ func TestProjectCompletePresentationUsesMaterializedBindingIDs(t *testing.T) {
 	}
 	if _, ok := disabled.TitleForBindings(fallback.BindingIDs, "en"); ok {
 		t.Fatal("disabled title leaked")
+	}
+	if icon := disabled.IconForBindings(fallback.BindingIDs); icon != "" {
+		t.Fatal("disabled delta icon leaked")
 	}
 }

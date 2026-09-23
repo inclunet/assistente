@@ -12,17 +12,19 @@ func TestPresentationSnapshotIsolationAndResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries := map[string]BindingPresentation{
-		d.Candidate.ID: {TitleByLocale: map[string]string{"en": "Base"}},
-		delta.ID:       {TitleByLocale: map[string]string{"en": "Custom"}},
+		d.Candidate.ID: {TitleByLocale: map[string]string{"en": "Base"}, Icon: "deck-base"},
+		delta.ID:       {TitleByLocale: map[string]string{"en": "Custom"}, Icon: "deck-custom"},
 	}
 	snapshot := NewPresentationSnapshot(entries)
 	projected := base.WithPresentation(snapshot)
 	entries[delta.ID].TitleByLocale["en"] = "input mutation"
-	snapshot.byBindingID[delta.ID].TitleByLocale["en"] = "snapshot mutation"
+	entries[delta.ID] = BindingPresentation{TitleByLocale: map[string]string{"en": "input mutation"}, Icon: "input mutation"}
+	snapshot.byBindingID[delta.ID] = BindingPresentation{TitleByLocale: map[string]string{"en": "snapshot mutation"}, Icon: "snapshot mutation"}
 	output := projected.Presentation()
-	output.byBindingID[delta.ID].TitleByLocale["en"] = "output mutation"
+	output.byBindingID[delta.ID] = BindingPresentation{TitleByLocale: map[string]string{"en": "output mutation"}, Icon: "output mutation"}
 	value, _ := projected.Presentation().Binding(delta.ID)
 	value.TitleByLocale["en"] = "binding mutation"
+	value.Icon = "binding mutation"
 	before, err := base.Resolve(delta.Trigger, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -33,6 +35,9 @@ func TestPresentationSnapshotIsolationAndResolution(t *testing.T) {
 	}
 	if title, ok := projected.TitleForBindings(after.BindingIDs, "en"); !ok || title != "Custom" {
 		t.Fatalf("aliased title: %q %v", title, ok)
+	}
+	if icon := projected.IconForBindings(after.BindingIDs); icon != "deck-custom" {
+		t.Fatalf("aliased icon: %q", icon)
 	}
 	if _, ok := base.TitleForBindings(after.BindingIDs, "en"); ok {
 		t.Fatal("original changed")
@@ -48,19 +53,26 @@ func TestPresentationSnapshotIsolationAndResolution(t *testing.T) {
 	if title, ok := restored.TitleForBindings(result.BindingIDs, "en"); !ok || title != "Base" {
 		t.Fatalf("restore title: %q %v", title, ok)
 	}
+	if icon := restored.IconForBindings(result.BindingIDs); icon != "deck-base" {
+		t.Fatalf("restore icon: %q", icon)
+	}
 	if _, ok := restored.Presentation().Binding(delta.ID); ok {
 		t.Fatal("removed delta presentation retained")
 	}
 	if title, _ := projected.TitleForBindings(after.BindingIDs, "en"); title != "Custom" {
 		t.Fatal("restore mutated old snapshot")
 	}
+	if icon := projected.IconForBindings(after.BindingIDs); icon != "deck-custom" {
+		t.Fatalf("restore mutated old icon snapshot: %q", icon)
+	}
 }
 
 func TestPresentationExactLocaleAndEquivalentBindings(t *testing.T) {
 	p := NewPresentationSnapshot(map[string]BindingPresentation{
-		"a": {TitleByLocale: map[string]string{"pt-BR": "Meu título", "en": "Same"}},
-		"b": {TitleByLocale: map[string]string{"en": "Same"}},
-		"c": {TitleByLocale: map[string]string{"en": "Different"}},
+		"a":     {TitleByLocale: map[string]string{"pt-BR": "Meu título", "en": "Same"}, Icon: "deck-same"},
+		"b":     {TitleByLocale: map[string]string{"en": "Same"}, Icon: "deck-same"},
+		"c":     {TitleByLocale: map[string]string{"en": "Different"}, Icon: "deck-different"},
+		"empty": {Icon: ""},
 	})
 	for _, tc := range []struct {
 		ids          []string
@@ -79,6 +91,31 @@ func TestPresentationExactLocaleAndEquivalentBindings(t *testing.T) {
 		title, ok := p.TitleForBindings(tc.ids, tc.locale)
 		if title != tc.want || ok != (tc.want != "") {
 			t.Fatalf("%v/%s: %q %v", tc.ids, tc.locale, title, ok)
+		}
+	}
+}
+
+func TestIconForBindingsRequiresUnanimityAndResolvedIDs(t *testing.T) {
+	p := NewPresentationSnapshot(map[string]BindingPresentation{
+		"a":     {Icon: "deck-same"},
+		"b":     {Icon: "deck-same"},
+		"c":     {Icon: "deck-other"},
+		"empty": {},
+	})
+	for _, tc := range []struct {
+		ids  []string
+		want string
+	}{
+		{[]string{"a"}, "deck-same"},
+		{[]string{"a", "b"}, "deck-same"},
+		{[]string{"b", "a"}, "deck-same"},
+		{[]string{"a", "c"}, ""},
+		{[]string{"a", "empty"}, ""},
+		{[]string{"a", "unknown"}, ""},
+		{nil, ""},
+	} {
+		if got := p.IconForBindings(tc.ids); got != tc.want {
+			t.Fatalf("%v: icon %q, want %q", tc.ids, got, tc.want)
 		}
 	}
 }

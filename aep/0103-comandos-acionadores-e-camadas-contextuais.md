@@ -2,7 +2,7 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção142 (23/09/2026):** dos 84 critérios finais,
+**Acompanhamento vigente — seção143 (23/09/2026):** dos 84 critérios finais,
 **78 têm implementação identificada (92,9%), 6 são parciais e 0 ausentes**.
 Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
 A seção136 corrige o consumo concorrente de receipts com CAS completo como
@@ -33,6 +33,11 @@ persistência confirmada e renderização com fallback localizado. Corrige tamb�
 o diff de confirmação que omitia apresentação e recusava mudanças só de título.
 C38 permanece parcial: imagem/ícone, variantes de estado e aceite NVDA integral
 não foram encerrados. Não há nova migração de banco nem alteração de atalhos.
+A seção143 acrescenta seleção textual e renderização de sete ícones locais do
+Deck. Remoção restaura texto; divergência entre bindings elegíveis e tokens
+desconhecidos usam fallback textual. C38 continua parcial por imagens próprias,
+variantes de estado e aceite NVDA. O limite de 64 KiB não foi aumentado para
+embutir imagens no protocolo de comandos.
 Saídas maiores: **11 A / 14 I / 22 P / 1 N = 48**; 25/48 com implementação
 identificada incluindo aceitas (52,1%). Gates: **1/12 aceito, R04**.
 C34/C35/C36 e R11.1/R11.3 têm implementação identificada: tools públicas de

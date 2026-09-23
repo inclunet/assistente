@@ -1,6 +1,6 @@
 # AEP-0103 — Tasklist de conclusão integral
 
-Baseline inicial de 16/09/2026; reconciliação de 23/09/2026 atualizada pela seção142. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
+Baseline inicial de 16/09/2026; reconciliação de 23/09/2026 atualizada pela seção143. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.
 
@@ -757,7 +757,7 @@ Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `internal/app/app_comm
 
 - [ ] C38 — Toda configuração é operável por teclado e NVDA sem depender de grade, arrastar, imagem ou cor.
 
-**Implementação: P — parcial.** Controles existentes são textuais, localizados e operáveis por lista/teclado. A seção142 acrescenta edição textual de títulos Deck por idioma e sua aplicação ao dispositivo. Ainda faltam edição de imagem/ícone e variantes de estado. Aceite NVDA integral também falta, mas não é sozinho a razão de P.
+**Implementação: P — parcial.** Controles existentes são textuais, localizados e operáveis por lista/teclado. As seções142–143 acrescentam títulos Deck por idioma e sete ícones selecionáveis por nome, aplicados ao dispositivo. Ainda faltam imagem personalizada e variantes de estado. Aceite NVDA integral também falta, mas não é sozinho a razão de P.
 
 Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `frontend/src/pages/CommandSettingsPage.test.tsx`, `docs/content/recursos/COMANDOS.md`; seções129 e142. Gates: R09.
 
@@ -8935,3 +8935,68 @@ porta usada pela tela, que usa MutateCommandSettings. Os wrappers simplificados
 não têm consumidores produtivos no frontend. Nenhum P1/P2 ou achado pendente
 após reavaliação. Implementação delegada a **Noether e Erdos (Luna)**, com
 integração, correção do diff de confirmação e regressões conduzidas pelo main.
+
+## 143. Ícones locais do Stream Deck — 23/09/2026
+
+Continuação de C38/D13. Campo textual Ícone no editor existente, com sete opções
+localizadas: configurações, conversa, pasta, reproduzir, parar, voltar e estrela.
+Sem ícone remove somente esse campo; títulos e outros metadados são preservados.
+Tokens desconhecidos previamente salvos permanecem disponíveis para inspeção e
+substituição, sem tornar a configuração inválida nem carregar arquivos/URLs.
+
+O campo persistido `presentation.icon` já existia; agora é projetado mesmo sem
+títulos personalizados. O snapshot clona títulos e conserva o token por binding
+materializado. Somente IDs selecionados/branches elegíveis são consultados;
+ícone ausente ou divergente entre candidatos resulta em apresentação textual.
+Deltas e restore usam os mesmos IDs e não alteram a identidade de execução.
+
+Sete formas locais rasterizadas complementam o título acima do texto. Não há
+fontes externas, SVG de usuário, rede ou caminhos interpretados. Token desconhecido
+usa exatamente a apresentação sem ícone. Geometria pequena prioriza o texto.
+Título, anúncio e estado são preservados; editar somente o ícone muda o frame,
+e frames sem alteração não são reenviados. O caminho de pressionamento de tecla
+não recebe decodificação de imagem nem consultas extras.
+
+Imagem personalizada continua pendente: documentos do protocolo têm limite de
+64 KiB, inclusive a confirmação que contém os snapshots antes/depois. Embutir
+imagens nesses documentos faria o limite depender da quantidade de teclas e
+poderia bloquear edições posteriores. Este lote não aumenta limites nem introduz
+upload sem armazenamento real. Próximo trabalho: armazenamento separado e
+referência segura de imagens, seguido das variantes de estado e de seu ciclo
+real de execução. Não basta acrescentar controles sem consumidores.
+
+**Contagem preservada: 78 I / 6 P / 0 N = 84 (92,9%).** C38 permanece P por
+imagem personalizada e variantes de estado, além do aceite NVDA integral.
+Saídas R: **11 A / 14 I / 22 P / 1 N = 48**; gates **1/12 aceito**.
+Roteiro físico/NVDA acumulado no guia de comandos. Sem migração de banco,
+Wails, ACP, executáveis diagnósticos personalizados, banco pessoal, push ou PR.
+
+Evidências do lote143:
+
+- `app_command_deck_icons_test.go`: formas distintas em 40/72/96 pixels,
+  fallback em geometria pequena e token desconhecido, preservação de texto,
+  anúncio e estado; acordo entre branches e descarte de binding desabilitado.
+  Configuração confirmada → rebuild → mapa → renderer → diff/remoção/releitura
+  usa SQLite isolado e o renderer produtivo, sem HID físico.
+- Recorte App de ícones e títulos: **PASS, 20,764 s**, log
+  `command-c38-icons-focused-20260923.log`.
+- `commandbindings`, `commandconfig` e `commanddeck`, com `-count=1`:
+  **PASS**, log `command-c38-icons-domains-20260923.log`.
+- Frontend completo: **465 arquivos / 5.803 testes PASS, 103,51 s**, log
+  `frontend/command-c38-icons-frontend-20260923.log`. Editor/página focados:
+  **16 testes PASS**; TypeScript e ESLint dos arquivos alterados **PASS**.
+- `go vet` de App, commandbindings, commandconfig e commanddeck: **PASS**.
+  Verificador AEP, diff-check e integridade sem bytes NUL: **PASS**.
+
+Revisão independente do lote: **Carver (Luna)**, somente leitura do diff, sem
+P1/P2 ou pendências. O relatório inicial foi corrigido para não antecipar o
+resultado do App completo e para distinguir empate equivalente (mesmo ícone
+preservado) de ausência/divergência (fallback textual). A revisão não substitui
+os testes físicos/NVDA. Implementação de UI por **Cicero (Luna)** e projeção por
+**Hegel (Luna)**; integração, rasterização, testes App e documentação pelo main.
+
+Regressão completa final do App: **PASS, 395,779 s, 1.204 testes de topo**,
+com código zero. Apenas `TestCommandDeckAppLatency`, opt-in, foi pulado;
+não se alega nova medição de latência. Log `command-c38-icons-app-20260923.log`.
+Frontend, domínios, vet, TypeScript, lint focado e documentação validados;
+sem achados pendentes na revisão local, sem push ou PR.

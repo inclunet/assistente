@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -10,7 +10,7 @@ import {
 } from './CommandPresentationEditor';
 
 describe('CommandPresentationEditor', () => {
-  it('oferece três campos nomeados e atualizáveis por teclado', async () => {
+  it('oferece seletor de ícone e três campos nomeados atualizáveis por teclado', async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     function Harness() {
@@ -21,14 +21,21 @@ describe('CommandPresentationEditor', () => {
       <Harness />
     );
 
+    const icon = screen.getByRole('combobox', { name: 'commandSettings.presentation.icon.label' });
     const portuguese = screen.getByRole('textbox', { name: 'commandSettings.presentation.locales.ptBR' });
     await user.tab();
+    expect(icon).toHaveFocus();
+    await user.selectOptions(icon, 'folder');
+    await user.tab();
+    expect(icon).toHaveValue('folder');
+    expect(onChange).toHaveBeenLastCalledWith({ version: 1, icon: 'folder' });
     expect(portuguese).toHaveFocus();
     await user.keyboard('  Configurações  ');
 
     expect(portuguese).toHaveFocus();
     expect(onChange).toHaveBeenCalledWith({
       version: 1,
+      icon: 'folder',
       title_by_locale: { 'pt-BR': '  Configurações  ' },
     });
     await user.tab();
@@ -81,5 +88,29 @@ describe('CommandPresentationEditor', () => {
       icon: 'settings',
       title_by_locale: { 'pt-BR': 'Configurações' },
     });
+  });
+
+  it('preserva um ícone legado desconhecido até o usuário substituí-lo ou removê-lo', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <CommandPresentationEditor
+        value={{ version: 1, icon: 'legacy-deck-token', status_label_keys: { active: 'status.active' } }}
+        onChange={onChange}
+      />
+    );
+
+    const icon = screen.getByRole('combobox', { name: 'commandSettings.presentation.icon.label' });
+    expect(icon).toHaveValue('legacy-deck-token');
+    expect(screen.getByRole('option', { name: 'commandSettings.presentation.icon.unavailable' })).toHaveValue('legacy-deck-token');
+    fireEvent.change(icon, { target: { value: 'folder' } });
+    expect(onChange).toHaveBeenLastCalledWith({ version: 1, icon: 'folder', status_label_keys: { active: 'status.active' } });
+    rerender(
+      <CommandPresentationEditor
+        value={{ version: 1, icon: 'folder', status_label_keys: { active: 'status.active' } }}
+        onChange={onChange}
+      />
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'commandSettings.presentation.icon.label' }), { target: { value: '' } });
+    expect(onChange).toHaveBeenLastCalledWith({ version: 1, status_label_keys: { active: 'status.active' } });
   });
 });

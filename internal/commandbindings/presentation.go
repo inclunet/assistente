@@ -2,11 +2,12 @@ package commandbindings
 
 import "strings"
 
-// BindingPresentation contém somente a apresentação textual persistida de um
-// binding. Ela é deliberadamente separada de Candidate: apresentação não
-// participa da identidade, resolução ou execução.
+// BindingPresentation contém somente a apresentação persistida de um binding.
+// Ela é deliberadamente separada de Candidate: apresentação não participa da
+// identidade, resolução ou execução.
 type BindingPresentation struct {
 	TitleByLocale map[string]string
+	Icon          string
 }
 
 // PresentationSnapshot é uma projeção imutável de apresentações por ID de
@@ -23,7 +24,10 @@ func NewPresentationSnapshot(entries map[string]BindingPresentation) *Presentati
 		if strings.TrimSpace(bindingID) == "" {
 			continue
 		}
-		snapshot.byBindingID[bindingID] = BindingPresentation{TitleByLocale: cloneStringMap(presentation.TitleByLocale)}
+		snapshot.byBindingID[bindingID] = BindingPresentation{
+			TitleByLocale: cloneStringMap(presentation.TitleByLocale),
+			Icon:          presentation.Icon,
+		}
 	}
 	return snapshot
 }
@@ -44,7 +48,10 @@ func (p *PresentationSnapshot) Binding(bindingID string) (BindingPresentation, b
 	if !ok {
 		return BindingPresentation{}, false
 	}
-	return BindingPresentation{TitleByLocale: cloneStringMap(presentation.TitleByLocale)}, true
+	return BindingPresentation{
+		TitleByLocale: cloneStringMap(presentation.TitleByLocale),
+		Icon:          presentation.Icon,
+	}, true
 }
 
 // TitleForBindings só aceita um título quando todos os IDs fornecidos têm a
@@ -73,6 +80,39 @@ func (p *PresentationSnapshot) TitleForBindings(bindingIDs []string, locale stri
 		}
 	}
 	return title, title != ""
+}
+
+// IconForBindings só aceita um ícone quando todos os IDs fornecidos têm a
+// mesma apresentação. IDs ausentes, ícones ausentes ou divergentes não
+// produzem fallback arbitrário.
+func (p *PresentationSnapshot) IconForBindings(bindingIDs []string) string {
+	if p == nil || len(bindingIDs) == 0 {
+		return ""
+	}
+	var icon string
+	for _, bindingID := range bindingIDs {
+		presentation, ok := p.byBindingID[bindingID]
+		if !ok || strings.TrimSpace(presentation.Icon) == "" {
+			return ""
+		}
+		if icon == "" {
+			icon = presentation.Icon
+			continue
+		}
+		if icon != presentation.Icon {
+			return ""
+		}
+	}
+	return icon
+}
+
+// IconForBindings consulta a apresentação somente para os IDs já retornados
+// pela resolução. IDs inelegíveis nunca chegam a este contrato.
+func (c *Configuration) IconForBindings(bindingIDs []string) string {
+	if c == nil {
+		return ""
+	}
+	return c.presentation.IconForBindings(bindingIDs)
 }
 
 func cloneStringMap(input map[string]string) map[string]string {

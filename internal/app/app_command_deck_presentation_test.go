@@ -54,7 +54,7 @@ func TestCommandDeckPresentationContextualBranches(t *testing.T) {
 			if !reflect.DeepEqual(conditions, contextualDeckUIConditions(base, registry, deckConditionTestTrigger)) {
 				t.Fatal("title changed branches")
 			}
-			got := localDeckPresentationTitle(config, registry, deckConditionTestTrigger, conditions, "en")
+			got, _ := localDeckPresentation(config, registry, deckConditionTestTrigger, conditions, "en")
 			definition, _ := registry.Lookup(first.CommandID)
 			fallback := definition.Presentation.Locales["en"].Name
 			want := []string{"My settings", "My menu"}

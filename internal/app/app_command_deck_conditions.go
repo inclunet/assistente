@@ -257,7 +257,7 @@ func commandDeckLocalUIEligible(definition commandcatalog.Definition) bool {
 // All potential branches for a command must agree on its custom title. The
 // host does not know which visual branch is active, so divergence falls back
 // to the localized command name, just like divergent equivalent bindings.
-func localDeckPresentationTitle(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string, conditions []LocalCommandPaletteCondition, locale string) string {
+func localDeckPresentation(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string, conditions []LocalCommandPaletteCondition, locale string) (string, string) {
 	idsByCommand := make(map[string][]string)
 	deckUIConditionsObserved(configuration, registry, identity, func(definition commandcatalog.Definition) bool {
 		return commandDeckLocalUIEligible(definition) || commandDeckContextualUIEligible(definition)
@@ -269,12 +269,14 @@ func localDeckPresentationTitle(configuration *commandbindings.Configuration, re
 		}
 	})
 	names := make([]string, 0, len(conditions))
+	var bindingIDs []string
 	seen := make(map[string]struct{}, len(conditions))
 	for _, condition := range conditions {
 		if _, ok := seen[condition.CommandID]; ok {
 			continue
 		}
 		seen[condition.CommandID] = struct{}{}
+		bindingIDs = append(bindingIDs, idsByCommand[condition.CommandID]...)
 		name := condition.CommandID
 		if definition, ok := registry.Lookup(condition.CommandID); ok {
 			name = commandDeckTitle(configuration, idsByCommand[condition.CommandID], definition, locale)
@@ -282,5 +284,5 @@ func localDeckPresentationTitle(configuration *commandbindings.Configuration, re
 		names = append(names, name)
 	}
 	slices.Sort(names)
-	return strings.Join(names, " / ")
+	return strings.Join(names, " / "), configuration.IconForBindings(bindingIDs)
 }

@@ -466,15 +466,29 @@ func completeBindingPresentation(raw string) (*commandbindings.BindingPresentati
 	if err != nil || !versionOne(fields) {
 		return nil, ErrInvalid
 	}
+	presentation := &commandbindings.BindingPresentation{}
+	projected := false
 	rawTitles, ok := fields["title_by_locale"]
-	if !ok {
+	if ok {
+		var titles map[string]string
+		if err := json.Unmarshal(rawTitles, &titles); err != nil || titles == nil {
+			return nil, ErrInvalid
+		}
+		presentation.TitleByLocale = titles
+		projected = true
+	}
+	if rawIcon, ok := fields["icon"]; ok {
+		var icon string
+		if err := json.Unmarshal(rawIcon, &icon); err != nil {
+			return nil, ErrInvalid
+		}
+		presentation.Icon = icon
+		projected = true
+	}
+	if !projected {
 		return nil, nil
 	}
-	var titles map[string]string
-	if err := json.Unmarshal(rawTitles, &titles); err != nil || titles == nil {
-		return nil, ErrInvalid
-	}
-	return &commandbindings.BindingPresentation{TitleByLocale: titles}, nil
+	return presentation, nil
 }
 
 func validPresentationKey(raw json.RawMessage) bool {

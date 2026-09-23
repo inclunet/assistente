@@ -32,6 +32,7 @@ import (
 
 type commandDeckBinding struct {
 	commandID, title string
+	icon             string
 	identity         string
 	profileBound     bool
 	conditions       []LocalCommandPaletteCondition
@@ -292,7 +293,7 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 			binding.identity = identity
 			binding.conditions = append(binding.conditions, conditions...)
 			binding.profileBound = true
-			binding.title = localDeckPresentationTitle(configuration, p.registry, identity, binding.conditions, locale)
+			binding.title, binding.icon = localDeckPresentation(configuration, p.registry, identity, binding.conditions, locale)
 			bindings[spec.Device][spec.Key] = binding
 			continue
 		}
@@ -332,7 +333,7 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 		if profileBound && commandExecutionClassForDefinition(definition) == commandExecutionLocalUI {
 			continue
 		}
-		bindings[spec.Device][spec.Key] = commandDeckBinding{commandID: definition.ID, title: title, identity: identity, profileBound: profileBound}
+		bindings[spec.Device][spec.Key] = commandDeckBinding{commandID: definition.ID, title: title, icon: configuration.IconForBindings(resolved.BindingIDs), identity: identity, profileBound: profileBound}
 	}
 	return bindings, versions, nil
 }
@@ -673,13 +674,18 @@ func (p *commandProductRuntime) deckStatus(status string, devices []commandDeckD
 }
 
 func commandDeckKeyView(binding commandDeckBinding, locale string, model commanddeck.Model) commanddeck.KeyView {
+	icon := binding.icon
+	if !commandDeckIconSupported(icon) {
+		icon = ""
+	}
 	imageID := binding.commandID + ":" + binding.title + ":" + locale
 	state := "ready"
 	if len(binding.conditions) != 0 {
 		state = "conditional"
 		imageID = binding.identity + ":" + binding.title + ":" + locale
 	}
-	return commanddeck.KeyView{Title: binding.title, Announce: binding.title, State: state, ImageID: imageID, ImageRGBA: commandDeckTitleImage(binding.title, model)}
+	imageID += ":" + icon
+	return commanddeck.KeyView{Title: binding.title, Announce: binding.title, State: state, ImageID: imageID, ImageRGBA: commandDeckPresentationImage(binding.title, icon, model)}
 }
 
 func commandDeckTitle(configuration *commandbindings.Configuration, bindingIDs []string, definition commandcatalog.Definition, locale string) string {
@@ -694,9 +700,16 @@ func commandDeckTitle(configuration *commandbindings.Configuration, bindingIDs [
 	return definition.ID
 }
 
-func commandDeckTitleImage(title string, model commanddeck.Model) []byte {
+func commandDeckPresentationImage(title, icon string, model commanddeck.Model) []byte {
 	img := image.NewRGBA(image.Rect(0, 0, model.KeyImageW, model.KeyImageH))
 	draw.Draw(img, img.Bounds(), image.NewUniform(color.RGBA{24, 24, 24, 255}), image.Point{}, draw.Src)
+	y := 14
+	if commandDeckIconSupported(icon) && model.KeyImageW >= 20 && model.KeyImageH >= 40 {
+		size := min(32, model.KeyImageW-4, model.KeyImageH/2-4)
+		x := (model.KeyImageW - size) / 2
+		commandDeckDrawIcon(img, icon, image.Rect(x, 2, x+size, 2+size))
+		y += size + 4
+	}
 	parsed, err := opentype.Parse(goregular.TTF)
 	if err != nil {
 		return img.Pix
@@ -708,7 +721,6 @@ func commandDeckTitleImage(title string, model commanddeck.Model) []byte {
 	defer face.Close()
 	drawer := font.Drawer{Dst: img, Src: image.White, Face: face}
 	line := ""
-	y := 14
 	for _, word := range strings.Fields(title) {
 		candidate := strings.TrimSpace(line + " " + word)
 		if drawer.MeasureString(candidate).Ceil() > model.KeyImageW-4 && line != "" {
