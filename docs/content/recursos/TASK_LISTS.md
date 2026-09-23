@@ -23,9 +23,16 @@ Cada lista de tarefas possui:
 | Ação | Descrição |
 |---|---|
 | **Criar** | Nova lista com título e descrição |
-| **Editar** | Alterar título e descrição |
-| **Clonar** | Duplicar lista com workflow e tarefas |
-| **Deletar** | Remover lista completamente |
+| **Editar** | Alterar título e descrição (menu Configurações da lista) |
+| **Clonar** | Duplicar lista com workflow e tarefas (menu Configurações) |
+| **Deletar** | Remover lista completamente (menu Configurações) |
+
+### Configurações da lista
+
+O botão **Configurações** na toolbar da lista reúne as ações administrativas:
+editar a lista, editar o workflow, ações customizadas, vincular ou desvincular
+uma conversa, duplicar, limpar e apagar. Vincular uma conversa associa a lista
+a ela; desvincular remove a associação sem apagar nada.
 
 ### Tarefas
 

@@ -615,6 +615,9 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         });
       } catch (error) {
         get().setError(taskListErrorKey('updateTaskList', taskListId), String(error));
+        // Repropaga como as demais ações com feedback (ex.: setTaskListConversation):
+        // sem isso o caller anunciaria sucesso sobre uma persistência que falhou.
+        throw error;
       }
     },
 

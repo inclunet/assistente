@@ -88,7 +88,7 @@ vi.mock('../../store/workspaceChatModalStore', () => {
 
 vi.mock('../../store/uiStore', () => ({
   useUIStore: (selector: (state: { addToast: ReturnType<typeof vi.fn> }) => unknown) => selector({
-    addToast: vi.fn(),
+    addToast: toastMock,
   }),
 }));
 
@@ -97,6 +97,7 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 }));
 
 const confirmMock = vi.hoisted(() => vi.fn());
+const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../hooks/useConfirm', () => ({
   useConfirm: () => confirmMock,
@@ -204,6 +205,7 @@ describe('TaskListView', () => {
     openCreateModalMock.mockReset();
     registerWorkspaceChatAdapterMock.mockReset();
     announceMock.mockReset();
+    toastMock.mockReset();
     confirmMock.mockReset();
     confirmMock.mockResolvedValue(false);
     taskListStoreState.loadTaskList.mockReset();
@@ -651,6 +653,46 @@ describe('TaskListView', () => {
     await user.click(screen.getByRole('button', { name: 'escolher-conversa' }));
 
     await waitFor(() => expect(taskListStoreState.setTaskListConversation).toHaveBeenCalledWith('tasklist-1', 'conv-9'));
+    await waitFor(() => expect(screen.queryByTestId('picker-value')).not.toBeInTheDocument());
+  });
+
+  it('mostra erro e mantém o modal aberto quando salvar a lista falha', async () => {
+    const user = userEvent.setup();
+    taskListStoreState.updateTaskList.mockRejectedValueOnce(new Error('falha no backend'));
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Editar Lista' }));
+
+    fireEvent.change(await screen.findByLabelText(/Título/), { target: { value: 'Outro' } });
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith('falha no backend', 'error'));
+    expect(toastMock).not.toHaveBeenCalledWith('Lista atualizada', expect.anything(), expect.anything(), expect.anything(), expect.anything());
+    // Sem sucesso: o modal segue aberto para corrigir e tentar de novo.
+    expect(screen.getByLabelText(/Título/)).toBeInTheDocument();
+  });
+
+  it('desvincula a conversa pelo menu e fecha o modal', async () => {
+    const user = userEvent.setup();
+    taskListStoreState.taskLists = new Map([
+      ['tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Lista',
+        preferredViewMode: 'list',
+        conversationId: '9',
+        tasks: [],
+        workflow: { id: 'workflow-1', taskListId: 'tasklist-1', statuses: [], allowedTransitions: {}, initialStatusId: 1 },
+      }],
+    ]);
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Alterar conversa vinculada' }));
+
+    expect(await screen.findByTestId('picker-value')).toHaveTextContent('9');
+    await user.click(screen.getByRole('button', { name: 'nenhuma-conversa' }));
+
+    await waitFor(() => expect(taskListStoreState.setTaskListConversation).toHaveBeenCalledWith('tasklist-1', null));
+    expect(announceMock).toHaveBeenCalledWith('Vínculo de conversa atualizado');
     await waitFor(() => expect(screen.queryByTestId('picker-value')).not.toBeInTheDocument());
   });
 
