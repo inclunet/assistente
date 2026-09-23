@@ -15,7 +15,7 @@ func TestWindowsManagerStopWithRunningCallbackAndPendingPress(t *testing.T) {
 	api := newFakeWindowsHotkeyAPI()
 	api.nextResults <- fakeWindowsNext{id: windowsHotkeyID, ok: true}
 	api.nextResults <- fakeWindowsNext{id: windowsHotkeyID, ok: true}
-	manager := newManager(func(mods []nativehotkey.Modifier, key nativehotkey.Key) nativeHotkey {
+	manager := NewManager(func(mods []nativehotkey.Modifier, key nativehotkey.Key) NativeHotkey {
 		return newWindowsHotkey(mods, key, api)
 	})
 	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -61,7 +61,7 @@ func TestWindowsManagerPropagatesNativeUnregisterError(t *testing.T) {
 	api := newFakeWindowsHotkeyAPI()
 	api.nextResults <- fakeWindowsNext{id: windowsHotkeyID, ok: true}
 	api.unregisterErr = errors.New("native cleanup failed")
-	manager := newManager(func(mods []nativehotkey.Modifier, key nativehotkey.Key) nativeHotkey {
+	manager := NewManager(func(mods []nativehotkey.Modifier, key nativehotkey.Key) NativeHotkey {
 		return newWindowsHotkey(mods, key, api)
 	})
 	// A blocked consumer is unnecessary: cancel immediately before dispatch.

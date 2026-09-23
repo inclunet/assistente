@@ -10,7 +10,7 @@ import (
 )
 
 func TestNativePlatformRefusesUnsupportedRegistration(t *testing.T) {
-	m := newManager(nil)
+	m := NewManager(nil)
 	if _, err := m.Register(nil, hotkey.KeyA, func() {}); !errors.Is(err, ErrNativeUnsupported) {
 		t.Fatalf("native default factory accepted unsupported platform: %v", err)
 	}

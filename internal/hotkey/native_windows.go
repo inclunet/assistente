@@ -46,7 +46,7 @@ type windowsHotkey struct {
 	err       error // Publicado pelo fechamento de done.
 }
 
-func newNativeHotkey(modifiers []hotkey.Modifier, key hotkey.Key) nativeHotkey {
+func newNativeHotkey(modifiers []hotkey.Modifier, key hotkey.Key) NativeHotkey {
 	return newWindowsHotkey(modifiers, key, win32HotkeyAPI{})
 }
 

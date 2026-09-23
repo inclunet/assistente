@@ -72,7 +72,7 @@ func (h *fakeNativeHotkey) closeChannels() {
 }
 
 func newTestManager(h **fakeNativeHotkey) *Manager {
-	return newManager(func([]nativehotkey.Modifier, nativehotkey.Key) nativeHotkey {
+	return NewManager(func([]nativehotkey.Modifier, nativehotkey.Key) NativeHotkey {
 		fake := newFakeNativeHotkey()
 		*h = fake
 		return fake
@@ -225,7 +225,7 @@ func TestParseCombinationRejectsUnknownAndDuplicateModifiers(t *testing.T) {
 func TestManagerRejectsCanonicalDuplicateBeforeNativeRegistration(t *testing.T) {
 	var factoryCalls atomic.Int32
 	var first *fakeNativeHotkey
-	m := newManager(func(modifiers []nativehotkey.Modifier, key nativehotkey.Key) nativeHotkey {
+	m := NewManager(func(modifiers []nativehotkey.Modifier, key nativehotkey.Key) NativeHotkey {
 		factoryCalls.Add(1)
 		first = newFakeNativeHotkey()
 		return first
@@ -253,7 +253,7 @@ func TestManagerRejectsCanonicalDuplicateBeforeNativeRegistration(t *testing.T) 
 
 func TestManagerDuplicateRegistrationsAreExclusiveConcurrently(t *testing.T) {
 	var factoryCalls atomic.Int32
-	m := newManager(func([]nativehotkey.Modifier, nativehotkey.Key) nativeHotkey {
+	m := NewManager(func([]nativehotkey.Modifier, nativehotkey.Key) NativeHotkey {
 		factoryCalls.Add(1)
 		return newFakeNativeHotkey()
 	})
@@ -293,7 +293,7 @@ func TestManagerDuplicateRegistrationsAreExclusiveConcurrently(t *testing.T) {
 
 func TestManagerKeepsOwnershipDuringNativeUnregister(t *testing.T) {
 	var created *blockingNativeHotkey
-	m := newManager(func([]nativehotkey.Modifier, nativehotkey.Key) nativeHotkey {
+	m := NewManager(func([]nativehotkey.Modifier, nativehotkey.Key) NativeHotkey {
 		created = newBlockingNativeHotkey()
 		return created
 	})
@@ -342,7 +342,7 @@ func TestManagerKeepsOwnershipDuringNativeUnregister(t *testing.T) {
 func TestManagerFailsClosedWhenNativeUnregisterFails(t *testing.T) {
 	nativeErr := errors.New("native ownership release was not confirmed")
 	native := &failingNativeHotkey{down: make(chan nativehotkey.Event), err: nativeErr}
-	m := newManager(func([]nativehotkey.Modifier, nativehotkey.Key) nativeHotkey { return native })
+	m := NewManager(func([]nativehotkey.Modifier, nativehotkey.Key) NativeHotkey { return native })
 	id, err := m.Register([]nativehotkey.Modifier{ModCtrl}, nativehotkey.KeyA, func() {})
 	if err != nil {
 		t.Fatal(err)
@@ -365,7 +365,7 @@ func TestManagerFailsClosedWhenNativeUnregisterFails(t *testing.T) {
 
 func TestUnregisterAllJoinsTeardownAlreadyInProgress(t *testing.T) {
 	native := newBlockingNativeHotkey()
-	m := newManager(func([]nativehotkey.Modifier, nativehotkey.Key) nativeHotkey { return native })
+	m := NewManager(func([]nativehotkey.Modifier, nativehotkey.Key) NativeHotkey { return native })
 	id, err := m.Register(nil, nativehotkey.KeyA, func() {})
 	if err != nil {
 		t.Fatal(err)
@@ -405,7 +405,7 @@ func TestUnregisterAllJoinsTeardownAlreadyInProgress(t *testing.T) {
 }
 
 func TestManagerSnapshotIsIndependentCopyAndGenerationTracksSet(t *testing.T) {
-	m := newManager(func([]nativehotkey.Modifier, nativehotkey.Key) nativeHotkey { return newFakeNativeHotkey() })
+	m := NewManager(func([]nativehotkey.Modifier, nativehotkey.Key) NativeHotkey { return newFakeNativeHotkey() })
 	firstID, err := m.Register([]nativehotkey.Modifier{ModShift, ModCtrl}, nativehotkey.KeyB, func() {})
 	if err != nil {
 		t.Fatal(err)

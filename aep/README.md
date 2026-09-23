@@ -16,10 +16,15 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
-AEP-0103, seção147 após reconciliação129 (23/09/2026): **In Progress**.
-**79/84 critérios com implementação identificada (94,0%); 5 parciais e
+AEP-0103, seção148 após reconciliação129 (23/09/2026): **In Progress**.
+**80/84 critérios com implementação identificada (95,2%); 4 parciais e
 0 ausentes**, sem novo aceite final. Saídas R: **11 A / 14 I / 22 P / 1 N**,
 25/48 implementadas incluindo aceitas (52,1%); **1/12 gates aceito**.
+Seção148, C83 P→I: diálogo e job conflitante compartilham o Manager produtivo, com
+captura do SO controlada e cópia defensiva dos modificadores do registro.
+Matriz de regressão atravessa defaults/camadas, inputs, abas/foco, reconexão
+e replay. Aceite físico/NVDA, integração externa e gate agregado R12 continuam
+separados; testes comuns não substituem detector de corrida (CGO indisponível).
 C43 passa a I na seção147: configuração confirmada de camada por programa,
 captura por ocorrência e executor real até claim/mapa Deck. Resumo de auditoria
 D14 corrigido com allowlist estrita. A fronteira do SO é controlada; não há

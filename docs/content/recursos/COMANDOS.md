@@ -86,6 +86,19 @@ campos editáveis, Monaco ou durante composição de texto. Manter a tecla press
 o anúncio. Se a interface perder a conexão, a reserva nativa expira em até
 30 segundos sem renovação; nenhum comando é confirmado por essa expiração.
 
+Validação manual do conflito com um job (use somente um job de teste sem
+efeitos destrutivos):
+
+- [ ] Configure **Ctrl+Shift+R** no job de teste. Abra uma decisão bloqueante
+  no Assistente e pressione a combinação: somente a pergunta deve ser
+  repetida; o job não deve iniciar. Resultado: ____.
+- [ ] Com a mesma decisão aberta, use **Alt+Tab** para outro programa e
+  pressione **Ctrl+Shift+R**. A pergunta deve ser repetida sem executar o job.
+  Resultado: ____.
+- [ ] Volte ao Assistente e encerre a decisão. Pressione **Ctrl+Shift+R**
+  novamente: o job deve retomar seu fluxo normal, incluindo sua própria
+  confirmação quando exigida, sem execução duplicada. Resultado: ____.
+
 ## Editar e restaurar a configuração
 
 Atalhos globais do sistema operacional estão disponíveis somente no Windows,

@@ -44,13 +44,19 @@ type NativeOwnershipSnapshot struct {
 	Combinations []NativeCombination
 }
 
-type nativeHotkey interface {
+// NativeHotkey é a fronteira de captura do sistema operacional. A implementação
+// registra uma única combinação; prioridade e ciclo de vida pertencem ao Manager.
+type NativeHotkey interface {
 	Register() error
 	Unregister() error
 	Keydown() <-chan hotkey.Event
 }
 
-type hotkeyFactory func([]hotkey.Modifier, hotkey.Key) nativeHotkey
+// NativeFactory cria capturas independentes, ainda não registradas, para a
+// combinação recebida. Deve ser instalada somente pelo host confiável, nunca
+// por configuração do usuário. A fatia de modificadores pertence ao adapter;
+// alterá-la não modifica os metadados mantidos pelo Manager.
+type NativeFactory func([]hotkey.Modifier, hotkey.Key) NativeHotkey
 
 // RegisteredHotkey representa um hotkey registrado
 type RegisteredHotkey struct {
@@ -87,7 +93,7 @@ type hotkeySlot struct {
 type hotkeyCapture struct {
 	binding  *RegisteredHotkey
 	listener *RegisteredHotkey
-	native   nativeHotkey
+	native   NativeHotkey
 	ctx      context.Context
 	cancel   context.CancelFunc
 }
@@ -110,7 +116,7 @@ type Manager struct {
 	ownershipBarrierSet bool
 	mu                  sync.RWMutex
 	teardownMu          sync.Mutex
-	factory             hotkeyFactory
+	factory             NativeFactory
 }
 
 // singleton
@@ -122,12 +128,17 @@ var (
 // GetManager retorna o manager singleton
 func GetManager() *Manager {
 	managerOnce.Do(func() {
-		globalManager = newManager(newNativeHotkey)
+		globalManager = NewManager(nil)
 	})
 	return globalManager
 }
 
-func newManager(factory hotkeyFactory) *Manager {
+// NewManager monta um gerenciador independente com a mesma arbitragem usada
+// pelo singleton. Uma fábrica nil usa o adapter nativo da plataforma. O dono
+// deve chamar Stop para liberar suas capturas; gerenciadores independentes não
+// compartilham ownership, portanto consumidores concorrentes devem usar a mesma
+// instância (como jobs e a reserva temporária de um diálogo).
+func NewManager(factory NativeFactory) *Manager {
 	if factory == nil {
 		factory = newNativeHotkey
 	}
@@ -247,7 +258,9 @@ func validWindowsCombination(barrier *OwnershipBarrier, modifierMask hotkey.Modi
 }
 
 func (m *Manager) acquireCaptureLocked(binding *RegisteredHotkey) (*hotkeyCapture, error) {
-	hk := m.factory(binding.Modifiers, binding.Key)
+	// O adapter pode reter ou normalizar sua entrada. Não emprestar a fatia
+	// canônica do registro, reutilizada ao restaurar uma reserva temporária.
+	hk := m.factory(append([]hotkey.Modifier(nil), binding.Modifiers...), binding.Key)
 	if hk == nil {
 		return nil, fmt.Errorf("hotkey factory returned nil")
 	}

@@ -2,9 +2,16 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção147 (23/09/2026):** dos 84 critérios finais,
-**79 têm implementação identificada (94,0%), 5 são parciais e 0 ausentes**.
+**Acompanhamento vigente — seção148 (23/09/2026):** dos 84 critérios finais,
+**80 têm implementação identificada (95,2%), 4 são parciais e 0 ausentes**.
 Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
+A seção148 promove C83 a implementação identificada: integra diálogo e job conflitante no mesmo Manager produtivo,
+mantendo apenas a captura do SO controlada. O construtor nativo é comum ao
+singleton e à composição independente; o adapter recebe cópia dos modificadores
+para não alterar o registro preservado durante a restauração. A matriz cobre
+defaults/camadas, inputs, abas/foco, reconexão e replay, sem substituir NVDA,
+hardware ou fechamento agregado de R12. C65/C70 seguem sem ingresso externo;
+o override da AEP-0052 não foi ativado nesta rodada.
 A seção147 fecha a lacuna automatizada de C43: camada por programa atravessa
 configuração confirmada, captura por evento, executor real e publicação do mapa
 Deck. Corrige a auditoria que descartava o resumo permitido em D14; somente

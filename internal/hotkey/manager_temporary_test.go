@@ -68,7 +68,7 @@ type temporaryTestFactory struct {
 	journal   []string
 }
 
-func (f *temporaryTestFactory) make([]nativehotkey.Modifier, nativehotkey.Key) nativeHotkey {
+func (f *temporaryTestFactory) make([]nativehotkey.Modifier, nativehotkey.Key) NativeHotkey {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	n := newTemporaryTestNative()
@@ -111,7 +111,7 @@ func waitTemporaryCount(t *testing.T, count *atomic.Int32, want int32) {
 
 func TestManagerReserveTemporaryPrioritizesAndRestoresOneNativeSlot(t *testing.T) {
 	factory := &temporaryTestFactory{}
-	m := newManager(factory.make)
+	m := NewManager(factory.make)
 	var lowerCalls, temporaryCalls atomic.Int32
 	lowerID, err := m.Register(nil, nativehotkey.KeyA, func() { lowerCalls.Add(1) })
 	if err != nil {
@@ -175,7 +175,7 @@ func TestManagerReserveTemporaryPrioritizesAndRestoresOneNativeSlot(t *testing.T
 
 func TestManagerTemporaryAllowsRemovalAndReplacementOfInferiorRegistration(t *testing.T) {
 	factory := &temporaryTestFactory{}
-	m := newManager(factory.make)
+	m := NewManager(factory.make)
 	var oldCalls, newCalls, temporaryCalls atomic.Int32
 	oldID, err := m.Register(nil, nativehotkey.KeyB, func() { oldCalls.Add(1) })
 	if err != nil {
@@ -221,7 +221,7 @@ func TestManagerTemporaryAllowsRemovalAndReplacementOfInferiorRegistration(t *te
 
 func TestManagerTemporaryReleaseKeepsReservationAfterNativeFailure(t *testing.T) {
 	factory := &temporaryTestFactory{}
-	m := newManager(factory.make)
+	m := NewManager(factory.make)
 	var lowerCalls atomic.Int32
 	if _, err := m.Register(nil, nativehotkey.KeyC, func() { lowerCalls.Add(1) }); err != nil {
 		t.Fatal(err)
@@ -257,7 +257,7 @@ func TestManagerTemporaryFailedRestoreDoesNotReacquireClosedTemporary(t *testing
 	factory := &temporaryTestFactory{}
 	var barrier *OwnershipBarrier
 	barrier = NewOwnershipBarrier(func(frame OwnershipFrame) { barrier.Ack(frame.InstanceID, frame.Revision) })
-	m := newManager(factory.make)
+	m := NewManager(factory.make)
 	if err := m.SetOwnershipBarrier(barrier); err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestManagerTemporaryFailedRestoreDoesNotReacquireClosedTemporary(t *testing
 
 func TestManagerTemporaryWithoutInferiorCanAddAndRemoveOne(t *testing.T) {
 	factory := &temporaryTestFactory{}
-	m := newManager(factory.make)
+	m := NewManager(factory.make)
 	before := m.SnapshotGlobalOwnership()
 	release, err := m.ReserveTemporary(nil, nativehotkey.KeyH, func() {})
 	if err != nil {
@@ -318,7 +318,7 @@ func TestManagerTemporaryWithoutInferiorCanAddAndRemoveOne(t *testing.T) {
 
 func TestManagerTemporaryAcquireFailureLeavesInferiorDisabledUntilRetry(t *testing.T) {
 	factory := &temporaryTestFactory{}
-	m := newManager(factory.make)
+	m := NewManager(factory.make)
 	var lowerCalls atomic.Int32
 	lowerID, err := m.Register(nil, nativehotkey.KeyI, func() { lowerCalls.Add(1) })
 	if err != nil {
@@ -392,7 +392,7 @@ func TestManagerStopConcurrentWithTemporaryOnlyDoesNotDoubleUnregister(t *testin
 		unregisterStarted: make(chan struct{}),
 		allowUnregister:   make(chan struct{}),
 	}
-	m := newManager(func([]nativehotkey.Modifier, nativehotkey.Key) nativeHotkey { return native })
+	m := NewManager(func([]nativehotkey.Modifier, nativehotkey.Key) NativeHotkey { return native })
 	release, err := m.ReserveTemporary(nil, nativehotkey.KeyJ, func() {})
 	if err != nil {
 		t.Fatal(err)
@@ -437,7 +437,7 @@ func TestManagerTwoConcurrentStopsTemporaryOnlyDoNotDoubleUnregister(t *testing.
 		unregisterStarted: make(chan struct{}),
 		allowUnregister:   make(chan struct{}),
 	}
-	m := newManager(func([]nativehotkey.Modifier, nativehotkey.Key) nativeHotkey { return native })
+	m := NewManager(func([]nativehotkey.Modifier, nativehotkey.Key) NativeHotkey { return native })
 	if _, err := m.ReserveTemporary(nil, nativehotkey.KeyK, func() {}); err != nil {
 		t.Fatal(err)
 	}
@@ -502,7 +502,7 @@ func TestManagerReserveTemporaryACKsBeforeNewNativeCapture(t *testing.T) {
 		}
 	})
 	defer barrier.Close()
-	m := newManager(func(mods []nativehotkey.Modifier, key nativehotkey.Key) nativeHotkey {
+	m := NewManager(func(mods []nativehotkey.Modifier, key nativehotkey.Key) NativeHotkey {
 		mu.Lock()
 		events = append(events, "native-register")
 		mu.Unlock()
@@ -533,7 +533,7 @@ func TestManagerStopWithClosedBarrierRemovesTemporaryCaptureWithoutResurrection(
 	factory := &temporaryTestFactory{}
 	var barrier *OwnershipBarrier
 	barrier = NewOwnershipBarrier(func(frame OwnershipFrame) { barrier.Ack(frame.InstanceID, frame.Revision) })
-	m := newManager(factory.make)
+	m := NewManager(factory.make)
 	if err := m.SetOwnershipBarrier(barrier); err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +568,7 @@ func TestManagerTemporaryReleaseClosedBarrierRemovesTemporaryBeforeFailedRestore
 	factory := &temporaryTestFactory{}
 	var barrier *OwnershipBarrier
 	barrier = NewOwnershipBarrier(func(frame OwnershipFrame) { barrier.Ack(frame.InstanceID, frame.Revision) })
-	m := newManager(factory.make)
+	m := NewManager(factory.make)
 	if err := m.SetOwnershipBarrier(barrier); err != nil {
 		t.Fatal(err)
 	}

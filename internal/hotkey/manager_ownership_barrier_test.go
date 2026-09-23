@@ -56,7 +56,7 @@ type ownershipBarrierTestFactory struct {
 	unregisterErr error
 }
 
-func (f *ownershipBarrierTestFactory) make([]nativehotkey.Modifier, nativehotkey.Key) nativeHotkey {
+func (f *ownershipBarrierTestFactory) make([]nativehotkey.Modifier, nativehotkey.Key) NativeHotkey {
 	return &ownershipBarrierTestNative{
 		events:        f.events,
 		registerErr:   f.registerErr,
@@ -101,7 +101,7 @@ func newOwnershipBarrierTestManager(t *testing.T, harness *ownershipBarrierTestH
 	if runtime.GOOS != "windows" {
 		t.Skip("ownership barrier do Manager é suportado somente no Windows")
 	}
-	m := newManager(factory.make)
+	m := NewManager(factory.make)
 	if err := m.SetOwnershipBarrier(harness.barrier); err != nil {
 		t.Fatalf("SetOwnershipBarrier() error = %v", err)
 	}
@@ -187,7 +187,7 @@ func TestManagerOwnershipBarrierRollsBackFailedProposalBeforeNativeRegister(t *t
 	})
 	defer barrier.Close()
 	factory := &ownershipBarrierTestFactory{events: events}
-	m := newManager(factory.make)
+	m := NewManager(factory.make)
 	if runtime.GOOS != "windows" {
 		t.Skip("ownership barrier do Manager é suportado somente no Windows")
 	}
@@ -223,7 +223,7 @@ func TestManagerOwnershipBarrierRejectsInvalidWindowsCombinationBeforePublish(t 
 		t.Skip("ownership barrier do Manager é suportado somente no Windows")
 	}
 	var factoryCalls atomic.Int32
-	m := newManager(func([]nativehotkey.Modifier, nativehotkey.Key) nativeHotkey {
+	m := NewManager(func([]nativehotkey.Modifier, nativehotkey.Key) NativeHotkey {
 		factoryCalls.Add(1)
 		return &ownershipBarrierTestNative{events: events, down: make(chan nativehotkey.Event)}
 	})
@@ -296,13 +296,13 @@ func TestManagerOwnershipBarrierDoesNotPublishStaleSetDuringConcurrentRemovalAnd
 		startOnce:                  &removalOnce,
 	}
 	var factoryCalls atomic.Int32
-	factory := func([]nativehotkey.Modifier, nativehotkey.Key) nativeHotkey {
+	factory := func([]nativehotkey.Modifier, nativehotkey.Key) NativeHotkey {
 		if factoryCalls.Add(1) == 1 {
 			return first
 		}
 		return &ownershipBarrierTestNative{events: events, down: make(chan nativehotkey.Event)}
 	}
-	m := newManager(factory)
+	m := NewManager(factory)
 	if runtime.GOOS != "windows" {
 		t.Skip("ownership barrier do Manager é suportado somente no Windows")
 	}
@@ -390,7 +390,7 @@ func TestManagerOwnershipBarrierKeepsReservationWhenNativeUnregisterFails(t *tes
 
 func TestManagerOwnershipBarrierCanOnlyBeConfiguredOnceBeforeRegistration(t *testing.T) {
 	if runtime.GOOS != "windows" {
-		m := newManager(nil)
+		m := NewManager(nil)
 		if err := m.SetOwnershipBarrier(NewOwnershipBarrier(func(OwnershipFrame) {})); !errors.Is(err, ErrOwnershipBarrierUnsupported) {
 			t.Fatalf("SetOwnershipBarrier() on %s error = %v, want unsupported", runtime.GOOS, err)
 		}
@@ -401,7 +401,7 @@ func TestManagerOwnershipBarrierCanOnlyBeConfiguredOnceBeforeRegistration(t *tes
 	defer first.barrier.Close()
 	second := newOwnershipBarrierTestHarness(&ownershipBarrierTestEvents{}, true)
 	defer second.barrier.Close()
-	m := newManager(nil)
+	m := NewManager(nil)
 	if err := m.SetOwnershipBarrier(first.barrier); err != nil {
 		t.Fatalf("first SetOwnershipBarrier() error = %v", err)
 	}

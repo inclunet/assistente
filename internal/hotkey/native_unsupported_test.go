@@ -15,7 +15,7 @@ func TestNativeSupportMatchesQualifiedPlatform(t *testing.T) {
 }
 
 func TestUnsupportedNativeRegistrationDoesNotAcquireOwnership(t *testing.T) {
-	m := newManager(func([]hotkey.Modifier, hotkey.Key) nativeHotkey { return unsupportedNativeHotkey{} })
+	m := NewManager(func([]hotkey.Modifier, hotkey.Key) NativeHotkey { return unsupportedNativeHotkey{} })
 	for attempt := 0; attempt < 2; attempt++ {
 		id, err := m.Register(nil, hotkey.KeyA, func() { t.Error("unsupported adapter dispatched a callback") })
 		if id != 0 || !errors.Is(err, ErrNativeUnsupported) {

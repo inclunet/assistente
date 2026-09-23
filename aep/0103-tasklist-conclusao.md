@@ -1,10 +1,10 @@
 # AEP-0103 — Tasklist de conclusão integral
 
-Baseline inicial de 16/09/2026; reconciliação de 23/09/2026 atualizada pela seção147. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
+Baseline inicial de 16/09/2026; reconciliação de 23/09/2026 atualizada pela seção148. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.
 
-## 1. Progresso reconciliado — 23/09/2026, após a seção147
+## 1. Progresso reconciliado — 23/09/2026, após a seção148
 
 A seção129 registra a reconciliação documental; as seções130–133 implementam
 a correção de Δ18/C22, o cache produtivo de C62 e a recusa global fora da
@@ -20,8 +20,8 @@ não foi reproduzida nem declarada corrigida. Aceites manuais não foram ampliad
 
 ### Implementação dos 84 critérios finais
 
-- **79/84 I — implementação identificada: 94,0%.**
-- **5/84 P — parciais: 6,0%.**
+- **80/84 I — implementação identificada: 95,2%.**
+- **4/84 P — parciais: 4,8%.**
 - **0/84 N — funcionalidade pública inteiramente ausente.** Isso não elimina
   lacunas dentro dos critérios parciais, como a qualificação transversal.
 - Comparação: seção76 **58/24/2**, seção129 **64/18/2**, seção130
@@ -55,10 +55,13 @@ não foi reproduzida nem declarada corrigida. Aceites manuais não foram ampliad
   têm tamanhos distintos; um parcial não recebe meio ponto. Os checkboxes C
   continuam reservados ao aceite final R12. Nenhum foi marcado nesta rodada.
 - A contagem reconhece código entregue e corrige classificações antigas;
-  não mede o número de alterações nem o tamanho dos cinco itens parciais restantes.
+  não mede o número de alterações nem o tamanho dos quatro itens parciais restantes.
 
-Parciais atuais: **C38, C51, C65,
-C70 e C83**. Cada linha da seção5 informa o motivo,
+C83 passa a I na seção148: a arbitragem de diálogo/job chega ao executor no
+mesmo teste, complementando a matriz automatizada transversal reexecutada.
+Qualificação física, desempenho agregado e aceite final continuam em R12.
+
+Parciais atuais: **C38, C51, C65 e C70**. Cada linha da seção5 informa o motivo,
 os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
 
 ### Saídas maiores e gates — denominadores separados
@@ -760,9 +763,9 @@ Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `internal/app/app_comm
 
 - [ ] C38 — Toda configuração é operável por teclado e NVDA sem depender de grade, arrastar, imagem ou cor.
 
-**Implementação: P — parcial.** Controles existentes são textuais, localizados e operáveis por lista/teclado. As seções142–144 acrescentam títulos Deck por idioma, sete ícones selecionáveis por nome e imagens personalizadas, aplicados ao dispositivo. A seção145 acrescenta feedback transitório ligado ao resultado real do executor, com anúncio acessível. Ainda faltam estados persistentes ligado/desligado e personalização por estado. Aceite físico/NVDA integral também falta, mas não é sozinho a razão de P.
+**Implementação: P — parcial.** Controles existentes são textuais, localizados e operáveis por lista/teclado. As seções142–145 acrescentam títulos Deck por idioma, ícones, imagens e feedback transitório acessível. A seção146 implementou variantes por estado e indicação persistente do estado efetivo de camada. Esses recursos não são mais lacunas de código. A classificação conservadora de C38 é mantida até a qualificação integral de operação por teclado/NVDA e dispositivo; não representa ausência das variantes já entregues.
 
-Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `frontend/src/pages/CommandSettingsPage.test.tsx`, `internal/app/app_command_deck_feedback_announce_test.go`, `frontend/src/lib/subscribeCommandDeckFeedback.test.ts`, `docs/content/recursos/COMANDOS.md`; seções129 e142–145. Gates: R09.
+Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `frontend/src/pages/CommandSettingsPage.test.tsx`, `internal/app/app_command_deck_feedback_announce_test.go`, `frontend/src/lib/subscribeCommandDeckFeedback.test.ts`, `docs/content/recursos/COMANDOS.md`; seções129 e142–146. Gates: R09.
 
 ### C39
 
@@ -1120,9 +1123,9 @@ Evidência: `internal/tools/deeplink`, `internal/commandportability`. Registros:
 
 - [ ] C83 — Testes cobrem fallback de defaults, sobreposição, múltiplas camadas, modais, inputs, múltiplas abas, troca de foco, reconexão de dispositivo e prevenção de execução duplicada.
 
-**Implementação: P — parcial.** Cobertura ampla cobre defaults, camadas, inputs, abas, replay e fontes contextuais até Mermaid; a prova global lock/unlock de C77 foi acrescentada na seção132. Faltam principalmente a combinação produtiva invariante de diálogo × hotkey global conflitante e a qualificação transversal final. Ausência isolada de aceite manual não é a razão desta classificação.
+**Implementação: I — identificada; aceite final pendente.** A seção148 fecha a lacuna integrada diálogo × hotkey global conflitante: captura controlada → Manager real compartilhado → reserva temporária → restauração → admissão/decisão → executor → um único job e registro terminal. A matriz reexecutada cobre defaults, sobreposição, camadas, inputs/IME, abas/foco, reconexão e replay. O adapter do SO e o renderer são qualificados por fronteiras separadas, não por teste físico/Wails ponta a ponta. Aceite físico/NVDA, detector de corrida indisponível nesta máquina e encerramento agregado permanecem em R12.
 
-Evidência: `frontend/src/lib/commandLocalKeyboard.*.test.ts`, `frontend/src/lib/commandContextProduct.integration.test.tsx`, `internal/app/app_command_deck_test.go`, `internal/app/app_command_global_execution_test.go`, `internal/app/app_command_dialog_global_integration_test.go`; seções108–129 e137. O último testa callbacks e efeitos do App, não a arbitragem nativa, qualificada separadamente em `internal/hotkey/manager_temporary_test.go`. Gates: R06, R07, R12.
+Evidência: `frontend/src/lib/commandLocalKeyboard.*.test.ts`, `frontend/src/lib/commandContextProduct.integration.test.tsx`, `internal/app/app_command_deck_test.go`, `internal/app/app_command_global_execution_test.go`, `internal/app/app_command_dialog_global_integration_test.go`, `internal/app/app_command_dialog_manager_integration_test.go`, `internal/hotkey/manager_temporary_test.go`; seções108–129,137 e148. O teste antigo de callbacks permanece; o novo compõe o Manager produtivo em vez de pressupor sua arbitragem. Gates: R06, R07, R12, sem promoção de aceite agregado.
 
 ### C84
 
@@ -9349,3 +9352,74 @@ Fechamento técnico da seção147:
 - Revisão final sem achados de produção pendentes. A prova global usa
   registrador/tool controlados e sincroniza o despacho por canal; cancelamento
   em timeout não é uma prova de encerramento físico do callback do SO.
+
+## 148. Diálogo e job concorrentes no mesmo gerenciador — 23/09/2026
+
+A lacuna de C83 é tratada com o `hotkey.Manager` produtivo compartilhado entre
+o job e a reserva de Ctrl+Shift+R. A fronteira substituída é somente a captura
+do SO: o teste não escolhe callbacks nem reimplementa prioridade. A decisão,
+admissão, executor, tool de teste e persistência do job continuam no App real.
+
+`NativeHotkey`, `NativeFactory` e `NewManager` tornam explícita a fronteira de
+captura já existente. O singleton usa o mesmo construtor; não há caminho de
+execução alternativo, modo de teste no runtime ou alias de compatibilidade.
+Jobs e diálogos devem compartilhar a mesma instância, como na montagem atual.
+A revisão identificou empréstimo indevido da fatia de modificadores à fábrica:
+agora ela recebe uma cópia, com prova de preservação até a restauração.
+
+Matriz automatizada transversal desta rodada:
+
+- Defaults, sobreposição, múltiplas camadas e barreira de diálogo:
+  suíte `internal/commandbindings`, incluindo fallback e topmost.
+- Inputs/IME, repetição, foco, contexto vivo e paleta: 14 arquivos frontend,
+  **233 testes PASS**, log `frontend/command-c83-frontend-20260923.log`.
+- Abas, alvo e providers de foco: quatro arquivos adicionais,
+  **50 testes PASS**, log `frontend/command-c83-context-20260923.log`.
+- Reconexão/isolamento de dispositivos: suíte `internal/commanddeck`.
+- Prevenção de execução duplicada/replay: `internal/commandexecution` e
+  `internal/commandledger`. Os cinco domínios, incluindo hotkey, passaram.
+- Recorte App de decisão/global/Deck/foreground: **PASS, 101,306 s**,
+  log `command-c83-app-20260923.log`. Essa execução precede a estabilização
+  do teste integrado novo e não é citada como evidência dele.
+- Hotkey após correção da cópia: **dez repetições PASS, 4,609 s**.
+
+A primeira chamada de backend continha o nome inexistente `commandresolution`
+e terminou com erro de setup; o resolvedor pertence a `commandbindings` e a
+chamada corrigida passou. Vitest inicialmente não iniciou esbuild no sandbox
+(`EPERM`); os dois recortes normais passaram com permissão de execução. Não se
+atribui nenhum desses erros ao produto ou ao antivírus.
+
+`go test -race ./internal/hotkey -count=1` não executou: o ambiente está com
+CGO desabilitado. Não foi alterada a toolchain nem contornada essa restrição;
+os testes comuns não substituem qualificação com detector de corrida.
+
+C38 foi reconciliado para não listar variantes/estado persistente como código
+faltante: foram entregues na seção146. Seu aceite integral de teclado/NVDA e
+dispositivo continua pendente. A integração externa de C65/C70 ainda exige
+migração coordenada de middleware/bootstrap/AEP-0052; não foi habilitada por
+inferência nem pelo simples fato de existir tabela ou autenticador de biblioteca.
+
+Fechamento:
+
+- Integração nova: **três repetições PASS, 22,234 s**, log
+  `command-c83-manager-final-20260923.log`. Aguarda retorno do dispatch e
+  ledger terminal; não confunde o envio ao canal com conclusão do efeito.
+  Após acrescentar conferência final de contadores, outras **três repetições
+  PASS, 21,327 s**, log `command-c83-manager-delivery-20260923.log`.
+- Implementação paralela **Pasteur (Luna)**, integração/revisão do main e
+  revisão independente **Banach (Luna)**. Achado da fatia compartilhada
+  corrigido e requalificado. Sem achados bloqueantes remanescentes.
+- Limite explícito da asserção negativa de evento antigo: usa observação
+  limitada de 40 ms, seguida por nova conferência após o job terminar; não
+  prova descarte sob atraso arbitrário de escalonamento. Não foi criado hook
+  de teste no runtime para forçar essa prova. Lifecycle/cancelamento seguem
+  cobertos separadamente no pacote hotkey; aceite do SO permanece manual.
+- `go vet ./internal/hotkey ./internal/app`, diff-check e verificador de
+  status AEP **PASS**. Não houve ACP, Wails, executável diagnóstico próprio,
+  acesso ao banco pessoal, push ou PR.
+
+**C83 P→I; 80 I / 4 P / 0 N = 84 (95,2%).** Restam C38, C51, C65 e C70.
+Não se promove nenhum checkbox de aceite, saída R ou gate:
+**11 A / 14 I / 22 P / 1 N = 48; 1/12 aceito**. O fechamento agregado de R12
+inclui hardware/NVDA, isolamento/desempenho e review/CI, independentemente da
+classificação de implementação dos critérios.
