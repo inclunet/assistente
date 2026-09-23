@@ -944,7 +944,7 @@ O usuário confirmou a execução básica no aparelho em 18/09/2026. A nova capt
 de teclas e os cenários específicos de desconectar/reconectar,
 bloquear/desbloquear e reiniciar ainda exigem conferência manual.
 
-#### Títulos e ícones das teclas
+#### Títulos, ícones e imagens das teclas
 
 Ao criar ou editar um acionador **Stream Deck**, você pode preencher um título
 para português, inglês e espanhol. Os campos são textuais e acessíveis por Tab;
@@ -954,8 +954,8 @@ aceita até 256 caracteres. Salve e confirme a alteração para aplicá-la.
 Deixe um idioma vazio para usar o nome localizado do comando naquele idioma.
 Apagar um título não apaga a associação, o comando ou os outros idiomas. O nome
 do comando na paleta também não muda: o título pertence à tecla configurada.
-Os títulos são recuperados ao reabrir o editor. A edição de imagens e variantes
-de estado ainda não está disponível.
+Os títulos são recuperados ao reabrir o editor. Variantes automáticas de imagem
+por estado de execução ainda não estão disponíveis.
 
 O campo **Ícone** oferece configurações, conversa, pasta, reproduzir, parar,
 voltar e estrela. Escolha pelo nome, usando o teclado, e salve/ confirme a
@@ -966,6 +966,29 @@ Em geometrias muito pequenas, o texto tem prioridade e o ícone não é desenhad
 Um ícone desconhecido já salvo é preservado e indicado como indisponível no
 seletor. Ele não é carregado de arquivo ou da internet: a tecla usa só o título.
 Você pode substituí-lo por uma opção disponível ou removê-lo.
+
+Para uma **imagem personalizada**, use o seletor de arquivo no mesmo formulário.
+Escolha PNG ou JPEG de até **1 MiB**, no máximo 4.096 pixels por eixo e
+4 milhões de pixels no total. O aplicativo reduz a imagem para caber em
+128 × 128 pixels, preserva a proporção e descarta metadados. Salve e confirme.
+Enquanto o arquivo é lido, Salvar fica indisponível. Cancelar a confirmação
+não grava a imagem. Nenhum caminho de arquivo ou endereço da internet é usado
+posteriormente para carregar a tecla.
+
+A imagem aparece acima do título e tem prioridade sobre o ícone. **Remover
+imagem** mantém títulos, comando e ícone; salve e confirme para aplicar a remoção.
+Em teclas pequenas, o texto tem prioridade. O formulário informa se há imagem
+associada, sem exigir a leitura de identificadores técnicos.
+
+As imagens ficam no banco local, separadas da configuração e isoladas por
+usuário, com limite de 16 MiB de imagens normalizadas por usuário. Imagens iguais
+são reutilizadas; quando nenhuma associação as utiliza, são removidas na mesma
+transação da alteração. O arquivo original não é modificado.
+**Exportar configurações não exporta esses arquivos.** Ao importar em outro
+banco ou usuário, selecione a imagem novamente: se a referência não estiver
+disponível, a tecla usa ícone/título e continua executando o mesmo comando.
+Para voltar a uma versão sem suporte a imagens, use uma cópia anterior do
+banco ou remova as imagens nesta versão antes.
 
 Quando uma tecla pode executar comandos diferentes conforme o contexto visual,
 ela continua mostrando os comandos potenciais, separados por barra. Um título
@@ -989,6 +1012,14 @@ Validação manual acumulada:
   Reabra o acionador: a seleção e os títulos devem estar preservados.
 - [ ] Confira o ícone acima do título no dispositivo. Troque para **Conversa**
   e depois **Sem ícone**; confirme cada alteração. A ação deve continuar igual.
+- [ ] Pelo teclado e NVDA, escolha uma imagem PNG/JPEG, salve e confirme.
+  Confira a imagem acima do título e a execução da ação no dispositivo.
+- [ ] Reabra o editor e confira a indicação de imagem associada. Troque a
+  imagem, negue a confirmação e confira que a imagem anterior permanece.
+- [ ] Remova a imagem, salve e confirme: o ícone escolhido deve reaparecer,
+  mantendo título e comando. Reabra o aplicativo e confira a persistência.
+- [ ] Escolha um arquivo maior que 1 MiB ou de outro formato: confira o erro
+  anunciado e a preservação da associação anterior.
 
 A captura não ativa camadas. Se outro programa estiver usando o aparelho,
 libere o dispositivo antes de tentar novamente.

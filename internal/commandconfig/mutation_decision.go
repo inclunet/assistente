@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"assistente/internal/commanddecision"
+	"assistente/internal/commandimage"
 	"assistente/internal/commandjson"
 	"assistente/internal/commandledger"
 	"assistente/internal/commandsecurity"
@@ -98,6 +99,9 @@ func (s *Store) commitConfirmedMutationTx(ctx context.Context, tx *gorm.DB, c *C
 		}
 	}
 	if err := hook(ctx, tx, c.prepared.Diff()); err != nil {
+		return err
+	}
+	if err := commandimage.PruneTx(ctx, tx, c.prepared.after.Scope.UserID); err != nil {
 		return err
 	}
 	actual, err := readAggregateSnapshot(ctx, tx, c.prepared.after.Scope)

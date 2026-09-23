@@ -9,6 +9,7 @@ import (
 	"assistente/internal/commandactivation"
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandcatalog"
+	"assistente/internal/commandimage"
 	"assistente/internal/commandjson"
 )
 
@@ -432,7 +433,7 @@ func validateCompletePresentation(raw string) error {
 	if err != nil || !versionOne(fields) {
 		return ErrInvalid
 	}
-	allowed := map[string]bool{"version": true, "title_key": true, "status_label_keys": true, "title_by_locale": true, "icon": true}
+	allowed := map[string]bool{"version": true, "title_key": true, "status_label_keys": true, "title_by_locale": true, "icon": true, "image_ref": true}
 	for name := range fields {
 		if !allowed[name] {
 			return ErrInvalid
@@ -442,6 +443,9 @@ func validateCompletePresentation(raw string) error {
 		return ErrInvalid
 	}
 	if value, ok := fields["icon"]; ok && !validPresentationTokenValue(value) {
+		return ErrInvalid
+	}
+	if value, ok := fields["image_ref"]; ok && !validImageRefValue(value) {
 		return ErrInvalid
 	}
 	if value, ok := fields["status_label_keys"]; ok {
@@ -485,6 +489,14 @@ func completeBindingPresentation(raw string) (*commandbindings.BindingPresentati
 		presentation.Icon = icon
 		projected = true
 	}
+	if rawImageRef, ok := fields["image_ref"]; ok {
+		imageRef, ok := jsonString(rawImageRef)
+		if !ok {
+			return nil, ErrInvalid
+		}
+		presentation.ImageRef = imageRef
+		projected = true
+	}
 	if !projected {
 		return nil, nil
 	}
@@ -525,6 +537,11 @@ func validatePresentationMap(raw json.RawMessage, keysAreTokens bool) error {
 func validPresentationTokenValue(raw json.RawMessage) bool {
 	value, ok := jsonString(raw)
 	return ok && validPresentationTokenLocal(value)
+}
+
+func validImageRefValue(raw json.RawMessage) bool {
+	value, ok := jsonString(raw)
+	return ok && commandimage.ValidRef(value)
 }
 
 func validPresentationTokenLocal(value string) bool {

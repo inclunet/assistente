@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"assistente/internal/commandimage"
+
 	"gorm.io/gorm"
 )
 
@@ -126,7 +128,10 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 				return err
 			}
 		}
-		return migrateMutationAudit(tx)
+		if err := migrateMutationAudit(tx); err != nil {
+			return err
+		}
+		return commandimage.Migrate(ctx, tx)
 	})
 }
 

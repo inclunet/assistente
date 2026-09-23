@@ -2,7 +2,7 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção143 (23/09/2026):** dos 84 critérios finais,
+**Acompanhamento vigente — seção144 (23/09/2026):** dos 84 critérios finais,
 **78 têm implementação identificada (92,9%), 6 são parciais e 0 ausentes**.
 Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
 A seção136 corrige o consumo concorrente de receipts com CAS completo como
@@ -38,6 +38,12 @@ Deck. Remoção restaura texto; divergência entre bindings elegíveis e tokens
 desconhecidos usam fallback textual. C38 continua parcial por imagens próprias,
 variantes de estado e aceite NVDA. O limite de 64 KiB não foi aumentado para
 embutir imagens no protocolo de comandos.
+A seção144 adiciona seleção de PNG/JPEG e armazenamento local separado por
+usuário, confirmado na mesma transação do binding. A configuração contém só
+o digest; a imagem é aplicada nos frames alterados, nunca no pressionamento.
+Limites de arquivo/dimensões/quota, remoção de assets sem referências e fallback
+textual/ícone mantêm o protocolo de 64 KiB. Exportações de configuração não
+transportam os arquivos de imagem. C38 segue parcial por variantes e aceite NVDA.
 Saídas maiores: **11 A / 14 I / 22 P / 1 N = 48**; 25/48 com implementação
 identificada incluindo aceitas (52,1%). Gates: **1/12 aceito, R04**.
 C34/C35/C36 e R11.1/R11.3 têm implementação identificada: tools públicas de

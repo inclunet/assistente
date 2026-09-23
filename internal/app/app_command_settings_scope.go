@@ -229,6 +229,10 @@ func (a *App) MutateCommandSettings(req CommandSettingsMutationRequest) (result 
 		return CommandSettingsMutation{}, commandexecution.ErrStale
 	}
 	operation := commandconfig.Operation(req.Operation)
+	req, pendingImage, err := prepareCommandSettingsImage(req)
+	if err != nil {
+		return CommandSettingsMutation{}, err
+	}
 	intent, err := commandSettingsIntent(req, operation, snapshot, projection, scope)
 	if err != nil {
 		return CommandSettingsMutation{}, err
@@ -259,7 +263,10 @@ func (a *App) MutateCommandSettings(req CommandSettingsMutationRequest) (result 
 		if !commandSettingsDiffMatchesSnapshot(diff, snapshot) {
 			return commandconfig.ErrStale
 		}
-		return baseHook(hookCtx, tx, diff)
+		if err := baseHook(hookCtx, tx, diff); err != nil {
+			return err
+		}
+		return commitCommandSettingsImage(hookCtx, tx, scope.UserID, intent, pendingImage)
 	}
 	applier, err := a.newCommandDesktopMutationApplier(inputs)
 	if err != nil {

@@ -257,7 +257,7 @@ func commandDeckLocalUIEligible(definition commandcatalog.Definition) bool {
 // All potential branches for a command must agree on its custom title. The
 // host does not know which visual branch is active, so divergence falls back
 // to the localized command name, just like divergent equivalent bindings.
-func localDeckPresentation(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string, conditions []LocalCommandPaletteCondition, locale string) (string, string) {
+func localDeckPresentation(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string, conditions []LocalCommandPaletteCondition, locale string) (string, string, string) {
 	idsByCommand := make(map[string][]string)
 	deckUIConditionsObserved(configuration, registry, identity, func(definition commandcatalog.Definition) bool {
 		return commandDeckLocalUIEligible(definition) || commandDeckContextualUIEligible(definition)
@@ -284,5 +284,5 @@ func localDeckPresentation(configuration *commandbindings.Configuration, registr
 		names = append(names, name)
 	}
 	slices.Sort(names)
-	return strings.Join(names, " / "), configuration.IconForBindings(bindingIDs)
+	return strings.Join(names, " / "), configuration.IconForBindings(bindingIDs), configuration.ImageForBindings(bindingIDs)
 }

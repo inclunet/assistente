@@ -73,6 +73,40 @@ describe('CommandSettingsPage contrato avançado', () => {
     expect(screen.getByLabelText('commandSettings.presentation.locales.es')).toHaveValue('Antes');
   });
 
+  it('envia image_upload em base64 sem prefixo, substitui image_ref e preserva título e ícone', async () => {
+    const snapshot = deckConfiguration();
+    snapshot.bindings[0].presentation = {
+      ...snapshot.bindings[0].presentation,
+      image_ref: 'sha256-somente-backend',
+    };
+    bridge.get.mockImplementation(async () => structuredClone(snapshot));
+    bridge.mutate.mockImplementation(async (request: CommandSettingsMutationRequest) => {
+      snapshot.bindings[0] = { ...snapshot.bindings[0], ...request.binding };
+      return { committed: true, published: true, id: snapshot.bindings[0].id };
+    });
+
+    render(<CommandSettingsPage />);
+    await bindingAction('commandSettings.actions.editBinding');
+    fireEvent.change(screen.getByLabelText('commandSettings.presentation.image.label'), {
+      target: { files: [new File(['new image'], 'do-not-persist.jpg', { type: 'image/jpeg' })] },
+    });
+    expect(await screen.findByText('commandSettings.presentation.image.selected')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+
+    await waitFor(() => expect(bridge.mutate).toHaveBeenCalledWith(expect.objectContaining({
+      binding: expect.objectContaining({
+        presentation: expect.objectContaining({
+          icon: 'settings',
+          title_by_locale: { 'pt-BR': 'Antes', en: 'Before', es: 'Antes' },
+          image_upload: expect.stringMatching(/^(?!data:).+/),
+        }),
+      }),
+    })));
+    const request = bridge.mutate.mock.calls[0][0] as CommandSettingsMutationRequest;
+    expect(request.binding?.presentation).not.toHaveProperty('image_ref');
+    expect(request.binding?.presentation?.image_upload).not.toContain('do-not-persist.jpg');
+  });
+
   it('remove o ícone desconhecido ao salvar e recarregar sem perder metadados', async () => {
     const snapshot = deckConfiguration();
     snapshot.bindings[0] = {

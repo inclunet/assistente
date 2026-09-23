@@ -105,7 +105,22 @@ func renderCommandSettingsDiff(locale string, diff commandconfig.MutationDiff) (
 		if reflect.DeepEqual(left, right) {
 			continue
 		}
-		encode := func(value entry) string { raw, _ := json.MarshalIndent(value, "", "  "); return string(raw) }
+		encode := func(value entry) string {
+			visible := make(entry, len(value))
+			for key, item := range value {
+				visible[key] = item
+			}
+			if raw, ok := visible[words["presentation"]].(string); ok {
+				var presentation map[string]any
+				if json.Unmarshal([]byte(raw), &presentation) == nil && presentation["image_ref"] != nil {
+					presentation["image_ref"] = words["custom_image"]
+					encoded, _ := json.Marshal(presentation)
+					visible[words["presentation"]] = string(encoded)
+				}
+			}
+			raw, _ := json.MarshalIndent(visible, "", "  ")
+			return string(raw)
+		}
 		switch {
 		case left == nil:
 			lines = append(lines, words["add"]+":\n"+encode(right))
@@ -135,10 +150,13 @@ func commandSettingsDiffWords(locale string) map[string]string {
 		out[key] = values[i]
 	}
 	out["presentation"] = "Apresentação"
+	out["custom_image"] = "Imagem personalizada"
 	if locale == "en" {
 		out["presentation"] = "Presentation"
+		out["custom_image"] = "Custom image"
 	} else if locale == "es" {
 		out["presentation"] = "Presentación"
+		out["custom_image"] = "Imagen personalizada"
 	}
 	return out
 }

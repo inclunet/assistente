@@ -1,16 +1,22 @@
-import { useId } from 'react';
+import { type ChangeEvent, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Select, type SelectOption } from '../ui/Select';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 
 export const COMMAND_PRESENTATION_LOCALES = ['pt-BR', 'en', 'es'] as const;
 type CommandPresentationLocale = typeof COMMAND_PRESENTATION_LOCALES[number];
 
 const COMMAND_PRESENTATION_ICONS = ['settings', 'chat', 'folder', 'play', 'stop', 'back', 'star'] as const;
+export const MAX_COMMAND_PRESENTATION_IMAGE_BYTES = 1024 * 1024;
+export const COMMAND_PRESENTATION_IMAGE_ACCEPT = 'image/png,image/jpeg';
+const COMMAND_PRESENTATION_IMAGE_TYPES = new Set(['image/png', 'image/jpeg']);
 
 export interface CommandPresentationEditorProps {
   readonly value?: Record<string, unknown>;
   readonly disabled?: boolean;
+  readonly onBusyChange?: (busy: boolean) => void;
   readonly onChange: (value: Record<string, unknown>) => void;
 }
 
@@ -30,6 +36,10 @@ function titleByLocale(value: Record<string, unknown> | undefined): Record<strin
 
 function presentationIcon(value: Record<string, unknown> | undefined): string {
   return typeof value?.icon === 'string' ? value.icon : '';
+}
+
+function hasPresentationImage(value: Record<string, unknown> | undefined, field: 'image_ref' | 'image_upload'): boolean {
+  return typeof value?.[field] === 'string' && value[field] !== '';
 }
 
 function titleError(value: unknown, t: (key: string) => string): string | undefined {
@@ -76,13 +86,155 @@ export function normalizeCommandPresentation(
 export function CommandPresentationEditor({
   value,
   disabled = false,
+  onBusyChange,
   onChange,
 }: CommandPresentationEditorProps) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const errorId = useId();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const valueRef = useRef(value);
+  const readerRef = useRef<FileReader | null>(null);
+  const pendingImageStateRef = useRef<{ imageRef: unknown; imageUpload: unknown }>();
+  const readGenerationRef = useRef(0);
+  const mountedRef = useRef(true);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageError, setImageError] = useState<string>();
   const titles = titleByLocale(value);
   const icon = presentationIcon(value);
   const valid = isCommandPresentationValid(value);
+  valueRef.current = value;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      readGenerationRef.current += 1;
+      readerRef.current?.abort();
+      readerRef.current = null;
+      onBusyChange?.(false);
+    };
+  }, [onBusyChange]);
+
+  const setImageBusyState = (busy: boolean) => {
+    if (!mountedRef.current) return;
+    setImageBusy(busy);
+    onBusyChange?.(busy);
+  };
+
+  const invalidateImageRead = () => {
+    readGenerationRef.current += 1;
+    readerRef.current?.abort();
+    readerRef.current = null;
+    pendingImageStateRef.current = undefined;
+    setImageBusyState(false);
+  };
+
+  useEffect(() => {
+    const pending = pendingImageStateRef.current;
+    if (!pending || !readerRef.current) return;
+    if (pending.imageRef === value?.image_ref && pending.imageUpload === value?.image_upload) return;
+    readGenerationRef.current += 1;
+    readerRef.current.abort();
+    readerRef.current = null;
+    pendingImageStateRef.current = undefined;
+    setImageBusy(false);
+    onBusyChange?.(false);
+  }, [onBusyChange, value?.image_ref, value?.image_upload]);
+
+  useEffect(() => {
+    if (!disabled || !readerRef.current) return;
+    invalidateImageRead();
+  }, [disabled]);
+
+  const removeImage = () => {
+    invalidateImageRead();
+    setImageError(undefined);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    const next: Record<string, unknown> = { version: 1, ...valueRef.current };
+    delete next.image_ref;
+    delete next.image_upload;
+    onChange(next);
+    const message = t('commandSettings.presentation.image.removed');
+    announce(message);
+  };
+
+  const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    invalidateImageRead();
+    setImageError(undefined);
+    if (!COMMAND_PRESENTATION_IMAGE_TYPES.has(file.type)) {
+      const message = t('commandSettings.presentation.image.invalidFormat');
+      setImageError(message);
+      return;
+    }
+    if (file.size > MAX_COMMAND_PRESENTATION_IMAGE_BYTES) {
+      const message = t('commandSettings.presentation.image.tooLarge');
+      setImageError(message);
+      return;
+    }
+
+    const generation = readGenerationRef.current;
+    const reader = new FileReader();
+    readerRef.current = reader;
+    pendingImageStateRef.current = {
+      imageRef: valueRef.current?.image_ref,
+      imageUpload: valueRef.current?.image_upload,
+    };
+    setImageBusyState(true);
+    reader.onload = () => {
+      if (!mountedRef.current || generation !== readGenerationRef.current || readerRef.current !== reader) return;
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        const message = t('commandSettings.presentation.image.readError');
+        setImageError(message);
+        readerRef.current = null;
+        pendingImageStateRef.current = undefined;
+        setImageBusyState(false);
+        return;
+      }
+      const comma = result.indexOf(',');
+      if (comma < 0 || result.slice(comma + 1) === '') {
+        const message = t('commandSettings.presentation.image.readError');
+        setImageError(message);
+        readerRef.current = null;
+        pendingImageStateRef.current = undefined;
+        setImageBusyState(false);
+        return;
+      }
+      const next: Record<string, unknown> = { version: 1, ...valueRef.current };
+      delete next.image_ref;
+      next.image_upload = result.slice(comma + 1);
+      readerRef.current = null;
+      pendingImageStateRef.current = undefined;
+      setImageBusyState(false);
+      onChange(next);
+      announce(t('commandSettings.presentation.image.selected'));
+    };
+    reader.onerror = () => {
+      if (!mountedRef.current || generation !== readGenerationRef.current || readerRef.current !== reader) return;
+      readerRef.current = null;
+      pendingImageStateRef.current = undefined;
+      setImageBusyState(false);
+      const message = t('commandSettings.presentation.image.readError');
+      setImageError(message);
+    };
+    reader.onabort = () => {
+      if (generation !== readGenerationRef.current || readerRef.current !== reader) return;
+      readerRef.current = null;
+      pendingImageStateRef.current = undefined;
+      setImageBusyState(false);
+    };
+    try {
+      reader.readAsDataURL(file);
+    } catch {
+      reader.onerror?.(new ProgressEvent('error') as ProgressEvent<FileReader>);
+    }
+  };
+
   const iconOptions: SelectOption[] = [
     { value: '', label: t('commandSettings.presentation.icon.none') },
     ...COMMAND_PRESENTATION_ICONS.map((iconToken) => ({
@@ -137,6 +289,25 @@ export function CommandPresentationEditor({
           onChange={(event) => updateTitle(locale, event.target.value)}
         />
       ))}
+      <Input
+        ref={fileInputRef}
+        type="file"
+        accept={COMMAND_PRESENTATION_IMAGE_ACCEPT}
+        label={t('commandSettings.presentation.image.label')}
+        hint={t('commandSettings.presentation.image.hint')}
+        error={imageError}
+        disabled={imageBusy}
+        onChange={handleImageChange}
+      />
+      {hasPresentationImage(value, 'image_upload') && <p>{t('commandSettings.presentation.image.selected')}</p>}
+      {!hasPresentationImage(value, 'image_upload') && hasPresentationImage(value, 'image_ref') && (
+        <p>{t('commandSettings.presentation.image.saved')}</p>
+      )}
+      {(hasPresentationImage(value, 'image_upload') || hasPresentationImage(value, 'image_ref')) && (
+        <Button type="button" variant="secondary" onClick={removeImage}>
+          {t('commandSettings.presentation.image.remove')}
+        </Button>
+      )}
       {!valid && <p id={errorId}>{t('commandSettings.presentation.invalid')}</p>}
     </fieldset>
   );

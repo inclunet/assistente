@@ -9000,3 +9000,93 @@ com código zero. Apenas `TestCommandDeckAppLatency`, opt-in, foi pulado;
 não se alega nova medição de latência. Log `command-c38-icons-app-20260923.log`.
 Frontend, domínios, vet, TypeScript, lint focado e documentação validados;
 sem achados pendentes na revisão local, sem push ou PR.
+
+## 144. Imagens personalizadas do Stream Deck — 23/09/2026
+
+Continuação de C38/D13. Seleção acessível de arquivo PNG/JPEG, substituição e
+remoção no editor existente, com mensagens nos três idiomas. Títulos e ícone
+permanecem preservados; a imagem tem precedência visual sobre o ícone e não
+substitui texto/anúncio. Salvar aguarda a leitura do arquivo. A leitura não
+persiste nada e cancelar a confirmação não deixa assets no banco.
+
+`image_upload` é campo transitório do transporte da UI, extraído antes da
+canonicalização. O backend limita a entrada a 1 MiB, 4.096 pixels por eixo e
+4 milhões de pixels, verifica o conteúdo PNG/JPEG antes da decodificação e
+normaliza para até 128 × 128 em RGBA de 8 bits, preservando proporção e removendo
+metadados. PNGs de 16 bits também são convertidos, sem reter profundidade que
+possa exceder o limite de armazenamento; normalização idempotente testada.
+O documento persistido contém apenas `image_ref`, SHA-256 dos bytes normalizados.
+O limite de 64 KiB de documentos/confirmações continua inalterado. O hash é
+ocultado na exibição da confirmação, sem alterar a comparação nem o receipt.
+
+Tabela aditiva `command_image_assets`, por usuário e digest, com quota de
+16 MiB por usuário e até 80 KiB por PNG normalizado. O hook de configurações
+grava o asset na mesma transação do binding/receipt, depois de revalidar a
+autoridade. O commit comum remove assets sem referências desse usuário,
+considerando todos os workspaces. Troca, remoção, exclusão/restore e falhas
+preservam as garantias transacionais. Não há URL, caminho ou owner fornecido
+pela UI para carregar imagens. O banco pessoal não foi aberto pelos testes.
+
+Projeção imutável exige acordo entre os bindings elegíveis. Carregamento e
+decodificação acontecem no render de frames alterados/reconexão, fora
+do key-down; não há cache de bytes entre sessões. Ausência/corrupção do asset
+usa ícone/título, sem mudar autorização nem execução. Falha transitória de
+leitura agenda retry do frame a cada cinco segundos; ausência/corrupção estáveis
+não geram polling de banco. Exportações de configuração
+carregam referências, não os arquivos: noutra base/usuário é necessário selecionar
+a imagem novamente. A documentação e o editor explicitam esse limite.
+
+**Contagem preservada: 78 I / 6 P / 0 N = 84 (92,9%).** C38 segue parcial por
+variantes ligadas ao ciclo real de execução e aceite NVDA integral. Saídas R:
+**11 A / 14 I / 22 P / 1 N = 48**; gates **1/12 aceito**. Nenhum checkbox
+manual foi promovido. Roteiro físico/NVDA acumulado no guia de comandos.
+
+Evidências verificadas até aqui:
+
+- App focado após revisão: **PASS**, incluindo upload maior que 64 KiB → decisão
+  → persistência → rebuild → frame, preservação de título/anúncio e remoção;
+  negação, sessão revogada durante decisão e falha da auditoria após escrita
+  não deixam asset nem binding. Teste adicional força erro de leitura recuperável
+  e verifica recuperação no mesmo mapa. Log `command-c38-images-focused-review-20260923.log`.
+- `commandbindings`, `commandconfig`, `commanddeck`, `commandportability`:
+  **PASS**, log `command-c38-images-domains-final-20260923.log`.
+- `commandimage`: normalização, metadados, formato/dimensões/tamanho inválidos,
+  integridade, quota, idempotência e isolamento/limpeza entre owners/workspaces.
+  Testes e vet do pacote **PASS**.
+- Vet de App e domínios alterados: **PASS**, log
+  `command-c38-images-vet-20260923.log`.
+
+Revisão independente: **Avicenna (Luna)**, três rodadas. Um P2 corrigido:
+falha transitória no carregamento agora agenda retry do frame, em vez de exigir
+reconexão/edição. Segunda rodada sem P1/P2 ou pendências; terceira conferiu a
+normalização final de PNGs de 16 bits, sem novos achados. Revisão adicional do
+frontend eliminou anúncio duplicado de erro: o `Input` anuncia uma única vez;
+seleção/remoção continuam anunciadas pelo editor. **29 testes focados PASS**,
+TypeScript e ESLint focado **PASS**. Implementação dividida entre **Sagan**
+(codec/store), **Socrates** (projeção) e **Russell** (editor), todos Luna;
+integração, renderer, testes App e documentação pelo main.
+
+Qualificação sem ocultar tentativas anteriores:
+
+- Primeira suíte frontend: duas falhas novas do seletor, corrigidas sem excluir
+  ou enfraquecer testes. Segunda: imagens passaram, mas dois cenários de handoff
+  da paleta falharam; **Topbar isolado passou 97/97**. Causa dessas duas falhas
+  não comprovada; concorrência/carga permanece hipótese, não diagnóstico fechado.
+- Primeira suíte App atingiu timeout agregado de dez minutos (602,490 s), sem
+  asserção falha anterior e com teste ativo havia zero segundos. Reexecução com
+  orçamento agregado de quinze minutos, sem alterar deadlines de produto ou
+  limites individuais dos testes. Logs das tentativas anteriores preservados.
+
+App completo: **PASS, 487,480 s, 1.208 testes de topo**, log
+`command-c38-images-app-final-20260923.log`. Somente o opt-in
+`TestCommandDeckAppLatency` pulado. Ajustes posteriores de retry/normalização
+foram qualificados novamente no recorte App, nos domínios e na revisão
+independente. Não se alega nova medição de latência nem aceite físico.
+
+Frontend completo final com `--maxWorkers=2`: **465 arquivos / 5.816 testes
+PASS, 437,74 s**, log `frontend/command-c38-images-frontend-qualified-20260923.log`.
+Nenhum teste foi removido; as duas falhas anteriores da paleta não se repetiram,
+mas não se afirma causa resolvida. TypeScript, ESLint focado, vet, verificador
+AEP, diff-check e integridade sem bytes NUL **PASS**.
+Sem Wails, suíte do pacote ACP, executáveis diagnósticos personalizados,
+banco pessoal, push ou PR.

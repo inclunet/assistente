@@ -12,8 +12,8 @@ func TestPresentationSnapshotIsolationAndResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries := map[string]BindingPresentation{
-		d.Candidate.ID: {TitleByLocale: map[string]string{"en": "Base"}, Icon: "deck-base"},
-		delta.ID:       {TitleByLocale: map[string]string{"en": "Custom"}, Icon: "deck-custom"},
+		d.Candidate.ID: {TitleByLocale: map[string]string{"en": "Base"}, Icon: "deck-base", ImageRef: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		delta.ID:       {TitleByLocale: map[string]string{"en": "Custom"}, Icon: "deck-custom", ImageRef: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 	}
 	snapshot := NewPresentationSnapshot(entries)
 	projected := base.WithPresentation(snapshot)
@@ -23,8 +23,12 @@ func TestPresentationSnapshotIsolationAndResolution(t *testing.T) {
 	output := projected.Presentation()
 	output.byBindingID[delta.ID] = BindingPresentation{TitleByLocale: map[string]string{"en": "output mutation"}, Icon: "output mutation"}
 	value, _ := projected.Presentation().Binding(delta.ID)
+	if value.ImageRef != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		t.Fatalf("binding perdeu image ref: %q", value.ImageRef)
+	}
 	value.TitleByLocale["en"] = "binding mutation"
 	value.Icon = "binding mutation"
+	value.ImageRef = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	before, err := base.Resolve(delta.Trigger, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -38,6 +42,9 @@ func TestPresentationSnapshotIsolationAndResolution(t *testing.T) {
 	}
 	if icon := projected.IconForBindings(after.BindingIDs); icon != "deck-custom" {
 		t.Fatalf("aliased icon: %q", icon)
+	}
+	if imageRef := projected.ImageForBindings(after.BindingIDs); imageRef != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		t.Fatalf("aliased image ref: %q", imageRef)
 	}
 	if _, ok := base.TitleForBindings(after.BindingIDs, "en"); ok {
 		t.Fatal("original changed")
@@ -56,6 +63,9 @@ func TestPresentationSnapshotIsolationAndResolution(t *testing.T) {
 	if icon := restored.IconForBindings(result.BindingIDs); icon != "deck-base" {
 		t.Fatalf("restore icon: %q", icon)
 	}
+	if imageRef := restored.ImageForBindings(result.BindingIDs); imageRef != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("restore image ref: %q", imageRef)
+	}
 	if _, ok := restored.Presentation().Binding(delta.ID); ok {
 		t.Fatal("removed delta presentation retained")
 	}
@@ -64,6 +74,9 @@ func TestPresentationSnapshotIsolationAndResolution(t *testing.T) {
 	}
 	if icon := projected.IconForBindings(after.BindingIDs); icon != "deck-custom" {
 		t.Fatalf("restore mutated old icon snapshot: %q", icon)
+	}
+	if imageRef := projected.ImageForBindings(after.BindingIDs); imageRef != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		t.Fatalf("restore mutated old image snapshot: %q", imageRef)
 	}
 }
 
@@ -116,6 +129,31 @@ func TestIconForBindingsRequiresUnanimityAndResolvedIDs(t *testing.T) {
 	} {
 		if got := p.IconForBindings(tc.ids); got != tc.want {
 			t.Fatalf("%v: icon %q, want %q", tc.ids, got, tc.want)
+		}
+	}
+}
+
+func TestImageForBindingsRequiresUnanimityAndResolvedIDs(t *testing.T) {
+	p := NewPresentationSnapshot(map[string]BindingPresentation{
+		"a":     {ImageRef: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		"b":     {ImageRef: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		"c":     {ImageRef: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+		"empty": {},
+	})
+	for _, tc := range []struct {
+		ids  []string
+		want string
+	}{
+		{[]string{"a"}, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		{[]string{"a", "b"}, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		{[]string{"b", "a"}, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		{[]string{"a", "c"}, ""},
+		{[]string{"a", "empty"}, ""},
+		{[]string{"a", "unknown"}, ""},
+		{nil, ""},
+	} {
+		if got := p.ImageForBindings(tc.ids); got != tc.want {
+			t.Fatalf("%v: image ref %q, want %q", tc.ids, got, tc.want)
 		}
 	}
 }

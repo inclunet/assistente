@@ -16,7 +16,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
-AEP-0103, seção143 após reconciliação129 (23/09/2026): **In Progress**.
+AEP-0103, seção144 após reconciliação129 (23/09/2026): **In Progress**.
 **78/84 critérios com implementação identificada (92,9%); 6 parciais e
 0 ausentes**, sem novo aceite final. Saídas R: **11 A / 14 I / 22 P / 1 N**,
 25/48 implementadas incluindo aceitas (52,1%); **1/12 gates aceito**.
@@ -42,6 +42,11 @@ variantes de estado e aceite NVDA; contagem e gates não mudam.
 Seção143: sete ícones locais selecionáveis por nome, renderização com título,
 remoção e fallback textual para tokens desconhecidos/seleções divergentes.
 C38 permanece parcial por imagens próprias, variantes e aceite NVDA.
+Seção144: imagens PNG/JPEG escolhidas localmente, normalizadas e armazenadas
+por usuário fora dos documentos de configuração. Gravação confirmada atômica,
+limites e limpeza transacional; aplicação em frames alterados, fora do key-down.
+Arquivos de imagem não acompanham exportações de configuração. C38 segue
+parcial por variantes e aceite NVDA; contagem e gates permanecem inalterados.
 Seção136: corrigida disputa SQLite no consumo de receipts, com CAS completo,
 sem retry de efeitos; qualificação integrada ampliada sem novos aceites.
 Seção137: provas adicionais de camadas por origem e callbacks diálogo/job;
@@ -62,7 +67,7 @@ reserva nativa temporária de Ctrl+Shift+R, stack real de diálogos, precedênci
 sobre configuração e teardown, sem confirmar decisões. R07.3 tem implementação
 identificada; seu gate agregado permanece aberto. Latência integrada,
 aceite físico/NVDA e demais gates continuam pendentes;
-[estados, evidências e próximos passos](0103-tasklist-conclusao.md#143-ícones-locais-do-stream-deck--23092026).
+[estados, evidências e próximos passos](0103-tasklist-conclusao.md#144-imagens-personalizadas-do-stream-deck--23092026).
 
 AEP-0103, seção128 (22/09/2026): 81 IDs no Deck contextual (79 anteriores +
 aplicar/remover Mermaid), quatro fatos visuais restritos ao editor, inclusive

@@ -16,6 +16,7 @@ func TestProjectCompleteMaterializaSuppressComArgumentsKeyVazia(t *testing.T) {
 	row.CommandID = nil
 	row.Arguments = "{}"
 	row.Effect = "suppress"
+	row.Presentation = `{"version":1,"image_ref":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`
 	snapshot := Snapshot{Scope: Scope{UserID: user}, Bindings: []Binding{row}}
 	options := completeProjectionOptions(completeProjectionRegistry(t))
 
@@ -26,5 +27,8 @@ func TestProjectCompleteMaterializaSuppressComArgumentsKeyVazia(t *testing.T) {
 	result, err := configuration.Resolve("keyboard.local:KeyA", nil, nil)
 	if err != nil || result.Status != commandbindings.Suppressed || len(result.BindingIDs) != 1 || result.BindingIDs[0] != row.ID {
 		t.Fatalf("supressão não materializada: result=%+v err=%v", result, err)
+	}
+	if imageRef := configuration.ImageForBindings(result.BindingIDs); imageRef != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("imagem da supressão elegível não materializada: %q", imageRef)
 	}
 }

@@ -33,6 +33,8 @@ import (
 type commandDeckBinding struct {
 	commandID, title string
 	icon             string
+	imageRef         string
+	imagePNG         []byte
 	identity         string
 	profileBound     bool
 	conditions       []LocalCommandPaletteCondition
@@ -293,7 +295,7 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 			binding.identity = identity
 			binding.conditions = append(binding.conditions, conditions...)
 			binding.profileBound = true
-			binding.title, binding.icon = localDeckPresentation(configuration, p.registry, identity, binding.conditions, locale)
+			binding.title, binding.icon, binding.imageRef = localDeckPresentation(configuration, p.registry, identity, binding.conditions, locale)
 			bindings[spec.Device][spec.Key] = binding
 			continue
 		}
@@ -333,7 +335,7 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 		if profileBound && commandExecutionClassForDefinition(definition) == commandExecutionLocalUI {
 			continue
 		}
-		bindings[spec.Device][spec.Key] = commandDeckBinding{commandID: definition.ID, title: title, icon: configuration.IconForBindings(resolved.BindingIDs), identity: identity, profileBound: profileBound}
+		bindings[spec.Device][spec.Key] = commandDeckBinding{commandID: definition.ID, title: title, icon: configuration.IconForBindings(resolved.BindingIDs), imageRef: configuration.ImageForBindings(resolved.BindingIDs), identity: identity, profileBound: profileBound}
 	}
 	return bindings, versions, nil
 }
@@ -538,6 +540,7 @@ func (p *commandProductRuntime) runDeckEpoch(ctx context.Context, driver command
 	}()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	imageRetries := map[commanddeck.DeviceID]time.Time{}
 	for watch.Err() == nil {
 		if p.getDeckLocale() != locale || p.currentDeckCapture() != capture || p.deckInputGeneration() != controller.generation {
 			return
@@ -570,7 +573,8 @@ func (p *commandProductRuntime) runDeckEpoch(ctx context.Context, driver command
 			}
 			status = "connected"
 			devices = append(devices, commandDeckDeviceStatus{ID: string(result.Device), Model: snapshot.Model.Name, KeyCount: snapshot.Model.KeyCount(), Status: "connected"})
-			if result.Opened || mapDirty {
+			retryAt := imageRetries[result.Device]
+			if result.Opened || mapDirty || !retryAt.IsZero() && !time.Now().Before(retryAt) {
 				controller.mu.Lock()
 				controller.models[string(result.Device)] = snapshot.Model.Name
 				controller.mu.Unlock()
@@ -578,11 +582,18 @@ func (p *commandProductRuntime) runDeckEpoch(ctx context.Context, driver command
 					controller.opened(string(result.Device))
 				}
 				frame := commanddeck.Frame{Device: result.Device, Model: snapshot.Model, Keys: map[int]commanddeck.KeyView{}}
+				retryImages := false
 				for index, binding := range bindings[string(result.Device)] {
 					if index >= snapshot.Model.KeyCount() {
 						continue
 					}
-					frame.Keys[index] = commandDeckKeyView(binding, locale, snapshot.Model)
+					view, retry := p.commandDeckImageKeyView(watch, binding, locale, snapshot.Model)
+					frame.Keys[index] = view
+					retryImages = retryImages || retry
+				}
+				delete(imageRetries, result.Device)
+				if retryImages {
+					imageRetries[result.Device] = time.Now().Add(5 * time.Second)
 				}
 				if err := runtime.Render(watch, frame); err != nil {
 					continue
@@ -685,7 +696,10 @@ func commandDeckKeyView(binding commandDeckBinding, locale string, model command
 		imageID = binding.identity + ":" + binding.title + ":" + locale
 	}
 	imageID += ":" + icon
-	return commanddeck.KeyView{Title: binding.title, Announce: binding.title, State: state, ImageID: imageID, ImageRGBA: commandDeckPresentationImage(binding.title, icon, model)}
+	if len(binding.imagePNG) != 0 {
+		imageID += ":" + binding.imageRef
+	}
+	return commanddeck.KeyView{Title: binding.title, Announce: binding.title, State: state, ImageID: imageID, ImageRGBA: commandDeckPresentationImage(binding.title, icon, binding.imagePNG, model)}
 }
 
 func commandDeckTitle(configuration *commandbindings.Configuration, bindingIDs []string, definition commandcatalog.Definition, locale string) string {
@@ -700,14 +714,19 @@ func commandDeckTitle(configuration *commandbindings.Configuration, bindingIDs [
 	return definition.ID
 }
 
-func commandDeckPresentationImage(title, icon string, model commanddeck.Model) []byte {
+func commandDeckPresentationImage(title, icon string, customPNG []byte, model commanddeck.Model) []byte {
 	img := image.NewRGBA(image.Rect(0, 0, model.KeyImageW, model.KeyImageH))
 	draw.Draw(img, img.Bounds(), image.NewUniform(color.RGBA{24, 24, 24, 255}), image.Point{}, draw.Src)
 	y := 14
-	if commandDeckIconSupported(icon) && model.KeyImageW >= 20 && model.KeyImageH >= 40 {
+	custom := commandDeckDecodeImage(customPNG)
+	if (custom != nil || commandDeckIconSupported(icon)) && model.KeyImageW >= 20 && model.KeyImageH >= 40 {
 		size := min(32, model.KeyImageW-4, model.KeyImageH/2-4)
 		x := (model.KeyImageW - size) / 2
-		commandDeckDrawIcon(img, icon, image.Rect(x, 2, x+size, 2+size))
+		if custom != nil {
+			commandDeckDrawImage(img, custom, image.Rect(x, 2, x+size, 2+size))
+		} else {
+			commandDeckDrawIcon(img, icon, image.Rect(x, 2, x+size, 2+size))
+		}
 		y += size + 4
 	}
 	parsed, err := opentype.Parse(goregular.TTF)

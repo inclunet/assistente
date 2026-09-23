@@ -173,6 +173,7 @@ export default function CommandSettingsPage() {
     return conditionFields;
   }, [conditionFields, editor]);
   const [busy, setBusy] = useState(false);
+  const [presentationBusy, setPresentationBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -233,6 +234,7 @@ export default function CommandSettingsPage() {
     mounted.current = true;
     retryAfterLoadingRef.current = false;
     setEditor(null);
+    setPresentationBusy(false);
     setNotice('');
     setManualActionDialog(null);
     setManualDurationSeconds('');
@@ -787,6 +789,7 @@ export default function CommandSettingsPage() {
   function openBinding(row?: CommandBinding) {
     if (busyRef.current || !selectedLayer || (selectedLayer.builtin && !row) || isInheritedLayer(selectedLayer) || row?.reviewStatus === 'needs_review' || (row?.inherited === true)) return;
     setDeckCapture(null);
+    setPresentationBusy(false);
     setArgumentsValid(true);
     const initialCommand =
       snapshot.commands.find((command) => command.allowedSources.includes('keyboard.local'))?.id ??
@@ -827,7 +830,7 @@ export default function CommandSettingsPage() {
   }
 
   const saveEditor = () => {
-    if (!editor || keyboardCapturing || busy || !canSave) return;
+    if (!editor || keyboardCapturing || busy || presentationBusy || !canSave) return;
     cancelCapture();
     if (editor.kind === 'layer') {
       return void mutate(() => scopedMutation({
@@ -1310,6 +1313,7 @@ export default function CommandSettingsPage() {
                     <CommandPresentationEditor
                       value={editor.value.presentation}
                       disabled={busy}
+                      onBusyChange={setPresentationBusy}
                       onChange={(presentation) => updateBindingField({ presentation })}
                     />
                   </>
@@ -1322,7 +1326,7 @@ export default function CommandSettingsPage() {
         </div>
         <DialogActions
           primary={
-            <Button onClick={saveEditor} loading={busy} disabled={!canSave || busy || keyboardCapturing}>
+            <Button onClick={saveEditor} loading={busy} disabled={!canSave || busy || keyboardCapturing || presentationBusy}>
               {t('common.save')}
             </Button>
           }

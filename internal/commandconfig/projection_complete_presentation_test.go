@@ -14,7 +14,7 @@ func TestProjectCompletePresentationUsesMaterializedBindingIDs(t *testing.T) {
 	row := completeProjectionBinding(t, user, nil, layer, completeProjectionUUID(t))
 	row.LayerRefKind, row.LayerRef = "builtin", "application.defaults"
 	row.ReplacesDefaultID, row.ReplacesDefaultVersion, row.ReplacesDefaultFingerprint = stringPtr("builtin.tab.new"), stringPtr("1"), stringPtr("fp-v1")
-	row.Presentation = `{"version":1,"title_by_locale":{"pt-BR":"Título materializado","en":"Override"},"icon":"deck-edit"}`
+	row.Presentation = `{"version":1,"title_by_locale":{"pt-BR":"Título materializado","en":"Override"},"icon":"deck-edit","image_ref":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`
 	options := completeProjectionOptions(completeProjectionRegistry(t))
 	snapshot := Snapshot{Scope: Scope{UserID: user}, Bindings: []Binding{row}}
 	config, err := ProjectComplete(context.Background(), snapshot, options)
@@ -31,13 +31,16 @@ func TestProjectCompletePresentationUsesMaterializedBindingIDs(t *testing.T) {
 	if icon := config.IconForBindings(result.BindingIDs); icon != "deck-edit" {
 		t.Fatalf("icon: %q", icon)
 	}
+	if imageRef := config.ImageForBindings(result.BindingIDs); imageRef != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("image ref: %q", imageRef)
+	}
 	if _, ok := config.TitleForBindings([]string{"builtin.tab.new"}, "en"); ok {
 		t.Fatal("delta title leaked to default")
 	}
 	if icon := config.IconForBindings([]string{"builtin.tab.new"}); icon != "" {
 		t.Fatalf("delta icon leaked to default: %q", icon)
 	}
-	snapshot.Bindings[0].Presentation = `{"version":1,"icon":"deck-icon-only"}`
+	snapshot.Bindings[0].Presentation = `{"version":1,"icon":"deck-icon-only","image_ref":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}`
 	withoutTitle, err := ProjectComplete(context.Background(), snapshot, options)
 	if err != nil {
 		t.Fatal(err)
@@ -55,11 +58,36 @@ func TestProjectCompletePresentationUsesMaterializedBindingIDs(t *testing.T) {
 	if icon := withoutTitle.IconForBindings(other.BindingIDs); icon != "deck-icon-only" {
 		t.Fatalf("icon-only presentation: %q", icon)
 	}
+	if imageRef := withoutTitle.ImageForBindings(other.BindingIDs); imageRef != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		t.Fatalf("icon-only image ref: %q", imageRef)
+	}
 	if title, _ := config.TitleForBindings(result.BindingIDs, "en"); title != "Override" {
 		t.Fatal("old snapshot changed")
 	}
 	if icon := config.IconForBindings(result.BindingIDs); icon != "deck-edit" {
 		t.Fatalf("old icon snapshot changed: %q", icon)
+	}
+	if imageRef := config.ImageForBindings(result.BindingIDs); imageRef != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("old image snapshot changed: %q", imageRef)
+	}
+
+	snapshot.Bindings[0].Presentation = `{"version":1,"image_ref":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}`
+	imageOnly, err := ProjectComplete(context.Background(), snapshot, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageOnlyResult, _ := imageOnly.Resolve("keyboard.local:KeyA", nil, nil)
+	if got := imageOnly.ImageForBindings(imageOnlyResult.BindingIDs); got != "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" {
+		t.Fatalf("image-only presentation: %q", got)
+	}
+	if _, ok := imageOnly.TitleForBindings(imageOnlyResult.BindingIDs, "en"); ok {
+		t.Fatal("image-only presentation retained title")
+	}
+	if got := imageOnly.IconForBindings(imageOnlyResult.BindingIDs); got != "" {
+		t.Fatalf("image-only presentation retained icon: %q", got)
+	}
+	if config.Equivalent(imageOnly) {
+		t.Fatal("image-only presentation update would not publish")
 	}
 
 	row.Enabled = false
@@ -77,5 +105,8 @@ func TestProjectCompletePresentationUsesMaterializedBindingIDs(t *testing.T) {
 	}
 	if icon := disabled.IconForBindings(fallback.BindingIDs); icon != "" {
 		t.Fatal("disabled delta icon leaked")
+	}
+	if imageRef := disabled.ImageForBindings(fallback.BindingIDs); imageRef != "" {
+		t.Fatalf("disabled delta image ref leaked: %q", imageRef)
 	}
 }

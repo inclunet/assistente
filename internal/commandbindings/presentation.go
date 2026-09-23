@@ -8,6 +8,7 @@ import "strings"
 type BindingPresentation struct {
 	TitleByLocale map[string]string
 	Icon          string
+	ImageRef      string
 }
 
 // PresentationSnapshot é uma projeção imutável de apresentações por ID de
@@ -27,6 +28,7 @@ func NewPresentationSnapshot(entries map[string]BindingPresentation) *Presentati
 		snapshot.byBindingID[bindingID] = BindingPresentation{
 			TitleByLocale: cloneStringMap(presentation.TitleByLocale),
 			Icon:          presentation.Icon,
+			ImageRef:      presentation.ImageRef,
 		}
 	}
 	return snapshot
@@ -51,6 +53,7 @@ func (p *PresentationSnapshot) Binding(bindingID string) (BindingPresentation, b
 	return BindingPresentation{
 		TitleByLocale: cloneStringMap(presentation.TitleByLocale),
 		Icon:          presentation.Icon,
+		ImageRef:      presentation.ImageRef,
 	}, true
 }
 
@@ -106,6 +109,30 @@ func (p *PresentationSnapshot) IconForBindings(bindingIDs []string) string {
 	return icon
 }
 
+// ImageForBindings só aceita uma referência de imagem quando todos os IDs
+// fornecidos têm a mesma referência não vazia. IDs ausentes, referências
+// ausentes ou divergentes não produzem fallback arbitrário.
+func (p *PresentationSnapshot) ImageForBindings(bindingIDs []string) string {
+	if p == nil || len(bindingIDs) == 0 {
+		return ""
+	}
+	var imageRef string
+	for _, bindingID := range bindingIDs {
+		presentation, ok := p.byBindingID[bindingID]
+		if !ok || strings.TrimSpace(presentation.ImageRef) == "" {
+			return ""
+		}
+		if imageRef == "" {
+			imageRef = presentation.ImageRef
+			continue
+		}
+		if imageRef != presentation.ImageRef {
+			return ""
+		}
+	}
+	return imageRef
+}
+
 // IconForBindings consulta a apresentação somente para os IDs já retornados
 // pela resolução. IDs inelegíveis nunca chegam a este contrato.
 func (c *Configuration) IconForBindings(bindingIDs []string) string {
@@ -113,6 +140,15 @@ func (c *Configuration) IconForBindings(bindingIDs []string) string {
 		return ""
 	}
 	return c.presentation.IconForBindings(bindingIDs)
+}
+
+// ImageForBindings consulta a apresentação somente para os IDs já retornados
+// pela resolução. IDs inelegíveis nunca chegam a este contrato.
+func (c *Configuration) ImageForBindings(bindingIDs []string) string {
+	if c == nil {
+		return ""
+	}
+	return c.presentation.ImageForBindings(bindingIDs)
 }
 
 func cloneStringMap(input map[string]string) map[string]string {

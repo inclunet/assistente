@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"assistente/internal/commandbindings"
@@ -226,6 +227,33 @@ func TestProjectCompleteNormalizaArgumentosEValidaApresentacao(t *testing.T) {
 	snapshot.Bindings[0] = row
 	if configuration, err := ProjectComplete(context.Background(), snapshot, options); !errors.Is(err, ErrInvalid) || configuration != nil {
 		t.Fatalf("apresentação inválida aceita: configuration=%v err=%v", configuration, err)
+	}
+}
+
+func TestProjectCompleteRejeitaImageRefInvalidaOuImagemEmbutida(t *testing.T) {
+	user := completeProjectionUUID(t)
+	layer := Layer{ID: completeProjectionUUID(t), UserID: user, Name: "Global", Description: "fixture", Enabled: true, Source: "user", ResolutionPriority: 2}
+	row := completeProjectionBinding(t, user, nil, layer, completeProjectionUUID(t))
+	options := completeProjectionOptions(completeProjectionRegistry(t))
+	options.BuiltinLayers = nil
+	options.ActiveUserLayerIDs = []string{layer.ID}
+	invalidPresentations := []string{
+		`{"version":1,"image_ref":""}`,
+		`{"version":1,"image_ref":null}`,
+		`{"version":1,"image_ref":123}`,
+		`{"version":1,"image_ref":"` + strings.Repeat("a", 63) + `"}`,
+		`{"version":1,"image_ref":"` + strings.Repeat("a", 65) + `"}`,
+		`{"version":1,"image_ref":"` + strings.Repeat("A", 64) + `"}`,
+		`{"version":1,"image_ref":"` + strings.Repeat("g", 64) + `"}`,
+		`{"version":1,"image_ref":" ` + strings.Repeat("a", 63) + ` "}`,
+		`{"version":1,"image_data":"` + strings.Repeat("a", 64) + `"}`,
+	}
+	for _, presentation := range invalidPresentations {
+		row.Presentation = presentation
+		snapshot := Snapshot{Scope: Scope{UserID: user}, Layers: []Layer{layer}, Bindings: []Binding{row}}
+		if configuration, err := ProjectComplete(context.Background(), snapshot, options); !errors.Is(err, ErrInvalid) || configuration != nil {
+			t.Fatalf("image_ref inválida aceita: presentation=%s configuration=%v err=%v", presentation, configuration, err)
+		}
 	}
 }
 
