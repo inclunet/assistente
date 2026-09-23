@@ -378,7 +378,7 @@ func (a *App) commandSettingsAuthority(ctx context.Context, p *commandProductRun
 		return commandconfig.Snapshot{}, commandconfig.CompleteProjection{}, nil, err
 	}
 	active := commandCurrentManualLayerIDs(snapshot, p.principal, nowCommandSettings(), epoch)
-	projection, err := commandProductProjection(p.registry, active)
+	projection, err := a.commandProductGlobalProjection(ctx, p.registry, active)
 	if err != nil {
 		return commandconfig.Snapshot{}, commandconfig.CompleteProjection{}, nil, err
 	}

@@ -306,6 +306,86 @@ describe('CommandSettingsPage', () => {
     expect(screen.queryByText('commandSettings.errors.load')).not.toBeInTheDocument();
   });
 
+  it('mantém defaults globais de job somente leitura e suprime sem os argumentos nativos', async () => {
+    const globalBinding = {
+      id: 'builtin.global.job.run',
+      layerId: 'application.global_hotkeys',
+      commandId: 'job.run',
+      triggerType: 'keyboard.global',
+      triggerSpec: '{"version":1,"code":"KeyJ","modifiers":["Control","Shift"]}',
+      arguments: { job_id: 'weekly-report' },
+      enabled: true,
+      customized: false,
+      readOnly: true,
+      defaultId: 'builtin.global.job.run',
+      currentDefaultVersion: '1',
+      currentDefaultFingerprint: 'fingerprint-global-job',
+      reviewStatus: 'active',
+    };
+    const initialSnapshot = {
+      ...snapshot,
+      layers: [...snapshot.layers, {
+        id: 'application.global_hotkeys', name: 'Atalhos globais', description: '',
+        builtin: true, enabled: true, active: true, manualReady: false, manualActive: false,
+      }],
+      bindings: [globalBinding],
+      commands: [{ id: 'job.run', name: 'Executar job', description: '', allowedSources: ['keyboard.global'] }],
+    };
+    const persistedOverrideSnapshot = {
+      ...initialSnapshot,
+      bindings: [{
+        ...globalBinding,
+        id: 'persisted-global-job-override',
+        customized: true,
+        suppressed: true,
+        enabled: false,
+        effect: 'suppress',
+      }],
+    };
+    getSettings.mockResolvedValueOnce(initialSnapshot).mockResolvedValueOnce(persistedOverrideSnapshot);
+    render(<CommandSettingsPage />);
+
+    fireEvent.click(await screen.findByText('Atalhos globais'));
+    const grid = await screen.findByRole('grid', { name: 'commandSettings.commands' });
+    expect(within(grid).getByText('Control+Shift+KeyJ')).toBeInTheDocument();
+    expect(within(grid).getByText('commandSettings.sources.keyboard')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'commandSettings.actions.newBinding' })).toBeDisabled();
+
+    const edit = await bindingAction('commandSettings.actions.editBinding');
+    expect(edit).toBeDisabled();
+    fireEvent.click(edit);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    fireEvent.click(await bindingAction('commandSettings.actions.suppress'));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_create',
+      binding: expect.objectContaining({
+        layerId: 'application.global_hotkeys',
+        commandId: '',
+        triggerType: 'keyboard.global',
+        triggerSpec: globalBinding.triggerSpec,
+        arguments: {},
+        effect: 'suppress',
+        replacesDefaultId: 'builtin.global.job.run',
+        replacesDefaultVersion: '1',
+        replacesDefaultFingerprint: 'fingerprint-global-job',
+      }),
+    })));
+
+    await waitFor(() => expect(getSettings).toHaveBeenCalledTimes(2));
+    fireEvent.click(await screen.findByText('Atalhos globais'));
+    fireEvent.click(await bindingAction('commandSettings.actions.restore'));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledTimes(2));
+    expect(mutateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      operation: 'binding_restore',
+      id: 'persisted-global-job-override',
+    }));
+    expect(mutateSettings).not.toHaveBeenLastCalledWith(expect.objectContaining({
+      operation: 'binding_restore',
+      id: 'builtin.global.job.run',
+    }));
+  });
+
   beforeEach(() => {
     vi.resetAllMocks();
     user = { userId: 'user-1', sessionId: 'session-1' };

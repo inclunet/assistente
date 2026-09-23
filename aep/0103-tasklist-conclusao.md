@@ -1,10 +1,10 @@
 # AEP-0103 — Tasklist de conclusão integral
 
-Baseline inicial de 16/09/2026; reconciliação de 23/09/2026 atualizada pela seção145. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
+Baseline inicial de 16/09/2026; reconciliação de 23/09/2026 atualizada pela seção147. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.
 
-## 1. Progresso reconciliado — 23/09/2026, após a seção141
+## 1. Progresso reconciliado — 23/09/2026, após a seção147
 
 A seção129 registra a reconciliação documental; as seções130–133 implementam
 a correção de Δ18/C22, o cache produtivo de C62 e a recusa global fora da
@@ -20,8 +20,8 @@ não foi reproduzida nem declarada corrigida. Aceites manuais não foram ampliad
 
 ### Implementação dos 84 critérios finais
 
-- **78/84 I — implementação identificada: 92,9%.**
-- **6/84 P — parciais: 7,1%.**
+- **79/84 I — implementação identificada: 94,0%.**
+- **5/84 P — parciais: 6,0%.**
 - **0/84 N — funcionalidade pública inteiramente ausente.** Isso não elimina
   lacunas dentro dos critérios parciais, como a qualificação transversal.
 - Comparação: seção76 **58/24/2**, seção129 **64/18/2**, seção130
@@ -48,13 +48,16 @@ não foi reproduzida nem declarada corrigida. Aceites manuais não foram ampliad
   e ligação da tool subagent ao Manager/SQLite reais, com profile alvo
   propagado ao Send. A chamada ao modelo e disponibilidade do provider são
   controladas; o cenário job não é scheduler/executor ponta a ponta.
+- Na seção147, C43 P→I: configuração confirmada de camada por programa,
+  captura por ocorrência, execução real de ativação e publicação do mapa
+  demonstradas no App. Fronteira do SO controlada; aceite físico permanece aberto.
 - **Não é porcentagem de esforço, de prazo nem de aceite final.** Critérios
   têm tamanhos distintos; um parcial não recebe meio ponto. Os checkboxes C
   continuam reservados ao aceite final R12. Nenhum foi marcado nesta rodada.
 - A contagem reconhece código entregue e corrige classificações antigas;
-  não mede o número de alterações nem o tamanho dos seis itens parciais restantes.
+  não mede o número de alterações nem o tamanho dos cinco itens parciais restantes.
 
-Parciais atuais: **C38, C43, C51, C65,
+Parciais atuais: **C38, C51, C65,
 C70 e C83**. Cada linha da seção5 informa o motivo,
 os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
 
@@ -797,9 +800,9 @@ Evidência: `internal/commanddeck/manager.go`, `internal/commanddeck/renderer_te
 
 - [ ] C43 — Camadas baseadas no programa em primeiro plano funcionam no Windows e degradam explicitamente em plataformas sem adapter.
 
-**Implementação: P — parcial.** Provider Windows e condições por `foreground.process` existem, com degradação explícita em plataformas sem adapter. Falta a prova positiva integrada de camada por programa atravessando configuração, captura e execução/estabilização; não confundir testes de provider/diagnóstico com esse percurso.
+**Implementação: I — identificada; aceite final pendente.** Provider Windows e condições por `foreground.process` possuem prova integrada de configuração confirmada → captura por evento → executor real → claim de ativação → novo mapa Deck. Processo divergente e falha de captura recusam a ação; mudança de foco após a captura não altera a ocorrência. A construção do snapshot preserva a identidade opaca e a auditoria persiste somente o resumo permitido em D14. A fronteira do SO é controlada nos testes; não equivale ao aceite físico Win32/HID nem à execução da suíte não-Windows.
 
-Evidência: `internal/app/app_command_context.go` (`commandOriginFactsWithDevice`), `internal/commandforeground/native_other_test.go`; seções116–118 e129. Gates: R01, R10.
+Evidência: `internal/app/app_command_foreground_deck_integration_test.go`, `internal/app/app_command_foreground_global_integration_test.go`, `internal/app/app_command_foreground_unavailable_test.go`, `internal/commandforeground/snapshot_test.go`, `internal/commandledger/foreground_redaction_test.go`, `internal/commandforeground/native_other_test.go`; seções116–118,129 e147. Gates: R01, R10, sem novo aceite.
 
 ### C44
 
@@ -9251,3 +9254,98 @@ Fechamento da seção146:
   qualificados pelos recortes finais, não por uma segunda suíte App completa.
 - Vet pós-review **PASS**, log `command-c38-states-vet-delivery-20260923.log`.
   Sem alterações nas assinaturas públicas do Wails ou nova migração de banco.
+
+## 147. Camada por programa: integração e resumo de auditoria — 23/09/2026
+
+A lacuna de prova integrada descrita em C43 foi fechada no App:
+configuração confirmada de camada com `foreground.process=editor.exe`,
+acionador Stream Deck de **Ativar camada**, captura no ingresso, executor
+durável real, claim persistida e publicação dos comandos da camada-alvo.
+Processo divergente e erro de captura não criam claim nem invocação executável.
+A troca de foco depois da captura não muda a ocorrência nem provoca recaptura.
+
+No atalho global, a configuração confirmada cria uma supressão contextual do
+default real de um job. O callback registrado recusa o job no programa que
+ativa a camada; fora dele, percorre admissão, decisão e executor produtivos,
+usando uma tool controlada, com run e ledger persistidos. A mudança de foco após a captura não troca essa
+decisão, e a indisponibilidade impede admissão/execução. Registrador e leitor
+do SO são controlados; não há nova prova nativa ou execução de job pessoal.
+
+Essa prova revelou uma segunda divergência: a autoridade de configurações
+usava uma projeção sem os defaults globais de voz/jobs, embora o runtime já
+os publicasse. Settings e supressão de defaults passam a usar a mesma projeção
+completa; o fingerprint inclui esses defaults. A apresentação mantém a origem
+`keyboard.global` e o acorde canônico, com nome de camada localizado. A tela
+permite consulta/supressão/restauração, sem usar o editor genérico para alterar
+o registro nativo, que continua pertencendo ao perfil de voz ou job.
+
+O adapter Windows passa a construir o snapshot pela mesma fábrica validada
+usada pelos leitores controlados dos testes. Não há `unsafe`, identidade
+exportada, endpoint de injeção, captura Win32 necessária à suíte ou desvio do
+executor. PID, HWND, lifetime e estabilidade do foco continuam verificados
+pelo adapter antes da construção; timestamp e versão continuam internos.
+
+A prova integrada revelou um defeito: `foreground_summary` era sempre o
+marcador de redação, inclusive para o resumo allowlisted produzido pelo App.
+O ledger agora admite exatamente executável normalizado sem caminho, classe
+da janela e versão conhecida do provider. Documento inesperado, campos extras,
+duplicatas, controles, excesso de tamanho e caminhos recebem redação integral.
+O snapshot/identidade nativa permanece transitório. Não há auditoria nova para
+navegação, migração de banco ou alteração de binding Wails.
+
+**C43 P→I; 79 I / 5 P / 0 N = 84 (94,0%).** Restam parciais C38, C51,
+C65, C70 e C83. A contagem é de implementação identificada, não de aceite.
+Nenhum checkbox final ou gate foi promovido; saídas R permanecem
+**11 A / 14 I / 22 P / 1 N**, com **1/12 gates aceito**.
+
+Qualificação já executada neste recorte:
+
+- Domínios `commandbindings`, `commandconfig`, `commandforeground` e
+  `commanddeck`: PASS. `commandforeground` também passou com `-count=10`.
+- `commandledger` completo após a correção: PASS, 6,841 s; inclui persistência
+  do resumo no SQLite e recusas de documentos inesperados.
+- App: recorte `Test(Command(Foreground|Global|Deck|Physical|Occurrence)|ContextualDeckLayer)`
+  PASS, 119,830 s. Não corresponde à suíte App inteira nem inclui refinamentos
+  posteriores dos novos testes desta seção.
+- `go vet` de `commandforeground`, `commandledger` e App: PASS.
+- Integração global final: PASS, 3,693 s, em
+  `command-c43-global-final-20260923.log`. Teste Deck final, com cinco cenários
+  separando preview e pressão: PASS, 6,515 s. Apresentação global final:
+  PASS, 20,587 s. Configurações do App: PASS, 20,443 s, em
+  `command-c43-settings-final-20260923.log`. As execuções finais corrigem erros
+  dos rascunhos de fixtures (supressão sem referência, expectativa de ID após
+  override e ordem de modificadores); essas falhas não foram tratadas como
+  falhas do produto.
+
+Limites: SO controlado nos testes de App; não foi executada captura Win32/HID
+física nem a suíte `!windows`. A recusa sem adapter é coberta pelo contrato
+existente e a propagação de indisponibilidade pelo App foi exercitada com
+leitor controlado. Sem pacote ACP, Wails, executáveis diagnósticos, banco
+pessoal, push ou PR. Roteiro manual continua acumulado no guia de comandos.
+
+Fechamento técnico da seção147:
+
+- Após revisão, snapshot exige identidade completa, provider conhecido, resumo
+  canônico e hash consistente. `CaptureBeforeShow` usa a mesma validação. Isso
+  verifica consistência, não atesta origem do SO: o leitor continua montado no
+  backend confiável, sem endpoint de seleção/injeção pelo cliente.
+- Classes com caminho absoluto/relativo a drive e textos com controles Unicode
+  de formatação são recusados/redigidos. Classes com dois-pontos sem caminho,
+  como `ATL:00012345`, continuam válidas. Casos negativos e positivos cobertos.
+- App pós-hardening: PASS, 47,510 s,
+  `command-c43-app-reviewed-20260923.log`; recorte final após os últimos guards:
+  PASS, 29,406 s, `command-c43-app-final-20260923.log`.
+- Domínios finais `commandforeground` e `commandledger`: PASS, 1,600 s e
+  6,947 s. TypeScript e ESLint focado: PASS; vet final do App e domínios: PASS.
+- Frontend: `CommandSettingsPage.test.tsx` e `CommandSettingsPage.advanced.test.tsx`,
+  **86 testes PASS**, incluindo supressão com argumentos vazios e restauração
+  pelo ID persistido do override global. Avisos `act(...)` em teste existente
+  não impediram a execução; frontend completo não foi repetido nesta seção.
+- Implementação paralela Luna: Newton (Deck e UI), Laplace (integração global).
+  Revisão independente de backend por Leibniz; UI revisada por Laplace e
+  integração global revisada por Newton. Os achados de validação/redação foram
+  corrigidos e requalificados; a fronteira de confiança do Reader foi
+  explicitada, sem criar autenticação fictícia dentro do processo.
+- Revisão final sem achados de produção pendentes. A prova global usa
+  registrador/tool controlados e sincroniza o despacho por canal; cancelamento
+  em timeout não é uma prova de encerramento físico do callback do SO.

@@ -16,10 +16,17 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
-AEP-0103, seção146 após reconciliação129 (23/09/2026): **In Progress**.
-**78/84 critérios com implementação identificada (92,9%); 6 parciais e
+AEP-0103, seção147 após reconciliação129 (23/09/2026): **In Progress**.
+**79/84 critérios com implementação identificada (94,0%); 5 parciais e
 0 ausentes**, sem novo aceite final. Saídas R: **11 A / 14 I / 22 P / 1 N**,
 25/48 implementadas incluindo aceitas (52,1%); **1/12 gates aceito**.
+C43 passa a I na seção147: configuração confirmada de camada por programa,
+captura por ocorrência e executor real até claim/mapa Deck. Resumo de auditoria
+D14 corrigido com allowlist estrita. A fronteira do SO é controlada; não há
+novo aceite físico, promoção de gate ou execução não-Windows nesta rodada.
+Prova global inclui supressão contextual e execução real de job fora da
+condição. Autoridade de settings alinhada aos defaults globais do runtime,
+com consulta e supressão/restauração sem editar registros nativos pela tela.
 C34/C35/C36 e R11.1/R11.3: tools registradas, CRUD/restore/import com decisão,
 export não sensível e execução como agente no serviço comum; sessão fixada
 no ingresso GUI e recusa de autoridade emprestada para headless. C71/C73 e

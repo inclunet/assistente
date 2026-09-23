@@ -634,7 +634,7 @@ func invocationFromEnvelope(envelope commandcontract.Envelope, req EnvelopeReque
 		SourceReplayDeadline: cloneTime(envelope.SourceReplayDeadline), ArgumentsSummary: redactedDocument,
 		ArgumentsFingerprint: req.ArgumentsFingerprint, ConversationID: cloneString(envelope.ConversationID), TurnID: cloneString(envelope.TurnID),
 		SurfaceType: cloneString(envelope.SurfaceType), SurfaceID: cloneString(envelope.SurfaceID), SurfaceSnapshotVersion: cloneString(envelope.SurfaceSnapshotVersion),
-		ContextVersion: cloneString(envelope.ContextVersion), ContextSummary: redactedIfPresent(envelope.ContextVersion), ForegroundSummary: redactedIfPresent(envelope.ForegroundSnapshot),
+		ContextVersion: cloneString(envelope.ContextVersion), ContextSummary: redactedIfPresent(envelope.ContextVersion), ForegroundSummary: redactedForegroundIfPresent(envelope.ForegroundSnapshot),
 		SourceProfileSlug: cloneString(envelope.SourceProfileSlug), TargetProfileSlug: cloneString(envelope.TargetProfileSlug),
 		AuthorizationDecisionID: cloneString(envelope.AuthorizationDecisionID), DelegationFingerprint: cloneString(envelope.DelegationFingerprint),
 		GrantGeneration: cloneString(envelope.GrantGeneration), JobID: cloneString(envelope.JobID), JobSlug: cloneString(envelope.JobSlug),

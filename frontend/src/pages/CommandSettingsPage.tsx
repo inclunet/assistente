@@ -498,7 +498,7 @@ export default function CommandSettingsPage() {
       label: t('commandSettings.columns.trigger'),
       format: (value) =>
         t(
-          value === 'keyboard.local'
+          value === 'keyboard.local' || value === 'keyboard.global'
             ? 'commandSettings.sources.keyboard'
             : 'commandSettings.sources.palette'
         ),
@@ -639,7 +639,7 @@ export default function CommandSettingsPage() {
             id: 'customize-default',
             label: t('commandSettings.actions.editBinding'),
             icon: <EditOutlined aria-hidden="true" />,
-            disabled: busy || row.reviewStatus === 'needs_review' || isInheritedBinding(row),
+            disabled: busy || row.reviewStatus === 'needs_review' || isInheritedBinding(row) || row.triggerType === 'keyboard.global',
             action: () => openBinding(row),
           },
           {
@@ -664,7 +664,7 @@ export default function CommandSettingsPage() {
                     commandId: '',
                     triggerType: row.triggerType,
                     triggerSpec: row.triggerSpec,
-                    arguments: row.arguments ?? {},
+                    arguments: {},
                     condition: row.condition ?? EMPTY_CONDITION,
                     effect: 'suppress',
                     enabled: true,
@@ -699,7 +699,7 @@ export default function CommandSettingsPage() {
             id: 'edit',
             label: t('commandSettings.actions.editBinding'),
             icon: <EditOutlined aria-hidden="true" />,
-            disabled: row.reviewStatus === 'needs_review' || isInheritedBinding(row) || busy,
+            disabled: row.reviewStatus === 'needs_review' || isInheritedBinding(row) || busy || row.triggerType === 'keyboard.global',
             action: () => openBinding(row),
           },
           {
@@ -787,7 +787,7 @@ export default function CommandSettingsPage() {
   }
 
   function openBinding(row?: CommandBinding) {
-    if (busyRef.current || !selectedLayer || (selectedLayer.builtin && !row) || isInheritedLayer(selectedLayer) || row?.reviewStatus === 'needs_review' || (row?.inherited === true)) return;
+    if (busyRef.current || !selectedLayer || row?.triggerType === 'keyboard.global' || (selectedLayer.builtin && !row) || isInheritedLayer(selectedLayer) || row?.reviewStatus === 'needs_review' || (row?.inherited === true)) return;
     setDeckCapture(null);
     setPresentationBusy(false);
     setArgumentsValid(true);
@@ -1430,7 +1430,7 @@ function formatTrigger(
   command: CommandDefinition | undefined,
   t: (key: string, options?: Record<string, unknown>) => string
 ): string {
-  if (binding.triggerType === 'keyboard.local') {
+  if (binding.triggerType === 'keyboard.local' || binding.triggerType === 'keyboard.global') {
     try {
       const trigger: unknown = JSON.parse(binding.triggerSpec);
       if (isCommandKeyboardTrigger(trigger)) return formatCommandKeyboardTrigger(trigger);

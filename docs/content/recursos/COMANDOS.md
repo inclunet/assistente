@@ -2406,6 +2406,17 @@ O programa em primeiro plano é identificado pelo nome do executável, como
 `notepad.exe`, não por caminho completo, título de janela ou endereço de página.
 Essa condição se refere ao programa no instante do acionamento físico, antes
 de o Assistente trazer sua janela para frente.
+Uma mudança de foco posterior não troca a condição daquela ocorrência.
+Se o sistema não conseguir identificar o programa, acionadores que dependem
+dessa informação não são executados. Isso não autoriza controlar o programa
+externo: a ação continua sujeita às permissões próprias do comando.
+
+Quando houver atalhos registrados nos perfis de voz ou nos jobs, a camada
+**Atalhos globais de voz e jobs** permite consultá-los e suprimir ou restaurar
+seus padrões. A combinação e o destino continuam sendo configurados no perfil
+de voz ou no job correspondente, não no editor genérico de acionadores.
+Suprimir impede a execução pelo resolvedor; não remove o registro da combinação
+no sistema operacional. Restaurar devolve o comportamento do padrão vigente.
 
 As ações **Ativar camada**, **Alternar camada** e **Voltar camada** usam o mesmo
 executor dos demais comandos. Ao configurar um acionador, escolha a regra pelo
@@ -2445,3 +2456,7 @@ Roteiro manual acumulado deste lote (regressão automatizada concluída):
   Somente a primeira situação deve atender à condição. Resultado: ________.
 - [ ] Conferir com NVDA os nomes de camada/dispositivo e a indicação de
   referência indisponível, sem exigir leitura de IDs ou serial. Resultado: ________.
+- [ ] Com um perfil de voz ou job de teste já configurado, consultar sua
+  combinação na camada **Atalhos globais de voz e jobs**. Suprimir e restaurar
+  o padrão, confirmando cada alteração; verificar que a execução respeita
+  a supressão e que o editor genérico não altera a combinação. Resultado: ________.

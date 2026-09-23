@@ -83,11 +83,31 @@ type Snapshot struct {
 	Summary    Summary   `json:"summary"`
 }
 
+// NewSnapshot converte uma observação consistente do adapter confiável em um
+// snapshot transitório. O adapter deve verificar a identidade e a estabilidade
+// do foco antes de chamar esta função; dados de UI/configuração não são uma
+// observação do SO. Timestamp, versão e redação do caminho são definidos aqui,
+// nunca fornecidos pelo acionador. A identidade permanece opaca e não serializada.
+func NewSnapshot(window uintptr, process uint32, creationTime uint64, executablePath, windowClass string) (Snapshot, error) {
+	identity := Identity{window: window, process: process, creationTime: creationTime}
+	summary := Summary{
+		Executable:      normalizeExecutableBase(executablePath),
+		WindowClass:     normalizeWindowClass(windowClass),
+		ProviderVersion: ProviderVersion,
+	}
+	if window == 0 || process == 0 || creationTime == 0 || !validSummary(summary) {
+		return Snapshot{}, ErrUnknown
+	}
+	return Snapshot{Identity: identity, Version: foregroundFactVersion(identity, summary), CapturedAt: time.Now(), Summary: summary}, nil
+}
+
 // ValidateSnapshot validates the physical-origin contract without exposing
 // identity internals. maxAge is enforced when positive; callers choose the
 // policy budget rather than the adapter inventing one.
 func ValidateSnapshot(snapshot Snapshot, maxAge time.Duration) error {
-	if snapshot.Identity.IsZero() || snapshot.CapturedAt.IsZero() || time.Until(snapshot.CapturedAt) > 0 || strings.TrimSpace(snapshot.Version) == "" || strings.TrimSpace(snapshot.Summary.Executable) == "" || strings.TrimSpace(snapshot.Summary.WindowClass) == "" || strings.TrimSpace(snapshot.Summary.ProviderVersion) == "" {
+	if snapshot.Identity.window == 0 || snapshot.Identity.process == 0 || snapshot.Identity.creationTime == 0 ||
+		snapshot.CapturedAt.IsZero() || time.Until(snapshot.CapturedAt) > 0 || !validSummary(snapshot.Summary) ||
+		snapshot.Version != foregroundFactVersion(snapshot.Identity, snapshot.Summary) {
 		return ErrInvalidSnapshot
 	}
 	if maxAge > 0 && time.Since(snapshot.CapturedAt) > maxAge {
@@ -118,7 +138,7 @@ func CaptureBeforeShow(ctx context.Context, reader Reader, show func() error) (S
 	if err != nil {
 		return Snapshot{}, err
 	}
-	if snapshot.Identity.IsZero() || strings.TrimSpace(snapshot.Version) == "" || snapshot.CapturedAt.IsZero() {
+	if ValidateSnapshot(snapshot, 0) != nil {
 		return Snapshot{}, ErrInvalidSnapshot
 	}
 	if err := ctx.Err(); err != nil {
@@ -148,19 +168,33 @@ func normalizeExecutableBase(value string) string {
 }
 
 func normalizeWindowClass(value string) string {
-	if !utf8.ValidString(value) {
-		return ""
-	}
 	value = strings.TrimSpace(strings.TrimRight(strings.TrimSpace(value), "\x00"))
-	if value == "" || utf8.RuneCountInString(value) > maxWindowClassRunes {
+	if !validObservationText(value) || strings.ContainsAny(value, `/\`) || hasDrivePrefix(value) {
 		return ""
-	}
-	for _, r := range value {
-		if unicode.IsControl(r) {
-			return ""
-		}
 	}
 	return value
+}
+
+func validSummary(summary Summary) bool {
+	return summary.ProviderVersion == ProviderVersion && validObservationText(summary.Executable) &&
+		!strings.ContainsAny(summary.Executable, `/\:`) && normalizeExecutableBase(summary.Executable) == summary.Executable &&
+		summary.WindowClass != "" && normalizeWindowClass(summary.WindowClass) == summary.WindowClass
+}
+
+func hasDrivePrefix(value string) bool {
+	return len(value) >= 2 && value[1] == ':' && (value[0] >= 'A' && value[0] <= 'Z' || value[0] >= 'a' && value[0] <= 'z')
+}
+
+func validObservationText(value string) bool {
+	if value == "" || !utf8.ValidString(value) || strings.TrimSpace(value) != value || utf8.RuneCountInString(value) > maxWindowClassRunes {
+		return false
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return false
+		}
+	}
+	return true
 }
 
 func foregroundFactVersion(identity Identity, summary Summary) string {

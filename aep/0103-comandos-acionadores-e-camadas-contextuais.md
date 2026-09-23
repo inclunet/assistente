@@ -2,9 +2,18 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção146 (23/09/2026):** dos 84 critérios finais,
-**78 têm implementação identificada (92,9%), 6 são parciais e 0 ausentes**.
+**Acompanhamento vigente — seção147 (23/09/2026):** dos 84 critérios finais,
+**79 têm implementação identificada (94,0%), 5 são parciais e 0 ausentes**.
 Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
+A seção147 fecha a lacuna automatizada de C43: camada por programa atravessa
+configuração confirmada, captura por evento, executor real e publicação do mapa
+Deck. Corrige a auditoria que descartava o resumo permitido em D14; somente
+executável, classe e versão do provider são persistidos, com redação integral
+de documentos inesperados. SO controlado nos testes; aceite físico separado.
+Inclui prova global de supressão por programa até o executor real de jobs.
+Configurações passam a reconhecer os defaults globais já publicados pelo
+runtime, com apresentação fiel e consulta/supressão/restauração na tela;
+combinações nativas continuam geridas pelos perfis de voz e jobs.
 A seção136 corrige o consumo concorrente de receipts com CAS completo como
 primeira operação da transação, preservando autorização, auditoria e rollback.
 Na seção137, convergência de camadas e callbacks de diálogo/job recebem provas

@@ -232,7 +232,7 @@ func (a *App) SetDefaultCommandSuppressed(defaultID string, suppressed bool) (re
 	if err != nil {
 		return CommandSettingsMutation{}, err
 	}
-	projection, err := commandProductProjection(p.registry, nil)
+	projection, err := a.commandProductGlobalProjection(ctx, p.registry, nil)
 	if err != nil {
 		return CommandSettingsMutation{}, err
 	}
@@ -475,6 +475,9 @@ func commandSettingsTriggerType(identity string) string {
 	if strings.HasPrefix(identity, "palette:") {
 		return string(commandcatalog.Palette)
 	}
+	if strings.HasPrefix(identity, "keyboard.global:") {
+		return string(commandcatalog.KeyboardGlobal)
+	}
 	return string(commandcatalog.KeyboardLocal)
 }
 
@@ -482,6 +485,14 @@ func commandSettingsTriggerSpec(ctx context.Context, identity string) (string, e
 	if strings.HasPrefix(identity, "palette:") {
 		raw, err := commandjson.Marshal(map[string]any{"version": 1, "selection": strings.TrimPrefix(identity, "palette:")})
 		return string(raw), err
+	}
+	if strings.HasPrefix(identity, "keyboard.global:") {
+		if err := (commandconfig.KeyboardGlobalTriggerPort{}).ValidateIdentity(ctx, identity); err != nil {
+			return "", err
+		}
+		// Apenas serialização da gramática compartilhada de acorde, após validar
+		// a origem global. Isso não registra nem converte a autoridade da hotkey.
+		identity = "keyboard.local:" + strings.TrimPrefix(identity, "keyboard.global:")
 	}
 	if !strings.HasPrefix(identity, "keyboard.local:") {
 		return "", commandexecution.ErrInvalidRequest
@@ -712,6 +723,15 @@ func commandSettingsDefaultID(row commandconfig.Binding) string {
 	return *row.ReplacesDefaultID
 }
 func commandSettingsBuiltinText(locale, id string) (string, string) {
+	if id == commandGlobalLayerID {
+		switch locale {
+		case "en":
+			return "Global voice and job shortcuts", "Shortcuts registered in voice profiles and jobs, including when the app is not focused."
+		case "es":
+			return "Atajos globales de voz y tareas", "Atajos registrados en perfiles de voz y tareas, incluso cuando la aplicación no tiene el foco."
+		}
+		return "Atalhos globais de voz e jobs", "Atalhos registrados nos perfis de voz e jobs, inclusive quando o aplicativo está sem foco."
+	}
 	if id == commandPaletteLayerID {
 		switch locale {
 		case "en":

@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"golang.org/x/sys/windows"
 )
@@ -66,22 +65,11 @@ func (nativeReader) Capture(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	executable := normalizeExecutableBase(imagePath)
-	windowClass := normalizeWindowClass(className)
-	if executable == "" || windowClass == "" {
-		return Snapshot{}, fmt.Errorf("foreground: %w", ErrUnknown)
-	}
 
 	// O HWND pode ser reutilizado durante a leitura. Confirme a PID observada
 	// pela janela e a PID do handle antes de publicar a observação.
 	if err := checkWindowPID(hwnd, pid); err != nil {
 		return Snapshot{}, err
-	}
-	identity := Identity{window: uintptr(hwnd), process: pid, creationTime: creationTime}
-	summary := Summary{
-		Executable:      executable,
-		WindowClass:     windowClass,
-		ProviderVersion: ProviderVersion,
 	}
 	if err := checkHandlePID(process, pid); err != nil {
 		return Snapshot{}, err
@@ -93,13 +81,7 @@ func (nativeReader) Capture(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 
-	capturedAt := time.Now()
-	return Snapshot{
-		Identity:   identity,
-		Version:    foregroundFactVersion(identity, summary),
-		CapturedAt: capturedAt,
-		Summary:    summary,
-	}, nil
+	return NewSnapshot(uintptr(hwnd), pid, creationTime, imagePath, className)
 }
 
 func windowPID(hwnd windows.HWND) (uint32, error) {

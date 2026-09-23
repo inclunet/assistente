@@ -26,12 +26,8 @@ func (f *fakeReader) Capture(context.Context) (Snapshot, error) {
 
 func TestCaptureBeforeShowCapturesAndShowsInOrder(t *testing.T) {
 	order := []string{}
-	want := Snapshot{
-		Identity:   Identity{window: 7, process: 11},
-		Version:    "fixture.v1",
-		CapturedAt: time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC),
-		Summary:    Summary{Executable: "code.exe", WindowClass: "fixture", ProviderVersion: "fixture.v1"},
-	}
+	want := validSnapshot()
+	want.CapturedAt = time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 	reader := &fakeReader{snapshot: want, calledAt: &order}
 	got, err := CaptureBeforeShow(context.Background(), reader, func() error {
 		order = append(order, "show")
@@ -93,7 +89,7 @@ func TestCaptureBeforeShowCancellationIsFailClosed(t *testing.T) {
 		cancel()
 		return nil
 	})
-	if err != nil || calls != 1 || got.Version != "v1" {
+	if err != nil || calls != 1 || got.Version != reader.snapshot.Version {
 		t.Fatalf("initial capture/show = snapshot=%#v err=%v calls=%d", got, err, calls)
 	}
 
@@ -169,7 +165,10 @@ func TestSummaryHasOnlyAllowlistedFields(t *testing.T) {
 }
 
 func TestValidateSnapshotRejectsFutureAndExpiredPhysicalOrigins(t *testing.T) {
-	base := Snapshot{Identity: Identity{window: 1, process: 2}, Version: "v1", CapturedAt: time.Now().UTC(), Summary: Summary{Executable: "code.exe", WindowClass: "fixture", ProviderVersion: ProviderVersion}}
+	base, err := NewSnapshot(1, 2, 3, "code.exe", "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := ValidateSnapshot(base, time.Minute); err != nil {
 		t.Fatalf("snapshot válido rejeitado: %v", err)
 	}
@@ -186,9 +185,12 @@ func TestValidateSnapshotRejectsFutureAndExpiredPhysicalOrigins(t *testing.T) {
 }
 
 func validSnapshot() Snapshot {
+	identity := Identity{window: 1, process: 2, creationTime: 3}
+	summary := Summary{Executable: "code.exe", WindowClass: "fixture", ProviderVersion: ProviderVersion}
 	return Snapshot{
-		Identity:   Identity{window: 1, process: 2},
-		Version:    "v1",
+		Identity:   identity,
+		Version:    foregroundFactVersion(identity, summary),
 		CapturedAt: time.Unix(1, 0),
+		Summary:    summary,
 	}
 }
