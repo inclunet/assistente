@@ -16,8 +16,8 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
-AEP-0103, seção139 após reconciliação129 (22/09/2026): **In Progress**.
-**76/84 critérios com implementação identificada (90,5%); 8 parciais e
+AEP-0103, seção140 após reconciliação129 (22/09/2026): **In Progress**.
+**77/84 critérios com implementação identificada (91,7%); 7 parciais e
 0 ausentes**, sem novo aceite final. Saídas R: **11 A / 14 I / 22 P / 1 N**,
 25/48 implementadas incluindo aceitas (52,1%); **1/12 gates aceito**.
 C34/C35/C36 e R11.1/R11.3: tools registradas, CRUD/restore/import com decisão,
@@ -26,8 +26,10 @@ no ingresso GUI e recusa de autoridade emprestada para headless. C71/C73 e
 R11.2 implementados: CLI list/describe/execute/retry/status, IDs de solicitação,
 consulta autorizada e executor comum, sem presenter nem serviços autônomos.
 Nenhum comando produtivo foi promovido a CLI: catálogo atual informa todos
-como indisponíveis para execução, preservando D14. Qualificação de convergência
-por família e demais lacunas dentro dos critérios parciais continuam pendentes.
+como indisponíveis para execução, preservando D14. C02 passa a I na seção140:
+as três ligações restantes do inventário atravessam o dispatcher produtivo
+até `/about`, TipTap e DOM do chat. São provas distribuídas de backend e UI,
+não E2E físico/Wails; sem nova origem/default ou aceite agregado de gates.
 Seção136: corrigida disputa SQLite no consumo de receipts, com CAS completo,
 sem retry de efeitos; qualificação integrada ampliada sem novos aceites.
 Seção137: provas adicionais de camadas por origem e callbacks diálogo/job;
@@ -48,7 +50,7 @@ reserva nativa temporária de Ctrl+Shift+R, stack real de diálogos, precedênci
 sobre configuração e teardown, sem confirmar decisões. R07.3 tem implementação
 identificada; seu gate agregado permanece aberto. Latência integrada,
 aceite físico/NVDA e demais gates continuam pendentes;
-[estados, evidências e próximos passos](0103-tasklist-conclusao.md#139-revisão-durável-de-mensagens-contra-aba--22092026).
+[estados, evidências e próximos passos](0103-tasklist-conclusao.md#140-convergência-por-família-e-fechamento-das-cadeias-pendentes--22092026).
 
 AEP-0103, seção128 (22/09/2026): 81 IDs no Deck contextual (79 anteriores +
 aplicar/remover Mermaid), quatro fatos visuais restritos ao editor, inclusive

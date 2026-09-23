@@ -16,10 +16,11 @@ vi.mock('../../lib/commandGlobalOwnershipWails', () => ({
 }));
 import { WorkspaceToolbar } from '../workspace/WorkspaceToolbar';
 import { WorkspaceTabCreationMenuProvider } from '../../lib/workspaceTabCreationMenu';
-import { registerOpenModal, unregisterOpenModal } from '../../lib/modalRegistry';
+import { getModalRegistrySnapshot, registerOpenModal, unregisterOpenModal } from '../../lib/modalRegistry';
 import { Modal, isModalOpen, useModalId } from '../ui/Modal';
 import { registerChatPickerSurface, CHAT_PICKER_COMMAND_IDS, requestChatPresentationCommand } from '../../lib/commandChatPickers';
 import { registerEditorPresentationSurface, EDITOR_PRESENTATION_COMMAND_IDS } from '../../lib/commandEditorPresentation';
+import { COMMAND_NAVIGATION_ROUTES } from '../../lib/commandNavigation';
 
 const state = vi.hoisted(() => ({
   workspaceListeners: new Set<() => void>(),
@@ -107,6 +108,12 @@ const catalog = [
   availabilityReason: '',
   readinessReason: '',
 }));
+
+const navigationPaletteCases = Object.entries(COMMAND_NAVIGATION_ROUTES).map(([commandID, route]) => {
+  const item = catalog.find(candidate => candidate.id === commandID);
+  if (!item) throw new Error(`Missing navigation catalog fixture for ${commandID}`);
+  return [commandID, item.name, route] as const;
+});
 
 function activeWorkspaceSnapshot(conversationID = 'conversation-a') {
   return {
@@ -1330,6 +1337,100 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     } finally {
       view.unmount();
       input.remove();
+    }
+  });
+
+  it.each(navigationPaletteCases)('leva %s pela paleta real até %s sem execução durável', async (commandID, label, route) => {
+    const user = userEvent.setup();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    state.loadMap.mockResolvedValue({
+      generation: `g-palette-${commandID}`,
+      ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
+      bindings: [], localPaletteCommands: [commandID],
+    });
+    listCommandCatalog.mockResolvedValueOnce([catalog.find(item => item.id === commandID)!]);
+    const view = render(<Topbar />);
+    try {
+      await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+      const search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
+      await user.type(search, label);
+      await user.keyboard('{ArrowDown}{Enter}');
+
+      await waitFor(() => expect(navigate).toHaveBeenCalledExactlyOnceWith(route));
+      expect(beginUICommand).not.toHaveBeenCalled();
+      expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+      expect(state.dispatchLocalCommandKey).not.toHaveBeenCalled();
+      expect(takeUICommand).not.toHaveBeenCalled();
+      expect(completeUICommand).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('não executa navigation.about.open pela paleta quando o mapa capturado fica stale', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const about = catalog.find(item => item.id === 'navigation.about.open')!;
+    state.loadMap.mockResolvedValue({
+      generation: 'g-about-old', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
+      bindings: [], localPaletteCommands: [about.id],
+    });
+    listCommandCatalog.mockResolvedValueOnce([about]);
+    const view = render(<Topbar />);
+    try {
+      await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+      const search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
+      await user.type(search, about.name);
+      const loadsBeforeRefresh = state.loadMap.mock.calls.length;
+      state.loadMap.mockResolvedValue({
+        generation: 'g-about-new', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
+        bindings: [], localPaletteCommands: [],
+      });
+      await act(async () => { deckEvents.get('command:keyboard-map-changed')?.(); });
+      await waitFor(() => expect(state.loadMap).toHaveBeenCalledTimes(loadsBeforeRefresh + 1));
+      await user.keyboard('{ArrowDown}{Enter}');
+
+      expect(navigate).not.toHaveBeenCalled();
+      expect(beginUICommand).not.toHaveBeenCalled();
+      expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('bloqueia navigation.about.open pela paleta enquanto um modal ocupa o topo', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const about = catalog.find(item => item.id === 'navigation.about.open')!;
+    state.loadMap.mockResolvedValue({
+      generation: 'g-about-modal', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
+      bindings: [], localPaletteCommands: [about.id],
+    });
+    listCommandCatalog.mockResolvedValueOnce([about]);
+    const view = render(<Topbar />);
+    // O registro reconcilia a stack com os overlays reais presentes no DOM.
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.dataset.modalId = 'navigation-about-modal';
+    try {
+      await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+      const search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
+      await user.type(search, about.name);
+      act(() => {
+        document.body.appendChild(overlay);
+        registerOpenModal('navigation-about-modal');
+      });
+      expect(getModalRegistrySnapshot().topID).toBe('navigation-about-modal');
+      await user.keyboard('{ArrowDown}{Enter}');
+
+      expect(getModalRegistrySnapshot().topID).toBe('navigation-about-modal');
+      expect(navigate).not.toHaveBeenCalled();
+      expect(beginUICommand).not.toHaveBeenCalled();
+      expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+    } finally {
+      unregisterOpenModal('navigation-about-modal');
+      overlay.remove();
+      view.unmount();
     }
   });
 

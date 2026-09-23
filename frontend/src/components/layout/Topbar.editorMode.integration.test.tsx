@@ -139,6 +139,7 @@ vi.mock('../../services/commandCatalog', () => ({ listCommandCatalog: vi.fn(asyn
   { id: 'editor.mode.rich', name: 'Modo rico', available: true },
   { id: 'editor.file.save', name: 'Salvar arquivo', available: true },
   { id: 'editor.format.bold', name: 'Negrito', available: true },
+  { id: 'editor.format.code_block', name: 'Bloco de código', available: true },
   { id: 'editor.format.table.merge', name: 'Mesclar células', available: true },
   { id: 'editor.slide.insert.basic', name: 'Inserir slide básico', available: true },
   { id: 'editor.format.list.bullet', name: 'Lista com marcadores', available: true },
@@ -698,6 +699,71 @@ describe('Topbar rich formatting integration', () => {
     await waitFor(() => expect(state.complete).toHaveBeenCalledWith('ticket-editor.format.bold', 'handoff-1', 'succeeded'));
     expect(editor.state.doc.rangeHasMark(1, 6, editor.schema.marks.bold)).toBe(true);
     expect(state.begin).toHaveBeenCalledExactlyOnceWith('editor.format.bold');
+  });
+  it.each(['menu', 'palette', 'deck'] as const)('code block real via %s converges without a duplicate handler', async origin => {
+    const editor = await rich();
+    const commandID = 'editor.format.code_block';
+    if (origin === 'menu') requestEditorFormatCommand(commandID);
+    if (origin === 'deck') await act(async () => state.events.get('command:deck-ui-reservation')?.({
+      ticket: `ticket-${commandID}`, invocationId: 'invocation-1', commandId: commandID,
+    }));
+    if (origin === 'palette') {
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+      await user.type(await screen.findByRole('combobox'), 'Bloco de código');
+      await user.keyboard('{ArrowDown}{Enter}');
+    }
+    await waitFor(() => expect(state.complete).toHaveBeenCalledWith(`ticket-${commandID}`, 'handoff-1', 'succeeded'));
+    expect(editor.state.doc.firstChild?.type.name).toBe('codeBlock');
+    expect(editor.state.doc.textContent).toBe('hello world');
+    expect(state.take).toHaveBeenCalledExactlyOnceWith(`ticket-${commandID}`);
+    expect(state.complete).toHaveBeenCalledTimes(1);
+    if (origin === 'deck') {
+      expect(state.begin).not.toHaveBeenCalled();
+      expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+    } else {
+      expect(state.begin).toHaveBeenCalledExactlyOnceWith(commandID);
+      expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+    }
+  });
+  it('Ctrl+Alt+C uses the default local binding and transforms the real editor once', async () => {
+    const editor = await rich();
+    fireEvent.keyDown(editor.view.dom, { key: 'Control', code: 'ControlLeft', ctrlKey: true });
+    fireEvent.keyDown(editor.view.dom, { key: 'Alt', code: 'AltLeft', ctrlKey: true, altKey: true });
+    fireEvent.keyDown(editor.view.dom, { key: 'c', code: 'KeyC', ctrlKey: true, altKey: true });
+    await waitFor(() => expect(state.complete).toHaveBeenCalledWith('ticket-editor.format.code_block', 'handoff-1', 'succeeded'));
+    expect(editor.state.doc.firstChild?.type.name).toBe('codeBlock');
+    expect(editor.state.doc.textContent).toBe('hello world');
+    expect(state.beginLocalCommandUIKey).toHaveBeenCalledExactlyOnceWith(
+      'generation-1', expect.objectContaining({ version: 1, code: 'KeyC', modifiers: ['Control', 'Alt'] }), false,
+    );
+    expect(state.begin).not.toHaveBeenCalled();
+    expect(state.take).toHaveBeenCalledExactlyOnceWith('ticket-editor.format.code_block');
+    expect(state.complete).toHaveBeenCalledTimes(1);
+  });
+  it('não transforma quando o contexto capturado fica obsoleto durante Take', async () => {
+    const editor = await rich();
+    state.takeDeferred = true;
+    fireEvent.keyDown(editor.view.dom, { key: 'Control', code: 'ControlLeft', ctrlKey: true });
+    fireEvent.keyDown(editor.view.dom, { key: 'Alt', code: 'AltLeft', ctrlKey: true, altKey: true });
+    fireEvent.keyDown(editor.view.dom, { key: 'c', code: 'KeyC', ctrlKey: true, altKey: true });
+    await waitFor(() => expect(state.resolveTake).toBeTypeOf('function'));
+    state.targetCurrent = false;
+    await act(async () => state.resolveTake?.());
+    await waitFor(() => expect(state.complete).toHaveBeenCalledWith('ticket-editor.format.code_block', 'handoff-1', 'cancelled'));
+    expect(editor.state.doc.firstChild?.type.name).toBe('paragraph');
+    expect(state.complete).toHaveBeenCalledTimes(1);
+  });
+  it('rejeita Ctrl+Alt+C em editor readonly antes de qualquer admissão', async () => {
+    const editor = await rich();
+    editor.setEditable(false);
+    fireEvent.keyDown(editor.view.dom, { key: 'c', code: 'KeyC', ctrlKey: true, altKey: true });
+    await act(async () => { await Promise.resolve(); });
+    expect(editor.state.doc.firstChild?.type.name).toBe('paragraph');
+    expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+    expect(state.begin).not.toHaveBeenCalled();
+    expect(state.take).not.toHaveBeenCalled();
+    expect(state.complete).not.toHaveBeenCalled();
   });
   it.each([
     ['0', 'Digit0', true, false, 'paragraph', 'paragraph'],

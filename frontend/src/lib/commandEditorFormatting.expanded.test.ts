@@ -157,9 +157,9 @@ describe('commandEditorFormatting expandido com Tiptap e JSON reais', () => {
   });
 
   it.each([
-    ['editor.format.blockquote'], ['editor.format.list.bullet'],
-    ['editor.format.list.ordered'], ['editor.format.code_block'],
-  ] as const)('usa setParagraph e executa %s no alvo real', (id) => {
+    ['editor.format.blockquote', 'blockquote'], ['editor.format.list.bullet', 'bulletList'],
+    ['editor.format.list.ordered', 'orderedList'], ['editor.format.code_block', 'codeBlock'],
+  ] as const)('usa setParagraph e executa %s no alvo real', (id, expectedNode) => {
     const { editor } = createEditor({ type: 'doc', content: [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'title' }] }] });
     editor.commands.setTextSelection({ from: 2, to: 7 });
     const paragraph = captureEditorFormatting();
@@ -171,6 +171,8 @@ describe('commandEditorFormatting expandido com Tiptap e JSON reais', () => {
     const target = captureEditorFormatting();
     expect(target?.canExecute(id)).toBe(true);
     expect(target?.execute(id)).toBe(true);
+    expect(editor.state.doc.firstChild?.type.name).toBe(expectedNode);
+    expect(target?.execute(id)).toBe(false);
   });
 
   it('limpa somente marcas, sem alterar texto', () => {

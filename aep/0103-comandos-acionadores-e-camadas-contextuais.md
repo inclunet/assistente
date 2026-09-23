@@ -2,8 +2,8 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção139 (22/09/2026):** dos 84 critérios finais,
-**76 têm implementação identificada (90,5%), 8 são parciais e 0 ausentes**.
+**Acompanhamento vigente — seção140 (22/09/2026):** dos 84 critérios finais,
+**77 têm implementação identificada (91,7%), 7 são parciais e 0 ausentes**.
 Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
 A seção136 corrige o consumo concorrente de receipts com CAS completo como
 primeira operação da transação, preservando autorização, auditoria e rollback.
@@ -18,6 +18,10 @@ durável por mensagem, renovado transacionalmente pelos writers SQLite. A v30
 faz backfill sem alterar mensagens; os digests de comandos e conversa incluem
 essa revisão. Ausência de metadados recusa a operação, sem fallback inseguro.
 Evidências e limites estão registrados na tasklist; sem novo aceite manual.
+A seção140 fecha C02: as ligações restantes do inventário chegam a `/about`,
+ao `codeBlock` no TipTap e ao recolhimento da thread no DOM real. Backend
+produtor e frontend consumidor têm provas distribuídas; não é teste físico
+HID/Wails ponta a ponta. Não há nova origem, default ou handler de produção.
 Saídas maiores: **11 A / 14 I / 22 P / 1 N = 48**; 25/48 com implementação
 identificada incluindo aceitas (52,1%). Gates: **1/12 aceito, R04**.
 C34/C35/C36 e R11.1/R11.3 têm implementação identificada: tools públicas de
@@ -29,8 +33,8 @@ CLI list/describe/execute/retry/status implementada: C71/C73 e R11.2 chegam a I.
 Sessão e lookup autorizados, UUIDv7 no ingresso e replay pelo ledger comum;
 sem confirmação textual alternativa ou inicialização de hardware/serviços
 autônomos. Nenhum dos 149 comandos atuais permite CLI: discovery é funcional,
-ações visuais/interativas continuam indisponíveis conforme D14. C02 e a
-qualificação por família permanecem parciais; não houve ampliação de origens.
+ações visuais/interativas continuam indisponíveis conforme D14. C02 tem
+implementação identificada; não houve ampliação de origens para fechá-lo.
 C22 volta a I após a correção de Δ18: condições do Deck são preparadas por
 snapshot antes da entrada física, sem varrer catálogo por pressionamento.
 Fatos nativos continuam atuais; configuração/registry/gerações stale recusam
@@ -56,7 +60,7 @@ Reconciliação documental na seção129; implementação e testes de Δ18 na
 seção130, cache e testes na seção131, plataforma na seção132 e reserva do
 diálogo na seção133; tools e portabilidade do agente na seção134; CLI na seção135.
 Estado individual e próximos passos na
-[tasklist atualizada](0103-tasklist-conclusao.md#138-integração-da-main-e-regressão-cruzada--22092026).
+[tasklist atualizada](0103-tasklist-conclusao.md#140-convergência-por-família-e-fechamento-das-cadeias-pendentes--22092026).
 
 **Seção128 — Mermaid no Stream Deck contextual (22/09/2026):** 81 IDs
 (79 + aplicar/remover Mermaid), com foco/tipo/aba/perfil e células somente

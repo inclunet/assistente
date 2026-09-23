@@ -1,10 +1,10 @@
 # AEP-0103 — Tasklist de conclusão integral
 
-Baseline inicial de 16/09/2026; reconciliação de 22/09/2026 atualizada pela seção139. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
+Baseline inicial de 16/09/2026; reconciliação de 22/09/2026 atualizada pela seção140. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.
 
-## 1. Progresso reconciliado — 22/09/2026, após a seção139
+## 1. Progresso reconciliado — 22/09/2026, após a seção140
 
 A seção129 registra a reconciliação documental; as seções130–133 implementam
 a correção de Δ18/C22, o cache produtivo de C62 e a recusa global fora da
@@ -20,8 +20,8 @@ não foi reproduzida nem declarada corrigida. Aceites manuais não foram ampliad
 
 ### Implementação dos 84 critérios finais
 
-- **76/84 I — implementação identificada: 90,5%.**
-- **8/84 P — parciais: 9,5%.**
+- **77/84 I — implementação identificada: 91,7%.**
+- **7/84 P — parciais: 8,3%.**
 - **0/84 N — funcionalidade pública inteiramente ausente.** Isso não elimina
   lacunas dentro dos critérios parciais, como a qualificação transversal.
 - Comparação: seção76 **58/24/2**, seção129 **64/18/2**, seção130
@@ -40,13 +40,17 @@ não foi reproduzida nem declarada corrigida. Aceites manuais não foram ampliad
   confirmados, execução como agente, sessão do ingresso fixada e recusas headless.
   Na seção135, C71/C73 P→I: borda pública CLI, bloqueio de origens não
   permitidas e ausência de confirmação interativa alternativa.
+  Na seção140, C02 P→I: encerradas as três ligações pendentes do inventário,
+  com provas do dispatcher até rota, transformação do editor e DOM do chat.
+  Produtor backend e consumidor frontend são qualificados separadamente;
+  isso não constitui teste físico de HID nem transporte Wails ponta a ponta.
 - **Não é porcentagem de esforço, de prazo nem de aceite final.** Critérios
   têm tamanhos distintos; um parcial não recebe meio ponto. Os checkboxes C
   continuam reservados ao aceite final R12. Nenhum foi marcado nesta rodada.
 - A contagem reconhece código entregue e corrige classificações antigas;
-  não mede o número de alterações nem o tamanho dos oito itens parciais restantes.
+  não mede o número de alterações nem o tamanho dos sete itens parciais restantes.
 
-Parciais atuais: **C02, C09, C38, C43, C51, C65,
+Parciais atuais: **C09, C38, C43, C51, C65,
 C70 e C83**. Cada linha da seção5 informa o motivo,
 os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
 
@@ -82,8 +86,8 @@ os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
 - Import/export comum já está implementado. Extensões sensíveis de
   portabilidade e gesto longo conservam a prioridade adiada pelo usuário,
   não são silenciosamente excluídos nem retomados.
-- Próximo passo sugerido: qualificar a convergência por família/origem e
-  desempenho integrado, apresentação Deck e as lacunas de produto
+- Próximo passo sugerido: delimitar e fechar a matriz de delegação de C09;
+  depois desempenho integrado, apresentação Deck e as lacunas de produto
   discriminadas na seção129. Validação manual pode seguir em lote para o que
   já está implementado.
 
@@ -461,9 +465,9 @@ Evidência: `internal/app/app_command_product_catalog.go`, `internal/app/app_com
 
 - [ ] C02 — Teclado local, hotkey global, Stream Deck, Command Palette, chat e CLI podem convergir para o mesmo comando sem handlers finais duplicados.
 
-**Implementação: P — parcial.** Teclado local/global, paleta, Deck, chat e CLI usam o executor comum, sem handler final alternativo. A borda CLI está implementada (seção135), mas nenhum comando produtivo atual permite essa origem; a prova positiva de replay usa registro isolado de teste, não um comando artificial no produto. Falta a qualificação de convergência por família nas origens permitidas; não falta reimplementar o ingresso CLI nem voz/jobs Windows.
+**Implementação: I — identificada; aceite final pendente.** Teclado local/global, paleta, Deck, chat e CLI convergem conforme suas origens permitidas, sem handler final alternativo. A apresentação local mantém a exceção C84. A seção140 fecha as três ligações restantes do inventário: Sobre P/K/D até `/about`, Ctrl+Alt+C até TipTap e UI até recolhimento real da thread. As provas de produtor e consumidor são distribuídas, não E2E físico/Wails. A borda CLI existe, mas nenhum comando produtivo atual permite essa origem; sua prova positiva de replay usa registro isolado de teste, não um comando artificial no produto.
 
-Evidência: `internal/app/app_command_ui.go`, `internal/app/app_command_global_execution_test.go`, `internal/app/app_command_layer_origin_convergence_test.go`, `frontend/src/components/layout/Topbar.tsx`, `internal/tools`, `cmd/asst`; seções109–110,129 e137. A seção137 cobre o ciclo dos três comandos de camada nas quatro origens permitidas, com replay pelo chat. A restrição contratual da CLI não é funcionalidade a habilitar para fechar a matriz. Gates: R07, R10, R11.
+Evidência: `internal/app/app_command_ui.go`, `internal/app/app_command_global_execution_test.go`, `internal/app/app_command_layer_origin_convergence_test.go`, `internal/app/app_command_family_origins_test.go`, `frontend/src/components/layout/Topbar{,.palette.integration,.editorMode.integration}.test.tsx`, `frontend/src/components/chat/ChatNavigation.origins.integration.test.tsx`, `frontend/src/lib/commandNavigation.test.ts`, `internal/tools`, `cmd/asst`; seções109–110,129,137 e140. A seção137 cobre o ciclo dos três comandos de camada nas quatro origens permitidas, com replay pelo chat. A restrição contratual da CLI não é funcionalidade a habilitar para fechar a matriz. Gates: R07, R10, R11, ainda sem aceite agregado.
 
 ### C03
 
@@ -8649,3 +8653,112 @@ Placar preservado: **76 I / 8 P / 0 N**, saídas **11 A / 14 I / 22 P / 1 N**,
 gates **1/12**. Correção de segurança de concorrência não equivale a aceite
 manual ou conclusão integral de C02/C09/C83. Sem banco pessoal, app aberto,
 teste do pacote ACP, executável diagnóstico customizado ou push.
+
+## 140. Convergência por família e fechamento das cadeias pendentes — 22/09/2026
+
+### Escopo finito de C02
+
+A revisão independente restringe a qualificação às famílias e origens
+permitidas no catálogo v40, sem exigir 149 vezes todas as origens e sem
+ampliar `AllowedSources`. Três ligações permaneciam não reconciliadas no
+inventário: navegação Sobre por P/K/D até `/about`; default Ctrl+Alt+C até
+transformação do editor; e evento UI de recolher thread até a mensagem real.
+Os testes de catálogo ou de handlers diretos, isoladamente, não fecham essas
+ligações. A conclusão desta seção depende de provas atravessando-as.
+
+### Backend e fronteira de UI
+
+- `TestCommandLocalFamiliesDeckProjectionAndSingleDispatch`: nove comandos
+  de rota e sete de navegação do chat percorrem configuração persistida,
+  projeção e adapter Deck até evento local autenticado. Pressionamento mantido
+  e repeat não duplicam; nova pressão após keyup funciona; desconexão recusa.
+  Os mesmos IDs constam da paleta local, sem invocação/auditoria persistida.
+- `TestCommandEditorFormatFamilyContextualDeckUsesCommonHandoff`: todos os
+  **45 IDs** de formatação/diagramas/slides atravessam oferta contextual,
+  Begin/Take/Complete e ledger com origem `streamdeck.key`, uma invocação e
+  recusa de replay de oferta/handoff. O ACK simula a resposta da UI, não prova
+  transformação do documento; essa prova cabe aos testes frontend abaixo.
+- `TestCommandEditorFormatDefaultsUseCommonHandoffWithoutRepeat`: os **14
+  defaults** de formatação, inclusive Ctrl+Alt+C, percorrem a entrada real
+  de teclado, sem repetição de mutação, com proveniência `keyboard.local`.
+  Complementa a matriz existente de 45 comandos por paleta.
+- Recorte Go dessas provas e da matriz de paleta: **PASS, 58,043 s**, log
+  `command-family-backend-qualified-20260922.log`. O dispositivo físico não
+  foi aberto; a entrada começa na fronteira confiável do adapter.
+
+### Frontend, revisão e resultado
+
+- `Topbar.palette.integration.test.tsx` e `Topbar.test.tsx`: as 11 rotas
+  do mapa de navegação, inclusive `/about`, partem da paleta Combobox real,
+  teclado configurado e evento Deck para o dispatcher produtivo. O mapa
+  literal é verificado separadamente em `commandNavigation.test.ts`.
+  Cobrem duplicação, modal, geração e identidade obsoletas, sem ledger.
+- `Topbar.editorMode.integration.test.tsx`: Ctrl+Alt+C percorre o binding
+  até o editor TipTap real, produzindo `codeBlock` e preservando conteúdo.
+  Paleta, solicitação do menu e reserva Deck chegam à mesma transformação.
+  Readonly e alvo invalidado durante Take não alteram o documento; Deck
+  consome a reserva existente, sem abrir uma segunda invocação.
+  `commandEditorFormatting.expanded.test.ts` verifica tipo de nó e consumo
+  único do alvo, não apenas que uma função foi chamada.
+- App completo: `go test ./internal/app -count=1 -timeout=12m -json`,
+  **PASS, 322,682 s**, log `command-family-app-all-20260922.log`.
+  São **1.190 testes de topo PASS**, com `TestCommandDeckAppLatency`
+  **SKIP** (opt-in); a rodada não qualifica latência física integrada.
+  `go vet ./internal/app` e ESLint dos cinco arquivos frontend alterados:
+  **PASS**. Sem execução de pacote ACP, Wails ou banco pessoal.
+
+- `ChatNavigation.origins.integration.test.tsx` monta `Topbar`,
+  `ChatSessionView` e `MessageNode` reais. Paleta, teclado, evento Deck e
+  clique no botão da mensagem chegam à expansão/contração real da thread:
+  `aria-expanded`, presença/ausência do filho no DOM e outra mensagem
+  preservada. Não substitui o dispatcher por um listener de teste.
+  Ausência de chamadas Begin/Take/Complete é comprovada no frontend;
+  ausência de ledger é comprovada separadamente no backend.
+- Revisão independente: **Boyle (Luna)**, três rodadas read-only, sem
+  pendências após corrigir a contagem de 44 para **45** IDs e explicitar
+  as fronteiras dos testes. A fronteira Wails é simulada no frontend;
+  o Go testa o produtor do evento, não HID físico. Essa composição não é
+  anunciada como E2E de transporte/hardware. O teste literal de rotas
+  impede uma expectativa circular derivada apenas do mapa de produção.
+  A última rodada também revisou as correções de isolamento/modal, o
+  forwardRef do mock e a coerência dos quatro documentos, sem novos achados.
+
+- Recortes frontend: navegação **391 testes PASS**; editor e helpers
+  **182 testes PASS**, com o recorte C02 repetido três vezes; chat **51
+  testes PASS**. Após estabilizar o arquivo novo, chat integrado e mapa
+  literal de navegação foram executados novamente: **11 testes / 2 arquivos
+  PASS**, log `command-family-chat-final-20260922.log`.
+- `npx tsc --noEmit`: **PASS**. ESLint completo: **zero erros**, quatro
+  warnings preexistentes de `no-explicit-any` em `ProfilesPage.test.tsx`.
+  O mock novo de MenuButton usa forwardRef, sem o aviso de ref do React.
+- Verificador AEP: **PASS**, 107 documentos principais / 106 números,
+  status sincronizados. Contagem independente das linhas C: **77 I / 7 P**.
+  `git diff --check`: **PASS**.
+
+Primeira regressão frontend completa: **461 arquivos PASS / 3 FAIL**, **5.790
+testes PASS / 5 FAIL**, 430,41 s, log `command-family-frontend-all-20260922.log`.
+Três falhas carregaram a versão intermediária do teste de chat (antes de
+aguardar montagem/transições e ajustar o nome acessível da opção), já corrigida
+e revalidada. Chat e mapa de navegação: **58 testes / 4 arquivos, PASS em
+três execuções consecutivas**, logs `command-family-chat-stability-{1,2,3}.log`.
+As outras duas falhas eram de fixture/isolamento: o registro de modal sem
+overlay era removido pela reconciliação produtiva do DOM; o store global de
+ajuda permanecia aberto entre casos após unmount. O teste agora mantém o
+overlay e verifica a stack antes/depois do acionamento; teardown fecha o
+store de ajuda e o caso de foco verifica sua pré-condição. Não se removeu
+assertion nem se alterou produto para tornar a suíte verde.
+Esses dois arquivos passaram **391/391 testes em três execuções consecutivas**
+após a correção, com ESLint e diff-check aprovados.
+Regressão completa final, concluída em **23/09/2026**: `npm test --
+--maxWorkers=2 --reporter=dot`, **464 arquivos / 5.795 testes PASS**, 416,00 s,
+log `command-family-frontend-final-20260922.log`. A primeira execução e seu
+log foram preservados como diagnóstico, não reclassificados como PASS.
+TypeScript e ESLint dos arquivos alterados passaram novamente com as fontes
+finais. Alterações reunidas no commit temático desta seção; sem push/PR.
+
+Resultado: **C02 P→I; 77 I / 7 P / 0 N = 84 (91,7%)**. Permanecem
+**11 A / 14 I / 22 P / 1 N = 48** e **1/12 gates aceito**. Checkboxes C
+continuam sem novo aceite. Sem nova funcionalidade, tecla padrão, origem
+ampliada, handler alternativo ou alteração de produto para satisfazer testes.
+Próximo passo técnico: delimitar e fechar as combinações produtivas de
+delegação ainda pendentes em C09, sem reimplementar seu núcleo de identidade.

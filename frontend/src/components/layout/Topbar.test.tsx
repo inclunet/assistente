@@ -24,6 +24,7 @@ import { useWorkspaceKeyboardShortcuts } from '../../hooks/useWorkspaceKeyboardS
 import type { SurfaceContextGetter } from '../../lib/commandContextProviders';
 import type { BackendCommandExecutionResult } from '../../lib/commandBackendExecution';
 import type { MenuItem } from '../menu';
+import { COMMAND_NAVIGATION_ROUTES } from '../../lib/commandNavigation';
 
 const keyboardState = vi.hoisted(() => ({
   realExecution: false,
@@ -125,6 +126,13 @@ function CommandSourcePanel({ getter, surfaceID = 'source-panel' }: { getter: Su
 }
 
 const navigateSpy = vi.fn();
+const navigationRouteCases = Object.entries(COMMAND_NAVIGATION_ROUTES) as Array<[string, string]>;
+const navigationKeyboardCases = navigationRouteCases.map(([commandID, route], index) => [
+  commandID,
+  route,
+  `Key${String.fromCharCode(65 + index)}`,
+  String.fromCharCode(97 + index),
+] as const);
 const toggleMenuSpy = vi.fn();
 const announceSpy = vi.fn();
 const commandOpenSpy = vi.fn();
@@ -304,6 +312,8 @@ vi.mock('../../lib/commandBackendExecution', async (importOriginal) => {
 });
 
 afterEach(() => {
+  // O unmount da Topbar não fecha o store global aberto pelos testes de ajuda.
+  act(() => useShortcutsHelpStore.getState().close());
   chatPickerState.available = false;
   chatPickerState.current = true;
   chatPickerState.open.mockClear();
@@ -1381,6 +1391,33 @@ describe('Topbar', () => {
     },
   );
 
+  it.each(navigationKeyboardCases)('leva %s pelo teclado configurado até %s, uma vez e sem ledger', async (commandID, route, code, key) => {
+    keyboardState.loadMap.mockResolvedValue({
+      generation: `g-keyboard-${commandID}`,
+      bindings: [{ shortcut: { version: 1, code, modifiers: ['Alt'] }, commandId: commandID, handler: 'local_ui' }],
+    });
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const view = render(<CommandContextProvider><Topbar /></CommandContextProvider>);
+    try {
+      await waitFor(() => expect(keyboardState.loadMap).toHaveBeenCalled());
+      screen.getByRole('button', { name: 'commandPalette.title' }).focus();
+      const first = new KeyboardEvent('keydown', { key, code, altKey: true, bubbles: true, cancelable: true });
+      await act(async () => { window.dispatchEvent(first); });
+      await waitFor(() => expect(navigateSpy).toHaveBeenCalledExactlyOnceWith(route));
+      expect(first.defaultPrevented).toBe(true);
+
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key, code, altKey: true, repeat: true, bubbles: true, cancelable: true }));
+      });
+      expect(navigateSpy).toHaveBeenCalledExactlyOnceWith(route);
+      expect(keyboardState.beginUI).not.toHaveBeenCalled();
+      expect(executionState.port.beginUICommand).not.toHaveBeenCalled();
+      expect(keyboardState.dispatch).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+    }
+  });
+
   it.each([
     { name: 'failed panel', focusOutside: false },
     { name: 'toolbar', focusOutside: true },
@@ -1660,6 +1697,53 @@ describe('Topbar', () => {
     expect(executionState.port.takeUICommand).not.toHaveBeenCalled();
     expect(executionState.port.commitBackendCommand).not.toHaveBeenCalled();
     view.unmount();
+  });
+
+  it.each(navigationRouteCases)('leva %s pelo evento local do Deck até %s sem BeginUICommand', async (commandID, route) => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const view = render(<CommandContextProvider><Topbar /></CommandContextProvider>);
+    try {
+      screen.getByRole('button', { name: 'commandPalette.title' }).focus();
+      await waitFor(() => expect(keyboardState.handlers.has('command:deck-local-ui')).toBe(true));
+      await act(async () => {
+        keyboardState.handlers.get('command:deck-local-ui')?.({
+          commandId: commandID, generation: 'g1', userId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
+        });
+      });
+      await waitFor(() => expect(navigateSpy).toHaveBeenCalledExactlyOnceWith(route));
+      expect(keyboardState.beginUI).not.toHaveBeenCalled();
+      expect(executionState.port.beginUICommand).not.toHaveBeenCalled();
+      expect(executionState.port.takeUICommand).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it.each(['modal', 'generation', 'owner', 'workspace', 'blur'] as const)('recusa navigation.about.open do Deck com contexto %s', async (guard) => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const view = render(<CommandContextProvider><Topbar /></CommandContextProvider>);
+    try {
+      screen.getByRole('button', { name: 'commandPalette.title' }).focus();
+      await waitFor(() => expect(keyboardState.handlers.has('command:deck-local-ui')).toBe(true));
+      if (guard === 'modal') modalState.open = true;
+      if (guard === 'blur') vi.mocked(document.hasFocus).mockReturnValue(false);
+      await act(async () => {
+        keyboardState.handlers.get('command:deck-local-ui')?.({
+          commandId: 'navigation.about.open',
+          generation: guard === 'generation' ? 'stale-generation' : 'g1',
+          userId: guard === 'owner' ? 'other-user' : 'user-a',
+          sessionId: 'session-a',
+          workspaceId: guard === 'workspace' ? 'other-workspace' : 'workspace-a',
+        });
+      });
+
+      expect(navigateSpy).not.toHaveBeenCalled();
+      expect(keyboardState.beginUI).not.toHaveBeenCalled();
+      expect(executionState.port.beginUICommand).not.toHaveBeenCalled();
+    } finally {
+      modalState.open = false;
+      view.unmount();
+    }
   });
 
   it('executa navigation.palette.open pelo Deck local sem ledger e abre a paleta uma vez', async () => {
@@ -3019,6 +3103,7 @@ describe('Topbar', () => {
 
   it('restaura o foco no botão de comando ao fechar o picker compartilhado fora do workspace', async () => {
     const user = userEvent.setup();
+    expect(useShortcutsHelpStore.getState().isOpen).toBe(false);
     backendExecutionState.execute.mockImplementationOnce((_commandID: string, apply: (output: unknown) => undefined) => {
       apply({ kind: 'workspace.list', workspaces: [] });
       return Promise.resolve({

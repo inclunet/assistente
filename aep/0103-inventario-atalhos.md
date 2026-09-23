@@ -4,6 +4,11 @@
 
 ## Leitura vigente — reconciliação de 22/09/2026
 
+A seção140 encerra as três ligações não reconciliadas de C02 (Sobre,
+bloco de código e recolhimento de thread), com evidência distribuída de
+backend e consumidor UI real. Aceite manual e gates agregados permanecem
+separados; detalhes em “Ligações reconciliadas” abaixo e na tasklist.
+
 O catálogo atual é `product-v40-agent-commands`, com **149 comandos / 61 apresentações locais /
 67 defaults locais**. A seção118 acrescentou os três comandos de camada e as
 seções134–135 acrescentaram as tools compostas e o ingresso CLI;
@@ -300,42 +305,47 @@ IDs novos.
   ausente” nem “CLI executa comandos produtivos”: o ingresso existe e a saída
   positiva ainda não foi qualificada/autorizada para uma família.
 
-### Gaps concretos e testáveis
+### Ligações reconciliadas — seção140, 22/09/2026
 
 - `navigation.about.open` aceita `P/K/D` e declara a rota
   `ui/navigation/about/open`. `app_command_product_catalog_test.go::TestCommandProductCatalogNavigationMetadataPaletteAndKeyboard`
   prova contrato, fontes e handler; `frontend/src/lib/commandNavigation.test.ts`
-  prova o mapa `/about`; não foi localizada uma prova do ingresso produtivo
-  Palette/`keyboard.local`/Deck até esse efeito de navegação. Esse caso está
-  **não reconciliado** como cadeia ingresso → `/about`, embora o handler e a
-  rota existam.
+  prova literalmente o mapa `/about`. `Topbar.palette.integration.test.tsx`
+  e `Topbar.test.tsx` agora atravessam paleta Combobox, teclado configurado
+  e evento Deck até `navigate('/about')`, incluindo recusa de contexto
+  inválido. **Ligação reconciliada**, sem inventar atalho padrão para Sobre.
 - `editor.format.code_block` aceita `P/K/D` e tem o default
   `Ctrl+Alt+C`. `app_command_keyboard_defaults_test.go::TestCommandKeyboardDefaultsProjectStableApplicationLayer`
   confirma o binding e
   `app_command_editor_format_test.go::TestEditorFormatBeginTakeCompleteAndRepeatDenied`
-  confirma o contrato/handoff genérico dos IDs de formatação; os testes de
-  menu confirmam a solicitação direta. Não foi localizada, porém, uma prova
-  que injete esse default específico pela cadeia `keyboard.local` e observe
-  a transformação do editor; esse caminho está **não reconciliado**, não
-  classificado como handler ausente.
+  confirma o contrato/handoff genérico dos IDs de formatação. Agora
+  `Topbar.editorMode.integration.test.tsx` injeta Ctrl+Alt+C pela cadeia
+  `keyboard.local` até `codeBlock` no TipTap real, com conteúdo preservado;
+  paleta, solicitação de menu e reserva Deck convergem para a transformação.
+  Readonly e alvo stale não a executam. **Ligação reconciliada**.
 - `chat.message.thread.collapse` aceita `U/P/K/D`. O registro e a origem são
   verificados em `app_command_product_catalog_test.go`, e
   `frontend/src/components/chat/ChatSessionView.messageActions.test.tsx`
-  verifica o alvo local; não foi localizada prova do evento `ui` do catálogo
-  até a contração efetiva na instância de chat. A origem `ui` desse ID está
-  **não reconciliada** no inventário vigente.
-- A revisão final e as execuções estão registradas na seção137 da tasklist:
-  App completo com ordem aleatória PASS, 398,364 s; multisource 20 repetições
-  PASS; recorte frontend 377 testes PASS. Novas provas de camadas/origens
-  passaram três vezes; ciclo chat com toggle/back e replay passou três vezes;
-  callbacks de diálogo/job passaram dez vezes. Isso qualifica os recortes
-  descritos, não equivale a aceite integral ou a teste físico.
+  verifica o alvo local. `ChatNavigation.origins.integration.test.tsx` monta
+  Topbar, ChatSessionView e MessageNode reais: clique no botão da mensagem,
+  paleta, teclado e evento Deck levam a `aria-expanded=false` e remoção
+  do filho do DOM, sem recolher a outra mensagem. **Ligação reconciliada**.
+- `internal/app/app_command_family_origins_test.go` qualifica a projeção e
+  emissão local de 16 IDs sem ledger, os 45 IDs de formatação pela oferta
+  contextual Deck e os 14 defaults de formatação pela entrada de teclado.
+  Os testes frontend mockam o transporte Wails e provam o consumidor real;
+  os Go provam o produtor e persistência/ausência de ledger. Não representam
+  uma execução HID/Wails ponta a ponta nem substituem aceite físico/NVDA.
+- Revisão independente, comandos executados, resultados e limitações na
+  seção140 da tasklist. C02 passa a implementação identificada, mantendo
+  checkbox final e gates abertos.
 
 Não há gap de implementação de CLI a listar: o contrato atual não permite
 `CLI` nos 149 registros, e `app_command_cli_test.go::TestCommandCLIListsFullCatalogAndDescribesUnavailableWorkspaceCommand`
 e `TestCommandCLIRejectsVisualWorkspaceAndLayerCommandsWithoutQuestionnaireOrEffect`
-documentam precisamente listagem/recusa. Também não se infere fechamento de
-R07/C02 a partir das contagens ou desses casos parciais.
+documentam precisamente listagem/recusa. A promoção de C02 decorre das
+ligações qualificadas por família e das exceções explícitas, não das
+contagens do catálogo. O aceite agregado de R07 continua pendente.
 
 ### Contexto histórico das seções104–108 (superado pela seção109)
 
