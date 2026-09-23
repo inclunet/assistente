@@ -16,8 +16,8 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
-AEP-0103, seção140 após reconciliação129 (22/09/2026): **In Progress**.
-**77/84 critérios com implementação identificada (91,7%); 7 parciais e
+AEP-0103, seção141 após reconciliação129 (23/09/2026): **In Progress**.
+**78/84 critérios com implementação identificada (92,9%); 6 parciais e
 0 ausentes**, sem novo aceite final. Saídas R: **11 A / 14 I / 22 P / 1 N**,
 25/48 implementadas incluindo aceitas (52,1%); **1/12 gates aceito**.
 C34/C35/C36 e R11.1/R11.3: tools registradas, CRUD/restore/import com decisão,
@@ -30,6 +30,11 @@ como indisponíveis para execução, preservando D14. C02 passa a I na seção14
 as três ligações restantes do inventário atravessam o dispatcher produtivo
 até `/about`, TipTap e DOM do chat. São provas distribuídas de backend e UI,
 não E2E físico/Wails; sem nova origem/default ou aceite agregado de gates.
+C09 passa a I na seção141: recusa de autoridade antes/depois de decisões,
+grants/regrant e ligação do registry/tool subagent ao Manager/SQLite reais.
+Profile autorizado observado no Send controlado, run/subconversa persistidos;
+job por contexto canônico não é E2E scheduler/LLM. Fronteira externa e
+consumidor genérico command→tool continuam pendentes em R05.1/R05.2.
 Seção136: corrigida disputa SQLite no consumo de receipts, com CAS completo,
 sem retry de efeitos; qualificação integrada ampliada sem novos aceites.
 Seção137: provas adicionais de camadas por origem e callbacks diálogo/job;
@@ -50,7 +55,7 @@ reserva nativa temporária de Ctrl+Shift+R, stack real de diálogos, precedênci
 sobre configuração e teardown, sem confirmar decisões. R07.3 tem implementação
 identificada; seu gate agregado permanece aberto. Latência integrada,
 aceite físico/NVDA e demais gates continuam pendentes;
-[estados, evidências e próximos passos](0103-tasklist-conclusao.md#140-convergência-por-família-e-fechamento-das-cadeias-pendentes--22092026).
+[estados, evidências e próximos passos](0103-tasklist-conclusao.md#141-autoridade-de-agentes-e-automações--23092026).
 
 AEP-0103, seção128 (22/09/2026): 81 IDs no Deck contextual (79 anteriores +
 aplicar/remover Mermaid), quatro fatos visuais restritos ao editor, inclusive

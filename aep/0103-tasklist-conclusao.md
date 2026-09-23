@@ -1,10 +1,10 @@
 # AEP-0103 — Tasklist de conclusão integral
 
-Baseline inicial de 16/09/2026; reconciliação de 22/09/2026 atualizada pela seção140. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
+Baseline inicial de 16/09/2026; reconciliação de 23/09/2026 atualizada pela seção141. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.
 
-## 1. Progresso reconciliado — 22/09/2026, após a seção140
+## 1. Progresso reconciliado — 23/09/2026, após a seção141
 
 A seção129 registra a reconciliação documental; as seções130–133 implementam
 a correção de Δ18/C22, o cache produtivo de C62 e a recusa global fora da
@@ -20,8 +20,8 @@ não foi reproduzida nem declarada corrigida. Aceites manuais não foram ampliad
 
 ### Implementação dos 84 critérios finais
 
-- **77/84 I — implementação identificada: 91,7%.**
-- **7/84 P — parciais: 8,3%.**
+- **78/84 I — implementação identificada: 92,9%.**
+- **6/84 P — parciais: 7,1%.**
 - **0/84 N — funcionalidade pública inteiramente ausente.** Isso não elimina
   lacunas dentro dos critérios parciais, como a qualificação transversal.
 - Comparação: seção76 **58/24/2**, seção129 **64/18/2**, seção130
@@ -44,13 +44,17 @@ não foi reproduzida nem declarada corrigida. Aceites manuais não foram ampliad
   com provas do dispatcher até rota, transformação do editor e DOM do chat.
   Produtor backend e consumidor frontend são qualificados separadamente;
   isso não constitui teste físico de HID nem transporte Wails ponta a ponta.
+  Na seção141, C09 P→I: autoridade antes/depois da decisão, grants de jobs
+  e ligação da tool subagent ao Manager/SQLite reais, com profile alvo
+  propagado ao Send. A chamada ao modelo e disponibilidade do provider são
+  controladas; o cenário job não é scheduler/executor ponta a ponta.
 - **Não é porcentagem de esforço, de prazo nem de aceite final.** Critérios
   têm tamanhos distintos; um parcial não recebe meio ponto. Os checkboxes C
   continuam reservados ao aceite final R12. Nenhum foi marcado nesta rodada.
 - A contagem reconhece código entregue e corrige classificações antigas;
-  não mede o número de alterações nem o tamanho dos sete itens parciais restantes.
+  não mede o número de alterações nem o tamanho dos seis itens parciais restantes.
 
-Parciais atuais: **C09, C38, C43, C51, C65,
+Parciais atuais: **C38, C43, C51, C65,
 C70 e C83**. Cada linha da seção5 informa o motivo,
 os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
 
@@ -86,8 +90,8 @@ os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
 - Import/export comum já está implementado. Extensões sensíveis de
   portabilidade e gesto longo conservam a prioridade adiada pelo usuário,
   não são silenciosamente excluídos nem retomados.
-- Próximo passo sugerido: delimitar e fechar a matriz de delegação de C09;
-  depois desempenho integrado, apresentação Deck e as lacunas de produto
+- Próximo passo sugerido: edição textual acessível da apresentação Deck
+  (C38), seguida das provas integradas e lacunas de produto
   discriminadas na seção129. Validação manual pode seguir em lote para o que
   já está implementado.
 
@@ -521,9 +525,9 @@ Evidência: `internal/commandadapter`, `internal/commandledger`, `internal/comma
 
 - [ ] C09 — Execução por agente e automação preserva e revalida os gates da AEP-0101; origem headless não herda a identidade do usuário para autorizar mutações.
 
-**Implementação: P — parcial.** Identidades delegadas/job_service e gates headless são reais. Chat local agora fixa a sessão no ingresso, recusa canais/jobs/subagentes/CLI e mantém profile de origem e destino sem troca implícita. Falta a matriz completa de delegação no produto; não falta criar novamente o núcleo de identidade (seção134).
+**Implementação: I — identificada; aceite final pendente.** Identidades delegadas/job_service e gates headless são reais. Chat local fixa a sessão no ingresso e não a empresta a canais/jobs/subagentes/CLI. A seção141 qualifica admissão nas duas tools, invalidação durante decisões de configuração/ativação e propagação do profile autorizado pela tool subagent do registry produtivo ao Manager real, com subconversa/run persistidos. Grants e revogação/regrant de jobs são exercitados no App. Send/provider controlados e cenário job por contexto canônico não são E2E scheduler/LLM. A montagem externa e o consumidor genérico de command→tool continuam separados em R05.1/R05.2; não foram declarados completos.
 
-Evidência: `internal/commandidentity/service.go`, `internal/commandidentity/service_test.go`, `internal/jobs/command_service_identity.go`, `internal/app/app_command_layer_origin_convergence_test.go`; seções34–39,109–110,129 e137. O recorte de camadas comprova owner estrangeiro e revogação da sessão após captura do contexto de chat, sem efeito persistido. Gates: R05, R11.
+Evidência: `internal/commandidentity/service.go`, `internal/commandidentity/service_test.go`, `internal/jobs/command_service_identity.go`, `internal/app/app_command_layer_origin_convergence_test.go`, `app_command_agent_admission_test.go`, `app_command_agent_config_delegation_test.go`, `app_command_subagent_wire_test.go`, `app_command_job_dynamic_profile_test.go`; seções34–39,109–110,129,137 e141. O recorte de camadas comprova owner estrangeiro e revogação da sessão após captura do contexto de chat, sem efeito persistido. Gates R05/R11 continuam sem aceite agregado.
 
 ### C10
 
@@ -8762,3 +8766,88 @@ continuam sem novo aceite. Sem nova funcionalidade, tecla padrão, origem
 ampliada, handler alternativo ou alteração de produto para satisfazer testes.
 Próximo passo técnico: delimitar e fechar as combinações produtivas de
 delegação ainda pendentes em C09, sem reimplementar seu núcleo de identidade.
+
+## 141. Autoridade de agentes e automações — 23/09/2026
+
+Escopo: C09, preservando D2 e AEP-0101. Não habilitar origens proibidas,
+emprestar sessão desktop a headless ou criar um comando artificial para
+simular cobertura de produto. Aceites manuais permanecem separados.
+
+- `app_command_agent_admission_test.go`: 18 casos nas portas reais
+  `command_catalog.execute` e `command_config.layer_create`. O caller local
+  é inicialmente válido; então origem persistida de job/tool/comando,
+  conversa de subagente/canal, outro proprietário, turno divergente,
+  invocação encerrada ou usuário desativado recusam o ingresso, mesmo com
+  stamp desktop presente. Nenhuma decisão, invocação de comando ou camada
+  solicitada é criada. SQLite e autenticação reais da fixture isolada;
+  não se executa LLM, canal externo ou job físico nessa matriz.
+- Regressão das dependências `commandidentity`, `jobprofilegrant`,
+  `commandtoolbridge` e `jobs`: **PASS**, log
+  `command-c09-dependencies-20260923.log`. Testes normais, sem ACP.
+- `app_command_agent_config_delegation_test.go`: cinco invalidações entre
+  abertura e confirmação de `layer_create` (caller encerrado, job, canal,
+  subagente e usuário desativado) retornam recusa sem camada persistida.
+  Mais um caso responde à confirmação e cancela o contexto enquanto uma
+  consulta está suspensa: não afirma qual tabela ou fronteira exata foi
+  interceptada. `TestCommandAgentConfig*`: **PASS, 26,6 s**.
+- `TestCommandAgentLayerActivationRevalidatesCallerAfterDecision`: caller
+  encerrado/origem trocada para job durante a decisão não ativa a camada.
+  O contrato do executor registra `cancelled_stale` depois da admissão;
+  não é a recusa de ingresso `ErrDenied`. As duas primeiras expectativas
+  do teste confundiam esses estágios e foram corrigidas sem alterar produto.
+  Recorte final de admissão/ativação: **PASS, 23,643 s**, log
+  `command-c09-admission-final-20260923.log`.
+- Integração App de jobs: profile dinâmico com grant, ausência de grant,
+  revogação e regrant (handler antigo recusado, novo autorizado), e identidade
+  `job_service` com Manager real: **PASS**, junto da admissão, 23,966 s,
+  log `command-c09-admission-jobs-20260923.log`. O último usa definição probe
+  isolada para observar identidade; não é um novo comando de produto.
+- `go vet` de App e das quatro dependências acima: **PASS**.
+- Admissão, ativação durante decisão e configuração revogada/cancelada:
+  **PASS em três execuções consecutivas**, 32,676 s, log
+  `command-c09-stability-20260923.log`. Não houve alteração de comportamento
+  produtivo nesse recorte; foram completadas provas de fronteira.
+- App completo antes do wire adicional: **PASS, 352,262 s**, 1.194 testes de
+  topo aprovados; `TestCommandDeckAppLatency` opt-in pulado. Log
+  `command-c09-app-all-20260923.log`. Isso não é qualificação de latência.
+
+### Ligação final e limites
+
+`app_command_subagent_wire_test.go` fecha a ligação apontada pela revisão:
+registry App → tool subagent real → profileaccess → Manager/SQLite reais.
+Chat cross-profile aprovado e job com grant exato produzem uma subconversa
+e um run com owner, vínculo parental, resultado e término persistidos.
+`SendParams.ProfileSlug` recebe o profile alvo autorizado no mesmo Manager;
+não existe coluna ProfileSlug no run, portanto não se alega sua persistência.
+Sem grant: `authorization_not_granted`, nenhum run/subconversa/Send.
+
+Três cenários **PASS, 22,046 s**. Send e disponibilidade do provider são
+controlados; não se executam LLM/SendMessageUseCase. O caso job entra pelo
+contexto canônico com grant persistido, não pelo scheduler/executor inteiro.
+As provas App de jobs/regrant qualificam separadamente essa borda anterior.
+Não há nova origem nem comando artificial no catálogo de produto.
+
+Repetição do wire: **três execuções consecutivas PASS**, 3,385 s, log
+`command-c09-wire-stability-20260923.log`. Dependências `profileaccess`,
+`tools/subagent` e `subagent`: **PASS**, log
+`command-c09-subagent-dependencies-20260923.log`; vet também aprovado.
+
+Revisão independente: **Rawls (Luna)** revisou as matrizes, pediu a ligação
+final acima e aprovou seu escopo após inspeção. Corrigida precisão do teste
+de cancelamento e exigência de valor nulo na recusa de admissão. Sem achado
+pendente no recorte. `newCommandToolHandler` sem consumidor permanece lacuna
+separada de R05.2; fronteira externa continua em R05.1.
+
+Resultado: **C09 P→I; 78 I / 6 P / 0 N = 84 (92,9%)**. Saídas preservadas:
+**11 A / 14 I / 22 P / 1 N = 48**; **1/12 gates aceito**. Nenhum checkbox
+de aceite manual promovido. Regressão App final com o wire aprovada,
+registrada abaixo. Próximo bloco: edição textual acessível da apresentação
+do Stream Deck (C38), sem exigir hardware para construir a UI.
+
+Regressão final: `go test ./internal/app -count=1 -timeout=12m -json`,
+**PASS, 334,970 s**, **1.195 testes de topo aprovados**; somente
+`TestCommandDeckAppLatency` opt-in pulado. Log
+`command-c09-app-final-20260923.log`. Verificador de AEP e diff-check PASS.
+Somente testes e documentação alterados; frontend não foi modificado nesta
+rodada. Sem Wails, pacote ACP, banco pessoal, push ou PR. Revisão independente
+também verificou a reconciliação documental final, sem achados pendentes.
