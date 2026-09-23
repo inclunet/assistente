@@ -2,6 +2,7 @@ package commandconfig
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -108,5 +109,48 @@ func TestProjectCompletePresentationUsesMaterializedBindingIDs(t *testing.T) {
 	}
 	if imageRef := disabled.ImageForBindings(fallback.BindingIDs); imageRef != "" {
 		t.Fatalf("disabled delta image ref leaked: %q", imageRef)
+	}
+}
+
+func TestProjectCompletePresentationStatesValidateAndProjectWithoutBase(t *testing.T) {
+	user := completeProjectionUUID(t)
+	layer := Layer{ID: completeProjectionUUID(t), UserID: user, Name: "Global", Description: "fixture", Enabled: true, Source: "user", ResolutionPriority: 2}
+	row := completeProjectionBinding(t, user, nil, layer, completeProjectionUUID(t))
+	row.Presentation = `{"version":1,"states":{"running":{"title_by_locale":{"en":"Running"},"icon":"deck-running"}}}`
+	snapshot := Snapshot{Scope: Scope{UserID: user}, Layers: []Layer{layer}, Bindings: []Binding{row}}
+	options := completeProjectionOptions(completeProjectionRegistry(t))
+	options.ActiveUserLayerIDs = []string{layer.ID}
+	config, err := ProjectComplete(context.Background(), snapshot, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := config.PresentationForState([]string{row.ID}, "running")
+	if !reflect.DeepEqual(got.TitleByLocale, map[string]string{"en": "Running"}) || got.Icon != "deck-running" || got.ImageRef != "" {
+		t.Fatalf("variante sem apresentação base não projetada: %+v", got)
+	}
+	if base := config.PresentationForState([]string{row.ID}, "off"); !reflect.DeepEqual(base, commandbindings.BindingPresentation{}) {
+		t.Fatalf("estado ausente deveria produzir apresentação vazia: %+v", base)
+	}
+
+	invalid := []string{
+		`{"version":1,"states":null}`,
+		`{"version":1,"states":[]}`,
+		`{"version":1,"states":{"unknown":{}}}`,
+		`{"version":1,"states":{"running":null}}`,
+		`{"version":1,"states":{"running":[]}}`,
+		`{"version":1,"states":{"running":{"version":1}}}`,
+		`{"version":1,"states":{"running":{"title_key":"command.title"}}}`,
+		`{"version":1,"states":{"running":{"status_label_keys":{"running":"label"}}}}`,
+		`{"version":1,"states":{"running":{"states":{}}}}`,
+		`{"version":1,"states":{"running":{"icon":null}}}`,
+		`{"version":1,"states":{"running":{"image_ref":null}}}`,
+		`{"version":1,"states":{"running":{"title_by_locale":{"fr":"Titre"}}}}`,
+	}
+	for _, presentation := range invalid {
+		row.Presentation = presentation
+		snapshot.Bindings[0] = row
+		if config, err := ProjectComplete(context.Background(), snapshot, options); !errors.Is(err, ErrInvalid) || config != nil {
+			t.Errorf("schema de variante inválido aceito: %s (config=%v err=%v)", presentation, config, err)
+		}
 	}
 }

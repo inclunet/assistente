@@ -7,6 +7,7 @@ import (
 	"unicode"
 
 	"assistente/internal/commandruntime"
+	"github.com/google/uuid"
 )
 
 // This event describes a rendered execution result, not a new authority to run
@@ -20,6 +21,17 @@ type commandDeckFeedbackEvent struct {
 	WorkspaceID  string `json:"workspaceId"`
 	Generation   string `json:"generation"`
 	ExpiresAt    int64  `json:"expiresAt"`
+}
+
+type commandDeckStateEvent struct {
+	EventID     string `json:"eventId"`
+	State       string `json:"state"`
+	Title       string `json:"title"`
+	UserID      string `json:"userId"`
+	SessionID   string `json:"sessionId"`
+	WorkspaceID string `json:"workspaceId"`
+	Generation  string `json:"generation"`
+	ExpiresAt   int64  `json:"expiresAt"`
 }
 
 // Called only after a successful frame write. Recheck ownership and the live
@@ -55,7 +67,26 @@ func (c *commandDeckController) announceDeckFeedback(ctx context.Context, serial
 		return
 	}
 	for _, binding := range bindings {
+		binding = commandDeckPresentedBinding(binding)
 		if binding.feedbackState == "" || binding.feedbackInvocationID == "" {
+			if binding.persistentState != "on" && binding.persistentState != "off" {
+				continue
+			}
+			if ctx.Err() != nil || instance.ctx.Err() != nil || p.app.commandProduct.Load() != p || !p.deckExecutionAllowed(c.generation) {
+				continue
+			}
+			if !p.deckPersistentStateChanged(binding.identity, binding.persistentState) {
+				continue
+			}
+			id, err := uuid.NewV7()
+			if err != nil {
+				continue
+			}
+			p.app.emitter.Emit("command:deck-state", commandDeckStateEvent{
+				EventID: id.String(), State: binding.persistentState, Title: commandDeckFeedbackTitle(binding.title),
+				UserID: owner.UserID, SessionID: owner.SessionID, WorkspaceID: p.workspaceID,
+				Generation: generation, ExpiresAt: time.Now().Add(3 * time.Second).UnixMilli(),
+			})
 			continue
 		}
 		state, invocation := p.deckFeedbackSnapshot(binding.identity, instance.id, c.versions, c.generation)
@@ -86,6 +117,25 @@ func (c *commandDeckController) announceDeckFeedback(ctx context.Context, serial
 			Generation: generation, ExpiresAt: time.Now().Add(3 * time.Second).UnixMilli(),
 		})
 	}
+}
+
+func (p *commandProductRuntime) deckPersistentStateChanged(identity, state string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed || identity == "" {
+		return false
+	}
+	if p.deckPresentedStates == nil {
+		p.deckPresentedStates = make(map[string]string)
+	}
+	previous, known := p.deckPresentedStates[identity]
+	if !known && len(p.deckPresentedStates) >= 64 {
+		clear(p.deckPresentedStates)
+	}
+	p.deckPresentedStates[identity] = state
+	// Initial/reconnect frames establish a baseline without reading every key
+	// aloud. Subsequent real state changes survive controller epoch rebuilds.
+	return known && previous != state
 }
 
 func commandDeckFeedbackTitle(title string) string {

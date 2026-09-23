@@ -176,17 +176,20 @@ func TestPruneTxKeepsReferencesAcrossWorkspacesAndOwners(t *testing.T) {
 
 	kept := mustAsset(t, 20, 20, color.RGBA{R: 10, G: 20, B: 30, A: 255})
 	removed := mustAsset(t, 20, 20, color.RGBA{R: 40, G: 50, B: 60, A: 255})
+	variantKept := mustAsset(t, 20, 20, color.RGBA{R: 100, G: 110, B: 120, A: 255})
+	variantRemoved := mustAsset(t, 20, 20, color.RGBA{R: 130, G: 140, B: 150, A: 255})
 	otherOwner := mustAsset(t, 20, 20, color.RGBA{R: 70, G: 80, B: 90, A: 255})
 	for _, item := range []struct {
 		owner string
 		asset Asset
 	}{
-		{"owner-a", kept}, {"owner-a", removed}, {"owner-b", otherOwner},
+		{"owner-a", kept}, {"owner-a", removed}, {"owner-a", variantKept}, {"owner-a", variantRemoved}, {"owner-b", otherOwner},
 	} {
 		require.NoError(t, db.Transaction(func(tx *gorm.DB) error { return PutTx(ctx, tx, item.owner, item.asset) }))
 	}
 
 	require.NoError(t, db.Exec("INSERT INTO command_bindings (user_id, workspace_id, presentation) VALUES (?, ?, ?)", "owner-a", "workspace-1", fmt.Sprintf(`{"image_ref":%q}`, kept.Ref)).Error)
+	require.NoError(t, db.Exec("INSERT INTO command_bindings (user_id, workspace_id, presentation) VALUES (?, ?, ?)", "owner-a", "workspace-2", fmt.Sprintf(`{"states":{"on":{"image_ref":%q}}}`, variantKept.Ref)).Error)
 	require.NoError(t, db.Exec("INSERT INTO command_bindings (user_id, workspace_id, presentation) VALUES (?, ?, ?)", "owner-a", nil, `{"title":"global"}`).Error)
 	require.NoError(t, db.Exec("INSERT INTO command_bindings (user_id, workspace_id, presentation) VALUES (?, ?, ?)", "owner-b", "workspace-2", fmt.Sprintf(`{"image_ref":%q}`, otherOwner.Ref)).Error)
 
@@ -194,6 +197,10 @@ func TestPruneTxKeepsReferencesAcrossWorkspacesAndOwners(t *testing.T) {
 	_, err := Load(ctx, db, "owner-a", kept.Ref)
 	require.NoError(t, err)
 	_, err = Load(ctx, db, "owner-a", removed.Ref)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = Load(ctx, db, "owner-a", variantKept.Ref)
+	require.NoError(t, err)
+	_, err = Load(ctx, db, "owner-a", variantRemoved.Ref)
 	require.ErrorIs(t, err, ErrNotFound)
 	_, err = Load(ctx, db, "owner-b", otherOwner.Ref)
 	require.NoError(t, err)

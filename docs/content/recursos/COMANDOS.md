@@ -935,8 +935,10 @@ com bindings efetivos são abertos. A reconexão reenvia
 o frame completo; perda de sessão ou bloqueio remove o mapa e limpa os títulos.
 Os títulos usam o idioma selecionado na tela de configurações (inglês antes
 da primeira seleção nesta sessão). A posição deve existir no modelo conectado;
-posições fora da geometria não são executadas. Ainda não há editor de imagens,
-pastas/camadas pelo dispositivo ou estados animados de execução.
+posições fora da geometria não são executadas. Títulos, ícones, imagens e
+apresentações por estado são configurados no formulário descrito abaixo.
+As ações de camada permitem trocar o mapa pelo dispositivo; não há editor
+visual de pastas nem animações.
 Neste recorte, ações visuais são recusadas com modal aberto ou com a janela
 sem foco; o dispositivo não traz o aplicativo para frente automaticamente.
 
@@ -954,8 +956,8 @@ aceita até 256 caracteres. Salve e confirme a alteração para aplicá-la.
 Deixe um idioma vazio para usar o nome localizado do comando naquele idioma.
 Apagar um título não apaga a associação, o comando ou os outros idiomas. O nome
 do comando na paleta também não muda: o título pertence à tecla configurada.
-Os títulos são recuperados ao reabrir o editor. Imagens diferentes escolhidas
-por estado de execução ainda não estão disponíveis.
+Os títulos são recuperados ao reabrir o editor. O seletor de apresentação
+permite editar o padrão ou personalizar um estado específico.
 
 O campo **Ícone** oferece configurações, conversa, pasta, reproduzir, parar,
 voltar e estrela. Escolha pelo nome, usando o teclado, e salve/ confirme a
@@ -987,6 +989,10 @@ transação da alteração. O arquivo original não é modificado.
 **Exportar configurações não exporta esses arquivos.** Ao importar em outro
 banco ou usuário, selecione a imagem novamente: se a referência não estiver
 disponível, a tecla usa ícone/título e continua executando o mesmo comando.
+Você pode editar outros campos mantendo essa referência importada indisponível;
+isso não copia nem libera acesso à imagem de outro usuário. Para exibi-la,
+selecione o arquivo novamente. A substituição de imagens também libera, na
+mesma transação, o espaço das imagens antigas que deixaram de ser utilizadas.
 Para voltar a uma versão sem suporte a imagens, use uma cópia anterior do
 banco ou remova as imagens nesta versão antes.
 
@@ -1016,9 +1022,43 @@ seu lugar. Desconexão, troca de mapa ou bloqueio invalidam o feedback antigo.
 
 Atalhos locais rápidos, como navegação, continuam sem auditoria adicional e não
 exibem conclusão artificial: esses eventos não possuem confirmação de resultado
-no backend. Os indicadores não criam registros adicionais no banco. Estados
-persistentes ligado/desligado e imagens específicas por estado continuam
-pendentes; o resultado temporário não substitui a indicação de camada ativa.
+no backend. Os indicadores não criam registros adicionais no banco.
+
+#### Apresentação por estado e indicação de camada ativa
+
+No editor da tecla, escolha a apresentação padrão ou um estado: ligado,
+desligado, aguardando, executando, concluído, falhou, negado, cancelado,
+tempo esgotado ou resultado desconhecido. Cada estado usa os mesmos campos
+de título por idioma, ícone e imagem. Campos não preenchidos herdam o padrão;
+remover uma imagem específica restaura a imagem padrão, quando houver.
+Salvar e confirmar aplica todas as variantes juntas. Trocar de estado durante
+a leitura de um arquivo cancela aquela leitura, sem aplicar o arquivo em outra
+variante. A personalização visual não muda quando o comando pode executar.
+Versões anteriores sem suporte a `states` podem recusar essa configuração;
+para testar uma versão antiga, use a cópia do banco feita antes dessas alterações.
+
+**Ativar camada** e **Alternar camada** podem mostrar ligado/desligado conforme
+o estado efetivo da camada-alvo. Não se trata do resultado da última pressão:
+a camada pode permanecer ligada por outra regra ou origem. Quando não há prova
+suficiente do estado, a tecla não inventa um indicador. **Voltar camada** e
+comandos sem estado persistente não recebem esse indicador.
+
+O resultado temporário de uma execução tem prioridade; depois, a tecla volta
+à apresentação do estado persistente atual ou ao padrão. Mudanças conhecidas
+de ligado/desligado são anunciadas usando o mesmo leitor de telas compartilhado,
+com as mesmas verificações de sessão, mapa e foco. A primeira exibição não lê
+todas as teclas em voz alta.
+
+- [ ] Personalize o padrão e o estado concluído de uma tecla com títulos e
+  imagens diferentes. Salve, reabra e confira a preservação; execute e confira
+  o resultado temporário e o retorno ao padrão. Resultado: ________.
+- [ ] Configure Alternar camada na camada de controle. Personalize ligado e
+  desligado, ative/desative a camada-alvo e confira texto, imagem e anúncio.
+  Confira também uma mudança feita pelas configurações. Resultado: ________.
+- [ ] Remova somente a imagem de um estado e confirme que ele herda a imagem
+  padrão, preservando as outras variantes. Resultado: ________.
+- [ ] Com NVDA, percorra seletor de estados e campos por Tab; confira os nomes
+  sem leitura de serial, digest ou identificadores técnicos. Resultado: ________.
 
 Validação manual acumulada:
 

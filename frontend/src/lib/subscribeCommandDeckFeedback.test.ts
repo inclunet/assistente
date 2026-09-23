@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import {
   COMMAND_DECK_FEEDBACK_EVENT,
+  COMMAND_DECK_STATE_EVENT,
   subscribeCommandDeckFeedback,
   type CommandDeckFeedbackContext,
   type CommandDeckFeedbackEvent,
@@ -36,6 +37,7 @@ function event(overrides: Partial<CommandDeckFeedbackEvent> = {}): CommandDeckFe
 describe('subscribeCommandDeckFeedback', () => {
   let emit: (payload: unknown) => void;
   let disposeEvent: ReturnType<typeof vi.fn>;
+  let emitState: (value: unknown) => void;
   let getContext: () => CommandDeckFeedbackContext;
   let announce: ReturnType<typeof vi.fn>;
 
@@ -43,8 +45,9 @@ describe('subscribeCommandDeckFeedback', () => {
     emit = () => undefined;
     disposeEvent = vi.fn();
     eventsOn.mockImplementation((name, listener) => {
-      expect(name).toBe(COMMAND_DECK_FEEDBACK_EVENT);
-      emit = listener;
+      expect([COMMAND_DECK_FEEDBACK_EVENT, COMMAND_DECK_STATE_EVENT]).toContain(name);
+      if (name === COMMAND_DECK_FEEDBACK_EVENT) emit = listener;
+      else emitState = listener;
       return disposeEvent;
     });
     getContext = () => context;
@@ -134,7 +137,7 @@ describe('subscribeCommandDeckFeedback', () => {
     dispose();
     emit(event());
 
-    expect(disposeEvent).toHaveBeenCalledOnce();
+    expect(disposeEvent).toHaveBeenCalledTimes(2);
     expect(announce).not.toHaveBeenCalled();
   });
 
@@ -146,5 +149,20 @@ describe('subscribeCommandDeckFeedback', () => {
     emit(event({ invocationId: 'invocation-0', state: 'running' }));
 
     expect(announce).toHaveBeenCalledTimes(66);
+  });
+
+  it('separa estado persistente de resultado de execução e mantém os guards', () => {
+    subscribe();
+    emit(event({ state: 'on' }));
+    expect(announce).not.toHaveBeenCalled();
+    emitState({ ...event({ state: 'on' }), eventId: 'change-1' });
+    emitState({ ...event({ state: 'on' }), eventId: 'change-1' });
+    expect(announce).toHaveBeenCalledExactlyOnceWith('on: Open chat');
+    emitState({ ...event({ state: 'off', sessionId: 'other' }), eventId: 'change-2' });
+    emitState({ ...event({ state: 'succeeded' }), eventId: 'change-2' });
+    emitState({ ...event({ state: 'off', expiresAt: now }), eventId: 'change-2' });
+    expect(announce).toHaveBeenCalledTimes(1);
+    emitState({ ...event({ state: 'off' }), eventId: 'change-3' });
+    expect(announce).toHaveBeenLastCalledWith('off: Open chat');
   });
 });

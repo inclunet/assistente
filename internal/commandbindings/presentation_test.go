@@ -157,3 +157,64 @@ func TestImageForBindingsRequiresUnanimityAndResolvedIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestPresentationForStateUsesPerFieldFallbackAndUnanimity(t *testing.T) {
+	p := NewPresentationSnapshot(map[string]BindingPresentation{
+		"a": {
+			TitleByLocale: map[string]string{"en": "Base", "es": "Base ES"}, Icon: "deck-base", ImageRef: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			States: map[string]BindingPresentation{"running": {TitleByLocale: map[string]string{"en": "Running"}, ImageRef: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
+		},
+		"b": {
+			TitleByLocale: map[string]string{"en": "Base", "es": "Base ES"}, Icon: "deck-base", ImageRef: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			States: map[string]BindingPresentation{"running": {TitleByLocale: map[string]string{"en": "Running"}, ImageRef: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
+		},
+		"c": {TitleByLocale: map[string]string{"en": "Different"}, Icon: "deck-other"},
+	})
+	got := p.PresentationForState([]string{"a", "b"}, "running")
+	if !reflect.DeepEqual(got.TitleByLocale, map[string]string{"en": "Running", "es": "Base ES"}) || got.Icon != "deck-base" || got.ImageRef != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		t.Fatalf("variant + fallback: %+v", got)
+	}
+	got = p.PresentationForState([]string{"a", "c"}, "running")
+	if got.TitleByLocale["en"] != "" || got.Icon != "" || got.ImageRef != "" {
+		t.Fatalf("discordância escolheu apresentação: %+v", got)
+	}
+	if got := p.PresentationForState([]string{"a"}, "not-a-state"); !reflect.DeepEqual(got, BindingPresentation{}) {
+		t.Fatalf("estado desconhecido: %+v", got)
+	}
+}
+
+func TestPresentationStateDeepCopyAndDeltaRestore(t *testing.T) {
+	d, delta := defaultFixture()
+	base, err := NewConfiguration([]Default{d}, []Delta{delta}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := map[string]BindingPresentation{"running": {TitleByLocale: map[string]string{"en": "Running"}, Icon: "deck-running"}}
+	snapshot := NewPresentationSnapshot(map[string]BindingPresentation{
+		d.Candidate.ID: {States: map[string]BindingPresentation{"running": {Icon: "deck-default"}}},
+		delta.ID:       {States: states},
+	})
+	projected := base.WithPresentation(snapshot)
+	states["running"] = BindingPresentation{Icon: "caller mutation"}
+	read := projected.Presentation()
+	entry, _ := read.Binding(delta.ID)
+	entry.States["running"].TitleByLocale["en"] = "returned mutation"
+	entry.States["running"] = BindingPresentation{Icon: "returned mutation"}
+	read.byBindingID[delta.ID].States["running"] = BindingPresentation{Icon: "snapshot mutation"}
+	value := projected.PresentationForState([]string{delta.ID}, "running")
+	if value.TitleByLocale["en"] != "Running" || value.Icon != "deck-running" {
+		t.Fatalf("estado sofreu alias: %+v", value)
+	}
+
+	restored, err := projected.WithoutDeltas([]string{delta.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	value = restored.PresentationForState([]string{d.Candidate.ID}, "running")
+	if value.Icon != "deck-default" || value.TitleByLocale != nil {
+		t.Fatalf("apresentação do default após restaurar delta: %+v", value)
+	}
+	if _, ok := restored.Presentation().Binding(delta.ID); ok {
+		t.Fatal("variante do delta removido permaneceu")
+	}
+}

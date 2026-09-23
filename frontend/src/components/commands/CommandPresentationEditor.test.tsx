@@ -53,8 +53,11 @@ describe('CommandPresentationEditor', () => {
       <Harness />
     );
 
+    const state = screen.getByRole('combobox', { name: 'commandSettings.presentationStates.label' });
     const icon = screen.getByRole('combobox', { name: 'commandSettings.presentation.icon.label' });
     const portuguese = screen.getByRole('textbox', { name: 'commandSettings.presentation.locales.ptBR' });
+    await user.tab();
+    expect(state).toHaveFocus();
     await user.tab();
     expect(icon).toHaveFocus();
     await user.selectOptions(icon, 'folder');
@@ -109,6 +112,77 @@ describe('CommandPresentationEditor', () => {
     expect(isCommandPresentationValid({ title_by_locale: { en: ' 😀'.trim().repeat(256) } })).toBe(true);
   });
 
+  it('edita somente o estado selecionado e preserva variantes e metadados desconhecidos', () => {
+    const onChange = vi.fn();
+    const initial = {
+      version: 1,
+      icon: 'folder',
+      unknown_root: { keep: true },
+      states: {
+        on: { title_by_locale: { en: 'Old on' }, unknown_variant: 'keep-on' },
+        failed: { icon: 'stop', custom: 42 },
+      },
+    };
+    function Harness() {
+      const [value, setValue] = useState<Record<string, unknown>>(initial);
+      return <CommandPresentationEditor value={value} onChange={next => { setValue(next); onChange(next); }} />;
+    }
+    render(<Harness />);
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'commandSettings.presentationStates.label' }), {
+      target: { value: 'on' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'commandSettings.presentation.locales.en' }), {
+      target: { value: 'Enabled' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'commandSettings.presentation.icon.label' }), {
+      target: { value: 'play' },
+    });
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      ...initial,
+      states: {
+        on: { title_by_locale: { en: 'Enabled' }, unknown_variant: 'keep-on', icon: 'play' },
+        failed: { icon: 'stop', custom: 42 },
+      },
+    });
+    expect(onChange.mock.lastCall?.[0].states).not.toHaveProperty('on.version');
+  });
+
+  it('remove uma variante quando seus overrides ficam vazios e valida variantes não selecionadas', () => {
+    const value = {
+      version: 1,
+      states: {
+        on: { title_by_locale: { en: 'On' } },
+        failed: { title_by_locale: { es: 'bad\0title' } },
+      },
+    };
+    expect(isCommandPresentationValid(value)).toBe(false);
+    const onChange = vi.fn();
+    render(<CommandPresentationEditor value={value} onChange={onChange} />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'commandSettings.presentationStates.label' }), {
+      target: { value: 'on' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'commandSettings.presentation.locales.en' }), {
+      target: { value: '' },
+    });
+    expect(onChange).toHaveBeenLastCalledWith({ version: 1, states: { failed: value.states.failed } });
+  });
+
+  it('normaliza os títulos localizados em todas as variantes', () => {
+    expect(normalizeCommandPresentation({
+      version: 1,
+      image_upload: 'base-upload',
+      states: { running: { title_by_locale: { en: '  Running  ', es: '' }, image_upload: 'state-upload', custom: 'kept' } },
+    })).toEqual({
+      version: 1,
+      image_upload: 'base-upload',
+      states: { running: { title_by_locale: { en: 'Running' }, image_upload: 'state-upload', custom: 'kept' } },
+    });
+    expect(isCommandPresentationValid({ states: { on: { version: 1 } } })).toBe(false);
+    expect(isCommandPresentationValid({ states: { on: { states: { off: {} } } } })).toBe(false);
+  });
+
   it('remove locale vazio, recorta títulos e preserva outros metadados', () => {
     const presentation = {
       version: 1,
@@ -133,7 +207,8 @@ describe('CommandPresentationEditor', () => {
 
     const icon = screen.getByRole('combobox', { name: 'commandSettings.presentation.icon.label' });
     expect(icon).toHaveValue('legacy-deck-token');
-    expect(screen.getByRole('option', { name: 'commandSettings.presentation.icon.unavailable' })).toHaveValue('legacy-deck-token');
+    expect(screen.getByRole('option', { name: 'commandSettings.presentationStates.unavailableIcon' })).toHaveValue('legacy-deck-token');
+    expect(screen.queryByText('legacy-deck-token')).not.toBeInTheDocument();
     fireEvent.change(icon, { target: { value: 'folder' } });
     expect(onChange).toHaveBeenLastCalledWith({ version: 1, icon: 'folder', status_label_keys: { active: 'status.active' } });
     rerender(
@@ -199,6 +274,19 @@ describe('CommandPresentationEditor', () => {
     expect(announce).toHaveBeenCalledExactlyOnceWith('commandSettings.presentation.image.tooLarge', 'assertive');
   });
 
+  it('limpa erro de arquivo ao mudar de seção sem exigir leitura pendente', () => {
+    render(<CommandPresentationEditor value={{ version: 1 }} onChange={vi.fn()} />);
+    const section = screen.getByRole('combobox', { name: 'commandSettings.presentationStates.label' });
+    fireEvent.change(section, { target: { value: 'on' } });
+    fireEvent.change(screen.getByLabelText('commandSettings.presentation.image.label'), {
+      target: { files: [new File(['text'], 'bad.gif', { type: 'image/gif' })] },
+    });
+    expect(screen.getByText('commandSettings.presentation.image.invalidFormat')).toBeInTheDocument();
+
+    fireEvent.change(section, { target: { value: 'off' } });
+    expect(screen.queryByText('commandSettings.presentation.image.invalidFormat')).not.toBeInTheDocument();
+  });
+
   it.each(['error', 'throw', 'null', 'missing-prefix', 'empty'] as const)(
     'Input anuncia exatamente uma vez a falha de leitura: %s',
     async (failure) => {
@@ -258,6 +346,60 @@ describe('CommandPresentationEditor', () => {
       title_by_locale: { en: 'Editado' },
       image_upload: 'second',
     });
+  });
+
+  it('cancela leitura ao trocar de estado e não grava a imagem na variante seguinte', async () => {
+    vi.stubGlobal('FileReader', DeferredFileReader);
+    const onChange = vi.fn();
+    const onBusyChange = vi.fn();
+    function Harness() {
+      const [value, setValue] = useState<Record<string, unknown>>({ version: 1, icon: 'folder' });
+      return <CommandPresentationEditor value={value} onChange={next => { setValue(next); onChange(next); }} onBusyChange={onBusyChange} />;
+    }
+    render(<Harness />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'commandSettings.presentationStates.label' }), {
+      target: { value: 'on' },
+    });
+    fireEvent.change(screen.getByLabelText('commandSettings.presentation.image.label'), {
+      target: { files: [new File(['img'], 'on.png', { type: 'image/png' })] },
+    });
+    expect(onBusyChange).toHaveBeenLastCalledWith(true);
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'commandSettings.presentationStates.label' }), {
+      target: { value: 'off' },
+    });
+    await act(async () => DeferredFileReader.instances[0].finish('data:image/png;base64,stale'));
+    expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ states: expect.objectContaining({ off: expect.objectContaining({ image_upload: 'stale' }) }) }));
+    expect(onBusyChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('salva imagem somente como override do estado e remove o fallback para a imagem padrão', async () => {
+    vi.stubGlobal('FileReader', DeferredFileReader);
+    const onChange = vi.fn();
+    function Harness() {
+      const [value, setValue] = useState<Record<string, unknown>>({
+        version: 1,
+        image_ref: 'base-image-ref',
+        states: { on: { icon: 'play' } },
+      });
+      return <CommandPresentationEditor value={value} onChange={next => { setValue(next); onChange(next); }} />;
+    }
+    render(<Harness />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'commandSettings.presentationStates.label' }), {
+      target: { value: 'off' },
+    });
+    fireEvent.change(screen.getByLabelText('commandSettings.presentation.image.label'), {
+      target: { files: [new File(['img'], 'off.png', { type: 'image/png' })] },
+    });
+    await act(async () => DeferredFileReader.instances[0].finish('data:image/png;base64,b2Zm'));
+    expect(onChange).toHaveBeenLastCalledWith({
+      version: 1,
+      image_ref: 'base-image-ref',
+      states: { on: { icon: 'play' }, off: { image_upload: 'b2Zm' } },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.presentation.image.remove' }));
+    expect(onChange).toHaveBeenLastCalledWith({ version: 1, image_ref: 'base-image-ref', states: { on: { icon: 'play' } } });
   });
 
   it('remove upload e ref sem perder título nem ícone e não exibe hash salvo', () => {

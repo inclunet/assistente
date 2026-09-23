@@ -81,6 +81,8 @@ const es = {
     },
 
     commandDeckFeedback: {
+      on: '{{title}} — Activado',
+      off: '{{title}} — Desactivado',
       waiting: 'Stream Deck: esperando {{title}}.',
       running: 'Stream Deck: ejecutando {{title}}.',
       succeeded: 'Stream Deck: {{title}} — Completado.',
@@ -537,6 +539,7 @@ const es = {
     },
 
     commandSettings: {
+      presentationStates: { label: 'Estado de la tecla', hint: 'Elige la presentación predeterminada o personaliza un estado.', default: 'Predeterminado', on: 'Activado', off: 'Desactivado', waiting: 'En espera', running: 'En ejecución', succeeded: 'Completado', failed: 'Error', denied: 'Denegado', cancelled: 'Cancelado', timed_out: 'Tiempo agotado', outcome_unknown: 'Resultado desconocido', inheritance: 'Los campos sin una sustitución heredan de la presentación predeterminada.', inherit: 'Heredar valor predeterminado', unavailableIcon: 'Icono no disponible' },
       specificTab: 'Pestaña específica',
       layerActionTarget: 'Capa y regla de activación',
       layerActionCompleted: 'Acción de capa completada.',

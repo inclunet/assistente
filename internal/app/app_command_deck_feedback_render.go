@@ -20,6 +20,8 @@ import (
 func commandDeckFeedbackStatusLabel(locale, state string) string {
 	labels := map[string]map[string]string{
 		"pt-BR": {
+			"on":              "Ligado",
+			"off":             "Desligado",
 			"waiting":         "Aguardando",
 			"running":         "Em execução",
 			"succeeded":       "Concluído",
@@ -30,6 +32,8 @@ func commandDeckFeedbackStatusLabel(locale, state string) string {
 			"outcome_unknown": "Resultado desconhecido",
 		},
 		"en": {
+			"on":              "On",
+			"off":             "Off",
 			"waiting":         "Waiting",
 			"running":         "Running",
 			"succeeded":       "Succeeded",
@@ -40,6 +44,8 @@ func commandDeckFeedbackStatusLabel(locale, state string) string {
 			"outcome_unknown": "Outcome unknown",
 		},
 		"es": {
+			"on":              "Activado",
+			"off":             "Desactivado",
 			"waiting":         "En espera",
 			"running":         "En ejecución",
 			"succeeded":       "Completado",

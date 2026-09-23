@@ -112,8 +112,7 @@ func renderCommandSettingsDiff(locale string, diff commandconfig.MutationDiff) (
 			}
 			if raw, ok := visible[words["presentation"]].(string); ok {
 				var presentation map[string]any
-				if json.Unmarshal([]byte(raw), &presentation) == nil && presentation["image_ref"] != nil {
-					presentation["image_ref"] = words["custom_image"]
+				if json.Unmarshal([]byte(raw), &presentation) == nil && redactCommandSettingsImageRefs(presentation, words["custom_image"]) {
 					encoded, _ := json.Marshal(presentation)
 					visible[words["presentation"]] = string(encoded)
 				}
@@ -134,6 +133,29 @@ func renderCommandSettingsDiff(locale string, diff commandconfig.MutationDiff) (
 		return "", commandconfig.ErrInvalid
 	}
 	return strings.Join(lines, "\n\n"), nil
+}
+
+func redactCommandSettingsImageRefs(presentation map[string]any, replacement string) bool {
+	redacted := false
+	if _, exists := presentation["image_ref"]; exists {
+		presentation["image_ref"] = replacement
+		redacted = true
+	}
+	states, ok := presentation["states"].(map[string]any)
+	if !ok {
+		return redacted
+	}
+	for _, value := range states {
+		state, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, exists := state["image_ref"]; exists {
+			state["image_ref"] = replacement
+			redacted = true
+		}
+	}
+	return redacted
 }
 
 func commandSettingsDiffWords(locale string) map[string]string {

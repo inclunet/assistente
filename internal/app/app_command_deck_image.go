@@ -16,6 +16,7 @@ import (
 // Called only for changed frames or device reconnection, never on key-down.
 // No cross-session image cache, file paths, URLs or caller-supplied owner IDs.
 func (p *commandProductRuntime) commandDeckImageKeyView(ctx context.Context, binding commandDeckBinding, locale string, model commanddeck.Model) (commanddeck.KeyView, bool) {
+	binding = commandDeckPresentedBinding(binding)
 	retry := false
 	if binding.imageRef != "" && ctx.Err() == nil && p.app.commandProduct.Load() == p && p.dependenciesMatch(p.app) {
 		var err error

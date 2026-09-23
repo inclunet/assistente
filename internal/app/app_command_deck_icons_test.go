@@ -56,7 +56,8 @@ func TestCommandDeckIconsContextualAgreementUsesOnlyEligibleBindings(t *testing.
 			first.ID: {Icon: "folder"}, second.ID: {Icon: secondIcon}, disabled.ID: {Icon: "PRIVATE"},
 		}))
 		conditions := contextualDeckUIConditions(config, registry, deckConditionTestTrigger)
-		title, icon, _ := localDeckPresentation(config, registry, deckConditionTestTrigger, conditions, "en")
+		visual, _ := localDeckPresentations(config, registry, deckConditionTestTrigger, conditions, "en")
+		title, icon := visual.title, visual.icon
 		want := ""
 		if secondIcon == "folder" {
 			want = "folder"

@@ -152,10 +152,29 @@ func PruneTx(ctx context.Context, tx *gorm.DB, userID string) error {
 			SELECT 1
 			FROM command_bindings AS bindings
 			WHERE bindings.user_id = assets.user_id
-			  AND json_extract(
+			  AND (
+				json_extract(
 					CASE WHEN json_valid(bindings.presentation) THEN bindings.presentation ELSE '{}' END,
 					'$.image_ref'
-				  ) = assets.ref
+				) = assets.ref
+				OR EXISTS (
+					SELECT 1
+					FROM json_each(
+						CASE
+							WHEN json_type(
+								CASE WHEN json_valid(bindings.presentation) THEN bindings.presentation ELSE '{}' END,
+								'$.states'
+							) = 'object'
+							THEN json_extract(
+								CASE WHEN json_valid(bindings.presentation) THEN bindings.presentation ELSE '{}' END,
+								'$.states'
+							)
+							ELSE '{}'
+						END
+					) AS states
+					WHERE CASE WHEN states.type = 'object' THEN json_extract(states.value, '$.image_ref') END = assets.ref
+				)
+			  )
 		  )`, userID).Error
 }
 

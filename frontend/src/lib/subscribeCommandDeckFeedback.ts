@@ -1,6 +1,7 @@
 import { EventsOn } from '@wailsjs/runtime/runtime';
 
 export const COMMAND_DECK_FEEDBACK_EVENT = 'command:deck-feedback';
+export const COMMAND_DECK_STATE_EVENT = 'command:deck-state';
 export const COMMAND_DECK_FEEDBACK_MAX_FUTURE_MS = 10_000;
 // The backend normalizes titles to at most 256 Unicode code points. UTF-16
 // strings can use two code units per code point, so leave room for that full
@@ -9,6 +10,8 @@ export const COMMAND_DECK_FEEDBACK_MAX_TITLE_LENGTH = 512;
 export const COMMAND_DECK_FEEDBACK_MAX_INVOCATIONS = 64;
 
 export const COMMAND_DECK_FEEDBACK_STATES = [
+  'on',
+  'off',
   'waiting',
   'running',
   'succeeded',
@@ -38,6 +41,11 @@ export interface CommandDeckFeedbackOwner {
   readonly workspaceId: string;
 }
 
+export interface CommandDeckStateEvent extends Omit<CommandDeckFeedbackEvent, 'invocationId' | 'state'> {
+  readonly eventId: string;
+  readonly state: 'on' | 'off';
+}
+
 export interface CommandDeckFeedbackContext {
   readonly authenticated: boolean;
   readonly owner: CommandDeckFeedbackOwner | null;
@@ -58,6 +66,8 @@ export interface SubscribeCommandDeckFeedbackOptions {
 type Progress = { readonly rank: number; readonly terminal: boolean };
 
 const TERMINAL_STATES = new Set<CommandDeckFeedbackState>([
+  'on',
+  'off',
   'succeeded',
   'failed',
   'denied',
@@ -67,6 +77,8 @@ const TERMINAL_STATES = new Set<CommandDeckFeedbackState>([
 ]);
 
 const STATE_RANK: Record<CommandDeckFeedbackState, number> = {
+  on: 3,
+  off: 3,
   waiting: 1,
   running: 2,
   succeeded: 3,
@@ -131,10 +143,11 @@ export function subscribeCommandDeckFeedback(options: SubscribeCommandDeckFeedba
   const requireFocus = options.requireFocus === true;
   const hasFocus = options.hasFocus ?? (() => document.hasFocus());
 
-  const onEvent = (raw: unknown) => {
+  const onEvent = (raw: unknown, persistent = false) => {
     if (disposed) return;
     const event = parseEvent(raw);
     if (!event) return;
+    if ((event.state === 'on' || event.state === 'off') !== persistent) return;
     const timestamp = now();
     if (!Number.isSafeInteger(timestamp) || event.expiresAt <= timestamp ||
         event.expiresAt > timestamp + COMMAND_DECK_FEEDBACK_MAX_FUTURE_MS ||
@@ -160,11 +173,18 @@ export function subscribeCommandDeckFeedback(options: SubscribeCommandDeckFeedba
     }
   };
 
-  const unsubscribe = EventsOn(COMMAND_DECK_FEEDBACK_EVENT, onEvent);
+  const unsubscribe = EventsOn(COMMAND_DECK_FEEDBACK_EVENT, (raw: unknown) => onEvent(raw));
+  const unsubscribeState = EventsOn(COMMAND_DECK_STATE_EVENT, (raw: unknown) => {
+    if (!isRecord(raw) || !isBoundedNonEmptyString(raw.eventId, 256)) return;
+    // Persistent state changes have their own event identity, never a fabricated
+    // command invocation or an execution-success claim.
+    onEvent({ ...raw, invocationId: `presentation:${raw.eventId}` }, true);
+  });
   return () => {
     if (disposed) return;
     disposed = true;
     unsubscribe();
+    unsubscribeState();
     progressByInvocation.clear();
   };
 }

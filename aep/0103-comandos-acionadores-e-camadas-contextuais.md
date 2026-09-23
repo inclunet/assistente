@@ -2,7 +2,7 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção145 (23/09/2026):** dos 84 critérios finais,
+**Acompanhamento vigente — seção146 (23/09/2026):** dos 84 critérios finais,
 **78 têm implementação identificada (92,9%), 6 são parciais e 0 ausentes**.
 Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
 A seção136 corrige o consumo concorrente de receipts com CAS completo como
@@ -49,6 +49,13 @@ com texto localizado e anúncio acessível, sem auditoria adicional da navegaç�
 Reconexão, geração e sessão invalidam resultados antigos. Estados persistentes
 ligado/desligado, personalização por estado e aceite físico/NVDA ainda não foram
 encerrados; C38 e as contagens permanecem parciais, sem promoção de gates.
+A seção146 acrescenta variantes de título/ícone/imagem por estado, com herança
+do padrão e confirmação atômica das imagens. A indicação ligado/desligado das
+ações de camada consulta metadados da mesma projeção imutável publicada pelo
+host; não lê regras novas do banco junto de um mapa antigo. Estado não provado
+não é apresentado como desligado. Anúncios usam o canal compartilhado e a
+primeira apresentação permanece silenciosa. Aceite físico/NVDA continua aberto;
+C38 e as contagens não são promovidos apenas por essa implementação.
 Saídas maiores: **11 A / 14 I / 22 P / 1 N = 48**; 25/48 com implementação
 identificada incluindo aceitas (52,1%). Gates: **1/12 aceito, R04**.
 C34/C35/C36 e R11.1/R11.3 têm implementação identificada: tools públicas de
@@ -3411,6 +3418,24 @@ Apresentações builtin usam `title_key` e `status_label_keys` existentes em
 pt-BR, en e es. Conteúdo personalizado pode fornecer `title_by_locale`; locale
 ausente cai para o nome localizado do comando, nunca para string builtin
 hardcoded. Anúncios usam as mesmas chaves/fallbacks.
+
+Implementação da seção146: `presentation.states` contém variantes para `on`,
+`off`, `waiting`, `running`, `succeeded`, `failed`, `denied`, `cancelled`,
+`timed_out` e `outcome_unknown`. Cada variante aceita somente `title_by_locale`,
+`icon` e `image_ref`; campos ausentes herdam o padrão, por idioma no caso dos
+títulos. Não há variantes aninhadas. O consenso entre bindings elegíveis é
+calculado depois da herança, sem escolher arbitrariamente uma imagem ou título.
+Uploads transitórios são normalizados antes da confirmação; base e variantes
+são gravadas na mesma transação, fora do documento canônico de 64 KiB.
+
+Para `layer.activate` e `layer.toggle`, ligado/desligado apresenta o estado
+efetivo conhecido da camada-alvo, não o sucesso da última execução nem uma
+promessa de que a próxima alternância removerá ativações de outras origens.
+Metadados de regras e camadas pertencem à mesma projeção publicada que resolve
+os bindings. Caminhos contextuais não provados omitem o indicador, em vez de
+inventar desligado. Feedback transitório do executor tem prioridade e expira
+para o estado atual. Não se atribui estado persistente a comandos sem fonte
+autoritativa, nem se acrescenta auditoria aos comandos locais de navegação.
 
 Uma tecla que ativa outra camada oferece navegação semelhante a pasta, mas
 continua usando o mecanismo genérico `layer.activate`, `layer.toggle` ou

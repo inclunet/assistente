@@ -82,6 +82,8 @@ const en = {
     },
 
     commandDeckFeedback: {
+      on: '{{title}} — On',
+      off: '{{title}} — Off',
       waiting: 'Stream Deck: waiting for {{title}}.',
       running: 'Stream Deck: running {{title}}.',
       succeeded: 'Stream Deck: {{title}} — Succeeded.',
@@ -538,6 +540,7 @@ const en = {
     },
 
     commandSettings: {
+      presentationStates: { label: 'Key state', hint: 'Choose the default presentation or customize a state.', default: 'Default', on: 'On', off: 'Off', waiting: 'Waiting', running: 'Running', succeeded: 'Succeeded', failed: 'Failed', denied: 'Denied', cancelled: 'Cancelled', timed_out: 'Timed out', outcome_unknown: 'Outcome unknown', inheritance: 'Fields without an override inherit from the default presentation.', inherit: 'Inherit default', unavailableIcon: 'Icon unavailable' },
       specificTab: 'Specific tab',
       layerActionTarget: 'Layer and activation rule',
       layerActionCompleted: 'Layer action completed.',

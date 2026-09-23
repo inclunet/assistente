@@ -53,6 +53,7 @@ type commandProductRuntime struct {
 	deckHeld                map[string]bool
 	deckDown                map[string]bool
 	deckCaptureGeneration   uint64
+	deckPresentedStates     map[string]string
 	keyboardMu              sync.Mutex
 	keyboardMap             *localCommandKeyboardState
 	keyboardEvents          map[string]localCommandKeyboardOccurrence

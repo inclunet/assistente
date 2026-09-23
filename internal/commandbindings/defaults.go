@@ -76,14 +76,15 @@ const (
 // Supressão/recusa aqui são apenas decisões puras. O futuro executor precisa
 // revalidar contexto e reservar o ledger antes de consumir o acionamento (D4).
 type Configuration struct {
-	validUntil      time.Time
-	defaults        map[string]Default
-	deltas          map[string][]Delta
-	byTrigger       map[string][]string
-	custom          *Resolver
-	presentation    *PresentationSnapshot
-	adjustments     []Adjustment
-	layerProvenance map[string][]LayerProvenance
+	validUntil               time.Time
+	defaults                 map[string]Default
+	deltas                   map[string][]Delta
+	byTrigger                map[string][]string
+	custom                   *Resolver
+	presentation             *PresentationSnapshot
+	layerPresentationTargets map[string]LayerPresentationState
+	adjustments              []Adjustment
+	layerProvenance          map[string][]LayerProvenance
 }
 
 // WithValidityDeadline attaches the host's earliest activation deadline to an

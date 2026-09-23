@@ -130,6 +130,7 @@ func ProjectComplete(ctx context.Context, snapshot Snapshot, options CompletePro
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	configuration = configuration.WithLayerPresentationTargets(projectLayerPresentationTargets(snapshot, userActivation))
 	return configuration.WithPresentation(commandbindings.NewPresentationSnapshot(presentations)), nil
 }
 
@@ -433,7 +434,7 @@ func validateCompletePresentation(raw string) error {
 	if err != nil || !versionOne(fields) {
 		return ErrInvalid
 	}
-	allowed := map[string]bool{"version": true, "title_key": true, "status_label_keys": true, "title_by_locale": true, "icon": true, "image_ref": true}
+	allowed := map[string]bool{"version": true, "title_key": true, "status_label_keys": true, "title_by_locale": true, "icon": true, "image_ref": true, "states": true}
 	for name := range fields {
 		if !allowed[name] {
 			return ErrInvalid
@@ -455,6 +456,11 @@ func validateCompletePresentation(raw string) error {
 	}
 	if value, ok := fields["title_by_locale"]; ok {
 		if err := validatePresentationMap(value, false); err != nil {
+			return err
+		}
+	}
+	if value, ok := fields["states"]; ok {
+		if err := validatePresentationStates(value); err != nil {
 			return err
 		}
 	}
@@ -497,10 +503,78 @@ func completeBindingPresentation(raw string) (*commandbindings.BindingPresentati
 		presentation.ImageRef = imageRef
 		projected = true
 	}
+	if rawStates, ok := fields["states"]; ok {
+		stateFields, err := strictObject(string(rawStates))
+		if err != nil {
+			return nil, ErrInvalid
+		}
+		presentation.States = make(map[string]commandbindings.BindingPresentation, len(stateFields))
+		for state, rawVariant := range stateFields {
+			variantFields, err := strictObject(string(rawVariant))
+			if err != nil {
+				return nil, ErrInvalid
+			}
+			variant := commandbindings.BindingPresentation{}
+			if rawTitles, ok := variantFields["title_by_locale"]; ok {
+				if err := json.Unmarshal(rawTitles, &variant.TitleByLocale); err != nil || variant.TitleByLocale == nil {
+					return nil, ErrInvalid
+				}
+			}
+			if rawIcon, ok := variantFields["icon"]; ok {
+				if err := json.Unmarshal(rawIcon, &variant.Icon); err != nil {
+					return nil, ErrInvalid
+				}
+			}
+			if rawImageRef, ok := variantFields["image_ref"]; ok {
+				imageRef, ok := jsonString(rawImageRef)
+				if !ok {
+					return nil, ErrInvalid
+				}
+				variant.ImageRef = imageRef
+			}
+			presentation.States[state] = variant
+		}
+		projected = true
+	}
 	if !projected {
 		return nil, nil
 	}
 	return presentation, nil
+}
+
+func validatePresentationStates(raw json.RawMessage) error {
+	states, err := strictObject(string(raw))
+	if err != nil || len(states) > 10 {
+		return ErrInvalid
+	}
+	for state, rawVariant := range states {
+		if !commandbindings.IsPresentationState(state) {
+			return ErrInvalid
+		}
+		fields, err := strictObject(string(rawVariant))
+		if err != nil {
+			return ErrInvalid
+		}
+		for name, value := range fields {
+			switch name {
+			case "title_by_locale":
+				if err := validatePresentationMap(value, false); err != nil {
+					return err
+				}
+			case "icon":
+				if !validPresentationTokenValue(value) {
+					return ErrInvalid
+				}
+			case "image_ref":
+				if !validImageRefValue(value) {
+					return ErrInvalid
+				}
+			default:
+				return ErrInvalid
+			}
+		}
+	}
+	return nil
 }
 
 func validPresentationKey(raw json.RawMessage) bool {

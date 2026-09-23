@@ -21,6 +21,68 @@ func TestCommandDeckFeedbackTitleBoundsUnicode(t *testing.T) {
 	}
 }
 
+func TestCommandDeckPersistentAnnouncementUsesLiveOwnerAndSilentBaseline(t *testing.T) {
+	f := newContextualDeckTestFixture(t, workspace.TabTypeChat, commandMessageCopyID)
+	p := f.a.commandProduct.Load()
+	events := make(chan commandDeckStateEvent, 8)
+	previous := f.a.emitter
+	f.a.emitter = commandOSBootstrapEmitter(func(name string, payload any) {
+		if name == "command:deck-state" {
+			events <- payload.(commandDeckStateEvent)
+			return
+		}
+		previous.Emit(name, payload)
+	})
+	bindings := map[int]commandDeckBinding{1: {
+		identity: "streamdeck.key:test-deck:key:1", title: "Camada", persistentState: "off",
+		variants: map[string]commandDeckVisual{"on": {title: "Camada ativa"}},
+	}}
+	f.controller.announceDeckFeedback(context.Background(), "test-deck", bindings)
+	select {
+	case event := <-events:
+		t.Fatalf("initial frame must stay silent: %+v", event)
+	default:
+	}
+	binding := bindings[1]
+	binding.persistentState = "on"
+	bindings[1] = binding
+	f.controller.announceDeckFeedback(context.Background(), "test-deck", bindings)
+	select {
+	case event := <-events:
+		generation, _, _ := p.localKeyboardState()
+		if event.EventID == "" || event.State != "on" || event.Title != "Camada ativa" ||
+			event.UserID != p.principal.UserID || event.SessionID != p.principal.SessionID ||
+			event.WorkspaceID != p.workspaceID || event.Generation != generation || event.ExpiresAt <= time.Now().UnixMilli() {
+			t.Fatalf("invalid persistent announcement: %+v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("missing persistent state announcement")
+	}
+	f.controller.announceDeckFeedback(context.Background(), "test-deck", bindings)
+	select {
+	case event := <-events:
+		t.Fatalf("same state repeated: %+v", event)
+	default:
+	}
+	binding.persistentState = "off"
+	bindings[1] = binding
+	p.mu.Lock()
+	p.deckCaptureGeneration++
+	p.mu.Unlock()
+	f.controller.announceDeckFeedback(context.Background(), "test-deck", bindings)
+	select {
+	case event := <-events:
+		t.Fatalf("stale generation announced: %+v", event)
+	default:
+	}
+	p.mu.Lock()
+	remembered := p.deckPresentedStates[binding.identity]
+	p.mu.Unlock()
+	if remembered != "on" {
+		t.Fatal("stale frame changed persistent baseline")
+	}
+}
+
 func TestCommandDeckFeedbackRuntimeRendersAndAnnouncesConfirmedOutcome(t *testing.T) {
 	f := newContextualDeckTestFixture(t, workspace.TabTypeChat, commandMessageCopyID)
 	p := f.a.commandProduct.Load()

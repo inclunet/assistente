@@ -30,6 +30,8 @@ type commandDeckBinding struct {
 	imagePNG             []byte
 	feedbackState        string
 	feedbackInvocationID string
+	persistentState      string
+	variants             map[string]commandDeckVisual
 	identity             string
 	profileBound         bool
 	conditions           []LocalCommandPaletteCondition
@@ -263,7 +265,7 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 	if !p.dependenciesMatch(p.app) || p.app.commandProduct.Load() != p {
 		return nil, commandexecution.Versions{}, commandexecution.ErrDenied
 	}
-	configuration, _, versions, err := p.host.ResolutionSnapshot(ctx, p.principal)
+	configuration, activeIDs, versions, err := p.host.ResolutionSnapshot(ctx, p.principal)
 	if err != nil || !versions.Unlocked {
 		return nil, versions, commandexecution.ErrDenied
 	}
@@ -291,7 +293,8 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 			binding.identity = identity
 			binding.conditions = append(binding.conditions, conditions...)
 			binding.profileBound = true
-			binding.title, binding.icon, binding.imageRef = localDeckPresentation(configuration, p.registry, identity, binding.conditions, locale)
+			visual, variants := localDeckPresentations(configuration, p.registry, identity, binding.conditions, locale)
+			binding.title, binding.icon, binding.imageRef, binding.variants = visual.title, visual.icon, visual.imageRef, variants
 			bindings[spec.Device][spec.Key] = binding
 			continue
 		}
@@ -331,7 +334,9 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 		if profileBound && commandExecutionClassForDefinition(definition) == commandExecutionLocalUI {
 			continue
 		}
-		bindings[spec.Device][spec.Key] = commandDeckBinding{commandID: definition.ID, title: title, icon: configuration.IconForBindings(resolved.BindingIDs), imageRef: configuration.ImageForBindings(resolved.BindingIDs), identity: identity, profileBound: profileBound}
+		bindings[spec.Device][spec.Key] = commandDeckBinding{commandID: definition.ID, title: title, icon: configuration.IconForBindings(resolved.BindingIDs), imageRef: configuration.ImageForBindings(resolved.BindingIDs), identity: identity, profileBound: profileBound,
+			persistentState: p.commandDeckPersistentState(ctx, resolved, activeIDs, versions),
+			variants:        commandDeckStateVisuals(configuration, resolved.BindingIDs, definition, locale)}
 	}
 	return bindings, versions, nil
 }
@@ -697,6 +702,7 @@ func (p *commandProductRuntime) deckStatus(status string, devices []commandDeckD
 }
 
 func commandDeckKeyView(binding commandDeckBinding, locale string, model commanddeck.Model) commanddeck.KeyView {
+	binding = commandDeckPresentedBinding(binding)
 	icon := binding.icon
 	if !commandDeckIconSupported(icon) {
 		icon = ""
@@ -711,11 +717,13 @@ func commandDeckKeyView(binding commandDeckBinding, locale string, model command
 	if len(binding.imagePNG) != 0 {
 		imageID += ":" + binding.imageRef
 	}
-	if binding.feedbackState != "" {
-		state = binding.feedbackState
+	presentationState := commandDeckPresentationState(binding)
+	if presentationState != "" {
+		state = presentationState
 		imageID += ":feedback:" + binding.feedbackState + ":" + binding.feedbackInvocationID
 	}
-	statusLabel := commandDeckFeedbackStatusLabel(locale, binding.feedbackState)
+	imageID += ":state:" + presentationState
+	statusLabel := commandDeckFeedbackStatusLabel(locale, presentationState)
 	announce := binding.title
 	if statusLabel != "" {
 		announce += " — " + statusLabel

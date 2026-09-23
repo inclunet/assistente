@@ -92,6 +92,7 @@ func (c *Configuration) WithoutDeltas(ids []string) (*Configuration, error) {
 	}
 	result.validUntil = c.validUntil
 	result.presentation = c.presentation.clone()
+	result.layerPresentationTargets = maps.Clone(c.layerPresentationTargets)
 	if result.presentation != nil {
 		for id := range removed {
 			delete(result.presentation.byBindingID, id)

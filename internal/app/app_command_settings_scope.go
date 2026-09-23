@@ -266,7 +266,7 @@ func (a *App) MutateCommandSettings(req CommandSettingsMutationRequest) (result 
 		if err := baseHook(hookCtx, tx, diff); err != nil {
 			return err
 		}
-		return commitCommandSettingsImage(hookCtx, tx, scope.UserID, intent, pendingImage)
+		return commitCommandSettingsImage(hookCtx, tx, scope.UserID, intent, pendingImage, diff.BeforeBindings)
 	}
 	applier, err := a.newCommandDesktopMutationApplier(inputs)
 	if err != nil {

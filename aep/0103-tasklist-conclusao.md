@@ -9152,3 +9152,102 @@ Resultado final: **sem P1/P2 ou pendências adicionais**. Diff-check, integridad
 sem bytes NUL e verificador de status AEP também passaram.
 Não houve Wails, pacote ACP, executáveis diagnósticos personalizados, acesso
 ao banco pessoal, push ou PR. Aceite físico/NVDA continua separado.
+
+## 146. Apresentações por estado e estado efetivo de camada — 23/09/2026
+
+Continuação de C38/D13: o formulário existente edita padrão e dez variantes
+textuais, de ícone ou imagem. Campos ausentes herdam o padrão, por idioma nos
+títulos. Não há configuração técnica de serial/digest nem grade obrigatória.
+A troca de variante cancela leitura de arquivo pendente e limpa o erro daquela
+seleção; não aplica um arquivo atrasado na variante seguinte.
+
+O contrato `presentation.states` rejeita estados/campos desconhecidos e variantes
+aninhadas. A projeção é imutável; consenso entre bindings é calculado depois da
+herança. Imagens base e de estados usam normalização/owner/quota existentes,
+com até onze uploads de 1 MiB por solicitação. A confirmação vincula os digests
+sem lê-los para o usuário; gravação e remoção de assets não referenciados são
+transacionais. O limite canônico de 64 KiB permanece, sem bytes de imagem.
+
+Ligado/desligado para Ativar/Alternar camada lê metadados da mesma configuração
+publicada que resolve os comandos. Uma primeira abordagem que consultava regras
+do SQLite separadamente foi substituída antes da entrega: um commit ainda não
+publicado não pode se combinar com versões antigas do host. O estado inclui
+ativações de outras origens e regras Always; contexto não provado retorna
+desconhecido, nunca desligado arbitrário. Alvo ausente, escopo incorreto e mapa
+obsoleto não produzem indicador. Clones e restauração preservam os metadados.
+
+Feedback transitório tem prioridade e retorna à apresentação atual. As mudanças
+persistentes usam evento próprio, sem fingir invocação ou sucesso; baseline
+inicial silenciosa, deduplicação em memória limitada e guards de owner, mapa,
+sessão e expiração. Nenhum trabalho de imagem/estado foi colocado no key-down,
+nem acrescentada auditoria à navegação.
+
+**78 I / 6 P / 0 N = 84; C38 continua P**, agora com variantes e estado de
+camada implementados, mas sem aceite integral físico/NVDA. Não se afirma
+conclusão do AEP inteiro. Saídas R e gates preservados:
+**11 A / 14 I / 22 P / 1 N = 48; 1/12 aceito**. O roteiro cumulativo de usuário
+inclui edição/reabertura, herança, resultado temporário, mudança por outra
+origem e navegação NVDA. Nenhum checkbox manual foi promovido.
+Este lote não encerra as pendências dos outros cinco critérios parciais:
+C43, C51, C65, C70 e C83. A implementação das variantes não é evidência de
+integração externa, crash de processo ou qualificação nativa desses critérios.
+
+Qualificação inicial: recorte App **13 testes de topo PASS, 22,382 s**, log
+`command-c38-states-focused-20260923.log`; frontend de anúncios/Topbar
+**303 testes PASS**. Domínios `commandbindings`, `commandconfig`,
+`commandimage`, `commanddeck`, `commandportability` **PASS**, log
+`command-c38-states-domains-20260923.log`. TypeScript, ESLint focado, vet desses
+domínios e App, diff-check e verificador de status AEP passaram.
+
+Implementação paralela com Luna: Hooke (contrato e provas de apresentação),
+Schrodinger (assets/confirmação), Bacon (editor/i18n), Hypatia (estado publicado).
+Main integrou renderer, anúncios, provas adicionais e documentação; Euler faz
+a revisão independente.
+
+Evidências finais do backend:
+
+- App completo: **1.235 testes de topo PASS, 555,575 s**, log
+  `command-c38-states-app-full-20260923.log`. Somente o teste opt-in de latência
+  física foi pulado; não há medição nova de HID.
+- Refinamentos posteriores da projeção e provas de mapa/imagem foram
+  requalificados: **31 testes de topo PASS, 30,818 s**, log
+  `command-c38-states-reviewed-20260923.log`. Inclui criação confirmada de
+  acionador → mapa Deck → variante off/on após ativação pelo App, imagens de
+  estado persistidas → pixels do renderer, guards e resultados do executor.
+- Cinco domínios **PASS** em `command-c38-states-domains-final-20260923.log`;
+  projeção/clones finais também **PASS** em
+  `command-c38-states-projection-reviewed-20260923.log`. Provas de Always com
+  condição não vazia e Context com cláusulas vazias confrontam o próprio
+  resolvedor, evitando duplicação divergente de semântica.
+- Vet final **PASS**, log `command-c38-states-vet-final-20260923.log`.
+
+Tentativa frontend intermediária preservada: **5.831 testes passaram**, mas a
+suíte terminou com erro ao carregar o teste de um helper novo sem consumidor,
+removido depois da coleta do Vitest. O helper duplicava a redação já produtiva
+no backend; sua remoção não corrigiu uma asserção falha. A qualificação final
+foi reiniciada com os arquivos estabilizados. Um recorte de agente também
+encontrou erro de acesso ao lock do cache Go; o recorte final do main acima
+executou suas provas de assets. Não houve Wails, pacote ACP, executáveis
+diagnósticos personalizados, banco pessoal, push ou PR.
+
+Fechamento da seção146:
+
+- Frontend completo final: **466 arquivos / 5.831 testes PASS, 498,36 s**,
+  log `frontend/command-c38-states-frontend-final-20260923.log`.
+- Revisão independente **Euler (Luna)**, três verificações. A corrida entre
+  banco e mapa foi eliminada pela projeção imutável; a hipótese de divergência
+  de Always/lifecycle foi confrontada com o resolver, e a derivação passou a
+  reutilizar sua projeção efetiva. Dois P2 adicionais de assets foram corrigidos:
+  poda de imagens substituídas antes de avaliar quota e preservação de uma
+  referência importada ausente ao editar o mesmo binding. Isso não aceita nova
+  referência sem asset próprio, não libera bytes de outro owner e não ignora
+  corrupção. Resultado final da revisão: **sem achados pendentes**.
+- Após essas correções, recorte amplo de configurações: **66 testes de topo
+  PASS, 40,837 s**, log `command-c38-states-settings-final-20260923.log`.
+  Recorte final de imagens: **9 testes de topo PASS, 25,506 s**, log
+  `command-c38-states-images-final-20260923.log`. Inclui API confirmada com
+  referências indisponíveis e 14 subcasos de quota, rollback e fronteiras de
+  binding/owner. O App completo acima precede esses refinamentos; estes são
+  qualificados pelos recortes finais, não por uma segunda suíte App completa.
+- Vet pós-review **PASS**, log `command-c38-states-vet-delivery-20260923.log`.
+  Sem alterações nas assinaturas públicas do Wails ou nova migração de banco.

@@ -44,7 +44,8 @@ func TestProjectCompleteActivationRulesFormORWithoutChangingBindingIdentity(t *t
 	profileRule := activationProjectionRule(t, user, layerID, completeProjectionUUID(t), commandactivation.ModeCondition,
 		`{"version":1,"clauses":[{"field":"profile","op":"eq","value":"developer"}]}`)
 	surfaceRule := activationProjectionRule(t, user, layerID, completeProjectionUUID(t), commandactivation.ModeContext, activationProjectionSurfaceEditor)
-	snapshot := Snapshot{Scope: Scope{UserID: user}, Layers: []Layer{layer}, Bindings: []Binding{binding}, ActivationRules: []commandactivation.Rule{profileRule, surfaceRule}}
+	manualRule := activationProjectionRule(t, user, layerID, completeProjectionUUID(t), commandactivation.ModeManual, `{}`)
+	snapshot := Snapshot{Scope: Scope{UserID: user}, Layers: []Layer{layer}, Bindings: []Binding{binding}, ActivationRules: []commandactivation.Rule{profileRule, surfaceRule, manualRule}}
 	options := completeProjectionOptions(completeProjectionRegistry(t))
 	options.BuiltinLayers = nil
 
@@ -64,6 +65,70 @@ func TestProjectCompleteActivationRulesFormORWithoutChangingBindingIdentity(t *t
 	}
 	if got := configuration.RequiredFacts("keyboard.local:KeyA"); !reflect.DeepEqual(got, []commandbindings.Field{commandbindings.Profile, commandbindings.SurfaceType}) {
 		t.Fatalf("RequiredFacts não publicou gates da camada: %v", got)
+	}
+	state, ok := configuration.LayerPresentationTarget(manualRule.ID)
+	if !ok || state.Scope != "global" || state.LayerID != layerID || !state.Contextual || state.AlwaysActive {
+		t.Fatalf("metadados de estado divergiram dos gates projetados: %+v %v", state, ok)
+	}
+}
+
+func TestProjectCompleteLayerPresentationAlwaysMatchesEffectiveProjection(t *testing.T) {
+	user := completeProjectionUUID(t)
+	layerID, bindingID := completeProjectionUUID(t), completeProjectionUUID(t)
+	layer := Layer{ID: layerID, UserID: user, Name: "Always", Description: "fixture", Enabled: true, Source: "user", ResolutionPriority: 3}
+	binding := completeProjectionBinding(t, user, nil, layer, bindingID)
+	manual := activationProjectionRule(t, user, layerID, completeProjectionUUID(t), commandactivation.ModeManual, `{}`)
+	always := activationProjectionRule(t, user, layerID, completeProjectionUUID(t), commandactivation.ModeAlways, `{"legacy_condition_payload":true}`)
+	// These valid persisted attributes do not gate ModeAlways in
+	// projectLayerActivation; presentation metadata must mirror that projection.
+	always.Lifecycle = commandactivation.LifecycleSession
+	always.Source = "legacy-import"
+	snapshot := Snapshot{Scope: Scope{UserID: user}, Layers: []Layer{layer}, Bindings: []Binding{binding}, ActivationRules: []commandactivation.Rule{manual, always}}
+	options := completeProjectionOptions(completeProjectionRegistry(t))
+	options.BuiltinLayers = nil
+	configuration, err := ProjectComplete(context.Background(), snapshot, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, ok := configuration.LayerPresentationTarget(manual.ID)
+	if !ok || !state.AlwaysActive || state.Contextual {
+		t.Fatalf("ModeAlways efetivo ausente dos metadados: %+v %v", state, ok)
+	}
+	// ProjectComplete detached its metadata from the loaded config snapshot;
+	// changing that source without publishing a new projection cannot mutate it.
+	snapshot.Layers[0].Enabled = false
+	snapshot.ActivationRules[1].Mode = commandactivation.ModeContext
+	snapshot.ActivationRules[1].Condition = activationProjectionSurfaceEditor
+	if afterSourceEdit, stillPresent := configuration.LayerPresentationTarget(manual.ID); !stillPresent || afterSourceEdit != state {
+		t.Fatalf("source edit changed published metadata without reprojection: before=%+v after=%+v present=%v", state, afterSourceEdit, stillPresent)
+	}
+	resolved, err := configuration.Resolve("keyboard.local:KeyA", nil, nil)
+	if err != nil || resolved.Status != commandbindings.Selected || !reflect.DeepEqual(resolved.BindingIDs, []string{bindingID}) {
+		t.Fatalf("resolução sem facts diverge do estado Always: %+v %v", resolved, err)
+	}
+}
+
+func TestProjectCompleteLayerPresentationMirrorsContextWithEmptyCanonicalClauses(t *testing.T) {
+	user := completeProjectionUUID(t)
+	layerID, bindingID := completeProjectionUUID(t), completeProjectionUUID(t)
+	layer := Layer{ID: layerID, UserID: user, Name: "Empty context", Description: "fixture", Enabled: true, Source: "user", ResolutionPriority: 3}
+	binding := completeProjectionBinding(t, user, nil, layer, bindingID)
+	manual := activationProjectionRule(t, user, layerID, completeProjectionUUID(t), commandactivation.ModeManual, `{}`)
+	contextRule := activationProjectionRule(t, user, layerID, completeProjectionUUID(t), commandactivation.ModeContext, `{"version":1,"clauses":[]}`)
+	snapshot := Snapshot{Scope: Scope{UserID: user}, Layers: []Layer{layer}, Bindings: []Binding{binding}, ActivationRules: []commandactivation.Rule{manual, contextRule}}
+	options := completeProjectionOptions(completeProjectionRegistry(t))
+	options.BuiltinLayers = nil
+	configuration, err := ProjectComplete(context.Background(), snapshot, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, ok := configuration.LayerPresentationTarget(manual.ID)
+	if !ok || !state.AlwaysActive || state.Contextual {
+		t.Fatalf("condição Context vazia divergiu do activation projection: %+v %v", state, ok)
+	}
+	resolved, err := configuration.Resolve("keyboard.local:KeyA", nil, nil)
+	if err != nil || resolved.Status != commandbindings.Selected || !reflect.DeepEqual(resolved.BindingIDs, []string{bindingID}) {
+		t.Fatalf("resolução não trata clauses vazias como caminho incondicional: %+v %v", resolved, err)
 	}
 }
 
