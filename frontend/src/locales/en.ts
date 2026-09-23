@@ -4281,7 +4281,6 @@ const en = {
         statusGrid: 'Workflow status list',
         moveHint: 'Use Alt+Arrows to reorder the focused status.',
         migrationGroup: 'Migration of status {{label}}',
-        transitionsFrom: 'Transitions from {{label}}',
         emptyStatusName: 'Status ID {{id}}: name cannot be empty',
         colorGroup: 'Status color',
         color: {

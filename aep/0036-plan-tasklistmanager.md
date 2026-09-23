@@ -51,12 +51,15 @@ linha, sem nomes acessíveis) foi refeita no padrão do sistema: Toolbar
 (Novo/Editar/Apagar) + `DataGrid` (Nome, Cor, Inicial — só colunas voltadas
 ao usuário, sem ID/ícone técnico —, com reordenação por Alt+Setas e edição
 por Enter) + modal de edição por status.
-Transições (matriz), migração e status inicial foram preservados, ganhando
+Transições permitidas e status inicial saíram das seções próprias e passaram
+a ser configurados dentro do modal do item (checkboxes por destino +
+checkbox de inicial); migração condicional segue à parte. Tudo com
 `aria-pressed`, grupos com nome e rótulos (a navegação por NVDA passou a ter
 contexto por status e estado dos toggles).
 
 Evidência: `frontend/src/components/taskLists/WorkflowEditor.test.tsx` cobre
-listagem, criação/edição/remoção, migração, reordenação e transições.
+listagem, criação/edição/remoção, migração, reordenação, transições e inicial
+no modal, e abertura aninhada.
 
 ## TL;DR
 

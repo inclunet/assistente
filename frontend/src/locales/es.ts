@@ -4281,7 +4281,6 @@ const es = {
         statusGrid: 'Lista de estados del workflow',
         moveHint: 'Usa Alt+Flechas para reordenar el estado enfocado.',
         migrationGroup: 'Migración del estado {{label}}',
-        transitionsFrom: 'Transiciones de {{label}}',
         emptyStatusName: 'Estado ID {{id}}: el nombre no puede estar vacío',
         colorGroup: 'Color del estado',
         color: {

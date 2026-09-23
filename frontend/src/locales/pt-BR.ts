@@ -4282,7 +4282,6 @@ const ptBR = {
         statusGrid: 'Lista de status do workflow',
         moveHint: 'Use Alt+Setas para reordenar o status focado.',
         migrationGroup: 'Migração do status {{label}}',
-        transitionsFrom: 'Transições de {{label}}',
         emptyStatusName: 'Status ID {{id}}: nome não pode estar vazio',
         colorGroup: 'Cor do status',
         color: {
