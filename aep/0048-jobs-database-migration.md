@@ -178,6 +178,16 @@ no `Start()` do Manager.
 
 A interface de persistência expõe limpeza separada para runs, eventos de domínio e timeline operacional (`CleanOldRuns`, `CleanOldEvents`, `CleanOldRunEvents`) para deixar explícito que as três tabelas participam da retenção.
 
+Adendo AEP-0103/R03.4 (24/09/2026): `command_job_activation_outbox` preserva o
+fato durável e seu replay, mas o Consumer também revalida o job e o `job_run`
+antes de aplicar a ocorrência. Por isso limpeza por idade e count-cap mantêm o
+run referenciado enquanto houver outbox `pending`/`processing`; após
+`delivered`/`dead_letter`, o run volta a ser elegível conforme a política
+normal. A outbox mantém seu próprio horizonte de replay, independente da linha
+de run. Evidência focada: `internal/jobs/command_activation_retention_matrix_test.go`
+e `internal/commandjobactivation/recovery_matrix_test.go`. Isso documenta
+somente a fronteira de retenção, não declara R03.4 concluído.
+
 ### D4 — Separação entre eventos de domínio e timeline operacional
 
 O event log diário (JSONL) é dividido conforme a responsabilidade:

@@ -407,6 +407,15 @@ usuário; por isso a proveniência (Fase 4) é pré-requisito dos eventos mutáv
 alto risco. Mitigações combinadas: proveniência + circuit breaker + `trigger.when`
 (default `_source == "user"`) + rate limit + filtros.
 
+Nota de integração AEP-0103/R03.4 (24/09/2026): a retenção do ciclo de eventos
+do runtime de jobs não altera a semântica do `DomainEventSink` de tasklists.
+Para o fato autenticado de job, o Consumer relê `jobs` e `job_runs`; assim,
+retenção de run preserva a fonte durante entrega `pending`/`processing` e volta
+a remover o run após `delivered`/`dead_letter`. A evidência de retenção e
+consumo está em `internal/jobs/command_activation_retention_matrix_test.go`;
+esta nota não promove o aceite global R03.4 nem amplia os produtores de eventos
+de domínio desta AEP.
+
 ## Riscos
 
 - **Loop por job que muta tasklist**: principal risco; mitigado por proveniência +

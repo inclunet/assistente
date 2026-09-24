@@ -1853,13 +1853,24 @@ func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob i
 	return int(deleted), nil
 }
 
-// retainableRunQuery protege runs não terminais que ainda sustentam uma
-// ativação. Um run não terminal só é elegível para exclusão quando NÃO existe
-// lease viva com claim ativa correspondente, no mesmo user/run/activation. Quando a
-// tabela de leases ainda não foi integrada pela migração central, nenhum run
-// não terminal é removido (fail closed).
+// retainableRunQuery protege runs que ainda são fontes necessárias para o
+// Consumer da outbox e runs não terminais que sustentam uma ativação. Embora o
+// fato normalizado sobreviva sem job_runs, o Consumer revalida o job e o run
+// antes de aplicar cada fato; portanto, pending/processing deve manter a linha
+// de origem até entrega ou dead-letter. Depois disso, um run não terminal só é
+// elegível para exclusão quando NÃO existe lease viva com claim ativa
+// correspondente, no mesmo user/run/activation. Sem as tabelas de leases,
+// nenhum run não terminal é removido (fail closed).
 func (r *DBRepository) retainableRunQuery(query *gorm.DB, now time.Time) *gorm.DB {
 	terminal := []string{RunStatusCompleted, RunStatusFailed, RunStatusSkipped}
+	if query.Migrator().HasTable("command_job_activation_outbox") {
+		query = query.Where(`NOT EXISTS (
+			SELECT 1 FROM command_job_activation_outbox source
+			WHERE source.run_id = job_runs.id
+			  AND source.user_id = job_runs.user_id
+			  AND source.delivery_state IN (?, ?)
+		)`, commandjobevents.DeliveryPending, commandjobevents.DeliveryProcessing)
+	}
 	if !query.Migrator().HasTable("command_job_activation_leases") || !query.Migrator().HasTable("command_layer_activation_state") {
 		return query.Where("status IN ?", terminal)
 	}

@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"assistente/internal/commandactivation"
+	"assistente/internal/commandautomation"
 	"assistente/internal/commandjobactivation"
 	"assistente/internal/commandjobevents"
+	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
 
 	"github.com/google/uuid"
@@ -112,19 +114,14 @@ func TestCleanRunsExceedingCountPreservesActivationSourcesAndClaims(t *testing.T
 	if err != nil {
 		t.Fatalf("count cap: %v", err)
 	}
-	if deleted != 2 {
-		t.Fatalf("deleted=%d, want 2", deleted)
+	if deleted != 0 {
+		t.Fatalf("count cap removeu runs ainda referenciados por outbox pendente/em processamento: deleted=%d", deleted)
 	}
-	var remaining database.JobRun
-	if err := repo.db.Where("id = ?", newRun).First(&remaining).Error; err != nil {
-		t.Fatalf("newest run was not retained: %v", err)
-	}
-	var removed database.JobRun
-	if err := repo.db.Where("id = ?", oldRun).First(&removed).Error; err == nil {
-		t.Fatal("old run survived count cap")
-	}
-	if err := repo.db.Where("id = ?", pendingRun).First(&removed).Error; err == nil {
-		t.Fatal("pending-source run survived count cap")
+	for _, runID := range []string{oldRun, pendingRun, newRun} {
+		var remaining database.JobRun
+		if err := repo.db.Where("id = ?", runID).First(&remaining).Error; err != nil {
+			t.Fatalf("run %s was not retained: %v", runID, err)
+		}
 	}
 	row, err := store.Get(context.Background(), fact.SourceEventID)
 	if err != nil {
@@ -149,6 +146,204 @@ func TestCleanRunsExceedingCountPreservesActivationSourcesAndClaims(t *testing.T
 	}
 	if claimCount != 1 || leaseCount != 1 {
 		t.Fatalf("source claim/lease lost: claim=%d lease=%d", claimCount, leaseCount)
+	}
+	if err := repo.db.Model(&commandjobevents.ActivationOutbox{}).
+		Where("source_event_id = ? AND user_id = ? AND run_id = ?", fact.SourceEventID, userID.String(), oldRun).
+		Update("delivery_state", commandjobevents.DeliveryDelivered).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.db.Model(&commandjobevents.ActivationOutbox{}).
+		Where("source_event_id = ? AND user_id = ? AND run_id = ?", pendingFact.SourceEventID, userID.String(), pendingRun).
+		Update("delivery_state", commandjobevents.DeliveryDeadLetter).Error; err != nil {
+		t.Fatal(err)
+	}
+	deleted, err = repo.CleanRunsExceedingCount(userCtx, 1)
+	if err != nil || deleted != 2 {
+		t.Fatalf("count-cap não voltou a limpar após estados terminais da outbox: deleted=%d err=%v", deleted, err)
+	}
+	for _, runID := range []string{oldRun, pendingRun} {
+		var remaining database.JobRun
+		if err := repo.db.Where("user_id = ? AND id = ?", userID.String(), runID).First(&remaining).Error; err == nil {
+			t.Fatalf("run terminal %s continuou retido depois de delivered/dead_letter", runID)
+		}
+	}
+	for _, expected := range []struct{ id, runID, state string }{
+		{fact.SourceEventID, oldRun, commandjobevents.DeliveryDelivered},
+		{pendingFact.SourceEventID, pendingRun, commandjobevents.DeliveryDeadLetter},
+	} {
+		row, err := store.Get(context.Background(), expected.id)
+		if err != nil || row.UserID != userID.String() || row.RunID != expected.runID || row.DeliveryState != expected.state {
+			t.Fatalf("outbox terminal removida ou owner/run trocados: row=%+v err=%v want=(%s,%s,%s)", row, err, userID, expected.runID, expected.state)
+		}
+	}
+}
+
+func TestCountRetentionKeepsPendingSourceUntilConsumerAppliesItOnce(t *testing.T) {
+	repo, _, _ := setupJobsRepositoryTest(t)
+	ctx := context.Background()
+	userID := uuid.Must(uuid.NewV7()).String()
+	userCtx := database.WithUserID(ctx, userID)
+	job := testRepositoryJob("retention-consumer-source", "Retention consumer source")
+	if err := repo.SaveJob(userCtx, job); err != nil {
+		t.Fatal(err)
+	}
+	for _, migrate := range []func(context.Context, *gorm.DB) error{
+		commandactivation.Migrate, commandautomation.Migrate, commandjobactivation.Migrate,
+	} {
+		if err := migrate(ctx, repo.db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.db.AutoMigrate(commandjobevents.Models()...); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	repo.now = func() time.Time { return now }
+	outbox := commandjobevents.NewStore(repo.db)
+	if _, err := outbox.EnsureReplayPolicyEpoch(ctx, commandjobevents.ProducerType, now.Add(-time.Hour), 24*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	runID := uuid.Must(uuid.NewV7()).String()
+	newestRunID := uuid.Must(uuid.NewV7()).String()
+	if err := repo.LogRun(userCtx, &RunLog{RunID: runID, JobID: job.ID, Status: RunStatusRunning, Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: now.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.LogRun(userCtx, &RunLog{RunID: newestRunID, JobID: job.ID, Status: RunStatusCompleted, Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+
+	newID := func() string { return uuid.Must(uuid.NewV7()).String() }
+	ruleID, layerID, grantID, decisionID := newID(), newID(), newID(), newID()
+	eventName, producerTypes, generation := commandautomation.JobRunStateEvent, `["jobs.runtime"]`, int64(1)
+	keys := func(context.Context, string) ([]byte, error) { return []byte("0123456789abcdef0123456789abcdef"), nil }
+	activationRule := commandactivation.Rule{
+		ID: ruleID, UserID: userID, LayerRefKind: commandactivation.UserRef, LayerRef: layerID,
+		RuleRefKind: commandactivation.UserRef, RuleRef: ruleID, Mode: commandactivation.ModeEvent,
+		Condition: `{"version":1,"all":[]}`, Lifecycle: commandactivation.LifecyclePersistent,
+		EventName: &eventName, AllowedInternalProducerTypes: &producerTypes,
+		AuthorizationDecisionID: &decisionID, AutomationGrantID: &grantID,
+		AutomationGrantGeneration: &generation, Enabled: true, Source: "user", ReviewStatus: "active",
+	}
+	automationRule := commandautomation.Rule{
+		ID: ruleID, Owner: commandautomation.Owner{UserID: userID},
+		LayerRef: commandautomation.RuleRef{Kind: string(commandactivation.UserRef), Ref: layerID},
+		RuleRef:  commandautomation.RuleRef{Kind: string(commandactivation.UserRef), Ref: ruleID},
+		Mode:     string(commandactivation.ModeEvent), Condition: activationRule.Condition,
+		Lifecycle: string(commandactivation.LifecyclePersistent), EventName: eventName,
+		AllowedInternalProducerTypes: []string{commandautomation.JobsRuntime}, Enabled: true,
+		Source: "user", ReviewStatus: "active",
+	}
+	ruleFingerprint, err := commandautomation.FingerprintRule(ctx, automationRule, "v1", keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	producerFingerprint, err := commandautomation.ProducerTypesFingerprint(ctx, "v1", keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := commandautomation.NaturalKey{Owner: commandautomation.Owner{UserID: userID}, LayerRef: automationRule.LayerRef, RuleRef: automationRule.RuleRef}
+	grantFingerprint, err := commandautomation.FingerprintGrant(ctx, key, ruleFingerprint, producerFingerprint, generation, "v1", keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activationRule.AutomationGrantFingerprint = &grantFingerprint
+	if err := repo.db.Create(&activationRule).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.db.Table("command_layer_automation_grants").Create(map[string]any{
+		"id": grantID, "user_id": userID, "layer_ref_kind": string(commandactivation.UserRef), "layer_ref": layerID,
+		"rule_ref_kind": string(commandactivation.UserRef), "rule_ref": ruleID, "rule_fingerprint": ruleFingerprint,
+		"event_name": eventName, "producer_types_fingerprint": producerFingerprint,
+		"automation_grant_generation": generation, "automation_grant_fingerprint": grantFingerprint,
+		"authorization_decision_id": decisionID, "granted_at": now, "granted_by": userID,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	fact := commandjobevents.Fact{
+		SchemaVersion: commandjobevents.SchemaVersion, EventName: commandjobevents.SchemaVersion,
+		SourceEventID: newID(), RunEventID: "", UserID: userID, JobDatabaseID: job.DatabaseID,
+		JobSlug: job.ID, RunID: runID, Sequence: 1, State: commandjobevents.StateQueued,
+		OccurredAt: now, RootOriginType: "manual", RootOriginID: newID(),
+		Provenance: map[string]any{"_source": "job", "_source_job_id": job.ID, "_chain_id": "", "_chain_history": []string{}},
+	}
+	fact.RunEventID = fact.SourceEventID
+	if err := repo.db.Transaction(func(tx *gorm.DB) error { return outbox.InsertFactTx(tx, fact) }); err != nil {
+		t.Fatal(err)
+	}
+	ports := commandjobactivation.Ports{
+		Authorize: func(_ context.Context, _ *gorm.DB, f commandjobevents.Fact, workspaceID *string) (commandactivation.Owner, error) {
+			return commandactivation.Owner{Scope: commandactivation.Scope{UserID: f.UserID, WorkspaceID: workspaceID}, AuthContextType: "local_session", AuthContextID: "session", AuthGeneration: "1", SecurityGeneration: "1"}, nil
+		},
+		Layer: func(context.Context, *gorm.DB, commandactivation.Owner, commandactivation.Rule) (bool, error) {
+			return true, nil
+		},
+		Condition: func(context.Context, *gorm.DB, commandactivation.Owner, commandactivation.Rule, commandjobevents.Fact) (bool, error) {
+			return true, nil
+		},
+		Runtime: func(_ context.Context, _ *gorm.DB, f commandjobevents.Fact) (commandjobactivation.RuntimeIdentity, error) {
+			return commandjobactivation.RuntimeIdentity{Generation: "runtime:1", UserID: f.UserID, AuthContextType: "local_session", AuthContextID: "session", AuthGeneration: "1", SecurityGeneration: "1"}, nil
+		},
+		Keys: keys, KeyVersion: "v1",
+	}
+	consumer, err := commandjobactivation.New(repo.db, &commandsecurity.DispatchGate{}, ports, 3*time.Minute, 24*time.Hour, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := repo.CleanRunsExceedingCount(userCtx, 1); err != nil || deleted != 0 {
+		t.Fatalf("count-cap antes da entrega removeu fonte pendente: deleted=%d err=%v", deleted, err)
+	}
+	var kept database.JobRun
+	if err := repo.db.Where("id = ?", runID).First(&kept).Error; err != nil {
+		t.Fatalf("run referenciado não foi retido: %v", err)
+	}
+	pass, err := consumer.RunPass(ctx, "retention-worker", 10)
+	if err != nil || pass.Applied != 1 || pass.DeadLettered != 0 {
+		row, getErr := outbox.Get(ctx, fact.SourceEventID)
+		t.Fatalf("consumer não aplicou fato após count-cap: pass=%+v err=%v outbox=%+v getErr=%v", pass, err, row, getErr)
+	}
+	var activeClaims int64
+	if err := repo.db.Model(&commandactivation.Claim{}).Where("source_correlation_id = ? AND state = ?", runID, commandactivation.StateActive).Count(&activeClaims).Error; err != nil || activeClaims != 1 {
+		t.Fatalf("efeito do fato pendente: active claims=%d err=%v, want 1", activeClaims, err)
+	}
+	pass, err = consumer.RunPass(ctx, "retention-replay-worker", 10)
+	if err != nil || pass.Claimed != 0 {
+		t.Fatalf("replay do fato entregue não foi no-op: pass=%+v err=%v", pass, err)
+	}
+	var claimCount, ledgerCount int64
+	if err := repo.db.Model(&commandactivation.Claim{}).Where("source_correlation_id = ?", runID).Count(&claimCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.db.Table("command_activation_idempotency_keys").Where("source_correlation_id = ?", runID).Count(&ledgerCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if claimCount != 1 || ledgerCount != 1 {
+		t.Fatalf("efeito duplicado após replay: claims=%d ledger=%d", claimCount, ledgerCount)
+	}
+
+	// A confirmação terminal encerra a lease. Com ambas as ocorrências fora de
+	// pending/processing, o run antigo deve voltar a ser elegível ao count-cap.
+	now = now.Add(time.Minute)
+	if err := repo.db.Model(&database.JobRun{}).Where("user_id = ? AND id = ?", userID, runID).Update("status", RunStatusCompleted).Error; err != nil {
+		t.Fatal(err)
+	}
+	completed := fact
+	completed.SourceEventID, completed.RunEventID = newID(), ""
+	completed.Sequence, completed.State, completed.OccurredAt = 2, commandjobevents.StateCompleted, now
+	completed.RunEventID = completed.SourceEventID
+	if err := repo.db.Transaction(func(tx *gorm.DB) error { return outbox.InsertFactTx(tx, completed) }); err != nil {
+		t.Fatal(err)
+	}
+	pass, err = consumer.RunPass(ctx, "retention-terminal-worker", 10)
+	if err != nil || pass.Applied != 1 || pass.DeadLettered != 0 {
+		t.Fatalf("consumer não aplicou evento terminal: pass=%+v err=%v", pass, err)
+	}
+	if deleted, err := repo.CleanRunsExceedingCount(userCtx, 1); err != nil || deleted != 1 {
+		t.Fatalf("run não voltou à retenção após entrega terminal: deleted=%d err=%v", deleted, err)
+	}
+	var remaining database.JobRun
+	if err := repo.db.Where("user_id = ? AND id = ?", userID, runID).First(&remaining).Error; err == nil {
+		t.Fatal("run encerrado permaneceu retido após outbox terminal e lease encerrada")
 	}
 }
 
