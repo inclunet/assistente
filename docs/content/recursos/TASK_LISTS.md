@@ -79,6 +79,11 @@ sem botão Salvar. Ao abrir, o foco fica no grid.
 - Se o salvamento falhar, a mensagem de erro aparece e a tela volta ao último
   estado salvo; no formulário do item, o que foi digitado é mantido para tentar
   de novo.
+- Se o workflow ou as ações forem alterados em outro lugar enquanto a tela está
+  aberta (em outra aba ou pelo agente), o Assistente não sobrescreve essa
+  alteração. Ele avisa, atualiza a tela com a versão atual e mantém o que você
+  digitou no formulário, para você conferir e aplicar de novo. Se o item que você
+  editava foi apagado, o aviso diz isso e o formulário fecha.
 
 ## Modos de Visualização
 
