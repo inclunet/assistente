@@ -47,6 +47,10 @@ local após o fim do turno e ao reabrir a conversa, identificadas como ferrament
 do agente externo. Conclusão, falha e cancelamento mantêm estados distintos.
 Esse registro não faz o Assistente executar as ferramentas do agente.
 
+O histórico mantém a ordem entre os trechos da resposta e as ferramentas: uma
+explicação anterior a uma ferramenta continua antes dela ao terminar o turno
+ou reabrir a conversa. Isso também vale para turnos interrompidos ou cancelados.
+
 O histórico conserva a classe, o resumo da atividade e sua duração. Argumentos e resultados
 que não foram capturados não são inventados nem oferecidos como detalhes completos.
 Atividades antigas que só existiam durante o streaming não podem ser recuperadas

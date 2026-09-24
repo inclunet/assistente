@@ -32,10 +32,11 @@ func singleLine(s string) string {
 // agentToolTrack guarda o que o app precisa lembrar de uma ferramenta do agente
 // entre o aviso de início e o de fim.
 type agentToolTrack struct {
-	name      string
-	title     string
-	started   time.Time
-	iteration int
+	name       string
+	title      string
+	started    time.Time
+	iteration  int
+	textOffset int
 }
 
 // agentActivity acumula o estado da atividade do agente dentro de um turno.
@@ -61,6 +62,9 @@ type agentActivity struct {
 // chat que a UI já sabe renderizar e anunciar.
 func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 	h.FlushStream()
+	h.mu.Lock()
+	textOffset := h.promotedContent.Len() + h.accumulatedContent.Len()
+	h.mu.Unlock()
 	name := singleLine(event.Kind)
 	if name == "" {
 		name = llm.AgentToolKindOther
@@ -101,7 +105,7 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 		return
 	}
 	if !known {
-		track = agentToolTrack{name: name, started: time.Now(), iteration: h.activity.iteration}
+		track = agentToolTrack{name: name, started: time.Now(), iteration: h.activity.iteration, textOffset: textOffset}
 	}
 	if title != "" {
 		track.title = title
@@ -276,6 +280,7 @@ func (h *SimpleStreamHandler) archiveAgentTool(callID string, track agentToolTra
 	h.activity.archived[callID] = true
 	h.activity.archiveQueue = append(h.activity.archiveQueue, toolinvocations.RecordRequest{
 		ACPActivity: true, ACPTitle: track.title, ObservedAt: track.started,
+		ACPTextOffset: &track.textOffset, ACPAssistantMessageID: h.AssistantMessageID,
 		Call:      tools.ToolCall{ID: callID, Type: "function", Function: tools.FunctionCall{Name: track.name}},
 		Origin:    toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: h.TurnID, ConversationID: h.ConversationID, TurnID: h.TurnID},
 		Iteration: track.iteration, DurationMs: duration, ErrorKind: tools.ErrorKind(errorKind), ErrorMessage: failure,

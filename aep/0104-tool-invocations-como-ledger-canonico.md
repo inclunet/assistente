@@ -106,6 +106,18 @@ Evidências: regressões de `internal/chat/timeline_test.go`, leitura real em
 `internal/agent/service_stats_test.go`. O contrato permanece **Done**; não há
 alteração de schema nem nova representação persistida.
 
+Para ACP, a resposta integral permanece em uma única mensagem. O snapshot de
+apresentação do ledger preserva `assistant_message_id` e `acp_text_offset`
+(posição em bytes UTF-8 do texto acumulado quando a atividade começou). A
+projeção usa essas posições para intercalar texto e ferramentas no terminal
+e na reabertura, sem copiar texto para o ledger nem reordenar pela hora de
+conclusão. Zero é uma posição válida; ausência não significa zero. Posições
+inválidas, fora da mensagem ou cortando UTF-8 seguem a consolidação genérica,
+sem fabricar cronologia para dados antigos. O marcador ACP aponta para a
+mensagem integral, não a classifica como fala intermediária de tool local.
+Evidências: `TestACPCronologiaNoTerminalEReabertura`,
+`TestACPTextPositionsValidaLimitesEUTF8` e `TestHistoricoPropagaPosicaoACP`.
+
 ### D3 — Detalhes batch/lazy
 
 Atividades ACP também usam este ledger, como observações externas (`acp_agent`),

@@ -847,6 +847,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 		inv.Metadata, _ = json.Marshal(map[string]any{"external": true, "display": map[string]any{
 			"version": 1, "name": req.Call.Function.Name, "origin": "acp_agent",
 			"iteration": req.Iteration, "duration_ms": req.DurationMs,
+			"acp_text_offset": req.ACPTextOffset, "assistant_message_id": req.ACPAssistantMessageID,
 		}})
 	}
 

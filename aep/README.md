@@ -120,7 +120,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
 | [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
 | [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 📝 Draft |
-| [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; cronologia por rodada, conclusão terminal e atividades externas ACP | ✅ Done |
+| [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; cronologia por rodada e posições de texto ACP, conclusão terminal e atividades externas | ✅ Done |
 | [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress |
 | [0106](0106-contencao-do-pipeline-de-jobs.md) | Contenção do pipeline de jobs (limite de concorrência + cache por slug) | 🚧 In Progress |
 | [0107](0107-tool-execution-ux.md) | Experiência de execução de tools: estado, contexto e resultados acionáveis | ✅ Done |

@@ -543,6 +543,7 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 			SearchResultCount:  summary.SearchResultCount,
 			SecurityOutcome:    summary.SecurityOutcome,
 			AssistantMessageID: summary.AssistantMessageID,
+			ACPTextOffset:      summary.ACPTextOffset,
 		}
 		callsByTurn[turnID] = append(callsByTurn[turnID], call)
 	}

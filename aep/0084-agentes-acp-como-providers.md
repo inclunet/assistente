@@ -744,6 +744,12 @@ esperar por ele.
 O segmento final é leitura protegida (AEP-0058): os avisos de progresso do turno
 não podem atropelá-lo.
 
+A cronologia também sobrevive ao streaming: cada ferramenta registra no ledger
+a posição UTF-8 no texto integral e a mensagem correspondente (AEP-0104 D2).
+Assim, o patch terminal e a reabertura preservam texto → ferramenta → texto,
+inclusive em falha/cancelamento e quando não existe texto após a última tool.
+Evidência: `TestACPCronologiaNoTerminalEReabertura`. Status **Done** mantido.
+
 ### D14. Tarefas auxiliares não vão para o agente
 
 Sumarização, geração de título e afins chamam `SimpleChat` no provider do

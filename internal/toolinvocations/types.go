@@ -107,10 +107,12 @@ type ExecuteResult struct {
 // (ex.: MCP nativo), persistindo input/output/status no mesmo formato.
 type RecordRequest struct {
 	// ACPActivity distingue observação externa de MCP nativo, sem executar tools.
-	ACPActivity bool
-	ACPTitle    string // resumo saneado, não resultado técnico
-	ObservedAt  time.Time
-	Call        tools.ToolCall
+	ACPActivity           bool
+	ACPTitle              string // resumo saneado, não resultado técnico
+	ACPTextOffset         *int   // posição em bytes UTF-8 no texto da mensagem ACP
+	ACPAssistantMessageID string
+	ObservedAt            time.Time
+	Call                  tools.ToolCall
 	// PersistedArguments tem a mesma semântica de ExecuteRequest: substitui
 	// somente o snapshot persistido, nunca o payload já executado.
 	PersistedArguments *string

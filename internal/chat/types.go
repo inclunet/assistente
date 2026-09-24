@@ -48,6 +48,7 @@ type TurnSegmentToolCall struct {
 	// AssistantMessageID é metadado interno de hidratação para associar a
 	// invocação à mensagem assistant que representou a iteração.
 	AssistantMessageID string `json:"-"`
+	ACPTextOffset      *int   `json:"-"`
 }
 
 // TurnSegment é uma fatia ordenada cronologicamente de um turno do assistente:

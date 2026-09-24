@@ -31,6 +31,7 @@ type Summary struct {
 	SearchResultCount  int    `json:"searchResultCount,omitempty"`
 	SecurityOutcome    string `json:"securityOutcome,omitempty"`
 	AssistantMessageID string `json:"-"`
+	ACPTextOffset      *int   `json:"-"`
 }
 
 type Detail struct {
@@ -115,6 +116,7 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 		SearchResultCount    int    `gorm:"column:search_result_count"`
 		SecurityOutcome      string `gorm:"column:security_outcome"`
 		AssistantMessageID   string
+		ACPTextOffset        *int
 		InputPreview         string
 		OutputPreview        string
 		InputBytes           int64
@@ -156,6 +158,7 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 					// representa a decisão efetiva: qualquer bloqueio deve prevalecer.
 					"CASE WHEN json_valid(tool_invocations.metadata) AND json_type(tool_invocations.metadata, '$.security_signals') = 'array' THEN COALESCE((SELECT CASE WHEN EXISTS (SELECT 1 FROM json_each(tool_invocations.metadata, '$.security_signals') WHERE json_valid(value) AND json_type(value) = 'object' AND json_type(value, '$.version') = 'integer' AND json_extract(value, '$.version') = 1 AND json_extract(value, '$.outcome') = 'blocked') THEN 'blocked' WHEN EXISTS (SELECT 1 FROM json_each(tool_invocations.metadata, '$.security_signals') WHERE json_valid(value) AND json_type(value) = 'object' AND json_type(value, '$.version') = 'integer' AND json_extract(value, '$.version') = 1 AND json_extract(value, '$.outcome') = 'approved') THEN 'approved' ELSE '' END), '') ELSE '' END AS security_outcome, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.assistant_message_id') AS TEXT), '') ELSE '' END AS assistant_message_id, "+
+					"CASE WHEN json_valid(tool_invocations.metadata) THEN CASE WHEN json_type(tool_invocations.metadata, '$.display.acp_text_offset') = 'integer' THEN json_extract(tool_invocations.metadata, '$.display.acp_text_offset') END END AS acp_text_offset, "+
 					"tool_invocations.input_preview, tool_invocations.output_preview, "+
 					"tool_invocations.input_bytes, tool_invocations.output_bytes, tool_invocations.result_availability, "+
 					"tool_invocations.duration_ms, tool_invocations.queued_at, "+
@@ -205,6 +208,7 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 				SearchResultCount:  item.SearchResultCount,
 				SecurityOutcome:    item.SecurityOutcome,
 				AssistantMessageID: item.AssistantMessageID,
+				ACPTextOffset:      item.ACPTextOffset,
 			}
 			indexByCall := indexByTurnCall[item.ResolvedTurnID]
 			if indexByCall == nil {
