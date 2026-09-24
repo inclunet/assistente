@@ -1,27 +1,22 @@
 # AEP-0103 — Tasklist de conclusão integral
 
-Baseline inicial de 16/09/2026; reconciliação de 24/09/2026 atualizada pela seção155. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoints posteriores `03ef8f0a4`, `6f516326a`, `f59f7d6c9`, `2a9049481` e `79b385168`. Status do AEP: **In Progress**.
+Baseline inicial de 16/09/2026; reconciliação de 24/09/2026 atualizada pela seção156. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoints posteriores `03ef8f0a4`, `6f516326a`, `f59f7d6c9`, `2a9049481`, `79b385168`, `1aa9e7c6c`, `79f06ab6b`, `6d0411dbb` e `bf7860c65`. Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.
 
-## 1. Progresso reconciliado — 24/09/2026, após a seção155
+## 1. Progresso reconciliado — 24/09/2026, após a seção156
 
-A seção129 registra a reconciliação documental; as seções130–133 implementam
-a correção de Δ18/C22, o cache produtivo de C62 e a recusa global fora da
-plataforma qualificada (C04/C06), além da reserva nativa temporária do diálogo
-(C78/C79). A seção134 integra as tools de chat, os gates de mutação do agente
-e a portabilidade não sensível. A seção135 acrescenta o ingresso CLI e suas
-recusas headless, consulta autorizada e replay no executor comum. O snapshot inclui
-alterações locais ainda não commitadas. A seção136 corrige a disputa de receipts
-no SQLite e amplia a qualificação integrada, sem promover critérios ou gates.
-A seção137 qualifica convergência de camadas e callbacks de diálogo/job,
-reconcilia o inventário e preserva diagnóstico integral do App. A falha anterior
-não foi reproduzida nem declarada corrigida. Aceites manuais não foram ampliados.
+Esta reconciliação considera os commits `1aa9e7c6c` (contexto exato de
+recibos externos), `79f06ab6b` (provas seletivas por execução no ciclo reativo),
+`6d0411dbb` (retenção de fontes pending/processing e consumo/replay) e
+`bf7860c65` (foco da grade), além da integração externa App/HTTP/frontend em
+`0548492ab`. C65/C70 e R05.1/R03.4 passam a implementação identificada;
+isso não é aceite final nem certificação dos gates de qualificação.
 
 ### Implementação dos 84 critérios finais
 
-- **80/84 I — implementação identificada: 95,2%.**
-- **4/84 P — parciais: 4,8%.**
+- **82/84 I — implementação identificada: 97,6%.**
+- **2/84 P — parciais: 2,4%.**
 - **0/84 N — funcionalidade pública inteiramente ausente.** Isso não elimina
   lacunas dentro dos critérios parciais, como a qualificação transversal.
 - Comparação: seção76 **58/24/2**, seção129 **64/18/2**, seção130
@@ -51,30 +46,36 @@ não foi reproduzida nem declarada corrigida. Aceites manuais não foram ampliad
 - Na seção147, C43 P→I: configuração confirmada de camada por programa,
   captura por ocorrência, execução real de ativação e publicação do mapa
   demonstradas no App. Fronteira do SO controlada; aceite físico permanece aberto.
+- Na seção156, C65/C70 P→I: composição App/HTTP de identidade JWT mapeada,
+  executor e revogação por token, vínculo explícito da interface externa e
+  comando backend `workspace.list`. Testes externos App e frontend passaram;
+  a revisão independente foi concluída. A falha isolada de golden na rodada
+  App ampla foi corrigida e o grupo afetado revalidado; detalhes na seção156.
 - Na seção155, recertificação somente leitura dos itens I01/I02/I05/I10/I11/I12/I14
   não encontrou gap concreto novo, sem converter a recertificação em aceite global.
 - **Não é porcentagem de esforço, de prazo nem de aceite final.** Critérios
   têm tamanhos distintos; um parcial não recebe meio ponto. Os checkboxes C
   continuam reservados ao aceite final R12. Nenhum foi marcado nesta rodada.
 - A contagem reconhece código entregue e corrige classificações antigas;
-  não mede o número de alterações nem o tamanho dos quatro itens parciais restantes.
+  não mede o número de alterações nem o tamanho dos dois itens parciais restantes.
 
 C83 passa a I na seção148: a arbitragem de diálogo/job chega ao executor no
 mesmo teste, complementando a matriz automatizada transversal reexecutada.
 Qualificação física, desempenho agregado e aceite final continuam em R12.
 
-Parciais atuais: **C38, C51, C65 e C70**. Cada linha da seção5 informa o motivo,
+Parciais atuais: **C38 e C51**. Cada linha da seção5 informa o motivo,
 os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
 
 ### Saídas maiores e gates — denominadores separados
 
 - **11/48 A — aceitas anteriormente:** R01.1–R01.4, R03.1–R03.3 e
   R04.1–R04.4. Aceites preservados, não ampliados.
-- **18/48 I — implementação identificada, sem aceite integral:** R02.1–R02.4,
-  R05.2, R05.3, R07.3, R08.1–R08.4, R09.1–R09.3, R10.3, R11.1–R11.3.
-- **18/48 P — parciais; 1/48 N — ausente:** R12.4 (fechamento de review/CI).
-- **A+I = 29/48 (60,4%)**. As seções135 e155 ampliam a identificação de
-  implementação sem ampliar aceite ou origens admitidas. Só A tem checkbox x.
+- **20/48 I — implementação identificada, sem aceite integral:** R02.1–R02.4,
+  R03.4, R05.1, R05.2, R05.3, R07.3, R08.1–R08.4, R09.1–R09.3, R10.3,
+  R11.1–R11.3.
+- **16/48 P — parciais; 1/48 N — ausente:** R12.4 (fechamento de review/CI).
+- **A+I = 31/48 (64,6%)**. As seções135, 155 e 156 ampliam a identificação de
+  implementação sem ampliar aceite final. Só A tem checkbox x.
 - **1/12 gates aceito: R04.** R01 permanece em validação; os demais gates
   estão abertos. R02 ter implementação nas quatro saídas não equivale a
   aceite agregado. R07.3 passa a I: a recusa explícita fora do Windows
@@ -98,9 +99,9 @@ os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
 - Import/export comum já está implementado. Extensões sensíveis de
   portabilidade e gesto longo conservam a prioridade adiada pelo usuário,
   não são silenciosamente excluídos nem retomados.
-- Trabalho restante de implementação: composição externa no App (C65/C70,
-  R05.1) e correção do ciclo reativo (R03.4); extensão R05.4 permanece adiada.
-  R06 exige qualificação agregada; R09.4/R10.4 exigem validação manual/física.
+- R03.4 e R05.1 têm implementação identificada na seção156, sem aceite
+  agregado. R06 exige qualificação geral; R12/CI/reviews permanecem abertos.
+  R09.4/R10.4 exigem validação manual/física; R05.4 sensível permanece adiada.
   R05.2/R09.3/R10.3 e recursos de execução da paleta passam a I na
   seção155, sem aceite final. A edição textual acessível do Deck já está implementada
   nas seções142–146; C38 aguarda aceite manual, não outra implementação.
@@ -201,7 +202,7 @@ Arquivos de referência: `internal/commandconfig`; `internal/commandactivation`;
 
 ### R03 — Jobs, outbox e ativações em operação
 
-Estado reconciliado na seção129: **3/4 saídas aceitas e 1 parcial; gate aberto**. Obrigações e limites abaixo permanecem vigentes.
+Estado reconciliado na seção156: **3/4 saídas aceitas e 1 com implementação identificada, sem aceite; gate aberto**. Obrigações e limites abaixo permanecem vigentes.
 
 Tamanho: G. Dependências: R01/R02; mantém contratos de AEP-0048/0067/0101.
 
@@ -220,7 +221,7 @@ Arquivos de referência: `internal/jobs/command_activation_runtime.go`; `interna
   **Estado reconciliado: Aceito.** Heartbeat, lease e isolamento entre ciclos com fonte real. Falta: Nenhuma na saída. Evidência: seções 28–30; `internal/app/app_command_job_publication_test.go`, `internal/commandjobactivation`.
 - [ ] R03.4 — Demonstrar commit → queda → replay, sequência/fingerprint, count-cap de runs, múltiplas regras/workspaces e anti-loop (limite 16); classificar falhas, limitar retries e alcançar dead_letter sem ciclo eterno (F03). Atualizar evidências da AEP-0048/0067.
 
-  **Estado reconciliado: Parcial.** Retry/dead-letter corrigidos; proveniência/cadeias/múltiplas fontes exercitadas. Falta: Fechar matriz completa comando→job→evento→comando com crash/replay/count-cap e limite anti-loop, não reimplementar F03 já corrigido. Evidência: seções 10, 31–39; `internal/commandjobactivation/consumer.go`, `internal/app/app_command_job_multisource_test.go`.
+  **Estado reconciliado: Implementação identificada; aceite/qualificação pendente (P→I, seção156).** `TestProductJobRunEventCommandReplayEndToEnd` integra no App fixture o ingresso global de job por hotkey, execução do job, fato/outbox do runtime, Consumer montado, claim/layer/binding selecionados, comando downstream `workspace.list` e replay sem novo efeito. Não é aceite Wails/UI nem prova de lançamento por candidate da paleta para `job.run`. Cobertura complementar: reabertura SQLite/lease abandonada e consumo único (`TestRecoveryPendingLeaseReopensSQLiteRequeuesAndConsumesOnce`); sequência/fingerprint, global+dois workspaces e regras (`TestRecoveryMatrixSequenceAndFingerprintIsolation`, `TestRecoveryMatrixAdversarialOutboxResetReplayAcrossScopes`); retenção count-cap de fontes pending/processing com consumer (`TestCountRetentionKeepsPendingSourceUntilConsumerAppliesItOnce`); limite anti-loop 16/17 e descendente recusado antes da tool (`TestCommandChainSeparateFromJobsAndLimit`, `TestCommandJobReactiveAppRejectsSameJobDescendantBeforeTool`); retries limitados e `dead_letter` terminal (`TestRunPassRetriesTransientAndDeadLettersAtMaxAttempts`, `TestRetryBoundaryDeadLettersExactlyAtMaxAttemptsAndNeverRequeues`). Reabertura/lease e rollback demonstram recovery após interrupção recuperável, não kill abrupto de processo; C51 permanece P. AEP-0048/0067 atualizadas no commit `6d0411dbb`. Gate R03 não é aceito nesta reconciliação.
 
 **Gate R03:** Job real do runtime ativa e desativa uma camada através da outbox e mantém lease durante execução longa. Restart/reentrega não duplicam claim/efeito; retenção não apaga a fonte prematuramente.
 
@@ -253,7 +254,7 @@ Arquivos de referência: `internal/commandmaintenance`; `internal/jobs/command_m
 
 ### R05 — Identidades, delegação e portabilidade
 
-Estado reconciliado na seção155: **2 saídas com implementação identificada sem aceite (R05.2/R05.3), 2 parciais; gate aberto**. Obrigações e limites abaixo permanecem vigentes.
+Estado reconciliado na seção156: **3 saídas com implementação identificada sem aceite (R05.1–R05.3), 1 parcial (R05.4 adiada); gate aberto**. Obrigações e limites abaixo permanecem vigentes.
 
 Tamanho: G. Dependências: R01/R02; pode avançar em paralelo a R03/R04.
 
@@ -263,7 +264,7 @@ Arquivos de referência: `internal/commandidentity`; `internal/commandtoolbridge
 
 - [ ] R05.1 — Fechar local/agent/job_service/system e fronteira externa com fontes autoritativas; revogar identidade/grant entre fila e Start bloqueia o handler; modo externo respeita readiness administrativa e não habilita dispositivos físicos.
 
-  **Estado reconciliado: Parcial.** Identidades e revogação local/agent/job/system existem. As seções149–154 entregam cadastro administrativo, cutover do middleware, identidade por token e revogação no gate do executor externo, com transporte HTTP testado. Falta a composição produtiva desses serviços em `App.newHTTPAPIHandler`, sem herdar a sessão desktop. Evidência: `internal/commandexecution/external.go`, `internal/httpapi/external_commands.go`, `internal/auth/external_identity_enrollment.go`, `internal/app/app_httpapi.go`; seções149–154.
+  **Estado reconciliado: Implementação identificada; aceite/qualificação pendente (P→I, seção156).** A composição produtiva conecta mapeamento administrativo `(iss, sub)`, claims JWT (roles/scopes), executor integral por token, HTTP execute/lookup/revoke e conexão UI externa explícita. Testes cobrem isolamento, revogação/shutdown e readiness; o ingresso externo produtivo é somente UI, sem sessão desktop emprestada nem adapters físicos. `workspace.list` é backend por usuário, sem vínculo UI obrigatório, mas exige runtime do mesmo usuário ativo. Testes App externos PASS 3,965 s, repetição consolidada dos grupos afetados PASS 21,938 s e frontend PASS 474/474 arquivos (5.895/5.895 testes); ressalva da rodada App ampla na seção156. Evidência: commit `0548492ab`; `internal/app/app_command_external_execution.go`, `internal/app/app_httpapi.go`, `internal/app/app_command_workspace_list.go`, `internal/httpapi/external_commands.go`, `internal/httpapi/external_ui_connections.go`, `internal/app/app_command_workspace_list_external_test.go`, `internal/httpapi/external_commands_test.go`; seções149–156.
 - [ ] R05.2 — Conectar delegação a tools/jobs ao executor comum, preservando owner/profile, decisões/grants exatos, correlação command_invocation e redação de input/output; shell permanece em commandpolicy.
 
   **Estado reconciliado: Implementação identificada; aceite/qualificação pendente (P→I, seção155).** `newCommandToolHandler` agora tem consumidor produtivo: comandos fixos `tool.execute.t_<UUIDv7>` publicados pela paleta encaminham argumentos validados ao executor/bridge comum, revalidam owner/sessão, schema/geração e alvo, exigem decisão interativa exata e correlacionam `command_invocations`/`ToolInvocation`. Tools permanecem somente ad hoc na paleta; o resultado bruto é descartado e argumentos não viram binding persistente (D11). Jobs globais mantêm `newCommandJobHandler`; isso não publica `job.run` nem fecha o ciclo reativo R03.4. Evidência: commit `2a9049481`; `internal/app/app_command_tool_product.go`, `internal/app/app_command_tool_handler.go`, `internal/app/app_command_tool_palette_integration_test.go`, `internal/commandtoolbridge/bridge.go`; testes de confirmação/cancelamento/drift/redação e catálogo MCP.
@@ -984,9 +985,9 @@ Evidência: `internal/commandcatalog/registry_test.go`, `internal/app/app_comman
 
 - [ ] C65 — Contextos local, JWT externo, job e system têm fontes de identidade e revogação explícitas; `EpochService` invalida trabalho obsoleto.
 
-**Implementação: P — parcial.** Identidades local, job e system e EpochService possuem fontes/recusas explícitas. O executor externo e seu transporte HTTP já qualificam isolamento por token, revogação em fila e shutdown nas seções153–154. Falta a montagem produtiva no App com contexto/handlers autorizados para o usuário externo; a matriz da biblioteca não substitui essa prova de composição.
+**Implementação: I — identificada; aceite final pendente.** Identidades local, job e system mantêm fontes próprias. A seção156 completa a composição externa App/HTTP com `(iss, sub)` administrativo, contexto por token, epochs/revogação, execução/lookup/revoke e interface somente quando explicitamente vinculada; `workspace.list` backend mantém escopo por usuário. Não empresta sessão local e não habilita comandos físicos. Suítes externas App/frontend passaram; revisões de hardening, frontend e fingerprint sem achados. Commit `0548492ab`; repetição dos grupos App afetados PASS 21,938 s após corrigir o golden intermediário da rodada ampla. Sem aceite R05.
 
-Evidência: `internal/commandidentity/service_test.go`, `internal/commandidentity/core_epochs_test.go`, `internal/app/app_command_maintenance.go`, `internal/auth/command_external.go`; seção129. Gates: R05.
+Evidência: `internal/commandidentity/service_test.go`, `internal/commandidentity/core_epochs_test.go`, `internal/commandexecution/external_test.go`, `internal/app/app_command_external_execution_test.go`, `internal/app/app_httpapi_external_ui_test.go`, `internal/httpapi/external_commands_test.go`, `internal/commandui/external_connections_test.go`; commit `1aa9e7c6c` e código/testes externos da seção156. Gates: R05.
 
 ### C66
 
@@ -1024,9 +1025,9 @@ Evidência: `internal/commandactivation`, `internal/commandconfig`, `internal/co
 
 - [ ] C70 — Após o PR atualizar a AEP-0052, identidade externa só acessa usuário local por mapeamento administrativo exato de emissor e subject; antes disso, o command manager fica indisponível nesse modo.
 
-**Implementação: P — parcial.** As seções149–154 ligam cadastro administrativo auditado, middleware por mapeamento exato, autorização por claims externas, autenticador no executor e transporte HTTP com revogação isolada. O cutover de autenticação já foi implementado; falta o App fornecer os serviços de comandos externos com contexto e handlers apropriados. Sem essa composição, as rotas respondem 503: essa recusa não equivale a entregar o modo externo.
+**Implementação: I — identificada; aceite final pendente.** O cutover `(iss, sub)` e a montagem App/HTTP usam JWT revalidado, roles/scopes e usuário local mapeado sem fallback para subject ou sessão desktop como identidade. O runtime montado ainda exige o mesmo usuário local ativo. Testes externos App e frontend passam; `go test ./internal/command... -count=1` passou nos 32 pacotes, assim como `commandexecution` após hardening e `tsc --noEmit`. A suíte App ampla teve uma única falha de golden compilada de uma revisão intermediária; a fonte foi corrigida e o rerun focalizado passou em 21,938 s. Commit `0548492ab`. A conexão UI é explícita e temporária. Não se declara aceite/readiness além dos fluxos testados.
 
-Evidência: `internal/auth/command_external.go`, `internal/auth/command_external_identity.go`, `internal/auth/external_identity_enrollment.go`, `internal/httpapi/external_identities_test.go`, `internal/app/app_httpapi_external_identity_test.go`; seções129 e149. Gates: R05.
+Evidência: `internal/auth/command_external.go`, `internal/auth/command_external_identity.go`, `internal/auth/external_identity_enrollment.go`, `internal/app/app_httpapi_external_ui_test.go`, `internal/app/app_command_workspace_list_external_test.go`, `internal/httpapi/external_commands_test.go`, `frontend/src/services/externalUIConnection.test.ts`; seções149–156. Gates: R05.
 
 ### C71
 
@@ -9773,3 +9774,101 @@ migração de workspace continua iniciativa separada.
 com R05.2/R08.2/R09.3/R10.3 promovidos somente a implementação identificada;
 1/12 gate aceito. Nenhum checkbox de aceite final foi promovido. Não restam
 somente testes manuais, e BASE-PRONTA/AEP-CONCLUÍDO não foram declarados.
+
+## 156. Vínculo externo de interface e preservação seletiva de execução (24/09/2026)
+
+O mantenedor aprovou as duas decisões após a explicação dos impactos:
+
+- A API externa também controlará uma interface do Assistente explicitamente
+  vinculada ao usuário autorizado, com destino inequívoco e sem herança de
+  sessão desktop ou elevação de roles/scopes. Sem conexão, só operações backend
+  compatíveis. Desconexão, contexto obsoleto e troca de usuário invalidam o
+  trabalho dirigido à UI; decisões interativas usam o contrato comum.
+- Uma mudança reativa de camada poderá preservar execuções já admitidas
+  somente mediante prova por execução de equivalência de comando, alvo,
+  binding, autorização e contexto. Adição de camada não é suficiente por si.
+  Conflitos, dependência alterada ou impossibilidade de comprovação cancelam;
+  revogações e barreiras de sessão/segurança permanecem vigentes.
+
+Contratos atualizados no AEP principal (identidades e estado do host) e na
+AEP-0052/D4. As decisões deixam de estar bloqueadas por aprovação do usuário.
+O estado de implementação e as evidências consolidadas abaixo atualizam esta
+seção; não constituem aceite de gate nem conclusão do AEP.
+
+### Evidência intermediária — recibos externos
+
+Commit `1aa9e7c6c`: receipts distinguem `local_session` de `external_token`,
+preservam o ID canônico da credencial e recusam decisões externas de mutação de
+configuração. Consumo e ledger conferem owner/tipo/contexto exatos; recovery
+por drenagem inclui invocações externas sem convertê-las em sessões locais.
+A migração 32 reconhece o DDL anterior conhecido, preserva linhas/índice e
+reverte integralmente quando o carimbo falha. Revisão independente do
+implementador realizada pelo agente principal, com correções de constraints,
+formato canônico e fixture de escape antes do commit.
+
+Validação repetida pelo principal: `go test ./internal/commanddecision
+./internal/commandbootstrap ./internal/commandledger ./internal/database
+-count=1` passou. Isso **não habilita sozinho** a API produtiva nem fecha C65/C70:
+composição App/HTTP, vínculo, transporte da interface e revisão integrada ainda
+estão em andamento. As contagens acima não foram promovidas por esta entrega.
+
+### Evidência intermediária — publicação reativa de jobs
+
+Commit `79f06ab6b`: a publicação de claims possui prova imutável por execução, comparando resolução,
+binding, proveniência e baseline persistido. Somente ingressos sem dependência
+contextual mutável recebem a prova; execuções sem prova continuam canceladas.
+Revalidação de sessão e configuração ocorre sob o gate de publicação. Renovar
+apenas o deadline de uma lease não avança a geração efetiva nem cancela watches.
+
+O principal repetiu os testes de `commandbindings`, `commandconfig`,
+`commandsecurity` e `commandexecution` com sucesso. A suíte App
+`^(TestCommandJob|TestProductJobRunEvent|TestAppCommand.*Projection|TestCommandLifecycleJob)`
+passou em 44,069 s, incluindo o cenário causal completo de job, evento e replay.
+As regressões de heartbeat e suppress foram reproduzidas e corrigidas; a
+Godel revisou independentemente a revalidação, a cobertura da regressão e o
+caminho rápido; os achados foram corrigidos antes do commit. A
+verificação adicional de geração persistida fica no ingresso público da paleta,
+não no caminho comum dos atalhos contextuais.
+
+### Reconciliação de implementação — 24/09/2026
+
+- **R03.4 e C65/C70: P→I; R05.1: P→I.** Evidências, escopo e limitações
+  estão nas linhas atuais de R03/R05/C65/C70 e no resumo desta tasklist. O E2E
+  de R03.4 é App fixture: job iniciado pelo ingresso global de hotkey → run e
+  outbox do runtime → Consumer App → claim/layer/binding comprovados →
+  `workspace.list` downstream e replay sem duplicar efeito. Não é aceite de
+  Wails/UI nem prova de acionamento por candidate de paleta `job.run`.
+- **R03.4 — subrequisitos cobertos por provas existentes:** restart/recovery
+  via SQLite reaberto e lease abandonada, sequência/fingerprint, regras em
+  global e dois workspaces, count-cap mantendo fontes pending/processing,
+  anti-loop no limite 16/17, falhas/retries limitados e dead-letter terminal.
+  AEP-0048/0067 atualizadas no commit `6d0411dbb`. Não se usa subprocesso nem
+  se declara kill abrupto: essa prova continua parcial em C51.
+- **C38 e C51 continuam P; R05.4 continua adiada.** R06/qualificação geral,
+  R12/CI e aceite final continuam abertos; não foram executados manuais,
+  ACP/acpregistry, Wails dev/build nem o aplicativo; não houve acesso a
+  hardware ou banco pessoal. `wails generate module` aprovado passou para
+  regenerar os bindings. Não restam apenas validações manuais.
+- **Validações já concluídas:** `go test ./internal/command... -count=1`
+  PASS (32 pacotes, conforme resultado do principal); `go test
+  ./internal/commandexecution` PASS (27,095 s); frontend `npm test` PASS
+  (474/474 arquivos, 5.895/5.895 testes), `tsc --noEmit` e ESLint dos 15
+  arquivos afetados PASS; `go vet` App/core/HTTP/jobs PASS; testes externos
+  App PASS (3,965 s); Godel (hardening/fingerprint) e Franklin (docs) sem
+  achados.
+- A suíte App ampla terminou com os demais casos passando e uma falha isolada
+  no golden do índice keyboard-defaults: o build de teste compilou uma revisão
+  intermediária do hash; o arquivo-fonte foi corrigido e o rerun de
+  keyboarddefaults/fingerprint/old-delta/external/HTTP/workspace passou em
+  **21,938 s**. Não se declara a rodada ampla original como full PASS.
+  Nenhum checkbox A/C ou gate foi promovido.
+- **Entrega externa:** commit `0548492ab`, incluindo App/HTTP, vínculo
+  efêmero, frontend, bindings gerados e guia de uso. O único ingresso externo
+  produtivo é UI; sem vínculo a allowlist admite apenas `workspace.list`,
+  com runtime do mesmo usuário ativo. Interface vinculada aceita somente as
+  rotas e navegação de abas explicitadas no guia; nenhum efeito contextual
+  adicional é implicitamente autorizado. Stylelint e verificador de status
+  dos AEPs também passaram.
+
+**Contagens vigentes:** 82 I / 2 P / 0 N = 84; 11 A / 20 I / 16 P / 1 N =
+48; 1/12 gates aceito (R04). BASE-PRONTA e AEP-CONCLUÍDO permanecem abertos.

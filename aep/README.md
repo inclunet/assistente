@@ -16,6 +16,18 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+Atualização vigente AEP-0103, seção156: conexão externa explícita entre JWT e
+interface (commit `0548492ab`) e preservação seletiva de execuções diante de
+claims de jobs (`79f06ab6b`), com retenção de fontes pendentes (`6d0411dbb`).
+**In Progress; 82 I / 2 P / 0 N (97,6%); 11 A / 20 I / 16 P / 1 N;
+1/12 gate aceito**. Frontend: **474 arquivos/5.895 testes PASS**. Pacotes
+command, HTTP, jobs e testes App focados passaram; a única falha da rodada
+App ampla foi um golden intermediário, corrigido e revalidado. C38/C51,
+qualificação agregada e CI/aceites continuam abertos. Evidências e limites na
+[seção156 da tasklist](0103-tasklist-conclusao.md#156-vínculo-externo-de-interface-e-preservação-seletiva-de-execução-24092026).
+
+As atualizações abaixo preservam o histórico das rodadas anteriores.
+
 Atualização AEP-0103, seção155: ferramentas ad hoc na paleta com argumentos,
 confirmação e redação; favoritos/recentes, atalhos efetivos, configuração
 progressiva e diagnóstico do Deck. Frontend: **469 arquivos/5.862 testes PASS**.

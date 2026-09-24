@@ -2,27 +2,43 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção155 (24/09/2026):** dos 84 critérios finais,
-**80 têm implementação identificada (95,2%), 4 são parciais e 0 ausentes**.
-Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
-A seção155 entrega ferramentas ad hoc pela paleta, argumentos com validação
-e confirmação, favoritos/recentes/atalhos efetivos, configuração avançada
-progressiva e diagnóstico seguro do Deck. Frontend completo: 469 arquivos e
-5.862 testes PASS. Backend de ferramentas em `2a9049481`; UI em `79b385168`.
-Saídas maiores: **11 A / 18 I / 18 P / 1 N = 48; 1/12 gate aceito**.
-R03.4 conserva um teste integrado falhando por conflito entre publicação de
-claim e cancelamento do job causal; mudança de contrato aguarda decisão.
-C65/C70 aguardam composição externa e decisão de vínculo com a interface.
-Não se declara conclusão nem que restem apenas validações manuais.
-A seção154 acrescenta o transporte HTTP de execução/consulta/revogação, com
-composição validada de origens e autoridade compartilhada. O App ainda não
-injeta executores externos; as rotas permanecem indisponíveis no produto.
-A migração de workspaces para banco foi adiada para iniciativa independente:
-não é requisito geral dos comandos nem justificativa para ampliar este AEP.
-A seção153 liga a autenticação externa ao executor integral por `NewExternal`:
-token por solicitação, validação cached no gate, política de roles/scopes e
-revogação compartilhadas, sem sessão desktop sintética. É ingresso da biblioteca;
-a montagem produtiva HTTP/App por usuário continua pendente, sem habilitação remota.
+**Acompanhamento vigente — seção156 (24/09/2026):** dos 84 critérios finais,
+**82 têm implementação identificada (97,6%), 2 são parciais e 0 ausentes**.
+Saídas maiores: **11 A / 20 I / 16 P / 1 N = 48; 1/12 gate aceito**. C65/C70,
+R05.1 e R03.4 passam a I por código e provas existentes, sem aceite final.
+R03.4 combina no App fixture o job, fato/outbox, Consumer, claim/projeção e
+comando downstream/replay; suas provas complementares cobrem recovery via
+SQLite reaberto, sequence/fingerprint, escopos, retenção, anti-loop e retry até
+dead-letter. Não é kill abrupto de processo (C51 permanece P), nem aceite
+Wails/UI ou prova de acionamento pela paleta de `job.run`.
+
+A seção156 completa a composição externa App/HTTP/frontend: mapeamento
+administrativo `(iss, sub)`, autoridade por JWT, executor e revogação por token,
+execução/consulta HTTP, conexão de UI explicitamente vinculada e leitura
+backend `workspace.list` por usuário (commit `0548492ab`). O ingresso externo
+produtivo aceita somente UI, em `/commands/ui/execute`;
+não se empresta sessão desktop nem se habilitam adapters físicos. Testes
+externos App PASS (3,965 s); `go test ./internal/command... -count=1` PASS
+(32 pacotes), `commandexecution` PASS (27,095 s), frontend PASS (474 arquivos /
+5.895 testes), `tsc --noEmit`, ESLint dos 15 arquivos afetados e `go vet`
+App/core/HTTP/jobs PASS. Godel (hardening/fingerprint) e Franklin (docs) sem
+achados. A regressão App ampla terminou em 359,955 s com uma única falha de
+golden compilado de revisão intermediária; o valor foi corrigido e a repetição
+dos grupos keyboard-defaults/fingerprint/deltas/external/HTTP/workspace passou
+em 21,938 s. Não se declara a execução ampla original como PASS.
+R06/qualificação geral, CI/review final e aceites continuam abertos.
+C38 e C51 permanecem parciais; R05.4 sensível permanece adiada. Não houve
+validação manual/NVDA, ACP/acpregistry, Wails dev/build, execução do app,
+hardware ou acesso ao banco pessoal. Apenas `wails generate module` foi
+executado com aprovação, para gerar os bindings. Não restam somente validações
+manuais. Detalhes e limitações: seção156 da tasklist e evidências desta AEP.
+
+A migração de workspaces para banco permanece iniciativa independente, não
+requisito geral dos comandos nem justificativa para ampliar este AEP.
+
+**Histórico anterior à seção156:** as restrições de ingresso descritas abaixo
+registram o estado de cada rodada, não substituem o estado vigente acima.
+
 A seção152 corrige a política de roles externas: usa exclusivamente as roles
 do JWT revalidado, sem fallback para role local. A política local e a exigência
 de todos os scopes continuam inalteradas; ingresso externo ainda não habilitado.
@@ -2124,14 +2140,14 @@ Toda recusa posterior é persistida como `denied`, com código redigido.
 tem `source_type = chat` e `actor_type = agent`. Não existe categoria implícita
 `desktop`; cada comando declara explicitamente quais entradas aceita.
 
-**Override da AEP-0052 implementado no middleware — seção151:** D6 distingue
-sessões locais (`sub = user_id`) de JWTs externos. APIs HTTP externas resolvem
+**Override da AEP-0052 e ingresso externo — seções151–156:** D6 distingue
+sessões locais (`sub = user_id`) de JWTs externos. APIs externas resolvem
 exclusivamente `(iss, sub) → users.id` por vínculo administrativo habilitado e
-usuário ativo. Sem bootstrap registrado do issuer, o acesso falha fechado;
-contas restantes devem ser vinculadas antes de acessar a API, sem migração
-automática ou fallback legado. `CommandExecutionService` continua indisponível
-em `auth.mode=external` até concluir readiness e ingresso produtivo no executor,
-incluindo sua matriz de isolamento e revogação. O cutover HTTP não é esse aceite.
+usuário ativo; sem bootstrap/vínculo, falham fechado, sem fallback legado.
+O executor externo e as rotas HTTP estão compostos no App. Readiness por
+origem e revogação continuam exigidas; o ingresso externo não inventa sessão
+desktop nem habilita adapters físicos. Os limites e os testes pendentes de
+qualificação/review estão no acompanhamento vigente acima.
 
 Os contextos de autenticação são:
 
@@ -2166,6 +2182,22 @@ Palette/UI/chat continuam usando o principal do JWT da própria requisição.
 Habilitar adapters físicos nesse modo exige AEP posterior para um broker local
 que vincule e revogue explicitamente um principal externo ativo; “último token”
 ou usuário inferido nunca é aceito.
+
+**Adendo aprovado pelo mantenedor em 24/09/2026 — interface externa vinculada:**
+o ingresso JWT também poderá acionar comandos na interface do Assistente
+explicitamente conectada ao usuário autorizado. Identidade da chamada e
+identidade/conexão do destino são verificadas separadamente; a conexão não
+concede roles/scopes nem transforma JWT em sessão local. O destino precisa ser
+inequívoco, sem escolher a última janela ativa ou herdar a sessão desktop.
+Comandos contextuais fixam e revalidam aba, seleção e versões da interface;
+desconexão, substituição da conexão, mudança de usuário ou contexto obsoleto
+recusam trabalho pendente, sem redirecionar para outra janela. Decisões
+interativas passam pelo contrato comum e ficam vinculadas ao solicitante,
+destino e invocação exatos. Sem interface conectada, somente comandos de
+backend explicitamente compatíveis podem executar. A implementação deve
+reutilizar os handlers e o pipeline comuns, incluindo auditoria e replay;
+não cria executor de efeitos paralelo, não habilita dispositivos físicos no
+modo externo e não depende de migração do armazenamento de workspaces.
 
 Bootstrap do modo externo é pré-requisito explícito: endpoint administrativo
 fora do command manager, protegido por issuer configurado + scope admin, cria
@@ -4158,6 +4190,19 @@ do usuário afetado, sem alterar security_generation de outras contas. O
 callback deve avançar as gerações de configuração aplicáveis. Erro ou tentativa
 de publicação sem mudança efetiva pode cancelar conservadoramente execuções do
 próprio usuário; não reativa contexto já cancelado.
+
+**Exceção aprovada em 24/09/2026 — atualização reativa sem impacto:** uma
+publicação derivada de claims de job pode preservar uma execução já admitida
+somente quando o host comprovar, por execução, que comando, alvo, binding,
+autorização e contexto relevantes permanecem equivalentes. Não basta ser uma
+adição de camada: uma adição pode alterar precedência ou autorização. A prova
+deve usar estado autoritativo imutável e validação atômica com a publicação;
+falha, conflito, ausência de prova ou dependência alterada mantêm cancelamento.
+Preparações e novas invocações não herdam essa exceção: usam as versões atuais
+e revalidam normalmente. Revogação, remoção relevante, logout, lock e troca de
+principal conservam suas barreiras; mutação real da configuração persistida
+não é tratada como mero refresh de claim. Não há callbacks de efeito, rede ou
+espera de UI sob o gate nem ressurreição de contexto já cancelado.
 
 `commandexecution.HostState` substitui versões inventadas pelo chamador na
 fábrica do App: mantém Configuration imutável, lista detached de camadas ativas e
