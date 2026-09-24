@@ -10176,3 +10176,24 @@ O mantenedor aprovou testar `go test -race -short -timeout=20m ./...` antes
 de dividir em grupos. Preservados todos os testes, `-race`, `-short` e o
 limite total de 25 minutos do job. O timeout não foi desativado; o novo valor
 permanece sujeito à comprovação no CI, sem promover critérios ou aceite.
+
+**Divisão autorizada do detector de corrida:** no run `36065536526`,
+`551c5e7ba` passou backend, frontend, E2E, bindings e scripts, mas App atingiu
+novamente o timeout (1200,201 s). O subteste corrente tinha dois segundos;
+o limite era acumulado do pacote, não o teto de 25 minutos do job.
+Após concordância do mantenedor, App passa a oito grupos descobertos pelo
+próprio Go, com distribuição determinística dos testes, exemplos e sementes
+de fuzz. Os demais pacotes permanecem inteiros em um grupo separado.
+Todos conservam `-race -short`, com `-count=1` e timeout de 20 minutos.
+O check agregado `backend-race` mantém seu nome e exige sucesso de todos
+os grupos; falha, cancelamento ou grupo ignorado não produzem aprovação.
+A configuração não altera critérios de aceite nem substitui validação manual.
+
+Validação local do script: PASS com Go simulado, verificando união completa e
+disjunção dos oito grupos, nomes Unicode, exemplos/fuzz, flags, exclusão exata
+de App e propagação de falhas de descoberta/execução. Sintaxe Bash, parse do
+YAML e gate agregado conferidos. Nenhum Go, ACP, Wails ou banco real executado
+localmente nesta mudança; a execução real dos grupos depende do próximo CI.
+Revisão independente de Godel: nenhum achado bloqueante. Incorporada sua
+observação preventiva para descobrir os demais pacotes com `go list -race`,
+incluindo eventuais pacotes futuros condicionados à build tag `race`.
