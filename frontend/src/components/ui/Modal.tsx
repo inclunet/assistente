@@ -183,6 +183,11 @@ export function Modal({
       const container = modalRef.current;
       if (!container || !isTopMost()) return;
 
+      // O conteúdo já posicionou o foco (ex.: grid focado por quem o montou):
+      // sobrescrever faria o leitor de telas anunciar dois alvos seguidos.
+      const active = document.activeElement;
+      if (active && active !== container && container.contains(active)) return;
+
       if (initialFocusSelector) {
         // Seletor inválido não pode quebrar a abertura do modal: degrada para a
         // heurística padrão (querySelector lança DOMException nesse caso).
