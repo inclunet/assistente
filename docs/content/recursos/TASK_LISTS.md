@@ -34,6 +34,11 @@ editar a lista, editar o workflow, ações customizadas, duplicar, limpar e
 apagar. O vínculo da lista com uma conversa é automático, via chat embutido
 da aba.
 
+O botão informa ao leitor de telas que abre um menu e se ele está expandido.
+Com o foco no botão, use Enter ou Espaço para abrir as opções.
+Se a edição da lista falhar, o formulário permanece aberto com os dados
+digitados e a interface informa o erro, sem confirmar o salvamento.
+
 ### Tarefas
 
 | Ação | Descrição |
