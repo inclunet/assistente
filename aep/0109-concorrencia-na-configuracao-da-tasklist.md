@@ -44,9 +44,12 @@ editor recarrega a configuração e avisa o usuário.
 - As custom actions são comparadas pelo resultado de
   `ParseTaskListCustomActionsJSON` serializado de novo. Formatação, ordem das
   chaves e string vazia contra `{"actions":[]}` não contam como alteração.
-- O workflow também é verificado antes da validação de contagem de tarefas, para
-  o conflito não virar um erro genérico de "status em uso". Em conflito, nada é
-  gravado e nenhuma tarefa é migrada.
+- Dentro da transação, o workflow é verificado antes da contagem de tarefas por
+  status, para o conflito não virar um erro genérico de "status em uso". Em
+  conflito, nada é gravado e nenhuma tarefa é migrada.
+- A contagem que impede remover status com tarefas sem `status_migration` também
+  é feita sob o lock. Contada antes, uma tarefa criada ou movida no intervalo para
+  um status removido ficaria apontando para um status inexistente.
 
 ### D2 — Erro sentinela com código estável
 
@@ -127,6 +130,9 @@ editor recarrega a configuração e avisa o usuário.
 - [x] Gravações verificadas simultâneas sobre a mesma base, em WAL com várias
   conexões: uma vence e as demais recebem conflito, nunca `SQLITE_BUSY`
   (`TestCheckedWritesUnderConcurrencyYieldConflictNotBusy`).
+- [x] Remover um status que recebeu uma tarefa enquanto a gravação esperava o
+  lock é recusado, e o status continua existindo
+  (`TestUpdateWorkflowFull_RevalidatesTasksUnderLock`).
 - [x] Conflito não emite eventos (`TestCheckedConfigWritesEmitOnlyWhenSaved`).
 - [x] O editor de workflow avisa, pede a recarga e, sincronizado, grava sobre a
   versão atual sem colidir IDs (`WorkflowEditor.test.tsx`, bloco "edição

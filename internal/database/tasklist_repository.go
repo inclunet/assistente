@@ -394,44 +394,32 @@ func updateWorkflowFull(
 		}
 	}
 
-	// Verificação antecipada: sem ela, um workflow alterado em outro lugar pode
-	// cair na validação de contagem abaixo e virar um erro genérico em vez de
-	// conflito. A verificação que garante a atomicidade é a da transação.
-	if expected != nil {
-		if err := ensureWorkflowUnchanged(ctx, db.WithContext(ctx), taskListID, *expected); err != nil {
-			return err
-		}
-	}
-
-	counts, err := GetTaskCountsByStatusWithContext(ctx, taskListID)
-	if err != nil {
-		return fmt.Errorf("erro ao verificar tasks existentes: %w", err)
-	}
-
-	for usedStatusID, count := range counts {
-		if count == 0 {
-			continue
-		}
-		if statusIDs[usedStatusID] {
-			continue
-		}
-		if statusMigration != nil {
-			if _, ok := statusMigration[usedStatusID]; ok {
-				continue
-			}
-		}
-		return fmt.Errorf(
-			"status_id %d está em uso por %d task(s) e não existe nos novos statuses; forneça status_migration para migrá-las",
-			usedStatusID, count,
-		)
-	}
-
 	// IMMEDIATE pelo mesmo motivo de SetTaskListCustomActionsCheckedWithContext.
+	// As contagens também são lidas sob o lock: contadas antes, uma tarefa
+	// criada no intervalo num status removido ficaria sem status válido.
 	return withSQLiteImmediateTransaction(ctx, db, "tasklist.workflow.update_full", func(tx *gorm.DB) error {
+		// O conflito vem antes da contagem: um workflow alterado em outro lugar
+		// não pode virar um erro genérico de "status em uso".
 		if expected != nil {
 			if err := ensureWorkflowUnchanged(ctx, tx, taskListID, *expected); err != nil {
 				return err
 			}
+		}
+		counts, err := taskCountsByStatus(ctx, tx, taskListID)
+		if err != nil {
+			return fmt.Errorf("erro ao verificar tasks existentes: %w", err)
+		}
+		for usedStatusID, count := range counts {
+			if count == 0 || statusIDs[usedStatusID] {
+				continue
+			}
+			if _, ok := statusMigration[usedStatusID]; ok {
+				continue
+			}
+			return fmt.Errorf(
+				"status_id %d está em uso por %d task(s) e não existe nos novos statuses; forneça status_migration para migrá-las",
+				usedStatusID, count,
+			)
 		}
 		for oldID, newID := range statusMigration {
 			taskIDs := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ? AND tasks.status_id = ?", taskListID, oldID))
@@ -459,18 +447,27 @@ func updateWorkflowFull(
 // GetTaskCountsByStatusWithContext retorna a contagem de tasks por status_id
 // para uma tasklist do usuário do contexto.
 func GetTaskCountsByStatusWithContext(ctx context.Context, taskListID string) (map[int]int64, error) {
+	var result map[int]int64
+	err := WithSQLiteBusyRetry(ctx, "tasklist.status_counts", func() error {
+		var err error
+		result, err = taskCountsByStatus(ctx, db, taskListID)
+		return err
+	})
+	return result, err
+}
+
+// taskCountsByStatus conta as tasks por status_id usando q (conexão comum ou
+// transação em curso).
+func taskCountsByStatus(ctx context.Context, q *gorm.DB, taskListID string) (map[int]int64, error) {
 	var counts []struct {
 		StatusID int
 		Count    int64
 	}
-	err := WithSQLiteBusyRetry(ctx, "tasklist.status_counts", func() error {
-		return taskQuery(ctx, db.Model(&Task{})).
-			Where("tasks.task_list_id = ?", taskListID).
-			Group("tasks.status_id").
-			Select("tasks.status_id, count(*) as count").
-			Scan(&counts).Error
-	})
-	if err != nil {
+	if err := taskQuery(ctx, q.Model(&Task{})).
+		Where("tasks.task_list_id = ?", taskListID).
+		Group("tasks.status_id").
+		Select("tasks.status_id, count(*) as count").
+		Scan(&counts).Error; err != nil {
 		return nil, err
 	}
 

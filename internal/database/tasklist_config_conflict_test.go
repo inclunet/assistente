@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -263,6 +264,67 @@ func TestCheckedWritesUnderConcurrencyYieldConflictNotBusy(t *testing.T) {
 		return UpdateWorkflowFullCheckedWithContext(ctx, tl.ID, base, next, base.Transitions, base.InitialStatusID, nil)
 	})
 	assertOneWinnerRestConflict(t, errs)
+}
+
+func TestUpdateWorkflowFull_RevalidatesTasksUnderLock(t *testing.T) {
+	ctx := setupConcurrentConfigDB(t)
+	tl, err := CreateTaskListWithContext(ctx, "L", "", nil, "")
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	base := workflowSnapshot(t, ctx, tl.ID)
+	task, err := CreateTaskWithContext(ctx, tl.ID, "T", "", "", "", nil)
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	removed := base.Statuses[len(base.Statuses)-1].ID
+	if task.StatusID == removed {
+		t.Fatalf("a task precisa começar fora do status removido")
+	}
+	kept := base.Statuses[:len(base.Statuses)-1]
+	transitions := map[int][]int{}
+	for _, s := range kept {
+		transitions[s.ID] = []int{}
+	}
+
+	// Outra conexão segura o lock de escrita; enquanto a gravação espera por
+	// ele, a task passa para o status que será removido.
+	sqlDB, err := DB().DB()
+	if err != nil {
+		t.Fatalf("sql db: %v", err)
+	}
+	lockConn, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("lock conn: %v", err)
+	}
+	defer func() { _ = lockConn.Close() }()
+	if _, err := lockConn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+
+	result := make(chan error, 1)
+	go func() {
+		result <- UpdateWorkflowFullCheckedWithContext(ctx, tl.ID, base, kept, transitions, kept[0].ID, nil)
+	}()
+	time.Sleep(100 * time.Millisecond)
+	if _, err := lockConn.ExecContext(context.Background(), "UPDATE tasks SET status_id = ? WHERE id = ?", removed, task.ID); err != nil {
+		t.Fatalf("move task: %v", err)
+	}
+	if _, err := lockConn.ExecContext(context.Background(), "COMMIT"); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	select {
+	case err = <-result:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a gravação não terminou após liberar o lock")
+	}
+	if err == nil || !strings.Contains(err.Error(), "em uso") {
+		t.Fatalf("remover status com task criada no intervalo deve falhar por status em uso, veio %v", err)
+	}
+	if got := workflowSnapshot(t, ctx, tl.ID); len(got.Statuses) != len(base.Statuses) {
+		t.Fatalf("o status não pode ter sido removido: %#v", got.Statuses)
+	}
 }
 
 func TestSetCustomActionsChecked_InvalidExpectedRejected(t *testing.T) {
