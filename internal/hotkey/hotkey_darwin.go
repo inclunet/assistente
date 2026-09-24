@@ -9,10 +9,13 @@ import (
 )
 
 const (
-	ModCtrl  hotkey.Modifier = hotkey.ModCtrl
-	ModShift hotkey.Modifier = hotkey.ModShift
-	ModAlt   hotkey.Modifier = hotkey.ModOption
-	ModWin   hotkey.Modifier = hotkey.ModCmd
+	// Keep the Carbon modifier masks local: golang.design/x/hotkey's
+	// !cgo implementation deliberately exposes Modifier without platform
+	// constants, while the Darwin backend uses these same Carbon masks.
+	ModCtrl  hotkey.Modifier = 0x1000
+	ModShift hotkey.Modifier = 0x0200
+	ModAlt   hotkey.Modifier = 0x0800
+	ModWin   hotkey.Modifier = 0x0100
 )
 
 // parseKeyStringImpl implementação específica para Darwin/macOS
