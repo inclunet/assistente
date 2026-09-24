@@ -406,6 +406,20 @@ describe('DataGrid (onMoveItem)', () => {
 // ─── onFocusChange ─────────────────────────────────────────────────
 
 describe('DataGrid (onFocusChange)', () => {
+  it('preserva a célula da segunda linha clicada antes da inicialização do foco lazy', async () => {
+    const onFocus = vi.fn();
+    render(
+      <DataGrid items={items} columns={columns}
+        onFocusChange={onFocus} autoFocusOnMount={false} />
+    );
+
+    const secondRowCell = getCells()[2];
+    fireEvent.click(secondRowCell);
+
+    expect(onFocus).toHaveBeenCalledWith(items[1], 1);
+    await waitFor(() => expect(secondRowCell).toHaveFocus());
+  });
+
   it('chama onFocusChange ao receber foco pela primeira vez', () => {
     const onFocus = vi.fn();
     render(

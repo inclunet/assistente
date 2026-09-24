@@ -1014,7 +1014,12 @@ export function DataGrid<T = unknown>({
         onFocus={handleGridFocus}
         onBlur={handleGridBlur}
         onKeyDown={handleKeyDown}
-        onClick={() => {
+        onClick={(event) => {
+          // Clicks inside cells are handled by handleCellClick. Do not use the
+          // focusedRow captured by this render to move focus back to row 0:
+          // the cell handler may have just activated a different row in the
+          // same bubbling event while lazy focus was still uninitialized.
+          if (event.target !== event.currentTarget) return;
           if (items.length > 0 && columns.length > 0) {
             if (focusedRow < 0) {
               activateFocus(0, 0);
