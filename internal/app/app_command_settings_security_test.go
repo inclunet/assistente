@@ -15,14 +15,22 @@ import (
 	"gorm.io/gorm"
 )
 
+type settingsSecurityCancelKey struct{}
+
 // Usa o produto, banco e confirmação reais; apenas o presenter visual é
 // substituído por uma resposta explícita do teste.
 func settingsSecurityFixture(t *testing.T) (*App, <-chan map[string]any) {
 	t.Helper()
 	a := readyCommandProduct(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if deadline, ok := t.Deadline(); ok {
+		ctx, cancel = context.WithDeadline(context.Background(), deadline)
+	} else {
+		ctx, cancel = context.WithCancel(context.Background())
+	}
 	t.Cleanup(cancel)
-	a.ctx = ctx
+	a.ctx = context.WithValue(ctx, settingsSecurityCancelKey{}, context.CancelFunc(cancel))
 	if err := commandautomation.Migrate(ctx, database.DB()); err != nil {
 		t.Fatal(err)
 	}
@@ -44,14 +52,15 @@ func settingsSecurityStart(t *testing.T, a *App, operation func() (CommandSettin
 		done <- settingsSecurityOutcome{result, err}
 	}()
 	t.Cleanup(func() {
+		if a.ctx != nil {
+			if cancel, ok := a.ctx.Value(settingsSecurityCancelKey{}).(context.CancelFunc); ok {
+				cancel()
+			}
+		}
 		select {
 		case <-joined:
-		case <-a.ctx.Done():
-			select {
-			case <-joined:
-			case <-time.After(3 * time.Second):
-				t.Error("mutação de configurações não encerrou")
-			}
+		case <-time.After(3 * time.Second):
+			t.Error("mutação de configurações não encerrou após cancelamento")
 		}
 	})
 	return done
