@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import { TokenStatsModal } from './TokenStatsModal';
+import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
 
 const getStatsSpy = vi.fn();
 const tMock = (key: string) => (key === 'tokenStats.placeholder' ? '—' : key);
@@ -34,6 +36,33 @@ beforeEach(() => {
 });
 
 describe('TokenStatsModal', () => {
+  it('restaura o foco padrão quando isOpen transita para false', async () => {
+    function Harness() {
+      const [isOpen, setIsOpen] = useState(true);
+      return <>
+        <textarea aria-label="Área padrão do chat" />
+        <TokenStatsModal conversationId="conversation-1" isOpen={isOpen} onClose={() => setIsOpen(false)} />
+      </>;
+    }
+
+    const focusDefault = () => {
+      const target = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Área padrão do chat"]');
+      target?.focus();
+      return document.activeElement === target;
+    };
+    registerDefaultFocus(focusDefault);
+    const view = render(<Harness />);
+    try {
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(screen.getByRole('button', { name: 'ui.modal.close' }));
+      await waitFor(() => expect(dialog).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.getByRole('textbox', { name: 'Área padrão do chat' })).toHaveFocus());
+    } finally {
+      view.unmount();
+      unregisterDefaultFocus(focusDefault);
+    }
+  });
+
   it('renderiza stats quando aberto', async () => {
     getStatsSpy.mockResolvedValue({
       conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",

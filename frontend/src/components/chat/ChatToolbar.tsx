@@ -715,13 +715,15 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         />
       )}
 
-      {presentation?.kind === 'tokens' && presentation.isCurrent() && (
-        <TokenStatsModal
-          conversationId={presentation.conversationId}
-          isOpen
-          onClose={() => setPresentation(null)}
-        />
-      )}
+      {/* Keep the modal component mounted while closed so Modal observes the
+          isOpen true → false transition and can restore the default focus. */}
+      <TokenStatsModal
+        conversationId={presentation?.kind === 'tokens'
+          ? presentation.conversationId
+          : effectiveConversationId ?? ''}
+        isOpen={presentation?.kind === 'tokens' && presentation.isCurrent()}
+        onClose={() => setPresentation(null)}
+      />
     </>
   );
 };

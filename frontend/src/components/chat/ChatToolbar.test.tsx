@@ -120,6 +120,10 @@ const modalState = vi.hoisted(() => ({
   inside: false,
   topmost: true,
 }));
+const tokenStatsModalLifecycle = vi.hoisted(() => ({
+  transitions: [] as boolean[],
+  requestClose: null as (() => void) | null,
+}));
 const tMock = vi.hoisted(() => (key: string, fallback?: unknown) => typeof fallback === 'string' ? fallback : key);
 const sessionConversationRef = vi.hoisted(() => ({ current: 'conversation-1' as string | null }));
 const contextRef = vi.hoisted(() => ({ owner: 'owner-1', session: 'session-1', workspace: 'workspace-1', tab: 'tab-chat', conversation: 'conversation-1' as string | null }));
@@ -174,9 +178,20 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 vi.mock('../ui/Modal', async () => {
   const React = await import('react');
   return {
-    Modal: ({ children, isOpen }: { children: ReactNode; isOpen: boolean }) => (
-      isOpen ? <div>{children}</div> : null
-    ),
+    Modal: ({ children, isOpen, onClose }: { children: ReactNode; isOpen: boolean; onClose: () => void }) => {
+      const previousOpen = React.useRef<boolean | null>(null);
+      const onCloseRef = React.useRef(onClose);
+      onCloseRef.current = onClose;
+      if (isOpen) tokenStatsModalLifecycle.requestClose = () => onCloseRef.current();
+      else tokenStatsModalLifecycle.requestClose = null;
+      React.useEffect(() => {
+        if (previousOpen.current !== null && previousOpen.current !== isOpen) {
+          tokenStatsModalLifecycle.transitions.push(isOpen);
+        }
+        previousOpen.current = isOpen;
+      }, [isOpen]);
+      return isOpen ? <div>{children}</div> : null;
+    },
     isModalOpen: () => modalState.open,
     useIsInsideModal: () => React.useState(modalState.inside)[0],
     useModalIsTopmost: () => {
@@ -444,6 +459,8 @@ describe('ChatToolbar apresentação pinned/tokens', () => {
   });
   beforeEach(() => {
     modalState.open = false; modalState.inside = false; modalState.topmost = true;
+    tokenStatsModalLifecycle.transitions = [];
+    tokenStatsModalLifecycle.requestClose = null;
   });
   it.each(commands)('$id abre pelo registro sem ledger nem efeito de domínio', async ({ id, content }) => {
     renderToolbar();
@@ -457,6 +474,18 @@ describe('ChatToolbar apresentação pinned/tokens', () => {
     expect(clearPort.commitBackendCommand).not.toHaveBeenCalled();
     expect(updateTabMock).not.toHaveBeenCalled();
     expect(loadConversationSessionMock).not.toHaveBeenCalled();
+  });
+  it('mantém TokenStatsModal montado no fechamento para Modal restaurar foco padrão', async () => {
+    renderToolbar();
+    const target = captureChatPickerTarget(() => '/')!;
+    act(() => { expect(target.open('chat.tokens.open')).toBe(true); });
+    target.dispose();
+    expect(await screen.findByText('tokenStats.contextUsage')).toBeInTheDocument();
+
+    act(() => tokenStatsModalLifecycle.requestClose?.());
+
+    await waitFor(() => expect(tokenStatsModalLifecycle.transitions).toContain(false));
+    expect(screen.queryByText('tokenStats.contextUsage')).not.toBeInTheDocument();
   });
   it.each(commands)('$id botão usa evento com instância exata sem recursão', async ({ id, button, content }) => {
     renderToolbar();
