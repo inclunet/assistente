@@ -147,6 +147,40 @@ describe('DecisionQuestionnaireHost', () => {
     view.unmount();
   });
 
+  it('usa scope backend explícito apenas para o ID exato e não recorre à store quando null', () => {
+    const scope: DialogCommandScope = {
+      dialogId: 'q1',
+      kind: 'decision',
+      generation: '21',
+      allowedCommandIds: ['decision.respond'],
+      allowedTriggerSpecs: ['keyboard.local:Ctrl+Shift+R'],
+    };
+    act(() => useQuestionnaireUIStore.setState({
+      activeScope: { ...scope, dialogId: 'q1', generation: '22' },
+    }));
+
+    const view = render(
+      <DecisionQuestionnaireHost data={shellDecision()} commandScope={scope} onAction={vi.fn()} onCancel={vi.fn()} />
+    );
+    expect(getModalRegistrySnapshot().dialogCommandScope?.generation).toBe('21');
+
+    view.rerender(
+      <DecisionQuestionnaireHost data={shellDecision()} commandScope={null} onAction={vi.fn()} onCancel={vi.fn()} />
+    );
+    expect(getModalRegistrySnapshot().dialogCommandScope).toBeNull();
+
+    view.rerender(
+      <DecisionQuestionnaireHost
+        data={{ ...shellDecision(), id: 'different-dialog' }}
+        commandScope={scope}
+        onAction={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+    expect(getModalRegistrySnapshot().dialogCommandScope).toBeNull();
+    view.unmount();
+  });
+
   it('nega via ação deny (não cancela o diálogo)', () => {
     const onAction = vi.fn();
     const onCancel = vi.fn();

@@ -1,16 +1,15 @@
 import {
   CommandBridgeError,
-  DECISION_REPEAT_TRIGGER,
-  DECISION_RESPOND_COMMAND_ID,
   type CommandBridge,
   type CommandBridgeOwner,
   type DialogCommandScope,
   type CommandLifecycleEvent,
 } from './commandBridge';
+import type { QuestionnairePayload } from '../components/ui/QuestionnaireDialog';
 import {
-  isDecisionQuestionnaire,
-  type QuestionnairePayload,
-} from '../components/ui/QuestionnaireDialog';
+  createDecisionQuestionnaireScope,
+  isValidDecisionQuestionnairePayload,
+} from './decisionQuestionnaireScope';
 import {
   useQuestionnaireUIStore,
   type QuestionnaireUIResult,
@@ -56,8 +55,6 @@ interface PendingDialog {
   settled: boolean;
 }
 
-let nextDialogScopeGeneration = 0n;
-
 function validText(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.trim() === value;
 }
@@ -66,16 +63,6 @@ function validWorkspaceId(value: unknown): value is string {
   // A string vazia representa workspace_id nulo no escopo global; espaços não
   // são uma representação válida de nenhum escopo.
   return typeof value === 'string' && value.trim() === value;
-}
-
-function validQuestionnaireText(value: unknown): boolean {
-  if (typeof value === 'string') return value.length > 0 && value.trim() === value;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const text = value as { key?: unknown; fallback?: unknown; params?: unknown };
-  if (text.key !== undefined && (typeof text.key !== 'string' || text.key.trim() !== text.key)) return false;
-  if (text.fallback !== undefined && (typeof text.fallback !== 'string' || text.fallback.trim() !== text.fallback)) return false;
-  if (text.params !== undefined && (!text.params || typeof text.params !== 'object' || Array.isArray(text.params))) return false;
-  return validText(text.key) || validText(text.fallback);
 }
 
 function validGeneration(value: unknown): value is string {
@@ -88,35 +75,12 @@ function validOwner(owner: unknown): owner is CommandBridgeOwner {
   return validText(value.userId) && validText(value.sessionId) && validWorkspaceId(value.workspaceId);
 }
 
-function validAction(action: unknown): boolean {
-  if (!action || typeof action !== 'object') return false;
-  const value = action as {
-    id?: unknown;
-    label?: unknown;
-    variant?: unknown;
-    shortcut?: unknown;
-    primary?: unknown;
-    polarity?: unknown;
-    scope?: unknown;
-  };
-  if (!validText(value.id) || !validQuestionnaireText(value.label)) return false;
-  if (value.variant !== undefined && !['primary', 'secondary', 'danger', 'ghost', 'outline'].includes(value.variant as string)) return false;
-  if (value.shortcut !== undefined && !validText(value.shortcut)) return false;
-  if (value.primary !== undefined && typeof value.primary !== 'boolean') return false;
-  if (value.polarity !== undefined && !['affirmative', 'negative'].includes(value.polarity as string)) return false;
-  if (value.scope !== undefined && !['current', 'conversation', 'persistent', 'profile', 'global'].includes(value.scope as string)) return false;
-  return true;
-}
-
 function validRequest(request: CommandDialogRequest): boolean {
   if (!request || typeof request !== 'object') return false;
   if (!validText(request.sessionId) || !validGeneration(request.generation)) return false;
   if (!validOwner(request.owner) || request.owner.sessionId !== request.sessionId) return false;
   if (!request.payload || typeof request.payload !== 'object') return false;
-  if (!isDecisionQuestionnaire(request.payload) || !validText(request.payload.id)) return false;
-  const actions = request.payload.actions;
-  return actions.every(validAction)
-    && new Set(actions.map((action) => action.id)).size === actions.length;
+  return isValidDecisionQuestionnairePayload(request.payload, request.payload.id);
 }
 
 function cloneAndFreeze<T>(value: T, seen = new WeakMap<object, unknown>()): T {
@@ -136,17 +100,6 @@ function cloneAndFreeze<T>(value: T, seen = new WeakMap<object, unknown>()): T {
     });
   }
   return Object.freeze(clone) as T;
-}
-
-function scopeFor(payload: QuestionnairePayload): DialogCommandScope {
-  const generation = (++nextDialogScopeGeneration).toString();
-  return Object.freeze({
-    dialogId: payload.id,
-    kind: 'decision' as const,
-    generation,
-    allowedCommandIds: Object.freeze([DECISION_RESPOND_COMMAND_ID]) as ['decision.respond'],
-    allowedTriggerSpecs: Object.freeze([DECISION_REPEAT_TRIGGER]) as ['keyboard.local:Ctrl+Shift+R'],
-  });
 }
 
 function cancelledResult(): QuestionnaireUIResult {
@@ -207,7 +160,8 @@ export function createCommandBridgeDialogAdapter(
 
     const stableRequest = cloneAndFreeze(request);
     const payload = stableRequest.payload;
-    const scope = scopeFor(payload);
+    const scope = createDecisionQuestionnaireScope(payload, payload.id);
+    if (!scope) return Promise.reject(new CommandBridgeError('invalid-request'));
     return new Promise<QuestionnaireUIResult>((resolve, reject) => {
       const entry: PendingDialog = {
         request: stableRequest,

@@ -6,6 +6,10 @@
 em `147274d15`, preservando autosave e concorrência de tasklists e lifecycle unificado de tools,
 com os guards e a redação de comandos. A publicação prepara testes em outro
 computador; não promove C38/NVDA nem os gates finais. Contagens abaixo mantidas.
+Na revalidação local, 23 E2E de editor/abas, dez de operações de perfis e 13
+de ações de mensagens passaram. A regressão dos consumidores da grade e da
+árvore de mensagens passou 281 testes. Os achados de integração e revisões
+ficam rastreados na seção158; CI remoto e aceite humano continuam separados.
 
 **Acompanhamento vigente — seção157 (24/09/2026):** dos 84 critérios finais,
 **83 têm implementação identificada (98,8%), 1 é parcial e 0 ausentes**.

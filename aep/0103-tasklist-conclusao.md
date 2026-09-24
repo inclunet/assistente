@@ -10122,3 +10122,39 @@ O Ctrl+N inicial de Perfis foi validado no navegador e em 67 testes de
 apresentação de página, incluídos nos 371 acima. Ainda há falhas em edição
 inline, exclusão confirmada de perfil e navegação de thread; não é aceite
 integral nem CI verde. As contagens dos 84 critérios permanecem inalteradas.
+
+**Operações de Perfis revalidadas:** dez E2E de criação, edição, exclusão,
+ativação, duplicação e validação passaram em 24/09/2026. O diagnóstico de
+edição inline demonstrou dois callbacks no mesmo Enter (salvar seguido de
+blur); a sessão da grade agora termina sincronamente antes do callback e da
+restauração de foco. A exclusão encontrou uma ligação ausente entre o evento
+real `tool:questionnaire` e o registro de diálogos. A factory compartilhada
+deriva apenas o scope restritivo de decisão previsto no AEP; não substitui
+a autorização do backend nem relaxa as guardas de mutação. TypeScript PASS.
+A navegação de mensagens e as revisões dessas correções ainda estão em
+validação; esses resultados não representam CI verde nem aceite manual.
+
+Os 13 E2E de operações de mensagens também passaram: exclusão, cópia de texto
+e Markdown, edição, raciocínio, menu, navegação e expansão/recolhimento. A
+correção preserva a referência da mensagem em alterações apenas estruturais
+da árvore, evitando invalidar o foco ao carregar filhos. Não usa igualdade
+por serialização de conteúdo nem relaxa a identidade do alvo. A exclusão de
+perfil foi repetida com clique real, sem `force` ou chamada DOM de clique:
+um cenário PASS. Revisões finais ainda em andamento.
+
+**Consolidação da rodada:** `b207df719` corrige a sessão de edição da grade;
+Lagrange revisou e o achado de itens falsy foi corrigido, com 53 testes PASS.
+`deaa1420c` corrige a identidade estrutural e o foco de mensagens; Beauvoir
+revisou sem achados de implementação após remover a proposta de comparação
+JSON. A regressão ampliada passou 281 testes em 11 arquivos; foi acrescentada
+uma prova de atualização apenas canônica seguida da projeção visível
+(20/20 testes de navegação PASS).
+
+A rodada final de navegador passou 27 cenários: grade (14), questionários
+(4, incluindo resposta atrasada de confirmação e cancelamento sem fechar ou
+desfocar a próxima decisão), operações de perfis (7) e paths (2). A bateria
+de scope/hook/host/restauração de foco passou 43 testes. O P2 de foco tardio
+identificado por Franklin foi corrigido com clear por ID e revalidação no
+frame, preservando o retorno ao modal de origem. TypeScript, ESLint focado
+e `git diff --check` PASS; a revisão final dessa frente precede o push.
+Nenhum ACP/acpregistry, Wails dev/build, hardware ou banco pessoal foi usado.

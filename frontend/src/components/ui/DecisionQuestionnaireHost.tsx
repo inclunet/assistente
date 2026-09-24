@@ -12,6 +12,7 @@ import {
   type QuestionnaireQuestion,
 } from './QuestionnaireDialog';
 import { resolveQuestionnaireText } from '../../lib/questionnaireText';
+import type { DialogCommandScope } from '../../lib/commandBridge';
 import { useQuestionnaireUIStore } from '../../store/questionnaireUIStore';
 
 /** Chave de Answers alinhada a questionnaire.AnswerActionID (Go). */
@@ -19,6 +20,8 @@ export const DECISION_ANSWER_ACTION_ID = 'actionId';
 
 export interface DecisionQuestionnaireHostProps {
   data: QuestionnairePayload | null;
+  /** undefined usa o caminho da store UI; null suprime explicitamente esse fallback. */
+  commandScope?: DialogCommandScope | null;
   onAction: (answers: Record<string, unknown>) => void;
   onCancel: (answers?: Record<string, unknown>) => void;
 }
@@ -34,6 +37,7 @@ function questionHasBodyContent(q: QuestionnaireQuestion): boolean {
  */
 export function DecisionQuestionnaireHost({
   data,
+  commandScope,
   onAction,
   onCancel,
 }: DecisionQuestionnaireHostProps) {
@@ -41,11 +45,13 @@ export function DecisionQuestionnaireHost({
 
   const open = isDecisionQuestionnaire(data);
   // O store é a fonte do pedido topmost da fila. O vínculo por id evita que
-  // um scope antigo sobreviva à troca de item; sem scope, a UI permanece
-  // restrita e não inventa autorização para diálogos montados fora da fila.
+  // um scope antigo sobreviva à troca de item. App pode passar null explícito
+  // para separar a fila backend do scope que pertence à fila UI.
   const activeScope = useQuestionnaireUIStore((state) => state.activeScope);
-  const dialogCommandScope =
-    open && data?.id && activeScope?.dialogId === data.id ? activeScope : undefined;
+  const scopeCandidate = commandScope === undefined ? activeScope : commandScope;
+  const dialogCommandScope = open && data?.id && scopeCandidate?.dialogId === data.id
+    ? scopeCandidate
+    : undefined;
 
   const title = resolveQuestionnaireText(
     t,
