@@ -15,13 +15,14 @@ import (
 )
 
 var (
-	ErrInvalidHostState       = errors.New("estado do host inválido")
-	ErrHostStateDisabled      = errors.New("estado do host desabilitado")
-	ErrInvalidHostUser        = errors.New("usuário do host inválido")
-	ErrInvalidHostPrincipal   = errors.New("principal local inválido")
-	ErrHostUserNotPublished   = errors.New("configuração do usuário não publicada")
-	ErrInvalidHostLayers      = errors.New("camadas ativas inválidas")
-	ErrHostGenerationOverflow = errors.New("contador de geração do host esgotado")
+	ErrInvalidHostState         = errors.New("estado do host inválido")
+	ErrHostStateDisabled        = errors.New("estado do host desabilitado")
+	ErrInvalidHostUser          = errors.New("usuário do host inválido")
+	ErrInvalidHostPrincipal     = errors.New("principal local inválido")
+	ErrHostUserNotPublished     = errors.New("configuração do usuário não publicada")
+	ErrInvalidHostLayers        = errors.New("camadas ativas inválidas")
+	ErrHostGenerationOverflow   = errors.New("contador de geração do host esgotado")
+	ErrJobProjectionBaseChanged = errors.New("base persistida mudou durante projeção de claims de job")
 )
 
 // HostState é a projeção autoritativa, em memória, do estado que o executor

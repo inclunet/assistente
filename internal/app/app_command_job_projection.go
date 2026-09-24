@@ -19,12 +19,14 @@ import (
 type commandJobProjection struct {
 	layers  []string
 	sources map[string][]commandbindings.LayerProvenance
+	current func() bool
 }
 
 func (a *App) commandJobLayerProjection(ctx context.Context, principal auth.LocalSessionPrincipal, scope commandconfig.Scope) (*commandJobProjection, func(context.Context) error, error) {
 	mounted := a.commandMaintenance.Load()
 	if mounted == nil {
-		return nil, func(ctx context.Context) error {
+		projection := &commandJobProjection{current: func() bool { return a.commandMaintenance.Load() == nil }}
+		return projection, func(ctx context.Context) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -92,15 +94,22 @@ func (a *App) commandJobLayerProjection(ctx context.Context, principal auth.Loca
 		}
 		for _, entry := range proof.Claims {
 			if err := mounted.manager.ValidateCommandRuntimeProjection(ctx, entry.RunID, entry.Runtime); err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return err
+				}
 				return commandexecution.ErrStale
 			}
 		}
 		return nil
 	}
+	current := func() bool {
+		return a.commandMaintenance.Load() == mounted && mounted.consumer.ProjectionRevision() == proof.Revision &&
+			(proof.ValidUntil.IsZero() || time.Now().Before(proof.ValidUntil))
+	}
 	if err := guard(ctx); err != nil {
 		return nil, nil, err
 	}
-	return &commandJobProjection{layers: mergeCommandLayerIDs(nil, active), sources: sources}, guard, nil
+	return &commandJobProjection{layers: mergeCommandLayerIDs(nil, active), sources: sources, current: current}, guard, nil
 }
 
 func mergeCommandLayerIDs(a, b []string) []string {
@@ -131,5 +140,43 @@ func (p *commandProductRuntime) refreshCommandJobProjection(ctx context.Context)
 	}
 	// Reconciliação contextual não restaura claims manuais nem suspende o
 	// mapa previamente publicado; o guard já impede seu uso se estiver velho.
-	return p.app.rebuildCommandLifecycleProjection(ctx, false)
+	return p.app.rebuildCommandLifecycleJobProjection(ctx)
+}
+
+// checkPersistedCommandConfiguration catches a durable configuration write
+// that did not arrive through the mounted App mutation path. It runs before a
+// command is admitted (never from the projection guard/gate); a stale stamp
+// gets the ordinary, canceling lifecycle rebuild rather than the claim-only
+// preservation path.
+func (p *commandProductRuntime) checkPersistedCommandConfiguration(ctx context.Context) error {
+	if p == nil || p.app == nil || ctx == nil || p.app.commandProduct.Load() != p {
+		return commandexecution.ErrStale
+	}
+	p.persistedConfigMu.RLock()
+	store, snapshot, hasSnapshot := p.persistedConfigStore, p.persistedConfigSnapshot, p.hasPersistedSnapshot
+	p.persistedConfigMu.RUnlock()
+	if !hasSnapshot || store == nil {
+		return commandexecution.ErrStale
+	}
+	if err := store.CheckCurrent(ctx, snapshot); err != nil {
+		if !errors.Is(err, commandconfig.ErrStale) {
+			return err
+		}
+		if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
+			return commandexecution.ErrStale
+		}
+		return p.app.rebuildCommandLifecycleProjection(ctx, false)
+	}
+	return nil
+}
+
+func (p *commandProductRuntime) rememberPersistedCommandConfiguration(store *commandconfig.Store, snapshot commandconfig.Snapshot) {
+	if p == nil || store == nil {
+		return
+	}
+	p.persistedConfigMu.Lock()
+	p.persistedConfigStore = store
+	p.persistedConfigSnapshot = snapshot
+	p.hasPersistedSnapshot = true
+	p.persistedConfigMu.Unlock()
 }

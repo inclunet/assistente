@@ -5,6 +5,8 @@ import (
 	"errors"
 	"math"
 	"testing"
+
+	"assistente/internal/commandbindings"
 )
 
 func publicationSnapshot(t *testing.T, service *EpochService, user, session string) EpochSnapshot {
@@ -220,5 +222,150 @@ func TestPublishAuthenticatedConfigurationCancelsOnlyTheSnapshotUser(t *testing.
 	case <-contexts[2].Done():
 		t.Fatal("publicação de A cancelou execução de B")
 	default:
+	}
+}
+
+func TestPublishAuthenticatedProjectionPreservesOnlyPerExecutionProofs(t *testing.T) {
+	service := newEpochServiceForTest(t)
+	user, session := testEpochID(t), testEpochID(t)
+	snapshot := publicationSnapshot(t, service, user, session)
+	configuration, err := commandbindings.NewConfiguration(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	contexts := make([]context.Context, 0, 3)
+	proofCalls := 0
+	for _, proof := range []func(*commandbindings.Configuration) bool{
+		func(next *commandbindings.Configuration) bool {
+			proofCalls++
+			if !service.watchesMu.TryLock() {
+				t.Error("prova executada sob watchesMu")
+			} else {
+				service.watchesMu.Unlock()
+			}
+			return next == configuration
+		},
+		nil,
+		func(*commandbindings.Configuration) bool { proofCalls++; return false },
+	} {
+		var runCtx context.Context
+		handoff := func(ctx context.Context) error { runCtx = ctx; return nil }
+		var release func()
+		if proof == nil {
+			release, err = service.AdmitExecution(context.Background(), snapshot, func(context.Context) error { return nil }, handoff)
+		} else {
+			release, err = service.AdmitExecutionWithProjectionProof(context.Background(), snapshot, proof, func(context.Context) error { return nil }, handoff)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+		contexts = append(contexts, runCtx)
+	}
+
+	published := false
+	err = service.PublishAuthenticatedProjectionForExecutions(context.Background(), snapshot, configuration,
+		func(context.Context) error { assertEpochGateExclusive(t, service.gate); return nil },
+		func() error { published = true; assertEpochGateExclusive(t, service.gate); return nil })
+	if err != nil || !published || proofCalls != 2 {
+		t.Fatalf("projeção = %v, published=%v proofCalls=%d", err, published, proofCalls)
+	}
+	select {
+	case <-contexts[0].Done():
+		t.Fatal("execução comprovadamente equivalente foi cancelada")
+	default:
+	}
+	for _, index := range []int{1, 2} {
+		select {
+		case <-contexts[index].Done():
+		default:
+			t.Fatalf("execução %d sem prova válida sobreviveu", index)
+		}
+	}
+}
+
+func TestPublishAuthenticatedProjectionStaleEpochDoesNotEvaluateProof(t *testing.T) {
+	service := newEpochServiceForTest(t)
+	user, session := testEpochID(t), testEpochID(t)
+	snapshot := publicationSnapshot(t, service, user, session)
+	configuration, err := commandbindings.NewConfiguration(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proofCalls, publishCalls := 0, 0
+	var runCtx context.Context
+	release, err := service.AdmitExecutionWithProjectionProof(context.Background(), snapshot,
+		func(*commandbindings.Configuration) bool { proofCalls++; return true },
+		func(context.Context) error { return nil },
+		func(ctx context.Context) error { runCtx = ctx; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if err := service.InvalidateSession(context.Background(), user, session); err != nil {
+		t.Fatal(err)
+	}
+	err = service.PublishAuthenticatedProjectionForExecutions(context.Background(), snapshot, configuration,
+		func(context.Context) error { return nil }, func() error { publishCalls++; return nil })
+	if !errors.Is(err, ErrStaleEpoch) || proofCalls != 0 || publishCalls != 0 {
+		t.Fatalf("epoch obsoleto = %v proofCalls=%d publishCalls=%d", err, proofCalls, publishCalls)
+	}
+	select {
+	case <-runCtx.Done():
+	default:
+		t.Fatal("invalidação concorrente não cancelou watch obsoleto")
+	}
+}
+
+func TestPublishAuthenticatedProjectionCancelsPreservedWatchesOnPublishFailure(t *testing.T) {
+	service := newEpochServiceForTest(t)
+	user, session := testEpochID(t), testEpochID(t)
+	snapshot := publicationSnapshot(t, service, user, session)
+	configuration, err := commandbindings.NewConfiguration(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runCtx context.Context
+	release, err := service.AdmitExecutionWithProjectionProof(context.Background(), snapshot,
+		func(*commandbindings.Configuration) bool { return true },
+		func(context.Context) error { return nil },
+		func(ctx context.Context) error { runCtx = ctx; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	want := errors.New("publicação parcial falhou")
+	err = service.PublishAuthenticatedProjectionForExecutions(context.Background(), snapshot, configuration,
+		func(context.Context) error { return nil }, func() error { return want })
+	if !errors.Is(err, want) {
+		t.Fatalf("publish error = %v, want %v", err, want)
+	}
+	select {
+	case <-runCtx.Done():
+	default:
+		t.Fatal("falha de publicação deixou execução preservada viva")
+	}
+}
+
+func TestPublishAuthenticatedConfigurationStillCancelsProvenExecution(t *testing.T) {
+	service := newEpochServiceForTest(t)
+	user, session := testEpochID(t), testEpochID(t)
+	snapshot := publicationSnapshot(t, service, user, session)
+	var runCtx context.Context
+	release, err := service.AdmitExecutionWithProjectionProof(context.Background(), snapshot,
+		func(*commandbindings.Configuration) bool { return true }, func(context.Context) error { return nil },
+		func(ctx context.Context) error { runCtx = ctx; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if err := service.PublishAuthenticatedConfiguration(context.Background(), snapshot, func(context.Context) error { return nil }, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-runCtx.Done():
+	default:
+		t.Fatal("publicação de configuração real ignorou a prova específica de projeção")
 	}
 }

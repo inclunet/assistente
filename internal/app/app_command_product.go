@@ -11,6 +11,7 @@ import (
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandbridge"
 	"assistente/internal/commandcatalog"
+	"assistente/internal/commandconfig"
 	"assistente/internal/commandcontext"
 	"assistente/internal/commandcontract"
 	"assistente/internal/commanddeck"
@@ -62,6 +63,10 @@ type commandProductRuntime struct {
 	resolutionConfiguration *commandbindings.Configuration
 	resolutionCache         *commandcontext.ResolutionCache
 	resolutionStopped       bool
+	persistedConfigMu       sync.RWMutex
+	persistedConfigStore    *commandconfig.Store
+	persistedConfigSnapshot commandconfig.Snapshot
+	hasPersistedSnapshot    bool
 	bridge                  *commandbridge.Bridge
 	mu                      sync.Mutex
 	projectionMu            sync.Mutex
@@ -135,10 +140,14 @@ func (a *App) ExecutePaletteCommand(commandID string, arguments json.RawMessage)
 			return CommandExecutionResult{}, err
 		}
 	}
-	if err := p.refreshCommandJobProjection(a.commandBridgeContext()); err != nil {
+	ctx := a.commandBridgeContext()
+	if err := p.checkPersistedCommandConfiguration(ctx); err != nil {
 		return CommandExecutionResult{}, err
 	}
-	record, output, err := p.service.ExecuteEnvelopeWithResult(a.commandBridgeContext(), "", candidate)
+	if err := p.refreshCommandJobProjection(ctx); err != nil {
+		return CommandExecutionResult{}, err
+	}
+	record, output, err := p.service.ExecuteEnvelopeWithResult(ctx, "", candidate)
 	result := commandProductResult(record)
 	if err != nil || record.Status != commandledger.Succeeded || len(output) == 0 {
 		return result, err

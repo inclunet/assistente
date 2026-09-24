@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandbindings"
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandcontext"
 	"assistente/internal/commandcontract"
@@ -43,6 +44,9 @@ type EnvelopeResolution struct {
 	// Provenance é fornecida somente pelo resolvedor confiável do bootstrap;
 	// nunca é lida do EnvelopeCandidate.
 	Provenance *json.RawMessage
+	// ProjectionDependency is a private, in-memory witness for a resolution
+	// that the host has certified context-neutral. It is never serialized.
+	ProjectionDependency *commandbindings.ExecutionDependency
 }
 
 // EnvelopeConfig é uma porta interna do bootstrap, nunca preenchida por Wails.
@@ -84,6 +88,7 @@ type preparedEnvelope struct {
 	owner                  commandledger.FullOwnership
 	layerRefs              []string
 	contextVersion         string
+	projectionDependency   *commandbindings.ExecutionDependency
 	hostSnapshotProvenance *json.RawMessage
 	hostProvenance         *json.RawMessage
 	inputFingerprint       string
@@ -369,6 +374,7 @@ func (s *Service) prepareEnvelope(ctx context.Context, token string, c EnvelopeC
 			p.envelope.BindingIDs = append([]string{}, resolution.BindingIDs...)
 			p.layerRefs = append([]string{}, resolution.LayerRefs...)
 			p.contextVersion = resolution.ContextVersion
+			p.projectionDependency = resolution.ProjectionDependency
 			if resolution.CommandID != "" {
 				id := resolution.CommandID
 				p.envelope.CommandID = &id
@@ -522,6 +528,10 @@ func (s *Service) checkEnvelope(ctx context.Context, token string, p preparedEnv
 			resolution.Arguments = json.RawMessage(`{}`)
 		}
 		if resolution.ContextVersion != p.contextVersion {
+			return ErrStale
+		}
+		if (p.projectionDependency == nil) != (resolution.ProjectionDependency == nil) ||
+			p.projectionDependency != nil && !p.projectionDependency.Equivalent(resolution.ProjectionDependency) {
 			return ErrStale
 		}
 		arguments, err := commandjson.Canonicalize(resolution.Arguments)
@@ -842,7 +852,13 @@ func (s *Service) ExecuteEnvelopeWithResult(ctx context.Context, token string, c
 	if runtimeOwnsDeadline {
 		admissionCtx = operationCtx
 	}
-	release, admitErr := s.config.Epochs.AdmitExecution(admissionCtx, p.epoch, func(validationCtx context.Context) error {
+	admit := s.config.Epochs.AdmitExecution
+	if p.projectionDependency != nil {
+		admit = func(ctx context.Context, snapshot commandsecurity.EpochSnapshot, revalidate func(context.Context) error, handoff func(context.Context) error) (func(), error) {
+			return s.config.Epochs.AdmitExecutionWithProjectionProof(ctx, snapshot, p.projectionDependency.UnaffectedBy, revalidate, handoff)
+		}
+	}
+	release, admitErr := admit(admissionCtx, p.epoch, func(validationCtx context.Context) error {
 		if runtimeOwnsDeadline {
 			if err := preDispatchCtx.Err(); err != nil {
 				return err

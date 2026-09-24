@@ -25,11 +25,12 @@ import (
 const liveCommandTool = "test.command_maintenance_live_block"
 
 type liveCommandToolImpl struct {
-	name        string
-	started     chan struct{}
-	release     chan struct{}
-	startOnce   sync.Once
-	releaseOnce sync.Once
+	name           string
+	started        chan struct{}
+	startedContext chan context.Context
+	release        chan struct{}
+	startOnce      sync.Once
+	releaseOnce    sync.Once
 }
 
 func (t *liveCommandToolImpl) Name() string {
@@ -49,6 +50,12 @@ func (t *liveCommandToolImpl) Parameters() json.RawMessage {
 
 func (t *liveCommandToolImpl) Execute(ctx context.Context, _ json.RawMessage) (tools.ToolResult, error) {
 	t.startOnce.Do(func() { close(t.started) })
+	if t.startedContext != nil {
+		select {
+		case t.startedContext <- ctx:
+		default:
+		}
+	}
 	select {
 	case <-t.release:
 		return tools.ToolResult{Content: `{"ok":true}`}, nil

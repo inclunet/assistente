@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"assistente/internal/commandactivation"
@@ -112,9 +113,14 @@ func TestCommandJobClaimRefreshesPaletteResolutionAfterRuntimeTerminal(t *testin
 	}
 	installJobPaletteSuppress(t, a, claim)
 
-	suppressed := executePaletteResolution(t, a)
-	if suppressed.Status != commandledger.Suppressed || suppressed.Envelope.CommandID != nil {
-		t.Fatalf("claim não projetou suppress sem rebuild explícito: status=%s command=%v", suppressed.Status, suppressed.Envelope.CommandID)
+	suppressedResult, err := a.ExecutePaletteCommand(commandProductWorkspaceListID, json.RawMessage(`{}`))
+	if err != nil || suppressedResult.Status != string(commandledger.Suppressed) {
+		t.Fatalf("claim não projetou suppress sem rebuild explícito: status=%s err=%v", suppressedResult.Status, err)
+	}
+	p := a.commandProduct.Load()
+	suppressed, err := p.service.GetEnvelopeInvocation(context.Background(), "", suppressedResult.InvocationID)
+	if err != nil || suppressed.Status != commandledger.Suppressed || suppressed.Envelope.CommandID != nil {
+		t.Fatalf("suppress persistido pela ingress palette: status=%s command=%v err=%v", suppressed.Status, suppressed.Envelope.CommandID, err)
 	}
 
 	control.Release()

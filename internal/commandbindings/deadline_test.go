@@ -24,3 +24,26 @@ func TestConfigurationDeadlineIsImmutableAndSurvivesCopies(t *testing.T) {
 		t.Fatalf("restore: %v", err)
 	}
 }
+
+func TestEquivalentExceptValidityDeadlineIgnoresOnlyDeadline(t *testing.T) {
+	base, err := NewConfiguration(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err = base.WithPersistedBaseline("base:one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := base.WithValidityDeadline(time.Now().Add(time.Minute))
+	second := base.WithValidityDeadline(time.Now().Add(2 * time.Minute))
+	if !first.EquivalentExceptValidityDeadline(second) || first.Equivalent(second) {
+		t.Fatal("comparação não isolou somente o deadline renovável")
+	}
+	changedBase, err := second.WithPersistedBaseline("base:two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.EquivalentExceptValidityDeadline(changedBase) {
+		t.Fatal("comparação ignorou também a base persistida")
+	}
+}

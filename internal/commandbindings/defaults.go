@@ -85,6 +85,7 @@ type Configuration struct {
 	layerPresentationTargets map[string]LayerPresentationState
 	adjustments              []Adjustment
 	layerProvenance          map[string][]LayerProvenance
+	persistedBaseline        string
 }
 
 // WithValidityDeadline attaches the host's earliest activation deadline to an

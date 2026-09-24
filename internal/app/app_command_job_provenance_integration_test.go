@@ -93,7 +93,7 @@ func containsStringValue(values []any, want string) bool {
 	return false
 }
 
-func installJobPaletteExecute(t *testing.T, a *App, claim commandactivation.Claim) {
+func installJobPaletteExecute(t *testing.T, a *App, claim commandactivation.Claim) string {
 	t.Helper()
 	p := a.commandProduct.Load()
 	if p == nil {
@@ -153,6 +153,7 @@ func installJobPaletteExecute(t *testing.T, a *App, claim commandactivation.Clai
 		Update("generation", generation.Generation+1).Error; err != nil {
 		t.Fatalf("avançar geração da configuração: %v", err)
 	}
+	return binding.ID
 }
 
 func readInvocationProvenance(t *testing.T, invocationID string) *string {

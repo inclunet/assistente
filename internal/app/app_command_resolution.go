@@ -479,6 +479,19 @@ func (p *commandProductRuntime) resolvePersistedTrigger(ctx context.Context, own
 		return commandexecution.EnvelopeResolution{}, commandexecution.ErrDenied
 	}
 	result := commandexecution.EnvelopeResolution{BindingIDs: resolved.BindingIDs, LayerRefs: resolved.LayerRefs, ContextVersion: originVersion}
+	// A claim-only publication may preserve an admitted execution only when
+	// this invocation is independent of all mutable foreground/surface facts
+	// and has no contextual palette occurrence. Its authenticated session and
+	// immutable persisted authority base are checked by the publication path.
+	contextNeutralIngress := candidate.TriggerType == string(commandcatalog.Palette) || candidate.TriggerType == string(commandcatalog.KeyboardGlobal)
+	if contextNeutralIngress && resolved.Status == commandbindings.Selected &&
+		len(facts) == 0 && originVersion == "" && foregroundVersion == "" && envelope.ContextVersion == nil &&
+		p.contextualPaletteLayerOccurrence(ctx, candidate.InvocationID) == nil {
+		result.ProjectionDependency, err = configuration.CaptureExecutionDependency(identity, facts, nil, resolved)
+		if err != nil {
+			return commandexecution.EnvelopeResolution{}, commandexecution.ErrDenied
+		}
+	}
 	switch resolved.Status {
 	case commandbindings.Suppressed:
 		result.Mode = commandcontract.ResolutionSuppress
