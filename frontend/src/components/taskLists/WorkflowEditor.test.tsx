@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import WorkflowEditor from './WorkflowEditor';
 import { Modal } from '../ui/Modal';
+import { DATAGRID_ENTRY_SELECTOR } from '../ui/DataGrid';
 import type { TaskListWorkflow } from '../../types/tasklist';
 
 const mockAddToast = vi.fn();
@@ -206,5 +207,32 @@ describe('WorkflowEditor', () => {
     expect(screen.getByLabelText(/Nome/)).toHaveValue('A Fazer');
     expect(screen.getByRole('checkbox', { name: '🔄 Em Progresso' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Status Inicial' })).toBeChecked();
+  });
+
+  it('dentro do Modal, o foco inicial fica no grid e não no Fechar', async () => {
+    const originalOffsetParent = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent');
+    // Torna os controles "visíveis" para a heurística de foco do Modal.
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+      configurable: true,
+      get() { return document.body; },
+    });
+    try {
+      render(
+        <Modal isOpen title="Editar Workflow" onClose={vi.fn()} initialFocusSelector={DATAGRID_ENTRY_SELECTOR}>
+          <WorkflowEditor workflow={workflow} onSave={vi.fn()} onCancel={vi.fn()} />
+        </Modal>,
+      );
+      const grid = await screen.findByRole('grid');
+      await waitFor(() => expect(document.activeElement).toHaveAttribute('role', 'gridcell'));
+      // Passada a verificação de ~150ms do Modal, o foco continua no grid.
+      await new Promise<void>((r) => { window.setTimeout(r, 250); });
+      expect(grid.contains(document.activeElement)).toBe(true);
+    } finally {
+      if (originalOffsetParent) {
+        Object.defineProperty(HTMLElement.prototype, 'offsetParent', originalOffsetParent);
+      } else {
+        delete (HTMLElement.prototype as { offsetParent?: unknown }).offsetParent;
+      }
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
@@ -13,6 +13,7 @@ import { Checkbox } from '../ui/Checkbox';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useGridFocus } from '../../hooks/useGridFocus';
+import { useInitialContentFocus } from '../../hooks/useInitialContentFocus';
 import { useUIStore } from '../../store/uiStore';
 import type {
   TaskListWorkflowStatus,
@@ -98,20 +99,11 @@ export default function WorkflowEditor({
   const [draft, setDraft] = useState<StatusDraft>(() => emptyDraft(COLOR_PRESETS[0].token));
   const newButtonRef = useRef<HTMLButtonElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const didInitialGridFocus = useRef(false);
 
-  // Ao entrar na tela, o foco vai para o grid — mesmo que o Modal pai já
-  // tenha focado a toolbar. Nunca rouba foco de fora do editor.
-  useEffect(() => {
-    if (statuses.length === 0 || didInitialGridFocus.current) return;
-    didInitialGridFocus.current = true;
-    requestAnimationFrame(() => {
-      const active = document.activeElement;
-      if (!active || active === document.body || rootRef.current?.contains(active)) {
-        requestGridFocus();
-      }
-    });
-  }, [statuses.length, requestGridFocus]);
+  // Ao entrar na tela, o foco vai para o grid de status.
+  useInitialContentFocus(rootRef, true, () => {
+    if (!requestGridFocus()) newButtonRef.current?.focus();
+  });
 
   const nextId = useCallback(() => {
     const allIds = [...statuses, ...removedStatuses].map(s => s.id);

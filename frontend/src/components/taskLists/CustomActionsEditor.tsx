@@ -6,6 +6,7 @@ import { useUIStore } from '../../store/uiStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useGridFocus } from '../../hooks/useGridFocus';
+import { useInitialContentFocus } from '../../hooks/useInitialContentFocus';
 import type { CustomAction, CustomActionSurface } from '../../types/tasklist';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -95,7 +96,6 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
   const [isSaving, setIsSaving] = useState(false);
   const [focused, setFocused] = useState<EditableAction | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const didInitialGridFocus = useRef(false);
 
   // Modal de edição por ação: 'create' parte do vazio, 'edit' do item focado.
   const [itemModal, setItemModal] = useState<{ mode: 'create' } | { mode: 'edit'; uiId: string } | null>(null);
@@ -117,18 +117,11 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
     return () => { cancelled = true; };
   }, [taskListId, getTaskListCustomActions]);
 
-  // Ao entrar na tela (dados carregados), o foco vai para o grid — mesmo que
-  // o Modal pai já tenha focado a toolbar. Nunca rouba foco de fora do editor.
-  useEffect(() => {
-    if (isLoading || actions.length === 0 || didInitialGridFocus.current) return;
-    didInitialGridFocus.current = true;
-    requestAnimationFrame(() => {
-      const active = document.activeElement;
-      if (!active || active === document.body || rootRef.current?.contains(active)) {
-        requestGridFocus();
-      }
-    });
-  }, [isLoading, actions.length, requestGridFocus]);
+  // Ao entrar na tela (dados carregados), o foco vai para o grid — ou para
+  // "Nova ação" quando a lista está vazia e não há grid.
+  useInitialContentFocus(rootRef, !isLoading, () => {
+    if (!requestGridFocus()) newButtonRef.current?.focus();
+  });
 
   const openNewAction = useCallback(() => {
     setDraft(emptyAction());
