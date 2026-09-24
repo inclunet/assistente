@@ -107,6 +107,7 @@ export function DataGrid<T = unknown>({
   const [editingRow, setEditingRow] = useState(-1);
   const [editingCol, setEditingCol] = useState(-1);
   const [editValue, setEditValue] = useState('');
+  const editingSessionRef = useRef<{ rowIndex: number; colIndex: number; value: string } | null>(null);
   const [localSelectedIds, setLocalSelectedIds] = useState<Set<string | number>>(new Set(selectedIds || []));
   
   const gridRef = useRef<HTMLDivElement>(null);
@@ -517,6 +518,7 @@ export function DataGrid<T = unknown>({
     clearScheduledCellFocus();
     const item = items[rowIndex];
     const value = item[col.key as keyof T];
+    editingSessionRef.current = { rowIndex, colIndex, value: String(value || '') };
     setEditingRow(rowIndex);
     setEditingCol(colIndex);
     setEditValue(String(value || ''));
@@ -524,22 +526,33 @@ export function DataGrid<T = unknown>({
   };
 
   const saveEdit = () => {
-    if (editingRow >= 0 && editingCol >= 0) {
-      const item = items[editingRow];
-      const column = columns[editingCol];
-      onCellEdit?.(item, column, editValue, editingRow, editingCol);
-      announce(t('a11y.announce.gridSaved'));
-    }
-    cancelEdit();
-  };
+    const session = editingSessionRef.current;
+    if (!session) return;
 
-  const cancelEdit = () => {
-    if (editingRow >= 0) {
-      announce(t('a11y.announce.gridEditCancelled'));
-    }
+    // Encerra a sessão antes do callback e do foco: desmontar o input pode
+    // disparar onBlur sincronamente, que então não pode salvar pela segunda vez.
+    editingSessionRef.current = null;
     setEditingRow(-1);
     setEditingCol(-1);
     setEditValue('');
+    const validRow = session.rowIndex >= 0 && session.rowIndex < items.length;
+    const validColumn = session.colIndex >= 0 && session.colIndex < columns.length;
+    if (validRow && validColumn) {
+      const item = items[session.rowIndex];
+      const column = columns[session.colIndex];
+      onCellEdit?.(item, column, session.value, session.rowIndex, session.colIndex);
+      announce(t('a11y.announce.gridSaved'));
+    }
+    gridRef.current?.focus();
+  };
+
+  const cancelEdit = () => {
+    if (!editingSessionRef.current) return;
+    editingSessionRef.current = null;
+    setEditingRow(-1);
+    setEditingCol(-1);
+    setEditValue('');
+    announce(t('a11y.announce.gridEditCancelled'));
     gridRef.current?.focus();
   };
 
@@ -949,7 +962,11 @@ export function DataGrid<T = unknown>({
           ref={editInputRef}
           type="text"
           value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (editingSessionRef.current) editingSessionRef.current.value = value;
+            setEditValue(value);
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();

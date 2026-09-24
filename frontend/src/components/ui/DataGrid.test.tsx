@@ -202,6 +202,83 @@ describe('DataGrid (list mode — backward compat)', () => {
   });
 });
 
+describe('DataGrid (sessão de edição inline)', () => {
+  const editableColumns: DataGridColumn<TestItem>[] = [
+    { key: 'name', label: 'Nome', editable: true },
+    { key: 'desc', label: 'Descrição' },
+  ];
+
+  function startFirstCellEdit(onCellEdit = vi.fn()) {
+    render(<DataGrid items={items} columns={editableColumns} onCellEdit={onCellEdit} autoFocusOnMount={false} />);
+    const grid = getGrid();
+    focusGrid();
+    fireEvent.keyDown(grid, { key: 'F2' });
+    return { grid, input: screen.getByRole('textbox'), onCellEdit };
+  }
+
+  it('Enter seguido de blur atrasado salva uma vez e devolve foco ao grid', () => {
+    const { grid, input, onCellEdit } = startFirstCellEdit();
+    fireEvent.change(input, { target: { value: 'Alpha editado' } });
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.blur(input);
+
+    expect(onCellEdit).toHaveBeenCalledTimes(1);
+    expect(onCellEdit).toHaveBeenCalledWith(items[0], editableColumns[0], 'Alpha editado', 0, 0);
+    expect(document.activeElement).toBe(grid);
+  });
+
+  it('Escape seguido de blur não salva', () => {
+    const { grid, input, onCellEdit } = startFirstCellEdit();
+    fireEvent.change(input, { target: { value: 'Não salvar' } });
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+    fireEvent.blur(input);
+
+    expect(onCellEdit).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(grid);
+  });
+
+  it('blur standalone salva exatamente uma vez', () => {
+    const { input, onCellEdit } = startFirstCellEdit();
+    fireEvent.change(input, { target: { value: 'Salvo no blur' } });
+
+    fireEvent.blur(input);
+    fireEvent.blur(input);
+
+    expect(onCellEdit).toHaveBeenCalledTimes(1);
+    expect(onCellEdit).toHaveBeenCalledWith(items[0], editableColumns[0], 'Salvo no blur', 0, 0);
+  });
+
+  it.each([0, false])('salva itens genéricos falsy sem descartá-los: %s', (item: number | boolean) => {
+    const onCellEdit = vi.fn();
+    const columns: DataGridColumn<number | boolean>[] = [{ key: 'value', label: 'Valor', editable: true }];
+    render(<DataGrid<number | boolean> items={[item]} columns={columns} onCellEdit={onCellEdit} autoFocusOnMount={false} />);
+    focusGrid();
+    fireEvent.keyDown(getGrid(), { key: 'F2' });
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'alterado' } });
+    fireEvent.blur(input);
+
+    expect(onCellEdit).toHaveBeenCalledTimes(1);
+    expect(onCellEdit).toHaveBeenCalledWith(item, columns[0], 'alterado', 0, 0);
+  });
+
+  it('permite iniciar e salvar uma nova edição depois de Escape', () => {
+    const { grid, input, onCellEdit } = startFirstCellEdit();
+    fireEvent.keyDown(input, { key: 'Escape' });
+    fireEvent.blur(input);
+
+    fireEvent.keyDown(grid, { key: 'F2' });
+    const nextInput = screen.getByRole('textbox');
+    fireEvent.change(nextInput, { target: { value: 'Segunda edição' } });
+    fireEvent.blur(nextInput);
+
+    expect(onCellEdit).toHaveBeenCalledTimes(1);
+    expect(onCellEdit).toHaveBeenCalledWith(items[0], editableColumns[0], 'Segunda edição', 0, 0);
+  });
+});
+
 // ─── Checkbox mode ─────────────────────────────────────────────────
 
 describe('DataGrid (checkbox mode)', () => {
