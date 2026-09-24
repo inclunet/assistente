@@ -150,6 +150,10 @@ export function UpdateWorkflowFull(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['wailsapi']['Tasklist']['UpdateWorkflowFull'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function UpdateWorkflowFullChecked(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['wailsapi']['Tasklist']['UpdateWorkflowFullChecked'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
 export function ValidateStatusTransition(arg1, arg2, arg3) {
   return window['go']['wailsapi']['Tasklist']['ValidateStatusTransition'](arg1, arg2, arg3);
 }
