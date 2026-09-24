@@ -324,6 +324,34 @@ func UpdateWorkflowFullWithContext(
 	initialStatusID int,
 	statusMigration map[int]int,
 ) error {
+	return updateWorkflowFull(ctx, taskListID, nil, statuses, transitions, initialStatusID, statusMigration)
+}
+
+// UpdateWorkflowFullCheckedWithContext é UpdateWorkflowFullWithContext com
+// controle de concorrência: grava somente se o workflow atual ainda for
+// equivalente a expected; caso contrário devolve ErrTaskListConfigConflict sem
+// gravar nem migrar tasks.
+func UpdateWorkflowFullCheckedWithContext(
+	ctx context.Context,
+	taskListID string,
+	expected TaskListWorkflowSnapshot,
+	statuses []TaskListWorkflowStatus,
+	transitions TaskListWorkflowTransitions,
+	initialStatusID int,
+	statusMigration map[int]int,
+) error {
+	return updateWorkflowFull(ctx, taskListID, &expected, statuses, transitions, initialStatusID, statusMigration)
+}
+
+func updateWorkflowFull(
+	ctx context.Context,
+	taskListID string,
+	expected *TaskListWorkflowSnapshot,
+	statuses []TaskListWorkflowStatus,
+	transitions TaskListWorkflowTransitions,
+	initialStatusID int,
+	statusMigration map[int]int,
+) error {
 	if _, err := GetTaskListMetadataWithContext(ctx, taskListID); err != nil {
 		return err
 	}
@@ -366,6 +394,15 @@ func UpdateWorkflowFullWithContext(
 		}
 	}
 
+	// Verificação antecipada: sem ela, um workflow alterado em outro lugar pode
+	// cair na validação de contagem abaixo e virar um erro genérico em vez de
+	// conflito. A verificação que garante a atomicidade é a da transação.
+	if expected != nil {
+		if err := ensureWorkflowUnchanged(ctx, db.WithContext(ctx), taskListID, *expected); err != nil {
+			return err
+		}
+	}
+
 	counts, err := GetTaskCountsByStatusWithContext(ctx, taskListID)
 	if err != nil {
 		return fmt.Errorf("erro ao verificar tasks existentes: %w", err)
@@ -390,6 +427,11 @@ func UpdateWorkflowFullWithContext(
 	}
 
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if expected != nil {
+			if err := ensureWorkflowUnchanged(ctx, tx, taskListID, *expected); err != nil {
+				return err
+			}
+		}
 		for oldID, newID := range statusMigration {
 			taskIDs := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ? AND tasks.status_id = ?", taskListID, oldID))
 			if err := tx.Model(&Task{}).Where("id IN (?)", taskIDs).
