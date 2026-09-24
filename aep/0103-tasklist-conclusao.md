@@ -10158,3 +10158,12 @@ identificado por Franklin foi corrigido com clear por ID e revalidação no
 frame, preservando o retorno ao modal de origem. TypeScript, ESLint focado
 e `git diff --check` PASS; a revisão final dessa frente precede o push.
 Nenhum ACP/acpregistry, Wails dev/build, hardware ou banco pessoal foi usado.
+
+**Publicação e primeira verificação do lote:** `f4c632f64` foi enviado ao PR
+#833, que passou a `MERGEABLE` com a main atual. No run `36061552474`, E2E,
+bindings e scripts passaram. Frontend executou 6.034 testes: 6.031 PASS e três
+falhas em `ChatMessage.test.tsx`, cuja fixture de histórico vazio não expunha
+`getConversationMessages`, agora consultado pelo componente real. A fixture
+foi alinhada sem mudar produção ou asserções; 58 testes dos três componentes
+envolvidos e ESLint PASS. Godel revisou sem achados. Backend/race e nova
+verificação remota do ajuste continuam pendentes; não é CI integral verde.

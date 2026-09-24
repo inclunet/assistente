@@ -59,6 +59,10 @@ vi.mock('../../store/chatStore', () => {
     activeToolCalls: [],
     tabs: [],
     liveMessageContentByConversationId: {},
+    // Esta fixture não carrega histórico canônico; MessageNode também consulta
+    // o seletor ao registrar navegação. Os testes abaixo exercitam fala, não
+    // fabricam admissão de um comando de navegação para uma mensagem ausente.
+    getConversationMessages: (): chat.EnrichedMessage[] => [],
   };
   const useChatStore = (selector?: (value: typeof state) => unknown) => (
     selector ? selector(state) : state
