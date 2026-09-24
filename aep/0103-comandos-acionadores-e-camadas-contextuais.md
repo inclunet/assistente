@@ -2,7 +2,19 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção156 (24/09/2026):** dos 84 critérios finais,
+**Acompanhamento vigente — seção157 (24/09/2026):** dos 84 critérios finais,
+**83 têm implementação identificada (98,8%), 1 é parcial e 0 ausentes**.
+C51 passa a I após prova autorizada de queda abrupta de processo filho de teste,
+lease nativa, recuperação para `outcome_unknown` e replay sem repetir o efeito.
+O teste isolado passou e sua repetição `-count=3` passou (1,917 s).
+C38 permanece P: foco e instruções de teclado foram corrigidos e cobertos por
+testes; o aceite integral com NVDA depende de validação humana pelo roteiro
+`docs/content/guias/VALIDACAO_COMANDOS_NVDA.md`.
+Saídas/gates preservados: **11 A / 20 I / 16 P / 1 N = 48; 1/12 gate aceito**.
+R06/qualificação agregada e CI/review final continuam abertos. Não é AEP Done
+nem afirmação de que só resta teste manual em todo o projeto.
+
+**Histórico — seção156 (24/09/2026):** dos 84 critérios finais,
 **82 têm implementação identificada (97,6%), 2 são parciais e 0 ausentes**.
 Saídas maiores: **11 A / 20 I / 16 P / 1 N = 48; 1/12 gate aceito**. C65/C70,
 R05.1 e R03.4 passam a I por código e provas existentes, sem aceite final.

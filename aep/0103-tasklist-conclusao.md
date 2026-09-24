@@ -1,10 +1,10 @@
 # AEP-0103 — Tasklist de conclusão integral
 
-Baseline inicial de 16/09/2026; reconciliação de 24/09/2026 atualizada pela seção156. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoints posteriores `03ef8f0a4`, `6f516326a`, `f59f7d6c9`, `2a9049481`, `79b385168`, `1aa9e7c6c`, `79f06ab6b`, `6d0411dbb` e `bf7860c65`. Status do AEP: **In Progress**.
+Baseline inicial de 16/09/2026; reconciliação de 24/09/2026 atualizada pela seção157. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoints posteriores `03ef8f0a4`, `6f516326a`, `f59f7d6c9`, `2a9049481`, `79b385168`, `1aa9e7c6c`, `79f06ab6b`, `6d0411dbb` e `bf7860c65`. Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.
 
-## 1. Progresso reconciliado — 24/09/2026, após a seção156
+## 1. Progresso reconciliado — 24/09/2026, após a seção157
 
 Esta reconciliação considera os commits `1aa9e7c6c` (contexto exato de
 recibos externos), `79f06ab6b` (provas seletivas por execução no ciclo reativo),
@@ -15,8 +15,8 @@ isso não é aceite final nem certificação dos gates de qualificação.
 
 ### Implementação dos 84 critérios finais
 
-- **82/84 I — implementação identificada: 97,6%.**
-- **2/84 P — parciais: 2,4%.**
+- **83/84 I — implementação identificada: 98,8%.**
+- **1/84 P — parcial: 1,2%.**
 - **0/84 N — funcionalidade pública inteiramente ausente.** Isso não elimina
   lacunas dentro dos critérios parciais, como a qualificação transversal.
 - Comparação: seção76 **58/24/2**, seção129 **64/18/2**, seção130
@@ -57,13 +57,16 @@ isso não é aceite final nem certificação dos gates de qualificação.
   têm tamanhos distintos; um parcial não recebe meio ponto. Os checkboxes C
   continuam reservados ao aceite final R12. Nenhum foi marcado nesta rodada.
 - A contagem reconhece código entregue e corrige classificações antigas;
-  não mede o número de alterações nem o tamanho dos dois itens parciais restantes.
+  não mede o número de alterações nem o tamanho do item parcial restante.
 
 C83 passa a I na seção148: a arbitragem de diálogo/job chega ao executor no
 mesmo teste, complementando a matriz automatizada transversal reexecutada.
 Qualificação física, desempenho agregado e aceite final continuam em R12.
 
-Parciais atuais: **C38 e C51**. Cada linha da seção5 informa o motivo,
+Na seção157, C51 passa de P para I após teste opt-in de queda real do processo
+filho, recuperação com lease nativa e replay sem repetição do efeito.
+
+Parcial atual: **C38**. Cada linha da seção5 informa o motivo,
 os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
 
 ### Saídas maiores e gates — denominadores separados
@@ -771,6 +774,11 @@ Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `internal/app/app_comm
 
 **Implementação: P — parcial.** Controles existentes são textuais, localizados e operáveis por lista/teclado. As seções142–145 acrescentam títulos Deck por idioma, ícones, imagens e feedback transitório acessível. A seção146 implementou variantes por estado e indicação persistente do estado efetivo de camada. Esses recursos não são mais lacunas de código. A classificação conservadora de C38 é mantida até a qualificação integral de operação por teclado/NVDA e dispositivo; não representa ausência das variantes já entregues.
 
+Seção157: corrigida a perda de foco ao adicionar/remover condições e argumentos;
+instruções da DataGrid localizadas e limitadas às ações disponíveis, incluindo
+Shift+F10/Menu. Testes de teclado/DOM não substituem NVDA. Roteiro com resultados
+por operação: `docs/content/guias/VALIDACAO_COMANDOS_NVDA.md`.
+
 Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `frontend/src/pages/CommandSettingsPage.test.tsx`, `internal/app/app_command_deck_feedback_announce_test.go`, `frontend/src/lib/subscribeCommandDeckFeedback.test.ts`, `docs/content/recursos/COMANDOS.md`; seções129 e142–146. Gates: R09.
 
 ### C39
@@ -873,9 +881,9 @@ Evidência: `internal/commandledger/models.go`, `internal/commandtoolbridge`. Re
 
 - [ ] C51 — Reentrega dentro da janela retorna status/resultado redigido sem repetir o handler; invocações interrompidas por queda viram `outcome_unknown`.
 
-**Implementação: P — parcial.** Replay e recuperação transacional por remontagem estão implementados e testados. Continua sem prova de queda abrupta do processo: cancelamento/shutdown/remontagem não demonstram esse cenário composto. Fechar em ambiente aprovado, sem contornar restrições do antivírus nem reimplementar o recovery existente.
+**Implementação: I — identificada; aceite final pendente (seção157).** Além do replay e recovery transacional, o teste opt-in aprovado encerra à força somente um processo filho de teste após seu efeito SQLite confirmado. A instância seguinte obtém a lease nativa e o RestartProof real, recupera ledger/auditoria para `outcome_unknown` com resumo redigido e repete consulta/recovery/replay sem reiniciar o handler nem repetir o efeito. Não simula queda por cancelamento ou shutdown.
 
-Evidência: `internal/commandledger/recovery.go`, `internal/commandexecution/service_test.go`, `internal/app/app_command_maintenance_restart_test.go`; seções24–28 e129. Gates: R01, R04.
+Evidência: `internal/commandledger/recovery.go`, `internal/commandexecution/service_test.go`, `internal/app/app_command_maintenance_restart_test.go`, `internal/commandexecution/crash_recovery_process_test.go`; seções24–28,129 e157. Gates: R01, R04. Prova isolada em banco descartável; não equivale a desligamento do sistema operacional ou teste do app Wails aberto.
 
 ### C52
 
@@ -9872,3 +9880,75 @@ não no caminho comum dos atalhos contextuais.
 
 **Contagens vigentes:** 82 I / 2 P / 0 N = 84; 11 A / 20 I / 16 P / 1 N =
 48; 1/12 gates aceito (R04). BASE-PRONTA e AEP-CONCLUÍDO permanecem abertos.
+
+## 157. Queda real isolada e fechamento de lacunas de foco (24/09/2026)
+
+Commits temáticos: `e96f343d0` (prova de queda) e `0afb2c0f7` (foco,
+instruções acessíveis e roteiro NVDA).
+
+### C51 — prova de processo, não apenas remontagem
+
+Com autorização explícita do mantenedor, foi executado
+`TestC51CrashReplayAfterCommittedHandlerEffectOptIn`, no pacote
+`internal/commandexecution`. O teste exige
+`ASSISTENTE_C51_PROCESS_CRASH_OPT_IN=1`; sem opt-in ele é ignorado. Reutiliza
+o executável corrente de `go test` como filho, sem criar executáveis avulsos
+nomeados, e usa exclusivamente SQLite em `t.TempDir()`.
+
+A execução passa por `NewComplete`/`ExecuteEnvelope`, confirma o efeito do
+handler com ledger e auditoria ainda `Running` e comprova que outra instância
+não adquire o lock nativo enquanto o filho está vivo. Só então encerra esse
+filho à força. Uma nova instância obtém a lease e o RestartProof reais;
+`CoordinatorRecovery` converte o par para `outcome_unknown`, com resumo `{}`.
+Consulta, segunda recuperação e duas reentregas não repetem o handler: o efeito
+persistido permanece único. A política e o recovery de produção não foram
+substituídos por implementações exclusivas de teste.
+
+O `Start` retorna imediatamente; a escrita do efeito ocorre fora do gate, em
+goroutine. Revisão independente de Godel identificou e encerrou esse ajuste;
+também foram revisados limpeza da lease, sincronização do buffer/Wait e uso do
+executor integral. Revisão final sem achados. O teste passou (5,703 s) e a
+repetição independente `-count=3 -v -timeout 180s` passou (1,917 s).
+
+**C51 P→I.** A prova é de interrupção abrupta do processo de teste no Windows,
+não desligamento elétrico, morte do sistema operacional ou teste do app Wails.
+
+### C38 — correções entregues; NVDA ainda exige aceite humano
+
+Condições e argumentos agora preservam um foco útil ao adicionar/remover linhas:
+entrada nova, vizinha ou Adicionar; condições legadas sem opções têm fallback
+no grupo. A DataGrid reutiliza traduções nos três idiomas e anuncia somente
+atalhos aplicáveis, com instrução de Shift+F10/Menu e separação entre frases.
+Regressões exercitam Tab/Enter e o último item legado, além da descrição em
+inglês. Franklin revisou código e roteiro, sem achados finais.
+
+O roteiro `docs/content/guias/VALIDACAO_COMANDOS_NVDA.md`, vinculado no guia
+de comandos, registra PASS/FALHOU/NÃO TESTADO por operação, incluindo fluxos
+condicionais de importação, revisão de padrões e conexão externa. Nenhum fluxo
+não testado recebe aceite implícito. **C38 permanece P**: testes DOM/teclado não
+comprovam fala, modo de interação ou foco percebido no NVDA real.
+
+### Validação e limites
+
+- Frontend: **474 arquivos / 5.901 testes PASS** na suíte completa; 61 testes
+  focados PASS; `tsc --noEmit` e ESLint dos arquivos afetados PASS.
+- Uma rodada focada anterior falhou em `CommandSettingsPage > mantém a seção
+  avançada do binding alcançável por teclado`: após Enter, `aria-expanded`
+  permaneceu `false` (77/78 testes da página passaram; advanced 13/13). O rerun
+  isolado passou (1 PASS/77 ignorados), assim como a suíte completa. A causa
+  não foi demonstrada; não se declara a rodada original como PASS.
+- Backend: `commandexecution` PASS (28,296 s; revisão final reexecutada em
+  21,072 s); `commandledger` PASS (6,081 s),
+  `commandsecurity` PASS (1,566 s), `commandinstance` PASS (1,150 s).
+  `go vet ./internal/commandexecution` PASS. O crash foi qualificado
+  separadamente com opt-in; o skip no teste padrão não conta como essa prova.
+- Stylelint terminou com código 0: zero erros e 2.133 avisos em arquivos CSS
+  não alterados nesta rodada. Verificador de status dos AEPs e diff-check PASS.
+- Não foram executados ACP/acpregistry, Wails dev/build, app, NVDA ou hardware;
+  não houve acesso ao banco pessoal nem relaxamento do antivírus.
+- R06/qualificação agregada e R12/CI/review/aceites continuam abertos. Esta
+  rodada não certifica todo o AEP nem promove checkboxes de aceite final.
+
+**Contagens vigentes: 83 I / 1 P / 0 N = 84 (98,8%); 11 A / 20 I / 16 P /
+1 N = 48; 1/12 gate aceito.** Apenas C38 permanece parcial na contagem C.
+Históricos anteriores mantêm as contagens que eram válidas em suas rodadas.

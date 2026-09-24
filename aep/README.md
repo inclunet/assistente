@@ -16,7 +16,15 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
-Atualização vigente AEP-0103, seção156: conexão externa explícita entre JWT e
+Atualização vigente AEP-0103, seção157: C51 passa a I com prova autorizada de
+queda abrupta de processo filho, recuperação real e replay sem repetir o efeito.
+**In Progress; 83 I / 1 P / 0 N (98,8%); 11 A / 20 I / 16 P / 1 N;
+1/12 gate aceito**. C38 recebeu correções de foco e instruções acessíveis;
+permanece parcial até aceite humano com NVDA. Qualificação agregada e CI/aceites
+continuam abertos. Evidências: seção157 da tasklist de conclusão; roteiro em
+`docs/content/guias/VALIDACAO_COMANDOS_NVDA.md`.
+
+Histórico AEP-0103, seção156: conexão externa explícita entre JWT e
 interface (commit `0548492ab`) e preservação seletiva de execuções diante de
 claims de jobs (`79f06ab6b`), com retenção de fontes pendentes (`6d0411dbb`).
 **In Progress; 82 I / 2 P / 0 N (97,6%); 11 A / 20 I / 16 P / 1 N;
