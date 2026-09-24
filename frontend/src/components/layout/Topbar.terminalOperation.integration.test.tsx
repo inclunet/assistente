@@ -36,6 +36,7 @@ const terminal = { sessions: [{ id: 'pty-a', state: 'running' }],
 const listeners = new Set<() => void>();
 const reservation = { ticket: 'ticket-a', invocationId: 'invocation-a', commandId: 'terminal.command.interrupt' };
 const handoff = { ...reservation, handoffId: 'handoff-a' };
+const palettePreferencesKey = 'assistente.command-palette.v1.user-a.workspace-a';
 
 vi.mock('react-router-dom', async original => ({ ...await original<typeof import('react-router-dom')>(),
   useNavigate: () => state.noop, useLocation: () => ({ pathname: state.pathname, search: '', hash: '', key: state.pathname }),
@@ -102,6 +103,7 @@ let root: HTMLElement;
 let input: HTMLTextAreaElement;
 let unregister: (() => void) | undefined;
 beforeEach(() => {
+  localStorage.removeItem(palettePreferencesKey);
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   state.ready = false; state.pathname = '/'; state.events.clear(); state.keyCommand = id;
   workspace.activeTabId = 'terminal-a'; terminal.activeEntryBySession['pty-a'] = 'command-a';
@@ -133,7 +135,7 @@ async function trigger(source: string) {
   if (source === 'palette') {
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
-    await user.click(await screen.findByRole('option', { name: 'Interromper terminal' }));
+    await user.click(await screen.findByRole('option', { name: 'Interromper terminal. Ctrl+J' }));
   }
 }
 

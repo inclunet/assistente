@@ -109,6 +109,8 @@ const EMPTY: CommandSettingsSnapshot = {
 
 export default function CommandSettingsPage() {
   const { t, i18n } = useTranslation();
+  const deepLinkedCommandId = typeof window === 'undefined'
+    ? '' : new URLSearchParams(window.location.search).get('commandId')?.trim() ?? '';
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   const userId = useAuthStore((state) => state.user?.userId ?? '');
@@ -135,7 +137,7 @@ export default function CommandSettingsPage() {
       options: (workspaceTabs ?? []).map((tab) => ({ value: tab.id, label: tab.title })),
     }, {
       id: 'device', label: t('commandSettings.conditionDevice'), valueKind: 'enum' as const,
-      options: (deckStatus?.devices ?? []).map((device, index, devices) => ({
+      options: (deckStatus?.devices ?? []).filter((device) => device.status === 'connected').map((device, index, devices) => ({
         value: device.id,
         label: devices.filter(other => other.model === device.model).length > 1
           ? t('commandSettings.conditionDeviceNumbered', { model: device.model, index: index + 1 })
@@ -159,6 +161,7 @@ export default function CommandSettingsPage() {
   const snapshot = snapshotIdentity === identityKey ? loadedSnapshot : EMPTY;
   const [selectedLayerId, setSelectedLayerId] = useState('');
   const [editor, setEditor] = useState<Editor>(null);
+  const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
   const [argumentsValid, setArgumentsValid] = useState(true);
   const editorConditionFields = useMemo(() => {
     if (editor?.kind === 'rule') {
@@ -202,6 +205,9 @@ export default function CommandSettingsPage() {
     status: deckStatusLabel(deckStatus.status, t), count: deckStatus.devices.length,
   }) : '';
   useEffect(() => { if (deckNotice) announce(deckNotice); }, [announce, deckNotice]);
+  const adHocToolNotice = editor?.kind === 'binding' && getCommandToolCatalogID(editor.value.commandId)
+    ? t('commandSettings.toolExecution.adHocOnly') : '';
+  useEffect(() => { if (adHocToolNotice) announce(adHocToolNotice); }, [adHocToolNotice, announce]);
 
   const load = useCallback(async () => {
     const id = ++requestId.current;
@@ -275,7 +281,7 @@ export default function CommandSettingsPage() {
       if (typeof candidate.status !== 'string' || !Array.isArray(candidate.devices)) return;
       setDeckStatusSnapshot({ identity: deckIdentity, value: {
         status: candidate.status,
-        devices: candidate.devices.filter(isDeckStatusDevice),
+        devices: candidate.devices.map(parseDeckStatusDevice).filter((device): device is CommandDeckStatusEvent['devices'][number] => device !== null),
       } });
     });
     return unsubscribe;
@@ -791,6 +797,16 @@ export default function CommandSettingsPage() {
     setDeckCapture(null);
     setPresentationBusy(false);
     setArgumentsValid(true);
+    const bindingFields = row ? conditionFields.filter((field) => commandConditionSupportedByOrigin(
+      row.triggerType,
+      field.id,
+      isLocalUICommand(commandConditionTargetID(row.triggerType, row.commandId, row.triggerSpec, row.effect === 'suppress')),
+      commandConditionTargetID(row.triggerType, row.commandId, row.triggerSpec, row.effect === 'suppress'),
+    )) : [];
+    setAdvancedOptionsOpen(!!row?.condition?.clauses.some((clause) => {
+      const field = bindingFields.find((candidate) => candidate.id === clause.field);
+      return !field || (field.valueKind === 'enum' && !field.options?.some((option) => option.value === clause.value));
+    }));
     const initialCommand =
       snapshot.commands.find((command) => command.allowedSources.includes('keyboard.local'))?.id ??
       '';
@@ -814,6 +830,30 @@ export default function CommandSettingsPage() {
       },
     });
   }
+
+  useEffect(() => {
+    if (!deepLinkedCommandId || loading || snapshotIdentity !== identityKey) return;
+    const binding = snapshot.bindings.find((candidate) => candidate.commandId === deepLinkedCommandId);
+    if (!binding) {
+      if (scope === 'global' && workspaceId) {
+        setScope('workspace');
+        return;
+      }
+      announce(t('commandSettings.deepLinkNotFound', { command: deepLinkedCommandId }));
+      const nextURL = new URL(window.location.href);
+      nextURL.searchParams.delete('commandId');
+      window.history.replaceState(window.history.state, '', nextURL);
+      return;
+    }
+    if (selectedLayerId !== binding.layerId) {
+      setSelectedLayerId(binding.layerId);
+      return;
+    }
+    openBinding(binding);
+    const nextURL = new URL(window.location.href);
+    nextURL.searchParams.delete('commandId');
+    window.history.replaceState(window.history.state, '', nextURL);
+  }, [announce, deepLinkedCommandId, identityKey, loading, openBinding, scope, selectedLayerId, snapshot.bindings, snapshotIdentity, t, workspaceId]);
 
   function openRule() {
     if (busyRef.current || !selectedLayer || selectedLayer.builtin || isInheritedLayer(selectedLayer)) return;
@@ -896,7 +936,8 @@ export default function CommandSettingsPage() {
     });
   };
   const eligibleCommands = snapshot.commands.filter((command) =>
-    command.allowedSources.includes(editor?.kind === 'binding' ? editor.value.triggerType : '')
+    command.allowedSources.includes(editor?.kind === 'binding' ? editor.value.triggerType : '') &&
+    (!getCommandToolCatalogID(command.id) || (editor?.kind === 'binding' && command.id === editor.value.commandId))
   );
   const canSave =
     editor?.kind === 'layer'
@@ -907,6 +948,7 @@ export default function CommandSettingsPage() {
         (editor.value.effect === 'suppress'
           ? !!editor.value.replacesDefaultId
           : eligibleCommands.some((command) => command.id === editor.value.commandId)) &&
+        !getCommandToolCatalogID(editor.value.commandId) &&
         argumentsValid &&
         isCommandPresentationValid(editor.value.presentation) &&
         (editor.value.triggerType === 'palette'
@@ -1011,12 +1053,7 @@ export default function CommandSettingsPage() {
         </section>
       )}
       {deckStatus && (
-        <p>
-          {t('commandSettings.deck.status', {
-            status: deckStatusLabel(deckStatus.status, t),
-            count: deckStatus.devices.length,
-          })}
-        </p>
+        <CommandDeckStatusPanel status={deckStatus} t={t} />
       )}
       {loading ? (
         <p aria-busy="true">{t('common.loading')}</p>
@@ -1229,10 +1266,14 @@ export default function CommandSettingsPage() {
                     { value: '', label: t('commandSettings.form.chooseCommand'), disabled: true },
                     ...eligibleCommands.map((command: CommandDefinition) => ({
                       value: command.id,
-                      label: command.name,
+                      label: getCommandToolCatalogID(command.id) ? `${command.name} — ${t('commandSettings.form.noCommand')}` : command.name,
+                      disabled: !!getCommandToolCatalogID(command.id),
                     })),
                   ]}
                 />
+                {getCommandToolCatalogID(editor.value.commandId) && (
+                  <p>{t('commandSettings.toolExecution.adHocOnly')}</p>
+                )}
                 <Checkbox
                   checked={editor.value.enabled}
                   disabled={busy}
@@ -1251,22 +1292,33 @@ export default function CommandSettingsPage() {
                       : []),
                   ]}
                 />
-                <Input
-                  type="number"
-                  min={0}
-                  label={t('commandSettings.form.priority')}
-                  value={editor.value.resolutionPriority}
-                  disabled={busy}
-                  onChange={(e) => updateBindingField({ resolutionPriority: Number(e.target.value) || 0 })}
-                />
                 {profileListStatus}
-                <CommandConditionEditor
-                  value={editor.value.condition}
-                  fields={editorConditionFields}
-                  disabled={busy}
-                  onChange={(condition) => updateBindingField({ condition: reconcileCommandSurfaceCondition(editor.value.condition, condition, workspaceTabs ?? []) })}
-                />
-                {isCommandLayerAction(editor.value.commandId) ? <CommandLayerActionFields
+                <div className="command-settings__advanced">
+                  <button
+                    type="button"
+                    className="command-settings__advanced-toggle"
+                    aria-expanded={advancedOptionsOpen}
+                    aria-controls="command-settings-advanced-content"
+                    onClick={() => setAdvancedOptionsOpen((open) => !open)}
+                  >{t('commandSettings.advancedOptions')}</button>
+                  {advancedOptionsOpen && <div id="command-settings-advanced-content" className="command-settings__advanced-content">
+                    <Input
+                      type="number"
+                      min={0}
+                      label={t('commandSettings.form.priority')}
+                      value={editor.value.resolutionPriority}
+                      disabled={busy}
+                      onChange={(e) => updateBindingField({ resolutionPriority: Number(e.target.value) || 0 })}
+                    />
+                    <CommandConditionEditor
+                      value={editor.value.condition}
+                      fields={editorConditionFields}
+                      disabled={busy}
+                      onChange={(condition) => updateBindingField({ condition: reconcileCommandSurfaceCondition(editor.value.condition, condition, workspaceTabs ?? []) })}
+                    />
+                  </div>}
+                </div>
+                {getCommandToolCatalogID(editor.value.commandId) ? null : isCommandLayerAction(editor.value.commandId) ? <CommandLayerActionFields
                   commandID={editor.value.commandId} scope={scope} layers={snapshot.layers} rules={snapshot.rules ?? []}
                   value={editor.value.arguments ?? {}} disabled={busy}
                   onChange={argumentsValue => updateBindingField({ arguments: argumentsValue })}
@@ -1409,19 +1461,81 @@ function parseDeckCaptureEvent(value: unknown): CommandDeckCaptureEvent | null {
   return candidate as CommandDeckCaptureEvent;
 }
 
-function isDeckStatusDevice(value: unknown): value is CommandDeckStatusEvent['devices'][number] {
-  if (!value || typeof value !== 'object') return false;
+function getCommandToolCatalogID(commandID: string): string | null {
+  const prefix = 'tool.execute.t_';
+  if (!commandID.startsWith(prefix)) return null;
+  const compact = commandID.slice(prefix.length);
+  if (!/^[0-9a-f]{32}$/.test(compact) || compact[12] !== '7' || !'89ab'.includes(compact[16])) return null;
+  return `${compact.slice(0, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}-${compact.slice(16, 20)}-${compact.slice(20)}`;
+}
+
+function parseDeckStatusDevice(value: unknown): CommandDeckStatusEvent['devices'][number] | null {
+  if (!value || typeof value !== 'object') return null;
   const device = value as Partial<CommandDeckStatusEvent['devices'][number]>;
-  return typeof device.id === 'string' && typeof device.model === 'string' && typeof device.keyCount === 'number' && typeof device.status === 'string';
+  if (typeof device.id !== 'string' || typeof device.model !== 'string' || !Number.isInteger(device.keyCount) || (device.keyCount ?? -1) < 0 || typeof device.status !== 'string') return null;
+  return {
+    id: device.id,
+    model: device.model,
+    keyCount: device.keyCount as number,
+    status: device.status,
+    ...(device.reason === 'open_failed' || device.reason === 'reconnect_backoff' ? { reason: device.reason } : {}),
+  };
 }
 
 function deckStatusLabel(status: string, t: (key: string) => string): string {
   switch (status) {
     case 'connected': return t('commandSettings.deck.statuses.connected');
+    case 'degraded': return t('commandSettings.deck.statuses.degraded');
     case 'disconnected': return t('commandSettings.deck.statuses.disconnected');
     case 'unavailable': return t('commandSettings.deck.statuses.unavailable');
     case 'unconfigured': return t('commandSettings.deck.statuses.unconfigured');
     default: return t('commandSettings.deck.statuses.unknown');
+  }
+}
+
+function CommandDeckStatusPanel({
+  status,
+  t,
+}: {
+  status: CommandDeckStatusEvent;
+  t: (key: string, options?: Record<string, unknown>) => string;
+}) {
+  return (
+    <section className="command-settings__deck-status" aria-labelledby="command-deck-status-title">
+      <h2 id="command-deck-status-title">{t('commandSettings.deck.status', {
+        status: deckStatusLabel(status.status, t),
+        count: status.devices.length,
+      })}</h2>
+      {status.devices.length > 0 && (
+        <ul aria-label={t('commandSettings.deck.devices.title')}>
+          {status.devices.map((device, index) => (
+            <li key={`${device.model}-${index}`}>
+              <strong>{device.model}</strong>
+              <span>{t('commandSettings.deck.devices.keyCount', { count: device.keyCount })}</span>
+              <span>{deckDeviceStatusLabel(device.status, t)}</span>
+              {device.reason && <span>{deckReasonLabel(device.reason, t)}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function deckDeviceStatusLabel(status: string, t: (key: string) => string): string {
+  switch (status) {
+    case 'connected': return t('commandSettings.deck.statuses.connected');
+    case 'reconnecting': return t('commandSettings.deck.statuses.reconnecting');
+    case 'unavailable': return t('commandSettings.deck.statuses.unavailable');
+    case 'disconnected': return t('commandSettings.deck.statuses.disconnected');
+    default: return t('commandSettings.deck.statuses.unknown');
+  }
+}
+
+function deckReasonLabel(reason: NonNullable<CommandDeckStatusEvent['devices'][number]['reason']>, t: (key: string) => string): string {
+  switch (reason) {
+    case 'open_failed': return t('commandSettings.deck.reasons.openFailed');
+    case 'reconnect_backoff': return t('commandSettings.deck.reasons.reconnectBackoff');
   }
 }
 

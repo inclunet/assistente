@@ -34,6 +34,9 @@ const auditedIDs = commandIDs.filter(id => id !== 'chat.message.edit.open');
 type MessageCommand = typeof commandIDs[number];
 type Source = 'button' | 'keyboard' | 'palette' | 'deck';
 const sources: Source[] = ['button', 'keyboard', 'palette', 'deck'];
+const palettePreferencesKey = 'assistente.command-palette.v1.user-a.workspace-a';
+const paletteOptionName = (id: string, unavailable = false) =>
+  [id, 'Ctrl+J', ...(unavailable ? ['commandPalette.unavailable'] : [])].join('. ');
 const isUI = (id: string) => id !== 'chat.message.pin.toggle' && id !== 'chat.message.delete';
 const auth = { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a', role: 'user' } };
 const workspace = {
@@ -122,6 +125,7 @@ function deferred<T>() {
 const reservation = (commandId: string) => ({ ticket: `ticket-${commandId}`, invocationId: 'invocation-1', commandId });
 
 beforeEach(() => {
+  localStorage.removeItem(palettePreferencesKey);
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   state.mapReady = false; state.pathname = '/'; order.length = 0; selectedMessage = 'message-a';
   state.begin.mockImplementation(async (id: string) => { order.push('begin'); return reservation(id); });
@@ -180,7 +184,7 @@ async function trigger(source: Source, id: MessageCommand) {
     });
     else state.events.get('command:deck-ui-reservation')?.(reservation(id));
   });
-  if (source === 'palette') { const user = await openPalette(id); await user.click(await screen.findByRole('option', { name: id })); }
+  if (source === 'palette') { const user = await openPalette(id); await user.click(await screen.findByRole('option', { name: paletteOptionName(id) })); }
 }
 
 describe('Topbar audited message actions: real registry and executor', () => {
@@ -231,7 +235,7 @@ describe('Topbar audited message actions: real registry and executor', () => {
     await mount(id);
     const user = await openPalette(id);
     select('message-b'); select('message-a');
-    await user.click(await screen.findByRole('option', { name: id }));
+    await user.click(await screen.findByRole('option', { name: paletteOptionName(id) }));
     await act(async () => { await Promise.resolve(); });
     expect(state.begin).not.toHaveBeenCalled(); expect(state.prepareAdmission).not.toHaveBeenCalled();
     expect(state.take).not.toHaveBeenCalled(); expect(state.execute).not.toHaveBeenCalled();
@@ -252,7 +256,7 @@ describe('Topbar audited message actions: real registry and executor', () => {
     const id = 'chat.message.delete'; await mount(id); select(undefined);
     if (source === 'palette') {
       await openPalette(id);
-      expect(screen.queryByRole('option', { name: id })).not.toBeInTheDocument();
+      expect(screen.getByRole('option', { name: paletteOptionName(id, true) })).toHaveAttribute('aria-disabled', 'true');
     } else await trigger(source, id);
     await act(async () => { await Promise.resolve(); });
     expect(state.begin).not.toHaveBeenCalled(); expect(state.beginKey).not.toHaveBeenCalled();

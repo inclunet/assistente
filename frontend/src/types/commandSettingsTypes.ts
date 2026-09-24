@@ -11,6 +11,7 @@ export interface CommandDeckStatusDevice {
   model: string;
   keyCount: number;
   status: string;
+  reason?: 'open_failed' | 'reconnect_backoff';
 }
 
 export interface CommandDeckStatusEvent {

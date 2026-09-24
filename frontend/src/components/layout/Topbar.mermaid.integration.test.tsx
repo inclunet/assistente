@@ -24,6 +24,9 @@ const state = vi.hoisted(() => ({
 }));
 const commandID = 'editor.mermaid.apply';
 const commandIDs = ['editor.mermaid.open', 'editor.mermaid.apply', 'editor.mermaid.remove'] as const;
+const palettePreferencesKey = 'assistente.command-palette.v1.user-a.workspace-a';
+const paletteOptionName = (id: string, unavailable = false) =>
+  [id, 'Ctrl+J', ...(unavailable ? ['commandPalette.unavailable'] : [])].join('. ');
 type Source = 'button' | 'keyboard' | 'palette' | 'deck';
 const sources: Source[] = ['button', 'keyboard', 'palette', 'deck'];
 const auth = { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a', role: 'user' } };
@@ -111,6 +114,7 @@ function deferred() {
   pending.push(resolve); return { promise, resolve };
 }
 beforeEach(() => {
+  localStorage.removeItem(palettePreferencesKey);
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   state.mapReady = false; state.pathname = '/'; state.commandID = commandID;
   revision = 0; editable = true; modalOpen = true; order.length = 0;
@@ -158,7 +162,7 @@ async function openPalette() {
 async function trigger(source: Source) {
   if (source === 'button') act(() => { requestEditorMermaidCommand(state.commandID as EditorMermaidCommandID, { code: 'graph TD; A-->B' }, documentA); });
   if (source === 'keyboard') fireEvent.keyDown(root, { key: 'j', code: 'KeyJ', ctrlKey: true });
-  if (source === 'palette') { const user = await openPalette(); await user.click(await screen.findByRole('option', { name: state.commandID })); }
+  if (source === 'palette') { const user = await openPalette(); await user.click(await screen.findByRole('option', { name: paletteOptionName(state.commandID) })); }
   if (source === 'deck') act(() => {
     if (state.commandID === 'editor.mermaid.open') state.events.get('command:deck-local-ui')?.({
       commandId: state.commandID, generation: 'generation-1', userId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
@@ -214,13 +218,12 @@ describe('Topbar Mermaid: registry targets and real executor', () => {
 
   it('apply outside its modal is unavailable in palette', async () => {
     await mount(); modalOpen = false; await openPalette();
-    const option = screen.queryByRole('option', { name: commandID });
-    if (option) expect(option).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('option', { name: paletteOptionName(commandID, true) })).toHaveAttribute('aria-disabled', 'true');
     expect(state.prepareAdmission).not.toHaveBeenCalled(); expect(state.begin).not.toHaveBeenCalled();
   });
   it('palette rejects source ABA without capturing a replacement', async () => {
     await mount(); const user = await openPalette(); revision += 2;
-    await user.click(await screen.findByRole('option', { name: commandID }));
+    await user.click(await screen.findByRole('option', { name: paletteOptionName(commandID) }));
     expect(state.begin).not.toHaveBeenCalled(); expect(state.execute).not.toHaveBeenCalled();
   });
   it.each(['aba', 'readonly'] as const)('%s during prepare prevents Begin', async change => {

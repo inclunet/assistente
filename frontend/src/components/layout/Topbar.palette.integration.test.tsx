@@ -26,6 +26,9 @@ const state = vi.hoisted(() => ({
   workspaceListeners: new Set<() => void>(),
   navigate: vi.fn(),
   listCommandCatalog: vi.fn(),
+  describeCommandCatalogItem: vi.fn(),
+  getRuntimeToolCatalog: vi.fn(),
+  genericExecute: vi.fn(),
   loadMap: vi.fn(),
   beginLocalCommandUIKey: vi.fn(),
   resetLocalCommandKeyboard: vi.fn(),
@@ -142,6 +145,10 @@ vi.mock('react-router-dom', () => ({
 
 vi.mock('../../services/commandCatalog', () => ({
   listCommandCatalog: (query: unknown) => listCommandCatalog(query),
+  describeCommandCatalogItem: (...args: unknown[]) => state.describeCommandCatalogItem(...args),
+}));
+vi.mock('@wailsjs/go/wailsapi/Tools', () => ({
+  GetRuntimeToolCatalog: (...args: unknown[]) => state.getRuntimeToolCatalog(...args),
 }));
 
 vi.mock('../../lib/commandLocalKeyboardWails', () => ({
@@ -199,7 +206,7 @@ vi.mock('../../lib/commandUIExecutionWails', () => ({
   }),
 }));
 vi.mock('../../lib/commandBackendExecutionWails', () => ({
-  createCommandBackendExecutionWailsPort: () => ({ executeCommand: vi.fn() }),
+  createCommandBackendExecutionWailsPort: () => ({ executeCommand: (...args: unknown[]) => state.genericExecute(...args) }),
 }));
 vi.mock('../../lib/commandWorkspaceTabWails', () => ({
   createCommandWorkspaceTabWailsPort: () => ({
@@ -233,6 +240,7 @@ beforeEach(() => {
   paletteContextScope = null;
   state.workspaceListeners.clear();
   vi.resetAllMocks();
+  localStorage.clear();
   locationState.pathname = '/';
   state.auth.user = { userId: 'user-a', sessionId: 'session-a' };
   deckEvents.clear();
@@ -247,6 +255,9 @@ beforeEach(() => {
     localPaletteCommands: catalog.filter(item => item.id !== 'workspace.list').map(item => item.id),
   });
   listCommandCatalog.mockResolvedValue(catalog);
+  state.describeCommandCatalogItem.mockReset();
+  state.getRuntimeToolCatalog.mockReset().mockResolvedValue([]);
+  state.genericExecute.mockReset();
   state.chat.canPrepare.mockReset().mockReturnValue(true);
   state.chat.prepare.mockReset();
   state.chat.register.mockReset();
@@ -257,12 +268,12 @@ beforeEach(() => {
 });
 
 describe('Pickers de chat — paleta e registro reais', () => {
-  function registerSurface(root: HTMLElement, open: (id: string) => boolean, conversationId = 'conversation-a') {
+  function registerSurface(root: HTMLElement, open: (id: string) => boolean, conversationId = 'conversation-a', subscribe?: (onChange: () => void) => () => void) {
     return registerChatPickerSurface({
       root, workspaceId: 'workspace-a', tabId: 'tab-a', conversationId,
       ownerId: 'user-a', sessionId: 'session-a', allowedCommandIds: CHAT_PICKER_COMMAND_IDS,
       instanceId: 'chat-test-instance', generation: conversationId,
-      isActive: () => true, isCurrent: () => true, isRouteCurrent: pathname => pathname === '/', canOpen: () => true, open,
+      isActive: () => true, isCurrent: () => true, isRouteCurrent: pathname => pathname === '/', canOpen: () => true, open, subscribe,
     });
   }
 
@@ -297,6 +308,35 @@ describe('Pickers de chat — paleta e registro reais', () => {
       expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
       expect(state.dispatchLocalCommandKey).not.toHaveBeenCalled();
     } finally { unregister(); view.unmount(); }
+  });
+
+  it('dispõe o lease capturado ao tabular para fora das ações sem restaurar foco ao acionador', async () => {
+    const unsubscribe = vi.fn();
+    const subscribe = vi.fn((_onChange: () => void) => unsubscribe);
+    const { view, root, unregister } = await mount();
+    unregister();
+    const unregisterWithSubscription = registerSurface(root, vi.fn(() => true), 'conversation-a', subscribe);
+    try {
+      const user = userEvent.setup();
+      const trigger = screen.getByRole('button', { name: 'commandPalette.title' });
+      await user.click(trigger);
+      const search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
+      await waitFor(() => expect(search).toHaveFocus());
+      expect(subscribe).toHaveBeenCalledOnce();
+
+      await user.tab();
+      await user.tab();
+      await user.tab();
+      const naturalTabTarget = document.activeElement;
+      await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument());
+      expect(unsubscribe).toHaveBeenCalledOnce();
+      expect(document.activeElement).toBe(naturalTabTarget);
+      expect(document.activeElement).not.toBe(trigger);
+    } finally {
+      unregisterWithSubscription();
+      unregister();
+      view.unmount();
+    }
   });
 
   it('troca de instância/conversa durante a busca não redireciona a seleção ao novo chat', async () => {
@@ -1508,5 +1548,157 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     expect(beginUICommand).not.toHaveBeenCalled();
     expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('coleta args pelo schema e usa ExecutePaletteCommand sem persistir o payload', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const commandID = 'tools.query.run';
+    listCommandCatalog.mockResolvedValueOnce([{
+      id: commandID, name: 'Consultar', description: 'Consulta', available: true,
+      effect: 'read', risk: 'none', decision: 'none', allowedSources: ['palette'],
+    }]);
+    state.describeCommandCatalogItem.mockResolvedValue({
+      id: commandID, name: 'Consultar', available: true, decision: 'none', allowedSources: ['palette'],
+      argumentsSchema: { type: 'object', required: ['query'], properties: { query: { type: 'string' } } },
+    });
+    state.genericExecute.mockResolvedValue({ status: 'succeeded' });
+    render(<Topbar />);
+    await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+    await user.keyboard('{ArrowDown}{Enter}');
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /^query/ }), { target: { value: 'privado' } });
+    await user.click(within(dialog).getByRole('button', { name: 'commandPalette.arguments.submit' }));
+    await waitFor(() => expect(state.genericExecute).toHaveBeenCalledExactlyOnceWith(commandID, { query: 'privado' }));
+    const preferenceKey = 'assistente.command-palette.v1.user-a.workspace-a';
+    expect(localStorage.getItem(preferenceKey)).not.toContain('privado');
+    expect(state.announce).toHaveBeenCalledWith('commandPalette.executionSucceeded');
+  });
+
+  it('executa tool destructive/interactive via backend com Schema Go real e guidance do catálogo', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const compactID = '018f123456787abc8def012345678901';
+    const commandID = `tool.execute.t_${compactID}`;
+    const runtimeID = '018f1234-5678-7abc-8def-012345678901';
+    listCommandCatalog.mockResolvedValueOnce([{
+      id: commandID, name: 'Executar ferramenta', available: true,
+      effect: 'destructive', risk: 'high', decision: 'interactive', allowedSources: ['palette'],
+    }]);
+    state.describeCommandCatalogItem.mockResolvedValue({
+      id: commandID, name: 'Executar ferramenta', available: true,
+      decision: 'interactive', allowedSources: ['palette'],
+      argumentsSchema: {
+        Type: 'object', Optional: false, Nullable: false, Required: null,
+        Properties: {
+          arguments_json: { Type: 'string', Optional: false, Nullable: false, MinLength: 0 },
+        },
+      },
+    });
+    state.getRuntimeToolCatalog.mockResolvedValueOnce([{
+      id: runtimeID, name: 'search', displayName: 'Pesquisa protegida', description: 'Busca no índice autorizado.',
+      schema: Array.from(new TextEncoder().encode(JSON.stringify({ type: 'object', properties: { query: { type: 'string' } } }))),
+    }]);
+    state.genericExecute.mockResolvedValue({ status: 'succeeded', confirmation: { accepted: true } });
+
+    render(<Topbar />);
+    await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+    const search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
+    await user.type(search, 'Executar ferramenta');
+    await user.keyboard('{ArrowDown}{Enter}');
+    await waitFor(() => expect(state.describeCommandCatalogItem).toHaveBeenCalledWith(commandID, { locale: 'pt-BR', source: 'palette' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByText('commandPalette.arguments.toolSchemaTitle')).toBeVisible();
+    expect(within(dialog).getByText('Busca no índice autorizado.')).toBeVisible();
+    expect(state.getRuntimeToolCatalog).toHaveBeenCalledWith({ availabilityStatus: 'available', limit: 50, offset: 0 });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /^arguments_json/ }), {
+      target: { value: '{"query":"restrita"}' },
+    });
+    await user.click(within(dialog).getByRole('button', { name: 'commandPalette.arguments.submit' }));
+    await waitFor(() => expect(state.genericExecute).toHaveBeenCalledExactlyOnceWith(commandID, { arguments_json: '{"query":"restrita"}' }));
+    expect(state.announce).toHaveBeenCalledWith('commandPalette.executionSucceeded');
+  });
+
+  it('não deixa o finally da execução A apagar o prompt B após mudança de contexto', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const firstID = 'test.command.first';
+    const secondID = 'test.command.second';
+    listCommandCatalog.mockResolvedValue([
+      { id: firstID, name: 'Comando A', available: true, effect: 'read', risk: 'none', decision: 'none', allowedSources: ['palette'] },
+      { id: secondID, name: 'Comando B', available: true, effect: 'read', risk: 'none', decision: 'none', allowedSources: ['palette'] },
+    ]);
+    state.describeCommandCatalogItem.mockImplementation(async (commandID: string) => ({
+      id: commandID, name: commandID === firstID ? 'Comando A' : 'Comando B', available: true,
+      decision: 'none', allowedSources: ['palette'],
+      argumentsSchema: { type: 'object', required: ['value'], properties: { value: { type: 'string' } } },
+    }));
+    let resolveA!: (value: unknown) => void;
+    state.genericExecute.mockImplementationOnce(() => new Promise((resolve) => { resolveA = resolve; }));
+
+    const view = render(<Topbar />);
+    await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+    let search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
+    await user.type(search, 'Comando A');
+    await user.keyboard('{ArrowDown}{Enter}');
+    let dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /^value/ }), { target: { value: 'A' } });
+    await user.click(within(dialog).getByRole('button', { name: 'commandPalette.arguments.submit' }));
+    await waitFor(() => expect(state.genericExecute).toHaveBeenCalledWith(firstID, { value: 'A' }));
+
+    locationState.pathname = '/history';
+    view.rerender(<Topbar />);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    locationState.pathname = '/';
+    view.rerender(<Topbar />);
+    await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+    search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
+    await user.type(search, 'Comando B');
+    await user.keyboard('{ArrowDown}{Enter}');
+    dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('textbox', { name: /^value/ })).toBeVisible();
+
+    await act(async () => { resolveA({ status: 'succeeded' }); });
+    expect(screen.getByRole('dialog')).toBeVisible();
+    expect(within(screen.getByRole('dialog')).getByRole('textbox', { name: /^value/ })).toBeVisible();
+  });
+
+  it('permite favoritar o item ativo e abre a configuração do comando vinculado', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    listCommandCatalog.mockResolvedValueOnce([{
+      id: 'navigation.settings.open', name: 'Configurações', available: true,
+      effect: 'read', risk: 'none', decision: 'none', allowedSources: ['palette'],
+    }]);
+    render(<Topbar />);
+    await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+    const favorite = await screen.findByRole('button', { name: 'commandPalette.addFavorite: Configurações' });
+    await user.click(favorite);
+    expect(favorite).toHaveAttribute('aria-pressed', 'true');
+    expect(localStorage.getItem('assistente.command-palette.v1.user-a.workspace-a')).toContain('navigation.settings.open');
+    await user.click(screen.getByRole('button', { name: 'commandPalette.configure: Configurações' }));
+    expect(navigate).toHaveBeenCalledWith('/settings/commands?commandId=navigation.settings.open');
+  });
+
+  it('descarta formulário de args ao mudar de rota, inclusive seus valores locais', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const commandID = 'tools.query.run';
+    listCommandCatalog.mockResolvedValueOnce([{
+      id: commandID, name: 'Consultar', available: true, effect: 'read', risk: 'none', decision: 'none', allowedSources: ['palette'],
+    }]);
+    state.describeCommandCatalogItem.mockResolvedValue({
+      id: commandID, name: 'Consultar', available: true, decision: 'none', allowedSources: ['palette'],
+      argumentsSchema: { type: 'object', required: ['query'], properties: { query: { type: 'string' } } },
+    });
+    const view = render(<Topbar />);
+    await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+    await user.keyboard('{ArrowDown}{Enter}');
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /^query/ }), { target: { value: 'segredo temporário' } });
+    locationState.pathname = '/history';
+    view.rerender(<Topbar />);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(state.genericExecute).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from '../../test/a11yAxe';
 import { Combobox, ComboboxItem } from './Combobox';
@@ -479,5 +479,65 @@ describe('Combobox - allowFreeInput', () => {
       />,
     );
     await waitFor(() => expect(screen.getByRole('combobox')).toHaveValue(''));
+  });
+});
+
+describe('Combobox - ações da opção destacada', () => {
+  const actions = () => <>
+    <button type="button">Favoritar</button>
+    <button type="button">Configurar</button>
+  </>;
+
+  it('preserva o picker quando outro componente muda o foco programaticamente', async () => {
+    const onSelect = vi.fn();
+    const onAfterDismiss = vi.fn();
+    const user = userEvent.setup();
+    render(<><Combobox items={mockItems} selected="" onSelect={onSelect} label="Picker" renderActiveItemActions={actions} onAfterDismiss={onAfterDismiss} /><button>Outro alvo</button></>);
+    await user.click(screen.getByRole('button', { name: /Picker/ }));
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveFocus());
+    act(() => screen.getByRole('button', { name: 'Outro alvo' }).focus());
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
+    expect(onAfterDismiss).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('option', { name: 'GPT-4' }));
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith('gpt-4', expect.objectContaining({ value: 'gpt-4' }));
+  });
+
+  it('mantém a seleção por clique na opção ao renderizar ações fora do listbox', async () => {
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+    render(<Combobox items={mockItems} selected="" onSelect={onSelect} label="Picker" renderActiveItemActions={actions} />);
+    await user.click(screen.getByRole('button', { name: /Picker/ }));
+    await user.click(screen.getByRole('option', { name: 'GPT-4' }));
+    expect(onSelect).toHaveBeenCalledWith('gpt-4', expect.objectContaining({ value: 'gpt-4' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Picker/ })).toHaveFocus());
+  });
+
+  it('permite Tab pelas ações e fecha sem roubar o foco ao sair delas', async () => {
+    const user = userEvent.setup();
+    const onAfterDismiss = vi.fn();
+    render(<><Combobox items={mockItems} selected="" onSelect={vi.fn()} label="Picker" renderActiveItemActions={actions} onAfterDismiss={onAfterDismiss} /><button>Depois</button></>);
+    await user.click(screen.getByRole('button', { name: /Picker/ }));
+    const input = screen.getByRole('combobox');
+    await waitFor(() => expect(input).toHaveFocus());
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Favoritar' })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Configurar' })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Depois' })).toHaveFocus();
+    await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument());
+    await waitFor(() => expect(onAfterDismiss).toHaveBeenCalledExactlyOnceWith('focus-leave'));
+  });
+
+  it('Escape nas ações fecha e restaura foco ao acionador', async () => {
+    const user = userEvent.setup();
+    render(<Combobox items={mockItems} selected="" onSelect={vi.fn()} label="Picker" renderActiveItemActions={actions} />);
+    const trigger = screen.getByRole('button', { name: /Picker/ });
+    await user.click(trigger);
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveFocus());
+    await user.tab();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.getByRole('button', { name: /Picker/ })).toHaveFocus());
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 });

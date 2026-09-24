@@ -132,6 +132,7 @@ function Surface({ name = 'a', current = true }: { name?: string; current?: bool
   </div>;
 }
 beforeEach(() => {
+  localStorage.removeItem('assistente.command-palette.v1.user-a.workspace-a');
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   state.mapReady = false; state.pathname = '/'; auth.user.sessionId = 'session-a'; calls.length = 0;
 });
@@ -189,12 +190,12 @@ describe('Topbar chat navigation with real registry', () => {
   });
   it.each(commandIDs)('mouse palette %s keeps node captured before button focus', async id => {
     await mount(); const user = await palette(id);
-    await user.click(await screen.findByRole('option', { name: id }));
+    await user.click(await screen.findByRole('option', { name: `${id}. Ctrl+${commandIDs.indexOf(id) + 1}` }));
     await waitFor(() => expect(calls).toEqual(['a:' + id])); noLedger();
   });
   it.each(commandIDs)('CtrlK palette %s keeps node captured before search', async id => {
     await mount(); const user = await palette(id, true);
-    await user.click(await screen.findByRole('option', { name: id }));
+    await user.click(await screen.findByRole('option', { name: `${id}. Ctrl+${commandIDs.indexOf(id) + 1}` }));
     await waitFor(() => expect(calls).toEqual(['a:' + id])); noLedger();
   });
   it('node gesture requests its exact instance even if another node had focus', async () => {
@@ -206,19 +207,19 @@ describe('Topbar chat navigation with real registry', () => {
     await mount(<Surface name="b" />);
     const user = await palette('chat.message.read.open');
     act(() => screen.getByLabelText('Message b').focus());
-    await user.click(await screen.findByRole('option', { name: 'chat.message.read.open' }));
+    await user.click(await screen.findByRole('option', { name: 'chat.message.read.open. Ctrl+3' }));
     await waitFor(() => expect(calls).toEqual(['a:chat.message.read.open'])); noLedger();
   });
   it('unmounted captured node does not retarget another node', async () => {
     const view = await mount(); const user = await palette('chat.message.read.open');
     view.rerender(<><Topbar /><Surface key="b" name="b" /></>);
-    await user.click(await screen.findByRole('option', { name: 'chat.message.read.open' }));
+    await user.click(await screen.findByRole('option', { name: 'chat.message.read.open. Ctrl+3' }));
     expect(calls).toEqual([]); noLedger();
   });
   it('modal ABA invalidates palette target', async () => {
     await mount(); const user = await palette('chat.message.read.open');
     act(() => { registerOpenModal('decision'); unregisterOpenModal('decision'); });
-    await user.click(await screen.findByRole('option', { name: 'chat.message.read.open' }));
+    await user.click(await screen.findByRole('option', { name: 'chat.message.read.open. Ctrl+3' }));
     expect(calls).toEqual([]); noLedger();
   });
   it('session ABA invalidates permanently after subscription notification', async () => {
@@ -227,12 +228,12 @@ describe('Topbar chat navigation with real registry', () => {
       auth.user.sessionId = 'other'; listeners.forEach(fn => fn());
       auth.user.sessionId = 'session-a'; listeners.forEach(fn => fn());
     });
-    await user.click(await screen.findByRole('option', { name: 'chat.message.read.open' }));
+    await user.click(await screen.findByRole('option', { name: 'chat.message.read.open. Ctrl+3' }));
     expect(calls).toEqual([]); noLedger();
   });
   it('route change rejects captured action', async () => {
     await mount(); const user = await palette('chat.message.read.open'); state.pathname = '/profiles';
-    await user.click(await screen.findByRole('option', { name: 'chat.message.read.open' }));
+    await user.click(await screen.findByRole('option', { name: 'chat.message.read.open. Ctrl+3' }));
     expect(calls).toEqual([]); noLedger();
   });
   it.each([{ repeat: true }, { isComposing: true }, { keyCode: 229 }])('invalid keyboard %j does not execute', async flags => {

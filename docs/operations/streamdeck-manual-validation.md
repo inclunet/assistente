@@ -40,11 +40,12 @@ go test ./internal/commanddeck -run TestManualStreamDeckPhysicalRoundTrip -count
 
 ## Evidência para fechar I13.5
 
-Cole no acompanhamento:
+Registre no acompanhamento, sem publicar número de série, token, identificador
+pessoal ou outro dado real:
 
 - modelo exibido pelo teste;
 - se a tecla ficou vermelha;
-- evento recebido;
+- evento recebido (mascare `SourceInstance`/serial, se aparecer);
 - saída final `PASS`;
 - se houve disputa com outro processo.
 
@@ -53,6 +54,6 @@ Cole no acompanhamento:
 - Worktree: `C:\Users\leonardo.gleison\dev\assistente-worktrees\aep-0103-comandos`.
 - Comando: `ASSISTENTE_STREAMDECK_MANUAL=1 go test ./internal/commanddeck -run TestManualStreamDeckPhysicalRoundTrip -count=1 -v`.
 - Resultado: `PASS`.
-- Dispositivo: serial `AL28K2C54852`, modelo `Stream Deck`, 15 teclas.
-- Evento: `{SourceInstance:streamdeck.key:AL28K2C54852 Key:key:0 Kind:1 Repeat:false}`.
+- Dispositivo: modelo `Stream Deck`, 15 teclas; serial omitido da documentação.
+- Evento: tecla física `key:0` recebida; serial/`SourceInstance` omitido.
 - Observação: o teste abriu o dispositivo, renderizou o frame manual e recebeu a primeira tecla física.

@@ -52,6 +52,19 @@ const snapshot = {
   keyboardOperational: false,
 };
 
+async function openBindingAdvancedOptions() {
+  fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+  const toggle = await screen.findByRole('button', { name: 'commandSettings.advancedOptions' });
+  toggle.focus();
+  await userEvent.keyboard('{Enter}');
+  await waitFor(() => expect(toggle).toHaveAttribute('aria-expanded', 'true'));
+}
+
+async function revealAdvancedOptionsIfNeeded() {
+  const toggle = await screen.findByRole('button', { name: 'commandSettings.advancedOptions' });
+  if (toggle.getAttribute('aria-expanded') === 'false') fireEvent.click(toggle);
+}
+
 describe('CommandSettingsPage', () => {
   let keyboardMapChanged: (() => void) | undefined;
   let deckStatusChanged: ((payload: unknown) => void) | undefined;
@@ -170,6 +183,47 @@ describe('CommandSettingsPage', () => {
     expect(screen.queryByText(/connected/)).not.toBeInTheDocument();
     await act(async () => deckStatusChanged?.({ status: 'future-state', devices: [] }));
     expect(screen.queryByText(/future-state/)).not.toBeInTheDocument();
+  });
+
+  it('mostra estado/capacidade por dispositivo sem expor identificador ou reason bruto', async () => {
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    await act(async () => deckStatusChanged?.({ status: 'degraded', devices: [
+      { id: 'PRIVATE-SERIAL-01', model: 'Stream Deck XL', keyCount: 32, status: 'reconnecting', reason: 'reconnect_backoff' },
+      { id: 'PRIVATE-SERIAL-02', model: 'Stream Deck Mini', keyCount: 6, status: 'unavailable', reason: 'open_failed' },
+    ] }));
+
+    expect(screen.getByRole('heading', { name: /commandSettings\.deck\.status/ })).toBeInTheDocument();
+    expect(screen.getByText('Stream Deck XL')).toBeInTheDocument();
+    expect(screen.getByText('Stream Deck Mini')).toBeInTheDocument();
+    expect(screen.getByText('commandSettings.deck.statuses.reconnecting')).toBeInTheDocument();
+    expect(screen.getByText('commandSettings.deck.statuses.unavailable')).toBeInTheDocument();
+    expect(screen.getByText('commandSettings.deck.reasons.reconnectBackoff')).toBeInTheDocument();
+    expect(screen.getByText('commandSettings.deck.reasons.openFailed')).toBeInTheDocument();
+    expect(screen.queryByText(/PRIVATE-SERIAL/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/reconnect_backoff|open_failed/)).not.toBeInTheDocument();
+  });
+
+  it('revela prioridade/condições por teclado e deixa erros de perfil visíveis antes da expansão', async () => {
+    getProfiles.mockRejectedValue(new Error('catálogo indisponível'));
+    getSettings.mockResolvedValue({ ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+
+    expect(screen.getByText('profiles.loadError')).toBeInTheDocument();
+    const toggle = screen.getByRole('button', { name: 'commandSettings.advancedOptions' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByLabelText('commandSettings.form.priority')).not.toBeInTheDocument();
+
+    toggle.focus();
+    expect(toggle).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByLabelText('commandSettings.form.priority')).toBeVisible();
+    expect(screen.getByText('profiles.loadError')).toBeInTheDocument();
   });
 
   it('grava acionador por captura, exibe modelo e tecla e não expõe serial', async () => {
@@ -403,6 +457,56 @@ describe('CommandSettingsPage', () => {
       if (event === 'command:deck-capture') deckCaptureChanged = handler as (payload: unknown) => void;
       return unsubscribeKeyboardMapChanged;
     });
+  });
+
+  it('usa o deep link da paleta para abrir o binding do comando na configuração', async () => {
+    const originalURL = window.location.href;
+    const targetURL = new URL(originalURL);
+    targetURL.search = '?commandId=cmd.new';
+    window.history.replaceState(window.history.state, '', targetURL);
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined }],
+    });
+    const view = render(<CommandSettingsPage />);
+    try {
+      expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).toBeInTheDocument();
+      expect(window.location.search).toBe('');
+    } finally {
+      view.unmount();
+      window.history.replaceState(window.history.state, '', originalURL);
+    }
+  });
+
+  it('mantém a seção avançada do binding alcançável por teclado', async () => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    fireEvent.click(screen.getByText('Minha camada'));
+    await openBindingAdvancedOptions();
+    expect(screen.getByRole('button', { name: 'commandSettings.advancedOptions' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('não permite persistir argumentos potencialmente sensíveis de uma execução de ferramenta', async () => {
+    const commandId = 'tool.execute.t_018f123456787abc8def012345678901';
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      commands: [...snapshot.commands, { id: commandId, name: 'Executar: Pesquisa', description: '', allowedSources: ['keyboard.local'] }],
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined,
+        commandId, arguments: { arguments_json: '{"token":"nao-exibir"}' } }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+
+    expect(screen.getByText('commandSettings.toolExecution.adHocOnly')).toBeInTheDocument();
+    await waitFor(() => expect(announce).toHaveBeenCalledWith('commandSettings.toolExecution.adHocOnly'));
+    expect(screen.queryByDisplayValue(/nao-exibir/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/018f1234|tool\.execute\.t_/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
   });
 
   async function layerAction(name: string) {
@@ -721,6 +825,7 @@ describe('CommandSettingsPage', () => {
     fireEvent.click(screen.getByText('Minha camada'));
     fireEvent.click(within(await screen.findByRole('grid', { name: 'commandSettings.commands' })).getByRole('button', { name: 'common.actions' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
+    await revealAdvancedOptionsIfNeeded();
     expect(screen.getByLabelText('commandShortcutCapture.mode')).toHaveValue('sequence');
     fireEvent.change(screen.getByLabelText('commandSettings.form.priority'), { target: { value: '7' } });
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
@@ -744,6 +849,7 @@ describe('CommandSettingsPage', () => {
     fireEvent.click(await screen.findByText('Minha camada'));
     fireEvent.click(within(await screen.findByRole('grid', { name: 'commandSettings.commands' })).getByRole('button', { name: 'common.actions' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
+    await revealAdvancedOptionsIfNeeded();
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
     fireEvent.change(screen.getByLabelText('commandSettings.conditions.field'), { target: { value: 'surface.id' } });
     expect(screen.getByRole('option', { name: 'Conversa de trabalho' })).toBeInTheDocument();
@@ -763,6 +869,7 @@ describe('CommandSettingsPage', () => {
     fireEvent.click(await screen.findByText('Minha camada'));
     fireEvent.click(within(await screen.findByRole('grid', { name: 'commandSettings.commands' })).getByRole('button', { name: 'common.actions' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
+    await revealAdvancedOptionsIfNeeded();
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
     fireEvent.change(screen.getByLabelText('commandSettings.conditions.field'), { target: { value: 'surface.id' } });
     expect(screen.getByRole('option', { name: 'Conversa de trabalho' })).toBeInTheDocument();
@@ -785,6 +892,7 @@ describe('CommandSettingsPage', () => {
     fireEvent.click(await screen.findByText('Minha camada'));
     fireEvent.click(within(await screen.findByRole('grid', { name: 'commandSettings.commands' })).getByRole('button', { name: 'common.actions' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
+    await revealAdvancedOptionsIfNeeded();
     fireEvent.change(screen.getByLabelText('commandSettings.form.priority'), { target: { value: '7' } });
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
     fireEvent.change(screen.getByLabelText('commandSettings.conditions.field'), { target: { value: 'surface.id' } });
@@ -806,6 +914,7 @@ describe('CommandSettingsPage', () => {
     fireEvent.click(await screen.findByText('Minha camada'));
     fireEvent.click(within(await screen.findByRole('grid', { name: 'commandSettings.commands' })).getByRole('button', { name: 'common.actions' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
+    await revealAdvancedOptionsIfNeeded();
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
     const fields = within(screen.getByLabelText('commandSettings.conditions.field')).getAllByRole('option');
     expect(fields.map(field => (field as HTMLOptionElement).value)).toEqual(['profile']);
@@ -820,6 +929,7 @@ describe('CommandSettingsPage', () => {
     render(<CommandSettingsPage />);
     fireEvent.click(await screen.findByText('Minha camada'));
     fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+    await revealAdvancedOptionsIfNeeded();
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
     const field = screen.getByLabelText('commandSettings.conditions.field');
     expect(within(field).getAllByRole('option').map(option => (option as HTMLOptionElement).value)).toEqual(['app.focused', 'surface.type', 'profile']);
@@ -840,6 +950,7 @@ describe('CommandSettingsPage', () => {
     render(<CommandSettingsPage />);
     fireEvent.click(await screen.findByText('Minha camada'));
     fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+    await revealAdvancedOptionsIfNeeded();
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
     fireEvent.change(screen.getByLabelText('commandSettings.conditions.field'), { target: { value: 'surface.id' } });
     expect(screen.getByRole('option', { name: 'Aba amigável' })).toBeInTheDocument();
@@ -856,8 +967,9 @@ describe('CommandSettingsPage', () => {
     });
     render(<CommandSettingsPage />);
     fireEvent.click(await screen.findByText('Minha camada'));
-    await act(async () => deckStatusChanged?.({ status: 'ready', devices: [{ id: 'PRIVATE-SERIAL', model: 'Stream Deck', keyCount: 15, status: 'ready' }] }));
+    await act(async () => deckStatusChanged?.({ status: 'connected', devices: [{ id: 'PRIVATE-SERIAL', model: 'Stream Deck', keyCount: 15, status: 'connected' }] }));
     fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+    await revealAdvancedOptionsIfNeeded();
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
     fireEvent.change(screen.getByLabelText('commandSettings.conditions.field'), { target: { value: 'foreground.process' } });
     expect(screen.getByText('commandSettings.foregroundProcessHint')).toBeInTheDocument();
@@ -881,8 +993,9 @@ describe('CommandSettingsPage', () => {
     });
     render(<CommandSettingsPage />);
     fireEvent.click(await screen.findByText('Minha camada'));
-    await act(async () => deckStatusChanged?.({ status: 'ready', devices: [{ id: 'OTHER', model: 'Stream Deck', keyCount: 15, status: 'ready' }] }));
+    await act(async () => deckStatusChanged?.({ status: 'connected', devices: [{ id: 'OTHER', model: 'Stream Deck', keyCount: 15, status: 'connected' }] }));
     fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+    await revealAdvancedOptionsIfNeeded();
     expect(screen.getByRole('option', { name: 'commandSettings.unavailableConditionValue' })).toHaveProperty('selected', true);
     expect(screen.queryByText('DISCONNECTED')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('commandSettings.form.priority'), { target: { value: '4' } });
@@ -896,6 +1009,7 @@ describe('CommandSettingsPage', () => {
     render(<CommandSettingsPage />);
     fireEvent.click(await screen.findByText('Minha camada'));
     fireEvent.click(await screen.findByRole('button', { name: 'commandSettings.actions.newBinding' }));
+    await revealAdvancedOptionsIfNeeded();
     fireEvent.change(screen.getByLabelText('commandSettings.form.command'), { target: { value: 'cmd.new' } });
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
     fireEvent.change(screen.getByLabelText('commandSettings.conditions.field'), { target: { value: 'profile' } });
@@ -920,6 +1034,7 @@ describe('CommandSettingsPage', () => {
     fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
     expect(screen.getByRole('option', { name: 'commandSettings.unavailableConditionValue' })).toBeDisabled();
     expect(screen.getByText('profiles.loadError')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'commandSettings.advancedOptions' })).toHaveAttribute('aria-expanded', 'true');
     expect(announce).toHaveBeenCalledWith('profiles.loadError', 'assertive');
     expect(screen.getByRole('button', { name: 'commandSettings.actions.reload' })).toBeEnabled();
     fireEvent.change(screen.getByLabelText('commandSettings.form.priority'), { target: { value: '8' } });

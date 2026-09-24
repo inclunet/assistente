@@ -199,8 +199,8 @@ async function palette(commandId: string) {
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
   await user.type(await screen.findByRole('combobox', { name: /commandPalette/ }), commandId);
-  const commandPattern = new RegExp(`^${commandId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
-  await user.click(await screen.findByRole('option', { name: commandPattern }));
+  const shortcutNumber = commandIDs.indexOf(commandId as typeof commandIDs[number]) + 1;
+  await user.click(await screen.findByRole('option', { name: `${commandId}. Ctrl+${shortcutNumber}` }));
 }
 
 async function keyboard(commandId: string) {
@@ -245,6 +245,7 @@ async function waitForMountedDispatcher() {
 }
 
 beforeEach(() => {
+  localStorage.removeItem('assistente.command-palette.v1.owner.workspace');
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   state.mapReady = false;
   state.events.clear();

@@ -128,6 +128,7 @@ function deferred() {
 const reservation = (id = commandID) => ({ ticket: `ticket-${id}`, invocationId: 'invocation-1', commandId: id });
 
 beforeEach(() => {
+  localStorage.removeItem('assistente.command-palette.v1.user-a.workspace-a');
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   state.mapReady = false; state.pathname = '/'; state.commandID = commandID;
   order.length = 0; selectedMessage = messageID; draft = newContent; revision = 0; editing = true;
@@ -187,7 +188,7 @@ async function trigger(source: Source) {
   if (source === 'button') await userEvent.click(saveButton);
   if (source === 'keyboard') fireEvent.keyDown(root, { key: 'j', code: 'KeyJ', ctrlKey: true });
   if (source === 'deck') act(() => state.events.get('command:deck-ui-reservation')?.(reservation()));
-  if (source === 'palette') { const user = await openPalette(); await user.click(await screen.findByRole('option', { name: commandID })); }
+  if (source === 'palette') { const user = await openPalette(); await user.click(await screen.findByRole('option', { name: `${commandID}. Ctrl+J` })); }
 }
 
 
@@ -221,7 +222,10 @@ describe('Topbar chat.message.send_to_editor', () => {
   it.each(sources)('%s refuses missing source rather than transferring a latest message', async source => {
     await mount(); changeMessage(undefined);
     if (source === 'palette') {
-      await openPalette(); expect(screen.queryByRole('option', { name: commandID })).not.toBeInTheDocument();
+      const user = await openPalette();
+      const unavailable = await screen.findByRole('option', { name: `${commandID}. Ctrl+J. commandPalette.unavailable` });
+      expect(unavailable).toHaveAttribute('aria-disabled', 'true');
+      await user.click(unavailable);
     } else await trigger(source);
     await act(async () => { await Promise.resolve(); });
     expect(state.begin).not.toHaveBeenCalled(); expect(state.beginKey).not.toHaveBeenCalled();
@@ -232,7 +236,7 @@ describe('Topbar chat.message.send_to_editor', () => {
   it('palette preserves the captured source and rejects selection ABA', async () => {
     await mount(); const user = await openPalette();
     changeMessage('message-b'); changeMessage(messageID);
-    await user.click(await screen.findByRole('option', { name: commandID }));
+    await user.click(await screen.findByRole('option', { name: `${commandID}. Ctrl+J` }));
     expect(state.begin).not.toHaveBeenCalled(); expect(state.execute).not.toHaveBeenCalled();
   });
 

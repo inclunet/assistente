@@ -35,6 +35,12 @@ async function bindingAction(name: string) {
   await act(async () => { fireEvent.click(item); });
 }
 
+async function openAdvancedOptions() {
+  const toggle = screen.getByRole('button', { name: 'commandSettings.advancedOptions' });
+  await act(async () => { fireEvent.click(toggle); });
+  expect(toggle).toHaveAttribute('aria-expanded', 'true');
+}
+
 describe('CommandSettingsPage contrato avançado', () => {
   function deckConfiguration() {
     const snapshot = configuration();
@@ -189,6 +195,7 @@ describe('CommandSettingsPage contrato avançado', () => {
     bridge.get.mockResolvedValue(snapshot);
     render(<CommandSettingsPage />);
     await bindingAction('commandSettings.actions.editBinding');
+    await openAdvancedOptions();
     const value = screen.getByLabelText('commandSettings.conditions.value');
     expect(value).toHaveValue('tasklist');
     expect(within(value).getByRole('option', { name: 'commandSettings.tasklistSurface' })).toHaveValue('tasklist');
@@ -269,6 +276,7 @@ describe('CommandSettingsPage contrato avançado', () => {
     bridge.get.mockResolvedValue(snapshot);
     render(<CommandSettingsPage />);
     await bindingAction('commandSettings.actions.editBinding');
+    await openAdvancedOptions();
     fireEvent.change(screen.getByLabelText('commandSettings.form.priority'), { target: { value: '12' } });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'common.save' })); });
     await waitFor(() => expect(bridge.mutate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({

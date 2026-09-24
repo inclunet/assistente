@@ -11,5 +11,13 @@
 .command-settings__form { display: grid; gap: 16px; }
 .command-settings__info { color: var(--text-secondary); font-size: var(--font-size-sm); }
 .command-settings__restore { border-top: 1px solid var(--border-subtle); padding-top: 12px; }
+.command-settings__advanced { border-top: 1px solid var(--border-subtle); padding-top: 12px; }
+.command-settings__advanced-toggle { cursor: pointer; font: inherit; font-weight: 600; color: var(--text-primary); background: transparent; border: 0; padding: 4px 0; text-align: start; }
+.command-settings__advanced-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.command-settings__advanced-content { display: grid; gap: 16px; padding-top: 12px; }
+.command-settings__deck-status { margin: 12px 0; }
+.command-settings__deck-status h2 { font-size: var(--font-size-base); }
+.command-settings__deck-status ul { display: grid; gap: 8px; padding-inline-start: 24px; }
+.command-settings__deck-status li { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 
 @media (width <= 900px) { .command-settings__layout { grid-template-columns: 1fr; } .command-settings__detail { border-left: 0; border-top: 1px solid var(--border-subtle); padding: 24px 0 0; } }

@@ -11,6 +11,76 @@ separa configurações **globais** das do **workspace atual**. Na visão do
 workspace, itens globais herdados continuam visíveis, mas são editados no
 escopo global. Restaurar o workspace não apaga a configuração global.
 
+## Roteiro manual único — aceite funcional acessível
+
+Use esta checklist como ponto de entrada para o aceite manual das funções já
+implementadas. Os roteiros especializados abaixo continuam servindo de
+detalhamento, mas não é necessário repetir cada validação acumulada para obter
+uma evidência básica. Faça a execução numa cópia descartável da configuração
+local, com nomes e conteúdo sintéticos (por exemplo, `Teste AEP 0103`); não
+use contas, mensagens, arquivos, listas ou workspaces reais. Não altere o
+escopo global da instalação habitual. A criação de dados de teste aqui não é
+migração nem teste de isolamento de workspaces.
+
+Registre para cada item: data/versão, sistema, resultado observado e, se
+falhar, passo e mensagem anunciada. Os itens básicos não exigem hardware
+físico, dados reais ou credenciais; o teste físico do Stream Deck é opcional.
+
+- [ ] **Paleta e teclado:** abra o workspace de teste, escreva `rascunho de
+  teste` no campo de mensagem e pressione **Ctrl+K**. Esperado: a busca abre e
+  o rascunho permanece intacto. Use **Seta para baixo** e **Seta para cima**;
+  o destaque avança/recua uma opção por tecla, o foco permanece na busca e o
+  NVDA anuncia a opção destacada. Busque **Listar workspaces**, pressione
+  **Enter** uma vez e confira que abre o menu **Workspaces** com os nomes e
+  estado ativo dos workspaces disponíveis; não deve trocar de workspace sem
+  selecionar um item. Pressione **Escape** para fechar. Ao fechar a paleta,
+  esperado: o foco vai ao botão **Comandos**, inclusive quando a abertura foi
+  feita por Ctrl+K no campo de mensagem (não volta ao campo de origem).
+  Evidência/resultado: ____________________.
+- [ ] **Camada e atalho local:** em **Configurações → Comandos e acionadores**,
+  crie uma camada descartável no workspace de teste. Associe **Próxima aba** a
+  **Ctrl+Shift+Y** somente se a combinação estiver livre; se não estiver,
+  não substitua o atalho existente e marque este item como bloqueado. Prepare
+  uma regra manual de sessão, ative a camada e mantenha duas abas abertas.
+  Pressione **Ctrl+Shift+Y**: esperado, a seleção muda para a próxima aba.
+  Desative a regra/camada e repita: o atalho pessoal não deve mais agir.
+  Restaure/remova somente os dados descartáveis criados neste passo.
+  Evidência/resultado: ____________________.
+- [ ] **Decisão sem efeito ao cancelar:** em **Configurações → Comandos e
+  acionadores**, selecione uma camada descartável e, na grade **Acionadores**,
+  abra **Ações → Editar acionador** na linha de um binding editável. Mude o
+  atalho e salve; na confirmação da alteração do binding, escolha **Cancelar**.
+  Esperado: o atalho anterior permanece após recarregar. Repita a edição e
+  escolha **Confirmar**; esperado: o novo atalho fica visível após recarregar.
+  Não use **Restaurar tudo** no escopo global. Evidência/resultado: ________.
+- [ ] **Navegação e leitor de tela:** percorra a tela de comandos por teclado,
+  usando **Tab** para os controles, **Setas** nos pickers/listas, **Enter**
+  para selecionar e **Escape** para sair/cancelar. Com NVDA, confira nome,
+  estado e disponibilidade dos controles e anúncios de resultado/erro; ao
+  fechar a paleta ou diálogo, confira a restauração do foco ao acionador.
+  Evidência/resultado: ____________________.
+- [ ] **Stream Deck físico (opcional; exige aparelho conectado):** siga o
+  procedimento em [Validação manual do Stream Deck](../../operations/streamdeck-manual-validation.md).
+  Esperado: o comando de teste termina em `PASS`, renderiza o frame de teste,
+  recebe a tecla física e encerra o handle. Se não houver aparelho ou acesso
+  HID, marque **não executado — hardware indisponível**, sem bloquear os itens
+  de teclado/paleta. Não inclua número de série na evidência compartilhada.
+  Evidência/resultado: ____________________.
+
+**Fora deste aceite:** exportação/importação com conteúdo sensível e teste de
+gestos longos continuam adiados; migração e isolamento de workspaces não fazem
+parte deste roteiro. A validação automatizada de **R08.2** está concluída; a
+conferência manual com NVDA permanece pendente. Use o item de paleta abaixo
+para registrar esse aceite manual.
+
+**Avaliação futura — Fase 7 (não implementada):** avaliar pedais USB,
+controladores MIDI e dials conforme as capacidades observáveis de cada
+dispositivo. Antes de propor suporte, registrar modos de entrada (evento
+discreto/contínuo), resolução/velocidade/pressão quando disponíveis,
+calibração, reconexão e identidade do dispositivo, cancelamento/repetição,
+feedback e operação por teclado/leitor de tela. Nenhum suporte, comando ou
+atalho para esses dispositivos é declarado por esta checklist.
+
 ## Mensagens alteradas durante um comando
 
 Se uma mensagem for alterada após preparar uma ação, a ação antiga é recusada.
@@ -250,12 +320,21 @@ prioridade não altera essa referência. A condição não cria abas nem as reab
   Inicie a sequência, troque de perfil e tente a segunda etapa: não deve
   executar. Inicie novamente já no perfil correto; deve funcionar. Resultado: ____.
 
-Prioridades, argumentos e revisão de padrões ficam nos controles avançados.
-Empates incompatíveis são apresentados como conflitos, sem escolher uma ação
-arbitrariamente. Um padrão alterado pode exigir revisão da personalização:
-restaure-a ou confirme sua adaptação à versão atual. Alterar a configuração
+Prioridades, condições, argumentos e revisão de padrões ficam nos controles
+avançados do editor de acionador; abra **Opções avançadas do acionador** para
+exibi-los. Uma condição ou prioridade persistida que esteja inválida abre essa
+seção automaticamente ao editar, para que o problema não fique oculto. Os
+erros de validação continuam visíveis. Empates incompatíveis são apresentados
+como conflitos, sem escolher uma ação arbitrariamente. Um padrão alterado pode
+exigir revisão da personalização: restaure-a ou confirme sua adaptação à versão
+atual. Alterar a configuração
 republica o mapa; atalhos de navegação continuam sendo resolvidos em memória,
 sem gravar cada tecla ou consultar o banco a cada pressionamento.
+
+- [ ] Edite um acionador e abra **Opções avançadas do acionador** com o teclado;
+  confira prioridade e condições sem perder mensagens de validação. Se a
+  configuração já tiver uma condição/prioridade inválida, a seção deve abrir
+  automaticamente. Resultado: ________.
 
 ### Gravar uma sequência de teclado
 
@@ -436,6 +515,68 @@ Para conferir a correção da paleta:
 - [ ] Digite uma busca e pressione **Enter** na opção desejada: uma única ação.
 - [ ] Em opção indisponível, **Enter** não executa e mantém a paleta aberta.
 - [ ] Pressione **Escape** e confira o retorno do foco ao botão Comandos.
+
+### Atalho efetivo, favoritos, recentes e configuração
+
+Cada comando pode mostrar seu atalho efetivo na paleta. Com um item selecionado,
+use a ação **Favoritar**/**Remover dos favoritos** para controlar sua posição;
+favoritos aparecem antes dos demais itens. Comandos acionados recentemente
+sobem na lista depois dos favoritos. Essas preferências são locais e separadas
+por usuário e workspace deste navegador; não são sincronizadas como bindings.
+
+A ação **Configurar** leva a **Configurações → Comandos e acionadores** para o
+binding daquele comando, quando há configuração correspondente. Ela não grava
+argumentos da execução. Se o comando não tiver binding localizado, a página
+informa que não encontrou uma configuração para ele.
+
+- [ ] Abra a paleta com **Ctrl+K**, selecione um comando e confira se o atalho
+  efetivo aparece quando existe. Resultado: ________.
+- [ ] Marque e desmarque **Favoritar** no item selecionado; confira o estado
+  anunciado e que favoritos aparecem primeiro. Resultado: ________.
+- [ ] Acione um comando disponível; reabra a paleta e confira sua posição entre
+  os recentes. Resultado: ________.
+- [ ] Use **Configurar** num comando com binding; confira o destino e que o
+  binding permanece inalterado até ser editado e salvo nas configurações.
+  Resultado: ________.
+- [ ] Com NVDA, percorra as ações do item e confira nome, estado de favorito,
+  atalho anunciado e destino de **Configurar**. A validação manual de NVDA
+  continua pendente. Resultado: ________.
+
+### Execução ad hoc de ferramentas
+
+Ferramentas compatíveis podem ser executadas **ad hoc pela paleta**. Elas só
+ficam elegíveis quando o catálogo as declara disponíveis para a origem Paleta
+e a decisão exige interação. Busque pelo nome amigável; a janela de argumentos
+mostra o schema disponível como orientação. Se os metadados do catálogo de
+runtime não puderem ser carregados, a orientação pode ficar indisponível, mas
+isso não concede autorização: o backend continua validando e decidindo a
+execução. Ferramentas sem schema de argumentos que a janela consiga editar não
+podem ser enviadas por esse fluxo.
+
+Preencha os campos de acordo com o schema. Para `arguments_json`, informe um
+objeto JSON válido como texto; a UI valida a sintaxe e o backend valida o
+contrato real. Cada execução continua sujeita à decisão/confirmação exigida
+pelo backend; cancelar não executa. A paleta anuncia o estado da execução, mas
+não apresenta o payload de saída da ferramenta. Não use dados reais ou
+segredos no teste.
+
+Por D11, argumentos potencialmente sensíveis não podem ser gravados em bindings
+persistentes. A configuração de comandos identifica ferramentas como somente
+ad hoc; não associe uma ferramenta a atalho de teclado ou Stream Deck.
+
+Checklist manual curto, usando uma ferramenta compatível e dados sintéticos:
+
+- [ ] Abra **Comandos** com **Ctrl+K**, pesquise pelo nome amigável e confira
+  que a janela exibe a descrição/schema disponível sem expor um ID técnico.
+  Resultado: ________.
+- [ ] Em `arguments_json`, tente JSON sintaticamente inválido. Esperado: a
+  janela aponta o campo inválido e não envia a execução. Resultado: ________.
+- [ ] Informe um objeto JSON de teste válido e envie. Confirme a decisão
+  interativa; depois repita e cancele. Esperado: somente a execução confirmada
+  prossegue. Resultado: ________.
+- [ ] Confira que a interface anuncia apenas o estado, sem exibir o payload
+  bruto de saída, e que a configuração não oferece persistir a ferramenta como
+  binding de teclado/Stream Deck. Resultado: ________.
 
 ### Navegação não é histórico de teclas
 
@@ -954,6 +1095,11 @@ perda de foco/sessão ou após 30 segundos. Sem aparelho conectado, conecte um
 Stream Deck e tente gravar novamente. Fora da captura, somente dispositivos
 com bindings efetivos são abertos. A reconexão reenvia
 o frame completo; perda de sessão ou bloqueio remove o mapa e limpa os títulos.
+Em **Configurações → Comandos e acionadores**, a seção **Dispositivos Stream
+Deck** mostra por aparelho o modelo, quantidade de teclas, estado traduzido e,
+quando houver, uma explicação legível da falha ou espera de reconexão. Ela não
+exibe ID interno nem número de série; condições de dispositivo só oferecem
+aparelhos conectados.
 Os títulos usam o idioma selecionado na tela de configurações (inglês antes
 da primeira seleção nesta sessão). A posição deve existir no modelo conectado;
 posições fora da geometria não são executadas. Títulos, ícones, imagens e

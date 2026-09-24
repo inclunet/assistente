@@ -130,6 +130,7 @@ function Regions({ prefix = 'page', modal = false, enabled = true }: { prefix?: 
   }} />)}</div>;
 }
 beforeEach(() => {
+  localStorage.removeItem('assistente.command-palette.v1.user-a.workspace-a');
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   state.mapReady = false; state.pathname = '/';
   modalState.close.mockClear();
@@ -169,7 +170,8 @@ describe('Topbar landmark navigation with real hook and registry', () => {
   ])('palette %s preserves origin captured before search gains focus', async (id, start, end) => {
     await mount(); focus(start); const user = await palette(id);
     expect(await screen.findByRole('combobox')).toHaveFocus();
-    await user.click(await screen.findByRole('option', { name: id }));
+    const shortcut = id === 'navigation.landmark.next' ? 'F6' : id === 'navigation.landmark.previous' ? 'Shift+F6' : 'Ctrl+J';
+    await user.click(await screen.findByRole('option', { name: `${id}. ${shortcut}` }));
     await waitFor(() => expect(screen.getByLabelText(end)).toHaveFocus()); expectNoLedger();
   });
   it.each([
@@ -205,7 +207,7 @@ describe('Topbar landmark navigation with real hook and registry', () => {
   it('modal barrier blocks page navigation and palette snapshot survives no ABA', async () => {
     await mount(); focus('page-first'); const user = await palette('navigation.landmark.next');
     act(() => { registerOpenModal('transient-test'); unregisterOpenModal('transient-test'); });
-    await user.click(await screen.findByRole('option', { name: 'navigation.landmark.next' }));
+    await user.click(await screen.findByRole('option', { name: 'navigation.landmark.next. F6' }));
     expect(screen.getByLabelText('page-second')).not.toHaveFocus(); expectNoLedger();
   });
   it('topmost modal owns F6 and an unrelated modal blocks both surfaces', async () => {
@@ -223,6 +225,6 @@ describe('Topbar landmark navigation with real hook and registry', () => {
   it('unmounting captured regions rejects pending palette navigation', async () => {
     const view = await mount(); focus('page-first'); const user = await palette('navigation.landmark.next');
     view.rerender(<Topbar />);
-    await user.click(await screen.findByRole('option', { name: 'navigation.landmark.next' })); expectNoLedger();
+    await user.click(await screen.findByRole('option', { name: 'navigation.landmark.next. F6' })); expectNoLedger();
   });
 });

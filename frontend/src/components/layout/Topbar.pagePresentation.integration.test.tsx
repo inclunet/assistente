@@ -24,6 +24,21 @@ const ids = [
   'profiles.create.open', 'profiles.edit.open', 'profiles.search.focus',
   'terminal.sessions.open', 'terminal.focus.input', 'terminal.focus.history',
 ] as const satisfies readonly PagePresentationCommandID[];
+const palettePreferencesKey = 'assistente.command-palette.v1.user-a.workspace-a';
+const shortcuts: Record<PagePresentationCommandID, string> = {
+  'tasklist.task.create.open': 'Ctrl+Shift+N',
+  'tasklists.create.open': 'Ctrl+Shift+L, Ctrl+N',
+  'tasklists.edit.open': 'Ctrl+Shift+I',
+  'tasklists.search.focus': 'Ctrl+Shift+K',
+  'profiles.create.open': 'Ctrl+Shift+P, Ctrl+N',
+  'profiles.edit.open': 'Ctrl+Shift+E',
+  'profiles.search.focus': 'Ctrl+Shift+F',
+  'terminal.sessions.open': 'Ctrl+Shift+S',
+  'terminal.focus.input': 'Ctrl+Shift+Enter',
+  'terminal.focus.history': 'Ctrl+Shift+H',
+};
+const paletteOptionName = (id: PagePresentationCommandID, unavailable = false) =>
+  [id, shortcuts[id], ...(unavailable ? ['commandPalette.unavailable'] : [])].join('. ');
 
 const pathFor = (id: PagePresentationCommandID) => id.startsWith('terminal.') || id === 'tasklist.task.create.open' ? '/' : `/${id.split('.')[0]}`;
 
@@ -202,10 +217,11 @@ async function palette(id: PagePresentationCommandID, keyboard = false) {
   else await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
   const search = await screen.findByRole('combobox');
   await user.type(search, id);
-  await user.click(await screen.findByRole('option', { name: id }));
+  await user.click(await screen.findByRole('option', { name: paletteOptionName(id) }));
 }
 
 beforeEach(() => {
+  localStorage.removeItem(palettePreferencesKey);
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   state.pathname = '/profiles'; state.mapReady = false; state.actions = []; state.events.clear();
   state.historySuppressed = false;
@@ -300,12 +316,19 @@ describe('Topbar + registry real de apresentação contextual', () => {
   });
 
   it.each(['selection-aba', 'route', 'modal', 'modal-aba', 'owner'] as const)('recusa apresentação após mudança de %s', async change => {
-    mount(); await ready();
+    const view = mount(); await ready();
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
     await user.type(await screen.findByRole('combobox'), 'profiles.create.open');
     if (change === 'selection-aba') fireEvent.click(screen.getByRole('button', { name: 'Origem' }));
-    if (change === 'route') { state.pathname = '/tasklists'; }
+    if (change === 'route') {
+      state.pathname = '/tasklists';
+      view.rerender(<><Topbar /><PresentationSurface api={surfaceApi} /></>);
+      await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument());
+      expect(state.actions).toEqual([]);
+      noTransport();
+      return;
+    }
     if (change === 'owner') auth.user = { userId: 'user-b', sessionId: 'session-b', role: 'user' };
     const overlay = document.createElement('div');
     if (change === 'modal' || change === 'modal-aba') {
@@ -314,7 +337,8 @@ describe('Topbar + registry real de apresentação contextual', () => {
       registerOpenModal('test-modal');
       if (change === 'modal-aba') { unregisterOpenModal('test-modal'); overlay.remove(); }
     }
-    await user.click(await screen.findByRole('option', { name: 'profiles.create.open' }));
+    const option = await screen.findByRole('option', { name: paletteOptionName('profiles.create.open') });
+    await user.click(option);
     await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
     expect(state.actions).toEqual([]);
     if (change === 'modal') { unregisterOpenModal('test-modal'); overlay.remove(); }

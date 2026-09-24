@@ -23,13 +23,16 @@ import { useShallow } from 'zustand/shallow';
 import { MenuButton, type MenuItem as MenuButtonItem, type MenuButtonRef } from './MenuButton';
 import { ConnectionStatusIndicator } from './ConnectionStatusIndicator';
 import { Menu, type MenuItem } from '../menu';
-import { Combobox, type ComboboxItem } from '../pickers/Combobox';
+import { Combobox, type ComboboxDismissReason, type ComboboxItem } from '../pickers/Combobox';
 import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
-import { listCommandCatalog } from '../../services/commandCatalog';
+import { describeCommandCatalogItem, listCommandCatalog } from '../../services/commandCatalog';
+import { CommandArgumentsDialog } from '../commands/CommandArgumentsDialog';
+import { getRuntimeCommandToolGuidance, type RuntimeCommandToolGuidance } from '../../lib/commandToolGuidance';
+import { commandPalettePreferenceKey, EMPTY_COMMAND_PALETTE_PREFERENCES, readCommandPalettePreferences, recordRecentCommand, toggleCommandFavorite, writeCommandPalettePreferences, type CommandPalettePreferences } from '../../lib/commandPalettePreferences';
 import { isCommandLayerAction } from '../../lib/commandLayerActions';
 import { createCommandUIEffectGuard, type CommandUIEffect, type CommandUIEffectToken } from '../../lib/commandUIEffect';
 import { createTrustedCommandContextSession, type TrustedCommandContextSession } from '../../lib/commandContextSession';
@@ -156,6 +159,10 @@ const WORKSPACE_PANEL_FOCUS_COMMAND_ID = 'workspace.panel.focus';
 const COMMAND_TOOLBAR_SURFACE_ID = 'command-toolbar';
 const PALETTE_OPEN_COMMAND_ID = 'navigation.palette.open';
 const HELP_NAVIGATION_COMMAND_ID = 'navigation.help.open';
+const isCommandToolExecutionID = (commandID: string): boolean => {
+  const match = /^tool\.execute\.t_([0-9a-f]{32})$/.exec(commandID);
+  return Boolean(match && match[1][12] === '7' && '89ab'.includes(match[1][16]));
+};
 
 interface PendingCommandIntent {
   readonly contextualPalette?: ContextualPaletteCommandLease;
@@ -165,6 +172,13 @@ interface PendingCommandIntent {
   readonly workspaceId: string;
   readonly activeTabId: string | null;
   readonly routeIdentity: string;
+}
+
+interface PaletteArgumentPrompt {
+  readonly intent: PendingCommandIntent;
+  readonly commandName: string;
+  readonly schema: unknown;
+  readonly toolGuidance?: RuntimeCommandToolGuidance;
 }
 
 async function readPreparedWorkspaceChatConversation(
@@ -201,6 +215,7 @@ export function Topbar() {
   commandRouteIdentityRef.current = commandRouteIdentity;
   const commandOwner = useAuthStore((s) => s.isAuthenticated && s.user
     ? JSON.stringify([s.user.userId, s.user.sessionId]) : null);
+  const paletteUserId = useAuthStore((s) => s.isAuthenticated ? s.user?.userId ?? '' : '');
   const commandSurfaceRef = useRef<HTMLElement>(null);
   const commandScope = useCommandContextScope();
   const tabCreationMenu = useWorkspaceTabCreationMenu();
@@ -429,6 +444,26 @@ export function Topbar() {
   }, []);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandPaletteItems, setCommandPaletteItems] = useState<ComboboxItem[]>([]);
+  const palettePreferencesKey = commandPalettePreferenceKey(paletteUserId, workspace?.id ?? '');
+  const [palettePreferencesState, setPalettePreferencesState] = useState<{ key: string | null; value: CommandPalettePreferences }>({ key: null, value: EMPTY_COMMAND_PALETTE_PREFERENCES });
+  const palettePreferences = palettePreferencesState.key === palettePreferencesKey ? palettePreferencesState.value : EMPTY_COMMAND_PALETTE_PREFERENCES;
+  const [paletteArgumentPrompt, setPaletteArgumentPrompt] = useState<PaletteArgumentPrompt | null>(null);
+  const [paletteArgumentsBusy, setPaletteArgumentsBusy] = useState(false);
+  const paletteArgumentsBusyIntentRef = useRef<PendingCommandIntent | null>(null);
+  useEffect(() => {
+    setPalettePreferencesState({ key: palettePreferencesKey, value: readCommandPalettePreferences(palettePreferencesKey) });
+  }, [palettePreferencesKey]);
+  const updatePalettePreferences = useCallback((change: (current: CommandPalettePreferences) => CommandPalettePreferences) => {
+    if (!palettePreferencesKey) return;
+    setPalettePreferencesState((current) => {
+      const starting = current.key === palettePreferencesKey
+        ? current.value
+        : readCommandPalettePreferences(palettePreferencesKey);
+      const value = change(starting);
+      writeCommandPalettePreferences(palettePreferencesKey, value);
+      return { key: palettePreferencesKey, value };
+    });
+  }, [palettePreferencesKey]);
   commandPaletteOpenRef.current = commandPaletteOpen;
   const pickerButtonRef = useRef<HTMLButtonElement>(null);
   const workspacePickerTriggerRef = useRef<HTMLElement | null>(null);
@@ -2455,6 +2490,9 @@ export function Topbar() {
         pendingCommandCatalogRef.current = null;
         commandPaletteDismissActionRef.current = 'ignore';
         setCommandPaletteOpen(false);
+        setPaletteArgumentPrompt(null);
+        paletteArgumentsBusyIntentRef.current = null;
+        setPaletteArgumentsBusy(false);
         commandPaletteMenuItemsRef.current = [];
         setCommandPaletteItems([]);
         backendExecutor.cancelPresentation();
@@ -2533,6 +2571,9 @@ export function Topbar() {
       pendingCommandCatalogRef.current = null;
       commandPaletteDismissActionRef.current = 'ignore';
       setCommandPaletteOpen(false);
+      setPaletteArgumentPrompt(null);
+      paletteArgumentsBusyIntentRef.current = null;
+      setPaletteArgumentsBusy(false);
       commandPaletteMenuItemsRef.current = [];
       setCommandPaletteItems([]);
       commandPickerAfterMainMenuRef.current = false;
@@ -2543,6 +2584,44 @@ export function Topbar() {
       pendingWorkspaceCreateTargetRef.current = null;
     };
   }, [commandOwner, workspace?.id, commandRouteIdentity, commandScope, prepareWorkspaceTabTarget, prepareWorkspaceMutationTarget, workspaceTabMutationAvailable, workspaceMutationAvailable, workspaceTabNavigationAvailable, workspacePanelFocusAvailable, executeContextualCommand, executeLocalUICommand, chatPickerAvailable, editorPresentationAvailable, tabCreationMenu, intentIsCurrent, clearPaletteEditorModeTargets, executeFileCommand, editorFileAvailable, executeFormatCommand, editorFormatAvailable, chatMessagingAvailable, runChatMessaging, clearPaletteChatMessaging, mermaidAvailable, runMermaidCommand, landmarkAvailable, presentationCommandAvailable]);
+
+  const runGenericPaletteCommand = useCallback(async (prompt: PaletteArgumentPrompt, args: Record<string, unknown>) => {
+    const { intent } = prompt;
+    const current = () => {
+      const auth = useAuthStore.getState();
+      const currentWorkspace = useWorkspaceStore.getState().workspace;
+      return activeCommandIntentRef.current === intent && commandPickerMountedRef.current && auth.isAuthenticated &&
+        auth.user?.userId === intent.userId && auth.user?.sessionId === intent.sessionId &&
+        currentWorkspace?.id === intent.workspaceId && (currentWorkspace?.activeTabId ?? null) === intent.activeTabId &&
+        commandRouteIdentityRef.current === intent.routeIdentity;
+    };
+    if (!current()) {
+      if (activeCommandIntentRef.current === intent) activeCommandIntentRef.current = null;
+      setPaletteArgumentPrompt((currentPrompt) => currentPrompt?.intent === intent ? null : currentPrompt);
+      return;
+    }
+    paletteArgumentsBusyIntentRef.current = intent;
+    setPaletteArgumentsBusy(true);
+    try {
+      const raw = await createCommandBackendExecutionWailsPort().executeCommand(intent.commandID, args);
+      if (!current()) return;
+      const status = raw && typeof raw === 'object' ? (raw as { status?: unknown }).status : undefined;
+      if (status === 'succeeded') announce(t('commandPalette.executionSucceeded'));
+      else if (status === 'suppressed') announce(t('commandPalette.executionSuppressed'));
+      else if (status === 'denied' || status === 'rejected_stale') announce(t('commandPalette.unavailable'));
+      else if (status === 'failed' || status === 'cancelled') announce(t('commandPalette.executionFailed'));
+      else announce(t('commandPalette.executionUnknown'));
+    } catch {
+      if (current()) announce(t('commandPalette.executionUnknown'));
+    } finally {
+      if (paletteArgumentsBusyIntentRef.current === intent) {
+        paletteArgumentsBusyIntentRef.current = null;
+        setPaletteArgumentsBusy(false);
+      }
+      setPaletteArgumentPrompt((currentPrompt) => currentPrompt?.intent === intent ? null : currentPrompt);
+      if (activeCommandIntentRef.current === intent) activeCommandIntentRef.current = null;
+    }
+  }, [announce, t]);
 
   const executePendingCommand = useCallback(() => {
     const intent = pendingCommandExecutionRef.current;
@@ -2767,9 +2846,35 @@ export function Topbar() {
       });
       return;
     }
+    // Comandos genéricos usam o mesmo contrato de catálogo e executor da paleta;
+    // as rotas especializadas acima permanecem donas dos seus alvos e argumentos.
+    void describeCommandCatalogItem(intent.commandID, { locale: i18n.language, source: 'palette' }).then(async (detail) => {
+      if (!executionStillCurrent()) { if (activeCommandIntentRef.current === intent) activeCommandIntentRef.current = null; return; }
+      const isToolExecution = isCommandToolExecutionID(intent.commandID);
+      const decisionAllowed = detail.decision === 'none' || (isToolExecution && detail.decision === 'interactive');
+      if (!detail.available || !detail.allowedSources?.includes('palette') || !decisionAllowed) {
+        activeCommandIntentRef.current = null;
+        announce(t('commandPalette.unavailable'));
+        return;
+      }
+      const schema = detail.argumentsSchema;
+      const schemaRecord = schema && typeof schema === 'object' && !Array.isArray(schema) ? schema as Record<string, unknown> : undefined;
+      const properties = schemaRecord?.properties ?? schemaRecord?.Properties;
+      if (isToolExecution || properties && typeof properties === 'object' && !Array.isArray(properties) && Object.keys(properties).length > 0) {
+        const toolGuidance = isToolExecution
+          ? await getRuntimeCommandToolGuidance(intent.commandID, executionStillCurrent)
+          : undefined;
+        if (!executionStillCurrent()) { if (activeCommandIntentRef.current === intent) activeCommandIntentRef.current = null; return; }
+        setPaletteArgumentPrompt({ intent, commandName: detail.name || intent.commandID, schema, toolGuidance });
+        return;
+      }
+      await runGenericPaletteCommand({ intent, commandName: detail.name || intent.commandID, schema }, {});
+    }).catch(() => {
+      if (executionStillCurrent()) announce(t('commandPalette.executionUnknown'));
+      if (activeCommandIntentRef.current === intent) activeCommandIntentRef.current = null;
+    });
     // Unknown presentation commands have no legacy audited fallback.
-    activeCommandIntentRef.current = null;
-  }, [announce, intentIsCurrent, presentWorkspaceList, t, executeContextualCommand, executeLocalUICommand, clearPaletteEditorModeTargets, executeFileCommand, executeFormatCommand, runChatMessaging, runMermaidCommand, hasCurrentLocalPaletteCommand, prepareWorkspaceMutationTarget]);
+  }, [announce, i18n.language, intentIsCurrent, presentWorkspaceList, t, executeContextualCommand, executeLocalUICommand, clearPaletteEditorModeTargets, executeFileCommand, executeFormatCommand, runChatMessaging, runMermaidCommand, hasCurrentLocalPaletteCommand, prepareWorkspaceMutationTarget, runGenericPaletteCommand]);
   executePendingCommandRef.current = executePendingCommand;
 
   // --- Page title ---
@@ -2869,7 +2974,7 @@ export function Topbar() {
     paletteSurfaceTargetRef.current = undefined;
   }, [executePendingCommand, clearPaletteEditorModeTargets, clearPaletteChatMessaging]);
 
-  const handleCommandPaletteAfterDismiss = useCallback(() => {
+  const handleCommandPaletteAfterDismiss = useCallback((reason: ComboboxDismissReason) => {
     clearPaletteChatMessaging();
     paletteChatClearRef.current?.dispose(); paletteChatClearRef.current = null;
     paletteTerminalOperationRef.current?.dispose(); paletteTerminalOperationRef.current = null;
@@ -2880,7 +2985,7 @@ export function Topbar() {
     paletteSurfaceTargetRef.current = undefined;
     const action = commandPaletteDismissActionRef.current;
     commandPaletteDismissActionRef.current = 'restore';
-    if (action === 'ignore' || !commandPickerMountedRef.current || isModalOpen()) return;
+    if (reason === 'focus-leave' || action === 'ignore' || !commandPickerMountedRef.current || isModalOpen()) return;
     if (action === 'open-main-menu') {
       menuButtonRef.current?.toggleMenu();
       return;
@@ -3009,7 +3114,12 @@ export function Topbar() {
       }];
     }
 
-    return items.map((item) => {
+    const rankedItems = [...items].sort((left, right) => {
+      const rank = (id: string) => palettePreferences.favorites.includes(id) ? 0 : palettePreferences.recent.includes(id) ? 1 : 2;
+      return rank(left.id) - rank(right.id) ||
+        (rank(left.id) === 1 ? palettePreferences.recent.indexOf(left.id) - palettePreferences.recent.indexOf(right.id) : 0);
+    });
+    return rankedItems.map((item) => {
       const localUIAvailable = (!isLocalUICommand(item.id) || hasCurrentLocalPaletteCommand(item.id)) && (!isPageMutationCommand(item.id) || palettePageMutationsRef.current.get(item.id)?.isCurrent() === true);
       const contextualAvailable = item.id !== WORKSPACE_PANEL_FOCUS_COMMAND_ID || workspacePanelFocusAvailable();
       const tabNavigationAvailable = workspaceTabNavigationAvailable(item.id);
@@ -3031,16 +3141,23 @@ export function Topbar() {
       const presentationCommandAvailable = !isCapturedPresentationCommand(item.id) || palettePresentationCommandsRef.current.get(item.id)?.canOpen(item.id) === true;
       const requiresContextualPalette = isContextualPaletteCommand(item.id) && contextualPaletteCommandsRef.current?.has(item.id);
       const available = item.available && contextualPaletteAvailable(item.id) && localUIAvailable && contextualAvailable && tabNavigationAvailable && mutationAvailable && chatAvailable && editorModeAvailable && editorFileAvailable && editorFormatAvailable && mermaidAvailable && clearAvailable && terminalAvailable && messagingAvailable && landmarkAvailable && presentationCommandAvailable;
+      const hasSpecializedHandler = isPageMutationCommand(item.id) || item.id === WORKSPACE_LIST_COMMAND_ID || isCommandLayerAction(item.id) || item.id === CHAT_CLEAR_COMMAND || item.id === TERMINAL_INTERRUPT_COMMAND || isTerminalSessionOperationCommand(item.id) || isChatMessagingCommand(item.id) || commandUIHandlers.has(item.id) || isWorkspaceMutationCommand(item.id) || isLocalUICommand(item.id) || isEditorFileCommand(item.id) || isEditorFormatCommand(item.id) || isEditorMermaidCommand(item.id);
+      const isToolExecution = isCommandToolExecutionID(item.id);
+      const genericDecisionAllowed = item.decision === 'none' || (isToolExecution && item.decision === 'interactive');
+      const genericExecutable = !hasSpecializedHandler && ['read', 'write', 'destructive'].includes(item.effect) && genericDecisionAllowed && item.allowedSources?.includes('palette');
       const unavailableReason = !contextualAvailable || !tabNavigationAvailable || !mutationAvailable
         ? t('commandPalette.unavailable')
         : item.readinessReason || item.availabilityReason || t('commandPalette.unavailable');
+      const effectiveShortcut = shortcutHint(item.id);
+      const favorite = palettePreferences.favorites.includes(item.id);
+      const recent = palettePreferences.recent.includes(item.id);
       return {
         id: `command-${item.id}`,
         label: item.name || item.id,
         searchText: [item.description, item.category, ...(item.aliases ?? [])].filter(Boolean).join(' '),
-        shortcut: item.category || item.risk || undefined,
+        shortcut: effectiveShortcut,
         disabled: !available,
-        ariaLabel: [item.name || item.id, item.description, !available ? unavailableReason : '']
+        ariaLabel: [item.name || item.id, item.description, favorite ? t('commandPalette.favorite') : '', recent ? t('commandPalette.recent') : '', effectiveShortcut, !available ? unavailableReason : '']
           .filter(Boolean).join('. '),
         action: () => {
           if (!available ||
@@ -3055,7 +3172,8 @@ export function Topbar() {
             announce(`${item.name || item.id}: ${unavailableReason}`);
             return;
           }
-          if (isPageMutationCommand(item.id) || item.id === WORKSPACE_LIST_COMMAND_ID || isCommandLayerAction(item.id) || item.id === CHAT_CLEAR_COMMAND || item.id === TERMINAL_INTERRUPT_COMMAND || isTerminalSessionOperationCommand(item.id) || isChatMessagingCommand(item.id) || commandUIHandlers.has(item.id) || isWorkspaceMutationCommand(item.id) || isLocalUICommand(item.id) || isEditorFileCommand(item.id) || isEditorFormatCommand(item.id) || isEditorMermaidCommand(item.id)) {
+          if (hasSpecializedHandler || genericExecutable) {
+            updatePalettePreferences((current) => recordRecentCommand(current, item.id));
             const auth = useAuthStore.getState();
             const currentWorkspace = useWorkspaceStore.getState().workspace;
             if (!auth.isAuthenticated || !auth.user || !currentWorkspace) return;
@@ -3137,7 +3255,7 @@ export function Topbar() {
         },
       };
     });
-  }, [announce, commandUIHandlers, t, workspaceMutationAvailable, workspaceTabNavigationAvailable, workspacePanelFocusAvailable, hasCurrentLocalPaletteCommand, contextualPaletteAvailable, captureContextualPaletteLease]);
+  }, [announce, commandUIHandlers, t, workspaceMutationAvailable, workspaceTabNavigationAvailable, workspacePanelFocusAvailable, hasCurrentLocalPaletteCommand, contextualPaletteAvailable, captureContextualPaletteLease, palettePreferences, shortcutHint, updatePalettePreferences]);
 
   const handleOpenCommandPicker = useCallback((fromKeyboard = false) => {
     const pointerLandmark = pointerLandmarkTargetRef.current;
@@ -3262,6 +3380,11 @@ export function Topbar() {
                 value: item.id,
                 label: item.label,
                 searchText: item.searchText,
+                sublabel: [
+                  palettePreferences.favorites.includes(item.id.replace(/^command-/, '')) ? t('commandPalette.favorite') : '',
+                  palettePreferences.recent.includes(item.id.replace(/^command-/, '')) ? t('commandPalette.recent') : '',
+                  item.shortcut ?? '',
+                ].filter(Boolean).join(' · '),
                 accessibleLabel: item.ariaLabel,
                 disabled: item.disabled,
               })));
@@ -3507,10 +3630,50 @@ export function Topbar() {
             triggerRef={commandPickerButtonRef}
             onAfterSelect={handleCommandPaletteAfterSelect}
             onAfterDismiss={handleCommandPaletteAfterDismiss}
+            renderActiveItemActions={(activeItem) => {
+              if (!activeItem?.value.startsWith('command-')) return null;
+              const commandId = activeItem.value.slice('command-'.length);
+              const isFavorite = palettePreferences.favorites.includes(commandId);
+              return <>
+                <button type="button" aria-pressed={isFavorite}
+                  aria-label={`${t(isFavorite ? 'commandPalette.unfavorite' : 'commandPalette.addFavorite')}: ${activeItem.label}`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => updatePalettePreferences((current) => toggleCommandFavorite(current, commandId))}>
+                  {t(isFavorite ? 'commandPalette.unfavorite' : 'commandPalette.addFavorite')}
+                </button>
+                <button type="button" aria-label={`${t('commandPalette.configure')}: ${activeItem.label}`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    closeCommandPaletteRef.current?.();
+                    navigate(`/settings/commands?commandId=${encodeURIComponent(commandId)}`);
+                  }}>
+                  {t('commandPalette.configure')}
+                </button>
+              </>;
+            }}
             shortcut={shortcutHint('navigation.palette.open')}
             busy={commandCatalogLoading}
           />
         </div>
+
+        <CommandArgumentsDialog
+          open={Boolean(paletteArgumentPrompt)}
+          commandName={paletteArgumentPrompt?.commandName ?? ''}
+          schema={paletteArgumentPrompt?.schema}
+          jsonStringFields={paletteArgumentPrompt && isCommandToolExecutionID(paletteArgumentPrompt.intent.commandID) ? ['arguments_json'] : []}
+          toolGuidance={paletteArgumentPrompt?.toolGuidance}
+          busy={paletteArgumentsBusy}
+          onCancel={() => {
+            const intent = paletteArgumentPrompt?.intent;
+            if (intent && activeCommandIntentRef.current === intent) activeCommandIntentRef.current = null;
+            if (intent && paletteArgumentsBusyIntentRef.current === intent) {
+              paletteArgumentsBusyIntentRef.current = null;
+              setPaletteArgumentsBusy(false);
+            }
+            setPaletteArgumentPrompt((current) => current?.intent === intent ? null : current);
+          }}
+          onSubmit={(args) => { if (paletteArgumentPrompt) void runGenericPaletteCommand(paletteArgumentPrompt, args); }}
+        />
 
         <h1 className="topbar__title">{pageTitle}</h1>
 
