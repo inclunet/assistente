@@ -667,8 +667,10 @@ export function DataGrid<T = unknown>({
         return;
 
       case 'Escape':
-        event.preventDefault();
-        if (isMultiSelect) {
+        // Só consome o Escape quando há seleção a limpar; sem isso ele segue
+        // para quem está em volta (ex.: fechar o Modal que hospeda o grid).
+        if (isMultiSelect && localSelectedIds.size > 0) {
+          event.preventDefault();
           clearSelection();
         }
         return;
