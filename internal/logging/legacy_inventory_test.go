@@ -16,10 +16,12 @@ import (
 )
 
 const (
-	// O núcleo único do ledger removeu 17 formatos legados duplicados de
-	// service.go; os logs de lifecycle.go já usam formatos normalizados.
-	expectedLegacyFormatCount  = 762
-	expectedLegacyFormatDigest = "9e7a9ab2543013f8c06937d7ff35b3783763b9d0a1157f7c6a61d18a09a6af55"
+	// A integração do AEP-0103 altera a baseline da main em +12 formatos:
+	// hotkeys controller +1, profiles controller -1, app +2, httpapi +6,
+	// jobs manager +9 e profiles manager -5. Logs movidos sem mudar formato
+	// se cancelam; o lifecycle unificado continua usando formatos normalizados.
+	expectedLegacyFormatCount  = 774
+	expectedLegacyFormatDigest = "025e87ebcb565f2a1bd687edaeeb4e496723c93d825503ec6c70265efcfecb4f"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.
