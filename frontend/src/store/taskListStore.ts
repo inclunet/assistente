@@ -750,8 +750,30 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
 
     updateWorkflowFull: async (taskListId: string, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>, initialStatusId: number, statusMigration?: Record<number, number>) => {
       try {
-        await UpdateWorkflowFull(taskListId, statuses as TaskListWorkflowStatus[], transitions, initialStatusId, statusMigration ?? {});
-        await get().loadTaskList(taskListId);
+        const migration = statusMigration ?? {};
+        await UpdateWorkflowFull(taskListId, statuses as TaskListWorkflowStatus[], transitions, initialStatusId, migration);
+        const cached = get().taskLists.get(taskListId);
+        // O editor salva a cada alteração: sem migração as tarefas não mudam,
+        // então basta atualizar o workflow em cache, sem recarregar a lista.
+        if (Object.keys(migration).length > 0 || !cached?.workflow) {
+          await get().loadTaskList(taskListId);
+          return;
+        }
+        set((state) => {
+          const current = state.taskLists.get(taskListId);
+          if (!current?.workflow) return {};
+          const taskLists = new Map(state.taskLists);
+          taskLists.set(taskListId, {
+            ...current,
+            workflow: {
+              ...current.workflow,
+              statuses: statuses.map((s) => ({ ...s })),
+              allowedTransitions: { ...transitions },
+              initialStatusId,
+            },
+          });
+          return { taskLists };
+        });
       } catch (error) {
         get().setError(taskListErrorKey('updateWorkflowFull', taskListId), String(error));
         throw error;
