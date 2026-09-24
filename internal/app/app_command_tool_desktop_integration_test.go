@@ -209,9 +209,10 @@ func TestCommandToolDesktopDecisionAndRevalidation(t *testing.T) {
 			}
 			if scenario != "success" && scenario != "reactive" {
 				wantStatus, wantRows := commandledger.Failed, 1
-				if scenario == "denied" || scenario == "cancelled" {
+				switch scenario {
+				case "denied", "cancelled":
 					wantStatus, wantRows = commandledger.Denied, 0
-				} else if scenario == "session_revoked" || scenario == "reactive_retired" {
+				case "session_revoked", "reactive_retired":
 					wantStatus, wantRows = commandledger.CancelledStale, 0
 				}
 				if got.err != nil || got.record.Status != wantStatus || len(rows) != wantRows || effect.calls.Load() != 0 || replacement != nil && replacement.calls.Load() != 0 {

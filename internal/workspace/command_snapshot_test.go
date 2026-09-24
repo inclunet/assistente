@@ -83,7 +83,7 @@ func TestWithCommandSnapshotCancellationAndNilInputsRelease(t *testing.T) {
 	if err := (*Manager)(nil).WithCommandSnapshot(context.Background(), func(CommandSnapshot) error { return nil }); !errors.Is(err, ErrCommandSnapshotNilManager) {
 		t.Fatalf("manager nil=%v", err)
 	}
-	if err := manager.WithCommandSnapshot(nil, func(CommandSnapshot) error { return nil }); !errors.Is(err, ErrCommandSnapshotNilContext) {
+	if err := manager.WithCommandSnapshot(nil, func(CommandSnapshot) error { return nil }); !errors.Is(err, ErrCommandSnapshotNilContext) { //nolint:staticcheck // Verifica a rejeição explícita de contexto nil.
 		t.Fatalf("context nil=%v", err)
 	}
 	if err := manager.WithCommandSnapshot(context.Background(), nil); !errors.Is(err, ErrCommandSnapshotNilCallback) {

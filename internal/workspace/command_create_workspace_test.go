@@ -110,7 +110,7 @@ func TestCreateForCommandRejectsNilCanceledAndStale(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CommandSnapshot: %v", err)
 	}
-	if _, err := manager.CreateForCommand(nil, expected, "nil context"); !errors.Is(err, ErrCommandCreateWorkspaceNilContext) {
+	if _, err := manager.CreateForCommand(nil, expected, "nil context"); !errors.Is(err, ErrCommandCreateWorkspaceNilContext) { //nolint:staticcheck // Verifica a rejeição explícita de contexto nil.
 		t.Fatalf("nil context error: %v", err)
 	}
 	canceled, cancel := context.WithCancel(context.Background())

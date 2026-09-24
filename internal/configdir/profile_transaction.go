@@ -294,7 +294,7 @@ func writeProfileTransactionAtomic(path string, data []byte, mode os.FileMode) e
 		return err
 	}
 	tempPath := file.Name()
-	defer os.Remove(tempPath)
+	defer func() { _ = os.Remove(tempPath) }() // Já não existe após o rename; limpeza best-effort em falhas.
 	if err := file.Chmod(mode); err != nil {
 		_ = file.Close()
 		return err
@@ -326,11 +326,11 @@ func syncProfileTransactionDirectory(path string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if err := file.Sync(); err != nil && !errors.Is(err, os.ErrInvalid) {
 		return err
 	}
-	return nil
+	return file.Close()
 }
 
 func removeProfileTransactionJournal(path string) error {

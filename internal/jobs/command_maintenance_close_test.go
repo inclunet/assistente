@@ -114,7 +114,7 @@ func TestCloseCommandMaintenanceRejectsNilInputs(t *testing.T) {
 		t.Fatalf("manager nil=%v", err)
 	}
 	m := &Manager{}
-	if err := m.CloseCommandMaintenance(nil); !errors.Is(err, ErrCommandMaintenanceUnavailable) {
+	if err := m.CloseCommandMaintenance(nil); !errors.Is(err, ErrCommandMaintenanceUnavailable) { //nolint:staticcheck // Prova a recusa explícita de contexto nil.
 		t.Fatalf("contexto nil=%v", err)
 	}
 }

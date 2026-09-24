@@ -104,12 +104,16 @@ func TestRecoveryMatrixAckCallbackRollbackThenReplay(t *testing.T) {
 	const callbackName = "recovery_matrix_fail_outbox_update"
 	if err := c.db.Callback().Update().Before("gorm:update").Register(callbackName, func(tx *gorm.DB) {
 		if tx.Statement.Table == (commandjobevents.ActivationOutbox{}).TableName() {
-			tx.AddError(failure)
+			_ = tx.AddError(failure) // Injeta a falha no statement observado pelo teste.
 		}
 	}); err != nil {
 		t.Fatal(err)
 	}
-	defer c.db.Callback().Update().Remove(callbackName)
+	defer func() {
+		if err := c.db.Callback().Update().Remove(callbackName); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	failedConsumer := newRecoveryConsumer(t, c)
 	if _, err := failedConsumer.Consume(context.Background(), fact.SourceEventID, "ack-worker"); !errors.Is(err, failure) {

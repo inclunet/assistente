@@ -55,7 +55,7 @@ func TestCoordinatorPublishesValidatedIndependentPolicySnapshots(t *testing.T) {
 	if _, ok := PolicyFromContext(ctx); ok {
 		t.Fatal("contexto do chamador alterado")
 	}
-	if _, ok := PolicyFromContext(nil); ok {
+	if _, ok := PolicyFromContext(nil); ok { //nolint:staticcheck // Exercita intencionalmente a recusa de contexto nil.
 		t.Fatal("nil contém política")
 	}
 }

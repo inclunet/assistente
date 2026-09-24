@@ -129,7 +129,7 @@ func TestSwitchABAReturnsIncreasingSequencesInSameEpoch(t *testing.T) {
 	if a.SnapshotEpoch == "" || a.SnapshotEpoch != b.SnapshotEpoch || b.SnapshotEpoch != aAgain.SnapshotEpoch {
 		t.Fatalf("epoch ABA inconsistente: A=%q B=%q A2=%q", a.SnapshotEpoch, b.SnapshotEpoch, aAgain.SnapshotEpoch)
 	}
-	if !(aSequence < bSequence && bSequence < aAgainSequence) {
+	if aSequence >= bSequence || bSequence >= aAgainSequence {
 		t.Fatalf("sequences ABA não crescentes: A=%d B=%d A2=%d", aSequence, bSequence, aAgainSequence)
 	}
 }

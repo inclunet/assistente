@@ -167,7 +167,8 @@ func TestProfilesControllerContextMutationsUseConfiguredCoordinator(t *testing.T
 			committer := &profilesMutationCommitter{}
 			var changed []string
 			controller := newCoordinatedProfilesController(manager, emitter, committer, &changed)
-			ctx := context.WithValue(context.Background(), struct{}{}, "authenticated")
+			type authenticatedTestKey struct{}
+			ctx := context.WithValue(context.Background(), authenticatedTestKey{}, "authenticated")
 
 			if err := tc.run(controller, ctx, manager); err != nil {
 				t.Fatal(err)

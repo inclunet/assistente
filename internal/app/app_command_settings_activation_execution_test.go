@@ -114,7 +114,7 @@ func TestCommandSettingsManualActivationCommittedWithoutPublicationClosesOldMap(
 	t.Cleanup(func() { _ = db.Callback().Create().Remove(createCallback) })
 	if err := db.Callback().Query().Before("gorm:query").Register(queryCallback, func(tx *gorm.DB) {
 		if inserted && tx.Statement.Table == "command_layers" {
-			tx.AddError(errors.New("publicação indisponível no teste"))
+			_ = tx.AddError(errors.New("publicação indisponível no teste"))
 		}
 	}); err != nil {
 		t.Fatal(err)

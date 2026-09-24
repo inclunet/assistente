@@ -273,7 +273,7 @@ func TestProjectionFailsClosedAboveClaimCap(t *testing.T) {
 func TestProjectionRejectsNilCanceledAndExhaustedRevision(t *testing.T) {
 	c, _, fact, _, _ := fixture(t)
 	owner := projectionOwner(fact)
-	if _, err := c.Projection(nil, owner); !errors.Is(err, ErrUnavailable) {
+	if _, err := c.Projection(nil, owner); !errors.Is(err, ErrUnavailable) { //nolint:staticcheck // Verifica a rejeição explícita de contexto nil.
 		t.Fatalf("contexto nil resultou em %v", err)
 	}
 	canceled, cancel := context.WithCancel(context.Background())

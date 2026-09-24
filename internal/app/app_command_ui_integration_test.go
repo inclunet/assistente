@@ -17,10 +17,6 @@ import (
 
 const uiCommandTestTimeout = 3 * time.Second
 
-func beginHelpShortcuts(t *testing.T, a *App) commandui.Reservation {
-	return beginUICommand(t, a, commandProductShortcutsShowID)
-}
-
 func beginUICommand(t *testing.T, a *App, commandID string) commandui.Reservation {
 	t.Helper()
 	reservation, err := a.BeginUICommand(commandID)
@@ -31,10 +27,6 @@ func beginUICommand(t *testing.T, a *App, commandID string) commandui.Reservatio
 		t.Fatal("BeginUICommand retornou reservation incompleta")
 	}
 	return reservation
-}
-
-func takeUICommand(t *testing.T, a *App, ticket string) commandui.Handoff {
-	return takeUICommandFor(t, a, ticket, commandProductShortcutsShowID)
 }
 
 func takeUICommandFor(t *testing.T, a *App, ticket, commandID string) commandui.Handoff {
@@ -112,14 +104,6 @@ func assertGetUIStillPending(t *testing.T, a *App, ticket string) {
 		t.Fatal("GetUICommandResult retornou antes de CompleteUICommand")
 	case <-time.After(75 * time.Millisecond):
 	}
-}
-
-func completeUICommand(t *testing.T, a *App, ticket, handoffID, status string) CommandExecutionResult {
-	t.Helper()
-	if err := a.CompleteUICommand(ticket, handoffID, status); err != nil {
-		t.Fatalf("CompleteUICommand(%q): %v", status, err)
-	}
-	return getUIResultEventually(t, a, ticket)
 }
 
 func assertUICommandLedgerStatus(t *testing.T, invocationID, want string) {

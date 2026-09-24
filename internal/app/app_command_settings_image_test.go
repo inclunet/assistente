@@ -247,7 +247,7 @@ func TestCommandSettingsImageConfirmedRoundTripRemovalAndIsolation(t *testing.T)
 	callback := "test:image_load_failure"
 	if err := db.Callback().Query().Before("gorm:query").Register(callback, func(tx *gorm.DB) {
 		if tx.Statement.Table == "command_image_assets" {
-			tx.AddError(errors.New("temporary image storage failure"))
+			_ = tx.AddError(errors.New("temporary image storage failure"))
 		}
 	}); err != nil {
 		t.Fatal(err)

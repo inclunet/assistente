@@ -46,12 +46,8 @@ func appCommandImportWailsCopyFixture(t *testing.T) (*App, context.Context, cont
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.questionnaireMgr = questionnaire.NewManager(func(event string, data any) {
-		if event == questionnaire.EventQuestionnaire {
-			// O teste substitui o presenter visual somente pela fila de respostas;
-			// autenticação, writer, ativação e publicação continuam produtivos.
-		}
-	})
+	// O teste substitui o presenter visual por uma fila de respostas.
+	a.questionnaireMgr = questionnaire.NewManager(func(string, any) {})
 	a.wireExportImport()
 	p, err := a.authenticatedCommandProduct()
 	if err != nil {

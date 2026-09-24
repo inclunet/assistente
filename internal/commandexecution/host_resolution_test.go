@@ -95,7 +95,7 @@ func TestHostStateResolutionSnapshotRecusaEstadosNaoProntos(t *testing.T) {
 
 func TestHostStateResolutionSnapshotValidaNilCancelamentoEDesabilitado(t *testing.T) {
 	state, principal, _ := readyHostForResolution(t)
-	if _, _, _, err := state.ResolutionSnapshot(nil, principal); !errors.Is(err, ErrInvalidHostState) {
+	if _, _, _, err := state.ResolutionSnapshot(nil, principal); !errors.Is(err, ErrInvalidHostState) { //nolint:staticcheck // Prova a recusa explícita de contexto nil.
 		t.Fatalf("contexto nil = %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())

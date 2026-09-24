@@ -39,7 +39,7 @@ func TestPaletteTriggerPortClosedGrammar(t *testing.T) {
 	if _, err := port.Normalize(ctx, nil); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
-	if _, err := port.Normalize(nil, nil); !errors.Is(err, ErrInvalid) {
+	if _, err := port.Normalize(nil, nil); !errors.Is(err, ErrInvalid) { //nolint:staticcheck // Prova a recusa explícita de contexto nil.
 		t.Fatal(err)
 	}
 }

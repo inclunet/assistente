@@ -70,10 +70,10 @@ func TestKeyboardGlobalTriggerPortCancellation(t *testing.T) {
 	if err := port.ValidateIdentity(ctx, "keyboard.global:KeyK"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("ValidateIdentity cancelado = %v", err)
 	}
-	if _, err := port.Normalize(nil, nil); !errors.Is(err, ErrInvalid) {
+	if _, err := port.Normalize(nil, nil); !errors.Is(err, ErrInvalid) { //nolint:staticcheck // Prova a recusa explícita de contexto nil.
 		t.Fatalf("Normalize nil = %v", err)
 	}
-	if err := port.ValidateIdentity(nil, "keyboard.global:KeyK"); !errors.Is(err, ErrInvalid) {
+	if err := port.ValidateIdentity(nil, "keyboard.global:KeyK"); !errors.Is(err, ErrInvalid) { //nolint:staticcheck // Prova a recusa explícita de contexto nil.
 		t.Fatalf("ValidateIdentity nil = %v", err)
 	}
 }

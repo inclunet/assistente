@@ -44,7 +44,7 @@ func strictBearerToken(r *http.Request) (string, bool) {
 }
 
 func decodeExternalIdentity(w http.ResponseWriter, r *http.Request, dst any) bool {
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }() // Corpo somente leitura; o decoder trata os erros relevantes.
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
 	var raw json.RawMessage
 	if err := decoder.Decode(&raw); err != nil {

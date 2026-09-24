@@ -29,7 +29,7 @@ func (t *commandHandlerRevalidationProbeTool) Execute(context.Context, json.RawM
 	return tools.ToolResult{Content: `{"ok":true}`}, nil
 }
 
-func executeCommandHandlerRevalidationProbe(t *testing.T, revalidate func(context.Context) error) (error, *commandHandlerRevalidationProbeTool) {
+func executeCommandHandlerRevalidationProbe(t *testing.T, revalidate func(context.Context) error) (*commandHandlerRevalidationProbeTool, error) {
 	t.Helper()
 	probe := &commandHandlerRevalidationProbeTool{}
 	registry := tools.NewRegistry()
@@ -40,7 +40,7 @@ func executeCommandHandlerRevalidationProbe(t *testing.T, revalidate func(contex
 		revalidate: revalidate,
 	})
 	_, err := executor.executeSingle(ctx, &Job{DatabaseID: "job-db-id", Tool: probe.Name()}, &TriggerContext{}, nil)
-	return err, probe
+	return probe, err
 }
 
 func requireAttemptFailure(t *testing.T, err error) *attemptFailure {
@@ -56,7 +56,7 @@ func requireAttemptFailure(t *testing.T, err error) *attemptFailure {
 }
 
 func TestExecuteSinglePreservesCommandJobRevalidationUnavailable(t *testing.T) {
-	err, probe := executeCommandHandlerRevalidationProbe(t, func(context.Context) error {
+	probe, err := executeCommandHandlerRevalidationProbe(t, func(context.Context) error {
 		return permanentAttemptFailure(errors.New("revalidation backend unavailable"), tools.ErrorKindUnavailable, "command_job_revalidation_unavailable")
 	})
 
@@ -79,7 +79,7 @@ func TestExecuteSinglePreservesCommandJobRevalidationUnavailable(t *testing.T) {
 }
 
 func TestExecuteSingleCommandJobDeniedUsesAuthorizationFailure(t *testing.T) {
-	err, probe := executeCommandHandlerRevalidationProbe(t, func(context.Context) error {
+	probe, err := executeCommandHandlerRevalidationProbe(t, func(context.Context) error {
 		return ErrCommandJobDenied
 	})
 
@@ -117,7 +117,7 @@ func TestExecuteSingleRejectsMissingRevalidationAndCancellationBeforeTool(t *tes
 	})
 
 	t.Run("cancellation", func(t *testing.T) {
-		err, probe := executeCommandHandlerRevalidationProbe(t, func(context.Context) error {
+		probe, err := executeCommandHandlerRevalidationProbe(t, func(context.Context) error {
 			return context.Canceled
 		})
 		if err == nil {

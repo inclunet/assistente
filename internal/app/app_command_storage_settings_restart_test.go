@@ -116,7 +116,7 @@ func TestCommandStorageSettingsRestart(t *testing.T) {
 	if err := reloaded.prepareCommandStorage(ctx, db, reloadedManager); err != nil {
 		t.Fatalf("preparar armazenamento após restart: %v", err)
 	}
-	decisions = appCommandImportWailsCopyDecisions(t, reloaded)
+	_ = appCommandImportWailsCopyDecisions(t, reloaded)
 	if err := reloaded.ensureCommandLifecycleMountedForCurrentUser(ctx); err != nil {
 		t.Fatal("montar produto após restart", err)
 	}

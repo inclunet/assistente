@@ -461,7 +461,7 @@ func (p *commandProductRuntime) resolvePersistedTrigger(ctx context.Context, own
 		if json.Unmarshal(candidate.TriggerSpec, &shortcut) != nil || !mermaidSubmitShortcut(shortcut) {
 			return commandexecution.EnvelopeResolution{}, commandexecution.ErrDenied
 		}
-		resolved, err = commandbindings.Result{Status: commandbindings.Selected, CommandID: commandEditorMermaidApplyID, ArgumentsKey: "{}", ExecutionScopeKey: "global", BindingIDs: []string{}, LayerRefs: []string{}}, nil
+		resolved = commandbindings.Result{Status: commandbindings.Selected, CommandID: commandEditorMermaidApplyID, ArgumentsKey: "{}", ExecutionScopeKey: "global", BindingIDs: []string{}, LayerRefs: []string{}}
 	}
 	// RequiredFacts pertence às condições dos bindings, não à ContextPolicy da
 	// definição. Nenhum binding contextual pode ignorar condições pessoais.

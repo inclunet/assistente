@@ -57,7 +57,7 @@ func TestInterruptSnapshotCommitsOnlyOnceWithoutTerminalPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CaptureInterrupt: %v", err)
 	}
-	if encoded, err := json.Marshal(snapshot); err != nil {
+	if encoded, err := json.Marshal(snapshot); err != nil { //nolint:staticcheck // Prova que o snapshot opaco não expõe payload serializável.
 		t.Fatalf("snapshot JSON: %v", err)
 	} else if !bytes.Equal(encoded, []byte("{}")) {
 		t.Fatalf("snapshot expôs payload serializável: %s", encoded)

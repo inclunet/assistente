@@ -1004,7 +1004,7 @@ func commandSettingsBindingInput(input *CommandSettingsBindingInput, id string) 
 		}
 	}
 	presentation := []byte(commandSettingsDefaultPresentation)
-	if input.Presentation != nil && len(input.Presentation) > 0 {
+	if len(input.Presentation) > 0 {
 		presentation, err = json.Marshal(input.Presentation)
 		if err != nil {
 			return commandconfig.Binding{}, commandexecution.ErrInvalidRequest

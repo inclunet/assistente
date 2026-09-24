@@ -45,7 +45,11 @@ func TestConversationContentCompareWaitsForWriterAndRejectsNewMessage(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sqlDB.Close()
+	defer func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	if err := conn.AutoMigrate(&Conversation{}, &ChatMessage{}); err != nil {
 		t.Fatal(err)
 	}

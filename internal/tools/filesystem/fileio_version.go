@@ -43,7 +43,7 @@ func CaptureFileVersion(path string) (FileVersion, error) {
 	if err != nil {
 		return FileVersion{}, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // Handle somente leitura; erros de leitura são propagados abaixo.
 	opened, err := f.Stat()
 	if err != nil {
 		return FileVersion{}, err

@@ -60,11 +60,11 @@ func TestCommandExportRejectsSecurityChangeDuringRead(t *testing.T) {
 				switch scenario {
 				case "epoch":
 					if err := a.commandEpochs.InvalidateSecurity(ctx); err != nil {
-						tx.AddError(err)
+						_ = tx.AddError(err)
 					}
 				case "os_lock":
 					if err := a.commandHost.SetOSSessionState(ctx, true, true); err != nil {
-						tx.AddError(err)
+						_ = tx.AddError(err)
 					}
 				case "product":
 					a.commandProduct.Store(nil)

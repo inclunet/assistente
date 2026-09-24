@@ -686,7 +686,7 @@ func TestCommitProfileMutationRejectsNilAndCanceledContextBeforeEffects(t *testi
 	grants := &fakeJobGrants{}
 	service := NewService(manager, nil, nil, nil).WithJobGrants(grants)
 	mutation, _ := preparedProfileMutation(t, manager, profiles.CommandMutationDelete, slug, nil)
-	if _, err := service.CommitProfileMutation(nil, mutation); err == nil {
+	if _, err := service.CommitProfileMutation(nil, mutation); err == nil { //nolint:staticcheck // Verifica a rejeição explícita de contexto nil.
 		t.Fatal("contexto nulo deveria ser recusado")
 	}
 	ctx, cancel := context.WithCancel(context.Background())

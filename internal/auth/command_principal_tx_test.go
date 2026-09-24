@@ -151,7 +151,11 @@ func TestRevalidateLocalSessionTxRejectsForeignRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer foreignSQL.Close()
+	defer func() {
+		if err := foreignSQL.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	principal := LocalSessionPrincipal{UserID: user.ID, SessionID: issued.SessionID}
 	if err := foreign.Transaction(func(tx *gorm.DB) error {
 		got, gotErr := service.RevalidateLocalSessionTx(context.Background(), tx, principal)

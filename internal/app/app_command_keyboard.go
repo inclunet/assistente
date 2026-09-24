@@ -650,14 +650,6 @@ func cloneLocalCommandShortcutSteps(in []LocalCommandShortcutStep) []LocalComman
 	return out
 }
 
-func (p *commandProductRuntime) localKeyboardGeneration() string {
-	generation, _, ok := p.localKeyboardState()
-	if !ok {
-		return ""
-	}
-	return generation
-}
-
 func (p *commandProductRuntime) localKeyboardState() (string, commandexecution.Versions, bool) {
 	if p == nil {
 		return "", commandexecution.Versions{}, false
@@ -862,10 +854,6 @@ func (a *App) beginLocalCommandUIKey(generation string, shortcut LocalCommandSho
 	return &reservation, nil
 }
 
-func (a *App) claimLocalCommandKey(generation string, shortcut LocalCommandShortcut, kind string, repeat bool, handler string) (p *commandProductRuntime, s *localCommandKeyboardState, identity string, raw json.RawMessage, err error) {
-	return a.claimLocalCommandKeyScoped(generation, shortcut, kind, repeat, handler, false, nil)
-}
-
 func (a *App) claimLocalCommandKeyScoped(generation string, shortcut LocalCommandShortcut, kind string, repeat bool, handler string, mermaid bool, proof *localCommandKeyboardContextProof) (p *commandProductRuntime, s *localCommandKeyboardState, identity string, raw json.RawMessage, err error) {
 	if a == nil || generation == "" || (kind != "down" && kind != "up") {
 		return nil, nil, "", nil, commandexecution.ErrInvalidRequest
@@ -906,7 +894,7 @@ func (a *App) claimLocalCommandKeyScoped(generation string, shortcut LocalComman
 		}
 		binding, exists = LocalCommandKeyboardBinding{Shortcut: shortcut, CommandID: commandEditorMermaidApplyID, Handler: "ui"}, true
 	}
-	if !exists || (binding.Handler != handler && !(handler == "ui" && binding.Handler == "contextual")) {
+	if !exists || (binding.Handler != handler && (handler != "ui" || binding.Handler != "contextual")) {
 		return nil, nil, "", nil, commandexecution.ErrDenied
 	}
 	pressedIdentity, alreadyPressed := s.pressed[pressKey]

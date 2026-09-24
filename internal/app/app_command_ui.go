@@ -196,12 +196,13 @@ func (a *App) beginCommandUIWithCleanup(p *commandProductRuntime, commandID stri
 	var terminalCloseTarget terminal.CloseSnapshot
 	var terminalSessionID string
 	var terminalPreparationReady chan struct{}
-	if commandID == commandTerminalSessionCloseID {
+	switch commandID {
+	case commandTerminalSessionCloseID:
 		clearSnapshot, terminalManager, terminalCloseTarget, err = a.captureTerminalClose(a.commandBridgeContext(), p)
 		if err != nil {
 			return commandui.Reservation{}, err
 		}
-	} else if commandID == commandTerminalSessionCreateID {
+	case commandTerminalSessionCreateID:
 		clearSnapshot, terminalManager, terminalSessionID, err = a.captureTerminalSessionCreate(a.commandBridgeContext(), p)
 		if err != nil {
 			return commandui.Reservation{}, err

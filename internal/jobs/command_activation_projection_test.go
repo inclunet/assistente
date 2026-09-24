@@ -57,7 +57,7 @@ func TestValidateCommandRuntimeProjectionFailsClosedForContextAndWatch(t *testin
 	if err := m.ValidateCommandRuntimeProjection(cancelCtx, "run-1", identity); !errors.Is(err, context.Canceled) {
 		t.Fatalf("contexto cancelado = %v", err)
 	}
-	if err := m.ValidateCommandRuntimeProjection(nil, "run-1", identity); err == nil {
+	if err := m.ValidateCommandRuntimeProjection(nil, "run-1", identity); err == nil { //nolint:staticcheck // Prova a recusa explícita de contexto nil.
 		t.Fatal("contexto nil aceito")
 	}
 

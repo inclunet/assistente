@@ -137,7 +137,10 @@ func commandDeckPresentationImageWithStatus(title, icon string, customPNG []byte
 	if err == nil {
 		face, faceErr := opentype.NewFace(parsed, &opentype.FaceOptions{Size: 11, DPI: 72, Hinting: font.HintingFull})
 		if faceErr == nil {
-			defer face.Close()
+			defer func() {
+				// A renderização já foi produzida e esta API não retorna erro de cleanup.
+				_ = face.Close()
+			}()
 			drawer := font.Drawer{Dst: img, Src: image.White, Face: face}
 			titleBottom := contentBottom - 3
 			titleBaseline := min(14, titleBottom)
@@ -174,7 +177,10 @@ func commandDeckPresentationImageWithStatus(title, icon string, customPNG []byte
 			if footerHeight != 0 {
 				footerFace, footerErr := opentype.NewFace(parsed, &opentype.FaceOptions{Size: 8, DPI: 72, Hinting: font.HintingFull})
 				if footerErr == nil {
-					defer footerFace.Close()
+					defer func() {
+						// A renderização já foi produzida e esta API não retorna erro de cleanup.
+						_ = footerFace.Close()
+					}()
 					footer := font.Drawer{Dst: img, Src: image.White, Face: footerFace}
 					footerText := fitCommandDeckText(footer, status, model.KeyImageW-4)
 					footer.Dot = fixed.P(2, model.KeyImageH-3)

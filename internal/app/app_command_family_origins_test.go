@@ -53,9 +53,10 @@ func TestCommandLocalFamiliesDeckProjectionAndSingleDispatch(t *testing.T) {
 			}
 			var emitted []CommandDeckLocalUIEvent
 			a.emitter = commandOSBootstrapEmitter(func(name string, payload any) {
-				if name == "command:deck-local-ui" {
+				switch name {
+				case "command:deck-local-ui":
 					emitted = append(emitted, payload.(CommandDeckLocalUIEvent))
-				} else if name == "command:deck-ui-reservation" || name == "command:deck-contextual-ui" {
+				case "command:deck-ui-reservation", "command:deck-contextual-ui":
 					t.Errorf("local presentation emitted durable reservation: %s", name)
 				}
 			})

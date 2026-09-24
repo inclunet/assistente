@@ -395,10 +395,7 @@ func commandDeckUICommand(id string) bool {
 			return true
 		}
 	}
-	if isAuditedUIContextualCommand(id) {
-		return true
-	}
-	return false
+	return isAuditedUIContextualCommand(id)
 }
 
 func validCommandDeckInstanceID(value string) bool {

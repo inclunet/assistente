@@ -308,7 +308,11 @@ func TestFromRestartProofRejectsZeroUnregisteredAndCopiedGenerations(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer copyLease.Close()
+	defer func() {
+		if err := copyLease.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	copied := FromRestartProof(copyLease.RecoveryProof())
 	if !copied.Valid() || copied.Includes(oldStartup+":0") {
 		t.Fatalf("proof da cópia recuperou geração estrangeira: valid=%v inclui=%v", copied.Valid(), copied.Includes(oldStartup+":0"))

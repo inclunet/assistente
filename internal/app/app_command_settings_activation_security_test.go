@@ -78,10 +78,10 @@ func TestCommandSettingsActivationSecurityReadAuthorityInvalidationCannotCreateC
 				}
 				fired = true
 				if scenario == "session" {
-					tx.AddError(tx.Session(&gorm.Session{NewDB: true}).Exec("UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?", a.commandProduct.Load().principal.SessionID).Error)
+					_ = tx.AddError(tx.Session(&gorm.Session{NewDB: true}).Exec("UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?", a.commandProduct.Load().principal.SessionID).Error)
 					return
 				}
-				tx.AddError(a.commandHost.SetOSSessionState(a.ctx, true, true))
+				_ = tx.AddError(a.commandHost.SetOSSessionState(a.ctx, true, true))
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -115,11 +115,11 @@ func TestCommandSettingsActivationSecurityRevocationInsideCreateClaimRollsBackTr
 		}
 		fired = true
 		if err := tx.Session(&gorm.Session{NewDB: true}).Model(&commandactivation.Claim{}).Where("layer_ref = ? AND rule_ref = ?", layerID, ruleID).Count(&insertedInsideTx).Error; err != nil {
-			tx.AddError(err)
+			_ = tx.AddError(err)
 			return
 		}
 		if err := tx.Session(&gorm.Session{NewDB: true}).Exec("UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?", a.commandProduct.Load().principal.SessionID).Error; err != nil {
-			tx.AddError(err)
+			_ = tx.AddError(err)
 		}
 	}); err != nil {
 		t.Fatal(err)

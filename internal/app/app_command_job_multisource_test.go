@@ -23,9 +23,6 @@ import (
 
 func TestProductJobRunEventCommandReplayEndToEnd(t *testing.T) {
 	a := commandMaintenanceAppFixture(t)
-	ctx, cancel := context.WithTimeout(database.WithUserID(context.Background(), a.currentUserID), 30*time.Second)
-	defer cancel()
-
 	registrar := &globalJobTestHotkeyRegistrar{}
 	var admissionInvocation atomic.Value
 	var admissionErr atomic.Value
@@ -53,7 +50,7 @@ func TestProductJobRunEventCommandReplayEndToEnd(t *testing.T) {
 	}
 	decisionManager, decisionEvents := newCommandDecisionManager(t)
 	a.questionnaireMgr = decisionManager
-	ctx = configureGlobalJobHotkeyTestManager(t, a, registrar, dispatch)
+	ctx := configureGlobalJobHotkeyTestManager(t, a, registrar, dispatch)
 	ctx, cancelHotkey := context.WithTimeout(ctx, 25*time.Second)
 	defer cancelHotkey()
 	layerID := createJobRunEventLayer(t, a)

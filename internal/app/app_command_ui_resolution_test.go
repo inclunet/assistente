@@ -8,22 +8,10 @@ import (
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandconfig"
-	"assistente/internal/commandexecution"
 	"assistente/internal/commandledger"
 	"assistente/internal/database"
 	"github.com/google/uuid"
 )
-
-func paletteUICandidate(t *testing.T, selection string) commandexecution.EnvelopeCandidate {
-	t.Helper()
-	candidate, err := commandPaletteCandidate(
-		uuid.Must(uuid.NewV7()).String(), uuid.Must(uuid.NewV7()).String(), selection, json.RawMessage(`{}`),
-	)
-	if err != nil {
-		t.Fatalf("construir candidato UI da paleta: %v", err)
-	}
-	return candidate
-}
 
 func installPaletteUIDelta(t *testing.T, a *App, selection, reviewStatus, effect, commandID string) string {
 	t.Helper()

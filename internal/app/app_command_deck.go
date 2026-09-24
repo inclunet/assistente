@@ -656,9 +656,10 @@ func (p *commandProductRuntime) runDeckEpoch(ctx context.Context, driver command
 		p.deckStatus(status, devices)
 		if capture != nil {
 			captureStatus := "no_device"
-			if status == "connected" || status == "degraded" {
+			switch status {
+			case "connected", "degraded":
 				captureStatus = "waiting"
-			} else if status == "unavailable" {
+			case "unavailable":
 				captureStatus = "unavailable"
 			}
 			p.captureStatus(capture, captureStatus)
@@ -764,8 +765,4 @@ func commandDeckTitle(configuration *commandbindings.Configuration, bindingIDs [
 		}
 	}
 	return definition.ID
-}
-
-func commandDeckPresentationImage(title, icon string, customPNG []byte, model commanddeck.Model) []byte {
-	return commandDeckPresentationImageWithStatus(title, icon, customPNG, "", model)
 }

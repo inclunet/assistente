@@ -405,7 +405,10 @@ func (a *App) mountCommandProduct(ctx context.Context) error {
 		return err
 	}
 	writePolicy := func(ctx context.Context, principal auth.LocalSessionPrincipal, commandID string, source commandcatalog.Source) error {
-		if (!isWorkspaceMutationCommand(commandID) && !isAuditedUIContextualCommand(commandID) && !isCommandLayerAction(commandID) && !(isCommandToolExecutionID(commandID) && source == commandcatalog.Palette)) || (source != commandcatalog.Palette && source != commandcatalog.KeyboardLocal && source != commandcatalog.StreamDeck) || ctx == nil {
+		commandAllowed := isWorkspaceMutationCommand(commandID) || isAuditedUIContextualCommand(commandID) || isCommandLayerAction(commandID) ||
+			isCommandToolExecutionID(commandID) && source == commandcatalog.Palette
+		sourceAllowed := source == commandcatalog.Palette || source == commandcatalog.KeyboardLocal || source == commandcatalog.StreamDeck
+		if !commandAllowed || !sourceAllowed || ctx == nil {
 			return commandexecution.ErrDenied
 		}
 		if err := ctx.Err(); err != nil {

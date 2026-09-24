@@ -61,7 +61,7 @@ func TestBindConversationForCommandRejectsStaleCancelAndInvalidID(t *testing.T) 
 	if err != nil {
 		t.Fatalf("CommandSnapshot: %v", err)
 	}
-	if _, err := manager.BindConversationForCommand(nil, expected, bindConversationID); !errors.Is(err, ErrCommandBindConversationNilContext) {
+	if _, err := manager.BindConversationForCommand(nil, expected, bindConversationID); !errors.Is(err, ErrCommandBindConversationNilContext) { //nolint:staticcheck // Verifica a rejeição explícita de contexto nil.
 		t.Fatalf("nil context error: %v", err)
 	}
 	canceled, cancel := context.WithCancel(context.Background())

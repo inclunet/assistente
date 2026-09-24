@@ -145,9 +145,9 @@ func TestCommandSettingsSecurityReadDoesNotOutliveAuthority(t *testing.T) {
 				fired = true
 				switch scenario {
 				case "epoch":
-					tx.AddError(a.commandEpochs.InvalidateSecurity(a.ctx))
+					_ = tx.AddError(a.commandEpochs.InvalidateSecurity(a.ctx))
 				case "os_lock":
-					tx.AddError(a.commandHost.SetOSSessionState(a.ctx, true, true))
+					_ = tx.AddError(a.commandHost.SetOSSessionState(a.ctx, true, true))
 				case "product":
 					a.commandProduct.Store(nil)
 				}

@@ -394,7 +394,8 @@ func validateDocuments(e *Envelope) error {
 		if err != nil || len(canonical) == 0 || canonical[0] != '{' {
 			return fmt.Errorf("%w: documento %s deve ser objeto JSON canônico", ErrInvalidEnvelope, name)
 		}
-		if name == "trigger_spec" {
+		switch name {
+		case "trigger_spec":
 			triggerType := e.TriggerType
 			if triggerType == nil {
 				triggerType = e.ObservedTriggerType
@@ -402,7 +403,7 @@ func validateDocuments(e *Envelope) error {
 			if triggerType == nil || ValidateTriggerDocumentVersion(*triggerType, *document) != nil {
 				return fmt.Errorf("%w: versão de trigger_spec não suportada", ErrInvalidEnvelope)
 			}
-		} else if name == "provenance" {
+		case "provenance":
 			if err := validateVersionedDocument([]byte(*document), name); err != nil {
 				return err
 			}
@@ -453,7 +454,7 @@ func validateDocumentVersion(raw []byte, name string, localKeyboard bool) error 
 		return fmt.Errorf("%w: documento %s exige version", ErrInvalidEnvelope, name)
 	}
 	var version int
-	if err := json.Unmarshal(rawVersion, &version); err != nil || (version != EnvelopeVersion && !(localKeyboard && version == 2)) {
+	if err := json.Unmarshal(rawVersion, &version); err != nil || (version != EnvelopeVersion && (!localKeyboard || version != 2)) {
 		return fmt.Errorf("%w: versão do documento %s não suportada", ErrInvalidEnvelope, name)
 	}
 	return nil

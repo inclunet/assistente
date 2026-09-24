@@ -488,10 +488,6 @@ func commandSettingsManualActionTarget(snapshot commandconfig.Snapshot, scope co
 	return found, layer, nil
 }
 
-func commandSettingsManualClaimPresent(snapshot commandconfig.Snapshot, layerID, ruleID string, principal auth.LocalSessionPrincipal, now time.Time) bool {
-	return commandSettingsManualClaimPresentScoped(snapshot, layerID, ruleID, principal, nil, now)
-}
-
 func commandSettingsManualClaimPresentScoped(snapshot commandconfig.Snapshot, layerID, ruleID string, principal auth.LocalSessionPrincipal, workspace *string, now time.Time) bool {
 	stackKey, err := commandactivation.ManualStackKey(commandSettingsManualOrigin(principal))
 	if err != nil {

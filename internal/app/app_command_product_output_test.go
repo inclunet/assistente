@@ -31,7 +31,7 @@ func TestExecutePaletteCommandWorkspaceListReturnsEphemeralOutput(t *testing.T) 
 	if result.Output.Kind != commandProductWorkspaceListID || len(result.Output.Workspaces) != 1 {
 		t.Fatalf("output workspace.list inesperado: kind=%q workspaces=%d", result.Output.Kind, len(result.Output.Workspaces))
 	}
-	var typedWorkspaces []CommandWorkspaceMetadata = result.Output.Workspaces
+	typedWorkspaces := result.Output.Workspaces
 	if len(typedWorkspaces) != 1 {
 		t.Fatal("output workspace.list perdeu o tipo de metadados público")
 	}
@@ -140,7 +140,7 @@ func TestCommandProductOutputIsDroppedAfterAuthHostOrWorkspaceInvalidation(t *te
 			t.Fatal("runtime de produto ausente")
 		}
 		candidate := commandexecution.EnvelopeCandidate{
-			InvocationID: uuid.Must(uuid.NewV7()).String(),
+			InvocationID:  uuid.Must(uuid.NewV7()).String(),
 			CorrelationID: uuid.Must(uuid.NewV7()).String(),
 			CommandID:     commandProductWorkspaceListID,
 			Arguments:     json.RawMessage(`{}`),

@@ -37,7 +37,11 @@ func TestCreateForCommandWindowsIndexOpenWithoutDeleteShareCompensates(t *testin
 	if err != nil {
 		t.Fatalf("open index without FILE_SHARE_DELETE: %v", err)
 	}
-	defer windows.CloseHandle(handle)
+	defer func() {
+		if err := windows.CloseHandle(handle); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	_, err = manager.CreateForCommand(context.Background(), expected, "Windows rename guard")
 	if err == nil || !strings.Contains(err.Error(), "publish workspace index after retries") {

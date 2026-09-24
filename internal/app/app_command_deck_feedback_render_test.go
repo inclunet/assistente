@@ -151,7 +151,11 @@ func TestCommandDeckFeedbackFooterTruncationKeepsUTF8(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer face.Close()
+	t.Cleanup(func() {
+		if err := face.Close(); err != nil {
+			t.Errorf("fechar face de teste: %v", err)
+		}
+	})
 	got := fitCommandDeckText(font.Drawer{Face: face}, strings.Repeat("á🎛", 32), 20)
 	if !utf8.ValidString(got) {
 		t.Fatalf("invalid UTF-8 after footer truncation: %q", got)

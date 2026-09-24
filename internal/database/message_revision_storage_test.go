@@ -18,13 +18,13 @@ func freezeMessageRevisionTestClock(t *testing.T) {
 	if db == nil || db.Config == nil {
 		t.Fatal("database de teste não inicializado")
 	}
-	previous := db.Config.NowFunc
+	previous := db.NowFunc
 	fixed, err := time.Parse(time.RFC3339Nano, messageRevisionTestFixedTime)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db.Config.NowFunc = func() time.Time { return fixed }
-	t.Cleanup(func() { db.Config.NowFunc = previous })
+	db.NowFunc = func() time.Time { return fixed }
+	t.Cleanup(func() { db.NowFunc = previous })
 }
 
 func readMessageRevisionTest(t *testing.T, database *gorm.DB, messageID string) (string, bool) {
@@ -378,7 +378,11 @@ func TestMessageRevisionStorageMigrationBackfillsPreservesAndIsIdempotent(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sqlDB.Close()
+	defer func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	if err := database.AutoMigrate(&Conversation{}, &ChatMessage{}); err != nil {
 		t.Fatal(err)

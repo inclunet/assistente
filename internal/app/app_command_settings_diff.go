@@ -173,10 +173,11 @@ func commandSettingsDiffWords(locale string) map[string]string {
 	}
 	out["presentation"] = "Apresentação"
 	out["custom_image"] = "Imagem personalizada"
-	if locale == "en" {
+	switch locale {
+	case "en":
 		out["presentation"] = "Presentation"
 		out["custom_image"] = "Custom image"
-	} else if locale == "es" {
+	case "es":
 		out["presentation"] = "Presentación"
 		out["custom_image"] = "Imagen personalizada"
 	}

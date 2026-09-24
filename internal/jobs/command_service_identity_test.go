@@ -55,9 +55,9 @@ func (t *commandServiceIdentityTool) unblock() {
 }
 
 func TestCommandJobServiceIdentityUsesLiveRunMarkerAndExactGrant(t *testing.T) {
-	repo, ownerCtx, _ := setupJobsRepositoryTest(t)
+	repo, _, _ := setupJobsRepositoryTest(t)
 	userID := uuid.Must(uuid.NewV7()).String()
-	ownerCtx = database.WithUserID(context.Background(), userID)
+	ownerCtx := database.WithUserID(context.Background(), userID)
 	sessionID := uuid.Must(uuid.NewV7()).String()
 	gate := &commandsecurity.DispatchGate{}
 	epochs, err := commandsecurity.NewEpochService(gate)

@@ -88,7 +88,11 @@ func TestOpenRegistersStartupAndOnlyRecoversSamePhysicalIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("abrir segunda lease: %v", err)
 	}
-	defer second.Close()
+	defer func() {
+		if err := second.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	proof := second.RecoveryProof()
 	if !proof.Valid() || !proof.Includes(firstID+":0") || !proof.Includes(firstID+":18446744073709551615") {
 		t.Fatal("prefixo antigo da mesma identidade não foi recuperado")
@@ -207,7 +211,11 @@ func TestOpenDoesNotRecoverCopiedDatabaseIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("abrir cópia: %v", err)
 	}
-	defer second.Close()
+	defer func() {
+		if err := second.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	if second.RecoveryProof().Includes(oldID + ":1") {
 		t.Fatal("cópia física não pode recuperar prefixo da identidade original")
 	}

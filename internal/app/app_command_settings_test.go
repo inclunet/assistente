@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -157,11 +158,11 @@ func TestCommandSettingsBindingReadOnlyNaoExponeCamposComplexos(t *testing.T) {
 }
 
 func TestCommandSettingsTriggerSpecPreservaGramaticaReal(t *testing.T) {
-	keyboard, err := commandSettingsTriggerSpec(nil, "keyboard.local:Control+Shift+KeyK")
+	keyboard, err := commandSettingsTriggerSpec(context.Background(), "keyboard.local:Control+Shift+KeyK")
 	if err != nil || keyboard != `{"code":"KeyK","modifiers":["Control","Shift"],"version":1}` {
 		t.Fatalf("keyboard não foi normalizado para documento estrito: %q (%v)", keyboard, err)
 	}
-	palette, err := commandSettingsTriggerSpec(nil, "palette:workspace.list")
+	palette, err := commandSettingsTriggerSpec(context.Background(), "palette:workspace.list")
 	if err != nil || palette != `{"selection":"workspace.list","version":1}` {
 		t.Fatalf("palette não foi normalizada para documento estrito: %q (%v)", palette, err)
 	}

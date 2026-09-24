@@ -87,7 +87,7 @@ func TestCommandProductCatalogWorkspaceListIsCompleteAndReadsRealManager(t *test
 
 func TestCommandProductCatalogNavigationMetadataPaletteAndKeyboard(t *testing.T) {
 	a := &App{}
-	registry, handlers, err := a.commandProductCatalog()
+	registry, _, err := a.commandProductCatalog()
 	if err == nil || registry == nil {
 		t.Fatal("catálogo sem workspace manager deveria recusar a montagem")
 	}
@@ -99,7 +99,7 @@ func TestCommandProductCatalogNavigationMetadataPaletteAndKeyboard(t *testing.T)
 		t.Fatal(err)
 	}
 	a.workspaceMgr = manager
-	registry, handlers, err = a.commandProductCatalog()
+	registry, handlers, err := a.commandProductCatalog()
 	if err != nil {
 		t.Fatal(err)
 	}

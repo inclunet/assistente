@@ -53,11 +53,25 @@ func commandBootstrapBusyWriter(t *testing.T, operation func(context.Context) er
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer writer.Close()
+	t.Cleanup(func() {
+		if err := writer.Close(); err != nil {
+			t.Errorf("fechar conexão writer: %v", err)
+		}
+	})
 	if _, err := writer.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		t.Fatal(err)
 	}
-	defer writer.ExecContext(context.Background(), "ROLLBACK")
+	writerTransactionActive := true
+	t.Cleanup(func() {
+		if !writerTransactionActive {
+			return
+		}
+		if _, err := writer.ExecContext(context.Background(), "ROLLBACK"); err != nil {
+			t.Errorf("reverter transação writer: %v", err)
+			return
+		}
+		writerTransactionActive = false
+	})
 	busy := make(chan struct{})
 	var once sync.Once
 	observe := func(tx *gorm.DB) {
@@ -69,15 +83,27 @@ func commandBootstrapBusyWriter(t *testing.T, operation func(context.Context) er
 	if err := db.Callback().Raw().After("gorm:raw").Register(hook, observe); err != nil {
 		t.Fatal(err)
 	}
-	defer db.Callback().Raw().Remove(hook)
+	t.Cleanup(func() {
+		if err := db.Callback().Raw().Remove(hook); err != nil {
+			t.Errorf("remover callback raw: %v", err)
+		}
+	})
 	if err := db.Callback().Update().After("gorm:update").Register(hook, observe); err != nil {
 		t.Fatal(err)
 	}
-	defer db.Callback().Update().Remove(hook)
+	t.Cleanup(func() {
+		if err := db.Callback().Update().Remove(hook); err != nil {
+			t.Errorf("remover callback update: %v", err)
+		}
+	})
 	if err := db.Callback().Create().After("gorm:create").Register(hook, observe); err != nil {
 		t.Fatal(err)
 	}
-	defer db.Callback().Create().Remove(hook)
+	t.Cleanup(func() {
+		if err := db.Callback().Create().Remove(hook); err != nil {
+			t.Errorf("remover callback create: %v", err)
+		}
+	})
 	done := make(chan error, 1)
 	exited := make(chan struct{})
 	go func() { defer close(exited); done <- operation(ctx) }()
@@ -92,6 +118,7 @@ func commandBootstrapBusyWriter(t *testing.T, operation func(context.Context) er
 	if _, err := writer.ExecContext(ctx, "COMMIT"); err != nil {
 		t.Fatal(err)
 	}
+	writerTransactionActive = false
 	select {
 	case err := <-done:
 		if err != nil {

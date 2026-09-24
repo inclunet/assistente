@@ -422,9 +422,10 @@ func TestCommandAgentDeniesInvalidCallers(t *testing.T) {
 			}
 			ctx := commandAgentTestContext(t, a, toolName)
 			tc.mutate(t, a, ctx)
-			if tc.name == "missing user and invocation context" {
+			switch tc.name {
+			case "missing user and invocation context":
 				ctx = context.Background()
-			} else if tc.name == "foreign user" {
+			case "foreign user":
 				ctx = database.WithUserID(ctx, uuid.Must(uuid.NewV7()).String())
 			}
 			_, err := (commandAgentTools{app: a}).Catalog(ctx, commandtool.Request{Action: "list"})

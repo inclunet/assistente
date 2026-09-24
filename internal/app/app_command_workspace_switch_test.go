@@ -103,7 +103,7 @@ func TestCommandWorkspaceSwitchStorageFailureLeavesNoOldMapAndCanRetry(t *testin
 	hook := "test:workspace_switch_storage_failure"
 	if err := database.DB().Callback().Query().Before("gorm:query").Register(hook, func(tx *gorm.DB) {
 		if tx.Statement.Table == "command_config_generations" {
-			tx.AddError(errors.New("storage unavailable"))
+			_ = tx.AddError(errors.New("storage unavailable"))
 		}
 	}); err != nil {
 		t.Fatal(err)

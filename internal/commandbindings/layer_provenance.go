@@ -112,20 +112,3 @@ func sortLayerProvenance(entries []LayerProvenance) {
 		return bytes.Compare(a.Provenance, b.Provenance)
 	})
 }
-
-func cloneLayerProvenanceMap(input map[string][]LayerProvenance) map[string][]LayerProvenance {
-	if input == nil {
-		return nil
-	}
-	clone := make(map[string][]LayerProvenance, len(input))
-	for ref, entries := range input {
-		clone[ref] = make([]LayerProvenance, len(entries))
-		for i, entry := range entries {
-			clone[ref][i] = LayerProvenance{SourceID: entry.SourceID}
-			if entry.Provenance != nil {
-				clone[ref][i].Provenance = append(json.RawMessage(nil), entry.Provenance...)
-			}
-		}
-	}
-	return clone
-}

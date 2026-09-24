@@ -114,7 +114,7 @@ func TestCommandKeyboardSequenceCandidateKeepsKeyboardLocalProvenance(t *testing
 }
 
 func TestCommandSettingsTriggerSpecRoundtripSequenceIdentity(t *testing.T) {
-	raw, err := commandSettingsTriggerSpec(nil, "keyboard.local:Control+KeyN KeyT")
+	raw, err := commandSettingsTriggerSpec(context.Background(), "keyboard.local:Control+KeyN KeyT")
 	if err != nil {
 		t.Fatal(err)
 	}
