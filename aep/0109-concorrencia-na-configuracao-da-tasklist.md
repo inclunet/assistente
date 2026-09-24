@@ -32,6 +32,11 @@ editor recarrega a configuração e avisa o usuário.
 - `UpdateWorkflowFullCheckedWithContext` e
   `SetTaskListCustomActionsCheckedWithContext`, em `internal/database`, recebem o
   estado esperado. A comparação e a gravação acontecem na mesma transação.
+- A transação é `IMMEDIATE` (`withSQLiteImmediateTransaction`). Com WAL e pool
+  de várias conexões, uma transação `DEFERRED` deixava duas gravações lerem o
+  mesmo snapshot, e a segunda falhava com `SQLITE_BUSY` ao promover a leitura a
+  escrita, em vez de receber o conflito. Com o lock pego antes da leitura, a
+  segunda espera a primeira e vê o conflito.
 - O workflow é comparado de forma canônica. Não contam como alteração:
   - a ordem do array de statuses (ordenado por `order` e depois por `id`);
   - a ordem dos destinos de uma transição;
@@ -73,6 +78,10 @@ editor recarrega a configuração e avisa o usuário.
     `TaskListView` espera a fila, relê a lista e as contagens e incrementa
     `syncToken`;
   - com o novo `syncToken`, o editor passa a mostrar o gravado e a usá-lo como base;
+  - se a releitura da lista ou das contagens falhar, o `syncToken` não muda: o
+    editor fica como estava, aparece um erro, e a próxima gravação volta a dar
+    conflito e tenta de novo. `getTaskCountsByStatus` repassa o erro em vez de
+    devolver contagens vazias;
   - o formulário aberto mantém o rascunho para ser aplicado de novo.
 - **Custom actions:**
   - a base é o JSON lido ou o último gravado;
@@ -112,6 +121,9 @@ editor recarrega a configuração e avisa o usuário.
 - [x] Estado equivalente com outra ordem ou formatação não gera conflito
   (`TestUpdateWorkflowFullChecked_IgnoresOrderOfArraysAndEmptyTransitions`,
   `TestSetCustomActionsChecked_SavesWhenUnchangedAndIgnoresFormatting`).
+- [x] Gravações verificadas simultâneas sobre a mesma base, em WAL com várias
+  conexões: uma vence e as demais recebem conflito, nunca `SQLITE_BUSY`
+  (`TestCheckedWritesUnderConcurrencyYieldConflictNotBusy`).
 - [x] Conflito não emite eventos (`TestCheckedConfigWritesEmitOnlyWhenSaved`).
 - [x] O editor de workflow avisa, pede a recarga e, sincronizado, grava sobre a
   versão atual sem colidir IDs (`WorkflowEditor.test.tsx`, bloco "edição
