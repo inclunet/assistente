@@ -231,17 +231,11 @@ func (s *ExternalIdentityAdminService) Create(ctx context.Context, adminToken st
 	return s.repo.Create(ctx, params)
 }
 
-func (s *ExternalIdentityAdminService) Revoke(ctx context.Context, adminToken, issuer, subject string) error {
-	prepared, err := s.PrepareRevoke(ctx, adminToken, issuer, subject)
-	if err != nil {
-		return err
-	}
-	return s.RevokePrepared(ctx, prepared)
-}
-
 // PrepareRevoke valida o administrador e relê o vínculo antes do gate. A
 // aplicação da revogação deve ocorrer depois via RevokePrepared como uma das
 // mutações agrupadas em MutateContextGroup no serviço de epochs.
+// Consumidores de comandos devem usar commandidentity.Service.RevokeExternal;
+// não há atalho Prepare+Apply que dispense a invalidação das execuções em voo.
 func (s *ExternalIdentityAdminService) PrepareRevoke(ctx context.Context, adminToken, issuer, subject string) (ExternalIdentityRevocation, error) {
 	claims, err := s.authorize(ctx, adminToken)
 	if err != nil {

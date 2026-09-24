@@ -46,8 +46,8 @@ func TestPreparedExternalRevocationStaysWithinConfiguredIssuer(t *testing.T) {
 	if _, err := service.Create(ctx, "admin-a", ExternalIdentityMappingParams{Issuer: "issuer-b", Subject: "new-subject", UserID: user.ID}); !errors.Is(err, ErrExternalAdministratorRequired) {
 		t.Fatalf("Create aceitou issuer externo ao serviço: %v", err)
 	}
-	if err := service.Revoke(ctx, "admin-a", "issuer-b", "same-subject"); !errors.Is(err, ErrExternalAdministratorRequired) {
-		t.Fatalf("Revoke legado aceitou issuer externo ao serviço: %v", err)
+	if _, err := service.PrepareRevoke(ctx, "admin-a", "issuer-b", "same-subject"); !errors.Is(err, ErrExternalAdministratorRequired) {
+		t.Fatalf("preparação aceitou issuer externo ao serviço: %v", err)
 	}
 	proofFromB, err := otherIssuer.PrepareRevoke(ctx, "admin-b", "issuer-b", "same-subject")
 	if err != nil {
@@ -86,11 +86,18 @@ func TestPreparedExternalRevocationStaysWithinConfiguredIssuer(t *testing.T) {
 	if _, err := repo.Resolve(ctx, "issuer-b", "same-subject"); err != nil {
 		t.Fatalf("outro issuer foi alterado: %v", err)
 	}
-	if _, err := repo.Create(ctx, ExternalIdentityMappingParams{Issuer: "issuer-a", Subject: "legacy-revoke", UserID: user.ID}); err != nil {
+	if _, err := repo.Create(ctx, ExternalIdentityMappingParams{Issuer: "issuer-a", Subject: "prepared-revoke", UserID: user.ID}); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Revoke(ctx, "admin-a", "issuer-a", "legacy-revoke"); err != nil {
-		t.Fatalf("Revoke legado do issuer configurado falhou: %v", err)
+	second, err := service.PrepareRevoke(ctx, "admin-a", "issuer-a", "prepared-revoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RevokePrepared(ctx, second); err != nil {
+		t.Fatalf("revogação preparada do issuer configurado falhou: %v", err)
+	}
+	if _, err := repo.Resolve(ctx, "issuer-a", "prepared-revoke"); !errors.Is(err, ErrExternalIdentityRevoked) {
+		t.Fatalf("vínculo preparado não revogado: %v", err)
 	}
 }
 
