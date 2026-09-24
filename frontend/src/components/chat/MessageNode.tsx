@@ -90,6 +90,9 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     toggleConversationThreadExpanded,
     toggleConversationReasoningExpanded,
   } = useChatNodeSessionState(messageId);
+  const canonicalMessage = useChatStore(state => conversationId
+    ? state.getConversationMessages(conversationId).find(message => message.id === node.message.id)
+    : undefined);
   
   const [isLoading, setIsLoading] = useState(false);
   const editDraft = useChatMessageEditDraft(nodeRef, node.message, conversationId, sessionKey, commandPathname);
@@ -224,7 +227,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       const live = navigationLive.current;
       return mounted.current && nodeRef.current === root && live.panel?.isActive === true &&
         live.panel.tab.id === panel.tab.id && live.conversationId === conversationId && live.sessionKey === sessionKey &&
-        useChatStore.getState().surfaceSessionsByKey[sessionKey]?.conversationId === conversationId &&
+        useChatStore.getState().surfaceSessionsByKey?.[sessionKey]?.conversationId === conversationId &&
         useChatStore.getState().getConversationMessages(conversationId).some(message => message === live.node.message);
     };
     const off = registerChatNavigationSurface({
@@ -284,7 +287,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       },
     });
     return () => { mounted.current = false; off(); pendingExpansion.current?.lease.dispose(); pendingExpansion.current = null; loadingRef.current = false; };
-  }, [navigationInstanceId, conversationId, sessionKey, panel?.tab.id, owner?.userId, owner?.sessionId, modalId, commandPathname]);
+  }, [navigationInstanceId, conversationId, sessionKey, panel?.tab.id, owner?.userId, owner?.sessionId, modalId, commandPathname, node.message, canonicalMessage]);
 
   const handleToggle = () => requestNavigation(isExpanded ? 'chat.message.thread.collapse' : 'chat.message.thread.expand');
 

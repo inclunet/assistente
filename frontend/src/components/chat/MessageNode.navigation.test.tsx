@@ -8,8 +8,9 @@ import { useAuthStore } from '../../store/authStore';
 import { useChatStore } from '../../store/chatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
-import { createChatSurfaceIdentity, createEmptyChatSession } from '../../services/chatSessionRegistry';
+import { createChatSurfaceIdentity, createEmptyChatSession, createEmptyChatSurfaceSession, patchChatConversation } from '../../services/chatSessionRegistry';
 import { CHAT_NAVIGATION_COMMAND_EVENT, captureChatNavigationTarget, requestChatNavigationCommand, type ChatNavigationRequest, type ChatNavigationCommandID } from '../../lib/commandChatNavigation';
+import { attachChildrenToMessage } from '../../lib/chatMessageTree';
 import { chat } from '../../../wailsjs/go/models';
 
 vi.mock('../../services/audioFeedback', () => ({ playBumpSound: vi.fn(), playMessageSound: vi.fn() }));
@@ -37,8 +38,15 @@ function seed(nodes: chat.MessageNode[]) {
 function replaceTree(nodes: chat.MessageNode[]) {
   useChatStore.setState({ timelinesByConversationId: { [cid]: { id: cid, title: 'Chat', threadedMessages: nodes } } });
 }
+function attachChildrenToConversationInStore(messageId: string, children: chat.MessageNode[]) {
+  useChatStore.setState(state => patchChatConversation(state, cid, conversation => ({
+    ...conversation,
+    threadedMessages: attachChildrenToMessage(conversation.threadedMessages, messageId, children),
+  })));
+}
 function Tree(props: Omit<MessageNodeProps, 'node'>) {
-  const nodes = useChatStore(state => state.timelinesByConversationId[cid].threadedMessages);
+  const nodes = useChatStore(state => state.surfaceSessionsByKey[surface.sessionKey]?.visibleThreadedMessages
+    ?? state.timelinesByConversationId[cid].threadedMessages);
   return <>{nodes.map(item => <MessageNode key={item.message.id} node={item} commandPathname="/chat" {...props} />)}</>;
 }
 function mount(props: Omit<MessageNodeProps, 'node'> = {}) {
@@ -122,7 +130,8 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
   it('carrega filhos uma vez e foca só após render real', async () => {
     const parent = node(); parent.childCount = 1; seed([parent]);
     const wait = deferred();
-    const load = vi.fn(async () => { await wait.promise; const next = Object.assign(new chat.MessageNode(), parent, { children: [node(childId, true)] }); replaceTree([next]); return next.children!; });
+    const children = [node(childId, true)];
+    const load = vi.fn(async () => { await wait.promise; attachChildrenToConversationInStore(mid, children); return children; });
     mount({ onLoadChildren: load }); root().focus();
     fireEvent.keyDown(root(), { key: 'ArrowRight' }); fireEvent.keyDown(root(), { key: 'ArrowRight', repeat: true });
     expect(load).toHaveBeenCalledExactlyOnceWith(mid); expect(root(childId)).toBeNull();
@@ -143,11 +152,55 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     external.focus(); await act(async () => { wait.resolve(); await wait.promise; });
     expect(document.activeElement).toBe(external); external.remove();
   });
-  it('mudança de mensagem invalida captura antes do efeito mesmo com mesmo ID', () => {
-    mount(); root().focus(); const lease = captureChatNavigationTarget(() => '/chat', 'chat.message.reasoning.toggle')!;
-    act(() => replaceTree([node()]));
-    expect(lease.open('chat.message.reasoning.toggle')).toBe(false);
+  it('troca mensagem same-ID invalida lease antigo e registra lease novo para a referência renderizada', () => {
+    const replacement = node();
+    mount(); root().focus(); const oldLease = captureChatNavigationTarget(() => '/chat', 'chat.message.reasoning.toggle')!;
+    act(() => replaceTree([replacement]));
+    expect(oldLease.isCurrent()).toBe(false);
+    expect(oldLease.open('chat.message.reasoning.toggle')).toBe(false);
+    const refreshedLease = captureChatNavigationTarget(() => '/chat', 'chat.message.reasoning.toggle');
+    expect(refreshedLease).toBeDefined();
+    expect(refreshedLease?.isCurrent()).toBe(true);
+    expect(oldLease.isCurrent()).toBe(false);
+    refreshedLease?.dispose();
     expect(useChatStore.getState().isConversationReasoningExpanded(cid, mid, surface.sessionKey)).toBe(false);
+  });
+  it('revoga lease em troca canônica same-ID sem trocar projeção visível; referência visível nova recebe lease novo', () => {
+    const original = node();
+    const replacement = node();
+    seed([original]);
+    useChatStore.setState(state => ({
+      surfaceSessionsByKey: {
+        ...state.surfaceSessionsByKey,
+        [surface.sessionKey]: {
+          ...createEmptyChatSurfaceSession(cid, surface.sessionKey),
+          visibleThreadedMessages: [original],
+        },
+      },
+    }));
+    mount(); root().focus();
+    const oldLease = captureChatNavigationTarget(() => '/chat', 'chat.message.reasoning.toggle')!;
+    expect(oldLease.isCurrent()).toBe(true);
+
+    act(() => replaceTree([replacement]));
+    expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].visibleThreadedMessages?.[0].message).toBe(original.message);
+    expect(oldLease.isCurrent()).toBe(false);
+    expect(oldLease.open('chat.message.reasoning.toggle')).toBe(false);
+
+    act(() => useChatStore.setState(state => ({
+      surfaceSessionsByKey: {
+        ...state.surfaceSessionsByKey,
+        [surface.sessionKey]: {
+          ...state.surfaceSessionsByKey[surface.sessionKey],
+          visibleThreadedMessages: [replacement],
+        },
+      },
+    })));
+    const freshLease = captureChatNavigationTarget(() => '/chat', 'chat.message.reasoning.toggle');
+    expect(freshLease).toBeDefined();
+    expect(freshLease?.isCurrent()).toBe(true);
+    expect(oldLease.isCurrent()).toBe(false);
+    freshLease?.dispose();
   });
   it('leitura virtual não permite comando de reasoning quebrar isolamento', () => {
     mount(); root().focus(); fireEvent.keyDown(root(), { key: 'Enter' });

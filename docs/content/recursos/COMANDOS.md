@@ -2186,6 +2186,10 @@ isolada não autorizam ações no chat de fundo.
 São ações de foco/apresentação, sem histórico de invocações por tecla.
 Expandir uma thread pode buscar filhos pelo carregador existente, mas não
 envia mensagem nem cria uma nova execução do modelo.
+Com a mensagem focada, a seta para a direita expande suas respostas e leva
+o foco ao primeiro filho quando o carregamento termina. A seta para a esquerda
+recolhe a thread expandida. Se você mudar de conversa ou a mensagem for
+substituída durante o carregamento, o resultado antigo não desloca seu foco.
 
 ### Validação manual acumulada — apresentação do chat
 
