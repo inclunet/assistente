@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { useEffect, useRef } from 'react';
 import { Modal } from './Modal';
 
 const originalOffsetParentDescriptor = Object.getOwnPropertyDescriptor(
@@ -246,6 +247,34 @@ describe('Modal', () => {
     await waitFor(() => {
       expect(input).toHaveFocus();
     });
+  });
+
+  it('respeita o foco que o conteudo ja posicionou dentro do modal', async () => {
+    function ConteudoQueFoca() {
+      const ref = useRef<HTMLButtonElement>(null);
+      useEffect(() => {
+        requestAnimationFrame(() => ref.current?.focus());
+      }, []);
+      return (
+        <>
+          <input aria-label="Campo" />
+          <button ref={ref}>Principal</button>
+        </>
+      );
+    }
+
+    render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Titulo" initialFocusSelector="#inexistente">
+        <ConteudoQueFoca />
+      </Modal>
+    );
+
+    const principal = screen.getByRole('button', { name: 'Principal' });
+    await waitFor(() => expect(principal).toHaveFocus());
+    // Depois do double-rAF e da verificação de ~150ms, o Modal não pode ter
+    // trocado o foco para o primeiro campo pela heurística padrão.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(principal).toHaveFocus();
   });
 
   it('cancela rAF/timeout pendentes quando o modal fecha rapido', async () => {

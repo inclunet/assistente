@@ -14,6 +14,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { registerWorkspacePanelFocus } from '../workspace/workspacePanelFocusRegistry';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
+import { DATAGRID_ENTRY_SELECTOR } from '../ui/DataGrid';
 import { Button } from '../ui/Button';
 import { DialogActions } from '../ui/DialogActions';
 import { FormField } from '../ui/FormField';
@@ -721,6 +722,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           onClose={() => setIsCustomActionsEditorOpen(false)}
           title={t('tasklist.customActions.configure', 'Ações customizadas')}
           size="lg"
+          initialFocusSelector={DATAGRID_ENTRY_SELECTOR}
         >
           <Suspense fallback={<div>{t('tasklist.loading', 'Carregando...')}</div>}>
             <CustomActionsEditor
@@ -738,6 +740,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           onClose={() => setIsWorkflowEditorOpen(false)}
           title={t('tasklist.workflow.editWorkflow', 'Editar Workflow')}
           size="lg"
+          initialFocusSelector={DATAGRID_ENTRY_SELECTOR}
         >
           <Suspense fallback={<div>{t('tasklist.loading', 'Carregando...')}</div>}>
             <WorkflowEditor

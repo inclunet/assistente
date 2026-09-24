@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import type { WorkspaceTab } from '../../store/workspaceStore';
 import TaskListView from './TaskListView';
 import { requestWorkspacePanelFocus } from '../workspace/workspacePanelFocusRegistry';
+import { DATAGRID_ENTRY_SELECTOR } from '../ui/DataGrid';
 
 const openCreateModalMock = vi.fn();
 const registerWorkspaceChatAdapterMock = vi.hoisted(() => vi.fn());
@@ -115,8 +116,17 @@ vi.mock('../../hooks/useRegisterWorkspaceChatAdapter', () => ({
 
 vi.mock('../ui/Modal', () => ({
   isModalOpen: () => false,
-  Modal: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Modal: ({ children, title, initialFocusSelector }: {
+    children: ReactNode;
+    title?: string;
+    initialFocusSelector?: string;
+  }) => (
+    <div role="dialog" aria-label={title} data-initial-focus={initialFocusSelector}>{children}</div>
+  ),
 }));
+
+vi.mock('./CustomActionsEditor', () => ({ default: () => <div>custom-actions-editor</div> }));
+vi.mock('./WorkflowEditor', () => ({ default: () => <div>workflow-editor</div> }));
 
 vi.mock('../ui/Toolbar', () => ({
   Toolbar: ({
@@ -603,6 +613,21 @@ describe('TaskListView', () => {
     expect(screen.queryByRole('button', { name: 'Ações customizadas' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Duplicar' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Nova Tarefa' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['Ações customizadas', 'custom-actions-editor'],
+    ['Editar Workflow', 'workflow-editor'],
+  ])('modal "%s" aberto pelo menu pede foco inicial no grid', async (name, content) => {
+    taskListStoreState.getTaskCountsByStatus.mockResolvedValue({});
+    const user = userEvent.setup();
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name }));
+
+    const dialog = await screen.findByRole('dialog', { name });
+    expect(dialog).toHaveAttribute('data-initial-focus', DATAGRID_ENTRY_SELECTOR);
+    expect(await screen.findByText(content)).toBeInTheDocument();
   });
 
   it('edita título e descrição da lista pelo menu', async () => {

@@ -1,7 +1,9 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import CustomActionsEditor from './CustomActionsEditor';
+import { Modal } from '../ui/Modal';
+import { DATAGRID_ENTRY_SELECTOR } from '../ui/DataGrid';
 
 const mockGetTaskListCustomActions = vi.fn();
 const mockSetTaskListCustomActions = vi.fn();
@@ -232,5 +234,66 @@ describe('CustomActionsEditor', () => {
     await screen.findByRole('grid');
     await new Promise<void>((r) => { window.setTimeout(r, 50); });
     expect(document.activeElement).toBe(ext);
+  });
+
+  describe('dentro do Modal', () => {
+    const originalOffsetParent = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent');
+
+    beforeEach(() => {
+      // Torna os controles "visíveis" para a heurística de foco do Modal, que
+      // no jsdom os descartaria (offsetParent sempre null).
+      Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+        configurable: true,
+        get() { return document.body; },
+      });
+    });
+
+    afterEach(() => {
+      if (originalOffsetParent) {
+        Object.defineProperty(HTMLElement.prototype, 'offsetParent', originalOffsetParent);
+      } else {
+        delete (HTMLElement.prototype as { offsetParent?: unknown }).offsetParent;
+      }
+    });
+
+    function renderInModal() {
+      return render(
+        <Modal isOpen onClose={vi.fn()} title="Ações customizadas" initialFocusSelector={DATAGRID_ENTRY_SELECTOR}>
+          <CustomActionsEditor taskListId="1" onClose={vi.fn()} />
+        </Modal>,
+      );
+    }
+
+    it('foca o grid quando os dados chegam, mesmo com o foco provisório no Fechar', async () => {
+      let resolveLoad!: (value: { actions: unknown[] }) => void;
+      mockGetTaskListCustomActions.mockImplementationOnce(
+        () => new Promise<{ actions: unknown[] }>((res) => { resolveLoad = res; }),
+      );
+      renderInModal();
+      // Enquanto carrega, o Modal só tem o Fechar para focar.
+      const close = screen.getByRole('button', { name: 'ui.modal.close' });
+      await waitFor(() => expect(close).toHaveFocus());
+
+      resolveLoad({ actions: seedActions });
+      const grid = await screen.findByRole('grid');
+      await waitFor(() => expect(grid.contains(document.activeElement)).toBe(true));
+      expect(document.activeElement).toHaveAttribute('role', 'gridcell');
+    });
+
+    it('com dados já disponíveis, o foco inicial fica no grid', async () => {
+      renderInModal();
+      const grid = await screen.findByRole('grid');
+      await waitFor(() => expect(document.activeElement).toHaveAttribute('role', 'gridcell'));
+      // Passada a verificação de ~150ms do Modal, o foco continua no grid.
+      await new Promise<void>((r) => { window.setTimeout(r, 250); });
+      expect(grid.contains(document.activeElement)).toBe(true);
+    });
+
+    it('sem ações, o foco inicial vai para Nova ação', async () => {
+      mockGetTaskListCustomActions.mockResolvedValueOnce({ actions: [] });
+      renderInModal();
+      await screen.findByText('Nenhuma ação customizada definida.');
+      await waitFor(() => expect(document.activeElement).toHaveAccessibleName('Nova ação'));
+    });
   });
 });
