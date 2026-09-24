@@ -3,6 +3,7 @@ package chat
 import (
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"assistente/internal/database"
 )
@@ -91,7 +92,7 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolCalls []TurnSegme
 	// pode apontar para o próprio registro final e não é esse marcador.
 	intermediateIDs := make(map[string]bool)
 	for _, call := range invocationToolCalls {
-		if id := strings.TrimSpace(call.AssistantMessageID); id != "" && call.Origin != "mcp_native" {
+		if id := strings.TrimSpace(call.AssistantMessageID); id != "" && call.Origin != "mcp_native" && (call.Origin != "acp_agent" || call.ACPTextOffset == nil) {
 			intermediateIDs[id] = true
 		}
 	}
@@ -115,6 +116,9 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolCalls []TurnSegme
 		}
 	}
 
+	if segments, ok := consolidateACPTextPositions(ordered, invocationToolCalls); ok {
+		return ConsolidatedTurnResult{Message: representative, Segments: segments}
+	}
 	groups := groupCanonicalInvocations(invocationToolCalls)
 	segments := make([]TurnSegment, 0, len(ordered)+len(groups))
 	messageGroup := make(map[string]int)
@@ -178,6 +182,59 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolCalls []TurnSegme
 		segments = nil
 	}
 	return ConsolidatedTurnResult{Message: representative, Segments: segments}
+}
+
+// ACP mantém a resposta integral numa mensagem. As posições observadas no
+// início das tools permitem reconstruir texto → atividade sem duplicar texto
+// no ledger. Dados antigos/inválidos seguem a consolidação genérica.
+func consolidateACPTextPositions(messages []Message, calls []TurnSegmentToolCall) ([]TurnSegment, bool) {
+	if len(calls) == 0 {
+		return nil, false
+	}
+	texts := make(map[string]string)
+	for _, message := range messages {
+		if message.Role == "assistant" {
+			texts[message.ID] = message.Content
+		}
+	}
+	byMessage := make(map[string][]TurnSegmentToolCall)
+	for _, call := range calls {
+		text, exists := texts[call.AssistantMessageID]
+		if call.Origin != "acp_agent" || call.ACPTextOffset == nil || !exists {
+			return nil, false
+		}
+		offset := *call.ACPTextOffset
+		if offset < 0 || offset > len(text) || (offset < len(text) && !utf8.RuneStart(text[offset])) {
+			return nil, false
+		}
+		byMessage[call.AssistantMessageID] = append(byMessage[call.AssistantMessageID], normalizeInvocationSummary(call))
+	}
+	var segments []TurnSegment
+	for _, message := range messages {
+		if message.Role != "assistant" {
+			continue
+		}
+		activity := byMessage[message.ID]
+		sort.SliceStable(activity, func(i, j int) bool { return *activity[i].ACPTextOffset < *activity[j].ACPTextOffset })
+		position := 0
+		for _, call := range activity {
+			offset := *call.ACPTextOffset
+			if offset > position {
+				segments = append(segments, TurnSegment{Type: "text", Content: message.Content[position:offset]})
+			}
+			if len(segments) > 0 && segments[len(segments)-1].Type == "tool_calls" {
+				last := &segments[len(segments)-1]
+				last.ToolCalls = append(last.ToolCalls, call)
+			} else {
+				segments = append(segments, TurnSegment{Type: "tool_calls", ToolCalls: []TurnSegmentToolCall{call}})
+			}
+			position = offset
+		}
+		if position < len(message.Content) {
+			segments = append(segments, TurnSegment{Type: "text", Content: message.Content[position:]})
+		}
+	}
+	return segments, true
 }
 
 func MessageTimelineItemKey(message Message) string {

@@ -25,6 +25,7 @@ type SimpleStreamHandler struct {
 	lastError             string
 	suppressTerminalError bool
 	terminalEmitted       bool
+	deferAgentTerminal    bool // orquestrador entrega o patch após persistir o parcial
 	finish                llm.FinishInfo
 	usage                 llm.Usage
 	// activity acompanha um turno conduzido por agente externo (AEP-0084):
@@ -73,6 +74,14 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 
 func (h *SimpleStreamHandler) OnError(err string) {
 	h.lastError = err
+	if h.deferAgentTerminal && h.hasAgentActivity() {
+		// O orquestrador emitirá um único terminal após salvar parcial e ledger.
+		h.MarkErrorNotRetryable()
+		h.FlushStream()
+		h.FinishThinkingIfActive()
+		h.closePendingAgentTools(h.pendingToolErrorKind())
+		return
+	}
 	// A supressão existe para não finalizar o streaming enquanto ainda há
 	// tentativa pela frente. Um erro que não pode ser repetido encerra o turno
 	// agora, e calá-lo deixaria a tela esperando por uma tentativa que não vem.
@@ -177,6 +186,11 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 	remainingSpeech, readInSegments := h.UnreadTail()
 	accumulatedContent, accumulatedReasoning := h.Finalize()
 	h.closePendingAgentTools(h.pendingToolErrorKind())
+	if err := h.flushAgentTools(); err != nil {
+		h.MarkErrorNotRetryable()
+		h.OnError("Falha ao preservar atividades do agente: " + err.Error())
+		return
+	}
 
 	finalContent := fullResponse
 	if finalContent == "" {

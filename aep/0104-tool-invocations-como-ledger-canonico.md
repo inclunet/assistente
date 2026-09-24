@@ -106,7 +106,26 @@ Evidências: regressões de `internal/chat/timeline_test.go`, leitura real em
 `internal/agent/service_stats_test.go`. O contrato permanece **Done**; não há
 alteração de schema nem nova representação persistida.
 
+Para ACP, a resposta integral permanece em uma única mensagem. O snapshot de
+apresentação do ledger preserva `assistant_message_id` e `acp_text_offset`
+(posição em bytes UTF-8 do texto acumulado quando a atividade começou). A
+projeção usa essas posições para intercalar texto e ferramentas no terminal
+e na reabertura, sem copiar texto para o ledger nem reordenar pela hora de
+conclusão. Zero é uma posição válida; ausência não significa zero. Posições
+inválidas, fora da mensagem ou cortando UTF-8 seguem a consolidação genérica,
+sem fabricar cronologia para dados antigos. O marcador ACP aponta para a
+mensagem integral, não a classifica como fala intermediária de tool local.
+Evidências: `TestACPCronologiaNoTerminalEReabertura`,
+`TestACPTextPositionsValidaLimitesEUTF8` e `TestHistoricoPropagaPosicaoACP`.
+
 ### D3 — Detalhes batch/lazy
+
+Atividades ACP também usam este ledger, como observações externas (`acp_agent`),
+nunca como pedidos de execução. O handler serializa a gravação e aguarda sua
+conclusão antes de construir o patch. Chamadas duplicadas no mesmo turno são
+deduplicadas por identificador. A ausência de argumentos/resultado é explícita
+(`unavailable`), sem payload fictício. Evidência:
+`TestACPAtividadePersisteNoPatchEHistorico`; status **Done** mantido.
 
 Um binding batch recebe no máximo 100 IDs e executa uma consulta por lote. O
 backend revalida ownership em cada chamada:
@@ -422,6 +441,54 @@ retargetado para `main`.
 - Rebuild impedir downgrade: backup verificado é o rollback suportado.
 
 ## Critérios de aceitação
+
+### Núcleo único de persistência
+
+`Execute` (execução local) e `Record` (resultado externo) compartilham
+`beginInvocation`/`finishInvocation` em `internal/toolinvocations/lifecycle.go`:
+identidade e catálogo, validação de origem, criação, transição, projeções,
+limites, finalização, remoção de órfãos e métricas usam uma implementação.
+As entradas apenas adaptam pedido/resultado. Falha ao marcar execução local
+como iniciada impede efeitos externos; para resultado já observado, tenta-se
+completar o registro, sem executar a ferramenta.
+
+O adaptador ACP em `internal/agent/agent_activity.go` fornece
+`ExternalObservation` com catálogo archival isolado e apresentação saneada.
+O núcleo não interpreta campos do protocolo ACP nem inventa input/output.
+Evidência: `TestLifecycleSharedPersistenceFailures`,
+`TestLifecycleExternalPersistenceSurvivesCancellation` e
+`TestLifecycleRejectsMissingOriginForEveryEntry`, além das regressões ACP de
+cronologia e reabertura do histórico. O status permanece **Done**.
+
+Endurecimento da revisão: a resolução canônica usa nome+usuário sem consultar
+um ID sugerido que não será utilizado. Execuções locais fazem pré-validação
+fail-closed; observações já ocorridas dependem da validação transacional de
+`Create`. A revalidação terminal usa o mesmo repositório e contrato de origem
+(ID de mensagem ou turno), sem banco global. Consultas de schema dessa
+validação também respeitam o prazo da operação. Metadados de observação são
+limitados antes do parse e de qualquer escrita; falhas de início e limpeza
+têm diagnóstico separado. Evidências adicionais em `lifecycle_test.go`:
+`TestLifecycleObservationValidationBeforeDatabase`,
+`TestLifecycleUsesRepositoryOriginContractWithoutGlobalDatabase`,
+`TestLifecycleObservedResultSurvivesTransientPreflightFailure`,
+`TestLifecycleStartAndCleanupFailuresAreBothCounted` e
+`TestRepositoryOriginValidationBoundsSchemaQueries`.
+`TestACPAtividadePersisteNoPatchEHistorico` verifica diretamente os campos
+JSON persistidos de origem, posição, mensagem, iteração e duração.
+O diagnóstico operacional de validação, catálogo, criação e limpeza é
+registrado com etapa e identificadores antes da conversão para erro genérico
+da UI; `TestLifecycleKeepsOperationalCauseOutOfPublicResult` verifica a
+preservação da causa sem copiar os argumentos da tool para o log.
+
+A criação de um catálogo archival ausente é parte da mesma transação de
+`Repository.Create`, após validar a origem. O serviço resolve identidades
+existentes sem escrever; a opção `ArchivalToolName` delega o catálogo novo
+ao mesmo caminho de criação da invocação. Falha na origem ou no INSERT não
+deixa catálogo novo órfão e não apaga catálogos pré-existentes.
+`TestLifecycleArchivalCatalogRollsBackWithInvocation` e
+`TestLifecycleArchivalCatalogAndInvocationCommitTogether` cobrem execução
+local, MCP e observação externa, inclusive origem de outro usuário e falha
+de INSERT após a criação do catálogo.
 
 - [x] 100% do legado representado no ledger; ambiguidades iguais a zero.
 - [x] Contagens iguais antes/depois; divergência apenas de hash é registrada

@@ -287,6 +287,14 @@ describe('DataGrid (checkbox mode)', () => {
     expect(set.size).toBe(0);
   });
 
+  it('Escape sem seleção não é consumido (segue para o Modal em volta)', () => {
+    renderCheckbox();
+    focusGrid();
+    const notCancelled = fireEvent.keyDown(getGrid(), { key: 'Escape' });
+    expect(notCancelled).toBe(true);
+    expect(onSelectionChange).not.toHaveBeenCalled();
+  });
+
   it('showHeader=false esconde headers', () => {
     render(
       <DataGrid items={items} columns={columns} selectionMode="checkbox"

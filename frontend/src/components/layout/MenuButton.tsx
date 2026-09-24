@@ -138,6 +138,7 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
             resolveTriggerElement()?.focus();
           }
         }}
+        aria-haspopup="menu"
         aria-expanded={menu.visible}
         aria-label={resolvedButtonLabel}
         title={resolvedButtonLabel}

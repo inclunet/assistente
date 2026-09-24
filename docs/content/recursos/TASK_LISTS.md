@@ -23,9 +23,21 @@ Cada lista de tarefas possui:
 | Ação | Descrição |
 |---|---|
 | **Criar** | Nova lista com título e descrição |
-| **Editar** | Alterar título e descrição |
-| **Clonar** | Duplicar lista com workflow e tarefas |
-| **Deletar** | Remover lista completamente |
+| **Editar** | Alterar título e descrição (menu Configurações da lista) |
+| **Clonar** | Duplicar lista com workflow e tarefas (menu Configurações) |
+| **Deletar** | Remover lista completamente (menu Configurações) |
+
+### Configurações da lista
+
+O botão **Configurações** na toolbar da lista reúne as ações administrativas:
+editar a lista, editar o workflow, ações customizadas, duplicar, limpar e
+apagar. O vínculo da lista com uma conversa é automático, via chat embutido
+da aba.
+
+O botão informa ao leitor de telas que abre um menu e se ele está expandido.
+Com o foco no botão, use Enter ou Espaço para abrir as opções.
+Se a edição da lista falhar, o formulário permanece aberto com os dados
+digitados e a interface informa o erro, sem confirmar o salvamento.
 
 ### Tarefas
 
@@ -50,8 +62,23 @@ código para acessar o sistema de origem.
 Cada lista tem seu próprio workflow com:
 
 - **Status**: Lista de status possíveis (ex: A Fazer, Em Progresso, Concluído)
-- **Transições**: Regras de quais status podem avançar para quais
-- **Reordenação**: Status podem ser reordenados
+- **Transições**: Regras de quais status podem avançar para quais (configuradas no detalhe de cada status)
+- **Reordenação**: Status podem ser reordenados (Alt+Setas no grid)
+
+### Editar workflow e ações customizadas
+
+As telas **Editar Workflow** e **Ações customizadas** (menu Configurações)
+salvam cada alteração na hora: criar, editar, apagar ou reordenar já persiste,
+sem botão Salvar. Ao abrir, o foco fica no grid.
+
+- **Ctrl+N** cria um novo status ou uma nova ação customizada.
+- **Enter** no grid abre a edição do item focado; **Aplicar** salva e volta ao grid.
+- **Esc** fecha a tela (ou só o formulário do item, se ele estiver aberto).
+- Ao apagar um status que ainda tem tarefas, o Assistente pergunta para qual
+  status movê-las antes de remover.
+- Se o salvamento falhar, a mensagem de erro aparece e a tela volta ao último
+  estado salvo; no formulário do item, o que foi digitado é mantido para tentar
+  de novo.
 
 ## Modos de Visualização
 

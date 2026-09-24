@@ -291,8 +291,14 @@ func (s *Service) UpdateWorkflowFull(ctx context.Context, taskListID string, sta
 	}
 	// A migração pode alterar o status de muitas tarefas sem emitir um evento
 	// task:updated por linha. O ID instrui o frontend a recarregar a janela
-	// paginada já visível, evitando manter cards com status obsoleto.
-	s.emitter.Emit("taskList:updated", taskListID)
+	// paginada já visível, evitando manter cards com status obsoleto. Sem
+	// migração as tarefas não mudam: a lista com o workflow novo basta para
+	// atualizar o cache, sem recarregar as tarefas a cada salvamento do editor.
+	if len(statusMigration) > 0 || tl == nil {
+		s.emitter.Emit("taskList:updated", taskListID)
+	} else {
+		s.emitter.Emit("taskList:updated", tl)
+	}
 	if s.wantsDomain("tasklist.workflow.updated") {
 		var wf *database.TaskListWorkflow
 		if tl != nil {

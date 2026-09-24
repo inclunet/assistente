@@ -901,6 +901,7 @@ func toolInvocationSummariesToTurnSegments(summaries map[string][]toolinvocation
 				SearchResultCount:  call.SearchResultCount,
 				SecurityOutcome:    call.SecurityOutcome,
 				AssistantMessageID: call.AssistantMessageID,
+				ACPTextOffset:      call.ACPTextOffset,
 			})
 		}
 	}

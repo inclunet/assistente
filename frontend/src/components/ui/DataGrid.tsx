@@ -34,6 +34,13 @@ export interface GridFocusTarget {
 
 export type GridFocusRequest = (target?: GridFocusTarget) => boolean;
 
+/**
+ * Ponto de entrada de Tab do grid: o container antes do primeiro foco, depois
+ * a célula ativa. Serve como `initialFocusSelector` de um `Modal`.
+ */
+export const DATAGRID_ENTRY_SELECTOR =
+  '[role="grid"][tabindex="0"], [role="grid"] [role="gridcell"][tabindex="0"]';
+
 export interface DataGridProps<T = unknown> {
   items: T[];
   columns: DataGridColumn<T>[];
@@ -661,8 +668,10 @@ export function DataGrid<T = unknown>({
         return;
 
       case 'Escape':
-        event.preventDefault();
-        if (isMultiSelect) {
+        // Só consome o Escape quando há seleção a limpar; sem isso ele segue
+        // para quem está em volta (ex.: fechar o Modal que hospeda o grid).
+        if (isMultiSelect && localSelectedIds.size > 0) {
+          event.preventDefault();
           clearSelection();
         }
         return;

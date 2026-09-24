@@ -6,6 +6,9 @@ import { useUIStore } from '../../store/uiStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useGridFocus } from '../../hooks/useGridFocus';
+import { useInitialContentFocus } from '../../hooks/useInitialContentFocus';
+import { useNewItemShortcut } from '../../hooks/useNewItemShortcut';
+import { enqueueSave, taskListCustomActionsSaveKey, whenSavesSettled } from '../../lib/serialSaveQueue';
 import type { CustomAction, CustomActionSurface } from '../../types/tasklist';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -21,7 +24,7 @@ import './CustomActionsEditor.css';
 
 interface CustomActionsEditorProps {
   taskListId: string;
-  onClose: () => void;
+  /** Chamado após cada persistência bem-sucedida. */
   onSaved?: () => void;
 }
 
@@ -78,10 +81,10 @@ function surfaceLabels(t: (key: string, fallback: string) => string, surfaces?: 
 /**
  * Editor das custom actions (AEP-0067) de uma TaskList, no padrão do sistema:
  * Toolbar (Nova/Editar/Apagar) + DataGrid + modal de edição por ação.
- * As operações alteram o rascunho local; a persistência continua em lote no
- * Salvar, serializando para o JSON de TaskList.CustomActions.
+ * Cada criação, edição ou exclusão persiste na hora a lista inteira como o
+ * JSON de TaskList.CustomActions; não há rascunho nem Salvar em lote.
  */
-export default function CustomActionsEditor({ taskListId, onClose, onSaved }: CustomActionsEditorProps) {
+export default function CustomActionsEditor({ taskListId, onSaved }: CustomActionsEditorProps) {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
@@ -93,7 +96,9 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
   const [actions, setActions] = useState<EditableAction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
   const [focused, setFocused] = useState<EditableAction | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   // Modal de edição por ação: 'create' parte do vazio, 'edit' do item focado.
   const [itemModal, setItemModal] = useState<{ mode: 'create' } | { mode: 'edit'; uiId: string } | null>(null);
@@ -102,7 +107,9 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
 
   useEffect(() => {
     let cancelled = false;
-    getTaskListCustomActions(taskListId)
+    // Reaberto logo após fechar no meio de um salvamento: lê só depois dele.
+    whenSavesSettled(taskListCustomActionsSaveKey(taskListId))
+      .then(() => getTaskListCustomActions(taskListId))
       .then((res) => {
         if (!cancelled) setActions((res.actions ?? []).map(withUiId));
       })
@@ -114,6 +121,12 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
       });
     return () => { cancelled = true; };
   }, [taskListId, getTaskListCustomActions]);
+
+  // Ao entrar na tela (dados carregados), o foco vai para o grid — ou para
+  // "Nova ação" quando a lista está vazia e não há grid.
+  useInitialContentFocus(rootRef, !isLoading, () => {
+    if (!requestGridFocus()) newButtonRef.current?.focus();
+  });
 
   const openNewAction = useCallback(() => {
     setDraft(emptyAction());
@@ -131,6 +144,12 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
     requestAnimationFrame(() => { requestGridFocus(); });
   }, [requestGridFocus]);
 
+  // X, Esc e Cancelar esperam o Aplicar em andamento: se o backend recusar,
+  // o rascunho continua no formulário para tentar de novo.
+  const cancelItemModal = useCallback(() => {
+    if (!savingRef.current) closeItemModal();
+  }, [closeItemModal]);
+
   const patchDraft = useCallback((patch: Partial<CustomAction>) => {
     setDraft((prev) => ({ ...prev, ...patch }));
   }, []);
@@ -144,7 +163,38 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
     });
   }, []);
 
-  const confirmItemModal = useCallback(() => {
+  // Cada operação persiste a lista inteira na hora; o estado local só muda
+  // depois que o backend aceita, para a tela nunca mostrar algo não salvo.
+  const persist = useCallback(async (next: EditableAction[]): Promise<boolean> => {
+    // Um salvamento por vez: cliques repetidos em Aplicar não duplicam a ação.
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setIsSaving(true);
+    try {
+      const cleaned = next.map(({ _uiId, ...a }) => ({
+        ...a,
+        surfaces: a.surfaces && a.surfaces.length > 0 ? a.surfaces : ['card_menu'],
+      }));
+      // Sem ações: persiste string vazia (não `{"actions":[]}`). O backend trata
+      // vazio como "sem ações" e isso mantém custom_actions limpo no round-trip/clone.
+      const json = cleaned.length > 0 ? JSON.stringify({ actions: cleaned }) : '';
+      await enqueueSave(taskListCustomActionsSaveKey(taskListId), () => setTaskListCustomActions(taskListId, json));
+      setActions(next);
+      onSaved?.();
+      return true;
+    } catch (error) {
+      addToast(
+        t('tasklist.customActions.saveError', 'Falha ao salvar ações: {{error}}', { error: getErrorMessage(error) }),
+        'error',
+      );
+      return false;
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+  }, [taskListId, setTaskListCustomActions, addToast, t, onSaved]);
+
+  const confirmItemModal = useCallback(async () => {
     const id = draft.id.trim();
     const label = draft.label.trim();
     if (!id || !label) {
@@ -161,30 +211,30 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
       return;
     }
     const cleaned: EditableAction = { ...draft, id, label };
-    if (itemModal?.mode === 'edit') {
-      setActions((prev) => prev.map((a) => (a._uiId === itemModal.uiId ? cleaned : a)));
-      const msg = t('tasklist.customActions.updated', 'Ação atualizada');
-      announce(msg);
-    } else {
-      setActions((prev) => [...prev, cleaned]);
-      const msg = t('tasklist.customActions.added', 'Ação adicionada');
-      announce(msg);
-    }
+    const isEdit = itemModal?.mode === 'edit';
+    const next = isEdit
+      ? actions.map((a) => (a._uiId === itemModal.uiId ? cleaned : a))
+      : [...actions, cleaned];
+    // Falha ao salvar mantém o modal aberto com o rascunho, para tentar de novo.
+    if (!(await persist(next))) return;
+    announce(isEdit
+      ? t('tasklist.customActions.updated', 'Ação atualizada')
+      : t('tasklist.customActions.added', 'Ação adicionada'));
     setFocused(cleaned);
     closeItemModal();
-  }, [draft, actions, itemModal, t, addToast, announce, closeItemModal]);
+  }, [draft, actions, itemModal, t, addToast, announce, closeItemModal, persist]);
 
   const deleteAction = useCallback(async (action: EditableAction) => {
     const confirmed = await requestConfirm({
       title: t('tasklist.customActions.deleteConfirmTitle', 'Apagar ação'),
       message: t(
         'tasklist.customActions.deleteConfirm',
-        'Apagar a ação "{{label}}"? A remoção só vale após Salvar.',
+        'Apagar a ação "{{label}}"?',
         { label: action.label || action.id },
       ),
     });
     if (!confirmed) return;
-    setActions((prev) => prev.filter((a) => a._uiId !== action._uiId));
+    if (!(await persist(actions.filter((a) => a._uiId !== action._uiId)))) return;
     setFocused((prev) => (prev?._uiId === action._uiId ? null : prev));
     announce(t('tasklist.customActions.deleted', 'Ação apagada'));
     // A linha some e o foco cairia no body: devolve ao grid (ou ao Novo,
@@ -192,31 +242,9 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
     requestAnimationFrame(() => {
       if (!requestGridFocus()) newButtonRef.current?.focus();
     });
-  }, [requestConfirm, t, announce, requestGridFocus]);
+  }, [requestConfirm, t, announce, requestGridFocus, persist, actions]);
 
-  const handleSave = useCallback(async () => {
-    setIsSaving(true);
-    try {
-      const cleaned = actions.map(({ _uiId, ...a }) => ({
-        ...a,
-        surfaces: a.surfaces && a.surfaces.length > 0 ? a.surfaces : ['card_menu'],
-      }));
-      // Sem ações: persiste string vazia (não `{"actions":[]}`). O backend trata
-      // vazio como "sem ações" e isso mantém custom_actions limpo no round-trip/clone.
-      const json = cleaned.length > 0 ? JSON.stringify({ actions: cleaned }) : '';
-      await setTaskListCustomActions(taskListId, json);
-      addToast(t('tasklist.customActions.saved', 'Ações customizadas salvas'), 'success');
-      onSaved?.();
-      onClose();
-    } catch (error) {
-      addToast(
-        t('tasklist.customActions.saveError', 'Falha ao salvar ações: {{error}}', { error: getErrorMessage(error) }),
-        'error',
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  }, [actions, taskListId, setTaskListCustomActions, addToast, t, onSaved, onClose]);
+  useNewItemShortcut(openNewAction, !isSaving);
 
   const getRowActions = useCallback((action: EditableAction) => [
     {
@@ -284,11 +312,11 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
   }
 
   return (
-    <div className="custom-actions-editor">
+    <div className="custom-actions-editor" ref={rootRef}>
       <p className="custom-actions-editor__hint">
         {t(
           'tasklist.customActions.hint',
-          'Defina ações por card ou quadro. Cada ação pode publicar um evento (que pode disparar jobs) e/ou abrir um link. Os templates têm acesso aos campos do card (.task.code, .task.link, etc.).',
+          'Defina ações por card ou quadro. Cada ação pode publicar um evento (que pode disparar jobs) e/ou abrir um link. Os templates têm acesso aos campos do card (.task.code, .task.link, etc.). As alterações são salvas automaticamente.',
         )}
       </p>
 
@@ -300,6 +328,7 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
             label: t('tasklist.customActions.newAction', 'Nova ação'),
             icon: <PlusOutlined aria-hidden="true" />,
             onClick: openNewAction,
+            shortcut: 'Ctrl+N',
             variant: 'primary',
             buttonRef: newButtonRef,
             disabled: isSaving,
@@ -332,7 +361,6 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
           columns={columns}
           getItemId={(item) => item._uiId}
           label={t('tasklist.customActions.grid', 'Lista de ações customizadas')}
-          autoFocusOnMount={false}
           onFocusChange={(item) => setFocused(item)}
           onActivate={(item) => openEditAction(item)}
           getRowActions={getRowActions}
@@ -340,27 +368,15 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
         />
       )}
 
-      <div className="custom-actions-editor__footer">
-        <div className="custom-actions-editor__footer-spacer" />
-        <DialogActions
-          primary={
-            <Button type="button" variant="primary" onClick={() => void handleSave()} disabled={isSaving} loading={isSaving}>
-              {t('common.save', 'Salvar')}
-            </Button>
-          }
-          secondary={
-            <Button type="button" variant="secondary" onClick={onClose} disabled={isSaving}>
-              {t('common.cancel', 'Cancelar')}
-            </Button>
-          }
-        />
-      </div>
-
       <Modal
         isOpen={itemModal !== null}
-        onClose={closeItemModal}
+        onClose={cancelItemModal}
         title={itemModal?.mode === 'edit'
-          ? t('tasklist.customActions.editAction', 'Editar ação')
+          ? t('tasklist.customActions.editActionNamed', 'Editar ação: {{label}}', {
+            label: actions.find((a) => a._uiId === itemModal.uiId)?.label
+              || actions.find((a) => a._uiId === itemModal.uiId)?.id
+              || '',
+          })
           : t('tasklist.customActions.newAction', 'Nova ação')}
       >
         <div className="custom-action-form">
@@ -467,12 +483,12 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
           />
           <DialogActions
             primary={
-              <Button type="button" variant="primary" onClick={confirmItemModal}>
+              <Button type="button" variant="primary" onClick={() => void confirmItemModal()}>
                 {t('tasklist.customActions.apply', 'Aplicar')}
               </Button>
             }
             secondary={
-              <Button type="button" variant="secondary" onClick={closeItemModal}>
+              <Button type="button" variant="secondary" onClick={cancelItemModal}>
                 {t('common.cancel', 'Cancelar')}
               </Button>
             }

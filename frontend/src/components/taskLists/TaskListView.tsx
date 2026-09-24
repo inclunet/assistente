@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } from 'react';
-import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, ThunderboltOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, EditOutlined, MessageOutlined, PlusOutlined, ThunderboltOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
@@ -14,8 +14,15 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { registerWorkspacePanelFocus } from '../workspace/workspacePanelFocusRegistry';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
+import { DATAGRID_ENTRY_SELECTOR } from '../ui/DataGrid';
 import { Button } from '../ui/Button';
+import { DialogActions } from '../ui/DialogActions';
+import { FormField } from '../ui/FormField';
+import { Input } from '../ui/Input';
+import { Textarea } from '../ui/Textarea';
+import { MenuButton } from '../layout/MenuButton';
 import { openTaskLink } from '../../lib/deepLinks';
+import { taskListWorkflowSaveKey, whenSavesSettled } from '../../lib/serialSaveQueue';
 import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
@@ -94,7 +101,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const initialLoadError = useTaskListStore((s) => s.errors?.get(initialLoadErrorKey));
   const isLoadingTaskPage = useTaskListStore((s) => s.loadingTaskPagesByListId?.has(taskListId) ?? false);
   const taskPageLoadError = useTaskListStore((s) => s.taskPageLoadErrors?.get(taskListId));
-  const { loadTaskList, loadMoreTasks, loadAllTasksForBoard, cancelBoardTaskLoad, clearError, setViewMode, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
+  const { loadTaskList, loadMoreTasks, loadAllTasksForBoard, cancelBoardTaskLoad, clearError, setViewMode, deleteTaskList, updateTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
   const { runCustomAction } = useCustomActions();
 
   const readTaskListSurface = useCallback(() => {
@@ -136,6 +143,10 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const commandRootRef = useRef<HTMLDivElement>(null);
   const [isWorkflowEditorOpen, setIsWorkflowEditorOpen] = useState(false);
   const [isCustomActionsEditorOpen, setIsCustomActionsEditorOpen] = useState(false);
+  const [isEditListOpen, setIsEditListOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
   const [boardActions, setBoardActions] = useState<CustomActionView[]>([]);
   const [taskCountsByStatus, setTaskCountsByStatus] = useState<Record<number, number>>({});
 
@@ -388,6 +399,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
   const handleOpenWorkflowEditor = useCallback(async () => {
     try {
+      // Reaberto logo após fechar no meio de um salvamento: o workflow e as
+      // contagens só são lidos depois que ele termina.
+      await whenSavesSettled(taskListWorkflowSaveKey(taskListId));
       const counts = await getTaskCountsByStatus(taskListId);
       setTaskCountsByStatus(counts);
       setIsWorkflowEditorOpen(true);
@@ -402,18 +416,15 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     initialStatusId: number,
     statusMigration: Record<number, number>,
   ) => {
+    // Salvamento automático a cada alteração: o editor anuncia o resultado e
+    // o modal segue aberto.
     try {
       await updateWorkflowFull(taskListId, statuses, transitions, initialStatusId, statusMigration);
-      setIsWorkflowEditorOpen(false);
-      addToast(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'), 'success', undefined, undefined, {
-        suppressAnnounce: true,
-      });
-      announce(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'));
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       throw new Error(msg || t('tasklist.workflow.saveFailed', 'Erro ao salvar workflow'));
     }
-  }, [taskListId, updateWorkflowFull, addToast, announce, t]);
+  }, [taskListId, updateWorkflowFull, t]);
 
   const readActiveTaskListTarget = useCallback(() => {
     const workspace = useWorkspaceStore.getState().workspace;
@@ -660,6 +671,34 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     openTaskLink(`assistente://conversation/${taskList.conversationId}`, { navigate });
   }, [taskList?.conversationId, navigate]);
 
+  const handleOpenEditList = useCallback(() => {
+    setEditTitle(taskList?.title ?? '');
+    setEditDescription(taskList?.description ?? '');
+    setIsEditListOpen(true);
+  }, [taskList?.title, taskList?.description]);
+
+  const handleSaveList = useCallback(async () => {
+    if (!editTitle.trim()) {
+      const msg = t('tasklist.emptyTitle', 'Título não pode estar vazio');
+      addToast(msg, 'error');
+      announce(msg);
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await updateTaskList(taskListId, editTitle.trim(), editDescription.trim());
+      const msg = t('tasklist.listUpdated', 'Lista atualizada');
+      addToast(msg, 'success', undefined, undefined, { suppressAnnounce: true });
+      announce(msg);
+      setIsEditListOpen(false);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
+    } finally {
+      setEditSaving(false);
+    }
+  }, [editTitle, editDescription, taskListId, updateTaskList, addToast, announce, t]);
+
   // Auto-vínculo: quando o chat embutido desta aba abre com uma conversa, a lista
   // passa a apontar para ela (inclusive ao iniciar uma conversa nova pelo chat).
   // Sem feedback visual extra — é um efeito implícito do uso do chat.
@@ -749,45 +788,56 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               onClick: () => void runCustomAction(ca, taskListId, ''),
               variant: (ca.danger ? 'danger' : 'secondary') as 'danger' | 'secondary',
             })),
-            {
-              key: 'custom-actions',
-              label: t('tasklist.customActions.configure', 'Ações customizadas'),
-              icon: <ThunderboltOutlined />,
-              onClick: () => setIsCustomActionsEditorOpen(true),
-              variant: 'secondary' as const,
-            },
-            {
-              key: 'edit-workflow',
-              label: t('tasklist.workflow.editWorkflow', 'Editar Workflow'),
-              icon: '⚙️',
-              onClick: handleOpenWorkflowEditor,
-              variant: 'secondary' as const,
-            },
-            {
-              key: 'clone-list',
-              label: t('tasklist.duplicate', 'Duplicar'),
-              icon: <CopyOutlined />,
-              shortcut: 'D',
-              onClick: handleClone,
-              variant: 'secondary' as const,
-            },
-            {
-              key: 'clear-list',
-              label: t('tasklist.clear', 'Limpar'),
-              icon: <ClearOutlined />,
-              shortcut: 'Ctrl+L',
-              onClick: () => void handleClear(),
-              variant: 'danger' as const,
-              disabled: !hasAnyTasks,
-            },
-            {
-              key: 'delete-list',
-              label: t('tasklist.delete', 'Apagar'),
-              icon: <DeleteOutlined />,
-              onClick: handleDelete,
-              variant: 'danger' as const,
-            },
           ]}
+          rightEnd={
+            <MenuButton
+              buttonLabel={t('tasklist.settings', 'Configurações')}
+              items={[
+                {
+                  id: 'edit-list',
+                  label: t('tasklist.editList', 'Editar Lista'),
+                  icon: <EditOutlined aria-hidden="true" />,
+                  onClick: handleOpenEditList,
+                },
+                {
+                  id: 'edit-workflow',
+                  label: t('tasklist.workflow.editWorkflow', 'Editar Workflow'),
+                  icon: <span aria-hidden="true">⚙️</span>,
+                  onClick: handleOpenWorkflowEditor,
+                },
+                {
+                  id: 'custom-actions',
+                  label: t('tasklist.customActions.configure', 'Ações customizadas'),
+                  icon: <ThunderboltOutlined aria-hidden="true" />,
+                  onClick: () => setIsCustomActionsEditorOpen(true),
+                },
+                { separator: true, id: 'sep-1' },
+                {
+                  id: 'clone-list',
+                  label: t('tasklist.duplicate', 'Duplicar'),
+                  icon: <CopyOutlined aria-hidden="true" />,
+                  shortcut: 'D',
+                  onClick: handleClone,
+                },
+                {
+                  id: 'clear-list',
+                  label: t('tasklist.clear', 'Limpar'),
+                  icon: <ClearOutlined aria-hidden="true" />,
+                  shortcut: 'Ctrl+L',
+                  onClick: () => void handleClear(),
+                  disabled: !hasAnyTasks,
+                },
+                { separator: true, id: 'sep-2' },
+                {
+                  id: 'delete-list',
+                  label: t('tasklist.delete', 'Apagar'),
+                  icon: <DeleteOutlined aria-hidden="true" />,
+                  onClick: handleDelete,
+                  danger: true,
+                },
+              ]}
+            />
+          }
         />
       </div>
 
@@ -850,11 +900,11 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           onClose={() => setIsCustomActionsEditorOpen(false)}
           title={t('tasklist.customActions.configure', 'Ações customizadas')}
           size="lg"
+          initialFocusSelector={DATAGRID_ENTRY_SELECTOR}
         >
           <Suspense fallback={<div>{t('tasklist.loading', 'Carregando...')}</div>}>
             <CustomActionsEditor
               taskListId={taskListId}
-              onClose={() => setIsCustomActionsEditorOpen(false)}
               onSaved={reloadBoardActions}
             />
           </Suspense>
@@ -867,17 +917,60 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           onClose={() => setIsWorkflowEditorOpen(false)}
           title={t('tasklist.workflow.editWorkflow', 'Editar Workflow')}
           size="lg"
+          initialFocusSelector={DATAGRID_ENTRY_SELECTOR}
         >
           <Suspense fallback={<div>{t('tasklist.loading', 'Carregando...')}</div>}>
             <WorkflowEditor
               workflow={taskList.workflow}
               taskCountsByStatus={taskCountsByStatus}
               onSave={handleSaveWorkflow}
-              onCancel={() => setIsWorkflowEditorOpen(false)}
+              saveQueueKey={taskListWorkflowSaveKey(taskListId)}
             />
           </Suspense>
         </Modal>
       )}
+
+      {isEditListOpen && (
+        <Modal
+          isOpen={isEditListOpen}
+          onClose={() => setIsEditListOpen(false)}
+          title={t('tasklist.editList', 'Editar Lista')}
+        >
+          <FormField label={t('tasklist.titleLabel', 'Título')} required>
+            <Input
+              type="text"
+              value={editTitle}
+              placeholder={t('tasklist.titlePlaceholder', 'Título da lista')}
+              onChange={(e) => setEditTitle(e.target.value)}
+              disabled={editSaving}
+              maxLength={200}
+            />
+          </FormField>
+          <FormField label={t('tasklist.description', 'Descrição')}>
+            <Textarea
+              value={editDescription}
+              placeholder={t('tasklist.descriptionPlaceholder', 'Adicione mais detalhes...')}
+              onChange={(e) => setEditDescription(e.target.value)}
+              disabled={editSaving}
+              rows={4}
+              maxLength={1000}
+            />
+          </FormField>
+          <DialogActions
+            primary={
+              <Button type="button" variant="primary" onClick={() => void handleSaveList()} disabled={editSaving} loading={editSaving}>
+                {t('common.save', 'Salvar')}
+              </Button>
+            }
+            secondary={
+              <Button type="button" variant="secondary" onClick={() => setIsEditListOpen(false)} disabled={editSaving}>
+                {t('common.cancel', 'Cancelar')}
+              </Button>
+            }
+          />
+        </Modal>
+      )}
+
     </div>
   );
 }

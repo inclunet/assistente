@@ -36,7 +36,7 @@ type bridgeRepository struct {
 	resolved string
 }
 
-func (r *bridgeRepository) Create(ctx context.Context, inv *toolinvocations.Invocation) error {
+func (r *bridgeRepository) Create(ctx context.Context, inv *toolinvocations.Invocation, _ ...toolinvocations.CreateOptions) error {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return err
 	}

@@ -17,16 +17,6 @@
   line-height: 1.4;
 }
 
-.custom-actions-editor__footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.custom-actions-editor__footer-spacer {
-  flex: 1;
-}
-
 .custom-action-form {
   display: flex;
   flex-direction: column;
