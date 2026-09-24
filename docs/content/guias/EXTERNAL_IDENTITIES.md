@@ -20,6 +20,12 @@ roles externas. Uma regra pode aceitar qualquer uma das roles que lista, mas
 continua exigindo todos os scopes configurados. Essa política ainda depende da
 montagem do ingresso externo para ser disponibilizada aos clientes.
 
+A base já conecta essa autenticação ao executor comum de comandos, inclusive
+consulta de execuções e cancelamento por revogação. Isso ainda não cria uma
+rota HTTP para executá-los: falta a montagem de contexto e recursos por usuário
+externo no App. Comandos de interface e confirmações interativas permanecem
+recusados nessa entrada; a sessão desktop aberta não é usada como substituta.
+
 Ao atualizar uma instalação externa, conclua o bootstrap abaixo e cadastre as
 demais contas antes de usá-las. Sem bootstrap do emissor, `/auth/me` responde
 **503**; sem vínculo habilitado ou usuário ativo, responde **401**, inclusive

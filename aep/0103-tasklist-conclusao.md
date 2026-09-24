@@ -9610,3 +9610,40 @@ após reforço dos testes PASS; vet, diff-check e status AEP PASS.
 Kierkegaard (Luna) implementou os testes; Turing (Luna) revisou código e
 casos finais independentemente, sem achados acionáveis. Sem ACP, Wails,
 banco pessoal, executável diagnóstico, push ou PR.
+
+## 153. Ingresso externo no executor integral — 24/09/2026
+
+`commandexecution.NewExternal` conecta o autenticador e a política externa ao
+pipeline integral existente (execução, resultado efêmero, replay e consulta).
+Não duplica fila, ledger, gate ou executor. O token pertence ao contexto privado
+da solicitação, não ao estado global do serviço, envelope ou persistência.
+
+- Aquecimento JWKS fora do gate, limitado por prazo e lifecycle; revalidação
+  cached dentro do gate. Shutdown também cancela o aquecimento inicial.
+- Ownership e grupo de revogação derivados do JWT e mapping, sem sessão local
+  inventada. Política de roles/scopes soma-se à autorização de recursos do host.
+- Execução e consulta passam pelo mesmo controle de identidade; revogação do
+  vínculo usa o mesmo EpochService e cancela esperas existentes.
+- Origem fixa Palette/UI/Chat; fontes físicas, system e demais origens não
+  suportadas são recusadas na construção. Sem broker externo, handlers UI e
+  decisões interativas são recusados, sem aprovação implícita.
+
+Limite explícito: trata-se de integração da biblioteca ao executor, não de
+montagem HTTP/App concluída. O runtime de produto ainda depende da sessão
+desktop local; não foi reutilizado como identidade de outro usuário. Faltam
+snapshot/resolução/handlers isolados por usuário externo e sua publicação
+produtiva. O construtor não publica readiness nem abre endpoint.
+
+Validação do bloco: testes dos pacotes commandexecution, commandidentity, auth e
+httpapi passaram, assim como go vet desses pacotes e git diff --check. Os testes
+novos usam SQLite e executor reais com verificador sintético de claims; cobrem
+isolamento por token, replay, recusa por roles/scopes, revogação de execução em
+fila, usuário mapeado substituindo o contexto do transporte e shutdown durante
+autenticação normal/administrativa. Panic no aquecimento não vaza operação do
+lifecycle. Administração é obrigatória na construção e participa do shutdown.
+A recusa da política externa é traduzida para ErrDenied do executor, preservando
+o estado denied no ledger em vez de classificá-la como cancelamento.
+Revisão independente realizada; sem execução de ACP, Wails ou app.
+
+**80 I / 4 P / 0 N = 84; 11 A / 14 I / 22 P / 1 N = 48; 1/12 aceito**
+inalterados; C65/C70 permanecem parciais.

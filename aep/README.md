@@ -16,6 +16,10 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+Atualização AEP-0103, seção153: ingresso externo da biblioteca conectado ao
+executor integral, com token por solicitação e revogação compartilhada. Falta
+a montagem HTTP/App por usuário; **In Progress, 80 I / 4 P / 0 N**.
+
 Atualização AEP-0103, seção152: autorização de comandos externos usa roles
 do JWT revalidado, sem fallback para role local, preservando exigência de scopes
 e política local. **In Progress, 80 I / 4 P / 0 N**; ingresso externo pendente.
