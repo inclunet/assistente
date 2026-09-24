@@ -57,6 +57,11 @@ func TestRuntimeDiscoverDetailedKeepsPartialFailuresObservable(t *testing.T) {
 	if results[1].Opened || !errors.Is(results[1].Err, blocked) {
 		t.Fatalf("deck-b deveria reportar falha parcial: %+v", results[1])
 	}
+	for _, result := range results {
+		if result.Model != testModel {
+			t.Fatalf("descoberta perdeu capacidades conhecidas: %+v", result)
+		}
+	}
 	if _, err := manager.Snapshot("deck-a"); err != nil {
 		t.Fatalf("deck-a deveria permanecer ativo: %v", err)
 	}

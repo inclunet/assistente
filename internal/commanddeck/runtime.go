@@ -62,6 +62,7 @@ type runtimeDevice struct {
 
 type DiscoverResult struct {
 	Device DeviceID
+	Model  Model
 	Opened bool
 	Err    error
 }
@@ -136,10 +137,10 @@ func (r *Runtime) DiscoverDetailed(ctx context.Context) []DiscoverResult {
 	results := make([]DiscoverResult, 0, len(devices))
 	for _, device := range devices {
 		if err := r.openOne(ctx, device); err != nil {
-			results = append(results, DiscoverResult{Device: device.ID, Err: err})
+			results = append(results, DiscoverResult{Device: device.ID, Model: device.Model, Err: err})
 			continue
 		}
-		results = append(results, DiscoverResult{Device: device.ID, Opened: true})
+		results = append(results, DiscoverResult{Device: device.ID, Model: device.Model, Opened: true})
 	}
 	return results
 }

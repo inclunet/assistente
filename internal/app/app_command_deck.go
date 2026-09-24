@@ -560,21 +560,19 @@ func (p *commandProductRuntime) runDeckEpoch(ctx context.Context, driver command
 		}
 		results := runtime.DiscoverDetailed(watch)
 		status := "disconnected"
+		hasDeviceIssue := false
 		var devices []commandDeckDeviceStatus
 		for _, result := range results {
-			if result.Err != nil && !errors.Is(result.Err, commanddeck.ErrDeviceAlreadyOpen) {
-				status = "unavailable"
-				continue
-			}
 			snapshot, err := manager.Snapshot(result.Device)
-			if err != nil {
-				continue
+			device, connected := commandDeckDiscoveryStatus(result, snapshot, err)
+			if result.Device != "" {
+				devices = append(devices, device)
 			}
-			if snapshot.Status != commanddeck.DeviceConnected {
+			if !connected {
+				hasDeviceIssue = true
 				continue
 			}
 			status = "connected"
-			devices = append(devices, commandDeckDeviceStatus{ID: string(result.Device), Model: snapshot.Model.Name, KeyCount: snapshot.Model.KeyCount(), Status: "connected"})
 			retryAt := imageRetries[result.Device]
 			if result.Opened || mapDirty || !retryAt.IsZero() && !time.Now().Before(retryAt) {
 				controller.mu.Lock()
@@ -648,10 +646,17 @@ func (p *commandProductRuntime) runDeckEpoch(ctx context.Context, driver command
 			}
 			pollMu.Unlock()
 		}
+		if hasDeviceIssue {
+			if status == "connected" {
+				status = "degraded"
+			} else {
+				status = "unavailable"
+			}
+		}
 		p.deckStatus(status, devices)
 		if capture != nil {
 			captureStatus := "no_device"
-			if status == "connected" {
+			if status == "connected" || status == "degraded" {
 				captureStatus = "waiting"
 			} else if status == "unavailable" {
 				captureStatus = "unavailable"
@@ -671,6 +676,24 @@ type commandDeckDeviceStatus struct {
 	Model    string `json:"model"`
 	KeyCount int    `json:"keyCount"`
 	Status   string `json:"status"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// Erros nativos podem conter paths/serial. Somente códigos fechados atravessam
+// a ponte; AlreadyOpen com snapshot conectado é o handle deste runtime, não
+// evidência de disputa com outro aplicativo.
+func commandDeckDiscoveryStatus(result commanddeck.DiscoverResult, snapshot commanddeck.DeviceSnapshot, snapshotErr error) (commandDeckDeviceStatus, bool) {
+	device := commandDeckDeviceStatus{ID: string(result.Device), Model: result.Model.Name, KeyCount: result.Model.KeyCount(), Status: "unavailable", Reason: "open_failed"}
+	if snapshotErr == nil && snapshot.Status == commanddeck.DeviceConnected &&
+		(result.Err == nil || errors.Is(result.Err, commanddeck.ErrDeviceAlreadyOpen)) {
+		device.Model, device.KeyCount = snapshot.Model.Name, snapshot.Model.KeyCount()
+		device.Status, device.Reason = "connected", ""
+		return device, true
+	}
+	if errors.Is(result.Err, commanddeck.ErrReconnectBackoff) {
+		device.Status, device.Reason = "reconnecting", "reconnect_backoff"
+	}
+	return device, false
 }
 
 func (p *commandProductRuntime) setDeckLocale(locale string) {
