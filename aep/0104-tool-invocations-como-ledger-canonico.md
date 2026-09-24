@@ -435,6 +435,54 @@ retargetado para `main`.
 
 ## Critérios de aceitação
 
+### Núcleo único de persistência
+
+`Execute` (execução local) e `Record` (resultado externo) compartilham
+`beginInvocation`/`finishInvocation` em `internal/toolinvocations/lifecycle.go`:
+identidade e catálogo, validação de origem, criação, transição, projeções,
+limites, finalização, remoção de órfãos e métricas usam uma implementação.
+As entradas apenas adaptam pedido/resultado. Falha ao marcar execução local
+como iniciada impede efeitos externos; para resultado já observado, tenta-se
+completar o registro, sem executar a ferramenta.
+
+O adaptador ACP em `internal/agent/agent_activity.go` fornece
+`ExternalObservation` com catálogo archival isolado e apresentação saneada.
+O núcleo não interpreta campos do protocolo ACP nem inventa input/output.
+Evidência: `TestLifecycleSharedPersistenceFailures`,
+`TestLifecycleExternalPersistenceSurvivesCancellation` e
+`TestLifecycleRejectsMissingOriginForEveryEntry`, além das regressões ACP de
+cronologia e reabertura do histórico. O status permanece **Done**.
+
+Endurecimento da revisão: a resolução canônica usa nome+usuário sem consultar
+um ID sugerido que não será utilizado. Execuções locais fazem pré-validação
+fail-closed; observações já ocorridas dependem da validação transacional de
+`Create`. A revalidação terminal usa o mesmo repositório e contrato de origem
+(ID de mensagem ou turno), sem banco global. Consultas de schema dessa
+validação também respeitam o prazo da operação. Metadados de observação são
+limitados antes do parse e de qualquer escrita; falhas de início e limpeza
+têm diagnóstico separado. Evidências adicionais em `lifecycle_test.go`:
+`TestLifecycleObservationValidationBeforeDatabase`,
+`TestLifecycleUsesRepositoryOriginContractWithoutGlobalDatabase`,
+`TestLifecycleObservedResultSurvivesTransientPreflightFailure`,
+`TestLifecycleStartAndCleanupFailuresAreBothCounted` e
+`TestRepositoryOriginValidationBoundsSchemaQueries`.
+`TestACPAtividadePersisteNoPatchEHistorico` verifica diretamente os campos
+JSON persistidos de origem, posição, mensagem, iteração e duração.
+O diagnóstico operacional de validação, catálogo, criação e limpeza é
+registrado com etapa e identificadores antes da conversão para erro genérico
+da UI; `TestLifecycleKeepsOperationalCauseOutOfPublicResult` verifica a
+preservação da causa sem copiar os argumentos da tool para o log.
+
+A criação de um catálogo archival ausente é parte da mesma transação de
+`Repository.Create`, após validar a origem. O serviço resolve identidades
+existentes sem escrever; a opção `ArchivalToolName` delega o catálogo novo
+ao mesmo caminho de criação da invocação. Falha na origem ou no INSERT não
+deixa catálogo novo órfão e não apaga catálogos pré-existentes.
+`TestLifecycleArchivalCatalogRollsBackWithInvocation` e
+`TestLifecycleArchivalCatalogAndInvocationCommitTogether` cobrem execução
+local, MCP e observação externa, inclusive origem de outro usuário e falha
+de INSERT após a criação do catálogo.
+
 - [x] 100% do legado representado no ledger; ambiguidades iguais a zero.
 - [x] Contagens iguais antes/depois; divergência apenas de hash é registrada
       como aviso de auditoria (`hash_mismatch`), não bloqueia (ver D5).

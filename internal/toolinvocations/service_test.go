@@ -304,7 +304,7 @@ type createFailRepository struct {
 	err error
 }
 
-func (r createFailRepository) Create(context.Context, *Invocation) error {
+func (r createFailRepository) Create(context.Context, *Invocation, ...CreateOptions) error {
 	return r.err
 }
 func (echoTool) Parameters() json.RawMessage {

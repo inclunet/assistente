@@ -36,7 +36,7 @@ type toolCatalogCacheEntry struct {
 }
 
 type Repository interface {
-	Create(ctx context.Context, inv *Invocation) error
+	Create(ctx context.Context, inv *Invocation, options ...CreateOptions) error
 	MarkRunning(ctx context.Context, id string, startedAt time.Time) error
 	Complete(ctx context.Context, id string, inv *Invocation) error
 	Delete(ctx context.Context, id string) error
@@ -73,13 +73,29 @@ func (r *DBRepository) retry(ctx context.Context, operation string, fn func() er
 	return database.WithSQLiteBusyRetry(ctx, "toolinvocations."+operation, fn)
 }
 
-func (r *DBRepository) Create(ctx context.Context, inv *Invocation) error {
+// CreateOptions mantém catálogo archival e invocação na mesma transação.
+// O nome é ignorado quando vazio; não pode coexistir com ToolCatalogID.
+type CreateOptions struct {
+	ArchivalToolName string
+}
+
+func (r *DBRepository) Create(ctx context.Context, inv *Invocation, options ...CreateOptions) error {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
 	}
 	if inv == nil {
 		return fmt.Errorf("tool invocation nil")
+	}
+	if len(options) > 1 {
+		return fmt.Errorf("at most one create options value is allowed")
+	}
+	archivalName := ""
+	if len(options) == 1 {
+		archivalName = strings.TrimSpace(options[0].ArchivalToolName)
+	}
+	if archivalName != "" && strings.TrimSpace(inv.ToolCatalogID) != "" {
+		return fmt.Errorf("archival name and tool catalog ID are mutually exclusive")
 	}
 	inv.UserID = userID
 	if inv.QueuedAt.IsZero() {
@@ -120,6 +136,13 @@ func (r *DBRepository) Create(ctx context.Context, inv *Invocation) error {
 			row.ConversationID = nil
 			row.TurnID = nil
 		}
+		if archivalName != "" {
+			id, err := resolveOrCreateArchivalCatalogTx(ctx, tx, userID, archivalName)
+			if err != nil {
+				return err
+			}
+			row.ToolCatalogID = id
+		}
 		return create(tx)
 	})
 	if createErr != nil {
@@ -150,6 +173,9 @@ type chatOriginLink struct {
 }
 
 func resolveChatOriginTx(ctx context.Context, tx *gorm.DB, userID, originID string) (chatOriginLink, error) {
+	if tx != nil {
+		tx = tx.WithContext(ctx)
+	}
 	if tx == nil ||
 		!tx.Migrator().HasTable(&database.ChatMessage{}) ||
 		!tx.Migrator().HasTable(&database.Conversation{}) {
@@ -519,33 +545,41 @@ func (r *DBRepository) ResolveOrCreateArchivalToolCatalogID(ctx context.Context,
 	if name == "" {
 		return "", fmt.Errorf("tool name is required")
 	}
-	var catalog database.ToolCatalog
+	var id string
 	err = database.WithSQLiteImmediateTransaction(ctx, r.db, "toolinvocations.resolve_archival_catalog", func(tx *gorm.DB) error {
-		result := tx.WithContext(ctx).
-			Where("user_id = ? AND name = ? AND origin = ?", userID, name, ToolOriginArchival).
-			Limit(1).
-			Find(&catalog)
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected > 0 {
-			return nil
-		}
-		owner := userID
-		catalog = database.ToolCatalog{
-			UserID:             &owner,
-			Name:               name,
-			DisplayName:        name,
-			Origin:             ToolOriginArchival,
-			AvailabilityStatus: tools.ToolAvailabilityUnavailable,
-			AvailabilityReason: "runtime_catalog_missing",
-		}
-		return tx.WithContext(ctx).Create(&catalog).Error
+		var err error
+		id, err = resolveOrCreateArchivalCatalogTx(ctx, tx, userID, name)
+		return err
 	})
 	if err != nil {
 		return "", err
 	}
-	return catalog.ID, nil
+	return id, err
+}
+
+func resolveOrCreateArchivalCatalogTx(ctx context.Context, tx *gorm.DB, userID, name string) (string, error) {
+	var catalog database.ToolCatalog
+	result := tx.WithContext(ctx).
+		Where("user_id = ? AND name = ? AND origin = ?", userID, name, ToolOriginArchival).
+		Limit(1).
+		Find(&catalog)
+	if result.Error != nil {
+		return "", result.Error
+	}
+	if result.RowsAffected > 0 {
+		return catalog.ID, nil
+	}
+	owner := userID
+	catalog = database.ToolCatalog{
+		UserID:             &owner,
+		Name:               name,
+		DisplayName:        name,
+		Origin:             ToolOriginArchival,
+		AvailabilityStatus: tools.ToolAvailabilityUnavailable,
+		AvailabilityReason: "runtime_catalog_missing",
+	}
+	err := tx.WithContext(ctx).Create(&catalog).Error
+	return catalog.ID, err
 }
 
 func (r *DBRepository) IsToolCatalogIDVisible(ctx context.Context, toolCatalogID string) (bool, error) {

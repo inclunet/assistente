@@ -22,7 +22,7 @@ func newJobExecutorTestLedger() *jobExecutorTestLedger {
 	return &jobExecutorTestLedger{invocations: make(map[string]toolinvocations.Invocation)}
 }
 
-func (r *jobExecutorTestLedger) Create(_ context.Context, inv *toolinvocations.Invocation) error {
+func (r *jobExecutorTestLedger) Create(_ context.Context, inv *toolinvocations.Invocation, _ ...toolinvocations.CreateOptions) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.nextID++

@@ -7,6 +7,7 @@ import (
 	"assistente/internal/llm"
 	"assistente/internal/toolinvocations"
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -53,9 +54,11 @@ func TestACPAtividadePersisteNoPatchEHistorico(t *testing.T) {
 			ctx, cancel := context.WithCancel(database.WithUserID(context.Background(), "user-a"))
 			defer cancel()
 			attempts := 0
+			var assistantID string
 			streamer := acpHistoryStreamer{run: func(handler llm.StreamHandler) {
 				attempts++
 				h := handler.(*SimpleStreamHandler)
+				assistantID = h.AssistantMessageID
 				h.OnChunk("resposta parcial")
 				h.OnAgentToolEvent(llm.AgentToolEvent{ID: "call-acp", Kind: "execute", Title: "Executando testes", Status: llm.AgentToolRunning})
 				if status == llm.AgentToolCancelled {
@@ -112,6 +115,29 @@ func TestACPAtividadePersisteNoPatchEHistorico(t *testing.T) {
 			expectedStatus := map[string]string{llm.AgentToolCompleted: "succeeded", llm.AgentToolFailed: "failed", llm.AgentToolCancelled: "cancelled"}[status]
 			if saved.Status != expectedStatus || !saved.External || saved.InputBytes != 0 {
 				t.Fatalf("registro incorreto: %+v", saved)
+			}
+			var metadata struct {
+				External bool `json:"external"`
+				Display  struct {
+					Version     int    `json:"version"`
+					Name        string `json:"name"`
+					Origin      string `json:"origin"`
+					Iteration   *int   `json:"iteration"`
+					DurationMs  *int64 `json:"duration_ms"`
+					TextOffset  *int   `json:"acp_text_offset"`
+					AssistantID string `json:"assistant_message_id"`
+				} `json:"display"`
+			}
+			if err := json.Unmarshal([]byte(saved.Metadata), &metadata); err != nil {
+				t.Fatal(err)
+			}
+			display := metadata.Display
+			if !metadata.External || display.Version != 1 || display.Name != "execute" || display.Origin != "acp_agent" ||
+				display.Iteration == nil || *display.Iteration != saved.ModelIteration ||
+				display.DurationMs == nil || *display.DurationMs != saved.DurationMs ||
+				display.TextOffset == nil || *display.TextOffset != len("resposta parcial") ||
+				assistantID == "" || display.AssistantID != assistantID {
+				t.Fatalf("metadata ACP persistida incorreta: %s", saved.Metadata)
 			}
 			other, err := toolinvocations.LoadSummariesForTurnIDsWithUser(context.Background(), "user-b", []string{turnID})
 			if err != nil || len(other[turnID]) != 0 {

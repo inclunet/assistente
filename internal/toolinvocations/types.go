@@ -106,17 +106,15 @@ type ExecuteResult struct {
 // RecordRequest registra uma invocação já executada fora do executor comum
 // (ex.: MCP nativo), persistindo input/output/status no mesmo formato.
 type RecordRequest struct {
-	// ACPActivity distingue observação externa de MCP nativo, sem executar tools.
-	ACPActivity           bool
-	ACPTitle              string // resumo saneado, não resultado técnico
-	ACPTextOffset         *int   // posição em bytes UTF-8 no texto da mensagem ACP
-	ACPAssistantMessageID string
-	ObservedAt            time.Time
-	Call                  tools.ToolCall
+	// Observation contém uma atividade externa sem payload técnico disponível.
+	// O adaptador de cada protocolo fornece apenas a apresentação saneada.
+	Observation *ExternalObservation
+	Call        tools.ToolCall
 	// PersistedArguments tem a mesma semântica de ExecuteRequest: substitui
 	// somente o snapshot persistido, nunca o payload já executado.
 	PersistedArguments *string
 	Origin             Origin
+	ParentInvocationID string
 	ToolCatalogID      string
 	DryRun             bool
 	Iteration          int
@@ -128,6 +126,16 @@ type RecordRequest struct {
 	Retryable         bool
 	RetryabilityKnown bool
 	DurationMs        int64
+}
+
+// ExternalObservation é um snapshot de apresentação, não uma chamada executável.
+// CatalogName identifica uma entrada exclusivamente archival. DisplayMetadata
+// deve ser um objeto JSON saneado pelo adaptador, nunca o payload bruto remoto.
+type ExternalObservation struct {
+	CatalogName     string
+	Summary         string
+	StartedAt       time.Time
+	DisplayMetadata json.RawMessage
 }
 
 type Filter struct {
