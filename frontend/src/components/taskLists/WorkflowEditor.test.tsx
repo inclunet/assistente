@@ -250,6 +250,33 @@ describe('WorkflowEditor', () => {
     expect(onSave.mock.calls[1][0].map((s) => s.id)).toEqual([1, 2]);
   });
 
+  it('reordenação recusada descarta as que vieram depois e volta à ordem salva', async () => {
+    const saves: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
+    const onSave = vi.fn((_statuses: SavedStatus[]) => new Promise<void>((resolve, reject) => {
+      saves.push({ resolve, reject });
+    }));
+    const threeStatuses: TaskListWorkflow = {
+      ...workflow,
+      statuses: [...workflow.statuses, { id: 3, order: 2, label: 'Revisão', color: 'var(--color-success)', icon: '✅' }],
+    };
+    render(<WorkflowEditor workflow={threeStatuses} onSave={onSave} />);
+    const grid = await screen.findByRole('grid');
+    fireEvent.focus(grid);
+    // A Fazer desce duas vezes: [2,1,3] e depois [2,3,1].
+    fireEvent.keyDown(grid, { key: 'ArrowDown', altKey: true });
+    fireEvent.keyDown(grid, { key: 'ArrowDown', altKey: true });
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(rowTexts()[2]).toMatch(/A Fazer/);
+
+    saves[0].reject(new Error('recusado'));
+    await waitFor(() => expect(rowTexts()[0]).toMatch(/A Fazer/));
+    expect(rowTexts()[1]).toMatch(/Em Progresso/);
+    expect(rowTexts()[2]).toMatch(/Revisão/);
+    // A segunda reordenação partiu da primeira: não é enviada sobre a ordem antiga.
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(mockAddToast).toHaveBeenCalledTimes(1);
+  });
+
   it('a fila compartilhada inclui as alterações que ainda aguardam a vez', async () => {
     const resolvers: Array<() => void> = [];
     const onSave = vi.fn(() => new Promise<void>((res) => { resolvers.push(res); }));

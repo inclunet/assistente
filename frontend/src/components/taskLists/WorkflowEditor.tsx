@@ -197,8 +197,8 @@ export default function WorkflowEditor({
 
   // Salvamentos em fila, na ordem das alterações. Cada alteração é uma
   // transformação aplicada, na hora do envio, sobre o último workflow aceito
-  // pelo backend: uma alteração recusada não contamina as seguintes. Se algo
-  // falhar, a tela volta a esse estado quando a fila esvaziar. A fila é a
+  // pelo backend. Se algo falhar, o que estava na fila depois é descartado e a
+  // tela volta a esse estado quando a fila esvaziar. A fila é a
   // compartilhada de `saveQueueKey`, para quem reabre o editor esperar também
   // as alterações que ainda não saíram.
   const persistedRef = useRef<WorkflowState>(wf);
@@ -209,6 +209,9 @@ export default function WorkflowEditor({
     pendingRef.current += 1;
     return enqueueSave(queueKey, async () => {
       try {
+        // As alterações posteriores a uma falha partiram de uma tela que a
+        // incluía: são descartadas junto, e a tela volta ao último estado salvo.
+        if (failedRef.current) return false;
         const next = change(persistedRef.current);
         const cleanTransitions: WorkflowTransitions = {};
         for (const s of next.statuses) cleanTransitions[s.id] = next.transitions[s.id] || [];

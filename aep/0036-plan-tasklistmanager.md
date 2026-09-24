@@ -67,8 +67,9 @@ O editor deixou de ser um formulário com Salvar/Cancelar: cada alteração
 (criar, editar, apagar, reordenar por Alt+Setas) chama `UpdateWorkflowFull`
 com o workflow completo na hora. Os salvamentos entram numa fila e saem um
 por vez, na ordem das alterações; a reordenação é otimista (o grid move a
-linha e o foco na hora) e, se o backend recusar, a tela volta ao último
-estado aceito. Criar/editar só aplicam no grid depois do sucesso, mantendo o
+linha e o foco na hora) e, se o backend recusar, as alterações enfileiradas
+depois dela são descartadas e a tela volta ao último estado aceito.
+Criar/editar só aplicam no grid depois do sucesso, mantendo o
 modal do item aberto em caso de falha. A seção de migração condicional saiu:
 apagar um status com tarefas abre um `DecisionDialog` (AEP-0091) com o status
 de destino no corpo e envia a migração no mesmo salvamento. Enquanto um
