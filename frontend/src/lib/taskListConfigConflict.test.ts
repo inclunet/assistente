@@ -13,4 +13,9 @@ describe('isTaskListConfigConflict', () => {
     expect(isTaskListConfigConflict(undefined)).toBe(false);
     expect(isTaskListConfigConflict(null)).toBe(false);
   });
+
+  it('exige o código no início: citado no meio de outro erro não é conflito', () => {
+    expect(isTaskListConfigConflict('falha ao validar: TASKLIST_CONFIG_CONFLICT citado')).toBe(false);
+    expect(isTaskListConfigConflict(new Error('outro erro (TASKLIST_CONFIG_CONFLICT)'))).toBe(false);
+  });
 });

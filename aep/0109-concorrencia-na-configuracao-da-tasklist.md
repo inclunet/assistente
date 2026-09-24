@@ -52,7 +52,10 @@ editor recarrega a configuração e avisa o usuário.
 
 - `database.ErrTaskListConfigConflict` tem mensagem iniciada por
   `TASKLIST_CONFIG_CONFLICT`. O Wails só entrega o texto do erro ao frontend, que
-  o reconhece com `isTaskListConfigConflict` (`frontend/src/lib/taskListConfigConflict.ts`).
+  o reconhece com `isTaskListConfigConflict` (`frontend/src/lib/taskListConfigConflict.ts`)
+  exigindo o código no início da mensagem: o código citado no meio de outro erro
+  não conta como conflito. Por isso nenhuma camada entre o banco e o editor pode
+  acrescentar texto antes da mensagem.
 - Em conflito, o serviço não emite `workflow:updated`, `taskList:updated` nem
   eventos de domínio.
 

@@ -7,5 +7,5 @@ export const TASK_LIST_CONFIG_CONFLICT_CODE = 'TASKLIST_CONFIG_CONFLICT';
 
 export function isTaskListConfigConflict(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? '');
-  return message.includes(TASK_LIST_CONFIG_CONFLICT_CODE);
+  return message.trimStart().startsWith(TASK_LIST_CONFIG_CONFLICT_CODE);
 }
