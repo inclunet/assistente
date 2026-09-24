@@ -2,6 +2,37 @@
 
 **Status:** Documento de apoio — migração em andamento; histórico preservado.
 
+## Varredura de Ctrl+N após integrar a main — 24/09/2026
+
+A integração de `origin/main` em `5c9278082` acrescentou Ctrl+N aos editores
+de workflow e ações customizadas. A inspeção dos handlers, usos dos hooks e
+catálogo também identificou seis apresentações de criação ainda fora do
+catálogo. As reconciliações históricas abaixo não significam migração integral
+de toda ação existente no frontend.
+
+- `useActivePanelNewShortcut`: AllowlistPage, CredentialsPage, ProvidersPage,
+  McpPage, SkillsPage e ChannelsPage abrem criação/menu local por `onNew`.
+  Não possuem ID correspondente no catálogo de comandos. A integração futura
+  deve preservar painel ativo, contexto da página e recusa de editáveis/modais;
+  não transformar essas ações em comandos globais indiscriminados.
+- `useNewItemShortcut`: WorkflowEditor abre novo status e CustomActionsEditor
+  abre nova ação. São apresentações locais do editor/modal topmost, sem IDs de
+  catálogo. Hoje não são reconfiguráveis pela tela de comandos nem executáveis
+  pela paleta/Deck. Migrá-las exige representar explicitamente a instância do
+  editor e o modal autorizado, preservando a exclusão do modal de item filho.
+- Já integrados: Ctrl+N seguido de C/E/R/T para novas abas; apresentações
+  `tasklists.create.open` e `profiles.create.open`; Ctrl+N em Histórico para
+  `navigation.workspace.open`; N simples da lista aberta solicita
+  `tasklist.task.create.open`, sem confundir esse gesto com Ctrl+N global.
+- Navegação/edição nativa de grids, inputs e widgets não é, por si só, uma
+  ação global a publicar no catálogo. Deve continuar respeitando o contexto
+  local e a precedência de eventos consumidos.
+
+Pendência explícita: decidir/implementar a exposição das seis criações de
+Configurações e, separadamente, das duas apresentações dos editores. Esta
+varredura não declara essa migração concluída. A seção158 da tasklist acompanha
+os guards corrigidos e a validação da integração para o PR.
+
 ## Leitura vigente — reconciliação de 22/09/2026
 
 A seção140 encerra as três ligações não reconciliadas de C02 (Sobre,

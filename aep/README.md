@@ -16,6 +16,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+Integração AEP-0103 para PR, seção158: incorpora `origin/main` em `5c9278082`,
+preservando autosave de tasklists e lifecycle compartilhado de tools com os
+guards de comandos. **In Progress; 83 I / 1 P / 0 N**; validação humana em outro
+computador e gates de qualificação/aceite continuam pendentes.
+
 Atualização vigente AEP-0103, seção157: C51 passa a I com prova autorizada de
 queda abrupta de processo filho, recuperação real e replay sem repetir o efeito.
 **In Progress; 83 I / 1 P / 0 N (98,8%); 11 A / 20 I / 16 P / 1 N;

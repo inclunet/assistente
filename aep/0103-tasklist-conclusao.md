@@ -9952,3 +9952,66 @@ comprovam fala, modo de interação ou foco percebido no NVDA real.
 **Contagens vigentes: 83 I / 1 P / 0 N = 84 (98,8%); 11 A / 20 I / 16 P /
 1 N = 48; 1/12 gate aceito.** Apenas C38 permanece parcial na contagem C.
 Históricos anteriores mantêm as contagens que eram válidas em suas rodadas.
+
+## 158. Integração da main para publicação e validação em outro computador (24/09/2026)
+
+Por solicitação do mantenedor, a branch incorpora `origin/main` em `5c9278082`
+antes da abertura do PR. Conflitos de conteúdo resolvidos em seis arquivos:
+índice AEP, TaskListView e seu teste, rename de painéis, store de tasklists e
+service de tool invocations. A integração preserva o menu de configurações,
+salvamento automático e filas da main, sem restaurar os caminhos antigos de
+duplicação/limpeza de tasklists que o AEP-0103 já migrou.
+
+O lifecycle comum de tool invocations vindo da main passa a transportar
+catálogo canônico estrito, redação sensível e guard de admissão dos comandos;
+`IsBoundTo` continua conferindo identidade do banco e registry. O adapter de
+teste da bridge acompanha `CreateOptions`. Nenhum fallback de autorização foi
+introduzido para resolver incompatibilidades do merge.
+
+Os apontamentos de lint são corrigidos sem remover testes: cleanup explícito,
+propagação do fechamento de diretório após sync, simplificações equivalentes e
+remoção de helpers não utilizados. Testes de recusa de contexto nil e de
+opacidade de snapshot mantêm suas asserções, com justificativa local da análise
+estática quando o comportamento é intencional.
+
+A validação manual será realizada pelo mantenedor em outro computador, sobre
+cópia do banco. A publicação não promove C38 nem os gates gerais de aceite.
+**Contagens preservadas: 83 I / 1 P / 0 N; 11 A / 20 I / 16 P / 1 N;
+1/12 gate aceito.** AEP permanece In Progress.
+
+**Varredura de atalhos e correções de revisão:** o inventário registra seis
+criações de Configurações ainda fora do catálogo e os dois novos Ctrl+N locais
+dos editores de workflow/ações customizadas. Não se declara migração integral.
+Os hooks locais passam a recusar evento consumido, repetição, composição IME
+e AltGraph, preservando painel ativo e modal topmost (15 testes focados PASS).
+A paleta restaura a origem disponível ao cancelar, com fallback ao botão
+Comandos somente no contexto ainda válido; callbacks de identidade antiga não
+roubam foco da tela nova. O adapter externo aceita o timestamp zero emitido
+pelo Go no status desconectado sem aceitar contexto extra nesse status.
+
+Revisores independentes: Godel (integração backend/lifecycle), Franklin
+(integração frontend), Lagrange (autorização, foco e adapter), Bernoulli
+(limpeza App) e Ampere (hooks e regressões visuais). Achados reais de foco e
+DTO foram corrigidos com testes. A sugestão de focar o botão após mudança de
+identidade foi descartada com justificativa técnica: o callback antigo não
+deve interferir no foco da nova tela; o revisor retirou o apontamento.
+
+**Evidências da integração:** frontend completo 477 arquivos / 5.968 testes
+PASS (409,56 s), mais o teste adicional de foco entre identidades PASS;
+TypeScript, ESLint e Stylelint sem erros (quatro avisos existentes de `any`
+em ProfilesPage.test.tsx). `go build ./...`, `go vet ./...` e golangci-lint
+com zero apontamentos PASS. App completo PASS (630,977 s), após corrigir
+cleanup que tentava rollback de transação já commitada; a primeira rodada
+que encontrou essa falha não conta como PASS. O inventário de logging passa
+com 774 formatos: a comparação com a main mostra saldo +12 (controllers +0,
+app +2, httpapi +6, jobs +9, profiles -5), sem arquivos Go temporários na
+contagem observada. O teste continua impedindo `logging.Printf` em produção.
+
+Uma rodada frontend anterior falhou no teste KeyR; passou isoladamente, no
+arquivo e nas duas suítes completas posteriores. A causa dessa falha isolada
+não foi demonstrada. ACP/acpregistry não executados localmente por causa do
+histórico de bloqueio pelo antivírus. Não foram usados Wails dev/build, app,
+banco pessoal, NVDA ou hardware nesta integração. Status dos AEPs e diff-check
+PASS; CI e validação manual não são substituídos por essas evidências locais.
+Todos os demais pacotes Go, exceto ACP/acpregistry, passaram na rodada final
+com `go test -p 2 -timeout 10m` (resultados cacheados quando aplicável).

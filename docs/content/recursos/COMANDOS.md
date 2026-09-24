@@ -34,8 +34,10 @@ físico, dados reais ou credenciais; o teste físico do Stream Deck é opcional.
   **Enter** uma vez e confira que abre o menu **Workspaces** com os nomes e
   estado ativo dos workspaces disponíveis; não deve trocar de workspace sem
   selecionar um item. Pressione **Escape** para fechar. Ao fechar a paleta,
-  esperado: o foco vai ao botão **Comandos**, inclusive quando a abertura foi
-  feita por Ctrl+K no campo de mensagem (não volta ao campo de origem).
+  Ao cancelar a paleta com **Escape**, esperado: o foco retorna ao campo ou
+  controle de origem, se ele continuar disponível no mesmo contexto. Se o
+  controle tiver sido removido ou desabilitado, o foco vai ao botão **Comandos**.
+  Trocar de usuário, rota, workspace ou aba impede restaurar o foco antigo.
   Evidência/resultado: ____________________.
 - [ ] **Camada e atalho local:** em **Configurações → Comandos e acionadores**,
   crie uma camada descartável no workspace de teste. Associe **Próxima aba** a
@@ -80,6 +82,19 @@ discreto/contínuo), resolução/velocidade/pressão quando disponíveis,
 calibração, reconexão e identidade do dispositivo, cancelamento/repetição,
 feedback e operação por teclado/leitor de tela. Nenhum suporte, comando ou
 atalho para esses dispositivos é declarado por esta checklist.
+
+## Limites atuais de Ctrl+N
+
+Nas páginas de credenciais, provedores, MCP, skills, allowlist e canais,
+**Ctrl+N** ainda é um atalho local de criação, fora do catálogo configurável.
+Ele só atua no painel ativo, fora de campos editáveis e sem outro modal aberto.
+Nos editores de workflow e ações customizadas, **Ctrl+N** cria respectivamente
+um status ou uma ação dentro do editor ativo; um diálogo filho bloqueia o
+atalho do editor atrás dele. Essas duas ações também ainda não aparecem na
+paleta nem podem ser atribuídas ao Stream Deck.
+
+Esses atalhos ignoram repetição automática, composição de texto e eventos já
+consumidos. Não são equivalentes aos comandos de criação de abas do workspace.
 
 ## Mensagens alteradas durante um comando
 
@@ -603,7 +618,8 @@ Para conferir a correção da paleta:
   uma opção por pressionamento, sem mudar o foco para botões da lista.
 - [ ] Digite uma busca e pressione **Enter** na opção desejada: uma única ação.
 - [ ] Em opção indisponível, **Enter** não executa e mantém a paleta aberta.
-- [ ] Pressione **Escape** e confira o retorno do foco ao botão Comandos.
+- [ ] Pressione **Escape** e confira o retorno do foco ao controle de origem
+  (ou ao botão Comandos se o controle não estiver mais disponível).
 
 ### Atalho efetivo, favoritos, recentes e configuração
 

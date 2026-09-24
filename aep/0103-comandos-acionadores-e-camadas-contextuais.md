@@ -2,6 +2,11 @@
 
 **Status:** In Progress
 
+**Integração para PR — seção158 (24/09/2026):** atualização com `origin/main`
+em `5c9278082`, preservando autosave de tasklists e lifecycle unificado de tools,
+com os guards e a redação de comandos. A publicação prepara testes em outro
+computador; não promove C38/NVDA nem os gates finais. Contagens abaixo mantidas.
+
 **Acompanhamento vigente — seção157 (24/09/2026):** dos 84 critérios finais,
 **83 têm implementação identificada (98,8%), 1 é parcial e 0 ausentes**.
 C51 passa a I após prova autorizada de queda abrupta de processo filho de teste,
