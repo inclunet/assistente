@@ -16,6 +16,14 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+Atualização AEP-0103, seção155: ferramentas ad hoc na paleta com argumentos,
+confirmação e redação; favoritos/recentes, atalhos efetivos, configuração
+progressiva e diagnóstico do Deck. Frontend: **469 arquivos/5.862 testes PASS**.
+**In Progress; 80 I / 4 P / 0 N; 11 A / 18 I / 18 P / 1 N; 1/12 gate aceito**.
+Ciclo reativo de jobs e composição externa ainda têm decisões pendentes;
+nenhum aceite manual foi presumido. Evidências e limites na
+[seção155 da tasklist](0103-tasklist-conclusao.md#155-ferramentas-na-paleta-e-fechamento-da-interface-de-configuração-24092026).
+
 Atualização AEP-0103, seção154: transporte HTTP de comandos externos com
 execução, consulta e revogação; composição por origem validada e issuer
 administrativo obrigatório. Montagem produtiva ainda pendente, contagens

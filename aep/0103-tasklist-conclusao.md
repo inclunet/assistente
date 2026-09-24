@@ -1,10 +1,10 @@
 # AEP-0103 — Tasklist de conclusão integral
 
-Baseline inicial de 16/09/2026; reconciliação de 23/09/2026 atualizada pela seção149. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoint anterior `c9bead64c`. Status do AEP: **In Progress**.
+Baseline inicial de 16/09/2026; reconciliação de 24/09/2026 atualizada pela seção155. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoints posteriores `03ef8f0a4`, `6f516326a`, `f59f7d6c9`, `2a9049481` e `79b385168`. Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.
 
-## 1. Progresso reconciliado — 23/09/2026, após a seção149
+## 1. Progresso reconciliado — 24/09/2026, após a seção155
 
 A seção129 registra a reconciliação documental; as seções130–133 implementam
 a correção de Δ18/C22, o cache produtivo de C62 e a recusa global fora da
@@ -51,6 +51,8 @@ não foi reproduzida nem declarada corrigida. Aceites manuais não foram ampliad
 - Na seção147, C43 P→I: configuração confirmada de camada por programa,
   captura por ocorrência, execução real de ativação e publicação do mapa
   demonstradas no App. Fronteira do SO controlada; aceite físico permanece aberto.
+- Na seção155, recertificação somente leitura dos itens I01/I02/I05/I10/I11/I12/I14
+  não encontrou gap concreto novo, sem converter a recertificação em aceite global.
 - **Não é porcentagem de esforço, de prazo nem de aceite final.** Critérios
   têm tamanhos distintos; um parcial não recebe meio ponto. Os checkboxes C
   continuam reservados ao aceite final R12. Nenhum foi marcado nesta rodada.
@@ -68,11 +70,11 @@ os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
 
 - **11/48 A — aceitas anteriormente:** R01.1–R01.4, R03.1–R03.3 e
   R04.1–R04.4. Aceites preservados, não ampliados.
-- **14/48 I — implementadas, sem aceite integral:** R02.1–R02.4, R05.3,
-  R07.3, R08.1, R08.3, R08.4, R09.1, R09.2, R11.1–R11.3.
-- **22/48 P — parciais; 1/48 N — ausente:** R12.4 (fechamento de review/CI).
-- **A+I = 25/48 (52,1%)**, antes 24/48 na seção134. CLI chega a I na
-  seção135, sem promover comandos do catálogo a novas origens. Só A tem checkbox x.
+- **18/48 I — implementação identificada, sem aceite integral:** R02.1–R02.4,
+  R05.2, R05.3, R07.3, R08.1–R08.4, R09.1–R09.3, R10.3, R11.1–R11.3.
+- **18/48 P — parciais; 1/48 N — ausente:** R12.4 (fechamento de review/CI).
+- **A+I = 29/48 (60,4%)**. As seções135 e155 ampliam a identificação de
+  implementação sem ampliar aceite ou origens admitidas. Só A tem checkbox x.
 - **1/12 gates aceito: R04.** R01 permanece em validação; os demais gates
   estão abertos. R02 ter implementação nas quatro saídas não equivale a
   aceite agregado. R07.3 passa a I: a recusa explícita fora do Windows
@@ -96,10 +98,13 @@ os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
 - Import/export comum já está implementado. Extensões sensíveis de
   portabilidade e gesto longo conservam a prioridade adiada pelo usuário,
   não são silenciosamente excluídos nem retomados.
-- Próximo passo sugerido: edição textual acessível da apresentação Deck
-  (C38), seguida das provas integradas e lacunas de produto
-  discriminadas na seção129. Validação manual pode seguir em lote para o que
-  já está implementado.
+- Trabalho restante de implementação: composição externa no App (C65/C70,
+  R05.1) e correção do ciclo reativo (R03.4); extensão R05.4 permanece adiada.
+  R06 exige qualificação agregada; R09.4/R10.4 exigem validação manual/física.
+  R05.2/R09.3/R10.3 e recursos de execução da paleta passam a I na
+  seção155, sem aceite final. A edição textual acessível do Deck já está implementada
+  nas seções142–146; C38 aguarda aceite manual, não outra implementação.
+  Migração de workspaces permanece fora desta entrega, conforme seção154.
 
 ## 2. Regras de aceite e atualização
 
@@ -248,7 +253,7 @@ Arquivos de referência: `internal/commandmaintenance`; `internal/jobs/command_m
 
 ### R05 — Identidades, delegação e portabilidade
 
-Estado reconciliado na seção129: **1 saída implementada sem aceite (R05.3), 3 parciais; gate aberto**. Obrigações e limites abaixo permanecem vigentes.
+Estado reconciliado na seção155: **2 saídas com implementação identificada sem aceite (R05.2/R05.3), 2 parciais; gate aberto**. Obrigações e limites abaixo permanecem vigentes.
 
 Tamanho: G. Dependências: R01/R02; pode avançar em paralelo a R03/R04.
 
@@ -258,10 +263,10 @@ Arquivos de referência: `internal/commandidentity`; `internal/commandtoolbridge
 
 - [ ] R05.1 — Fechar local/agent/job_service/system e fronteira externa com fontes autoritativas; revogar identidade/grant entre fila e Start bloqueia o handler; modo externo respeita readiness administrativa e não habilita dispositivos físicos.
 
-  **Estado reconciliado: Parcial.** Identidades e revogação local/agent/job/system e núcleo externo existem. A seção149 monta bootstrap/cadastro administrativo auditado na API HTTP. `NewExternalCommandAuthenticator` ainda não está no ingresso produtivo: faltam readiness/cutover do middleware, identidade por token e revogação no mesmo gate do executor. Evidência: `internal/commandidentity`, `internal/auth/external_identity_enrollment.go`, `internal/httpapi/external_identities.go`, `internal/app/app_httpapi.go`; seções129 e149.
+  **Estado reconciliado: Parcial.** Identidades e revogação local/agent/job/system existem. As seções149–154 entregam cadastro administrativo, cutover do middleware, identidade por token e revogação no gate do executor externo, com transporte HTTP testado. Falta a composição produtiva desses serviços em `App.newHTTPAPIHandler`, sem herdar a sessão desktop. Evidência: `internal/commandexecution/external.go`, `internal/httpapi/external_commands.go`, `internal/auth/external_identity_enrollment.go`, `internal/app/app_httpapi.go`; seções149–154.
 - [ ] R05.2 — Conectar delegação a tools/jobs ao executor comum, preservando owner/profile, decisões/grants exatos, correlação command_invocation e redação de input/output; shell permanece em commandpolicy.
 
-  **Estado reconciliado: Parcial.** `newCommandJobHandler` tem consumidor produtivo nos jobs globais; delegação/redação de tools possui biblioteca e provas, mas `newCommandToolHandler` não tem consumidor de produto localizado. Falta conectar as tools públicas e qualificar sua identidade/correlação; shell continua no executor comum. Evidência: `internal/app/app_command_global_execution.go`, `internal/app/app_command_tool_handler.go`, `internal/commandtoolbridge`; seções34–39,109–110 e129.
+  **Estado reconciliado: Implementação identificada; aceite/qualificação pendente (P→I, seção155).** `newCommandToolHandler` agora tem consumidor produtivo: comandos fixos `tool.execute.t_<UUIDv7>` publicados pela paleta encaminham argumentos validados ao executor/bridge comum, revalidam owner/sessão, schema/geração e alvo, exigem decisão interativa exata e correlacionam `command_invocations`/`ToolInvocation`. Tools permanecem somente ad hoc na paleta; o resultado bruto é descartado e argumentos não viram binding persistente (D11). Jobs globais mantêm `newCommandJobHandler`; isso não publica `job.run` nem fecha o ciclo reativo R03.4. Evidência: commit `2a9049481`; `internal/app/app_command_tool_product.go`, `internal/app/app_command_tool_handler.go`, `internal/app/app_command_tool_palette_integration_test.go`, `internal/commandtoolbridge/bridge.go`; testes de confirmação/cancelamento/drift/redação e catálogo MCP.
 - [ ] R05.3 — Conectar import/export resources.commandLayers ao envelope real AEP-0047: UUIDs/escopos/refs, manter/substituir/cópia, nome explícito, foreign_owner sem vazamento e rollback atômico do lote.
 
   **Estado reconciliado: Implementado; aceite/qualificação pendente.** Import/export comum público: manter/substituir/copiar, UUIDs, nomes, escopos, relatório e transação multi-escopo. Falta: Aceite integral entre usuários/instâncias e visual; export sensível não faz parte desta saída, está em R05.4. Evidência: seções 40–45; `internal/app/app_command_import_desktop.go`, `internal/app/app_command_export_desktop.go`, `frontend/src/components/import/CommandLayerImportPanel.tsx`.
@@ -323,11 +328,11 @@ Arquivos de referência: `aep/0103-inventario-atalhos.md`; `frontend/src/hooks/u
 
 ### R08 — Command Palette funcional no picker compartilhado
 
-Estado reconciliado na seção129: **3 saídas implementadas sem aceite, 1 parcial; gate aberto**. Obrigações e limites abaixo permanecem vigentes.
+Estado reconciliado na seção155: **4 saídas com implementação identificada sem aceite; gate aberto**. Obrigações e limites abaixo permanecem vigentes.
 
 Tamanho: M/G. Dependências: R07 e serviços de R01/R02.
 
-Rastreia: P02; escolha de picker aprovada pelo usuário. Base reaproveitável: Combobox compartilhado, busca, disponibilidade e execução produtivas; faltam principalmente recursos adicionais de R08.2 e qualificação final. Reaproveitar padrão compartilhado sem perder semântica acessível D9.
+Rastreia: P02; escolha de picker aprovada pelo usuário. Base reaproveitável: Combobox compartilhado, busca, disponibilidade e execução produtivas; recursos de R08.2 identificados na seção155, com qualificação/aceite ainda pendentes. Reaproveitar padrão compartilhado sem perder semântica acessível D9.
 
 Arquivos de referência: `frontend/src/components/layout/Topbar.tsx`; `frontend/src/components/ui/menu/Menu.tsx`; `frontend/src/services/commandCatalog.ts`; `internal/wailsapi/command_catalog.go`.
 
@@ -336,7 +341,7 @@ Arquivos de referência: `frontend/src/components/layout/Topbar.tsx`; `frontend/
   **Estado reconciliado: Implementado; aceite/qualificação pendente.** Catálogo/busca localizada e disponibilidade contextual reais. Falta: Qualificação final nos três idiomas/contextos, sem nova lacuna funcional identificada nesta saída. Evidência: seções 53, 69, 75; `frontend/src/components/layout/Topbar.tsx`, `internal/wailsapi/command_catalog.go`.
 - [ ] R08.2 — Executar seleção pelo serviço único e solicitar argumentos faltantes; mostrar atalho efetivo, recentes/favoritos e link direto para configuração; sucesso/erro/indisponibilidade são anunciados corretamente.
 
-  **Estado reconciliado: Parcial.** Execução contextual, preparadores de domínio e anúncios existem. A lista da paleta ainda usa categoria/risco no campo `shortcut`, não o atalho efetivo. Faltam recentes/favoritos, coleta genérica de argumentos faltantes e acesso direto à configuração do comando/binding. Evidência: `frontend/src/components/layout/Topbar.tsx` (construção dos itens da paleta), `frontend/src/components/layout/Topbar.palette.integration.test.tsx`; D9 e seção129.
+  **Estado reconciliado: Implementação identificada; aceite/qualificação pendente (P→I, seção155).** A paleta usa o serviço único, exibe atalhos efetivos, favoritos/recentes e ligação à configuração; o diálogo coleta argumentos e apresenta orientação do schema real da ferramenta. O backend revalida schema/alvo e exige confirmação. Evidência: `79b385168`, `Topbar.tsx`, `Topbar.palette.integration.test.tsx`, `CommandArgumentsDialog.tsx`, `commandToolGuidance.ts`, `commandPalettePreferences.ts`; backend `2a9049481`. Regressão final: 469 arquivos/5.862 testes PASS, TypeScript e lint PASS. NVDA não executado.
 - [ ] R08.3 — Corrigir F04 (reabertura após Escape/resposta atrasada), repetição/IME e precedência de Ctrl+K; preservar atalho do editor conforme contexto. Fechamento restaura o foco de origem; execução que muda surface transfere foco para ela.
 
   **Estado reconciliado: Implementado; aceite/qualificação pendente.** Corridas de reabertura, Escape/IME e foco corrigidos; Ctrl+K respeita editor. Falta: Aceite final agrupado com as novas ações; há aceite de uso do recorte69. Evidência: seções 69, 72–75; `frontend/src/components/layout/Topbar.test.tsx`, `frontend/src/components/layout/Topbar.tsx`.
@@ -348,11 +353,11 @@ Arquivos de referência: `frontend/src/components/layout/Topbar.tsx`; `frontend/
 
 ### R09 — Configurações → Comandos e acionadores
 
-Estado reconciliado na seção129: **2 saídas implementadas sem aceite (R09.1/R09.2), 2 parciais; gate aberto**. Obrigações e limites abaixo permanecem vigentes.
+Estado reconciliado na seção155: **3 saídas com implementação identificada sem aceite (R09.1–R09.3), 1 parcial; gate aberto**. Obrigações e limites abaixo permanecem vigentes.
 
 Tamanho: G. Dependências: R02/R07; pode avançar junto de R08.
 
-Rastreia: P03. Tela funcional em escopos global/workspace, com regras, bindings, argumentos/condições, ativação e captura teclado/Deck. D15 ainda exige divulgação progressiva e edição textual da apresentação do dispositivo, além do aceite manual; não falta novamente o CRUD básico.
+Rastreia: P03. Tela funcional em escopos global/workspace, com regras, bindings, argumentos/condições, ativação e captura teclado/Deck. Divulgação progressiva e edição textual da apresentação do dispositivo estão implementadas; o aceite manual D15 permanece pendente.
 
 Arquivos de referência: `frontend/src/pages/SettingsPage.tsx`; `frontend/src/components/ui`; `internal/commandconfig`; `frontend/src/components/ui/KeyboardShortcutsHelp.tsx`.
 
@@ -364,16 +369,16 @@ Arquivos de referência: `frontend/src/pages/SettingsPage.tsx`; `frontend/src/co
   **Estado reconciliado: Implementado; aceite/qualificação pendente.** CRUD escopado de camadas/regras/bindings, captura de teclado/Deck/sequências, argumentos, condições, prioridade e diagnóstico estão expostos pelos serviços comuns. Aba/perfil têm nomes amigáveis e origens/classes incompatíveis são explicadas, não silenciosamente aceitas. Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `frontend/src/lib/commandSettingsConditions.ts`, `internal/app/app_command_settings_scope.go`, `internal/app/app_command_settings_contract_test.go`; seções111–128. Validação NVDA integral segue separada.
 - [ ] R09.3 — Expor restore por binding/camada/tudo, needs_review/rebase e prioridades em divulgação progressiva; ajuda reflete mapa efetivo após alteração e restart.
 
-  **Estado reconciliado: Parcial, ampliado nas seções111 e117.** Restore por binding/camada/escopo, revisão/rebase de padrões e prioridades implementados. Ajuda de atalhos e prefixos acompanha perfil e aba específica pelo mesmo seletor do dispatcher. Restam qualificação da ajuda após restart e divulgação progressiva dos controles avançados; aceite manual não é substituído pelos testes de publicação.
+  **Estado reconciliado: Implementação identificada; aceite/qualificação pendente (P→I, seção155).** Restore por binding/camada/tudo, revisão/rebase contra defaults vigentes, prioridade e divulgação progressiva avançada estão expostos; a ajuda acompanha o mapa/perfil efetivo e a configuração persiste/reabre após reload. Evidência: `79b385168`, `CommandSettingsPage.tsx`, `CommandSettingsPage.advanced.test.tsx` e testes de Topbar/paleta. Regressão frontend integral PASS; restart real/NVDA permanecem na validação manual, sem aceite final.
 - [ ] R09.4 — Concluir lista operável por teclado/NVDA, mensagens/erros em pt-BR/en/es e alternativas a imagem/cor/drag; para dispositivo, posição/imagem/título/estados também editáveis textualmente.
 
-  **Estado reconciliado: Parcial.** UI atual acessível por lista, labels e três locales. Falta: Edição textual de imagem/título/estados do dispositivo ainda ausente; falta NVDA integral. Não é só teste. Evidência: seções 47–60; `frontend/src/pages/CommandSettingsPage.tsx`, `frontend/src/pages/CommandSettingsPage.test.tsx`.
+  **Estado reconciliado: Parcial; implementação identificada, aceite manual pendente.** UI acessível por lista, labels e três locales; edição textual de imagem/título/estados entregue nas seções142–146. Resta qualificação integral por teclado/NVDA e dispositivo, não reimplementar esses controles. Evidência: `frontend/src/pages/CommandSettingsPage.tsx`, `frontend/src/pages/CommandSettingsPage.test.tsx`; seções142–146.
 
 **Gate R09:** Usuário encontra a tela, remapeia uma ação, entende conflito, testa o efeito, reinicia, restaura e inspeciona defaults; tudo possível por teclado e NVDA com persistência/auditoria corretas.
 
 ### R10 — Stream Deck e contexto externo no App
 
-Estado reconciliado na seção129: **4 saídas parciais; gate aberto**. Obrigações e limites abaixo permanecem vigentes.
+Estado reconciliado na seção155: **1 saída com implementação identificada (R10.3), 3 parciais; gate aberto**. Obrigações e limites abaixo permanecem vigentes.
 
 Tamanho: G. Dependências: R07/R09; núcleo HID qualificado em R06.
 
@@ -383,13 +388,13 @@ Arquivos de referência: `internal/commanddeck`; `internal/commandphysical`; `in
 
 - [ ] R10.1 — Montar dispositivos reais no App e projetar bindings efetivos em imagem/título/estados, com diff/cache/frame completo e IDs isolados para múltiplos dispositivos.
 
-  **Estado reconciliado: Parcial.** App projeta título/estado e renderiza mapa real por diff/cache. Falta: Completar apresentação configurável e qualificação de múltiplos dispositivos/mapas. Evidência: seções 17, 56–58, 68; `internal/app/app_command_deck.go`, `internal/commanddeck/renderer.go`.
+  **Estado reconciliado: Parcial; implementação identificada, aceite físico pendente.** App projeta título/imagem/estados configuráveis e renderiza mapa real por diff/cache. Resta qualificação física de múltiplos dispositivos/mapas. Evidência: seções142–146; `internal/app/app_command_deck.go`, `internal/commanddeck/renderer.go`.
 - [ ] R10.2 — Fechar navegação de camadas/pasta, pin/toggle/back e atualização contextual/estabilização; snapshot externo é capturado antes de foreground mudar e não persiste título/URL.
 
   **Estado reconciliado: Parcial.** Ativar/pin, toggle/back, pilha por dispositivo e contexto de origem já implementados; os 81 IDs do Deck, inclusive Mermaid, receberam qualificação automatizada na seção128. Restam qualificação integral da navegação/estabilização por programa e aceite físico. Não criar uma entidade pasta paralela para satisfazer terminologia histórica: o contrato usa camadas/pilha. Evidência: `internal/app/app_command_deck_layer_contextual_test.go`, `internal/app/app_command_deck_mermaid_contextual_test.go`, `internal/commandforeground`; seções126–129.
 - [ ] R10.3 — Expor status seguro, modelo/capacidades, disputa HID e reconexão na UI acessível; lock/logout/troca de usuário/shutdown removem mapa e rejeitam callbacks antigos.
 
-  **Estado reconciliado: Parcial.** Captura/status básicos e guards de geração estão no App. Falta: Completar diagnóstico acessível de disputa/capacidades/reconexão e sua validação integrada. Evidência: seções 17, 56–58; `internal/app/app_command_deck.go`, `internal/commandadapter`.
+  **Estado reconciliado: Implementação identificada; aceite/qualificação pendente (P→I, seção155).** O App publica status seguro por dispositivo e a página de configurações apresenta estado, modelo, contagem de teclas e razões genéricas de indisponibilidade/reconexão com strings localizadas; erros HID brutos não são expostos. Evidência: commit `6f516326a`, `internal/app/app_command_deck.go`, `internal/app/app_command_deck_status_test.go`, `frontend/src/pages/CommandSettingsPage.tsx` e teste de status da página. Limite: `open_failed` não identifica causa específica de disputa HID nem enumera todos os recursos do modelo; aceite físico/NVDA e matriz lock/logout/troca/shutdown continuam fora deste I e de R10.4.
 - [ ] R10.4 — Executar roteiro físico com Stream Deck informado pelo usuário, sem software oficial, incluindo execução real, unplug/replug, lock/unlock e shutdown; testar isolamento multidispositivo e degradação explícita Linux/macOS.
 
   **Estado reconciliado: Parcial.** Tecla real, descoberta e uso normal confirmados pelo usuário. Falta: Executar matriz unplug/replug/lock/logout/shutdown/múltiplos dispositivos e degradação de plataformas. Evidência: seções 57–59, 69; `docs/operations/streamdeck-manual-validation.md`, `docs/content/recursos/COMANDOS.md`.
@@ -531,7 +536,7 @@ Evidência: `internal/commandadapter`, `internal/commandledger`, `internal/comma
 
 - [ ] C09 — Execução por agente e automação preserva e revalida os gates da AEP-0101; origem headless não herda a identidade do usuário para autorizar mutações.
 
-**Implementação: I — identificada; aceite final pendente.** Identidades delegadas/job_service e gates headless são reais. Chat local fixa a sessão no ingresso e não a empresta a canais/jobs/subagentes/CLI. A seção141 qualifica admissão nas duas tools, invalidação durante decisões de configuração/ativação e propagação do profile autorizado pela tool subagent do registry produtivo ao Manager real, com subconversa/run persistidos. Grants e revogação/regrant de jobs são exercitados no App. Send/provider controlados e cenário job por contexto canônico não são E2E scheduler/LLM. A montagem externa e o consumidor genérico de command→tool continuam separados em R05.1/R05.2; não foram declarados completos.
+**Implementação: I — identificada; aceite final pendente.** Identidades delegadas/job_service e gates headless são reais. Chat local fixa a sessão no ingresso e não a empresta a canais/jobs/subagentes/CLI. A seção141 qualifica admissão nas duas tools, invalidação durante decisões de configuração/ativação e propagação do profile autorizado pela tool subagent do registry produtivo ao Manager real, com subconversa/run persistidos. Grants e revogação/regrant de jobs são exercitados no App. Send/provider controlados e cenário job por contexto canônico não são E2E scheduler/LLM. A seção155 acrescenta consumidor produtivo command→tool pela paleta, com identidade local e decisão; o ingresso externo permanece separado em R05.1/C65/C70. C09 segue I, sem aceite final.
 
 Evidência: `internal/commandidentity/service.go`, `internal/commandidentity/service_test.go`, `internal/jobs/command_service_identity.go`, `internal/app/app_command_layer_origin_convergence_test.go`, `app_command_agent_admission_test.go`, `app_command_agent_config_delegation_test.go`, `app_command_subagent_wire_test.go`, `app_command_job_dynamic_profile_test.go`; seções34–39,109–110,129,137 e141. O recorte de camadas comprova owner estrangeiro e revogação da sessão após captura do contexto de chat, sem efeito persistido. Gates R05/R11 continuam sem aceite agregado.
 
@@ -979,7 +984,7 @@ Evidência: `internal/commandcatalog/registry_test.go`, `internal/app/app_comman
 
 - [ ] C65 — Contextos local, JWT externo, job e system têm fontes de identidade e revogação explícitas; `EpochService` invalida trabalho obsoleto.
 
-**Implementação: P — parcial.** Identidades local, job e system e EpochService possuem fontes/recusas explícitas. Núcleo de identidade externa continua sem montagem produtiva completa no command manager; falta esse ingresso e a matriz de revogação correspondente.
+**Implementação: P — parcial.** Identidades local, job e system e EpochService possuem fontes/recusas explícitas. O executor externo e seu transporte HTTP já qualificam isolamento por token, revogação em fila e shutdown nas seções153–154. Falta a montagem produtiva no App com contexto/handlers autorizados para o usuário externo; a matriz da biblioteca não substitui essa prova de composição.
 
 Evidência: `internal/commandidentity/service_test.go`, `internal/commandidentity/core_epochs_test.go`, `internal/app/app_command_maintenance.go`, `internal/auth/command_external.go`; seção129. Gates: R05.
 
@@ -1019,7 +1024,7 @@ Evidência: `internal/commandactivation`, `internal/commandconfig`, `internal/co
 
 - [ ] C70 — Após o PR atualizar a AEP-0052, identidade externa só acessa usuário local por mapeamento administrativo exato de emissor e subject; antes disso, o command manager fica indisponível nesse modo.
 
-**Implementação: P — parcial.** A seção149 liga o bootstrap e o cadastro administrativo auditado à API HTTP do App, com issuer/scopes exatos e alvo local existente. Não publica readiness nem altera o middleware legado. Faltam cutover coordenado com AEP-0052, ingresso do autenticador no executor e matriz de revogação. A recusa do executor externo permanece obrigatória e não equivale a entregar esse modo.
+**Implementação: P — parcial.** As seções149–154 ligam cadastro administrativo auditado, middleware por mapeamento exato, autorização por claims externas, autenticador no executor e transporte HTTP com revogação isolada. O cutover de autenticação já foi implementado; falta o App fornecer os serviços de comandos externos com contexto e handlers apropriados. Sem essa composição, as rotas respondem 503: essa recusa não equivale a entregar o modo externo.
 
 Evidência: `internal/auth/command_external.go`, `internal/auth/command_external_identity.go`, `internal/auth/external_identity_enrollment.go`, `internal/httpapi/external_identities_test.go`, `internal/app/app_httpapi_external_identity_test.go`; seções129 e149. Gates: R05.
 
@@ -9692,3 +9697,79 @@ antes de traduzir recusas; teste cobre cancelamento tanto na resolução quanto
 na autorização. Releitura confirmou o achado fechado. Os achados anteriores de
 issuer e composição HTTP também foram corrigidos. commandsecurity e
 commandledger passaram em regressão adicional.
+
+## 155. Ferramentas na paleta e fechamento da interface de configuração (24/09/2026)
+
+Checkpoints: `03ef8f0a4` remove a revogação externa fora do gate;
+`6f516326a` entrega diagnóstico seguro por dispositivo; `f59f7d6c9` qualifica
+versões de acionadores e latência; `2a9049481` liga ferramentas ao executor;
+`79b385168` entrega argumentos/preferências da paleta e configuração acessível.
+
+### Implementação entregue
+
+- Ferramentas elegíveis do catálogo runtime entram como comandos de alvo fixo,
+  somente ad hoc pela paleta. JSON de argumentos é validado contra o schema real
+  antes da decisão; execução revalida sessão, owner, alvo, geração e schema.
+  A bridge mantém correlação e redação; argumentos e resultados brutos não
+  viram bindings nem resposta desktop persistente. A resposta mostra estado,
+  não o payload bruto da ferramenta. D11 continua vedando persistência sensível.
+- Mudança no catálogo MCP reconstrói rotas e invalida versões antigas. Catálogo
+  limitado a 4.096 entradas; orientação na UI é paginada, limitada e cancelável,
+  nunca fonte de autorização. `json.RawMessage` chega como objeto JSON pelo
+  serializador; a UI também tolera bytes/string, sem editar bindings gerados.
+- Picker compartilhado mostra atalho efetivo, favoritos/recentes isolados por
+  usuário/workspace e acesso à configuração. O formulário efêmero interpreta
+  o schema real do Go, limpa contexto obsoleto e não deixa resposta tardia de
+  uma execução encerrar o formulário de outra. Tab libera alvos capturados sem
+  restaurar foco; mudança programática de foco preserva a captura válida.
+- Configuração esconde opções avançadas sob controle acessível e expande
+  entradas inválidas para correção. Avisos usam announcer global. Dispositivos
+  mostram modelo, teclas, estado e motivo seguro, sem serial/ID na interface.
+  Falha genérica de abertura não diagnostica sozinha disputa pelo driver HID.
+- Corpus compartilhado qualifica triggers v1/v2 e recusa v3. Medição opt-in
+  com SQLite/executor reais e portas controladas: executor p50 3,0136 ms,
+  p95 4,526 ms, p99 10,5724 ms; reserva+CAS p50 0,5456 ms, p95 1,2784 ms,
+  p99 4,0336 ms. Não mede renderização/HID nem certifica orçamento de 1 ms.
+
+### Verificação e revisão
+
+`npm test -- --maxWorkers=4 --silent`: **469 arquivos e 5.862 testes PASS**,
+303,91 s. As rodadas anteriores detectaram seletores desatualizados, isolamento
+de preferências, anúncios locais e foco/cleanup; foram corrigidos sem remover
+testes. `tsc --noEmit`, ESLint (zero erros, quatro avisos preexistentes),
+Stylelint (zero erros) e tokens passaram. Godel revisou independentemente;
+achados de schema, contexto tardio e limpeza no Tab foram fechados na releitura.
+Após essa rodada, o teste de orientação foi parametrizado para objeto JSON
+real do Wails, string e bytes: sete testes focados PASS, sem mudar produção.
+O verificador de status dos AEPs passou (107 documentos, 106 números).
+
+Backend: os 32 pacotes `./internal/command...`, excluídos testes manuais,
+passaram. No App, grupos `^TestCommand`,
+`^Test(AppCommand|AppDrain|AppShutdown|Contextual)` e ferramentas passaram;
+`go vet` dos pacotes command/auth/httpapi e App passou. Bernoulli revisou a
+ponte e a sanitização do nome da ferramenta; achado de caracteres de controle
+foi corrigido. A revisão somente leitura dos grupos I01/I02/I05/I10/I11/I12/I14
+não encontrou nova lacuna concreta, mas não substitui aceite R06 agregado.
+Não foram executados ACP/acpregistry, Wails, app, hardware ou banco pessoal;
+race/CI remoto e NVDA não foram certificados.
+
+### Bloqueios reais preservados
+
+R03.4 continua parcial. O novo diagnóstico
+`TestProductJobRunEventCommandReplayEndToEnd`, ainda no worktree e falhando,
+reproduz: publicar uma claim nova altera a configuração efetiva e cancela o
+`job.run` que sustenta a própria claim. Banco/grant permanecem válidos; o run
+perde elegibilidade pelo cancelamento. Preparar o binding antes do run não
+resolve. Lagrange e Bernoulli confirmaram a causa independentemente. Alterar
+essa política exige decisão explícita do mantenedor; não foi relaxada nem o
+teste removido/ignorado para produzir PASS.
+
+C65/C70 aguardam composição externa no App e decisão sobre controle de uma
+interface conectada versus operações backend. Nenhuma identidade desktop foi
+emprestada ao JWT externo. Export sensível e gesto longo permanecem adiados;
+migração de workspace continua iniciativa separada.
+
+**Contagens:** 80 I / 4 P / 0 N = 84, inalteradas; 11 A / 18 I / 18 P / 1 N = 48,
+com R05.2/R08.2/R09.3/R10.3 promovidos somente a implementação identificada;
+1/12 gate aceito. Nenhum checkbox de aceite final foi promovido. Não restam
+somente testes manuais, e BASE-PRONTA/AEP-CONCLUÍDO não foram declarados.

@@ -23,11 +23,14 @@ describe('runtime command tool guidance', () => {
     expect(runtimeToolIDFromCommandID('tool.execute.t_not-a-uuid')).toBeNull();
   });
 
-  it('loads only available catalog metadata and decodes its schema bytes', async () => {
+  it.each(['object', 'string', 'bytes'] as const)('loads available metadata with schema encoded as %s', async (encoding) => {
     const schema = { type: 'object', properties: { query: { type: 'string' } } };
+    // json.RawMessage is serialized by Wails as JSON, despite the generated number[] type.
+    const wireSchema = encoding === 'object' ? schema : encoding === 'string'
+      ? JSON.stringify(schema) : Array.from(new TextEncoder().encode(JSON.stringify(schema)));
     catalogAPI.getRuntimeToolCatalog.mockResolvedValueOnce([{
       id: dashedID.toUpperCase(), name: 'search', displayName: 'Pesquisa', description: 'Busca autorizada.',
-      schema: Array.from(new TextEncoder().encode(JSON.stringify(schema))),
+      schema: wireSchema,
     }]);
 
     await expect(getRuntimeCommandToolGuidance(commandID)).resolves.toEqual({

@@ -2,9 +2,18 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção154 (24/09/2026):** dos 84 critérios finais,
+**Acompanhamento vigente — seção155 (24/09/2026):** dos 84 critérios finais,
 **80 têm implementação identificada (95,2%), 4 são parciais e 0 ausentes**.
 Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
+A seção155 entrega ferramentas ad hoc pela paleta, argumentos com validação
+e confirmação, favoritos/recentes/atalhos efetivos, configuração avançada
+progressiva e diagnóstico seguro do Deck. Frontend completo: 469 arquivos e
+5.862 testes PASS. Backend de ferramentas em `2a9049481`; UI em `79b385168`.
+Saídas maiores: **11 A / 18 I / 18 P / 1 N = 48; 1/12 gate aceito**.
+R03.4 conserva um teste integrado falhando por conflito entre publicação de
+claim e cancelamento do job causal; mudança de contrato aguarda decisão.
+C65/C70 aguardam composição externa e decisão de vínculo com a interface.
+Não se declara conclusão nem que restem apenas validações manuais.
 A seção154 acrescenta o transporte HTTP de execução/consulta/revogação, com
 composição validada de origens e autoridade compartilhada. O App ainda não
 injeta executores externos; as rotas permanecem indisponíveis no produto.
@@ -61,12 +70,13 @@ A seção140 fecha C02: as ligações restantes do inventário chegam a `/about`
 ao `codeBlock` no TipTap e ao recolhimento da thread no DOM real. Backend
 produtor e frontend consumidor têm provas distribuídas; não é teste físico
 HID/Wails ponta a ponta. Não há nova origem, default ou handler de produção.
-A seção141 fecha C09: admissão e revalidação durante decisão recusam
-autoridade emprestada ou revogada; registry/tool subagent e Manager/SQLite
-reais criam run/subconversa e propagam o profile autorizado ao Send.
-O Send/provider é controlado; cenário job por contexto canônico com grant
-não é scheduler/executor/LLM ponta a ponta. Grants/regrant têm provas App
-separadas. R05.1/R05.2 e seus gates não foram promovidos por esse recorte.
+A seção141 qualifica a autoridade de agente/job e a seção155 acrescenta o
+consumidor produtivo command→tool pela paleta, com executor comum, identidade
+local, confirmação e correlação/auditoria. O Send/provider e o ciclo de job
+por contexto canônico continuam controlados, não scheduler/executor/LLM E2E.
+R05.2 passa a implementação identificada, sem aceite agregado. Ingresso
+externo de C65/C70 permanece separado e pendente da decisão de UI; R03.4 não
+é promovido.
 A seção142 implementa edição textual de títulos do Stream Deck por idioma,
 persistência confirmada e renderização com fallback localizado. Corrige também
 o diff de confirmação que omitia apresentação e recusava mudanças só de título.
@@ -4560,6 +4570,37 @@ limitações registradas na Fase 0; não se declara validação integral ou CI v
 - Avaliar dial e gestos avançados conforme capacidades detectadas.
 - Avaliar controle privilegiado de programas externos em AEP ou decisão de
   segurança específica.
+
+#### Avaliação de expansão — 24/09/2026
+
+A arquitetura permite novos adapters sem outro executor, mas não autoriza
+tratar qualquer dispositivo como teclado nem atribuir capacidades por nome
+de modelo. A avaliação desta fase não declara drivers adicionais entregues:
+
+- **Pedais USB:** quando o próprio equipamento emite teclas, a entrada já
+  pertence ao adapter de teclado e às suas regras de foco/ownership. Um pedal
+  HID com protocolo próprio exigirá descoberta, captura e lifecycle próprios;
+  não se deve prometer identificação individual para um pedal que o sistema
+  operacional apresenta apenas como teclado.
+- **MIDI:** note-on/note-off e controles contínuos precisam de normalização
+  explícita, política para rajadas e cancelamento/reconexão. Control changes
+  não devem gerar decisões destrutivas a cada amostra. O backend só poderá
+  receber candidatos de um adapter autenticado, nunca identidade fornecida
+  por mensagens MIDI.
+- **Dials e gestos:** rotação, direção, quantidade e pressionamento são
+  capacidades diferentes. Um adapter futuro deve declarar as suportadas e
+  definir agregação/repetição antes de publicar bindings; não reutilizar
+  implicitamente uma tecla discreta para um eixo contínuo. Gesto longo
+  permanece adiado por decisão do mantenedor.
+- **Controle de outros programas e broker externo:** exigem decisão de
+  segurança específica sobre identidade, permissões e confirmação. Esta
+  avaliação não habilita controle privilegiado nem dispositivos físicos
+  para JWT externo.
+
+Conclusão: manter os adapters atuais e exigir protótipo com hardware,
+descoberta/captura acessível, isolamento de dispositivo/sessão e recuperação
+testados antes de cada expansão. Não há dependência desses novos drivers
+para concluir os comandos de teclado e Stream Deck desta entrega.
 
 ### Evidência parcial: custo de resolução e orçamento de latência
 
