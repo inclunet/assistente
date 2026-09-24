@@ -73,6 +73,29 @@ describe('MenuButton', () => {
     expect(screen.getByRole('menuitem', { name: 'Acao' })).toBeInTheDocument();
   });
 
+  it('anuncia o menu e seu estado ao abrir pelo teclado', async () => {
+    const user = userEvent.setup();
+    render(
+      <MenuButton
+        buttonLabel="Acoes"
+        items={[{ id: 'a', label: 'Acao', icon: '✓' }]}
+      />
+    );
+
+    const button = screen.getByRole('button', { name: 'Acoes' });
+    expect(button).toHaveAttribute('aria-haspopup', 'menu');
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+
+    button.focus();
+    await user.keyboard('{Enter}');
+
+    expect(button).toHaveAttribute('aria-haspopup', 'menu');
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+
+    expect(openForTriggerSpy).toHaveBeenCalled();
+    expect(screen.getByRole('menuitem', { name: 'Acao' })).toBeInTheDocument();
+  });
+
   it('usa tabIndex -1 quando dentro do grid', () => {
     render(
       <div className="datagrid-cell">
