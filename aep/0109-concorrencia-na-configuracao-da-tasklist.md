@@ -97,7 +97,9 @@ editor recarrega a configuração e avisa o usuário.
   - o formulário aberto mantém o rascunho para ser aplicado de novo.
 - **Custom actions:**
   - a base é o JSON lido ou o último gravado;
-  - em conflito, o editor avisa e relê as ações;
+  - em conflito, o editor avisa e relê as ações. Se a releitura der certo, chama
+    `onSaved`, para o menu do quadro (`reloadBoardActions` no `TaskListView`)
+    também mostrar a versão gravada;
   - as ações que continuam existindo mantêm o id de UI, então o foco do grid e o
     formulário de edição seguem apontando para elas.
 - Se o status ou a ação em edição deixa de existir na versão recarregada, o

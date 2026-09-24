@@ -117,6 +117,10 @@ export default function CustomActionsEditor({ taskListId, onSaved }: CustomActio
   // Incrementado após um conflito para reler as ações gravadas.
   const [reloadToken, setReloadToken] = useState(0);
   const [reloadFailed, setReloadFailed] = useState(false);
+  // Fora das dependências da carga: o pai costuma recriar o callback a cada
+  // render, e isso não pode disparar outra leitura.
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
 
   useEffect(() => {
     let cancelled = false;
@@ -128,6 +132,9 @@ export default function CustomActionsEditor({ taskListId, onSaved }: CustomActio
         const loaded = res.actions ?? [];
         baseJSONRef.current = JSON.stringify({ actions: loaded });
         setActions((prev) => withUiIds(loaded, prev));
+        // Recarga após conflito: quem mostra as ações fora do editor (o menu
+        // do quadro) também passa a ver a versão gravada.
+        if (reloadToken > 0) onSavedRef.current?.();
       })
       .catch(() => {
         if (cancelled) return;

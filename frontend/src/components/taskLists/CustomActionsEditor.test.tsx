@@ -445,6 +445,33 @@ describe('CustomActionsEditor', () => {
       expect(mockAddToast).toHaveBeenCalledWith('Esta ação não existe mais: foi apagada em outro lugar.', 'error', undefined, undefined, { suppressAnnounce: true });
       expect(mockAddToast).not.toHaveBeenCalledWith('Preencha ID e Rótulo da ação', 'error');
     });
+
+    it('recarga após conflito avisa o pai para atualizar o menu do quadro', async () => {
+      const user = userEvent.setup();
+      const onSaved = vi.fn();
+      render(<CustomActionsEditor taskListId="1" onSaved={onSaved} />);
+      await screen.findByRole('grid');
+      expect(onSaved).not.toHaveBeenCalled();
+
+      mockSetTaskListCustomActions.mockRejectedValueOnce('TASKLIST_CONFIG_CONFLICT: alterado');
+      mockGetTaskListCustomActions.mockResolvedValue({ actions: [...seedActions, agentAction] });
+      await createAction(user, 'nova', 'Nova');
+      expect(await screen.findByRole('row', { name: /Do agente/ })).toBeInTheDocument();
+      expect(onSaved).toHaveBeenCalledTimes(1);
+    });
+
+    it('recarga após conflito que falha não avisa o pai', async () => {
+      const user = userEvent.setup();
+      const onSaved = vi.fn();
+      render(<CustomActionsEditor taskListId="1" onSaved={onSaved} />);
+      await screen.findByRole('grid');
+
+      mockSetTaskListCustomActions.mockRejectedValueOnce('TASKLIST_CONFIG_CONFLICT: alterado');
+      mockGetTaskListCustomActions.mockRejectedValue(new Error('offline'));
+      await createAction(user, 'nova', 'Nova');
+      await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('Erro ao carregar dados', 'error'));
+      expect(onSaved).not.toHaveBeenCalled();
+    });
   });
 
   describe('dentro do Modal', () => {
