@@ -82,9 +82,11 @@ registrado por tasklist). O editor enfileira cada alteração, no momento em que
 ela acontece, numa fila por tasklist (`frontend/src/lib/serialSaveQueue.ts`)
 que sobrevive ao fechamento do modal; ao reabrir, o `TaskListView` espera a
 fila esvaziar antes de ler o workflow e as contagens. Como agora há um
-salvamento por alteração, `updateWorkflowFull` só recarrega a lista (tarefas
-incluídas) quando há migração; sem ela, atualiza apenas o workflow em cache
-(`frontend/src/store/taskListStore.workflow.test.ts`).
+salvamento por alteração, a lista (tarefas incluídas) só é recarregada quando
+há migração. Sem ela, `updateWorkflowFull` atualiza apenas o workflow em cache
+e o backend emite `taskList:updated` com a lista (sem tarefas) em vez do ID,
+que forçaria a recarga (`frontend/src/store/taskListStore.workflow.test.ts`,
+`internal/tasklist/domain_events_test.go`).
 
 Evidência: `frontend/src/components/taskLists/WorkflowEditor.test.tsx`
 (persiste na hora, falha mantém o modal, reordenação revertida, fila em

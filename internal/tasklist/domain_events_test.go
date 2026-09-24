@@ -397,6 +397,39 @@ func TestUpdateWorkflowFullEmitsReloadIDAfterStatusMigration(t *testing.T) {
 	}
 }
 
+// Sem migração as tarefas não mudam: o evento leva a lista com o workflow novo
+// (atualiza o cache) em vez do ID, que faria o frontend recarregar as tarefas
+// a cada salvamento automático do editor de workflow.
+func TestUpdateWorkflowFullWithoutMigrationEmitsTaskListInsteadOfReloadID(t *testing.T) {
+	const taskListID = "L-1"
+	taskList := &database.TaskList{
+		UUIDModel: database.UUIDModel{ID: taskListID},
+		Workflow:  &database.TaskListWorkflow{TaskListID: taskListID},
+	}
+	store := &workflowUpdateStore{taskList: taskList}
+	emitter := &payloadRecordingEmitter{}
+	svc := NewService(ServiceConfig{
+		Store:        store,
+		Emitter:      emitter,
+		DomainEvents: &fakeSink{listening: map[string]bool{}},
+	})
+
+	if err := svc.UpdateWorkflowFull(context.Background(), taskListID, nil, nil, 1, map[int]int{}); err != nil {
+		t.Fatalf("UpdateWorkflowFull: %v", err)
+	}
+
+	payloads := emitter.payloads["taskList:updated"]
+	if len(payloads) != 1 {
+		t.Fatalf("taskList:updated emitido %d vezes, want 1: %#v", len(payloads), payloads)
+	}
+	if got, ok := payloads[0].(*database.TaskList); !ok || got != taskList {
+		t.Fatalf("payload taskList:updated = %#v, want a lista com o workflow", payloads[0])
+	}
+	if len(emitter.payloads["workflow:updated"]) != 1 {
+		t.Fatalf("workflow:updated deveria ser emitido uma vez: %#v", emitter.payloads["workflow:updated"])
+	}
+}
+
 func TestWantsDomainGatingAvoidsExtraReads(t *testing.T) {
 	store := &fakeStore{}
 	seedTask(store, "t1", "L1", 1)
