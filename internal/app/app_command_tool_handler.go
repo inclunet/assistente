@@ -21,6 +21,10 @@ import (
 // escolhido pelo bootstrap, nunca resolvido a partir de um nome vindo da UI.
 // A tool continua sujeita às próprias políticas (inclusive commandpolicy).
 func (a *App) newCommandToolHandler(ctx context.Context, definition commandcatalog.Definition, contract commandcatalog.HandlerContract, catalogID string, paths commandcatalog.SensitivePaths, output func(tools.ToolResult) (json.RawMessage, error)) (commandexecution.Handler, error) {
+	return a.newCommandToolHandlerWithInputAdapter(ctx, definition, contract, catalogID, paths, output, nil)
+}
+
+func (a *App) newCommandToolHandlerWithInputAdapter(ctx context.Context, definition commandcatalog.Definition, contract commandcatalog.HandlerContract, catalogID string, paths commandcatalog.SensitivePaths, output func(tools.ToolResult) (json.RawMessage, error), inputAdapter func(json.RawMessage) (json.RawMessage, error)) (commandexecution.Handler, error) {
 	invalid := commandexecution.ErrInvalidConfiguration
 	if a == nil || ctx == nil || ctx.Err() != nil || !commandToolUUID(catalogID) ||
 		contract.Classification != commandcatalog.HandlerTool || contract.Effect != commandcatalog.Destructive || !contract.HasMutableTarget ||
@@ -126,8 +130,10 @@ func (a *App) newCommandToolHandler(ctx context.Context, definition commandcatal
 			e.ActorType != commandcontract.ActorUser || e.ActorID != principal.UserID || e.UserID == nil || *e.UserID != principal.UserID ||
 			e.AuthorizationDecisionID == nil || !commandToolUUID(*e.AuthorizationDecisionID) || e.Provenance == nil ||
 			e.JobID != nil || e.JobSlug != nil || e.JobDefinitionFingerprint != nil || e.RunID != nil ||
-			e.SourceProfileSlug != nil || e.TargetProfileSlug != nil || e.DelegationFingerprint != nil || e.GrantGeneration != nil ||
-			e.ConversationID != nil || e.TurnID != nil || e.SurfaceType != nil || e.SurfaceID != nil || e.SurfaceSnapshotVersion != nil {
+			e.TargetProfileSlug != nil || e.DelegationFingerprint != nil || e.GrantGeneration != nil {
+			return commandexecution.ErrDenied
+		}
+		if err := commandtoolbridge.ValidateInvocationContext(in); err != nil {
 			return commandexecution.ErrDenied
 		}
 		return checkTarget(check)
@@ -148,7 +154,7 @@ func (a *App) newCommandToolHandler(ctx context.Context, definition commandcatal
 	}
 	bridge, err := commandtoolbridge.New(commandtoolbridge.Config{Service: service, Routes: []commandtoolbridge.Route{{
 		CommandID: definition.ID, Definition: definition, Contract: contract, ToolName: row.Name, ToolCatalogID: catalogID,
-		SensitivePaths: paths, OutputAdapter: output, Authorize: authorize, ToolGeneration: generation, PrepareContext: prepare,
+		SensitivePaths: paths, OutputAdapter: output, InputAdapter: inputAdapter, Authorize: authorize, ToolGeneration: generation, PrepareContext: prepare,
 	}}})
 	if err != nil {
 		return commandexecution.Handler{}, err

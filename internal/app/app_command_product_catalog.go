@@ -130,6 +130,8 @@ func (a *App) commandProductCatalog() (*commandcatalog.Registry, map[string]comm
 	registrations = append(registrations, commandChatMessageRegistrations()...)
 	registrations = append(registrations, commandGlobalRegistrations()...)
 	registrations = append(registrations, commandLayerActionRegistrations()...)
+	toolRegistrations, toolHandlers := a.commandToolRegistrations()
+	registrations = append(registrations, toolRegistrations...)
 	registry, err := commandcatalog.NewComplete(registrations)
 	if err != nil {
 		return nil, nil, err
@@ -155,6 +157,9 @@ func (a *App) commandProductCatalog() (*commandcatalog.Registry, map[string]comm
 		commandWorkspaceTabCloseID:          {Contract: closeHandler, Start: a.startCommandUI},
 		commandWorkspaceCreateID:            {Contract: workspaceCreateHandler, Start: a.startCommandUI},
 		commandWorkspaceChatOpenID:          {Contract: workspaceChatOpenHandler, Start: a.startCommandUI},
+	}
+	for commandID, handler := range toolHandlers {
+		handlers[commandID] = handler
 	}
 	for _, registration := range commandTerminalSessionRegistrations() {
 		handlers[registration.Definition.ID] = commandexecution.Handler{Contract: registration.Handler, Start: a.startCommandUI, ExecutionTimeout: 5 * time.Minute}

@@ -40,6 +40,14 @@ func (a *App) commandProductResultWithOutput(p *commandProductRuntime, commandID
 }
 
 func commandProductOutput(definition commandcatalog.Definition, raw json.RawMessage) (*CommandOutput, error) {
+	if isCommandToolExecutionID(definition.ID) && definition.HandlerClassification == commandcatalog.HandlerTool {
+		if _, err := definition.ValidateResult(raw); err != nil {
+			return nil, commandexecution.ErrExecution
+		}
+		// Tool output contém material arbitrário. O sucesso fica visível, mas
+		// o payload efêmero não atravessa a API desktop.
+		return nil, nil
+	}
 	if isCommandLayerAction(definition.ID) && definition.HandlerClassification == commandcatalog.HandlerBackend {
 		if _, err := definition.ValidateResult(raw); err != nil {
 			return nil, commandexecution.ErrExecution

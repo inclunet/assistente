@@ -20,10 +20,15 @@ func (a *App) initMCP() {
 		// Quando o set de tools MCP muda, regenera o catálogo de jobs
 		if event == "mcp:tools_changed" && a.jobMgr != nil {
 			go func() {
+				refreshCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
 				if err := a.jobMgr.RegenerateCatalog(); err != nil {
 					logging.Errorf(context.Background(), "app.app-mcp", "[Jobs] Catalog regeneration on MCP change failed: %v", err)
 				} else {
 					logging.Infof(context.Background(), "app.app-mcp", "[Jobs] Catalog regenerated after MCP tools change")
+				}
+				if err := a.refreshCommandProductCatalog(refreshCtx); err != nil {
+					logging.Errorf(context.Background(), "app.app-mcp", "[Commands] Tool catalog refresh failed (command_tool_catalog_refresh)")
 				}
 			}()
 		}

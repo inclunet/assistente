@@ -118,9 +118,22 @@ func (a *App) ExecutePaletteCommand(commandID string, arguments json.RawMessage)
 	if err != nil {
 		return CommandExecutionResult{}, err
 	}
-	candidate, err := commandPaletteCandidate(invocationID.String(), correlationID.String(), commandID, arguments)
-	if err != nil {
-		return CommandExecutionResult{}, err
+	var candidate commandexecution.EnvelopeCandidate
+	if isCommandToolExecutionID(commandID) {
+		definition, ok := p.registry.Lookup(commandID)
+		if !ok || definition.HandlerClassification != commandcatalog.HandlerTool || !definition.AllowsSource(commandcatalog.Palette) {
+			return CommandExecutionResult{}, commandexecution.ErrDenied
+		}
+		canonical, validateErr := definition.ValidateArguments(arguments)
+		if validateErr != nil {
+			return CommandExecutionResult{}, commandexecution.ErrInvalidRequest
+		}
+		candidate = commandexecution.EnvelopeCandidate{InvocationID: invocationID.String(), CorrelationID: correlationID.String(), CommandID: commandID, Arguments: canonical}
+	} else {
+		candidate, err = commandPaletteCandidate(invocationID.String(), correlationID.String(), commandID, arguments)
+		if err != nil {
+			return CommandExecutionResult{}, err
+		}
 	}
 	if err := p.refreshCommandJobProjection(a.commandBridgeContext()); err != nil {
 		return CommandExecutionResult{}, err
@@ -382,7 +395,7 @@ func (a *App) mountCommandProduct(ctx context.Context) error {
 		return err
 	}
 	writePolicy := func(ctx context.Context, principal auth.LocalSessionPrincipal, commandID string, source commandcatalog.Source) error {
-		if (!isWorkspaceMutationCommand(commandID) && !isAuditedUIContextualCommand(commandID) && !isCommandLayerAction(commandID)) || (source != commandcatalog.Palette && source != commandcatalog.KeyboardLocal && source != commandcatalog.StreamDeck) || ctx == nil {
+		if (!isWorkspaceMutationCommand(commandID) && !isAuditedUIContextualCommand(commandID) && !isCommandLayerAction(commandID) && !(isCommandToolExecutionID(commandID) && source == commandcatalog.Palette)) || (source != commandcatalog.Palette && source != commandcatalog.KeyboardLocal && source != commandcatalog.StreamDeck) || ctx == nil {
 			return commandexecution.ErrDenied
 		}
 		if err := ctx.Err(); err != nil {
@@ -402,7 +415,7 @@ func (a *App) mountCommandProduct(ctx context.Context) error {
 		return nil
 	}
 	policy := func(ctx context.Context, principal auth.LocalSessionPrincipal, commandID string, source commandcatalog.Source) error {
-		if isWorkspaceMutationCommand(commandID) || isAuditedUIContextualCommand(commandID) || isCommandLayerAction(commandID) {
+		if isWorkspaceMutationCommand(commandID) || isAuditedUIContextualCommand(commandID) || isCommandLayerAction(commandID) || isCommandToolExecutionID(commandID) && source == commandcatalog.Palette {
 			return writePolicy(ctx, principal, commandID, source)
 		}
 		return readPolicy(ctx, principal, commandID, source)
@@ -422,6 +435,9 @@ func (a *App) mountCommandProduct(ctx context.Context) error {
 	config.Envelope = &commandexecution.EnvelopeConfig{
 		DecisionTTL: 5 * time.Minute,
 		DecisionBody: func(d commandcatalog.Definition, envelope commandcontract.Envelope) (string, error) {
+			if isCommandToolExecutionID(d.ID) {
+				return commandToolDecisionBody(a, p, d, envelope)
+			}
 			if d.ID != commandConversationClearID && d.ID != commandMessageDeleteID && d.ID != commandTerminalSessionCloseID && !pageMutationDestructive(d.ID) {
 				return "", commandexecution.ErrDenied
 			}
@@ -464,7 +480,7 @@ func (a *App) mountCommandProduct(ctx context.Context) error {
 				return commandcontract.Envelope{}, commandruntime.ErrNotReady
 			}
 			envelope := commandcontract.Envelope{RegistryVersion: v.Registry, GlobalConfigGeneration: commandStringPointer(v.GlobalConfig), ActiveLayersGeneration: commandStringPointer(v.ActiveLayers)}
-			if candidate.TriggerType != "" {
+			if candidate.TriggerType != "" || isCommandToolExecutionID(candidate.CommandID) {
 				// O host publica atomicamente a união global+workspace. Seu stamp
 				// invalida ambos os escopos quando qualquer parte é reconstruída.
 				envelope.WorkspaceID = commandStringPointer(p.workspaceID)
@@ -624,6 +640,64 @@ func (a *App) mountCommandProduct(ctx context.Context) error {
 		p.startDeck(a.ctx, commanddeck.NewStreamDeckDriver())
 	}
 	return nil
+}
+
+// refreshCommandProductCatalog faz o hot-swap fail-closed dos snapshots de
+// executor quando MCP publica adição/remoção/alteração de tools. A geração
+// antiga é primeiro desabilitada e drenada; nenhuma autorização ou receipt
+// passa para o novo catálogo.
+func (a *App) refreshCommandProductCatalog(ctx context.Context) error {
+	if a == nil || ctx == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	if err := a.lockCommandBootstrap(ctx); err != nil {
+		return err
+	}
+	defer a.unlockCommandBootstrap()
+	p := a.commandProduct.Load()
+	if p == nil {
+		return nil // mudança pré-login: o próximo mount lê o catálogo atual.
+	}
+	if !p.dependenciesMatch(a) {
+		return commandexecution.ErrStale
+	}
+	lifecycle := a.commandLifecycle.Load()
+	if lifecycle == nil {
+		return commandruntime.ErrNotReady
+	}
+	if err := ResetCommandLifecycle(ctx, a, "tool_catalog_changed"); err != nil {
+		return err
+	}
+	if err := p.Shutdown(ctx); err != nil {
+		return err
+	}
+	if err := a.shutdownMountedCommandLifecycle(ctx, lifecycle); err != nil {
+		return err
+	}
+	if p.bridge != nil {
+		if err := p.bridge.Shutdown(ctx); err != nil {
+			return err
+		}
+	}
+	a.commandLifecycleMount.Lock()
+	a.authMu.Lock()
+	if a.commandProduct.Load() != p || a.commandLifecycle.Load() != nil {
+		a.authMu.Unlock()
+		a.commandLifecycleMount.Unlock()
+		return commandexecution.ErrStale
+	}
+	a.commandProduct.Store(nil)
+	a.commandBridge.Store(nil)
+	a.commandRegistry = nil
+	a.authMu.Unlock()
+	a.commandLifecycleMount.Unlock()
+	if err := a.mountCommandProduct(ctx); err != nil {
+		return err
+	}
+	if err := a.rebuildCommandLifecyclePersistedConfiguration(ctx); err != nil {
+		return err
+	}
+	return BootstrapCommandLifecycle(ctx, a)
 }
 
 func (p *commandProductRuntime) dependenciesMatch(a *App) bool {

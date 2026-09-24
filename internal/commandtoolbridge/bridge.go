@@ -58,6 +58,9 @@ type Route struct {
 	// comando. Sem adapter, conteúdo não-JSON não prova ausência de efeitos e
 	// termina como outcome_unknown.
 	OutputAdapter func(tools.ToolResult) (json.RawMessage, error)
+	// InputAdapter transforma somente os argumentos entregues ao executor da
+	// tool. O envelope autenticado e assinado permanece imutável.
+	InputAdapter func(json.RawMessage) (json.RawMessage, error)
 }
 
 type Config struct {
@@ -261,6 +264,18 @@ func (b *Bridge) start(ctx context.Context, route Route, invocation commandexecu
 			serviceCtx, cancelCombined = mergeBridgeContexts(executionCtx, preparedCtx)
 			defer cancelCombined()
 		}
+		if route.InputAdapter != nil {
+			adapted, adaptErr := callInputAdapter(route.InputAdapter, arguments)
+			if adaptErr != nil || len(adapted) == 0 || !json.Valid(adapted) {
+				if prepareRelease != nil {
+					releaseBridgeContext(prepareRelease)
+				}
+				done <- commandexecution.Outcome{Status: commandledger.Failed}
+				outcomeSent = true
+				return
+			}
+			toolCall.Function.Arguments = string(adapted)
+		}
 		result := b.service.Execute(serviceCtx, toolinvocations.ExecuteRequest{
 			Call: toolCall, ToolCatalogID: route.ToolCatalogID,
 			Origin:                        origin,
@@ -278,6 +293,15 @@ func (b *Bridge) start(ctx context.Context, route Route, invocation commandexecu
 		outcomeSent = true
 	}()
 	return handle, nil
+}
+
+func callInputAdapter(adapter func(json.RawMessage) (json.RawMessage, error), raw json.RawMessage) (result json.RawMessage, err error) {
+	defer func() {
+		if recover() != nil {
+			result, err = nil, ErrInvalidInvocation
+		}
+	}()
+	return adapter(append(json.RawMessage(nil), raw...))
 }
 
 func callPrepareContext(prepare func(context.Context, commandexecution.Invocation) (context.Context, func(), error), ctx context.Context, snapshot commandexecution.Invocation) (prepared context.Context, release func(), err error) {
@@ -379,6 +403,13 @@ func bridgeToolContext(invocation commandexecution.Invocation) (invocationctx.In
 			ConversationID: conversationID,
 			TurnID:         turnID,
 		}, nil
+}
+
+// ValidateInvocationContext verifica o lineage opcional que será propagado ao
+// executor de tools sem reescrever o envelope autenticado da invocação.
+func ValidateInvocationContext(invocation commandexecution.Invocation) error {
+	_, _, err := bridgeToolContext(invocation)
+	return err
 }
 
 // validateSubagentProfileArgument valida apenas a superfície especial da tool
