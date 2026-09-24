@@ -196,6 +196,20 @@ func (api *Tasklist) UpdateWorkflowFull(taskListID string, statuses []database.T
 	return err
 }
 
+// UpdateWorkflowFullChecked é UpdateWorkflowFull com controle de concorrência:
+// grava somente se o workflow atual ainda for equivalente a expected (o que o
+// editor leu). Em conflito, o erro começa com TASKLIST_CONFIG_CONFLICT.
+func (api *Tasklist) UpdateWorkflowFullChecked(taskListID string, expected database.TaskListWorkflowSnapshot, statuses []database.TaskListWorkflowStatus, transitions map[int][]int, initialStatusID int, statusMigration map[int]int) error {
+	session, ctrl, err := api.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.UpdateWorkflowFullChecked(ctx, taskListID, expected, statuses, transitions, initialStatusID, statusMigration)
+	})
+	return err
+}
+
 // GetTaskCountsByStatus retorna contagem de tarefas por status.
 func (api *Tasklist) GetTaskCountsByStatus(taskListID string) (map[int]int64, error) {
 	session, ctrl, err := api.deps()

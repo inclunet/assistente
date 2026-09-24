@@ -127,7 +127,24 @@ vi.mock('../ui/Modal', () => ({
 }));
 
 vi.mock('./CustomActionsEditor', () => ({ default: () => <div>custom-actions-editor</div> }));
-vi.mock('./WorkflowEditor', () => ({ default: () => <div>workflow-editor</div> }));
+const workflowEditorProps = vi.hoisted(() => ({
+  current: null as null | {
+    onSave: (...args: unknown[]) => Promise<void>;
+    onConflict?: () => void;
+    syncToken?: number;
+  },
+}));
+vi.mock('./WorkflowEditor', () => ({
+  default: (props: NonNullable<typeof workflowEditorProps.current>) => {
+    workflowEditorProps.current = props;
+    return (
+      <div>
+        <div>workflow-editor</div>
+        <span>{`sync:${props.syncToken}`}</span>
+      </div>
+    );
+  },
+}));
 
 vi.mock('../ui/Toolbar', () => ({
   Toolbar: ({
@@ -647,6 +664,50 @@ describe('TaskListView', () => {
     resolveSave();
     expect(await screen.findByText('workflow-editor')).toBeInTheDocument();
     expect(taskListStoreState.getTaskCountsByStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('o editor de workflow grava com o estado esperado e, em conflito, relê e sincroniza', async () => {
+    taskListStoreState.getTaskCountsByStatus.mockResolvedValue({});
+    taskListStoreState.updateWorkflowFull.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Editar Workflow' }));
+    expect(await screen.findByText('sync:0')).toBeInTheDocument();
+
+    const expected = { statuses: [], transitions: {}, initialStatusId: 1 };
+    await workflowEditorProps.current!.onSave([], {}, 1, {}, expected);
+    expect(taskListStoreState.updateWorkflowFull).toHaveBeenCalledWith('tasklist-1', [], {}, 1, {}, expected);
+
+    const loadsBefore = taskListStoreState.loadTaskList.mock.calls.length;
+    taskListStoreState.loadTaskList.mockResolvedValueOnce({ id: 'tasklist-1' });
+    taskListStoreState.getTaskCountsByStatus.mockResolvedValue({ 1: 3 });
+    act(() => { workflowEditorProps.current!.onConflict?.(); });
+
+    expect(await screen.findByText('sync:1')).toBeInTheDocument();
+    expect(taskListStoreState.loadTaskList.mock.calls.length).toBe(loadsBefore + 1);
+    expect(taskListStoreState.getTaskCountsByStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['a lista', () => { taskListStoreState.loadTaskList.mockResolvedValueOnce(null); }],
+    ['as contagens', () => {
+      taskListStoreState.loadTaskList.mockResolvedValueOnce({ id: 'tasklist-1' });
+      taskListStoreState.getTaskCountsByStatus.mockRejectedValueOnce(new Error('offline'));
+    }],
+  ])('conflito com falha ao reler %s avisa e não sincroniza o editor com dados antigos', async (_what, arrange) => {
+    taskListStoreState.getTaskCountsByStatus.mockResolvedValue({});
+    const user = userEvent.setup();
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Editar Workflow' }));
+    expect(await screen.findByText('sync:0')).toBeInTheDocument();
+
+    arrange();
+    act(() => { workflowEditorProps.current!.onConflict?.(); });
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith('Erro ao carregar dados', 'error'));
+    expect(screen.getByText('sync:0')).toBeInTheDocument();
   });
 
   it('edita título e descrição da lista pelo menu', async () => {

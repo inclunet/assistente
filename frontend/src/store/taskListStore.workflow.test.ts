@@ -3,6 +3,10 @@ import type { Task, TaskListWithWorkflow } from '../types/tasklist';
 
 const getTaskListPage = vi.hoisted(() => vi.fn());
 const updateWorkflowFull = vi.hoisted(() => vi.fn());
+const updateWorkflowFullChecked = vi.hoisted(() => vi.fn());
+const setCustomActions = vi.hoisted(() => vi.fn());
+const setCustomActionsChecked = vi.hoisted(() => vi.fn());
+const getTaskCountsByStatus = vi.hoisted(() => vi.fn());
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
   EventsOn: vi.fn(),
@@ -11,9 +15,14 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({
   GetTaskListPage: getTaskListPage,
   UpdateWorkflowFull: updateWorkflowFull,
+  UpdateWorkflowFullChecked: updateWorkflowFullChecked,
+  GetTaskCountsByStatus: getTaskCountsByStatus,
 }));
 
-vi.mock('@wailsjs/go/wailsapi/TasklistActions', () => ({}));
+vi.mock('@wailsjs/go/wailsapi/TasklistActions', () => ({
+  SetTaskListCustomActions: setCustomActions,
+  SetTaskListCustomActionsChecked: setCustomActionsChecked,
+}));
 
 import { useTaskListStore } from './taskListStore';
 
@@ -88,5 +97,58 @@ describe('taskListStore.updateWorkflowFull', () => {
 
     expect(useTaskListStore.getState().taskLists.get('list-a')).toBe(before);
     expect(getTaskListPage).not.toHaveBeenCalled();
+    expect(useTaskListStore.getState().errors.size).toBe(1);
+  });
+
+  it('com o estado esperado grava pela variante verificada', async () => {
+    updateWorkflowFullChecked.mockResolvedValue(undefined);
+    const expected = { statuses: cachedList().workflow.statuses, transitions: { 1: [2], 2: [] }, initialStatusId: 1 };
+
+    await useTaskListStore.getState().updateWorkflowFull('list-a', reordered, { 1: [], 2: [1] }, 2, {}, expected);
+
+    expect(updateWorkflowFullChecked).toHaveBeenCalledWith('list-a', expected, reordered, { 1: [], 2: [1] }, 2, {});
+    expect(updateWorkflowFull).not.toHaveBeenCalled();
+    expect(useTaskListStore.getState().taskLists.get('list-a')?.workflow.initialStatusId).toBe(2);
+  });
+
+  it('conflito repropaga o erro sem registrar falha da lista', async () => {
+    const before = useTaskListStore.getState().taskLists.get('list-a');
+    updateWorkflowFullChecked.mockRejectedValueOnce('TASKLIST_CONFIG_CONFLICT: alterado em outro lugar');
+    const expected = { statuses: [], transitions: {}, initialStatusId: 1 };
+
+    await expect(useTaskListStore.getState().updateWorkflowFull('list-a', reordered, {}, 2, {}, expected))
+      .rejects.toBe('TASKLIST_CONFIG_CONFLICT: alterado em outro lugar');
+
+    expect(useTaskListStore.getState().taskLists.get('list-a')).toBe(before);
+    expect(useTaskListStore.getState().errors.size).toBe(0);
+  });
+});
+
+describe('taskListStore.getTaskCountsByStatus', () => {
+  it('falha repassa o erro em vez de contagens vazias', async () => {
+    useTaskListStore.setState({ errors: new Map() });
+    getTaskCountsByStatus.mockRejectedValueOnce(new Error('offline'));
+
+    await expect(useTaskListStore.getState().getTaskCountsByStatus('list-a')).rejects.toThrow('offline');
+    expect(useTaskListStore.getState().errors.size).toBe(1);
+  });
+});
+
+describe('taskListStore.setTaskListCustomActions', () => {
+  beforeEach(() => {
+    setCustomActions.mockReset().mockResolvedValue(undefined);
+    setCustomActionsChecked.mockReset().mockResolvedValue(undefined);
+  });
+
+  it('sem estado esperado usa a gravação sem verificação (ferramentas e chamadas antigas)', async () => {
+    await useTaskListStore.getState().setTaskListCustomActions('list-a', '{"actions":[]}');
+    expect(setCustomActions).toHaveBeenCalledWith('list-a', '{"actions":[]}');
+    expect(setCustomActionsChecked).not.toHaveBeenCalled();
+  });
+
+  it('com estado esperado, mesmo vazio, usa a gravação verificada', async () => {
+    await useTaskListStore.getState().setTaskListCustomActions('list-a', '{"actions":[]}', '');
+    expect(setCustomActionsChecked).toHaveBeenCalledWith('list-a', '', '{"actions":[]}');
+    expect(setCustomActions).not.toHaveBeenCalled();
   });
 });

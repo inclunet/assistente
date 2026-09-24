@@ -430,6 +430,79 @@ func TestUpdateWorkflowFullWithoutMigrationEmitsTaskListInsteadOfReloadID(t *tes
 	}
 }
 
+type checkedConfigStore struct {
+	workflowUpdateStore
+	conflict bool
+}
+
+func (s *checkedConfigStore) UpdateWorkflowFullChecked(
+	context.Context,
+	string,
+	database.TaskListWorkflowSnapshot,
+	[]database.TaskListWorkflowStatus,
+	database.TaskListWorkflowTransitions,
+	int,
+	map[int]int,
+) error {
+	if s.conflict {
+		return database.ErrTaskListConfigConflict
+	}
+	return nil
+}
+
+func (s *checkedConfigStore) SetTaskListCustomActionsChecked(context.Context, string, string, string) error {
+	if s.conflict {
+		return database.ErrTaskListConfigConflict
+	}
+	return nil
+}
+
+func TestCheckedConfigWritesEmitOnlyWhenSaved(t *testing.T) {
+	const taskListID = "L-1"
+	for _, conflict := range []bool{false, true} {
+		taskList := &database.TaskList{
+			UUIDModel: database.UUIDModel{ID: taskListID},
+			Workflow:  &database.TaskListWorkflow{TaskListID: taskListID},
+		}
+		store := &checkedConfigStore{workflowUpdateStore: workflowUpdateStore{taskList: taskList}, conflict: conflict}
+		emitter := &payloadRecordingEmitter{}
+		svc := NewService(ServiceConfig{
+			Store:        store,
+			Emitter:      emitter,
+			DomainEvents: &fakeSink{listening: map[string]bool{}},
+		})
+
+		wfErr := svc.UpdateWorkflowFullChecked(context.Background(), taskListID, database.TaskListWorkflowSnapshot{}, nil, nil, 1, nil)
+		caErr := svc.SetTaskListCustomActionsChecked(context.Background(), taskListID, "", "")
+
+		if conflict {
+			if !errors.Is(wfErr, database.ErrTaskListConfigConflict) || !errors.Is(caErr, database.ErrTaskListConfigConflict) {
+				t.Fatalf("conflito deveria ser repassado: workflow=%v actions=%v", wfErr, caErr)
+			}
+			if len(emitter.payloads) != 0 {
+				t.Fatalf("conflito não pode emitir eventos: %#v", emitter.payloads)
+			}
+			continue
+		}
+		if wfErr != nil || caErr != nil {
+			t.Fatalf("gravação sem conflito falhou: workflow=%v actions=%v", wfErr, caErr)
+		}
+		if len(emitter.payloads["workflow:updated"]) != 1 || len(emitter.payloads["taskList:updated"]) != 2 {
+			t.Fatalf("eventos inesperados após gravar: %#v", emitter.payloads)
+		}
+	}
+}
+
+func TestCheckedConfigWritesRequireCapableStore(t *testing.T) {
+	svc := NewService(ServiceConfig{Store: &workflowUpdateStore{}, Emitter: &payloadRecordingEmitter{}})
+	if err := svc.UpdateWorkflowFullChecked(context.Background(), "L", database.TaskListWorkflowSnapshot{}, nil, nil, 1, nil); err == nil {
+		t.Fatal("store sem suporte deveria falhar em vez de gravar sem verificação")
+	}
+	if err := svc.SetTaskListCustomActionsChecked(context.Background(), "L", "", ""); err == nil {
+		t.Fatal("store sem suporte deveria falhar em vez de gravar sem verificação")
+	}
+}
+
 func TestWantsDomainGatingAvoidsExtraReads(t *testing.T) {
 	store := &fakeStore{}
 	seedTask(store, "t1", "L1", 1)

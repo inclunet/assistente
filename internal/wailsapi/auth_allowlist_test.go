@@ -546,6 +546,8 @@ func TestTasklistMethodsNotOnUnauthAllowlist(t *testing.T) {
 		"GetWorkflow",
 		"UpdateWorkflow",
 		"UpdateWorkflowFull",
+		"UpdateWorkflowFullChecked",
+		"SetTaskListCustomActionsChecked",
 		"GetTaskCountsByStatus",
 		"ReorderWorkflowStatuses",
 		"ValidateStatusTransition",
