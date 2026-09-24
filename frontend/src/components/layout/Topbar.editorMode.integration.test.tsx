@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Topbar } from './Topbar';
+import { createCommandContextScope } from '../../lib/commandContextReact';
 
 // This fixture has no native hotkeys. The shared ownership bridge is exercised
 // independently with real reservation frames in commandGlobalOwnershipWails tests.
@@ -43,6 +44,12 @@ import {
 const state = vi.hoisted(() => ({
   pathname: '/',
   mapReady: false,
+  modeViewBinding: true,
+  modeViewShortcutCode: 'Digit3',
+  contextualViewBinding: false,
+  contextualMarkdownBinding: false,
+  simulateWorkspaceLandmarkBlock: false,
+  commandScope: null as unknown,
   clearShortcut: false,
   messagingShortcut: null as string | null,
   modalOpen: false,
@@ -62,6 +69,7 @@ const state = vi.hoisted(() => ({
   cellOpen: undefined as ((commandID: string) => boolean) | undefined,
   topbarUnmount: undefined as (() => void) | undefined,
   applyMode: undefined as ((mode: EditorMode) => void) | undefined,
+  focusView: vi.fn(),
   commitDeferred: false,
   resolveCommit: undefined as (() => void) | undefined,
   takeDeferred: false,
@@ -134,7 +142,10 @@ vi.mock('../../hooks/useAnchoredContextMenu', () => ({
 vi.mock('../../hooks/useToolbarKeyboardNav', () => ({ useToolbarKeyboardNav: () => undefined }));
 vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: state.announce, announceRequest: () => true }) }));
 vi.mock('../../hooks/useDefaultFocus', () => ({ restoreDefaultFocus: () => undefined }));
-vi.mock('../../lib/commandContextReact', () => ({ useCommandContextScope: () => null }));
+vi.mock('../../lib/commandContextReact', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../lib/commandContextReact')>(),
+  useCommandContextScope: () => state.commandScope,
+}));
 vi.mock('../../services/commandCatalog', () => ({ listCommandCatalog: vi.fn(async () => [
   { id: 'editor.mode.rich', name: 'Modo rico', available: true },
   { id: 'editor.file.save', name: 'Salvar arquivo', available: true },
@@ -168,12 +179,30 @@ vi.mock('../../lib/commandLocalKeyboardWails', () => ({
         { shortcut: { version: 1 as const, code: 'KeyX', modifiers: ['Control' as const, 'Shift' as const] }, commandId: 'editor.format.strike', handler: 'ui' as const },
         { shortcut: { version: 1 as const, code: 'ArrowRight', modifiers: ['Control' as const, 'Alt' as const] }, commandId: 'editor.table.cell.next', handler: 'local_ui' as const },
         { shortcut: { version: 1 as const, code: 'KeyL', modifiers: ['Control' as const] }, commandId: state.clearShortcut ? 'chat.conversation.clear' : 'editor.format.link.set', handler: state.clearShortcut ? 'contextual' as const : 'ui' as const },
-        { shortcut: { version: 1 as const, code: 'Digit1', modifiers: ['Alt' as const] }, commandId: 'editor.mode.markdown', handler: 'contextual' as const },
+        ...(!state.contextualMarkdownBinding ? [{ shortcut: { version: 1 as const, code: 'Digit1', modifiers: ['Alt' as const] }, commandId: 'editor.mode.markdown', handler: 'contextual' as const }] : []),
         { shortcut: { version: 1 as const, code: 'Digit2', modifiers: ['Alt' as const] }, commandId: 'editor.mode.rich', handler: 'contextual' as const },
-        { shortcut: { version: 1 as const, code: 'Digit3', modifiers: ['Alt' as const] }, commandId: 'editor.mode.view', handler: 'contextual' as const },
+        ...(state.modeViewBinding && !state.contextualViewBinding ? [{ shortcut: { version: 1 as const, code: state.modeViewShortcutCode, modifiers: ['Alt' as const] }, commandId: 'editor.mode.view', handler: 'contextual' as const }] : []),
         { shortcut: { version: 1 as const, code: 'KeyS', modifiers: ['Control' as const] }, commandId: 'editor.file.save', handler: 'contextual' as const },
         { shortcut: { version: 1 as const, code: 'KeyO', modifiers: ['Control' as const] }, commandId: 'editor.file.open', handler: 'contextual' as const },
         { shortcut: { version: 1 as const, code: 'KeyS', modifiers: ['Control' as const, 'Shift' as const] }, commandId: 'editor.file.save_copy', handler: 'contextual' as const },
+      ],
+      contextualBindings: [
+        ...(state.contextualViewBinding && state.modeViewBinding ? [{
+          shortcut: { version: 1 as const, code: state.modeViewShortcutCode, modifiers: ['Alt' as const] },
+          bySurface: { editor: {
+            shortcut: { version: 1 as const, code: state.modeViewShortcutCode, modifiers: ['Alt' as const] },
+            commandId: 'editor.mode.view', handler: 'contextual' as const,
+          } },
+          fallback: null,
+        }] : []),
+        ...(state.contextualMarkdownBinding ? [{
+          shortcut: { version: 1 as const, code: 'Digit1', modifiers: ['Alt' as const] },
+          bySurface: { editor: {
+            shortcut: { version: 1 as const, code: 'Digit1', modifiers: ['Alt' as const] },
+            commandId: 'editor.mode.markdown', handler: 'contextual' as const,
+          } },
+          fallback: null,
+        }] : []),
       ],
     }),
     dispatchLocalCommandKey: vi.fn(async () => null),
@@ -224,6 +253,10 @@ function EditorSurface({ initialMode = 'markdown' as EditorMode }: { initialMode
     state.applyMode = setMode;
     const root = rootRef.current;
     if (!root) return () => { state.applyMode = undefined; };
+    const contextScope = state.commandScope as ReturnType<typeof createCommandContextScope> | null;
+    const unregisterContext = contextScope?.registerSurface('editor-tab', rootRef, () => ({
+      surfaceId: 'editor-tab', surfaceType: 'editor', snapshotVersion: 'editor-snapshot-1',
+    }));
     const unregisterFile = registerEditorFileSurface({
       root, ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
       tabId: 'editor-tab', documentId: 'document-a', instanceId: 'file-instance', generation: 'file-generation',
@@ -245,6 +278,17 @@ function EditorSurface({ initialMode = 'markdown' as EditorMode }: { initialMode
       isAsking: () => false,
       isActive: () => true,
       isCurrent: () => state.targetCurrent,
+      isBlocked: () => state.modalOpen || (state.simulateWorkspaceLandmarkBlock && !root.contains(document.activeElement)),
+      canFocusViewFromWorkspaceLandmark: () => state.simulateWorkspaceLandmarkBlock && !state.modalOpen && document.activeElement instanceof HTMLElement &&
+        document.activeElement.matches('.topbar button, .workspace-toolbar button, .ws-tabs [role="tab"]'),
+      focusCurrentView: () => {
+        if (mode !== 'view' || !state.targetCurrent || state.modalOpen) return false;
+        const reading = root.querySelector<HTMLElement>('[data-testid="rendered-reading-document"]');
+        if (!reading) return false;
+        reading.focus();
+        state.focusView();
+        return document.activeElement === reading;
+      },
       applyCommitted: (nextMode) => {
         state.applyMode?.(nextMode);
         return true;
@@ -267,6 +311,7 @@ function EditorSurface({ initialMode = 'markdown' as EditorMode }: { initialMode
     });
     return () => {
       unregisterMode();
+      unregisterContext?.();
       unregisterFile();
       unregisterPresentation();
       state.cellCanOpen = undefined;
@@ -276,12 +321,15 @@ function EditorSurface({ initialMode = 'markdown' as EditorMode }: { initialMode
   }, [mode]);
   return <div ref={rootRef} data-testid="editor-surface" data-mode={mode}>
     <textarea aria-label="editor input" />
+    <div data-testid="rendered-reading-document" tabIndex={-1} hidden={mode !== 'view'} />
   </div>;
 }
 
-async function mount(initialMode: EditorMode = 'markdown') {
+async function mount(initialMode: EditorMode = 'markdown', contextualViewBinding = false) {
   state.targetCurrent = true;
   state.result = 'succeeded';
+  state.contextualViewBinding = contextualViewBinding;
+  state.commandScope = contextualViewBinding ? createCommandContextScope() : null;
   state.filePrepare.mockResolvedValue({ token: 'file-token', path: 'file.md', requiresOverwrite: false, cancelled: false });
   state.fileCommit.mockResolvedValue({ tabId: 'editor-tab', path: 'file.md', written: true });
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
@@ -470,6 +518,16 @@ afterEach(() => {
   state.cancel.mockReset();
   state.beginLocalCommandUIKey.mockReset();
   state.applyMode = undefined;
+  state.modeViewBinding = true;
+  state.modeViewShortcutCode = 'Digit3';
+  state.contextualViewBinding = false;
+  state.contextualMarkdownBinding = false;
+  state.simulateWorkspaceLandmarkBlock = false;
+  (state.commandScope as ReturnType<typeof createCommandContextScope> | null)?.dispose();
+  state.commandScope = null;
+  state.focusView.mockReset();
+  auth.user.userId = 'user-a';
+  auth.user.sessionId = 'session-a';
   state.commitDeferred = false;
   state.resolveCommit = undefined;
   state.takeDeferred = false;
@@ -481,6 +539,129 @@ afterEach(() => {
 });
 
 describe('Topbar editor.mode contextual integration', () => {
+  it('após F6 no botão New tab, Alt+3 só refoca pelo binding efetivo de view', async () => {
+    state.simulateWorkspaceLandmarkBlock = true;
+    await mount('view', true);
+    const toolbar = document.createElement('div');
+    toolbar.className = 'workspace-toolbar';
+    const landmark = document.createElement('button');
+    landmark.type = 'button';
+    landmark.textContent = 'New tab';
+    toolbar.appendChild(landmark);
+    document.body.appendChild(toolbar);
+    try {
+      landmark.focus();
+      expect(landmark).toHaveFocus();
+      fireEvent.keyDown(landmark, { key: '3', code: 'Digit3', altKey: true, bubbles: true });
+      expect(screen.getByTestId('rendered-reading-document')).toHaveFocus();
+      expect(state.focusView).toHaveBeenCalledTimes(1);
+      expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+      expect(state.begin).not.toHaveBeenCalled();
+      expect(state.take).not.toHaveBeenCalled();
+      expect(state.commit).not.toHaveBeenCalled();
+      expect(state.getResult).not.toHaveBeenCalled();
+      expect(state.complete).not.toHaveBeenCalled();
+    } finally {
+      toolbar.remove();
+    }
+  });
+
+  it('não amplia o lease pós-F6 para outro comando contextual do editor', async () => {
+    state.contextualMarkdownBinding = true;
+    state.simulateWorkspaceLandmarkBlock = true;
+    await mount('view', true);
+    const toolbar = document.createElement('div');
+    toolbar.className = 'workspace-toolbar';
+    const landmark = document.createElement('button');
+    landmark.type = 'button';
+    toolbar.appendChild(landmark);
+    document.body.appendChild(toolbar);
+    try {
+      landmark.focus();
+      fireEvent.keyDown(landmark, { key: '1', code: 'Digit1', altKey: true, bubbles: true });
+      expect(landmark).toHaveFocus();
+      expect(state.focusView).not.toHaveBeenCalled();
+      expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+      expect(state.begin).not.toHaveBeenCalled();
+      expect(state.take).not.toHaveBeenCalled();
+      expect(state.commit).not.toHaveBeenCalled();
+      expect(screen.getByTestId('editor-surface')).toHaveAttribute('data-mode', 'view');
+    } finally {
+      toolbar.remove();
+    }
+  });
+
+  it('Alt+3 em view refoca apenas pela binding contextual, sem Begin/Take/Commit', async () => {
+    await mount('view', true);
+    const reading = screen.getByTestId('rendered-reading-document');
+    expect(reading).not.toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: '3', code: 'Digit3', altKey: true, bubbles: true });
+    expect(reading).toHaveFocus();
+    expect(state.focusView).toHaveBeenCalledTimes(1);
+    expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+    expect(state.begin).not.toHaveBeenCalled();
+    expect(state.take).not.toHaveBeenCalled();
+    expect(state.commit).not.toHaveBeenCalled();
+    expect(state.getResult).not.toHaveBeenCalled();
+    expect(state.complete).not.toHaveBeenCalled();
+    expect(screen.getByTestId('editor-surface')).toHaveAttribute('data-mode', 'view');
+  });
+
+  it('não cria fallback quando Alt+3 não está no mapa efetivo', async () => {
+    state.modeViewBinding = false;
+    await mount('view', true);
+    fireEvent.keyDown(document.activeElement!, { key: '3', code: 'Digit3', altKey: true, bubbles: true });
+    await act(async () => { await Promise.resolve(); });
+    expect(state.focusView).not.toHaveBeenCalled();
+    expect(screen.getByTestId('rendered-reading-document')).not.toHaveFocus();
+    expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+    expect(state.begin).not.toHaveBeenCalled();
+    expect(state.commit).not.toHaveBeenCalled();
+  });
+
+  it('segue o remapeamento efetivo e não mantém Alt+3 legado', async () => {
+    state.modeViewShortcutCode = 'Digit4';
+    await mount('view', true);
+    fireEvent.keyDown(document.activeElement!, { key: '3', code: 'Digit3', altKey: true, bubbles: true });
+    expect(state.focusView).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.activeElement!, { key: '4', code: 'Digit4', altKey: true, bubbles: true });
+    expect(state.focusView).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('rendered-reading-document')).toHaveFocus();
+    expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+    expect(state.begin).not.toHaveBeenCalled();
+    expect(state.commit).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['owner', 'userId', 'other-user'],
+    ['session', 'sessionId', 'other-session'],
+  ] as const)('não refoca depois de trocar %s desde a captura do mapa', async (_label, key, replacement) => {
+    await mount('view', true);
+    const original = auth.user[key];
+    auth.user[key] = replacement;
+    try {
+      fireEvent.keyDown(document.activeElement!, { key: '3', code: 'Digit3', altKey: true, bubbles: true });
+      await act(async () => { await Promise.resolve(); });
+      expect(state.focusView).not.toHaveBeenCalled();
+      expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+      expect(state.begin).not.toHaveBeenCalled();
+      expect(state.commit).not.toHaveBeenCalled();
+    } finally {
+      auth.user[key] = original;
+    }
+  });
+
+  it('não refoca sob modal bloqueante', async () => {
+    await mount('view');
+    state.modalOpen = true;
+    fireEvent.keyDown(document.activeElement!, { key: '3', code: 'Digit3', altKey: true, bubbles: true });
+    await act(async () => { await Promise.resolve(); });
+    expect(state.focusView).not.toHaveBeenCalled();
+    expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+    expect(state.begin).not.toHaveBeenCalled();
+    expect(state.commit).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['1', 'editor.mode.markdown', 'markdown', 'view'],
     ['2', 'editor.mode.rich', 'rich', 'view'],

@@ -3,10 +3,12 @@ import {
   EDITOR_MODE_COMMAND_EVENT,
   EDITOR_MODE_COMMAND_IDS,
   captureEditorModeTarget,
+  captureEditorViewFocusTarget,
   isEditorModeCommand,
   registerEditorModeSurface,
   requestEditorModeCommand,
 } from './commandEditorMode';
+import { registerOpenModal, unregisterOpenModal } from './modalRegistry';
 
 function registration(root: HTMLElement, overrides: Partial<Parameters<typeof registerEditorModeSurface>[0]> = {}) {
   return {
@@ -115,5 +117,85 @@ describe('commandEditorMode', () => {
     const invalidAsking = registerEditorModeSurface({ ...base, instanceId: 'a', isAsking: undefined as never });
     expect(captureEditorModeTarget(() => '/', 'editor.mode.markdown')).toBeUndefined();
     invalidMode(); invalidReadOnly(); invalidAsking();
+  });
+
+  it('captura refoco local de view sem criar lease ou aplicar mudança de modo', () => {
+    const root = document.createElement('div'); document.body.append(root);
+    const focusCurrentView = vi.fn(() => true);
+    const applyCommitted = vi.fn(() => true);
+    const dispose = registerEditorModeSurface(registration(root, {
+      mode: 'view', readOnly: true, focusCurrentView, applyCommitted,
+    }));
+    const focus = captureEditorViewFocusTarget(() => '/');
+    expect(focus?.isCurrent()).toBe(true);
+    expect(focus?.focus()).toBe(true);
+    expect(focus?.focus()).toBe(false);
+    expect(focusCurrentView).toHaveBeenCalledTimes(1);
+    expect(applyCommitted).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it('permite landmark do workspace somente no lease de refoco, não no lease de mudança de modo', () => {
+    const root = document.createElement('div'); document.body.append(root);
+    let landmarkAllowed = true;
+    const focusCurrentView = vi.fn(() => true);
+    const dispose = registerEditorModeSurface(registration(root, {
+      mode: 'view', focusCurrentView,
+      isBlocked: () => true,
+      canFocusViewFromWorkspaceLandmark: () => landmarkAllowed,
+    }));
+    const focus = captureEditorViewFocusTarget(() => '/');
+    expect(focus?.isCurrent()).toBe(true);
+    const mutation = captureEditorModeTarget(() => '/', 'editor.mode.markdown');
+    expect(mutation?.prepare()).toBe(false);
+    expect(focus?.focus()).toBe(true);
+    expect(focusCurrentView).toHaveBeenCalledTimes(1);
+
+    landmarkAllowed = false;
+    expect(captureEditorViewFocusTarget(() => '/')).toBeUndefined();
+    dispose();
+  });
+
+  it.each([
+    ['surface is not in view', { mode: 'markdown' as const }],
+    ['surface is asking', { isAsking: () => true }],
+    ['surface is inactive', { isActive: () => false }],
+    ['surface is stale', { isCurrent: () => false }],
+    ['surface is blocked', { isBlocked: () => true }],
+    ['focus operation is unavailable', { focusCurrentView: undefined }],
+  ])('não captura foco quando %s', (_label, overrides) => {
+    const root = document.createElement('div'); document.body.append(root);
+    const dispose = registerEditorModeSurface(registration(root, {
+      mode: 'view', focusCurrentView: () => true, ...overrides,
+    }));
+    expect(captureEditorViewFocusTarget(() => '/')).toBeUndefined();
+    dispose();
+  });
+
+  it('invalida a lease se owner/contexto muda e recusa modal', () => {
+    const root = document.createElement('div'); document.body.append(root);
+    let current = true;
+    const focusCurrentView = vi.fn(() => true);
+    const dispose = registerEditorModeSurface(registration(root, {
+      mode: 'view', isCurrent: () => current, focusCurrentView,
+    }));
+    const stale = captureEditorViewFocusTarget(() => '/');
+    current = false;
+    expect(stale?.isCurrent()).toBe(false);
+    expect(stale?.focus()).toBe(false);
+    expect(focusCurrentView).not.toHaveBeenCalled();
+
+    current = true;
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    document.body.append(overlay);
+    registerOpenModal('view-focus-modal');
+    try {
+      expect(captureEditorViewFocusTarget(() => '/')).toBeUndefined();
+    } finally {
+      unregisterOpenModal('view-focus-modal');
+      overlay.remove();
+      dispose();
+    }
   });
 });

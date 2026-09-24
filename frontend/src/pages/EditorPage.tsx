@@ -198,13 +198,18 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       return Boolean(editor && editor.view.dom.isConnected);
     }
     if (tab.mode === 'view') {
-      const anchor = pageRootRef.current?.querySelector<HTMLElement>(
-        '[data-editor-rendered-anchor="true"][data-reading-active="true"]',
+      const root = pageRootRef.current;
+      const activeDocument = root?.querySelector<HTMLElement>(
+        '[data-editor-rendered-anchor="true"][data-reading-active="true"] [data-editor-rendered-document="true"]',
       );
-      const documentTarget = anchor?.querySelector<HTMLElement>(
-        '[data-editor-rendered-document="true"]',
-      );
-      return Boolean(documentTarget?.isConnected);
+      if (activeDocument?.isConnected) return true;
+
+      // Ao reativar uma aba view, o hook da ilha documental já desativou a
+      // leitura anterior. A âncora continua sendo um ponto de foco válido e
+      // permite iniciar novamente a sequência âncora → documento.
+      return Boolean(root?.querySelector<HTMLElement>(
+        '[data-editor-rendered-anchor="true"]',
+      )?.isConnected);
     }
     return false;
   }, []);
@@ -598,15 +603,27 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       }
 
       if (tab.mode === 'view') {
-        const readingAnchor = pageRootRef.current?.querySelector<HTMLElement>(
-          '[data-editor-rendered-anchor="true"][data-reading-active="true"]',
+        const root = pageRootRef.current;
+        const readingAnchor = root?.querySelector<HTMLElement>(
+          '[data-editor-rendered-anchor="true"]',
         );
-        const readingDocument = readingAnchor?.querySelector<HTMLElement>(
+        if (!readingAnchor) return false;
+
+        const readingDocument = readingAnchor.querySelector<HTMLElement>(
           '[data-editor-rendered-document="true"]',
         );
-        if (!readingDocument) return false;
-        readingDocument.focus();
-        return document.activeElement === readingDocument;
+        if (readingAnchor.dataset.readingActive === 'true' && readingDocument) {
+          readingDocument.focus();
+          return document.activeElement === readingDocument;
+        }
+
+        // A view recém-reativada ainda não tem role=document. Focar a âncora
+        // é a primeira etapa exigida pela AEP-0094; o pedido consumível abaixo
+        // executa a mesma sequência assíncrona usada por Alt+3.
+        readingAnchor.focus();
+        if (document.activeElement !== readingAnchor) return false;
+        setWorkspaceFocusRequestNonce((nonce) => nonce + 1);
+        return true;
       }
 
       return false;
@@ -713,10 +730,22 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         activeTabRef.current?.id === documentIdForSurface && isPanelActiveRef.current &&
         !isAskingRef.current;
     };
-    const blocked = () => {
+    const hasViewFocusBlocker = () => {
       if (isComposingRef.current || isModalOpen() || toolbarMenuVisibleRef.current) return true;
       if (Array.from(document.querySelectorAll<HTMLElement>('[role="menu"], [role="listbox"], [data-overlay]'))
         .some((element) => element.isConnected && !element.hidden && window.getComputedStyle(element).display !== 'none')) return true;
+      return false;
+    };
+    const canFocusViewFromWorkspaceLandmark = () => {
+      if (hasViewFocusBlocker()) return false;
+      const active = document.activeElement as HTMLElement | null;
+      return !!active && active.matches(
+        '.topbar button:not(:disabled), .topbar [role="button"]:not([aria-disabled="true"]), ' +
+        '.workspace-toolbar button:not(:disabled), .ws-tabs [role="tab"]:not([aria-disabled="true"])',
+      );
+    };
+    const blocked = () => {
+      if (hasViewFocusBlocker()) return true;
       const active = document.activeElement as HTMLElement | null;
       if (!active || active === document.body || active === document.documentElement) return false;
       if (root.contains(active)) return false;
@@ -737,7 +766,15 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       isActive: () => isPanelActiveRef.current,
       isCurrent: currentSource,
       isBlocked: blocked,
+      canFocusViewFromWorkspaceLandmark,
       flushRichMarkdownNow: () => flushModeRef.current(),
+      focusCurrentView: () => {
+        const currentTab = activeTabRef.current;
+        if (!currentSource() || !currentTab || currentTab.id !== documentIdForSurface || currentTab.mode !== 'view' ||
+            (blocked() && !canFocusViewFromWorkspaceLandmark())) return false;
+        requestRenderedReadingFocus();
+        return true;
+      },
       applyCommitted: (mode, restoreFocus) => applyModeRef.current(mode, restoreFocus),
       subscribe: (onChange) => {
         const unsubAuth = useAuthStore.subscribe(onChange);
@@ -758,7 +795,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         return () => { unsubAuth(); unsubWorkspace(); unsubEditor(); };
       },
     });
-  }, [activeTab?.mode, activeTab?.readOnly, currentDocumentId, isPanelActive, workspaceTab?.id]);
+  }, [activeTab?.mode, activeTab?.readOnly, currentDocumentId, isPanelActive, requestRenderedReadingFocus, workspaceTab?.id]);
 
   useEffect(() => {
     const user = useAuthStore.getState().user;

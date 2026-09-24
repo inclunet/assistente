@@ -3,7 +3,7 @@
 **Status:** In Progress
 
 **Integração para PR — seção158 (24/09/2026):** atualização com `origin/main`
-em `5c9278082`, preservando autosave de tasklists e lifecycle unificado de tools,
+em `147274d15`, preservando autosave e concorrência de tasklists e lifecycle unificado de tools,
 com os guards e a redação de comandos. A publicação prepara testes em outro
 computador; não promove C38/NVDA nem os gates finais. Contagens abaixo mantidas.
 
@@ -835,6 +835,14 @@ esses comandos de navegação podem aceitar `unknown` em campo nativo, sem
 reinterpretá-lo como `inactive`. Composição `active` continua recusada; contexto,
 owner, foco, modal, superfície e revalidação continuam obrigatórios. Não se aplica
 a mutações, comandos contextuais, IDs futuros, Monaco ou contenteditable.
+
+Exceção posterior aprovada pelo mantenedor em 24/09/2026: a navegação local
+entre abas do workspace também pode partir do editor Monaco ativo, preservando
+Ctrl+Tab/Ctrl+Shift+Tab e Ctrl+PageUp/PageDown da main. Essa autorização é
+restrita à família de troca de abas; não amplia a navegação global, mutações
+nem comandos futuros. Composição IME ativa, modais, contexto obsoleto e
+bindings suprimidos continuam bloqueando. O mapa efetivo e remapeamentos
+continuam autoritativos, sem listener legado paralelo.
 O usuário confirmou o funcionamento da criação de chat e a restrição ao contexto
 autorizado; reportou o bloqueio de navegação em texto tratado nesta seção.
 Validação: 218 testes frontend (9 arquivos), TypeScript e ESLint PASS.
@@ -3656,6 +3664,17 @@ versão mudarem durante a preparação, a operação é descartada sem roubar o
 foco do controle que o usuário passou a usar. Replays e ABA são recusados por
 enumeração e versão, inclusive quando repetem o mesmo modo; falha de storage
 restaura o estado e a versão anteriores.
+
+**Distinção aprovada em 24/09/2026, durante a integração da main:** quando o
+editor ativo já estiver em `view`, um novo acionamento autorizado de
+`editor.mode.view` pelo teclado (Alt+3 no mapa padrão) apenas devolve o foco à
+leitura. Esse efeito local não regrava `displayMode`, não cria execução
+persistida e não reutiliza ticket ou handoff. A admissão continua dependendo
+do binding efetivo e do contexto atual: supressão, remapeamento, modal e
+mudanças de identidade/superfície não podem ser contornados por listener ou
+fallback legado. A transição entre modos permanece durável e os replays de
+execuções persistidas continuam recusados. A implementação e sua validação
+são acompanhadas na seção158 da tasklist; esta aprovação não promove gates.
 
 Composição IME ativa sempre bloqueia o comando. `UnknownIME` é um estado
 distinto: somente pode prosseguir para controles `native`/`rich` suportados e

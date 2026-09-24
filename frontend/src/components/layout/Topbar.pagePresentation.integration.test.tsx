@@ -46,6 +46,7 @@ const state = vi.hoisted(() => ({
   pathname: '/profiles',
   mapReady: false,
   historySuppressed: false,
+  presentationUnavailable: false,
   actions: [] as string[],
   events: new Map<string, (payload: unknown) => void>(),
   begin: vi.fn(), take: vi.fn(), complete: vi.fn(), cancel: vi.fn(), getResult: vi.fn(), commit: vi.fn(),
@@ -171,7 +172,7 @@ function PresentationSurface({ api }: SurfaceProps) {
     allowedCommands: ids,
     readTarget: () => target.current,
     isCurrent: () => state.pathname === '/profiles' || state.pathname === '/tasklists' || state.pathname === '/',
-    canOpen: (id) => pathFor(id) === state.pathname,
+    canOpen: (id) => !state.presentationUnavailable && pathFor(id) === state.pathname,
     open: (id) => {
       state.actions.push(id);
       if (id === 'profiles.search.focus' || id === 'tasklists.search.focus') root.current?.querySelector<HTMLInputElement>('[data-search]')?.focus();
@@ -224,7 +225,7 @@ beforeEach(() => {
   localStorage.removeItem(palettePreferencesKey);
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   state.pathname = '/profiles'; state.mapReady = false; state.actions = []; state.events.clear();
-  state.historySuppressed = false;
+  state.historySuppressed = false; state.presentationUnavailable = false;
   auth.isAuthenticated = true; auth.user = { userId: 'user-a', sessionId: 'session-a', role: 'user' };
   workspace.id = 'workspace-a'; workspace.activeTabId = 'tab-a';
 });
@@ -292,6 +293,57 @@ describe('Topbar + registry real de apresentação contextual', () => {
     fireEvent.keyDown(window, { key: 'n', code: 'KeyN', ctrlKey: true });
     expect(state.actions).toEqual([id]);
     noTransport();
+  });
+
+  it('Ctrl+N na página aceita body focado quando a captura da apresentação continua válida', async () => {
+    state.pathname = '/profiles'; mount(); await ready();
+    const body = document.body;
+    const previousTabIndex = body.getAttribute('tabindex');
+    body.setAttribute('tabindex', '-1'); body.focus();
+    try {
+      expect(document.activeElement).toBe(body);
+      fireEvent.keyDown(window, { key: 'n', code: 'KeyN', ctrlKey: true });
+      expect(state.actions).toEqual(['profiles.create.open']);
+      noTransport();
+    } finally {
+      if (previousTabIndex === null) body.removeAttribute('tabindex');
+      else body.setAttribute('tabindex', previousTabIndex);
+    }
+  });
+
+  it.each(['modal', 'unavailable-source'] as const)('body sem controle não contorna captura inválida (%s)', async reason => {
+    state.pathname = '/profiles'; mount(); await ready();
+    if (reason === 'unavailable-source') state.presentationUnavailable = true;
+    const body = document.body;
+    const previousTabIndex = body.getAttribute('tabindex');
+    body.setAttribute('tabindex', '-1'); body.focus();
+    const overlay = document.createElement('div'); overlay.className = 'modal-overlay';
+    if (reason === 'modal') { document.body.append(overlay); registerOpenModal('body-page-blocker'); }
+    try {
+      fireEvent.keyDown(window, { key: 'n', code: 'KeyN', ctrlKey: true });
+      expect(state.actions).toEqual([]);
+      noTransport();
+    } finally {
+      if (reason === 'modal') { unregisterOpenModal('body-page-blocker'); overlay.remove(); }
+      if (previousTabIndex === null) body.removeAttribute('tabindex');
+      else body.setAttribute('tabindex', previousTabIndex);
+    }
+  });
+
+  it('body focado não estende a exceção a atalhos locais que não sejam apresentação de página', async () => {
+    state.pathname = '/profiles'; mount(); await ready();
+    const body = document.body;
+    const previousTabIndex = body.getAttribute('tabindex');
+    body.setAttribute('tabindex', '-1'); body.focus();
+    try {
+      fireEvent.keyDown(window, { key: 'k', code: 'KeyK', ctrlKey: true });
+      expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+      expect(state.actions).toEqual([]);
+      noTransport();
+    } finally {
+      if (previousTabIndex === null) body.removeAttribute('tabindex');
+      else body.setAttribute('tabindex', previousTabIndex);
+    }
   });
 
   it.each(ids)('Deck %s usa a mesma ação local', async id => {

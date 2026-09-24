@@ -473,7 +473,7 @@ import {
   requestWorkspacePanelFocus,
 } from '../components/workspace/workspacePanelFocusRegistry';
 import { captureEditorPresentationTarget } from '../lib/commandEditorPresentation';
-import { captureEditorModeTarget } from '../lib/commandEditorMode';
+import { captureEditorModeTarget, captureEditorViewFocusTarget } from '../lib/commandEditorMode';
 
 describe('EditorPage', () => {
   beforeEach(() => {
@@ -957,6 +957,41 @@ describe('EditorPage', () => {
     });
   });
 
+  it('reativa o pedido de leitura quando a navegação só pode focar a âncora de view', async () => {
+    editorPageMocks.chatModalIsOpen = false;
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown: 'text',
+        mode: 'view',
+      },
+    };
+
+    const { container } = render(<EditorPage documentId="tab-1" isPanelActive />);
+    const root = container.querySelector('.editor-page');
+    expect(root).not.toBeNull();
+    const anchor = document.createElement('div');
+    anchor.dataset.editorRenderedAnchor = 'true';
+    anchor.dataset.readingActive = 'false';
+    anchor.tabIndex = 0;
+    anchor.innerHTML = '<div data-editor-rendered-document="true"></div>';
+    root?.append(anchor);
+
+    const immediate = getWorkspacePanelImmediateFocusHandler('tab-1');
+    expect(canFocusWorkspacePanelImmediately('tab-1')).toBe(true);
+
+    act(() => {
+      expect(immediate?.()).toBe(true);
+    });
+
+    expect(anchor).toHaveFocus();
+    await waitFor(() => {
+      expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toEqual({ nonce: 1 });
+    });
+    anchor.remove();
+  });
+
   it('recusa foco da troca de aba enquanto o chat modal está aberto', () => {
     editorStoreState.documents = {
       'tab-1': {
@@ -1108,6 +1143,28 @@ describe('EditorPage', () => {
     expect(editorStoreState.setDocMode).not.toHaveBeenCalled();
     expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toBeNull();
     window.removeEventListener('commands:editor-mode', modeRequest);
+  });
+
+  it('Alt+3 em view ativa a ilha de leitura ainda inativa sem persistir modo', () => {
+    editorPageMocks.chatModalIsOpen = false;
+    const tab = { id: 'tab-1', type: 'editor' as const, title: 'Doc', position: 0 };
+    editorPageMocks.workspaceState = { id: 'ws-1', tabs: [tab], activeTabId: tab.id };
+    editorPageMocks.authState = {
+      user: { userId: 'owner-1', sessionId: 'session-1', role: 'user' },
+      isAuthenticated: true,
+    };
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'view' },
+    };
+
+    render(<EditorPage documentId="tab-1" workspaceTab={tab} isPanelActive />);
+    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toBeNull();
+    const focus = captureEditorViewFocusTarget(() => '/');
+    expect(focus).toBeDefined();
+    act(() => { expect(focus?.focus()).toBe(true); });
+    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toEqual({ nonce: 1 });
+    expect(editorStoreState.setDocMode).not.toHaveBeenCalled();
+    focus?.dispose();
   });
 
   it('aplica o modo confirmado sem roubar foco alterado durante o backend', () => {

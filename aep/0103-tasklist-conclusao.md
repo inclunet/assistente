@@ -10045,3 +10045,80 @@ mutações confirmadas; não se atribui o custo a deadlock ou a uma corrida sem
 evidência. Nenhum teste foi excluído, nem limite de CI aumentado. A divisão
 da execução mantendo cobertura e detector de concorrência foi proposta ao
 mantenedor, ainda sem decisão registrada.
+
+**Segunda integração da main:** merge `f203757fe` incorpora `147274d15`
+(AEP-0109/PR #832). Três conflitos resolvidos: índice AEP, TaskListView e
+interfaces do serviço de tasklists. Preservados compare-and-swap, recarga após
+conflito e os comandos/guards do AEP-0103, sem restaurar clonar/limpar legados.
+Testes de banco e serviço de tasklists PASS; cinco arquivos Vitest de tasklists,
+102 testes PASS; TypeScript, lint dos componentes/store envolvidos e Go build
+PASS. Os bindings vieram da main sem edição manual; seu whitespace gerado não
+foi alterado. CI desta integração ainda pendente.
+
+**Decisão de foco aprovada pelo mantenedor:** Alt+3 em visualização passa a
+significar somente devolver o foco à leitura, sujeito ao binding efetivo e ao
+contexto autorizado. Não é replay de mudança de modo nem cria execução
+persistida. D17 e guia de usuário atualizados; validação da implementação em
+andamento, sem promoção de critérios/gates.
+
+**Segunda rodada de CI (head `c293f60dc`):** backend, frontend, bindings e
+scripts PASS. E2E FAIL; backend-race encerrou por timeout acumulado do pacote
+App (600,318 s), sem diagnóstico de corrida nesse log. Não é CI verde.
+
+**Correções de integração em validação local:** `9b8218eba` apresenta e anuncia
+erros do envio auditado, preservando o rascunho e sem oferecer replay de resultado
+incerto. Dois arquivos Vitest (81 testes) e os cenários E2E de erro/streaming PASS.
+`971cad649` atualiza fixtures de snapshots, envio, abertura do chat contextual,
+limpeza e leitura de perfil. A proxy Wails deixou de inventar `then`; o handoff
+de envio é consumido antes de aguardar callbacks e erros de submissão resultam
+em `outcome_unknown`. Esse adapter testa integração frontend, não substitui as
+provas Go de autorização/isolamento de alvo. Revisores independentes Godel,
+Franklin e Ampere: correções de resultado incerto, prova de ACK e concorrência
+do mock verificadas; nenhum teste excluído.
+
+A rodada E2E agregada após essas correções teve 164 PASS, 12 FAIL, seis skips
+preexistentes, dois interrompidos e 50 não executados por limite de falhas.
+Rodada adicional de configurações/workspace/mock: 43 PASS e uma falha de foco.
+Há pendências reais ou de fixtures em editor, mensagens, perfis e restauração de
+foco; os resultados parciais não promovem aceite. A main permite navegação de
+abas dentro do Monaco, enquanto a exceção da seção63 o exclui; a escolha foi
+submetida ao mantenedor antes de alterar essa guarda.
+
+O mantenedor aprovou preservar a troca de abas a partir do Monaco em
+24/09/2026. Exceção registrada na seção63, restrita à navegação de abas e
+mantendo bloqueios de IME, modais e mapa efetivo. Implementação em validação;
+não é liberação genérica dos comandos globais em editores.
+
+**Retomada da validação (24/09/2026):** o lote direcionado de editor,
+mensagens, perfis e paths executou 27 cenários: 15 PASS e 12 FAIL. Os dois
+cenários de paths passaram após o teste aguardar o foco inicial do chat antes
+de abrir a decisão; as duas restaurações de foco continuam sendo exigidas.
+O menu de contexto já havia passado nos 12 cenários focados após trocar o
+evento sintético sem foco pelo pressionamento real de Shift+F10. Editor,
+mensagens e perfis ainda estão em correção; não há promoção de critérios.
+
+Na segunda rodada direcionada (editor/mensagens/modal), 20 de 22 cenários
+passaram: Alt+3 após F6, cópia simples/Markdown com clipboard real, exclusão
+com efeito na lista e os sete cenários do modal. Continuam falhando navegação
+de abas a partir do Monaco e recolhimento da thread por ArrowLeft. Perfis
+ainda exige rodada própria. `05a28af31` corrige o ciclo de fechamento do modal
+de tokens: 75 testes Vitest PASS, sete E2E PASS e revisão independente Franklin
+sem achados. `a60d8e040` registra as correções de preparação de foco nos testes
+de menu e paths. As mudanças ainda não foram publicadas no PR.
+
+**Editor e navegação revalidados:** os 23 E2E de editor e abas passaram após
+reconhecer o controle nativo EditContext do Monaco e ativar a sequência de
+leitura ao voltar à aba em modo view. O foco pós-F6 por Alt+3 não grava outra
+mudança de modo. A bateria Topbar/apresentação de páginas/navegação passou
+371 testes; editor e seus consumidores passaram 222 testes, mais 23 de
+EditorContentArea. TypeScript e ESLint focados PASS. Franklin revisou as
+exceções; o achado de consumo de tecla durante IME ativo foi corrigido e
+retestado antes da consolidação.
+
+O mantenedor aprovou corrigir o layout de Perfis neste PR. `189623599` impede
+que a dica de edição ocupe toda a altura e esconda a grade; seis E2E de
+listagem/navegação/deep link PASS, além de ativar e duplicar com clique real.
+O Ctrl+N inicial de Perfis foi validado no navegador e em 67 testes de
+apresentação de página, incluídos nos 371 acima. Ainda há falhas em edição
+inline, exclusão confirmada de perfil e navegação de thread; não é aceite
+integral nem CI verde. As contagens dos 84 critérios permanecem inalteradas.

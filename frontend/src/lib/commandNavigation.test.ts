@@ -6,6 +6,7 @@ import {
   createCommandNavigationHandlers,
   isCommandNavigation,
   isCommandNavigationTextField,
+  isWorkspaceTabNavigationTextField,
   requestCommandNavigation,
 } from './commandNavigation';
 
@@ -86,5 +87,29 @@ describe('commandNavigation', () => {
     textarea.remove();
     monaco.remove();
     contenteditable.remove();
+  });
+
+  it('permite Monaco apenas para IDs conhecidos de navegação entre abas locais', () => {
+    const monaco = document.body.appendChild(document.createElement('div'));
+    monaco.className = 'monaco-editor';
+    const inputarea = monaco.appendChild(document.createElement('textarea'));
+    const nativeEditContext = monaco.appendChild(document.createElement('div'));
+    nativeEditContext.className = 'native-edit-context';
+    nativeEditContext.setAttribute('contenteditable', 'true');
+    const rich = document.body.appendChild(document.createElement('div'));
+    rich.className = 'rich-text-editor';
+    rich.setAttribute('contenteditable', 'true');
+    const richInput = rich.appendChild(document.createElement('textarea'));
+
+    expect(isWorkspaceTabNavigationTextField('workspace.tab.next', inputarea)).toBe(true);
+    expect(isWorkspaceTabNavigationTextField('workspace.tab.previous', inputarea)).toBe(true);
+    expect(isWorkspaceTabNavigationTextField('workspace.tab.previous', nativeEditContext)).toBe(true);
+    expect(isWorkspaceTabNavigationTextField('workspace.tab.close', inputarea)).toBe(false);
+    expect(isWorkspaceTabNavigationTextField('navigation.workspace.open', inputarea)).toBe(false);
+    expect(isWorkspaceTabNavigationTextField('workspace.tab.next', richInput)).toBe(false);
+    expect(isWorkspaceTabNavigationTextField('workspace.tab.next', monaco)).toBe(false);
+
+    monaco.remove();
+    rich.remove();
   });
 });

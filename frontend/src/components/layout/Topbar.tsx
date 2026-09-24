@@ -53,17 +53,17 @@ import { EDITOR_CELL_NAVIGATION_COMMAND_EVENT, isEditorCellNavigationCommand } f
 import { createCommandUIExecutionWailsPort } from '../../lib/commandUIExecutionWails';
 import { createCommandVoiceInputWailsPort } from '../../lib/commandVoiceInputWails';
 import { executeGlobalVoiceReservation, parseVoiceInputReservation, VOICE_INPUT_COMMAND } from '../../lib/commandVoiceInput';
-import { COMMAND_NAVIGATION_EVENT, COMMAND_NAVIGATION_ROUTES, createCommandNavigationHandlers, isCommandNavigation, isCommandNavigationRoute, isCommandNavigationTextField } from '../../lib/commandNavigation';
+import { COMMAND_NAVIGATION_EVENT, COMMAND_NAVIGATION_ROUTES, createCommandNavigationHandlers, isCommandNavigation, isCommandNavigationRoute, isCommandNavigationTextField, isWorkspaceTabNavigationTextField } from '../../lib/commandNavigation';
 import { createCommandBackendExecution, type CommandBackendExecution, type WorkspaceListCommandOutput } from '../../lib/commandBackendExecution';
 import { createCommandBackendExecutionWailsPort } from '../../lib/commandBackendExecutionWails';
 import { createContextualPaletteLayerWailsPort } from '../../lib/commandContextualPaletteLayerWails';
 import { createContextualDeckLease, isContextualDeckCommand, selectContextualDeckCommand } from '../../lib/commandContextualDeck';
 import { createContextualDeckLayerWailsPort } from '../../lib/commandContextualDeckLayerWails';
-import { createLocalCommandKeyboard, type LocalCommandKeyboardBinding, type LocalCommandKeyboardController } from '../../lib/commandLocalKeyboard';
+import { createLocalCommandKeyboard, resolveLocalCommandContextualBinding, type LocalCommandKeyboardBinding, type LocalCommandKeyboardController, type LocalCommandKeyboardMap } from '../../lib/commandLocalKeyboard';
 import { createLocalPaletteConditionResolver, createLocalPaletteConditionResolverFromParsed, parseLocalPaletteConditions, type LocalCommandPaletteVisualContext } from '../../lib/commandLocalPaletteConditions';
 import { resolveLocalDeckConditionCommandFromParsed } from '../../lib/commandLocalDeckConditions';
 import { acquireGlobalCommandOwnership } from '../../lib/commandGlobalOwnershipWails';
-import { formatCommandKeyboardTrigger } from '../../lib/commandShortcut';
+import { commandShortcutFromKeyboardEvent, formatCommandKeyboardTrigger, serializeCommandKeyboardTrigger, type CommandKeyboardTrigger } from '../../lib/commandShortcut';
 import { publishCommandShortcutHints, useCommandShortcutHints } from '../../lib/commandShortcutHints';
 import { getModalRegistrySnapshot } from '../../lib/modalRegistry';
 import { createCommandLocalKeyboardWailsPort } from '../../lib/commandLocalKeyboardWails';
@@ -78,7 +78,7 @@ import { createExternalUICommandDispatcher, type ExternalUICommandFrame } from '
 import { useExternalUIConnection } from '../../services/externalUIConnectionReact';
 import type { ExternalUICommandReadyEvent } from '../../services/externalUIConnection';
 
-import { captureEditorModeTarget, isEditorModeCommand, EDITOR_MODE_COMMAND_IDS, EDITOR_MODE_COMMAND_EVENT, type EditorModeTargetLease } from '../../lib/commandEditorMode';
+import { captureEditorModeTarget, captureEditorViewFocusTarget, isEditorModeCommand, EDITOR_MODE_COMMAND_IDS, EDITOR_MODE_COMMAND_EVENT, type EditorModeTargetLease } from '../../lib/commandEditorMode';
 import { captureEditorFileTarget, isEditorFileCommand, type EditorFileTargetLease } from '../../lib/commandEditorFile';
 import { executeEditorFileCommand, type EditorFileBegin } from '../../lib/commandEditorFileExecution';
 import { createEditorFileCommandWailsPort } from '../../lib/commandEditorFileWails';
@@ -417,6 +417,7 @@ export function Topbar() {
   }, [hasCurrentLocalPaletteCommand]);
   const localKeyboardGenerationRef = useRef<string | null>(null);
   const localKeyboardOwnerRef = useRef<{ ownerId: string; sessionId: string; workspaceId: string } | null>(null);
+  const localKeyboardMapRef = useRef<LocalCommandKeyboardMap | null>(null);
   const localNavigationFocusRef = useRef<ReturnType<typeof captureWorkspaceTabNavigationFocus> | null>(null);
   const rollbackFocusRef = useRef<ReturnType<typeof captureWorkspaceTabActivationRollbackFocus> | null>(null);
   const localKeyboardMapReadyRef = useRef<Promise<void> | null>(null);
@@ -559,10 +560,23 @@ export function Topbar() {
         mapOwner.workspaceId !== currentWorkspace.id || localKeyboardGenerationRef.current === null) return false;
     const isTabNavigation = isWorkspaceTabNavigationCommand(commandID);
     const focusSnapshot = ReadFocusContext();
-    if (!focusSnapshot.hasFocus || focusSnapshot.detached || !focusSnapshot.control || focusSnapshot.control.capabilities.disabled) return false;
-    const unknownCompositionAllowed = ((isTabNavigation || isChatPicker || isCommandNavigation(commandID) || commandUIHandlers.has(commandID)) &&
-      isCommandNavigationTextField(document.activeElement)) ||
-      (isCommandNavigation(commandID) && focusSnapshot.control.capabilities.button) ||
+    let validPagePresentationWithoutControl = false;
+    if (!focusSnapshot.control && isPagePresentationCommand(commandID)) {
+      const target = capturePagePresentationTarget(() => pathnameRef.current, commandID);
+      try {
+        validPagePresentationWithoutControl = target?.isCurrent() === true && target.canOpen(commandID);
+      } finally {
+        target?.dispose();
+      }
+    }
+    if (!focusSnapshot.hasFocus || focusSnapshot.detached ||
+        (!focusSnapshot.control && !validPagePresentationWithoutControl) ||
+        focusSnapshot.control?.capabilities.disabled) return false;
+    const unknownCompositionAllowed =
+      ((isTabNavigation || isChatPicker || isCommandNavigation(commandID) || commandUIHandlers.has(commandID)) &&
+        (isCommandNavigationTextField(document.activeElement) ||
+          isWorkspaceTabNavigationTextField(commandID, document.activeElement))) ||
+      (isCommandNavigation(commandID) && focusSnapshot.control?.capabilities.button) ||
       (isEditorPresentation && editorPresentationAvailable(commandID)) || commandID === 'editor.mermaid.open' || isLandmark || isCapturedPresentation;
     if (focusSnapshot.composition === 'active' ||
         (focusSnapshot.composition !== 'inactive' && !unknownCompositionAllowed)) return false;
@@ -1289,6 +1303,21 @@ export function Topbar() {
     }
   }, [prepareWorkspaceMutationTarget]);
 
+  const editorViewFocusAvailable = useCallback(() => {
+    const auth = useAuthStore.getState();
+    const currentWorkspace = useWorkspaceStore.getState().workspace;
+    if (!auth.isAuthenticated || !auth.user || !currentWorkspace) return false;
+    const target = captureEditorViewFocusTarget(() => pathnameRef.current);
+    if (!target) return false;
+    try {
+      return target.isCurrent() && target.ownerId === auth.user.userId &&
+        target.sessionId === auth.user.sessionId && target.workspaceId === currentWorkspace.id &&
+        target.tabId === currentWorkspace.activeTabId;
+    } finally {
+      target.dispose();
+    }
+  }, []);
+
   const executeContextualCommand = useCallback(async (executor: CommandUIExecution, commandID: string, capturedTarget?: ReturnType<typeof prepareWorkspaceMutationTarget>, sourceLease?: ContextualPaletteCommandLease) => {
     if (isEditorModeCommand(commandID) && activeEditorModeTargetRef.current) {
       return { invocationId: '', status: 'cancelled' as const, errorCode: 'editor-mode-busy' };
@@ -1584,6 +1613,7 @@ export function Topbar() {
       localPaletteSourceRef.current = null;
       localKeyboardGenerationRef.current = null;
       localKeyboardOwnerRef.current = null;
+      localKeyboardMapRef.current = null;
     };
     const unsubscribeDeckFeedback = subscribeCommandDeckFeedback({
       announce: (message) => creationPresentationRef.current.announce(message),
@@ -1724,19 +1754,73 @@ export function Topbar() {
         localPaletteProfileRevisionRef.current++;
       }
     });
-    const captureKeyboardContext = () => {
+    const captureKeyboardContext = (event?: KeyboardEvent, requestedFocusShortcut?: CommandKeyboardTrigger) => {
       if (disposed || pathnameRef.current !== '/' || isModalOpen()) return undefined;
       const activeID = useWorkspaceStore.getState().workspace?.activeTabId;
       if (!activeID) return undefined;
       const owned = trustedSession.readOwnedCommandContextFrame(activeID);
       const surface = owned?.frame.surface;
       if (!owned || !surface || surface.surfaceId !== activeID ||
-          !['chat', 'editor', 'terminal', 'tasklist'].includes(surface.surfaceType) || !owned.frame.focus.hasFocus) return undefined;
+          !['chat', 'editor', 'terminal', 'tasklist'].includes(surface.surfaceType)) return undefined;
       const route = commandRouteIdentityRef.current;
       const element = document.activeElement;
       const modalGeneration = getModalRegistrySnapshot().generation;
       const profile = owned.frame.profile?.slug;
       const profileRevision = keyboardProfileRevision;
+      if (!owned.frame.focus.hasFocus) {
+        const shortcut = event ? commandShortcutFromKeyboardEvent(event) : requestedFocusShortcut;
+        const map = localKeyboardMapRef.current;
+        const auth = useAuthStore.getState();
+        const currentWorkspace = useWorkspaceStore.getState().workspace;
+        const mapOwner = localKeyboardOwnerRef.current;
+        const focusLandmark = element instanceof HTMLElement && element.isConnected &&
+          !isEditableKeyboardTarget(element) && Boolean(element.closest('.topbar, .workspace-toolbar, .ws-tabs'));
+        if (surface.surfaceType !== 'editor' || !focusLandmark || !shortcut || shortcut.version !== 1 || !map ||
+            map.generation !== localKeyboardGenerationRef.current || !mapOwner || !auth.isAuthenticated || !auth.user ||
+            !currentWorkspace || mapOwner.ownerId !== auth.user.userId || mapOwner.sessionId !== auth.user.sessionId ||
+            mapOwner.workspaceId !== currentWorkspace.id || map.ownerId !== mapOwner.ownerId || map.sessionId !== mapOwner.sessionId ||
+            map.workspaceId !== mapOwner.workspaceId || !editorViewFocusAvailable()) return undefined;
+        const triggerKey = serializeCommandKeyboardTrigger(shortcut);
+        const candidates = (map.contextualBindings ?? []).filter((entry) =>
+          serializeCommandKeyboardTrigger(entry.shortcut) === triggerKey);
+        if (candidates.length !== 1) return undefined;
+        const resolution = resolveLocalCommandContextualBinding(candidates[0], 'editor', {
+          surfaceId: activeID,
+          surfaceType: 'editor',
+          ...(profile !== undefined ? { profile } : {}),
+        });
+        if (!resolution.matched || resolution.barrier || resolution.branch?.commandId !== 'editor.mode.view' ||
+            resolution.branch.handler !== 'contextual' ||
+            serializeCommandKeyboardTrigger(resolution.branch.shortcut) !== triggerKey) return undefined;
+        const focusOnlyMap = map;
+        const focusOnlyOwner = { ...mapOwner };
+        return {
+          surfaceId: surface.surfaceId,
+          surfaceType: surface.surfaceType,
+          ...(profile ? { profile } : {}),
+          allowedCommandIds: ['editor.mode.view'],
+          isCurrent: () => {
+            const currentAuth = useAuthStore.getState();
+            const currentWorkspace = useWorkspaceStore.getState().workspace;
+            if (disposed || pathnameRef.current !== '/' || commandRouteIdentityRef.current !== route ||
+                isModalOpen() || getModalRegistrySnapshot().generation !== modalGeneration ||
+                useWorkspaceStore.getState().workspace?.activeTabId !== activeID || keyboardProfileRevision !== profileRevision ||
+                !currentAuth.isAuthenticated || currentAuth.user?.userId !== focusOnlyOwner.ownerId ||
+                currentAuth.user?.sessionId !== focusOnlyOwner.sessionId || currentWorkspace?.id !== focusOnlyOwner.workspaceId ||
+                document.activeElement !== element || localKeyboardMapRef.current !== focusOnlyMap ||
+                localKeyboardGenerationRef.current !== focusOnlyMap.generation ||
+                localKeyboardOwnerRef.current?.ownerId !== focusOnlyOwner.ownerId ||
+                localKeyboardOwnerRef.current?.sessionId !== focusOnlyOwner.sessionId ||
+                localKeyboardOwnerRef.current?.workspaceId !== focusOnlyOwner.workspaceId || !editorViewFocusAvailable()) return false;
+            const current = trustedSession.readOwnedCommandContextFrame(activeID);
+            return !!current && !current.frame.focus.hasFocus && current.surfaceLease === owned.surfaceLease &&
+              current.owner.userId === owned.owner.userId && current.owner.sessionId === owned.owner.sessionId &&
+              current.owner.workspaceId === owned.owner.workspaceId && current.frame.profile?.slug === profile &&
+              current.frame.surface?.surfaceId === surface.surfaceId && current.frame.surface.surfaceType === 'editor' &&
+              current.frame.surface.snapshotVersion === surface.snapshotVersion;
+          },
+        };
+      }
       return {
         surfaceId: surface.surfaceId,
         surfaceType: surface.surfaceType,
@@ -1791,6 +1875,7 @@ export function Topbar() {
           currentWorkspace?.id === map.workspaceId;
       },
       onMapAccepted: (map) => {
+        localKeyboardMapRef.current = map;
         localPaletteDeadlineRef.current = map.validUntil ?? 0;
         publishCommandShortcutHints(map);
         localPaletteCommandsRef.current = new Set(map.localPaletteCommands ?? []);
@@ -1821,7 +1906,8 @@ export function Topbar() {
           }
           if (intent) closeCreationMenu(true);
         }
-        const keyboardContext = request.context ? captureKeyboardContext() : undefined;
+        const keyboardContext = request.context ? captureKeyboardContext(undefined,
+          request.commandId === 'editor.mode.view' && request.handler === 'contextual' ? request.shortcut : undefined) : undefined;
         const beginKeyboard = () => keyboardContext
           ? localPort.beginLocalCommandUIKey(request.generation, request.shortcut, request.repeat, keyboardContext)
           : localPort.beginLocalCommandUIKey(request.generation, request.shortcut, request.repeat);
@@ -1835,6 +1921,23 @@ export function Topbar() {
         if (disposed || !auth.isAuthenticated || !auth.user || !currentWorkspace || !mapOwner ||
             mapOwner.ownerId !== auth.user.userId || mapOwner.sessionId !== auth.user.sessionId ||
             mapOwner.workspaceId !== currentWorkspace.id || (!isHelpCommand && !isChatPickerCommand(request.commandId) && request.commandId !== CHAT_CLEAR_COMMAND && !isChatMessagingCommand(request.commandId) && !isTerminalSessionOperationCommand(request.commandId) && !pageMutationAvailable(request.commandId) && !mermaidAvailable(request.commandId) && !landmarkAvailable(request.commandId) && !presentationCommandAvailable(request.commandId) && isModalOpen())) return;
+        if (request.commandId === 'editor.mode.view' && request.handler === 'contextual' &&
+            request.context?.surfaceType === 'editor') {
+          const viewFocus = captureEditorViewFocusTarget(() => pathnameRef.current);
+          if (viewFocus) {
+            try {
+              if (!keyboardContext || keyboardContext.surfaceId !== request.context.surfaceId ||
+                  keyboardContext.surfaceType !== 'editor' || !keyboardContext.isCurrent() ||
+                  viewFocus.ownerId !== auth.user.userId || viewFocus.sessionId !== auth.user.sessionId ||
+                  viewFocus.workspaceId !== currentWorkspace.id || viewFocus.tabId !== request.context.surfaceId ||
+                  viewFocus.tabId !== currentWorkspace.activeTabId || !viewFocus.isCurrent()) return;
+              viewFocus.focus();
+            } finally {
+              viewFocus.dispose();
+            }
+            return;
+          }
+        }
         if (isPageMutationCommand(request.commandId)) {
           if (request.repeat) return;
           const target = capturePageMutationTarget(() => pathnameRef.current, request.commandId);
@@ -1997,7 +2100,11 @@ export function Topbar() {
         if (isEditorFormatCommand(commandID)) return event.target instanceof Element &&
           !!event.target.closest('.rich-text-editor, .monaco-editor') && editorFormatAvailable(commandID);
         if (isEditorFileCommand(commandID)) return editorFileAvailable(commandID);
-        if (isEditorModeCommand(commandID)) return workspaceMutationAvailable(commandID);
+        if (isEditorModeCommand(commandID)) {
+          if (commandID === 'editor.mode.view' && !event.repeat && !event.isComposing && event.keyCode !== 229 &&
+              editorViewFocusAvailable()) return true;
+          return workspaceMutationAvailable(commandID);
+        }
         if (isEditorPresentationCommand(commandID)) return editorPresentationAvailable(commandID, event.target);
         if (isChatPickerCommand(commandID)) return chatPickerAvailable(commandID, event.target);
         const creationIntent = newTabMenuIntentRef.current;
@@ -2032,17 +2139,23 @@ export function Topbar() {
         const isSupportedEditable = isCommandNavigationTextField(target);
         const isChatContextEditable = target instanceof Element &&
           !!target.closest('.monaco-editor, [contenteditable="true"]');
+        if (isWorkspaceTabNavigationCommand(commandID) && ReadFocusContext().composition === 'active') return false;
         if (event.isComposing || event.keyCode === 229) return false;
         if (isEditorFormatCommand(commandID)) return target instanceof Element &&
           !!target.closest('.rich-text-editor, .monaco-editor') && editorFormatAvailable(commandID);
         if (isEditorFileCommand(commandID)) return editorFileAvailable(commandID);
-        if (isEditorModeCommand(commandID)) return workspaceMutationAvailable(commandID);
+        if (isEditorModeCommand(commandID)) {
+          if (commandID === 'editor.mode.view' && !event.repeat && !event.isComposing && event.keyCode !== 229 &&
+              editorViewFocusAvailable()) return true;
+          return workspaceMutationAvailable(commandID);
+        }
         if (isEditorPresentationCommand(commandID)) return editorPresentationAvailable(commandID, target);
         if (isChatPickerCommand(commandID)) return chatPickerAvailable(commandID, target);
         if (isCommandLayerAction(commandID)) return isSupportedEditable;
-        if (isCommandNavigation(commandID) || isWorkspaceTabNavigationCommand(commandID)) {
-          return isSupportedEditable && workspaceTabNavigationAvailable(commandID);
+        if (isWorkspaceTabNavigationCommand(commandID)) {
+          return isWorkspaceTabNavigationTextField(commandID, target) && workspaceTabNavigationAvailable(commandID);
         }
+        if (isCommandNavigation(commandID)) return isSupportedEditable && workspaceTabNavigationAvailable(commandID);
         return isWorkspaceMutationCommand(commandID) &&
           (commandID === WORKSPACE_CHAT_OPEN_COMMAND_ID
             ? (isSupportedEditable || isChatContextEditable)
@@ -2753,7 +2866,7 @@ export function Topbar() {
       pendingWorkspaceCreateTargetRef.current?.dispose();
       pendingWorkspaceCreateTargetRef.current = null;
     };
-  }, [commandOwner, workspace?.id, commandRouteIdentity, commandScope, externalUIConnection.service, externalUIConnection.setTarget, prepareWorkspaceTabTarget, prepareWorkspaceMutationTarget, workspaceTabMutationAvailable, workspaceMutationAvailable, workspaceTabNavigationAvailable, workspacePanelFocusAvailable, executeContextualCommand, executeLocalUICommand, chatPickerAvailable, editorPresentationAvailable, tabCreationMenu, intentIsCurrent, clearPaletteEditorModeTargets, executeFileCommand, editorFileAvailable, executeFormatCommand, editorFormatAvailable, chatMessagingAvailable, runChatMessaging, clearPaletteChatMessaging, mermaidAvailable, runMermaidCommand, landmarkAvailable, presentationCommandAvailable]);
+  }, [commandOwner, workspace?.id, commandRouteIdentity, commandScope, externalUIConnection.service, externalUIConnection.setTarget, prepareWorkspaceTabTarget, prepareWorkspaceMutationTarget, workspaceTabMutationAvailable, workspaceMutationAvailable, editorViewFocusAvailable, workspaceTabNavigationAvailable, workspacePanelFocusAvailable, executeContextualCommand, executeLocalUICommand, chatPickerAvailable, editorPresentationAvailable, tabCreationMenu, intentIsCurrent, clearPaletteEditorModeTargets, executeFileCommand, editorFileAvailable, executeFormatCommand, editorFormatAvailable, chatMessagingAvailable, runChatMessaging, clearPaletteChatMessaging, mermaidAvailable, runMermaidCommand, landmarkAvailable, presentationCommandAvailable]);
 
   const runGenericPaletteCommand = useCallback(async (prompt: PaletteArgumentPrompt, args: Record<string, unknown>) => {
     const { intent } = prompt;

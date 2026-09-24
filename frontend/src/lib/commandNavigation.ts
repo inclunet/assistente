@@ -1,4 +1,5 @@
 import type { NavigateFunction } from 'react-router-dom';
+import { isWorkspaceTabNavigationCommand } from './commandWorkspaceTabNavigation';
 
 /** Comandos de navegação publicados pela paleta e seus destinos permitidos. */
 export const COMMAND_NAVIGATION_ROUTES = {
@@ -60,4 +61,19 @@ export function isCommandNavigation(commandID: string): boolean {
 export function isCommandNavigationTextField(target: unknown): boolean {
   return (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) &&
     !target.closest('.monaco-editor, [contenteditable="true"]');
+}
+
+/**
+ * Monaco may originate only the local workspace-tab navigation family.
+ * Global navigation and other workspace.tab commands keep the normal editable
+ * target restrictions.
+ */
+export function isWorkspaceTabNavigationTextField(commandID: string, target: unknown): boolean {
+  if (!isWorkspaceTabNavigationCommand(commandID)) return false;
+  if (isCommandNavigationTextField(target)) return true;
+  const monacoInput = (target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLElement && target.matches('.native-edit-context')) &&
+    target.closest('.monaco-editor') !== null &&
+    target.closest('.rich-text-editor') === null;
+  return monacoInput;
 }

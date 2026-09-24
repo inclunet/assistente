@@ -25,6 +25,7 @@ import type { SurfaceContextGetter } from '../../lib/commandContextProviders';
 import type { BackendCommandExecutionResult } from '../../lib/commandBackendExecution';
 import type { MenuItem } from '../menu';
 import { COMMAND_NAVIGATION_ROUTES } from '../../lib/commandNavigation';
+import { ReadFocusContext } from '../../lib/commandContextProviders';
 
 const keyboardState = vi.hoisted(() => ({
   realExecution: false,
@@ -2218,7 +2219,7 @@ describe('Topbar', () => {
     } finally { unregisterDestination(); root.remove(); view.unmount(); }
   });
 
-  it.each(['nested', 'datagrid', 'monaco', 'modal', 'ime'])('preserva o contexto %s em binding pessoal de navegação', async (kind) => {
+  it.each(['nested', 'datagrid', 'modal', 'ime'])('preserva o contexto %s em binding pessoal de navegação', async (kind) => {
     setupNavigationTabs();
     locationState.pathname = '/';
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
@@ -2258,6 +2259,119 @@ describe('Topbar', () => {
       expect(allowed.defaultPrevented).toBe(true);
       expect(workspaceState.setActiveTab).toHaveBeenCalledExactlyOnceWith('nav-2');
     } finally { modalState.open = false; root.remove(); view.unmount(); }
+  });
+
+  it('permite Ctrl+Shift+Tab em Monaco com IME unknown após troca de foco e mantém guardas IME/modal', async () => {
+    setupNavigationTabs();
+    locationState.pathname = '/';
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    keyboardState.loadMap.mockResolvedValue({ generation: 'monaco-tab-nav', bindings: [
+      { shortcut: { version: 1, code: 'Tab', modifiers: ['Control', 'Shift'] }, commandId: 'workspace.tab.previous', handler: 'local_ui' },
+    ] });
+    const root = document.createElement('div');
+    root.className = 'workspace-layout';
+    const panel = document.createElement('div');
+    panel.className = 'ws-content__panel';
+    panel.dataset.tabId = 'tab-a';
+    const previousFocus = document.createElement('textarea');
+    const monaco = document.createElement('div');
+    monaco.className = 'monaco-editor';
+    const input = document.createElement('div');
+    input.className = 'native-edit-context';
+    input.setAttribute('contenteditable', 'true');
+    input.tabIndex = 0;
+    monaco.append(input);
+    panel.append(previousFocus, monaco);
+    root.append(panel);
+    document.body.append(root);
+    const focusPanel = () => { input.focus(); return true; };
+    const unregisterFocus = registerWorkspacePanelFocus('tab-a', focusPanel, focusPanel, () => true);
+    const view = render(<CommandContextProvider><Topbar /></CommandContextProvider>);
+    try {
+      await waitFor(() => expect(keyboardState.loadMap).toHaveBeenCalled());
+      previousFocus.focus();
+      input.focus();
+      expect(ReadFocusContext().composition).toBe('unknown');
+      modalState.open = false;
+      const allowed = new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true });
+      input.dispatchEvent(allowed);
+      expect(allowed.defaultPrevented).toBe(true);
+      await waitFor(() => expect(workspaceState.setActiveTab).toHaveBeenCalledExactlyOnceWith('nav-9'));
+
+      modalState.open = true;
+      const blocked = new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true });
+      input.dispatchEvent(blocked);
+      expect(blocked.defaultPrevented).toBe(false);
+      expect(workspaceState.setActiveTab).toHaveBeenCalledTimes(1);
+
+      modalState.open = false;
+      input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      expect(ReadFocusContext().composition).toBe('active');
+      const activeComposition = new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true });
+      input.dispatchEvent(activeComposition);
+      expect(activeComposition.defaultPrevented).toBe(false);
+      const composing = new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', ctrlKey: true, shiftKey: true, isComposing: true, bubbles: true, cancelable: true });
+      input.dispatchEvent(composing);
+      expect(composing.defaultPrevented).toBe(false);
+      const ime229 = new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', ctrlKey: true, shiftKey: true, keyCode: 229, bubbles: true, cancelable: true });
+      input.dispatchEvent(ime229);
+      expect(ime229.defaultPrevented).toBe(false);
+      expect(workspaceState.setActiveTab).toHaveBeenCalledTimes(1);
+      expect(executionState.port.commitBackendCommand).not.toHaveBeenCalled();
+    } finally { modalState.open = false; unregisterFocus(); root.remove(); view.unmount(); }
+  });
+
+  it('no Monaco, respeita remapeamento/supressão e não amplia para rich editable', async () => {
+    setupNavigationTabs();
+    locationState.pathname = '/';
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    keyboardState.loadMap.mockResolvedValue({ generation: 'monaco-tab-remap', bindings: [
+      { shortcut: { version: 1, code: 'PageDown', modifiers: ['Control'] }, commandId: 'workspace.tab.next', handler: 'local_ui' },
+    ] });
+    const root = document.createElement('div');
+    root.className = 'workspace-layout';
+    const panel = document.createElement('div');
+    panel.className = 'ws-content__panel';
+    panel.dataset.tabId = 'tab-a';
+    const monaco = document.createElement('div');
+    monaco.className = 'monaco-editor';
+    const input = document.createElement('div');
+    input.className = 'native-edit-context';
+    input.setAttribute('contenteditable', 'true');
+    input.tabIndex = 0;
+    monaco.append(input);
+    panel.append(monaco);
+    const rich = document.createElement('div');
+    rich.className = 'rich-text-editor';
+    rich.setAttribute('contenteditable', 'true');
+    const richInput = document.createElement('textarea');
+    rich.append(richInput);
+    root.append(panel, rich);
+    document.body.append(root);
+    const focusPanel = () => { input.focus(); return true; };
+    const unregisterFocus = registerWorkspacePanelFocus('tab-a', focusPanel, focusPanel, () => true);
+    const view = render(<CommandContextProvider><Topbar /></CommandContextProvider>);
+    try {
+      await waitFor(() => expect(keyboardState.loadMap).toHaveBeenCalled());
+      input.focus();
+      const suppressed = new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', ctrlKey: true, bubbles: true, cancelable: true });
+      input.dispatchEvent(suppressed);
+      expect(suppressed.defaultPrevented).toBe(false);
+      expect(workspaceState.setActiveTab).not.toHaveBeenCalled();
+
+      const remapped = new KeyboardEvent('keydown', { key: 'PageDown', code: 'PageDown', ctrlKey: true, bubbles: true, cancelable: true });
+      input.dispatchEvent(remapped);
+      expect(remapped.defaultPrevented).toBe(true);
+      await waitFor(() => expect(workspaceState.setActiveTab).toHaveBeenCalledExactlyOnceWith('nav-2'));
+
+      workspaceState.setActiveTab.mockClear();
+      richInput.focus();
+      const richDenied = new KeyboardEvent('keydown', { key: 'PageDown', code: 'PageDown', ctrlKey: true, bubbles: true, cancelable: true });
+      richInput.dispatchEvent(richDenied);
+      expect(richDenied.defaultPrevented).toBe(false);
+      expect(workspaceState.setActiveTab).not.toHaveBeenCalled();
+      expect(executionState.port.commitBackendCommand).not.toHaveBeenCalled();
+    } finally { unregisterFocus(); root.remove(); view.unmount(); }
   });
 
   it('executa bursts e repetição de Ctrl+Tab, PageUp/Down e posições sem esperar render ou IPC', async () => {

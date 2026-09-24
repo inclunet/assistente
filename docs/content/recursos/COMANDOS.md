@@ -733,6 +733,8 @@ Anote passou/falhou e o anúncio do NVDA; esses casos exigem aceite manual.
 Nas páginas **Listas de tarefas** e **Perfis**, a paleta permite abrir o
 formulário de criação, abrir a edição do item selecionado e focar a busca.
 **Ctrl+N** abre o formulário da página ativa, sem criar também uma aba.
+Também funciona logo após entrar na página, antes de focar um controle, desde
+que a página esteja disponível e não haja modal ou composição de texto ativa.
 No workspace, as sequências **Ctrl+N, C/E/R/T** continuam disponíveis conforme
 o mapa configurado. Ctrl+N não substitui edição de texto em campos editáveis.
 
@@ -744,9 +746,9 @@ recebem atalhos arbitrários.
 
 Editar usa o item selecionado antes de abrir a paleta. Se a seleção, página,
 aba ou sessão mudar, a ação antiga é recusada. Abrir formulários não salva
-registros. Salvar/excluir/duplicar/ativar perfis ou listas e iniciar,
-interromper ou encerrar processos do terminal **ainda não foram migrados**
-para esses comandos; os controles existentes continuam disponíveis.
+registros. As mutações de perfis/listas e as operações de processos do terminal
+seguem seus contratos específicos, descritos nas seções correspondentes deste
+guia; a abertura local do formulário não substitui a autorização dessas ações.
 
 Validação manual deste bloco:
 
@@ -816,12 +818,17 @@ A regra vigente é explícita: IME ativo sempre bloqueia. `UnknownIME` não
 é IME ativo; nesse estado desconhecido, somente controles native/rich
 suportados e reconhecidos por registry válido podem prosseguir.
 Na aba de editor ativa, **Alt+1** aplica `editor.mode.markdown`, **Alt+2**
-aplica `editor.mode.rich` e **Alt+3** aplica `editor.mode.view`. Os três são
+aplica `editor.mode.rich` e **Alt+3** aplica `editor.mode.view`. As mudanças de modo são
 operações duráveis: passam por **Begin/Take/Commit**, confirmação explícita e
 alvo `workspace/active_tab` com `ExactVersion`. O backend usa CAS; replay/ABA,
 inclusive repetir o mesmo modo, falha de persistência e concorrência falham
 fechado e fazem rollback. Somente `Tab.State.displayMode` é alterado; conteúdo,
 arquivos e os demais campos da aba são preservados.
+
+Se o editor já estiver em visualização, **Alt+3** apenas devolve o foco ao
+documento de leitura, sem regravar o modo nem criar execução persistida. Essa
+ação de foco respeita o mapa efetivo, remapeamentos, supressões, contexto ativo
+e bloqueios por modal; não reutiliza tickets de mudanças anteriores.
 
 Antes da confirmação, a UI faz flush do estado Rich. O novo modo só é aplicado
 após a confirmação. Se workspace, aba, documento, foco ou versão mudarem,
@@ -836,7 +843,10 @@ Checklist manual:
   confirme anúncio, confirmação única e modo correto. Resultado: ____.
 - [ ] Reinicie o aplicativo e confirme a persistência de cada modo sem alterar
   conteúdo ou arquivos. Resultado: ____.
-- [ ] Em readonly/view, modal e IME ativo, confirme bloqueio. Com IME
+- [ ] Já em visualização, saia da leitura com F6 e use Alt+3 para devolver o
+  foco ao documento sem nova mudança de modo. Resultado: ____.
+- [ ] Em readonly/view, confirme bloqueio das mudanças de modo (a devolução de
+  foco acima não é mudança de modo). Em modal e IME ativo, confirme bloqueio. Com IME
   desconhecido (`UnknownIME`), teste somente controles native/rich suportados
   por registry válido; não trate esse estado como IME ativo. Resultado: ____.
 - [ ] Remapeie e suprima Alt+1/2/3; confirme que só o binding efetivo executa,
@@ -931,6 +941,11 @@ execute por fora do mapa. Manter a tecla pressionada repete a navegação, mas
 não repete criar/fechar abas. Grades e controles de abas internas preservam
 sua própria navegação; setas sem modificadores não foram capturadas globalmente.
 
+A navegação entre abas também pode partir do editor de código (Monaco).
+Essa exceção não libera os demais comandos globais ou ações de criação e
+fechamento nesse editor: composição IME, modais, remapeamentos e supressões
+continuam sendo respeitados.
+
 Para validar a navegação nova, use a paleta ou uma tecla livre do Deck:
 
 - [ ] Abra três abas; execute **Próxima aba** e **Aba anterior** e confira o destino.
@@ -942,6 +957,9 @@ Para validar a navegação nova, use a paleta ou uma tecla livre do Deck:
 - [ ] Pressione Ctrl+Tab várias vezes rapidamente e mantenha-o pressionado:
   cada ocorrência aceita deve avançar, inclusive ao voltar da última à primeira.
 - [ ] Repita com Ctrl+Shift+Tab, Ctrl+PageUp e Ctrl+PageDown.
+- [ ] Repita essas quatro combinações com o foco no editor de código; confira
+  o destino e o foco restaurado. Durante composição IME ou um modal, não deve
+  haver troca de aba.
 - [ ] Teste Ctrl+1, Ctrl+2 e Ctrl+9: selecionam a posição existente; uma
   posição inexistente não deve trocar a aba nem mover o foco.
 - [ ] Suprima temporariamente Ctrl+Tab no mapa padrão: não deve existir um
@@ -1809,6 +1827,10 @@ fora de um chat disponível nem atravessa um diálogo sobreposto. O chat modal
 contextual também é aceito quando é o modal ativo. Trocar de conversa, aba ou
 sessão invalida a consulta, sem redirecioná-la para outro histórico.
 
+Ao fechar Estatísticas de tokens, inclusive com Escape, o foco retorna à
+área padrão do chat disponível. No chat principal, essa área é o campo de
+envio da mensagem.
+
 Abrir Mensagens fixadas não fixa nem desfixa mensagens. As ações internas dos
 modais mantêm seus contratos próprios e não foram migradas neste lote.
 
@@ -1852,6 +1874,11 @@ O rascunho é preservado em recusa. Se houver aviso de resultado desconhecido,
 confira o histórico antes de reenviar: a mensagem pode ter sido aceita pelo
 backend mesmo que a confirmação não tenha chegado à interface. O aplicativo
 não repete automaticamente um envio incerto.
+
+Se a chamada de envio falhar, a interface mostra e anuncia o erro e preserva
+o rascunho. Quando o resultado ainda for incerto, não oferece reenviar como uma
+mensagem nova: a mensagem original pode já ter sido gravada. O resultado do
+comando determina se a interface deve continuar aguardando os eventos do envio.
 
 ### Validação manual acumulada — envio, cancelamento e nova tentativa
 

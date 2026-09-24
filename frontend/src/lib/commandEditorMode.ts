@@ -32,7 +32,10 @@ export interface EditorModeSurfaceRegistration {
   readonly isActive: () => boolean;
   readonly isCurrent: () => boolean;
   readonly isBlocked?: () => boolean;
+  /** Exceção apenas para o refoco local do documento a partir de landmarks do workspace. */
+  readonly canFocusViewFromWorkspaceLandmark?: () => boolean;
   readonly flushRichMarkdownNow?: () => void;
+  readonly focusCurrentView?: () => boolean;
   readonly applyCommitted: (mode: EditorMode, restoreFocus?: boolean) => boolean;
   readonly subscribe?: (onChange: () => void) => () => void;
 }
@@ -49,6 +52,19 @@ export interface EditorModeTargetLease {
   isCurrent(): boolean;
   prepare(): boolean;
   applyCommitted(): boolean;
+  dispose(): void;
+}
+
+export interface EditorViewFocusLease {
+  readonly ownerId: string;
+  readonly sessionId: string;
+  readonly workspaceId: string;
+  readonly tabId: string;
+  readonly documentId: string;
+  readonly instanceId: string;
+  readonly generation: string;
+  isCurrent(): boolean;
+  focus(): boolean;
   dispose(): void;
 }
 
@@ -220,6 +236,82 @@ export function captureEditorModeTarget(
         }
       },
       dispose() { finish(); },
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Captures the already-admitted editor view surface for the keyboard command's
+ * focus-only same-mode action. This deliberately does not create a mode target
+ * and cannot enter the Begin/Take/Commit path.
+ */
+export function captureEditorViewFocusTarget(readPathname: () => string): EditorViewFocusLease | undefined {
+  try {
+    const capturedPathname = readPathname();
+    if ((capturedPathname !== '/' && capturedPathname !== '') || isModalOpen()) return undefined;
+    const viewFocusAllowed = (surface: EditorModeSurfaceRegistration) => {
+      if (surface.isBlocked?.() !== true) return true;
+      try { return surface.canFocusViewFromWorkspaceLandmark?.() === true; }
+      catch { return false; }
+    };
+    const candidates = Array.from(surfaces.values()).filter((surface) => {
+      try {
+        return surface.mode === 'view' && typeof surface.focusCurrentView === 'function' &&
+          currentSurface(surface) && !surface.isAsking() && viewFocusAllowed(surface);
+      } catch {
+        return false;
+      }
+    });
+    if (candidates.length !== 1) return undefined;
+
+    const captured = candidates[0];
+    const modalGeneration = getModalSnapshotGeneration();
+    let disposed = false;
+    let invalidated = false;
+    let focused = false;
+    const unsubscribe = captured.subscribe?.(() => { invalidated = true; });
+    const isCurrent = () => {
+      try {
+        const valid = !disposed && !invalidated && !focused &&
+          surfaces.get(captured.instanceId) === captured &&
+          getModalSnapshotGeneration() === modalGeneration &&
+          readPathname() === capturedPathname && !isModalOpen() &&
+          captured.mode === 'view' && currentSurface(captured) &&
+          !captured.isAsking() && viewFocusAllowed(captured);
+        if (!valid) invalidated = true;
+        return valid;
+      } catch {
+        invalidated = true;
+        return false;
+      }
+    };
+    const finish = () => { disposed = true; unsubscribe?.(); };
+
+    return {
+      ownerId: captured.ownerId,
+      sessionId: captured.sessionId,
+      workspaceId: captured.workspaceId,
+      tabId: captured.tabId,
+      documentId: captured.documentId,
+      instanceId: captured.instanceId,
+      generation: captured.generation,
+      isCurrent,
+      focus() {
+        if (!isCurrent()) return false;
+        try {
+          focused = true;
+          const accepted = captured.focusCurrentView?.() === true;
+          finish();
+          return accepted;
+        } catch {
+          invalidated = true;
+          finish();
+          return false;
+        }
+      },
+      dispose: finish,
     };
   } catch {
     return undefined;

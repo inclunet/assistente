@@ -71,6 +71,8 @@ export interface LocalCommandKeyContext {
 
 export interface LocalCommandContextLease extends LocalCommandKeyContext {
   isCurrent: () => boolean;
+  /** Narrow exceptions may admit only a fixed set of already-resolved commands. */
+  allowedCommandIds?: readonly string[];
 }
 
 export interface LocalCommandKeyboardOptions {
@@ -486,6 +488,8 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
       if (!lease || typeof lease.surfaceId !== 'string' || !lease.surfaceId || lease.surfaceId.trim() !== lease.surfaceId ||
           typeof lease.surfaceType !== 'string' || !lease.surfaceType || lease.surfaceType.trim() !== lease.surfaceType ||
           (lease.profile !== undefined && (typeof lease.profile !== 'string' || !lease.profile || lease.profile.trim() !== lease.profile)) ||
+          (lease.allowedCommandIds !== undefined && (!Array.isArray(lease.allowedCommandIds) || lease.allowedCommandIds.length === 0 ||
+            lease.allowedCommandIds.some(commandID => !validCommandId(commandID)))) ||
           typeof lease.isCurrent !== 'function') return undefined;
       return lease;
     } catch {
@@ -721,8 +725,13 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
     }
     const flatSequenceCandidates = bindings.sequences.get(key) ?? [];
     const allSequenceCandidates = [...contextualSequenceCandidates, ...flatSequenceCandidates];
+    const allowedCommandIds = contextLease?.allowedCommandIds;
+    const candidateCommands = [...(mapped ? [mapped] : []), ...allSequenceCandidates];
+    const contextCommandDenied = allowedCommandIds !== undefined && candidateCommands.some(
+      (candidate) => !allowedCommandIds.includes(candidate.commandId),
+    );
     const sequenceFallback = contextualNoMatch && !contextualBarrier && !!surfaceType && flatSequenceCandidates.length > 0;
-    if (contextualLeaseInvalid || contextualBarrier ||
+    if (contextualLeaseInvalid || contextCommandDenied || contextualBarrier ||
         (contextual && !mapped && contextualSequenceCandidates.length === 0 && contextualSequenceEntries.length === 0 && !sequenceFallback) ||
         (contextualSequenceEntries.length > 0 && !mapped && allSequenceCandidates.length === 0)) {
       event.preventDefault();
