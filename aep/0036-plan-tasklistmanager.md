@@ -61,6 +61,27 @@ Evidência: `frontend/src/components/taskLists/WorkflowEditor.test.tsx` cobre
 listagem, criação/edição/remoção, migração, reordenação, transições e inicial
 no modal, e abertura aninhada.
 
+## Refinamento do editor de workflow: salvamento automático
+
+O editor deixou de ser um formulário com Salvar/Cancelar: cada alteração
+(criar, editar, apagar, reordenar por Alt+Setas) chama `UpdateWorkflowFull`
+com o workflow completo na hora. Os salvamentos entram numa fila e saem um
+por vez, na ordem das alterações; a reordenação é otimista (o grid move a
+linha e o foco na hora) e, se o backend recusar, a tela volta ao último
+estado aceito. Criar/editar só aplicam no grid depois do sucesso, mantendo o
+modal do item aberto em caso de falha. A seção de migração condicional saiu:
+apagar um status com tarefas abre um diálogo que pergunta o status de destino
+e envia a migração no mesmo salvamento. A tela fecha pelo X ou Esc do Modal
+(o `DataGrid` só consome Esc quando há seleção a limpar) e Ctrl+N abre Novo
+status quando o modal do editor está no topo. IDs de status nunca são
+reaproveitados na sessão.
+
+Evidência: `frontend/src/components/taskLists/WorkflowEditor.test.tsx`
+(persiste na hora, falha mantém o modal, reordenação revertida, fila em
+ordem, migração pelo diálogo, Ctrl+N, Esc no grid e no modal do item) e
+`frontend/src/components/ui/DataGrid.test.tsx` (Esc sem seleção não é
+consumido).
+
 ## TL;DR
 
 Implementar um **sistema de gerenciamento de TaskLists reutilizáveis** que funciona em 3 contextos:

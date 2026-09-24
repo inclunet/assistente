@@ -63,7 +63,22 @@ Cada lista tem seu próprio workflow com:
 
 - **Status**: Lista de status possíveis (ex: A Fazer, Em Progresso, Concluído)
 - **Transições**: Regras de quais status podem avançar para quais (configuradas no detalhe de cada status)
-- **Reordenação**: Status podem ser reordenados
+- **Reordenação**: Status podem ser reordenados (Alt+Setas no grid)
+
+### Editar workflow e ações customizadas
+
+As telas **Editar Workflow** e **Ações customizadas** (menu Configurações)
+salvam cada alteração na hora: criar, editar, apagar ou reordenar já persiste,
+sem botão Salvar. Ao abrir, o foco fica no grid.
+
+- **Ctrl+N** cria um novo status ou uma nova ação customizada.
+- **Enter** no grid abre a edição do item focado; **Aplicar** salva e volta ao grid.
+- **Esc** fecha a tela (ou só o formulário do item, se ele estiver aberto).
+- Ao apagar um status que ainda tem tarefas, o Assistente pergunta para qual
+  status movê-las antes de remover.
+- Se o salvamento falhar, a mensagem de erro aparece e a tela volta ao último
+  estado salvo; no formulário do item, o que foi digitado é mantido para tentar
+  de novo.
 
 ## Modos de Visualização
 
