@@ -57,3 +57,10 @@ O vínculo e sua auditoria são gravados na mesma transação: falha em qualquer
 parte desfaz ambas. A auditoria contém ator, alvo, ação e horário, nunca o JWT.
 O cadastro não expõe exclusão de auditoria, remapeamento automático ou uma
 opção para forçar a ativação do executor.
+
+Na base interna de comandos, cada token tem identidade própria, derivada de
+seu fingerprint, sem armazenar o JWT. Revogar um vínculo invalida os contextos
+de todos os seus tokens e cancela suas esperas; reativá-lo não recupera
+execuções antigas. Outros vínculos do mesmo usuário não são revogados juntos.
+Essa proteção ainda não disponibiliza revogação por uma nova rota HTTP nem
+habilita comandos externos: a migração do middleware continua pendente.

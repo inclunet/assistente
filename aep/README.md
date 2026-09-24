@@ -16,6 +16,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+Atualização AEP-0103, seção150: identidade individual por fingerprint de token,
+revogação conjunta pelo vínculo e revalidação em captura no gate compartilhado.
+Permanece **In Progress, 80 I / 4 P / 0 N**; ingresso externo e cutover do
+middleware não estão habilitados por esta mudança.
+
 AEP-0103, seção149 após reconciliação129 (23/09/2026): **In Progress**.
 **80/84 critérios com implementação identificada (95,2%); 4 parciais e
 0 ausentes**, sem novo aceite final. Saídas R: **11 A / 14 I / 22 P / 1 N**,

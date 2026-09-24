@@ -24,18 +24,20 @@ var (
 
 // ContextPrincipal é a prova curta que o host entrega ao EpochPort. O host
 // deve derivá-la do serviço autenticador/runtime, nunca de IDs do payload.
-type ContextPrincipal struct{ UserID, Type, ID string }
+type ContextPrincipal struct{ UserID, Type, ID, GroupID string }
 
 // EpochPort é implementado pelo adaptador do mesmo
 // commandsecurity.EpochService/DispatchGate do executor. O adaptador traduz
 // ContextPrincipal/Epoch para commandsecurity e não mantém estado próprio.
 // CaptureContextAuthenticated deve ser usado para preparar a prova;
-// MutateContext é a porta de invalidação. Este pacote não cria contador, mutex
+// MutateContext invalida uma identidade; MutateContextGroup invalida o vínculo.
+// Este pacote não cria contador, mutex
 // ou gate paralelo. Nenhuma dessas operações deve ser chamada dentro de
 // Admit, pois o gate não é reentrante.
 type EpochPort interface {
 	CaptureContextAuthenticated(context.Context, func() (ContextPrincipal, error)) (Epoch, error)
 	MutateContext(context.Context, ContextPrincipal, func() error) error
+	MutateContextGroup(context.Context, ContextPrincipal, func() error) error
 }
 
 type Epoch struct {

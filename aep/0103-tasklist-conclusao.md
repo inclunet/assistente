@@ -9492,3 +9492,46 @@ Fechamento técnico da seção149:
   conferências: **sem achados acionáveis pendentes**, incluindo parser final,
   atomicidade e guarda de bootstrap. Testes continuam evidência separada.
 - Sem pacote ACP, executável diagnóstico próprio, banco pessoal, push ou PR.
+
+## 150. Identidade individual de tokens e revogação do vínculo — 23/09/2026
+
+Com a decisão autorizada pelo usuário, corrigida a divergência registrada na
+seção149: `auth_context_id` combina issuer, subject e fingerprint SHA-256 do
+token, sem guardar o JWT. Tokens diferentes não compartilham identidade,
+mesmo pertencendo ao mesmo vínculo administrativo.
+
+- O contexto capturado guarda um grupo interno do vínculo no próprio mapa
+  do EpochService; não há store, mutex ou gate paralelo.
+- Revogação pelo serviço de identidade invalida todos os tokens daquele
+  vínculo e cancela suas esperas sob o gate antes da alteração persistida.
+  Outros vínculos do usuário são preservados. Falha da alteração mantém a
+  invalidação conservadora; efeito já iniciado não é desfeito.
+- Reativação exige captura nova: snapshots anteriores continuam obsoletos.
+- Validação inicial pode aquecer JWKS fora do gate; a captura revalida token
+  com cache e relê vínculo/usuário dentro do gate, fechando a janela entre
+  autenticação inicial e revogação. O gate não faz busca de rede.
+- Sem nova migração, segredo ou armazenamento de JWT; sem mudança da D6,
+  readiness, middleware ou novo endpoint remoto de revogação.
+
+Qualificação: suítes `commandidentity`, `commandsecurity` e `commandexecution`
+PASS; testes externos de identidade com 20 repetições PASS. `go vet` dos
+quatro pacotes auth/identity/security/execution e `git diff --check` PASS.
+O teste integrado usa repositório SQLite, autenticador, adaptador de epochs
+e gate reais; verifica cancelamento de dois tokens, recusa após revogação e
+impossibilidade de admitir provas antigas após reativação. Outro teste força
+revogação exatamente entre autenticação e captura. Sem teste ACP ou Wails.
+
+**80 I / 4 P / 0 N = 84** permanece: C65/C70 ainda dependem do cutover
+coordenado do middleware, readiness e ingresso produtivo no executor.
+Saídas/gates: **11 A / 14 I / 22 P / 1 N = 48; 1/12 aceito**. Este lote
+fecha a identidade/revogação interna, não o acesso externo completo.
+
+Implementação paralela: Erdos (Luna) em autenticação, Turing (Luna) em grupos
+de epochs; integração e testes ponta a ponta da biblioteca pelo agente principal.
+Revisão independente Kant (Luna): sem achados acionáveis. Suíte auth também
+PASS; testes de grupo incluem concorrência, isolamento e falha conservadora.
+Verificador dos status AEP PASS. Detector de corrida não executado neste lote;
+testes concorrentes comuns não substituem `-race`. Sem push ou PR.
+Regressão final conjunta com `-count=1`: auth, commandidentity,
+commandsecurity, commandexecution e httpapi **PASS**; vet e diff-check finais
+também **PASS**.

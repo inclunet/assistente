@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"assistente/internal/database"
@@ -73,32 +74,72 @@ func TestExternalCommandAuthenticatorRelêMappingAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	verifier := commandExternalVerifierStub{claims: map[string]*ExternalClaims{
-		"token": {Issuer: "issuer-a", Subject: "same-subject", Scope: "read"},
+		"token-raw-secret-a": {Issuer: "issuer-a", Subject: "same-subject", JTI: "shared-jti", Scope: "read"},
+		"token-raw-secret-b": {Issuer: "issuer-a", Subject: "same-subject", JTI: "shared-jti", Scope: "read"},
 	}}
 	repo := NewExternalIdentityRepository(db)
 	if _, err := repo.Create(context.Background(), ExternalIdentityMappingParams{Issuer: "issuer-a", Subject: "same-subject", UserID: user.ID}); err != nil {
 		t.Fatal(err)
 	}
 	authenticator := NewExternalCommandAuthenticator(verifier, repo)
-	if _, err := authenticator.Authenticate(context.Background(), "token"); !errors.Is(err, ErrExternalIdentityNotReady) {
+	if _, err := authenticator.Authenticate(context.Background(), "token-raw-secret-a"); !errors.Is(err, ErrExternalIdentityNotReady) {
 		t.Fatalf("middleware sem readiness explícita deveria falhar fechado: %v", err)
 	}
 	authenticator.SetReadiness(repo.CheckReadiness)
-	principal, err := authenticator.Authenticate(context.Background(), "token")
+	principal, err := authenticator.Authenticate(context.Background(), "token-raw-secret-a")
 	if err != nil {
 		t.Fatalf("authenticate mapped token: %v", err)
 	}
 	if principal.UserID != user.ID || principal.Issuer != "issuer-a" || principal.Subject != "same-subject" || principal.AuthContextID == "" {
 		t.Fatalf("principal não derivado: %+v", principal)
 	}
+	secondPrincipal, err := authenticator.Authenticate(context.Background(), "token-raw-secret-b")
+	if err != nil {
+		t.Fatalf("authenticate second token for same identity: %v", err)
+	}
+	if secondPrincipal.AuthContextID == principal.AuthContextID {
+		t.Fatal("tokens diferentes do mesmo issuer/subject compartilharam auth_context_id")
+	}
+	if strings.Contains(principal.AuthContextID, "token-raw-secret-a") || strings.Contains(secondPrincipal.AuthContextID, "token-raw-secret-b") {
+		t.Fatal("auth_context_id armazenou o JWT bruto")
+	}
 	if err := repo.Revoke(context.Background(), "issuer-a", "same-subject"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := authenticator.Authenticate(context.Background(), "token"); !errors.Is(err, ErrUnauthenticatedExternalCommand) {
+	if _, err := authenticator.Authenticate(context.Background(), "token-raw-secret-a"); !errors.Is(err, ErrUnauthenticatedExternalCommand) {
 		t.Fatalf("revogado ainda autenticou: %v", err)
 	}
 	if _, err := authenticator.Authenticate(context.Background(), "unknown"); !errors.Is(err, ErrUnauthenticatedExternalCommand) {
 		t.Fatalf("token não mapeado não foi rejeitado: %v", err)
+	}
+}
+
+func TestExternalTokenContextIDIsDeterministicAndIsolated(t *testing.T) {
+	const token = "jwt-raw-secret-for-fingerprint"
+	base := ExternalTokenContextID("issuer-a", "subject-a", token)
+	if base == "" {
+		t.Fatal("valid external token context produced empty ID")
+	}
+	if again := ExternalTokenContextID("issuer-a", "subject-a", token); again != base {
+		t.Fatalf("same credential produced different IDs: %q != %q", again, base)
+	}
+	if strings.Contains(base, token) {
+		t.Fatal("context ID contains the raw JWT")
+	}
+	for name, got := range map[string]string{
+		"different token":   ExternalTokenContextID("issuer-a", "subject-a", "other-jwt"),
+		"different issuer":  ExternalTokenContextID("issuer-b", "subject-a", token),
+		"different subject": ExternalTokenContextID("issuer-a", "subject-b", token),
+	} {
+		if got == base {
+			t.Errorf("%s shared auth_context_id with original credential", name)
+		}
+	}
+	if got := ExternalTokenContextID("issuer|subject", "a", token); got == ExternalTokenContextID("issuer", "subject|a", token) {
+		t.Fatal("issuer/subject framing allowed delimiter collision")
+	}
+	if got := (ExternalIdentityRevocation{issuer: "issuer-a", subject: "subject-a"}).ContextID(); got != ExternalIdentityContextID("issuer-a", "subject-a") {
+		t.Fatalf("revocation context stopped using stable identity ID: %q", got)
 	}
 }
 

@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -108,7 +110,7 @@ func (a *ExternalCommandAuthenticator) authenticate(ctx context.Context, token s
 		Subject:       mapping.Subject,
 		UserID:        mapping.UserID,
 		Role:          role,
-		AuthContextID: ExternalIdentityContextID(mapping.Issuer, mapping.Subject),
+		AuthContextID: ExternalTokenContextID(mapping.Issuer, mapping.Subject, token),
 		Scopes:        splitExternalScopes(claims.Scope),
 		Roles:         append([]string(nil), claims.Roles...),
 	}, nil
@@ -169,6 +171,18 @@ func ExternalIdentityContextID(issuer, subject string) string {
 	return string(value)
 }
 
+// ExternalTokenContextID identifica uma credencial externa sem persistir o
+// JWT. O par issuer/subject e o fingerprint são serializados como uma tupla
+// JSON para manter o enquadramento inequívoco mesmo com separadores nos campos.
+func ExternalTokenContextID(issuer, subject, token string) string {
+	if !validExternalIdentityPart(issuer) || !validExternalIdentityPart(subject) || token == "" {
+		return ""
+	}
+	fingerprint := sha256.Sum256([]byte(token))
+	value, _ := json.Marshal([]string{issuer, subject, hex.EncodeToString(fingerprint[:])})
+	return string(value)
+}
+
 func NewExternalIdentityAdminService(verifier ExternalTokenVerifier, repo *ExternalIdentityRepository, cfg ExternalIdentityAdminConfig) (*ExternalIdentityAdminService, error) {
 	if repo == nil || repo.db == nil {
 		return nil, ErrExternalIdentityNotReady
@@ -210,8 +224,8 @@ func (s *ExternalIdentityAdminService) Revoke(ctx context.Context, adminToken, i
 }
 
 // PrepareRevoke valida o administrador e relê o vínculo antes do gate. A
-// aplicação da revogação deve ocorrer depois via RevokePrepared, dentro do
-// MutateContext do mesmo serviço de epochs.
+// aplicação da revogação deve ocorrer depois via RevokePrepared como uma das
+// mutações agrupadas em MutateContextGroup no serviço de epochs.
 func (s *ExternalIdentityAdminService) PrepareRevoke(ctx context.Context, adminToken, issuer, subject string) (ExternalIdentityRevocation, error) {
 	if _, err := s.authorize(ctx, adminToken); err != nil {
 		return ExternalIdentityRevocation{}, err
@@ -224,7 +238,7 @@ func (s *ExternalIdentityAdminService) PrepareRevoke(ctx context.Context, adminT
 }
 
 // RevokePrepared não autentica nem busca JWKS. É deliberadamente uma operação
-// local curta para ser chamada pela ação de MutateContext após a preparação.
+// local curta para ser chamada dentro do MutateContextGroup após a preparação.
 func (s *ExternalIdentityAdminService) RevokePrepared(ctx context.Context, prepared ExternalIdentityRevocation) error {
 	if s == nil || s.repo == nil || !validExternalIdentityPart(prepared.issuer) || !validExternalIdentityPart(prepared.subject) || !canonicalSessionUUID(prepared.userID) {
 		return ErrExternalIdentityNotReady

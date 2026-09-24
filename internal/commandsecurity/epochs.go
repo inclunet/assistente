@@ -16,7 +16,7 @@ var ErrInvalidEpochInput = errors.New("entrada de geração inválida")
 var ErrStaleEpoch = errors.New("geração de autenticação ou segurança obsoleta")
 
 type EpochSnapshot struct{ UserID, SessionID, AuthGeneration, SecurityGeneration string }
-type sessionEpoch struct{ user, generation string }
+type sessionEpoch struct{ user, group, generation string }
 
 // EpochService coordena gerações locais pelo mesmo gate usado no handoff.
 // O host deve criar uma única instância por domínio de invalidação e autenticar

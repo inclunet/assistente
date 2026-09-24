@@ -9,9 +9,23 @@ import (
 
 // ContextPrincipal só é retornado por autenticação interna do host. Nunca é
 // lido do envelope de cliente. A chave interna não é exposta como session_id.
-type ContextPrincipal struct{ UserID, Type, ID string }
+type ContextPrincipal struct{ UserID, Type, ID, GroupID string }
+
+func (p ContextPrincipal) groupKey() (string, error) {
+	if p.GroupID == "" {
+		return "", nil
+	}
+	if p.Type != "external_token" || len(p.GroupID) > 1024 || !utf8.ValidString(p.GroupID) || strings.TrimSpace(p.GroupID) != p.GroupID || strings.ContainsRune(p.GroupID, '\x00') {
+		return "", ErrInvalidEpochInput
+	}
+	raw, _ := json.Marshal([]string{p.Type, p.GroupID})
+	return string(raw), nil
+}
 
 func (p ContextPrincipal) key() (string, error) {
+	if _, err := p.groupKey(); err != nil {
+		return "", err
+	}
 	if p.ID == "" || len(p.ID) > 1024 || !utf8.ValidString(p.ID) || strings.TrimSpace(p.ID) != p.ID || strings.ContainsRune(p.ID, '\x00') {
 		return "", ErrInvalidEpochInput
 	}
@@ -55,11 +69,15 @@ func (s *EpochService) CaptureContextAuthenticated(ctx context.Context, authenti
 		if e != nil {
 			return e
 		}
+		group, e := p.groupKey()
+		if e != nil {
+			return e
+		}
 		if e := ctx.Err(); e != nil {
 			return e
 		}
 		current, ok := s.sessions[key]
-		if ok && current.user != p.UserID {
+		if ok && (current.user != p.UserID || current.group != group) {
 			return ErrInvalidEpochInput
 		}
 		if !ok {
@@ -67,7 +85,7 @@ func (s *EpochService) CaptureContextAuthenticated(ctx context.Context, authenti
 			if e != nil {
 				return e
 			}
-			current = sessionEpoch{user: p.UserID, generation: g}
+			current = sessionEpoch{user: p.UserID, group: group, generation: g}
 			s.sessions[key] = current
 		}
 		result = EpochSnapshot{UserID: p.UserID, SessionID: key, AuthGeneration: current.generation, SecurityGeneration: s.security}
@@ -77,6 +95,47 @@ func (s *EpochService) CaptureContextAuthenticated(ctx context.Context, authenti
 		return EpochSnapshot{}, err
 	}
 	return result, nil
+}
+
+// MutateContextGroup revoga todos os contextos external_token do usuário e
+// grupo antes do efeito administrativo, sob o mesmo gate usado por captura,
+// admissão e watches. A invalidação permanece mesmo quando action falha.
+func (s *EpochService) MutateContextGroup(ctx context.Context, p ContextPrincipal, action func() error) error {
+	if !s.valid() || ctx == nil || action == nil || p.Type != "external_token" || !epochID(p.UserID) {
+		return ErrInvalidEpochInput
+	}
+	group, err := p.groupKey()
+	if err != nil || group == "" {
+		return ErrInvalidEpochInput
+	}
+	if p.ID != "" {
+		if _, err := p.key(); err != nil {
+			return err
+		}
+	}
+	return s.gate.WithMutation(ctx, func() error {
+		if s.closing {
+			return ErrStaleEpoch
+		}
+		sessions := make(map[string]struct{})
+		for key, current := range s.sessions {
+			if current.user == p.UserID && current.group == group {
+				delete(s.sessions, key)
+				sessions[key] = struct{}{}
+			}
+		}
+		s.watchesMu.Lock()
+		for watch := range s.watches {
+			if watch.user == p.UserID {
+				if _, ok := sessions[watch.session]; ok {
+					watch.cancel()
+					delete(s.watches, watch)
+				}
+			}
+		}
+		s.watchesMu.Unlock()
+		return action()
+	})
 }
 
 // MutateContext revoga o contexto antes do efeito administrativo sob o gate.

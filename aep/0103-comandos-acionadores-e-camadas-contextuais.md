@@ -2,9 +2,12 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção149 (23/09/2026):** dos 84 critérios finais,
+**Acompanhamento vigente — seção150 (23/09/2026):** dos 84 critérios finais,
 **80 têm implementação identificada (95,2%), 4 são parciais e 0 ausentes**.
 Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
+A seção150 individualiza tokens por fingerprint e revoga todos os contextos
+do vínculo sob o mesmo gate, incluindo esperas pendentes. A captura revalida
+JWT e vínculo sem rede dentro do gate. Não habilita o middleware externo.
 A seção149 entrega cadastro administrativo externo na API HTTP: bootstrap
 único do próprio subject legado, criação posterior com administrador mapeado
 e scopes explícitos, auditoria e vínculo atômicos pela v31. Não publica

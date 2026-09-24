@@ -215,6 +215,12 @@ não muda o principal de `/auth/me`: o cutover do middleware e a montagem do
 executor externo continuam pendentes. O cadastro não é um modo de executar
 comandos externos antes dessas etapas.
 
+Complemento seção150: a biblioteca de comandos passa a distinguir cada token
+por fingerprint, mantendo o vínculo `(issuer, subject)` como grupo de revogação.
+A captura revalida o token com JWKS em cache e relê o vínculo sob o gate;
+revogação invalida gerações e esperas do grupo antes da alteração persistida.
+Reativação não restaura gerações antigas. D6 e o middleware seguem inalterados.
+
 - Validar JWT do IdP via JWKS.
 - Enforce server-side por scopes/roles do token.
 - Algoritmos aceitos devem ser controlados via allowlist (ex.: RS256/ES256/EdDSA conforme IdP).

@@ -171,6 +171,24 @@ func (s *Service) resolveExternal(ctx context.Context, req ExternalTokenRequest,
 	if err != nil {
 		return TrustedIdentity{}, err
 	}
+	var epoch Epoch
+	if capture {
+		if s.epochs == nil {
+			return TrustedIdentity{}, ErrEpochUnavailable
+		}
+		// A validação anterior aquece JWKS fora do gate. Dentro dele, releia
+		// token e vínculo sem rede para não capturar uma prova já revogada.
+		epoch, err = s.epochs.CaptureContextAuthenticated(ctx, func() (ContextPrincipal, error) {
+			principal, err = s.external.AuthenticateCached(ctx, req.AccessToken)
+			if err != nil {
+				return ContextPrincipal{}, err
+			}
+			return ContextPrincipal{UserID: principal.UserID, Type: string(commandcontract.AuthExternalToken), ID: principal.AuthContextID, GroupID: auth.ExternalIdentityContextID(principal.Issuer, principal.Subject)}, nil
+		})
+		if err != nil {
+			return TrustedIdentity{}, err
+		}
+	}
 	identity := TrustedIdentity{
 		AuthContextType: commandcontract.AuthExternalToken, AuthContextID: principal.AuthContextID,
 		UserID: principal.UserID, ActorType: commandcontract.ActorUser, ActorID: principal.UserID, Role: principal.Role,
@@ -178,10 +196,6 @@ func (s *Service) resolveExternal(ctx context.Context, req ExternalTokenRequest,
 	}
 	if !capture {
 		return identity, nil
-	}
-	epoch, err := s.capture(ctx, ContextPrincipal{UserID: principal.UserID, Type: string(commandcontract.AuthExternalToken), ID: principal.AuthContextID})
-	if err != nil {
-		return TrustedIdentity{}, err
 	}
 	identity.AuthGeneration, identity.SecurityGeneration = epoch.AuthGeneration, epoch.SecurityGeneration
 	return identity, nil
@@ -379,10 +393,10 @@ func (s *Service) RevokeExternal(ctx context.Context, adminToken, issuer, subjec
 	if err != nil {
 		return err
 	}
-	if err := s.epochs.MutateContext(ctx, ContextPrincipal{
-		UserID: prepared.UserID(),
-		Type:   string(commandcontract.AuthExternalToken),
-		ID:     prepared.ContextID(),
+	if err := s.epochs.MutateContextGroup(ctx, ContextPrincipal{
+		UserID:  prepared.UserID(),
+		Type:    string(commandcontract.AuthExternalToken),
+		GroupID: prepared.ContextID(),
 	}, func() error {
 		return s.admin.RevokePrepared(ctx, prepared)
 	}); err != nil {

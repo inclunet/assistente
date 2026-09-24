@@ -30,6 +30,9 @@ func (p *epochPortStub) MutateContext(_ context.Context, _ ContextPrincipal, act
 	p.mutations++
 	return action()
 }
+func (p *epochPortStub) MutateContextGroup(ctx context.Context, principal ContextPrincipal, action func() error) error {
+	return p.MutateContext(ctx, principal, action)
+}
 
 type cachedClaimsStub struct {
 	claims          *auth.ExternalClaims
@@ -109,7 +112,7 @@ func TestAuthorizeRelêOrigemEIgnoraRoleForjado(t *testing.T) {
 	if epochs.captures != 1 {
 		t.Fatalf("Authorize chamou Capture recursivamente: %d", epochs.captures)
 	}
-	if verifier.network != 1 || verifier.cached != 1 {
+	if verifier.network != 1 || verifier.cached != 2 {
 		t.Fatalf("revalidação externa inesperada: network=%d cached=%d", verifier.network, verifier.cached)
 	}
 }
@@ -147,12 +150,12 @@ func TestExternalCaptureERevogacaoUsamMesmoEpochReal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantContextID := auth.ExternalIdentityContextID("issuer", "subject")
+	wantContextID := auth.ExternalTokenContextID("issuer", "subject", "external-token")
 	if identity.AuthContextID != wantContextID || strings.ContainsRune(identity.AuthContextID, '\x00') {
 		t.Fatalf("contexto externo não usa framing JSON: %q", identity.AuthContextID)
 	}
 	snapshot, err := core.CaptureContextAuthenticated(ctx, func(context.Context) (commandsecurity.ContextPrincipal, error) {
-		return commandsecurity.ContextPrincipal{UserID: user.ID, Type: string(commandcontract.AuthExternalToken), ID: wantContextID}, nil
+		return commandsecurity.ContextPrincipal{UserID: user.ID, Type: string(commandcontract.AuthExternalToken), ID: wantContextID, GroupID: auth.ExternalIdentityContextID("issuer", "subject")}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
