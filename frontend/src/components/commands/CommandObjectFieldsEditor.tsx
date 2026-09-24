@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { Button, Checkbox } from '../ui';
@@ -58,6 +58,10 @@ export function CommandObjectFieldsEditor({
   const errorId = useId();
   const nextID = useRef(0);
   const received = useRef(value);
+  const keyInputRefs = useRef(new Map<number, HTMLInputElement>());
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  const pendingFocusID = useRef<number | null>(null);
+  const pendingFocusAdd = useRef(false);
   const [entries, setEntries] = useState<FieldEntry[]>(() => Object.entries(value).map(([key, entryValue]) => {
     const type = valueType(entryValue);
     return { id: nextID.current++, key, type, raw: type === 'json' ? JSON.stringify(entryValue) : String(entryValue) };
@@ -71,6 +75,14 @@ export function CommandObjectFieldsEditor({
     }));
   }, [value]);
   const valid = useMemo(() => decodeEntries(entries) !== null, [entries]);
+  useLayoutEffect(() => {
+    const id = pendingFocusID.current;
+    if (id === null && !pendingFocusAdd.current) return;
+    pendingFocusID.current = null;
+    pendingFocusAdd.current = false;
+    if (id !== null) keyInputRefs.current.get(id)?.focus();
+    else addButtonRef.current?.focus();
+  }, [entries.length]);
   useEffect(() => { onValidityChange?.(valid); }, [valid, onValidityChange]);
   const update = (next: FieldEntry[]) => {
     setEntries(next);
@@ -90,7 +102,10 @@ export function CommandObjectFieldsEditor({
       <legend>{label}</legend>
       {entries.map((entry, index) => (
         <div className="command-object-fields__row" key={entry.id}>
-          <Input aria-label={`${t('commandSettings.argumentEditor.key')} ${index + 1}`} value={entry.key} onChange={(event) => updateEntry(entry.id, { key: event.target.value })} />
+          <Input ref={(element) => {
+            if (element) keyInputRefs.current.set(entry.id, element);
+            else keyInputRefs.current.delete(entry.id);
+          }} aria-label={`${t('commandSettings.argumentEditor.key')} ${index + 1}`} value={entry.key} onChange={(event) => updateEntry(entry.id, { key: event.target.value })} />
           <Select
             aria-label={`${typeLabel} ${index + 1}`} label={typeLabel} value={entry.type}
             onChange={(event) => {
@@ -105,16 +120,24 @@ export function CommandObjectFieldsEditor({
           ) : (
             <Input aria-label={`${valueLabel} ${index + 1}`} value={entry.raw} onChange={(event) => updateEntry(entry.id, { raw: event.target.value })} />
           )}
-          <Button type="button" variant="ghost" aria-label={removeLabel(index + 1)} onClick={() => update(entries.filter((row) => row.id !== entry.id))}>
+          <Button type="button" variant="ghost" aria-label={removeLabel(index + 1)} onClick={() => {
+            const nextEntries = entries.filter((row) => row.id !== entry.id);
+            const next = nextEntries[Math.min(index, nextEntries.length - 1)];
+            pendingFocusID.current = next?.id ?? null;
+            pendingFocusAdd.current = !next;
+            update(nextEntries);
+          }}>
             <DeleteOutlined aria-hidden="true" />
           </Button>
         </div>
       ))}
       {!valid && <p id={errorId}>{t('commandSettings.argumentEditor.invalid')}</p>}
-      <Button type="button" variant="secondary" aria-label={addLabel} onClick={() => {
+      <Button ref={addButtonRef} type="button" variant="secondary" aria-label={addLabel} onClick={() => {
         let suffix = 1;
         while (entries.some((entry) => entry.key === `argument_${suffix}`)) suffix++;
-        update([...entries, { id: nextID.current++, key: `argument_${suffix}`, type: 'string', raw: '' }]);
+        const id = nextID.current++;
+        pendingFocusID.current = id;
+        update([...entries, { id, key: `argument_${suffix}`, type: 'string', raw: '' }]);
       }}>
         <PlusOutlined aria-hidden="true" />
       </Button>

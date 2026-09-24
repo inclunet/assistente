@@ -2762,6 +2762,7 @@ const en = {
         hintArrowV: 'Use vertical arrows to navigate between rows.',
         hintArrowH: 'Use horizontal arrows to navigate between columns.',
         hintEnter: 'Press Enter to activate an item.',
+        hintContextMenu: 'Press Shift+F10 or the Menu key to open row actions.',
         hintSpace: 'Press Space to check or uncheck.',
         hintCtrlSpace: 'Press Ctrl+Space to check or uncheck.',
         hintCtrlA: 'Press Ctrl+A to select all.',

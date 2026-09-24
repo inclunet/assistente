@@ -2766,6 +2766,7 @@ const es = {
         hintArrowV: 'Usa las flechas verticales para navegar entre filas.',
         hintArrowH: 'Usa las flechas horizontales para navegar entre columnas.',
         hintEnter: 'Presiona Enter para activar un elemento.',
+        hintContextMenu: 'Presiona Shift+F10 o la tecla Menú para abrir las acciones de la fila.',
         hintSpace: 'Presiona Espacio para marcar o desmarcar.',
         hintCtrlSpace: 'Presiona Ctrl+Espacio para marcar o desmarcar.',
         hintCtrlA: 'Presiona Ctrl+A para seleccionar todo.',

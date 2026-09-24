@@ -141,6 +141,13 @@ Validação manual acumulada:
 - [ ] Exportar uma camada de teste e reimportar como cópia; conferir o relatório
   e a confirmação, sem alterar configurações reais inadvertidamente. Resultado: ____.
 
+## Validação por teclado e NVDA
+
+Para conferir a operação das configurações por teclado e leitor de tela,
+use o [roteiro de validação com NVDA](../../guias/VALIDACAO_COMANDOS_NVDA/).
+Ele registra resultados observados, sem tratar testes automatizados como
+aceite manual.
+
 ## Autenticação externa
 
 Para instalações com autenticação por provedor externo, o

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { DataGrid, DataGridColumn } from './DataGrid';
+import i18n from '../../lib/i18n';
 
 const announceMock = vi.hoisted(() => vi.fn());
 
@@ -562,6 +563,30 @@ describe('DataGrid (reconciliação de foco após remoção)', () => {
 });
 
 describe('DataGrid (instruções acessíveis)', () => {
+  it('localiza instruções e só anuncia atalhos disponíveis para a configuração do grid', async () => {
+    await act(async () => { await i18n.changeLanguage('en'); });
+    try {
+      render(<DataGrid
+        items={items.slice(0, 1)}
+        columns={columns}
+        getRowActions={() => [{ id: 'edit', label: 'Edit', action: vi.fn() }]}
+        autoFocusOnMount={false}
+      />);
+      const grid = screen.getByRole('grid', { name: 'Data grid' });
+      const instructions = document.getElementById(grid.getAttribute('aria-describedby')!);
+      expect(instructions?.textContent).toContain('Data grid with 1 rows and 2 columns.');
+      expect(instructions?.textContent).toContain('Use vertical arrows to navigate between rows.');
+      expect(instructions?.textContent).toContain('columns. Use vertical arrows');
+      expect(instructions?.textContent).toContain('Press Shift+F10 or the Menu key to open row actions.');
+      expect(instructions?.textContent).not.toContain('Press Enter to activate an item.');
+      expect(instructions?.textContent).not.toContain('Press Ctrl+Space');
+      expect(instructions?.textContent).not.toContain('Press Escape to clear selection.');
+      expect(instructions?.textContent).not.toContain('Press F2 to edit.');
+    } finally {
+      await act(async () => { await i18n.changeLanguage('pt-BR'); });
+    }
+  });
+
   it('só informa Delete quando a ação existe', () => {
     const { rerender } = render(
       <DataGrid items={items} columns={columns} autoFocusOnMount={false} />

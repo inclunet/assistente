@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo, useRef } from 'react';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -25,8 +25,23 @@ export function CommandConditionEditor({
   disabled = false,
 }: CommandConditionEditorProps) {
   const { t } = useTranslation();
+  const clauseFieldRefs = useRef(new Map<number, HTMLSelectElement>());
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  const fieldsetRef = useRef<HTMLFieldSetElement>(null);
+  const pendingFocusIndex = useRef<number | null>(null);
+  const pendingFocusAdd = useRef(false);
   const fieldById = useMemo(() => new Map(fields.map((field) => [field.id, field])), [fields]);
   const canAddField = (field: CommandConditionField) => field.valueKind !== 'enum' || (field.options?.length ?? 0) > 0;
+
+  useLayoutEffect(() => {
+    const index = pendingFocusIndex.current;
+    if (index === null && !pendingFocusAdd.current) return;
+    pendingFocusIndex.current = null;
+    pendingFocusAdd.current = false;
+    if (index !== null) clauseFieldRefs.current.get(index)?.focus();
+    else if (addButtonRef.current && !addButtonRef.current.disabled) addButtonRef.current.focus();
+    else fieldsetRef.current?.focus();
+  }, [value.clauses.length]);
 
   const updateClause = (index: number, patch: Partial<CommandConditionClause>) => {
     const clauses = value.clauses.map((clause, clauseIndex) =>
@@ -44,7 +59,10 @@ export function CommandConditionEditor({
   };
 
   const removeClause = (index: number) => {
-    onChange({ version: 1, clauses: value.clauses.filter((_, clauseIndex) => clauseIndex !== index) });
+    const clauses = value.clauses.filter((_, clauseIndex) => clauseIndex !== index);
+    pendingFocusIndex.current = clauses.length > 0 ? Math.min(index, clauses.length - 1) : null;
+    pendingFocusAdd.current = clauses.length === 0;
+    onChange({ version: 1, clauses });
   };
 
   const addClause = () => {
@@ -52,6 +70,7 @@ export function CommandConditionEditor({
     const field = fields.find((candidate) => !used.has(candidate.id) && canAddField(candidate));
     if (!field) return;
     const firstOption = field.options?.[0]?.value ?? '';
+    pendingFocusIndex.current = value.clauses.length;
     onChange({
       version: 1,
       clauses: [
@@ -62,7 +81,7 @@ export function CommandConditionEditor({
   };
 
   return (
-    <fieldset className="command-condition-editor" disabled={disabled}>
+    <fieldset ref={fieldsetRef} tabIndex={-1} className="command-condition-editor" disabled={disabled}>
       <legend>{t('commandSettings.conditions.title')}</legend>
       <p className="command-condition-editor__hint">{t('commandSettings.conditions.help')}</p>
       {value.clauses.length === 0 ? (
@@ -81,6 +100,10 @@ export function CommandConditionEditor({
                 aria-label={t('commandSettings.conditionRowLabel', { index: index + 1, field: field.label })}
               >
                 <Select
+                  ref={(element) => {
+                    if (element) clauseFieldRefs.current.set(index, element);
+                    else clauseFieldRefs.current.delete(index);
+                  }}
                   label={t('commandSettings.conditions.field')}
                   value={field.id}
                   options={[...(!knownField ? [{ value: field.id, label: t('commandSettings.unavailableCondition', { field: field.id }), disabled: true }] : []), ...fields.map((option) => ({
@@ -125,7 +148,7 @@ export function CommandConditionEditor({
           })}
         </div>
       )}
-      <Button type="button" variant="secondary" onClick={addClause} disabled={!fields.some(field => canAddField(field) && !value.clauses.some(clause => clause.field === field.id))}>
+      <Button ref={addButtonRef} type="button" variant="secondary" onClick={addClause} disabled={!fields.some(field => canAddField(field) && !value.clauses.some(clause => clause.field === field.id))}>
         <PlusOutlined aria-hidden="true" /> {t('commandSettings.conditions.add')}
       </Button>
     </fieldset>

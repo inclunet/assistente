@@ -1,5 +1,7 @@
 import { axe } from '../../test/a11yAxe';
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from 'i18next';
 import CommandConditionEditor from './CommandConditionEditor';
@@ -12,6 +14,11 @@ const fields: CommandConditionField[] = [
 ];
 
 const condition: CommandCondition = { version: 1, clauses: [] };
+
+function ControlledConditionEditor({ initial, availableFields = fields }: { initial: CommandCondition; availableFields?: CommandConditionField[] }) {
+  const [value, setValue] = useState(initial);
+  return <CommandConditionEditor value={value} fields={availableFields} onChange={setValue} />;
+}
 
 describe('CommandConditionEditor', () => {
   beforeEach(() => {
@@ -86,5 +93,44 @@ describe('CommandConditionEditor', () => {
     expect(groups[0]).toHaveAccessibleName('Condition 1: Surface');
     expect(groups[1]).toHaveAccessibleName('Condition 2: Focused');
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('ao adicionar por Enter move o foco à cláusula criada; ao remover move ao vizinho', async () => {
+    const user = userEvent.setup();
+    render(<ControlledConditionEditor initial={condition} />);
+    const add = screen.getByRole('button', { name: 'commandSettings.conditions.add' });
+    add.focus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByLabelText('commandSettings.conditions.field')).toHaveFocus();
+    add.focus();
+    await user.keyboard('{Enter}');
+    expect(screen.getAllByLabelText('commandSettings.conditions.field')).toHaveLength(2);
+
+    screen.getAllByLabelText('commandSettings.conditions.field')[0].focus();
+    await user.keyboard('{Tab}{Tab}');
+    await user.keyboard('{Enter}');
+    expect(screen.getByLabelText('commandSettings.conditions.field')).toHaveFocus();
+    expect(screen.getByLabelText('commandSettings.conditions.field')).toHaveValue('focused');
+  });
+
+  it('ao remover a última cláusula por teclado devolve foco ao controle de adicionar', async () => {
+    const user = userEvent.setup();
+    render(<ControlledConditionEditor initial={{ version: 1, clauses: [{ field: 'surface', value: 'editor' }] }} />);
+    screen.getByLabelText('commandSettings.conditions.field').focus();
+    await user.keyboard('{Tab}{Tab}{Enter}');
+    expect(screen.getByRole('button', { name: 'commandSettings.conditions.add' })).toHaveFocus();
+  });
+
+  it('com cláusula legada desconhecida e sem opções, usa o fieldset como fallback de foco', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<ControlledConditionEditor
+      initial={{ version: 1, clauses: [{ field: 'removed-field', value: 'legacy' }] }}
+      availableFields={[]}
+    />);
+    const fieldset = container.querySelector('fieldset.command-condition-editor') as HTMLFieldSetElement;
+    screen.getByRole('button', { name: 'commandSettings.conditions.remove' }).focus();
+    await user.keyboard('{Enter}');
+    expect(fieldset).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'commandSettings.conditions.add' })).toBeDisabled();
   });
 });

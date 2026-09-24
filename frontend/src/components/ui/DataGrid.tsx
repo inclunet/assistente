@@ -67,7 +67,7 @@ export interface DataGridProps<T = unknown> {
 export function DataGrid<T = unknown>({
   items,
   columns,
-  label = 'Grid de dados',
+  label,
   autoFocusOnMount = true,
   getItemId = (item: T) => (item as { id?: string | number }).id ?? '',
   selectedIds,
@@ -90,6 +90,7 @@ export function DataGrid<T = unknown>({
   getRowActions,
 }: DataGridProps<T>) {
   const { t } = useTranslation();
+  const gridLabel = label ?? t('ui.dataGrid.defaultLabel');
   const { announce: announceGlobally } = useAnnouncer();
   // Foco lazy: começa em -1 (nenhuma linha focada).
   // Só inicializa quando o grid recebe foco real do usuário.
@@ -460,7 +461,7 @@ export function DataGrid<T = unknown>({
     openContextMenuAtPoint(
       event.clientX,
       event.clientY,
-      label,
+      gridLabel,
       actions,
       cellElement ?? (event.currentTarget as HTMLElement)
     );
@@ -634,7 +635,7 @@ export function DataGrid<T = unknown>({
             const cellKey = `${focusedRow}-${focusedCol}`;
             const cellElement = cellRefs.current.get(cellKey);
             if (cellElement) {
-              openContextMenuForTrigger(cellElement, colEnter.actionLabel || label, actions);
+              openContextMenuForTrigger(cellElement, colEnter.actionLabel || gridLabel, actions);
             }
           }
           return;
@@ -834,7 +835,7 @@ export function DataGrid<T = unknown>({
             const cellKey = `${focusedRow}-${focusedCol}`;
             const cellElement = cellRefs.current.get(cellKey);
             if (cellElement) {
-              openContextMenuForTrigger(cellElement, label, actions);
+              openContextMenuForTrigger(cellElement, gridLabel, actions);
             }
           }
         }
@@ -849,7 +850,7 @@ export function DataGrid<T = unknown>({
             const cellKey = `${focusedRow}-${focusedCol}`;
             const cellElement = cellRefs.current.get(cellKey);
             if (cellElement) {
-              openContextMenuForTrigger(cellElement, label, actions);
+              openContextMenuForTrigger(cellElement, gridLabel, actions);
             }
           }
         }
@@ -971,7 +972,7 @@ export function DataGrid<T = unknown>({
             if (column.key === 'actions' && getRowActions) {
               const actions = normalizeRowActions(getRowActions(item));
               if (actions.length > 0) {
-                openContextMenuForTrigger(e.currentTarget, column.actionLabel || label, actions);
+                openContextMenuForTrigger(e.currentTarget, column.actionLabel || gridLabel, actions);
               }
               return;
             }
@@ -999,6 +1000,24 @@ export function DataGrid<T = unknown>({
   }
 
   const gridAriaRowCount = showHeader ? rowCount + 1 : rowCount;
+  const hasRowActions = !!getRowActions && items.some((item) => getRowActions(item).length > 0);
+  const enterActivates = !!onActivate || columns.some((column) =>
+    (column.key === 'actions' && hasRowActions) ||
+    ((column.action || column.keyboardAction) && !!onCellAction),
+  );
+  const instructions = [
+    `${t('ui.dataGrid.descPrefix')} ${rowCount} ${t('ui.dataGrid.descRows')} ${columnCount} ${t('ui.dataGrid.descCols')}`,
+    t('ui.dataGrid.hintArrowV'),
+    t('ui.dataGrid.hintArrowH'),
+    enterActivates ? t('ui.dataGrid.hintEnter') : null,
+    isCheckboxMode ? t('ui.dataGrid.hintSpace') : isMultiSelect ? t('ui.dataGrid.hintCtrlSpace') : null,
+    hasRowActions ? t('ui.dataGrid.hintContextMenu') : null,
+    isMultiSelect ? t('ui.dataGrid.hintCtrlA') : null,
+    onMoveItem ? t('ui.dataGrid.hintAltArrow') : null,
+    onDelete ? t('ui.dataGrid.hintDelete') : null,
+    columns.some((column) => column.editable && !column.action) ? t('ui.dataGrid.hintF2') : null,
+    isMultiSelect ? t('ui.dataGrid.hintEscape') : null,
+  ].filter((instruction): instruction is string => !!instruction).join(' ');
 
   return (
     <>
@@ -1006,7 +1025,7 @@ export function DataGrid<T = unknown>({
         ref={gridRef}
         className={`datagrid-container${isCheckboxMode ? ' datagrid-container--checkbox' : ''}${className ? ` ${className}` : ''}`}
         role="grid"
-        aria-label={label}
+        aria-label={gridLabel}
         aria-rowcount={gridAriaRowCount}
         aria-colcount={columnCount}
         aria-describedby={instructionsId}
@@ -1029,20 +1048,7 @@ export function DataGrid<T = unknown>({
           }
         }}
       >
-      <div id={instructionsId} className="sr-only">
-        Grade de dados com {rowCount} linhas e {columnCount} colunas.
-        Use as setas verticais para navegar entre linhas.
-        Use as setas horizontais para navegar entre colunas.
-        Pressione Enter para ativar um item.
-        {isCheckboxMode
-          ? 'Pressione Espaço para marcar ou desmarcar. '
-          : 'Pressione Ctrl+Espaço para marcar ou desmarcar. '}
-        {isMultiSelect && 'Pressione Ctrl+A para selecionar todos. '}
-        {onMoveItem && 'Pressione Alt+Seta para mover o item. '}
-        {onDelete && 'Pressione Delete para remover. '}
-        Pressione F2 para editar.
-        Pressione Escape para limpar a seleção.
-      </div>
+      <div id={instructionsId} className="sr-only">{instructions}</div>
       {showHeader && (
         <div className="datagrid-header" role="row" aria-rowindex={1}>
           {columns.map((column, colIndex) => (

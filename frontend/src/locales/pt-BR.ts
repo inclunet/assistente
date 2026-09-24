@@ -2763,6 +2763,7 @@ const ptBR = {
         hintArrowV: 'Use as setas verticais para navegar entre linhas.',
         hintArrowH: 'Use as setas horizontais para navegar entre colunas.',
         hintEnter: 'Pressione Enter para ativar um item.',
+        hintContextMenu: 'Pressione Shift+F10 ou a tecla de menu para abrir as ações da linha.',
         hintSpace: 'Pressione Espaço para marcar ou desmarcar.',
         hintCtrlSpace: 'Pressione Ctrl+Espaço para marcar ou desmarcar.',
         hintCtrlA: 'Pressione Ctrl+A para selecionar todos.',
