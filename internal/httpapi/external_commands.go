@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"assistente/internal/auth"
 	"assistente/internal/commandexecution"
@@ -17,6 +18,14 @@ type externalCommandResponse struct {
 	Status        string          `json:"status"`
 	ResultSummary *string         `json:"resultSummary"`
 	Result        json.RawMessage `json:"result,omitempty"`
+}
+
+type externalUICommandRequest struct {
+	commandexecution.EnvelopeCandidate
+	ConnectionID     string `json:"connectionId,omitempty"`
+	Generation       string `json:"generation,omitempty"`
+	TargetSnapshotID string `json:"targetSnapshotId,omitempty"`
+	ContextVersion   string `json:"contextVersion,omitempty"`
 }
 
 func (s *Server) externalCommandService(w http.ResponseWriter, r *http.Request) (*commandexecution.ExternalService, bool) {
@@ -32,7 +41,7 @@ func (s *Server) externalCommandService(w http.ResponseWriter, r *http.Request) 
 		http.NotFound(w, r)
 		return nil, false
 	}
-	service := s.externalCommands[source]
+	service := s.externalCommandServiceFor(source)
 	if service == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execução externa indisponível"})
 		return nil, false
@@ -59,10 +68,46 @@ func (s *Server) handleExternalCommandExecute(w http.ResponseWriter, r *http.Req
 		return
 	}
 	var candidate commandexecution.EnvelopeCandidate
-	if !decodeExternalIdentity(w, r, &candidate) {
-		return
+	var record commandledger.FullRecord
+	var result json.RawMessage
+	var err error
+	if r.PathValue("source") == "ui" {
+		var request externalUICommandRequest
+		if !decodeExternalIdentity(w, r, &request) {
+			return
+		}
+		provided := []string{request.ConnectionID, request.Generation, request.TargetSnapshotID, request.ContextVersion}
+		count := 0
+		for _, value := range provided {
+			if value != "" {
+				count++
+			}
+		}
+		if count != 0 && count != len(provided) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "contexto de interface inválido"})
+			return
+		}
+		candidate = request.EnvelopeCandidate
+		if !s.setExternalCommandWriteDeadline(w) {
+			return
+		}
+		if count == 0 {
+			record, result, err = service.ExecuteEnvelopeWithResult(r.Context(), token, candidate)
+		} else {
+			record, result, err = service.ExecuteEnvelopeWithExternalUI(r.Context(), token, candidate, commandexecution.ExternalUIBinding{
+				ConnectionID: request.ConnectionID, Generation: request.Generation,
+				TargetSnapshotID: request.TargetSnapshotID, ContextVersion: request.ContextVersion,
+			})
+		}
+	} else {
+		if !decodeExternalIdentity(w, r, &candidate) {
+			return
+		}
+		if !s.setExternalCommandWriteDeadline(w) {
+			return
+		}
+		record, result, err = service.ExecuteEnvelopeWithResult(r.Context(), token, candidate)
 	}
-	record, result, err := service.ExecuteEnvelopeWithResult(r.Context(), token, candidate)
 	if err != nil {
 		writeExternalCommandError(r.Context(), w, err)
 		return
@@ -73,6 +118,20 @@ func (s *Server) handleExternalCommandExecute(w http.ResponseWriter, r *http.Req
 		ResultSummary: record.ResultSummary,
 		Result:        result,
 	})
+}
+
+func (s *Server) setExternalCommandWriteDeadline(w http.ResponseWriter) bool {
+	if s == nil || s.externalCommandWriteTimeout <= 0 {
+		return true
+	}
+	err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(s.externalCommandWriteTimeout))
+	if err == nil || errors.Is(err, http.ErrNotSupported) {
+		// net/http's production writer supports the controller. Lightweight
+		// test writers may not; their behavior cannot certify TCP deadlines.
+		return true
+	}
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execução externa indisponível"})
+	return false
 }
 
 func (s *Server) handleExternalCommandLookup(w http.ResponseWriter, r *http.Request) {
@@ -104,12 +163,12 @@ func (s *Server) handleExternalIdentityRevoke(w http.ResponseWriter, r *http.Req
 	}
 	// A revogação é executada pelo adapter externo para atravessar o mesmo
 	// EpochService usado pelos serviços por origem.
-	service := s.externalCommands["palette"]
+	service := s.externalCommandServiceFor("palette")
 	if service == nil {
-		service = s.externalCommands["ui"]
+		service = s.externalCommandServiceFor("ui")
 	}
 	if service == nil {
-		service = s.externalCommands["chat"]
+		service = s.externalCommandServiceFor("chat")
 	}
 	if service == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "revogação externa indisponível"})
@@ -137,6 +196,9 @@ func (s *Server) handleExternalIdentityRevoke(w http.ResponseWriter, r *http.Req
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha na operação externa"})
 		}
 		return
+	}
+	if s.externalUIConnections != nil {
+		s.externalUIConnections.RevokePrincipal(r.Context(), request.Issuer, request.Subject)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

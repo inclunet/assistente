@@ -17,7 +17,7 @@ func TestExternalAuthorizationPreservesCancellationDuringCachedValidation(t *tes
 			h := newExternalHarness(t, nil)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			bound, release, err := h.service.requestContext(ctx, "token-a")
+			bound, release, err := h.service.requestContext(ctx, "token-a", nil)
 			if err != nil {
 				t.Fatal(err)
 			}

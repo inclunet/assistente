@@ -134,7 +134,11 @@ func TestCommandProductCatalogNavigationMetadataPaletteAndKeyboard(t *testing.T)
 		if !ok {
 			t.Fatalf("comando ausente: %s", navigation.id)
 		}
-		if definition.Effect != commandcatalog.Read || definition.Decision != commandcatalog.NoDecision || definition.HandlerClassification != commandcatalog.HandlerUI || len(definition.AllowedSources) != 3 || !definition.AllowsSource(commandcatalog.Palette) || !definition.AllowsSource(commandcatalog.KeyboardLocal) || !definition.AllowsSource(commandcatalog.StreamDeck) {
+		wantSources := 3
+		if commandExternalUICommandSupported(navigation.id) {
+			wantSources++
+		}
+		if definition.Effect != commandcatalog.Read || definition.Decision != commandcatalog.NoDecision || definition.HandlerClassification != commandcatalog.HandlerUI || len(definition.AllowedSources) != wantSources || definition.AllowsSource(commandcatalog.UI) != (navigation.uiAction || commandExternalUICommandSupported(navigation.id)) || !definition.AllowsSource(commandcatalog.Palette) || !definition.AllowsSource(commandcatalog.KeyboardLocal) || !definition.AllowsSource(commandcatalog.StreamDeck) {
 			t.Fatalf("contrato de navegação inesperado: %+v", definition)
 		}
 		if definition.Persistence.Result != commandcatalog.PersistenceNever || definition.Persistence.Audit != commandcatalog.PersistenceNever {
@@ -154,15 +158,14 @@ func TestCommandProductCatalogNavigationMetadataPaletteAndKeyboard(t *testing.T)
 	}
 	for _, picker := range commandProductChatPickers {
 		wantSources := 3
-		switch picker.id {
-		case "chat.focus.input", "chat.focus.messages", "chat.message.read.open", "chat.message.menu.open", "chat.message.reasoning.toggle", "chat.message.thread.expand", "chat.message.thread.collapse":
-			wantSources = 4
+		if picker.uiAction {
+			wantSources++
 		}
 		definition, ok := registry.Lookup(picker.id)
 		if !ok {
 			t.Fatalf("picker ausente: %s", picker.id)
 		}
-		if definition.Effect != commandcatalog.Read || definition.Decision != commandcatalog.NoDecision || definition.HandlerClassification != commandcatalog.HandlerUI || !definition.Context.None || len(definition.AllowedSources) != wantSources || definition.AllowsSource(commandcatalog.UI) != (wantSources == 4) || !definition.AllowsSource(commandcatalog.Palette) || !definition.AllowsSource(commandcatalog.KeyboardLocal) || !definition.AllowsSource(commandcatalog.StreamDeck) {
+		if definition.Effect != commandcatalog.Read || definition.Decision != commandcatalog.NoDecision || definition.HandlerClassification != commandcatalog.HandlerUI || !definition.Context.None || len(definition.AllowedSources) != wantSources || definition.AllowsSource(commandcatalog.UI) != picker.uiAction || !definition.AllowsSource(commandcatalog.Palette) || !definition.AllowsSource(commandcatalog.KeyboardLocal) || !definition.AllowsSource(commandcatalog.StreamDeck) {
 			t.Fatalf("contrato de picker inesperado: %+v", definition)
 		}
 		if definition.Persistence.Arguments != commandcatalog.PersistenceNever || definition.Persistence.Result != commandcatalog.PersistenceNever || definition.Persistence.Audit != commandcatalog.PersistenceNever {

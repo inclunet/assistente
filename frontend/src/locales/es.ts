@@ -562,6 +562,23 @@ const es = {
     },
 
     commandSettings: {
+      externalConnection: {
+        title: 'Conexión de interfaz con API externa',
+        description: 'Requiere configurar previamente la API HTTP con autenticación externa. Un vínculo explícito permite solicitar navegación autorizada en esta interfaz enfocada. El destino se revalida en cada solicitud; desconectar invalida las operaciones pendientes.',
+        consent: 'Autorizo a una API externa vinculada al usuario actual a controlar esta interfaz.',
+        begin: 'Crear invitación de conexión',
+        disconnect: 'Desconectar API externa',
+        notReady: 'El servicio de conexión no está disponible en este momento.',
+        invitationLabel: 'Invitación de un solo uso',
+        invitationInstructions: 'Comparte esta invitación solo con el cliente externo autorizado. Caduca el {{expiresAt}}.',
+        invitationCannotCancel: 'Esta invitación no se puede cancelar antes de que caduque. Seguirá pendiente hasta que se acepte o venza.',
+        invitationCreated: 'Invitación de conexión creada.',
+        connected: 'Interfaz conectada a la API externa.',
+        disconnected: 'Interfaz desconectada de la API externa.',
+        expired: 'La invitación caducó. Crea otra para iniciar un nuevo vínculo.',
+        actionFailed: 'No se pudo completar la acción de conexión. Inténtalo de nuevo.',
+        state: { disconnected: 'Estado: desconectada.', waiting_claim: 'Estado: esperando que el cliente autorizado acepte la invitación.', connected: 'Estado: conectada.' },
+      },
       deepLinkNotFound: 'No hay una activación configurada para {{command}} en este ámbito.',
       presentationStates: { label: 'Estado de la tecla', hint: 'Elige la presentación predeterminada o personaliza un estado.', default: 'Predeterminado', on: 'Activado', off: 'Desactivado', waiting: 'En espera', running: 'En ejecución', succeeded: 'Completado', failed: 'Error', denied: 'Denegado', cancelled: 'Cancelado', timed_out: 'Tiempo agotado', outcome_unknown: 'Resultado desconocido', inheritance: 'Los campos sin una sustitución heredan de la presentación predeterminada.', inherit: 'Heredar valor predeterminado', unavailableIcon: 'Icono no disponible' },
       specificTab: 'Pestaña específica',

@@ -24,6 +24,7 @@ import (
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandruntime"
 	"assistente/internal/commandsecurity"
+	"assistente/internal/commandui"
 	"assistente/internal/connstatus"
 	"assistente/internal/contextprovider"
 	"assistente/internal/conversation"
@@ -126,8 +127,10 @@ type App struct {
 	commandJobAuthority     atomic.Pointer[appCommandJobAuthority]
 	commandEpochs           *commandsecurity.EpochService
 	commandEpochsErr        error
-	commandHost             *commandexecution.HostState               // protegido por authMu; bootstrap serializado
-	commandBridge           atomic.Pointer[commandbridge.Bridge]      // ponte UI/backend montada pelo bootstrap confiável
+	commandHost             *commandexecution.HostState          // protegido por authMu; bootstrap serializado
+	commandBridge           atomic.Pointer[commandbridge.Bridge] // ponte UI/backend montada pelo bootstrap confiável
+	commandExternalUI       atomic.Pointer[commandui.ExternalUIConnections]
+	commandExternalHTTP     atomic.Pointer[appExternalCommandProvider]
 	commandRegistry         *commandcatalog.Registry                  // snapshot canônico exposto para catálogo/palette; authMu
 	commandLifecycle        atomic.Pointer[commandruntime.Controller] // montagem real, sem registry global
 	commandLifecycleMount   sync.Mutex                                // serializa somente construção/publicação, nunca cleanup ou portas
@@ -1345,6 +1348,12 @@ func (a *App) waitBackground(timeout time.Duration) {
 
 // Shutdown encerra todos os serviços do app.
 func (a *App) Shutdown() {
+	// Publica inclusive o estado terminal quando nenhum vínculo foi criado:
+	// uma admissão concorrente não pode montar uma registry viva após o shutdown.
+	a.ensureExternalUIConnections().Close()
+	if externalHTTP := a.commandExternalHTTP.Load(); externalHTTP != nil {
+		externalHTTP.Close()
+	}
 	if a.decisionRepeatHotkeys != nil {
 		a.decisionRepeatHotkeys.active.Store(nil)
 	}

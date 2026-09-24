@@ -145,9 +145,91 @@ Validação manual acumulada:
 
 Para instalações com autenticação por provedor externo, o
 [cadastro administrativo de identidades](../../guias/EXTERNAL_IDENTITIES/)
-é obrigatório para o middleware HTTP: contas sem vínculo são recusadas.
-Ele não habilita o executor externo
-nesta etapa e não é necessário para os comandos do aplicativo no modo local.
+vincula o par `(iss, sub)` do provedor a uma conta local ativa. No modo
+`auth.mode=external`, o executor HTTP de comandos usa esse vínculo; não cria
+uma sessão local nem transforma o JWT externo em uma sessão do aplicativo.
+Para executar comandos, o provedor deve emitir o escopo `commands:execute`,
+esse escopo deve estar configurado entre os escopos externos obrigatórios da
+instalação, e o token externo deve declarar o papel `user` ou `admin`.
+A conta local mapeada precisa estar ativa; seu papel local não substitui os
+papéis nem os escopos do token.
+Cada comando ainda passa pela política de origem, autorização e auditoria
+própria do executor.
+
+### API externa vinculada à interface
+
+Esta integração permite que um cliente externo acione um conjunto limitado de
+ações na interface do Assistente que o próprio usuário conectou. A conexão é
+um vínculo temporário de roteamento para um destino explícito; não concede
+permissões, não substitui a autenticação do comando e não empresta a sessão
+desktop. O usuário precisa aprovar a conexão na interface e consumir o convite
+antes de usá-la. O convite expira em **2 minutos**; a conexão ativa expira em
+**45 segundos** e é renovada enquanto a interface conectada permanece ativa.
+A interface precisa estar em foco e com o destino pronto no instante da ação.
+Esse vínculo não controla outras aplicações nem autoriza efeitos em segundo
+plano sobre uma interface sem foco.
+
+Em **Configurações → Comandos e acionadores**, localize a seção de conexão
+externa, marque o consentimento e gere o convite. O destino é capturado da
+interface atual, não digitado pelo cliente externo. Copie o convite para o
+cliente autorizado e consuma-o uma única vez pelo endpoint abaixo. O convite
+pendente não possui cancelamento próprio: expira em dois minutos. Depois de
+conectado, use **Desconectar** nessa seção para encerrar o vínculo.
+
+A ampliação das origens permitidas faz parte da assinatura semântica dos
+comandos. Se você personalizou um **atalho padrão** afetado, sua alteração pode
+ficar como **Precisa de revisão**: confira-a e confirme o rebase na configuração.
+Isso não apaga a personalização nem muda as teclas padrão; evita aplicar
+silenciosamente uma alteração sobre um contrato que mudou.
+
+As chamadas abaixo usam `Authorization: Bearer <token externo>` e respostas
+`Cache-Control: no-store`. O token deve ser obtido e guardado pelo cliente de
+acordo com o provedor; não o inclua em logs, links ou registros de comando.
+
+- `POST /auth/external/ui-connections/consume` — consome o convite aprovado.
+  Corpo: `{"invitation":"<convite>"}`. A resposta fornece `connectionId`,
+  `generation`, `targetSnapshotId`, `contextVersion` e `expiresAt`.
+- `GET /auth/external/ui-connections/context?connectionId=…&generation=…` —
+  lê os identificadores opacos do contexto atual do vínculo autenticado, não
+  o conteúdo da tela nem os dados do destino. A consulta exige exatamente
+  esses dois parâmetros; a resposta contém os mesmos stamps do vínculo e o
+  prazo vigente. Mudanças de destino/contexto atualizam os stamps, portanto
+  o cliente deve usar o conjunto mais recente.
+- `POST /commands/ui/execute` — envia a intenção de comando. O corpo contém
+  `invocation_id`, `correlation_id`, `arguments` e `command_id`.
+  O ingresso produtivo atual aceita seleção direta do comando: não envie
+  `trigger_type`, `trigger_spec` nem `workspace_id`. O destino vinculado é
+  resolvido pelo host, não por um workspace arbitrário no pedido. Para
+  uma ação vinculada à interface, inclua também o conjunto completo
+  `connectionId`, `generation`, `targetSnapshotId` e `contextVersion`
+  devolvido pelo endpoint de contexto; os quatro campos devem ser enviados
+  juntos. Omiti-los permite somente comandos compatíveis com execução sem UI:
+  leitura interna/backend sem decisão, contexto ou alvo mutável. Envie apenas
+  argumentos definidos pelo comando. A resposta contém
+  `invocationId`, `status`, `resultSummary` e, quando disponível, `result`.
+  Esse resultado completo é efêmero: não é devolvido novamente em replay.
+- `GET /commands/ui/invocations/{id}` — consulta autenticada da invocação,
+  sujeita ao mesmo proprietário e às permissões vigentes. Retorna
+  `invocationId`, `status` e `resultSummary`, mas não recupera `result`.
+
+Na integração atual da interface, o subconjunto que o dispatcher local aceita
+é navegação por rota — `navigation.workspace.open`, `navigation.history.open`,
+`navigation.memories.open`, `navigation.tasklists.open`, `navigation.jobs.open`,
+`navigation.profiles.open`, `navigation.settings.open`,
+`navigation.data.export.open`, `navigation.data.import.open`,
+`navigation.help.open` e `navigation.about.open` — e navegação entre abas do
+workspace — `workspace.tab.next`, `workspace.tab.previous` e
+`workspace.tab.first` até `workspace.tab.ninth`. Essa lista descreve o
+dispatcher da interface conectada, não uma autorização geral para qualquer
+comando. Comandos contextuais, decisões interativas e efeitos fora desse
+subconjunto não são liberados por essa integração.
+
+O estado `succeeded` confirma que o handler local aceitou o efeito. Para
+navegação, isso **não** confirma que a nova rota terminou de renderizar.
+Um comando como `workspace.list` também não deve ser tratado como execução
+headless multiusuário: no estado atual, sua execução depende de um runtime de
+produto ativo associado ao mesmo usuário local vinculado. Sem esse runtime,
+ela não está disponível; o JWT, sozinho, não cria nem seleciona um workspace.
 
 ## Repetir uma decisão aberta
 

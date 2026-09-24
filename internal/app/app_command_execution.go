@@ -128,6 +128,7 @@ func closeUninstalledCommandService(service *commandexecution.Service, timeout t
 // lock. Não leem/gravam cofre ou configuração em disco. Falhas deixam o serviço
 // indisponível (HostState desabilitado/epoch esgotado), sem mudar retornos legados.
 func (a *App) resetCommandHostSession(lockVault bool) {
+	defer a.clearExternalUIConnections()
 	a.authMu.RLock()
 	state, user := a.commandHost, a.currentUserID
 	a.authMu.RUnlock()

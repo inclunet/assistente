@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 
+	"assistente/internal/commandbindings"
+	"assistente/internal/commandcatalog"
 	"assistente/internal/commandconfig"
 	"assistente/internal/commandexecution"
 )
@@ -102,47 +104,54 @@ func TestCommandKeyboardDefaultsProjectStableApplicationLayer(t *testing.T) {
 		{"builtin.keyboard.ctrl-n.profiles.create.open", "keyboard.local:Control+KeyN", "profiles.create.open"},
 		{"builtin.keyboard.ctrl-n.history.workspace.open", "keyboard.local:Control+KeyN", "navigation.workspace.open"},
 	}
-	priorFingerprints := []string{
-		"6a383d004ae0c30b6ffc1382150955350e87f5963b9a4fda799f6db347686b08",
-		"535d8d2e2176eb25ccd0601919e932df5964fdb169b5be96d520244c9a798e5c",
-		"1764c41c0187d01a1264f97f2c44d3f85ef2441e7b2b0b41447c40016fbe873b",
-		"3c1c88392f8120bda3c4ceaaf20d01b63f03433792efe40b8193fee4c0f05fe8",
-		"7197326fb646bfa380eecc5b9c787ea963153002bb9242237cf9a98b4ca918b3",
-		"5952794363940195fe19e29423e3acc8cdbd9045c8fffdd4929425e661c0a3c7",
-		"60cb01660c6f08f6c562bf9b3e74dbdfb71306ca00a997d174c3c60ace8cb902",
-		"bba09d397b5758b5d0b00c997c5e80826f4717350e0e5cd4a0881abbe99efd04",
+	// Current catalog goldens: origins are executable semantics, so a catalog
+	// source-set change can require review of persisted, versioned deltas even
+	// when default IDs and actions are unchanged.
+	currentFingerprints := []string{
+		"f0fa6f64bfd8d1e7a4a63e352af0d2078c37a10b3aa2d63036245bbeaf3d6de1",
+		"6f09b2dcb2b97c06f12db3a3548977f90ab9aef8fcd8ec2f6c92d30b4b095fe8",
+		"c661f21febbda957195f76f2c21ab498016f3f5ac89bc4c533f118e6470f47a1",
+		"116c6511cdac8e0d0444cfed59f3b16d04ec79e57ed25f7e2e1a994aa49e182d",
+		"c50643345b0d5f89e28ddad7574da96abf5bcf8ca4b0074fc024cab8389a62e0",
+		"b0079bd603f3145729eeb2b9f8cfa5c6b5cf5705b2a5e4576bdb2790056070eb",
+		"634d9dc839e1c9a2ed0841b170c8072a1a5e9337fb627aafb6b9b4b78a439070",
+		"7aac6439c332bb264f5b4a91d619cb4c00654ef6d5c4945d7db5f2828c39ab46",
 		"e7fd1c4b94d730c6cc3c5fd229632f6779c10885604952d0fa7745fe655ab397",
 		"0e3eaac97830c3962b9fa65c6d9539a9cbfc163217627bfb4139f0ec413d9149",
-		"add4467c402dfe99c0cd87fdc4b34883ae0155243812a3a094594e10cb514727",
-		"0c5e4edf48be94c443d7e34d88cb73b30fbc7b13ca81c07abd2b907d44dbe057",
+		"edb59800d974b3cac7d046d2bb2e0f271cc5951e6ca2e640fc7cb167ba75d9fa",
+		"9095c043238f529fa2f610c1c3f6650d77735787f16b47aa0f8b271e810c92c5",
 		"bd38d60db2ea246d695d23afb56824210faae337160683a08abbe4cd23acc8f2",
 		"5d1ae512757aee47d2f522904b1133cedf9f4af850653be8e3e3ce2e98ed02d4",
 		"a8b3bb996160e88e8d5290c8b26cce1f96b025a0a3003a4c16f54b681c400d36",
-		"49d789e266eaa6320b97834d60880e53e0d96fb5cc1a5cad0a5a705739273045",
-		"65dc3df26fc31ccb65cd82f92b303585da0fc2a5ffbe327ad42757ac14d79655",
-		"2b1a800e8fe567cae5b9b1ee30c9ec176f086846f5230f0d7dc183e78ee12768",
-		"ae003df64903c99f03af837d50e3df8783ebc5ada4a4646c634b265c431758d8",
-		"c2d823c6889145e3b8c0b3638910d5e234512edd21fcc6540cc56e37b10038fa",
-		"735e9006b3f198f4b3c2ea6dd2fba96ebfe252b6821e2bdc7ad707b1d2465cc6",
-		"0f76635994d1ad8b8afd127f626d65c45813bb836ce1ae37a54c15579a0e7f4e",
-		"ca3ed06d6707393a5c311be2ea2ad9eb6b56ec01c1f2067104b7fdb38f941379",
-		"388d7be8938815f8b02caf78d37ae3f2e681a099d701f0d013c7390934a43215",
-		"500424e6de0ae082b51c05f6cfc09e07a32957eaf2a6223bb2de481b709ddf3f",
-		"a202896b16e4f78645739af30793950f08aede640340c4ac0116ea021a05801f",
-		"f716df58a29b36c32c9916d04c10f615ca5c2ffb326914d6cb242aca6e070e02",
-		"d7621e95df1232bd5df3941cba6ccb70a1bd1d2c5c72546c40cfab9ee762baab",
+		"cbe8da419b54b1353ea82ed8189abff5e1ed0e7c5c96675eee7cf6dd883b126c",
+		"c3a268351c43b6a3eb24d7645cb097fc643d7d339675fb87ff327ddc4f7e7f3b",
+		"d5be823c7ee0d45f9b4775cfc287169d788d0f96dddb8f757f1bed7ab2f12df1",
+		"fbbe6ac7e365c088ba460b98bb41bd603807aa26dd10142bde103ae3d0996e60",
+		"31e09486cf6f6a0678df523037ed506b396f791f53f8ff951dc2b55ffcd26e0a",
+		"5c89d9d0e0e3f7933dc1f6d3464cafbd63ae8491a24ca1701bf2dcd1644e59a5",
+		"8a974532a43fcc690350e559a0244ce585f88301a89076efa7fdf8db2caf2516",
+		"85831b293358dec612c4b81da74daecc466e7d41edbacccef10a2465c1822752",
+		"d7dc7dd258348e87a0af41296b8a305bcbd27c094c664c3fe32b50e06f64c355",
+		"385a1a9869eac1d7f0d819756f349db17ccbd79c70691fc02d1d303ccdc98666",
+		"361d2fa0bbb4441d2cb54ebce5cb230c22b4cbb5ff23d1ebe28b5121cb0845ef",
+		"9000d08ac375c2fe8578a0549b2eff760908be9349055d79cd9224b688e08a65",
+		"7f97770d566f6b2f2b0cf2f2a0cf9d7c9d9a5cee4a8747b144aa9e28421425d9",
 	}
-	const f1Fingerprint = "826a64178fb907dff01436d53236f3b03c82a3d66970de504c873c6ae17a92f6"
+	const f1Fingerprint = "4afa3ec87589cfb28dba7578b6239769d7d3505d7095a43d0c3c70ad4198fd6c"
 	for i, expected := range want {
 		got := keyboardLayer.Defaults[i]
 		if got.Candidate.ID != expected.id || got.Candidate.Trigger != expected.trigger || got.Candidate.CommandID != expected.command || got.Version != "1" || got.Fingerprint == "" {
 			t.Fatalf("default %d = %+v, want %+v", i, got, expected)
 		}
-		if i < len(priorFingerprints) && got.Fingerprint != priorFingerprints[i] {
-			t.Fatalf("fingerprint legado %d mudou: got %s want %s", i, got.Fingerprint, priorFingerprints[i])
+		if i < len(currentFingerprints) {
+			if got.Fingerprint != currentFingerprints[i] {
+				t.Errorf("golden atual de fingerprint %d (%s): got %s want %s", i, got.Candidate.CommandID, got.Fingerprint, currentFingerprints[i])
+			}
 		}
-		if expected.command == "navigation.help.open" && got.Fingerprint != f1Fingerprint {
-			t.Fatalf("fingerprint F1 mudou: got %s want %s", got.Fingerprint, f1Fingerprint)
+		if expected.command == "navigation.help.open" {
+			if got.Fingerprint != f1Fingerprint {
+				t.Errorf("golden atual F1 mudou: got %s want %s", got.Fingerprint, f1Fingerprint)
+			}
 		}
 	}
 	sequenceWant := []struct {
@@ -172,6 +181,78 @@ func TestCommandKeyboardDefaultsProjectStableApplicationLayer(t *testing.T) {
 		if item.Fingerprint == "" {
 			t.Fatalf("fingerprint de paleta ausente: %+v", item)
 		}
+	}
+}
+
+func TestCommandKeyboardDefaultFingerprintIncludesAllowedSources(t *testing.T) {
+	candidate := commandbindings.Candidate{ID: "builtin.keyboard.test", Trigger: "keyboard.local:Alt+KeyW", CommandID: "navigation.workspace.open", Enabled: true, LayerActive: true}
+	base := commandcatalog.Definition{ID: candidate.CommandID, AllowedSources: []commandcatalog.Source{commandcatalog.KeyboardLocal}}
+	withUI := commandcatalog.Definition{ID: candidate.CommandID, AllowedSources: []commandcatalog.Source{commandcatalog.KeyboardLocal, commandcatalog.UI}}
+	withoutUIFingerprint, err := commandKeyboardDefaultFingerprint(candidate, base, commandKeyboardLayerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withUIFingerprint, err := commandKeyboardDefaultFingerprint(candidate, withUI, commandKeyboardLayerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withUIFingerprint == withoutUIFingerprint {
+		t.Fatal("mudança em origens permitidas não alterou fingerprint semântico")
+	}
+}
+
+func TestOldKeyboardDeltasRequireReviewAfterAllowedSourcesChange(t *testing.T) {
+	a, _ := settingsSecurityFixture(t)
+	p := a.commandProduct.Load()
+	projection, err := commandProductProjection(p.registry, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var base commandbindings.Default
+	for _, layer := range projection.BuiltinLayers {
+		if layer.ID != commandKeyboardLayerID {
+			continue
+		}
+		for _, candidate := range layer.Defaults {
+			if candidate.Candidate.ID == "builtin.keyboard.alt-w.navigation.workspace.open" {
+				base = candidate
+				break
+			}
+		}
+	}
+	if base.Candidate.ID == "" || base.Fingerprint == "6a383d004ae0c30b6ffc1382150955350e87f5963b9a4fda799f6db347686b08" {
+		t.Fatalf("default atual ausente ou fingerprint não versionado: %+v", base)
+	}
+
+	for _, test := range []struct {
+		name   string
+		effect commandbindings.DeltaEffect
+		cmd    string
+		args   string
+	}{
+		{name: "override", effect: commandbindings.Execute, cmd: base.Candidate.CommandID, args: "{}"},
+		{name: "suppression", effect: commandbindings.Suppress},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			delta := commandbindings.Delta{
+				ID: "old-keyboard-delta", DefaultID: base.Candidate.ID, DefaultVersion: base.Version,
+				DefaultFingerprint: "6a383d004ae0c30b6ffc1382150955350e87f5963b9a4fda799f6db347686b08",
+				Trigger:            base.Candidate.Trigger, Effect: test.effect, CommandID: test.cmd, ArgumentsKey: test.args,
+				Enabled: true, LayerActive: true, ReviewStatus: commandbindings.Active,
+			}
+			configuration, err := commandbindings.NewConfiguration([]commandbindings.Default{base}, []commandbindings.Delta{delta}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			adjustments := configuration.Adjustments()
+			if len(adjustments) != 1 || adjustments[0].ReviewStatus != commandbindings.NeedsReview || adjustments[0].Reason != "changed_default" {
+				t.Fatalf("delta antiga não marcada para revisão: %+v", adjustments)
+			}
+			resolved, err := configuration.Resolve(base.Candidate.Trigger, nil, nil)
+			if err != nil || resolved.Status != commandbindings.ReviewRequired || resolved.CommandID != "" {
+				t.Fatalf("delta antiga restaurou override/supressão sem revisão: result=%+v err=%v", resolved, err)
+			}
+		})
 	}
 }
 

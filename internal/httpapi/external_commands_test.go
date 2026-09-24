@@ -207,6 +207,32 @@ func newHTTPCommandFixture(t *testing.T, waitInQueue bool) *httpCommandFixture {
 
 func httpStringPtr(value string) *string { return &value }
 
+type externalWriteDeadlineRecorder struct {
+	http.ResponseWriter
+	deadline time.Time
+}
+
+func (w *externalWriteDeadlineRecorder) SetWriteDeadline(deadline time.Time) error {
+	w.deadline = deadline
+	return nil
+}
+
+func TestExternalCommandWriteDeadlineIsPerHandlerAndBounded(t *testing.T) {
+	const timeout = 3 * time.Minute
+	server := &Server{externalCommandWriteTimeout: timeout}
+	writer := &externalWriteDeadlineRecorder{ResponseWriter: httptest.NewRecorder()}
+	before := time.Now()
+	if !server.setExternalCommandWriteDeadline(writer) {
+		t.Fatal("configured response deadline rejected")
+	}
+	if writer.deadline.Before(before.Add(timeout)) || writer.deadline.After(time.Now().Add(timeout)) {
+		t.Fatalf("unexpected per-handler write deadline: %s", writer.deadline)
+	}
+	if server := (&Server{}); !server.setExternalCommandWriteDeadline(httptest.NewRecorder()) {
+		t.Fatal("unset per-handler timeout should leave the global server deadline unchanged")
+	}
+}
+
 func httpNewUUID() string {
 	id, err := uuid.NewV7()
 	if err != nil {

@@ -30,6 +30,8 @@ export function BeginContextualPaletteUICommand(arg1:string,arg2:string,arg3:app
 
 export function BeginEditorMermaidUIKey(arg1:string,arg2:app.LocalCommandShortcut,arg3:boolean):Promise<commandui.Reservation>;
 
+export function BeginExternalUIConnection(arg1:commandui.ExternalUIDestination):Promise<commandui.ExternalUIInvitation>;
+
 export function BeginLocalCommandUIKey(arg1:string,arg2:app.LocalCommandShortcut,arg3:boolean):Promise<commandui.Reservation>;
 
 export function BeginUICommand(arg1:string):Promise<commandui.Reservation>;
@@ -56,6 +58,8 @@ export function CommitChatMessageCommand(arg1:string,arg2:string):Promise<void>;
 
 export function CommitWorkspaceTabCommand(arg1:string,arg2:string):Promise<void>;
 
+export function CompleteExternalUICommand(arg1:app.ExternalUICommandCompletion):Promise<app.ExternalUICommandAck>;
+
 export function CompleteUICommand(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function Context():Promise<context.Context>;
@@ -63,6 +67,8 @@ export function Context():Promise<context.Context>;
 export function CreateAdminUser(arg1:app.CreateAdminRequest):Promise<database.User>;
 
 export function DeleteCommandBinding(arg1:string):Promise<app.CommandSettingsMutation>;
+
+export function DisconnectExternalUIConnection(arg1:commandui.ExternalUILease):Promise<void>;
 
 export function DispatchContextualLocalCommandKey(arg1:string,arg2:app.LocalCommandShortcut,arg3:string,arg4:boolean,arg5:app.LocalCommandKeyboardContext):Promise<app.CommandExecutionResult>;
 
@@ -96,6 +102,8 @@ export function GetVaultIntegrityStatus():Promise<credentials.VaultIntegrityStat
 
 export function HasMasterKey():Promise<boolean>;
 
+export function HeartbeatExternalUIConnection(arg1:commandui.ExternalUILease):Promise<commandui.ExternalUIConnectionStatus>;
+
 export function Login(arg1:app.LoginRequest):Promise<app.AuthUser>;
 
 export function Logout(arg1:app.LogoutRequest):Promise<void>;
@@ -121,6 +129,10 @@ export function PreparePageMutationCommand(arg1:string,arg2:app.CommandPageMutat
 export function PrepareTerminalInterruptCommand(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 
 export function PrepareTerminalSessionCommand(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function PublishExternalUIContext(arg1:commandui.ExternalUIContextPublication):Promise<commandui.ExternalUIConnectionStatus>;
+
+export function ReadExternalUIConnection():Promise<commandui.ExternalUIConnectionStatus>;
 
 export function ReadProfileCommandTarget(arg1:string):Promise<app.CommandProfileTarget>;
 
@@ -155,6 +167,8 @@ export function ShowWindow():Promise<void>;
 export function Shutdown():Promise<void>;
 
 export function StartupWithAdapters(arg1:context.Context,arg2:ports.Emitter,arg3:ports.WindowPort,arg4:ports.SystemDialogPort):Promise<void>;
+
+export function TakeExternalUICommand(arg1:app.ExternalUICommandRequest):Promise<commandui.ExternalUIHandoff>;
 
 export function TakeGlobalVoiceCommand(arg1:string):Promise<app.GlobalVoiceHandoff>;
 

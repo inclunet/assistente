@@ -82,7 +82,7 @@ func commandLocalUIRegistrations(items []commandUINavigation, ptCategory, enCate
 	registrations := make([]commandcatalog.Registration, 0, len(items))
 	for _, item := range items {
 		sources := []commandcatalog.Source{commandcatalog.Palette, commandcatalog.KeyboardLocal, commandcatalog.StreamDeck}
-		if item.uiAction {
+		if item.uiAction || commandExternalUICommandSupported(item.id) {
 			sources = append(sources, commandcatalog.UI)
 		}
 		contract := commandcatalog.HandlerContract{Effect: commandcatalog.Read, Route: item.route, Classification: commandcatalog.HandlerUI}
@@ -103,6 +103,26 @@ func commandLocalUIRegistrations(items []commandUINavigation, ptCategory, enCate
 		})
 	}
 	return registrations
+}
+
+// Este allowlist espelha o dispatcher externo do Topbar: somente as rotas
+// declaradas em commandNavigation.ts e a navegação de abas têm executor ali.
+// Comandos com handlers locais/contextuais continuam fora de AllowedSources UI
+// até que o dispatcher os aceite explicitamente.
+func commandExternalUICommandSupported(commandID string) bool {
+	switch commandID {
+	case "navigation.workspace.open", "navigation.history.open", "navigation.memories.open",
+		"navigation.tasklists.open", "navigation.jobs.open", "navigation.profiles.open",
+		"navigation.settings.open", "navigation.data.export.open", "navigation.data.import.open",
+		"navigation.help.open", "navigation.about.open",
+		commandWorkspaceTabNextID, commandWorkspaceTabPreviousID, commandWorkspaceTabFirstID,
+		commandWorkspaceTabSecondID, commandWorkspaceTabThirdID, commandWorkspaceTabFourthID,
+		commandWorkspaceTabFifthID, commandWorkspaceTabSixthID, commandWorkspaceTabSeventhID,
+		commandWorkspaceTabEighthID, commandWorkspaceTabNinthID:
+		return true
+	default:
+		return false
+	}
 }
 
 // O foco é uma capacidade síncrona exclusivamente visual: o backend registra a

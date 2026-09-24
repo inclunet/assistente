@@ -9,10 +9,14 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandbridge"
+	"assistente/internal/commandexecution"
+	"assistente/internal/commandui"
 	"assistente/internal/config"
 	"assistente/internal/database"
 	"assistente/internal/httpapi"
@@ -91,6 +95,7 @@ func (a *App) newHTTPAPIHandler(cfg *config.AuthConfig) (http.Handler, error) {
 	}
 	var external *auth.ExternalAuthenticator
 	var mappings *auth.ExternalIdentityRepository
+	var commandAuthenticator *auth.ExternalCommandAuthenticator
 	if cfg.Mode == "external" {
 		mappings = auth.NewExternalIdentityRepository(database.DB())
 		external = auth.NewExternalAuthenticator(auth.ExternalAuthConfig{
@@ -98,6 +103,8 @@ func (a *App) newHTTPAPIHandler(cfg *config.AuthConfig) (http.Handler, error) {
 			JWKSURL: cfg.External.JWKSURL, AllowedAlgorithms: cfg.External.AllowedAlgorithms,
 			RequiredScopes: cfg.External.RequiredScopes, RoleClaim: cfg.External.RoleClaim,
 		})
+		commandAuthenticator = auth.NewExternalCommandAuthenticator(external, mappings)
+		commandAuthenticator.SetReadiness(mappings.CheckReadiness)
 	}
 	var admin *auth.ExternalIdentityAdminService
 	if external != nil && len(cfg.External.IdentityAdminScopes) > 0 {
@@ -110,11 +117,169 @@ func (a *App) newHTTPAPIHandler(cfg *config.AuthConfig) (http.Handler, error) {
 			return nil, fmt.Errorf("configurar cadastro de identidades externas: %w", err)
 		}
 	}
+	var externalCommandProvider httpapi.ExternalCommandProvider
+	var externalUIConnections httpapi.ExternalUIConnectionPort
+	if commandAuthenticator != nil && admin != nil && hasConfiguredExternalCommandScope(cfg) {
+		provider := &appExternalCommandProvider{app: a, authenticator: commandAuthenticator, admin: admin, config: cfg}
+		if previous := a.commandExternalHTTP.Swap(provider); previous != nil {
+			previous.Close()
+		}
+		externalCommandProvider = provider
+		externalUIConnections = &appExternalUIConnectionPort{app: a, manager: a.ensureExternalUIConnections()}
+	}
 	return httpapi.New(httpapi.Config{
 		Vault: a.vaultSvc, IDs: a.identitySvc, Sessions: a.currentSessionService,
 		Mode: cfg.Mode, External: external, ExternalIdentityAdmin: admin,
-		ExternalIdentities: mappings,
+		ExternalIdentities: mappings, ExternalCommandProvider: externalCommandProvider, ExternalUIConnections: externalUIConnections,
+		ExternalCommandWriteTimeout: externalCommandHTTPExecutionTimeout + externalCommandHTTPWriteMargin,
 	}).Handler(), nil
+}
+
+type appExternalCommandProvider struct {
+	mu            sync.Mutex
+	app           *App
+	authenticator *auth.ExternalCommandAuthenticator
+	admin         *auth.ExternalIdentityAdminService
+	config        *config.AuthConfig
+	product       *commandProductRuntime
+	service       *commandexecution.ExternalService
+	initialized   bool
+	closed        bool
+}
+
+func (p *appExternalCommandProvider) ExternalCommandService(source string) *commandexecution.ExternalService {
+	if p == nil || source != "ui" || p.app == nil {
+		return nil
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return nil
+	}
+	product := p.app.commandProduct.Load()
+	if p.initialized && p.product == product && p.service != nil {
+		service := p.service
+		p.mu.Unlock()
+		return service
+	}
+	var next *commandexecution.ExternalService
+	if product != nil {
+		next, _ = p.app.newExternalUICommandExecutor(product, p.authenticator, p.admin, p.config)
+		if p.app.commandProduct.Load() != product || !product.dependenciesMatch(p.app) {
+			if next != nil {
+				closeExternalCommandService(next)
+			}
+			next = nil
+		}
+	}
+	previous := p.service
+	p.product, p.service, p.initialized = product, next, true
+	p.mu.Unlock()
+	if previous != nil && previous != next {
+		closeExternalCommandService(previous)
+	}
+	return next
+}
+
+func (p *appExternalCommandProvider) Close() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return
+	}
+	p.closed = true
+	service := p.service
+	p.service = nil
+	p.mu.Unlock()
+	if service != nil {
+		closeExternalCommandService(service)
+	}
+}
+
+func closeExternalCommandService(service *commandexecution.ExternalService) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_ = service.Shutdown(ctx)
+}
+
+type appExternalUIConnectionPort struct {
+	app     *App
+	manager *commandui.ExternalUIConnections
+}
+
+func (p *appExternalUIConnectionPort) validate(ctx context.Context, principal auth.ExternalCommandPrincipal) (commandbridge.Owner, commandui.ExternalUIPrincipal, error) {
+	if p == nil || p.app == nil || p.manager == nil || ctx == nil || ctx.Err() != nil {
+		if ctx != nil && ctx.Err() != nil {
+			return commandbridge.Owner{}, commandui.ExternalUIPrincipal{}, ctx.Err()
+		}
+		return commandbridge.Owner{}, commandui.ExternalUIPrincipal{}, httpapi.ErrExternalUIConnectionUnavailable
+	}
+	product := p.app.commandProduct.Load()
+	if product == nil || principal.UserID == "" || principal.UserID != product.principal.UserID || !product.dependenciesMatch(p.app) {
+		return commandbridge.Owner{}, commandui.ExternalUIPrincipal{}, httpapi.ErrExternalUIConnectionUnavailable
+	}
+	current, err := product.sessionSvc.RevalidateLocalSession(ctx, product.principal)
+	if err != nil {
+		return commandbridge.Owner{}, commandui.ExternalUIPrincipal{}, err
+	}
+	if current != product.principal {
+		return commandbridge.Owner{}, commandui.ExternalUIPrincipal{}, commandexecution.ErrDenied
+	}
+	versions, err := product.host.Snapshot(ctx, product.principal)
+	if err != nil {
+		return commandbridge.Owner{}, commandui.ExternalUIPrincipal{}, err
+	}
+	if !versions.Unlocked {
+		return commandbridge.Owner{}, commandui.ExternalUIPrincipal{}, commandexecution.ErrDenied
+	}
+	if p.app.commandProduct.Load() != product || !product.dependenciesMatch(p.app) {
+		return commandbridge.Owner{}, commandui.ExternalUIPrincipal{}, commandexecution.ErrStale
+	}
+	owner := product.owner()
+	identity := commandui.ExternalUIPrincipal{Issuer: principal.Issuer, Subject: principal.Subject, UserID: principal.UserID, AuthContextID: principal.AuthContextID}
+	return owner, identity, nil
+}
+
+func (p *appExternalUIConnectionPort) ConsumeInvitation(ctx context.Context, invitation string, principal auth.ExternalCommandPrincipal) (httpapi.ExternalUIConnectionContext, error) {
+	owner, identity, err := p.validate(ctx, principal)
+	if err != nil {
+		return httpapi.ExternalUIConnectionContext{}, err
+	}
+	product := p.app.commandProduct.Load()
+	if product == nil || product.owner() != owner {
+		return httpapi.ExternalUIConnectionContext{}, commandexecution.ErrStale
+	}
+	product.mu.Lock()
+	defer product.mu.Unlock()
+	if product.closed || p.app.commandProduct.Load() != product {
+		return httpapi.ExternalUIConnectionContext{}, commandexecution.ErrStale
+	}
+	status, err := p.manager.Claim(invitation, identity)
+	if err != nil {
+		return httpapi.ExternalUIConnectionContext{}, commandexecution.ErrDenied
+	}
+	return httpapi.ExternalUIConnectionContext{ConnectionID: status.ConnectionID, Generation: status.Generation, TargetSnapshotID: status.TargetSnapshotID, ContextVersion: status.ContextVersion, ExpiresAt: status.ExpiresAt}, nil
+}
+
+func (p *appExternalUIConnectionPort) ReadConnection(ctx context.Context, principal auth.ExternalCommandPrincipal, connectionID, generation string) (httpapi.ExternalUIConnectionContext, error) {
+	owner, identity, err := p.validate(ctx, principal)
+	if err != nil {
+		return httpapi.ExternalUIConnectionContext{}, err
+	}
+	status, err := p.manager.ReadForPrincipal(identity, connectionID, generation)
+	if err != nil || status.Owner != owner {
+		return httpapi.ExternalUIConnectionContext{}, commandexecution.ErrDenied
+	}
+	return httpapi.ExternalUIConnectionContext{ConnectionID: status.ConnectionID, Generation: status.Generation, TargetSnapshotID: status.TargetSnapshotID, ContextVersion: status.ContextVersion, ExpiresAt: status.ExpiresAt}, nil
+}
+
+func (p *appExternalUIConnectionPort) RevokePrincipal(_ context.Context, issuer, subject string) {
+	if p != nil && p.manager != nil {
+		p.manager.RevokePrincipal(issuer, subject)
+	}
 }
 
 // guardDevInsecure aplica heurísticas para evitar que dev_insecure=true

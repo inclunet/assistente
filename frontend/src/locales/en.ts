@@ -563,6 +563,23 @@ const en = {
     },
 
     commandSettings: {
+      externalConnection: {
+        title: 'External API interface connection',
+        description: 'Requires the HTTP API with external authentication to be configured first. An explicit link allows authorized navigation in this focused interface. The destination is revalidated for every request; disconnecting invalidates pending operations.',
+        consent: 'I authorize an external API linked to the current user to control this interface.',
+        begin: 'Create connection invitation',
+        disconnect: 'Disconnect external API',
+        notReady: 'The connection service is not available right now.',
+        invitationLabel: 'Single-use invitation',
+        invitationInstructions: 'Share this invitation only with the authorized external client. It expires at {{expiresAt}}.',
+        invitationCannotCancel: 'This invitation cannot be cancelled before it expires. It remains pending until claimed or expired.',
+        invitationCreated: 'Connection invitation created.',
+        connected: 'Interface connected to the external API.',
+        disconnected: 'Interface disconnected from the external API.',
+        expired: 'The invitation expired. Create another one to start a new link.',
+        actionFailed: 'The connection action could not be completed. Try again.',
+        state: { disconnected: 'Status: disconnected.', waiting_claim: 'Status: waiting for the authorized client to claim the invitation.', connected: 'Status: connected.' },
+      },
       deepLinkNotFound: 'No activation is configured for {{command}} in this scope.',
       presentationStates: { label: 'Key state', hint: 'Choose the default presentation or customize a state.', default: 'Default', on: 'On', off: 'Off', waiting: 'Waiting', running: 'Running', succeeded: 'Succeeded', failed: 'Failed', denied: 'Denied', cancelled: 'Cancelled', timed_out: 'Timed out', outcome_unknown: 'Outcome unknown', inheritance: 'Fields without an override inherit from the default presentation.', inherit: 'Inherit default', unavailableIcon: 'Icon unavailable' },
       specificTab: 'Specific tab',

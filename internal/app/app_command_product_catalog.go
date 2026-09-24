@@ -1,15 +1,10 @@
 package app
 
 import (
-	"context"
-	"encoding/json"
-	"sync"
 	"time"
 
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandexecution"
-	"assistente/internal/commandledger"
-	"github.com/google/uuid"
 )
 
 const (
@@ -220,82 +215,4 @@ func (a *App) commandProductCatalog() (*commandcatalog.Registry, map[string]comm
 		handlers[registration.Definition.ID] = commandexecution.Handler{Contract: registration.Handler, Start: a.startCommandLayerAction}
 	}
 	return registry, handlers, nil
-}
-
-func (a *App) startWorkspaceList(ctx context.Context, invocation commandexecution.Invocation) (commandexecution.ExecutionHandle, error) {
-	if ctx == nil {
-		return commandexecution.ExecutionHandle{}, commandexecution.ErrInvalidRequest
-	}
-	principal, err := a.currentCommandPrincipal()
-	if err != nil {
-		return commandexecution.ExecutionHandle{}, err
-	}
-	if principal != invocation.Principal {
-		return commandexecution.ExecutionHandle{}, commandexecution.ErrDenied
-	}
-	a.authMu.RLock()
-	manager := a.workspaceMgr
-	a.authMu.RUnlock()
-	if manager == nil {
-		return commandexecution.ExecutionHandle{}, commandexecution.ErrInvalidConfiguration
-	}
-	id, err := uuid.NewV7()
-	if err != nil {
-		return commandexecution.ExecutionHandle{}, err
-	}
-	workCtx, cancel := context.WithCancel(ctx)
-	done := make(chan commandexecution.Outcome, 1)
-	var cancelOnce sync.Once
-	go func() {
-		defer cancel()
-		if workCtx.Err() != nil {
-			done <- commandexecution.Outcome{Status: commandledger.Cancelled}
-			return
-		}
-		infos, listErr := manager.List()
-		if workCtx.Err() != nil {
-			done <- commandexecution.Outcome{Status: commandledger.Cancelled}
-			return
-		}
-		currentPrincipal, principalErr := a.currentCommandPrincipal()
-		a.authMu.RLock()
-		sameManager := a.workspaceMgr == manager
-		a.authMu.RUnlock()
-		if principalErr != nil || currentPrincipal != invocation.Principal || !sameManager {
-			done <- commandexecution.Outcome{Status: commandledger.Failed}
-			return
-		}
-		if listErr == nil {
-			result := workspaceListResult{Workspaces: make([]CommandWorkspaceMetadata, 0, len(infos))}
-			for _, info := range infos {
-				result.Workspaces = append(result.Workspaces, CommandWorkspaceMetadata{ID: info.ID, Name: info.Name, Profile: info.Profile, TabCount: info.TabCount, IsActive: info.IsActive})
-			}
-			payload, marshalErr := json.Marshal(result)
-			if marshalErr != nil {
-				done <- commandexecution.Outcome{Status: commandledger.Failed}
-				return
-			}
-			if workCtx.Err() != nil {
-				done <- commandexecution.Outcome{Status: commandledger.Cancelled}
-				return
-			}
-			select {
-			case done <- commandexecution.Outcome{Status: commandledger.Succeeded, Result: payload}:
-				return
-			case <-workCtx.Done():
-			}
-		}
-		if workCtx.Err() != nil {
-			done <- commandexecution.Outcome{Status: commandledger.Cancelled}
-			return
-		}
-		done <- commandexecution.Outcome{Status: commandledger.Failed}
-	}()
-	return commandexecution.ExecutionHandle{
-		ID:   id.String(),
-		Done: done,
-		Cancel: func() {
-			cancelOnce.Do(cancel)
-		},
-	}, nil
 }

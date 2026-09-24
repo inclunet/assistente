@@ -42,6 +42,10 @@ export function BeginEditorMermaidUIKey(arg1, arg2, arg3) {
   return window['go']['app']['App']['BeginEditorMermaidUIKey'](arg1, arg2, arg3);
 }
 
+export function BeginExternalUIConnection(arg1) {
+  return window['go']['app']['App']['BeginExternalUIConnection'](arg1);
+}
+
 export function BeginLocalCommandUIKey(arg1, arg2, arg3) {
   return window['go']['app']['App']['BeginLocalCommandUIKey'](arg1, arg2, arg3);
 }
@@ -94,6 +98,10 @@ export function CommitWorkspaceTabCommand(arg1, arg2) {
   return window['go']['app']['App']['CommitWorkspaceTabCommand'](arg1, arg2);
 }
 
+export function CompleteExternalUICommand(arg1) {
+  return window['go']['app']['App']['CompleteExternalUICommand'](arg1);
+}
+
 export function CompleteUICommand(arg1, arg2, arg3) {
   return window['go']['app']['App']['CompleteUICommand'](arg1, arg2, arg3);
 }
@@ -108,6 +116,10 @@ export function CreateAdminUser(arg1) {
 
 export function DeleteCommandBinding(arg1) {
   return window['go']['app']['App']['DeleteCommandBinding'](arg1);
+}
+
+export function DisconnectExternalUIConnection(arg1) {
+  return window['go']['app']['App']['DisconnectExternalUIConnection'](arg1);
 }
 
 export function DispatchContextualLocalCommandKey(arg1, arg2, arg3, arg4, arg5) {
@@ -174,6 +186,10 @@ export function HasMasterKey() {
   return window['go']['app']['App']['HasMasterKey']();
 }
 
+export function HeartbeatExternalUIConnection(arg1) {
+  return window['go']['app']['App']['HeartbeatExternalUIConnection'](arg1);
+}
+
 export function Login(arg1) {
   return window['go']['app']['App']['Login'](arg1);
 }
@@ -224,6 +240,14 @@ export function PrepareTerminalInterruptCommand(arg1, arg2, arg3, arg4, arg5) {
 
 export function PrepareTerminalSessionCommand(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['PrepareTerminalSessionCommand'](arg1, arg2, arg3, arg4);
+}
+
+export function PublishExternalUIContext(arg1) {
+  return window['go']['app']['App']['PublishExternalUIContext'](arg1);
+}
+
+export function ReadExternalUIConnection() {
+  return window['go']['app']['App']['ReadExternalUIConnection']();
 }
 
 export function ReadProfileCommandTarget(arg1) {
@@ -292,6 +316,10 @@ export function Shutdown() {
 
 export function StartupWithAdapters(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['StartupWithAdapters'](arg1, arg2, arg3, arg4);
+}
+
+export function TakeExternalUICommand(arg1) {
+  return window['go']['app']['App']['TakeExternalUICommand'](arg1);
 }
 
 export function TakeGlobalVoiceCommand(arg1) {

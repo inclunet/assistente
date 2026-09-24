@@ -46,8 +46,10 @@ func (a *App) observeCommandOSSession(ctx context.Context, watch func(context.Co
 	}
 	// Não reutilizar observação de uma execução anterior do monitor.
 	if err := state.SetOSSessionState(context.Background(), false, true); err != nil {
+		a.clearExternalUIConnections()
 		return err
 	}
+	a.clearExternalUIConnections()
 	// A primeira observação chega depois da montagem e pode chegar depois
 	// do bootstrap de autenticação. Unlock invalida os mapas no HostState;
 	// portanto precisa reconstruí-los, não apenas mudar o bit de segurança.
@@ -71,6 +73,7 @@ func (a *App) observeCommandOSSession(ctx context.Context, watch func(context.Co
 	}()
 	var cancelObservation context.CancelFunc
 	defer func() {
+		defer a.clearExternalUIConnections()
 		stopWorker()
 		if cancelObservation != nil {
 			cancelObservation()
@@ -83,6 +86,7 @@ func (a *App) observeCommandOSSession(ctx context.Context, watch func(context.Co
 		<-workerDone
 	}()
 	return watch(ctx, func(observed ossession.State) error {
+		defer a.clearExternalUIConnections()
 		if cancelObservation != nil {
 			cancelObservation()
 		}

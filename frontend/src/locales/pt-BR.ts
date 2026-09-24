@@ -563,6 +563,23 @@ const ptBR = {
     },
 
     commandSettings: {
+      externalConnection: {
+        title: 'Conexão de interface com API externa',
+        description: 'Requer a API HTTP com autenticação externa já configurada. Um vínculo explícito permite solicitar a navegação autorizada nesta interface em foco. O destino é revalidado em cada solicitação; desconectar invalida operações pendentes.',
+        consent: 'Autorizo uma API externa vinculada ao usuário atual a controlar esta interface.',
+        begin: 'Criar convite de conexão',
+        disconnect: 'Desconectar API externa',
+        notReady: 'O serviço de conexão não está disponível neste momento.',
+        invitationLabel: 'Convite de uso único',
+        invitationInstructions: 'Compartilhe este convite apenas com o cliente externo autorizado. Ele expira em {{expiresAt}}.',
+        invitationCannotCancel: 'Este convite não pode ser cancelado antes de expirar. O vínculo ficará pendente até ser aceito ou vencer.',
+        invitationCreated: 'Convite de conexão criado.',
+        connected: 'Interface conectada à API externa.',
+        disconnected: 'Interface desconectada da API externa.',
+        expired: 'O convite expirou. Crie outro para iniciar um novo vínculo.',
+        actionFailed: 'Não foi possível concluir a ação de conexão. Tente novamente.',
+        state: { disconnected: 'Estado: desconectada.', waiting_claim: 'Estado: aguardando o vínculo pelo cliente autorizado.', connected: 'Estado: conectada.' },
+      },
       deepLinkNotFound: 'Não há acionador configurado para {{command}} neste escopo.',
       specificTab: 'Aba específica',
       layerActionTarget: 'Camada e regra de ativação',

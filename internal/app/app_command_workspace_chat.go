@@ -197,7 +197,7 @@ func commandWorkspaceTabNavigationRegistration(commandID string) (commandcatalog
 	}
 	return commandcatalog.Definition{
 		ID: commandID, Effect: commandcatalog.Read, Decision: commandcatalog.NoDecision,
-		AllowedSources:  []commandcatalog.Source{commandcatalog.Palette, commandcatalog.KeyboardLocal, commandcatalog.StreamDeck},
+		AllowedSources:  []commandcatalog.Source{commandcatalog.Palette, commandcatalog.KeyboardLocal, commandcatalog.StreamDeck, commandcatalog.UI},
 		Context:         commandcatalog.ContextPolicy{None: true},
 		Presentation:    &commandcatalog.Presentation{Version: "workspace-tab-navigation-v1", Locales: locales},
 		ArgumentsSchema: &commandcatalog.Schema{Type: commandcatalog.SchemaObject}, ResultSchema: &commandcatalog.Schema{Type: commandcatalog.SchemaObject},

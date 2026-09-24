@@ -53,7 +53,7 @@ import { EDITOR_CELL_NAVIGATION_COMMAND_EVENT, isEditorCellNavigationCommand } f
 import { createCommandUIExecutionWailsPort } from '../../lib/commandUIExecutionWails';
 import { createCommandVoiceInputWailsPort } from '../../lib/commandVoiceInputWails';
 import { executeGlobalVoiceReservation, parseVoiceInputReservation, VOICE_INPUT_COMMAND } from '../../lib/commandVoiceInput';
-import { COMMAND_NAVIGATION_EVENT, createCommandNavigationHandlers, isCommandNavigation, isCommandNavigationRoute, isCommandNavigationTextField } from '../../lib/commandNavigation';
+import { COMMAND_NAVIGATION_EVENT, COMMAND_NAVIGATION_ROUTES, createCommandNavigationHandlers, isCommandNavigation, isCommandNavigationRoute, isCommandNavigationTextField } from '../../lib/commandNavigation';
 import { createCommandBackendExecution, type CommandBackendExecution, type WorkspaceListCommandOutput } from '../../lib/commandBackendExecution';
 import { createCommandBackendExecutionWailsPort } from '../../lib/commandBackendExecutionWails';
 import { createContextualPaletteLayerWailsPort } from '../../lib/commandContextualPaletteLayerWails';
@@ -74,6 +74,9 @@ import { captureLandmarkNavigationTarget, isLandmarkNavigationCommand, LANDMARK_
 import { captureChatNavigationTarget, isChatNavigationCommand, CHAT_NAVIGATION_COMMAND_IDS, CHAT_NAVIGATION_COMMAND_EVENT, type ChatNavigationTarget } from '../../lib/commandChatNavigation';
 import { capturePagePresentationTarget, isPagePresentationCommand, PAGE_PRESENTATION_COMMAND_IDS, PAGE_PRESENTATION_COMMAND_EVENT, type PagePresentationTarget } from '../../lib/commandPagePresentation';
 import { subscribeCommandDeckFeedback } from '../../lib/subscribeCommandDeckFeedback';
+import { createExternalUICommandDispatcher, type ExternalUICommandFrame } from '../../lib/externalUICommandDispatcher';
+import { useExternalUIConnection } from '../../services/externalUIConnectionReact';
+import type { ExternalUICommandReadyEvent } from '../../services/externalUIConnection';
 
 import { captureEditorModeTarget, isEditorModeCommand, EDITOR_MODE_COMMAND_IDS, EDITOR_MODE_COMMAND_EVENT, type EditorModeTargetLease } from '../../lib/commandEditorMode';
 import { captureEditorFileTarget, isEditorFileCommand, type EditorFileTargetLease } from '../../lib/commandEditorFile';
@@ -218,6 +221,12 @@ export function Topbar() {
   const paletteUserId = useAuthStore((s) => s.isAuthenticated ? s.user?.userId ?? '' : '');
   const commandSurfaceRef = useRef<HTMLElement>(null);
   const commandScope = useCommandContextScope();
+  const externalUIConnection = useExternalUIConnection();
+  const externalUIPendingCountRef = useRef(0);
+  const externalUIContextPublisherRef = useRef<(event?: ExternalUICommandReadyEvent) => Promise<void>>(async () => undefined);
+  const externalUIExpectedTransitionsRef = useRef(new Map<string, {
+    readonly kind: 'route'; readonly pathname: string; readonly search: string;
+  } | { readonly kind: 'tab'; readonly tabId: string }>());
   const tabCreationMenu = useWorkspaceTabCreationMenu();
   const { announce } = useAnnouncer();
   const creationPresentationRef = useRef({ locale: i18n.language, t, announce });
@@ -1788,9 +1797,11 @@ export function Topbar() {
         localKeyboardOwnerRef.current = {
           ownerId: map.ownerId!, sessionId: map.sessionId!, workspaceId: map.workspaceId!,
         };
+        void externalUIContextPublisherRef.current().catch(() => undefined);
       },
       onMapInvalidated: () => {
         clearLocalMapRefs();
+        void externalUIContextPublisherRef.current().catch(() => undefined);
       },
       onDown: async (request) => {
         if (request.shortcut.version === 2) {
@@ -2228,6 +2239,140 @@ export function Topbar() {
         } satisfies LocalCommandPaletteVisualContext,
       };
     };
+    const readExternalUIFrame = (): ExternalUICommandFrame | null => {
+      const visual = readDeckVisualSnapshot();
+      const auth = useAuthStore.getState();
+      const currentWorkspace = useWorkspaceStore.getState().workspace;
+      const mapOwner = localKeyboardOwnerRef.current;
+      if (!visual || !visual.generation || !auth.isAuthenticated || !auth.user || !currentWorkspace ||
+          visual.owner.userId !== auth.user.userId || visual.owner.sessionId !== auth.user.sessionId ||
+          visual.owner.workspaceId !== currentWorkspace.id ||
+          mapOwner?.ownerId !== auth.user.userId || mapOwner.sessionId !== auth.user.sessionId ||
+          mapOwner.workspaceId !== currentWorkspace.id || localKeyboardGenerationRef.current !== visual.generation) return null;
+      const destination = {
+        workspaceId: currentWorkspace.id,
+        ...(currentWorkspace.activeTabId ? { tabId: currentWorkspace.activeTabId } : {}),
+        surface: visual.surface,
+      };
+      return {
+        owner: { userId: auth.user.userId, sessionId: auth.user.sessionId, workspaceId: currentWorkspace.id },
+        destination,
+        localGeneration: visual.generation,
+        hasFocus: document.hasFocus(),
+      };
+    };
+    type ExternalUIExpectedTransition =
+      | { readonly kind: 'route'; readonly pathname: string; readonly search: string }
+      | { readonly kind: 'tab'; readonly tabId: string };
+    const expectedExternalUITransitions = externalUIExpectedTransitionsRef.current;
+    const externalUIService = externalUIConnection.service;
+    let externalUIEffectDisposed = false;
+    let externalUIReconcileRequested = false;
+    let externalUIReconcileRunning = false;
+    let lastExternalTargetKey: string | null = null;
+    const destinationKey = (target: ExternalUICommandFrame['destination'] | null) => target
+      ? JSON.stringify([target.workspaceId, target.tabId ?? '', target.surface.surfaceId,
+        target.surface.surfaceType, target.surface.snapshotVersion])
+      : null;
+    const reconcileExternalUIContext = async () => {
+      if (externalUIEffectDisposed || !externalUIService) return;
+      externalUIReconcileRequested = true;
+      const initialFrame = readExternalUIFrame();
+      const initialTarget = initialFrame?.destination ?? null;
+      const initialKey = destinationKey(initialTarget);
+      if (initialKey !== lastExternalTargetKey) {
+        lastExternalTargetKey = initialKey;
+        externalUIConnection.setTarget(initialTarget);
+      }
+      if (externalUIPendingCountRef.current > 0 || externalUIReconcileRunning) return;
+      externalUIReconcileRunning = true;
+      try {
+        while (externalUIReconcileRequested && !externalUIEffectDisposed && externalUIPendingCountRef.current === 0) {
+          externalUIReconcileRequested = false;
+          const frame = readExternalUIFrame();
+          const target = frame?.destination ?? null;
+          const key = destinationKey(target);
+          if (key !== lastExternalTargetKey) {
+            lastExternalTargetKey = key;
+            externalUIConnection.setTarget(target);
+          }
+          if (!target) continue;
+          const status = externalUIService.getSnapshot();
+          const statusTarget = status?.state === 'connected' ? status.target : null;
+          if (status?.state === 'connected' && destinationKey(statusTarget) !== key) {
+            try { await externalUIService.publishContext(target); } catch { /* CAS/status events trigger a fresh reconciliation. */ }
+          }
+        }
+      } finally {
+        externalUIReconcileRunning = false;
+        if (externalUIReconcileRequested && !externalUIEffectDisposed && externalUIPendingCountRef.current === 0) {
+          void reconcileExternalUIContext();
+        }
+      }
+    };
+    const publishExternalUIContextAfterCommand = async (event?: ExternalUICommandReadyEvent) => {
+      if (!event) { await reconcileExternalUIContext(); return; }
+      const expected = expectedExternalUITransitions.get(event.invocationId);
+      expectedExternalUITransitions.delete(event.invocationId);
+      if (expected?.kind === 'route') {
+        const currentURL = new URL(`${window.location.pathname}${window.location.search}`, window.location.origin);
+        if (currentURL.pathname !== expected.pathname || currentURL.search !== expected.search) {
+          externalUIReconcileRequested = false;
+          return;
+        }
+      } else if (expected?.kind === 'tab' && useWorkspaceStore.getState().workspace?.activeTabId !== expected.tabId) {
+        externalUIReconcileRequested = false;
+        return;
+      }
+      await reconcileExternalUIContext();
+    };
+    externalUIContextPublisherRef.current = publishExternalUIContextAfterCommand;
+    const externalUIDispatcher = externalUIService ? createExternalUICommandDispatcher({
+      service: externalUIService,
+      readCurrentFrame: readExternalUIFrame,
+      // Only synchronous local UI selectors are delegated; contextual and async/domain handlers stay excluded.
+      isSupported: (commandId, args) => Object.keys(args).length === 0 && isLocalUICommand(commandId) &&
+        (isCommandNavigationRoute(commandId) || isWorkspaceTabNavigationCommand(commandId)),
+      execute: (commandId, event) => {
+        let expected: ExternalUIExpectedTransition | undefined;
+        if (isCommandNavigationRoute(commandId)) {
+          const destination = new URL(COMMAND_NAVIGATION_ROUTES[commandId], window.location.origin);
+          expected = { kind: 'route', pathname: destination.pathname, search: destination.search };
+        } else if (isWorkspaceTabNavigationCommand(commandId)) {
+          const currentWorkspace = useWorkspaceStore.getState().workspace;
+          const tab = resolveWorkspaceTabNavigationTarget(currentWorkspace, commandId);
+          if (tab) expected = { kind: 'tab', tabId: tab.id };
+        }
+        const accepted = executeLocalUICommand(commandId);
+        if (accepted && expected) expectedExternalUITransitions.set(event.invocationId, expected);
+        return accepted;
+      },
+      onCommandPendingChange: pending => {
+        externalUIPendingCountRef.current = Math.max(0, externalUIPendingCountRef.current + (pending ? 1 : -1));
+      },
+      publishCurrentContext: event => externalUIContextPublisherRef.current(event),
+    }) : null;
+    const requestExternalUIContextSync = () => { void reconcileExternalUIContext(); };
+    const unsubscribeExternalUIStatus = externalUIService?.subscribe(requestExternalUIContextSync);
+    let unsubscribeExternalUIWorkspace = () => undefined as void;
+    let unsubscribeExternalUIAuth = () => undefined as void;
+    const externalUIContextChanged = () => requestExternalUIContextSync();
+    if (externalUIService) {
+      let lastActiveTabId = useWorkspaceStore.getState().workspace?.activeTabId ?? null;
+      unsubscribeExternalUIWorkspace = useWorkspaceStore.subscribe(() => {
+        const activeTabId = useWorkspaceStore.getState().workspace?.activeTabId ?? null;
+        if (activeTabId === lastActiveTabId) return;
+        lastActiveTabId = activeTabId;
+        requestExternalUIContextSync();
+      });
+      unsubscribeExternalUIAuth = useAuthStore.subscribe(requestExternalUIContextSync);
+      document.addEventListener('focusin', requestExternalUIContextSync, true);
+      document.addEventListener('focusout', requestExternalUIContextSync, true);
+      document.addEventListener('selectionchange', requestExternalUIContextSync, true);
+      window.addEventListener('focus', externalUIContextChanged, true);
+      window.addEventListener('blur', externalUIContextChanged, true);
+      requestExternalUIContextSync();
+    }
     const consumedDeckOffers = new Set<string>();
     let deckOfferGeneration: string | null = null;
     const unsubscribeDeckContextualUI = EventsOn('command:deck-contextual-ui', (payload: unknown) => {
@@ -2458,12 +2603,14 @@ export function Topbar() {
       if (event.target !== event.currentTarget || disposed) return;
       invalidateLocalPresentation();
       localKeyboardMapReadyRef.current = localKeyboard.refresh();
+      void externalUIContextPublisherRef.current().catch(() => undefined);
     };
     const cancelKeyboardOnBlur = (event: FocusEvent) => {
       if (event.target === event.currentTarget) {
         cancelCreationMenu();
         invalidateLocalPresentation();
         clearLocalMapRefs();
+        void externalUIContextPublisherRef.current().catch(() => undefined);
       }
     };
     window.addEventListener('focus', refreshKeyboardOnFocus, true);
@@ -2504,6 +2651,21 @@ export function Topbar() {
     commandUIEffectGuardRef.current = guard;
     return () => {
       disposed = true;
+      externalUIEffectDisposed = true;
+      externalUIDispatcher?.dispose();
+      unsubscribeExternalUIStatus?.();
+      unsubscribeExternalUIWorkspace();
+      unsubscribeExternalUIAuth();
+      if (externalUIService) {
+        document.removeEventListener('focusin', requestExternalUIContextSync, true);
+        document.removeEventListener('focusout', requestExternalUIContextSync, true);
+        document.removeEventListener('selectionchange', requestExternalUIContextSync, true);
+        window.removeEventListener('focus', externalUIContextChanged, true);
+        window.removeEventListener('blur', externalUIContextChanged, true);
+      }
+      if (externalUIContextPublisherRef.current === publishExternalUIContextAfterCommand) {
+        externalUIContextPublisherRef.current = async () => undefined;
+      }
       activeChatMessagingRef.current.forEach(target => target.dispose());
       activeChatMessagingRef.current.clear();
       clearPaletteChatMessaging();
@@ -2583,7 +2745,7 @@ export function Topbar() {
       pendingWorkspaceCreateTargetRef.current?.dispose();
       pendingWorkspaceCreateTargetRef.current = null;
     };
-  }, [commandOwner, workspace?.id, commandRouteIdentity, commandScope, prepareWorkspaceTabTarget, prepareWorkspaceMutationTarget, workspaceTabMutationAvailable, workspaceMutationAvailable, workspaceTabNavigationAvailable, workspacePanelFocusAvailable, executeContextualCommand, executeLocalUICommand, chatPickerAvailable, editorPresentationAvailable, tabCreationMenu, intentIsCurrent, clearPaletteEditorModeTargets, executeFileCommand, editorFileAvailable, executeFormatCommand, editorFormatAvailable, chatMessagingAvailable, runChatMessaging, clearPaletteChatMessaging, mermaidAvailable, runMermaidCommand, landmarkAvailable, presentationCommandAvailable]);
+  }, [commandOwner, workspace?.id, commandRouteIdentity, commandScope, externalUIConnection.service, externalUIConnection.setTarget, prepareWorkspaceTabTarget, prepareWorkspaceMutationTarget, workspaceTabMutationAvailable, workspaceMutationAvailable, workspaceTabNavigationAvailable, workspacePanelFocusAvailable, executeContextualCommand, executeLocalUICommand, chatPickerAvailable, editorPresentationAvailable, tabCreationMenu, intentIsCurrent, clearPaletteEditorModeTargets, executeFileCommand, editorFileAvailable, executeFormatCommand, editorFormatAvailable, chatMessagingAvailable, runChatMessaging, clearPaletteChatMessaging, mermaidAvailable, runMermaidCommand, landmarkAvailable, presentationCommandAvailable]);
 
   const runGenericPaletteCommand = useCallback(async (prompt: PaletteArgumentPrompt, args: Record<string, unknown>) => {
     const { intent } = prompt;

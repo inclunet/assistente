@@ -30,6 +30,7 @@ import { chatNoticeMessage, chatNoticeTone, type ChatNoticeEvent } from './lib/c
 import { useBackendQuestionnaire } from './hooks/useBackendQuestionnaire';
 import { AuthGate } from './components/auth/AuthGate';
 import { CommandContextProvider } from './lib/commandContextReact';
+import { ExternalUIConnectionProvider } from './services/externalUIConnectionReact';
 import { acquireGlobalCommandOwnership } from './lib/commandGlobalOwnershipWails';
 
 function useAntdLocale(lang: string): Locale | undefined {
@@ -407,7 +408,7 @@ function App() {
             <ScreenReaderAnnouncer />
             <ToastHost />
             <AuthGate>
-                <CommandContextProvider><Outlet /></CommandContextProvider>
+                <CommandContextProvider><ExternalUIConnectionProvider><Outlet /></ExternalUIConnectionProvider></CommandContextProvider>
                 <ConfirmHost />
                 <DecisionQuestionnaireHost
                     data={questionnaireData}

@@ -144,11 +144,18 @@ func (s *Service) inputFingerprint(ctx context.Context, c EnvelopeCandidate, o c
 	}
 	copyKey := append([]byte(nil), key...)
 	defer clear(copyKey)
-	raw, err := commandjson.Marshal(map[string]any{"version": 1, "candidate": c, "owner": o, "source": s.config.Source})
+	fingerprintVersion, domain := 1, "assistente.command.input.v1"
+	payload := map[string]any{"version": fingerprintVersion, "candidate": c, "owner": o, "source": s.config.Source}
+	if credential, ok := ctx.Value(externalCredentialKey{}).(externalCredential); ok && credential.binding != nil {
+		fingerprintVersion, domain = 2, "assistente.command.input.v2"
+		payload["version"] = fingerprintVersion
+		payload["external_ui"] = *credential.binding
+	}
+	raw, err := commandjson.Marshal(payload)
 	if err != nil {
 		return "", ErrInvalidRequest
 	}
-	return commandjson.HMAC(copyKey, "assistente.command.input.v1", raw)
+	return commandjson.HMAC(copyKey, domain, raw)
 }
 
 func sameEnvelopeOwner(a, b commandledger.FullOwnership) bool {
@@ -770,7 +777,10 @@ func (s *Service) ExecuteEnvelopeWithResult(ctx context.Context, token string, c
 	interactive := p.definition.Decision == commandcatalog.Interactive ||
 		(p.owner.ActorType != commandcontract.ActorUser && p.definition.MutatesEffectiveCapability)
 	if interactive {
-		if s.config.Source == commandcatalog.CLI || s.config.Source == commandcatalog.Event || s.config.Source == commandcatalog.System || p.owner.AuthContextType != commandcontract.AuthLocalSession || s.config.Envelope.Decisions == nil || s.config.Envelope.DecisionBody == nil {
+		allowedExternalUI := p.owner.AuthContextType == commandcontract.AuthExternalToken && s.config.ExternalUI != nil && s.config.ExternalUI.Validate != nil
+		if s.config.Source == commandcatalog.CLI || s.config.Source == commandcatalog.Event || s.config.Source == commandcatalog.System ||
+			(p.owner.AuthContextType != commandcontract.AuthLocalSession && !allowedExternalUI) ||
+			s.config.Envelope.Decisions == nil || s.config.Envelope.DecisionBody == nil {
 			err = finish(commandledger.Denied)
 			return record, nil, err
 		}
@@ -796,6 +806,10 @@ func (s *Service) ExecuteEnvelopeWithResult(ctx context.Context, token string, c
 			sessionID = *p.identity.WireSessionID
 		}
 		request := commanddecision.Request{SubjectType: "invocation", DecisionID: uuid.Must(uuid.NewV7()).String(), MutationID: p.envelope.InvocationID, UserID: userID, SessionID: sessionID, Fingerprint: *p.envelope.RequestFingerprint, AuthGeneration: p.epoch.AuthGeneration, SecurityGeneration: p.epoch.SecurityGeneration, ExpiresAt: deadline, Body: body}
+		if p.owner.AuthContextType == commandcontract.AuthExternalToken {
+			request.AuthContextType = string(commandcontract.AuthExternalToken)
+			request.SessionID = p.owner.AuthContextID
+		}
 		request.Destructive = p.definition.Effect == commandcatalog.Destructive
 		watched, release, e := s.config.Epochs.WatchEpoch(preDispatchCtx, p.epoch)
 		if e != nil {
@@ -903,7 +917,16 @@ func (s *Service) ExecuteEnvelopeWithResult(ctx context.Context, token string, c
 					return err
 				}
 			}
-			handle, e = handler.Start(executionCtx, Invocation{ID: p.envelope.InvocationID, CorrelationID: p.envelope.CorrelationID, CommandID: *p.envelope.CommandID, Principal: p.principal, Source: s.config.Source, Envelope: &copyEnvelope})
+			invocation := Invocation{ID: p.envelope.InvocationID, CorrelationID: p.envelope.CorrelationID, CommandID: *p.envelope.CommandID, Principal: p.principal, Source: s.config.Source, Envelope: &copyEnvelope}
+			if p.owner.AuthContextType == commandcontract.AuthExternalToken && p.definition.HandlerClassification == commandcatalog.HandlerUI {
+				credential, ok := executionCtx.Value(externalCredentialKey{}).(externalCredential)
+				if !ok || credential.service == nil || credential.binding == nil || s.config.ExternalUI == nil || s.config.ExternalUI.Start == nil {
+					return ErrDenied
+				}
+				handle, e = s.config.ExternalUI.Start(executionCtx, credential.principal, *credential.binding, invocation)
+			} else {
+				handle, e = handler.Start(executionCtx, invocation)
+			}
 			return e
 		})
 	})

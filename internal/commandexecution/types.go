@@ -60,6 +60,27 @@ type ExecutionHandle struct {
 	CommitOwnership *CommitOwnership
 }
 
+// ExternalUIBinding identifica uma conexão e o snapshot exato do destino;
+// valores são fornecidos pelo adaptador HTTP e revalidados pelo host.
+type ExternalUIBinding struct {
+	ConnectionID     string
+	Generation       string
+	TargetSnapshotID string
+	ContextVersion   string
+}
+
+type ExternalUIPrincipal struct {
+	Issuer, Subject, UserID, AuthContextID string
+}
+
+// ExternalUIHooks habilita somente invocações vinculadas explicitamente.
+// Callbacks devem ser locais/curtos durante Validate; Start deve apenas
+// reservar o handoff e retornar um handle cancelável.
+type ExternalUIHooks struct {
+	Validate func(context.Context, ExternalUIPrincipal, ExternalUIBinding) error
+	Start    func(context.Context, ExternalUIPrincipal, ExternalUIBinding, Invocation) (ExecutionHandle, error)
+}
+
 type Handler struct {
 	Contract commandcatalog.HandlerContract
 	// ExecutionTimeout é uma exceção hostside do pipeline completo, limitada a
@@ -96,4 +117,5 @@ type Config struct {
 	Retention           time.Duration
 	ExecutionTimeout    time.Duration
 	FinalizationTimeout time.Duration
+	ExternalUI          *ExternalUIHooks
 }

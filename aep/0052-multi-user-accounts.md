@@ -164,6 +164,15 @@ Se a DEK não estiver disponível (keyring vazio + não houve unlock), o servido
 
 Sem token exchange nesta fase.
 
+Adendo aprovado em 24/09/2026, AEP-0103: controlar uma interface conectada
+exige vínculo explícito entre o principal externo autorizado e a conexão de
+destino. O vínculo não emite sessão local nem amplia roles/scopes do JWT;
+desconexão/revogação invalidam trabalho pendente. Não há seleção implícita do
+desktop ativo, token exchange ou habilitação de teclado global/Stream Deck
+por esta extensão. Sem destino conectado, só operações backend compatíveis
+podem ser disponibilizadas. Implementação e evidências são acompanhadas na
+tasklist do AEP-0103; esta decisão não declara a composição já entregue.
+
 ### D5. Sessões locais com JWT access + refresh token
 
 - Access token: JWT com expiração curta.

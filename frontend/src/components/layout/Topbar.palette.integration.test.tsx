@@ -21,6 +21,16 @@ import { Modal, isModalOpen, useModalId } from '../ui/Modal';
 import { registerChatPickerSurface, CHAT_PICKER_COMMAND_IDS, requestChatPresentationCommand } from '../../lib/commandChatPickers';
 import { registerEditorPresentationSurface, EDITOR_PRESENTATION_COMMAND_IDS } from '../../lib/commandEditorPresentation';
 import { COMMAND_NAVIGATION_ROUTES } from '../../lib/commandNavigation';
+import { ExternalUIConnectionProvider } from '../../services/externalUIConnectionReact';
+import type {
+  ExternalUICommandOutcome,
+  ExternalUICommandReadyEvent,
+  ExternalUIConnectionService,
+  ExternalUIConnectionStatus,
+  ExternalUIDestination,
+  ExternalUIOwnerProof,
+  TakeExternalUICommandResult,
+} from '../../services/externalUIConnection';
 
 const state = vi.hoisted(() => ({
   workspaceListeners: new Set<() => void>(),
@@ -51,6 +61,7 @@ const state = vi.hoisted(() => ({
     switchWorkspace: vi.fn(),
     createWorkspace: vi.fn(),
     renameWorkspace: vi.fn(),
+    setActiveTab: vi.fn(),
   },
   chat: {
     canPrepare: vi.fn(),
@@ -81,6 +92,7 @@ type IntegrationWorkspaceState = {
   switchWorkspace: typeof state.workspace.switchWorkspace;
   createWorkspace: typeof state.workspace.createWorkspace;
   renameWorkspace: typeof state.workspace.renameWorkspace;
+  setActiveTab: typeof state.workspace.setActiveTab;
 };
 
 const catalog = [
@@ -265,7 +277,78 @@ beforeEach(() => {
   state.chat.lease.isCurrent.mockReset().mockReturnValue(true);
   state.chat.lease.dispose.mockReset();
   state.chat.lease.present.mockReset();
+  state.workspace.setActiveTab.mockReset();
 });
+
+function createExternalUIServiceFixture() {
+  const owner: ExternalUIOwnerProof = { userId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a' };
+  const initialTarget: ExternalUIDestination = {
+    workspaceId: owner.workspaceId,
+    tabId: 'tab-a',
+    surface: { surfaceType: 'toolbar', surfaceId: 'command-toolbar', snapshotVersion: 'stale-before-topbar' },
+  };
+  let revision = 0;
+  let snapshot: ExternalUIConnectionStatus = {
+    state: 'connected', owner, target: initialTarget, connectionId: 'connection-a', generation: '3',
+    targetSnapshotId: 'target-stale', contextVersion: 'context-stale',
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  };
+  const statusListeners = new Set<() => void>();
+  const readyListeners = new Set<(event: ExternalUICommandReadyEvent) => void>();
+  const order: string[] = [];
+  const service: ExternalUIConnectionService = {
+    refresh: vi.fn(async () => { statusListeners.forEach(listener => listener()); return snapshot; }),
+    begin: vi.fn(async () => ({ invitation: 'opaque-invite', expiresAt: new Date(Date.now() + 60_000).toISOString() })),
+    publishContext: vi.fn(async (target) => {
+      revision += 1;
+      order.push(`publish:${target.surface.snapshotVersion}`);
+      snapshot = {
+        ...snapshot,
+        target,
+        targetSnapshotId: `target-${revision}`,
+        contextVersion: `context-${revision}`,
+      };
+      statusListeners.forEach(listener => listener());
+      return snapshot;
+    }),
+    heartbeat: vi.fn(async () => snapshot),
+    disconnect: vi.fn(async () => undefined),
+    take: vi.fn(async (event) => {
+      order.push('take');
+      return {
+        invocationId: event.invocationId,
+        commandId: event.commandId,
+        arguments: {},
+        receiptId: `receipt-${event.invocationId}`,
+        targetSnapshotId: event.targetSnapshotId,
+        contextVersion: event.contextVersion,
+        target: snapshot.target!,
+      } satisfies TakeExternalUICommandResult;
+    }),
+    complete: vi.fn(async (_event, _take, outcome: ExternalUICommandOutcome) => {
+      order.push(`complete:${outcome}`);
+      return true;
+    }),
+    getSnapshot: () => snapshot,
+    subscribe: listener => { statusListeners.add(listener); return () => statusListeners.delete(listener); },
+    subscribeReady: listener => { readyListeners.add(listener); return () => readyListeners.delete(listener); },
+    dispose: vi.fn(),
+  };
+  return {
+    service,
+    emitReady(commandId: string) {
+      const event: ExternalUICommandReadyEvent = {
+        connectionId: snapshot.connectionId!, generation: snapshot.generation!,
+        invocationId: '018f2d3c-4b5a-7c8d-9e0f-123456789abc',
+        targetSnapshotId: snapshot.targetSnapshotId!, contextVersion: snapshot.contextVersion!, commandId,
+      };
+      readyListeners.forEach(listener => listener(event));
+      return event;
+    },
+    getSnapshot: () => snapshot,
+    order,
+  };
+}
 
 describe('Pickers de chat — paleta e registro reais', () => {
   function registerSurface(root: HTMLElement, open: (id: string) => boolean, conversationId = 'conversation-a', subscribe?: (onChange: () => void) => () => void) {
@@ -1700,5 +1783,108 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     view.rerender(<Topbar />);
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(state.genericExecute).not.toHaveBeenCalled();
+  });
+});
+
+describe('handoff UI externo — provider e handlers reais da Topbar', () => {
+  function makeTree(createService: () => ExternalUIConnectionService) {
+    return (
+      <ExternalUIConnectionProvider createService={createService}>
+        <div className="workspace-layout">
+          <Topbar />
+          <section className="ws-content__panel" data-tab-id={state.workspace.workspace.activeTabId}>
+            <button type="button" data-testid="active-panel-focus">Painel ativo</button>
+          </section>
+        </div>
+      </ExternalUIConnectionProvider>
+    );
+  }
+
+  async function mount(service: ExternalUIConnectionService) {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    state.workspace.workspace = {
+      ...state.workspace.workspace,
+      activeTabId: 'tab-a',
+      tabs: [{ id: 'tab-a', type: 'chat' }, { id: 'tab-b', type: 'editor' }],
+    };
+    const createService = () => service;
+    let view: ReturnType<typeof render> | null = null;
+    const rerender = () => view?.rerender(makeTree(createService));
+    const originalNavigate = navigate.getMockImplementation();
+    navigate.mockImplementation((path: string) => {
+      const next = new URL(path, window.location.origin);
+      window.history.pushState({}, '', `${next.pathname}${next.search}`);
+      locationState.pathname = next.pathname;
+      rerender();
+    });
+    view = render(makeTree(createService));
+    await waitFor(() => expect(state.loadMap).toHaveBeenCalled());
+    screen.getByRole('button', { name: 'commandPalette.title' }).focus();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'commandPalette.title' })));
+    await waitFor(() => expect(service.publishContext).toHaveBeenCalled());
+    return {
+      view,
+      restoreNavigate: () => navigate.mockImplementation(originalNavigate ?? (() => undefined)),
+    };
+  }
+
+  it('faz Take → navigation.settings.open real → Complete → publicação do novo contexto', async () => {
+    window.history.pushState({}, '', '/');
+    locationState.pathname = '/';
+    const fixture = createExternalUIServiceFixture();
+    const { view, restoreNavigate } = await mount(fixture.service);
+    try {
+      await act(async () => { fixture.emitReady('navigation.settings.open'); });
+      await waitFor(() => expect(fixture.service.complete).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(fixture.service.publishContext).toHaveBeenCalledTimes(2));
+      expect(navigate).toHaveBeenCalledWith('/settings');
+      expect(fixture.service.take).toHaveBeenCalledTimes(1);
+      expect(fixture.service.complete).toHaveBeenCalledWith(
+        expect.objectContaining({ commandId: 'navigation.settings.open' }),
+        expect.objectContaining({ commandId: 'navigation.settings.open' }),
+        'succeeded',
+      );
+      const takeIndex = fixture.order.indexOf('take');
+      const completeIndex = fixture.order.indexOf('complete:succeeded');
+      const postNavigationPublishIndex = fixture.order.findIndex((entry, index) => index > completeIndex && entry.startsWith('publish:'));
+      expect(takeIndex).toBeGreaterThanOrEqual(0);
+      expect(completeIndex).toBeGreaterThan(takeIndex);
+      expect(postNavigationPublishIndex).toBeGreaterThan(completeIndex);
+      expect(fixture.getSnapshot().target?.surface.snapshotVersion).toContain('/settings');
+    } finally {
+      view.unmount();
+      restoreNavigate();
+      window.history.pushState({}, '', '/');
+      locationState.pathname = '/';
+    }
+  });
+
+  it('faz Take → workspace.tab.next pelo handler real → Complete e liga a aba nova', async () => {
+    window.history.pushState({}, '', '/');
+    locationState.pathname = '/';
+    const fixture = createExternalUIServiceFixture();
+    state.workspace.setActiveTab.mockImplementation((tabId: string) => {
+      state.workspace.workspace.activeTabId = tabId;
+      state.workspaceListeners.forEach(listener => listener());
+    });
+    const { view, restoreNavigate } = await mount(fixture.service);
+    try {
+      await act(async () => { fixture.emitReady('workspace.tab.next'); });
+      await waitFor(() => expect(fixture.service.complete).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(fixture.service.publishContext).toHaveBeenCalledTimes(2));
+      expect(state.workspace.setActiveTab).toHaveBeenCalledExactlyOnceWith('tab-b');
+      expect(fixture.service.complete).toHaveBeenCalledWith(
+        expect.objectContaining({ commandId: 'workspace.tab.next' }),
+        expect.objectContaining({ commandId: 'workspace.tab.next' }),
+        'succeeded',
+      );
+      expect(fixture.getSnapshot().target?.tabId).toBe('tab-b');
+      expect(fixture.order.indexOf('complete:succeeded')).toBeGreaterThan(fixture.order.indexOf('take'));
+    } finally {
+      view.unmount();
+      restoreNavigate();
+      window.history.pushState({}, '', '/');
+      locationState.pathname = '/';
+    }
   });
 });

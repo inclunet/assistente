@@ -45,6 +45,12 @@ async function bindingAction(name: string) {
   return screen.findByRole('menuitem', { name });
 }
 
+async function selectLayer(name: string) {
+  const grid = await screen.findByRole('grid', { name: 'commandSettings.layers' });
+  fireEvent.click(within(grid).getByText(name));
+  await screen.findByRole('heading', { name });
+}
+
 const snapshot = {
   layers: [{ id: 'builtin', name: 'Base', description: 'Base', builtin: true, enabled: true, active: true, manualReady: false, manualActive: false }, { id: 'user', name: 'Minha camada', description: 'Descrição', builtin: false, enabled: true, active: false, manualReady: false, manualActive: false }],
   bindings: [{ id: 'default-1', layerId: 'builtin', commandId: 'cmd.new', triggerType: 'keyboard.local', triggerSpec: '{"version":1,"code":"KeyN","modifiers":["Control"]}', enabled: true, customized: false, readOnly: true, defaultId: 'default-1', reviewStatus: '' }],
@@ -180,7 +186,8 @@ describe('CommandSettingsPage', () => {
     await screen.findByText('Minha camada');
     await act(async () => deckStatusChanged?.({ status: 'connected', devices: [] }));
     expect(screen.getByText(/commandSettings\.deck\.status/)).toBeInTheDocument();
-    expect(screen.queryByText(/connected/)).not.toBeInTheDocument();
+    const deckStatus = screen.getByRole('region', { name: /commandSettings\.deck\.status/ });
+    expect(within(deckStatus).queryByText('connected', { exact: true })).not.toBeInTheDocument();
     await act(async () => deckStatusChanged?.({ status: 'future-state', devices: [] }));
     expect(screen.queryByText(/future-state/)).not.toBeInTheDocument();
   });
@@ -210,7 +217,7 @@ describe('CommandSettingsPage', () => {
       bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined }],
     });
     render(<CommandSettingsPage />);
-    fireEvent.click(await screen.findByText('Minha camada'));
+    await selectLayer('Minha camada');
     fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
 
     expect(screen.getByText('profiles.loadError')).toBeInTheDocument();
@@ -485,7 +492,7 @@ describe('CommandSettingsPage', () => {
     });
     render(<CommandSettingsPage />);
     await screen.findByText('Minha camada');
-    fireEvent.click(screen.getByText('Minha camada'));
+    await selectLayer('Minha camada');
     await openBindingAdvancedOptions();
     expect(screen.getByRole('button', { name: 'commandSettings.advancedOptions' })).toHaveAttribute('aria-expanded', 'true');
   });

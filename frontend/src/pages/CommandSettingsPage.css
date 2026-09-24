@@ -16,6 +16,11 @@
 .command-settings__advanced-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .command-settings__advanced-content { display: grid; gap: 16px; padding-top: 12px; }
 .command-settings__deck-status { margin: 12px 0; }
+.command-settings__external-connection { display: grid; justify-items: start; gap: 12px; margin: 16px 0; padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+.command-settings__external-connection h2, .command-settings__external-connection p { margin: 0; }
+.command-settings__external-invitation { display: grid; gap: 8px; width: min(100%, 640px); }
+.command-settings__external-invitation textarea { width: 100%; min-height: 72px; color: var(--text-primary); background: var(--bg-input); border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: 8px; font: inherit; }
+.command-settings__external-invitation textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .command-settings__deck-status h2 { font-size: var(--font-size-base); }
 .command-settings__deck-status ul { display: grid; gap: 8px; padding-inline-start: 24px; }
 .command-settings__deck-status li { display: flex; flex-wrap: wrap; gap: 4px 12px; }

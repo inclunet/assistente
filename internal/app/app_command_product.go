@@ -263,6 +263,7 @@ func (p *commandProductRuntime) Shutdown(ctx context.Context) error {
 		}
 		clear(p.uiRuns)
 		p.mu.Unlock()
+		p.app.clearExternalUIConnections()
 		p.resolutionMu.Lock()
 		p.resolutionStopped = true
 		p.resolutionCache.Clear()

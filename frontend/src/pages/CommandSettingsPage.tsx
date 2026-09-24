@@ -13,6 +13,8 @@ import {
 } from '../components/ui';
 import { Input } from '../components/ui/Input';
 import { StreamDeckCaptureFields } from '../components/commands/StreamDeckCaptureFields';
+import { ExternalCommandConnection } from '../components/commands/ExternalCommandConnection';
+import { useExternalUIConnection } from '../services/externalUIConnectionReact';
 import { CommandConditionEditor } from '../components/commands/CommandConditionEditor';
 import { CommandObjectFieldsEditor } from '../components/commands/CommandObjectFieldsEditor';
 import { CommandLayerActionFields } from '../components/commands/CommandLayerActionFields';
@@ -108,6 +110,7 @@ const EMPTY: CommandSettingsSnapshot = {
 };
 
 export default function CommandSettingsPage() {
+  const externalConnection = useExternalUIConnection();
   const { t, i18n } = useTranslation();
   const deepLinkedCommandId = typeof window === 'undefined'
     ? '' : new URLSearchParams(window.location.search).get('commandId')?.trim() ?? '';
@@ -1055,6 +1058,7 @@ export default function CommandSettingsPage() {
       {deckStatus && (
         <CommandDeckStatusPanel status={deckStatus} t={t} />
       )}
+      <ExternalCommandConnection service={externalConnection.service} target={externalConnection.target} />
       {loading ? (
         <p aria-busy="true">{t('common.loading')}</p>
       ) : (

@@ -12,6 +12,7 @@ import (
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandcontract"
 	"assistente/internal/commandidentity"
+	"assistente/internal/commandjson"
 	"assistente/internal/commandledger"
 	"assistente/internal/commandsecurity"
 	"assistente/internal/database"
@@ -476,6 +477,90 @@ func TestNewExternalRejectsPhysicalSources(t *testing.T) {
 				t.Fatalf("origem física deveria ser rejeitada no construtor: %s err=%v", source, err)
 			}
 		})
+	}
+}
+
+func TestExternalCommandWithoutUILimitsToContextFreeReadBackend(t *testing.T) {
+	base := commandcatalog.Definition{
+		Effect: commandcatalog.Read, Decision: commandcatalog.NoDecision,
+		Context: commandcatalog.ContextPolicy{None: true}, HandlerClassification: commandcatalog.HandlerBackend,
+	}
+	for _, tc := range []struct {
+		name string
+		edit func(*commandcatalog.Definition)
+		want bool
+	}{
+		{name: "backend", want: true},
+		{name: "internal", edit: func(d *commandcatalog.Definition) { d.HandlerClassification = commandcatalog.HandlerInternal }, want: true},
+		{name: "tool", edit: func(d *commandcatalog.Definition) { d.HandlerClassification = commandcatalog.HandlerTool }},
+		{name: "job", edit: func(d *commandcatalog.Definition) { d.HandlerClassification = commandcatalog.HandlerJob }},
+		{name: "ui", edit: func(d *commandcatalog.Definition) { d.HandlerClassification = commandcatalog.HandlerUI }},
+		{name: "write", edit: func(d *commandcatalog.Definition) { d.Effect = commandcatalog.Write }},
+		{name: "contextual", edit: func(d *commandcatalog.Definition) { d.Context = commandcatalog.ContextPolicy{} }},
+		{name: "interactive", edit: func(d *commandcatalog.Definition) { d.Decision = commandcatalog.Interactive }},
+		{name: "mutable-target", edit: func(d *commandcatalog.Definition) { d.HasMutableTarget = true }},
+		{name: "capability-mutation", edit: func(d *commandcatalog.Definition) { d.MutatesEffectiveCapability = true }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			definition := base
+			if tc.edit != nil {
+				tc.edit(&definition)
+			}
+			if got := externalCommandMayRunWithoutUI(definition); got != tc.want {
+				t.Fatalf("externalCommandMayRunWithoutUI() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInputFingerprintKeepsUnboundFormatAndSeparatesUIBindings(t *testing.T) {
+	h := newExternalHarness(t, nil)
+	candidate := externalCandidate()
+	ownedContext, release, err := h.service.requestContext(context.Background(), "token-a", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	externalIdentity, _, _, err := h.service.executor.captureEnvelopeIdentity(ownedContext, "token-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localFormatFingerprint, err := h.service.executor.inputFingerprint(context.Background(), candidate, externalIdentity.Ownership, h.service.executor.config.KeyVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPayload, err := commandjson.Marshal(map[string]any{
+		"version": 1, "candidate": candidate, "owner": externalIdentity.Ownership, "source": h.service.executor.config.Source,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := h.service.executor.config.Keys(context.Background(), "command-request-hmac:"+h.service.executor.config.KeyVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantLocal, err := commandjson.HMAC(key, "assistente.command.input.v1", legacyPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if localFormatFingerprint != wantLocal {
+		t.Fatal("unbound/local request fingerprint changed by external UI support")
+	}
+
+	first := ExternalUIBinding{ConnectionID: genericUUID(), Generation: "1", TargetSnapshotID: genericUUID(), ContextVersion: genericUUID()}
+	second := first
+	second.ContextVersion = genericUUID()
+	fingerprint := func(binding ExternalUIBinding) string {
+		t.Helper()
+		ctx := context.WithValue(context.Background(), externalCredentialKey{}, externalCredential{service: h.service, token: "token-a", userID: h.users["subject-a"], binding: &binding})
+		value, err := h.service.executor.inputFingerprint(ctx, candidate, externalIdentity.Ownership, h.service.executor.config.KeyVersion)
+		if err != nil {
+			t.Fatalf("binding fingerprint: %v", err)
+		}
+		return value
+	}
+	if fingerprint(first) == fingerprint(second) {
+		t.Fatal("different external UI bindings shared an invocation fingerprint")
 	}
 }
 
