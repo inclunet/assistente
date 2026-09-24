@@ -35,7 +35,7 @@ vi.mock('../workspace/WorkspacePanelContext', () => ({ useWorkspacePanel: () => 
 const surface = createChatSurfaceIdentity({ conversationId: id, tabId: 'tab', surfaceType: 'page' });
 const runs: Promise<unknown>[] = [];
 let listener: (event: Event) => void;
-let status: 'succeeded' | 'denied' | 'failed' = 'succeeded';
+let status: 'succeeded' | 'denied' | 'failed' | 'outcome_unknown' = 'succeeded';
 const begin = vi.fn();
 const take = vi.fn();
 const commit = vi.fn();
@@ -108,14 +108,38 @@ describe('ChatSessionView + ChatInput + pipeline reais', () => {
     expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].sendFailureRetryable).toBe(false);
     expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].isLoading).toBe(false);
   });
-  it('rejeição Wails incerta preserva draft e não libera replay de conteúdo', async () => {
+  it('outcome_unknown após rejeição Wails apresenta erro, preserva draft e não oferece replay', async () => {
     send.mockRejectedValue(new Error('transport lost'));
-    getResult.mockRejectedValue(new Error('result unavailable'));
+    status = 'outcome_unknown';
     mount(); const input = screen.getByRole('combobox');
     fireEvent.change(input, { target: { value: 'incerto' } }); fireEvent.keyDown(input, { key: 'Enter' });
     await act(async () => { await Promise.all(runs); });
-    expect(input).toHaveValue('incerto'); expect(send).toHaveBeenCalledOnce();
-    expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].sendFailureRetryable).toBe(false);
+    const session = useChatStore.getState().surfaceSessionsByKey[surface.sessionKey];
+    expect(getResult).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledOnce();
+    expect(retry).not.toHaveBeenCalled();
+    expect(input).toHaveValue('incerto');
+    expect(session.sendFailureMessage).toContain('transport lost');
+    expect(session.sendFailureRetryable).toBe(false);
+    expect(session.sendFailureRetryContent).toBeNull();
+    expect(session.isLoading).toBe(true);
+    expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
+  });
+  it('resultado indisponível após rejeição Wails também preserva draft sem replay', async () => {
+    send.mockRejectedValue(new Error('transport lost'));
+    getResult.mockRejectedValue(new Error('result unavailable'));
+    mount(); const input = screen.getByRole('combobox');
+    fireEvent.change(input, { target: { value: 'incerto sem consulta' } }); fireEvent.keyDown(input, { key: 'Enter' });
+    await act(async () => { await Promise.all(runs); });
+    const session = useChatStore.getState().surfaceSessionsByKey[surface.sessionKey];
+    expect(getResult).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledOnce();
+    expect(retry).not.toHaveBeenCalled();
+    expect(input).toHaveValue('incerto sem consulta');
+    expect(session.sendFailureMessage).toContain('transport lost');
+    expect(session.sendFailureRetryable).toBe(false);
+    expect(session.isLoading).toBe(true);
+    expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
   });
   it('captura texto/revisão da mesma store antes de React rerender', async () => {
     mount();

@@ -292,8 +292,11 @@ describe('chatStore validation', () => {
       command: { handoff: { ticket: 'ticket', handoffId: 'handoff' }, isCurrent: () => true },
     })).rejects.toThrow('resposta perdida');
     const session = useChatStore.getState().sessionsByConversationId[defaultConversationId];
+    expect(session.sendFailureMessage).toBe('chat.sendErrorPrefix');
+    expect(session.sendFailureAnnounced).toBe(false);
     expect(session.sendFailureRetryable).toBe(false);
     expect(session.sendFailureRetryContent).toBeNull();
+    expect(session.isLoading).toBe(true);
     expect(mockSendMessage).toHaveBeenCalledOnce();
     expect(mockRetryMessage).not.toHaveBeenCalled();
   });

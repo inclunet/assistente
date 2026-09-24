@@ -772,9 +772,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           controller.handleSendCancellation();
           throw new ChatMessagingStaleError();
         }
-        // The backend may have persisted the user message. Never offer replay
-        // as a new send after an uncertain transport result; keep event routing.
-        set(state => patchSession(state, conversationId, { sendFailureRetryable: false, sendFailureRetryContent: null, sendFailureRetryMediaFiles: [] }, options.origin?.sessionKey));
+        const errorMessage = getErrorMessage(error);
+        if (submitted) {
+          // A Wails rejection may be pre-effect (denied/stale) or uncertain
+          // after persistence. Surface it without offering replay; the command
+          // ledger's settled status decides whether the event controller stays.
+          set(state => patchSession(state, conversationId, {
+            sendFailureMessage: i18next.t('chat.sendErrorPrefix', { message: errorMessage }),
+            sendFailureAnnounced: false,
+            sendFailureRetryable: false,
+            sendFailureRetryContent: null,
+            sendFailureRetryMediaFiles: [],
+          }, options.origin?.sessionKey));
+        } else {
+          // Before invoking Wails no message could have been persisted, so the
+          // existing recovery UI may safely offer an explicit retry.
+          controller.handleSendFailure(errorMessage, true);
+        }
         throw error;
       }
       if (error instanceof DOMException && error.name === 'AbortError') {
