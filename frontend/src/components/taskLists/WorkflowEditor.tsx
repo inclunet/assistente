@@ -1,4 +1,4 @@
-import { useState, useCallback, useId, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useId, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
@@ -143,8 +143,18 @@ function swapStatusesChange(aId: number, bId: number): WorkflowChange {
   };
 }
 
-/** Maior ID de status já usado, por fila (tasklist), além da vida do editor. */
+/**
+ * Maior ID de status já visto por fila (tasklist), além da vida do editor e
+ * compartilhado entre editores montados: IDs nunca são reaproveitados na
+ * sessão, nem os de status já removidos.
+ */
 const maxStatusIdByQueue = new Map<string, number>();
+
+function observeStatusIds(queueKey: string, ids: number[]): number {
+  const max = Math.max(maxStatusIdByQueue.get(queueKey) ?? 0, ...ids, 0);
+  maxStatusIdByQueue.set(queueKey, max);
+  return max;
+}
 
 function emptyDraft(colorToken: string): StatusDraft {
   return { label: '', icon: '⬜', color: colorToken, transitions: [], initial: false };
@@ -187,13 +197,11 @@ export default function WorkflowEditor({
   const instanceQueueId = useId();
   const queueKey = saveQueueKey ?? `workflow-editor:${instanceQueueId}`;
 
-  // IDs nunca são reaproveitados na sessão, nem os de status já removidos,
-  // mesmo que o editor seja fechado e reaberto.
-  const maxIdRef = useRef(Math.max(
-    maxStatusIdByQueue.get(queueKey) ?? 0,
-    ...workflow.statuses.map((s) => s.id),
-    0,
-  ));
+  // Registra os IDs do workflow aberto: se um deles for removido e o editor
+  // reaberto, o ID não volta a ser usado.
+  useEffect(() => {
+    observeStatusIds(queueKey, workflow.statuses.map((s) => s.id));
+  }, [queueKey, workflow]);
 
   // Salvamentos em fila, na ordem das alterações. Cada alteração é uma
   // transformação aplicada, na hora do envio, sobre o último workflow aceito
@@ -293,7 +301,7 @@ export default function WorkflowEditor({
       }, draft.transitions, draft.initial);
     } else {
       created = {
-        id: maxIdRef.current + 1,
+        id: observeStatusIds(queueKey, statuses.map((s) => s.id)) + 1,
         order: statuses.length,
         label,
         color: draft.color,
@@ -304,10 +312,7 @@ export default function WorkflowEditor({
 
     if (applyingRef.current) return;
     applyingRef.current = true;
-    if (created) {
-      maxIdRef.current = created.id;
-      maxStatusIdByQueue.set(queueKey, created.id);
-    }
+    if (created) observeStatusIds(queueKey, [created.id]);
     const ok = await persist(change);
     applyingRef.current = false;
     // Falha ao salvar mantém o modal aberto com o rascunho, para tentar de novo.

@@ -770,6 +770,8 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
               statuses: statuses.map((s) => ({ ...s })),
               allowedTransitions: { ...transitions },
               initialStatusId,
+              // Compõe a versão do snapshot do chat da lista: precisa mudar.
+              updatedAt: new Date().toISOString(),
             },
           });
           return { taskLists };

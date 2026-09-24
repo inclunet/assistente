@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import WorkflowEditor from './WorkflowEditor';
 import { Modal } from '../ui/Modal';
@@ -179,6 +179,45 @@ describe('WorkflowEditor', () => {
       expect(locale.translation.tasklist.workflow.emptyStatusName).not.toMatch(/\{\{/);
     },
   );
+
+  it('status que já existia ao abrir, removido depois, não tem o ID reaproveitado ao reabrir', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn((_statuses: SavedStatus[]) => Promise.resolve());
+    const key = 'teste:workflow-ids-existentes';
+    const { unmount } = render(<WorkflowEditor workflow={workflow} onSave={onSave} saveQueueKey={key} />);
+    await screen.findByRole('grid');
+    unmount();
+
+    // Reaberto já sem o status 2: o próximo status é o 3.
+    const onlyFirst: TaskListWorkflow = { ...workflow, statuses: [workflow.statuses[0]], allowedTransitions: { 1: [] } };
+    render(<WorkflowEditor workflow={onlyFirst} onSave={onSave} saveQueueKey={key} />);
+    await screen.findByRole('grid');
+    await user.click(screen.getByRole('button', { name: /Adicionar Status/ }));
+    fireEvent.change(screen.getByLabelText(/Nome/), { target: { value: 'Revisão' } });
+    await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0].map((s) => s.id)).toEqual([1, 3]);
+  });
+
+  it('dois editores da mesma tasklist não escolhem o mesmo ID', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn((_statuses: SavedStatus[]) => Promise.resolve());
+    const key = 'teste:workflow-ids-concorrentes';
+    const first = render(<WorkflowEditor workflow={workflow} onSave={onSave} saveQueueKey={key} />);
+    const second = render(<WorkflowEditor workflow={workflow} onSave={onSave} saveQueueKey={key} />);
+    const createIn = async (container: HTMLElement, label: string) => {
+      await user.click(within(container).getByRole('button', { name: /Adicionar Status/ }));
+      fireEvent.change(screen.getByLabelText(/Nome/), { target: { value: label } });
+      await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+    };
+
+    await createIn(first.container, 'Revisão');
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    await createIn(second.container, 'Homologação');
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+    expect(onSave.mock.calls[0][0].map((s) => s.id)).toEqual([1, 2, 3]);
+    expect(onSave.mock.calls[1][0].map((s) => s.id)).toEqual([1, 2, 4]);
+  });
 
   it('barra Aplicar sem nome', async () => {
     const user = userEvent.setup();

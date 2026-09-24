@@ -66,6 +66,8 @@ describe('taskListStore.updateWorkflowFull', () => {
     expect(list?.workflow.allowedTransitions).toEqual({ 1: [], 2: [1] });
     expect(list?.workflow.initialStatusId).toBe(2);
     expect(list?.workflow.id).toBe('w1');
+    // updatedAt compõe a versão do snapshot do chat: tem de mudar.
+    expect(list?.workflow.updatedAt).not.toBe('2026-09-24');
     expect(list?.tasks).toBe(tasks);
   });
 
