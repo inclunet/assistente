@@ -44,30 +44,31 @@ func taskListWorkflowQuery(ctx context.Context, base *gorm.DB) *gorm.DB {
 // templateWorkflow pode ser nil para usar workflow padrão (A Fazer, Em
 // Progresso, Concluído). slug: opcional; normalizado e único quando não vazio.
 func CreateTaskListWithContext(ctx context.Context, title, description string, templateWorkflow *TaskListWorkflow, slug string) (*TaskList, error) {
-	// Valida limite
-	var count int64
-	if err := ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").Count(&count).Error; err != nil {
-		return nil, err
-	}
-	if count >= MaxTaskLists {
-		return nil, errors.New("limite de tasklists atingido")
-	}
-
 	normalizedSlug := NormalizeTaskListSlug(slug)
 	if err := ValidateTaskListSlugFormat(normalizedSlug); err != nil {
 		return nil, err
 	}
-	taskList := &TaskList{
-		Title:             title,
-		Description:       description,
-		PreferredViewMode: "list",
-		Slug:              normalizedSlug,
-	}
-	if userID, ok := UserIDFromContext(ctx); ok {
-		taskList.UserID = userID
-	}
-
-	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var taskList *TaskList
+	// Adquire o writer antes das leituras, evitando promover um snapshot WAL
+	// obsoleto para escrita. Limite, slug e workflow pertencem à mesma transação.
+	err := withSQLiteImmediateTransaction(ctx, db, "tasklist.create", func(tx *gorm.DB) error {
+		var count int64
+		if err := ScopeByUser(ctx, tx.Model(&TaskList{}), "user_id").Count(&count).Error; err != nil {
+			return err
+		}
+		if count >= MaxTaskLists {
+			return errors.New("limite de tasklists atingido")
+		}
+		// Uma nova tentativa não reutiliza IDs/associações de uma transação revertida.
+		taskList = &TaskList{
+			Title:             title,
+			Description:       description,
+			PreferredViewMode: "list",
+			Slug:              normalizedSlug,
+		}
+		if userID, ok := UserIDFromContext(ctx); ok {
+			taskList.UserID = userID
+		}
 		if normalizedSlug != "" {
 			var taken int64
 			if err := ScopeByUser(ctx, tx.Model(&TaskList{}), "user_id").

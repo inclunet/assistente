@@ -29,6 +29,11 @@ Cada lista de tarefas possui:
 
 ### Configurações da lista
 
+Ao criar uma lista, uma disputa transitória pelo banco pode causar uma breve
+espera enquanto outra gravação termina. A lista e seu workflow são salvos juntos;
+uma falha não deve deixar uma lista criada pela metade. O limite de listas e a
+unicidade do slug também são conferidos durante essa gravação.
+
 O botão **Configurações** na toolbar da lista reúne as ações administrativas:
 editar a lista, editar o workflow, ações customizadas, duplicar, limpar e
 apagar. O vínculo da lista com uma conversa é automático, via chat embutido
