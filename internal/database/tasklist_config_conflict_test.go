@@ -4,8 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func workflowSnapshot(t *testing.T, ctx context.Context, taskListID string) TaskListWorkflowSnapshot {
@@ -170,6 +175,94 @@ func TestSetCustomActionsChecked_ConflictDoesNotWrite(t *testing.T) {
 	if len(ca.Actions) != 1 || ca.Actions[0].ID != "agente" {
 		t.Fatalf("conflict must not overwrite: %#v", ca)
 	}
+}
+
+// setupConcurrentConfigDB abre um banco em arquivo com WAL e várias conexões,
+// como o do app, para gravações verificadas disputarem o lock de verdade.
+func setupConcurrentConfigDB(t *testing.T) context.Context {
+	t.Helper()
+	previous := DB()
+	path := t.TempDir() + "/tasklist-config-concurrency.db"
+	testDB, err := gorm.Open(sqlite.Open("file:"+path+"?_pragma=busy_timeout(1)&_pragma=journal_mode(WAL)"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	sqlDB, err := testDB.DB()
+	if err != nil {
+		t.Fatalf("sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(4)
+	sqlDB.SetMaxIdleConns(4)
+	if err := testDB.AutoMigrate(&TaskList{}, &TaskListWorkflow{}, &Task{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	SetDB(testDB)
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+		SetDB(previous)
+	})
+	return WithUserID(context.Background(), "user-concurrency")
+}
+
+// runConcurrently dispara as gravações ao mesmo tempo e devolve os erros.
+func runConcurrently(n int, write func(i int) error) []error {
+	errs := make([]error, n)
+	var ready, done sync.WaitGroup
+	start := make(chan struct{})
+	ready.Add(n)
+	done.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer done.Done()
+			ready.Done()
+			<-start
+			errs[i] = write(i)
+		}(i)
+	}
+	ready.Wait()
+	close(start)
+	done.Wait()
+	return errs
+}
+
+func assertOneWinnerRestConflict(t *testing.T, errs []error) {
+	t.Helper()
+	winners := 0
+	for i, err := range errs {
+		switch {
+		case err == nil:
+			winners++
+		case errors.Is(err, ErrTaskListConfigConflict):
+		default:
+			t.Fatalf("gravação %d: esperado sucesso ou conflito, veio %v", i, err)
+		}
+	}
+	if winners != 1 {
+		t.Fatalf("exatamente uma gravação sobre a mesma base deve vencer, venceram %d", winners)
+	}
+}
+
+func TestCheckedWritesUnderConcurrencyYieldConflictNotBusy(t *testing.T) {
+	ctx := setupConcurrentConfigDB(t)
+	tl, err := CreateTaskListWithContext(ctx, "L", "", nil, "")
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	const writers = 8
+
+	errs := runConcurrently(writers, func(i int) error {
+		return SetTaskListCustomActionsCheckedWithContext(ctx, tl.ID, "",
+			`{"actions":[{"id":"a`+strconv.Itoa(i)+`","label":"A","link":"x"}]}`)
+	})
+	assertOneWinnerRestConflict(t, errs)
+
+	base := workflowSnapshot(t, ctx, tl.ID)
+	errs = runConcurrently(writers, func(i int) error {
+		next := append([]TaskListWorkflowStatus(nil), base.Statuses...)
+		next[0].Label = "Gravação " + strconv.Itoa(i)
+		return UpdateWorkflowFullCheckedWithContext(ctx, tl.ID, base, next, base.Transitions, base.InitialStatusID, nil)
+	})
+	assertOneWinnerRestConflict(t, errs)
 }
 
 func TestSetCustomActionsChecked_InvalidExpectedRejected(t *testing.T) {

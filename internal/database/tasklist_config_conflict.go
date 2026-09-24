@@ -104,7 +104,10 @@ func SetTaskListCustomActionsCheckedWithContext(ctx context.Context, taskListID,
 	if err != nil {
 		return fmt.Errorf("estado esperado inválido: %w", err)
 	}
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	// IMMEDIATE: com o lock de escrita pego antes da leitura, duas gravações
+	// concorrentes não leem o mesmo snapshot; a segunda espera e vê o conflito
+	// em vez de falhar com SQLITE_BUSY ao promover a leitura.
+	return withSQLiteImmediateTransaction(ctx, db, "tasklist.custom_actions.checked", func(tx *gorm.DB) error {
 		var tl TaskList
 		if err := ScopeByUser(ctx, tx.Select("custom_actions"), "user_id").First(&tl, "id = ?", taskListID).Error; err != nil {
 			return err

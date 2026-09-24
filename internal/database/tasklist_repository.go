@@ -426,7 +426,8 @@ func updateWorkflowFull(
 		)
 	}
 
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	// IMMEDIATE pelo mesmo motivo de SetTaskListCustomActionsCheckedWithContext.
+	return withSQLiteImmediateTransaction(ctx, db, "tasklist.workflow.update_full", func(tx *gorm.DB) error {
 		if expected != nil {
 			if err := ensureWorkflowUnchanged(ctx, tx, taskListID, *expected); err != nil {
 				return err
