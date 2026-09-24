@@ -27,14 +27,9 @@ func TestManualPhysicalEnvironment(t *testing.T) {
 		Foreground:        foreground,
 		CaptureForeground: true,
 		HotkeySupported:   hotkey.IsSupported,
-		OSSessionProbe: func(context.Context) (ossession.State, error) {
-			// A observação contínua de lock/unlock é exercida em ossession. Para o
-			// aceite físico deste teste, registramos que a sessão interativa atual
-			// está conhecida e desbloqueada durante a execução do teste manual.
-			return ossession.State{Known: true, Locked: false}, nil
-		},
-		StreamDeckModel:  os.Getenv("ASSISTENTE_STREAMDECK_MODEL"),
-		StreamDeckSerial: os.Getenv("ASSISTENTE_STREAMDECK_SERIAL"),
+		OSSessionProbe:    ossession.Probe,
+		StreamDeckModel:   os.Getenv("ASSISTENTE_STREAMDECK_MODEL"),
+		StreamDeckSerial:  os.Getenv("ASSISTENTE_STREAMDECK_SERIAL"),
 	})
 	if !report.Ready {
 		t.Fatalf("ambiente físico incompleto: %+v", report)

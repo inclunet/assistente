@@ -22,6 +22,13 @@ func TestWatchUnsupportedPublishesUnknownAtStartAndEnd(t *testing.T) {
 	}
 }
 
+func TestProbeUnsupportedReturnsUnknown(t *testing.T) {
+	state, err := Probe(context.Background())
+	if state != unknownState() || !errors.Is(err, errUnsupported) {
+		t.Fatalf("Probe = (%+v, %v), want unknown/unsupported", state, err)
+	}
+}
+
 func TestWatchCancelledBeforeNativeStartStillPublishesUnknown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
