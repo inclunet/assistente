@@ -29,8 +29,15 @@ vi.mock('../../store/uiStore', () => ({
   }),
 }));
 
+const mockAnnounceRequest = vi.fn();
+
 vi.mock('../../hooks/useAnnouncer', () => ({
-  useAnnouncer: () => ({ announce: mockAnnounce }),
+  useAnnouncer: () => ({ announce: mockAnnounce, announceRequest: mockAnnounceRequest }),
+}));
+
+vi.mock('../../services/audioFeedback', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/audioFeedback')>()),
+  playSound: vi.fn(),
 }));
 
 vi.mock('../../hooks/useConfirm', () => ({
@@ -112,6 +119,54 @@ describe('WorkflowEditor', () => {
     expect(screen.getByRole('heading', { name: 'Novo status' })).toBeInTheDocument();
     expect(screen.getByLabelText(/Nome/)).toHaveValue('Revisão');
     expect(screen.queryByRole('row', { name: /Revisão/ })).not.toBeInTheDocument();
+  });
+
+  it('enquanto o Aplicar salva, Esc e Cancelar não fecham o formulário; a falha mantém o rascunho', async () => {
+    const user = userEvent.setup();
+    let rejectSave!: (error: Error) => void;
+    const onSave = vi.fn(() => new Promise<void>((_res, rej) => { rejectSave = rej; }));
+    render(<WorkflowEditor workflow={workflow} onSave={onSave} />);
+    await screen.findByRole('grid');
+    await user.click(screen.getByRole('button', { name: /Adicionar Status/ }));
+    fireEvent.change(screen.getByLabelText(/Nome/), { target: { value: 'Revisão' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+
+    fireEvent.keyDown(screen.getByLabelText(/Nome/), { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(screen.getByRole('heading', { name: 'Novo status' })).toBeInTheDocument();
+
+    rejectSave(new Error('banco travado'));
+    await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('Erro ao salvar workflow: banco travado', 'error'));
+    expect(screen.getByLabelText(/Nome/)).toHaveValue('Revisão');
+    // Sem salvamento pendente, o Cancelar volta a fechar.
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByRole('heading', { name: 'Novo status' })).not.toBeInTheDocument();
+  });
+
+  it('fechar e reabrir o editor da mesma tasklist não reaproveita IDs de status', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn((_statuses: SavedStatus[]) => Promise.resolve());
+    const key = 'teste:workflow-ids';
+    const createStatus = async (label: string) => {
+      await user.click(screen.getByRole('button', { name: /Adicionar Status/ }));
+      fireEvent.change(screen.getByLabelText(/Nome/), { target: { value: label } });
+      await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+    };
+
+    const { unmount } = render(<WorkflowEditor workflow={workflow} onSave={onSave} saveQueueKey={key} />);
+    await screen.findByRole('grid');
+    await createStatus('Revisão');
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0].map((s) => s.id)).toEqual([1, 2, 3]);
+    unmount();
+
+    // Reaberto sem o status 3 (removido nesse meio-tempo): o próximo é o 4.
+    render(<WorkflowEditor workflow={workflow} onSave={onSave} saveQueueKey={key} />);
+    await screen.findByRole('grid');
+    await createStatus('Homologação');
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+    expect(onSave.mock.calls[1][0].map((s) => s.id)).toEqual([1, 2, 4]);
   });
 
   it('barra Aplicar sem nome', async () => {
@@ -264,8 +319,13 @@ describe('WorkflowEditor', () => {
 
     // Não usa a confirmação simples: abre o diálogo de migração.
     expect(mockRequestConfirm).not.toHaveBeenCalled();
-    expect(await screen.findByRole('heading', { name: 'Remover Status' })).toBeInTheDocument();
-    expect(screen.getByText(/tem 3 tarefa\(s\)/)).toBeInTheDocument();
+    // Contrato de decisão do AEP-0091: alertdialog anunciado na abertura.
+    const dialog = await screen.findByRole('alertdialog', { name: 'Remover Status' });
+    expect(dialog).toHaveAccessibleDescription(/tem 3 tarefa\(s\)/);
+    await waitFor(() => expect(mockAnnounceRequest).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringMatching(/^Remover Status\. O status "Em Progresso" tem 3 tarefa\(s\)/),
+      announcePriority: 'assertive',
+    })));
     const select = screen.getByLabelText('Migrar tarefas para');
     expect(select).toHaveValue('1');
     fireEvent.change(select, { target: { value: '3' } });

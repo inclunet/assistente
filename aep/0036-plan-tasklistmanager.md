@@ -70,11 +70,14 @@ por vez, na ordem das alterações; a reordenação é otimista (o grid move a
 linha e o foco na hora) e, se o backend recusar, a tela volta ao último
 estado aceito. Criar/editar só aplicam no grid depois do sucesso, mantendo o
 modal do item aberto em caso de falha. A seção de migração condicional saiu:
-apagar um status com tarefas abre um diálogo que pergunta o status de destino
-e envia a migração no mesmo salvamento. A tela fecha pelo X ou Esc do Modal
+apagar um status com tarefas abre um `DecisionDialog` (AEP-0091) com o status
+de destino no corpo e envia a migração no mesmo salvamento. Enquanto um
+Aplicar aguarda o backend, X/Esc/Cancelar do formulário do item (e do diálogo
+de migração) ficam sem efeito, para a falha não descartar o rascunho. A tela fecha pelo X ou Esc do Modal
 (o `DataGrid` só consome Esc quando há seleção a limpar) e Ctrl+N abre Novo
 status quando o modal do editor está no topo. IDs de status nunca são
-reaproveitados na sessão. O editor enfileira cada alteração, no momento em que
+reaproveitados na sessão, nem ao fechar e reabrir o editor (o maior ID fica
+registrado por tasklist). O editor enfileira cada alteração, no momento em que
 ela acontece, numa fila por tasklist (`frontend/src/lib/serialSaveQueue.ts`)
 que sobrevive ao fechamento do modal; ao reabrir, o `TaskListView` espera a
 fila esvaziar antes de ler o workflow e as contagens.

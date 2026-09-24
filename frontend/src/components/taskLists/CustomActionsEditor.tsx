@@ -144,6 +144,12 @@ export default function CustomActionsEditor({ taskListId, onSaved }: CustomActio
     requestAnimationFrame(() => { requestGridFocus(); });
   }, [requestGridFocus]);
 
+  // X, Esc e Cancelar esperam o Aplicar em andamento: se o backend recusar,
+  // o rascunho continua no formulário para tentar de novo.
+  const cancelItemModal = useCallback(() => {
+    if (!savingRef.current) closeItemModal();
+  }, [closeItemModal]);
+
   const patchDraft = useCallback((patch: Partial<CustomAction>) => {
     setDraft((prev) => ({ ...prev, ...patch }));
   }, []);
@@ -364,7 +370,7 @@ export default function CustomActionsEditor({ taskListId, onSaved }: CustomActio
 
       <Modal
         isOpen={itemModal !== null}
-        onClose={closeItemModal}
+        onClose={cancelItemModal}
         title={itemModal?.mode === 'edit'
           ? t('tasklist.customActions.editActionNamed', 'Editar ação: {{label}}', {
             label: actions.find((a) => a._uiId === itemModal.uiId)?.label
@@ -482,7 +488,7 @@ export default function CustomActionsEditor({ taskListId, onSaved }: CustomActio
               </Button>
             }
             secondary={
-              <Button type="button" variant="secondary" onClick={closeItemModal}>
+              <Button type="button" variant="secondary" onClick={cancelItemModal}>
                 {t('common.cancel', 'Cancelar')}
               </Button>
             }

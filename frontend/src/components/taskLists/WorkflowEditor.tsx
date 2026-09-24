@@ -7,6 +7,7 @@ import { Toolbar } from '../ui/Toolbar';
 import { DataGrid, type DataGridColumn } from '../ui/DataGrid';
 import { MenuButton } from '../layout/MenuButton';
 import { Modal } from '../ui/Modal';
+import { DecisionDialog } from '../ui/DecisionDialog';
 import { FormField } from '../ui/FormField';
 import { Input } from '../ui/Input';
 import { Checkbox } from '../ui/Checkbox';
@@ -142,6 +143,9 @@ function swapStatusesChange(aId: number, bId: number): WorkflowChange {
   };
 }
 
+/** Maior ID de status já usado, por fila (tasklist), além da vida do editor. */
+const maxStatusIdByQueue = new Map<string, number>();
+
 function emptyDraft(colorToken: string): StatusDraft {
   return { label: '', icon: '⬜', color: colorToken, transitions: [], initial: false };
 }
@@ -180,10 +184,16 @@ export default function WorkflowEditor({
   const [migration, setMigration] = useState<{ status: TaskListWorkflowStatus; targetId: number } | null>(null);
   const newButtonRef = useRef<HTMLButtonElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const migrationHintId = useId();
+  const instanceQueueId = useId();
+  const queueKey = saveQueueKey ?? `workflow-editor:${instanceQueueId}`;
 
-  // IDs nunca são reaproveitados na sessão, nem os de status já removidos.
-  const maxIdRef = useRef(workflow.statuses.reduce((max, s) => Math.max(max, s.id), 0));
+  // IDs nunca são reaproveitados na sessão, nem os de status já removidos,
+  // mesmo que o editor seja fechado e reaberto.
+  const maxIdRef = useRef(Math.max(
+    maxStatusIdByQueue.get(queueKey) ?? 0,
+    ...workflow.statuses.map((s) => s.id),
+    0,
+  ));
 
   // Salvamentos em fila, na ordem das alterações. Cada alteração é uma
   // transformação aplicada, na hora do envio, sobre o último workflow aceito
@@ -194,8 +204,6 @@ export default function WorkflowEditor({
   const persistedRef = useRef<WorkflowState>(wf);
   const pendingRef = useRef(0);
   const failedRef = useRef(false);
-  const instanceQueueId = useId();
-  const queueKey = saveQueueKey ?? `workflow-editor:${instanceQueueId}`;
 
   const persist = useCallback((change: WorkflowChange, statusMigration: Record<number, number> = {}) => {
     pendingRef.current += 1;
@@ -251,6 +259,12 @@ export default function WorkflowEditor({
     requestAnimationFrame(() => { requestGridFocus(); });
   }, [requestGridFocus]);
 
+  // X, Esc e Cancelar esperam o Aplicar em andamento: se o backend recusar,
+  // o rascunho continua no formulário para tentar de novo.
+  const cancelItemModal = useCallback(() => {
+    if (!applyingRef.current) closeItemModal();
+  }, [closeItemModal]);
+
   const toggleDraftTransition = useCallback((targetId: number) => {
     setDraft((prev) => {
       const current = new Set(prev.transitions);
@@ -287,7 +301,10 @@ export default function WorkflowEditor({
 
     if (applyingRef.current) return;
     applyingRef.current = true;
-    if (created) maxIdRef.current = created.id;
+    if (created) {
+      maxIdRef.current = created.id;
+      maxStatusIdByQueue.set(queueKey, created.id);
+    }
     const ok = await persist(change);
     applyingRef.current = false;
     // Falha ao salvar mantém o modal aberto com o rascunho, para tentar de novo.
@@ -300,7 +317,7 @@ export default function WorkflowEditor({
       announce(t('tasklist.workflow.statusUpdated', 'Status atualizado'));
     }
     closeItemModal();
-  }, [draft, itemModal, statuses.length, t, addToast, announce, closeItemModal, persist]);
+  }, [draft, itemModal, statuses.length, queueKey, t, addToast, announce, closeItemModal, persist]);
 
   const finishRemoval = useCallback((status: TaskListWorkflowStatus) => {
     setWf(removeStatusChange(status.id));
@@ -332,6 +349,10 @@ export default function WorkflowEditor({
     setMigration(null);
     requestAnimationFrame(() => { requestGridFocus(); });
   }, [requestGridFocus]);
+
+  const cancelMigration = useCallback(() => {
+    if (!applyingRef.current) closeMigration();
+  }, [closeMigration]);
 
   const confirmMigration = useCallback(async () => {
     if (!migration) return;
@@ -467,7 +488,7 @@ export default function WorkflowEditor({
 
       <Modal
         isOpen={itemModal !== null}
-        onClose={closeItemModal}
+        onClose={cancelItemModal}
         title={itemModal?.mode === 'edit'
           ? t('tasklist.workflow.editStatusNamed', 'Editar status: {{label}}', {
             label: statuses.find((s) => s.id === itemModal.id)?.label || `#${itemModal.id}`,
@@ -548,7 +569,7 @@ export default function WorkflowEditor({
               </Button>
             }
             secondary={
-              <Button type="button" variant="secondary" onClick={closeItemModal}>
+              <Button type="button" variant="secondary" onClick={cancelItemModal}>
                 {t('common.cancel', 'Cancelar')}
               </Button>
             }
@@ -556,44 +577,49 @@ export default function WorkflowEditor({
         </div>
       </Modal>
 
-      <Modal
+      <DecisionDialog
         isOpen={migration !== null}
-        onClose={closeMigration}
+        severity="destructive"
         title={t('tasklist.workflow.removeStatus', 'Remover Status')}
-        size="sm"
-        ariaDescribedBy={migrationHintId}
-      >
-        {migration && (
-          <div className="workflow-status-form">
-            <p id={migrationHintId} className="workflow-editor__hint">
-              {t('tasklist.workflow.statusInUseMigrate', 'O status "{{label}}" tem {{count}} tarefa(s). Escolha para qual status movê-las antes de remover.', {
-                label: migration.status.label || `#${migration.status.id}`,
-                count: counts[migration.status.id] ?? 0,
-              })}
-            </p>
-            <Select
-              label={t('tasklist.workflow.migrateTasksTo', 'Migrar tarefas para')}
-              value={String(migration.targetId)}
-              onChange={(e) => setMigration((prev) => (prev ? { ...prev, targetId: Number(e.target.value) } : prev))}
-              options={statuses
-                .filter((s) => s.id !== migration.status.id)
-                .map((s) => ({ value: String(s.id), label: `${s.icon} ${s.label}` }))}
-            />
-            <DialogActions
-              primary={
-                <Button type="button" variant="danger" onClick={() => void confirmMigration()}>
-                  {t('tasklist.workflow.removeAndMigrate', 'Remover e migrar')}
-                </Button>
-              }
-              secondary={
-                <Button type="button" variant="secondary" onClick={closeMigration}>
-                  {t('common.cancel', 'Cancelar')}
-                </Button>
-              }
-            />
-          </div>
+        description={migration
+          ? t('tasklist.workflow.statusInUseMigrate', 'O status "{{label}}" tem {{count}} tarefa(s). Escolha para qual status movê-las antes de remover.', {
+            label: migration.status.label || `#${migration.status.id}`,
+            count: counts[migration.status.id] ?? 0,
+          })
+          : ''}
+        body={migration && (
+          <Select
+            label={t('tasklist.workflow.migrateTasksTo', 'Migrar tarefas para')}
+            value={String(migration.targetId)}
+            onChange={(e) => setMigration((prev) => (prev ? { ...prev, targetId: Number(e.target.value) } : prev))}
+            options={statuses
+              .filter((s) => s.id !== migration.status.id)
+              .map((s) => ({ value: String(s.id), label: `${s.icon} ${s.label}` }))}
+          />
         )}
-      </Modal>
+        actions={[
+          {
+            id: 'confirm',
+            label: t('tasklist.workflow.removeAndMigrate', 'Remover e migrar'),
+            variant: 'danger',
+            primary: true,
+            polarity: 'affirmative',
+            scope: 'current',
+          },
+          {
+            id: 'cancel',
+            label: t('common.cancel', 'Cancelar'),
+            variant: 'secondary',
+            polarity: 'negative',
+            scope: 'current',
+          },
+        ]}
+        onAction={(actionId) => {
+          if (actionId === 'confirm') void confirmMigration();
+          else cancelMigration();
+        }}
+        onCancel={cancelMigration}
+      />
     </div>
   );
 }

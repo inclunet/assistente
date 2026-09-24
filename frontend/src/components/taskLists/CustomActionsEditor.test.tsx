@@ -120,6 +120,30 @@ describe('CustomActionsEditor', () => {
     expect(screen.queryByRole('row', { name: /Xis/ })).not.toBeInTheDocument();
   });
 
+  it('enquanto o Aplicar salva, Esc e Cancelar não fecham o formulário; a falha mantém o rascunho', async () => {
+    const user = userEvent.setup();
+    let rejectSave!: (error: Error) => void;
+    mockSetTaskListCustomActions.mockImplementationOnce(() => new Promise<void>((_res, rej) => { rejectSave = rej; }));
+    render(<CustomActionsEditor taskListId="1" />);
+    await screen.findByRole('grid');
+    await user.click(screen.getByRole('button', { name: /Nova ação/ }));
+    fireEvent.change(screen.getByLabelText(/ID/), { target: { value: 'x' } });
+    fireEvent.change(screen.getByLabelText(/Rótulo/), { target: { value: 'Xis' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }));
+    await waitFor(() => expect(mockSetTaskListCustomActions).toHaveBeenCalledTimes(1));
+
+    fireEvent.keyDown(screen.getByLabelText(/Rótulo/), { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(screen.getByLabelText(/Rótulo/)).toBeInTheDocument();
+
+    rejectSave(new Error('disco cheio'));
+    await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('Falha ao salvar ações: disco cheio', 'error'));
+    expect(screen.getByLabelText(/Rótulo/)).toHaveValue('Xis');
+    // Sem salvamento pendente, o Cancelar volta a fechar.
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByLabelText(/Rótulo/)).not.toBeInTheDocument();
+  });
+
   it('Ctrl+N abre Nova ação, e não empilha com o modal do item já aberto', async () => {
     render(<CustomActionsEditor taskListId="1" />);
     await screen.findByRole('grid');
