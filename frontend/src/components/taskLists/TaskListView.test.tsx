@@ -6,6 +6,7 @@ import type { WorkspaceTab } from '../../store/workspaceStore';
 import TaskListView from './TaskListView';
 import { requestWorkspacePanelFocus } from '../workspace/workspacePanelFocusRegistry';
 import { DATAGRID_ENTRY_SELECTOR } from '../ui/DataGrid';
+import { enqueueSave, taskListWorkflowSaveKey } from '../../lib/serialSaveQueue';
 
 const openCreateModalMock = vi.fn();
 const registerWorkspaceChatAdapterMock = vi.hoisted(() => vi.fn());
@@ -628,6 +629,24 @@ describe('TaskListView', () => {
     const dialog = await screen.findByRole('dialog', { name });
     expect(dialog).toHaveAttribute('data-initial-focus', DATAGRID_ENTRY_SELECTOR);
     expect(await screen.findByText(content)).toBeInTheDocument();
+  });
+
+  it('reabrir o workflow com um salvamento em voo espera ele terminar antes de ler os dados', async () => {
+    taskListStoreState.getTaskCountsByStatus.mockResolvedValue({});
+    let resolveSave!: () => void;
+    void enqueueSave(taskListWorkflowSaveKey('tasklist-1'), () => new Promise<void>((res) => { resolveSave = res; }));
+    const user = userEvent.setup();
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Editar Workflow' }));
+
+    await new Promise<void>((r) => { window.setTimeout(r, 20); });
+    expect(taskListStoreState.getTaskCountsByStatus).not.toHaveBeenCalled();
+    expect(screen.queryByText('workflow-editor')).not.toBeInTheDocument();
+
+    resolveSave();
+    expect(await screen.findByText('workflow-editor')).toBeInTheDocument();
+    expect(taskListStoreState.getTaskCountsByStatus).toHaveBeenCalledTimes(1);
   });
 
   it('edita título e descrição da lista pelo menu', async () => {

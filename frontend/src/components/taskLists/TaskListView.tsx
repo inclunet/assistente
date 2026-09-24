@@ -22,6 +22,7 @@ import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
 import { MenuButton } from '../layout/MenuButton';
 import { openTaskLink } from '../../lib/deepLinks';
+import { taskListWorkflowSaveKey, whenSavesSettled } from '../../lib/serialSaveQueue';
 import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
@@ -297,6 +298,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
   const handleOpenWorkflowEditor = useCallback(async () => {
     try {
+      // Reaberto logo após fechar no meio de um salvamento: o workflow e as
+      // contagens só são lidos depois que ele termina.
+      await whenSavesSettled(taskListWorkflowSaveKey(taskListId));
       const counts = await getTaskCountsByStatus(taskListId);
       setTaskCountsByStatus(counts);
       setIsWorkflowEditorOpen(true);
@@ -311,18 +315,15 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     initialStatusId: number,
     statusMigration: Record<number, number>,
   ) => {
+    // Salvamento automático a cada alteração: o editor anuncia o resultado e
+    // o modal segue aberto.
     try {
       await updateWorkflowFull(taskListId, statuses, transitions, initialStatusId, statusMigration);
-      setIsWorkflowEditorOpen(false);
-      addToast(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'), 'success', undefined, undefined, {
-        suppressAnnounce: true,
-      });
-      announce(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'));
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       throw new Error(msg || t('tasklist.workflow.saveFailed', 'Erro ao salvar workflow'));
     }
-  }, [taskListId, updateWorkflowFull, addToast, announce, t]);
+  }, [taskListId, updateWorkflowFull, t]);
 
   const handleClone = useCallback(async () => {
     const newTitle = `${taskList?.title || 'Lista'} (Cópia)`;
@@ -727,7 +728,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           <Suspense fallback={<div>{t('tasklist.loading', 'Carregando...')}</div>}>
             <CustomActionsEditor
               taskListId={taskListId}
-              onClose={() => setIsCustomActionsEditorOpen(false)}
               onSaved={reloadBoardActions}
             />
           </Suspense>
@@ -747,7 +747,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               workflow={taskList.workflow}
               taskCountsByStatus={taskCountsByStatus}
               onSave={handleSaveWorkflow}
-              onCancel={() => setIsWorkflowEditorOpen(false)}
+              saveQueueKey={taskListWorkflowSaveKey(taskListId)}
             />
           </Suspense>
         </Modal>
