@@ -502,6 +502,96 @@ describe('WorkflowEditor', () => {
     expect(screen.getByRole('checkbox', { name: 'Status Inicial' })).toBeChecked();
   });
 
+  describe('edição concorrente', () => {
+    const CONFLICT = 'O workflow foi alterado em outro lugar, por outra aba ou pelo agente. A tela foi atualizada com a versão atual; confira e refaça a alteração.';
+    const fresh: TaskListWorkflow = {
+      ...workflow,
+      statuses: [
+        ...workflow.statuses,
+        { id: 5, order: 2, label: 'Do agente', color: 'var(--color-success)', icon: '🤖' },
+      ],
+      allowedTransitions: { 1: [2], 2: [5], 5: [] },
+    };
+
+    async function addStatus(user: ReturnType<typeof userEvent.setup>, label: string) {
+      await user.click(screen.getByRole('button', { name: /Adicionar Status/ }));
+      fireEvent.change(await screen.findByLabelText(/Nome/), { target: { value: label } });
+      await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+    }
+
+    it('cada gravação envia como esperado o workflow sobre o qual foi calculada', async () => {
+      const user = userEvent.setup();
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      render(<WorkflowEditor workflow={workflow} onSave={onSave} saveQueueKey="conc:esperado" />);
+      await screen.findByRole('grid');
+
+      await addStatus(user, 'Revisão');
+      await screen.findByRole('row', { name: /Revisão/ });
+      await addStatus(user, 'Arquivado');
+      await screen.findByRole('row', { name: /Arquivado/ });
+
+      expect(onSave.mock.calls[0][4]).toEqual({
+        statuses: workflow.statuses,
+        transitions: workflow.allowedTransitions,
+        initialStatusId: 1,
+      });
+      const secondBase = onSave.mock.calls[1][4] as { statuses: SavedStatus[] };
+      expect(secondBase.statuses.map((s) => s.label)).toEqual(['A Fazer', 'Em Progresso', 'Revisão']);
+    });
+
+    it('conflito avisa, pede a recarga e, sincronizado, grava sobre a versão atual', async () => {
+      const user = userEvent.setup();
+      const onSave = vi.fn().mockRejectedValueOnce(new Error('TASKLIST_CONFIG_CONFLICT: alterado')).mockResolvedValue(undefined);
+      const onConflict = vi.fn();
+      const { rerender } = render(
+        <WorkflowEditor workflow={workflow} onSave={onSave} onConflict={onConflict} syncToken={0} saveQueueKey="conc:conflito" />,
+      );
+      await screen.findByRole('grid');
+
+      await addStatus(user, 'Revisão');
+      await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith(CONFLICT, 'warning', 10000));
+      expect(onConflict).toHaveBeenCalledTimes(1);
+      expect(mockAddToast).not.toHaveBeenCalledWith(expect.stringContaining('Erro ao salvar workflow'), 'error');
+      // O rascunho continua no formulário para aplicar de novo.
+      expect(screen.getByLabelText(/Nome/)).toHaveValue('Revisão');
+
+      rerender(
+        <WorkflowEditor workflow={fresh} onSave={onSave} onConflict={onConflict} syncToken={1} saveQueueKey="conc:conflito" />,
+      );
+      expect(await screen.findByRole('row', { name: /Do agente/ })).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+      await screen.findByRole('row', { name: /Revisão/ });
+      const [statuses, , , , expected] = onSave.mock.calls[1];
+      expect(expected).toEqual({ statuses: fresh.statuses, transitions: fresh.allowedTransitions, initialStatusId: 1 });
+      // O ID novo não colide com o status criado em outro lugar.
+      expect((statuses as SavedStatus[]).map((s) => s.id)).toEqual([1, 2, 5, 6]);
+    });
+
+    it('editar um status removido em outro lugar avisa e fecha o formulário sem gravar', async () => {
+      const user = userEvent.setup();
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const { rerender } = render(<WorkflowEditor workflow={workflow} onSave={onSave} syncToken={0} saveQueueKey="conc:removido" />);
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Editar' })).toBeEnabled());
+      await user.click(screen.getByRole('button', { name: 'Editar' }));
+      expect(await screen.findByRole('heading', { name: 'Editar status: A Fazer' })).toBeInTheDocument();
+
+      const withoutFirst: TaskListWorkflow = {
+        ...workflow,
+        statuses: [{ ...workflow.statuses[1], order: 0 }],
+        allowedTransitions: { 2: [] },
+        initialStatusId: 2,
+      };
+      rerender(<WorkflowEditor workflow={withoutFirst} onSave={onSave} syncToken={1} saveQueueKey="conc:removido" />);
+      await waitFor(() => expect(screen.queryByRole('row', { name: /A Fazer/ })).not.toBeInTheDocument());
+
+      await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+      expect(mockAddToast).toHaveBeenCalledWith('Este status não existe mais: foi removido em outro lugar.', 'error');
+      expect(onSave).not.toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByRole('heading', { name: /Editar status/ })).not.toBeInTheDocument());
+    });
+  });
+
   describe('dentro do Modal', () => {
     let originalOffsetParent: PropertyDescriptor | undefined;
 

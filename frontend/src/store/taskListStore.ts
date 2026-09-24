@@ -27,6 +27,7 @@ import {
   ReorderTasks,
   ReorderWorkflowStatuses,
   UpdateWorkflowFull,
+  UpdateWorkflowFullChecked,
   GetTaskCountsByStatus,
   CreateTaskNote,
   GetTaskNotes,
@@ -36,6 +37,7 @@ import {
 import {
   GetTaskListCustomActions,
   SetTaskListCustomActions,
+  SetTaskListCustomActionsChecked,
   ListCardCustomActions,
   ListBoardCustomActions,
   TriggerCustomAction,
@@ -49,12 +51,14 @@ import type {
   ViewMode,
   TaskListWorkflow,
   TaskListWorkflowStatus,
+  TaskListWorkflowSnapshot,
   WorkflowTransitions,
   TaskListCustomActions,
   CustomActionView,
   CustomActionSurface,
 } from '../types/tasklist';
 import type { database } from '@wailsjs/go/models';
+import { isTaskListConfigConflict } from '../lib/taskListConfigConflict';
 
 /**
  * Mapeia uma Task do backend (snake_case do Wails/JSON) para o formato camelCase do frontend.
@@ -211,7 +215,11 @@ interface TaskListStoreState {
 
   // Custom actions (AEP-0067)
   getTaskListCustomActions: (taskListId: string) => Promise<TaskListCustomActions>;
-  setTaskListCustomActions: (taskListId: string, actionsJSON: string) => Promise<void>;
+  /**
+   * Com `expectedJSON`, grava somente se as ações atuais ainda equivalerem a ele;
+   * senão rejeita com erro de conflito (ver isTaskListConfigConflict).
+   */
+  setTaskListCustomActions: (taskListId: string, actionsJSON: string, expectedJSON?: string) => Promise<void>;
   listCardCustomActions: (taskId: string, surface: CustomActionSurface) => Promise<CustomActionView[]>;
   listBoardCustomActions: (taskListId: string) => Promise<CustomActionView[]>;
   triggerCustomAction: (taskListId: string, taskId: string, actionId: string) => Promise<string>;
@@ -222,7 +230,11 @@ interface TaskListStoreState {
   // Workflow management
   loadWorkflow: (taskListId: string) => Promise<TaskListWorkflow | null>;
   updateWorkflow: (taskListId: string, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>) => Promise<void>;
-  updateWorkflowFull: (taskListId: string, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>, initialStatusId: number, statusMigration?: Record<number, number>) => Promise<void>;
+  /**
+   * Com `expected`, grava somente se o workflow atual ainda equivaler a ele;
+   * senão rejeita com erro de conflito (ver isTaskListConfigConflict).
+   */
+  updateWorkflowFull: (taskListId: string, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>, initialStatusId: number, statusMigration?: Record<number, number>, expected?: TaskListWorkflowSnapshot) => Promise<void>;
   getTaskCountsByStatus: (taskListId: string) => Promise<Record<number, number>>;
   reorderWorkflowStatuses: (taskListId: string, statusOrder: number[]) => Promise<void>;
 
@@ -685,8 +697,12 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       return (res as unknown as TaskListCustomActions) || { actions: [] };
     },
 
-    setTaskListCustomActions: async (taskListId: string, actionsJSON: string) => {
-      await SetTaskListCustomActions(taskListId, actionsJSON);
+    setTaskListCustomActions: async (taskListId: string, actionsJSON: string, expectedJSON?: string) => {
+      if (expectedJSON === undefined) {
+        await SetTaskListCustomActions(taskListId, actionsJSON);
+        return;
+      }
+      await SetTaskListCustomActionsChecked(taskListId, expectedJSON, actionsJSON);
     },
 
     listCardCustomActions: async (taskId: string, surface: CustomActionSurface) => {
@@ -748,10 +764,21 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    updateWorkflowFull: async (taskListId: string, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>, initialStatusId: number, statusMigration?: Record<number, number>) => {
+    updateWorkflowFull: async (taskListId: string, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>, initialStatusId: number, statusMigration?: Record<number, number>, expected?: TaskListWorkflowSnapshot) => {
       try {
         const migration = statusMigration ?? {};
-        await UpdateWorkflowFull(taskListId, statuses as TaskListWorkflowStatus[], transitions, initialStatusId, migration);
+        if (expected) {
+          await UpdateWorkflowFullChecked(
+            taskListId,
+            expected as unknown as database.TaskListWorkflowSnapshot,
+            statuses as TaskListWorkflowStatus[],
+            transitions,
+            initialStatusId,
+            migration,
+          );
+        } else {
+          await UpdateWorkflowFull(taskListId, statuses as TaskListWorkflowStatus[], transitions, initialStatusId, migration);
+        }
         const cached = get().taskLists.get(taskListId);
         // O editor salva a cada alteração: sem migração as tarefas não mudam,
         // então basta atualizar o workflow em cache, sem recarregar a lista.
@@ -777,7 +804,10 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
           return { taskLists };
         });
       } catch (error) {
-        get().setError(taskListErrorKey('updateWorkflowFull', taskListId), String(error));
+        // Conflito não é falha da lista: o editor trata recarregando e avisando.
+        if (!isTaskListConfigConflict(error)) {
+          get().setError(taskListErrorKey('updateWorkflowFull', taskListId), String(error));
+        }
         throw error;
       }
     },

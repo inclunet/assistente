@@ -9,6 +9,7 @@ import { useGridFocus } from '../../hooks/useGridFocus';
 import { useInitialContentFocus } from '../../hooks/useInitialContentFocus';
 import { useNewItemShortcut } from '../../hooks/useNewItemShortcut';
 import { enqueueSave, taskListCustomActionsSaveKey, whenSavesSettled } from '../../lib/serialSaveQueue';
+import { isTaskListConfigConflict } from '../../lib/taskListConfigConflict';
 import type { CustomAction, CustomActionSurface } from '../../types/tasklist';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -45,8 +46,14 @@ function newUiId(): string {
   return `ca-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function withUiId(a: CustomAction): EditableAction {
-  return { ...a, _uiId: newUiId() };
+/**
+ * Ações lidas do backend recebem id de UI; as que já estavam na tela (mesmo id
+ * persistido) mantêm o delas, para o foco e o formulário aberto seguirem
+ * apontando para a mesma ação depois de recarregar.
+ */
+function withUiIds(loaded: CustomAction[], previous: EditableAction[]): EditableAction[] {
+  const uiIdById = new Map(previous.map((a) => [a.id, a._uiId]));
+  return loaded.map((a) => ({ ...a, _uiId: uiIdById.get(a.id) ?? newUiId() }));
 }
 
 function getErrorMessage(error: unknown): string {
@@ -104,6 +111,12 @@ export default function CustomActionsEditor({ taskListId, onSaved }: CustomActio
   const [itemModal, setItemModal] = useState<{ mode: 'create' } | { mode: 'edit'; uiId: string } | null>(null);
   const [draft, setDraft] = useState<EditableAction>(emptyAction);
   const newButtonRef = useRef<HTMLButtonElement | null>(null);
+  // Ações gravadas sobre as quais a próxima gravação é calculada; o backend
+  // recusa com conflito se o gravado já for outro.
+  const baseJSONRef = useRef('');
+  // Incrementado após um conflito para reler as ações gravadas.
+  const [reloadToken, setReloadToken] = useState(0);
+  const [reloadFailed, setReloadFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,16 +124,32 @@ export default function CustomActionsEditor({ taskListId, onSaved }: CustomActio
     whenSavesSettled(taskListCustomActionsSaveKey(taskListId))
       .then(() => getTaskListCustomActions(taskListId))
       .then((res) => {
-        if (!cancelled) setActions((res.actions ?? []).map(withUiId));
+        if (cancelled) return;
+        const loaded = res.actions ?? [];
+        baseJSONRef.current = JSON.stringify({ actions: loaded });
+        setActions((prev) => withUiIds(loaded, prev));
       })
       .catch(() => {
-        if (!cancelled) setActions([]);
+        if (cancelled) return;
+        if (reloadToken === 0) setActions([]);
+        else setReloadFailed(true);
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
       });
     return () => { cancelled = true; };
-  }, [taskListId, getTaskListCustomActions]);
+  }, [taskListId, getTaskListCustomActions, reloadToken]);
+
+  useEffect(() => {
+    if (!reloadFailed) return;
+    setReloadFailed(false);
+    addToast(t('common.error', 'Erro ao carregar dados'), 'error');
+  }, [reloadFailed, addToast, t]);
+
+  // Após recarregar, o item focado passa a ser a versão gravada (ou nenhum).
+  useEffect(() => {
+    setFocused((prev) => (prev ? actions.find((a) => a._uiId === prev._uiId) ?? null : null));
+  }, [actions]);
 
   // Ao entrar na tela (dados carregados), o foco vai para o grid — ou para
   // "Nova ação" quando a lista está vazia e não há grid.
@@ -178,11 +207,23 @@ export default function CustomActionsEditor({ taskListId, onSaved }: CustomActio
       // Sem ações: persiste string vazia (não `{"actions":[]}`). O backend trata
       // vazio como "sem ações" e isso mantém custom_actions limpo no round-trip/clone.
       const json = cleaned.length > 0 ? JSON.stringify({ actions: cleaned }) : '';
-      await enqueueSave(taskListCustomActionsSaveKey(taskListId), () => setTaskListCustomActions(taskListId, json));
+      await enqueueSave(
+        taskListCustomActionsSaveKey(taskListId),
+        () => setTaskListCustomActions(taskListId, json, baseJSONRef.current),
+      );
+      baseJSONRef.current = json;
       setActions(next);
       onSaved?.();
       return true;
     } catch (error) {
+      if (isTaskListConfigConflict(error)) {
+        addToast(t(
+          'tasklist.customActions.conflict',
+          'As ações foram alteradas em outro lugar, por outra aba ou pelo agente. A lista foi atualizada com a versão atual; confira e refaça a alteração.',
+        ), 'warning', 10000);
+        setReloadToken((n) => n + 1);
+        return false;
+      }
       addToast(
         t('tasklist.customActions.saveError', 'Falha ao salvar ações: {{error}}', { error: getErrorMessage(error) }),
         'error',
@@ -204,6 +245,12 @@ export default function CustomActionsEditor({ taskListId, onSaved }: CustomActio
       return;
     }
     const editingUiId = itemModal?.mode === 'edit' ? itemModal.uiId : null;
+    // Após um conflito a lista recarrega: a ação pode ter sido apagada.
+    if (editingUiId && !actions.some((a) => a._uiId === editingUiId)) {
+      addToast(t('tasklist.customActions.actionGone', 'Esta ação não existe mais: foi apagada em outro lugar.'), 'error');
+      closeItemModal();
+      return;
+    }
     if (actions.some((a) => a.id === id && a._uiId !== editingUiId)) {
       const msg = t('tasklist.customActions.duplicateId', 'Já existe uma ação com este ID');
       addToast(msg, 'error');

@@ -27,7 +27,7 @@ import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceConte
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
 import { useCustomActions } from './useCustomActions';
-import type { ViewMode, TaskListWorkflowStatus, WorkflowTransitions, CustomActionView } from '../../types/tasklist';
+import type { ViewMode, TaskListWorkflowStatus, TaskListWorkflowSnapshot, WorkflowTransitions, CustomActionView } from '../../types/tasklist';
 
 const WorkflowEditor = lazy(() => import('./WorkflowEditor'));
 const CustomActionsEditor = lazy(() => import('./CustomActionsEditor'));
@@ -314,16 +314,33 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     transitions: WorkflowTransitions,
     initialStatusId: number,
     statusMigration: Record<number, number>,
+    expected: TaskListWorkflowSnapshot,
   ) => {
     // Salvamento automático a cada alteração: o editor anuncia o resultado e
     // o modal segue aberto.
     try {
-      await updateWorkflowFull(taskListId, statuses, transitions, initialStatusId, statusMigration);
+      await updateWorkflowFull(taskListId, statuses, transitions, initialStatusId, statusMigration, expected);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       throw new Error(msg || t('tasklist.workflow.saveFailed', 'Erro ao salvar workflow'));
     }
   }, [taskListId, updateWorkflowFull, t]);
+
+  // Conflito: espera a fila descartar o que restou, relê workflow e contagens
+  // e sincroniza o editor aberto com o que está gravado.
+  const [workflowSyncToken, setWorkflowSyncToken] = useState(0);
+  const handleWorkflowConflict = useCallback(() => {
+    void (async () => {
+      try {
+        await whenSavesSettled(taskListWorkflowSaveKey(taskListId));
+        await loadTaskList(taskListId);
+        setTaskCountsByStatus(await getTaskCountsByStatus(taskListId));
+        setWorkflowSyncToken((n) => n + 1);
+      } catch {
+        addToast(t('common.error', 'Erro ao carregar dados'), 'error');
+      }
+    })();
+  }, [taskListId, loadTaskList, getTaskCountsByStatus, addToast, t]);
 
   const handleClone = useCallback(async () => {
     const newTitle = `${taskList?.title || 'Lista'} (Cópia)`;
@@ -747,6 +764,8 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               workflow={taskList.workflow}
               taskCountsByStatus={taskCountsByStatus}
               onSave={handleSaveWorkflow}
+              onConflict={handleWorkflowConflict}
+              syncToken={workflowSyncToken}
               saveQueueKey={taskListWorkflowSaveKey(taskListId)}
             />
           </Suspense>
