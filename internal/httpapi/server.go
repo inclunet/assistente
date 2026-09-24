@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"assistente/internal/logging"
+	"context"
 	"encoding/json"
 	"errors"
 	"net"
@@ -10,6 +11,8 @@ import (
 	"sync/atomic"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandcatalog"
+	"assistente/internal/commandexecution"
 	"assistente/internal/credentials"
 )
 
@@ -22,6 +25,7 @@ type Server struct {
 	external              *auth.ExternalAuthenticator
 	externalIdentityAdmin *auth.ExternalIdentityAdminService
 	externalIdentities    *auth.ExternalIdentityRepository
+	externalCommands      map[string]*commandexecution.ExternalService
 	mux                   *http.ServeMux
 
 	// jwksCache (B20 do review) absorve picos de tráfego em
@@ -48,6 +52,7 @@ type Config struct {
 	External              *auth.ExternalAuthenticator
 	ExternalIdentityAdmin *auth.ExternalIdentityAdminService
 	ExternalIdentities    *auth.ExternalIdentityRepository
+	ExternalCommands      map[string]*commandexecution.ExternalService
 	// AuthRate / AuthBurst e JWKSRate / JWKSBurst permitem ajustar os
 	// limites por deploy. Defaults conservadores aplicados quando não
 	// configurados — evitam que um teste/integração local "sem cargo"
@@ -59,6 +64,11 @@ type Config struct {
 }
 
 func New(cfg Config) *Server {
+	externalCommands, validExternalCommands := copyAndValidateExternalCommands(cfg.ExternalCommands)
+	if !validExternalCommands {
+		logging.Errorf(context.Background(), "httpapi.server", "[httpapi] invalid_external_command_services")
+		externalCommands = nil
+	}
 	authRate := cfg.AuthRate
 	if authRate <= 0 {
 		authRate = 5
@@ -84,6 +94,7 @@ func New(cfg Config) *Server {
 		external:              cfg.External,
 		externalIdentityAdmin: cfg.ExternalIdentityAdmin,
 		externalIdentities:    cfg.ExternalIdentities,
+		externalCommands:      externalCommands,
 		mux:                   http.NewServeMux(),
 		authLimiter:           newRateLimiter(authRate, authBurst),
 		jwksLimiter:           newRateLimiter(jwksRate, jwksBurst),
@@ -93,6 +104,33 @@ func New(cfg Config) *Server {
 	}
 	s.routes()
 	return s
+}
+
+func copyAndValidateExternalCommands(input map[string]*commandexecution.ExternalService) (map[string]*commandexecution.ExternalService, bool) {
+	if len(input) == 0 {
+		return nil, true
+	}
+	expected := map[string]commandcatalog.Source{
+		"palette": commandcatalog.Palette,
+		"ui":      commandcatalog.UI,
+		"chat":    commandcatalog.Chat,
+	}
+	copyOfServices := make(map[string]*commandexecution.ExternalService, len(input))
+	var sharedSecurity *commandexecution.ExternalService
+	for key, service := range input {
+		wantSource, ok := expected[key]
+		if !ok || service == nil || service.Source() != wantSource {
+			return nil, false
+		}
+		if sharedSecurity != nil && !sharedSecurity.SharesSecurityWith(service) {
+			return nil, false
+		}
+		if sharedSecurity == nil {
+			sharedSecurity = service
+		}
+		copyOfServices[key] = service
+	}
+	return copyOfServices, true
 }
 
 func (s *Server) sessionService() *auth.SessionService {
@@ -116,6 +154,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /auth/me", s.handleMe)
 	s.mux.HandleFunc("POST /auth/external/identities/bootstrap", s.rateLimit(s.authLimiter, "auth.external.bootstrap", s.handleExternalIdentityBootstrap))
 	s.mux.HandleFunc("POST /auth/external/identities", s.rateLimit(s.authLimiter, "auth.external.identity.create", s.handleExternalIdentityCreate))
+	s.mux.Handle("POST /auth/external/identities/revoke", s.noStoreRateLimit(s.authLimiter, "auth.external.identity.revoke", s.handleExternalIdentityRevoke))
+	s.mux.Handle("POST /commands/{source}/execute", s.noStoreRateLimit(s.authLimiter, "commands.execute", s.handleExternalCommandExecute))
+	s.mux.Handle("GET /commands/{source}/invocations/{id}", s.noStoreRateLimit(s.authLimiter, "commands.lookup", s.handleExternalCommandLookup))
 	s.mux.HandleFunc("GET /.well-known/jwks.json", s.rateLimit(s.jwksLimiter, "auth.jwks", s.handleJWKS))
 }
 

@@ -130,7 +130,7 @@ func TestExternalCaptureERevogacaoUsamMesmoEpochReal(t *testing.T) {
 	}}
 	external := auth.NewExternalCommandAuthenticator(verifier, repo)
 	external.SetReadiness(repo.CheckReadiness)
-	admin, err := auth.NewExternalIdentityAdminService(verifier, repo, auth.ExternalIdentityAdminConfig{AdminScopes: []string{"identity:admin"}})
+	admin, err := auth.NewExternalIdentityAdminService(verifier, repo, auth.ExternalIdentityAdminConfig{Issuer: "issuer", AdminScopes: []string{"identity:admin"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,8 +233,8 @@ func TestRevogacaoExternaPreparaForaEDesabilitaNoMesmoEpoch(t *testing.T) {
 	if _, err := repo.Create(context.Background(), auth.ExternalIdentityMappingParams{Issuer: "issuer", Subject: "subject", UserID: user.ID}); err != nil {
 		t.Fatal(err)
 	}
-	verifier := &cachedClaimsStub{claims: &auth.ExternalClaims{Scope: "identity:admin"}}
-	admin, err := auth.NewExternalIdentityAdminService(verifier, repo, auth.ExternalIdentityAdminConfig{AdminScopes: []string{"identity:admin"}})
+	verifier := &cachedClaimsStub{claims: &auth.ExternalClaims{Issuer: "issuer", Scope: "identity:admin"}}
+	admin, err := auth.NewExternalIdentityAdminService(verifier, repo, auth.ExternalIdentityAdminConfig{Issuer: "issuer", AdminScopes: []string{"identity:admin"}})
 	if err != nil {
 		t.Fatal(err)
 	}

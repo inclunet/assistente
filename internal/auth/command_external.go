@@ -12,6 +12,7 @@ import (
 var (
 	ErrExternalCommandAuthenticator = errors.New("autenticador externo de comandos não inicializado")
 	ErrExternalAdminScopeRequired   = errors.New("escopo administrativo externo obrigatório")
+	ErrExternalIssuerRequired       = errors.New("issuer externo configurado obrigatório")
 )
 
 // ExternalTokenVerifier é a porta mínima para o validador JWKS real ou para
@@ -187,6 +188,9 @@ func NewExternalIdentityAdminService(verifier ExternalTokenVerifier, repo *Exter
 	if repo == nil || repo.db == nil {
 		return nil, ErrExternalIdentityNotReady
 	}
+	if !validExternalIdentityPart(cfg.Issuer) {
+		return nil, ErrExternalIssuerRequired
+	}
 	if verifier == nil || (len(cleanValues(cfg.AdminScopes)) == 0 && len(cleanValues(cfg.AdminRoles)) == 0) {
 		return nil, ErrExternalAdministratorRequired
 	}
@@ -203,6 +207,9 @@ func (s *ExternalIdentityAdminService) authorize(ctx context.Context, token stri
 	if err != nil || claims == nil {
 		return nil, ErrExternalAdministratorRequired
 	}
+	if !validExternalIdentityPart(s.cfg.Issuer) || claims.Issuer != s.cfg.Issuer {
+		return nil, ErrExternalAdministratorRequired
+	}
 	if !containsAll(splitExternalScopes(claims.Scope), s.cfg.AdminScopes) && !containsAny(claims.Roles, s.cfg.AdminRoles) {
 		return nil, ErrExternalAdminScopeRequired
 	}
@@ -210,25 +217,40 @@ func (s *ExternalIdentityAdminService) authorize(ctx context.Context, token stri
 }
 
 func (s *ExternalIdentityAdminService) Create(ctx context.Context, adminToken string, params ExternalIdentityMappingParams) (*ExternalIdentityMapping, error) {
-	if _, err := s.authorize(ctx, adminToken); err != nil {
+	claims, err := s.authorize(ctx, adminToken)
+	if err != nil {
 		return nil, err
+	}
+	issuer, _, _, err := normalizeExternalMapping(params)
+	if err != nil {
+		return nil, err
+	}
+	if issuer != claims.Issuer {
+		return nil, ErrExternalAdministratorRequired
 	}
 	return s.repo.Create(ctx, params)
 }
 
 func (s *ExternalIdentityAdminService) Revoke(ctx context.Context, adminToken, issuer, subject string) error {
-	if _, err := s.authorize(ctx, adminToken); err != nil {
+	prepared, err := s.PrepareRevoke(ctx, adminToken, issuer, subject)
+	if err != nil {
 		return err
 	}
-	return s.repo.Revoke(ctx, issuer, subject)
+	return s.RevokePrepared(ctx, prepared)
 }
 
 // PrepareRevoke valida o administrador e relê o vínculo antes do gate. A
 // aplicação da revogação deve ocorrer depois via RevokePrepared como uma das
 // mutações agrupadas em MutateContextGroup no serviço de epochs.
 func (s *ExternalIdentityAdminService) PrepareRevoke(ctx context.Context, adminToken, issuer, subject string) (ExternalIdentityRevocation, error) {
-	if _, err := s.authorize(ctx, adminToken); err != nil {
+	claims, err := s.authorize(ctx, adminToken)
+	if err != nil {
 		return ExternalIdentityRevocation{}, err
+	}
+	// Um administrador do issuer configurado não administra vínculos de outro
+	// provedor, mesmo que compartilhem o mesmo subject ou escopo administrativo.
+	if claims.Issuer != s.cfg.Issuer || issuer != s.cfg.Issuer {
+		return ExternalIdentityRevocation{}, ErrExternalAdministratorRequired
 	}
 	mapping, err := s.repo.Resolve(ctx, issuer, subject)
 	if err != nil {
@@ -240,15 +262,22 @@ func (s *ExternalIdentityAdminService) PrepareRevoke(ctx context.Context, adminT
 // RevokePrepared não autentica nem busca JWKS. É deliberadamente uma operação
 // local curta para ser chamada dentro do MutateContextGroup após a preparação.
 func (s *ExternalIdentityAdminService) RevokePrepared(ctx context.Context, prepared ExternalIdentityRevocation) error {
-	if s == nil || s.repo == nil || !validExternalIdentityPart(prepared.issuer) || !validExternalIdentityPart(prepared.subject) || !canonicalSessionUUID(prepared.userID) {
+	if s == nil || s.repo == nil || !validExternalIdentityPart(s.cfg.Issuer) || !validExternalIdentityPart(prepared.issuer) || !validExternalIdentityPart(prepared.subject) || !canonicalSessionUUID(prepared.userID) {
 		return ErrExternalIdentityNotReady
+	}
+	if prepared.issuer != s.cfg.Issuer {
+		return ErrExternalAdministratorRequired
 	}
 	return s.repo.Revoke(ctx, prepared.issuer, prepared.subject)
 }
 
 func (s *ExternalIdentityAdminService) Enable(ctx context.Context, adminToken, issuer, subject string) error {
-	if _, err := s.authorize(ctx, adminToken); err != nil {
+	claims, err := s.authorize(ctx, adminToken)
+	if err != nil {
 		return err
+	}
+	if issuer != claims.Issuer {
+		return ErrExternalAdministratorRequired
 	}
 	return s.repo.Enable(ctx, issuer, subject)
 }

@@ -66,7 +66,7 @@ func TestExternalGroupRevocationInvalidatesEveryTokenAndOldAdmissions(t *testing
 	verifier := &cachedClaimsStub{claims: &auth.ExternalClaims{Issuer: "issuer", Subject: "subject", Scope: "identity:admin"}}
 	external := auth.NewExternalCommandAuthenticator(verifier, repo)
 	external.SetReadiness(repo.CheckReadiness)
-	admin, err := auth.NewExternalIdentityAdminService(verifier, repo, auth.ExternalIdentityAdminConfig{AdminScopes: []string{"identity:admin"}})
+	admin, err := auth.NewExternalIdentityAdminService(verifier, repo, auth.ExternalIdentityAdminConfig{Issuer: "issuer", AdminScopes: []string{"identity:admin"}})
 	if err != nil {
 		t.Fatal(err)
 	}

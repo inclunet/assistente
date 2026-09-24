@@ -16,6 +16,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+Atualização AEP-0103, seção154: transporte HTTP de comandos externos com
+execução, consulta e revogação; composição por origem validada e issuer
+administrativo obrigatório. Montagem produtiva ainda pendente, contagens
+inalteradas. Migração de workspaces permanece iniciativa separada.
+
 Atualização AEP-0103, seção153: ingresso externo da biblioteca conectado ao
 executor integral, com token por solicitação e revogação compartilhada. Falta
 a montagem HTTP/App por usuário; **In Progress, 80 I / 4 P / 0 N**.

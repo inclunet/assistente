@@ -22,12 +22,25 @@ func (s *Server) externalIdentityToken(w http.ResponseWriter, r *http.Request) (
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "cadastro externo indisponível"})
 		return "", false
 	}
-	parts := strings.Fields(r.Header.Get("Authorization"))
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+	token, ok := strictBearerToken(r)
+	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "credenciais inválidas"})
 		return "", false
 	}
-	return parts[1], true
+	return token, true
+}
+
+func strictBearerToken(r *http.Request) (string, bool) {
+	values := r.Header.Values("Authorization")
+	if len(values) != 1 {
+		return "", false
+	}
+	value := values[0]
+	scheme, token, found := strings.Cut(value, " ")
+	if !found || !strings.EqualFold(scheme, "Bearer") || token == "" || strings.TrimSpace(token) != token || strings.ContainsAny(token, " \t\r\n") {
+		return "", false
+	}
+	return token, true
 }
 
 func decodeExternalIdentity(w http.ResponseWriter, r *http.Request, dst any) bool {

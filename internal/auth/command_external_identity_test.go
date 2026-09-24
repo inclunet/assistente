@@ -41,7 +41,7 @@ func TestExternalIdentityAdminRequiresScopeAndStoresExactMapping(t *testing.T) {
 		"no-admin":    {Issuer: "https://idp.example", Subject: "user", Scope: "assistente:commands"},
 	}}
 	repo := NewExternalIdentityRepository(db)
-	service, err := NewExternalIdentityAdminService(verifier, repo, ExternalIdentityAdminConfig{AdminScopes: []string{"assistente:identity:admin"}})
+	service, err := NewExternalIdentityAdminService(verifier, repo, ExternalIdentityAdminConfig{Issuer: "https://idp.example", AdminScopes: []string{"assistente:identity:admin"}})
 	if err != nil {
 		t.Fatal(err)
 	}

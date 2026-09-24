@@ -33,6 +33,7 @@ type externalClaimsVerifier struct {
 	entered    chan struct{}
 	cancelled  chan struct{}
 	release    chan struct{}
+	onCached   func(context.Context) error
 }
 
 func (v *externalClaimsVerifier) Validate(ctx context.Context, token string) (*auth.ExternalClaims, error) {
@@ -64,8 +65,16 @@ func (v *externalClaimsVerifier) Validate(ctx context.Context, token string) (*a
 	return v.claim(token)
 }
 
-func (v *externalClaimsVerifier) ValidateCached(_ context.Context, token string) (*auth.ExternalClaims, error) {
+func (v *externalClaimsVerifier) ValidateCached(ctx context.Context, token string) (*auth.ExternalClaims, error) {
 	v.cached.Add(1)
+	v.mu.Lock()
+	hook := v.onCached
+	v.mu.Unlock()
+	if hook != nil {
+		if err := hook(ctx); err != nil {
+			return nil, err
+		}
+	}
 	return v.claim(token)
 }
 
@@ -135,7 +144,7 @@ func newExternalHarness(t *testing.T, mutateConfig func(*Config)) *externalHarne
 	}
 	authenticator := auth.NewExternalCommandAuthenticator(verifier, repository)
 	authenticator.SetReadiness(repository.CheckReadiness)
-	admin, err := auth.NewExternalIdentityAdminService(verifier, repository, auth.ExternalIdentityAdminConfig{AdminScopes: []string{externalTestAdminScope}})
+	admin, err := auth.NewExternalIdentityAdminService(verifier, repository, auth.ExternalIdentityAdminConfig{Issuer: externalTestIssuer, AdminScopes: []string{externalTestAdminScope}})
 	if err != nil {
 		t.Fatalf("criar serviço admin externo: %v", err)
 	}

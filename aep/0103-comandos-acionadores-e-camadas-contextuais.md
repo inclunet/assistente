@@ -2,9 +2,14 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção153 (24/09/2026):** dos 84 critérios finais,
+**Acompanhamento vigente — seção154 (24/09/2026):** dos 84 critérios finais,
 **80 têm implementação identificada (95,2%), 4 são parciais e 0 ausentes**.
 Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
+A seção154 acrescenta o transporte HTTP de execução/consulta/revogação, com
+composição validada de origens e autoridade compartilhada. O App ainda não
+injeta executores externos; as rotas permanecem indisponíveis no produto.
+A migração de workspaces para banco foi adiada para iniciativa independente:
+não é requisito geral dos comandos nem justificativa para ampliar este AEP.
 A seção153 liga a autenticação externa ao executor integral por `NewExternal`:
 token por solicitação, validação cached no gate, política de roles/scopes e
 revogação compartilhadas, sem sessão desktop sintética. É ingresso da biblioteca;

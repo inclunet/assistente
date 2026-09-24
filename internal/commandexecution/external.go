@@ -21,6 +21,23 @@ type ExternalService struct {
 	executor      *Service
 	authenticator *auth.ExternalCommandAuthenticator
 	identity      *commandidentity.Service
+	admin         *auth.ExternalIdentityAdminService
+}
+
+// Source é a origem fixada pelo bootstrap, nunca pelo corpo HTTP.
+func (s *ExternalService) Source() commandcatalog.Source {
+	if s == nil || s.executor == nil {
+		return ""
+	}
+	return s.executor.config.Source
+}
+
+// SharesSecurityWith permite validar a composição de múltiplas origens antes
+// de publicá-las: revogação deve invalidar todas sob a mesma autoridade/gate.
+func (s *ExternalService) SharesSecurityWith(other *ExternalService) bool {
+	return s != nil && other != nil && s.executor != nil && other.executor != nil &&
+		s.executor.config.Epochs == other.executor.config.Epochs &&
+		s.authenticator == other.authenticator && s.admin == other.admin
 }
 
 // A credencial existe somente no contexto da solicitação, nunca no serviço,
@@ -58,7 +75,7 @@ func NewExternal(config Config, authenticator *auth.ExternalCommandAuthenticator
 	if err != nil {
 		return nil, err
 	}
-	s := &ExternalService{authenticator: authenticator, identity: policy}
+	s := &ExternalService{authenticator: authenticator, identity: policy, admin: admin}
 	credential := func(ctx context.Context) (externalCredential, error) {
 		if ctx == nil {
 			return externalCredential{}, ErrDenied
@@ -95,6 +112,9 @@ func NewExternal(config Config, authenticator *auth.ExternalCommandAuthenticator
 		}
 		req := commandidentity.ExternalTokenRequest{AccessToken: bound.token, Source: config.Source}
 		p, err := policy.ResolveExternalTokenCached(ctx, req)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil || p.UserID != bound.userID {
 			return ErrDenied
 		}
@@ -103,6 +123,9 @@ func NewExternal(config Config, authenticator *auth.ExternalCommandAuthenticator
 			return ErrDenied
 		}
 		err = policy.Authorize(ctx, commandidentity.AuthorizationRequest{Identity: p, Definition: definition, ExternalToken: &req})
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if errors.Is(err, commandidentity.ErrCommandNotAuthorized) {
 			return ErrDenied
 		}

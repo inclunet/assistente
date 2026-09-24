@@ -9647,3 +9647,48 @@ Revisão independente realizada; sem execução de ACP, Wails ou app.
 
 **80 I / 4 P / 0 N = 84; 11 A / 14 I / 22 P / 1 N = 48; 1/12 aceito**
 inalterados; C65/C70 permanecem parciais.
+
+## 154. Transporte HTTP externo e fechamento da revisão de segurança (24/09/2026)
+
+O transporte de commandexecution.ExternalService oferece execução, consulta
+restrita ao contexto autenticado e revogação administrativa. As três origens
+permitidas são palette, ui e chat; fontes físicas não são expostas. O corpo
+contém somente EnvelopeCandidate, limitado a 8 KiB, sem campos desconhecidos.
+Bearer é estrito, respostas usam no-store e as operações têm rate limit.
+Consulta retorna apenas ID, estado e resumo; resultado efêmero só pode sair
+na resposta da execução original, nunca por consulta/replay.
+
+A composição HTTP copia o mapa fornecido e verifica o pareamento origem/serviço
+e a mesma autoridade (autenticador/admin/epochs) em todas as entradas. Falha de
+composição desabilita o conjunto inteiro. O administrador requer issuer
+explícito, e operações de vínculo não aceitam issuer diferente do configurado.
+
+**Limite de entrega:** transporte não equivale à montagem produtiva. O App ainda
+não fornece ExternalCommands; por isso retorna 503 nessas rotas em modo externo.
+Continuam pendentes o contexto do cliente autenticado e os handlers apropriados,
+sem inferir autoridade a partir da sessão desktop. Não há promoção de C65/C70.
+
+**Decisão de escopo do mantenedor:** manter workspaces como estão. Migração para
+banco relacional com user_id e sem mapas JSON será uma iniciativa separada,
+não requisito geral nem bloqueio automático do AEP-0103. A pesquisa de issues
+abertas/fechadas encontrou a #118 (Vincular perfil à conversa no banco), que
+menciona essa evolução, mas não uma issue específica para migração completa de
+workspaces. Nenhuma issue foi criada ou alterada nesta verificação.
+
+Contagens mantidas: **80 I / 4 P / 0 N = 84; 11 A / 14 I / 22 P / 1 N = 48;
+1/12 aceito**. Dependência de contexto do workspace não implica dependência de
+migração do seu armazenamento.
+
+Validação: go test dos pacotes auth, commandidentity, commandexecution e httpapi
+passou; TestHTTPAPI* de internal/app também passou após o ajuste do issuer.
+go vet nos quatro pacotes, git diff --check e verificador de status dos AEPs
+passaram. A matriz HTTP usa SQLite e executor reais com claims sintéticas;
+o teste App de cadastro usa JWT assinado e JWKS temporário. Não foram executados
+testes ACP, Wails, dispositivos físicos ou migração de dados pessoais.
+
+Revisão independente: Godel revisou o diff e encontrou uma classificação
+incorreta de cancelamento na autorização cached. Corrigida preservando ctx.Err()
+antes de traduzir recusas; teste cobre cancelamento tanto na resolução quanto
+na autorização. Releitura confirmou o achado fechado. Os achados anteriores de
+issuer e composição HTTP também foram corrigidos. commandsecurity e
+commandledger passaram em regressão adicional.

@@ -22,9 +22,18 @@ montagem do ingresso externo para ser disponibilizada aos clientes.
 
 A base já conecta essa autenticação ao executor comum de comandos, inclusive
 consulta de execuções e cancelamento por revogação. Isso ainda não cria uma
-rota HTTP para executá-los: falta a montagem de contexto e recursos por usuário
-externo no App. Comandos de interface e confirmações interativas permanecem
+execução produtiva no App: o transporte HTTP está implementado, mas falta
+montar o contexto autenticado e os handlers apropriados no App. Sem essa
+montagem, as rotas de comandos e revogação respondem 503 no modo externo.
+Comandos de interface e confirmações interativas permanecem
 recusados nessa entrada; a sessão desktop aberta não é usada como substituta.
+
+O contrato de transporte reserva `POST /commands/{source}/execute` e
+`GET /commands/{source}/invocations/{id}`, para `source` igual a `palette`,
+`ui` ou `chat`, e `POST /auth/external/identities/revoke`. Não basta configurar
+o provedor ou cadastrar vínculos para habilitar essas operações. Revogação
+administrativa é restrita ao emissor configurado, nunca a outro issuer
+informado no corpo. Tokens e detalhes internos não fazem parte das respostas.
 
 Ao atualizar uma instalação externa, conclua o bootstrap abaixo e cadastre as
 demais contas antes de usá-las. Sem bootstrap do emissor, `/auth/me` responde
