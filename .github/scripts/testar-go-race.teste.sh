@@ -51,7 +51,10 @@ diff <(LC_ALL=C sort "$test_dir/expected") <(LC_ALL=C sort "$test_dir/selected")
 run others
 assert_flags
 grep -Fxq 'list -race ./...' "$test_dir/calls"
-! grep -Fxq assistente/internal/app "$test_dir/args"
+if grep -Fxq assistente/internal/app "$test_dir/args"; then
+  echo 'O grupo others não pode repetir App' >&2
+  exit 1
+fi
 grep -Fxq assistente/internal/app/child "$test_dir/args"
 grep -Fxq assistente/internal/auth "$test_dir/args"
 for args in '' '8 8' '-1 8' '0 0' '08 8' '0 08' '9999 8' 'x 8' 'others 8'; do
