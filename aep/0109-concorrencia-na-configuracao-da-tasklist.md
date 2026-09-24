@@ -50,6 +50,12 @@ editor recarrega a configuração e avisa o usuário.
 - A contagem que impede remover status com tarefas sem `status_migration` também
   é feita sob o lock. Contada antes, uma tarefa criada ou movida no intervalo para
   um status removido ficaria apontando para um status inexistente.
+- No sentido inverso, criar tarefa (`CreateTask` e `CreateTaskFull`) e mudar o
+  status dela (`UpdateTaskStatus`) também leem o workflow dentro de uma transação
+  `IMMEDIATE`. A criação usa o status inicial vigente no momento do insert, e a
+  mudança de status valida a transição e o status destino contra o workflow
+  vigente. Lidos antes do lock, uma edição do workflow no intervalo deixaria a
+  tarefa num status que acabou de ser removido.
 
 ### D2 — Erro sentinela com código estável
 
@@ -133,6 +139,10 @@ editor recarrega a configuração e avisa o usuário.
 - [x] Remover um status que recebeu uma tarefa enquanto a gravação esperava o
   lock é recusado, e o status continua existindo
   (`TestUpdateWorkflowFull_RevalidatesTasksUnderLock`).
+- [x] Tarefa criada enquanto o workflow é editado nasce no status inicial vigente,
+  e mover uma tarefa para um status removido no intervalo é recusado
+  (`TestCreateTask_ReadsInitialStatusUnderLock`,
+  `TestUpdateTaskStatus_ValidatesWorkflowUnderLock`).
 - [x] Conflito não emite eventos (`TestCheckedConfigWritesEmitOnlyWhenSaved`).
 - [x] O editor de workflow avisa, pede a recarga e, sincronizado, grava sobre a
   versão atual sem colidir IDs (`WorkflowEditor.test.tsx`, bloco "edição

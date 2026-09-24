@@ -284,12 +284,23 @@ func createWorkflowForTaskListWithDB(ctx context.Context, query *gorm.DB, taskLi
 // GetWorkflowWithContext retorna o workflow de uma tasklist do usuário do
 // contexto.
 func GetWorkflowWithContext(ctx context.Context, taskListID string) (*TaskListWorkflow, error) {
-	var workflow TaskListWorkflow
+	var workflow *TaskListWorkflow
 	err := WithSQLiteBusyRetry(ctx, "tasklist.workflow.get", func() error {
-		return taskListWorkflowQuery(ctx, db.Model(&TaskListWorkflow{})).
-			Where("task_list_workflows.task_list_id = ?", taskListID).
-			First(&workflow).Error
+		var err error
+		workflow, err = workflowWithDB(ctx, db, taskListID)
+		return err
 	})
+	if workflow == nil {
+		workflow = &TaskListWorkflow{}
+	}
+	return workflow, err
+}
+
+func workflowWithDB(ctx context.Context, q *gorm.DB, taskListID string) (*TaskListWorkflow, error) {
+	var workflow TaskListWorkflow
+	err := taskListWorkflowQuery(ctx, q.Model(&TaskListWorkflow{})).
+		Where("task_list_workflows.task_list_id = ?", taskListID).
+		First(&workflow).Error
 	return &workflow, err
 }
 
@@ -629,6 +640,13 @@ func ValidateStatusTransitionWithContext(ctx context.Context, taskListID string,
 	if err != nil {
 		return err
 	}
+	return validateStatusTransition(workflow, fromStatusID, toStatusID)
+}
+
+func validateStatusTransition(workflow *TaskListWorkflow, fromStatusID, toStatusID int) error {
+	if fromStatusID == toStatusID {
+		return nil
+	}
 
 	// Desserializa statuses e transitions
 	var statuses []TaskListWorkflowStatus
@@ -691,42 +709,51 @@ func CreateTaskWithContext(ctx context.Context, taskListID string, title, descri
 			return nil, fmt.Errorf("parent_id não pertence à tasklist solicitada")
 		}
 	}
-	// Busca workflow para status inicial
-	workflow, err := GetWorkflowWithContext(ctx, taskListID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Calcula próxima ordem
-	var maxOrder int
-	query := taskQuery(ctx, db.Model(&Task{})).Where("tasks.task_list_id = ?", taskListID)
-	if parentID != nil {
-		query = query.Where("tasks.parent_id = ?", parentID)
-	} else {
-		query = query.Where("tasks.parent_id IS NULL")
-	}
-	query.Select(`COALESCE(MAX(tasks."order"), -1)`).Scan(&maxOrder)
-
 	task := &Task{
 		TaskListID:  taskListID,
 		Title:       title,
 		Description: description,
 		Code:        code,
 		Link:        link,
-		StatusID:    workflow.InitialStatusID,
 		ParentID:    parentID,
-		Order:       maxOrder + 1,
 	}
 
 	if err := ValidateTaskCodeForTaskListWithContext(ctx, taskListID, code); err != nil {
 		return nil, err
 	}
 
-	if err := db.WithContext(ctx).Create(task).Error; err != nil {
+	if err := insertTaskWithInitialStatus(ctx, task); err != nil {
 		return nil, err
 	}
 
 	return task, nil
+}
+
+// insertTaskWithInitialStatus lê o status inicial e a próxima ordem sob o lock
+// de escrita, para uma edição concorrente do workflow não deixar a task
+// apontando para um status que acabou de ser removido.
+func insertTaskWithInitialStatus(ctx context.Context, task *Task) error {
+	return withSQLiteImmediateTransaction(ctx, db, "tasklist.task.create", func(tx *gorm.DB) error {
+		workflow, err := workflowWithDB(ctx, tx, task.TaskListID)
+		if err != nil {
+			return err
+		}
+
+		var maxOrder int
+		query := taskQuery(ctx, tx.Model(&Task{})).Where("tasks.task_list_id = ?", task.TaskListID)
+		if task.ParentID != nil {
+			query = query.Where("tasks.parent_id = ?", task.ParentID)
+		} else {
+			query = query.Where("tasks.parent_id IS NULL")
+		}
+		if err := query.Select(`COALESCE(MAX(tasks."order"), -1)`).Scan(&maxOrder).Error; err != nil {
+			return err
+		}
+
+		task.StatusID = workflow.InitialStatusID
+		task.Order = maxOrder + 1
+		return tx.Create(task).Error
+	})
 }
 
 // CreateTaskFullWithContext cria uma nova task em uma tasklist do usuário do
@@ -744,20 +771,6 @@ func CreateTaskFullWithContext(ctx context.Context, taskListID string, title, de
 			return nil, fmt.Errorf("parent_id não pertence à tasklist solicitada")
 		}
 	}
-	workflow, err := GetWorkflowWithContext(ctx, taskListID)
-	if err != nil {
-		return nil, err
-	}
-
-	var maxOrder int
-	query := taskQuery(ctx, db.Model(&Task{})).Where("tasks.task_list_id = ?", taskListID)
-	if parentID != nil {
-		query = query.Where("tasks.parent_id = ?", parentID)
-	} else {
-		query = query.Where("tasks.parent_id IS NULL")
-	}
-	query.Select(`COALESCE(MAX(tasks."order"), -1)`).Scan(&maxOrder)
-
 	task := &Task{
 		TaskListID:   taskListID,
 		Title:        title,
@@ -768,16 +781,14 @@ func CreateTaskFullWithContext(ctx context.Context, taskListID string, title, de
 		AssigneeID:   assigneeID,
 		CreatorName:  creatorName,
 		CreatorID:    creatorID,
-		StatusID:     workflow.InitialStatusID,
 		ParentID:     parentID,
-		Order:        maxOrder + 1,
 	}
 
 	if err := ValidateTaskCodeForTaskListWithContext(ctx, taskListID, code); err != nil {
 		return nil, err
 	}
 
-	if err := db.WithContext(ctx).Create(task).Error; err != nil {
+	if err := insertTaskWithInitialStatus(ctx, task); err != nil {
 		return nil, err
 	}
 
@@ -937,29 +948,38 @@ func UpdateTaskAssigneeWithContext(ctx context.Context, id string, assigneeName,
 // UpdateTaskStatusWithContext atualiza o status de uma task do usuário do
 // contexto, com validação de transição.
 func UpdateTaskStatusWithContext(ctx context.Context, id string, newStatusID int) error {
-	// Busca task
-	task, err := GetTaskWithContext(ctx, id)
-	if err != nil {
-		return err
-	}
+	// Task e workflow são lidos sob o lock de escrita: uma edição do workflow
+	// não pode remover o status destino entre a validação e o UPDATE.
+	return withSQLiteImmediateTransaction(ctx, db, "tasklist.task.update_status", func(tx *gorm.DB) error {
+		var task Task
+		if err := taskQuery(ctx, tx.Model(&Task{})).Where("tasks.id = ?", id).First(&task).Error; err != nil {
+			return err
+		}
+		workflow, err := workflowWithDB(ctx, tx, task.TaskListID)
+		if err != nil {
+			return err
+		}
+		if err := validateStatusTransition(workflow, task.StatusID, newStatusID); err != nil {
+			return err
+		}
+		updates, err := taskStatusUpdates(workflow, newStatusID)
+		if err != nil {
+			return err
+		}
+		return tx.Model(&Task{}).Where("id = ?", task.ID).Updates(updates).Error
+	})
+}
 
-	// Valida transição
-	if err := ValidateStatusTransitionWithContext(ctx, task.TaskListID, task.StatusID, newStatusID); err != nil {
-		return err
-	}
-
-	// Atualiza status e mantém completed_at coerente com o status final.
+// taskStatusUpdates monta a mudança de status mantendo completed_at coerente
+// com o status final do workflow.
+func taskStatusUpdates(workflow *TaskListWorkflow, newStatusID int) (map[string]interface{}, error) {
 	updates := map[string]interface{}{
 		"status_id":    newStatusID,
 		"completed_at": nil,
 	}
-	workflow, err := GetWorkflowWithContext(ctx, task.TaskListID)
-	if err != nil {
-		return err
-	}
 	var statuses []TaskListWorkflowStatus
 	if err := json.Unmarshal([]byte(workflow.Statuses), &statuses); err != nil {
-		return err
+		return nil, err
 	}
 	maxOrder := -1
 	newStatusOrder := -1
@@ -975,9 +995,7 @@ func UpdateTaskStatusWithContext(ctx context.Context, id string, newStatusID int
 		now := time.Now()
 		updates["completed_at"] = now
 	}
-
-	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", id))
-	return db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).Where("id IN (?)", taskIDs).Updates(updates).Error
+	return updates, nil
 }
 
 // ReorderTasksWithContext reordena as tasks dentro de um status/parent
