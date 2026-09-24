@@ -93,7 +93,8 @@ async function mount() {
 async function open() {
   const mounted = await mount();
   await mounted.user.keyboard('{Control>}k{/Control}');
-  await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
+  const search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
+  await waitFor(() => expect(search).toHaveFocus());
   const option = await screen.findByRole('option', { name: /Page action/ });
   return { ...mounted, option };
 }
@@ -290,6 +291,8 @@ describe('Page palette — production hook/provider, executor and Wails port', (
       if (deck) await act(async () => emitDeckPage());
       else {
         await user.keyboard('{Control>}k{/Control}');
+        const search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
+        await waitFor(() => expect(search).toHaveFocus());
         const option = await screen.findByRole('option', { name: /Page action/ });
         if (mode === 'empty') expect(option).toHaveAttribute('aria-disabled', 'true');
         else expect(option).not.toHaveAttribute('aria-disabled', 'true');

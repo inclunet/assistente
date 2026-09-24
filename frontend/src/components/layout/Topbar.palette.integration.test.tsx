@@ -1017,6 +1017,7 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
 describe('Topbar palette — integração real do Combobox compartilhado', () => {
   it.each(['present', 'removed', 'disabled', 'owner-changed'] as const)('Escape restaura somente uma origem de foco ainda válida: %s', async mode => {
     const user = userEvent.setup();
+    let usingFakeTimers = false;
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     const source = document.createElement('textarea');
     document.body.append(source);
@@ -1030,13 +1031,21 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
       if (mode === 'removed') source.remove();
       if (mode === 'disabled') source.disabled = true;
       if (mode === 'owner-changed') state.auth.user = { userId: 'other', sessionId: 'other-session' };
-      await user.keyboard('{Escape}');
-      await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument());
+      // O popup fecha no commit, e o Combobox só chama onAfterDismiss após o
+      // timer de foco de 10 ms. Controle apenas esse fechamento para evitar
+      // uma asserção negativa antes do callback em máquinas lentas.
+      vi.useFakeTimers();
+      usingFakeTimers = true;
+      fireEvent.keyDown(search, { key: 'Escape', code: 'Escape' });
+      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+      // O popup some no commit; o Combobox chama onAfterDismiss após seu cleanup assíncrono.
+      expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
       if (mode === 'present') expect(source).toHaveFocus();
       else if (mode === 'owner-changed') expect(source).not.toHaveFocus();
       else expect(screen.getByRole('button', { name: 'commandPalette.title' })).toHaveFocus();
       expect(beginUICommand).not.toHaveBeenCalled();
     } finally {
+      if (usingFakeTimers) vi.useRealTimers();
       view.unmount();
       source.remove();
     }
