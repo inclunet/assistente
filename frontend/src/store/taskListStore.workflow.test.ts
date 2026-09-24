@@ -6,6 +6,7 @@ const updateWorkflowFull = vi.hoisted(() => vi.fn());
 const updateWorkflowFullChecked = vi.hoisted(() => vi.fn());
 const setCustomActions = vi.hoisted(() => vi.fn());
 const setCustomActionsChecked = vi.hoisted(() => vi.fn());
+const getTaskCountsByStatus = vi.hoisted(() => vi.fn());
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
   EventsOn: vi.fn(),
@@ -15,6 +16,7 @@ vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({
   GetTaskListPage: getTaskListPage,
   UpdateWorkflowFull: updateWorkflowFull,
   UpdateWorkflowFullChecked: updateWorkflowFullChecked,
+  GetTaskCountsByStatus: getTaskCountsByStatus,
 }));
 
 vi.mock('@wailsjs/go/wailsapi/TasklistActions', () => ({
@@ -119,6 +121,16 @@ describe('taskListStore.updateWorkflowFull', () => {
 
     expect(useTaskListStore.getState().taskLists.get('list-a')).toBe(before);
     expect(useTaskListStore.getState().errors.size).toBe(0);
+  });
+});
+
+describe('taskListStore.getTaskCountsByStatus', () => {
+  it('falha repassa o erro em vez de contagens vazias', async () => {
+    useTaskListStore.setState({ errors: new Map() });
+    getTaskCountsByStatus.mockRejectedValueOnce(new Error('offline'));
+
+    await expect(useTaskListStore.getState().getTaskCountsByStatus('list-a')).rejects.toThrow('offline');
+    expect(useTaskListStore.getState().errors.size).toBe(1);
   });
 });
 

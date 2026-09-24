@@ -333,7 +333,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     void (async () => {
       try {
         await whenSavesSettled(taskListWorkflowSaveKey(taskListId));
-        await loadTaskList(taskListId);
+        // Recarga falha deixa o editor como está: a próxima gravação volta a
+        // dar conflito e tenta de novo, sem mostrar o cache antigo como atual.
+        if (!(await loadTaskList(taskListId))) throw new Error('reload failed');
         setTaskCountsByStatus(await getTaskCountsByStatus(taskListId));
         setWorkflowSyncToken((n) => n + 1);
       } catch {

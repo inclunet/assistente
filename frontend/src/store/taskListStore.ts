@@ -817,8 +817,10 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         const counts = await GetTaskCountsByStatus(taskListId);
         return counts ?? {};
       } catch (error) {
+        // Repassa: contagens vazias fariam o editor remover status com tarefas
+        // sem perguntar para onde migrá-las.
         get().setError(taskListErrorKey('getTaskCountsByStatus', taskListId), String(error));
-        return {};
+        throw error;
       }
     },
 
