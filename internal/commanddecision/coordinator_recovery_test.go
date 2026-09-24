@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/auth"
 	"assistente/internal/commandmaintenance"
 	"assistente/internal/commandsecurity"
 	"gorm.io/gorm"
@@ -128,6 +129,38 @@ func TestCoordinatorRecoveryCancellationDuringSecondTransaction(t *testing.T) {
 	}
 	if loadReceipt(t, db, first.ID).State != Cancelled || !reflect.DeepEqual(loadReceipt(t, db, second.ID), second) || countEvents(t, db, second.ID) != 1 {
 		t.Fatal("cancelamento perdeu commit anterior ou manteve TX parcial")
+	}
+}
+
+func TestCoordinatorRecoveryIncludesDrainedExternalTokenReceipts(t *testing.T) {
+	now := time.Now().UTC()
+	store, db := temporarySQLiteactualMigrate(t, &testPresenter{}, &now)
+	core, epoch := receiptCore(t)
+	request := recoveryRequest(t, now, epoch)
+	request.AuthContextType = "external_token"
+	request.SessionID = auth.ExternalTokenContextID("https://issuer.example", "subject-7", "opaque-signed-token")
+	request.SubjectType = "invocation"
+	row := seedRecoveryReceipt(t, db, request, Accepted, now)
+	// Recovery per-session continua explicitamente local e não toca receipt externa.
+	localResult, err := store.ReconcileSession(context.Background(), epoch, MaxRecoveryBatch)
+	if err != nil || localResult.Closed != 0 || loadReceipt(t, db, row.ID).State != Accepted {
+		t.Fatalf("ReconcileSession afetou contexto externo: result=%+v err=%v receipt=%+v", localResult, err, loadReceipt(t, db, row.ID))
+	}
+	proof, err := core.CloseAndDrain(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery, err := NewCoordinatorRecovery(store, proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := recovery.Recover(context.Background(), 1)
+	if err != nil || result.Processed != 1 || result.More {
+		t.Fatalf("recovery drained não fechou external_token: result=%+v err=%v", result, err)
+	}
+	closed := loadReceipt(t, db, row.ID)
+	if closed.State != Cancelled || closed.AuthContextType != "external_token" || closed.SessionID != request.SessionID || countEvents(t, db, row.ID) != 2 {
+		t.Fatalf("receipt externa não foi encerrada com ownership exato: %+v", closed)
 	}
 }
 

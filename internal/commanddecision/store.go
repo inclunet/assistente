@@ -2,8 +2,11 @@ package commanddecision
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -20,7 +23,7 @@ type receiptRow struct {
 	SecurityGeneration string `gorm:"not null"`
 	ExpiresMS          int64  `gorm:"column:expires_at;not null"`
 	State              string `gorm:"column:status;not null;check:status IN ('pending','accepted','denied','cancelled','expired','consumed')"`
-	AuthContextType    string `gorm:"not null;check:auth_context_type = 'local_session'"`
+	AuthContextType    string `gorm:"not null;check:auth_context_subject,auth_context_type IN ('local_session','external_token') AND (auth_context_type <> 'external_token' OR subject_type = 'invocation')"`
 	SubjectType        string `gorm:"not null;check:subject_type IN ('config_mutation','invocation')"`
 	AllowedActionIDs   string `gorm:"not null"`
 	AcceptedActionID   *string
@@ -84,10 +87,18 @@ func validID(value string) bool {
 	return err == nil && id.Version() == 7 && id.Variant() == uuid.RFC4122 && id.String() == value
 }
 func validRequest(r Request) bool {
-	if r.SubjectType != "" && r.SubjectType != "config_mutation" && r.SubjectType != "invocation" {
+	authContextType := effectiveAuthContextType(r.AuthContextType)
+	if authContextType != "local_session" && authContextType != "external_token" {
 		return false
 	}
-	if !validID(r.DecisionID) || !validID(r.MutationID) || !validID(r.UserID) || !validID(r.SessionID) || r.ExpiresAt.UnixMilli() <= 0 {
+	subjectType := effectiveSubjectType(r.SubjectType)
+	if subjectType != "config_mutation" && subjectType != "invocation" {
+		return false
+	}
+	if authContextType == "external_token" && subjectType != "invocation" {
+		return false
+	}
+	if !validID(r.DecisionID) || !validID(r.MutationID) || !validID(r.UserID) || !validAuthContextID(authContextType, r.SessionID) || r.ExpiresAt.UnixMilli() <= 0 {
 		return false
 	}
 	for _, value := range []string{r.Fingerprint, r.AuthGeneration, r.SecurityGeneration} {
@@ -97,14 +108,55 @@ func validRequest(r Request) bool {
 	}
 	return true
 }
-func rowOf(r Request) receiptRow {
-	subject := r.SubjectType
-	if subject == "" {
-		subject = "config_mutation"
+
+func effectiveAuthContextType(value string) string {
+	if value == "" {
+		return "local_session"
 	}
+	return value
+}
+
+func effectiveSubjectType(value string) string {
+	if value == "" {
+		return "config_mutation"
+	}
+	return value
+}
+
+func validAuthContextID(authContextType, value string) bool {
+	if authContextType == "local_session" {
+		return validID(value)
+	}
+	if authContextType != "external_token" || value == "" || !utf8.ValidString(value) {
+		return false
+	}
+	var parts []string
+	if err := json.Unmarshal([]byte(value), &parts); err != nil || len(parts) != 3 {
+		return false
+	}
+	for _, part := range parts[:2] {
+		if part == "" || strings.TrimSpace(part) != part || strings.IndexByte(part, 0) >= 0 {
+			return false
+		}
+		for _, r := range part {
+			if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+				return false
+			}
+		}
+	}
+	fingerprint, err := hex.DecodeString(parts[2])
+	if err != nil || len(fingerprint) != 32 || hex.EncodeToString(fingerprint) != parts[2] {
+		return false
+	}
+	canonical, err := json.Marshal(parts)
+	return err == nil && string(canonical) == value
+}
+
+func rowOf(r Request) receiptRow {
+	subject := effectiveSubjectType(r.SubjectType)
 	return receiptRow{ID: r.DecisionID, MutationID: r.MutationID, UserID: r.UserID, SessionID: r.SessionID,
 		Fingerprint: r.Fingerprint, AuthGeneration: r.AuthGeneration, SecurityGeneration: r.SecurityGeneration, ExpiresMS: r.ExpiresAt.UnixMilli(), State: Pending,
-		AuthContextType: "local_session", SubjectType: subject, AllowedActionIDs: `["apply","deny"]`}
+		AuthContextType: effectiveAuthContextType(r.AuthContextType), SubjectType: subject, AllowedActionIDs: `["apply","deny"]`}
 }
 func appendEvent(tx *gorm.DB, id, state string, now time.Time) error {
 	eventID, err := uuid.NewV7()
@@ -270,6 +322,7 @@ func (s *Store) consumeBatch(ctx context.Context, db *gorm.DB, expected []Reques
 		}
 		seen[request.DecisionID] = struct{}{}
 		if i > 0 && (request.UserID != expected[0].UserID || request.SessionID != expected[0].SessionID ||
+			effectiveAuthContextType(request.AuthContextType) != effectiveAuthContextType(expected[0].AuthContextType) ||
 			request.AuthGeneration != expected[0].AuthGeneration || request.SecurityGeneration != expected[0].SecurityGeneration) {
 			return ErrInvalid
 		}
@@ -293,7 +346,7 @@ func (s *Store) consumeBatch(ctx context.Context, db *gorm.DB, expected []Reques
 				Where("decision_id = ? AND subject_id = ? AND user_id = ? AND auth_context_id = ?", want.ID, want.MutationID, want.UserID, want.SessionID).
 				Where("request_fingerprint = ? AND auth_generation = ? AND security_generation = ?", want.Fingerprint, want.AuthGeneration, want.SecurityGeneration).
 				Where("expires_at = ? AND expires_at > ?", want.ExpiresMS, now.UnixMilli()).
-				Where("status = ? AND auth_context_type = ? AND subject_type = ?", Accepted, "local_session", want.SubjectType).
+				Where("status = ? AND auth_context_type = ? AND subject_type = ?", Accepted, want.AuthContextType, want.SubjectType).
 				Where("allowed_action_ids = ? AND accepted_action_id = ? AND responded_at IS NOT NULL AND consumed_at IS NULL", `["apply","deny"]`, ApplyAction).
 				Updates(map[string]any{"status": Consumed, "consumed_at": now.UnixMilli()})
 			if result.Error != nil {

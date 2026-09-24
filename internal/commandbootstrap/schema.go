@@ -99,7 +99,7 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 		}
 		for _, obj := range actual {
 			w, ok := want[obj.Name]
-			if !ok || w.Type != obj.Type || w.TblName != obj.TblName || (normalizeDDL(w) != normalizeDDL(obj) && (complete || (normalizeDDL(legacyEnvelopeObject(w)) != normalizeDDL(obj) && normalizeDDL(legacyConfigObject(w)) != normalizeDDL(obj) && normalizeDDL(legacyRulesObject(w)) != normalizeDDL(obj) && normalizeDDL(legacyImportObject(w)) != normalizeDDL(obj) && normalizeDDL(legacyEnvelopeObject(legacyConfigObject(w))) != normalizeDDL(obj)))) {
+			if !ok || w.Type != obj.Type || w.TblName != obj.TblName || (normalizeDDL(w) != normalizeDDL(obj) && (complete || (normalizeDDL(legacyEnvelopeObject(w)) != normalizeDDL(obj) && normalizeDDL(legacyExternalContextObject(w)) != normalizeDDL(obj) && normalizeDDL(legacyConfigObject(w)) != normalizeDDL(obj) && normalizeDDL(legacyRulesObject(w)) != normalizeDDL(obj) && normalizeDDL(legacyImportObject(w)) != normalizeDDL(obj) && normalizeDDL(legacyEnvelopeObject(legacyConfigObject(w))) != normalizeDDL(obj)))) {
 				return ErrStorage
 			}
 		}
@@ -113,6 +113,9 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 			return err
 		}
 		if err := upgradeEnvelopeObjects(tx, want); err != nil {
+			return err
+		}
+		if err := upgradeDecisionObjects(tx, want); err != nil {
 			return err
 		}
 		if err := migrate(ctx, tx); err != nil {
@@ -139,7 +142,10 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 		if err := database.ApplyCommandImportMigration(ctx, tx, apply); err != nil {
 			return err
 		}
-		return database.ApplyCommandInstanceMigration(ctx, tx, apply)
+		if err := database.ApplyCommandInstanceMigration(ctx, tx, apply); err != nil {
+			return err
+		}
+		return database.ApplyCommandDecisionExternalContextMigration(ctx, tx, apply)
 	})
 	if err != nil {
 		if ctx.Err() != nil {

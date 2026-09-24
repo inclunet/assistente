@@ -472,12 +472,12 @@ func TestRealRegistry_FreshDBAppliesAllAndIsIdempotent(t *testing.T) {
 	}
 
 	got := schemaMigrationRows(t, db)
-	if len(got) != len(schemaMigrations)-7 {
-		t.Fatalf("esperava %d migrações registradas antes da composição de comandos, tenho %d (%v)", len(schemaMigrations)-7, len(got), got)
+	if len(got) != len(schemaMigrations)-8 {
+		t.Fatalf("esperava %d migrações registradas antes da composição de comandos, tenho %d (%v)", len(schemaMigrations)-8, len(got), got)
 	}
 	var expectedApplied []migration
 	for _, m := range schemaMigrations {
-		if (m.Version < 21 || m.Version > 24) && m.Version != 27 && m.Version != 28 && m.Version != 29 {
+		if (m.Version < 21 || m.Version > 24) && m.Version != 27 && m.Version != 28 && m.Version != 29 && m.Version != 32 {
 			expectedApplied = append(expectedApplied, m)
 		}
 	}
@@ -561,6 +561,12 @@ func TestRealRegistry_FreshDBAppliesAllAndIsIdempotent(t *testing.T) {
 		t.Fatalf("conclusão explícita da v29: %v", err)
 	}
 	if callbackCalls != 7 {
+		t.Fatalf("callbacks de comandos = %d", callbackCalls)
+	}
+	if err := ApplyCommandDecisionExternalContextMigration(db.Statement.Context, db, func(*gorm.DB) error { callbackCalls++; return nil }); err != nil {
+		t.Fatalf("conclusão explícita da v32: %v", err)
+	}
+	if callbackCalls != 8 {
 		t.Fatalf("callbacks de comandos = %d", callbackCalls)
 	}
 	got = schemaMigrationRows(t, db)

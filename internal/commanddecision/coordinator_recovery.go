@@ -49,7 +49,7 @@ func (a *CoordinatorRecovery) Recover(ctx context.Context, limit int) (commandma
 		return commandmaintenance.BatchResult{}, ErrInvalid
 	}
 	var rows []receiptRow
-	if err := a.store.db.WithContext(ctx).Where("decision_id > ? AND status IN ? AND auth_context_type = ? AND subject_type IN ?", a.after, []string{Pending, Accepted}, "local_session", []string{"config_mutation", "invocation"}).Order("decision_id").Limit(limit + 1).Find(&rows).Error; err != nil {
+	if err := a.store.db.WithContext(ctx).Where("decision_id > ? AND status IN ? AND auth_context_type IN ? AND subject_type IN ?", a.after, []string{Pending, Accepted}, []string{"local_session", "external_token"}, []string{"config_mutation", "invocation"}).Order("decision_id").Limit(limit + 1).Find(&rows).Error; err != nil {
 		return commandmaintenance.BatchResult{More: true}, err
 	}
 	result := commandmaintenance.BatchResult{More: len(rows) > limit}

@@ -162,6 +162,112 @@ func TestMigrateAdoptsTempfileLegacySchemaBeforeI01(t *testing.T) {
 	}
 }
 
+const legacyPre32ReceiptDDL = "CREATE TABLE `command_decision_receipts` (\n\t`decision_id` text NOT NULL,\n\t`subject_id` text NOT NULL,\n\t`user_id` text NOT NULL,\n\t`auth_context_id` text NOT NULL,\n\t`request_fingerprint` text NOT NULL,\n\t`auth_generation` text NOT NULL,\n\t`security_generation` text NOT NULL,\n\t`expires_at` integer NOT NULL,\n\t`status` text NOT NULL,\n\t`auth_context_type` text NOT NULL,\n\t`subject_type` text NOT NULL,\n\t`allowed_action_ids` text NOT NULL,\n\t`accepted_action_id` text,\n\t`responded_at` integer,\n\t`consumed_at` integer,\n\tPRIMARY KEY (`decision_id`),\n\tCONSTRAINT `chk_command_decision_receipts_status` CHECK (status IN ('pending','accepted','denied','cancelled','expired','consumed')),\n\tCONSTRAINT `chk_command_decision_receipts_auth_context_type` CHECK (auth_context_type = 'local_session'),\n\tCONSTRAINT `chk_command_decision_receipts_subject_type` CHECK (subject_type IN ('config_mutation','invocation'))\n)"
+
+func seedPre32DecisionSchema(t *testing.T, db *gorm.DB) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+	if err := migrate(ctx, db); err != nil {
+		t.Fatalf("preparar tabelas do host: %v", err)
+	}
+	if err := db.Exec("DROP TABLE command_decision_receipts").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(legacyPre32ReceiptDDL).Error; err != nil {
+		t.Fatalf("criar DDL literal pré-v32: %v", err)
+	}
+	if err := db.Exec("CREATE INDEX ix_command_decision_recovery_session ON command_decision_receipts (user_id, auth_context_id, status, decision_id)").Error; err != nil {
+		t.Fatal(err)
+	}
+	decisionID, userID, sessionID := bootstrapUUID7(t), bootstrapUUID7(t), bootstrapUUID7(t)
+	if err := db.Exec(`INSERT INTO command_decision_receipts
+		(decision_id,subject_id,user_id,auth_context_id,request_fingerprint,auth_generation,security_generation,expires_at,status,auth_context_type,subject_type,allowed_action_ids,accepted_action_id,responded_at,consumed_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, decisionID, bootstrapUUID7(t), userID, sessionID, "fp-v1", "auth-v1", "security-v1", time.Now().Add(time.Hour).UnixMilli(), "accepted", "local_session", "invocation", `["apply","deny"]`, "apply", time.Now().UnixMilli(), nil).Error; err != nil {
+		t.Fatalf("semear receipt pré-v32: %v", err)
+	}
+	if err := db.Exec("INSERT INTO command_decision_receipt_events (id,decision_id,state,occurred_ms) VALUES (?,?,?,?)", bootstrapUUID7(t), decisionID, "pending", time.Now().UnixMilli()).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at DATETIME NOT NULL)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	known := map[int]string{21: "command_storage_initial", 22: "command_envelope_ownership", 23: "command_config_complete", 24: "command_activation_durable", 27: "command_job_activation_consumer", 28: "command_config_import_audit", 29: "command_process_generations"}
+	for version := 1; version <= 31; version++ {
+		name := known[version]
+		if name == "" {
+			name = "preexisting"
+		}
+		if err := db.Exec("INSERT INTO schema_migrations (version,name,applied_at) VALUES (?,?,?)", version, name, time.Now().UTC()).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	return decisionID, sessionID
+}
+
+func TestMigrateV32UpgradesLiteralPre32ReceiptAtomicallyPreservingRowsAndIndex(t *testing.T) {
+	db := openBootstrapTestDB(t, filepath.Join(t.TempDir(), "decision-v32.db"))
+	decisionID, sessionID := seedPre32DecisionSchema(t, db)
+	var oldDDL string
+	if err := db.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND name='command_decision_receipts'").Scan(&oldDDL).Error; err != nil {
+		t.Fatal(err)
+	}
+	if normalizeDDL(schemaObject{Type: "table", SQL: oldDDL}) != normalizeDDL(schemaObject{Type: "table", SQL: legacyPre32ReceiptDDL}) {
+		t.Fatalf("fixture não é o DDL pré-v32 literal esperado:\n%s", oldDDL)
+	}
+	if err := db.Exec(`CREATE TRIGGER fail_command_v32_stamp BEFORE INSERT ON schema_migrations WHEN NEW.version = 32 BEGIN SELECT RAISE(ABORT, 'fixture'); END`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(context.Background(), db); !errors.Is(err, ErrStorage) {
+		t.Fatalf("falha de carimbo deveria abortar upgrade: %v", err)
+	}
+	var rollbackDDL string
+	if err := db.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND name='command_decision_receipts'").Scan(&rollbackDDL).Error; err != nil {
+		t.Fatal(err)
+	}
+	if normalizeDDL(schemaObject{Type: "table", SQL: rollbackDDL}) != normalizeDDL(schemaObject{Type: "table", SQL: legacyPre32ReceiptDDL}) {
+		t.Fatal("rollback não restaurou DDL literal pré-v32")
+	}
+	var persistedContext string
+	if err := db.Raw("SELECT auth_context_id FROM command_decision_receipts WHERE decision_id = ?", decisionID).Scan(&persistedContext).Error; err != nil || persistedContext != sessionID {
+		t.Fatalf("rollback perdeu receipt: context=%q err=%v", persistedContext, err)
+	}
+	if got := queryCountBootstrap(t, db, "SELECT COUNT(*) FROM pragma_index_list('command_decision_receipts') WHERE name = 'ix_command_decision_recovery_session'"); got != 1 {
+		t.Fatalf("rollback perdeu índice legado: %d", got)
+	}
+	if err := db.Exec("DROP TRIGGER fail_command_v32_stamp").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("upgrade v32 após retry: %v", err)
+	}
+	var receipt receiptUpgradeProbe
+	if err := db.Raw("SELECT decision_id, auth_context_type, auth_context_id, subject_type, status FROM command_decision_receipts WHERE decision_id = ?", decisionID).Scan(&receipt).Error; err != nil {
+		t.Fatal(err)
+	}
+	if receipt.DecisionID != decisionID || receipt.AuthContextType != "local_session" || receipt.AuthContextID != sessionID || receipt.SubjectType != "invocation" || receipt.Status != "accepted" {
+		t.Fatalf("upgrade não preservou receipt: %+v", receipt)
+	}
+	if got := queryCountBootstrap(t, db, "SELECT COUNT(*) FROM pragma_index_list('command_decision_receipts') WHERE name = 'ix_command_decision_recovery_session'"); got != 1 {
+		t.Fatalf("upgrade perdeu índice: %d", got)
+	}
+	if got := queryCountBootstrap(t, db, "SELECT COUNT(*) FROM schema_migrations WHERE version=32 AND name='command_decision_external_token_context'"); got != 1 {
+		t.Fatalf("v32 não foi carimbada: %d", got)
+	}
+}
+
+type receiptUpgradeProbe struct {
+	DecisionID, AuthContextType, AuthContextID, SubjectType, Status string
+}
+
+func queryCountBootstrap(t *testing.T, db *gorm.DB, query string) int64 {
+	t.Helper()
+	var count int64
+	if err := db.Raw(query).Scan(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
 func TestMigrateRejectsUnknownCommandObjectWithoutChangingData(t *testing.T) {
 	db := openBootstrapTestDB(t, filepath.Join(t.TempDir(), "unknown.db"))
 	if err := db.Exec("CREATE TABLE command_future (id INTEGER PRIMARY KEY, value TEXT NOT NULL); INSERT INTO command_future (id, value) VALUES (1, 'preserve')").Error; err != nil {

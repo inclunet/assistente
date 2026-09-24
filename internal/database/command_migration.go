@@ -42,6 +42,12 @@ func ApplyCommandInstanceMigration(ctx context.Context, db *gorm.DB, apply func(
 	return applyCommandMigration(ctx, db, 29, "command_process_generations", apply)
 }
 
+// ApplyCommandDecisionExternalContextMigration amplia receipts para decisões
+// de invocation vinculadas a external_token, sem permitir config_mutation.
+func ApplyCommandDecisionExternalContextMigration(ctx context.Context, db *gorm.DB, apply func(*gorm.DB) error) error {
+	return applyCommandMigration(ctx, db, 32, "command_decision_external_token_context", apply)
+}
+
 func applyCommandMigration(ctx context.Context, db *gorm.DB, version int, name string, apply func(*gorm.DB) error) error {
 	if ctx == nil || db == nil || apply == nil {
 		return errors.New("migração de comandos inválida")

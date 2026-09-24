@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/auth"
 	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -180,6 +181,114 @@ func TestDecidePersistsAcceptedReceiptAndPendingAcceptedEvents(t *testing.T) {
 	}
 	if countEvents(t, db, request.DecisionID) != 2 {
 		t.Fatal("receipt accepted deveria ter evento pending e accepted")
+	}
+}
+
+func TestExternalTokenInvocationPersistsExactContextAndConsumes(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	clock := now
+	presenter := &testPresenter{fn: func(_ context.Context, req Request) (Response, error) {
+		return Response{DecisionID: req.DecisionID, ActionID: ApplyAction}, nil
+	}}
+	store, db := temporarySQLiteactualMigrate(t, presenter, &clock)
+	request := defaultRequest(t, now)
+	request.AuthContextType = "external_token"
+	request.SessionID = auth.ExternalTokenContextID("https://issuer.example", "subject-7", "opaque-signed-token")
+	request.SubjectType = "invocation"
+	state, err := store.Decide(context.Background(), request)
+	if err != nil || state != Accepted {
+		t.Fatalf("external invocation: state=%s err=%v", state, err)
+	}
+	row := loadReceipt(t, db, request.DecisionID)
+	if row.AuthContextType != "external_token" || row.SessionID != request.SessionID || row.SubjectType != "invocation" {
+		t.Fatalf("ownership externo foi normalizado/perdido: %+v", row)
+	}
+	for name, altered := range map[string]Request{
+		"tipo": func() Request {
+			copy := request
+			copy.AuthContextType = "local_session"
+			copy.SessionID = testUUIDv7(t)
+			return copy
+		}(),
+		"id": func() Request {
+			copy := request
+			copy.SessionID = auth.ExternalTokenContextID("https://issuer.example", "subject-7", "different-token")
+			return copy
+		}(),
+	} {
+		t.Run("consume rejeita "+name, func(t *testing.T) {
+			if err := store.Consume(context.Background(), altered, func(*gorm.DB) error {
+				t.Fatal("efeito executou com ownership de decisão divergente")
+				return nil
+			}); !errors.Is(err, ErrStale) {
+				t.Fatalf("consume com %s divergente retornou %v", name, err)
+			}
+			if got := loadReceipt(t, db, request.DecisionID).State; got != Accepted {
+				t.Fatalf("receipt original alterada por tentativa divergente: %s", got)
+			}
+		})
+	}
+	if err := store.Consume(context.Background(), request, func(tx *gorm.DB) error {
+		return tx.Create(&decisionEffectRow{ID: request.MutationID, Value: "done"}).Error
+	}); err != nil {
+		t.Fatalf("consumir receipt externa: %v", err)
+	}
+	row = loadReceipt(t, db, request.DecisionID)
+	if row.State != Consumed || row.AuthContextType != "external_token" || row.SessionID != request.SessionID || countEffects(t, db) != 1 {
+		t.Fatalf("consumo externo não preservou owner/efeito: %+v effects=%d", row, countEffects(t, db))
+	}
+}
+
+func TestExternalTokenContextIDMustBeCanonicalAndInvocationOnly(t *testing.T) {
+	now := time.Now().UTC()
+	request := defaultRequest(t, now)
+	request.AuthContextType = "external_token"
+	request.SubjectType = "invocation"
+	valid := auth.ExternalTokenContextID("https://issuer.example", "subject-7", "opaque-signed-token")
+	request.SessionID = valid
+	if !validRequest(request) {
+		t.Fatal("ID canônico emitido pelo autenticador externo foi rejeitado")
+	}
+	for name, value := range map[string]string{
+		"jwt bruto":             "eyJhbGciOiJub25lIn0.eyJzdWIiOiJzdWJqZWN0LTcifQ.",
+		"uuid local":            request.DecisionID,
+		"tupla não canônica":    `[ "https://issuer.example","subject-7","` + strings.Repeat("a", 64) + `" ]`,
+		"fingerprint uppercase": `["https://issuer.example","subject-7","` + strings.Repeat("A", 64) + `"]`,
+		"controle escapado":     `["issuer\n","subject-7","` + strings.Repeat("a", 64) + `"]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := request
+			candidate.SessionID = value
+			if validRequest(candidate) {
+				t.Fatalf("auth_context_id não canônico aceito: %q", value)
+			}
+		})
+	}
+	request.SubjectType = "config_mutation"
+	if validRequest(request) {
+		t.Fatal("external_token não pode autorizar config_mutation")
+	}
+	request.SubjectType = ""
+	if validRequest(request) {
+		t.Fatal("subject vazio de compatibilidade não pode transformar contexto externo em config_mutation")
+	}
+}
+
+func TestDecisionReceiptSQLCheckRejectsInvalidExternalSubjectAndType(t *testing.T) {
+	now := time.Now().UTC()
+	_, db := temporarySQLiteactualMigrate(t, &testPresenter{}, &now)
+	request := defaultRequest(t, now)
+	row := rowOf(request)
+	row.AuthContextType = "external_token"
+	row.SessionID = auth.ExternalTokenContextID("issuer", "subject", "token")
+	row.SubjectType = "config_mutation"
+	if err := db.Create(&row).Error; err == nil {
+		t.Fatal("CHECK SQL aceitou config_mutation externo")
+	}
+	row.SubjectType = "invocation"
+	row.AuthContextType = "unrecognized"
+	if err := db.Create(&row).Error; err == nil {
+		t.Fatal("CHECK SQL aceitou auth_context_type desconhecido")
 	}
 }
 

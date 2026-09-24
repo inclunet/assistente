@@ -178,3 +178,54 @@ func TestApplyCommandInstanceMigrationStampsV29AfterCallback(t *testing.T) {
 		t.Fatalf("v29 não registrada: %d", count)
 	}
 }
+
+func TestApplyCommandDecisionExternalContextMigrationStampsV32Atomically(t *testing.T) {
+	db := openCommandMigrationTestDB(t)
+	calls := 0
+	err := ApplyCommandDecisionExternalContextMigration(context.Background(), db, func(tx *gorm.DB) error {
+		calls++
+		return tx.Exec("CREATE TABLE command_external_decision_v32_probe (id TEXT PRIMARY KEY)").Error
+	})
+	if err != nil || calls != 1 {
+		t.Fatalf("aplicar v32: calls=%d err=%v", calls, err)
+	}
+	var count int64
+	if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version = 32 AND name = ?", "command_decision_external_token_context").Scan(&count).Error; err != nil || count != 1 {
+		t.Fatalf("v32 não registrada: count=%d err=%v", count, err)
+	}
+	if err := ApplyCommandDecisionExternalContextMigration(context.Background(), db, func(*gorm.DB) error {
+		t.Fatal("callback repetido apesar do carimbo v32")
+		return nil
+	}); err != nil {
+		t.Fatalf("segundo apply v32: %v", err)
+	}
+	if err := ApplyCommandDecisionExternalContextMigration(context.Background(), db, func(tx *gorm.DB) error {
+		return tx.Exec("CREATE TABLE command_external_decision_v32_rollback (id TEXT)").Error
+	}); err != nil {
+		t.Fatalf("v32 carimbada deveria permanecer idempotente: %v", err)
+	}
+
+	failingDB := openCommandMigrationTestDB(t)
+	if err := ensureSchemaMigrationsTable(failingDB); err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("fixture rollback v32")
+	if err := ApplyCommandDecisionExternalContextMigration(context.Background(), failingDB, func(tx *gorm.DB) error {
+		if err := tx.Exec("CREATE TABLE command_external_decision_v32_partial (id TEXT)").Error; err != nil {
+			return err
+		}
+		return failure
+	}); !errors.Is(err, failure) {
+		t.Fatalf("falha do callback v32 não propagou: %v", err)
+	}
+	var partial, stamp int64
+	if err := failingDB.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='command_external_decision_v32_partial'").Scan(&partial).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := failingDB.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version=32").Scan(&stamp).Error; err != nil {
+		t.Fatal(err)
+	}
+	if partial != 0 || stamp != 0 {
+		t.Fatalf("callback v32 falho não foi atômico: partial=%d stamp=%d", partial, stamp)
+	}
+}

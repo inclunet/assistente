@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/auth"
 	"assistente/internal/commandcontract"
 	"assistente/internal/commanddecision"
 	"github.com/google/uuid"
@@ -395,6 +396,67 @@ func TestCompareAndSwapEnvelopeWithDecisionRollsBackConsumedReceiptOnCASConflict
 	}
 	if receiptStatus != commanddecision.Accepted {
 		t.Fatalf("receipt consumido apesar do rollback: %q", receiptStatus)
+	}
+}
+
+func TestCompareAndSwapEnvelopeWithDecisionBindsExternalOwnerTypeAndExactID(t *testing.T) {
+	req, _ := envelopeRequest(t)
+	now := time.Now().UTC()
+	req.ExpiresAt = now.Add(24 * time.Hour)
+	externalContextID := auth.ExternalTokenContextID("https://issuer.example", "subject-7", "opaque-signed-token")
+	req.Envelope.AuthContextType = commandcontract.AuthExternalToken
+	req.Envelope.AuthContextID = externalContextID
+	req.Envelope.SessionID = nil
+	ledger, db := testStore(t, &now)
+	if err := commanddecision.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	decisions, err := commanddecision.New(db, acceptingEnvelopeDecisionPresenter{}, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ledger.ReserveEnvelope(context.Background(), req); err != nil {
+		t.Fatalf("reservar external_token: %v", err)
+	}
+	decisionID, _ := uuid.NewV7()
+	decisionRequest := commanddecision.Request{
+		AuthContextType: "external_token", SubjectType: "invocation", DecisionID: decisionID.String(),
+		MutationID: req.Envelope.InvocationID, UserID: *req.Envelope.UserID, SessionID: externalContextID,
+		Fingerprint: *req.Envelope.RequestFingerprint, AuthGeneration: req.Envelope.AuthGeneration,
+		SecurityGeneration: req.Envelope.SecurityGeneration, ExpiresAt: now.Add(5 * time.Minute), Body: "apply",
+	}
+	if _, err := decisions.Decide(context.Background(), decisionRequest); err != nil {
+		t.Fatalf("decisão external_token: %v", err)
+	}
+	owner := ownershipFromEnvelope(req.Envelope)
+	wrongContext := decisionRequest
+	wrongContext.SessionID = auth.ExternalTokenContextID("https://issuer.example", "subject-7", "different-token")
+	if ok, err := ledger.CompareAndSwapEnvelopeWithDecision(context.Background(), owner, req.Envelope.InvocationID, wrongContext, decisions); ok || !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("ID externo divergente não foi recusado: ok=%v err=%v", ok, err)
+	}
+	wrongType := decisionRequest
+	wrongType.AuthContextType = string(commandcontract.AuthLocalSession)
+	if ok, err := ledger.CompareAndSwapEnvelopeWithDecision(context.Background(), owner, req.Envelope.InvocationID, wrongType, decisions); ok || !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("tipo divergente não foi recusado: ok=%v err=%v", ok, err)
+	}
+	wrongOwner := owner
+	wrongOwner.AuthContextID = auth.ExternalTokenContextID("https://issuer.example", "subject-7", "another-token")
+	if ok, err := ledger.CompareAndSwapEnvelopeWithDecision(context.Background(), wrongOwner, req.Envelope.InvocationID, decisionRequest, decisions); ok || !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("owner externo divergente não foi recusado: ok=%v err=%v", ok, err)
+	}
+	var receiptStatus string
+	if err := db.Raw("SELECT status FROM command_decision_receipts WHERE decision_id = ?", decisionRequest.DecisionID).Scan(&receiptStatus).Error; err != nil {
+		t.Fatal(err)
+	}
+	if receiptStatus != commanddecision.Accepted {
+		t.Fatalf("rejeição de owner consumiu receipt: %s", receiptStatus)
+	}
+	if ok, err := ledger.CompareAndSwapEnvelopeWithDecision(context.Background(), owner, req.Envelope.InvocationID, decisionRequest, decisions); err != nil || !ok {
+		t.Fatalf("CAS externo com owner exato: ok=%v err=%v", ok, err)
+	}
+	record, err := ledger.GetEnvelopeByID(context.Background(), owner, req.Envelope.InvocationID)
+	if err != nil || record.Status != Queued || record.Ownership.AuthContextType != commandcontract.AuthExternalToken || record.Ownership.AuthContextID != externalContextID {
+		t.Fatalf("ledger não preservou owner externo: record=%+v err=%v", record, err)
 	}
 }
 

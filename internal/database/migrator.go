@@ -363,6 +363,14 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     MigrateExternalIdentityAdminAudit,
 	},
+	{
+		Version: 32,
+		Name:    "command_decision_external_token_context",
+		Phase:   phasePostAutoMigrate,
+		// commandbootstrap valida/reconstrói as receipts e confirma a migração
+		// pela porta transacional, depois que o host compõe os repositories.
+		Run: func(*gorm.DB) error { return errMigrationDeferred },
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

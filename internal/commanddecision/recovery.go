@@ -101,9 +101,13 @@ func (s *Store) ReconcileSession(ctx context.Context, current commandsecurity.Ep
 // closeRecoveryReceiptTx é o writer comum; elegibilidade vem do recovery
 // autenticado da sessão ou da prova opaca de drenagem. Evento e CAS são atômicos.
 func closeRecoveryReceiptTx(tx *gorm.DB, row receiptRow, now time.Time) error {
-	if !validID(row.ID) || !validID(row.UserID) || !validID(row.SessionID) ||
-		(row.State != Pending && row.State != Accepted) || row.AuthContextType != "local_session" ||
+	if !validID(row.ID) || !validID(row.UserID) || !validAuthContextID(row.AuthContextType, row.SessionID) ||
+		(row.AuthContextType != "local_session" && row.AuthContextType != "external_token") ||
+		(row.State != Pending && row.State != Accepted) ||
 		(row.SubjectType != "config_mutation" && row.SubjectType != "invocation") {
+		return ErrInvalid
+	}
+	if row.AuthContextType == "external_token" && row.SubjectType != "invocation" {
 		return ErrInvalid
 	}
 	state := Cancelled

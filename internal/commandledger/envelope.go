@@ -361,14 +361,19 @@ func (s *Store) envelopeTransactionWithRetry(ctx context.Context, operation stri
 	})
 }
 
-// CompareAndSwapEnvelopeWithDecision consome um receipt local e faz a
+// CompareAndSwapEnvelopeWithDecision consome um receipt vinculado ao contexto
+// exato do owner e faz a
 // transição evaluating->queued na mesma transação SQL. O callback de
 // ConsumeForDatabase recebe a única conexão transacional; não abre uma
 // transação aninhada nem executa efeitos externos.
 func (s *Store) CompareAndSwapEnvelopeWithDecision(ctx context.Context, owner FullOwnership, id string, request commanddecision.Request, decisions *commanddecision.Store) (bool, error) {
+	requestAuthContextType := request.AuthContextType
+	if requestAuthContextType == "" {
+		requestAuthContextType = string(commandcontract.AuthLocalSession)
+	}
 	if s == nil || s.db == nil || s.now == nil || ctx == nil || decisions == nil || validateFullOwnership(owner) != nil || !validUUID(id) ||
-		owner.AuthContextType != commandcontract.AuthLocalSession || owner.UserID == nil || request.SubjectType != "invocation" || request.MutationID != id ||
-		request.UserID != *owner.UserID || request.SessionID != owner.AuthContextID {
+		owner.UserID == nil || request.SubjectType != "invocation" || request.MutationID != id ||
+		requestAuthContextType != string(owner.AuthContextType) || request.UserID != *owner.UserID || request.SessionID != owner.AuthContextID {
 		return false, ErrInvalidRequest
 	}
 	if err := ctx.Err(); err != nil {

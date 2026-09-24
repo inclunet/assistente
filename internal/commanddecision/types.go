@@ -1,5 +1,6 @@
 // Package commanddecision mantém recibos de decisão de mutações de configuração
-// e invocações locais. Não autentica, autoriza ou registra presenters por payload.
+// locais e invocações locais/externas. Não autentica, autoriza ou registra
+// presenters por payload.
 package commanddecision
 
 import (
@@ -31,6 +32,10 @@ const (
 type Request struct {
 	// Metadata de apresentação derivada do catálogo; não concede autoridade.
 	Destructive bool
+	// AuthContextType vazio preserva compatibilidade e equivale a local_session.
+	// SessionID mantém o nome histórico, mas armazena o auth_context_id exato
+	// para todos os tipos de contexto.
+	AuthContextType string
 	// Vazio preserva o contrato legado config_mutation. Invocation usa o mesmo
 	// protocolo de apresentação/consumo e vincula MutationID ao invocation_id.
 	SubjectType                                     string
