@@ -17,8 +17,10 @@ export function useNewItemShortcut(onNew: () => void, enabled = true) {
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
       if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey || e.repeat) return;
       if (e.key !== 'n' && e.key !== 'N') return;
+      if (e.getModifierState('AltGraph')) return;
       if (insideModal ? !isTopmost() : isModalOpen()) return;
       e.preventDefault();
       e.stopPropagation();

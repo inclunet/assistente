@@ -39,6 +39,46 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 describe('external UI Wails JSON boundary', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it('normalizes the Go zero time only on a disconnected DTO and keeps real context fields invalid', async () => {
+    const callbacks = new Map<string, (...args: unknown[]) => void>();
+    const eventsOnMultiple = vi.fn((name: string, callback: (...args: unknown[]) => void) => {
+      callbacks.set(name, callback);
+      return () => callbacks.delete(name);
+    });
+    const goDisconnectedStatus = {
+      state: 'disconnected',
+      owner,
+      target: {
+        workspaceId: '',
+        surface: {
+          surfaceType: '', surfaceId: '', snapshotVersion: '',
+          capturedAt: '0001-01-01T00:00:00Z',
+        },
+      },
+      expiresAt: '0001-01-01T00:00:00Z',
+    };
+    const api = {
+      ReadExternalUIConnection: vi.fn().mockResolvedValue(goDisconnectedStatus),
+    };
+    vi.stubGlobal('go', { app: { App: api } });
+    vi.stubGlobal('runtime', { EventsOnMultiple: eventsOnMultiple });
+
+    const service = createWailsExternalUIConnectionService(() => owner);
+    await expect(service.refresh()).resolves.toMatchObject({ state: 'disconnected', owner, target: null });
+    expect(service.getSnapshot()).toMatchObject({ state: 'disconnected', owner, target: null });
+
+    api.ReadExternalUIConnection.mockResolvedValue({
+      ...goDisconnectedStatus,
+      target: {
+        ...goDisconnectedStatus.target,
+        surface: { ...goDisconnectedStatus.target.surface, content: { kind: 'document', text: 'must not be accepted' } },
+      },
+    });
+    await expect(service.refresh()).rejects.toThrow('external-ui-status-invalid-or-owner-mismatch');
+    expect(service.getSnapshot()).toMatchObject({ state: 'disconnected', owner, target: null });
+    service.dispose();
+  });
+
   it('keeps RawMessage values as JSON objects through the generated wrapper roundtrip', async () => {
     const callbacks = new Map<string, (...args: unknown[]) => void>();
     const eventsOnMultiple = vi.fn((name: string, callback: (...args: unknown[]) => void) => {

@@ -1015,6 +1015,33 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
 });
 
 describe('Topbar palette — integração real do Combobox compartilhado', () => {
+  it.each(['present', 'removed', 'disabled', 'owner-changed'] as const)('Escape restaura somente uma origem de foco ainda válida: %s', async mode => {
+    const user = userEvent.setup();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const source = document.createElement('textarea');
+    document.body.append(source);
+    const view = render(<Topbar />);
+    try {
+      await act(async () => { await Promise.resolve(); });
+      source.focus();
+      await user.keyboard('{Control>}k{/Control}');
+      const search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
+      await waitFor(() => expect(search).toHaveFocus());
+      if (mode === 'removed') source.remove();
+      if (mode === 'disabled') source.disabled = true;
+      if (mode === 'owner-changed') state.auth.user = { userId: 'other', sessionId: 'other-session' };
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument());
+      if (mode === 'present') expect(source).toHaveFocus();
+      else if (mode === 'owner-changed') expect(source).not.toHaveFocus();
+      else expect(screen.getByRole('button', { name: 'commandPalette.title' })).toHaveFocus();
+      expect(beginUICommand).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+      source.remove();
+    }
+  });
+
   it.each(['allowed', 'other-tab', 'aba', 'profile-aba', 'profile-match', 'profile-mismatch'] as const)('condição visual usa a origem real e recusa contexto alterado: %s', async mode => {
     const user = userEvent.setup();
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
@@ -1232,6 +1259,30 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     } finally {
       view.unmount();
       outside.remove();
+    }
+  });
+
+  it('não rouba o foco do novo controle ao dispensar a paleta após trocar rota e identidade', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const view = render(<Topbar />);
+    try {
+      await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+      await screen.findByRole('listbox');
+      await waitFor(() => expect(screen.getByRole('combobox')).toHaveFocus());
+
+      state.auth.user = { userId: 'user-b', sessionId: 'session-b' };
+      locationState.pathname = '/settings';
+      view.rerender(<><Topbar /><button type="button" data-testid="new-route-control">Novo controle</button></>);
+      const newControl = screen.getByTestId('new-route-control');
+      newControl.focus();
+
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      expect(newControl).toHaveFocus();
+      expect(navigate).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
     }
   });
 
@@ -1648,6 +1699,8 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     state.genericExecute.mockResolvedValue({ status: 'succeeded' });
     render(<Topbar />);
     await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+    const search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
+    await waitFor(() => expect(search).toHaveFocus());
     await user.keyboard('{ArrowDown}{Enter}');
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByRole('textbox', { name: /^query/ }), { target: { value: 'privado' } });
@@ -1776,6 +1829,8 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     });
     const view = render(<Topbar />);
     await user.click(screen.getByRole('button', { name: 'commandPalette.title' }));
+    const search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
+    await waitFor(() => expect(search).toHaveFocus());
     await user.keyboard('{ArrowDown}{Enter}');
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByRole('textbox', { name: /^query/ }), { target: { value: 'segredo temporário' } });

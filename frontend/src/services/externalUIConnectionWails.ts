@@ -12,6 +12,7 @@ import {
 } from './externalUIConnection';
 
 type UnknownRecord = Record<string, unknown>;
+const goZeroTime = '0001-01-01T00:00:00Z';
 
 /** Wails currently generates json.RawMessage as number[], while the runtime
  * JSON bridge correctly transports the value itself as a JSON object. Keep
@@ -98,7 +99,7 @@ function normalizeRawFields(source: UnknownRecord): Pick<SurfaceContext, 'select
   };
 }
 
-function fromWailsDestination(value: unknown): ExternalUIDestination | undefined {
+function fromWailsDestination(value: unknown, omitZeroCapturedAt = false): ExternalUIDestination | undefined {
   const target = record(value);
   const surface = target && record(target.surface);
   if (!target || !surface || typeof target.workspaceId !== 'string' ||
@@ -117,7 +118,8 @@ function fromWailsDestination(value: unknown): ExternalUIDestination | undefined
       ...(typeof surface.title === 'string' ? { title: surface.title } : {}),
       ...(typeof surface.mode === 'string' ? { mode: surface.mode } : {}),
       ...rawFields,
-      ...(typeof surface.capturedAt === 'string' ? { capturedAt: surface.capturedAt } : {}),
+      ...(typeof surface.capturedAt === 'string' && !(omitZeroCapturedAt && surface.capturedAt === goZeroTime)
+        ? { capturedAt: surface.capturedAt } : {}),
       ...(typeof surface.staleAfterMs === 'number' ? { staleAfterMs: surface.staleAfterMs } : {}),
     },
   };
@@ -152,7 +154,10 @@ function isoDate(value: unknown): string | undefined {
 function fromWailsStatus(value: unknown): unknown {
   const status = record(value);
   if (!status) return value;
-  const target = fromWailsDestination(status.target);
+  // encoding/json serializes time.Time zero values despite `omitempty`.
+  // Only normalize that exact sentinel for a disconnected zero destination;
+  // any real timestamp or context field remains visible to strict validation.
+  const target = fromWailsDestination(status.target, status.state === 'disconnected');
   if (status.state !== 'disconnected' && !target) return value;
   return {
     state: status.state,

@@ -251,6 +251,14 @@ export function Topbar() {
   const closeCommandPaletteRef = useRef<((action?: 'restore' | 'open-main-menu' | 'ignore') => void) | null>(null);
   const commandPaletteDismissActionRef = useRef<'restore' | 'open-main-menu' | 'ignore'>('restore');
   const commandPaletteOpenRef = useRef(false);
+  const commandPaletteReturnFocusRef = useRef<{
+    element: HTMLElement | null;
+    userId: string | undefined;
+    sessionId: string | undefined;
+    workspaceId: string | undefined;
+    tabId: string | null | undefined;
+    route: string;
+  } | null>(null);
   const commandPaletteMenuItemsRef = useRef<MenuItem[]>([]);
   const newTabMenuIntentRef = useRef<WorkspaceTabCreationIntent | null>(null);
   const commandUIEffectGuardRef = useRef<ReturnType<typeof createCommandUIEffectGuard> | null>(null);
@@ -3098,6 +3106,7 @@ export function Topbar() {
   }, []);
 
   const handleCommandPaletteAfterSelect = useCallback(() => {
+    commandPaletteReturnFocusRef.current = null;
     palettePageMutationsRef.current.forEach(target => target.dispose()); palettePageMutationsRef.current.clear();
     clearPaletteChatMessaging();
     paletteChatClearRef.current?.dispose(); paletteChatClearRef.current = null;
@@ -3137,6 +3146,8 @@ export function Topbar() {
   }, [executePendingCommand, clearPaletteEditorModeTargets, clearPaletteChatMessaging]);
 
   const handleCommandPaletteAfterDismiss = useCallback((reason: ComboboxDismissReason) => {
+    const returnFocus = commandPaletteReturnFocusRef.current;
+    commandPaletteReturnFocusRef.current = null;
     clearPaletteChatMessaging();
     paletteChatClearRef.current?.dispose(); paletteChatClearRef.current = null;
     paletteTerminalOperationRef.current?.dispose(); paletteTerminalOperationRef.current = null;
@@ -3151,6 +3162,18 @@ export function Topbar() {
     if (action === 'open-main-menu') {
       menuButtonRef.current?.toggleMenu();
       return;
+    }
+    if (returnFocus) {
+      const auth = useAuthStore.getState();
+      const currentWorkspace = useWorkspaceStore.getState().workspace;
+      if (!document.hasFocus() || !auth.isAuthenticated || auth.user?.userId !== returnFocus.userId ||
+        auth.user?.sessionId !== returnFocus.sessionId || currentWorkspace?.id !== returnFocus.workspaceId ||
+        currentWorkspace?.activeTabId !== returnFocus.tabId || commandRouteIdentityRef.current !== returnFocus.route) return;
+      const element = returnFocus.element;
+      if (element?.isConnected && !element.matches(':disabled') && !element.closest('[inert], [hidden], [aria-hidden="true"]')) {
+        element.focus();
+        if (document.activeElement === element) return;
+      }
     }
     commandPickerButtonRef.current?.focus();
   }, [clearPaletteEditorModeTargets, clearPaletteChatMessaging]);
@@ -3443,6 +3466,16 @@ export function Topbar() {
     if (!trigger) { disposePointerTargets(); return; }
     const guard = commandUIEffectGuardRef.current;
     const focusedElement = document.activeElement;
+    const focusOwner = useAuthStore.getState().user;
+    const focusWorkspace = useWorkspaceStore.getState().workspace;
+    const returnFocus = {
+      element: focusedElement instanceof HTMLElement ? focusedElement : null,
+      userId: focusOwner?.userId,
+      sessionId: focusOwner?.sessionId,
+      workspaceId: focusWorkspace?.id,
+      tabId: focusWorkspace?.activeTabId,
+      route: commandRouteIdentityRef.current,
+    };
     const registeredSource = commandScope?.surfaceForElement(focusedElement);
     // A workspace panel still loading/mounting its provider is not a toolbar
     // origin. This DOM check only rejects; it never invents a surface snapshot.
@@ -3536,6 +3569,7 @@ export function Topbar() {
             const menuItems = commandCatalogItemsToMenuItems(items);
             commandPaletteMenuItemsRef.current = menuItems;
             commandPaletteDismissActionRef.current = 'restore';
+            commandPaletteReturnFocusRef.current = returnFocus;
             setCommandPaletteItems(menuItems
               .filter((item): item is MenuItem & { id: string; label: string } => Boolean(item.id && item.label && !item.separator))
               .map((item) => ({

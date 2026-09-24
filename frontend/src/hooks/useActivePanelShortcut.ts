@@ -28,6 +28,8 @@ export function useActivePanelNewShortcut(onNew: () => void): void {
     if (!isActive) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229) return;
+      if (event.getModifierState('AltGraph')) return;
       if (isModalOpen()) return;
       if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
       if (event.key.toLowerCase() !== 'n') return;
