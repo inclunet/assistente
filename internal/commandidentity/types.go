@@ -119,8 +119,10 @@ type ResolverPort interface {
 }
 
 type AuthorizationRule struct {
-	CommandID      string
-	Actors         []commandcontract.ActorType
+	CommandID string
+	Actors    []commandcontract.ActorType
+	// RequiredRoles aceita qualquer uma das roles listadas. Para external_token,
+	// compara as claims do JWT; nas origens locais, compara a role local.
 	RequiredRoles  []string
 	RequiredScopes []string
 	AllowSystem    bool

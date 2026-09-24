@@ -14,6 +14,12 @@ O middleware externo exige esses vínculos: `/auth/me` retorna o ID do usuário
 local associado, não o `sub` do provedor, e mantém a role do token externo.
 O cadastro **não habilita comandos externos** nem dispositivos físicos externos.
 
+Na política interna de comandos externos, as permissões vêm das roles e scopes
+do token validado. Tornar o usuário vinculado administrador local não concede
+roles externas. Uma regra pode aceitar qualquer uma das roles que lista, mas
+continua exigindo todos os scopes configurados. Essa política ainda depende da
+montagem do ingresso externo para ser disponibilizada aos clientes.
+
 Ao atualizar uma instalação externa, conclua o bootstrap abaixo e cadastre as
 demais contas antes de usá-las. Sem bootstrap do emissor, `/auth/me` responde
 **503**; sem vínculo habilitado ou usuário ativo, responde **401**, inclusive

@@ -2,9 +2,12 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção151 (23/09/2026):** dos 84 critérios finais,
+**Acompanhamento vigente — seção152 (24/09/2026):** dos 84 critérios finais,
 **80 têm implementação identificada (95,2%), 4 são parciais e 0 ausentes**.
 Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
+A seção152 corrige a política de roles externas: usa exclusivamente as roles
+do JWT revalidado, sem fallback para role local. A política local e a exigência
+de todos os scopes continuam inalteradas; ingresso externo ainda não habilitado.
 A seção151 migra o middleware HTTP para resolver exclusivamente vínculos
 externos explícitos, com bootstrap administrativo e alvo ativo. Atualiza D6
 da AEP-0052 no mesmo ciclo; não habilita ainda o executor externo.

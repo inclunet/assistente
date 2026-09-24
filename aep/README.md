@@ -16,6 +16,10 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+Atualização AEP-0103, seção152: autorização de comandos externos usa roles
+do JWT revalidado, sem fallback para role local, preservando exigência de scopes
+e política local. **In Progress, 80 I / 4 P / 0 N**; ingresso externo pendente.
+
 Atualização AEP-0103, seção151 e D6 da AEP-0052: middleware HTTP externo usa
 vínculo administrativo explícito, bootstrap do issuer e usuário ativo, sem
 fallback para `sub`. Executor externo permanece bloqueado. AEP-0103 continua

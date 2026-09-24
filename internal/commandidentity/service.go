@@ -300,7 +300,7 @@ func (s *Service) authorizeFresh(ctx context.Context, identity TrustedIdentity, 
 	if !ok || !containsActor(rule.Actors, identity.ActorType) || !definition.AllowsSource(identity.Source) {
 		return ErrCommandNotAuthorized
 	}
-	if !containsRole(identity.Role, rule.RequiredRoles) || !containsAll(identity.Scopes, rule.RequiredScopes) {
+	if !identityHasRequiredRole(identity, rule.RequiredRoles) || !containsAll(identity.Scopes, rule.RequiredScopes) {
 		return ErrCommandNotAuthorized
 	}
 	if identity.AuthContextType == commandcontract.AuthSystem {
@@ -442,6 +442,24 @@ func containsRole(value string, required []string) bool {
 	}
 	for _, expected := range required {
 		if value == expected {
+			return true
+		}
+	}
+	return false
+}
+
+// Roles externas vêm exclusivamente das claims revalidadas. A role local
+// continua servindo às origens locais, nunca como fallback para JWT externo.
+// RequiredRoles preserva a semântica de alternativas (qualquer uma).
+func identityHasRequiredRole(identity TrustedIdentity, required []string) bool {
+	if identity.AuthContextType != commandcontract.AuthExternalToken {
+		return containsRole(identity.Role, required)
+	}
+	if len(required) == 0 {
+		return true
+	}
+	for _, role := range identity.Roles {
+		if containsRole(role, required) {
 			return true
 		}
 	}

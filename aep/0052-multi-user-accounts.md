@@ -236,6 +236,13 @@ Scopes e roles do IdP continuam sendo aplicados como antes; role local não
 substitui a role externa. O modo local não muda. Este cutover não publica
 readiness do executor de comandos nem habilita adapters físicos externos.
 
+Complemento AEP-0103, seção152 (24/09/2026): a política interna de comandos
+externos verifica as roles do JWT revalidado, nunca a role do usuário local
+vinculado. `RequiredRoles` é uma lista de alternativas (qualquer uma), enquanto
+todos os `RequiredScopes` são obrigatórios. Sem roles no token, uma exigência
+de role falha fechado; ser administrador local não a satisfaz. A política de
+sessões locais e jobs não muda. Isso não habilita o ingresso externo sozinho.
+
 - Validar JWT do IdP via JWKS.
 - Enforce server-side por scopes/roles do token.
 - Algoritmos aceitos devem ser controlados via allowlist (ex.: RS256/ES256/EdDSA conforme IdP).

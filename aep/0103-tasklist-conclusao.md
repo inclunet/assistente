@@ -9582,3 +9582,31 @@ Validação e revisão:
   ao UUID local sem vínculo (401, sem JIT): **PASS, 5,869 s**. App final:
   **PASS, 19,658 s**; HTTP completo **PASS, 8,124 s** antes desses dois casos
   adicionais. Auth/identity/security também passaram na repetição final.
+
+## 152. Política externa usa roles do JWT — 24/09/2026
+
+Após confirmação explícita do usuário, corrigida a divergência entre D8 da
+AEP-0052 e `commandidentity.authorizeFresh`: tokens externos eram comparados
+com a role local do usuário vinculado. Agora a regra compara exclusivamente
+a lista de roles das claims revalidadas, inclusive roles posteriores à primeira.
+`RequiredRoles` preserva alternativas (qualquer uma); `RequiredScopes` continua
+exigindo todos os scopes. Sem roles no token não há fallback para admin local.
+
+A identidade é revalidada antes da política; a comparação da projeção continua
+recusando role/scopes forjados ou claims alteradas. Sessões locais e jobs mantêm
+a política de role local. Não há mudança de schema, segredo, middleware ou
+habilitação do ingresso externo neste lote.
+
+**80 I / 4 P / 0 N = 84** e **11 A / 14 I / 22 P / 1 N = 48; 1/12 aceito**
+preservados. C65/C70 continuam dependendo da integração do ingresso produtivo
+ao executor; esta correção remove um defeito da autorização que a precede.
+
+Qualificação: suites commandidentity/auth/httpapi/commandexecution PASS,
+incluindo nova matriz roles locais versus JWT, alternativas, roles ausentes,
+scopes parciais, alteração de claims e projeções adulteradas. Nos casos de
+adulteração há baseline autorizado e os requisitos continuam satisfeitos,
+isolando a recusa por divergência da projeção. Repetição final de identity
+após reforço dos testes PASS; vet, diff-check e status AEP PASS.
+Kierkegaard (Luna) implementou os testes; Turing (Luna) revisou código e
+casos finais independentemente, sem achados acionáveis. Sem ACP, Wails,
+banco pessoal, executável diagnóstico, push ou PR.
