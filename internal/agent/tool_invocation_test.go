@@ -23,7 +23,7 @@ func newAgentTestToolInvocations(registry *tools.Registry) *toolinvocations.Serv
 	)
 }
 
-func (r *agentTestLedger) Create(_ context.Context, inv *toolinvocations.Invocation) error {
+func (r *agentTestLedger) Create(_ context.Context, inv *toolinvocations.Invocation, _ ...toolinvocations.CreateOptions) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.nextID++

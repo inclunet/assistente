@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -278,9 +279,18 @@ func (h *SimpleStreamHandler) archiveAgentTool(callID string, track agentToolTra
 		return
 	}
 	h.activity.archived[callID] = true
+	// O adaptador ACP conhece o protocolo; o ledger recebe só uma observação
+	// normalizada, sem argumentos/resultado que o protocolo não forneceu.
+	display, _ := json.Marshal(map[string]any{
+		"version": 1, "name": track.name, "origin": OriginACPAgent,
+		"iteration": track.iteration, "duration_ms": duration,
+		"acp_text_offset": track.textOffset, "assistant_message_id": h.AssistantMessageID,
+	})
 	h.activity.archiveQueue = append(h.activity.archiveQueue, toolinvocations.RecordRequest{
-		ACPActivity: true, ACPTitle: track.title, ObservedAt: track.started,
-		ACPTextOffset: &track.textOffset, ACPAssistantMessageID: h.AssistantMessageID,
+		Observation: &toolinvocations.ExternalObservation{
+			CatalogName: "acp_agent__" + track.name, Summary: track.title,
+			StartedAt: track.started, DisplayMetadata: display,
+		},
 		Call:      tools.ToolCall{ID: callID, Type: "function", Function: tools.FunctionCall{Name: track.name}},
 		Origin:    toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: h.TurnID, ConversationID: h.ConversationID, TurnID: h.TurnID},
 		Iteration: track.iteration, DurationMs: duration, ErrorKind: tools.ErrorKind(errorKind), ErrorMessage: failure,

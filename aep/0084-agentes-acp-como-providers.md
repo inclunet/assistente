@@ -500,6 +500,10 @@ de eventos que nunca foram persistidos. Evidência de regressão:
 `TestACPAtividadePersisteNoPatchEHistorico` em `internal/agent`.
 O status deste contrato permanece **Done**.
 
+A tradução de ACP para `ExternalObservation` pertence ao adaptador do agente.
+O registro usa o mesmo núcleo de ciclo de vida das tools locais e do MCP
+nativo (AEP-0104); não existe implementação ACP paralela de gravação.
+
 | ACP | Barramento | Observação |
 |---|---|---|
 | `agent_message_chunk` | `OnChunk` | texto da resposta |
