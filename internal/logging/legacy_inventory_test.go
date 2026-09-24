@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	expectedLegacyFormatCount  = 779
-	expectedLegacyFormatDigest = "124a7090821501f4b2e3d0036dac557e9ce1640bda6c26675272adf2402ac9fb"
+	// O núcleo único do ledger removeu 17 formatos legados duplicados de
+	// service.go; os logs de lifecycle.go já usam formatos normalizados.
+	expectedLegacyFormatCount  = 762
+	expectedLegacyFormatDigest = "9e7a9ab2543013f8c06937d7ff35b3783763b9d0a1157f7c6a61d18a09a6af55"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

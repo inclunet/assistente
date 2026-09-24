@@ -1,7 +1,6 @@
 package toolinvocations
 
 import (
-	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,10 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"assistente/internal/database"
 	"assistente/internal/tools"
-
-	"gorm.io/gorm"
 )
 
 type Service struct {
@@ -115,214 +111,29 @@ func cancelledLedgerUnavailable(call tools.ToolCall) ExecuteResult {
 
 func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult {
 	if s == nil || s.executor == nil {
-		return ExecuteResult{Execution: executionError(req.Call, "tool invocation service not configured"), Persisted: false}
+		return ExecuteResult{Execution: executionError(req.Call, "tool invocation service not configured")}
 	}
-	if s.repo == nil {
-		s.recordPersistenceFailure()
-		return ExecuteResult{
-			Execution: executionError(req.Call, "tool invocation repository not configured"),
-			Persisted: false,
-		}
+	start := invocationStart{
+		call: req.Call, persistedArguments: req.PersistedArguments, origin: req.Origin,
+		parentID: req.ParentInvocationID, catalogID: req.ToolCatalogID,
+		dryRun: req.DryRun, iteration: req.Iteration,
 	}
-
-	// Persistência best-effort: deve funcionar mesmo se o ctx for cancelado.
-	persistCtx := s.persistCtx(ctx)
-	req.Origin.Type = strings.TrimSpace(req.Origin.Type)
-	if req.Origin.Type == "" {
-		req.Origin.Type = OriginChat
-	}
-	req.Origin.ID = strings.TrimSpace(req.Origin.ID)
-
-	// Defesa fail-closed para chat: sem validar a origem, não execute uma tool
-	// que pode produzir efeitos externos. A validação transacional do Create
-	// continua sendo a autoridade contra a corrida posterior.
-	if req.Origin.Type == OriginChat {
-		opCtx, cancel := s.persistOpCtx(persistCtx)
-		err := s.repo.ValidateChatOrigin(opCtx, req.Origin.ID)
-		cancel()
-		if err != nil {
-			logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] chat origin %s could not be validated; aborting tool execution: %v", req.Origin.ID, err)
+	inv, err := s.beginInvocation(ctx, start)
+	if err != nil {
+		if errors.Is(err, errChatLedgerUnavailable) {
 			return cancelledLedgerUnavailable(req.Call)
 		}
+		return ExecuteResult{Invocation: inv, Execution: executionError(req.Call, "tool invocation persistence unavailable")}
 	}
-
-	queuedAt := s.now()
-	toolCatalogID := req.ToolCatalogID
-	if strings.TrimSpace(toolCatalogID) != "" {
-		opCtx, cancel := s.persistOpCtx(persistCtx)
-		visible, err := s.repo.IsToolCatalogIDVisible(opCtx, toolCatalogID)
-		cancel()
-		if err != nil {
-			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to validate tool_catalog_id (best-effort): %v", err)
-			toolCatalogID = ""
-		} else if !visible {
-			logging.Infof(ctx, "toolinvocations.service", "[toolinvocations] tool_catalog_id not visible to user; falling back to resolve by name (best-effort) id=%s", strings.TrimSpace(toolCatalogID))
-			toolCatalogID = ""
-		} else {
-			// Defesa: garante que o ID fornecido corresponde ao nome da tool.
-			opCtx, cancel := s.persistOpCtx(persistCtx)
-			resolved, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
-			cancel()
-			if err != nil {
-				logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to verify tool_catalog_id by name (best-effort): %v", err)
-				toolCatalogID = ""
-			} else if strings.TrimSpace(resolved) != "" && resolved != toolCatalogID {
-				logging.Infof(ctx, "toolinvocations.service", "[toolinvocations] tool_catalog_id mismatch for %q; using resolved id", req.Call.Function.Name)
-				toolCatalogID = resolved
-			}
-		}
-	}
-	if toolCatalogID == "" {
-		opCtx, cancel := s.persistOpCtx(persistCtx)
-		id, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
-		cancel()
-		if err != nil {
-			if !errors.Is(err, ErrToolCatalogNotFound) {
-				s.recordPersistenceFailure()
-				logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to resolve tool_catalog_id; aborting execution: %v", err)
-				return ExecuteResult{Execution: executionError(req.Call, "tool invocation catalog unavailable"), Persisted: false}
-			}
-			archivalRepo, ok := s.repo.(interface {
-				ResolveOrCreateArchivalToolCatalogID(context.Context, string) (string, error)
-			})
-			if !ok {
-				return ExecuteResult{Execution: executionError(req.Call, "tool invocation catalog entry not found"), Persisted: false}
-			}
-			opCtx, cancel = s.persistOpCtx(persistCtx)
-			id, err = archivalRepo.ResolveOrCreateArchivalToolCatalogID(opCtx, req.Call.Function.Name)
-			cancel()
-			if err != nil {
-				s.recordPersistenceFailure()
-				logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to create archival catalog; aborting execution: %v", err)
-				return ExecuteResult{Execution: executionError(req.Call, "tool invocation catalog unavailable"), Persisted: false}
-			}
-		}
-		toolCatalogID = id
-	}
-
-	persistenceCall := req.Call
-	if req.PersistedArguments != nil {
-		persistenceCall.Function.Arguments = *req.PersistedArguments
-	}
-	input := s.buildInvocationInput(persistenceCall)
-	// Encadeamento pai↔filho (AEP-0068): se o chamador não trouxe um
-	// ParentInvocationID explícito, herda o carimbado no ctx (ex.: sub-conversa
-	// de sub-agente herda a invocação da tool `subagent` que a originou).
-	parentInvocationID := req.ParentInvocationID
-	if parentInvocationID == "" {
-		parentInvocationID = ParentInvocationIDFromContext(ctx)
-	}
-	inv := Invocation{
-		ToolCatalogID:      toolCatalogID,
-		OriginType:         req.Origin.Type,
-		OriginID:           req.Origin.ID,
-		ConversationID:     req.Origin.ConversationID,
-		TurnID:             req.Origin.TurnID,
-		ParentInvocationID: parentInvocationID,
-		ToolCallID:         req.Call.ID,
-		Attempt:            1,
-		Status:             StatusQueued,
-		DryRun:             req.DryRun,
-		Input:              input,
-		Metadata:           s.buildInvocationDisplayMetadata(persistenceCall, req.Iteration, 0, false),
-		ModelIteration:     req.Iteration,
-		External:           false,
-		DisplayName:        req.Call.Function.Name,
-		ResultAvailability: "pending",
-		QueuedAt:           queuedAt,
-	}
-	populateInputProjection(&inv)
-	if inv.OriginType == "" {
-		inv.OriginType = OriginChat
-	}
-	if inv.ToolCatalogID == "" {
-		return ExecuteResult{Execution: executionError(req.Call, "tool_catalog_id is required")}
-	}
-
-	opCtx, cancel := s.persistOpCtx(persistCtx)
-	createErr := s.repo.Create(opCtx, &inv)
-	cancel()
-	if createErr != nil {
-		s.recordPersistenceFailure()
-		logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] invocation could not be persisted safely for origin %s; aborting: %v", strings.TrimSpace(inv.OriginID), createErr)
-		if inv.OriginType == OriginChat {
-			return cancelledLedgerUnavailable(req.Call)
-		}
-		return ExecuteResult{Execution: executionError(req.Call, "tool invocation persistence unavailable"), Persisted: false}
-	}
-	if inv.ID != "" {
-		startedAt := s.now()
-		opCtx, cancel := s.persistOpCtx(persistCtx)
-		if err := s.repo.MarkRunning(opCtx, inv.ID, startedAt); err != nil {
-			s.recordPersistenceFailure()
-			cancel()
-			deleteCtx, deleteCancel := s.persistOpCtx(persistCtx)
-			_ = s.repo.Delete(deleteCtx, inv.ID)
-			deleteCancel()
-			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to mark running (id=%s); aborting execution: %v", inv.ID, err)
-			return ExecuteResult{Invocation: inv, Execution: executionError(req.Call, "tool invocation persistence unavailable"), Persisted: false}
-		} else {
-			inv.StartedAt = &startedAt
-		}
-		cancel()
-	}
-
-	// Carimba o ID da invocação corrente no ctx para que tools que delegam
-	// (ex.: `subagent`) possam encadear suas sub-invocações a este turno.
-	execCtx := WithCurrentInvocationID(ctx, inv.ID)
-	exec := s.executorForRequest(req).ExecuteOne(execCtx, req.Call)
-	persisted := false
-	if s.repo != nil && inv.ID != "" {
-		// Revalida a origem de chat antes de finalizar. Se o turno/mensagem foi
-		// deletado enquanto a tool estava rodando, apaga a invocação recém-criada
-		// para não deixar registros órfãos.
-		if strings.TrimSpace(inv.OriginType) == OriginChat && strings.TrimSpace(inv.OriginID) != "" {
-			if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
-				opCtx, cancel := s.persistOpCtx(persistCtx)
-				_, err := database.GetMessageWithContext(opCtx, inv.OriginID)
-				cancel()
-				if err != nil {
-					if errors.Is(err, gorm.ErrRecordNotFound) {
-						opCtx, cancel := s.persistOpCtx(persistCtx)
-						delErr := s.repo.Delete(opCtx, inv.ID)
-						cancel()
-						if delErr != nil {
-							logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to delete orphan invocation (id=%s): %v", inv.ID, delErr)
-						}
-						return ExecuteResult{Invocation: inv, Execution: exec, Persisted: false}
-					}
-					// Se não conseguimos revalidar por erro transitório, tenta completar a invocação.
-					logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] warning: failed to revalidate chat origin %s before complete; completing anyway (id=%s): %v", strings.TrimSpace(inv.OriginID), inv.ID, err)
-				}
-			}
-		}
-
-		status, errorMessage := statusForExecution(exec)
-		completedAt := s.now()
-		inv.Status = status
-		inv.Output = s.outputForPersistence(exec.Result)
-		populateOutputProjection(&inv)
-		inv.ErrorKind = string(exec.ErrorKind)
-		inv.ErrorCode = exec.ErrorCode
-		inv.ErrorMessage = s.truncateErrorForPersistence(errorMessage)
-		inv.Retryable = exec.Retryable
-		inv.RetryabilityKnown = exec.RetryabilityKnown
-		inv.CompletedAt = &completedAt
-		inv.DurationMs = exec.DurationMs
-		inv.Metadata = s.buildInvocationMetadata(persistenceCall, req.Iteration, exec.DurationMs, false, exec.Result)
-		opCtx, cancel := s.persistOpCtx(persistCtx)
-		err := s.repo.Complete(opCtx, inv.ID, &inv)
-		cancel()
-		if err != nil {
-			s.recordPersistenceFailure()
-			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to complete invocation (id=%s): %v", inv.ID, err)
-			persisted = false
-		} else {
-			persisted = true
-		}
-	}
-
-	return ExecuteResult{Invocation: inv, Execution: exec, Persisted: persisted}
+	// Somente esta entrada executa tools. Record usa o mesmo ledger sem executor.
+	exec := s.executorForRequest(req).ExecuteOne(WithCurrentInvocationID(ctx, inv.ID), req.Call)
+	status, message := statusForExecution(exec)
+	err = s.finishInvocation(ctx, &inv, start, invocationOutcome{
+		status: status, message: message, result: exec.Result, errorKind: exec.ErrorKind,
+		errorCode: exec.ErrorCode, retryable: exec.Retryable,
+		retryabilityKnown: exec.RetryabilityKnown, durationMs: exec.DurationMs,
+	})
+	return ExecuteResult{Invocation: inv, Execution: exec, Persisted: err == nil}
 }
 
 func (s *Service) executorForRequest(req ExecuteRequest) *tools.Executor {
@@ -683,204 +494,22 @@ func (s *Service) ExecuteAll(ctx context.Context, calls []tools.ToolCall, origin
 // (por exemplo, MCP nativo executado pelo provedor LLM). Best-effort: não
 // deve falhar o fluxo chamador.
 func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, error) {
-	if s == nil || s.repo == nil {
-		return Invocation{}, fmt.Errorf("tool invocation repository not configured")
+	start := invocationStart{
+		call: req.Call, persistedArguments: req.PersistedArguments, origin: req.Origin,
+		parentID: req.ParentInvocationID, catalogID: req.ToolCatalogID, dryRun: req.DryRun,
+		iteration: req.Iteration, external: true, observation: req.Observation,
 	}
-
-	// Persistência de invocações externas também deve sobreviver a cancelamento.
-	persistCtx := s.persistCtx(ctx)
-
-	// Defesa best-effort: se a origem do chat já foi deletada, não criar
-	// registros técnicos que ficarão órfãos.
-	if strings.TrimSpace(req.Origin.Type) == OriginChat && strings.TrimSpace(req.Origin.ID) != "" {
-		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
-			opCtx, cancel := s.persistOpCtx(persistCtx)
-			_, err := database.GetMessageWithContext(opCtx, req.Origin.ID)
-			cancel()
-			if err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return Invocation{}, err
-				}
-				logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] warning: failed to validate chat origin %s for Record; proceeding (best-effort): %v", strings.TrimSpace(req.Origin.ID), err)
-			}
-		}
-	}
-
-	toolCatalogID := strings.TrimSpace(req.ToolCatalogID)
-	if req.ACPActivity {
-		archivalRepo, ok := s.repo.(interface {
-			ResolveOrCreateArchivalToolCatalogID(context.Context, string) (string, error)
-		})
-		if !ok {
-			return Invocation{}, fmt.Errorf("archival repository required for ACP activity")
-		}
-		opCtx, cancel := s.persistOpCtx(persistCtx)
-		id, err := archivalRepo.ResolveOrCreateArchivalToolCatalogID(opCtx, "acp_agent__"+req.Call.Function.Name)
-		cancel()
-		if err != nil {
-			return Invocation{}, err
-		}
-		toolCatalogID = id
-	}
-	if toolCatalogID != "" && !req.ACPActivity {
-		opCtx, cancel := s.persistOpCtx(persistCtx)
-		visible, err := s.repo.IsToolCatalogIDVisible(opCtx, toolCatalogID)
-		cancel()
-		if err != nil {
-			return Invocation{}, err
-		}
-		if !visible {
-			toolCatalogID = ""
-		} else {
-			opCtx, cancel := s.persistOpCtx(persistCtx)
-			resolved, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
-			cancel()
-			if err != nil {
-				// Melhor não persistir sob um ID possivelmente incorreto.
-				toolCatalogID = ""
-			} else if strings.TrimSpace(resolved) != "" && resolved != toolCatalogID {
-				toolCatalogID = resolved
-			}
-		}
-	}
-	if toolCatalogID == "" {
-		opCtx, cancel := s.persistOpCtx(persistCtx)
-		id, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
-		cancel()
-		if err != nil {
-			if !errors.Is(err, ErrToolCatalogNotFound) {
-				return Invocation{}, err
-			}
-			archivalRepo, ok := s.repo.(interface {
-				ResolveOrCreateArchivalToolCatalogID(context.Context, string) (string, error)
-			})
-			if !ok {
-				return Invocation{}, err
-			}
-			opCtx, cancel = s.persistOpCtx(persistCtx)
-			id, err = archivalRepo.ResolveOrCreateArchivalToolCatalogID(opCtx, req.Call.Function.Name)
-			cancel()
-			if err != nil {
-				return Invocation{}, err
-			}
-		}
-		toolCatalogID = id
-	}
-	queuedAt := s.now()
-	if req.ACPActivity && !req.ObservedAt.IsZero() {
-		queuedAt = req.ObservedAt
-	}
-	persistenceCall := req.Call
-	if req.PersistedArguments != nil {
-		persistenceCall.Function.Arguments = *req.PersistedArguments
-	}
-	inv := Invocation{
-		ToolCatalogID:      toolCatalogID,
-		OriginType:         req.Origin.Type,
-		OriginID:           req.Origin.ID,
-		ConversationID:     req.Origin.ConversationID,
-		TurnID:             req.Origin.TurnID,
-		ParentInvocationID: "",
-		ToolCallID:         req.Call.ID,
-		Attempt:            1,
-		Status:             StatusQueued,
-		DryRun:             req.DryRun,
-		Input:              s.buildInvocationInput(persistenceCall),
-		ModelIteration:     req.Iteration,
-		External:           true,
-		DisplayName:        req.Call.Function.Name,
-		ResultAvailability: "pending",
-		QueuedAt:           queuedAt,
-	}
-	populateInputProjection(&inv)
-	if inv.OriginType == "" {
-		inv.OriginType = OriginChat
-	}
-	if req.ACPActivity {
-		inv.Input = nil
-		inv.InputPreview, inv.InputHash = "", ""
-		inv.InputBytes = 0
-	}
-
-	opCtx, cancel := s.persistOpCtx(persistCtx)
-	if err := s.repo.Create(opCtx, &inv); err != nil {
-		cancel()
-		s.recordPersistenceFailure()
-		return inv, err
-	}
-	cancel()
-	startedAt := s.now()
-	if req.ACPActivity {
-		startedAt = queuedAt
-	}
-	opCtx, cancel = s.persistOpCtx(persistCtx)
-	if err := s.repo.MarkRunning(opCtx, inv.ID, startedAt); err != nil {
-		s.recordPersistenceFailure()
-		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to mark running (id=%s): %v", inv.ID, err)
-	} else {
-		inv.StartedAt = &startedAt
-	}
-	cancel()
-	status, errorMessage := statusForRecord(req)
-	completedAt := s.now()
-	inv.Status = status
-	inv.Output = s.outputForPersistence(req.Result)
-	populateOutputProjection(&inv)
-	inv.ErrorKind = string(req.ErrorKind)
-	inv.ErrorCode = req.ErrorCode
-	inv.ErrorMessage = s.truncateErrorForPersistence(errorMessage)
-	inv.Retryable = req.Retryable
-	inv.RetryabilityKnown = req.RetryabilityKnown
-	inv.CompletedAt = &completedAt
-	inv.DurationMs = req.DurationMs
-	inv.Metadata = s.buildInvocationDisplayMetadata(persistenceCall, req.Iteration, req.DurationMs, true)
-	if req.ACPActivity {
-		completedAt = queuedAt.Add(time.Duration(req.DurationMs) * time.Millisecond)
-		// O protocolo não forneceu argumentos/resultado. Não inventar payload
-		// técnico nem oferecer detalhes vazios como se tivessem sido capturados.
-		inv.Input, inv.Output = nil, nil
-		inv.InputPreview, inv.OutputPreview = "", ""
-		inv.OutputPreview = truncateUTF8Safe(req.ACPTitle, 512)
-		inv.InputHash, inv.OutputHash = "", ""
-		inv.InputBytes, inv.OutputBytes = 0, 0
-		inv.ResultAvailability = "unavailable"
-		inv.Metadata, _ = json.Marshal(map[string]any{"external": true, "display": map[string]any{
-			"version": 1, "name": req.Call.Function.Name, "origin": "acp_agent",
-			"iteration": req.Iteration, "duration_ms": req.DurationMs,
-			"acp_text_offset": req.ACPTextOffset, "assistant_message_id": req.ACPAssistantMessageID,
-		}})
-	}
-
-	// Revalida a origem do chat antes de finalizar. Native MCP pode correr com
-	// deleção de turno/mensagem após o pre-check do chamador.
-	if strings.TrimSpace(inv.OriginType) == OriginChat && strings.TrimSpace(inv.OriginID) != "" {
-		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
-			opCtx, cancel := s.persistOpCtx(persistCtx)
-			_, err := database.GetMessageWithContext(opCtx, inv.OriginID)
-			cancel()
-			if err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					opCtx, cancel := s.persistOpCtx(persistCtx)
-					delErr := s.repo.Delete(opCtx, inv.ID)
-					cancel()
-					if delErr != nil {
-						logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to delete orphan recorded invocation (id=%s): %v", inv.ID, delErr)
-					}
-					return inv, err
-				}
-				logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] warning: failed to revalidate chat origin %s before completing Record; completing anyway (id=%s): %v", strings.TrimSpace(inv.OriginID), inv.ID, err)
-			}
-		}
-	}
-	opCtx, cancel = s.persistOpCtx(persistCtx)
-	err := s.repo.Complete(opCtx, inv.ID, &inv)
-	cancel()
+	inv, err := s.beginInvocation(ctx, start)
 	if err != nil {
-		s.recordPersistenceFailure()
-		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to complete recorded invocation (id=%s): %v", inv.ID, err)
 		return inv, err
 	}
-	return inv, nil
+	status, message := statusForRecord(req)
+	err = s.finishInvocation(ctx, &inv, start, invocationOutcome{
+		status: status, message: message, result: req.Result, errorKind: req.ErrorKind,
+		errorCode: req.ErrorCode, retryable: req.Retryable,
+		retryabilityKnown: req.RetryabilityKnown, durationMs: req.DurationMs,
+	})
+	return inv, err
 }
 
 func (s *Service) buildInvocationDisplayMetadata(call tools.ToolCall, iteration int, durationMs int64, external bool) json.RawMessage {

@@ -435,6 +435,24 @@ retargetado para `main`.
 
 ## Critérios de aceitação
 
+### Núcleo único de persistência
+
+`Execute` (execução local) e `Record` (resultado externo) compartilham
+`beginInvocation`/`finishInvocation` em `internal/toolinvocations/lifecycle.go`:
+identidade e catálogo, validação de origem, criação, transição, projeções,
+limites, finalização, remoção de órfãos e métricas usam uma implementação.
+As entradas apenas adaptam pedido/resultado. Falha ao marcar execução local
+como iniciada impede efeitos externos; para resultado já observado, tenta-se
+completar o registro, sem executar a ferramenta.
+
+O adaptador ACP em `internal/agent/agent_activity.go` fornece
+`ExternalObservation` com catálogo archival isolado e apresentação saneada.
+O núcleo não interpreta campos do protocolo ACP nem inventa input/output.
+Evidência: `TestLifecycleSharedPersistenceFailures`,
+`TestLifecycleExternalPersistenceSurvivesCancellation` e
+`TestLifecycleRejectsMissingOriginForEveryEntry`, além das regressões ACP de
+cronologia e reabertura do histórico. O status permanece **Done**.
+
 - [x] 100% do legado representado no ledger; ambiguidades iguais a zero.
 - [x] Contagens iguais antes/depois; divergência apenas de hash é registrada
       como aviso de auditoria (`hash_mismatch`), não bloqueia (ver D5).
