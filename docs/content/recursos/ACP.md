@@ -40,6 +40,19 @@ runbook `docs/operations/acp-compatibility-retirement.md` do repositório.
 
 Todo `request_permission` do agente vira um questionário na UI (ou mensagem numerada em canais). `Permitir sempre` grava por **classe** (`execute`/`edit`/`read`) em `.assistente/acp-permissions/<perfil>.json`. Gerencie em **Configurações → Permissões do Agente**; canais e jobs nunca gravam "sempre".
 
+## Ferramentas no histórico
+
+As atividades de ferramentas reportadas pelo agente são preservadas no histórico
+local após o fim do turno e ao reabrir a conversa, identificadas como ferramentas
+do agente externo. Conclusão, falha e cancelamento mantêm estados distintos.
+Esse registro não faz o Assistente executar as ferramentas do agente.
+
+O histórico conserva a classe, o resumo da atividade e sua duração. Argumentos e resultados
+que não foram capturados não são inventados nem oferecidos como detalhes completos.
+Atividades antigas que só existiam durante o streaming não podem ser recuperadas
+retroativamente. Uma interrupção abrupta do aplicativo antes da gravação também
+pode impedir o registro de uma atividade ainda em andamento.
+
 ## Limitações
 
 - Não leva persona/skills/memória do app; não exporta tools MCP.

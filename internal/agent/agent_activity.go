@@ -9,6 +9,8 @@ import (
 
 	"assistente/internal/core/ports"
 	"assistente/internal/llm"
+	"assistente/internal/toolinvocations"
+	"assistente/internal/tools"
 )
 
 // Este arquivo implementa llm.AgentActivitySink no SimpleStreamHandler: é por
@@ -16,8 +18,7 @@ import (
 // ferramentas dele e onde cada bloco de resposta termina (AEP-0084 D7 e D13).
 //
 // As ferramentas são do agente, não do app: os eventos saem com origem
-// acp_agent, servem para a UI e o leitor de telas, e nada é executado nem
-// persistido como invocação de ferramenta do app.
+// acp_agent e são arquivadas como atividade externa, nunca executadas pelo app.
 
 // singleLine achata quebras de linha vindas do protocolo. O saneamento de
 // conteúdo não confiável é do provider (AEP-0084 D11), mas rótulo e anúncio são
@@ -31,8 +32,10 @@ func singleLine(s string) string {
 // agentToolTrack guarda o que o app precisa lembrar de uma ferramenta do agente
 // entre o aviso de início e o de fim.
 type agentToolTrack struct {
-	name    string
-	started time.Time
+	name      string
+	title     string
+	started   time.Time
+	iteration int
 }
 
 // agentActivity acumula o estado da atividade do agente dentro de um turno.
@@ -47,6 +50,11 @@ type agentActivity struct {
 	unnamedSeq   int
 	segmentTools []ports.ToolSummary
 	iteration    int
+	archiveQueue []toolinvocations.RecordRequest
+	archiveDone  chan struct{}
+	archiveError error
+	archived     map[string]bool
+	received     bool
 }
 
 // OnAgentToolEvent traduz a atividade de ferramenta do agente para os eventos de
@@ -63,6 +71,7 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 	terminal := event.Status != "" && event.Status != llm.AgentToolRunning
 
 	h.activity.mu.Lock()
+	h.activity.received = true
 	if h.activity.running == nil {
 		h.activity.running = map[string]agentToolTrack{}
 	}
@@ -87,10 +96,17 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 		}
 	}
 	track, known := h.activity.running[callID]
-	if !known {
-		track = agentToolTrack{name: name, started: time.Now()}
-		h.activity.running[callID] = track
+	if h.activity.archived[callID] {
+		h.activity.mu.Unlock()
+		return
 	}
+	if !known {
+		track = agentToolTrack{name: name, started: time.Now(), iteration: h.activity.iteration}
+	}
+	if title != "" {
+		track.title = title
+	}
+	h.activity.running[callID] = track
 	h.activity.mu.Unlock()
 
 	// Um fim sem início conhecido ainda precisa aparecer: sem o start a UI não
@@ -172,6 +188,7 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 		Origin:     OriginACPAgent,
 	})
 	h.activity.mu.Unlock()
+	h.archiveAgentTool(callID, track, errorKind, failure, duration)
 }
 
 // closePendingAgentTools encerra as ferramentas que o agente deixou sem desfecho
@@ -238,7 +255,104 @@ func (h *SimpleStreamHandler) closePendingAgentTools(errorKind string) {
 			Origin:     OriginACPAgent,
 		})
 		h.activity.mu.Unlock()
+		h.archiveAgentTool(pendente.callID, pendente.track, errorKind, "", duracao)
 	}
+}
+
+// A escrita não roda no callback do transporte ACP. Um único consumidor
+// serializa a fila; a barreira terminal garante o ledger antes do turnPatch.
+func (h *SimpleStreamHandler) archiveAgentTool(callID string, track agentToolTrack, errorKind, failure string, duration int64) {
+	if h.svc == nil || h.svc.toolInvocations == nil {
+		return
+	}
+	h.activity.mu.Lock()
+	defer h.activity.mu.Unlock()
+	if h.activity.archived == nil {
+		h.activity.archived = make(map[string]bool)
+	}
+	if h.activity.archived[callID] {
+		return
+	}
+	h.activity.archived[callID] = true
+	h.activity.archiveQueue = append(h.activity.archiveQueue, toolinvocations.RecordRequest{
+		ACPActivity: true, ACPTitle: track.title, ObservedAt: track.started,
+		Call:      tools.ToolCall{ID: callID, Type: "function", Function: tools.FunctionCall{Name: track.name}},
+		Origin:    toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: h.TurnID, ConversationID: h.ConversationID, TurnID: h.TurnID},
+		Iteration: track.iteration, DurationMs: duration, ErrorKind: tools.ErrorKind(errorKind), ErrorMessage: failure,
+	})
+	if h.activity.archiveDone != nil {
+		return
+	}
+	h.activity.archiveDone = make(chan struct{})
+	go func() {
+		for {
+			h.activity.mu.Lock()
+			if len(h.activity.archiveQueue) == 0 {
+				close(h.activity.archiveDone)
+				h.activity.archiveDone = nil
+				h.activity.mu.Unlock()
+				return
+			}
+			req := h.activity.archiveQueue[0]
+			h.activity.archiveQueue = h.activity.archiveQueue[1:]
+			h.activity.mu.Unlock()
+			_, err := h.svc.toolInvocations.Record(h.ctx, req)
+			if err != nil {
+				h.activity.mu.Lock()
+				if h.activity.archiveError == nil {
+					h.activity.archiveError = err
+				}
+				h.activity.mu.Unlock()
+			}
+		}
+	}()
+}
+
+func (h *SimpleStreamHandler) flushAgentTools() error {
+	h.activity.mu.Lock()
+	done := h.activity.archiveDone
+	h.activity.mu.Unlock()
+	if done != nil {
+		<-done
+	}
+	h.activity.mu.Lock()
+	defer h.activity.mu.Unlock()
+	return h.activity.archiveError
+}
+
+func (h *SimpleStreamHandler) hasAgentActivity() bool {
+	h.activity.mu.Lock()
+	defer h.activity.mu.Unlock()
+	return h.activity.received
+}
+
+func (h *SimpleStreamHandler) emitAgentErrorDone() {
+	if !h.hasAgentActivity() {
+		return
+	}
+	patch, err := h.svc.buildTurnPatch(h.ctx, h.ConversationID, h.TurnID)
+	if err != nil {
+		patch = nil
+	}
+	done := ports.DoneEvent{
+		ConversationID: h.ConversationID, TurnID: h.TurnID, AssistantMessageID: h.AssistantMessageID,
+		SurfaceOrigin: h.SurfaceOrigin, Reason: "error", ErrorMessage: h.lastError, TurnPatch: patch,
+		FinishReason: string(h.finish.Reason), RawReason: h.finish.RawReason,
+		Provider: h.finish.Provider, Model: h.finish.Model, EffectiveOutputLimit: h.finish.OutputLimit,
+	}
+	if h.finish.Provider != "" || h.finish.Model != "" || h.finish.OutputLimit != 0 || h.finish.RawReason != "" || h.finish.Reason != "" || h.finish.ResponseBytes != 0 {
+		responseBytes := h.finish.ResponseBytes
+		done.ResponseBytes = &responseBytes
+	}
+	if h.usage.OutputTokensReported {
+		outputTokens := h.usage.CompletionTokens
+		done.OutputTokens = &outputTokens
+	}
+	if h.usage.ReasoningTokensReported {
+		reasoningTokens := h.usage.ReasoningTokens
+		done.ReasoningTokens = &reasoningTokens
+	}
+	h.Emitter.Emit("chat:done", done)
 }
 
 type pendingAgentTool struct {

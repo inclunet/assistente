@@ -134,10 +134,16 @@ func (s *Service) StreamSimpleWithRecovery(
 			s.emitPlaceholderErrorDone(conversationID, turnID, surfaceOrigin)
 			return
 		}
+		h.deferAgentTerminal = true
 		messages = s.applyContinuationPrefill(ctx, messages, params, h.AssistantMessageID, h.SetInitialContent)
 		// Só a última tentativa deve finalizar o streaming com erro.
 		h.SuppressTerminalError(attempt < attempts)
 		streamer.StreamChat(ctx, messages, params, h)
+		h.closePendingAgentTools(h.pendingToolErrorKind())
+		if err := h.flushAgentTools(); err != nil {
+			h.MarkErrorNotRetryable()
+			h.OnError("Falha ao preservar atividades do agente: " + err.Error())
+		}
 		if h.TerminalEmitted() {
 			return
 		}
@@ -157,6 +163,7 @@ func (s *Service) StreamSimpleWithRecovery(
 			partialContent, partialReasoning := h.Finalize()
 			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
 			s.persistErrorWhenEmpty(ctx, h.AssistantMessageID, h.LastError())
+			h.emitAgentErrorDone()
 			logging.Errorf(ctx, "agent.service", "[Chat] streaming interrompido sem repetição possível (conversa %s): %s", conversationID, h.LastError())
 			return
 		}
@@ -316,10 +323,10 @@ func (s *Service) SaveAndFinish(
 			logging.Errorf(ctx, "agent.service", "[Agent] erro ao salvar resposta final: %v", err)
 			s.persistAssistantPartialBestEffort(ctx, assistantMessageID, result.FullResponse, result.Reasoning)
 			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-				s.emitFinalizationCancelledDone(conversationID, turnID, assistantMessageID, surfaceOrigin)
+				s.emitFinalizationCancelledDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin)
 				return true
 			}
-			s.emitFinalizationErrorDone(conversationID, turnID, assistantMessageID, surfaceOrigin)
+			s.emitFinalizationErrorDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin)
 			return true
 		}
 	}
@@ -443,11 +450,13 @@ func (s *Service) SaveAndFinish(
 	return true
 }
 
-func (s *Service) emitFinalizationCancelledDone(conversationID, turnID, assistantMessageID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
+func (s *Service) emitFinalizationCancelledDone(ctx context.Context, conversationID, turnID, assistantMessageID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
 	if s == nil || s.emitter == nil {
 		return
 	}
+	patch, _ := s.buildTurnPatch(ctx, conversationID, turnID)
 	s.emitter.Emit("chat:done", ports.DoneEvent{
+		TurnPatch:          patch,
 		ConversationID:     conversationID,
 		TurnID:             turnID,
 		AssistantMessageID: assistantMessageID,
@@ -456,11 +465,13 @@ func (s *Service) emitFinalizationCancelledDone(conversationID, turnID, assistan
 	})
 }
 
-func (s *Service) emitFinalizationErrorDone(conversationID, turnID, assistantMessageID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
+func (s *Service) emitFinalizationErrorDone(ctx context.Context, conversationID, turnID, assistantMessageID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
 	if s == nil || s.emitter == nil {
 		return
 	}
+	patch, _ := s.buildTurnPatch(ctx, conversationID, turnID)
 	s.emitter.Emit("chat:done", ports.DoneEvent{
+		TurnPatch:          patch,
 		ConversationID:     conversationID,
 		TurnID:             turnID,
 		AssistantMessageID: assistantMessageID,
@@ -1389,7 +1400,9 @@ func (s *Service) emitSimpleContextDone(
 	if errors.Is(err, context.DeadlineExceeded) {
 		errorMessage = "tempo limite da geração atingido"
 	}
+	patch, _ := s.buildTurnPatch(ctx, conversationID, turnID)
 	s.emitter.Emit("chat:done", ports.DoneEvent{
+		TurnPatch:          patch,
 		ConversationID:     conversationID,
 		TurnID:             turnID,
 		AssistantMessageID: assistantMessageID,

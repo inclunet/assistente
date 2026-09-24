@@ -108,6 +108,13 @@ alteração de schema nem nova representação persistida.
 
 ### D3 — Detalhes batch/lazy
 
+Atividades ACP também usam este ledger, como observações externas (`acp_agent`),
+nunca como pedidos de execução. O handler serializa a gravação e aguarda sua
+conclusão antes de construir o patch. Chamadas duplicadas no mesmo turno são
+deduplicadas por identificador. A ausência de argumentos/resultado é explícita
+(`unavailable`), sem payload fictício. Evidência:
+`TestACPAtividadePersisteNoPatchEHistorico`; status **Done** mantido.
+
 Um binding batch recebe no máximo 100 IDs e executa uma consulta por lote. O
 backend revalida ownership em cada chamada:
 
