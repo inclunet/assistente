@@ -35,6 +35,8 @@ async function setupTwoTabWorkspace(wails: WailsMock) {
   const ws = {
     id: 'ws-1',
     name: 'Workspace',
+    snapshot_epoch: 'landmark-navigation-epoch',
+    snapshot_sequence: '1',
     profile: '',
     created_at: now,
     last_used: now,
@@ -47,7 +49,11 @@ async function setupTwoTabWorkspace(wails: WailsMock) {
     },
   };
   await wails.setResponse('GetActiveWorkspace', ws);
-  await wails.setResponse('SetActiveWorkspaceTab', undefined);
+  await wails.setResponse('SetActiveWorkspaceTabForWorkspace', {
+    ...ws,
+    snapshot_sequence: '2',
+    tabs: { ...ws.tabs, active: 'tab-2' },
+  });
   await wails.setResponse('EnsureConversation', {
     id: '01926b90-0000-7000-8000-000000000002', title: 'Aba 2', created_at: now, updated_at: now, messages: [], message_count: 0,
   });
@@ -55,6 +61,27 @@ async function setupTwoTabWorkspace(wails: WailsMock) {
 }
 
 test.describe('Landmark navigation — F6 / Shift+F6', () => {
+  test.beforeEach(async ({ wails }) => {
+    await wails.setResponse('GetLocalCommandKeyboardMap', {
+      generation: 'landmark-navigation-keyboard-map',
+      validUntil: Date.now() + 30 * 60 * 1000,
+      ownerId: 'user-e2e',
+      sessionId: 'session-e2e',
+      workspaceId: 'ws-1',
+      bindings: [
+        { shortcut: { version: 1, code: 'F6', modifiers: [] }, commandId: 'navigation.landmark.next', handler: 'local_ui' },
+        { shortcut: { version: 1, code: 'F6', modifiers: ['Shift'] }, commandId: 'navigation.landmark.previous', handler: 'local_ui' },
+        { shortcut: { version: 1, code: 'Tab', modifiers: ['Control'] }, commandId: 'workspace.tab.next', handler: 'local_ui' },
+      ],
+      localPaletteCommands: [
+        'navigation.landmark.next',
+        'navigation.landmark.previous',
+        'navigation.landmark.default',
+        'workspace.tab.next',
+      ],
+    });
+  });
+
   test('página foca no textarea (área padrão) ao carregar', async ({ page, wails }) => {
     await wails.waitForApp();
 
@@ -154,7 +181,7 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
 
   test('atalho global de aba restaura foco na área padrão', async ({ page, wails }) => {
     await setupTwoTabWorkspace(wails);
-
+    await expect(activeChatTextarea(page)).toBeFocused();
     await page.keyboard.press('Control+Tab');
 
     const textarea = activeChatTextarea(page);

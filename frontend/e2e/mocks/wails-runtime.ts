@@ -19,6 +19,7 @@ declare global {
   interface Window {
     __wailsMock: {
       setResponse: (fn: string, value: unknown) => void;
+      clearResponse: (fn: string) => void;
       setError: (fn: string, message: string) => void;
       clearError: (fn: string) => void;
       emit: (event: string, data?: unknown) => void;
@@ -56,6 +57,8 @@ export function buildWailsMockScript(): string {
   const defaultWorkspace = {
     id: 'ws-1',
     name: 'Workspace',
+    snapshot_epoch: 'e2e-workspace-epoch',
+    snapshot_sequence: '1',
     profile: '',
     created_at: now,
     last_used: now,
@@ -88,6 +91,140 @@ export function buildWailsMockScript(): string {
     role: 'admin',
   };
 
+  // Explicit E2E command map; unknown commands are never implicitly admitted.
+  const defaultLocalCommandKeyboardMap = {
+    generation: 'e2e-local-command-map-v1',
+    ownerId: defaultAuthUser.userId,
+    sessionId: defaultAuthUser.sessionId,
+    workspaceId: defaultWorkspace.id,
+    bindings: [
+      { shortcut: { version: 1, code: 'KeyM', modifiers: ['Alt'] }, commandId: 'navigation.menu.open', handler: 'local_ui' },
+      { shortcut: { version: 1, code: 'KeyK', modifiers: ['Control'] }, commandId: 'navigation.palette.open', handler: 'local_ui' },
+    ],
+    // Explicit projection of the product's finite LOCAL_UI_COMMAND_IDS set.
+    // This admits only local_ui commands; route/focus/context guards remain
+    // responsible for deciding whether a presentation is available now.
+    localPaletteCommands: [
+      'tasklists.create.open',
+      'tasklists.edit.open',
+      'tasklists.search.focus',
+      'tasklist.task.create.open',
+      'profiles.create.open',
+      'profiles.edit.open',
+      'profiles.search.focus',
+      'terminal.sessions.open',
+      'terminal.focus.input',
+      'terminal.focus.history',
+      'chat.focus.input',
+      'chat.focus.messages',
+      'chat.message.read.open',
+      'chat.message.menu.open',
+      'chat.message.reasoning.toggle',
+      'chat.message.thread.expand',
+      'chat.message.thread.collapse',
+      'navigation.landmark.next',
+      'navigation.landmark.previous',
+      'navigation.landmark.default',
+      'editor.mermaid.open',
+      'chat.message.edit.open',
+      'editor.menu.file.open',
+      'editor.menu.format.open',
+      'editor.menu.insert.open',
+      'editor.menu.mode.open',
+      'editor.slides.open',
+      'editor.presentation.fullscreen',
+      'editor.table.cell.next',
+      'editor.table.cell.previous',
+      'chat.model.open',
+      'chat.history.open',
+      'chat.profile.open',
+      'chat.pinned.open',
+      'chat.tokens.open',
+      'workspace.tab.next',
+      'workspace.tab.previous',
+      'workspace.tab.first',
+      'workspace.tab.second',
+      'workspace.tab.third',
+      'workspace.tab.fourth',
+      'workspace.tab.fifth',
+      'workspace.tab.sixth',
+      'workspace.tab.seventh',
+      'workspace.tab.eighth',
+      'workspace.tab.ninth',
+      'navigation.workspace.open',
+      'navigation.history.open',
+      'navigation.memories.open',
+      'navigation.tasklists.open',
+      'navigation.jobs.open',
+      'navigation.profiles.open',
+      'navigation.settings.open',
+      'navigation.palette.open',
+      'navigation.data.export.open',
+      'navigation.data.import.open',
+      'navigation.help.open',
+      'navigation.about.open',
+      'navigation.menu.open',
+      'help.shortcuts.show',
+      'workspace.panel.focus',
+    ],
+  };
+
+  const defaultGlobalCommandOwnership = {
+    version: 1,
+    platform: 'windows',
+    instanceId: 'e2e00000-0000-4000-8000-000000000001',
+    revision: 1,
+    combinations: [],
+  };
+  let defaultGlobalOwnershipAckPending = true;
+
+  // Narrow command-ledger fixture for the real chat submit pipeline used by
+  // browser E2E. A command must be reserved, taken once, and then submitted
+  // through SendMessage/RetryMessage with its matching handoff.
+  const chatSubmissionCommandIDs = new Set(['chat.message.send', 'chat.message.retry']);
+  const chatCommandInvocations = new Map();
+  let nextChatCommandSequence = 1;
+
+  function beginChatCommand(commandID) {
+    if (!chatSubmissionCommandIDs.has(commandID)) return undefined;
+    const sequence = nextChatCommandSequence++;
+    const ticket = 'e2e-chat-ticket-' + sequence;
+    const invocationId = 'e2e-chat-invocation-' + sequence;
+    const invocation = { ticket, invocationId, commandId: commandID, handoffId: '', status: 'pending' };
+    chatCommandInvocations.set(ticket, invocation);
+    return { ticket, invocationId, commandId: commandID };
+  }
+
+  function takeChatCommand(ticket) {
+    const invocation = chatCommandInvocations.get(ticket);
+    if (!invocation) return undefined;
+    if (invocation.status !== 'pending') throw new Error('e2e-command-not-takeable');
+    invocation.status = 'taken';
+    invocation.handoffId = 'e2e-chat-handoff-' + ticket.slice('e2e-chat-ticket-'.length);
+    return { ticket, invocationId: invocation.invocationId, commandId: invocation.commandId, handoffId: invocation.handoffId };
+  }
+
+  function completeChatCommand(ticket, handoffId, status) {
+    const invocation = chatCommandInvocations.get(ticket);
+    if (!invocation) return undefined;
+    if (invocation.status !== 'taken' || invocation.handoffId !== handoffId ||
+        !['succeeded', 'failed', 'cancelled'].includes(status)) throw new Error('e2e-command-completion-mismatch');
+    invocation.status = status;
+  }
+
+  function acceptChatSubmission(fnName, args) {
+    const expectedCommandID = fnName === 'SendMessage' ? 'chat.message.send' : 'chat.message.retry';
+    const params = args[fnName === 'SendMessage' ? 3 : 2];
+    const proof = params && typeof params === 'object' ? params.command : undefined;
+    const invocation = proof && typeof proof === 'object' ? chatCommandInvocations.get(proof.ticket) : undefined;
+    if (!invocation || invocation.commandId !== expectedCommandID || invocation.status !== 'taken' ||
+        invocation.handoffId !== proof.handoffId) throw new Error('e2e-chat-handoff-invalid');
+    // Consume synchronously before the mocked RPC callback can yield. A second
+    // submission with the same proof is rejected even while the first is pending.
+    invocation.status = 'submitting';
+    return invocation;
+  }
+
   const DEFAULT_CONVERSATION_PAGE_LIMIT = 100;
 
   function normalizeConversationPageLimit(value) {
@@ -107,6 +244,29 @@ export function buildWailsMockScript(): string {
     NeedsWelcomeWizard: false,
     RunWelcomeWizard: true,
     GetAppVersion: '1.0.0-test',
+    BeginUICommand: beginChatCommand,
+    TakeUICommand: takeChatCommand,
+    CompleteUICommand: completeChatCommand,
+    GetUICommandResult: function(ticket) {
+      const invocation = chatCommandInvocations.get(ticket);
+      if (!invocation) return undefined;
+      return { invocationId: invocation.invocationId, status: invocation.status };
+    },
+    CancelUICommand: function(ticket) {
+      const invocation = chatCommandInvocations.get(ticket);
+      if (!invocation || invocation.status !== 'pending') return undefined;
+      invocation.status = 'cancelled';
+    },
+    GetLocalCommandKeyboardMap: defaultLocalCommandKeyboardMap,
+    GetGlobalCommandOwnership: function() {
+      return { ...defaultGlobalCommandOwnership, combinations: [...defaultGlobalCommandOwnership.combinations] };
+    },
+    AckGlobalCommandOwnership: function(instanceId, revision) {
+      if (!defaultGlobalOwnershipAckPending || instanceId !== defaultGlobalCommandOwnership.instanceId ||
+          revision !== defaultGlobalCommandOwnership.revision) return false;
+      defaultGlobalOwnershipAckPending = false;
+      return true;
+    },
     // Valida scope: defaults resolvem só por fnName; sem isso App.IsGlobalHotkeySupported
     // mascararia regressão pós-migração (AEP-0088).
     IsGlobalHotkeySupported: function() {
@@ -672,15 +832,39 @@ export function buildWailsMockScript(): string {
   function makeProxy(scope) {
     return new Proxy({}, {
       get(_target, prop) {
+        // Wails namespaces are ordinary objects, not PromiseLike values.
+        // Returning a generic method for then makes async appFor() assimilate
+        // this proxy as a never-settling thenable, preventing every API call.
+        if (prop === 'then') return undefined;
         const fnName = String(prop);
         return function(...args) {
           _config.callLog.push({ fn: fnName, scope, args });
+          const submitted = fnName === 'SendMessage' || fnName === 'RetryMessage'
+            ? acceptChatSubmission(fnName, args)
+            : undefined;
           if (fnName in _config.errors) {
+            // The chat RPC may have persisted the user message before it
+            // returns an error; production deliberately reconciles this as
+            // outcome_unknown rather than a retryable failure.
+            if (submitted) submitted.status = 'outcome_unknown';
             return Promise.reject(new Error(_config.errors[fnName]));
           }
           if (fnName in _config.responses) {
             const val = _config.responses[fnName];
-            return Promise.resolve(typeof val === 'function' ? val(...args) : val);
+            let response;
+            try {
+              response = typeof val === 'function' ? val(...args) : val;
+            } catch (error) {
+              if (submitted) submitted.status = 'outcome_unknown';
+              return Promise.reject(error);
+            }
+            return Promise.resolve(response).then(result => {
+              if (submitted) submitted.status = 'succeeded';
+              return result;
+            }, error => {
+              if (submitted) submitted.status = 'outcome_unknown';
+              throw error;
+            });
           }
           if (fnName === 'GetRecentMessages' && 'GetMessages' in _config.responses) {
             const val = _config.responses.GetMessages;
@@ -767,7 +951,20 @@ export function buildWailsMockScript(): string {
           }
           if (fnName in defaults) {
             const val = defaults[fnName];
-            return Promise.resolve(typeof val === 'function' ? val(...args) : JSON.parse(JSON.stringify(val)));
+            let response;
+            try {
+              response = typeof val === 'function' ? val(...args) : JSON.parse(JSON.stringify(val));
+            } catch (error) {
+              if (submitted) submitted.status = 'outcome_unknown';
+              return Promise.reject(error);
+            }
+            return Promise.resolve(response).then(result => {
+              if (submitted) submitted.status = 'succeeded';
+              return result;
+            }, error => {
+              if (submitted) submitted.status = 'outcome_unknown';
+              throw error;
+            });
           }
           if (fnName === 'GetConversationsPage') {
             const conversations = Array.isArray(defaults.GetConversations) ? defaults.GetConversations : [];
@@ -920,6 +1117,10 @@ export function buildWailsMockScript(): string {
     setResponse(fn, value) {
       _config.responses[fn] = value;
       delete _config.errors[fn];
+    },
+
+    clearResponse(fn) {
+      delete _config.responses[fn];
     },
 
     setError(fn, message) {

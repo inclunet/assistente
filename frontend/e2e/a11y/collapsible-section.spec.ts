@@ -61,7 +61,13 @@ async function openProfileEditorAudioTab(
   ]);
   await wails.setResponse('GetActiveProfileSlug', 'padrao');
   await wails.setResponse('GetProfileSearchPaths', []);
-  await wails.setResponse('GetProfile', fullProfile());
+  // Opening an existing profile reads the command target (profile + CAS
+  // fingerprint), not GetProfile. Keep this explicit in the fixture so a
+  // missing mock cannot silently turn the presentation request into a no-op.
+  await wails.setResponse('ReadProfileCommandTarget', {
+    profile: fullProfile(),
+    fingerprint: '0123456789abcdef'.repeat(4),
+  });
   await wails.setResponse('UpdateProfile', undefined);
   await wails.setResponse('GetSpeechProviders', []);
   await wails.setResponse('GetSTTModels', []);
