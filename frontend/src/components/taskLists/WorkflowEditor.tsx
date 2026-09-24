@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useId, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
@@ -10,10 +10,12 @@ import { Modal } from '../ui/Modal';
 import { FormField } from '../ui/FormField';
 import { Input } from '../ui/Input';
 import { Checkbox } from '../ui/Checkbox';
+import { Select } from '../ui/Select';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useGridFocus } from '../../hooks/useGridFocus';
 import { useInitialContentFocus } from '../../hooks/useInitialContentFocus';
+import { useNewItemShortcut } from '../../hooks/useNewItemShortcut';
 import { useUIStore } from '../../store/uiStore';
 import type {
   TaskListWorkflowStatus,
@@ -48,13 +50,13 @@ function colorName(
 interface WorkflowEditorProps {
   workflow: TaskListWorkflow;
   taskCountsByStatus?: Record<number, number>;
+  /** Persiste o workflow completo; chamado a cada alteração. */
   onSave: (
     statuses: TaskListWorkflowStatus[],
     transitions: WorkflowTransitions,
     initialStatusId: number,
     statusMigration: Record<number, number>,
   ) => Promise<void>;
-  onCancel: () => void;
 }
 
 interface StatusDraft {
@@ -65,15 +67,90 @@ interface StatusDraft {
   initial: boolean;
 }
 
+interface WorkflowState {
+  statuses: TaskListWorkflowStatus[];
+  transitions: WorkflowTransitions;
+  initialStatusId: number;
+}
+
+/**
+ * Alteração do workflow expressa por IDs, para valer tanto sobre o que a tela
+ * mostra quanto sobre o último estado aceito pelo backend.
+ */
+type WorkflowChange = (base: WorkflowState) => WorkflowState;
+
+function addStatusChange(created: TaskListWorkflowStatus, targets: number[], initial: boolean): WorkflowChange {
+  return (base) => {
+    if (base.statuses.some(s => s.id === created.id)) return base;
+    return {
+      statuses: [...base.statuses, { ...created, order: base.statuses.length }],
+      transitions: { ...base.transitions, [created.id]: [...targets] },
+      initialStatusId: initial ? created.id : base.initialStatusId,
+    };
+  };
+}
+
+function editStatusChange(
+  id: number,
+  fields: Pick<TaskListWorkflowStatus, 'label' | 'icon' | 'color'>,
+  targets: number[],
+  initial: boolean,
+): WorkflowChange {
+  return (base) => {
+    if (!base.statuses.some(s => s.id === id)) return base;
+    let initialStatusId = base.initialStatusId;
+    if (initial) {
+      initialStatusId = id;
+    } else if (initialStatusId === id) {
+      initialStatusId = base.statuses.find(s => s.id !== id)?.id ?? id;
+    }
+    return {
+      statuses: base.statuses.map(s => (s.id === id ? { ...s, ...fields } : s)),
+      transitions: { ...base.transitions, [id]: targets.filter(target => base.statuses.some(s => s.id === target)) },
+      initialStatusId,
+    };
+  };
+}
+
+function removeStatusChange(id: number): WorkflowChange {
+  return (base) => {
+    const transitions: WorkflowTransitions = {};
+    for (const [key, targets] of Object.entries(base.transitions)) {
+      if (Number(key) === id) continue;
+      transitions[Number(key)] = targets.filter(target => target !== id);
+    }
+    const remaining = base.statuses.filter(s => s.id !== id).map((s, i) => ({ ...s, order: i }));
+    return {
+      statuses: remaining,
+      transitions,
+      initialStatusId: base.initialStatusId === id ? (remaining[0]?.id ?? id) : base.initialStatusId,
+    };
+  };
+}
+
+function swapStatusesChange(aId: number, bId: number): WorkflowChange {
+  return (base) => {
+    const a = base.statuses.findIndex(s => s.id === aId);
+    const b = base.statuses.findIndex(s => s.id === bId);
+    if (a < 0 || b < 0) return base;
+    const reordered = [...base.statuses];
+    [reordered[a], reordered[b]] = [reordered[b], reordered[a]];
+    return { ...base, statuses: reordered.map((s, i) => ({ ...s, order: i })) };
+  };
+}
+
 function emptyDraft(colorToken: string): StatusDraft {
   return { label: '', icon: '⬜', color: colorToken, transitions: [], initial: false };
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error ?? '');
 }
 
 export default function WorkflowEditor({
   workflow,
   taskCountsByStatus = {},
   onSave,
-  onCancel,
 }: WorkflowEditorProps) {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
@@ -81,40 +158,76 @@ export default function WorkflowEditor({
   const requestConfirm = useConfirm();
   const { handleGridReady, requestGridFocus } = useGridFocus();
 
-  const [statuses, setStatuses] = useState<TaskListWorkflowStatus[]>(
-    () => [...workflow.statuses].sort((a, b) => a.order - b.order),
-  );
-  const [transitions, setTransitions] = useState<WorkflowTransitions>(
-    () => ({ ...workflow.allowedTransitions }),
-  );
-  const [initialStatusId, setInitialStatusId] = useState(workflow.initialStatusId);
-  const [statusMigration, setStatusMigration] = useState<Record<number, number>>({});
-  const [removedStatuses, setRemovedStatuses] = useState<TaskListWorkflowStatus[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [wf, setWf] = useState<WorkflowState>(() => ({
+    statuses: [...workflow.statuses].sort((a, b) => a.order - b.order),
+    transitions: { ...workflow.allowedTransitions },
+    initialStatusId: workflow.initialStatusId,
+  }));
+  const { statuses, transitions, initialStatusId } = wf;
+  const [counts, setCounts] = useState<Record<number, number>>(() => ({ ...taskCountsByStatus }));
+  // Um Aplicar/Remover por vez: cliques repetidos não duplicam o status.
+  const applyingRef = useRef(false);
   const [focused, setFocused] = useState<TaskListWorkflowStatus | null>(null);
 
   // Modal de edição por status: 'create' parte do vazio, 'edit' do focado.
   const [itemModal, setItemModal] = useState<{ mode: 'create' } | { mode: 'edit'; id: number } | null>(null);
   const [draft, setDraft] = useState<StatusDraft>(() => emptyDraft(COLOR_PRESETS[0].token));
+  // Remoção de status em uso: pergunta para onde migrar as tarefas.
+  const [migration, setMigration] = useState<{ status: TaskListWorkflowStatus; targetId: number } | null>(null);
   const newButtonRef = useRef<HTMLButtonElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const migrationHintId = useId();
+
+  // IDs nunca são reaproveitados na sessão, nem os de status já removidos.
+  const maxIdRef = useRef(workflow.statuses.reduce((max, s) => Math.max(max, s.id), 0));
+
+  // Salvamentos em fila, na ordem das alterações. Cada alteração é uma
+  // transformação aplicada, na hora do envio, sobre o último workflow aceito
+  // pelo backend: uma alteração recusada não contamina as seguintes. Se algo
+  // falhar, a tela volta a esse estado quando a fila esvaziar.
+  const persistedRef = useRef<WorkflowState>(wf);
+  const chainRef = useRef<Promise<unknown>>(Promise.resolve());
+  const pendingRef = useRef(0);
+  const failedRef = useRef(false);
+
+  const persist = useCallback((change: WorkflowChange, statusMigration: Record<number, number> = {}) => {
+    pendingRef.current += 1;
+    const run = chainRef.current.then(async () => {
+      try {
+        const next = change(persistedRef.current);
+        const cleanTransitions: WorkflowTransitions = {};
+        for (const s of next.statuses) cleanTransitions[s.id] = next.transitions[s.id] || [];
+        await onSave(next.statuses, cleanTransitions, next.initialStatusId, statusMigration);
+        persistedRef.current = next;
+        return true;
+      } catch (error) {
+        failedRef.current = true;
+        const msg = `${t('tasklist.workflow.saveFailed', 'Erro ao salvar workflow')}: ${getErrorMessage(error)}`;
+        addToast(msg, 'error');
+        return false;
+      } finally {
+        pendingRef.current -= 1;
+        if (pendingRef.current === 0 && failedRef.current) {
+          failedRef.current = false;
+          setWf(persistedRef.current);
+        }
+      }
+    });
+    chainRef.current = run;
+    return run;
+  }, [onSave, t, addToast]);
 
   // Ao entrar na tela, o foco vai para o grid de status.
   useInitialContentFocus(rootRef, true, () => {
     if (!requestGridFocus()) newButtonRef.current?.focus();
   });
 
-  const nextId = useCallback(() => {
-    const allIds = [...statuses, ...removedStatuses].map(s => s.id);
-    const maxId = allIds.reduce((max, id) => Math.max(max, id), 0);
-    return maxId + 1;
-  }, [statuses, removedStatuses]);
-
   const openNewStatus = useCallback(() => {
     setDraft(emptyDraft(COLOR_PRESETS[statuses.length % COLOR_PRESETS.length].token));
     setItemModal({ mode: 'create' });
   }, [statuses.length]);
+
+  useNewItemShortcut(openNewStatus);
 
   const openEditStatus = useCallback((status: TaskListWorkflowStatus) => {
     setDraft({
@@ -142,7 +255,7 @@ export default function WorkflowEditor({
     });
   }, []);
 
-  const confirmItemModal = useCallback(() => {
+  const confirmItemModal = useCallback(async () => {
     const label = draft.label.trim();
     if (!label) {
       const msg = t('tasklist.workflow.emptyStatusName', 'Dê um nome ao status');
@@ -150,159 +263,96 @@ export default function WorkflowEditor({
       announce(msg);
       return;
     }
+    let change: WorkflowChange;
+    let created: TaskListWorkflowStatus | null = null;
     if (itemModal?.mode === 'edit') {
-      const id = itemModal.id;
-      setStatuses(prev => prev.map(s => (s.id === id
-        ? { ...s, label, icon: draft.icon, color: draft.color }
-        : s)));
-      setTransitions(prev => ({ ...prev, [id]: [...draft.transitions] }));
-      if (draft.initial) {
-        setInitialStatusId(id);
-      } else if (initialStatusId === id) {
-        const firstOther = statuses.find(s => s.id !== id);
-        if (firstOther) setInitialStatusId(firstOther.id);
-      }
-      announce(t('tasklist.workflow.statusUpdated', 'Status atualizado'));
+      change = editStatusChange(itemModal.id, {
+        label, icon: draft.icon, color: draft.color,
+      }, draft.transitions, draft.initial);
     } else {
-      const id = nextId();
-      const newStatus: TaskListWorkflowStatus = {
-        id,
+      created = {
+        id: maxIdRef.current + 1,
         order: statuses.length,
         label,
         color: draft.color,
         icon: draft.icon.trim() || '⬜',
       };
-      setStatuses(prev => [...prev, newStatus]);
-      setTransitions(prev => ({ ...prev, [id]: [...draft.transitions] }));
-      if (draft.initial) setInitialStatusId(id);
-      setFocused(newStatus);
+      change = addStatusChange(created, draft.transitions, draft.initial);
+    }
+
+    if (applyingRef.current) return;
+    applyingRef.current = true;
+    if (created) maxIdRef.current = created.id;
+    const ok = await persist(change);
+    applyingRef.current = false;
+    // Falha ao salvar mantém o modal aberto com o rascunho, para tentar de novo.
+    if (!ok) return;
+    setWf(change);
+    if (created) {
+      setFocused(created);
       announce(t('tasklist.workflow.statusAdded', 'Status adicionado'));
+    } else {
+      announce(t('tasklist.workflow.statusUpdated', 'Status atualizado'));
     }
-    setError(null);
     closeItemModal();
-  }, [draft, itemModal, nextId, statuses, initialStatusId, t, addToast, announce, closeItemModal]);
+  }, [draft, itemModal, statuses.length, t, addToast, announce, closeItemModal, persist]);
 
-  const deleteStatus = useCallback(async (status: TaskListWorkflowStatus) => {
-    const count = taskCountsByStatus[status.id] ?? 0;
-    const confirmed = await requestConfirm({
-      title: t('tasklist.workflow.removeStatus', 'Remover Status'),
-      message: count > 0
-        ? t('tasklist.workflow.statusInUse', 'Status "{{label}}" (ID: {{id}}) está em uso por {{count}} tarefa(s)', {
-          label: status.label || `#${status.id}`,
-          id: String(status.id),
-          count,
-        })
-        : t('tasklist.workflow.confirmRemoveStatus', 'Remover status "{{label}}"?', {
-          label: status.label || `#${status.id}`,
-        }),
-    });
-    if (!confirmed) return;
-
-    if (count > 0) {
-      setRemovedStatuses(prev => [...prev, status]);
-    }
-    setStatuses(prev => prev.filter(s => s.id !== status.id).map((s, i) => ({ ...s, order: i })));
+  const finishRemoval = useCallback((status: TaskListWorkflowStatus) => {
+    setWf(removeStatusChange(status.id));
     setFocused(prev => (prev?.id === status.id ? null : prev));
-
-    setTransitions(prev => {
-      const updated = { ...prev };
-      delete updated[status.id];
-      for (const [key, targets] of Object.entries(updated)) {
-        updated[Number(key)] = targets.filter(id => id !== status.id);
-      }
-      return updated;
-    });
-
-    if (initialStatusId === status.id) {
-      const remaining = statuses.filter(s => s.id !== status.id);
-      if (remaining.length > 0) setInitialStatusId(remaining[0].id);
-    }
     announce(t('tasklist.workflow.statusRemoved', 'Status removido'));
-    // A linha some e o foco cairia no body: devolve ao grid (ou ao Novo,
-    // se a trava de mínimo impedir — nesse caso nada muda).
+    // A linha some e o foco cairia no body: devolve ao grid (ou ao Novo).
     requestAnimationFrame(() => {
       if (!requestGridFocus()) newButtonRef.current?.focus();
     });
-  }, [statuses, taskCountsByStatus, initialStatusId, requestConfirm, t, announce, requestGridFocus]);
+  }, [announce, t, requestGridFocus]);
 
-  const handleMoveStatus = useCallback((fromIndex: number, toIndex: number) => {
-    setStatuses(prev => {
-      if (toIndex < 0 || toIndex >= prev.length) return prev;
-      const updated = [...prev];
-      [updated[fromIndex], updated[toIndex]] = [updated[toIndex], updated[fromIndex]];
-      return updated.map((s, i) => ({ ...s, order: i }));
-    });
-  }, []);
-
-  const handleMigrationChange = useCallback((oldId: number, newId: number) => {
-    setStatusMigration(prev => ({ ...prev, [oldId]: newId }));
-  }, []);
-
-  const removedWithTasks = useMemo(() =>
-    removedStatuses.filter(s => (taskCountsByStatus[s.id] ?? 0) > 0),
-    [removedStatuses, taskCountsByStatus],
-  );
-
-  const validate = useCallback((): string | null => {
-    if (statuses.length === 0) {
-      return t('tasklist.workflow.emptyStatuses', 'Adicione pelo menos um status');
-    }
-
-    const ids = new Set<number>();
-    for (const s of statuses) {
-      if (ids.has(s.id)) {
-        return t('tasklist.workflow.duplicateId', 'IDs de status devem ser únicos');
-      }
-      ids.add(s.id);
-      if (!s.label.trim()) {
-        return t('tasklist.workflow.emptyStatusName', 'Status ID {{id}}: nome não pode estar vazio', { id: String(s.id) });
-      }
-    }
-
-    if (!ids.has(initialStatusId)) {
-      return t('tasklist.workflow.invalidInitialStatus', 'Status inicial deve ser um dos statuses definidos');
-    }
-
-    for (const removed of removedWithTasks) {
-      if (!statusMigration[removed.id] || !ids.has(statusMigration[removed.id])) {
-        return t('tasklist.workflow.migrationRequired', 'Tarefas precisam ser migradas antes de remover o status');
-      }
-    }
-
-    return null;
-  }, [statuses, initialStatusId, removedWithTasks, statusMigration, t]);
-
-  const handleSave = useCallback(async () => {
-    const validationError = validate();
-    if (validationError) {
-      setError(validationError);
-      announce(validationError);
+  const deleteStatus = useCallback(async (status: TaskListWorkflowStatus) => {
+    if ((counts[status.id] ?? 0) > 0) {
+      const firstOther = statuses.find(s => s.id !== status.id);
+      if (firstOther) setMigration({ status, targetId: firstOther.id });
       return;
     }
+    const confirmed = await requestConfirm({
+      title: t('tasklist.workflow.removeStatus', 'Remover Status'),
+      message: t('tasklist.workflow.confirmRemoveStatus', 'Remover status "{{label}}"?', {
+        label: status.label || `#${status.id}`,
+      }),
+    });
+    if (!confirmed) return;
+    if (await persist(removeStatusChange(status.id))) finishRemoval(status);
+  }, [counts, statuses, requestConfirm, t, persist, finishRemoval]);
 
-    setError(null);
-    setIsSaving(true);
+  const closeMigration = useCallback(() => {
+    setMigration(null);
+    requestAnimationFrame(() => { requestGridFocus(); });
+  }, [requestGridFocus]);
 
-    try {
-      const cleanTransitions: WorkflowTransitions = {};
-      for (const s of statuses) {
-        cleanTransitions[s.id] = transitions[s.id] || [];
-      }
+  const confirmMigration = useCallback(async () => {
+    if (!migration) return;
+    const { status, targetId } = migration;
+    if (applyingRef.current) return;
+    applyingRef.current = true;
+    const ok = await persist(removeStatusChange(status.id), { [status.id]: targetId });
+    applyingRef.current = false;
+    if (!ok) return;
+    setCounts(prev => {
+      const updated = { ...prev, [targetId]: (prev[targetId] ?? 0) + (prev[status.id] ?? 0) };
+      delete updated[status.id];
+      return updated;
+    });
+    setMigration(null);
+    finishRemoval(status);
+  }, [migration, persist, finishRemoval]);
 
-      const migration: Record<number, number> = {};
-      for (const removed of removedWithTasks) {
-        if (statusMigration[removed.id]) {
-          migration[removed.id] = statusMigration[removed.id];
-        }
-      }
-
-      await onSave(statuses, cleanTransitions, initialStatusId, migration);
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setIsSaving(false);
-    }
-  }, [validate, statuses, transitions, initialStatusId, removedWithTasks, statusMigration, onSave, announce]);
+  const handleMoveStatus = useCallback((fromIndex: number, toIndex: number) => {
+    // O grid move a linha e o foco na hora: a reordenação é otimista e o
+    // salvamento entra na fila (revertido se o backend recusar).
+    if (toIndex < 0 || toIndex >= statuses.length) return;
+    const change = swapStatusesChange(statuses[fromIndex].id, statuses[toIndex].id);
+    setWf(change);
+    void persist(change);
+  }, [statuses, persist]);
 
   const getRowActions = useCallback((status: TaskListWorkflowStatus) => [
     {
@@ -310,7 +360,6 @@ export default function WorkflowEditor({
       label: t('tasklist.edit', 'Editar'),
       icon: <EditOutlined aria-hidden="true" />,
       onClick: () => openEditStatus(status),
-      disabled: isSaving,
     },
     {
       id: 'delete',
@@ -318,9 +367,9 @@ export default function WorkflowEditor({
       icon: <DeleteOutlined aria-hidden="true" />,
       onClick: () => void deleteStatus(status),
       danger: true,
-      disabled: isSaving || statuses.length <= 1,
+      disabled: statuses.length <= 1,
     },
-  ], [t, openEditStatus, deleteStatus, isSaving, statuses.length]);
+  ], [t, openEditStatus, deleteStatus, statuses.length]);
 
   const columns: DataGridColumn<TaskListWorkflowStatus>[] = useMemo(() => [
     {
@@ -360,9 +409,6 @@ export default function WorkflowEditor({
 
   return (
     <div className="workflow-editor" ref={rootRef}>
-      {error && <div className="workflow-editor-error">{error}</div>}
-
-      {/* Statuses Section */}
       <div className="workflow-section">
         <div className="workflow-section-header">
           <h3 className="workflow-section-title">{t('tasklist.workflow.statuses', 'Statuses')}</h3>
@@ -376,23 +422,23 @@ export default function WorkflowEditor({
               label: t('tasklist.workflow.addStatus', 'Adicionar Status'),
               icon: <PlusOutlined aria-hidden="true" />,
               onClick: openNewStatus,
+              shortcut: 'Ctrl+N',
               variant: 'primary',
               buttonRef: newButtonRef,
-              disabled: isSaving,
             },
             {
               key: 'edit-status',
               label: t('tasklist.edit', 'Editar'),
               icon: <EditOutlined aria-hidden="true" />,
               onClick: () => focused && openEditStatus(focused),
-              disabled: !focused || isSaving,
+              disabled: !focused,
             },
             {
               key: 'delete-status',
               label: t('tasklist.delete', 'Deletar'),
               icon: <DeleteOutlined aria-hidden="true" />,
               onClick: () => focused && void deleteStatus(focused),
-              disabled: !focused || isSaving || statuses.length <= 1,
+              disabled: !focused || statuses.length <= 1,
               variant: 'danger',
             },
           ]}
@@ -410,55 +456,9 @@ export default function WorkflowEditor({
           onGridReady={handleGridReady}
         />
         <p className="workflow-editor__hint">
-          {t('tasklist.workflow.moveHint', 'Use Alt+Setas para reordenar o status focado.')}
+          {t('tasklist.workflow.moveHint', 'Use Alt+Setas para reordenar o status focado. As alterações são salvas automaticamente.')}
         </p>
       </div>
-
-      {/* Migration Warnings */}
-      {removedWithTasks.length > 0 && (
-        <div className="workflow-section">
-          {removedWithTasks.map((removed) => (
-            <div key={removed.id} className="workflow-migration-warning" role="group" aria-label={t('tasklist.workflow.migrationGroup', 'Migração do status {{label}}', { label: removed.label || `#${removed.id}` })}>
-              <strong>
-                {t('tasklist.workflow.tasksUsingStatus', '{{count}} tarefa(s) usando este status', { count: taskCountsByStatus[removed.id] ?? 0 })}
-              </strong>
-              {' — '}{removed.icon} {removed.label} (ID: {removed.id})
-              <div className="workflow-migration-row">
-                <span id={`migrate-label-${removed.id}`}>{t('tasklist.workflow.migrateTasksTo', 'Migrar tarefas para')}:</span>
-                <select
-                  className="workflow-migration-select"
-                  value={statusMigration[removed.id] || ''}
-                  onChange={(e) => handleMigrationChange(removed.id, Number(e.target.value))}
-                  aria-labelledby={`migrate-label-${removed.id}`}
-                >
-                  <option value="">—</option>
-                  {statuses.map((s) => (
-                    <option key={s.id} value={s.id}>{s.icon} {s.label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Initial Status + Transitions agora vivem no modal de edição por
-          status; aqui restam migração (condicional) e as ações finais. */}
-
-      {/* Actions — AEP-0090: primária antes de cancelar */}
-      <DialogActions
-        className="workflow-editor-actions"
-        primary={
-          <Button variant="primary" onClick={handleSave} disabled={isSaving}>
-            {isSaving ? t('common.saving', 'Salvando...') : t('tasklist.workflow.save', 'Salvar Workflow')}
-          </Button>
-        }
-        secondary={
-          <Button variant="secondary" onClick={onCancel} disabled={isSaving}>
-            {t('tasklist.workflow.cancel', 'Cancelar')}
-          </Button>
-        }
-      />
 
       <Modal
         isOpen={itemModal !== null}
@@ -538,7 +538,7 @@ export default function WorkflowEditor({
           />
           <DialogActions
             primary={
-              <Button type="button" variant="primary" onClick={confirmItemModal}>
+              <Button type="button" variant="primary" onClick={() => void confirmItemModal()}>
                 {t('tasklist.customActions.apply', 'Aplicar')}
               </Button>
             }
@@ -549,6 +549,45 @@ export default function WorkflowEditor({
             }
           />
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={migration !== null}
+        onClose={closeMigration}
+        title={t('tasklist.workflow.removeStatus', 'Remover Status')}
+        size="sm"
+        ariaDescribedBy={migrationHintId}
+      >
+        {migration && (
+          <div className="workflow-status-form">
+            <p id={migrationHintId} className="workflow-editor__hint">
+              {t('tasklist.workflow.statusInUseMigrate', 'O status "{{label}}" tem {{count}} tarefa(s). Escolha para qual status movê-las antes de remover.', {
+                label: migration.status.label || `#${migration.status.id}`,
+                count: counts[migration.status.id] ?? 0,
+              })}
+            </p>
+            <Select
+              label={t('tasklist.workflow.migrateTasksTo', 'Migrar tarefas para')}
+              value={String(migration.targetId)}
+              onChange={(e) => setMigration((prev) => (prev ? { ...prev, targetId: Number(e.target.value) } : prev))}
+              options={statuses
+                .filter((s) => s.id !== migration.status.id)
+                .map((s) => ({ value: String(s.id), label: `${s.icon} ${s.label}` }))}
+            />
+            <DialogActions
+              primary={
+                <Button type="button" variant="danger" onClick={() => void confirmMigration()}>
+                  {t('tasklist.workflow.removeAndMigrate', 'Remover e migrar')}
+                </Button>
+              }
+              secondary={
+                <Button type="button" variant="secondary" onClick={closeMigration}>
+                  {t('common.cancel', 'Cancelar')}
+                </Button>
+              }
+            />
+          </div>
+        )}
       </Modal>
     </div>
   );

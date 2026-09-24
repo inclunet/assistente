@@ -311,18 +311,15 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     initialStatusId: number,
     statusMigration: Record<number, number>,
   ) => {
+    // Salvamento automático a cada alteração: o editor anuncia o resultado e
+    // o modal segue aberto.
     try {
       await updateWorkflowFull(taskListId, statuses, transitions, initialStatusId, statusMigration);
-      setIsWorkflowEditorOpen(false);
-      addToast(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'), 'success', undefined, undefined, {
-        suppressAnnounce: true,
-      });
-      announce(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'));
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       throw new Error(msg || t('tasklist.workflow.saveFailed', 'Erro ao salvar workflow'));
     }
-  }, [taskListId, updateWorkflowFull, addToast, announce, t]);
+  }, [taskListId, updateWorkflowFull, t]);
 
   const handleClone = useCallback(async () => {
     const newTitle = `${taskList?.title || 'Lista'} (Cópia)`;
@@ -727,7 +724,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           <Suspense fallback={<div>{t('tasklist.loading', 'Carregando...')}</div>}>
             <CustomActionsEditor
               taskListId={taskListId}
-              onClose={() => setIsCustomActionsEditorOpen(false)}
               onSaved={reloadBoardActions}
             />
           </Suspense>
@@ -747,7 +743,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               workflow={taskList.workflow}
               taskCountsByStatus={taskCountsByStatus}
               onSave={handleSaveWorkflow}
-              onCancel={() => setIsWorkflowEditorOpen(false)}
             />
           </Suspense>
         </Modal>

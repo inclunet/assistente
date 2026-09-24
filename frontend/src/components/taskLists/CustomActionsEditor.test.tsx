@@ -63,14 +63,14 @@ describe('CustomActionsEditor', () => {
   });
 
   it('lista as ações no grid com toolbar Nova/Editar/Apagar', async () => {
-    render(<CustomActionsEditor taskListId="1" onClose={vi.fn()} />);
+    render(<CustomActionsEditor taskListId="1" />);
     expect(await screen.findByRole('grid', { name: 'Lista de ações customizadas' })).toBeInTheDocument();
     expect(screen.getByRole('row', { name: /Investigar/ })).toBeInTheDocument();
     // Grid enxuto: sem ID/evento técnico; ação sem link mostra texto amigável.
     expect(screen.getByRole('columnheader', { name: 'Ação' })).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'ID' })).not.toBeInTheDocument();
     expect(screen.getByText('Publica evento')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Nova ação' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Nova ação/ })).toBeInTheDocument();
     // O grid foca a primeira linha ao montar: Editar/Apagar já nascem prontos.
     await waitFor(() => expect(screen.getByRole('button', { name: 'Editar' })).toBeEnabled());
     expect(screen.getByRole('button', { name: 'Deletar' })).toBeEnabled();
@@ -78,13 +78,15 @@ describe('CustomActionsEditor', () => {
     expect(screen.getByRole('grid').contains(document.activeElement)).toBe(true);
   });
 
-  it('cria ação pelo modal e persiste no Salvar', async () => {
+  it('cria ação pelo modal e persiste na hora, sem Salvar/Cancelar na tela', async () => {
     const user = userEvent.setup();
-    const onClose = vi.fn();
-    render(<CustomActionsEditor taskListId="1" onClose={onClose} />);
+    const onSaved = vi.fn();
+    render(<CustomActionsEditor taskListId="1" onSaved={onSaved} />);
     await screen.findByRole('grid');
+    expect(screen.queryByRole('button', { name: 'Salvar' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancelar' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Nova ação' }));
+    await user.click(screen.getByRole('button', { name: /Nova ação/ }));
     // fireEvent (não user.type): o auto-focus do Modal rouba o foco no jsdom
     // (offsetParent sempre null) e os caracteres se perderiam.
     fireEvent.change(screen.getByLabelText(/ID/), { target: { value: 'atualizar' } });
@@ -92,24 +94,52 @@ describe('CustomActionsEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Aplicar' }));
 
     expect(await screen.findByRole('row', { name: /Atualizar/ })).toBeInTheDocument();
-    expect(mockSetTaskListCustomActions).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole('button', { name: 'Salvar' }));
-    await waitFor(() => expect(mockSetTaskListCustomActions).toHaveBeenCalledTimes(1));
+    expect(mockSetTaskListCustomActions).toHaveBeenCalledTimes(1);
     const [listId, json] = mockSetTaskListCustomActions.mock.calls[0];
     expect(listId).toBe('1');
     const parsed = JSON.parse(json as string);
     expect(parsed.actions.map((a: { id: string }) => a.id).sort()).toEqual(['atualizar', 'investigar']);
     expect(parsed.actions[1]).not.toHaveProperty('_uiId');
-    expect(onClose).toHaveBeenCalled();
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(mockAnnounce).toHaveBeenCalledWith('Ação adicionada');
+  });
+
+  it('falha ao salvar mantém o modal aberto e não altera o grid', async () => {
+    const user = userEvent.setup();
+    mockSetTaskListCustomActions.mockRejectedValueOnce(new Error('disco cheio'));
+    render(<CustomActionsEditor taskListId="1" />);
+    await screen.findByRole('grid');
+
+    await user.click(screen.getByRole('button', { name: /Nova ação/ }));
+    fireEvent.change(screen.getByLabelText(/ID/), { target: { value: 'x' } });
+    fireEvent.change(screen.getByLabelText(/Rótulo/), { target: { value: 'Xis' } });
+    await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+
+    await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('Falha ao salvar ações: disco cheio', 'error'));
+    expect(screen.getByLabelText(/Rótulo/)).toHaveValue('Xis');
+    expect(screen.queryByRole('row', { name: /Xis/ })).not.toBeInTheDocument();
+  });
+
+  it('Ctrl+N abre Nova ação, e não empilha com o modal do item já aberto', async () => {
+    render(<CustomActionsEditor taskListId="1" />);
+    await screen.findByRole('grid');
+
+    fireEvent.keyDown(document, { key: 'n', ctrlKey: true });
+    expect(await screen.findByRole('heading', { name: 'Nova ação' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/ID/), { target: { value: 'rascunho' } });
+
+    fireEvent.keyDown(document, { key: 'n', ctrlKey: true });
+    // O rascunho não foi descartado por uma nova abertura.
+    expect(screen.getByLabelText(/ID/)).toHaveValue('rascunho');
+    expect(screen.getAllByRole('heading', { name: 'Nova ação' })).toHaveLength(1);
   });
 
   it('barra Aplicar sem ID/Rótulo e acusa ID duplicado', async () => {
     const user = userEvent.setup();
-    render(<CustomActionsEditor taskListId="1" onClose={vi.fn()} />);
+    render(<CustomActionsEditor taskListId="1" />);
     await screen.findByRole('grid');
 
-    await user.click(screen.getByRole('button', { name: 'Nova ação' }));
+    await user.click(screen.getByRole('button', { name: /Nova ação/ }));
     await user.click(screen.getByRole('button', { name: 'Aplicar' }));
     expect(mockAddToast).toHaveBeenCalledWith('Preencha ID e Rótulo da ação', 'error');
     // Modal segue aberto.
@@ -125,7 +155,7 @@ describe('CustomActionsEditor', () => {
 
   it('edita ação pelo menu da linha', async () => {
     const user = userEvent.setup();
-    render(<CustomActionsEditor taskListId="1" onClose={vi.fn()} />);
+    render(<CustomActionsEditor taskListId="1" />);
     await screen.findByRole('grid');
 
     const rowButtons = await screen.findAllByRole('button', { name: 'Ações' });
@@ -138,11 +168,14 @@ describe('CustomActionsEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Aplicar' }));
 
     expect(await screen.findByRole('row', { name: /Investigar fundo/ })).toBeInTheDocument();
+    expect(mockSetTaskListCustomActions).toHaveBeenCalledTimes(1);
+    const parsed = JSON.parse(mockSetTaskListCustomActions.mock.calls[0][1] as string);
+    expect(parsed.actions[0].label).toBe('Investigar fundo');
   });
 
-  it('apaga com confirmação e persiste a remoção no Salvar', async () => {
+  it('apaga com confirmação e persiste a remoção na hora', async () => {
     const user = userEvent.setup();
-    render(<CustomActionsEditor taskListId="1" onClose={vi.fn()} />);
+    render(<CustomActionsEditor taskListId="1" />);
     await screen.findByRole('grid');
 
     const rowButtons = await screen.findAllByRole('button', { name: 'Ações' });
@@ -153,27 +186,41 @@ describe('CustomActionsEditor', () => {
       message: expect.stringContaining('"Investigar"'),
     }));
     await waitFor(() => expect(screen.queryByRole('row', { name: /Investigar/ })).not.toBeInTheDocument());
-
-    await user.click(screen.getByRole('button', { name: 'Salvar' }));
-    await waitFor(() => expect(mockSetTaskListCustomActions).toHaveBeenCalledTimes(1));
+    expect(mockSetTaskListCustomActions).toHaveBeenCalledTimes(1);
     expect(mockSetTaskListCustomActions.mock.calls[0][1]).toBe('');
   });
 
-  it('Cancelar fecha sem persistir', async () => {
+  it('não apaga quando a confirmação é recusada', async () => {
     const user = userEvent.setup();
-    const onClose = vi.fn();
-    render(<CustomActionsEditor taskListId="1" onClose={onClose} />);
+    mockRequestConfirm.mockResolvedValueOnce(false);
+    render(<CustomActionsEditor taskListId="1" />);
     await screen.findByRole('grid');
+
+    const rowButtons = await screen.findAllByRole('button', { name: 'Ações' });
+    await user.click(rowButtons[0]);
+    await user.click(await screen.findByRole('menuitem', { name: 'Deletar' }));
+
+    await waitFor(() => expect(mockRequestConfirm).toHaveBeenCalled());
+    expect(screen.getByRole('row', { name: /Investigar/ })).toBeInTheDocument();
+    expect(mockSetTaskListCustomActions).not.toHaveBeenCalled();
+  });
+
+  it('Cancelar do modal do item descarta o rascunho sem persistir', async () => {
+    const user = userEvent.setup();
+    render(<CustomActionsEditor taskListId="1" />);
+    await screen.findByRole('grid');
+    await user.click(screen.getByRole('button', { name: /Nova ação/ }));
+    fireEvent.change(screen.getByLabelText(/ID/), { target: { value: 'descartar' } });
     await user.click(screen.getByRole('button', { name: 'Cancelar' }));
-    expect(onClose).toHaveBeenCalled();
+    expect(screen.queryByLabelText(/ID/)).not.toBeInTheDocument();
     expect(mockSetTaskListCustomActions).not.toHaveBeenCalled();
   });
 
   it('devolve o foco ao grid ao fechar o modal de item', async () => {
     const user = userEvent.setup();
-    render(<CustomActionsEditor taskListId="1" onClose={vi.fn()} />);
+    render(<CustomActionsEditor taskListId="1" />);
     const grid = await screen.findByRole('grid');
-    await user.click(screen.getByRole('button', { name: 'Nova ação' }));
+    await user.click(screen.getByRole('button', { name: /Nova ação/ }));
     fireEvent.change(screen.getByLabelText(/ID/), { target: { value: 'x' } });
     fireEvent.change(screen.getByLabelText(/Rótulo/), { target: { value: 'X' } });
     await user.click(screen.getByRole('button', { name: 'Aplicar' }));
@@ -182,7 +229,7 @@ describe('CustomActionsEditor', () => {
 
   it('apagando a última ação, o foco vai para Nova ação', async () => {
     const user = userEvent.setup();
-    render(<CustomActionsEditor taskListId="1" onClose={vi.fn()} />);
+    render(<CustomActionsEditor taskListId="1" />);
     await screen.findByRole('grid');
 
     const rowButtons = await screen.findAllByRole('button', { name: 'Ações' });
@@ -190,11 +237,11 @@ describe('CustomActionsEditor', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'Deletar' }));
 
     await waitFor(() => expect(screen.queryByRole('grid')).not.toBeInTheDocument());
-    await waitFor(() => expect(document.activeElement).toHaveAccessibleName('Nova ação'));
+    await waitFor(() => expect(document.activeElement).toHaveAccessibleName('Nova ação, Ctrl+N'));
   });
 
   it('Enter na linha abre a edição (atalho de teclado do grid)', async () => {
-    render(<CustomActionsEditor taskListId="1" onClose={vi.fn()} />);
+    render(<CustomActionsEditor taskListId="1" />);
     const grid = await screen.findByRole('grid');
     fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
@@ -203,18 +250,27 @@ describe('CustomActionsEditor', () => {
     expect(screen.getByLabelText(/Rótulo/)).toHaveValue('Investigar');
   });
 
-  it('desabilita a toolbar durante o salvamento', async () => {
+  it('enquanto salva, Aplicar repetido não duplica e a toolbar fica desabilitada', async () => {
     const user = userEvent.setup();
     let resolveSave!: () => void;
     mockSetTaskListCustomActions.mockImplementationOnce(() => new Promise<void>((res) => { resolveSave = res; }));
-    render(<CustomActionsEditor taskListId="1" onClose={vi.fn()} />);
+    render(<CustomActionsEditor taskListId="1" />);
     await screen.findByRole('grid');
 
-    await user.click(screen.getByRole('button', { name: 'Salvar' }));
-    expect(screen.getByRole('button', { name: 'Nova ação' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /Nova ação/ }));
+    fireEvent.change(screen.getByLabelText(/ID/), { target: { value: 'x' } });
+    fireEvent.change(screen.getByLabelText(/Rótulo/), { target: { value: 'X' } });
+    const apply = screen.getByRole('button', { name: 'Aplicar' });
+    fireEvent.click(apply);
+    fireEvent.click(apply);
+    await waitFor(() => expect(screen.getByRole('button', { name: /Nova ação/ })).toBeDisabled());
+    // O botão mantém o nome acessível (sem spinner mudo) durante o salvamento.
+    expect(screen.getByRole('button', { name: 'Aplicar' })).toBeInTheDocument();
+    expect(mockSetTaskListCustomActions).toHaveBeenCalledTimes(1);
 
     resolveSave();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Nova ação' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: /Nova ação/ })).toBeEnabled());
+    expect(await screen.findByRole('row', { name: /X/ })).toBeInTheDocument();
   });
 
   it('não rouba foco de fora do editor ao carregar', async () => {
@@ -225,7 +281,7 @@ describe('CustomActionsEditor', () => {
     render(
       <div>
         <button type="button">Externo</button>
-        <CustomActionsEditor taskListId="1" onClose={vi.fn()} />
+        <CustomActionsEditor taskListId="1" />
       </div>,
     );
     const ext = screen.getByRole('button', { name: 'Externo' });
@@ -259,7 +315,7 @@ describe('CustomActionsEditor', () => {
     function renderInModal() {
       return render(
         <Modal isOpen onClose={vi.fn()} title="Ações customizadas" initialFocusSelector={DATAGRID_ENTRY_SELECTOR}>
-          <CustomActionsEditor taskListId="1" onClose={vi.fn()} />
+          <CustomActionsEditor taskListId="1" />
         </Modal>,
       );
     }
@@ -293,7 +349,26 @@ describe('CustomActionsEditor', () => {
       mockGetTaskListCustomActions.mockResolvedValueOnce({ actions: [] });
       renderInModal();
       await screen.findByText('Nenhuma ação customizada definida.');
-      await waitFor(() => expect(document.activeElement).toHaveAccessibleName('Nova ação'));
+      await waitFor(() => expect(document.activeElement).toHaveAccessibleName('Nova ação, Ctrl+N'));
+    });
+
+    it('Esc com o foco no grid fecha o modal', async () => {
+      const onClose = vi.fn();
+      render(
+        <Modal isOpen onClose={onClose} title="Ações customizadas" initialFocusSelector={DATAGRID_ENTRY_SELECTOR}>
+          <CustomActionsEditor taskListId="1" />
+        </Modal>,
+      );
+      await waitFor(() => expect(document.activeElement).toHaveAttribute('role', 'gridcell'));
+      fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('Ctrl+N no grid abre Nova ação por cima do modal', async () => {
+      renderInModal();
+      await waitFor(() => expect(document.activeElement).toHaveAttribute('role', 'gridcell'));
+      fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'n', ctrlKey: true });
+      expect(await screen.findByRole('heading', { name: 'Nova ação' })).toBeInTheDocument();
     });
   });
 });
