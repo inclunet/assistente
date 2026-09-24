@@ -487,6 +487,19 @@ não vira nome de ferramenta nem texto anunciado como se fosse rótulo do app.
 
 ### D8. Mapeamento do streaming
 
+#### Persistência da atividade externa
+
+As atividades ACP encerradas são arquivadas no ledger do AEP-0104 com
+`external=true`, origem de apresentação `acp_agent` e vínculo `chat` ao turno
+e usuário. O catálogo archival usa namespace próprio e não habilita execução.
+A escrita é serializada fora do callback do transporte, com barreira antes do
+patch terminal; cancelamento não cancela a persistência. Falha ao gravar não
+autoriza cópia técnica em mensagens nem conclusão silenciosa com sucesso.
+Sem payload técnico capturado, detalhes ficam indisponíveis. Não há backfill
+de eventos que nunca foram persistidos. Evidência de regressão:
+`TestACPAtividadePersisteNoPatchEHistorico` em `internal/agent`.
+O status deste contrato permanece **Done**.
+
 | ACP | Barramento | Observação |
 |---|---|---|
 | `agent_message_chunk` | `OnChunk` | texto da resposta |
@@ -730,6 +743,12 @@ esperar por ele.
 
 O segmento final é leitura protegida (AEP-0058): os avisos de progresso do turno
 não podem atropelá-lo.
+
+A cronologia também sobrevive ao streaming: cada ferramenta registra no ledger
+a posição UTF-8 no texto integral e a mensagem correspondente (AEP-0104 D2).
+Assim, o patch terminal e a reabertura preservam texto → ferramenta → texto,
+inclusive em falha/cancelamento e quando não existe texto após a última tool.
+Evidência: `TestACPCronologiaNoTerminalEReabertura`. Status **Done** mantido.
 
 ### D14. Tarefas auxiliares não vão para o agente
 

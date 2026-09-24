@@ -707,7 +707,22 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	}
 
 	toolCatalogID := strings.TrimSpace(req.ToolCatalogID)
-	if toolCatalogID != "" {
+	if req.ACPActivity {
+		archivalRepo, ok := s.repo.(interface {
+			ResolveOrCreateArchivalToolCatalogID(context.Context, string) (string, error)
+		})
+		if !ok {
+			return Invocation{}, fmt.Errorf("archival repository required for ACP activity")
+		}
+		opCtx, cancel := s.persistOpCtx(persistCtx)
+		id, err := archivalRepo.ResolveOrCreateArchivalToolCatalogID(opCtx, "acp_agent__"+req.Call.Function.Name)
+		cancel()
+		if err != nil {
+			return Invocation{}, err
+		}
+		toolCatalogID = id
+	}
+	if toolCatalogID != "" && !req.ACPActivity {
 		opCtx, cancel := s.persistOpCtx(persistCtx)
 		visible, err := s.repo.IsToolCatalogIDVisible(opCtx, toolCatalogID)
 		cancel()
@@ -752,6 +767,9 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 		toolCatalogID = id
 	}
 	queuedAt := s.now()
+	if req.ACPActivity && !req.ObservedAt.IsZero() {
+		queuedAt = req.ObservedAt
+	}
 	persistenceCall := req.Call
 	if req.PersistedArguments != nil {
 		persistenceCall.Function.Arguments = *req.PersistedArguments
@@ -778,6 +796,11 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	if inv.OriginType == "" {
 		inv.OriginType = OriginChat
 	}
+	if req.ACPActivity {
+		inv.Input = nil
+		inv.InputPreview, inv.InputHash = "", ""
+		inv.InputBytes = 0
+	}
 
 	opCtx, cancel := s.persistOpCtx(persistCtx)
 	if err := s.repo.Create(opCtx, &inv); err != nil {
@@ -787,6 +810,9 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	}
 	cancel()
 	startedAt := s.now()
+	if req.ACPActivity {
+		startedAt = queuedAt
+	}
 	opCtx, cancel = s.persistOpCtx(persistCtx)
 	if err := s.repo.MarkRunning(opCtx, inv.ID, startedAt); err != nil {
 		s.recordPersistenceFailure()
@@ -808,6 +834,22 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	inv.CompletedAt = &completedAt
 	inv.DurationMs = req.DurationMs
 	inv.Metadata = s.buildInvocationDisplayMetadata(persistenceCall, req.Iteration, req.DurationMs, true)
+	if req.ACPActivity {
+		completedAt = queuedAt.Add(time.Duration(req.DurationMs) * time.Millisecond)
+		// O protocolo não forneceu argumentos/resultado. Não inventar payload
+		// técnico nem oferecer detalhes vazios como se tivessem sido capturados.
+		inv.Input, inv.Output = nil, nil
+		inv.InputPreview, inv.OutputPreview = "", ""
+		inv.OutputPreview = truncateUTF8Safe(req.ACPTitle, 512)
+		inv.InputHash, inv.OutputHash = "", ""
+		inv.InputBytes, inv.OutputBytes = 0, 0
+		inv.ResultAvailability = "unavailable"
+		inv.Metadata, _ = json.Marshal(map[string]any{"external": true, "display": map[string]any{
+			"version": 1, "name": req.Call.Function.Name, "origin": "acp_agent",
+			"iteration": req.Iteration, "duration_ms": req.DurationMs,
+			"acp_text_offset": req.ACPTextOffset, "assistant_message_id": req.ACPAssistantMessageID,
+		}})
+	}
 
 	// Revalida a origem do chat antes de finalizar. Native MCP pode correr com
 	// deleção de turno/mensagem após o pre-check do chamador.
