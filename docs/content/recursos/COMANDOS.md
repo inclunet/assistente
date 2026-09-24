@@ -75,6 +75,14 @@ parte deste roteiro. A validação automatizada de **R08.2** está concluída; a
 conferência manual com NVDA permanece pendente. Use o item de paleta abaixo
 para registrar esse aceite manual.
 
+**Nota sobre a validação física antiga:** um resultado anterior de
+`TestManualPhysicalEnvironment` não comprova, sozinho, a observação da sessão
+do sistema operacional: o teste antigo presumia a sessão desbloqueada.
+Repita esse ponto com a versão que consulta o Windows. Sessão desconhecida,
+bloqueada ou consulta nativa indisponível deve impedir o resultado de ambiente
+pronto. Essa consulta pontual não substitui testar bloqueio/desbloqueio durante
+o uso do aplicativo.
+
 **Avaliação futura — Fase 7 (não implementada):** avaliar pedais USB,
 controladores MIDI e dials conforme as capacidades observáveis de cada
 dispositivo. Antes de propor suporte, registrar modos de entrada (evento

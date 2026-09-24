@@ -10015,3 +10015,33 @@ banco pessoal, NVDA ou hardware nesta integração. Status dos AEPs e diff-check
 PASS; CI e validação manual não são substituídos por essas evidências locais.
 Todos os demais pacotes Go, exceto ACP/acpregistry, passaram na rodada final
 com `go test -p 2 -timeout 10m` (resultados cacheados quando aplicável).
+
+**Primeira rodada remota — PR #833:** bindings e scripts PASS. O CI revelou
+falha de compilação Darwin sem CGO, testes de paleta que não aguardavam o
+foco/callback assíncrono, fixture E2E sem versão de snapshot do workspace e
+falha de publicação de configuração sob race, seguida de timeout acumulado
+do pacote App. Esta rodada não é CI verde; as correções estão em validação.
+
+**Retificação da evidência física:** a revisão remota identificou que
+`TestManualPhysicalEnvironment` fornecia sessão conhecida/desbloqueada de
+forma fixa. A execução manual histórica NÃO comprova `OSSessionObservable`.
+Esse ponto volta a exigir execução manual com consulta nativa autoritativa;
+as evidências separadas de tecla física/foreground não são anuladas por isso.
+Não há promoção de critérios ou gates por alterar o teste. O comentário sobre
+FreeBSD foi encerrado com justificativa: não é alvo de produto declarado e
+o parser dessa plataforma já estava ausente na main; não se adiciona suporte
+funcional por meio de constantes ou keycodes fictícios.
+
+**Correções locais da primeira rodada:** consulta nativa de sessão em
+`62f41ea90`, compilação Darwin sem CGO em `f3cc4f7e8`, sincronização dos testes
+de paleta em `c0b8755de` e contexto da fixture de configuração em `b8a401654`.
+Os dois arquivos de paleta passaram juntos (177 testes); vet e lint dos
+pacotes App/ossession/commandphysical/hotkey passaram sem apontamentos.
+Essas evidências não substituem a nova execução remota.
+
+O timeout do App permanece pendente: a rodada local completa sem race já
+levou 630,977 s. Matrizes de integração repetem fixtures persistidas e
+mutações confirmadas; não se atribui o custo a deadlock ou a uma corrida sem
+evidência. Nenhum teste foi excluído, nem limite de CI aumentado. A divisão
+da execução mantendo cobertura e detector de concorrência foi proposta ao
+mantenedor, ainda sem decisão registrada.
