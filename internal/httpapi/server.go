@@ -21,6 +21,7 @@ type Server struct {
 	mode                  string
 	external              *auth.ExternalAuthenticator
 	externalIdentityAdmin *auth.ExternalIdentityAdminService
+	externalIdentities    *auth.ExternalIdentityRepository
 	mux                   *http.ServeMux
 
 	// jwksCache (B20 do review) absorve picos de tráfego em
@@ -46,6 +47,7 @@ type Config struct {
 	Mode                  string
 	External              *auth.ExternalAuthenticator
 	ExternalIdentityAdmin *auth.ExternalIdentityAdminService
+	ExternalIdentities    *auth.ExternalIdentityRepository
 	// AuthRate / AuthBurst e JWKSRate / JWKSBurst permitem ajustar os
 	// limites por deploy. Defaults conservadores aplicados quando não
 	// configurados — evitam que um teste/integração local "sem cargo"
@@ -81,6 +83,7 @@ func New(cfg Config) *Server {
 		mode:                  cfg.Mode,
 		external:              cfg.External,
 		externalIdentityAdmin: cfg.ExternalIdentityAdmin,
+		externalIdentities:    cfg.ExternalIdentities,
 		mux:                   http.NewServeMux(),
 		authLimiter:           newRateLimiter(authRate, authBurst),
 		jwksLimiter:           newRateLimiter(jwksRate, jwksBurst),
@@ -249,6 +252,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	principal, ok := s.requireAccess(w, r)
 	if !ok {
 		return
@@ -291,11 +295,12 @@ type principal struct {
 }
 
 func (s *Server) requireAccess(w http.ResponseWriter, r *http.Request) (*principal, bool) {
-	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-	if token == "" {
+	parts := strings.Fields(r.Header.Get("Authorization"))
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "access token obrigatório"})
 		return nil, false
 	}
+	token := parts[1]
 	if s.mode == "external" {
 		if s.external == nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "validador externo indisponível"})
@@ -306,11 +311,27 @@ func (s *Server) requireAccess(w http.ResponseWriter, r *http.Request) (*princip
 			s.writeAuthErr(r.Context(), w, "auth.access.external", http.StatusUnauthorized, err)
 			return nil, false
 		}
+		// A adoção é fail-closed: schema e bootstrap do issuer precisam existir.
+		// Mesmo sub igual a users.id exige vínculo explícito, sem fallback legado.
+		if err := s.externalIdentities.CheckIssuerReadiness(r.Context(), claims.Issuer); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "mapeamento externo indisponível"})
+			return nil, false
+		}
+		mapping, err := s.externalIdentities.Resolve(r.Context(), claims.Issuer, claims.Subject)
+		if err != nil {
+			if errors.Is(err, auth.ErrExternalIdentityNotMapped) || errors.Is(err, auth.ErrExternalIdentityRevoked) {
+				s.writeAuthErr(r.Context(), w, "auth.access.external.mapping", http.StatusUnauthorized, auth.ErrUnauthenticatedExternalCommand)
+			} else {
+				logging.Errorf(r.Context(), "httpapi.server", "[httpapi] op=auth.access.external.mapping status=503 err=%v", err)
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "mapeamento externo indisponível"})
+			}
+			return nil, false
+		}
 		role := "user"
 		if len(claims.Roles) > 0 {
 			role = claims.Roles[0]
 		}
-		return &principal{UserID: claims.Subject, Role: role}, true
+		return &principal{UserID: mapping.UserID, Role: role}, true
 	}
 	session := s.sessionService()
 	if session == nil {

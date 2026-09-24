@@ -61,7 +61,7 @@ func TestExternalIdentityRoutesBootstrapAndCreateWithSignedTokens(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := New(Config{Mode: "external", External: external, ExternalIdentityAdmin: service, AuthBurst: 100})
+	server := New(Config{Mode: "external", External: external, ExternalIdentities: repo, ExternalIdentityAdmin: service, AuthBurst: 100})
 	sign := func(subject, tokenIssuer, tokenScope string) string {
 		t.Helper()
 		now := time.Now()
@@ -117,7 +117,8 @@ func TestExternalIdentityRoutesBootstrapAndCreateWithSignedTokens(t *testing.T) 
 	if auditCount != 2 {
 		t.Fatalf("audit rows=%d, want bootstrap + create only", auditCount)
 	}
-	// Cadastro não habilita o executor e não muda a identidade do middleware legado.
+	// Cadastro administrativo mantém o executor de comandos fechado sem o
+	// readiness do host, enquanto o middleware HTTP usa o vínculo já cadastrado.
 	authenticator := auth.NewExternalCommandAuthenticator(external, repo)
 	if _, err := authenticator.Authenticate(context.Background(), sign("remote-target", issuer, "read")); !errors.Is(err, auth.ErrExternalIdentityNotReady) {
 		t.Fatalf("registration published readiness: %v", err)
@@ -130,8 +131,8 @@ func TestExternalIdentityRoutesBootstrapAndCreateWithSignedTokens(t *testing.T) 
 	if err := json.Unmarshal(meResponse.Body.Bytes(), &principal); err != nil {
 		t.Fatal(err)
 	}
-	if meResponse.Code != http.StatusOK || principal["userId"] != "remote-target" {
-		t.Fatalf("legacy middleware changed before cutover: %s", meResponse.Body.String())
+	if meResponse.Code != http.StatusOK || principal["userId"] != target.ID || principal["role"] != "admin" {
+		t.Fatalf("mapped middleware identity = %s, want local user %s and external role admin", meResponse.Body.String(), target.ID)
 	}
 	if err := repo.Revoke(context.Background(), issuer, admin.ID); err != nil {
 		t.Fatal(err)

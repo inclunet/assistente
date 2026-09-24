@@ -10,9 +10,16 @@ Ele **não é necessário para usar teclado, paleta ou Stream Deck no modo local
 Não cria usuário, senha ou segredo: associa uma identidade do provedor externo
 a um usuário local já existente e ativo.
 
-Nesta etapa, o cadastro **não habilita comandos externos**, não muda `/auth/me`
-e não libera dispositivos físicos no modo externo. A troca do middleware para
-usar os vínculos depende de uma etapa posterior de migração/readiness.
+O middleware externo exige esses vínculos: `/auth/me` retorna o ID do usuário
+local associado, não o `sub` do provedor, e mantém a role do token externo.
+O cadastro **não habilita comandos externos** nem dispositivos físicos externos.
+
+Ao atualizar uma instalação externa, conclua o bootstrap abaixo e cadastre as
+demais contas antes de usá-las. Sem bootstrap do emissor, `/auth/me` responde
+**503**; sem vínculo habilitado ou usuário ativo, responde **401**, inclusive
+quando o subject já coincide com um ID local. Não há conversão automática.
+O acesso é relido a cada solicitação; não há cache de vínculo que mantenha
+acesso após revogação. Instalações no modo local não precisam dessa migração.
 
 ## Preparação
 
@@ -63,4 +70,4 @@ seu fingerprint, sem armazenar o JWT. Revogar um vínculo invalida os contextos
 de todos os seus tokens e cancela suas esperas; reativá-lo não recupera
 execuções antigas. Outros vínculos do mesmo usuário não são revogados juntos.
 Essa proteção ainda não disponibiliza revogação por uma nova rota HTTP nem
-habilita comandos externos: a migração do middleware continua pendente.
+habilita comandos externos: a montagem do ingresso no executor continua pendente.

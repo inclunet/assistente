@@ -90,7 +90,9 @@ func (a *App) newHTTPAPIHandler(cfg *config.AuthConfig) (http.Handler, error) {
 		return nil, errors.New("configuração HTTP indisponível")
 	}
 	var external *auth.ExternalAuthenticator
+	var mappings *auth.ExternalIdentityRepository
 	if cfg.Mode == "external" {
+		mappings = auth.NewExternalIdentityRepository(database.DB())
 		external = auth.NewExternalAuthenticator(auth.ExternalAuthConfig{
 			Issuer: cfg.External.Issuer, Audience: cfg.External.Audience,
 			JWKSURL: cfg.External.JWKSURL, AllowedAlgorithms: cfg.External.AllowedAlgorithms,
@@ -101,7 +103,7 @@ func (a *App) newHTTPAPIHandler(cfg *config.AuthConfig) (http.Handler, error) {
 	if external != nil && len(cfg.External.IdentityAdminScopes) > 0 {
 		var err error
 		admin, err = auth.NewExternalIdentityAdminService(external,
-			auth.NewExternalIdentityRepository(database.DB()), auth.ExternalIdentityAdminConfig{
+			mappings, auth.ExternalIdentityAdminConfig{
 				Issuer: cfg.External.Issuer, AdminScopes: cfg.External.IdentityAdminScopes,
 			})
 		if err != nil {
@@ -111,6 +113,7 @@ func (a *App) newHTTPAPIHandler(cfg *config.AuthConfig) (http.Handler, error) {
 	return httpapi.New(httpapi.Config{
 		Vault: a.vaultSvc, IDs: a.identitySvc, Sessions: a.currentSessionService,
 		Mode: cfg.Mode, External: external, ExternalIdentityAdmin: admin,
+		ExternalIdentities: mappings,
 	}).Handler(), nil
 }
 

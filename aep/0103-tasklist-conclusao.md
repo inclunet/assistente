@@ -9535,3 +9535,50 @@ testes concorrentes comuns não substituem `-race`. Sem push ou PR.
 Regressão final conjunta com `-count=1`: auth, commandidentity,
 commandsecurity, commandexecution e httpapi **PASS**; vet e diff-check finais
 também **PASS**.
+
+## 151. Middleware HTTP externo adota vínculos administrativos — 23/09/2026
+
+O principal de `/auth/me` deixa de usar `sub` diretamente. Após validar JWT,
+JWKS, issuer, audience e scopes, exige schema v26/v31, registro de bootstrap
+do issuer e vínculo exato habilitado para usuário local ativo. Sem prontidão
+administrativa retorna 503; sem vínculo/alvo ativo retorna 401. Não há JIT,
+fallback para UUID local nem cache de mapping. A role continua vindo do IdP,
+e não da role local. Sessão local não é inventada para o JWT externo.
+
+A montagem produtiva `App.newHTTPAPIHandler` fornece o mesmo repositório ao
+cadastro e ao middleware. As rotas de bootstrap continuam independentes do
+middleware para permitir a primeira migração. Desabilitar novos cadastros
+administrativos depois do bootstrap não remove o acesso das contas migradas.
+O parsing exige Bearer e `/auth/me` recebe `Cache-Control: no-store`.
+
+D6/D8 da AEP-0052 e o contrato de ingresso desta AEP foram atualizados no mesmo
+ciclo. Documentação orienta a migração de instalações externas: bootstrap e
+vínculo de cada conta antes de usar a API. O modo local não exige esses passos.
+Readiness do executor continua ausente: este lote não habilita execução externa,
+novas rotas de revogação ou dispositivos físicos externos.
+
+**80 I / 4 P / 0 N = 84**: C65/C70 continuam parciais enquanto faltam montagem
+do executor externo e matriz de isolamento/revogação do ingresso produtivo.
+Saídas/gates mantidos em **11 A / 14 I / 22 P / 1 N = 48; 1/12 aceito**.
+
+Validação e revisão:
+
+- Montagem produtiva do App com JWT/JWKS assinados e SQLite de teste: PASS,
+  incluindo 503 pré-bootstrap, cadastro HTTP de subject não UUID, userId local,
+  revogação sem cache e continuidade após desabilitar novos cadastros.
+- Suítes auth, commandidentity e commandsecurity PASS; suíte HTTP completa
+  PASS após atualizar as fixtures para fornecer o repositório de vínculos.
+  Duas tentativas intermediárias encontraram edição de fixture ainda incompleta
+  (campo/import e injeção do repositório), corrigidas sem remover cobertura.
+- `go vet` de auth/httpapi/commandidentity/app, diff-check e status AEP PASS.
+- Epicurus (Luna): prontidão por issuer; Euler (Luna): matriz HTTP assinada;
+  agente principal: montagem produtiva, middleware, testes App e documentação.
+- Carson (Luna), revisão independente em duas rodadas: corrigido P2 que
+  tratava falha de banco como 401. Ausência/revogação permanecem 401; falha
+  operacional retorna 503 genérico e mantém o erro original no log. Sem outro
+  achado acionável após a correção.
+- Sem banco pessoal, ACP, Wails, executável diagnóstico, push ou PR.
+- Testes finais específicos de falha de consulta (503 redigido) e subject igual
+  ao UUID local sem vínculo (401, sem JIT): **PASS, 5,869 s**. App final:
+  **PASS, 19,658 s**; HTTP completo **PASS, 8,124 s** antes desses dois casos
+  adicionais. Auth/identity/security também passaram na repetição final.

@@ -2,9 +2,12 @@
 
 **Status:** In Progress
 
-**Acompanhamento vigente — seção150 (23/09/2026):** dos 84 critérios finais,
+**Acompanhamento vigente — seção151 (23/09/2026):** dos 84 critérios finais,
 **80 têm implementação identificada (95,2%), 4 são parciais e 0 ausentes**.
 Não é percentual de esforço ou aceite: nenhum checkbox final foi promovido.
+A seção151 migra o middleware HTTP para resolver exclusivamente vínculos
+externos explícitos, com bootstrap administrativo e alvo ativo. Atualiza D6
+da AEP-0052 no mesmo ciclo; não habilita ainda o executor externo.
 A seção150 individualiza tokens por fingerprint e revoga todos os contextos
 do vínculo sob o mesmo gate, incluindo esperas pendentes. A captura revalida
 JWT e vínculo sem rede dentro do gate. Não habilita o middleware externo.
@@ -2099,13 +2102,14 @@ Toda recusa posterior é persistida como `denied`, com código redigido.
 tem `source_type = chat` e `actor_type = agent`. Não existe categoria implícita
 `desktop`; cada comando declara explicitamente quais entradas aceita.
 
-**Override pendente da AEP-0052:** a D6 daquela AEP continua canônica hoje e
-define `JWT sub = user_id`. A implementação parcial desta AEP não a substitui nem
-autoriza interpretação concorrente. O mapa `(iss, sub) → users.id` abaixo é o
-contrato alvo proposto; `CommandExecutionService` permanece indisponível em
-`auth.mode=external` até um PR de implementação atualizar a AEP-0052 e o
-middleware no mesmo ciclo, migrar identidades e registrar evidências em ambas
-as AEPs. APIs existentes seguem exclusivamente a AEP-0052 até essa migração.
+**Override da AEP-0052 implementado no middleware — seção151:** D6 distingue
+sessões locais (`sub = user_id`) de JWTs externos. APIs HTTP externas resolvem
+exclusivamente `(iss, sub) → users.id` por vínculo administrativo habilitado e
+usuário ativo. Sem bootstrap registrado do issuer, o acesso falha fechado;
+contas restantes devem ser vinculadas antes de acessar a API, sem migração
+automática ou fallback legado. `CommandExecutionService` continua indisponível
+em `auth.mode=external` até concluir readiness e ingresso produtivo no executor,
+incluindo sua matriz de isolamento e revogação. O cutover HTTP não é esse aceite.
 
 Os contextos de autenticação são:
 
@@ -2114,7 +2118,7 @@ Os contextos de autenticação são:
   recebem esses dados do backend; `auth_context_id = session_id` e
   `auth_generation` é mantida por esse session ID, não por usuário; IDs vindos
   como argumentos são ignorados;
-- `external_token`, somente depois do override acima: JWT validado fornece `sub`, scopes e um
+- `external_token`, com ingresso condicionado à prontidão acima: JWT validado fornece `sub`, scopes e um
   `auth_context_id` derivado de `iss` + `sub` + `jti` ou fingerprint do token;
   `(iss, sub)` sempre precisa resolver por mapeamento administrativo explícito.
   `sub` isolado nunca é aceito como `users.id`, pois não é global entre issuers.

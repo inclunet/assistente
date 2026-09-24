@@ -11,8 +11,8 @@ import (
 	"assistente/internal/auth"
 )
 
-// Cadastro administrativo não publica readiness nem altera a identidade usada
-// pelas APIs existentes. O cutover exige uma migração explícita posterior.
+// Cadastro administrativo precede o acesso autenticado pelo mapa; estas rotas
+// validam o próprio token para permitir bootstrap sem fallback no middleware.
 func (s *Server) externalIdentityToken(w http.ResponseWriter, r *http.Request) (string, bool) {
 	if s.mode != "external" {
 		http.NotFound(w, r)

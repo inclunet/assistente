@@ -75,6 +75,36 @@ func (r *ExternalIdentityRepository) CheckReadiness(ctx context.Context) error {
 	return nil
 }
 
+// CheckIssuerReadiness confirma que o issuer pode usar a identidade externa:
+// ambas as tabelas centrais devem existir e o ledger v31 deve provar o
+// bootstrap exato desse issuer. Esta verificação é somente leitura; não cria
+// schema nem exige que o usuário que fez bootstrap continue ativo.
+func (r *ExternalIdentityRepository) CheckIssuerReadiness(ctx context.Context, issuer string) error {
+	if r == nil || r.db == nil || ctx == nil || !validExternalIdentityPart(issuer) {
+		return ErrExternalIdentityNotReady
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	db := r.db.WithContext(ctx)
+	if !db.Migrator().HasTable(&ExternalIdentityMapping{}) || !db.Migrator().HasTable(&database.ExternalIdentityAdminAudit{}) {
+		return ErrExternalIdentityNotReady
+	}
+	var bootstrapCount int64
+	if err := db.Model(&database.ExternalIdentityAdminAudit{}).
+		Where("issuer = ? AND action = ?", issuer, "bootstrap").
+		Count(&bootstrapCount).Error; err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return err
+	}
+	if bootstrapCount != 1 {
+		return ErrExternalIdentityNotReady
+	}
+	return nil
+}
+
 // Create persiste um vínculo novo, sem atualizar silenciosamente um vínculo
 // existente. A unicidade é exatamente (issuer, subject), independente do
 // usuário local escolhido.

@@ -175,7 +175,11 @@ Sem token exchange nesta fase.
 
 ### D6. Claims mínimas do JWT (access)
 
-- Obrigatórias: `iss`, `aud`, `sub` (user_id), `sid` (session_id), `iat`, `exp`.
+- No modo local, obrigatórias: `iss`, `aud`, `sub` (user_id), `sid` (session_id), `iat`, `exp`.
+- No modo externo (override AEP-0103, seção151), `sub` identifica a conta no
+  emissor, não o usuário local. Após validar JWT/JWKS, issuer, audience e scopes,
+  o middleware resolve exclusivamente `(iss, sub) → users.id` pelo vínculo
+  administrativo habilitado e usuário ativo. Não exige nem fabrica sessão local.
 - Recomendada: `jti`.
 - Defaults:
     - `exp`: 10–15 min
@@ -220,6 +224,17 @@ por fingerprint, mantendo o vínculo `(issuer, subject)` como grupo de revogaç�
 A captura revalida o token com JWKS em cache e relê o vínculo sob o gate;
 revogação invalida gerações e esperas do grupo antes da alteração persistida.
 Reativação não restaura gerações antigas. D6 e o middleware seguem inalterados.
+
+**Contrato vigente — seção151 (23/09/2026):** o middleware HTTP agora adota
+o mapa explícito também em `/auth/me`, substituindo a interpretação legada
+de `sub` como usuário. Sem schema/registro de bootstrap do issuer retorna 503;
+sem vínculo habilitado ou usuário ativo retorna 401. Não há JIT nem fallback,
+mesmo quando `sub` coincide com um UUID local. O bootstrap é a prova de início
+administrativo da migração; cada conta ainda deve ser vinculada explicitamente
+antes de acessar a API. A leitura é refeita por solicitação, sem cache de mapping.
+Scopes e roles do IdP continuam sendo aplicados como antes; role local não
+substitui a role externa. O modo local não muda. Este cutover não publica
+readiness do executor de comandos nem habilita adapters físicos externos.
 
 - Validar JWT do IdP via JWKS.
 - Enforce server-side por scopes/roles do token.
