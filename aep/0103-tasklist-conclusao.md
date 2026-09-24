@@ -10197,3 +10197,31 @@ localmente nesta mudança; a execução real dos grupos depende do próximo CI.
 Revisão independente de Godel: nenhum achado bloqueante. Incorporada sua
 observação preventiva para descobrir os demais pacotes com `go list -race`,
 incluindo eventuais pacotes futuros condicionados à build tag `race`.
+
+A execução real descobriu 1.271 testes top-level em App. O CI de scripts
+apontou SC2251 na asserção negativa do mock; corrigida com falha explícita,
+revalidada localmente e aprovada por Franklin. No run `36069643187`, o grupo
+3 revelou dependência de ordem em `TestListProvidersWithStatus`: o teste
+não preparava banco próprio e ignorava os erros de criação dos provedores.
+Adicionado setup independente, verificação dos erros e cleanup do helper
+(restauração do DB anterior e fechamento da conexão). Cinco testes de CRUD
+PASS localmente; o caso original também PASS executado sozinho, sem cache.
+Franklin revisou o diff e os callers sem achados de isolamento. Não foram
+executados localmente testes de ACP, Wails nem acesso a banco pessoal.
+
+O grupo 6 revelou `SQLITE_BUSY` na criação real de tasklist com jobs ativos.
+A criação passa a usar a transação `IMMEDIATE` e o retry limitado já existentes,
+com contagem do limite e verificação de slug sob o writer lock. Não foi adicionado
+retry no teste nem reduzida a concorrência do fixture. Os dois testes negativos
+de proveniência/sessão passaram cinco vezes localmente após a correção.
+
+Por solicitação do mantenedor, os grupos numéricos foram substituídos por
+domínios: configuração, dispositivos, contexto, execução, jobs, interface,
+segurança, outros comandos, chat e demais testes de App; outros pacotes ficam
+em `pacotes-gerais`. A classificação é total, determinística e mantém grupos
+residuais para novos nomes. O mock verifica a união completa e disjunta; a matriz
+foi conferida contra todos os grupos. Essas alterações aguardam a próxima
+execução integral do CI, sem promoção de aceite manual.
+Regressões com oito writers em WAL verificam a última vaga do limite e a
+unicidade de slug, incluindo contagens finais de listas/workflows. Esses testes
+e os casos existentes de criação/rollback passaram em cinco repetições locais.

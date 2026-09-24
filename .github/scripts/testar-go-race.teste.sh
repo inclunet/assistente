@@ -23,7 +23,9 @@ fi
 MOCK
 chmod +x "$test_dir/go"
 printf '%s\n' assistente/internal/app assistente/internal/app/child assistente/internal/auth > "$test_dir/packages"
-printf '%s\n' TestZ TestA TestB TestC TestD TestE TestF TestG FuzzInput Example ExampleOutput TestAção > "$test_dir/expected"
+printf '%s\n' TestCommandSettingsA TestCommandDeckA TestContextualA TestCommandExecutionA \
+  TestCommandJobA TestCommandEditorA TestCommandAuthA TestCommandFutureA TestChatA \
+  TestA FuzzInput Example ExampleOutput TestAção > "$test_dir/expected"
 {
   cat "$test_dir/expected"
   printf '%s\n' BenchmarkSpeed TestMain 'ok assistente/internal/app 0.001s'
@@ -38,8 +40,10 @@ assert_flags() {
 }
 
 : > "$test_dir/selected"
-for index in {0..7}; do
-  run "$index" 8
+mapfile -t groups < <(bash "$script_dir/testar-go-race.sh" --groups)
+for group in "${groups[@]}"; do
+  [[ $group != pacotes-gerais ]] || continue
+  run "$group"
   assert_flags
   pattern=$(awk 'previous == "-run" {print; exit} {previous=$0}' "$test_dir/args")
   [[ $pattern == '^('* && $pattern == *')$' ]]
@@ -48,11 +52,11 @@ for index in {0..7}; do
   if printf '%s\n' BenchmarkSpeed TestMain TestAB | grep -Eq "$pattern"; then exit 1; fi
 done
 diff <(LC_ALL=C sort "$test_dir/expected") <(LC_ALL=C sort "$test_dir/selected")
-run others
+run pacotes-gerais
 assert_flags
 grep -Fxq 'list -race ./...' "$test_dir/calls"
 if grep -Fxq assistente/internal/app "$test_dir/args"; then
-  echo 'O grupo others não pode repetir App' >&2
+  echo 'O grupo pacotes-gerais não pode repetir App' >&2
   exit 1
 fi
 grep -Fxq assistente/internal/app/child "$test_dir/args"
@@ -62,14 +66,14 @@ for args in '' '8 8' '-1 8' '0 0' '08 8' '0 08' '9999 8' 'x 8' 'others 8'; do
   read -r -a invalid <<< "$args"
   reject "${invalid[@]}"
 done
-MOCK_FAIL=discovery reject 0 8
-MOCK_FAIL=execution reject 0 8
-MOCK_FAIL=packages reject others
-MOCK_FAIL=execution reject others
+MOCK_FAIL=discovery reject comandos-configuracao
+MOCK_FAIL=execution reject comandos-configuracao
+MOCK_FAIL=packages reject pacotes-gerais
+MOCK_FAIL=execution reject pacotes-gerais
 : > "$test_dir/names"
-reject 0 8
+reject comandos-configuracao
 printf '%s\n' TestOnly > "$test_dir/names"
-reject 7 8
+reject comandos-configuracao
 : > "$test_dir/packages"
-reject others
+reject pacotes-gerais
 echo 'PASS: partição completa/disjunta, nomes Unicode, flags, pacotes e falhas'

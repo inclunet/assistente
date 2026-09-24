@@ -122,7 +122,18 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        group: [others, 0, 1, 2, 3, 4, 5, 6, 7]
+        group:
+          - pacotes-gerais
+          - comandos-configuracao
+          - comandos-dispositivos
+          - comandos-contexto
+          - comandos-execucao
+          - comandos-jobs
+          - comandos-interface
+          - comandos-seguranca
+          - comandos-outros
+          - app-chat
+          - app-demais
     steps:
       - uses: actions/checkout@v4
 
@@ -140,11 +151,7 @@ jobs:
         run: |
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
           export DISPLAY=:99.0
-          if [ "$RACE_GROUP" = others ]; then
-            bash .github/scripts/testar-go-race.sh others
-          else
-            bash .github/scripts/testar-go-race.sh "$RACE_GROUP" 8
-          fi
+          bash .github/scripts/testar-go-race.sh "$RACE_GROUP"
 
   backend-race:
     # Preserva o nome do check exigido: só aprova se TODOS os grupos passaram.
