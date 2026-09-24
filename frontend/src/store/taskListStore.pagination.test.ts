@@ -71,6 +71,23 @@ describe('taskListStore pagination', () => {
     });
   });
 
+  it('repropaga o erro de edição e registra a falha sem alterar o cache', async () => {
+    getAllTaskLists.mockResolvedValue([backendList()]);
+    await useTaskListStore.getState().fetchAllTaskLists();
+    const cached = useTaskListStore.getState().taskLists.get('list-a');
+    const failure = new Error('Falha ao salvar lista');
+    updateTaskList.mockRejectedValueOnce(failure);
+
+    await expect(useTaskListStore.getState().updateTaskList('list-a', 'Novo título', 'Nova descrição'))
+      .rejects.toBe(failure);
+
+    expect(updateTaskList).toHaveBeenCalledWith('list-a', 'Novo título', 'Nova descrição');
+    expect(useTaskListStore.getState().errors.get('updateTaskList:list-a')).toBe(String(failure));
+    expect(useTaskListStore.getState().taskLists.get('list-a')).toBe(cached);
+    expect(cached?.title).toBe('Lista grande');
+    expect(cached?.description).toBe('');
+  });
+
   it('carrega páginas sem perder ordem, itens ou compatibilidade da lista', async () => {
     getTaskListPage
       .mockResolvedValueOnce({

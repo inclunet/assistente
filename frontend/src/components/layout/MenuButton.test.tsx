@@ -58,7 +58,7 @@ vi.mock('../../hooks/useAnchoredContextMenu', async () => {
 });
 
 describe('MenuButton', () => {
-  it('abre menu ao clicar no botao', async () => {
+  it('anuncia o menu e seu estado ao abrir pelo teclado', async () => {
     const user = userEvent.setup();
     render(
       <MenuButton
@@ -67,7 +67,15 @@ describe('MenuButton', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'Acoes' }));
+    const button = screen.getByRole('button', { name: 'Acoes' });
+    expect(button).toHaveAttribute('aria-haspopup', 'menu');
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+
+    button.focus();
+    await user.keyboard('{Enter}');
+
+    expect(button).toHaveAttribute('aria-haspopup', 'menu');
+    expect(button).toHaveAttribute('aria-expanded', 'true');
 
     expect(openForTriggerSpy).toHaveBeenCalled();
     expect(screen.getByRole('menuitem', { name: 'Acao' })).toBeInTheDocument();
