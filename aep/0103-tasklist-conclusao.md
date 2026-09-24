@@ -10167,3 +10167,12 @@ falhas em `ChatMessage.test.tsx`, cuja fixture de histórico vazio não expunha
 foi alinhada sem mudar produção ou asserções; 58 testes dos três componentes
 envolvidos e ESLint PASS. Godel revisou sem achados. Backend/race e nova
 verificação remota do ajuste continuam pendentes; não é CI integral verde.
+
+**Timeout do detector de corrida — ajuste autorizado:** a rodada seguinte,
+`36062491617` em `b5302960c`, passou backend, frontend, E2E, bindings e scripts.
+Somente `backend-race` falhou: `internal/app` atingiu o timeout padrão de Go
+de dez minutos (600,182 s); o subteste em curso tinha quatro segundos.
+O mantenedor aprovou testar `go test -race -short -timeout=20m ./...` antes
+de dividir em grupos. Preservados todos os testes, `-race`, `-short` e o
+limite total de 25 minutos do job. O timeout não foi desativado; o novo valor
+permanece sujeito à comprovação no CI, sem promover critérios ou aceite.

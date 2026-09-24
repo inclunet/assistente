@@ -130,7 +130,9 @@ jobs:
         run: |
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
           export DISPLAY=:99.0
-          go test -race -short ./...
+          # O pacote App ultrapassa o padrão de 10m com o detector de corrida.
+          # Mantém todos os testes e o teto de 25m do job, sem desativar o timeout.
+          go test -race -short -timeout=20m ./...
 
   bindings:
     # Os tipos de `frontend/wailsjs/` são gerados a partir das assinaturas dos
