@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import CustomActionsEditor from './CustomActionsEditor';
 import { Modal } from '../ui/Modal';
@@ -405,7 +405,7 @@ describe('CustomActionsEditor', () => {
         .toEqual(['Investigar já', 'Do agente']);
     });
 
-    it('editar uma ação apagada em outro lugar avisa e fecha o formulário sem gravar', async () => {
+    it('ação em edição apagada em outro lugar fecha o formulário ao recarregar, sem gravar', async () => {
       const user = userEvent.setup();
       render(<CustomActionsEditor taskListId="1" />);
       await waitFor(() => expect(screen.getByRole('button', { name: 'Editar' })).toBeEnabled());
@@ -415,12 +415,35 @@ describe('CustomActionsEditor', () => {
       mockSetTaskListCustomActions.mockRejectedValueOnce('TASKLIST_CONFIG_CONFLICT: alterado');
       mockGetTaskListCustomActions.mockResolvedValue({ actions: [agentAction] });
       await user.click(screen.getByRole('button', { name: 'Aplicar' }));
-      await waitFor(() => expect(screen.queryByRole('row', { name: /Investigar/ })).not.toBeInTheDocument());
 
-      await user.click(screen.getByRole('button', { name: 'Aplicar' }));
-      expect(mockAddToast).toHaveBeenCalledWith('Esta ação não existe mais: foi apagada em outro lugar.', 'error');
-      expect(mockSetTaskListCustomActions).toHaveBeenCalledTimes(1);
       await waitFor(() => expect(screen.queryByRole('heading', { name: /Editar ação/ })).not.toBeInTheDocument());
+      expect(screen.queryByRole('row', { name: /Investigar/ })).not.toBeInTheDocument();
+      const gone = 'Esta ação não existe mais: foi apagada em outro lugar.';
+      expect(mockAddToast).toHaveBeenCalledWith(gone, 'error');
+      expect(mockAnnounce).toHaveBeenCalledWith(gone);
+      expect(mockSetTaskListCustomActions).toHaveBeenCalledTimes(1);
+    });
+
+    it('rascunho inválido não esconde a remoção da ação em edição', async () => {
+      const user = userEvent.setup();
+      render(<CustomActionsEditor taskListId="1" />);
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Editar' })).toBeEnabled());
+      await user.click(screen.getByRole('button', { name: 'Editar' }));
+      await screen.findByRole('heading', { name: 'Editar ação: Investigar' });
+
+      // Uma gravação válida dá conflito e recarrega sem a ação; depois o
+      // rótulo é apagado antes de o formulário fechar.
+      mockSetTaskListCustomActions.mockRejectedValueOnce('TASKLIST_CONFIG_CONFLICT: alterado');
+      let releaseReload: (value: { actions: (typeof agentAction)[] }) => void = () => {};
+      mockGetTaskListCustomActions.mockReturnValue(new Promise((resolve) => { releaseReload = resolve; }));
+      await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+      await waitFor(() => expect(mockGetTaskListCustomActions).toHaveBeenCalledTimes(2));
+      fireEvent.change(screen.getByLabelText(/Rótulo/), { target: { value: '' } });
+      await act(async () => { releaseReload({ actions: [agentAction] }); });
+
+      await waitFor(() => expect(screen.queryByRole('heading', { name: /Editar ação/ })).not.toBeInTheDocument());
+      expect(mockAddToast).toHaveBeenCalledWith('Esta ação não existe mais: foi apagada em outro lugar.', 'error');
+      expect(mockAddToast).not.toHaveBeenCalledWith('Preencha ID e Rótulo da ação', 'error');
     });
   });
 

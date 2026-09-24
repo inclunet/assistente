@@ -100,8 +100,10 @@ editor recarrega a configuração e avisa o usuário.
   - em conflito, o editor avisa e relê as ações;
   - as ações que continuam existindo mantêm o id de UI, então o foco do grid e o
     formulário de edição seguem apontando para elas.
-- Editar um status ou ação removido em outro lugar avisa, fecha o formulário e não
-  grava.
+- Se o status ou a ação em edição deixa de existir na versão recarregada, o
+  formulário fecha assim que a recarga chega, com aviso visual e anúncio, sem
+  esperar outro Aplicar e sem gravar. No Aplicar, essa verificação vem antes da
+  validação dos campos, para um rascunho inválido não esconder a remoção.
 
 ## Fases
 

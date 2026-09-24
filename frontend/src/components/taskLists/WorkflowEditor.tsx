@@ -333,7 +333,26 @@ export default function WorkflowEditor({
     });
   }, []);
 
+  const editingGone = itemModal?.mode === 'edit' && !statuses.some(s => s.id === itemModal.id);
+
+  const closeGoneStatus = useCallback(() => {
+    const msg = t('tasklist.workflow.statusGone', 'Este status não existe mais: foi removido em outro lugar.');
+    addToast(msg, 'error');
+    announce(msg);
+    closeItemModal();
+  }, [t, addToast, announce, closeItemModal]);
+
+  // Após um conflito a tela recarrega: se o status em edição foi removido, o
+  // formulário fecha na hora, sem esperar outro Aplicar.
+  useEffect(() => {
+    if (editingGone) closeGoneStatus();
+  }, [editingGone, closeGoneStatus]);
+
   const confirmItemModal = useCallback(async () => {
+    if (editingGone) {
+      closeGoneStatus();
+      return;
+    }
     const label = draft.label.trim();
     if (!label) {
       const msg = t('tasklist.workflow.emptyStatusName', 'Dê um nome ao status');
@@ -344,12 +363,6 @@ export default function WorkflowEditor({
     let change: WorkflowChange;
     let created: TaskListWorkflowStatus | null = null;
     if (itemModal?.mode === 'edit') {
-      // Após um conflito a tela recarrega: o status pode ter sido removido.
-      if (!statuses.some(s => s.id === itemModal.id)) {
-        addToast(t('tasklist.workflow.statusGone', 'Este status não existe mais: foi removido em outro lugar.'), 'error');
-        closeItemModal();
-        return;
-      }
       change = editStatusChange(itemModal.id, {
         label, icon: draft.icon, color: draft.color,
       }, draft.transitions, draft.initial);
@@ -379,7 +392,7 @@ export default function WorkflowEditor({
       announce(t('tasklist.workflow.statusUpdated', 'Status atualizado'));
     }
     closeItemModal();
-  }, [draft, itemModal, statuses, queueKey, t, addToast, announce, closeItemModal, persist]);
+  }, [draft, itemModal, statuses, queueKey, editingGone, closeGoneStatus, t, addToast, announce, closeItemModal, persist]);
 
   const finishRemoval = useCallback((status: TaskListWorkflowStatus) => {
     setWf(removeStatusChange(status.id));

@@ -568,13 +568,15 @@ describe('WorkflowEditor', () => {
       expect((statuses as SavedStatus[]).map((s) => s.id)).toEqual([1, 2, 5, 6]);
     });
 
-    it('editar um status removido em outro lugar avisa e fecha o formulário sem gravar', async () => {
+    it('status em edição removido em outro lugar fecha o formulário ao sincronizar, sem gravar', async () => {
       const user = userEvent.setup();
       const onSave = vi.fn().mockResolvedValue(undefined);
       const { rerender } = render(<WorkflowEditor workflow={workflow} onSave={onSave} syncToken={0} saveQueueKey="conc:removido" />);
       await waitFor(() => expect(screen.getByRole('button', { name: 'Editar' })).toBeEnabled());
       await user.click(screen.getByRole('button', { name: 'Editar' }));
       expect(await screen.findByRole('heading', { name: 'Editar status: A Fazer' })).toBeInTheDocument();
+      // Rascunho inválido não pode esconder a remoção atrás do erro de campo.
+      fireEvent.change(screen.getByLabelText(/Nome/), { target: { value: '' } });
 
       const withoutFirst: TaskListWorkflow = {
         ...workflow,
@@ -583,12 +585,13 @@ describe('WorkflowEditor', () => {
         initialStatusId: 2,
       };
       rerender(<WorkflowEditor workflow={withoutFirst} onSave={onSave} syncToken={1} saveQueueKey="conc:removido" />);
-      await waitFor(() => expect(screen.queryByRole('row', { name: /A Fazer/ })).not.toBeInTheDocument());
 
-      await user.click(screen.getByRole('button', { name: 'Aplicar' }));
-      expect(mockAddToast).toHaveBeenCalledWith('Este status não existe mais: foi removido em outro lugar.', 'error');
-      expect(onSave).not.toHaveBeenCalled();
       await waitFor(() => expect(screen.queryByRole('heading', { name: /Editar status/ })).not.toBeInTheDocument());
+      const gone = 'Este status não existe mais: foi removido em outro lugar.';
+      expect(mockAddToast).toHaveBeenCalledWith(gone, 'error');
+      expect(mockAnnounce).toHaveBeenCalledWith(gone);
+      expect(mockAddToast).not.toHaveBeenCalledWith('Dê um nome ao status', 'error');
+      expect(onSave).not.toHaveBeenCalled();
     });
   });
 

@@ -235,20 +235,33 @@ export default function CustomActionsEditor({ taskListId, onSaved }: CustomActio
     }
   }, [taskListId, setTaskListCustomActions, addToast, t, onSaved]);
 
+  const editingUiId = itemModal?.mode === 'edit' ? itemModal.uiId : null;
+  const editingGone = editingUiId !== null && !actions.some((a) => a._uiId === editingUiId);
+
+  const closeGoneAction = useCallback(() => {
+    const msg = t('tasklist.customActions.actionGone', 'Esta ação não existe mais: foi apagada em outro lugar.');
+    addToast(msg, 'error');
+    announce(msg);
+    closeItemModal();
+  }, [t, addToast, announce, closeItemModal]);
+
+  // Após um conflito a lista recarrega: se a ação em edição foi apagada, o
+  // formulário fecha na hora, sem esperar outro Aplicar.
+  useEffect(() => {
+    if (editingGone) closeGoneAction();
+  }, [editingGone, closeGoneAction]);
+
   const confirmItemModal = useCallback(async () => {
+    if (editingGone) {
+      closeGoneAction();
+      return;
+    }
     const id = draft.id.trim();
     const label = draft.label.trim();
     if (!id || !label) {
       const msg = t('tasklist.customActions.requiredFields', 'Preencha ID e Rótulo da ação');
       addToast(msg, 'error');
       announce(msg);
-      return;
-    }
-    const editingUiId = itemModal?.mode === 'edit' ? itemModal.uiId : null;
-    // Após um conflito a lista recarrega: a ação pode ter sido apagada.
-    if (editingUiId && !actions.some((a) => a._uiId === editingUiId)) {
-      addToast(t('tasklist.customActions.actionGone', 'Esta ação não existe mais: foi apagada em outro lugar.'), 'error');
-      closeItemModal();
       return;
     }
     if (actions.some((a) => a.id === id && a._uiId !== editingUiId)) {
@@ -269,7 +282,7 @@ export default function CustomActionsEditor({ taskListId, onSaved }: CustomActio
       : t('tasklist.customActions.added', 'Ação adicionada'));
     setFocused(cleaned);
     closeItemModal();
-  }, [draft, actions, itemModal, t, addToast, announce, closeItemModal, persist]);
+  }, [draft, actions, itemModal, editingUiId, editingGone, closeGoneAction, t, addToast, announce, closeItemModal, persist]);
 
   const deleteAction = useCallback(async (action: EditableAction) => {
     const confirmed = await requestConfirm({
