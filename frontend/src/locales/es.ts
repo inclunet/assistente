@@ -4276,7 +4276,7 @@ const es = {
         statusToolbar: 'Barra de herramientas de estados',
         statusGrid: 'Lista de estados del workflow',
         moveHint: 'Usa Alt+Flechas para reordenar el estado enfocado. Los cambios se guardan automáticamente.',
-        emptyStatusName: 'Estado ID {{id}}: el nombre no puede estar vacío',
+        emptyStatusName: 'Ponle un nombre al estado',
         colorGroup: 'Color del estado',
         color: {
           blue: 'Azul',

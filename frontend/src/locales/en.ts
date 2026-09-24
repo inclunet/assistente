@@ -4276,7 +4276,7 @@ const en = {
         statusToolbar: 'Status toolbar',
         statusGrid: 'Workflow status list',
         moveHint: 'Use Alt+Arrows to reorder the focused status. Changes are saved automatically.',
-        emptyStatusName: 'Status ID {{id}}: name cannot be empty',
+        emptyStatusName: 'Give the status a name',
         colorGroup: 'Status color',
         color: {
           blue: 'Blue',

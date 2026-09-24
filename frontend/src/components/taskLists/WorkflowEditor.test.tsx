@@ -5,6 +5,9 @@ import WorkflowEditor from './WorkflowEditor';
 import { Modal } from '../ui/Modal';
 import { DATAGRID_ENTRY_SELECTOR } from '../ui/DataGrid';
 import { whenSavesSettled } from '../../lib/serialSaveQueue';
+import ptBR from '../../locales/pt-BR';
+import en from '../../locales/en';
+import es from '../../locales/es';
 import type { TaskListWorkflow } from '../../types/tasklist';
 
 const mockAddToast = vi.fn();
@@ -168,6 +171,14 @@ describe('WorkflowEditor', () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
     expect(onSave.mock.calls[1][0].map((s) => s.id)).toEqual([1, 2, 4]);
   });
+
+  it.each([['pt-BR', ptBR], ['en', en], ['es', es]])(
+    'mensagem de nome vazio em %s não depende de interpolação',
+    (_lang, locale) => {
+      // O editor chama a chave sem parâmetros; um placeholder apareceria cru.
+      expect(locale.translation.tasklist.workflow.emptyStatusName).not.toMatch(/\{\{/);
+    },
+  );
 
   it('barra Aplicar sem nome', async () => {
     const user = userEvent.setup();

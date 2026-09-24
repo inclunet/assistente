@@ -4277,7 +4277,7 @@ const ptBR = {
         statusToolbar: 'Barra de ferramentas de status',
         statusGrid: 'Lista de status do workflow',
         moveHint: 'Use Alt+Setas para reordenar o status focado. As alterações são salvas automaticamente.',
-        emptyStatusName: 'Status ID {{id}}: nome não pode estar vazio',
+        emptyStatusName: 'Dê um nome ao status',
         colorGroup: 'Cor do status',
         color: {
           blue: 'Azul',
