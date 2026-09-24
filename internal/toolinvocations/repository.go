@@ -150,6 +150,9 @@ type chatOriginLink struct {
 }
 
 func resolveChatOriginTx(ctx context.Context, tx *gorm.DB, userID, originID string) (chatOriginLink, error) {
+	if tx != nil {
+		tx = tx.WithContext(ctx)
+	}
 	if tx == nil ||
 		!tx.Migrator().HasTable(&database.ChatMessage{}) ||
 		!tx.Migrator().HasTable(&database.Conversation{}) {

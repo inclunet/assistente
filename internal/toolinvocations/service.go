@@ -115,8 +115,8 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	}
 	start := invocationStart{
 		call: req.Call, persistedArguments: req.PersistedArguments, origin: req.Origin,
-		parentID: req.ParentInvocationID, catalogID: req.ToolCatalogID,
-		dryRun: req.DryRun, iteration: req.Iteration,
+		parentID: req.ParentInvocationID,
+		dryRun:   req.DryRun, iteration: req.Iteration,
 	}
 	inv, err := s.beginInvocation(ctx, start)
 	if err != nil {
@@ -496,7 +496,7 @@ func (s *Service) ExecuteAll(ctx context.Context, calls []tools.ToolCall, origin
 func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, error) {
 	start := invocationStart{
 		call: req.Call, persistedArguments: req.PersistedArguments, origin: req.Origin,
-		parentID: req.ParentInvocationID, catalogID: req.ToolCatalogID, dryRun: req.DryRun,
+		parentID: req.ParentInvocationID, dryRun: req.DryRun,
 		iteration: req.Iteration, external: true, observation: req.Observation,
 	}
 	inv, err := s.beginInvocation(ctx, start)

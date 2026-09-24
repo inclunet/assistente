@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/tools"
 
@@ -17,15 +16,23 @@ import (
 
 var errChatLedgerUnavailable = errors.New("chat ledger unavailable")
 
+// A UI recebe erros seguros e genéricos; o diagnóstico operacional não pode
+// desaparecer quando Execute converte o erro em Persisted=false.
+func logInvocationPersistenceFailure(ctx context.Context, stage string, origin Origin, id string, err error) {
+	logging.Logger(ctx, "toolinvocations.service").Error("tool invocation persistence failed",
+		"stage", stage, "origin_type", origin.Type, "origin_id", origin.ID,
+		"invocation_id", id, "error", err)
+}
+
 // As entradas adaptam seus resultados; somente este núcleo grava o ciclo de vida.
 type invocationStart struct {
-	call                tools.ToolCall
-	persistedArguments  *string
-	origin              Origin
-	parentID, catalogID string
-	dryRun, external    bool
-	iteration           int
-	observation         *ExternalObservation
+	call               tools.ToolCall
+	persistedArguments *string
+	origin             Origin
+	parentID           string
+	dryRun, external   bool
+	iteration          int
+	observation        *ExternalObservation
 }
 
 type invocationOutcome struct {
@@ -53,15 +60,8 @@ func (s *Service) resolveInvocationCatalog(ctx context.Context, req invocationSt
 			return "", fmt.Errorf("archival catalog name is required")
 		}
 	} else {
-		// Nunca confiar no ID fornecido sem conferir usuário e identidade.
-		if supplied := strings.TrimSpace(req.catalogID); supplied != "" {
-			opCtx, cancel := s.persistOpCtx(ctx)
-			_, err := s.repo.IsToolCatalogIDVisible(opCtx, supplied)
-			cancel()
-			if err != nil {
-				return "", err
-			}
-		}
+		// A identidade canônica vem do nome no escopo do usuário, nunca do
+		// ID sugerido pelo chamador. Não consultar um ID que não será usado.
 		opCtx, cancel := s.persistOpCtx(ctx)
 		id, err := s.repo.ResolveToolCatalogID(opCtx, req.call.Function.Name)
 		cancel()
@@ -97,17 +97,34 @@ func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Inv
 		return Invocation{}, fmt.Errorf("tool invocation repository not configured")
 	}
 	persistCtx := s.persistCtx(ctx)
+	var observationMetadata json.RawMessage
+	if observation := req.observation; observation != nil {
+		// Limitar antes de decodificar e antes de criar qualquer entrada archival.
+		if len(observation.DisplayMetadata) > tools.DefaultMaxResultSize {
+			s.recordPersistenceFailure()
+			return Invocation{}, fmt.Errorf("observation display exceeds size limit")
+		}
+		var display map[string]json.RawMessage
+		if err := json.Unmarshal(observation.DisplayMetadata, &display); err != nil || display == nil {
+			s.recordPersistenceFailure()
+			return Invocation{}, fmt.Errorf("observation display must be a JSON object")
+		}
+		observationMetadata, _ = json.Marshal(map[string]any{"external": true, "display": display})
+	}
 	origin := req.origin
 	origin.Type, origin.ID = strings.TrimSpace(origin.Type), strings.TrimSpace(origin.ID)
 	if origin.Type == "" {
 		origin.Type = OriginChat
 	}
-	if origin.Type == OriginChat {
+	// Execução exige pré-validação fail-closed. Observação já ocorreu e usa a
+	// validação transacional de Create, sem uma leitura preliminar redundante.
+	if origin.Type == OriginChat && !req.external {
 		opCtx, cancel := s.persistOpCtx(persistCtx)
 		err := s.repo.ValidateChatOrigin(opCtx, origin.ID)
 		cancel()
 		if err != nil {
 			s.recordPersistenceFailure()
+			logInvocationPersistenceFailure(ctx, "validate_origin", origin, "", err)
 			return Invocation{}, fmt.Errorf("%w: %w", errChatLedgerUnavailable, err)
 		}
 	}
@@ -115,6 +132,7 @@ func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Inv
 	catalogID, err := s.resolveInvocationCatalog(persistCtx, req)
 	if err != nil {
 		s.recordPersistenceFailure()
+		logInvocationPersistenceFailure(ctx, "resolve_catalog", origin, "", err)
 		return Invocation{}, err
 	}
 	parentID := req.parentID
@@ -132,14 +150,7 @@ func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Inv
 		Metadata: s.buildInvocationDisplayMetadata(call, req.iteration, 0, req.external),
 	}
 	if observation := req.observation; observation != nil {
-		var display map[string]json.RawMessage
-		if err := json.Unmarshal(observation.DisplayMetadata, &display); err != nil || display == nil {
-			return Invocation{}, fmt.Errorf("observation display must be a JSON object")
-		}
-		if len(observation.DisplayMetadata) > tools.DefaultMaxResultSize {
-			return Invocation{}, fmt.Errorf("observation display exceeds size limit")
-		}
-		inv.Metadata, _ = json.Marshal(map[string]any{"external": true, "display": display})
+		inv.Metadata = observationMetadata
 		inv.ResultAvailability = "unavailable"
 		if !observation.StartedAt.IsZero() {
 			inv.QueuedAt = observation.StartedAt
@@ -153,6 +164,7 @@ func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Inv
 	cancel()
 	if err != nil {
 		s.recordPersistenceFailure()
+		logInvocationPersistenceFailure(ctx, "create", origin, inv.ID, err)
 		if origin.Type == OriginChat {
 			return inv, fmt.Errorf("%w: %w", errChatLedgerUnavailable, err)
 		}
@@ -177,6 +189,11 @@ func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Inv
 			deleteCtx, deleteCancel := s.persistOpCtx(persistCtx)
 			deleteErr := s.repo.Delete(deleteCtx, inv.ID)
 			deleteCancel()
+			if deleteErr != nil {
+				s.recordPersistenceFailure()
+				logInvocationPersistenceFailure(ctx, "delete_after_start_failure", origin, inv.ID, deleteErr)
+			}
+			logInvocationPersistenceFailure(ctx, "mark_running", origin, inv.ID, err)
 			return inv, errors.Join(err, deleteErr)
 		}
 		logging.Errorf(ctx, "toolinvocations.service", "failed to mark observed invocation running (id=%s): %v", inv.ID, err)
@@ -190,22 +207,21 @@ func (s *Service) finishInvocation(ctx context.Context, inv *Invocation, req inv
 	persistCtx := s.persistCtx(ctx)
 	// A origem pode desaparecer enquanto a tool roda; não deixar órfãos.
 	if inv.OriginType == OriginChat && inv.OriginID != "" {
-		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
-			opCtx, cancel := s.persistOpCtx(persistCtx)
-			_, err := database.GetMessageWithContext(opCtx, inv.OriginID)
+		opCtx, cancel := s.persistOpCtx(persistCtx)
+		err := s.repo.ValidateChatOrigin(opCtx, inv.OriginID)
+		cancel()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			opCtx, cancel = s.persistOpCtx(persistCtx)
+			deleteErr := s.repo.Delete(opCtx, inv.ID)
 			cancel()
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				opCtx, cancel = s.persistOpCtx(persistCtx)
-				deleteErr := s.repo.Delete(opCtx, inv.ID)
-				cancel()
-				if deleteErr != nil {
-					s.recordPersistenceFailure()
-				}
-				return errors.Join(err, deleteErr)
+			if deleteErr != nil {
+				s.recordPersistenceFailure()
+				logInvocationPersistenceFailure(ctx, "delete_orphan", Origin{Type: inv.OriginType, ID: inv.OriginID}, inv.ID, deleteErr)
 			}
-			if err != nil {
-				logging.Warnf(ctx, "toolinvocations.service", "failed to revalidate chat origin %s; completing invocation: %v", inv.OriginID, err)
-			}
+			return errors.Join(err, deleteErr)
+		}
+		if err != nil {
+			logging.Warnf(ctx, "toolinvocations.service", "failed to revalidate chat origin %s; completing invocation: %v", inv.OriginID, err)
 		}
 	}
 	completedAt := s.now()

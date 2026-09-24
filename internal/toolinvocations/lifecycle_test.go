@@ -1,8 +1,10 @@
 package toolinvocations
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -13,9 +15,13 @@ import (
 
 type lifecycleRepository struct {
 	*DBRepository
-	fail      string
-	completed int
-	deleted   int
+	fail            string
+	completed       int
+	deleted         int
+	visibilityCalls int
+	validationCalls int
+	validationErr   error
+	deleteErr       error
 }
 
 func (r *lifecycleRepository) check(ctx context.Context, stage string) error {
@@ -57,17 +63,43 @@ func (r *lifecycleRepository) Complete(ctx context.Context, id string, inv *Invo
 }
 func (r *lifecycleRepository) Delete(ctx context.Context, id string) error {
 	r.deleted++
+	if r.deleteErr != nil {
+		return r.deleteErr
+	}
 	return r.DBRepository.Delete(ctx, id)
+}
+
+func (r *lifecycleRepository) IsToolCatalogIDVisible(context.Context, string) (bool, error) {
+	r.visibilityCalls++
+	return false, errors.New("unneeded visibility lookup failed")
+}
+
+func (r *lifecycleRepository) ResolveToolCatalogID(ctx context.Context, name string) (string, error) {
+	if err := r.check(ctx, "catalog"); err != nil {
+		return "", err
+	}
+	return r.DBRepository.ResolveToolCatalogID(ctx, name)
+}
+
+func (r *lifecycleRepository) ValidateChatOrigin(ctx context.Context, id string) error {
+	r.validationCalls++
+	if err := r.check(ctx, "validate"); err != nil {
+		return err
+	}
+	if r.validationErr != nil {
+		return r.validationErr
+	}
+	return r.DBRepository.ValidateChatOrigin(ctx, id)
 }
 
 func runLifecycleEntry(svc *Service, ctx context.Context, mode string) (Invocation, bool) {
 	call := tools.ToolCall{ID: "call-shared", Function: tools.FunctionCall{Name: "echo", Arguments: `{"token":"secret","value":"ok"}`}}
 	origin := Origin{Type: " chat ", ID: " turn-1 "}
 	if mode == "execute" {
-		result := svc.Execute(ctx, ExecuteRequest{Call: call, Origin: origin, Iteration: 3})
+		result := svc.Execute(ctx, ExecuteRequest{Call: call, Origin: origin, Iteration: 3, ToolCatalogID: "untrusted-id"})
 		return result.Invocation, result.Persisted
 	}
-	req := RecordRequest{Call: call, Origin: origin, Iteration: 3, Result: tools.ToolResult{Content: "recorded"}, DurationMs: 5}
+	req := RecordRequest{Call: call, Origin: origin, Iteration: 3, ToolCatalogID: "untrusted-id", Result: tools.ToolResult{Content: "recorded"}, DurationMs: 5}
 	if mode == "observation" {
 		req.Observation = &ExternalObservation{
 			CatalogName: "external__echo", Summary: "Resumo observado",
@@ -91,6 +123,9 @@ func TestLifecycleSharedPersistenceFailures(t *testing.T) {
 				var metrics Metrics
 				svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()), &metrics)
 				inv, persisted := runLifecycleEntry(svc, WithParentInvocationID(ctx, "parent-inv"), mode)
+				if repo.visibilityCalls != 0 {
+					t.Fatal("queried unused catalog hint")
+				}
 				wantPersisted := stage == "" || (stage == "running" && mode != "execute")
 				if persisted != wantPersisted {
 					t.Fatalf("persisted=%v want=%v invocation=%+v", persisted, wantPersisted, inv)
@@ -149,6 +184,175 @@ func TestLifecycleSharedPersistenceFailures(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestLifecycleObservationValidationBeforeDatabase(t *testing.T) {
+	for _, tc := range []struct{ name, payload, want string }{
+		{"invalid", "{", "JSON object"},
+		{"null", "null", "JSON object"},
+		{"array", "[]", "JSON object"},
+		{"oversized-invalid", strings.Repeat("{", tools.DefaultMaxResultSize+1), "size limit"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base, user, _ := setupRepositoryTest(t)
+			var metrics Metrics
+			svc := NewService(base, nil, &metrics)
+			_, err := svc.Record(user, RecordRequest{
+				Call:        tools.ToolCall{Function: tools.FunctionCall{Name: "external"}},
+				Origin:      Origin{Type: OriginChat, ID: "turn-1"},
+				Observation: &ExternalObservation{CatalogName: "external__new", DisplayMetadata: []byte(tc.payload)},
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			var catalogs, invocations int64
+			if err := database.DB().Model(&database.ToolCatalog{}).Where("name = ?", "external__new").Count(&catalogs).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := database.DB().Model(&database.ToolInvocation{}).Count(&invocations).Error; err != nil {
+				t.Fatal(err)
+			}
+			if catalogs != 0 || invocations != 0 || metrics.Snapshot().PersistenceFailures != 1 {
+				t.Fatalf("invalid observation had side effects: catalogs=%d invocations=%d metrics=%+v", catalogs, invocations, metrics.Snapshot())
+			}
+		})
+	}
+}
+
+func TestLifecycleUsesRepositoryOriginContractWithoutGlobalDatabase(t *testing.T) {
+	for _, mode := range []string{"execute", "record", "observation"} {
+		t.Run(mode, func(t *testing.T) {
+			base, user, _ := setupRepositoryTest(t)
+			// Origem válida por turn_id, sem uma mensagem cujo id seja o turno.
+			turn := "turn-1"
+			if err := database.DB().Delete(&database.ChatMessage{}, "id = ?", turn).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: "assistant-child"}, ConversationID: "conv-a", TurnID: &turn, Role: "assistant"}).Error; err != nil {
+				t.Fatal(err)
+			}
+			// O repositório mantém a conexão; o serviço não deve consultar o global.
+			database.SetDB(nil)
+			repo := &lifecycleRepository{DBRepository: base}
+			registry := tools.NewRegistry()
+			registry.MustRegister(echoTool{})
+			svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+			inv, persisted := runLifecycleEntry(svc, user, mode)
+			wantValidations := 1
+			if mode == "execute" {
+				wantValidations = 2
+			}
+			if !persisted || repo.validationCalls != wantValidations {
+				t.Fatalf("repository validation ignored: persisted=%v calls=%d", persisted, repo.validationCalls)
+			}
+			if _, err := base.Get(user, inv.ID); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestLifecycleObservedResultSurvivesTransientPreflightFailure(t *testing.T) {
+	for _, mode := range []string{"execute", "record", "observation"} {
+		t.Run(mode, func(t *testing.T) {
+			base, user, _ := setupRepositoryTest(t)
+			repo := &lifecycleRepository{DBRepository: base, validationErr: errors.New("transient read failure")}
+			calls := 0
+			registry := tools.NewRegistry()
+			registry.MustRegister(countingTool{calls: &calls})
+			svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+			_, persisted := runLifecycleEntry(svc, user, mode)
+			if persisted != (mode != "execute") || calls != 0 {
+				t.Fatalf("incorrect validation policy: persisted=%v calls=%d", persisted, calls)
+			}
+		})
+	}
+}
+
+func TestLifecycleStartAndCleanupFailuresAreBothCounted(t *testing.T) {
+	base, user, _ := setupRepositoryTest(t)
+	repo := &lifecycleRepository{DBRepository: base, fail: "running", deleteErr: errors.New("delete unavailable")}
+	calls := 0
+	registry := tools.NewRegistry()
+	registry.MustRegister(countingTool{calls: &calls})
+	var metrics Metrics
+	svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()), &metrics)
+	_, persisted := runLifecycleEntry(svc, user, "execute")
+	if persisted || calls != 0 || repo.deleted != 1 || metrics.Snapshot().PersistenceFailures != 2 {
+		t.Fatalf("failed cleanup hidden: persisted=%v calls=%d deletes=%d metrics=%+v", persisted, calls, repo.deleted, metrics.Snapshot())
+	}
+}
+
+func TestRepositoryOriginValidationBoundsSchemaQueries(t *testing.T) {
+	repo, user, _ := setupRepositoryTest(t)
+	sqlDB, err := repo.db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	conn, err := sqlDB.Conn(user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(user, 30*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- repo.ValidateChatOrigin(ctx, "turn-1") }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("validation succeeded without a connection")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("schema lookup ignored context deadline")
+	}
+}
+
+func TestLifecycleKeepsOperationalCauseOutOfPublicResult(t *testing.T) {
+	for _, tc := range []struct {
+		fail, stage string
+		cleanup     bool
+	}{
+		{"validate", "validate_origin", false},
+		{"catalog", "resolve_catalog", false},
+		{"create", "create", false},
+		{"running", "delete_after_start_failure", true},
+		{"orphan", "delete_orphan", true},
+	} {
+		t.Run(tc.stage, func(t *testing.T) {
+			base, user, _ := setupRepositoryTest(t)
+			repo := &lifecycleRepository{DBRepository: base, fail: tc.fail}
+			cause := "injected " + tc.fail
+			if tc.cleanup {
+				cause = "cleanup unavailable"
+				repo.deleteErr = errors.New(cause)
+			}
+			var output bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+			defer slog.SetDefault(previous)
+			registry := tools.NewRegistry()
+			registry.MustRegister(echoTool{})
+			svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+			result := svc.Execute(user, ExecuteRequest{
+				Call:   tools.ToolCall{ID: "failure-call", Function: tools.FunctionCall{Name: "echo", Arguments: `{"value":"private-payload"}`}},
+				Origin: Origin{Type: OriginChat, ID: "turn-1"},
+			})
+			logs := output.String()
+			if result.Persisted || !strings.Contains(logs, `"stage":"`+tc.stage+`"`) || !strings.Contains(logs, cause) ||
+				!strings.Contains(logs, `"origin_id":"turn-1"`) || strings.Contains(logs, "private-payload") {
+				t.Fatalf("missing/unsafe operational diagnostic: persisted=%v logs=%s", result.Persisted, logs)
+			}
+			if strings.Contains(result.Execution.Result.Content, cause) {
+				t.Fatal("internal cause leaked into public tool result")
+			}
+		})
 	}
 }
 

@@ -453,6 +453,26 @@ Evidência: `TestLifecycleSharedPersistenceFailures`,
 `TestLifecycleRejectsMissingOriginForEveryEntry`, além das regressões ACP de
 cronologia e reabertura do histórico. O status permanece **Done**.
 
+Endurecimento da revisão: a resolução canônica usa nome+usuário sem consultar
+um ID sugerido que não será utilizado. Execuções locais fazem pré-validação
+fail-closed; observações já ocorridas dependem da validação transacional de
+`Create`. A revalidação terminal usa o mesmo repositório e contrato de origem
+(ID de mensagem ou turno), sem banco global. Consultas de schema dessa
+validação também respeitam o prazo da operação. Metadados de observação são
+limitados antes do parse e de qualquer escrita; falhas de início e limpeza
+têm diagnóstico separado. Evidências adicionais em `lifecycle_test.go`:
+`TestLifecycleObservationValidationBeforeDatabase`,
+`TestLifecycleUsesRepositoryOriginContractWithoutGlobalDatabase`,
+`TestLifecycleObservedResultSurvivesTransientPreflightFailure`,
+`TestLifecycleStartAndCleanupFailuresAreBothCounted` e
+`TestRepositoryOriginValidationBoundsSchemaQueries`.
+`TestACPAtividadePersisteNoPatchEHistorico` verifica diretamente os campos
+JSON persistidos de origem, posição, mensagem, iteração e duração.
+O diagnóstico operacional de validação, catálogo, criação e limpeza é
+registrado com etapa e identificadores antes da conversão para erro genérico
+da UI; `TestLifecycleKeepsOperationalCauseOutOfPublicResult` verifica a
+preservação da causa sem copiar os argumentos da tool para o log.
+
 - [x] 100% do legado representado no ledger; ambiguidades iguais a zero.
 - [x] Contagens iguais antes/depois; divergência apenas de hash é registrada
       como aviso de auditoria (`hash_mismatch`), não bloqueia (ver D5).
