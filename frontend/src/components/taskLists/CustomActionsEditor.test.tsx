@@ -419,7 +419,7 @@ describe('CustomActionsEditor', () => {
       await waitFor(() => expect(screen.queryByRole('heading', { name: /Editar ação/ })).not.toBeInTheDocument());
       expect(screen.queryByRole('row', { name: /Investigar/ })).not.toBeInTheDocument();
       const gone = 'Esta ação não existe mais: foi apagada em outro lugar.';
-      expect(mockAddToast).toHaveBeenCalledWith(gone, 'error');
+      expect(mockAddToast).toHaveBeenCalledWith(gone, 'error', undefined, undefined, { suppressAnnounce: true });
       expect(mockAnnounce).toHaveBeenCalledWith(gone);
       expect(mockSetTaskListCustomActions).toHaveBeenCalledTimes(1);
     });
@@ -442,7 +442,7 @@ describe('CustomActionsEditor', () => {
       await act(async () => { releaseReload({ actions: [agentAction] }); });
 
       await waitFor(() => expect(screen.queryByRole('heading', { name: /Editar ação/ })).not.toBeInTheDocument());
-      expect(mockAddToast).toHaveBeenCalledWith('Esta ação não existe mais: foi apagada em outro lugar.', 'error');
+      expect(mockAddToast).toHaveBeenCalledWith('Esta ação não existe mais: foi apagada em outro lugar.', 'error', undefined, undefined, { suppressAnnounce: true });
       expect(mockAddToast).not.toHaveBeenCalledWith('Preencha ID e Rótulo da ação', 'error');
     });
   });

@@ -240,7 +240,7 @@ export default function CustomActionsEditor({ taskListId, onSaved }: CustomActio
 
   const closeGoneAction = useCallback(() => {
     const msg = t('tasklist.customActions.actionGone', 'Esta ação não existe mais: foi apagada em outro lugar.');
-    addToast(msg, 'error');
+    addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
     announce(msg);
     closeItemModal();
   }, [t, addToast, announce, closeItemModal]);

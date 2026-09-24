@@ -588,7 +588,7 @@ describe('WorkflowEditor', () => {
 
       await waitFor(() => expect(screen.queryByRole('heading', { name: /Editar status/ })).not.toBeInTheDocument());
       const gone = 'Este status não existe mais: foi removido em outro lugar.';
-      expect(mockAddToast).toHaveBeenCalledWith(gone, 'error');
+      expect(mockAddToast).toHaveBeenCalledWith(gone, 'error', undefined, undefined, { suppressAnnounce: true });
       expect(mockAnnounce).toHaveBeenCalledWith(gone);
       expect(mockAddToast).not.toHaveBeenCalledWith('Dê um nome ao status', 'error');
       expect(onSave).not.toHaveBeenCalled();

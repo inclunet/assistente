@@ -337,7 +337,7 @@ export default function WorkflowEditor({
 
   const closeGoneStatus = useCallback(() => {
     const msg = t('tasklist.workflow.statusGone', 'Este status não existe mais: foi removido em outro lugar.');
-    addToast(msg, 'error');
+    addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
     announce(msg);
     closeItemModal();
   }, [t, addToast, announce, closeItemModal]);
