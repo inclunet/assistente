@@ -18,9 +18,11 @@ import { useGridFocus } from '../../hooks/useGridFocus';
 import { useInitialContentFocus } from '../../hooks/useInitialContentFocus';
 import { useNewItemShortcut } from '../../hooks/useNewItemShortcut';
 import { enqueueSave } from '../../lib/serialSaveQueue';
+import { isTaskListConfigConflict } from '../../lib/taskListConfigConflict';
 import { useUIStore } from '../../store/uiStore';
 import type {
   TaskListWorkflowStatus,
+  TaskListWorkflowSnapshot,
   WorkflowTransitions,
   TaskListWorkflow,
 } from '../../types/tasklist';
@@ -52,13 +54,25 @@ function colorName(
 interface WorkflowEditorProps {
   workflow: TaskListWorkflow;
   taskCountsByStatus?: Record<number, number>;
-  /** Persiste o workflow completo; chamado a cada alteração. */
+  /**
+   * Persiste o workflow completo; chamado a cada alteração. `expected` é o
+   * workflow sobre o qual a alteração foi calculada: o backend recusa com
+   * conflito se o gravado já for outro.
+   */
   onSave: (
     statuses: TaskListWorkflowStatus[],
     transitions: WorkflowTransitions,
     initialStatusId: number,
     statusMigration: Record<number, number>,
+    expected: TaskListWorkflowSnapshot,
   ) => Promise<void>;
+  /**
+   * Chamado quando o backend recusa uma gravação por conflito. Quem abre o
+   * editor recarrega o workflow e incrementa `syncToken`.
+   */
+  onConflict?: () => void;
+  /** Ao mudar, a tela passa a refletir `workflow` e `taskCountsByStatus`. */
+  syncToken?: number;
   /** Chave da fila de salvamentos compartilhada (ver `serialSaveQueue`). */
   saveQueueKey?: string;
 }
@@ -156,6 +170,14 @@ function observeStatusIds(queueKey: string, ids: number[]): number {
   return max;
 }
 
+function workflowState(workflow: TaskListWorkflow): WorkflowState {
+  return {
+    statuses: [...workflow.statuses].sort((a, b) => a.order - b.order),
+    transitions: { ...workflow.allowedTransitions },
+    initialStatusId: workflow.initialStatusId,
+  };
+}
+
 function emptyDraft(colorToken: string): StatusDraft {
   return { label: '', icon: '⬜', color: colorToken, transitions: [], initial: false };
 }
@@ -168,6 +190,8 @@ export default function WorkflowEditor({
   workflow,
   taskCountsByStatus = {},
   onSave,
+  onConflict,
+  syncToken,
   saveQueueKey,
 }: WorkflowEditorProps) {
   const { t } = useTranslation();
@@ -176,11 +200,7 @@ export default function WorkflowEditor({
   const requestConfirm = useConfirm();
   const { handleGridReady, requestGridFocus } = useGridFocus();
 
-  const [wf, setWf] = useState<WorkflowState>(() => ({
-    statuses: [...workflow.statuses].sort((a, b) => a.order - b.order),
-    transitions: { ...workflow.allowedTransitions },
-    initialStatusId: workflow.initialStatusId,
-  }));
+  const [wf, setWf] = useState<WorkflowState>(() => workflowState(workflow));
   const { statuses, transitions, initialStatusId } = wf;
   const [counts, setCounts] = useState<Record<number, number>>(() => ({ ...taskCountsByStatus }));
   // Um Aplicar/Remover por vez: cliques repetidos não duplicam o status.
@@ -220,16 +240,30 @@ export default function WorkflowEditor({
         // As alterações posteriores a uma falha partiram de uma tela que a
         // incluía: são descartadas junto, e a tela volta ao último estado salvo.
         if (failedRef.current) return false;
-        const next = change(persistedRef.current);
+        const base = persistedRef.current;
+        const next = change(base);
         const cleanTransitions: WorkflowTransitions = {};
         for (const s of next.statuses) cleanTransitions[s.id] = next.transitions[s.id] || [];
-        await onSave(next.statuses, cleanTransitions, next.initialStatusId, statusMigration);
+        const expected: TaskListWorkflowSnapshot = {
+          statuses: base.statuses,
+          transitions: base.transitions,
+          initialStatusId: base.initialStatusId,
+        };
+        await onSave(next.statuses, cleanTransitions, next.initialStatusId, statusMigration, expected);
         persistedRef.current = next;
         return true;
       } catch (error) {
         failedRef.current = true;
-        const msg = `${t('tasklist.workflow.saveFailed', 'Erro ao salvar workflow')}: ${getErrorMessage(error)}`;
-        addToast(msg, 'error');
+        if (isTaskListConfigConflict(error)) {
+          addToast(t(
+            'tasklist.workflow.conflict',
+            'O workflow foi alterado em outro lugar, por outra aba ou pelo agente. A tela foi atualizada com a versão atual; confira e refaça a alteração.',
+          ), 'warning', 10000);
+          onConflict?.();
+        } else {
+          const msg = `${t('tasklist.workflow.saveFailed', 'Erro ao salvar workflow')}: ${getErrorMessage(error)}`;
+          addToast(msg, 'error');
+        }
         return false;
       } finally {
         pendingRef.current -= 1;
@@ -239,7 +273,21 @@ export default function WorkflowEditor({
         }
       }
     });
-  }, [queueKey, onSave, t, addToast]);
+  }, [queueKey, onSave, onConflict, t, addToast]);
+
+  // Depois de um conflito, quem abriu o editor recarrega o workflow e muda o
+  // token: a tela e a base das próximas gravações passam a ser o gravado.
+  const syncedTokenRef = useRef(syncToken);
+  useEffect(() => {
+    if (syncToken === syncedTokenRef.current) return;
+    syncedTokenRef.current = syncToken;
+    const fresh = workflowState(workflow);
+    persistedRef.current = fresh;
+    setWf(fresh);
+    setCounts({ ...taskCountsByStatus });
+    setFocused(prev => (prev ? fresh.statuses.find(s => s.id === prev.id) ?? null : null));
+    setMigration(null);
+  }, [syncToken, workflow, taskCountsByStatus]);
 
   // Ao entrar na tela, o foco vai para o grid de status.
   useInitialContentFocus(rootRef, true, () => {
@@ -285,7 +333,26 @@ export default function WorkflowEditor({
     });
   }, []);
 
+  const editingGone = itemModal?.mode === 'edit' && !statuses.some(s => s.id === itemModal.id);
+
+  const closeGoneStatus = useCallback(() => {
+    const msg = t('tasklist.workflow.statusGone', 'Este status não existe mais: foi removido em outro lugar.');
+    addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
+    announce(msg);
+    closeItemModal();
+  }, [t, addToast, announce, closeItemModal]);
+
+  // Após um conflito a tela recarrega: se o status em edição foi removido, o
+  // formulário fecha na hora, sem esperar outro Aplicar.
+  useEffect(() => {
+    if (editingGone) closeGoneStatus();
+  }, [editingGone, closeGoneStatus]);
+
   const confirmItemModal = useCallback(async () => {
+    if (editingGone) {
+      closeGoneStatus();
+      return;
+    }
     const label = draft.label.trim();
     if (!label) {
       const msg = t('tasklist.workflow.emptyStatusName', 'Dê um nome ao status');
@@ -325,7 +392,7 @@ export default function WorkflowEditor({
       announce(t('tasklist.workflow.statusUpdated', 'Status atualizado'));
     }
     closeItemModal();
-  }, [draft, itemModal, statuses.length, queueKey, t, addToast, announce, closeItemModal, persist]);
+  }, [draft, itemModal, statuses, queueKey, editingGone, closeGoneStatus, t, addToast, announce, closeItemModal, persist]);
 
   const finishRemoval = useCallback((status: TaskListWorkflowStatus) => {
     setWf(removeStatusChange(status.id));

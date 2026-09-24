@@ -4506,6 +4506,8 @@ const ptBR = {
         statusGrid: 'Lista de status do workflow',
         moveHint: 'Use Alt+Setas para reordenar o status focado. As alterações são salvas automaticamente.',
         emptyStatusName: 'Dê um nome ao status',
+        conflict: 'O workflow foi alterado em outro lugar, por outra aba ou pelo agente. A tela foi atualizada com a versão atual; confira e refaça a alteração.',
+        statusGone: 'Este status não existe mais: foi removido em outro lugar.',
         colorGroup: 'Cor do status',
         color: {
           blue: 'Azul',
@@ -4538,6 +4540,8 @@ const ptBR = {
         deleteConfirmTitle: 'Apagar ação',
         deleteConfirm: 'Apagar a ação "{{label}}"?',
         saveError: 'Falha ao salvar ações: {{error}}',
+        conflict: 'As ações foram alteradas em outro lugar, por outra aba ou pelo agente. A lista foi atualizada com a versão atual; confira e refaça a alteração.',
+        actionGone: 'Esta ação não existe mais: foi apagada em outro lugar.',
         runError: 'Falha ao executar ação: {{error}}',
         surface: {
           cardMenu: 'Menu do card',

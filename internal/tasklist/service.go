@@ -3,6 +3,7 @@ package tasklist
 import (
 	"assistente/internal/database"
 	"context"
+	"errors"
 )
 
 // EventEmitter abstrai o envio de eventos para o frontend (Wails runtime).
@@ -34,6 +35,15 @@ type commandMutationStore interface {
 	ReadCommandTarget(ctx context.Context, id string) (*database.TaskList, string, error)
 	CommitCommandMutation(ctx context.Context, request database.TaskListCommandMutationRequest) (*database.TaskList, error)
 }
+
+// checkedConfigWriter é implementado pelos stores que sabem gravar a
+// configuração da lista com controle de concorrência.
+type checkedConfigWriter interface {
+	UpdateWorkflowFullChecked(ctx context.Context, taskListID string, expected database.TaskListWorkflowSnapshot, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error
+	SetTaskListCustomActionsChecked(ctx context.Context, taskListID, expectedJSON, actionsJSON string) error
+}
+
+var errCheckedWriteUnsupported = errors.New("store não suporta gravação com controle de concorrência")
 
 // NewService cria um Service com as dependências fornecidas.
 func NewService(cfg ServiceConfig) *Service {
@@ -176,6 +186,26 @@ func (s *Service) SetTaskListCustomActions(ctx context.Context, taskListID strin
 	if err := s.store.SetTaskListCustomActions(ctx, taskListID, actionsJSON); err != nil {
 		return err
 	}
+	s.afterCustomActionsUpdate(ctx, taskListID)
+	return nil
+}
+
+// SetTaskListCustomActionsChecked grava as custom actions somente se o
+// conteúdo atual ainda for equivalente a expectedJSON; em caso contrário
+// devolve database.ErrTaskListConfigConflict e não emite eventos.
+func (s *Service) SetTaskListCustomActionsChecked(ctx context.Context, taskListID, expectedJSON, actionsJSON string) error {
+	writer, ok := s.store.(checkedConfigWriter)
+	if !ok {
+		return errCheckedWriteUnsupported
+	}
+	if err := writer.SetTaskListCustomActionsChecked(ctx, taskListID, expectedJSON, actionsJSON); err != nil {
+		return err
+	}
+	s.afterCustomActionsUpdate(ctx, taskListID)
+	return nil
+}
+
+func (s *Service) afterCustomActionsUpdate(ctx context.Context, taskListID string) {
 	tl, _ := s.getTaskListMetadata(ctx, taskListID)
 	if tl != nil {
 		s.emitter.Emit("taskList:updated", tl)
@@ -185,7 +215,6 @@ func (s *Service) SetTaskListCustomActions(ctx context.Context, taskListID strin
 		// objeto) e a UI ficaria sem invalidar/recarregar após salvar as ações.
 		s.emitter.Emit("taskList:updated", taskListID)
 	}
-	return nil
 }
 
 func (s *Service) SetTaskListViewMode(ctx context.Context, id string, viewMode string) error {
@@ -285,6 +314,26 @@ func (s *Service) UpdateWorkflowFull(ctx context.Context, taskListID string, sta
 	if err := s.store.UpdateWorkflowFull(ctx, taskListID, statuses, transitions, initialStatusID, statusMigration); err != nil {
 		return err
 	}
+	s.afterWorkflowFullUpdate(ctx, taskListID, statusMigration)
+	return nil
+}
+
+// UpdateWorkflowFullChecked grava o workflow somente se o estado atual ainda
+// for equivalente a expected; em caso contrário devolve
+// database.ErrTaskListConfigConflict e não emite eventos.
+func (s *Service) UpdateWorkflowFullChecked(ctx context.Context, taskListID string, expected database.TaskListWorkflowSnapshot, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
+	writer, ok := s.store.(checkedConfigWriter)
+	if !ok {
+		return errCheckedWriteUnsupported
+	}
+	if err := writer.UpdateWorkflowFullChecked(ctx, taskListID, expected, statuses, transitions, initialStatusID, statusMigration); err != nil {
+		return err
+	}
+	s.afterWorkflowFullUpdate(ctx, taskListID, statusMigration)
+	return nil
+}
+
+func (s *Service) afterWorkflowFullUpdate(ctx context.Context, taskListID string, statusMigration map[int]int) {
 	tl, _ := s.getTaskListMetadata(ctx, taskListID)
 	if tl != nil && tl.Workflow != nil {
 		s.emitter.Emit("workflow:updated", tl.Workflow)
@@ -306,7 +355,6 @@ func (s *Service) UpdateWorkflowFull(ctx context.Context, taskListID string, sta
 		}
 		s.publishDomain(ctx, "tasklist.workflow.updated", s.workflowEventPayload(ctx, taskListID, wf))
 	}
-	return nil
 }
 
 func (s *Service) GetTaskCountsByStatus(ctx context.Context, taskListID string) (map[int]int64, error) {

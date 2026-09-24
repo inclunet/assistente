@@ -11,4 +11,6 @@ export function ListCardCustomActions(arg1:string,arg2:string):Promise<Array<api
 
 export function SetTaskListCustomActions(arg1:string,arg2:string):Promise<void>;
 
+export function SetTaskListCustomActionsChecked(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function TriggerCustomAction(arg1:string,arg2:string,arg3:string):Promise<string>;

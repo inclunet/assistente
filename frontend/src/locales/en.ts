@@ -4504,6 +4504,8 @@ const en = {
         statusGrid: 'Workflow status list',
         moveHint: 'Use Alt+Arrows to reorder the focused status. Changes are saved automatically.',
         emptyStatusName: 'Give the status a name',
+        conflict: 'The workflow was changed elsewhere, by another tab or by the agent. The screen now shows the current version; review it and redo your change.',
+        statusGone: 'This status no longer exists: it was removed elsewhere.',
         colorGroup: 'Status color',
         color: {
           blue: 'Blue',
@@ -4536,6 +4538,8 @@ const en = {
         deleteConfirmTitle: 'Delete action',
         deleteConfirm: 'Delete the action "{{label}}"?',
         saveError: 'Failed to save actions: {{error}}',
+        conflict: 'The actions were changed elsewhere, by another tab or by the agent. The list now shows the current version; review it and redo your change.',
+        actionGone: 'This action no longer exists: it was deleted elsewhere.',
         runError: 'Failed to run action: {{error}}',
         surface: {
           cardMenu: 'Card menu',

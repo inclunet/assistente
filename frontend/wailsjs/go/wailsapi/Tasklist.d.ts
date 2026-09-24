@@ -76,4 +76,6 @@ export function UpdateWorkflow(arg1:string,arg2:Array<database.TaskListWorkflowS
 
 export function UpdateWorkflowFull(arg1:string,arg2:Array<database.TaskListWorkflowStatus>,arg3:Record<number, Array<number>>,arg4:number,arg5:Record<number, number>):Promise<void>;
 
+export function UpdateWorkflowFullChecked(arg1:string,arg2:database.TaskListWorkflowSnapshot,arg3:Array<database.TaskListWorkflowStatus>,arg4:Record<number, Array<number>>,arg5:number,arg6:Record<number, number>):Promise<void>;
+
 export function ValidateStatusTransition(arg1:string,arg2:number,arg3:number):Promise<void>;

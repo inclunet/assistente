@@ -4508,6 +4508,8 @@ const es = {
         statusGrid: 'Lista de estados del workflow',
         moveHint: 'Usa Alt+Flechas para reordenar el estado enfocado. Los cambios se guardan automáticamente.',
         emptyStatusName: 'Ponle un nombre al estado',
+        conflict: 'El workflow se modificó en otro lugar, en otra pestaña o por el agente. La pantalla muestra ahora la versión actual; revísala y vuelve a hacer el cambio.',
+        statusGone: 'Este estado ya no existe: se eliminó en otro lugar.',
         colorGroup: 'Color del estado',
         color: {
           blue: 'Azul',
@@ -4540,6 +4542,8 @@ const es = {
         deleteConfirmTitle: 'Eliminar acción',
         deleteConfirm: '¿Eliminar la acción "{{label}}"?',
         saveError: 'Error al guardar acciones: {{error}}',
+        conflict: 'Las acciones se modificaron en otro lugar, en otra pestaña o por el agente. La lista muestra ahora la versión actual; revísala y vuelve a hacer el cambio.',
+        actionGone: 'Esta acción ya no existe: se eliminó en otro lugar.',
         runError: 'Error al ejecutar acción: {{error}}',
         surface: {
           cardMenu: 'Menú de la tarjeta',

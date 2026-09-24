@@ -72,6 +72,10 @@ func (c *TaskListController) SetTaskListCustomActions(ctx context.Context, taskL
 	return c.taskSvc.SetTaskListCustomActions(ctx, taskListID, actionsJSON)
 }
 
+func (c *TaskListController) SetTaskListCustomActionsChecked(ctx context.Context, taskListID, expectedJSON, actionsJSON string) error {
+	return c.taskSvc.SetTaskListCustomActionsChecked(ctx, taskListID, expectedJSON, actionsJSON)
+}
+
 // ==================== Workflow Operations ====================
 
 func (c *TaskListController) GetWorkflow(ctx context.Context, taskListID string) (*database.TaskListWorkflow, error) {
@@ -84,6 +88,10 @@ func (c *TaskListController) UpdateWorkflow(ctx context.Context, taskListID stri
 
 func (c *TaskListController) UpdateWorkflowFull(ctx context.Context, taskListID string, statuses []database.TaskListWorkflowStatus, transitions map[int][]int, initialStatusID int, statusMigration map[int]int) error {
 	return c.taskSvc.UpdateWorkflowFull(ctx, taskListID, statuses, database.TaskListWorkflowTransitions(transitions), initialStatusID, statusMigration)
+}
+
+func (c *TaskListController) UpdateWorkflowFullChecked(ctx context.Context, taskListID string, expected database.TaskListWorkflowSnapshot, statuses []database.TaskListWorkflowStatus, transitions map[int][]int, initialStatusID int, statusMigration map[int]int) error {
+	return c.taskSvc.UpdateWorkflowFullChecked(ctx, taskListID, expected, statuses, database.TaskListWorkflowTransitions(transitions), initialStatusID, statusMigration)
 }
 
 func (c *TaskListController) GetTaskCountsByStatus(ctx context.Context, taskListID string) (map[int]int64, error) {

@@ -15,6 +15,13 @@ export interface TaskListWorkflowStatus {
 
 export type WorkflowTransitions = Record<number, number[]>;
 
+/** Estado do workflow que o editor leu; espelha database.TaskListWorkflowSnapshot. */
+export interface TaskListWorkflowSnapshot {
+  statuses: TaskListWorkflowStatus[];
+  transitions: WorkflowTransitions;
+  initialStatusId: number;
+}
+
 export interface TaskListWorkflow {
   id: string;
   taskListId: string;

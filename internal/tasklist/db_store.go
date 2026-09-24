@@ -124,6 +124,13 @@ func (s *DBStore) SetTaskListCustomActions(ctx context.Context, taskListID strin
 	return database.SetTaskListCustomActionsWithContext(ctx, taskListID, actionsJSON)
 }
 
+func (s *DBStore) SetTaskListCustomActionsChecked(ctx context.Context, taskListID, expectedJSON, actionsJSON string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.SetTaskListCustomActionsCheckedWithContext(ctx, taskListID, expectedJSON, actionsJSON)
+}
+
 func (s *DBStore) SetTaskListViewMode(ctx context.Context, id string, viewMode string) error {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return err
@@ -187,6 +194,13 @@ func (s *DBStore) UpdateWorkflowFull(ctx context.Context, taskListID string, sta
 		return err
 	}
 	return database.UpdateWorkflowFullWithContext(ctx, taskListID, statuses, transitions, initialStatusID, statusMigration)
+}
+
+func (s *DBStore) UpdateWorkflowFullChecked(ctx context.Context, taskListID string, expected database.TaskListWorkflowSnapshot, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateWorkflowFullCheckedWithContext(ctx, taskListID, expected, statuses, transitions, initialStatusID, statusMigration)
 }
 
 func (s *DBStore) GetTaskCountsByStatus(ctx context.Context, taskListID string) (map[int]int64, error) {
