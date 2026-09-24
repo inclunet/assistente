@@ -473,6 +473,16 @@ registrado com etapa e identificadores antes da conversão para erro genérico
 da UI; `TestLifecycleKeepsOperationalCauseOutOfPublicResult` verifica a
 preservação da causa sem copiar os argumentos da tool para o log.
 
+A criação de um catálogo archival ausente é parte da mesma transação de
+`Repository.Create`, após validar a origem. O serviço resolve identidades
+existentes sem escrever; a opção `ArchivalToolName` delega o catálogo novo
+ao mesmo caminho de criação da invocação. Falha na origem ou no INSERT não
+deixa catálogo novo órfão e não apaga catálogos pré-existentes.
+`TestLifecycleArchivalCatalogRollsBackWithInvocation` e
+`TestLifecycleArchivalCatalogAndInvocationCommitTogether` cobrem execução
+local, MCP e observação externa, inclusive origem de outro usuário e falha
+de INSERT após a criação do catálogo.
+
 - [x] 100% do legado representado no ledger; ambiguidades iguais a zero.
 - [x] Contagens iguais antes/depois; divergência apenas de hash é registrada
       como aviso de auditoria (`hash_mismatch`), não bloqueia (ver D5).

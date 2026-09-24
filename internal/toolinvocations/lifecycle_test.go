@@ -37,11 +37,11 @@ func (r *lifecycleRepository) check(ctx context.Context, stage string) error {
 	return nil
 }
 
-func (r *lifecycleRepository) Create(ctx context.Context, inv *Invocation) error {
+func (r *lifecycleRepository) Create(ctx context.Context, inv *Invocation, options ...CreateOptions) error {
 	if err := r.check(ctx, "create"); err != nil {
 		return err
 	}
-	return r.DBRepository.Create(ctx, inv)
+	return r.DBRepository.Create(ctx, inv, options...)
 }
 func (r *lifecycleRepository) MarkRunning(ctx context.Context, id string, at time.Time) error {
 	if err := r.check(ctx, "running"); err != nil {
@@ -351,6 +351,105 @@ func TestLifecycleKeepsOperationalCauseOutOfPublicResult(t *testing.T) {
 			}
 			if strings.Contains(result.Execution.Result.Content, cause) {
 				t.Fatal("internal cause leaked into public tool result")
+			}
+		})
+	}
+}
+
+func TestLifecycleArchivalCatalogRollsBackWithInvocation(t *testing.T) {
+	for _, mode := range []string{"execute", "record", "observation"} {
+		for _, failure := range []string{"missing-origin", "foreign-origin", "insert", "insert-existing-catalog"} {
+			t.Run(mode+"/"+failure, func(t *testing.T) {
+				base, user, _ := setupRepositoryTest(t)
+				db := database.DB()
+				// Força também os caminhos local e MCP a precisar de archival.
+				if err := db.Delete(&database.ToolCatalog{}, "name = ?", "echo").Error; err != nil {
+					t.Fatal(err)
+				}
+				name := "echo"
+				if mode == "observation" {
+					name = "external__echo"
+				}
+				var existingID string
+				if failure == "insert-existing-catalog" {
+					var err error
+					existingID, err = base.ResolveOrCreateArchivalToolCatalogID(user, name)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				switch failure {
+				case "missing-origin":
+					if err := db.Delete(&database.ChatMessage{}, "id = ?", "turn-1").Error; err != nil {
+						t.Fatal(err)
+					}
+				case "foreign-origin":
+					if err := db.Model(&database.ChatMessage{}).Where("id = ?", "turn-1").Update("conversation_id", "conv-b").Error; err != nil {
+						t.Fatal(err)
+					}
+				default:
+					// Falha depois da criação do catálogo dentro da transação.
+					if err := db.Exec("CREATE TRIGGER reject_test_invocation BEFORE INSERT ON tool_invocations BEGIN SELECT RAISE(ABORT, 'injected invocation failure'); END").Error; err != nil {
+						t.Fatal(err)
+					}
+				}
+				calls := 0
+				registry := tools.NewRegistry()
+				registry.MustRegister(countingTool{calls: &calls})
+				svc := NewService(base, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+				_, persisted := runLifecycleEntry(svc, user, mode)
+				if persisted || calls != 0 {
+					t.Fatalf("failed insert executed or persisted: persisted=%v calls=%d", persisted, calls)
+				}
+				var catalogs []database.ToolCatalog
+				if err := db.Where("name = ?", name).Find(&catalogs).Error; err != nil {
+					t.Fatal(err)
+				}
+				if existingID == "" && len(catalogs) != 0 {
+					t.Fatalf("orphan catalogs: %+v", catalogs)
+				}
+				if existingID != "" && (len(catalogs) != 1 || catalogs[0].ID != existingID) {
+					t.Fatal("rollback removed existing catalog")
+				}
+				var count int64
+				if err := db.Model(&database.ToolInvocation{}).Count(&count).Error; err != nil {
+					t.Fatal(err)
+				}
+				if count != 0 {
+					t.Fatalf("failed invocation survived: %d", count)
+				}
+			})
+		}
+	}
+}
+
+func TestLifecycleArchivalCatalogAndInvocationCommitTogether(t *testing.T) {
+	for _, mode := range []string{"execute", "record", "observation"} {
+		t.Run(mode, func(t *testing.T) {
+			base, user, _ := setupRepositoryTest(t)
+			if err := database.DB().Delete(&database.ToolCatalog{}, "name = ?", "echo").Error; err != nil {
+				t.Fatal(err)
+			}
+			registry := tools.NewRegistry()
+			registry.MustRegister(echoTool{})
+			svc := NewService(base, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+			first, ok := runLifecycleEntry(svc, user, mode)
+			if !ok || first.ToolCatalogID == "" {
+				t.Fatalf("atomic create failed: %+v", first)
+			}
+			second, ok := runLifecycleEntry(svc, user, mode)
+			if !ok || second.ToolCatalogID != first.ToolCatalogID || second.Attempt != 2 {
+				t.Fatalf("archival reuse failed: %+v", second)
+			}
+			var catalogs, invocations int64
+			if err := database.DB().Model(&database.ToolCatalog{}).Count(&catalogs).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := database.DB().Model(&database.ToolInvocation{}).Count(&invocations).Error; err != nil {
+				t.Fatal(err)
+			}
+			if catalogs != 1 || invocations != 2 {
+				t.Fatalf("catalogs=%d invocations=%d", catalogs, invocations)
 			}
 		})
 	}

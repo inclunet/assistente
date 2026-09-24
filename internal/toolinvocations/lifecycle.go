@@ -52,43 +52,38 @@ func (r invocationStart) persistenceCall() tools.ToolCall {
 	return call
 }
 
-func (s *Service) resolveInvocationCatalog(ctx context.Context, req invocationStart) (string, error) {
-	archivalName := ""
+type invocationCatalog struct {
+	id           string
+	archivalName string
+}
+
+// Resolve somente identidades já existentes. Catálogo archival é criado
+// atomicamente com a invocação, depois da validação transacional da origem.
+func (s *Service) resolveInvocationCatalog(ctx context.Context, req invocationStart) (invocationCatalog, error) {
 	if req.observation != nil {
-		archivalName = strings.TrimSpace(req.observation.CatalogName)
-		if archivalName == "" {
-			return "", fmt.Errorf("archival catalog name is required")
+		name := strings.TrimSpace(req.observation.CatalogName)
+		if name == "" {
+			return invocationCatalog{}, fmt.Errorf("archival catalog name is required")
 		}
-	} else {
-		// A identidade canônica vem do nome no escopo do usuário, nunca do
-		// ID sugerido pelo chamador. Não consultar um ID que não será usado.
-		opCtx, cancel := s.persistOpCtx(ctx)
-		id, err := s.repo.ResolveToolCatalogID(opCtx, req.call.Function.Name)
-		cancel()
-		if err == nil {
-			if strings.TrimSpace(id) == "" {
-				return "", fmt.Errorf("tool_catalog_id is required")
-			}
-			return id, nil
-		}
-		if !errors.Is(err, ErrToolCatalogNotFound) {
-			return "", err
-		}
-		archivalName = req.call.Function.Name
-	}
-	repo, ok := s.repo.(interface {
-		ResolveOrCreateArchivalToolCatalogID(context.Context, string) (string, error)
-	})
-	if !ok {
-		return "", fmt.Errorf("archival repository required: %w", ErrToolCatalogNotFound)
+		return invocationCatalog{archivalName: name}, nil
 	}
 	opCtx, cancel := s.persistOpCtx(ctx)
 	defer cancel()
-	id, err := repo.ResolveOrCreateArchivalToolCatalogID(opCtx, archivalName)
-	if err == nil && strings.TrimSpace(id) == "" {
-		err = fmt.Errorf("tool_catalog_id is required")
+	id, err := s.repo.ResolveToolCatalogID(opCtx, req.call.Function.Name)
+	if errors.Is(err, ErrToolCatalogNotFound) {
+		name := strings.TrimSpace(req.call.Function.Name)
+		if name == "" {
+			return invocationCatalog{}, fmt.Errorf("tool name is required")
+		}
+		return invocationCatalog{archivalName: name}, nil
 	}
-	return id, err
+	if err != nil {
+		return invocationCatalog{}, err
+	}
+	if strings.TrimSpace(id) == "" {
+		return invocationCatalog{}, fmt.Errorf("tool_catalog_id is required")
+	}
+	return invocationCatalog{id: id}, nil
 }
 
 func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Invocation, error) {
@@ -129,7 +124,7 @@ func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Inv
 		}
 	}
 	queuedAt := s.now()
-	catalogID, err := s.resolveInvocationCatalog(persistCtx, req)
+	catalog, err := s.resolveInvocationCatalog(persistCtx, req)
 	if err != nil {
 		s.recordPersistenceFailure()
 		logInvocationPersistenceFailure(ctx, "resolve_catalog", origin, "", err)
@@ -141,7 +136,7 @@ func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Inv
 	}
 	call := req.persistenceCall()
 	inv := Invocation{
-		ToolCatalogID: catalogID, OriginType: origin.Type, OriginID: origin.ID,
+		ToolCatalogID: catalog.id, OriginType: origin.Type, OriginID: origin.ID,
 		ConversationID: origin.ConversationID, TurnID: origin.TurnID,
 		ParentInvocationID: parentID, ToolCallID: req.call.ID, Attempt: 1,
 		Status: StatusQueued, DryRun: req.dryRun, ModelIteration: req.iteration,
@@ -160,7 +155,7 @@ func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Inv
 		populateInputProjection(&inv)
 	}
 	opCtx, cancel := s.persistOpCtx(persistCtx)
-	err = s.repo.Create(opCtx, &inv)
+	err = s.repo.Create(opCtx, &inv, CreateOptions{ArchivalToolName: catalog.archivalName})
 	cancel()
 	if err != nil {
 		s.recordPersistenceFailure()
