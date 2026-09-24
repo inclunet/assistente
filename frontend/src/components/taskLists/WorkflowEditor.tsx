@@ -16,6 +16,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { useGridFocus } from '../../hooks/useGridFocus';
 import { useInitialContentFocus } from '../../hooks/useInitialContentFocus';
 import { useNewItemShortcut } from '../../hooks/useNewItemShortcut';
+import { enqueueSave } from '../../lib/serialSaveQueue';
 import { useUIStore } from '../../store/uiStore';
 import type {
   TaskListWorkflowStatus,
@@ -57,6 +58,8 @@ interface WorkflowEditorProps {
     initialStatusId: number,
     statusMigration: Record<number, number>,
   ) => Promise<void>;
+  /** Chave da fila de salvamentos compartilhada (ver `serialSaveQueue`). */
+  saveQueueKey?: string;
 }
 
 interface StatusDraft {
@@ -151,6 +154,7 @@ export default function WorkflowEditor({
   workflow,
   taskCountsByStatus = {},
   onSave,
+  saveQueueKey,
 }: WorkflowEditorProps) {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
@@ -184,15 +188,18 @@ export default function WorkflowEditor({
   // Salvamentos em fila, na ordem das alterações. Cada alteração é uma
   // transformação aplicada, na hora do envio, sobre o último workflow aceito
   // pelo backend: uma alteração recusada não contamina as seguintes. Se algo
-  // falhar, a tela volta a esse estado quando a fila esvaziar.
+  // falhar, a tela volta a esse estado quando a fila esvaziar. A fila é a
+  // compartilhada de `saveQueueKey`, para quem reabre o editor esperar também
+  // as alterações que ainda não saíram.
   const persistedRef = useRef<WorkflowState>(wf);
-  const chainRef = useRef<Promise<unknown>>(Promise.resolve());
   const pendingRef = useRef(0);
   const failedRef = useRef(false);
+  const instanceQueueId = useId();
+  const queueKey = saveQueueKey ?? `workflow-editor:${instanceQueueId}`;
 
   const persist = useCallback((change: WorkflowChange, statusMigration: Record<number, number> = {}) => {
     pendingRef.current += 1;
-    const run = chainRef.current.then(async () => {
+    return enqueueSave(queueKey, async () => {
       try {
         const next = change(persistedRef.current);
         const cleanTransitions: WorkflowTransitions = {};
@@ -213,9 +220,7 @@ export default function WorkflowEditor({
         }
       }
     });
-    chainRef.current = run;
-    return run;
-  }, [onSave, t, addToast]);
+  }, [queueKey, onSave, t, addToast]);
 
   // Ao entrar na tela, o foco vai para o grid de status.
   useInitialContentFocus(rootRef, true, () => {

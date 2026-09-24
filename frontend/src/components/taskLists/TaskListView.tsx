@@ -22,6 +22,7 @@ import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
 import { MenuButton } from '../layout/MenuButton';
 import { openTaskLink } from '../../lib/deepLinks';
+import { taskListWorkflowSaveKey, whenSavesSettled } from '../../lib/serialSaveQueue';
 import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
@@ -297,6 +298,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
   const handleOpenWorkflowEditor = useCallback(async () => {
     try {
+      // Reaberto logo após fechar no meio de um salvamento: o workflow e as
+      // contagens só são lidos depois que ele termina.
+      await whenSavesSettled(taskListWorkflowSaveKey(taskListId));
       const counts = await getTaskCountsByStatus(taskListId);
       setTaskCountsByStatus(counts);
       setIsWorkflowEditorOpen(true);
@@ -743,6 +747,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               workflow={taskList.workflow}
               taskCountsByStatus={taskCountsByStatus}
               onSave={handleSaveWorkflow}
+              saveQueueKey={taskListWorkflowSaveKey(taskListId)}
             />
           </Suspense>
         </Modal>

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import WorkflowEditor from './WorkflowEditor';
 import { Modal } from '../ui/Modal';
 import { DATAGRID_ENTRY_SELECTOR } from '../ui/DataGrid';
+import { whenSavesSettled } from '../../lib/serialSaveQueue';
 import type { TaskListWorkflow } from '../../types/tasklist';
 
 const mockAddToast = vi.fn();
@@ -181,6 +182,27 @@ describe('WorkflowEditor', () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
     resolvers[1]();
     expect(onSave.mock.calls[1][0].map((s) => s.id)).toEqual([1, 2]);
+  });
+
+  it('a fila compartilhada inclui as alterações que ainda aguardam a vez', async () => {
+    const resolvers: Array<() => void> = [];
+    const onSave = vi.fn(() => new Promise<void>((res) => { resolvers.push(res); }));
+    const key = 'teste:workflow-fila';
+    const { unmount } = render(<WorkflowEditor workflow={workflow} onSave={onSave} saveQueueKey={key} />);
+    const grid = await screen.findByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: 'ArrowDown', altKey: true });
+    fireEvent.keyDown(grid, { key: 'ArrowUp', altKey: true });
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    // Fechar o editor não descarta o que ainda não saiu.
+    unmount();
+    let settled = false;
+    void whenSavesSettled(key).then(() => { settled = true; });
+    resolvers[0]();
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+    expect(settled).toBe(false);
+    resolvers[1]();
+    await waitFor(() => expect(settled).toBe(true));
   });
 
   it('reordenar enquanto uma remoção está salvando não traz o status de volta', async () => {

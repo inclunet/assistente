@@ -8,6 +8,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { useGridFocus } from '../../hooks/useGridFocus';
 import { useInitialContentFocus } from '../../hooks/useInitialContentFocus';
 import { useNewItemShortcut } from '../../hooks/useNewItemShortcut';
+import { enqueueSave, taskListCustomActionsSaveKey, whenSavesSettled } from '../../lib/serialSaveQueue';
 import type { CustomAction, CustomActionSurface } from '../../types/tasklist';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -80,8 +81,8 @@ function surfaceLabels(t: (key: string, fallback: string) => string, surfaces?: 
 /**
  * Editor das custom actions (AEP-0067) de uma TaskList, no padrão do sistema:
  * Toolbar (Nova/Editar/Apagar) + DataGrid + modal de edição por ação.
- * As operações alteram o rascunho local; a persistência continua em lote no
- * Salvar, serializando para o JSON de TaskList.CustomActions.
+ * Cada criação, edição ou exclusão persiste na hora a lista inteira como o
+ * JSON de TaskList.CustomActions; não há rascunho nem Salvar em lote.
  */
 export default function CustomActionsEditor({ taskListId, onSaved }: CustomActionsEditorProps) {
   const { t } = useTranslation();
@@ -106,7 +107,9 @@ export default function CustomActionsEditor({ taskListId, onSaved }: CustomActio
 
   useEffect(() => {
     let cancelled = false;
-    getTaskListCustomActions(taskListId)
+    // Reaberto logo após fechar no meio de um salvamento: lê só depois dele.
+    whenSavesSettled(taskListCustomActionsSaveKey(taskListId))
+      .then(() => getTaskListCustomActions(taskListId))
       .then((res) => {
         if (!cancelled) setActions((res.actions ?? []).map(withUiId));
       })
@@ -169,7 +172,7 @@ export default function CustomActionsEditor({ taskListId, onSaved }: CustomActio
       // Sem ações: persiste string vazia (não `{"actions":[]}`). O backend trata
       // vazio como "sem ações" e isso mantém custom_actions limpo no round-trip/clone.
       const json = cleaned.length > 0 ? JSON.stringify({ actions: cleaned }) : '';
-      await setTaskListCustomActions(taskListId, json);
+      await enqueueSave(taskListCustomActionsSaveKey(taskListId), () => setTaskListCustomActions(taskListId, json));
       setActions(next);
       onSaved?.();
       return true;

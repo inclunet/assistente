@@ -152,7 +152,9 @@ detalhes (`TaskDetailModal`) e/ou pelo menu do board.
   (falha mantém o modal do item aberto com o rascunho). A tela não tem mais
   Salvar/Cancelar: fecha pelo X ou Esc do Modal. Ctrl+N abre Nova ação quando
   o modal do editor está no topo. O contrato do backend (JSON inteiro por
-  lista) não mudou. Evidência:
+  lista) não mudou. Os salvamentos passam por uma fila por tasklist
+  (`frontend/src/lib/serialSaveQueue.ts`) que sobrevive ao fechamento do
+  modal; reabrir o editor só lê as ações depois que a fila esvazia. Evidência:
   `frontend/src/components/taskLists/CustomActionsEditor.test.tsx` (persiste
   na hora, falha mantém o modal, Ctrl+N sem empilhar, Esc no grid fecha o
   modal).

@@ -273,6 +273,27 @@ describe('CustomActionsEditor', () => {
     expect(await screen.findByRole('row', { name: /X/ })).toBeInTheDocument();
   });
 
+  it('reaberto durante um salvamento em voo, só lê as ações depois que ele termina', async () => {
+    const user = userEvent.setup();
+    let resolveSave!: () => void;
+    mockSetTaskListCustomActions.mockImplementationOnce(() => new Promise<void>((res) => { resolveSave = res; }));
+    const { unmount } = render(<CustomActionsEditor taskListId="1" />);
+    await screen.findByRole('grid');
+    await user.click(screen.getByRole('button', { name: /Nova ação/ }));
+    fireEvent.change(screen.getByLabelText(/ID/), { target: { value: 'x' } });
+    fireEvent.change(screen.getByLabelText(/Rótulo/), { target: { value: 'X' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }));
+    await waitFor(() => expect(mockSetTaskListCustomActions).toHaveBeenCalledTimes(1));
+
+    unmount();
+    render(<CustomActionsEditor taskListId="1" />);
+    await new Promise<void>((r) => { window.setTimeout(r, 20); });
+    expect(mockGetTaskListCustomActions).toHaveBeenCalledTimes(1);
+
+    resolveSave();
+    await waitFor(() => expect(mockGetTaskListCustomActions).toHaveBeenCalledTimes(2));
+  });
+
   it('não rouba foco de fora do editor ao carregar', async () => {
     let resolveLoad!: (value: { actions: unknown[] }) => void;
     mockGetTaskListCustomActions.mockImplementationOnce(
@@ -286,6 +307,7 @@ describe('CustomActionsEditor', () => {
     );
     const ext = screen.getByRole('button', { name: 'Externo' });
     ext.focus();
+    await waitFor(() => expect(mockGetTaskListCustomActions).toHaveBeenCalled());
     resolveLoad({ actions: [{ id: 'x', label: 'X' }] });
     await screen.findByRole('grid');
     await new Promise<void>((r) => { window.setTimeout(r, 50); });
