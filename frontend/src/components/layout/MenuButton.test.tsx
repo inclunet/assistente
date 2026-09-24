@@ -58,6 +58,21 @@ vi.mock('../../hooks/useAnchoredContextMenu', async () => {
 });
 
 describe('MenuButton', () => {
+  it('abre menu ao clicar no botao', async () => {
+    const user = userEvent.setup();
+    render(
+      <MenuButton
+        buttonLabel="Acoes"
+        items={[{ id: 'a', label: 'Acao', icon: '✓' }]}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Acoes' }));
+
+    expect(openForTriggerSpy).toHaveBeenCalled();
+    expect(screen.getByRole('menuitem', { name: 'Acao' })).toBeInTheDocument();
+  });
+
   it('anuncia o menu e seu estado ao abrir pelo teclado', async () => {
     const user = userEvent.setup();
     render(
