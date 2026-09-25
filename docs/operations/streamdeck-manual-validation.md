@@ -4,6 +4,12 @@ Este runbook valida a última parte que não pode ser provada por mock: HID fís
 Ele não habilita comandos de produto; exercita somente o driver real, o runtime
 seguro e o recebimento de uma tecla.
 
+Para validar comandos no aplicativo, use o
+[checklist manual consolidado](../content/guias/VALIDACAO_MANUAL_COMANDOS.md),
+bloco Stream Deck físico. O teste de driver abaixo não precisa ser repetido
+para cada rodada de produto e gera/executa um binário de teste Go; não o use
+como atalho para o aceite de configuração, contexto ou sessão do Windows.
+
 ## Pré-condições
 
 - Go 1.25+ disponível (`go version`).

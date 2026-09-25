@@ -1264,18 +1264,16 @@ function ChatSessionViewContent({
           agentCommands={agentCommands}
           onArrowUp={() => {
             const container = messagesContainerRef.current;
-            if (!container) return;
+            if (!container) return false;
             // Durante o streaming a última mensagem de nível 0 é a que está em
             // curso; focá-la diretamente (em vez de `:last-child`, frágil quando
             // a lista é virtualizada ou há nós auxiliares no fim) garante entrar
             // na lista de forma navegável. (Issue #178)
             const rootMessages = container.querySelectorAll<HTMLElement>('[data-message-node][data-level="0"]');
             const lastMessage = rootMessages[rootMessages.length - 1] ?? null;
-            if (lastMessage) {
-              lastMessage.focus();
-            } else {
-              container.focus();
-            }
+            if (!lastMessage) return false;
+            lastMessage.focus();
+            return document.activeElement === lastMessage;
           }}
         />
       </div>

@@ -2180,6 +2180,107 @@ describe('Topbar', () => {
     } finally { root.remove(); view.unmount(); }
   });
 
+  it('continua navegando por teclado após a página anterior perder seu controle focado', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    keyboardState.loadMap.mockResolvedValue({ generation: 'route-focus-transition', bindings: [
+      { shortcut: { version: 1, code: 'KeyC', modifiers: ['Alt'] }, commandId: 'navigation.settings.open', handler: 'local_ui' },
+      { shortcut: { version: 1, code: 'KeyJ', modifiers: ['Alt'] }, commandId: 'navigation.jobs.open', handler: 'local_ui' },
+      { shortcut: { version: 1, code: 'KeyH', modifiers: ['Alt'] }, commandId: 'navigation.history.open', handler: 'local_ui' },
+    ] });
+    const view = render(<CommandContextProvider><Topbar /></CommandContextProvider>);
+    try {
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { screen.getByRole('button', { name: 'commandPalette.title' }).focus(); });
+      for (const [code, route] of [['KeyC', '/settings'], ['KeyJ', '/jobs'], ['KeyH', '/history']]) {
+        await act(async () => {
+          document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { code, key: code.slice(-1).toLowerCase(), altKey: true, bubbles: true, cancelable: true }));
+          document.activeElement!.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true }));
+        });
+        expect(navigateSpy).toHaveBeenLastCalledWith(route);
+        await act(async () => {
+          (document.activeElement as HTMLElement).blur();
+          locationState.pathname = route;
+          locationState.key = route;
+          view.rerender(<CommandContextProvider><Topbar /></CommandContextProvider>);
+        });
+        expect(document.activeElement).toBe(document.body);
+      }
+      expect(navigateSpy).toHaveBeenCalledTimes(3);
+      expect(keyboardState.dispatch).not.toHaveBeenCalled();
+      expect(keyboardState.beginUI).not.toHaveBeenCalled();
+      expect(executionState.port.beginUICommand).not.toHaveBeenCalled();
+    } finally { view.unmount(); }
+  });
+
+  it('mantém Deck e Ctrl+Tab operantes entre abas quando o painel anterior perde o foco', async () => {
+    setupNavigationTabs();
+    locationState.pathname = '/';
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    keyboardState.loadMap.mockResolvedValue({ generation: 'deck-tab-focus-transition', bindings: [
+      { shortcut: { version: 1, code: 'Tab', modifiers: ['Control'] }, commandId: 'workspace.tab.next', handler: 'local_ui' },
+    ] });
+    const root = document.createElement('div');
+    root.className = 'workspace-layout';
+    root.innerHTML = '<div class="ws-content__panel" data-tab-id="tab-a"><textarea></textarea></div>';
+    document.body.append(root);
+    const view = render(<CommandContextProvider><Topbar /></CommandContextProvider>);
+    const deck = (commandId: string) => keyboardState.handlers.get('command:deck-local-ui')?.({
+      commandId, generation: 'deck-tab-focus-transition', userId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
+    });
+    try {
+      await act(async () => { await Promise.resolve(); });
+      root.querySelector('textarea')!.focus();
+      await act(async () => { deck('workspace.tab.second'); });
+      expect(workspaceState.workspace.activeTabId).toBe('nav-2');
+      // WorkspaceContent blurs the old panel when it becomes hidden. The next
+      // command must not require a window blur/focus or a map reload to work.
+      await act(async () => {
+        (root.firstElementChild as HTMLElement).hidden = true;
+        root.querySelector('textarea')!.blur();
+      });
+      expect(document.activeElement).toBe(document.body);
+      await act(async () => { deck('workspace.tab.first'); });
+      expect(workspaceState.workspace.activeTabId).toBe('tab-a');
+      await act(async () => {
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', ctrlKey: true, bubbles: true, cancelable: true }));
+        document.body.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab', code: 'Tab', bubbles: true }));
+      });
+      expect(workspaceState.workspace.activeTabId).toBe('nav-2');
+      await act(async () => { deck('workspace.tab.first'); deck('workspace.tab.second'); });
+      expect(workspaceState.workspace.activeTabId).toBe('nav-2');
+      expect(workspaceState.setActiveTab).toHaveBeenCalledTimes(5);
+      expect(keyboardState.dispatch).not.toHaveBeenCalled();
+      expect(keyboardState.beginUI).not.toHaveBeenCalled();
+      expect(executionState.port.beginUICommand).not.toHaveBeenCalled();
+    } finally { view.unmount(); root.remove(); }
+  });
+
+  it.each(['modal', 'window-unfocused', 'session', 'generation', 'expired'] as const)(
+    'navegação do Deck com foco no documento preserva a barreira %s', async (barrier) => {
+      const now = Date.now();
+      const focused = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+      keyboardState.loadMap.mockResolvedValue({ generation: 'body-guard', validUntil: now + 60_000, bindings: [] });
+      const view = render(<Topbar />);
+      const payload = { commandId: 'navigation.settings.open', generation: 'body-guard', userId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a' };
+      try {
+        await act(async () => { await Promise.resolve(); });
+        expect(document.activeElement).toBe(document.body);
+        await act(async () => { keyboardState.handlers.get('command:deck-local-ui')?.(payload); });
+        expect(navigateSpy).toHaveBeenCalledExactlyOnceWith('/settings');
+        navigateSpy.mockClear();
+        if (barrier === 'modal') modalState.open = true;
+        if (barrier === 'window-unfocused') focused.mockReturnValue(false);
+        if (barrier === 'session') payload.sessionId = 'other-session';
+        if (barrier === 'generation') payload.generation = 'old-map';
+        if (barrier === 'expired') vi.spyOn(Date, 'now').mockReturnValue(now + 60_001);
+        await act(async () => { keyboardState.handlers.get('command:deck-local-ui')?.(payload); });
+        expect(navigateSpy).not.toHaveBeenCalled();
+        expect(keyboardState.dispatch).not.toHaveBeenCalled();
+        expect(executionState.port.beginUICommand).not.toHaveBeenCalled();
+      } finally { modalState.open = false; view.unmount(); }
+    },
+  );
+
   it('foca o destino da navegação após a atualização local imediata', async () => {
     setupNavigationTabs();
     locationState.pathname = '/';

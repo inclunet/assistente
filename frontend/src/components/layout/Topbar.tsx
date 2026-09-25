@@ -560,6 +560,11 @@ export function Topbar() {
         mapOwner.workspaceId !== currentWorkspace.id || localKeyboardGenerationRef.current === null) return false;
     const isTabNavigation = isWorkspaceTabNavigationCommand(commandID);
     const focusSnapshot = ReadFocusContext();
+    // A route/panel transition can legitimately leave focus on the document.
+    // Navigation needs the current window/map, not a surviving input from the
+    // previous page. Contextual effects still require their own target proof.
+    const validNavigationWithoutControl = document.activeElement === document.body &&
+      (isCommandNavigation(commandID) || isTabNavigation);
     let validPagePresentationWithoutControl = false;
     if (!focusSnapshot.control && isPagePresentationCommand(commandID)) {
       const target = capturePagePresentationTarget(() => pathnameRef.current, commandID);
@@ -570,7 +575,7 @@ export function Topbar() {
       }
     }
     if (!focusSnapshot.hasFocus || focusSnapshot.detached ||
-        (!focusSnapshot.control && !validPagePresentationWithoutControl) ||
+        (!focusSnapshot.control && !validPagePresentationWithoutControl && !validNavigationWithoutControl) ||
         focusSnapshot.control?.capabilities.disabled) return false;
     const unknownCompositionAllowed =
       ((isTabNavigation || isChatPicker || isCommandNavigation(commandID) || commandUIHandlers.has(commandID)) &&

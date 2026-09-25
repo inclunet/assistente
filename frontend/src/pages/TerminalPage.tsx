@@ -378,16 +378,14 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     }));
   }, [panelTab.id, panelTab.state, t]);
 
-  const handleArrowUp = useCallback(() => {
+  const handleArrowUp = useCallback((): boolean => {
     const container = historyContainerRef.current;
-    if (container) {
-      const nodes = container.querySelectorAll('.terminal-node');
-      if (nodes.length > 0) {
-        const lastNode = nodes[nodes.length - 1] as HTMLElement;
-        lastNode.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        lastNode.focus();
-      }
-    }
+    const nodes = container?.querySelectorAll<HTMLElement>('.terminal-node');
+    const lastNode = nodes?.[nodes.length - 1];
+    if (!lastNode) return false;
+    lastNode.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    lastNode.focus();
+    return document.activeElement === lastNode;
   }, []);
 
   const handleReachEnd = useCallback(() => {

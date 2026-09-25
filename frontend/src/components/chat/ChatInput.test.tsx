@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, createEvent, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ChatInput } from './ChatInput';
 import type { MediaFile } from '../../services/mediaService';
 
@@ -83,6 +83,23 @@ describe('ChatInput', () => {
 
     expect(onSend).toHaveBeenCalledWith('Oi', undefined);
     expect(textarea).toHaveValue('');
+  });
+
+  it('preserva foco e cursor quando ArrowUp não tem destino de navegação', () => {
+    const onArrowUp = vi.fn(() => false);
+    render(<ChatInput onSend={() => {}} message="rascunho" onMessageChange={vi.fn()} onArrowUp={onArrowUp} />);
+
+    const textarea = screen.getByLabelText('chat.messageLabel') as HTMLTextAreaElement;
+    textarea.focus();
+    textarea.setSelectionRange(0, 0);
+    const event = createEvent.keyDown(textarea, { key: 'ArrowUp' });
+    fireEvent(textarea, event);
+
+    expect(onArrowUp).toHaveBeenCalledOnce();
+    expect(event.defaultPrevented).toBe(false);
+    expect(textarea).toHaveFocus();
+    expect(textarea.selectionStart).toBe(0);
+    expect(textarea.selectionEnd).toBe(0);
   });
 
   it.each([{ repeat: true }, { isComposing: true }, { keyCode: 229 }])('bloqueia envio e cancelamento para evento %j', (flags) => {

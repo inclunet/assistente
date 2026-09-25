@@ -1,5 +1,11 @@
 # Validação final das configurações de comandos com NVDA
 
+Para organizar e registrar a rodada inteira, use o
+[checklist manual consolidado](../VALIDACAO_MANUAL_COMANDOS/).
+Os 13 itens abaixo detalham somente configuração/acessibilidade e estão
+mapeados aos IDs daquele checklist na seção de cobertura. Não são mais 13
+casos a somar aos 48, nem o total de validações do AEP.
+
 Este roteiro qualifica o critério C38 do AEP-0103. Testes automatizados de
 teclado, foco e acessibilidade ajudam, mas não comprovam o que o NVDA realmente
 anuncia. Não marque um item só porque a ação funcionou com o mouse.

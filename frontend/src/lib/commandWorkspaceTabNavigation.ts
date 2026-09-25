@@ -312,7 +312,7 @@ export function captureWorkspaceTabNavigationFocus(
     try {
       return isWorkspaceRoute(readPathname()) && focusUnchanged &&
         currentSnapshot(captured, captured.targetTabId) &&
-        (document.activeElement !== document.body || sourcePanelTransitioned);
+        (document.activeElement !== document.body || sourcePanelTransitioned || captured.focusedElement === document.body);
     } catch {
       return false;
     }

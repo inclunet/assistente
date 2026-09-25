@@ -16,6 +16,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+Correções AEP-0103, seção160 (25/09/2026): continuidade de navegação após
+transição de foco e Seta para cima sem destino no chat/terminal, com regressões
+automatizadas. Latência medida no App fixture não certifica USB/UI real.
+**In Progress; 83 I / 1 P / 0 N**; revalidação humana permanece pendente.
+
 Integração AEP-0103 para PR, seção158: incorpora `origin/main` em `147274d15`,
 preservando autosave e concorrência de tasklists e lifecycle compartilhado de tools com os
 guards de comandos. **In Progress; 83 I / 1 P / 0 N**; validação humana em outro

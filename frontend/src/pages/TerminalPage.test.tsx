@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { WorkspacePanelProvider } from '../components/workspace/WorkspacePanelContext';
@@ -101,7 +101,8 @@ vi.mock('../components/chat/ChatInput', async () => {
       placeholder: string;
       slashMenuEnabled?: boolean;
       onSend: (message: string) => Promise<boolean | void>;
-    }>(({ placeholder, slashMenuEnabled, onSend }, ref) => {
+      onArrowUp?: () => boolean;
+    }>(({ placeholder, slashMenuEnabled, onSend, onArrowUp }, ref) => {
       terminalPageMocks.slashMenuEnabled = slashMenuEnabled;
       terminalPageMocks.onSend = onSend;
       return (
@@ -111,6 +112,8 @@ vi.mock('../components/chat/ChatInput', async () => {
           placeholder={placeholder}
           onKeyDown={(event) => {
             if (event.key === 'Enter') onSend(event.currentTarget.value);
+            if (event.key === 'ArrowUp' && event.currentTarget.selectionStart === 0 &&
+                event.currentTarget.selectionEnd === 0 && onArrowUp?.()) event.preventDefault();
           }}
         />
       );
@@ -359,6 +362,56 @@ describe('TerminalPage', () => {
       expect(historyPresentation?.open('terminal.focus.history')).toBe(true);
     });
     expect(historyNode).toHaveFocus();
+  });
+
+  it('ArrowUp preserva o input sem histórico e só consome após conseguir focar o histórico', () => {
+    const view = renderTerminalPage();
+    const input = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    input.focus();
+    const emptyEvent = createEvent.keyDown(input, { key: 'ArrowUp' });
+    fireEvent(input, emptyEvent);
+    expect(emptyEvent.defaultPrevented).toBe(false);
+    expect(input).toHaveFocus();
+
+    storeState.historyBySession = {
+      'term-1': [{ id: 'entry-1', command: 'echo ok', output: 'ok', exitCode: 0 }],
+    };
+    view.rerender(
+      <MemoryRouter initialEntries={['/terminal']}>
+        <WorkspacePanelProvider value={{ tab: terminalTab, isActive: true }}>
+          <TerminalPage />
+        </WorkspacePanelProvider>
+      </MemoryRouter>,
+    );
+    const historyNode = document.querySelector<HTMLElement>('.terminal-node')!;
+    const focusSpy = vi.spyOn(historyNode, 'focus').mockImplementation(() => {});
+    input.focus();
+    const failedHandoff = createEvent.keyDown(input, { key: 'ArrowUp' });
+    fireEvent(input, failedHandoff);
+    expect(failedHandoff.defaultPrevented).toBe(false);
+    expect(input).toHaveFocus();
+    focusSpy.mockRestore();
+
+    input.focus();
+    const handledHandoff = createEvent.keyDown(input, { key: 'ArrowUp' });
+    fireEvent(input, handledHandoff);
+    expect(handledHandoff.defaultPrevented).toBe(true);
+    expect(historyNode).toHaveFocus();
+
+    storeState.historyBySession = { 'term-1': [] };
+    view.rerender(
+      <MemoryRouter initialEntries={['/terminal']}>
+        <WorkspacePanelProvider value={{ tab: terminalTab, isActive: true }}>
+          <TerminalPage />
+        </WorkspacePanelProvider>
+      </MemoryRouter>,
+    );
+    input.focus();
+    const afterClear = createEvent.keyDown(input, { key: 'ArrowUp' });
+    fireEvent(input, afterClear);
+    expect(afterClear.defaultPrevented).toBe(false);
+    expect(input).toHaveFocus();
+    expect(document.querySelector('.terminal-node')).toBeNull();
   });
 
   it('expõe foco imediato do terminal e move o foco sincronicamente', () => {

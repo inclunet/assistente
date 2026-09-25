@@ -7,6 +7,10 @@ weight: 10
 
 Documentação de referência para build, release e versionamento do Assistente.
 
+Para o aceite do AEP-0103, use o
+[checklist manual de comandos e acionadores](VALIDACAO_MANUAL_COMANDOS/),
+com 48 casos organizados por área, resultados e pré-requisitos.
+
 | Guia | Descrição |
 |---|---|
 | [Build com Versão](BUILD_WITH_VERSION/) | Como buildar o projeto com versionamento |

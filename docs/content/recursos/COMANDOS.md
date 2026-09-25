@@ -11,12 +11,32 @@ separa configurações **globais** das do **workspace atual**. Na visão do
 workspace, itens globais herdados continuam visíveis, mas são editados no
 escopo global. Restaurar o workspace não apaga a configuração global.
 
-## Roteiro manual único — aceite funcional acessível
+## Checklist de aceite e roteiros de referência
 
-Use esta checklist como ponto de entrada para o aceite manual das funções já
-implementadas. Os roteiros especializados abaixo continuam servindo de
-detalhamento, mas não é necessário repetir cada validação acumulada para obter
-uma evidência básica. Faça a execução numa cópia descartável da configuração
+Ao alternar páginas ou abas, os comandos de navegação continuam disponíveis
+mesmo quando o controle da página anterior deixa de existir ou fica oculto.
+Não é necessário sair da janela e voltar entre comandos. As restrições de
+janela ativa, sessão, contexto e modal continuam valendo.
+
+No campo de mensagem, **Seta para cima** só transfere o foco quando existe
+uma mensagem navegável. Em conversa nova ou depois de limpar as mensagens,
+o foco permanece no campo. O terminal segue a mesma regra para seu histórico.
+Menus abertos no campo mantêm sua própria navegação por setas.
+
+Registre os resultados no [checklist manual consolidado](../../guias/VALIDACAO_MANUAL_COMANDOS/):
+**48 casos em 12 blocos**, com IDs, variantes, pré-requisitos, passos, esperado
+e resultado. Ele é o ponto único de acompanhamento da versão em teste.
+Os checklists acumulados abaixo documentam lotes anteriores e detalham
+comportamentos; não são casos extras a somar nem números atuais de catálogo.
+Havendo contagem histórica de comandos, use a disponibilidade real e o
+inventário vigente, não esse número como requisito de aprovação.
+
+### Percurso básico de referência
+
+Este percurso curto ajuda a reconhecer as funções centrais, mas não substitui
+o checklist consolidado nem fornece aceite integral do AEP. Os roteiros
+especializados abaixo continuam servindo de detalhamento. Faça a execução
+numa cópia descartável da configuração
 local, com nomes e conteúdo sintéticos (por exemplo, `Teste AEP 0103`); não
 use contas, mensagens, arquivos, listas ou workspaces reais. Não altere o
 escopo global da instalação habitual. A criação de dados de teste aqui não é

@@ -23,7 +23,8 @@ export interface ChatInputProps {
   disabled?: boolean;
   placeholder?: string;
   maxFiles?: number;
-  onArrowUp?: () => void;
+  /** Devolve true quando o handoff para a lista de mensagens foi realizado. */
+  onArrowUp?: () => boolean;
   /** Se o controle de voz está habilitado */
   voiceEnabled?: boolean;
   message?: string;
@@ -485,8 +486,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     if (e.key === 'ArrowUp' && onArrowUp) {
       const textarea = textareaRef.current;
       if (textarea && textarea.selectionStart === 0 && textarea.selectionEnd === 0) {
-        e.preventDefault();
-        onArrowUp();
+        if (onArrowUp()) e.preventDefault();
       }
     }
   };

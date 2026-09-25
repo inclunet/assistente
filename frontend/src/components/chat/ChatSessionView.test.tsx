@@ -296,12 +296,15 @@ vi.mock('./MessageList', async () => {
 vi.mock('./ChatInput', async () => {
   const React = await import('react');
   return {
-    ChatInput: React.forwardRef<HTMLTextAreaElement, { onSend: (value: string) => void; disabled?: boolean }>(
-      ({ onSend, disabled }, ref) => (
+    ChatInput: React.forwardRef<HTMLTextAreaElement, { onSend: (value: string) => void; disabled?: boolean; onArrowUp?: () => boolean }>(
+      ({ onSend, disabled, onArrowUp }, ref) => (
         <button
           ref={ref as React.RefObject<HTMLButtonElement>}
           type="button"
           disabled={disabled}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowUp' && onArrowUp?.()) event.preventDefault();
+          }}
           onClick={() => onSend('oi')}
         >
           send
@@ -526,6 +529,53 @@ describe('ChatSessionView', () => {
     // O roteamento de painel não sobrepõe a restauração intencional de foco.
     expect(messageNode).toHaveFocus();
     expect(input).not.toHaveFocus();
+  });
+
+  it('ArrowUp mantém o foco no input de conversa vazia', async () => {
+    activeConversation.threadedMessages = [];
+    renderWithPanel(
+      <ChatSessionView variant="page" surface={surface()} onSend={vi.fn()} showShortcutsHelp={false} />,
+    );
+
+    const input = await screen.findByRole('button', { name: 'send' });
+    input.focus();
+    const event = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+    input.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(input).toHaveFocus();
+  });
+
+  it('ArrowUp entra na lista com mensagens e, após limpar, permanece no mesmo input', async () => {
+    activeConversation.threadedMessages = [{
+      message: { id: 'message-before-clear', role: 'assistant', content: 'Conteúdo' },
+      children: [],
+      level: 0,
+    }];
+    const view = renderWithPanel(
+      <ChatSessionView variant="page" surface={surface()} onSend={vi.fn()} showShortcutsHelp={false} />,
+    );
+
+    const input = await screen.findByRole('button', { name: 'send' });
+    input.focus();
+    const handledEvent = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+    input.dispatchEvent(handledEvent);
+    expect(handledEvent.defaultPrevented).toBe(true);
+    expect(view.container.querySelector('[data-message-id="message-before-clear"]')).toHaveFocus();
+
+    activeConversation.threadedMessages = [];
+    view.rerender(
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+        <ChatSessionView variant="page" surface={surface()} onSend={vi.fn()} showShortcutsHelp={false} />
+      </WorkspacePanelProvider>,
+    );
+    input.focus();
+    const emptyEvent = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+    input.dispatchEvent(emptyEvent);
+
+    expect(emptyEvent.defaultPrevented).toBe(false);
+    expect(input).toHaveFocus();
+    expect(view.container.querySelector('[data-message-id="message-before-clear"]')).toBeNull();
   });
 
   it('não registra handler de foco de painel na variante embedded', () => {

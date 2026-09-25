@@ -445,7 +445,20 @@ Arquivos de referência: `aep/0103-comandos-acionadores-e-camadas-contextuais.md
   **Estado reconciliado: Parcial.** Matriz C01–C84 e saídas R reconciliadas individualmente na seção129, com evidências, lacunas e contagens separadas. Faltam aceite final dos critérios, provas compostas de isolamento/desempenho e recertificação dos 84 I; reconciliação documental não equivale a executar essas qualificações. Evidência: seções5,6 e129 desta tasklist.
 - [ ] R12.2 — Concluir roteiro manual de NVDA/configuração/palette/dispositivo, com comando exato, passos, esperado, resultado e checkbox; solicitar ao usuário apenas cenários já implementados e testados automaticamente.
 
-  **Estado reconciliado: Parcial.** Checklists manuais e aceites de uso registrados. Falta: Executar e registrar lote novo, NVDA e cenários físicos completos; pedir só o já implementado. Evidência: seções 57–59, 69–75; `docs/content/recursos/COMANDOS.md`.
+  **Estado reconciliado: Parcial.** Roteiro consolidado em
+  [VALIDACAO_MANUAL_COMANDOS.md](../docs/content/guias/VALIDACAO_MANUAL_COMANDOS.md):
+  48 casos em 12 blocos nomeados, com IDs, variantes, comandos, esperado,
+  resultado e pré-requisitos. Os 13 itens NVDA anteriores estão mapeados sem
+  duplicar contagem. Nenhum caso foi aprovado apenas pela organização documental.
+  Falta executar e registrar a rodada na versão escolhida, incluindo os fluxos
+  condicionais e a qualificação física/acessível. Aceites históricos preservados;
+  isso não fecha R12.1, C38 ou os 84 critérios por equivalência numérica.
+  Evidência anterior: seções 57–59, 69–75; `docs/content/recursos/COMANDOS.md`.
+  Validação documental: 48 IDs únicos, 12 blocos, campos de resultado, links
+  locais Hugo e parse Markdown conferidos; `git diff --check` PASS. Godel
+  conferiu a cobertura; Franklin fez revisão independente em duas rodadas,
+  com ajustes de isolamento e do contrato reativo e sem achados na rodada final.
+  Nenhum aplicativo, teste Go, hardware ou banco foi executado nesta organização.
 - [ ] R12.3 — Atualizar docs/content e índice, AEPs relacionados e inventário; registrar avaliação da fase 7 (pedais/MIDI/dial/capabilities), mantendo controle privilegiado externo/broker físico externo fora do escopo atual conforme AEP.
 
   **Estado reconciliado: Parcial.** AEP/índice/tasklist e topo do inventário atualizados até129, sem reescrever números históricos. Faltam inventário completo de equivalência, sincronização final dos AEPs relacionados e avaliação explícita da fase7 (avaliação, não obrigação de implementar pedais/MIDI/dial nesta rodada). Evidência: `aep/0103-inventario-atalhos.md`, `aep/README.md`, `docs/content/recursos/COMANDOS.md`; seção129.
@@ -10225,3 +10238,176 @@ execução integral do CI, sem promoção de aceite manual.
 Regressões com oito writers em WAL verificam a última vaga do limite e a
 unicidade de slug, incluindo contagens finais de listas/workflows. Esses testes
 e os casos existentes de criação/rollback passaram em cinco repetições locais.
+
+## 159. Aceite manual e separação dos próximos PRs — 25/09/2026
+
+Registro das decisões do mantenedor após a primeira rodada do checklist.
+São pendências e decisões de escopo, não funcionalidades já implementadas.
+O PR atual é #833; seu merge continua sendo decisão do mantenedor e não
+representa, sozinho, conclusão do AEP. Não ampliar esse PR com as melhorias abaixo.
+
+### Bloqueios e verificações do PR atual
+
+- [ ] Investigar e corrigir a perda de navegação após a primeira ação.
+  Relato: Alt+C e outros destinos (Jobs/Histórico) deixam de responder após
+  uma ação. No Stream Deck, tecla 1→aba 1 funciona inicialmente; depois de
+  Ctrl+Tab→aba 2, tecla 1 não volta. Duas teclas apontando às abas 1 e 2
+  também bloqueiam uma à outra: a primeira utilizada funciona e a seguinte
+  não. Sair da janela e voltar recupera o funcionamento no cenário relatado.
+  Atualização de contexto/foco é hipótese, não diagnóstico confirmado.
+- [ ] Cobrir a causa com regressão automatizada e validar a sequência real
+  teclado→Deck, Deck→Deck e navegação entre páginas, sem exigir Alt+Tab como
+  contorno. Preservar barreiras de modal, IME, sessão e autorização.
+- [ ] Corrigir regressão de foco em conversa vazia. Relato do mantenedor:
+  com foco no campo de mensagem e nenhuma mensagem na conversa, pressionar
+  Seta para cima transfere o foco para a região vazia de mensagens; é preciso
+  Escape ou Tab para retornar. Antes, essa transferência não ocorria.
+  Esperado: sem mensagem navegável, Seta para cima mantém o foco no campo,
+  preservando a edição e a movimentação normal do cursor. Não inferir que um
+  comando explícito de focar a região vazia deva ser proibido: o defeito é a
+  transferência por esse gesto do campo. Cobrir conversa nova e conversa
+  após limpeza, preservar navegação quando há mensagens e a prioridade de
+  menus/pickers do campo. Revalidar com teclado/NVDA; causa ainda não investigada.
+- [ ] Investigar latência percebida na navegação pelo Stream Deck. Confirmar
+  que trocar abas, mover foco e abrir páginas usam o caminho local sem auditoria
+  persistida por pressão, independentemente da origem. Medir recebimento,
+  resolução e entrega à UI antes de atribuir o atraso ao banco. Preservar
+  verificações de sessão, contexto e modais; não remover proteção para acelerar.
+  Relato de atraso não é evidência de que o caminho esteja gravando auditoria.
+- [ ] Após a correção, solicitar revalidação curta ao mantenedor, atualizar
+  evidências e conferir CI/review antes de recomendar merge. Sem merge automático.
+
+### PR independente — ativação por página do aplicativo
+
+- [ ] Acrescentar condição de ativação da camada por página: Workspace,
+  Configurações, Jobs, Histórico, Perfis e demais páginas suportadas do app.
+  Definir a lista a partir das rotas reais, sem nomes técnicos expostos.
+- [ ] Distinguir página ativa, tipo de aba, aba específica e foco na barra
+  de abas. Estar na página Workspace não exige foco na barra; trocar de aba
+  dentro dela não desativa uma camada condicionada somente à página.
+- [ ] Atualizar elegibilidade e apresentação do Deck automaticamente ao
+  navegar, sem ativação manual. Combinar com as demais condições e preservar
+  restrições do comando: camada ativa não autoriza execução atrás de modal.
+
+### PR independente — destino de aba sem teto arbitrário
+
+- [ ] Oferecer ação parametrizada **Ir para aba**, com destino por posição
+  inteira positiva, sem limite fixo de 9, 32 ou 64. Não criar uma entrada de
+  catálogo/paleta para cada número. Exibir nomes claros: Aba 1, Aba 2 etc.
+- [ ] Posição inexistente fica indisponível: não criar aba nem escolher outra.
+  Posição acompanha reordenação; manter Ctrl+1…9 como atalhos padrão não limita
+  as posições configuráveis no comando.
+- [ ] Oferecer alternativa **Aba específica**, selecionada pelo nome, que
+  mantém a identidade ao reordenar. Aba fechada fica indisponível, sem trocar
+  silenciosamente de destino. Especificar o comportamento ao trocar workspace.
+
+### PR dependente do destino de aba — apresentação automática no Stream Deck
+
+- [ ] Usar por padrão o nome atual da aba-alvo, abreviado apenas para caber,
+  e ícone do tipo: chat, editor, terminal ou lista de tarefas.
+- [ ] Acompanhar renomeação, reordenação, fechamento e troca de workspace,
+  respeitando a diferença entre posição e identidade de aba.
+- [ ] Título/ícone personalizados permanecem opcionais; não exigir que o
+  usuário preencha informações já disponíveis. Indicar destino indisponível
+  sem manter apresentação enganosa nem executar em outra aba.
+
+### PR próprio — simplificação dos gerenciadores de configuração
+
+- [ ] Conferir e reutilizar o padrão existente nas opções/configurações das
+  listas de tarefas, incluindo gerenciadores de workflows e ações personalizadas.
+- [ ] Tela principal centrada em uma lista de camadas, estado ativo/inativo,
+  resumo de por que/quando está ativa e ações básicas de criar/renomear/excluir.
+- [ ] Menu **Configurações** da camada abre gerenciadores separados:
+  **Comandos e acionadores** e **Regras de ativação**, cada um em seu modal,
+  com grid e operações próprias. Preferência aprovada: separados, não painel
+  de guias reunindo novamente os dois gerenciadores.
+- [ ] Manter opções avançadas nos formulários correspondentes, navegação
+  consistente por teclado/NVDA e retorno de foco à camada ao fechar.
+
+Condição de página e destino de aba podem avançar em paralelo após combinar
+contratos. Apresentação automática depende do destino de aba. Reorganização
+visual pode avançar em paralelo com coordenação sobre formulários compartilhados.
+Antes de implementar cada extensão, atualizar seus contratos no AEP/inventário
+e definir testes/gate do PR; não declarar implementação a partir deste registro.
+
+### Rodadas manuais e resultados relatados
+
+O [checklist consolidado](../docs/content/guias/VALIDACAO_MANUAL_COMANDOS.md)
+continua com 48 casos. Ao conversar com o mantenedor, apresentar somente
+**1 a 5 por rodada**, com passos curtos, mantendo IDs técnicos neste registro.
+Corrigir ao final e reavaliar falhas/caminhos afetados, salvo o bloqueio básico
+acima, cuja correção foi antecipada. A rodada de testes está pausada por ele.
+
+- Primeiro lote: UI01 e UI02 passaram; UI03 não executado por falta de clareza
+  para favoritar; UI04 passou inicialmente, mas foi reaberto pela falha de
+  navegação; UI05 inconclusivo, repetir no final.
+- Segundo lote (1–5): UI06, CF01, CF02 e CF05 receberam “ok”; CF03 adiado.
+  Esses relatos cobrem os passos enviados, não variantes omitidas dos casos
+  extensos. CF02 recebeu confirmação de gravação; confirmar o ingresso usado,
+  pois o mantenedor relatou ter preferido capturar uma tecla do Deck.
+- Relato adicional: SD04 falhou na continuidade de navegação descrita acima.
+  Captura e primeira execução do Deck funcionaram após ativação manual; isso
+  não aprova automaticamente todas as variantes de SD01/SD04.
+- Terceiro lote não executado: CF04, CF06, CF07, CF08 e parte de CA02.
+  Nenhum deve receber PASS por ausência de relato de falha.
+
+Correção do placar conversacional: ao reabrir UI04, a conta antes informada
+como 7 aprovados / 2 falhas / 39 pendentes o contava duas vezes. O registro
+sem duplicação é **6 casos com aprovação relatada / 2 com falha / 40 pendentes**.
+Isso não é aceite integral de todas as variantes nem altera C01–C84. Na retomada,
+explicitar as variantes faltantes sem exigir repetição do que já foi observado.
+
+## 160. Correções dos achados manuais antes do merge — 25/09/2026
+
+Escopo acordado: corrigir regressões deste PR; manter as extensões da seção159
+para PRs menores após o merge. Não houve mudança de contrato de autorização,
+remoção de auditoria de ações persistentes ou aceite manual presumido.
+
+- [x] Reproduzir em teste a navegação que para após o controle anterior perder
+  foco. A transição de página remove o controle; a de aba oculta o painel e
+  executa blur. O foco passa ao documento, mas o dispatcher exigia um controle
+  sobrevivente até para abrir páginas/trocar abas. Ambos os testes falharam
+  antes da correção e passaram depois dela.
+- [x] Permitir exclusivamente a navegação local com foco no documento,
+  preservando janela ativa, modal, IME, dono/sessão, mapa vigente e validação
+  específica do alvo. Testes cobrem teclado→página, Deck→Deck, Ctrl+Tab→Deck
+  e recusas por modal, janela sem foco, sessão, geração e validade do evento.
+- [x] Restaurar foco de destino quando a nova navegação começa no documento;
+  não roubar foco se o usuário selecionar outro controle durante a transição.
+- [x] No campo de chat, consumir Seta para cima somente após focar uma mensagem
+  existente. Conversa nova e conversa limpa não enviam foco à região vazia.
+  Adaptar o outro consumidor de ChatInput, o terminal, ao mesmo contrato
+  booleano e cobrir histórico vazio, limpo e tentativa de foco malsucedida.
+- [x] Investigar o caminho de navegação do Deck: não passa pelo ledger.
+  `TestCommandDeckAppLatency` passou em fixture temporária, incluindo a
+  asserção de zero invocações persistidas de `navigation.settings.open`.
+  Windows/Go 1.26.2, 10 aquecimentos e 100 amostras por cenário: input→emissão
+  estável p95 0,526 ms / p99 1,011 ms; após mutação de camada p95 1,011 ms /
+  p99 1,149 ms. Mutação e rebuild da camada (fora do caminho estável por tecla) p95
+  96,533 ms. Amostras zeradas são inferiores à resolução do relógio, não
+  execução instantânea. A revalidação de sessão permanece obrigatória.
+  Execução focada desta rodada: `$env:COMMAND_APP_LATENCY='1'; go test
+  ./internal/app -run '^TestCommandDeckAppLatency$' -count=1 -v`, encerrada
+  com PASS em 11,403 s. Os logs integrais históricos que registram SKIP não
+  são a evidência desta execução opt-in.
+- [x] Revisão estática adicional do runtime: leitura de tecla é orientada a
+  eventos; não espera o ticker de um segundo. Escrita HID e dispatch partilham
+  mutex, de modo que renderização condicional pode atrasar uma tecla. Não há
+  reenvio de imagens em cada tick estável. Não alterar esse contrato sem prova
+  e testes de concorrência: esta análise não demonstra a causa da demora física.
+- [x] Regressão frontend: 22 arquivos / **1.138 testes PASS**, incluindo todos
+  os testes Topbar, navegação de abas, ChatInput, ChatSessionView e TerminalPage.
+  TypeScript isolado e ESLint dos dez arquivos alterados passaram.
+- [x] Revisor independente Lagrange: primeira rodada apontou o consumidor
+  TerminalPage incompatível com o callback booleano; corrigido por Beauvoir.
+  Segunda rodada sem pendências funcionais. Rótulo de teste `owner` ajustado
+  para `session`, pois esse caso altera a sessão. Revisão não substitui testes.
+- [ ] Repetir no app físico a sequência de páginas e de abas pelo teclado/Deck,
+  sem Alt+Tab intermediário; conferir foco/NVDA em conversa vazia e populada.
+- [ ] Reavaliar latência percebida no dispositivo. A medição acima termina
+  na emissão do evento: não mede USB, transporte Wails nem renderização visual.
+  Portanto não é evidência de que o atraso físico relatado foi resolvido.
+
+Não há promoção de UI04/SD04 a PASS nem alteração de C01–C84. CI remoto e
+review do novo commit devem ser conferidos antes de recomendar merge, que
+permanece decisão do mantenedor. As pendências manuais da seção159 continuam.

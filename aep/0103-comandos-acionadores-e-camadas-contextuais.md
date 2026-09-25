@@ -2,6 +2,14 @@
 
 **Status:** In Progress
 
+**Correções da validação — seção160 (25/09/2026):** navegação local pode
+continuar após a transição deixar o foco no documento, sem dispensar sessão,
+mapa vigente, janela ativa, modal ou prova de alvo de ações contextuais.
+Seta para cima no campo de chat/terminal só é consumida quando consegue
+focar uma mensagem/item existente. Regressões automatizadas e investigação
+de latência estão na tasklist; revalidação física/NVDA permanece pendente.
+Não altera a contagem 83 I / 1 P nem promove o AEP a Done.
+
 **Integração para PR — seção158 (24/09/2026):** atualização com `origin/main`
 em `147274d15`, preservando autosave e concorrência de tasklists e lifecycle unificado de tools,
 com os guards e a redação de comandos. A publicação prepara testes em outro

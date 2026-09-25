@@ -173,6 +173,21 @@ describe('workspace tab navigation commands', () => {
     lease?.dispose();
   });
 
+  it.each([false, true])('restaura foco de navegação iniciada no documento; outro controle recebe foco=%s', (focusChanged) => {
+    const f = fixture();
+    expect(document.activeElement).toBe(document.body);
+    const destination = f.button('b')!;
+    const immediate = vi.fn(() => { destination.focus(); return true; });
+    cleanups.push(registerWorkspacePanelFocus('b', immediate, immediate, () => true));
+    const lease = captureWorkspaceTabNavigationFocus(f.readPathname, 'workspace.tab.next');
+    useWorkspaceStore.setState({ workspace: makeWorkspace(['a', 'b', 'c'], 'b') });
+    if (focusChanged) f.sourceFocus.focus();
+    lease?.apply();
+    expect(document.activeElement).toBe(focusChanged ? f.sourceFocus : destination);
+    expect(immediate).toHaveBeenCalledTimes(focusChanged ? 0 : 1);
+    lease?.dispose();
+  });
+
   it('foca destino pelo registry imediato após a transição esperada', () => {
     const f = fixture();
     f.sourceFocus.focus();
