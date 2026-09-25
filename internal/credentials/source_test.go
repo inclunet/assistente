@@ -43,7 +43,12 @@ func commandTestConfig(t *testing.T, mode string) *SourceConfig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &SourceConfig{Command: exe, Args: []string{"-test.run=^TestCredentialCommandHelper$", "--", mode}, TimeoutSeconds: 1}
+	// O binário com -race aguarda antes de sair; só o cenário de timeout usa 1s.
+	timeout := 30
+	if mode == "sleep" {
+		timeout = 1
+	}
+	return &SourceConfig{Command: exe, Args: []string{"-test.run=^TestCredentialCommandHelper$", "--", mode}, TimeoutSeconds: timeout}
 }
 
 func TestCommandSource(t *testing.T) {
@@ -61,6 +66,8 @@ func TestCommandSource(t *testing.T) {
 				}
 			} else if err == nil {
 				t.Fatal("expected error")
+			} else if mode == "sleep" && !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("expected timeout: %v", err)
 			} else if strings.Contains(err.Error(), "SECRET") {
 				t.Fatal("secret in error")
 			}

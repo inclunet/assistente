@@ -259,6 +259,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
 
   useEffect(() => {
     setAgentSelectionToken(0);
+    setUseSavedCredential(false);
     if (provider) {
       const provConfig = PROVIDER_CONFIG[provider.type] || PROVIDER_CONFIG.custom;
       setFormData({

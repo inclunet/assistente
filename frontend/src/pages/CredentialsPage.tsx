@@ -367,7 +367,8 @@ export default function CredentialsPage() {
 
   const columns: DataGridColumn<CredentialRow>[] = [
     { key: 'pattern', label: t('credentials.labels.pattern'), width: '260px', truncate: true },
-    { key: 'source', label: t('credentials.sourceFields.source'), width: '120px' },
+    { key: 'source', label: t('credentials.sourceFields.source'), width: '120px',
+      format: (value) => value ? t(`credentials.sourceFields.${value}`) : '—' },
     { key: 'type', label: t('credentials.labels.type'), width: '120px' },
     { key: 'masked', label: t('credentials.labels.value'), truncate: true },
     {

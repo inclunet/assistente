@@ -114,3 +114,26 @@ func TestTransport_AuthRequired_SemCredencial_DisparaErro(t *testing.T) {
 		t.Errorf("erro inesperado: %v", err)
 	}
 }
+
+func TestTransportBearerVazioRespeitaAuthMode(t *testing.T) {
+	for _, mode := range []AuthRequirement{AuthOptional, AuthRequired} {
+		for _, token := range []string{"", "  "} {
+			mgr := newTestManager(t)
+			if err := mgr.RegisterPattern("empty.example", &AuthConfig{Source: "static", Type: "bearer", Token: token}); err != nil {
+				t.Fatal(err)
+			}
+			capture := &captureTransport{}
+			transport := &CredentialTransport{Base: capture, CredMgr: mgr, CredPattern: "empty.example", AuthMode: mode}
+			req := httptest.NewRequest("GET", "http://empty.example", nil)
+			req.Header.Set("Authorization", "Bearer managed-by-credential-transport")
+			_, err := transport.RoundTrip(req)
+			if mode == AuthRequired {
+				if err == nil {
+					t.Fatal("required accepted empty bearer")
+				}
+			} else if err != nil || capture.captured.Header.Get("Authorization") != "" {
+				t.Fatalf("optional must continue without placeholder: %v", err)
+			}
+		}
+	}
+}

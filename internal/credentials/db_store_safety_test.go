@@ -101,7 +101,7 @@ func TestDBStore_DeleteCredential_DoesNotAffectOtherUsers(t *testing.T) {
 
 // TestDBStore_DeleteCredential_InstanceSecretScopedToInstance valida
 // que instance secrets (`internal-auth:*`/`internal-tls:*`) só são
-// deletados na linha com `user_id=”`. Um delete via user-scoped ctx
+// deletados na linha com `user_id` vazio. Um delete via user-scoped ctx
 // não pode tocar a row instance-scoped.
 func TestDBStore_DeleteCredential_InstanceSecretScopedToInstance(t *testing.T) {
 	setupScopedCredentialStoreTestDB(t)

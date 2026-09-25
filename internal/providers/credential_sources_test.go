@@ -110,32 +110,67 @@ func TestProbeAuthModesAgreeWithRuntime(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	for _, mode := range []llm.AuthMode{llm.AuthModeOptional, llm.AuthModeNone} {
-		t.Run(string(mode), func(t *testing.T) {
-			mgr := credentials.NewManager(nil)
-			t.Setenv("PROVIDER_MISSING_ENV", "")
-			if err := mgr.RegisterPattern("source", &credentials.AuthConfig{Source: "env", Type: "bearer", SourceConfig: &credentials.SourceConfig{Env: "PROVIDER_MISSING_ENV"}}); err != nil {
-				t.Fatal(err)
-			}
-			registry := llm.NewProviderRegistry()
-			base := server.URL
-			if mode == llm.AuthModeNone {
-				base = "http://old.invalid"
-			}
-			if err := registry.Register(&llm.ProviderConfig{ID: "modes", Name: "modes", Type: llm.ProviderOpenAI, BaseURL: base, CredentialPattern: "source", AuthMode: mode}); err != nil {
-				t.Fatal(err)
-			}
-			svc := NewService(ServiceConfig{Registry: registry, CredMgr: mgr, Store: NewMemoryStore()})
-			req := TestRequest{BaseURL: server.URL, ProviderID: "modes"}
-			if _, err := svc.TestConnection(context.Background(), req); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := svc.ListModels(context.Background(), req); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := svc.ListModelsRaw(context.Background(), ListModelsRawRequest{Type: "openai", BaseURL: server.URL, ProviderID: "modes"}); err != nil {
-				t.Fatal(err)
-			}
-		})
+	for _, source := range []string{"env", "static"} {
+		for _, mode := range []llm.AuthMode{llm.AuthModeOptional, llm.AuthModeNone} {
+			t.Run(source+string(mode), func(t *testing.T) {
+				mgr := credentials.NewManager(nil)
+				t.Setenv("PROVIDER_MISSING_ENV", "")
+				auth := &credentials.AuthConfig{Source: source, Type: "bearer"}
+				if source == "env" {
+					auth.SourceConfig = &credentials.SourceConfig{Env: "PROVIDER_MISSING_ENV"}
+				}
+				if err := mgr.RegisterPattern("source", auth); err != nil {
+					t.Fatal(err)
+				}
+				registry := llm.NewProviderRegistry()
+				base := server.URL
+				if mode == llm.AuthModeNone {
+					base = "http://old.invalid"
+				}
+				if err := registry.Register(&llm.ProviderConfig{ID: "modes", Name: "modes", Type: llm.ProviderOpenAI, BaseURL: base, CredentialPattern: "source", AuthMode: mode}); err != nil {
+					t.Fatal(err)
+				}
+				svc := NewService(ServiceConfig{Registry: registry, CredMgr: mgr, Store: NewMemoryStore()})
+				req := TestRequest{BaseURL: server.URL, ProviderID: "modes"}
+				if _, err := svc.TestConnection(context.Background(), req); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := svc.ListModels(context.Background(), req); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := svc.ListModelsRaw(context.Background(), ListModelsRawRequest{Type: "openai", BaseURL: server.URL, ProviderID: "modes"}); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+
+}
+
+type legacyCredentialReader struct{ credSpy }
+
+func (*legacyCredentialReader) GetConfigByPatternWithContext(context.Context, string) (*credentials.AuthConfig, error) {
+	return &credentials.AuthConfig{Type: "bearer", Token: "legacy"}, nil
+}
+func TestLegacyCredentialNotConfigured(t *testing.T) {
+	svc := NewService(ServiceConfig{Registry: llm.NewProviderRegistry(), CredMgr: &legacyCredentialReader{}, Store: NewMemoryStore()})
+	ctx := context.Background()
+	created, err := svc.Create(ctx, CreateRequest{ID: "legacy", Name: "Legacy", Type: "openai", BaseURL: "https://example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.CredentialConfigured {
+		t.Fatal("creation marked legacy credential configured")
+	}
+	updated, err := svc.Update(ctx, "legacy", UpdateRequest{Name: "Updated"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.CredentialConfigured {
+		t.Fatal("update marked legacy credential configured")
+	}
+	status := svc.ListWithStatus(ctx)
+	if len(status) != 1 || status[0].CredentialConfigured {
+		t.Fatal("listing marked legacy credential configured")
 	}
 }

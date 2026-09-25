@@ -118,6 +118,11 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		return t.Base.RoundTrip(req)
 	}
 
+	if t.AuthMode == AuthOptional && auth.Type == "bearer" && strings.TrimSpace(auth.Token) == "" {
+		stripManagedPlaceholder(req)
+		return t.Base.RoundTrip(req)
+	}
+
 	if err := ApplyAuth(req, auth); err != nil {
 		return nil, err
 	}

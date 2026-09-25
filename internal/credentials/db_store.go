@@ -346,7 +346,7 @@ func (s *DBStore) UpdateRefreshTokenEncByID(ctx context.Context, id, value strin
 
 // DeleteCredential remove a credencial associada ao `pattern` exato,
 // escopada pelo usuário do contexto. Para instance secrets
-// (`internal-auth:*`/`internal-tls:*`) o escopo é `user_id = ”`.
+// (`internal-auth:*`/`internal-tls:*`) o escopo usa `user_id` vazio.
 //
 // `pattern` vazio é erro: "limpar tudo" tem que ser expressado como
 // iteração sobre a lista visível, não como uma chamada sem nome.

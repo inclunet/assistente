@@ -566,7 +566,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		credConfigured = true
 	} else if updated.CredentialPattern != "" {
 		auth, err := s.credentialConfig(ctx, updated.CredentialPattern)
-		credConfigured = err == nil && auth != nil
+		credConfigured = err == nil && auth != nil && auth.Source != ""
 	}
 
 	if err := s.registry.Remove(id); err != nil {
@@ -631,7 +631,7 @@ func (s *Service) ListWithStatus(ctx context.Context) []ProviderStatus {
 			if err != nil {
 				logging.Infof(ctx, "providers.service", "[providers] Credencial '%s' do provider '%s' não pode ser usada: %v", p.CredentialPattern, p.ID, err)
 			}
-			credConfigured = err == nil && auth != nil
+			credConfigured = err == nil && auth != nil && auth.Source != ""
 		}
 		result = append(result, ProviderStatus{Provider: p, CredentialConfigured: credConfigured})
 	}
@@ -1193,6 +1193,9 @@ func (s *Service) applyProbeAuth(ctx context.Context, req TestRequest, target *h
 			return nil
 		}
 		return fmt.Errorf("credencial não configurada")
+	}
+	if provider.EffectiveAuthMode() == llm.AuthModeOptional && auth.Type == "bearer" && strings.TrimSpace(auth.Token) == "" {
+		return nil
 	}
 	return credentials.ApplyAuth(target, auth)
 }

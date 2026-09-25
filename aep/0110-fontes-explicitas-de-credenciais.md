@@ -71,13 +71,21 @@ fora do escopo aceito para esta entrega.
 - Revisor independente: subagente Codex `review_credential_sources` (não implementador).
   Rodada 1: cinco achados; rodada 2: correções confirmadas e dois achados adicionais;
   rodada 3: zero pendências. Verificação adicional do delta de announcer/inputs:
-  zero pendências. Sete achados corrigidos.
+  zero pendências. Sete achados corrigidos. Rodada 4: delta das seis observações
+  remotas e correção do teste com race revisados, zero pendências.
 - `go build ./...` e `go vet ./...`: aprovados.
 - `go test ./internal/credentials ./internal/providers ./internal/portability ./internal/mcp`:
   aprovado, incluindo fontes, aplicação HTTP, round-trip e refresh OAuth.
 - TypeScript, ESLint e Stylelint: sem erros (avisos preexistentes nos linters).
 - Vitest completo: 483 arquivos e 6.078 testes aprovados.
 - A execução Go completa no Windows encontrou negação de execução de binários
-  ACP/acpregistry e deadlines em pacotes de comandos. Reexecução serial em curso;
-  não se declara a suíte completa aprovada com base nos testes focados.
+  ACP/acpregistry e deadlines em pacotes de comandos. Reexecução serial aprovada
+  em app, commandconfig, commandexecution, commandledger e httpapi. A limitação
+  de execução dos binários ACP/acpregistry permanece; não se declara toda a
+  suíte local aprovada.
+- Após a revisão remota: credenciais e provedores aprovados; 43 testes das telas
+  afetadas, TypeScript, ESLint e golangci-lint aprovados (zero issues).
+- A primeira rodada do CI identificou timeout de 1s no helper de command com
+  race. Corrigido para usar o timeout normal nos cenários de saída e preservar
+  o cenário de expiração em 1s com assert de DeadlineExceeded.
 - CI e revisão remota ainda pendentes; nenhum merge de PR autorizado.
