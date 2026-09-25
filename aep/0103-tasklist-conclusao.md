@@ -10618,3 +10618,13 @@ anúncio/documentação. Corrigidos com regressões; a segunda rodada não
 identificou bloqueios funcionais. Bindings foram regenerados oficialmente,
 e o TypeScript pós-geração passou. Base atualizada para `origin/main`
 `d32fc990f`, sem conflitos nem alteração nas mudanças desta frente.
+
+Qualificação do PR #836: a primeira rodada de CI revelou que o bootstrap
+tentava publicar um default de paleta com argumentos vazios para `go_to`.
+Esse comando exige alvo explícito, como as ações parametrizadas de camada,
+e agora não recebe tal default automático. O catálogo e os bindings
+configurados permanecem disponíveis. Regressões verificam catálogo/handler,
+projeção, publicação e Deck; a bateria ampliada
+`go test -work ./internal/app -run '^TestCommand(Product|Settings|Palette|Deck)' -count=1`
+passou em 113,731 s, com exit 0. Revisão independente do patch de bootstrap:
+agente principal, sem bloqueios. O CI inicial não é registrado como aprovado.
