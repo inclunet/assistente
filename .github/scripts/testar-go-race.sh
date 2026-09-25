@@ -5,7 +5,8 @@ export LC_ALL=C
 
 app=assistente/internal/app
 flags=(-race -short -count=1 -timeout=20m)
-groups=(comandos-configuracao comandos-dispositivos comandos-contexto comandos-execucao
+groups=(comandos-configuracao comandos-dispositivos
+  comandos-contexto-deck comandos-contexto-paleta comandos-contexto-workspace comandos-contexto-base comandos-execucao
   comandos-jobs comandos-interface comandos-seguranca comandos-outros app-chat app-demais)
 
 if [[ $# == 1 && $1 == --groups ]]; then
@@ -34,7 +35,12 @@ classify() {
   case "$1" in
     TestCommandSettings*|TestCommandConfig*|TestCommandLayer*|TestCommandBuiltin*|TestCommandImport*|TestCommandExport*|TestCommandReset*) echo comandos-configuracao ;;
     TestCommandDeck*|TestCommandKeyboard*|TestCommandGlobal*|TestCommandHotkey*|TestCommandHost*|TestCommandPhysical*|TestCommandStreamDeck*) echo comandos-dispositivos ;;
-    TestContextual*|TestCommandContext*|TestCommandWorkspace*|TestCommandProfile*|TestCommandScope*) echo comandos-contexto ;;
+    # Contexto excedeu o orçamento acumulado mesmo sem teste individual preso.
+    # Famílias específicas primeiro; o residual preserva nomes futuros.
+    TestContextualDeck*) echo comandos-contexto-deck ;;
+    TestContextualPalette*|TestContextualPagePalette*|TestContextualLayerPalette*) echo comandos-contexto-paleta ;;
+    TestCommandWorkspace*) echo comandos-contexto-workspace ;;
+    TestContextual*|TestCommandContext*|TestCommandProfile*|TestCommandScope*) echo comandos-contexto-base ;;
     TestCommandProduct*|TestCommandExecution*|TestCommandExecute*|TestCommandInvocation*|TestCommandEnvelope*|TestCommandReplay*|TestCommandReceipt*|TestCommandDecision*|TestCommandExternal*|TestCommandPublic*|TestCommandBridge*|TestCommandTool*|TestCommandRuntime*) echo comandos-execucao ;;
     TestCommandJob*|TestCommandMaintenance*|TestCommandTasklist*|TestCommandTerminal*|TestCommandSource*|TestCommandEvent*|TestTasklistService*) echo comandos-jobs ;;
     TestCommandChat*|TestCommandEditor*|TestCommandPage*|TestCommandLocal*|TestCommandFrontend*|TestCommandNavigation*|TestCommandFocus*|TestCommandTab*|TestCommandUI*|TestCommandPalette*|TestCommandSurface*) echo comandos-interface ;;

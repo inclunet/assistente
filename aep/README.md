@@ -16,6 +16,10 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+AEP-0103, seção161 (25/09/2026): subdivisão autorizada de `comandos-contexto`
+no CI em Deck, paleta, workspace e base, sem retirar testes nem ampliar limites.
+**In Progress; 83 I / 1 P / 0 N**; aceite humano continua pendente.
+
 Correções AEP-0103, seção160 (25/09/2026): continuidade de navegação após
 transição de foco e Seta para cima sem destino no chat/terminal, com regressões
 automatizadas. Latência medida no App fixture não certifica USB/UI real.

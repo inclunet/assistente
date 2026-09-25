@@ -2,6 +2,11 @@
 
 **Status:** In Progress
 
+**Qualificação no CI — seção161 (25/09/2026):** após timeout acumulado,
+o grupo race de contexto foi subdividido em Deck, paleta, workspace e base,
+preservando todos os testes, flags, limites e agregador obrigatório. A nova
+rodada deve confirmar a conclusão dos grupos; não promove o aceite manual.
+
 **Correções da validação — seção160 (25/09/2026):** navegação local pode
 continuar após a transição deixar o foco no documento, sem dispensar sessão,
 mapa vigente, janela ativa, modal ou prova de alvo de ações contextuais.

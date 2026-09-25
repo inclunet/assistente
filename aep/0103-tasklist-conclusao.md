@@ -10411,3 +10411,43 @@ remoção de auditoria de ações persistentes ou aceite manual presumido.
 Não há promoção de UI04/SD04 a PASS nem alteração de C01–C84. CI remoto e
 review do novo commit devem ser conferidos antes de recomendar merge, que
 permanece decisão do mantenedor. As pendências manuais da seção159 continuam.
+
+## 161. Subdivisão do grupo de contexto no detector de corrida — 25/09/2026
+
+A rodada `36133053604`, commit `a62642ad7`, passou frontend, E2E, bindings,
+scripts, backend principal e dez dos onze grupos race. `comandos-contexto`
+atingiu o limite acumulado do Go de 20 minutos (1200,137 s; job de 22m03s).
+No encerramento, `TestContextualPagePaletteProfileOperations` rodava havia
+8 s e o subteste `delete` havia 3 s. Não houve asserção falha nem alerta
+DATA RACE antes do timeout. Copilot revisou o commit sem novos achados.
+
+Com autorização explícita do mantenedor, o grupo foi dividido por domínio:
+
+- `comandos-contexto-deck`: `TestContextualDeck*` (27 testes no inventário do CI).
+- `comandos-contexto-paleta`: `TestContextualPalette*`, `TestContextualPagePalette*`
+  e `TestContextualLayerPalette*` (26).
+- `comandos-contexto-workspace`: `TestCommandWorkspace*` (52).
+- `comandos-contexto-base`: famílias restantes de contexto, perfil e escopo (11).
+
+Os 116 testes do grupo anterior permanecem representados; contagem não é
+estimativa de duração, pois subtestes e custos de preparação variam. A medição
+real dos novos grupos é responsabilidade da próxima rodada do CI.
+Há agora 14 grupos ao todo (13 de App e um dos demais pacotes), com descoberta
+automática de testes, exemplos e fuzz targets. Famílias específicas precedem
+o residual; nomes futuros não são descartados. Subtestes ficam com o teste pai.
+
+Não foram alterados `-race -short -count=1 -timeout=20m`, o teto de 25 minutos
+por job, `max-parallel: 4`, `fail-fast: false` nem o agregador obrigatório
+`backend-race`, que só aprova se todos os grupos passarem. Nenhum teste foi
+removido ou marcado para pular. Não há mudança no backend produtivo, nas
+correções de navegação/foco ou no aceite humano. AEP continua **In Progress**,
+83 I / 1 P; revalidação manual e latência física continuam pendentes.
+
+Validação local: teste do script com Go simulado PASS (atribuição exata por
+família, residual futuro, nomes Unicode, matriz sem grupos ausentes/duplicados,
+flags e propagação de falhas). Sintaxe Bash, parsing YAML, 14 grupos únicos,
+limites/dependência do agregador e `git diff --check` conferidos. Nenhum Go
+real/Wails foi executado para essa validação. Beauvoir implementou os testes;
+Lagrange revisou o diff final sem achados. ShellCheck não está instalado
+localmente e permanece no job de scripts do CI. Resultado remoto ainda deve
+ser confirmado no commit publicado.

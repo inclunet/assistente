@@ -126,7 +126,10 @@ jobs:
           - pacotes-gerais
           - comandos-configuracao
           - comandos-dispositivos
-          - comandos-contexto
+          - comandos-contexto-deck
+          - comandos-contexto-paleta
+          - comandos-contexto-workspace
+          - comandos-contexto-base
           - comandos-execucao
           - comandos-jobs
           - comandos-interface
