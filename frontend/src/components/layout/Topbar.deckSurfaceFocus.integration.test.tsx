@@ -199,6 +199,44 @@ describe('Deck tab navigation with real panel surface registration', () => {
     } finally { view.unmount(); }
   });
 
+  it('executa workspace.tab.go_to com os argumentos do evento e recusa workspace divergente', async () => {
+    const view = render(<MixedWorkspace />);
+    try {
+      const input = await screen.findByRole('textbox', { name: 'tasklist input' });
+      act(() => input.focus());
+      await waitFor(() => expect(registeredScope?.surfaceForElement(input)).toBe('tab-tasklist'));
+      await waitFor(() => expect(state.events.has('command:deck-local-ui')).toBe(true));
+      const send = (workspace_id: string) => state.events.get('command:deck-local-ui')?.({
+        commandId: 'workspace.tab.go_to', generation: 'map-a', userId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
+        arguments: { workspace_id, target_mode: 'position', position: 3 },
+      });
+      await act(async () => { send('workspace-a'); });
+      await waitFor(() => expect(state.workspaceStore.setActiveTab).toHaveBeenCalledExactlyOnceWith('tab-editor'));
+      await act(async () => { send('workspace-other'); });
+      expect(state.workspaceStore.setActiveTab).toHaveBeenCalledOnce();
+    } finally { view.unmount(); }
+  });
+
+  it('despacha os argumentos do ramo Deck selecionado para o mesmo go_to', async () => {
+    const view = render(<MixedWorkspace />);
+    try {
+      const input = await screen.findByRole('textbox', { name: 'tasklist input' });
+      act(() => input.focus());
+      await waitFor(() => expect(registeredScope?.surfaceForElement(input)).toBe('tab-tasklist'));
+      await waitFor(() => expect(state.events.has('command:deck-local-ui')).toBe(true));
+      await act(async () => { state.events.get('command:deck-local-ui')?.({
+        commandId: '', generation: 'map-a', userId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
+        conditions: [{ commandId: 'workspace.tab.go_to', bySurface: { tasklist: true, tasklists: true, editor: true }, fallback: false,
+          bySurfaceArguments: {
+            tasklist: { workspace_id: 'workspace-a', target_mode: 'position', position: 3 },
+            tasklists: { workspace_id: 'workspace-a', target_mode: 'position', position: 3 },
+            editor: { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-chat' },
+          } }],
+      }); });
+      await waitFor(() => expect(state.workspaceStore.setActiveTab).toHaveBeenCalledExactlyOnceWith('tab-editor'));
+    } finally { view.unmount(); }
+  });
+
   it('refuses while IME is active in the focused textarea; a real move to the toolbar changes only the composition eligibility', async () => {
     const view = render(<MixedWorkspace />);
     try {

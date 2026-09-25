@@ -128,6 +128,7 @@ type LocalCommandKeyboardMap struct {
 	Bindings                    []LocalCommandKeyboardBinding           `json:"bindings"`
 	ContextualBindings          []LocalCommandKeyboardContextualBinding `json:"contextualBindings,omitempty"`
 	LocalPaletteCommands        []string                                `json:"localPaletteCommands"`
+	LocalPaletteArguments       map[string]json.RawMessage              `json:"localPaletteArguments,omitempty"`
 	LocalPaletteConditions      []LocalCommandPaletteCondition          `json:"localPaletteConditions,omitempty"`
 	ContextualPaletteConditions []LocalCommandPaletteCondition          `json:"contextualPaletteConditions,omitempty"`
 }
@@ -136,6 +137,7 @@ type LocalCommandKeyboardBinding struct {
 	Shortcut  LocalCommandShortcut `json:"shortcut"`
 	CommandID string               `json:"commandId"`
 	Handler   string               `json:"handler"`
+	Arguments json.RawMessage      `json:"arguments,omitempty"`
 }
 
 // Observação da surface real, não uma identidade ou autorização do chamador.
@@ -219,7 +221,7 @@ func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err 
 	if err != nil || !versions.Unlocked {
 		return result, commandexecution.ErrDenied
 	}
-	view := LocalCommandKeyboardMap{Generation: uuid.Must(uuid.NewV7()).String(), OwnerID: p.principal.UserID, SessionID: p.principal.SessionID, WorkspaceID: p.workspaceID, Bindings: []LocalCommandKeyboardBinding{}, ContextualBindings: []LocalCommandKeyboardContextualBinding{}, LocalPaletteCommands: localPaletteUICommands(configuration, p.registry), LocalPaletteConditions: localPaletteUIConditions(configuration, p.registry)}
+	view := LocalCommandKeyboardMap{Generation: uuid.Must(uuid.NewV7()).String(), OwnerID: p.principal.UserID, SessionID: p.principal.SessionID, WorkspaceID: p.workspaceID, Bindings: []LocalCommandKeyboardBinding{}, ContextualBindings: []LocalCommandKeyboardContextualBinding{}, LocalPaletteCommands: localPaletteUICommands(configuration, p.registry), LocalPaletteArguments: localPaletteUIArguments(configuration, p.registry), LocalPaletteConditions: localPaletteUIConditions(configuration, p.registry)}
 	view.ContextualPaletteConditions = contextualPaletteUIConditions(configuration, p.registry)
 	if deadline := configuration.ValidUntil(); !deadline.IsZero() {
 		view.ValidUntil = deadline.UnixMilli()
@@ -287,16 +289,28 @@ func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err 
 }
 
 func cloneLocalCommandKeyboardMap(in LocalCommandKeyboardMap) LocalCommandKeyboardMap {
-	out := LocalCommandKeyboardMap{Generation: in.Generation, OwnerID: in.OwnerID, SessionID: in.SessionID, WorkspaceID: in.WorkspaceID, Bindings: make([]LocalCommandKeyboardBinding, len(in.Bindings)), ContextualBindings: cloneContextualKeyboardBindings(in.ContextualBindings), LocalPaletteCommands: append([]string{}, in.LocalPaletteCommands...), LocalPaletteConditions: cloneLocalCommandPaletteConditions(in.LocalPaletteConditions)}
+	out := LocalCommandKeyboardMap{Generation: in.Generation, OwnerID: in.OwnerID, SessionID: in.SessionID, WorkspaceID: in.WorkspaceID, Bindings: make([]LocalCommandKeyboardBinding, len(in.Bindings)), ContextualBindings: cloneContextualKeyboardBindings(in.ContextualBindings), LocalPaletteCommands: append([]string{}, in.LocalPaletteCommands...), LocalPaletteArguments: cloneLocalPaletteArguments(in.LocalPaletteArguments), LocalPaletteConditions: cloneLocalCommandPaletteConditions(in.LocalPaletteConditions)}
 	out.ContextualPaletteConditions = cloneLocalCommandPaletteConditions(in.ContextualPaletteConditions)
 	out.ValidUntil = in.ValidUntil
 	for i, b := range in.Bindings {
 		out.Bindings[i] = b
+		out.Bindings[i].Arguments = append(json.RawMessage(nil), b.Arguments...)
 		out.Bindings[i].Shortcut.Modifiers = slices.Clone(b.Shortcut.Modifiers)
 		out.Bindings[i].Shortcut.Steps = cloneLocalCommandShortcutSteps(b.Shortcut.Steps)
 		for j := range out.Bindings[i].Shortcut.Steps {
 			out.Bindings[i].Shortcut.Steps[j].Modifiers = append([]string{}, b.Shortcut.Steps[j].Modifiers...)
 		}
+	}
+	return out
+}
+
+func cloneLocalPaletteArguments(in map[string]json.RawMessage) map[string]json.RawMessage {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]json.RawMessage, len(in))
+	for id, arguments := range in {
+		out[id] = append(json.RawMessage(nil), arguments...)
 	}
 	return out
 }
@@ -427,7 +441,11 @@ func resolvedLocalKeyboardBinding(configuration *commandbindings.Configuration, 
 	default:
 		return LocalCommandKeyboardBinding{}, false
 	}
-	return LocalCommandKeyboardBinding{Shortcut: shortcut, CommandID: definition.ID, Handler: handler}, true
+	binding := LocalCommandKeyboardBinding{Shortcut: shortcut, CommandID: definition.ID, Handler: handler}
+	if definition.ID == commandWorkspaceTabGoToID {
+		binding.Arguments = json.RawMessage(resolved.ArgumentsKey)
+	}
+	return binding, true
 }
 
 func contextualKeyboardBinding(ctx context.Context, configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string, shortcut LocalCommandShortcut) (LocalCommandKeyboardContextualBinding, bool) {
@@ -598,6 +616,7 @@ func cloneContextualKeyboardBindings(in []LocalCommandKeyboardContextualBinding)
 				continue
 			}
 			copy := *binding
+			copy.Arguments = append(json.RawMessage(nil), binding.Arguments...)
 			copy.Shortcut.Modifiers = slices.Clone(binding.Shortcut.Modifiers)
 			copy.Shortcut.Steps = cloneLocalCommandShortcutSteps(binding.Shortcut.Steps)
 			out[i].BySurface[surface] = &copy
@@ -612,6 +631,7 @@ func cloneContextualKeyboardBindings(in []LocalCommandKeyboardContextualBinding)
 						continue
 					}
 					copy := *binding
+					copy.Arguments = append(json.RawMessage(nil), binding.Arguments...)
 					copy.Shortcut.Modifiers = slices.Clone(binding.Shortcut.Modifiers)
 					copy.Shortcut.Steps = cloneLocalCommandShortcutSteps(binding.Shortcut.Steps)
 					out[i].BySurfaceID[surface][id] = &copy
@@ -631,6 +651,7 @@ func cloneContextualKeyboardBindings(in []LocalCommandKeyboardContextualBinding)
 		}
 		if entry.Fallback != nil {
 			copy := *entry.Fallback
+			copy.Arguments = append(json.RawMessage(nil), entry.Fallback.Arguments...)
 			copy.Shortcut.Modifiers = slices.Clone(entry.Fallback.Shortcut.Modifiers)
 			copy.Shortcut.Steps = cloneLocalCommandShortcutSteps(entry.Fallback.Shortcut.Steps)
 			out[i].Fallback = &copy
@@ -703,6 +724,25 @@ func localPaletteUICommands(configuration *commandbindings.Configuration, regist
 		result = append(result, definitionID)
 	}
 	slices.Sort(result)
+	return result
+}
+
+func localPaletteUIArguments(configuration *commandbindings.Configuration, registry *commandcatalog.Registry) map[string]json.RawMessage {
+	if configuration == nil || registry == nil {
+		return nil
+	}
+	result := make(map[string]json.RawMessage)
+	identity := "palette:" + commandWorkspaceTabGoToID
+	if len(configuration.RequiredFacts(identity)) != 0 {
+		return result
+	}
+	resolved, err := configuration.Resolve(identity, commandbindings.Facts{commandbindings.AppFocused: true}, nil)
+	definition, exists := registry.Lookup(commandWorkspaceTabGoToID)
+	if err == nil && resolved.Status == commandbindings.Selected && resolved.CommandID == commandWorkspaceTabGoToID &&
+		resolved.ExecutionScopeKey == "global" && exists && definition.AllowsSource(commandcatalog.Palette) &&
+		json.Valid([]byte(resolved.ArgumentsKey)) {
+		result[commandWorkspaceTabGoToID] = append(json.RawMessage(nil), []byte(resolved.ArgumentsKey)...)
+	}
 	return result
 }
 

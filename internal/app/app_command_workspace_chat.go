@@ -46,13 +46,14 @@ const (
 	commandWorkspaceTabSeventhID        = "workspace.tab.seventh"
 	commandWorkspaceTabEighthID         = "workspace.tab.eighth"
 	commandWorkspaceTabNinthID          = "workspace.tab.ninth"
+	commandWorkspaceTabGoToID           = "workspace.tab.go_to"
 )
 
 var commandWorkspaceTabNavigationIDs = []string{
 	commandWorkspaceTabNextID, commandWorkspaceTabPreviousID,
 	commandWorkspaceTabFirstID, commandWorkspaceTabSecondID, commandWorkspaceTabThirdID,
 	commandWorkspaceTabFourthID, commandWorkspaceTabFifthID, commandWorkspaceTabSixthID,
-	commandWorkspaceTabSeventhID, commandWorkspaceTabEighthID, commandWorkspaceTabNinthID,
+	commandWorkspaceTabSeventhID, commandWorkspaceTabEighthID, commandWorkspaceTabNinthID, commandWorkspaceTabGoToID,
 }
 
 func workspaceTabTypeForCommand(commandID string) (workspace.TabType, bool) {
@@ -145,6 +146,9 @@ func isLocalUICommand(commandID string) bool {
 }
 
 func workspaceTabNavigationForCommand(commandID string) (direction, position int, ok bool) {
+	if commandID == commandWorkspaceTabGoToID {
+		return 0, 0, true
+	}
 	switch commandID {
 	case commandWorkspaceTabNextID:
 		return 1, 0, true
@@ -174,6 +178,31 @@ func workspaceTabNavigationForCommand(commandID string) (direction, position int
 }
 
 func commandWorkspaceTabNavigationRegistration(commandID string) (commandcatalog.Definition, commandcatalog.HandlerContract) {
+	if commandID == commandWorkspaceTabGoToID {
+		contract := commandcatalog.HandlerContract{Effect: commandcatalog.Read, Route: "ui/workspace/tab/navigate", Classification: commandcatalog.HandlerUI}
+		locales := map[string]commandcatalog.LocalizedMetadata{
+			"pt-BR": {Name: "Ir para aba", Description: "Vai para uma aba do workspace vinculado", Category: "Workspace", Aliases: []string{"aba", "destino"}},
+			"en":    {Name: "Go to tab", Description: "Goes to a tab in the linked workspace", Category: "Workspace", Aliases: []string{"tab", "target"}},
+			"es":    {Name: "Ir a pestaña", Description: "Va a una pestaña del espacio de trabajo vinculado", Category: "Workspace", Aliases: []string{"pestaña", "destino"}},
+		}
+		minimum := float64(1)
+		return commandcatalog.Definition{
+			ID: commandID, Effect: commandcatalog.Read, Decision: commandcatalog.NoDecision,
+			AllowedSources: []commandcatalog.Source{commandcatalog.Palette, commandcatalog.KeyboardLocal, commandcatalog.StreamDeck},
+			Context:        commandcatalog.ContextPolicy{None: true},
+			Presentation:   &commandcatalog.Presentation{Version: "workspace-tab-go-to-v1", Locales: locales},
+			ArgumentsSchema: &commandcatalog.Schema{Type: commandcatalog.SchemaObject, Properties: map[string]commandcatalog.Schema{
+				"workspace_id": {Type: commandcatalog.SchemaString},
+				"target_mode":  {Type: commandcatalog.SchemaString, Enum: []any{"position", "specific"}},
+				"position":     {Type: commandcatalog.SchemaInteger, Optional: true, Minimum: &minimum},
+				"tab_id":       {Type: commandcatalog.SchemaString, Optional: true},
+			}, Required: []string{"workspace_id", "target_mode"}},
+			ResultSchema: &commandcatalog.Schema{Type: commandcatalog.SchemaObject},
+			Risk:         commandcatalog.RiskLow, Persistence: commandcatalog.PersistencePolicy{Arguments: commandcatalog.PersistenceRedacted, Result: commandcatalog.PersistenceNever, Audit: commandcatalog.PersistenceNever},
+			Scopes: []commandcatalog.Scope{commandcatalog.ScopeWorkspace}, Availability: commandcatalog.Availability{Status: commandcatalog.Available},
+			HandlerRoute: contract.Route, HandlerClassification: contract.Classification,
+		}, contract
+	}
 	direction, position, ok := workspaceTabNavigationForCommand(commandID)
 	if !ok || (direction == 0) == (position == 0) {
 		return commandcatalog.Definition{}, commandcatalog.HandlerContract{}

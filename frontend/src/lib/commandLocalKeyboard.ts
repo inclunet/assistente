@@ -19,6 +19,7 @@ export interface LocalCommandKeyboardMap {
   workspaceId?: string;
   bindings: LocalCommandKeyboardBinding[];
   localPaletteCommands?: string[];
+  localPaletteArguments?: Record<string, Record<string, unknown>>;
   localPaletteConditions?: LocalCommandPaletteCondition[];
   contextualPaletteConditions?: LocalCommandPaletteCondition[];
   contextualBindings?: LocalCommandContextualBinding[];
@@ -28,6 +29,9 @@ export interface LocalCommandPaletteCondition {
   commandId: string;
   bySurface: Record<string, boolean>;
   bySurfaceId?: Record<string, Record<string, boolean>>;
+  fallbackArguments?: Record<string, unknown>;
+  bySurfaceArguments?: Record<string, Record<string, unknown>>;
+  bySurfaceIdArguments?: Record<string, Record<string, Record<string, unknown>>>;
   byProfile?: Record<string, LocalCommandPaletteCondition>;
   fallback: boolean;
 }
@@ -51,6 +55,7 @@ export interface LocalCommandKeyboardBinding {
   shortcut: CommandKeyboardTrigger;
   commandId: string;
   handler: LocalCommandKeyboardHandler;
+  arguments?: Record<string, unknown>;
 }
 
 export interface LocalCommandKeyRequest {
@@ -58,6 +63,7 @@ export interface LocalCommandKeyRequest {
   shortcut: CommandKeyboardTrigger;
   commandId: string;
   handler: 'backend' | 'ui' | 'contextual' | 'local_ui';
+  arguments?: Record<string, unknown>;
   kind: 'down' | 'up';
   repeat: boolean;
   context?: LocalCommandKeyContext;
@@ -86,9 +92,9 @@ export interface LocalCommandKeyboardOptions {
   /** Bloqueio global; recebe o comando resolvido para exceções estreitas como ajuda em modal. */
   blocked: (commandID?: string, event?: KeyboardEvent) => boolean;
   /** Restrição local por comando; executada somente para uma tecla mapeada. */
-  canHandle?: (commandID: string, event: KeyboardEvent) => boolean;
+  canHandle?: (commandID: string, event: KeyboardEvent, argumentsValue?: Record<string, unknown>) => boolean;
   /** Exceção explícita para comandos mapeados que podem consumir teclas editáveis. */
-  canHandleEditable?: (commandID: string, event: KeyboardEvent) => boolean;
+  canHandleEditable?: (commandID: string, event: KeyboardEvent, argumentsValue?: Record<string, unknown>) => boolean;
   /** Repeat físico seletivo; a tecla precisa continuar pressionada. */
   canRepeat?: (commandID: string) => boolean;
   readSurfaceType?: (event: KeyboardEvent) => string | undefined;
@@ -274,7 +280,9 @@ function validateContextualEntry(raw: unknown, allowProfiles: boolean, workspace
         serializeCommandKeyboardTrigger(branch.shortcut) !== serializeCommandKeyboardTrigger(raw.shortcut as CommandKeyboardTrigger) ||
         (isLocalUICommand(branch.commandId) && branch.handler !== 'local_ui') ||
         (branch.handler === 'local_ui' && !isLocalUICommand(branch.commandId))) return undefined;
-    return { commandId: branch.commandId, handler: branch.handler, shortcut: cloneShortcut(branch.shortcut) };
+    if (branch.arguments !== undefined && (branch.commandId !== 'workspace.tab.go_to' || !isRecord(branch.arguments))) return undefined;
+    if (branch.commandId === 'workspace.tab.go_to' && !isRecord(branch.arguments)) return undefined;
+    return { commandId: branch.commandId, handler: branch.handler, shortcut: cloneShortcut(branch.shortcut), ...(branch.arguments ? { arguments: { ...branch.arguments } } : {}) };
   };
   for (const [surface, branch] of Object.entries(raw.bySurface)) {
     if (!safeContextKey(surface)) return null;
@@ -351,21 +359,25 @@ function validateMap(map: LocalCommandKeyboardMap): ValidatedBindings | null {
   for (const entry of map.bindings) {
     if (!entry || typeof entry !== 'object' || !isCommandKeyboardTrigger(entry.shortcut) || !validCommandId(entry.commandId) ||
         (entry.handler !== 'backend' && entry.handler !== 'ui' && entry.handler !== 'contextual' && entry.handler !== 'local_ui')) return null;
+    if (entry.arguments !== undefined && (entry.commandId !== 'workspace.tab.go_to' || !isRecord(entry.arguments))) return null;
+    if (entry.commandId === 'workspace.tab.go_to' && !isRecord(entry.arguments)) return null;
     if (isLocalUICommand(entry.commandId) && entry.handler !== 'local_ui') return null;
     const shortcut = entry.shortcut.version === 1 ? normalizeCommandShortcut(entry.shortcut) : normalizeCommandShortcutSequence(entry.shortcut);
     if (shortcut.version === 1) {
       if (!hasCommandModifier(shortcut) && !isBareWhitelistedFunctionKey(shortcut)) return null;
       const key = serializeCommandShortcut(shortcut);
       const existing = simple.get(key);
-      if (existing && (existing.commandId !== entry.commandId || existing.handler !== entry.handler)) return null;
-      simple.set(key, { shortcut: cloneShortcut(shortcut), commandId: entry.commandId, handler: entry.handler });
+      if (existing && (existing.commandId !== entry.commandId || existing.handler !== entry.handler ||
+          JSON.stringify(existing.arguments ?? null) !== JSON.stringify(entry.arguments ?? null))) return null;
+      simple.set(key, { shortcut: cloneShortcut(shortcut), commandId: entry.commandId, handler: entry.handler, ...(entry.arguments ? { arguments: { ...entry.arguments } } : {}) });
     } else {
       const key = stepKey(shortcut.steps[0]);
       const list = sequences.get(key) ?? [];
       const sequenceKey = serializeCommandKeyboardTrigger(shortcut);
       if (list.some((existing) => serializeCommandKeyboardTrigger(existing.shortcut) === sequenceKey &&
-          (existing.commandId !== entry.commandId || existing.handler !== entry.handler))) return null;
-      list.push({ shortcut: cloneShortcut(shortcut), commandId: entry.commandId, handler: entry.handler });
+          (existing.commandId !== entry.commandId || existing.handler !== entry.handler ||
+            JSON.stringify(existing.arguments ?? null) !== JSON.stringify(entry.arguments ?? null)))) return null;
+      list.push({ shortcut: cloneShortcut(shortcut), commandId: entry.commandId, handler: entry.handler, ...(entry.arguments ? { arguments: { ...entry.arguments } } : {}) });
       sequences.set(key, list);
     }
   }
@@ -461,13 +473,19 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
   const canHandleBinding = (binding: LocalCommandKeyboardBinding, event: KeyboardEvent): boolean => {
     if (isEditableTarget(event.target)) {
       try {
-        if (!options.canHandleEditable?.(binding.commandId, event)) return false;
+        const editableAllowed = binding.arguments === undefined
+          ? options.canHandleEditable?.(binding.commandId, event)
+          : options.canHandleEditable?.(binding.commandId, event, binding.arguments);
+        if (!editableAllowed) return false;
       } catch {
         return false;
       }
     }
     try {
-      return !options.canHandle || options.canHandle(binding.commandId, event);
+      if (!options.canHandle) return true;
+      return binding.arguments === undefined
+        ? options.canHandle(binding.commandId, event)
+        : options.canHandle(binding.commandId, event, binding.arguments);
     } catch {
       return false;
     }
@@ -772,6 +790,7 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
 
       const request: LocalCommandKeyRequest = {
         generation, shortcut: cloneShortcut(mapped.shortcut), commandId: mapped.commandId, handler: mapped.handler,
+        ...(mapped.arguments ? { arguments: { ...mapped.arguments } } : {}),
         kind: 'down', repeat: event.repeat,
         context: contextLease && {
           surfaceId: contextLease.surfaceId,

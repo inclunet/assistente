@@ -48,7 +48,7 @@ bloco de código e recolhimento de thread), com evidência distribuída de
 backend e consumidor UI real. Aceite manual e gates agregados permanecem
 separados; detalhes em “Ligações reconciliadas” abaixo e na tasklist.
 
-O catálogo atual é `product-v40-agent-commands`, com **149 comandos / 61 apresentações locais /
+O catálogo atual é `product-v41-agent-commands`, com **150 comandos / 61 apresentações locais /
 67 defaults locais**. A seção118 acrescentou os três comandos de camada e as
 seções134–135 acrescentaram as tools compostas e o ingresso CLI;
 as seções119–128 ampliaram os contextos, não a quantidade de comandos.
@@ -121,6 +121,15 @@ efeito.
   `Read`, `local_ui`, `ui/workspace/tab/navigate`, `P/K/D`. Defaults:
   `Ctrl+Tab`, `Ctrl+Shift+Tab`, `Ctrl+PageDown`, `Ctrl+PageUp` e
   `Ctrl+1..9`.
+- Destino de aba configurável — `workspace.tab.go_to`, um único comando
+  parametrizado pelo binding. Persistência: `{"workspace_id":"…",
+  "target_mode":"position","position":N}` ou
+  `{"workspace_id":"…","target_mode":"specific","tab_id":"…"}`.
+  Posição é inteiro positivo sem teto e acompanha a ordem; aba específica
+  apresenta nomes, salva ID estável e fica indisponível se fechada. Workspace
+  diferente não retargeta o binding. Não cria aba nem escolhe outro destino.
+  Implementação e evidências acompanham a seção164 da tasklist; `Ctrl+1..9`
+  existentes não mudam.
 - Navegação de aplicação — `navigation.landmark.next`,
   `navigation.landmark.previous`, `navigation.landmark.default`,
   `navigation.workspace.open`, `navigation.history.open`,
@@ -380,7 +389,7 @@ IDs novos.
   checkbox final e gates abertos.
 
 Não há gap de implementação de CLI a listar: o contrato atual não permite
-`CLI` nos 149 registros, e `app_command_cli_test.go::TestCommandCLIListsFullCatalogAndDescribesUnavailableWorkspaceCommand`
+`CLI` nos 150 registros, e `app_command_cli_test.go::TestCommandCLIListsFullCatalogAndDescribesUnavailableWorkspaceCommand`
 e `TestCommandCLIRejectsVisualWorkspaceAndLayerCommandsWithoutQuestionnaireOrEffect`
 documentam precisamente listagem/recusa. A promoção de C02 decorre das
 ligações qualificadas por família e das exceções explícitas, não das

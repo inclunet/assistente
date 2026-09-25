@@ -990,6 +990,19 @@ Próxima/anterior percorrem circularmente as abas. Selecionar a aba que já est�
 ativa não cria nem fecha nada. Cada acionamento usa o estado atual da interface,
 sem aguardar o próximo render ou uma transação de auditoria.
 
+**Ir para aba** é um comando parametrizado configurável em **Comandos e
+acionadores** para a paleta, um atalho local ou o Stream Deck. No editor do
+binding, escolha **Por posição** para salvar a posição inteira positiva na
+ordem atual, ou **Aba específica** para escolher pelo nome e salvar o ID estável
+da aba. O binding persiste `workspace_id` e `target_mode` junto ao único alvo:
+`{"workspace_id":"…","target_mode":"position","position":N}` ou
+`{"workspace_id":"…","target_mode":"specific","tab_id":"…"}`. A posição
+segue reordenações; a aba específica também acompanha a aba se sua posição
+mudar. Uma posição inexistente ou aba fechada fica indisponível. Se outro
+workspace estiver ativo, o binding não é redirecionado; continua ligado ao
+workspace configurado. Nenhum desses casos cria uma aba ou escolhe outro
+destino. Os atalhos padrão Ctrl+1…9 não mudam.
+
 **Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageUp/PageDown e Ctrl+1…9** usam os comandos
 de navegação do mapa padrão, que agora contém **40 combinações**. Podem ser
 personalizados ou suprimidos pelo novo mecanismo, sem um handler antigo que

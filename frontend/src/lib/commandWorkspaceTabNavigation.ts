@@ -22,6 +22,7 @@ export const WORKSPACE_TAB_NAVIGATION_COMMAND_IDS = [
   'workspace.tab.seventh',
   'workspace.tab.eighth',
   'workspace.tab.ninth',
+  'workspace.tab.go_to',
 ] as const;
 
 export type WorkspaceTabNavigationCommand = typeof WORKSPACE_TAB_NAVIGATION_COMMAND_IDS[number];
@@ -125,6 +126,7 @@ function captureContext(
   readPathname: () => string,
   commandID: unknown,
   withFocus: boolean,
+  argumentsValue?: unknown,
 ): CapturedNavigation | undefined {
   if (typeof document === 'undefined' || !isWorkspaceTabNavigationCommand(commandID)) return undefined;
   try {
@@ -140,7 +142,7 @@ function captureContext(
   if (!auth.isAuthenticated || !auth.user || !workspace || !workspace.activeTabId || !root) return undefined;
   if (withFocus && !focusedElement) return undefined;
 
-  const target = resolveWorkspaceTabNavigationTarget(workspace, commandID);
+  const target = resolveWorkspaceTabNavigationTarget(workspace, commandID, argumentsValue);
   if (!target) return undefined;
 
   return {
@@ -164,8 +166,24 @@ function captureContext(
 export function resolveWorkspaceTabNavigationTarget(
   workspace: WorkspaceData | null | undefined,
   commandID: unknown,
+  argumentsValue?: unknown,
 ) {
   if (!workspace || !isWorkspaceTabNavigationCommand(commandID) || workspace.tabs.length === 0) return undefined;
+  if (commandID === 'workspace.tab.go_to') {
+    if (!argumentsValue || typeof argumentsValue !== 'object' || Array.isArray(argumentsValue)) return undefined;
+    const args = argumentsValue as Record<string, unknown>;
+    if (args.workspace_id !== workspace.id ||
+        Object.keys(args).some((key) => !['workspace_id', 'target_mode', 'position', 'tab_id'].includes(key))) return undefined;
+    if (args.target_mode === 'position') {
+      if (!Number.isInteger(args.position) || (args.position as number) < 1 || 'tab_id' in args) return undefined;
+      return workspace.tabs[(args.position as number) - 1];
+    }
+    if (args.target_mode === 'specific') {
+      if (typeof args.tab_id !== 'string' || args.tab_id.length === 0 || 'position' in args) return undefined;
+      return workspace.tabs.find((tab) => tab.id === args.tab_id);
+    }
+    return undefined;
+  }
   const activeIndex = workspace.tabs.findIndex((tab) => tab.id === workspace.activeTabId);
   if (activeIndex < 0) return undefined;
 
@@ -183,8 +201,9 @@ export function resolveWorkspaceTabNavigationTarget(
 export function captureWorkspaceTabNavigationTarget(
   readPathname: () => string,
   commandID: unknown,
+  argumentsValue?: unknown,
 ): WorkspaceTabNavigationTargetLease | undefined {
-  const captured = captureContext(readPathname, commandID, false);
+  const captured = captureContext(readPathname, commandID, false, argumentsValue);
   if (!captured) return undefined;
   return createNavigationTargetLease(readPathname, captured);
 }
@@ -246,8 +265,9 @@ function findTabButton(root: HTMLElement, tabId: string): HTMLButtonElement | un
 export function captureWorkspaceTabNavigationFocus(
   readPathname: () => string,
   commandID: unknown,
+  argumentsValue?: unknown,
 ): WorkspaceTabNavigationFocusLease | undefined {
-  const captured = captureContext(readPathname, commandID, true);
+  const captured = captureContext(readPathname, commandID, true, argumentsValue);
   if (!captured) return undefined;
   let disposed = false;
   let invalidated = false;

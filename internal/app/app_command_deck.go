@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -25,6 +26,7 @@ import (
 
 type commandDeckBinding struct {
 	commandID, title     string
+	arguments            json.RawMessage
 	icon                 string
 	imageRef             string
 	imagePNG             []byte
@@ -58,6 +60,7 @@ type CommandDeckLocalUIEvent struct {
 	SessionID   string                         `json:"sessionId"`
 	WorkspaceID string                         `json:"workspaceId"`
 	Conditions  []LocalCommandPaletteCondition `json:"conditions,omitempty"`
+	Arguments   json.RawMessage                `json:"arguments,omitempty"`
 }
 
 // The native driver is the only producer. No public Wails method can forge
@@ -180,6 +183,7 @@ func (c *commandDeckController) Input(ctx context.Context, event commandadapter.
 			CommandID: binding.commandID, Generation: generation, UserID: c.p.principal.UserID,
 			SessionID: c.p.principal.SessionID, WorkspaceID: c.p.workspaceID,
 			Conditions: cloneLocalCommandPaletteConditions(binding.conditions),
+			Arguments:  append(json.RawMessage(nil), binding.arguments...),
 		})
 		return commandbridge.InvocationAck{Accepted: true}, nil
 	}
@@ -448,7 +452,11 @@ func (p *commandProductRuntime) resolveDeckPress(ctx context.Context, identities
 				title = meta.Name
 			}
 		}
-		return commandDeckBinding{commandID: definition.ID, title: title, identity: identity, profileBound: len(required) != 0, origin: origin}, origin.version, true
+		binding := commandDeckBinding{commandID: definition.ID, title: title, identity: identity, profileBound: len(required) != 0, origin: origin}
+		if definition.ID == commandWorkspaceTabGoToID {
+			binding.arguments = append(json.RawMessage(nil), []byte(resolved.ArgumentsKey)...)
+		}
+		return binding, origin.version, true
 	}
 	return commandDeckBinding{}, "", false
 }

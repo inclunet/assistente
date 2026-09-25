@@ -25,6 +25,25 @@ async function controller(overrides: Partial<Parameters<typeof createLocalComman
 }
 
 describe('commandLocalKeyboard', () => {
+  it('preserva argumentos do comando parametrizado no dispatch local e recusa binding sem alvo', async () => {
+    const argumentsValue = { workspace_id: 'workspace-a', target_mode: 'position', position: 17 };
+    const { keyboard, onDown } = await controller({
+      loadMap: async () => ({ generation: 'tab-target', bindings: [{ shortcut, commandId: 'workspace.tab.go_to', handler: 'local_ui', arguments: argumentsValue }] }),
+    });
+    try {
+      window.dispatchEvent(event('keydown'));
+      expect(onDown).toHaveBeenCalledWith(expect.objectContaining({ commandId: 'workspace.tab.go_to', arguments: argumentsValue }));
+    } finally { keyboard.dispose(); }
+
+    const invalid = await controller({
+      loadMap: async () => ({ generation: 'tab-target-missing-args', bindings: [{ shortcut, commandId: 'workspace.tab.go_to', handler: 'local_ui' }] }),
+    });
+    try {
+      window.dispatchEvent(event('keydown'));
+      expect(invalid.onDown).not.toHaveBeenCalled();
+    } finally { invalid.keyboard.dispose(); }
+  });
+
   it.each(['chat.focus.input', 'chat.focus.messages', 'chat.message.read.open', 'chat.message.menu.open', 'chat.message.reasoning.toggle', 'chat.message.thread.expand', 'chat.message.thread.collapse'])('aciona %s pelo binding local personalizado, sem repetição automática', async commandId => {
     const { keyboard, onDown } = await controller({
       loadMap: async () => ({ generation: 'chat-navigation', bindings: [{ shortcut, commandId, handler: 'local_ui' }] }),

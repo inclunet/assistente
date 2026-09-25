@@ -583,6 +583,7 @@ const en = {
       deepLinkNotFound: 'No activation is configured for {{command}} in this scope.',
       presentationStates: { label: 'Key state', hint: 'Choose the default presentation or customize a state.', default: 'Default', on: 'On', off: 'Off', waiting: 'Waiting', running: 'Running', succeeded: 'Succeeded', failed: 'Failed', denied: 'Denied', cancelled: 'Cancelled', timed_out: 'Timed out', outcome_unknown: 'Outcome unknown', inheritance: 'Fields without an override inherit from the default presentation.', inherit: 'Inherit default', unavailableIcon: 'Icon unavailable' },
       specificTab: 'Specific tab',
+      tabTarget: { title: 'Tab destination', workspace: 'Linked to workspace: {{name}}', noWorkspace: 'Open a workspace to configure this destination.', mode: 'Destination type', chooseMode: 'Choose a destination type', byPosition: 'By position', bySpecificTab: 'Specific tab', position: 'Tab position', specificTab: 'Tab', chooseTab: 'Choose a tab', unavailableTab: 'Unavailable tab (retained)', otherWorkspace: 'This destination is linked to another workspace; select a new destination to link it to this workspace.' },
       layerActionTarget: 'Layer and activation rule',
       layerActionCompleted: 'Layer action completed.',
       layerActionChoose: 'Choose the target',

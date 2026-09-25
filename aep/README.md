@@ -157,7 +157,7 @@ Seção138: integração da main `714a47c4e`, com checkpoint local recuperável.
 Falha preexistente de revisão ABA ao fixar/desafixar mensagem identificada
 no merge e tratada na seção139: revisão durável por mensagem, triggers
 transacionais e migração v30, sem depender de timestamps ou alterar atalhos.
-Catálogo v40: 149 comandos / 61 locais / 67 defaults; 81 IDs do Deck são
+Catálogo v41: 150 comandos / 61 locais / 67 defaults; 81 IDs do Deck são
 outro denominador. Δ18 corrigido: matriz estática preparada antes da entrada
 física, com recusa de snapshot stale e fatos nativos atuais por tecla.
 C62 implementado: LRU de seleção integrado, isolado e invalidado, sem cache

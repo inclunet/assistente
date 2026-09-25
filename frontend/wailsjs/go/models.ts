@@ -2806,6 +2806,7 @@ export namespace app {
 	    shortcut: LocalCommandShortcut;
 	    commandId: string;
 	    handler: string;
+	    arguments?: number[];
 	
 	    static createFrom(source: any = {}) {
 	        return new LocalCommandKeyboardBinding(source);
@@ -2816,6 +2817,7 @@ export namespace app {
 	        this.shortcut = this.convertValues(source["shortcut"], LocalCommandShortcut);
 	        this.commandId = source["commandId"];
 	        this.handler = source["handler"];
+	        this.arguments = source["arguments"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2898,6 +2900,9 @@ export namespace app {
 	    commandId: string;
 	    bySurface: Record<string, boolean>;
 	    bySurfaceId?: Record<string, any>;
+	    fallbackArguments?: number[];
+	    bySurfaceArguments?: Record<string, Array<number>>;
+	    bySurfaceIdArguments?: Record<string, any>;
 	    byProfile?: Record<string, LocalCommandPaletteCondition>;
 	    fallback: boolean;
 	
@@ -2910,6 +2915,9 @@ export namespace app {
 	        this.commandId = source["commandId"];
 	        this.bySurface = source["bySurface"];
 	        this.bySurfaceId = source["bySurfaceId"];
+	        this.fallbackArguments = source["fallbackArguments"];
+	        this.bySurfaceArguments = source["bySurfaceArguments"];
+	        this.bySurfaceIdArguments = source["bySurfaceIdArguments"];
 	        this.byProfile = this.convertValues(source["byProfile"], LocalCommandPaletteCondition, true);
 	        this.fallback = source["fallback"];
 	    }
@@ -2941,6 +2949,7 @@ export namespace app {
 	    bindings: LocalCommandKeyboardBinding[];
 	    contextualBindings?: LocalCommandKeyboardContextualBinding[];
 	    localPaletteCommands: string[];
+	    localPaletteArguments?: Record<string, Array<number>>;
 	    localPaletteConditions?: LocalCommandPaletteCondition[];
 	    contextualPaletteConditions?: LocalCommandPaletteCondition[];
 	
@@ -2958,6 +2967,7 @@ export namespace app {
 	        this.bindings = this.convertValues(source["bindings"], LocalCommandKeyboardBinding);
 	        this.contextualBindings = this.convertValues(source["contextualBindings"], LocalCommandKeyboardContextualBinding);
 	        this.localPaletteCommands = source["localPaletteCommands"];
+	        this.localPaletteArguments = source["localPaletteArguments"];
 	        this.localPaletteConditions = this.convertValues(source["localPaletteConditions"], LocalCommandPaletteCondition);
 	        this.contextualPaletteConditions = this.convertValues(source["contextualPaletteConditions"], LocalCommandPaletteCondition);
 	    }
