@@ -18,6 +18,7 @@ let user = { userId: 'user-1', sessionId: 'session-1' };
 let workspaceTabs: { id: string; type: string; title: string }[] = [];
 const runtime = vi.hoisted(() => ({
   eventsOn: vi.fn(),
+  requestGridFocus: vi.fn(),
 }));
 
 vi.mock('../services/commandSettings', () => ({
@@ -32,22 +33,58 @@ vi.mock('../services/commandDeckCapture', () => ({
   cancelCommandDeckCapture: (...args: unknown[]) => cancelCapture(...args),
 }));
 vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce }) }));
-vi.mock('../hooks/useGridFocus', () => ({ useGridFocus: () => ({ handleGridReady: vi.fn() }) }));
+vi.mock('../hooks/useGridFocus', () => ({ useGridFocus: () => ({ handleGridReady: vi.fn(), requestGridFocus: runtime.requestGridFocus }) }));
 vi.mock('../store/authStore', () => ({ useAuthStore: (selector: (state: unknown) => unknown) => selector({ user }) }));
 vi.mock('../store/workspaceStore', () => ({ useWorkspaceStore: (selector: (state: unknown) => unknown) => selector({ workspace: { id: 'workspace-1', tabs: workspaceTabs } }) }));
 vi.mock('@wailsjs/runtime/runtime', () => ({ EventsOn: runtime.eventsOn }));
 vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({ GetProfiles: (...args: unknown[]) => getProfiles(...args) }));
 import CommandSettingsPage from './CommandSettingsPage';
 
+async function openManager(kind: 'commands' | 'rules') {
+  const label = kind === 'commands' ? 'commandSettings.managers.commands' : 'commandSettings.rules.title';
+  const current = screen.queryByRole('dialog', { name: label });
+  if (current) return current;
+  await closeManagerIfOpen();
+  await userEvent.click(await screen.findByRole('button', { name: 'commandSettings.managers.settings' }));
+  await userEvent.click(await screen.findByRole('menuitem', { name: label }));
+  return screen.findByRole('dialog', { name: label });
+}
+
+async function closeManagerIfOpen() {
+  const current = screen.queryByRole('dialog', { name: /commandSettings\.(?:managers\.commands|rules\.title)/ });
+  if (!current) return;
+  await userEvent.click(within(current).getByRole('button', { name: 'ui.modal.close' }));
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: /commandSettings\.(?:managers\.commands|rules\.title)/ })).not.toBeInTheDocument());
+}
+
 async function bindingAction(name: string) {
-  const grid = await screen.findByRole('grid', { name: 'commandSettings.commands' });
-  fireEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
+  const dialog = await openManager('commands');
+  const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+  await userEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
+  return screen.findByRole('menuitem', { name });
+}
+
+async function clickBindingActions() {
+  const dialog = await openManager('commands');
+  await userEvent.click(within(dialog).getByRole('button', { name: 'common.actions' }));
+}
+
+async function clickNewBinding() {
+  const dialog = await openManager('commands');
+  await userEvent.click(within(dialog).getByRole('button', { name: 'commandSettings.actions.newBinding' }));
+}
+
+async function ruleAction(name: string) {
+  const dialog = await openManager('rules');
+  const grid = within(dialog).getByRole('grid', { name: 'commandSettings.rules.title' });
+  await userEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
   return screen.findByRole('menuitem', { name });
 }
 
 async function selectLayer(name: string) {
+  await closeManagerIfOpen();
   const grid = await screen.findByRole('grid', { name: 'commandSettings.layers' });
-  fireEvent.click(within(grid).getByText(name));
+  await userEvent.click(within(grid).getByText(name));
   await screen.findByRole('heading', { name });
 }
 
@@ -76,6 +113,89 @@ describe('CommandSettingsPage', () => {
   let deckStatusChanged: ((payload: unknown) => void) | undefined;
   let deckCaptureChanged: ((payload: unknown) => void) | undefined;
   let unsubscribeKeyboardMapChanged: ReturnType<typeof vi.fn>;
+
+  it('mantém somente a lista de camadas na página inicial', async () => {
+    render(<CommandSettingsPage />);
+    expect(await screen.findByRole('grid', { name: 'commandSettings.layers' })).toBeInTheDocument();
+    expect(screen.queryByRole('grid', { name: 'commandSettings.commands' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('grid', { name: 'commandSettings.rules.title' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'commandSettings.actions.newBinding' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'commandSettings.rules.new' })).not.toBeInTheDocument();
+  });
+
+  it('abre gerenciadores separados e preserva leitura sem conceder edição à camada builtin', async () => {
+    getSettings.mockResolvedValue({ ...snapshot, rules: [{
+      id: 'builtin-rule', layerId: 'builtin', mode: 'manual', condition: { version: 1, clauses: [] },
+      lifecycle: 'temporary', enabled: true, reviewStatus: 'active',
+    }] });
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+
+    const commands = await openManager('commands');
+    expect(within(commands).getByRole('grid', { name: 'commandSettings.commands' })).toBeInTheDocument();
+    expect(within(commands).queryByRole('grid', { name: 'commandSettings.rules.title' })).not.toBeInTheDocument();
+    expect(within(commands).getByRole('button', { name: 'commandSettings.actions.newBinding' })).toBeDisabled();
+    expect(await axe(commands, { rules: { 'color-contrast': { enabled: false } } })).toHaveNoViolations();
+    fireEvent.click(within(commands).getByRole('button', { name: 'ui.modal.close' }));
+
+    const rules = await openManager('rules');
+    expect(within(rules).getByRole('grid', { name: 'commandSettings.rules.title' })).toBeInTheDocument();
+    expect(within(rules).queryByRole('grid', { name: 'commandSettings.commands' })).not.toBeInTheDocument();
+    expect(within(rules).getByRole('button', { name: 'commandSettings.rules.new' })).toBeDisabled();
+    expect(await axe(rules, { rules: { 'color-contrast': { enabled: false } } })).toHaveNoViolations();
+  });
+
+  it('Escape fecha primeiro o editor filho e depois o gerenciador', async () => {
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    const dialog = await openManager('commands');
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+    fireEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
+    const edit = await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' });
+    fireEvent.click(edit);
+    expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).toBeInTheDocument();
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'commandSettings.managers.commands' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('grid', { name: 'commandSettings.commands' })).toBeInTheDocument();
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'commandSettings.managers.commands' })).not.toBeInTheDocument();
+    expect(screen.getByRole('grid', { name: 'commandSettings.layers' })).toBeInTheDocument();
+  });
+
+  it('ao fechar o gerenciador devolve foco à camada selecionada', async () => {
+    const requestGridFocus = runtime.requestGridFocus;
+    requestGridFocus.mockClear();
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    const dialog = await openManager('commands');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'ui.modal.close' }));
+
+    await waitFor(() => expect(requestGridFocus).toHaveBeenCalledWith({ itemId: 'builtin' }));
+    expect(screen.getByRole('grid', { name: 'commandSettings.layers' })).toBeInTheDocument();
+    expect(screen.queryByRole('grid', { name: 'commandSettings.commands' })).not.toBeInTheDocument();
+  });
+
+  it.each(['session', 'scope'] as const)('fecha gerenciador quando muda o %s', async (identityChange) => {
+    const page = render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    const scopeSelect = screen.getByLabelText('commandSettings.scope.label');
+    await openManager('commands');
+
+    if (identityChange === 'session') {
+      user = { ...user, sessionId: 'session-changed' };
+      page.rerender(<CommandSettingsPage />);
+    } else {
+      await userEvent.selectOptions(scopeSelect, 'workspace');
+    }
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'commandSettings.managers.commands' })).not.toBeInTheDocument());
+    expect(screen.getByRole('grid', { name: 'commandSettings.layers' })).toBeInTheDocument();
+    expect(screen.queryByRole('grid', { name: 'commandSettings.commands' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('grid', { name: 'commandSettings.rules.title' })).not.toBeInTheDocument();
+  });
 
   it('recupera snapshot ausente quando o mapa é publicado depois do bootstrap', async () => {
     getSettings.mockRejectedValueOnce(new Error('bootstrap ainda não pronto'))
@@ -144,11 +264,8 @@ describe('CommandSettingsPage', () => {
       }],
     });
     render(<CommandSettingsPage />);
-    await screen.findByText('Minha camada');
-    fireEvent.click(screen.getByText('Minha camada'));
-    const rulesGrid = await screen.findByRole('grid', { name: 'commandSettings.rules.title' });
-    fireEvent.click(within(rulesGrid).getByRole('button', { name: 'common.actions' }));
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.manualToggle' }));
+    await selectLayer('Minha camada');
+    fireEvent.click(await ruleAction('commandSettings.manualToggle'));
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '42' } });
     fireEvent.click(screen.getByRole('button', { name: 'common.apply' }));
     await waitFor(() => expect(applyLayerAction).toHaveBeenCalledWith('global', 'rule-temporary', 'toggle', 42));
@@ -173,11 +290,8 @@ describe('CommandSettingsPage', () => {
       rules: [{ id: 'rule-active', layerId: 'user', mode: 'manual', condition: { version: 1, clauses: [] }, lifecycle: 'temporary', enabled: true, manualActive: true, manualExpiresAt: Date.now() + 60000, reviewStatus: 'active' }],
     });
     render(<CommandSettingsPage />);
-    await screen.findByText('Minha camada');
-    fireEvent.click(screen.getByText('Minha camada'));
-    const rulesGrid = await screen.findByRole('grid', { name: 'commandSettings.rules.title' });
-    fireEvent.click(within(rulesGrid).getByRole('button', { name: 'common.actions' }));
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.manualDeactivate' }));
+    await selectLayer('Minha camada');
+    fireEvent.click(await ruleAction('commandSettings.manualDeactivate'));
     await waitFor(() => expect(applyLayerAction).toHaveBeenCalledWith('global', 'rule-active', 'deactivate', 0));
   });
 
@@ -243,7 +357,7 @@ describe('CommandSettingsPage', () => {
     await screen.findByText('Minha camada');
     await act(async () => deckStatusChanged?.({ status: 'connected', devices: [{ id: 'RUNTIME', model: 'Runtime', keyCount: 15, status: 'connected' }] }));
     fireEvent.click(screen.getByText('Minha camada'));
-    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.actions.newBinding' }));
+    await clickNewBinding();
     fireEvent.change(screen.getByLabelText('commandSettings.form.source'), { target: { value: 'streamdeck.key' } });
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.form.captureButton' }));
     expect(beginCapture).toHaveBeenCalledWith(expect.any(String));
@@ -269,7 +383,7 @@ describe('CommandSettingsPage', () => {
     render(<CommandSettingsPage />);
     await screen.findByText('Minha camada');
     fireEvent.click(screen.getByText('Minha camada'));
-    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.actions.newBinding' }));
+    await clickNewBinding();
     fireEvent.change(screen.getByLabelText('commandSettings.form.source'), { target: { value: 'streamdeck.key' } });
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.form.captureButton' }));
     const firstRequestId = beginCapture.mock.calls[0][0];
@@ -290,7 +404,7 @@ describe('CommandSettingsPage', () => {
     render(<CommandSettingsPage />);
     await screen.findByText('Minha camada');
     fireEvent.click(screen.getByText('Minha camada'));
-    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.actions.newBinding' }));
+    await clickNewBinding();
     fireEvent.change(screen.getByLabelText('commandSettings.form.source'), { target: { value: 'streamdeck.key' } });
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.form.captureButton' }));
     const requestId = beginCapture.mock.calls[0][0];
@@ -303,7 +417,7 @@ describe('CommandSettingsPage', () => {
     render(<CommandSettingsPage />);
     await screen.findByText('Minha camada');
     fireEvent.click(screen.getByText('Minha camada'));
-    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.actions.newBinding' }));
+    await clickNewBinding();
     fireEvent.change(screen.getByLabelText('commandSettings.form.source'), { target: { value: 'streamdeck.key' } });
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.form.captureButton' }));
     const requestId = beginCapture.mock.calls[0][0];
@@ -323,7 +437,7 @@ describe('CommandSettingsPage', () => {
     const { unmount } = render(<CommandSettingsPage />);
     await screen.findByText('Minha camada');
     await userEvents.click(screen.getByText('Minha camada'));
-    await userEvents.click(screen.getByRole('button', { name: 'commandSettings.actions.newBinding' }));
+    await clickNewBinding();
     await userEvents.selectOptions(await screen.findByLabelText('commandSettings.form.source'), 'streamdeck.key');
     await userEvents.click(screen.getByRole('button', { name: 'commandSettings.form.captureButton' }));
     const requestId = beginCapture.mock.calls[0][0];
@@ -363,7 +477,8 @@ describe('CommandSettingsPage', () => {
     mutateSettings.mockRejectedValueOnce(new Error('mutation failed'));
     render(<CommandSettingsPage />);
     fireEvent.click(await bindingAction('commandSettings.actions.suppress'));
-    expect(await screen.findByText('commandSettings.errors.generic')).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: 'commandSettings.managers.commands' });
+    expect(await within(dialog).findByText('commandSettings.errors.generic')).toBeInTheDocument();
     expect(screen.queryByText('commandSettings.errors.load')).not.toBeInTheDocument();
   });
 
@@ -407,17 +522,21 @@ describe('CommandSettingsPage', () => {
     render(<CommandSettingsPage />);
 
     fireEvent.click(await screen.findByText('Atalhos globais'));
-    const grid = await screen.findByRole('grid', { name: 'commandSettings.commands' });
+    const dialog = await openManager('commands');
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
     expect(within(grid).getByText('Control+Shift+KeyJ')).toBeInTheDocument();
     expect(within(grid).getByText('commandSettings.sources.keyboard')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'commandSettings.actions.newBinding' })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'commandSettings.actions.newBinding' })).toBeDisabled();
 
-    const edit = await bindingAction('commandSettings.actions.editBinding');
+    fireEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
+    const edit = await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' });
     expect(edit).toBeDisabled();
     fireEvent.click(edit);
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'commandSettings.managers.commands' })).toBeInTheDocument();
 
-    fireEvent.click(await bindingAction('commandSettings.actions.suppress'));
+    fireEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.suppress' }));
     await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
       operation: 'binding_create',
       binding: expect.objectContaining({
@@ -586,6 +705,7 @@ describe('CommandSettingsPage', () => {
   it('carrega camadas e oferece supressão própria para default readonly', async () => {
     render(<CommandSettingsPage />);
     await waitFor(() => expect(screen.getByText('Minha camada')).toBeInTheDocument());
+    await openManager('commands');
     expect(screen.getByText('Control+KeyN')).toBeInTheDocument();
     const suppress = await bindingAction('commandSettings.actions.suppress');
     fireEvent.click(suppress);
@@ -604,6 +724,7 @@ describe('CommandSettingsPage', () => {
       }) })),
     });
     render(<CommandSettingsPage />);
+    await openManager('commands');
     expect(await screen.findByText('Control+KeyN KeyC')).toBeInTheDocument();
     fireEvent.click(await bindingAction('commandSettings.actions.suppress'));
     await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -623,6 +744,7 @@ describe('CommandSettingsPage', () => {
       }],
     });
     render(<CommandSettingsPage />);
+    await openManager('commands');
     expect(await screen.findByText('F1')).toBeInTheDocument();
     fireEvent.click(await bindingAction(customized ? 'commandSettings.actions.restore' : 'commandSettings.actions.suppress'));
     await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining(
@@ -648,7 +770,8 @@ describe('CommandSettingsPage', () => {
     render(<CommandSettingsPage />);
     await waitFor(() => expect(screen.getByText('Minha camada')).toBeInTheDocument());
     fireEvent.click(await bindingAction('commandSettings.actions.suppress'));
-    await screen.findByText('commandSettings.errors.generic');
+    const dialog = screen.getByRole('dialog', { name: 'commandSettings.managers.commands' });
+    await within(dialog).findByText('commandSettings.errors.generic');
     expect(announce).toHaveBeenCalledWith('commandSettings.errors.generic', 'assertive');
     expect(announce).not.toHaveBeenCalledWith('commandSettings.messages.saved');
     expect(getSettings).toHaveBeenCalledTimes(1);
@@ -710,7 +833,7 @@ describe('CommandSettingsPage', () => {
     mutateSettings.mockResolvedValue({ committed: true, published: false, id: 'default-1' });
     render(<CommandSettingsPage />);
     fireEvent.click(await bindingAction('commandSettings.actions.suppress'));
-    expect(await screen.findByText('commandSettings.messages.committedNotPublished')).toBeInTheDocument();
+    expect(await within(screen.getByRole('dialog', { name: 'commandSettings.managers.commands' })).findByText('commandSettings.messages.committedNotPublished')).toBeInTheDocument();
     expect(announce).toHaveBeenCalledWith('commandSettings.messages.committedNotPublished');
     expect(mutateSettings).toHaveBeenCalledTimes(1);
   });
@@ -743,9 +866,12 @@ describe('CommandSettingsPage', () => {
     mutateSettings.mockResolvedValue({ committed: true, published: true, id: 'binding' });
     render(<CommandSettingsPage />);
     await screen.findByText('Minha camada');
-    expect(screen.getByRole('button', { name: 'commandSettings.actions.newBinding' })).toBeDisabled();
+    const builtinManager = await openManager('commands');
+    expect(within(builtinManager).getByRole('button', { name: 'commandSettings.actions.newBinding' })).toBeDisabled();
+    fireEvent.click(within(builtinManager).getByRole('button', { name: 'ui.modal.close' }));
     fireEvent.click(screen.getByText('Minha camada'));
-    const create = screen.getByRole('button', { name: 'commandSettings.actions.newBinding' });
+    const manager = await openManager('commands');
+    const create = within(manager).getByRole('button', { name: 'commandSettings.actions.newBinding' });
     await waitFor(() => expect(create).toBeEnabled());
     fireEvent.click(create);
     expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
@@ -770,7 +896,8 @@ describe('CommandSettingsPage', () => {
       await waitFor(() => expect(getSettings).toHaveBeenLastCalledWith(expect.any(String), scope));
     }
     fireEvent.click(screen.getByText('Minha camada'));
-    const create = await screen.findByRole('button', { name: 'commandSettings.actions.newBinding' });
+    const manager = await openManager('commands');
+    const create = within(manager).getByRole('button', { name: 'commandSettings.actions.newBinding' });
     await waitFor(() => expect(create).toBeEnabled());
     fireEvent.click(create);
 
@@ -801,7 +928,7 @@ describe('CommandSettingsPage', () => {
     render(<CommandSettingsPage />);
     await screen.findByText('Minha camada');
     fireEvent.click(screen.getByText('Minha camada'));
-    fireEvent.click(within(await screen.findByRole('grid', { name: 'commandSettings.commands' })).getByRole('button', { name: 'common.actions' }));
+    await clickBindingActions();
     fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
 
     fireEvent.change(screen.getByLabelText('commandShortcutCapture.mode'), { target: { value: 'sequence' } });
@@ -830,7 +957,7 @@ describe('CommandSettingsPage', () => {
     render(<CommandSettingsPage />);
     await screen.findByText('Minha camada');
     fireEvent.click(screen.getByText('Minha camada'));
-    fireEvent.click(within(await screen.findByRole('grid', { name: 'commandSettings.commands' })).getByRole('button', { name: 'common.actions' }));
+    await clickBindingActions();
     fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
     await revealAdvancedOptionsIfNeeded();
     expect(screen.getByLabelText('commandShortcutCapture.mode')).toHaveValue('sequence');
@@ -854,7 +981,7 @@ describe('CommandSettingsPage', () => {
     getSettings.mockResolvedValue({ ...snapshot, bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined }] });
     render(<CommandSettingsPage />);
     fireEvent.click(await screen.findByText('Minha camada'));
-    fireEvent.click(within(await screen.findByRole('grid', { name: 'commandSettings.commands' })).getByRole('button', { name: 'common.actions' }));
+    await clickBindingActions();
     fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
     await revealAdvancedOptionsIfNeeded();
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
@@ -874,7 +1001,7 @@ describe('CommandSettingsPage', () => {
     });
     render(<CommandSettingsPage />);
     fireEvent.click(await screen.findByText('Minha camada'));
-    fireEvent.click(within(await screen.findByRole('grid', { name: 'commandSettings.commands' })).getByRole('button', { name: 'common.actions' }));
+    await clickBindingActions();
     fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
     await revealAdvancedOptionsIfNeeded();
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
@@ -897,7 +1024,7 @@ describe('CommandSettingsPage', () => {
     });
     render(<CommandSettingsPage />);
     fireEvent.click(await screen.findByText('Minha camada'));
-    fireEvent.click(within(await screen.findByRole('grid', { name: 'commandSettings.commands' })).getByRole('button', { name: 'common.actions' }));
+    await clickBindingActions();
     fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
     await revealAdvancedOptionsIfNeeded();
     fireEvent.change(screen.getByLabelText('commandSettings.form.priority'), { target: { value: '7' } });
@@ -919,7 +1046,7 @@ describe('CommandSettingsPage', () => {
     });
     render(<CommandSettingsPage />);
     fireEvent.click(await screen.findByText('Minha camada'));
-    fireEvent.click(within(await screen.findByRole('grid', { name: 'commandSettings.commands' })).getByRole('button', { name: 'common.actions' }));
+    await clickBindingActions();
     fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
     await revealAdvancedOptionsIfNeeded();
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
@@ -1015,7 +1142,7 @@ describe('CommandSettingsPage', () => {
     mutateSettings.mockResolvedValue({ committed: true, published: true, id: 'binding-new' });
     render(<CommandSettingsPage />);
     fireEvent.click(await screen.findByText('Minha camada'));
-    fireEvent.click(await screen.findByRole('button', { name: 'commandSettings.actions.newBinding' }));
+    await clickNewBinding();
     await revealAdvancedOptionsIfNeeded();
     fireEvent.change(screen.getByLabelText('commandSettings.form.command'), { target: { value: 'cmd.new' } });
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
@@ -1054,7 +1181,7 @@ describe('CommandSettingsPage', () => {
     getSettings.mockResolvedValue({ ...snapshot, bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined, condition }] });
     render(<CommandSettingsPage />);
     fireEvent.click(await screen.findByText('Minha camada'));
-    fireEvent.click(within(await screen.findByRole('grid', { name: 'commandSettings.commands' })).getByRole('button', { name: 'common.actions' }));
+    await clickBindingActions();
     fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
     expect(screen.getByRole('option', { name: 'commandSettings.unavailableConditionValue' })).toHaveProperty('selected', true);
     fireEvent.change(screen.getByLabelText('commandSettings.form.priority'), { target: { value: '9' } });
@@ -1071,7 +1198,7 @@ describe('CommandSettingsPage', () => {
     render(<CommandSettingsPage />);
     await screen.findByText('Minha camada');
     fireEvent.click(screen.getByText('Minha camada'));
-    fireEvent.click(within(await screen.findByRole('grid', { name: 'commandSettings.commands' })).getByRole('button', { name: 'common.actions' }));
+    await clickBindingActions();
     fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
     expect(screen.getByLabelText('commandShortcutCapture.mode')).toHaveValue('sequence');
     expect(screen.getByRole('button', { name: 'common.save' })).toBeEnabled();

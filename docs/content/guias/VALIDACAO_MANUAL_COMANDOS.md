@@ -100,8 +100,11 @@ convites, serial de equipamento, mensagens pessoais ou logs sem sanitização.
 ## 1. Inicialização, paleta e navegação — 6 casos
 
 - [ ] **UI01 — Inicialização e configurações.** Abra o aplicativo, entre em
-  Comandos e acionadores e percorra **Escopo**, **Camadas**, **Comandos desta
-  camada** e **Regras de ativação**. Feche normalmente e repita em um segundo
+  Comandos e acionadores e percorra **Escopo** e **Camadas**. Selecione uma
+  camada e use **Configurações da camada** para abrir, separadamente,
+  **Comandos e acionadores** e **Regras de ativação**. Ao cancelar um formulário,
+  o foco deve voltar ao gerenciador (ao botão de criação se a lista estiver
+  vazia); outro Escape fecha o gerenciador e retorna à camada. Feche normalmente e repita em um segundo
   startup. Esperado: listas carregam nas duas vezes, sem erro de teclado;
   **Comandos padrão** e **Mapa de teclado padrão** são distinguíveis; setas
   avançam um item e NVDA anuncia nome, estado e ações. Não apague dados se

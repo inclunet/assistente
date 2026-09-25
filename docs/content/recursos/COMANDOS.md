@@ -11,6 +11,28 @@ separa configurações **globais** das do **workspace atual**. Na visão do
 workspace, itens globais herdados continuam visíveis, mas são editados no
 escopo global. Restaurar o workspace não apaga a configuração global.
 
+### Gerenciar uma camada
+
+Selecione uma camada na grade **Camadas**. Ao lado, consulte seu estado,
+descrição e quantidades de acionadores e regras. Abra **Configurações da
+camada** e escolha o gerenciador desejado:
+
+- **Comandos e acionadores:** consulte as associações existentes; use **Novo
+  acionador** ou o menu de ações da linha para configurar teclado, paleta ou
+  Stream Deck. Padrões continuam sujeitos às opções próprias de personalização.
+- **Regras de ativação:** consulte quando a camada se aplica; use **Nova regra**
+  ou o menu da linha para editar e acionar as operações permitidas.
+
+Os dois gerenciadores são separados. As opções avançadas continuam nos
+formulários correspondentes, sem alterar o significado das configurações.
+Camadas herdadas de outro escopo podem ser consultadas, mas sua edição continua
+no escopo de origem.
+
+**Escape** fecha primeiro o formulário e retorna o foco à grade do gerenciador.
+Outro **Escape** fecha o gerenciador e volta à camada selecionada. Enquanto
+uma operação estiver em andamento, aguarde sua conclusão antes de fechar.
+Trocar usuário, sessão, workspace ou escopo encerra o gerenciador anterior.
+
 ## Checklist de aceite e roteiros de referência
 
 Ao alternar páginas ou abas, os comandos de navegação continuam disponíveis

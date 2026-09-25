@@ -16,6 +16,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+AEP-0103, pós-merge #833: separação dos gerenciadores de comandos/acionadores
+e regras de ativação conforme seção159, sem alteração do motor de execução.
+O mantenedor confirmou a correção física do bloqueio do Deck antes do merge.
+**In Progress; 83 I / 1 P / 0 N**; os demais aceites não são inferidos desse relato.
+
 AEP-0103, seção162 (25/09/2026): diagnóstico nativo reproduziu o bloqueio do
 Deck após navegar; correção do refresh de projeção e preservação do mapa
 idêntico validada em 18 trocas Wails com HID simulado. **In Progress;

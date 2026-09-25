@@ -12,6 +12,9 @@ import {
   Textarea,
 } from '../components/ui';
 import { Input } from '../components/ui/Input';
+import { MenuButton } from '../components/layout/MenuButton';
+import { DATAGRID_ENTRY_SELECTOR, type GridFocusRequest } from '../components/ui/DataGrid';
+import { isModalOpen } from '../components/ui/Modal';
 import { StreamDeckCaptureFields } from '../components/commands/StreamDeckCaptureFields';
 import { ExternalCommandConnection } from '../components/commands/ExternalCommandConnection';
 import { useExternalUIConnection } from '../services/externalUIConnectionReact';
@@ -115,7 +118,7 @@ export default function CommandSettingsPage() {
   const deepLinkedCommandId = typeof window === 'undefined'
     ? '' : new URLSearchParams(window.location.search).get('commandId')?.trim() ?? '';
   const { announce } = useAnnouncer();
-  const { handleGridReady } = useGridFocus();
+  const { handleGridReady, requestGridFocus } = useGridFocus();
   const userId = useAuthStore((state) => state.user?.userId ?? '');
   const sessionId = useAuthStore((state) => state.user?.sessionId ?? '');
   const vaultUnlocked = useAuthStore((state) => state.status?.vaultUnlocked ?? false);
@@ -163,6 +166,11 @@ export default function CommandSettingsPage() {
   const [snapshotIdentity, setSnapshotIdentity] = useState('');
   const snapshot = snapshotIdentity === identityKey ? loadedSnapshot : EMPTY;
   const [selectedLayerId, setSelectedLayerId] = useState('');
+  const [manager, setManager] = useState<{ kind: 'bindings' | 'rules'; layerId: string; identity: string } | null>(null);
+  const managerGridFocus = useRef<GridFocusRequest | null>(null);
+  const managerNewButton = useRef<HTMLButtonElement>(null);
+  const managerLayerName = useRef<HTMLParagraphElement>(null);
+  const reloadButton = useRef<HTMLButtonElement>(null);
   const [editor, setEditor] = useState<Editor>(null);
   const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
   const [argumentsValid, setArgumentsValid] = useState(true);
@@ -243,6 +251,7 @@ export default function CommandSettingsPage() {
     mounted.current = true;
     retryAfterLoadingRef.current = false;
     setEditor(null);
+    setManager(null);
     setPresentationBusy(false);
     setNotice('');
     setManualActionDialog(null);
@@ -417,6 +426,59 @@ export default function CommandSettingsPage() {
   }, [editor, identityKey, load, loading, snapshotIdentity]);
 
   const selectedLayer = snapshot.layers.find((layer) => layer.id === selectedLayerId) ?? null;
+  const managerOpen = manager !== null && manager.identity === identityKey &&
+    snapshotIdentity === identityKey && manager.layerId === selectedLayer?.id;
+  const childDialogOpen = editor !== null || manualActionDialog !== null;
+  const childDialogWasOpen = useRef(false);
+  const pendingManagerFocus = useRef(false);
+
+  useEffect(() => {
+    if (!manager || managerOpen || loading || busy) return;
+    setManager(null);
+    managerGridFocus.current = null;
+    requestAnimationFrame(() => {
+      if (manager.identity !== identityKeyRef.current || !mounted.current || isModalOpen()) return;
+      if (snapshotIdentity !== identityKey) reloadButton.current?.focus();
+      else requestGridFocus();
+    });
+  }, [manager, managerOpen, snapshotIdentity, identityKey, loading, busy, requestGridFocus]);
+
+  useEffect(() => {
+    if (childDialogWasOpen.current && !childDialogOpen) pendingManagerFocus.current = true;
+    childDialogWasOpen.current = childDialogOpen;
+    if (!managerOpen) { pendingManagerFocus.current = false; return; }
+    if (loading) pendingManagerFocus.current = true;
+    if (!pendingManagerFocus.current || childDialogOpen || loading || busy) return;
+    const frame = requestAnimationFrame(() => {
+      pendingManagerFocus.current = false;
+      managerGridFocus.current?.();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [managerOpen, childDialogOpen, loading, busy]);
+
+  function openManager(kind: 'bindings' | 'rules') {
+    if (busyRef.current || loading || !selectedLayer || snapshotIdentity !== identityKey) return;
+    setManager({ kind, layerId: selectedLayer.id, identity: identityKey });
+  }
+
+  function focusEmptyManager() {
+    const target = managerNewButton.current;
+    if (target && !target.disabled) target.focus();
+    else managerLayerName.current?.focus();
+    return true;
+  }
+
+  function closeManager() {
+    if (busyRef.current || childDialogOpen) return;
+    const previous = manager;
+    setManager(null);
+    managerGridFocus.current = null;
+    requestAnimationFrame(() => {
+      if (previous?.identity === identityKeyRef.current && mounted.current && !isModalOpen()) {
+        requestGridFocus({ itemId: previous.layerId });
+      }
+    });
+  }
   const isInheritedLayer = (row: CommandLayer) => row.inherited === true || (scope === 'workspace' && !row.builtin && !row.workspaceId);
   const isInheritedBinding = (row: CommandBinding) => row.inherited === true || (scope === 'workspace' && !row.defaultId && !row.workspaceId);
   const isInheritedRule = (row: CommandSettingsRule) => row.inherited === true || (scope === 'workspace' && !row.workspaceId);
@@ -454,6 +516,7 @@ export default function CommandSettingsPage() {
       mutationIdentity === identityKeyRef.current &&
       mutationLifecycle === lifecycle.current;
     busyRef.current = true;
+    if (managerOpen) pendingManagerFocus.current = true;
     setBusy(true);
     setError('');
     setNotice('');
@@ -797,6 +860,7 @@ export default function CommandSettingsPage() {
 
   function openBinding(row?: CommandBinding) {
     if (busyRef.current || !selectedLayer || row?.triggerType === 'keyboard.global' || (selectedLayer.builtin && !row) || isInheritedLayer(selectedLayer) || row?.reviewStatus === 'needs_review' || (row?.inherited === true)) return;
+    openManager('bindings');
     setDeckCapture(null);
     setPresentationBusy(false);
     setArgumentsValid(true);
@@ -1034,7 +1098,7 @@ export default function CommandSettingsPage() {
       {error && (
         <div className="command-settings__error">
           {error}
-          <Button variant="secondary" disabled={busy || loading} onClick={() => void load()}>
+          <Button ref={reloadButton} variant="secondary" disabled={busy || loading} onClick={() => void load()}>
             {t('commandSettings.actions.reload')}
           </Button>
         </div>
@@ -1108,47 +1172,71 @@ export default function CommandSettingsPage() {
                 >
                   <UndoOutlined aria-hidden="true" /> {t('commandSettings.manualBack')}
                 </Button>
-                <div className="command-settings__binding-header">
-                  <h3>{t('commandSettings.commands')}</h3>
-                  <Button
-                    variant="secondary"
-                    disabled={selectedLayer.builtin || isInheritedLayer(selectedLayer) || busy}
-                    onClick={() => openBinding()}
-                  >
-                    <PlusOutlined aria-hidden="true" /> {t('commandSettings.actions.newBinding')}
-                  </Button>
-                </div>
-                <DataGrid
-                  items={layerBindings}
-                  columns={bindingColumns}
-                  getRowActions={bindingActions}
-                  autoFocusOnMount={false}
-                  getItemId={(row) => row.id}
-                  label={t('commandSettings.commands')}
-                />
-                <div className="command-settings__binding-header">
-                  <h3>{t('commandSettings.rules.title')}</h3>
-                  <Button
-                    variant="secondary"
-                    disabled={selectedLayer.builtin || isInheritedLayer(selectedLayer) || busy}
-                    onClick={openRule}
-                  >
-                    <PlusOutlined aria-hidden="true" /> {t('commandSettings.rules.new')}
-                  </Button>
-                </div>
-                <DataGrid
-                  items={layerRules}
-                  columns={ruleColumns}
-                  getRowActions={ruleActions}
-                  autoFocusOnMount={false}
-                  getItemId={(row) => row.id}
-                  label={t('commandSettings.rules.title')}
+                <p className="command-settings__info">{t('commandSettings.managers.hint')}</p>
+                <p>{t('commandSettings.managers.commandsCount', { count: layerBindings.length })}</p>
+                <p>{t('commandSettings.managers.rulesCount', { count: layerRules.length })}</p>
+                <MenuButton
+                  buttonLabel={t('commandSettings.managers.settings')}
+                  items={[
+                    { id: 'command-bindings', label: t('commandSettings.managers.commands'), disabled: busy || loading,
+                      onClick: () => openManager('bindings') },
+                    { id: 'command-rules', label: t('commandSettings.rules.title'), disabled: busy || loading,
+                      onClick: () => openManager('rules') },
+                  ]}
                 />
               </>
             )}
           </section>
         </div>
       )}
+      <Modal
+        isOpen={managerOpen}
+        onClose={closeManager}
+        allowClose={!busy && !childDialogOpen}
+        returnFocusOnClose={false}
+        title={t(manager?.kind === 'bindings' ? 'commandSettings.managers.commands' : 'commandSettings.rules.title')}
+        size="xl"
+        initialFocusSelector={DATAGRID_ENTRY_SELECTOR}
+        className="command-settings__manager"
+      >
+        <p ref={managerLayerName} tabIndex={-1}>{selectedLayer?.name}</p>
+        {!childDialogOpen && error && <p className="command-settings__error">{error}</p>}
+        {!childDialogOpen && notice && <p>{notice}</p>}
+        <div className="command-settings__binding-header">
+          <Button
+            ref={managerNewButton}
+            variant="secondary"
+            disabled={!selectedLayer || selectedLayer.builtin || isInheritedLayer(selectedLayer) || busy || loading}
+            onClick={() => manager?.kind === 'bindings' ? openBinding() : openRule()}
+          >
+            <PlusOutlined aria-hidden="true" />
+            {t(manager?.kind === 'bindings' ? 'commandSettings.actions.newBinding' : 'commandSettings.rules.new')}
+          </Button>
+        </div>
+        {loading ? <p aria-busy="true">{t('common.loading')}</p> : manager?.kind === 'bindings' ? (
+          <DataGrid
+            items={layerBindings}
+            columns={bindingColumns}
+            getRowActions={bindingActions}
+            autoFocusOnMount={false}
+            getItemId={(row) => row.id}
+            onGridReady={(focus) => { managerGridFocus.current = focus; }}
+            onEmptyFocus={focusEmptyManager}
+            label={t('commandSettings.commands')}
+          />
+        ) : (
+          <DataGrid
+            items={layerRules}
+            columns={ruleColumns}
+            getRowActions={ruleActions}
+            autoFocusOnMount={false}
+            getItemId={(row) => row.id}
+            onGridReady={(focus) => { managerGridFocus.current = focus; }}
+            onEmptyFocus={focusEmptyManager}
+            label={t('commandSettings.rules.title')}
+          />
+        )}
+      </Modal>
       <Modal
         isOpen={!!editor && snapshotIdentity === identityKey}
         allowClose={!busy}
