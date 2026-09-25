@@ -392,6 +392,24 @@ func TestFocusedPatchPairMantemMudancaNoFimDeLinhaLonga(t *testing.T) {
 	}
 }
 
+func TestFocusedPatchPairRecortaTrechosAlteradosLongosNosDoisPaineis(t *testing.T) {
+	old := "antes " + strings.Repeat("a", patchPreviewSideRunes*3) + " fim antigo"
+	newText := "depois " + strings.Repeat("b", patchPreviewSideRunes*3) + " fim novo"
+	before, after := focusedPatchPair("contexto ", old, newText, " sufixo")
+	for name, preview := range map[string]string{"antes": before, "depois": after} {
+		if !strings.Contains(preview, "\n…\n") {
+			t.Fatalf("painel %s não marcou trecho alterado omitido: %q", name, preview)
+		}
+		if len(preview) >= len(old) {
+			t.Fatalf("painel %s não recortou trecho longo: %d bytes", name, len(preview))
+		}
+	}
+	if !strings.Contains(before, "antes ") || !strings.Contains(before, "fim antigo") ||
+		!strings.Contains(after, "depois ") || !strings.Contains(after, "fim novo") {
+		t.Fatalf("extremos das alterações perdidos: antes=%q depois=%q", before, after)
+	}
+}
+
 func TestApplyPatchConfirmacaoRecortaLinhaGrandeAntesDeAlocarPreview(t *testing.T) {
 	linePrefix := strings.Repeat("é", 1<<20)
 	original := linePrefix + " alvo antigo"
