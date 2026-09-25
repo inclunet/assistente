@@ -383,12 +383,43 @@ func TestApplyPatchConfirmacaoMostraTodosOsHunksNaOrdemDoArquivo(t *testing.T) {
 func TestFocusedPatchPairMantemMudancaNoFimDeLinhaLonga(t *testing.T) {
 	old := strings.Repeat("é", previewMaxBytes) + " valor antigo"
 	newText := strings.Repeat("é", previewMaxBytes) + " valor novo"
-	before, after := focusedPatchPair(old, newText)
+	before, after := focusedPatchPair("", old, newText, "")
 	if !strings.Contains(before, "antigo") || !strings.Contains(after, "novo") {
 		t.Fatalf("mudança perdida no recorte: antes=%q depois=%q", before, after)
 	}
 	if strings.Contains(before, strings.Repeat("é", 100)) || strings.Contains(after, strings.Repeat("é", 100)) {
 		t.Fatal("prefixo longo não foi abreviado")
+	}
+}
+
+func TestApplyPatchConfirmacaoRecortaLinhaGrandeAntesDeAlocarPreview(t *testing.T) {
+	linePrefix := strings.Repeat("é", 1<<20)
+	original := linePrefix + " alvo antigo"
+	span := applyPatchSpan{
+		hunk:        1,
+		start:       len(linePrefix) + 1,
+		end:         len(original),
+		replacement: "alvo novo",
+	}
+	before, after := patchConfirmationPreview(original, []applyPatchSpan{span})
+	if !strings.Contains(before, "alvo antigo") || !strings.Contains(after, "alvo novo") ||
+		!strings.Contains(before, "…") || !strings.Contains(after, "…") {
+		t.Fatalf("prévia grande perdeu alteração ou marcador: antes=%q depois=%q", before, after)
+	}
+	if len(before) > 1024 || len(after) > 1024 {
+		t.Fatalf("prévia da linha grande não foi recortada: antes=%d depois=%d", len(before), len(after))
+	}
+	var resultBefore, resultAfter string
+	allocation := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			resultBefore, resultAfter = patchConfirmationPreview(original, []applyPatchSpan{span})
+		}
+	})
+	if allocation.AllocedBytesPerOp() > 1<<20 {
+		t.Fatalf("prévia alocou %d bytes por chamada para uma linha sem limite", allocation.AllocedBytesPerOp())
+	}
+	if resultBefore != before || resultAfter != after {
+		t.Fatal("prévia mudou entre chamadas")
 	}
 }
 

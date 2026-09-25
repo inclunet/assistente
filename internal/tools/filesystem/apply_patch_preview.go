@@ -3,6 +3,7 @@ package filesystem
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -10,12 +11,12 @@ const (
 	patchPreviewSideRunes    = 300
 )
 
-// patchConfirmationPreview mostra cada alteração validada no lugar em que ela
-// ocorrerá. Uma prévia do prefixo do arquivo pode ser idêntica em Antes/Depois
-// quando os hunks ficam depois do limite de truncamento.
+// patchConfirmationPreview mostra cada hunk validado no ponto em que a
+// alteração ocorrerá. O contexto e o trecho modificado são recortados antes
+// de montar os blocos, sem copiar uma linha inteira potencialmente enorme.
 func patchConfirmationPreview(original string, spans []applyPatchSpan) (string, string) {
 	var before, after strings.Builder
-	lineDelta := 0
+	line, lineDelta, previousEnd := 1, 0, 0
 	for index, span := range spans {
 		if index > 0 {
 			before.WriteString("\n\n")
@@ -23,13 +24,13 @@ func patchConfirmationPreview(original string, spans []applyPatchSpan) (string, 
 		}
 
 		oldText := original[span.start:span.end]
-		line := strings.Count(original[:span.start], "\n") + 1
+		line += strings.Count(original[previousEnd:span.start], "\n")
 		header := fmt.Sprintf("@@ -%d +%d #%d @@\n", line, line+lineDelta, span.hunk)
 		before.WriteString(header)
 		after.WriteString(header)
 
-		// Inclui o restante da linha para situar contextos curtos. O recorte
-		// abaixo remove o excesso sem perder o início real da alteração.
+		// Contexto da linha, limitado pelos hunks vizinhos: o painel Depois não
+		// pode exibir texto antigo de outra alteração na mesma linha.
 		lineStart := strings.LastIndex(original[:span.start], "\n") + 1
 		lineEnd := len(original)
 		if next := strings.IndexByte(original[span.end:], '\n'); next >= 0 {
@@ -43,52 +44,98 @@ func patchConfirmationPreview(original string, spans []applyPatchSpan) (string, 
 		if index+1 < len(spans) {
 			lineEnd = min(lineEnd, spans[index+1].start)
 		}
-		prefix := original[lineStart:span.start]
-		suffix := original[span.end:lineEnd]
-		oldView := prefix + oldText + suffix
-		newView := prefix + span.replacement + suffix
-		beforePart, afterPart := focusedPatchPair(oldView, newView)
+		beforePart, afterPart := focusedPatchPair(
+			original[lineStart:span.start], oldText, span.replacement, original[span.end:lineEnd],
+		)
 		before.WriteString(beforePart)
 		after.WriteString(afterPart)
 
+		line += strings.Count(oldText, "\n")
 		lineDelta += strings.Count(span.replacement, "\n") - strings.Count(oldText, "\n")
+		previousEnd = span.end
 	}
 	return before.String(), after.String()
 }
 
-func focusedPatchPair(before, after string) (string, string) {
-	oldRunes := []rune(before)
-	newRunes := []rune(after)
+// focusedPatchPair compara o texto substituído sem concatenar o restante da
+// linha. Os offsets são calculados por runa; só as fatias exibidas são copiadas.
+func focusedPatchPair(prefix, oldText, newText, suffix string) (string, string) {
 	commonPrefix := 0
-	for commonPrefix < len(oldRunes) && commonPrefix < len(newRunes) && oldRunes[commonPrefix] == newRunes[commonPrefix] {
-		commonPrefix++
+	for commonPrefix < len(oldText) && commonPrefix < len(newText) {
+		oldRune, oldSize := utf8.DecodeRuneInString(oldText[commonPrefix:])
+		newRune, newSize := utf8.DecodeRuneInString(newText[commonPrefix:])
+		if oldRune != newRune || oldSize != newSize {
+			break
+		}
+		commonPrefix += oldSize
 	}
-	commonSuffix := 0
-	for commonSuffix < len(oldRunes)-commonPrefix && commonSuffix < len(newRunes)-commonPrefix &&
-		oldRunes[len(oldRunes)-commonSuffix-1] == newRunes[len(newRunes)-commonSuffix-1] {
-		commonSuffix++
+	commonOldSuffix, commonNewSuffix := 0, 0
+	for commonOldSuffix < len(oldText)-commonPrefix && commonNewSuffix < len(newText)-commonPrefix {
+		oldRune, oldSize := utf8.DecodeLastRuneInString(oldText[:len(oldText)-commonOldSuffix])
+		newRune, newSize := utf8.DecodeLastRuneInString(newText[:len(newText)-commonNewSuffix])
+		if oldRune != newRune || oldSize != newSize {
+			break
+		}
+		commonOldSuffix += oldSize
+		commonNewSuffix += newSize
 	}
-	return focusedPatchSide(oldRunes, commonPrefix, commonSuffix),
-		focusedPatchSide(newRunes, commonPrefix, commonSuffix)
+
+	left, leftOmitted := patchLeftContext(prefix, oldText[:commonPrefix])
+	right, rightOmitted := patchRightContext(oldText[len(oldText)-commonOldSuffix:], suffix)
+	before := patchPreviewSide(left, leftOmitted, oldText[commonPrefix:len(oldText)-commonOldSuffix], right, rightOmitted)
+	after := patchPreviewSide(left, leftOmitted, newText[commonPrefix:len(newText)-commonNewSuffix], right, rightOmitted)
+	return before, after
 }
 
-func focusedPatchSide(text []rune, commonPrefix, commonSuffix int) string {
-	start := max(0, commonPrefix-patchPreviewContextRunes)
-	end := min(len(text), len(text)-commonSuffix+patchPreviewContextRunes)
-	view := text[start:end]
+func patchLastRunes(text string, limit int) (string, int) {
+	start, count := len(text), 0
+	for start > 0 && count < limit {
+		_, size := utf8.DecodeLastRuneInString(text[:start])
+		start -= size
+		count++
+	}
+	return text[start:], count
+}
 
+func patchFirstRunes(text string, limit int) (string, int) {
+	end, count := 0, 0
+	for end < len(text) && count < limit {
+		_, size := utf8.DecodeRuneInString(text[end:])
+		end += size
+		count++
+	}
+	return text[:end], count
+}
+
+func patchLeftContext(prefix, common string) (string, bool) {
+	fromCommon, count := patchLastRunes(common, patchPreviewContextRunes)
+	fromPrefix, _ := patchLastRunes(prefix, patchPreviewContextRunes-count)
+	return fromPrefix + fromCommon, len(fromPrefix) < len(prefix) || len(fromCommon) < len(common)
+}
+
+func patchRightContext(common, suffix string) (string, bool) {
+	fromCommon, count := patchFirstRunes(common, patchPreviewContextRunes)
+	fromSuffix, _ := patchFirstRunes(suffix, patchPreviewContextRunes-count)
+	return fromCommon + fromSuffix, len(fromCommon) < len(common) || len(fromSuffix) < len(suffix)
+}
+
+func patchPreviewSide(left string, leftOmitted bool, changed string, right string, rightOmitted bool) string {
 	var out strings.Builder
-	if start > 0 {
+	if leftOmitted {
 		out.WriteString("…\n")
 	}
-	if len(view) > patchPreviewSideRunes*2 {
-		out.WriteString(string(view[:patchPreviewSideRunes]))
+	out.WriteString(left)
+	first, _ := patchFirstRunes(changed, patchPreviewSideRunes)
+	last, _ := patchLastRunes(changed, patchPreviewSideRunes)
+	if len(first)+len(last) < len(changed) {
+		out.WriteString(first)
 		out.WriteString("\n…\n")
-		out.WriteString(string(view[len(view)-patchPreviewSideRunes:]))
+		out.WriteString(last)
 	} else {
-		out.WriteString(string(view))
+		out.WriteString(changed)
 	}
-	if end < len(text) {
+	out.WriteString(right)
+	if rightOmitted {
 		out.WriteString("\n…")
 	}
 	return out.String()
