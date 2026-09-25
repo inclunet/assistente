@@ -145,6 +145,10 @@ e não reabrem o status `Done`.
 - [x] CRLF, LF, BOM UTF-8 e conteúdo Unicode são preservados.
 - [x] Mudança concorrente durante confirmação termina como `stale_file`.
 - [x] Segurança, confirmação e reconciliação do editor são reutilizadas.
+- [x] A confirmação mostra todos os hunks no ponto de alteração, inclusive
+  quando ficam além do prefixo de 200 linhas/8 KiB do arquivo; trechos longos
+  têm omissões explícitas. Coberto por
+  `internal/tools/filesystem/apply_patch_test.go`.
 - [x] `edit_file` e `write_file` permanecem sem regressão.
 - [x] `Programação` pré-carrega `apply_patch`.
 - [x] Testes Go cobrem contrato, atomicidade e integração.
@@ -160,4 +164,3 @@ Evidências:
   `internal/app/builtin_profiles_tools_test.go`;
 - integração com skills builtin:
   `internal/app/builtin_skills_test.go`.
-

@@ -56,6 +56,12 @@ O chat inline permite pedir para a IA editar, gerar ou transformar conteúdo dir
 3. Descreva o que quer (ex: "traduza para inglês", "refatore esta função")
 4. A IA gera sugestões que podem ser aplicadas como patch
 
+Quando `apply_patch` altera um arquivo aberto, a janela de confirmação mostra
+os trechos afetados em **Antes** e **Depois**, com seus números de linha. Se o
+patch modificar várias partes do arquivo, todas aparecem na ordem do documento.
+Reticências indicam conteúdo omitido em trechos muito longos; revise as
+alterações antes de escolher **Aplicar** ou **Rejeitar**.
+
 ### Monitoramento de Arquivos
 
 O editor monitora mudanças em arquivos abertos no disco (via `fsnotify`). Em
