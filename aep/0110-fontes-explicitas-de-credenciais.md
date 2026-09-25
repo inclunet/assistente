@@ -65,3 +65,19 @@ retornados ao editor, nunca o token materializado.
 
 OAuth completo, cache e renovação programada de command são evoluções futuras,
 fora do escopo aceito para esta entrega.
+
+## Evidências de validação local
+
+- Revisor independente: subagente Codex `review_credential_sources` (não implementador).
+  Rodada 1: cinco achados; rodada 2: correções confirmadas e dois achados adicionais;
+  rodada 3: zero pendências. Verificação adicional do delta de announcer/inputs:
+  zero pendências. Sete achados corrigidos.
+- `go build ./...` e `go vet ./...`: aprovados.
+- `go test ./internal/credentials ./internal/providers ./internal/portability ./internal/mcp`:
+  aprovado, incluindo fontes, aplicação HTTP, round-trip e refresh OAuth.
+- TypeScript, ESLint e Stylelint: sem erros (avisos preexistentes nos linters).
+- Vitest completo: 483 arquivos e 6.078 testes aprovados.
+- A execução Go completa no Windows encontrou negação de execução de binários
+  ACP/acpregistry e deadlines em pacotes de comandos. Reexecução serial em curso;
+  não se declara a suíte completa aprovada com base nos testes focados.
+- CI e revisão remota ainda pendentes; nenhum merge de PR autorizado.

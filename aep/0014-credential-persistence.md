@@ -116,6 +116,7 @@ recoveryKey := result.RecoveryKey
 
 // 2. Credenciais podem ser registradas
 credMgr.RegisterPattern("*.github.com", &AuthConfig{
+    Source: "static",
     Type:  "bearer",
     Token: "ghp_xxxxx",
 })
@@ -163,6 +164,8 @@ type CredentialEntry struct {
     UUIDModel
     UserID          string
     Pattern         string
+    Source          string
+    SourceConfigEnc string
     AuthType        string
     TokenEnc        string
     Username        string
