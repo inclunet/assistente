@@ -16,6 +16,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+AEP-0103, seção162 (25/09/2026): diagnóstico nativo reproduziu o bloqueio do
+Deck após navegar; correção do refresh de projeção e preservação do mapa
+idêntico validada em 18 trocas Wails com HID simulado. **In Progress;
+83 I / 1 P / 0 N**. Hardware físico e NVDA continuam sem novo aceite.
+
 AEP-0103, seção161 (25/09/2026): subdivisão autorizada de `comandos-contexto`
 no CI em Deck, paleta, workspace e base, sem retirar testes nem ampliar limites.
 **In Progress; 83 I / 1 P / 0 N**; aceite humano continua pendente.

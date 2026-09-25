@@ -213,6 +213,7 @@ func (s *HostState) RebuildUserConfigurationForJobClaimProjection(ctx context.Co
 	s.mu.RUnlock()
 	equivalent := hasCurrent && capturedConfiguration != nil && capturedSession == principal.SessionID &&
 		slicesEqual(capturedLayers, layers) && capturedConfiguration.EquivalentExceptValidityDeadline(configuration)
+	unchanged := equivalent && capturedConfiguration.Equivalent(configuration)
 	release()
 	revalidate := func(ctx context.Context) error {
 		currentPrincipal, err := authenticate(ctx)
@@ -241,7 +242,11 @@ func (s *HostState) RebuildUserConfigurationForJobClaimProjection(ctx context.Co
 			// A renewed runtime lease may extend only the projection validity
 			// deadline. Refresh that immutable snapshot and its local guard without
 			// treating the heartbeat as a configuration/layer generation change.
-			user.configuration = configuration
+			// Revalidar apenas o contexto não aposenta a identidade de um
+			// snapshot imutável idêntico (nem os mapas locais derivados dele).
+			if !unchanged {
+				user.configuration = configuration
+			}
 			user.projectionGuard = guard
 			s.users[principal.UserID] = user
 			return nil

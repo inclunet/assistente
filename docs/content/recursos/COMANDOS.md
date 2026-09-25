@@ -18,6 +18,13 @@ mesmo quando o controle da página anterior deixa de existir ou fica oculto.
 Não é necessário sair da janela e voltar entre comandos. As restrições de
 janela ativa, sessão, contexto e modal continuam valendo.
 
+No Stream Deck, a atualização interna de contexto após trocar uma aba não
+deve desconectar o dispositivo nem descartar um mapa de comandos que continua
+idêntico. Para conferir, associe três teclas a abas de tarefas, chat e editor
+e alterne entre elas repetidamente, inclusive partindo do campo de mensagem.
+Cada acionamento deve selecionar a aba correspondente sem precisar usar
+Alt+Tab ou mover o foco para a barra de ferramentas.
+
 No campo de mensagem, **Seta para cima** só transfere o foco quando existe
 uma mensagem navegável. Em conversa nova ou depois de limpar as mensagens,
 o foco permanece no campo. O terminal segue a mesma regra para seu histórico.

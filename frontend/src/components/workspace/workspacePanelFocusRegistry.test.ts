@@ -95,6 +95,82 @@ describe('workspacePanelFocusRegistry', () => {
     unregister();
   });
 
+  it('cancela pedido com guard e foco imediato se o handler da mesma aba é substituído', async () => {
+    const oldHandler = vi.fn(() => true);
+    const oldImmediate = vi.fn(() => true);
+    const currentHandler = vi.fn(() => true);
+    const currentImmediate = vi.fn(() => true);
+    const guard = vi.fn(() => true);
+    const applied = vi.fn();
+    const cancelled = vi.fn();
+    const unregisterOld = registerWorkspacePanelFocus('replaced-before-raf', oldHandler, oldImmediate);
+
+    queueWorkspacePanelFocus('replaced-before-raf', guard, applied, undefined, cancelled, true);
+    unregisterOld();
+    const unregisterCurrent = registerWorkspacePanelFocus('replaced-before-raf', currentHandler, currentImmediate);
+
+    await flushRaf();
+
+    expect(guard).not.toHaveBeenCalled();
+    expect(oldHandler).not.toHaveBeenCalled();
+    expect(oldImmediate).not.toHaveBeenCalled();
+    expect(currentHandler).not.toHaveBeenCalled();
+    expect(currentImmediate).not.toHaveBeenCalled();
+    expect(applied).not.toHaveBeenCalled();
+    expect(cancelled).toHaveBeenCalledOnce();
+    unregisterCurrent();
+  });
+
+  it('rejeita o foco quando owner/alvo ficam obsoletos antes do RAF', async () => {
+    const handler = vi.fn(() => true);
+    const rejected = vi.fn();
+    const cancelled = vi.fn();
+    let ownerAndTargetCurrent = true;
+    const unregister = registerWorkspacePanelFocus('stale-request', handler);
+
+    queueWorkspacePanelFocus('stale-request', () => ownerAndTargetCurrent, undefined, rejected, cancelled);
+    ownerAndTargetCurrent = false;
+
+    await flushRaf();
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(rejected).toHaveBeenCalledOnce();
+    expect(cancelled).not.toHaveBeenCalled();
+    unregister();
+  });
+
+  it('cancela pedido sem guard se o registro mudar antes do RAF', async () => {
+    const oldHandler = vi.fn(() => true);
+    const currentHandler = vi.fn(() => true);
+    const cancelled = vi.fn();
+    const unregisterOld = registerWorkspacePanelFocus('unguarded-replaced-request', oldHandler);
+
+    queueWorkspacePanelFocus('unguarded-replaced-request', undefined, undefined, undefined, cancelled);
+    unregisterOld();
+    const unregisterCurrent = registerWorkspacePanelFocus('unguarded-replaced-request', currentHandler);
+
+    await flushRaf();
+
+    expect(oldHandler).not.toHaveBeenCalled();
+    expect(currentHandler).not.toHaveBeenCalled();
+    expect(cancelled).toHaveBeenCalledOnce();
+    unregisterCurrent();
+  });
+
+  it('descarta pedido já agendado quando a aba é removida antes do RAF', async () => {
+    const handler = vi.fn(() => true);
+    const cancelled = vi.fn();
+    const unregister = registerWorkspacePanelFocus('removed-scheduled-tab', handler);
+
+    queueWorkspacePanelFocus('removed-scheduled-tab', () => true, undefined, undefined, cancelled);
+    pruneWorkspacePanelFocus(new Set());
+    await flushRaf();
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(cancelled).toHaveBeenCalledOnce();
+    unregister();
+  });
+
   it('não usa handler deferred quando a entrega exige capability imediata ausente', async () => {
     const regular = vi.fn(() => true);
     const rejected = vi.fn();

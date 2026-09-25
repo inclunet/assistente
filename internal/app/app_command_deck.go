@@ -131,6 +131,12 @@ func (c *commandDeckController) Input(ctx context.Context, event commandadapter.
 	if !exists || instance.ctx.Err() != nil {
 		return commandbridge.InvocationAck{}, commandexecution.ErrStale
 	}
+	// A troca de aba pode envelhecer somente o guard da projeção de jobs.
+	// Revalidar antes de consultar o snapshot evita depender de Alt+Tab para
+	// reconstruí-lo. Mudanças efetivas ainda invalidam as versões capturadas.
+	if err := c.p.refreshCommandJobProjection(ctx); err != nil {
+		return commandbridge.InvocationAck{}, err
+	}
 	resolvedBinding, profileStamp, resolved := c.p.resolveDeckPress(ctx, c.identities, c.versions, serial, index)
 	if !resolved {
 		return commandbridge.InvocationAck{}, commandexecution.ErrStale
@@ -391,7 +397,8 @@ func (p *commandProductRuntime) resolveDeckPress(ctx context.Context, identities
 		if err := ctx.Err(); err != nil {
 			return commandDeckBinding{}, "", false
 		}
-		if trigger.configuration != configuration || trigger.registry != p.registry || trigger.versions != current {
+		if trigger.registry != p.registry || trigger.versions != current ||
+			(trigger.configuration != configuration && !trigger.configuration.EquivalentExceptValidityDeadline(configuration)) {
 			return commandDeckBinding{}, "", false
 		}
 		identity := trigger.identity
@@ -474,8 +481,15 @@ func (p *commandProductRuntime) runDeck(ctx context.Context, driver commanddeck.
 }
 
 func (p *commandProductRuntime) runDeckEpoch(ctx context.Context, driver commanddeck.Driver) {
+	// O preview também usa o guard: se vier antes do refresh, uma projeção
+	// obsoleta encerra todas as tentativas seguintes antes da recuperação.
+	if err := p.refreshCommandJobProjection(ctx); err != nil {
+		p.deckStatus("unavailable", nil)
+		return
+	}
 	capture := p.currentDeckCapture()
-	// Idle users with no physical bindings do not query SQLite or open HID.
+	// O preview evita abrir HID sem bindings físicos. Apenas uma projeção
+	// envelhecida acima exige reconstrução; snapshots atuais são só memória.
 	_, _, previewErr := p.deckMap(ctx)
 	if previewErr != nil {
 		p.deckStatus("unavailable", nil)
@@ -544,6 +558,12 @@ func (p *commandProductRuntime) runDeckEpoch(ctx context.Context, driver command
 	imageRetries := map[commanddeck.DeviceID]time.Time{}
 	for watch.Err() == nil {
 		if p.getDeckLocale() != locale || p.currentDeckCapture() != capture || p.deckInputGeneration() != controller.generation {
+			return
+		}
+		// O polling visual compartilha o epoch com a entrada física. Atualizar
+		// o guard antes do preview evita cancelar uma tecla em processamento
+		// apenas porque a navegação anterior trocou a aba ativa.
+		if err := p.refreshCommandJobProjection(watch); err != nil {
 			return
 		}
 		freshBindings, latestVersions, latestErr := p.deckMap(watch)

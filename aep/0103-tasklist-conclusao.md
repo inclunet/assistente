@@ -10451,3 +10451,45 @@ real/Wails foi executado para essa validação. Beauvoir implementou os testes;
 Lagrange revisou o diff final sem achados. ShellCheck não está instalado
 localmente e permanece no job de scripts do CI. Resultado remoto ainda deve
 ser confirmado no commit publicado.
+
+## 162. Diagnóstico nativo e continuidade do Deck — 25/09/2026
+
+O relato de primeira tecla funcionar e as seguintes dependerem de Alt+Tab
+foi reproduzido no Wails/WebView2 com frontend/backend reais, banco sintético
+e driver HID simulado. A troca de aba envelhecia o guard de projeção de jobs.
+O preview inicial/periódico encerrava a época antes de revalidá-la; no caso
+concorrente, cancelava a atualização iniciada pelo pressionamento. Além disso,
+a publicação equivalente substituía a identidade da configuração e notificava
+o frontend para descartar o mapa que continuava válido.
+
+- Refresh antes da entrada física e dos previews inicial e periódico.
+- Configuração totalmente idêntica conserva o ponteiro, mas recebe o guard novo.
+- Renovação de deadline pode trocar o snapshot sem mudar versões; alterações
+  efetivas, registry, sessão e revogações continuam invalidando a resolução.
+- Notificação é dispensada somente para mapa vivo, não expirado e exatamente
+  correspondente ao snapshot e às versões atuais.
+- Validação nativa: **18/18 trocas** entre tarefas, editor e chat em duas
+  sequências, com intervalos de 500 ms e 300 ms, sem Alt+Tab/refoco manual.
+  É prova do caminho integrado com HID simulado, não aceite do hardware/NVDA.
+- Regressão `TestCommandDeck*`: PASS (65,721 s); pacote `commandexecution`:
+  PASS (34,498 s); frontend de foco: 17/17 PASS; ESLint dos testes e `go vet`
+  de App/commandexecution/commanddeck: PASS. O exit 1 de uma execução anterior
+  de Deck não teve causa recuperável no output truncado; a repetição completa
+  passou, sem apagar testes nem declarar a primeira execução bem-sucedida.
+- Revisor independente Beauvoir: sem achados bloqueantes na produção;
+  solicitou reforço de regressão do polling e dos mapas inválidos.
+- Reforço concluído: o teste integrado cobre Input com guard stale e o
+  polling posterior à troca mantendo o mesmo handle, sem reconectar; os
+  testes de mapa cobrem ausência, cancelamento, expiração, deadline futuro e
+  ponteiro equivalente distinto. Execução conjunta PASS (21,139 s).
+- Reexecução final de `TestCommandDeck*` junto à projeção de teclado:
+  PASS (44,350 s). Beauvoir revisou também o reforço final sem bloqueios.
+
+Executáveis, cache e temporários do diagnóstico ficaram em `work/native-deck`
+no worktree, fora do Temp do Windows. Credential Manager e perfil real não
+foram utilizados; a instância diagnóstica foi encerrada. Nenhum teste ACP
+foi executado. O artefato exploratório de E2E foi preservado em `work/`, fora
+da suíte publicada: sua expectativa de foco exclusivamente interno ao editor
+não representava o fallback autorizado ao botão de aba. Nenhum teste
+preexistente foi removido. CI do novo commit e confirmação física permanecem
+separados desta evidência. **In Progress, 83 I / 1 P / 0 N**.

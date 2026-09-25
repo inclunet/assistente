@@ -431,7 +431,7 @@ func (loaded commandLifecycleLoadedConfiguration) publishJobClaimProjection(ctx 
 		func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
 			return loaded.configuration, loaded.activeLayers, nil
 		}, loaded.guard, loaded.jobProjectionCurrent)
-	if err == nil && loaded.app.emitter != nil {
+	if err == nil && loaded.app.emitter != nil && !product.localKeyboardProjectionCurrent(ctx) {
 		loaded.app.emitter.Emit("command:keyboard-map-changed", nil)
 	}
 	if err == nil {

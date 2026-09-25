@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"assistente/internal/auth"
 	"assistente/internal/commandbindings"
@@ -660,6 +661,25 @@ func (p *commandProductRuntime) localKeyboardState() (string, commandexecution.V
 		return "", commandexecution.Versions{}, false
 	}
 	return p.keyboardMap.view.Generation, p.keyboardMap.versions, true
+}
+
+// Só dispensa a notificação quando a projeção efetivamente publicada continua
+// sendo exatamente a do mapa vivo. Deadline, configuração, sessão ou versões
+// diferentes exigem a atualização normal do frontend.
+func (p *commandProductRuntime) localKeyboardProjectionCurrent(ctx context.Context) bool {
+	if p == nil || p.app == nil || p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
+		return false
+	}
+	configuration, _, versions, err := p.host.ResolutionSnapshot(ctx, p.principal)
+	if err != nil {
+		return false
+	}
+	p.keyboardMu.Lock()
+	defer p.keyboardMu.Unlock()
+	state := p.keyboardMap
+	return state != nil && state.ctx.Err() == nil &&
+		(state.view.ValidUntil == 0 || time.Now().UnixMilli() < state.view.ValidUntil) &&
+		state.configuration == configuration && state.versions == versions
 }
 
 func localPaletteUICommands(configuration *commandbindings.Configuration, registry *commandcatalog.Registry) []string {

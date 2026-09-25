@@ -2,6 +2,14 @@
 
 **Status:** In Progress
 
+**Diagnóstico nativo — seção162 (25/09/2026):** reproduzida a interrupção do
+Deck após troca de aba no Wails/WebView2, com backend real, banco descartável
+e somente o HID simulado. A atualização do guard deve preceder a resolução
+e os previews do dispositivo; atualizar apenas o guard preserva a identidade
+da configuração e o mapa local vigente. Duas sequências de nove trocas
+passaram após a correção, sem Alt+Tab. Não substitui hardware físico/NVDA
+nem altera a contagem **83 I / 1 P / 0 N**.
+
 **Qualificação no CI — seção161 (25/09/2026):** após timeout acumulado,
 o grupo race de contexto foi subdividido em Deck, paleta, workspace e base,
 preservando todos os testes, flags, limites e agregador obrigatório. A nova
