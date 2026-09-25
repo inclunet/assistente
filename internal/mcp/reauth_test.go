@@ -321,7 +321,9 @@ func TestReauthorizeServer_RunsInteractiveFlowPersistsTokenAndReconnects(t *test
 func TestRefreshOAuthPersistsExplicitStaticSource(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"access_token":"renewed","refresh_token":"next-refresh","token_type":"Bearer","expires_in":3600}`)
+		if _, err := fmt.Fprint(w, `{"access_token":"renewed","refresh_token":"next-refresh","token_type":"Bearer","expires_in":3600}`); err != nil {
+			t.Error(err)
+		}
 	}))
 	defer server.Close()
 	m := newTestManagerWithEmit(func(string, any) {})

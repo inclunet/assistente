@@ -33,7 +33,9 @@ func TestProviderProbesUseSourcesAndPreserveCredentials(t *testing.T) {
 						seen = r.Header.Get("X-Credential")
 					}
 					w.Header().Set("Content-Type", "application/json")
-					fmt.Fprint(w, `{"data":[{"id":"model"}]}`)
+					if _, err := fmt.Fprint(w, `{"data":[{"id":"model"}]}`); err != nil {
+						t.Error(err)
+					}
 				}))
 				defer server.Close()
 				u, _ := url.Parse(server.URL)
@@ -103,7 +105,9 @@ func TestProbeAuthModesAgreeWithRuntime(t *testing.T) {
 			t.Error("unexpected auth")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"data":[{"id":"model"}]}`)
+		if _, err := fmt.Fprint(w, `{"data":[{"id":"model"}]}`); err != nil {
+			t.Error(err)
+		}
 	}))
 	defer server.Close()
 	for _, mode := range []llm.AuthMode{llm.AuthModeOptional, llm.AuthModeNone} {
