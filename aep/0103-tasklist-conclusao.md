@@ -10303,11 +10303,11 @@ representa, sozinho, conclusão do AEP. Não ampliar esse PR com as melhorias ab
 
 ### PR dependente do destino de aba — apresentação automática no Stream Deck
 
-- [ ] Usar por padrão o nome atual da aba-alvo, abreviado apenas para caber,
+- [x] Usar por padrão o nome atual da aba-alvo, abreviado apenas para caber,
   e ícone do tipo: chat, editor, terminal ou lista de tarefas.
-- [ ] Acompanhar renomeação, reordenação, fechamento e troca de workspace,
+- [x] Acompanhar renomeação, reordenação, fechamento e troca de workspace,
   respeitando a diferença entre posição e identidade de aba.
-- [ ] Título/ícone personalizados permanecem opcionais; não exigir que o
+- [x] Título/ícone personalizados permanecem opcionais; não exigir que o
   usuário preencha informações já disponíveis. Indicar destino indisponível
   sem manter apresentação enganosa nem executar em outra aba.
 
@@ -10654,17 +10654,22 @@ carregado. O guia de comandos documenta o comportamento. Evidências focadas em
 `internal/app/app_command_deck_tab_visual_test.go` cobrem posição e identidade
 após rename/reorder, destinos ausentes/workspace alheio, `first`/`second`/`ninth`,
 ramo condicional, divergência, ícones rasterizados e preservação dos campos
-base/estado. Os sete testes focados selecionados por
-`go test ./internal/app -run '^TestWorkspaceTabDeck' -count=1` passaram.
-`go build ./...` e `go vet ./...` também passaram. Uma tentativa do teste
-integrado existente `TestCommandDeckPresentationSettingsReachContextualMapAndRenderer`
-parou antes do `deckMap`: `settingsSecurityFixture` falhou ao montar o produto
-App com `configuração de executor inválida`. O teste não relacionado
-`TestCommandProductRefusesUnknownInvalidAndRevokedRequests` reproduziu a mesma
-falha no `readyCommandProduct` (linha76 de `app_command_product_test.go`),
-confirmando que a limitação ocorre na fixture/bootstrap comum, não nesta prova
-visual. Portanto, a integração App não é declarada aprovada. Não se afirma
-aceite físico/NVDA nem fechamento de critério/gate manual.
+base/estado. Os nove testes focados `TestWorkspaceTabDeck*` passaram após os
+ajustes visuais.
+
+**Registro histórico de bloqueio resolvido:** antes do merge do bootstrap
+`392cfdd3a`, o teste integrado existente
+`TestCommandDeckPresentationSettingsReachContextualMapAndRenderer` parava antes
+do `deckMap`, pois `settingsSecurityFixture` falhava com `configuração de
+executor inválida`; um teste independente reproduziu a falha no bootstrap comum.
+Após o merge, a integração e os nove testes `TestWorkspaceTabDeck*` passaram
+juntos em uma rodada focada, executada com:
+`go test ./internal/app -run '^(TestCommandDeckPresentationSettingsReachContextualMapAndRenderer|TestWorkspaceTabDeck.*)$' -count=1`.
+`go build ./...` e `go vet ./...` também passaram sobre a base mesclada. Não há
+bloqueio integrado ativo. A falha histórica também foi reproduzida por
+`TestCommandProductRefusesUnknownInvalidAndRevokedRequests`, confirmando o
+bootstrap comum. O registro marca a implementação/testes automatizados; não se
+afirma aceite físico/NVDA nem fechamento de critério/gate manual.
 
 Revisão independente de Lagrange e do agente principal identificou dois casos
 visuais: ramos mistos ocultavam a combinação de comandos, e títulos
