@@ -6,7 +6,41 @@ import (
 
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandcatalog"
+	"assistente/internal/workspace"
 )
+
+func TestWorkspaceTabGoToDoesNotCreateUnsafePaletteDefault(t *testing.T) {
+	manager := workspace.NewManager(t.TempDir())
+	if err := manager.Initialize(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{workspaceMgr: manager}
+	registry, handlers, err := app.commandProductCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, ok := registry.Lookup(commandWorkspaceTabGoToID)
+	handler, hasHandler := handlers[commandWorkspaceTabGoToID]
+	if !registry.Complete() || len(handlers) != len(registry.List()) || !ok || !hasHandler || handler.Start == nil ||
+		handler.Contract.Route != definition.HandlerRoute || handler.Contract.Classification != definition.HandlerClassification {
+		t.Fatalf("registro/handler de go_to divergentes: definition=%+v handler=%+v", definition, handler)
+	}
+	projection, err := commandProductProjection(registry, nil)
+	if err != nil {
+		t.Fatalf("catalog projection rejects a parameterized navigation command: %v", err)
+	}
+	foundPaletteTarget := false
+	for _, layer := range projection.BuiltinLayers {
+		for _, item := range layer.Defaults {
+			if item.Candidate.CommandID == commandWorkspaceTabGoToID {
+				foundPaletteTarget = true
+			}
+		}
+	}
+	if foundPaletteTarget {
+		t.Fatal("go_to received an automatic palette default without a workspace target")
+	}
+}
 
 func TestWorkspaceTabGoToArgumentsReachKeyboardDeckAndPaletteProjection(t *testing.T) {
 	definition, handler := commandWorkspaceTabNavigationRegistration(commandWorkspaceTabGoToID)
