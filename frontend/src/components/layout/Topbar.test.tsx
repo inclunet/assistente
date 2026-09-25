@@ -104,7 +104,7 @@ vi.mock('../../lib/commandLocalKeyboardWails', () => ({
       localPaletteCommands: [
         'workspace.tab.next', 'workspace.tab.previous', 'workspace.tab.first', 'workspace.tab.second',
         'workspace.tab.third', 'workspace.tab.fourth', 'workspace.tab.fifth', 'workspace.tab.sixth',
-        'workspace.tab.seventh', 'workspace.tab.eighth', 'workspace.tab.ninth',
+        'workspace.tab.seventh', 'workspace.tab.eighth', 'workspace.tab.ninth', 'workspace.tab.go_to',
         'navigation.workspace.open', 'navigation.history.open', 'navigation.memories.open',
         'navigation.tasklists.open', 'navigation.jobs.open', 'navigation.profiles.open',
         'navigation.settings.open', 'navigation.help.open', 'navigation.about.open',
@@ -204,6 +204,7 @@ function setupNavigationTabs() {
 }
 function navigationTargetId(commandId: string) {
   if (!isWorkspaceTabNavigationCommand(commandId)) throw new Error('Expected navigation command');
+  if (commandId === 'workspace.tab.go_to') return 'nav-2';
   const position = commandId === 'workspace.tab.next' ? 2
     : commandId === 'workspace.tab.previous' ? 9
     : WORKSPACE_TAB_NAVIGATION_COMMAND_IDS.indexOf(commandId) - 1;
@@ -1967,10 +1968,12 @@ describe('Topbar', () => {
     if (isWorkspaceTabNavigationCommand(commandId)) setupNavigationTabs();
     locationState.pathname = '/';
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const goToArguments = { workspace_id: 'workspace-a', target_mode: 'position', position: 2 };
     keyboardState.loadMap.mockResolvedValue({
       generation: 'g-chat-create',
       bindings: [{ shortcut: { version: 1, code: 'KeyT', modifiers: ['Control'] }, commandId,
-        handler: isWorkspaceTabNavigationCommand(commandId) ? 'local_ui' : 'contextual' }],
+        handler: isWorkspaceTabNavigationCommand(commandId) ? 'local_ui' : 'contextual',
+        ...(commandId === 'workspace.tab.go_to' ? { arguments: goToArguments } : {}) }],
     });
     keyboardState.beginUI.mockResolvedValue({ ticket: `${label}-ticket`, invocationId: `${label}-inv`, commandId });
     executionState.port.takeUICommand.mockResolvedValue({ ticket: `${label}-ticket`, invocationId: `${label}-inv`, commandId, handoffId: `${label}-handoff` });
@@ -2644,6 +2647,15 @@ describe('Topbar', () => {
   ] as const)('executa %s pela paleta e não usa criação local', async (commandId, label) => {
     if (isWorkspaceTabNavigationCommand(commandId)) setupNavigationTabs();
     locationState.pathname = '/';
+    const goToArguments = { workspace_id: 'workspace-a', target_mode: 'position', position: 2 };
+    if (commandId === 'workspace.tab.go_to') {
+      keyboardState.loadMap.mockResolvedValue({
+        generation: 'palette-go-to',
+        bindings: [],
+        localPaletteCommands: ['workspace.tab.go_to'],
+        localPaletteArguments: { 'workspace.tab.go_to': goToArguments },
+      });
+    }
     const root = document.createElement('div');
     root.className = 'workspace-layout';
     document.body.appendChild(root);

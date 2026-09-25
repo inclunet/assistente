@@ -659,6 +659,7 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
           shortcut: cloneShortcut(mapped.shortcut),
           commandId: mapped.commandId,
           handler: mapped.handler,
+          ...(mapped.arguments ? { arguments: { ...mapped.arguments } } : {}),
           kind: 'down',
           repeat: false,
           context: completedSequence.contextualTriggers?.has(serializeCommandKeyboardTrigger(mapped.shortcut))

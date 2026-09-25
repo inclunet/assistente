@@ -10629,6 +10629,15 @@ projeção, publicação e Deck; a bateria ampliada
 passou em 113,731 s, com exit 0. Revisão independente do patch de bootstrap:
 agente principal, sem bloqueios. O CI inicial não é registrado como aprovado.
 
+Os dois achados Copilot do PR #836 foram corrigidos: a paleta exige argumentos
+apenas para `go_to`, preservando primeira/próxima/demais ações sem parâmetros;
+sequências de teclado propagam uma cópia dos argumentos. As regressões incluem
+os dois percursos no Topbar e a conclusão de sequência. Fixtures de contagem e
+do catálogo E2E agora incluem o novo ID, sem retirar verificações. Rodada final:
+345/345 Vitest, 1/1 contrato E2E, TypeScript, ESLint e diff-check aprovados.
+Agente principal revisou as seis alterações frontend independentemente do
+autor Bernoulli, sem pendências após a correção do modo no teste de sequência.
+
 ## 165. Apresentação automática de destinos de aba no Stream Deck — 25/09/2026
 
 Implementação da continuação visual da seção159, sobre a base do contrato de
