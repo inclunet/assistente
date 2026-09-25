@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Button, Checkbox } from '../ui';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -13,11 +14,14 @@ export interface ExternalCommandConnectionProps {
   readonly service: ExternalUIConnectionService | null;
   /** Destino capturado do contexto autorizado da UI; nunca sintetizado pelo formulário. */
   readonly target: ExternalUIDestination | null;
+  /** Alvo opcional para renderizar apenas o checkbox de consentimento na toolbar. */
+  readonly consentTarget?: HTMLElement | null;
 }
 
-export function ExternalCommandConnection({ service, target }: ExternalCommandConnectionProps) {
+export function ExternalCommandConnection({ service, target, consentTarget }: ExternalCommandConnectionProps) {
   const { t, i18n } = useTranslation();
   const { announce } = useAnnouncer();
+  const consentDescriptionId = useId();
   const subscribe = useCallback((listener: () => void) => service?.subscribe(listener) ?? (() => undefined), [service]);
   const getSnapshot = useCallback(() => service?.getSnapshot() ?? NO_CONNECTION, [service]);
   const connection = useSyncExternalStore(subscribe, getSnapshot, () => NO_CONNECTION);
@@ -107,11 +111,19 @@ export function ExternalCommandConnection({ service, target }: ExternalCommandCo
   const expiresLabel = invitation
     ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(invitation.expiresAt))
     : '';
+  const consentCheckbox = (
+    <Checkbox
+      checked={consented}
+      label={t('commandSettings.externalConnection.consent')}
+      aria-describedby={consentDescriptionId}
+      onChange={event => setConsented(event.currentTarget.checked)}
+    />
+  );
 
   return (
     <section className="command-settings__external-connection" aria-labelledby="external-command-connection-title">
       <h2 id="external-command-connection-title">{t('commandSettings.externalConnection.title')}</h2>
-      <p>{t('commandSettings.externalConnection.description')}</p>
+      <p id={consentDescriptionId}>{t('commandSettings.externalConnection.description')}</p>
       <p className="command-settings__info">
         {t(`commandSettings.externalConnection.state.${state}`)}
       </p>
@@ -128,11 +140,7 @@ export function ExternalCommandConnection({ service, target }: ExternalCommandCo
       {error && <p className="command-settings__error">{error}</p>}
       {state === 'disconnected' && (
         <>
-          <Checkbox
-            checked={consented}
-            label={t('commandSettings.externalConnection.consent')}
-            onChange={event => setConsented(event.currentTarget.checked)}
-          />
+          {consentTarget ? createPortal(consentCheckbox, consentTarget) : consentCheckbox}
           <Button
             type="button"
             variant="primary"
