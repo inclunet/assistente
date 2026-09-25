@@ -28,7 +28,7 @@ func (m *Manager) SaveServerAuth(slug, authType, token, username, password, clie
 		if hostname == "" {
 			return fmt.Errorf("servidor MCP '%s' nao tem URL valida", slug)
 		}
-		return m.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{
+		return m.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: token,
 		})
@@ -38,14 +38,14 @@ func (m *Manager) SaveServerAuth(slug, authType, token, username, password, clie
 		if hostname == "" {
 			return fmt.Errorf("servidor MCP '%s' nao tem URL valida", slug)
 		}
-		return m.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{
+		return m.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static",
 			Type:     "basic",
 			Username: username,
 			Password: password,
 		})
 
 	case "oauth2_client_credentials", "oauth2_pkce":
-		return m.credMgr.RegisterPatternWithContext(ctx, clientCredPattern(slug), &credentials.AuthConfig{
+		return m.credMgr.RegisterPatternWithContext(ctx, clientCredPattern(slug), &credentials.AuthConfig{Source: "static",
 			Type:         "oauth2",
 			ClientID:     cfg.OAuth2ClientID,
 			ClientSecret: clientSecret,

@@ -68,7 +68,7 @@ func TestTransport_AuthOptional_SemCredencial_SegueSemHeader(t *testing.T) {
 // (mesmo caminho do AuthRequired).
 func TestTransport_AuthOptional_ComCredencial_InjetaNormal(t *testing.T) {
 	mgr := newTestManager(t)
-	if err := mgr.RegisterPattern("localai.local", &AuthConfig{
+	if err := mgr.RegisterPattern("localai.local", &AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "optional-token",
 	}); err != nil {

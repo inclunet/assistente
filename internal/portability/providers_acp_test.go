@@ -293,7 +293,7 @@ func TestImportacaoAvisaQuandoAEntradaDoCofreNaoExisteAqui(t *testing.T) {
 	setupPortabilityTestDB(t)
 	credMgr := credentials.NewManagerWithStoreAndPersistence(
 		[]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.anthropic.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.anthropic.com", &credentials.AuthConfig{Source: "static",
 		Type: "bearer", Token: "sk-daqui",
 	}); err != nil {
 		t.Fatalf("registrar a credencial existente: %v", err)

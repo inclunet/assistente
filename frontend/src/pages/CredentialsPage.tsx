@@ -1,3 +1,4 @@
+import { apidto } from '@wailsjs/go/models';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -21,6 +22,12 @@ interface CredentialRow {
   id: string;
   pattern: string;
   type: string;
+  source: string;
+  command?: string;
+  argsText?: string;
+  timeoutSeconds?: number;
+  keyringService?: string;
+  keyringUser?: string;
   masked: string;
   managed: boolean;
   token?: string;
@@ -63,6 +70,7 @@ export default function CredentialsPage() {
           id: c.pattern,
           pattern: c.pattern,
           type: c.type,
+          source: c.source,
           masked: c.masked || '',
           managed: c.managed ?? false,
           token: '',
@@ -79,55 +87,84 @@ export default function CredentialsPage() {
           id: String(id),
           pattern: found?.pattern || String(id),
           type: found?.type || 'bearer',
+          source: found?.source || 'static',
+          command: found?.sourceConfig?.command || '',
+          argsText: JSON.stringify(found?.sourceConfig?.args || []),
+          timeoutSeconds: found?.sourceConfig?.timeoutSeconds || 30,
+          keyringService: found?.sourceConfig?.keyringService || '',
+          keyringUser: found?.sourceConfig?.keyringUser || '',
           masked: found?.masked || '',
           managed: found?.managed ?? false,
-          token: '',
-          username: '',
+          token: found?.sourceConfig?.env || found?.sourceConfig?.keyringTarget || '',
+          username: found?.username || '',
           password: '',
-          headerName: '',
+          headerName: found?.headerName || '',
           headerValue: '',
         };
       },
       createItem: async (data) => {
-        await UpsertCredential({
+        await UpsertCredential(apidto.CredentialInput.createFrom({
           pattern: data.pattern,
           type: data.type,
-          token: data.token,
+          source: data.source,
+          sourceConfig: data.source === 'static' ? undefined : {
+            env: data.source === 'env' ? data.token : undefined,
+            keyringTarget: data.source === 'keyring' ? data.token : undefined,
+            keyringService: data.source === 'keyring' ? data.keyringService : undefined,
+            keyringUser: data.source === 'keyring' ? data.keyringUser : undefined,
+            command: data.source === 'command' ? data.command : undefined,
+            args: data.source === 'command' ? JSON.parse(data.argsText || '[]') : undefined,
+            timeoutSeconds: data.source === 'command' ? data.timeoutSeconds : undefined,
+          },
+          token: data.source === 'static' ? data.token : undefined,
           username: data.username,
           password: data.password,
           headerName: data.headerName,
           headerValue: data.headerValue,
-        });
+        }));
         return data.pattern;
       },
       updateItem: async (_id, data) => {
-        await UpsertCredential({
+        await UpsertCredential(apidto.CredentialInput.createFrom({
           pattern: data.pattern,
           type: data.type,
-          token: data.token,
+          source: data.source,
+          sourceConfig: data.source === 'static' ? undefined : {
+            env: data.source === 'env' ? data.token : undefined,
+            keyringTarget: data.source === 'keyring' ? data.token : undefined,
+            keyringService: data.source === 'keyring' ? data.keyringService : undefined,
+            keyringUser: data.source === 'keyring' ? data.keyringUser : undefined,
+            command: data.source === 'command' ? data.command : undefined,
+            args: data.source === 'command' ? JSON.parse(data.argsText || '[]') : undefined,
+            timeoutSeconds: data.source === 'command' ? data.timeoutSeconds : undefined,
+          },
+          token: data.source === 'static' ? data.token : undefined,
           username: data.username,
           password: data.password,
           headerName: data.headerName,
           headerValue: data.headerValue,
-        });
+        }));
       },
       deleteItem: async (id) => {
         await DeleteCredential(String(id));
       },
     },
     {
-      entityName: 'Credencial',
+      entityName: t('credentials.sourceFields.entity'),
       messages: {
-        loadError: 'Erro ao carregar credenciais',
-        createSuccess: 'Credencial criada!',
-        updateSuccess: 'Credencial atualizada!',
-        deleteSuccess: 'Credencial removida!',
-        deleteConfirm: (item) => `Remover credencial ${item.pattern}?`,
+        loadError: t('credentials.sourceFields.loadError'),
+        createSuccess: t('credentials.sourceFields.createSuccess'),
+        updateSuccess: t('credentials.sourceFields.updateSuccess'),
+        deleteSuccess: t('credentials.sourceFields.deleteSuccess'),
+        deleteConfirm: (item) => t('credentials.sourceFields.deleteConfirm', { pattern: item.pattern }),
       },
       createDefault: () => ({
         id: '',
         pattern: '',
         type: 'bearer',
+        source: 'static',
+        argsText: '[]',
+        timeoutSeconds: 30,
         masked: '',
         managed: false,
         token: '',
@@ -137,26 +174,23 @@ export default function CredentialsPage() {
         headerValue: '',
       }),
       validate: (item) => {
-        if (!item.pattern || !item.pattern.trim()) {
-          return 'Pattern é obrigatório';
+        if (!item.pattern?.trim() || !item.type) return t('credentials.sourceFields.required');
+        if (item.source === 'oauth') return t('credentials.sourceFields.oauthUnavailable');
+        if (item.source === 'command') {
+          if (!item.command?.trim()) return t('credentials.sourceFields.required');
+          try {
+            const args: unknown = JSON.parse(item.argsText || '[]');
+            if (!Array.isArray(args) || !args.every(a => typeof a === 'string')) return t('credentials.sourceFields.invalidArgs');
+          } catch { return t('credentials.sourceFields.invalidArgs'); }
+          if (!item.timeoutSeconds || item.timeoutSeconds < 1 || item.timeoutSeconds > 300) return t('credentials.sourceFields.invalidTimeout');
         }
-        if (!item.type) {
-          return 'Tipo é obrigatório';
-        }
-        if (item.type === 'basic') {
-          if (!item.username || !item.password) {
-            return 'Usuário e senha são obrigatórios';
-          }
-        }
-        if (item.type === 'custom') {
-          if (!item.headerName || !item.headerValue) {
-            return 'Header e valor são obrigatórios';
-          }
-        }
-        if (item.type === 'bearer' || item.type === 'oauth2' || item.type === 'secret') {
-          if (!item.token) {
-            return 'Token é obrigatório';
-          }
+        if (item.source === 'env' && !item.token?.trim()) return t('credentials.sourceFields.required');
+        if (item.source === 'keyring' && !item.token?.trim() && (!item.keyringService || !item.keyringUser)) return t('credentials.sourceFields.required');
+        if (item.type === 'basic' && !item.username) return t('credentials.sourceFields.required');
+        if (item.type === 'custom' && !item.headerName) return t('credentials.sourceFields.required');
+        if (item.source === 'static') {
+          const value = item.type === 'basic' ? item.password : item.type === 'custom' ? item.headerValue : item.token;
+          if (!value) return t('credentials.sourceFields.required');
         }
         return null;
       },
@@ -174,9 +208,6 @@ export default function CredentialsPage() {
   });
 
   useActivePanelNewShortcut(crud.openNew);
-
-  const isRefValue = (value?: string): boolean =>
-    Boolean(value && (value.startsWith('keyring://') || value.startsWith('env://')));
 
   const invalidateSuggestionCache = useCallback(() => {
     cacheEpochRef.current += 1;
@@ -220,8 +251,7 @@ export default function CredentialsPage() {
     setActiveIndex(-1);
     latestTokenRef.current = value;
 
-    const prefix = value.startsWith('keyring://') ? 'keyring://'
-      : value.startsWith('env://') ? 'env://' : null;
+    const prefix = crud.editingItem?.source === 'keyring' || crud.editingItem?.source === 'env' ? crud.editingItem.source : null;
 
     if (!prefix) {
       // Só limpa/invalida se o autocomplete chegou a ser ativado (evita renders e
@@ -234,10 +264,11 @@ export default function CredentialsPage() {
       return;
     }
 
+    const epoch = cacheEpochRef.current;
     const items = await loadExternalSources(prefix);
-    if (latestTokenRef.current !== value) return;
+    if (cacheEpochRef.current !== epoch || latestTokenRef.current !== value) return;
 
-    const search = value.slice(prefix.length).toLowerCase();
+    const search = value.toLowerCase();
     const filtered = search === ''
       ? items
       : items.filter(s => s.label.toLowerCase().includes(search));
@@ -336,6 +367,7 @@ export default function CredentialsPage() {
 
   const columns: DataGridColumn<CredentialRow>[] = [
     { key: 'pattern', label: t('credentials.labels.pattern'), width: '260px', truncate: true },
+    { key: 'source', label: t('credentials.sourceFields.source'), width: '120px' },
     { key: 'type', label: t('credentials.labels.type'), width: '120px' },
     { key: 'masked', label: t('credentials.labels.value'), truncate: true },
     {
@@ -363,7 +395,7 @@ export default function CredentialsPage() {
         {
           id: 'view',
           label: t('credentials.buttons.view', 'Visualizar'),
-          icon: <EyeOutlined />,
+          icon: <EyeOutlined aria-hidden="true" />,
           onClick: () => setViewingManaged(row),
         },
       ];
@@ -372,13 +404,13 @@ export default function CredentialsPage() {
       {
         id: 'edit',
         label: t('credentials.buttons.edit', 'Editar'),
-        icon: <EditOutlined />,
+        icon: <EditOutlined aria-hidden="true" />,
         onClick: () => crud.openEdit(row),
       },
       {
         id: 'delete',
         label: t('credentials.buttons.delete', 'Excluir'),
-        icon: <DeleteOutlined />,
+        icon: <DeleteOutlined aria-hidden="true" />,
         onClick: () => crud.deleteItem(row),
         danger: true,
       },
@@ -394,7 +426,7 @@ export default function CredentialsPage() {
           {
             key: 'new',
             label: t('credentials.buttons.new'),
-            icon: <PlusOutlined />,
+            icon: <PlusOutlined aria-hidden="true" />,
             onClick: crud.openNew,
             shortcut: 'Ctrl+N',
             variant: 'primary',
@@ -402,14 +434,14 @@ export default function CredentialsPage() {
           {
             key: 'edit',
             label: t('credentials.buttons.edit', 'Editar'),
-            icon: <EditOutlined />,
+            icon: <EditOutlined aria-hidden="true" />,
             onClick: () => focusedRow && !focusedRow.managed && crud.openEdit(focusedRow),
             disabled: !focusedRow || focusedRow.managed,
           },
           {
             key: 'delete',
             label: t('credentials.buttons.delete', 'Excluir'),
-            icon: <DeleteOutlined />,
+            icon: <DeleteOutlined aria-hidden="true" />,
             onClick: () => focusedRow && !focusedRow.managed && crud.deleteItem(focusedRow),
             disabled: !focusedRow || focusedRow.managed,
             variant: 'danger',
@@ -448,6 +480,13 @@ export default function CredentialsPage() {
               disabled={!crud.isNew}
             />
             <Select
+              label={t('credentials.sourceFields.source')}
+              value={crud.editingItem.source}
+              options={['static', 'env', 'keyring', 'command', 'oauth'].map(value => ({ value, label: t(`credentials.sourceFields.${value}`) }))}
+              onChange={(e) => { resetSuggestions(); crud.updateField('source', e.target.value); crud.updateField('token', ''); if (e.target.value === 'oauth') announce(t('credentials.sourceFields.oauthUnavailable')); }}
+              fullWidth
+            />
+            <Select
               label={t('credentials.labels.type')}
               value={crud.editingItem.type}
               options={typeOptions}
@@ -455,19 +494,19 @@ export default function CredentialsPage() {
               fullWidth
             />
 
-            {(crud.editingItem.type === 'bearer' || crud.editingItem.type === 'oauth2' || crud.editingItem.type === 'secret') && (() => {
-              const tokenIsRef = isRefValue(crud.editingItem.token);
+            {(crud.editingItem.source === 'env' || crud.editingItem.source === 'keyring' || (crud.editingItem.source === 'static' && (crud.editingItem.type === 'bearer' || crud.editingItem.type === 'secret'))) && (() => {
+              const tokenIsRef = crud.editingItem.source === 'env' || crud.editingItem.source === 'keyring';
               const hasSuggestions = showSuggestions && suggestions.length > 0;
               return (
               <div className="credentials-page__token-field">
                 <Input
-                  label={t('credentials.labels.token')}
+                  label={tokenIsRef ? t(`credentials.sourceFields.${crud.editingItem.source}Name`) : t('credentials.labels.token')}
                   type={tokenIsRef ? 'text' : 'password'}
                   value={crud.editingItem.token || ''}
                   onChange={(e) => handleTokenChange(e.target.value)}
                   onKeyDown={handleTokenKeyDown}
                   onBlur={() => { latestTokenRef.current = ''; setShowSuggestions(false); setActiveIndex(-1); }}
-                  placeholder={t('credentials.placeholders.token_ref')}
+                  onFocus={() => { if (tokenIsRef) void handleTokenChange(crud.editingItem?.token || ''); }}
                   fullWidth
                   autoComplete="off"
                   role={tokenIsRef ? 'combobox' : undefined}
@@ -509,24 +548,20 @@ export default function CredentialsPage() {
               );
             })()}
 
-            {crud.editingItem.type === 'basic' && (
-              <div className="credentials-page__row">
-                <Input
-                  label={t('credentials.labels.username')}
-                  value={crud.editingItem.username || ''}
-                  onChange={(e) => crud.updateField('username', e.target.value)}
-                  fullWidth
-                />
-                <Input
-                  label={t('credentials.labels.password')}
-                  type="password"
-                  value={crud.editingItem.password || ''}
-                  onChange={(e) => crud.updateField('password', e.target.value)}
-                  fullWidth
-                />
-              </div>
-            )}
-
+            {crud.editingItem.source === 'keyring' && <>
+              <Input label={t('credentials.sourceFields.keyringService')} value={crud.editingItem.keyringService || ''} onChange={e => crud.updateField('keyringService', e.target.value)} fullWidth />
+              <Input label={t('credentials.sourceFields.keyringUser')} value={crud.editingItem.keyringUser || ''} onChange={e => crud.updateField('keyringUser', e.target.value)} fullWidth />
+            </>}
+            {crud.editingItem.source === 'command' && <>
+              <Input label={t('credentials.sourceFields.commandName')} value={crud.editingItem.command || ''} onChange={e => crud.updateField('command', e.target.value)} fullWidth />
+              <Input label={t('credentials.sourceFields.args')} value={crud.editingItem.argsText ?? '[]'} onChange={e => crud.updateField('argsText', e.target.value)} fullWidth />
+              <Input label={t('credentials.sourceFields.timeout')} type="number" min={1} max={300} value={crud.editingItem.timeoutSeconds ?? 30} onChange={e => crud.updateField('timeoutSeconds', Number(e.target.value))} fullWidth />
+            </>}
+            {crud.editingItem.source === 'oauth' && <p>{t('credentials.sourceFields.oauthUnavailable')}</p>}
+            {crud.editingItem.type === 'basic' && <>
+              <Input label={t('credentials.labels.username')} value={crud.editingItem.username || ''} onChange={e => crud.updateField('username', e.target.value)} fullWidth />
+              {crud.editingItem.source === 'static' && <Input label={t('credentials.labels.password')} type="password" value={crud.editingItem.password || ''} onChange={e => crud.updateField('password', e.target.value)} fullWidth />}
+            </>}
             {crud.editingItem.type === 'custom' && (
               <div className="credentials-page__row">
                 <Input
@@ -535,13 +570,13 @@ export default function CredentialsPage() {
                   onChange={(e) => crud.updateField('headerName', e.target.value)}
                   fullWidth
                 />
-                <Input
+                {crud.editingItem.source === 'static' && <Input
                   label={t('credentials.labels.value')}
                   type="password"
                   value={crud.editingItem.headerValue || ''}
                   onChange={(e) => crud.updateField('headerValue', e.target.value)}
                   fullWidth
-                />
+                />}
               </div>
             )}
 
@@ -565,7 +600,7 @@ export default function CredentialsPage() {
           )}
           <DialogActions
             primary={
-              <Button onClick={crud.save} loading={crud.saving}>
+              <Button onClick={crud.save} loading={crud.saving} disabled={crud.editingItem?.source === 'oauth'}>
                 {crud.isNew ? t('credentials.buttons.create') : t('common.save')}
               </Button>
             }

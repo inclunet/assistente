@@ -115,7 +115,7 @@ func MigrateChannelSecrets(ctx context.Context, slug string, cfg *ChannelConfig,
 			ref = fmt.Sprintf("channel:%s:%s", slug, f.key)
 			*f.ref = ref
 		}
-		if err := credMgr.RegisterPatternWithContext(ctx, ref, &credentials.AuthConfig{
+		if err := credMgr.RegisterPatternWithContext(ctx, ref, &credentials.AuthConfig{Source: "static",
 			Type:  "secret",
 			Token: plain,
 		}); err != nil {

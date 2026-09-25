@@ -7,6 +7,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,15 +21,18 @@ import (
 
 // AuthConfig descreve como autenticar em um domínio
 type AuthConfig struct {
-	Type         string            // "bearer", "basic", "oauth2", "custom", "none"
-	Token        string            // para bearer, oauth2
-	Username     string            // para basic auth
-	Password     string            // para basic auth
-	Headers      map[string]string // headers customizados (já com valores)
-	ExpiresAt    int64             // unix timestamp, 0 = sem expiração
-	RefreshURL   string            // para oauth2 refresh
-	ClientSecret string            // para oauth2 client credentials (criptografado)
-	ClientID     string            // para oauth2 DCR (dynamic client registration)
+	Source          string
+	SourceConfig    *SourceConfig
+	SourceConfigEnc string            // configuração cifrada em memória e no store
+	Type            string            // "bearer", "basic", "oauth2", "custom", "none"
+	Token           string            // para bearer, oauth2
+	Username        string            // para basic auth
+	Password        string            // para basic auth
+	Headers         map[string]string // headers customizados (já com valores)
+	ExpiresAt       int64             // unix timestamp, 0 = sem expiração
+	RefreshURL      string            // para oauth2 refresh
+	ClientSecret    string            // para oauth2 client credentials (criptografado)
+	ClientID        string            // para oauth2 DCR (dynamic client registration)
 }
 
 // DomainCredential mapeia um padrão de domínio a credenciais
@@ -116,6 +120,9 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 	}
 
 	// Criptografar credenciais sensíveis
+	if err := ValidateSource(auth); err != nil {
+		return err
+	}
 	encAuth, err := m.encryptAuth(auth)
 	if err != nil {
 		return err
@@ -188,7 +195,12 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 	}
 
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	locked := true
+	defer func() {
+		if locked {
+			m.mu.RUnlock()
+		}
+	}()
 
 	userID := ""
 	if scopedUser, ok := database.UserIDFromContext(ctx); ok {
@@ -208,7 +220,9 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 			if err != nil {
 				return nil, fmt.Errorf("erro ao descriptografar credenciais: %w", err)
 			}
-			return auth, nil
+			m.mu.RUnlock()
+			locked = false
+			return ResolveSource(ctx, auth)
 		}
 	}
 
@@ -228,7 +242,7 @@ func (m *Manager) ListPatterns() []string {
 }
 
 // ListCredentials retorna credenciais descriptografadas sem resolver referências externas.
-// Refs como keyring://... e env://... ficam visíveis para exibição na UI.
+// Configurações de source são retornadas sem executar comandos.
 func (m *Manager) ListCredentials() ([]StoredCredential, error) {
 	return m.ListCredentialsWithContext(context.Background())
 }
@@ -287,7 +301,12 @@ func (m *Manager) GetByPattern(pattern string) (*AuthConfig, error) {
 
 func (m *Manager) GetByPatternWithContext(ctx context.Context, pattern string) (*AuthConfig, error) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	locked := true
+	defer func() {
+		if locked {
+			m.mu.RUnlock()
+		}
+	}()
 
 	userID := ""
 	if scopedUser, ok := database.UserIDFromContext(ctx); ok {
@@ -309,7 +328,9 @@ func (m *Manager) GetByPatternWithContext(ctx context.Context, pattern string) (
 				}
 				return nil, fmt.Errorf("credencial %q ilegível para usuário %q: %w", pattern, scope, err)
 			}
-			return auth, nil
+			m.mu.RUnlock()
+			locked = false
+			return ResolveSource(ctx, auth)
 		}
 	}
 
@@ -512,6 +533,17 @@ func (m *Manager) encryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 	}
 
 	encrypted := *auth
+	if auth.SourceConfig != nil {
+		data, err := json.Marshal(auth.SourceConfig)
+		if err != nil {
+			return nil, err
+		}
+		encrypted.SourceConfigEnc, err = m.encrypt(string(data))
+		if err != nil {
+			return nil, err
+		}
+		encrypted.SourceConfig = nil
+	}
 
 	if auth.Token != "" {
 		token, err := m.encrypt(auth.Token)
@@ -569,88 +601,27 @@ func (m *Manager) encryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 
 // decryptAuth descriptografa credenciais
 func (m *Manager) decryptAuth(auth *AuthConfig) (*AuthConfig, error) {
-	if auth == nil {
-		return nil, nil
-	}
-
-	decrypted := *auth
-
-	if auth.Token != "" {
-		token, err := m.decrypt(auth.Token)
-		if err != nil {
-			return nil, err
-		}
-		token, err = ResolveExternalRef(token)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao resolver referência do token: %w", err)
-		}
-		decrypted.Token = token
-	}
-
-	if auth.Password != "" {
-		pwd, err := m.decrypt(auth.Password)
-		if err != nil {
-			return nil, err
-		}
-		pwd, err = ResolveExternalRef(pwd)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao resolver referência da senha: %w", err)
-		}
-		decrypted.Password = pwd
-	}
-
-	if auth.ClientID != "" {
-		cid := m.tryDecrypt(auth.ClientID)
-		cid, err := ResolveExternalRef(cid)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao resolver referência do client_id: %w", err)
-		}
-		decrypted.ClientID = cid
-	}
-
-	if auth.ClientSecret != "" {
-		cs := m.tryDecrypt(auth.ClientSecret)
-		cs, err := ResolveExternalRef(cs)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao resolver referência do client_secret: %w", err)
-		}
-		decrypted.ClientSecret = cs
-	}
-
-	if auth.RefreshURL != "" {
-		rt := m.tryDecrypt(auth.RefreshURL)
-		rt, err := ResolveExternalRef(rt)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao resolver referência do refresh token: %w", err)
-		}
-		decrypted.RefreshURL = rt
-	}
-
-	if len(auth.Headers) > 0 {
-		decrypted.Headers = make(map[string]string)
-		for k, v := range auth.Headers {
-			decV, err := m.decrypt(v)
-			if err != nil {
-				return nil, err
-			}
-			decV, err = ResolveExternalRef(decV)
-			if err != nil {
-				return nil, fmt.Errorf("erro ao resolver referência do header %s: %w", k, err)
-			}
-			decrypted.Headers[k] = decV
-		}
-	}
-
-	return &decrypted, nil
+	return m.decryptAuthRaw(auth)
 }
 
 // decryptAuthRaw descriptografa credenciais sem resolver referências externas.
-// Usado para listagem/exibição onde queremos ver a ref original (keyring://..., env://...).
+// Usado para listagem e verificação criptográfica, sem resolver fontes.
 func (m *Manager) decryptAuthRaw(auth *AuthConfig) (*AuthConfig, error) {
 	if auth == nil {
 		return nil, nil
 	}
 	decrypted := *auth
+	if auth.SourceConfigEnc != "" {
+		data, err := m.decrypt(auth.SourceConfigEnc)
+		if err != nil {
+			return nil, err
+		}
+		decrypted.SourceConfig = &SourceConfig{}
+		if err := json.Unmarshal([]byte(data), decrypted.SourceConfig); err != nil {
+			return nil, err
+		}
+		decrypted.SourceConfigEnc = ""
+	}
 
 	if auth.Token != "" {
 		token, err := m.decrypt(auth.Token)
@@ -788,4 +759,17 @@ func wildcardToRegex(pattern string) string {
 	escaped = strings.ReplaceAll(escaped, `\*`, `[^.]+`)
 	// Anchor no início e fim
 	return "^" + escaped + "$"
+}
+
+// GetConfigByPatternWithContext returns a decrypted configuration without resolving its source.
+func (m *Manager) GetConfigByPatternWithContext(ctx context.Context, pattern string) (*AuthConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	userID, _ := database.UserIDFromContext(ctx)
+	for _, dc := range m.credentials {
+		if dc.UserID == userID && dc.Pattern == pattern {
+			return m.decryptAuthRaw(dc.Auth)
+		}
+	}
+	return nil, nil
 }

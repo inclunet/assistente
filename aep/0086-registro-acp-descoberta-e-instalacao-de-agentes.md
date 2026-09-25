@@ -1349,3 +1349,7 @@ ter.
 - Cofre de credenciais, para a D12: AEP-0014 (persistência), AEP-0015
   (auto-extração), AEP-0026 (correções), AEP-0061 (incidente de perda e defesas —
   a invariante da DEK)
+
+## Evolução AEP-0110
+
+O contrato atual de fontes está em [AEP-0110](0110-fontes-explicitas-de-credenciais.md). Referências históricas por prefixo foram substituídas por source explícita, sem migração automática. AuthModeNone remove qualquer Authorization.

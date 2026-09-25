@@ -72,7 +72,8 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	// injetado por upstream wrappers). Isso garante que provedores
 	// puramente locais (Ollama, llama.cpp) recebam um request limpo.
 	if t.AuthMode == AuthNone {
-		stripManagedPlaceholder(req)
+		req = req.Clone(req.Context())
+		req.Header.Del("Authorization")
 		return t.Base.RoundTrip(req)
 	}
 
@@ -117,31 +118,8 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		return t.Base.RoundTrip(req)
 	}
 
-	switch auth.Type {
-	case "bearer":
-		if strings.TrimSpace(auth.Token) == "" {
-			if t.AuthMode == AuthOptional {
-				stripManagedPlaceholder(req)
-				break
-			}
-			if hasManagedCredentialPlaceholder(req) {
-				return nil, unresolvedCredentialError(req, t.CredPattern)
-			}
-			break
-		}
-		if strings.HasPrefix(auth.Token, "Bearer ") {
-			req.Header.Set("Authorization", auth.Token)
-		} else {
-			req.Header.Set("Authorization", "Bearer "+auth.Token)
-		}
-	case "basic":
-		if auth.Username != "" && auth.Password != "" {
-			req.SetBasicAuth(auth.Username, auth.Password)
-		}
-	case "custom":
-		for key, val := range auth.Headers {
-			req.Header.Set(key, val)
-		}
+	if err := ApplyAuth(req, auth); err != nil {
+		return nil, err
 	}
 
 	return t.Base.RoundTrip(req)
@@ -218,4 +196,32 @@ func NewHTTPClientWithAuthMode(credMgr *Manager, credPattern string, mode AuthRe
 		Transport: NewCredentialTransportWithMode(credMgr, credPattern, mode),
 		Timeout:   timeout,
 	}
+}
+
+// ApplyAuth applies an already materialized credential to a request.
+func ApplyAuth(req *http.Request, auth *AuthConfig) error {
+	if auth == nil {
+		return nil
+	}
+	stripManagedPlaceholder(req)
+	switch auth.Type {
+	case "bearer":
+		if strings.TrimSpace(auth.Token) == "" {
+			return fmt.Errorf("token de credencial vazio")
+		}
+		token := auth.Token
+		if !strings.HasPrefix(token, "Bearer ") {
+			token = "Bearer " + token
+		}
+		req.Header.Set("Authorization", token)
+	case "basic":
+		req.SetBasicAuth(auth.Username, auth.Password)
+	case "custom":
+		for k, v := range auth.Headers {
+			req.Header.Set(k, v)
+		}
+	default:
+		return fmt.Errorf("scheme de credencial não suportado para HTTP")
+	}
+	return nil
 }

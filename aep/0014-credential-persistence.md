@@ -447,3 +447,7 @@ go test ./internal/credentials -cover
 - [AES-GCM NIST SP 800-38D](https://csrc.nist.gov/publications/detail/sp/800-38d/final)
 - [go-keyring](https://github.com/zalando/go-keyring)
 - [OWASP Key Management](https://cheatsheetseries.owasp.org/cheatsheets/Key_Management_Cheat_Sheet.html)
+
+## Evolução AEP-0110
+
+O contrato atual de fontes está em [AEP-0110](0110-fontes-explicitas-de-credenciais.md). Referências históricas por prefixo foram substituídas por source explícita, sem migração automática. AuthModeNone remove qualquer Authorization.

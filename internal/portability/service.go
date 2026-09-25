@@ -1116,6 +1116,8 @@ func exportCredentials(ctx context.Context, credMgr *credentials.Manager) ([]Cre
 			ID:           id,
 			Pattern:      pattern,
 			AuthType:     entry.Auth.Type,
+			Source:       entry.Auth.Source,
+			SourceConfig: entry.Auth.SourceConfig,
 			Token:        entry.Auth.Token,
 			Username:     entry.Auth.Username,
 			Password:     entry.Auth.Password,
@@ -1170,7 +1172,7 @@ func importCredentials(
 			}
 			credentialID = ""
 		}
-		auth := &credentials.AuthConfig{
+		auth := &credentials.AuthConfig{Source: cred.Source, SourceConfig: cred.SourceConfig,
 			Type:         cred.AuthType,
 			Token:        cred.Token,
 			Username:     cred.Username,
@@ -1200,6 +1202,9 @@ func isPortableCredentialPattern(pattern string) bool {
 }
 
 func validatePortableCredentialExport(cred CredentialExport) error {
+	if err := credentials.ValidateSource(&credentials.AuthConfig{Source: cred.Source, SourceConfig: cred.SourceConfig}); err != nil {
+		return err
+	}
 	pattern := strings.TrimSpace(cred.Pattern)
 	if !isPortableCredentialPattern(pattern) {
 		return codedErrorf(

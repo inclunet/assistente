@@ -639,3 +639,7 @@ DB-only descrito em D0.
 13. **i18n**: todas as strings de UI novas existem nos 3 locales.
 14. **Acessibilidade**: modais de export/import são navegáveis por teclado, com foco gerenciado e feedback via announcer/toast.
 15. **Avisos e erros traduzíveis**: a lista de avisos, erros e motivos de conflito sai do backend com código e parâmetros (D14), aparece na tela e no announcer no idioma escolhido e cai no texto de reserva quando o código é desconhecido.
+
+## Exceção deliberada AEP-0110 — credenciais
+
+A decisão do mantenedor em [AEP-0110](0110-fontes-explicitas-de-credenciais.md) exige source explícita e reconfiguração manual das credenciais antigas. Schema e demais recursos mantêm sua política de upgrade. O bloco cifrado de exportação preserva Source/SourceConfig sem executar a fonte; a importação de credenciais sem source é recusada. A cobertura está em TestCredentialSourceExportImportRoundTrip. O status geral desta AEP permanece inalterado.

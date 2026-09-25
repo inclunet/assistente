@@ -161,3 +161,5 @@ selfHosted: {
   helpText: 'Generic self-hosted LLM server. Configure URL and authentication token.',
 }
 ```
+
+Consulte [Fontes de credenciais](../CREDENTIAL_SOURCES/) para usar env, keyring ou comando sem inserir tokens estáticos.

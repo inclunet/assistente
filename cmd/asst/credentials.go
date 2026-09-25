@@ -108,7 +108,7 @@ func runCredentialsSet(svc credentialsBackend, out io.Writer, pattern, value, cr
 		credType = "bearer"
 	}
 
-	input := apidto.CredentialInput{
+	input := apidto.CredentialInput{Source: "static",
 		Pattern: pattern,
 		Type:    credType,
 		Token:   value,

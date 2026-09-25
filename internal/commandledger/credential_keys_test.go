@@ -49,7 +49,7 @@ func TestCredentialKeyProviderSignsUsingEncryptedManager(t *testing.T) {
 func TestCredentialKeyProviderNeverUsesUserScopedSecret(t *testing.T) {
 	manager := credentials.NewManager(bytes.Repeat([]byte{7}, 32))
 	req := validRequest()
-	if err := manager.RegisterStoredCredentialWithContext(context.Background(), credentials.StoredCredential{UserID: req.Owner.UserID, Pattern: "internal-auth:command-request-hmac:v1", Auth: &credentials.AuthConfig{Type: "secret", Token: base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{3}, 32))}}); err != nil {
+	if err := manager.RegisterStoredCredentialWithContext(context.Background(), credentials.StoredCredential{UserID: req.Owner.UserID, Pattern: "internal-auth:command-request-hmac:v1", Auth: &credentials.AuthConfig{Source: "static", Type: "secret", Token: base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{3}, 32))}}); err != nil {
 		t.Fatal(err)
 	}
 	provider, err := NewCredentialKeyProvider(manager)
@@ -71,7 +71,7 @@ func TestCredentialKeyProviderRejectsInvalidSecrets(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			manager := credentials.NewManager(bytes.Repeat([]byte{7}, 32))
-			if err := manager.RegisterPattern("internal-auth:command-request-hmac:v1", &credentials.AuthConfig{Type: tc.kind, Token: tc.token}); err != nil {
+			if err := manager.RegisterPattern("internal-auth:command-request-hmac:v1", &credentials.AuthConfig{Source: "static", Type: tc.kind, Token: tc.token}); err != nil {
 				t.Fatal(err)
 			}
 			provider, err := NewCredentialKeyProvider(manager)

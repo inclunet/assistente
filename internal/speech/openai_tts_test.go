@@ -50,7 +50,7 @@ func TestFetchTTSModelsUsesRequestContextForCredentials(t *testing.T) {
 
 	credMgr := credentials.NewManager(nil)
 	userCtx := database.WithUserID(context.Background(), "user-1")
-	if err := credMgr.RegisterPatternWithContext(userCtx, parsed.Hostname(), &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(userCtx, parsed.Hostname(), &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "speech-token",
 	}); err != nil {

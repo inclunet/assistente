@@ -1,0 +1,67 @@
+# AEP-0110 — Fontes explícitas de credenciais
+
+**Status:** In Progress
+
+## Resumo
+
+Separar `AuthConfig.Source` do scheme HTTP `Type`. O manager materializa fontes;
+o transport aplica bearer/basic/custom sem interpretar referências.
+
+## Motivação
+
+Prefixos no segredo confundiam dados e configuração. Comandos genéricos precisam
+atender executáveis locais e WSL sem acoplamento a fornecedor.
+
+## Decisões
+
+- Sources: static, env, keyring, command; oauth tem contrato próprio reservado e
+  retorna erro explícito de indisponibilidade. O fluxo OAuth interativo é futuro;
+  OAuth MCP gerenciado mantém seu ciclo atual, independente desta nova source.
+- Source obrigatória em novas gravações. Registros antigos sem source permanecem
+  no banco e falham na materialização com orientação de reconfiguração manual.
+  Nenhuma migração de dados nem interpretação de env:// ou keyring://.
+  Em static, qualquer texto é literal, inclusive esses prefixos.
+- Configuração externa é JSON cifrado com a DEK existente, separado dos campos
+  de material secreto. AutoMigrate adiciona colunas sem preencher dados legados.
+- Segredos internos de instância continuam usando a API restrita de leitura bruta;
+  a ausência de source em um segredo antigo não gira chaves de autenticação/TLS.
+- Resolução fora do lock do manager, com contexto. Listagem/configuração não
+  executa programas. Command usa executável + array de argumentos, sem shell,
+  timeout padrão 30s/máximo 300s, stdout até 64 KiB em uma linha e stderr descartado.
+  O erro não contém comando, argumentos ou saída. Não há cache: cada resolução
+  obtém material novo. WSL recebe argumentos como qualquer outro executável.
+- Keyring seleciona explicitamente target Windows OU serviço+usuário; sem
+  heurística de barra no segredo. Env usa nome sem prefixo.
+- Basic usa username configurado e source para password; custom usa um header.
+- Providers testam chaves digitadas em manager efêmero, nunca regravando o cofre.
+  Credencial salva só é reutilizada no mesmo scheme+host da URL do provider.
+  APIKey nos DTOs continua sendo conveniência static, sem referências mágicas.
+- AuthModeNone remove qualquer Authorization, conforme AEP-0062 e decisão do
+  mantenedor nesta implementação. O request do chamador não é alterado nesse caso.
+
+## Fases
+
+- [x] Modelo, persistência e resolução de fontes.
+- [x] UI explícita e aplicação HTTP nos fluxos de providers.
+- [ ] Validação completa, revisão independente local e CI/review remoto.
+
+## Riscos
+
+Credenciais antigas exigem reconfiguração manual. Comandos executam com permissões
+do processo do app; argumentos não devem conter segredos literais. Timeout encerra
+o processo direto; subprocessos/WSL exigem política própria se precisarem de
+cancelamento de árvore. Configuração é cifrada, mas campos de configuração são
+retornados ao editor, nunca o token materializado.
+
+## Critérios de aceitação
+
+- [x] Nenhuma resolução de fonte por prefixo em segredo.
+- [x] Testes de command: argumentos literais, timeout/cancelamento, saída vazia,
+  multilinha, excesso de saída e ausência de segredos em erros (`source_test.go`).
+- [x] Persistência cifrada, isolamento entre usuários e renovação env testados.
+- [x] Testes de autocomplete mantêm teclado, mouse e anúncios no novo seletor.
+- [ ] Build, vet, Go tests, TypeScript, ESLint, Stylelint e Vitest aprovados.
+- [ ] Revisor independente sem pendências; CI verde e threads remotas resolvidas.
+
+OAuth completo, cache e renovação programada de command são evoluções futuras,
+fora do escopo aceito para esta entrega.

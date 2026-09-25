@@ -541,3 +541,15 @@ describe("api_format semantics", () => {
   });
 });
 
+
+it('permite criar provedor usando a credencial de source cadastrada no cofre', async () => {
+  vi.clearAllMocks();
+  render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+  await userEvent.type(screen.getByLabelText(/nome/i), 'Gateway');
+  await userEvent.click(screen.getByLabelText('providerForm.useSavedCredential'));
+  expect(screen.queryByLabelText(/^API Key$/i)).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: /carregar modelos/i }));
+  await waitFor(() => expect(App.ListModelsRaw).toHaveBeenCalledWith(expect.objectContaining({ api_key: undefined })));
+  await userEvent.click(screen.getByRole('button', { name: 'Criar' }));
+  await waitFor(() => expect(App.CreateLLMProvider).toHaveBeenCalledWith(expect.objectContaining({ name: 'Gateway', api_key: undefined })));
+});

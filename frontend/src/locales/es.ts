@@ -2186,6 +2186,7 @@ const es = {
     },
 
     credentials: {
+      sourceFields: {"source": "Fuente", "static": "Valor guardado", "env": "Variable de entorno", "keyring": "Keyring del sistema", "command": "Comando", "oauth": "OAuth (próximamente)", "envName": "Nombre de variable", "keyringName": "Target de Windows (o complete servicio y usuario)", "keyringService": "Servicio de keyring (alternativa al target)", "keyringUser": "Usuario de keyring", "commandName": "Ejecutable", "args": "Argumentos (array JSON de strings)", "timeout": "Timeout en segundos", "oauthUnavailable": "OAuth aún no está disponible como fuente de credencial.", "required": "Complete los campos obligatorios.", "invalidArgs": "Ingrese un array JSON de strings para los argumentos.", "invalidTimeout": "Timeout debe estar entre 1 y 300 segundos.", "entity": "Credencial", "loadError": "Error al cargar credenciales", "createSuccess": "¡Credencial creada!", "updateSuccess": "¡Credencial actualizada!", "deleteSuccess": "¡Credencial eliminada!", "deleteConfirm": "¿Eliminar credencial {{pattern}}?"},
       types: { bearer: 'Bearer token', basic: 'Basic (usuario/contraseña)', custom: 'Header personalizado', secret: 'Secreto (uso interno)' },
       pageTitle: 'Credenciales',
       buttons: { new: 'Nueva', delete: 'Eliminar', create: 'Crear', view: 'Ver', edit: 'Editar' },
@@ -2339,6 +2340,8 @@ const es = {
     },
 
     providerForm: {
+      useSavedCredential: "Usar la credencial existente para este dominio",
+      savedCredentialHelp: "Configure la fuente en Credenciales usando el hostname de la URL base como patrón. Deje la clave vacía para usar esa credencial.",
       name: 'Nombre',
       namePlaceholder: 'Mi proveedor OpenAI',
       providerType: 'Tipo de proveedor',
