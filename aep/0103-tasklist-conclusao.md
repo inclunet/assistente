@@ -10537,3 +10537,9 @@ da auditoria junto à página e ao DataGrid: **154/154 PASS**, incluindo axe dos
 dois gerenciadores. A rodada completa anterior não é registrada como PASS;
 o CI valida o conjunto final. Beauvoir revisou a correção e encerrou sem
 bloqueios, após as rodadas de foco, documentação e arbitragem de anúncios.
+
+PR #834: a primeira rodada remota passou frontend e E2E. Copilot identificou
+ausência de `dialog.ruleTitle` em espanhol; incluída tradução explícita e
+regressão das chaves dos gerenciadores nos três locales, sem fallback de
+idioma, incluindo os placeholders das contagens. Os checks finais continuam
+associados ao commit atualizado, não ao resultado da rodada anterior.
