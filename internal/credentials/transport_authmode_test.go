@@ -137,3 +137,20 @@ func TestTransportBearerVazioRespeitaAuthMode(t *testing.T) {
 		}
 	}
 }
+
+func TestTransportTipoNoneRemoveAuthorization(t *testing.T) {
+	mgr := newTestManager(t)
+	if err := mgr.RegisterPattern("none.example", &AuthConfig{Source: "static", Type: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	capture := &captureTransport{}
+	transport := &CredentialTransport{Base: capture, CredMgr: mgr, CredPattern: "none.example"}
+	req := httptest.NewRequest("GET", "http://none.example", nil)
+	req.Header.Set("Authorization", "Bearer residual")
+	if _, err := transport.RoundTrip(req); err != nil {
+		t.Fatal(err)
+	}
+	if capture.captured.Header.Get("Authorization") != "" {
+		t.Fatal("none sent Authorization")
+	}
+}

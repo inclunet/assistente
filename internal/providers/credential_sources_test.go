@@ -174,3 +174,32 @@ func TestLegacyCredentialNotConfigured(t *testing.T) {
 		t.Fatal("listing marked legacy credential configured")
 	}
 }
+
+func TestProbesAuthNoneIgnoraChaveInformada(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Error("AuthNone sent Authorization")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := fmt.Fprint(w, `{"data":[{"id":"model"}]}`); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer server.Close()
+	registry := llm.NewProviderRegistry()
+	if err := registry.Register(&llm.ProviderConfig{ID: "none", Name: "none", Type: llm.ProviderOpenAI, BaseURL: server.URL, CredentialPattern: "ignored", AuthMode: llm.AuthModeNone}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(ServiceConfig{Registry: registry, CredMgr: credentials.NewManager(nil), Store: NewMemoryStore()})
+	ctx := context.Background()
+	req := TestRequest{BaseURL: server.URL, ProviderID: "none", APIKey: "must-not-be-sent"}
+	if _, err := svc.TestConnection(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ListModels(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ListModelsRaw(ctx, ListModelsRawRequest{Type: "openai", BaseURL: server.URL, ProviderID: "none", APIKey: req.APIKey}); err != nil {
+		t.Fatal(err)
+	}
+}

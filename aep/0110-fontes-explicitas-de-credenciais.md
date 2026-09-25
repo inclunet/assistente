@@ -72,7 +72,9 @@ fora do escopo aceito para esta entrega.
   Rodada 1: cinco achados; rodada 2: correções confirmadas e dois achados adicionais;
   rodada 3: zero pendências. Verificação adicional do delta de announcer/inputs:
   zero pendências. Sete achados corrigidos. Rodada 4: delta das seis observações
-  remotas e correção do teste com race revisados, zero pendências.
+  remotas e correção do teste com race revisados, zero pendências. Rodada 5:
+  quatro ajustes da segunda revisão remota (none nas probes/tipo e i18n),
+  zero pendências.
 - `go build ./...` e `go vet ./...`: aprovados.
 - `go test ./internal/credentials ./internal/providers ./internal/portability ./internal/mcp`:
   aprovado, incluindo fontes, aplicação HTTP, round-trip e refresh OAuth.
@@ -88,4 +90,7 @@ fora do escopo aceito para esta entrega.
 - A primeira rodada do CI identificou timeout de 1s no helper de command com
   race. Corrigido para usar o timeout normal nos cenários de saída e preservar
   o cenário de expiração em 1s com assert de DeadlineExceeded.
-- CI e revisão remota ainda pendentes; nenhum merge de PR autorizado.
+- Na segunda execução CI, credentials passou com race. O grupo geral falhou
+  em TestExternalServiceRevocationCancelsQueuedInvocation (código não alterado);
+  reprodução local falhou uma vez em 20 execuções. Novo CI ainda pendente.
+- Revisão remota em acompanhamento; nenhum merge de PR autorizado.

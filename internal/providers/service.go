@@ -899,6 +899,7 @@ func buildTempProviderForListModels(req ListModelsRawRequest, hostname string, e
 	}
 	if existing != nil {
 		temp.APIFormat = existing.APIFormat
+		temp.AuthMode = existing.EffectiveAuthMode()
 	}
 	return temp
 }
@@ -941,7 +942,6 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 			return nil, fmt.Errorf("URL alterada: informe uma credencial para testar o novo destino")
 		}
 		tempProvider.CredentialPattern = existingProvider.CredentialPattern
-		tempProvider.AuthMode = existingProvider.AuthMode
 	}
 
 	// Sem agente: esta rota exige base_url e só atende provedor HTTP.
@@ -1147,6 +1147,17 @@ func sameCredentialOrigin(a, b string) bool {
 }
 
 func (s *Service) applyProbeAuth(ctx context.Context, req TestRequest, target *http.Request) error {
+	var provider *llm.ProviderConfig
+	if req.ProviderID != "" && s.registry != nil {
+		provider = s.registry.Get(req.ProviderID)
+		if provider == nil {
+			return fmt.Errorf("provedor não encontrado")
+		}
+		if provider.EffectiveAuthMode() == llm.AuthModeNone {
+			target.Header.Del("Authorization")
+			return nil
+		}
+	}
 	if strings.TrimSpace(req.APIKey) != "" {
 		return credentials.ApplyAuth(target, &credentials.AuthConfig{Source: "static", Type: "bearer", Token: strings.TrimSpace(req.APIKey)})
 	}
@@ -1164,15 +1175,7 @@ func (s *Service) applyProbeAuth(ctx context.Context, req TestRequest, target *h
 		}
 		return credentials.ApplyAuth(target, auth)
 	}
-	if s.registry == nil {
-		return nil
-	}
-	provider := s.registry.Get(req.ProviderID)
 	if provider == nil {
-		return fmt.Errorf("provedor não encontrado")
-	}
-	if provider.EffectiveAuthMode() == llm.AuthModeNone {
-		target.Header.Del("Authorization")
 		return nil
 	}
 	if !sameCredentialOrigin(req.BaseURL, provider.BaseURL) {

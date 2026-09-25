@@ -210,6 +210,8 @@ func ApplyAuth(req *http.Request, auth *AuthConfig) error {
 	}
 	stripManagedPlaceholder(req)
 	switch auth.Type {
+	case "none":
+		req.Header.Del("Authorization")
 	case "bearer":
 		if strings.TrimSpace(auth.Token) == "" {
 			return fmt.Errorf("token de credencial vazio")
