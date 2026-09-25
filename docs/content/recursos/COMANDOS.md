@@ -11,6 +11,35 @@ separa configurações **globais** das do **workspace atual**. Na visão do
 workspace, itens globais herdados continuam visíveis, mas são editados no
 escopo global. Restaurar o workspace não apaga a configuração global.
 
+### Gerenciar uma camada
+
+Selecione uma camada na grade **Camadas**. Ao lado, consulte seu estado,
+descrição e quantidades de acionadores e regras. Na mesma barra de ferramentas
+de **Nova camada**, use **Editar camada** para alterar a camada selecionada,
+ou **Configurações da camada** para escolher o gerenciador desejado:
+
+- **Comandos e acionadores:** consulte as associações existentes; use **Novo
+  acionador** ou o menu de ações da linha para configurar teclado, paleta ou
+  Stream Deck. Padrões continuam sujeitos às opções próprias de personalização.
+- **Regras de ativação:** consulte quando a camada se aplica; use **Nova regra**
+  ou o menu da linha para editar e acionar as operações permitidas.
+
+Os dois gerenciadores são separados. As opções avançadas continuam nos
+formulários correspondentes, sem alterar o significado das configurações.
+Camadas herdadas de outro escopo podem ser consultadas, mas sua edição continua
+no escopo de origem.
+
+**Escape** fecha primeiro o formulário e retorna o foco à grade do gerenciador.
+Outro **Escape** fecha o gerenciador e volta à camada selecionada. Enquanto
+uma operação estiver em andamento, aguarde sua conclusão antes de fechar.
+Trocar usuário, sessão, workspace ou escopo encerra o gerenciador anterior.
+
+A mesma toolbar contém o consentimento **Autorizo uma API externa vinculada
+ao usuário atual a controlar esta interface**. Ele não habilita teclado nem
+Stream Deck: autoriza a preparação de uma conexão externa explícita. Começa
+desmarcado; marcá-lo não cria uma conexão. A explicação, o estado e a ação
+**Criar convite de conexão** permanecem na seção de conexão externa abaixo.
+
 ## Checklist de aceite e roteiros de referência
 
 Ao alternar páginas ou abas, os comandos de navegação continuam disponíveis
