@@ -14,8 +14,9 @@ escopo global. Restaurar o workspace não apaga a configuração global.
 ### Gerenciar uma camada
 
 Selecione uma camada na grade **Camadas**. Ao lado, consulte seu estado,
-descrição e quantidades de acionadores e regras. Abra **Configurações da
-camada** e escolha o gerenciador desejado:
+descrição e quantidades de acionadores e regras. Na mesma barra de ferramentas
+de **Nova camada**, use **Editar camada** para alterar a camada selecionada,
+ou **Configurações da camada** para escolher o gerenciador desejado:
 
 - **Comandos e acionadores:** consulte as associações existentes; use **Novo
   acionador** ou o menu de ações da linha para configurar teclado, paleta ou
@@ -32,6 +33,12 @@ no escopo de origem.
 Outro **Escape** fecha o gerenciador e volta à camada selecionada. Enquanto
 uma operação estiver em andamento, aguarde sua conclusão antes de fechar.
 Trocar usuário, sessão, workspace ou escopo encerra o gerenciador anterior.
+
+A mesma toolbar contém o consentimento **Autorizo uma API externa vinculada
+ao usuário atual a controlar esta interface**. Ele não habilita teclado nem
+Stream Deck: autoriza a preparação de uma conexão externa explícita. Começa
+desmarcado; marcá-lo não cria uma conexão. A explicação, o estado e a ação
+**Criar convite de conexão** permanecem na seção de conexão externa abaixo.
 
 ## Checklist de aceite e roteiros de referência
 

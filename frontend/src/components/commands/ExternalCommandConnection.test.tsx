@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { axe } from '../../test/a11yAxe';
@@ -62,16 +62,76 @@ function createService(initial: ExternalUIConnectionStatus | null = null, invite
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
+  document.querySelectorAll('[data-testid="external-consent-target"]').forEach(element => element.remove());
 });
 
 describe('ExternalCommandConnection', () => {
   it('exige consentimento e um serviço/destino explícitos; estado desconectado é acessível', async () => {
-    const { container } = render(<ExternalCommandConnection service={null} target={null} />);
+    const { container } = render(<ExternalCommandConnection service={null} target={target} />);
     const consent = screen.getByRole('checkbox', { name: 'commandSettings.externalConnection.consent' });
     const begin = screen.getByRole('button', { name: 'commandSettings.externalConnection.begin' });
     expect(consent).not.toBeChecked();
     expect(begin).toBeDisabled();
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('mantém o início bloqueado sem destino mesmo após marcar consentimento', async () => {
+    const user = userEvent.setup();
+    const fake = createService();
+    render(<ExternalCommandConnection service={fake.service} target={null} />);
+    const consent = screen.getByRole('checkbox', { name: 'commandSettings.externalConnection.consent' });
+    const begin = screen.getByRole('button', { name: 'commandSettings.externalConnection.begin' });
+
+    await user.click(consent);
+    expect(consent).toBeChecked();
+    expect(begin).toBeDisabled();
+    expect(fake.service.begin).not.toHaveBeenCalled();
+  });
+
+  it('porta somente o checkbox ao alvo, preserva aria-describedby e exige ação explícita após consentir', async () => {
+    const user = userEvent.setup();
+    const fake = createService();
+    const portalTarget = document.createElement('div');
+    portalTarget.dataset.testid = 'external-consent-target';
+    document.body.appendChild(portalTarget);
+    const view = render(<ExternalCommandConnection service={fake.service} target={target} />);
+    const inlineConsent = screen.getByRole('checkbox', { name: 'commandSettings.externalConnection.consent' });
+    const descriptionId = inlineConsent.getAttribute('aria-describedby');
+    expect(descriptionId).toBeTruthy();
+    expect(document.getElementById(descriptionId!)!).toHaveTextContent('commandSettings.externalConnection.description');
+
+    view.rerender(<ExternalCommandConnection service={fake.service} target={target} consentTarget={portalTarget} />);
+    const consent = within(portalTarget).getByRole('checkbox', { name: 'commandSettings.externalConnection.consent' });
+    expect(consent).toHaveAttribute('aria-describedby', descriptionId);
+    expect(view.container.querySelector('input[type="checkbox"]')).not.toBeInTheDocument();
+    expect(within(portalTarget).queryByRole('button')).not.toBeInTheDocument();
+
+    const begin = screen.getByRole('button', { name: 'commandSettings.externalConnection.begin' });
+    expect(begin).toBeDisabled();
+    await user.click(consent);
+    expect(consent).toBeChecked();
+    expect(fake.service.begin).not.toHaveBeenCalled();
+    expect(screen.getByText('commandSettings.externalConnection.state.disconnected')).toBeInTheDocument();
+    expect(begin).toBeEnabled();
+
+    await user.click(begin);
+    await waitFor(() => expect(fake.service.begin).toHaveBeenCalledExactlyOnceWith(target));
+    expect(within(portalTarget).getByRole('checkbox', { name: 'commandSettings.externalConnection.consent' })).not.toBeChecked();
+    expect(begin).toBeDisabled();
+  });
+
+  it('permite marcar consentimento com Espaço quando o checkbox está portado', async () => {
+    const user = userEvent.setup();
+    const portalTarget = document.createElement('div');
+    portalTarget.dataset.testid = 'external-consent-target';
+    document.body.appendChild(portalTarget);
+    render(<ExternalCommandConnection service={createService().service} target={target} consentTarget={portalTarget} />);
+    const consent = within(portalTarget).getByRole('checkbox', { name: 'commandSettings.externalConnection.consent' });
+
+    consent.focus();
+    await user.keyboard(' ');
+
+    expect(consent).toBeChecked();
   });
 
   it('cria convite somente após consentimento e apresenta o código sem persistir', async () => {

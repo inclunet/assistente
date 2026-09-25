@@ -10543,3 +10543,19 @@ ausência de `dialog.ruleTitle` em espanhol; incluída tradução explícita e
 regressão das chaves dos gerenciadores nos três locales, sem fallback de
 idioma, incluindo os placeholders das contagens. Os checks finais continuam
 associados ao commit atualizado, não ao resultado da rodada anterior.
+
+Ajuste solicitado pelo mantenedor durante a revisão: **Editar camada** e
+**Configurações da camada** ficam na toolbar junto de **Nova camada**. O
+checkbox de consentimento da API externa também foi confirmado para essa
+barra; estado e autorização permanecem no componente de conexão, sem criar
+fluxo alternativo. Explicação acessível e botão explícito de criar convite
+permanecem na seção correspondente. Edição pela toolbar e pelo menu da linha
+compartilham o mesmo handler e as restrições de camada padrão/herdada.
+
+Regressão do complemento: **454/454 Vitest** (44 arquivos, incluindo os
+consumidores de Toolbar, página, conexão externa e auditoria de anúncios),
+**19/19 E2E de configurações**, TypeScript, ESLint e Stylelint PASS. A revisão
+independente pediu que o checkbox integrasse o roving tabindex: implementado
+no hook compartilhado, com setas/Home/End sem alteração de consentimento e
+Espaço nativo. O roteiro manual foi ajustado: Tab entra na toolbar, setas
+selecionam o controle. Beauvoir revisou a produção sem novo bloqueio.

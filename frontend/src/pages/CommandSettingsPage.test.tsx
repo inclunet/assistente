@@ -88,6 +88,21 @@ async function selectLayer(name: string) {
   await screen.findByRole('heading', { name });
 }
 
+async function openLayerEditor(name: string, entry: 'row-menu' | 'toolbar') {
+  await selectLayer(name);
+  if (entry === 'row-menu') {
+    const grid = screen.getByRole('grid', { name: 'commandSettings.layers' });
+    const row = within(grid).getByText(name).closest('[role="row"]');
+    if (!row) throw new Error(`Missing layer row: ${name}`);
+    await userEvent.click(within(row as HTMLElement).getByRole('button', { name: 'common.actions' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editLayer' }));
+  } else {
+    const toolbar = screen.getByRole('toolbar', { name: 'commandSettings.title' });
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'commandSettings.actions.editLayer' }));
+  }
+  return screen.findByRole('dialog', { name: 'commandSettings.dialog.layerTitle' });
+}
+
 const snapshot = {
   layers: [{ id: 'builtin', name: 'Base', description: 'Base', builtin: true, enabled: true, active: true, manualReady: false, manualActive: false }, { id: 'user', name: 'Minha camada', description: 'Descrição', builtin: false, enabled: true, active: false, manualReady: false, manualActive: false }],
   bindings: [{ id: 'default-1', layerId: 'builtin', commandId: 'cmd.new', triggerType: 'keyboard.local', triggerSpec: '{"version":1,"code":"KeyN","modifiers":["Control"]}', enabled: true, customized: false, readOnly: true, defaultId: 'default-1', reviewStatus: '' }],
@@ -121,6 +136,53 @@ describe('CommandSettingsPage', () => {
     expect(screen.queryByRole('grid', { name: 'commandSettings.rules.title' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'commandSettings.actions.newBinding' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'commandSettings.rules.new' })).not.toBeInTheDocument();
+
+    const toolbar = screen.getByRole('toolbar', { name: 'commandSettings.title' });
+    expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.newLayer' })).toBeEnabled();
+    expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.editLayer' })).toBeDisabled();
+    expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.restoreAll' })).toBeEnabled();
+    expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.upgradeDefaults' })).toBeEnabled();
+    expect(within(toolbar).getByRole('button', { name: 'commandSettings.managers.settings' })).toBeInTheDocument();
+    expect(toolbar).not.toContainElement(screen.getByLabelText('commandSettings.scope.label'));
+    const consent = await within(toolbar).findByRole('checkbox', { name: 'commandSettings.externalConnection.consent' });
+    expect(consent).not.toBeChecked();
+    const beginExternalConnection = screen.getByRole('button', { name: 'commandSettings.externalConnection.begin' });
+    expect(beginExternalConnection).toBeDisabled();
+    await userEvent.click(consent);
+    expect(consent).toBeChecked();
+    expect(beginExternalConnection).toBeDisabled();
+  });
+
+  it('edita a camada selecionada pelo menu da linha e pelo botão da toolbar', async () => {
+    render(<CommandSettingsPage />);
+    const fromRowMenu = await openLayerEditor('Minha camada', 'row-menu');
+    expect(within(fromRowMenu).getByLabelText(/commandSettings\.form\.name/)).toHaveValue('Minha camada');
+    await userEvent.click(within(fromRowMenu).getByRole('button', { name: 'common.cancel' }));
+
+    const fromToolbar = await openLayerEditor('Minha camada', 'toolbar');
+    expect(within(fromToolbar).getByLabelText(/commandSettings\.form\.name/)).toHaveValue('Minha camada');
+  });
+
+  it('desabilita edição na toolbar para camada builtin, herdada ou sem seleção', async () => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      layers: [snapshot.layers[0], { ...snapshot.layers[1], name: 'Camada herdada', inherited: true }],
+    });
+    const page = render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    const toolbar = screen.getByRole('toolbar', { name: 'commandSettings.title' });
+    const edit = within(toolbar).getByRole('button', { name: 'commandSettings.actions.editLayer' });
+    expect(edit).toBeDisabled();
+    await selectLayer('Camada herdada');
+    expect(edit).toBeDisabled();
+
+    page.unmount();
+    getSettings.mockResolvedValue({ ...snapshot, layers: [] });
+    const emptyPage = render(<CommandSettingsPage />);
+    await screen.findByText('commandSettings.noLayer');
+    const emptyToolbar = screen.getByRole('toolbar', { name: 'commandSettings.title' });
+    expect(within(emptyToolbar).getByRole('button', { name: 'commandSettings.actions.editLayer' })).toBeDisabled();
+    emptyPage.unmount();
   });
 
   it('abre gerenciadores separados e preserva leitura sem conceder edição à camada builtin', async () => {

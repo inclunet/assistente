@@ -101,7 +101,8 @@ convites, serial de equipamento, mensagens pessoais ou logs sem sanitização.
 
 - [ ] **UI01 — Inicialização e configurações.** Abra o aplicativo, entre em
   Comandos e acionadores e percorra **Escopo** e **Camadas**. Selecione uma
-  camada e use **Configurações da camada** para abrir, separadamente,
+  camada e, na toolbar de **Nova camada**, confira **Editar camada** e use
+  **Configurações da camada** para abrir, separadamente,
   **Comandos e acionadores** e **Regras de ativação**. Ao cancelar um formulário,
   o foco deve voltar ao gerenciador (ao botão de criação se a lista estiver
   vazia); outro Escape fecha o gerenciador e retorna à camada. Feche normalmente e repita em um segundo
@@ -109,6 +110,10 @@ convites, serial de equipamento, mensagens pessoais ou logs sem sanitização.
   **Comandos padrão** e **Mapa de teclado padrão** são distinguíveis; setas
   avançam um item e NVDA anuncia nome, estado e ações. Não apague dados se
   aparecer erro; registre o horário e use Recarregar uma vez.
+  Confira também o checkbox de consentimento da API externa nessa toolbar:
+  inicialmente desmarcado, com explicação anunciada. Tab entra na toolbar,
+  setas levam ao checkbox e Espaço marca/desmarca sem mudar o foco.
+  Marcá-lo sozinho não cria uma conexão nem é necessário para teclado/Deck.
   Resultado/anúncio: ________.
 
 - [ ] **UI02 — Paleta, busca e foco.** No campo de mensagem, escreva um

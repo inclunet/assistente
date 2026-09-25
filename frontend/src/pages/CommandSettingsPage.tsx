@@ -10,6 +10,7 @@ import {
   Modal,
   Select,
   Textarea,
+  Toolbar,
 } from '../components/ui';
 import { Input } from '../components/ui/Input';
 import { MenuButton } from '../components/layout/MenuButton';
@@ -171,6 +172,7 @@ export default function CommandSettingsPage() {
   const managerNewButton = useRef<HTMLButtonElement>(null);
   const managerLayerName = useRef<HTMLParagraphElement>(null);
   const reloadButton = useRef<HTMLButtonElement>(null);
+  const [consentTarget, setConsentTarget] = useState<HTMLDivElement | null>(null);
   const [editor, setEditor] = useState<Editor>(null);
   const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
   const [argumentsValid, setArgumentsValid] = useState(true);
@@ -625,6 +627,20 @@ export default function CommandSettingsPage() {
     { key: 'actions', label: t('common.actions'), action: true },
   ];
 
+  function openLayerEditor(row: CommandLayer | null) {
+    if (!row || busyRef.current || loading || snapshotIdentity !== identityKey || row.builtin || isInheritedLayer(row)) return;
+    setEditor({
+      kind: 'layer',
+      value: {
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        enabled: row.enabled,
+        resolutionPriority: row.resolutionPriority ?? 0,
+      },
+    });
+  }
+
   const layerActions = (row: CommandLayer): MenuItem[] =>
     row.builtin
       ? [{
@@ -658,17 +674,7 @@ export default function CommandSettingsPage() {
             label: t('commandSettings.actions.editLayer'),
             icon: <EditOutlined aria-hidden="true" />,
             disabled: busy,
-            action: () =>
-              setEditor({
-                kind: 'layer',
-        value: {
-                  id: row.id,
-                  name: row.name,
-                  description: row.description,
-                  enabled: row.enabled,
-                  resolutionPriority: row.resolutionPriority ?? 0,
-                },
-              }),
+            action: () => openLayerEditor(row),
           },
           {
             id: 'toggle',
@@ -1052,7 +1058,7 @@ export default function CommandSettingsPage() {
           <h1>{t('commandSettings.title')}</h1>
           <p>{t('commandSettings.description')}</p>
         </div>
-        <div className="command-settings__header-actions">
+        <div className="command-settings__scope">
           <Select
             label={t('commandSettings.scope.label')}
             value={scope}
@@ -1063,30 +1069,40 @@ export default function CommandSettingsPage() {
               { value: 'workspace', label: t('commandSettings.scope.workspace') },
             ]}
           />
-          <Button
-            variant="secondary"
-            disabled={busy || loading || snapshotIdentity !== identityKey}
-            onClick={() => void mutate(() => scopedMutation({ operation: 'config_restore' }))}
-          >
-            <UndoOutlined aria-hidden="true" /> {t('commandSettings.actions.restoreAll')}
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={busy || loading || snapshotIdentity !== identityKey}
-            onClick={() => void mutate(() => scopedMutation({ operation: 'default_upgrade' }))}
-          >
-            {t('commandSettings.actions.upgradeDefaults')}
-          </Button>
-          <Button
-            disabled={busy || loading || snapshotIdentity !== identityKey}
-            onClick={() =>
-              setEditor({ kind: 'layer', value: { name: '', description: '', enabled: true, resolutionPriority: 0 } })
-            }
-          >
-            <PlusOutlined aria-hidden="true" /> {t('commandSettings.actions.newLayer')}
-          </Button>
         </div>
       </header>
+      <Toolbar
+        className="command-settings__toolbar"
+        ariaLabel={t('commandSettings.title')}
+        actions={[
+          { key: 'new-layer', label: t('commandSettings.actions.newLayer'), icon: <PlusOutlined />, variant: 'primary',
+            disabled: busy || loading || snapshotIdentity !== identityKey,
+            onClick: () => setEditor({ kind: 'layer', value: { name: '', description: '', enabled: true, resolutionPriority: 0 } }) },
+          { key: 'edit-layer', label: t('commandSettings.actions.editLayer'), icon: <EditOutlined />,
+            disabled: busy || loading || snapshotIdentity !== identityKey || !selectedLayer || selectedLayer.builtin || isInheritedLayer(selectedLayer),
+            onClick: () => openLayerEditor(selectedLayer) },
+          { key: 'restore-all', label: t('commandSettings.actions.restoreAll'), icon: <UndoOutlined />,
+            disabled: busy || loading || snapshotIdentity !== identityKey,
+            onClick: () => void mutate(() => scopedMutation({ operation: 'config_restore' })) },
+          { key: 'upgrade-defaults', label: t('commandSettings.actions.upgradeDefaults'),
+            disabled: busy || loading || snapshotIdentity !== identityKey,
+            onClick: () => void mutate(() => scopedMutation({ operation: 'default_upgrade' })) },
+        ]}
+        rightEnd={<>
+          <MenuButton
+            buttonLabel={t('commandSettings.managers.settings')}
+            items={[
+              { id: 'command-bindings', label: t('commandSettings.managers.commands'),
+                disabled: busy || loading || !selectedLayer || snapshotIdentity !== identityKey,
+                onClick: () => openManager('bindings') },
+              { id: 'command-rules', label: t('commandSettings.rules.title'),
+                disabled: busy || loading || !selectedLayer || snapshotIdentity !== identityKey,
+                onClick: () => openManager('rules') },
+            ]}
+          />
+          <div ref={setConsentTarget} className="command-settings__external-consent" />
+        </>}
+      />
       {snapshotIdentity === identityKey && !loading &&
         (snapshot.keyboardOperational ? (
           <p>{t('commandSettings.keyboardAvailable')}</p>
@@ -1122,7 +1138,7 @@ export default function CommandSettingsPage() {
       {deckStatus && (
         <CommandDeckStatusPanel status={deckStatus} t={t} />
       )}
-      <ExternalCommandConnection service={externalConnection.service} target={externalConnection.target} />
+      <ExternalCommandConnection service={externalConnection.service} target={externalConnection.target} consentTarget={consentTarget} />
       {loading ? (
         <p aria-busy="true">{t('common.loading')}</p>
       ) : (
@@ -1175,15 +1191,6 @@ export default function CommandSettingsPage() {
                 <p className="command-settings__info">{t('commandSettings.managers.hint')}</p>
                 <p>{t('commandSettings.managers.commandsCount', { count: layerBindings.length })}</p>
                 <p>{t('commandSettings.managers.rulesCount', { count: layerRules.length })}</p>
-                <MenuButton
-                  buttonLabel={t('commandSettings.managers.settings')}
-                  items={[
-                    { id: 'command-bindings', label: t('commandSettings.managers.commands'), disabled: busy || loading,
-                      onClick: () => openManager('bindings') },
-                    { id: 'command-rules', label: t('commandSettings.rules.title'), disabled: busy || loading,
-                      onClick: () => openManager('rules') },
-                  ]}
-                />
               </>
             )}
           </section>

@@ -24,7 +24,7 @@ export const useToolbarKeyboardNav = (onFocusContent?: (() => void) | null) => {
     if (!toolbarRef.current) return [];
     return Array.from(
       toolbarRef.current.querySelectorAll<HTMLElement>(
-        'button, [role="combobox"], input[role="combobox"]'
+        'button, input[type="checkbox"], [role="combobox"], input[role="combobox"]'
       )
     ).filter((item) => !isDisabledItem(item) && !item.closest('[role="menu"]'));
   };
@@ -80,7 +80,7 @@ export const useToolbarKeyboardNav = (onFocusContent?: (() => void) | null) => {
 
       // NÃO interceptar teclas de navegação se o foco está em um campo de texto
       const isTextInput =
-        (target.tagName === 'INPUT' && !target.matches('[role="combobox"]')) ||
+        (target.tagName === 'INPUT' && !target.matches('[role="combobox"], [type="checkbox"]')) ||
         target.tagName === 'TEXTAREA' ||
         target.isContentEditable;
 
@@ -160,7 +160,7 @@ export const useToolbarKeyboardNav = (onFocusContent?: (() => void) | null) => {
       const target = event.target as HTMLElement;
 
       const isTextInput =
-        (target.tagName === 'INPUT' && !target.matches('[role="combobox"]')) ||
+        (target.tagName === 'INPUT' && !target.matches('[role="combobox"], [type="checkbox"]')) ||
         target.tagName === 'TEXTAREA' ||
         target.isContentEditable;
 

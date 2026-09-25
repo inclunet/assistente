@@ -5,7 +5,10 @@
 .command-settings__header p, .command-settings__detail > p { color: var(--text-secondary); }
 .command-settings__layout { display: grid; grid-template-columns: minmax(280px, 0.9fr) minmax(360px, 1.5fr); gap: 24px; min-height: 420px; }
 .command-settings__detail { border-left: 1px solid var(--border-subtle); padding-left: 24px; }
-.command-settings__header-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.command-settings__toolbar, .command-settings__toolbar .toolbar__right { flex-wrap: wrap; }
+.command-settings__toolbar .toolbar__right { justify-content: flex-start; margin-left: 0; }
+.command-settings__external-consent { flex: 1 1 320px; }
+.command-settings__external-consent:empty { display: none; }
 .command-settings__manager { height: min(720px, 90vh); }
 .command-settings__manager .modal-body { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
 .command-settings__manager .modal-body > p { margin: 0; }

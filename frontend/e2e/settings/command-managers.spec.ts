@@ -24,6 +24,10 @@ test.beforeEach(async ({ page, wails }) => {
 
 test('gerenciadores separados mantêm altura útil e retornam foco após fechar editor e gerenciador', async ({ page }) => {
   const layers = page.getByRole('grid', { name: 'Camadas', exact: true });
+  const toolbar = page.getByRole('toolbar', { name: 'Comandos e acionadores', exact: true });
+  await expect(toolbar.getByRole('button', { name: 'Nova camada', exact: true })).toBeVisible();
+  await expect(toolbar.getByRole('button', { name: 'Editar camada', exact: true })).toBeEnabled();
+  await expect(toolbar.getByRole('checkbox')).not.toBeChecked();
   await expect(page.locator('.command-settings-page [role="grid"]')).toHaveCount(1);
   await page.getByRole('button', { name: 'Configurações da camada', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Comandos e acionadores', exact: true }).click();
@@ -54,6 +58,42 @@ test('gerenciadores separados mantêm altura útil e retornam foco após fechar 
   await expect.poll(() => rules.getByRole('grid').evaluate(element => element.contains(document.activeElement))).toBe(true);
   await page.keyboard.press('Escape');
   await expect.poll(() => layers.evaluate(element => element.contains(document.activeElement))).toBe(true);
+});
+
+test('toolbar edita a camada selecionada e alcança o menu por teclado', async ({ page, wails }) => {
+  const toolbar = page.getByRole('toolbar', { name: 'Comandos e acionadores', exact: true });
+  const create = toolbar.getByRole('button', { name: 'Nova camada', exact: true });
+  const edit = toolbar.getByRole('button', { name: 'Editar camada', exact: true });
+  await create.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(edit).toBeFocused();
+  await page.keyboard.press('Enter');
+  const editor = page.getByRole('dialog', { name: 'Camada de comandos', exact: true });
+  await expect(editor.getByRole('textbox', { name: 'Nome', exact: true })).toHaveValue('Camada pessoal');
+  await page.keyboard.press('Escape');
+  await expect(editor).toHaveCount(0);
+  await edit.focus();
+  await page.keyboard.press('End');
+  const consent = toolbar.getByRole('checkbox');
+  await expect(consent).toBeFocused();
+  await expect(consent).not.toBeChecked();
+  await page.keyboard.press('ArrowLeft');
+  await expect(toolbar.getByRole('button', { name: 'Configurações da camada', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('menuitem', { name: 'Regras de ativação', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menuitem', { name: 'Regras de ativação', exact: true })).toHaveCount(0);
+  await expect(toolbar.getByRole('button', { name: 'Configurações da camada', exact: true })).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(consent).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(consent).toBeChecked();
+  await expect(page.getByRole('textbox', { name: 'Convite de uso único', exact: true })).toHaveCount(0);
+  expect((await wails.getCallLog()).filter(call => call.fn === 'BeginExternalUIConnection')).toHaveLength(0);
+  await expect(toolbar.locator('button[tabindex="0"], input[type="checkbox"][tabindex="0"]')).toHaveCount(1);
+  await page.keyboard.press('Home');
+  await expect(create).toBeFocused();
+  await expect(consent).toBeChecked();
 });
 
 test('gerenciador vazio retorna ao botão de criação ao cancelar o primeiro acionador', async ({ page, wails }) => {

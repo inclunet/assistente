@@ -17,7 +17,8 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 ## Índice
 
 AEP-0103, pós-merge #833: separação dos gerenciadores de comandos/acionadores
-e regras de ativação conforme seção159, sem alteração do motor de execução.
+e regras de ativação conforme seção159, com edição/configuração e consentimento
+externo na toolbar, sem alteração do motor de execução ou da autorização.
 O mantenedor confirmou a correção física do bloqueio do Deck antes do merge.
 **In Progress; 83 I / 1 P / 0 N**; os demais aceites não são inferidos desse relato.
 

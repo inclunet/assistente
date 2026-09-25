@@ -4,7 +4,8 @@
 
 **Extensão de apresentação pós-PR #833 — gerenciadores separados:** conforme
 decisão registrada na seção159 da tasklist, a tela principal organiza camadas
-e seus estados. O menu Configurações da camada abre, separadamente, os
+e seus estados. Na toolbar de Nova camada, Editar camada atua na seleção e
+o menu Configurações da camada abre, separadamente, os
 gerenciadores Comandos e acionadores e Regras de ativação, usando MenuButton,
 Modal e DataGrid compartilhados. Formulários continuam pertencendo ao
 gerenciador de origem; Escape fecha somente o modal superior e o retorno
@@ -16,6 +17,10 @@ não altera resolução, ativação, autorização, persistência nem contratos 
 execução. Gates: CRUD existente preservado, gerenciadores mutuamente
 exclusivos, isolamento de identidade, foco/teclado e acessibilidade automatizada.
 Aceite NVDA permanece manual; o AEP não passa a Done por esta reorganização.
+O consentimento de controle pela API externa também fica nessa toolbar por
+solicitação do mantenedor. Apenas sua apresentação muda: continua opt-in,
+separado de teclado/Deck, sem criar convite/conexão ao marcar e com explicação
+associada. A criação de convite mantém os guards e a ação explícita existentes.
 
 **Diagnóstico nativo — seção162 (25/09/2026):** reproduzida a interrupção do
 Deck após troca de aba no Wails/WebView2, com backend real, banco descartável
