@@ -151,6 +151,7 @@ export function DataGrid<T = unknown>({
   const columnCount = columns.length;
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       if (focusTimerRef.current) {

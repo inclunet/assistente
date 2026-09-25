@@ -2,6 +2,14 @@
 
 **Status:** Documento de apoio — migração em andamento; histórico preservado.
 
+## Gerenciadores de configuração após o PR #833
+
+A reorganização em Comandos e acionadores e Regras de ativação não acrescenta
+IDs ao catálogo nem migra outros atalhos. MenuButton/Modal/DataGrid preservam
+Enter/Espaço, setas e Escape locais: somente o modal superior recebe o gesto.
+Fechar formulário retorna à grade do gerenciador; fechar gerenciador retorna
+à camada. Não foi introduzido atalho global nem controle do app atrás de modal.
+
 ## Varredura de Ctrl+N após integrar a main — 24/09/2026
 
 A integração de `origin/main` em `5c9278082` acrescentou Ctrl+N aos editores

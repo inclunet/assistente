@@ -10313,16 +10313,18 @@ representa, sozinho, conclusão do AEP. Não ampliar esse PR com as melhorias ab
 
 ### PR próprio — simplificação dos gerenciadores de configuração
 
-- [ ] Conferir e reutilizar o padrão existente nas opções/configurações das
+- [x] Conferir e reutilizar o padrão existente nas opções/configurações das
   listas de tarefas, incluindo gerenciadores de workflows e ações personalizadas.
-- [ ] Tela principal centrada em uma lista de camadas, estado ativo/inativo,
+- [x] Tela principal centrada em uma lista de camadas, estado ativo/inativo,
   resumo de por que/quando está ativa e ações básicas de criar/renomear/excluir.
-- [ ] Menu **Configurações** da camada abre gerenciadores separados:
+- [x] Menu **Configurações da camada** abre gerenciadores separados:
   **Comandos e acionadores** e **Regras de ativação**, cada um em seu modal,
   com grid e operações próprias. Preferência aprovada: separados, não painel
   de guias reunindo novamente os dois gerenciadores.
 - [ ] Manter opções avançadas nos formulários correspondentes, navegação
   consistente por teclado/NVDA e retorno de foco à camada ao fechar.
+  Implementação e regressão automatizada concluídas na seção 163; aceite
+  com NVDA permanece manual, sem presumir aprovação pelo teste de navegador.
 
 Condição de página e destino de aba podem avançar em paralelo após combinar
 contratos. Apresentação automática depende do destino de aba. Reorganização
@@ -10493,3 +10495,67 @@ da suíte publicada: sua expectativa de foco exclusivamente interno ao editor
 não representava o fallback autorizado ao botão de aba. Nenhum teste
 preexistente foi removido. CI do novo commit e confirmação física permanecem
 separados desta evidência. **In Progress, 83 I / 1 P / 0 N**.
+
+## 163. Pós-merge: gerenciadores separados — 25/09/2026
+
+O mantenedor confirmou que a navegação física do Stream Deck voltou a funcionar
+e informou o merge do PR #833. Merge confirmado em
+`b4046d953cb9e994b3bc04da127717cd47f8e899`; esse aceite fecha o relato de
+continuidade do Deck da seção 162, não os demais casos manuais nem uma medição
+de latência que não foi fornecida.
+
+Primeiro PR independente: `feat/command-settings-managers`, baseado na main
+já integrada. A página conserva a lista de camadas, resumo e ações básicas;
+**Configurações da camada** abre **Comandos e acionadores** ou **Regras de
+ativação** em modais separados, reutilizando MenuButton, Modal e DataGrid.
+Os formulários, opções avançadas, permissões, escopos e contratos de mutação
+são preservados. Não há migração de banco nem alteração do executor/backend.
+
+- [x] Abertura independente de cada gerenciador, sem os dois grids na página.
+- [x] Escape fecha primeiro o formulário e depois o gerenciador; foco retorna
+  ao grid e à camada, respectivamente. Lista vazia retorna à ação de criação.
+- [x] Falha de recarga invalida o gerenciador e foca Recarregar; recuperação
+  não reabre conteúdo antigo. Identidade e escopo continuam invalidando editores.
+- [x] Correção mínima do ciclo de montagem do DataGrid: StrictMode reativa a
+  referência de montagem; o cleanup continua impedindo foco após unmount.
+- [x] Playwright: 3/3 cenários com frontend real e ponte Wails simulada;
+  regressão de StrictMode: 2/2 casos. Não constituem teste nativo ou NVDA.
+- [ ] Aceite manual de navegação/anúncios no NVDA, incluindo camada pessoal,
+  padrão e herdada; integrado ao UI01 do checklist, sem criar outra rodada.
+
+A revisão independente de Beauvoir identificou a perda de foco ao falhar a
+recarga; corrigida e coberta pelo cenário de recuperação acima. Condição de
+página, destino de aba sem teto e apresentação automática no Deck continuam
+nos PRs separados previstos na seção 159. **In Progress, 83 I / 1 P / 0 N**.
+
+Validação local: 18/18 E2E de configurações; build frontend, TypeScript,
+ESLint e Stylelint sem erros (avisos preexistentes no lint geral). A suíte
+completa executou 6.062 testes: 6.061 passaram e a auditoria de live regions
+detectou dois roles locais novos no gerenciador. Os roles foram removidos,
+preservando `announce()` global já existente para erros e sucesso. Reexecução
+da auditoria junto à página e ao DataGrid: **154/154 PASS**, incluindo axe dos
+dois gerenciadores. A rodada completa anterior não é registrada como PASS;
+o CI valida o conjunto final. Beauvoir revisou a correção e encerrou sem
+bloqueios, após as rodadas de foco, documentação e arbitragem de anúncios.
+
+PR #834: a primeira rodada remota passou frontend e E2E. Copilot identificou
+ausência de `dialog.ruleTitle` em espanhol; incluída tradução explícita e
+regressão das chaves dos gerenciadores nos três locales, sem fallback de
+idioma, incluindo os placeholders das contagens. Os checks finais continuam
+associados ao commit atualizado, não ao resultado da rodada anterior.
+
+Ajuste solicitado pelo mantenedor durante a revisão: **Editar camada** e
+**Configurações da camada** ficam na toolbar junto de **Nova camada**. O
+checkbox de consentimento da API externa também foi confirmado para essa
+barra; estado e autorização permanecem no componente de conexão, sem criar
+fluxo alternativo. Explicação acessível e botão explícito de criar convite
+permanecem na seção correspondente. Edição pela toolbar e pelo menu da linha
+compartilham o mesmo handler e as restrições de camada padrão/herdada.
+
+Regressão do complemento: **454/454 Vitest** (44 arquivos, incluindo os
+consumidores de Toolbar, página, conexão externa e auditoria de anúncios),
+**19/19 E2E de configurações**, TypeScript, ESLint e Stylelint PASS. A revisão
+independente pediu que o checkbox integrasse o roving tabindex: implementado
+no hook compartilhado, com setas/Home/End sem alteração de consentimento e
+Espaço nativo. O roteiro manual foi ajustado: Tab entra na toolbar, setas
+selecionam o controle. Beauvoir revisou a produção sem novo bloqueio.

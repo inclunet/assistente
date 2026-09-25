@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommandSettingsSnapshot, CommandSettingsMutationRequest } from '../types/commandSettingsTypes';
 
 const bridge = vi.hoisted(() => ({
-  get: vi.fn(), mutate: vi.fn(), prepare: vi.fn(), activate: vi.fn(),
+  get: vi.fn(), mutate: vi.fn(), prepare: vi.fn(), activate: vi.fn(), requestGridFocus: vi.fn(),
 }));
 vi.mock('../services/commandSettings', () => ({
   getCommandSettingsForScope: bridge.get,
@@ -13,7 +14,7 @@ vi.mock('../services/commandSettings', () => ({
 }));
 vi.mock('../services/commandDeckCapture', () => ({ beginCommandDeckCapture: vi.fn(), cancelCommandDeckCapture: vi.fn() }));
 vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: vi.fn() }) }));
-vi.mock('../hooks/useGridFocus', () => ({ useGridFocus: () => ({ handleGridReady: vi.fn() }) }));
+vi.mock('../hooks/useGridFocus', () => ({ useGridFocus: () => ({ handleGridReady: vi.fn(), requestGridFocus: bridge.requestGridFocus }) }));
 vi.mock('../store/authStore', () => ({ useAuthStore: (select: (state: unknown) => unknown) => select({ user: { userId: 'owner', sessionId: 'session' }, status: { vaultUnlocked: true } }) }));
 vi.mock('../store/workspaceStore', () => ({ useWorkspaceStore: (select: (state: unknown) => unknown) => select({ workspace: { id: 'workspace-1' } }) }));
 vi.mock('@wailsjs/runtime/runtime', () => ({ EventsOn: () => vi.fn() }));
@@ -28,9 +29,22 @@ function configuration(): CommandSettingsSnapshot {
   };
 }
 
+async function openManager(kind: 'commands' | 'rules') {
+  const label = kind === 'commands' ? 'commandSettings.managers.commands' : 'commandSettings.rules.title';
+  const current = screen.queryByRole('dialog', { name: label });
+  if (current) return current;
+  const otherLabel = kind === 'commands' ? 'commandSettings.rules.title' : 'commandSettings.managers.commands';
+  const other = screen.queryByRole('dialog', { name: otherLabel });
+  if (other) await userEvent.click(within(other).getByRole('button', { name: 'ui.modal.close' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'commandSettings.managers.settings' }));
+  await userEvent.click(await screen.findByRole('menuitem', { name: label }));
+  return screen.findByRole('dialog', { name: label });
+}
+
 async function bindingAction(name: string) {
-  const grid = await screen.findByRole('grid', { name: 'commandSettings.commands' });
-  fireEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
+  const dialog = await openManager('commands');
+  const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+  await userEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
   const item = await screen.findByRole('menuitem', { name });
   await act(async () => { fireEvent.click(item); });
 }
@@ -259,7 +273,8 @@ describe('CommandSettingsPage contrato avançado', () => {
     render(<CommandSettingsPage />);
     await screen.findByRole('heading', { name: 'Padrões' });
     await act(async () => { fireEvent.change(screen.getByLabelText('commandSettings.scope.label'), { target: { value: 'workspace' } }); });
-    const grid = await screen.findByRole('grid', { name: 'commandSettings.commands' });
+    const dialog = await openManager('commands');
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
     const actions = within(grid).queryByRole('button', { name: 'common.actions' });
     if (actions) {
       fireEvent.click(actions);
