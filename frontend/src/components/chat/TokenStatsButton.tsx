@@ -40,19 +40,27 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
+    setStats(null);
+    setIsLoading(false);
     if (!conversationId) {
-      setStats(null);
       return;
     }
+    let active = true;
+    let revision = 0;
 
     // Função para carregar stats do backend
     const loadStats = () => {
+      if (!active) return;
+      const requestRevision = ++revision;
+      const isCurrent = () => active && revision === requestRevision;
       setIsLoading(true);
       GetConversationTokenStats(conversationId)
         .then((data) => {
+          if (!isCurrent() || data.conversationId !== conversationId) return;
           setStats(data);
         })
         .catch((error) => {
+          if (!isCurrent()) return;
           logger.error('[TokenStatsButton] Erro ao carregar stats:', error);
           // Define stats padrão em caso de erro
           setStats({
@@ -69,7 +77,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
             isCritical: false,
           });
         })
-        .finally(() => setIsLoading(false));
+        .finally(() => { if (isCurrent()) setIsLoading(false); });
     };
 
     // Carrega stats iniciais
@@ -77,15 +85,19 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
 
     // Escuta atualizações de tokens (emitido após streaming)
     const unsubscribeTokens = EventsOn('chat:token_stats', (data: TokenStats) => {
-      if (data.conversationId === conversationId) {
+      if (active && data.conversationId === conversationId) {
+        revision += 1;
         setStats(data);
+        setIsLoading(false);
       }
     });
 
     // Escuta atualizações em TEMPO REAL durante execução (após cada tool call)
     const unsubscribeRealtime = EventsOn('chat:token_stats_update', (data: TokenStats) => {
-      if (data.conversationId === conversationId) {
+      if (active && data.conversationId === conversationId) {
+        revision += 1;
         setStats(data);
+        setIsLoading(false);
       }
     });
 
@@ -106,6 +118,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
     });
 
     return () => {
+      active = false;
       unsubscribeTokens();
       unsubscribeRealtime();
       unsubscribeMessages();
@@ -119,7 +132,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
   }
 
   // Mostra loading ou valores padrão enquanto carrega
-  if (isLoading || !stats) {
+  if (isLoading || !stats || stats.conversationId !== conversationId) {
     return (
       <button
         className="token-stats-button token-stats-button--loading"
@@ -197,4 +210,3 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
     </button>
   );
 };
-

@@ -1,41 +1,58 @@
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { WorkspacePanelProvider } from '../components/workspace/WorkspacePanelContext';
-import { requestWorkspacePanelFocus } from '../components/workspace/workspacePanelFocusRegistry';
+import {
+  canFocusWorkspacePanelImmediately,
+  getWorkspacePanelImmediateFocusHandler,
+  requestWorkspacePanelFocus,
+} from '../components/workspace/workspacePanelFocusRegistry';
+import { capturePagePresentationTarget } from '../lib/commandPagePresentation';
+import {
+  TERMINAL_OPERATION_EVENT,
+  TERMINAL_SESSION_CREATE_COMMAND,
+  TERMINAL_SESSION_CLOSE_COMMAND,
+} from '../lib/commandTerminalOperation';
 
 const storeMocks = vi.hoisted(() => ({
   loadSessions: vi.fn(),
   createSession: vi.fn(),
   closeSession: vi.fn(),
   sendInput: vi.fn(),
-  interrupt: vi.fn(),
   setupEventListeners: vi.fn(() => () => {}),
 }));
 
 const terminalPageMocks = vi.hoisted(() => ({
   registeredAdapter: null as unknown,
   slashMenuEnabled: undefined as boolean | undefined,
+  surfaceGetter: null as (() => unknown) | null,
+  modalOpen: false,
   onSend: null as ((message: string) => Promise<boolean | void>) | null,
 }));
 
 const workspaceMocks = vi.hoisted(() => ({
   updateTab: vi.fn(),
+  workspace: {
+    id: 'workspace-1',
+    activeTabId: 'terminal-tab',
+    tabs: [{ id: 'terminal-tab', type: 'terminal', state: { sessionId: 'term-1' } }],
+  },
 }));
 
 const storeState = vi.hoisted(() => ({
-  sessions: [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp' }],
+  sessions: [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp', state: 'running', shell: 'sh' }],
   historyBySession: { 'term-1': [] as Array<{ id: string; command: string; output: string; exitCode?: number }> },
+  activeEntryBySession: { 'term-1': null as string | null },
   isLoadingSessions: false,
   loadingHistoryBySession: {},
   loadSessions: storeMocks.loadSessions,
   createSession: storeMocks.createSession,
   closeSession: storeMocks.closeSession,
   sendInput: storeMocks.sendInput,
-  interrupt: storeMocks.interrupt,
   setupEventListeners: storeMocks.setupEventListeners,
-}));
+  }));
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -56,6 +73,7 @@ vi.mock('react-i18next', () => ({
 vi.mock('../store/terminalStore', () => ({
   useTerminalStore: Object.assign(() => storeState, {
     getState: () => storeState,
+    subscribe: () => () => {},
   }),
 }));
 
@@ -66,7 +84,13 @@ vi.mock('../components/terminal/TerminalTabs', () => ({
 vi.mock('../components/terminal/TerminalHistory', async () => {
   const React = await import('react');
   return {
-    TerminalHistory: React.forwardRef<HTMLDivElement, Record<string, unknown>>(() => <div>History</div>),
+    TerminalHistory: React.forwardRef<HTMLDivElement, { entries?: Array<{ id: string }> }>((props, ref) => (
+      <div ref={ref}>
+        {(props.entries ?? []).map((entry) => (
+          <div key={entry.id} className="terminal-node" tabIndex={0}>History</div>
+        ))}
+      </div>
+    )),
   };
 });
 
@@ -77,7 +101,8 @@ vi.mock('../components/chat/ChatInput', async () => {
       placeholder: string;
       slashMenuEnabled?: boolean;
       onSend: (message: string) => Promise<boolean | void>;
-    }>(({ placeholder, slashMenuEnabled, onSend }, ref) => {
+      onArrowUp?: () => boolean;
+    }>(({ placeholder, slashMenuEnabled, onSend, onArrowUp }, ref) => {
       terminalPageMocks.slashMenuEnabled = slashMenuEnabled;
       terminalPageMocks.onSend = onSend;
       return (
@@ -87,6 +112,8 @@ vi.mock('../components/chat/ChatInput', async () => {
           placeholder={placeholder}
           onKeyDown={(event) => {
             if (event.key === 'Enter') onSend(event.currentTarget.value);
+            if (event.key === 'ArrowUp' && event.currentTarget.selectionStart === 0 &&
+                event.currentTarget.selectionEnd === 0 && onArrowUp?.()) event.preventDefault();
           }}
         />
       );
@@ -98,6 +125,14 @@ vi.mock('../components/pickers/ProfilePicker', () => ({
   ProfilePicker: ({ value }: { value?: string }) => <span data-testid="profile-picker">{value ?? 'default'}</span>,
 }));
 
+vi.mock('../components/ui/Modal', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/ui/Modal')>();
+  return {
+    ...actual,
+    isModalOpen: () => terminalPageMocks.modalOpen,
+  };
+});
+
 vi.mock('@wailsjs/runtime/runtime', () => ({
   EventsOn: vi.fn(() => () => {}),
   EventsOff: vi.fn(),
@@ -106,13 +141,39 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: Object.assign(
     (selector: (state: Record<string, unknown>) => unknown) => selector({
-      workspace: { tabs: [], profile: undefined },
+      workspace: workspaceMocks.workspace,
       getActiveTab: () => undefined,
       updateTab: workspaceMocks.updateTab,
     }),
-    { getState: () => ({ workspace: { tabs: [] }, getActiveTab: () => undefined, updateTab: workspaceMocks.updateTab }), subscribe: () => () => {} }
+    { getState: () => ({ workspace: workspaceMocks.workspace, getActiveTab: () => undefined, updateTab: workspaceMocks.updateTab }), subscribe: () => () => {} }
   ),
   useActiveTab: () => undefined,
+}));
+
+vi.mock('../components/workspace/useWorkspaceCommandSurface', () => ({
+  useWorkspaceCommandSurface: vi.fn((_surfaceType: string, getter: () => unknown) => {
+    terminalPageMocks.surfaceGetter = getter;
+  }),
+}));
+
+vi.mock('../lib/commandShortcutHints', () => ({
+  useCommandShortcutHint: vi.fn(() => undefined),
+}));
+
+vi.mock('../store/authStore', () => ({
+  useAuthStore: Object.assign(
+    (selector: (state: Record<string, unknown>) => unknown) => selector({
+      isAuthenticated: true,
+      user: { userId: 'user-1', sessionId: 'session-1' },
+    }),
+    {
+      getState: () => ({
+        isAuthenticated: true,
+        user: { userId: 'user-1', sessionId: 'session-1' },
+      }),
+      subscribe: () => () => {},
+    },
+  ),
 }));
 
 vi.mock('../hooks/useRegisterWorkspaceChatAdapter', () => ({
@@ -149,40 +210,75 @@ const terminalTab = {
 
 function renderTerminalPage() {
   return render(
-    <WorkspacePanelProvider value={{ tab: terminalTab, isActive: true }}>
-      <TerminalPage />
-    </WorkspacePanelProvider>,
+    <MemoryRouter initialEntries={['/terminal']}>
+      <WorkspacePanelProvider value={{ tab: terminalTab, isActive: true }}>
+        <TerminalPage />
+      </WorkspacePanelProvider>
+    </MemoryRouter>,
   );
 }
 
 describe('TerminalPage', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     storeMocks.loadSessions.mockReset();
     storeMocks.createSession.mockReset();
     storeMocks.closeSession.mockReset();
     storeMocks.sendInput.mockReset();
-    storeMocks.interrupt.mockReset();
     workspaceMocks.updateTab.mockReset();
     terminalPageMocks.registeredAdapter = null;
     terminalPageMocks.slashMenuEnabled = undefined;
+    terminalPageMocks.surfaceGetter = null;
+    terminalPageMocks.modalOpen = false;
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     terminalPageMocks.onSend = null;
     storeState.historyBySession = { 'term-1': [] };
+    storeState.activeEntryBySession = { 'term-1': null };
+    storeState.sessions = [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp', state: 'running', shell: 'sh' }];
+    workspaceMocks.workspace.activeTabId = 'terminal-tab';
+    workspaceMocks.workspace.tabs[0].state = { sessionId: 'term-1' };
   });
 
   it('aciona acoes da toolbar', async () => {
     const user = userEvent.setup();
     renderTerminalPage();
 
+    const request = vi.fn((event: Event) => event.preventDefault());
+    window.addEventListener(TERMINAL_OPERATION_EVENT, request);
+
     const stopButton = screen.getByRole('button', { name: 'Parar' });
 
     await user.click(stopButton);
 
-    expect(storeMocks.interrupt).toHaveBeenCalledWith('term-1');
+    expect(request).toHaveBeenCalledTimes(1);
+    expect((request.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      instanceId: 'terminal-operation:terminal-tab',
+    });
+    window.removeEventListener(TERMINAL_OPERATION_EVENT, request);
   });
 
   it('exibe o titulo da sessao ativa', () => {
     renderTerminalPage();
     expect(screen.getByRole('heading', { name: 'Terminal 1' })).toBeInTheDocument();
+  });
+
+  it('getter da surface rejeita retarget da mesma aba sem rerender ou notify', () => {
+    renderTerminalPage();
+    expect(terminalPageMocks.surfaceGetter).not.toBeNull();
+    expect(terminalPageMocks.surfaceGetter?.()).toMatchObject({
+      surfaceId: 'terminal-tab',
+      surfaceType: 'terminal',
+      metadata: { sessionId: 'term-1' },
+    });
+
+    workspaceMocks.workspace.tabs[0].state = { sessionId: 'term-2' };
+    storeState.sessions = [
+      ...storeState.sessions,
+      { id: 'term-2', name: 'Terminal 2', cwd: '/tmp', state: 'running', shell: 'sh' },
+    ];
+
+    // A closure antiga não pode seguir o retarget da aba para a nova sessão.
+    expect(terminalPageMocks.surfaceGetter?.()).toBeNull();
   });
 
   it('registra handler de foco de painel e foca o input ao ser solicitado', async () => {
@@ -199,47 +295,261 @@ describe('TerminalPage', () => {
     await vi.waitFor(() => expect(input).toHaveFocus());
   });
 
+  it('abre o picker real pelo comando de apresentação', async () => {
+    renderTerminalPage();
+    const presentation = capturePagePresentationTarget(
+      () => '/terminal',
+      'terminal.sessions.open',
+    );
+    expect(presentation).toBeDefined();
+
+    act(() => {
+      expect(presentation?.open('terminal.sessions.open')).toBe(true);
+    });
+
+    expect(await screen.findByRole('combobox')).toBeInTheDocument();
+  });
+
+  it('invalida o alvo quando a sessão viva é substituída ou a aba muda o binding', () => {
+    renderTerminalPage();
+    const presentation = capturePagePresentationTarget(
+      () => '/terminal',
+      'terminal.focus.input',
+    );
+    expect(presentation?.isCurrent()).toBe(true);
+
+    storeState.sessions = [
+      { id: 'term-1', name: 'Terminal 1 atualizado', cwd: '/tmp', state: 'running', shell: 'sh' },
+    ];
+    expect(presentation?.isCurrent()).toBe(false);
+    presentation?.dispose();
+
+    storeState.sessions = [
+      { id: 'term-1', name: 'Terminal 1', cwd: '/tmp', state: 'running', shell: 'sh' },
+      { id: 'term-2', name: 'Terminal 2', cwd: '/tmp', state: 'running', shell: 'sh' },
+    ];
+    workspaceMocks.workspace.tabs[0].state = { sessionId: 'term-2' };
+    const rebound = capturePagePresentationTarget(
+      () => '/terminal',
+      'terminal.focus.input',
+    );
+    expect(rebound).toBeUndefined();
+  });
+
+  it('foca o input e o histórico reais pelos comandos de apresentação', () => {
+    storeState.historyBySession = {
+      'term-1': [{ id: 'entry-1', command: 'echo ok', output: 'ok', exitCode: 0 }],
+    };
+    renderTerminalPage();
+    const inputPresentation = capturePagePresentationTarget(
+      () => '/terminal',
+      'terminal.focus.input',
+    );
+    const historyPresentation = capturePagePresentationTarget(
+      () => '/terminal',
+      'terminal.focus.history',
+    );
+    const input = screen.getByLabelText('chat-input');
+
+    act(() => {
+      expect(inputPresentation?.open('terminal.focus.input')).toBe(true);
+    });
+    expect(input).toHaveFocus();
+
+    const historyNode = document.querySelector('.terminal-node') as HTMLElement;
+    expect(historyNode).toBeTruthy();
+    act(() => {
+      expect(historyPresentation?.open('terminal.focus.history')).toBe(true);
+    });
+    expect(historyNode).toHaveFocus();
+  });
+
+  it('ArrowUp preserva o input sem histórico e só consome após conseguir focar o histórico', () => {
+    const view = renderTerminalPage();
+    const input = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    input.focus();
+    const emptyEvent = createEvent.keyDown(input, { key: 'ArrowUp' });
+    fireEvent(input, emptyEvent);
+    expect(emptyEvent.defaultPrevented).toBe(false);
+    expect(input).toHaveFocus();
+
+    storeState.historyBySession = {
+      'term-1': [{ id: 'entry-1', command: 'echo ok', output: 'ok', exitCode: 0 }],
+    };
+    view.rerender(
+      <MemoryRouter initialEntries={['/terminal']}>
+        <WorkspacePanelProvider value={{ tab: terminalTab, isActive: true }}>
+          <TerminalPage />
+        </WorkspacePanelProvider>
+      </MemoryRouter>,
+    );
+    const historyNode = document.querySelector<HTMLElement>('.terminal-node')!;
+    const focusSpy = vi.spyOn(historyNode, 'focus').mockImplementation(() => {});
+    input.focus();
+    const failedHandoff = createEvent.keyDown(input, { key: 'ArrowUp' });
+    fireEvent(input, failedHandoff);
+    expect(failedHandoff.defaultPrevented).toBe(false);
+    expect(input).toHaveFocus();
+    focusSpy.mockRestore();
+
+    input.focus();
+    const handledHandoff = createEvent.keyDown(input, { key: 'ArrowUp' });
+    fireEvent(input, handledHandoff);
+    expect(handledHandoff.defaultPrevented).toBe(true);
+    expect(historyNode).toHaveFocus();
+
+    storeState.historyBySession = { 'term-1': [] };
+    view.rerender(
+      <MemoryRouter initialEntries={['/terminal']}>
+        <WorkspacePanelProvider value={{ tab: terminalTab, isActive: true }}>
+          <TerminalPage />
+        </WorkspacePanelProvider>
+      </MemoryRouter>,
+    );
+    input.focus();
+    const afterClear = createEvent.keyDown(input, { key: 'ArrowUp' });
+    fireEvent(input, afterClear);
+    expect(afterClear.defaultPrevented).toBe(false);
+    expect(input).toHaveFocus();
+    expect(document.querySelector('.terminal-node')).toBeNull();
+  });
+
+  it('expõe foco imediato do terminal e move o foco sincronicamente', () => {
+    renderTerminalPage();
+    const input = screen.getByLabelText('chat-input') as HTMLTextAreaElement;
+    input.blur();
+    const immediate = getWorkspacePanelImmediateFocusHandler('terminal-tab');
+
+    expect(immediate).toBeTypeOf('function');
+    expect(canFocusWorkspacePanelImmediately('terminal-tab')).toBe(true);
+    act(() => {
+      expect(immediate?.()).toBe(true);
+    });
+    expect(input).toHaveFocus();
+  });
+
+  it('recusa foco imediato do terminal quando inativo, modal aberto ou sessão não está pronta', () => {
+    const inactive = render(
+      <MemoryRouter initialEntries={['/terminal']}>
+        <WorkspacePanelProvider value={{ tab: terminalTab, isActive: false }}>
+          <TerminalPage />
+        </WorkspacePanelProvider>
+      </MemoryRouter>,
+    );
+    expect(canFocusWorkspacePanelImmediately('terminal-tab')).toBe(false);
+    expect(getWorkspacePanelImmediateFocusHandler('terminal-tab')?.()).toBe(false);
+    inactive.unmount();
+
+    terminalPageMocks.modalOpen = true;
+    const modal = renderTerminalPage();
+    expect(canFocusWorkspacePanelImmediately('terminal-tab')).toBe(false);
+    expect(getWorkspacePanelImmediateFocusHandler('terminal-tab')?.()).toBe(false);
+    modal.unmount();
+
+    terminalPageMocks.modalOpen = false;
+    storeState.sessions = [];
+    renderTerminalPage();
+    expect(canFocusWorkspacePanelImmediately('terminal-tab')).toBe(false);
+    expect(getWorkspacePanelImmediateFocusHandler('terminal-tab')?.()).toBe(false);
+  });
+
   it('cria um terminal explicitamente e conecta a aba', async () => {
-    storeMocks.createSession.mockResolvedValue('term-2');
     const user = userEvent.setup();
     renderTerminalPage();
+    const request = vi.fn((event: Event) => event.preventDefault());
+    window.addEventListener(TERMINAL_OPERATION_EVENT, request);
 
     await user.click(screen.getByRole('button', { name: 'Novo' }));
 
-    expect(storeMocks.createSession).toHaveBeenCalled();
-    expect(storeMocks.loadSessions).toHaveBeenCalled();
-    expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-tab', {
-      state: { sessionId: 'term-2' },
+    expect(request).toHaveBeenCalledTimes(1);
+    expect((request.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      instanceId: 'terminal-operation:terminal-tab',
+      commandId: TERMINAL_SESSION_CREATE_COMMAND,
     });
+    expect(storeMocks.createSession).not.toHaveBeenCalled();
+    window.removeEventListener(TERMINAL_OPERATION_EVENT, request);
   });
 
   it('conecta terminal quando a aba ainda não tem estado', async () => {
-    storeMocks.createSession.mockResolvedValue('term-2');
     const user = userEvent.setup();
+    const request = vi.fn((event: Event) => event.preventDefault());
+    window.addEventListener(TERMINAL_OPERATION_EVENT, request);
     render(
-      <WorkspacePanelProvider value={{ tab: { ...terminalTab, state: undefined }, isActive: true }}>
-        <TerminalPage />
-      </WorkspacePanelProvider>,
+      <MemoryRouter initialEntries={['/terminal']}>
+        <WorkspacePanelProvider value={{ tab: { ...terminalTab, state: undefined }, isActive: true }}>
+          <TerminalPage />
+        </WorkspacePanelProvider>
+      </MemoryRouter>,
     );
 
     await user.click(screen.getByRole('button', { name: 'Novo' }));
 
-    expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-tab', {
-      state: { sessionId: 'term-2' },
+    expect((request.mock.calls[0][0] as CustomEvent).detail.commandId).toBe(TERMINAL_SESSION_CREATE_COMMAND);
+    window.removeEventListener(TERMINAL_OPERATION_EVENT, request);
+  });
+
+  it('fecha a sessão somente pelo pipeline de decisão do comando', async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((event: Event) => event.preventDefault());
+    window.addEventListener(TERMINAL_OPERATION_EVENT, request);
+
+    renderTerminalPage();
+    await user.click(screen.getByRole('button', { name: 'Encerrar terminal' }));
+
+    expect((request.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      instanceId: 'terminal-operation:terminal-tab',
+      commandId: TERMINAL_SESSION_CLOSE_COMMAND,
     });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(storeMocks.closeSession).not.toHaveBeenCalled();
+    window.removeEventListener(TERMINAL_OPERATION_EVENT, request);
   });
 
   it('não intercepta Ctrl+C quando há texto selecionado no input', () => {
     renderTerminalPage();
+
+    const request = vi.fn();
+    window.addEventListener(TERMINAL_OPERATION_EVENT, request);
 
     const input = screen.getByLabelText('chat-input') as HTMLInputElement;
     input.value = 'copiar';
     input.focus();
     input.setSelectionRange(0, input.value.length);
 
-    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    fireEvent.keyDown(input, { key: 'c', ctrlKey: true });
 
-    expect(storeMocks.interrupt).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+    window.removeEventListener(TERMINAL_OPERATION_EVENT, request);
+  });
+
+  it('emite Ctrl+C contextual para o registry quando não há seleção', () => {
+    renderTerminalPage();
+    const request = vi.fn((event: Event) => event.preventDefault());
+    window.addEventListener(TERMINAL_OPERATION_EVENT, request);
+    const input = screen.getByLabelText('chat-input');
+
+    fireEvent.keyDown(input, { key: 'c', ctrlKey: true });
+
+    expect(request).toHaveBeenCalledTimes(1);
+    expect((request.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      instanceId: 'terminal-operation:terminal-tab',
+    });
+    window.removeEventListener(TERMINAL_OPERATION_EVENT, request);
+  });
+
+  it('não intercepta Ctrl+C fora da raiz do terminal, como uma paleta ou picker global', () => {
+    renderTerminalPage();
+    const request = vi.fn();
+    window.addEventListener(TERMINAL_OPERATION_EVENT, request);
+    const outsidePicker = document.createElement('input');
+    document.body.append(outsidePicker);
+    outsidePicker.focus();
+
+    fireEvent.keyDown(outsidePicker, { key: 'c', ctrlKey: true });
+
+    expect(request).not.toHaveBeenCalled();
+    outsidePicker.remove();
+    window.removeEventListener(TERMINAL_OPERATION_EVENT, request);
   });
 
   it('desabilita o menu slash e envia "/" como texto normal ao shell', () => {

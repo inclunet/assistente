@@ -56,6 +56,12 @@ editor recarrega a configuração e avisa o usuário.
   mudança de status valida a transição e o status destino contra o workflow
   vigente. Lidos antes do lock, uma edição do workflow no intervalo deixaria a
   tarefa num status que acabou de ser removido.
+- A criação da própria lista também usa `IMMEDIATE`: a contagem do limite,
+  a verificação de slug e a criação de lista/workflow ocorrem sob o mesmo lock.
+  Isso evita `SQLITE_BUSY` ao promover um snapshot de leitura durante gravações
+  de jobs, e impede duas criações concorrentes de ultrapassarem o limite.
+  A aquisição usa a política limitada de retry SQLite existente; cancelamento
+  e erros persistentes continuam sendo devolvidos ao chamador.
 
 ### D2 — Erro sentinela com código estável
 
@@ -129,6 +135,11 @@ editor recarrega a configuração e avisa o usuário.
   do agente é a mais recente, e o editor aberto é quem detecta e recarrega.
 
 ## Critérios de aceitação
+
+- [x] Criações concorrentes de listas respeitam a última vaga do limite e a
+  unicidade de slug, sem `SQLITE_BUSY` nem workflows parciais
+  (`TestCreateTaskListConcurrentWritersRespectLimit`,
+  `TestCreateTaskListConcurrentWritersRejectDuplicateSlug`).
 
 - [x] Gravação do editor sobre um estado desatualizado é recusada sem alterar o
   banco nem migrar tarefas

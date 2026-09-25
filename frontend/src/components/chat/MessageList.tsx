@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { MessageOutlined } from '@ant-design/icons';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
 import { MessageNode, Message } from '../../store/chatStore';
-import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
+import type { EditorSendTargetOption, ChatSendToEditorPayload } from '../../lib/editorSendMenu';
 import { getTimelineNodeKey, isPersistedTimelineNode, type MessageWindowState } from '../../services/chatSessionRegistry';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
@@ -40,9 +40,13 @@ export interface MessageListProps {
   // Callbacks de ações
   onContextMenu?: (event: React.MouseEvent, message: Message) => void;
   onSpeak?: (message: Message) => void;
+  onCopy?: (message: Message, markdown: boolean) => void;
+  onEdit?: (message: Message) => void;
+  onSaveEdit?: (message: Message) => void;
+  commandPathname?: string;
   onDelete?: (message: Message) => void;
   editorTargets?: EditorSendTargetOption[];
-  onSendToEditor?: (payload: SendToEditorPayload) => void;
+  onSendToEditor?: (payload: ChatSendToEditorPayload) => void;
   origin?: VoiceAccessibilityOrigin;
 }
 
@@ -82,6 +86,10 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     onJumpToEnd,
     onContextMenu,
     onSpeak,
+    onCopy,
+    onEdit,
+    onSaveEdit,
+    commandPathname,
     onDelete,
     editorTargets,
     onSendToEditor,
@@ -441,6 +449,10 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       onJumpToEnd={onJumpToEnd}
       onContextMenu={onContextMenu}
       onSpeak={onSpeak}
+      onCopy={onCopy}
+      onEdit={onEdit}
+      onSaveEdit={onSaveEdit}
+      commandPathname={commandPathname}
       onDelete={onDelete}
       editorTargets={editorTargets}
       onSendToEditor={onSendToEditor}
@@ -474,6 +486,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     return (
       <div
         className="message-list message-list--empty"
+        ref={setContainerRef}
+        tabIndex={-1}
         role="region"
         aria-label={t('chat.messageListLabel')}
       >

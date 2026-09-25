@@ -284,6 +284,93 @@ var schemaMigrations = []migration{
 		Phase: phasePostAutoMigrate,
 		Run:   migrateToolModelCallProjection,
 	},
+	{
+		Version: 21,
+		Name:    "command_storage_initial",
+		Phase:   phasePostAutoMigrate,
+		// O host compõe os repositories sem criar ciclo database → credentials
+		// → database. Sem essa composição, comandos permanecem indisponíveis.
+		Run: func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 22,
+		Name:    "command_envelope_ownership",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 23,
+		Name:    "command_config_complete",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 24,
+		Name:    "command_activation_durable",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 25,
+		Name:    "command_job_queued_at_backfill",
+		Phase:   phasePreAutoMigrate,
+		Run:     migrateCommandJobQueuedAt,
+	},
+	{
+		Version: 26,
+		Name:    "external_identity_mapping",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateExternalIdentityMapping,
+	},
+	{
+		Version: 27,
+		Name:    "command_job_activation_consumer",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 28,
+		Name:    "command_config_import_audit",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 29,
+		Name:    "command_process_generations",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 30,
+		Name:    "chat_message_durable_revisions",
+		Phase:   phasePostAutoMigrate,
+		Run: func(database *gorm.DB) error {
+			// The deferred v19 cutover rebuilds chat_messages. Installing
+			// triggers before it completes would silently lose them later.
+			applied, err := appliedMigrationVersions(database)
+			if err != nil {
+				return err
+			}
+			if !applied[19] {
+				return errMigrationDeferred
+			}
+			return MigrateMessageRevisions(database)
+		},
+	},
+	{
+		Version: 31,
+		Name:    "external_identity_admin_audit",
+		Phase:   phasePostAutoMigrate,
+		Run:     MigrateExternalIdentityAdminAudit,
+	},
+	{
+		Version: 32,
+		Name:    "command_decision_external_token_context",
+		Phase:   phasePostAutoMigrate,
+		// commandbootstrap valida/reconstrói as receipts e confirma a migração
+		// pela porta transacional, depois que o host compõe os repositories.
+		Run: func(*gorm.DB) error { return errMigrationDeferred },
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

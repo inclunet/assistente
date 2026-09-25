@@ -27,6 +27,8 @@ type ExternalAuthenticator struct {
 	cacheTime time.Time
 }
 
+var ErrExternalJWKSCacheUnavailable = errors.New("cache JWKS externo indisponível para revalidação local")
+
 func NewExternalAuthenticator(cfg ExternalAuthConfig) *ExternalAuthenticator {
 	return &ExternalAuthenticator{
 		cfg:    cfg,
@@ -52,6 +54,36 @@ func (a *ExternalAuthenticator) Validate(ctx context.Context, token string) (*Ex
 		AllowedAlgorithms: allowed,
 		RoleClaim:         a.cfg.RoleClaim,
 	}).Validate(token, jwks)
+	if err != nil {
+		return nil, err
+	}
+	if !claims.HasScopes(a.cfg.RequiredScopes) {
+		return nil, errors.New("token externo sem escopos necessários")
+	}
+	return claims, nil
+}
+
+// ValidateCached valida somente contra a cópia JWKS já obtida. É a variante
+// obrigatória para o gate final: não inicia rede enquanto o DispatchGate está
+// admitindo a execução.
+func (a *ExternalAuthenticator) ValidateCached(ctx context.Context, token string) (*ExternalClaims, error) {
+	if a == nil || ctx == nil {
+		return nil, ErrExternalJWKSCacheUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	set, fresh := a.cached, len(a.cached.Keys) > 0 && time.Since(a.cacheTime) < 10*time.Minute
+	a.mu.Unlock()
+	if !fresh {
+		return nil, ErrExternalJWKSCacheUnavailable
+	}
+	allowed := map[string]bool{}
+	for _, alg := range a.cfg.AllowedAlgorithms {
+		allowed[strings.TrimSpace(alg)] = true
+	}
+	claims, err := (ExternalValidator{Issuer: a.cfg.Issuer, Audience: a.cfg.Audience, AllowedAlgorithms: allowed, RoleClaim: a.cfg.RoleClaim}).Validate(token, set)
 	if err != nil {
 		return nil, err
 	}

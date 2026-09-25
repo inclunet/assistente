@@ -1,14 +1,12 @@
 package controllers
 
 import (
+	"assistente/internal/hotkey"
 	"assistente/internal/logging"
+	"assistente/internal/profiles"
 	"context"
 	"sync"
 	"time"
-
-	"assistente/internal/core/ports"
-	"assistente/internal/hotkey"
-	"assistente/internal/profiles"
 )
 
 // HotkeyInfo informações sobre um hotkey (mantido para compatibilidade com bindings futuros).
@@ -22,23 +20,37 @@ type HotkeyInfo struct {
 
 // HotkeysControllerConfig agrupa as dependências do HotkeysController.
 type HotkeysControllerConfig struct {
-	ProfileMgr *profiles.Manager
-	Emitter    ports.Emitter
-	WindowPort ports.WindowPort
-	ThrottleMs int64
+	ProfileMgr            *profiles.Manager
+	DispatchCommandHotkey func(context.Context, ProfileHotkeyOccurrence) error
+	ThrottleMs            int64
 }
 
 // HotkeysController é o adapter primário (Inbound) para hotkeys globais.
-// Centraliza estado (manager, lastFired, throttle) que pertencia ao App.
+// O controller só admite a ocorrência nativa e faz o handoff para o executor
+// injetado. Ele não conhece eventos de UI nem executa efeitos de janela.
 type HotkeysController struct {
 	profileMgr *profiles.Manager
-	emitter    ports.Emitter
-	windowPort ports.WindowPort
+	dispatch   func(context.Context, ProfileHotkeyOccurrence) error
 	throttleMs int64
 
-	mu        sync.Mutex
-	manager   *hotkey.Manager
-	lastFired map[uint]time.Time
+	mu             sync.Mutex
+	registrationMu sync.Mutex
+	generation     uint64
+	manager        *hotkey.Manager
+	registrar      profileHotkeyRegistrar
+	registration   *profileHotkeyRegistration
+	lastFired      map[uint]time.Time
+}
+
+type profileHotkeyRegistrar interface {
+	RegisterProfileHotkey(int, string, bool, bool, hotkey.HotkeyCallback) (int, error)
+	UnregisterAllProfileHotkeys()
+}
+
+type profileHotkeyRegistration struct {
+	generation uint64
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 // NewHotkeysController cria um HotkeysController com suas dependências.
@@ -49,8 +61,7 @@ func NewHotkeysController(cfg HotkeysControllerConfig) *HotkeysController {
 	}
 	return &HotkeysController{
 		profileMgr: cfg.ProfileMgr,
-		emitter:    cfg.Emitter,
-		windowPort: cfg.WindowPort,
+		dispatch:   cfg.DispatchCommandHotkey,
 		throttleMs: throttleMs,
 		lastFired:  make(map[uint]time.Time),
 	}
@@ -63,83 +74,138 @@ func (c *HotkeysController) IsGlobalHotkeySupported() bool {
 
 // Init inicializa o gerenciador de hotkeys.
 func (c *HotkeysController) Init() {
+	c.registrationMu.Lock()
+	defer c.registrationMu.Unlock()
 	if !hotkey.IsSupported() {
 		logging.Println(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Hotkeys globais não suportados neste sistema")
 		return
 	}
 	c.manager = hotkey.GetManager()
+	c.registrar = c.manager
 	logging.Println(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Manager inicializado. Hotkeys serão registrados pelos triggers dos perfis.")
 }
 
 // RegisterActiveProfileHotkeys registra os hotkeys do perfil ativo.
 func (c *HotkeysController) RegisterActiveProfileHotkeys() {
-	if c.manager == nil {
+	c.registrationMu.Lock()
+	defer c.registrationMu.Unlock()
+
+	registration, generation := c.retireRegistration()
+	if registration != nil {
+		registration.cancel()
+	}
+
+	registrar := c.registrar
+	if registrar != nil {
+		// A geração anterior deixa de ser válida antes da retirada nativa. Isso
+		// também fecha a janela em que um callback antigo poderia ser admitido.
+		registrar.UnregisterAllProfileHotkeys()
+	}
+	if registrar == nil || c.dispatch == nil || c.profileMgr == nil {
 		return
 	}
 
-	activeProfile, err := c.profileMgr.GetActive()
+	active, err := c.profileMgr.GetActiveAndSlug()
 	if err != nil {
 		logging.Errorf(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Erro ao obter perfil ativo: %v", err)
 		return
 	}
-
-	c.manager.UnregisterAllProfileHotkeys()
-
-	if activeProfile == nil || len(activeProfile.Input.Triggers) == 0 {
+	if active == nil || active.Profile == nil || !active.Profile.Input.Enabled {
 		return
 	}
 
-	hotkeyCount := 0
-	for _, trigger := range activeProfile.Input.Triggers {
-		if !trigger.Enabled || trigger.Hotkey == "" {
-			continue
-		}
-		hotkeyCount++
+	bindings, err := buildProfileHotkeyBindings(active.Slug, active.Profile)
+	if err != nil {
+		logging.Errorf(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Erro ao projetar hotkeys do perfil ativo: %v", err)
+		return
+	}
+	if len(bindings) == 0 {
+		return
+	}
 
-		t := trigger
-		triggerKey := uint(hotkeyCount)
+	ctx, cancel := context.WithCancel(context.Background())
+	current := &profileHotkeyRegistration{generation: generation, ctx: ctx, cancel: cancel}
+	c.mu.Lock()
+	if c.generation != generation {
+		c.mu.Unlock()
+		cancel()
+		return
+	}
+	c.registration = current
+	c.mu.Unlock()
 
-		logging.Infof(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Registrando hotkey '%s' para trigger tipo %s...", t.Hotkey, t.Type)
-		_, err := c.manager.RegisterProfileHotkey(
+	for index, binding := range bindings {
+		binding := binding
+		triggerKey := uint(index + 1)
+		logging.Infof(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Registrando hotkey '%s' para trigger tipo %s...", binding.Hotkey, binding.TriggerType)
+		_, err := registrar.RegisterProfileHotkey(
 			1,
-			t.Hotkey,
-			t.Type == profiles.TriggerTypeHotkey,
-			t.HotkeyBringToFront,
+			binding.Hotkey,
+			binding.TriggerType == profiles.TriggerTypeHotkey,
+			binding.BringToFront,
 			func() {
-				now := time.Now()
-				c.mu.Lock()
-				if lastFired, ok := c.lastFired[triggerKey]; ok {
-					if now.Sub(lastFired).Milliseconds() < c.throttleMs {
-						c.mu.Unlock()
-						return
-					}
-				}
-				c.lastFired[triggerKey] = now
-				c.mu.Unlock()
-
-				logging.Infof(context.Background(), "controllers.hotkeys-controller", "[Hotkey] HOTKEY ACIONADA! Trigger tipo %s", t.Type)
-				c.emitter.Emit("interaction:hotkey:triggered", map[string]interface{}{
-					"triggerType":  t.Type,
-					"bringToFront": t.HotkeyBringToFront,
-				})
-
-				if t.HotkeyGlobal && t.HotkeyBringToFront {
-					c.windowPort.Show()
-				}
+				c.handleNativeHotkey(current, triggerKey, binding)
 			},
 		)
 		if err != nil {
-			logging.Errorf(context.Background(), "controllers.hotkeys-controller", "[Hotkey] ERRO ao registrar hotkey '%s': %v", t.Hotkey, err)
+			logging.Errorf(context.Background(), "controllers.hotkeys-controller", "[Hotkey] ERRO ao registrar hotkey '%s': %v", binding.Hotkey, err)
 		} else {
-			logging.Infof(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Hotkey '%s' registrada com sucesso", t.Hotkey)
+			logging.Infof(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Hotkey '%s' registrada com sucesso", binding.Hotkey)
 		}
 	}
 
-	logging.Infof(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Total: %d hotkeys registradas para perfil ativo", hotkeyCount)
+	logging.Infof(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Total: %d hotkeys registradas para perfil ativo", len(bindings))
 }
 
-// Stop para o gerenciador de hotkeys.
+func (c *HotkeysController) retireRegistration() (*profileHotkeyRegistration, uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	previous := c.registration
+	c.registration = nil
+	c.generation++
+	c.lastFired = make(map[uint]time.Time)
+	return previous, c.generation
+}
+
+func (c *HotkeysController) handleNativeHotkey(registration *profileHotkeyRegistration, triggerKey uint, binding ProfileHotkeyBinding) {
+	now := time.Now()
+	c.mu.Lock()
+	if c.registration != registration || c.generation != registration.generation || c.dispatch == nil {
+		c.mu.Unlock()
+		return
+	}
+	if lastFired, ok := c.lastFired[triggerKey]; ok && now.Sub(lastFired).Milliseconds() < c.throttleMs {
+		c.mu.Unlock()
+		return
+	}
+	c.lastFired[triggerKey] = now
+	dispatch := c.dispatch
+	occurrence := ProfileHotkeyOccurrence{
+		controller:   c,
+		registration: registration,
+		binding:      binding,
+	}
+	c.mu.Unlock()
+
+	// O dispatcher pode executar Stop/reload ou bloquear aguardando o App. O
+	// mutex do controller não atravessa o handoff.
+	if err := dispatch(registration.ctx, occurrence); err != nil {
+		logging.Errorf(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Dispatch de ocorrência falhou: %v", err)
+	}
+}
+
+// Stop para o gerenciador de hotkeys e aposenta a geração atual.
 func (c *HotkeysController) Stop() {
+	c.registrationMu.Lock()
+	defer c.registrationMu.Unlock()
+
+	registration, _ := c.retireRegistration()
+	if registration != nil {
+		registration.cancel()
+	}
+	if c.registrar != nil {
+		c.registrar.UnregisterAllProfileHotkeys()
+	}
 	if c.manager != nil {
 		c.manager.Stop()
 	}

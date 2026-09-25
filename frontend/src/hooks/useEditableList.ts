@@ -22,15 +22,15 @@ export interface EditableListOperations<T extends EditableItem, TCreate = T, TUp
   /**
    * Função para criar novo item
    */
-  createItem: (data: TCreate) => Promise<string | number>;
+  createItem?: (data: TCreate) => Promise<string | number>;
   /**
    * Função para atualizar item existente
    */
-  updateItem: (id: string | number, data: TUpdate) => Promise<void>;
+  updateItem?: (id: string | number, data: TUpdate) => Promise<void>;
   /**
    * Função para deletar item
    */
-  deleteItem: (id: string | number) => Promise<void>;
+  deleteItem?: (id: string | number) => Promise<void>;
 }
 
 export interface EditableListMessages<T extends EditableItem = EditableItem> {
@@ -201,10 +201,18 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
       }
     }
 
+    const missingOperationMessage = isNew
+      ? messages.createError || t('editableList.createError', { name: options.entityName })
+      : messages.updateError || t('editableList.updateError', { name: options.entityName });
+    if ((isNew && !operations.createItem) || (!isNew && !operations.updateItem)) {
+      addToast(missingOperationMessage, 'error');
+      return;
+    }
+
     setSaving(true);
     try {
       if (isNew) {
-        const newId = await operations.createItem(editingItem as unknown as TCreate);
+        const newId = await operations.createItem!(editingItem as unknown as TCreate);
         addToast(
           messages.createSuccess || t('editableList.createSuccess', { name: options.entityName }),
           'success',
@@ -216,7 +224,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
         setIsNew(false);
         setEditingId(newId);
       } else if (editingId !== null) {
-        await operations.updateItem(editingId, editingItem as unknown as TUpdate);
+        await operations.updateItem!(editingId, editingItem as unknown as TUpdate);
         addToast(
           messages.updateSuccess || t('editableList.updateSuccess', { name: options.entityName }),
           'success',
@@ -254,6 +262,11 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
   ]);
 
   const deleteItem = useCallback(async (item: T) => {
+    if (!operations.deleteItem) {
+      addToast(messages.deleteError || t('editableList.deleteError', { name: options.entityName }), 'error');
+      return;
+    }
+
     // Verifica se pode deletar
     if (options.canDelete) {
       const canDelete = await Promise.resolve(options.canDelete(item));

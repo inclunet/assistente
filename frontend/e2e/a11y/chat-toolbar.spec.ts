@@ -1,4 +1,14 @@
 import { test, expect } from '../fixtures';
+import {
+  chatClearCommand,
+  chatClearHandoff,
+  chatClearMapGeneration,
+  chatClearShortcut,
+  chatClearTicket,
+  configureChatClearCommand,
+  installChatClearCommitCallback,
+  waitForChatClearCommit,
+} from '../helpers/chatClearCommand';
 
 /**
  * Testes de acessibilidade do ChatToolbar.
@@ -27,6 +37,8 @@ function messagesFixture() {
     },
   ];
 }
+
+const conversationID = '01926b90-0000-7000-8000-000000000001';
 
 test.describe('ChatToolbar — ARIA structure', () => {
   test('toolbar tem role="toolbar" e aria-label', async ({ page, wails }) => {
@@ -63,14 +75,13 @@ test.describe('ChatToolbar — Ctrl+L limpa conversa', () => {
   test('Ctrl+L limpa conversa e anuncia para screen reader', async ({ page, wails }) => {
     const now = new Date().toISOString();
     await wails.setResponse('GetMessages', messagesFixture());
-    await wails.setResponse('ClearConversation', undefined);
-    await wails.setResponse('ClearMessages', undefined);
-    // Após limpar, GetMessages retorna vazio
     await wails.setResponse('EnsureConversation', {
-      id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
+      id: conversationID, title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 2,
     });
+    await configureChatClearCommand(wails);
     await wails.waitForApp();
+    await installChatClearCommitCallback(page, conversationID);
 
     // Deve ter mensagens
     const messages = page.locator('.message-node[data-level="0"]');
@@ -78,28 +89,44 @@ test.describe('ChatToolbar — Ctrl+L limpa conversa', () => {
 
     // Ctrl+L limpa
     await page.keyboard.press('Control+l');
+    await waitForChatClearCommit(page);
 
-    // Verifica que ClearConversation foi chamado no backend
+    await expect(messages).toHaveCount(0, { timeout: 5_000 });
+    await expect(page.locator('[role="status"][aria-live="polite"]')).toContainText(
+      /Conversa limpa|Mensagens da conversa removidas|Conversation cleared|Conversation messages removed|Conversación vaciada|Mensajes de la conversación eliminados/,
+      { timeout: 5_000 },
+    );
     const calls = await wails.getCallLog();
-    const clearCall = calls.find(c => c.fn === 'ClearConversation');
-    expect(clearCall).toBeDefined();
+    const beginIndex = calls.findIndex(c => c.fn === 'BeginLocalCommandUIKey' && c.args[0] === chatClearMapGeneration);
+    const takeIndex = calls.findIndex(c => c.fn === 'TakeUICommand' && c.args[0] === chatClearTicket);
+    const commitIndex = calls.findIndex(c => c.fn === 'CommitWorkspaceTabCommand' && c.args[0] === chatClearTicket);
+    const resultIndex = calls.findIndex(c => c.fn === 'GetUICommandResult' && c.args[0] === chatClearTicket);
+    expect(beginIndex).toBeGreaterThanOrEqual(0);
+    expect(calls[beginIndex].args[1]).toEqual(chatClearShortcut);
+    expect(calls[beginIndex].args[2]).toBe(false);
+    expect(beginIndex).toBeLessThan(takeIndex);
+    expect(takeIndex).toBeLessThan(commitIndex);
+    expect(commitIndex).toBeLessThan(resultIndex);
+    expect(calls.some(c => c.fn === 'ClearConversation' || c.fn === 'ClearMessages')).toBe(false);
   });
 
   test('Ctrl+L restaura foco no input após limpar', async ({ page, wails }) => {
     await wails.setResponse('GetMessages', messagesFixture());
-    await wails.setResponse('ClearConversation', undefined);
     const now = new Date().toISOString();
     await wails.setResponse('EnsureConversation', {
-      id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,
+      id: conversationID, title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 2,
     });
+    await configureChatClearCommand(wails);
     await wails.waitForApp();
+    await installChatClearCommitCallback(page, conversationID);
 
     const textarea = page.locator('.chat-input__textarea');
     await expect(textarea).toBeFocused({ timeout: 5_000 });
 
     // Ctrl+L limpa
     await page.keyboard.press('Control+l');
+    await waitForChatClearCommit(page);
 
     // Foco deve voltar ao textarea
     await expect(textarea).toBeFocused({ timeout: 5_000 });

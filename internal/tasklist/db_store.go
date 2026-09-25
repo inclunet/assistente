@@ -12,6 +12,25 @@ type DBStore struct{}
 // NewDBStore cria um DBStore pronto para uso.
 func NewDBStore() *DBStore { return &DBStore{} }
 
+// ReadCommandTarget lê o payload e o fingerprint no mesmo snapshot SQLite.
+// O método é separado dos reads legados para que a integração de comandos não
+// faça Get + Snapshot em duas consultas independentes.
+func (s *DBStore) ReadCommandTarget(ctx context.Context, id string) (*database.TaskList, string, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, "", err
+	}
+	return database.ReadTaskListCommandTargetWithContext(ctx, id)
+}
+
+// CommitCommandMutation executa o CAS e a persistência final sem retry de
+// SQLITE_BUSY; o caller pode envolver o método em seu guard de lifecycle.
+func (s *DBStore) CommitCommandMutation(ctx context.Context, request database.TaskListCommandMutationRequest) (*database.TaskList, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.CommitTaskListCommandMutationWithContext(ctx, request)
+}
+
 // ── Task List ──────────────────────────────────────────────────────────────────
 
 func (s *DBStore) CreateTaskList(ctx context.Context, title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {

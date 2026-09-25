@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { DataGrid, DataGridColumn } from './DataGrid';
+import i18n from '../../lib/i18n';
 
 const announceMock = vi.hoisted(() => vi.fn());
 
@@ -55,6 +56,13 @@ function focusGrid() {
 // ─── Backward compatibility (list mode) ────────────────────────────
 
 describe('DataGrid (list mode — backward compat)', () => {
+  it('abre as mesmas ações da linha pelo botão de mouse e executa uma vez', async () => {
+    const action = vi.fn();
+    render(<DataGrid items={items.slice(0, 1)} columns={[...columns, { key: 'actions', label: 'Ações', action: true }]} getRowActions={() => [{ id: 'edit', label: 'Editar item', action }]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ações' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Editar item' }));
+    expect(action).toHaveBeenCalledTimes(1);
+  });
   it('renderiza itens e colunas', () => {
     render(<DataGrid items={items} columns={columns} autoFocusOnMount={false} />);
     expect(screen.getByText('Alpha')).toBeInTheDocument();
@@ -191,6 +199,83 @@ describe('DataGrid (list mode — backward compat)', () => {
     fireEvent.keyDown(menu, { key: 'Escape' });
 
     await waitFor(() => expect(getCells()[0]).toHaveFocus());
+  });
+});
+
+describe('DataGrid (sessão de edição inline)', () => {
+  const editableColumns: DataGridColumn<TestItem>[] = [
+    { key: 'name', label: 'Nome', editable: true },
+    { key: 'desc', label: 'Descrição' },
+  ];
+
+  function startFirstCellEdit(onCellEdit = vi.fn()) {
+    render(<DataGrid items={items} columns={editableColumns} onCellEdit={onCellEdit} autoFocusOnMount={false} />);
+    const grid = getGrid();
+    focusGrid();
+    fireEvent.keyDown(grid, { key: 'F2' });
+    return { grid, input: screen.getByRole('textbox'), onCellEdit };
+  }
+
+  it('Enter seguido de blur atrasado salva uma vez e devolve foco ao grid', () => {
+    const { grid, input, onCellEdit } = startFirstCellEdit();
+    fireEvent.change(input, { target: { value: 'Alpha editado' } });
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.blur(input);
+
+    expect(onCellEdit).toHaveBeenCalledTimes(1);
+    expect(onCellEdit).toHaveBeenCalledWith(items[0], editableColumns[0], 'Alpha editado', 0, 0);
+    expect(document.activeElement).toBe(grid);
+  });
+
+  it('Escape seguido de blur não salva', () => {
+    const { grid, input, onCellEdit } = startFirstCellEdit();
+    fireEvent.change(input, { target: { value: 'Não salvar' } });
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+    fireEvent.blur(input);
+
+    expect(onCellEdit).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(grid);
+  });
+
+  it('blur standalone salva exatamente uma vez', () => {
+    const { input, onCellEdit } = startFirstCellEdit();
+    fireEvent.change(input, { target: { value: 'Salvo no blur' } });
+
+    fireEvent.blur(input);
+    fireEvent.blur(input);
+
+    expect(onCellEdit).toHaveBeenCalledTimes(1);
+    expect(onCellEdit).toHaveBeenCalledWith(items[0], editableColumns[0], 'Salvo no blur', 0, 0);
+  });
+
+  it.each([0, false])('salva itens genéricos falsy sem descartá-los: %s', (item: number | boolean) => {
+    const onCellEdit = vi.fn();
+    const columns: DataGridColumn<number | boolean>[] = [{ key: 'value', label: 'Valor', editable: true }];
+    render(<DataGrid<number | boolean> items={[item]} columns={columns} onCellEdit={onCellEdit} autoFocusOnMount={false} />);
+    focusGrid();
+    fireEvent.keyDown(getGrid(), { key: 'F2' });
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'alterado' } });
+    fireEvent.blur(input);
+
+    expect(onCellEdit).toHaveBeenCalledTimes(1);
+    expect(onCellEdit).toHaveBeenCalledWith(item, columns[0], 'alterado', 0, 0);
+  });
+
+  it('permite iniciar e salvar uma nova edição depois de Escape', () => {
+    const { grid, input, onCellEdit } = startFirstCellEdit();
+    fireEvent.keyDown(input, { key: 'Escape' });
+    fireEvent.blur(input);
+
+    fireEvent.keyDown(grid, { key: 'F2' });
+    const nextInput = screen.getByRole('textbox');
+    fireEvent.change(nextInput, { target: { value: 'Segunda edição' } });
+    fireEvent.blur(nextInput);
+
+    expect(onCellEdit).toHaveBeenCalledTimes(1);
+    expect(onCellEdit).toHaveBeenCalledWith(items[0], editableColumns[0], 'Segunda edição', 0, 0);
   });
 });
 
@@ -407,6 +492,20 @@ describe('DataGrid (onMoveItem)', () => {
 // ─── onFocusChange ─────────────────────────────────────────────────
 
 describe('DataGrid (onFocusChange)', () => {
+  it('preserva a célula da segunda linha clicada antes da inicialização do foco lazy', async () => {
+    const onFocus = vi.fn();
+    render(
+      <DataGrid items={items} columns={columns}
+        onFocusChange={onFocus} autoFocusOnMount={false} />
+    );
+
+    const secondRowCell = getCells()[2];
+    fireEvent.click(secondRowCell);
+
+    expect(onFocus).toHaveBeenCalledWith(items[1], 1);
+    await waitFor(() => expect(secondRowCell).toHaveFocus());
+  });
+
   it('chama onFocusChange ao receber foco pela primeira vez', () => {
     const onFocus = vi.fn();
     render(
@@ -549,6 +648,30 @@ describe('DataGrid (reconciliação de foco após remoção)', () => {
 });
 
 describe('DataGrid (instruções acessíveis)', () => {
+  it('localiza instruções e só anuncia atalhos disponíveis para a configuração do grid', async () => {
+    await act(async () => { await i18n.changeLanguage('en'); });
+    try {
+      render(<DataGrid
+        items={items.slice(0, 1)}
+        columns={columns}
+        getRowActions={() => [{ id: 'edit', label: 'Edit', action: vi.fn() }]}
+        autoFocusOnMount={false}
+      />);
+      const grid = screen.getByRole('grid', { name: 'Data grid' });
+      const instructions = document.getElementById(grid.getAttribute('aria-describedby')!);
+      expect(instructions?.textContent).toContain('Data grid with 1 rows and 2 columns.');
+      expect(instructions?.textContent).toContain('Use vertical arrows to navigate between rows.');
+      expect(instructions?.textContent).toContain('columns. Use vertical arrows');
+      expect(instructions?.textContent).toContain('Press Shift+F10 or the Menu key to open row actions.');
+      expect(instructions?.textContent).not.toContain('Press Enter to activate an item.');
+      expect(instructions?.textContent).not.toContain('Press Ctrl+Space');
+      expect(instructions?.textContent).not.toContain('Press Escape to clear selection.');
+      expect(instructions?.textContent).not.toContain('Press F2 to edit.');
+    } finally {
+      await act(async () => { await i18n.changeLanguage('pt-BR'); });
+    }
+  });
+
   it('só informa Delete quando a ação existe', () => {
     const { rerender } = render(
       <DataGrid items={items} columns={columns} autoFocusOnMount={false} />

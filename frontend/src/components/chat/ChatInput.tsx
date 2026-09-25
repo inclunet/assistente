@@ -15,13 +15,16 @@ import type { apidto, skills } from '../../../wailsjs/go/models';
 import './ChatInput.css';
 
 export interface ChatInputProps {
-  onSend: (message: string, mediaFiles?: MediaFile[]) => boolean | void | Promise<boolean | void>;
+  onSend: (message: string, mediaFiles?: MediaFile[], options?: { voice?: boolean }) => boolean | void | Promise<boolean | void>;
+  /** Terminal consumes synchronously; chat clears only after audited admission. */
+  clearOnSend?: boolean;
   onCancelStreaming?: () => void;
   isStreaming?: boolean;
   disabled?: boolean;
   placeholder?: string;
   maxFiles?: number;
-  onArrowUp?: () => void;
+  /** Devolve true quando o handoff para a lista de mensagens foi realizado. */
+  onArrowUp?: () => boolean;
   /** Se o controle de voz está habilitado */
   voiceEnabled?: boolean;
   message?: string;
@@ -42,6 +45,7 @@ export interface ChatInputProps {
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   {
     onSend,
+    clearOnSend = true,
     onCancelStreaming,
     isStreaming = false,
     disabled = false,
@@ -169,7 +173,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const submitMessage = useCallback((
     rawMessage: string,
     draftMediaFiles: MediaFile[],
-    options: { preserveMessage?: boolean } = {},
+    options: { preserveMessage?: boolean; voice?: boolean } = {},
   ) => {
     const trimmedMessage = rawMessage.trim();
     if ((!trimmedMessage && draftMediaFiles.length === 0) || disabled || isProcessing || sendInFlightRef.current) {
@@ -188,7 +192,9 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     closeSlashMenu(true);
     let sendResult: boolean | void | Promise<boolean | void>;
     try {
-      sendResult = onSend(trimmedMessage, sentMediaFiles);
+      sendResult = options.voice
+        ? onSend(trimmedMessage, sentMediaFiles, { voice: true })
+        : onSend(trimmedMessage, sentMediaFiles);
     } catch {
       sendInFlightRef.current = false;
       setIsSendPending(false);
@@ -200,7 +206,9 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         setIsSendPending(false);
     };
     const settle = (accepted: boolean | void) => {
-      if (accepted === true) {
+      // `true` é a admissão explícita. Com clearOnSend=false, a superfície
+      // persistida mantém o rascunho até o pipeline AEP limpá-lo após o sucesso.
+      if (accepted === true && clearOnSend) {
         if (!options.preserveMessage && messageRef.current === pendingDraftMessage) {
           setMessage('');
         }
@@ -220,11 +228,11 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       textareaRef.current.style.height = 'auto';
       requestAnimationFrame(() => textareaRef.current?.focus());
     }
-  }, [closeSlashMenu, disabled, isProcessing, onSend, setMediaFiles, setMessage, textareaRef]);
+  }, [clearOnSend, closeSlashMenu, disabled, isProcessing, onSend, setMediaFiles, setMessage, textareaRef]);
 
   // Handler para transcrição de voz
   const handleVoiceTranscription = (text: string) => {
-    if (text.trim()) submitMessage(text, mediaFilesRef.current, { preserveMessage: true });
+    if (text.trim()) submitMessage(text, mediaFilesRef.current, { preserveMessage: true, voice: true });
   };
 
   // As duas origens do menu numa lista só, que é a que as setas percorrem e a
@@ -406,6 +414,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.defaultPrevented || e.nativeEvent.isComposing || e.keyCode === 229 ||
+        (e.repeat && ['Enter', 'Escape', 'Tab'].includes(e.key))) return;
     // Navegação no menu slash
     if (isSlashMenuOpen) {
       const totalFiltered = filteredSlashItems.length;
@@ -457,6 +467,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     }
 
     if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
       e.preventDefault();
       if (!disabled && !isStreaming && !isSendPending) {
         handleSend();
@@ -475,8 +486,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     if (e.key === 'ArrowUp' && onArrowUp) {
       const textarea = textareaRef.current;
       if (textarea && textarea.selectionStart === 0 && textarea.selectionEnd === 0) {
-        e.preventDefault();
-        onArrowUp();
+        if (onArrowUp()) e.preventDefault();
       }
     }
   };

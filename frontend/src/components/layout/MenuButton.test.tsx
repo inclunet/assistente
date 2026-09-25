@@ -5,6 +5,7 @@ import { MenuButton } from './MenuButton';
 
 const openForTriggerSpy = vi.fn();
 const closeMenuSpy = vi.fn();
+let afterSelectCallback: (() => void) | undefined;
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -16,7 +17,8 @@ vi.mock('react-i18next', () => ({
 vi.mock('../../hooks/useAnchoredContextMenu', async () => {
   const React = await import('react');
   return {
-    useAnchoredContextMenu: () => {
+    useAnchoredContextMenu: (options: { onAfterSelect?: () => void } = {}) => {
+      afterSelectCallback = options.onAfterSelect;
       const [menu, setMenu] = React.useState<{
         visible: boolean;
         x: number;
@@ -58,6 +60,28 @@ vi.mock('../../hooks/useAnchoredContextMenu', async () => {
 });
 
 describe('MenuButton', () => {
+  it('chama callback depois da restauração síncrona de foco', () => {
+    const onAfterSelect = vi.fn();
+    let animationFrame: FrameRequestCallback | undefined;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      animationFrame = callback;
+      return 1;
+    });
+
+    render(
+      <MenuButton
+        buttonLabel="Acoes"
+        onAfterSelect={onAfterSelect}
+        items={[{ id: 'a', label: 'Acao' }]}
+      />
+    );
+
+    afterSelectCallback?.();
+    expect(onAfterSelect).not.toHaveBeenCalled();
+    animationFrame?.(0);
+    expect(onAfterSelect).toHaveBeenCalledTimes(1);
+  });
+
   it('abre menu ao clicar no botao', async () => {
     const user = userEvent.setup();
     render(

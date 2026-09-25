@@ -84,7 +84,8 @@ function stopCurrentAudio(): void {
 }
 
 /** Reproduz um blob de áudio */
-async function playAudioBlob(audioBlob: Blob, volume: number = 1.0, messageId?: string): Promise<void> {
+async function playAudioBlob(audioBlob: Blob, volume: number = 1.0, messageId?: string, isCurrent?: () => boolean, onStarted?: () => void): Promise<void> {
+  if (isCurrent && !isCurrent()) throw new Error('chat-message-stale');
   stopCurrentAudio();
   // Setar messageId DEPOIS do stop para não ser zerado
   if (messageId != null) currentMessageId = messageId;
@@ -104,17 +105,25 @@ async function playAudioBlob(audioBlob: Blob, volume: number = 1.0, messageId?: 
 
     currentPlayer.onended = () => {
       abort.signal.removeEventListener('abort', onAbort);
-      stopCurrentAudio();
+      if (currentAbort === abort) stopCurrentAudio();
       resolve();
     };
     currentPlayer.onerror = () => {
       abort.signal.removeEventListener('abort', onAbort);
-      stopCurrentAudio();
+      if (currentAbort === abort) stopCurrentAudio();
       reject(new Error('Erro ao reproduzir áudio'));
     };
-    currentPlayer.play().catch((err) => {
+    currentPlayer.play().then(() => {
+      if (abort.signal.aborted) return;
+      if (isCurrent && !isCurrent()) {
+        if (currentAbort === abort) stopCurrentAudio();
+        reject(new Error('chat-message-stale'));
+        return;
+      }
+      onStarted?.();
+    }).catch((err) => {
       abort.signal.removeEventListener('abort', onAbort);
-      stopCurrentAudio();
+      if (currentAbort === abort) stopCurrentAudio();
       reject(err);
     });
   });
@@ -148,11 +157,12 @@ function canUseBackendTTS(provider?: TTSProviderParams): boolean {
  *
  * @returns true se reproduziu, false se falhou (chamador deve usar speakAsRole)
  */
-async function speakMessage(messageId: string, volume: number = 1.0, provider?: TTSProviderParams): Promise<boolean> {
+async function speakMessage(messageId: string, volume: number = 1.0, provider?: TTSProviderParams, isCurrent?: () => boolean, onStarted?: () => void): Promise<boolean> {
+  if (isCurrent && !isCurrent()) return false;
   // 1. Cache em memória — instantâneo, sem IPC
   const cached = memoryCacheGet(messageId);
   if (cached) {
-    await playAudioBlob(cached, volume, messageId);
+    await playAudioBlob(cached, volume, messageId, isCurrent, onStarted);
     return true;
   }
   if (!canUseBackendTTS(provider)) {
@@ -169,14 +179,16 @@ async function speakMessage(messageId: string, volume: number = 1.0, provider?: 
       provider?.rate ?? 1.0,
       provider?.language ?? '',
     );
+    if (isCurrent && !isCurrent()) return false;
     if (result && result.audio && result.audio.length > 0) {
       const blob = base64ToBlob(result.audio, result.mimeType);
       memoryCacheSet(messageId, blob);
-      await playAudioBlob(blob, volume, messageId);
+      await playAudioBlob(blob, volume, messageId, isCurrent, onStarted);
       return true;
     }
     return false;
   } catch (err) {
+    if (isCurrent) throw err;
     logger.warn('[messageAudio] speakMessage failed:', err);
     return false;
   }

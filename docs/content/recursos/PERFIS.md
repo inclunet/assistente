@@ -11,6 +11,16 @@ Perfis isolam provedores, voz, skills e contexto por finalidade. A delegação a
 
 Cada perfil guarda provedor LLM, voz, skills habilitadas e contexto. Troque em **Configurações → Perfis**; o workspace e as conversas seguem o perfil ativo. Perfis são descobríveis via catálogo e podem ser delegados.
 
+Na página de perfis, a lista ocupa a área disponível e a dica de edição fica
+no rodapé, sem cobrir as linhas ou seus botões de ações. Use as setas para
+navegar pela grade e Enter para abrir o perfil selecionado.
+
+Para renomear na própria grade, pressione F2 na célula do nome. Enter confirma
+a edição uma única vez; Escape descarta a alteração. A exclusão de um perfil
+inativo pede confirmação antes de executar. Enquanto essa confirmação estiver
+aberta, os comandos da página ficam bloqueados; responder não libera ações
+de outro diálogo ou de outro contexto.
+
 As descrições ajudam o assistente a escolher o perfil adequado:
 
 - **Padrão** atende pesquisa, análise, escrita, organização e solicitações gerais ou ainda pouco definidas.

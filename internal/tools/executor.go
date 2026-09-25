@@ -29,6 +29,10 @@ const (
 
 // ExecutorConfig contém configurações do executor de ferramentas.
 type ExecutorConfig struct {
+	// ExpectedToolGeneration, quando diferente de zero, fixa a identidade da
+	// tool capturada pelo chamador. Zero preserva o comportamento legado.
+	ExpectedToolGeneration uint64
+
 	// ToolTimeout é o timeout para execução de cada ferramenta individual
 	ToolTimeout time.Duration
 
@@ -39,6 +43,12 @@ type ExecutorConfig struct {
 	// RequireCompleteResult atende consumidores machine-facing (jobs), que não
 	// conseguem seguir read_tool_result. Acima do teto, qualquer saída falha.
 	RequireCompleteResult bool
+
+	// PersistedResultRedactor redige somente a cópia colocada no store de
+	// resultados grandes. O resultado retornado ao chamador continua íntegro em
+	// memória; isso permite que o chamador faça seu próprio adapter sem gravar
+	// segredos no armazenamento retomável.
+	PersistedResultRedactor func(ToolResult) ToolResult
 
 	// MaxIterations é o número máximo de iterações do agentic loop
 	MaxIterations int
@@ -114,7 +124,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 	}
 
 	// Busca a ferramenta no registry
-	tool, ok := e.registry.Get(toolName)
+	tool, generation, ok := e.registry.GetWithGeneration(toolName)
 	if !ok {
 		return ToolExecutionResult{
 			CallID:   call.ID,
@@ -125,6 +135,23 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			},
 			Error:             fmt.Errorf("ferramenta '%s' não encontrada", toolName),
 			ErrorKind:         ErrorKindNotFound,
+			Retryable:         false,
+			RetryabilityKnown: true,
+			DurationMs:        time.Since(start).Milliseconds(),
+		}
+	}
+	if e.config.ExpectedToolGeneration != 0 && generation != e.config.ExpectedToolGeneration {
+		err := fmt.Errorf("geração da ferramenta '%s' mudou: esperada %d, atual %d", toolName, e.config.ExpectedToolGeneration, generation)
+		return ToolExecutionResult{
+			CallID:   call.ID,
+			ToolName: toolName,
+			Result: ToolResult{
+				Content: err.Error(),
+				IsError: true,
+				Failure: &ToolFailure{Code: "tool_generation_mismatch", Kind: ErrorKindAuthorization, Retryable: false},
+			},
+			Error:             err,
+			ErrorKind:         ErrorKindAuthorization,
 			Retryable:         false,
 			RetryabilityKnown: true,
 			DurationMs:        time.Since(start).Milliseconds(),
@@ -284,9 +311,9 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				var protected ToolResult
 				var stored bool
 				if mcpBridge {
-					protected, stored = ProtectExternalModelResult(execCtx, result, e.config.MaxResultSize)
+					protected, stored = ProtectExternalModelResultWithRedactor(execCtx, result, e.config.MaxResultSize, e.config.PersistedResultRedactor)
 				} else {
-					protected, stored = ProtectModelResult(execCtx, result, e.config.MaxResultSize)
+					protected, stored = ProtectModelResultWithRedactor(execCtx, result, e.config.MaxResultSize, e.config.PersistedResultRedactor)
 				}
 				if !stored {
 					message := fmt.Sprintf(

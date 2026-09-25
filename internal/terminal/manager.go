@@ -181,7 +181,7 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 
 	commandID := uuid.NewString()
 	entry := &HistoryEntry{ID: commandID, Command: command, Source: source, StartedAt: time.Now()}
-	if err := session.beginCommand(); err != nil {
+	if err := session.beginCommandWithID(commandID); err != nil {
 		return nil, err
 	}
 	result, err := session.RunCommand(ctx, command, timeout, source, commandID)
@@ -198,11 +198,13 @@ func (m *Manager) Release(sessionID string) {
 		return
 	}
 
+	session.ioMu.Lock()
 	session.mu.Lock()
 	if session.state == StateBusy {
 		session.state = StateIdle
 	}
 	session.mu.Unlock()
+	session.ioMu.Unlock()
 }
 
 // RunCommand executa um comando em uma sessão específica.
@@ -227,7 +229,7 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 		Source:    source,
 		StartedAt: time.Now(),
 	}
-	if err := session.beginCommand(); err != nil {
+	if err := session.beginCommandWithID(commandID); err != nil {
 		return nil, err
 	}
 
@@ -292,6 +294,117 @@ func (m *Manager) Interrupt(sessionID string) error {
 	}
 
 	return session.Interrupt()
+}
+
+// CaptureInterrupt captura a sessão viva e a geração de input gerenciado
+// atualmente associada a ela. O resultado é um token apenas de runtime; não é
+// um payload serializável nem contém entrada ou saída do terminal. A captura
+// não pretende identificar um PID ou o estado de um subprocesso natural.
+func (m *Manager) CaptureInterrupt(sessionID string) (InterruptSnapshot, error) {
+	m.mu.RLock()
+	session, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if !ok {
+		return InterruptSnapshot{}, fmt.Errorf("%w: sessão '%s' não encontrada", ErrInterruptStale, sessionID)
+	}
+
+	return session.captureInterruptSnapshot()
+}
+
+// CaptureClose captura a sessão viva e a geração gerenciada atual para uma
+// operação destrutiva de encerramento. A captura não seleciona nem descobre
+// outra sessão quando o ID deixa de existir.
+func (m *Manager) CaptureClose(sessionID string) (CloseSnapshot, error) {
+	m.mu.RLock()
+	session, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if !ok {
+		return CloseSnapshot{}, fmt.Errorf("%w: sessão '%s' não encontrada", ErrCloseStale, sessionID)
+	}
+
+	return session.captureCloseSnapshot()
+}
+
+// PrepareInterrupt valida e consome a captura enquanto mantém somente o lock
+// curto do registro e reserva ioMu da sessão com TryLock. O lock do Manager é
+// liberado antes de o caller executar o Write.
+func (m *Manager) PrepareInterrupt(snapshot InterruptSnapshot) (*InterruptOperation, error) {
+	if snapshot.token == nil {
+		return nil, ErrInterruptStale
+	}
+
+	m.mu.RLock()
+	session, ok := m.sessions[snapshot.token.sessionID]
+	if !ok || session != snapshot.token.session {
+		m.mu.RUnlock()
+		return nil, fmt.Errorf("%w: sessão não é mais a capturada", ErrInterruptStale)
+	}
+	if !session.ioMu.TryLock() {
+		m.mu.RUnlock()
+		return nil, fmt.Errorf("%w: sessão ocupada para handoff de interrupção", ErrInterruptStale)
+	}
+
+	session.mu.Lock()
+	valid := session.id == snapshot.token.sessionID &&
+		session.sessionVersion == snapshot.token.sessionVersion &&
+		session.commandGeneration == snapshot.token.commandGeneration &&
+		session.commandPending == snapshot.token.commandPending &&
+		session.managedCommandID == snapshot.token.commandID &&
+		session.state == snapshot.token.state &&
+		(session.state == StateIdle || session.state == StateRunning) &&
+		!session.commandPending && session.managedCommandID != ""
+	if !valid || !snapshot.token.consumed.CompareAndSwap(0, 1) {
+		session.mu.Unlock()
+		session.ioMu.Unlock()
+		m.mu.RUnlock()
+		return nil, fmt.Errorf("%w: sessão/geração mudou desde a captura", ErrInterruptStale)
+	}
+	writer := session.ptyWriter
+	session.mu.Unlock()
+	m.mu.RUnlock()
+
+	return &InterruptOperation{
+		session:   session,
+		sessionID: session.id,
+		writer:    writer,
+	}, nil
+}
+
+// PrepareClose valida e consome a captura enquanto mantém somente o lock
+// curto do registro e reserva ioMu da sessão com TryLock. O caller executa o
+// encerramento fora dos locks de autenticação, workspace e manager.
+func (m *Manager) PrepareClose(snapshot CloseSnapshot) (*CloseOperation, error) {
+	if snapshot.token == nil {
+		return nil, ErrCloseStale
+	}
+
+	m.mu.RLock()
+	session, ok := m.sessions[snapshot.token.sessionID]
+	if !ok || session != snapshot.token.session {
+		m.mu.RUnlock()
+		return nil, fmt.Errorf("%w: sessão não é mais a capturada", ErrCloseStale)
+	}
+	if !session.ioMu.TryLock() {
+		m.mu.RUnlock()
+		return nil, fmt.Errorf("%w: sessão ocupada para handoff de encerramento", ErrCloseStale)
+	}
+
+	session.mu.Lock()
+	valid := session.matchesCloseSnapshot(snapshot.token) && snapshot.token.consumed.CompareAndSwap(0, 1)
+	session.mu.Unlock()
+	if !valid {
+		session.ioMu.Unlock()
+		m.mu.RUnlock()
+		return nil, fmt.Errorf("%w: sessão/geração mudou desde a captura", ErrCloseStale)
+	}
+	m.mu.RUnlock()
+
+	return &CloseOperation{
+		manager:   m,
+		session:   session,
+		sessionID: snapshot.token.sessionID,
+		token:     snapshot.token,
+	}, nil
 }
 
 // Get retorna uma sessão pelo ID.
@@ -363,6 +476,14 @@ func (m *Manager) Close(sessionID string) error {
 	})
 
 	return err
+}
+
+func (m *Manager) removeIfSame(sessionID string, expected *Session) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if current, ok := m.sessions[sessionID]; ok && current == expected {
+		delete(m.sessions, sessionID)
+	}
 }
 
 // CloseAll encerra todas as sessões. Chamado no shutdown do app.

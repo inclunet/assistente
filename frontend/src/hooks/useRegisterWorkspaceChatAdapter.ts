@@ -25,15 +25,25 @@ export function useRegisterWorkspaceChatAdapter(
     if (!tabId) return;
 
     const wrapper: WorkspaceChatModalAdapter = {
-      prepare: () => {
+      prepare: async () => {
         const a = adapterRef.current;
         if (!a) {
-          return Promise.resolve({
+          return {
             ok: false as const,
             message: i18next.t('workspace.chatModal.panelLoading'),
-          });
+          };
         }
-        return a.prepare();
+        const result = await a.prepare();
+        // O wrapper é estável por aba, mas o adapter real pode mudar enquanto
+        // a preparação assíncrona está em voo. Não deixe o store combinar o
+        // contexto produzido pela instância antiga com o envio dinâmico da nova.
+        if (adapterRef.current !== a) {
+          return {
+            ok: false as const,
+            message: i18next.t('workspace.chatModal.panelLoading'),
+          };
+        }
+        return result;
       },
       send: (instruction, media, meta, session) => {
         const a = adapterRef.current;

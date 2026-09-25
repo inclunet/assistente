@@ -43,6 +43,7 @@ import { useSubAgentRunsStore } from '../store/subAgentRunsStore';
 import { isActiveSubAgentRunStatus } from '../types/subagentRuns';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { executeDeepLink } from '../lib/deepLinks';
+import { requestCommandNavigation } from '../lib/commandNavigation';
 import { formatRelativeTime } from '../lib/dateUtils';
 import { downloadJSON, generateFilename } from '../lib/exportImport';
 import { exportConversationsFileDialogLabels } from '../lib/exportDialogLabels';
@@ -289,18 +290,6 @@ export default function HistoryPage() {
     return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
   }, [searchTerm, doSearch]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === 'n') {
-        e.preventDefault();
-        handleNewConversation();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
   const handleOpenConversation = useCallback(async (conversationId: string, title?: string) => {
     await executeDeepLink(
       { type: 'conversation:open', conversationId, title },
@@ -308,9 +297,9 @@ export default function HistoryPage() {
     );
   }, [navigate]);
 
-  const handleNewConversation = () => {
-    navigate('/');
-  };
+  const handleNewConversation = useCallback(() => {
+    requestCommandNavigation('navigation.workspace.open');
+  }, []);
 
   const handleToggleSubAgents = useCallback(() => {
     setShowSubAgents((prev) => {

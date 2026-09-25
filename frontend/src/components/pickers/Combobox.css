@@ -91,6 +91,17 @@
     outline: none;
 }
 
+.picker-active-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+    padding: 0 var(--spacing-sm) var(--spacing-xs);
+}
+
+.picker-active-actions button {
+    min-height: 36px;
+}
+
 .picker-dropdown ul {
     list-style: none;
     margin: 0;

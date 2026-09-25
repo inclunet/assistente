@@ -44,30 +44,31 @@ func taskListWorkflowQuery(ctx context.Context, base *gorm.DB) *gorm.DB {
 // templateWorkflow pode ser nil para usar workflow padrão (A Fazer, Em
 // Progresso, Concluído). slug: opcional; normalizado e único quando não vazio.
 func CreateTaskListWithContext(ctx context.Context, title, description string, templateWorkflow *TaskListWorkflow, slug string) (*TaskList, error) {
-	// Valida limite
-	var count int64
-	if err := ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").Count(&count).Error; err != nil {
-		return nil, err
-	}
-	if count >= MaxTaskLists {
-		return nil, errors.New("limite de tasklists atingido")
-	}
-
 	normalizedSlug := NormalizeTaskListSlug(slug)
 	if err := ValidateTaskListSlugFormat(normalizedSlug); err != nil {
 		return nil, err
 	}
-	taskList := &TaskList{
-		Title:             title,
-		Description:       description,
-		PreferredViewMode: "list",
-		Slug:              normalizedSlug,
-	}
-	if userID, ok := UserIDFromContext(ctx); ok {
-		taskList.UserID = userID
-	}
-
-	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var taskList *TaskList
+	// Adquire o writer antes das leituras, evitando promover um snapshot WAL
+	// obsoleto para escrita. Limite, slug e workflow pertencem à mesma transação.
+	err := withSQLiteImmediateTransaction(ctx, db, "tasklist.create", func(tx *gorm.DB) error {
+		var count int64
+		if err := ScopeByUser(ctx, tx.Model(&TaskList{}), "user_id").Count(&count).Error; err != nil {
+			return err
+		}
+		if count >= MaxTaskLists {
+			return errors.New("limite de tasklists atingido")
+		}
+		// Uma nova tentativa não reutiliza IDs/associações de uma transação revertida.
+		taskList = &TaskList{
+			Title:             title,
+			Description:       description,
+			PreferredViewMode: "list",
+			Slug:              normalizedSlug,
+		}
+		if userID, ok := UserIDFromContext(ctx); ok {
+			taskList.UserID = userID
+		}
 		if normalizedSlug != "" {
 			var taken int64
 			if err := ScopeByUser(ctx, tx.Model(&TaskList{}), "user_id").
@@ -144,12 +145,30 @@ func GetAllTaskListsWithContext(ctx context.Context) ([]TaskList, error) {
 // UpdateTaskListWithContext atualiza title e description de uma tasklist do
 // usuário do contexto.
 func UpdateTaskListWithContext(ctx context.Context, id string, title, description string) error {
+	var current TaskList
+	query := ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id")
+	if err := query.Where("id = ?", id).First(&current).Error; err != nil {
+		return err
+	}
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"title":       title,
 			"description": description,
+			"updated_at":  nextTaskListUpdatedAt(current.UpdatedAt),
 		}).Error
+}
+
+// SQLite persiste timestamps com precisão de milissegundos nesta aplicação.
+// Garantir avanço estrito aqui evita que duas mutações sucessivas produzam o
+// mesmo fingerprint observável e atravessem uma proteção ABA.
+func nextTaskListUpdatedAt(previous time.Time) time.Time {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	previous = previous.UTC().Truncate(time.Millisecond)
+	if !now.After(previous) {
+		return previous.Add(time.Millisecond)
+	}
+	return now
 }
 
 // SetTaskListViewModeWithContext define o modo de visualização (list ou
@@ -494,9 +513,15 @@ func taskCountsByStatus(ctx context.Context, q *gorm.DB, taskListID string) (map
 // slug: nil = não altera slug; ponteiro para string vazia = limpa slug;
 // valor = define slug normalizado.
 func UpdateTaskListFullWithContext(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error {
+	var current TaskList
+	if err := ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").
+		Where("id = ?", id).First(&current).Error; err != nil {
+		return err
+	}
 	updates := map[string]interface{}{
 		"title":       title,
 		"description": description,
+		"updated_at":  nextTaskListUpdatedAt(current.UpdatedAt),
 	}
 	if preferredViewMode == "list" || preferredViewMode == "kanban" {
 		updates["preferred_view_mode"] = preferredViewMode

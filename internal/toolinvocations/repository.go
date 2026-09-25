@@ -17,8 +17,10 @@ import (
 )
 
 var (
-	ErrChatOriginIDRequired = errors.New("chat origin ID required")
-	ErrToolCatalogNotFound  = errors.New("tool catalog entry not found")
+	ErrChatOriginIDRequired           = errors.New("chat origin ID required")
+	ErrToolCatalogNotFound            = errors.New("tool catalog entry not found")
+	ErrCanonicalToolCatalogIDRequired = errors.New("canonical tool catalog ID required")
+	ErrCanonicalToolCatalogMismatch   = errors.New("canonical tool catalog ID does not match tool name")
 )
 
 // toolCatalogResolveCacheTTL limita a validade de cada mapeamento

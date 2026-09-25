@@ -37,6 +37,9 @@ jobs:
       - name: Teste dos ldflags de release
         run: .github/scripts/verificar-ldflags-release.teste.sh
 
+      - name: Teste da divisão dos testes Go com race
+        run: bash .github/scripts/testar-go-race.teste.sh
+
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -110,11 +113,30 @@ jobs:
           path: coverage.out
           retention-days: 7
 
-  backend-race:
-    # Detector de corrida: roda em push/PR (e manualmente) com -short para podar
-    # testes mais lentos, garantindo cobertura de -race sobre o código da branch.
+  backend-race-tests:
+    # App excede 20m com -race. A descoberta em cada runner inclui testes novos
+    # automaticamente; os demais pacotes continuam inteiros em um grupo próprio.
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        group:
+          - pacotes-gerais
+          - comandos-configuracao
+          - comandos-dispositivos
+          - comandos-contexto-deck
+          - comandos-contexto-paleta
+          - comandos-contexto-workspace
+          - comandos-contexto-base
+          - comandos-execucao
+          - comandos-jobs
+          - comandos-interface
+          - comandos-seguranca
+          - comandos-outros
+          - app-chat
+          - app-demais
     steps:
       - uses: actions/checkout@v4
 
@@ -127,10 +149,24 @@ jobs:
           go-version-file: go.mod
 
       - name: Go tests (-race -short)
+        env:
+          RACE_GROUP: ${{ matrix.group }}
         run: |
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
           export DISPLAY=:99.0
-          go test -race -short ./...
+          bash .github/scripts/testar-go-race.sh "$RACE_GROUP"
+
+  backend-race:
+    # Preserva o nome do check exigido: só aprova se TODOS os grupos passaram.
+    needs: backend-race-tests
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Conferir todos os grupos
+        env:
+          RACE_RESULT: ${{ needs.backend-race-tests.result }}
+        run: test "$RACE_RESULT" = success
 
   bindings:
     # Os tipos de `frontend/wailsjs/` são gerados a partir das assinaturas dos

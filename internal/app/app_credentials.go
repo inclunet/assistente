@@ -49,6 +49,7 @@ func (a *App) initCredentialManager() {
 	}
 	a.handleVaultIntegrityOnBoot()
 	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
+	a.initCommandStorage()
 }
 
 // handleVaultIntegrityOnBoot reage ao status de integridade do vault
@@ -152,6 +153,7 @@ func (a *App) registerEnvCredentials(ctx context.Context, credMgr *credentials.M
 }
 
 func (a *App) configureCredentialManager(dek []byte, persist bool) {
+	a.clearCommandStorageReadiness()
 	if a.credStore == nil {
 		a.credStore = credentials.NewDBStore()
 	}
@@ -169,6 +171,7 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 	}
 	a.handleVaultIntegrityOnBoot()
 	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
+	a.initCommandStorage()
 }
 
 // HasMasterKey verifica se uma master key (senha mestre) já foi configurada no banco.
@@ -187,12 +190,14 @@ func (a *App) HasMasterKey() bool {
 // Após sucesso, o credential manager é reconfigurado com persistência ativada.
 // Pré-sessão: permanece no *App / UnauthenticatedAppMethods (AEP-0088).
 func (a *App) SetupMasterPassword(password string) (string, error) {
+	defer a.beginCommandAuthTransition()()
 	store := credentials.NewDBStore()
 	result, err := credentials.SetupMasterKeyAdoptingKeychain(store, password)
 	if err != nil {
 		return "", err
 	}
 	a.configureCredentialManager(result.DEK, true)
+	a.markCommandVaultUnlocked()
 	return result.RecoveryKey, nil
 }
 

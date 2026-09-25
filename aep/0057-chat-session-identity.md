@@ -1,6 +1,6 @@
 # AEP-0057: Sessões de Superfície e Timeline de Chat
 
-## Status: Done — identidade e isolamento consolidados nos PRs #110–#113; fan-out e rascunho do PR3
+## Status: Done — identidade e isolamento consolidados nos PRs #110–#113; fan-out e preservação do compositor no PR3
 
 ## Relação com a AEP-0056
 

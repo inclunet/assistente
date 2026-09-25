@@ -1,4 +1,4 @@
-import { useImperativeHandle } from 'react';
+import { useImperativeHandle, useRef } from 'react';
 
 import type { RichTextEditorHandle } from './RichTextEditor';
 import type { EditorLike } from './richMarkdownSync';
@@ -14,8 +14,6 @@ type Args = {
   markdown: string;
   markdownSync: MarkdownSyncLike;
   openLinkDialog: () => Promise<void>;
-  applyMermaidById: (mermaidBlockId: string, nextCode: string) => boolean;
-  removeMermaidById: (mermaidBlockId: string) => boolean;
 };
 
 export function useRichTextEditorHandle({
@@ -24,26 +22,26 @@ export function useRichTextEditorHandle({
   markdown,
   markdownSync,
   openLinkDialog,
-  applyMermaidById,
-  removeMermaidById,
 }: Args) {
+  const live = useRef({ editor, markdown, markdownSync, openLinkDialog });
+  live.current = { editor, markdown, markdownSync, openLinkDialog };
   useImperativeHandle(
     ref,
     () => ({
       getMarkdown: () => {
-        if (!editor) return String(markdown || '');
-        return markdownSync.getMarkdownNow(editor);
+        if (live.current.editor !== editor) return '';
+        if (!editor) return String(live.current.markdown || '');
+        return live.current.markdownSync.getMarkdownNow(editor);
       },
       flushMarkdown: () => {
-        if (!editor) return;
-        markdownSync.flushNow(editor);
+        if (!editor || live.current.editor !== editor) return;
+        live.current.markdownSync.flushNow(editor);
       },
       openLinkDialog: async () => {
-        await openLinkDialog();
+        if (live.current.editor !== editor) return;
+        await live.current.openLinkDialog();
       },
-      applyMermaidById,
-      removeMermaidById,
     }),
-    [applyMermaidById, editor, markdown, markdownSync, openLinkDialog, removeMermaidById]
+    [editor]
   );
 }

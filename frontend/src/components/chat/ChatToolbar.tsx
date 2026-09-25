@@ -1,10 +1,10 @@
 import { logger } from '../../utils/logger';
 import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ClearOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigationStore } from '../../store/navigationStore';
-import { ClearConversation } from '@wailsjs/go/wailsapi/Conversations';
+import { CHAT_CLEAR_COMMAND, registerChatClearSurface, requestChatClear } from '../../lib/commandChatClear';
 import { GetActiveProfileSlug, GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 import { GetLLMProvidersWithStatus } from '@wailsjs/go/wailsapi/LLMProviders';
 import { EventsOn } from '@wailsjs/runtime/runtime';
@@ -16,8 +16,10 @@ import { Menu, type MenuItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
-import { isModalOpen, useIsInsideModal, useModalIsTopmost } from '../ui/Modal';
+import { isModalOpen, useIsInsideModal, useModalIsTopmost, useModalId } from '../ui/Modal';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useAuthStore } from '../../store/authStore';
+import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { useUIStore } from '../../store/uiStore';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
@@ -27,8 +29,9 @@ import { PinnedMessagesModal } from './PinnedMessagesModal';
 import { useChatSession } from './ChatSessionContext';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
-import { SHORTCUTS } from '../../constants/chat';
 import { isEditableKeyboardTarget } from '../../lib/decisionMnemonic';
+import { registerChatPickerSurface, requestChatPresentationCommand, type ChatPickerCommandID } from '../../lib/commandChatPickers';
+import { useCommandShortcutHints } from '../../lib/commandShortcutHints';
 import './ChatToolbar.css';
 
 const DEFAULT_ROUTING_SENTINEL = '$default';
@@ -103,35 +106,6 @@ function hasVisibleShortcutOverlay(): boolean {
   ).some(isVisibleShortcutOverlay);
 }
 
-function canOpenModelPickerFromShortcut(
-  event: KeyboardEvent,
-  canHandleCurrentModal: boolean,
-): boolean {
-  if (
-    event.defaultPrevented
-    || event.isComposing
-    || event.keyCode === 229
-    || event.repeat
-    || !event.ctrlKey
-    || event.shiftKey
-    || event.altKey
-    || event.metaKey
-    || event.key.toLowerCase() !== 'm'
-    || (isModalOpen() && !canHandleCurrentModal)
-  ) {
-    return false;
-  }
-
-  const target = event.target instanceof Element ? event.target : null;
-  if (target?.closest('[data-testid="chat-input"]')) return !hasVisibleShortcutOverlay();
-  if (target instanceof HTMLElement && target.isContentEditable) return false;
-  if (target?.closest(MODEL_SHORTCUT_BLOCKED_TARGETS)) return false;
-
-  // Menus e pickers são portalados ou podem estar fora do alvo do evento.
-  // Enquanto qualquer um estiver aberto, Ctrl+M pertence à interação corrente.
-  return !hasVisibleShortcutOverlay();
-}
-
 export type ChatToolbarConversationChangeHandler = (
   conversationId: string,
   conversation: { title?: string },
@@ -158,15 +132,15 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const {
     conversationId: sessionConversationId,
     session,
     conversation: activeConversation,
     isLoading,
-    clearConversationMessages,
     loadConversationSession,
   } = useChatSession();
-  const { tab: panelTab } = useWorkspacePanel();
+  const { tab: panelTab, isActive: isPanelActive } = useWorkspacePanel();
   const effectiveConversationId = sessionConversationId || conversationId || null;
   const queuedTurnCount = session?.queuedTurnCount ?? 0;
   const { announce, announceRequest } = useAnnouncer();
@@ -174,6 +148,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
   const isInsideModal = useIsInsideModal();
   const isModalTopmost = useModalIsTopmost();
+  const modalId = useModalId();
 
   const workspace = useWorkspaceStore((s) => s.workspace);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
@@ -192,11 +167,56 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const toolbarRef = useRef<HTMLDivElement>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
   const profileContainerRef = useRef<HTMLDivElement>(null);
+  const modelPickerContainerRef = useRef<HTMLDivElement>(null);
+  const pickerSurfaceInstanceIdRef = useRef<string>(
+    `chat-toolbar-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+  );
   const previousQueueConversationIdRef = useRef<string | null | undefined>(undefined);
   const previousQueuedTurnCountRef = useRef<number | null>(null);
+  const shortcutHint = useCommandShortcutHints('chat');
+  const clearShortcut = shortcutHint(CHAT_CLEAR_COMMAND);
+  const historyShortcut = shortcutHint('chat.history.open');
+  const modelShortcut = shortcutHint('chat.model.open');
+  const profileShortcut = shortcutHint('chat.profile.open');
 
-  const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
-  const [isPinnedModalOpen, setIsPinnedModalOpen] = useState(false);
+  const [presentation, setPresentation] = useState<{
+    kind: 'pinned' | 'tokens'; conversationId: string; isCurrent: () => boolean;
+  } | null>(null);
+  const presentationContextRef = useRef({ effectiveConversationId, tabId: panelTab.id, modalId, enableShortcuts, pathname });
+  presentationContextRef.current = { effectiveConversationId, tabId: panelTab.id, modalId, enableShortcuts, pathname };
+  const openConversationPresentation = useCallback((kind: 'pinned' | 'tokens') => {
+    const captured = presentationContextRef.current;
+    const owner = useAuthStore.getState().user;
+    const workspaceId = useWorkspaceStore.getState().workspace?.id;
+    if (!captured.effectiveConversationId || !owner || !workspaceId) return false;
+    let invalid = false;
+    const isCurrent = () => {
+      const live = presentationContextRef.current;
+      const auth = useAuthStore.getState();
+      const ws = useWorkspaceStore.getState().workspace;
+      const chatModal = useWorkspaceChatModalStore.getState();
+      const valid = !invalid && live.enableShortcuts && auth.isAuthenticated &&
+        auth.user?.userId === owner.userId && auth.user?.sessionId === owner.sessionId &&
+        ws?.id === workspaceId && live.tabId === captured.tabId && live.modalId === captured.modalId &&
+        live.effectiveConversationId === captured.effectiveConversationId && live.pathname === captured.pathname &&
+        (captured.modalId !== null
+          ? chatModal.isOpen && chatModal.boundConversationId === captured.effectiveConversationId &&
+            ws.activeTabId === captured.tabId && ws.tabs.some(tab => tab.id === captured.tabId && tab.conversationId === captured.effectiveConversationId)
+          : ws.activeTabId === captured.tabId && ws.tabs.some(tab => tab.id === captured.tabId && tab.conversationId === captured.effectiveConversationId));
+      if (!valid) invalid = true;
+      return Boolean(valid);
+    };
+    if (!isCurrent()) return false;
+    setPresentation({ kind, conversationId: captured.effectiveConversationId, isCurrent });
+    return true;
+  }, []);
+  useEffect(() => {
+    if (!presentation) return;
+    const changed = () => { if (!presentation.isCurrent()) setPresentation(null); };
+    const subscriptions = [useAuthStore.subscribe(changed), useWorkspaceStore.subscribe(changed), useWorkspaceChatModalStore.subscribe(changed)];
+    changed();
+    return () => subscriptions.forEach(unsubscribe => unsubscribe());
+  }, [presentation]);
   const [activeProfileSlug, setActiveProfileSlug] = useState<string>('padrao');
   const [nativeModelProviderID, setNativeModelProviderID] = useState<string | null>(null);
   const [modelOverrideUpdating, setModelOverrideUpdating] = useState(false);
@@ -303,87 +323,137 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     }, 100);
   }, [inputRef]);
 
-  const handleClearConversation = useCallback(async () => {
-    try {
-      const conv = activeConversation;
-
-      if (conv?.id) {
-        await ClearConversation(conv.id);
-        await loadConversationSession(conv.id, { refreshSurfaceWindows: true });
-      } else if (effectiveConversationId) {
-        clearConversationMessages(effectiveConversationId);
-      }
-
-      announce(t('chat.conversationCleared'));
-    } catch (error) {
-      logger.error('[ChatToolbar] Erro ao limpar conversa:', error);
-      announce(t('chat.clearError'));
-    }
-    focusInput();
-  }, [announce, activeConversation, clearConversationMessages, effectiveConversationId, focusInput, loadConversationSession]);
+  const handleClearConversation = useCallback(() => requestChatClear(pickerSurfaceInstanceIdRef.current), []);
 
   const canHandleShortcut = useCallback(() => {
     if (!isModalOpen()) return true;
     return isInsideModal && isModalTopmost();
   }, [isInsideModal, isModalTopmost]);
 
+  const canOpenChatPicker = useCallback((commandID: ChatPickerCommandID, target: EventTarget | null) => {
+    if (!canHandleShortcut() || hasVisibleShortcutOverlay()) return false;
+    const element = target instanceof Element ? target : null;
+    if (isCaptureShortcutBlockedTarget(element)) return false;
+    if (commandID === 'chat.pinned.open' || commandID === 'chat.tokens.open') return Boolean(effectiveConversationId);
+    const isChatInput = Boolean(element?.closest('[data-testid="chat-input"]'));
+    if (commandID === 'chat.model.open' && !isChatInput && element?.closest(MODEL_SHORTCUT_BLOCKED_TARGETS)) return false;
+    const trigger = commandID === 'chat.model.open'
+      ? modelPickerContainerRef.current?.querySelector<HTMLButtonElement>('[data-chat-picker="model"] button.picker-button')
+      : (commandID === 'chat.history.open' ? historyContainerRef.current : profileContainerRef.current)
+        ?.querySelector<HTMLButtonElement>('button.picker-button');
+    return Boolean(trigger && !trigger.disabled);
+  }, [canHandleShortcut, effectiveConversationId]);
+
+  const openChatPicker = useCallback((commandID: ChatPickerCommandID) => {
+    if (commandID === 'chat.pinned.open') return openConversationPresentation('pinned');
+    if (commandID === 'chat.tokens.open') return openConversationPresentation('tokens');
+    if (commandID === 'chat.model.open') {
+      const trigger = modelPickerContainerRef.current?.querySelector<HTMLButtonElement>('[data-chat-picker="model"] button.picker-button');
+      if (!trigger || trigger.disabled) return false;
+      trigger.click();
+      return true;
+    }
+    const container = commandID === 'chat.history.open' ? historyContainerRef.current : profileContainerRef.current;
+    const trigger = container?.querySelector<HTMLButtonElement>('button.picker-button');
+    if (!trigger || trigger.disabled) return false;
+    trigger.click();
+    return true;
+  }, [openConversationPresentation]);
+
   useEffect(() => {
-    if (!enableShortcuts) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase();
-      const isToolbarShortcut = e.ctrlKey
-        && !e.shiftKey
-        && !e.altKey
-        && !e.metaKey
-        && !e.isComposing
-        && e.keyCode !== 229
-        && !e.repeat
-        && ['m', 'l', 'h', 'p'].includes(key);
-      if (!isToolbarShortcut) return;
-      const target = e.target instanceof Element ? e.target : null;
-      if (hasVisibleShortcutOverlay()) {
-        if (key !== 'm') e.preventDefault();
-        return;
-      }
-      if (isCaptureShortcutBlockedTarget(target)) return;
-
-      if (canOpenModelPickerFromShortcut(e, canHandleShortcut())) {
-        const trigger = toolbarRef.current?.querySelector<HTMLButtonElement>(
-          `button.picker-button[data-shortcut="${SHORTCUTS.MODELS}"]`,
-        );
-        if (trigger && !trigger.disabled) {
-          e.preventDefault();
-          trigger.click();
-        }
-        return;
-      }
-      // Sempre previne o default do navegador (Ctrl+L/H/P), mas só age quando
-      // não há modal aberto ou quando este toolbar pertence ao modal do topo.
-      if (key === 'l') {
-        e.preventDefault();
-        if (!canHandleShortcut()) return;
-        if (isLoading) return;
-        void handleClearConversation();
-      }
-      else if (key === 'h') {
-        e.preventDefault();
-        if (!canHandleShortcut()) return;
-        const btn = historyContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
-        btn?.click();
-      }
-      else if (key === 'p') {
-        e.preventDefault();
-        if (!canHandleShortcut()) return;
-        const btn = profileContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
-        btn?.click();
-      }
+    if (!enableShortcuts || !workspace?.id || !toolbarRef.current) return;
+    const registrationAuth = useAuthStore.getState();
+    const registrationOwnerId = registrationAuth.user?.userId;
+    const registrationSessionId = registrationAuth.user?.sessionId;
+    if (!registrationOwnerId || !registrationSessionId) return;
+    const registrationConversationId = modalId !== null
+      ? useWorkspaceChatModalStore.getState().boundConversationId
+      : useWorkspaceStore.getState().workspace?.tabs.find((tab) => tab.id === panelTab.id)?.conversationId ?? effectiveConversationId;
+    const registration = {
+      root: toolbarRef.current,
+      workspaceId: workspace.id,
+      ownerId: registrationOwnerId,
+      sessionId: registrationSessionId,
+      tabId: panelTab.id,
+      conversationId: registrationConversationId,
+      instanceId: pickerSurfaceInstanceIdRef.current,
+      generation: `${panelTab.id}:${effectiveConversationId ?? ''}:${modalId ?? 'page'}`,
+      modalId: modalId ?? undefined,
+      allowedCommandIds: ['chat.model.open', 'chat.history.open', 'chat.profile.open', 'chat.pinned.open', 'chat.tokens.open'] as const,
+      isActive: () => modalId !== null
+        ? isModalTopmost()
+        : useWorkspaceStore.getState().workspace?.activeTabId === panelTab.id,
+      isCurrent: () => {
+        const auth = useAuthStore.getState();
+        const currentWorkspace = useWorkspaceStore.getState().workspace;
+        const currentConversationId = modalId !== null
+          ? useWorkspaceChatModalStore.getState().boundConversationId
+          : currentWorkspace?.tabs.find((tab) => tab.id === panelTab.id)?.conversationId ?? effectiveConversationId;
+        return auth.isAuthenticated &&
+          auth.user?.userId === registrationOwnerId &&
+          auth.user?.sessionId === registrationSessionId &&
+          currentWorkspace?.id === workspace.id &&
+          currentConversationId === registrationConversationId &&
+          (modalId !== null || currentWorkspace.activeTabId === panelTab.id);
+      },
+      isRouteCurrent: (pathname: string) => modalId !== null || pathname === '/' || pathname === '',
+      subscribe: (onChange: () => void) => {
+        const unsubs = [
+          useAuthStore.subscribe(() => onChange()),
+          useWorkspaceStore.subscribe(() => onChange()),
+          useWorkspaceChatModalStore.subscribe(() => onChange()),
+        ];
+        return () => unsubs.forEach((unsubscribe) => unsubscribe());
+      },
+      canOpen: canOpenChatPicker,
+      open: openChatPicker,
     };
+    return registerChatPickerSurface(registration);
+  }, [
+    canOpenChatPicker,
+    effectiveConversationId,
+    enableShortcuts,
+    isPanelActive,
+    modalId,
+    openChatPicker,
+    panelTab.id,
+    workspace?.id,
+  ]);
 
-    // A captura mantém estes atalhos disponíveis quando a superfície focada
-    // contém o bubbling (por exemplo, após sair de um menu com Escape).
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [canHandleShortcut, enableShortcuts, handleClearConversation, isLoading]);
+  const clearPresentationRef = useRef({ canHandleShortcut, announce, t, inputRef });
+  clearPresentationRef.current = { canHandleShortcut, announce, t, inputRef };
+
+  useEffect(() => {
+    const root = toolbarRef.current;
+    const owner = useAuthStore.getState().user;
+    const workspaceId = workspace?.id;
+    if (!root || !owner || !workspaceId || !effectiveConversationId || isLoading || queuedTurnCount > 0 || !enableShortcuts) return;
+    const current = () => {
+      const auth = useAuthStore.getState();
+      const ws = useWorkspaceStore.getState().workspace;
+      const tab = ws?.tabs.find(item => item.id === panelTab.id);
+      return auth.isAuthenticated && auth.user?.userId === owner.userId && auth.user.sessionId === owner.sessionId &&
+        ws?.id === workspaceId && ws.activeTabId === panelTab.id && tab?.conversationId === effectiveConversationId &&
+        (modalId === null || (useWorkspaceChatModalStore.getState().isOpen &&
+          useWorkspaceChatModalStore.getState().boundConversationId === effectiveConversationId));
+    };
+    return registerChatClearSurface({
+      root, instanceId: pickerSurfaceInstanceIdRef.current, modalId: modalId ?? undefined,
+      isCurrent: current,
+      canStart: keyboardTarget => current() && isVisibleShortcutOverlay(root) &&
+        clearPresentationRef.current.canHandleShortcut() && !hasVisibleShortcutOverlay() &&
+        !isCaptureShortcutBlockedTarget(keyboardTarget instanceof Element ? keyboardTarget : null),
+      subscribe: changed => {
+        const subscriptions = [useAuthStore.subscribe(changed), useWorkspaceStore.subscribe(changed), useWorkspaceChatModalStore.subscribe(changed)];
+        return () => subscriptions.forEach(unsubscribe => unsubscribe());
+      },
+      succeeded: () => {
+        const presentation = clearPresentationRef.current;
+        presentation.announce(presentation.t('chat.conversationCleared'));
+        presentation.inputRef?.current?.focus();
+      },
+    });
+  }, [workspace?.id, panelTab.id, effectiveConversationId, modalId, isLoading, queuedTurnCount, enableShortcuts]);
 
   const handleProfileChange = useCallback(async (slug: string) => {
     try {
@@ -525,12 +595,12 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
             <ToolbarButton
               label={t('chat.clearBtn')}
               icon={<ClearOutlined />}
-              shortcut="Ctrl+L"
+              shortcut={clearShortcut}
               title={t('chat.clearDescription')}
-              aria-label={t('chat.clearBtn')}
+              aria-label={clearShortcut ? `${t('chat.clearBtn')}, ${clearShortcut}` : t('chat.clearBtn')}
               variant="danger"
               onClick={() => void handleClearConversation()}
-              disabled={isLoading}
+              disabled={isLoading || queuedTurnCount > 0 || !effectiveConversationId}
             />
 
             <div ref={historyContainerRef}>
@@ -540,6 +610,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 onChange={handleHistoryChange}
                 label={t('chat.historyBtn')}
                 description={t('chat.historyDescription')}
+                shortcut={historyShortcut}
                 maxWidth="200px"
                 onAnnounce={announce}
                 disabled={isLoading}
@@ -553,43 +624,47 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
               icon="📌"
               title={t('chat.pins.buttonDescription')}
               aria-label={t('chat.pins.button')}
-              onClick={() => setIsPinnedModalOpen(true)}
+              onClick={() => requestChatPresentationCommand('chat.pinned.open', pickerSurfaceInstanceIdRef.current)}
               disabled={!effectiveConversationId}
             />
 
             <ToolbarSeparator />
 
             <TokenStatsButton
-              conversationId={activeConversation?.id}
-              onOpenModal={() => setIsTokenModalOpen(true)}
+              conversationId={effectiveConversationId ?? undefined}
+              onOpenModal={() => { requestChatPresentationCommand('chat.tokens.open', pickerSurfaceInstanceIdRef.current); }}
             />
 
             <ToolbarSeparator />
 
             {/* Modelo e modo do agente desta conversa. Só aparecem quando há
                 agente do outro lado com escolhas a oferecer (AEP-0084 D6). */}
-            <AgentOptionsPickers
-              conversationId={effectiveConversationId}
-              disabled={isLoading}
-              modelShortcut={SHORTCUTS.MODELS}
-            />
-
-            {nativeModelProviderID && (
-              <ModelPicker
-                value={(panelTab.profileOverride?.model as string | undefined) || DEFAULT_ROUTING_SENTINEL}
-                onChange={(model) => void handleNativeModelChange(model)}
-                providerID={nativeModelProviderID}
-                variant="toolbar"
-                label={t('chat.modelOverride.label')}
-                placeholder={t('pickers.model.filterPlaceholder')}
-                description={t('chat.modelOverride.description')}
-                shortcut={SHORTCUTS.MODELS}
-                disabled={isLoading || modelOverrideUpdating}
-                includeDefaultOption
-                defaultOptionLabel={t('chat.modelOverride.profileDefault')}
-                onAnnounce={announce}
+            <div ref={modelPickerContainerRef} data-chat-pickers="model-options" style={{ display: 'contents' }}>
+              <AgentOptionsPickers
+                conversationId={effectiveConversationId}
+                disabled={isLoading}
+                modelShortcut={modelShortcut}
               />
-            )}
+
+              {nativeModelProviderID && (
+                <div data-chat-picker="model" style={{ display: 'contents' }}>
+                  <ModelPicker
+                    value={(panelTab.profileOverride?.model as string | undefined) || DEFAULT_ROUTING_SENTINEL}
+                    onChange={(model) => void handleNativeModelChange(model)}
+                    providerID={nativeModelProviderID}
+                    variant="toolbar"
+                    label={t('chat.modelOverride.label')}
+                    placeholder={t('pickers.model.filterPlaceholder')}
+                    description={t('chat.modelOverride.description')}
+                    shortcut={modelShortcut}
+                    disabled={isLoading || modelOverrideUpdating}
+                    includeDefaultOption
+                    defaultOptionLabel={t('chat.modelOverride.profileDefault')}
+                    onAnnounce={announce}
+                  />
+                </div>
+              )}
+            </div>
 
             {/* Diretório em que o agente desta conversa trabalha. Fica à vista
                 porque é o alcance do que ele pode ler e editar (AEP-0084 D5). */}
@@ -610,6 +685,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 variant="toolbar"
                 label={t('workspace.tabProfileLabel', 'Perfil')}
                 description={t('workspace.tabProfileDescription')}
+                shortcut={profileShortcut}
                 icon=""
                 maxWidth="180px"
                 onAnnounce={announce}
@@ -631,21 +707,23 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         onSelect={onSelectContextMenuItem}
       />
 
-      {effectiveConversationId && (
+      {presentation?.kind === 'pinned' && presentation.isCurrent() && (
         <PinnedMessagesModal
-          conversationId={effectiveConversationId}
-          isOpen={isPinnedModalOpen}
-          onClose={() => setIsPinnedModalOpen(false)}
+          conversationId={presentation.conversationId}
+          isOpen
+          onClose={() => setPresentation(null)}
         />
       )}
 
-      {activeConversation?.id && (
-        <TokenStatsModal
-          conversationId={activeConversation.id}
-          isOpen={isTokenModalOpen}
-          onClose={() => setIsTokenModalOpen(false)}
-        />
-      )}
+      {/* Keep the modal component mounted while closed so Modal observes the
+          isOpen true → false transition and can restore the default focus. */}
+      <TokenStatsModal
+        conversationId={presentation?.kind === 'tokens'
+          ? presentation.conversationId
+          : effectiveConversationId ?? ''}
+        isOpen={presentation?.kind === 'tokens' && presentation.isCurrent()}
+        onClose={() => setPresentation(null)}
+      />
     </>
   );
 };

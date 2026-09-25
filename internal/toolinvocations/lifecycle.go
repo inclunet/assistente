@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"assistente/internal/commandcatalog"
 	"assistente/internal/logging"
 	"assistente/internal/tools"
 
@@ -28,8 +29,11 @@ func logInvocationPersistenceFailure(ctx context.Context, stage string, origin O
 type invocationStart struct {
 	call               tools.ToolCall
 	persistedArguments *string
+	sensitivePaths     commandcatalog.SensitivePaths
 	origin             Origin
 	parentID           string
+	toolCatalogID      string
+	requireCanonical   bool
 	dryRun, external   bool
 	iteration          int
 	observation        *ExternalObservation
@@ -42,12 +46,16 @@ type invocationOutcome struct {
 	errorCode                    string
 	retryable, retryabilityKnown bool
 	durationMs                   int64
+	deleteOnFailure              bool
 }
 
 func (r invocationStart) persistenceCall() tools.ToolCall {
 	call := r.call
 	if r.persistedArguments != nil {
 		call.Function.Arguments = *r.persistedArguments
+	}
+	if len(r.sensitivePaths.Input) > 0 {
+		call.Function.Arguments = redactArgumentsJSONWithPaths(call.Function.Arguments, r.sensitivePaths.Input)
 	}
 	return call
 }
@@ -66,6 +74,33 @@ func (s *Service) resolveInvocationCatalog(ctx context.Context, req invocationSt
 			return invocationCatalog{}, fmt.Errorf("archival catalog name is required")
 		}
 		return invocationCatalog{archivalName: name}, nil
+	}
+	providedID := strings.TrimSpace(req.toolCatalogID)
+	if req.requireCanonical {
+		if providedID == "" {
+			return invocationCatalog{}, ErrCanonicalToolCatalogIDRequired
+		}
+		opCtx, cancel := s.persistOpCtx(ctx)
+		visible, visibilityErr := s.repo.IsToolCatalogIDVisible(opCtx, providedID)
+		cancel()
+		if visibilityErr == nil && visible {
+			opCtx, cancel = s.persistOpCtx(ctx)
+			resolvedID, resolveErr := s.repo.ResolveToolCatalogID(opCtx, req.call.Function.Name)
+			cancel()
+			if resolveErr == nil && strings.TrimSpace(resolvedID) == providedID {
+				return invocationCatalog{id: providedID}, nil
+			}
+			if req.requireCanonical && resolveErr == nil {
+				return invocationCatalog{}, ErrCanonicalToolCatalogMismatch
+			}
+			if req.requireCanonical {
+				return invocationCatalog{}, fmt.Errorf("canonical tool catalog unavailable: %w", resolveErr)
+			}
+		}
+		if visibilityErr != nil {
+			return invocationCatalog{}, fmt.Errorf("canonical tool catalog unavailable: %w", visibilityErr)
+		}
+		return invocationCatalog{}, fmt.Errorf("canonical tool catalog unavailable")
 	}
 	opCtx, cancel := s.persistOpCtx(ctx)
 	defer cancel()
@@ -222,7 +257,11 @@ func (s *Service) finishInvocation(ctx context.Context, inv *Invocation, req inv
 	completedAt := s.now()
 	inv.Status, inv.DurationMs = outcome.status, outcome.durationMs
 	inv.ErrorKind, inv.ErrorCode = string(outcome.errorKind), outcome.errorCode
-	inv.ErrorMessage = s.truncateErrorForPersistence(outcome.message)
+	message := outcome.message
+	if len(req.sensitivePaths.Input) > 0 || len(req.sensitivePaths.Output) > 0 {
+		message = ""
+	}
+	inv.ErrorMessage = s.truncateErrorForPersistence(message)
 	inv.Retryable, inv.RetryabilityKnown = outcome.retryable, outcome.retryabilityKnown
 	if req.observation != nil {
 		completedAt = inv.QueuedAt.Add(time.Duration(outcome.durationMs) * time.Millisecond)
@@ -230,7 +269,7 @@ func (s *Service) finishInvocation(ctx context.Context, inv *Invocation, req inv
 		// Nenhum payload foi observado; não inventar detalhes técnicos.
 		inv.ResultAvailability = "unavailable"
 	} else {
-		inv.Output = s.outputForPersistence(outcome.result)
+		inv.Output = s.outputForPersistence(outcome.result, req.sensitivePaths.Output)
 		populateOutputProjection(inv)
 		inv.Metadata = s.buildInvocationMetadata(req.persistenceCall(), req.iteration, outcome.durationMs, req.external, outcome.result)
 	}
@@ -241,6 +280,16 @@ func (s *Service) finishInvocation(ctx context.Context, inv *Invocation, req inv
 	if err != nil {
 		s.recordPersistenceFailure()
 		logging.Errorf(ctx, "toolinvocations.service", "failed to complete invocation (id=%s): %v", inv.ID, err)
+		if outcome.deleteOnFailure {
+			deleteCtx, deleteCancel := s.persistOpCtx(persistCtx)
+			deleteErr := s.repo.Delete(deleteCtx, inv.ID)
+			deleteCancel()
+			if deleteErr != nil {
+				s.recordPersistenceFailure()
+				logInvocationPersistenceFailure(ctx, "delete_guarded_invocation", req.origin, inv.ID, deleteErr)
+			}
+			err = errors.Join(err, deleteErr)
+		}
 	}
 	return err
 }

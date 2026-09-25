@@ -2435,12 +2435,43 @@ func TestGetTaskListWithHierarchyPreservesDeepHierarchy(t *testing.T) {
 func TestAnalyzeImportDataRejectsUnsupportedVersion(t *testing.T) {
 	setupPortabilityTestDB(t)
 
-	_, err := AnalyzeImportData(`{"version":1,"resources":{"conversations":[]}}`, nil, "")
+	_, err := AnalyzeImportData(`{"version":999,"resources":{"conversations":[]}}`, nil, "")
 	if err == nil {
 		t.Fatal("AnalyzeImportData() error = nil, want unsupported version error")
 	}
-	if !strings.Contains(err.Error(), "versão de exportação não suportada: 1") {
+	if !strings.Contains(err.Error(), "versão de exportação não suportada: 999") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCanonicalVersionOneImportaEnvelopePublicadoSemAlterarIDs(t *testing.T) {
+	setupPortabilityTestDB(t)
+	raw := `{
+		"version": 1,
+		"exportedAt": "2026-09-15T12:00:00Z",
+		"appVersion": "baseline",
+		"options": {},
+		"resources": {
+			"conversations": [{
+				"id": "0198b300-0000-7000-8000-000000000901",
+				"title": "fixture-baseline",
+				"createdAt": "2026-09-15T12:00:00Z",
+				"messages": [{
+					"id": "0198b300-0000-7000-8000-000000000902",
+					"role": "user",
+					"content": "fixture",
+					"createdAt": "2026-09-15T12:00:00Z"
+				}]
+			}]
+		}
+	}`
+	result, err := ImportConversationsWithContext(portabilityTestCtx(), raw, nil, "")
+	if err != nil || !result.Success || result.Imported != 1 {
+		t.Fatalf("import version 1 não foi normalizado: result=%+v err=%v", result, err)
+	}
+	file, _, err := parseExportFile(raw)
+	if err != nil || file.Version != ExportVersion || file.Resources.Conversations[0].ID != "0198b300-0000-7000-8000-000000000901" {
+		t.Fatalf("normalização alterou envelope/ID: file=%+v err=%v", file, err)
 	}
 }
 
@@ -2592,11 +2623,11 @@ func TestImportConversationsWarnsAboutUnsupportedResourceTypes(t *testing.T) {
 func TestImportConversationsRejectsUnsupportedVersion(t *testing.T) {
 	setupPortabilityTestDB(t)
 
-	_, err := ImportConversationsWithContext(portabilityTestCtx(), `{"version":1,"resources":{"conversations":[]}}`, nil, "")
+	_, err := ImportConversationsWithContext(portabilityTestCtx(), `{"version":999,"resources":{"conversations":[]}}`, nil, "")
 	if err == nil {
 		t.Fatal("ImportConversations() error = nil, want unsupported version error")
 	}
-	if !strings.Contains(err.Error(), "versão de exportação não suportada: 1") {
+	if !strings.Contains(err.Error(), "versão de exportação não suportada: 999") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

@@ -1,4 +1,5 @@
 import { CodeOutlined } from '@ant-design/icons';
+import type { Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BasePicker } from './BasePicker';
 import type { SessionInfo } from '../../store/terminalStore';
@@ -10,6 +11,7 @@ interface TerminalPickerProps {
   onChange: (sessionId: string) => void;
   onOpen?: () => void;
   onAnnounce?: (message: string) => void;
+  triggerRef?: Ref<HTMLButtonElement>;
 }
 
 export function TerminalPicker({
@@ -19,6 +21,7 @@ export function TerminalPicker({
   onChange,
   onOpen,
   onAnnounce,
+  triggerRef,
 }: TerminalPickerProps) {
   const { t } = useTranslation();
   const items = sessions.map((session) => ({
@@ -45,6 +48,7 @@ export function TerminalPicker({
       maxWidth="260px"
       onAnnounce={onAnnounce}
       onOpen={onOpen}
+      triggerRef={triggerRef}
       showLoadingState={false}
       showEmptyState
       wrapCombobox={false}

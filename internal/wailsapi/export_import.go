@@ -27,6 +27,10 @@ type importConversationsFunc func(
 	func([]string),
 ) (*portability.ImportResult, error)
 
+type commandImportFunc func(context.Context, portability.ImportRequest) (*portability.ImportResult, error)
+
+type commandExportFunc func(context.Context, portability.ExportRequest) (string, error)
+
 type ExportImport struct {
 	mu                         sync.RWMutex
 	session                    Session
@@ -35,6 +39,8 @@ type ExportImport struct {
 	appVersion                 string
 	prepareConversationRestore func(context.Context) (func([]string), error)
 	importConversations        importConversationsFunc
+	importCommandLayers        commandImportFunc
+	commandExport              commandExportFunc
 }
 
 // NewExportImport cria o bind vazio; AttachExportImport preenche deps no startup.
@@ -49,6 +55,20 @@ func (api *ExportImport) importer() importConversationsFunc {
 		return portability.ImportConversationsWithRestoreHook
 	}
 	return api.importConversations
+}
+
+func (api *ExportImport) commandImporter() commandImportFunc {
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+	return api.importCommandLayers
+}
+
+func (api *ExportImport) dispatchCommandImport(ctx context.Context, req portability.ImportRequest) (*portability.ImportResult, error) {
+	importFn := api.commandImporter()
+	if importFn == nil {
+		return nil, ErrExportImportNotWired
+	}
+	return importFn(ctx, req)
 }
 
 // AttachExportImport associa Session, credenciais, diálogo e versão após o startup.
@@ -71,6 +91,48 @@ func AttachExportImport(
 	api.dialog = dialog
 	api.appVersion = appVersion
 	api.prepareConversationRestore = prepareConversationRestore
+}
+
+// AttachCommandImport associa o importador confiável de commandLayers ao bind.
+// Função de pacote para não entrar na superfície Bind do Wails. O callback
+// recebe o contexto já autenticado por WithUser e o ImportRequest existente;
+// o bind não conhece o writer nem cria um DTO paralelo.
+func AttachCommandImport(api *ExportImport, importFn func(context.Context, portability.ImportRequest) (*portability.ImportResult, error)) {
+	if api == nil {
+		return
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.importCommandLayers = importFn
+}
+
+// AttachCommandExport associa o exportador confiável de commandLayers ao
+// bind. A função de pacote mantém o callback fora da superfície Bind do Wails;
+// ele recebe o contexto já autenticado por WithUser e o request validado.
+func AttachCommandExport(api *ExportImport, exportFn func(context.Context, portability.ExportRequest) (string, error)) {
+	if api == nil {
+		return
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.commandExport = exportFn
+}
+
+func (api *ExportImport) commandExporter() commandExportFunc {
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+	return api.commandExport
+}
+
+func (api *ExportImport) dispatchCommandExport(ctx context.Context, req portability.ExportRequest) (string, error) {
+	if err := portability.ValidateCommandExportRequest(req); err != nil {
+		return "", err
+	}
+	exportFn := api.commandExporter()
+	if exportFn == nil {
+		return "", ErrExportImportNotWired
+	}
+	return exportFn(ctx, req)
 }
 
 func (api *ExportImport) deps() (Session, *credentials.Manager, func() ports.SystemDialogPort, string, func(context.Context) (func([]string), error), error) {
@@ -102,6 +164,9 @@ func (api *ExportImport) ExportData(req portability.ExportRequest) (string, erro
 		return "", err
 	}
 	return WithUser(session, func(ctx context.Context) (string, error) {
+		if isCommandExportRequest(req) {
+			return api.dispatchCommandExport(ctx, req)
+		}
 		return exportData(ctx, credMgr, appVersion, req)
 	})
 }
@@ -187,6 +252,19 @@ func (api *ExportImport) ExportDataToFile(req portability.ExportRequest, path st
 		if req.OutputFormat == "" {
 			req.OutputFormat = portability.FormatJSON
 		}
+		if isCommandExportRequest(req) {
+			rendered, err := api.dispatchCommandExport(ctx, req)
+			if err != nil {
+				return "", err
+			}
+			if err := os.WriteFile(path, []byte(rendered), 0600); err != nil {
+				return "", err
+			}
+			if err := ensureExportFileMode(path); err != nil {
+				return "", err
+			}
+			return path, nil
+		}
 		originalReq := req
 		if err := validateDBOnlyExportRequest(req); err != nil {
 			return "", err
@@ -247,6 +325,9 @@ func (api *ExportImport) ImportConversations(jsonData string) (*portability.Impo
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*portability.ImportResult, error) {
+		if portability.HasCommandLayers(jsonData) {
+			return api.dispatchCommandImport(ctx, portability.ImportRequest{JSONData: jsonData})
+		}
 		return withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
 			return api.importer()(ctx, jsonData, credMgr, "", nil, finalize)
 		})
@@ -260,6 +341,12 @@ func (api *ExportImport) ImportData(jsonData string, credentialExportPassword st
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*portability.ImportResult, error) {
+		if portability.HasCommandLayers(jsonData) {
+			return api.dispatchCommandImport(ctx, portability.ImportRequest{
+				JSONData:                 jsonData,
+				CredentialExportPassword: credentialExportPassword,
+			})
+		}
 		return withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
 			return api.importer()(ctx, jsonData, credMgr, credentialExportPassword, nil, finalize)
 		})
@@ -273,6 +360,9 @@ func (api *ExportImport) ImportDataWithResolutions(req portability.ImportRequest
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*portability.ImportResult, error) {
+		if portability.HasCommandLayers(req.JSONData) {
+			return api.dispatchCommandImport(ctx, req)
+		}
 		return withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
 			return api.importer()(
 				ctx,
@@ -323,8 +413,25 @@ func (api *ExportImport) AnalyzeImportData(jsonData string, credentialExportPass
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*portability.ImportAnalysis, error) {
+		if portability.HasCommandLayers(jsonData) {
+			layers, err := portability.ParseCommandImportEnvelope([]byte(jsonData))
+			if err != nil {
+				return nil, err
+			}
+			if credentialExportPassword != "" {
+				return nil, fmt.Errorf("senha não é suportada para importação de commandLayers")
+			}
+			return &portability.ImportAnalysis{
+				Version:           portability.ExportVersion,
+				CommandLayerCount: len(layers),
+			}, nil
+		}
 		return portability.AnalyzeImportDataWithContext(ctx, jsonData, credMgr, credentialExportPassword)
 	})
+}
+
+func isCommandExportRequest(req portability.ExportRequest) bool {
+	return req.IncludeCommandLayers || len(req.CommandLayerIDs) > 0
 }
 
 func exportData(ctx context.Context, credMgr *credentials.Manager, appVersion string, req portability.ExportRequest) (string, error) {

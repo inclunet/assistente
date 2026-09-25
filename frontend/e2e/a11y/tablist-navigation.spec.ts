@@ -17,6 +17,8 @@ function multiTabWorkspace() {
   return {
     id: 'ws-1',
     name: 'Workspace',
+    snapshot_epoch: 'tablist-navigation-epoch',
+    snapshot_sequence: '1',
     profile: '',
     created_at: now,
     last_used: now,
@@ -31,11 +33,23 @@ function multiTabWorkspace() {
   };
 }
 
+function selectionAcknowledgement(
+  workspace: ReturnType<typeof multiTabWorkspace>,
+  active: string,
+  sequence: string,
+) {
+  return {
+    ...workspace,
+    snapshot_sequence: sequence,
+    tabs: { ...workspace.tabs, active },
+  };
+}
+
 test.describe('Tab list — navegação por setas', () => {
   test('ArrowRight ativa a próxima aba e atualiza roving tabindex', async ({ page, wails }) => {
     const ws = multiTabWorkspace();
     await wails.setResponse('GetActiveWorkspace', ws);
-    await wails.setResponse('SetActiveWorkspaceTab', undefined);
+    await wails.setResponse('SetActiveWorkspaceTabForWorkspace', selectionAcknowledgement(ws, 'tab-2', '2'));
     await wails.setResponse('EnsureConversation', {
       id: '01926b90-0000-7000-8000-000000000002', title: 'Aba 2',
       created_at: ws.created_at, updated_at: ws.created_at,
@@ -62,7 +76,7 @@ test.describe('Tab list — navegação por setas', () => {
     const ws = multiTabWorkspace();
     ws.tabs.active = 'tab-2';
     await wails.setResponse('GetActiveWorkspace', ws);
-    await wails.setResponse('SetActiveWorkspaceTab', undefined);
+    await wails.setResponse('SetActiveWorkspaceTabForWorkspace', selectionAcknowledgement(ws, 'tab-1', '2'));
     await wails.setResponse('EnsureConversation', {
       id: '01926b90-0000-7000-8000-000000000001', title: 'Aba 1',
       created_at: ws.created_at, updated_at: ws.created_at,
@@ -87,7 +101,7 @@ test.describe('Tab list — navegação por setas', () => {
     const ws = multiTabWorkspace();
     ws.tabs.active = 'tab-2';
     await wails.setResponse('GetActiveWorkspace', ws);
-    await wails.setResponse('SetActiveWorkspaceTab', undefined);
+    await wails.setResponse('SetActiveWorkspaceTabForWorkspace', selectionAcknowledgement(ws, 'tab-1', '2'));
     await wails.setResponse('EnsureConversation', {
       id: '01926b90-0000-7000-8000-000000000001', title: 'Aba 1',
       created_at: ws.created_at, updated_at: ws.created_at,
@@ -110,6 +124,7 @@ test.describe('Tab list — navegação por setas', () => {
     await expect.poll(async () => secondTab.evaluate((el) => (el as HTMLButtonElement).tabIndex)).toBe(-1);
 
     // End → última aba
+    await wails.setResponse('SetActiveWorkspaceTabForWorkspace', selectionAcknowledgement(ws, 'tab-3', '3'));
     await firstTab.press('End');
     const lastTab = page.locator('.ws-tabs [role="tab"]').last();
     await expect(lastTab).toHaveAttribute('aria-selected', 'true', { timeout: 3_000 });
@@ -120,10 +135,10 @@ test.describe('Tab list — navegação por setas', () => {
   test('Delete fecha a aba focada', async ({ page, wails }) => {
     const ws = multiTabWorkspace();
     await wails.setResponse('GetActiveWorkspace', ws);
-    await wails.setResponse('SetActiveWorkspaceTab', undefined);
     // Após fechar, retorna workspace com 2 abas
     const wsAfterClose = {
       ...ws,
+      snapshot_sequence: '2',
       tabs: {
         active: 'tab-1',
         items: ws.tabs.items.slice(0, 2),

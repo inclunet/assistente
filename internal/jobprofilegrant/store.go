@@ -29,6 +29,7 @@ var (
 	ErrProfileExpressionRequired = errors.New("input profile do job é obrigatório")
 	ErrAuthorizationNotGranted   = errors.New("authorization_not_granted")
 	ErrGrantGenerationChanged    = errors.New("grant_generation_changed")
+	ErrProfileRevocationPending  = errors.New("profile revocation already pending")
 )
 
 // DelegationConfig é o recorte de segurança usado no fingerprint.
@@ -262,12 +263,28 @@ func ensureEpochTx(tx *gorm.DB, userID, jobID, targetSlug, fingerprint string) (
 }
 
 func (s *Store) HasValid(ctx context.Context, jobID, targetSlug, fingerprint string) (bool, error) {
+	return s.hasValid(ctx, jobID, targetSlug, fingerprint, nil)
+}
+
+// HasValidGeneration revalida a geração exata transportada pelo executor de
+// comandos. Uma reautorização posterior não valida uma invocação antiga.
+// O ID é exclusivamente o UUID persistido, sem fallback por slug.
+// É uma consulta sem manutenção/escritas nem backoff sob o gate do executor.
+func (s *Store) HasValidGeneration(ctx context.Context, jobID, targetSlug, fingerprint string, generation uint64) (bool, error) {
+	return s.hasValid(ctx, jobID, targetSlug, fingerprint, &generation)
+}
+
+func (s *Store) hasValid(ctx context.Context, jobID, targetSlug, fingerprint string, generation *uint64) (bool, error) {
+	if s == nil || s.db == nil || s.now == nil || ctx == nil {
+		return false, ErrAuthorizationNotGranted
+	}
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
 		return false, err
 	}
 	valid := false
-	err = database.WithSQLiteBusyRetry(ctx, "job_profile_grants.has_valid", func() error {
+	query := func() error {
+		valid = false
 		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			config, currentErr := currentDelegationByDatabaseIDDB(ctx, tx, jobID)
 			if currentErr != nil {
@@ -276,27 +293,39 @@ func (s *Store) HasValid(ctx context.Context, jobID, targetSlug, fingerprint str
 			if config.Fingerprint != strings.TrimSpace(fingerprint) {
 				return nil
 			}
-			if revokeErr := revokeStaleTx(tx, userID, config.JobID, config.Fingerprint, s.now().UTC(), "configuração alterada"); revokeErr != nil {
-				return revokeErr
+			// O caminho legado conserva sua manutenção. A consulta de geração
+			// exata apenas recusa fingerprints antigos; nunca os revoga aqui.
+			if generation == nil {
+				if revokeErr := revokeStaleTx(tx, userID, config.JobID, config.Fingerprint, s.now().UTC(), "configuração alterada"); revokeErr != nil {
+					return revokeErr
+				}
 			}
 			var count int64
 			epochGeneration := tx.Model(&database.JobProfileGrantEpoch{}).
 				Select("generation").
 				Where("user_id = ? AND job_id = ? AND target_profile_slug = ? AND delegation_fingerprint = ?",
 					userID, config.JobID, strings.TrimSpace(targetSlug), config.Fingerprint)
-			if countErr := tx.Model(&database.JobProfileGrant{}).
+			query := tx.Model(&database.JobProfileGrant{}).
 				Where("user_id = ? AND job_id = ? AND target_profile_slug = ? AND delegation_fingerprint = ? AND revoked_at IS NULL",
 					userID, config.JobID, strings.TrimSpace(targetSlug), config.Fingerprint).
 				Where("NOT EXISTS (SELECT 1 FROM profile_grant_revocation_intents WHERE profile_grant_revocation_intents.target_profile_slug = job_profile_grants.target_profile_slug)").
-				Where("generation = (?)", epochGeneration).
-				Count(&count).Error; countErr != nil {
+				Where("generation = (?)", epochGeneration)
+			if generation != nil {
+				query = query.Where("generation = ?", *generation)
+			}
+			if countErr := query.Count(&count).Error; countErr != nil {
 				return countErr
 			}
 			valid = count > 0
 			return nil
 		})
-	})
-	return valid, err
+	}
+	if generation != nil {
+		err = query()
+	} else {
+		err = database.WithSQLiteBusyRetry(ctx, "job_profile_grants.has_valid", query)
+	}
+	return valid && err == nil, err
 }
 
 func (s *Store) ListValid(ctx context.Context, jobID string) ([]Grant, DelegationConfig, error) {
@@ -489,13 +518,17 @@ func (s *Store) BeginProfileRevocation(ctx context.Context, targetSlug, original
 		RequestedBy:       strings.TrimSpace(actor),
 	}
 	return database.WithSQLiteBusyRetry(ctx, "job_profile_grants.begin_profile_revocation", func() error {
-		return s.db.WithContext(ctx).Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "target_profile_slug"}},
-			DoUpdates: clause.Assignments(map[string]any{
-				"original_identity": row.OriginalIdentity,
-				"requested_by":      row.RequestedBy,
-			}),
-		}).Create(&row).Error
+		result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "target_profile_slug"}},
+			DoNothing: true,
+		}).Create(&row)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrProfileRevocationPending
+		}
+		return nil
 	})
 }
 
@@ -523,9 +556,29 @@ func (s *Store) ReconcileProfileRevocations(ctx context.Context) error {
 }
 
 func (s *Store) RevokeProfileGlobal(ctx context.Context, targetSlug, actor string) error {
+	notify, err := s.RevokeProfileGlobalDeferred(ctx, targetSlug, actor)
+	if err != nil {
+		return err
+	}
+	if notify != nil {
+		notify()
+	}
+	return nil
+}
+
+// RevokeProfileGlobalDeferred revoga grants e desabilita os jobs na mesma
+// transação, mas devolve a publicação da reconciliação para o caller. Isso é
+// necessário quando a transação é chamada durante o lock do profiles.Manager:
+// o callback de produção pode reler o Manager e não pode reentrar nele antes
+// de o commit coordenado liberar seu lock.
+func (s *Store) RevokeProfileGlobalDeferred(ctx context.Context, targetSlug, actor string) (func(), error) {
 	now := s.now().UTC()
 	var disabled []DisabledJob
 	err := database.WithSQLiteBusyRetry(ctx, "job_profile_grants.revoke_profile", func() error {
+		// WithSQLiteBusyRetry pode executar a operação mais de uma vez; cada
+		// tentativa precisa produzir um recibo novo, nunca acumular jobs de uma
+		// tentativa que acabou em rollback.
+		disabled = nil
 		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			if err := tx.Model(&database.JobProfileGrantEpoch{}).
 				Where("target_profile_slug = ?", strings.TrimSpace(targetSlug)).
@@ -561,10 +614,17 @@ func (s *Store) RevokeProfileGlobal(ctx context.Context, targetSlug, actor strin
 				Delete(&database.ProfileGrantRevocationIntent{}).Error
 		})
 	})
-	if err == nil {
-		s.notifyJobsDisabled(disabled)
+	if err != nil {
+		return nil, err
 	}
-	return err
+	if len(disabled) == 0 {
+		return nil, nil
+	}
+	jobs := append([]DisabledJob(nil), disabled...)
+	// O recibo é idempotente: uma falha do caller não pode publicar duas vezes
+	// a mesma reconciliação se ele repetir a etapa de entrega.
+	var once sync.Once
+	return func() { once.Do(func() { s.notifyJobsDisabled(jobs) }) }, nil
 }
 
 func disableJobWithoutGrantTx(tx *gorm.DB, userID, jobID string) (*DisabledJob, error) {

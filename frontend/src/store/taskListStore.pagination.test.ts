@@ -17,6 +17,7 @@ vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({
 vi.mock('@wailsjs/go/wailsapi/TasklistActions', () => ({}));
 
 import { useTaskListStore } from './taskListStore';
+import { useAuthStore } from './authStore';
 
 function backendTask(id: string, order: number) {
   return {
@@ -56,6 +57,29 @@ function deferred<T>() {
 }
 
 describe('taskListStore pagination', () => {
+  it('não publica catálogo recebido de uma sessão anterior, mesmo após ABA', async () => {
+    const original = useAuthStore.getState();
+    const pending = deferred<ReturnType<typeof backendList>[]>();
+    getAllTaskLists.mockReturnValueOnce(pending.promise);
+    useAuthStore.setState({ isAuthenticated: true, user: { userId: 'a', sessionId: 'a', role: 'user' } });
+    const request = useTaskListStore.getState().fetchAllTaskLists();
+    useAuthStore.setState({ user: { userId: 'b', sessionId: 'b', role: 'user' } });
+    useAuthStore.setState({ user: { userId: 'a', sessionId: 'a', role: 'user' } });
+    pending.resolve([backendList()]);
+    try {
+      expect(await request).toEqual([]);
+      expect(useTaskListStore.getState().taskLists.size).toBe(0);
+    } finally { useAuthStore.setState(original); }
+  });
+  it('preserva o catálogo mais recente contra resposta antiga', async () => {
+    const pending = deferred<ReturnType<typeof backendList>[]>();
+    getAllTaskLists.mockReturnValueOnce(pending.promise).mockResolvedValueOnce([{ ...backendList(), title: 'new' }]);
+    const older = useTaskListStore.getState().fetchAllTaskLists();
+    await useTaskListStore.getState().fetchAllTaskLists();
+    pending.resolve([{ ...backendList(), title: 'old' }]);
+    expect(await older).toEqual([]);
+    expect(useTaskListStore.getState().taskLists.get('list-a')?.title).toBe('new');
+  });
   beforeEach(() => {
     getTaskListPage.mockReset();
     getAllTaskLists.mockReset();
@@ -242,6 +266,29 @@ describe('taskListStore pagination', () => {
     expect(cached?.description).toBe('Descrição nova');
     expect(cached?.tasks.map((task) => task.id)).toEqual(['task-a', 'task-b', 'task-c']);
     expect(useTaskListStore.getState().taskPages.get('list-a')?.totalCount).toBe(3);
+  });
+
+  it('propaga rejeição do backend ao atualizar e preserva o cache', async () => {
+    getTaskListPage.mockResolvedValueOnce({
+      task_list: backendList(),
+      tasks: [],
+      next_cursor: '',
+      has_more: false,
+      total_count: 0,
+    });
+    await useTaskListStore.getState().loadTaskList('list-a');
+
+    const backendError = new Error('falha real no UpdateTaskList');
+    updateTaskList.mockRejectedValueOnce(backendError);
+
+    await expect(
+      useTaskListStore.getState().updateTaskList('list-a', 'Nome não persistido', 'Descrição não persistida'),
+    ).rejects.toBe(backendError);
+
+    expect(updateTaskList).toHaveBeenCalledWith('list-a', 'Nome não persistido', 'Descrição não persistida');
+    expect(useTaskListStore.getState().errors.get('updateTaskList:list-a')).toContain('falha real no UpdateTaskList');
+    expect(useTaskListStore.getState().taskLists.get('list-a')?.title).toBe('Lista grande');
+    expect(useTaskListStore.getState().taskLists.get('list-a')?.description).toBe('');
   });
 
   it('serializa carregar mais com recarga disparada por evento', async () => {

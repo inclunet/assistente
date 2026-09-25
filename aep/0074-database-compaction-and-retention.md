@@ -2,6 +2,89 @@
 
 **Status:** Done
 
+**Extensão AEP-0103, 17/09/2026 — seção 27:** cada passagem do coordenador
+publica a fotografia validada de MaintenanceSettings no contexto interno.
+Criação/renovação de leases e retenção de ativações usam a mesma fotografia,
+sem alterar durações compartilhadas nem reabrir deadlines persistidos. A
+próxima passagem observa novos settings. O App permite recuperação de claims
+sem fonte mesmo sem workspace/UI disponível, mas não permite ativação ou
+renovação nesse estado. Erros de transação continuam erros, não ausência de
+contexto. O diagnóstico de falhas inclui etapa e contadores confirmados.
+Aceites e limites estão na tasklist; o gate integrado de restart de todos os
+domínios ainda não está certificado. Done acima continua restrito ao legado.
+
+**Atualização da extensão AEP-0103, seção 26 (16/09/2026):** a composição real
+está ligada no App antes de jobs.Start quando o armazenamento de comandos está
+pronto. Usa o timer existente, recuperação vinculada ao mesmo banco, heartbeat,
+outbox/purga bounded, retenções de comandos e adapters legados de jobs/tools e
+compactação. Falha de montagem impede Start; não instala fallback silencioso.
+Shutdown cancela e aguarda a passagem antes de liberar a instância. R04.1 está
+aceito; atualização dinâmica dos settings do Consumer e gate integrado de
+recuperação multiusuário/system permanecem pendentes. As notas abaixo são
+históricas; Done continua limitado ao escopo legado.
+
+**Extensão AEP-0103, 16/09/2026 — In Progress:** com o coordenador configurado,
+a passagem inicial agora pertence à única goroutine cancelável de manutenção,
+sem executar portas sob os locks de `Manager.Start`. Stop também drena essa
+primeira passagem. Heartbeat retoma o prefixo confirmado após falha; erros
+transitórios não viram rejeição definitiva e retenção sinaliza continuação
+após rollback. A composição completa do Consumer e a chamada produtiva de
+ConfigureCommandMaintenance ainda faltam. O recovery de restart registrado
+já está ligado ao bootstrap (seção 24 da tasklist AEP-0103); isso não habilita
+a cadência periódica completa. Done acima permanece restrito ao escopo legado.
+
+**Rodada de quinze pacotes AEP-0103 (15/09/2026), extensão In Progress:**
+`commanddecision.CoordinatorRecovery` pagina receipts de todos os owners,
+exclusivamente com prova opaca de gerações drenadas no processo atual, e usa o
+mesmo CAS/evento da recuperação por sessão. Cancelamento e rollback preservam
+commits anteriores e cursor. Teste do coordinator compõe recuperação real de
+decisões e invocações em SQLite e impede compactação durante continuação;
+os demais domínios desse teste são spies. Prova de restart e montagem automática
+de todos os domínios no App continuam pendentes; idade não prova exclusão.
+
+**Rodada de dez frentes AEP-0103 (15/09/2026), extensão In Progress:** o
+coordinator agora recebe heartbeat antes da outbox, com a mesma política lida
+na passagem. O adapter concreto percorre leases em lotes de até 100 e não
+ressuscita leases vencidas. Continuação/erro impede retenção e compactação;
+continuação do heartbeat não impede avançar outbox e recuperação.
+`Manager.ConfigureCommandMaintenance` permite montagem interna antes de Start,
+com os adapters reais de jobs/tools/compactação do próprio Manager. Quando
+configurado, seu único timer de retenção usa TTL/3 (máximo um minuto) e retoma
+trabalho pendente mais cedo. Sem coordinator, o caminho legado é preservado.
+Stop cancela e aguarda a passagem fora dos locks do Manager antes de destruir
+seus componentes; Start/remontagem são recusados durante essa espera. A espera
+depende de cooperação das portas, sem promessa de prazo rígido. Erro de leitura
+ou política usa nova tentativa em um minuto, sem limpeza com defaults substitutos.
+
+O adapter de invocações pagina toda a instância e só recupera gerações presentes
+na prova real de drenagem do core atual, incluindo escopos local/system. Usa o
+writer existente e preserva progresso confirmado em erro; outro core vivo não é
+alterado. Isso não resolve a prova de restart nem monta automaticamente todos
+os domínios de recuperação no startup produtivo. I12 permanece parcial.
+
+**Ligação do core, extensão In Progress (15/09/2026):** o encerramento real dos
+executores no processo atual agora produz prova para o writer existente do ledger.
+Isso não cobre restart. Adapters concretos de outbox/reconciliação usam lotes,
+continuação e reinício do cursor ao terminar cada ciclo. O coordinator conserva
+contagens confirmadas quando uma porta falha e não compacta após erro. Ainda falta
+montar a cadência única produtiva com heartbeat e todos os domínios de recuperação.
+
+**Continuação AEP-0103 (15/09/2026):** os adapters de jobs/tools agora paginam
+usuários, com cursor em memória por operação, reinício ao mudar política,
+continuação e contagem confirmada em cancelamento/erro. Passagens concorrentes
+no mesmo owner são recusadas. O limite é de usuários, não linhas de cada limpeza;
+More de tools também impede compactação. Consumo e heartbeat são passagens sem
+timer, ainda dependentes de montagem na cadência produtiva única.
+
+**Extensão AEP-0103, ainda In Progress (15/09/2026):** adapters concretos de
+jobs/tools preservam as limpezas existentes por usuário; compactação reutiliza
+o throttle do Manager e propaga falhas. Retenção de ativações e invocações protege
+estado ativo e prazos de ledger. Trabalho restante (`More`) e cancelamento impedem
+compactação da passagem. A política de ativações tem lote máximo 128; o adapter
+legado percorre todos os usuários sem paginação. Os adapters ainda não substituem
+a cadência produtiva e não constituem prova de geração encerrada. O status Done
+acima refere-se ao escopo legado, não ao aceite de I12 da AEP-0103.
+
 ## Dependências
 
 - **AEP-0048** (Migração de Jobs para Banco de Dados): definiu a retenção por idade (30 dias) de `job_runs`, `job_events` e `job_run_events` via goroutine no Manager. Esta AEP **substitui** essa janela por uma retenção curta, configurável em horas (padrão 24h), por dados de jobs serem efêmeros.
@@ -38,6 +121,38 @@ Esta AEP define uma política de **compactação física** combinada a um **refo
 4. **Contenção (issue #292)**: `VACUUM` completo adquire lock exclusivo e pode levar segundos em bancos grandes, agravando `SQLITE_BUSY`. A estratégia precisa ser oportunista (momento ocioso), throttled e proteger leituras interativas.
 
 ## Estado implementado
+
+Adendo AEP-0103 (15/09/2026, atualizado I11–I15): a outbox de ativação é
+independente das cascatas de runs e preserva o deadline original de replay.
+O consumidor transacional e a lease própria de claim existem, mas worker e
+heartbeat reais continuam desabilitados. A retenção de runs preserva um run
+não terminal somente quando existe claim ativa correspondente e lease viva;
+lease de entrega da outbox não substitui essa prova.
+
+`commandmaintenance.Coordinator` implementa uma passagem sem loop próprio,
+com outbox e recuperação antes da limpeza de jobs, limpezas legadas de tools,
+auditorias e compactação. Todas as portas e uma política completa são exigidas
+antes de efeitos; recovery com mais lotes impede a limpeza nesta passagem.
+O Manager só usa esse caminho quando montado pelo bootstrap; caso contrário
+preserva a cadência legada. Não há coordenador global produtivo ainda.
+
+Permanecem em I12/I14: prova de encerramento/drenagem das gerações antigas,
+adapters de manutenção para toda a instância,
+política/retenção de `command_invocation` e montagem única no App. O status
+Done desta AEP descreve a retenção legada entregue, não encerra a extensão
+AEP-0103. Não foram migrados bancos pessoais para validar esta rodada.
+
+Adendo de fechamento de gaps (15/09/2026): os seis campos D11 da AEP-0103
+agora possuem defaults, persistência, UI nos três idiomas e documentação.
+O caminho opcional do Manager relê MaintenanceSettings a cada passagem e
+converte durações com verificação de overflow; não conserva uma política
+estática paralela no bootstrap. Arquivo ausente recebe defaults, mas erro de
+leitura/JSON impede a passagem desse coordenador. Lotes pendentes da outbox ou
+recuperação impedem retenção e compactação. Esses testes integram Manager e
+coordenador com portas controladas; a montagem produtiva all-users/system e
+o heartbeat consumidor do TTL ainda não foram habilitados. O requeue de leases
+também é limitado a 128 linhas por chamada, com seleção e atualização na mesma
+transação; requeue ou drain com continuação impedem a limpeza da passagem.
 
 | Mecanismo | Onde | Comportamento |
 |---|---|---|

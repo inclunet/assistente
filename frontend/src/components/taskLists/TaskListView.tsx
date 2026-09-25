@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } from 'react';
 import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, EditOutlined, MessageOutlined, PlusOutlined, ThunderboltOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
@@ -28,9 +28,49 @@ import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
 import { useCustomActions } from './useCustomActions';
 import type { ViewMode, TaskListWorkflowStatus, TaskListWorkflowSnapshot, WorkflowTransitions, CustomActionView } from '../../types/tasklist';
+import { readTaskListSurfaceContext } from '../../lib/commandTaskListSurface';
+import { useWorkspaceCommandSurface } from '../workspace/useWorkspaceCommandSurface';
+import { readTaskListCommandTarget } from '../../lib/commandPageMutationWails';
+import { usePagePresentationCommands } from '../../lib/commandPagePresentation';
+import { usePageMutationCommands, type PageMutationID, type PageMutationRequest, type PageMutationResult } from '../../lib/commandPageMutation';
 
 const WorkflowEditor = lazy(() => import('./WorkflowEditor'));
 const CustomActionsEditor = lazy(() => import('./CustomActionsEditor'));
+
+type TaskListStoreSnapshot = ReturnType<typeof useTaskListStore.getState>;
+
+interface TaskListSurfaceFacts {
+  readonly taskListRef: unknown;
+  readonly updatedAt: string | undefined;
+  readonly viewMode: ViewMode | undefined;
+  readonly available: boolean;
+  readonly loading: boolean;
+  readonly loadError: string | undefined;
+}
+
+function taskListSurfaceFacts(
+  state: TaskListStoreSnapshot,
+  taskListId: string,
+): TaskListSurfaceFacts {
+  const taskList = state.taskLists.get(taskListId);
+  return {
+    taskListRef: taskList,
+    updatedAt: taskList?.updatedAt,
+    viewMode: taskList?.preferredViewMode,
+    available: state.taskPages?.has(taskListId) ?? false,
+    loading: state.loadingTaskPagesByListId?.has(taskListId) ?? false,
+    loadError: state.taskPageLoadErrors?.get(taskListId),
+  };
+}
+
+function sameTaskListSurfaceFacts(left: TaskListSurfaceFacts, right: TaskListSurfaceFacts): boolean {
+  return left.taskListRef === right.taskListRef &&
+    left.updatedAt === right.updatedAt &&
+    left.viewMode === right.viewMode &&
+    left.available === right.available &&
+    left.loading === right.loading &&
+    left.loadError === right.loadError;
+}
 
 interface TaskListViewProps {
   taskListId: string;
@@ -42,6 +82,7 @@ interface TaskListViewProps {
  */
 export default function TaskListView({ taskListId }: TaskListViewProps) {
   const { t } = useTranslation();
+  const { pathname } = useLocation();
   const navigate = useNavigate();
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
@@ -60,10 +101,46 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const initialLoadError = useTaskListStore((s) => s.errors?.get(initialLoadErrorKey));
   const isLoadingTaskPage = useTaskListStore((s) => s.loadingTaskPagesByListId?.has(taskListId) ?? false);
   const taskPageLoadError = useTaskListStore((s) => s.taskPageLoadErrors?.get(taskListId));
-  const { loadTaskList, loadMoreTasks, loadAllTasksForBoard, cancelBoardTaskLoad, clearError, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
+  const { loadTaskList, loadMoreTasks, loadAllTasksForBoard, cancelBoardTaskLoad, clearError, setViewMode, deleteTaskList, updateTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
   const { runCustomAction } = useCustomActions();
 
+  const readTaskListSurface = useCallback(() => {
+    const currentWorkspace = useWorkspaceStore.getState().workspace;
+    const currentPanelTab = currentWorkspace?.tabs.find((tab) => tab.id === panelTab?.id);
+    const currentPanelTabTaskListId = currentPanelTab?.type === 'tasklist'
+      ? currentPanelTab.state?.tasklistId
+      : undefined;
+    const currentTaskListStore = useTaskListStore.getState();
+    const currentTaskList = currentTaskListStore.taskLists.get(taskListId);
+    return readTaskListSurfaceContext({
+      surfaceType: 'tasklist',
+      surfaceId: panelTab?.id ?? '',
+      panelTabId: panelTab?.id ?? '',
+      panelTabTaskListId: typeof currentPanelTabTaskListId === 'string'
+        ? currentPanelTabTaskListId
+        : undefined,
+      taskListId,
+      taskList: currentTaskList,
+      taskPageAvailable: currentTaskListStore.taskPages?.has(taskListId) ?? false,
+      loading: currentTaskListStore.loadingTaskPagesByListId?.has(taskListId) ?? false,
+      loadError: currentTaskListStore.taskPageLoadErrors?.get(taskListId),
+    });
+  }, [panelTab?.id, panelTab?.state, panelTab?.type, taskListId]);
+
+  const subscribeTaskListSurface = useCallback((invalidate: () => void) => {
+    let previous = taskListSurfaceFacts(useTaskListStore.getState(), taskListId);
+    return useTaskListStore.subscribe((state) => {
+      const next = taskListSurfaceFacts(state, taskListId);
+      if (sameTaskListSurfaceFacts(previous, next)) return;
+      previous = next;
+      invalidate();
+    });
+  }, [taskListId]);
+
+  useWorkspaceCommandSurface('tasklist', readTaskListSurface, subscribeTaskListSurface);
+
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
+  const commandRootRef = useRef<HTMLDivElement>(null);
   const [isWorkflowEditorOpen, setIsWorkflowEditorOpen] = useState(false);
   const [isCustomActionsEditorOpen, setIsCustomActionsEditorOpen] = useState(false);
   const [isEditListOpen, setIsEditListOpen] = useState(false);
@@ -128,26 +205,45 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     if (!area) return false;
     // Kanban: focus the board container which manages card focus internally
     const board = area.querySelector<HTMLElement>('.kanban-board[tabindex="0"]');
-    if (board) { board.focus(); return true; }
+    if (board) { board.focus(); return document.activeElement === board; }
     // DataGrid: focus a cell with tabindex=0, or the grid container
     const cell = area.querySelector<HTMLElement>('[role="gridcell"][tabindex="0"]');
-    if (cell) { cell.focus(); return true; }
+    if (cell) { cell.focus(); return document.activeElement === cell; }
     const grid = area.querySelector<HTMLElement>('[role="grid"]');
-    if (grid) { grid.focus(); return true; }
+    if (grid) { grid.focus(); return document.activeElement === grid; }
     return false;
   }, []);
 
   const tasks = useMemo(() => taskList?.tasks || [], [taskList?.tasks]);
   const currentViewMode: ViewMode = taskList?.preferredViewMode || 'list';
   const hasTasks = tasks.length > 0;
+  const hasAnyTasks = hasTasks || (taskList?.taskCount ?? 0) > 0;
   const hasTaskPage = taskPage !== undefined;
   const lastBoardProgressAnnouncementRef = useRef('');
   const isMountedRef = useRef(false);
   const activeTaskListIdRef = useRef(taskListId);
   const isPanelActiveRef = useRef(isActive);
+  const taskListReadyRef = useRef(Boolean(taskList && taskPage));
   const boardLoadObserverGenerationRef = useRef(0);
   activeTaskListIdRef.current = taskListId;
   isPanelActiveRef.current = isActive;
+  taskListReadyRef.current = Boolean(taskList && taskPage);
+
+  const canFocusWorkspacePanelImmediately = useCallback(() => {
+    if (
+      !isPanelActiveRef.current
+      || isModalOpen()
+      || useWorkspaceChatModalStore.getState().isOpen
+      || !taskListReadyRef.current
+    ) return false;
+    const area = contentAreaRef.current;
+    if (!area?.isConnected) return false;
+    return Boolean(
+      area.querySelector<HTMLElement>('.kanban-board[tabindex="0"]')
+      || area.querySelector<HTMLElement>('[role="gridcell"][tabindex="0"]')
+      || area.querySelector<HTMLElement>('[role="grid"]'),
+    );
+  }, []);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -174,8 +270,11 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
       if (!isPanelActiveRef.current || isModalOpen()) return false;
       setPanelFocusNonce((nonce) => nonce + 1);
       return true;
-    });
-  }, [panelTabId]);
+    }, () => {
+      if (!canFocusWorkspacePanelImmediately()) return false;
+      return focusContentArea();
+    }, canFocusWorkspacePanelImmediately);
+  }, [canFocusWorkspacePanelImmediately, focusContentArea, panelTabId]);
 
   useEffect(() => {
     if (
@@ -268,7 +367,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   }, [isActive, currentViewMode, isLoadingTaskPage, taskPage, tasks.length, taskListId, announce, t]);
 
   const handleOpenCreateTask = useCallback(() => {
-    tasksRef.current?.openCreateModal();
+    if (!tasksRef.current) return false;
+    tasksRef.current.openCreateModal();
+    return true;
   }, []);
 
   const handleLoadMore = useCallback(async () => {
@@ -326,15 +427,27 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     }
   }, [taskListId, updateWorkflowFull, t]);
 
-  // Conflito: espera a fila descartar o que restou, relê workflow e contagens
-  // e sincroniza o editor aberto com o que está gravado.
+  const readActiveTaskListTarget = useCallback(() => {
+    const workspace = useWorkspaceStore.getState().workspace;
+    const currentTab = panelTab?.id
+      ? workspace?.tabs.find((tab) => tab.id === panelTab.id)
+      : undefined;
+    if (!isActive || !panelTab?.id || workspace?.activeTabId !== panelTab.id ||
+      currentTab?.type !== 'tasklist' || currentTab.state?.tasklistId !== taskListId) return null;
+    return useTaskListStore.getState().taskLists.get(taskListId) ?? null;
+  }, [isActive, panelTab?.id, taskListId]);
+
+  const isTaskListSurfaceCurrent = useCallback(() => {
+    return readActiveTaskListTarget() !== null;
+  }, [readActiveTaskListTarget]);
+
+  // Após conflito, aguarda a fila descartar gravações obsoletas, recarrega o
+  // workflow e suas contagens, e só então sincroniza o editor aberto.
   const [workflowSyncToken, setWorkflowSyncToken] = useState(0);
   const handleWorkflowConflict = useCallback(() => {
     void (async () => {
       try {
         await whenSavesSettled(taskListWorkflowSaveKey(taskListId));
-        // Recarga falha deixa o editor como está: a próxima gravação volta a
-        // dar conflito e tenta de novo, sem mostrar o cache antigo como atual.
         if (!(await loadTaskList(taskListId))) throw new Error('reload failed');
         setTaskCountsByStatus(await getTaskCountsByStatus(taskListId));
         setWorkflowSyncToken((n) => n + 1);
@@ -344,75 +457,137 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     })();
   }, [taskListId, loadTaskList, getTaskCountsByStatus, addToast, t]);
 
-  const handleClone = useCallback(async () => {
-    const newTitle = `${taskList?.title || 'Lista'} (Cópia)`;
-    try {
-      const cloned = await cloneTaskList(taskListId, newTitle);
-      if (cloned) {
-        addToast(t('tasklist.clonedSuccess', 'Lista clonada com sucesso'), 'success', undefined, undefined, {
-          suppressAnnounce: true,
-        });
-        announce(t('tasklist.clonedSuccess', 'Lista clonada com sucesso'));
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      addToast(msg || t('common.error', 'Erro ao clonar'), 'error');
+  const handlePageMutationSucceeded = useCallback(async (commandId: PageMutationID, result: PageMutationResult) => {
+    if (!isTaskListSurfaceCurrent()) return;
+    if (commandId === 'tasklists.clear') {
+      await loadTaskList(taskListId);
+    } else if (commandId === 'tasklists.duplicate' && result.id) {
+      await loadTaskList(result.id);
     }
-  }, [taskList?.title, taskListId, cloneTaskList, addToast, announce, t]);
+    if (!isTaskListSurfaceCurrent()) return;
+    const message = commandId === 'tasklists.clear'
+      ? t('tasklist.clearedSuccess', 'Lista limpa com sucesso')
+      : t('tasklist.clonedSuccess', 'Lista clonada com sucesso');
+    addToast(message, 'success', undefined, undefined, { suppressAnnounce: true });
+    announce(message);
+  }, [addToast, announce, isTaskListSurfaceCurrent, loadTaskList, t, taskListId]);
 
-  const handleClear = useCallback(async () => {
-    const confirmed = await requestConfirm({
-      title: t('tasklist.clearConfirmTitle', 'Limpar Lista'),
-      message: t(
-        'tasklist.clearConfirmMessage',
-        `Tem certeza que deseja remover todas as tarefas de "${taskList?.title}"? Esta ação não pode ser desfeita.`
-      ),
-    });
-    if (!confirmed) return;
-
-    try {
-      await clearTaskList(taskListId);
-      addToast(t('tasklist.clearedSuccess', 'Lista limpa com sucesso'), 'success', undefined, undefined, {
-        suppressAnnounce: true,
+  const { request: requestPageMutation } = usePageMutationCommands({
+    root: commandRootRef,
+    pathname,
+    tabId: panelTab?.id,
+    allowedCommands: ['tasklists.clear', 'tasklists.duplicate'],
+    canStart: (commandId) => {
+      const target = readActiveTaskListTarget();
+      if (!target || isModalOpen()) return false;
+      return commandId === 'tasklists.clear' ? (target.taskCount ?? target.tasks.length) > 0 : true;
+    },
+    prepare: (commandId) => {
+      const captured = readActiveTaskListTarget();
+      if (!captured) return undefined;
+      const targetId = taskListId;
+      return {
+        readRequest: async (): Promise<PageMutationRequest> => {
+          const target = await readTaskListCommandTarget(targetId);
+          const title = commandId === 'tasklists.duplicate'
+            ? `${target.taskList.title} ${t('tasklist.cloneTitleSuffix', '(Cópia)')}`
+            : '';
+          return {
+            targetId,
+            expectedFingerprint: target.fingerprint,
+            title,
+            description: target.taskList.description || '',
+          };
+        },
+        isCurrent: () => isTaskListSurfaceCurrent() &&
+          useTaskListStore.getState().taskLists.get(targetId) === captured,
+        canPresent: () => isTaskListSurfaceCurrent(),
+        succeeded: (result: PageMutationResult) => handlePageMutationSucceeded(commandId, result),
+      };
+    },
+    subscribe: (changed) => {
+      let previous = useTaskListStore.getState().taskLists.get(taskListId);
+      return useTaskListStore.subscribe((state) => {
+        const next = state.taskLists.get(taskListId);
+        if (next === previous) return;
+        previous = next;
+        changed();
       });
-      announce(t('tasklist.clearedSuccess', 'Lista limpa com sucesso'));
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      addToast(msg || t('common.error', 'Erro ao limpar'), 'error');
-    }
-  }, [taskList?.title, taskListId, requestConfirm, clearTaskList, addToast, announce, t]);
+    },
+  });
+
+  const runPageMutation = useCallback(async (commandId: PageMutationID) => {
+    const outcome = await requestPageMutation(commandId);
+    if (outcome.status === 'succeeded') return;
+    if (outcome.status === 'cancelled' || outcome.status === 'denied') return;
+    if (!isTaskListSurfaceCurrent()) return;
+    addToast(t('common.error', 'Erro ao alterar lista'), 'error');
+  }, [addToast, isTaskListSurfaceCurrent, requestPageMutation, t]);
+
+  const { request: requestPagePresentationCommand } = usePagePresentationCommands({
+    root: commandRootRef,
+    pathname,
+    tabId: panelTab?.id,
+    allowedCommands: ['tasklist.task.create.open'],
+    readTarget: readActiveTaskListTarget,
+    subscribe: (changed) => {
+      let previous = useTaskListStore.getState().taskLists.get(taskListId);
+      return useTaskListStore.subscribe((state) => {
+        const next = state.taskLists.get(taskListId);
+        if (next === previous) return;
+        previous = next;
+        changed();
+      });
+    },
+    isCurrent: isTaskListSurfaceCurrent,
+    canOpen: () => Boolean(tasksRef.current && isTaskListSurfaceCurrent()),
+    open: () => handleOpenCreateTask(),
+  });
+
+  const requestCreateTask = useCallback(() => {
+    return requestPagePresentationCommand('tasklist.task.create.open');
+  }, [requestPagePresentationCommand]);
+
+  const handleClone = useCallback(() => {
+    void runPageMutation('tasklists.duplicate');
+  }, [runPageMutation]);
+
+  const handleClear = useCallback(() => {
+    void runPageMutation('tasklists.clear');
+  }, [runPageMutation]);
 
   useEffect(() => {
-    if (!isActive) return;
-
     const onKeyDown = (e: KeyboardEvent) => {
-      if (isModalOpen()) return;
+      if (e.defaultPrevented || e.repeat || e.isComposing || e.keyCode === 229 || !isActive || isModalOpen()) return;
+      const root = commandRootRef.current;
+      if (!root || !(e.target instanceof Node) || !root.contains(e.target)) return;
 
-      if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && (e.key === 'l' || e.key === 'L')) {
+      const key = e.key.toLowerCase();
+      if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && key === 'l') {
         e.preventDefault();
-        void handleClear();
+        e.stopPropagation();
+        handleClear();
         return;
       }
-
       if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+      if (e.target instanceof Element && e.target.closest('input,textarea,select,[contenteditable="true"]')) return;
 
-      if (e.key === 'n' || e.key === 'N') {
-        e.preventDefault();
-        handleOpenCreateTask();
+      if (key === 'n') {
+        if (requestCreateTask()) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
         return;
       }
-
-      if (e.key === 'd' || e.key === 'D') {
+      if (key === 'd') {
         e.preventDefault();
-        void handleClone();
-        return;
+        e.stopPropagation();
+        handleClone();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleOpenCreateTask, handleClear, handleClone, isActive]);
+  }, [handleClear, handleClone, isActive, requestCreateTask]);
 
   const tasklistChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
     if (!panelTab || panelTab.type !== 'tasklist' || !taskList) return null;
@@ -581,7 +756,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   }
 
   return (
-    <div className="tasklist-detail">
+    <div ref={commandRootRef} className="tasklist-detail">
       <div className="ws-content-toolbar">
         <Toolbar
           left={
@@ -667,7 +842,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
                   icon: <ClearOutlined aria-hidden="true" />,
                   shortcut: 'Ctrl+L',
                   onClick: () => void handleClear(),
-                  disabled: !hasTasks,
+                  disabled: !hasAnyTasks,
                 },
                 { separator: true, id: 'sep-2' },
                 {

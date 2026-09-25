@@ -444,21 +444,23 @@ func TestEventTriggeredRunSurvivesPublisherContextCancellation(t *testing.T) {
 
 	// Aguarda o run downstream ser persistido com status terminal.
 	var run *RunLog
+	var lastRuns []RunLog
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		runs, err := repo.GetRuns(userA, "downstream", 1)
 		if err != nil {
 			t.Fatalf("get runs: %v", err)
 		}
-		if len(runs) == 1 && runs[0].Status != "" {
+		if len(runs) == 1 && (runs[0].Status == RunStatusCompleted || runs[0].Status == RunStatusFailed || runs[0].Status == RunStatusSkipped) {
 			run = &runs[0]
 			break
 		}
+		lastRuns = runs
 		time.Sleep(20 * time.Millisecond)
 	}
 
 	if run == nil {
-		t.Fatal("downstream run was never persisted")
+		t.Fatalf("downstream run was never persisted as terminal; last runs=%#v", lastRuns)
 	}
 	if blocking.wasCanceled() {
 		t.Fatalf("tool received a canceled context (run inherited publisher lifetime): %#v", run)

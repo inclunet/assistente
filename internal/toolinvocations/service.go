@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"assistente/internal/tools"
+	"gorm.io/gorm"
 )
 
 type Service struct {
@@ -76,6 +77,16 @@ func (s *Service) CanPersist() bool {
 	return s != nil && s.repo != nil
 }
 
+// IsBoundTo confirma que ledger, executor e bootstrap pertencem exatamente ao
+// DB e registry informados. O vínculo é por identidade de ponteiros.
+func (s *Service) IsBoundTo(db *gorm.DB, registry *tools.Registry) bool {
+	if s == nil || db == nil || registry == nil || s.executor == nil || s.executor.Registry() != registry {
+		return false
+	}
+	repo, ok := s.repo.(*DBRepository)
+	return ok && repo != nil && repo.db != nil && repo.db == db
+}
+
 // CleanOldDryRuns remove invocações dry-run operacionais (job_run/tool_catalog)
 // mais antigas que maxAge (AEP-0074).
 func (s *Service) CleanOldDryRuns(ctx context.Context, maxAge time.Duration) (int, error) {
@@ -115,8 +126,9 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	}
 	start := invocationStart{
 		call: req.Call, persistedArguments: req.PersistedArguments, origin: req.Origin,
-		parentID: req.ParentInvocationID,
-		dryRun:   req.DryRun, iteration: req.Iteration,
+		sensitivePaths: req.SensitivePaths, parentID: req.ParentInvocationID,
+		toolCatalogID: req.ToolCatalogID, requireCanonical: req.RequireCanonicalToolCatalogID,
+		dryRun: req.DryRun, iteration: req.Iteration,
 	}
 	inv, err := s.beginInvocation(ctx, start)
 	if err != nil {
@@ -126,12 +138,32 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		return ExecuteResult{Invocation: inv, Execution: executionError(req.Call, "tool invocation persistence unavailable")}
 	}
 	// Somente esta entrada executa tools. Record usa o mesmo ledger sem executor.
-	exec := s.executorForRequest(req).ExecuteOne(WithCurrentInvocationID(ctx, inv.ID), req.Call)
+	execCtx := WithCurrentInvocationID(ctx, inv.ID)
+	var exec tools.ToolExecutionResult
+	guardRejected := false
+	if req.BeforeExecute != nil {
+		guardErr := callBeforeExecute(req.BeforeExecute, execCtx)
+		if execCtx.Err() != nil || errors.Is(guardErr, context.Canceled) || errors.Is(guardErr, context.DeadlineExceeded) {
+			guardRejected = true
+			exec = executionGuardCancelled(req.Call)
+		} else if guardErr != nil {
+			guardRejected = true
+			exec = executionGuardDenied(req.Call)
+		} else {
+			exec = s.executorForRequest(req).ExecuteOne(execCtx, req.Call)
+		}
+	} else {
+		exec = s.executorForRequest(req).ExecuteOne(execCtx, req.Call)
+	}
 	status, message := statusForExecution(exec)
+	if len(req.SensitivePaths.Input) > 0 || len(req.SensitivePaths.Output) > 0 {
+		message = ""
+	}
 	err = s.finishInvocation(ctx, &inv, start, invocationOutcome{
 		status: status, message: message, result: exec.Result, errorKind: exec.ErrorKind,
 		errorCode: exec.ErrorCode, retryable: exec.Retryable,
 		retryabilityKnown: exec.RetryabilityKnown, durationMs: exec.DurationMs,
+		deleteOnFailure: guardRejected,
 	})
 	return ExecuteResult{Invocation: inv, Execution: exec, Persisted: err == nil}
 }
@@ -148,12 +180,23 @@ func (s *Service) executorForRequest(req ExecuteRequest) *tools.Executor {
 	if effectiveMax <= 0 {
 		effectiveMax = cfg.MaxResultSize
 	}
-	if effectiveMax == cfg.MaxResultSize && req.RequireCompleteResult == cfg.RequireCompleteResult {
+	expectedGeneration := req.ExpectedToolGeneration
+	if expectedGeneration == 0 {
+		expectedGeneration = cfg.ExpectedToolGeneration
+	}
+	if effectiveMax == cfg.MaxResultSize && req.RequireCompleteResult == cfg.RequireCompleteResult && expectedGeneration == cfg.ExpectedToolGeneration && len(req.SensitivePaths.Output) == 0 {
 		return s.executor
 	}
 	// Config por request: pode aumentar OU reduzir o budget.
 	cfg.MaxResultSize = effectiveMax
 	cfg.RequireCompleteResult = req.RequireCompleteResult
+	cfg.ExpectedToolGeneration = expectedGeneration
+	if len(req.SensitivePaths.Output) > 0 {
+		paths := append([]string(nil), req.SensitivePaths.Output...)
+		cfg.PersistedResultRedactor = func(result tools.ToolResult) tools.ToolResult {
+			return redactToolResultForPersistence(result, paths)
+		}
+	}
 	return tools.NewExecutor(s.executor.Registry(), cfg)
 }
 
@@ -496,7 +539,9 @@ func (s *Service) ExecuteAll(ctx context.Context, calls []tools.ToolCall, origin
 func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, error) {
 	start := invocationStart{
 		call: req.Call, persistedArguments: req.PersistedArguments, origin: req.Origin,
-		parentID: req.ParentInvocationID, dryRun: req.DryRun,
+		sensitivePaths: req.SensitivePaths, parentID: req.ParentInvocationID,
+		toolCatalogID: req.ToolCatalogID, requireCanonical: req.RequireCanonicalToolCatalogID,
+		dryRun:    req.DryRun,
 		iteration: req.Iteration, external: true, observation: req.Observation,
 	}
 	inv, err := s.beginInvocation(ctx, start)
@@ -687,6 +732,33 @@ func executionError(call tools.ToolCall, message string) tools.ToolExecutionResu
 	}
 }
 
+func callBeforeExecute(guard func(context.Context) error, ctx context.Context) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = errors.New("execution guard panicked")
+		}
+	}()
+	return guard(ctx)
+}
+
+func executionGuardDenied(call tools.ToolCall) tools.ToolExecutionResult {
+	return tools.ToolExecutionResult{
+		CallID: call.ID, ToolName: call.Function.Name,
+		Result:    tools.ToolResult{Content: "Execução da tool não autorizada", IsError: true},
+		ErrorKind: tools.ErrorKindAuthorization, ErrorCode: "execution_guard_denied",
+		RetryabilityKnown: true,
+	}
+}
+
+func executionGuardCancelled(call tools.ToolCall) tools.ToolExecutionResult {
+	return tools.ToolExecutionResult{
+		CallID: call.ID, ToolName: call.Function.Name,
+		Result:    tools.ToolResult{Content: "Execução da tool cancelada", IsError: true},
+		ErrorKind: tools.ErrorKindCancelled, ErrorCode: "execution_guard_cancelled",
+		RetryabilityKnown: true,
+	}
+}
+
 func executionCancelled(call tools.ToolCall, message string) tools.ToolExecutionResult {
 	if strings.TrimSpace(message) == "" {
 		message = "Execução cancelada"
@@ -705,8 +777,11 @@ func executionCancelled(call tools.ToolCall, message string) tools.ToolExecution
 	}
 }
 
-func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage {
+func (s *Service) outputForPersistence(result tools.ToolResult, sensitivePaths ...[]string) json.RawMessage {
 	max := s.persistMaxResultSize
+	if len(sensitivePaths) > 0 {
+		result = redactToolResultForPersistence(result, sensitivePaths[0])
+	}
 	trimmed := s.truncateForPersistence(result)
 	data := resultOutput(trimmed)
 	if max <= 0 || len(data) <= max {

@@ -52,10 +52,12 @@ describe('chatMessageTree', () => {
       sibling,
     ];
     const untouchedInTree = nodes[0].children?.[1];
+    const originalChildMessage = nodes[0].children?.[0].message;
 
     const updated = updateMessageContentInTree(nodes, 'child', 'new');
 
     expect(updated[0].children?.[0].message.content).toBe('new');
+    expect(updated[0].children?.[0].message).not.toBe(originalChildMessage);
     expect(updated[0].children?.[1]).toBe(untouchedInTree);
     expect(updated[1]).toBe(sibling);
     expect(updateMessageContentInTree(nodes, 'missing', 'new')).toBe(nodes);
@@ -63,11 +65,14 @@ describe('chatMessageTree', () => {
 
   it('attaches loaded children to the requested message', () => {
     const nodes = [node(message('root', 'user'), [node(message('parent', 'assistant'), [], 1)])];
+    const parentMessage = nodes[0].children?.[0].message;
     const loadedChildren = [node(message('loaded', 'tool'), [], 2)];
 
     const updated = attachChildrenToMessage(nodes, 'parent', loadedChildren);
 
     expect(updated[0].children?.[0].children?.[0].message.id).toBe('loaded');
+    expect(updated[0].message).toBe(nodes[0].message);
+    expect(updated[0].children?.[0].message).toBe(parentMessage);
   });
 
   it('replaces synthetic streaming id with backend id', () => {

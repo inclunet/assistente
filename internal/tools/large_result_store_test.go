@@ -24,6 +24,40 @@ func TestLargeResultStoreRejectsAnonymousAndInvalidUTF8Content(t *testing.T) {
 	}
 }
 
+func TestProtectModelResultWithRedactorOnlyStoresRedactedCopy(t *testing.T) {
+	ctx := largeResultTestContext()
+	secret := strings.Repeat(`{"secret":"output-secret","visible":"ok"}`, 64)
+	protected, ok := ProtectModelResultWithRedactor(ctx, ToolResult{
+		Content:  secret,
+		Metadata: map[string]any{"resource": "output-secret"},
+		Annotations: &ResultAnnotations{HTTPResponse: &HTTPResponseAnnotation{
+			URL: "https://example.invalid/output-secret",
+		}},
+	}, 512, func(result ToolResult) ToolResult {
+		result.Content = strings.ReplaceAll(result.Content, "output-secret", "[redacted]")
+		result.Metadata = nil
+		result.Annotations = nil
+		return result
+	})
+	if !ok || protected.Annotations == nil || protected.Annotations.OutputWindow == nil {
+		t.Fatal("resultado não foi protegido")
+	}
+	stored, found := loadModelResult(ctx, protected.Annotations.OutputWindow.ResultID)
+	if !found {
+		t.Fatal("cópia protegida não foi armazenada")
+	}
+	if strings.Contains(stored, "output-secret") {
+		t.Fatalf("store reteve segredo: %q", stored)
+	}
+	entry, found := loadModelResultEntry(ctx, protected.Annotations.OutputWindow.ResultID)
+	if !found || entry.provenance != nil || entry.source != nil {
+		t.Fatalf("proveniência lateral não foi omitida: %+v", entry)
+	}
+	if !strings.Contains(protected.Content, "output-secret") {
+		t.Fatalf("resultado em memória foi redigido indevidamente: %q", protected.Content)
+	}
+}
+
 func TestProtectorsRejectZeroBudget(t *testing.T) {
 	for name, protect := range map[string]func(context.Context, ToolResult, int) (ToolResult, bool){
 		"builtin": ProtectModelResult,

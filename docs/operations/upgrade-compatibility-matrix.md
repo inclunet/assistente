@@ -13,6 +13,33 @@ o conjunto de origens suportadas.
 
 ## Matriz versionada
 
+### Incremento não publicado — AEP-0103 / I01
+
+A v21 `command_storage_initial` é concluída na composição do host, depois da
+abertura genérica do banco. Caminhos sem esse bootstrap deixam v20 pendente,
+sem habilitar comandos. Usa o histórico central e não remove migrações legadas.
+`internal/commandbootstrap/schema_test.go` cobre banco novo, schema experimental
+pré-I01, reabertura, rejeição de drift sem perda e concorrência; os testes de
+registro verificam a conclusão explícita. O corpus publicado permanece
+obrigatório para a qualificação I15; esta evidência não declara a matriz inteira
+reexecutada nem uma nova release publicada.
+
+Chaves de comandos são cifradas pelo cofre existente e nunca substituídas
+automaticamente quando faltam para um histórico persistido. Indisponibilidade
+de chave/schema desabilita a prontidão de comandos, não o login legado. Não há
+procedimento de exclusão de chaves antigas nesta etapa.
+
+### Incremento não publicado — AEP-0103 / auditoria administrativa externa
+
+A v31 `external_identity_admin_audit` acrescenta armazenamento de auditoria,
+sem alterar a v26 dos vínculos ou converter identidades existentes. O teste
+`TestExternalIdentityAdminAuditPublishedUpgradesAndSecondBoot` executou o
+upgrade das fixtures 0.1.9, 0.2.0, 0.3.0, 0.4.0 e 0.5.0 e o segundo boot,
+verificando carimbo v31 e schema canônico preservado. Isso não publica uma
+release, não certifica downgrade e não habilita o executor externo.
+
+### Caminhos já publicados — inventário
+
 | Caminho legado | Call site de produção | Introduzido | Primeira release que depende dele | Cobertura verificável | Risco de remoção |
 |---|---|---:|---:|---|---|
 | Banco com PK `INTEGER` → UUIDv7 | `database.Init` → migração v1 | 5d3d7eb9 (2026-04-26) | 0.2.0 | fixture SQL 0.1.9 + teste de upgrade direto; testes de relações em `migration_uuid_test.go` | Crítico: 0.1.9 não inicia/preserva relações |
@@ -95,6 +122,19 @@ As fixtures acima fecham as lacunas dos bancos publicados
 [#685](https://github.com/inclunet/assistente/issues/685) e do corpus legado
 [#686](https://github.com/inclunet/assistente/issues/686). Todos os caminhos
 correspondentes permanecem obrigatórios pela política universal.
+
+## Revisões internas de mensagem (AEP-0103, v30)
+
+A migração `chat_message_durable_revisions` cria metadados internos e triggers
+SQLite, sem mudar conteúdo, IDs ou timestamps das mensagens. O backfill cria
+um nonce para cada mensagem existente e não troca revisões já presentes.
+Quando o cutover v19 está adiado por falta de owner, v30 aguarda sua conclusão
+antes de instalar triggers. O teste 0.1.9 cobre adoção e retomada desse caminho.
+`TestMessageRevisionsPublishedUpgradesAndSecondBoot` executa as fixtures
+0.1.9–0.5.0 pelo upgrade real e segundo boot, verificando preservação das
+revisões e invalidação após fixar/desafixar sem atualizar timestamps.
+Nenhum banco pessoal é usado. A matriz certifica upgrade; não certifica
+downgrade para binários antigos nem restauração de snapshots com comandos vivos.
 
 ## Regra para evolução
 

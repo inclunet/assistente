@@ -28,7 +28,11 @@ import { waitForWailsBridge } from './lib/waitForWailsBridge';
 import { summaryErrorMessage } from './lib/summaryError';
 import { chatNoticeMessage, chatNoticeTone, type ChatNoticeEvent } from './lib/chatNotice';
 import { useBackendQuestionnaire } from './hooks/useBackendQuestionnaire';
+import { scheduleQuestionnaireFocusRestore } from './lib/questionnaireFocusRestore';
 import { AuthGate } from './components/auth/AuthGate';
+import { CommandContextProvider } from './lib/commandContextReact';
+import { ExternalUIConnectionProvider } from './services/externalUIConnectionReact';
+import { acquireGlobalCommandOwnership } from './lib/commandGlobalOwnershipWails';
 
 function useAntdLocale(lang: string): Locale | undefined {
     const [locale, setLocale] = useState<Locale | undefined>(undefined);
@@ -65,6 +69,12 @@ function getCurrentAuthSnapshot() {
 }
 
 function App() {
+    useEffect(() => {
+        const ownership = acquireGlobalCommandOwnership({
+            subscribe: (listener) => EventsOn('command:global-ownership', listener),
+        });
+        return ownership.dispose;
+    }, []);
     const { theme } = useTheme();
     const { t, i18n } = useTranslation();
     const navigate = useNavigate();
@@ -83,7 +93,11 @@ function App() {
     const pendingLegacyImportSummaryRef = useRef<LegacyImportSummaryEvent | null>(null);
 
     // Diálogos que o backend abre (tool: collect_responses e aprovações)
-    const { data: questionnaireData, clear: clearQuestionnaire } = useBackendQuestionnaire(() => {
+    const {
+        data: questionnaireData,
+        scope: questionnaireCommandScope,
+        clear: clearQuestionnaire,
+    } = useBackendQuestionnaire(() => {
         lastFocusedElementRef.current = document.activeElement as HTMLElement;
     });
 
@@ -132,8 +146,9 @@ function App() {
     useEffect(() => {
         if (!isAuthenticated && !authLoading) {
             pendingLegacyImportSummaryRef.current = null;
+            clearQuestionnaire();
         }
-    }, [authLoading, isAuthenticated]);
+    }, [authLoading, isAuthenticated, clearQuestionnaire]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -328,19 +343,20 @@ function App() {
         return () => document.removeEventListener('keydown', preventNativeContextMenu, true);
     }, []);
 
+    const effectiveQuestionnaireOpen = !!questionnaireData || !!uiQuestionnaireData;
+    const effectiveQuestionnaireOpenRef = useRef(effectiveQuestionnaireOpen);
+    effectiveQuestionnaireOpenRef.current = effectiveQuestionnaireOpen;
+
     const restoreFocus = () => {
-        requestAnimationFrame(() => {
-            const el = lastFocusedElementRef.current;
-            if (el && document.contains(el)) {
-                el.focus();
-                return;
-            }
-            const textarea = document.querySelector('.chat-input__textarea') as HTMLTextAreaElement | null;
-            textarea?.focus();
-        });
+        // Revalida no frame para não roubar foco de uma pergunta/modal aberto
+        // depois que o fechamento original agendou a restauração.
+        scheduleQuestionnaireFocusRestore(
+            () => effectiveQuestionnaireOpenRef.current,
+            lastFocusedElementRef.current,
+            () => document.querySelector('.chat-input__textarea') as HTMLTextAreaElement | null,
+        );
     };
 
-    const effectiveQuestionnaireOpen = !!questionnaireData || !!uiQuestionnaireData;
     const isBackendDecision = isDecisionQuestionnaire(questionnaireData);
     // Enquanto houver questionário do backend, não abrir outro da UI (focus trap / NVDA).
     const formQuestionnaireOpen =
@@ -361,9 +377,9 @@ function App() {
     const handleQuestionnaireSubmit = async (answers: Record<string, unknown>) => {
         if (questionnaireData) {
             try {
-                await RespondQuestionnaire(questionnaireData.id, answers, false);
-                clearQuestionnaire();
-                restoreFocus();
+                const submittedQuestionnaireId = questionnaireData.id;
+                await RespondQuestionnaire(submittedQuestionnaireId, answers, false);
+                if (clearQuestionnaire(submittedQuestionnaireId)) restoreFocus();
             } catch (err) {
                 logger.error('[App] Erro ao enviar questionário:', err);
                 addToast(t('app.questionnaire.submitError'), 'error');
@@ -379,9 +395,9 @@ function App() {
     const handleQuestionnaireCancel = async (answers?: Record<string, unknown>) => {
         if (questionnaireData) {
             try {
-                await RespondQuestionnaire(questionnaireData.id, answers ?? {}, true);
-                clearQuestionnaire();
-                restoreFocus();
+                const cancelledQuestionnaireId = questionnaireData.id;
+                await RespondQuestionnaire(cancelledQuestionnaireId, answers ?? {}, true);
+                if (clearQuestionnaire(cancelledQuestionnaireId)) restoreFocus();
             } catch (err) {
                 logger.error('[App] Erro ao cancelar questionário:', err);
                 addToast(t('app.questionnaire.submitError'), 'error');
@@ -399,10 +415,11 @@ function App() {
             <ScreenReaderAnnouncer />
             <ToastHost />
             <AuthGate>
-                <Outlet />
+                <CommandContextProvider><ExternalUIConnectionProvider><Outlet /></ExternalUIConnectionProvider></CommandContextProvider>
                 <ConfirmHost />
                 <DecisionQuestionnaireHost
                     data={questionnaireData}
+                    commandScope={questionnaireCommandScope}
                     onAction={handleQuestionnaireSubmit}
                     onCancel={(answers) => { void handleQuestionnaireCancel(answers); }}
                 />

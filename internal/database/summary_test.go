@@ -19,6 +19,9 @@ func setupTestDB(t *testing.T) {
 	if err := db.AutoMigrate(&Conversation{}, &ChatMessage{}, &SubAgentRun{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
+	if err := MigrateMessageRevisions(db); err != nil {
+		t.Fatalf("failed to migrate message revisions: %v", err)
+	}
 
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()

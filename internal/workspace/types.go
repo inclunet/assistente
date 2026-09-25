@@ -76,6 +76,12 @@ type Workspace struct {
 	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
 	LastUsed  time.Time `json:"last_used" yaml:"last_used"`
 	Tabs      TabsState `json:"tabs" yaml:"tabs"`
+
+	// SnapshotEpoch e SnapshotSequence são metadados transitórios de transporte.
+	// Nunca pertencem ao estado persistido do workspace nem à versão semântica
+	// usada pelo executor de comandos.
+	SnapshotEpoch    string `json:"snapshot_epoch" yaml:"-"`
+	SnapshotSequence string `json:"snapshot_sequence" yaml:"-"`
 }
 
 // IndexEntry é um resumo de workspace no índice global.

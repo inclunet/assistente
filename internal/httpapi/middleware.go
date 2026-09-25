@@ -110,6 +110,14 @@ func (s *Server) rateLimit(limiter *rateLimiter, op string, next http.HandlerFun
 	}
 }
 
+func (s *Server) noStoreRateLimit(limiter *rateLimiter, op string, next http.HandlerFunc) http.Handler {
+	limited := s.rateLimit(limiter, op, next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		limited(w, r)
+	})
+}
+
 // clientIP extrai o IP do request preferindo RemoteAddr (sem dependência
 // de X-Forwarded-For que pode ser forjado quando a API não estiver
 // atrás de proxy de confiança). Quando o deploy mudar para usar proxy,

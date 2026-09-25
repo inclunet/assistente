@@ -28,6 +28,8 @@ export function SaveWorkspace():Promise<void>;
 
 export function SetActiveWorkspaceTab(arg1:string):Promise<void>;
 
+export function SetActiveWorkspaceTabForWorkspace(arg1:string,arg2:string):Promise<workspace.Workspace>;
+
 export function SetWorkspaceProfile(arg1:string):Promise<void>;
 
 export function SwitchWorkspace(arg1:string):Promise<workspace.Workspace>;

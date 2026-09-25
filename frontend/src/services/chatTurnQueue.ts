@@ -47,6 +47,10 @@ export function createConversationTurnQueue(): ConversationTurnQueue {
         tails.delete(conversationId);
       }
     });
+    // A cauda serve apenas à ordenação e pode ficar sem sucessor. Observar
+    // sua rejeição evita um unhandled rejection; o caller ainda recebe a
+    // rejeição original de run, sem transformar a operação em sucesso.
+    void tail.catch(() => undefined);
     state.tail = tail;
 
     return run;

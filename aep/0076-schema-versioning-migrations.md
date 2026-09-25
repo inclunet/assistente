@@ -117,6 +117,62 @@ Ele não inclui caminhos, IDs, conteúdo ou credenciais.
    0.3.0, 0.4.0 e 0.5.0 são semanticamente equivalentes. Proveniência,
    fingerprints e limites ficam no README das fixtures.
 
+## Complemento AEP-0103 — revisões duráveis de mensagens (v30)
+
+A v30 `chat_message_durable_revisions` é pós-AutoMigrate e transacional.
+Se a v19 estiver adiada, a v30 também aguarda: o cutover da v19 recria
+`chat_messages` e removeria triggers instalados antecipadamente. A v30 só
+é registrada depois de concluir essa dependência, inclusive em upgrade 0.1.9.
+Cria `chat_message_revisions` (ID da mensagem e nonce hexadecimal de 32 bytes)
+e triggers INSERT/UPDATE/DELETE em `chat_messages`. Cada escrita renova a
+revisão na mesma transação, inclusive SQL direto e bulk; excluir remove o
+metadado e reinserir o mesmo ID gera uma nova revisão. Não é log de comandos
+nem segredo de autenticação; não contém texto de mensagem e não vai para a UI.
+
+O backfill preenche apenas mensagens sem revisão, sem modificar seu payload
+ou timestamps. A função canônica `MigrateMessageRevisions` é a mesma usada
+pelo registro produtivo e pelos bancos parciais dos testes de integração.
+Os snapshots de comando/conversa incluem essas revisões e recusam metadados
+ausentes em vez de retornar ao hash baseado só em conteúdo e relógio.
+
+`TestMessageRevisionsPublishedUpgradesAndSecondBoot` qualifica fixtures de
+0.1.9–0.5.0 pelo upgrade e segundo boot reais, incluindo preservação e ABA.
+Restauração física de um banco inteiro continua exigindo aposentadoria do
+runtime e suas capturas; esta migração não autoriza restauração com comandos
+vivos, nem certifica downgrade para releases anteriores.
+
+## Complemento AEP-0103 — migração de comandos composta pelo host
+
+### Auditoria administrativa de identidades externas (v31)
+
+A v31 `external_identity_admin_audit` cria `external_identity_admin_audits`
+na fase pós-AutoMigrate. A função canônica `MigrateExternalIdentityAdminAudit`
+é transacional e valida o schema em reexecução. FKs apontam ator e alvo para
+usuários existentes; um índice único parcial por issuer limita a ação
+`bootstrap` a uma ocorrência. Ações `create` não disputam essa unicidade.
+Não há token armazenado, readiness ou alteração da migração v26 dos vínculos.
+
+O serviço insere auditoria como primeira escrita e confirma vínculo e auditoria
+juntos. Falha na autorização relida ou na gravação desfaz ambos. As fixtures
+publicadas 0.1.9–0.5.0 atravessam upgrade e segundo boot na prova específica
+`TestExternalIdentityAdminAuditPublishedUpgradesAndSecondBoot`.
+
+### Composição de comandos
+
+A v21 `command_storage_initial` foi acrescentada ao registro, sem renumerar
+versões anteriores. Na fase pós-AutoMigrate genérica ela retorna adiamento:
+o pacote database não pode importar repositories que dependem de credentials
+(que já depende de database). O App fornece a composição pela porta interna
+`ApplyCommandStorageMigration`, de versão/nome fixos, após carregar o cofre.
+Não há registro dinâmico global nem segundo histórico de migrações.
+
+Essa porta usa a mesma `schema_migrations` e o mesmo espelho contíguo
+`user_version`, com aplicação e carimbo transacionais. Sem composição, v20
+permanece visivelmente pendente e comandos ficam indisponíveis; o restante do
+App não é bloqueado. Nome incompatível na versão é recusado. Testes do registro
+real verificam o estado pendente, a conclusão explícita e o segundo boot no-op;
+testes de commandbootstrap verificam o schema composto real e sua adoção.
+
 ## Riscos
 
 - **Crash entre aplicar e registrar**: mitigado pela idempotência obrigatória — a migração reroda no próximo boot sem dano. Optou-se por não envolver `Run` + registro numa transação única porque algumas migrações (UUIDv7) já gerenciam transações próprias.

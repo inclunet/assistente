@@ -1,8 +1,87 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatToolbar } from './ChatToolbar';
+import { TokenStatsModal } from './TokenStatsModal';
+import { registerOpenModal, unregisterOpenModal } from '../../lib/modalRegistry';
+import { CHAT_PRESENTATION_COMMAND_EVENT, captureChatPickerTarget } from '../../lib/commandChatPickers';
+import { CHAT_CLEAR_COMMAND, CHAT_CLEAR_EVENT, captureChatClearTarget, executeChatClear } from '../../lib/commandChatClear';
+import { createLocalCommandKeyboard, type LocalCommandKeyboardController } from '../../lib/commandLocalKeyboard';
+import type { CommandContextualBackendPort } from '../../lib/commandContextualBackendExecution';
+
+const reservation = { ticket: 'clear-ticket', invocationId: 'clear-invocation', commandId: CHAT_CLEAR_COMMAND };
+const clearPort = {
+  beginUICommand: vi.fn<CommandContextualBackendPort['beginUICommand']>(),
+  takeUICommand: vi.fn<CommandContextualBackendPort['takeUICommand']>(),
+  commitBackendCommand: vi.fn<CommandContextualBackendPort['commitBackendCommand']>(),
+  getUICommandResult: vi.fn<CommandContextualBackendPort['getUICommandResult']>(),
+  completeUICommand: vi.fn<CommandContextualBackendPort['completeUICommand']>(),
+  cancelUICommand: vi.fn<CommandContextualBackendPort['cancelUICommand']>(),
+};
+let keyboard: LocalCommandKeyboardController;
+let restoreFocus: () => void;
+let clearRequestListener: (event: Event) => void;
+let presentationRequestListener: (event: Event) => void;
+const pendingClears: Promise<unknown>[] = [];
+
+beforeEach(async () => {
+  const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+  restoreFocus = () => focus.mockRestore();
+  clearPort.beginUICommand.mockReset().mockResolvedValue(reservation);
+  clearPort.takeUICommand.mockReset().mockResolvedValue({ ...reservation, handoffId: 'clear-handoff' });
+  clearPort.commitBackendCommand.mockReset().mockResolvedValue(undefined);
+  clearPort.getUICommandResult.mockReset().mockResolvedValue({ invocationId: reservation.invocationId, status: 'succeeded' });
+  clearPort.completeUICommand.mockReset().mockResolvedValue(undefined);
+  clearPort.cancelUICommand.mockReset().mockResolvedValue(undefined);
+  const available = (keyboardTarget?: EventTarget | null) => {
+    const target = captureChatClearTarget(() => '/', undefined, keyboardTarget);
+    try { return target?.isCurrent() === true; } finally { target?.dispose(); }
+  };
+  keyboard = createLocalCommandKeyboard({
+    target: window,
+    loadMap: async () => ({ generation: 'chat-test', bindings: [{
+      commandId: CHAT_CLEAR_COMMAND, handler: 'contextual',
+      shortcut: { version: 1, code: 'KeyL', modifiers: ['Control'] },
+    }] }),
+    blocked: () => modalState.open && !available(),
+    canHandle: (_, event) => available(event.target),
+    canHandleEditable: (_, event) => event.target instanceof Element &&
+      !!event.target.closest('[data-testid="chat-input"]') && available(),
+    onDown: async () => {
+      const target = captureChatClearTarget(() => '/');
+      if (target) {
+        const execution = executeChatClear(clearPort, target);
+        pendingClears.push(execution);
+        await execution;
+      }
+    },
+    onUp: async () => {}, reset: async () => {},
+  });
+  clearRequestListener = event => {
+    const instanceId = (event as CustomEvent<{ instanceId?: string }>).detail?.instanceId;
+    if (!instanceId) return;
+    const target = captureChatClearTarget(() => '/', instanceId);
+    if (target) { event.preventDefault(); pendingClears.push(executeChatClear(clearPort, target)); }
+  };
+  window.addEventListener(CHAT_CLEAR_EVENT, clearRequestListener);
+  presentationRequestListener = event => {
+    const { commandID, instanceId } = (event as CustomEvent<{ commandID: string; instanceId: string }>).detail;
+    const target = captureChatPickerTarget(() => '/', instanceId);
+    try { if (target?.canOpen(commandID) && target.open(commandID)) event.preventDefault(); }
+    finally { target?.dispose(); }
+  };
+  window.addEventListener(CHAT_PRESENTATION_COMMAND_EVENT, presentationRequestListener);
+  await keyboard.refresh();
+});
+afterEach(async () => {
+  keyboard.dispose();
+  window.removeEventListener(CHAT_CLEAR_EVENT, clearRequestListener);
+  window.removeEventListener(CHAT_PRESENTATION_COMMAND_EVENT, presentationRequestListener);
+  await Promise.all(pendingClears.splice(0));
+  expect(clearConversationMock).not.toHaveBeenCalled();
+  restoreFocus();
+});
 
 const clearConversationMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const loadConversationSessionMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
@@ -36,14 +115,34 @@ const openAtPointMock = vi.hoisted(() => vi.fn());
 const getAgentWorkDirMock = vi.hoisted(() => vi.fn().mockRejectedValue(new Error('sem agente')));
 const profileClickMock = vi.hoisted(() => vi.fn());
 const modalState = vi.hoisted(() => ({
+  id: null as string | null,
   open: false,
   inside: false,
   topmost: true,
 }));
+const tokenStatsModalLifecycle = vi.hoisted(() => ({
+  transitions: [] as boolean[],
+  requestClose: null as (() => void) | null,
+}));
+const tMock = vi.hoisted(() => (key: string, fallback?: unknown) => typeof fallback === 'string' ? fallback : key);
+const sessionConversationRef = vi.hoisted(() => ({ current: 'conversation-1' as string | null }));
+const contextRef = vi.hoisted(() => ({ owner: 'owner-1', session: 'session-1', workspace: 'workspace-1', tab: 'tab-chat', conversation: 'conversation-1' as string | null }));
+const contextSubscribers = vi.hoisted(() => new Set<() => void>());
+const subscribeContext = (changed: () => void) => { contextSubscribers.add(changed); return () => { contextSubscribers.delete(changed); }; };
+const tokenStats = vi.hoisted(() => ({ conversationId: 'conversation-1', promptTokens: 10, completionTokens: 2, totalTokens: 12, contextTokens: 10, contextLimit: 100, contextUsage: 10, messageCount: 1, mostUsedModel: 'fixture-model', modelCallCount: 1, isNearLimit: false, isCritical: false, systemPromptEstimatedTokens: 0, summaryTokens: 0, messagesInContextTokens: 10, messagesOutOfContextTokens: 0, messagesInContextCount: 1, messagesOutOfContextCount: 0, toolsUsedCount: 0, toolBreakdown: [] }));
+const getTokenStatsMock = vi.hoisted(() => vi.fn());
+const shortcutHintsRef = vi.hoisted(() => ({
+  current: {} as Record<string, string | undefined>,
+}));
+vi.mock('@wailsjs/go/wailsapi/Tokens', () => ({ GetConversationTokenStats: getTokenStatsMock }));
+
+vi.mock('../../lib/commandShortcutHints', () => ({
+  useCommandShortcutHints: () => (commandId: string) => shortcutHintsRef.current[commandId],
+}));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => fallback ?? key,
+    t: tMock, i18n: { language: 'en' },
   }),
 }));
 
@@ -79,23 +178,35 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 vi.mock('../ui/Modal', async () => {
   const React = await import('react');
   return {
-    Modal: ({ children, isOpen }: { children: ReactNode; isOpen: boolean }) => (
-      isOpen ? <div>{children}</div> : null
-    ),
+    Modal: ({ children, isOpen, onClose }: { children: ReactNode; isOpen: boolean; onClose: () => void }) => {
+      const previousOpen = React.useRef<boolean | null>(null);
+      const onCloseRef = React.useRef(onClose);
+      onCloseRef.current = onClose;
+      if (isOpen) tokenStatsModalLifecycle.requestClose = () => onCloseRef.current();
+      else tokenStatsModalLifecycle.requestClose = null;
+      React.useEffect(() => {
+        if (previousOpen.current !== null && previousOpen.current !== isOpen) {
+          tokenStatsModalLifecycle.transitions.push(isOpen);
+        }
+        previousOpen.current = isOpen;
+      }, [isOpen]);
+      return isOpen ? <div>{children}</div> : null;
+    },
     isModalOpen: () => modalState.open,
     useIsInsideModal: () => React.useState(modalState.inside)[0],
     useModalIsTopmost: () => {
-      const [topmost] = React.useState(modalState.topmost);
+      const topmost = modalState.topmost;
       return () => topmost;
     },
+    useModalId: () => React.useState(modalState.id)[0],
   };
 });
 
 vi.mock('../pickers', async () => {
   const React = await import('react');
   return {
-    HistoryPicker: React.forwardRef<HTMLButtonElement>(() => (
-      <button className="picker-button" type="button" onClick={historyClickMock}>
+    HistoryPicker: React.forwardRef<HTMLButtonElement, { shortcut?: string }>(({ shortcut }) => (
+      <button className="picker-button" type="button" title={shortcut} onClick={historyClickMock}>
         Historico
       </button>
     )),
@@ -105,10 +216,10 @@ vi.mock('../pickers', async () => {
 vi.mock('../pickers/ProfilePicker', async () => {
   const React = await import('react');
   return {
-    ProfilePicker: React.forwardRef<HTMLButtonElement, { onChange: (slug: string) => void }>(({ onChange }) => {
+    ProfilePicker: React.forwardRef<HTMLButtonElement, { onChange: (slug: string) => void; shortcut?: string }>(({ onChange, shortcut }) => {
       profileChangeRef.current = onChange;
       return (
-        <button className="picker-button" type="button" onClick={profileClickMock}>
+        <button className="picker-button" type="button" title={shortcut} onClick={profileClickMock}>
           Perfil
         </button>
       );
@@ -129,7 +240,6 @@ vi.mock('../pickers/ModelPicker', () => ({
         className="picker-button"
         type="button"
         aria-label={`${label}, ${value}`}
-        data-shortcut={shortcut}
         title={shortcut}
         onClick={modelOpenMock}
       >
@@ -141,7 +251,7 @@ vi.mock('../pickers/ModelPicker', () => ({
 
 vi.mock('./ChatSessionContext', () => ({
   useChatSession: () => ({
-    conversationId: 'conversation-1',
+    conversationId: sessionConversationRef.current,
     session: { queuedTurnCount: 0 },
     conversation: activeConversationRef.current,
     isLoading: isLoadingRef.current,
@@ -160,13 +270,36 @@ vi.mock('../workspace/WorkspacePanelContext', () => ({
 }));
 
 vi.mock('../../store/workspaceStore', () => ({
-  useWorkspaceStore: (selector?: (state: unknown) => unknown) => {
+  useWorkspaceStore: Object.assign((selector?: (state: unknown) => unknown) => {
     const state = {
-      workspace: { profile: 'padrao', tabs: [{ id: 'tab-chat', title: 'Chat', type: 'chat' }] },
+      workspace: { id: contextRef.workspace, profile: 'padrao', activeTabId: contextRef.tab, tabs: [{ id: 'tab-chat', title: 'Chat', type: 'chat', conversationId: contextRef.conversation }] },
       updateTab: updateTabMock,
     };
     return typeof selector === 'function' ? selector(state) : state;
-  },
+  }, {
+    getState: () => ({
+      workspace: { id: contextRef.workspace, profile: 'padrao', activeTabId: contextRef.tab, tabs: [{ id: 'tab-chat', title: 'Chat', type: 'chat', conversationId: contextRef.conversation }] },
+      updateTab: updateTabMock,
+    }),
+    subscribe: (changed: () => void) => subscribeContext(changed),
+  }),
+}));
+
+vi.mock('../../store/authStore', () => ({
+  useAuthStore: Object.assign(() => ({
+    isAuthenticated: true,
+    user: { userId: contextRef.owner, sessionId: contextRef.session },
+  }), {
+    getState: () => ({ isAuthenticated: true, user: { userId: contextRef.owner, sessionId: contextRef.session } }),
+    subscribe: (changed: () => void) => subscribeContext(changed),
+  }),
+}));
+
+vi.mock('../../store/workspaceChatModalStore', () => ({
+  useWorkspaceChatModalStore: Object.assign(() => ({ boundConversationId: modalState.id ? 'conversation-1' : null }), {
+    getState: () => ({ isOpen: Boolean(modalState.id), boundConversationId: modalState.id ? 'conversation-1' : null }),
+    subscribe: (changed: () => void) => subscribeContext(changed),
+  }),
 }));
 
 vi.mock('../../store/uiStore', () => ({
@@ -206,13 +339,6 @@ vi.mock('../menu', () => ({
   Menu: () => null,
 }));
 
-vi.mock('./TokenStatsButton', () => ({
-  TokenStatsButton: () => <button type="button">Tokens</button>,
-}));
-
-vi.mock('./TokenStatsModal', () => ({
-  TokenStatsModal: () => null,
-}));
 
 function renderToolbar() {
   return render(
@@ -225,11 +351,25 @@ function renderToolbar() {
 function dispatchCtrlKey(key: string, target: EventTarget = window) {
   const event = new KeyboardEvent('keydown', {
     key,
+    code: `Key${key.toUpperCase()}`,
     ctrlKey: true,
     bubbles: true,
     cancelable: true,
   });
   target.dispatchEvent(event);
+  target.dispatchEvent(new KeyboardEvent('keyup', { key, code: `Key${key.toUpperCase()}`, ctrlKey: true, bubbles: true }));
+  const commandID = key.toLowerCase() === 'm'
+    ? 'chat.model.open'
+    : key.toLowerCase() === 'h' ? 'chat.history.open' : key.toLowerCase() === 'p' ? 'chat.profile.open' : null;
+  if (commandID && !event.defaultPrevented && !event.repeat && !event.isComposing && event.keyCode !== 229 &&
+      !event.shiftKey && !event.altKey && !event.metaKey) {
+    const lease = captureChatPickerTarget(() => '/');
+    if (lease?.canOpen(commandID, target)) {
+      event.preventDefault();
+      lease.open(commandID);
+    }
+    lease?.dispose();
+  }
   return event;
 }
 
@@ -245,10 +385,23 @@ function dispatchModelShortcut(
     ...init,
   });
   target.dispatchEvent(event);
+  if (!event.defaultPrevented && !event.repeat && !event.isComposing && event.keyCode !== 229 &&
+      !event.shiftKey && !event.altKey && !event.metaKey) {
+    const lease = captureChatPickerTarget(() => '/');
+    if (lease?.canOpen('chat.model.open', target)) {
+      event.preventDefault();
+      lease.open('chat.model.open');
+    }
+    lease?.dispose();
+  }
   return event;
 }
 
 beforeEach(() => {
+  modalState.id = null;
+  getTokenStatsMock.mockReset().mockImplementation(async (conversationId: string) => ({ ...tokenStats, conversationId }));
+  sessionConversationRef.current = 'conversation-1';
+  Object.assign(contextRef, { owner: 'owner-1', session: 'session-1', workspace: 'workspace-1', tab: 'tab-chat', conversation: 'conversation-1' });
   updateTabMock.mockReset().mockResolvedValue(undefined);
   getProfileMock.mockReset().mockResolvedValue({
     chat: { llm_provider: 'native-provider', model: 'modelo-perfil' },
@@ -276,7 +429,252 @@ describe('ChatToolbar mensagens fixadas', () => {
   });
 });
 
+describe('ChatToolbar apresentação pinned/tokens', () => {
+  const commands = [
+    { id: 'chat.pinned.open', button: 'chat.pins.button', content: 'chat.pins.description' },
+    { id: 'chat.tokens.open', button: 'chat.tokenStatsButtonLabel', content: 'tokenStats.contextUsage' },
+  ] as const;
+  it.each(commands)('$id fecha na troca de rota sem desmontar Toolbar e não reabre no retorno', async ({ id, content }) => {
+    function RouteHarness() {
+      const navigate = useNavigate();
+      return <>
+        <button onClick={() => navigate('/settings')}>Outra rota</button>
+        <button onClick={() => navigate('/')}>Voltar à rota</button>
+        <ChatToolbar />
+      </>;
+    }
+    render(<MemoryRouter><RouteHarness /></MemoryRouter>);
+    const toolbar = screen.getByRole('toolbar');
+    const target = captureChatPickerTarget(() => '/')!;
+    act(() => { expect(target.open(id)).toBe(true); });
+    target.dispose();
+    expect(await screen.findByText(content)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Outra rota' }));
+    expect(screen.getByRole('toolbar')).toBe(toolbar);
+    expect(screen.queryByText(content)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Voltar à rota' }));
+    expect(screen.getByRole('toolbar')).toBe(toolbar);
+    expect(screen.queryByText(content)).not.toBeInTheDocument();
+    expect(clearPort.beginUICommand).not.toHaveBeenCalled();
+  });
+  beforeEach(() => {
+    modalState.open = false; modalState.inside = false; modalState.topmost = true;
+    tokenStatsModalLifecycle.transitions = [];
+    tokenStatsModalLifecycle.requestClose = null;
+  });
+  it.each(commands)('$id abre pelo registro sem ledger nem efeito de domínio', async ({ id, content }) => {
+    renderToolbar();
+    const target = captureChatPickerTarget(() => '/')!;
+    expect(target.canOpen(id)).toBe(true);
+    act(() => { expect(target.open(id)).toBe(true); });
+    expect(target.open(id)).toBe(false);
+    target.dispose();
+    expect(await screen.findByText(content)).toBeInTheDocument();
+    expect(clearPort.beginUICommand).not.toHaveBeenCalled();
+    expect(clearPort.commitBackendCommand).not.toHaveBeenCalled();
+    expect(updateTabMock).not.toHaveBeenCalled();
+    expect(loadConversationSessionMock).not.toHaveBeenCalled();
+  });
+  it('mantém TokenStatsModal montado no fechamento para Modal restaurar foco padrão', async () => {
+    renderToolbar();
+    const target = captureChatPickerTarget(() => '/')!;
+    act(() => { expect(target.open('chat.tokens.open')).toBe(true); });
+    target.dispose();
+    expect(await screen.findByText('tokenStats.contextUsage')).toBeInTheDocument();
+
+    act(() => tokenStatsModalLifecycle.requestClose?.());
+
+    await waitFor(() => expect(tokenStatsModalLifecycle.transitions).toContain(false));
+    expect(screen.queryByText('tokenStats.contextUsage')).not.toBeInTheDocument();
+  });
+  it.each(commands)('$id botão usa evento com instância exata sem recursão', async ({ id, button, content }) => {
+    renderToolbar();
+    const target = captureChatPickerTarget(() => '/')!;
+    const listener = vi.fn();
+    window.addEventListener(CHAT_PRESENTATION_COMMAND_EVENT, listener);
+    try {
+      const trigger = await screen.findByRole('button', { name: button });
+      fireEvent.click(trigger);
+      expect(listener).toHaveBeenCalledOnce();
+      expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({ commandID: id, instanceId: target.instanceId });
+      expect(await screen.findByText(content)).toBeInTheDocument();
+      expect(clearPort.beginUICommand).not.toHaveBeenCalled();
+    } finally { target.dispose(); window.removeEventListener(CHAT_PRESENTATION_COMMAND_EVENT, listener); }
+  });
+  it.each(commands)('$id indisponível sem conversa', ({ id }) => {
+    sessionConversationRef.current = null;
+    contextRef.conversation = null;
+    activeConversationRef.current = null;
+    renderToolbar();
+    const target = captureChatPickerTarget(() => '/');
+    expect(target?.canOpen(id)).toBe(false);
+    expect(target?.open(id)).toBe(false);
+    target?.dispose();
+    expect(screen.getByRole('button', { name: 'chat.pins.button' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'chat.tokenStatsButtonLabel' })).not.toBeInTheDocument();
+  });
+  it.each(commands)('$id rejeita modal bloqueante e alvo editável', ({ id }) => {
+    renderToolbar();
+    const target = captureChatPickerTarget(() => '/')!;
+    const input = document.createElement('textarea');
+    document.body.append(input);
+    try {
+      expect(target.canOpen(id, input)).toBe(false);
+      modalState.open = true;
+      expect(target.canOpen(id)).toBe(false);
+      expect(target.open(id)).toBe(false);
+    } finally { input.remove(); target.dispose(); }
+  });
+  for (const command of commands) {
+    it.each(['owner', 'session', 'workspace', 'tab', 'conversation'] as const)(`${command.id} fecha e não retargeta após ABA de %s`, async field => {
+      const view = renderToolbar();
+      const target = captureChatPickerTarget(() => '/')!;
+      act(() => { expect(target.open(command.id)).toBe(true); });
+      target.dispose();
+      expect(await screen.findByText(command.content)).toBeInTheDocument();
+      const original = contextRef[field];
+      act(() => {
+        contextRef[field] = 'replacement';
+        [...contextSubscribers].forEach(changed => changed());
+        Object.assign(contextRef, { [field]: original });
+        [...contextSubscribers].forEach(changed => changed());
+      });
+      view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+      expect(screen.queryByText(command.content)).not.toBeInTheDocument();
+      expect(clearPort.beginUICommand).not.toHaveBeenCalled();
+    });
+  }
+  it('tokens usa ID da sessão mesmo quando activeConversation contém outro ID', async () => {
+    activeConversationRef.current = { id: 'unrelated', title: 'Outra' };
+    renderToolbar();
+    fireEvent.click(await screen.findByRole('button', { name: 'chat.tokenStatsButtonLabel' }));
+    expect(await screen.findByText('tokenStats.contextUsage')).toBeInTheDocument();
+    expect(getTokenStatsMock.mock.calls.every(([id]) => id === 'conversation-1')).toBe(true);
+  });
+  for (const command of commands) {
+    it.each(['tab', 'conversation'] as const)(`${command.id} fecha no chat modal quando muda %s mesmo com modal store atrasado`, async field => {
+      modalState.id = 'chat-owning-modal';
+      modalState.open = true; modalState.inside = true;
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.setAttribute('data-modal-id', modalState.id);
+      document.body.append(overlay);
+      registerOpenModal(modalState.id);
+      const view = render(<MemoryRouter><ChatToolbar /></MemoryRouter>, { container: overlay });
+      try {
+        const target = captureChatPickerTarget(() => '/')!;
+        expect(target).toBeDefined();
+        act(() => { expect(target.open(command.id)).toBe(true); });
+        target.dispose();
+        expect(await screen.findByText(command.content)).toBeInTheDocument();
+        act(() => {
+          contextRef[field] = 'different-context';
+          [...contextSubscribers].forEach(changed => changed());
+        });
+        expect(screen.queryByText(command.content)).not.toBeInTheDocument();
+        expect(clearPort.beginUICommand).not.toHaveBeenCalled();
+      } finally {
+        view.unmount(); unregisterOpenModal('chat-owning-modal'); overlay.remove();
+        modalState.id = null;
+      }
+    });
+  }
+  it('TokenStatsModal descarta resposta atrasada da conversa anterior', async () => {
+    let resolveOld!: (value: typeof tokenStats) => void;
+    getTokenStatsMock.mockImplementationOnce(() => new Promise<typeof tokenStats>(resolve => { resolveOld = resolve; }));
+    const view = render(<TokenStatsModal conversationId="old" isOpen onClose={() => {}} />);
+    getTokenStatsMock.mockResolvedValue({ ...tokenStats, conversationId: 'new', contextUsage: 77 });
+    view.rerender(<TokenStatsModal conversationId="new" isOpen onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByRole('progressbar', { name: 'tokenStats.contextUsage' })).toHaveAttribute('aria-valuenow', '77'));
+    await act(async () => { resolveOld({ ...tokenStats, conversationId: 'old', contextUsage: 12 }); });
+    expect(screen.getByRole('progressbar', { name: 'tokenStats.contextUsage' })).toHaveAttribute('aria-valuenow', '77');
+  });
+});
+
 describe('ChatToolbar shortcuts', () => {
+  it('preserva a lease durante rerender do diálogo de decisão e só commita após fechar', async () => {
+    // Este harness usa modalId=null: cobre a toolbar da página sob a decisão.
+    // A origem em modal próprio é coberta pelo modalRegistry no teste do módulo.
+    const view = renderToolbar();
+    const target = captureChatClearTarget(() => '/');
+    expect(target).toBeDefined();
+    if (!target) throw new Error('Toolbar não registrou seu alvo');
+    let releaseDecision!: () => void;
+    const decision = new Promise<void>(resolve => { releaseDecision = resolve; });
+    clearPort.takeUICommand.mockImplementationOnce(async () => {
+      await decision;
+      return { ...reservation, handoffId: 'clear-handoff' };
+    });
+    const execution = executeChatClear(clearPort, target);
+    pendingClears.push(execution);
+    try {
+      await waitFor(() => expect(clearPort.takeUICommand).toHaveBeenCalledOnce());
+      modalState.open = true;
+      modalState.topmost = false;
+      view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+      expect(target.isCurrent()).toBe(true);
+      expect(target.canCommit()).toBe(false);
+      expect(clearPort.commitBackendCommand).not.toHaveBeenCalled();
+
+      modalState.open = false;
+      modalState.topmost = true;
+      view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+      expect(target.isCurrent()).toBe(true);
+      expect(target.canCommit()).toBe(true);
+      releaseDecision();
+      expect(await execution).toBe('succeeded');
+      expect(clearPort.commitBackendCommand).toHaveBeenCalledExactlyOnceWith('clear-ticket', 'clear-handoff');
+      expect(announceMock).toHaveBeenCalledWith('chat.conversationCleared');
+      expect(clearConversationMock).not.toHaveBeenCalled();
+    } finally {
+      target.dispose();
+      releaseDecision();
+      await execution;
+    }
+  });
+
+  it('botão publica a instância real e executa somente Commit pelo port', async () => {
+    renderToolbar();
+    fireEvent.click(screen.getByRole('button', { name: 'chat.clearBtn' }));
+    await waitFor(() => expect(clearPort.commitBackendCommand).toHaveBeenCalledExactlyOnceWith('clear-ticket', 'clear-handoff'));
+    expect(clearPort.beginUICommand).toHaveBeenCalledExactlyOnceWith(CHAT_CLEAR_COMMAND);
+    expect(clearConversationMock).not.toHaveBeenCalled();
+  });
+
+  it('projeta os rótulos a partir dos bindings efetivos e omite comandos suprimidos', async () => {
+    shortcutHintsRef.current = {
+      [CHAT_CLEAR_COMMAND]: 'Alt+X',
+      'chat.history.open': 'Alt+H',
+      'chat.model.open': 'Alt+M',
+      'chat.profile.open': undefined,
+    };
+
+    renderToolbar();
+
+    expect(screen.getByRole('button', { name: 'chat.clearBtn, Alt+X' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Historico' })).toHaveAttribute('title', 'Alt+H');
+    expect(await screen.findByRole('button', { name: 'chat.modelOverride.label, $default' })).toHaveAttribute('title', 'Alt+M');
+    expect(screen.getByRole('button', { name: 'Perfil' })).not.toHaveAttribute('title', 'Ctrl+P');
+  });
+
+  it('abre o modelo pelo alvo estável mesmo sem data-shortcut', async () => {
+    renderToolbar();
+    const model = await screen.findByRole('button', { name: 'chat.modelOverride.label, $default' });
+    expect(model).not.toHaveAttribute('data-shortcut');
+    expect(model.closest('[data-chat-picker="model"]')).toBeInTheDocument();
+
+    expect(dispatchCtrlKey('m').defaultPrevented).toBe(true);
+    expect(modelOpenMock).toHaveBeenCalledOnce();
+  });
+
+  it.each(['hidden', 'inert', 'aria-hidden'] as const)('ancestral %s impede captura da toolbar', attribute => {
+    const view = renderToolbar();
+    view.container.setAttribute(attribute, attribute === 'aria-hidden' ? 'true' : '');
+    expect(captureChatClearTarget(() => '/')).toBeUndefined();
+    dispatchCtrlKey('l');
+    expect(clearPort.beginUICommand).not.toHaveBeenCalled();
+    expect(clearPort.commitBackendCommand).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     clearConversationMock.mockClear();
     loadConversationSessionMock.mockClear();
@@ -292,6 +690,11 @@ describe('ChatToolbar shortcuts', () => {
     ]);
     modelChangeRef.current = null;
     profileChangeRef.current = null;
+    shortcutHintsRef.current = {
+      'chat.history.open': 'Ctrl+H',
+      'chat.model.open': 'Ctrl+M',
+      'chat.profile.open': 'Ctrl+P',
+    };
     modalState.open = false;
     modalState.inside = false;
     modalState.topmost = true;
@@ -322,8 +725,8 @@ describe('ChatToolbar shortcuts', () => {
     expect(historyClickMock).toHaveBeenCalledTimes(1);
     expect(profileClickMock).toHaveBeenCalledTimes(1);
     await waitFor(() => {
-      expect(clearConversationMock).toHaveBeenCalledWith('conversation-1');
-      expect(loadConversationSessionMock).toHaveBeenCalledWith('conversation-1', { refreshSurfaceWindows: true });
+      expect(clearPort.commitBackendCommand).toHaveBeenCalledExactlyOnceWith('clear-ticket', 'clear-handoff');
+      expect(loadConversationSessionMock).not.toHaveBeenCalled();
     });
     modalOverlay.remove();
   });
@@ -340,15 +743,15 @@ describe('ChatToolbar shortcuts', () => {
       })).toHaveLength(2);
     });
 
-    expect(dispatchCtrlKey('m').defaultPrevented).toBe(true);
-    expect(dispatchCtrlKey('h').defaultPrevented).toBe(true);
-    expect(dispatchCtrlKey('p').defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('m').defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('h').defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('p').defaultPrevented).toBe(false);
     expect(dispatchCtrlKey('l').defaultPrevented).toBe(true);
 
-    expect(modelOpenMock).toHaveBeenCalledOnce();
-    expect(historyClickMock).toHaveBeenCalledOnce();
-    expect(profileClickMock).toHaveBeenCalledOnce();
-    await waitFor(() => expect(clearConversationMock).toHaveBeenCalledOnce());
+    expect(modelOpenMock).not.toHaveBeenCalled();
+    expect(historyClickMock).not.toHaveBeenCalled();
+    expect(profileClickMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(clearPort.commitBackendCommand).toHaveBeenCalledOnce());
   });
 
   it('bloqueia atalhos do chat quando outro modal esta no topo', () => {
@@ -357,13 +760,14 @@ describe('ChatToolbar shortcuts', () => {
     modalState.topmost = false;
     renderToolbar();
 
-    expect(dispatchCtrlKey('h').defaultPrevented).toBe(true);
-    expect(dispatchCtrlKey('p').defaultPrevented).toBe(true);
-    expect(dispatchCtrlKey('l').defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('h').defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('p').defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('l').defaultPrevented).toBe(false);
 
     expect(historyClickMock).not.toHaveBeenCalled();
     expect(profileClickMock).not.toHaveBeenCalled();
     expect(clearConversationMock).not.toHaveBeenCalled();
+    expect(clearPort.commitBackendCommand).not.toHaveBeenCalled();
   });
 
   it('nao deixa atalhos vazarem para toolbar atras de modal', () => {
@@ -372,13 +776,14 @@ describe('ChatToolbar shortcuts', () => {
     modalState.topmost = true;
     renderToolbar();
 
-    expect(dispatchCtrlKey('h').defaultPrevented).toBe(true);
-    expect(dispatchCtrlKey('p').defaultPrevented).toBe(true);
-    expect(dispatchCtrlKey('l').defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('h').defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('p').defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('l').defaultPrevented).toBe(false);
 
     expect(historyClickMock).not.toHaveBeenCalled();
     expect(profileClickMock).not.toHaveBeenCalled();
     expect(clearConversationMock).not.toHaveBeenCalled();
+    expect(clearPort.commitBackendCommand).not.toHaveBeenCalled();
   });
 
   it('continua acionando atalhos quando nenhum modal esta aberto', () => {
@@ -396,8 +801,9 @@ describe('ChatToolbar shortcuts', () => {
     isLoadingRef.current = true;
     renderToolbar();
 
-    expect(dispatchCtrlKey('l').defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('l').defaultPrevented).toBe(false);
     expect(clearConversationMock).not.toHaveBeenCalled();
+    expect(clearPort.commitBackendCommand).not.toHaveBeenCalled();
     expect(clearConversationMessagesMock).not.toHaveBeenCalled();
   });
 
@@ -435,7 +841,7 @@ describe('ChatToolbar shortcuts', () => {
     expect(modelOpenMock).toHaveBeenCalledOnce();
     expect(historyClickMock).toHaveBeenCalledOnce();
     expect(profileClickMock).toHaveBeenCalledOnce();
-    await waitFor(() => expect(clearConversationMock).toHaveBeenCalledOnce());
+    await waitFor(() => expect(clearPort.commitBackendCommand).toHaveBeenCalledOnce());
   });
 
   it('continua acionando os atalhos após Escape quando a superfície interrompe a propagação', async () => {
@@ -473,7 +879,7 @@ describe('ChatToolbar shortcuts', () => {
     expect(modelOpenMock).toHaveBeenCalledOnce();
     expect(historyClickMock).toHaveBeenCalledOnce();
     expect(profileClickMock).toHaveBeenCalledOnce();
-    await waitFor(() => expect(clearConversationMock).toHaveBeenCalledOnce());
+    await waitFor(() => expect(clearPort.commitBackendCommand).toHaveBeenCalledOnce());
 
     surface.remove();
   });
@@ -499,6 +905,7 @@ describe('ChatToolbar shortcuts', () => {
     expect(historyClickMock).not.toHaveBeenCalled();
     expect(profileClickMock).not.toHaveBeenCalled();
     expect(clearConversationMock).not.toHaveBeenCalled();
+    expect(clearPort.commitBackendCommand).not.toHaveBeenCalled();
 
     editor.remove();
   });
@@ -532,6 +939,7 @@ describe('ChatToolbar shortcuts', () => {
     expect(historyClickMock).not.toHaveBeenCalled();
     expect(profileClickMock).not.toHaveBeenCalled();
     expect(clearConversationMock).not.toHaveBeenCalled();
+    expect(clearPort.commitBackendCommand).not.toHaveBeenCalled();
 
     containers.forEach((container) => container.remove());
   });
@@ -561,6 +969,7 @@ describe('ChatToolbar shortcuts', () => {
     expect(historyClickMock).not.toHaveBeenCalled();
     expect(profileClickMock).not.toHaveBeenCalled();
     expect(clearConversationMock).not.toHaveBeenCalled();
+    expect(clearPort.commitBackendCommand).not.toHaveBeenCalled();
 
     virtualDialog.remove();
   });
@@ -625,15 +1034,16 @@ describe('ChatToolbar shortcuts', () => {
     picker.appendChild(pickerInput);
     document.body.appendChild(picker);
     expect(dispatchModelShortcut(pickerInput).defaultPrevented).toBe(false);
-    expect(dispatchCtrlKey('h', pickerInput).defaultPrevented).toBe(true);
-    expect(dispatchCtrlKey('p', pickerInput).defaultPrevented).toBe(true);
-    expect(dispatchCtrlKey('l', pickerInput).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('h', pickerInput).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('p', pickerInput).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('l', pickerInput).defaultPrevented).toBe(false);
     picker.remove();
 
     expect(modelOpenMock).not.toHaveBeenCalled();
     expect(historyClickMock).not.toHaveBeenCalled();
     expect(profileClickMock).not.toHaveBeenCalled();
     expect(clearConversationMock).not.toHaveBeenCalled();
+    expect(clearPort.commitBackendCommand).not.toHaveBeenCalled();
     targets.forEach((target) => target.closest('body') && target.remove());
     inheritedContentEditable.remove();
     plaintextContentEditable.remove();
@@ -655,13 +1065,14 @@ describe('ChatToolbar shortcuts', () => {
 
     const blockedEvent = dispatchModelShortcut(outsideFocus);
     expect(blockedEvent.defaultPrevented).toBe(false);
-    expect(dispatchCtrlKey('h', outsideFocus).defaultPrevented).toBe(true);
-    expect(dispatchCtrlKey('p', outsideFocus).defaultPrevented).toBe(true);
-    expect(dispatchCtrlKey('l', outsideFocus).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('h', outsideFocus).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('p', outsideFocus).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('l', outsideFocus).defaultPrevented).toBe(false);
     expect(modelOpenMock).not.toHaveBeenCalled();
     expect(historyClickMock).not.toHaveBeenCalled();
     expect(profileClickMock).not.toHaveBeenCalled();
     expect(clearConversationMock).not.toHaveBeenCalled();
+    expect(clearPort.commitBackendCommand).not.toHaveBeenCalled();
 
     portalListbox.hidden = true;
     const normalEvent = dispatchModelShortcut(outsideFocus);
@@ -672,7 +1083,7 @@ describe('ChatToolbar shortcuts', () => {
     expect(modelOpenMock).toHaveBeenCalledOnce();
     expect(historyClickMock).toHaveBeenCalledOnce();
     expect(profileClickMock).toHaveBeenCalledOnce();
-    await waitFor(() => expect(clearConversationMock).toHaveBeenCalledOnce());
+    await waitFor(() => expect(clearPort.commitBackendCommand).toHaveBeenCalledOnce());
 
     outsideFocus.remove();
     portalListbox.remove();
@@ -701,6 +1112,7 @@ describe('ChatToolbar shortcuts', () => {
     ['m', 'h', 'p', 'l'].forEach((key) => {
       const legacyIMEEvent = new KeyboardEvent('keydown', {
         key,
+        code: `Key${key.toUpperCase()}`,
         ctrlKey: true,
         bubbles: true,
         cancelable: true,
@@ -713,9 +1125,10 @@ describe('ChatToolbar shortcuts', () => {
     expect(historyClickMock).not.toHaveBeenCalled();
     expect(profileClickMock).not.toHaveBeenCalled();
     expect(clearConversationMock).not.toHaveBeenCalled();
+    expect(clearPort.commitBackendCommand).not.toHaveBeenCalled();
   });
 
-  it('remove o listener de Ctrl+M ao desmontar', async () => {
+  it('não mantém listener legado de M/H/P após desmontar', async () => {
     const view = renderToolbar();
     await screen.findByRole('button', {
       name: 'chat.modelOverride.label, $default',
@@ -725,6 +1138,27 @@ describe('ChatToolbar shortcuts', () => {
     dispatchModelShortcut();
 
     expect(modelOpenMock).not.toHaveBeenCalled();
+  });
+
+  it('keydown cru de M/H/P não executa sem o dispatcher', async () => {
+    renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+
+    for (const key of ['m', 'h', 'p']) {
+      const event = new KeyboardEvent('keydown', {
+        key,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(modelOpenMock).not.toHaveBeenCalled();
+    expect(historyClickMock).not.toHaveBeenCalled();
+    expect(profileClickMock).not.toHaveBeenCalled();
   });
 });
 
@@ -759,6 +1193,40 @@ describe('ChatToolbar e o modelo do agente', () => {
 
     await waitFor(() => expect(getAgentSessionOptionsMock).toHaveBeenCalledWith('conversation-1'));
     expect(await screen.findByRole('button', { name: 'Modelo, Modelo A' })).toBeInTheDocument();
+  });
+
+  it('abre o modelo ACP, e não o modo, pelo alvo de modelo separado', async () => {
+    getAgentSessionOptionsMock.mockResolvedValue({
+      conversationId: 'conversation-1',
+      available: true,
+      options: [
+        {
+          id: 'model',
+          name: 'Modelo',
+          category: 'model',
+          currentValue: 'modelo-a',
+          values: [{ value: 'modelo-a', name: 'Modelo A' }, { value: 'modelo-b', name: 'Modelo B' }],
+        },
+        {
+          id: 'mode',
+          name: 'Modo',
+          category: 'mode',
+          currentValue: 'agent',
+          values: [{ value: 'agent' }, { value: 'plan' }],
+        },
+      ],
+    });
+
+    renderToolbar();
+
+    const model = await screen.findByRole('button', { name: 'Modelo, Modelo A' });
+    const mode = screen.getByRole('button', { name: 'Modo, chat.agentOptions.mode.agent' });
+    expect(model.closest('[data-chat-picker="model"]')).toBeInTheDocument();
+    expect(mode.closest('[data-chat-picker="model"]')).toBeNull();
+
+    expect(dispatchCtrlKey('m').defaultPrevented).toBe(true);
+    expect(await screen.findByRole('combobox', { name: 'Modelo - pickers.combobox.filterLabel' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Modo - pickers.combobox.filterLabel' })).not.toBeInTheDocument();
   });
 
   it('mostra o seletor nativo quando a conversa não fala com agente', async () => {

@@ -73,3 +73,16 @@ job ou a pipeline consumidora foi desativado — o evento é descartado e não
 aparece no run como emitido. O log registra um aviso limitado por evento para
 facilitar o diagnóstico sem repetir a mesma mensagem continuamente. Reative o
 consumidor antes do próximo disparo do produtor para retomar o encadeamento.
+
+### Origem dos eventos de tasklists
+
+As mutações de tasklists usam uma entrada interna autenticada no desktop.
+Quando há um job inscrito, o backend identifica a origem e vincula o disparo
+ao usuário e à sessão atuais. Campos recebidos no payload não concedem essa
+autoridade. Jobs encadeados preservam a origem, sem reiniciar o histórico.
+
+Se a sessão mudar antes da execução, a origem antiga não autoriza ativação de
+camadas de comandos. Isso não transforma todos os eventos do barramento em
+eventos confiáveis nem concede permissões às custom actions. A publicação de
+eventos de domínio continua best-effort: uma falha é registrada no log e não
+desfaz a mutação da tasklist já concluída.

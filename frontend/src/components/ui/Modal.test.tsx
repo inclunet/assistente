@@ -2,10 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { useEffect, useRef } from 'react';
 import { Modal } from './Modal';
+import { getModalRegistrySnapshot } from '../../lib/modalRegistry';
+import type { DialogCommandScope } from '../../lib/commandBridge';
+
+const decisionScope: DialogCommandScope = {
+  dialogId: 'decision-modal',
+  kind: 'decision',
+  generation: '1',
+  allowedCommandIds: ['decision.respond'],
+  allowedTriggerSpecs: ['keyboard.local:Ctrl+Shift+R'],
+};
 
 const originalOffsetParentDescriptor = Object.getOwnPropertyDescriptor(
   HTMLElement.prototype,
-  'offsetParent',
+  'offsetParent'
 );
 
 describe('Modal', () => {
@@ -48,6 +58,60 @@ describe('Modal', () => {
     );
 
     expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true');
+  });
+
+  it('mantém scope apenas no modal aberto topmost e restaura-o ao desmontar o superior', () => {
+    const lower = render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Decisao" dialogCommandScope={decisionScope}>
+        <button>Inferior</button>
+      </Modal>
+    );
+    expect(getModalRegistrySnapshot().dialogCommandScope).toMatchObject(decisionScope);
+
+    const upper = render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Outro">
+        <button>Superior</button>
+      </Modal>
+    );
+    expect(getModalRegistrySnapshot().dialogCommandScope).toBeNull();
+
+    upper.unmount();
+    expect(getModalRegistrySnapshot().dialogCommandScope).toMatchObject(decisionScope);
+    lower.unmount();
+  });
+
+  it('atualiza scope do modal inferior sem promovê-lo acima do topmost', () => {
+    const lower = render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Inferior" dialogCommandScope={decisionScope}>
+        <button>Inferior</button>
+      </Modal>,
+    );
+    const upper = render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Superior">
+        <button>Superior</button>
+      </Modal>,
+    );
+    const before = getModalRegistrySnapshot();
+    expect(before.topID).not.toBeNull();
+    expect(before.dialogCommandScope).toBeNull();
+
+    lower.rerender(
+      <Modal
+        isOpen={true}
+        onClose={vi.fn()}
+        title="Inferior"
+        dialogCommandScope={{ ...decisionScope, generation: '2' }}
+      >
+        <button>Inferior</button>
+      </Modal>,
+    );
+
+    const after = getModalRegistrySnapshot();
+    expect(after.topID).toBe(before.topID);
+    expect(after.dialogCommandScope).toBeNull();
+    upper.unmount();
+    expect(getModalRegistrySnapshot().dialogCommandScope?.generation).toBe('2');
+    lower.unmount();
   });
 
   it('fecha ao pressionar Escape', () => {
@@ -144,7 +208,12 @@ describe('Modal', () => {
 
   it('usa a heuristica padrao quando initialFocusSelector e invalido, sem lancar', async () => {
     render(
-      <Modal isOpen={true} onClose={vi.fn()} title="Titulo" initialFocusSelector=":::seletor-invalido(">
+      <Modal
+        isOpen={true}
+        onClose={vi.fn()}
+        title="Titulo"
+        initialFocusSelector=":::seletor-invalido("
+      >
         <input aria-label="Campo" />
       </Modal>
     );

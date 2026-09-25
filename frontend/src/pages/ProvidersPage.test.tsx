@@ -111,6 +111,7 @@ vi.mock('../components/ui/DataGrid', () => ({
 vi.mock('../components/ui/Modal', () => ({
   Modal: ({ isOpen, children }: { isOpen: boolean; children?: ReactNode }) => (isOpen ? <div>{children}</div> : null),
   isModalOpen: () => false,
+  useModalId: () => null,
   useModalIsTopmost: () => () => true,
 }));
 

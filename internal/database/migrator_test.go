@@ -472,16 +472,114 @@ func TestRealRegistry_FreshDBAppliesAllAndIsIdempotent(t *testing.T) {
 	}
 
 	got := schemaMigrationRows(t, db)
-	if len(got) != len(schemaMigrations) {
-		t.Fatalf("esperava %d migrações registradas, tenho %d (%v)", len(schemaMigrations), len(got), got)
+	if len(got) != len(schemaMigrations)-8 {
+		t.Fatalf("esperava %d migrações registradas antes da composição de comandos, tenho %d (%v)", len(schemaMigrations)-8, len(got), got)
 	}
-	for i, m := range schemaMigrations {
+	var expectedApplied []migration
+	for _, m := range schemaMigrations {
+		if (m.Version < 21 || m.Version > 24) && m.Version != 27 && m.Version != 28 && m.Version != 29 && m.Version != 32 {
+			expectedApplied = append(expectedApplied, m)
+		}
+	}
+	for i, m := range expectedApplied {
 		if got[i] != m.Version {
 			t.Fatalf("versão registrada na posição %d: esperava %d, tenho %d", i, m.Version, got[i])
 		}
 	}
+	if uv := userVersion(t, db); uv != 20 {
+		t.Fatalf("user_version esperado 20 enquanto v21–v24 estão pendentes, tenho %d", uv)
+	}
+	var pendingV21 int64
+	if err := db.Raw("SELECT COUNT(*) FROM schema_migrations WHERE version = 21").Scan(&pendingV21).Error; err != nil {
+		t.Fatal(err)
+	}
+	if pendingV21 != 0 {
+		t.Fatal("v21 deferred não deveria ter sido carimbada")
+	}
+
+	// A composição real pertence ao App; a conclusão explícita injeta o
+	// callback na porta transacional e só então publica a v21.
+	callbackCalls := 0
+	if err := ApplyCommandStorageMigration(db.Statement.Context, db, func(*gorm.DB) error {
+		callbackCalls++
+		return nil
+	}); err != nil {
+		t.Fatalf("conclusão explícita da v21: %v", err)
+	}
+	if callbackCalls != 1 {
+		t.Fatalf("callback de composição chamado %d vezes, esperado 1", callbackCalls)
+	}
+	if uv := userVersion(t, db); uv != 21 {
+		t.Fatalf("v22 não pode avançar implicitamente: %d", uv)
+	}
+	if err := ApplyCommandEnvelopeMigration(db.Statement.Context, db, func(*gorm.DB) error { callbackCalls++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if callbackCalls != 2 {
+		t.Fatalf("callbacks v21/v22 = %d", callbackCalls)
+	}
+	if uv := userVersion(t, db); uv != 22 {
+		t.Fatalf("v23 avançou implicitamente: %d", uv)
+	}
+	if err := ApplyCommandConfigMigration(db.Statement.Context, db, func(*gorm.DB) error { callbackCalls++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if callbackCalls != 3 {
+		t.Fatalf("callbacks v21/v22/v23 = %d", callbackCalls)
+	}
+	if uv := userVersion(t, db); uv != 23 {
+		t.Fatalf("v24 avançou implicitamente: %d", uv)
+	}
+	if err := ApplyCommandActivationMigration(db.Statement.Context, db, func(*gorm.DB) error { callbackCalls++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if callbackCalls != 4 {
+		t.Fatalf("callbacks v21–v24 = %d", callbackCalls)
+	}
+	if uv := userVersion(t, db); uv != 26 {
+		t.Fatalf("v27 avançou implicitamente: %d", uv)
+	}
+	if err := ApplyCommandJobActivationMigration(db.Statement.Context, db, func(*gorm.DB) error { callbackCalls++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if callbackCalls != 5 {
+		t.Fatalf("callbacks de comandos = %d", callbackCalls)
+	}
+	if uv := userVersion(t, db); uv != 27 {
+		t.Fatalf("v28 avançou implicitamente: %d", uv)
+	}
+	if err := ApplyCommandImportMigration(db.Statement.Context, db, func(*gorm.DB) error { callbackCalls++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if callbackCalls != 6 {
+		t.Fatalf("callbacks de comandos = %d", callbackCalls)
+	}
+	if err := ApplyCommandInstanceMigration(db.Statement.Context, db, func(tx *gorm.DB) error {
+		callbackCalls++
+		return tx.Exec("CREATE TABLE command_process_generations (startup_id TEXT PRIMARY KEY, file_identity TEXT NOT NULL, created_at DATETIME NOT NULL)").Error
+	}); err != nil {
+		t.Fatalf("conclusão explícita da v29: %v", err)
+	}
+	if callbackCalls != 7 {
+		t.Fatalf("callbacks de comandos = %d", callbackCalls)
+	}
+	if err := ApplyCommandDecisionExternalContextMigration(db.Statement.Context, db, func(*gorm.DB) error { callbackCalls++; return nil }); err != nil {
+		t.Fatalf("conclusão explícita da v32: %v", err)
+	}
+	if callbackCalls != 8 {
+		t.Fatalf("callbacks de comandos = %d", callbackCalls)
+	}
+	got = schemaMigrationRows(t, db)
+	if len(got) != len(schemaMigrations) {
+		t.Fatalf("esperava %d migrações após concluir comandos, tenho %d (%v)", len(schemaMigrations), len(got), got)
+	}
+	for i, m := range schemaMigrations {
+		if got[i] != m.Version {
+			t.Fatalf("versão registrada após concluir comandos na posição %d: esperava %d, tenho %d", i, m.Version, got[i])
+		}
+	}
 	if uv := userVersion(t, db); uv != schemaMigrations[len(schemaMigrations)-1].Version {
-		t.Fatalf("user_version esperado %d, tenho %d", schemaMigrations[len(schemaMigrations)-1].Version, uv)
+		t.Fatalf("user_version esperado %d após concluir comandos, tenho %d", schemaMigrations[len(schemaMigrations)-1].Version, uv)
 	}
 
 	// Segundo "boot": nada deve ser reexecutado nem duplicado.

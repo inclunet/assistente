@@ -6,6 +6,52 @@ Autor: Inclunet + Cursor Agent
 
 ## Resumo
 
+Integração AEP-0103, seção 38 (17/09/2026): uma tool delegada por comando
+carrega origem privada do runtime até o sink de tasklist. A publicação não
+recria `internal_event` quando a mutação já veio de comando/automação.
+O comando permanece em `command_chain_history`; apenas o runtime de jobs
+acrescenta jobs em `_chain_history`. Nenhum campo editável do evento concede
+essa origem. O contexto da tool não instala dispatch de job e exige nova
+verificação da origem reativa antes do efeito. Validação na tasklist 0103.
+
+Integração AEP-0103, seção 36 (17/09/2026): uma camada ativada por job pode
+delegar a novo job sem perder a raiz autenticada. O App prova a correspondência
+entre cadeia do comando e fontes selecionadas na projeção atual da outbox.
+Raízes divergentes não são fundidas; raiz do payload não concede autoridade.
+O runtime mantém `_chain_history` separado de `command_chain_history` e
+não transmite o dispatch do comando para eventos/jobs descendentes.
+Teste integrado ainda usa catálogo controlado; R03.4/R05.2 permanecem parciais.
+
+Integração AEP-0103, seção 33 (17/09/2026): o App conecta o Service real
+ao sink autenticado específico de tasklists. Novas raízes `internal_event`
+exigem sessão local válida; campos reservados do payload são descartados,
+e contextos públicos/foreign não são promovidos. Jobs descendentes preservam
+o vínculo da origem à sessão. Custom actions e o barramento genérico não
+ganham essa autoridade. A publicação continua best-effort e não desfaz uma
+mutação persistida quando a sessão não permite publicar.
+
+Integração AEP-0103, seção 32 (17/09/2026): o binding selecionado em camada
+ativada por job herda a cadeia verificada da fonte. Origens divergentes ou
+sem prova não são fundidas nem promovidas a solicitação manual. O executor
+recusa repetição de comando e profundidade acima de 16 antes da reserva;
+a auditoria preserva os identificadores estruturais sem copiar payloads.
+Isso não certifica o ciclo produtivo completo comando → job → evento → comando
+nem promove o barramento público a ingresso autenticado.
+
+Integração AEP-0103, seção 31 (17/09/2026): eventos emitidos durante um job
+preservam a raiz e a cadeia em contexto privado do executor. O listener usa
+essa prova, vinculada ao usuário, sem promover `_source` ou outros campos
+do payload a autoridade. Isso não cria outbox para eventos de domínio nem
+promove eventos legados a `internal_event`: somente a timeline/outbox do run
+downstream pode alimentar o adapter D8. A nota seguinte descreve a prova
+anterior, limitada ao executor.
+
+Integração AEP-0103 (17/09/2026, seção 29 da tasklist): o produtor de jobs
+tem prova de outbox para `internal_event` com identidade confiável do host.
+Proveniência no payload/EventBus não concede autoridade. O teste chama o
+executor diretamente e não certifica o ingresso público do barramento;
+esse fechamento permanece em R03.2, sem alterar o contrato desta AEP.
+
 Esta AEP estabelece um **barramento de eventos de UI/domínio** que alimenta o
 `EventBus` de jobs (AEP-0001/0048/0063), tendo as **tasklists como primeiro
 produtor concreto**. Três entregas se conectam:
@@ -372,6 +418,15 @@ chega ao emissor. Sem o carimbo de origem, o emissor não distingue job de
 usuário; por isso a proveniência (Fase 4) é pré-requisito dos eventos mutáveis de
 alto risco. Mitigações combinadas: proveniência + circuit breaker + `trigger.when`
 (default `_source == "user"`) + rate limit + filtros.
+
+Nota de integração AEP-0103/R03.4 (24/09/2026): a retenção do ciclo de eventos
+do runtime de jobs não altera a semântica do `DomainEventSink` de tasklists.
+Para o fato autenticado de job, o Consumer relê `jobs` e `job_runs`; assim,
+retenção de run preserva a fonte durante entrega `pending`/`processing` e volta
+a remover o run após `delivered`/`dead_letter`. A evidência de retenção e
+consumo está em `internal/jobs/command_activation_retention_matrix_test.go`;
+esta nota não promove o aceite global R03.4 nem amplia os produtores de eventos
+de domínio desta AEP.
 
 ## Riscos
 

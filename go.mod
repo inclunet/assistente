@@ -1,6 +1,6 @@
 module assistente
 
-go 1.24.1
+go 1.25.0
 
 require (
 	codeberg.org/go-pdf/fpdf v0.11.1
@@ -13,6 +13,7 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-ole/go-ole v1.3.0
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/inconshreveable/go-update v0.0.0-20160112193335-8152e7eb6ccf
@@ -31,14 +32,17 @@ require (
 	github.com/zalando/go-keyring v0.2.8
 	golang.design/x/hotkey v0.4.1
 	golang.org/x/crypto v0.44.0
+	golang.org/x/image v0.45.0
 	golang.org/x/net v0.47.0
 	golang.org/x/oauth2 v0.34.0
+	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.37.0
-	golang.org/x/text v0.34.0
+	golang.org/x/text v0.41.0
 	golang.org/x/time v0.8.0
 	google.golang.org/genai v1.52.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/gorm v1.31.1
+	rafaelmartins.com/p/streamdeck v0.0.0-20260905040856-709e442a380b
 )
 
 require (
@@ -52,8 +56,8 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.11.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/ebitengine/purego v0.10.2 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
-	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
@@ -96,8 +100,7 @@ require (
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.opencensus.io v0.24.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	google.golang.org/grpc v1.66.2 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
@@ -106,6 +109,7 @@ require (
 	modernc.org/mathutil v1.5.0 // indirect
 	modernc.org/memory v1.5.0 // indirect
 	modernc.org/sqlite v1.23.1 // indirect
+	rafaelmartins.com/p/usbhid v0.0.0-20260811025057-543484740bef // indirect
 )
 
 // replace github.com/wailsapp/wails/v2 v2.10.2 => C:\Users\leonardo.gleison\go\pkg\mod

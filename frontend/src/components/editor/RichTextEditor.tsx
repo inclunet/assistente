@@ -1,8 +1,7 @@
-import { forwardRef, useCallback, useEffect, useMemo, useRef } from 'react';
+import { forwardRef, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 
-import { applyMermaidById as applyMermaidByIdInEditor, removeMermaidById as removeMermaidByIdInEditor } from './richMermaidById';
 import { useRichLinkDialog } from './useRichLinkDialog';
 import { buildRichTextExtensions } from './buildRichTextExtensions';
 import { useRichMarkdownSync } from './useRichMarkdownSync';
@@ -22,8 +21,7 @@ export interface RichTextEditorProps {
     mermaidBlockId: string;
     code: string;
     insertText?: string;
-    apply: (nextCode: string) => void;
-    remove: () => void;
+    expectedEditor?: object;
   }) => void;
 }
 
@@ -31,8 +29,6 @@ export type RichTextEditorHandle = {
   getMarkdown: () => string;
   flushMarkdown: () => void;
   openLinkDialog: () => Promise<void>;
-  applyMermaidById: (mermaidBlockId: string, nextCode: string) => boolean;
-  removeMermaidById: (mermaidBlockId: string) => boolean;
 };
 
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(function RichTextEditor(
@@ -76,24 +72,12 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
   const openLinkDialog = useRichLinkDialog({ editor, readOnly });
 
-  const applyMermaidById = useCallback(
-    (mermaidBlockId: string, nextCode: string) => applyMermaidByIdInEditor(editor, mermaidBlockId, nextCode),
-    [editor]
-  );
-
-  const removeMermaidById = useCallback(
-    (mermaidBlockId: string) => removeMermaidByIdInEditor(editor, mermaidBlockId),
-    [editor]
-  );
-
   useRichTextEditorHandle({
     ref,
     editor,
     markdown,
     markdownSync,
     openLinkDialog,
-    applyMermaidById,
-    removeMermaidById,
   });
 
   const onEditorReadyRef = useRef(onEditorReady);
@@ -118,12 +102,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       className="rich-text-editor"
       role="region"
       aria-label={resolvedAriaLabel}
-      onKeyDown={(e) => {
-        if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
-          e.preventDefault();
-          void openLinkDialog();
-        }
-      }}
     >
       <EditorContent editor={editor} className="rich-text-editor__content" />
     </div>

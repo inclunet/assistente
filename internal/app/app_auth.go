@@ -121,18 +121,40 @@ func (a *App) GetAuthStatus() (AuthStatus, error) {
 	}, nil
 }
 
-func (a *App) SetupVault(masterPassword string) (string, error) {
+func (a *App) SetupVault(masterPassword string) (recovery string, err error) {
+	finish := a.beginCommandAuthTransition()
+	defer func() {
+		finish()
+		if err == nil {
+			a.bootstrapCommandLifecycleAfterUnlock(a.appContext())
+		}
+	}()
 	if err := a.ensureAuthCoreServices(); err != nil {
 		return "", err
 	}
-	return a.vaultSvc.Setup(a.appContext(), masterPassword)
+	recovery, err = a.vaultSvc.Setup(a.appContext(), masterPassword)
+	if err == nil {
+		a.markCommandVaultUnlocked()
+	}
+	return recovery, err
 }
 
-func (a *App) UnlockVault(kind, secret string) error {
+func (a *App) UnlockVault(kind, secret string) (err error) {
+	finish := a.beginCommandAuthTransition()
+	defer func() {
+		finish()
+		if err == nil {
+			a.bootstrapCommandLifecycleAfterUnlock(a.appContext())
+		}
+	}()
 	if err := a.ensureAuthCoreServices(); err != nil {
 		return err
 	}
-	return a.vaultSvc.Unlock(a.appContext(), kind, secret)
+	err = a.vaultSvc.Unlock(a.appContext(), kind, secret)
+	if err == nil {
+		a.markCommandVaultUnlocked()
+	}
+	return err
 }
 
 func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
@@ -182,9 +204,20 @@ func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
 	return user, nil
 }
 
-func (a *App) Login(req LoginRequest) (*AuthUser, error) {
+func (a *App) Login(req LoginRequest) (result *AuthUser, err error) {
+	// Invalida qualquer publicação anterior antes de adquirir authSessionMu.
+	// O defer de bootstrap é declarado antes do lock para executar depois dos
+	// defers de gate e unlock, mantendo portas externas fora dos locks.
+	if err := a.resetCommandLifecycleIfConfigured(a.appContext(), "login"); err != nil {
+		return nil, err
+	}
+	defer func() {
+		a.bootstrapCommandLifecycleAfterAuth(a.appContext(), result, err)
+	}()
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
+	defer a.beginCommandAuthTransition()()
+	a.resetCommandHostSession(false)
 
 	if err := a.ensureAuthCoreServices(); err != nil {
 		return nil, err
@@ -257,6 +290,8 @@ const rollbackLogoutTimeout = 2 * time.Second
 // que iniciou bem mas falhou em uma etapa pós-IssueSession. Idempotente
 // e melhor-esforço: cada limpeza é tentada independentemente.
 func (a *App) rollbackLoginState(refreshToken string) {
+	defer a.beginCommandAuthTransition()()
+	a.resetCommandHostSession(true)
 	if a.sessionSvc != nil && refreshToken != "" {
 		ctx, cancel := context.WithTimeout(a.appContext(), rollbackLogoutTimeout)
 		err := a.sessionSvc.Logout(ctx, refreshToken)
@@ -292,9 +327,16 @@ func (a *App) rollbackLoginState(refreshToken string) {
 	}
 }
 
-func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
+func (a *App) RefreshAuth(req RefreshRequest) (result *AuthUser, err error) {
+	if err := a.resetCommandLifecycleIfConfigured(a.appContext(), "refresh"); err != nil {
+		return nil, err
+	}
+	defer func() {
+		a.bootstrapCommandLifecycleAfterAuth(a.appContext(), result, err)
+	}()
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
+	defer a.beginCommandAuthTransition()()
 
 	if err := a.ensureAuthCoreServices(); err != nil {
 		return nil, err
@@ -312,7 +354,6 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 	}
 
 	var pair *auth.TokenPair
-	var err error
 	for _, refreshToken := range candidates {
 		pair, err = a.sessionSvc.RefreshLocalCandidate(a.appContext(), refreshToken)
 		if err == nil {
@@ -389,8 +430,16 @@ func (a *App) loadAuthRefreshTokenCandidates() []string {
 // pensar que o logout falhou enquanto, do ponto de vista do app, ele
 // já tinha completado.
 func (a *App) Logout(req LogoutRequest) error {
+	// A limpeza de comandos ocorre antes do lock de autenticação. Se uma porta
+	// falhar, o controller entra em estado fail-closed; o logout legado ainda
+	// prossegue para não deixar a sessão local presa.
+	if err := a.resetCommandLifecycleIfConfigured(a.appContext(), "logout"); err != nil {
+		logging.Errorf(context.Background(), "app.app-auth", "erro ao resetar ciclo de vida de comandos no logout: %v", err)
+	}
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
+	defer a.beginCommandAuthTransition()()
+	a.resetCommandHostSession(true)
 
 	if err := a.ensureAuthCoreServices(); err != nil {
 		return err
@@ -738,6 +787,9 @@ func (a *App) emitRuntimePartialInit(result runtimeReloadResult) {
 // timer no frontend).
 func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 	result := &runtimeReloadResult{}
+	if a.commandCLIOnly {
+		return *result
+	}
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
 	}
@@ -762,6 +814,16 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 		if currentUserID != userID {
 			logging.Warnf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] jobs não iniciados: sessão mudou durante reload")
 			return
+		}
+		// O domínio legado continua disponível antes de haver armazenamento de
+		// comandos. Uma montagem habilitada que falha nunca cai silenciosamente
+		// na retenção legada, que não conhece a ordem outbox/leases.
+		if a.commandDrainRecoveryReady() || a.commandMaintenance.Load() != nil {
+			if err := a.configureCommandMaintenance(ctx); err != nil {
+				logging.Errorf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] manutenção de comandos não montada: %v", err)
+				result.add(runtimeSubsystemJobs, err)
+				return
+			}
 		}
 		if err := a.jobMgr.Start(); err != nil {
 			logging.Errorf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)

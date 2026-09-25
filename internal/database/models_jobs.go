@@ -136,15 +136,25 @@ type JobRun struct {
 	JobID     string `json:"jobId" gorm:"not null;index;index:idx_job_runs_user_job_started_at,priority:2"`
 	TriggerID string `json:"triggerId" gorm:"not null;index"`
 
-	Status        string     `json:"status" gorm:"not null;index"`
-	StartedAt     time.Time  `json:"startedAt" gorm:"not null;index;index:idx_job_runs_user_job_started_at,priority:3;index:idx_job_runs_user_started_at,priority:2"`
-	CompletedAt   *time.Time `json:"completedAt,omitempty"`
-	DurationMs    int64      `json:"durationMs,omitempty"`
-	Error         string     `json:"error,omitempty" gorm:"type:text"`
-	RetryCount    int        `json:"retryCount,omitempty"`
-	IsDryRun      bool       `json:"isDryRun,omitempty" gorm:"index"`
-	TriggerData   string     `json:"triggerData,omitempty" gorm:"type:text"`
-	EventsEmitted string     `json:"eventsEmitted,omitempty" gorm:"type:text"`
+	Status string `json:"status" gorm:"not null;index"`
+	// QueuedAt é a fronteira de criação do run e permanece sempre preenchido.
+	// StartedAt é nulo enquanto o run aguarda despacho. O tipo time.Time é
+	// mantido por compatibilidade com leitores legados; a coluna não tem
+	// NOT NULL e o repository traduz NULL para o zero value.
+	QueuedAt  time.Time `json:"queuedAt" gorm:"not null;index"`
+	StartedAt time.Time `json:"startedAt" gorm:"index;index:idx_job_runs_user_job_started_at,priority:3;index:idx_job_runs_user_started_at,priority:2"`
+	// A raiz só é preenchida pelo runtime/adapters autenticados. Campos vazios
+	// em linhas legadas são preservados como desconhecidos, sem inferência.
+	RootOriginType string     `json:"rootOriginType,omitempty" gorm:"type:text;index"`
+	RootOriginID   string     `json:"rootOriginId,omitempty" gorm:"type:text"`
+	Provenance     string     `json:"provenance,omitempty" gorm:"type:text"`
+	CompletedAt    *time.Time `json:"completedAt,omitempty"`
+	DurationMs     int64      `json:"durationMs,omitempty"`
+	Error          string     `json:"error,omitempty" gorm:"type:text"`
+	RetryCount     int        `json:"retryCount,omitempty"`
+	IsDryRun       bool       `json:"isDryRun,omitempty" gorm:"index"`
+	TriggerData    string     `json:"triggerData,omitempty" gorm:"type:text"`
+	EventsEmitted  string     `json:"eventsEmitted,omitempty" gorm:"type:text"`
 
 	User    *User         `json:"-" gorm:"foreignKey:UserID"`
 	Job     *Job          `json:"-" gorm:"foreignKey:JobID"`
@@ -155,14 +165,17 @@ type JobRun struct {
 // JobEvent registra eventos globais do sistema de jobs.
 type JobEvent struct {
 	UUIDModel
-	UserID     string    `json:"userId" gorm:"not null;index;index:idx_job_events_user_occurred_at,priority:1"`
-	JobID      *string   `json:"jobId,omitempty" gorm:"index"`
-	JobRunID   *string   `json:"jobRunId,omitempty" gorm:"index"`
-	OccurredAt time.Time `json:"occurredAt" gorm:"not null;index;index:idx_job_events_user_occurred_at,priority:2"`
-	Type       string    `json:"type" gorm:"not null;index"`
-	Event      string    `json:"event,omitempty" gorm:"index"`
-	Message    string    `json:"message,omitempty" gorm:"type:text"`
-	Data       string    `json:"data,omitempty" gorm:"type:text"`
+	UserID         string    `json:"userId" gorm:"not null;index;index:idx_job_events_user_occurred_at,priority:1"`
+	JobID          *string   `json:"jobId,omitempty" gorm:"index"`
+	JobRunID       *string   `json:"jobRunId,omitempty" gorm:"index"`
+	OccurredAt     time.Time `json:"occurredAt" gorm:"not null;index;index:idx_job_events_user_occurred_at,priority:2"`
+	Type           string    `json:"type" gorm:"not null;index"`
+	Event          string    `json:"event,omitempty" gorm:"index"`
+	Message        string    `json:"message,omitempty" gorm:"type:text"`
+	Data           string    `json:"data,omitempty" gorm:"type:text"`
+	RootOriginType string    `json:"rootOriginType,omitempty" gorm:"type:text;index"`
+	RootOriginID   string    `json:"rootOriginId,omitempty" gorm:"type:text"`
+	Provenance     string    `json:"provenance,omitempty" gorm:"type:text"`
 
 	User   *User   `json:"-" gorm:"foreignKey:UserID"`
 	Job    *Job    `json:"-" gorm:"foreignKey:JobID"`
@@ -179,6 +192,11 @@ type JobRunEvent struct {
 	Type       string    `json:"type" gorm:"not null;index"`
 	Message    string    `json:"message,omitempty" gorm:"type:text"`
 	Data       string    `json:"data,omitempty" gorm:"type:text"`
+	// A raiz só é preenchida pelo runtime/adapters autenticados. Campos vazios
+	// em linhas legadas são preservados como desconhecidos, sem inferência.
+	RootOriginType string `json:"rootOriginType,omitempty" gorm:"type:text;index"`
+	RootOriginID   string `json:"rootOriginId,omitempty" gorm:"type:text"`
+	Provenance     string `json:"provenance,omitempty" gorm:"type:text"`
 
 	User   *User   `json:"-" gorm:"foreignKey:UserID"`
 	JobRun *JobRun `json:"-" gorm:"foreignKey:JobRunID"`

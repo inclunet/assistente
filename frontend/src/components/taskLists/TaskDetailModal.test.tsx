@@ -168,10 +168,14 @@ describe('TaskDetailModal', () => {
     const body = await screen.findByRole('document');
     expect(body).toHaveClass('modal-body');
     expect(screen.queryByRole('application')).toBeNull();
-    const markdownRegions = await screen.findAllByTestId('task-markdown');
-    expect(markdownRegions).toHaveLength(2);
-    markdownRegions.forEach((region) => {
-      expect(region).toHaveAttribute('data-tab-navigation', 'enabled');
+    // A descrição existe antes de loadTaskNotes resolver. findAllByTestId
+    // aguarda apenas um nó; espere o conjunto completo e seus atributos.
+    await waitFor(() => {
+      const markdownRegions = screen.getAllByTestId('task-markdown');
+      expect(markdownRegions).toHaveLength(2);
+      markdownRegions.forEach((region) => {
+        expect(region).toHaveAttribute('data-tab-navigation', 'enabled');
+      });
     });
   });
 

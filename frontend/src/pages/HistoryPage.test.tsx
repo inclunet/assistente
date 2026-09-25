@@ -237,6 +237,7 @@ const conversations: ConversationItem[] = [
 ];
 
 import HistoryPage from './HistoryPage';
+import { COMMAND_NAVIGATION_EVENT } from '../lib/commandNavigation';
 
 describe('HistoryPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
@@ -280,6 +281,43 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     mockRequestConfirm.mockReset();
     mockRequestConfirm.mockResolvedValue(true);
     mockRequestGridFocus.mockClear();
+  });
+
+  it('solicita navigation.workspace.open pelo evento compartilhado e não navega sem dispatcher', async () => {
+    const user = userEvent.setup();
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'Nova Conversa' }));
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('entrega o ID fechado ao dispatcher de navegação', async () => {
+    const user = userEvent.setup();
+    const listener = vi.fn((event: Event) => event.preventDefault());
+    window.addEventListener(COMMAND_NAVIGATION_EVENT, listener);
+    try {
+      render(<HistoryPage />);
+      await screen.findByText('Conversa 1');
+      await user.click(screen.getByRole('button', { name: 'Nova Conversa' }));
+
+      expect(listener).toHaveBeenCalledOnce();
+      expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
+        commandId: 'navigation.workspace.open',
+      });
+    } finally {
+      window.removeEventListener(COMMAND_NAVIGATION_EVENT, listener);
+    }
+  });
+
+  it('não instala listener próprio de Ctrl+N', async () => {
+    render(<HistoryPage />);
+    await screen.findByText('Conversa 1');
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', ctrlKey: true, bubbles: true }));
+
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('nao duplica acao de deletar na toolbar', async () => {

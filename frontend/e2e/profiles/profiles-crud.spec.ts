@@ -1,4 +1,13 @@
 import { test, expect } from '../fixtures';
+import {
+  configureProfileMutation,
+  configureProfilePage,
+  expectProfileMutationProtocol,
+  installProfileDeleteDecision,
+  profileCommandTicket,
+  profileCommandTarget,
+  waitForProfileMutationResult,
+} from '../helpers/profileCommand';
 
 const defaultProfile = {
   slug: 'default',
@@ -24,7 +33,7 @@ test.describe('Perfis — criação', () => {
   test('Ctrl+N abre editor de novo perfil', async ({ page, wails }) => {
     await wails.setResponse('GetProfiles', [defaultProfile]);
     await wails.setResponse('GetActiveProfileSlug', 'default');
-    await wails.setResponse('GetProfile', defaultProfile);
+    await configureProfilePage(wails);
 
     await wails.waitForApp();
     await page.goto('/#/profiles');
@@ -41,35 +50,32 @@ test.describe('Perfis — criação', () => {
   test('criar perfil via botão Novo e salvar', async ({ page, wails }) => {
     await wails.setResponse('GetProfiles', [defaultProfile]);
     await wails.setResponse('GetActiveProfileSlug', 'default');
-    await wails.setResponse('GetProfile', defaultProfile);
-    await wails.setResponse('CreateProfile', { slug: 'new-profile', name: 'Meu Perfil' });
+    await configureProfilePage(wails);
+    await configureProfileMutation(wails, 'profiles.create', 'new-profile');
 
     await wails.waitForApp();
     await page.goto('/#/profiles');
     await page.waitForSelector('.profiles-page', { timeout: 10_000 });
 
-    // Clica no botão de novo perfil (Ctrl+N ou botão)
-    await page.keyboard.press('Control+n');
+    await page.getByRole('button', { name: /novo perfil|new profile/i }).click();
 
     const editor = page.locator('.profiles-editor');
     await expect(editor).toBeVisible({ timeout: 5_000 });
 
     // Preenche o nome
     const nameInput = editor.locator('input').first();
-    if (await nameInput.isVisible()) {
-      await nameInput.fill('Meu Perfil Novo');
-    }
+    await expect(nameInput).toBeVisible();
+    await nameInput.fill('Meu Perfil Novo');
 
     // Tenta salvar
     const saveBtn = editor.locator('button', { hasText: /salvar|save/i });
-    if (await saveBtn.count() > 0) {
-      await saveBtn.first().click();
-
-      // Verifica que CreateProfile ou UpdateProfile foi chamado
-      const log = await wails.getCallLog();
-      const createCalls = log.filter(c => c.fn === 'CreateProfile' || c.fn === 'UpdateProfile');
-      expect(createCalls.length).toBeGreaterThanOrEqual(1);
-    }
+    await expect(saveBtn.first()).toBeVisible();
+    await saveBtn.first().click();
+    await waitForProfileMutationResult(wails, profileCommandTicket);
+    const log = await wails.getCallLog();
+    expectProfileMutationProtocol(log, 'profiles.create', { targetId: '', profileName: 'Meu Perfil Novo' });
+    expect(log.some((call) => call.fn === 'CreateProfile' || call.fn === 'UpdateProfile')).toBe(false);
+    await expect(editor).toBeHidden();
   });
 });
 
@@ -77,7 +83,7 @@ test.describe('Perfis — edição', () => {
   test('Enter em perfil no grid abre editor', async ({ page, wails }) => {
     await wails.setResponse('GetProfiles', [defaultProfile, customProfile]);
     await wails.setResponse('GetActiveProfileSlug', 'default');
-    await wails.setResponse('GetProfile', customProfile);
+    await configureProfilePage(wails, { ...profileCommandTarget, name: customProfile.name });
 
     await wails.waitForApp();
     await page.goto('/#/profiles');
@@ -103,7 +109,8 @@ test.describe('Perfis — edição', () => {
   test('edição inline de nome no grid', async ({ page, wails }) => {
     await wails.setResponse('GetProfiles', [defaultProfile, customProfile]);
     await wails.setResponse('GetActiveProfileSlug', 'default');
-    await wails.setResponse('UpdateProfile', undefined);
+    await configureProfilePage(wails, { ...profileCommandTarget, name: customProfile.name });
+    await configureProfileMutation(wails, 'profiles.update');
 
     await wails.waitForApp();
     await page.goto('/#/profiles');
@@ -125,9 +132,10 @@ test.describe('Perfis — edição', () => {
     await editInput.fill('Nome Editado');
     await editInput.press('Enter');
 
+    await waitForProfileMutationResult(wails, profileCommandTicket);
     const log = await wails.getCallLog();
-    const updateCalls = log.filter(c => c.fn === 'UpdateProfile');
-    expect(updateCalls.length).toBeGreaterThanOrEqual(1);
+    expectProfileMutationProtocol(log, 'profiles.update', { targetId: 'coder', profileName: 'Nome Editado' });
+    expect(log.some((call) => call.fn === 'UpdateProfile')).toBe(false);
   });
 });
 
@@ -135,9 +143,11 @@ test.describe('Perfis — exclusão', () => {
   test('deletar perfil inativo via botão da toolbar', async ({ page, wails }) => {
     await wails.setResponse('GetProfiles', [defaultProfile, customProfile]);
     await wails.setResponse('GetActiveProfileSlug', 'default');
-    await wails.setResponse('DeleteProfile', undefined);
+    await configureProfilePage(wails, { ...profileCommandTarget, name: customProfile.name });
+    await configureProfileMutation(wails, 'profiles.delete');
 
     await wails.waitForApp();
+    await installProfileDeleteDecision(page);
     await page.goto('/#/profiles');
     await page.waitForSelector('.profiles-page', { timeout: 10_000 });
 
@@ -146,41 +156,27 @@ test.describe('Perfis — exclusão', () => {
 
     // Seleciona diretamente o perfil inativo. O teste de navegação por teclado
     // já cobre o roving tabindex; aqui o foco é a ação de exclusão.
-    await page.getByRole('gridcell', { name: 'Programador' }).click({ force: true });
+    await page.getByRole('gridcell', { name: 'Programador' }).click();
     await page.keyboard.press('ArrowDown');
 
-    // Aguarda o botão Delete ficar habilitado (seleção ativa perfil inativo)
-    await page.waitForFunction(() => {
-      const button = document.querySelector('button[aria-label="Delete"]') as HTMLButtonElement | null;
-      return !!button && !button.disabled;
-    }, { timeout: 5_000 });
-
-    // Clica no botão Delete
-    await page.evaluate(() => {
-      const button = document.querySelector('button[aria-label="Delete"]') as HTMLButtonElement | null;
-      if (!button || button.disabled) {
-        throw new Error('Delete button is not enabled');
-      }
-      button.click();
-    });
+    const deleteButton = page.getByRole('button', { name: 'Delete' });
+    await expect(deleteButton).toBeVisible();
+    await expect(deleteButton).toBeEnabled();
+    await deleteButton.click();
 
     // Confirma exclusão no DecisionDialog (AEP-0091), não no window.confirm nativo
-    const confirmDialog = page.locator('.confirm-dialog-modal');
+    const confirmDialog = page.locator('.decision-dialog-modal');
     await expect(confirmDialog).toBeVisible({ timeout: 5_000 });
-    await confirmDialog.getByRole('button', { name: /delete|excluir/i }).click();
+    await confirmDialog.locator('[data-decision-action="apply"]').click();
     await expect(confirmDialog).not.toBeVisible({ timeout: 3_000 });
 
-    // Aguarda o processamento
-    await page.waitForFunction(() => {
-      return window.__wailsMock.getCallLog().some(
-        (c: { fn: string }) => c.fn === 'DeleteProfile'
-      );
-    }, { timeout: 5_000 });
+    // Aguarda a mutação confirmada pelo protocolo page-mutation.
+    await waitForProfileMutationResult(wails, profileCommandTicket);
 
     // Verifica chamada
     const log = await wails.getCallLog();
-    const deleteCalls = log.filter(c => c.fn === 'DeleteProfile');
-    expect(deleteCalls.length).toBe(1);
+    expectProfileMutationProtocol(log, 'profiles.delete', { targetId: 'coder' });
+    expect(log.some((call) => call.fn === 'DeleteProfile')).toBe(false);
   });
 });
 
@@ -188,8 +184,8 @@ test.describe('Perfis — ativação', () => {
   test('ativar perfil via menu de ações na linha', async ({ page, wails }) => {
     await wails.setResponse('GetProfiles', [defaultProfile, customProfile]);
     await wails.setResponse('GetActiveProfileSlug', 'default');
-    await wails.setResponse('SetActiveProfile', undefined);
-    await wails.setResponse('GetActiveProfile', customProfile);
+    await configureProfilePage(wails, { ...profileCommandTarget, name: customProfile.name });
+    await configureProfileMutation(wails, 'profiles.activate');
 
     await wails.waitForApp();
     await page.goto('/#/profiles');
@@ -199,21 +195,22 @@ test.describe('Perfis — ativação', () => {
     const rows = page.locator('[role="row"]');
     const customRow = rows.filter({ hasText: 'Programador' });
 
-    const actionBtn = customRow.locator('.action-button');
-    if (await actionBtn.count() > 0) {
-      await actionBtn.first().click();
+    const actionBtn = customRow.getByRole('button', { name: /^(ações|actions)$/i });
+    await expect(actionBtn.first()).toBeVisible();
+    await actionBtn.first().click();
 
-      // Menu de contexto aparece — clica em "Ativar"
-      const activateItem = page.locator('[role="menuitem"]', { hasText: /ativar|activate/i });
-      if (await activateItem.count() > 0) {
-        await activateItem.first().click();
+    // Menu de contexto aparece — clica em "Ativar"
+    const activateItem = page.locator('[role="menuitem"]', { hasText: /ativar|activate/i });
+    await expect(activateItem.first()).toBeVisible();
+    await activateItem.first().click();
 
-        const log = await wails.getCallLog();
-        const activateCalls = log.filter(c => c.fn === 'SetActiveProfile');
-        expect(activateCalls.length).toBe(1);
-        expect(activateCalls[0].args[0]).toBe('coder');
-      }
-    }
+    await page.waitForFunction((ticket) => window.__wailsMock.getCallLog().some(
+      (call: { fn: string; args: unknown[] }) => call.fn === 'GetPageMutationCommandResult' && call.args[0] === ticket,
+    ), profileCommandTicket, { timeout: 5_000 });
+    const log = await wails.getCallLog();
+    expectProfileMutationProtocol(log, 'profiles.activate', { targetId: 'coder' });
+    expect(log.some((call) => call.fn === 'SetActiveProfile')).toBe(false);
+    await expect(page.locator('.toast__message').filter({ hasText: /ativado|activated/i })).toBeVisible();
   });
 });
 
@@ -221,8 +218,8 @@ test.describe('Perfis — duplicação', () => {
   test('duplicar perfil via menu de ações', async ({ page, wails }) => {
     await wails.setResponse('GetProfiles', [defaultProfile, customProfile]);
     await wails.setResponse('GetActiveProfileSlug', 'default');
-    await wails.setResponse('DuplicateProfile', 'coder-copy');
-    await wails.setResponse('GetProfile', { ...customProfile, slug: 'coder-copy', name: 'Programador (cópia)' });
+    await configureProfilePage(wails, { ...profileCommandTarget, name: customProfile.name });
+    await configureProfileMutation(wails, 'profiles.duplicate', 'coder-copy');
 
     await wails.waitForApp();
     await page.goto('/#/profiles');
@@ -232,20 +229,21 @@ test.describe('Perfis — duplicação', () => {
     const rows = page.locator('[role="row"]');
     const customRow = rows.filter({ hasText: 'Programador' });
 
-    const actionBtn = customRow.locator('.action-button');
-    if (await actionBtn.count() > 0) {
-      await actionBtn.first().click();
+    const actionBtn = customRow.getByRole('button', { name: /^(ações|actions)$/i });
+    await expect(actionBtn.first()).toBeVisible();
+    await actionBtn.first().click();
 
-      // Clica em "Duplicar"
-      const dupItem = page.locator('[role="menuitem"]', { hasText: /duplic/i });
-      if (await dupItem.count() > 0) {
-        await dupItem.first().click();
+    // Clica em "Duplicar"
+    const dupItem = page.locator('[role="menuitem"]', { hasText: /duplic/i });
+    await expect(dupItem.first()).toBeVisible();
+    await dupItem.first().click();
 
-        const log = await wails.getCallLog();
-        const dupCalls = log.filter(c => c.fn === 'DuplicateProfile');
-        expect(dupCalls.length).toBe(1);
-        expect(dupCalls[0].args[0]).toBe('coder');
-      }
-    }
+    await page.waitForFunction((ticket) => window.__wailsMock.getCallLog().some(
+      (call: { fn: string; args: unknown[] }) => call.fn === 'GetPageMutationCommandResult' && call.args[0] === ticket,
+    ), profileCommandTicket, { timeout: 5_000 });
+    const log = await wails.getCallLog();
+    expectProfileMutationProtocol(log, 'profiles.duplicate', { targetId: 'coder' });
+    expect(log.some((call) => call.fn === 'DuplicateProfile')).toBe(false);
+    await expect(page.locator('.profiles-editor')).toBeVisible();
   });
 });

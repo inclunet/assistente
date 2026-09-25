@@ -1,6 +1,10 @@
 package portability
 
-import "time"
+import (
+	"time"
+
+	"assistente/internal/commandportability"
+)
 
 const (
 	FormatJSON     = "json"
@@ -272,12 +276,13 @@ type CredentialExport struct {
 }
 
 type ExportResources struct {
-	Conversations []ConversationExport `json:"conversations,omitempty"`
-	Providers     []ProviderExport     `json:"providers,omitempty"`
-	MCPServers    []MCPServerExport    `json:"mcpServers,omitempty"`
-	TaskLists     []TaskListExport     `json:"taskLists,omitempty"`
-	MemoryRecords []MemoryRecordExport `json:"memoryRecords,omitempty"`
-	Credentials   *CredentialCipher    `json:"credentials,omitempty"`
+	Conversations []ConversationExport             `json:"conversations,omitempty"`
+	Providers     []ProviderExport                 `json:"providers,omitempty"`
+	MCPServers    []MCPServerExport                `json:"mcpServers,omitempty"`
+	TaskLists     []TaskListExport                 `json:"taskLists,omitempty"`
+	MemoryRecords []MemoryRecordExport             `json:"memoryRecords,omitempty"`
+	CommandLayers []commandportability.LayerExport `json:"commandLayers,omitempty"`
+	Credentials   *CredentialCipher                `json:"credentials,omitempty"`
 }
 
 type ExportFile struct {
@@ -300,9 +305,11 @@ type ExportRequest struct {
 	JobIDs                   []string `json:"jobIds,omitempty"`
 	TaskListIDs              []string `json:"taskListIds,omitempty"`
 	MemoryRecordIDs          []string `json:"memoryRecordIds,omitempty"`
+	CommandLayerIDs          []string `json:"commandLayerIds,omitempty"`
 	ChannelNames             []string `json:"channelNames,omitempty"`
 	IncludeContacts          bool     `json:"includeContacts"`
 	IncludeWorkspace         bool     `json:"includeWorkspace"`
+	IncludeCommandLayers     bool     `json:"includeCommandLayers"`
 	IncludeAudio             bool     `json:"includeAudio"`
 	IncludeCredentials       bool     `json:"includeCredentials"`
 	CredentialExportPassword string   `json:"credentialExportPassword,omitempty"`
@@ -378,6 +385,7 @@ type ImportAnalysis struct {
 	TaskCount                  int                `json:"taskCount"`
 	TaskNoteCount              int                `json:"taskNoteCount"`
 	MemoryRecordCount          int                `json:"memoryRecordCount"`
+	CommandLayerCount          int                `json:"commandLayerCount"`
 	IncludesCredentials        bool               `json:"includesCredentials"`
 	RequiresCredentialPassword bool               `json:"requiresCredentialPassword"`
 	CredentialCount            int                `json:"credentialCount"`

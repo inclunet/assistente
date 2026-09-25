@@ -10,6 +10,8 @@ const twoWorkspaces = [
 const activeWorkspace = {
   id: 'ws-1',
   name: 'Principal',
+  snapshot_epoch: 'e2e-workspace-epoch',
+  snapshot_sequence: '1',
   profile: '',
   created_at: now,
   last_used: now,
@@ -19,6 +21,24 @@ const activeWorkspace = {
       { id: 'tab-1', type: 'chat', conversation_id: '01970a9e-0001-7000-8000-000000000001', title: 'Conversa 1', position: 0 },
       { id: 'tab-2', type: 'chat', conversation_id: '01970a9e-0002-7000-8000-000000000002', title: 'Conversa 2', position: 1 },
     ],
+  },
+};
+
+const workspaceAfterMove = {
+  ...activeWorkspace,
+  snapshot_sequence: '2',
+  tabs: {
+    active: 'tab-2',
+    items: [{ ...activeWorkspace.tabs.items[1], position: 0 }],
+  },
+};
+
+const workspaceAfterCloseOthers = {
+  ...activeWorkspace,
+  snapshot_sequence: '2',
+  tabs: {
+    active: 'tab-1',
+    items: [activeWorkspace.tabs.items[0]],
   },
 };
 
@@ -48,7 +68,7 @@ test.describe('Abas — context menu avançado', () => {
   test('Move To submenu aparece com outros workspaces', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', activeWorkspace);
     await wails.setResponse('ListWorkspaces', twoWorkspaces);
-    await wails.setResponse('MoveWorkspaceTabTo', activeWorkspace);
+    await wails.setResponse('MoveWorkspaceTabTo', workspaceAfterMove);
 
     await wails.waitForApp();
 
@@ -76,7 +96,7 @@ test.describe('Abas — context menu avançado', () => {
   test('selecionar workspace no submenu chama MoveWorkspaceTabTo', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', activeWorkspace);
     await wails.setResponse('ListWorkspaces', twoWorkspaces);
-    await wails.setResponse('MoveWorkspaceTabTo', activeWorkspace);
+    await wails.setResponse('MoveWorkspaceTabTo', workspaceAfterMove);
 
     await wails.waitForApp();
 
@@ -107,12 +127,15 @@ test.describe('Abas — context menu avançado', () => {
     const log = await wails.getCallLog();
     const moveCalls = log.filter(c => c.fn === 'MoveWorkspaceTabTo');
     expect(moveCalls.length).toBe(1);
+    expect(moveCalls[0].args).toEqual(['tab-1', 'ws-2']);
+    await expect(page.locator('button[role="tab"]')).toHaveCount(1);
+    await expect(page.locator('button[role="tab"]')).toContainText('Conversa 2');
   });
 
   test('Close Others via context menu chama RemoveWorkspaceTab', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', activeWorkspace);
     await wails.setResponse('ListWorkspaces', twoWorkspaces);
-    await wails.setResponse('RemoveWorkspaceTab', activeWorkspace);
+    await wails.setResponse('RemoveWorkspaceTab', workspaceAfterCloseOthers);
 
     await wails.waitForApp();
 
@@ -128,19 +151,14 @@ test.describe('Abas — context menu avançado', () => {
     }
     await expect(menu).toBeVisible({ timeout: 3_000 });
 
-    const closeOthers = page.locator('#close-others');
-    if (await closeOthers.count() > 0) {
-      await menu.locator('#close-others').evaluate((element: HTMLButtonElement) => element.click());
-
-      await page.waitForFunction(() => {
-        return window.__wailsMock.getCallLog().some(
-          (c: { fn: string }) => c.fn === 'RemoveWorkspaceTab'
-        );
-      }, { timeout: 5_000 });
-
-      const log = await wails.getCallLog();
-      const removeCalls = log.filter(c => c.fn === 'RemoveWorkspaceTab');
-      expect(removeCalls.length).toBeGreaterThanOrEqual(1);
-    }
+    const closeOthers = menu.locator('#close-others');
+    await expect(closeOthers).toHaveCount(1);
+    await closeOthers.click();
+    await expect(page.locator('button[role="tab"]')).toHaveCount(1);
+    await expect(page.locator('button[role="tab"]')).toContainText('Conversa 1');
+    const log = await wails.getCallLog();
+    const removeCalls = log.filter(c => c.fn === 'RemoveWorkspaceTab');
+    expect(removeCalls).toHaveLength(1);
+    expect(removeCalls[0].args).toEqual(['tab-2']);
   });
 });

@@ -24,35 +24,38 @@ type SettingsControllerConfig struct {
 	SkillMgr   *skills.Manager
 	Emitter    ports.Emitter
 	// Callbacks cross-domain
-	RestartChannel func(channelName string) error
-	GetModels      func() ([]string, error)
-	DeleteProfile  func(string) error
-	ClearMessages  func(context.Context) error
+	RestartChannel      func(channelName string) error
+	GetModels           func() ([]string, error)
+	DeleteProfile       func(string) error
+	ClearMessages       func(context.Context) error
+	BeforeDatabaseReset func() error
 }
 
 // SettingsController é o adapter primário (Inbound) para operações de configurações globais e reset.
 type SettingsController struct {
-	credMgr        *credentials.Manager
-	profileMgr     *profiles.Manager
-	skillMgr       *skills.Manager
-	emitter        ports.Emitter
-	restartChannel func(string) error
-	getModels      func() ([]string, error)
-	deleteProfile  func(string) error
-	clearMessages  func(context.Context) error
+	credMgr             *credentials.Manager
+	profileMgr          *profiles.Manager
+	skillMgr            *skills.Manager
+	emitter             ports.Emitter
+	restartChannel      func(string) error
+	getModels           func() ([]string, error)
+	deleteProfile       func(string) error
+	clearMessages       func(context.Context) error
+	beforeDatabaseReset func() error
 }
 
 // NewSettingsController cria um SettingsController com suas dependências.
 func NewSettingsController(cfg SettingsControllerConfig) *SettingsController {
 	return &SettingsController{
-		credMgr:        cfg.CredMgr,
-		profileMgr:     cfg.ProfileMgr,
-		skillMgr:       cfg.SkillMgr,
-		emitter:        cfg.Emitter,
-		restartChannel: cfg.RestartChannel,
-		getModels:      cfg.GetModels,
-		deleteProfile:  cfg.DeleteProfile,
-		clearMessages:  cfg.ClearMessages,
+		credMgr:             cfg.CredMgr,
+		profileMgr:          cfg.ProfileMgr,
+		skillMgr:            cfg.SkillMgr,
+		emitter:             cfg.Emitter,
+		restartChannel:      cfg.RestartChannel,
+		getModels:           cfg.GetModels,
+		deleteProfile:       cfg.DeleteProfile,
+		clearMessages:       cfg.ClearMessages,
+		beforeDatabaseReset: cfg.BeforeDatabaseReset,
 	}
 }
 
@@ -226,6 +229,11 @@ func (c *SettingsController) ClearAllChannels() error {
 
 // ResetDatabase apaga o banco de dados, resetando ao estado inicial.
 func (c *SettingsController) ResetDatabase() error {
+	if c.beforeDatabaseReset != nil {
+		if err := c.beforeDatabaseReset(); err != nil {
+			return fmt.Errorf("reset do banco recusado antes do fechamento: %w", err)
+		}
+	}
 	configPath, err := config.GetConfigPath()
 	if err != nil {
 		return fmt.Errorf("erro ao obter caminho do banco de dados: %v", err)

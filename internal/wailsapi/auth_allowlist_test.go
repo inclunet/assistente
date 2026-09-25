@@ -68,6 +68,8 @@ func TestToolsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	for _, name := range []string{
 		"GetAvailableTools",
 		"GetRuntimeToolCatalog",
+		"ListCommands",
+		"DescribeCommand",
 	} {
 		if slices.Contains(UnauthenticatedAppMethods, name) {
 			t.Fatalf("%s é autenticado via Tools/WithUser; não pertence à allowlist", name)

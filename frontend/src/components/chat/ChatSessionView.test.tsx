@@ -1,17 +1,28 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { hasWorkspacePanelFocusHandler, requestWorkspacePanelFocus } from '../workspace/workspacePanelFocusRegistry';
+import {
+  canFocusWorkspacePanelImmediately,
+  getWorkspacePanelImmediateFocusHandler,
+  hasWorkspacePanelFocusHandler,
+  requestWorkspacePanelFocus,
+} from '../workspace/workspacePanelFocusRegistry';
 import userEvent from '@testing-library/user-event';
 import { MediaCategory, type MediaFile } from '../../services/mediaService';
+import { chat } from '../../../wailsjs/go/models';
 
 const updateMessageMock = vi.fn();
 const updateMessagePinnedMock = vi.fn();
 const deleteMessageMock = vi.hoisted(() => vi.fn());
+const prepareChatMessageCommandMock = vi.hoisted(() => vi.fn());
+const commitChatMessageCommandMock = vi.hoisted(() => vi.fn());
 const showMenuMock = vi.fn();
 const hideMenuMock = vi.fn();
 const copyMessageMock = vi.fn();
 const speakMessageMock = vi.fn();
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
+const voiceMessage = new chat.EnrichedMessage({
+  id: '01926b90-7a5a-7c4e-8d3f-00000000000b', conversationId, role: 'assistant', content: 'Olá',
+});
 type MockThreadedMessage = {
   id?: string;
   message?: { id: string; role?: string; isStreaming?: boolean; turnId?: string; content?: string };
@@ -40,6 +51,7 @@ const executeDeepLinkMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 
 vi.mock('react-router-dom', () => ({
+  useLocation: () => ({ pathname: '/' }),
   useNavigate: () => navigateMock,
 }));
 
@@ -73,6 +85,10 @@ vi.mock('../../services/tts', () => ({
 }));
 
 const chatStoreState = {
+  getConversationMessages: () => [voiceMessage],
+  getDraftRevision: () => 0,
+  getMessagingPipelineRevision: () => 0,
+  waitForMessagingAdmission: async () => {},
   cancelStreaming: vi.fn(),
   retryMessageToConversation: vi.fn(),
   ensureConversationSurfaceSession: vi.fn(),
@@ -86,7 +102,7 @@ const chatStoreState = {
     },
   },
   timelinesByConversationId: {},
-  surfaceSessionsByKey: {},
+  surfaceSessionsByKey: {} as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>,
   loadMessageChildren: vi.fn(),
   loadConversationSession: vi.fn(),
   updateConversationMessage: updateMessageMock,
@@ -94,7 +110,6 @@ const chatStoreState = {
   toggleConversationReasoningExpanded: vi.fn(),
   isConversationReasoningExpanded: () => false,
   startConversationEditing: vi.fn(),
-  startConversationReading: vi.fn(),
   setConversationScrollState: vi.fn(),
   loadOlderMessagesForConversation: vi.fn(),
   loadNewerMessagesForConversation: vi.fn(),
@@ -104,23 +119,21 @@ const chatStoreState = {
   clearConversationDraft: vi.fn(),
   clearConversationSendFailure: vi.fn(),
   setConversationEditingMessageId: vi.fn(),
-  setConversationReadingMessageId: vi.fn(),
   toggleConversationThreadExpanded: vi.fn(),
 };
 
 vi.mock('../../store/chatStore', () => ({
-  useChatStore: (selector?: (s: typeof chatStoreState) => unknown) => {
+  useChatStore: Object.assign((selector?: (s: typeof chatStoreState) => unknown) => {
     if (typeof selector === 'function') {
       return selector(chatStoreState);
     }
     return chatStoreState;
-  },
+  }, { getState: () => chatStoreState, subscribe: () => () => {} }),
 }));
 
 vi.mock('../../store/editorStore', () => ({
   useEditorStore: {
     getState: () => ({
-      requestInsert: vi.fn(),
       activeTabId: 'chat-tab',
       tabs: [{ id: 'chat-tab', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a' }],
     }),
@@ -158,6 +171,11 @@ vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
 vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
   DeleteMessage: (...args: unknown[]) => deleteMessageMock(...args),
   ToggleMessagePin: vi.fn(),
+}));
+
+vi.mock('../../lib/commandChatMessageWails', () => ({
+  prepareChatMessageCommand: (...args: unknown[]) => prepareChatMessageCommandMock(...args),
+  commitChatMessageCommand: (...args: unknown[]) => commitChatMessageCommandMock(...args),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/ACPWorkDir', () => ({
@@ -251,7 +269,7 @@ vi.mock('./MessageList', async () => {
       </button>
       <button
         type="button"
-        onClick={() => onSpeak?.({ id: 'message-1', role: 'assistant', content: 'Olá' })}
+        onClick={() => onSpeak?.(voiceMessage)}
       >
         speak-message
       </button>
@@ -278,12 +296,15 @@ vi.mock('./MessageList', async () => {
 vi.mock('./ChatInput', async () => {
   const React = await import('react');
   return {
-    ChatInput: React.forwardRef<HTMLTextAreaElement, { onSend: (value: string) => void; disabled?: boolean }>(
-      ({ onSend, disabled }, ref) => (
+    ChatInput: React.forwardRef<HTMLTextAreaElement, { onSend: (value: string) => void; disabled?: boolean; onArrowUp?: () => boolean }>(
+      ({ onSend, disabled, onArrowUp }, ref) => (
         <button
           ref={ref as React.RefObject<HTMLButtonElement>}
           type="button"
           disabled={disabled}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowUp' && onArrowUp?.()) event.preventDefault();
+          }}
           onClick={() => onSend('oi')}
         >
           send
@@ -321,6 +342,32 @@ import { createEmptyChatSurfaceSession, type ChatSurfaceIdentity } from '../../s
 import { WorkspacePanelProvider } from '../workspace/WorkspacePanelContext';
 import { announce } from '../../hooks/useAnnouncer';
 import { useShortcutsHelpStore } from '../../store/shortcutsHelpStore';
+import { useAuthStore } from '../../store/authStore';
+import { useWorkspaceStore } from '../../store/workspaceStore';
+import { CHAT_MESSAGING_COMMAND_EVENT, executeChatMessaging, type ChatMessagingRequest } from '../../lib/commandChatMessaging';
+import { CHAT_NAVIGATION_COMMAND_EVENT, captureChatNavigationTarget, type ChatNavigationRequest } from '../../lib/commandChatNavigation';
+function handleNavigationRequest(event: Event) {
+  const { commandID, instanceId } = (event as CustomEvent<ChatNavigationRequest>).detail;
+  const target = captureChatNavigationTarget(() => '/', commandID, instanceId);
+  if (!target) return;
+  try { if (target.open(commandID)) event.preventDefault(); } finally { target.dispose(); }
+}
+const commandStatuses: string[] = [];
+const commandPort = {
+  beginUICommand: vi.fn(async (commandId: string) => ({ ticket: 'ticket', invocationId: 'invocation', commandId })),
+  takeUICommand: vi.fn(async () => ({ ticket: 'ticket', invocationId: 'invocation', commandId: commandPort.beginUICommand.mock.lastCall?.[0] ?? 'chat.message.send', handoffId: 'handoff' })),
+  getUICommandResult: vi.fn(async () => ({ invocationId: 'invocation', status: 'succeeded' as const })),
+  cancelUICommand: vi.fn(async () => {}),
+  completeUICommand: vi.fn(async () => {}),
+  commitBackendCommand: vi.fn(async () => {}),
+};
+// Topbar is outside this fixture: keep its event ingress and the real audited executor.
+function handleMessagingRequest(event: Event) {
+  const { target, commandId } = (event as CustomEvent<ChatMessagingRequest>).detail;
+  if (!target) return;
+  event.preventDefault();
+  void executeChatMessaging(commandPort, target, commandId).then(status => commandStatuses.push(status));
+}
 
 const panelTab = {
   id: 'chat-tab',
@@ -354,11 +401,24 @@ function renderWithPanel(ui: React.ReactElement) {
 
 describe('ChatSessionView', () => {
   beforeEach(() => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    useAuthStore.setState({ isAuthenticated: true, user: { userId: 'owner', sessionId: 'session', role: 'admin' } });
+    useWorkspaceStore.setState({ workspace: { id: 'workspace', name: 'Workspace', activeTabId: panelTab.id, tabs: [panelTab] } });
+    commandStatuses.length = 0;
+    commandPort.beginUICommand.mockClear();
+    commandPort.getUICommandResult.mockReset().mockResolvedValue({ invocationId: 'invocation', status: 'succeeded' });
+    window.addEventListener(CHAT_MESSAGING_COMMAND_EVENT, handleMessagingRequest);
+    window.addEventListener(CHAT_NAVIGATION_COMMAND_EVENT, handleNavigationRequest);
+    chatStoreState.ensureConversationSurfaceSession.mockImplementation((id: string, key: string) => {
+      chatStoreState.surfaceSessionsByKey[key] ??= { ...createEmptyChatSurfaceSession(id, key), draftMessage: 'oi' };
+    });
     showMenuMock.mockReset();
     hideMenuMock.mockReset();
     chatStoreState.setConversationScrollState.mockReset();
     chatStoreState.loadBoundaryMessagesForConversation.mockReset();
     deleteMessageMock.mockReset();
+    prepareChatMessageCommandMock.mockReset().mockResolvedValue(undefined);
+    commitChatMessageCommandMock.mockReset().mockResolvedValue(undefined);
     chatStoreState.sessionsByConversationId[conversationId].isLoading = false;
     chatStoreState.sessionsByConversationId[conversationId].conversation = activeConversation;
     chatStoreState.sessionsByConversationId[conversationId].hasOlderMessages = false;
@@ -374,6 +434,7 @@ describe('ChatSessionView', () => {
     announceRequestMock.mockClear();
     chatStoreState.cancelStreaming.mockReset();
     chatStoreState.clearConversationSendFailure.mockReset();
+    chatStoreState.clearConversationDraft.mockClear();
     chatStoreState.surfaceSessionsByKey = {};
     handleErrorMock.mockReset();
     modalState.open = false;
@@ -386,6 +447,12 @@ describe('ChatSessionView', () => {
     executeDeepLinkMock.mockResolvedValue(undefined);
     navigateMock.mockReset();
     useShortcutsHelpStore.setState({ isOpen: false });
+  });
+
+  afterEach(() => {
+    window.removeEventListener(CHAT_MESSAGING_COMMAND_EVENT, handleMessagingRequest);
+    window.removeEventListener(CHAT_NAVIGATION_COMMAND_EVENT, handleNavigationRequest);
+    vi.mocked(document.hasFocus).mockRestore();
   });
 
   it('registra handler de foco de painel (variant page) e foca o input ao ser solicitado', async () => {
@@ -405,6 +472,35 @@ describe('ChatSessionView', () => {
     });
 
     await waitFor(() => expect(input).toHaveFocus());
+  });
+
+  it('expõe capability imediata real e recusa foco com modal ou painel inativo', async () => {
+    const { rerender } = render(
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+        <ChatSessionView variant="page" surface={surface()} onSend={vi.fn()} showShortcutsHelp={false} />
+      </WorkspacePanelProvider>,
+    );
+    const input = await screen.findByRole('button', { name: 'send' });
+    const immediate = getWorkspacePanelImmediateFocusHandler('chat-tab');
+    expect(immediate).toBeDefined();
+    expect(canFocusWorkspacePanelImmediately('chat-tab')).toBe(true);
+
+    input.blur();
+    expect(immediate?.()).toBe(true);
+    expect(document.activeElement).toBe(input);
+
+    modalState.open = true;
+    expect(canFocusWorkspacePanelImmediately('chat-tab')).toBe(false);
+    expect(immediate?.()).toBe(false);
+
+    modalState.open = false;
+    rerender(
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: false }}>
+        <ChatSessionView variant="page" surface={surface()} onSend={vi.fn()} showShortcutsHelp={false} />
+      </WorkspacePanelProvider>,
+    );
+    expect(canFocusWorkspacePanelImmediately('chat-tab')).toBe(false);
+    expect(immediate?.()).toBe(false);
   });
 
   it('não rouba o foco de uma mensagem ao rotear foco do painel (retorno de menu)', async () => {
@@ -433,6 +529,53 @@ describe('ChatSessionView', () => {
     // O roteamento de painel não sobrepõe a restauração intencional de foco.
     expect(messageNode).toHaveFocus();
     expect(input).not.toHaveFocus();
+  });
+
+  it('ArrowUp mantém o foco no input de conversa vazia', async () => {
+    activeConversation.threadedMessages = [];
+    renderWithPanel(
+      <ChatSessionView variant="page" surface={surface()} onSend={vi.fn()} showShortcutsHelp={false} />,
+    );
+
+    const input = await screen.findByRole('button', { name: 'send' });
+    input.focus();
+    const event = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+    input.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(input).toHaveFocus();
+  });
+
+  it('ArrowUp entra na lista com mensagens e, após limpar, permanece no mesmo input', async () => {
+    activeConversation.threadedMessages = [{
+      message: { id: 'message-before-clear', role: 'assistant', content: 'Conteúdo' },
+      children: [],
+      level: 0,
+    }];
+    const view = renderWithPanel(
+      <ChatSessionView variant="page" surface={surface()} onSend={vi.fn()} showShortcutsHelp={false} />,
+    );
+
+    const input = await screen.findByRole('button', { name: 'send' });
+    input.focus();
+    const handledEvent = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+    input.dispatchEvent(handledEvent);
+    expect(handledEvent.defaultPrevented).toBe(true);
+    expect(view.container.querySelector('[data-message-id="message-before-clear"]')).toHaveFocus();
+
+    activeConversation.threadedMessages = [];
+    view.rerender(
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+        <ChatSessionView variant="page" surface={surface()} onSend={vi.fn()} showShortcutsHelp={false} />
+      </WorkspacePanelProvider>,
+    );
+    input.focus();
+    const emptyEvent = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+    input.dispatchEvent(emptyEvent);
+
+    expect(emptyEvent.defaultPrevented).toBe(false);
+    expect(input).toHaveFocus();
+    expect(view.container.querySelector('[data-message-id="message-before-clear"]')).toBeNull();
   });
 
   it('não registra handler de foco de painel na variante embedded', () => {
@@ -542,6 +685,15 @@ describe('ChatSessionView', () => {
     expect(event.defaultPrevented).toBe(false);
     expect(document.activeElement).toBe(input);
     expect(chatStoreState.cancelStreaming).not.toHaveBeenCalled();
+  });
+
+  it.each([{ repeat: true }, { isComposing: true }, { keyCode: 229 }])('Escape inválido %j não restaura input nem cancela geração', flags => {
+    contextMenuState.visible = false;
+    renderWithPanel(<ChatSessionView variant="embedded" surface={enableStreamingSurface()} onSend={vi.fn()} showShortcutsHelp={false} />);
+    const list = screen.getByRole('list'); list.focus();
+    fireEvent.keyDown(list, { key: 'Escape', ...flags });
+    expect(list).toHaveFocus(); expect(chatStoreState.cancelStreaming).not.toHaveBeenCalled();
+    expect(commandPort.beginUICommand).not.toHaveBeenCalled();
   });
 
   it('Escape originado FORA do painel do chat não rouba o foco para o input (streaming ativo)', () => {
@@ -727,27 +879,22 @@ describe('ChatSessionView', () => {
     });
   });
 
-  it('embedded: mostra banner de erro e retry quando onSend falha', async () => {
+  it('embedded: reconcilia erro de transporte sem oferecer retry de resultado desconhecido', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockRejectedValueOnce(new Error('fail'));
+    commandPort.getUICommandResult.mockRejectedValueOnce(new Error('ledger unavailable'));
     const chatSurface = surface({ surfaceType: 'embedded' });
     renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={onSend} showShortcutsHelp={false} />);
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
-    expect(await screen.findByText('Falha ao enviar')).toBeInTheDocument();
+    await waitFor(() => expect(commandStatuses).toEqual(['outcome_unknown']));
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(commandPort.beginUICommand).toHaveBeenCalledWith('chat.message.send');
+    expect(commandPort.getUICommandResult).toHaveBeenCalledWith('ticket');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(handleErrorMock).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({
-      userMessage: 'Falha ao enviar',
-      severity: 'recoverable',
-    }));
-
-    onSend.mockResolvedValueOnce(undefined);
-    await user.click(screen.getByRole('button', { name: 'chat.retryAriaLabel' }));
-
-    await waitFor(() => {
-      expect(onSend).toHaveBeenCalledTimes(2);
-    });
+    expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
+    expect(chatStoreState.surfaceSessionsByKey[chatSurface.sessionKey].draftMessage).toBe('oi');
   });
 
   it('embedded: mostra banner de erro transitório da sessão sem retry local', async () => {
@@ -903,20 +1050,38 @@ describe('ChatSessionView', () => {
       fileSizeFormatted: '8 B',
       icon: 'image',
     };
-    const onSend = vi.fn().mockResolvedValue(undefined);
+    const onSend = vi.fn(async () => {
+      // chatEventController clears persisted failure when the admitted pipeline starts.
+      chatStoreState.surfaceSessionsByKey[chatSurface.sessionKey] = {
+        ...chatStoreState.surfaceSessionsByKey[chatSurface.sessionKey],
+        sendFailureMessage: null, sendFailureRetryable: false,
+        sendFailureRetryContent: null, sendFailureRetryMediaFiles: [],
+      };
+    });
     (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {
       ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
       sendFailureMessage: 'Falha ao enviar mídia',
       sendFailureRetryable: true,
       sendFailureRetryContent: null,
       sendFailureRetryMediaFiles: [mediaFile],
+      draftMessage: 'rascunho novo',
     };
-    renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={onSend} showShortcutsHelp={false} />);
+    const { rerender } = renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={onSend} showShortcutsHelp={false} />);
 
     await user.click(await screen.findByRole('button', { name: 'chat.retryAriaLabel' }));
 
-    expect(onSend).toHaveBeenCalledWith('', [mediaFile], chatSurface);
+    await waitFor(() => expect(commandStatuses).toEqual(['succeeded']));
+    expect(onSend).toHaveBeenCalledWith('', [mediaFile], chatSurface, expect.objectContaining({
+      handoff: { ticket: 'ticket', handoffId: 'handoff' }, isCurrent: expect.any(Function),
+    }));
+    rerender(<WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+      <ChatSessionView variant="embedded" surface={chatSurface} onSend={onSend} showShortcutsHelp={false} />
+    </WorkspacePanelProvider>);
+    expect(screen.queryByText('Falha ao enviar mídia')).not.toBeInTheDocument();
     expect(chatStoreState.clearConversationSendFailure).toHaveBeenCalledWith(conversationId, chatSurface.sessionKey);
+    expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
+    expect(chatStoreState.clearConversationDraft).not.toHaveBeenCalled();
+    expect(chatStoreState.surfaceSessionsByKey[chatSurface.sessionKey].draftMessage).toBe('rascunho novo');
   });
 
   it('embedded: mantém envio habilitado mesmo com isLoading global ativo', async () => {
@@ -938,12 +1103,13 @@ describe('ChatSessionView', () => {
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
+    await waitFor(() => expect(commandStatuses).toEqual(['succeeded']));
     expect(onSend).toHaveBeenCalledWith('oi', undefined, expect.objectContaining({
       conversationId,
       sessionKey: `embedded:workspace-chat-modal:tab-1:${conversationId}`,
       surfaceId: 'embedded:workspace-chat-modal:tab-1',
       surfaceType: 'embedded',
-    }));
+    }), expect.objectContaining({ handoff: { ticket: 'ticket', handoffId: 'handoff' }, isCurrent: expect.any(Function) }));
   });
 
   it('preserva props estáveis da lista durante progresso e atualização de draft', async () => {
@@ -998,15 +1164,15 @@ describe('ChatSessionView', () => {
     expect(updatedProps.origin).toBe(firstProps.origin);
   });
 
-  it('mantém a conversa da exclusão quando a superfície muda durante o await', async () => {
+  it('cancela exclusão preparada quando a superfície muda antes do commit', async () => {
     const nextId = '01926b90-7a5a-7c4e-8d3f-000000000002';
     const sessions = chatStoreState.sessionsByConversationId as Record<string, typeof chatStoreState.sessionsByConversationId[typeof conversationId]>;
     sessions[nextId] = {
       ...sessions[conversationId],
       conversation: { id: nextId, title: 'Outra conversa', threadedMessages: [] },
     };
-    let finishDelete!: () => void;
-    deleteMessageMock.mockImplementation(() => new Promise<void>((resolve) => { finishDelete = resolve; }));
+    let finishPrepare!: () => void;
+    prepareChatMessageCommandMock.mockImplementationOnce(() => new Promise<void>((resolve) => { finishPrepare = resolve; }));
     const view = (id: string) => (
       <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
         <ChatSessionView variant="embedded" surface={surface({ conversationId: id, surfaceType: 'embedded' })} onSend={vi.fn()} showShortcutsHelp={false} />
@@ -1015,12 +1181,14 @@ describe('ChatSessionView', () => {
     const { rerender } = render(view(conversationId));
     await waitFor(() => expect(messageListRenderMock).toHaveBeenCalled());
     const props = messageListRenderMock.mock.lastCall![0] as { onDelete: (message: { id: string }) => Promise<void> };
-    let pending!: Promise<void>;
-    act(() => { pending = props.onDelete({ id: conversationId }); });
+    act(() => { void props.onDelete({ id: voiceMessage.id }); });
+    await waitFor(() => expect(prepareChatMessageCommandMock).toHaveBeenCalledWith('ticket', voiceMessage.id));
     rerender(view(nextId));
     chatStoreState.loadConversationSession.mockClear();
-    await act(async () => { finishDelete(); await pending; });
-    expect(chatStoreState.loadConversationSession).toHaveBeenCalledWith(conversationId, { refreshSurfaceWindows: true });
+    await act(async () => { finishPrepare(); });
+    await waitFor(() => expect(commandPort.cancelUICommand).toHaveBeenCalled());
+    expect(commitChatMessageCommandMock).not.toHaveBeenCalled();
+    expect(chatStoreState.loadConversationSession).not.toHaveBeenCalledWith(conversationId, { refreshSurfaceWindows: true });
     expect(chatStoreState.loadConversationSession).not.toHaveBeenCalledWith(nextId, { refreshSurfaceWindows: true });
     delete sessions[nextId];
   });
@@ -1120,8 +1288,8 @@ describe('ChatSessionView', () => {
     let surfaceSession = {
       ...createEmptyChatSurfaceSession(conversationId, sessionKey),
       visibleThreadedMessages: [
-        { message: { id: 'm1', role: 'user' }, children: [], level: 0, childCount: 0 },
-        { message: { id: 'm2', role: 'assistant' }, children: [], level: 0, childCount: 0 },
+        new chat.MessageNode({ message: { id: 'm1', role: 'user' }, children: [], level: 0, childCount: 0 }),
+        new chat.MessageNode({ message: { id: 'm2', role: 'assistant' }, children: [], level: 0, childCount: 0 }),
       ],
       messageWindow: {
         scope: 'conversation' as const,
@@ -1133,7 +1301,7 @@ describe('ChatSessionView', () => {
         hasAfter: true,
       },
     };
-    (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
+    chatStoreState.surfaceSessionsByKey[sessionKey] = surfaceSession;
     chatStoreState.loadBoundaryMessagesForConversation.mockImplementation(async (_conversationId, _sessionKey, anchor) => {
       surfaceSession = {
         ...surfaceSession,
@@ -1153,7 +1321,7 @@ describe('ChatSessionView', () => {
           hasAfter: false,
         },
       };
-      (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
+      chatStoreState.surfaceSessionsByKey[sessionKey] = surfaceSession;
     });
 
     const { rerender } = renderWithPanel(

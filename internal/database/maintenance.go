@@ -44,6 +44,16 @@ type CompactionResult struct {
 	ReclaimedBytes  int64  `json:"reclaimedBytes"`
 }
 
+// CoordinatorCompactor adapta a compactação global SQLite à porta do
+// InstanceMaintenanceCoordinator. Não cria loop nem lê configurações; o
+// coordenador fornece o limiar vigente.
+type CoordinatorCompactor struct{}
+
+func (CoordinatorCompactor) Compact(ctx context.Context, minFreeBytes int64) error {
+	_, err := Compact(ctx, false, minFreeBytes)
+	return err
+}
+
 func autoVacuumModeName(mode int64) string {
 	switch mode {
 	case autoVacuumFull:

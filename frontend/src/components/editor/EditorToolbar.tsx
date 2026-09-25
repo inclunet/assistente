@@ -6,15 +6,19 @@ import { Toolbar, ToolbarButton, type ToolbarAction } from '../ui/Toolbar';
 import type { MenuItem } from '../menu';
 import type { EditorDocument } from '../../store/editorStore';
 import type { TipTapEditor } from '../../pages/editorTypes';
+import { useCommandShortcutHints } from '../../lib/commandShortcutHints';
 
 export interface EditorToolbarProps {
   activeTab: EditorDocument | null;
   isAsking: boolean;
   richEditorRef: RefObject<TipTapEditor | null>;
   shortcutRefs?: {
+    fileMenu?: Ref<HTMLButtonElement>;
+    formatMenu?: Ref<HTMLButtonElement>;
     insertMenu?: Ref<HTMLButtonElement>;
     modeMenu?: Ref<HTMLButtonElement>;
     revealSlidePicker?: Ref<HTMLButtonElement>;
+    fullscreen?: Ref<HTMLButtonElement>;
   };
   actions: ToolbarAction[];
   onOpenMenu: (anchor: HTMLElement, ariaLabel: string, items: MenuItem[]) => void;
@@ -52,6 +56,7 @@ export function EditorToolbar({
   revealFullscreen,
 }: EditorToolbarProps) {
   const { t } = useTranslation();
+  const commandShortcutHint = useCommandShortcutHints('editor');
   const slidePickerMenuLabelId = useId();
   const showRevealSlidePicker = !!revealSlidePicker?.enabled && revealSlidePicker.slideCount > 0;
   const showRevealFullscreen = !!revealFullscreen?.enabled;
@@ -82,7 +87,7 @@ export function EditorToolbar({
         ref={shortcutRefs?.revealSlidePicker}
         label={getRevealSlideLabel(revealSlidePicker.currentSlideIndex)}
         endIcon={<DownOutlined />}
-        shortcut="Alt+S"
+        shortcut={commandShortcutHint('editor.slides.open')}
         disabled={isAsking}
         onClick={(e) => onOpenMenu(e.currentTarget, t('editor.presentation.goToSlide'), revealSlideMenuItems)}
         aria-haspopup="menu"
@@ -101,15 +106,19 @@ export function EditorToolbar({
       right={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <ToolbarButton
+            ref={shortcutRefs?.fileMenu}
             label={t('editor.buttons.file')}
             icon={<FileOutlined />}
+            shortcut={commandShortcutHint('editor.menu.file.open')}
             onClick={(e) => onOpenMenu(e.currentTarget, t('editor.aria.fileMenu'), fileMenuItems)}
             aria-haspopup="menu"
           />
 
           <ToolbarButton
+            ref={shortcutRefs?.formatMenu}
             label={t('editor.buttons.format')}
             icon={<SlidersOutlined />}
+            shortcut={commandShortcutHint('editor.menu.format.open')}
             disabled={!activeTab || activeTab.readOnly || isAsking || activeTab.mode !== 'rich' || !richEditorRef.current}
             onClick={(e) => onOpenMenu(e.currentTarget, t('editor.aria.formatMenu'), formatMenuItems)}
             aria-haspopup="menu"
@@ -119,7 +128,7 @@ export function EditorToolbar({
             label={t('editor.buttons.insert')}
             icon={<PlusOutlined />}
             ref={shortcutRefs?.insertMenu}
-            shortcut="Alt+I"
+            shortcut={commandShortcutHint('editor.menu.insert.open')}
             disabled={!activeTab || activeTab.readOnly || isAsking || activeTab.mode === 'view'}
             onClick={(e) => onOpenMenu(e.currentTarget, t('editor.aria.insertMenu'), insertMenuItems)}
             aria-haspopup="menu"
@@ -129,9 +138,10 @@ export function EditorToolbar({
 
           {showRevealFullscreen ? (
             <ToolbarButton
+              ref={shortcutRefs?.fullscreen}
               label={t('editor.presentation.fullscreen')}
               icon={<FullscreenOutlined />}
-              shortcut="F5"
+              shortcut={commandShortcutHint('editor.presentation.fullscreen')}
               disabled={isAsking}
               onClick={revealFullscreen.onRequest}
             />
@@ -141,6 +151,7 @@ export function EditorToolbar({
             label={t('editor.buttons.mode')}
             icon={<CompassOutlined />}
             ref={shortcutRefs?.modeMenu}
+            shortcut={commandShortcutHint('editor.menu.mode.open')}
             disabled={!activeTab || activeTab.readOnly || isAsking}
             onClick={(e) => onOpenMenu(e.currentTarget, t('editor.aria.modeMenu'), modeMenuItems)}
             aria-haspopup="menu"

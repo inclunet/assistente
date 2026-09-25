@@ -1689,11 +1689,12 @@ func setupEditorAPIWithDialog(t *testing.T, dialog ports.SystemDialogPort) *Edit
 
 	api := NewEditor()
 	AttachEditor(api, stubSession{ctx: database.WithUserID(context.Background(), editorTestUserID)}, EditorHooks{
-		AppContext:    func() context.Context { return context.Background() },
-		Dialog:        func() ports.SystemDialogPort { return dialog },
-		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
-		WatchFile:     func(path string) error { return nil },
-		UnwatchFile:   func(path string) error { return nil },
+		AppContext:           func() context.Context { return context.Background() },
+		Dialog:               func() ports.SystemDialogPort { return dialog },
+		CaptureDialogSession: func(context.Context) (func() error, error) { return func() error { return nil }, nil },
+		MarkSelfWrite:        func(path string) func(bool) { return func(bool) {} },
+		WatchFile:            func(path string) error { return nil },
+		UnwatchFile:          func(path string) error { return nil },
 	})
 	return api
 }

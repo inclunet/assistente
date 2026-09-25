@@ -40,50 +40,19 @@ import { logger } from '../utils/logger';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSTT } from './useSTT';
 import { useWakewordDetection } from './useWakewordDetection';
-import { GetActiveProfile, GetProfile } from '@wailsjs/go/wailsapi/Profiles';
+import { GetActiveProfileAndSlug, GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { profiles } from '../../wailsjs/go/models';
 import { playSound, SOUND_TYPES } from '../services/audioFeedback';
 import { ttsService, type RoleVoiceConfig } from '../services/tts';
 import { TTSProvider, type TTSSelectionMode } from '../services/tts/types';
+import { registerVoiceHotkeyRecipient, type VoiceHotkeyEvent } from '../services/voiceHotkeyRouting';
+import { getModalRegistrySnapshot } from '../lib/modalRegistry';
 
 // Tipos re-exportados do novo sistema de perfis
 type Profile = profiles.Profile;
 type TriggerConfig = profiles.TriggerConfig;
 type InputConfig = profiles.InputConfig;
-
-// Singleton para evitar múltiplas instâncias processando o mesmo evento
-let hotkeyEventCleanup: (() => void) | null = null;
-let hotkeyEventHandler: ((data: unknown) => void) | null = null;
-
-// Throttle no frontend (1 segundo)
-let lastHotkeyTime = 0;
-const HOTKEY_THROTTLE_MS = 1000;
-
-// Registra handler global de hotkey (singleton)
-function registerGlobalHotkeyHandler(handler: (data: unknown) => void): void {
-  hotkeyEventHandler = handler;
-}
-
-// Configura listener de eventos uma única vez (singleton)
-async function ensureHotkeyListener(): Promise<void> {
-  if (hotkeyEventCleanup) return; // Já registrado
-
-	// Se o runtime do Wails não estiver disponível por algum motivo (ex: rodando fora do app),
-	// não registra listener.
-	if (!EventsOn) return;
-
-	hotkeyEventCleanup = EventsOn('interaction:hotkey:triggered', (data) => {
-    // Throttle no frontend - evita processar eventos muito rápidos
-    const now = Date.now();
-    if (now - lastHotkeyTime < HOTKEY_THROTTLE_MS) {
-      return;
-    }
-    lastHotkeyTime = now;
-    
-    hotkeyEventHandler?.(data);
-  });
-}
 
 export interface UseInteractionProfileOptions {
   /** Slug do perfil efetivo (cascata: tab → workspace → global) */
@@ -100,6 +69,12 @@ export interface UseInteractionProfileOptions {
   
   /** Callback quando interação é ativada via hotkey */
   onHotkeyActivation?: (bringToFront: boolean) => void;
+
+  /** Gate adicional da superfície que pode receber hotkeys. */
+  isHotkeyEligible?: () => boolean;
+
+  /** Permite que a superfície reutilize seu gate de STT antes de alternar. */
+  onHotkeyToggle?: (event: VoiceHotkeyEvent) => void;
   
   /** Callback quando wake word é detectado */
   onWakeWordDetected?: (keyword: string) => void;
@@ -238,6 +213,8 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     onActivityStart,
     onActivityEnd,
     onHotkeyActivation,
+    isHotkeyEligible,
+    onHotkeyToggle,
     onWakeWordDetected,
     onError,
   } = options;
@@ -250,6 +227,39 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
   const [interimText, setInterimText] = useState('');
   const [localVolume, setLocalVolume] = useState(0);
   const [localIsListening, setLocalIsListening] = useState(false);
+  const interactionEpochRef = useRef(0);
+  const profileLoadEpochRef = useRef(0);
+  const mountedRef = useRef(false);
+  const deliveringHotkeyRef = useRef(false);
+  const requestedProfileSlug = effectiveProfileSlug ?? null;
+  const requestedProfileSlugRef = useRef<string | null>(requestedProfileSlug);
+  const profileRequestChanged = requestedProfileSlugRef.current !== requestedProfileSlug;
+  if (profileRequestChanged) {
+    requestedProfileSlugRef.current = requestedProfileSlug;
+  }
+  const profileSlugRef = useRef<string | null>(null);
+  if (profileRequestChanged) profileSlugRef.current = null;
+  const hotkeyRuntimeRef = useRef({ isLoading: true, hasProfile: false, inputEnabled: false, isProcessing: false });
+  const observedHotkeyEligibilityRef = useRef<boolean | undefined>(undefined);
+  hotkeyRuntimeRef.current.isLoading = isLoading || profileRequestChanged;
+  hotkeyRuntimeRef.current.hasProfile = activeProfile !== null && !profileRequestChanged;
+  if (isHotkeyEligible) {
+    let observedEligibility = false;
+    try {
+      observedEligibility = isHotkeyEligible();
+    } catch {
+      // A broken eligibility provider must fail closed.
+    }
+    if (
+      observedHotkeyEligibilityRef.current !== undefined &&
+      observedHotkeyEligibilityRef.current !== observedEligibility
+    ) {
+      // A false → true transition is a new panel epoch, not a continuation
+      // of a pending activation captured before the panel became inactive.
+      interactionEpochRef.current += 1;
+    }
+    observedHotkeyEligibilityRef.current = observedEligibility;
+  }
   
   // Refs para callbacks
   const callbacksRef = useRef({
@@ -257,46 +267,64 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     onActivityStart,
     onActivityEnd,
     onHotkeyActivation,
+    onHotkeyToggle,
     onWakeWordDetected,
     onError,
   });
+  const hotkeyEligibilityRef = useRef(isHotkeyEligible);
+  hotkeyEligibilityRef.current = isHotkeyEligible;
+  callbacksRef.current = {
+    onTranscription,
+    onActivityStart,
+    onActivityEnd,
+    onHotkeyActivation,
+    onHotkeyToggle,
+    onWakeWordDetected,
+    onError,
+  };
 
   // Ref para toggle interaction (será populada depois que a função for criada)
   const toggleInteractionRef = useRef<(() => void) | null>(null);
   // Ref para controle de wakeword (indica se deve reiniciar escuta após gravação)
   const shouldRestartWakewordRef = useRef(false);
 
-  useEffect(() => {
-    callbacksRef.current = {
-      onTranscription,
-      onActivityStart,
-      onActivityEnd,
-      onHotkeyActivation,
-      onWakeWordDetected,
-      onError,
-    };
-  }, [onTranscription, onActivityStart, onActivityEnd, onHotkeyActivation, onWakeWordDetected, onError]);
-
   // Carrega o perfil efetivo: por slug (tab/workspace) ou global ativo
   const loadActiveProfile = useCallback(async () => {
+    ++interactionEpochRef.current;
+    const loadEpoch = ++profileLoadEpochRef.current;
     setIsLoading(true);
     setError(null);
+    profileSlugRef.current = null;
     try {
-      const profile = effectiveProfileSlug
-        ? await GetProfile(effectiveProfileSlug)
-        : await GetActiveProfile();
+      let profile: Profile;
+      let loadedProfileSlug: string;
+      if (effectiveProfileSlug) {
+        profile = await GetProfile(effectiveProfileSlug);
+        loadedProfileSlug = effectiveProfileSlug;
+      } else {
+        const active = await GetActiveProfileAndSlug();
+        if (!active?.profile || typeof active.slug !== 'string' || active.slug.length === 0) {
+          throw new Error('Perfil ativo indisponível');
+        }
+        profile = active.profile;
+        loadedProfileSlug = active.slug;
+      }
+      if (profileLoadEpochRef.current !== loadEpoch) return;
+      profileSlugRef.current = loadedProfileSlug || null;
       setActiveProfileState(profile);
     } catch (e) {
+      if (profileLoadEpochRef.current !== loadEpoch) return;
       logger.error('[useInteractionProfile] Erro ao carregar perfil:', e);
       setError(e instanceof Error ? e.message : 'Erro ao carregar perfil');
     } finally {
-      setIsLoading(false);
+      if (profileLoadEpochRef.current === loadEpoch) setIsLoading(false);
     }
   }, [effectiveProfileSlug]);
 
   // Input config do perfil ativo
   const inputConfig = getInputConfig(activeProfile);
   const triggers = getTriggers(activeProfile);
+  hotkeyRuntimeRef.current.inputEnabled = inputConfig?.enabled === true;
 
   // Mapeia STT provider do perfil para o formato do useSTT
   const mapSTTProvider = (provider: string | undefined): 'webspeech' | 'whisper_api' => {
@@ -386,6 +414,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       setInterimText('');
     },
   });
+  hotkeyRuntimeRef.current.isProcessing = sttProcessing;
 
   // Ref para startWakewordListening (para usar no callback de onTranscription)
   const startWakewordListeningRef = useRef<(() => void) | null>(null);
@@ -587,9 +616,36 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     startWakewordListeningRef.current = startWakewordListening;
   }, [startWakewordListening]);
 
+  const isCurrentHotkeyRecipient = useCallback((): boolean => {
+    try {
+      return (
+        !hotkeyRuntimeRef.current.isLoading &&
+        hotkeyRuntimeRef.current.hasProfile &&
+        hotkeyRuntimeRef.current.inputEnabled &&
+        !hotkeyRuntimeRef.current.isProcessing &&
+        (hotkeyEligibilityRef.current?.() ?? false)
+      );
+    } catch {
+      return false;
+    }
+  }, []);
+
   // Inicia interação
   const startInteraction = useCallback(async () => {
     if (isActive) return;
+    const epoch = ++interactionEpochRef.current;
+    const hotkeyModal = deliveringHotkeyRef.current ? getModalRegistrySnapshot() : null;
+    const canContinue = () => {
+      if (!mountedRef.current || interactionEpochRef.current !== epoch) return false;
+      if (hotkeyModal) {
+        const currentModal = getModalRegistrySnapshot();
+        if (currentModal.topID !== null || currentModal.generation !== hotkeyModal.generation) return false;
+      }
+      // Direct/manual hook consumers may intentionally omit a surface gate.
+      if (!hotkeyEligibilityRef.current) return true;
+      return isCurrentHotkeyRecipient();
+    };
+    if (!canContinue()) return;
     
     // Garante que o STT está inicializado (initSTT já verifica internamente se já está inicializado)
     if (!sttInitialized) {
@@ -600,6 +656,8 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
         return;
       }
     }
+
+    if (!canContinue()) return;
     
     setIsActive(true);
     
@@ -608,17 +666,23 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       playSound(SOUND_TYPES.RECORD_START);
     }
     
+    if (!canContinue()) {
+      setIsActive(false);
+      return;
+    }
     await startRecording();
-  }, [isActive, inputConfig, startRecording, sttInitialized, initSTT]);
+  }, [isActive, inputConfig, startRecording, sttInitialized, initSTT, isCurrentHotkeyRecipient]);
 
   // Para interação
   const stopInteraction = useCallback(() => {
+    interactionEpochRef.current += 1;
     stopRecording();
     // isActive será setado para false quando onTranscription for chamado
   }, [stopRecording]);
 
   // Cancela interação
   const cancelInteraction = useCallback(() => {
+    interactionEpochRef.current += 1;
     cancelRecording();
     setIsActive(false);
     setInterimText('');
@@ -645,34 +709,44 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     }
   }, [sttRecording, hasWakewordTrigger, wakewordIsListening, startInteraction, stopInteraction, toggleWakewordListening]);
 
-  // Atualiza ref com a versão mais atual de toggleInteraction (evita closure stale em eventos)
-  useEffect(() => {
-    toggleInteractionRef.current = toggleInteraction;
-  }, [toggleInteraction]);
+  // A entrega do hotkey é síncrona; mantenha a ação atual disponível sem
+  // esperar um efeito assíncrono após um novo render.
+  toggleInteractionRef.current = toggleInteraction;
 
-  // Registra handler de hotkey (usando singleton global)
+  // O registro pertence ao lifecycle desta instância; não há callback global
+  // apontando para a última aba montada.
   useEffect(() => {
-    
-    
-    // Registra este handler como o ativo
-    registerGlobalHotkeyHandler((data) => {
-      const eventData = data as { 
-        triggerId: number;
-        profileId: number; 
-        triggerType: string;
-        bringToFront: boolean;
-      };
-      callbacksRef.current.onHotkeyActivation?.(eventData.bringToFront);
-      
-      // Usa ref para garantir versão mais atual da função (evita closure stale)
-      toggleInteractionRef.current?.();
+    mountedRef.current = true;
+    const unregister = registerVoiceHotkeyRecipient({
+      getProfileSlug: () => profileSlugRef.current,
+      getProfileGeneration: () => profileLoadEpochRef.current,
+      isEligible: isCurrentHotkeyRecipient,
+      deliver: (event) => {
+        // Revalida no ponto de entrega. A rota é síncrona para não ativar uma
+        // aba que ficou inativa enquanto um callback assíncrono aguardava.
+        if (!isCurrentHotkeyRecipient()) return;
+        const previousDelivery = deliveringHotkeyRef.current;
+        deliveringHotkeyRef.current = true;
+        try {
+          callbacksRef.current.onHotkeyActivation?.(event.bringToFront);
+          if (!isCurrentHotkeyRecipient()) return;
+          if (callbacksRef.current.onHotkeyToggle) {
+            callbacksRef.current.onHotkeyToggle(event);
+          } else {
+            toggleInteractionRef.current?.();
+          }
+        } finally {
+          deliveringHotkeyRef.current = previousDelivery;
+        }
+      },
     });
-    
-    // Garante que o listener está ativo
-    ensureHotkeyListener();
-
-    return () => undefined;
-  }, []); // Registra uma vez por instância
+    return () => {
+      mountedRef.current = false;
+      interactionEpochRef.current += 1;
+      profileLoadEpochRef.current += 1;
+      unregister();
+    };
+  }, [isCurrentHotkeyRecipient]);
 
   // Para escuta de wakeword quando perfil muda ou componente desmonta
   useEffect(() => {

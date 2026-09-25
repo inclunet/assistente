@@ -79,7 +79,11 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
       }
       
       if (triggerElementRef.current) {
-        triggerElementRef.current.focus();
+        // A leitura virtual já assumiu o foco; não sair do documento ao
+        // terminar o timer de fechamento do menu que abriu essa leitura.
+        const active = document.activeElement;
+        const reading = active instanceof Element && active.closest('[role="document"],.message-node--reading');
+        if (!reading && !triggerElementRef.current.closest('[inert]')) triggerElementRef.current.focus();
         triggerElementRef.current = null;
       }
       triggerConversationIdRef.current = null;
@@ -112,21 +116,24 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
   const { onAnnounce } = options;
 
   const copyMessage = useCallback(
-    async (message: Message, asMarkdown: boolean) => {
+    async (message: Pick<Message, 'content'>, asMarkdown: boolean, isCurrent?: () => boolean) => {
+      if (isCurrent && !isCurrent()) throw new Error('chat-message-stale');
       try {
         const text = asMarkdown ? message.content : stripMarkdown(message.content || '');
         await navigator.clipboard.writeText(text);
-        onAnnounce?.('Mensagem copiada.');
+        if (!isCurrent || isCurrent()) onAnnounce?.(i18next.t('chat.contentCopied'));
       } catch (err) {
         logger.error('Erro ao copiar:', err);
-        onAnnounce?.('Erro ao copiar mensagem.');
+        if (isCurrent) throw err;
+        onAnnounce?.(i18next.t('chat.copyFailed'));
       }
     },
     [onAnnounce]
   );
 
   const speakMessage = useCallback(
-    async (message: Message) => {
+    async (message: Pick<Message, 'id' | 'content' | 'role'>, isCurrent?: () => boolean, onStarted?: () => void) => {
+      if (isCurrent && !isCurrent()) throw new Error('chat-message-stale');
       if (!message.content || !message.id) return;
 
       const role: VoiceRole = message.role === 'user' ? 'user' : 'assistant';
@@ -141,6 +148,7 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
       const voiceCtx = ttsService.getVoiceContext(role);
       if (!voiceCtx) {
         onAnnounce?.(`${prefix}: ${plain}`);
+        onStarted?.();
         return;
       }
 
@@ -151,14 +159,16 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
 
       if (backendId) {
         const volume = ttsService.getVolume();
-        const played = await messageAudioService.speakMessage(backendId, volume, voiceCtx);
+        const played = await messageAudioService.speakMessage(backendId, volume, voiceCtx, isCurrent, onStarted);
+        if (isCurrent && !isCurrent()) throw new Error('chat-message-stale');
         if (played) return;
       }
 
       // Fallback: speakAsRole (WebSpeech/SAPI5/SpeakPreview)
       try {
-        await ttsService.speakAsRole(plain, role);
-      } catch {
+        await ttsService.speakAsRole(plain, role, isCurrent, onStarted);
+      } catch (error) {
+        if (isCurrent) throw error;
         onAnnounce?.(`${prefix}: ${plain}`);
       }
     },

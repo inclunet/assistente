@@ -33,6 +33,7 @@ vi.mock('react-i18next', () => ({
         'settingsPage.tabs.appearance': 'Aparência',
         'settingsPage.tabs.data': 'Dados',
         'settingsPage.tabs.restore-defaults': 'Restaurar Padrões',
+        'settingsPage.tabs.commands': 'Comandos e acionadores',
       } as Record<string, string>)[key] ?? fallback ?? key,
   }),
 }));
@@ -50,6 +51,7 @@ vi.mock('./AgentPermissionsPage', () => ({ default: () => <button data-testid="a
 vi.mock('./AppearancePage', () => ({ default: () => <button data-testid="appearance-default">AppearancePage</button> }));
 vi.mock('./DataManagementPage', () => ({ default: () => <button data-testid="data-default">DataManagementPage</button> }));
 vi.mock('./RestoreDefaultsPage', () => ({ default: () => <button data-testid="restore-defaults-default">RestoreDefaultsPage</button> }));
+vi.mock('./CommandSettingsPage', () => ({ default: () => <button data-testid="commands-default">CommandSettingsPage</button> }));
 
 import SettingsPage from './SettingsPage';
 
@@ -106,18 +108,18 @@ describe('SettingsPage', () => {
     expect(tablist).toHaveAttribute('aria-label', 'Configurações');
   });
 
-  it('renderiza todas as 13 tabs com role="tab"', () => {
+  it('renderiza todas as 14 tabs com role="tab"', () => {
     render(<SettingsPage />);
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(13);
+    expect(tabs).toHaveLength(14);
   });
 
-  it('renderiza todos os 13 tabpanels', () => {
+  it('renderiza todos os 14 tabpanels', () => {
     render(<SettingsPage />);
 
     const panels = screen.getAllByRole('tabpanel', { hidden: true });
-    expect(panels).toHaveLength(13);
+    expect(panels).toHaveLength(14);
   });
 
   it('renderiza o conteúdo do ProvidersPage no panel correspondente', async () => {
@@ -193,7 +195,7 @@ describe('SettingsPage', () => {
       const container = screen.getByRole('tablist').closest('.settings-page')!;
       fireEvent.keyDown(container, { key: 'Tab', ctrlKey: true });
 
-      expect(mockNavigate).toHaveBeenCalledWith('/settings/providers', { replace: true });
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/commands', { replace: true });
     });
 
     it('Ctrl+Shift+Tab faz wrap da primeira para a última aba', () => {
@@ -203,7 +205,7 @@ describe('SettingsPage', () => {
       const container = screen.getByRole('tablist').closest('.settings-page')!;
       fireEvent.keyDown(container, { key: 'Tab', ctrlKey: true, shiftKey: true });
 
-      expect(mockNavigate).toHaveBeenCalledWith('/settings/restore-defaults', { replace: true });
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/commands', { replace: true });
     });
 
     it('anuncia o nome da aba ao navegar', () => {
@@ -218,9 +220,9 @@ describe('SettingsPage', () => {
 
     it.each([
       ['Ctrl+Tab', { key: 'Tab', ctrlKey: true }, 'mcp', 'mcp-default'],
-      ['Ctrl+Shift+Tab', { key: 'Tab', ctrlKey: true, shiftKey: true }, 'restore-defaults', 'restore-defaults-default'],
+      ['Ctrl+Shift+Tab', { key: 'Tab', ctrlKey: true, shiftKey: true }, 'commands', 'commands-default'],
       ['Ctrl+PageDown', { key: 'PageDown', ctrlKey: true }, 'mcp', 'mcp-default'],
-      ['Ctrl+PageUp', { key: 'PageUp', ctrlKey: true }, 'restore-defaults', 'restore-defaults-default'],
+      ['Ctrl+PageUp', { key: 'PageUp', ctrlKey: true }, 'commands', 'commands-default'],
     ])('%s restaura foco para o conteúdo', async (_label, init, nextTab, defaultTarget) => {
       mockTab = 'providers';
       const { rerender } = render(<SettingsPage />);

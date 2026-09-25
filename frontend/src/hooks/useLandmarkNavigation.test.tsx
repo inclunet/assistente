@@ -1,15 +1,31 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, fireEvent } from '@testing-library/react';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { render, fireEvent, cleanup, act } from '@testing-library/react';
+import { MemoryRouter, useNavigate, useLocation, type NavigateFunction } from 'react-router-dom';
 import { useLandmarkNavigation, type Landmark } from './useLandmarkNavigation';
 import { restoreDefaultFocus } from './useDefaultFocus';
 
-vi.mock('../components/ui/Modal', () => ({
-  isModalOpen: vi.fn(() => false),
-}));
+import { captureLandmarkNavigationTarget, LANDMARK_COMMAND_EVENT, type LandmarkCommandRequest } from '../lib/commandLandmarkNavigation';
+import { registerOpenModal, unregisterOpenModal } from '../lib/modalRegistry';
+import { useAuthStore } from '../store/authStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 
-import { isModalOpen } from '../components/ui/Modal';
-
-const mockedIsModalOpen = isModalOpen as ReturnType<typeof vi.fn>;
+function openTestModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.dataset.modalId = 'landmark-modal';
+  const input = document.createElement('input');
+  overlay.append(input);
+  document.body.append(overlay);
+  registerOpenModal('landmark-modal');
+  input.focus();
+}
+function dispatchRequest(event: Event) {
+  const { commandID, instanceId } = (event as CustomEvent<LandmarkCommandRequest>).detail;
+  const lease = captureLandmarkNavigationTarget(() => window.location.pathname, instanceId);
+  try {
+    if (lease?.canOpen(commandID) && lease.open(commandID)) event.preventDefault();
+  } finally { lease?.dispose(); }
+}
 
 function createLandmark(id: string, label: string, overrides?: Partial<Landmark>): Landmark & { focusFn: ReturnType<typeof vi.fn> } {
   const focusFn = vi.fn(() => true);
@@ -54,72 +70,85 @@ function ModalScopedFixture({
   return <button data-testid="modal">Modal</button>;
 }
 
-function pressF6(shift = false) {
-  fireEvent.keyDown(window, { key: 'F6', shiftKey: shift });
+function executeNavigation(shift = false) {
+  const id = shift ? 'navigation.landmark.previous' : 'navigation.landmark.next';
+  const lease = captureLandmarkNavigationTarget(() => window.location.pathname);
+  try { if (lease?.canOpen(id)) lease.open(id); } finally { lease?.dispose(); }
 }
 
 describe('useLandmarkNavigation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedIsModalOpen.mockReturnValue(false);
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    useAuthStore.setState({ isAuthenticated: true, user: { userId: 'owner', sessionId: 'session', role: 'admin' } });
+    useWorkspaceStore.setState({ workspace: { id: 'ws', name: 'Workspace', activeTabId: 'tab', tabs: [{ id: 'tab', type: 'editor', title: 'Editor', position: 0 }] } });
+    window.addEventListener(LANDMARK_COMMAND_EVENT, dispatchRequest);
   });
 
-  it('F6 foca o próximo landmark', () => {
+  afterEach(() => {
+    cleanup();
+    window.removeEventListener(LANDMARK_COMMAND_EVENT, dispatchRequest);
+    unregisterOpenModal('landmark-modal');
+    document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
+    vi.restoreAllMocks();
+  });
+
+  it('comando next foca o próximo landmark', () => {
     const tabs = createLandmark('tabs', 'Guias');
     const toolbar = createLandmark('toolbar', 'Barra de ferramentas');
     const content = createLandmark('content', 'Conteúdo');
 
     render(<Fixture landmarks={[tabs, toolbar, content]} />);
 
-    pressF6();
+    executeNavigation();
 
     expect(tabs.focusFn).toHaveBeenCalled();
   });
 
-  it('F6 avança circularmente quando foco está no primeiro landmark', () => {
+  it('comando next avança circularmente quando foco está no primeiro landmark', () => {
     const tabs = createLandmark('tabs', 'Guias', { contains: () => true });
     const toolbar = createLandmark('toolbar', 'Barra de ferramentas');
     const content = createLandmark('content', 'Conteúdo');
 
     render(<Fixture landmarks={[tabs, toolbar, content]} />);
 
-    pressF6();
+    executeNavigation();
 
     expect(toolbar.focusFn).toHaveBeenCalled();
   });
 
-  it('F6 volta ao início quando foco está no último landmark', () => {
+  it('comando next volta ao início quando foco está no último landmark', () => {
     const tabs = createLandmark('tabs', 'Guias');
     const toolbar = createLandmark('toolbar', 'Barra de ferramentas');
     const content = createLandmark('content', 'Conteúdo', { contains: () => true });
 
     render(<Fixture landmarks={[tabs, toolbar, content]} />);
 
-    pressF6();
+    executeNavigation();
 
     expect(tabs.focusFn).toHaveBeenCalled();
   });
 
-  it('Shift+F6 foca o landmark anterior', () => {
+  it('comando previous foca o landmark anterior', () => {
     const tabs = createLandmark('tabs', 'Guias');
     const toolbar = createLandmark('toolbar', 'Barra de ferramentas', { contains: () => true });
     const content = createLandmark('content', 'Conteúdo');
 
     render(<Fixture landmarks={[tabs, toolbar, content]} />);
 
-    pressF6(true);
+    executeNavigation(true);
 
     expect(tabs.focusFn).toHaveBeenCalled();
   });
 
-  it('Shift+F6 circula para o último quando foco está no primeiro', () => {
+  it('comando previous circula para o último quando foco está no primeiro', () => {
     const tabs = createLandmark('tabs', 'Guias', { contains: () => true });
     const toolbar = createLandmark('toolbar', 'Barra de ferramentas');
     const content = createLandmark('content', 'Conteúdo');
 
     render(<Fixture landmarks={[tabs, toolbar, content]} />);
 
-    pressF6(true);
+    executeNavigation(true);
 
     expect(content.focusFn).toHaveBeenCalled();
   });
@@ -135,7 +164,7 @@ describe('useLandmarkNavigation', () => {
 
     render(<Fixture landmarks={[tabs, toolbar, content]} />);
 
-    pressF6();
+    executeNavigation();
 
     expect(toolbar.focusFn).not.toHaveBeenCalled();
     expect(content.focusFn).toHaveBeenCalled();
@@ -150,40 +179,40 @@ describe('useLandmarkNavigation', () => {
 
     render(<Fixture landmarks={[tabs, toolbar, content]} />);
 
-    pressF6();
+    executeNavigation();
 
     expect(content.focusFn).toHaveBeenCalled();
   });
 
   it('não faz nada quando modal está aberto', () => {
-    mockedIsModalOpen.mockReturnValue(true);
+    openTestModal();
     const tabs = createLandmark('tabs', 'Guias');
 
     render(<Fixture landmarks={[tabs]} />);
 
-    pressF6();
+    executeNavigation();
 
     expect(tabs.focusFn).not.toHaveBeenCalled();
   });
 
   it('permite navegação quando o escopo modal opta por tratar teclas', () => {
-    mockedIsModalOpen.mockReturnValue(true);
-    const composer = createLandmark('composer', 'Campo de mensagem');
+    openTestModal();
+    const composer = createLandmark('composer', 'Campo de mensagem', { contains: () => true });
 
     render(<ModalScopedFixture landmarks={[composer]} />);
 
-    pressF6();
+    executeNavigation();
 
     expect(composer.focusFn).toHaveBeenCalled();
   });
 
   it('bloqueia navegação do escopo modal quando o guard retorna false', () => {
-    mockedIsModalOpen.mockReturnValue(true);
-    const composer = createLandmark('composer', 'Campo de mensagem');
+    openTestModal();
+    const composer = createLandmark('composer', 'Campo de mensagem', { contains: () => true });
 
     render(<ModalScopedFixture landmarks={[composer]} shouldHandleKey={() => false} />);
 
-    pressF6();
+    executeNavigation();
 
     expect(composer.focusFn).not.toHaveBeenCalled();
   });
@@ -193,7 +222,7 @@ describe('useLandmarkNavigation', () => {
 
     render(<Fixture landmarks={[tabs]} enabled={false} />);
 
-    pressF6();
+    executeNavigation();
 
     expect(tabs.focusFn).not.toHaveBeenCalled();
   });
@@ -214,7 +243,7 @@ describe('useLandmarkNavigation', () => {
     render(<Fixture landmarks={[]} />);
 
     // Não deve lançar erro
-    pressF6();
+    executeNavigation();
   });
 
   it('funciona com apenas 1 landmark', () => {
@@ -222,7 +251,7 @@ describe('useLandmarkNavigation', () => {
 
     render(<Fixture landmarks={[tabs]} />);
 
-    pressF6();
+    executeNavigation();
     expect(tabs.focusFn).toHaveBeenCalled();
   });
 
@@ -232,7 +261,7 @@ describe('useLandmarkNavigation', () => {
 
     const { rerender } = render(<Fixture landmarks={[tabs]} />);
 
-    pressF6();
+    executeNavigation();
     expect(tabs.focusFn).toHaveBeenCalledTimes(1);
 
     // Re-render com novo landmark adicionado
@@ -243,7 +272,7 @@ describe('useLandmarkNavigation', () => {
     const tabsWithContains = { ...tabs, contains: () => true };
     rerender(<Fixture landmarks={[tabsWithContains, toolbar]} />);
 
-    pressF6();
+    executeNavigation();
     expect(toolbar.focusFn).toHaveBeenCalled();
   });
 
@@ -273,7 +302,7 @@ describe('useLandmarkNavigation', () => {
   });
 
   it('Escape NÃO faz nada quando modal está aberto', () => {
-    mockedIsModalOpen.mockReturnValue(true);
+    openTestModal();
     const toolbar = createLandmark('toolbar', 'Barra de ferramentas', { contains: () => true });
     const content = createLandmark('content', 'Conteúdo');
 
@@ -341,5 +370,65 @@ describe('useLandmarkNavigation', () => {
     unmount();
 
     expect(restoreDefaultFocus()).toBe(false);
+  });
+
+  it('F6 nativo não executa sem adapter central', () => {
+    const target = createLandmark('content', 'Conteúdo');
+    render(<Fixture landmarks={[target]} />);
+    fireEvent.keyDown(window, { key: 'F6' });
+    fireEvent.keyDown(window, { key: 'F6', shiftKey: true });
+    expect(target.focusFn).not.toHaveBeenCalled();
+  });
+  it('MemoryRouter invalida lease em rota ABA sem depender de window.location', () => {
+    let navigate!: NavigateFunction;
+    let path = '';
+    const target = createLandmark('content', 'Conteúdo');
+    function RoutedFixture() {
+      navigate = useNavigate();
+      path = useLocation().pathname;
+      return <Fixture landmarks={[target]} />;
+    }
+    render(<MemoryRouter initialEntries={['/editor']}><RoutedFixture /></MemoryRouter>);
+    const lease = captureLandmarkNavigationTarget(() => path)!;
+    expect(lease.isCurrent()).toBe(true);
+    act(() => navigate('/settings'));
+    act(() => navigate('/editor'));
+    expect(lease.open('navigation.landmark.next')).toBe(false);
+    expect(target.focusFn).not.toHaveBeenCalled();
+  });
+  it('desmontagem do hook invalida captura e nova montagem não reautoriza', () => {
+    const target = createLandmark('content', 'Conteúdo');
+    const view = render(<Fixture landmarks={[target]} />);
+    const lease = captureLandmarkNavigationTarget(() => window.location.pathname)!;
+    view.unmount();
+    render(<Fixture landmarks={[target]} />);
+    expect(lease.open('navigation.landmark.next')).toBe(false);
+    expect(target.focusFn).not.toHaveBeenCalled();
+  });
+
+  it('Escape sem dispatcher não executa nem consome', () => {
+    window.removeEventListener(LANDMARK_COMMAND_EVENT, dispatchRequest);
+    const target = createLandmark('content', 'Conteúdo');
+    render(<Fixture landmarks={[createLandmark('tools', 'Ferramentas', { contains: () => true }), target]} defaultLandmarkId="content" />);
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(target.focusFn).not.toHaveBeenCalled();
+  });
+
+  it.each([{ repeat: true }, { isComposing: true }, { keyCode: 229 }, { ctrlKey: true }, { altKey: true }, { shiftKey: true }, { metaKey: true }])('Escape ignora guarda nativa %j', flags => {
+    const target = createLandmark('content', 'Conteúdo');
+    render(<Fixture landmarks={[createLandmark('tools', 'Ferramentas', { contains: () => true }), target]} defaultLandmarkId="content" />);
+    fireEvent.keyDown(window, { key: 'Escape', ...flags });
+    expect(target.focusFn).not.toHaveBeenCalled();
+  });
+
+  it('Escape respeita defaultPrevented pelo componente antes de window', () => {
+    const target = createLandmark('content', 'Conteúdo');
+    const view = render(<Fixture landmarks={[createLandmark('tools', 'Ferramentas', { contains: () => true }), target]} defaultLandmarkId="content" />);
+    const button = view.getByTestId('toolbar');
+    button.addEventListener('keydown', event => event.preventDefault());
+    fireEvent.keyDown(button, { key: 'Escape' });
+    expect(target.focusFn).not.toHaveBeenCalled();
   });
 });

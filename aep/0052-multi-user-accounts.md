@@ -164,6 +164,15 @@ Se a DEK não estiver disponível (keyring vazio + não houve unlock), o servido
 
 Sem token exchange nesta fase.
 
+Adendo aprovado em 24/09/2026, AEP-0103: controlar uma interface conectada
+exige vínculo explícito entre o principal externo autorizado e a conexão de
+destino. O vínculo não emite sessão local nem amplia roles/scopes do JWT;
+desconexão/revogação invalidam trabalho pendente. Não há seleção implícita do
+desktop ativo, token exchange ou habilitação de teclado global/Stream Deck
+por esta extensão. Sem destino conectado, só operações backend compatíveis
+podem ser disponibilizadas. Implementação e evidências são acompanhadas na
+tasklist do AEP-0103; esta decisão não declara a composição já entregue.
+
 ### D5. Sessões locais com JWT access + refresh token
 
 - Access token: JWT com expiração curta.
@@ -175,7 +184,11 @@ Sem token exchange nesta fase.
 
 ### D6. Claims mínimas do JWT (access)
 
-- Obrigatórias: `iss`, `aud`, `sub` (user_id), `sid` (session_id), `iat`, `exp`.
+- No modo local, obrigatórias: `iss`, `aud`, `sub` (user_id), `sid` (session_id), `iat`, `exp`.
+- No modo externo (override AEP-0103, seção151), `sub` identifica a conta no
+  emissor, não o usuário local. Após validar JWT/JWKS, issuer, audience e scopes,
+  o middleware resolve exclusivamente `(iss, sub) → users.id` pelo vínculo
+  administrativo habilitado e usuário ativo. Não exige nem fabrica sessão local.
 - Recomendada: `jti`.
 - Defaults:
     - `exp`: 10–15 min
@@ -191,6 +204,53 @@ Não incluir PII no JWT.
 No modo local, não listar usuários cadastrados: login é sempre por **username manual + senha**.
 
 ### D8. External mode: validação JWKS e enforcement por scopes/roles
+
+Adendo preparatório AEP-0103 (15/09/2026): comandos externos exigirão vínculo
+administrativo exato `(issuer, subject) → users.id`, usuário local ativo e
+revogação coordenada pelo mesmo gate/epoch do executor. As primitivas de
+`ExternalIdentityRepository`/`ExternalCommandAuthenticator` não fazem JIT,
+não reutilizam o último token e não habilitam adapters físicos. A presença
+da tabela não publica readiness: a adoção explícita pelo middleware e o
+bootstrap administrativo ainda são pré-condições antes de montar essa rota.
+O middleware externo legado NÃO foi migrado nesta rodada; não tratar o novo
+autenticador como substituição já ativa nem inferir `sub == users.id` para
+comandos. Validação JWKS final sob o gate usa somente chave já carregada;
+cache ausente falha fechado, sem busca de rede dentro do gate.
+
+Complemento de 23/09/2026 (AEP-0103, seção149): o cadastro preparatório agora
+tem montagem produtiva na API HTTP. `identity_admin_scopes` habilita duas rotas
+administrativas: bootstrap do próprio `sub` legado para usuário local ativo e
+criação posterior por administrador já mapeado, sempre no issuer configurado.
+Todos os scopes administrativos são obrigatórios; roles não os substituem.
+A v31 registra ator/alvo/ação sem JWT, na mesma transação do vínculo, com um
+único bootstrap por issuer. Isso **não altera D6**, não publica readiness e
+não muda o principal de `/auth/me`: o cutover do middleware e a montagem do
+executor externo continuam pendentes. O cadastro não é um modo de executar
+comandos externos antes dessas etapas.
+
+Complemento seção150: a biblioteca de comandos passa a distinguir cada token
+por fingerprint, mantendo o vínculo `(issuer, subject)` como grupo de revogação.
+A captura revalida o token com JWKS em cache e relê o vínculo sob o gate;
+revogação invalida gerações e esperas do grupo antes da alteração persistida.
+Reativação não restaura gerações antigas. D6 e o middleware seguem inalterados.
+
+**Contrato vigente — seção151 (23/09/2026):** o middleware HTTP agora adota
+o mapa explícito também em `/auth/me`, substituindo a interpretação legada
+de `sub` como usuário. Sem schema/registro de bootstrap do issuer retorna 503;
+sem vínculo habilitado ou usuário ativo retorna 401. Não há JIT nem fallback,
+mesmo quando `sub` coincide com um UUID local. O bootstrap é a prova de início
+administrativo da migração; cada conta ainda deve ser vinculada explicitamente
+antes de acessar a API. A leitura é refeita por solicitação, sem cache de mapping.
+Scopes e roles do IdP continuam sendo aplicados como antes; role local não
+substitui a role externa. O modo local não muda. Este cutover não publica
+readiness do executor de comandos nem habilita adapters físicos externos.
+
+Complemento AEP-0103, seção152 (24/09/2026): a política interna de comandos
+externos verifica as roles do JWT revalidado, nunca a role do usuário local
+vinculado. `RequiredRoles` é uma lista de alternativas (qualquer uma), enquanto
+todos os `RequiredScopes` são obrigatórios. Sem roles no token, uma exigência
+de role falha fechado; ser administrador local não a satisfaz. A política de
+sessões locais e jobs não muda. Isso não habilita o ingresso externo sozinho.
 
 - Validar JWT do IdP via JWKS.
 - Enforce server-side por scopes/roles do token.
@@ -1136,4 +1196,3 @@ mensagens curtas via i18n (Bloco 5).
   contexto desktop o usuário escolhe onde escrever. Em deployment
   CLI-via-web (não suportado pelo projeto hoje) seria validação
   extra.
-

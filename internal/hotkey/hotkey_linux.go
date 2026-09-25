@@ -8,6 +8,13 @@ import (
 	"golang.design/x/hotkey"
 )
 
+const (
+	ModCtrl  hotkey.Modifier = hotkey.ModCtrl
+	ModShift hotkey.Modifier = hotkey.ModShift
+	ModAlt   hotkey.Modifier = hotkey.Mod1
+	ModWin   hotkey.Modifier = hotkey.Mod4
+)
+
 // parseKeyStringImpl implementação específica para Linux/X11
 // Usa keycodes do X11 (valores menores que evitam overflow)
 func parseKeyStringImpl(key string) (hotkey.Key, error) {

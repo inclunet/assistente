@@ -21,6 +21,11 @@ export type SendToEditorPayload =
       targetDocumentId?: never;
     } & SendToEditorPayloadBase);
 
+export type ChatSendToEditorPayload = SendToEditorPayload & {
+  readonly messageId: string;
+  readonly originalContent: string;
+};
+
 export interface EditorSendFormatOption<TPayload extends object = {}> {
   id: string;
   label: string;
@@ -62,24 +67,27 @@ export function buildEditorDestinationSubmenu<TPayload extends object = {}>(
       | { target: 'document'; targetDocumentId: string }
       | { target: 'new_document' }
   ) =>
-    formats.map((format, formatIndex) => ({
+    formats.map((format, formatIndex) => {
+      const payload = { ...format.payload };
+      return {
       id: `${baseId}-${destination.target}-${('targetDocumentId' in destination ? destination.targetDocumentId : 'new') || 'new'}-${format.id || formatIndex}`,
       label: format.label,
       action: () => {
         if (destination.target === 'document') {
           onSendToEditor({
-            ...format.payload,
+            ...payload,
             target: 'document',
             targetDocumentId: destination.targetDocumentId,
           });
           return;
         }
         onSendToEditor({
-          ...format.payload,
+          ...payload,
           target: 'new_document',
         });
       },
-    }));
+      };
+    });
 
   const items = editorTargets
     .map((target, index) => {

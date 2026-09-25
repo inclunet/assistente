@@ -230,15 +230,23 @@ type ModelsResponse struct {
 	Data   []Model `json:"data"`
 }
 
+// ChatCommandMetadata correlaciona o transporte com uma admissão hostside.
+// O bind remove este campo antes de entregar parâmetros ao pipeline/modelo.
+type ChatCommandMetadata struct {
+	Ticket    string `json:"ticket"`
+	HandoffID string `json:"handoffId"`
+}
+
 // ChatParams contém os parâmetros para uma requisição de chat
 type ChatParams struct {
-	Model           string  `json:"model"`
-	MaxTokens       int     `json:"maxTokens"`
-	MaxTokensMode   string  `json:"maxTokensMode,omitempty"` // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
-	Temperature     float64 `json:"temperature"`
-	TopP            float64 `json:"topP,omitempty"`
-	ReasoningEffort string  `json:"reasoningEffort,omitempty"` // off, low, medium, high
-	ProfileSlug     string  `json:"profileSlug,omitempty"`     // Perfil específico (canais). Vazio = perfil ativo global
+	Command         *ChatCommandMetadata `json:"command,omitempty"`
+	Model           string               `json:"model"`
+	MaxTokens       int                  `json:"maxTokens"`
+	MaxTokensMode   string               `json:"maxTokensMode,omitempty"` // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
+	Temperature     float64              `json:"temperature"`
+	TopP            float64              `json:"topP,omitempty"`
+	ReasoningEffort string               `json:"reasoningEffort,omitempty"` // off, low, medium, high
+	ProfileSlug     string               `json:"profileSlug,omitempty"`     // Perfil específico (canais). Vazio = perfil ativo global
 	// ConversationID é a conversa do turno. Provider HTTP não precisa dele —
 	// o histórico vai na request —, mas o agente ACP guarda o histórico na
 	// sessão da conversa, e é por aqui que ele encontra qual é (AEP-0084 D4).

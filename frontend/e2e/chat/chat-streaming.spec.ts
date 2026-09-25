@@ -1,4 +1,14 @@
 import { test, expect } from '../fixtures';
+import {
+  chatClearCommand,
+  chatClearHandoff,
+  chatClearMapGeneration,
+  chatClearShortcut,
+  chatClearTicket,
+  configureChatClearCommand,
+  installChatClearCommitCallback,
+  waitForChatClearCommit,
+} from '../helpers/chatClearCommand';
 
 const now = new Date().toISOString();
 const conversationId = '01926b90-0000-7000-8000-000000000001';
@@ -487,23 +497,33 @@ test.describe('Chat — thinking/reasoning', () => {
 });
 
 test.describe('Chat — Ctrl+L limpar conversa', () => {
-  test('Ctrl+L chama ClearConversation', async ({ page, wails }) => {
+  test('Ctrl+L executa o protocolo e remove a conversa', async ({ page, wails }) => {
     await wails.setResponse('GetMessages', [userMessage]);
-    await wails.setResponse('ClearConversation', undefined);
-    await wails.setResponse('ClearMessages', undefined);
     await wails.setResponse('EnsureConversation', baseConversation);
+    await configureChatClearCommand(wails);
 
     await wails.waitForApp();
+    await installChatClearCommitCallback(page, conversationId);
     await page.waitForSelector('.message-node', { timeout: 5_000 });
+    const messages = page.locator('.message-node');
+    await expect(messages).toHaveCount(1);
 
     // Pressiona Ctrl+L
     await page.keyboard.press('Control+l');
+    await waitForChatClearCommit(page);
+    await expect(messages).toHaveCount(0, { timeout: 5_000 });
 
-    // Verifica que a função de clear foi chamada
     const log = await wails.getCallLog();
-    const clearCalls = log.filter(c =>
-      c.fn === 'ClearConversation' || c.fn === 'ClearMessages',
-    );
-    expect(clearCalls.length).toBeGreaterThanOrEqual(1);
+    const beginIndex = log.findIndex(c => c.fn === 'BeginLocalCommandUIKey' && c.args[0] === chatClearMapGeneration);
+    const takeIndex = log.findIndex(c => c.fn === 'TakeUICommand' && c.args[0] === chatClearTicket);
+    const commitIndex = log.findIndex(c => c.fn === 'CommitWorkspaceTabCommand' && c.args[0] === chatClearTicket);
+    const resultIndex = log.findIndex(c => c.fn === 'GetUICommandResult' && c.args[0] === chatClearTicket);
+    expect(beginIndex).toBeGreaterThanOrEqual(0);
+    expect(log[beginIndex].args[1]).toEqual(chatClearShortcut);
+    expect(log[beginIndex].args[2]).toBe(false);
+    expect(beginIndex).toBeLessThan(takeIndex);
+    expect(takeIndex).toBeLessThan(commitIndex);
+    expect(commitIndex).toBeLessThan(resultIndex);
+    expect(log.some(c => c.fn === 'ClearConversation' || c.fn === 'ClearMessages')).toBe(false);
   });
 });

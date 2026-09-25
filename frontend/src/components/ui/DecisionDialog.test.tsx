@@ -627,6 +627,31 @@ describe('DecisionDialog', () => {
     expect(announceRequest).not.toHaveBeenCalled();
   });
 
+  it('Ctrl+Shift+R local ignora autorepeat e não duplica o anúncio', async () => {
+    render(
+      <DecisionDialog
+        isOpen
+        title="Título"
+        description="Pergunta"
+        actions={[
+          { id: 'ok', label: 'OK', primary: true },
+          { id: 'cancel', label: 'Cancelar', variant: 'outline' },
+        ]}
+        onAction={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(announceRequest).toHaveBeenCalledTimes(1));
+    fireEvent.keyDown(screen.getByRole('alertdialog'), {
+      key: 'r',
+      ctrlKey: true,
+      shiftKey: true,
+      repeat: true,
+    });
+    expect(announceRequest).toHaveBeenCalledTimes(1);
+  });
+
   it('coordena Antes/Depois, mantém Tab livre e deixa Escape fechar', async () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();

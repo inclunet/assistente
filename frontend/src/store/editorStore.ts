@@ -1,4 +1,3 @@
-import { logger } from '../utils/logger';
 import { create } from 'zustand';
 
 export type EditorMode = 'markdown' | 'rich' | 'view';
@@ -33,33 +32,12 @@ export function preferLiveEditorDocument(
 
 export type EditorInsertFormat = 'markdown' | 'html' | 'plain';
 
-export type EditorInsertTarget = 'document' | 'new_document';
-
 export interface EditorDocumentProjection {
   format: string;
   pages?: number;
   warnings: string[];
   warningCode?: string;
 }
-
-interface EditorInsertRequestBase {
-  format: EditorInsertFormat;
-  content: string;
-  title?: string;
-  focus?: boolean;
-}
-
-export type EditorInsertRequest =
-  | ({
-      id: string;
-      target: 'document';
-      targetDocumentId: string;
-    } & EditorInsertRequestBase)
-  | ({
-      id: string;
-      target: 'new_document';
-      targetDocumentId?: never;
-    } & EditorInsertRequestBase);
 
 export interface EditorDocument {
   id: string;
@@ -98,10 +76,6 @@ interface EditorState {
 
   getDocument: (docId: string) => EditorDocument | undefined;
 
-  pendingInsert: EditorInsertRequest | null;
-  requestInsert: (req: Omit<EditorInsertRequest, 'id'>) => string | null;
-  consumePendingInsert: () => EditorInsertRequest | null;
-
   prepareUser: (userId: string) => void;
   clearUser: () => void;
   hydrate: (payload: {
@@ -130,7 +104,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   ownerUserId: null,
   documents: {},
 
-  pendingInsert: null,
 
   createDocument: (initial) => {
     const id = initial?.id || newId();
@@ -156,46 +129,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }));
 
     return id;
-  },
-
-  requestInsert: (req) => {
-    const base = {
-      id: newId(),
-      format: req.format,
-      content: String(req.content ?? ''),
-      title: req.title,
-      focus: req.focus,
-    } satisfies EditorInsertRequestBase & { id: string };
-
-    const normalized: EditorInsertRequest | null =
-      req.target === 'document'
-        ? (() => {
-            const targetDocumentId = String(req.targetDocumentId ?? '').trim();
-            if (!targetDocumentId) {
-              logger.error('[EditorStore] requestInsert rejected: document target requires targetDocumentId');
-              return null;
-            }
-            return {
-              ...base,
-              target: 'document',
-              targetDocumentId,
-            };
-          })()
-        : {
-            ...base,
-            target: 'new_document',
-          };
-
-    if (!normalized) return null;
-    set({ pendingInsert: normalized });
-    return normalized.id;
-  },
-
-  consumePendingInsert: () => {
-    const cur = get().pendingInsert;
-    if (!cur) return null;
-    set({ pendingInsert: null });
-    return cur;
   },
 
   removeDocument: (docId) => {
@@ -280,7 +213,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       ownerUserId: normalized,
       documents: {},
-      pendingInsert: null,
     });
   },
 
@@ -288,7 +220,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       ownerUserId: null,
       documents: {},
-      pendingInsert: null,
     });
   },
 

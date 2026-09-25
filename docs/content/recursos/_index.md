@@ -25,9 +25,10 @@ Trilha de leitura sugerida — comece pelo Kickstart e siga na ordem. Cada item 
 | 14 | [Ferramentas](TOOLS/) | 15 famílias de tools |
 | 15 | [Context Providers](CONTEXT_PROVIDERS/) | Memória, workspace e prompt cache |
 | 16 | [Credenciais](CREDENCIAIS/) | Cofre e perda defensiva |
-| 17 | [Banco de Dados](DATABASE/) | SQLite, migrações e compactação |
+| 17 | [Gestão de dados](DATABASE/) | Exportação/importação de camadas, SQLite, migrações e compactação |
 | 18 | [Infra](INFRA/) | Atualização, conexão e wake lock |
 | 19 | [Terminal](TERMINAL/) | Sessões efêmeras com histórico |
 | 20 | [Deep Links](DEEP_LINKS/) | Navegação via `assistente://` |
 | 21 | [Hotkeys](HOTKEYS/) | Atalhos globais e de navegação |
 | 22 | [Chat](CHAT/) | Mensagens, navegação e fixação persistente |
+| 23 | [Comandos e acionadores](COMANDOS/) | Inspeção de padrões e configuração de camadas pessoais |

@@ -4,6 +4,7 @@
  */
 
 import { create } from 'zustand';
+import { useAuthStore } from './authStore';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import {
   GetTaskListPage,
@@ -274,6 +275,7 @@ interface TaskListStoreState {
 const taskPageOperationTails = new Map<string, Promise<void>>();
 const activeBoardLoads = new Map<string, { generation: number; promise: Promise<number> }>();
 const boardLoadGenerations = new Map<string, number>();
+let taskListCatalogReadGeneration = 0;
 const taskPageLoadingDepth = new Map<string, number>();
 
 function cancelBoardLoadGeneration(taskListId: string): void {
@@ -625,6 +627,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
           });
           return { taskLists };
         });
+        get().clearError(taskListErrorKey('updateTaskList', taskListId));
       } catch (error) {
         get().setError(taskListErrorKey('updateTaskList', taskListId), String(error));
         // Repropaga como as demais ações com feedback (ex.: setTaskListConversation):
@@ -680,14 +683,24 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     },
 
     fetchAllTaskLists: async () => {
+      const request = ++taskListCatalogReadGeneration;
+      const owner = useAuthStore.getState();
+      let currentOwner = true;
+      const unsubscribe = useAuthStore.subscribe(state => {
+        if (state.isAuthenticated !== owner.isAuthenticated || state.user?.userId !== owner.user?.userId ||
+            state.user?.sessionId !== owner.user?.sessionId) currentOwner = false;
+      });
       try {
         const lists = await GetAllTaskLists();
+        if (!currentOwner || request !== taskListCatalogReadGeneration) return [];
         for (const list of lists || []) {
           get().cacheTaskList(list as unknown as TaskListWithWorkflow);
         }
         return lists || [];
       } catch {
         return [];
+      } finally {
+        unsubscribe();
       }
     },
 

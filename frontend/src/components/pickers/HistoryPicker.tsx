@@ -16,6 +16,7 @@ export interface HistoryPickerProps {
   disabled?: boolean;
   maxWidth?: string;
   onAnnounce?: (message: string) => void;
+  shortcut?: string;
   /**
    * Itens extras fixados no topo da lista (ex.: "Nenhuma"/desvincular).
    * O valor de cada item NÃO deve colidir com um ID de conversa.
@@ -38,6 +39,7 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
   disabled = false,
   maxWidth = '200px',
   onAnnounce,
+  shortcut,
   extraItems,
   onSelectExtra
 }, ref) => {
@@ -165,6 +167,7 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
       disabled={disabled || isLoading}
       maxWidth={maxWidth}
       onAnnounce={onAnnounce}
+      shortcut={shortcut}
       onOpen={handleOpen}
       showLoadingState={false}
       showEmptyState={false}

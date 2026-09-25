@@ -12,7 +12,7 @@ export function useWorkspacePanelRenameHandlers() {
       if (id) {
         // updateTaskList repropaga falha (para callers com feedback); aqui o
         // rename é best-effort e o erro já foi registrado no store.
-        void useTaskListStore.getState().updateTaskList(id, newTitle).catch(() => {});
+        void useTaskListStore.getState().updateTaskList(id, newTitle).catch(() => undefined);
       }
     });
 

@@ -9,12 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"assistente/internal/commandjobevents"
 	"assistente/internal/database"
 	"assistente/internal/jobprofilegrant"
 	"assistente/internal/slug"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -66,8 +68,9 @@ type Repository interface {
 
 // DBRepository implementa Repository usando GORM.
 type DBRepository struct {
-	db  *gorm.DB
-	now func() time.Time
+	db            *gorm.DB
+	now           func() time.Time
+	commandEvents *commandjobevents.Store
 
 	// jobRowCache guarda mapeamentos (user_id, slug) -> linha de job com TTL.
 	// jobRowBySlug é chamado a CADA run (LogRun e afins) e, sob carga do
@@ -107,7 +110,12 @@ func stringBatches(values []string, size int) [][]string {
 }
 
 func NewDBRepository(db *gorm.DB) *DBRepository {
-	return &DBRepository{db: db, now: time.Now, jobRowCache: make(map[string]jobRowCacheEntry)}
+	return &DBRepository{
+		db:            db,
+		now:           time.Now,
+		commandEvents: commandjobevents.NewStore(db),
+		jobRowCache:   make(map[string]jobRowCacheEntry),
+	}
 }
 
 func (r *DBRepository) retry(ctx context.Context, operation string, fn func() error) error {
@@ -924,22 +932,32 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 		return err
 	}
 	row := database.JobRun{
-		UUIDModel:     database.UUIDModel{ID: strings.TrimSpace(rl.RunID)},
-		UserID:        userID,
-		JobID:         jobRow.ID,
-		TriggerID:     triggerID,
-		Status:        rl.Status,
-		StartedAt:     rl.StartedAt,
-		CompletedAt:   completedAt,
-		DurationMs:    durationMillis(rl.StartedAt, rl.CompletedAt),
-		Error:         rl.Error,
-		RetryCount:    rl.RetryCount,
-		IsDryRun:      rl.IsDryRun,
-		TriggerData:   triggerData,
-		EventsEmitted: events,
+		UUIDModel:      database.UUIDModel{ID: strings.TrimSpace(rl.RunID)},
+		UserID:         userID,
+		JobID:          jobRow.ID,
+		TriggerID:      triggerID,
+		Status:         rl.Status,
+		QueuedAt:       rl.QueuedAt,
+		StartedAt:      rl.StartedAt,
+		RootOriginType: rl.RootOriginType,
+		RootOriginID:   rl.RootOriginID,
+		CompletedAt:    completedAt,
+		DurationMs:     durationMillis(rl.StartedAt, rl.CompletedAt),
+		Error:          rl.Error,
+		RetryCount:     rl.RetryCount,
+		IsDryRun:       rl.IsDryRun,
+		TriggerData:    triggerData,
+		EventsEmitted:  events,
 	}
-	if row.StartedAt.IsZero() {
-		row.StartedAt = r.now()
+	row.Provenance, err = marshalJSON(rl.Provenance)
+	if err != nil {
+		return err
+	}
+	if row.QueuedAt.IsZero() {
+		row.QueuedAt = row.StartedAt
+		if row.QueuedAt.IsZero() {
+			row.QueuedAt = r.now()
+		}
 	}
 	return r.retry(ctx, "log_run", func() error {
 		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -949,6 +967,7 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 			rl.RunID = row.ID
 			for i, event := range rl.RunEvents {
 				event.RunID = row.ID
+				event.RootOriginType, event.RootOriginID, event.Provenance = rl.RootOriginType, rl.RootOriginID, rl.Provenance
 				if event.Sequence <= 0 {
 					event.Sequence = i + 1
 				}
@@ -960,14 +979,17 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 					return err
 				}
 				eventRow := database.JobRunEvent{
-					UUIDModel:  database.UUIDModel{ID: strings.TrimSpace(event.ID)},
-					UserID:     userID,
-					JobRunID:   row.ID,
-					Sequence:   event.Sequence,
-					OccurredAt: event.Timestamp,
-					Type:       event.Type,
-					Message:    event.Message,
-					Data:       data,
+					UUIDModel:      database.UUIDModel{ID: strings.TrimSpace(event.ID)},
+					UserID:         userID,
+					JobRunID:       row.ID,
+					Sequence:       event.Sequence,
+					OccurredAt:     event.Timestamp,
+					Type:           event.Type,
+					Message:        event.Message,
+					Data:           data,
+					RootOriginType: event.RootOriginType,
+					RootOriginID:   event.RootOriginID,
+					Provenance:     row.Provenance,
 				}
 				if err := tx.Create(&eventRow).Error; err != nil {
 					return err
@@ -1000,6 +1022,256 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 			return nil
 		})
 	})
+}
+
+// PersistRunState grava uma transição incremental do runtime. O run e o
+// job_run_event são escritos na mesma transação; quando a transição é elegível
+// para ativação contextual, o fato normalizado e sua outbox entram nessa mesma
+// transação. A ausência do schema da outbox não habilita fallback para o
+// EventBus: apenas deixa o adapter durável indisponível até a migração central.
+func (r *DBRepository) PersistRunState(ctx context.Context, rl *RunLog, event *RunEvent) error {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	if rl == nil || event == nil {
+		return fmt.Errorf("run e evento são obrigatórios")
+	}
+	if strings.TrimSpace(rl.RunID) == "" || strings.TrimSpace(rl.JobID) == "" {
+		return fmt.Errorf("run/job id são obrigatórios")
+	}
+	jobRow, err := r.jobRowBySlug(ctx, rl.JobID)
+	if err != nil {
+		return err
+	}
+	if rl.QueuedAt.IsZero() {
+		rl.QueuedAt = r.now()
+	}
+	if event.Timestamp.IsZero() {
+		event.Timestamp = r.now()
+	}
+	if strings.TrimSpace(event.ID) == "" {
+		id, err := uuid.NewV7()
+		if err != nil {
+			return err
+		}
+		event.ID = id.String()
+	}
+	if !isUUIDv7(event.ID) {
+		return fmt.Errorf("run event id deve ser UUIDv7")
+	}
+	if event.RunID == "" {
+		event.RunID = rl.RunID
+	}
+	if event.RunID != rl.RunID {
+		return fmt.Errorf("evento pertence a outro run")
+	}
+	// O runtime usa (unknown, "") quando não há prova de origem. Esse par é
+	// uma marca explícita de desconhecido, não uma origem parcial; ele permite
+	// a timeline normal, mas commandJobFact o mantém inelegível para outbox.
+	unknownRoot := strings.TrimSpace(rl.RootOriginType) == "unknown" && strings.TrimSpace(rl.RootOriginID) == ""
+	if !unknownRoot && (rl.RootOriginType != "" && rl.RootOriginID == "" || rl.RootOriginType == "" && rl.RootOriginID != "") {
+		return fmt.Errorf("root origin type/id devem ser informados juntos")
+	}
+	event.RootOriginType, event.RootOriginID, event.Provenance = rl.RootOriginType, rl.RootOriginID, rl.Provenance
+	data, err := marshalJSON(event.Data)
+	if err != nil {
+		return err
+	}
+	triggerData, err := marshalJSON(rl.Trigger)
+	if err != nil {
+		return err
+	}
+	triggerID, err := r.triggerIDForRun(ctx, userID, jobRow.ID, rl.Trigger)
+	if err != nil {
+		return err
+	}
+	eventsEmitted, err := marshalJSON(rl.EventsEmitted)
+	if err != nil {
+		return err
+	}
+	provenance, err := marshalJSON(rl.Provenance)
+	if err != nil {
+		return err
+	}
+	outboxReady := r.commandEvents != nil && r.commandEvents.Ready(ctx)
+
+	return r.retry(ctx, "persist_run_state", func() error {
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var row database.JobRun
+			err := tx.Where("user_id = ? AND id = ?", userID, strings.TrimSpace(rl.RunID)).First(&row).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				if event.Type != RunStatusQueued || rl.Status != RunStatusQueued {
+					return fmt.Errorf("run incremental deve nascer em queued")
+				}
+				row = database.JobRun{
+					UUIDModel: database.UUIDModel{ID: strings.TrimSpace(rl.RunID)}, UserID: userID,
+					JobID: jobRow.ID, TriggerID: "", Status: RunStatusQueued, QueuedAt: rl.QueuedAt,
+					TriggerData: triggerData, EventsEmitted: eventsEmitted, IsDryRun: rl.IsDryRun,
+					RootOriginType: rl.RootOriginType, RootOriginID: rl.RootOriginID, Provenance: provenance,
+				}
+				row.TriggerID = triggerID
+				// started_at precisa ser NULL na fila; map insert evita que o zero
+				// value de time.Time vire uma data sentinela no SQLite.
+				values := map[string]any{
+					"id": row.ID, "user_id": row.UserID, "job_id": row.JobID, "trigger_id": row.TriggerID,
+					"status": row.Status, "queued_at": row.QueuedAt, "started_at": nil,
+					"trigger_data": row.TriggerData, "events_emitted": row.EventsEmitted, "is_dry_run": row.IsDryRun,
+					"root_origin_type": row.RootOriginType, "root_origin_id": row.RootOriginID, "provenance": row.Provenance,
+				}
+				if err := tx.Table("job_runs").Create(values).Error; err != nil {
+					return err
+				}
+			} else if err != nil {
+				return err
+			} else if row.UserID != userID || row.JobID != jobRow.ID {
+				return gorm.ErrRecordNotFound
+			}
+			if rl.RootOriginType == "" && rl.RootOriginID == "" && row.RootOriginType != "" && row.RootOriginID != "" {
+				rl.RootOriginType, rl.RootOriginID = row.RootOriginType, row.RootOriginID
+				_ = unmarshalJSON(row.Provenance, &rl.Provenance)
+			}
+			provenance, err = marshalJSON(rl.Provenance)
+			if err != nil {
+				return err
+			}
+
+			updates := map[string]any{
+				"status": rl.Status, "queued_at": rl.QueuedAt, "completed_at": nullableTime(rl.CompletedAt),
+				"duration_ms": durationMillis(rl.StartedAt, rl.CompletedAt), "error": rl.Error,
+				"retry_count": rl.RetryCount, "is_dry_run": rl.IsDryRun, "trigger_data": triggerData,
+				"events_emitted": eventsEmitted,
+			}
+			if rl.RootOriginType != "" && rl.RootOriginID != "" {
+				updates["root_origin_type"], updates["root_origin_id"], updates["provenance"] = rl.RootOriginType, rl.RootOriginID, provenance
+			}
+			if rl.StartedAt.IsZero() {
+				updates["started_at"] = nil
+			} else {
+				updates["started_at"] = rl.StartedAt
+			}
+			if err := tx.Model(&database.JobRun{}).Where("user_id = ? AND id = ?", userID, rl.RunID).Updates(updates).Error; err != nil {
+				return err
+			}
+
+			var existing database.JobRunEvent
+			err = tx.Where("user_id = ? AND id = ?", userID, event.ID).First(&existing).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				sequence := event.Sequence
+				if sequence <= 0 {
+					if err := tx.Model(&database.JobRunEvent{}).Where("user_id = ? AND job_run_id = ?", userID, rl.RunID).Select("COALESCE(MAX(sequence), 0)").Scan(&sequence).Error; err != nil {
+						return err
+					}
+					sequence++
+				}
+				existing = database.JobRunEvent{UUIDModel: database.UUIDModel{ID: event.ID}, UserID: userID, JobRunID: rl.RunID, Sequence: sequence, OccurredAt: event.Timestamp, Type: event.Type, Message: event.Message, Data: data, RootOriginType: rl.RootOriginType, RootOriginID: rl.RootOriginID, Provenance: provenance}
+				if err := tx.Create(&existing).Error; err != nil {
+					return err
+				}
+			} else if err != nil {
+				return err
+			} else if existing.UserID != userID || existing.JobRunID != rl.RunID || existing.Sequence != event.Sequence && event.Sequence > 0 || existing.Type != event.Type || existing.Message != event.Message || existing.Data != data {
+				return fmt.Errorf("run event %s: %w", event.ID, commandjobevents.ErrFingerprintConflict)
+			}
+			event.ID, event.Sequence = existing.ID, existing.Sequence
+			event.RootOriginType, event.RootOriginID = existing.RootOriginType, existing.RootOriginID
+			_ = unmarshalJSON(existing.Provenance, &event.Provenance)
+			if err := persistDomainEventsTx(ctx, tx, userID, jobRow, rl.RunID, rl.DomainEvents); err != nil {
+				return err
+			}
+
+			if fact, ok := commandJobFact(userID, *jobRow, rl, event); ok && outboxReady {
+				if err := r.commandEvents.InsertFactTx(tx, fact); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	})
+}
+
+func persistDomainEventsTx(ctx context.Context, tx *gorm.DB, userID string, jobRow *database.Job, runID string, entries []EventEntry) error {
+	for index := range entries {
+		entry := &entries[index]
+		if strings.TrimSpace(entry.ID) == "" {
+			id, err := uuid.NewV7()
+			if err != nil {
+				return err
+			}
+			entry.ID = id.String()
+		}
+		if entry.Timestamp.IsZero() {
+			entry.Timestamp = time.Now()
+		}
+		entry.RunID = runID
+		data, err := marshalJSON(entry.Data)
+		if err != nil {
+			return err
+		}
+		var existing database.JobEvent
+		err = tx.WithContext(ctx).Where("user_id = ? AND id = ?", userID, entry.ID).First(&existing).Error
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		jobID := jobRow.ID
+		runIDCopy := runID
+		row := database.JobEvent{
+			UUIDModel: database.UUIDModel{ID: entry.ID}, UserID: userID, JobID: &jobID, JobRunID: &runIDCopy,
+			OccurredAt: entry.Timestamp, Type: entry.Type, Event: entry.Event, Message: entry.Message, Data: data,
+		}
+		if err := tx.WithContext(ctx).Create(&row).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func commandJobFact(userID string, jobRow database.Job, rl *RunLog, event *RunEvent) (commandjobevents.Fact, bool) {
+	state := ""
+	switch event.Type {
+	case RunStatusQueued:
+		state = commandjobevents.StateQueued
+	case RunStatusRunning:
+		state = commandjobevents.StateStarted
+	case "retry_scheduled", RunStatusRetrying:
+		state = commandjobevents.StateRetryScheduled
+	case RunStatusCompleted:
+		state = commandjobevents.StateCompleted
+	case RunStatusFailed:
+		state = commandjobevents.StateFailed
+	case RunStatusSkipped:
+		state = commandjobevents.StateSkipped
+	default:
+		return commandjobevents.Fact{}, false
+	}
+	rootType := strings.TrimSpace(rl.RootOriginType)
+	rootID := strings.TrimSpace(rl.RootOriginID)
+	if !commandJobRootEligible(rootType) || rootID == "" || strings.TrimSpace(jobRow.ID) == "" || !isUUIDv7(jobRow.ID) || !isUUIDv7(event.ID) {
+		return commandjobevents.Fact{}, false
+	}
+	return commandjobevents.Fact{
+		SchemaVersion: commandjobevents.SchemaVersion, EventName: commandjobevents.SchemaVersion,
+		SourceEventID: event.ID, UserID: userID, JobDatabaseID: jobRow.ID, JobSlug: jobRow.Slug,
+		RunID: rl.RunID, RunEventID: event.ID, Sequence: event.Sequence, State: state,
+		OccurredAt: event.Timestamp, RootOriginType: rootType, RootOriginID: rootID, Provenance: rl.Provenance,
+	}, true
+}
+
+func commandJobRootEligible(rootType string) bool {
+	switch rootType {
+	case "manual", "cron", "interval", "user_hotkey", "internal_event":
+		return true
+	default:
+		return false
+	}
+}
+
+func isUUIDv7(value string) bool {
+	id, err := uuid.Parse(value)
+	return err == nil && id.Version() == 7 && id.Variant() == uuid.RFC4122 && id.String() == value
 }
 
 func (r *DBRepository) GetRuns(ctx context.Context, jobID string, limit int) ([]RunLog, error) {
@@ -1513,15 +1785,18 @@ func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return 0, err
 	}
-	cutoff := r.now().Add(-maxAge)
-	var runIDs []string
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.JobRun{}), "user_id").
-		Where("started_at < ?", cutoff).Pluck("id", &runIDs).Error; err != nil {
-		return 0, err
-	}
+	now := r.now()
+	cutoff := now.Add(-maxAge)
 	deleted := int64(0)
 	hasToolInvocations := r.db.Migrator().HasTable(&database.ToolInvocation{})
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var runIDs []string
+		query := database.ScopeByUser(ctx, tx.Model(&database.JobRun{}), "user_id").
+			Where("julianday(COALESCE(started_at, queued_at)) < julianday(?)", cutoff.UTC())
+		query = r.retainableRunQuery(query, now)
+		if err := query.Pluck("id", &runIDs).Error; err != nil {
+			return err
+		}
 		if err := r.deleteRunDependenciesByIDsTx(ctx, tx, runIDs, hasToolInvocations); err != nil {
 			return err
 		}
@@ -1552,22 +1827,19 @@ func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob i
 	// Evita a subquery correlacionada O(n²) por job — relevante justamente nos
 	// jobs de alta frequência que este cap quer conter. O desempate por id trata
 	// started_at idêntico.
-	ranked := r.db.WithContext(ctx).Model(&database.JobRun{}).
-		Select("id, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC, id DESC) AS rn").
-		Where("user_id = ?", userID)
-	var runIDs []string
-	if err := r.db.WithContext(ctx).
-		Table("(?) AS ranked", ranked).
-		Where("rn > ?", keepPerJob).
-		Pluck("id", &runIDs).Error; err != nil {
-		return 0, err
-	}
-	if len(runIDs) == 0 {
-		return 0, nil
-	}
 	deleted := int64(0)
 	hasToolInvocations := r.db.Migrator().HasTable(&database.ToolInvocation{})
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Seleção e remoção usam o mesmo snapshot transacional: uma lease
+		// não pode ser concedida entre a escolha do run e sua exclusão.
+		ranked := tx.Model(&database.JobRun{}).
+			Select("id, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY julianday(COALESCE(started_at, queued_at)) DESC, id DESC) AS rn").
+			Where("user_id = ?", userID)
+		ranked = r.retainableRunQuery(ranked, r.now())
+		var runIDs []string
+		if err := tx.Table("(?) AS ranked", ranked).Where("rn > ?", keepPerJob).Pluck("id", &runIDs).Error; err != nil {
+			return err
+		}
 		if err := r.deleteRunDependenciesByIDsTx(ctx, tx, runIDs, hasToolInvocations); err != nil {
 			return err
 		}
@@ -1579,6 +1851,41 @@ func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob i
 		return 0, err
 	}
 	return int(deleted), nil
+}
+
+// retainableRunQuery protege runs que ainda são fontes necessárias para o
+// Consumer da outbox e runs não terminais que sustentam uma ativação. Embora o
+// fato normalizado sobreviva sem job_runs, o Consumer revalida o job e o run
+// antes de aplicar cada fato; portanto, pending/processing deve manter a linha
+// de origem até entrega ou dead-letter. Depois disso, um run não terminal só é
+// elegível para exclusão quando NÃO existe lease viva com claim ativa
+// correspondente, no mesmo user/run/activation. Sem as tabelas de leases,
+// nenhum run não terminal é removido (fail closed).
+func (r *DBRepository) retainableRunQuery(query *gorm.DB, now time.Time) *gorm.DB {
+	terminal := []string{RunStatusCompleted, RunStatusFailed, RunStatusSkipped}
+	if query.Migrator().HasTable("command_job_activation_outbox") {
+		query = query.Where(`NOT EXISTS (
+			SELECT 1 FROM command_job_activation_outbox source
+			WHERE source.run_id = job_runs.id
+			  AND source.user_id = job_runs.user_id
+			  AND source.delivery_state IN (?, ?)
+		)`, commandjobevents.DeliveryPending, commandjobevents.DeliveryProcessing)
+	}
+	if !query.Migrator().HasTable("command_job_activation_leases") || !query.Migrator().HasTable("command_layer_activation_state") {
+		return query.Where("status IN ?", terminal)
+	}
+	return query.Where(`status IN ? OR (
+		status NOT IN ? AND NOT EXISTS (
+			SELECT 1 FROM command_job_activation_leases lease
+			JOIN command_layer_activation_state claim
+			  ON claim.activation_id = lease.activation_id
+			 AND claim.user_id = lease.user_id
+			 AND claim.state = 'active'
+			WHERE lease.run_id = job_runs.id
+			  AND lease.user_id = job_runs.user_id
+			  AND julianday(lease.expires_at) > julianday(?)
+		)
+	)`, terminal, terminal, now.UTC())
 }
 
 func (r *DBRepository) CleanOldEvents(ctx context.Context, maxAge time.Duration) (int, error) {
@@ -2285,17 +2592,28 @@ func runModelToDomain(row database.JobRun, jobSlug string) RunLog {
 	var events []string
 	_ = unmarshalJSON(row.EventsEmitted, &events)
 	rl := RunLog{
-		RunID:         row.ID,
-		JobID:         jobSlug,
-		Trigger:       trigger,
-		Status:        row.Status,
-		StartedAt:     row.StartedAt,
-		Error:         row.Error,
-		RetryCount:    row.RetryCount,
-		EventsEmitted: events,
-		IsDryRun:      row.IsDryRun,
-		Duration:      time.Duration(row.DurationMs * int64(time.Millisecond)).String(),
-		CompletedAt:   time.Time{},
+		RunID:          row.ID,
+		JobID:          jobSlug,
+		JobDatabaseID:  row.JobID,
+		Trigger:        trigger,
+		Status:         row.Status,
+		QueuedAt:       row.QueuedAt,
+		StartedAt:      row.StartedAt,
+		Error:          row.Error,
+		RetryCount:     row.RetryCount,
+		EventsEmitted:  events,
+		IsDryRun:       row.IsDryRun,
+		RootOriginType: row.RootOriginType,
+		RootOriginID:   row.RootOriginID,
+		Duration:       time.Duration(row.DurationMs * int64(time.Millisecond)).String(),
+		CompletedAt:    time.Time{},
+	}
+	_ = unmarshalJSON(row.Provenance, &rl.Provenance)
+	// Linhas anteriores à coluna queued_at não têm esse fato; a migração
+	// compatível deve preenchê-lo com started_at. O fallback aqui só representa
+	// a leitura de bases antigas e nunca torna a linha elegível para a outbox.
+	if rl.QueuedAt.IsZero() && !rl.StartedAt.IsZero() {
+		rl.QueuedAt = rl.StartedAt
 	}
 	if row.CompletedAt != nil {
 		rl.CompletedAt = *row.CompletedAt
@@ -2305,15 +2623,20 @@ func runModelToDomain(row database.JobRun, jobSlug string) RunLog {
 
 func runEventModelToDomain(row database.JobRunEvent) RunEvent {
 	var data map[string]any
+	var provenance map[string]any
 	_ = unmarshalJSON(row.Data, &data)
+	_ = unmarshalJSON(row.Provenance, &provenance)
 	return RunEvent{
-		ID:        row.ID,
-		RunID:     row.JobRunID,
-		Sequence:  row.Sequence,
-		Timestamp: row.OccurredAt,
-		Type:      row.Type,
-		Message:   row.Message,
-		Data:      data,
+		ID:             row.ID,
+		RunID:          row.JobRunID,
+		Sequence:       row.Sequence,
+		Timestamp:      row.OccurredAt,
+		Type:           row.Type,
+		Message:        row.Message,
+		Data:           data,
+		RootOriginType: row.RootOriginType,
+		RootOriginID:   row.RootOriginID,
+		Provenance:     provenance,
 	}
 }
 

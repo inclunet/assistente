@@ -16,6 +16,798 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+AEP-0103, seção162 (25/09/2026): diagnóstico nativo reproduziu o bloqueio do
+Deck após navegar; correção do refresh de projeção e preservação do mapa
+idêntico validada em 18 trocas Wails com HID simulado. **In Progress;
+83 I / 1 P / 0 N**. Hardware físico e NVDA continuam sem novo aceite.
+
+AEP-0103, seção161 (25/09/2026): subdivisão autorizada de `comandos-contexto`
+no CI em Deck, paleta, workspace e base, sem retirar testes nem ampliar limites.
+**In Progress; 83 I / 1 P / 0 N**; aceite humano continua pendente.
+
+Correções AEP-0103, seção160 (25/09/2026): continuidade de navegação após
+transição de foco e Seta para cima sem destino no chat/terminal, com regressões
+automatizadas. Latência medida no App fixture não certifica USB/UI real.
+**In Progress; 83 I / 1 P / 0 N**; revalidação humana permanece pendente.
+
+Integração AEP-0103 para PR, seção158: incorpora `origin/main` em `147274d15`,
+preservando autosave e concorrência de tasklists e lifecycle compartilhado de tools com os
+guards de comandos. **In Progress; 83 I / 1 P / 0 N**; validação humana em outro
+computador e gates de qualificação/aceite continuam pendentes.
+
+Atualização vigente AEP-0103, seção157: C51 passa a I com prova autorizada de
+queda abrupta de processo filho, recuperação real e replay sem repetir o efeito.
+**In Progress; 83 I / 1 P / 0 N (98,8%); 11 A / 20 I / 16 P / 1 N;
+1/12 gate aceito**. C38 recebeu correções de foco e instruções acessíveis;
+permanece parcial até aceite humano com NVDA. Qualificação agregada e CI/aceites
+continuam abertos. Evidências: seção157 da tasklist de conclusão; roteiro em
+`docs/content/guias/VALIDACAO_COMANDOS_NVDA.md`.
+
+Histórico AEP-0103, seção156: conexão externa explícita entre JWT e
+interface (commit `0548492ab`) e preservação seletiva de execuções diante de
+claims de jobs (`79f06ab6b`), com retenção de fontes pendentes (`6d0411dbb`).
+**In Progress; 82 I / 2 P / 0 N (97,6%); 11 A / 20 I / 16 P / 1 N;
+1/12 gate aceito**. Frontend: **474 arquivos/5.895 testes PASS**. Pacotes
+command, HTTP, jobs e testes App focados passaram; a única falha da rodada
+App ampla foi um golden intermediário, corrigido e revalidado. C38/C51,
+qualificação agregada e CI/aceites continuam abertos. Evidências e limites na
+[seção156 da tasklist](0103-tasklist-conclusao.md#156-vínculo-externo-de-interface-e-preservação-seletiva-de-execução-24092026).
+
+As atualizações abaixo preservam o histórico das rodadas anteriores.
+
+Atualização AEP-0103, seção155: ferramentas ad hoc na paleta com argumentos,
+confirmação e redação; favoritos/recentes, atalhos efetivos, configuração
+progressiva e diagnóstico do Deck. Frontend: **469 arquivos/5.862 testes PASS**.
+**In Progress; 80 I / 4 P / 0 N; 11 A / 18 I / 18 P / 1 N; 1/12 gate aceito**.
+Ciclo reativo de jobs e composição externa ainda têm decisões pendentes;
+nenhum aceite manual foi presumido. Evidências e limites na
+[seção155 da tasklist](0103-tasklist-conclusao.md#155-ferramentas-na-paleta-e-fechamento-da-interface-de-configuração-24092026).
+
+Atualização AEP-0103, seção154: transporte HTTP de comandos externos com
+execução, consulta e revogação; composição por origem validada e issuer
+administrativo obrigatório. Montagem produtiva ainda pendente, contagens
+inalteradas. Migração de workspaces permanece iniciativa separada.
+
+Atualização AEP-0103, seção153: ingresso externo da biblioteca conectado ao
+executor integral, com token por solicitação e revogação compartilhada. Falta
+a montagem HTTP/App por usuário; **In Progress, 80 I / 4 P / 0 N**.
+
+Atualização AEP-0103, seção152: autorização de comandos externos usa roles
+do JWT revalidado, sem fallback para role local, preservando exigência de scopes
+e política local. **In Progress, 80 I / 4 P / 0 N**; ingresso externo pendente.
+
+Atualização AEP-0103, seção151 e D6 da AEP-0052: middleware HTTP externo usa
+vínculo administrativo explícito, bootstrap do issuer e usuário ativo, sem
+fallback para `sub`. Executor externo permanece bloqueado. AEP-0103 continua
+**In Progress, 80 I / 4 P / 0 N**.
+
+Atualização AEP-0103, seção150: identidade individual por fingerprint de token,
+revogação conjunta pelo vínculo e revalidação em captura no gate compartilhado.
+Permanece **In Progress, 80 I / 4 P / 0 N**; ingresso externo e cutover do
+middleware não estão habilitados por esta mudança.
+
+AEP-0103, seção149 após reconciliação129 (23/09/2026): **In Progress**.
+**80/84 critérios com implementação identificada (95,2%); 4 parciais e
+0 ausentes**, sem novo aceite final. Saídas R: **11 A / 14 I / 22 P / 1 N**,
+25/48 implementadas incluindo aceitas (52,1%); **1/12 gates aceito**.
+Seção149: cadastro administrativo externo montado na API HTTP do App, com
+bootstrap único, vínculo explícito e auditoria transacional v31. AEP-0052 D6
+e middleware permanecem vigentes; não há readiness ou executor externo
+habilitado. C65/C70 continuam parciais, sem promoção de contagens ou gates.
+Seção148, C83 P→I: diálogo e job conflitante compartilham o Manager produtivo, com
+captura do SO controlada e cópia defensiva dos modificadores do registro.
+Matriz de regressão atravessa defaults/camadas, inputs, abas/foco, reconexão
+e replay. Aceite físico/NVDA, integração externa e gate agregado R12 continuam
+separados; testes comuns não substituem detector de corrida (CGO indisponível).
+C43 passa a I na seção147: configuração confirmada de camada por programa,
+captura por ocorrência e executor real até claim/mapa Deck. Resumo de auditoria
+D14 corrigido com allowlist estrita. A fronteira do SO é controlada; não há
+novo aceite físico, promoção de gate ou execução não-Windows nesta rodada.
+Prova global inclui supressão contextual e execução real de job fora da
+condição. Autoridade de settings alinhada aos defaults globais do runtime,
+com consulta e supressão/restauração sem editar registros nativos pela tela.
+C34/C35/C36 e R11.1/R11.3: tools registradas, CRUD/restore/import com decisão,
+export não sensível e execução como agente no serviço comum; sessão fixada
+no ingresso GUI e recusa de autoridade emprestada para headless. C71/C73 e
+R11.2 implementados: CLI list/describe/execute/retry/status, IDs de solicitação,
+consulta autorizada e executor comum, sem presenter nem serviços autônomos.
+Nenhum comando produtivo foi promovido a CLI: catálogo atual informa todos
+como indisponíveis para execução, preservando D14. C02 passa a I na seção140:
+as três ligações restantes do inventário atravessam o dispatcher produtivo
+até `/about`, TipTap e DOM do chat. São provas distribuídas de backend e UI,
+não E2E físico/Wails; sem nova origem/default ou aceite agregado de gates.
+C09 passa a I na seção141: recusa de autoridade antes/depois de decisões,
+grants/regrant e ligação do registry/tool subagent ao Manager/SQLite reais.
+Profile autorizado observado no Send controlado, run/subconversa persistidos;
+job por contexto canônico não é E2E scheduler/LLM. Fronteira externa e
+consumidor genérico command→tool continuam pendentes em R05.1/R05.2.
+Seção142: títulos personalizados do Deck por idioma, edição textual acessível,
+persistência confirmada e aplicação ao dispositivo com fallback localizado.
+Diff passa a incluir apresentação. C38 continua parcial por imagem/ícone,
+variantes de estado e aceite NVDA; contagem e gates não mudam.
+Seção143: sete ícones locais selecionáveis por nome, renderização com título,
+remoção e fallback textual para tokens desconhecidos/seleções divergentes.
+C38 permanece parcial por imagens próprias, variantes e aceite NVDA.
+Seção144: imagens PNG/JPEG escolhidas localmente, normalizadas e armazenadas
+por usuário fora dos documentos de configuração. Gravação confirmada atômica,
+limites e limpeza transacional; aplicação em frames alterados, fora do key-down.
+Arquivos de imagem não acompanham exportações de configuração. C38 segue
+parcial por variantes e aceite NVDA; contagem e gates permanecem inalterados.
+Seção145: feedback transitório do executor real nas teclas e anúncio acessível,
+isolados por sessão, geração e conexão; não acrescenta auditoria à navegação.
+Estados persistentes ligado/desligado, personalização por estado e aceite físico
+seguem pendentes. C38, contagens e gates não são promovidos por esse recorte.
+Seção146: títulos, ícones e imagens por estado com herança e confirmação
+atômica; ligado/desligado das ações de camada usa a projeção publicada,
+sem misturar regras recém-gravadas com um mapa anterior. Estado desconhecido
+é omitido e mudanças conhecidas usam o anúncio acessível compartilhado.
+Aceite físico/NVDA permanece pendente; C38, contagens e gates não mudam.
+Seção136: corrigida disputa SQLite no consumo de receipts, com CAS completo,
+sem retry de efeitos; qualificação integrada ampliada sem novos aceites.
+Seção137: provas adicionais de camadas por origem e callbacks diálogo/job;
+inventário reconciliado com v40. App completo passou com ordem aleatória e
+log integral; a intermitência anterior não foi reproduzida nem encerrada.
+Seção138: integração da main `714a47c4e`, com checkpoint local recuperável.
+Falha preexistente de revisão ABA ao fixar/desafixar mensagem identificada
+no merge e tratada na seção139: revisão durável por mensagem, triggers
+transacionais e migração v30, sem depender de timestamps ou alterar atalhos.
+Catálogo v40: 149 comandos / 61 locais / 67 defaults; 81 IDs do Deck são
+outro denominador. Δ18 corrigido: matriz estática preparada antes da entrada
+física, com recusa de snapshot stale e fatos nativos atuais por tecla.
+C62 implementado: LRU de seleção integrado, isolado e invalidado, sem cache
+de autorização. C04/C06 implementados por recusa explícita de hotkeys globais
+fora do Windows, sem fallback sem ownership/no-repeat. C77 qualificado com
+lock/unlock global, perfil persistido e bootstrap produtivo. C78/C79 agora têm
+reserva nativa temporária de Ctrl+Shift+R, stack real de diálogos, precedência
+sobre configuração e teardown, sem confirmar decisões. R07.3 tem implementação
+identificada; seu gate agregado permanece aberto. Latência integrada,
+aceite físico/NVDA e demais gates continuam pendentes;
+[estados, evidências e próximos passos](0103-tasklist-conclusao.md#144-imagens-personalizadas-do-stream-deck--23092026).
+
+AEP-0103, seção128 (22/09/2026): 81 IDs no Deck contextual (79 anteriores +
+aplicar/remover Mermaid), quatro fatos visuais restritos ao editor, inclusive
+com condição somente de perfil; caminho incondicional e paleta preservados.
+Integração e regressões amplas PASS: App 464,744 s; frontend 450 arquivos /
+5.617 testes; build/vet, TypeScript/Vite e lint focado. Manuais pendentes.
+**In Progress**, sem nova contagem dos 84 critérios ou aceite BASE-PRONTA;
+[evidências](0103-tasklist-conclusao.md#128-mermaid-no-stream-deck-contextual).
+
+AEP-0103, seção127 (22/09/2026): Stream Deck contextual ampliado para 79 IDs,
+incluindo seis mutações de páginas de listas/perfis. Três campos para páginas
+(foco/tipo/perfil), sem ID de aba; superfícies restritas pelo helper comum
+ao ingresso. Oferta física única, alvo preparado e barreira da fonte até a
+admissão. Integração automatizada PASS: App 273,020 s; frontend 448 arquivos /
+5.578 testes; build/vet, TypeScript/Vite e lint focado. Aceites físicos/NVDA
+pendentes. **In Progress**, sem encerrar BASE-PRONTA;
+[evidências e limites](0103-tasklist-conclusao.md#127-páginas-de-listas-e-perfis-no-stream-deck-contextual).
+
+AEP-0103, seção126 (22/09/2026): Stream Deck contextual ampliado para 73 IDs
+(70 workspace + ativar/alternar/voltar camada), com quatro campos visuais,
+oferta física única e API backend sem reserva UI. Argumentos/regra/escopo
+persistidos, pilha por dispositivo e predicado em memória dentro de
+`GenerationTx`, com versões publicadas/snapshot protegidos até a claim.
+Checks focados PASS, incluindo backend Deck (59,409 s) e claim A-B-A da
+paleta (23,835 s); `go vet` PASS e bindings Wails gerados. Backend amplo PASS
+(358,565 s), antes das últimas correções de claim do teclado/condições nativas.
+Build frontend com TypeScript PASS (Vite 1 min 3 s); suíte frontend
+5529 testes/447 arquivos PASS (87,59 s), após correção do relógio do teste.
+Regressão backend final PASS (249,874 s), com guardas finais integradas;
+aceites manuais pendentes.
+Páginas/Mermaid continuam fora da ampliação. **In Progress**, sem encerrar
+os 84 itens históricos ou BASE-PRONTA; evidências na
+[tasklist de conclusão](0103-tasklist-conclusao.md#126-camadas-no-stream-deck-contextual).
+
+AEP-0103, seção125: Stream Deck contextual para 70 comandos de workspace
+(72 menos duas mutações Mermaid), com quatro campos visuais e seleção única
+entre ramos locais e duráveis no mesmo evento físico. Ramo local sem roundtrip
+de execução/ledger; durável com oferta opaca vinculada ao host e snapshot,
+uso único e TTL de 10 segundos. Frontend completo: 445 arquivos/5480 testes
+PASS; build com TypeScript, build/vet de `internal/app` e diff check PASS.
+**In Progress**; regressão backend ampla PASS (194,531 s), aceites manuais e demais
+gates pendentes. Evidências na
+[tasklist de conclusão](0103-tasklist-conclusao.md#125-stream-deck-contextual-para-comandos-do-workspace).
+
+AEP-0103, seção124: ativar/alternar/voltar camada na paleta contextual das
+abas do workspace, preservando executor, argumentos persistidos e conclusão
+após renovação do mapa. **In Progress**; outras origens, páginas sem aba e
+aceites manuais permanecem separados. Evidências na tasklist de conclusão.
+
+AEP-0103, seção123: seis mutações de listas/perfis na paleta contextual,
+com origem visual de página e alvo validado separadamente. Foco, tipo de tela
+e perfil; sem condição de ID de aba para este grupo. **In Progress**;
+formulários modais, ações de camada, Deck durável e aceites permanecem separados.
+Evidências na [tasklist de conclusão](0103-tasklist-conclusao.md).
+
+AEP-0103, seções121–122: paleta contextual ampliada de ações de abas/workspace
+para mensagens, terminal e editor, preservando os protocolos próprios e a
+validação do alvo. Arquivos suportam a continuação controlada após diálogo
+nativo. **In Progress**; mutações de páginas, demais origens e aceites manuais
+continuam separados. Evidências na [tasklist de conclusão](0103-tasklist-conclusao.md).
+
+AEP-0103, seção120: condições visuais para comandos locais no Stream Deck,
+com projeção pelo resolvedor comum, revalidação na UI e editor por origem.
+**In Progress**; não estende o suporte visual a ações duráveis nem substitui
+o aceite físico/NVDA. Evidências na tasklist de conclusão.
+
+AEP-0103, seção119: condições visuais na paleta de apresentação local
+implementadas, com aceite manual pendente. **In Progress**; não amplia a autoridade visual do backend nem
+o suporte de outras origens. Evidências na tasklist de conclusão.
+
+AEP-0103, seção118: condições físicas e ações de camada no teclado, paleta e
+Stream Deck; editor por origem e seleção por nome. Regressões backend/frontend
+e defaults por API passaram. **In Progress**; condições visuais nas demais
+origens e aceites manuais continuam abertos na tasklist de conclusão.
+
+AEP-0103, seção117: perfil no teclado local das abas do workspace, combinado
+com tipo/aba específica, seleção por nome e ajuda contextual. **In Progress**;
+evidências e aceites pendentes na tasklist de conclusão.
+
+AEP-0103, seção116: condições por aba específica no teclado e proteção da
+versão de contexto na resolução por perfil. Configuração usa títulos de abas,
+preserva referências ausentes e diagnostica fatos indisponíveis por origem.
+Stream Deck confere perfil por pressionamento e atualiza a apresentação sem reconectar.
+**In Progress**; resultados e limites na tasklist de conclusão.
+
+AEP-0103, seção115: ciclo manual de camadas com pin/toggle/back,
+sessão/temporárias, expiração automática e proteção do mapa local no prazo.
+Troca de workspace preserva sessão válida; restart encerra ativações efêmeras.
+**In Progress**: aceites manuais e fatos/origens restantes continuam separados.
+
+AEP-0103, seção114: gravação de sequências de duas etapas na configuração
+de teclado local, em ambos os escopos; captura atômica, anúncios, cancelamento
+e preservação de v2 durante edição. **In Progress**: aceite manual/NVDA e
+demais gates permanecem abertos. Evidências na tasklist de conclusão.
+Frontend completo **431 arquivos/5.181 testes**, tipos, lint e build frontend PASS.
+
+AEP-0103, seção113: teclado contextual para ações backend/auditadas em abas
+canônicas e sequências v2 com origem revalidada. App e cinco domínios PASS;
+frontend 431 arquivos/5.165 testes PASS. Gravador entregue depois na seção114;
+aceite manual e demais gates permanecem abertos. Evidências e
+limites na [tasklist de conclusão](0103-tasklist-conclusao.md).
+
+AEP-0103, seção112: bindings oficiais da configuração gerados e testados,
+incluindo integração de ChatParams. Frontend 431 arquivos/5.154 testes,
+TypeScript e contratos backend PASS. **In Progress**: aceite no aplicativo
+e NVDA permanece pendente; catálogo inalterado.
+
+AEP-0103, seção111: configuração global/workspace, edição e restauração de
+camadas/bindings/regras, revisão de defaults e confirmação vinculada ao
+snapshot. Publicação preserva voz/jobs; regras síncronas ficam no resolvedor
+em memória. **In Progress**: limites de adapters, ciclos avançados, apresentação
+do Deck e aceite físico/NVDA continuam separados. Catálogo v38 **146/61/67**;
+qualificação e pendências na tasklist.
+
+AEP-0103, seção110: perfil dinâmico de job preparado e vinculado ao grant exato,
+sem redirecionamento entre confirmação e efeito. Prazo de admissão separado
+do runtime somente para jobs, preservando cancelamento e deadline do chamador.
+Catálogo v38 **146/61/67**, sem novos atalhos. **In Progress**: aceites físicos
+e demais gates do AEP continuam separados; evidências na tasklist.
+
+AEP-0103, seção108: reserva Windows sincronizada com a interface antes do
+registro nativo, compartilhada entre raiz do app e teclado local. **In Progress**:
+bindings autoritativos e executor comum de voz/jobs ainda pendentes; aceite
+físico não realizado. Catálogo v36 **144/61/67** inalterado.
+
+AEP-0103, seção107: gramática/projeção global, reserva exclusiva de combinações
+e preservação do trigger no handler de jobs. **In Progress**; ingresso físico,
+ownership com DOM e migração efetiva de voz/jobs ainda pendentes. Catálogo
+v36 **144/61/67** inalterado; detalhes na tasklist de conclusão.
+
+AEP-0103, seção106: backend Win32 com no-repeat e encerramento cancelável,
+sem aguardar release. **In Progress**: migração `keyboard.global` e aceite
+físico ainda pendentes; catálogo v36 **144/61/67** inalterado.
+
+AEP-0103, seção105: preparação e correções de lifecycle dos ingressos de
+voz/jobs. **In Progress**; migração integral para `keyboard.global` ainda
+pendente, catálogo v36 **144/61/67** inalterado. Gates na
+[tasklist vigente](0103-tasklist-conclusao.md).
+
+AEP-0103, seção104: Histórico e lista no workspace integrados; Ctrl+N contextual,
+abertura de tarefa, duplicação e limpeza backend com decisão/CAS. **In Progress**,
+catálogo v36 **144/61/67**, aceite manual acumulado na
+[tasklist vigente](0103-tasklist-conclusao.md). N/D/Ctrl+L da lista são gestos
+fixos dos controles, não novos defaults remapeáveis. Sem nova porcentagem global.
+
+AEP-0103, seção103: reconciliação documental dos ingressos residuais e das
+pendências históricas. Próximo lote: Histórico e lista no workspace; depois,
+hotkeys de voz/perfil e jobs. **In Progress**, catálogo v35 **142/60/66**;
+percentual dos 84 critérios não recontado. Gates na
+[tasklist vigente](0103-tasklist-conclusao.md#103-reconciliação-de-migração-e-ingressos-residuais--20092026).
+
+AEP-0103, seção102: cinco mutações de perfis integradas ao executor e aos
+ingressos nativos/paleta/teclado/Deck, com ownership de commit e reconstrução
+do mapa após ledger terminal. **In Progress**, catálogo v35 **142/60/66**;
+baseline **58 I / 24 P / 2 N** não recontada. Evidências e gates manuais na
+[tasklist vigente](0103-tasklist-conclusao.md). Entradas anteriores são histórico.
+
+AEP-0103, seção101: coordenação de arquivos/grants/epochs nos writers nativos
+de perfis; migração das cinco mutações para catálogo/handoff ainda pendente.
+**In Progress**, catálogo 137/60/66 e baseline 58 I / 24 P / 2 N mantidos.
+Gates e evidências na [tasklist](0103-tasklist-conclusao.md).
+
+AEP-0103, seção100, listas e sessões integradas: catálogo v34, 137 comandos/60 locais/66
+defaults; mutações transacionais de listas e lifecycle de sessões terminal.
+Perfis ganharam base de journal/fingerprint, mas aguardam commit coordenado
+com grants/epochs antes de migrar CRUD/ativação. **In Progress**, baseline
+58 I / 24 P / 2 N preservada; gates na [tasklist](0103-tasklist-conclusao.md).
+
+AEP-0103, seção99: interrupção contextual do terminal, com snapshot de sessão
+e geração gerenciada, validação do alvo visível e efeito único no backend.
+Produto v33: 131 comandos/60 locais/66 defaults. Corrigido salvar edição de
+lista; demais mutações ainda exigem contratos de domínio. **In Progress**,
+baseline 58 I / 24 P / 2 N preservada; detalhes e gates na
+[tasklist](0103-tasklist-conclusao.md#99-interrupção-do-terminal-e-salvamento-real-de-listas--19092026).
+
+AEP-0103, seção98: nove apresentações de tarefas, perfis e terminal;
+Ctrl+N contextual nas páginas, sem executar também a sequência do workspace.
+Produto v32: 130 comandos/60 locais/66 defaults. CRUD e processos continuam
+fora desse recorte. **In Progress**, baseline 58 I / 24 P / 2 N preservada;
+gates na [tasklist de conclusão](0103-tasklist-conclusao.md#98-apresentação-de-tarefas-perfis-e-terminal--19092026).
+
+AEP-0103, seção97: ajuda e rótulos de menus/controles do workspace, chat e
+editor derivados da projeção efetiva, com remapeamento/supressão e prefixos
+de sequência. Sem ampliar catálogo/defaults. AEP **In Progress**, baseline
+58 I / 24 P / 2 N; validação manual acumulada pendente. Gates na
+[tasklist de conclusão](0103-tasklist-conclusao.md#97-ajuda-e-rótulos-do-mapa-efetivo--19092026).
+
+AEP-0103, seção96: sete apresentações do chat implementadas — foco,
+leitura, menu, raciocínio e threads — com mensagem capturada e sem ledger.
+Produto v31: catálogo121/locais51/defaults64. Automação concluída; bindings
+oficiais e aceite manual pendentes. AEP **In Progress**; gates na
+[tasklist de conclusão](0103-tasklist-conclusao.md#96-apresentação-e-navegação-contextual-do-chat--19092026).
+
+AEP-0103, seção95: navegação entre regiões implementada, com ações
+locais de foco, F6/Shift+F6 no mapa central e Escape contextual preservado.
+Produto v30: catálogo114/locais44/defaults64. Validação automatizada concluída;
+bindings oficiais e aceite manual pendentes. AEP **In Progress**; gates na
+[tasklist de conclusão](0103-tasklist-conclusao.md#95-navegação-entre-regiões-da-interface--19092026).
+
+Atualização AEP-0103, seção94: edição Mermaid implementada no fluxo de comandos,
+com alvo capturado, escopo próprio do modal e execução auditada após seu
+fechamento. Bindings oficiais e aceite manual pendentes. O AEP permanece
+**In Progress**; evidências e gates na
+[tasklist de conclusão](0103-tasklist-conclusao.md#94-edição-de-diagramas-mermaid--19092026).
+
+AEP-0103, seção93: `chat.message.send_to_editor` envia por padrão a mensagem
+inteira em Markdown a um novo documento; menus preservam recortes, formatos
+e destino capturados. Sucesso aguarda aplicação real no editor. Transição
+protegida, sem retry automático; resultado desconhecido pode deixar aba criada
+e exige conferência. Autosave de rascunhos sem arquivo é restaurado sem texto
+padrão em rascunho vazio/inexistente. Produto v28: catálogo108/locais40/bindings
+padrão62. Consolidada frontend final: 1.621 testes/96 arquivos PASS (27,62 s),
+TypeScript e lint PASS; caminho legado de inserção enfileirada removido.
+Evidências na tasklist; bindings oficiais e aceite manual pendentes; baseline
+**58 I / 24 P / 2 N** inalterada, AEP In Progress.
+
+AEP-0103, seção92: salvar edição de mensagem usa preparação da base original
+e commit atômico pelo fluxo de comandos, preservando metadados e rascunho.
+Catálogo107/locais40/defaults62. Regeneração oficial e aceite manual pendentes;
+evidências na tasklist. A transferência chat → editor é tratada posteriormente
+na seção93, com confirmação da inserção no destino. In Progress.
+
+AEP-0103, seção91: ações sobre mensagem selecionada implementadas e validadas,
+incluindo exclusão confirmada e fixação. Abrir edição é apresentação local,
+não salvamento de conteúdo. Catálogo106/locais40/defaults62; 1.257 testes
+frontend PASS e App consolidado PASS. Bindings oficiais e aceite manual
+pendentes. Status In Progress, sem promoção automática de critérios.
+
+AEP-0103, seção90: implementada e validada automaticamente a migração de envio, cancelamento e
+nova tentativa do chat, preservando o pipeline único da AEP-0040. Gates
+na tasklist de conclusão, sem promoção automática de critérios globais.
+Status In Progress; regeneração oficial dos bindings aguarda autorização
+e aceite manual permanece pendente. Regressão frontend: 1.103 testes em 52 arquivos.
+
+AEP-0103, seção89: Mensagens fixadas e Estatísticas de tokens passam pela
+apresentação local contextual, compartilhada por botão, paleta, teclado
+configurável e Deck. Catálogo 97, locais 39, defaults 62; sem nova tecla
+padrão ou auditoria por acionamento. Aceite manual acumulado e baseline
+58 I / 24 P / 2 N preservada; AEP In Progress.
+
+AEP-0103, seção88: Limpar conversa migra para comando destrutivo confirmado
+no backend, com Ctrl+L configurável, botão, paleta e Stream Deck. Captura do
+alvo e comparação/limpeza atômica impedem apagar conteúdo novo durante a
+confirmação. Catálogo 95, locais 37, defaults 62. Aceite manual pendente;
+baseline 58 I / 24 P / 2 N preservada; AEP In Progress.
+
+AEP-0103, seção87: seis inserções Markdown usam captura Monaco e o executor
+existente; onze templates de slides migram junto com a criação pela toolbar.
+Catálogo 94, locais 37, defaults 61; nenhuma nova tecla padrão. Aceite manual
+acumulado, baseline 58 I / 24 P / 2 N preservada; AEP In Progress.
+
+AEP-0103, seção86: links, tabelas com dimensões, inserção de código e Mermaid
+no fluxo auditado; próxima/anterior célula em apresentação local sem escrita.
+Formulários compartilhados e seleção capturada; Ctrl+K exclusivo da paleta.
+Catálogo 83, locais 37, defaults 61. Aceite manual acumulado; AEP
+**In Progress**, baseline global sem promoção automática.
+
+AEP-0103, seção85: 25 ações adicionais de blocos, links e tabelas entram
+no executor comum; 11 defaults migram do TipTap, com Ctrl+Alt explícito
+distinto de AltGr. Catálogo 77, locais 35, defaults 61. Aceite manual
+acumulado; AEP **In Progress**, sem fechamento presumido dos critérios globais.
+
+AEP-0103, seção84: negrito, itálico e tachado no executor UI auditado,
+por teclado, paleta, menu e Deck, preservando a seleção capturada.
+Catálogo 52, locais 35, defaults 50. Aceite manual pendente;
+AEP **In Progress**, sem promoção da baseline global.
+
+AEP-0103, seção83: integração de `editor.file.open`, `editor.file.save` e
+`editor.file.save_copy`, com Ctrl+O/S/Shift+S, paleta, menu e Deck no broker.
+Catálogo 49, locais 35, defaults 47. Validação e limitações na tasklist;
+aceite manual pendente, AEP **In Progress**, sem promoção da baseline global.
+
+AEP-0103, seção81: modos Markdown, rico e visualização migrados para
+`editor.mode.*`, com Alt+1/2/3, paleta, menu e Deck pelo commit durável.
+Catálogo 46, locais 35, defaults 44 (40 v1 + quatro v2), 43 combinações.
+Estado global preservado: 58 I / 24 P / 2 N, R07 parcial; aceite manual
+pendente. Salvar/abrir arquivos continuam fora deste lote.
+
+AEP-0103, seção80: seis comandos de apresentação do editor, incluindo
+`editor.menu.insert.open`. Alt+I resolve Inserir no editor apto e Importar
+fora dele, sem fallback legado; ações persistentes permanecem fora da migração.
+43 comandos, 35 locais, 41 defaults (37 v1 + quatro v2) e 40 combinações.
+Frontend 456/11 PASS + `tsc` e ESLint PASS; resolvedor, regressão ampliada App
+(104,529 s) e `go vet` PASS; aceite manual do editor pendente;
+**In Progress**, sem promoção automática dos critérios globais.
+
+AEP-0103, seção79: cinco comandos de apresentação do editor (menus
+Arquivo/Formatar/Modo, slides e fullscreen), com Alt+S/F5 configuráveis.
+Registro histórico preservado; a lacuna de Alt+I foi tratada na seção80.
+
+AEP-0103, seção78: Ctrl+M/H/P migram para os comandos de abrir seletor de
+modelo, histórico e perfil do chat, por teclado/paleta/Deck. Escopo fechado
+de apresentação no chat modal topmost, sem ampliar decisões ou gravar ledger.
+37 comandos, 29 locais, 38 bindings. Aceite manual pendente; **In Progress**,
+sem promoção dos critérios globais reconciliados abaixo.
+
+Reconciliação AEP-0103 após seção75, registrada na seção76: **58/84 critérios
+finais com implementação identificada (69,0% por critério, não por esforço nem
+aceite)**; 24 parciais e 2 sem a funcionalidade prevista. **11/48 saídas R
+aceitas + 5 implementadas sem aceite**, 29 parciais, 3 não implementadas;
+**1/12 gates aceito (R04)**. C84 identifica a cláusula local já aprovada na
+seção68, sem renumerar C01–C83. Não confundir com os 84 itens I históricos.
+Estado **In Progress**; fonte única: [tasklist reconciliada](0103-tasklist-conclusao.md).
+
+Atualização AEP-0103, seção 75 **implementada e validada automaticamente**: chat contextual por
+Ctrl+Shift+I/paleta/Deck/botões no executor comum, preparação local e
+criação/vínculo autenticados com compensação. Reutiliza conversa; abrir não
+envia mensagens. 34 comandos, 26 locais e 35 bindings. 690 testes frontend,
+tipos, lint, App ampliado, workspace e vet PASS. Evidências na tasklist;
+aceite manual agrupado pendente. Status In Progress.
+
+Atualização AEP-0103, seção 74 **implementada e validada automaticamente**: criação de workspace pelo
+executor contextual, Ctrl+Shift+N/paleta/Deck/menu, persistência validada sem
+trocar workspace ativo. 33 comandos, 26 locais e 34 bindings; 589 testes frontend,
+tipos, lint, App amplo, workspace e vet PASS. Aceite manual em lote e
+Ctrl+Shift+I permaneciam pendentes ao fechar esse lote; migração na seção 75. Status In Progress.
+
+Atualização AEP-0103, seção 73 **implementada e validada automaticamente**: F1 no mapa efetivo, com
+exceção modal exclusiva de ajuda pelo teclado local; sem bypass para Deck,
+paleta ou mutações. Naquela seção: 32 comandos, 26 locais, 33 bindings; Ctrl+Shift+N/I
+aguardavam os contratos duráveis identificados na tasklist. Corrigida abertura
+atrasada do chat após troca de contexto. 516 testes frontend, tipos, lint,
+testes App focados/amplos e vet PASS. Aceite manual pendente; In Progress.
+
+Atualização AEP-0103, seção 72 **implementada e validada automaticamente**: Ctrl+K, Alt+E e Alt+I
+pelo mapa efetivo; comandos locais de paleta e abertura dos fluxos de Dados.
+Aceite manual conjunto com a seção 71 adiado pelo mantenedor para testar um
+lote maior. F1 e demais atalhos contextuais não migrados neste recorte.
+32 comandos, 26 locais e 32 bindings; 474 testes frontend, tipos, lint,
+regressões backend focadas e vet PASS. AEP completo **In Progress**.
+
+Atualização AEP-0103, seção 71 **implementada e validada automaticamente**: sequência Ctrl+N →
+C/E/R/T pelo mapa resolvido e menu de criação como paleta especializada.
+Prefixo local sem ledger, conclusão no executor contextual; v1 preservado.
+29 bindings (25 v1 + quatro v2). 449 testes frontend em 14 arquivos, tipos,
+lint, regressão App/commandconfig e vet PASS. Aceite manual com NVDA pendente;
+sem Wails, ACP, PTY real ou banco real. AEP completo **In Progress**.
+
+Atualização AEP-0103, seção 69 implementada e aceita manualmente: fluidez e Stream Deck
+confirmados pelo mantenedor. Correção de Ctrl+K em campos nativos e substituição
+da paleta por Combobox compartilhado com o picker de modelos. 314 testes
+frontend, tipos e lint focado PASS. Aceite do usuário: “pode continuar.
+validamos. se aparecer algo errado arrumamos.”
+AEP completo **In Progress**.
+
+Atualização AEP-0103, seção 70: `workspace.tab.terminal.create` implementado
+nas três origens previstas, com admissão contextual e invalidação de owner,
+sessão e workspace obsoletos. Na seção 70, o catálogo tinha 29 comandos, 23 de
+apresentação local e 25 bindings (29 bindings após a seção 71).
+`session_created` é deduplicado, o histórico é preservado e uma surface
+existente recarrega a sessão perdida sem recriá-la. Ctrl+N continua legado:
+não há migração nem novo default nesta entrega; a sequência fica para a
+próxima etapa. O backend usa manager real, preserva cwd, guards de
+snapshot/auth, CAS e compensação; testes fake cobrem lifecycle e erros de join.
+Frontend: 317 testes em 10 arquivos, TypeScript e lint PASS; pacote `workspace`
+completo PASS (1,716 s), `go vet` de App/workspace PASS e regressão App PASS
+(53,621 s). Fixture de readiness com manager ausente foi corrigido. Wails, ACP,
+PTY real e banco real não foram executados; só o aceite manual do novo terminal
+permanece pendente.
+
+Atualização AEP-0103, seção 68 implementada e validada automaticamente:
+23 comandos de apresentação local sem invocação/auditoria por acionamento;
+catálogo de 28 comandos e 25 atalhos padrão. Navegação migrada com repetição
+seletiva; última seleção persistida separadamente, com proteção das mutações
+dependentes. 541 testes frontend, regressões backend focadas, tipos, lint e vet
+PASS. Aceite manual NVDA/Deck e fluidez pendente; AEP completo **In Progress**.
+
+Registro histórico AEP-0103, seção 67 substituída pela seção 68: permanece a
+aprovação de repetição seletiva na navegação; a tentativa de fila auditada por
+acionamento foi abandonada. Os gates atuais são os da seção 68.
+
+Atualização AEP-0103, seção 66 validada no recorte: 11 comandos de navegação de abas,
+destino explícito validado no backend e ordenação dos snapshots de transporte.
+28 comandos, 12 atalhos padrão; os atalhos rápidos legados permanecem enquanto
+os gates de ocorrências consecutivas e latência integrada estiverem abertos.
+604 testes frontend, regressões backend e checks estáticos PASS. Medição backend
+p95 27,74 ms, sem IPC/renderização. AEP In Progress.
+
+Atualização AEP-0103, seção 65: fechar aba ativa nas três origens, com
+Ctrl+W/Ctrl+F4 padrão, substituição da última aba na mesma gravação e foco
+guardado. 17 comandos, 12 atalhos; regressões backend e 354 testes frontend
+distintos PASS. Aceite manual pendente; AEP In Progress.
+
+Atualização AEP-0103, seção 64: editor e lista de tarefas no mesmo commit
+contextual de criação de chat. 16 comandos, dez atalhos padrão; frontend
+312 testes PASS, regressões backend App/workspace e verificações estáticas PASS. Terminal e sequências
+não migrados; aceite manual dos novos tipos pendente. AEP In Progress.
+
+Atualização AEP-0103, seção 63: navegação por teclado e Stream Deck em campos
+nativos de texto, sem ampliar o contexto autorizado. Composição ativa e modais
+permanecem bloqueantes; comandos contextuais mantêm a política estrita.
+218 testes frontend, TypeScript e ESLint PASS. Aceite manual da correção
+pendente; AEP In Progress.
+
+Atualização AEP-0103, seção 62: criação de aba de chat com alvo versionado e
+commit backend de uso único; Ctrl+T padrão, paleta e Stream Deck. Frontend
+263 testes PASS; regressão final backend PASS (App, 45,221s), aceite manual pendente.
+Demais mutações/atalhos não migrados; AEP In Progress, sem promover gates.
+
+Atualização AEP-0103, seção 61: comando contextual de foco no painel ativo,
+com preparação e revalidação local nas três origens. Sem novos atalhos padrão
+nem migração de mutações assíncronas. Matriz frontend 354 PASS e validações
+backend/estáticas PASS; aceite manual pendente. In Progress.
+
+Atualização AEP-0103, seção 60: clareza dos nomes Comandos padrão e Mapa de
+teclado padrão. Migração de abas pausada nas lacunas de execução assíncrona
+e teclado contextual, por pedido do usuário; sem novos comandos migrados.
+Status permanece In Progress; detalhes na tasklist de conclusão.
+
+Atualização AEP-0103, seção 58: captura física substitui seleção de dispositivo
+e serial manual, conforme decisão do usuário. Tecla identifica o aparelho;
+captura temporária é autenticada e não executa comandos. Aceite manual dessa
+nova UX pendente. AEP permanece In Progress.
+
+Atualização AEP-0103, seção 57: aceite físico básico confirmado pelo usuário.
+Descoberta somente leitura de dispositivos alimenta a seleção por modelo e
+serial, preservando entrada manual; não abre HID nem ativa bindings. A seleção
+nova e os cenários manuais específicos continuam pendentes. In Progress.
+
+Atualização AEP-0103, seção 56: usuário confirmou o funcionamento da paleta,
+Alt+C e configurações. Alt+M entra no catálogo e inicia-se o ingresso Stream
+Deck de navegação/ajuda com bindings pessoais; aceite físico básico posterior
+na seção 57. O AEP permanece In Progress, sem fechar R10 integralmente.
+
+Atualização AEP-0103, seção 55: log de 18/09 identifica contenção SQLite nas
+duas tentativas de bootstrap. Retry transacional limitado para preparar
+escopo/restaurar claims, fora do gate de segurança e com revalidação da
+sessão; não repete comandos. Aceite manual ainda pendente; In Progress.
+
+Atualização AEP-0103, seção 54: teste manual ainda falhou após a seção 53.
+Corrigido o bootstrap anterior à primeira observação do SO e a reconstrução
+após unlock, com cancelamento e aviso à UI somente após prontidão final.
+Não se presume aceite manual nem encerramento integral do AEP.
+
+Atualização AEP-0103, seção 53: corrigida indisponibilidade dos 11 comandos
+causada por projeção contextual obsoleta, sem enfraquecer os gates.
+Oito combinações de navegação passam à camada padrão de teclado local;
+sem fallback legado para combinações suprimidas. Aceite manual pendente.
+
+Atualização AEP-0103, seção 52: corrigida propagação das teclas de busca
+para o menu pai na paleta/pickers; seta entra no primeiro resultado, Enter
+executa uma vez e espaço não aciona comandos. Abertura anuncia quantidade
+total/disponível. Teste com menu e hook reais cobre os 11 comandos. Aceite
+NVDA no ambiente do usuário pendente; **In Progress**, sem novo gate.
+
+Atualização AEP-0103, seção 51: teclado local ampliado aos nove destinos de
+navegação, com mapa tipado e handoff compartilhado com a paleta. Origem
+continua `keyboard.local`, sem chamada de paleta nem navegação direta antes
+da autorização. O usuário confirmou o primeiro atalho com camada ativa;
+aceite manual dos novos destinos pendente. **In Progress**, sem novo gate.
+
+Atualização AEP-0103, seção 50: corrigida recusa no bootstrap de fingerprints
+canônicos persistidos pelas confirmações. Preservados dados/chaves e checks
+de integridade; diagnóstico de storage e erro de carga da UI explicitados.
+**In Progress**, sem novo aceite integral; reinício real ainda a conferir.
+
+Atualização AEP-0103, seção 49: teclado personalizado conectado ao mapa ativo
+para `workspace.list`, com picker compartilhado, deduplicação down/up e
+invalidação por geração. Sem migração dos atalhos antigos; modificador
+Control/Alt/Meta obrigatório, campos editáveis e modais preservados.
+Bindings Wails e aceite manual pendentes. **In Progress**, sem aceite integral
+de teclado global, Stream Deck ou D15. Notas anteriores são históricas.
+
+Atualização AEP-0103, seção 48: tela passa a preparar regras e ativar/desativar
+camadas globais pela origem UI autenticada. Claims persistidas alimentam a
+resolução da paleta e a reconstrução do mapa. Geração Wails, validação visual
+e ingresso personalizado de teclado permanecem pendentes. **In Progress**.
+
+Atualização AEP-0103, seção 47: editor inicial de camadas globais e acionadores,
+com captura, confirmação de persistência e supressão/restauração da paleta.
+Bindings Wails e aceite visual ainda pendentes; teclado personalizado e
+ativação de camadas pessoais não se tornam operacionais por este recorte.
+Status **In Progress**, sem novo aceite integral de D15 ou BASE-PRONTA.
+
+Atualização AEP-0103, seção 46: prioridade aprovada passa ao uso cotidiano,
+adiando extensões de importação/exportação. Paleta com nove novas ações reais
+de navegação, busca por metadados e confirmação preservada após mudança de tela.
+Editor de atalhos e ligação produtiva física continuam pendentes.
+**In Progress — 11/48 saídas R, 1/12 gates**; sem novos aceites integrais.
+
+Atualização AEP-0103, seções 44–45: importação e exportação comum de camadas
+conectadas à sessão desktop e à tela de Dados. Roundtrip público como cópia
+qualificado; exportação sensível e aceite integral R05 seguem pendentes.
+**In Progress — 11/48 saídas R, 1/12 gates**. Notas abaixo são históricas.
+
+Atualização AEP-0103, seção 43: relatório redigido do lote chega ao App com
+IDs reais de cópias e avisos agregados; preservado após falha de rebuild.
+Corrigida substituição de camada cujo timestamp era alterado pelo ORM após
+confirmação. **R05.3/R05.4 parciais; 11/48 saídas R, 1/12 gates**.
+Entrada desktop autenticada e API/UX pública ainda pendentes.
+
+Atualização AEP-0103, seção 42: lote ligado ao applier interno do App,
+com reconstrução única da união ativa e conferência pós-commit de todos
+os escopos alterados. Falhas de reconstrução não repetem o commit.
+**R05.3/R05.4 parciais; 11/48 saídas R, 1/12 gates**. Restam transporte/UX,
+relatório público e export sensível; entradas anteriores são históricas.
+
+Atualização AEP-0103, seção 41: lote interno global+workspaces com consumo
+atômico de receipts, CAS, dados e auditoria; todas as decisões antecedem
+o commit. Validação da união final e recusa de efeitos tardios de hooks.
+**R05.3/R05.4 parciais; 11/48 saídas R, 1/12 gates**. Falta montar o lote
+no App/UI e habilitar export sensível; o applier existente continua unitário.
+
+Atualização AEP-0103, seção 40: importação de envelope pelo applier do App,
+com portas reais de posse, nomes por usuário/escopo e credenciais por pattern
+exato. Compartilha confirmação, auditoria e reconstrução; sem ler segredos.
+**R05.3/R05.4 parciais; 11/48 saídas R, 1/12 gates**. Transporte público,
+atomicidade multi-escopo e export sensível ainda não habilitados.
+
+Atualização AEP-0103, seção 39: adapter `job_service` do Manager real com
+contexto privado por run, lifetime, definição e geração de grant vinculados.
+Wiring do store de grants no App; recorte inicial de profile literal.
+**R05.1/R05.2 parciais; 11/48 saídas R, 1/12 gates**. Sem novo catálogo.
+Evidências na [tasklist de conclusão](0103-tasklist-conclusao.md#39-identidade-de-automação-ligada-ao-run-real--17092026).
+
+Atualização AEP-0103, seção 38: delegação a tools preserva a origem privada
+de eventos, inclusive quando selecionada por camada reativa. O runtime
+revalida a origem antes do efeito, sem transformar a tool em um job fictício.
+**R05.2/R03.4 parciais; 11/48 saídas R, 1/12 gates**. Evidências e limites
+na [tasklist de conclusão](0103-tasklist-conclusao.md#38-origem-de-comandos-nas-tools-e-eventos-descendentes--17092026).
+As notas seguintes são históricas.
+
+Atualização AEP-0103, seção 37: montagem interna local de tools usa o executor
+comum, fixando catálogo/schema/geração e revalidando autorização antes do efeito.
+Confirmação, replay, redação e recusas durante o diálogo têm prova integrada.
+**R05.2 parcial; 11/48 saídas R, 1/12 gates**, sem publicação no catálogo.
+Evidências na [tasklist de conclusão](0103-tasklist-conclusao.md#37-delegação-local-de-tools-pelo-executor-comum--17092026).
+As notas seguintes são históricas.
+
+Atualização AEP-0103, seção 36: origem reativa verificada chega ao novo job,
+sem transformar eventos em clique manual nem transmitir autorização aos
+descendentes. **11/48 saídas R, 1/12 gates**, sem novos aceites.
+Catálogo produtivo e ciclo automático completo permanecem pendentes;
+evidências e limites na
+[tasklist de conclusão](0103-tasklist-conclusao.md#36-delegação-reativa-preserva-a-raiz-verificada--17092026).
+As notas abaixo são históricas.
+
+Atualização AEP-0103, seção 35: decisões desktop reais e montagem interna de
+`App.newCommandJobHandler`, com autorização por owner, sessão, profile alvo,
+fingerprint e geração fixa do grant. **R05.2 parcial; 11/48 saídas R,
+1/12 gates, 0/83 C, 53/84 históricos I**. A decisão do comando não concede
+nem substitui grant. Sem publicação de `job.run`; catálogo R07, raiz reativa e
+origens ainda não compostas permanecem pendentes. Evidências e limites na
+[tasklist de conclusão](0103-tasklist-conclusao.md#35-decisão-desktop-e-autorização-de-job-pelo-app--17092026).
+
+Atualização AEP-0103, seção 34: delegação ao runtime de jobs e preservação
+da identidade nas tools. **R05.2 parcial; 11/48 saídas R, 1/12 gates**.
+Sem publicação de `job.run`; composição App, raiz reativa e catálogo R07
+permanecem pendentes. Evidências e limites na
+[tasklist de conclusão](0103-tasklist-conclusao.md#34-ponte-de-delegação-para-jobs-e-identidade-de-tools--17092026).
+As notas abaixo são históricas.
+
+Atualização AEP-0103, seção 33: **R03.2 aceito; 11/48 saídas R, 1/12 gates**,
+In Progress. Ingressos autenticados e múltiplas fontes simultâneas no App
+qualificados; validação de cadeia compartilhada. R03.4 depende da delegação
+R05.2 e do catálogo R07 para o ciclo completo comando → novo job → evento →
+comando. Evidências, limites e ocorrência de cleanup em
+[tasklist de conclusão](0103-tasklist-conclusao.md#33-ingressos-autenticados-cadeias-e-fontes-simultâneas--17092026).
+As notas abaixo são históricas.
+
+Atualização AEP-0103, seção 32: ponte job → camada → envelope implementada,
+revalidação de proveniência e limite anti-loop antes da reserva; auditoria
+estrutural sem payload privado. **10/48 saídas R, 1/12 gates**, In Progress.
+R03.4 mantém composição completa e multiorigem no App; R03.2 mantém ingressos
+pendentes. As notas abaixo são históricas.
+
+Atualização AEP-0103, seção 31: origem privada preservada em jobs encadeados;
+retenção de runs com lease corrigida e recuperação transacional qualificada.
+**10/48 saídas R, 1/12 gates**, In Progress. R03.4 ainda requer proveniência
+claim → envelope do comando; R03.2 mantém ingressos pendentes. Notas abaixo
+são históricas.
+
+Atualização AEP-0103, seção 30: claims de jobs integradas ao resolvedor real
+com validade/condições/runtime revalidados e refresh equivalente sem cancelar
+comandos. **10/48 saídas R, 1/12 gates**, In Progress; R03 permanece aberto.
+As notas seguintes são históricas.
+
+Atualização AEP-0103, seção 29: **10/48 saídas R, 1/12 gates**, In Progress.
+R03.1/R03.3 aceitos: autoridade viva separada da publicação de configuração,
+condições reais e isolamento de ciclos. Projeção no resolvedor e fechamento
+de R03 ainda pendentes. As contagens das atualizações abaixo são históricas.
+
+A seção 28 da [tasklist AEP-0103](0103-tasklist-conclusao.md) aceita o **Gate
+R04**: restart e recuperação multiusuário/system com manutenção real, limpeza
+legada, compactação e job vivo preservado até conclusão. Corrigida a fronteira
+UTC/local da outbox. **Contagem vigente: 8/48 saídas R, 1/12 gates**, In Progress.
+Limites e testes estão na tasklist; as notas seguintes são históricas.
+
+A seção 27 da [tasklist AEP-0103](0103-tasklist-conclusao.md) aceita R04.3 e
+R04.4: recuperação multiusuário paginada e política dinâmica por passagem,
+com rollback/retomada e diagnóstico. **Contagem atual: 8/48 saídas R, 0/12
+gates**, In Progress. O gate R04 ainda exige teste conjunto de restart com
+todos os domínios reais e trabalho vivo; as notas seguintes são históricas.
+
+A seção 26 da [tasklist AEP-0103](0103-tasklist-conclusao.md) aceita R04.1:
+montagem produtiva do Consumer e da manutenção antes de jobs.Start, sem segundo
+timer, com prova viva dos runs e join no encerramento. Contagem atual:
+**6/48 saídas R, 0/12 gates**, status In Progress. As notas abaixo são históricas.
+
+A seção 25 da [tasklist AEP-0103](0103-tasklist-conclusao.md) corrige
+inicialização/cancelamento da cadência, retomada de heartbeat e propagação de
+falhas de manutenção. A montagem completa no App permanece pendente;
+**5/48 saídas R e 0/12 gates**, status In Progress.
+
+A seção 24 da [tasklist AEP-0103](0103-tasklist-conclusao.md) implementa
+exclusão nativa, ownership persistido v29 e recovery de gerações registradas
+no bootstrap, além do encerramento antes de reset do banco. Mantém gerações
+desconhecidas intactas e não repete efeitos. AEP-0103 segue In Progress;
+R04 completo e BASE-PRONTA não estão certificados. Contagem vigente: **5/48
+saídas R**, com R01.4/R04.2 aceitos; **0/12 gates**, pois a qualificação global
+permanece pendente pelas falhas ACP/acpregistry (`0xffffffff`).
+
+A seção 23 da [tasklist AEP-0103](0103-tasklist-conclusao.md) conecta a troca
+real de workspace à reconstrução do runtime e qualifica a composição visual.
+O catálogo anterior é retirado antes da reconstrução; falhas não reaproveitam
+seu mapa. R01.1 foi aceito pela composição das provas reais UI/backend;
+Naquela rodada R01.4 permanecia aberto: eram 3/48 saídas R, ainda 0/12 gates.
+
+A seção 22 da [tasklist AEP-0103](0103-tasklist-conclusao.md) registra o aceite
+de R01.3: ingresso autenticado, correlação, isolamento de callbacks e handoff
+após ledger/CAS, com prova real de rejected_stale e replay. São 2/48 saídas R;
+R01 e BASE-PRONTA permanecem abertos, e o AEP continua In Progress.
+
+A seção 21 da [tasklist AEP-0103](0103-tasklist-conclusao.md) conecta os
+providers mínimos de editor/terminal/tasklist/chat ao escopo React e à
+captura contextual de Ctrl+K. R01.1 e o AEP permanecem In Progress.
+
+A seção 20 da [tasklist AEP-0103](0103-tasklist-conclusao.md) registra a
+superfície produtiva da barra e a sessão compartilhada entre seus executores.
+R01.1 permanece parcial; não representa registro de todas as telas.
+
+A seção 19 da [tasklist AEP-0103](0103-tasklist-conclusao.md) registra o aceite
+de R01.2 (montagem produtiva), proteção contextual contra ABA e IME/foco.
+AEP-0103 permanece In Progress; R01 e BASE-PRONTA continuam abertos.
+
+A seção 18 da [tasklist AEP-0103](0103-tasklist-conclusao.md) registra a
+resolução persistida do handoff UI e sua revalidação antes da entrega;
+R01 e BASE-PRONTA ainda não têm aceite integral.
+
+A rodada de isolamento de sequências e invalidação de callbacks da AEP-0103
+está registrada na seção 16 da sua [tasklist de conclusão](0103-tasklist-conclusao.md).
+É qualificação dos adapters, não aceite da montagem física no App.
+A seção 17 registra as correções de lifecycle do Stream Deck e o bloqueio
+de cancelamento de release na dependência; o AEP permanece **In Progress**.
+
 | AEP | Título | Status |
 |-----|--------|--------|
 | [0001](0001-jobs-event-driven-automation.md) | Jobs — Event-Driven Automation | 🚧 In Progress |
@@ -119,13 +911,31 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0100](0100-progresso-unificado-por-conversa.md) | Progresso unificado por conversa | ✅ Done |
 | [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
 | [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
-| [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 📝 Draft |
+| [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 🚧 In Progress |
 | [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; núcleo único de persistência, cronologia por rodada e posições de texto ACP, conclusão terminal e atividades externas | ✅ Done |
 | [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress |
 | [0106](0106-contencao-do-pipeline-de-jobs.md) | Contenção do pipeline de jobs (limite de concorrência + cache por slug) | 🚧 In Progress |
 | [0107](0107-tool-execution-ux.md) | Experiência de execução de tools: estado, contexto e resultados acionáveis | ✅ Done |
 | [0108](0108-sessao-acp-presa-diagnostico-e-recuperacao.md) | Sessão ACP presa: diagnóstico e recuperação | 🚧 In Progress |
 | [0109](0109-concorrencia-na-configuracao-da-tasklist.md) | Controle de concorrência na configuração da tasklist (workflow e custom actions) | ✅ Done |
+
+Correções paralelas posteriores à revisão da AEP-0103 estão registradas nas seções 10 e 11 da tasklist de conclusão: bridge, importação, restore, outbox, lifecycle e a primeira rodada real de produto. O executor desktop usa `newCommandDesktopExecutor` e `commandconfig.ProjectComplete`; autenticação é por sessão local sem JWT, a bridge é assíncrona com shutdown/join, e recovery é preflight somente leitura fail-closed sem reconciliação interprocesso. A limitação inicial de entrega somente de resumo/status foi resolvida na seção 14: `workspace.list` entrega resultado efêmero no picker compartilhado. A seção 15 liga a seleção da paleta à resolução de configuração persistida, supressão e recusa sem fallback, inclusive na bridge. A falha histórica de `internal/acpregistry` não reapareceu nas suítes completas das seções 12–14, mas sua causa não foi certificada. Providers/transporte de UI, origens físicas, recovery R04 e o aceite BASE-PRONTA permanecem pendentes.
+
+Acompanhamento vigente da AEP-0103 (16/09/2026): [tasklist de conclusão integral](0103-tasklist-conclusao.md) e [revisão técnica](0103-revisao-integral-2026-09-16.md). A [tasklist de infraestrutura](0103-tasklist-infraestrutura.md) permanece como histórico. Os 84 itens de infraestrutura (53 marcados/31 abertos no documento histórico) são distintos dos 83 critérios finais; a contagem 81/84 foi invalidada por misturar os dois conjuntos. A revisão preserva a base testada e explicita defeitos, montagem produtiva incompleta e interfaces/migração pendentes em 12 gates rastreáveis. O AEP continua **In Progress**, sem aceite de BASE-PRONTA ou alegação de que restam apenas testes manuais; a extensão de manutenção não altera o aceite da retenção legada da AEP-0074-B.
+
+A seção 12 registra a divisão contextual aprovada: foco/modal/IME/surface são
+revalidados na UI antes do efeito visual; providers locais de backend mantêm
+sessão, versões e alvos autoritativos. Não existe reader de DOM por Wails sob
+DispatchGate. A seção 13 registra o handoff produtivo para `help.shortcuts.show`,
+com entrega única, confirmação correlacionada e desfecho no ledger. O picker
+reutiliza o painel de ajuda existente por esse percurso; não houve migração
+geral dos atalhos. R01 e o aceite BASE-PRONTA permanecem abertos.
+
+A seção 14 atualiza a limitação histórica da listagem: `workspace.list` agora
+entrega DTO efêmero ao picker pelo mesmo executor, somente após sucesso
+persistido e reautenticação. Histórico/replay permanecem redigidos; resposta
+obsoleta não abre UI. Isso não migra a operação de troca de workspace nem
+fecha o gate completo de catálogo, configuração ou BASE-PRONTA.
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
 > numerados sequencialmente a partir do **maior número existente** (0109 → próximo
