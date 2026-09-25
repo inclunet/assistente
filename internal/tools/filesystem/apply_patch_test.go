@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -311,6 +312,157 @@ func TestApplyPatchRejeicaoMantemResultadoEstruturado(t *testing.T) {
 	data, _ := os.ReadFile(path)
 	if string(data) != "antes\n" {
 		t.Fatalf("arquivo mudou após rejeição: %q", data)
+	}
+}
+
+func TestApplyPatchConfirmacaoMostraAlteracaoDepoisDoInicioDoArquivo(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.txt")
+	original := strings.Repeat("linha sem alteração\n", previewMaxLines+20) + "alvo antigo\n"
+	if err := os.WriteFile(path, []byte(original), 0644); err != nil {
+		t.Fatal(err)
+	}
+	quest := &writeConfirmFakeRequester{cancelled: true}
+	result, err := NewApplyPatch(dir, quest).Execute(writeConfirmEditorCtx(path),
+		patchArgs(t, "doc.txt", applyPatchHunk{OldString: "alvo antigo", NewString: "alvo novo"}))
+	if err != nil || !result.IsError {
+		t.Fatalf("Execute err=%v result=%#v", err, result)
+	}
+	if len(quest.calls) != 1 || len(quest.calls[0].Questions) != 2 {
+		t.Fatalf("confirmação inesperada: %#v", quest.calls)
+	}
+	before := quest.calls[0].Questions[0].Content
+	after := quest.calls[0].Questions[1].Content
+	if !strings.Contains(before, "alvo antigo") || !strings.Contains(after, "alvo novo") {
+		t.Fatalf("trecho editado ausente da confirmação: antes=%q depois=%q", before, after)
+	}
+	if !strings.Contains(before, "@@ -221 +221 #1 @@") || !strings.Contains(after, "@@ -221 +221 #1 @@") {
+		t.Fatalf("linha da alteração ausente: antes=%q depois=%q", before, after)
+	}
+	if strings.Contains(before, "linha sem alteração") || strings.Contains(after, "linha sem alteração") {
+		t.Fatalf("confirmação mostrou prefixo não relacionado: antes=%q depois=%q", before, after)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != original {
+		t.Fatal("arquivo alterado apesar da rejeição")
+	}
+}
+
+func TestApplyPatchConfirmacaoMostraTodosOsHunksNaOrdemDoArquivo(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.txt")
+	original := strings.Repeat("prefixo\n", previewMaxLines+10) +
+		"primeiro alvo\n" + strings.Repeat("intervalo\n", previewMaxLines+10) + "segundo alvo\n"
+	if err := os.WriteFile(path, []byte(original), 0644); err != nil {
+		t.Fatal(err)
+	}
+	quest := &writeConfirmFakeRequester{cancelled: true}
+	_, err := NewApplyPatch(dir, quest).Execute(writeConfirmEditorCtx(path), patchArgs(t, "doc.txt",
+		applyPatchHunk{OldString: "segundo alvo", NewString: "segundo novo"},
+		applyPatchHunk{OldString: "primeiro alvo", NewString: "primeiro novo\nlinha inserida"},
+	))
+	if err != nil || len(quest.calls) != 1 {
+		t.Fatalf("Execute err=%v confirmações=%d", err, len(quest.calls))
+	}
+	before := quest.calls[0].Questions[0].Content
+	after := quest.calls[0].Questions[1].Content
+	if strings.Index(before, "primeiro alvo") >= strings.Index(before, "segundo alvo") ||
+		strings.Index(after, "primeiro novo") >= strings.Index(after, "segundo novo") {
+		t.Fatalf("hunks não aparecem na ordem do arquivo: antes=%q depois=%q", before, after)
+	}
+	for _, want := range []string{"#2 @@", "#1 @@", "primeiro alvo", "segundo alvo"} {
+		if !strings.Contains(before, want) {
+			t.Fatalf("%q ausente no Antes: %q", want, before)
+		}
+	}
+	if !strings.Contains(after, "+423 #1 @@") || !strings.Contains(after, "linha inserida") {
+		t.Fatalf("linha ajustada ou texto inserido ausente do Depois: %q", after)
+	}
+}
+
+func TestFocusedPatchPairMantemMudancaNoFimDeLinhaLonga(t *testing.T) {
+	old := strings.Repeat("é", previewMaxBytes) + " valor antigo"
+	newText := strings.Repeat("é", previewMaxBytes) + " valor novo"
+	before, after := focusedPatchPair("", old, newText, "")
+	if !strings.Contains(before, "antigo") || !strings.Contains(after, "novo") {
+		t.Fatalf("mudança perdida no recorte: antes=%q depois=%q", before, after)
+	}
+	if strings.Contains(before, strings.Repeat("é", 100)) || strings.Contains(after, strings.Repeat("é", 100)) {
+		t.Fatal("prefixo longo não foi abreviado")
+	}
+}
+
+func TestFocusedPatchPairRecortaTrechosAlteradosLongosNosDoisPaineis(t *testing.T) {
+	old := "antes " + strings.Repeat("a", patchPreviewSideRunes*3) + " fim antigo"
+	newText := "depois " + strings.Repeat("b", patchPreviewSideRunes*3) + " fim novo"
+	before, after := focusedPatchPair("contexto ", old, newText, " sufixo")
+	for name, preview := range map[string]string{"antes": before, "depois": after} {
+		if !strings.Contains(preview, "\n…\n") {
+			t.Fatalf("painel %s não marcou trecho alterado omitido: %q", name, preview)
+		}
+		if len(preview) >= len(old) {
+			t.Fatalf("painel %s não recortou trecho longo: %d bytes", name, len(preview))
+		}
+	}
+	if !strings.Contains(before, "antes ") || !strings.Contains(before, "fim antigo") ||
+		!strings.Contains(after, "depois ") || !strings.Contains(after, "fim novo") {
+		t.Fatalf("extremos das alterações perdidos: antes=%q depois=%q", before, after)
+	}
+}
+
+func TestApplyPatchConfirmacaoRecortaLinhaGrandeAntesDeAlocarPreview(t *testing.T) {
+	linePrefix := strings.Repeat("é", 1<<20)
+	original := linePrefix + " alvo antigo"
+	span := applyPatchSpan{
+		hunk:        1,
+		start:       len(linePrefix) + 1,
+		end:         len(original),
+		replacement: "alvo novo",
+	}
+	before, after := patchConfirmationPreview(original, []applyPatchSpan{span})
+	if !strings.Contains(before, "alvo antigo") || !strings.Contains(after, "alvo novo") ||
+		!strings.Contains(before, "…") || !strings.Contains(after, "…") {
+		t.Fatalf("prévia grande perdeu alteração ou marcador: antes=%q depois=%q", before, after)
+	}
+	if len(before) > 1024 || len(after) > 1024 {
+		t.Fatalf("prévia da linha grande não foi recortada: antes=%d depois=%d", len(before), len(after))
+	}
+	var resultBefore, resultAfter string
+	allocation := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			resultBefore, resultAfter = patchConfirmationPreview(original, []applyPatchSpan{span})
+		}
+	})
+	if allocation.AllocedBytesPerOp() > 1<<20 {
+		t.Fatalf("prévia alocou %d bytes por chamada para uma linha sem limite", allocation.AllocedBytesPerOp())
+	}
+	if resultBefore != before || resultAfter != after {
+		t.Fatal("prévia mudou entre chamadas")
+	}
+}
+
+func TestApplyPatchConfirmacaoNaoMostraEstadoIntermediarioNaMesmaLinha(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.txt")
+	if err := os.WriteFile(path, []byte("foo bar\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	quest := &writeConfirmFakeRequester{}
+	result, err := NewApplyPatch(dir, quest).Execute(writeConfirmEditorCtx(path), patchArgs(t, "doc.txt",
+		applyPatchHunk{OldString: "foo", NewString: "FOO"},
+		applyPatchHunk{OldString: "bar", NewString: "BAR"},
+	))
+	if err != nil || result.IsError || len(quest.calls) != 1 {
+		t.Fatalf("Execute err=%v result=%#v confirmações=%d", err, result, len(quest.calls))
+	}
+	after := quest.calls[0].Questions[1].Content
+	if !strings.Contains(after, "FOO") || !strings.Contains(after, "BAR") ||
+		strings.Contains(after, "FOO bar") || strings.Contains(after, "foo BAR") {
+		t.Fatalf("prévia Depois contém estado intermediário: %q", after)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "FOO BAR\n" {
+		t.Fatalf("resultado final diverge da prévia: %q, err=%v", data, err)
 	}
 }
 
