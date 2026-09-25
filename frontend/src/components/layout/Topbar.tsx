@@ -3570,7 +3570,7 @@ export function Topbar() {
               paletteEditorModeTargetsRef.current.delete(item.id);
             }
             const currentPaletteArguments = currentLocalPaletteArguments(item.id);
-            if (isWorkspaceTabNavigationCommand(item.id) && !currentPaletteArguments) return;
+            if (item.id === 'workspace.tab.go_to' && !currentPaletteArguments) return;
             pendingCommandExecutionRef.current = {
               commandID: item.id,
               ...(contextualPalette ? { contextualPalette } : {}),

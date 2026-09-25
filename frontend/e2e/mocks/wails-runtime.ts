@@ -151,6 +151,7 @@ export function buildWailsMockScript(): string {
       'workspace.tab.seventh',
       'workspace.tab.eighth',
       'workspace.tab.ninth',
+      'workspace.tab.go_to',
       'navigation.workspace.open',
       'navigation.history.open',
       'navigation.memories.open',
