@@ -22,6 +22,14 @@ externo na toolbar, sem alteração do motor de execução ou da autorização.
 O mantenedor confirmou a correção física do bloqueio do Deck antes do merge.
 **In Progress; 83 I / 1 P / 0 N**; os demais aceites não são inferidos desse relato.
 
+AEP-0103, seção165 (25/09/2026): título e ícone automáticos para destinos de
+aba no Stream Deck, com personalizações preservadas e destino ausente explícito.
+Teste Go focado, `go build ./...` e `go vet ./...` passaram. O teste integrado
+Deck existente não alcançou `deckMap`: o fixture App falhou com
+`ErrInvalidConfiguration`, também reproduzido por um teste de produto não
+relacionado; veja o limite registrado na seção165.
+**In Progress; 83 I / 1 P / 0 N**; nenhum aceite manual foi promovido.
+
 AEP-0103, seção162 (25/09/2026): diagnóstico nativo reproduziu o bloqueio do
 Deck após navegar; correção do refresh de projeção e preservação do mapa
 idêntico validada em 18 trocas Wails com HID simulado. **In Progress;

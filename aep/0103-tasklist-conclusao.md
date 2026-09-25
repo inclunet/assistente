@@ -10618,3 +10618,48 @@ anúncio/documentação. Corrigidos com regressões; a segunda rodada não
 identificou bloqueios funcionais. Bindings foram regenerados oficialmente,
 e o TypeScript pós-geração passou. Base atualizada para `origin/main`
 `d32fc990f`, sem conflitos nem alteração nas mudanças desta frente.
+
+## 165. Apresentação automática de destinos de aba no Stream Deck — 25/09/2026
+
+Implementação da continuação visual da seção159, sobre a base do contrato de
+destino da seção164. O mapa de apresentação do Deck consulta uma cópia do
+workspace ativo; isso não muda resolução, autorização nem despacho. `Ir para
+aba` resolve a apresentação por posição viva ou ID estável; `primeira` a `nona
+aba` acompanham as posições atuais. Renomear, reordenar, fechar ou trocar o
+workspace é refletido na próxima atualização de render.
+
+O título automático e o ícone local de tipo são fallbacks campo a campo. Título,
+ícone e imagem configurados permanecem intactos, incluindo herança e overrides
+por estado; título personalizado continua visível com um sufixo localizado de
+indisponibilidade se o destino sumir. Posição/ID ausente, workspace diferente,
+ou qualquer ramo condicional selecionável sem alvo mostra indisponibilidade,
+sem usar a aba ativa ou outra posição como substituta. Se ramos condicionais
+válidos apontarem para destinos diferentes, a apresentação diz que o destino
+depende do contexto. Não há evento de tecla, execução, confirmação ou auditoria
+adicionados para renderizar esses dados.
+
+Ícones de conversa, editor, terminal e lista de tarefas usam formas locais do
+renderer existente; nenhuma imagem, arquivo, fonte externa ou conteúdo da aba é
+carregado. O guia de comandos documenta o comportamento. Evidências focadas em
+`internal/app/app_command_deck_tab_visual_test.go` cobrem posição e identidade
+após rename/reorder, destinos ausentes/workspace alheio, `first`/`second`/`ninth`,
+ramo condicional, divergência, ícones rasterizados e preservação dos campos
+base/estado. Os sete testes focados selecionados por
+`go test ./internal/app -run '^TestWorkspaceTabDeck' -count=1` passaram.
+`go build ./...` e `go vet ./...` também passaram. Uma tentativa do teste
+integrado existente `TestCommandDeckPresentationSettingsReachContextualMapAndRenderer`
+parou antes do `deckMap`: `settingsSecurityFixture` falhou ao montar o produto
+App com `configuração de executor inválida`. O teste não relacionado
+`TestCommandProductRefusesUnknownInvalidAndRevokedRequests` reproduziu a mesma
+falha no `readyCommandProduct` (linha76 de `app_command_product_test.go`),
+confirmando que a limitação ocorre na fixture/bootstrap comum, não nesta prova
+visual. Portanto, a integração App não é declarada aprovada. Não se afirma
+aceite físico/NVDA nem fechamento de critério/gate manual.
+
+Revisão independente de Lagrange e do agente principal identificou dois casos
+visuais: ramos mistos ocultavam a combinação de comandos, e títulos
+personalizados ocultavam a ambiguidade do destino. Corrigidos preservando o
+título composto/personalizado e acrescentando a informação de destino como
+sufixo; regressões focadas passaram. O agente principal reavaliou o patch
+sem novos bloqueios funcionais. A atualização do AEP principal acompanha a
+tasklist e o índice, sem promover aceite manual.
