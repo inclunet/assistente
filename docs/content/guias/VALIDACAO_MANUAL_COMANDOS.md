@@ -16,7 +16,55 @@ somente quando **todas as variantes descritas passarem**. Se faltar equipamento,
 credencial, dado de exemplo ou uma variante, registre **NÃO TESTADO**, indicando
 o que já passou e a dependência restante. Havendo falha, registre **FALHOU**.
 Não transforme falta de pré-requisito em aprovação. É possível fazer os blocos
-em sessões diferentes e enviar resultados parciais pelos IDs.
+em sessões diferentes. Na conversa, apresentar somente **cinco testes por vez,
+numerados de 1 a 5**; o responsável associa as respostas aos IDs abaixo.
+O mantenedor não precisa memorizar códigos.
+
+## Registro reconciliado — 26/09/2026
+
+Baseline de implementação: `main` em `116eda53b`, após os PRs #833, #834,
+#836, #838 e #839. Essa é a versão de referência documental, **não o commit
+atribuído retroativamente aos testes do mantenedor**. Os relatos históricos
+não identificam todos os commits/datas/variantes; esses dados ficam desconhecidos.
+Nenhum teste manual novo foi executado para produzir esta reconciliação.
+
+Aceites dos passos enviados, preservados do diálogo:
+
+- [x] UI01 — funcionamento da inicialização/configurações na interface então
+  testada. Os gerenciadores e a toolbar do PR #834 foram acrescentados depois;
+  seus passos novos de foco/NVDA ainda precisam ser conferidos.
+- [x] UI02 — paleta, busca e foco: aprovação relatada no primeiro lote.
+- [x] UI06 — regiões e painel ativo: “ok” no segundo lote.
+- [x] CF01 — criação/edição de camada: “ok” no segundo lote.
+- [x] CF02 — gravação de acionador: “ok”, mas o mantenedor preferiu capturar
+  uma tecla do Deck. Confirmar o ingresso antes de promover a captura de
+  **teclado local**; captura física já observada não deve ser perdida.
+- [x] CF05 — ativação manual e paleta: “ok” nos passos enviados.
+- [x] SD04, somente defeito de continuidade — após a correção, o mantenedor
+  confirmou “agora sim, perfeito, funcionando” para as trocas consecutivas de
+  abas pelo Deck sem sair/voltar à janela (tasklist, seção163).
+
+Essas caixas registram **evidências delimitadas**, não aprovação automática
+de todas as variantes dos casos completos abaixo. Os passos já aprovados não
+devem ser solicitados de novo sem identificar mudança que exija regressão.
+
+Pendências e correções aguardando confirmação:
+
+- UI04: aprovação inicial reaberta por perda de navegação entre páginas;
+  código corrigido, sem confirmação específica da sequência Alt+C/J/H/W.
+- SD04: retenção, reconexão e demais ações/condições continuam pendentes.
+  A confirmação da continuidade não confirma resolução da latência percebida.
+- UI03: não executado por falta de clareza nas instruções de favoritos.
+- UI05: inconclusivo, repetir ao final conforme pedido. CF03: adiado.
+- CF04, CF06, CF07, CF08 e parte de CA02: lote não executado.
+- UI01/CF04/SD02/SD04: novas variantes dos PRs #834/#836/#838/#839 ainda sem
+  confirmação manual. Foco em conversa vazia e latência física também pendentes.
+
+Distribuição dos **48 casos**, sem duplicar SD04/UI04: **6 com aprovação
+relatada dos passos enviados; 1 reaberto (UI04); 1 com correção confirmada
+e outras variantes pendentes (SD04); 40 outros pendentes**. Não é um placar
+de 7 PASS integrais, nem de 2 falhas ainda ativas. Os 84 critérios do AEP e
+as 48 saídas R são outros denominadores; não recebem aceite por equivalência.
 
 ## Antes de começar — preparação, sem contagem de aceite
 
@@ -42,16 +90,19 @@ em sessões diferentes e enviar resultados parciais pelos IDs.
 2. Feche a outra instância do Assistente. Use apenas conversas, documentos,
    camadas, perfis, listas e workspaces descartáveis. Prefixe seus nomes com
    `Validação AEP`. Não use **Restaurar Padrões** geral nem apague credenciais.
-3. No computador que já contém este worktree, entre pelo CMD:
+3. Use um checkout de teste atualizado que contenha o merge `116eda53b`
+   ou uma revisão posterior de `main`. Não use como referência a antiga branch
+   do PR #833, que não contém necessariamente as extensões mergeadas depois.
+   No CMD, substitua o caminho abaixo pela pasta desse checkout:
 
    ```bat
-   cd /d C:\Users\leonardo.gleison\dev\assistente-worktrees\aep-0103-comandos
+   cd /d "C:\caminho\do\checkout-de-teste"
    git rev-parse HEAD
    dir /b ".assistente\conversations.db" ".assistente\config.json"
    ```
 
-   Em outro computador, substitua o caminho pelo checkout da branch
-   `feat/aep-0103-comandos` do [PR #833](https://github.com/inclunet/assistente/pull/833).
+   Registre o commit efetivamente testado; não troque de branch nem sobrescreva
+   alterações locais para seguir este roteiro.
    Confira que os dois arquivos listados são as cópias de teste (a listagem
    comprova presença, não a segurança da configuração). Só depois, com as
    dependências já instaladas, execute da mesma raiz:
@@ -204,6 +255,13 @@ convites, serial de equipamento, mensagens pessoais ou logs sem sanitização.
   edite só a prioridade. Esperado: condições combinadas, campos/grupos/remover
   anunciados, referência fechada indisponível e nunca substituída por outra.
   Não digite IDs nem crie condições desconhecidas diretamente no banco.
+  Variante nova (#839): no gerenciador **Regras de ativação**, configure a
+  condição **Página do aplicativo** com **Área de trabalho**. Navegue para Configurações
+  e volte; confira ativação automática e que trocar abas dentro do Workspace
+  não exige foco na barra de abas. Teste uma regra para outra página suportada
+  com comando autorizado naquela página. Uma regra ativa não amplia o contexto
+  autorizado do comando; ações contextuais de camada não ganham execução fora
+  do Workspace. Combine página com perfil e confira ambos os requisitos.
   Resultado/anúncio: ________.
 
 - [ ] **CF05 — Ativação manual e origem Paleta.** Na camada, **Preparar
@@ -483,6 +541,14 @@ um dispositivo, não invente um segundo para completar a prova multidispositivo.
   1 MiB): erro anunciado sem perder binding. Percorra campos só por teclado.
   Esperado: rótulos acessíveis, nenhum efeito no comando, imagem não necessária
   para operar; apresentação física pode ser descrita por colaborador vidente.
+  Variante nova (#838): em **Ir para aba**, deixe apresentação personalizada
+  vazia e confira nome/ícone derivados de chat, editor e lista de tarefas.
+  Renomeie/reordene e confira atualização. No modo **Aba específica**, feche
+  o destino: fica indisponível, sem executar em outra aba. No modo por posição,
+  fechar/reordenar pode mudar a aba naquela posição; reduza o total abaixo
+  da posição configurada para testar indisponibilidade. Personalize o título e confirme sua preservação,
+  sem ocultar o aviso de destino indisponível. Não confundir isso com o fallback
+  para nome localizado dos comandos que não têm destino de aba.
   Resultado/anúncio: ________.
 
 - [ ] **SD03 — Estados e resultado.** Em **Estado da tecla**, personalize
@@ -510,6 +576,17 @@ um dispositivo, não invente um segundo para completar a prova multidispositivo.
   depois use Ctrl+Tab e volte pela tecla da Aba 1, sem Alt+Tab nem clique
   intermediário. Todas as pressões devem funcionar. Registre também se percebe
   atraso; não confunda essa observação com medição instrumentada de latência.
+  Evidência anterior: a correção da continuidade sem Alt+Tab já foi confirmada;
+  preserve esse resultado. As demais variantes deste caso não foram inferidas.
+  Variante nova (#836): configure **Ir para aba** por posição e por **Aba
+  específica**. Reordene: posição acompanha a ordem, aba específica mantém a
+  identidade. No modo **Aba específica**, fechar o alvo não escolhe outra aba;
+  no modo por posição, reduzir o total abaixo da posição a torna indisponível,
+  enquanto fechar outra aba pode mudar legitimamente o destino posicional.
+  Troque de workspace: não resolve o binding no novo workspace. Para comprovar
+  a remoção do limite antigo, use posição maior que
+  9 com abas descartáveis suficientes; sem essa preparação, registre a variante
+  pendente, sem criar dezenas de abas apenas para este teste.
   Resultado/anúncio e variantes: ________.
 
 ## 9. Integração real com Windows — 4 casos condicionais
@@ -636,7 +713,11 @@ um dispositivo, não invente um segundo para completar a prova multidispositivo.
 
 ## Como devolver os resultados
 
-Copie este bloco e informe IDs/variantes; não precisa reenviar o documento inteiro:
+Nas rodadas assistidas, responda somente **1 a 5**, com resultado e observações;
+o responsável registra os IDs/variantes e informa o acumulado do total de 48,
+distinguindo PASS integral, falha e parcial. Preserve os resultados anteriores;
+ao terminar, reavalie apenas falhas e caminhos afetados pelas correções.
+Para registro detalhado, use o bloco abaixo, sem reenviar o documento inteiro:
 
 ```text
 Commit:
@@ -656,8 +737,11 @@ Falha:
 ```
 
 Fechamento desta rodada: PASS ___/48; FALHOU ___/48; NÃO TESTADO ___/48.
-Os três totais devem somar 48. Todos os casos começam sem aceite nesta versão;
-um caso parcialmente executado permanece NÃO TESTADO, salvo se houve falha.
+Os três totais devem somar 48 quando as variantes estiverem classificadas.
+**Não zerar aceites pela mudança de versão.** Carregue os passos já confirmados
+do registro reconciliado e identifique explicitamente os novos/afetados.
+Um caso parcialmente executado permanece NÃO TESTADO no placar integral,
+salvo se houver falha não revalidada; isso não apaga seus passos aprovados.
 
 ## Evidência anterior, cobertura e limites
 
