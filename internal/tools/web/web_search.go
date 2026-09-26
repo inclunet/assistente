@@ -26,6 +26,9 @@ type WebSearch struct {
 	// via NewWebSearchWithProvider tem precedência (usado em testes).
 	brave    *braveProvider
 	fallback SearchProvider
+	// allowPrivateHosts libera hosts privados nos guards (testes com
+	// httptest). Padrão: false.
+	allowPrivateHosts bool
 }
 
 // SearchProvider define a interface para provedores de busca.
@@ -53,12 +56,22 @@ func NewWebSearch(credMgr *credentials.Manager) *WebSearch {
 	client := httpclient.New(&httpclient.Config{
 		CredentialManager: credMgr,
 	}, map[string]string{})
-	return &WebSearch{
+	tool := &WebSearch{
 		client:   client,
 		provider: &duckDuckGoProvider{},
 		brave:    &braveProvider{credMgr: credMgr},
 		fallback: &duckDuckGoProvider{},
 	}
+	// O Brave trafega chave de API em header custom (X-Subscription-Token): o
+	// net/http copia headers custom em redirects de outro host (só remove
+	// Authorization/Cookie). Instala o guard compartilhado para aparar
+	// headers sensíveis em redirect não confiável e manter a barreira
+	// anti-SSRF pós-DNS — mesmo padrão de WebFetch/FeedRead.
+	if bc := client.GetBaseClient(); bc != nil {
+		bc.CheckRedirect = httpclient.RedirectGuard(httpclient.DefaultMaxRedirects, func() bool { return tool.allowPrivateHosts })
+		httpclient.SetTransportGuard(bc, func() bool { return tool.allowPrivateHosts })
+	}
+	return tool
 }
 
 // NewWebSearchWithProvider cria WebSearch com um provedor customizado (ex: Google, Bing).
@@ -216,8 +229,9 @@ func (t *WebSearch) Execute(ctx context.Context, args json.RawMessage) (tools.To
 // fallback — preservando o comportamento dos testes com mock.
 //
 // Fallback para o DuckDuckGo acontece quando não há credencial Brave ou a
-// API responde 401/403/429 (auth/quota). Demais erros do Brave são
-// propagados sem fabricar resultados.
+// API responde 401/403/429 (auth/quota) ou 422 (offset além da janela da
+// Brave). Erro operacional na resolução da credencial e demais erros do
+// Brave são propagados sem fabricar resultados.
 func (t *WebSearch) searchWithFallback(ctx context.Context, query string, offset, maxResults int) ([]SearchResult, string, error) {
 	if t.brave == nil || t.fallback == nil {
 		results, err := t.provider.Search(ctx, t.client, query, offset, maxResults)
@@ -238,7 +252,8 @@ func (t *WebSearch) searchWithFallback(ctx context.Context, query string, offset
 }
 
 // isBraveFallbackable decide se um erro do Brave justifica fallback para o
-// DuckDuckGo: ausência de credencial ou 401/403/429 (auth/quota).
+// DuckDuckGo: ausência de credencial ou 401/403/429/422 (auth/quota/janela
+// de paginação).
 func isBraveFallbackable(err error) bool {
 	if err == errNoBraveCredential {
 		return true

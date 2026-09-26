@@ -20,11 +20,14 @@ offset**, permitindo varrer mais páginas de resultados quando necessário.
 
 A descoberta de conteúdo é separada da leitura: `web_search` devolve **links e
 trechos**; para ler o conteúdo de um resultado, chama-se `web_fetch` na URL
-escolhida. O provedor padrão é o **DuckDuckGo** (HTML, sem API key), atrás de uma
-interface `SearchProvider` plugável.
+escolhida. A tool usa a cadeia **Brave Search API → DuckDuckGo**, atrás da
+interface `SearchProvider` plugável: com chave Brave cadastrada no
+credmanager usa-se a API oficial; sem credencial (ou com 401/403/429/422),
+cai para o **DuckDuckGo** (HTML, sem API key) como fallback universal.
 
-Escopo atual é deliberadamente mínimo: **sem persistência, sem cache, sem ranking
-próprio, sem API keys** — um único provedor de fallback universal.
+Escopo: **sem persistência, sem cache, sem ranking próprio** — a chave da
+Brave vive exclusivamente no credmanager (nunca em env/flag/argumento) e o
+contrato JSON permanece estável independente do provedor que respondeu.
 
 ## Motivação
 

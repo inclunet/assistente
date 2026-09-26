@@ -86,8 +86,41 @@ func TestParseBraveResponse_JSONInvalido(t *testing.T) {
 	}
 }
 
+func TestParseBraveResponse_BlocoWebAusente(t *testing.T) {
+	for _, body := range []string{`{}`, `{"query": "go"}`, `{"web": null}`} {
+		if _, err := parseBraveResponse([]byte(body), 10); err == nil {
+			t.Errorf("esperava erro para bloco web ausente em %s", body)
+		}
+	}
+}
+
+func TestParseBraveResponse_ListaVaziaEValida(t *testing.T) {
+	results, err := parseBraveResponse([]byte(`{"web": {"results": []}}`), 10)
+	if err != nil {
+		t.Fatalf("lista vazia deveria ser válida: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("esperava 0 resultados, got %d", len(results))
+	}
+}
+
+func TestParseBraveResponse_DescartaBrancos(t *testing.T) {
+	body := `{"web": {"results": [
+		{"title": "   ", "url": "https://a.dev", "description": ""},
+		{"title": "B", "url": "   ", "description": ""},
+		{"title": " OK ", "url": " https://ok.dev ", "description": ""}
+	]}}`
+	results, err := parseBraveResponse([]byte(body), 10)
+	if err != nil {
+		t.Fatalf("parse falhou: %v", err)
+	}
+	if len(results) != 1 || results[0].Title != "OK" || results[0].URL != "https://ok.dev" {
+		t.Errorf("deveria restar só o resultado válido aparado: %+v", results)
+	}
+}
+
 func TestBraveFallbackable(t *testing.T) {
-	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests} {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, http.StatusUnprocessableEntity} {
 		if !braveFallbackable(status) {
 			t.Errorf("status %d deveria permitir fallback", status)
 		}
@@ -115,6 +148,28 @@ func TestBraveProvider_SemCredMgr(t *testing.T) {
 	_, err := provider.Search(context.Background(), client, "go", 0, 5)
 	if err != errNoBraveCredential {
 		t.Errorf("esperava errNoBraveCredential, got %v", err)
+	}
+}
+
+func TestBraveProvider_ErroResolucaoPropaga(t *testing.T) {
+	// Fonte dinâmica quebrada (comando inexistente): o erro operacional deve
+	// propagar, nunca virar fallback silencioso.
+	credMgr := credentials.NewManager(nil)
+	if err := credMgr.RegisterPattern("127.0.0.1", &credentials.AuthConfig{
+		Source:       "command",
+		Type:         "bearer",
+		SourceConfig: &credentials.SourceConfig{Command: "comando-brave-inexistente-xyz"},
+	}); err != nil {
+		t.Fatalf("registro de credencial: %v", err)
+	}
+	provider := &braveProvider{credMgr: credMgr, endpointOverride: "http://127.0.0.1/"}
+	client := httpclient.New(&httpclient.Config{CredentialManager: credMgr}, map[string]string{})
+	_, err := provider.Search(context.Background(), client, "go", 0, 5)
+	if err == nil {
+		t.Fatal("esperava erro na resolução")
+	}
+	if isBraveFallbackable(err) {
+		t.Errorf("erro operacional não pode ser fallbackable: %v", err)
 	}
 }
 

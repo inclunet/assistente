@@ -67,7 +67,13 @@ func (p *braveProvider) Search(ctx context.Context, client *httpclient.Client, q
 		return nil, errNoBraveCredential
 	}
 	auth, err := p.credMgr.ResolveForURLWithContext(ctx, p.endpoint())
-	if err != nil || braveToken(auth) == "" {
+	if err != nil {
+		// Falha operacional (comando/keyring, expiração, descriptografia):
+		// propaga em vez de cair no fallback, para não ocultar o problema.
+		return nil, fmt.Errorf("falha ao resolver credencial Brave: %w", err)
+	}
+	token := braveToken(auth)
+	if token == "" {
 		return nil, errNoBraveCredential
 	}
 
@@ -79,11 +85,19 @@ func (p *braveProvider) Search(ctx context.Context, client *httpclient.Client, q
 		return nil, fmt.Errorf("erro ao criar requisição: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Subscription-Token", braveToken(auth))
-	// Nota: o interceptor do cliente centralizado pode acrescentar
-	// `Authorization: Bearer` quando a credencial cadastrada é do tipo bearer.
-	// É o mesmo segredo, para o mesmo endpoint, via TLS — a Brave ignora o
-	// header extra e autentica pelo X-Subscription-Token.
+	req.Header.Set("X-Subscription-Token", token)
+	// Resolução única: aplica aqui todo o material de auth resolvido e
+	// pré-define Authorization para que o interceptor do cliente
+	// centralizado não execute uma segunda resolução (fontes dinâmicas como
+	// `command` teriam custo/efeitos repetidos e poderiam divergir). O header
+	// redundante vai para o mesmo endpoint via TLS e é ignorado pela Brave,
+	// que autentica pelo X-Subscription-Token.
+	for key, val := range auth.Headers {
+		if !strings.EqualFold(key, "X-Subscription-Token") {
+			req.Header.Set(key, val)
+		}
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := client.Do(ctx, req)
 	if err != nil {
@@ -104,7 +118,7 @@ func (p *braveProvider) Search(ctx context.Context, client *httpclient.Client, q
 }
 
 // braveStatusError preserva o status HTTP para a camada da tool decidir entre
-// fallback (401/403/429: auth/quota) e erro propagado.
+// fallback (401/403/429/422: auth/quota/janela de paginação) e erro propagado.
 type braveStatusError struct {
 	StatusCode int
 }
@@ -114,18 +128,23 @@ func (e *braveStatusError) Error() string {
 }
 
 // braveFallbackable indica se o status justifica fallback para o DuckDuckGo:
-// 401/403 (chave inválida/sem acesso) e 429 (quota esgotada). Demais erros
+// 401/403 (chave inválida/sem acesso), 429 (quota esgotada) e 422 (offset
+// além da janela da Brave API, cujo offset máximo é 9: páginas profundas do
+// contrato externo offset/count são servidas pelo fallback). Demais erros
 // são propagados como erro da tool.
 func braveFallbackable(status int) bool {
 	return status == http.StatusUnauthorized ||
 		status == http.StatusForbidden ||
-		status == http.StatusTooManyRequests
+		status == http.StatusTooManyRequests ||
+		status == http.StatusUnprocessableEntity
 }
 
 // braveWebResponse espelha o subconjunto usado da Brave Search API:
-// web.results[] com title/url/description.
+// web.results[] com title/url/description. Web é ponteiro para distinguir
+// bloco ausente (resposta incompatível => erro) de lista vazia (sem
+// resultados => válido).
 type braveWebResponse struct {
-	Web struct {
+	Web *struct {
 		Results []struct {
 			Title       string `json:"title"`
 			URL         string `json:"url"`
@@ -135,21 +154,27 @@ type braveWebResponse struct {
 }
 
 // parseBraveResponse converte a resposta JSON da Brave para []SearchResult,
-// limitada a maxResults. JSON inválido ou sem bloco web resulta em erro —
-// nunca em resultados fabricados.
+// limitada a maxResults. JSON inválido ou bloco web ausente resulta em erro —
+// nunca em resultados fabricados. Campos são aparados antes da validação,
+// então títulos/URLs em branco são descartados.
 func parseBraveResponse(body []byte, maxResults int) ([]SearchResult, error) {
 	var parsed braveWebResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, fmt.Errorf("resposta Brave inválida: %w", err)
 	}
+	if parsed.Web == nil {
+		return nil, fmt.Errorf("resposta Brave sem bloco web")
+	}
 	results := make([]SearchResult, 0, len(parsed.Web.Results))
 	for _, r := range parsed.Web.Results {
-		if r.Title == "" || r.URL == "" {
+		title := strings.TrimSpace(r.Title)
+		resultURL := strings.TrimSpace(r.URL)
+		if title == "" || resultURL == "" {
 			continue
 		}
 		results = append(results, SearchResult{
-			Title:   strings.TrimSpace(r.Title),
-			URL:     strings.TrimSpace(r.URL),
+			Title:   title,
+			URL:     resultURL,
 			Snippet: strings.TrimSpace(r.Description),
 		})
 		if len(results) >= maxResults {

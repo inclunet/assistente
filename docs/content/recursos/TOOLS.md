@@ -209,7 +209,8 @@ O provedor é selecionado automaticamente:
   ou tipo custom com o header `X-Subscription-Token`). Oferece ranking,
   paginação e contagem confiáveis.
 - **DuckDuckGo (HTML)** — fallback universal sem chave, usado quando não há
-  credencial Brave ou a API responde 401/403/429 (auth/quota).
+  credencial Brave, a API responde 401/403/429 (auth/quota) ou o `offset`
+  pedido está além da janela da Brave (422).
 
 O campo `provider` na resposta identifica qual backend respondeu. Demais erros
 da API Brave são propagados sem fabricar resultados.
