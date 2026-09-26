@@ -286,15 +286,15 @@ func trimBearerPrefix(token string) string {
 }
 
 // isSearchFallbackable decide se um erro de qualquer provedor da cadeia
-// justifica avançar para o próximo: sentinelas de ausência de credencial ou
-// de janela excedida, e status HTTP fallbackables de cada API.
+// justifica avançar para o próximo: sentinelas de janela excedida e de
+// ausência de credencial Tavily, regra do Brave via helper dedicado e
+// status HTTP fallbackables da Tavily.
 func isSearchFallbackable(err error) bool {
-	if err == errNoBraveCredential || err == errNoTavilyCredential || err == errTavilyWindowExceeded {
+	if err == errNoTavilyCredential || err == errTavilyWindowExceeded {
 		return true
 	}
-	var braveErr *braveStatusError
-	if errors.As(err, &braveErr) {
-		return braveFallbackable(braveErr.StatusCode)
+	if isBraveFallbackable(err) {
+		return true
 	}
 	var tavilyErr *tavilyStatusError
 	if errors.As(err, &tavilyErr) {
