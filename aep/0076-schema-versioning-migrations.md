@@ -196,3 +196,7 @@ testes de commandbootstrap verificam o schema composto real e sua adoção.
 - [x] Fixtures 0.2.0–0.5.0 exercitam upgrade direto e segundo boot idempotente,
   preservando contagens, relações, hierarquias, `user_id` e isolamento.
 - [x] `go build`, `go vet`, `go test`, `golangci-lint` verdes.
+
+## Exceção deliberada AEP-0110 — credenciais
+
+A decisão do mantenedor em [AEP-0110](0110-fontes-explicitas-de-credenciais.md) exige source explícita e reconfiguração manual das credenciais antigas. Schema e demais recursos mantêm sua política de upgrade. O bloco cifrado de exportação preserva Source/SourceConfig sem executar a fonte; a importação de credenciais sem source é recusada. A cobertura está em TestCredentialSourceExportImportRoundTrip. O status geral desta AEP permanece inalterado.

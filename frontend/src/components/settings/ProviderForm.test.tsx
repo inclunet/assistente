@@ -541,3 +541,28 @@ describe("api_format semantics", () => {
   });
 });
 
+
+it('permite criar provedor usando a credencial de source cadastrada no cofre', async () => {
+  vi.clearAllMocks();
+  render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+  await userEvent.type(screen.getByLabelText(/nome/i), 'Gateway');
+  await userEvent.click(screen.getByLabelText('providerForm.useSavedCredential'));
+  expect(screen.queryByLabelText(/^API Key$/i)).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: /carregar modelos/i }));
+  await waitFor(() => expect(App.ListModelsRaw).toHaveBeenCalledWith(expect.objectContaining({ api_key: undefined })));
+  await userEvent.click(screen.getByRole('button', { name: 'Criar' }));
+  await waitFor(() => expect(App.CreateLLMProvider).toHaveBeenCalledWith(expect.objectContaining({ name: 'Gateway', api_key: undefined })));
+});
+
+it('limpa a escolha de credencial salva ao trocar de provedor e voltar para criação', async () => {
+ const onSave = vi.fn(); const onCancel = vi.fn();
+ const { rerender } = render(<ProviderForm onSave={onSave} onCancel={onCancel} />);
+ await userEvent.click(screen.getByLabelText('providerForm.useSavedCredential'));
+ const provider = { id: 'saved', name: 'Saved', type: 'openai', base_url: 'https://api.openai.com/v1', api_key: '' };
+ rerender(<ProviderForm provider={provider} onSave={onSave} onCancel={onCancel} />);
+ expect(screen.getByLabelText('providerForm.useSavedCredential')).not.toBeChecked();
+ await userEvent.click(screen.getByLabelText('providerForm.useSavedCredential'));
+ rerender(<ProviderForm onSave={onSave} onCancel={onCancel} />);
+ expect(screen.getByLabelText('providerForm.useSavedCredential')).not.toBeChecked();
+ expect(screen.getByLabelText(/^API Key$/i)).toBeInTheDocument();
+});

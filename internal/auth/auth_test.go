@@ -315,7 +315,7 @@ func TestVaultSetupDoesNotReplaceUnreadableKeyringDEK(t *testing.T) {
 
 func TestVaultSetupDoesNotReplaceMissingKeyringDEKWhenCredentialsExist(t *testing.T) {
 	store := newMemoryCredentialStore()
-	store.credentials = []credentials.StoredCredential{{Pattern: "api.example.com", Auth: &credentials.AuthConfig{Type: "bearer", Token: "ciphertext"}}}
+	store.credentials = []credentials.StoredCredential{{Pattern: "api.example.com", Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "ciphertext"}}}
 
 	vault := NewVaultService(store, nil)
 	vault.loadKeyring = func() ([]byte, error) {

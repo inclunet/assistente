@@ -26,6 +26,10 @@ func (c *credSpy) GetByPatternWithContext(context.Context, string) (*credentials
 	return nil, nil
 }
 
+func (c *credSpy) GetConfigByPatternWithContext(context.Context, string) (*credentials.AuthConfig, error) {
+	return nil, nil
+}
+
 func (c *credSpy) DeletePattern(context.Context, string) error { return nil }
 
 func acpService(t *testing.T) (*Service, *credSpy) {

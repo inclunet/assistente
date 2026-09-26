@@ -5,9 +5,9 @@ weight: 1
 
 # Configuração de Provedores LLM
 
-> **Em 2 linhas:** o Assistente não vem com IA própria. Você escolhe um serviço de IA (como OpenAI, Groq ou Ollama local), cola uma chave como quem cola uma senha, e o chat passa a responder com aquele serviço. Sem provedor, o app funciona offline como workspace.
+> **Em 2 linhas:** o Assistente não vem com IA própria. Você escolhe um serviço de IA (como OpenAI, Groq ou Ollama local), configura uma credencial (valor salvo, variável de ambiente, keyring ou comando), e o chat passa a responder com aquele serviço. Sem provedor, o app funciona offline como workspace.
 
-O Assistente suporta múltiplos provedores de LLM, tanto comerciais (cloud) quanto locais. Basta adicionar um provedor nas configurações (`Alt + 2`) e informar a chave de API quando necessário.
+O Assistente suporta múltiplos provedores de LLM, tanto comerciais (cloud) quanto locais. Basta adicionar um provedor nas configurações (`Alt + 2`) e informar uma chave de API ou usar uma credencial já cadastrada para o domínio.
 
 ## Provedores Suportados
 
@@ -161,3 +161,5 @@ selfHosted: {
   helpText: 'Generic self-hosted LLM server. Configure URL and authentication token.',
 }
 ```
+
+Consulte [Fontes de credenciais](../CREDENTIAL_SOURCES/) para usar env, keyring ou comando sem inserir tokens estáticos.

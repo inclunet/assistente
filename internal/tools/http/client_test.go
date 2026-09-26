@@ -14,7 +14,7 @@ func TestClient_ApplyAuth_WithCredential(t *testing.T) {
 	mgr := credentials.NewManager(nil)
 
 	// Registrar uma credencial
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "secret-token-123",
 	}
@@ -72,7 +72,7 @@ func TestClient_ApplyAuth_NoDomainPattern(t *testing.T) {
 func TestClient_ApplyAuth_WildcardPattern(t *testing.T) {
 	mgr := credentials.NewManager(nil)
 
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "wildcard-token",
 	}
@@ -107,7 +107,7 @@ func TestClient_Do_WithServer(t *testing.T) {
 
 	mgr := credentials.NewManager(nil)
 
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "test-token",
 	}
@@ -134,7 +134,7 @@ func TestClient_Do_WithServer(t *testing.T) {
 func TestClient_ApplyAuth_FallbackResolveForURL(t *testing.T) {
 	mgr := credentials.NewManager(nil)
 
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "github-token-from-keyring",
 	}
@@ -157,7 +157,7 @@ func TestClient_ApplyAuth_FallbackResolveForURL(t *testing.T) {
 func TestClient_ApplyAuth_FallbackWildcard(t *testing.T) {
 	mgr := credentials.NewManager(nil)
 
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "wildcard-github-token",
 	}
@@ -179,7 +179,7 @@ func TestClient_ApplyAuth_FallbackWildcard(t *testing.T) {
 func TestClient_ApplyAuth_ExistingAuthNotOverwritten(t *testing.T) {
 	mgr := credentials.NewManager(nil)
 
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "from-credential-manager",
 	}

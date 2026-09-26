@@ -61,7 +61,7 @@ func newTestManagerWithEmit(emit emitFunc) *Manager {
 
 func storeUserToken(t *testing.T, m *Manager, slug, access, refresh string, expiresAt int64) {
 	t.Helper()
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:       "oauth2",
 		Token:      access,
 		RefreshURL: refresh,
@@ -316,4 +316,25 @@ func TestReauthorizeServer_RunsInteractiveFlowPersistsTokenAndReconnects(t *test
 	}
 
 	m.CloseAll()
+}
+
+func TestRefreshOAuthPersistsExplicitStaticSource(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := fmt.Fprint(w, `{"access_token":"renewed","refresh_token":"next-refresh","token_type":"Bearer","expires_in":3600}`); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer server.Close()
+	m := newTestManagerWithEmit(func(string, any) {})
+	storeUserToken(t, m, "source-test", "old", "refresh", time.Now().Add(-time.Hour).Unix())
+	m.servers["source-test"] = &ServerStatus{Slug: "source-test", Config: ServerConfig{AuthType: AuthOAuth2PKCE, OAuth2TokenURL: server.URL, OAuth2ClientID: "client"}}
+	refreshed, err := m.refreshOAuthTokenBestEffort(context.Background(), "source-test", true)
+	if err != nil || !refreshed {
+		t.Fatalf("refreshed=%v err=%v", refreshed, err)
+	}
+	auth, err := m.credMgr.GetByPatternWithContext(context.Background(), userTokensPattern("source-test"))
+	if err != nil || auth.Source != "static" || auth.Token != "renewed" || auth.RefreshURL != "next-refresh" {
+		t.Fatalf("refresh not persisted: %v", err)
+	}
 }

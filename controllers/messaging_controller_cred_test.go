@@ -23,7 +23,7 @@ func TestResolveCredentialRef_RequiresUserScope(t *testing.T) {
 		{"channel:signal:api_token", "signal-api-token"},
 	}
 	for _, p := range patterns {
-		if err := mgr.RegisterPatternWithContext(userCtx, p.pattern, &credentials.AuthConfig{
+		if err := mgr.RegisterPatternWithContext(userCtx, p.pattern, &credentials.AuthConfig{Source: "static",
 			Type:  "secret",
 			Token: p.token,
 		}); err != nil {
