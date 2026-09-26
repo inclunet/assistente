@@ -83,7 +83,8 @@ describe('commandLocalKeyboardWails', () => {
   it('clona profundamente o mapa contextual, incluindo bySurfaceId, sem roundtrip JSON', async () => {
     const source = {
       generation: 'deep',
-      bindings: [{ shortcut: { version: 1 as const, code: 'KeyK', modifiers: ['Control' as const] }, commandId: 'workspace.open', handler: 'backend' as const }],
+      bindings: [{ shortcut: { version: 1 as const, code: 'KeyK', modifiers: ['Control' as const] }, commandId: 'workspace.tab.go_to', handler: 'local_ui' as const,
+        arguments: { workspace_id: 'workspace-a', target_mode: 'position', position: 42 } }],
       contextualBindings: [{
         shortcut: { version: 1 as const, code: 'KeyY', modifiers: ['Control' as const] },
         bySurface: { editor: { shortcut: { version: 1 as const, code: 'KeyY', modifiers: ['Control' as const] }, commandId: 'workspace.editor', handler: 'backend' as const } },
@@ -92,11 +93,15 @@ describe('commandLocalKeyboardWails', () => {
         fallback: null,
       }],
       localPaletteCommands: ['workspace.open'],
+      localPaletteArguments: { 'workspace.tab.go_to': { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-a' } },
       localPaletteConditions: [{
-        commandId: 'workspace.open',
+        commandId: 'workspace.tab.go_to',
         bySurface: { chat: true },
         bySurfaceId: { chat: { 'tab-1': false } },
-        byProfile: { focused: { commandId: 'workspace.open', bySurface: { chat: false }, fallback: true } },
+        bySurfaceArguments: { chat: { workspace_id: 'workspace-a', target_mode: 'position', position: 2 } },
+        bySurfaceIdArguments: { chat: { 'tab-1': { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-b' } } },
+        byProfile: { focused: { commandId: 'workspace.tab.go_to', bySurface: { chat: false }, fallback: true,
+          fallbackArguments: { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-c' } } },
         fallback: false,
       }],
     };
@@ -108,6 +113,8 @@ describe('commandLocalKeyboardWails', () => {
     const port = createCommandLocalKeyboardWailsPort({ target: { go: { app: { App: app } } } as unknown as Window });
     const map = await port.loadMap();
     map.bindings[0].shortcut.version === 1 && map.bindings[0].shortcut.modifiers.push('Alt');
+    map.bindings[0].arguments!.position = 99;
+    map.localPaletteArguments!['workspace.tab.go_to'].tab_id = 'tab-b';
     map.contextualBindings![0].bySurfaceId!.editor['editor-1'] = {
       shortcut: { version: 1, code: 'KeyY', modifiers: ['Control'] }, commandId: 'workspace.changed', handler: 'backend',
     };
@@ -115,15 +122,23 @@ describe('commandLocalKeyboardWails', () => {
     map.localPaletteConditions![0].bySurface.chat = false;
     map.localPaletteConditions![0].bySurfaceId!.chat['tab-1'] = true;
     map.localPaletteConditions![0].byProfile!.focused.bySurface.chat = true;
+    map.localPaletteConditions![0].bySurfaceArguments!.chat.position = 99;
+    map.localPaletteConditions![0].bySurfaceIdArguments!.chat['tab-1'].tab_id = 'mutated';
+    map.localPaletteConditions![0].byProfile!.focused.fallbackArguments!.tab_id = 'mutated';
     expect(source.bindings[0].shortcut.modifiers).toEqual(['Control']);
+    expect(source.bindings[0].arguments).toEqual({ workspace_id: 'workspace-a', target_mode: 'position', position: 42 });
+    expect(source.localPaletteArguments).toEqual({ 'workspace.tab.go_to': { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-a' } });
     expect(source.contextualBindings![0].bySurfaceId.editor['editor-1']).toBeNull();
     expect(source.contextualBindings![0].sequenceFallbacks).toEqual({ editor: { '': true } });
     expect(source.localPaletteCommands).toEqual(['workspace.open']);
     expect(source.localPaletteConditions).toEqual([{
-      commandId: 'workspace.open',
+      commandId: 'workspace.tab.go_to',
       bySurface: { chat: true },
       bySurfaceId: { chat: { 'tab-1': false } },
-      byProfile: { focused: { commandId: 'workspace.open', bySurface: { chat: false }, fallback: true } },
+      bySurfaceArguments: { chat: { workspace_id: 'workspace-a', target_mode: 'position', position: 2 } },
+      bySurfaceIdArguments: { chat: { 'tab-1': { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-b' } } },
+      byProfile: { focused: { commandId: 'workspace.tab.go_to', bySurface: { chat: false }, fallback: true,
+        fallbackArguments: { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-c' } } },
       fallback: false,
     }]);
   });

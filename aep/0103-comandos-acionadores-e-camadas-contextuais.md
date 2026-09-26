@@ -2,6 +2,23 @@
 
 **Status:** In Progress
 
+**Destino parametrizado de abas — seção164 da tasklist:** `workspace.tab.go_to`
+é um único `local_ui` com binding vinculado a `workspace_id` e alvo por
+posição inteira positiva (sem teto configurável) ou `tab_id` estável. Os
+argumentos persistidos registram também `target_mode`: `position` junto a
+`position`, ou `specific` junto a `tab_id`, sempre com `workspace_id`. Posição
+usa a ordem corrente; aba ausente/fechada e workspace divergente ficam
+indisponíveis sem fallback ou retarget. Ctrl+1…9 e a apresentação automática
+do Deck não mudam nesta extensão. Evidências de dispatch e configurador ficam
+na tasklist.
+
+**Paridade dos argumentos projetados (26/09/2026):** os DTOs públicos de
+teclado/paleta/Deck expõem objetos JSON, com bindings Wails regenerados e
+cópias profundas. Envelopes internos permanecem inalterados. A integração da
+paleta comprova destino condicionado por perfil/superfície sem presença na
+lista incondicional, e rejeita seleção após invalidação do mapa. Não altera
+autorização nem representa aceite físico/NVDA.
+
 **Extensão de apresentação pós-PR #833 — gerenciadores separados:** conforme
 decisão registrada na seção159 da tasklist, a tela principal organiza camadas
 e seus estados. Na toolbar de Nova camada, Editar camada atua na seleção e
@@ -193,7 +210,7 @@ O catálogo expõe 149 IDs; quatro permitem execute pelo chat neste lote.
 CLI list/describe/execute/retry/status implementada: C71/C73 e R11.2 chegam a I.
 Sessão e lookup autorizados, UUIDv7 no ingresso e replay pelo ledger comum;
 sem confirmação textual alternativa ou inicialização de hardware/serviços
-autônomos. Nenhum dos 149 comandos atuais permite CLI: discovery é funcional,
+autônomos. Nenhum dos 150 comandos atuais permite CLI: discovery é funcional,
 ações visuais/interativas continuam indisponíveis conforme D14. C02 tem
 implementação identificada; não houve ampliação de origens para fechá-lo.
 C22 volta a I após a correção de Δ18: condições do Deck são preparadas por
@@ -214,7 +231,7 @@ Repetir o anúncio não confirma a decisão; inputs/IME e callbacks antigos
 são filtrados. Aceite físico/NVDA continua pendente.
 R07.3 passa a implementado após a composição de ownership e a recusa explícita
 fora da plataforma qualificada; o gate R07 continua aberto pelas outras saídas.
-Catálogo v40: **149 comandos / 61 locais / 67 defaults locais**; 81 IDs no
+Catálogo v41: **150 comandos / 61 locais / 67 defaults locais**; 81 IDs no
 Deck contextual não significam 81 critérios concluídos. Apresentação Deck
 e qualificações finais permanecem.
 Reconciliação documental na seção129; implementação e testes de Δ18 na

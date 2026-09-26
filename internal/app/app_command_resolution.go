@@ -145,7 +145,10 @@ func commandProductProjection(registry *commandcatalog.Registry, active []string
 		// publicar o default não autoriza executá-lo pelo ingresso de backend.
 		// Ações de camada dependem de regra/escopo escolhidos pelo usuário.
 		// Não existe argumento padrão seguro para um binding automático.
-		if !definition.AllowsSource(commandcatalog.Palette) || isCommandLayerAction(definition.ID) || isCommandToolExecutionID(definition.ID) {
+		// go_to exige um workspace e um alvo escolhidos explicitamente; não
+		// transforme o objeto vazio em um default que nunca poderia executar.
+		if !definition.AllowsSource(commandcatalog.Palette) || isCommandLayerAction(definition.ID) ||
+			isCommandToolExecutionID(definition.ID) || definition.ID == commandWorkspaceTabGoToID {
 			continue
 		}
 		args, err := definition.ValidateArguments(json.RawMessage(`{}`))

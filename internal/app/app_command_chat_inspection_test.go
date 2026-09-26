@@ -18,7 +18,7 @@ func TestCommandChatInspectionLocalPresentation(t *testing.T) {
 		t.Run(tc.id, func(t *testing.T) {
 			a, decisions := settingsSecurityFixture(t)
 			p := a.commandProduct.Load()
-			if len(p.registry.List()) != 149 || commandProductRegistryVersion != "product-v40-agent-commands" {
+			if len(p.registry.List()) != 150 || commandProductRegistryVersion != "product-v41-agent-commands" {
 				t.Fatal("catalog/version")
 			}
 			d, ok := p.registry.Lookup(tc.id)

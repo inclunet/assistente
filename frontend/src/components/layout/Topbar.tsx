@@ -57,11 +57,11 @@ import { COMMAND_NAVIGATION_EVENT, COMMAND_NAVIGATION_ROUTES, createCommandNavig
 import { createCommandBackendExecution, type CommandBackendExecution, type WorkspaceListCommandOutput } from '../../lib/commandBackendExecution';
 import { createCommandBackendExecutionWailsPort } from '../../lib/commandBackendExecutionWails';
 import { createContextualPaletteLayerWailsPort } from '../../lib/commandContextualPaletteLayerWails';
-import { createContextualDeckLease, isContextualDeckCommand, selectContextualDeckCommand } from '../../lib/commandContextualDeck';
+import { createContextualDeckLease, isContextualDeckCommand, selectContextualDeckSelection } from '../../lib/commandContextualDeck';
 import { createContextualDeckLayerWailsPort } from '../../lib/commandContextualDeckLayerWails';
-import { createLocalCommandKeyboard, resolveLocalCommandContextualBinding, type LocalCommandKeyboardBinding, type LocalCommandKeyboardController, type LocalCommandKeyboardMap } from '../../lib/commandLocalKeyboard';
-import { createLocalPaletteConditionResolver, createLocalPaletteConditionResolverFromParsed, parseLocalPaletteConditions, type LocalCommandPaletteVisualContext } from '../../lib/commandLocalPaletteConditions';
-import { resolveLocalDeckConditionCommandFromParsed } from '../../lib/commandLocalDeckConditions';
+import { createLocalCommandKeyboard, resolveLocalCommandContextualBinding, type LocalCommandKeyboardBinding, type LocalCommandKeyboardController, type LocalCommandKeyboardMap, type LocalCommandPaletteCondition } from '../../lib/commandLocalKeyboard';
+import { createLocalPaletteConditionResolver, createLocalPaletteConditionResolverFromParsed, parseLocalPaletteConditions, resolveLocalPaletteConditionSelectionFromParsed, type LocalCommandPaletteVisualContext } from '../../lib/commandLocalPaletteConditions';
+import { resolveLocalDeckConditionSelectionFromParsed } from '../../lib/commandLocalDeckConditions';
 import { acquireGlobalCommandOwnership } from '../../lib/commandGlobalOwnershipWails';
 import { commandShortcutFromKeyboardEvent, formatCommandKeyboardTrigger, serializeCommandKeyboardTrigger, type CommandKeyboardTrigger } from '../../lib/commandShortcut';
 import { publishCommandShortcutHints, useCommandShortcutHints } from '../../lib/commandShortcutHints';
@@ -175,6 +175,7 @@ interface PendingCommandIntent {
   readonly workspaceId: string;
   readonly activeTabId: string | null;
   readonly routeIdentity: string;
+  readonly arguments?: Record<string, unknown>;
 }
 
 interface PaletteArgumentPrompt {
@@ -287,10 +288,12 @@ export function Topbar() {
   const localCommandExecutionRef = useRef<CommandBackendExecution | null>(null);
   const localCommandContextualExecutionRef = useRef<CommandUIExecution | null>(null);
   const localPaletteCommandsRef = useRef<ReadonlySet<string>>(new Set());
+  const localPaletteArgumentsRef = useRef<Readonly<Record<string, Record<string, unknown>>>>({});
   const contextualPaletteCommandsRef = useRef<ReadonlySet<string> | null>(new Set());
   const contextualPaletteResolverRef = useRef<ReturnType<typeof createLocalPaletteConditionResolver>>(() => false);
   const contextualPaletteExecutorsRef = useRef(new Set<CommandUIExecution>());
   const localPaletteConditionResolverRef = useRef<(commandId: string, context: LocalCommandPaletteVisualContext | null | undefined) => boolean>(() => false);
+  const localPaletteConditionsRef = useRef<readonly LocalCommandPaletteCondition[]>([]);
   const localPaletteDeadlineRef = useRef(0);
   const localPaletteTrustedSessionRef = useRef<TrustedCommandContextSession | null>(null);
   const localPaletteProfileRevisionRef = useRef(0);
@@ -522,12 +525,25 @@ export function Topbar() {
     }
   }, []);
 
-  const workspaceTabNavigationAvailable = useCallback((commandID: string) => {
+  const workspaceTabNavigationAvailable = useCallback((commandID: string, argumentsValue?: unknown) => {
     if (!isWorkspaceTabNavigationCommand(commandID)) return true;
-    const target = captureWorkspaceTabNavigationTarget(() => pathnameRef.current, commandID);
+    const target = captureWorkspaceTabNavigationTarget(() => pathnameRef.current, commandID, argumentsValue);
     if (!target) return false;
     try { return target.isCurrent(); } finally { target.dispose(); }
   }, []);
+
+  const currentLocalPaletteArguments = useCallback((commandID: string) => {
+    const direct = localPaletteArgumentsRef.current[commandID];
+    if (direct || commandID !== 'workspace.tab.go_to') return direct;
+    if (!hasCurrentLocalPaletteCommand(commandID)) return undefined;
+    const source = localPaletteSourceRef.current;
+    if (!source) return undefined;
+    const selected = resolveLocalPaletteConditionSelectionFromParsed(localPaletteConditionsRef.current, commandID, {
+      surfaceType: source.surfaceType, surfaceId: source.surfaceId,
+      ...(source.profile !== undefined ? { profile: source.profile } : {}),
+    });
+    return selected?.available ? selected.arguments : undefined;
+  }, [hasCurrentLocalPaletteCommand]);
 
   const chatPickerAvailable = useCallback((commandID: string, eventTarget?: EventTarget | null): boolean => {
     if (!isChatPickerCommand(commandID)) return false;
@@ -545,7 +561,7 @@ export function Topbar() {
     finally { target.dispose(); }
   }, []);
 
-  const executeLocalUICommand = useCallback((commandID: string, allowModalHelp = false, chatTarget?: Pick<ChatPickerTargetLease, 'isCurrent' | 'canOpen' | 'open' | 'dispose'>): boolean => {
+  const executeLocalUICommand = useCallback((commandID: string, allowModalHelp = false, chatTarget?: Pick<ChatPickerTargetLease, 'isCurrent' | 'canOpen' | 'open' | 'dispose'>, commandArguments?: unknown): boolean => {
     const isHelpCommand = commandID === HELP_NAVIGATION_COMMAND_ID;
     const isChatPicker = isChatPickerCommand(commandID);
     const isEditorPresentation = isEditorPresentationCommand(commandID);
@@ -620,13 +636,13 @@ export function Topbar() {
     }
     const workspaceState = useWorkspaceStore.getState();
     if (!isWorkspaceTabNavigationCommand(commandID)) return false;
-    const target = resolveWorkspaceTabNavigationTarget(currentWorkspace, commandID);
+    const target = resolveWorkspaceTabNavigationTarget(currentWorkspace, commandID, commandArguments);
     if (!target) return false;
     rollbackFocusRef.current?.dispose();
     rollbackFocusRef.current = null;
     localNavigationFocusRef.current?.dispose();
     localNavigationFocusRef.current = null;
-    const focus = captureWorkspaceTabNavigationFocus(() => pathnameRef.current, commandID);
+    const focus = captureWorkspaceTabNavigationFocus(() => pathnameRef.current, commandID, commandArguments);
     if (!focus) return false;
     workspaceState.setActiveTab(target.id);
     focus.apply();
@@ -1612,9 +1628,11 @@ export function Topbar() {
       paletteSurfaceTargetRef.current?.dispose();
       paletteSurfaceTargetRef.current = undefined;
       localPaletteCommandsRef.current = new Set();
+      localPaletteArgumentsRef.current = {};
       contextualPaletteCommandsRef.current = new Set();
       contextualPaletteResolverRef.current = () => false;
       localPaletteConditionResolverRef.current = () => false;
+      localPaletteConditionsRef.current = [];
       localPaletteSourceRef.current = null;
       localKeyboardGenerationRef.current = null;
       localKeyboardOwnerRef.current = null;
@@ -1884,6 +1902,7 @@ export function Topbar() {
         localPaletteDeadlineRef.current = map.validUntil ?? 0;
         publishCommandShortcutHints(map);
         localPaletteCommandsRef.current = new Set(map.localPaletteCommands ?? []);
+        localPaletteArgumentsRef.current = Object.fromEntries(Object.entries(map.localPaletteArguments ?? {}).map(([id, args]) => [id, { ...args }]));
         const contextualConditions = map.contextualPaletteConditions === undefined ? [] : parseLocalPaletteConditions(map.contextualPaletteConditions);
         const validContextualConditions = contextualConditions?.every(condition => isContextualPaletteCommand(condition.commandId) &&
           (!isContextualPagePaletteCommand(condition.commandId) || (condition.bySurfaceId === undefined &&
@@ -1891,6 +1910,7 @@ export function Topbar() {
         contextualPaletteCommandsRef.current = validContextualConditions ? new Set(contextualConditions!.map(condition => condition.commandId)) : null;
         contextualPaletteResolverRef.current = createLocalPaletteConditionResolver(validContextualConditions ? contextualConditions : null);
         localPaletteConditionResolverRef.current = createLocalPaletteConditionResolver(map.localPaletteConditions);
+        localPaletteConditionsRef.current = parseLocalPaletteConditions(map.localPaletteConditions) ?? [];
         localKeyboardGenerationRef.current = map.generation;
         localKeyboardOwnerRef.current = {
           ownerId: map.ownerId!, sessionId: map.sessionId!, workspaceId: map.workspaceId!,
@@ -1998,7 +2018,7 @@ export function Topbar() {
           return;
         }
         if (request.handler === 'local_ui') {
-          executeLocalUICommand(request.commandId, isHelpCommand);
+          executeLocalUICommand(request.commandId, isHelpCommand, undefined, request.arguments);
           return;
         }
         if (isEditorFormatCommand(request.commandId)) {
@@ -2094,7 +2114,7 @@ export function Topbar() {
           closeCreationMenu((reason === 'escape' || reason === 'timeout') && focusInMenu);
         }
       },
-      canHandle: (commandID, event) => {
+      canHandle: (commandID, event, bindingArguments) => {
         if (isLandmarkNavigationCommand(commandID)) return !event.isComposing && event.keyCode !== 229 && landmarkAvailable(commandID);
         if (isCapturedPresentationCommand(commandID)) return !event.isComposing && event.keyCode !== 229 && presentationCommandAvailable(commandID);
         if (isEditorMermaidCommand(commandID)) return !event.repeat && !event.isComposing && event.keyCode !== 229 && mermaidAvailable(commandID);
@@ -2122,11 +2142,11 @@ export function Topbar() {
             event.target.closest('.datagrid-container')) return false;
         return commandID !== WORKSPACE_PANEL_FOCUS_COMMAND_ID
           ? (isWorkspaceTabNavigationCommand(commandID)
-            ? workspaceTabNavigationAvailable(commandID)
+            ? workspaceTabNavigationAvailable(commandID, bindingArguments)
             : !isWorkspaceMutationCommand(commandID) || workspaceMutationAvailable(commandID))
           : workspacePanelFocusAvailable();
       },
-      canHandleEditable: (commandID, event) => {
+      canHandleEditable: (commandID, event, bindingArguments) => {
         if (isPageMutationCommand(commandID)) return !event.repeat && !event.isComposing && pageMutationAvailable(commandID);
         if (commandID === TERMINAL_INTERRUPT_COMMAND || isTerminalSessionOperationCommand(commandID)) return !event.repeat && !event.isComposing && terminalOperationAvailable(commandID);
         if (commandID === 'tasklists.create.open' || commandID === 'profiles.create.open') return false;
@@ -2158,7 +2178,7 @@ export function Topbar() {
         if (isChatPickerCommand(commandID)) return chatPickerAvailable(commandID, target);
         if (isCommandLayerAction(commandID)) return isSupportedEditable;
         if (isWorkspaceTabNavigationCommand(commandID)) {
-          return isWorkspaceTabNavigationTextField(commandID, target) && workspaceTabNavigationAvailable(commandID);
+          return isWorkspaceTabNavigationTextField(commandID, target) && workspaceTabNavigationAvailable(commandID, bindingArguments);
         }
         if (isCommandNavigation(commandID)) return isSupportedEditable && workspaceTabNavigationAvailable(commandID);
         return isWorkspaceMutationCommand(commandID) &&
@@ -2542,7 +2562,8 @@ export function Topbar() {
             next.focusedElement === first.focusedElement) && scalarCurrent(native);
       };
       if (!scalarCurrent()) return;
-      const commandId = selectContextualDeckCommand(value.conditions, first.context);
+      const selection = selectContextualDeckSelection(value.conditions, first.context);
+      const commandId = selection?.commandId ?? null;
       if (startedInModal && !isEditorMermaidMutation(commandId)) return;
       if (isEditorMermaidMutation(commandId)) {
         if (!startedInModal || commandId !== 'editor.mermaid.apply') {
@@ -2560,7 +2581,7 @@ export function Topbar() {
           const target = captureChatMessagingTarget(() => pathnameRef.current, commandId);
           if (target && sameSource()) void runChatMessaging(target).catch(() => undefined);
           else target?.dispose();
-        } else executeLocalUICommand(commandId);
+        } else executeLocalUICommand(commandId, false, undefined, selection?.arguments);
         return;
       }
       const workspace = useWorkspaceStore.getState().workspace;
@@ -2676,6 +2697,7 @@ export function Topbar() {
         sessionId: string;
         workspaceId: string;
         conditions: unknown;
+        arguments: unknown;
       }> | null;
       const auth = useAuthStore.getState();
       const currentWorkspace = useWorkspaceStore.getState().workspace;
@@ -2688,6 +2710,7 @@ export function Topbar() {
           (localPaletteDeadlineRef.current !== 0 && Date.now() >= localPaletteDeadlineRef.current) || !document.hasFocus()) return;
 
       let commandId: string | null = null;
+      let commandArguments: unknown = value.arguments;
       if (value.conditions !== undefined) {
         if (value.commandId !== '') return;
         const first = readDeckVisualSnapshot();
@@ -2695,8 +2718,11 @@ export function Topbar() {
         const parsedConditions = parseLocalPaletteConditions(value.conditions);
         if (!parsedConditions) return;
         const resolveConditions = createLocalPaletteConditionResolverFromParsed(parsedConditions);
-        const firstCommand = resolveLocalDeckConditionCommandFromParsed(parsedConditions, first.context);
+        const firstSelection = resolveLocalDeckConditionSelectionFromParsed(parsedConditions, first.context);
+        const firstCommand = firstSelection?.commandId ?? null;
         if (!firstCommand) return;
+        if (firstCommand === 'workspace.tab.go_to' && !firstSelection?.arguments) return;
+        commandArguments = firstSelection?.arguments;
         const second = readDeckVisualSnapshot();
         if (!second || first.owner.userId !== second.owner.userId || first.owner.sessionId !== second.owner.sessionId ||
             first.owner.workspaceId !== second.owner.workspaceId || first.surfaceLease !== second.surfaceLease ||
@@ -2723,7 +2749,7 @@ export function Topbar() {
         if (target) void runChatMessaging(target).catch(() => undefined);
         return;
       }
-      executeLocalUICommand(commandId);
+      executeLocalUICommand(commandId, false, undefined, commandArguments);
     });
     const refreshKeyboardOnFocus = (event: FocusEvent) => {
       if (event.target !== event.currentTarget || disposed) return;
@@ -3027,7 +3053,7 @@ export function Topbar() {
       } else if (isLandmarkNavigationCommand(intent.commandID)) {
         if (paletteLandmarkTargetRef.current) executeLocalUICommand(intent.commandID, false, paletteLandmarkTargetRef.current);
       } else if ((!isChatPickerCommand(intent.commandID) && !isEditorPresentationCommand(intent.commandID)) || paletteSurfaceTargetRef.current) {
-        executeLocalUICommand(intent.commandID, false, paletteSurfaceTargetRef.current);
+        executeLocalUICommand(intent.commandID, false, paletteSurfaceTargetRef.current, intent.arguments);
       }
       if (activeCommandIntentRef.current === intent) activeCommandIntentRef.current = null;
       return;
@@ -3425,7 +3451,8 @@ export function Topbar() {
     return rankedItems.map((item) => {
       const localUIAvailable = (!isLocalUICommand(item.id) || hasCurrentLocalPaletteCommand(item.id)) && (!isPageMutationCommand(item.id) || palettePageMutationsRef.current.get(item.id)?.isCurrent() === true);
       const contextualAvailable = item.id !== WORKSPACE_PANEL_FOCUS_COMMAND_ID || workspacePanelFocusAvailable();
-      const tabNavigationAvailable = workspaceTabNavigationAvailable(item.id);
+      const paletteArguments = currentLocalPaletteArguments(item.id);
+      const tabNavigationAvailable = workspaceTabNavigationAvailable(item.id, paletteArguments);
       const mutationAvailable = !isWorkspaceMutationCommand(item.id) || (workspaceMutationAvailable(item.id) && contextualPaletteAvailable(item.id));
       const editorModeAvailable = !isEditorModeCommand(item.id) || paletteEditorModeTargetsRef.current.get(item.id)?.isCurrent() === true;
       const editorFileAvailable = !isEditorFileCommand(item.id) || paletteEditorFileTargetRef.current?.canExecute(item.id) === true;
@@ -3470,7 +3497,7 @@ export function Topbar() {
               (isLandmarkNavigationCommand(item.id) && !paletteLandmarkTargetRef.current?.canOpen(item.id)) ||
               ((isChatPickerCommand(item.id) || isEditorPresentationCommand(item.id)) && !paletteSurfaceTargetRef.current?.isCurrent()) ||
               (item.id === WORKSPACE_PANEL_FOCUS_COMMAND_ID && !workspacePanelFocusAvailable()) ||
-              !workspaceTabNavigationAvailable(item.id) ||
+              !workspaceTabNavigationAvailable(item.id, currentLocalPaletteArguments(item.id)) ||
               (isWorkspaceMutationCommand(item.id) && !workspaceMutationAvailable(item.id))) {
             announce(`${item.name || item.id}: ${unavailableReason}`);
             return;
@@ -3542,6 +3569,8 @@ export function Topbar() {
               pendingEditorModeTargetRef.current = target;
               paletteEditorModeTargetsRef.current.delete(item.id);
             }
+            const currentPaletteArguments = currentLocalPaletteArguments(item.id);
+            if (item.id === 'workspace.tab.go_to' && !currentPaletteArguments) return;
             pendingCommandExecutionRef.current = {
               commandID: item.id,
               ...(contextualPalette ? { contextualPalette } : {}),
@@ -3550,6 +3579,7 @@ export function Topbar() {
               workspaceId: currentWorkspace.id,
               activeTabId: currentWorkspace.activeTabId ?? null,
               routeIdentity: commandRouteIdentityRef.current,
+              ...(currentPaletteArguments ? { arguments: { ...currentPaletteArguments } } : {}),
             };
             return;
           }
@@ -3558,7 +3588,7 @@ export function Topbar() {
         },
       };
     });
-  }, [announce, commandUIHandlers, t, workspaceMutationAvailable, workspaceTabNavigationAvailable, workspacePanelFocusAvailable, hasCurrentLocalPaletteCommand, contextualPaletteAvailable, captureContextualPaletteLease, palettePreferences, shortcutHint, updatePalettePreferences]);
+  }, [announce, commandUIHandlers, t, workspaceMutationAvailable, workspaceTabNavigationAvailable, currentLocalPaletteArguments, workspacePanelFocusAvailable, hasCurrentLocalPaletteCommand, contextualPaletteAvailable, captureContextualPaletteLease, palettePreferences, shortcutHint, updatePalettePreferences]);
 
   const handleOpenCommandPicker = useCallback((fromKeyboard = false) => {
     const pointerLandmark = pointerLandmarkTargetRef.current;
