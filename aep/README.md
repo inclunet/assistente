@@ -1050,4 +1050,4 @@ as referências no código. Até lá, o índice usa os rótulos 0074-A e 0074-B 
 ambos como documentos principais: por isso há 102 documentos para 101 números
 ocupados.
 
-- [AEP-0110 — Fontes explícitas de credenciais](0110-fontes-explicitas-de-credenciais.md) — In Progress
+- [AEP-0110 — Fontes explícitas de credenciais](0110-fontes-explicitas-de-credenciais.md) — Done

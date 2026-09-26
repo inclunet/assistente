@@ -1,6 +1,6 @@
 # AEP-0110 — Fontes explícitas de credenciais
 
-**Status:** In Progress
+**Status:** Done
 
 ## Resumo
 
@@ -43,7 +43,7 @@ atender executáveis locais e WSL sem acoplamento a fornecedor.
 
 - [x] Modelo, persistência e resolução de fontes.
 - [x] UI explícita e aplicação HTTP nos fluxos de providers.
-- [ ] Validação completa, revisão independente local e CI/review remoto.
+- [x] Validação completa, revisão independente local e CI/review remoto.
 
 ## Riscos
 
@@ -60,8 +60,8 @@ retornados ao editor, nunca o token materializado.
   multilinha, excesso de saída e ausência de segredos em erros (`source_test.go`).
 - [x] Persistência cifrada, isolamento entre usuários e renovação env testados.
 - [x] Testes de autocomplete mantêm teclado, mouse e anúncios no novo seletor.
-- [ ] Build, vet, Go tests, TypeScript, ESLint, Stylelint e Vitest aprovados.
-- [ ] Revisor independente sem pendências; CI verde e threads remotas resolvidas.
+- [x] Build, vet, Go tests, TypeScript, ESLint, Stylelint e Vitest aprovados (CI Linux completo; limitações locais abaixo).
+- [x] Revisor independente sem pendências; CI verde e threads remotas resolvidas.
 
 OAuth completo, cache e renovação programada de command são evoluções futuras,
 fora do escopo aceito para esta entrega.
@@ -101,11 +101,20 @@ fora do escopo aceito para esta entrega.
   testes com marcador comprovam que não executam comandos. A chave interna
   command-request-hmac legada é preservada, sem migração ou fallback de usuário.
 - Após essas correções, portability, MCP e commandledger passaram; build, vet
-  e golangci-lint também passaram. Novo CI ainda pendente.
+  e golangci-lint também passaram. Validação final registrada abaixo.
 - A investigação da falha de revogação revelou ausência de WatchEpoch durante
   AwaitQueue. Corrigido com liberação garantida e admissão final preservada
   (evidência no AEP-0103). O teste mantém a espera de 2s, com prazo de execução
   de 1 minuto para impedir aprovação por timeout: 20 repetições e a suíte
   commandexecution aprovadas. Build, vet e lint aprovados; revisão independente
   dessa correção sem pendências.
-- Revisão remota em acompanhamento; nenhum merge de PR autorizado.
+## Evidências de conclusão
+
+- [PR #837](https://github.com/inclunet/assistente/pull/837): onze observações
+  remotas corrigidas e respondidas; zero threads abertas. As duas últimas
+  revisões do código não apresentaram novos achados.
+- [CI do commit 4356d97d5](https://github.com/inclunet/assistente/actions/runs/36204607138):
+  20 checks aprovados, incluindo Go com cobertura, todos os grupos com race,
+  frontend, bindings e E2E. Confirma também a correção da revogação na fila.
+- Revisor local independente `review_credential_sources`: rodada final da
+  correção de fila sem pendências. Nenhum merge automático autorizado.
