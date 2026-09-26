@@ -10648,5 +10648,12 @@ prova retorno à leitura sem Begin/Take/Commit nem nova execução. Arquivo Vite
 do modo do editor: 103/103 PASS; TypeScript, ESLint e diff check aprovados.
 Implementação Bernoulli, revisão independente do agente principal sem pendências.
 
+A ponte das ações de camada do Deck também copia `appPage` no snapshot
+imutável enviado ao Wails; alterar o contexto original depois da captura não
+altera a página submetida. Varredura das pontes de paleta, workspace, teclado
+e sequências não encontrou outra perda do campo. Grupo focado de cinco suites:
+51 testes PASS; TypeScript, ESLint e diff check aprovados. Revisão independente
+do agente principal, sem ampliar as superfícies permitidas ou a autorização.
+
 Aceite manual permanece pendente. Esta implementação não altera os totais
 de aceites físicos/NVDA. **In Progress; não representa aceite integral do AEP.**

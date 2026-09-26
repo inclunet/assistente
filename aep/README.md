@@ -36,6 +36,8 @@ aumentar limites. Conferência Go final e lint aprovados; CI deve confirmar.
 Lease de refoco Alt+3 preserva a página sem execução adicional; regressão
 `byPage.workspace` no arquivo de modo do editor 103/103, TypeScript e ESLint
 aprovados, com revisão independente. O estado de aceite manual não muda.
+A ponte de ações de camada do Deck preserva a página capturada; varredura das
+demais pontes e 51 testes de contrato aprovados, mantendo os guards existentes.
 
 AEP-0103, seção162 (25/09/2026): diagnóstico nativo reproduziu o bloqueio do
 Deck após navegar; correção do refresh de projeção e preservação do mapa

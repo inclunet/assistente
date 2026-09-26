@@ -76,6 +76,11 @@ após F6, quando já em visualização, continua sendo somente foco, sem iniciar
 execução/auditoria. Regressão `byPage.workspace` e arquivo Vitest 103/103
 aprovados; TypeScript/ESLint e revisão independente aprovados.
 
+O adapter de ações de camada do Deck preserva `app.page` no snapshot imutável
+da ponte. A revisão das demais pontes e sequências não encontrou outra perda
+do campo; 51 testes em cinco suites, TypeScript e ESLint aprovados, sem alterar
+os guards de superfície ou autorização existentes.
+
 **Qualificação no CI — seção161 (25/09/2026):** após timeout acumulado,
 o grupo race de contexto foi subdividido em Deck, paleta, workspace e base,
 preservando todos os testes, flags, limites e agregador obrigatório. A nova

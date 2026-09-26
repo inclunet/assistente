@@ -20,6 +20,7 @@ export function createContextualDeckLayerWailsPort(options: {
 }): CommandBackendExecutionPort {
   const { offerId, generation, commandId, isCurrent } = options;
   const observed = Object.freeze({ surfaceType: options.observed.surfaceType, surfaceId: options.observed.surfaceId,
+    ...(options.observed.appPage !== undefined ? { appPage: options.observed.appPage } : {}),
     ...(options.observed.profile !== undefined ? { profile: options.observed.profile } : {}) });
   const expires = Date.now() + 10000;
   let consumed = false;
