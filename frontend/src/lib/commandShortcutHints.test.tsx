@@ -27,6 +27,24 @@ afterEach(() => {
 });
 
 describe('commandShortcutHints', () => {
+  it.each([
+    ['toolbar', 'settings', 'command_settings.create.open'],
+    ['profiles', 'profiles', 'profiles.create.open'],
+    ['tasklists', 'tasklists', 'tasklists.create.open'],
+    ['chat', 'workspace', 'workspace.tab.chat.create'],
+  ] as const)('hook mantém dicas por página em %s sem fallback hardcoded', (surface, page, id) => {
+    const chosen = binding(id, 'KeyN');
+    const projection = map([]);
+    projection.contextualBindings = [{ shortcut: chosen.shortcut, bySurface: {}, fallback: null,
+      byPage: { [page]: { shortcut: chosen.shortcut, bySurface: { [surface]: chosen }, fallback: null } },
+    }];
+    publishCommandShortcutHints(projection);
+    const { result } = renderHook(() => useCommandShortcutHint(id, surface, surface === 'toolbar' ? 'settings' : undefined));
+    expect(result.current).toBe('Ctrl+N');
+    projection.contextualBindings[0].byPage![page].bySurface[surface] = null;
+    act(() => publishCommandShortcutHints(projection));
+    expect(result.current).toBeUndefined();
+  });
   it('compõe perfil e identidade da aba sem anunciar fallback quando falta contexto', () => {
     const projection = map([]);
     projection.contextualBindings = [{ shortcut: binding('').shortcut,

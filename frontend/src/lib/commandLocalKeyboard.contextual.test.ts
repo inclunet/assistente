@@ -15,6 +15,47 @@ const key = (type: string, extra: KeyboardEventInit = {}) => {
 };
 
 describe('mapa contextual resolvido pelo host', () => {
+  it.each([true, false])('limita a autorização aos candidatos executáveis com mapped=%s', async mapped => {
+    const commandId = 'command_settings.create.open';
+    const prefix: CommandShortcut = { version: 1, code: 'KeyN', modifiers: ['Control'] };
+    const config: LocalCommandKeyboardMap = {
+      generation: 'settings-with-sequence',
+      bindings: [{
+        commandId: 'workspace.tab.chat.create', handler: 'contextual',
+        shortcut: { version: 2, steps: [{ code: 'KeyN', modifiers: ['Control'] }, { code: 'KeyC', modifiers: [] }] },
+      }],
+      contextualBindings: [{
+        shortcut: prefix, bySurface: {}, fallback: null,
+        byPage: { settings: {
+          shortcut: prefix,
+          bySurface: { toolbar: mapped ? { shortcut: prefix, commandId, handler: 'local_ui' } : null },
+          fallback: null,
+          ...(!mapped ? { sequenceFallbacks: { toolbar: { '': true as const } } } : {}),
+        } },
+      }],
+    };
+    const onDown = vi.fn(async () => {});
+    const onSequenceStarted = vi.fn();
+    const controller = createLocalCommandKeyboard({
+      target: window, loadMap: async () => config, onDown, onUp: async () => {}, reset: async () => {},
+      blocked: () => false, readSurfaceType: () => 'toolbar', onSequenceStarted,
+      readContext: () => ({ surfaceId: 'command-toolbar', surfaceType: 'toolbar', appPage: 'settings',
+        allowedCommandIds: [commandId], isCurrent: () => true }),
+    });
+    try {
+      await controller.refresh();
+      expect(key('keydown', { code: 'KeyN', key: 'n', altKey: false, ctrlKey: true }).defaultPrevented).toBe(true);
+      key('keyup', { code: 'KeyN', altKey: false });
+      if (mapped) expect(onDown).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ commandId }));
+      else expect(onDown).not.toHaveBeenCalled();
+      expect(onSequenceStarted).not.toHaveBeenCalled();
+      key('keydown', { code: 'KeyC', key: 'c', altKey: false });
+      key('keyup', { code: 'KeyC', altKey: false });
+      expect(onDown).toHaveBeenCalledTimes(mapped ? 1 : 0);
+      expect(onDown).not.toHaveBeenCalledWith(expect.objectContaining({ commandId: 'workspace.tab.chat.create' }));
+    } finally { controller.dispose(); }
+  });
+
   it('combina página→perfil apenas com a superfície autorizada e falha fechado sem a rota', () => {
     const entry = {
       shortcut,

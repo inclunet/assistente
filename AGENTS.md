@@ -87,6 +87,21 @@ de telas.
 - Ao adicionar cores, sempre verificar contraste suficiente
 
 ### Navegação por teclado
+
+- **Atalhos de comandos do aplicativo passam pelo AEP-0103**: registrar comando,
+  fontes e binding padrão no catálogo/resolvedor; conectar a ação ao executor
+  ou registro de apresentação existente. Não criar `keydown` global, `onKeyDown`
+  de página ou hook paralelo que compare uma combinação e execute a ação.
+- Ctrl+N em gerenciadores cria o item do contexto ativo pelo mapa de comandos;
+  não criar fallback hardcoded se o mapa não estiver pronto, for suprimido ou
+  negar o comando. Preservar usuário/sessão, IME, foco e ownership do modal.
+- Gestos nativos de componentes (Tab, setas, Escape, edição/captura de texto)
+  não são automaticamente comandos do aplicativo. Reutilizar componentes;
+  qualquer exceção de atalho exige contrato e justificativa no AEP, mais teste.
+- Ao adicionar atalho, provar o percurso binding → resolvedor → ação e as
+  recusas fora do contexto/atrás de modal. Não remover essas guardas ou testes
+  para habilitar um atalho. A regra também vale para código gerado por agentes.
+
 - Todo elemento interativo DEVE ser acessível por Tab
 - Menus: setas para navegar, Enter para selecionar, ESC para fechar
 - Foco DEVE ser restaurado ao fechar modais/menus
