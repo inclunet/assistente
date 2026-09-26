@@ -16,7 +16,7 @@ func TestCommandTerminalInterruptCatalogAndDeniedWithoutTarget(t *testing.T) {
 	a, _ := settingsSecurityFixture(t)
 	p := a.commandProduct.Load()
 	d, ok := p.registry.Lookup(commandTerminalInterruptID)
-	if !ok || len(p.registry.List()) != 150 || !isWorkspaceMutationCommand(d.ID) || isLocalUICommand(d.ID) || !commandDeckLedgerCommand(d) || !d.HasMutableTarget || d.Persistence.Audit != commandcatalog.PersistenceRedacted || d.Persistence.Arguments != commandcatalog.PersistenceNever || d.Persistence.Result != commandcatalog.PersistenceNever {
+	if !ok || len(p.registry.List()) != 151 || !isWorkspaceMutationCommand(d.ID) || isLocalUICommand(d.ID) || !commandDeckLedgerCommand(d) || !d.HasMutableTarget || d.Persistence.Audit != commandcatalog.PersistenceRedacted || d.Persistence.Arguments != commandcatalog.PersistenceNever || d.Persistence.Result != commandcatalog.PersistenceNever {
 		t.Fatalf("invalid classification: %+v", d)
 	}
 	for _, source := range []commandcatalog.Source{commandcatalog.Palette, commandcatalog.KeyboardLocal, commandcatalog.StreamDeck} {

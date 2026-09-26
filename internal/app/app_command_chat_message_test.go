@@ -291,7 +291,7 @@ func TestCommandChatMessageDeckPreservesSource(t *testing.T) {
 func TestCommandChatMessageCatalog(t *testing.T) {
 	a, _, _ := clearCommandFixture(t, workspace.TabTypeChat)
 	p := a.commandProduct.Load()
-	if len(p.registry.List()) != 150 {
+	if len(p.registry.List()) != 151 {
 		t.Fatal("catalog count")
 	}
 	for _, id := range commandChatMessageIDs {

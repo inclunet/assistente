@@ -10968,3 +10968,89 @@ Gesto longo e portabilidade sensível permanecem adiados pelo mantenedor;
 migração de workspaces para banco pertence a iniciativa separada. R06 e os
 demais gates de qualificação continuam abertos: não declarar que todo trabalho
 restante é manual. O AEP e o índice permanecem **In Progress**.
+
+## 168. Ações dos gerenciadores e criação pelo mapa central — 26/09/2026
+
+Achado do mantenedor: a experiência dos novos gerenciadores foi bem recebida,
+mas Editar/Apagar não apareciam na toolbar e Ctrl+N não abria Novo. Esse relato
+não é aceite integral das variantes NVDA anteriormente pendentes.
+
+Implementação:
+
+- Novo/Editar/Apagar na mesma toolbar dos gerenciadores de comandos/acionadores
+  e regras, com seleção explícita na DataGrid. Editar/Apagar reutilizam as ações
+  da linha e suas restrições, inclusive personalização de padrão quando permitida.
+- `command_settings.create.open` registrado como apresentação `local_ui`,
+  com Control+KeyN padrão condicionado a `app.page=settings`. O registro vivo
+  da tela escolhe formulário de camada, binding ou regra; não há gravação ao abrir.
+- O gerenciador licencia exclusivamente esse ID no modal topmost exato. Foco
+  dentro do modal inclui o botão Fechar do cabeçalho; foco fora, formulário
+  filho, sessão/contexto vencido, busy, read-only ou composição IME recusam
+  criação. Sem listener de atalho no componente nem fallback hardcoded.
+- Dica de atalho derivada do mapa efetivo, incluindo personalização/supressão;
+  projeções por página preservam também as dicas de Ctrl+N em Perfis, Listas
+  e as sequências do workspace. A superfície de Configurações continua toolbar.
+- Catálogo `product-v42-command-settings-create`: 151 comandos, 62 apresentações
+  locais, 68 defaults de teclado. A revisão da família de apresentações existente
+  permanece `page-presentation-v1`, sem invalidar seus fingerprints por uma adição.
+- AGENTS orienta todos os agentes a usar catálogo/resolvedor. Teste AST reprova
+  handlers paralelos comuns em CommandSettingsPage e confere o registro central.
+  É guarda focada, não sandbox nem detector de todo código arbitrário no projeto;
+  demais criações legadas permanecem explícitas no inventário, fora deste lote.
+
+Provas: testes de apresentação/dispatcher exercitam atalho padrão e remapeado,
+supressão, repeat, IME, logout, modal filho e foco externo; testes de lease cobrem
+troca de alvo, usuário, workspace, rota, foco e geração do modal. Testes da tela
+real cobrem toolbar, seleção, abertura de cada formulário e restrições. A suíte
+Go confere fontes permitidas, projeção por página, defaults e ausência de ledger
+para apresentação. Resultados da rodada ficam no PR desta seção; teste automatizado
+não substitui NVDA ou hardware. Variante manual incorporada a UI01, sem criar
+novo caso nem zerar os relatos preservados na seção167.
+
+Validação local desta seção:
+
+- Vitest consolidado: **9 arquivos / 281 testes PASS**, incluindo a página real,
+  Topbar, registro de apresentação, hints, resolvedor e guarda AST.
+- Go: regressão `Test(CommandKeyboard|ContextualKeyboard|CommandPagePresentation|CommandCatalog|CommandProduct|CommandBootstrap|CommandCLI|CommandWorkspaceContextChat)`
+  PASS em 106,769 s; repetição final `TestCommandPagePresentation|TestCommandKeyboardDefault`
+  PASS em 48,950 s, após o guard contra ramo nulo no teste de projeção.
+- Revisão independente por Beauvoir: sugeriu comprovar remapeamento e foco no
+  cabeçalho/fora do modal; guard e provas acrescentados. Rodada final sem achados.
+- TypeScript (`tsc --noEmit`), ESLint dos arquivos alterados e Stylelint da página
+  PASS; `go build ./...` e `go vet ./...` PASS. `golangci-lint run ./internal/app/...`
+  PASS, sem achados.
+- `git diff --check` e verificador de status dos AEPs PASS. Nenhum aplicativo
+  nem teste ACP executado; temporários Go e cache mantidos dentro do worktree.
+  Estes resultados não antecipam CI/review remotos nem a validação manual.
+
+Revisão do PR #845: o mapa de produção mantém sequências do workspace sob o
+prefixo Ctrl+N. A regressão ampliada reproduziu a recusa indevida do comando
+simples selecionado quando a allowlist do gerenciador também examinava essas
+sequências inativas. A autorização agora considera apenas o comando selecionado;
+sem seleção, continua verificando todos os candidatos de sequência. Provas
+cobrem aceite, recusa e Ctrl+N seguido de C sem criação indevida de aba.
+Goodall revisou independentemente o diff incremental, sem achados. O CI também
+identificou mocks antigos sem o contrato completo do store e projeções de teste
+sem o novo ID; foram atualizados sem remover asserções. Contrato E2E local:
+**3/3 PASS**, com backend simulado, sem executar Wails.
+Rodada consolidada após as correções: **11 arquivos / 301 testes Vitest PASS**;
+TypeScript, ESLint incremental e `git diff --check` PASS.
+
+Complemento solicitado pelo mantenedor no mesmo PR: menus de contexto das
+camadas abrem os dois gerenciadores; menus dos itens compartilham ações e
+permissões com as toolbars. Enter em célula de dados usa `onActivate` da DataGrid
+para editar, sem handler paralelo de tecla. Após salvar, a grade de camadas
+atrás do modal não pode retomar foco e trocar a camada selecionada; o gerenciador
+permanece aberto e restaura a linha editada por ID. Testes devem cobrir a segunda
+linha de uma segunda camada, além das recusas de edição e trocas de identidade.
+Estas variantes não promovem aceite manual nem alteram a contagem dos 48 casos.
+Prova consolidada do complemento: **11 arquivos / 312 testes Vitest PASS**;
+Goodall revisou o diff final incremental, sem achados pendentes.
+Revisão remota sobre subrotas de Configurações: integração com mapa `byPage.settings`
+em `/settings`, `/settings/data` e `/settings/providers`, sem apresentação registrada,
+comprova evento não consumido, listener existente alcançado e nenhum transporte.
+Suíte Topbar ampliada: **84/84 PASS**. Não foi necessário alterar produção:
+`canHandle` recusa antes de `preventDefault` quando não existe alvo de apresentação.
+
+**In Progress; 83 I / 1 P / 0 N**, C38 parcial; **11 A / 21 I / 16 P / 0 N**
+nas saídas R e **1/12 gates aceito**. Nenhum aceite final promovido por esta correção.
