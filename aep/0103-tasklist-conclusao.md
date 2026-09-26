@@ -1,12 +1,12 @@
 # AEP-0103 — Tasklist de conclusão integral
 
-Baseline inicial de 16/09/2026; reconciliação de 24/09/2026 atualizada pela seção157. Branch `feat/aep-0103-comandos`; merge `84f98767c` incorpora `origin/main` (`714a47c4e`), com checkpoints posteriores `03ef8f0a4`, `6f516326a`, `f59f7d6c9`, `2a9049481`, `79b385168`, `1aa9e7c6c`, `79f06ab6b`, `6d0411dbb` e `bf7860c65`. Status do AEP: **In Progress**.
+Baseline inicial de 16/09/2026; reconciliação vigente de **26/09/2026, seção167**, sobre `main` em `116eda53b` (merge do PR #839). Os commits e resultados anteriores permanecem como histórico, não como estado atual da antiga branch. Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.
 
-## 1. Progresso reconciliado — 24/09/2026, após a seção157
+## 1. Progresso reconciliado — 26/09/2026, após a seção167
 
-Esta reconciliação considera os commits `1aa9e7c6c` (contexto exato de
+Além dos merges e aceites delimitados na seção167, esta reconciliação conserva os commits `1aa9e7c6c` (contexto exato de
 recibos externos), `79f06ab6b` (provas seletivas por execução no ciclo reativo),
 `6d0411dbb` (retenção de fontes pending/processing e consumo/replay) e
 `bf7860c65` (foco da grade), além da integração externa App/HTTP/frontend em
@@ -73,11 +73,12 @@ os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
 
 - **11/48 A — aceitas anteriormente:** R01.1–R01.4, R03.1–R03.3 e
   R04.1–R04.4. Aceites preservados, não ampliados.
-- **20/48 I — implementação identificada, sem aceite integral:** R02.1–R02.4,
+- **21/48 I — implementação identificada, sem aceite integral:** R02.1–R02.4,
   R03.4, R05.1, R05.2, R05.3, R07.3, R08.1–R08.4, R09.1–R09.3, R10.3,
-  R11.1–R11.3.
-- **16/48 P — parciais; 1/48 N — ausente:** R12.4 (fechamento de review/CI).
-- **A+I = 31/48 (64,6%)**. As seções135, 155 e 156 ampliam a identificação de
+  R11.1–R11.3 e R12.4.
+- **16/48 P — parciais; 0/48 N — ausente.** R12.4 passa de N para I:
+  CI/review da entrega mergeada demonstrados, sem declarar todos os gates aceitos.
+- **A+I = 32/48 (66,7%)**. As seções135, 155, 156 e 167 ampliam a identificação de
   implementação sem ampliar aceite final. Só A tem checkbox x.
 - **1/12 gates aceito: R04.** R01 permanece em validação; os demais gates
   estão abertos. R02 ter implementação nas quatro saídas não equivale a
@@ -88,10 +89,10 @@ os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
 
 ### Inventário, infraestrutura e escopo
 
-- Catálogo `product-v41-agent-commands`: **150 comandos, 61 apresentações
+- Referência histórica do catálogo `product-v41-agent-commands`: **150 comandos, 61 apresentações
   locais e 67 defaults locais**. Deck contextual: **81 IDs** após Mermaid;
   pin/toggle/back e voz/jobs globais já existem. Nenhum desses números mede
-  completude dos 84 critérios.
+  completude dos 84 critérios. Não é uma recontagem do catálogo após os PRs #836–#839.
 - Os **84 Ixx.n de infraestrutura** e os **20 Pxx.n de produto** são conjuntos
   históricos distintos, mapeados nas seções6–7. Os 53 I marcados na baseline
   não viram percentual atual: R06.1 ainda exige requalificação individual.
@@ -103,7 +104,8 @@ os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
   portabilidade e gesto longo conservam a prioridade adiada pelo usuário,
   não são silenciosamente excluídos nem retomados.
 - R03.4 e R05.1 têm implementação identificada na seção156, sem aceite
-  agregado. R06 exige qualificação geral; R12/CI/reviews permanecem abertos.
+  agregado. R06 exige qualificação geral; R12 permanece aberto. CI/review da
+  entrega mergeada estão demonstrados em R12.4; alterações novas exigem nova revisão.
   R09.4/R10.4 exigem validação manual/física; R05.4 sensível permanece adiada.
   R05.2/R09.3/R10.3 e recursos de execução da paleta passam a I na
   seção155, sem aceite final. A edição textual acessível do Deck já está implementada
@@ -450,8 +452,10 @@ Arquivos de referência: `aep/0103-comandos-acionadores-e-camadas-contextuais.md
   48 casos em 12 blocos nomeados, com IDs, variantes, comandos, esperado,
   resultado e pré-requisitos. Os 13 itens NVDA anteriores estão mapeados sem
   duplicar contagem. Nenhum caso foi aprovado apenas pela organização documental.
-  Falta executar e registrar a rodada na versão escolhida, incluindo os fluxos
-  condicionais e a qualificação física/acessível. Aceites históricos preservados;
+  Falta completar as variantes não observadas na versão escolhida, incluindo
+  os fluxos condicionais e a qualificação física/acessível. Seção167 e checklist
+  registram os seis relatos de aprovação e o defeito de continuidade do Deck
+  confirmado corrigido, sem exigir repetição automática. Aceites preservados;
   isso não fecha R12.1, C38 ou os 84 critérios por equivalência numérica.
   Evidência anterior: seções 57–59, 69–75; `docs/content/recursos/COMANDOS.md`.
   Validação documental: 48 IDs únicos, 12 blocos, campos de resultado, links
@@ -461,10 +465,22 @@ Arquivos de referência: `aep/0103-comandos-acionadores-e-camadas-contextuais.md
   Nenhum aplicativo, teste Go, hardware ou banco foi executado nesta organização.
 - [ ] R12.3 — Atualizar docs/content e índice, AEPs relacionados e inventário; registrar avaliação da fase 7 (pedais/MIDI/dial/capabilities), mantendo controle privilegiado externo/broker físico externo fora do escopo atual conforme AEP.
 
-  **Estado reconciliado: Parcial.** AEP/índice/tasklist e topo do inventário atualizados até129, sem reescrever números históricos. Faltam inventário completo de equivalência, sincronização final dos AEPs relacionados e avaliação explícita da fase7 (avaliação, não obrigação de implementar pedais/MIDI/dial nesta rodada). Evidência: `aep/0103-inventario-atalhos.md`, `aep/README.md`, `docs/content/recursos/COMANDOS.md`; seção129.
+  **Estado reconciliado: Parcial.** AEP/índice/tasklist e checklist manual
+  reconciliados na seção167, sem reescrever resultados históricos. A referência
+  de catálogo no topo não é uma recontagem após os últimos PRs. Faltam inventário
+  completo de equivalência, sincronização final dos AEPs relacionados e avaliação
+  explícita da fase7 (avaliação, não obrigação de implementar pedais/MIDI/dial
+  nesta rodada). Evidência: `aep/0103-inventario-atalhos.md`, `aep/README.md`,
+  `docs/content/recursos/COMANDOS.md`; seções129/167.
 - [ ] R12.4 — Concluir Bugbot local, CI e review remota quando houver PR autorizado; zero achados bloqueantes, zero threads pendentes. Marcar AEP/índice Done somente com todos os gates; merge continua do mantenedor.
 
-  **Estado reconciliado: Entrega não implementada.** Não há evidência do fechamento Bugbot/CI/review deste trabalho. Falta: Executar review local e, quando houver PR autorizado, CI/review remota; merge é do mantenedor. Evidência: seções limites da revisão; `AGENTS.md`, `aep/0103-revisao-integral-2026-09-16.md`.
+  **Estado reconciliado: Implementação identificada, sem aceite integral.**
+  A entrega mergeada não está sem review/CI: o PR #839 teve revisão independente
+  de Beauvoir sem pendências, revisão remota e 41/41 checks bem-sucedidos no
+  head `431e216d3`, sem threads abertas; merge `116eda53b`. Evidências e limites
+  na seção167. A cláusula de declarar Done depende dos demais gates, ainda
+  abertos; por isso o checkbox permanece aberto. Novas alterações exigem seu
+  próprio CI/review, sem invalidar retroativamente essa evidência.
 
 **Gate R12:** AEP inteiro demonstrado, não apenas 84 itens de base. Documentação, matriz de 84 critérios, testes, revisão e validação manual concordam com a versão entregue.
 
@@ -10242,23 +10258,26 @@ e os casos existentes de criação/rollback passaram em cinco repetições locai
 ## 159. Aceite manual e separação dos próximos PRs — 25/09/2026
 
 Registro das decisões do mantenedor após a primeira rodada do checklist.
-São pendências e decisões de escopo, não funcionalidades já implementadas.
-O PR atual é #833; seu merge continua sendo decisão do mantenedor e não
-representa, sozinho, conclusão do AEP. Não ampliar esse PR com as melhorias abaixo.
+O plano original antecedia o merge do PR #833. Os checkboxes de implementação
+abaixo foram reconciliados em 26/09/2026; os relatos originais são históricos.
+Os PRs #833, #834, #836, #838 e #839 foram mergeados. Isso não encerra o AEP
+nem aprova automaticamente os roteiros físicos/NVDA; estado atual na seção167.
 
 ### Bloqueios e verificações do PR atual
 
-- [ ] Investigar e corrigir a perda de navegação após a primeira ação.
+- [x] Investigar e corrigir a perda de navegação após a primeira ação.
   Relato: Alt+C e outros destinos (Jobs/Histórico) deixam de responder após
   uma ação. No Stream Deck, tecla 1→aba 1 funciona inicialmente; depois de
   Ctrl+Tab→aba 2, tecla 1 não volta. Duas teclas apontando às abas 1 e 2
   também bloqueiam uma à outra: a primeira utilizada funciona e a seguinte
   não. Sair da janela e voltar recupera o funcionamento no cenário relatado.
-  Atualização de contexto/foco é hipótese, não diagnóstico confirmado.
-- [ ] Cobrir a causa com regressão automatizada e validar a sequência real
-  teclado→Deck, Deck→Deck e navegação entre páginas, sem exigir Alt+Tab como
-  contorno. Preservar barreiras de modal, IME, sessão e autorização.
-- [ ] Corrigir regressão de foco em conversa vazia. Relato do mantenedor:
+  Diagnóstico e correções nas seções160/162; continuidade física do Deck
+  confirmada pelo mantenedor na seção163.
+- [x] Cobrir a causa com regressões automatizadas teclado→Deck, Deck→Deck e
+  navegação entre páginas, preservando barreiras de modal, IME, sessão e autorização.
+- [ ] Completar revalidação manual das páginas (UI04) e variantes restantes
+  de SD04; não repetir como pendente o defeito de continuidade já confirmado corrigido.
+- [x] Corrigir regressão de foco em conversa vazia. Relato do mantenedor:
   com foco no campo de mensagem e nenhuma mensagem na conversa, pressionar
   Seta para cima transfere o foco para a região vazia de mensagens; é preciso
   Escape ou Tab para retornar. Antes, essa transferência não ocorria.
@@ -10267,15 +10286,19 @@ representa, sozinho, conclusão do AEP. Não ampliar esse PR com as melhorias ab
   comando explícito de focar a região vazia deva ser proibido: o defeito é a
   transferência por esse gesto do campo. Cobrir conversa nova e conversa
   após limpeza, preservar navegação quando há mensagens e a prioridade de
-  menus/pickers do campo. Revalidar com teclado/NVDA; causa ainda não investigada.
-- [ ] Investigar latência percebida na navegação pelo Stream Deck. Confirmar
+  menus/pickers do campo. Implementação/regressões na seção160; teclado/NVDA
+  no aplicativo continua pendente, separado da correção de código.
+- [x] Investigar o caminho de navegação pelo Stream Deck. Confirmar
   que trocar abas, mover foco e abrir páginas usam o caminho local sem auditoria
   persistida por pressão, independentemente da origem. Medir recebimento,
   resolução e entrega à UI antes de atribuir o atraso ao banco. Preservar
   verificações de sessão, contexto e modais; não remover proteção para acelerar.
   Relato de atraso não é evidência de que o caminho esteja gravando auditoria.
-- [ ] Após a correção, solicitar revalidação curta ao mantenedor, atualizar
-  evidências e conferir CI/review antes de recomendar merge. Sem merge automático.
+  Prova de zero ledger e medição input→emissão na seção160, não medição USB/Wails/UI.
+- [ ] Reavaliar a latência física percebida: não foi confirmada resolvida.
+- [x] Registrar revalidação curta da continuidade do Deck e fechamento técnico
+  da entrega mergeada (seções163/167). Os demais aceites manuais ficam explícitos,
+  sem inferi-los do merge ou da aprovação desse defeito.
 
 ### PR independente — ativação por página do aplicativo
 
@@ -10295,15 +10318,16 @@ representa, sozinho, conclusão do AEP. Não ampliar esse PR com as melhorias ab
 
 ### PR independente — destino de aba sem teto arbitrário
 
-- [ ] Oferecer ação parametrizada **Ir para aba**, com destino por posição
+- [x] Oferecer ação parametrizada **Ir para aba**, com destino por posição
   inteira positiva, sem limite fixo de 9, 32 ou 64. Não criar uma entrada de
   catálogo/paleta para cada número. Exibir nomes claros: Aba 1, Aba 2 etc.
-- [ ] Posição inexistente fica indisponível: não criar aba nem escolher outra.
+- [x] Posição inexistente fica indisponível: não criar aba nem escolher outra.
   Posição acompanha reordenação; manter Ctrl+1…9 como atalhos padrão não limita
   as posições configuráveis no comando.
-- [ ] Oferecer alternativa **Aba específica**, selecionada pelo nome, que
+- [x] Oferecer alternativa **Aba específica**, selecionada pelo nome, que
   mantém a identidade ao reordenar. Aba fechada fica indisponível, sem trocar
-  silenciosamente de destino. Especificar o comportamento ao trocar workspace.
+  silenciosamente de destino. Comportamento especificado ao trocar workspace.
+  Implementado no PR #836 (seção164); validação manual das variantes ainda pendente.
 
 ### PR dependente do destino de aba — apresentação automática no Stream Deck
 
@@ -10325,16 +10349,16 @@ representa, sozinho, conclusão do AEP. Não ampliar esse PR com as melhorias ab
   **Comandos e acionadores** e **Regras de ativação**, cada um em seu modal,
   com grid e operações próprias. Preferência aprovada: separados, não painel
   de guias reunindo novamente os dois gerenciadores.
-- [ ] Manter opções avançadas nos formulários correspondentes, navegação
+- [x] Manter opções avançadas nos formulários correspondentes, navegação
   consistente por teclado/NVDA e retorno de foco à camada ao fechar.
   Implementação e regressão automatizada concluídas na seção 163; aceite
   com NVDA permanece manual, sem presumir aprovação pelo teste de navegador.
+- [ ] Validar com NVDA os novos gerenciadores e o retorno de foco; preservar
+  o aceite da configuração anterior sem ampliá-lo à interface do PR #834.
 
-Condição de página e destino de aba podem avançar em paralelo após combinar
-contratos. Apresentação automática depende do destino de aba. Reorganização
-visual pode avançar em paralelo com coordenação sobre formulários compartilhados.
-Antes de implementar cada extensão, atualizar seus contratos no AEP/inventário
-e definir testes/gate do PR; não declarar implementação a partir deste registro.
+As extensões foram entregues em PRs separados, com contratos e provas nas
+seções163–166. A seção167 registra os merges; os checkboxes acima descrevem
+implementação, não substituem os casos do checklist manual.
 
 ### Rodadas manuais e resultados relatados
 
@@ -10359,7 +10383,10 @@ acima, cuja correção foi antecipada. A rodada de testes está pausada por ele.
 
 Correção do placar conversacional: ao reabrir UI04, a conta antes informada
 como 7 aprovados / 2 falhas / 39 pendentes o contava duas vezes. O registro
-sem duplicação é **6 casos com aprovação relatada / 2 com falha / 40 pendentes**.
+sem duplicação era **6 casos com aprovação relatada / 2 com falha / 40 pendentes**.
+Após a confirmação da seção163, SD04 tem o defeito de continuidade encerrado,
+mas outras variantes pendentes. O placar vigente está no checklist manual e
+na seção167; não conservar duas falhas ativas nem promover SD04 inteiro a PASS.
 Isso não é aceite integral de todas as variantes nem altera C01–C84. Na retomada,
 explicitar as variantes faltantes sem exigir repetição do que já foi observado.
 
@@ -10408,15 +10435,18 @@ remoção de auditoria de ações persistentes ou aceite manual presumido.
   TerminalPage incompatível com o callback booleano; corrigido por Beauvoir.
   Segunda rodada sem pendências funcionais. Rótulo de teste `owner` ajustado
   para `session`, pois esse caso altera a sessão. Revisão não substitui testes.
-- [ ] Repetir no app físico a sequência de páginas e de abas pelo teclado/Deck,
-  sem Alt+Tab intermediário; conferir foco/NVDA em conversa vazia e populada.
+- [x] Continuidade física da troca de abas pelo Deck confirmada posteriormente
+  pelo mantenedor (seção163), após o complemento da seção162.
+- [ ] Completar sequência de páginas e variantes restantes de teclado/Deck;
+  conferir foco/NVDA em conversa vazia e populada. Não repetir como falha ativa
+  a continuidade já confirmada.
 - [ ] Reavaliar latência percebida no dispositivo. A medição acima termina
   na emissão do evento: não mede USB, transporte Wails nem renderização visual.
   Portanto não é evidência de que o atraso físico relatado foi resolvido.
 
-Não há promoção de UI04/SD04 a PASS nem alteração de C01–C84. CI remoto e
-review do novo commit devem ser conferidos antes de recomendar merge, que
-permanece decisão do mantenedor. As pendências manuais da seção159 continuam.
+Não há promoção integral de UI04/SD04 a PASS nem alteração de C01–C84.
+Naquela rodada, CI/review e confirmação física ainda estavam pendentes;
+fechamentos posteriores nas seções163/167, preservando os demais testes manuais.
 
 ## 161. Subdivisão do grupo de contexto no detector de corrida — 25/09/2026
 
@@ -10497,8 +10527,9 @@ foram utilizados; a instância diagnóstica foi encerrada. Nenhum teste ACP
 foi executado. O artefato exploratório de E2E foi preservado em `work/`, fora
 da suíte publicada: sua expectativa de foco exclusivamente interno ao editor
 não representava o fallback autorizado ao botão de aba. Nenhum teste
-preexistente foi removido. CI do novo commit e confirmação física permanecem
-separados desta evidência. **In Progress, 83 I / 1 P / 0 N**.
+preexistente foi removido. CI do novo commit e confirmação física eram
+pendências separadas desta evidência; fechamentos posteriores nas seções163/167.
+**In Progress, 83 I / 1 P / 0 N**.
 
 ## 163. Pós-merge: gerenciadores separados — 25/09/2026
 
@@ -10687,7 +10718,8 @@ oficial Wails PASS. A nova fixture de round-trip foi corrigida para usar
 atalho válido e comparar os argumentos sem confundir normalização de coleções
 vazias com perda de dados; isolamento e igualdade dos destinos continuam
 verificados. Revisão independente de Beauvoir e conferência do agente
-principal sem achados funcionais pendentes. CI remoto deve confirmar o merge;
+principal sem achados funcionais pendentes. O CI remoto, pendente nesta rodada,
+foi confirmado no head integrado do PR #839 (seção167);
 nenhum aceite físico/NVDA foi promovido: **83 I / 1 P / 0 N**.
 
 ## 164. Contrato do comando parametrizado de destino de aba — 25/09/2026
@@ -10854,3 +10886,85 @@ que apenas contêm o texto continuam recebendo o aviso explícito. Regressões
 cobrem texto no meio, final semelhante/colado, sufixo já presente, título vazio
 e estado ambíguo com personalizações preservadas. Go focado PASS (16,709 s),
 lint zero issues. Nenhuma autorização ou resolução de destino foi alterada.
+
+## 167. Reconciliação de entregas e aceites — 26/09/2026
+
+Baseline: `main` em `116eda53b`. Esta atualização é documental: não executa
+novo teste físico, não substitui relato humano por CI e não reabre aprovações
+por simples mudança de versão. Seções anteriores mantêm seus resultados
+datados; esta seção prevalece para o estado atual.
+
+### Entregas mergeadas
+
+- [PR #833](https://github.com/inclunet/assistente/pull/833), merge
+  `b4046d953`: implementação principal, correção da navegação e do foco em
+  conversa vazia. Continuidade física do Deck confirmada pelo mantenedor
+  (seção163); a correção do chat não ganhou aceite NVDA por essa confirmação.
+- [PR #834](https://github.com/inclunet/assistente/pull/834), merge
+  `b51633242` em 25/09: gerenciadores separados, ações da camada e consentimento
+  da API externa na toolbar. Implementado; novas variantes NVDA pendentes.
+- [PR #836](https://github.com/inclunet/assistente/pull/836), merge
+  `5168cbf27` em 26/09: destino por posição positiva sem teto arbitrário ou
+  por identidade de aba, com recusa de destino indisponível.
+- [PR #838](https://github.com/inclunet/assistente/pull/838), merge
+  `11a768d2e` em 26/09: nome/ícone automáticos da aba no Deck, personalização
+  opcional e indicação de destino indisponível/ambíguo.
+- [PR #839](https://github.com/inclunet/assistente/pull/839), merge
+  `116eda53b` em 26/09: condição de página e integração com os destinos e
+  apresentação automática. A condição não amplia a autorização dos comandos:
+  ações contextuais de camada continuam restritas às superfícies licenciadas
+  do Workspace, conforme contrato, mesmo que a regra mencione outra página.
+
+Os três últimos PRs têm implementação e provas automatizadas, mas nenhuma
+confirmação manual nova foi recebida para suas variantes nesta reconciliação.
+
+### Fechamento técnico, distinto de aceite manual
+
+R12.4 passa de **N para I**, não para A. No head final `431e216d3` do PR #839:
+revisão independente equivalente por Beauvoir sem pendências; revisão remota
+concluída; zero threads não resolvidas; **41/41 checks bem-sucedidos**.
+Evidências remotas: CI [36242511961](https://github.com/inclunet/assistente/actions/runs/36242511961)
+e [36242516065](https://github.com/inclunet/assistente/actions/runs/36242516065),
+review [36242519471](https://github.com/inclunet/assistente/actions/runs/36242519471).
+São resultados desse snapshot integrado, não uma execução sobre alterações futuras.
+A cláusula de conclusão global de R12.4 ainda depende dos outros gates.
+
+Contagens vigentes: **83 I / 1 P / 0 N dos 84 critérios** (C38 parcial);
+**11 A / 21 I / 16 P / 0 N das 48 saídas R**, A+I **32/48 (66,7%)**;
+**1/12 gates aceito (R04)**. Nenhum checkbox C ganhou aceite final por esta
+reconciliação. Implementação identificada não é qualificação integral.
+
+### Evidência manual preservada
+
+O registro por caso/variante fica no
+[checklist único](../docs/content/guias/VALIDACAO_MANUAL_COMANDOS.md), sem criar
+uma segunda rodada de testes. Resumo dos 48 casos, com categorias distintas:
+
+- **6 com aprovação relatada dos passos enviados:** UI01, UI02, UI06, CF01,
+  CF02 e CF05. Preservar esses passos; confirmar o ingresso de CF02, pois houve
+  preferência declarada pela captura no Deck. Não inferir variantes omitidas.
+- **1 reaberto sem reteste confirmado:** UI04, navegação entre páginas.
+  Correção implementada, mas a confirmação posterior foi sobre o Deck.
+- **1 com defeito corrigido e confirmação física:** SD04, continuidade das
+  trocas de abas sem Alt+Tab. O relato “agora sim, perfeito, funcionando”
+  encerra esse defeito; retenção, reconexão e demais ações do caso não estão
+  automaticamente aprovadas. Também não demonstra a latência USB/Wails/UI.
+- **40 outros casos pendentes**, incluindo UI03 não executado, UI05 inconclusivo
+  e CF03 adiado. Não contam como falha nem como aprovação.
+
+Essas categorias somam 48, mas não são um placar de PASS integral. Os relatos
+não registram commit/data/variantes completos de cada execução; não inventar
+esses campos. Nenhum C foi formalmente encerrado integralmente nesta rodada;
+os relatos de paleta contribuem para C32/C33, os de configuração para C37,
+e o físico do Deck para C39/C83, sem encerrar variantes e condições restantes.
+
+### O que continua aberto
+
+Retomar apenas variantes faltantes ou afetadas: UI04, foco em conversa vazia,
+NVDA dos gerenciadores, condições por página, destino parametrizado e visual
+automático do Deck. Latência física permanece sem confirmação de resolução;
+a prova sem ledger e as medidas input→emissão da seção160 não a substituem.
+Gesto longo e portabilidade sensível permanecem adiados pelo mantenedor;
+migração de workspaces para banco pertence a iniciativa separada. R06 e os
+demais gates de qualificação continuam abertos: não declarar que todo trabalho
+restante é manual. O AEP e o índice permanecem **In Progress**.
