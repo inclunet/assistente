@@ -16,6 +16,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+AEP-0103, isolamento de jobs (26/09/2026): fingerprint de definições persistidas
+com limite próprio de 1 MiB, protocolo mantido em 64 KiB e falha de definição
+restrita às hotkeys do job afetado. Regressões de tamanho/identidade/isolamento
+registradas no documento principal. **In Progress**; sem novo aceite manual.
+
 AEP-0103, pós-merge #833: separação dos gerenciadores de comandos/acionadores
 e regras de ativação conforme seção159, com edição/configuração e consentimento
 externo na toolbar, sem alteração do motor de execução ou da autorização.

@@ -1,8 +1,11 @@
 package jobs
 
 import (
+	"assistente/internal/commandjson"
+	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -123,5 +126,34 @@ func TestDefinitionFingerprintRejectsInvalidDefinitions(t *testing.T) {
 				t.Fatalf("erro=%v, want ErrInvalidJobDefinition", err)
 			}
 		})
+	}
+}
+
+func TestDefinitionFingerprintSupportsLargeOutputAndDetectsChanges(t *testing.T) {
+	job := commandDefinitionJob(t)
+	job.Output.Schema = json.RawMessage(`{"description":"` + strings.Repeat("x", 277289) + `"}`)
+	first, err := DefinitionFingerprint(job)
+	if err != nil {
+		t.Fatalf("schema persistido de 277 KB rejeitado: %v", err)
+	}
+	job.Output.Schema[len(job.Output.Schema)-3] = 'y'
+	second, err := DefinitionFingerprint(job)
+	if err != nil || first == second {
+		t.Fatalf("alteração no schema grande não invalidou fingerprint: %v", err)
+	}
+	job.Output.Schema = json.RawMessage(`{"description":"` + strings.Repeat("x", 1024*1024) + `"}`)
+	if _, err := DefinitionFingerprint(job); !errors.Is(err, ErrInvalidJobDefinition) {
+		t.Fatalf("definição maior que 1 MiB deve ser recusada: %v", err)
+	}
+}
+
+func TestDefinitionFingerprintKeepsCommandEnvelopeLimit(t *testing.T) {
+	job := commandDefinitionJob(t)
+	job.Inputs["large"] = strings.Repeat("x", 70000)
+	if _, err := DefinitionFingerprint(job); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := commandjson.Marshal(job.Inputs); !errors.Is(err, commandjson.ErrDocumentTooLarge) {
+		t.Fatalf("limite do protocolo foi ampliado: %v", err)
 	}
 }

@@ -7,6 +7,20 @@ weight: 5
 
 Jobs são automações do tipo "uma ferramenta por disparo": cada job chama uma tool do catálogo quando um gatilho acontece, com entradas fixas ou por template.
 
+## Definições de saída e atalhos
+
+A definição completa usada para identificar o job aceita até **1 MiB** de JSON
+serializado, incluindo schema de saída, entradas e demais campos de execução.
+Esse limite é da configuração; não define o tamanho máximo da resposta da tool.
+
+Jobs sem hotkey não participam da montagem dos atalhos globais. Se a definição
+de um job com hotkey for inválida ou exceder esse limite, os atalhos desse job
+ficam indisponíveis e um aviso identifica o job no log. Os demais atalhos e o
+envio de mensagens continuam disponíveis. Corrija a configuração e recarregue
+os jobs para reavaliar seus atalhos; o conteúdo persistido não é apagado.
+
+Veja também [Comandos e acionadores](../COMANDOS/).
+
 ## Conceito
 
 - Cada job tem nome, pipeline opcional, entradas e política de erro (`retry`/`skip`/`stop`).

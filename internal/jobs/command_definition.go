@@ -56,7 +56,7 @@ func DefinitionFingerprint(job *Job) (string, error) {
 		MaxRunsPerHour:  job.MaxRunsPerHour,
 		DryRun:          job.DryRun,
 	}
-	canonical, err := commandjson.Marshal(projection)
+	canonical, err := commandjson.MarshalDefinition(projection)
 	if err != nil {
 		return "", ErrInvalidJobDefinition
 	}
