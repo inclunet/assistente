@@ -790,11 +790,11 @@ O caminho é curto e todo ele já está escrito:
   padrão, no instante de subir o agente;
 - `credentials.ResolveSecretFromAuth` extrai o valor a passar (token, senha ou o
   primeiro header, na ordem que ele já define);
-- `credentials.ResolveExternalRef`, que a decifragem já chama, resolve entrada
-  que **aponta para fora** em vez de guardar o segredo: `keyring://serviço/usuário`,
-  `keyring://<TargetName>` (o Credential Manager do Windows) e `env://NOME`. Quem
-  não quer nem uma cópia dentro do app pode manter o segredo no cofre do sistema
-  e deixar no app só a referência.
+- O manager resolve a `Source` explícita (AEP-0110): `env` recebe nome de
+  variável; `keyring` recebe target ou serviço/usuário; `command` recebe
+  executável e argumentos estruturados. Configurações são cifradas no cofre;
+  o material resolvido não é persistido. Não há referências por prefixo.
+
 
 O provedor guarda **pares** de nome de variável e padrão do cofre, e não o
 segredo: um campo novo em `ProviderConfig`, ao lado de `ACPCommand`, `ACPArgs` e
@@ -1349,3 +1349,7 @@ ter.
 - Cofre de credenciais, para a D12: AEP-0014 (persistência), AEP-0015
   (auto-extração), AEP-0026 (correções), AEP-0061 (incidente de perda e defesas —
   a invariante da DEK)
+
+## Evolução AEP-0110
+
+O contrato atual de fontes está em [AEP-0110](0110-fontes-explicitas-de-credenciais.md). Referências históricas por prefixo foram substituídas por source explícita, sem migração automática. AuthModeNone remove qualquer Authorization.

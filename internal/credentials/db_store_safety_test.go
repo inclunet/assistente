@@ -20,7 +20,7 @@ func TestDBStore_DeleteCredential_RejectsEmptyPattern(t *testing.T) {
 	ctx := database.WithUserID(context.Background(), "user-1")
 	cred := StoredCredential{
 		Pattern: "api.openai.com",
-		Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
+		Auth:    &AuthConfig{Source: "static", Type: "bearer", Token: "secret"},
 	}
 	if err := store.SaveCredential(ctx, cred); err != nil {
 		t.Fatalf("setup credential: %v", err)
@@ -53,14 +53,14 @@ func TestDBStore_SaveCredential_RejectsEmptyPattern(t *testing.T) {
 
 	err := store.SaveCredential(ctx, StoredCredential{
 		Pattern: "",
-		Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
+		Auth:    &AuthConfig{Source: "static", Type: "bearer", Token: "secret"},
 	})
 	if err == nil {
 		t.Fatal("expected error for empty pattern in SaveCredential")
 	}
 	err = store.SaveCredential(ctx, StoredCredential{
 		Pattern: "  ",
-		Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
+		Auth:    &AuthConfig{Source: "static", Type: "bearer", Token: "secret"},
 	})
 	if err == nil {
 		t.Fatal("expected error for whitespace pattern in SaveCredential")
@@ -77,7 +77,7 @@ func TestDBStore_DeleteCredential_DoesNotAffectOtherUsers(t *testing.T) {
 	anaCtx := database.WithUserID(context.Background(), "user-ana")
 	leoCtx := database.WithUserID(context.Background(), "user-leo")
 	pattern := "api.openai.com"
-	cred := StoredCredential{Pattern: pattern, Auth: &AuthConfig{Type: "bearer", Token: "x"}}
+	cred := StoredCredential{Pattern: pattern, Auth: &AuthConfig{Source: "static", Type: "bearer", Token: "x"}}
 
 	if err := store.SaveCredential(anaCtx, cred); err != nil {
 		t.Fatalf("save ana: %v", err)
@@ -101,14 +101,14 @@ func TestDBStore_DeleteCredential_DoesNotAffectOtherUsers(t *testing.T) {
 
 // TestDBStore_DeleteCredential_InstanceSecretScopedToInstance valida
 // que instance secrets (`internal-auth:*`/`internal-tls:*`) só são
-// deletados na linha com `user_id=''`. Um delete via user-scoped ctx
+// deletados na linha com `user_id` vazio. Um delete via user-scoped ctx
 // não pode tocar a row instance-scoped.
 func TestDBStore_DeleteCredential_InstanceSecretScopedToInstance(t *testing.T) {
 	setupScopedCredentialStoreTestDB(t)
 
 	store := NewDBStore()
 	pattern := "internal-auth:refresh-token"
-	cred := StoredCredential{Pattern: pattern, Auth: &AuthConfig{Type: "bearer", Token: "secret"}}
+	cred := StoredCredential{Pattern: pattern, Auth: &AuthConfig{Source: "static", Type: "bearer", Token: "secret"}}
 
 	instanceCtx := context.Background()
 	if err := store.SaveCredential(instanceCtx, cred); err != nil {

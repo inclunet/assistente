@@ -49,7 +49,7 @@ func TestCredentialKeyProviderSignsUsingEncryptedManager(t *testing.T) {
 func TestCredentialKeyProviderNeverUsesUserScopedSecret(t *testing.T) {
 	manager := credentials.NewManager(bytes.Repeat([]byte{7}, 32))
 	req := validRequest()
-	if err := manager.RegisterStoredCredentialWithContext(context.Background(), credentials.StoredCredential{UserID: req.Owner.UserID, Pattern: "internal-auth:command-request-hmac:v1", Auth: &credentials.AuthConfig{Type: "secret", Token: base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{3}, 32))}}); err != nil {
+	if err := manager.RegisterStoredCredentialWithContext(context.Background(), credentials.StoredCredential{UserID: req.Owner.UserID, Pattern: "internal-auth:command-request-hmac:v1", Auth: &credentials.AuthConfig{Source: "static", Type: "secret", Token: base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{3}, 32))}}); err != nil {
 		t.Fatal(err)
 	}
 	provider, err := NewCredentialKeyProvider(manager)
@@ -71,7 +71,7 @@ func TestCredentialKeyProviderRejectsInvalidSecrets(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			manager := credentials.NewManager(bytes.Repeat([]byte{7}, 32))
-			if err := manager.RegisterPattern("internal-auth:command-request-hmac:v1", &credentials.AuthConfig{Type: tc.kind, Token: tc.token}); err != nil {
+			if err := manager.RegisterPattern("internal-auth:command-request-hmac:v1", &credentials.AuthConfig{Source: "static", Type: tc.kind, Token: tc.token}); err != nil {
 				t.Fatal(err)
 			}
 			provider, err := NewCredentialKeyProvider(manager)
@@ -106,5 +106,50 @@ func TestCredentialKeyProviderRejectsContextAndNames(t *testing.T) {
 	cancel()
 	if key, err := provider(ctx, "command-request-hmac:v1"); key != nil || !errors.Is(err, context.Canceled) {
 		t.Fatal("cancelamento ignorado")
+	}
+}
+
+type legacyInstanceKeyStore struct {
+	credentials.Store
+	entry credentials.StoredCredential
+}
+
+func (s *legacyInstanceKeyStore) SaveCredential(_ context.Context, entry credentials.StoredCredential) error {
+	entry.ID = "legacy-instance-key"
+	s.entry = entry
+	return nil
+}
+func (s *legacyInstanceKeyStore) ListCredentials(context.Context) ([]credentials.StoredCredential, error) {
+	return []credentials.StoredCredential{s.entry}, nil
+}
+func (s *legacyInstanceKeyStore) ListInstanceCredentials(context.Context) ([]credentials.StoredCredential, error) {
+	return []credentials.StoredCredential{s.entry}, nil
+}
+func (*legacyInstanceKeyStore) GetKeyWrap(context.Context, string) (*credentials.KeyWrap, error) {
+	return nil, nil
+}
+func TestCredentialKeyProviderPreservesLegacyInstanceKey(t *testing.T) {
+	dek := bytes.Repeat([]byte{7}, 32)
+	key := bytes.Repeat([]byte{9}, 32)
+	store := &legacyInstanceKeyStore{}
+	manager := credentials.NewManagerWithStoreAndPersistence(dek, store, true)
+	if err := manager.RegisterInstanceSecret("internal-auth:command-request-hmac:v1", base64.RawURLEncoding.EncodeToString(key)); err != nil {
+		t.Fatal(err)
+	}
+	store.entry.Auth.Source = "" // Simula coluna ausente no registro cifrado antigo.
+	manager = credentials.NewManagerWithStoreAndPersistence(dek, store, true)
+	if err := manager.LoadInstanceSecrets(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := NewCredentialKeyProvider(manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := provider(context.Background(), "command-request-hmac:v1")
+	if err != nil || !bytes.Equal(loaded, key) {
+		t.Fatalf("legacy key lost: %v", err)
+	}
+	if store.entry.Auth.Source != "" {
+		t.Fatal("legacy entry was migrated")
 	}
 }

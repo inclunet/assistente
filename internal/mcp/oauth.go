@@ -1143,7 +1143,7 @@ func (rt *pkceRoundTripper) persistClientCreds(clientID, clientSecret string) {
 	if rt.credMgr == nil {
 		return
 	}
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:         "oauth2",
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
@@ -1173,7 +1173,7 @@ func (rt *pkceRoundTripper) persistTokens(token *oauth2.Token) {
 			refresh = existing.RefreshToken
 		}
 	}
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:       "oauth2",
 		Token:      token.AccessToken,
 		RefreshURL: refresh,

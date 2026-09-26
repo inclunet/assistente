@@ -1,6 +1,7 @@
 package portability
 
 import (
+	"assistente/internal/credentials"
 	"time"
 
 	"assistente/internal/commandportability"
@@ -262,17 +263,19 @@ type MemoryRecordExport struct {
 }
 
 type CredentialExport struct {
-	ID           string            `json:"id,omitempty"`
-	Pattern      string            `json:"pattern"`
-	AuthType     string            `json:"authType"`
-	Token        string            `json:"token,omitempty"`
-	Username     string            `json:"username,omitempty"`
-	Password     string            `json:"password,omitempty"`
-	Headers      map[string]string `json:"headers,omitempty"`
-	ExpiresAt    int64             `json:"expiresAt,omitempty"`
-	RefreshURL   string            `json:"refreshUrl,omitempty"`
-	ClientID     string            `json:"clientId,omitempty"`
-	ClientSecret string            `json:"clientSecret,omitempty"`
+	Source       string                    `json:"source"`
+	SourceConfig *credentials.SourceConfig `json:"sourceConfig,omitempty"`
+	ID           string                    `json:"id,omitempty"`
+	Pattern      string                    `json:"pattern"`
+	AuthType     string                    `json:"authType"`
+	Token        string                    `json:"token,omitempty"`
+	Username     string                    `json:"username,omitempty"`
+	Password     string                    `json:"password,omitempty"`
+	Headers      map[string]string         `json:"headers,omitempty"`
+	ExpiresAt    int64                     `json:"expiresAt,omitempty"`
+	RefreshURL   string                    `json:"refreshUrl,omitempty"`
+	ClientID     string                    `json:"clientId,omitempty"`
+	ClientSecret string                    `json:"clientSecret,omitempty"`
 }
 
 type ExportResources struct {

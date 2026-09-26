@@ -107,11 +107,11 @@ func (a *App) registerEnvCredentials(ctx context.Context, credMgr *credentials.M
 
 	// GITHUB_TOKEN -> *.github.com, github.com
 	if ghToken := os.Getenv("GITHUB_TOKEN"); ghToken != "" {
-		_ = credMgr.RegisterPatternWithContext(ctx, "*.github.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*.github.com", &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: ghToken,
 		})
-		_ = credMgr.RegisterPatternWithContext(ctx, "github.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "github.com", &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: ghToken,
 		})
@@ -119,11 +119,11 @@ func (a *App) registerEnvCredentials(ctx context.Context, credMgr *credentials.M
 
 	// GITLAB_TOKEN -> *.gitlab.com, gitlab.com
 	if glToken := os.Getenv("GITLAB_TOKEN"); glToken != "" {
-		_ = credMgr.RegisterPatternWithContext(ctx, "*.gitlab.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*.gitlab.com", &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: glToken,
 		})
-		_ = credMgr.RegisterPatternWithContext(ctx, "gitlab.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "gitlab.com", &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: glToken,
 		})
@@ -131,11 +131,11 @@ func (a *App) registerEnvCredentials(ctx context.Context, credMgr *credentials.M
 
 	// BITBUCKET_TOKEN -> *.bitbucket.org, bitbucket.org
 	if bbToken := os.Getenv("BITBUCKET_TOKEN"); bbToken != "" {
-		_ = credMgr.RegisterPatternWithContext(ctx, "*.bitbucket.org", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*.bitbucket.org", &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: bbToken,
 		})
-		_ = credMgr.RegisterPatternWithContext(ctx, "bitbucket.org", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "bitbucket.org", &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: bbToken,
 		})
@@ -143,7 +143,7 @@ func (a *App) registerEnvCredentials(ctx context.Context, credMgr *credentials.M
 
 	// API genérica - GENERIC_API_KEY para qualquer host (fallback)
 	if apiKey := os.Getenv("GENERIC_API_KEY"); apiKey != "" {
-		_ = credMgr.RegisterPatternWithContext(ctx, "*", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*", &credentials.AuthConfig{Source: "static",
 			Type: "custom",
 			Headers: map[string]string{
 				"X-API-Key": apiKey,

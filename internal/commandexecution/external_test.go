@@ -291,6 +291,9 @@ func TestExternalServiceDeniesMissingScopeOrRoleBeforeHandler(t *testing.T) {
 func TestExternalServiceRevocationCancelsQueuedInvocation(t *testing.T) {
 	queued := make(chan struct{})
 	h := newExternalHarness(t, func(config *Config) {
+		// A revogação deve cancelar a fila antes do deadline da execução.
+		// O limite curto da asserção não pode ser satisfeito por expiração.
+		config.ExecutionTimeout = time.Minute
 		config.Envelope.AwaitQueue = func(ctx context.Context, _ commandcontract.Envelope) error {
 			close(queued)
 			<-ctx.Done()

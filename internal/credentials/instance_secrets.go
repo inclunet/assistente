@@ -8,11 +8,11 @@ import (
 )
 
 const (
-	InstanceSecretJWTSigningKey       = "internal-auth:jwt-signing-key"
-	InstanceSecretAuthRefreshToken    = "internal-auth:refresh-token"
-	InstanceSecretRefreshTokenPepper  = "internal-auth:refresh-token-pepper"
-	InstanceSecretTLSPrivateKey       = "internal-tls:private-key"
-	InstanceSecretTLSCertificate      = "internal-tls:certificate"
+	InstanceSecretJWTSigningKey      = "internal-auth:jwt-signing-key"
+	InstanceSecretAuthRefreshToken   = "internal-auth:refresh-token"
+	InstanceSecretRefreshTokenPepper = "internal-auth:refresh-token-pepper"
+	InstanceSecretTLSPrivateKey      = "internal-tls:private-key"
+	InstanceSecretTLSCertificate     = "internal-tls:certificate"
 )
 
 func IsInstanceSecretPattern(pattern string) bool {
@@ -32,7 +32,7 @@ func (m *Manager) RegisterInstanceSecret(pattern, value string) error {
 	}
 	return m.RegisterStoredCredentialWithContext(context.Background(), StoredCredential{
 		Pattern: pattern,
-		Auth: &AuthConfig{
+		Auth: &AuthConfig{Source: "static",
 			Type:  "secret",
 			Token: value,
 		},

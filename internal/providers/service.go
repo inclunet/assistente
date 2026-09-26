@@ -24,6 +24,7 @@ type CredentialManager interface {
 	RegisterPatternWithContext(ctx context.Context, pattern string, auth *credentials.AuthConfig) error
 	GetByPattern(pattern string) (*credentials.AuthConfig, error)
 	GetByPatternWithContext(ctx context.Context, pattern string) (*credentials.AuthConfig, error)
+	GetConfigByPatternWithContext(ctx context.Context, pattern string) (*credentials.AuthConfig, error)
 	DeletePattern(ctx context.Context, pattern string) error
 }
 
@@ -354,13 +355,18 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 
 	credConfigured := false
 	if req.APIKey != "" {
-		if err := s.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{
+		if err := s.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: req.APIKey,
 		}); err != nil {
 			return nil, fmt.Errorf("erro ao salvar credencial: %w", err)
 		}
 		credConfigured = true
+	}
+
+	if req.APIKey == "" && !isACP {
+		auth, err := s.credentialConfig(ctx, hostname)
+		credConfigured = err == nil && auth != nil && auth.Source != ""
 	}
 
 	isFirst := len(s.registry.List()) == 0
@@ -552,7 +558,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 
 	credConfigured := false
 	if req.APIKey != "" {
-		if err := s.credMgr.RegisterPatternWithContext(ctx, updated.CredentialPattern, &credentials.AuthConfig{
+		if err := s.credMgr.RegisterPatternWithContext(ctx, updated.CredentialPattern, &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: req.APIKey,
 		}); err != nil {
@@ -560,8 +566,8 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		}
 		credConfigured = true
 	} else if updated.CredentialPattern != "" {
-		auth, err := s.credMgr.GetByPatternWithContext(ctx, updated.CredentialPattern)
-		credConfigured = err == nil && auth != nil
+		auth, err := s.credentialConfig(ctx, updated.CredentialPattern)
+		credConfigured = err == nil && auth != nil && auth.Source != ""
 	}
 
 	if err := s.registry.Remove(id); err != nil {
@@ -622,11 +628,11 @@ func (s *Service) ListWithStatus(ctx context.Context) []ProviderStatus {
 	for _, p := range providers {
 		credConfigured := false
 		if p.CredentialPattern != "" {
-			auth, err := s.credMgr.GetByPatternWithContext(ctx, p.CredentialPattern)
+			auth, err := s.credentialConfig(ctx, p.CredentialPattern)
 			if err != nil {
 				logging.Infof(ctx, "providers.service", "[providers] Credencial '%s' do provider '%s' não pode ser usada: %v", p.CredentialPattern, p.ID, err)
 			}
-			credConfigured = err == nil && auth != nil
+			credConfigured = err == nil && auth != nil && auth.Source != ""
 		}
 		result = append(result, ProviderStatus{Provider: p, CredentialConfigured: credConfigured})
 	}
@@ -753,15 +759,6 @@ func (s *Service) TestConnection(ctx context.Context, req TestRequest) (bool, er
 		return false, fmt.Errorf("URL deve conter um endereço de servidor válido")
 	}
 
-	apiKey := strings.TrimSpace(req.APIKey)
-	if apiKey == "" && req.ProviderID != "" && s.registry != nil && s.credMgr != nil {
-		if provider := s.registry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
-			if auth, err := s.credMgr.GetByPatternWithContext(ctx, provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
-				apiKey = auth.Token
-			}
-		}
-	}
-
 	modelsEndpoint := strings.TrimSuffix(req.BaseURL, "/") + "/models"
 	client := &http.Client{Timeout: 15 * time.Second}
 	defer client.CloseIdleConnections()
@@ -770,8 +767,8 @@ func (s *Service) TestConnection(ctx context.Context, req TestRequest) (bool, er
 	if err != nil {
 		return false, fmt.Errorf("erro ao criar requisição: %w", err)
 	}
-	if apiKey != "" {
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	if err := s.applyProbeAuth(ctx, req, httpReq); err != nil {
+		return false, err
 	}
 
 	resp, err := client.Do(httpReq)
@@ -806,15 +803,6 @@ func (s *Service) ListModels(ctx context.Context, req TestRequest) ([]string, er
 		return nil, fmt.Errorf("URL deve começar com http:// ou https://")
 	}
 
-	apiKey := strings.TrimSpace(req.APIKey)
-	if apiKey == "" && req.ProviderID != "" && s.registry != nil && s.credMgr != nil {
-		if provider := s.registry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
-			if auth, err := s.credMgr.GetByPatternWithContext(ctx, provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
-				apiKey = auth.Token
-			}
-		}
-	}
-
 	modelsEndpoint := strings.TrimSuffix(req.BaseURL, "/") + "/models"
 	client := &http.Client{Timeout: 30 * time.Second}
 	defer client.CloseIdleConnections()
@@ -823,8 +811,8 @@ func (s *Service) ListModels(ctx context.Context, req TestRequest) ([]string, er
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar requisição: %w", err)
 	}
-	if apiKey != "" {
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	if err := s.applyProbeAuth(ctx, req, httpReq); err != nil {
+		return nil, err
 	}
 
 	resp, err := client.Do(httpReq)
@@ -912,6 +900,7 @@ func buildTempProviderForListModels(req ListModelsRawRequest, hostname string, e
 	}
 	if existing != nil {
 		temp.APIFormat = existing.APIFormat
+		temp.AuthMode = existing.EffectiveAuthMode()
 	}
 	return temp
 }
@@ -939,26 +928,21 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 	if req.ProviderID != "" && s.registry != nil {
 		existingProvider = s.registry.Get(req.ProviderID)
 	}
-	if apiKey == "" && existingProvider != nil && existingProvider.CredentialPattern != "" && s.credMgr != nil {
-		if auth, err := s.credMgr.GetByPatternWithContext(ctx, existingProvider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
-			apiKey = auth.Token
-		}
-	}
 
 	hostname := parsedURL.Hostname()
 	tempProvider := buildTempProviderForListModels(req, hostname, existingProvider)
-
 	cm, _ := s.credMgr.(*credentials.Manager)
-
-	// Registra credencial ad-hoc temporariamente para o provider encontrá-la
-	if apiKey != "" && s.credMgr != nil {
-		_ = s.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{
-			Type: "bearer", Token: apiKey,
-		})
-		// Remove credencial temporária ao término (somente se não é um provider existente)
-		if req.ProviderID == "" {
-			defer s.credMgr.DeletePattern(ctx, hostname) //nolint:errcheck
+	if apiKey != "" {
+		// Never write an ad-hoc key into the persistent manager.
+		cm = credentials.NewManager(nil)
+		if err := cm.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static", Type: "bearer", Token: apiKey}); err != nil {
+			return nil, err
 		}
+	} else if existingProvider != nil {
+		if existingProvider.EffectiveAuthMode() != llm.AuthModeNone && !sameCredentialOrigin(req.BaseURL, existingProvider.BaseURL) {
+			return nil, fmt.Errorf("URL alterada: informe uma credencial para testar o novo destino")
+		}
+		tempProvider.CredentialPattern = existingProvider.CredentialPattern
 	}
 
 	// Sem agente: esta rota exige base_url e só atende provedor HTTP.
@@ -1137,4 +1121,80 @@ func (s *Service) SupportsExplicitCacheControl(ctx context.Context, activeProfil
 		return false
 	}
 	return llm.SupportsExplicitCacheControl(s.registry.Get(activeProfile.Chat.LLMProvider))
+}
+
+func (s *Service) credentialConfig(ctx context.Context, pattern string) (*credentials.AuthConfig, error) {
+	if s.credMgr == nil {
+		return nil, nil
+	}
+	return s.credMgr.GetConfigByPatternWithContext(ctx, pattern)
+}
+
+func sameCredentialOrigin(a, b string) bool {
+	u, err := url.Parse(a)
+	if err != nil {
+		return false
+	}
+	v, err := url.Parse(b)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Scheme, v.Scheme) && strings.EqualFold(u.Host, v.Host)
+}
+
+func (s *Service) applyProbeAuth(ctx context.Context, req TestRequest, target *http.Request) error {
+	var provider *llm.ProviderConfig
+	if req.ProviderID != "" && s.registry != nil {
+		provider = s.registry.Get(req.ProviderID)
+		if provider == nil {
+			return fmt.Errorf("provedor não encontrado")
+		}
+		if provider.EffectiveAuthMode() == llm.AuthModeNone {
+			target.Header.Del("Authorization")
+			return nil
+		}
+	}
+	if strings.TrimSpace(req.APIKey) != "" {
+		return credentials.ApplyAuth(target, &credentials.AuthConfig{Source: "static", Type: "bearer", Token: strings.TrimSpace(req.APIKey)})
+	}
+	if req.ProviderID == "" {
+		if s.credMgr == nil {
+			return nil
+		}
+		u, err := url.Parse(req.BaseURL)
+		if err != nil {
+			return err
+		}
+		auth, err := s.credMgr.GetByPatternWithContext(ctx, u.Hostname())
+		if err != nil {
+			return err
+		}
+		return credentials.ApplyAuth(target, auth)
+	}
+	if provider == nil {
+		return nil
+	}
+	if !sameCredentialOrigin(req.BaseURL, provider.BaseURL) {
+		return fmt.Errorf("URL alterada: informe uma credencial para testar o novo destino")
+	}
+	if s.credMgr == nil {
+		return fmt.Errorf("credential manager indisponível")
+	}
+	auth, err := s.credMgr.GetByPatternWithContext(ctx, provider.CredentialPattern)
+	if err != nil {
+		if provider.EffectiveAuthMode() == llm.AuthModeOptional {
+			return nil
+		}
+		return err
+	}
+	if auth == nil {
+		if provider.EffectiveAuthMode() == llm.AuthModeOptional {
+			return nil
+		}
+		return fmt.Errorf("credencial não configurada")
+	}
+	if provider.EffectiveAuthMode() == llm.AuthModeOptional && auth.Type == "bearer" && strings.TrimSpace(auth.Token) == "" {
+		return nil
+	}
+	return credentials.ApplyAuth(target, auth)
 }

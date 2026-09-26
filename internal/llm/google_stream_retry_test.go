@@ -35,7 +35,7 @@ func TestGoogleStreamRetryAvisoEFinalizacao(t *testing.T) {
 
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 	ctxCred := database.WithUserID(context.Background(), "user-1")
-	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini.test", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini.test", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "test-key",
 	}); err != nil {
@@ -90,7 +90,7 @@ func TestGooglePreservaReasoningZeroExplicitamenteReportado(t *testing.T) {
 
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 	ctxCred := database.WithUserID(context.Background(), "user-zero")
-	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-zero.test", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-zero.test", &credentials.AuthConfig{Source: "static",
 		Type: "bearer", Token: "test-key",
 	}); err != nil {
 		t.Fatalf("RegisterPatternWithContext() error = %v", err)
@@ -127,7 +127,7 @@ func TestGoogleTimeoutParcialPreservaDiagnosticos(t *testing.T) {
 
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 	ctxCred := database.WithUserID(context.Background(), "user-timeout")
-	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-timeout.test", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-timeout.test", &credentials.AuthConfig{Source: "static",
 		Type: "bearer", Token: "test-key",
 	}); err != nil {
 		t.Fatalf("RegisterPatternWithContext() error = %v", err)
@@ -172,7 +172,7 @@ func TestGoogleTimeoutSoComReasoningRetentaELimpaHandler(t *testing.T) {
 
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 	ctxCred := database.WithUserID(context.Background(), "user-reasoning-retry")
-	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-reasoning.test", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-reasoning.test", &credentials.AuthConfig{Source: "static",
 		Type: "bearer", Token: "test-key",
 	}); err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func TestGoogleCancelamentoEmThinkingNaoFinalizaResposta(t *testing.T) {
 
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 	ctxCred := database.WithUserID(context.Background(), "user-cancel")
-	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-cancel.test", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-cancel.test", &credentials.AuthConfig{Source: "static",
 		Type: "bearer", Token: "test-key",
 	}); err != nil {
 		t.Fatal(err)
