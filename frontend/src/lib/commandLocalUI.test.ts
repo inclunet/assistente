@@ -3,7 +3,8 @@ import { LOCAL_UI_COMMAND_IDS, isLocalUICommand } from './commandLocalUI';
 
 describe('local_ui command projection', () => {
   it('mantém a allowlist fechada de navegação e efeitos locais', () => {
-    expect(LOCAL_UI_COMMAND_IDS).toHaveLength(62);
+    expect(LOCAL_UI_COMMAND_IDS).toHaveLength(63);
+    expect(isLocalUICommand('command_settings.create.open')).toBe(true);
     expect(isLocalUICommand('workspace.tab.go_to')).toBe(true);
     expect(isLocalUICommand('tasklist.task.create.open')).toBe(true);
     expect(isLocalUICommand('tasklists.clear')).toBe(false);

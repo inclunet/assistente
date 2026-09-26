@@ -1,6 +1,27 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Qualificação de CI (26/09/2026):** o grupo de contexto do Deck foi separado
+em páginas, Mermaid, camadas e base residual, preservando descoberta automática,
+flags e seleção exata de cada teste. Validações/compilações backend e testes com
+cobertura executam em paralelo; o check obrigatório backend agrega ambos e só
+aprova se os dois passam. Evidência: testar-go-race.teste.sh verifica famílias,
+fallback, matriz e flags. AEP-0103 permanece **In Progress**, sem novo aceite manual.
+
 **Status:** In Progress
+
+**Gerenciadores — seção168 da tasklist (26/09/2026):** Editar/Apagar passam
+a estar na mesma toolbar de Novo em comandos/acionadores e regras. Ctrl+N
+é binding padrão de `command_settings.create.open`, condicionado a `app.page=settings`.
+Trata-se apenas de apresentação `local_ui`: cria o formulário de camada na
+lista principal ou de item no gerenciador ativo, sem gravar configuração.
+A fonte do gerenciador precisa pertencer ao modal topmost exato e só licencia
+esse comando; um formulário filho, busy, IME ou perda de sessão/contexto o
+bloqueia. Não há listener paralelo nem fallback se o mapa suprimir o binding.
+Personalizações anteriores e os demais gates permanecem preservados; não há
+novo aceite manual inferido desta implementação.
+O mesmo lote alinha menus de contexto e Enter às ações permitidas das grades,
+e preserva o gerenciador da camada ao salvar um formulário filho, restaurando
+o foco à lista. Enter usa a ativação nativa da DataGrid, não outro resolvedor.
 
 **Feedback de conversa indisponível (26/09/2026):** antes da reserva de envio/retry,
 a consulta com escopo de usuário distingue registro indisponível de outros erros.

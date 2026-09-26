@@ -1,5 +1,12 @@
 # AEP — Assistente Enhancement Proposals
 
+**Qualificação de CI (26/09/2026):** o grupo de contexto do Deck foi separado
+em páginas, Mermaid, camadas e base residual, preservando descoberta automática,
+flags e seleção exata de cada teste. Validações/compilações backend e testes com
+cobertura executam em paralelo; o check obrigatório backend agrega ambos e só
+aprova se os dois passam. Evidência: testar-go-race.teste.sh verifica famílias,
+fallback, matriz e flags. AEP-0103 permanece **In Progress**, sem novo aceite manual.
+
 **Feedback de conversa indisponível (26/09/2026):** antes da reserva de envio/retry,
 a consulta com escopo de usuário distingue registro indisponível de outros erros.
 Um código público sem IDs alimenta aviso visual e anúncio global, preservando o
@@ -23,6 +30,13 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 > Verificação reproduzível: `python .github/scripts/verificar-status-aeps.py`.
 
 ## Índice
+
+AEP-0103, seção168 (26/09/2026): toolbar de Novo/Editar/Apagar nos gerenciadores,
+menus de contexto equivalentes, Enter para editar e continuidade da lista após salvar,
+e Ctrl+N pelo catálogo/resolvedor, com apresentação restrita ao contexto e ao
+modal proprietário. **In Progress; 83 I / 1 P / 0 N**; sem promoção de aceite
+manual. Regra de contribuição centralizada no AGENTS e teste arquitetural
+focado nesses gerenciadores, não garantia de bloqueio global de código arbitrário.
 
 **AEP-0103 — reconciliação vigente, seção167 (26/09/2026): In Progress.**
 Baseline `main` em `116eda53b`; PRs #833/#834/#836/#838/#839 mergeados.

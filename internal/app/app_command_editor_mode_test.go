@@ -14,8 +14,8 @@ func TestCommandEditorModesCatalogDefaultsAndHandlers(t *testing.T) {
 	if p == nil {
 		t.Fatal("produto de comandos ausente")
 	}
-	if got := len(p.registry.List()); got != 150 {
-		t.Fatalf("catálogo = %d, esperado 150", got)
+	if got := len(p.registry.List()); got != 151 {
+		t.Fatalf("catálogo = %d, esperado 151", got)
 	}
 	for _, item := range []struct {
 		id, mode, trigger string
@@ -60,8 +60,8 @@ func TestCommandEditorModesCatalogDefaultsAndHandlers(t *testing.T) {
 			}
 		}
 	}
-	if keyboardDefaults != 67 {
-		t.Fatalf("defaults de teclado = %d, esperado 62", keyboardDefaults)
+	if keyboardDefaults != 68 {
+		t.Fatalf("defaults de teclado = %d, esperado 68", keyboardDefaults)
 	}
 	payload, err := json.Marshal(workspaceEditorModeChangedEvent{Workspace: p.workspaceMgr.Active(), TabID: "tab-editor", Mode: "markdown"})
 	if err != nil {

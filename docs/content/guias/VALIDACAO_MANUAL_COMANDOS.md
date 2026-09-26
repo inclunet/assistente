@@ -165,6 +165,16 @@ convites, serial de equipamento, mensagens pessoais ou logs sem sanitização.
   inicialmente desmarcado, com explicação anunciada. Tab entra na toolbar,
   setas levam ao checkbox e Espaço marca/desmarca sem mudar o foco.
   Marcá-lo sozinho não cria uma conexão nem é necessário para teclado/Deck.
+  Variante da seção 168: nos gerenciadores, confira Novo/Editar/Apagar na mesma
+  toolbar. Selecione um item com Espaço, edite e cancele, conferindo retorno de
+  foco; sem seleção válida, as ações dependentes dela ficam desabilitadas.
+  Teste Ctrl+N na lista de camadas e em cada gerenciador: abre o formulário
+  correspondente. Dentro desse formulário, Ctrl+N não abre outro por trás.
+  Cancele sem salvar. Esta variante é nova; preserve o aceite anterior de UI01.
+  Confira também o menu de contexto das três grades e Enter em uma célula de
+  dados para editar. Em uma camada que não seja a primeira, salve um acionador
+  e uma regra: somente o formulário deve fechar, mantendo a lista da mesma
+  camada aberta e focada, pronta para editar outro item.
   Resultado/anúncio: ________.
 
 - [ ] **UI02 — Paleta, busca e foco.** No campo de mensagem, escreva um

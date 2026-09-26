@@ -15,8 +15,24 @@ vi.mock('../services/commandSettings', () => ({
 vi.mock('../services/commandDeckCapture', () => ({ beginCommandDeckCapture: vi.fn(), cancelCommandDeckCapture: vi.fn() }));
 vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: vi.fn() }) }));
 vi.mock('../hooks/useGridFocus', () => ({ useGridFocus: () => ({ handleGridReady: vi.fn(), requestGridFocus: bridge.requestGridFocus }) }));
-vi.mock('../store/authStore', () => ({ useAuthStore: (select: (state: unknown) => unknown) => select({ user: { userId: 'owner', sessionId: 'session' }, status: { vaultUnlocked: true } }) }));
-vi.mock('../store/workspaceStore', () => ({ useWorkspaceStore: (select: (state: unknown) => unknown) => select({ workspace: { id: 'workspace-1' } }) }));
+vi.mock('../store/authStore', async () => {
+  const { create } = await import('zustand');
+  return {
+    useAuthStore: create(() => ({
+      user: { userId: 'owner', sessionId: 'session', role: 'user' },
+      status: { vaultUnlocked: true },
+      isAuthenticated: true,
+    })),
+  };
+});
+vi.mock('../store/workspaceStore', async () => {
+  const { create } = await import('zustand');
+  return {
+    useWorkspaceStore: create(() => ({
+      workspace: { id: 'workspace-1', activeTabId: '', tabs: [] },
+    })),
+  };
+});
 vi.mock('@wailsjs/runtime/runtime', () => ({ EventsOn: () => vi.fn() }));
 import CommandSettingsPage from './CommandSettingsPage';
 

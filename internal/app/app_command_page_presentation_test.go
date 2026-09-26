@@ -6,6 +6,7 @@ import (
 
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandcatalog"
+	"assistente/internal/database"
 )
 
 func TestCommandPagePresentationSequenceFallbackRequiresNoMatch(t *testing.T) {
@@ -62,7 +63,7 @@ func TestCommandPagePresentationClosedLocalCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.registry.List()) != 150 || len(view.LocalPaletteCommands) != 61 {
+	if len(p.registry.List()) != 151 || len(view.LocalPaletteCommands) != 62 {
 		t.Fatal("catalog counts")
 	}
 	for _, item := range commandProductPagePresentation {
@@ -88,6 +89,22 @@ func TestCommandPagePresentationClosedLocalCatalog(t *testing.T) {
 		if !containsString(view.LocalPaletteCommands, item.id) {
 			t.Fatal(item.id)
 		}
+		if item.id == "command_settings.create.open" {
+			if d.Presentation.Version != "page-presentation-v1" || d.Presentation.Locales["pt-BR"].Name != "Novo item de configuração de comandos" {
+				t.Fatalf("unexpected command settings presentation: %+v", d.Presentation)
+			}
+			var before, after int64
+			if err := database.DB().Table("command_invocations").Count(&before).Error; err != nil {
+				t.Fatal(err)
+			}
+			if _, err := a.BeginUICommand(item.id); err == nil {
+				t.Fatal("local command entered durable handoff")
+			}
+			if err := database.DB().Table("command_invocations").Count(&after).Error; err != nil || after != before {
+				t.Fatalf("local presentation command wrote command ledger: before=%d after=%d err=%v", before, after, err)
+			}
+			continue
+		}
 		if _, err := a.BeginUICommand(item.id); err == nil {
 			t.Fatal("local command entered durable handoff")
 		}
@@ -111,15 +128,26 @@ func TestCommandPagePresentationCtrlNProjection(t *testing.T) {
 			continue
 		}
 		found = true
-		if entry.BySurface["history"] == nil || entry.BySurface["history"].CommandID != "navigation.workspace.open" {
+		if entry.ByPage["history"] == nil || entry.ByPage["history"].BySurface["history"] == nil || entry.ByPage["history"].BySurface["history"].CommandID != "navigation.workspace.open" {
 			t.Fatalf("history must navigate, never create a chat: %+v", entry)
 		}
-		if entry.BySurface["tasklists"] == nil || entry.BySurface["tasklists"].CommandID != "tasklists.create.open" || entry.BySurface["profiles"] == nil || entry.BySurface["profiles"].CommandID != "profiles.create.open" || entry.Fallback != nil || !entry.FallbackToSequences {
+		if entry.ByPage["tasklists"] == nil || entry.ByPage["tasklists"].BySurface["tasklists"] == nil || entry.ByPage["tasklists"].BySurface["tasklists"].CommandID != "tasklists.create.open" || entry.ByPage["profiles"] == nil || entry.ByPage["profiles"].BySurface["profiles"] == nil || entry.ByPage["profiles"].BySurface["profiles"].CommandID != "profiles.create.open" || entry.ByPage["settings"] == nil || entry.ByPage["settings"].BySurface["toolbar"] == nil || entry.ByPage["settings"].BySurface["toolbar"].CommandID != "command_settings.create.open" || entry.Fallback != nil || entry.ByPage["workspace"] == nil || !entry.ByPage["workspace"].FallbackToSequences {
 			t.Fatalf("%+v", entry)
 		}
+		for _, page := range []string{"workspace", "history", "profiles", "tasklists"} {
+			pageBinding := entry.ByPage[page]
+			if pageBinding == nil {
+				continue
+			}
+			for _, bySurface := range pageBinding.BySurface {
+				if bySurface != nil && bySurface.CommandID == "command_settings.create.open" {
+					t.Fatalf("settings create leaked into app.page=%q: %+v", page, entry.ByPage[page])
+				}
+			}
+		}
 		cloned := cloneContextualKeyboardBindings([]LocalCommandKeyboardContextualBinding{entry})
-		if !cloned[0].FallbackToSequences {
-			t.Fatal("lost prefix fallback on clone")
+		if cloned[0].ByPage["workspace"] == nil || !cloned[0].ByPage["workspace"].FallbackToSequences {
+			t.Fatal("lost page-scoped prefix fallback on clone")
 		}
 	}
 	if !found {
