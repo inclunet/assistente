@@ -28,7 +28,7 @@ func TestCommandCatalogRefreshesStaleWorkspaceProjection(t *testing.T) {
 		t.Fatalf("mudança real não invalidou a projeção: %v", err)
 	}
 	items, err := a.commandCatalogAPI.ListCommands(apidto.CommandCatalogFilter{Source: "palette", Locale: "pt-BR"})
-	if err != nil || len(items) != 150 {
+	if err != nil || len(items) != 151 {
 		t.Fatalf("catálogo: count=%d err=%v", len(items), err)
 	}
 	// Refresh repairs projection freshness, not missing user configuration.
@@ -98,7 +98,7 @@ func TestCommandCatalogProjectionRefreshDoesNotUnlockVault(t *testing.T) {
 		t.Fatal(err)
 	}
 	items, err := a.commandCatalogAPI.ListCommands(apidto.CommandCatalogFilter{Source: "palette", Locale: "pt-BR"})
-	if err != nil || len(items) != 150 {
+	if err != nil || len(items) != 151 {
 		t.Fatalf("catálogo: count=%d err=%v", len(items), err)
 	}
 	for _, item := range items {

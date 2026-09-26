@@ -207,6 +207,7 @@ const ptBR = {
       clearError: 'Erro ao limpar conversa',
       profileChangeError: 'Não foi possível alterar o perfil. Tente novamente.',
       errorPrefix: 'Erro: {{message}}',
+      conversationUnavailable: 'Esta conversa não está mais disponível. Copie seu rascunho e abra uma nova conversa para enviar.',
       sendErrorPrefix: 'Erro ao enviar mensagem: {{message}}',
       historyLabel: 'Histórico',
       tokenStatsOpened: 'Modal de estatísticas de tokens aberto',

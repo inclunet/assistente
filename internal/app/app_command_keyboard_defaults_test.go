@@ -34,7 +34,7 @@ func TestCommandKeyboardDefaultsProjectStableApplicationLayer(t *testing.T) {
 			keyboardLayer = layer
 		}
 	}
-	if keyboardLayer.ID != commandKeyboardLayerID || !keyboardLayer.Active || len(keyboardLayer.Defaults) != 67 {
+	if keyboardLayer.ID != commandKeyboardLayerID || !keyboardLayer.Active || len(keyboardLayer.Defaults) != 68 {
 		t.Fatalf("defaults de teclado = %+v", keyboardLayer)
 	}
 	want := []struct {
@@ -102,6 +102,7 @@ func TestCommandKeyboardDefaultsProjectStableApplicationLayer(t *testing.T) {
 		{"builtin.keyboard.shift-f6.navigation.landmark.previous", "keyboard.local:Shift+F6", "navigation.landmark.previous"},
 		{"builtin.keyboard.ctrl-n.tasklists.create.open", "keyboard.local:Control+KeyN", "tasklists.create.open"},
 		{"builtin.keyboard.ctrl-n.profiles.create.open", "keyboard.local:Control+KeyN", "profiles.create.open"},
+		{"builtin.keyboard.ctrl-n.command-settings.create.open", "keyboard.local:Control+KeyN", "command_settings.create.open"},
 		{"builtin.keyboard.ctrl-n.history.workspace.open", "keyboard.local:Control+KeyN", "navigation.workspace.open"},
 	}
 	// Current catalog goldens: origins are executable semantics, so a catalog
@@ -154,6 +155,12 @@ func TestCommandKeyboardDefaultsProjectStableApplicationLayer(t *testing.T) {
 			}
 		}
 	}
+	for _, binding := range keyboardLayer.Defaults {
+		if binding.Candidate.CommandID == "command_settings.create.open" &&
+			(binding.Candidate.Condition[commandbindings.AppPage] != "settings" || binding.Candidate.Condition[commandbindings.SurfaceType] != nil || binding.Candidate.Scope != commandbindings.Surface) {
+			t.Fatalf("settings Ctrl+N default has noncanonical page condition: %+v", binding.Candidate)
+		}
+	}
 	sequenceWant := []struct {
 		id, trigger, command string
 	}{
@@ -198,6 +205,45 @@ func TestCommandKeyboardDefaultFingerprintIncludesAllowedSources(t *testing.T) {
 	}
 	if withUIFingerprint == withoutUIFingerprint {
 		t.Fatal("mudança em origens permitidas não alterou fingerprint semântico")
+	}
+}
+
+func TestCommandKeyboardDefaultFingerprintExcludesPagePresentation(t *testing.T) {
+	a, _ := settingsSecurityFixture(t)
+	p := a.commandProduct.Load()
+	projection, err := commandProductProjection(p.registry, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var candidate commandbindings.Candidate
+	for _, layer := range projection.BuiltinLayers {
+		if layer.ID != commandKeyboardLayerID {
+			continue
+		}
+		for _, binding := range layer.Defaults {
+			if binding.Candidate.CommandID == "profiles.create.open" || binding.Candidate.CommandID == "tasklists.create.open" {
+				candidate = binding.Candidate
+				break
+			}
+		}
+	}
+	if candidate.ID == "" {
+		t.Fatal("expected existing page presentation default")
+	}
+	definition, ok := p.registry.Lookup(candidate.CommandID)
+	if !ok || definition.Presentation == nil || definition.Presentation.Version != "page-presentation-v1" {
+		t.Fatalf("existing page presentation changed: %+v", definition.Presentation)
+	}
+	base, err := commandKeyboardDefaultFingerprint(candidate, definition, commandKeyboardLayerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition.Presentation = &commandcatalog.Presentation{Version: "page-presentation-v2", Locales: map[string]commandcatalog.LocalizedMetadata{
+		"en": {Name: "different label", Description: "different description"},
+	}}
+	updated, err := commandKeyboardDefaultFingerprint(candidate, definition, commandKeyboardLayerID)
+	if err != nil || updated != base {
+		t.Fatalf("presentation metadata changed existing default fingerprint: base=%s updated=%s err=%v", base, updated, err)
 	}
 }
 

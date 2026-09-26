@@ -73,7 +73,7 @@ import { CHAT_PRESENTATION_COMMAND_EVENT, captureChatPickerTarget, isChatPickerC
 import { captureEditorPresentationTarget, isEditorPresentationCommand, type EditorPresentationTargetLease } from '../../lib/commandEditorPresentation';
 import { captureLandmarkNavigationTarget, isLandmarkNavigationCommand, LANDMARK_COMMAND_EVENT } from '../../lib/commandLandmarkNavigation';
 import { captureChatNavigationTarget, isChatNavigationCommand, CHAT_NAVIGATION_COMMAND_IDS, CHAT_NAVIGATION_COMMAND_EVENT, type ChatNavigationTarget } from '../../lib/commandChatNavigation';
-import { capturePagePresentationTarget, isPagePresentationCommand, PAGE_PRESENTATION_COMMAND_IDS, PAGE_PRESENTATION_COMMAND_EVENT, type PagePresentationTarget } from '../../lib/commandPagePresentation';
+import { captureCommandSettingsKeyboardContext, capturePagePresentationTarget, isPagePresentationCommand, PAGE_PRESENTATION_COMMAND_IDS, PAGE_PRESENTATION_COMMAND_EVENT, type PagePresentationTarget } from '../../lib/commandPagePresentation';
 import { resolveAppPage, type AppPage } from '../../lib/commandAppPage';
 import { subscribeCommandDeckFeedback } from '../../lib/subscribeCommandDeckFeedback';
 import { createExternalUICommandDispatcher, type ExternalUICommandFrame } from '../../lib/externalUICommandDispatcher';
@@ -247,8 +247,8 @@ export function Topbar() {
   );
   const shortcutsHelpOpen = useShortcutsHelpStore((s) => s.isOpen);
   const shortcutSurface = pathname === '/' ? workspace?.tabs.find(tab => tab.id === workspace.activeTabId)?.type
-    : pathname === '/tasklists' ? 'tasklists' : pathname === '/profiles' ? 'profiles' : 'toolbar';
-  const shortcutHint = useCommandShortcutHints(shortcutSurface);
+    : pathname === '/tasklists' ? 'tasklists' : pathname === '/profiles' ? 'profiles' : pathname === '/history' ? 'history' : 'toolbar';
+  const shortcutHint = useCommandShortcutHints(shortcutSurface, resolveAppPage(pathname) ?? undefined);
   const shortcutHintRef = useRef(shortcutHint);
   shortcutHintRef.current = shortcutHint;
   const openShortcutsHelp = useShortcutsHelpStore((s) => s.open);
@@ -799,18 +799,24 @@ export function Topbar() {
     activeChatMessagingRef.current.add(target);
     const unsubscribeAuth = useAuthStore.subscribe(() => { current(); });
     const unsubscribeWorkspace = useWorkspaceStore.subscribe(() => { current(); });
+    let conversationUnavailable = false;
     const report = (status: string) => {
       const now = useAuthStore.getState();
       if (status !== 'succeeded' && status !== 'cancelled' && now.isAuthenticated &&
           now.user?.userId === ownerId && now.user?.sessionId === sessionId &&
           commandRouteIdentityRef.current === route) {
         creationPresentationRef.current.announce(creationPresentationRef.current.t(
-          status === 'outcome_unknown' ? 'commandPalette.executionUnknown' : 'commandPalette.executionFailed',
+          conversationUnavailable ? 'chat.conversationUnavailable' : status === 'outcome_unknown' ? 'commandPalette.executionUnknown' : 'commandPalette.executionFailed',
         ));
       }
     };
     const guardedTarget: ChatMessagingTarget = {
       ...target,
+      failed: reason => {
+        if (!current()) return;
+        conversationUnavailable = reason === 'conversation_unavailable';
+        target.failed?.(reason);
+      },
       isCurrent: current,
       execute: handoff => {
         if (!current() || (lease && !lease.isCurrent())) return Promise.reject(new Error('contextual-palette-stale'));
@@ -1849,7 +1855,8 @@ export function Topbar() {
       }
     });
     const captureKeyboardContext = (event?: KeyboardEvent, requestedFocusShortcut?: CommandKeyboardTrigger) => {
-      if (disposed || isModalOpen()) return undefined;
+      if (disposed) return undefined;
+      if (isModalOpen()) return captureCommandSettingsKeyboardContext(() => pathnameRef.current);
       const route = commandRouteIdentityRef.current;
       if (pathnameRef.current !== '/') {
         const owned = trustedSession.readOwnedCommandContextFrame(COMMAND_TOOLBAR_SURFACE_ID);
@@ -1977,7 +1984,7 @@ export function Topbar() {
       ownedGlobally: globalOwnership.owns,
       readContext: captureKeyboardContext,
       readSurfaceType: () => {
-        if (isModalOpen()) return undefined;
+        if (isModalOpen()) return captureCommandSettingsKeyboardContext(() => pathnameRef.current)?.surfaceType;
         if (pathnameRef.current !== '/') {
           const owned = trustedSession.readOwnedCommandContextFrame(COMMAND_TOOLBAR_SURFACE_ID);
           const page = owned?.frame.appPage;

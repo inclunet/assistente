@@ -22,7 +22,7 @@ func TestCommandChatNavigationLocalPresentation(t *testing.T) {
 			key := LocalCommandShortcut{Version: 1, Code: "KeyJ", Modifiers: []string{"Control", "Shift"}}
 			a, view := localKeyboardRepeatFixture(t, localKeyboardRepeatBinding{tc.id, key})
 			p := a.commandProduct.Load()
-			if len(p.registry.List()) != 150 || len(view.LocalPaletteCommands) != 61 || commandProductRegistryVersion != "product-v41-agent-commands" {
+			if len(p.registry.List()) != 151 || len(view.LocalPaletteCommands) != 62 || commandProductRegistryVersion != "product-v42-command-settings-create" {
 				t.Fatal("counts/version")
 			}
 			d, ok := p.registry.Lookup(tc.id)
@@ -52,7 +52,7 @@ func TestCommandChatNavigationLocalPresentation(t *testing.T) {
 				if layer.ID != commandKeyboardLayerID {
 					continue
 				}
-				if len(layer.Defaults) != 67 {
+				if len(layer.Defaults) != 68 {
 					t.Fatal("defaults changed")
 				}
 				for _, item := range layer.Defaults {

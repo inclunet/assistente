@@ -24,6 +24,26 @@ ou **Configurações da camada** para escolher o gerenciador desejado:
 - **Regras de ativação:** consulte quando a camada se aplica; use **Nova regra**
   ou o menu da linha para editar e acionar as operações permitidas.
 
+Nos dois gerenciadores, a barra reúne **Novo**, **Editar** e **Apagar**.
+Selecione um item na grade (Espaço alterna sua seleção) para editar/apagar;
+essas ações só ficam disponíveis quando a seleção e as permissões permitem.
+As opções próprias dos padrões e dos itens herdados continuam valendo.
+
+O menu de contexto da camada também oferece acesso a **Comandos e acionadores**
+e **Regras de ativação**, além das ações permitidas para a própria camada.
+Nos gerenciadores, o menu de contexto permite criar, editar e apagar conforme
+as mesmas permissões da toolbar. **Enter** em uma célula de dados abre o editor
+do item quando permitido; na coluna Ações, abre o menu da linha.
+Ao salvar ou cancelar a edição de um acionador ou regra, a lista da camada
+permanece aberta e recebe o foco, para continuar editando os demais itens.
+
+**Ctrl+N** é o atalho padrão de **Novo item de configuração de comandos**.
+Na lista principal abre Nova camada; em Comandos e acionadores abre Novo
+acionador; em Regras de ativação abre Nova regra. Usa o sistema configurável
+de comandos, não um atalho fixo da tela: personalizações e supressões do mapa
+são respeitadas. Um formulário filho aberto ou uma operação em andamento
+bloqueia nova criação. Abrir o formulário não salva nada automaticamente.
+
 Os dois gerenciadores são separados. As opções avançadas continuam nos
 formulários correspondentes, sem alterar o significado das configurações.
 Camadas herdadas de outro escopo podem ser consultadas, mas sua edição continua

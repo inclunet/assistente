@@ -6,6 +6,8 @@ import { useWorkspaceStore, type WorkspaceData, type WorkspaceTab } from '../sto
 import { acquireCommandFocusTracking } from './commandFocusContext';
 import {
   capturePagePresentationTarget,
+  captureCommandSettingsKeyboardContext,
+  COMMAND_SETTINGS_CREATE_COMMAND_ID,
   type PagePresentationCommandID,
   usePagePresentationCommands,
 } from './commandPagePresentation';
@@ -38,11 +40,12 @@ interface HarnessReport {
   listeners: Set<() => void>;
 }
 
-function Harness({ state, pathname = '/tasklists', tabId = tab.id, commands = [command], report }: {
+function Harness({ state, pathname = '/tasklists', tabId = tab.id, commands = [command], report, settingsManager = false }: {
   state: HarnessState;
   pathname?: string;
   tabId?: string;
   commands?: readonly PagePresentationCommandID[];
+  settingsManager?: boolean;
   report: (report: HarnessReport) => void;
 }) {
   const root = React.useRef<HTMLDivElement>(null);
@@ -52,6 +55,7 @@ function Harness({ state, pathname = '/tasklists', tabId = tab.id, commands = [c
     root,
     pathname,
     tabId,
+    settingsManager,
     allowedCommands: commands,
     readTarget: () => state.target,
     isCurrent: () => state.current,
@@ -67,7 +71,9 @@ function Harness({ state, pathname = '/tasklists', tabId = tab.id, commands = [c
     if (root.current) report({ root: root.current, request, open, listeners: listeners.current });
   }, [open, report, request]);
 
-  return <div ref={root} tabIndex={-1} data-testid="page-source" />;
+  return <div ref={root} tabIndex={-1} data-testid="page-source"
+    className={settingsManager ? 'modal-overlay' : undefined}
+    data-modal-id={settingsManager ? 'page-presentation-test-modal' : undefined} />;
 }
 
 function capture(readPathname: () => string = () => '/tasklists', id: string = command, instanceId?: string) {
@@ -108,6 +114,40 @@ afterEach(() => {
 });
 
 describe('commandPagePresentation', () => {
+  it.each(['valid', 'target', 'owner', 'workspace', 'route', 'hidden', 'focus', 'modal-generation'] as const)(
+    'licença do gerenciador contém apenas criação e invalida em %s', async change => {
+      const state: HarnessState = { target: {}, current: true, canOpen: true, notify: () => () => {}, report: () => {} };
+      let latest!: HarnessReport;
+      let path = '/settings/commands';
+      render(<Harness state={state} pathname={path} settingsManager commands={[COMMAND_SETTINGS_CREATE_COMMAND_ID]}
+        report={report => { latest = report; }} />);
+      registerOpenModal('page-presentation-test-modal'); latest.root.focus();
+      const lease = captureCommandSettingsKeyboardContext(() => path);
+      expect(lease?.allowedCommandIds).toEqual([COMMAND_SETTINGS_CREATE_COMMAND_ID]);
+      expect(lease?.isCurrent()).toBe(true);
+      if (change === 'target') state.target = {};
+      if (change === 'owner') setOwner('another-user');
+      if (change === 'workspace') setOwner('user-a', 'session-a', 'workspace-b');
+      if (change === 'route') path = '/profiles';
+      if (change === 'hidden') latest.root.hidden = true;
+      if (change === 'focus') { const button = document.createElement('button'); document.body.append(button); button.focus(); }
+      if (change === 'modal-generation') {
+        unregisterOpenModal('page-presentation-test-modal');
+        registerOpenModal('page-presentation-test-modal');
+      }
+      expect(lease?.isCurrent()).toBe(change === 'valid');
+    },
+  );
+
+  it('não estende a licença de modal a outros comandos de apresentação', () => {
+    const state: HarnessState = { target: {}, current: true, canOpen: true, notify: () => () => {}, report: () => {} };
+    let latest!: HarnessReport;
+    render(<Harness state={state} pathname="/settings/commands" settingsManager
+      commands={[COMMAND_SETTINGS_CREATE_COMMAND_ID, 'profiles.create.open']} report={report => { latest = report; }} />);
+    registerOpenModal('page-presentation-test-modal'); latest.root.focus();
+    expect(captureCommandSettingsKeyboardContext(() => '/settings/commands')).toBeUndefined();
+    expect(capture(() => '/settings/commands', 'profiles.create.open')).toBeUndefined();
+  });
   it('registra o hook real, executa uma vez e recusa canOpen falso', async () => {
     const state: HarnessState = { target: {}, current: true, canOpen: true, notify: () => () => {}, report: () => {} };
     let latest!: HarnessReport;

@@ -260,7 +260,7 @@ func TestCommandChatCancelGenerationAndSerializationAbsence(t *testing.T) {
 
 func TestCommandChatActionsContracts(t *testing.T) {
 	a, _, _ := chatActionFixture(t)
-	if len(a.commandProduct.Load().registry.List()) != 150 {
+	if len(a.commandProduct.Load().registry.List()) != 151 {
 		t.Fatal("catalog count")
 	}
 	for _, id := range []string{commandChatSendID, commandChatRetryID, commandChatCancelID} {
@@ -334,5 +334,79 @@ func TestCommandChatActionsDeckPreservesSource(t *testing.T) {
 	var source string
 	if err := database.DB().Table("command_invocations").Select("source_type").Where("invocation_id = ?", r.InvocationID).Scan(&source).Error; err != nil || source != "streamdeck.key" {
 		t.Fatalf("source=%s %v", source, err)
+	}
+}
+
+func TestCommandChatActionsMissingConversationFeedback(t *testing.T) {
+	for _, scenario := range []string{"missing", "foreign"} {
+		t.Run(scenario, func(t *testing.T) {
+			a, cid, _ := chatActionFixture(t)
+			var err error
+			if scenario == "missing" {
+				err = database.DB().Where("id = ?", cid).Delete(&database.Conversation{}).Error
+			} else {
+				err = database.DB().Model(&database.Conversation{}).Where("id = ?", cid).Update("user_id", "another-owner").Error
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, command := range []string{commandChatSendID, commandChatRetryID} {
+				reservation, err := a.BeginUICommand(command)
+				if !errors.Is(err, errChatConversationUnavailable) || err.Error() != "chat_conversation_unavailable" || reservation.Ticket != "" {
+					t.Fatalf("diagnóstico seguro ausente: reservation=%+v err=%v", reservation, err)
+				}
+			}
+		})
+	}
+}
+
+func TestCommandChatActionsKeyboardMissingConversationFeedback(t *testing.T) {
+	for _, scenario := range []string{"missing", "foreign"} {
+		for _, command := range []string{commandChatSendID, commandChatRetryID} {
+			t.Run(scenario+"/"+command, func(t *testing.T) {
+				a, decisions := settingsSecurityFixture(t)
+				if err := database.DB().AutoMigrate(&database.Conversation{}, &database.ChatMessage{}); err != nil {
+					t.Fatal(err)
+				}
+				conversation, err := database.CreateConversationWithContext(database.WithUserID(context.Background(), a.currentUserID), "chat", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				tabID := uuid.NewString()
+				if err := a.workspaceMgr.AddTab(workspace.Tab{ID: tabID, Type: workspace.TabTypeChat, ConversationID: conversation.ID}); err != nil {
+					t.Fatal(err)
+				}
+				if err := a.workspaceMgr.SetActiveTab(tabID); err != nil {
+					t.Fatal(err)
+				}
+				a.streamMgr = chat.NewStreamingManager(nil)
+				a.chatCtrl = controllers.NewChatController(controllers.ChatControllerConfig{})
+				a.chatInteractor = chat.NewInteractor(chat.InteractorConfig{Repo: chat.NewDBMessageStore()})
+				layer, _ := settingsActivationSecurityLayerAndRule(t, a, decisions)
+				settingsActivationSecurityConfirmed(t, a, decisions, func() (CommandSettingsMutation, error) {
+					return a.SaveCommandBinding(CommandBindingEdit{LayerID: layer, CommandID: command, TriggerType: "keyboard.local", TriggerSpec: `{"version":1,"code":"KeyK","modifiers":["Control","Shift"]}`, Enabled: true})
+				})
+				if _, err := a.SetCommandLayerActive(layer, true); err != nil {
+					t.Fatal(err)
+				}
+				if scenario == "missing" {
+					err = database.DB().Where("id = ?", conversation.ID).Delete(&database.Conversation{}).Error
+				} else {
+					err = database.DB().Model(&database.Conversation{}).Where("id = ?", conversation.ID).Update("user_id", "another-owner").Error
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				view, err := a.GetLocalCommandKeyboardMap()
+				if err != nil {
+					t.Fatal(err)
+				}
+				key := LocalCommandShortcut{Version: 1, Code: "KeyK", Modifiers: []string{"Control", "Shift"}}
+				reservation, err := a.BeginLocalCommandUIKey(view.Generation, key, false)
+				if !errors.Is(err, errChatConversationUnavailable) || err.Error() != "chat_conversation_unavailable" || reservation != nil {
+					t.Fatalf("diagnóstico seguro de teclado ausente: reservation=%+v err=%v", reservation, err)
+				}
+			})
+		}
 	}
 }

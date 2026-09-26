@@ -409,6 +409,19 @@ describe('Topbar audited chat messaging integration', () => {
     },
   );
 
+
+  it.each(['button', 'keyboard'])('announces missing conversation once via %s', async source => {
+    const input = await chat('chat.message.send');
+    state.begin.mockRejectedValueOnce('chat_conversation_unavailable');
+    state.beginLocalCommandUIKey.mockRejectedValueOnce('chat_conversation_unavailable');
+    state.announce.mockClear();
+    if (source === 'button') requestChatMessagingCommand('chat.message.send', 'messaging-chat');
+    else fireEvent.keyDown(input, { key: 'j', code: 'KeyJ', ctrlKey: true });
+    await waitFor(() => expect(state.announce).toHaveBeenCalledWith('chat.conversationUnavailable'));
+    expect(state.announce.mock.calls.filter(call => call[0] === 'chat.conversationUnavailable')).toHaveLength(1);
+    expect(state.announce).not.toHaveBeenCalledWith('commandPalette.executionFailed');
+    expect(execute).not.toHaveBeenCalled();
+  });
   it('rejects ABA while take is pending without executing a replacement target', async () => {
     await chat('chat.message.send'); state.takeDeferred = true;
     requestChatMessagingCommand('chat.message.send', 'messaging-chat');
