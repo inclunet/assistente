@@ -84,6 +84,7 @@ describe('workspace tab navigation commands', () => {
       'workspace.tab.second', 'workspace.tab.third', 'workspace.tab.fourth',
       'workspace.tab.fifth', 'workspace.tab.sixth', 'workspace.tab.seventh',
       'workspace.tab.eighth', 'workspace.tab.ninth',
+      'workspace.tab.go_to',
     ]);
     expect(WORKSPACE_TAB_NAVIGATION_COMMAND_IDS.every(isWorkspaceTabNavigationCommand)).toBe(true);
     expect(isWorkspaceTabNavigationCommand('workspace.tab.close')).toBe(false);
@@ -97,6 +98,27 @@ describe('workspace tab navigation commands', () => {
       .map((position) => resolveWorkspaceTabNavigationTarget(workspace, `workspace.tab.${position}`)?.id))
       .toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']);
     expect(workspace.activeTabId).toBe('a');
+  });
+
+  it('resolve posição positiva sem teto pela ordem atual e vincula destino ao workspace', () => {
+    const tabs = Array.from({ length: 12 }, (_, index) => `tab-${index + 1}`);
+    const workspace = makeWorkspace(tabs, 'tab-1');
+    const args = { workspace_id: 'workspace-a', target_mode: 'position', position: 12 };
+    expect(resolveWorkspaceTabNavigationTarget(workspace, 'workspace.tab.go_to', args)?.id).toBe('tab-12');
+    expect(resolveWorkspaceTabNavigationTarget(makeWorkspace([...tabs].reverse(), 'tab-1'), 'workspace.tab.go_to', args)?.id).toBe('tab-1');
+    expect(resolveWorkspaceTabNavigationTarget({ ...workspace, id: 'workspace-b' }, 'workspace.tab.go_to', args)).toBeUndefined();
+    expect(resolveWorkspaceTabNavigationTarget(workspace, 'workspace.tab.go_to', { ...args, position: 0 })).toBeUndefined();
+    expect(resolveWorkspaceTabNavigationTarget(workspace, 'workspace.tab.go_to', { ...args, position: 1.5 })).toBeUndefined();
+    expect(resolveWorkspaceTabNavigationTarget(workspace, 'workspace.tab.go_to', { ...args, position: 99 })).toBeUndefined();
+    expect(resolveWorkspaceTabNavigationTarget(workspace, 'workspace.tab.go_to', { ...args, tab_id: 'tab-1' })).toBeUndefined();
+  });
+
+  it('mantém aba específica pela identidade após reorder e recusa aba fechada', () => {
+    const args = { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'b' };
+    expect(resolveWorkspaceTabNavigationTarget(makeWorkspace(['a', 'b', 'c']), 'workspace.tab.go_to', args)?.id).toBe('b');
+    expect(resolveWorkspaceTabNavigationTarget(makeWorkspace(['c', 'a', 'b']), 'workspace.tab.go_to', args)?.id).toBe('b');
+    expect(resolveWorkspaceTabNavigationTarget(makeWorkspace(['a', 'c']), 'workspace.tab.go_to', args)).toBeUndefined();
+    expect(resolveWorkspaceTabNavigationTarget(makeWorkspace(), 'workspace.tab.go_to', { ...args, position: 2 })).toBeUndefined();
   });
 
   it('mantém noop em workspace unitário e retorna undefined para dados sem destino', () => {

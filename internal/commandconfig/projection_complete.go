@@ -356,6 +356,31 @@ func validateBindingArguments(registry *commandcatalog.Registry, definition comm
 	if err != nil {
 		return nil, ErrInvalid
 	}
+	if definition.ID == "workspace.tab.go_to" {
+		fields, parseErr := strictObject(string(canonical))
+		if parseErr != nil {
+			return nil, ErrInvalid
+		}
+		var workspaceID, targetMode, tabID string
+		if json.Unmarshal(fields["workspace_id"], &workspaceID) != nil || strings.TrimSpace(workspaceID) == "" ||
+			json.Unmarshal(fields["target_mode"], &targetMode) != nil {
+			return nil, ErrInvalid
+		}
+		positionPresent := len(fields["position"]) != 0
+		tabPresent := len(fields["tab_id"]) != 0
+		switch targetMode {
+		case "position":
+			if !positionPresent || tabPresent {
+				return nil, ErrInvalid
+			}
+		case "specific":
+			if positionPresent || !tabPresent || json.Unmarshal(fields["tab_id"], &tabID) != nil || strings.TrimSpace(tabID) == "" {
+				return nil, ErrInvalid
+			}
+		default:
+			return nil, ErrInvalid
+		}
+	}
 	if definition.Persistence.Arguments == commandcatalog.PersistenceNever && string(canonical) != "{}" {
 		return nil, ErrInvalid
 	}

@@ -3,7 +3,8 @@ import { LOCAL_UI_COMMAND_IDS, isLocalUICommand } from './commandLocalUI';
 
 describe('local_ui command projection', () => {
   it('mantém a allowlist fechada de navegação e efeitos locais', () => {
-    expect(LOCAL_UI_COMMAND_IDS).toHaveLength(61);
+    expect(LOCAL_UI_COMMAND_IDS).toHaveLength(62);
+    expect(isLocalUICommand('workspace.tab.go_to')).toBe(true);
     expect(isLocalUICommand('tasklist.task.create.open')).toBe(true);
     expect(isLocalUICommand('tasklists.clear')).toBe(false);
     for (const id of ['chat.focus.input', 'chat.focus.messages', 'chat.message.read.open', 'chat.message.menu.open', 'chat.message.reasoning.toggle', 'chat.message.thread.expand', 'chat.message.thread.collapse']) {

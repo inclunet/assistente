@@ -14,8 +14,8 @@ func TestCommandEditorModesCatalogDefaultsAndHandlers(t *testing.T) {
 	if p == nil {
 		t.Fatal("produto de comandos ausente")
 	}
-	if got := len(p.registry.List()); got != 149 {
-		t.Fatalf("catálogo = %d, esperado 149", got)
+	if got := len(p.registry.List()); got != 150 {
+		t.Fatalf("catálogo = %d, esperado 150", got)
 	}
 	for _, item := range []struct {
 		id, mode, trigger string
