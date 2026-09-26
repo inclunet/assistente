@@ -34,6 +34,47 @@ describe('local palette conditions', () => {
     expect(resolve('workspace.open', context({ profile: 'focused' }))).toBe(false);
   });
 
+  it('resolves the application page as its own dimension and fails closed when missing or unknown', () => {
+    const resolve = createLocalPaletteConditionResolver([{
+      commandId: 'workspace.open', bySurface: {}, fallback: false,
+      byPage: {
+        settings: { commandId: 'workspace.open', bySurface: {}, fallback: true },
+        workspace: { commandId: 'workspace.open', bySurface: { chat: false }, fallback: false },
+      },
+    }]);
+    expect(resolve('workspace.open', context({ appPage: 'settings' }))).toBe(true);
+    expect(resolve('workspace.open', context({ appPage: 'workspace' }))).toBe(false);
+    expect(resolve('workspace.open', context())).toBe(false);
+    expect(resolve('workspace.open', context({ appPage: 'not-a-page' }))).toBe(false);
+  });
+
+  it('resolves the approved page then profile tree without allowing profile nesting', () => {
+    const resolve = createLocalPaletteConditionResolver([{
+      commandId: 'tasklists.delete', bySurface: {}, fallback: false,
+      byPage: {
+        tasklists: {
+          commandId: 'tasklists.delete', bySurface: {}, fallback: false,
+          byProfile: {
+            focused: { commandId: 'tasklists.delete', bySurface: { tasklists: true }, fallback: false },
+          },
+        },
+        workspace: { commandId: 'tasklists.delete', bySurface: { tasklist: false }, fallback: false },
+      },
+    }]);
+    expect(resolve('tasklists.delete', context({ appPage: 'tasklists', profile: 'focused', surfaceType: 'tasklists' }))).toBe(true);
+    expect(resolve('tasklists.delete', context({ appPage: 'tasklists', profile: 'other', surfaceType: 'tasklists' }))).toBe(false);
+    expect(resolve('tasklists.delete', context({ appPage: 'workspace', profile: 'focused', surfaceType: 'tasklists' }))).toBe(false);
+    expect(resolve('tasklists.delete', context({ profile: 'focused', surfaceType: 'tasklists' }))).toBe(false);
+  });
+
+  it('rejects a malformed page branch instead of using the root fallback', () => {
+    const resolve = createLocalPaletteConditionResolver([{
+      commandId: 'workspace.open', bySurface: { chat: true }, fallback: true,
+      byPage: { 'settings.commands': { commandId: 'workspace.open', bySurface: { chat: true }, fallback: true } },
+    }]);
+    expect(resolve('workspace.open', context({ appPage: 'settings' }))).toBe(false);
+  });
+
   it('uses a profile-specific surface-id branch for an unlisted profile', () => {
     const resolve = createLocalPaletteConditionResolver([{
       commandId: 'workspace.open', bySurface: { chat: false }, bySurfaceId: { chat: { 'tab-a': true } },
@@ -107,5 +148,36 @@ describe('local palette conditions', () => {
       .toEqual({ available: true, arguments: { workspace_id: 'w', target_mode: 'specific', tab_id: 'tab-focused' } });
     expect(parseLocalPaletteConditions([{ commandId: 'workspace.open', bySurface: { chat: true }, fallback: false,
       bySurfaceArguments: { chat: { workspace_id: 'w', target_mode: 'position', position: 1 } } }])).toBeNull();
+  });
+
+  it('preserves go-to arguments through appPage and profile branches with detached copies', () => {
+    const source = [{
+      commandId: 'workspace.tab.go_to', bySurface: {}, fallback: false,
+      byPage: {
+        settings: {
+          commandId: 'workspace.tab.go_to', bySurface: { chat: true }, fallback: false,
+          bySurfaceArguments: { chat: { workspace_id: 'w', target_mode: 'position', position: 3 } },
+          byProfile: { focused: {
+            commandId: 'workspace.tab.go_to', bySurface: { chat: true }, fallback: false,
+            bySurfaceArguments: { chat: { workspace_id: 'w', target_mode: 'specific', tab_id: 'tab-settings' } },
+          } },
+        },
+      },
+    }];
+    const parsed = parseLocalPaletteConditions(source);
+    expect(parsed).not.toBeNull();
+    const defaultBranch = resolveLocalPaletteConditionSelectionFromParsed(parsed!, 'workspace.tab.go_to',
+      context({ appPage: 'settings', profile: 'other' }));
+    const profileBranch = resolveLocalPaletteConditionSelectionFromParsed(parsed!, 'workspace.tab.go_to',
+      context({ appPage: 'settings', profile: 'focused' }));
+    expect(defaultBranch).toEqual({ available: true, arguments: { workspace_id: 'w', target_mode: 'position', position: 3 } });
+    expect(profileBranch).toEqual({ available: true, arguments: { workspace_id: 'w', target_mode: 'specific', tab_id: 'tab-settings' } });
+    expect(resolveLocalPaletteConditionSelectionFromParsed(parsed!, 'workspace.tab.go_to', context({ appPage: 'workspace' })))
+      .toEqual({ available: false });
+    expect(resolveLocalPaletteConditionSelectionFromParsed(parsed!, 'workspace.tab.go_to', context({ appPage: 'unknown' }))).toBeNull();
+
+    source[0].byPage.settings.bySurfaceArguments.chat.position = 99;
+    expect(defaultBranch?.arguments).toEqual({ workspace_id: 'w', target_mode: 'position', position: 3 });
+    expect(Object.isFrozen(defaultBranch?.arguments)).toBe(true);
   });
 });

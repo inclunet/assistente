@@ -5,6 +5,7 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { createTrustedCommandContextSession, type TrustedCommandContextSession, type OwnedCommandContextFrame } from './commandContextSession';
 import { getModalRegistrySnapshot } from './modalRegistry';
 import type { SurfaceContextGetter } from './commandContextProviders';
+import { resolveAppPage } from './commandAppPage';
 
 export interface CommandContextScope {
   readonly session: TrustedCommandContextSession;
@@ -21,8 +22,8 @@ function visibleRoot(root: HTMLElement | null): root is HTMLElement {
 }
 
 /** One mounted UI instance owns this scope; no process-wide surface singleton. */
-export function createCommandContextScope(onOwnerChange?: () => void): CommandContextScope {
-  const session = createTrustedCommandContextSession();
+export function createCommandContextScope(onOwnerChange?: () => void, pathname = ''): CommandContextScope {
+  const session = createTrustedCommandContextSession(() => resolveAppPage(pathname));
   const roots = new Map<string, { root: RefObject<HTMLElement> }>();
   let originRead: { entry: { root: RefObject<HTMLElement> }; modalId: string } | undefined;
   const visibleModalOrigin = (root: HTMLElement | null, modalId: string) => {
@@ -122,7 +123,7 @@ export function CommandContextProvider({ children }: { children: ReactNode }) {
   const [scope, setScope] = useState<CommandContextScope | null>(null);
   const [ownerRevision, setOwnerRevision] = useState(0);
   useLayoutEffect(() => {
-    const mounted = createCommandContextScope(() => setOwnerRevision((revision) => revision + 1));
+    const mounted = createCommandContextScope(() => setOwnerRevision((revision) => revision + 1), location.pathname);
     setScope(mounted);
     return () => mounted.dispose();
   }, [owner, workspaceId, route, ownerRevision]);

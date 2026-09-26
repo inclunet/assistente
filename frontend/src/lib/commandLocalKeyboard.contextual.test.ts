@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createLocalCommandKeyboard, type LocalCommandKeyboardBinding, type LocalCommandKeyboardMap } from './commandLocalKeyboard';
+import { createLocalCommandKeyboard, resolveLocalCommandContextualBinding, type LocalCommandKeyboardBinding, type LocalCommandKeyboardMap } from './commandLocalKeyboard';
 import type { CommandShortcut, CommandShortcutSequenceStep } from './commandShortcut';
 
 const shortcut: CommandShortcut = { version: 1, code: 'KeyI', modifiers: ['Alt'] };
@@ -15,6 +15,34 @@ const key = (type: string, extra: KeyboardEventInit = {}) => {
 };
 
 describe('mapa contextual resolvido pelo host', () => {
+  it('combina página→perfil apenas com a superfície autorizada e falha fechado sem a rota', () => {
+    const entry = {
+      shortcut,
+      bySurface: {},
+      byPage: {
+        settings: {
+          shortcut, bySurface: {},
+          byProfile: { dev: { shortcut, bySurface: { toolbar: editor }, fallback: null } }, fallback: null,
+        },
+        workspace: { shortcut, bySurface: { chat: other }, fallback: null },
+      },
+      fallback: null,
+    };
+    const settings = resolveLocalCommandContextualBinding(entry, 'toolbar', {
+      surfaceId: 'command-toolbar', surfaceType: 'toolbar', appPage: 'settings', profile: 'dev',
+    });
+    expect(settings).toMatchObject({ matched: true, barrier: false, branch: { commandId: editor.commandId }, requiresLease: true });
+    expect(resolveLocalCommandContextualBinding(entry, 'toolbar', {
+      surfaceId: 'command-toolbar', surfaceType: 'toolbar', appPage: 'settings', profile: 'other',
+    }).matched).toBe(false);
+    expect(resolveLocalCommandContextualBinding(entry, 'toolbar', {
+      surfaceId: 'command-toolbar', surfaceType: 'toolbar', profile: 'dev',
+    })).toMatchObject({ matched: false, barrier: true });
+    expect(resolveLocalCommandContextualBinding(entry, 'profiles', {
+      surfaceId: 'command-toolbar', surfaceType: 'profiles', appPage: 'settings', profile: 'dev',
+    })).toMatchObject({ matched: false, barrier: true });
+  });
+
   it('Ctrl+N contextual não inicia sequência; fallback explícito preserva sequência fora das páginas', async () => {
     let surface: string | undefined = 'tasklists';
     const prefix: CommandShortcut = { version: 1, code: 'KeyN', modifiers: ['Control'] };

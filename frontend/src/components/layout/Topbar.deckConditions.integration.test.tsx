@@ -11,16 +11,18 @@ const state = vi.hoisted(() => ({
   deck: new Map<string, (payload?: unknown) => void>(),
   auth: { isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a' } },
   workspace: { workspace: { id: 'workspace-a', profile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] }, workspaces: [] },
+  pathname: '/',
   announce: vi.fn(),
   navigate: vi.fn(),
   durable: { begin: vi.fn(), take: vi.fn(), complete: vi.fn(), commit: vi.fn() },
+  deckPagePresentation: { publish: vi.fn(async () => undefined), clear: vi.fn(async () => undefined) },
 }));
 
 vi.mock('../../lib/commandGlobalOwnershipWails', () => ({
   acquireGlobalCommandOwnership: () => ({ isReady: () => true, owns: () => false, dispose: () => {}, ready: Promise.resolve() }),
 }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'pt-BR' } }) }));
-vi.mock('react-router-dom', () => ({ useNavigate: () => state.navigate, useLocation: () => ({ pathname: '/', search: '', hash: '', key: '/' }) }));
+vi.mock('react-router-dom', () => ({ useNavigate: () => state.navigate, useLocation: () => ({ pathname: state.pathname, search: '', hash: '', key: state.pathname }) }));
 vi.mock('../../services/commandCatalog', () => ({ listCommandCatalog: (query: unknown) => state.listCatalog(query) }));
 vi.mock('../../lib/commandLocalKeyboardWails', () => ({
   createCommandLocalKeyboardWailsPort: () => ({
@@ -42,6 +44,7 @@ vi.mock('@wailsjs/go/wailsapi/Workspace', () => ({ GetActiveWorkspace: vi.fn(asy
 vi.mock('../../lib/commandUIExecutionWails', () => ({ createCommandUIExecutionWailsPort: () => ({ beginUICommand: state.durable.begin, takeUICommand: state.durable.take, completeUICommand: state.durable.complete, getUICommandResult: vi.fn(), cancelUICommand: vi.fn() }) }));
 vi.mock('../../lib/commandBackendExecutionWails', () => ({ createCommandBackendExecutionWailsPort: () => ({ executeCommand: vi.fn() }) }));
 vi.mock('../../lib/commandWorkspaceTabWails', () => ({ createCommandWorkspaceTabWailsPort: () => ({ beginUICommand: state.durable.begin, takeUICommand: state.durable.take, completeUICommand: state.durable.complete, getUICommandResult: vi.fn(), cancelUICommand: vi.fn(), commitBackendCommand: state.durable.commit }) }));
+vi.mock('../../lib/commandDeckPagePresentationWails', () => ({ createCommandDeckPagePresentationWailsPort: () => state.deckPagePresentation }));
 vi.mock('../pickers/ProfilePicker', () => ({ ProfilePicker: () => null }));
 
 function Source({ getter }: { getter: SurfaceContextGetter }) {
@@ -56,6 +59,9 @@ describe('Topbar — StreamDeck conditions', () => {
     state.deck.clear(); state.auth.isAuthenticated = true;
     Object.values(state.durable).forEach(spy => spy.mockReset());
     state.navigate.mockReset();
+    state.pathname = '/';
+    state.deckPagePresentation.publish.mockClear();
+    state.deckPagePresentation.clear.mockClear();
     state.auth.user = { userId: 'user-a', sessionId: 'session-a' };
     state.workspace.workspace = { id: 'workspace-a', profile: 'focused', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] };
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
@@ -73,11 +79,48 @@ describe('Topbar — StreamDeck conditions', () => {
 
   const envelope = { commandId: '', generation: 'deck-map', userId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a' };
 
+  it.each(['chat', 'editor', 'terminal', 'tasklist'])('seleciona página independentemente da superfície %s e do foco na barra', async surfaceType => {
+    const { view, event } = await mount(() => ({ surfaceType, surfaceId: 'deck-source', snapshotVersion: 'page-source' }));
+    try {
+      screen.getByTestId('deck-source-input').focus();
+      const branch = { commandId: 'navigation.history.open', bySurface: {}, fallback: true };
+      // The real context provider owns route '/', regardless of tab type.
+      act(() => event({ ...envelope, conditions: [{ ...branch, fallback: false, byPage: { settings: branch } }] }));
+      expect(state.navigate).not.toHaveBeenCalled();
+      act(() => event({ ...envelope, conditions: [{ ...branch, fallback: false, byPage: { workspace: branch } }] }));
+      await waitFor(() => expect(state.navigate).toHaveBeenCalledExactlyOnceWith('/history'));
+      expect(Object.values(state.durable).some(spy => spy.mock.calls.length > 0)).toBe(false);
+    } finally { view.unmount(); }
+  });
+
   it('executa exatamente um comando condicionado no provider visual real, sem ledger', async () => {
     const { view, event } = await mount();
     try {
       act(() => event({ ...envelope, conditions: [{ commandId: 'navigation.history.open', bySurface: { chat: true }, byProfile: { focused: { commandId: 'navigation.history.open', bySurface: { chat: true }, fallback: false } }, fallback: false }] }));
       await waitFor(() => expect(state.navigate).toHaveBeenCalledWith('/history'));
+    } finally { view.unmount(); }
+  });
+
+  it('publica somente a página confiável atual e limpa a projeção no blur e na troca de identidade', async () => {
+    const { view } = await mount();
+    try {
+      await waitFor(() => expect(state.deckPagePresentation.publish).toHaveBeenCalledWith('workspace', 'deck-map'));
+      fireEvent.blur(screen.getByTestId('deck-source-input'));
+      expect(state.deckPagePresentation.clear).not.toHaveBeenCalled();
+      fireEvent.blur(window);
+      await waitFor(() => expect(state.deckPagePresentation.clear).toHaveBeenCalledWith('deck-map'));
+      expect(Object.values(state.durable).some(spy => spy.mock.calls.length > 0)).toBe(false);
+
+      fireEvent.focus(window);
+      await waitFor(() => expect(state.deckPagePresentation.publish).toHaveBeenCalledWith('workspace', 'deck-map'));
+      state.pathname = '/profiles';
+      view.rerender(<CommandContextProvider><Topbar /><Source getter={() => ({ surfaceType: 'chat', surfaceId: 'deck-source', snapshotVersion: 'surface-1' })} /></CommandContextProvider>);
+      await waitFor(() => expect(state.deckPagePresentation.publish).toHaveBeenCalledWith('profiles', 'deck-map'));
+
+      state.auth.user = { userId: 'other-user', sessionId: 'other-session' };
+      view.rerender(<CommandContextProvider><Topbar /><Source getter={() => ({ surfaceType: 'chat', surfaceId: 'deck-source', snapshotVersion: 'surface-1' })} /></CommandContextProvider>);
+      await waitFor(() => expect(state.deckPagePresentation.clear).toHaveBeenCalledWith('deck-map'));
+      expect(Object.values(state.durable).some(spy => spy.mock.calls.length > 0)).toBe(false);
     } finally { view.unmount(); }
   });
 

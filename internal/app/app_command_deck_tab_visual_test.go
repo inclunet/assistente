@@ -144,6 +144,45 @@ func TestWorkspaceTabDeckMixedConditionsKeepCombinedPresentation(t *testing.T) {
 	}
 }
 
+func TestWorkspaceTabDeckVisualSelectsOnlyLivePageBranchAndStaysNeutralWithoutPage(t *testing.T) {
+	active := &workspace.Workspace{ID: "workspace-a", Tabs: workspace.TabsState{Items: []workspace.Tab{
+		{ID: "tab-a", Type: workspace.TabTypeChat, Title: "Chat A", Position: 0},
+		{ID: "tab-b", Type: workspace.TabTypeEditor, Title: "Draft B", Position: 1},
+	}}}
+	tabCondition := LocalCommandPaletteCondition{
+		CommandID: commandWorkspaceTabGoToID,
+		ByPage: map[string]LocalCommandPaletteCondition{
+			"workspace": {CommandID: commandWorkspaceTabGoToID, ByProfile: map[string]LocalCommandPaletteCondition{
+				"dev": {CommandID: commandWorkspaceTabGoToID, BySurface: map[string]bool{"chat": true}, BySurfaceArguments: map[string]map[string]any{
+					"chat": mustDeckTabArguments(t, `{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"tab-a"}`),
+				}},
+			}},
+			"settings": {CommandID: commandWorkspaceTabGoToID, BySurface: map[string]bool{"toolbar": true}, BySurfaceArguments: map[string]map[string]any{
+				"toolbar": mustDeckTabArguments(t, `{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"tab-b"}`),
+			}},
+		},
+	}
+	settingsOnlyCommand := LocalCommandPaletteCondition{
+		CommandID: "navigation.settings.open",
+		ByPage: map[string]LocalCommandPaletteCondition{
+			"settings": {CommandID: "navigation.settings.open", BySurface: map[string]bool{"toolbar": true}},
+		},
+	}
+	base := commandDeckVisual{title: "Base visual"}
+	got, _ := applyWorkspaceTabDeckVisualForPage(nil, nil, "", []string{"binding"}, []LocalCommandPaletteCondition{tabCondition, settingsOnlyCommand}, nil, active, "en", base, nil, "", "workspace")
+	if got.title != "Chat A" || got.icon != "workspace-tab-chat" {
+		t.Fatalf("current page target or unrelated-route isolation failed: %+v", got)
+	}
+	got, _ = applyWorkspaceTabDeckVisualForPage(nil, nil, "", []string{"binding"}, []LocalCommandPaletteCondition{tabCondition, settingsOnlyCommand}, nil, active, "en", base, nil, "", "settings")
+	if got.title != "Base visual — Draft B" || got.icon != "workspace-tab-editor" {
+		t.Fatalf("settings page destination was not selected: %+v", got)
+	}
+	got, _ = applyWorkspaceTabDeckVisualForPage(nil, nil, "", []string{"binding"}, []LocalCommandPaletteCondition{tabCondition, settingsOnlyCommand}, nil, active, "en", base, nil, "", "")
+	if got != base {
+		t.Fatalf("missing page snapshot must not aggregate route targets: %+v", got)
+	}
+}
+
 func TestWorkspaceTabDeckAmbiguousTargetSuffixPreservesCustomTitles(t *testing.T) {
 	candidate := commandbindings.Candidate{ID: "binding", Trigger: "streamdeck.key:DECK:key:0", CommandID: commandWorkspaceTabGoToID, ArgumentsKey: `{}`, ExecutionScopeKey: "global", Scope: commandbindings.Global, Enabled: true, LayerActive: true}
 	configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{candidate})

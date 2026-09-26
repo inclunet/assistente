@@ -142,12 +142,14 @@ type LocalCommandKeyboardBinding struct {
 }
 
 // Observação da surface real, não uma identidade ou autorização do chamador.
-// O host exige correspondência com a aba canônica; a UI mantém sua própria
-// lease de foco/surface até o handoff. Nunca deriva SurfaceContext de uma aba.
+// O host exige correspondência com a aba ativa ou o par canônico da rota na
+// toolbar; a UI mantém sua própria lease de foco/surface até o handoff. Nunca
+// deriva SurfaceContext de uma aba.
 type LocalCommandKeyboardContext struct {
 	SurfaceID   string `json:"surfaceId"`
 	SurfaceType string `json:"surfaceType"`
 	Profile     string `json:"profile,omitempty"`
+	AppPage     string `json:"appPage,omitempty"`
 }
 
 type LocalCommandKeyboardContextualBinding struct {
@@ -156,6 +158,7 @@ type LocalCommandKeyboardContextualBinding struct {
 	BySurface           map[string]*LocalCommandKeyboardBinding            `json:"bySurface"`
 	BySurfaceID         map[string]map[string]*LocalCommandKeyboardBinding `json:"bySurfaceId,omitempty"`
 	ByProfile           map[string]*LocalCommandKeyboardContextualBinding  `json:"byProfile,omitempty"`
+	ByPage              map[string]*LocalCommandKeyboardContextualBinding  `json:"byPage,omitempty"`
 	// Empty ID denotes the type fallback. Only NoMatch permits sequences;
 	// suppression, review, conflicts and unavailable handlers remain barriers.
 	SequenceFallbacks map[string]map[string]bool   `json:"sequenceFallbacks,omitempty"`
@@ -181,8 +184,9 @@ type localCommandKeyboardOccurrence struct {
 }
 
 type localCommandKeyboardContextProof struct {
-	observed LocalCommandKeyboardContext
-	snapshot workspace.CommandSnapshot
+	observed  LocalCommandKeyboardContext
+	snapshot  workspace.CommandSnapshot
+	routePage bool
 }
 
 // GetLocalCommandKeyboardMap publica somente combinações resolvidas para o
@@ -282,6 +286,7 @@ func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err 
 			p.keyboardMap.release()
 		}
 		p.keyboardMap = &localCommandKeyboardState{view: view, configuration: configuration, versions: versions, ctx: watched, release: release, identities: identities, pressed: map[string]string{}}
+		p.clearDeckPagePresentation("")
 		retained = true
 		result = cloneLocalCommandKeyboardMap(view)
 		return nil
@@ -366,6 +371,8 @@ func localKeyboardSupportedVariableFacts(fields []commandbindings.Field) bool {
 		case commandbindings.Profile:
 			// Perfil pode ser a única condição variável; sua prova é
 			// validada no ingresso e a identidade vem do snapshot canônico.
+		case commandbindings.AppPage:
+			// A página vem da rota UI confiável; ausência deixa a resolução sem fato.
 		default:
 			return false
 		}
@@ -389,8 +396,32 @@ func localKeyboardWorkspaceSurface(surface string) bool {
 	return surface == "chat" || surface == "editor" || surface == "terminal" || surface == "tasklist"
 }
 
+// Route-level keyboard input uses the toolbar surface lease, while a few
+// standalone pages retain their established surface.type for contextual
+// bindings. Keep this mapping closed and in parity with keyboardSurfaceForPage.
+func localKeyboardRouteSurface(page string) (string, bool) {
+	if !commandbindings.IsAppPage(page) {
+		return "", false
+	}
+	switch page {
+	case "profiles", "tasklists", "history":
+		return page, true
+	default:
+		return "toolbar", true
+	}
+}
+
 func (a *App) captureLocalKeyboardContext(observed LocalCommandKeyboardContext) (*localCommandKeyboardContextProof, error) {
-	if observed.SurfaceID == "" || !localKeyboardWorkspaceSurface(observed.SurfaceType) {
+	if observed.AppPage != "" && !commandbindings.IsAppPage(observed.AppPage) {
+		return nil, commandexecution.ErrDenied
+	}
+	routeSurface, knownPage := localKeyboardRouteSurface(observed.AppPage)
+	routePageContext := observed.SurfaceID == "command-toolbar" && knownPage && observed.SurfaceType == routeSurface
+	workspaceTabContext := observed.SurfaceID != "" && observed.SurfaceID != "command-toolbar" && localKeyboardWorkspaceSurface(observed.SurfaceType)
+	if !routePageContext && !workspaceTabContext {
+		return nil, commandexecution.ErrDenied
+	}
+	if workspaceTabContext && observed.AppPage != "" && observed.AppPage != "workspace" {
 		return nil, commandexecution.ErrDenied
 	}
 	p, err := a.authenticatedCommandProduct()
@@ -398,13 +429,14 @@ func (a *App) captureLocalKeyboardContext(observed LocalCommandKeyboardContext) 
 		return nil, err
 	}
 	snapshot, err := p.workspaceMgr.CommandSnapshot()
-	if err != nil || snapshot.WorkspaceID != p.workspaceID || snapshot.ActiveTabID != observed.SurfaceID || string(snapshot.Tab.Type) != observed.SurfaceType {
+	if err != nil || snapshot.WorkspaceID != p.workspaceID || !routePageContext &&
+		(snapshot.ActiveTabID != observed.SurfaceID || string(snapshot.Tab.Type) != observed.SurfaceType) {
 		return nil, commandexecution.ErrStale
 	}
 	if observed.Profile != "" && observed.Profile != localKeyboardEffectiveProfile(snapshot) {
 		return nil, commandexecution.ErrStale
 	}
-	return &localCommandKeyboardContextProof{observed: observed, snapshot: snapshot}, nil
+	return &localCommandKeyboardContextProof{observed: observed, snapshot: snapshot, routePage: routePageContext}, nil
 }
 
 func localKeyboardEffectiveProfile(snapshot workspace.CommandSnapshot) string {
@@ -444,9 +476,18 @@ func localKeyboardOccurrenceBinding(s *localCommandKeyboardState, registry *comm
 	if len(fields) != 0 && !localKeyboardSupportedVariableFacts(fields) {
 		return LocalCommandKeyboardBinding{}, false
 	}
-	facts := commandbindings.Facts{
-		commandbindings.AppFocused: true, commandbindings.SurfaceType: string(proof.snapshot.Tab.Type),
-		commandbindings.SurfaceID: proof.snapshot.Tab.ID,
+	facts := commandbindings.Facts{commandbindings.AppFocused: true}
+	if proof.routePage {
+		facts[commandbindings.SurfaceType] = proof.observed.SurfaceType
+	} else {
+		facts[commandbindings.SurfaceType] = string(proof.snapshot.Tab.Type)
+		facts[commandbindings.SurfaceID] = proof.snapshot.Tab.ID
+	}
+	if containsOriginField(s.configuration.RequiredFacts(identity), commandbindings.AppPage) {
+		if !commandbindings.IsAppPage(proof.observed.AppPage) {
+			return LocalCommandKeyboardBinding{}, false
+		}
+		facts[commandbindings.AppPage] = proof.observed.AppPage
 	}
 	if localKeyboardProfileRequired(s.configuration, identity) {
 		if proof.observed.Profile == "" || profile == "" || proof.observed.Profile != profile {
@@ -495,11 +536,11 @@ func resolvedLocalKeyboardBinding(configuration *commandbindings.Configuration, 
 func contextualKeyboardBinding(ctx context.Context, configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string, shortcut LocalCommandShortcut) (LocalCommandKeyboardContextualBinding, bool) {
 	profiles := configuration.FieldValues(identity, commandbindings.Profile)
 	values := configuration.FieldValues(identity, commandbindings.SurfaceType)
-	profileOnly := len(values) == 0 && len(profiles) != 0
-	if len(values) == 0 && len(profiles) == 0 {
+	pages := configuration.FieldValues(identity, commandbindings.AppPage)
+	if len(values) == 0 && len(profiles) == 0 && len(pages) == 0 {
 		return LocalCommandKeyboardContextualBinding{}, false
 	}
-	if len(profiles) != 0 {
+	if len(profiles) != 0 && len(pages) == 0 {
 		workspaceValues := make([]string, 0, len(values))
 		for _, value := range values {
 			if localKeyboardWorkspaceSurface(value) {
@@ -508,29 +549,66 @@ func contextualKeyboardBinding(ctx context.Context, configuration *commandbindin
 		}
 		values = workspaceValues
 	}
-	if len(values) == 0 && len(profiles) != 0 && profileOnly {
+	if len(values) == 0 && len(profiles) != 0 && len(pages) == 0 {
 		values = []string{"chat", "editor", "terminal", "tasklist"}
 	}
 	if len(values) == 0 {
-		return LocalCommandKeyboardContextualBinding{}, false
+		if len(pages) == 0 {
+			return LocalCommandKeyboardContextualBinding{}, false
+		}
+		// A route page has its own canonical route surface; workspace pages are
+		// expanded to actual tab surfaces inside the page branch below.
+		values = []string{"toolbar"}
 	}
 	fallbackProfile := contextualFallbackProfile(profiles)
-	entry, ok := contextualKeyboardBindingForProfile(ctx, configuration, registry, identity, shortcut, values, fallbackProfile, len(profiles) != 0)
-	if !ok {
-		return LocalCommandKeyboardContextualBinding{}, false
+	build := func(appPage string) (LocalCommandKeyboardContextualBinding, bool) {
+		branchValues := values
+		if len(pages) != 0 {
+			if appPage == "workspace" {
+				if len(configuration.FieldValues(identity, commandbindings.SurfaceType)) == 0 {
+					branchValues = []string{"chat", "editor", "terminal", "tasklist"}
+				} else {
+					branchValues = make([]string, 0, len(values))
+					for _, value := range values {
+						if localKeyboardWorkspaceSurface(value) {
+							branchValues = append(branchValues, value)
+						}
+					}
+				}
+			} else if routeSurface, ok := localKeyboardRouteSurface(appPage); ok {
+				branchValues = []string{routeSurface}
+			}
+		}
+		entry, ok := contextualKeyboardBindingForProfile(ctx, configuration, registry, identity, shortcut, branchValues, fallbackProfile, len(profiles) != 0, appPage)
+		if !ok {
+			return LocalCommandKeyboardContextualBinding{}, false
+		}
+		if len(profiles) != 0 {
+			slices.Sort(profiles)
+			entry.ByProfile = make(map[string]*LocalCommandKeyboardContextualBinding, len(profiles))
+			for _, profile := range profiles {
+				leaf, leafOK := contextualKeyboardBindingForProfile(ctx, configuration, registry, identity, shortcut, branchValues, profile, true, appPage)
+				if !leafOK {
+					return LocalCommandKeyboardContextualBinding{}, false
+				}
+				entry.ByProfile[profile] = &leaf
+			}
+		}
+		return entry, true
 	}
-	if len(profiles) != 0 {
-		slices.Sort(profiles)
-		entry.ByProfile = make(map[string]*LocalCommandKeyboardContextualBinding, len(profiles))
-		for _, profile := range profiles {
-			leaf, leafOK := contextualKeyboardBindingForProfile(ctx, configuration, registry, identity, shortcut, values, profile, true)
-			if !leafOK {
+	if len(pages) != 0 {
+		entry := LocalCommandKeyboardContextualBinding{Shortcut: shortcut, BySurface: map[string]*LocalCommandKeyboardBinding{},
+			ByPage: make(map[string]*LocalCommandKeyboardContextualBinding)}
+		for _, appPage := range commandbindings.AppPages() {
+			branch, ok := build(appPage)
+			if !ok {
 				return LocalCommandKeyboardContextualBinding{}, false
 			}
-			entry.ByProfile[profile] = &leaf
+			entry.ByPage[appPage] = &branch
 		}
+		return entry, true
 	}
-	return entry, true
+	return build("")
 }
 
 func contextualFallbackProfile(values []string) string {
@@ -545,8 +623,9 @@ func contextualFallbackProfile(values []string) string {
 	}
 }
 
-func contextualKeyboardBindingForProfile(ctx context.Context, configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string, shortcut LocalCommandShortcut, values []string, profile string, withProfile bool) (LocalCommandKeyboardContextualBinding, bool) {
+func contextualKeyboardBindingForProfile(ctx context.Context, configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string, shortcut LocalCommandShortcut, values []string, profile string, withProfile bool, appPage string) (LocalCommandKeyboardContextualBinding, bool) {
 	entry := LocalCommandKeyboardContextualBinding{Shortcut: shortcut, BySurface: map[string]*LocalCommandKeyboardBinding{}}
+	requiresSurfaceType := len(configuration.FieldValues(identity, commandbindings.SurfaceType)) != 0
 	markNoMatch := func(surface, id string, result commandbindings.Result) {
 		if shortcut.Version != 1 || result.Status != commandbindings.NoMatch {
 			return
@@ -567,9 +646,15 @@ func contextualKeyboardBindingForProfile(ctx context.Context, configuration *com
 		if err := ctx.Err(); err != nil {
 			return LocalCommandKeyboardContextualBinding{}, false
 		}
-		facts := commandbindings.Facts{commandbindings.SurfaceType: value, commandbindings.AppFocused: true}
+		facts := commandbindings.Facts{commandbindings.AppFocused: true}
+		if requiresSurfaceType {
+			facts[commandbindings.SurfaceType] = value
+		}
 		if withProfile {
 			facts[commandbindings.Profile] = profile
+		}
+		if appPage != "" {
+			facts[commandbindings.AppPage] = appPage
 		}
 		resolved, err := configuration.Resolve(identity, facts, nil)
 		if err != nil {
@@ -588,9 +673,18 @@ func contextualKeyboardBindingForProfile(ctx context.Context, configuration *com
 				if err := ctx.Err(); err != nil {
 					return LocalCommandKeyboardContextualBinding{}, false
 				}
-				facts := commandbindings.Facts{commandbindings.SurfaceType: value, commandbindings.SurfaceID: id, commandbindings.AppFocused: true}
+				facts := commandbindings.Facts{commandbindings.AppFocused: true}
+				if requiresSurfaceType {
+					facts[commandbindings.SurfaceType] = value
+				}
+				if len(idValues) != 0 {
+					facts[commandbindings.SurfaceID] = id
+				}
 				if withProfile {
 					facts[commandbindings.Profile] = profile
+				}
+				if appPage != "" {
+					facts[commandbindings.AppPage] = appPage
 				}
 				binding, ok := resolvedLocalKeyboardBinding(configuration, registry, identity, shortcut, facts)
 				if !ok || (binding.Handler != "local_ui" && !localKeyboardWorkspaceSurface(value)) {
@@ -606,9 +700,15 @@ func contextualKeyboardBindingForProfile(ctx context.Context, configuration *com
 			}
 		}
 	}
-	fallbackFacts := commandbindings.Facts{commandbindings.SurfaceType: contextualFallbackSurface(values), commandbindings.AppFocused: true}
+	fallbackFacts := commandbindings.Facts{commandbindings.AppFocused: true}
+	if requiresSurfaceType {
+		fallbackFacts[commandbindings.SurfaceType] = contextualFallbackSurface(values)
+	}
 	if withProfile {
 		fallbackFacts[commandbindings.Profile] = profile
+	}
+	if appPage != "" {
+		fallbackFacts[commandbindings.AppPage] = appPage
 	}
 	fallback, ok := resolvedLocalKeyboardBinding(configuration, registry, identity, shortcut, fallbackFacts)
 	if ok {
@@ -691,6 +791,17 @@ func cloneContextualKeyboardBindings(in []LocalCommandKeyboardContextualBinding)
 				}
 				cloned := cloneContextualKeyboardBindings([]LocalCommandKeyboardContextualBinding{*leaf})
 				out[i].ByProfile[profile] = &cloned[0]
+			}
+		}
+		if entry.ByPage != nil {
+			out[i].ByPage = make(map[string]*LocalCommandKeyboardContextualBinding, len(entry.ByPage))
+			for page, branch := range entry.ByPage {
+				if branch == nil {
+					out[i].ByPage[page] = nil
+					continue
+				}
+				cloned := cloneContextualKeyboardBindings([]LocalCommandKeyboardContextualBinding{*branch})
+				out[i].ByPage[page] = &cloned[0]
 			}
 		}
 		if entry.Fallback != nil {
@@ -1090,6 +1201,7 @@ func (p *commandProductRuntime) clearLocalCommandKeyboard(generation string) {
 	if s := p.keyboardMap; s != nil && (generation == "" || generation == s.view.Generation) {
 		s.release()
 		p.keyboardMap = nil
+		p.clearDeckPagePresentation(s.view.Generation)
 	}
 }
 

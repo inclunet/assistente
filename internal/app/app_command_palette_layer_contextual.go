@@ -101,9 +101,26 @@ func workspaceVisualCommandFacts(proof *localCommandKeyboardContextProof, requir
 		return commandOriginContext{}, commandexecution.ErrDenied
 	}
 	facts := commandbindings.Facts{commandbindings.AppFocused: true, commandbindings.SurfaceType: string(proof.snapshot.Tab.Type), commandbindings.SurfaceID: proof.snapshot.Tab.ID}
+	if proof.routePage {
+		surface, known := localKeyboardRouteSurface(proof.observed.AppPage)
+		if !known || proof.observed.SurfaceType != surface || proof.observed.SurfaceID != "command-toolbar" {
+			return commandOriginContext{}, commandexecution.ErrDenied
+		}
+		facts[commandbindings.SurfaceType] = surface
+		delete(facts, commandbindings.SurfaceID)
+	}
 	for _, field := range required {
 		switch field {
-		case commandbindings.AppFocused, commandbindings.SurfaceType, commandbindings.SurfaceID:
+		case commandbindings.AppFocused, commandbindings.SurfaceType:
+		case commandbindings.SurfaceID:
+			if proof.routePage {
+				return commandOriginContext{}, commandexecution.ErrDenied
+			}
+		case commandbindings.AppPage:
+			if !commandbindings.IsAppPage(proof.observed.AppPage) || !proof.routePage && proof.observed.AppPage != "workspace" {
+				return commandOriginContext{}, commandexecution.ErrDenied
+			}
+			facts[field] = proof.observed.AppPage
 		case commandbindings.Profile:
 			profile := localKeyboardEffectiveProfile(proof.snapshot)
 			if profile == "" || profile != proof.observed.Profile {

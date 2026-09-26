@@ -283,6 +283,7 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 	var frameForeground *commandforeground.Snapshot
 	frameCaptureFailed := false
 	locale := p.getDeckLocale()
+	appPage := p.currentDeckPagePresentation()
 	activeWorkspace := p.deckPresentationWorkspaceSnapshot()
 	for _, identity := range configuration.TriggerIdentities() {
 		if !strings.HasPrefix(identity, "streamdeck.key:") {
@@ -304,8 +305,8 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 			binding.identity = identity
 			binding.conditions = append(binding.conditions, conditions...)
 			binding.profileBound = true
-			visual, variants := localDeckPresentations(configuration, p.registry, identity, binding.conditions, locale)
-			visual, variants = applyWorkspaceTabDeckVisual(configuration, p.registry, identity, nil, binding.conditions, nil, activeWorkspace, locale, visual, variants, "")
+			visual, variants := localDeckPresentationsForPage(configuration, p.registry, identity, binding.conditions, locale, appPage)
+			visual, variants = applyWorkspaceTabDeckVisualForPage(configuration, p.registry, identity, nil, binding.conditions, nil, activeWorkspace, locale, visual, variants, "", appPage)
 			binding.title, binding.icon, binding.imageRef, binding.variants = visual.title, visual.icon, visual.imageRef, variants
 			bindings[spec.Device][spec.Key] = binding
 			continue

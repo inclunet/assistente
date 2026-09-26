@@ -23,15 +23,22 @@ export function commandConditionTargetID(origin: string, commandId: string, trig
 /** Disponibilidade do editor acompanha as fontes autoritativas de cada origem. */
 export function commandConditionSupportedByOrigin(origin: string, field: string, localUI: boolean, commandID = ''): boolean {
   if (origin === 'streamdeck.key' && !localUI && isCommandLayerAction(commandID)) {
-    return ['app.focused', 'surface.type', 'surface.id', 'profile', 'foreground.process', 'device'].includes(field);
+    return ['app.focused', 'app.page', 'surface.type', 'surface.id', 'profile', 'foreground.process', 'device'].includes(field);
   }
-  if ((origin === 'palette' || origin === 'streamdeck.key') && isContextualPagePaletteCommand(commandID)) {
-    return ['app.focused', 'surface.type', 'profile'].includes(field);
+  if (origin === 'palette' && isContextualPagePaletteCommand(commandID)) {
+    return ['app.focused', 'app.page', 'surface.type', 'profile'].includes(field);
   }
-  if (origin === 'keyboard.local' || ((origin === 'palette' || origin === 'streamdeck.key') && localUI) ||
+  if (origin === 'streamdeck.key' && isContextualPagePaletteCommand(commandID)) {
+    return ['app.focused', 'app.page', 'surface.type', 'profile'].includes(field);
+  }
+  if (origin === 'keyboard.local') {
+    return ['app.focused', 'app.page', 'surface.type', 'surface.id', 'profile'].includes(field);
+  }
+  if ((origin === 'palette' && localUI) ||
+      (origin === 'streamdeck.key' && localUI) ||
       (origin === 'streamdeck.key' && isContextualDeckCommand(commandID)) ||
       (origin === 'palette' && (isContextualPaletteCommand(commandID) || isCommandLayerAction(commandID)))) {
-    return ['app.focused', 'surface.type', 'surface.id', 'profile'].includes(field);
+    return ['app.focused', 'app.page', 'surface.type', 'surface.id', 'profile'].includes(field);
   }
   if (localUI) return false;
   if (origin === 'streamdeck.key') return ['profile', 'foreground.process', 'device'].includes(field);

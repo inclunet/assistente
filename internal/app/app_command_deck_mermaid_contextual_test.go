@@ -139,7 +139,7 @@ func TestContextualDeckMermaidRejectsInvalidOffers(t *testing.T) {
 			case "disconnect":
 				f.controller.reset("test-deck")
 			case "page-ingress":
-				if r, err := f.a.BeginContextualDeckPageUICommand(event.OfferID, event.Generation, "profiles", "dev"); err == nil || r.Ticket != "" {
+				if r, err := f.a.BeginContextualDeckPageUICommand(event.OfferID, event.Generation, pageDeckObserved("profiles", "dev")); err == nil || r.Ticket != "" {
 					t.Fatalf("Mermaid entered page ingress: %+v %v", r, err)
 				}
 			}

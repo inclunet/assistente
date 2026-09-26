@@ -138,3 +138,47 @@ func TestCommandKeyboardContextProjectionPreservesUnavailableBranches(t *testing
 		})
 	}
 }
+
+func TestCommandKeyboardAppPageProfileProjectionKeepsCanonicalSurfaces(t *testing.T) {
+	_, _ = settingsSecurityFixture(t)
+	registry := paletteConditionTestRegistry(t)
+	trigger := "keyboard.local:Control+KeyK"
+	shortcut := LocalCommandShortcut{Version: 1, Code: "KeyK", Modifiers: []string{"Control"}}
+	for _, test := range []struct {
+		name, page, surface string
+	}{
+		{name: "route profile surface", page: "profiles", surface: "profiles"},
+		{name: "route toolbar surface", page: "settings", surface: "toolbar"},
+		{name: "workspace tab surface", page: "workspace", surface: "tasklist"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{{
+				ID: "page-profile", Trigger: trigger, CommandID: "help.shortcuts.show", ArgumentsKey: "{}",
+				ExecutionScopeKey: "global", Scope: commandbindings.Global, Enabled: true, LayerActive: true,
+				Condition: commandbindings.Facts{
+					commandbindings.AppPage: test.page, commandbindings.Profile: "dev", commandbindings.SurfaceType: test.surface,
+				},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry, ok := contextualKeyboardBinding(context.Background(), configuration, registry, trigger, shortcut)
+			if !ok {
+				t.Fatal("contextual keyboard binding omitted")
+			}
+			page, ok := entry.ByPage[test.page]
+			if !ok || page == nil {
+				t.Fatalf("page branch missing: %+v", entry)
+			}
+			profile, ok := page.ByProfile["dev"]
+			if !ok || profile == nil || profile.BySurface[test.surface] == nil || profile.BySurface[test.surface].CommandID != "help.shortcuts.show" {
+				t.Fatalf("page/profile/canonical surface branch missing: %+v", entry)
+			}
+			for _, other := range []string{"tasklist", "tasklists", "profiles", "toolbar"} {
+				if other != test.surface && profile.BySurface[other] != nil {
+					t.Fatalf("binding leaked to noncanonical surface %q: %+v", other, profile)
+				}
+			}
+		})
+	}
+}

@@ -36,6 +36,7 @@ const (
 	Device      Field = "device"
 	Process     Field = "foreground.process"
 	AppFocused  Field = "app.focused"
+	AppPage     Field = "app.page"
 )
 
 // Facts aceita igualdade exata: strings para identidades e bool para foco.
@@ -52,6 +53,10 @@ func (f Facts) validate() error {
 		case SurfaceType, SurfaceID, Profile, Device, Process:
 			if s, ok := value.(string); !ok || strings.TrimSpace(s) == "" {
 				return fmt.Errorf("%s exige string não vazia", key)
+			}
+		case AppPage:
+			if s, ok := value.(string); !ok || !IsAppPage(s) {
+				return fmt.Errorf("%s exige página conhecida", key)
 			}
 		default:
 			return fmt.Errorf("campo desconhecido: %s", key)

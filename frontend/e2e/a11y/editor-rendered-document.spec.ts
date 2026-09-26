@@ -269,7 +269,7 @@ test.describe('Preview renderizado do editor — ilha documental', () => {
     for (const { args } of begins) {
       expect(args[0]).toBe(editorKeyboardMap.generation);
       expect(args[2]).toBe(false);
-      expect(args[3]).toEqual({ surfaceId: 'editor-tab', surfaceType: 'editor' });
+      expect(args[3]).toEqual({ surfaceId: 'editor-tab', surfaceType: 'editor', appPage: 'workspace' });
       expect(args[1]).toMatchObject({ version: 1, modifiers: ['Alt'] });
     }
     expect(takes).toHaveLength(3);

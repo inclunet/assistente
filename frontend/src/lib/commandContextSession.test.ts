@@ -60,6 +60,15 @@ function context(surfaceId: string, title: string): SurfaceContext {
 }
 
 describe('trusted command context session', () => {
+  it('captures only a known routed app.page in its trusted context frame', () => {
+    const session = createTrustedCommandContextSession(() => 'settings');
+    expect(session.readCommandContextFrame().appPage).toBe('settings');
+    session.dispose();
+    const unknown = createTrustedCommandContextSession(() => { throw new Error('route-unavailable'); });
+    expect(unknown.readCommandContextFrame().appPage).toBeNull();
+    unknown.dispose();
+  });
+
   it('não ressuscita uma lease após logout e retorno ao mesmo owner sem leitura intermediária', () => {
     const session = createTrustedCommandContextSession();
     const getter = vi.fn(() => context('surface-aba', 'old'));

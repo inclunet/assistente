@@ -119,7 +119,7 @@ describe('Topbar — paleta contextual durável pela bridge real', () => {
     try {
       await user.keyboard('{Enter}');
       await waitFor(() => expect(state.announce).toHaveBeenCalledWith('commandSettings.layerActionCompleted'));
-      expect(api.ExecuteContextualPaletteLayerCommand).toHaveBeenCalledExactlyOnceWith('palette-map', id, { surfaceType: 'chat', surfaceId: 'tab-a', profile: 'focused' });
+      expect(api.ExecuteContextualPaletteLayerCommand).toHaveBeenCalledExactlyOnceWith('palette-map', id, { surfaceType: 'chat', surfaceId: 'tab-a', profile: 'focused', appPage: 'workspace' });
       expect(api.ExecutePaletteCommand).not.toHaveBeenCalled();
       expect(api.BeginUICommand).not.toHaveBeenCalled();
       expect(api.BeginContextualPaletteUICommand).not.toHaveBeenCalled();
@@ -136,7 +136,7 @@ describe('Topbar — paleta contextual durável pela bridge real', () => {
     const { user, view } = await open(true, surfaceType);
     try {
       await user.keyboard('{Enter}');
-      await waitFor(() => expect(api.ExecuteContextualPaletteLayerCommand).toHaveBeenCalledExactlyOnceWith('palette-map', 'layer.back', { surfaceType, surfaceId: 'tab-a', profile: 'focused' }));
+      await waitFor(() => expect(api.ExecuteContextualPaletteLayerCommand).toHaveBeenCalledExactlyOnceWith('palette-map', 'layer.back', { surfaceType, surfaceId: 'tab-a', profile: 'focused', appPage: 'workspace' }));
       expect(api.ExecutePaletteCommand).not.toHaveBeenCalled();
     } finally { view.unmount(); }
   });
@@ -367,7 +367,7 @@ describe('Topbar — paleta contextual durável pela bridge real', () => {
       expect(option).not.toHaveAttribute('aria-disabled', 'true');
       await user.keyboard('{Enter}');
       await waitFor(() => expect(api.CommitWorkspaceTabCommand).toHaveBeenCalledExactlyOnceWith('ticket', 'handoff'));
-      expect(api.BeginContextualPaletteUICommand).toHaveBeenCalledExactlyOnceWith('palette-map', commandId, { surfaceType: 'chat', surfaceId: 'tab-a', profile: 'focused' });
+      expect(api.BeginContextualPaletteUICommand).toHaveBeenCalledExactlyOnceWith('palette-map', commandId, { surfaceType: 'chat', surfaceId: 'tab-a', profile: 'focused', appPage: 'workspace' });
       expect(api.TakeUICommand).toHaveBeenCalledExactlyOnceWith('ticket');
       expect(api.BeginUICommand).not.toHaveBeenCalled();
       expect(api.CompleteUICommand).not.toHaveBeenCalledWith('ticket', 'handoff', 'succeeded');

@@ -2,8 +2,58 @@ package app
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
+
+func TestCommandKeyboardPageArgumentCloneRoundTrip(t *testing.T) {
+	arguments := map[string]any{"workspace_id": "workspace-a", "target_mode": "position", "position": json.Number("17")}
+	shortcut := LocalCommandShortcut{Version: 1, Code: "KeyG", Modifiers: []string{"Control", "Alt"}}
+	binding := &LocalCommandKeyboardBinding{Shortcut: shortcut, CommandID: commandWorkspaceTabGoToID, Handler: "local_ui", Arguments: arguments}
+	original := LocalCommandKeyboardMap{
+		ContextualBindings: []LocalCommandKeyboardContextualBinding{{
+			Shortcut: shortcut,
+			ByPage: map[string]*LocalCommandKeyboardContextualBinding{"workspace": {
+				Shortcut: shortcut,
+				ByProfile: map[string]*LocalCommandKeyboardContextualBinding{"focused": {
+					Shortcut: shortcut,
+					BySurface: map[string]*LocalCommandKeyboardBinding{"chat": binding},
+				}},
+			}},
+		}},
+		LocalPaletteConditions: []LocalCommandPaletteCondition{{CommandID: commandWorkspaceTabGoToID,
+			ByPage: map[string]LocalCommandPaletteCondition{"workspace": {CommandID: commandWorkspaceTabGoToID,
+				ByProfile: map[string]LocalCommandPaletteCondition{"focused": {CommandID: commandWorkspaceTabGoToID,
+					BySurface: map[string]bool{"chat": true}, BySurfaceArguments: map[string]map[string]any{"chat": arguments},
+				}},
+			}},
+		}},
+	}
+	before, err := json.Marshal(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloned := cloneLocalCommandKeyboardMap(original)
+	clonedRaw, err := json.Marshal(cloned)
+	if err != nil {
+		t.Fatalf("clone não serializa argumentos por página/perfil: %v", err)
+	}
+	var decoded LocalCommandKeyboardMap
+	if err := json.Unmarshal(clonedRaw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"workspace_id": "workspace-a", "target_mode": "position", "position": float64(17)}
+	if !reflect.DeepEqual(decoded.ContextualBindings[0].ByPage["workspace"].ByProfile["focused"].BySurface["chat"].Arguments, want) ||
+		!reflect.DeepEqual(decoded.LocalPaletteConditions[0].ByPage["workspace"].ByProfile["focused"].BySurfaceArguments["chat"], want) {
+		t.Fatal("round-trip perdeu o destino aninhado por página/perfil")
+	}
+	cloned.ContextualBindings[0].ByPage["workspace"].ByProfile["focused"].BySurface["chat"].Arguments["position"] = 99
+	cloned.LocalPaletteConditions[0].ByPage["workspace"].ByProfile["focused"].BySurfaceArguments["chat"]["workspace_id"] = "other"
+	after, err := json.Marshal(original)
+	if err != nil || string(after) != string(before) {
+		t.Fatal("clone por página/perfil compartilha argumentos com o mapa original")
+	}
+}
 
 func TestCommandKeyboardContextualSequenceCloneRoundTrip(t *testing.T) {
 	shortcut := LocalCommandShortcut{Version: 2, Steps: []LocalCommandShortcutStep{

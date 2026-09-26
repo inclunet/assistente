@@ -14,11 +14,11 @@ describe('commandLocalKeyboardWails', () => {
     };
     const port = createCommandLocalKeyboardWailsPort({ target: { go: { app: { App: app } } } as unknown as Window });
     const shortcut = { version: 1 as const, code: 'KeyY', modifiers: ['Control' as const] };
-    const context = { surfaceId: 'tab', surfaceType: 'chat', isCurrent: () => true };
+    const context = { surfaceId: 'command-toolbar', surfaceType: 'profiles', appPage: 'profiles' as const, isCurrent: () => true };
     await port.dispatchLocalCommandKey('g', shortcut, 'down', false, context);
     await port.beginLocalCommandUIKey('g', shortcut, false, context);
-    expect(app.DispatchContextualLocalCommandKey).toHaveBeenCalledExactlyOnceWith('g', shortcut, 'down', false, { surfaceId: 'tab', surfaceType: 'chat' });
-    expect(app.BeginContextualLocalCommandUIKey).toHaveBeenCalledExactlyOnceWith('g', shortcut, false, { surfaceId: 'tab', surfaceType: 'chat' });
+    expect(app.DispatchContextualLocalCommandKey).toHaveBeenCalledExactlyOnceWith('g', shortcut, 'down', false, { surfaceId: 'command-toolbar', surfaceType: 'profiles', appPage: 'profiles' });
+    expect(app.BeginContextualLocalCommandUIKey).toHaveBeenCalledExactlyOnceWith('g', shortcut, false, { surfaceId: 'command-toolbar', surfaceType: 'profiles', appPage: 'profiles' });
     expect(app.DispatchLocalCommandKey).not.toHaveBeenCalled();
     expect(app.BeginLocalCommandUIKey).not.toHaveBeenCalled();
   });
@@ -102,6 +102,10 @@ describe('commandLocalKeyboardWails', () => {
         bySurfaceIdArguments: { chat: { 'tab-1': { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-b' } } },
         byProfile: { focused: { commandId: 'workspace.tab.go_to', bySurface: { chat: false }, fallback: true,
           fallbackArguments: { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-c' } } },
+        byPage: { settings: { commandId: 'workspace.tab.go_to', bySurface: { chat: true }, fallback: false,
+          bySurfaceArguments: { chat: { workspace_id: 'workspace-a', target_mode: 'position', position: 7 } },
+          byProfile: { focused: { commandId: 'workspace.tab.go_to', bySurface: { chat: true }, fallback: false,
+            bySurfaceArguments: { chat: { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-settings' } } } } } },
         fallback: false,
       }],
     };
@@ -125,6 +129,8 @@ describe('commandLocalKeyboardWails', () => {
     map.localPaletteConditions![0].bySurfaceArguments!.chat.position = 99;
     map.localPaletteConditions![0].bySurfaceIdArguments!.chat['tab-1'].tab_id = 'mutated';
     map.localPaletteConditions![0].byProfile!.focused.fallbackArguments!.tab_id = 'mutated';
+    map.localPaletteConditions![0].byPage!.settings.bySurfaceArguments!.chat.position = 99;
+    map.localPaletteConditions![0].byPage!.settings.byProfile!.focused.bySurfaceArguments!.chat.tab_id = 'mutated';
     expect(source.bindings[0].shortcut.modifiers).toEqual(['Control']);
     expect(source.bindings[0].arguments).toEqual({ workspace_id: 'workspace-a', target_mode: 'position', position: 42 });
     expect(source.localPaletteArguments).toEqual({ 'workspace.tab.go_to': { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-a' } });
@@ -139,6 +145,10 @@ describe('commandLocalKeyboardWails', () => {
       bySurfaceIdArguments: { chat: { 'tab-1': { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-b' } } },
       byProfile: { focused: { commandId: 'workspace.tab.go_to', bySurface: { chat: false }, fallback: true,
         fallbackArguments: { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-c' } } },
+      byPage: { settings: { commandId: 'workspace.tab.go_to', bySurface: { chat: true }, fallback: false,
+        bySurfaceArguments: { chat: { workspace_id: 'workspace-a', target_mode: 'position', position: 7 } },
+        byProfile: { focused: { commandId: 'workspace.tab.go_to', bySurface: { chat: true }, fallback: false,
+          bySurfaceArguments: { chat: { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-settings' } } } } } },
       fallback: false,
     }]);
   });
