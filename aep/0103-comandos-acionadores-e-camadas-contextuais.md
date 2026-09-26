@@ -2,6 +2,16 @@
 
 **Status:** In Progress
 
+**Reconciliação vigente — seção167 da tasklist (26/09/2026):** os PRs #833,
+#834, #836, #838 e #839 estão mergeados; baseline `main` em `116eda53b`.
+**83 I / 1 P / 0 N** nos critérios (C38 parcial); **11 A / 21 I / 16 P / 0 N**
+nas 48 saídas R; **1/12 gates aceito**. R12.4 N→I reconhece revisão independente,
+CI/review remotos concluídos na entrega integrada, sem declarar Done.
+Os seis relatos de aprovação e a confirmação física da continuidade do Deck
+foram preservados no checklist manual; UI04 e variantes não observadas seguem
+pendentes. Não reiniciar todos os aceites a cada versão nem inferir validação
+das extensões mais recentes. Evidências, limites e merges estão na seção167.
+
 **Integração das seções164–166 (26/09/2026):** a condição de página mantém
 os argumentos do destino de aba nos DTOs de teclado, paleta e Deck. A paleta
 usa a mesma página observada para disponibilidade e coleta do destino. A
@@ -159,7 +169,7 @@ de ações de mensagens passaram. A regressão dos consumidores da grade e da
 árvore de mensagens passou 281 testes. Os achados de integração e revisões
 ficam rastreados na seção158; CI remoto e aceite humano continuam separados.
 
-**Acompanhamento vigente — seção157 (24/09/2026):** dos 84 critérios finais,
+**Histórico — seção157 (24/09/2026), atualizado pela seção167:** dos 84 critérios finais,
 **83 têm implementação identificada (98,8%), 1 é parcial e 0 ausentes**.
 C51 passa a I após prova autorizada de queda abrupta de processo filho de teste,
 lease nativa, recuperação para `outcome_unknown` e replay sem repetir o efeito.

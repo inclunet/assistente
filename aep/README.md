@@ -16,6 +16,17 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+**AEP-0103 — reconciliação vigente, seção167 (26/09/2026): In Progress.**
+Baseline `main` em `116eda53b`; PRs #833/#834/#836/#838/#839 mergeados.
+**83 I / 1 P / 0 N** (C38 parcial); **11 A / 21 I / 16 P / 0 N** nas saídas R;
+**1/12 gates aceito**. R12.4 N→I registra CI/review da entrega, não aceite
+global. Seis aprovações relatadas e correção física da continuidade do Deck
+preservadas; UI04 e variantes faltantes continuam pendentes. Não houve novo
+aceite manual nesta reconciliação. Detalhes na seção167 da
+[tasklist de conclusão](0103-tasklist-conclusao.md) e no
+[checklist manual](../docs/content/guias/VALIDACAO_MANUAL_COMANDOS.md).
+As atualizações abaixo são registros datados, não substituem este resumo.
+
 AEP-0103, seção165 (26/09/2026): aviso explícito de destino indisponível ou
 ambíguo preservado em títulos personalizados, sem confundir substrings com
 sufixo completo. In Progress; aceite físico/NVDA permanece pendente.
@@ -87,7 +98,7 @@ preservando autosave e concorrência de tasklists e lifecycle compartilhado de t
 guards de comandos. **In Progress; 83 I / 1 P / 0 N**; validação humana em outro
 computador e gates de qualificação/aceite continuam pendentes.
 
-Atualização vigente AEP-0103, seção157: C51 passa a I com prova autorizada de
+Histórico AEP-0103, seção157: C51 passa a I com prova autorizada de
 queda abrupta de processo filho, recuperação real e replay sem repetir o efeito.
 **In Progress; 83 I / 1 P / 0 N (98,8%); 11 A / 20 I / 16 P / 1 N;
 1/12 gate aceito**. C38 recebeu correções de foco e instruções acessíveis;
