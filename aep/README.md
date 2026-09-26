@@ -16,6 +16,10 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+AEP-0103, seção164 (26/09/2026): paridade objeto JSON dos argumentos projetados
+nos bindings Wails e regressão de destino condicional na paleta. In Progress;
+aceite físico/NVDA permanece pendente.
+
 AEP-0103, isolamento de jobs (26/09/2026): fingerprint de definições persistidas
 com limite próprio de 1 MiB, protocolo mantido em 64 KiB e falha de definição
 restrita às hotkeys do job afetado. Regressões de tamanho/identidade/isolamento
@@ -162,7 +166,7 @@ Seção138: integração da main `714a47c4e`, com checkpoint local recuperável.
 Falha preexistente de revisão ABA ao fixar/desafixar mensagem identificada
 no merge e tratada na seção139: revisão durável por mensagem, triggers
 transacionais e migração v30, sem depender de timestamps ou alterar atalhos.
-Catálogo v40: 149 comandos / 61 locais / 67 defaults; 81 IDs do Deck são
+Catálogo v41: 150 comandos / 61 locais / 67 defaults; 81 IDs do Deck são
 outro denominador. Δ18 corrigido: matriz estática preparada antes da entrada
 física, com recusa de snapshot stale e fatos nativos atuais por tecla.
 C62 implementado: LRU de seleção integrado, isolado e invalidado, sem cache

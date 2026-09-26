@@ -51,7 +51,7 @@ func TestCommandProductCatalogReflectsOperationalReadiness(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(items) != 149 {
+			if len(items) != 150 {
 				t.Fatalf("catálogo inesperado: %+v", items)
 			}
 			want := scenario == "ready"

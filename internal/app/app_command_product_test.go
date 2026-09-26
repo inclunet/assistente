@@ -23,7 +23,7 @@ func readyCommandProduct(t *testing.T) *App {
 		t.Fatal(err)
 	}
 	if err := a.ensureCommandLifecycleMountedForCurrentUser(ctx); err != nil {
-		t.Fatal(err)
+		t.Fatalf("montar produto de comandos: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = ShutdownCommandLifecycle(ctx, a)
@@ -31,13 +31,13 @@ func readyCommandProduct(t *testing.T) *App {
 		_ = a.shutdownCommandBridgeIfConfigured(ctx)
 	})
 	if err := a.commandHost.SetOSSessionState(ctx, true, false); err != nil {
-		t.Fatal(err)
+		t.Fatalf("habilitar sessão do SO no host de comandos: %v", err)
 	}
 	if err := a.rebuildCommandLifecyclePersistedConfiguration(ctx); err != nil {
-		t.Fatal(err)
+		t.Fatalf("reconstruir projeção persistida de comandos: %v", err)
 	}
 	if err := BootstrapCommandLifecycle(ctx, a); err != nil {
-		t.Fatal(err)
+		t.Fatalf("publicar lifecycle de comandos: %v", err)
 	}
 	snapshot, err := CommandLifecycleSnapshot(a)
 	if err != nil || snapshot.State != commandruntime.StateReady || !snapshot.Published {

@@ -12,11 +12,14 @@ import (
 // LocalCommandPaletteCondition é uma projeção somente de apresentação para
 // comandos locais ou contextuais duráveis. Ela não autoriza nem executa nada e não é persistida.
 type LocalCommandPaletteCondition struct {
-	CommandID   string                                  `json:"commandId"`
-	BySurface   map[string]bool                         `json:"bySurface"`
-	BySurfaceID map[string]map[string]bool              `json:"bySurfaceId,omitempty"`
-	ByProfile   map[string]LocalCommandPaletteCondition `json:"byProfile,omitempty"`
-	Fallback    bool                                    `json:"fallback"`
+	CommandID            string                                  `json:"commandId"`
+	BySurface            map[string]bool                         `json:"bySurface"`
+	BySurfaceID          map[string]map[string]bool              `json:"bySurfaceId,omitempty"`
+	FallbackArguments    map[string]any                          `json:"fallbackArguments,omitempty"`
+	BySurfaceArguments   map[string]map[string]any               `json:"bySurfaceArguments,omitempty"`
+	BySurfaceIDArguments map[string]map[string]map[string]any    `json:"bySurfaceIdArguments,omitempty"`
+	ByProfile            map[string]LocalCommandPaletteCondition `json:"byProfile,omitempty"`
+	Fallback             bool                                    `json:"fallback"`
 }
 
 func localPaletteUIConditions(configuration *commandbindings.Configuration, registry *commandcatalog.Registry) []LocalCommandPaletteCondition {
@@ -112,27 +115,50 @@ func localPaletteConditionLeaf(configuration *commandbindings.Configuration, reg
 	if includeProfile && profile != "" {
 		baseFacts[commandbindings.Profile] = profile
 	}
-	leaf.Fallback = paletteSelectionForClass(configuration, registry, identity, definitionID, baseFacts, class)
+	leaf.Fallback, leaf.FallbackArguments = paletteConditionArguments(configuration, registry, identity, definitionID, baseFacts, class)
 	if hasSurfaceType {
+		leaf.BySurfaceArguments = make(map[string]map[string]any)
 		for _, surface := range configuration.FieldValues(identity, commandbindings.SurfaceType) {
 			facts := clonePaletteFacts(baseFacts)
 			facts[commandbindings.SurfaceType] = surface
-			leaf.BySurface[surface] = paletteSelectionForClass(configuration, registry, identity, definitionID, facts, class)
+			selected, args := paletteConditionArguments(configuration, registry, identity, definitionID, facts, class)
+			leaf.BySurface[surface] = selected
+			if args != nil {
+				leaf.BySurfaceArguments[surface] = args
+			}
 		}
 	}
 	if hasSurfaceID && hasSurfaceType {
 		leaf.BySurfaceID = make(map[string]map[string]bool)
+		leaf.BySurfaceIDArguments = make(map[string]map[string]map[string]any)
 		for _, surface := range configuration.FieldValues(identity, commandbindings.SurfaceType) {
 			leaf.BySurfaceID[surface] = make(map[string]bool)
+			leaf.BySurfaceIDArguments[surface] = make(map[string]map[string]any)
 			for _, surfaceID := range configuration.FieldValues(identity, commandbindings.SurfaceID) {
 				facts := clonePaletteFacts(baseFacts)
 				facts[commandbindings.SurfaceType] = surface
 				facts[commandbindings.SurfaceID] = surfaceID
-				leaf.BySurfaceID[surface][surfaceID] = paletteSelectionForClass(configuration, registry, identity, definitionID, facts, class)
+				selected, args := paletteConditionArguments(configuration, registry, identity, definitionID, facts, class)
+				leaf.BySurfaceID[surface][surfaceID] = selected
+				if args != nil {
+					leaf.BySurfaceIDArguments[surface][surfaceID] = args
+				}
 			}
 		}
 	}
 	return leaf
+}
+
+func paletteConditionArguments(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity, definitionID string, facts commandbindings.Facts, class commandExecutionClass) (bool, map[string]any) {
+	selected, raw := paletteSelectionArgumentsForClass(configuration, registry, identity, definitionID, facts, class)
+	if !selected || len(raw) == 0 {
+		return selected, nil
+	}
+	arguments, valid := decodeJSONArgumentObject(raw)
+	if !valid {
+		return false, nil
+	}
+	return true, arguments
 }
 
 func localPaletteUISelection(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity, definitionID string, facts commandbindings.Facts) bool {
@@ -146,25 +172,36 @@ func paletteConditionClassEligible(definition commandcatalog.Definition, class c
 }
 
 func paletteSelectionForClass(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity, definitionID string, facts commandbindings.Facts, class commandExecutionClass) bool {
+	selected, _ := paletteSelectionArgumentsForClass(configuration, registry, identity, definitionID, facts, class)
+	return selected
+}
+
+func paletteSelectionArgumentsForClass(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity, definitionID string, facts commandbindings.Facts, class commandExecutionClass) (bool, json.RawMessage) {
 	resolved, err := configuration.Resolve(identity, facts, nil)
 	if err != nil || resolved.Status != commandbindings.Selected || resolved.CommandID != definitionID || resolved.ExecutionScopeKey != "global" {
-		return false
+		return false, nil
 	}
 	definition, ok := registry.Lookup(definitionID)
 	if !ok || definition.ID != definitionID || !paletteConditionClassEligible(definition, class) {
-		return false
+		return false, nil
 	}
-	if isCommandLayerAction(definitionID) {
+	if isCommandLayerAction(definitionID) || definitionID == commandWorkspaceTabGoToID {
 		if surface, present := facts[commandbindings.SurfaceType]; present {
 			value, valid := surface.(string)
 			if !valid || !localKeyboardWorkspaceSurface(value) {
-				return false
+				return false, nil
 			}
 		}
-		_, err := definition.ValidateArguments([]byte(resolved.ArgumentsKey))
-		return err == nil
+		canonical, err := definition.ValidateArguments([]byte(resolved.ArgumentsKey))
+		if err != nil {
+			return false, nil
+		}
+		if definitionID == commandWorkspaceTabGoToID {
+			return true, canonical
+		}
+		return true, nil
 	}
-	return emptyPaletteArguments(resolved.ArgumentsKey)
+	return emptyPaletteArguments(resolved.ArgumentsKey), nil
 }
 
 func emptyPaletteArguments(raw string) bool {
@@ -195,10 +232,25 @@ func cloneLocalCommandPaletteConditions(in []LocalCommandPaletteCondition) []Loc
 }
 
 func cloneLocalCommandPaletteCondition(in LocalCommandPaletteCondition) LocalCommandPaletteCondition {
-	out := LocalCommandPaletteCondition{CommandID: in.CommandID, Fallback: in.Fallback}
+	out := LocalCommandPaletteCondition{CommandID: in.CommandID, Fallback: in.Fallback, FallbackArguments: cloneJSONArgumentObject(in.FallbackArguments)}
 	out.BySurface = make(map[string]bool, len(in.BySurface))
 	for key, value := range in.BySurface {
 		out.BySurface[key] = value
+	}
+	if in.BySurfaceArguments != nil {
+		out.BySurfaceArguments = make(map[string]map[string]any, len(in.BySurfaceArguments))
+		for key, value := range in.BySurfaceArguments {
+			out.BySurfaceArguments[key] = cloneJSONArgumentObject(value)
+		}
+	}
+	if in.BySurfaceIDArguments != nil {
+		out.BySurfaceIDArguments = make(map[string]map[string]map[string]any, len(in.BySurfaceIDArguments))
+		for surface, ids := range in.BySurfaceIDArguments {
+			out.BySurfaceIDArguments[surface] = make(map[string]map[string]any, len(ids))
+			for id, value := range ids {
+				out.BySurfaceIDArguments[surface][id] = cloneJSONArgumentObject(value)
+			}
+		}
 	}
 	if in.BySurfaceID != nil {
 		out.BySurfaceID = make(map[string]map[string]bool, len(in.BySurfaceID))
