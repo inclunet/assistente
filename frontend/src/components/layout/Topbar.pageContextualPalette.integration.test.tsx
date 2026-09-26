@@ -260,7 +260,10 @@ describe('Page palette — production hook/provider, executor and Wails port', (
       expect(option).not.toHaveAttribute('aria-disabled', 'true');
       await user.keyboard('{Enter}');
       await waitFor(() => expect(state.succeeded).toHaveBeenCalledOnce());
-      expect(api.BeginContextualPagePaletteUICommand).toHaveBeenCalledExactlyOnceWith('page-map', id, id.startsWith('profiles.') ? 'profiles' : 'tasklists', 'focused');
+      const surfaceType = id.startsWith('profiles.') ? 'profiles' : 'tasklists';
+      expect(api.BeginContextualPagePaletteUICommand).toHaveBeenCalledExactlyOnceWith('page-map', id, {
+        surfaceId: '', surfaceType, appPage: surfaceType, profile: 'focused',
+      });
       expect(api.PreparePageMutationCommand).toHaveBeenCalledExactlyOnceWith('ticket', request);
       expect(api.CommitWorkspaceTabCommand).toHaveBeenCalledExactlyOnceWith('ticket', 'handoff');
       expect(api.BeginUICommand).not.toHaveBeenCalled(); expect(api.BeginContextualPaletteUICommand).not.toHaveBeenCalled();

@@ -24,7 +24,7 @@ export function BeginContextualDeckUICommand(arg1:string,arg2:string,arg3:app.Lo
 
 export function BeginContextualLocalCommandUIKey(arg1:string,arg2:app.LocalCommandShortcut,arg3:boolean,arg4:app.LocalCommandKeyboardContext):Promise<commandui.Reservation>;
 
-export function BeginContextualPagePaletteUICommand(arg1:string,arg2:string,arg3:string,arg4:string):Promise<commandui.Reservation>;
+export function BeginContextualPagePaletteUICommand(arg1:string,arg2:string,arg3:app.LocalCommandKeyboardContext):Promise<commandui.Reservation>;
 
 export function BeginContextualPaletteUICommand(arg1:string,arg2:string,arg3:app.LocalCommandKeyboardContext):Promise<commandui.Reservation>;
 

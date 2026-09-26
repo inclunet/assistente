@@ -27,7 +27,12 @@ isolada por geração e neutra para bindings `app.page` quando falta snapshot;
 bindings independentes de página permanecem. Clear/expiração deixam os títulos
 de página neutros e não alteram autorização. **In Progress; 83 I / 1 P / 0 N**.
 Revisão independente final Beauvoir: zero blockers. Aceite físico/NVDA segue
-pendente.
+pendente. O decoder persistido valida o enum fechado e a projeção Deck preserva
+pares de página/superfície e comandos independentes; bateria Go ampliada PASS
+173,909 s, regressões finais focadas PASS e integração frontend 80/80. E2E
+editor corrigido para o DTO atual: após uma tentativa inconclusiva por timeout
+em `page.goto`, os dois casos passaram em servidor isolado (18,7 s), sem
+aumentar limites. Conferência Go final e lint aprovados; CI deve confirmar.
 
 AEP-0103, seção162 (25/09/2026): diagnóstico nativo reproduziu o bloqueio do
 Deck após navegar; correção do refresh de projeção e preservação do mapa

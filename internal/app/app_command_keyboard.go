@@ -475,11 +475,10 @@ func contextualKeyboardBinding(ctx context.Context, configuration *commandbindin
 	profiles := configuration.FieldValues(identity, commandbindings.Profile)
 	values := configuration.FieldValues(identity, commandbindings.SurfaceType)
 	pages := configuration.FieldValues(identity, commandbindings.AppPage)
-	pageOnly := len(values) == 0 && len(profiles) == 0 && len(pages) != 0
 	if len(values) == 0 && len(profiles) == 0 && len(pages) == 0 {
 		return LocalCommandKeyboardContextualBinding{}, false
 	}
-	if len(profiles) != 0 {
+	if len(profiles) != 0 && len(pages) == 0 {
 		workspaceValues := make([]string, 0, len(values))
 		for _, value := range values {
 			if localKeyboardWorkspaceSurface(value) {
@@ -491,20 +490,34 @@ func contextualKeyboardBinding(ctx context.Context, configuration *commandbindin
 	if len(values) == 0 && len(profiles) != 0 && len(pages) == 0 {
 		values = []string{"chat", "editor", "terminal", "tasklist"}
 	}
-	if pageOnly {
-		// Toolbar is the actual UI surface used by route-level keyboard input;
-		// app.page remains a separate fact and is never synthesized from it.
-		values = []string{"toolbar"}
-	}
 	if len(values) == 0 {
 		if len(pages) == 0 {
 			return LocalCommandKeyboardContextualBinding{}, false
 		}
+		// A route page has its own canonical route surface; workspace pages are
+		// expanded to actual tab surfaces inside the page branch below.
 		values = []string{"toolbar"}
 	}
 	fallbackProfile := contextualFallbackProfile(profiles)
 	build := func(appPage string) (LocalCommandKeyboardContextualBinding, bool) {
-		entry, ok := contextualKeyboardBindingForProfile(ctx, configuration, registry, identity, shortcut, values, fallbackProfile, len(profiles) != 0, appPage)
+		branchValues := values
+		if len(pages) != 0 {
+			if appPage == "workspace" {
+				if len(configuration.FieldValues(identity, commandbindings.SurfaceType)) == 0 {
+					branchValues = []string{"chat", "editor", "terminal", "tasklist"}
+				} else {
+					branchValues = make([]string, 0, len(values))
+					for _, value := range values {
+						if localKeyboardWorkspaceSurface(value) {
+							branchValues = append(branchValues, value)
+						}
+					}
+				}
+			} else if routeSurface, ok := localKeyboardRouteSurface(appPage); ok {
+				branchValues = []string{routeSurface}
+			}
+		}
+		entry, ok := contextualKeyboardBindingForProfile(ctx, configuration, registry, identity, shortcut, branchValues, fallbackProfile, len(profiles) != 0, appPage)
 		if !ok {
 			return LocalCommandKeyboardContextualBinding{}, false
 		}
@@ -512,7 +525,7 @@ func contextualKeyboardBinding(ctx context.Context, configuration *commandbindin
 			slices.Sort(profiles)
 			entry.ByProfile = make(map[string]*LocalCommandKeyboardContextualBinding, len(profiles))
 			for _, profile := range profiles {
-				leaf, leafOK := contextualKeyboardBindingForProfile(ctx, configuration, registry, identity, shortcut, values, profile, true, appPage)
+				leaf, leafOK := contextualKeyboardBindingForProfile(ctx, configuration, registry, identity, shortcut, branchValues, profile, true, appPage)
 				if !leafOK {
 					return LocalCommandKeyboardContextualBinding{}, false
 				}

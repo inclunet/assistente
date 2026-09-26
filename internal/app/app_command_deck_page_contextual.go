@@ -71,6 +71,25 @@ func deckPageCommandSurface(commandID, surface string) bool {
 	}
 }
 
+// Keep the page fact paired with its canonical surface. The legacy tasklist
+// surface is only valid under the workspace page, never under the tasklists
+// route.
+func deckPageCommandPageSurface(commandID, appPage, surface string) bool {
+	if !commandbindings.IsAppPage(appPage) || !deckPageCommandSurface(commandID, surface) {
+		return false
+	}
+	switch appPage {
+	case "profiles":
+		return surface == "profiles"
+	case "tasklists":
+		return surface == "tasklists"
+	case "workspace":
+		return surface == "tasklist" && (commandID == "tasklists.duplicate" || commandID == "tasklists.clear")
+	default:
+		return false
+	}
+}
+
 func (p *commandProductRuntime) captureDeckPageContext(observed LocalCommandKeyboardContext) (*localCommandKeyboardContextProof, error) {
 	if observed.SurfaceID != "" || (observed.SurfaceType != "profiles" && observed.SurfaceType != "tasklists" && observed.SurfaceType != "tasklist") {
 		return nil, commandexecution.ErrDenied
@@ -109,7 +128,7 @@ func deckPageCommandFacts(proof *localCommandKeyboardContextProof, required []co
 			facts[field] = profile
 		case commandbindings.AppPage:
 			if !commandbindings.IsAppPage(proof.observed.AppPage) || proof.observed.AppPage != proof.observed.SurfaceType &&
-				!(proof.observed.SurfaceType == "tasklist" && proof.observed.AppPage == "workspace") {
+				(proof.observed.SurfaceType != "tasklist" || proof.observed.AppPage != "workspace") {
 				return commandOriginContext{}, commandexecution.ErrDenied
 			}
 			facts[field] = proof.observed.AppPage

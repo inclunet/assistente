@@ -10618,6 +10618,22 @@ ponte. Ausência, erro de leitura ou valor fora do enum não seleciona condiçã
 Revisão final de Beauvoir: zero bloqueios após corrigir blur de elementos
 (somente blur da janela limpa), revisão isolada por geração sob locks na ordem
 keyboard → presentation e visual neutro para condição de página sem snapshot.
+
+Complemento da integração de `app.page` na seção166: o decoder persistido
+valida o enum fechado; projeções Deck correlacionam página/superfície e o
+observer respeita a rota sem esconder comandos perfil-only independentes de
+página. A paleta entrega DTO sem `surfaceId` e não altera alvo/preparação.
+Beauvoir revisou o filtro visual sem bloqueios. Go focado Deck/teclado PASS
+17,611 s, `commandconfig` PASS 11,695 s, bateria Go ampliada PASS 173,909 s
+(antes do último filtro), Vitest palette Wails + integração Topbar 80/80,
+TypeScript e ESLint PASS; bindings foram regenerados oficialmente. O E2E
+editor teve a comparação exata atualizada para incluir `appPage=workspace`;
+primeira execução local ficou inconclusiva porque `page.goto` excedeu 30 s
+aguardando `load`, sem causa atribuída. Repetição do arquivo completo em
+Vite isolado: 2/2 PASS (18,7 s), incluindo o caso Alt+3 da falha de CI.
+Conferência final Go de observer/projeção PASS 16,280 s e lint dos três pacotes
+alterados com zero issues. Sem remoção de asserções ou aumento de timeout.
+O CI remoto será reexecutado após publicar este lote consolidado.
 Go focado de apresentação/clear/expiração passou novamente em 2,922 s;
 Vitest focado 17/17, TypeScript e ESLint passaram. A bateria ampliada Topbar
 teve 1.012 PASS/13 FAIL por expectativas antigas sem `appPage`; os três arquivos

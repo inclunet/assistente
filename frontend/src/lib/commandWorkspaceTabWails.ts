@@ -3,6 +3,7 @@ import type { CommandContextualBackendPort } from './commandContextualBackendExe
 import type { UICommandBeginResponse } from './commandUIExecution';
 import { waitForWailsBridge } from './waitForWailsBridge';
 import { isContextualPagePaletteCommand, isContextualPagePaletteSurface } from './commandContextualPalette';
+import { isAppPage } from './commandAppPage';
 
 interface ContextualVisualCommandLease {
   readonly generation: string;
@@ -26,7 +27,7 @@ interface WorkspaceTabCommandWindow extends Window {
   go?: { app?: { App?: {
     CommitWorkspaceTabCommand?: (ticket: string, handoffID: string) => Promise<void>;
     BeginContextualPaletteUICommand?: (generation: string, commandID: string, observed: ContextualPaletteCommandLease['observed']) => Promise<UICommandBeginResponse>;
-    BeginContextualPagePaletteUICommand?: (generation: string, commandID: string, surfaceType: string, profile: string) => Promise<UICommandBeginResponse>;
+    BeginContextualPagePaletteUICommand?: (generation: string, commandID: string, observed: ContextualVisualCommandLease['observed']) => Promise<UICommandBeginResponse>;
   } } };
 }
 
@@ -49,9 +50,16 @@ export function createCommandWorkspaceTabWailsPort(
       const app = ((options.target ?? window) as WorkspaceTabCommandWindow).go?.app?.App;
       if (isContextualPagePaletteCommand(commandID)) {
         if (!isContextualPagePaletteSurface(commandID, observed!.surfaceType)) throw new Error('contextual-page-palette-surface');
+        const expectedPage = observed!.surfaceType === 'tasklist' ? 'workspace' : observed!.surfaceType;
+        if (!isAppPage(observed!.appPage) || observed!.appPage !== expectedPage) {
+          throw new Error('contextual-page-palette-page');
+        }
         if (typeof app?.BeginContextualPagePaletteUICommand !== 'function') throw new Error('Contextual page palette API is unavailable');
         if (!lease.isCurrent()) throw new Error('contextual-palette-stale');
-        return app.BeginContextualPagePaletteUICommand(generation!, commandID, observed!.surfaceType, observed!.profile ?? '');
+        return app.BeginContextualPagePaletteUICommand(generation!, commandID, {
+          surfaceId: '', surfaceType: observed!.surfaceType, appPage: observed!.appPage,
+          ...(observed!.profile !== undefined ? { profile: observed!.profile } : {}),
+        });
       }
       if (typeof app?.BeginContextualPaletteUICommand !== 'function') throw new Error('Contextual palette API is unavailable');
       if (!lease.isCurrent()) throw new Error('contextual-palette-stale');

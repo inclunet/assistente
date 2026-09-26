@@ -94,10 +94,13 @@ func deckUIConditionsObservedWithPageMode(configuration *commandbindings.Configu
 		return nil
 	}
 	fields := configuration.RequiredFacts(identity)
-	hasMermaid := false
+	hasMermaid, hasPageCommand := false, false
 	for _, definition := range registry.List() {
 		if isMermaidMutation(definition.ID) && eligible(definition) {
 			hasMermaid = true
+		}
+		if isContextualPagePaletteCommand(definition.ID) && eligible(definition) {
+			hasPageCommand = true
 		}
 	}
 	hasType, hasID, hasProfile, hasPage := false, false, false, false
@@ -140,12 +143,19 @@ func deckUIConditionsObservedWithPageMode(configuration *commandbindings.Configu
 			if definition, ok := registry.Lookup(resolved.CommandID); ok && eligible(definition) {
 				_, argsErr := definition.ValidateArguments([]byte(resolved.ArgumentsKey))
 				if argsErr == nil && (commandExecutionClassForDefinition(definition) != commandExecutionLocalUI || emptyPaletteArguments(resolved.ArgumentsKey)) {
-					pageAllowed := !isContextualPagePaletteCommand(definition.ID) || (!hasID && deckPageCommandSurface(definition.ID, surface))
+					pageAllowed := !isContextualPagePaletteCommand(definition.ID) || (!hasID && deckPageCommandSurface(definition.ID, surface) &&
+						(!hasPage || deckPageCommandPageSurface(definition.ID, appPage, surface)))
 					mermaidAllowed := !isMermaidMutation(definition.ID) || surface == "editor"
 					if pageAllowed && mermaidAllowed {
 						commandID = definition.ID
-						if observe != nil && (pageFilter == "" || !hasPage || appPage == pageFilter) {
-							observe(resolved)
+						if observe != nil {
+							pageMatches := pageFilter == "" || !hasPage || appPage == pageFilter
+							if pageFilter != "" && !hasPage && isContextualPagePaletteCommand(definition.ID) {
+								pageMatches = deckPageCommandPageSurface(definition.ID, pageFilter, surface)
+							}
+							if pageMatches {
+								observe(resolved)
+							}
 						}
 					}
 				}
@@ -164,13 +174,11 @@ func deckUIConditionsObservedWithPageMode(configuration *commandbindings.Configu
 	surfaces := configuration.FieldValues(identity, commandbindings.SurfaceType)
 	if !hasType {
 		surfaces = []string{""}
-		if hasPage {
-			// Page-target commands still require the live page surface at admission.
-			// Enumerate only the closed surface types their existing ingress accepts;
-			// this projects the binding without making surface.type a saved condition.
-			for _, surface := range []string{"profiles", "tasklists", "tasklist"} {
-				surfaces = append(surfaces, surface)
-			}
+		if hasPage || hasPageCommand {
+			// Page-target commands still require the live surface at admission.
+			// Enumerate their closed canonical surfaces even for profile-only
+			// bindings; this does not synthesize app.page or save surface.type.
+			surfaces = append(surfaces, "profiles", "tasklists", "tasklist")
 		}
 	}
 	ids := configuration.FieldValues(identity, commandbindings.SurfaceID)

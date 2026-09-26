@@ -48,7 +48,7 @@ func TestCommandDeckPageOnlyConditionProjectsLivePageSurfaces(t *testing.T) {
 	registry := paletteConditionTestRegistry(t)
 	for _, test := range []struct {
 		id, page, surface string
-	}{{"profiles.activate", "profiles", "profiles"}, {"tasklists.delete", "tasklists", "tasklists"}, {"tasklists.duplicate", "tasklists", "tasklists"}} {
+	}{{"profiles.activate", "profiles", "profiles"}, {"tasklists.delete", "tasklists", "tasklists"}, {"tasklists.duplicate", "tasklists", "tasklists"}, {"tasklists.duplicate", "workspace", "tasklist"}, {"tasklists.clear", "workspace", "tasklist"}} {
 		t.Run(test.id, func(t *testing.T) {
 			configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{
 				deckConditionCandidate("page-only", test.id, commandbindings.Facts{commandbindings.AppPage: test.page}),
@@ -67,6 +67,67 @@ func TestCommandDeckPageOnlyConditionProjectsLivePageSurfaces(t *testing.T) {
 			for _, other := range []string{"profiles", "tasklists", "tasklist"} {
 				if other != test.surface && page.BySurface[other] {
 					t.Fatalf("page-only binding leaked to surface %q: %+v", other, page)
+				}
+			}
+			for _, otherPage := range commandbindings.AppPages() {
+				if otherPage != test.page && conditions[0].ByPage[otherPage].BySurface[test.surface] {
+					t.Fatalf("page-only binding leaked to app.page=%q: %+v", otherPage, conditions[0])
+				}
+			}
+		})
+	}
+}
+
+func TestCommandDeckPageObserverFiltersProfileOnlyBindingByCanonicalPageSurface(t *testing.T) {
+	registry := paletteConditionTestRegistry(t)
+	configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{
+		deckConditionCandidate("profile-only", "profiles.activate", commandbindings.Facts{commandbindings.Profile: "dev"}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		page string
+		want int
+	}{{page: "profiles", want: 1}, {page: "workspace", want: 0}, {page: "tasklists", want: 0}} {
+		t.Run(test.page, func(t *testing.T) {
+			var observed []commandbindings.Result
+			got := deckUIConditionsObservedForPage(configuration, registry, deckConditionTestTrigger,
+				commandDeckContextualUIEligible, test.page, func(result commandbindings.Result) { observed = append(observed, result) })
+			if test.page == "profiles" && len(got) != 1 {
+				t.Fatalf("profile-only command projection missing: %+v", got)
+			}
+			if len(observed) != test.want {
+				t.Fatalf("page %q observed %d times, want %d; results=%+v", test.page, len(observed), test.want, observed)
+			}
+			for _, result := range observed {
+				if result.Status != commandbindings.Selected || result.CommandID != "profiles.activate" {
+					t.Fatalf("unexpected observed result: %+v", result)
+				}
+			}
+		})
+	}
+}
+
+func TestCommandDeckPageObserverKeepsPageIndependentProfileOnlyBinding(t *testing.T) {
+	registry := paletteConditionTestRegistry(t)
+	configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{
+		deckConditionCandidate("profile-only", "help.shortcuts.show", commandbindings.Facts{commandbindings.Profile: "dev"}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, page := range []string{"workspace", "settings"} {
+		t.Run(page, func(t *testing.T) {
+			var observed []commandbindings.Result
+			deckUIConditionsObservedForPage(configuration, registry, deckConditionTestTrigger, commandDeckLocalUIEligible, page,
+				func(result commandbindings.Result) { observed = append(observed, result) })
+			if len(observed) == 0 {
+				t.Fatalf("page-independent command hidden for page %q: %+v", page, observed)
+			}
+			for _, result := range observed {
+				if result.Status != commandbindings.Selected || result.CommandID != "help.shortcuts.show" {
+					t.Fatalf("unexpected page-independent observation for %q: %+v", page, observed)
 				}
 			}
 		})

@@ -53,6 +53,24 @@ Clear e expiração foram exercitados até o título renderizado em `deckMap`.
 Nenhuma regra de autorização ou execução foi alterada. Revisão independente
 final de Beauvoir: três pontos verificados, zero blockers.
 
+**Integração do fato `app.page` — seção166 (25/09/2026):** o decoder de
+configuração persistida agora aceita somente valores do enum fechado; Deck
+correlaciona página e superfície canônica tanto na projeção quanto na coleta
+visual por rota. Regras perfil-only de comandos de página não vazam para outra
+rota, enquanto comandos independentes de página continuam observáveis. A
+paleta envia o DTO observado com `surfaceId` vazio, preserva a validação da
+lease e deixa o alvo para `PreparePageMutationCommand`. Beauvoir reavaliou o
+filtro visual sem bloqueios. Evidências: bateria Go ampliada reportada PASS em
+173,909 s antes do último ajuste visual, regressões focalizadas após esse
+ajuste PASS em 17,611 s, `commandconfig` PASS em 11,695 s, Vitest focal 80/80,
+`tsc --noEmit`, ESLint e `wails generate module` PASS. O teste E2E que antes
+falhava pela ausência de `appPage` foi corrigido sem remover asserts; a
+primeira reexecução local não alcançou a asserção porque `page.goto` excedeu
+30 s aguardando `load`, sem causa atribuída. A repetição completa do arquivo
+em servidor Vite isolado passou 2/2 (18,7 s), incluindo Alt+3 e restauração
+de foco ao trocar de aba. A conferência final Go de observer/projeção passou
+em 16,280 s e o lint dos três pacotes alterados terminou com zero issues.
+
 **Qualificação no CI — seção161 (25/09/2026):** após timeout acumulado,
 o grupo race de contexto foi subdividido em Deck, paleta, workspace e base,
 preservando todos os testes, flags, limites e agregador obrigatório. A nova

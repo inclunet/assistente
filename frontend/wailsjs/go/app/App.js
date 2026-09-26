@@ -30,8 +30,8 @@ export function BeginContextualLocalCommandUIKey(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['BeginContextualLocalCommandUIKey'](arg1, arg2, arg3, arg4);
 }
 
-export function BeginContextualPagePaletteUICommand(arg1, arg2, arg3, arg4) {
-  return window['go']['app']['App']['BeginContextualPagePaletteUICommand'](arg1, arg2, arg3, arg4);
+export function BeginContextualPagePaletteUICommand(arg1, arg2, arg3) {
+  return window['go']['app']['App']['BeginContextualPagePaletteUICommand'](arg1, arg2, arg3);
 }
 
 export function BeginContextualPaletteUICommand(arg1, arg2, arg3) {

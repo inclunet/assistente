@@ -515,6 +515,12 @@ func decodeCondition(raw string) (commandbindings.Facts, error) {
 				return nil, ErrInvalid
 			}
 			value = boolean
+		case commandbindings.AppPage:
+			stringValue, ok := jsonString(clause["value"])
+			if !ok || !commandbindings.IsAppPage(stringValue) {
+				return nil, ErrInvalid
+			}
+			value = stringValue
 		case commandbindings.SurfaceType, commandbindings.SurfaceID, commandbindings.Profile, commandbindings.Device, commandbindings.Process:
 			stringValue, ok := jsonString(clause["value"])
 			if !ok || strings.TrimSpace(stringValue) == "" {
