@@ -86,7 +86,7 @@ describe('ToolCallsSection', () => {
     );
 
     expect(loadDetails).not.toHaveBeenCalled();
-    expect(screen.getByText('prévia')).toBeInTheDocument();
+    expect(screen.queryByText('prévia')).not.toBeInTheDocument();
     const detailsButton = screen.getByRole('button', { name: 'chat.technicalDetails' });
     expect(detailsButton).toHaveAttribute('tabindex', '0');
     fireEvent.click(detailsButton);
@@ -219,6 +219,18 @@ describe('ToolCallsSection', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
   });
 
+  it('mostra ação concluída e mantém prévias técnicas apenas nos detalhes', () => {
+    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+      invocationId: 'inv-read', callId: 'read', name: 'read_file', origin: 'builtin',
+      status: 'succeeded', inputPreview: '{"fields":["path"]}', outputPreview: '{"bytes":42}',
+      hasDetails: false, resultAvailability: 'available',
+    }]} />);
+    expect(screen.getByText('chat.toolReadFileDone')).toBeInTheDocument();
+    expect(screen.queryByText('{"bytes":42}')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('{"bytes":42}');
+  });
+
   it('mantém estados persistidos canônicos perceptíveis sem prometer sucesso', () => {
     render(
       <ToolCallsSection
@@ -235,7 +247,8 @@ describe('ToolCallsSection', () => {
     expect(screen.getByText('chat.toolStatusFailed')).toBeInTheDocument();
     expect(screen.getByText('chat.toolStatusCancelled')).toBeInTheDocument();
     expect(screen.getByText('chat.toolStatusUnknown')).toBeInTheDocument();
-    expect(screen.getByText('chat.partialOutput: parcial')).toBeInTheDocument();
+    expect(screen.getByText('chat.partialOutputAvailable')).toBeInTheDocument();
+    expect(screen.queryByText('parcial')).not.toBeInTheDocument();
   });
 
   it('trata done do streaming como concluído', () => {

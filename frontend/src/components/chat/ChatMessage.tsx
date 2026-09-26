@@ -216,6 +216,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       'args' in call ? call.args : ('inputPreview' in call ? call.inputPreview : undefined),
     ),
     (key, values) => t(key, values),
+    ['succeeded', 'completed', 'done'].includes(call.status ?? ''),
   )), [dialogCalls, t]);
 
   // Usa editContent externo se está editando
