@@ -16,11 +16,24 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+AEP-0103, seção165 (26/09/2026): aviso explícito de destino indisponível ou
+ambíguo preservado em títulos personalizados, sem confundir substrings com
+sufixo completo. In Progress; aceite físico/NVDA permanece pendente.
+
+AEP-0103, seção164 (26/09/2026): paridade objeto JSON dos argumentos projetados
+nos bindings Wails e regressão de destino condicional na paleta. In Progress;
+aceite físico/NVDA permanece pendente.
+
 AEP-0103, pós-merge #833: separação dos gerenciadores de comandos/acionadores
 e regras de ativação conforme seção159, com edição/configuração e consentimento
 externo na toolbar, sem alteração do motor de execução ou da autorização.
 O mantenedor confirmou a correção física do bloqueio do Deck antes do merge.
 **In Progress; 83 I / 1 P / 0 N**; os demais aceites não são inferidos desse relato.
+
+AEP-0103, integração164–166 (26/09/2026): destinos parametrizados e seus
+argumentos permanecem isolados por página/perfil na paleta e nos mapas Wails;
+o título automático do Deck considera a página viva, sem agregar rotas.
+**In Progress; 83 I / 1 P / 0 N**, com aceite físico/NVDA pendente.
 
 AEP-0103, seção166 (25/09/2026): a apresentação física do Deck é efêmera,
 isolada por geração e neutra para bindings `app.page` quando falta snapshot;
@@ -40,6 +53,15 @@ A ponte de ações de camada do Deck preserva a página capturada; varredura das
 demais pontes e 51 testes de contrato aprovados, mantendo os guards existentes.
 O editor também oferece `app.page` para as três ações de camada do Stream
 Deck.
+
+AEP-0103, seção165 (25/09/2026): título e ícone automáticos para destinos de
+aba no Stream Deck, com personalizações preservadas e destino ausente explícito.
+Títulos longos são abreviados somente na tecla; o anúncio mantém o texto
+completo. Personalizações exigem consenso dos bindings após herança de estado.
+Testes Go focados e `golangci-lint` passaram; o aceite físico/NVDA segue
+pendente. O histórico da falha de fixture App e sua correção estão registrados
+na tasklist.
+**In Progress; 83 I / 1 P / 0 N**; nenhum aceite manual foi promovido.
 
 AEP-0103, seção162 (25/09/2026): diagnóstico nativo reproduziu o bloqueio do
 Deck após navegar; correção do refresh de projeção e preservação do mapa
@@ -176,7 +198,7 @@ Seção138: integração da main `714a47c4e`, com checkpoint local recuperável.
 Falha preexistente de revisão ABA ao fixar/desafixar mensagem identificada
 no merge e tratada na seção139: revisão durável por mensagem, triggers
 transacionais e migração v30, sem depender de timestamps ou alterar atalhos.
-Catálogo v40: 149 comandos / 61 locais / 67 defaults; 81 IDs do Deck são
+Catálogo v41: 150 comandos / 61 locais / 67 defaults; 81 IDs do Deck são
 outro denominador. Δ18 corrigido: matriz estática preparada antes da entrada
 física, com recusa de snapshot stale e fatos nativos atuais por tecla.
 C62 implementado: LRU de seleção integrado, isolado e invalidado, sem cache

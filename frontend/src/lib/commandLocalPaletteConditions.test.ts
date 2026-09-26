@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createLocalPaletteConditionResolver, type LocalCommandPaletteVisualContext } from './commandLocalPaletteConditions';
+import { createLocalPaletteConditionResolver, parseLocalPaletteConditions, resolveLocalPaletteConditionSelectionFromParsed, type LocalCommandPaletteVisualContext } from './commandLocalPaletteConditions';
 
 const context = (overrides: Partial<LocalCommandPaletteVisualContext> = {}): LocalCommandPaletteVisualContext => ({
   surfaceType: 'chat', surfaceId: 'tab-a', ...overrides,
@@ -127,5 +127,57 @@ describe('local palette conditions', () => {
       commandId: 'workspace.open', bySurface: { chat: true },
       byProfile: { focused: { commandId: 'chat.open', bySurface: { chat: true }, fallback: true } }, fallback: false,
     }])('workspace.open', context({ profile: 'focused' }))).toBe(false);
+  });
+
+  it('preserves the selected go-to arguments for distinct surface and profile branches', () => {
+    const conditions = parseLocalPaletteConditions([{
+      commandId: 'workspace.tab.go_to', bySurface: { chat: true, editor: true }, fallback: false,
+      bySurfaceArguments: {
+        chat: { workspace_id: 'w', target_mode: 'position', position: 4 },
+        editor: { workspace_id: 'w', target_mode: 'specific', tab_id: 'tab-editor' },
+      },
+      byProfile: { focused: { commandId: 'workspace.tab.go_to', bySurface: {}, fallback: true,
+        fallbackArguments: { workspace_id: 'w', target_mode: 'specific', tab_id: 'tab-focused' } } },
+    }]);
+    expect(conditions).not.toBeNull();
+    expect(resolveLocalPaletteConditionSelectionFromParsed(conditions!, 'workspace.tab.go_to', context({ surfaceType: 'chat', profile: 'other' })))
+      .toEqual({ available: true, arguments: { workspace_id: 'w', target_mode: 'position', position: 4 } });
+    expect(resolveLocalPaletteConditionSelectionFromParsed(conditions!, 'workspace.tab.go_to', context({ surfaceType: 'editor', profile: 'other' })))
+      .toEqual({ available: true, arguments: { workspace_id: 'w', target_mode: 'specific', tab_id: 'tab-editor' } });
+    expect(resolveLocalPaletteConditionSelectionFromParsed(conditions!, 'workspace.tab.go_to', context({ surfaceType: 'chat', profile: 'focused' })))
+      .toEqual({ available: true, arguments: { workspace_id: 'w', target_mode: 'specific', tab_id: 'tab-focused' } });
+    expect(parseLocalPaletteConditions([{ commandId: 'workspace.open', bySurface: { chat: true }, fallback: false,
+      bySurfaceArguments: { chat: { workspace_id: 'w', target_mode: 'position', position: 1 } } }])).toBeNull();
+  });
+
+  it('preserves go-to arguments through appPage and profile branches with detached copies', () => {
+    const source = [{
+      commandId: 'workspace.tab.go_to', bySurface: {}, fallback: false,
+      byPage: {
+        settings: {
+          commandId: 'workspace.tab.go_to', bySurface: { chat: true }, fallback: false,
+          bySurfaceArguments: { chat: { workspace_id: 'w', target_mode: 'position', position: 3 } },
+          byProfile: { focused: {
+            commandId: 'workspace.tab.go_to', bySurface: { chat: true }, fallback: false,
+            bySurfaceArguments: { chat: { workspace_id: 'w', target_mode: 'specific', tab_id: 'tab-settings' } },
+          } },
+        },
+      },
+    }];
+    const parsed = parseLocalPaletteConditions(source);
+    expect(parsed).not.toBeNull();
+    const defaultBranch = resolveLocalPaletteConditionSelectionFromParsed(parsed!, 'workspace.tab.go_to',
+      context({ appPage: 'settings', profile: 'other' }));
+    const profileBranch = resolveLocalPaletteConditionSelectionFromParsed(parsed!, 'workspace.tab.go_to',
+      context({ appPage: 'settings', profile: 'focused' }));
+    expect(defaultBranch).toEqual({ available: true, arguments: { workspace_id: 'w', target_mode: 'position', position: 3 } });
+    expect(profileBranch).toEqual({ available: true, arguments: { workspace_id: 'w', target_mode: 'specific', tab_id: 'tab-settings' } });
+    expect(resolveLocalPaletteConditionSelectionFromParsed(parsed!, 'workspace.tab.go_to', context({ appPage: 'workspace' })))
+      .toEqual({ available: false });
+    expect(resolveLocalPaletteConditionSelectionFromParsed(parsed!, 'workspace.tab.go_to', context({ appPage: 'unknown' }))).toBeNull();
+
+    source[0].byPage.settings.bySurfaceArguments.chat.position = 99;
+    expect(defaultBranch?.arguments).toEqual({ workspace_id: 'w', target_mode: 'position', position: 3 });
+    expect(Object.isFrozen(defaultBranch?.arguments)).toBe(true);
   });
 });

@@ -88,7 +88,7 @@ os arquivos/testes e a fronteira entre lacuna funcional e qualificação.
 
 ### Inventário, infraestrutura e escopo
 
-- Catálogo `product-v40-agent-commands`: **149 comandos, 61 apresentações
+- Catálogo `product-v41-agent-commands`: **150 comandos, 61 apresentações
   locais e 67 defaults locais**. Deck contextual: **81 IDs** após Mermaid;
   pin/toggle/back e voz/jobs globais já existem. Nenhum desses números mede
   completude dos 84 critérios.
@@ -10307,11 +10307,11 @@ representa, sozinho, conclusão do AEP. Não ampliar esse PR com as melhorias ab
 
 ### PR dependente do destino de aba — apresentação automática no Stream Deck
 
-- [ ] Usar por padrão o nome atual da aba-alvo, abreviado apenas para caber,
+- [x] Usar por padrão o nome atual da aba-alvo, abreviado apenas para caber,
   e ícone do tipo: chat, editor, terminal ou lista de tarefas.
-- [ ] Acompanhar renomeação, reordenação, fechamento e troca de workspace,
+- [x] Acompanhar renomeação, reordenação, fechamento e troca de workspace,
   respeitando a diferença entre posição e identidade de aba.
-- [ ] Título/ícone personalizados permanecem opcionais; não exigir que o
+- [x] Título/ícone personalizados permanecem opcionais; não exigir que o
   usuário preencha informações já disponíveis. Indicar destino indisponível
   sem manter apresentação enganosa nem executar em outra aba.
 
@@ -10670,3 +10670,187 @@ e conferência do agente principal sem bloqueios; sem ampliar autorização.
 
 Aceite manual permanece pendente. Esta implementação não altera os totais
 de aceites físicos/NVDA. **In Progress; não representa aceite integral do AEP.**
+
+Integração com a main após os PRs #836 e #838 (26/09/2026): conflitos
+resolvidos preservando destinos parametrizados, argumentos objeto e visuais
+automáticos das abas. Paleta e Deck mantêm os argumentos nas ramificações
+de página/perfil/superfície. A Topbar passa a mesma página observada tanto
+à disponibilidade quanto à seleção dos argumentos. A apresentação automática
+do Deck considera somente a página viva; sem página, não agrega destinos.
+
+Regressões: projeções Deck/paleta Go PASS (108,749 s), round-trip/cópias
+isoladas por página/perfil PASS (16,751 s), pacotes commandbindings e
+commandconfig PASS. Frontend: 155/155 testes em cinco suites, TypeScript e
+ESLint focado PASS; navegação entre painéis reais do Deck 5/5 PASS.
+`go build ./...`, `go vet ./...`, golangci-lint do pacote app e geração
+oficial Wails PASS. A nova fixture de round-trip foi corrigida para usar
+atalho válido e comparar os argumentos sem confundir normalização de coleções
+vazias com perda de dados; isolamento e igualdade dos destinos continuam
+verificados. Revisão independente de Beauvoir e conferência do agente
+principal sem achados funcionais pendentes. CI remoto deve confirmar o merge;
+nenhum aceite físico/NVDA foi promovido: **83 I / 1 P / 0 N**.
+
+## 164. Contrato do comando parametrizado de destino de aba — 25/09/2026
+
+**Implementado; validação técnica focada concluída.** Esta frente independente
+da seção 159 não inclui condição de página nem apresentação automática no
+Stream Deck. Não representa aceite manual nem fechamento dos gates AEP.
+
+- ID único: `workspace.tab.go_to`; não criar IDs por número nem catálogo de
+  posições.
+- Argumentos persistidos no binding: `workspace_id`, `target_mode` e o campo
+  do modo selecionado. O formato é
+  `{"workspace_id":"…","target_mode":"position","position":N}` ou
+  `{"workspace_id":"…","target_mode":"specific","tab_id":"…"}`;
+  exatamente um de `position` (inteiro positivo sem teto) e `tab_id` (ID
+  estável) acompanha o modo. A interface apresenta **Por posição** e **Aba
+  específica**; esta mostra nomes, mas salva o ID. O binding fica vinculado
+  ao workspace em que foi configurado.
+- Execução revalida workspace, autenticação/sessão, foco/modal/IME e lease
+  local. Posição resolve a ordem viva; destino ausente ou aba fechada falha
+  fechado, sem criar, redirecionar ou escolher outra aba. Com outro workspace
+  ativo, o binding fica indisponível e não é retargetado; volta a valer apenas
+  no workspace ao qual permanece vinculado.
+- Os comandos existentes `workspace.tab.first`…`ninth` e seus defaults
+  `Ctrl+1…9` permanecem inalterados. O comando novo compartilha o dispatcher
+  local protegido; não altera ativação por página nem apresentação automática
+  do Deck.
+- Evidência: `internal/app/app_command_workspace_chat.go` registra o único ID,
+  schema, política de persistência e origens; `internal/commandconfig/projection_complete.go`
+  valida modo/alvo como regra de configuração (além do schema); `app_command_keyboard.go`,
+  `app_command_palette_conditions.go` e `app_command_deck_conditions.go` projetam
+  argumentos condicionais por ramo sem compartilhar payload mutável; `CommandSettingsPage.tsx` e
+  `CommandWorkspaceTabTargetFields.tsx` editam o destino; o dispatcher local
+  revalida alvo, ordem, sessão e lease em
+  `commandWorkspaceTabNavigation.ts`/`Topbar.tsx`. Testes de regressão ficam
+  em `app_command_workspace_tab_target_test.go`,
+  `internal/commandconfig/projection_complete_test.go`,
+  `commandWorkspaceTabNavigation.test.ts`, `commandLocalKeyboard.test.ts`,
+  `commandLocalPaletteConditions.test.ts`, `commandLocalDeckConditions.test.ts`,
+  `CommandWorkspaceTabTargetFields.test.tsx` e
+  `Topbar.deckSurfaceFocus.integration.test.tsx`.
+- Validação executada: `go test ./internal/app ./internal/commandconfig -run
+  '^TestWorkspaceTabGoTo'` — rodada final `EXIT_CODE=0` (`internal/app` 20,577 s;
+  `commandconfig` cached; log `work/logs/tab-target-go-focused-final.log`). As
+  rodadas anteriores `tab-target-go-focused-r2.log` e `-r3.log` terminaram com
+  `EXIT_CODE=1`; `tab-target-go-focused.log` também falhou no cleanup ao tentar
+  remover `app.test.exe` ainda em uso. Não são a evidência de aprovação. Main
+  confirmou `wails generate module` e `tsc --noEmit` pós-geração com `exit 0`;
+  Vitest focado (**26/26**) e `git diff --check` também PASS. Os testes cobrem alvos distintos
+  por ramo na projeção Palette/Deck e despacho Deck, além dos modos inválidos
+  na fronteira de configuração. Aceite NVDA, interação física com Stream Deck e
+  apresentação automática continuam fora do escopo/pendentes.
+
+Revisão local independente: Beauvoir revisou o diff completo, incluindo os
+arquivos novos. A primeira rodada encontrou perdas de argumentos na paleta
+e no Deck condicional, validação incompleta do modo/alvo e problemas de
+anúncio/documentação. Corrigidos com regressões; a segunda rodada não
+identificou bloqueios funcionais. Bindings foram regenerados oficialmente,
+e o TypeScript pós-geração passou. Base atualizada para `origin/main`
+`d32fc990f`, sem conflitos nem alteração nas mudanças desta frente.
+
+Qualificação do PR #836: a primeira rodada de CI revelou que o bootstrap
+tentava publicar um default de paleta com argumentos vazios para `go_to`.
+Esse comando exige alvo explícito, como as ações parametrizadas de camada,
+e agora não recebe tal default automático. O catálogo e os bindings
+configurados permanecem disponíveis. Regressões verificam catálogo/handler,
+projeção, publicação e Deck; a bateria ampliada
+`go test -work ./internal/app -run '^TestCommand(Product|Settings|Palette|Deck)' -count=1`
+passou em 113,731 s, com exit 0. Revisão independente do patch de bootstrap:
+agente principal, sem bloqueios. O CI inicial não é registrado como aprovado.
+
+Os dois achados Copilot do PR #836 foram corrigidos: a paleta exige argumentos
+apenas para `go_to`, preservando primeira/próxima/demais ações sem parâmetros;
+sequências de teclado propagam uma cópia dos argumentos. As regressões incluem
+os dois percursos no Topbar e a conclusão de sequência. Fixtures de contagem e
+do catálogo E2E agora incluem o novo ID, sem retirar verificações. Rodada final:
+345/345 Vitest, 1/1 contrato E2E, TypeScript, ESLint e diff-check aprovados.
+Agente principal revisou as seis alterações frontend independentemente do
+autor Bernoulli, sem pendências após a correção do modo no teste de sequência.
+
+Revisão complementar de 26/09/2026: os argumentos das projeções públicas de
+teclado/paleta/Deck agora usam objetos JSON em Go, eliminando a divergência
+`number[]` no TypeScript gerado pelo Wails. Clones profundos preservam mapas,
+arrays e números JSON; envelopes internos não foram alterados. A regressão
+de integração comprova `go_to` condicionado por perfil/superfície sem entrada
+na lista incondicional e bloqueio após invalidação do mapa. Esse percurso já
+funcionava, portanto não exigiu mudança de produção no Topbar. Arquivo de
+integração e duas bibliotecas passaram 128/128; TypeScript/ESLint aprovados.
+Revisão independente de Beauvoir sem bloqueios. Aceite manual continua separado.
+Go focado de argumentos/projeção/clonagem PASS (21,029 s); geração oficial
+`wails generate module`, TypeScript pós-geração, `go build ./...` e
+`go vet ./...` PASS. Lint do pacote `internal/app`: zero issues.
+
+## 165. Apresentação automática de destinos de aba no Stream Deck — 25/09/2026
+
+Implementação da continuação visual da seção159, sobre a base do contrato de
+destino da seção164. O mapa de apresentação do Deck consulta uma cópia do
+workspace ativo; isso não muda resolução, autorização nem despacho. `Ir para
+aba` resolve a apresentação por posição viva ou ID estável; `primeira` a `nona
+aba` acompanham as posições atuais. Renomear, reordenar, fechar ou trocar o
+workspace é refletido na próxima atualização de render.
+
+O título automático e o ícone local de tipo são fallbacks campo a campo. Título,
+ícone e imagem configurados permanecem intactos, incluindo herança e overrides
+por estado; título personalizado continua visível com um sufixo localizado de
+indisponibilidade se o destino sumir. Posição/ID ausente, workspace diferente,
+ou qualquer ramo condicional selecionável sem alvo mostra indisponibilidade,
+sem usar a aba ativa ou outra posição como substituta. Se ramos condicionais
+válidos apontarem para destinos diferentes, a apresentação diz que o destino
+depende do contexto. Não há evento de tecla, execução, confirmação ou auditoria
+adicionados para renderizar esses dados.
+
+Ícones de conversa, editor, terminal e lista de tarefas usam formas locais do
+renderer existente; nenhuma imagem, arquivo, fonte externa ou conteúdo da aba é
+carregado. O guia de comandos documenta o comportamento. Evidências focadas em
+`internal/app/app_command_deck_tab_visual_test.go` cobrem posição e identidade
+após rename/reorder, destinos ausentes/workspace alheio, `first`/`second`/`ninth`,
+ramo condicional, divergência, ícones rasterizados e preservação dos campos
+base/estado. Títulos e ícones personalizados exigem consenso efetivo de todos
+os bindings: variante explícita igual ao valor herdado permanece personalizada;
+valores divergentes ou título explicitamente vazio usam fallback automático.
+`internal/app/app_command_deck_feedback_render_test.go` prova que um nome sem
+espaços é abreviado com reticências apenas na imagem renderizada, mantendo o
+título completo em `Announce`. A execução
+`go test ./internal/app -run 'TestWorkspaceTabDeck|TestCommandDeckTitleTruncatesLongUnbrokenWordOnlyInRenderedImage' -count=1`
+passou em 17,058 s; separadamente, `golangci-lint run ./internal/app`
+reportou 0 issues.
+
+**Registro histórico de bloqueio resolvido:** antes do merge do bootstrap
+`392cfdd3a`, o teste integrado existente
+`TestCommandDeckPresentationSettingsReachContextualMapAndRenderer` parava antes
+do `deckMap`, pois `settingsSecurityFixture` falhava com `configuração de
+executor inválida`; um teste independente reproduziu a falha no bootstrap comum.
+Após o merge, a integração e os nove testes `TestWorkspaceTabDeck*` passaram
+juntos em uma rodada focada, executada com:
+`go test ./internal/app -run '^(TestCommandDeckPresentationSettingsReachContextualMapAndRenderer|TestWorkspaceTabDeck.*)$' -count=1`.
+`go build ./...` e `go vet ./...` também passaram sobre a base mesclada. Não há
+bloqueio integrado ativo. A falha histórica também foi reproduzida por
+`TestCommandProductRefusesUnknownInvalidAndRevokedRequests`, confirmando o
+bootstrap comum. O registro marca a implementação/testes automatizados; não se
+afirma aceite físico/NVDA nem fechamento de critério/gate manual.
+
+Revisão independente de Lagrange e do agente principal identificou dois casos
+visuais: ramos mistos ocultavam a combinação de comandos, e títulos
+personalizados ocultavam a ambiguidade do destino. Corrigidos preservando o
+título composto/personalizado e acrescentando a informação de destino como
+sufixo; regressões focadas passaram. O agente principal reavaliou o patch
+sem novos bloqueios funcionais. A revisão remota também levou a corrigir o
+ajuste de títulos longos e o consenso de personalizações após herança; as novas
+regressões focadas passaram na execução acima. A atualização do AEP principal
+acompanha a tasklist e o índice, sem promover aceite manual.
+
+Integração com o DTO objeto de argumentos do PR #836 (26/09/2026): o coletor
+de destinos do Deck serializa a projeção e reutiliza a validação existente;
+falha de serialização mantém o destino indisponível. Fixtures foram adaptadas
+sem remover verificações. Testes Go focados PASS (20,194 s), build/vet do
+pacote `internal/app` PASS e lint zero issues. Revisão independente de Beauvoir
+e do agente principal sem bloqueios. O conflito da tasklist foi apenas aditivo,
+preservando as evidências das seções164 e165. Aceite físico permanece pendente.
+
+Revisão do sufixo de estado (26/09/2026): a comparação agora exige o marcador
+como título completo ou sufixo delimitado por ` — `. Títulos personalizados
+que apenas contêm o texto continuam recebendo o aviso explícito. Regressões
+cobrem texto no meio, final semelhante/colado, sufixo já presente, título vazio
+e estado ambíguo com personalizações preservadas. Go focado PASS (16,709 s),
+lint zero issues. Nenhuma autorização ou resolução de destino foi alterada.

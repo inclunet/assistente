@@ -22,6 +22,7 @@ import { useExternalUIConnection } from '../services/externalUIConnectionReact';
 import { CommandConditionEditor } from '../components/commands/CommandConditionEditor';
 import { CommandObjectFieldsEditor } from '../components/commands/CommandObjectFieldsEditor';
 import { CommandLayerActionFields } from '../components/commands/CommandLayerActionFields';
+import { CommandWorkspaceTabTargetFields } from '../components/commands/CommandWorkspaceTabTargetFields';
 import {
   CommandPresentationEditor,
   isCommandPresentationValid,
@@ -136,6 +137,7 @@ export default function CommandSettingsPage() {
   const sessionId = useAuthStore((state) => state.user?.sessionId ?? '');
   const vaultUnlocked = useAuthStore((state) => state.status?.vaultUnlocked ?? false);
   const workspaceId = useWorkspaceStore((state) => state.workspace?.id ?? '');
+  const workspaceName = useWorkspaceStore((state) => state.workspace?.name ?? '');
   const workspaceTabs = useWorkspaceStore((state) => state.workspace?.tabs);
   const [scope, setScope] = useState<CommandSettingsScope>('global');
   const [deckStatusSnapshot, setDeckStatusSnapshot] = useState<{ identity: string; value: CommandDeckStatusEvent } | null>(null);
@@ -1429,7 +1431,12 @@ export default function CommandSettingsPage() {
                     />
                   </div>}
                 </div>
-                {getCommandToolCatalogID(editor.value.commandId) ? null : isCommandLayerAction(editor.value.commandId) ? <CommandLayerActionFields
+                {getCommandToolCatalogID(editor.value.commandId) ? null : editor.value.commandId === 'workspace.tab.go_to' ? <CommandWorkspaceTabTargetFields
+                  workspaceID={workspaceId} workspaceName={workspaceName}
+                  tabs={workspaceTabs ?? []} value={editor.value.arguments ?? {}} disabled={busy}
+                  onChange={(argumentsValue) => updateBindingField({ arguments: argumentsValue })}
+                  onValidityChange={setArgumentsValid}
+                /> : isCommandLayerAction(editor.value.commandId) ? <CommandLayerActionFields
                   commandID={editor.value.commandId} scope={scope} layers={snapshot.layers} rules={snapshot.rules ?? []}
                   value={editor.value.arguments ?? {}} disabled={busy}
                   onChange={argumentsValue => updateBindingField({ arguments: argumentsValue })}

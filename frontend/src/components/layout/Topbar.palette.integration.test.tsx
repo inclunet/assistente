@@ -1115,6 +1115,102 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     }
   });
 
+  it.each([
+    { mode: 'available', byPage: false },
+    { mode: 'map-stale', byPage: false },
+    { mode: 'available', byPage: true },
+    { mode: 'map-stale', byPage: true },
+  ] as const)('resolve go_to condicional sem allowlist incondicional e revalida contexto: $mode / byPage=$byPage', async ({ mode, byPage }) => {
+    const user = userEvent.setup();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const originalWorkspace = state.workspace.workspace;
+    state.workspace.workspace = {
+      id: 'workspace-a', name: 'Workspace', activeTabId: 'tab-a',
+      tabs: [{ id: 'tab-a', type: 'chat' }, { id: 'tab-b', type: 'editor' }],
+    };
+    Object.assign(state.workspace.workspace, { profile: 'dev' });
+    state.workspace.setActiveTab.mockImplementation((tabId: string) => {
+      state.workspace.workspace.activeTabId = tabId;
+      state.workspaceListeners.forEach(listener => listener());
+    });
+    paletteContextScope = createCommandContextScope(undefined, locationState.pathname);
+    const goToArguments = { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-b' };
+    state.loadMap.mockResolvedValue({
+      generation: 'conditional-go-to', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
+      bindings: [{ shortcut: { version: 1, code: 'KeyK', modifiers: ['Control'] }, commandId: 'navigation.palette.open', handler: 'local_ui' }],
+      localPaletteCommands: ['navigation.palette.open'],
+      localPaletteConditions: [byPage ? {
+        commandId: 'workspace.tab.go_to', bySurface: {}, fallback: false,
+        byPage: { workspace: {
+          commandId: 'workspace.tab.go_to', bySurface: {}, fallback: false,
+          byProfile: { dev: {
+            commandId: 'workspace.tab.go_to', bySurface: { chat: true },
+            bySurfaceArguments: { chat: goToArguments }, fallback: false,
+          } },
+        } },
+      } : {
+        commandId: 'workspace.tab.go_to', bySurface: {}, fallback: false,
+        byProfile: { dev: {
+          commandId: 'workspace.tab.go_to', bySurface: { chat: true },
+          bySurfaceArguments: { chat: goToArguments }, fallback: false,
+        } },
+      }],
+    });
+    listCommandCatalog.mockResolvedValueOnce([{
+      id: 'workspace.tab.go_to', name: 'Ir para aba', description: 'Navegar para uma aba configurada',
+      category: 'workspace', aliases: [], risk: 'none', available: true,
+      availabilityStatus: 'available', availabilityReason: '', readinessReason: '',
+      effect: 'write', decision: 'none', allowedSources: ['palette'],
+    }]);
+    const view = render(<div className="workspace-layout">
+      <Topbar />
+      <div className="ws-content__panel" data-tab-id="tab-a"><textarea aria-label="Aba atual" /></div>
+      <div className="ws-content__panel" data-tab-id="tab-b" hidden><textarea aria-label="Aba de destino" /></div>
+    </div>);
+    const root = view.container.querySelector<HTMLElement>('.ws-content__panel[data-tab-id="tab-a"]')!;
+    const unregister = paletteContextScope.registerSurface('tab-a', { current: root }, () => ({
+      surfaceId: 'tab-a', surfaceType: 'chat', snapshotVersion: 'chat-v1',
+    }));
+    try {
+      const source = screen.getByRole('textbox', { name: 'Aba atual' });
+      act(() => source.focus());
+      await waitFor(() => expect(paletteContextScope?.surfaceForElement(source)).toBe('tab-a'));
+      await user.keyboard('{Control>}k{/Control}');
+      const search = await screen.findByRole('combobox', { name: /commandPalette.shortTitle/ });
+      await user.type(search, 'Ir para aba');
+      const option = await screen.findByRole('option', { name: /Ir para aba/ });
+      expect(option).not.toHaveAttribute('aria-disabled', 'true');
+
+      if (mode === 'map-stale') {
+        const loadsBeforeRefresh = state.loadMap.mock.calls.length;
+        state.loadMap.mockResolvedValue({
+          generation: 'conditional-go-to-stale', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
+          bindings: [{ shortcut: { version: 1, code: 'KeyK', modifiers: ['Control'] }, commandId: 'navigation.palette.open', handler: 'local_ui' }],
+          localPaletteCommands: ['navigation.palette.open'],
+          localPaletteConditions: [{ commandId: 'workspace.tab.go_to', bySurface: { chat: false }, fallback: false }],
+        });
+        await act(async () => { deckEvents.get('command:keyboard-map-changed')?.(); });
+        await waitFor(() => expect(state.loadMap).toHaveBeenCalledTimes(loadsBeforeRefresh + 1));
+        const refreshedMap = state.loadMap.mock.results[state.loadMap.mock.results.length - 1]?.value;
+        await act(async () => { await refreshedMap; await Promise.resolve(); });
+      }
+
+      await user.keyboard('{Enter}');
+      if (mode === 'available') {
+        await waitFor(() => expect(state.workspace.setActiveTab).toHaveBeenCalledExactlyOnceWith('tab-b'));
+        expect(state.workspace.workspace.activeTabId).toBe('tab-b');
+      } else {
+        expect(state.workspace.setActiveTab).not.toHaveBeenCalled();
+        expect(state.workspace.workspace.activeTabId).toBe('tab-a');
+      }
+      expect(beginUICommand).not.toHaveBeenCalled();
+      expect(state.commitBackendCommand).not.toHaveBeenCalled();
+    } finally {
+      view.unmount(); unregister(); paletteContextScope?.dispose(); paletteContextScope = null;
+      state.workspace.workspace = originalWorkspace;
+    }
+  });
+
   it('recusa seleção local quando a camada expira com a paleta já aberta', async () => {
     const user = userEvent.setup();
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);

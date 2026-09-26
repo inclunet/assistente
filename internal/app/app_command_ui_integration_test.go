@@ -153,8 +153,8 @@ func TestUICommandCatalogAndPaletteBypass(t *testing.T) {
 		t.Fatalf("commandProductCatalog: %v", err)
 	}
 	definitions := registry.List()
-	if len(definitions) != 149 {
-		t.Fatalf("catálogo produtivo tem %d registros, esperado 149: %+v", len(definitions), definitions)
+	if len(definitions) != 150 {
+		t.Fatalf("catálogo produtivo tem %d registros, esperado 150: %+v", len(definitions), definitions)
 	}
 	if _, ok := registry.Lookup(commandProductWorkspaceListID); !ok {
 		t.Fatal("catálogo não contém workspace.list")

@@ -22,7 +22,7 @@ func TestCommandChatNavigationLocalPresentation(t *testing.T) {
 			key := LocalCommandShortcut{Version: 1, Code: "KeyJ", Modifiers: []string{"Control", "Shift"}}
 			a, view := localKeyboardRepeatFixture(t, localKeyboardRepeatBinding{tc.id, key})
 			p := a.commandProduct.Load()
-			if len(p.registry.List()) != 149 || len(view.LocalPaletteCommands) != 61 || commandProductRegistryVersion != "product-v40-agent-commands" {
+			if len(p.registry.List()) != 150 || len(view.LocalPaletteCommands) != 61 || commandProductRegistryVersion != "product-v41-agent-commands" {
 				t.Fatal("counts/version")
 			}
 			d, ok := p.registry.Lookup(tc.id)
@@ -86,5 +86,31 @@ func TestCommandChatNavigationLocalPresentation(t *testing.T) {
 				t.Fatal("local presentation persisted")
 			}
 		})
+	}
+}
+
+func TestWorkspaceTabGoToRegistrationIsSingleParameterizedLocalCommand(t *testing.T) {
+	definition, handler := commandWorkspaceTabNavigationRegistration(commandWorkspaceTabGoToID)
+	if definition.ID != "workspace.tab.go_to" || handler.Route != "ui/workspace/tab/navigate" ||
+		commandExecutionClassForDefinition(definition) != commandExecutionLocalUI || definition.ArgumentsSchema == nil {
+		t.Fatalf("registro de destino de aba inesperado: definition=%+v handler=%+v", definition, handler)
+	}
+	if len(definition.ArgumentsSchema.Properties) != 4 || len(definition.ArgumentsSchema.Required) != 2 ||
+		definition.ArgumentsSchema.Properties["workspace_id"].Type != commandcatalog.SchemaString ||
+		definition.ArgumentsSchema.Properties["target_mode"].Type != commandcatalog.SchemaString ||
+		definition.ArgumentsSchema.Properties["position"].Type != commandcatalog.SchemaInteger ||
+		definition.ArgumentsSchema.Properties["position"].Minimum == nil || *definition.ArgumentsSchema.Properties["position"].Minimum != 1 ||
+		definition.ArgumentsSchema.Properties["position"].Maximum != nil ||
+		definition.ArgumentsSchema.Properties["tab_id"].Type != commandcatalog.SchemaString {
+		t.Fatalf("schema parametrizado incompleto ou limitado: %+v", definition.ArgumentsSchema)
+	}
+	for _, source := range []commandcatalog.Source{commandcatalog.Palette, commandcatalog.KeyboardLocal, commandcatalog.StreamDeck} {
+		if !definition.AllowsSource(source) {
+			t.Fatalf("origem local ausente: %s", source)
+		}
+	}
+	if definition.AllowsSource(commandcatalog.UI) || definition.Persistence.Arguments != commandcatalog.PersistenceRedacted ||
+		definition.Persistence.Result != commandcatalog.PersistenceNever || definition.Persistence.Audit != commandcatalog.PersistenceNever {
+		t.Fatalf("origem externa ou persistência inesperada: %+v", definition)
 	}
 }

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 
@@ -12,6 +13,7 @@ type localDeckConditionContext struct {
 	profile, appPage, surface, surfaceID string
 	fallback                             bool
 	commandID                            string
+	arguments                            json.RawMessage
 }
 
 // localDeckUIConditions resolves one physical trigger across the finite visual
@@ -139,15 +141,19 @@ func deckUIConditionsObservedWithPageMode(configuration *commandbindings.Configu
 		}
 		resolved, err := configuration.Resolve(identity, facts, nil)
 		commandID := ""
+		var arguments json.RawMessage
 		if err == nil && resolved.Status == commandbindings.Selected && resolved.ExecutionScopeKey == "global" {
 			if definition, ok := registry.Lookup(resolved.CommandID); ok && eligible(definition) {
-				_, argsErr := definition.ValidateArguments([]byte(resolved.ArgumentsKey))
-				if argsErr == nil && (commandExecutionClassForDefinition(definition) != commandExecutionLocalUI || emptyPaletteArguments(resolved.ArgumentsKey)) {
+				canonicalArguments, argsErr := definition.ValidateArguments([]byte(resolved.ArgumentsKey))
+				if argsErr == nil && (commandExecutionClassForDefinition(definition) != commandExecutionLocalUI || emptyPaletteArguments(resolved.ArgumentsKey) || definition.ID == commandWorkspaceTabGoToID) {
 					pageAllowed := !isContextualPagePaletteCommand(definition.ID) || (!hasID && deckPageCommandSurface(definition.ID, surface) &&
 						(!hasPage || deckPageCommandPageSurface(definition.ID, appPage, surface)))
 					mermaidAllowed := !isMermaidMutation(definition.ID) || surface == "editor"
 					if pageAllowed && mermaidAllowed {
 						commandID = definition.ID
+						if definition.ID == commandWorkspaceTabGoToID {
+							arguments = canonicalArguments
+						}
 						if observe != nil {
 							pageMatches := pageFilter == "" || !hasPage || appPage == pageFilter
 							if pageFilter != "" && !hasPage && isContextualPagePaletteCommand(definition.ID) {
@@ -161,7 +167,7 @@ func deckUIConditionsObservedWithPageMode(configuration *commandbindings.Configu
 				}
 			}
 		}
-		contexts = append(contexts, localDeckConditionContext{profile: profile, appPage: appPage, surface: surface, surfaceID: surfaceID, fallback: fallback, commandID: commandID})
+		contexts = append(contexts, localDeckConditionContext{profile: profile, appPage: appPage, surface: surface, surfaceID: surfaceID, fallback: fallback, commandID: commandID, arguments: arguments})
 	}
 	unknownProfile := ""
 	if hasProfile {
@@ -231,21 +237,52 @@ func deckUIConditionsObservedWithPageMode(configuration *commandbindings.Configu
 		}
 		buildBranch := func(appPage, profile string) LocalCommandPaletteCondition {
 			branch := LocalCommandPaletteCondition{CommandID: commandID, BySurface: map[string]bool{}}
+			if commandID == commandWorkspaceTabGoToID {
+				branch.BySurfaceArguments = make(map[string]map[string]any)
+			}
 			if hasType || isContextualPagePaletteCommand(commandID) || isMermaidMutation(commandID) {
 				for _, surface := range outputSurfaces {
-					branch.BySurface[surface] = deckConditionSelected(contexts, commandID, appPage, profile, surface, "")
+					selected := deckConditionSelected(contexts, commandID, appPage, profile, surface, "")
+					if commandID == commandWorkspaceTabGoToID {
+						if args, valid := deckConditionArgumentObject(contexts, commandID, appPage, profile, surface, ""); !valid {
+							selected = false
+						} else if args != nil {
+							branch.BySurfaceArguments[surface] = args
+						}
+					}
+					branch.BySurface[surface] = selected
 				}
 			}
 			if hasID {
 				branch.BySurfaceID = make(map[string]map[string]bool)
+				if commandID == commandWorkspaceTabGoToID {
+					branch.BySurfaceIDArguments = make(map[string]map[string]map[string]any)
+				}
 				for _, surface := range outputSurfaces {
 					branch.BySurfaceID[surface] = make(map[string]bool)
+					if commandID == commandWorkspaceTabGoToID {
+						branch.BySurfaceIDArguments[surface] = make(map[string]map[string]any)
+					}
 					for _, surfaceID := range configuration.FieldValues(identity, commandbindings.SurfaceID) {
-						branch.BySurfaceID[surface][surfaceID] = deckConditionSelected(contexts, commandID, appPage, profile, surface, surfaceID)
+						selected := deckConditionSelected(contexts, commandID, appPage, profile, surface, surfaceID)
+						if commandID == commandWorkspaceTabGoToID {
+							if args, valid := deckConditionArgumentObject(contexts, commandID, appPage, profile, surface, surfaceID); !valid {
+								selected = false
+							} else if args != nil {
+								branch.BySurfaceIDArguments[surface][surfaceID] = args
+							}
+						}
+						branch.BySurfaceID[surface][surfaceID] = selected
 					}
 				}
 			}
 			branch.Fallback = deckConditionFallbackSelected(contexts, commandID, appPage, profile)
+			if commandID == commandWorkspaceTabGoToID {
+				branch.FallbackArguments, _ = deckConditionArgumentObject(contexts, commandID, appPage, profile, "", "")
+				if branch.Fallback && branch.FallbackArguments == nil {
+					branch.Fallback = false
+				}
+			}
 			return branch
 		}
 		attachProfiles := func(branch *LocalCommandPaletteCondition, appPage string) {
@@ -289,6 +326,37 @@ func deckConditionFallbackSelected(contexts []localDeckConditionContext, command
 		}
 	}
 	return false
+}
+
+func deckConditionArguments(contexts []localDeckConditionContext, commandID, appPage, profile, surface, surfaceID string) json.RawMessage {
+	for _, current := range contexts {
+		if !current.fallback && current.appPage == appPage && current.profile == profile && current.surface == surface && current.surfaceID == surfaceID && current.commandID == commandID {
+			return append(json.RawMessage(nil), current.arguments...)
+		}
+	}
+	return nil
+}
+
+func deckConditionArgumentObject(contexts []localDeckConditionContext, commandID, appPage, profile, surface, surfaceID string) (map[string]any, bool) {
+	var raw json.RawMessage
+	if surface == "" && surfaceID == "" {
+		raw = deckConditionFallbackArguments(contexts, commandID, appPage, profile)
+	} else {
+		raw = deckConditionArguments(contexts, commandID, appPage, profile, surface, surfaceID)
+	}
+	if len(raw) == 0 {
+		return nil, true
+	}
+	return decodeJSONArgumentObject(raw)
+}
+
+func deckConditionFallbackArguments(contexts []localDeckConditionContext, commandID, appPage, profile string) json.RawMessage {
+	for _, current := range contexts {
+		if current.fallback && current.appPage == appPage && current.profile == profile && current.commandID == commandID {
+			return append(json.RawMessage(nil), current.arguments...)
+		}
+	}
+	return nil
 }
 
 func commandDeckLocalUIEligible(definition commandcatalog.Definition) bool {

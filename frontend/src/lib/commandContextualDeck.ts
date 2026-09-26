@@ -2,7 +2,7 @@ import { isContextualPaletteCommand, isContextualPagePaletteCommand, isContextua
 import { isCommandLayerAction } from './commandLayerActions';
 import { isEditorMermaidMutation } from './commandEditorMermaid';
 import { isLocalUICommand } from './commandLocalUI';
-import { createLocalPaletteConditionResolverFromParsed, parseLocalPaletteConditions, type LocalCommandPaletteVisualContext } from './commandLocalPaletteConditions';
+import { createLocalPaletteConditionResolverFromParsed, parseLocalPaletteConditions, resolveLocalPaletteConditionSelectionFromParsed, type LocalCommandPaletteVisualContext } from './commandLocalPaletteConditions';
 import type { ContextualPaletteCommandLease } from './commandWorkspaceTabWails';
 import type { UICommandBeginResponse } from './commandUIExecution';
 import { createCommandUIExecutionWailsPort, type CommandUIExecutionWailsOptions } from './commandUIExecutionWails';
@@ -13,6 +13,10 @@ export function isContextualDeckCommand(id: unknown): id is string {
 }
 
 export function selectContextualDeckCommand(raw: unknown, context: LocalCommandPaletteVisualContext): string | null {
+  return selectContextualDeckSelection(raw, context)?.commandId ?? null;
+}
+
+export function selectContextualDeckSelection(raw: unknown, context: LocalCommandPaletteVisualContext): { commandId: string; arguments?: Readonly<Record<string, unknown>> } | null {
   const conditions = parseLocalPaletteConditions(raw);
   if (!conditions?.length || conditions.some(c => !isLocalUICommand(c.commandId) && !isContextualDeckCommand(c.commandId))) return null;
   if (conditions.some(c => isContextualPagePaletteCommand(c.commandId) &&
@@ -22,7 +26,9 @@ export function selectContextualDeckCommand(raw: unknown, context: LocalCommandP
   if (matches.length !== 1) return null;
   const id = matches[0].commandId;
   if (isEditorMermaidMutation(id) && context.surfaceType !== 'editor') return null;
-  return isContextualPagePaletteCommand(id) && !isContextualPagePaletteSurface(id, context.surfaceType) ? null : id;
+  if (isContextualPagePaletteCommand(id) && !isContextualPagePaletteSurface(id, context.surfaceType)) return null;
+  const selection = resolveLocalPaletteConditionSelectionFromParsed(conditions, id, context);
+  return selection?.available ? { commandId: id, ...(selection.arguments ? { arguments: selection.arguments } : {}) } : null;
 }
 
 type DeckWindow = NonNullable<CommandUIExecutionWailsOptions['target']> & { go?: { app?: { App?: {

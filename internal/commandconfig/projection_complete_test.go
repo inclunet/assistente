@@ -88,6 +88,50 @@ func completeProjectionArgumentRegistration() commandcatalog.Registration {
 	}
 }
 
+func completeProjectionGoToRegistration() commandcatalog.Registration {
+	locales := map[string]commandcatalog.LocalizedMetadata{"pt-BR": {Name: "Ir", Description: "Ir", Category: "Workspace"}, "en": {Name: "Go", Description: "Go", Category: "Workspace"}, "es": {Name: "Ir", Description: "Ir", Category: "Workspace"}}
+	minimum := float64(1)
+	contract := commandcatalog.HandlerContract{Effect: commandcatalog.Read, Route: "ui/workspace/tab/navigate", Classification: commandcatalog.HandlerUI}
+	return commandcatalog.Registration{Definition: commandcatalog.Definition{
+		ID: "workspace.tab.go_to", Effect: commandcatalog.Read, Decision: commandcatalog.NoDecision,
+		AllowedSources: []commandcatalog.Source{commandcatalog.Palette}, Context: commandcatalog.ContextPolicy{None: true},
+		Presentation: &commandcatalog.Presentation{Version: "test", Locales: locales},
+		ArgumentsSchema: &commandcatalog.Schema{Type: commandcatalog.SchemaObject, Properties: map[string]commandcatalog.Schema{
+			"workspace_id": {Type: commandcatalog.SchemaString}, "target_mode": {Type: commandcatalog.SchemaString, Enum: []any{"position", "specific"}},
+			"position": {Type: commandcatalog.SchemaInteger, Optional: true, Minimum: &minimum}, "tab_id": {Type: commandcatalog.SchemaString, Optional: true},
+		}, Required: []string{"workspace_id", "target_mode"}},
+		ResultSchema: &commandcatalog.Schema{Type: commandcatalog.SchemaObject}, Risk: commandcatalog.RiskLow,
+		Persistence: commandcatalog.PersistencePolicy{Arguments: commandcatalog.PersistenceRedacted, Result: commandcatalog.PersistenceNever, Audit: commandcatalog.PersistenceNever},
+		Scopes:      []commandcatalog.Scope{commandcatalog.ScopeWorkspace}, Availability: commandcatalog.Availability{Status: commandcatalog.Available},
+		HandlerRoute: contract.Route, HandlerClassification: contract.Classification,
+	}, Handler: contract}
+}
+
+func TestWorkspaceTabGoToConfigArgumentsRequireOneCanonicalTarget(t *testing.T) {
+	registry := completeProjectionRegistry(t, completeProjectionGoToRegistration())
+	definition, _ := registry.Lookup("workspace.tab.go_to")
+	for _, test := range []struct {
+		name, raw string
+		valid     bool
+	}{
+		{"position", `{"workspace_id":"w","target_mode":"position","position":12}`, true},
+		{"specific", `{"workspace_id":"w","target_mode":"specific","tab_id":"tab-a"}`, true},
+		{"both", `{"workspace_id":"w","target_mode":"position","position":2,"tab_id":"tab-a"}`, false},
+		{"neither", `{"workspace_id":"w","target_mode":"position"}`, false},
+		{"workspace empty", `{"workspace_id":" ","target_mode":"position","position":1}`, false},
+		{"tab empty", `{"workspace_id":"w","target_mode":"specific","tab_id":" "}`, false},
+		{"specific position", `{"workspace_id":"w","target_mode":"specific","position":1,"tab_id":"tab-a"}`, false},
+		{"position nonpositive", `{"workspace_id":"w","target_mode":"position","position":0}`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := validateBindingArguments(registry, definition, test.raw)
+			if (err == nil) != test.valid {
+				t.Fatalf("valid=%v err=%v", test.valid, err)
+			}
+		})
+	}
+}
+
 func completeProjectionOptions(registry *commandcatalog.Registry) CompleteProjection {
 	port := TriggerPortFunc(func(_ context.Context, raw []byte) (string, error) {
 		if string(raw) != completeProjectionTrigger {

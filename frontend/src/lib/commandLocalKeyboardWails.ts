@@ -16,6 +16,7 @@ export interface LocalCommandKeyboardBinding {
   shortcut: CommandKeyboardTrigger;
   commandId: string;
   handler: 'backend' | 'ui' | 'contextual' | 'local_ui';
+  arguments?: Record<string, unknown>;
 }
 
 export interface LocalCommandKeyboardMap {
@@ -26,6 +27,7 @@ export interface LocalCommandKeyboardMap {
   workspaceId?: string;
   bindings: LocalCommandKeyboardBinding[];
   localPaletteCommands?: string[];
+  localPaletteArguments?: Record<string, Record<string, unknown>>;
   localPaletteConditions?: LocalCommandPaletteCondition[];
   contextualPaletteConditions?: LocalCommandPaletteCondition[];
   contextualBindings?: LocalCommandContextualBinding[];
@@ -64,7 +66,11 @@ function cloneKeyboardTrigger(trigger: CommandKeyboardTrigger): CommandKeyboardT
 }
 
 function cloneKeyboardBinding(binding: LocalCommandKeyboardBinding | null): LocalCommandKeyboardBinding | null {
-  return binding && { ...binding, shortcut: cloneKeyboardTrigger(binding.shortcut) };
+  return binding && {
+    ...binding,
+    shortcut: cloneKeyboardTrigger(binding.shortcut),
+    ...(binding.arguments ? { arguments: { ...binding.arguments } } : {}),
+  };
 }
 
 function clonePaletteCondition(condition: LocalCommandPaletteCondition): LocalCommandPaletteCondition {
@@ -84,10 +90,20 @@ function clonePaletteCondition(condition: LocalCommandPaletteCondition): LocalCo
   if (byPage) {
     for (const [page, nested] of Object.entries(condition.byPage!)) byPage[page] = clonePaletteCondition(nested);
   }
+  const bySurfaceArguments = condition.bySurfaceArguments === undefined ? undefined : Object.fromEntries(
+    Object.entries(condition.bySurfaceArguments).map(([surface, args]) => [surface, { ...args }]),
+  );
+  const bySurfaceIdArguments = condition.bySurfaceIdArguments === undefined ? undefined : Object.fromEntries(
+    Object.entries(condition.bySurfaceIdArguments).map(([surface, ids]) => [surface,
+      Object.fromEntries(Object.entries(ids).map(([id, args]) => [id, { ...args }]))]),
+  );
   return {
     commandId: condition.commandId,
     bySurface: { ...condition.bySurface },
     ...(bySurfaceId ? { bySurfaceId } : {}),
+    ...(condition.fallbackArguments ? { fallbackArguments: { ...condition.fallbackArguments } } : {}),
+    ...(bySurfaceArguments ? { bySurfaceArguments } : {}),
+    ...(bySurfaceIdArguments ? { bySurfaceIdArguments } : {}),
     ...(byProfile ? { byProfile } : {}),
     ...(byPage ? { byPage } : {}),
     fallback: condition.fallback,
@@ -97,8 +113,15 @@ function clonePaletteCondition(condition: LocalCommandPaletteCondition): LocalCo
 function cloneKeyboardMap(map: LocalCommandKeyboardMap): LocalCommandKeyboardMap {
   return {
     ...map,
-    bindings: map.bindings.map(binding => ({ ...binding, shortcut: cloneKeyboardTrigger(binding.shortcut) })),
+    bindings: map.bindings.map(binding => ({
+      ...binding,
+      shortcut: cloneKeyboardTrigger(binding.shortcut),
+      ...(binding.arguments ? { arguments: { ...binding.arguments } } : {}),
+    })),
     localPaletteCommands: map.localPaletteCommands?.slice(),
+    localPaletteArguments: map.localPaletteArguments && Object.fromEntries(
+      Object.entries(map.localPaletteArguments).map(([commandId, argumentsValue]) => [commandId, { ...argumentsValue }]),
+    ),
     localPaletteConditions: map.localPaletteConditions?.map(clonePaletteCondition),
     contextualPaletteConditions: map.contextualPaletteConditions?.map(clonePaletteCondition),
     contextualBindings: map.contextualBindings?.map(cloneContextualBinding),

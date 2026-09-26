@@ -44,6 +44,31 @@ func TestCommandDeckLocalUIConditionsProjectApplicationPageIndependently(t *test
 	}
 }
 
+func TestCommandDeckWorkspaceTabArgumentsStayNestedUnderObservedPage(t *testing.T) {
+	registry := paletteConditionTestRegistry(t)
+	candidate := deckConditionCandidate("page-tab-target", commandWorkspaceTabGoToID, commandbindings.Facts{
+		commandbindings.AppPage: "workspace", commandbindings.Profile: "dev", commandbindings.SurfaceType: "chat",
+	})
+	candidate.ArgumentsKey = `{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"tab-chat"}`
+	configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{candidate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conditions := contextualDeckUIConditions(configuration, registry, deckConditionTestTrigger)
+	if len(conditions) != 1 || conditions[0].CommandID != commandWorkspaceTabGoToID {
+		t.Fatalf("page-conditioned target not projected: %+v", conditions)
+	}
+	workspacePage := conditions[0].ByPage["workspace"]
+	profile := workspacePage.ByProfile["dev"]
+	args := profile.BySurfaceArguments["chat"]
+	if !profile.BySurface["chat"] || args["workspace_id"] != "workspace-a" || args["tab_id"] != "tab-chat" || args["target_mode"] != "specific" {
+		t.Fatalf("page/profile/surface selection lost canonical destination arguments: %+v", conditions[0])
+	}
+	if conditions[0].ByPage["settings"].ByProfile["dev"].BySurface["chat"] {
+		t.Fatalf("workspace binding leaked into settings page: %+v", conditions[0].ByPage["settings"])
+	}
+}
+
 func TestCommandDeckPageOnlyConditionProjectsLivePageSurfaces(t *testing.T) {
 	registry := paletteConditionTestRegistry(t)
 	for _, test := range []struct {

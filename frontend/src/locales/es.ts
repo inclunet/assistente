@@ -582,6 +582,7 @@ const es = {
       deepLinkNotFound: 'No hay una activación configurada para {{command}} en este ámbito.',
       presentationStates: { label: 'Estado de la tecla', hint: 'Elige la presentación predeterminada o personaliza un estado.', default: 'Predeterminado', on: 'Activado', off: 'Desactivado', waiting: 'En espera', running: 'En ejecución', succeeded: 'Completado', failed: 'Error', denied: 'Denegado', cancelled: 'Cancelado', timed_out: 'Tiempo agotado', outcome_unknown: 'Resultado desconocido', inheritance: 'Los campos sin una sustitución heredan de la presentación predeterminada.', inherit: 'Heredar valor predeterminado', unavailableIcon: 'Icono no disponible' },
       specificTab: 'Pestaña específica',
+      tabTarget: { title: 'Destino de pestaña', workspace: 'Vinculado al espacio de trabajo: {{name}}', noWorkspace: 'Abre un espacio de trabajo para configurar este destino.', mode: 'Tipo de destino', chooseMode: 'Elige un tipo de destino', byPosition: 'Por posición', bySpecificTab: 'Pestaña específica', position: 'Posición de la pestaña', specificTab: 'Pestaña', chooseTab: 'Elige una pestaña', unavailableTab: 'Pestaña no disponible (conservada)', otherWorkspace: 'Este destino está vinculado a otro espacio de trabajo; selecciona un destino nuevo para vincularlo a este espacio de trabajo.' },
       layerActionTarget: 'Capa y regla de activación',
       layerActionCompleted: 'Acción de capa completada.',
       layerActionChoose: 'Elige el destino',

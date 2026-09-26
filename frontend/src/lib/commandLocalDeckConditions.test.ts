@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveLocalDeckConditionCommand } from './commandLocalDeckConditions';
+import { resolveLocalDeckConditionCommand, resolveLocalDeckConditionSelectionFromParsed } from './commandLocalDeckConditions';
 
 const context = (overrides: Record<string, unknown> = {}) => ({
   surfaceType: 'chat', surfaceId: 'tab-a', ...overrides,
@@ -48,5 +48,19 @@ describe('local Deck conditions', () => {
     expect(resolveLocalDeckConditionCommand(conditions, context({ profile: 'dev' }))).toBe(commandId);
     expect(resolveLocalDeckConditionCommand(conditions, context({ profile: 'dev', surfaceId: 'tab-blocked' }))).toBeNull();
     expect(resolveLocalDeckConditionCommand(conditions, context({ profile: 'dev', surfaceType: 'editor' }))).toBeNull();
+  });
+
+  it('returns arguments only for the selected branch of the same local command', () => {
+    const condition = {
+      commandId: 'workspace.tab.go_to', bySurface: { chat: true, editor: true }, fallback: false,
+      bySurfaceArguments: {
+        chat: { workspace_id: 'w', target_mode: 'position', position: 3 },
+        editor: { workspace_id: 'w', target_mode: 'specific', tab_id: 'editor-tab' },
+      },
+    };
+    expect(resolveLocalDeckConditionSelectionFromParsed([condition], context()))
+      .toEqual({ commandId: 'workspace.tab.go_to', arguments: { workspace_id: 'w', target_mode: 'position', position: 3 } });
+    expect(resolveLocalDeckConditionSelectionFromParsed([condition], context({ surfaceType: 'editor' })))
+      .toEqual({ commandId: 'workspace.tab.go_to', arguments: { workspace_id: 'w', target_mode: 'specific', tab_id: 'editor-tab' } });
   });
 });
