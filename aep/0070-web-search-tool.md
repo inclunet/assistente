@@ -1,6 +1,8 @@
 # AEP-0070 — Tool `web_search` (busca web → JSON canônico paginável)
 
-Status: Done — saída canônica paginável implementada em `internal/tools/web/web_search.go` e testes
+Status: Done — saída canônica paginável implementada em `internal/tools/web/web_search.go` e testes.
+Brave Search API implementada como provedor preferencial com fallback DuckDuckGo
+(`internal/tools/web/brave_provider.go`, cadeia Brave → DuckDuckGo em `searchWithFallback`).
 Data: 2026-06-05
 Autor: Inclunet + Cursor Agent
 
@@ -77,7 +79,11 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
 - `SearchResult{Title, URL, Snippet}` (tags JSON).
 - Provedor DuckDuckGo: GET em `https://html.duckduckgo.com/html/?q=...`, com `&s=offset`
   quando `offset > 0`; parse do HTML lite (`result__a`/`result__snippet`) e extração
-  da URL real do redirect (`uddg=`).
+  da URL real do redirect (`uddg=`). É o fallback da cadeia padrão.
+- Provedor Brave: GET em `https://api.search.brave.com/res/v1/web/search`
+  (`q`/`count`/`offset`), header `X-Subscription-Token` com chave do
+  credmanager; parse de `web.results[]` (`title`/`url`/`description`). Sem
+  credencial ou com 401/403/429, fallback para DuckDuckGo.
 - Limites: `max_results` default 8, teto 20; body limitado a 2MB no fetch do provedor.
 - Registro em `internal/app/app_tool_registry.go` (`web.NewWebSearch(a.credMgr)`).
 
@@ -96,9 +102,17 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
 
 ## Fora de escopo / evolução (próximas fases)
 
-- **Provedores com API key** (Google CSE, Bing, Brave): ranking melhor, paginação
-  confiável e **total de resultados real** (substituindo o `has_more` heurístico por
-  um valor exato/`total`). A interface `SearchProvider` já comporta isso.
+- **Provedores com API key** (Google CSE, Bing): ranking melhor, paginação
+  confiável e **total de resultados real** (substituindo o `has_more`
+  heurístico por um valor exato/`total`). A interface `SearchProvider` já
+  comporta isso. **Brave implementado**: `braveProvider` consulta a Brave
+  Search API (`/res/v1/web/search`, `count`/`offset`) com chave resolvida por
+  URL no credmanager (`api.search.brave.com`, bearer ou custom com header
+  `X-Subscription-Token`); sem credencial ou com 401/403/429, a tool faz
+  fallback automático para o DuckDuckGo, identificado pelo campo `provider`.
+  Evidências: `internal/tools/web/brave_provider.go`,
+  `internal/tools/web/brave_provider_test.go`, `searchWithFallback` em
+  `internal/tools/web/web_search.go`.
 - **Seleção/config de provedor** por credencial/preferência do usuário, com fallback
   automático para o DuckDuckGo quando não houver API key.
 - **Parâmetros de busca**: região/idioma (`region`, `language`), `safe_search`,
