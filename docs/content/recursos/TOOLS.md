@@ -196,6 +196,25 @@ plano e entrega o resultado posteriormente à conversa pai. A combinação
 o handle e o contrato de entrega. `raw` também não se aplica a consultas de
 status nem a cancelamentos.
 
+## Busca na web
+
+A tool `web_search` descobre fontes na web e devolve links com título e trecho
+em JSON (`query`, `provider`, `offset`, `count`, `has_more`, `results`). Para
+ler o conteúdo de um resultado, use `web_fetch` na URL escolhida.
+
+O provedor é selecionado automaticamente:
+
+- **Brave Search API** — usada quando há chave cadastrada no gerenciador de
+  credenciais para o domínio `api.search.brave.com` (tipo bearer com o token,
+  ou tipo custom com o header `X-Subscription-Token`). Oferece ranking,
+  paginação e contagem confiáveis.
+- **DuckDuckGo (HTML)** — fallback universal sem chave, usado quando não há
+  credencial Brave, a API responde 401/403/429 (auth/quota) ou o `offset`
+  pedido está além da janela da Brave (422).
+
+O campo `provider` na resposta identifica qual backend respondeu. Demais erros
+da API Brave são propagados sem fabricar resultados.
+
 ## Histórico
 
 As tools de histórico permitem localizar e recuperar contexto de conversas anteriores:
