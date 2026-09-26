@@ -1133,6 +1133,8 @@ Uma mudança de aba, perfil ou revisão de jobs não deve deixar todos os
 comandos indisponíveis: a consulta da paleta atualiza a projeção contextual
 antes de verificar disponibilidade, como já faz o caminho de execução.
 Sessão revogada, cofre bloqueado e runtime encerrado continuam bloqueando.
+Se a autorização for revogada enquanto um comando aguarda na fila, essa
+espera é cancelada sem aguardar o prazo de execução e sem iniciar a ação.
 
 Na inicialização, a observação da sessão do Windows pode chegar depois do
 login. Os comandos aguardam essa observação e recompõem o mapa autenticado

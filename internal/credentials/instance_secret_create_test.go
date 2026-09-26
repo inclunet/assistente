@@ -367,7 +367,7 @@ func TestEnsureInstanceSecretNeverUsesUserFallback(t *testing.T) {
 	defer cleanup()
 	pattern := "internal-auth:user-only"
 	encoder := NewManager(ensureTestDEK)
-	auth, err := encoder.encryptAuth(&AuthConfig{Type: "secret", Token: "user-value"})
+	auth, err := encoder.encryptAuth(&AuthConfig{Source: "static", Type: "secret", Token: "user-value"})
 	if err != nil {
 		t.Fatal(err)
 	}

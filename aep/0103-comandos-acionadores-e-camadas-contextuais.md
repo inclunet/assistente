@@ -4547,6 +4547,13 @@ duplicada, no-op e incremento de geração incorreto. Testes cobrem esses casos,
 consulta escopada, replay e rollback completo; o teste do App confirma a linha
 de auditoria correspondente à única alteração bem-sucedida.
 
+O executor também observa o epoch durante `AwaitQueue`, liberando a inscrição
+antes da admissão final. Revogação cancela a espera como `cancelled_stale` sem
+aguardar o deadline nem chamar o handler. A admissão posterior mantém a
+revalidação atômica para cobrir invalidação após liberar o watch. Regressão:
+`TestExternalServiceRevocationCancelsQueuedInvocation` usa prazo de execução
+maior que o limite da asserção, impedindo que timeout mascare falta de revogação.
+
 `EpochService.WatchEpoch` agora liga a preparação/decisão ao epoch capturado.
 A inscrição ocorre sob gate com revalidação, portanto invalidação entre captura
 e inscrição não é perdida. Lock/logout/invalidação cancela o contexto da espera,

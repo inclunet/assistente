@@ -139,7 +139,7 @@ func (m *Manager) EnsureInstanceSecret(ctx context.Context, pattern string, crea
 	candidate := StoredCredential{
 		UserID:  "",
 		Pattern: pattern,
-		Auth: &AuthConfig{
+		Auth: &AuthConfig{Source: "static",
 			Type:  "secret",
 			Token: ciphertext,
 		},
@@ -324,6 +324,8 @@ func (s *DBStore) InsertInstanceCredentialIfAbsent(ctx context.Context, cred Sto
 		UserID:          "",
 		Pattern:         cred.Pattern,
 		AuthType:        cred.Auth.Type,
+		Source:          cred.Auth.Source,
+		SourceConfigEnc: cred.Auth.SourceConfigEnc,
 		TokenEnc:        cred.Auth.Token,
 		Username:        cred.Auth.Username,
 		PasswordEnc:     cred.Auth.Password,
@@ -355,7 +357,7 @@ func storedCredentialFromDatabaseEntry(entry database.CredentialEntry) (StoredCr
 		ID:      entry.ID,
 		UserID:  entry.UserID,
 		Pattern: entry.Pattern,
-		Auth: &AuthConfig{
+		Auth: &AuthConfig{Source: entry.Source, SourceConfigEnc: entry.SourceConfigEnc,
 			Type:         entry.AuthType,
 			Token:        entry.TokenEnc,
 			Username:     entry.Username,

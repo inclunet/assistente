@@ -573,7 +573,7 @@ func importMCPServerInlineCredential(ctx context.Context, credMgr *credentials.M
 	if hostname == "" {
 		return nil
 	}
-	return credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{
+	return credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: server.BearerToken,
 	})

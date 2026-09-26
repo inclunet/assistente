@@ -34,6 +34,10 @@ func (c *cofreDeMentira) GetByPatternWithContext(_ context.Context, pattern stri
 	return c.guardados[pattern], nil
 }
 
+func (c *cofreDeMentira) GetConfigByPatternWithContext(_ context.Context, pattern string) (*credentials.AuthConfig, error) {
+	return c.guardados[pattern], nil
+}
+
 func (c *cofreDeMentira) DeletePattern(_ context.Context, pattern string) error {
 	c.apagados = append(c.apagados, pattern)
 	delete(c.guardados, pattern)

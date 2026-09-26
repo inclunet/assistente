@@ -156,3 +156,7 @@ Pendente para próxima evolução:
       (não regrediu o contrato cloud).
 - [x] Suite Go completa verde.
 - [x] `tsc --noEmit` + ESLint verdes; 1314 testes Vitest passam.
+
+## Evolução AEP-0110
+
+O contrato atual de fontes está em [AEP-0110](0110-fontes-explicitas-de-credenciais.md). Referências históricas por prefixo foram substituídas por source explícita, sem migração automática. AuthModeNone remove qualquer Authorization.

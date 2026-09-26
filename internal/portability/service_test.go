@@ -1381,7 +1381,7 @@ func TestAnalyzeImportDataDoesNotDetectNaturalConversationConflicts(t *testing.T
 	}
 
 	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "secret",
 	}); err != nil {
@@ -1413,7 +1413,7 @@ func TestAnalyzeImportDataDoesNotDetectNaturalConversationConflicts(t *testing.T
 	}
 
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{ID: existingCreds[0].ID, Pattern: "api.openai.com", AuthType: "bearer", Token: "secret"},
+		{ID: existingCreds[0].ID, Pattern: "api.openai.com", Source: "static", AuthType: "bearer", Token: "secret"},
 	})
 	if err != nil {
 		t.Fatalf("falha ao criptografar credenciais de teste: %v", err)
@@ -2846,7 +2846,7 @@ func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 	}
 
 	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "secret",
 	}); err != nil {
@@ -2888,7 +2888,7 @@ func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 	}
 
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{ID: existingCreds[0].ID, Pattern: "api.openai.com", AuthType: "bearer", Token: "secret"},
+		{ID: existingCreds[0].ID, Pattern: "api.openai.com", Source: "static", AuthType: "bearer", Token: "secret"},
 	})
 	if err != nil {
 		t.Fatalf("falha ao criptografar credenciais de teste: %v", err)
@@ -2944,7 +2944,7 @@ func TestImportConversationsPropagatesContextToCredentialPersistence(t *testing.
 	}
 
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{Pattern: "api.openai.com", AuthType: "bearer", Token: "secret"},
+		{Pattern: "api.openai.com", Source: "static", AuthType: "bearer", Token: "secret"},
 	})
 	if err != nil {
 		t.Fatalf("falha ao criptografar credenciais de teste: %v", err)
@@ -2972,13 +2972,13 @@ func TestExportCredentialsSkipsManagedAndInternalSecrets(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "portable",
 	}); err != nil {
 		t.Fatalf("register portable credential: %v", err)
 	}
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "mcp-client:github", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "mcp-client:github", &credentials.AuthConfig{Source: "static",
 		Type:         "oauth2_client_credentials",
 		ClientID:     "managed-client",
 		ClientSecret: "managed-secret",
@@ -3020,7 +3020,7 @@ func TestImportCredentialsRejectsManagedPatterns(t *testing.T) {
 		},
 	}
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{Pattern: credentials.InstanceSecretJWTSigningKey, AuthType: "bearer", Token: "jwt-secret"},
+		{Pattern: credentials.InstanceSecretJWTSigningKey, Source: "static", AuthType: "bearer", Token: "jwt-secret"},
 	})
 	if err != nil {
 		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
@@ -3047,7 +3047,7 @@ func TestImportConversationsOverwritesCredentialsByID(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "token-antigo",
 	}); err != nil {
@@ -3067,7 +3067,7 @@ func TestImportConversationsOverwritesCredentialsByID(t *testing.T) {
 	}
 
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{ID: existingCreds[0].ID, Pattern: "api.openai.com", AuthType: "bearer", Token: "token-novo"},
+		{ID: existingCreds[0].ID, Pattern: "api.openai.com", Source: "static", AuthType: "bearer", Token: "token-novo"},
 	})
 	if err != nil {
 		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
@@ -3100,7 +3100,7 @@ func TestImportConversationsSkipsCredentialConflictByPattern(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "token-antigo",
 	}); err != nil {
@@ -3115,7 +3115,7 @@ func TestImportConversationsSkipsCredentialConflictByPattern(t *testing.T) {
 		},
 	}
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{ID: "different-id", Pattern: "api.openai.com", AuthType: "bearer", Token: "token-novo"},
+		{ID: "different-id", Pattern: "api.openai.com", Source: "static", AuthType: "bearer", Token: "token-novo"},
 	})
 	if err != nil {
 		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
@@ -3161,7 +3161,7 @@ func TestAnalyzeImportDataScopesCredentialConflictsByUser(t *testing.T) {
 	userA := database.WithUserID(context.Background(), "user-a")
 	userB := database.WithUserID(context.Background(), "user-b")
 	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(userB, "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(userB, "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "token-b",
 	}); err != nil {
@@ -3176,7 +3176,7 @@ func TestAnalyzeImportDataScopesCredentialConflictsByUser(t *testing.T) {
 		},
 	}
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{ID: "different-id", Pattern: "api.openai.com", AuthType: "bearer", Token: "token-importado"},
+		{ID: "different-id", Pattern: "api.openai.com", Source: "static", AuthType: "bearer", Token: "token-importado"},
 	})
 	if err != nil {
 		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
@@ -3208,7 +3208,7 @@ func TestImportConversationsOverwritesCredentialConflictByPattern(t *testing.T) 
 	setupPortabilityTestDB(t)
 
 	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "token-antigo",
 	}); err != nil {
@@ -3223,7 +3223,7 @@ func TestImportConversationsOverwritesCredentialConflictByPattern(t *testing.T) 
 		},
 	}
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{ID: "different-id", Pattern: "api.openai.com", AuthType: "bearer", Token: "token-novo"},
+		{ID: "different-id", Pattern: "api.openai.com", Source: "static", AuthType: "bearer", Token: "token-novo"},
 	})
 	if err != nil {
 		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
@@ -3263,5 +3263,47 @@ func TestImportConversationsOverwritesCredentialConflictByPattern(t *testing.T) 
 	}
 	if count != 1 {
 		t.Fatalf("credential entries with pattern = %d, want 1", count)
+	}
+}
+
+func TestCredentialSourceExportImportRoundTrip(t *testing.T) {
+	setupPortabilityTestDB(t)
+	mgr := credentials.NewManagerWithStoreAndPersistence([]byte("01234567890123456789012345678901"), credentials.NewDBStore(), true)
+	configs := map[string]*credentials.SourceConfig{
+		"env":     {Env: "NOT_DEFINED_DO_NOT_RESOLVE"},
+		"keyring": {KeyringTarget: "NOT_DEFINED_DO_NOT_RESOLVE"},
+		"command": {Command: "NOT_INSTALLED_DO_NOT_EXECUTE", Args: []string{"with spaces"}, TimeoutSeconds: 8},
+	}
+	for source, config := range configs {
+		if err := mgr.RegisterPatternWithContext(portabilityTestCtx(), source+".example", &credentials.AuthConfig{Source: source, SourceConfig: config, Type: "bearer"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exported, err := exportCredentials(portabilityTestCtx(), mgr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, err := EncryptCredentialsPayload("test-password", exported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := credentials.NewManager(nil)
+	count, _, err := importCredentials(portabilityTestCtx(), target, blob, "test-password", nil, importResolutionMap{})
+	if err != nil || count != 3 {
+		t.Fatalf("import count=%d err=%v", count, err)
+	}
+	for source, config := range configs {
+		auth, err := target.GetConfigByPatternWithContext(portabilityTestCtx(), source+".example")
+		if err != nil || auth == nil {
+			t.Fatal(err)
+		}
+		before, _ := json.Marshal(config)
+		after, _ := json.Marshal(auth.SourceConfig)
+		if auth.Source != source || string(before) != string(after) {
+			t.Fatalf("source changed: %s", source)
+		}
+	}
+	if err := validatePortableCredentialExport(CredentialExport{Pattern: "legacy.example", AuthType: "bearer", Token: "old"}); err == nil {
+		t.Fatal("legacy import must be rejected")
 	}
 }

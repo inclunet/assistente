@@ -73,7 +73,7 @@ func TestRegisterAndResolve(t *testing.T) {
 	mgr := NewManager(nil)
 
 	// Registra GitHub
-	githubAuth := &AuthConfig{
+	githubAuth := &AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "gh_test_token_12345",
 	}
@@ -82,7 +82,7 @@ func TestRegisterAndResolve(t *testing.T) {
 	}
 
 	// Registra GitLab específico
-	gitlabAuth := &AuthConfig{
+	gitlabAuth := &AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "glpat_test_token_67890",
 	}
@@ -125,7 +125,7 @@ func TestRegisterAndResolve(t *testing.T) {
 func TestBasicAuth(t *testing.T) {
 	mgr := NewManager(nil)
 
-	basicAuth := &AuthConfig{
+	basicAuth := &AuthConfig{Source: "static",
 		Type:     "basic",
 		Username: "user",
 		Password: "secret_pass",
@@ -152,7 +152,7 @@ func TestBasicAuth(t *testing.T) {
 func TestCustomHeaders(t *testing.T) {
 	mgr := NewManager(nil)
 
-	auth := &AuthConfig{
+	auth := &AuthConfig{Source: "static",
 		Type: "custom",
 		Headers: map[string]string{
 			"X-API-Key":  "secret_key_123",
@@ -181,7 +181,7 @@ func TestCustomHeaders(t *testing.T) {
 func TestPortHandling(t *testing.T) {
 	mgr := NewManager(nil)
 
-	auth := &AuthConfig{
+	auth := &AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "token_123",
 	}
@@ -219,7 +219,7 @@ func TestListPatterns(t *testing.T) {
 
 	patterns := []string{"*.github.com", "gitlab.com", "api.*.internal"}
 	for _, p := range patterns {
-		_ = mgr.RegisterPattern(p, &AuthConfig{Type: "bearer", Token: "test"})
+		_ = mgr.RegisterPattern(p, &AuthConfig{Source: "static", Type: "bearer", Token: "test"})
 	}
 
 	listed := mgr.ListPatterns()
@@ -270,7 +270,7 @@ func TestEncryption(t *testing.T) {
 func TestGetAndDeletePattern(t *testing.T) {
 	mgr := NewManager(nil)
 
-	auth := &AuthConfig{
+	auth := &AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "token_abc_123",
 	}
@@ -303,7 +303,7 @@ func TestGetAndDeletePattern(t *testing.T) {
 func TestListCredentials(t *testing.T) {
 	mgr := NewManager(nil)
 
-	if err := mgr.RegisterPattern("example.com", &AuthConfig{Type: "bearer", Token: "tok_123"}); err != nil {
+	if err := mgr.RegisterPattern("example.com", &AuthConfig{Source: "static", Type: "bearer", Token: "tok_123"}); err != nil {
 		t.Fatalf("Erro ao registrar credencial: %v", err)
 	}
 
@@ -323,7 +323,7 @@ func TestInvalidPattern(t *testing.T) {
 	mgr := NewManager(nil)
 
 	// Padrão nil deve retornar erro
-	err := mgr.RegisterPattern("", &AuthConfig{Type: "bearer"})
+	err := mgr.RegisterPattern("", &AuthConfig{Source: "static", Type: "bearer"})
 	if err == nil {
 		t.Error("Esperado erro para padrão vazio")
 	}
@@ -342,8 +342,8 @@ func TestNilAuth(t *testing.T) {
 func TestPriorityOrder(t *testing.T) {
 	mgr := NewManager(nil)
 
-	auth1 := &AuthConfig{Type: "bearer", Token: "token_from_first"}
-	auth2 := &AuthConfig{Type: "bearer", Token: "token_from_second"}
+	auth1 := &AuthConfig{Source: "static", Type: "bearer", Token: "token_from_first"}
+	auth2 := &AuthConfig{Source: "static", Type: "bearer", Token: "token_from_second"}
 
 	_ = mgr.RegisterPattern("*.github.com", auth1)
 	_ = mgr.RegisterPattern("api.*", auth2)
@@ -357,7 +357,7 @@ func TestPriorityOrder(t *testing.T) {
 func TestOAuth2FieldsRoundTrip(t *testing.T) {
 	mgr := NewManager(nil)
 
-	auth := &AuthConfig{
+	auth := &AuthConfig{Source: "static",
 		Type:         "oauth2",
 		Token:        "access_tok_xyz",
 		RefreshURL:   "refresh_tok_abc",
@@ -398,7 +398,7 @@ func TestOAuth2FieldsRoundTrip(t *testing.T) {
 func TestListCredentialsOAuth2Fields(t *testing.T) {
 	mgr := NewManager(nil)
 
-	auth := &AuthConfig{
+	auth := &AuthConfig{Source: "static",
 		Type:         "oauth2",
 		Token:        "tok",
 		RefreshURL:   "refresh",
@@ -446,7 +446,7 @@ func TestTryDecryptLegacyPlaintext(t *testing.T) {
 func TestEncryptDecryptAllSensitiveFields(t *testing.T) {
 	mgr := NewManager(nil)
 
-	auth := &AuthConfig{
+	auth := &AuthConfig{Source: "static",
 		Type:         "oauth2",
 		Token:        "my-token",
 		Password:     "my-password",
@@ -508,7 +508,7 @@ func TestEncryptDecryptAllSensitiveFields(t *testing.T) {
 func TestDecryptAuthRawPreservesRefs(t *testing.T) {
 	mgr := NewManager(nil)
 
-	auth := &AuthConfig{
+	auth := &AuthConfig{Source: "static",
 		Type:         "oauth2",
 		Token:        "tok",
 		ClientID:     "cid",
@@ -576,10 +576,10 @@ func TestInstanceSecretsUseManagedPatterns(t *testing.T) {
 func TestUpdateExistingPattern(t *testing.T) {
 	mgr := NewManager(nil)
 
-	auth1 := &AuthConfig{Type: "bearer", Token: "old-token"}
+	auth1 := &AuthConfig{Source: "static", Type: "bearer", Token: "old-token"}
 	_ = mgr.RegisterPattern("api.test.com", auth1)
 
-	auth2 := &AuthConfig{Type: "bearer", Token: "new-token"}
+	auth2 := &AuthConfig{Source: "static", Type: "bearer", Token: "new-token"}
 	_ = mgr.RegisterPattern("api.test.com", auth2)
 
 	if len(mgr.ListPatterns()) != 1 {
@@ -644,7 +644,7 @@ func TestRegisterStoredCredentialDoesNotHoldLockDuringStoreIO(t *testing.T) {
 	go func() {
 		done <- mgr.RegisterStoredCredentialWithContext(database.WithUserID(context.Background(), "user-1"), StoredCredential{
 			Pattern: "api.example.com",
-			Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
+			Auth:    &AuthConfig{Source: "static", Type: "bearer", Token: "secret"},
 		})
 	}()
 
@@ -673,7 +673,7 @@ func TestRegisterStoredCredentialReturnsListCredentialsError(t *testing.T) {
 
 	err := mgr.RegisterStoredCredentialWithContext(database.WithUserID(context.Background(), "user-1"), StoredCredential{
 		Pattern: "api.example.com",
-		Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
+		Auth:    &AuthConfig{Source: "static", Type: "bearer", Token: "secret"},
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -690,7 +690,7 @@ func TestRegisterStoredCredentialRequiresPersistedIDAfterSave(t *testing.T) {
 
 	err := mgr.RegisterStoredCredentialWithContext(database.WithUserID(context.Background(), "user-1"), StoredCredential{
 		Pattern: "api.example.com",
-		Auth:    &AuthConfig{Type: "bearer", Token: "secret"},
+		Auth:    &AuthConfig{Source: "static", Type: "bearer", Token: "secret"},
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -703,10 +703,10 @@ func TestRegisterStoredCredentialRequiresPersistedIDAfterSave(t *testing.T) {
 func TestListVisibleCredentialsSkipsUnreadableManagedPatterns(t *testing.T) {
 	ctx := database.WithUserID(context.Background(), "user-1")
 	mgr := NewManager([]byte("test-key-exactly-32-bytes-long!!"))
-	if err := mgr.RegisterPatternWithContext(ctx, "api.example.com", &AuthConfig{Type: "bearer", Token: "secret"}); err != nil {
+	if err := mgr.RegisterPatternWithContext(ctx, "api.example.com", &AuthConfig{Source: "static", Type: "bearer", Token: "secret"}); err != nil {
 		t.Fatalf("RegisterPatternWithContext() error = %v", err)
 	}
-	if err := mgr.registerEncryptedPattern("managed-id", "user-1", InstanceSecretJWTSigningKey, &AuthConfig{
+	if err := mgr.registerEncryptedPattern("managed-id", "user-1", InstanceSecretJWTSigningKey, &AuthConfig{Source: "static",
 		Type:  "secret",
 		Token: "not-valid-base64",
 	}); err != nil {
@@ -729,7 +729,7 @@ func TestListVisibleCredentialsSkipsUnreadableManagedPatterns(t *testing.T) {
 func TestUnscopedLookupsIgnoreUserScopedCredentials(t *testing.T) {
 	ctx := database.WithUserID(context.Background(), "user-1")
 	mgr := NewManager([]byte("test-key-exactly-32-bytes-long!!"))
-	if err := mgr.RegisterPatternWithContext(ctx, "api.example.com", &AuthConfig{Type: "bearer", Token: "user-token"}); err != nil {
+	if err := mgr.RegisterPatternWithContext(ctx, "api.example.com", &AuthConfig{Source: "static", Type: "bearer", Token: "user-token"}); err != nil {
 		t.Fatalf("RegisterPatternWithContext() error = %v", err)
 	}
 
@@ -797,7 +797,7 @@ func (s *staticCredentialStore) HasKeyWrap(context.Context, string) (bool, error
 func TestLoadFromStorePreservesUserScope(t *testing.T) {
 	key := []byte("test-key-exactly-32-bytes-long!!")
 	encoder := NewManager(key)
-	encAuth, err := encoder.encryptAuth(&AuthConfig{Type: "bearer", Token: "sk-user-1"})
+	encAuth, err := encoder.encryptAuth(&AuthConfig{Source: "static", Type: "bearer", Token: "sk-user-1"})
 	if err != nil {
 		t.Fatalf("encrypt auth: %v", err)
 	}
@@ -834,7 +834,7 @@ func TestGetByPatternWithContextReportsUnreadableCredential(t *testing.T) {
 	goodKey := []byte("test-key-exactly-32-bytes-long!!")
 	wrongKey := []byte("wrong-key-exactly-32-bytes-long!")
 	encoder := NewManager(goodKey)
-	encAuth, err := encoder.encryptAuth(&AuthConfig{Type: "bearer", Token: "sk-old-key"})
+	encAuth, err := encoder.encryptAuth(&AuthConfig{Source: "static", Type: "bearer", Token: "sk-old-key"})
 	if err != nil {
 		t.Fatalf("encrypt auth: %v", err)
 	}
@@ -869,7 +869,7 @@ func TestClientSecretEncryption(t *testing.T) {
 	mgr := NewManager(nil)
 
 	secret := "my_client_secret_xyz_123"
-	auth := &AuthConfig{
+	auth := &AuthConfig{Source: "static",
 		Type:         "oauth2",
 		ClientID:     "my_client_id",
 		ClientSecret: secret,
@@ -910,7 +910,7 @@ func TestExpiredCredentials(t *testing.T) {
 
 	// Credencial que já expirou (timestamp no passado)
 	pastTime := int64(1000000000) // erro de 2001
-	auth := &AuthConfig{
+	auth := &AuthConfig{Source: "static",
 		Type:      "bearer",
 		Token:     "expired_token",
 		ExpiresAt: pastTime,
@@ -935,7 +935,7 @@ func TestExpiredCredentials(t *testing.T) {
 func TestURLSpecialCharacters(t *testing.T) {
 	mgr := NewManager(nil)
 
-	auth := &AuthConfig{
+	auth := &AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "token_special",
 	}
@@ -977,7 +977,7 @@ func TestConcurrentRegisterAndResolve(t *testing.T) {
 		go func(idx int) {
 			pattern := fmt.Sprintf("api%d.example.com", idx)
 			token := fmt.Sprintf("token_%d", idx)
-			auth := &AuthConfig{Type: "bearer", Token: token}
+			auth := &AuthConfig{Source: "static", Type: "bearer", Token: token}
 			_ = mgr.RegisterPattern(pattern, auth)
 			done <- true
 		}(i)
@@ -1008,7 +1008,7 @@ func TestConcurrentRegisterAndResolve(t *testing.T) {
 func TestInvalidURL(t *testing.T) {
 	mgr := NewManager(nil)
 
-	_ = mgr.RegisterPattern("*.example.com", &AuthConfig{Type: "bearer", Token: "test"})
+	_ = mgr.RegisterPattern("*.example.com", &AuthConfig{Source: "static", Type: "bearer", Token: "test"})
 
 	// URLs com scheme malformado devem retornar erro
 	invalidURLs := []string{
@@ -1028,7 +1028,7 @@ func TestNilEncryptionKey(t *testing.T) {
 	mgr1 := NewManager(nil) // key = nil, deve gerar
 	mgr2 := NewManager(nil) // key = nil, deve gerar diferente
 
-	auth := &AuthConfig{Type: "bearer", Token: "test_secret"}
+	auth := &AuthConfig{Source: "static", Type: "bearer", Token: "test_secret"}
 
 	_ = mgr1.RegisterPattern("test.com", auth)
 	_ = mgr2.RegisterPattern("test.com", auth)
@@ -1057,7 +1057,7 @@ func TestEmptyPatternRejection(t *testing.T) {
 		name    string
 		should  bool // esperado erro?
 	}{
-		{"", &AuthConfig{Type: "bearer", Token: "test"}, "empty_pattern", true},
+		{"", &AuthConfig{Source: "static", Type: "bearer", Token: "test"}, "empty_pattern", true},
 		{"test.com", nil, "nil_auth", true},
 	}
 
@@ -1084,7 +1084,7 @@ func TestHeadersPreservation(t *testing.T) {
 		"Accept":        "application/json",
 	}
 
-	auth := &AuthConfig{
+	auth := &AuthConfig{Source: "static",
 		Type:    "custom",
 		Headers: headers,
 	}
@@ -1109,7 +1109,7 @@ func TestContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancelar imediatamente
 
-	auth := &AuthConfig{Type: "bearer", Token: "test"}
+	auth := &AuthConfig{Source: "static", Type: "bearer", Token: "test"}
 
 	// Registrar com context cancelado pode retornar erro (dependendo de implementation)
 	// Desde que não cause panic, está OK

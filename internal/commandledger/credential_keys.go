@@ -29,9 +29,9 @@ func NewCredentialKeyProvider(manager *credentials.Manager) (FingerprintKeyProvi
 		if !ok || !fingerprintKeyVersion.MatchString(version) {
 			return nil, ErrInvalidRequest
 		}
-		// GetByPattern sem contexto de usuário lê apenas UserID vazio e por nome
+		// A leitura bruta sem contexto de usuário lê apenas UserID vazio e por nome
 		// exato. GetInstanceSecret tem fallback legado user-scoped, proibido aqui.
-		auth, err := manager.GetByPattern("internal-auth:" + name)
+		auth, err := manager.GetConfigByPatternWithContext(context.Background(), "internal-auth:"+name)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}

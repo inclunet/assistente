@@ -61,15 +61,24 @@ func (c *CredentialsController) ListCredentialsWithContext(ctx context.Context) 
 		if entry.Auth == nil {
 			continue
 		}
+		headerName := ""
+		for name := range entry.Auth.Headers {
+			headerName = name
+			break
+		}
 		masked := credentials.SummarizeAuth(entry.Auth)
 		if entry.Unreadable {
 			masked = "ilegível - redigite para substituir"
 		}
 		result = append(result, CredentialSummary{
-			Pattern: entry.Pattern,
-			Type:    entry.Auth.Type,
-			Masked:  masked,
-			Managed: credentials.IsManagedPattern(entry.Pattern),
+			Pattern:      entry.Pattern,
+			Username:     entry.Auth.Username,
+			HeaderName:   headerName,
+			Type:         entry.Auth.Type,
+			Source:       entry.Auth.Source,
+			SourceConfig: entry.Auth.SourceConfig,
+			Masked:       masked,
+			Managed:      credentials.IsManagedPattern(entry.Pattern),
 		})
 	}
 	return result, nil
@@ -100,21 +109,24 @@ func (c *CredentialsController) UpsertCredentialWithContext(ctx context.Context,
 		return fmt.Errorf("credencial '%s' é gerenciada pelo sistema e não pode ser editada manualmente", pattern)
 	}
 
-	auth := &credentials.AuthConfig{Type: strings.TrimSpace(input.Type)}
+	auth := &credentials.AuthConfig{Source: input.Source, SourceConfig: input.SourceConfig, Type: strings.TrimSpace(input.Type)}
+	if err := credentials.ValidateSource(auth); err != nil {
+		return err
+	}
 	switch auth.Type {
-	case "bearer", "oauth2", "secret":
-		if strings.TrimSpace(input.Token) == "" {
+	case "bearer", "secret":
+		if auth.Source == "static" && strings.TrimSpace(input.Token) == "" {
 			return fmt.Errorf("token é obrigatório")
 		}
 		auth.Token = input.Token
 	case "basic":
-		if strings.TrimSpace(input.Username) == "" || strings.TrimSpace(input.Password) == "" {
+		if strings.TrimSpace(input.Username) == "" || (auth.Source == "static" && strings.TrimSpace(input.Password) == "") {
 			return fmt.Errorf("usuário e senha são obrigatórios")
 		}
 		auth.Username = input.Username
 		auth.Password = input.Password
 	case "custom":
-		if strings.TrimSpace(input.HeaderName) == "" || strings.TrimSpace(input.HeaderValue) == "" {
+		if strings.TrimSpace(input.HeaderName) == "" || (auth.Source == "static" && strings.TrimSpace(input.HeaderValue) == "") {
 			return fmt.Errorf("header e valor são obrigatórios")
 		}
 		auth.Headers = map[string]string{input.HeaderName: input.HeaderValue}
@@ -122,6 +134,13 @@ func (c *CredentialsController) UpsertCredentialWithContext(ctx context.Context,
 		return fmt.Errorf("tipo de credencial inválido")
 	}
 
+	if auth.Source != "static" {
+		auth.Token = ""
+		auth.Password = ""
+		for k := range auth.Headers {
+			auth.Headers[k] = ""
+		}
+	}
 	return c.credMgr.RegisterPatternWithContext(ctx, pattern, auth)
 }
 
@@ -144,12 +163,12 @@ func (c *CredentialsController) DeleteCredentialWithContext(ctx context.Context,
 }
 
 // ListExternalSources lista fontes externas disponíveis para autocomplete.
-// prefix deve ser "keyring://" ou "env://".
+// prefix deve ser "keyring" ou "env".
 func (c *CredentialsController) ListExternalSources(prefix string) ([]ExternalSourceSuggestion, error) {
 	switch prefix {
-	case "keyring://":
+	case "keyring":
 		return c.listKeyringEntries()
-	case "env://":
+	case "env":
 		return c.listEnvVars()
 	default:
 		return []ExternalSourceSuggestion{}, nil
@@ -198,7 +217,7 @@ func (c *CredentialsController) listEnvVars() ([]ExternalSourceSuggestion, error
 		}
 
 		suggestions = append(suggestions, ExternalSourceSuggestion{
-			Value: "env://" + name,
+			Value: name,
 			Label: name,
 		})
 	}
@@ -217,7 +236,7 @@ func (c *CredentialsController) listKeyringEntries() ([]ExternalSourceSuggestion
 
 	suggestions := make([]ExternalSourceSuggestion, 0, len(entries))
 	for _, e := range entries {
-		ref := "keyring://" + e.Target
+		ref := e.Target
 		suggestions = append(suggestions, ExternalSourceSuggestion{
 			Value: ref,
 			Label: e.Target,
