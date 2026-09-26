@@ -1,3 +1,4 @@
+import { apidto } from '@wailsjs/go/models';
 import { logger } from '../utils/logger';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -337,11 +338,11 @@ export default function ChannelsPage() {
 
         if (telegramUseVault) {
           if (botToken) {
-            await UpsertCredential({
+            await UpsertCredential(apidto.CredentialInput.createFrom({source: "static",
               pattern: botPattern,
               type: 'secret',
               token: botToken,
-            });
+            }));
           } else if (telegramForm.enabled && !storedBot) {
             throw new Error(t('channels.error.telegramTokenRequired'));
           }
@@ -363,11 +364,11 @@ export default function ChannelsPage() {
         const storedApi = credentialSummaries[apiPattern];
 
         if (signalUseVault && apiToken) {
-          await UpsertCredential({
+          await UpsertCredential(apidto.CredentialInput.createFrom({source: "static",
             pattern: apiPattern,
             type: 'secret',
             token: apiToken,
-          });
+          }));
         }
 
         // Token da API Signal é opcional; com vault grava ref quando há token
@@ -393,18 +394,18 @@ export default function ChannelsPage() {
 
         if (slackUseVault) {
           if (botToken) {
-            await UpsertCredential({
+            await UpsertCredential(apidto.CredentialInput.createFrom({source: "static",
               pattern: botPattern,
               type: 'secret',
               token: botToken,
-            });
+            }));
           }
           if (appToken) {
-            await UpsertCredential({
+            await UpsertCredential(apidto.CredentialInput.createFrom({source: "static",
               pattern: appPattern,
               type: 'secret',
               token: appToken,
-            });
+            }));
           }
 
           if (slackForm.enabled && ((!storedBot && !botToken) || (!storedApp && !appToken))) {

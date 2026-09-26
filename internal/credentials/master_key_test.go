@@ -57,7 +57,7 @@ func TestGenerateRecoveryKeyFormat(t *testing.T) {
 
 func TestSetupMasterKeyAdoptingKeychainRejectsExistingCredentialsWithoutKeyringDEK(t *testing.T) {
 	store := &setupMasterKeyTestStore{
-		credentials: []StoredCredential{{Pattern: "api.example.com", Auth: &AuthConfig{Type: "bearer", Token: "ciphertext"}}},
+		credentials: []StoredCredential{{Pattern: "api.example.com", Auth: &AuthConfig{Source: "static", Type: "bearer", Token: "ciphertext"}}},
 	}
 
 	_, err := setupMasterKeyAdoptingKeychain(store, "senha-forte", func() ([]byte, error) {

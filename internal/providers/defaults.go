@@ -229,7 +229,7 @@ func (s *Service) CreateFromTemplate(ctx context.Context, providerType, apiKey s
 	}
 
 	if apiKey != "" && p.CredentialPattern != "" {
-		if err := s.credMgr.RegisterPatternWithContext(ctx, p.CredentialPattern, &credentials.AuthConfig{
+		if err := s.credMgr.RegisterPatternWithContext(ctx, p.CredentialPattern, &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: apiKey,
 		}); err != nil {

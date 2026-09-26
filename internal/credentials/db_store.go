@@ -78,6 +78,8 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 		UserID:          userID,
 		Pattern:         cred.Pattern,
 		AuthType:        cred.Auth.Type,
+		Source:          cred.Auth.Source,
+		SourceConfigEnc: cred.Auth.SourceConfigEnc,
 		TokenEnc:        cred.Auth.Token,
 		Username:        cred.Auth.Username,
 		PasswordEnc:     cred.Auth.Password,
@@ -123,15 +125,17 @@ func (s *DBStore) ListCredentials(ctx context.Context) ([]StoredCredential, erro
 		}
 
 		auth := &AuthConfig{
-			Type:         entry.AuthType,
-			Token:        entry.TokenEnc,
-			Username:     entry.Username,
-			Password:     entry.PasswordEnc,
-			Headers:      headers,
-			ExpiresAt:    entry.ExpiresAt,
-			RefreshURL:   entry.RefreshTokenEnc,
-			ClientID:     entry.ClientIDEnc,
-			ClientSecret: entry.ClientSecretEnc,
+			Type:            entry.AuthType,
+			Source:          entry.Source,
+			SourceConfigEnc: entry.SourceConfigEnc,
+			Token:           entry.TokenEnc,
+			Username:        entry.Username,
+			Password:        entry.PasswordEnc,
+			Headers:         headers,
+			ExpiresAt:       entry.ExpiresAt,
+			RefreshURL:      entry.RefreshTokenEnc,
+			ClientID:        entry.ClientIDEnc,
+			ClientSecret:    entry.ClientSecretEnc,
 		}
 
 		result = append(result, StoredCredential{
@@ -172,15 +176,17 @@ func (s *DBStore) ListInstanceCredentials(ctx context.Context) ([]StoredCredenti
 			UserID:  entry.UserID,
 			Pattern: entry.Pattern,
 			Auth: &AuthConfig{
-				Type:         entry.AuthType,
-				Token:        entry.TokenEnc,
-				Username:     entry.Username,
-				Password:     entry.PasswordEnc,
-				Headers:      headers,
-				ExpiresAt:    entry.ExpiresAt,
-				RefreshURL:   entry.RefreshTokenEnc,
-				ClientID:     entry.ClientIDEnc,
-				ClientSecret: entry.ClientSecretEnc,
+				Type:            entry.AuthType,
+				Source:          entry.Source,
+				SourceConfigEnc: entry.SourceConfigEnc,
+				Token:           entry.TokenEnc,
+				Username:        entry.Username,
+				Password:        entry.PasswordEnc,
+				Headers:         headers,
+				ExpiresAt:       entry.ExpiresAt,
+				RefreshURL:      entry.RefreshTokenEnc,
+				ClientID:        entry.ClientIDEnc,
+				ClientSecret:    entry.ClientSecretEnc,
 			},
 		})
 	}
@@ -228,15 +234,17 @@ func (s *DBStore) ListAllCredentialsIgnoringScope(ctx context.Context) ([]Stored
 			UserID:  entry.UserID,
 			Pattern: entry.Pattern,
 			Auth: &AuthConfig{
-				Type:         entry.AuthType,
-				Token:        entry.TokenEnc,
-				Username:     entry.Username,
-				Password:     entry.PasswordEnc,
-				Headers:      headers,
-				ExpiresAt:    entry.ExpiresAt,
-				RefreshURL:   entry.RefreshTokenEnc,
-				ClientID:     entry.ClientIDEnc,
-				ClientSecret: entry.ClientSecretEnc,
+				Type:            entry.AuthType,
+				Source:          entry.Source,
+				SourceConfigEnc: entry.SourceConfigEnc,
+				Token:           entry.TokenEnc,
+				Username:        entry.Username,
+				Password:        entry.PasswordEnc,
+				Headers:         headers,
+				ExpiresAt:       entry.ExpiresAt,
+				RefreshURL:      entry.RefreshTokenEnc,
+				ClientID:        entry.ClientIDEnc,
+				ClientSecret:    entry.ClientSecretEnc,
 			},
 		})
 	}
@@ -271,15 +279,17 @@ func (s *DBStore) ListCredentialsWithRefreshTokensIgnoringScope(ctx context.Cont
 			UserID:  entry.UserID,
 			Pattern: entry.Pattern,
 			Auth: &AuthConfig{
-				Type:         entry.AuthType,
-				Token:        entry.TokenEnc,
-				Username:     entry.Username,
-				Password:     entry.PasswordEnc,
-				Headers:      headers,
-				ExpiresAt:    entry.ExpiresAt,
-				RefreshURL:   entry.RefreshTokenEnc,
-				ClientID:     entry.ClientIDEnc,
-				ClientSecret: entry.ClientSecretEnc,
+				Type:            entry.AuthType,
+				Source:          entry.Source,
+				SourceConfigEnc: entry.SourceConfigEnc,
+				Token:           entry.TokenEnc,
+				Username:        entry.Username,
+				Password:        entry.PasswordEnc,
+				Headers:         headers,
+				ExpiresAt:       entry.ExpiresAt,
+				RefreshURL:      entry.RefreshTokenEnc,
+				ClientID:        entry.ClientIDEnc,
+				ClientSecret:    entry.ClientSecretEnc,
 			},
 		})
 	}
@@ -336,7 +346,7 @@ func (s *DBStore) UpdateRefreshTokenEncByID(ctx context.Context, id, value strin
 
 // DeleteCredential remove a credencial associada ao `pattern` exato,
 // escopada pelo usuário do contexto. Para instance secrets
-// (`internal-auth:*`/`internal-tls:*`) o escopo é `user_id = ''`.
+// (`internal-auth:*`/`internal-tls:*`) o escopo usa `user_id` vazio.
 //
 // `pattern` vazio é erro: "limpar tudo" tem que ser expressado como
 // iteração sobre a lista visível, não como uma chamada sem nome.

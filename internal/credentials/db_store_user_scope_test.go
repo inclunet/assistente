@@ -38,7 +38,7 @@ func TestDBStoreScopesCredentialsByContextUser(t *testing.T) {
 	leoCtx := database.WithUserID(context.Background(), "user-leo")
 	cred := StoredCredential{
 		Pattern: "api.openai.com",
-		Auth: &AuthConfig{
+		Auth: &AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: "token",
 		},

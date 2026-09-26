@@ -343,7 +343,7 @@ func TestTestLLMProviderUsesExistingCredential(t *testing.T) {
 	}
 	_ = app.llmRegistry.Register(provider)
 	credCtx := database.WithUserID(context.Background(), "test-user")
-	_ = app.credMgr.RegisterPatternWithContext(credCtx, hostname, &credentials.AuthConfig{
+	_ = app.credMgr.RegisterPatternWithContext(credCtx, hostname, &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "sk-existing-secret",
 	})

@@ -233,7 +233,7 @@ func TestVerifyDEKConsistency_DetectaDivergenciaERevogaPersistencia(t *testing.T
 
 	// Cred cifrada com DEK_X, persistida no store
 	encoder := NewManager(dekX)
-	encAuth, err := encoder.encryptAuth(&AuthConfig{Type: "bearer", Token: "sk-orphan"})
+	encAuth, err := encoder.encryptAuth(&AuthConfig{Source: "static", Type: "bearer", Token: "sk-orphan"})
 	if err != nil {
 		t.Fatalf("encrypt auth: %v", err)
 	}
@@ -311,10 +311,10 @@ func TestPurgeUnreadableCredentials_RemoveOrfãsEDeixaResto(t *testing.T) {
 	dekOrfa := []byte("OROROROROROROROROROROROROROROROR")
 
 	encoderOrfa := NewManager(dekOrfa)
-	encOrfa, _ := encoderOrfa.encryptAuth(&AuthConfig{Type: "bearer", Token: "sk-orphan"})
+	encOrfa, _ := encoderOrfa.encryptAuth(&AuthConfig{Source: "static", Type: "bearer", Token: "sk-orphan"})
 
 	encoderOK := NewManager(dekKeychain)
-	encOK, _ := encoderOK.encryptAuth(&AuthConfig{Type: "bearer", Token: "sk-ok"})
+	encOK, _ := encoderOK.encryptAuth(&AuthConfig{Source: "static", Type: "bearer", Token: "sk-ok"})
 
 	store.credentials = []StoredCredential{
 		{ID: "orphan-1", UserID: "user-1", Pattern: "old.example.com", Auth: encOrfa},

@@ -2184,6 +2184,7 @@ const en = {
     },
 
     credentials: {
+      sourceFields: {"unconfigured": "Reconfigure source", "source": "Source", "static": "Stored value", "env": "Environment variable", "keyring": "System keyring", "command": "Command", "oauth": "OAuth (coming soon)", "envName": "Variable name", "keyringName": "Windows target (or fill service and user)", "keyringService": "Keyring service (alternative to target)", "keyringUser": "Keyring user", "commandName": "Executable", "args": "Arguments (JSON array of strings)", "timeout": "Timeout in seconds", "oauthUnavailable": "OAuth is not available as a credential source yet.", "required": "Fill in the required fields.", "invalidArgs": "Enter a JSON array of strings for arguments.", "invalidTimeout": "Timeout must be between 1 and 300 seconds.", "entity": "Credential", "loadError": "Could not load credentials", "createSuccess": "Credential created!", "updateSuccess": "Credential updated!", "deleteSuccess": "Credential removed!", "deleteConfirm": "Remove credential {{pattern}}?"},
       types: { bearer: 'Bearer token', basic: 'Basic (username/password)', custom: 'Custom header', secret: 'Secret (internal use)' },
       pageTitle: 'Credentials',
       buttons: { new: 'New', delete: 'Delete', create: 'Create', view: 'View', edit: 'Edit' },
@@ -2337,6 +2338,8 @@ const en = {
     },
 
     providerForm: {
+      useSavedCredential: "Use the existing credential for this domain",
+      savedCredentialHelp: "Configure the source in Credentials using the base URL hostname as the pattern. Leave the key empty to use that credential.",
       name: 'Name',
       namePlaceholder: 'My OpenAI Provider',
       providerType: 'Provider Type',

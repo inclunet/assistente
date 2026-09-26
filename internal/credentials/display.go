@@ -36,20 +36,17 @@ func SummarizeAuth(auth *AuthConfig) string {
 	if auth == nil {
 		return ""
 	}
+	if auth.Source != "static" {
+		return auth.Source
+	}
 	switch auth.Type {
 	case "bearer", "oauth2", "secret":
-		if IsExternalRef(auth.Token) {
-			return auth.Token
-		}
 		return MaskCredentialValue(auth.Token)
 	case "basic":
 		if auth.Username == "" && auth.Password == "" {
 			return ""
 		}
 		pwd := MaskCredentialValue(auth.Password)
-		if IsExternalRef(auth.Password) {
-			pwd = auth.Password
-		}
 		return fmt.Sprintf("%s:%s", auth.Username, pwd)
 	case "custom":
 		if len(auth.Headers) == 0 {
@@ -62,9 +59,6 @@ func SummarizeAuth(auth *AuthConfig) string {
 		sort.Strings(keys)
 		first := keys[0]
 		val := MaskCredentialValue(auth.Headers[first])
-		if IsExternalRef(auth.Headers[first]) {
-			val = auth.Headers[first]
-		}
 		return fmt.Sprintf("%s: %s", first, val)
 	default:
 		return ""

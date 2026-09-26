@@ -1938,7 +1938,7 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 		return false, err
 	}
 
-	newAuth := &credentials.AuthConfig{
+	newAuth := &credentials.AuthConfig{Source: "static",
 		Type:       "oauth2",
 		Token:      newToken.AccessToken,
 		RefreshURL: newToken.RefreshToken,

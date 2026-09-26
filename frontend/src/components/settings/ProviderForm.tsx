@@ -105,6 +105,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     api_format: PROVIDER_CONFIG.openai.apiFormat || '',
     reasoning_content_mode: PROVIDER_CONFIG.openai.reasoningContentMode || 'disabled',
   });
+  const [useSavedCredential, setUseSavedCredential] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showApiKeyField, setShowApiKeyField] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -258,6 +259,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
 
   useEffect(() => {
     setAgentSelectionToken(0);
+    setUseSavedCredential(false);
     if (provider) {
       const provConfig = PROVIDER_CONFIG[provider.type] || PROVIDER_CONFIG.custom;
       setFormData({
@@ -480,7 +482,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
 
     // Se requer key, está criando (ou alterou a key), e a key está vazia → erro
     const isEditingWithExistingKey = !!formData.id && !apiKeyChangedInThisSession;
-    if (config.testRequiresApiKey && !formData.api_key.trim() && !isEditingWithExistingKey) {
+    if (config.testRequiresApiKey && !formData.api_key.trim() && !isEditingWithExistingKey && !useSavedCredential) {
       setErrors((prev) => ({
         ...prev,
         api_key: t('providerForm.error.apiKeyRequiredTest'),
@@ -505,7 +507,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
 
     // Se requer key, está criando, e key está vazia → não auto-carrega
     const isEditingWithExistingKey = !!formData.id && !apiKeyChangedInThisSession;
-    if (config.testRequiresApiKey && !formData.api_key.trim() && !isEditingWithExistingKey) {
+    if (config.testRequiresApiKey && !formData.api_key.trim() && !isEditingWithExistingKey && !useSavedCredential) {
       return;
     }
 
@@ -547,7 +549,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     // API key - validação conforme configuração do provider
     // Na edição, a key já está salva no credential manager, não precisa re-informar
     const isEditing = !!formData.id;
-    if (config && config.apiKeyRequired && !formData.api_key.trim() && !isEditing) {
+    if (config && config.apiKeyRequired && !formData.api_key.trim() && !isEditing && !useSavedCredential) {
       newErrors.api_key = t('providerForm.error.apiKeyRequired') + ` ${config.label}`;
     }
 
@@ -681,7 +683,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
   const canLoadModels = (() => {
     const canonicalUrl = getCanonicalUrl(formData.type);
     if (!canonicalUrl.trim()) return false;
-    if (testRequiresApiKey && !formData.api_key.trim()) {
+    if (testRequiresApiKey && !formData.api_key.trim() && !useSavedCredential) {
       // Permitir quando editando com credencial existente
       return !!formData.id && !apiKeyChangedInThisSession;
     }
@@ -782,8 +784,14 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         )}
       </FormField>
 
+      <label htmlFor="provider-use-saved-credential">
+        <input id="provider-use-saved-credential" type="checkbox" checked={useSavedCredential}
+          onChange={e => { setUseSavedCredential(e.target.checked); handleApiKeyChange(''); }} />
+        {t('providerForm.useSavedCredential')}
+      </label>
+      {useSavedCredential && <p>{t('providerForm.savedCredentialHelp')}</p>}
       {/* API Key Field */}
-      {requiresApiKey ? (
+      {!useSavedCredential && (requiresApiKey ? (
         <FormField
           label={t('providerForm.apiKey')}
           required
@@ -876,7 +884,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           </div>
           )}
         </FormField>
-      )}
+      ))}
 
       {/* Default Model — loads models list which also validates the provider */}
       <FormField

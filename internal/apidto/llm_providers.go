@@ -1,5 +1,6 @@
 package apidto
 
+// APIKey é exclusivamente valor static; fontes externas são configuradas no cofre.
 // CreateLLMProviderRequest é o payload Wails para criar um provedor LLM.
 type CreateLLMProviderRequest struct {
 	ID                   string `json:"id"`
