@@ -137,10 +137,10 @@ func (m *Manager) CommandHotkeyBindings(ctx context.Context) ([]CommandHotkeyBin
 		if !m.effectiveJobEnabled(job) {
 			continue
 		}
-		definitionFingerprint, err := DefinitionFingerprint(job)
-		if err != nil {
-			return nil, fmt.Errorf("fingerprint job %s: %w", job.ID, err)
-		}
+		// Jobs sem hotkey não participam desta projeção. Uma definição
+		// inválida só pode retirar autoridade do próprio job, nunca impedir
+		// a publicação dos comandos independentes (inclusive envio do chat).
+		var definitionFingerprint string
 		for _, trigger := range job.Triggers {
 			if trigger.Type != TriggerHotkey {
 				continue
@@ -155,9 +155,17 @@ func (m *Manager) CommandHotkeyBindings(ctx context.Context) ([]CommandHotkeyBin
 				logging.Warnf(ctx, "jobs.manager", "ignorando hotkey persistida inválida do job %s (%q); o registro nativo também a recusa: %v", job.ID, keys, err)
 				continue
 			}
+			if definitionFingerprint == "" {
+				definitionFingerprint, err = DefinitionFingerprint(job)
+				if err != nil {
+					logging.Warnf(ctx, "jobs.manager", "ignorando hotkeys do job %s: definição inválida para comandos", job.ID)
+					break
+				}
+			}
 			bindingFingerprint, err := commandHotkeyBindingFingerprint(definitionFingerprint, keys, when)
 			if err != nil {
-				return nil, fmt.Errorf("fingerprint hotkey %s/%s: %w", job.ID, keys, err)
+				logging.Warnf(ctx, "jobs.manager", "ignorando hotkey do job %s: configuração inválida para comandos", job.ID)
+				continue
 			}
 			bindings = append(bindings, CommandHotkeyBinding{
 				JobDatabaseID:         job.DatabaseID,

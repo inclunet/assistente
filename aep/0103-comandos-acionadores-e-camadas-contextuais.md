@@ -52,6 +52,20 @@ paleta comprova destino condicionado por perfil/superfície sem presença na
 lista incondicional, e rejeita seleção após invalidação do mapa. Não altera
 autorização nem representa aceite físico/NVDA.
 
+**Correção de isolamento de jobs (26/09/2026):** definições persistidas de
+jobs usam JCS com limite próprio de **1 MiB** para cálculo do fingerprint;
+envelopes, argumentos e HMAC do protocolo continuam em **64 KiB**. Bytes
+canônicos e fingerprints de definições já aceitas permanecem iguais.
+A projeção de hotkeys só calcula a definição de jobs com hotkey válida.
+Definição inválida retira somente as hotkeys daquele job; falha de serialização
+do fingerprint de um binding retira somente esse binding, com aviso sem conteúdo
+da configuração. A avaliação da expressão When continua no disparo do gatilho.
+Erros de repositório/escopo continuam interrompendo a projeção.
+Evidências: testes TestMarshalDefinition*, TestDefinitionFingerprintSupportsLargeOutputAndDetectsChanges
+e TestCommandHotkeyBindingsIsolatesOversizedPersistedConfiguration cobrem
+schema de 277 KB, limite superior, identidade canônica e isolamento. TestCanonicalizationEnforcesExpandedOutputLimit comprova que a expansão numérica JCS também respeita o limite da saída, tanto de 1 MiB quanto de 64 KiB (incluindo HMAC).
+**In Progress**; os demais gates e aceites manuais permanecem pendentes.
+
 **Extensão de apresentação pós-PR #833 — gerenciadores separados:** conforme
 decisão registrada na seção159 da tasklist, a tela principal organiza camadas
 e seus estados. Na toolbar de Nova camada, Editar camada atua na seleção e
