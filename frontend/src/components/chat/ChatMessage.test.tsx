@@ -444,7 +444,7 @@ describe('ChatMessage', () => {
       content: '',
       turnSegments: [{
         type: 'tool_calls',
-        toolInvocations: [toolInvocation('tool-1', 'search_documents', { inputBytes: 8_100 })],
+        toolInvocations: [toolInvocation('tool-1', 'search_documents', { inputBytes: 8_100, status: ' Succeeded ' })],
       }],
       createdAt: new Date().toISOString(),
       timestamp: Date.now(),
@@ -455,7 +455,7 @@ describe('ChatMessage', () => {
     render(<ChatMessage message={message} />);
 
     expect(buildAriaLabelMock).toHaveBeenCalledWith(expect.objectContaining({
-      toolLabels: ['chat.toolGeneric'],
+      toolLabels: ['chat.toolGenericDone'],
     }));
     expect(screen.queryByTestId('toolcalls')).not.toBeInTheDocument();
   });
