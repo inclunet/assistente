@@ -10717,3 +10717,10 @@ sem remover verificações. Testes Go focados PASS (20,194 s), build/vet do
 pacote `internal/app` PASS e lint zero issues. Revisão independente de Beauvoir
 e do agente principal sem bloqueios. O conflito da tasklist foi apenas aditivo,
 preservando as evidências das seções164 e165. Aceite físico permanece pendente.
+
+Revisão do sufixo de estado (26/09/2026): a comparação agora exige o marcador
+como título completo ou sufixo delimitado por ` — `. Títulos personalizados
+que apenas contêm o texto continuam recebendo o aviso explícito. Regressões
+cobrem texto no meio, final semelhante/colado, sufixo já presente, título vazio
+e estado ambíguo com personalizações preservadas. Go focado PASS (16,709 s),
+lint zero issues. Nenhuma autorização ou resolução de destino foi alterada.

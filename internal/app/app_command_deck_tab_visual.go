@@ -309,10 +309,14 @@ func workspaceTabDeckText(locale, key string) string {
 }
 
 func deckVisualSuffix(title, marker string) string {
-	if strings.Contains(title, marker) {
+	if marker == "" {
 		return title
 	}
-	if strings.TrimSpace(title) == "" {
+	trimmedTitle := strings.TrimSpace(title)
+	if trimmedTitle == marker || strings.HasSuffix(trimmedTitle, " — "+marker) {
+		return title
+	}
+	if trimmedTitle == "" {
 		return marker
 	}
 	return fmt.Sprintf("%s — %s", title, marker)

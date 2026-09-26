@@ -16,6 +16,10 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+AEP-0103, seção165 (26/09/2026): aviso explícito de destino indisponível ou
+ambíguo preservado em títulos personalizados, sem confundir substrings com
+sufixo completo. In Progress; aceite físico/NVDA permanece pendente.
+
 AEP-0103, seção164 (26/09/2026): paridade objeto JSON dos argumentos projetados
 nos bindings Wails e regressão de destino condicional na paleta. In Progress;
 aceite físico/NVDA permanece pendente.

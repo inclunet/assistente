@@ -12,6 +12,9 @@ despacho nem acrescenta auditoria por tecla. Evidências automatizadas e
 limitações de integração ficam na tasklist. O título visível é abreviado para
 caber na tecla quando necessário, enquanto o anúncio mantém o título completo;
 aceite físico/NVDA segue pendente.
+O aviso de indisponibilidade/ambiguidade permanece explícito em títulos
+personalizados: texto semelhante no meio do nome não substitui o sufixo de
+estado; um sufixo completo já presente não é duplicado.
 
 **Destino parametrizado de abas — seção164 da tasklist:** `workspace.tab.go_to`
 é um único `local_ui` com binding vinculado a `workspace_id` e alvo por

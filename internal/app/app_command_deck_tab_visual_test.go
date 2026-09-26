@@ -171,15 +171,41 @@ func TestWorkspaceTabDeckAmbiguousTargetSuffixPreservesCustomTitles(t *testing.T
 			"editor": mustDeckTabArguments(t, `{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"tab-b"}`),
 		},
 	}
-	base := commandDeckVisual{title: "Pinned title", icon: "star"}
-	variants := map[string]commandDeckVisual{"running": {title: "Running title", icon: "running-icon"}}
+	base := commandDeckVisual{title: "Pinned Context-dependent destination note", icon: "star"}
+	variants := map[string]commandDeckVisual{"running": {title: "Running title with Context-dependent destination nearby", icon: "running-icon"}}
 	base, variants = applyWorkspaceTabDeckVisual(configuration, nil, "", []string{candidate.ID}, []LocalCommandPaletteCondition{condition}, nil, active, "en", base, variants, "")
 	const suffix = " — Context-dependent destination"
-	if base.title != "Pinned title"+suffix || base.icon != "star" {
+	if base.title != "Pinned Context-dependent destination note"+suffix || base.icon != "star" {
 		t.Fatalf("ambiguous marker must suffix, not replace, the custom title: %+v", base)
 	}
-	if variants["running"].title != "Running title"+suffix || variants["running"].icon != "running-icon" {
+	if variants["running"].title != "Running title with Context-dependent destination nearby"+suffix || variants["running"].icon != "running-icon" {
 		t.Fatalf("state-specific custom title/fields must survive ambiguity: %+v", variants["running"])
+	}
+}
+
+func TestDeckVisualSuffixOnlySkipsAnExistingCompleteSuffix(t *testing.T) {
+	const marker = "Tab unavailable"
+	for _, test := range []struct {
+		name  string
+		title string
+		want  string
+	}{
+		{name: "marker in middle", title: "Notes mention Tab unavailable as text", want: "Notes mention Tab unavailable as text — Tab unavailable"},
+		{name: "similar marker at end", title: "Notes — Tab unavailable details", want: "Notes — Tab unavailable details — Tab unavailable"},
+		{name: "marker glued to end", title: "NotesTab unavailable", want: "NotesTab unavailable — Tab unavailable"},
+		{name: "complete suffix already present", title: "Notes — Tab unavailable", want: "Notes — Tab unavailable"},
+		{name: "title is the marker", title: "Tab unavailable", want: "Tab unavailable"},
+		{name: "complete suffix with trailing whitespace", title: "Notes — Tab unavailable  ", want: "Notes — Tab unavailable  "},
+		{name: "empty title", title: "", want: "Tab unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := deckVisualSuffix(test.title, marker); got != test.want {
+				t.Fatalf("deckVisualSuffix(%q, %q) = %q, want %q", test.title, marker, got, test.want)
+			}
+		})
+	}
+	if got := deckVisualSuffix("Existing custom title", ""); got != "Existing custom title" {
+		t.Fatalf("empty marker changed custom title: %q", got)
 	}
 }
 
