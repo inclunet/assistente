@@ -374,7 +374,8 @@ function ChatSessionViewContent({
 
   const [lastFailedMessage, setLastFailedMessage] = useState<{ content: string; media?: MediaFile[] } | null>(null);
   const [unavailableConversationID, setUnavailableConversationID] = useState<string | null>(null);
-  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendErrorMessage, setSendError] = useState<string | null>(null);
+  const sendError = unavailableConversationID === conversationId ? sendErrorMessage : null;
   const [dismissedSessionSendError, setDismissedSessionSendError] = useState<string | null>(null);
   const sessionSendFailureMessage = session?.sendFailureMessage ?? null;
   const sessionSendFailureAnnounced = session?.sendFailureAnnounced ?? false;

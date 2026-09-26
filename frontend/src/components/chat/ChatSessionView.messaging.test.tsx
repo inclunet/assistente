@@ -106,6 +106,35 @@ describe('ChatSessionView + ChatInput + pipeline reais', () => {
     expect(input).toHaveValue('rascunho atual');
     expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].sendFailureRetryContent).toBe('texto anterior');
   });
+
+  it('não leva o aviso de conversa indisponível para outra conversa na mesma aba', async () => {
+    begin.mockRejectedValueOnce('chat_conversation_unavailable');
+    const view = mount(); const input = screen.getByRole('combobox');
+    fireEvent.change(input, { target: { value: 'rascunho da origem' } });
+    fireEvent.click(screen.getByRole('button', { name: 'chat.send' }));
+    await act(async () => { await Promise.all(runs); });
+    expect(screen.getByText('chat.conversationUnavailable')).toBeInTheDocument();
+    expect(input).toHaveValue('rascunho da origem');
+    const nextID = '01926b90-7a5a-7c4e-8d3f-000000000002';
+    const nextSurface = createChatSurfaceIdentity({ conversationId: nextID, tabId: 'tab', surfaceType: 'page' });
+    const nextConversation = { id: nextID, title: 'outra conversa', threadedMessages: [] };
+    act(() => {
+      useChatStore.setState(state => ({
+        timelinesByConversationId: { ...state.timelinesByConversationId, [nextID]: nextConversation },
+        sessionsByConversationId: { ...state.sessionsByConversationId, [nextID]: { ...createEmptyChatSession(nextID), conversation: nextConversation } },
+      }));
+      useWorkspaceStore.setState({ workspace: { id: 'workspace', activeTabId: 'tab', tabs: [{ id: 'tab', type: 'chat', conversationId: nextID }] } as NonNullable<ReturnType<typeof useWorkspaceStore.getState>['workspace']> });
+    });
+    view.rerender(<MemoryRouter><ChatSessionView surface={nextSurface} onSend={(content, media, origin, command) => sendChatSurfaceMessage(nextID, content, media, undefined, origin, command)} /></MemoryRouter>);
+    expect(screen.queryByText('chat.conversationUnavailable')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox')).toHaveValue('');
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'mensagem da nova conversa' } });
+    fireEvent.click(screen.getByRole('button', { name: 'chat.send' }));
+    await act(async () => { await Promise.all(runs); });
+    expect(send).toHaveBeenCalledOnce();
+    expect(send.mock.calls[0][0]).toBe(nextID);
+  });
   it('trocar a tradução durante envio não abandona o recibo nem mantém rascunho já enviado', async () => {
     let release!: () => void;
     send.mockImplementation(() => new Promise(resolve => { release = () => resolve(id); }));
