@@ -10,7 +10,7 @@ import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
 import { ReasoningSection } from './ReasoningSection';
 import { ToolCallsSection } from './ToolCallsSection';
-import { ToolInvocationDialogsProvider, type ToolInvocationDialogCall } from './ToolInvocationDialogs';
+import { ToolInvocationDialogsProvider, displayToolStatus, type ToolInvocationDialogCall } from './ToolInvocationDialogs';
 import type { ToolCallStatus } from '../../types/chat';
 import { useChatMessageLiveState } from './ChatSessionContext';
 import { isAgentMessage } from '../../lib/chatUtils';
@@ -216,7 +216,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       'args' in call ? call.args : ('inputPreview' in call ? call.inputPreview : undefined),
     ),
     (key, values) => t(key, values),
-    ['succeeded', 'completed', 'done'].includes(call.status ?? ''),
+    displayToolStatus(call.status) === 'succeeded',
   )), [dialogCalls, t]);
 
   // Usa editContent externo se está editando
