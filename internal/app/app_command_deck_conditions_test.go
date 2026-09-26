@@ -30,6 +30,49 @@ func TestCommandDeckContextualProfileOnlyKeepsNativeUnlessMixed(t *testing.T) {
 	}
 }
 
+func TestCommandDeckLocalUIConditionsProjectApplicationPageIndependently(t *testing.T) {
+	registry := paletteConditionTestRegistry(t)
+	configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{
+		deckConditionCandidate("settings-page", commandProductShortcutsShowID, commandbindings.Facts{commandbindings.AppPage: "settings"}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conditions := localDeckUIConditions(configuration, registry, deckConditionTestTrigger)
+	if len(conditions) != 1 || !conditions[0].ByPage["settings"].Fallback || conditions[0].ByPage["workspace"].Fallback {
+		t.Fatalf("Deck route projection = %+v", conditions)
+	}
+}
+
+func TestCommandDeckPageOnlyConditionProjectsLivePageSurfaces(t *testing.T) {
+	registry := paletteConditionTestRegistry(t)
+	for _, test := range []struct {
+		id, page, surface string
+	}{{"profiles.activate", "profiles", "profiles"}, {"tasklists.delete", "tasklists", "tasklists"}, {"tasklists.duplicate", "tasklists", "tasklists"}} {
+		t.Run(test.id, func(t *testing.T) {
+			configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{
+				deckConditionCandidate("page-only", test.id, commandbindings.Facts{commandbindings.AppPage: test.page}),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			conditions := contextualDeckUIConditions(configuration, registry, deckConditionTestTrigger)
+			if len(conditions) != 1 {
+				t.Fatalf("page-only condition was not projected: %+v", conditions)
+			}
+			page := conditions[0].ByPage[test.page]
+			if !page.BySurface[test.surface] || page.Fallback || page.BySurface[""] {
+				t.Fatalf("live page/surface branch = %+v", page)
+			}
+			for _, other := range []string{"profiles", "tasklists", "tasklist"} {
+				if other != test.surface && page.BySurface[other] {
+					t.Fatalf("page-only binding leaked to surface %q: %+v", other, page)
+				}
+			}
+		})
+	}
+}
+
 func TestCommandDeckContextualConditionsRegisteredScope(t *testing.T) {
 	registry := paletteConditionTestRegistry(t)
 	count := 0

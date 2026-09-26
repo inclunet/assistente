@@ -1,9 +1,11 @@
 import type { LocalCommandPaletteCondition } from './commandLocalKeyboard';
+import { isAppPage } from './commandAppPage';
 
 export interface LocalCommandPaletteVisualContext {
   readonly surfaceType: string;
   readonly surfaceId: string;
   readonly profile?: string;
+  readonly appPage?: string;
 }
 
 type PlainMap = Record<string, unknown>;
@@ -31,19 +33,26 @@ function isSurfaceIdMap(value: unknown): value is Record<string, Record<string, 
   return Object.entries(value).every(([surfaceType, surfaceIds]) => isSafeKey(surfaceType) && isBooleanMap(surfaceIds));
 }
 
-function validateCondition(value: unknown, seen: Set<object>, depth: number): value is LocalCommandPaletteCondition {
-  if (depth > 1 || !isPlainMap(value) || seen.has(value)) return false;
+type ConditionPosition = 'root' | 'page' | 'profile';
+
+function validateCondition(value: unknown, seen: Set<object>, position: ConditionPosition): value is LocalCommandPaletteCondition {
+  if (!isPlainMap(value) || seen.has(value)) return false;
   seen.add(value);
   const keys = Object.keys(value);
-  if (!keys.every(key => ['commandId', 'bySurface', 'bySurfaceId', 'byProfile', 'fallback'].includes(key))) return false;
+  if (!keys.every(key => ['commandId', 'bySurface', 'bySurfaceId', 'byProfile', 'byPage', 'fallback'].includes(key))) return false;
   if (typeof value.commandId !== 'string' || !COMMAND_ID.test(value.commandId) ||
       !isBooleanMap(value.bySurface) || typeof value.fallback !== 'boolean') return false;
   if (value.bySurfaceId !== undefined && !isSurfaceIdMap(value.bySurfaceId)) return false;
   if (value.byProfile !== undefined) {
-    if (!isPlainMap(value.byProfile)) return false;
+    if (position === 'profile' || !isPlainMap(value.byProfile) || Object.keys(value.byProfile).length === 0) return false;
     for (const [profile, nested] of Object.entries(value.byProfile)) {
-      if (!isSafeKey(profile) || !validateCondition(nested, seen, depth + 1)) return false;
-      if (isPlainMap(nested) && nested.byProfile !== undefined) return false;
+      if (!isSafeKey(profile) || !validateCondition(nested, seen, 'profile')) return false;
+    }
+  }
+  if (value.byPage !== undefined) {
+    if (position !== 'root' || !isPlainMap(value.byPage) || Object.keys(value.byPage).length === 0) return false;
+    for (const [page, nested] of Object.entries(value.byPage)) {
+      if (!isAppPage(page) || !validateCondition(nested, seen, 'page')) return false;
     }
   }
   seen.delete(value);
@@ -58,11 +67,15 @@ function freezeCondition(condition: LocalCommandPaletteCondition): LocalCommandP
   const byProfile = condition.byProfile === undefined ? undefined : Object.freeze(
     Object.fromEntries(Object.entries(condition.byProfile).map(([profile, nested]) => [profile, freezeCondition(nested)])) as Record<string, LocalCommandPaletteCondition>,
   );
+  const byPage = condition.byPage === undefined ? undefined : Object.freeze(
+    Object.fromEntries(Object.entries(condition.byPage).map(([page, nested]) => [page, freezeCondition(nested)])) as Record<string, LocalCommandPaletteCondition>,
+  );
   return Object.freeze({
     commandId: condition.commandId,
     bySurface,
     ...(bySurfaceId ? { bySurfaceId } : {}),
     ...(byProfile ? { byProfile } : {}),
+    ...(byPage ? { byPage } : {}),
     fallback: condition.fallback,
   });
 }
@@ -72,6 +85,11 @@ function hasOwn(map: object, key: string): boolean {
 }
 
 function resolveNode(condition: LocalCommandPaletteCondition, context: LocalCommandPaletteVisualContext): boolean {
+  if (condition.byPage !== undefined) {
+    if (!isAppPage(context.appPage)) return false;
+    const pageBranch = condition.byPage[context.appPage];
+    return pageBranch ? resolveNode(pageBranch, context) : false;
+  }
   // byProfile is an explicit context requirement. Without a profile snapshot
   // there is no safe way to select either a listed profile or its root.
   if (condition.byProfile !== undefined) {
@@ -104,6 +122,7 @@ export function createLocalPaletteConditionResolverFromParsed(
   return (commandId, context) => {
     if (!COMMAND_ID.test(commandId) || !context || !isSafeKey(context.surfaceType) || !isSafeKey(context.surfaceId)) return false;
     if (context.profile !== undefined && !isSafeKey(context.profile)) return false;
+    if (context.appPage !== undefined && !isAppPage(context.appPage)) return false;
     const condition = byCommand.get(commandId);
     return condition ? resolveNode(condition, context) : false;
   };
@@ -114,8 +133,12 @@ export function parseLocalPaletteConditions(raw: unknown): readonly LocalCommand
   if (!Array.isArray(raw)) return null;
   const conditions = new Map<string, LocalCommandPaletteCondition>();
   for (const condition of raw) {
-    if (!validateCondition(condition, new Set(), 0) || conditions.has(condition.commandId)) return null;
-    if (condition.byProfile && Object.values(condition.byProfile).some(nested => nested.commandId !== condition.commandId)) return null;
+    if (!validateCondition(condition, new Set(), 'root') || conditions.has(condition.commandId)) return null;
+    const checkCommandIDs = (nested: LocalCommandPaletteCondition): boolean =>
+      nested.commandId === condition.commandId &&
+      (!nested.byProfile || Object.values(nested.byProfile).every(checkCommandIDs)) &&
+      (!nested.byPage || Object.values(nested.byPage).every(checkCommandIDs));
+    if (!checkCommandIDs(condition)) return null;
     conditions.set(condition.commandId, freezeCondition(condition));
   }
   return Object.freeze([...conditions.values()]);

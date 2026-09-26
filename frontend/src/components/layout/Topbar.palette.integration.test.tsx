@@ -622,7 +622,12 @@ describe('Apresentação do editor — dispatcher e paleta reais', () => {
         shortcut, commandId: 'editor.menu.insert.open', handler: 'local_ui',
       } }, fallback: { shortcut, commandId: 'navigation.data.import.open', handler: 'local_ui' } }],
     });
-    if (context === 'other') locationState.pathname = '/settings';
+    if (context === 'other') {
+      locationState.pathname = '/settings';
+      // Production obtains the route from CommandContextProvider; this fixture
+      // mocks that provider, so it must supply the same trusted route explicitly.
+      paletteContextScope = createCommandContextScope(undefined, locationState.pathname);
+    }
     const view = render(<><Topbar /><section data-testid="context-editor"><textarea aria-label="context text" /></section></>);
     const root = screen.getByTestId('context-editor');
     const open = vi.fn(() => true);
@@ -1057,7 +1062,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     const originalWorkspace = state.workspace.workspace;
     state.workspace.workspace = { id: 'workspace-a', name: 'Workspace', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] };
     Object.assign(state.workspace.workspace, { profile: 'dev' });
-    paletteContextScope = createCommandContextScope();
+    paletteContextScope = createCommandContextScope(undefined, locationState.pathname);
     const root = document.createElement('div');
     const source = document.createElement('textarea');
     root.append(source);

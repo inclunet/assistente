@@ -8,6 +8,7 @@ export interface LocalCommandKeyboardContext {
   surfaceId: string;
   surfaceType: string;
   profile?: string;
+  appPage?: import('./commandAppPage').AppPage;
   isCurrent?: () => boolean;
 }
 
@@ -79,11 +80,16 @@ function clonePaletteCondition(condition: LocalCommandPaletteCondition): LocalCo
   if (byProfile) {
     for (const [profile, nested] of Object.entries(condition.byProfile!)) byProfile[profile] = clonePaletteCondition(nested);
   }
+  const byPage = condition.byPage === undefined ? undefined : Object.create(null) as Record<string, LocalCommandPaletteCondition>;
+  if (byPage) {
+    for (const [page, nested] of Object.entries(condition.byPage!)) byPage[page] = clonePaletteCondition(nested);
+  }
   return {
     commandId: condition.commandId,
     bySurface: { ...condition.bySurface },
     ...(bySurfaceId ? { bySurfaceId } : {}),
     ...(byProfile ? { byProfile } : {}),
+    ...(byPage ? { byPage } : {}),
     fallback: condition.fallback,
   };
 }
@@ -124,6 +130,10 @@ function cloneContextualBinding(entry: LocalCommandContextualBinding): LocalComm
       byProfile[profile] = cloneContextualBinding(projection);
     }
   }
+  const byPage = entry.byPage === undefined ? undefined : Object.create(null) as NonNullable<typeof entry.byPage>;
+  if (byPage) {
+    for (const [page, projection] of Object.entries(entry.byPage!)) byPage[page] = cloneContextualBinding(projection);
+  }
   return {
     ...entry,
     shortcut: cloneKeyboardTrigger(entry.shortcut),
@@ -131,6 +141,7 @@ function cloneContextualBinding(entry: LocalCommandContextualBinding): LocalComm
     ...(bySurfaceId ? { bySurfaceId } : {}),
     ...(sequenceFallbacks ? { sequenceFallbacks } : {}),
     ...(byProfile ? { byProfile } : {}),
+    ...(byPage ? { byPage } : {}),
     fallback: cloneKeyboardBinding(entry.fallback),
   };
 }
@@ -162,6 +173,7 @@ export function createCommandLocalKeyboardWailsPort(
         surfaceId: context.surfaceId,
         surfaceType: context.surfaceType,
         ...(context.profile !== undefined ? { profile: context.profile } : {}),
+        ...(context.appPage !== undefined ? { appPage: context.appPage } : {}),
       });
     },
     beginLocalCommandUIKey: async (generation: string, shortcut: CommandKeyboardTrigger, repeat: boolean, context?: LocalCommandKeyboardContext) => {
@@ -173,6 +185,7 @@ export function createCommandLocalKeyboardWailsPort(
         surfaceId: context.surfaceId,
         surfaceType: context.surfaceType,
         ...(context.profile !== undefined ? { profile: context.profile } : {}),
+        ...(context.appPage !== undefined ? { appPage: context.appPage } : {}),
       });
     },
     resetLocalCommandKeyboard: async (generation: string) => {

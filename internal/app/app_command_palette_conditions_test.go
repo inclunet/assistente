@@ -85,6 +85,27 @@ func TestContextualLayerPaletteConditionsSchemaAndClosedClass(t *testing.T) {
 	}
 }
 
+func TestLocalPaletteConditionsProjectClosedApplicationPages(t *testing.T) {
+	registry := paletteConditionTestRegistry(t)
+	const identity = "palette:" + commandProductShortcutsShowID
+	candidate := commandbindings.Candidate{ID: "settings-only", Trigger: identity, CommandID: commandProductShortcutsShowID,
+		ArgumentsKey: "{}", ExecutionScopeKey: "global", Scope: commandbindings.Application, Enabled: true, LayerActive: true,
+		Condition: commandbindings.Facts{commandbindings.AppPage: "settings"}}
+	configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{candidate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conditions := localPaletteUIConditions(configuration, registry)
+	if len(conditions) != 1 || conditions[0].ByPage["settings"].Fallback != true || conditions[0].ByPage["workspace"].Fallback {
+		t.Fatalf("app.page availability projection = %+v", conditions)
+	}
+	clone := cloneLocalCommandPaletteConditions(conditions)
+	clone[0].ByPage["settings"] = LocalCommandPaletteCondition{}
+	if !conditions[0].ByPage["settings"].Fallback {
+		t.Fatal("page branches share memory with cloned context projection")
+	}
+}
+
 func TestContextualPagePaletteConditionsClosedScope(t *testing.T) {
 	registry := paletteConditionTestRegistry(t)
 	pageCount, workspaceCount := 0, 0

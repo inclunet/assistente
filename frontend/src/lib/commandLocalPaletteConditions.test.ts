@@ -34,6 +34,47 @@ describe('local palette conditions', () => {
     expect(resolve('workspace.open', context({ profile: 'focused' }))).toBe(false);
   });
 
+  it('resolves the application page as its own dimension and fails closed when missing or unknown', () => {
+    const resolve = createLocalPaletteConditionResolver([{
+      commandId: 'workspace.open', bySurface: {}, fallback: false,
+      byPage: {
+        settings: { commandId: 'workspace.open', bySurface: {}, fallback: true },
+        workspace: { commandId: 'workspace.open', bySurface: { chat: false }, fallback: false },
+      },
+    }]);
+    expect(resolve('workspace.open', context({ appPage: 'settings' }))).toBe(true);
+    expect(resolve('workspace.open', context({ appPage: 'workspace' }))).toBe(false);
+    expect(resolve('workspace.open', context())).toBe(false);
+    expect(resolve('workspace.open', context({ appPage: 'not-a-page' }))).toBe(false);
+  });
+
+  it('resolves the approved page then profile tree without allowing profile nesting', () => {
+    const resolve = createLocalPaletteConditionResolver([{
+      commandId: 'tasklists.delete', bySurface: {}, fallback: false,
+      byPage: {
+        tasklists: {
+          commandId: 'tasklists.delete', bySurface: {}, fallback: false,
+          byProfile: {
+            focused: { commandId: 'tasklists.delete', bySurface: { tasklists: true }, fallback: false },
+          },
+        },
+        workspace: { commandId: 'tasklists.delete', bySurface: { tasklist: false }, fallback: false },
+      },
+    }]);
+    expect(resolve('tasklists.delete', context({ appPage: 'tasklists', profile: 'focused', surfaceType: 'tasklists' }))).toBe(true);
+    expect(resolve('tasklists.delete', context({ appPage: 'tasklists', profile: 'other', surfaceType: 'tasklists' }))).toBe(false);
+    expect(resolve('tasklists.delete', context({ appPage: 'workspace', profile: 'focused', surfaceType: 'tasklists' }))).toBe(false);
+    expect(resolve('tasklists.delete', context({ profile: 'focused', surfaceType: 'tasklists' }))).toBe(false);
+  });
+
+  it('rejects a malformed page branch instead of using the root fallback', () => {
+    const resolve = createLocalPaletteConditionResolver([{
+      commandId: 'workspace.open', bySurface: { chat: true }, fallback: true,
+      byPage: { 'settings.commands': { commandId: 'workspace.open', bySurface: { chat: true }, fallback: true } },
+    }]);
+    expect(resolve('workspace.open', context({ appPage: 'settings' }))).toBe(false);
+  });
+
   it('uses a profile-specific surface-id branch for an unlisted profile', () => {
     const resolve = createLocalPaletteConditionResolver([{
       commandId: 'workspace.open', bySurface: { chat: false }, bySurfaceId: { chat: { 'tab-a': true } },

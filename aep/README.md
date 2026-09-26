@@ -22,6 +22,13 @@ externo na toolbar, sem alteração do motor de execução ou da autorização.
 O mantenedor confirmou a correção física do bloqueio do Deck antes do merge.
 **In Progress; 83 I / 1 P / 0 N**; os demais aceites não são inferidos desse relato.
 
+AEP-0103, seção166 (25/09/2026): a apresentação física do Deck é efêmera,
+isolada por geração e neutra para bindings `app.page` quando falta snapshot;
+bindings independentes de página permanecem. Clear/expiração deixam os títulos
+de página neutros e não alteram autorização. **In Progress; 83 I / 1 P / 0 N**.
+Revisão independente final Beauvoir: zero blockers. Aceite físico/NVDA segue
+pendente.
+
 AEP-0103, seção162 (25/09/2026): diagnóstico nativo reproduziu o bloqueio do
 Deck após navegar; correção do refresh de projeção e preservação do mapa
 idêntico validada em 18 trocas Wails com HID simulado. **In Progress;

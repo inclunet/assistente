@@ -28,7 +28,8 @@ export function selectContextualDeckCommand(raw: unknown, context: LocalCommandP
 type DeckWindow = NonNullable<CommandUIExecutionWailsOptions['target']> & { go?: { app?: { App?: {
   BeginContextualDeckUICommand?: (offerID: string, generation: string,
     observed: ContextualPaletteCommandLease['observed']) => Promise<UICommandBeginResponse>;
-  BeginContextualDeckPageUICommand?: (offerID: string, generation: string, surfaceType: string, profile: string) => Promise<UICommandBeginResponse>;
+  BeginContextualDeckPageUICommand?: (offerID: string, generation: string,
+    observed: ContextualPaletteCommandLease['observed']) => Promise<UICommandBeginResponse>;
 } } } };
 
 /** Physical source; no palette source, arguments, serial or target cross Begin. */
@@ -58,7 +59,9 @@ export function createContextualDeckLease(options: {
         const begin = app?.BeginContextualDeckPageUICommand;
         if (typeof begin !== 'function') throw new Error('Contextual Deck page API unavailable');
         if (!isContextualPagePaletteSurface(commandId, observed.surfaceType) || Date.now() >= expires || !options.isCurrent()) throw new Error('deck-offer-stale');
-        pending = begin.call(app, offerId, generation, observed.surfaceType, observed.profile ?? '');
+        pending = begin.call(app, offerId, generation, {
+          surfaceId: '', surfaceType: observed.surfaceType, appPage: observed.appPage, profile: observed.profile ?? '',
+        });
       } else {
         const begin = app?.BeginContextualDeckUICommand;
         if (typeof begin !== 'function') throw new Error('Contextual Deck API unavailable');

@@ -93,6 +93,18 @@ const EMPTY_CONDITION: CommandCondition = { version: 1, clauses: [] };
 
 const CONDITION_FIELDS: CommandConditionField[] = [
   { id: 'app.focused', label: 'commandSettings.conditionFields.appFocused', valueKind: 'boolean' },
+  { id: 'app.page', label: 'commandSettings.conditionFields.appPage', valueKind: 'enum', options: [
+    { value: 'workspace', label: 'commandSettings.conditionValues.pageWorkspace' },
+    { value: 'settings', label: 'commandSettings.conditionValues.pageSettings' },
+    { value: 'profiles', label: 'commandSettings.conditionValues.pageProfiles' },
+    { value: 'history', label: 'commandSettings.conditionValues.pageHistory' },
+    { value: 'help', label: 'commandSettings.conditionValues.pageHelp' },
+    { value: 'about', label: 'commandSettings.conditionValues.pageAbout' },
+    { value: 'update', label: 'commandSettings.conditionValues.pageUpdate' },
+    { value: 'tasklists', label: 'commandSettings.conditionValues.pageTasklists' },
+    { value: 'jobs', label: 'commandSettings.conditionValues.pageJobs' },
+    { value: 'memories', label: 'commandSettings.conditionValues.pageMemories' },
+  ] },
   { id: 'surface.type', label: 'commandSettings.conditionFields.surfaceType', valueKind: 'enum', options: [
     { value: 'chat', label: 'commandSettings.conditionValues.chat' },
     { value: 'editor', label: 'commandSettings.conditionValues.editor' },

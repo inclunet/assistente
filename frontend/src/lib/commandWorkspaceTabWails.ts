@@ -7,7 +7,7 @@ import { isContextualPagePaletteCommand, isContextualPagePaletteSurface } from '
 interface ContextualVisualCommandLease {
   readonly generation: string;
   readonly commandId: string;
-  readonly observed: { readonly surfaceType: string; readonly surfaceId: string; readonly profile?: string };
+  readonly observed: { readonly surfaceType: string; readonly surfaceId: string; readonly appPage?: import('./commandAppPage').AppPage; readonly profile?: string };
   isCurrent(): boolean;
   /** Only file commands may pin an authorized continuation before native UI. */
   prepareNativeFileContinuation?(): (() => boolean) | undefined;
@@ -38,6 +38,7 @@ export function createCommandWorkspaceTabWailsPort(
   const generation = lease?.generation;
   const commandId = lease?.commandId;
   const observed = lease ? Object.freeze({ surfaceType: lease.observed.surfaceType, surfaceId: lease.observed.surfaceId,
+    ...(lease.observed.appPage !== undefined ? { appPage: lease.observed.appPage } : {}),
     ...(lease.observed.profile !== undefined ? { profile: lease.observed.profile } : {}) }) : undefined;
   return {
     ...createCommandUIExecutionWailsPort(options),

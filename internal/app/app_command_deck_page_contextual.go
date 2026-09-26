@@ -49,9 +49,9 @@ func (p *commandProductRuntime) withContextualDeckPageSource(ctx context.Context
 // BeginContextualDeckPageUICommand consumes the original physical occurrence.
 // The UI supplies its admitted page domain, never a command or hardware target.
 // Selected object ownership and revision are verified by PreparePageMutationCommand.
-func (a *App) BeginContextualDeckPageUICommand(offerID, generation, surfaceType, profile string) (result commandui.Reservation, err error) {
+func (a *App) BeginContextualDeckPageUICommand(offerID, generation string, observed LocalCommandKeyboardContext) (result commandui.Reservation, err error) {
 	defer func() { err = safeCommandSettingsError(err) }()
-	admission, err := a.consumeContextualDeckOfferForSurface(offerID, generation, LocalCommandKeyboardContext{SurfaceType: surfaceType, Profile: profile}, true)
+	admission, err := a.consumeContextualDeckOfferForSurface(offerID, generation, observed, true)
 	if err != nil {
 		return result, err
 	}
@@ -73,6 +73,16 @@ func deckPageCommandSurface(commandID, surface string) bool {
 
 func (p *commandProductRuntime) captureDeckPageContext(observed LocalCommandKeyboardContext) (*localCommandKeyboardContextProof, error) {
 	if observed.SurfaceID != "" || (observed.SurfaceType != "profiles" && observed.SurfaceType != "tasklists" && observed.SurfaceType != "tasklist") {
+		return nil, commandexecution.ErrDenied
+	}
+	if observed.AppPage != "" && !commandbindings.IsAppPage(observed.AppPage) {
+		return nil, commandexecution.ErrDenied
+	}
+	expectedPage := observed.SurfaceType
+	if observed.SurfaceType == "tasklist" {
+		expectedPage = "workspace"
+	}
+	if observed.AppPage != "" && observed.AppPage != expectedPage {
 		return nil, commandexecution.ErrDenied
 	}
 	snapshot, err := p.workspaceMgr.CommandSnapshot()
@@ -97,6 +107,12 @@ func deckPageCommandFacts(proof *localCommandKeyboardContextProof, required []co
 				return commandOriginContext{}, commandexecution.ErrDenied
 			}
 			facts[field] = profile
+		case commandbindings.AppPage:
+			if !commandbindings.IsAppPage(proof.observed.AppPage) || proof.observed.AppPage != proof.observed.SurfaceType &&
+				!(proof.observed.SurfaceType == "tasklist" && proof.observed.AppPage == "workspace") {
+				return commandOriginContext{}, commandexecution.ErrDenied
+			}
+			facts[field] = proof.observed.AppPage
 		default:
 			return commandOriginContext{}, commandexecution.ErrDenied
 		}

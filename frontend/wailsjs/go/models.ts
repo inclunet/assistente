@@ -2840,6 +2840,7 @@ export namespace app {
 	    surfaceId: string;
 	    surfaceType: string;
 	    profile?: string;
+	    appPage?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new LocalCommandKeyboardContext(source);
@@ -2850,6 +2851,7 @@ export namespace app {
 	        this.surfaceId = source["surfaceId"];
 	        this.surfaceType = source["surfaceType"];
 	        this.profile = source["profile"];
+	        this.appPage = source["appPage"];
 	    }
 	}
 	export class LocalCommandKeyboardContextualBinding {
@@ -2858,6 +2860,7 @@ export namespace app {
 	    bySurface: Record<string, LocalCommandKeyboardBinding>;
 	    bySurfaceId?: Record<string, any>;
 	    byProfile?: Record<string, LocalCommandKeyboardContextualBinding>;
+	    byPage?: Record<string, LocalCommandKeyboardContextualBinding>;
 	    sequenceFallbacks?: Record<string, any>;
 	    fallback?: LocalCommandKeyboardBinding;
 	
@@ -2872,6 +2875,7 @@ export namespace app {
 	        this.bySurface = this.convertValues(source["bySurface"], LocalCommandKeyboardBinding, true);
 	        this.bySurfaceId = source["bySurfaceId"];
 	        this.byProfile = this.convertValues(source["byProfile"], LocalCommandKeyboardContextualBinding, true);
+	        this.byPage = this.convertValues(source["byPage"], LocalCommandKeyboardContextualBinding, true);
 	        this.sequenceFallbacks = source["sequenceFallbacks"];
 	        this.fallback = this.convertValues(source["fallback"], LocalCommandKeyboardBinding);
 	    }
@@ -2899,6 +2903,7 @@ export namespace app {
 	    bySurface: Record<string, boolean>;
 	    bySurfaceId?: Record<string, any>;
 	    byProfile?: Record<string, LocalCommandPaletteCondition>;
+	    byPage?: Record<string, LocalCommandPaletteCondition>;
 	    fallback: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -2911,6 +2916,7 @@ export namespace app {
 	        this.bySurface = source["bySurface"];
 	        this.bySurfaceId = source["bySurfaceId"];
 	        this.byProfile = this.convertValues(source["byProfile"], LocalCommandPaletteCondition, true);
+	        this.byPage = this.convertValues(source["byPage"], LocalCommandPaletteCondition, true);
 	        this.fallback = source["fallback"];
 	    }
 	

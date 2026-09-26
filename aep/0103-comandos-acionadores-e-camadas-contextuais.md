@@ -30,6 +30,29 @@ da configuração e o mapa local vigente. Duas sequências de nove trocas
 passaram após a correção, sem Alt+Tab. Não substitui hardware físico/NVDA
 nem altera a contagem **83 I / 1 P / 0 N**.
 
+**Contexto de rota no teclado local — seção166 (25/09/2026):** o ingresso Go
+aceita a surface da toolbar somente com o par canônico de página: `profiles`,
+`tasklists` e `history` mantêm seus tipos de superfície legados; as demais
+rotas usam `toolbar`. Abas de workspace continuam exigindo correspondência com
+o snapshot ativo, e não podem declarar página de rota. Na resolução, o tipo de
+superfície de rota vem desse frame canônico; para abas, vem do snapshot. Isso
+corrige o desacordo entre captura e projeção sem ampliar a projeção durável para
+superfícies de rota. A apresentação física do Deck por página lê agora um
+snapshot efêmero publicado pelo frame autenticado: apenas título/ícone seguem a
+página atual, com TTL, revisão monotônica e escopo de sessão, workspace e
+geração do mapa. Blur, troca de identidade/rota e reset do mapa limpam a
+projeção; publicação não persiste dados nem participa da autorização/execução,
+que continua validando o frame vivo.
+
+**Apresentação por página sem snapshot — seção166 (25/09/2026):** blur de
+elementos internos não limpa a lease da janela; clear é isolado por geração e
+um clear atrasado não avança o high-water da geração vigente. Sem página viva,
+o mapa visual não agrega bindings condicionais de rotas distintas: mantém
+somente bindings resolvidos sem `app.page`, ou deixa título/ícone neutros.
+Clear e expiração foram exercitados até o título renderizado em `deckMap`.
+Nenhuma regra de autorização ou execução foi alterada. Revisão independente
+final de Beauvoir: três pontos verificados, zero blockers.
+
 **Qualificação no CI — seção161 (25/09/2026):** após timeout acumulado,
 o grupo race de contexto foi subdividido em Deck, paleta, workspace e base,
 preservando todos os testes, flags, limites e agregador obrigatório. A nova

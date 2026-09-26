@@ -28,57 +28,61 @@ import (
 )
 
 type commandProductRuntime struct {
-	app                     *App
-	principal               auth.LocalSessionPrincipal
-	sessionSvc              *auth.SessionService
-	credMgr                 *credentials.Manager
-	workspaceMgr            *workspace.Manager
-	epochs                  *commandsecurity.EpochService
-	host                    *commandexecution.HostState
-	facts                   *commandcontext.FactBus
-	workspaceID             string
-	service                 *commandexecution.Service
-	agentConfig             commandexecution.Config
-	keyboardService         *commandexecution.Service
-	globalExecution         *commandGlobalExecution
-	deckExecution           *commandDeckExecution
-	deckCancel              context.CancelFunc
-	manualExpiryCancel      context.CancelFunc
-	manualExpiryWake        chan struct{}
-	manualAuthorityEpoch    commandsecurity.EpochSnapshot
-	manualAuthorityWatch    context.Context
-	manualAuthorityRelease  func()
-	deckLocale              string
-	deckDriver              commanddeck.Driver
-	deckCapture             *commandDeckCapture
-	deckHeld                map[string]bool
-	deckDown                map[string]bool
-	deckCaptureGeneration   uint64
-	deckPresentedStates     map[string]string
-	keyboardMu              sync.Mutex
-	keyboardMap             *localCommandKeyboardState
-	keyboardEvents          map[string]localCommandKeyboardOccurrence
-	registry                *commandcatalog.Registry
-	resolutionMu            sync.Mutex
-	resolutionConfiguration *commandbindings.Configuration
-	resolutionCache         *commandcontext.ResolutionCache
-	resolutionStopped       bool
-	persistedConfigMu       sync.RWMutex
-	persistedConfigStore    *commandconfig.Store
-	persistedConfigSnapshot commandconfig.Snapshot
-	hasPersistedSnapshot    bool
-	bridge                  *commandbridge.Bridge
-	mu                      sync.Mutex
-	projectionMu            sync.Mutex
-	pending                 map[string]context.CancelFunc
-	ui                      *commandui.Broker
-	uiRuns                  map[string]*commandUIRun
-	closed                  bool
-	workers                 sync.WaitGroup
-	closeOnce               sync.Once
-	done                    chan struct{}
-	capability              commandbridge.Capability
-	foregroundReader        commandforeground.Reader
+	app                                    *App
+	principal                              auth.LocalSessionPrincipal
+	sessionSvc                             *auth.SessionService
+	credMgr                                *credentials.Manager
+	workspaceMgr                           *workspace.Manager
+	epochs                                 *commandsecurity.EpochService
+	host                                   *commandexecution.HostState
+	facts                                  *commandcontext.FactBus
+	workspaceID                            string
+	service                                *commandexecution.Service
+	agentConfig                            commandexecution.Config
+	keyboardService                        *commandexecution.Service
+	globalExecution                        *commandGlobalExecution
+	deckExecution                          *commandDeckExecution
+	deckCancel                             context.CancelFunc
+	manualExpiryCancel                     context.CancelFunc
+	manualExpiryWake                       chan struct{}
+	manualAuthorityEpoch                   commandsecurity.EpochSnapshot
+	manualAuthorityWatch                   context.Context
+	manualAuthorityRelease                 func()
+	deckLocale                             string
+	deckDriver                             commanddeck.Driver
+	deckCapture                            *commandDeckCapture
+	deckHeld                               map[string]bool
+	deckDown                               map[string]bool
+	deckCaptureGeneration                  uint64
+	deckPresentedStates                    map[string]string
+	deckPagePresentationMu                 sync.Mutex
+	deckPagePresentation                   *commandDeckPagePresentationSnapshot
+	deckPagePresentationRevisionGeneration string
+	deckPagePresentationRev                int64
+	keyboardMu                             sync.Mutex
+	keyboardMap                            *localCommandKeyboardState
+	keyboardEvents                         map[string]localCommandKeyboardOccurrence
+	registry                               *commandcatalog.Registry
+	resolutionMu                           sync.Mutex
+	resolutionConfiguration                *commandbindings.Configuration
+	resolutionCache                        *commandcontext.ResolutionCache
+	resolutionStopped                      bool
+	persistedConfigMu                      sync.RWMutex
+	persistedConfigStore                   *commandconfig.Store
+	persistedConfigSnapshot                commandconfig.Snapshot
+	hasPersistedSnapshot                   bool
+	bridge                                 *commandbridge.Bridge
+	mu                                     sync.Mutex
+	projectionMu                           sync.Mutex
+	pending                                map[string]context.CancelFunc
+	ui                                     *commandui.Broker
+	uiRuns                                 map[string]*commandUIRun
+	closed                                 bool
+	workers                                sync.WaitGroup
+	closeOnce                              sync.Once
+	done                                   chan struct{}
+	capability                             commandbridge.Capability
+	foregroundReader                       commandforeground.Reader
 }
 
 // CommandExecutionResult mantém o histórico redigido. Output, quando presente,
@@ -241,6 +245,7 @@ func (p *commandProductRuntime) Cancel(_ context.Context, request commandbridge.
 
 func (p *commandProductRuntime) Shutdown(ctx context.Context) error {
 	p.closeOnce.Do(func() {
+		p.clearDeckPagePresentation("")
 		p.mu.Lock()
 		p.closed = true
 		// Invalidate physical Deck generations before Wait begins. This closes

@@ -1128,7 +1128,7 @@ describe('CommandSettingsPage', () => {
     await revealAdvancedOptionsIfNeeded();
     fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
     const field = screen.getByLabelText('commandSettings.conditions.field');
-    expect(within(field).getAllByRole('option').map(option => (option as HTMLOptionElement).value)).toEqual(['app.focused', 'surface.type', 'profile']);
+    expect(within(field).getAllByRole('option').map(option => (option as HTMLOptionElement).value)).toEqual(['app.focused', 'app.page', 'surface.type', 'profile']);
     fireEvent.change(field, { target: { value: 'surface.type' } });
     const surface = commandId.startsWith('profiles.') ? 'profiles' : 'tasklists';
     fireEvent.change(screen.getByLabelText('commandSettings.conditions.value'), { target: { value: surface } });

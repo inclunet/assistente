@@ -8,8 +8,17 @@ import { TERMINAL_INTERRUPT_COMMAND } from './commandTerminalOperation';
 const condition = (clauses: CommandCondition['clauses']): CommandCondition => ({ version: 1, clauses });
 const tabs = [{ id: 'chat-one', type: 'chat' }, { id: 'editor-one', type: 'editor' }];
 describe('condições operacionais por origem', () => {
+  it('limita app.page às origens com captura de rota UI confiável', () => {
+    expect(commandConditionSupportedByOrigin('keyboard.local', 'app.page', false)).toBe(true);
+    expect(commandConditionSupportedByOrigin('palette', 'app.page', true)).toBe(true);
+    expect(commandConditionSupportedByOrigin('palette', 'app.page', false, 'tasklists.delete')).toBe(true);
+    expect(commandConditionSupportedByOrigin('streamdeck.key', 'app.page', true)).toBe(true);
+    expect(commandConditionSupportedByOrigin('streamdeck.key', 'app.page', false, 'profiles.delete')).toBe(true);
+    expect(commandConditionSupportedByOrigin('streamdeck.key', 'app.page', false, 'workspace.list')).toBe(false);
+    expect(commandConditionSupportedByOrigin('keyboard.global', 'app.page', false)).toBe(false);
+  });
   it.each(['editor.mermaid.apply', 'editor.mermaid.remove'])('oferece quatro campos visuais Deck para %s', (id) => {
-    for (const field of ['app.focused', 'surface.type', 'surface.id', 'profile']) {
+    for (const field of ['app.focused', 'app.page', 'surface.type', 'surface.id', 'profile']) {
       expect(commandConditionSupportedByOrigin('streamdeck.key', field, false, id)).toBe(true);
     }
     for (const field of ['foreground.process', 'device', 'unknown']) {
@@ -41,7 +50,7 @@ describe('condições operacionais por origem', () => {
   it.each(['tasklists.duplicate', 'tasklists.delete', 'tasklists.clear', 'profiles.duplicate', 'profiles.delete', 'profiles.activate'])('limita página %s a foco/tipo/perfil inclusive em supressão', (id) => {
     const target = commandConditionTargetID('palette', '', JSON.stringify({ version: 1, selection: id }), true);
     expect(target).toBe(id);
-    for (const field of ['app.focused', 'surface.type', 'profile']) {
+    for (const field of ['app.focused', 'app.page', 'surface.type', 'profile']) {
       expect(commandConditionSupportedByOrigin('palette', field, false, target)).toBe(true);
       expect(commandConditionSupportedByOrigin('streamdeck.key', field, false, id)).toBe(true);
     }
@@ -83,7 +92,7 @@ describe('condições operacionais por origem', () => {
     expect(commandConditionTargetID('palette', 'workspace.list', '{}', false)).toBe('workspace.list');
   });
   it('oferece condições visuais na paleta somente para apresentação local', () => {
-    for (const field of ['app.focused', 'surface.type', 'surface.id', 'profile']) {
+    for (const field of ['app.focused', 'app.page', 'surface.type', 'surface.id', 'profile']) {
       expect(commandConditionSupportedByOrigin('palette', field, true)).toBe(true);
       expect(commandConditionSupportedByOrigin('streamdeck.key', field, true)).toBe(true);
       expect(commandConditionSupportedByOrigin('keyboard.global', field, true)).toBe(false);

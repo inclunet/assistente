@@ -620,6 +620,12 @@ func commandSettingsConditionFacts(condition *CommandSettingsCondition) (command
 				return nil, commandexecution.ErrInvalidRequest
 			}
 			facts[field] = strings.ToLower(strings.TrimSpace(value))
+		case commandbindings.AppPage:
+			value, ok := clause.Value.(string)
+			if !ok || !commandbindings.IsAppPage(value) {
+				return nil, commandexecution.ErrInvalidRequest
+			}
+			facts[field] = value
 		case commandbindings.SurfaceType, commandbindings.SurfaceID, commandbindings.Profile, commandbindings.Device:
 			value, ok := clause.Value.(string)
 			if !ok || strings.TrimSpace(value) == "" {
@@ -712,19 +718,19 @@ func commandSettingsBindingTargetID(row commandconfig.Binding) string {
 
 func commandSettingsBindingSupportsField(row commandconfig.Binding, class commandExecutionClass, field commandbindings.Field) bool {
 	if row.TriggerType == "streamdeck.key" && isContextualPagePaletteCommand(commandSettingsBindingTargetID(row)) {
-		return field == commandbindings.AppFocused || field == commandbindings.SurfaceType || field == commandbindings.Profile
+		return field == commandbindings.AppFocused || field == commandbindings.AppPage || field == commandbindings.SurfaceType || field == commandbindings.Profile
 	}
 	if row.TriggerType == "streamdeck.key" && isCommandLayerAction(commandSettingsBindingTargetID(row)) && (field == commandbindings.Process || field == commandbindings.Device) {
 		return true
 	}
 	if row.TriggerType == "streamdeck.key" && isContextualDeckUICommand(commandSettingsBindingTargetID(row)) {
-		return field == commandbindings.AppFocused || field == commandbindings.SurfaceType || field == commandbindings.SurfaceID || field == commandbindings.Profile
+		return field == commandbindings.AppFocused || field == commandbindings.AppPage || field == commandbindings.SurfaceType || field == commandbindings.SurfaceID || field == commandbindings.Profile
 	}
 	if row.TriggerType == "palette" && isContextualPagePaletteCommand(commandSettingsBindingTargetID(row)) {
-		return field == commandbindings.AppFocused || field == commandbindings.SurfaceType || field == commandbindings.Profile
+		return field == commandbindings.AppFocused || field == commandbindings.AppPage || field == commandbindings.SurfaceType || field == commandbindings.Profile
 	}
-	if row.TriggerType == "palette" && (isContextualPaletteWorkspaceCommand(commandSettingsBindingTargetID(row)) || isCommandLayerAction(commandSettingsBindingTargetID(row))) {
-		return field == commandbindings.AppFocused || field == commandbindings.SurfaceType || field == commandbindings.SurfaceID || field == commandbindings.Profile
+	if row.TriggerType == "palette" && (class == commandExecutionLocalUI || isContextualPaletteWorkspaceCommand(commandSettingsBindingTargetID(row)) || isCommandLayerAction(commandSettingsBindingTargetID(row))) {
+		return field == commandbindings.AppFocused || field == commandbindings.AppPage || field == commandbindings.SurfaceType || field == commandbindings.SurfaceID || field == commandbindings.Profile
 	}
 	return commandSettingsOriginSupportsFieldForClass(row.TriggerType, class, field)
 }
@@ -757,17 +763,17 @@ func commandSettingsDeckLayerMixedDiagnostic(row commandconfig.Binding) CommandS
 func commandSettingsOriginSupportsFieldForClass(origin string, class commandExecutionClass, field commandbindings.Field) bool {
 	switch origin {
 	case "keyboard.local":
-		return field == commandbindings.AppFocused || field == commandbindings.SurfaceType || field == commandbindings.SurfaceID || field == commandbindings.Profile
+		return field == commandbindings.AppFocused || field == commandbindings.AppPage || field == commandbindings.SurfaceType || field == commandbindings.SurfaceID || field == commandbindings.Profile
 	case "palette":
 		if class == commandExecutionLocalUI {
-			return field == commandbindings.AppFocused || field == commandbindings.SurfaceType || field == commandbindings.SurfaceID || field == commandbindings.Profile
+			return field == commandbindings.AppFocused || field == commandbindings.AppPage || field == commandbindings.SurfaceType || field == commandbindings.SurfaceID || field == commandbindings.Profile
 		}
 		return field == commandbindings.Profile
 	case "keyboard.global":
 		return field == commandbindings.Profile || field == commandbindings.Process
 	case "streamdeck.key":
 		if class == commandExecutionLocalUI {
-			return field == commandbindings.AppFocused || field == commandbindings.SurfaceType || field == commandbindings.SurfaceID || field == commandbindings.Profile
+			return field == commandbindings.AppFocused || field == commandbindings.AppPage || field == commandbindings.SurfaceType || field == commandbindings.SurfaceID || field == commandbindings.Profile
 		}
 		return field == commandbindings.Profile || field == commandbindings.Process || field == commandbindings.Device
 	default:
@@ -922,7 +928,7 @@ func commandSettingsRuleDiagnostics(rule commandactivation.Rule) []CommandSettin
 		return []CommandSettingsDiagnostic{{Code: "invalid_activation_condition", Severity: "error", ResourceID: rule.ID, Message: "A condição da camada não pôde ser validada; a camada não será ativada por ela."}}
 	}
 	for _, field := range fields {
-		if field != string(commandbindings.SurfaceType) && field != string(commandbindings.SurfaceID) && field != string(commandbindings.AppFocused) && field != string(commandbindings.Profile) && field != string(commandbindings.Process) && field != string(commandbindings.Device) {
+		if field != string(commandbindings.SurfaceType) && field != string(commandbindings.SurfaceID) && field != string(commandbindings.AppFocused) && field != string(commandbindings.AppPage) && field != string(commandbindings.Profile) && field != string(commandbindings.Process) && field != string(commandbindings.Device) {
 			return []CommandSettingsDiagnostic{{Code: "unsupported_activation_condition", Severity: "error", ResourceID: rule.ID, Message: "Esta condição de ativação não é suportada por todas as origens; confira o diagnóstico de cada acionador."}}
 		}
 	}

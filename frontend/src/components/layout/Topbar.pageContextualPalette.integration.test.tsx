@@ -179,7 +179,9 @@ describe('Page palette — production hook/provider, executor and Wails port', (
       expect(surfaceId).toBeTruthy(); expect(surfaceId).not.toBe('tab-a');
       await act(async () => emitDeckPage());
       await waitFor(() => expect(state.succeeded).toHaveBeenCalledOnce());
-      expect(api.BeginContextualDeckPageUICommand).toHaveBeenCalledExactlyOnceWith('page-offer', 'page-map', state.pathname.slice(1), 'focused');
+      expect(api.BeginContextualDeckPageUICommand).toHaveBeenCalledExactlyOnceWith('page-offer', 'page-map', {
+        surfaceId: '', surfaceType: state.pathname.slice(1), appPage: state.pathname.slice(1), profile: 'focused',
+      });
       expect(api.PreparePageMutationCommand).toHaveBeenCalledExactlyOnceWith('ticket', request);
       expect(api.CommitWorkspaceTabCommand).toHaveBeenCalledExactlyOnceWith('ticket', 'handoff');
       expect(api.BeginContextualDeckUICommand).not.toHaveBeenCalled(); expect(api.BeginContextualPagePaletteUICommand).not.toHaveBeenCalled(); expect(api.BeginUICommand).not.toHaveBeenCalled();
@@ -196,7 +198,9 @@ describe('Page palette — production hook/provider, executor and Wails port', (
       if (id === 'tasklists.delete') expect(api.BeginContextualDeckPageUICommand).not.toHaveBeenCalled();
       else {
         await waitFor(() => expect(state.succeeded).toHaveBeenCalledOnce());
-        expect(api.BeginContextualDeckPageUICommand).toHaveBeenCalledExactlyOnceWith('page-offer', 'page-map', 'tasklist', 'focused');
+        expect(api.BeginContextualDeckPageUICommand).toHaveBeenCalledExactlyOnceWith('page-offer', 'page-map', {
+          surfaceId: '', surfaceType: 'tasklist', appPage: 'workspace', profile: 'focused',
+        });
       }
       expect(api.BeginContextualDeckUICommand).not.toHaveBeenCalled();
     } finally { rendered.unmount(); }
@@ -336,7 +340,9 @@ describe('Page palette — production hook/provider, executor and Wails port', (
       }
       expect(api.BeginUICommand).not.toHaveBeenCalled(); expect(api.BeginContextualPaletteUICommand).not.toHaveBeenCalled();
       if (deck) {
-        expect(api.BeginContextualDeckPageUICommand).toHaveBeenCalledExactlyOnceWith('page-offer', 'page-map', 'tasklists', 'focused');
+        expect(api.BeginContextualDeckPageUICommand).toHaveBeenCalledExactlyOnceWith('page-offer', 'page-map', {
+          surfaceId: '', surfaceType: 'tasklists', appPage: 'tasklists', profile: 'focused',
+        });
         expect(api.BeginContextualPagePaletteUICommand).not.toHaveBeenCalled(); expect(api.BeginContextualDeckUICommand).not.toHaveBeenCalled();
       }
     } finally { unregisterOpenModal('page-decision'); overlay.remove(); rendered.unmount(); }

@@ -14,6 +14,7 @@ import {
 } from './commandContextProviders';
 import { getModalRegistrySnapshot, type ModalRegistrySnapshot } from './modalRegistry';
 import { acquireCommandFocusTracking } from './commandFocusContext';
+import { isAppPage, type AppPage } from './commandAppPage';
 
 export interface TrustedOwner {
   readonly userId: string;
@@ -110,7 +111,7 @@ function missingSurface(): SurfaceContextRead {
  * read source shared by synchronous UI guards and the backend adapter; the
  * frontend still does not authenticate the principal.
  */
-export function createTrustedCommandContextSession(): TrustedCommandContextSession {
+export function createTrustedCommandContextSession(readAppPage: () => AppPage | null = () => null): TrustedCommandContextSession {
   const scopedSurfaces = new Map<string, ScopedSurfaceEntry>();
   const releaseFocusTracking = acquireCommandFocusTracking();
   let disposed = false;
@@ -183,6 +184,7 @@ export function createTrustedCommandContextSession(): TrustedCommandContextSessi
       focus,
       surface,
       profile: ReadProfileContext(),
+      appPage: (() => { try { const page = readAppPage(); return isAppPage(page) ? page : null; } catch { return null; } })(),
     });
   }
 
@@ -202,6 +204,7 @@ export function createTrustedCommandContextSession(): TrustedCommandContextSessi
       focus: ReadFocusContext(),
       surface,
       profile: ReadProfileContext(),
+      appPage: (() => { try { const page = readAppPage(); return isAppPage(page) ? page : null; } catch { return null; } })(),
     });
     const ownerAfterCapture = observeOwner();
     const surfaceEntryAfterRead = surfaceID === undefined ? undefined : scopedSurfaces.get(surfaceID);

@@ -16,8 +16,9 @@ function fixture(commandId: string, surfaceType = commandId.startsWith('profiles
     TakeUICommand: vi.fn(), CompleteUICommand: vi.fn(), GetUICommandResult: vi.fn(), CommitWorkspaceTabCommand: vi.fn() };
   const target = { go: { app: { App: app } } } as unknown as Window;
   const current = vi.fn(() => true);
+  const appPage = surfaceType === 'profiles' || surfaceType === 'tasklists' ? surfaceType : 'workspace';
   const lease = createContextualDeckLease({ offerId: 'physical-offer', generation: 'generation', commandId,
-    observed: { surfaceId: 'private-page-instance', surfaceType, profile: 'focused' }, isCurrent: current, target });
+    observed: { surfaceId: 'private-page-instance', surfaceType, appPage, profile: 'focused' }, isCurrent: current, target });
   return { app, current, reservation, port: createPageMutationWailsPort({ contextualPalette: lease, target }) };
 }
 
@@ -36,7 +37,9 @@ describe('contextual Deck page API closed contract', () => {
   it.each(CONTEXTUAL_PAGE_PALETTE_COMMAND_IDS)('%s passes four scalars, no command/target/surfaceID/serial', async id => {
     const f = fixture(id);
     await expect(f.port.beginUICommand(id)).resolves.toEqual(f.reservation);
-    expect(f.app.BeginContextualDeckPageUICommand).toHaveBeenCalledExactlyOnceWith('physical-offer', 'generation', id.startsWith('profiles.') ? 'profiles' : 'tasklists', 'focused');
+    expect(f.app.BeginContextualDeckPageUICommand).toHaveBeenCalledExactlyOnceWith('physical-offer', 'generation', {
+      surfaceId: '', surfaceType: id.startsWith('profiles.') ? 'profiles' : 'tasklists', appPage: id.startsWith('profiles.') ? 'profiles' : 'tasklists', profile: 'focused',
+    });
     expect(f.app.BeginUICommand).not.toHaveBeenCalled(); expect(f.app.BeginContextualDeckUICommand).not.toHaveBeenCalled(); expect(f.app.BeginContextualPagePaletteUICommand).not.toHaveBeenCalled();
     await expect(f.port.beginUICommand(id)).rejects.toThrow('consumed');
   });
@@ -53,7 +56,9 @@ describe('contextual Deck page API closed contract', () => {
   it.each(['tasklists.duplicate', 'tasklists.clear'])('accepts %s from workspace tasklist via the page API', async id => {
     const f = fixture(id, 'tasklist');
     await f.port.beginUICommand(id);
-    expect(f.app.BeginContextualDeckPageUICommand).toHaveBeenCalledExactlyOnceWith('physical-offer', 'generation', 'tasklist', 'focused');
+    expect(f.app.BeginContextualDeckPageUICommand).toHaveBeenCalledExactlyOnceWith('physical-offer', 'generation', {
+      surfaceId: '', surfaceType: 'tasklist', appPage: 'workspace', profile: 'focused',
+    });
   });
   it.each([['tasklists.delete', 'tasklist'], ['profiles.activate', 'chat'], ['tasklists.clear', 'profiles']])('rejects wrong surface for %s / %s', async (id, type) => {
     const f = fixture(id, type);

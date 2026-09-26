@@ -88,7 +88,7 @@ describe('Topbar physical contextual Deck offers — real providers and ports', 
     try {
       await act(async () => event());
       await waitFor(() => expect(api.CommitWorkspaceTabCommand).toHaveBeenCalledExactlyOnceWith('ticket', 'handoff'));
-      expect(api.BeginContextualDeckUICommand).toHaveBeenCalledExactlyOnceWith('offer', 'map', { surfaceType: 'chat', surfaceId: 'tab-a', profile: 'focused' });
+      expect(api.BeginContextualDeckUICommand).toHaveBeenCalledExactlyOnceWith('offer', 'map', { surfaceType: 'chat', surfaceId: 'tab-a', profile: 'focused', appPage: 'workspace' });
       expect(api.BeginUICommand).not.toHaveBeenCalled(); expect(api.BeginContextualPaletteUICommand).not.toHaveBeenCalled();
     } finally { view.unmount(); }
   });

@@ -14,11 +14,11 @@ describe('commandLocalKeyboardWails', () => {
     };
     const port = createCommandLocalKeyboardWailsPort({ target: { go: { app: { App: app } } } as unknown as Window });
     const shortcut = { version: 1 as const, code: 'KeyY', modifiers: ['Control' as const] };
-    const context = { surfaceId: 'tab', surfaceType: 'chat', isCurrent: () => true };
+    const context = { surfaceId: 'command-toolbar', surfaceType: 'profiles', appPage: 'profiles' as const, isCurrent: () => true };
     await port.dispatchLocalCommandKey('g', shortcut, 'down', false, context);
     await port.beginLocalCommandUIKey('g', shortcut, false, context);
-    expect(app.DispatchContextualLocalCommandKey).toHaveBeenCalledExactlyOnceWith('g', shortcut, 'down', false, { surfaceId: 'tab', surfaceType: 'chat' });
-    expect(app.BeginContextualLocalCommandUIKey).toHaveBeenCalledExactlyOnceWith('g', shortcut, false, { surfaceId: 'tab', surfaceType: 'chat' });
+    expect(app.DispatchContextualLocalCommandKey).toHaveBeenCalledExactlyOnceWith('g', shortcut, 'down', false, { surfaceId: 'command-toolbar', surfaceType: 'profiles', appPage: 'profiles' });
+    expect(app.BeginContextualLocalCommandUIKey).toHaveBeenCalledExactlyOnceWith('g', shortcut, false, { surfaceId: 'command-toolbar', surfaceType: 'profiles', appPage: 'profiles' });
     expect(app.DispatchLocalCommandKey).not.toHaveBeenCalled();
     expect(app.BeginLocalCommandUIKey).not.toHaveBeenCalled();
   });

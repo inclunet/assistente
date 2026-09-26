@@ -50,17 +50,30 @@ func commandDeckStateVisuals(configuration *commandbindings.Configuration, ids [
 }
 
 func localDeckPresentations(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string, conditions []LocalCommandPaletteCondition, locale string) (commandDeckVisual, map[string]commandDeckVisual) {
+	return localDeckPresentationsForPage(configuration, registry, identity, conditions, locale, "")
+}
+
+func localDeckPresentationsForPage(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity string, conditions []LocalCommandPaletteCondition, locale, appPage string) (commandDeckVisual, map[string]commandDeckVisual) {
 	// Enumerate possible contextual resolutions once, outside the key-down.
 	idsByCommand := make(map[string][]string)
-	deckUIConditionsObserved(configuration, registry, identity, func(definition commandcatalog.Definition) bool {
+	observe := func(definition commandcatalog.Definition) bool {
 		return commandDeckLocalUIEligible(definition) || commandDeckContextualUIEligible(definition)
-	}, func(result commandbindings.Result) {
+	}
+	collect := func(result commandbindings.Result) {
 		for _, id := range result.BindingIDs {
 			if !slices.Contains(idsByCommand[result.CommandID], id) {
 				idsByCommand[result.CommandID] = append(idsByCommand[result.CommandID], id)
 			}
 		}
-	})
+	}
+	pageFactRequired := slices.Contains(configuration.RequiredFacts(identity), commandbindings.AppPage)
+	if appPage == "" && pageFactRequired {
+		deckUIConditionsObservedWithoutPage(configuration, registry, identity, observe, collect)
+	} else if appPage == "" {
+		deckUIConditionsObserved(configuration, registry, identity, observe, collect)
+	} else {
+		deckUIConditionsObservedForPage(configuration, registry, identity, observe, appPage, collect)
+	}
 	names := make([]string, 0, len(conditions))
 	namesByState := make(map[string][]string)
 	var allIDs []string
@@ -71,6 +84,9 @@ func localDeckPresentations(configuration *commandbindings.Configuration, regist
 		}
 		seen[condition.CommandID] = true
 		ids := idsByCommand[condition.CommandID]
+		if pageFactRequired && len(ids) == 0 {
+			continue
+		}
 		allIDs = append(allIDs, ids...)
 		definition, ok := registry.Lookup(condition.CommandID)
 		if !ok {

@@ -18,7 +18,7 @@ export function ApplyCommandLayerAction(arg1:string,arg2:string,arg3:string,arg4
 
 export function BeginCommandDeckCapture(arg1:string):Promise<void>;
 
-export function BeginContextualDeckPageUICommand(arg1:string,arg2:string,arg3:string,arg4:string):Promise<commandui.Reservation>;
+export function BeginContextualDeckPageUICommand(arg1:string,arg2:string,arg3:app.LocalCommandKeyboardContext):Promise<commandui.Reservation>;
 
 export function BeginContextualDeckUICommand(arg1:string,arg2:string,arg3:app.LocalCommandKeyboardContext):Promise<commandui.Reservation>;
 
@@ -41,6 +41,8 @@ export function CanPersistCredentials():Promise<boolean>;
 export function CancelCommandDeckCapture(arg1:string):Promise<void>;
 
 export function CancelUICommand(arg1:string):Promise<void>;
+
+export function ClearCommandDeckPagePresentation(arg1:string,arg2:number):Promise<void>;
 
 export function CloseDecisionRepeatHotkeySession(arg1:string):Promise<void>;
 
@@ -129,6 +131,8 @@ export function PreparePageMutationCommand(arg1:string,arg2:app.CommandPageMutat
 export function PrepareTerminalInterruptCommand(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 
 export function PrepareTerminalSessionCommand(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function PublishCommandDeckPagePresentation(arg1:string,arg2:string,arg3:number):Promise<void>;
 
 export function PublishExternalUIContext(arg1:commandui.ExternalUIContextPublication):Promise<commandui.ExternalUIConnectionStatus>;
 

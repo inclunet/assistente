@@ -10279,15 +10279,19 @@ representa, sozinho, conclusão do AEP. Não ampliar esse PR com as melhorias ab
 
 ### PR independente — ativação por página do aplicativo
 
-- [ ] Acrescentar condição de ativação da camada por página: Workspace,
+- [x] Acrescentar condição de ativação da camada por página: Workspace,
   Configurações, Jobs, Histórico, Perfis e demais páginas suportadas do app.
   Definir a lista a partir das rotas reais, sem nomes técnicos expostos.
-- [ ] Distinguir página ativa, tipo de aba, aba específica e foco na barra
+- [x] Distinguir página ativa, tipo de aba, aba específica e foco na barra
   de abas. Estar na página Workspace não exige foco na barra; trocar de aba
   dentro dela não desativa uma camada condicionada somente à página.
-- [ ] Atualizar elegibilidade e apresentação do Deck automaticamente ao
+- [x] Atualizar elegibilidade e apresentação do Deck automaticamente ao
   navegar, sem ativação manual. Combinar com as demais condições e preservar
   restrições do comando: camada ativa não autoriza execução atrás de modal.
+  O visual por página usa snapshot autenticado, efêmero e isolado por sessão,
+  workspace e geração; expira e é limpo em blur/transições. É render-only: a
+  execução continua exigindo o frame atual e suas guardas. Aceite em hardware
+  físico/NVDA continua pendente.
 
 ### PR independente — destino de aba sem teto arbitrário
 
@@ -10559,3 +10563,67 @@ independente pediu que o checkbox integrasse o roving tabindex: implementado
 no hook compartilhado, com setas/Home/End sem alteração de consentimento e
 Espaço nativo. O roteiro manual foi ajustado: Tab entra na toolbar, setas
 selecionam o controle. Beauvoir revisou a produção sem novo bloqueio.
+
+## 166. Condição de página do aplicativo — 25/09/2026
+
+Implementação da frente prevista na seção159. `app.page` é um fato
+independente de `surface.type`, `surface.id`, perfil e foco; o domínio fechado
+vem das rotas declaradas no router. A rota `/settings` e todas as suas subrotas
+formam uma única página `settings`. A página vem do frame de contexto confiável
+do React Router e atravessa o DTO contextual existente; não foi criada outra
+ponte. Ausência, erro de leitura ou valor fora do enum não seleciona condição.
+
+- Enum/paridade: `internal/commandbindings/app_page.go` e
+  `frontend/src/lib/commandAppPage.ts`; regressões de resolução, rota,
+  subrotas Settings e enum inválido.
+- A condição é validada e projetada em regras de camada e bindings; teclado
+  local, paleta e ingressos contextuais existentes do Deck consomem o frame
+  atual. Para o Deck de página, o ingresso já existente agora recebe o DTO de
+  contexto, mantendo `surfaceId` vazio e validando página/tipo separadamente.
+- Paleta e Deck recebem projeções `byPage` fechadas. O resolvedor exige página
+  conhecida e não recorre a fallback quando ela falta/desconhecida. Guardas de
+  owner/sessão, foco, modal, IME, geração e autorização continuam no caminho de
+  execução; a condição não é autorização.
+- A apresentação física recebe uma projeção visual efêmera via API Wails local
+  autenticada. Ela guarda somente `app.page` em memória, por owner/sessão,
+  workspace e geração do mapa, com revisão monotônica e TTL de 8 s; blur,
+  troca de identidade/rota e reset do mapa a limpam. Só altera título/ícone,
+  não grava no banco, não usa consentimento externo e não participa da
+  autorização de execução.
+- Rótulos amigáveis do editor estão nos locales PT-BR, EN e ES. O guia de
+  comandos distingue página, tipo/ID de superfície e foco.
+- Bindings regenerados por `wails generate module`, após autorização do
+  mantenedor, com TEMP/TMP/GOTMPDIR/GOCACHE dentro do worktree. Geração e
+  TypeScript pós-geração passaram. Nenhum arquivo gerado foi editado à mão;
+  o aplicativo Wails não foi aberto e não houve teste ACP, hardware ou NVDA.
+- Validação intermediária: configurações 100/100, paleta 110/110,
+  integração contextual de páginas 67/67, condições Deck 16/16 e grupo de
+  condições/teclado/transporte 82/82. O novo teste de página+perfil encontrou
+  um guard residual do parser; corrigido, com 5/5 casos novos aprovados.
+  Os grupos se sobrepõem e não devem ser somados como suíte integral.
+- Snapshot de apresentação: testes App `TestCommandDeckPagePresentation*` e
+  `TestLocalDeckPresentationsSelectsLivePageWithoutMutatingExecutionConditions`
+  passaram; Vitest focado Topbar/adapters Wails passou 25/25 e `tsc --noEmit`
+  pós-geração passou. Essa rodada intermediária precedeu a revisão final abaixo.
+- A revisão independente apontou incompatibilidade entre a superfície
+  canônica das páginas e a captura Go. Corrigida com validação de pares
+  página/superfície e testes positivos/negativos; reavaliação independente
+  concluída sem bloqueios. A apresentação física por página foi ligada ao mapa Deck por
+  snapshot render-only autenticado, escopado à identidade/sessão/workspace/
+  geração, com TTL e revisão monotônica. Testes de backend cobrem troca de
+  página, revisão antiga, expiração, identidade e geração; Vitest cobre rota,
+  blur/transição de identidade e ausência de chamadas de execução. Aceite em
+  Stream Deck físico/NVDA ainda não foi realizado.
+
+Revisão final de Beauvoir: zero bloqueios após corrigir blur de elementos
+(somente blur da janela limpa), revisão isolada por geração sob locks na ordem
+keyboard → presentation e visual neutro para condição de página sem snapshot.
+Go focado de apresentação/clear/expiração passou novamente em 2,922 s;
+Vitest focado 17/17, TypeScript e ESLint passaram. A bateria ampliada Topbar
+teve 1.012 PASS/13 FAIL por expectativas antigas sem `appPage`; os três arquivos
+foram corrigidos mantendo comparação exata e passaram na repetição (145/145),
+com revisão independente do agente principal. Não se declara a rodada ampla
+original como verde. Build/vet da base atualizada também passaram.
+
+Aceite manual permanece pendente. Esta implementação não altera os totais
+de aceites físicos/NVDA. **In Progress; não representa aceite integral do AEP.**
