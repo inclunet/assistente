@@ -140,7 +140,12 @@ vi.mock('../../lib/commandLocalKeyboardWails', () => ({
           ['KeyL', 'tasklists.create.open'], ['KeyI', 'tasklists.edit.open'], ['KeyK', 'tasklists.search.focus'],
           ['KeyS', 'terminal.sessions.open'], ['Enter', 'terminal.focus.input'], ['KeyH', 'terminal.focus.history'],
           ['KeyN', state.settingsRemapped ? COMMAND_SETTINGS_CREATE_COMMAND_ID : 'tasklist.task.create.open'],
-        ].map(([code, commandId]) => ({ shortcut: { version: 1, code, modifiers: ['Control', 'Shift'] }, commandId, handler: 'local_ui' }))],
+        ].map(([code, commandId]) => ({ shortcut: { version: 1, code, modifiers: ['Control', 'Shift'] }, commandId, handler: 'local_ui' })),
+        // The productive map retains these sequences alongside the page-specific Ctrl+N branch.
+        ...[['KeyC', 'chat'], ['KeyE', 'editor'], ['KeyR', 'terminal'], ['KeyT', 'tasklist']].map(([code, type]) => ({
+          shortcut: { version: 2, steps: [{ code: 'KeyN', modifiers: ['Control'] }, { code, modifiers: [] }] },
+          commandId: `workspace.tab.${type}.create`, handler: 'contextual',
+        }))],
         contextualBindings: [{
           shortcut: { version: 1, code: 'KeyN', modifiers: ['Control'] },
           bySurface: {
@@ -257,6 +262,28 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe('Topbar + registry real de apresentação contextual', () => {
+  it('Ctrl+N selecionado no gerenciador prevalece sobre a sequência flat Ctrl+N, C', async () => {
+    state.pathname = '/settings/commands';
+    render(<><Topbar /><SettingsManagerSurface /></>);
+    await waitFor(() => expect(state.mapReady).toBe(true));
+    await act(async () => { await Promise.resolve(); });
+    registerOpenModal('settings-manager-test');
+    const row = screen.getByRole('button', { name: 'Manager row' });
+    row.focus();
+    try {
+      fireEvent.keyDown(row, { key: 'n', code: 'KeyN', ctrlKey: true });
+      expect(state.actions).toEqual([COMMAND_SETTINGS_CREATE_COMMAND_ID]);
+      fireEvent.keyUp(row, { key: 'n', code: 'KeyN' });
+      fireEvent.keyDown(row, { key: 'c', code: 'KeyC' });
+      fireEvent.keyUp(row, { key: 'c', code: 'KeyC' });
+      expect(state.actions).toEqual([COMMAND_SETTINGS_CREATE_COMMAND_ID]);
+      noTransport();
+    } finally {
+      fireEvent.keyUp(row, { key: 'n', code: 'KeyN' });
+      unregisterOpenModal('settings-manager-test');
+    }
+  });
+
   it.each(['allowed', 'page', 'header', 'outside', 'remapped', 'remapped-header', 'remapped-outside',
     'suppressed', 'child-modal', 'ime', 'repeat', 'unavailable', 'logout'] as const)(
     'Ctrl+N do gerenciador usa o mapa central e preserva guardas (%s)', async reason => {

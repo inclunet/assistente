@@ -12,6 +12,9 @@ esse comando; um formulário filho, busy, IME ou perda de sessão/contexto o
 bloqueia. Não há listener paralelo nem fallback se o mapa suprimir o binding.
 Personalizações anteriores e os demais gates permanecem preservados; não há
 novo aceite manual inferido desta implementação.
+O mesmo lote alinha menus de contexto e Enter às ações permitidas das grades,
+e preserva o gerenciador da camada ao salvar um formulário filho, restaurando
+o foco à lista. Enter usa a ativação nativa da DataGrid, não outro resolvedor.
 
 **Reconciliação vigente — seção167 da tasklist (26/09/2026):** os PRs #833,
 #834, #836, #838 e #839 estão mergeados; baseline `main` em `116eda53b`.

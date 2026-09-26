@@ -788,7 +788,9 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
     const flatSequenceCandidates = bindings.sequences.get(key) ?? [];
     const allSequenceCandidates = [...contextualSequenceCandidates, ...flatSequenceCandidates];
     const allowedCommandIds = contextLease?.allowedCommandIds;
-    const candidateCommands = [...(mapped ? [mapped] : []), ...allSequenceCandidates];
+    // A selected simple binding wins over sequences sharing its prefix.
+    // Check only executable candidates, retaining the full gate on sequence fallback.
+    const candidateCommands = mapped ? [mapped] : allSequenceCandidates;
     const contextCommandDenied = allowedCommandIds !== undefined && candidateCommands.some(
       (candidate) => !allowedCommandIds.includes(candidate.commandId),
     );

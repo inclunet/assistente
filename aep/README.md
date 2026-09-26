@@ -16,7 +16,8 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
-AEP-0103, seção168 (26/09/2026): toolbar de Novo/Editar/Apagar nos gerenciadores
+AEP-0103, seção168 (26/09/2026): toolbar de Novo/Editar/Apagar nos gerenciadores,
+menus de contexto equivalentes, Enter para editar e continuidade da lista após salvar,
 e Ctrl+N pelo catálogo/resolvedor, com apresentação restrita ao contexto e ao
 modal proprietário. **In Progress; 83 I / 1 P / 0 N**; sem promoção de aceite
 manual. Regra de contribuição centralizada no AGENTS e teste arquitetural

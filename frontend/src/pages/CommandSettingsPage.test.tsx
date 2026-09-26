@@ -150,6 +150,106 @@ async function revealAdvancedOptionsIfNeeded() {
 }
 
 describe('CommandSettingsPage', () => {
+  it.each(['commands', 'rules'] as const)('menu da segunda camada abre %s e espelha editar/apagar da toolbar', async (kind) => {
+    render(<CommandSettingsPage />);
+    await selectLayer('Minha camada');
+    const grid = screen.getByRole('grid', { name: 'commandSettings.layers' });
+    const row = within(grid).getByText('Minha camada').closest('[role="row"]') as HTMLElement;
+    await userEvent.click(within(row).getByRole('button', { name: 'common.actions' }));
+    for (const name of ['commandSettings.actions.editLayer', 'commandSettings.actions.deleteLayer']) {
+      expect(screen.getByRole('menuitem', { name })).not.toHaveAttribute('aria-disabled', 'true');
+      expect(screen.getByRole('button', { name })).toBeEnabled();
+    }
+    const name = kind === 'commands' ? 'commandSettings.managers.commands' : 'commandSettings.rules.title';
+    await userEvent.click(screen.getByRole('menuitem', { name }));
+    expect(within(await screen.findByRole('dialog', { name })).getByText('Minha camada')).toBeInTheDocument();
+  });
+
+  it('Enter na camada abre edição e não edita a camada builtin', async () => {
+    render(<CommandSettingsPage />);
+    const grid = await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await userEvent.click(within(grid).getAllByRole('gridcell', { name: /^Base$/ })[0]);
+    await userEvent.keyboard('{Enter}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await userEvent.click(within(grid).getByText('Minha camada'));
+    await userEvent.keyboard('{Enter}');
+    const editor = await screen.findByRole('dialog', { name: 'commandSettings.dialog.layerTitle' });
+    expect(within(editor).getByRole('textbox', { name: /commandSettings.form.name/ })).toHaveValue('Minha camada');
+  });
+
+  it.each(['commands', 'rules'] as const)('Enter edita %s e salvar mantém segunda camada, lista e foco', async (kind) => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: ['first-binding', 'user-binding'].map((id) => ({ ...snapshot.bindings[0], id, layerId: 'user', defaultId: undefined, readOnly: false })),
+      rules: ['first-rule', 'user-rule'].map((id) => ({ id, layerId: 'user', mode: 'manual', condition: { version: 1, clauses: [] }, lifecycle: 'persistent', enabled: true, reviewStatus: 'active' })),
+    });
+    render(<CommandSettingsPage />);
+    await selectLayer('Minha camada');
+    const manager = await openManager(kind);
+    const gridName = kind === 'commands' ? 'commandSettings.commands' : 'commandSettings.rules.title';
+    const grid = within(manager).getByRole('grid', { name: gridName });
+    await act(async () => { grid.focus(); });
+    await userEvent.keyboard('{ArrowDown}{Enter}');
+    const editorName = kind === 'commands' ? 'commandSettings.dialog.bindingTitle' : 'commandSettings.dialog.ruleTitle';
+    const editor = await screen.findByRole('dialog', { name: editorName });
+    await userEvent.click(within(editor).getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: kind === 'commands' ? 'binding_update' : 'rule_update',
+      id: kind === 'commands' ? 'user-binding' : 'user-rule',
+    })));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: editorName })).not.toBeInTheDocument());
+    await waitFor(() => {
+      const list = within(manager).getByRole('grid', { name: gridName });
+      expect(within(list).getAllByRole('row')[2].contains(document.activeElement)).toBe(true);
+      expect(within(manager).getByText('Minha camada')).toBeInTheDocument();
+    });
+    expect(getSettings).toHaveBeenCalledTimes(2);
+    await userEvent.keyboard('{Enter}');
+    const reopened = await screen.findByRole('dialog', { name: editorName });
+    await userEvent.click(within(reopened).getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      id: kind === 'commands' ? 'user-binding' : 'user-rule',
+    })));
+  });
+
+  it.each(['commands', 'rules'] as const)('menu de %s oferece Novo, Editar e Apagar com as ações da toolbar', async (kind) => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], id: 'user-binding', layerId: 'user', defaultId: undefined, readOnly: false }],
+      rules: [{ id: 'user-rule', layerId: 'user', mode: 'manual', condition: { version: 1, clauses: [] }, lifecycle: 'persistent', enabled: true, reviewStatus: 'active' }],
+    });
+    render(<CommandSettingsPage />);
+    await selectLayer('Minha camada');
+    const manager = await openManager(kind);
+    const grid = within(manager).getByRole('grid');
+    await userEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
+    const names = kind === 'commands'
+      ? ['commandSettings.actions.newBinding', 'commandSettings.actions.editBinding', 'commandSettings.actions.deleteBinding']
+      : ['commandSettings.rules.new', 'commandSettings.rules.edit', 'commandSettings.rules.delete'];
+    for (const name of names) expect(screen.getByRole('menuitem', { name })).toBeEnabled();
+    await userEvent.click(screen.getByRole('menuitem', { name: names[0] }));
+    expect(await screen.findByRole('dialog', { name: kind === 'commands' ? 'commandSettings.dialog.bindingTitle' : 'commandSettings.dialog.ruleTitle' })).toBeInTheDocument();
+    expect(mutateSettings).not.toHaveBeenCalled();
+  });
+
+  it.each(['binding-review', 'binding-inherited', 'rule-review', 'rule-inherited'] as const)('Enter mantém a recusa original para %s', async (policy) => {
+    const inherited = policy.endsWith('inherited');
+    const reviewStatus = inherited ? 'active' : 'needs_review';
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], id: 'user-binding', layerId: 'user', defaultId: undefined, readOnly: false, inherited, reviewStatus }],
+      rules: [{ id: 'user-rule', layerId: 'user', mode: 'manual', condition: { version: 1, clauses: [] }, lifecycle: 'persistent', enabled: true, inherited, reviewStatus }],
+    });
+    render(<CommandSettingsPage />);
+    await selectLayer('Minha camada');
+    const kind = policy.startsWith('binding') ? 'commands' : 'rules';
+    const manager = await openManager(kind);
+    await act(async () => { within(manager).getByRole('grid').focus(); });
+    await userEvent.keyboard('{Enter}');
+    expect(screen.queryByRole('dialog', { name: /commandSettings.dialog/ })).not.toBeInTheDocument();
+    expect(mutateSettings).not.toHaveBeenCalled();
+  });
+
   let keyboardMapChanged: (() => void) | undefined;
   let deckStatusChanged: ((payload: unknown) => void) | undefined;
   let deckCaptureChanged: ((payload: unknown) => void) | undefined;
@@ -816,7 +916,7 @@ describe('CommandSettingsPage', () => {
     getSettings.mockResolvedValueOnce(initialSnapshot).mockResolvedValueOnce(persistedOverrideSnapshot);
     render(<CommandSettingsPage />);
 
-    fireEvent.click(await screen.findByText('Atalhos globais'));
+    await selectLayer('Atalhos globais');
     const dialog = await openManager('commands');
     const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
     expect(within(grid).getByText('Control+Shift+KeyJ')).toBeInTheDocument();
@@ -848,7 +948,7 @@ describe('CommandSettingsPage', () => {
     })));
 
     await waitFor(() => expect(getSettings).toHaveBeenCalledTimes(2));
-    fireEvent.click(await screen.findByText('Atalhos globais'));
+    expect(within(await openManager('commands')).getByText('Atalhos globais')).toBeInTheDocument();
     fireEvent.click(await bindingAction('commandSettings.actions.restore'));
     await waitFor(() => expect(mutateSettings).toHaveBeenCalledTimes(2));
     expect(mutateSettings).toHaveBeenLastCalledWith(expect.objectContaining({

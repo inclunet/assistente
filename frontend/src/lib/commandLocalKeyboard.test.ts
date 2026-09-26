@@ -25,6 +25,28 @@ async function controller(overrides: Partial<Parameters<typeof createLocalComman
 }
 
 describe('commandLocalKeyboard', () => {
+  it.each([true, false])('checks the selected simple command, not dormant prefix sequences (allowed=%s)', async allowed => {
+    const commandId = 'command_settings.create.open';
+    const { keyboard, onDown } = await controller({
+      loadMap: async () => ({ generation: 'settings-prefix',
+        bindings: [{ shortcut: sequence, commandId: 'workspace.tab.chat.create', handler: 'contextual' }],
+        contextualBindings: [{ shortcut, bySurface: {}, fallback: null, byPage: {
+          settings: { shortcut, bySurface: { toolbar: { shortcut, commandId, handler: 'local_ui' } }, fallback: null },
+        } }],
+      }),
+      readContext: () => ({ surfaceId: 'command-toolbar', surfaceType: 'toolbar', appPage: 'settings',
+        allowedCommandIds: [allowed ? commandId : 'profiles.create.open'], isCurrent: () => true }),
+    });
+    try {
+      window.dispatchEvent(event('keydown'));
+      if (allowed) expect(onDown).toHaveBeenCalledWith(expect.objectContaining({ commandId }));
+      else expect(onDown).not.toHaveBeenCalled();
+      window.dispatchEvent(event('keyup'));
+      window.dispatchEvent(sequenceEvent('keydown', 'KeyN'));
+      expect(onDown).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    } finally { keyboard.dispose(); }
+  });
+
   it('preserva argumentos do comando parametrizado no dispatch local e recusa binding sem alvo', async () => {
     const argumentsValue = { workspace_id: 'workspace-a', target_mode: 'position', position: 17 };
     const { keyboard, onDown } = await controller({

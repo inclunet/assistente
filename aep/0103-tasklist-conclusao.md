@@ -11023,5 +11023,29 @@ Validação local desta seção:
   nem teste ACP executado; temporários Go e cache mantidos dentro do worktree.
   Estes resultados não antecipam CI/review remotos nem a validação manual.
 
+Revisão do PR #845: o mapa de produção mantém sequências do workspace sob o
+prefixo Ctrl+N. A regressão ampliada reproduziu a recusa indevida do comando
+simples selecionado quando a allowlist do gerenciador também examinava essas
+sequências inativas. A autorização agora considera apenas o comando selecionado;
+sem seleção, continua verificando todos os candidatos de sequência. Provas
+cobrem aceite, recusa e Ctrl+N seguido de C sem criação indevida de aba.
+Goodall revisou independentemente o diff incremental, sem achados. O CI também
+identificou mocks antigos sem o contrato completo do store e projeções de teste
+sem o novo ID; foram atualizados sem remover asserções. Contrato E2E local:
+**3/3 PASS**, com backend simulado, sem executar Wails.
+Rodada consolidada após as correções: **11 arquivos / 301 testes Vitest PASS**;
+TypeScript, ESLint incremental e `git diff --check` PASS.
+
+Complemento solicitado pelo mantenedor no mesmo PR: menus de contexto das
+camadas abrem os dois gerenciadores; menus dos itens compartilham ações e
+permissões com as toolbars. Enter em célula de dados usa `onActivate` da DataGrid
+para editar, sem handler paralelo de tecla. Após salvar, a grade de camadas
+atrás do modal não pode retomar foco e trocar a camada selecionada; o gerenciador
+permanece aberto e restaura a linha editada por ID. Testes devem cobrir a segunda
+linha de uma segunda camada, além das recusas de edição e trocas de identidade.
+Estas variantes não promovem aceite manual nem alteram a contagem dos 48 casos.
+Prova consolidada do complemento: **11 arquivos / 312 testes Vitest PASS**;
+Goodall revisou o diff final incremental, sem achados pendentes.
+
 **In Progress; 83 I / 1 P / 0 N**, C38 parcial; **11 A / 21 I / 16 P / 0 N**
 nas saídas R e **1/12 gates aceito**. Nenhum aceite final promovido por esta correção.
