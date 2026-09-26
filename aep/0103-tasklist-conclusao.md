@@ -10303,11 +10303,11 @@ representa, sozinho, conclusão do AEP. Não ampliar esse PR com as melhorias ab
 
 ### PR dependente do destino de aba — apresentação automática no Stream Deck
 
-- [ ] Usar por padrão o nome atual da aba-alvo, abreviado apenas para caber,
+- [x] Usar por padrão o nome atual da aba-alvo, abreviado apenas para caber,
   e ícone do tipo: chat, editor, terminal ou lista de tarefas.
-- [ ] Acompanhar renomeação, reordenação, fechamento e troca de workspace,
+- [x] Acompanhar renomeação, reordenação, fechamento e troca de workspace,
   respeitando a diferença entre posição e identidade de aba.
-- [ ] Título/ícone personalizados permanecem opcionais; não exigir que o
+- [x] Título/ícone personalizados permanecem opcionais; não exigir que o
   usuário preencha informações já disponíveis. Indicar destino indisponível
   sem manter apresentação enganosa nem executar em outra aba.
 
@@ -10650,3 +10650,77 @@ Revisão independente de Beauvoir sem bloqueios. Aceite manual continua separado
 Go focado de argumentos/projeção/clonagem PASS (21,029 s); geração oficial
 `wails generate module`, TypeScript pós-geração, `go build ./...` e
 `go vet ./...` PASS. Lint do pacote `internal/app`: zero issues.
+
+## 165. Apresentação automática de destinos de aba no Stream Deck — 25/09/2026
+
+Implementação da continuação visual da seção159, sobre a base do contrato de
+destino da seção164. O mapa de apresentação do Deck consulta uma cópia do
+workspace ativo; isso não muda resolução, autorização nem despacho. `Ir para
+aba` resolve a apresentação por posição viva ou ID estável; `primeira` a `nona
+aba` acompanham as posições atuais. Renomear, reordenar, fechar ou trocar o
+workspace é refletido na próxima atualização de render.
+
+O título automático e o ícone local de tipo são fallbacks campo a campo. Título,
+ícone e imagem configurados permanecem intactos, incluindo herança e overrides
+por estado; título personalizado continua visível com um sufixo localizado de
+indisponibilidade se o destino sumir. Posição/ID ausente, workspace diferente,
+ou qualquer ramo condicional selecionável sem alvo mostra indisponibilidade,
+sem usar a aba ativa ou outra posição como substituta. Se ramos condicionais
+válidos apontarem para destinos diferentes, a apresentação diz que o destino
+depende do contexto. Não há evento de tecla, execução, confirmação ou auditoria
+adicionados para renderizar esses dados.
+
+Ícones de conversa, editor, terminal e lista de tarefas usam formas locais do
+renderer existente; nenhuma imagem, arquivo, fonte externa ou conteúdo da aba é
+carregado. O guia de comandos documenta o comportamento. Evidências focadas em
+`internal/app/app_command_deck_tab_visual_test.go` cobrem posição e identidade
+após rename/reorder, destinos ausentes/workspace alheio, `first`/`second`/`ninth`,
+ramo condicional, divergência, ícones rasterizados e preservação dos campos
+base/estado. Títulos e ícones personalizados exigem consenso efetivo de todos
+os bindings: variante explícita igual ao valor herdado permanece personalizada;
+valores divergentes ou título explicitamente vazio usam fallback automático.
+`internal/app/app_command_deck_feedback_render_test.go` prova que um nome sem
+espaços é abreviado com reticências apenas na imagem renderizada, mantendo o
+título completo em `Announce`. A execução
+`go test ./internal/app -run 'TestWorkspaceTabDeck|TestCommandDeckTitleTruncatesLongUnbrokenWordOnlyInRenderedImage' -count=1`
+passou em 17,058 s; separadamente, `golangci-lint run ./internal/app`
+reportou 0 issues.
+
+**Registro histórico de bloqueio resolvido:** antes do merge do bootstrap
+`392cfdd3a`, o teste integrado existente
+`TestCommandDeckPresentationSettingsReachContextualMapAndRenderer` parava antes
+do `deckMap`, pois `settingsSecurityFixture` falhava com `configuração de
+executor inválida`; um teste independente reproduziu a falha no bootstrap comum.
+Após o merge, a integração e os nove testes `TestWorkspaceTabDeck*` passaram
+juntos em uma rodada focada, executada com:
+`go test ./internal/app -run '^(TestCommandDeckPresentationSettingsReachContextualMapAndRenderer|TestWorkspaceTabDeck.*)$' -count=1`.
+`go build ./...` e `go vet ./...` também passaram sobre a base mesclada. Não há
+bloqueio integrado ativo. A falha histórica também foi reproduzida por
+`TestCommandProductRefusesUnknownInvalidAndRevokedRequests`, confirmando o
+bootstrap comum. O registro marca a implementação/testes automatizados; não se
+afirma aceite físico/NVDA nem fechamento de critério/gate manual.
+
+Revisão independente de Lagrange e do agente principal identificou dois casos
+visuais: ramos mistos ocultavam a combinação de comandos, e títulos
+personalizados ocultavam a ambiguidade do destino. Corrigidos preservando o
+título composto/personalizado e acrescentando a informação de destino como
+sufixo; regressões focadas passaram. O agente principal reavaliou o patch
+sem novos bloqueios funcionais. A revisão remota também levou a corrigir o
+ajuste de títulos longos e o consenso de personalizações após herança; as novas
+regressões focadas passaram na execução acima. A atualização do AEP principal
+acompanha a tasklist e o índice, sem promover aceite manual.
+
+Integração com o DTO objeto de argumentos do PR #836 (26/09/2026): o coletor
+de destinos do Deck serializa a projeção e reutiliza a validação existente;
+falha de serialização mantém o destino indisponível. Fixtures foram adaptadas
+sem remover verificações. Testes Go focados PASS (20,194 s), build/vet do
+pacote `internal/app` PASS e lint zero issues. Revisão independente de Beauvoir
+e do agente principal sem bloqueios. O conflito da tasklist foi apenas aditivo,
+preservando as evidências das seções164 e165. Aceite físico permanece pendente.
+
+Revisão do sufixo de estado (26/09/2026): a comparação agora exige o marcador
+como título completo ou sufixo delimitado por ` — `. Títulos personalizados
+que apenas contêm o texto continuam recebendo o aviso explícito. Regressões
+cobrem texto no meio, final semelhante/colado, sufixo já presente, título vazio
+e estado ambíguo com personalizações preservadas. Go focado PASS (16,709 s),
+lint zero issues. Nenhuma autorização ou resolução de destino foi alterada.

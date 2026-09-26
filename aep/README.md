@@ -16,6 +16,10 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+AEP-0103, seção165 (26/09/2026): aviso explícito de destino indisponível ou
+ambíguo preservado em títulos personalizados, sem confundir substrings com
+sufixo completo. In Progress; aceite físico/NVDA permanece pendente.
+
 AEP-0103, seção164 (26/09/2026): paridade objeto JSON dos argumentos projetados
 nos bindings Wails e regressão de destino condicional na paleta. In Progress;
 aceite físico/NVDA permanece pendente.
@@ -25,6 +29,15 @@ e regras de ativação conforme seção159, com edição/configuração e consen
 externo na toolbar, sem alteração do motor de execução ou da autorização.
 O mantenedor confirmou a correção física do bloqueio do Deck antes do merge.
 **In Progress; 83 I / 1 P / 0 N**; os demais aceites não são inferidos desse relato.
+
+AEP-0103, seção165 (25/09/2026): título e ícone automáticos para destinos de
+aba no Stream Deck, com personalizações preservadas e destino ausente explícito.
+Títulos longos são abreviados somente na tecla; o anúncio mantém o texto
+completo. Personalizações exigem consenso dos bindings após herança de estado.
+Testes Go focados e `golangci-lint` passaram; o aceite físico/NVDA segue
+pendente. O histórico da falha de fixture App e sua correção estão registrados
+na tasklist.
+**In Progress; 83 I / 1 P / 0 N**; nenhum aceite manual foi promovido.
 
 AEP-0103, seção162 (25/09/2026): diagnóstico nativo reproduziu o bloqueio do
 Deck após navegar; correção do refresh de projeção e preservação do mapa
