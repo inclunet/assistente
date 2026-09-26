@@ -40,7 +40,8 @@ jobs:
       - name: Teste da divisão dos testes Go com race
         run: bash .github/scripts/testar-go-race.teste.sh
 
-  backend:
+  backend-checks:
+    # Validação e compilações rodam em paralelo com a suíte de cobertura.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -78,6 +79,20 @@ jobs:
           GOOS=darwin GOARCH=amd64 go build -o /tmp/asst-darwin-amd64 ./cmd/asst/
           GOOS=darwin GOARCH=arm64 go build -o /tmp/asst-darwin-arm64 ./cmd/asst/
 
+  backend-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        timeout-minutes: 10
+        run: bash .github/scripts/instalar-pacotes-apt.sh libgtk-3-dev libx11-dev xvfb
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
       - name: Go tests (com cobertura)
         run: |
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
@@ -113,6 +128,21 @@ jobs:
           path: coverage.out
           retention-days: 7
 
+  backend:
+    # Mantém o check obrigatório: falha, cancelamento ou skip não aprovam.
+    needs: [backend-checks, backend-tests]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Conferir validações e cobertura
+        env:
+          CHECKS_RESULT: ${{ needs.backend-checks.result }}
+          TESTS_RESULT: ${{ needs.backend-tests.result }}
+        run: |
+          test "$CHECKS_RESULT" = success
+          test "$TESTS_RESULT" = success
+
   backend-race-tests:
     # App excede 20m com -race. A descoberta em cada runner inclui testes novos
     # automaticamente; os demais pacotes continuam inteiros em um grupo próprio.
@@ -126,7 +156,10 @@ jobs:
           - pacotes-gerais
           - comandos-configuracao
           - comandos-dispositivos
-          - comandos-contexto-deck
+          - comandos-contexto-deck-paginas
+          - comandos-contexto-deck-mermaid
+          - comandos-contexto-deck-camadas
+          - comandos-contexto-deck-base
           - comandos-contexto-paleta
           - comandos-contexto-workspace
           - comandos-contexto-base
