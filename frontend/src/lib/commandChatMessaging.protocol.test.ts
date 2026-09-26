@@ -21,6 +21,32 @@ function setup(commandId: ChatMessagingTarget['commandId'] = 'chat.message.send'
 }
 
 describe('protocolo auditado do envio de chat', () => {
+  it.each(['chat_conversation_unavailable', new Error('chat_conversation_unavailable')])('reports only the safe pre-admission error %s', async error => {
+    const { port, target } = setup();
+    target.failed = vi.fn();
+    vi.mocked(port.beginUICommand).mockRejectedValue(error);
+    expect(await executeChatMessaging(port, target)).toBe('failed');
+    expect(target.failed).toHaveBeenCalledExactlyOnceWith('conversation_unavailable');
+    expect(target.execute).not.toHaveBeenCalled();
+    expect(target.succeeded).not.toHaveBeenCalled();
+    expect(port.takeUICommand).not.toHaveBeenCalled();
+  });
+  it.each(['database is locked', 'record not found', 'prefix chat_conversation_unavailable'])('does not mislabel other errors: %s', async error => {
+    const { port, target } = setup(); target.failed = vi.fn();
+    vi.mocked(port.beginUICommand).mockRejectedValue(error);
+    expect(await executeChatMessaging(port, target)).toBe('failed');
+    expect(target.failed).not.toHaveBeenCalled();
+  });
+  it('does not show a missing-conversation diagnosis after changing the target', async () => {
+    const { port, target } = setup(); target.failed = vi.fn();
+    vi.mocked(port.beginUICommand).mockImplementation(async () => {
+      vi.mocked(target.isCurrent).mockReturnValue(false);
+      throw new Error('chat_conversation_unavailable');
+    });
+    await executeChatMessaging(port, target);
+    expect(target.failed).not.toHaveBeenCalled();
+  });
+
   it('abrir edição é apresentação local, sem reserva, fila ou auditoria', async () => {
     const { port, target } = setup('chat.message.edit.open');
     target.prepareAdmission = vi.fn(async () => {});

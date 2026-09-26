@@ -1,5 +1,13 @@
 # AEP — Assistente Enhancement Proposals
 
+**Feedback de conversa indisponível (26/09/2026):** antes da reserva de envio/retry,
+a consulta com escopo de usuário distingue registro indisponível de outros erros.
+Um código público sem IDs alimenta aviso visual e anúncio global, preservando o
+rascunho; ausência e falta de acesso produzem o mesmo diagnóstico. Não cria conversa
+nem altera o ledger/estado de execução. Evidências: TestCommandChatActionsMissingConversationFeedback,
+commandChatMessaging.protocol, ChatSessionView.messaging e Topbar.editorMode.integration.
+AEP-0103 permanece **In Progress**; aceite físico/NVDA permanece pendente.
+
 Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 
 Este diretório é o **repositório único** de decisões arquiteturais do projeto

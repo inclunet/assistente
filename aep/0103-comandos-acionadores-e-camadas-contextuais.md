@@ -2,6 +2,14 @@
 
 **Status:** In Progress
 
+**Feedback de conversa indisponível (26/09/2026):** antes da reserva de envio/retry,
+a consulta com escopo de usuário distingue registro indisponível de outros erros.
+Um código público sem IDs alimenta aviso visual e anúncio global, preservando o
+rascunho; ausência e falta de acesso produzem o mesmo diagnóstico. Não cria conversa
+nem altera o ledger/estado de execução. Evidências: TestCommandChatActionsMissingConversationFeedback,
+commandChatMessaging.protocol, ChatSessionView.messaging e Topbar.editorMode.integration.
+AEP-0103 permanece **In Progress**; aceite físico/NVDA permanece pendente.
+
 **Reconciliação vigente — seção167 da tasklist (26/09/2026):** os PRs #833,
 #834, #836, #838 e #839 estão mergeados; baseline `main` em `116eda53b`.
 **83 I / 1 P / 0 N** nos critérios (C38 parcial); **11 A / 21 I / 16 P / 0 N**

@@ -336,3 +336,26 @@ func TestCommandChatActionsDeckPreservesSource(t *testing.T) {
 		t.Fatalf("source=%s %v", source, err)
 	}
 }
+
+func TestCommandChatActionsMissingConversationFeedback(t *testing.T) {
+	for _, scenario := range []string{"missing", "foreign"} {
+		t.Run(scenario, func(t *testing.T) {
+			a, cid, _ := chatActionFixture(t)
+			var err error
+			if scenario == "missing" {
+				err = database.DB().Where("id = ?", cid).Delete(&database.Conversation{}).Error
+			} else {
+				err = database.DB().Model(&database.Conversation{}).Where("id = ?", cid).Update("user_id", "another-owner").Error
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, command := range []string{commandChatSendID, commandChatRetryID} {
+				reservation, err := a.BeginUICommand(command)
+				if !errors.Is(err, errChatConversationUnavailable) || err.Error() != "chat_conversation_unavailable" || reservation.Ticket != "" {
+					t.Fatalf("diagnóstico seguro ausente: reservation=%+v err=%v", reservation, err)
+				}
+			}
+		})
+	}
+}

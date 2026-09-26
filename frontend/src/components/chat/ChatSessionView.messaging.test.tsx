@@ -16,7 +16,8 @@ const id = '01926b90-7a5a-7c4e-8d3f-000000000001';
 const send = vi.hoisted(() => vi.fn());
 const retry = vi.hoisted(() => vi.fn());
 const t = vi.hoisted(() => (key: string) => key);
-vi.mock('react-i18next', () => ({ initReactI18next: { type: '3rdParty', init() {} }, useTranslation: () => ({ t }) }));
+const translation = vi.hoisted(() => ({ current: (key: string) => key }));
+vi.mock('react-i18next', () => ({ initReactI18next: { type: '3rdParty', init() {} }, useTranslation: () => ({ t: translation.current }) }));
 vi.mock('@wailsjs/go/wailsapi/Chat', () => ({ SendMessage: send, RetryMessage: retry }));
 vi.mock('@wailsjs/runtime/runtime', () => ({ EventsOn: () => () => {} }));
 vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({ GetActiveProfile: vi.fn(async () => ({})), GetActiveProfileSlug: vi.fn(async () => 'default') }));
@@ -45,6 +46,7 @@ function mount() {
   return render(<MemoryRouter><ChatSessionView surface={surface} onSend={(content, media, origin, command) => sendChatSurfaceMessage(id, content, media, undefined, origin, command)} /></MemoryRouter>);
 }
 beforeEach(() => {
+  translation.current = t;
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   send.mockReset().mockResolvedValue(id); retry.mockReset().mockResolvedValue(id);
   status = 'succeeded';
@@ -75,6 +77,48 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 describe('ChatSessionView + ChatInput + pipeline reais', () => {
+  it.each(['button', 'keyboard'])('preserva rascunho e explica conversa indisponível via %s', async source => {
+    begin.mockRejectedValue('chat_conversation_unavailable');
+    mount(); const input = screen.getByRole('combobox');
+    fireEvent.change(input, { target: { value: 'rascunho preservado' } });
+    if (source === 'button') fireEvent.click(screen.getByRole('button', { name: 'chat.send' }));
+    else fireEvent.keyDown(input, { key: 'Enter' });
+    await act(async () => { await Promise.all(runs); });
+    expect(screen.getByText('chat.conversationUnavailable')).toBeInTheDocument();
+    expect(input).toHaveValue('rascunho preservado');
+    expect(send).not.toHaveBeenCalled(); expect(retry).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
+  });
+
+
+  it('não oferece retry de uma falha anterior após detectar conversa indisponível', async () => {
+    begin.mockRejectedValue('chat_conversation_unavailable'); mount();
+    act(() => useChatStore.setState(state => ({ surfaceSessionsByKey: { ...state.surfaceSessionsByKey,
+      [surface.sessionKey]: { ...state.surfaceSessionsByKey[surface.sessionKey], sendFailureMessage: 'falha anterior',
+        sendFailureRetryable: true, sendFailureRetryContent: 'texto anterior', sendFailureRetryMediaFiles: [] },
+    } })));
+    const input = screen.getByRole('combobox');
+    fireEvent.change(input, { target: { value: 'rascunho atual' } });
+    fireEvent.click(screen.getByRole('button', { name: 'chat.send' }));
+    await act(async () => { await Promise.all(runs); });
+    expect(screen.getByText('chat.conversationUnavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
+    expect(input).toHaveValue('rascunho atual');
+    expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].sendFailureRetryContent).toBe('texto anterior');
+  });
+  it('trocar a tradução durante envio não abandona o recibo nem mantém rascunho já enviado', async () => {
+    let release!: () => void;
+    send.mockImplementation(() => new Promise(resolve => { release = () => resolve(id); }));
+    const view = mount(); const input = screen.getByRole('combobox');
+    fireEvent.change(input, { target: { value: 'enviado uma vez' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(send).toHaveBeenCalledOnce());
+    translation.current = key => key;
+    view.rerender(<MemoryRouter><ChatSessionView surface={surface} onSend={(content, media, origin, command) => sendChatSurfaceMessage(id, content, media, undefined, origin, command)} /></MemoryRouter>);
+    await act(async () => { release(); await Promise.all(runs); });
+    expect(input).toHaveValue('');
+    expect(send).toHaveBeenCalledOnce();
+  });
   it('Enter envia uma vez com recibo fora de origin e limpa após resultado confirmado', async () => {
     mount();
     const input = screen.getByRole('combobox');
