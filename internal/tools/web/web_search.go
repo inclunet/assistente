@@ -274,6 +274,17 @@ func isBraveFallbackable(err error) bool {
 	return false
 }
 
+// trimBearerPrefix remove o prefixo "Bearer " (qualquer caixa) de um token.
+// Credenciais cadastradas à mão podem trazer o esquema em minúsculas
+// ("bearer xyz"); sem a normalização, o prefixo seria enviado como parte da
+// chave e a API rejeitaria.
+func trimBearerPrefix(token string) string {
+	if len(token) >= len("Bearer ") && strings.EqualFold(token[:len("Bearer ")], "Bearer ") {
+		return token[len("Bearer "):]
+	}
+	return token
+}
+
 // isSearchFallbackable decide se um erro de qualquer provedor da cadeia
 // justifica avançar para o próximo: sentinelas de ausência de credencial ou
 // de janela excedida, e status HTTP fallbackables de cada API.

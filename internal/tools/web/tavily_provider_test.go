@@ -21,9 +21,11 @@ func TestTavilyToken_Bearer(t *testing.T) {
 }
 
 func TestTavilyToken_BearerComPrefixo(t *testing.T) {
-	auth := &credentials.AuthConfig{Type: "bearer", Token: "Bearer tvly-chave"}
-	if got := tavilyToken(auth); got != "tvly-chave" {
-		t.Errorf("esperava prefixo removido, got %q", got)
+	for _, raw := range []string{"Bearer tvly-chave", "bearer tvly-chave", "BEARER tvly-chave"} {
+		auth := &credentials.AuthConfig{Type: "bearer", Token: raw}
+		if got := tavilyToken(auth); got != "tvly-chave" {
+			t.Errorf("prefixo %q: esperava remoção, got %q", raw, got)
+		}
 	}
 }
 
@@ -182,13 +184,13 @@ func TestTavilyProvider_OffsetAlemDaJanela(t *testing.T) {
 		_, _ = w.Write([]byte(`{"results": []}`))
 	}))
 	defer srv.Close()
-	provider := &tavilyProvider{credMgr: credMgr, endpointOverride: srv.URL}
 	// Registra credencial para o host fake.
 	u, _ := url.Parse(srv.URL)
 	if err := credMgr.RegisterPattern(u.Hostname(), &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "x"}); err != nil {
 		t.Fatalf("registro de credencial: %v", err)
 	}
 	client := httpclient.New(&httpclient.Config{CredentialManager: credMgr}, map[string]string{})
+	provider := &tavilyProvider{credMgr: credMgr, endpointOverride: srv.URL}
 	_, err := provider.Search(context.Background(), client, "go", tavilyMaxWindow, 5)
 	if err != errTavilyWindowExceeded {
 		t.Errorf("esperava errTavilyWindowExceeded, got %v", err)
@@ -198,6 +200,18 @@ func TestTavilyProvider_OffsetAlemDaJanela(t *testing.T) {
 	}
 	if !isSearchFallbackable(errTavilyWindowExceeded) {
 		t.Error("errTavilyWindowExceeded deve avançar na cadeia")
+	}
+}
+
+func TestTavilyProvider_JanelaAntesDaResolucao(t *testing.T) {
+	// Sem credencial alguma e offset além da janela: o short-circuit deve
+	// vencer a resolução (não há por que tocar no credmanager).
+	credMgr := credentials.NewManager(nil)
+	client := httpclient.New(&httpclient.Config{CredentialManager: credMgr}, map[string]string{})
+	provider := &tavilyProvider{credMgr: credMgr}
+	_, err := provider.Search(context.Background(), client, "go", tavilyMaxWindow, 5)
+	if err != errTavilyWindowExceeded {
+		t.Errorf("esperava errTavilyWindowExceeded antes da resolução, got %v", err)
 	}
 }
 

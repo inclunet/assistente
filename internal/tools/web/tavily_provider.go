@@ -52,20 +52,18 @@ func (p *tavilyProvider) endpoint() string {
 
 // tavilyToken extrai o token Bearer a partir do AuthConfig resolvido: bearer
 // usa Token; custom usa o header Authorization (case-insensitive, com ou sem
-// prefixo "Bearer "); demais tipos não servem.
+// prefixo "Bearer ", em qualquer caixa); demais tipos não servem.
 func tavilyToken(auth *credentials.AuthConfig) string {
 	if auth == nil {
 		return ""
 	}
 	if auth.Type == "bearer" {
-		token := strings.TrimSpace(auth.Token)
-		return strings.TrimPrefix(token, "Bearer ")
+		return trimBearerPrefix(strings.TrimSpace(auth.Token))
 	}
 	if auth.Type == "custom" {
 		for key, val := range auth.Headers {
 			if strings.EqualFold(key, "Authorization") {
-				token := strings.TrimSpace(val)
-				return strings.TrimPrefix(token, "Bearer ")
+				return trimBearerPrefix(strings.TrimSpace(val))
 			}
 		}
 	}
@@ -85,6 +83,12 @@ func (p *tavilyProvider) Search(ctx context.Context, client *httpclient.Client, 
 	if p.credMgr == nil {
 		return nil, errNoTavilyCredential
 	}
+	// Short-circuit antes de resolver a credencial: offset além da janela
+	// nunca chama a API, então não deve executar fontes dinâmicas
+	// (comando/keyring) nem gastar nada.
+	if offset >= tavilyMaxWindow {
+		return nil, errTavilyWindowExceeded
+	}
 	auth, err := p.credMgr.ResolveForURLWithContext(ctx, p.endpoint())
 	if err != nil {
 		// Falha operacional (comando/keyring, expiração, descriptografia):
@@ -97,11 +101,7 @@ func (p *tavilyProvider) Search(ctx context.Context, client *httpclient.Client, 
 	}
 
 	// Sem offset na API: serve a janela inicial pedindo offset+maxResults
-	// (limitado ao teto) e fatia localmente. Offset além do teto avança na
-	// cadeia sem gastar créditos.
-	if offset >= tavilyMaxWindow {
-		return nil, errTavilyWindowExceeded
-	}
+	// (limitado ao teto) e fatia localmente.
 	want := offset + maxResults
 	if want > tavilyMaxWindow {
 		want = tavilyMaxWindow
