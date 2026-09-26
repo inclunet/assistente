@@ -21,13 +21,14 @@ import (
 )
 
 const (
-	maxDocumentSize = 64 * 1024
-	maxDepth        = 64
+	maxDocumentSize   = 64 * 1024
+	maxDefinitionSize = 1024 * 1024
+	maxDepth          = 64
 )
 
 var (
 	ErrInvalidJSON      = errors.New("commandjson: JSON inválido")
-	ErrDocumentTooLarge = errors.New("commandjson: documento excede 64 KiB")
+	ErrDocumentTooLarge = errors.New("commandjson: documento excede o limite de tamanho")
 	ErrDepthExceeded    = errors.New("commandjson: profundidade excede 64")
 	ErrDuplicateKey     = errors.New("commandjson: chave de objeto duplicada")
 	ErrInvalidUnicode   = errors.New("commandjson: Unicode inválido")
@@ -40,7 +41,11 @@ var (
 // It rejects duplicate names, invalid Unicode, non-I-JSON numbers, trailing
 // data, documents larger than 64 KiB, and nesting deeper than 64 containers.
 func Canonicalize(raw []byte) ([]byte, error) {
-	if len(raw) > maxDocumentSize {
+	return canonicalize(raw, maxDocumentSize)
+}
+
+func canonicalize(raw []byte, maxSize int) ([]byte, error) {
+	if len(raw) > maxSize {
 		return nil, ErrDocumentTooLarge
 	}
 	if len(raw) == 0 {
@@ -56,6 +61,9 @@ func Canonicalize(raw []byte) ([]byte, error) {
 	if p.pos != len(p.raw) {
 		return nil, ErrInvalidJSON
 	}
+	if len(value) > maxSize {
+		return nil, ErrDocumentTooLarge
+	}
 	return value, nil
 }
 
@@ -63,11 +71,23 @@ func Canonicalize(raw []byte) ([]byte, error) {
 // resulting JSON document. It follows encoding/json's supported Go values,
 // while applying the JCS validation and limits of Canonicalize.
 func Marshal(value any) ([]byte, error) {
+	return marshal(value, maxDocumentSize)
+}
+
+// MarshalDefinition serializa uma definição persistida para cálculo de digest,
+// com limite próprio de 1 MiB. Não usar para envelopes, argumentos ou HMAC do
+// protocolo de comandos: esses continuam limitados a 64 KiB por Marshal.
+// As demais validações JCS e a profundidade máxima são idênticas.
+func MarshalDefinition(value any) ([]byte, error) {
+	return marshal(value, maxDefinitionSize)
+}
+
+func marshal(value any, maxSize int) ([]byte, error) {
 	if err := validateValue(reflect.ValueOf(value), 0, make(map[visit]struct{})); err != nil {
 		return nil, err
 	}
 
-	var out boundedBuffer
+	out := boundedBuffer{maxSize: maxSize}
 	encoder := json.NewEncoder(&out)
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(value); err != nil {
@@ -80,7 +100,7 @@ func Marshal(value any) ([]byte, error) {
 	if len(data) == 0 || data[len(data)-1] != '\n' {
 		return nil, ErrInvalidValue
 	}
-	return Canonicalize(data[:len(data)-1])
+	return canonicalize(data[:len(data)-1], maxSize)
 }
 
 // HMAC canonicalizes raw and computes HMAC-SHA256 over a framed, domain-
@@ -583,10 +603,11 @@ func (p *parser) takeLiteral(literal string) bool {
 
 type boundedBuffer struct {
 	bytes.Buffer
+	maxSize int
 }
 
 func (b *boundedBuffer) Write(value []byte) (int, error) {
-	if b.Len()+len(value) > maxDocumentSize+1 {
+	if b.Len()+len(value) > b.maxSize+1 {
 		return 0, ErrDocumentTooLarge
 	}
 	return b.Buffer.Write(value)

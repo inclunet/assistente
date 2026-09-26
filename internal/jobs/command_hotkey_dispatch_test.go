@@ -2,7 +2,9 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -150,5 +152,54 @@ func TestCommandHotkeyBindingsSkipsInvalidPersistedJobAndKeepsValidBinding(t *te
 	}
 	if len(bindings) != 1 || bindings[0].JobSlug != valid.ID || bindings[0].Keys != "Ctrl+Alt+V" {
 		t.Fatalf("hotkey válida foi bloqueada por configuração inválida: %+v", bindings)
+	}
+}
+
+// Uma definição persistida grande não pode derrubar a projeção inteira:
+// sem hotkey ela é irrelevante; com hotkey ela não recebe autoridade.
+func TestCommandHotkeyBindingsIsolatesOversizedPersistedConfiguration(t *testing.T) {
+	for _, kind := range []string{"event-only", "large-definition", "large-condition"} {
+		t.Run(kind, func(t *testing.T) {
+			repo, owner, _ := setupJobsRepositoryTest(t)
+			mgr := mustNewManager(t, ManagerConfig{Repository: repo, ContextProvider: func() context.Context { return owner }})
+			oversized := testRepositoryJob("a-oversized", "Oversized")
+			oversized.Output.Schema = json.RawMessage(`{"description":"` + strings.Repeat("x", 1024*1024) + `"}`)
+			switch kind {
+			case "event-only":
+				oversized.Triggers = []Trigger{{Type: TriggerEvent, Listen: "example.ready"}}
+			case "large-definition":
+				oversized.Triggers = []Trigger{{Type: TriggerHotkey, Keys: "Ctrl+Alt+X"}}
+			case "large-condition":
+				oversized.Output.Schema = nil
+				oversized.Triggers = []Trigger{
+					{Type: TriggerHotkey, Keys: "Ctrl+Alt+X", When: strings.Repeat("x", 65536)},
+					{Type: TriggerHotkey, Keys: "Ctrl+Alt+Y"},
+				}
+			}
+			if err := repo.SaveJob(owner, oversized); err != nil {
+				t.Fatal(err)
+			}
+			valid := testRepositoryJob("z-valid", "Valid")
+			valid.Triggers = []Trigger{{Type: TriggerHotkey, Keys: "Ctrl+Alt+V"}}
+			if err := repo.SaveJob(owner, valid); err != nil {
+				t.Fatal(err)
+			}
+			bindings, err := mgr.CommandHotkeyBindings(owner)
+			if err != nil {
+				t.Fatalf("configuração de um job bloqueou a projeção: %v", err)
+			}
+			want := 1
+			if kind == "large-condition" {
+				want = 2
+			}
+			if len(bindings) != want || bindings[len(bindings)-1].JobSlug != valid.ID {
+				t.Fatalf("comandos independentes perdidos: %+v", bindings)
+			}
+			for _, binding := range bindings {
+				if binding.Keys == "Ctrl+Alt+X" || binding.DefinitionFingerprint == "" || binding.BindingFingerprint == "" {
+					t.Fatalf("binding sem validação recebeu autoridade: %+v", binding)
+				}
+			}
+		})
 	}
 }
