@@ -1,5 +1,12 @@
 # AEP — Assistente Enhancement Proposals
 
+**Qualificação de CI (26/09/2026):** o grupo de contexto do Deck foi separado
+em páginas, Mermaid, camadas e base residual, preservando descoberta automática,
+flags e seleção exata de cada teste. Validações/compilações backend e testes com
+cobertura executam em paralelo; o check obrigatório backend agrega ambos e só
+aprova se os dois passam. Evidência: testar-go-race.teste.sh verifica famílias,
+fallback, matriz e flags. AEP-0103 permanece **In Progress**, sem novo aceite manual.
+
 Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 
 Este diretório é o **repositório único** de decisões arquiteturais do projeto
