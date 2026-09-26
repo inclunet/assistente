@@ -1,4 +1,5 @@
 import type { SurfaceContext } from './chatSurface';
+import type { AppPage } from './commandAppPage';
 import { createSurfaceSnapshotVersion } from './chatSurface';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import {
@@ -80,6 +81,7 @@ export interface CommandContextFrame {
   readonly focus: FocusSnapshot;
   readonly surface: Readonly<SurfaceContext> | null;
   readonly profile: ProfileContext | null;
+  readonly appPage: AppPage | null;
 }
 
 const surfaceGetters = new Map<string, { readonly getter: SurfaceContextGetter }>();
@@ -440,6 +442,7 @@ export function ReadCommandContextFrame(surfaceID?: string): CommandContextFrame
     focus: ReadFocusContext(),
     surface: surfaceID === undefined ? null : ReadSurfaceContext(surfaceID) ?? null,
     profile: ReadProfileContext(),
+    appPage: null,
   });
 }
 

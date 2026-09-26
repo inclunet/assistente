@@ -70,7 +70,7 @@ func TestContextualPagePaletteTaskOperations(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			r, err := a.BeginContextualPagePaletteUICommand(view.Generation, scenario.id, scenario.surface, "dev")
+			r, err := a.BeginContextualPagePaletteUICommand(view.Generation, scenario.id, LocalCommandKeyboardContext{SurfaceType: scenario.surface, Profile: "dev"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -153,7 +153,7 @@ func TestContextualPagePaletteTaskRefusesStaleAndForeignTargets(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			r, err := a.BeginContextualPagePaletteUICommand(view.Generation, "tasklists.duplicate", "tasklists", "dev")
+			r, err := a.BeginContextualPagePaletteUICommand(view.Generation, "tasklists.duplicate", LocalCommandKeyboardContext{SurfaceType: "tasklists", Profile: "dev"})
 			if scenario == "ordinary" {
 				if err == nil {
 					_ = a.CancelUICommand(r.Ticket)
@@ -254,7 +254,7 @@ func TestContextualPagePaletteAdmissionClosed(t *testing.T) {
 		{"layer.back", "tasklists", "dev", view.Generation}, {"tasklists.duplicate", "tasklists", "wrong", view.Generation},
 		{"tasklists.duplicate", "tasklists", "", view.Generation}, {"tasklists.duplicate", "tasklists", "dev", "stale"},
 	} {
-		if r, err := a.BeginContextualPagePaletteUICommand(c.generation, c.id, c.surface, c.profile); err == nil || r.Ticket != "" {
+		if r, err := a.BeginContextualPagePaletteUICommand(c.generation, c.id, LocalCommandKeyboardContext{SurfaceType: c.surface, Profile: c.profile}); err == nil || r.Ticket != "" {
 			t.Fatalf("invalid admission %+v: %+v %v", c, r, err)
 		}
 	}
@@ -263,7 +263,7 @@ func TestContextualPagePaletteAdmissionClosed(t *testing.T) {
 func TestContextualPagePaletteRejectsSurfaceIDFact(t *testing.T) {
 	a, events, _, _ := pagePaletteTaskFixture(t, workspace.TabTypeChat)
 	view := configurePagePaletteCommand(t, a, events, "tasklists.duplicate", "tasklists", CommandSettingsConditionClause{Field: "surface.id", Value: "target-id"})
-	if r, err := a.BeginContextualPagePaletteUICommand(view.Generation, "tasklists.duplicate", "tasklists", "dev"); err == nil || r.Ticket != "" {
+	if r, err := a.BeginContextualPagePaletteUICommand(view.Generation, "tasklists.duplicate", LocalCommandKeyboardContext{SurfaceType: "tasklists", Profile: "dev"}); err == nil || r.Ticket != "" {
 		t.Fatalf("page accepted DOM target fact: %+v %v", r, err)
 	}
 }
@@ -281,7 +281,7 @@ func TestContextualPagePaletteProfileOperations(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			r, err := a.BeginContextualPagePaletteUICommand(view.Generation, id, "profiles", "dev")
+			r, err := a.BeginContextualPagePaletteUICommand(view.Generation, id, LocalCommandKeyboardContext{SurfaceType: "profiles", Profile: "dev"})
 			if err != nil {
 				t.Fatal(err)
 			}

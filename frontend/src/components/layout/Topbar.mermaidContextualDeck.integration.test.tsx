@@ -110,7 +110,7 @@ it.each(['editor.mermaid.apply', 'editor.mermaid.remove'])('%s consumes before r
   await waitFor(() => expect(api.CompleteUICommand).toHaveBeenCalledExactlyOnceWith('ticket', 'handoff', 'succeeded'));
   expect(mermaid.isMermaidModalOpen).toBe(false); expect(document.activeElement).toBe(screen.getByTestId('block'));
   expect(useEditorStore.getState().documents.doc.markdown).toBe(id.endsWith('remove') ? '' : '```mermaid\ngraph LR\nX-->Y\n```');
-  expect(api.BeginContextualDeckUICommand).toHaveBeenCalledExactlyOnceWith('offer', 'map', { surfaceType: 'editor', surfaceId: 'doc', profile: 'focused' });
+  expect(api.BeginContextualDeckUICommand).toHaveBeenCalledExactlyOnceWith('offer', 'map', { surfaceType: 'editor', surfaceId: 'doc', profile: 'focused', appPage: 'workspace' });
   expect(api.BeginUICommand).not.toHaveBeenCalled(); expect(api.BeginContextualPaletteUICommand).not.toHaveBeenCalled(); expect(api.CommitWorkspaceTabCommand).not.toHaveBeenCalled();
 });
 

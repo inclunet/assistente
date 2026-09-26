@@ -1,21 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createContextualDeckLayerWailsPort } from './commandContextualDeckLayerWails';
+import type { LocalCommandKeyboardContext } from './commandLocalKeyboardWails';
 
 function fixture(commandId = 'layer.activate') {
   const execute = vi.fn(async () => ({ invocationId: 'invocation', status: 'succeeded' }));
   const app = { ExecuteContextualDeckLayerCommand: execute, ExecutePaletteCommand: vi.fn(), BeginContextualDeckUICommand: vi.fn() };
   const target = { go: { app: { App: app } } } as unknown as Window;
   const current = vi.fn(() => true);
-  const observed = { surfaceType: 'chat', surfaceId: 'tab-a', profile: 'focused' };
+  const observed: LocalCommandKeyboardContext = { surfaceType: 'chat', surfaceId: 'tab-a', appPage: 'workspace', profile: 'focused' };
   const port = createContextualDeckLayerWailsPort({ offerId: 'offer', generation: 'map', commandId, observed, isCurrent: current, target });
   return { port, execute, app, current, observed, commandId };
 }
 afterEach(() => vi.restoreAllMocks());
 describe('Deck layer submission port', () => {
   it.each(['layer.activate', 'layer.toggle', 'layer.back'])('%s sends no command, arguments or physical identity and snapshots observation', async id => {
-    const f = fixture(id); f.observed.surfaceId = 'forged-later';
+    const f = fixture(id); f.observed.surfaceId = 'forged-later'; f.observed.appPage = 'settings';
     await expect(f.port.executeCommand(id, { ignored: true })).resolves.toMatchObject({ status: 'succeeded' });
-    expect(f.execute).toHaveBeenCalledExactlyOnceWith('offer', 'map', { surfaceType: 'chat', surfaceId: 'tab-a', profile: 'focused' });
+    expect(f.execute).toHaveBeenCalledExactlyOnceWith('offer', 'map', { surfaceType: 'chat', surfaceId: 'tab-a', appPage: 'workspace', profile: 'focused' });
     expect(f.app.ExecutePaletteCommand).not.toHaveBeenCalled(); expect(f.app.BeginContextualDeckUICommand).not.toHaveBeenCalled();
     await expect(f.port.executeCommand(id, {})).rejects.toThrow('stale');
   });

@@ -46,6 +46,22 @@ func applyWorkspaceTabDeckVisual(
 	variants map[string]commandDeckVisual,
 	commandID string,
 ) (commandDeckVisual, map[string]commandDeckVisual) {
+	return applyWorkspaceTabDeckVisualForPage(configuration, registry, identity, bindingIDs, conditions, arguments, active, locale, base, variants, commandID, "")
+}
+
+func applyWorkspaceTabDeckVisualForPage(
+	configuration *commandbindings.Configuration,
+	registry *commandcatalog.Registry,
+	identity string,
+	bindingIDs []string,
+	conditions []LocalCommandPaletteCondition,
+	arguments []byte,
+	active *workspace.Workspace,
+	locale string,
+	base commandDeckVisual,
+	variants map[string]commandDeckVisual,
+	commandID, appPage string,
+) (commandDeckVisual, map[string]commandDeckVisual) {
 	var targets []workspaceTabDeckTarget
 	if commandID == commandWorkspaceTabGoToID {
 		targets = append(targets, workspaceTabDeckTargetFromArguments(arguments, active, locale))
@@ -58,7 +74,7 @@ func applyWorkspaceTabDeckVisual(
 			if !isWorkspaceTabDeckVisualCommand(condition.CommandID) {
 				continue
 			}
-			collectWorkspaceTabDeckTargets(condition, active, locale, &targets)
+			collectWorkspaceTabDeckTargets(condition, active, locale, appPage, &targets)
 		}
 	}
 	if len(targets) == 0 {
@@ -66,9 +82,10 @@ func applyWorkspaceTabDeckVisual(
 	}
 	if len(bindingIDs) == 0 && commandID == "" {
 		seen := make(map[string]bool)
-		deckUIConditionsObserved(configuration, registry, identity, func(definition commandcatalog.Definition) bool {
+		observe := func(definition commandcatalog.Definition) bool {
 			return commandDeckLocalUIEligible(definition) || commandDeckContextualUIEligible(definition)
-		}, func(result commandbindings.Result) {
+		}
+		consume := func(result commandbindings.Result) {
 			if isWorkspaceTabDeckVisualCommand(result.CommandID) {
 				for _, id := range result.BindingIDs {
 					if !seen[id] {
@@ -77,7 +94,12 @@ func applyWorkspaceTabDeckVisual(
 					}
 				}
 			}
-		})
+		}
+		if appPage == "" {
+			deckUIConditionsObservedWithoutPage(configuration, registry, identity, observe, consume)
+		} else {
+			deckUIConditionsObservedForPage(configuration, registry, identity, observe, appPage, consume)
+		}
 	}
 	target := targets[0]
 	for _, candidate := range targets {
@@ -97,7 +119,7 @@ func applyWorkspaceTabDeckVisual(
 	if target.state == workspaceTabDeckTargetAmbiguous {
 		target.title = workspaceTabDeckText(locale, "ambiguous")
 	}
-	preserveCombinedTitle := commandID == "" && hasNonTabWorkspaceTabDeckVisualCommand(conditions)
+	preserveCombinedTitle := commandID == "" && hasNonTabWorkspaceTabDeckVisualCommand(conditions, appPage)
 
 	apply := func(visual commandDeckVisual, state string) commandDeckVisual {
 		customTitle := hasCustomDeckTitle(configuration, bindingIDs, state, locale)
@@ -137,24 +159,36 @@ func applyWorkspaceTabDeckVisual(
 	return base, variants
 }
 
-func hasNonTabWorkspaceTabDeckVisualCommand(conditions []LocalCommandPaletteCondition) bool {
+func hasNonTabWorkspaceTabDeckVisualCommand(conditions []LocalCommandPaletteCondition, appPage string) bool {
 	for _, condition := range conditions {
+		if len(condition.ByPage) != 0 {
+			if page, ok := condition.ByPage[appPage]; appPage != "" && ok && hasNonTabWorkspaceTabDeckVisualCommand([]LocalCommandPaletteCondition{page}, appPage) {
+				return true
+			}
+			continue
+		}
 		if condition.CommandID != "" && !isWorkspaceTabDeckVisualCommand(condition.CommandID) {
 			return true
 		}
-		if hasNonTabWorkspaceTabDeckVisualCommandFromMap(condition.ByProfile) {
+		if hasNonTabWorkspaceTabDeckVisualCommandFromMap(condition.ByProfile, appPage) {
 			return true
 		}
 	}
 	return false
 }
 
-func hasNonTabWorkspaceTabDeckVisualCommandFromMap(conditions map[string]LocalCommandPaletteCondition) bool {
+func hasNonTabWorkspaceTabDeckVisualCommandFromMap(conditions map[string]LocalCommandPaletteCondition, appPage string) bool {
 	for _, condition := range conditions {
+		if len(condition.ByPage) != 0 {
+			if page, ok := condition.ByPage[appPage]; appPage != "" && ok && hasNonTabWorkspaceTabDeckVisualCommand([]LocalCommandPaletteCondition{page}, appPage) {
+				return true
+			}
+			continue
+		}
 		if condition.CommandID != "" && !isWorkspaceTabDeckVisualCommand(condition.CommandID) {
 			return true
 		}
-		if hasNonTabWorkspaceTabDeckVisualCommandFromMap(condition.ByProfile) {
+		if hasNonTabWorkspaceTabDeckVisualCommandFromMap(condition.ByProfile, appPage) {
 			return true
 		}
 	}
@@ -169,7 +203,13 @@ func isWorkspaceTabDeckVisualCommand(commandID string) bool {
 	return ok && position > 0
 }
 
-func collectWorkspaceTabDeckTargets(condition LocalCommandPaletteCondition, active *workspace.Workspace, locale string, output *[]workspaceTabDeckTarget) {
+func collectWorkspaceTabDeckTargets(condition LocalCommandPaletteCondition, active *workspace.Workspace, locale, appPage string, output *[]workspaceTabDeckTarget) {
+	if len(condition.ByPage) != 0 {
+		if page, ok := condition.ByPage[appPage]; appPage != "" && ok {
+			collectWorkspaceTabDeckTargets(page, active, locale, appPage, output)
+		}
+		return
+	}
 	if isWorkspaceTabDeckVisualCommand(condition.CommandID) {
 		appendTarget := func(arguments map[string]any) {
 			if condition.CommandID == commandWorkspaceTabGoToID {
@@ -201,7 +241,7 @@ func collectWorkspaceTabDeckTargets(condition LocalCommandPaletteCondition, acti
 		}
 	}
 	for _, branch := range condition.ByProfile {
-		collectWorkspaceTabDeckTargets(branch, active, locale, output)
+		collectWorkspaceTabDeckTargets(branch, active, locale, appPage, output)
 	}
 }
 

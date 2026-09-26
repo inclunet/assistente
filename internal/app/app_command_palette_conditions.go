@@ -19,6 +19,7 @@ type LocalCommandPaletteCondition struct {
 	BySurfaceArguments   map[string]map[string]any               `json:"bySurfaceArguments,omitempty"`
 	BySurfaceIDArguments map[string]map[string]map[string]any    `json:"bySurfaceIdArguments,omitempty"`
 	ByProfile            map[string]LocalCommandPaletteCondition `json:"byProfile,omitempty"`
+	ByPage               map[string]LocalCommandPaletteCondition `json:"byPage,omitempty"`
 	Fallback             bool                                    `json:"fallback"`
 }
 
@@ -66,7 +67,7 @@ func paletteConditionForClass(configuration *commandbindings.Configuration, regi
 	if len(fields) == 0 {
 		return LocalCommandPaletteCondition{}, false
 	}
-	hasSurfaceType, hasSurfaceID, hasProfile := false, false, false
+	hasSurfaceType, hasSurfaceID, hasProfile, hasPage := false, false, false, false
 	for _, field := range fields {
 		switch field {
 		case commandbindings.AppFocused:
@@ -76,6 +77,8 @@ func paletteConditionForClass(configuration *commandbindings.Configuration, regi
 			hasSurfaceID = true
 		case commandbindings.Profile:
 			hasProfile = true
+		case commandbindings.AppPage:
+			hasPage = true
 		default:
 			// Process/device values are intentionally not enumerated. A local
 			// palette projection must never expose arbitrary user data.
@@ -96,11 +99,22 @@ func paletteConditionForClass(configuration *commandbindings.Configuration, regi
 	if hasProfile {
 		unknownProfile = contextualFallbackProfile(configuration.FieldValues(identity, commandbindings.Profile))
 	}
-	condition := localPaletteConditionLeaf(configuration, registry, identity, definitionID, unknownProfile, hasSurfaceType, hasSurfaceID, hasProfile, class)
-	if hasProfile {
-		condition.ByProfile = make(map[string]LocalCommandPaletteCondition)
-		for _, profile := range configuration.FieldValues(identity, commandbindings.Profile) {
-			condition.ByProfile[profile] = localPaletteConditionLeaf(configuration, registry, identity, definitionID, profile, hasSurfaceType, hasSurfaceID, true, class)
+	buildBranch := func(profile, appPage string) LocalCommandPaletteCondition {
+		branch := localPaletteConditionLeaf(configuration, registry, identity, definitionID, profile, appPage, hasSurfaceType, hasSurfaceID, hasProfile, class)
+		if hasProfile {
+			branch.ByProfile = make(map[string]LocalCommandPaletteCondition)
+			for _, listedProfile := range configuration.FieldValues(identity, commandbindings.Profile) {
+				branch.ByProfile[listedProfile] = localPaletteConditionLeaf(configuration, registry, identity, definitionID, listedProfile, appPage, hasSurfaceType, hasSurfaceID, true, class)
+			}
+		}
+		return branch
+	}
+	condition := buildBranch(unknownProfile, "")
+	if hasPage {
+		condition = LocalCommandPaletteCondition{CommandID: definitionID, BySurface: map[string]bool{}, Fallback: false,
+			ByPage: make(map[string]LocalCommandPaletteCondition)}
+		for _, appPage := range commandbindings.AppPages() {
+			condition.ByPage[appPage] = buildBranch(unknownProfile, appPage)
 		}
 	}
 	if condition.CommandID == "" {
@@ -109,11 +123,14 @@ func paletteConditionForClass(configuration *commandbindings.Configuration, regi
 	return condition, true
 }
 
-func localPaletteConditionLeaf(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity, definitionID, profile string, hasSurfaceType, hasSurfaceID, includeProfile bool, class commandExecutionClass) LocalCommandPaletteCondition {
+func localPaletteConditionLeaf(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity, definitionID, profile, appPage string, hasSurfaceType, hasSurfaceID, includeProfile bool, class commandExecutionClass) LocalCommandPaletteCondition {
 	leaf := LocalCommandPaletteCondition{CommandID: definitionID, BySurface: map[string]bool{}}
 	baseFacts := commandbindings.Facts{commandbindings.AppFocused: true}
 	if includeProfile && profile != "" {
 		baseFacts[commandbindings.Profile] = profile
+	}
+	if appPage != "" {
+		baseFacts[commandbindings.AppPage] = appPage
 	}
 	leaf.Fallback, leaf.FallbackArguments = paletteConditionArguments(configuration, registry, identity, definitionID, baseFacts, class)
 	if hasSurfaceType {
@@ -265,6 +282,12 @@ func cloneLocalCommandPaletteCondition(in LocalCommandPaletteCondition) LocalCom
 		out.ByProfile = make(map[string]LocalCommandPaletteCondition, len(in.ByProfile))
 		for profile, branch := range in.ByProfile {
 			out.ByProfile[profile] = cloneLocalCommandPaletteCondition(branch)
+		}
+	}
+	if in.ByPage != nil {
+		out.ByPage = make(map[string]LocalCommandPaletteCondition, len(in.ByPage))
+		for page, branch := range in.ByPage {
+			out.ByPage[page] = cloneLocalCommandPaletteCondition(branch)
 		}
 	}
 	return out

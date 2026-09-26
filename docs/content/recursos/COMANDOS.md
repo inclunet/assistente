@@ -29,6 +29,27 @@ formulários correspondentes, sem alterar o significado das configurações.
 Camadas herdadas de outro escopo podem ser consultadas, mas sua edição continua
 no escopo de origem.
 
+Condições visuais também podem usar **Página do aplicativo** (`app.page`), um
+fato separado do **Tipo de superfície**, da aba específica e do foco. A lista é
+fechada pelas rotas reais: Área de trabalho, Configurações, Perfis, Histórico,
+Ajuda, Sobre, Atualizações, Listas de tarefas, Tarefas e Memórias. Todas as
+subrotas de Configurações — inclusive Comandos e acionadores — contam como
+Configurações. Trocar de aba não altera a página Área de trabalho. A página é
+lida do contexto roteado confiável; se estiver ausente, inválida ou desconhecida,
+a condição não corresponde. A autorização normal e o bloqueio por modal continuam
+obrigatórios. No Stream Deck, o título e o ícone da tecla também acompanham a
+página enquanto a janela está focada; essa projeção visual é efêmera e não
+autoriza a execução do comando. Se a página não puder ser confirmada por um
+snapshot atual, comandos condicionados a `app.page` não mostram uma mistura de
+títulos de outras rotas: o visual fica neutro. Associações independentes de
+página continuam visíveis. Blur da janela, expiração e troca/reset da geração
+limpam a indicação contextual; um blur dentro da própria janela não é perda de
+foco.
+
+No editor de regras, **Página do aplicativo** também está disponível para as
+ações de camada do Stream Deck: ativar, alternar e voltar. As restrições da
+origem continuam valendo para as demais condições.
+
 **Escape** fecha primeiro o formulário e retorna o foco à grade do gerenciador.
 Outro **Escape** fecha o gerenciador e volta à camada selecionada. Enquanto
 uma operação estiver em andamento, aguarde sua conclusão antes de fechar.

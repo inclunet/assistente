@@ -25,8 +25,12 @@ func configurePageDeckCommand(t *testing.T, a *App, decisions <-chan map[string]
 	}
 	layer := settingsContractApply(t, a, decisions, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "layer_create", Layer: &CommandSettingsLayerInput{Name: "Physical page " + id, Enabled: true}})
 	settingsContractApply(t, a, decisions, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "rule_create", Rule: &CommandSettingsRuleInput{LayerID: layer.ID, Mode: "always", Lifecycle: "persistent", Enabled: true}})
+	appPage := surface
+	if surface == "tasklist" {
+		appPage = "workspace"
+	}
 	binding := settingsContractApply(t, a, decisions, CommandSettingsMutationRequest{Scope: CommandSettingsScopeGlobal, Operation: "binding_create", Binding: &CommandSettingsBindingInput{LayerID: layer.ID, CommandID: id, TriggerType: "streamdeck.key", TriggerSpec: `{"version":1,"device":"test-deck","key":3}`, Arguments: map[string]any{}, Effect: "execute", Enabled: true, Condition: &CommandSettingsCondition{Version: 1, Clauses: []CommandSettingsConditionClause{
-		{Field: "app.focused", Value: true}, {Field: "surface.type", Value: surface}, {Field: "profile", Value: "dev"},
+		{Field: "app.focused", Value: true}, {Field: "app.page", Value: appPage}, {Field: "surface.type", Value: surface}, {Field: "profile", Value: "dev"},
 	}}}})
 	if _, err := a.GetLocalCommandKeyboardMap(); err != nil {
 		t.Fatal(err)
@@ -53,9 +57,18 @@ func pageDeckOffer(t *testing.T, a *App) (CommandDeckContextualUIEvent, *command
 	return event, controller
 }
 
+func pageDeckObserved(surface, profile string) LocalCommandKeyboardContext {
+	appPage := surface
+	if surface == "tasklist" {
+		appPage = "workspace"
+	}
+	return LocalCommandKeyboardContext{SurfaceType: surface, Profile: profile, AppPage: appPage}
+}
+
 func beginPageDeckCommand(t *testing.T, a *App, event CommandDeckContextualUIEvent, id, surface string) commandui.Reservation {
 	t.Helper()
-	r, err := a.BeginContextualDeckPageUICommand(event.OfferID, event.Generation, surface, "dev")
+	observed := pageDeckObserved(surface, "dev")
+	r, err := a.BeginContextualDeckPageUICommand(event.OfferID, event.Generation, observed)
 	if err != nil || r.Ticket == "" || r.CommandID != id {
 		t.Fatalf("physical page Begin: %+v %v", r, err)
 	}
@@ -68,7 +81,7 @@ func beginPageDeckCommand(t *testing.T, a *App, event CommandDeckContextualUIEve
 	if commandInvocationCount(t, id) != 0 {
 		t.Fatal("Begin wrote an invocation before page preparation")
 	}
-	if replay, err := a.BeginContextualDeckPageUICommand(event.OfferID, event.Generation, surface, "dev"); err == nil || replay.Ticket != "" {
+	if replay, err := a.BeginContextualDeckPageUICommand(event.OfferID, event.Generation, observed); err == nil || replay.Ticket != "" {
 		t.Fatalf("physical offer replay admitted: %+v %v", replay, err)
 	}
 	return r
@@ -331,7 +344,7 @@ func TestContextualDeckPageRejectsInvalidOffers(t *testing.T) {
 					t.Fatalf("page entered workspace ingress: %+v %v", r, err)
 				}
 			}
-			if r, err := a.BeginContextualDeckPageUICommand(event.OfferID, event.Generation, surface, profile); err == nil || r.Ticket != "" {
+			if r, err := a.BeginContextualDeckPageUICommand(event.OfferID, event.Generation, pageDeckObserved(surface, profile)); err == nil || r.Ticket != "" {
 				t.Fatalf("invalid offer admitted: %+v %v", r, err)
 			}
 			if commandInvocationCount(t, "tasklists.duplicate") != 0 {

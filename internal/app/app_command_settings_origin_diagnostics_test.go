@@ -271,7 +271,7 @@ func TestCommandSettingsDeckLayerNativeAndMixedFacts(t *testing.T) {
 	for _, id := range []string{commandLayerActivateID, commandLayerToggleID, commandLayerBackID} {
 		for _, physical := range []commandbindings.Field{commandbindings.Process, commandbindings.Device} {
 			for _, profile := range []bool{false, true} {
-				for _, visual := range []commandbindings.Field{"", commandbindings.AppFocused, commandbindings.SurfaceType, commandbindings.SurfaceID} {
+				for _, visual := range []commandbindings.Field{"", commandbindings.AppFocused, commandbindings.AppPage, commandbindings.SurfaceType, commandbindings.SurfaceID} {
 					for _, inherited := range []bool{false, true} {
 						facts := commandbindings.Facts{physical: "app.exe"}
 						if profile {
@@ -280,6 +280,9 @@ func TestCommandSettingsDeckLayerNativeAndMixedFacts(t *testing.T) {
 						visualFacts := commandbindings.Facts{}
 						if visual == commandbindings.AppFocused {
 							visualFacts[visual] = true
+						}
+						if visual == commandbindings.AppPage {
+							visualFacts[visual] = "workspace"
 						}
 						if visual == commandbindings.SurfaceType || visual == commandbindings.SurfaceID {
 							visualFacts[commandbindings.SurfaceType] = "chat"

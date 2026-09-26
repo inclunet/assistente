@@ -2,6 +2,15 @@
 
 **Status:** In Progress
 
+**Integração das seções164–166 (26/09/2026):** a condição de página mantém
+os argumentos do destino de aba nos DTOs de teclado, paleta e Deck. A paleta
+usa a mesma página observada para disponibilidade e coleta do destino. A
+apresentação automática do Deck considera somente a ramificação da página
+viva, sem agregar destinos de outras rotas. Cópias do mapa preservam e isolam
+argumentos por página/perfil; despacho e autorização permanecem inalterados.
+Evidências da integração com os PRs #836 e #838 ficam na seção166 da tasklist.
+O aceite físico/NVDA permanece pendente: **83 I / 1 P / 0 N**.
+
 **Apresentação automática de abas — seção165 da tasklist:** o Stream Deck
 deriva título e ícone do tipo da aba-alvo para `workspace.tab.go_to` e
 `workspace.tab.first`…`ninth`, acompanhando renomeação, ordem e fechamento.
@@ -60,6 +69,59 @@ e os previews do dispositivo; atualizar apenas o guard preserva a identidade
 da configuração e o mapa local vigente. Duas sequências de nove trocas
 passaram após a correção, sem Alt+Tab. Não substitui hardware físico/NVDA
 nem altera a contagem **83 I / 1 P / 0 N**.
+
+**Contexto de rota no teclado local — seção166 (25/09/2026):** o ingresso Go
+aceita a surface da toolbar somente com o par canônico de página: `profiles`,
+`tasklists` e `history` mantêm seus tipos de superfície legados; as demais
+rotas usam `toolbar`. Abas de workspace continuam exigindo correspondência com
+o snapshot ativo, e não podem declarar página de rota. Na resolução, o tipo de
+superfície de rota vem desse frame canônico; para abas, vem do snapshot. Isso
+corrige o desacordo entre captura e projeção sem ampliar a projeção durável para
+superfícies de rota. A apresentação física do Deck por página lê agora um
+snapshot efêmero publicado pelo frame autenticado: apenas título/ícone seguem a
+página atual, com TTL, revisão monotônica e escopo de sessão, workspace e
+geração do mapa. Blur, troca de identidade/rota e reset do mapa limpam a
+projeção; publicação não persiste dados nem participa da autorização/execução,
+que continua validando o frame vivo.
+
+**Apresentação por página sem snapshot — seção166 (25/09/2026):** blur de
+elementos internos não limpa a lease da janela; clear é isolado por geração e
+um clear atrasado não avança o high-water da geração vigente. Sem página viva,
+o mapa visual não agrega bindings condicionais de rotas distintas: mantém
+somente bindings resolvidos sem `app.page`, ou deixa título/ícone neutros.
+Clear e expiração foram exercitados até o título renderizado em `deckMap`.
+Nenhuma regra de autorização ou execução foi alterada. Revisão independente
+final de Beauvoir: três pontos verificados, zero blockers.
+
+**Integração do fato `app.page` — seção166 (25/09/2026):** o decoder de
+configuração persistida agora aceita somente valores do enum fechado; Deck
+correlaciona página e superfície canônica tanto na projeção quanto na coleta
+visual por rota. Regras perfil-only de comandos de página não vazam para outra
+rota, enquanto comandos independentes de página continuam observáveis. A
+paleta envia o DTO observado com `surfaceId` vazio, preserva a validação da
+lease e deixa o alvo para `PreparePageMutationCommand`. O editor de condições
+também oferece `app.page` para `layer.activate`, `layer.toggle` e `layer.back`
+na origem Stream Deck. Beauvoir reavaliou o
+filtro visual sem bloqueios. Evidências: bateria Go ampliada reportada PASS em
+173,909 s antes do último ajuste visual, regressões focalizadas após esse
+ajuste PASS em 17,611 s, `commandconfig` PASS em 11,695 s, Vitest focal 80/80,
+`tsc --noEmit`, ESLint e `wails generate module` PASS. O teste E2E que antes
+falhava pela ausência de `appPage` foi corrigido sem remover asserts; a
+primeira reexecução local não alcançou a asserção porque `page.goto` excedeu
+30 s aguardando `load`, sem causa atribuída. A repetição completa do arquivo
+em servidor Vite isolado passou 2/2 (18,7 s), incluindo Alt+3 e restauração
+de foco ao trocar de aba. A conferência final Go de observer/projeção passou
+em 16,280 s e o lint dos três pacotes alterados terminou com zero issues.
+
+O ramo de refoco do editor também preserva `app.page` na lease local: Alt+3
+após F6, quando já em visualização, continua sendo somente foco, sem iniciar
+execução/auditoria. Regressão `byPage.workspace` e arquivo Vitest 103/103
+aprovados; TypeScript/ESLint e revisão independente aprovados.
+
+O adapter de ações de camada do Deck preserva `app.page` no snapshot imutável
+da ponte. A revisão das demais pontes e sequências não encontrou outra perda
+do campo; 51 testes em cinco suites, TypeScript e ESLint aprovados, sem alterar
+os guards de superfície ou autorização existentes.
 
 **Qualificação no CI — seção161 (25/09/2026):** após timeout acumulado,
 o grupo race de contexto foi subdividido em Deck, paleta, workspace e base,

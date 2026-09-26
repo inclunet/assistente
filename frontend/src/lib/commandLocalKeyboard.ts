@@ -10,6 +10,7 @@ import {
 import type { CommandKeyboardTrigger, CommandShortcut, CommandShortcutSequenceStep } from './commandShortcut';
 import { observeCommandShortcutComposition } from './commandFocusContext';
 import { isLocalUICommand } from './commandLocalUI';
+import { isAppPage } from './commandAppPage';
 
 export interface LocalCommandKeyboardMap {
   validUntil?: number;
@@ -33,6 +34,7 @@ export interface LocalCommandPaletteCondition {
   bySurfaceArguments?: Record<string, Record<string, unknown>>;
   bySurfaceIdArguments?: Record<string, Record<string, Record<string, unknown>>>;
   byProfile?: Record<string, LocalCommandPaletteCondition>;
+  byPage?: Record<string, LocalCommandPaletteCondition>;
   fallback: boolean;
 }
 
@@ -46,6 +48,8 @@ export interface LocalCommandContextualBinding {
   bySurfaceId?: Record<string, Record<string, LocalCommandKeyboardBinding | null>>;
   /** Projeções por perfil; a raiz é a projeção para perfis não listados. */
   byProfile?: Record<string, LocalCommandContextualBinding>;
+  /** App route is an independent, strict context dimension. */
+  byPage?: Record<string, LocalCommandContextualBinding>;
   fallback: LocalCommandKeyboardBinding | null;
 }
 
@@ -73,6 +77,7 @@ export interface LocalCommandKeyContext {
   surfaceId: string;
   surfaceType: string;
   profile?: string;
+  appPage?: import('./commandAppPage').AppPage;
 }
 
 export interface LocalCommandContextLease extends LocalCommandKeyContext {
@@ -193,6 +198,7 @@ function contextualKey(trigger: CommandKeyboardTrigger): string {
 
 function sameContext(left: LocalCommandKeyContext, right: LocalCommandKeyContext): boolean {
   return left.surfaceId === right.surfaceId && left.surfaceType === right.surfaceType &&
+    (left.appPage === undefined && right.appPage === undefined || left.appPage !== undefined && left.appPage === right.appPage) &&
     (left.profile === undefined && right.profile === undefined || left.profile !== undefined && right.profile !== undefined && left.profile === right.profile);
 }
 
@@ -208,9 +214,18 @@ export function resolveLocalCommandContextualBinding(
   entry: LocalCommandContextualBinding,
   surfaceType: string,
   context?: LocalCommandKeyContext,
+  pageScoped = false,
 ): LocalCommandContextualResolution {
+  if (entry.byPage !== undefined) {
+    if (!context || !isAppPage(context.appPage)) return { matched: false, branch: null, barrier: true, requiresLease: true };
+    const pageBranch = entry.byPage[context.appPage];
+    if (!pageBranch) return { matched: false, branch: null, barrier: true, requiresLease: true };
+    const resolved = resolveLocalCommandContextualBinding(pageBranch, surfaceType, context, true);
+    return { ...resolved, requiresLease: true };
+  }
   const hasProfileBranches = entry.byProfile !== undefined;
-  if (hasProfileBranches && !WORKSPACE_SURFACE_TYPES.has(surfaceType)) {
+  if (hasProfileBranches && !WORKSPACE_SURFACE_TYPES.has(surfaceType) &&
+      !(pageScoped && context?.appPage !== undefined && appPageAllowsSurfaceType(context.appPage, surfaceType))) {
     return { matched: false, branch: null, barrier: true, requiresLease: true };
   }
   if (hasProfileBranches) {
@@ -259,11 +274,22 @@ function safeContextKey(value: string): boolean {
 
 const WORKSPACE_SURFACE_TYPES = new Set(['chat', 'editor', 'terminal', 'tasklist']);
 
-function validateContextualEntry(raw: unknown, allowProfiles: boolean, workspaceOnly = false): LocalCommandContextualBinding | null {
+function appPageAllowsSurfaceType(page: import('./commandAppPage').AppPage, surfaceType: string): boolean {
+  switch (page) {
+    case 'profiles': return surfaceType === 'profiles';
+    case 'tasklists': return surfaceType === 'tasklists';
+    case 'history': return surfaceType === 'history';
+    case 'workspace': return WORKSPACE_SURFACE_TYPES.has(surfaceType);
+    default: return surfaceType === 'toolbar';
+  }
+}
+
+function validateContextualEntry(raw: unknown, allowProfiles: boolean, workspaceOnly = false, allowPages = true, allowRoutePageSurfaces = false): LocalCommandContextualBinding | null {
   if (!isRecord(raw) || !isCommandKeyboardTrigger(raw.shortcut) ||
       (!hasCommandModifier(raw.shortcut.version === 1 ? raw.shortcut : raw.shortcut.steps[0]) &&
         !isBareWhitelistedFunctionKey(raw.shortcut.version === 1 ? raw.shortcut : raw.shortcut.steps[0])) ||
       !isRecord(raw.bySurface)) return null;
+  if (Object.keys(raw).some(key => !['shortcut', 'bySurface', 'bySurfaceId', 'byProfile', 'byPage', 'fallback', 'fallbackToSequences', 'sequenceFallbacks'].includes(key))) return null;
   const key = contextualKey(raw.shortcut);
   if (raw.fallbackToSequences !== undefined && typeof raw.fallbackToSequences !== 'boolean') return null;
   if (raw.shortcut.version === 2 && raw.fallbackToSequences !== undefined) return null;
@@ -291,11 +317,12 @@ function validateContextualEntry(raw: unknown, allowProfiles: boolean, workspace
     if (validated === undefined) return null;
     bySurface[surface] = validated;
   }
-  if (Object.keys(bySurface).length === 0) return null;
+  if (Object.keys(bySurface).length === 0 && raw.byPage === undefined) return null;
   if (!allowProfiles && raw.byProfile !== undefined) return null;
   if (allowProfiles && raw.byProfile !== undefined) {
     if (!isRecord(raw.byProfile) || Object.keys(raw.byProfile).length === 0 ||
-        Object.keys(bySurface).some((surface) => !WORKSPACE_SURFACE_TYPES.has(surface))) return null;
+        Object.keys(bySurface).some((surface) => !WORKSPACE_SURFACE_TYPES.has(surface) &&
+          !(allowRoutePageSurfaces && ['toolbar', 'profiles', 'tasklists', 'history'].includes(surface)))) return null;
   }
   if (raw.bySurfaceId !== undefined) {
     if (!isRecord(raw.bySurfaceId)) return null;
@@ -343,11 +370,25 @@ function validateContextualEntry(raw: unknown, allowProfiles: boolean, workspace
       if (!safeContextKey(profile) || !isRecord(projection) ||
           !isCommandKeyboardTrigger(projection.shortcut) ||
           serializeCommandKeyboardTrigger(projection.shortcut) !== serializeCommandKeyboardTrigger(raw.shortcut)) return null;
-      const leaf = validateContextualEntry(projection, false, true);
+      const leaf = validateContextualEntry(projection, false, !allowRoutePageSurfaces, false);
       if (!leaf) return null;
       byProfile[profile] = leaf;
     }
     validated.byProfile = byProfile;
+  }
+  if (raw.byPage !== undefined) {
+    if (!allowPages || !isRecord(raw.byPage) || Object.keys(raw.byPage).length === 0 ||
+        Object.keys(bySurface).length !== 0 || raw.fallback !== null || raw.bySurfaceId !== undefined || raw.byProfile !== undefined ||
+        raw.sequenceFallbacks !== undefined || raw.fallbackToSequences === true) return null;
+    const byPage: Record<string, LocalCommandContextualBinding> = Object.create(null);
+    for (const [page, projection] of Object.entries(raw.byPage)) {
+      if (!isAppPage(page) || !isRecord(projection) || !isCommandKeyboardTrigger(projection.shortcut) ||
+          serializeCommandKeyboardTrigger(projection.shortcut) !== serializeCommandKeyboardTrigger(raw.shortcut as CommandKeyboardTrigger)) return null;
+      const leaf = validateContextualEntry(projection, allowProfiles, workspaceOnly, false, true);
+      if (!leaf) return null;
+      byPage[page] = leaf;
+    }
+    validated.byPage = byPage;
   }
   return validated;
 }
@@ -506,6 +547,7 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
       if (!lease || typeof lease.surfaceId !== 'string' || !lease.surfaceId || lease.surfaceId.trim() !== lease.surfaceId ||
           typeof lease.surfaceType !== 'string' || !lease.surfaceType || lease.surfaceType.trim() !== lease.surfaceType ||
           (lease.profile !== undefined && (typeof lease.profile !== 'string' || !lease.profile || lease.profile.trim() !== lease.profile)) ||
+          (lease.appPage !== undefined && !isAppPage(lease.appPage)) ||
           (lease.allowedCommandIds !== undefined && (!Array.isArray(lease.allowedCommandIds) || lease.allowedCommandIds.length === 0 ||
             lease.allowedCommandIds.some(commandID => !validCommandId(commandID)))) ||
           typeof lease.isCurrent !== 'function') return undefined;
@@ -560,6 +602,7 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
         surfaceId: sequenceContext.lease.surfaceId,
         surfaceType: sequenceContext.lease.surfaceType,
         ...(sequenceContext.lease.profile !== undefined ? { profile: sequenceContext.lease.profile } : {}),
+        ...(sequenceContext.lease.appPage !== undefined ? { appPage: sequenceContext.lease.appPage } : {}),
       },
       contextLease: sequenceContext.lease,
       contextualTriggers: sequenceContext.contextualBindings && new Set(sequenceContext.contextualBindings.map(binding => serializeCommandKeyboardTrigger(binding.shortcut))),
@@ -797,6 +840,7 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
           surfaceId: contextLease.surfaceId,
           surfaceType: contextLease.surfaceType,
           ...(contextLease.profile !== undefined ? { profile: contextLease.profile } : {}),
+          ...(contextLease.appPage !== undefined ? { appPage: contextLease.appPage } : {}),
         },
       };
       const downPromise = safeCall(() => options.onDown(request));
@@ -806,6 +850,7 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
           surfaceId: contextLease.surfaceId,
           surfaceType: contextLease.surfaceType,
           ...(contextLease.profile !== undefined ? { profile: contextLease.profile } : {}),
+          ...(contextLease.appPage !== undefined ? { appPage: contextLease.appPage } : {}),
         },
       });
       return;

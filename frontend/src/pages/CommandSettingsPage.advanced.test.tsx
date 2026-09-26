@@ -220,6 +220,25 @@ describe('CommandSettingsPage contrato avançado', () => {
     })));
   });
 
+  it('edita app.page como dimensão separada e mantém Settings agrupado', async () => {
+    const snapshot = configuration();
+    snapshot.bindings[0] = { ...snapshot.bindings[0], reviewStatus: 'active',
+      condition: { version: 1, clauses: [{ field: 'app.page', value: 'settings' }] } };
+    bridge.get.mockResolvedValue(snapshot);
+    render(<CommandSettingsPage />);
+    await bindingAction('commandSettings.actions.editBinding');
+    await openAdvancedOptions();
+    const field = screen.getByLabelText('commandSettings.conditions.field');
+    expect(within(field).getByRole('option', { name: 'commandSettings.conditionFields.appPage' })).toHaveValue('app.page');
+    const value = screen.getByLabelText('commandSettings.conditions.value');
+    expect(value).toHaveValue('settings');
+    expect(within(value).getByRole('option', { name: 'commandSettings.conditionValues.pageSettings' })).toHaveValue('settings');
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(bridge.mutate).toHaveBeenCalledWith(expect.objectContaining({
+      binding: expect.objectContaining({ condition: { version: 1, clauses: [{ field: 'app.page', value: 'settings' }] } }),
+    })));
+  });
+
   it('restaura pelo ID persistido do delta e vincula ao snapshot exibido', async () => {
     render(<CommandSettingsPage />);
     await bindingAction('commandSettings.actions.restore');

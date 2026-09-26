@@ -85,6 +85,55 @@ func TestContextualLayerPaletteConditionsSchemaAndClosedClass(t *testing.T) {
 	}
 }
 
+func TestLocalPaletteConditionsProjectClosedApplicationPages(t *testing.T) {
+	registry := paletteConditionTestRegistry(t)
+	const identity = "palette:" + commandProductShortcutsShowID
+	candidate := commandbindings.Candidate{ID: "settings-only", Trigger: identity, CommandID: commandProductShortcutsShowID,
+		ArgumentsKey: "{}", ExecutionScopeKey: "global", Scope: commandbindings.Application, Enabled: true, LayerActive: true,
+		Condition: commandbindings.Facts{commandbindings.AppPage: "settings"}}
+	configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{candidate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conditions := localPaletteUIConditions(configuration, registry)
+	if len(conditions) != 1 || conditions[0].ByPage["settings"].Fallback != true || conditions[0].ByPage["workspace"].Fallback {
+		t.Fatalf("app.page availability projection = %+v", conditions)
+	}
+	clone := cloneLocalCommandPaletteConditions(conditions)
+	clone[0].ByPage["settings"] = LocalCommandPaletteCondition{}
+	if !conditions[0].ByPage["settings"].Fallback {
+		t.Fatal("page branches share memory with cloned context projection")
+	}
+}
+
+func TestLocalPaletteWorkspaceTabArgumentsStayNestedUnderApplicationPage(t *testing.T) {
+	registry := paletteConditionTestRegistry(t)
+	const identity = "palette:" + commandWorkspaceTabGoToID
+	candidate := commandbindings.Candidate{
+		ID: "workspace-tab-page", Trigger: identity, CommandID: commandWorkspaceTabGoToID,
+		ArgumentsKey: `{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"tab-chat"}`, ExecutionScopeKey: "global",
+		Scope: commandbindings.Application, Enabled: true, LayerActive: true,
+		Condition: commandbindings.Facts{commandbindings.AppFocused: true, commandbindings.AppPage: "workspace", commandbindings.Profile: "dev", commandbindings.SurfaceType: "chat"},
+	}
+	configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{candidate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conditions := localPaletteUIConditions(configuration, registry)
+	if len(conditions) != 1 || conditions[0].CommandID != commandWorkspaceTabGoToID {
+		t.Fatalf("page-conditioned workspace target not projected: %+v", conditions)
+	}
+	workspacePage := conditions[0].ByPage["workspace"]
+	profile := workspacePage.ByProfile["dev"]
+	args := profile.BySurfaceArguments["chat"]
+	if !profile.BySurface["chat"] || args["workspace_id"] != "workspace-a" || args["tab_id"] != "tab-chat" || args["target_mode"] != "specific" {
+		t.Fatalf("palette target arguments detached from app.page/profile/surface: %+v", conditions[0])
+	}
+	if conditions[0].ByPage["settings"].ByProfile["dev"].BySurface["chat"] {
+		t.Fatalf("workspace target leaked into settings page: %+v", conditions[0].ByPage["settings"])
+	}
+}
+
 func TestContextualPagePaletteConditionsClosedScope(t *testing.T) {
 	registry := paletteConditionTestRegistry(t)
 	pageCount, workspaceCount := 0, 0

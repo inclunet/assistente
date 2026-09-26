@@ -30,6 +30,30 @@ externo na toolbar, sem alteração do motor de execução ou da autorização.
 O mantenedor confirmou a correção física do bloqueio do Deck antes do merge.
 **In Progress; 83 I / 1 P / 0 N**; os demais aceites não são inferidos desse relato.
 
+AEP-0103, integração164–166 (26/09/2026): destinos parametrizados e seus
+argumentos permanecem isolados por página/perfil na paleta e nos mapas Wails;
+o título automático do Deck considera a página viva, sem agregar rotas.
+**In Progress; 83 I / 1 P / 0 N**, com aceite físico/NVDA pendente.
+
+AEP-0103, seção166 (25/09/2026): a apresentação física do Deck é efêmera,
+isolada por geração e neutra para bindings `app.page` quando falta snapshot;
+bindings independentes de página permanecem. Clear/expiração deixam os títulos
+de página neutros e não alteram autorização. **In Progress; 83 I / 1 P / 0 N**.
+Revisão independente final Beauvoir: zero blockers. Aceite físico/NVDA segue
+pendente. O decoder persistido valida o enum fechado e a projeção Deck preserva
+pares de página/superfície e comandos independentes; bateria Go ampliada PASS
+173,909 s, regressões finais focadas PASS e integração frontend 80/80. E2E
+editor corrigido para o DTO atual: após uma tentativa inconclusiva por timeout
+em `page.goto`, os dois casos passaram em servidor isolado (18,7 s), sem
+aumentar limites. Conferência Go final e lint aprovados; CI deve confirmar.
+Lease de refoco Alt+3 preserva a página sem execução adicional; regressão
+`byPage.workspace` no arquivo de modo do editor 103/103, TypeScript e ESLint
+aprovados, com revisão independente. O estado de aceite manual não muda.
+A ponte de ações de camada do Deck preserva a página capturada; varredura das
+demais pontes e 51 testes de contrato aprovados, mantendo os guards existentes.
+O editor também oferece `app.page` para as três ações de camada do Stream
+Deck.
+
 AEP-0103, seção165 (25/09/2026): título e ícone automáticos para destinos de
 aba no Stream Deck, com personalizações preservadas e destino ausente explícito.
 Títulos longos são abreviados somente na tecla; o anúncio mantém o texto

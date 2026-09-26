@@ -622,7 +622,12 @@ describe('Apresentação do editor — dispatcher e paleta reais', () => {
         shortcut, commandId: 'editor.menu.insert.open', handler: 'local_ui',
       } }, fallback: { shortcut, commandId: 'navigation.data.import.open', handler: 'local_ui' } }],
     });
-    if (context === 'other') locationState.pathname = '/settings';
+    if (context === 'other') {
+      locationState.pathname = '/settings';
+      // Production obtains the route from CommandContextProvider; this fixture
+      // mocks that provider, so it must supply the same trusted route explicitly.
+      paletteContextScope = createCommandContextScope(undefined, locationState.pathname);
+    }
     const view = render(<><Topbar /><section data-testid="context-editor"><textarea aria-label="context text" /></section></>);
     const root = screen.getByTestId('context-editor');
     const open = vi.fn(() => true);
@@ -1057,7 +1062,7 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     const originalWorkspace = state.workspace.workspace;
     state.workspace.workspace = { id: 'workspace-a', name: 'Workspace', activeTabId: 'tab-a', tabs: [{ id: 'tab-a', type: 'chat' }] };
     Object.assign(state.workspace.workspace, { profile: 'dev' });
-    paletteContextScope = createCommandContextScope();
+    paletteContextScope = createCommandContextScope(undefined, locationState.pathname);
     const root = document.createElement('div');
     const source = document.createElement('textarea');
     root.append(source);
@@ -1110,7 +1115,12 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
     }
   });
 
-  it.each(['available', 'map-stale'] as const)('resolve go_to condicional sem allowlist incondicional e revalida contexto: %s', async mode => {
+  it.each([
+    { mode: 'available', byPage: false },
+    { mode: 'map-stale', byPage: false },
+    { mode: 'available', byPage: true },
+    { mode: 'map-stale', byPage: true },
+  ] as const)('resolve go_to condicional sem allowlist incondicional e revalida contexto: $mode / byPage=$byPage', async ({ mode, byPage }) => {
     const user = userEvent.setup();
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     const originalWorkspace = state.workspace.workspace;
@@ -1123,13 +1133,22 @@ describe('Topbar palette — integração real do Combobox compartilhado', () =>
       state.workspace.workspace.activeTabId = tabId;
       state.workspaceListeners.forEach(listener => listener());
     });
-    paletteContextScope = createCommandContextScope();
+    paletteContextScope = createCommandContextScope(undefined, locationState.pathname);
     const goToArguments = { workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'tab-b' };
     state.loadMap.mockResolvedValue({
       generation: 'conditional-go-to', ownerId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a',
       bindings: [{ shortcut: { version: 1, code: 'KeyK', modifiers: ['Control'] }, commandId: 'navigation.palette.open', handler: 'local_ui' }],
       localPaletteCommands: ['navigation.palette.open'],
-      localPaletteConditions: [{
+      localPaletteConditions: [byPage ? {
+        commandId: 'workspace.tab.go_to', bySurface: {}, fallback: false,
+        byPage: { workspace: {
+          commandId: 'workspace.tab.go_to', bySurface: {}, fallback: false,
+          byProfile: { dev: {
+            commandId: 'workspace.tab.go_to', bySurface: { chat: true },
+            bySurfaceArguments: { chat: goToArguments }, fallback: false,
+          } },
+        } },
+      } : {
         commandId: 'workspace.tab.go_to', bySurface: {}, fallback: false,
         byProfile: { dev: {
           commandId: 'workspace.tab.go_to', bySurface: { chat: true },

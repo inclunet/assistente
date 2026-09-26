@@ -18,8 +18,8 @@ export function BeginCommandDeckCapture(arg1) {
   return window['go']['app']['App']['BeginCommandDeckCapture'](arg1);
 }
 
-export function BeginContextualDeckPageUICommand(arg1, arg2, arg3, arg4) {
-  return window['go']['app']['App']['BeginContextualDeckPageUICommand'](arg1, arg2, arg3, arg4);
+export function BeginContextualDeckPageUICommand(arg1, arg2, arg3) {
+  return window['go']['app']['App']['BeginContextualDeckPageUICommand'](arg1, arg2, arg3);
 }
 
 export function BeginContextualDeckUICommand(arg1, arg2, arg3) {
@@ -30,8 +30,8 @@ export function BeginContextualLocalCommandUIKey(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['BeginContextualLocalCommandUIKey'](arg1, arg2, arg3, arg4);
 }
 
-export function BeginContextualPagePaletteUICommand(arg1, arg2, arg3, arg4) {
-  return window['go']['app']['App']['BeginContextualPagePaletteUICommand'](arg1, arg2, arg3, arg4);
+export function BeginContextualPagePaletteUICommand(arg1, arg2, arg3) {
+  return window['go']['app']['App']['BeginContextualPagePaletteUICommand'](arg1, arg2, arg3);
 }
 
 export function BeginContextualPaletteUICommand(arg1, arg2, arg3) {
@@ -64,6 +64,10 @@ export function CancelCommandDeckCapture(arg1) {
 
 export function CancelUICommand(arg1) {
   return window['go']['app']['App']['CancelUICommand'](arg1);
+}
+
+export function ClearCommandDeckPagePresentation(arg1, arg2) {
+  return window['go']['app']['App']['ClearCommandDeckPagePresentation'](arg1, arg2);
 }
 
 export function CloseDecisionRepeatHotkeySession(arg1) {
@@ -240,6 +244,10 @@ export function PrepareTerminalInterruptCommand(arg1, arg2, arg3, arg4, arg5) {
 
 export function PrepareTerminalSessionCommand(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['PrepareTerminalSessionCommand'](arg1, arg2, arg3, arg4);
+}
+
+export function PublishCommandDeckPagePresentation(arg1, arg2, arg3) {
+  return window['go']['app']['App']['PublishCommandDeckPagePresentation'](arg1, arg2, arg3);
 }
 
 export function PublishExternalUIContext(arg1) {

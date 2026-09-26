@@ -67,12 +67,14 @@ import { commandShortcutFromKeyboardEvent, formatCommandKeyboardTrigger, seriali
 import { publishCommandShortcutHints, useCommandShortcutHints } from '../../lib/commandShortcutHints';
 import { getModalRegistrySnapshot } from '../../lib/modalRegistry';
 import { createCommandLocalKeyboardWailsPort } from '../../lib/commandLocalKeyboardWails';
+import { createCommandDeckPagePresentationWailsPort } from '../../lib/commandDeckPagePresentationWails';
 import { isLocalUICommand } from '../../lib/commandLocalUI';
 import { CHAT_PRESENTATION_COMMAND_EVENT, captureChatPickerTarget, isChatPickerCommand, type ChatPickerTargetLease } from '../../lib/commandChatPickers';
 import { captureEditorPresentationTarget, isEditorPresentationCommand, type EditorPresentationTargetLease } from '../../lib/commandEditorPresentation';
 import { captureLandmarkNavigationTarget, isLandmarkNavigationCommand, LANDMARK_COMMAND_EVENT } from '../../lib/commandLandmarkNavigation';
 import { captureChatNavigationTarget, isChatNavigationCommand, CHAT_NAVIGATION_COMMAND_IDS, CHAT_NAVIGATION_COMMAND_EVENT, type ChatNavigationTarget } from '../../lib/commandChatNavigation';
 import { capturePagePresentationTarget, isPagePresentationCommand, PAGE_PRESENTATION_COMMAND_IDS, PAGE_PRESENTATION_COMMAND_EVENT, type PagePresentationTarget } from '../../lib/commandPagePresentation';
+import { resolveAppPage, type AppPage } from '../../lib/commandAppPage';
 import { subscribeCommandDeckFeedback } from '../../lib/subscribeCommandDeckFeedback';
 import { createExternalUICommandDispatcher, type ExternalUICommandFrame } from '../../lib/externalUICommandDispatcher';
 import { useExternalUIConnection } from '../../services/externalUIConnectionReact';
@@ -155,6 +157,13 @@ const ROUTE_IDS: Record<string, string> = {
   '/about': 'about',
   '/update': 'update',
 };
+
+// Some standalone pages already had a route-specific local-shortcut surface;
+// keep that dimension alongside app.page rather than replacing it with route.
+function keyboardSurfaceForPage(page: AppPage): string {
+  if (page === 'profiles' || page === 'tasklists' || page === 'history') return page;
+  return 'toolbar';
+}
 
 const HELP_SHORTCUTS_COMMAND_ID = 'help.shortcuts.show';
 const WORKSPACE_LIST_COMMAND_ID = 'workspace.list';
@@ -306,6 +315,7 @@ export function Topbar() {
     surfaceType: string;
     surfaceId: string;
     snapshotVersion: string;
+    appPage: AppPage;
     profile?: string;
     profileRevision: number;
     generation: string;
@@ -344,7 +354,7 @@ export function Topbar() {
         current.owner.workspaceId !== source.workspaceId || current.surfaceLease !== source.surfaceLease ||
         !surface || surface.surfaceId !== source.surfaceId || surface.surfaceType !== source.surfaceType ||
         surface.snapshotVersion !== source.snapshotVersion || !current.frame.focus.hasFocus ||
-        current.frame.profile?.slug !== source.profile) return false;
+        current.frame.profile?.slug !== source.profile || current.frame.appPage !== source.appPage) return false;
     // Durable palette conditions cannot use the toolbar as a substitute for a
     // missing workspace provider. Recheck epochs after the provider read too.
     if (resolver) {
@@ -368,6 +378,7 @@ export function Topbar() {
     return (resolver ?? localPaletteConditionResolverRef.current)(id, {
       surfaceType: source.surfaceType,
       surfaceId: source.surfaceId,
+      appPage: source.appPage,
       ...(source.profile !== undefined ? { profile: source.profile } : {}),
     });
   }, []);
@@ -386,6 +397,7 @@ export function Topbar() {
     return Object.freeze({
       commandId, generation: source.generation,
       observed: Object.freeze({ surfaceId: source.surfaceId, surfaceType: source.surfaceType,
+        appPage: source.appPage,
         ...(source.profile !== undefined ? { profile: source.profile } : {}) }),
       isCurrent,
       ...(isEditorFileCommand(commandId) ? { prepareNativeFileContinuation: () => {
@@ -413,6 +425,7 @@ export function Topbar() {
             current.owner.workspaceId === source.workspaceId && current.surfaceLease === source.surfaceLease &&
             current.frame.surface?.surfaceId === source.surfaceId && current.frame.surface.surfaceType === source.surfaceType &&
             current.frame.surface.snapshotVersion === source.snapshotVersion && current.frame.profile?.slug === source.profile &&
+            current.frame.appPage === source.appPage &&
             current.frame.focus.hasFocus && scalarCurrent();
         };
       } } : {}),
@@ -540,6 +553,7 @@ export function Topbar() {
     if (!source) return undefined;
     const selected = resolveLocalPaletteConditionSelectionFromParsed(localPaletteConditionsRef.current, commandID, {
       surfaceType: source.surfaceType, surfaceId: source.surfaceId,
+      appPage: source.appPage,
       ...(source.profile !== undefined ? { profile: source.profile } : {}),
     });
     return selected?.available ? selected.arguments : undefined;
@@ -1544,7 +1558,7 @@ export function Topbar() {
   useLayoutEffect(() => {
     commandPickerMountedRef.current = true;
     setCommandCatalogLoading(false);
-    const trustedSession = commandScope?.session ?? createTrustedCommandContextSession();
+    const trustedSession = commandScope?.session ?? createTrustedCommandContextSession(() => resolveAppPage(pathnameRef.current));
     localPaletteTrustedSessionRef.current = trustedSession;
     const surfaceElement = commandSurfaceRef.current;
     const unregisterSurface = trustedSession.registerSurfaceContext(COMMAND_TOOLBAR_SURFACE_ID, () => {
@@ -1620,9 +1634,66 @@ export function Topbar() {
     const backendExecutor = createCommandBackendExecution(createCommandBackendExecutionWailsPort(), contextOptions);
     commandBackendExecutionRef.current = backendExecutor;
     const localPort = createCommandLocalKeyboardWailsPort();
+    const deckPagePresentationPort = createCommandDeckPagePresentationWailsPort();
     let disposed = false;
+    let deckPagePresentationKey: string | null = null;
+    let deckPagePresentationGeneration: string | null = null;
+    let deckPagePresentationPublishedAt = 0;
     let localIntent: PendingCommandIntent | null = null;
+    const clearDeckPagePresentation = () => {
+      const generation = deckPagePresentationGeneration;
+      deckPagePresentationKey = null;
+      deckPagePresentationGeneration = null;
+      deckPagePresentationPublishedAt = 0;
+      if (generation) void deckPagePresentationPort.clear(generation).catch(() => undefined);
+    };
+    const syncDeckPagePresentation = () => {
+      if (disposed) return;
+      const auth = useAuthStore.getState();
+      const currentWorkspace = useWorkspaceStore.getState().workspace;
+      const owner = localKeyboardOwnerRef.current;
+      const generation = localKeyboardGenerationRef.current;
+      const appPage = resolveAppPage(pathnameRef.current);
+      const owned = trustedSession.readOwnedCommandContextFrame(COMMAND_TOOLBAR_SURFACE_ID);
+      const frame = owned?.frame;
+      if (!document.hasFocus() || document.visibilityState !== 'visible' || !auth.isAuthenticated || !auth.user ||
+          !currentWorkspace || !owner || !generation || !appPage || owner.ownerId !== auth.user.userId ||
+          owner.sessionId !== auth.user.sessionId || owner.workspaceId !== currentWorkspace.id ||
+          !owned || owned.owner.userId !== owner.ownerId || owned.owner.sessionId !== owner.sessionId ||
+          owned.owner.workspaceId !== owner.workspaceId || frame?.appPage !== appPage || !frame.focus.hasFocus ||
+          frame.surface?.surfaceId !== COMMAND_TOOLBAR_SURFACE_ID || frame.surface.surfaceType !== 'toolbar') {
+        clearDeckPagePresentation();
+        return;
+      }
+      const key = JSON.stringify([owner.ownerId, owner.sessionId, owner.workspaceId, generation, appPage]);
+      const now = Date.now();
+      if (deckPagePresentationKey === key && now - deckPagePresentationPublishedAt < 2500) return;
+      if (deckPagePresentationKey && deckPagePresentationKey !== key) clearDeckPagePresentation();
+      deckPagePresentationKey = key;
+      deckPagePresentationGeneration = generation;
+      deckPagePresentationPublishedAt = now;
+      void deckPagePresentationPort.publish(appPage, generation).catch(() => {
+        if (deckPagePresentationKey === key) {
+          deckPagePresentationKey = null;
+          deckPagePresentationGeneration = null;
+          deckPagePresentationPublishedAt = 0;
+        }
+      });
+    };
+    const refreshDeckPagePresentation = () => syncDeckPagePresentation();
+    const clearDeckPagePresentationOnWindowBlur = (event: FocusEvent) => {
+      if (event.target !== event.currentTarget || event.currentTarget !== window) return;
+      clearDeckPagePresentation();
+    };
+    const deckPagePresentationTimer = window.setInterval(syncDeckPagePresentation, 2000);
+    window.addEventListener('focus', refreshDeckPagePresentation, true);
+    window.addEventListener('blur', clearDeckPagePresentationOnWindowBlur, true);
+    document.addEventListener('visibilitychange', refreshDeckPagePresentation, true);
+    const unsubscribeDeckPagePresentationAuth = useAuthStore.subscribe(syncDeckPagePresentation);
+    const unsubscribeDeckPagePresentationWorkspace = useWorkspaceStore.subscribe(syncDeckPagePresentation);
+    syncDeckPagePresentation();
     const clearLocalMapRefs = () => {
+      clearDeckPagePresentation();
       publishCommandShortcutHints(null);
       clearPaletteEditorModeTargets();
       paletteSurfaceTargetRef.current?.dispose();
@@ -1778,14 +1849,43 @@ export function Topbar() {
       }
     });
     const captureKeyboardContext = (event?: KeyboardEvent, requestedFocusShortcut?: CommandKeyboardTrigger) => {
-      if (disposed || pathnameRef.current !== '/' || isModalOpen()) return undefined;
+      if (disposed || isModalOpen()) return undefined;
+      const route = commandRouteIdentityRef.current;
+      if (pathnameRef.current !== '/') {
+        const owned = trustedSession.readOwnedCommandContextFrame(COMMAND_TOOLBAR_SURFACE_ID);
+        const surface = owned?.frame.surface;
+        const workspace = useWorkspaceStore.getState().workspace;
+        const page = owned?.frame.appPage;
+        if (!owned || !surface || surface.surfaceId !== COMMAND_TOOLBAR_SURFACE_ID || surface.surfaceType !== 'toolbar' ||
+            !page || !owned.frame.focus.hasFocus || !workspace) return undefined;
+        const element = document.activeElement;
+        const modalGeneration = getModalRegistrySnapshot().generation;
+        const profile = owned.frame.profile?.slug;
+        const keyboardSurfaceType = keyboardSurfaceForPage(page);
+        return {
+          surfaceId: surface.surfaceId,
+          surfaceType: keyboardSurfaceType,
+          appPage: page,
+          ...(profile ? { profile } : {}),
+          isCurrent: () => {
+            if (disposed || pathnameRef.current === '/' || commandRouteIdentityRef.current !== route || isModalOpen() ||
+                getModalRegistrySnapshot().generation !== modalGeneration || document.activeElement !== element ||
+                useWorkspaceStore.getState().workspace?.id !== workspace.id) return false;
+            const current = trustedSession.readOwnedCommandContextFrame(COMMAND_TOOLBAR_SURFACE_ID);
+          return !!current && current.surfaceLease === owned.surfaceLease && current.frame.focus.hasFocus &&
+              current.owner.userId === owned.owner.userId && current.owner.sessionId === owned.owner.sessionId &&
+              current.owner.workspaceId === owned.owner.workspaceId && current.frame.appPage === page &&
+              current.frame.profile?.slug === profile && current.frame.surface?.surfaceId === surface.surfaceId &&
+              current.frame.surface.surfaceType === 'toolbar' && current.frame.surface.snapshotVersion === surface.snapshotVersion;
+          },
+        };
+      }
       const activeID = useWorkspaceStore.getState().workspace?.activeTabId;
       if (!activeID) return undefined;
       const owned = trustedSession.readOwnedCommandContextFrame(activeID);
       const surface = owned?.frame.surface;
       if (!owned || !surface || surface.surfaceId !== activeID ||
           !['chat', 'editor', 'terminal', 'tasklist'].includes(surface.surfaceType)) return undefined;
-      const route = commandRouteIdentityRef.current;
       const element = document.activeElement;
       const modalGeneration = getModalRegistrySnapshot().generation;
       const profile = owned.frame.profile?.slug;
@@ -1810,6 +1910,7 @@ export function Topbar() {
         const resolution = resolveLocalCommandContextualBinding(candidates[0], 'editor', {
           surfaceId: activeID,
           surfaceType: 'editor',
+          ...(owned.frame.appPage ? { appPage: owned.frame.appPage } : {}),
           ...(profile !== undefined ? { profile } : {}),
         });
         if (!resolution.matched || resolution.barrier || resolution.branch?.commandId !== 'editor.mode.view' ||
@@ -1820,6 +1921,7 @@ export function Topbar() {
         return {
           surfaceId: surface.surfaceId,
           surfaceType: surface.surfaceType,
+          ...(owned.frame.appPage ? { appPage: owned.frame.appPage } : {}),
           ...(profile ? { profile } : {}),
           allowedCommandIds: ['editor.mode.view'],
           isCurrent: () => {
@@ -1836,9 +1938,10 @@ export function Topbar() {
                 localKeyboardOwnerRef.current?.sessionId !== focusOnlyOwner.sessionId ||
                 localKeyboardOwnerRef.current?.workspaceId !== focusOnlyOwner.workspaceId || !editorViewFocusAvailable()) return false;
             const current = trustedSession.readOwnedCommandContextFrame(activeID);
-            return !!current && !current.frame.focus.hasFocus && current.surfaceLease === owned.surfaceLease &&
+          return !!current && !current.frame.focus.hasFocus && current.surfaceLease === owned.surfaceLease &&
               current.owner.userId === owned.owner.userId && current.owner.sessionId === owned.owner.sessionId &&
               current.owner.workspaceId === owned.owner.workspaceId && current.frame.profile?.slug === profile &&
+              current.frame.appPage === owned.frame.appPage &&
               current.frame.surface?.surfaceId === surface.surfaceId && current.frame.surface.surfaceType === 'editor' &&
               current.frame.surface.snapshotVersion === surface.snapshotVersion;
           },
@@ -1847,6 +1950,7 @@ export function Topbar() {
       return {
         surfaceId: surface.surfaceId,
         surfaceType: surface.surfaceType,
+        ...(owned.frame.appPage ? { appPage: owned.frame.appPage } : {}),
         ...(profile ? { profile } : {}),
         isCurrent: () => {
           if (disposed || pathnameRef.current !== '/' || commandRouteIdentityRef.current !== route ||
@@ -1861,6 +1965,7 @@ export function Topbar() {
             current.owner.userId === owned.owner.userId && current.owner.sessionId === owned.owner.sessionId &&
             current.owner.workspaceId === owned.owner.workspaceId &&
             current.frame.profile?.slug === profile &&
+            current.frame.appPage === owned.frame.appPage &&
             current.frame.surface?.surfaceId === surface.surfaceId && current.frame.surface.surfaceType === surface.surfaceType &&
             current.frame.surface.snapshotVersion === surface.snapshotVersion && current.frame.focus.hasFocus &&
             (document.activeElement === element || ownMenuFocus);
@@ -1873,11 +1978,10 @@ export function Topbar() {
       readContext: captureKeyboardContext,
       readSurfaceType: () => {
         if (isModalOpen()) return undefined;
-        if (pathnameRef.current === '/tasklists') return 'tasklists';
-        if (pathnameRef.current === '/profiles') return 'profiles';
-        if (pathnameRef.current === '/history') return 'history';
         if (pathnameRef.current !== '/') {
-          return trustedSession.readSurfaceContext(COMMAND_TOOLBAR_SURFACE_ID)?.surfaceType;
+          const owned = trustedSession.readOwnedCommandContextFrame(COMMAND_TOOLBAR_SURFACE_ID);
+          const page = owned?.frame.appPage;
+          return page ? keyboardSurfaceForPage(page) : undefined;
         }
         const activeID = useWorkspaceStore.getState().workspace?.activeTabId;
         const context = activeID ? trustedSession.readSurfaceContext(activeID) : undefined;
@@ -1915,6 +2019,7 @@ export function Topbar() {
         localKeyboardOwnerRef.current = {
           ownerId: map.ownerId!, sessionId: map.sessionId!, workspaceId: map.workspaceId!,
         };
+        syncDeckPagePresentation();
         void externalUIContextPublisherRef.current().catch(() => undefined);
       },
       onMapInvalidated: () => {
@@ -2381,6 +2486,7 @@ export function Topbar() {
         context: {
           surfaceType: surface.surfaceType,
           surfaceId: surface.surfaceId,
+          ...(owned.frame.appPage ? { appPage: owned.frame.appPage } : {}),
           ...(profile ? { profile } : {}),
         } satisfies LocalCommandPaletteVisualContext,
       };
@@ -2557,6 +2663,7 @@ export function Topbar() {
           next.owner.sessionId === first.owner.sessionId && next.owner.workspaceId === first.owner.workspaceId &&
           next.surface.surfaceId === first.surface.surfaceId && next.surface.surfaceType === first.surface.surfaceType &&
           next.surface.snapshotVersion === first.surface.snapshotVersion && next.context.profile === first.context.profile &&
+          next.context.appPage === first.context.appPage &&
           (mermaidCaptured ? mermaidCaptured.target.isCurrent() &&
             (isModalOpen() ? !!commandId && mermaidCaptured.target.canExecute(commandId) : commandScope?.surfaceForElement(next.focusedElement) === first.surface.surfaceId) :
             next.focusedElement === first.focusedElement) && scalarCurrent(native);
@@ -2729,7 +2836,8 @@ export function Topbar() {
             first.routeIdentity !== second.routeIdentity || first.generation !== second.generation ||
             first.profileRevision !== second.profileRevision || first.surface.surfaceId !== second.surface.surfaceId ||
             first.surface.surfaceType !== second.surface.surfaceType || first.surface.snapshotVersion !== second.surface.snapshotVersion ||
-            first.context.profile !== second.context.profile || first.focusedElement !== second.focusedElement ||
+            first.context.profile !== second.context.profile || first.context.appPage !== second.context.appPage ||
+            first.focusedElement !== second.focusedElement ||
             first.modalGeneration !== second.modalGeneration || second.owner.userId !== value.userId ||
             second.owner.sessionId !== value.sessionId || second.owner.workspaceId !== value.workspaceId ||
             second.owner.userId !== localKeyboardOwnerRef.current?.ownerId ||
@@ -2803,6 +2911,13 @@ export function Topbar() {
     commandUIEffectGuardRef.current = guard;
     return () => {
       disposed = true;
+      clearDeckPagePresentation();
+      window.clearInterval(deckPagePresentationTimer);
+      window.removeEventListener('focus', refreshDeckPagePresentation, true);
+      window.removeEventListener('blur', clearDeckPagePresentationOnWindowBlur, true);
+      document.removeEventListener('visibilitychange', refreshDeckPagePresentation, true);
+      unsubscribeDeckPagePresentationAuth();
+      unsubscribeDeckPagePresentationWorkspace();
       externalUIEffectDisposed = true;
       externalUIDispatcher?.dispose();
       unsubscribeExternalUIStatus?.();
@@ -3633,7 +3748,7 @@ export function Topbar() {
     const sourceFrame = ownedSource?.frame;
     const sourceVisual = sourceFrame?.surface;
     const sourceWorkspace = useWorkspaceStore.getState().workspace;
-    if (ownedSource && sourceVisual && sourceVisual.surfaceId === sourceSurface && sourceFrame.focus.hasFocus && sourceWorkspace) {
+    if (ownedSource && sourceVisual && sourceVisual.surfaceId === sourceSurface && sourceFrame.focus.hasFocus && sourceWorkspace && sourceFrame.appPage) {
       localPaletteSourceRef.current = {
         ownerId: ownedSource.owner.userId,
         sessionId: ownedSource.owner.sessionId,
@@ -3643,6 +3758,7 @@ export function Topbar() {
         surfaceType: sourceVisual.surfaceType,
         surfaceId: sourceVisual.surfaceId,
         snapshotVersion: sourceVisual.snapshotVersion,
+        appPage: sourceFrame.appPage,
         profileRevision: localPaletteProfileRevisionRef.current,
         generation: localKeyboardGenerationRef.current ?? '',
         explicitVisualOrigin: registeredSource !== undefined || !!commandSurfaceRef.current?.contains(focusedElement),

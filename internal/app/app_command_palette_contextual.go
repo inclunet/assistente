@@ -9,7 +9,6 @@ import (
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandui"
-	"assistente/internal/workspace"
 )
 
 // Workspace surfaces retain their existing preparation/decision/commit protocols.
@@ -37,7 +36,7 @@ func isContextualPagePaletteCommand(id string) bool {
 // PreparePageMutationCommand separately validates the owned target/fingerprint.
 // No UI surface ID, draft, target ID or caller-controlled authorization is used
 // as a backend fact. The profile is always checked against the canonical source.
-func (a *App) BeginContextualPagePaletteUICommand(generation, commandID, surfaceType, profile string) (result commandui.Reservation, err error) {
+func (a *App) BeginContextualPagePaletteUICommand(generation, commandID string, observed LocalCommandKeyboardContext) (result commandui.Reservation, err error) {
 	defer func() { err = safeCommandSettingsError(err) }()
 	if generation == "" || !isContextualPagePaletteCommand(commandID) {
 		return result, commandexecution.ErrDenied
@@ -50,23 +49,13 @@ func (a *App) BeginContextualPagePaletteUICommand(generation, commandID, surface
 	if !ok || commandExecutionClassForDefinition(definition) != commandExecutionDurable || !definition.AllowsSource(commandcatalog.Palette) {
 		return result, commandexecution.ErrDenied
 	}
-	snapshot, err := p.workspaceMgr.CommandSnapshot()
-	if err != nil || snapshot.WorkspaceID != p.workspaceID {
-		return result, commandexecution.ErrStale
+	if !deckPageCommandSurface(commandID, observed.SurfaceType) {
+		return result, commandexecution.ErrDenied
 	}
-	if isProfileMutationCommand(commandID) {
-		if surfaceType != "profiles" {
-			return result, commandexecution.ErrDenied
-		}
-	} else if surfaceType != "tasklists" {
-		if surfaceType != "tasklist" || (commandID != "tasklists.duplicate" && commandID != "tasklists.clear") || snapshot.Tab.Type != workspace.TabTypeTasklist {
-			return result, commandexecution.ErrDenied
-		}
+	proof, err := p.captureDeckPageContext(observed)
+	if err != nil {
+		return result, err
 	}
-	if profile != "" && profile != localKeyboardEffectiveProfile(snapshot) {
-		return result, commandexecution.ErrStale
-	}
-	proof := &localCommandKeyboardContextProof{snapshot: snapshot, observed: LocalCommandKeyboardContext{SurfaceType: surfaceType, Profile: profile}}
 	return a.beginContextualPaletteCommand(p, generation, commandID, proof)
 }
 
@@ -111,10 +100,15 @@ func (a *App) beginContextualPaletteCommand(p *commandProductRuntime, generation
 	}
 	if isContextualPagePaletteCommand(commandID) {
 		for _, field := range required {
-			if field != commandbindings.AppFocused && field != commandbindings.SurfaceType && field != commandbindings.Profile {
+			if field != commandbindings.AppFocused && field != commandbindings.SurfaceType && field != commandbindings.Profile && field != commandbindings.AppPage {
 				return result, commandexecution.ErrDenied
 			}
 		}
+		if _, factsErr := deckPageCommandFacts(proof, required); factsErr != nil {
+			return result, factsErr
+		}
+	} else if _, factsErr := workspaceVisualCommandFacts(proof, required); factsErr != nil {
+		return result, factsErr
 	}
 	sourceValid := func() bool {
 		p.keyboardMu.Lock()
@@ -159,28 +153,18 @@ func (p *commandProductRuntime) paletteWorkspaceOccurrenceFacts(ctx context.Cont
 	if ctx == nil || ctx.Err() != nil || sourceValid == nil || !sourceValid() || !localKeyboardSupportedVariableFacts(localKeyboardVariableFacts(required)) {
 		return commandOriginContext{}, true, commandexecution.ErrStale
 	}
-	facts := commandbindings.Facts{commandbindings.AppFocused: true}
+	var origin commandOriginContext
+	var err error
 	if isContextualPagePaletteCommand(commandID) {
 		// This is the admitted UI domain, not the background workspace tab or
 		// the selected target ID. Target ownership/version remains in Prepare.
-		facts[commandbindings.SurfaceType] = proof.observed.SurfaceType
-		for _, field := range required {
-			if field == commandbindings.SurfaceID {
-				return commandOriginContext{}, true, commandexecution.ErrDenied
-			}
-		}
+		origin, err = deckPageCommandFacts(proof, required)
 	} else {
-		facts[commandbindings.SurfaceID] = proof.snapshot.Tab.ID
-		facts[commandbindings.SurfaceType] = string(proof.snapshot.Tab.Type)
+		origin, err = workspaceVisualCommandFacts(proof, required)
 	}
-	for _, field := range required {
-		if field == commandbindings.Profile {
-			profile := localKeyboardEffectiveProfile(proof.snapshot)
-			if profile == "" || proof.observed.Profile != profile {
-				return commandOriginContext{}, true, commandexecution.ErrDenied
-			}
-			facts[field] = profile
-		}
+	if err != nil {
+		return commandOriginContext{}, true, err
 	}
-	return commandOriginContext{facts: facts, version: "palette-workspace:" + proof.snapshot.Version}, true, nil
+	origin.version = "palette-workspace:" + proof.snapshot.Version
+	return origin, true, nil
 }

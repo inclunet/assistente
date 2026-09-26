@@ -93,7 +93,7 @@ func TestDecodeKeyboardRejectsAdversarialDocuments(t *testing.T) {
 }
 
 func TestDecodeConditionDecodesFactsAndRejectsDuplicates(t *testing.T) {
-	raw := `{"version":1,"clauses":[{"field":"app.focused","op":"eq","value":true},{"field":"surface.id","op":"eq","value":"editor-1"},{"field":"profile","op":"eq","value":"default"}]}`
+	raw := `{"version":1,"clauses":[{"field":"app.focused","op":"eq","value":true},{"field":"surface.id","op":"eq","value":"editor-1"},{"field":"profile","op":"eq","value":"default"},{"field":"app.page","op":"eq","value":"workspace"}]}`
 	got, err := decodeCondition(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -102,8 +102,9 @@ func TestDecodeConditionDecodesFactsAndRejectsDuplicates(t *testing.T) {
 		commandbindings.AppFocused: true,
 		commandbindings.SurfaceID:  "editor-1",
 		commandbindings.Profile:    "default",
+		commandbindings.AppPage:    "workspace",
 	}
-	if got[commandbindings.AppFocused] != want[commandbindings.AppFocused] || got[commandbindings.SurfaceID] != want[commandbindings.SurfaceID] || got[commandbindings.Profile] != want[commandbindings.Profile] || len(got) != len(want) {
+	if got[commandbindings.AppFocused] != want[commandbindings.AppFocused] || got[commandbindings.SurfaceID] != want[commandbindings.SurfaceID] || got[commandbindings.Profile] != want[commandbindings.Profile] || got[commandbindings.AppPage] != want[commandbindings.AppPage] || len(got) != len(want) {
 		t.Fatalf("facts = %#v, esperado %#v", got, want)
 	}
 
@@ -160,6 +161,8 @@ func TestDecodeConditionRejectsAdversarialDocumentsAndLimit(t *testing.T) {
 		{"cláusula array", `{"version":1,"clauses":[[]]}`},
 		{"campo ausente", `{"version":1,"clauses":[{"op":"eq","value":true}]}`},
 		{"campo desconhecido", `{"version":1,"clauses":[{"field":"app.active","op":"eq","value":true}]}`},
+		{"página desconhecida", `{"version":1,"clauses":[{"field":"app.page","op":"eq","value":"unknown-page"}]}`},
+		{"página em tipo inválido", `{"version":1,"clauses":[{"field":"app.page","op":"eq","value":true}]}`},
 		{"campo com case variante", `{"version":1,"clauses":[{"field":"App.Focused","op":"eq","value":true}]}`},
 		{"op ausente", `{"version":1,"clauses":[{"field":"app.focused","value":true}]}`},
 		{"operador inválido", `{"version":1,"clauses":[{"field":"app.focused","op":"neq","value":true}]}`},

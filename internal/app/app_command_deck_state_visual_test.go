@@ -127,6 +127,64 @@ func TestLocalDeckPresentationsUsesResolvedBindingConsensusAndInheritance(t *tes
 	}
 }
 
+func TestLocalDeckPresentationsSelectsLivePageWithoutMutatingExecutionConditions(t *testing.T) {
+	registry := paletteConditionTestRegistry(t)
+	settings := deckConditionCandidate("settings-page", "navigation.settings.open", commandbindings.Facts{commandbindings.AppPage: "settings"})
+	profiles := deckConditionCandidate("profiles-page", "navigation.profiles.open", commandbindings.Facts{commandbindings.AppPage: "profiles"})
+	configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{settings, profiles})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration = configuration.WithPresentation(commandbindings.NewPresentationSnapshot(map[string]commandbindings.BindingPresentation{
+		settings.ID: {TitleByLocale: map[string]string{"en": "Settings page"}, Icon: "settings-icon"},
+		profiles.ID: {TitleByLocale: map[string]string{"en": "Profiles page"}, Icon: "profiles-icon"},
+	}))
+	conditions := contextualDeckUIConditions(configuration, registry, deckConditionTestTrigger)
+	if len(conditions) != 2 {
+		t.Fatalf("condition projection changed: %+v", conditions)
+	}
+	before := cloneLocalCommandPaletteConditions(conditions)
+
+	settingsVisual, _ := localDeckPresentationsForPage(configuration, registry, deckConditionTestTrigger, conditions, "en", "settings")
+	profilesVisual, _ := localDeckPresentationsForPage(configuration, registry, deckConditionTestTrigger, conditions, "en", "profiles")
+	emptyVisual, _ := localDeckPresentationsForPage(configuration, registry, deckConditionTestTrigger, conditions, "en", "jobs")
+	noSnapshotVisual, _ := localDeckPresentationsForPage(configuration, registry, deckConditionTestTrigger, conditions, "en", "")
+	if settingsVisual.title != "Settings page" || settingsVisual.icon != "settings-icon" {
+		t.Fatalf("settings page visual = %+v", settingsVisual)
+	}
+	if profilesVisual.title != "Profiles page" || profilesVisual.icon != "profiles-icon" {
+		t.Fatalf("profiles page visual = %+v", profilesVisual)
+	}
+	if emptyVisual.title != "" || emptyVisual.icon != "" || emptyVisual.imageRef != "" {
+		t.Fatalf("unmatched page retained another page's visual: %+v", emptyVisual)
+	}
+	if noSnapshotVisual.title != "" || noSnapshotVisual.icon != "" || noSnapshotVisual.imageRef != "" {
+		t.Fatalf("missing page snapshot exposed the union of page visuals: %+v", noSnapshotVisual)
+	}
+	if !reflect.DeepEqual(conditions, before) {
+		t.Fatalf("render-only page selection mutated execution conditions: before=%+v after=%+v", before, conditions)
+	}
+}
+
+func TestLocalDeckPresentationsWithoutPageKeepsPageIndependentBinding(t *testing.T) {
+	registry := paletteConditionTestRegistry(t)
+	common := deckConditionCandidate("common", "navigation.settings.open", nil)
+	pageSpecific := deckConditionCandidate("settings-page", "navigation.settings.open", commandbindings.Facts{commandbindings.AppPage: "settings"})
+	configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{common, pageSpecific})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration = configuration.WithPresentation(commandbindings.NewPresentationSnapshot(map[string]commandbindings.BindingPresentation{
+		common.ID:       {TitleByLocale: map[string]string{"en": "Common settings"}, Icon: "common-icon"},
+		pageSpecific.ID: {TitleByLocale: map[string]string{"en": "Settings page"}, Icon: "page-icon"},
+	}))
+	conditions := contextualDeckUIConditions(configuration, registry, deckConditionTestTrigger)
+	visual, _ := localDeckPresentationsForPage(configuration, registry, deckConditionTestTrigger, conditions, "en", "")
+	if visual.title != "Common settings" || visual.icon != "common-icon" {
+		t.Fatalf("page-independent fallback missing or page union leaked: %+v", visual)
+	}
+}
+
 func TestDeckPersistentStateChangedBaselineDedupLimitAndClosed(t *testing.T) {
 	p := &commandProductRuntime{}
 	if p.deckPersistentStateChanged("key-1", "on") {
@@ -168,15 +226,15 @@ func TestCommandDeckProductMapProjectsPersistentTargetStateVariants(t *testing.T
 	})
 	targetRule := settingsContractApply(t, a, decisions, CommandSettingsMutationRequest{
 		Scope: CommandSettingsScopeGlobal, Operation: "rule_create",
-		Rule:  &CommandSettingsRuleInput{LayerID: targetLayer.ID, Mode: "manual", Lifecycle: "persistent", Enabled: true},
+		Rule: &CommandSettingsRuleInput{LayerID: targetLayer.ID, Mode: "manual", Lifecycle: "persistent", Enabled: true},
 	})
 	settingsContractApply(t, a, decisions, CommandSettingsMutationRequest{
 		Scope: CommandSettingsScopeGlobal, Operation: "binding_create",
 		Binding: &CommandSettingsBindingInput{
 			LayerID: controlLayerID, CommandID: commandLayerToggleID, TriggerType: "streamdeck.key",
 			TriggerSpec: `{"version":1,"device":"STATEDECK01","key":0}`,
-			Arguments: map[string]any{"scope": "global", "rule_id": targetRule.ID, "duration_seconds": 0},
-			Effect: "execute", Enabled: true,
+			Arguments:   map[string]any{"scope": "global", "rule_id": targetRule.ID, "duration_seconds": 0},
+			Effect:      "execute", Enabled: true,
 			Presentation: map[string]any{
 				"version": 1,
 				"states": map[string]any{
