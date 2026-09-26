@@ -15,6 +15,7 @@ import { registerOpenModal, unregisterOpenModal } from '../../lib/modalRegistry'
 import { requestCommandNavigation } from '../../lib/commandNavigation';
 import {
   usePagePresentationCommands,
+  COMMAND_SETTINGS_CREATE_COMMAND_ID,
   type PagePresentationCommandID,
 } from '../../lib/commandPagePresentation';
 
@@ -26,6 +27,7 @@ const ids = [
 ] as const satisfies readonly PagePresentationCommandID[];
 const palettePreferencesKey = 'assistente.command-palette.v1.user-a.workspace-a';
 const shortcuts: Record<PagePresentationCommandID, string> = {
+  'command_settings.create.open': 'Ctrl+N',
   'tasklist.task.create.open': 'Ctrl+Shift+N',
   'tasklists.create.open': 'Ctrl+Shift+L, Ctrl+N',
   'tasklists.edit.open': 'Ctrl+Shift+I',
@@ -46,6 +48,8 @@ const state = vi.hoisted(() => ({
   pathname: '/profiles',
   mapReady: false,
   historySuppressed: false,
+  settingsSuppressed: false,
+  settingsRemapped: false,
   presentationUnavailable: false,
   actions: [] as string[],
   events: new Map<string, (payload: unknown) => void>(),
@@ -135,7 +139,7 @@ vi.mock('../../lib/commandLocalKeyboardWails', () => ({
           ['KeyP', 'profiles.create.open'], ['KeyE', 'profiles.edit.open'], ['KeyF', 'profiles.search.focus'],
           ['KeyL', 'tasklists.create.open'], ['KeyI', 'tasklists.edit.open'], ['KeyK', 'tasklists.search.focus'],
           ['KeyS', 'terminal.sessions.open'], ['Enter', 'terminal.focus.input'], ['KeyH', 'terminal.focus.history'],
-          ['KeyN', 'tasklist.task.create.open'],
+          ['KeyN', state.settingsRemapped ? COMMAND_SETTINGS_CREATE_COMMAND_ID : 'tasklist.task.create.open'],
         ].map(([code, commandId]) => ({ shortcut: { version: 1, code, modifiers: ['Control', 'Shift'] }, commandId, handler: 'local_ui' }))],
         contextualBindings: [{
           shortcut: { version: 1, code: 'KeyN', modifiers: ['Control'] },
@@ -146,6 +150,13 @@ vi.mock('../../lib/commandLocalKeyboardWails', () => ({
           },
           fallback: null,
           fallbackToSequences: true,
+          ...(state.pathname === '/settings/commands' ? { bySurface: {}, fallbackToSequences: false, byPage: { settings: {
+            shortcut: { version: 1, code: 'KeyN', modifiers: ['Control'] },
+            bySurface: { toolbar: state.settingsSuppressed ? null : {
+              shortcut: { version: 1, code: 'KeyN', modifiers: ['Control'] },
+              commandId: COMMAND_SETTINGS_CREATE_COMMAND_ID, handler: 'local_ui',
+            } }, fallback: null,
+          } } } : {}),
         }],
       };
     },
@@ -191,6 +202,20 @@ function PresentationSurface({ api }: SurfaceProps) {
 }
 
 let surfaceApi: SurfaceProps['api'];
+function SettingsManagerSurface({ manager = true }: { manager?: boolean }) {
+  const root = useRef<HTMLDivElement>(null);
+  usePagePresentationCommands({
+    root, pathname: '/settings/commands', settingsManager: manager,
+    allowedCommands: [COMMAND_SETTINGS_CREATE_COMMAND_ID],
+    readTarget: () => 'layer-a:bindings', isCurrent: () => !state.presentationUnavailable,
+    canOpen: () => !state.presentationUnavailable,
+    open: (id) => { state.actions.push(id); return true; },
+  });
+  return <div className={manager ? 'modal-overlay' : undefined} data-modal-id={manager ? 'settings-manager-test' : undefined}>
+    <button aria-label="Manager header close">close</button>
+    <div ref={root}><button aria-label="Manager row">row</button></div>
+  </div>;
+}
 function mount() {
   surfaceApi = {};
   const view = render(<><Topbar /><PresentationSurface api={surfaceApi} /></>);
@@ -225,13 +250,44 @@ beforeEach(() => {
   localStorage.removeItem(palettePreferencesKey);
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   state.pathname = '/profiles'; state.mapReady = false; state.actions = []; state.events.clear();
-  state.historySuppressed = false; state.presentationUnavailable = false;
+  state.historySuppressed = false; state.settingsSuppressed = false; state.settingsRemapped = false; state.presentationUnavailable = false;
   auth.isAuthenticated = true; auth.user = { userId: 'user-a', sessionId: 'session-a', role: 'user' };
   workspace.id = 'workspace-a'; workspace.activeTabId = 'tab-a';
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe('Topbar + registry real de apresentação contextual', () => {
+  it.each(['allowed', 'page', 'header', 'outside', 'remapped', 'remapped-header', 'remapped-outside',
+    'suppressed', 'child-modal', 'ime', 'repeat', 'unavailable', 'logout'] as const)(
+    'Ctrl+N do gerenciador usa o mapa central e preserva guardas (%s)', async reason => {
+      state.pathname = '/settings/commands';
+      state.settingsSuppressed = reason === 'suppressed';
+      state.settingsRemapped = reason.startsWith('remapped');
+      render(<><Topbar /><SettingsManagerSurface manager={reason !== 'page'} /></>);
+      await waitFor(() => expect(state.mapReady).toBe(true));
+      await act(async () => { await Promise.resolve(); });
+      if (reason !== 'page') registerOpenModal('settings-manager-test');
+      const row = screen.getByRole('button', { name: 'Manager row' });
+      row.focus();
+      if (reason.includes('header')) screen.getByRole('button', { name: 'Manager header close' }).focus();
+      const outside = document.createElement('button'); document.body.append(outside);
+      if (reason.includes('outside')) outside.focus();
+      const child = document.createElement('div'); child.className = 'modal-overlay';
+      if (reason === 'child-modal') { document.body.append(child); registerOpenModal('settings-child-test'); }
+      if (reason === 'unavailable') state.presentationUnavailable = true;
+      if (reason === 'logout') auth.isAuthenticated = false;
+      try {
+        fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true, shiftKey: state.settingsRemapped,
+          repeat: reason === 'repeat', isComposing: reason === 'ime' });
+        expect(state.actions).toEqual(['allowed', 'page', 'header', 'remapped', 'remapped-header'].includes(reason) ? [COMMAND_SETTINGS_CREATE_COMMAND_ID] : []);
+        noTransport();
+      } finally {
+        fireEvent.keyUp(row, { key: 'n', code: 'KeyN', ctrlKey: true });
+        unregisterOpenModal('settings-child-test'); child.remove(); outside.remove();
+        unregisterOpenModal('settings-manager-test');
+      }
+    },
+  );
   it('pedido do botão de navegação usa dispatcher local e recusa modal', async () => {
     state.pathname = '/history'; mount(); await ready();
     expect(requestCommandNavigation('navigation.workspace.open')).toBe(true);

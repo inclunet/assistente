@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { resolveLocalCommandContextualBinding, type LocalCommandKeyContext, type LocalCommandContextualBinding, type LocalCommandKeyboardMap } from './commandLocalKeyboard';
 import { ReadProfileContext } from './commandContextProviders';
+import type { AppPage } from './commandAppPage';
 import { formatCommandKeyboardTrigger, serializeCommandKeyboardTrigger, type CommandKeyboardTrigger } from './commandShortcut';
 
 // Presentation only: the accepted keyboard projection remains the authority.
@@ -77,27 +78,31 @@ function useCurrentProjection(): LocalCommandKeyboardMap | null {
   return map && owner === JSON.stringify([map.ownerId, map.sessionId]) && workspaceID === map.workspaceId ? map : null;
 }
 
-function useHintContext(surfaceType?: string): LocalCommandKeyContext | undefined {
+function useHintContext(surfaceType?: string, appPage?: AppPage): LocalCommandKeyContext | undefined {
   const workspace = useWorkspaceStore(state => state.workspace);
   return useMemo(() => {
     const tab = workspace?.tabs?.find(item => item.id === workspace.activeTabId);
-    if (!tab || tab.type !== surfaceType) return undefined;
     const profile = ReadProfileContext()?.slug;
-    return { surfaceId: tab.id, surfaceType: tab.type, ...(profile ? { profile } : {}) };
-  }, [workspace, surfaceType]);
+    const page = appPage ?? (surfaceType === 'profiles' || surfaceType === 'tasklists' || surfaceType === 'history' ? surfaceType : undefined);
+    if (page && page !== 'workspace' && surfaceType) {
+      return { surfaceId: 'command-toolbar', surfaceType, appPage: page, ...(profile ? { profile } : {}) };
+    }
+    if (!tab || tab.type !== surfaceType) return undefined;
+    return { surfaceId: tab.id, surfaceType: tab.type, appPage: 'workspace', ...(profile ? { profile } : {}) };
+  }, [workspace, surfaceType, appPage]);
 }
 
-export function useCommandShortcutHints(surfaceType?: string): (commandID: string) => string | undefined {
+export function useCommandShortcutHints(surfaceType?: string, appPage?: AppPage): (commandID: string) => string | undefined {
   const map = useCurrentProjection();
-  const context = useHintContext(surfaceType);
+  const context = useHintContext(surfaceType, appPage);
   return useMemo(() => {
     const hints = commandShortcutHints(map, surfaceType, context);
     return (commandID: string) => hints.get(commandID);
   }, [map, surfaceType, context]);
 }
 
-export function useCommandShortcutHint(commandID: string, surfaceType?: string): string | undefined {
-  return useCommandShortcutHints(surfaceType)(commandID);
+export function useCommandShortcutHint(commandID: string, surfaceType?: string, appPage?: AppPage): string | undefined {
+  return useCommandShortcutHints(surfaceType, appPage)(commandID);
 }
 
 /** A menu opened by a sequence advertises the prefix, not the final action. */

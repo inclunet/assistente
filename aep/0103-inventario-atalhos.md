@@ -2,6 +2,20 @@
 
 **Status:** Documento de apoio — migração em andamento; histórico preservado.
 
+## Ctrl+N dos gerenciadores de comandos — 26/09/2026
+
+`command_settings.create.open` abre Novo conforme a lista ativa: camada,
+acionador ou regra de ativação. Binding padrão Control+KeyN condicionado a
+`app.page=settings`, resolvido pelo mapa central. A fonte só existe na tela
+de Comandos e acionadores; não assume as seis criações legadas de Configurações
+listadas abaixo. No gerenciador, exige modal proprietário topmost, recusa
+formulário filho e limita a licença a esse ID. Não grava dados nem acrescenta
+auditoria por tecla. A toolbar usa as ações de edição/exclusão já existentes.
+
+O catálogo passa a `product-v42-command-settings-create`: 151 comandos,
+62 apresentações locais e 68 defaults de teclado. As contagens anteriores
+abaixo são históricas. O aceite com NVDA das novas variantes segue pendente.
+
 ## Gerenciadores de configuração após o PR #833
 
 A reorganização em Comandos e acionadores e Regras de ativação não acrescenta

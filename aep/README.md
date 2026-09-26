@@ -16,6 +16,12 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+AEP-0103, seção168 (26/09/2026): toolbar de Novo/Editar/Apagar nos gerenciadores
+e Ctrl+N pelo catálogo/resolvedor, com apresentação restrita ao contexto e ao
+modal proprietário. **In Progress; 83 I / 1 P / 0 N**; sem promoção de aceite
+manual. Regra de contribuição centralizada no AGENTS e teste arquitetural
+focado nesses gerenciadores, não garantia de bloqueio global de código arbitrário.
+
 **AEP-0103 — reconciliação vigente, seção167 (26/09/2026): In Progress.**
 Baseline `main` em `116eda53b`; PRs #833/#834/#836/#838/#839 mergeados.
 **83 I / 1 P / 0 N** (C38 parcial); **11 A / 21 I / 16 P / 0 N** nas saídas R;

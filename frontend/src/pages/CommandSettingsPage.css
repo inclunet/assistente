@@ -11,6 +11,8 @@
 .command-settings__external-consent:empty { display: none; }
 .command-settings__manager { height: min(720px, 90vh); }
 .command-settings__manager .modal-body { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+.command-settings__manager-content { display: flex; flex: 1; flex-direction: column; gap: 16px; min-height: 0; }
+.command-settings__manager-content > p { margin: 0; }
 .command-settings__manager .modal-body > p { margin: 0; }
 .command-settings__manager .command-settings__binding-header { flex: 0 0 auto; }
 .command-settings__warning { background: var(--color-warning-dim); border: 1px solid var(--color-warning); padding: 12px; margin: 16px 0; }

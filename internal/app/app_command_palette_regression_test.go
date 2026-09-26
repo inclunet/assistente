@@ -42,7 +42,7 @@ func TestCommandPaletteCatalogIsWiredBeforeBootstrapAndSurvivesKeyboardActivatio
 		if err != nil {
 			t.Fatalf("ListCommands %s: %v", label, err)
 		}
-		if len(items) != 150 {
+		if len(items) != 151 {
 			t.Fatalf("catálogo %s vazio/incompleto: len=%d items=%+v", label, len(items), items)
 		}
 		for _, item := range items {

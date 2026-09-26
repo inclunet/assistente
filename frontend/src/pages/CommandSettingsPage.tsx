@@ -76,6 +76,8 @@ import {
 import { ShortcutCapture } from '../components/commands/ShortcutCapture';
 import { useCommandProfiles } from '../hooks/useCommandProfiles';
 import './CommandSettingsPage.css';
+import { COMMAND_SETTINGS_CREATE_COMMAND_ID, usePagePresentationCommands } from '../lib/commandPagePresentation';
+import { useCommandShortcutHint } from '../lib/commandShortcutHints';
 
 type Editor =
   | { kind: 'layer'; value: CommandLayerInput }
@@ -127,6 +129,9 @@ const EMPTY: CommandSettingsSnapshot = {
 };
 
 export default function CommandSettingsPage() {
+  const pageCommandRoot = useRef<HTMLDivElement>(null);
+  const managerCommandRoot = useRef<HTMLDivElement>(null);
+  const createItemShortcut = useCommandShortcutHint(COMMAND_SETTINGS_CREATE_COMMAND_ID, 'toolbar', 'settings');
   const externalConnection = useExternalUIConnection();
   const { t, i18n } = useTranslation();
   const deepLinkedCommandId = typeof window === 'undefined'
@@ -182,6 +187,7 @@ export default function CommandSettingsPage() {
   const snapshot = snapshotIdentity === identityKey ? loadedSnapshot : EMPTY;
   const [selectedLayerId, setSelectedLayerId] = useState('');
   const [manager, setManager] = useState<{ kind: 'bindings' | 'rules'; layerId: string; identity: string } | null>(null);
+  const [managerSelectedIds, setManagerSelectedIds] = useState<Set<string | number>>(new Set());
   const managerGridFocus = useRef<GridFocusRequest | null>(null);
   const managerNewButton = useRef<HTMLButtonElement>(null);
   const managerLayerName = useRef<HTMLParagraphElement>(null);
@@ -474,6 +480,7 @@ export default function CommandSettingsPage() {
 
   function openManager(kind: 'bindings' | 'rules') {
     if (busyRef.current || loading || !selectedLayer || snapshotIdentity !== identityKey) return;
+    setManagerSelectedIds(new Set());
     setManager({ kind, layerId: selectedLayer.id, identity: identityKey });
   }
 
@@ -487,6 +494,7 @@ export default function CommandSettingsPage() {
   function closeManager() {
     if (busyRef.current || childDialogOpen) return;
     const previous = manager;
+    setManagerSelectedIds(new Set());
     setManager(null);
     managerGridFocus.current = null;
     requestAnimationFrame(() => {
@@ -856,6 +864,23 @@ export default function CommandSettingsPage() {
     },
   ];
 
+  const selectedManagerIds = Array.from(managerSelectedIds);
+  const selectedManagerBinding = manager?.kind === 'bindings' && selectedManagerIds.length === 1
+    ? layerBindings.find((row) => row.id === selectedManagerIds[0])
+    : undefined;
+  const selectedManagerRule = manager?.kind === 'rules' && selectedManagerIds.length === 1
+    ? layerRules.find((row) => row.id === selectedManagerIds[0])
+    : undefined;
+  const selectedBindingActions = selectedManagerBinding ? bindingActions(selectedManagerBinding) : [];
+  const selectedRuleActions = selectedManagerRule ? ruleActions(selectedManagerRule) : [];
+  const managerEditAction = manager?.kind === 'bindings'
+    ? selectedBindingActions.find((action) => action.id === 'edit' || action.id === 'customize-default')
+    : selectedRuleActions.find((action) => action.id === 'edit-rule');
+  const managerDeleteAction = manager?.kind === 'bindings'
+    ? selectedBindingActions.find((action) => action.id === 'delete')
+    : selectedRuleActions.find((action) => action.id === 'delete-rule');
+  const managerSelectionBusy = busy || loading || !managerOpen || snapshotIdentity !== identityKey;
+
   function openManualAction(rule: CommandSettingsRule, action: 'pin' | 'toggle') {
     if (rule.lifecycle === 'temporary') {
     setManualDurationSeconds('');
@@ -1065,8 +1090,30 @@ export default function CommandSettingsPage() {
     </div>
   ) : null;
 
+  const canCreateItem = () => !busyRef.current && !loading && snapshotIdentity === identityKey &&
+    !childDialogOpen && (!managerOpen || (!!selectedLayer && !selectedLayer.builtin && !isInheritedLayer(selectedLayer)));
+  usePagePresentationCommands({
+    root: managerOpen ? managerCommandRoot : pageCommandRoot,
+    pathname: '/settings/commands',
+    settingsManager: managerOpen,
+    allowedCommands: [COMMAND_SETTINGS_CREATE_COMMAND_ID],
+    readTarget: () => `${identityKey}|${snapshot.revision}|${managerOpen ? `${manager?.kind}|${selectedLayerId}` : 'layers'}`,
+    isCurrent: () => snapshotIdentity === identityKey && mounted.current && !childDialogOpen,
+    canOpen: (id) => id === COMMAND_SETTINGS_CREATE_COMMAND_ID && canCreateItem(),
+    open: (id) => {
+      if (id !== COMMAND_SETTINGS_CREATE_COMMAND_ID || !canCreateItem()) return false;
+      if (managerOpen) {
+        if (manager?.kind === 'bindings') openBinding();
+        else openRule();
+      } else {
+        setEditor({ kind: 'layer', value: { name: '', description: '', enabled: true, resolutionPriority: 0 } });
+      }
+      return true;
+    },
+  });
+
   return (
-    <div className="command-settings-page">
+    <div ref={pageCommandRoot} className="command-settings-page">
       <header className="command-settings__header">
         <div>
           <h1>{t('commandSettings.title')}</h1>
@@ -1090,6 +1137,7 @@ export default function CommandSettingsPage() {
         ariaLabel={t('commandSettings.title')}
         actions={[
           { key: 'new-layer', label: t('commandSettings.actions.newLayer'), icon: <PlusOutlined />, variant: 'primary',
+            shortcut: createItemShortcut,
             disabled: busy || loading || snapshotIdentity !== identityKey,
             onClick: () => setEditor({ kind: 'layer', value: { name: '', description: '', enabled: true, resolutionPriority: 0 } }) },
           { key: 'edit-layer', label: t('commandSettings.actions.editLayer'), icon: <EditOutlined />,
@@ -1220,19 +1268,41 @@ export default function CommandSettingsPage() {
         initialFocusSelector={DATAGRID_ENTRY_SELECTOR}
         className="command-settings__manager"
       >
+        <div ref={managerCommandRoot} className="command-settings__manager-content">
         <p ref={managerLayerName} tabIndex={-1}>{selectedLayer?.name}</p>
         {!childDialogOpen && error && <p className="command-settings__error">{error}</p>}
         {!childDialogOpen && notice && <p>{notice}</p>}
         <div className="command-settings__binding-header">
-          <Button
-            ref={managerNewButton}
-            variant="secondary"
-            disabled={!selectedLayer || selectedLayer.builtin || isInheritedLayer(selectedLayer) || busy || loading}
-            onClick={() => manager?.kind === 'bindings' ? openBinding() : openRule()}
-          >
-            <PlusOutlined aria-hidden="true" />
-            {t(manager?.kind === 'bindings' ? 'commandSettings.actions.newBinding' : 'commandSettings.rules.new')}
-          </Button>
+          <Toolbar
+            className="command-settings__manager-toolbar"
+            ariaLabel={t(manager?.kind === 'bindings' ? 'commandSettings.managers.commands' : 'commandSettings.rules.title')}
+            actions={[
+              {
+                key: 'new-manager-item',
+                shortcut: createItemShortcut,
+                buttonRef: managerNewButton,
+                label: t(manager?.kind === 'bindings' ? 'commandSettings.actions.newBinding' : 'commandSettings.rules.new'),
+                icon: <PlusOutlined aria-hidden="true" />,
+                disabled: !selectedLayer || selectedLayer.builtin || isInheritedLayer(selectedLayer) || busy || loading,
+                onClick: () => manager?.kind === 'bindings' ? openBinding() : openRule(),
+              },
+              {
+                key: 'edit-selected',
+                label: t(manager?.kind === 'bindings' ? 'commandSettings.actions.editBinding' : 'commandSettings.rules.edit'),
+                icon: <EditOutlined aria-hidden="true" />,
+                disabled: managerSelectionBusy || !managerEditAction || managerEditAction.disabled,
+                onClick: () => managerEditAction?.action?.(),
+              },
+              {
+                key: 'delete-selected',
+                label: t(manager?.kind === 'bindings' ? 'commandSettings.actions.deleteBinding' : 'commandSettings.rules.delete'),
+                icon: <DeleteOutlined aria-hidden="true" />,
+                variant: 'danger',
+                disabled: managerSelectionBusy || !managerDeleteAction || managerDeleteAction.disabled,
+                onClick: () => managerDeleteAction?.action?.(),
+              },
+            ]}
+          />
         </div>
         {loading ? <p aria-busy="true">{t('common.loading')}</p> : manager?.kind === 'bindings' ? (
           <DataGrid
@@ -1241,6 +1311,9 @@ export default function CommandSettingsPage() {
             getRowActions={bindingActions}
             autoFocusOnMount={false}
             getItemId={(row) => row.id}
+            selectionMode="checkbox"
+            selectedIds={managerSelectedIds}
+            onSelectionChange={setManagerSelectedIds}
             onGridReady={(focus) => { managerGridFocus.current = focus; }}
             onEmptyFocus={focusEmptyManager}
             label={t('commandSettings.commands')}
@@ -1252,11 +1325,15 @@ export default function CommandSettingsPage() {
             getRowActions={ruleActions}
             autoFocusOnMount={false}
             getItemId={(row) => row.id}
+            selectionMode="checkbox"
+            selectedIds={managerSelectedIds}
+            onSelectionChange={setManagerSelectedIds}
             onGridReady={(focus) => { managerGridFocus.current = focus; }}
             onEmptyFocus={focusEmptyManager}
             label={t('commandSettings.rules.title')}
           />
         )}
+        </div>
       </Modal>
       <Modal
         isOpen={!!editor && snapshotIdentity === identityKey}

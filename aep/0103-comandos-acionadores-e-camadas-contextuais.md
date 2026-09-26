@@ -2,6 +2,17 @@
 
 **Status:** In Progress
 
+**Gerenciadores — seção168 da tasklist (26/09/2026):** Editar/Apagar passam
+a estar na mesma toolbar de Novo em comandos/acionadores e regras. Ctrl+N
+é binding padrão de `command_settings.create.open`, condicionado a `app.page=settings`.
+Trata-se apenas de apresentação `local_ui`: cria o formulário de camada na
+lista principal ou de item no gerenciador ativo, sem gravar configuração.
+A fonte do gerenciador precisa pertencer ao modal topmost exato e só licencia
+esse comando; um formulário filho, busy, IME ou perda de sessão/contexto o
+bloqueia. Não há listener paralelo nem fallback se o mapa suprimir o binding.
+Personalizações anteriores e os demais gates permanecem preservados; não há
+novo aceite manual inferido desta implementação.
+
 **Reconciliação vigente — seção167 da tasklist (26/09/2026):** os PRs #833,
 #834, #836, #838 e #839 estão mergeados; baseline `main` em `116eda53b`.
 **83 I / 1 P / 0 N** nos critérios (C38 parcial); **11 A / 21 I / 16 P / 0 N**

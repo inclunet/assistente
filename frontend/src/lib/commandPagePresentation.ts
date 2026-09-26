@@ -1,10 +1,14 @@
 import { useCallback, useId, useLayoutEffect, useRef, type RefObject } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { ReadFocusContext } from './commandContextProviders';
+import { ReadFocusContext, ReadProfileContext } from './commandContextProviders';
 import { getModalRegistrySnapshot } from './modalRegistry';
+import type { LocalCommandContextLease } from './commandLocalKeyboard';
+
+export const COMMAND_SETTINGS_CREATE_COMMAND_ID = 'command_settings.create.open';
 
 export const PAGE_PRESENTATION_COMMAND_IDS = [
+  COMMAND_SETTINGS_CREATE_COMMAND_ID,
   'tasklists.create.open', 'tasklists.edit.open', 'tasklists.search.focus',
   'tasklist.task.create.open',
   'profiles.create.open', 'profiles.edit.open', 'profiles.search.focus',
@@ -19,6 +23,8 @@ export interface PagePresentationOptions {
   root: RefObject<HTMLElement>;
   pathname: string;
   tabId?: string;
+  /** Only the command-settings manager may own this narrow topmost scope. */
+  settingsManager?: boolean;
   allowedCommands: readonly PagePresentationCommandID[];
   readTarget(): unknown;
   isCurrent(): boolean;
@@ -38,14 +44,46 @@ function identity(source: Source): string | undefined {
   const options = source.options();
   const auth = useAuthStore.getState();
   const ws = useWorkspaceStore.getState().workspace;
+  const modal = getModalRegistrySnapshot();
+  const managerRoot = source.root.closest('[data-modal-id]');
+  const ownsManager = options.settingsManager === true &&
+    options.pathname === '/settings/commands' &&
+    options.allowedCommands.length === 1 && options.allowedCommands[0] === COMMAND_SETTINGS_CREATE_COMMAND_ID &&
+    modal.topID !== null && managerRoot?.getAttribute('data-modal-id') === modal.topID &&
+    managerRoot.contains(document.activeElement);
   if (!auth.isAuthenticated || !auth.user || !ws || !options.isCurrent() ||
       !source.root.isConnected || source.root.closest('[hidden],[inert],[aria-hidden="true"]') ||
-      getModalRegistrySnapshot().topID || (options.tabId && ws.activeTabId !== options.tabId)) return;
+      (options.settingsManager ? !ownsManager : modal.topID !== null) ||
+      (options.tabId && ws.activeTabId !== options.tabId)) return;
   for (let element: HTMLElement | null = source.root; element; element = element.parentElement) {
     const style = getComputedStyle(element);
     if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') return;
   }
-  return JSON.stringify([auth.user.userId, auth.user.sessionId, ws.id, ws.activeTabId, options.pathname, options.tabId]);
+  return JSON.stringify([auth.user.userId, auth.user.sessionId, ws.id, ws.activeTabId, options.pathname, options.tabId, modal.generation]);
+}
+
+/** A modal scope carries only this presentation command, never backend authority. */
+export function captureCommandSettingsKeyboardContext(readPathname: () => string): LocalCommandContextLease | undefined {
+  const commandID = COMMAND_SETTINGS_CREATE_COMMAND_ID;
+  const path = readPathname();
+  if (!document.hasFocus() || ReadFocusContext().composition === 'active') return;
+  const candidates = [...sources].filter(source => source.options().settingsManager &&
+    source.options().pathname === path && identity(source) && source.options().canOpen(commandID));
+  if (candidates.length !== 1) return;
+  const source = candidates[0];
+  const capturedIdentity = identity(source);
+  const target = source.options().readTarget();
+  const profile = ReadProfileContext()?.slug;
+  const focus = document.activeElement;
+  return {
+    surfaceId: 'command-toolbar', surfaceType: 'toolbar', appPage: 'settings',
+    ...(profile ? { profile } : {}), allowedCommandIds: [commandID],
+    isCurrent: () => sources.has(source) && path === readPathname() &&
+      identity(source) === capturedIdentity && source.options().readTarget() === target &&
+      document.hasFocus() && document.activeElement === focus &&
+      ReadFocusContext().composition !== 'active' && ReadProfileContext()?.slug === profile &&
+      source.options().canOpen(commandID),
+  };
 }
 export function capturePagePresentationTarget(readPathname: () => string, commandID: string, instanceId?: string): PagePresentationTarget | undefined {
   try { return captureTarget(readPathname, commandID, instanceId); } catch { return undefined; }
