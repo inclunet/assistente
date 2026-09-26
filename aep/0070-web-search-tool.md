@@ -1,8 +1,10 @@
 # AEP-0070 — Tool `web_search` (busca web → JSON canônico paginável)
 
 Status: Done — saída canônica paginável implementada em `internal/tools/web/web_search.go` e testes.
-Brave Search API implementada como provedor preferencial com fallback DuckDuckGo
-(`internal/tools/web/brave_provider.go`, cadeia Brave → DuckDuckGo em `searchWithFallback`).
+Brave Search API implementada como primeiro provedor da cadeia
+(`internal/tools/web/brave_provider.go`); Tavily Search API implementada
+como segundo provedor (`internal/tools/web/tavily_provider.go`, cadeia
+Brave → Tavily → DuckDuckGo em `searchWithFallback`).
 Data: 2026-06-05
 Autor: Inclunet + Cursor Agent
 
@@ -20,13 +22,16 @@ offset**, permitindo varrer mais páginas de resultados quando necessário.
 
 A descoberta de conteúdo é separada da leitura: `web_search` devolve **links e
 trechos**; para ler o conteúdo de um resultado, chama-se `web_fetch` na URL
-escolhida. A tool usa a cadeia **Brave Search API → DuckDuckGo**, atrás da
+escolhida. A tool usa a cadeia **Brave → Tavily → DuckDuckGo**, atrás da
 interface `SearchProvider` plugável: com chave Brave cadastrada no
-credmanager usa-se a API oficial; sem credencial (ou com 401/403/429/422),
-cai para o **DuckDuckGo** (HTML, sem API key) como fallback universal.
+credmanager usa-se a Brave; sem credencial (ou com 401/403/429/422),
+avança para a **Tavily** (chave no credmanager; 401/403/429/432/433
+avançam); sem credencial Tavily, com limite de plano ou com offset além
+da janela de 20 resultados, cai para o **DuckDuckGo** (HTML, sem API key)
+como fallback universal.
 
-Escopo: **sem persistência, sem cache, sem ranking próprio** — a chave da
-Brave vive exclusivamente no credmanager (nunca em env/flag/argumento) e o
+Escopo: **sem persistência, sem cache, sem ranking próprio** — as chaves
+vivem exclusivamente no credmanager (nunca em env/flag/argumento) e o
 contrato JSON permanece estável independente do provedor que respondeu.
 
 ## Motivação
@@ -68,9 +73,10 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
   `feed_read`, herdando timeout/retry e o interceptor de auth (AEP-0018/0019).
 - **D5 — Provedor plugável com cadeia padrão.** Interface `SearchProvider`
   (`Search(ctx, client, query, offset, maxResults) ([]SearchResult, error)` + `Name()`).
-  A cadeia padrão é Brave → DuckDuckGo (`searchWithFallback`): com credencial
-  Brave no credmanager usa-se a API oficial; sem credencial (ou com
-  401/403/429/422) cai para `duckDuckGoProvider`. `NewWebSearchWithProvider`
+  A cadeia padrão é Brave → Tavily → DuckDuckGo (`searchWithFallback`): com
+  credencial Brave no credmanager usa-se a Brave; sem credencial ou com
+  status fallbackable, avança para a Tavily (credencial no credmanager) e,
+  em último caso, para `duckDuckGoProvider`. `NewWebSearchWithProvider`
   permite injetar outros (Google/Bing) ou um mock em testes.
 - **D6 — Descoberta separada da leitura.** `web_search` não baixa o conteúdo das
   páginas — só retorna links/trechos. Ler conteúdo é responsabilidade de `web_fetch`
@@ -89,7 +95,14 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
 - Provedor Brave: GET em `https://api.search.brave.com/res/v1/web/search`
   (`q`/`count`/`offset`), header `X-Subscription-Token` com chave do
   credmanager; parse de `web.results[]` (`title`/`url`/`description`). Sem
-  credencial ou com 401/403/429/422, fallback para DuckDuckGo.
+  credencial ou com 401/403/429/422, avança na cadeia.
+- Provedor Tavily: POST em `https://api.tavily.com/search`
+  (`query`/`search_depth=basic`/`max_results`), header `Authorization:
+  Bearer` com chave do credmanager; parse de `results[]`
+  (`title`/`url`/`content`, `answer` ignorado). A API não tem offset: serve
+  a janela inicial pedindo `offset+maxResults` (teto 20) e fatia
+  localmente; offset além do teto, sem credencial ou com
+  401/403/429/432/433, avança na cadeia sem gastar créditos.
 - Limites: `max_results` default 8, teto 20; body limitado a 2MB no fetch do provedor.
 - Registro em `internal/app/app_tool_registry.go` (`web.NewWebSearch(a.credMgr)`).
 
@@ -114,11 +127,19 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
   comporta isso. **Brave implementado**: `braveProvider` consulta a Brave
   Search API (`/res/v1/web/search`, `count`/`offset`) com chave resolvida por
   URL no credmanager (`api.search.brave.com`, bearer ou custom com header
-  `X-Subscription-Token`); sem credencial ou com 401/403/429/422, a tool faz
-  fallback automático para o DuckDuckGo, identificado pelo campo `provider`.
-  Evidências: `internal/tools/web/brave_provider.go`,
+  `X-Subscription-Token`); sem credencial ou com 401/403/429/422, a tool
+  avança na cadeia, com o provedor atendente identificado pelo campo
+  `provider`. Evidências: `internal/tools/web/brave_provider.go`,
   `internal/tools/web/brave_provider_test.go`, `searchWithFallback` em
   `internal/tools/web/web_search.go`.
+- **Tavily implementada**: `tavilyProvider` consulta a Tavily Search API
+  (`POST /search`, `search_depth=basic`) com chave Bearer resolvida por URL
+  no credmanager (`api.tavily.com`); parse de `results[]`
+  (`title`/`url`/`content`, `answer` ignorado). Sem credencial, com
+  401/403/429/432/433 ou com offset além da janela de 20, avança na cadeia
+  (offset excedente não consome créditos). Evidências:
+  `internal/tools/web/tavily_provider.go`,
+  `internal/tools/web/tavily_provider_test.go`.
 - **Seleção/config de provedor** por credencial/preferência do usuário, com fallback
   automático para o DuckDuckGo quando não houver API key.
 - **Parâmetros de busca**: região/idioma (`region`, `language`), `safe_search`,
@@ -143,13 +164,16 @@ classes de provedores:
 
 ### 1. APIs oficiais (preferenciais quando houver credencial)
 
-- **Brave Search API — implementada** (cadeia padrão com fallback
-  DuckDuckGo): resultados de qualidade, paginação e contagem confiáveis;
-  requer API key no credmanager.
+- **Brave Search API — implementada** (primeiro elo da cadeia): resultados
+  de qualidade, paginação e contagem confiáveis; requer API key no
+  credmanager.
+- **Tavily Search API — implementada** (segundo elo): busca otimizada para
+  agentes, com trechos de conteúdo densos por fonte; `search_depth=basic`
+  (1 crédito); requer API key no credmanager.
 - **Google (Programmable Search / Custom Search JSON API)** — API oficial com
   `cx` + API key; cota limitada, mas estável e com `total` real.
 - **Bing Web Search API** (Azure) — API key; resultados ricos (web/news/images).
-- Outras APIs especializadas (ex.: Tavily/SerpAPI-like) podem entrar pela mesma
+- Outras APIs especializadas (ex.: SerpAPI-like) podem entrar pela mesma
   interface.
 
 Vantagens: paginação determinística, `total` exato (substitui o `has_more`
@@ -180,10 +204,12 @@ oficiais quando disponíveis, com métricas de "parsing vazio" para detectar que
 
 ### Seleção e fallback (implementado)
 
-- Com credencial Brave no credmanager, usa-se a Brave; sem credencial, com
-  erro de auth/quota (401/403/429) ou com offset além da janela da Brave
-  (422), cai para o DuckDuckGo. A seleção futura por preferência do usuário
-  pode inserir outros provedores (ex.: Google API) na mesma cadeia.
+- Cadeia Brave → Tavily → DuckDuckGo: com credencial Brave usa-se a Brave;
+  sem credencial ou com 401/403/429/422, avança para a Tavily; sem
+  credencial Tavily, com 401/403/429/432/433 ou com offset além da janela
+  de 20, cai para o DuckDuckGo. A seleção futura por preferência do usuário
+  pode reordenar ou inserir outros provedores (ex.: Google API) na mesma
+  cadeia.
 - O campo `provider` no JSON canônico já identifica qual backend respondeu, de modo
   transparente para LLM e jobs.
 - Cadeia de fallback automática em caso de erro/quota de um provedor.
@@ -211,20 +237,25 @@ parâmetros da tool — apenas troca a implementação por trás de `SearchProvi
 
 Evidências: `internal/tools/web/web_search_test.go`,
 `internal/tools/web/brave_provider_test.go`,
+`internal/tools/web/tavily_provider_test.go`,
 `internal/tools/catalog_test.go` e registro em
 `internal/app/app_tool_registry.go`. Demais provedores com API, cache e
-seleção por preferência do usuário permanecem fora do escopo (a Brave foi
-implementada como primeiro provedor com API key, mantendo o contrato v1).
+seleção por preferência do usuário permanecem fora do escopo (Brave e
+Tavily implementadas como provedoras com API key, mantendo o contrato v1).
 
 ## Arquivos
 
 - `internal/tools/web/web_search.go` — `WebSearch` (`tools.Tool`), `SearchProvider`,
   `SearchResult`, `webSearchJSONOutput`, `duckDuckGoProvider` e cadeia
-  `searchWithFallback` (Brave → DuckDuckGo).
+  `searchWithFallback` (Brave → Tavily → DuckDuckGo).
 - `internal/tools/web/brave_provider.go` — `braveProvider` (Brave Search API
   via credmanager) e `parseBraveResponse`.
+- `internal/tools/web/tavily_provider.go` — `tavilyProvider` (Tavily Search
+  API via credmanager) e `parseTavilyResponse`.
 - `internal/tools/web/web_search_test.go` — testes (mock provider, JSON, paginação).
 - `internal/tools/web/brave_provider_test.go` — testes do Brave (token,
   parse, fallback, erro operacional) com HTTP fake, sem rede externa.
+- `internal/tools/web/tavily_provider_test.go` — testes da Tavily (token,
+  parse, janela de offset, cadeia) com HTTP fake, sem rede externa.
 - `internal/app/app_tool_registry.go` — registro da tool.
 - `internal/tools/catalog.go` — metadado (`Category: web`, `Risk: network`).
