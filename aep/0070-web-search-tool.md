@@ -1,6 +1,8 @@
 # AEP-0070 — Tool `web_search` (busca web → JSON canônico paginável)
 
-Status: Done — saída canônica paginável implementada em `internal/tools/web/web_search.go` e testes
+Status: Done — saída canônica paginável implementada em `internal/tools/web/web_search.go` e testes.
+Brave Search API implementada como provedor preferencial com fallback DuckDuckGo
+(`internal/tools/web/brave_provider.go`, cadeia Brave → DuckDuckGo em `searchWithFallback`).
 Data: 2026-06-05
 Autor: Inclunet + Cursor Agent
 
@@ -18,11 +20,14 @@ offset**, permitindo varrer mais páginas de resultados quando necessário.
 
 A descoberta de conteúdo é separada da leitura: `web_search` devolve **links e
 trechos**; para ler o conteúdo de um resultado, chama-se `web_fetch` na URL
-escolhida. O provedor padrão é o **DuckDuckGo** (HTML, sem API key), atrás de uma
-interface `SearchProvider` plugável.
+escolhida. A tool usa a cadeia **Brave Search API → DuckDuckGo**, atrás da
+interface `SearchProvider` plugável: com chave Brave cadastrada no
+credmanager usa-se a API oficial; sem credencial (ou com 401/403/429/422),
+cai para o **DuckDuckGo** (HTML, sem API key) como fallback universal.
 
-Escopo atual é deliberadamente mínimo: **sem persistência, sem cache, sem ranking
-próprio, sem API keys** — um único provedor de fallback universal.
+Escopo: **sem persistência, sem cache, sem ranking próprio** — a chave da
+Brave vive exclusivamente no credmanager (nunca em env/flag/argumento) e o
+contrato JSON permanece estável independente do provedor que respondeu.
 
 ## Motivação
 
@@ -52,18 +57,21 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
 - **D2 — Paginação por offset.** Parâmetro de entrada `offset` (0-based, default 0).
   Para a próxima página: `offset = offset anterior + count`. O provedor recebe
   `(query, offset, maxResults)`.
-- **D3 — `has_more` heurístico.** Por ser **scraping** (DuckDuckGo HTML), não há
-  total de resultados exposto. `has_more` é estimado pela página ter vindo "cheia"
-  (`count >= max_results`). É documentado como heurística; o contrato
-  (offset/count/has_more) é independente de provedor, então trocar o provedor por
-  uma API oficial no futuro não quebra consumidores.
+- **D3 — `has_more` heurístico.** Nem todo provedor expõe total de
+  resultados (o fallback DuckDuckGo é scraping de HTML), então `has_more` é
+  estimado pela página ter vindo "cheia" (`count >= max_results`). É
+  documentado como heurística; o contrato (offset/count/has_more) é
+  independente de provedor, então trocar ou encadear provedores não quebra
+  consumidores.
 - **D4 — Reuso da pilha HTTP + credmanager.** `web_search` constrói um
   `httpclient.Client` via `httpclient.New(...)`, igual a `web_fetch`/`http_request`/
   `feed_read`, herdando timeout/retry e o interceptor de auth (AEP-0018/0019).
-- **D5 — Provedor plugável.** Interface `SearchProvider`
+- **D5 — Provedor plugável com cadeia padrão.** Interface `SearchProvider`
   (`Search(ctx, client, query, offset, maxResults) ([]SearchResult, error)` + `Name()`).
-  O default é `duckDuckGoProvider`; `NewWebSearchWithProvider` permite injetar outros
-  (Google/Bing/Brave) ou um mock em testes.
+  A cadeia padrão é Brave → DuckDuckGo (`searchWithFallback`): com credencial
+  Brave no credmanager usa-se a API oficial; sem credencial (ou com
+  401/403/429/422) cai para `duckDuckGoProvider`. `NewWebSearchWithProvider`
+  permite injetar outros (Google/Bing) ou um mock em testes.
 - **D6 — Descoberta separada da leitura.** `web_search` não baixa o conteúdo das
   páginas — só retorna links/trechos. Ler conteúdo é responsabilidade de `web_fetch`
   (que aplica a barreira anti-SSRF ao buscar a URL escolhida). Assim a busca não
@@ -77,7 +85,11 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
 - `SearchResult{Title, URL, Snippet}` (tags JSON).
 - Provedor DuckDuckGo: GET em `https://html.duckduckgo.com/html/?q=...`, com `&s=offset`
   quando `offset > 0`; parse do HTML lite (`result__a`/`result__snippet`) e extração
-  da URL real do redirect (`uddg=`).
+  da URL real do redirect (`uddg=`). É o fallback da cadeia padrão.
+- Provedor Brave: GET em `https://api.search.brave.com/res/v1/web/search`
+  (`q`/`count`/`offset`), header `X-Subscription-Token` com chave do
+  credmanager; parse de `web.results[]` (`title`/`url`/`description`). Sem
+  credencial ou com 401/403/429/422, fallback para DuckDuckGo.
 - Limites: `max_results` default 8, teto 20; body limitado a 2MB no fetch do provedor.
 - Registro em `internal/app/app_tool_registry.go` (`web.NewWebSearch(a.credMgr)`).
 
@@ -96,9 +108,17 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
 
 ## Fora de escopo / evolução (próximas fases)
 
-- **Provedores com API key** (Google CSE, Bing, Brave): ranking melhor, paginação
-  confiável e **total de resultados real** (substituindo o `has_more` heurístico por
-  um valor exato/`total`). A interface `SearchProvider` já comporta isso.
+- **Demais provedores com API key** (Google CSE, Bing): ranking melhor, paginação
+  confiável e **total de resultados real** (substituindo o `has_more`
+  heurístico por um valor exato/`total`). A interface `SearchProvider` já
+  comporta isso. **Brave implementado**: `braveProvider` consulta a Brave
+  Search API (`/res/v1/web/search`, `count`/`offset`) com chave resolvida por
+  URL no credmanager (`api.search.brave.com`, bearer ou custom com header
+  `X-Subscription-Token`); sem credencial ou com 401/403/429/422, a tool faz
+  fallback automático para o DuckDuckGo, identificado pelo campo `provider`.
+  Evidências: `internal/tools/web/brave_provider.go`,
+  `internal/tools/web/brave_provider_test.go`, `searchWithFallback` em
+  `internal/tools/web/web_search.go`.
 - **Seleção/config de provedor** por credencial/preferência do usuário, com fallback
   automático para o DuckDuckGo quando não houver API key.
 - **Parâmetros de busca**: região/idioma (`region`, `language`), `safe_search`,
@@ -123,8 +143,9 @@ classes de provedores:
 
 ### 1. APIs oficiais (preferenciais quando houver credencial)
 
-- **Brave Search API** — resultados de qualidade, paginação e contagem confiáveis;
-  requer API key.
+- **Brave Search API — implementada** (cadeia padrão com fallback
+  DuckDuckGo): resultados de qualidade, paginação e contagem confiáveis;
+  requer API key no credmanager.
 - **Google (Programmable Search / Custom Search JSON API)** — API oficial com
   `cx` + API key; cota limitada, mas estável e com `total` real.
 - **Bing Web Search API** (Azure) — API key; resultados ricos (web/news/images).
@@ -157,11 +178,12 @@ quebra), bloqueio/captcha e rate limiting, e conformidade com os Termos de Uso d
 cada buscador. Por isso scraping fica como camada de fallback, atrás das APIs
 oficiais quando disponíveis, com métricas de "parsing vazio" para detectar quebras.
 
-### Seleção e fallback
+### Seleção e fallback (implementado)
 
-- Provedor escolhido por preferência do usuário e/ou presença de credencial
-  (ex.: se há `brave_api_key`, usa Brave; senão tenta Google API; senão cai para
-  scraping DuckDuckGo).
+- Com credencial Brave no credmanager, usa-se a Brave; sem credencial, com
+  erro de auth/quota (401/403/429) ou com offset além da janela da Brave
+  (422), cai para o DuckDuckGo. A seleção futura por preferência do usuário
+  pode inserir outros provedores (ex.: Google API) na mesma cadeia.
 - O campo `provider` no JSON canônico já identifica qual backend respondeu, de modo
   transparente para LLM e jobs.
 - Cadeia de fallback automática em caso de erro/quota de um provedor.
@@ -188,14 +210,21 @@ parâmetros da tool — apenas troca a implementação por trás de `SearchProvi
 - [x] Output é marcado como estruturado para LLM e jobs.
 
 Evidências: `internal/tools/web/web_search_test.go`,
+`internal/tools/web/brave_provider_test.go`,
 `internal/tools/catalog_test.go` e registro em
-`internal/app/app_tool_registry.go`. Provedores com API, cache e seleção
-automática permanecem fora do escopo da v1.
+`internal/app/app_tool_registry.go`. Demais provedores com API, cache e
+seleção por preferência do usuário permanecem fora do escopo (a Brave foi
+implementada como primeiro provedor com API key, mantendo o contrato v1).
 
 ## Arquivos
 
 - `internal/tools/web/web_search.go` — `WebSearch` (`tools.Tool`), `SearchProvider`,
-  `SearchResult`, `webSearchJSONOutput` e `duckDuckGoProvider`.
+  `SearchResult`, `webSearchJSONOutput`, `duckDuckGoProvider` e cadeia
+  `searchWithFallback` (Brave → DuckDuckGo).
+- `internal/tools/web/brave_provider.go` — `braveProvider` (Brave Search API
+  via credmanager) e `parseBraveResponse`.
 - `internal/tools/web/web_search_test.go` — testes (mock provider, JSON, paginação).
+- `internal/tools/web/brave_provider_test.go` — testes do Brave (token,
+  parse, fallback, erro operacional) com HTTP fake, sem rede externa.
 - `internal/app/app_tool_registry.go` — registro da tool.
 - `internal/tools/catalog.go` — metadado (`Category: web`, `Risk: network`).

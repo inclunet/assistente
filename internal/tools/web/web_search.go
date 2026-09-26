@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,11 +16,19 @@ import (
 )
 
 // WebSearch realiza buscas na web usando uma API de busca.
-// Suporta múltiplos provedores via configuração (padrão: DuckDuckGo HTML, sem API key).
+// Usa a Brave Search API (chave via credmanager) quando há credencial
+// cadastrada, com fallback automático para DuckDuckGo HTML (sem API key).
 // Usa cliente HTTP centralizado com auth/retry automático.
 type WebSearch struct {
 	client   *httpclient.Client
 	provider SearchProvider
+	// brave/fallback compõem a cadeia padrão; provider customizado injetado
+	// via NewWebSearchWithProvider tem precedência (usado em testes).
+	brave    *braveProvider
+	fallback SearchProvider
+	// allowPrivateHosts libera hosts privados nos guards (testes com
+	// httptest). Padrão: false.
+	allowPrivateHosts bool
 }
 
 // SearchProvider define a interface para provedores de busca.
@@ -38,7 +47,8 @@ type SearchResult struct {
 	Snippet string `json:"snippet"`
 }
 
-// NewWebSearch cria uma nova instância de WebSearch com o provedor DuckDuckGo padrão.
+// NewWebSearch cria uma nova instância de WebSearch: Brave (via credmanager)
+// com fallback para o provedor DuckDuckGo padrão.
 func NewWebSearch(credMgr *credentials.Manager) *WebSearch {
 	if credMgr == nil {
 		credMgr = credentials.NewManager(nil)
@@ -46,10 +56,22 @@ func NewWebSearch(credMgr *credentials.Manager) *WebSearch {
 	client := httpclient.New(&httpclient.Config{
 		CredentialManager: credMgr,
 	}, map[string]string{})
-	return &WebSearch{
+	tool := &WebSearch{
 		client:   client,
 		provider: &duckDuckGoProvider{},
+		brave:    &braveProvider{credMgr: credMgr},
+		fallback: &duckDuckGoProvider{},
 	}
+	// O Brave trafega chave de API em header custom (X-Subscription-Token): o
+	// net/http copia headers custom em redirects de outro host (só remove
+	// Authorization/Cookie). Instala o guard compartilhado para aparar
+	// headers sensíveis em redirect não confiável e manter a barreira
+	// anti-SSRF pós-DNS — mesmo padrão de WebFetch/FeedRead.
+	if bc := client.GetBaseClient(); bc != nil {
+		bc.CheckRedirect = httpclient.RedirectGuard(httpclient.DefaultMaxRedirects, func() bool { return tool.allowPrivateHosts })
+		httpclient.SetTransportGuard(bc, func() bool { return tool.allowPrivateHosts })
+	}
+	return tool
 }
 
 // NewWebSearchWithProvider cria WebSearch com um provedor customizado (ex: Google, Bing).
@@ -154,10 +176,10 @@ func (t *WebSearch) Execute(ctx context.Context, args json.RawMessage) (tools.To
 		offset = *a.Offset
 	}
 
-	results, err := t.provider.Search(ctx, t.client, a.Query, offset, maxResults)
+	results, providerName, err := t.searchWithFallback(ctx, a.Query, offset, maxResults)
 	if err != nil {
 		return tools.ToolResult{
-			Content: fmt.Sprintf("Erro na busca (%s): %v", t.provider.Name(), err),
+			Content: fmt.Sprintf("Erro na busca (%s): %v", providerName, err),
 			IsError: true,
 		}, nil
 	}
@@ -172,7 +194,7 @@ func (t *WebSearch) Execute(ctx context.Context, args json.RawMessage) (tools.To
 	hasMore := len(results) >= maxResults
 	out := webSearchJSONOutput{
 		Query:    a.Query,
-		Provider: t.provider.Name(),
+		Provider: providerName,
 		Offset:   offset,
 		Count:    len(results),
 		HasMore:  hasMore,
@@ -193,12 +215,54 @@ func (t *WebSearch) Execute(ctx context.Context, args json.RawMessage) (tools.To
 		Structured: true,
 		Metadata: map[string]any{
 			"results":  len(results),
-			"provider": t.provider.Name(),
+			"provider": providerName,
 			"query":    a.Query,
 			"offset":   offset,
 			"has_more": hasMore,
 		},
 	}, nil
+}
+
+// searchWithFallback executa a cadeia padrão Brave → DuckDuckGo e devolve os
+// resultados com o nome do provedor que respondeu. Um provider customizado
+// injetado (NewWebSearchWithProvider) tem precedência e é usado direto, sem
+// fallback — preservando o comportamento dos testes com mock.
+//
+// Fallback para o DuckDuckGo acontece quando não há credencial Brave ou a
+// API responde 401/403/429 (auth/quota) ou 422 (offset além da janela da
+// Brave). Erro operacional na resolução da credencial e demais erros do
+// Brave são propagados sem fabricar resultados.
+func (t *WebSearch) searchWithFallback(ctx context.Context, query string, offset, maxResults int) ([]SearchResult, string, error) {
+	if t.brave == nil || t.fallback == nil {
+		results, err := t.provider.Search(ctx, t.client, query, offset, maxResults)
+		return results, t.provider.Name(), err
+	}
+	results, err := t.brave.Search(ctx, t.client, query, offset, maxResults)
+	if err == nil {
+		return results, t.brave.Name(), nil
+	}
+	if !isBraveFallbackable(err) {
+		return nil, t.brave.Name(), err
+	}
+	fallbackResults, fallbackErr := t.fallback.Search(ctx, t.client, query, offset, maxResults)
+	if fallbackErr != nil {
+		return nil, t.fallback.Name(), fallbackErr
+	}
+	return fallbackResults, t.fallback.Name(), nil
+}
+
+// isBraveFallbackable decide se um erro do Brave justifica fallback para o
+// DuckDuckGo: ausência de credencial ou 401/403/429/422 (auth/quota/janela
+// de paginação).
+func isBraveFallbackable(err error) bool {
+	if err == errNoBraveCredential {
+		return true
+	}
+	var statusErr *braveStatusError
+	if errors.As(err, &statusErr) {
+		return braveFallbackable(statusErr.StatusCode)
+	}
+	return false
 }
 
 // ==================== DuckDuckGo Provider ====================
