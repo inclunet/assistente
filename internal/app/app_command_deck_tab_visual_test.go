@@ -220,6 +220,88 @@ func TestWorkspaceTabDeckVisualPreservesCustomFieldsAndStateOverrides(t *testing
 	}
 }
 
+func TestWorkspaceTabDeckCustomPresentationRequiresEffectiveConsensus(t *testing.T) {
+	candidates := []commandbindings.Candidate{
+		{ID: "binding-a", Trigger: "streamdeck.key:DECK:key:0", CommandID: commandWorkspaceTabGoToID, ArgumentsKey: `{}`, ExecutionScopeKey: "global", Scope: commandbindings.Global, Enabled: true, LayerActive: true},
+		{ID: "binding-b", Trigger: "streamdeck.key:DECK:key:1", CommandID: commandWorkspaceTabGoToID, ArgumentsKey: `{}`, ExecutionScopeKey: "global", Scope: commandbindings.Global, Enabled: true, LayerActive: true},
+	}
+	configuration, err := commandbindings.NewConfiguration(nil, nil, candidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration = configuration.WithPresentation(commandbindings.NewPresentationSnapshot(map[string]commandbindings.BindingPresentation{
+		"binding-a": {
+			TitleByLocale: map[string]string{"en": "Custom base"},
+			Icon:          "star",
+			States: map[string]commandbindings.BindingPresentation{
+				"running": {TitleByLocale: map[string]string{"en": "Custom base"}, Icon: "star"},
+			},
+		},
+		"binding-b": {TitleByLocale: map[string]string{"en": "Custom base"}, Icon: "star"},
+	}))
+	active := &workspace.Workspace{ID: "workspace-a", Tabs: workspace.TabsState{Items: []workspace.Tab{{ID: "tab-a", Type: workspace.TabTypeEditor, Title: "Current tab", Position: 0}}}}
+	ids := []string{"binding-a", "binding-b"}
+	base := commandDeckVisual{title: "Custom base", icon: "star"}
+	variants := map[string]commandDeckVisual{"running": {title: "Custom base", icon: "star"}}
+	base, variants = applyWorkspaceTabDeckVisual(configuration, nil, "", ids, nil, []byte(`{"workspace_id":"workspace-a","target_mode":"position","position":1}`), active, "en", base, variants, commandWorkspaceTabGoToID)
+	if base.title != "Custom base" || base.icon != "star" {
+		t.Fatalf("unanimous base presentation should be preserved: %+v", base)
+	}
+	if variants["running"].title != "Custom base" || variants["running"].icon != "star" {
+		t.Fatalf("explicit state values matching the inherited presentation should be preserved: %+v", variants["running"])
+	}
+
+	configuration = configuration.WithPresentation(commandbindings.NewPresentationSnapshot(map[string]commandbindings.BindingPresentation{
+		"binding-a": {
+			TitleByLocale: map[string]string{"en": "Custom base"},
+			Icon:          "star",
+			States: map[string]commandbindings.BindingPresentation{
+				"running": {TitleByLocale: map[string]string{"en": "Running custom"}, Icon: "bolt"},
+			},
+		},
+		"binding-b": {TitleByLocale: map[string]string{"en": "Custom base"}, Icon: "star"},
+	}))
+	variants = map[string]commandDeckVisual{"running": {title: "Running custom", icon: "bolt"}}
+	_, variants = applyWorkspaceTabDeckVisual(configuration, nil, "", ids, nil, []byte(`{"workspace_id":"workspace-a","target_mode":"position","position":1}`), active, "en", commandDeckVisual{title: "Custom base", icon: "star"}, variants, commandWorkspaceTabGoToID)
+	if variants["running"].title != "Current tab" || variants["running"].icon != "workspace-tab-editor" {
+		t.Fatalf("divergent effective state presentation should fall back to target: %+v", variants["running"])
+	}
+
+	configuration = configuration.WithPresentation(commandbindings.NewPresentationSnapshot(map[string]commandbindings.BindingPresentation{
+		"binding-a": {
+			TitleByLocale: map[string]string{"en": "Custom base"},
+			Icon:          "star",
+			States: map[string]commandbindings.BindingPresentation{
+				"running": {TitleByLocale: map[string]string{"en": ""}},
+			},
+		},
+		"binding-b": {TitleByLocale: map[string]string{"en": "Custom base"}, Icon: "star"},
+	}))
+	variants = map[string]commandDeckVisual{"running": {title: "Custom base", icon: "star"}}
+	_, variants = applyWorkspaceTabDeckVisual(configuration, nil, "", ids, nil, []byte(`{"workspace_id":"workspace-a","target_mode":"position","position":1}`), active, "en", commandDeckVisual{title: "Custom base", icon: "star"}, variants, commandWorkspaceTabGoToID)
+	if variants["running"].title != "Current tab" || variants["running"].icon != "star" {
+		t.Fatalf("explicitly empty state title must fall back automatically while the inherited icon remains unanimous: %+v", variants["running"])
+	}
+
+	configuration = configuration.WithPresentation(commandbindings.NewPresentationSnapshot(map[string]commandbindings.BindingPresentation{
+		"binding-a": {TitleByLocale: map[string]string{"en": "Custom base"}, Icon: "star"},
+		"binding-b": {},
+	}))
+	base, _ = applyWorkspaceTabDeckVisual(configuration, nil, "", ids, nil, []byte(`{"workspace_id":"workspace-a","target_mode":"position","position":1}`), active, "en", commandDeckVisual{title: "Custom base", icon: "star"}, nil, commandWorkspaceTabGoToID)
+	if base.title != "Current tab" || base.icon != "workspace-tab-editor" {
+		t.Fatalf("partial custom presentation must not suppress automatic target: %+v", base)
+	}
+
+	configuration = configuration.WithPresentation(commandbindings.NewPresentationSnapshot(map[string]commandbindings.BindingPresentation{
+		"binding-a": {TitleByLocale: map[string]string{"en": "Custom A"}, Icon: "star"},
+		"binding-b": {TitleByLocale: map[string]string{"en": "Custom B"}, Icon: "star"},
+	}))
+	base, _ = applyWorkspaceTabDeckVisual(configuration, nil, "", ids, nil, []byte(`{"workspace_id":"workspace-a","target_mode":"position","position":1}`), active, "en", commandDeckVisual{title: "Go to tab", icon: "star"}, nil, commandWorkspaceTabGoToID)
+	if base.title != "Current tab" || base.icon != "star" {
+		t.Fatalf("divergent titles must not suppress automatic target: %+v", base)
+	}
+}
+
 func TestWorkspaceTabDeckRenameAndCloseReachRenderedFrame(t *testing.T) {
 	active := &workspace.Workspace{ID: "workspace-a", Tabs: workspace.TabsState{Items: []workspace.Tab{{ID: "tab-a", Type: workspace.TabTypeEditor, Title: "Draft", Position: 0}}}}
 	model := commanddeck.Model{ID: "test", Name: "Test", Rows: 1, Columns: 1, KeyImageW: 72, KeyImageH: 72}

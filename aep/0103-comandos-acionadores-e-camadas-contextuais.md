@@ -9,7 +9,9 @@ Campos personalizados e variantes de estado continuam tendo precedência.
 Destino ausente ou de outro workspace é apresentado como indisponível, sem
 redirecionamento. A derivação visual não concede autorização, altera o
 despacho nem acrescenta auditoria por tecla. Evidências automatizadas e
-limitações de integração ficam na tasklist; aceite físico/NVDA segue pendente.
+limitações de integração ficam na tasklist. O título visível é abreviado para
+caber na tecla quando necessário, enquanto o anúncio mantém o título completo;
+aceite físico/NVDA segue pendente.
 
 **Destino parametrizado de abas — seção164 da tasklist:** `workspace.tab.go_to`
 é um único `local_ui` com binding vinculado a `workspace_id` e alvo por

@@ -10663,8 +10663,15 @@ carregado. O guia de comandos documenta o comportamento. Evidências focadas em
 `internal/app/app_command_deck_tab_visual_test.go` cobrem posição e identidade
 após rename/reorder, destinos ausentes/workspace alheio, `first`/`second`/`ninth`,
 ramo condicional, divergência, ícones rasterizados e preservação dos campos
-base/estado. Os nove testes focados `TestWorkspaceTabDeck*` passaram após os
-ajustes visuais.
+base/estado. Títulos e ícones personalizados exigem consenso efetivo de todos
+os bindings: variante explícita igual ao valor herdado permanece personalizada;
+valores divergentes ou título explicitamente vazio usam fallback automático.
+`internal/app/app_command_deck_feedback_render_test.go` prova que um nome sem
+espaços é abreviado com reticências apenas na imagem renderizada, mantendo o
+título completo em `Announce`. A execução
+`go test ./internal/app -run 'TestWorkspaceTabDeck|TestCommandDeckTitleTruncatesLongUnbrokenWordOnlyInRenderedImage' -count=1`
+passou em 17,058 s; separadamente, `golangci-lint run ./internal/app`
+reportou 0 issues.
 
 **Registro histórico de bloqueio resolvido:** antes do merge do bootstrap
 `392cfdd3a`, o teste integrado existente
@@ -10685,5 +10692,7 @@ visuais: ramos mistos ocultavam a combinação de comandos, e títulos
 personalizados ocultavam a ambiguidade do destino. Corrigidos preservando o
 título composto/personalizado e acrescentando a informação de destino como
 sufixo; regressões focadas passaram. O agente principal reavaliou o patch
-sem novos bloqueios funcionais. A atualização do AEP principal acompanha a
-tasklist e o índice, sem promover aceite manual.
+sem novos bloqueios funcionais. A revisão remota também levou a corrigir o
+ajuste de títulos longos e o consenso de personalizações após herança; as novas
+regressões focadas passaram na execução acima. A atualização do AEP principal
+acompanha a tasklist e o índice, sem promover aceite manual.

@@ -2684,6 +2684,8 @@ com os limites descritos em **Condições visuais no Stream Deck** acima.
 No Stream Deck, **Ir para aba** e os comandos de **primeira a nona aba** mostram
 o título e um ícone do tipo da aba que o comando alcançará. Posições acompanham
 a ordem atual; destinos por ID acompanham a mesma aba após renomear ou reordenar.
+Se o nome não couber na tecla, o texto visível é abreviado com reticências; o
+anúncio acessível conserva o título completo.
 Fechar a aba-alvo ou ativar outro workspace mostra **Aba indisponível** até o
 destino voltar a existir no workspace vinculado. Em ramos condicionais, a tecla
 mostra um alvo somente quando os ramos possíveis concordam; divergência é

@@ -303,10 +303,6 @@ func workspaceTabDeckText(locale, key string) string {
 	return texts["en"][key]
 }
 
-func deckUnavailableSuffix(title, locale string) string {
-	return deckVisualSuffix(title, workspaceTabDeckText(locale, "unavailable"))
-}
-
 func deckVisualSuffix(title, marker string) string {
 	if strings.Contains(title, marker) {
 		return title
@@ -318,44 +314,22 @@ func deckVisualSuffix(title, marker string) string {
 }
 
 func hasCustomDeckTitle(configuration *commandbindings.Configuration, ids []string, state, locale string) bool {
-	snapshot := presentationSnapshot(configuration)
-	for _, id := range ids {
-		presentation, ok := snapshot.Binding(id)
-		if !ok {
-			continue
-		}
-		if state != "" {
-			if variant, exists := presentation.States[state]; exists && strings.TrimSpace(variant.TitleByLocale[locale]) != "" {
-				return true
-			}
-		}
-		if strings.TrimSpace(presentation.TitleByLocale[locale]) != "" {
-			return true
-		}
+	if configuration == nil || len(ids) == 0 {
+		return false
 	}
-	return false
+	if state != "" {
+		return strings.TrimSpace(configuration.PresentationForState(ids, state).TitleByLocale[locale]) != ""
+	}
+	title, ok := configuration.TitleForBindings(ids, locale)
+	return ok && strings.TrimSpace(title) != ""
 }
 
 func hasCustomDeckIcon(configuration *commandbindings.Configuration, ids []string, state string) bool {
-	snapshot := presentationSnapshot(configuration)
-	for _, id := range ids {
-		presentation, ok := snapshot.Binding(id)
-		if !ok {
-			continue
-		}
-		if strings.TrimSpace(presentation.Icon) != "" {
-			return true
-		}
-		if variant, exists := presentation.States[state]; exists && strings.TrimSpace(variant.Icon) != "" {
-			return true
-		}
+	if configuration == nil || len(ids) == 0 {
+		return false
 	}
-	return false
-}
-
-func presentationSnapshot(configuration *commandbindings.Configuration) *commandbindings.PresentationSnapshot {
-	if configuration == nil {
-		return nil
+	if state != "" {
+		return strings.TrimSpace(configuration.PresentationForState(ids, state).Icon) != ""
 	}
-	return configuration.Presentation()
+	return strings.TrimSpace(configuration.IconForBindings(ids)) != ""
 }

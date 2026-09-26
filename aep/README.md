@@ -24,10 +24,11 @@ O mantenedor confirmou a correção física do bloqueio do Deck antes do merge.
 
 AEP-0103, seção165 (25/09/2026): título e ícone automáticos para destinos de
 aba no Stream Deck, com personalizações preservadas e destino ausente explícito.
-Teste Go focado, `go build ./...` e `go vet ./...` passaram. O teste integrado
-Deck existente não alcançou `deckMap`: o fixture App falhou com
-`ErrInvalidConfiguration`, também reproduzido por um teste de produto não
-relacionado; veja o limite registrado na seção165.
+Títulos longos são abreviados somente na tecla; o anúncio mantém o texto
+completo. Personalizações exigem consenso dos bindings após herança de estado.
+Testes Go focados e `golangci-lint` passaram; o aceite físico/NVDA segue
+pendente. O histórico da falha de fixture App e sua correção estão registrados
+na tasklist.
 **In Progress; 83 I / 1 P / 0 N**; nenhum aceite manual foi promovido.
 
 AEP-0103, seção162 (25/09/2026): diagnóstico nativo reproduziu o bloqueio do
