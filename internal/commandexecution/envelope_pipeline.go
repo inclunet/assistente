@@ -855,7 +855,15 @@ func (s *Service) ExecuteEnvelopeWithResult(ctx context.Context, token string, c
 			err = finish(commandledger.CancelledStale)
 			return record, nil, err
 		}
-		if e := s.config.Envelope.AwaitQueue(preDispatchCtx, copyEnvelope); e != nil {
+		queueErr := func() error {
+			watched, release, err := s.config.Epochs.WatchEpoch(preDispatchCtx, p.epoch)
+			if err != nil {
+				return err
+			}
+			defer release()
+			return s.config.Envelope.AwaitQueue(watched, copyEnvelope)
+		}()
+		if queueErr != nil {
 			err = finish(commandledger.CancelledStale)
 			return record, nil, err
 		}

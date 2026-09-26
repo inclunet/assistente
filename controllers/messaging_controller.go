@@ -27,14 +27,14 @@ import (
 
 // MessagingControllerConfig agrupa todas as dependências do MessagingController.
 type MessagingControllerConfig struct {
-	Ctx          context.Context
-	ProfileMgr   *profiles.Manager
-	CredMgr      *credentials.Manager
-	SpeechSvc    *speech.Service
-	AudioRepo    speech.AudioRepository
-	ToolRegistry *tools.Registry
-	Emitter      ports.Emitter
-	ConvSvc      chat.ConversationRepository
+	Ctx           context.Context
+	ProfileMgr    *profiles.Manager
+	CredMgr       *credentials.Manager
+	SpeechSvc     *speech.Service
+	AudioRepo     speech.AudioRepository
+	ToolRegistry  *tools.Registry
+	Emitter       ports.Emitter
+	ConvSvc       chat.ConversationRepository
 	SendMessageFn messaging.SendMessageFunc
 }
 
@@ -557,7 +557,7 @@ func (c *MessagingController) persistChannelCredentials(channelName string, cfg 
 			cfg.BotTokenRef = fmt.Sprintf("channel:%s:bot_token", channelName)
 		}
 		if cfg.BotTokenRef != "" && cfg.BotToken != "" {
-			if err := c.credMgr.RegisterPatternWithContext(ctx, cfg.BotTokenRef, &credentials.AuthConfig{
+			if err := c.credMgr.RegisterPatternWithContext(ctx, cfg.BotTokenRef, &credentials.AuthConfig{Source: "static",
 				Type:  "secret",
 				Token: cfg.BotToken,
 			}); err != nil {
@@ -573,7 +573,7 @@ func (c *MessagingController) persistChannelCredentials(channelName string, cfg 
 			cfg.AppTokenRef = fmt.Sprintf("channel:%s:app_token", channelName)
 		}
 		if cfg.BotTokenRef != "" && cfg.BotToken != "" {
-			if err := c.credMgr.RegisterPatternWithContext(ctx, cfg.BotTokenRef, &credentials.AuthConfig{
+			if err := c.credMgr.RegisterPatternWithContext(ctx, cfg.BotTokenRef, &credentials.AuthConfig{Source: "static",
 				Type:  "secret",
 				Token: cfg.BotToken,
 			}); err != nil {
@@ -582,7 +582,7 @@ func (c *MessagingController) persistChannelCredentials(channelName string, cfg 
 			cfg.BotToken = ""
 		}
 		if cfg.AppTokenRef != "" && cfg.AppToken != "" {
-			if err := c.credMgr.RegisterPatternWithContext(ctx, cfg.AppTokenRef, &credentials.AuthConfig{
+			if err := c.credMgr.RegisterPatternWithContext(ctx, cfg.AppTokenRef, &credentials.AuthConfig{Source: "static",
 				Type:  "secret",
 				Token: cfg.AppToken,
 			}); err != nil {
@@ -595,7 +595,7 @@ func (c *MessagingController) persistChannelCredentials(channelName string, cfg 
 			cfg.APITokenRef = fmt.Sprintf("channel:%s:api_token", channelName)
 		}
 		if cfg.APITokenRef != "" && cfg.APIToken != "" {
-			if err := c.credMgr.RegisterPatternWithContext(ctx, cfg.APITokenRef, &credentials.AuthConfig{
+			if err := c.credMgr.RegisterPatternWithContext(ctx, cfg.APITokenRef, &credentials.AuthConfig{Source: "static",
 				Type:  "secret",
 				Token: cfg.APIToken,
 			}); err != nil {

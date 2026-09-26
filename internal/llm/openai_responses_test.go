@@ -238,7 +238,7 @@ func TestOpenAIResponsesStreamInjectsScopedCredential(t *testing.T) {
 
 	ctx := database.WithUserID(context.Background(), "user-1")
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
-	if err := credMgr.RegisterPatternWithContext(ctx, "llm.inclunet.com.br", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(ctx, "llm.inclunet.com.br", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "sk-litellm-user-1",
 	}); err != nil {

@@ -371,7 +371,7 @@ func TestCheckAndRefreshToken_SkipsWhenTokenFarFromExpiry(t *testing.T) {
 	}
 
 	farFuture := time.Now().Add(1 * time.Hour).Unix()
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{Source: "static",
 		Type:       "oauth2",
 		Token:      "access-valid",
 		RefreshURL: "refresh-123",
@@ -394,7 +394,7 @@ func TestCheckAndRefreshToken_SkipsWhenNoRefreshToken(t *testing.T) {
 	}
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{Source: "static",
 		Type:      "oauth2",
 		Token:     "access-expiring",
 		ExpiresAt: soonExpiry,
@@ -432,7 +432,7 @@ func TestCheckAndRefreshToken_RefreshesExpiringToken(t *testing.T) {
 	}
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{Source: "static",
 		Type:       "oauth2",
 		Token:      "old-access-token",
 		RefreshURL: "old-refresh-token",
@@ -489,7 +489,7 @@ func TestCheckAndRefreshToken_PersistsSobContextoDoUsuario(t *testing.T) {
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
 	// Credenciais gravadas SOB o escopo do usuário.
-	_ = m.credMgr.RegisterPatternWithContext(userCtx, userTokensPattern("test"), &credentials.AuthConfig{
+	_ = m.credMgr.RegisterPatternWithContext(userCtx, userTokensPattern("test"), &credentials.AuthConfig{Source: "static",
 		Type:       "oauth2",
 		Token:      "old-access-token",
 		RefreshURL: "old-refresh-token",
@@ -528,7 +528,7 @@ func TestCheckAndRefreshToken_HandlesRefreshFailure(t *testing.T) {
 	}
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{Source: "static",
 		Type:       "oauth2",
 		Token:      "old-access-token",
 		RefreshURL: "old-refresh-token",
@@ -572,7 +572,7 @@ func TestCheckAndRefreshToken_UsesStoredClientCreds(t *testing.T) {
 	rt.persistClientCreds("stored-client-id", "stored-secret")
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{Source: "static",
 		Type:       "oauth2",
 		Token:      "old",
 		RefreshURL: "refresh-tok",
@@ -617,7 +617,7 @@ func TestRecoverServerBestEffort_RefreshesOAuthToken(t *testing.T) {
 	}
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{Source: "static",
 		Type:       "oauth2",
 		Token:      "old-access-token",
 		RefreshURL: "old-refresh-token",
@@ -666,7 +666,7 @@ func TestRecoverServerBestEffort_RefreshesOAuthTokenWithoutExpiryWhenForced(t *t
 		Status: StatusDisconnected,
 	}
 
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{Source: "static",
 		Type:       "oauth2",
 		Token:      "old-access-token",
 		RefreshURL: "old-refresh-token",
@@ -727,7 +727,7 @@ func TestRecoverServerBestEffort_JoinsRefreshAndReconnectErrors(t *testing.T) {
 	}
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{Source: "static",
 		Type:       "oauth2",
 		Token:      "old-access-token",
 		RefreshURL: "old-refresh-token",
@@ -1146,7 +1146,7 @@ func TestBuildAuthHTTPClient_LogoutMidFlightDegrades(t *testing.T) {
 	userCtx := database.WithUserID(context.Background(), "user-1")
 	loggedInOut := userCtx
 	m.SetAuthContextProvider(func() context.Context { return loggedInOut })
-	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{
+	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "user-token",
 	}); err != nil {
@@ -1183,7 +1183,7 @@ func TestBuildAuthHTTPClientResolvesUserScopedBearer(t *testing.T) {
 	m := newTestManager()
 	userCtx := database.WithUserID(context.Background(), "user-1")
 	m.SetAuthContextProvider(func() context.Context { return userCtx })
-	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{
+	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "user-token",
 	}); err != nil {

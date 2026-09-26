@@ -365,7 +365,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			// Registra credencial temporária para o CreateWizardProvider
 			wizardHostname, _ := providers.ExtractHostname(baseURL)
 			if apiKey != "" && wizardHostname != "" {
-				wizardAuth := &credentials.AuthConfig{
+				wizardAuth := &credentials.AuthConfig{Source: "static",
 					Type:  "bearer",
 					Token: apiKey,
 				}
@@ -462,7 +462,7 @@ func (c *WelcomeController) CreateWizardProvider(ctx context.Context, providerCh
 	}
 
 	if apiKey != "" && hostname != "" {
-		authCfg := &credentials.AuthConfig{
+		authCfg := &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: apiKey,
 		}
