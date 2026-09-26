@@ -1017,7 +1017,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(2);
     expect(mockAnnounceForActiveChatConversation).toHaveBeenLastCalledWith(
       'conversation-1',
-      'chat.toolGeneric. chat.toolStatusSucceeded',
+      'chat.toolGenericDone. chat.toolStatusSucceeded',
       'polite',
       undefined,
     );
@@ -1057,7 +1057,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
-      'chat.toolGeneric. chat.toolStatusSucceeded; chat.toolGeneric. chat.toolStatusSucceeded',
+      'chat.toolGenericDone. chat.toolStatusSucceeded; chat.toolGenericDone. chat.toolStatusSucceeded',
       'polite',
       undefined,
     );
@@ -1536,7 +1536,7 @@ describe('chatEventController', () => {
 
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
-      'chat.toolGeneric. chat.toolStatusSucceeded',
+      'chat.toolGenericDone. chat.toolStatusSucceeded',
       'polite',
       undefined,
     );

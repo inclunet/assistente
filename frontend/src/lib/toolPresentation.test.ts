@@ -6,6 +6,7 @@ describe('presentTool', () => {
     const presentation = presentTool('edit_file', 'builtin', undefined, '{"path":"C:\\\\projetos\\\\demo\\\\arquivo.txt"}');
 
     expect(presentation.labelKey).toBe('chat.toolEditFile');
+    expect(presentation.completedLabelKey).toBe('chat.toolEditFileDone');
     expect(presentation.target).toEqual({ kind: 'file', path: 'C:\\projetos\\demo\\arquivo.txt', label: 'arquivo.txt' });
   });
 
@@ -40,8 +41,9 @@ describe('presentTool', () => {
   it('apresenta comandos nativos sem expor o comando executado', () => {
     expect(presentTool('run_command', 'builtin', undefined, '{"command":"echo segredo"}')).toEqual({
       labelKey: 'chat.toolRunCommand',
+      completedLabelKey: 'chat.toolRunCommandDone',
     });
-    expect(presentTool('terminal_session', 'builtin')).toEqual({ labelKey: 'chat.toolRunCommand' });
+    expect(presentTool('terminal_session', 'builtin')).toEqual({ labelKey: 'chat.toolRunCommand', completedLabelKey: 'chat.toolRunCommandDone' });
   });
 
   it('formata a mesma frase amigável usada pelo card e pelo leitor de telas', () => {
@@ -55,7 +57,15 @@ describe('presentTool', () => {
   it('não expõe o nome técnico de uma ferramenta desconhecida', () => {
     const presentation = presentTool('crm_internal_lookup_v2', 'builtin');
 
-    expect(presentation).toEqual({ labelKey: 'chat.toolGeneric' });
+    expect(presentation).toEqual({ labelKey: 'chat.toolGeneric', completedLabelKey: 'chat.toolGenericDone' });
     expect(formatToolPresentation(presentation, () => 'Executando ferramenta')).toBe('Executando ferramenta');
+  });
+
+  it('usa o verbo concluído sem mudar o destino nem inferir sucesso de falhas', () => {
+    const presentation = presentTool('read_file', 'builtin', undefined, '{"path":"C:/repo/arquivo.txt"}');
+    const translate = (key: string) => ({ 'chat.toolReadFile': 'Lendo arquivo', 'chat.toolReadFileDone': 'Leu arquivo' })[key] ?? key;
+    expect(formatToolPresentation(presentation, translate)).toBe('Lendo arquivo: arquivo.txt');
+    expect(formatToolPresentation(presentation, translate, true)).toBe('Leu arquivo: arquivo.txt');
+    expect(presentation.target?.kind).toBe('file');
   });
 });

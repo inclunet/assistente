@@ -134,6 +134,16 @@ oculta os detalhes sem mover a conclusão para cima nem duplicá-la; a cadeia
 não é recolhida automaticamente ao terminar. Em turnos sem texto, o aviso de
 ausência de resposta aparece depois das ferramentas.
 
+Cada ferramenta mostra uma ação curta e seu estado. As ferramentas nativas
+prioritárias passam ao passado após o sucesso, por exemplo, “Leu arquivo”. As
+integrações MCP mantêm o texto “Consultando [nome do provedor]” mesmo depois de
+concluídas, pois o chat não deduz a ação a partir do nome da integração. Durante
+a execução, um resultado ainda incompleto é identificado sem mostrar dados
+técnicos no card.
+Use **Detalhes técnicos** para consultar os parâmetros e a saída quando precisar;
+resultados de busca estruturados continuam disponíveis no botão que informa a
+quantidade de resultados.
+
 Alguns modelos enviam poucas mensagens intermediárias. Nesses casos, o chat
 continua mostrando o estado real das ferramentas e os avisos de progresso,
 sem inventar uma descrição do que o modelo pretende fazer.

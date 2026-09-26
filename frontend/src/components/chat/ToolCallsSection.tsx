@@ -38,10 +38,11 @@ const ToolCallsSectionContent = React.memo<ToolCallsSectionProps>(function ToolC
     <div className="tool-calls-section" role="list" aria-label={t('chat.toolActivity')}>
           {calls.map((call, index) => {
             const presentation = presentations[index];
-            const friendlyLabel = formatToolPresentation(presentation, (key, values) => t(key, values));
             const callStatus = displayToolStatus(call.status);
+            const friendlyLabel = formatToolPresentation(presentation, (key, values) => t(key, values), callStatus === 'succeeded');
             const isActive = callStatus === 'running';
             const preview = isStreaming ? (call as ToolCallStatus).summary : (call as ToolInvocationSummary).outputPreview;
+            const hasPartialOutput = isActive && !!preview;
             const invocation = call as InvocationForDetails;
             const target = presentation.target;
             const openTarget = async () => {
@@ -65,7 +66,7 @@ const ToolCallsSectionContent = React.memo<ToolCallsSectionProps>(function ToolC
                 {!isStreaming && (invocation.securityOutcome === 'approved' || invocation.securityOutcome === 'blocked') && <span className={`tool-calls-section__security tool-calls-section__security--${invocation.securityOutcome}`}>{t(invocation.securityOutcome === 'approved' ? 'chat.toolSecurityApproved' : 'chat.toolSecurityBlocked')}</span>}
                 {!isStreaming && !!(call as ToolInvocationSummary).durationMs && <span className="tool-calls-section__duration">{formatDuration((call as ToolInvocationSummary).durationMs!)}</span>}
               </div>
-              {preview && <p className="tool-calls-section__result-summary">{isActive ? `${t('chat.partialOutput')}: ${preview}` : preview}</p>}
+              {hasPartialOutput && <p className="tool-calls-section__result-summary">{t('chat.partialOutputAvailable')}</p>}
               {!isStreaming && invocation.hasSearchResults && <Button className="tool-calls-section__result-toggle" onClick={(event) => void dialogs?.openSearchResults(invocation, event.currentTarget)} type="button" variant="ghost" size="sm" tabIndex={tabNavigationEnabled ? 0 : -1}>{t('chat.viewSearchResults', { count: invocation.searchResultCount ?? 0 })}</Button>}
               <Button className="tool-calls-section__result-toggle" onClick={(event) => void dialogs?.openDetails(invocation, event.currentTarget)} type="button" variant="ghost" size="sm" tabIndex={tabNavigationEnabled ? 0 : -1}>{t('chat.technicalDetails')}</Button>
             </div>;

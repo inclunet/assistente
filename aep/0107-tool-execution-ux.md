@@ -226,6 +226,12 @@ parte do evento terminal ao vivo. Assim, uma interrupção permanece
 `Cancelada` tanto durante o streaming quanto depois da recarga do ledger, sem
 ser anunciada como falha nem disparar feedback assertivo de erro.
 
+Uma correção posterior alinhou a timeline à D7: `outputPreview` estrutural
+permanece acessível nos detalhes técnicos, mas deixa de ser apresentado como
+resumo legível no card. Durante a execução, a existência de saída é indicada
+sem reproduzir seu conteúdo; após sucesso, as tools nativas prioritárias usam
+verbos no passado no card e nos anúncios, preservando o estado explícito.
+
 ## Riscos
 
 - **Promessa incorreta de sucesso:** mitigada ao derivar estado exclusivamente do lifecycle canônico e marcar output não terminal como parcial.
