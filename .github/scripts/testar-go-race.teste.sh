@@ -51,7 +51,10 @@ add_fixture app-chat TestChatA
 add_fixture app-demais TestA FuzzInput Example ExampleOutput TestAção
 
 # Famílias específicas devem vencer os padrões residuais mais amplos.
-add_fixture comandos-contexto-deck TestContextualDeckA
+add_fixture comandos-contexto-deck-paginas TestContextualDeckPageA TestContextualDeckPageFuture
+add_fixture comandos-contexto-deck-mermaid TestContextualDeckMermaidA TestContextualDeckMermaidFuture
+add_fixture comandos-contexto-deck-camadas TestContextualDeckLayerA TestContextualDeckLayerFuture
+add_fixture comandos-contexto-deck-base TestContextualDeckA TestContextualDeckFutureBase
 add_fixture comandos-contexto-paleta TestContextualPaletteA TestContextualPagePaletteA TestContextualLayerPaletteA
 add_fixture comandos-contexto-workspace TestCommandWorkspaceA
 add_fixture comandos-contexto-base \
@@ -81,7 +84,8 @@ assert_flags() {
 
 expected_groups=(
   pacotes-gerais comandos-configuracao comandos-dispositivos
-  comandos-contexto-deck comandos-contexto-paleta comandos-contexto-workspace comandos-contexto-base
+  comandos-contexto-deck-paginas comandos-contexto-deck-mermaid comandos-contexto-deck-camadas comandos-contexto-deck-base
+  comandos-contexto-paleta comandos-contexto-workspace comandos-contexto-base
   comandos-execucao comandos-jobs comandos-interface comandos-seguranca comandos-outros app-chat app-demais
 )
 mapfile -t script_groups < <(bash "$script_dir/testar-go-race.sh" --groups)

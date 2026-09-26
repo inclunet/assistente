@@ -6,7 +6,8 @@ export LC_ALL=C
 app=assistente/internal/app
 flags=(-race -short -count=1 -timeout=20m)
 groups=(comandos-configuracao comandos-dispositivos
-  comandos-contexto-deck comandos-contexto-paleta comandos-contexto-workspace comandos-contexto-base comandos-execucao
+  comandos-contexto-deck-paginas comandos-contexto-deck-mermaid comandos-contexto-deck-camadas comandos-contexto-deck-base
+  comandos-contexto-paleta comandos-contexto-workspace comandos-contexto-base comandos-execucao
   comandos-jobs comandos-interface comandos-seguranca comandos-outros app-chat app-demais)
 
 if [[ $# == 1 && $1 == --groups ]]; then
@@ -37,7 +38,10 @@ classify() {
     TestCommandDeck*|TestCommandKeyboard*|TestCommandGlobal*|TestCommandHotkey*|TestCommandHost*|TestCommandPhysical*|TestCommandStreamDeck*) echo comandos-dispositivos ;;
     # Contexto excedeu o orçamento acumulado mesmo sem teste individual preso.
     # Famílias específicas primeiro; o residual preserva nomes futuros.
-    TestContextualDeck*) echo comandos-contexto-deck ;;
+    TestContextualDeckPage*) echo comandos-contexto-deck-paginas ;;
+    TestContextualDeckMermaid*) echo comandos-contexto-deck-mermaid ;;
+    TestContextualDeckLayer*) echo comandos-contexto-deck-camadas ;;
+    TestContextualDeck*) echo comandos-contexto-deck-base ;;
     TestContextualPalette*|TestContextualPagePalette*|TestContextualLayerPalette*) echo comandos-contexto-paleta ;;
     TestCommandWorkspace*) echo comandos-contexto-workspace ;;
     TestContextual*|TestCommandContext*|TestCommandProfile*|TestCommandScope*) echo comandos-contexto-base ;;
