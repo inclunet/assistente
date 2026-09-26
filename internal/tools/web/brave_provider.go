@@ -80,6 +80,10 @@ func (p *braveProvider) Search(ctx context.Context, client *httpclient.Client, q
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Subscription-Token", braveToken(auth))
+	// Nota: o interceptor do cliente centralizado pode acrescentar
+	// `Authorization: Bearer` quando a credencial cadastrada é do tipo bearer.
+	// É o mesmo segredo, para o mesmo endpoint, via TLS — a Brave ignora o
+	// header extra e autentica pelo X-Subscription-Token.
 
 	resp, err := client.Do(ctx, req)
 	if err != nil {

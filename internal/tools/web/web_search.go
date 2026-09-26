@@ -22,7 +22,6 @@ import (
 type WebSearch struct {
 	client   *httpclient.Client
 	provider SearchProvider
-	credMgr  *credentials.Manager
 	// brave/fallback compõem a cadeia padrão; provider customizado injetado
 	// via NewWebSearchWithProvider tem precedência (usado em testes).
 	brave    *braveProvider
@@ -57,7 +56,6 @@ func NewWebSearch(credMgr *credentials.Manager) *WebSearch {
 	return &WebSearch{
 		client:   client,
 		provider: &duckDuckGoProvider{},
-		credMgr:  credMgr,
 		brave:    &braveProvider{credMgr: credMgr},
 		fallback: &duckDuckGoProvider{},
 	}
