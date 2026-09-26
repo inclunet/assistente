@@ -171,9 +171,14 @@ func isWorkspaceTabDeckVisualCommand(commandID string) bool {
 
 func collectWorkspaceTabDeckTargets(condition LocalCommandPaletteCondition, active *workspace.Workspace, locale string, output *[]workspaceTabDeckTarget) {
 	if isWorkspaceTabDeckVisualCommand(condition.CommandID) {
-		appendTarget := func(arguments json.RawMessage) {
+		appendTarget := func(arguments map[string]any) {
 			if condition.CommandID == commandWorkspaceTabGoToID {
-				*output = append(*output, workspaceTabDeckTargetFromArguments(arguments, active, locale))
+				raw, err := json.Marshal(arguments)
+				if err != nil {
+					*output = append(*output, workspaceTabDeckUnavailable(locale))
+					return
+				}
+				*output = append(*output, workspaceTabDeckTargetFromArguments(raw, active, locale))
 				return
 			}
 			_, position, _ := workspaceTabNavigationForCommand(condition.CommandID)

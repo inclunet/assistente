@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -128,7 +129,7 @@ type LocalCommandKeyboardMap struct {
 	Bindings                    []LocalCommandKeyboardBinding           `json:"bindings"`
 	ContextualBindings          []LocalCommandKeyboardContextualBinding `json:"contextualBindings,omitempty"`
 	LocalPaletteCommands        []string                                `json:"localPaletteCommands"`
-	LocalPaletteArguments       map[string]json.RawMessage              `json:"localPaletteArguments,omitempty"`
+	LocalPaletteArguments       map[string]map[string]any               `json:"localPaletteArguments,omitempty"`
 	LocalPaletteConditions      []LocalCommandPaletteCondition          `json:"localPaletteConditions,omitempty"`
 	ContextualPaletteConditions []LocalCommandPaletteCondition          `json:"contextualPaletteConditions,omitempty"`
 }
@@ -137,7 +138,7 @@ type LocalCommandKeyboardBinding struct {
 	Shortcut  LocalCommandShortcut `json:"shortcut"`
 	CommandID string               `json:"commandId"`
 	Handler   string               `json:"handler"`
-	Arguments json.RawMessage      `json:"arguments,omitempty"`
+	Arguments map[string]any       `json:"arguments,omitempty"`
 }
 
 // Observação da surface real, não uma identidade ou autorização do chamador.
@@ -294,7 +295,7 @@ func cloneLocalCommandKeyboardMap(in LocalCommandKeyboardMap) LocalCommandKeyboa
 	out.ValidUntil = in.ValidUntil
 	for i, b := range in.Bindings {
 		out.Bindings[i] = b
-		out.Bindings[i].Arguments = append(json.RawMessage(nil), b.Arguments...)
+		out.Bindings[i].Arguments = cloneJSONArgumentObject(b.Arguments)
 		out.Bindings[i].Shortcut.Modifiers = slices.Clone(b.Shortcut.Modifiers)
 		out.Bindings[i].Shortcut.Steps = cloneLocalCommandShortcutSteps(b.Shortcut.Steps)
 		for j := range out.Bindings[i].Shortcut.Steps {
@@ -304,15 +305,54 @@ func cloneLocalCommandKeyboardMap(in LocalCommandKeyboardMap) LocalCommandKeyboa
 	return out
 }
 
-func cloneLocalPaletteArguments(in map[string]json.RawMessage) map[string]json.RawMessage {
+func cloneLocalPaletteArguments(in map[string]map[string]any) map[string]map[string]any {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make(map[string]json.RawMessage, len(in))
+	out := make(map[string]map[string]any, len(in))
 	for id, arguments := range in {
-		out[id] = append(json.RawMessage(nil), arguments...)
+		out[id] = cloneJSONArgumentObject(arguments)
 	}
 	return out
+}
+
+func cloneJSONArgumentObject(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		out[key] = cloneJSONArgumentValue(value)
+	}
+	return out
+}
+
+func cloneJSONArgumentValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneJSONArgumentObject(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = cloneJSONArgumentValue(item)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func decodeJSONArgumentObject(raw json.RawMessage) (map[string]any, bool) {
+	if len(raw) == 0 || !json.Valid(raw) {
+		return nil, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var object map[string]any
+	if err := decoder.Decode(&object); err != nil || object == nil {
+		return nil, false
+	}
+	return object, true
 }
 
 func localKeyboardSupportedVariableFacts(fields []commandbindings.Field) bool {
@@ -443,7 +483,11 @@ func resolvedLocalKeyboardBinding(configuration *commandbindings.Configuration, 
 	}
 	binding := LocalCommandKeyboardBinding{Shortcut: shortcut, CommandID: definition.ID, Handler: handler}
 	if definition.ID == commandWorkspaceTabGoToID {
-		binding.Arguments = json.RawMessage(resolved.ArgumentsKey)
+		arguments, valid := decodeJSONArgumentObject(json.RawMessage(resolved.ArgumentsKey))
+		if !valid {
+			return LocalCommandKeyboardBinding{}, false
+		}
+		binding.Arguments = arguments
 	}
 	return binding, true
 }
@@ -616,7 +660,7 @@ func cloneContextualKeyboardBindings(in []LocalCommandKeyboardContextualBinding)
 				continue
 			}
 			copy := *binding
-			copy.Arguments = append(json.RawMessage(nil), binding.Arguments...)
+			copy.Arguments = cloneJSONArgumentObject(binding.Arguments)
 			copy.Shortcut.Modifiers = slices.Clone(binding.Shortcut.Modifiers)
 			copy.Shortcut.Steps = cloneLocalCommandShortcutSteps(binding.Shortcut.Steps)
 			out[i].BySurface[surface] = &copy
@@ -631,7 +675,7 @@ func cloneContextualKeyboardBindings(in []LocalCommandKeyboardContextualBinding)
 						continue
 					}
 					copy := *binding
-					copy.Arguments = append(json.RawMessage(nil), binding.Arguments...)
+					copy.Arguments = cloneJSONArgumentObject(binding.Arguments)
 					copy.Shortcut.Modifiers = slices.Clone(binding.Shortcut.Modifiers)
 					copy.Shortcut.Steps = cloneLocalCommandShortcutSteps(binding.Shortcut.Steps)
 					out[i].BySurfaceID[surface][id] = &copy
@@ -651,7 +695,7 @@ func cloneContextualKeyboardBindings(in []LocalCommandKeyboardContextualBinding)
 		}
 		if entry.Fallback != nil {
 			copy := *entry.Fallback
-			copy.Arguments = append(json.RawMessage(nil), entry.Fallback.Arguments...)
+			copy.Arguments = cloneJSONArgumentObject(entry.Fallback.Arguments)
 			copy.Shortcut.Modifiers = slices.Clone(entry.Fallback.Shortcut.Modifiers)
 			copy.Shortcut.Steps = cloneLocalCommandShortcutSteps(entry.Fallback.Shortcut.Steps)
 			out[i].Fallback = &copy
@@ -727,21 +771,22 @@ func localPaletteUICommands(configuration *commandbindings.Configuration, regist
 	return result
 }
 
-func localPaletteUIArguments(configuration *commandbindings.Configuration, registry *commandcatalog.Registry) map[string]json.RawMessage {
+func localPaletteUIArguments(configuration *commandbindings.Configuration, registry *commandcatalog.Registry) map[string]map[string]any {
 	if configuration == nil || registry == nil {
 		return nil
 	}
-	result := make(map[string]json.RawMessage)
+	result := make(map[string]map[string]any)
 	identity := "palette:" + commandWorkspaceTabGoToID
 	if len(configuration.RequiredFacts(identity)) != 0 {
 		return result
 	}
 	resolved, err := configuration.Resolve(identity, commandbindings.Facts{commandbindings.AppFocused: true}, nil)
 	definition, exists := registry.Lookup(commandWorkspaceTabGoToID)
+	arguments, valid := decodeJSONArgumentObject(json.RawMessage(resolved.ArgumentsKey))
 	if err == nil && resolved.Status == commandbindings.Selected && resolved.CommandID == commandWorkspaceTabGoToID &&
 		resolved.ExecutionScopeKey == "global" && exists && definition.AllowsSource(commandcatalog.Palette) &&
-		json.Valid([]byte(resolved.ArgumentsKey)) {
-		result[commandWorkspaceTabGoToID] = append(json.RawMessage(nil), []byte(resolved.ArgumentsKey)...)
+		valid {
+		result[commandWorkspaceTabGoToID] = arguments
 	}
 	return result
 }

@@ -110,9 +110,9 @@ func TestWorkspaceTabDeckBranchTargetsRequireAgreement(t *testing.T) {
 		{ID: "tab-a", Type: workspace.TabTypeChat, Title: "A", Position: 0},
 		{ID: "tab-b", Type: workspace.TabTypeEditor, Title: "B", Position: 1},
 	}}}
-	argsA := json.RawMessage(`{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"tab-a"}`)
-	argsB := json.RawMessage(`{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"tab-b"}`)
-	condition := LocalCommandPaletteCondition{CommandID: commandWorkspaceTabGoToID, BySurface: map[string]bool{"chat": true, "editor": true}, BySurfaceArguments: map[string]json.RawMessage{"chat": argsA, "editor": argsB}}
+	argsA := mustDeckTabArguments(t, `{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"tab-a"}`)
+	argsB := mustDeckTabArguments(t, `{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"tab-b"}`)
+	condition := LocalCommandPaletteCondition{CommandID: commandWorkspaceTabGoToID, BySurface: map[string]bool{"chat": true, "editor": true}, BySurfaceArguments: map[string]map[string]any{"chat": argsA, "editor": argsB}}
 	base, _ := applyWorkspaceTabDeckVisual(nil, nil, "", []string{"binding"}, []LocalCommandPaletteCondition{condition}, nil, active, "en", commandDeckVisual{title: "Go to tab"}, nil, "")
 	if base.title != "Context-dependent destination" {
 		t.Fatalf("divergent branches must not imply one target: %+v", base)
@@ -122,7 +122,7 @@ func TestWorkspaceTabDeckBranchTargetsRequireAgreement(t *testing.T) {
 	if base.title != "A" || base.icon != "workspace-tab-chat" {
 		t.Fatalf("unanimous branch target = %+v", base)
 	}
-	condition.BySurfaceArguments["editor"] = json.RawMessage(`{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"closed"}`)
+	condition.BySurfaceArguments["editor"] = mustDeckTabArguments(t, `{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"closed"}`)
 	base, _ = applyWorkspaceTabDeckVisual(nil, nil, "", []string{"binding"}, []LocalCommandPaletteCondition{condition}, nil, active, "pt-BR", commandDeckVisual{title: "Go to tab"}, nil, "")
 	if base.title != "Aba indisponível" || base.icon != "" {
 		t.Fatalf("missing branch target = %+v", base)
@@ -166,9 +166,9 @@ func TestWorkspaceTabDeckAmbiguousTargetSuffixPreservesCustomTitles(t *testing.T
 	condition := LocalCommandPaletteCondition{
 		CommandID: commandWorkspaceTabGoToID,
 		BySurface: map[string]bool{"chat": true, "editor": true},
-		BySurfaceArguments: map[string]json.RawMessage{
-			"chat":   json.RawMessage(`{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"tab-a"}`),
-			"editor": json.RawMessage(`{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"tab-b"}`),
+		BySurfaceArguments: map[string]map[string]any{
+			"chat":   mustDeckTabArguments(t, `{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"tab-a"}`),
+			"editor": mustDeckTabArguments(t, `{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"tab-b"}`),
 		},
 	}
 	base := commandDeckVisual{title: "Pinned title", icon: "star"}
@@ -181,6 +181,15 @@ func TestWorkspaceTabDeckAmbiguousTargetSuffixPreservesCustomTitles(t *testing.T
 	if variants["running"].title != "Running title"+suffix || variants["running"].icon != "running-icon" {
 		t.Fatalf("state-specific custom title/fields must survive ambiguity: %+v", variants["running"])
 	}
+}
+
+func mustDeckTabArguments(t *testing.T, raw string) map[string]any {
+	t.Helper()
+	arguments, ok := decodeJSONArgumentObject(json.RawMessage(raw))
+	if !ok {
+		t.Fatalf("invalid fixture arguments object: %s", raw)
+	}
+	return arguments
 }
 
 func TestWorkspaceTabDeckVisualPreservesCustomFieldsAndStateOverrides(t *testing.T) {

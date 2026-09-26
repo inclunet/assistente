@@ -15,9 +15,9 @@ type LocalCommandPaletteCondition struct {
 	CommandID            string                                  `json:"commandId"`
 	BySurface            map[string]bool                         `json:"bySurface"`
 	BySurfaceID          map[string]map[string]bool              `json:"bySurfaceId,omitempty"`
-	FallbackArguments    json.RawMessage                         `json:"fallbackArguments,omitempty"`
-	BySurfaceArguments   map[string]json.RawMessage              `json:"bySurfaceArguments,omitempty"`
-	BySurfaceIDArguments map[string]map[string]json.RawMessage   `json:"bySurfaceIdArguments,omitempty"`
+	FallbackArguments    map[string]any                          `json:"fallbackArguments,omitempty"`
+	BySurfaceArguments   map[string]map[string]any               `json:"bySurfaceArguments,omitempty"`
+	BySurfaceIDArguments map[string]map[string]map[string]any    `json:"bySurfaceIdArguments,omitempty"`
 	ByProfile            map[string]LocalCommandPaletteCondition `json:"byProfile,omitempty"`
 	Fallback             bool                                    `json:"fallback"`
 }
@@ -115,38 +115,50 @@ func localPaletteConditionLeaf(configuration *commandbindings.Configuration, reg
 	if includeProfile && profile != "" {
 		baseFacts[commandbindings.Profile] = profile
 	}
-	leaf.Fallback, leaf.FallbackArguments = paletteSelectionArgumentsForClass(configuration, registry, identity, definitionID, baseFacts, class)
+	leaf.Fallback, leaf.FallbackArguments = paletteConditionArguments(configuration, registry, identity, definitionID, baseFacts, class)
 	if hasSurfaceType {
-		leaf.BySurfaceArguments = make(map[string]json.RawMessage)
+		leaf.BySurfaceArguments = make(map[string]map[string]any)
 		for _, surface := range configuration.FieldValues(identity, commandbindings.SurfaceType) {
 			facts := clonePaletteFacts(baseFacts)
 			facts[commandbindings.SurfaceType] = surface
-			selected, args := paletteSelectionArgumentsForClass(configuration, registry, identity, definitionID, facts, class)
+			selected, args := paletteConditionArguments(configuration, registry, identity, definitionID, facts, class)
 			leaf.BySurface[surface] = selected
-			if len(args) != 0 {
+			if args != nil {
 				leaf.BySurfaceArguments[surface] = args
 			}
 		}
 	}
 	if hasSurfaceID && hasSurfaceType {
 		leaf.BySurfaceID = make(map[string]map[string]bool)
-		leaf.BySurfaceIDArguments = make(map[string]map[string]json.RawMessage)
+		leaf.BySurfaceIDArguments = make(map[string]map[string]map[string]any)
 		for _, surface := range configuration.FieldValues(identity, commandbindings.SurfaceType) {
 			leaf.BySurfaceID[surface] = make(map[string]bool)
-			leaf.BySurfaceIDArguments[surface] = make(map[string]json.RawMessage)
+			leaf.BySurfaceIDArguments[surface] = make(map[string]map[string]any)
 			for _, surfaceID := range configuration.FieldValues(identity, commandbindings.SurfaceID) {
 				facts := clonePaletteFacts(baseFacts)
 				facts[commandbindings.SurfaceType] = surface
 				facts[commandbindings.SurfaceID] = surfaceID
-				selected, args := paletteSelectionArgumentsForClass(configuration, registry, identity, definitionID, facts, class)
+				selected, args := paletteConditionArguments(configuration, registry, identity, definitionID, facts, class)
 				leaf.BySurfaceID[surface][surfaceID] = selected
-				if len(args) != 0 {
+				if args != nil {
 					leaf.BySurfaceIDArguments[surface][surfaceID] = args
 				}
 			}
 		}
 	}
 	return leaf
+}
+
+func paletteConditionArguments(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity, definitionID string, facts commandbindings.Facts, class commandExecutionClass) (bool, map[string]any) {
+	selected, raw := paletteSelectionArgumentsForClass(configuration, registry, identity, definitionID, facts, class)
+	if !selected || len(raw) == 0 {
+		return selected, nil
+	}
+	arguments, valid := decodeJSONArgumentObject(raw)
+	if !valid {
+		return false, nil
+	}
+	return true, arguments
 }
 
 func localPaletteUISelection(configuration *commandbindings.Configuration, registry *commandcatalog.Registry, identity, definitionID string, facts commandbindings.Facts) bool {
@@ -220,23 +232,23 @@ func cloneLocalCommandPaletteConditions(in []LocalCommandPaletteCondition) []Loc
 }
 
 func cloneLocalCommandPaletteCondition(in LocalCommandPaletteCondition) LocalCommandPaletteCondition {
-	out := LocalCommandPaletteCondition{CommandID: in.CommandID, Fallback: in.Fallback, FallbackArguments: append(json.RawMessage(nil), in.FallbackArguments...)}
+	out := LocalCommandPaletteCondition{CommandID: in.CommandID, Fallback: in.Fallback, FallbackArguments: cloneJSONArgumentObject(in.FallbackArguments)}
 	out.BySurface = make(map[string]bool, len(in.BySurface))
 	for key, value := range in.BySurface {
 		out.BySurface[key] = value
 	}
 	if in.BySurfaceArguments != nil {
-		out.BySurfaceArguments = make(map[string]json.RawMessage, len(in.BySurfaceArguments))
+		out.BySurfaceArguments = make(map[string]map[string]any, len(in.BySurfaceArguments))
 		for key, value := range in.BySurfaceArguments {
-			out.BySurfaceArguments[key] = append(json.RawMessage(nil), value...)
+			out.BySurfaceArguments[key] = cloneJSONArgumentObject(value)
 		}
 	}
 	if in.BySurfaceIDArguments != nil {
-		out.BySurfaceIDArguments = make(map[string]map[string]json.RawMessage, len(in.BySurfaceIDArguments))
+		out.BySurfaceIDArguments = make(map[string]map[string]map[string]any, len(in.BySurfaceIDArguments))
 		for surface, ids := range in.BySurfaceIDArguments {
-			out.BySurfaceIDArguments[surface] = make(map[string]json.RawMessage, len(ids))
+			out.BySurfaceIDArguments[surface] = make(map[string]map[string]any, len(ids))
 			for id, value := range ids {
-				out.BySurfaceIDArguments[surface][id] = append(json.RawMessage(nil), value...)
+				out.BySurfaceIDArguments[surface][id] = cloneJSONArgumentObject(value)
 			}
 		}
 	}

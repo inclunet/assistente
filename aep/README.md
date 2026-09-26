@@ -16,6 +16,10 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+AEP-0103, seção164 (26/09/2026): paridade objeto JSON dos argumentos projetados
+nos bindings Wails e regressão de destino condicional na paleta. In Progress;
+aceite físico/NVDA permanece pendente.
+
 AEP-0103, pós-merge #833: separação dos gerenciadores de comandos/acionadores
 e regras de ativação conforme seção159, com edição/configuração e consentimento
 externo na toolbar, sem alteração do motor de execução ou da autorização.
