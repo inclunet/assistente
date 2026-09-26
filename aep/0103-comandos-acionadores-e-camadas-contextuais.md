@@ -2,6 +2,20 @@
 
 **Status:** In Progress
 
+**Apresentação automática de abas — seção165 da tasklist:** o Stream Deck
+deriva título e ícone do tipo da aba-alvo para `workspace.tab.go_to` e
+`workspace.tab.first`…`ninth`, acompanhando renomeação, ordem e fechamento.
+Campos personalizados e variantes de estado continuam tendo precedência.
+Destino ausente ou de outro workspace é apresentado como indisponível, sem
+redirecionamento. A derivação visual não concede autorização, altera o
+despacho nem acrescenta auditoria por tecla. Evidências automatizadas e
+limitações de integração ficam na tasklist. O título visível é abreviado para
+caber na tecla quando necessário, enquanto o anúncio mantém o título completo;
+aceite físico/NVDA segue pendente.
+O aviso de indisponibilidade/ambiguidade permanece explícito em títulos
+personalizados: texto semelhante no meio do nome não substitui o sufixo de
+estado; um sufixo completo já presente não é duplicado.
+
 **Destino parametrizado de abas — seção164 da tasklist:** `workspace.tab.go_to`
 é um único `local_ui` com binding vinculado a `workspace_id` e alvo por
 posição inteira positiva (sem teto configurável) ou `tab_id` estável. Os

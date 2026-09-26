@@ -159,7 +159,7 @@ func commandDeckPresentationImageWithStatus(title, icon string, customPNG []byte
 						break
 					}
 					drawer.Dot = fixed.P(2, y)
-					drawer.DrawString(line)
+					drawer.DrawString(fitCommandDeckText(drawer, line, model.KeyImageW-4))
 					y += 14
 					line = word
 				} else {
@@ -171,7 +171,7 @@ func commandDeckPresentationImageWithStatus(title, icon string, customPNG []byte
 			}
 			if line != "" && y <= titleBottom {
 				drawer.Dot = fixed.P(2, y)
-				drawer.DrawString(line)
+				drawer.DrawString(fitCommandDeckText(drawer, line, model.KeyImageW-4))
 			}
 
 			if footerHeight != 0 {
