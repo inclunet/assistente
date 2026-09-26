@@ -24,6 +24,7 @@ type CredentialManager interface {
 	RegisterPatternWithContext(ctx context.Context, pattern string, auth *credentials.AuthConfig) error
 	GetByPattern(pattern string) (*credentials.AuthConfig, error)
 	GetByPatternWithContext(ctx context.Context, pattern string) (*credentials.AuthConfig, error)
+	GetConfigByPatternWithContext(ctx context.Context, pattern string) (*credentials.AuthConfig, error)
 	DeletePattern(ctx context.Context, pattern string) error
 }
 
@@ -1126,12 +1127,7 @@ func (s *Service) credentialConfig(ctx context.Context, pattern string) (*creden
 	if s.credMgr == nil {
 		return nil, nil
 	}
-	if reader, ok := s.credMgr.(interface {
-		GetConfigByPatternWithContext(context.Context, string) (*credentials.AuthConfig, error)
-	}); ok {
-		return reader.GetConfigByPatternWithContext(ctx, pattern)
-	}
-	return s.credMgr.GetByPatternWithContext(ctx, pattern)
+	return s.credMgr.GetConfigByPatternWithContext(ctx, pattern)
 }
 
 func sameCredentialOrigin(a, b string) bool {

@@ -203,3 +203,28 @@ func TestProbesAuthNoneIgnoraChaveInformada(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+type metadataOnlyCredentials struct{ credSpy }
+
+func (*metadataOnlyCredentials) GetByPatternWithContext(context.Context, string) (*credentials.AuthConfig, error) {
+	panic("metadata query materialized source")
+}
+func (*metadataOnlyCredentials) GetConfigByPatternWithContext(context.Context, string) (*credentials.AuthConfig, error) {
+	return &credentials.AuthConfig{Source: "command", Type: "bearer", SourceConfig: &credentials.SourceConfig{Command: "never-execute"}}, nil
+}
+func TestProviderMetadataRequiresNonMaterializingReader(t *testing.T) {
+	svc := NewService(ServiceConfig{Registry: llm.NewProviderRegistry(), CredMgr: &metadataOnlyCredentials{}, Store: NewMemoryStore()})
+	ctx := context.Background()
+	created, err := svc.Create(ctx, CreateRequest{ID: "metadata", Name: "Metadata", Type: "openai", BaseURL: "https://example.com"})
+	if err != nil || !created.CredentialConfigured {
+		t.Fatalf("create metadata: %v", err)
+	}
+	updated, err := svc.Update(ctx, "metadata", UpdateRequest{Name: "Updated"})
+	if err != nil || !updated.CredentialConfigured {
+		t.Fatalf("update metadata: %v", err)
+	}
+	status := svc.ListWithStatus(ctx)
+	if len(status) != 1 || !status[0].CredentialConfigured {
+		t.Fatal("listing lost configuration")
+	}
+}

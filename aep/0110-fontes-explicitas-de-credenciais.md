@@ -110,9 +110,12 @@ fora do escopo aceito para esta entrega.
   dessa correção sem pendências.
 ## Evidências de conclusão
 
-- [PR #837](https://github.com/inclunet/assistente/pull/837): onze observações
+- [PR #837](https://github.com/inclunet/assistente/pull/837): doze observações
   remotas corrigidas e respondidas; zero threads abertas. As duas últimas
-  revisões do código não apresentaram novos achados.
+  revisões do código anteriores ao fechamento documental não apresentaram novos achados.
+  A revisão documental identificou um fallback de metadados na abstração de
+  providers: removido, com getter não materializador obrigatório e regressão
+  de Create/Update/ListWithStatus usando implementação alternativa.
 - [CI do commit 4356d97d5](https://github.com/inclunet/assistente/actions/runs/36204607138):
   20 checks aprovados, incluindo Go com cobertura, todos os grupos com race,
   frontend, bindings e E2E. Confirma também a correção da revogação na fila.
