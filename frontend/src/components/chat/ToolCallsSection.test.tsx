@@ -256,6 +256,17 @@ describe('ToolCallsSection', () => {
     expect(screen.getByText('chat.toolStatusSucceeded')).toBeInTheDocument();
   });
 
+  it('não mostra a prévia técnica recebida durante o streaming', () => {
+    const technicalPreview = '{"bytes":42,"fields":["content"]}';
+    render(<ToolCallsSection tabNavigationEnabled activeToolCalls={[{
+      name: 'read_file', callId: 'streaming-preview', status: 'running',
+      args: '{"path":"C:/repo/arquivo.txt"}', summary: technicalPreview,
+    }]} />);
+
+    expect(screen.getByText('chat.partialOutputAvailable')).toBeInTheDocument();
+    expect(screen.queryByText(technicalPreview)).not.toBeInTheDocument();
+  });
+
   it('apresenta timeout persistido como falha terminal', () => {
     render(<ToolCallsSection toolInvocations={[
       {
