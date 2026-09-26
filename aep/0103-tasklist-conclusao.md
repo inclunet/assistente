@@ -10641,5 +10641,12 @@ foram corrigidos mantendo comparação exata e passaram na repetição (145/145)
 com revisão independente do agente principal. Não se declara a rodada ampla
 original como verde. Build/vet da base atualizada também passaram.
 
+Revisão remota após integração automática da main encontrou uma lease de
+refoco do editor que perdia `appPage`. O ramo agora mantém a mesma página
+observada durante a resolução. Regressão de Alt+3 após F6 com `byPage.workspace`
+prova retorno à leitura sem Begin/Take/Commit nem nova execução. Arquivo Vitest
+do modo do editor: 103/103 PASS; TypeScript, ESLint e diff check aprovados.
+Implementação Bernoulli, revisão independente do agente principal sem pendências.
+
 Aceite manual permanece pendente. Esta implementação não altera os totais
 de aceites físicos/NVDA. **In Progress; não representa aceite integral do AEP.**

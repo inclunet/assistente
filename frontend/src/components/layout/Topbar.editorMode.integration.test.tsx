@@ -47,6 +47,7 @@ const state = vi.hoisted(() => ({
   modeViewBinding: true,
   modeViewShortcutCode: 'Digit3',
   contextualViewBinding: false,
+  contextualViewByPage: false,
   contextualMarkdownBinding: false,
   simulateWorkspaceLandmarkBlock: false,
   commandScope: null as unknown,
@@ -189,10 +190,17 @@ vi.mock('../../lib/commandLocalKeyboardWails', () => ({
       contextualBindings: [
         ...(state.contextualViewBinding && state.modeViewBinding ? [{
           shortcut: { version: 1 as const, code: state.modeViewShortcutCode, modifiers: ['Alt' as const] },
-          bySurface: { editor: {
+          bySurface: state.contextualViewByPage ? {} : { editor: {
             shortcut: { version: 1 as const, code: state.modeViewShortcutCode, modifiers: ['Alt' as const] },
             commandId: 'editor.mode.view', handler: 'contextual' as const,
           } },
+          ...(state.contextualViewByPage ? { byPage: { workspace: {
+            shortcut: { version: 1 as const, code: state.modeViewShortcutCode, modifiers: ['Alt' as const] },
+            bySurface: { editor: {
+              shortcut: { version: 1 as const, code: state.modeViewShortcutCode, modifiers: ['Alt' as const] },
+              commandId: 'editor.mode.view', handler: 'contextual' as const,
+            } }, fallback: null,
+          } } } : {}),
           fallback: null,
         }] : []),
         ...(state.contextualMarkdownBinding ? [{
@@ -329,7 +337,7 @@ async function mount(initialMode: EditorMode = 'markdown', contextualViewBinding
   state.targetCurrent = true;
   state.result = 'succeeded';
   state.contextualViewBinding = contextualViewBinding;
-  state.commandScope = contextualViewBinding ? createCommandContextScope() : null;
+  state.commandScope = contextualViewBinding ? createCommandContextScope(undefined, state.pathname) : null;
   state.filePrepare.mockResolvedValue({ token: 'file-token', path: 'file.md', requiresOverwrite: false, cancelled: false });
   state.fileCommit.mockResolvedValue({ tabId: 'editor-tab', path: 'file.md', written: true });
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
@@ -521,6 +529,7 @@ afterEach(() => {
   state.modeViewBinding = true;
   state.modeViewShortcutCode = 'Digit3';
   state.contextualViewBinding = false;
+  state.contextualViewByPage = false;
   state.contextualMarkdownBinding = false;
   state.simulateWorkspaceLandmarkBlock = false;
   (state.commandScope as ReturnType<typeof createCommandContextScope> | null)?.dispose();
@@ -540,6 +549,35 @@ afterEach(() => {
 
 describe('Topbar editor.mode contextual integration', () => {
   it('após F6 no botão New tab, Alt+3 só refoca pelo binding efetivo de view', async () => {
+    state.simulateWorkspaceLandmarkBlock = true;
+    await mount('view', true);
+    const toolbar = document.createElement('div');
+    toolbar.className = 'workspace-toolbar';
+    const landmark = document.createElement('button');
+    landmark.type = 'button';
+    landmark.textContent = 'New tab';
+    toolbar.appendChild(landmark);
+    document.body.appendChild(toolbar);
+    try {
+      landmark.focus();
+      expect(landmark).toHaveFocus();
+      fireEvent.keyDown(landmark, { key: '3', code: 'Digit3', altKey: true, bubbles: true });
+      expect(screen.getByTestId('rendered-reading-document')).toHaveFocus();
+      expect(state.focusView).toHaveBeenCalledTimes(1);
+      expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+      expect(state.begin).not.toHaveBeenCalled();
+      expect(state.take).not.toHaveBeenCalled();
+      expect(state.commit).not.toHaveBeenCalled();
+      expect(state.getResult).not.toHaveBeenCalled();
+      expect(state.complete).not.toHaveBeenCalled();
+    } finally {
+      toolbar.remove();
+    }
+  });
+
+  it('após F6, Alt+3 refoca pelo ramo byPage e não despacha comando', async () => {
+    state.contextualViewBinding = true;
+    state.contextualViewByPage = true;
     state.simulateWorkspaceLandmarkBlock = true;
     await mount('view', true);
     const toolbar = document.createElement('div');

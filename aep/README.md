@@ -33,6 +33,9 @@ pares de página/superfície e comandos independentes; bateria Go ampliada PASS
 editor corrigido para o DTO atual: após uma tentativa inconclusiva por timeout
 em `page.goto`, os dois casos passaram em servidor isolado (18,7 s), sem
 aumentar limites. Conferência Go final e lint aprovados; CI deve confirmar.
+Lease de refoco Alt+3 preserva a página sem execução adicional; regressão
+`byPage.workspace` no arquivo de modo do editor 103/103, TypeScript e ESLint
+aprovados, com revisão independente. O estado de aceite manual não muda.
 
 AEP-0103, seção162 (25/09/2026): diagnóstico nativo reproduziu o bloqueio do
 Deck após navegar; correção do refresh de projeção e preservação do mapa

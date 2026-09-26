@@ -1902,6 +1902,7 @@ export function Topbar() {
         return {
           surfaceId: surface.surfaceId,
           surfaceType: surface.surfaceType,
+          ...(owned.frame.appPage ? { appPage: owned.frame.appPage } : {}),
           ...(profile ? { profile } : {}),
           allowedCommandIds: ['editor.mode.view'],
           isCurrent: () => {

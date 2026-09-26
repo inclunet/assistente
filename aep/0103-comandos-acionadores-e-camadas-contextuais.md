@@ -71,6 +71,11 @@ em servidor Vite isolado passou 2/2 (18,7 s), incluindo Alt+3 e restauração
 de foco ao trocar de aba. A conferência final Go de observer/projeção passou
 em 16,280 s e o lint dos três pacotes alterados terminou com zero issues.
 
+O ramo de refoco do editor também preserva `app.page` na lease local: Alt+3
+após F6, quando já em visualização, continua sendo somente foco, sem iniciar
+execução/auditoria. Regressão `byPage.workspace` e arquivo Vitest 103/103
+aprovados; TypeScript/ESLint e revisão independente aprovados.
+
 **Qualificação no CI — seção161 (25/09/2026):** após timeout acumulado,
 o grupo race de contexto foi subdividido em Deck, paleta, workspace e base,
 preservando todos os testes, flags, limites e agregador obrigatório. A nova
