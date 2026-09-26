@@ -25,7 +25,7 @@ nos bindings Wails e regressão de destino condicional na paleta. In Progress;
 aceite físico/NVDA permanece pendente.
 
 AEP-0103, isolamento de jobs (26/09/2026): fingerprint de definições persistidas
-com limite próprio de 1 MiB, protocolo mantido em 64 KiB e falha de definição
+com limite próprio de 1 MiB, protocolo mantido em 64 KiB (ambos também após expansão canônica, coberta por TestCanonicalizationEnforcesExpandedOutputLimit) e falha de definição
 restrita às hotkeys do job afetado. Regressões de tamanho/identidade/isolamento
 registradas no documento principal. **In Progress**; sem novo aceite manual.
 

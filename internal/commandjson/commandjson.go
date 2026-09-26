@@ -61,6 +61,9 @@ func canonicalize(raw []byte, maxSize int) ([]byte, error) {
 	if p.pos != len(p.raw) {
 		return nil, ErrInvalidJSON
 	}
+	if len(value) > maxSize {
+		return nil, ErrDocumentTooLarge
+	}
 	return value, nil
 }
 

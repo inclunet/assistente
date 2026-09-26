@@ -53,7 +53,7 @@ da configuração. A avaliação da expressão When continua no disparo do gatil
 Erros de repositório/escopo continuam interrompendo a projeção.
 Evidências: testes TestMarshalDefinition*, TestDefinitionFingerprintSupportsLargeOutputAndDetectsChanges
 e TestCommandHotkeyBindingsIsolatesOversizedPersistedConfiguration cobrem
-schema de 277 KB, limite superior, identidade canônica e isolamento.
+schema de 277 KB, limite superior, identidade canônica e isolamento. TestCanonicalizationEnforcesExpandedOutputLimit comprova que a expansão numérica JCS também respeita o limite da saída, tanto de 1 MiB quanto de 64 KiB (incluindo HMAC).
 **In Progress**; os demais gates e aceites manuais permanecem pendentes.
 
 **Extensão de apresentação pós-PR #833 — gerenciadores separados:** conforme

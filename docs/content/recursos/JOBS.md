@@ -10,7 +10,7 @@ Jobs são automações do tipo "uma ferramenta por disparo": cada job chama uma 
 ## Definições de saída e atalhos
 
 A definição completa usada para identificar o job aceita até **1 MiB** de JSON
-serializado, incluindo schema de saída, entradas e demais campos de execução.
+serializado, incluindo schema de saída, entradas e demais campos de execução. O limite vale tanto antes quanto depois da canonicalização JSON (que pode expandir números em notação científica).
 Esse limite é da configuração; não define o tamanho máximo da resposta da tool.
 
 Jobs sem hotkey não participam da montagem dos atalhos globais. Se a definição

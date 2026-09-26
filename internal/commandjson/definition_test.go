@@ -51,3 +51,41 @@ func TestMarshalDefinitionBoundaryAndStrictValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestCanonicalizationEnforcesExpandedOutputLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		limit  int
+		encode func([]byte) ([]byte, error)
+	}{
+		{"definition", maxDefinitionSize, func(raw []byte) ([]byte, error) { return MarshalDefinition(json.RawMessage(raw)) }},
+		{"protocol-marshal", maxDocumentSize, func(raw []byte) ([]byte, error) { return Marshal(json.RawMessage(raw)) }},
+		{"protocol-canonicalize", maxDocumentSize, Canonicalize},
+		{"protocol-hmac", maxDocumentSize, func(raw []byte) ([]byte, error) {
+			value, err := HMAC(bytes.Repeat([]byte{1}, 32), "test", raw)
+			if err != nil {
+				return nil, err
+			}
+			return []byte(value), nil
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Cada 1e20 ocupa 4 bytes na entrada e 21 na representação JCS.
+			count := tc.limit / 22
+			raw := []byte("[" + strings.Repeat("1e20,", count-1) + "1e20]")
+			if len(raw) >= tc.limit {
+				t.Fatal("fixture precisa caber no limite de entrada")
+			}
+			if _, err := tc.encode(raw); err != nil {
+				t.Fatalf("expansão dentro do limite rejeitada: %v", err)
+			}
+			raw = append(raw[:len(raw)-1], []byte(",1e20]")...)
+			if len(raw) >= tc.limit {
+				t.Fatal("fixture expandida precisa caber no limite de entrada")
+			}
+			if got, err := tc.encode(raw); !errors.Is(err, ErrDocumentTooLarge) || got != nil {
+				t.Fatalf("saída acima do limite aceita: bytes=%d err=%v", len(got), err)
+			}
+		})
+	}
+}
