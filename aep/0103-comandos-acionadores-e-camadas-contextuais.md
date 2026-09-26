@@ -6,7 +6,9 @@
 a consulta com escopo de usuário distingue registro indisponível de outros erros.
 Um código público sem IDs alimenta aviso visual e anúncio global, preservando o
 rascunho; ausência e falta de acesso produzem o mesmo diagnóstico. Não cria conversa
-nem altera o ledger/estado de execução. Evidências: TestCommandChatActionsMissingConversationFeedback,
+nem altera o ledger/estado de execução. O sanitizador do teclado preserva apenas o
+código público seguro. Evidências: TestCommandChatActionsMissingConversationFeedback,
+TestCommandChatActionsKeyboardMissingConversationFeedback,
 commandChatMessaging.protocol, ChatSessionView.messaging e Topbar.editorMode.integration.
 AEP-0103 permanece **In Progress**; aceite físico/NVDA permanece pendente.
 

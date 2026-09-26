@@ -359,3 +359,54 @@ func TestCommandChatActionsMissingConversationFeedback(t *testing.T) {
 		})
 	}
 }
+
+func TestCommandChatActionsKeyboardMissingConversationFeedback(t *testing.T) {
+	for _, scenario := range []string{"missing", "foreign"} {
+		for _, command := range []string{commandChatSendID, commandChatRetryID} {
+			t.Run(scenario+"/"+command, func(t *testing.T) {
+				a, decisions := settingsSecurityFixture(t)
+				if err := database.DB().AutoMigrate(&database.Conversation{}, &database.ChatMessage{}); err != nil {
+					t.Fatal(err)
+				}
+				conversation, err := database.CreateConversationWithContext(database.WithUserID(context.Background(), a.currentUserID), "chat", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				tabID := uuid.NewString()
+				if err := a.workspaceMgr.AddTab(workspace.Tab{ID: tabID, Type: workspace.TabTypeChat, ConversationID: conversation.ID}); err != nil {
+					t.Fatal(err)
+				}
+				if err := a.workspaceMgr.SetActiveTab(tabID); err != nil {
+					t.Fatal(err)
+				}
+				a.streamMgr = chat.NewStreamingManager(nil)
+				a.chatCtrl = controllers.NewChatController(controllers.ChatControllerConfig{})
+				a.chatInteractor = chat.NewInteractor(chat.InteractorConfig{Repo: chat.NewDBMessageStore()})
+				layer, _ := settingsActivationSecurityLayerAndRule(t, a, decisions)
+				settingsActivationSecurityConfirmed(t, a, decisions, func() (CommandSettingsMutation, error) {
+					return a.SaveCommandBinding(CommandBindingEdit{LayerID: layer, CommandID: command, TriggerType: "keyboard.local", TriggerSpec: `{"version":1,"code":"KeyK","modifiers":["Control","Shift"]}`, Enabled: true})
+				})
+				if _, err := a.SetCommandLayerActive(layer, true); err != nil {
+					t.Fatal(err)
+				}
+				if scenario == "missing" {
+					err = database.DB().Where("id = ?", conversation.ID).Delete(&database.Conversation{}).Error
+				} else {
+					err = database.DB().Model(&database.Conversation{}).Where("id = ?", conversation.ID).Update("user_id", "another-owner").Error
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				view, err := a.GetLocalCommandKeyboardMap()
+				if err != nil {
+					t.Fatal(err)
+				}
+				key := LocalCommandShortcut{Version: 1, Code: "KeyK", Modifiers: []string{"Control", "Shift"}}
+				reservation, err := a.BeginLocalCommandUIKey(view.Generation, key, false)
+				if !errors.Is(err, errChatConversationUnavailable) || err.Error() != "chat_conversation_unavailable" || reservation != nil {
+					t.Fatalf("diagnóstico seguro de teclado ausente: reservation=%+v err=%v", reservation, err)
+				}
+			})
+		}
+	}
+}
