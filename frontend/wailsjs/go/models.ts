@@ -2854,7 +2854,7 @@ export namespace app {
 	    shortcut: LocalCommandShortcut;
 	    commandId: string;
 	    handler: string;
-	    arguments?: number[];
+	    arguments?: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
 	        return new LocalCommandKeyboardBinding(source);
@@ -2948,8 +2948,8 @@ export namespace app {
 	    commandId: string;
 	    bySurface: Record<string, boolean>;
 	    bySurfaceId?: Record<string, any>;
-	    fallbackArguments?: number[];
-	    bySurfaceArguments?: Record<string, Array<number>>;
+	    fallbackArguments?: Record<string, any>;
+	    bySurfaceArguments?: Record<string, any>;
 	    bySurfaceIdArguments?: Record<string, any>;
 	    byProfile?: Record<string, LocalCommandPaletteCondition>;
 	    fallback: boolean;
@@ -2997,7 +2997,7 @@ export namespace app {
 	    bindings: LocalCommandKeyboardBinding[];
 	    contextualBindings?: LocalCommandKeyboardContextualBinding[];
 	    localPaletteCommands: string[];
-	    localPaletteArguments?: Record<string, Array<number>>;
+	    localPaletteArguments?: Record<string, any>;
 	    localPaletteConditions?: LocalCommandPaletteCondition[];
 	    contextualPaletteConditions?: LocalCommandPaletteCondition[];
 	

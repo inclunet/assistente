@@ -12,6 +12,13 @@ indisponíveis sem fallback ou retarget. Ctrl+1…9 e a apresentação automáti
 do Deck não mudam nesta extensão. Evidências de dispatch e configurador ficam
 na tasklist.
 
+**Paridade dos argumentos projetados (26/09/2026):** os DTOs públicos de
+teclado/paleta/Deck expõem objetos JSON, com bindings Wails regenerados e
+cópias profundas. Envelopes internos permanecem inalterados. A integração da
+paleta comprova destino condicionado por perfil/superfície sem presença na
+lista incondicional, e rejeita seleção após invalidação do mapa. Não altera
+autorização nem representa aceite físico/NVDA.
+
 **Extensão de apresentação pós-PR #833 — gerenciadores separados:** conforme
 decisão registrada na seção159 da tasklist, a tela principal organiza camadas
 e seus estados. Na toolbar de Nova camada, Editar camada atua na seleção e

@@ -10637,3 +10637,16 @@ do catálogo E2E agora incluem o novo ID, sem retirar verificações. Rodada fin
 345/345 Vitest, 1/1 contrato E2E, TypeScript, ESLint e diff-check aprovados.
 Agente principal revisou as seis alterações frontend independentemente do
 autor Bernoulli, sem pendências após a correção do modo no teste de sequência.
+
+Revisão complementar de 26/09/2026: os argumentos das projeções públicas de
+teclado/paleta/Deck agora usam objetos JSON em Go, eliminando a divergência
+`number[]` no TypeScript gerado pelo Wails. Clones profundos preservam mapas,
+arrays e números JSON; envelopes internos não foram alterados. A regressão
+de integração comprova `go_to` condicionado por perfil/superfície sem entrada
+na lista incondicional e bloqueio após invalidação do mapa. Esse percurso já
+funcionava, portanto não exigiu mudança de produção no Topbar. Arquivo de
+integração e duas bibliotecas passaram 128/128; TypeScript/ESLint aprovados.
+Revisão independente de Beauvoir sem bloqueios. Aceite manual continua separado.
+Go focado de argumentos/projeção/clonagem PASS (21,029 s); geração oficial
+`wails generate module`, TypeScript pós-geração, `go build ./...` e
+`go vet ./...` PASS. Lint do pacote `internal/app`: zero issues.
