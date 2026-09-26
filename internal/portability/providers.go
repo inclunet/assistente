@@ -418,7 +418,7 @@ func acpCredentialWarnings(ctx context.Context, credMgr *credentials.Manager, pr
 		// Erro aqui é entrada existente e ilegível (cofre trancado, por
 		// exemplo), e não entrada ausente: quem lê o aviso não deve sair
 		// cadastrando de novo o que já está lá.
-		auth, err := credMgr.GetByPatternWithContext(ctx, pattern)
+		auth, err := credMgr.GetConfigByPatternWithContext(ctx, pattern)
 		if err != nil || auth != nil {
 			continue
 		}

@@ -74,7 +74,10 @@ fora do escopo aceito para esta entrega.
   zero pendências. Sete achados corrigidos. Rodada 4: delta das seis observações
   remotas e correção do teste com race revisados, zero pendências. Rodada 5:
   quatro ajustes da segunda revisão remota (none nas probes/tipo e i18n),
-  zero pendências.
+  zero pendências. Na revisão dos consumidores de metadados foram encontrados
+  e corrigidos mais dois pontos: status MCP executava fontes e a chave interna
+  de assinatura precisava de leitura bruta. A revisão do delta encontrou um
+  ajuste no store simulado do teste; corrigido e reavaliado sem pendências.
 - `go build ./...` e `go vet ./...`: aprovados.
 - `go test ./internal/credentials ./internal/providers ./internal/portability ./internal/mcp`:
   aprovado, incluindo fontes, aplicação HTTP, round-trip e refresh OAuth.
@@ -92,5 +95,11 @@ fora do escopo aceito para esta entrega.
   o cenário de expiração em 1s com assert de DeadlineExceeded.
 - Na segunda execução CI, credentials passou com race. O grupo geral falhou
   em TestExternalServiceRevocationCancelsQueuedInvocation (código não alterado);
-  reprodução local falhou uma vez em 20 execuções. Novo CI ainda pendente.
+  reprodução local falhou uma vez em 20 execuções. Na terceira execução todos
+  os grupos com race passaram; o mesmo teste intermitente falhou no backend.
+- A análise de importação ACP e o status MCP usam leitura de configuração;
+  testes com marcador comprovam que não executam comandos. A chave interna
+  command-request-hmac legada é preservada, sem migração ou fallback de usuário.
+- Após essas correções, portability, MCP e commandledger passaram; build, vet
+  e golangci-lint também passaram. Novo CI ainda pendente.
 - Revisão remota em acompanhamento; nenhum merge de PR autorizado.

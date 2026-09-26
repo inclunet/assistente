@@ -108,3 +108,48 @@ func TestCredentialKeyProviderRejectsContextAndNames(t *testing.T) {
 		t.Fatal("cancelamento ignorado")
 	}
 }
+
+type legacyInstanceKeyStore struct {
+	credentials.Store
+	entry credentials.StoredCredential
+}
+
+func (s *legacyInstanceKeyStore) SaveCredential(_ context.Context, entry credentials.StoredCredential) error {
+	entry.ID = "legacy-instance-key"
+	s.entry = entry
+	return nil
+}
+func (s *legacyInstanceKeyStore) ListCredentials(context.Context) ([]credentials.StoredCredential, error) {
+	return []credentials.StoredCredential{s.entry}, nil
+}
+func (s *legacyInstanceKeyStore) ListInstanceCredentials(context.Context) ([]credentials.StoredCredential, error) {
+	return []credentials.StoredCredential{s.entry}, nil
+}
+func (*legacyInstanceKeyStore) GetKeyWrap(context.Context, string) (*credentials.KeyWrap, error) {
+	return nil, nil
+}
+func TestCredentialKeyProviderPreservesLegacyInstanceKey(t *testing.T) {
+	dek := bytes.Repeat([]byte{7}, 32)
+	key := bytes.Repeat([]byte{9}, 32)
+	store := &legacyInstanceKeyStore{}
+	manager := credentials.NewManagerWithStoreAndPersistence(dek, store, true)
+	if err := manager.RegisterInstanceSecret("internal-auth:command-request-hmac:v1", base64.RawURLEncoding.EncodeToString(key)); err != nil {
+		t.Fatal(err)
+	}
+	store.entry.Auth.Source = "" // Simula coluna ausente no registro cifrado antigo.
+	manager = credentials.NewManagerWithStoreAndPersistence(dek, store, true)
+	if err := manager.LoadInstanceSecrets(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := NewCredentialKeyProvider(manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := provider(context.Background(), "command-request-hmac:v1")
+	if err != nil || !bytes.Equal(loaded, key) {
+		t.Fatalf("legacy key lost: %v", err)
+	}
+	if store.entry.Auth.Source != "" {
+		t.Fatal("legacy entry was migrated")
+	}
+}

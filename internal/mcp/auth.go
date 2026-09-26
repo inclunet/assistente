@@ -97,8 +97,8 @@ func (m *Manager) GetServerAuthInfo(slug string) (string, bool, error) {
 		return "", false, err
 	}
 
-	clientAuth, _ := m.credMgr.GetByPatternWithContext(ctx, clientCredPattern(slug))
-	if clientAuth != nil {
+	clientAuth, _ := m.credMgr.GetConfigByPatternWithContext(ctx, clientCredPattern(slug))
+	if clientAuth != nil && clientAuth.Source != "" {
 		if cfg.AuthType != "" && cfg.AuthType != AuthNone {
 			return string(cfg.AuthType), true, nil
 		}
@@ -111,8 +111,8 @@ func (m *Manager) GetServerAuthInfo(slug string) (string, bool, error) {
 		return "", false, nil
 	}
 
-	auth, err := m.credMgr.GetByPatternWithContext(ctx, hostname)
-	if err != nil || auth == nil {
+	auth, err := m.credMgr.GetConfigByPatternWithContext(ctx, hostname)
+	if err != nil || auth == nil || auth.Source == "" {
 		return "", false, err
 	}
 
