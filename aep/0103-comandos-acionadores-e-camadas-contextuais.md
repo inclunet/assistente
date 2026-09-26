@@ -7,8 +7,9 @@ jobs usam JCS com limite próprio de **1 MiB** para cálculo do fingerprint;
 envelopes, argumentos e HMAC do protocolo continuam em **64 KiB**. Bytes
 canônicos e fingerprints de definições já aceitas permanecem iguais.
 A projeção de hotkeys só calcula a definição de jobs com hotkey válida.
-Definição inválida retira somente as hotkeys daquele job; condição inválida
-retira somente aquele binding, com aviso sem conteúdo da configuração.
+Definição inválida retira somente as hotkeys daquele job; falha de serialização
+do fingerprint de um binding retira somente esse binding, com aviso sem conteúdo
+da configuração. A avaliação da expressão When continua no disparo do gatilho.
 Erros de repositório/escopo continuam interrompendo a projeção.
 Evidências: testes TestMarshalDefinition*, TestDefinitionFingerprintSupportsLargeOutputAndDetectsChanges
 e TestCommandHotkeyBindingsIsolatesOversizedPersistedConfiguration cobrem
