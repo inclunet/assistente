@@ -219,7 +219,8 @@ O provedor é selecionado automaticamente, na ordem:
   provedor.
 
 O campo `provider` na resposta identifica qual backend respondeu. Demais erros
-da API Brave são propagados sem fabricar resultados.
+das APIs Brave e Tavily (incluindo falha operacional ao resolver a
+credencial) são propagados sem fabricar resultados.
 
 ## Histórico
 
