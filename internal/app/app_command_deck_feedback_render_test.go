@@ -161,3 +161,34 @@ func TestCommandDeckFeedbackFooterTruncationKeepsUTF8(t *testing.T) {
 		t.Fatalf("invalid UTF-8 after footer truncation: %q", got)
 	}
 }
+
+func TestCommandDeckTitleTruncatesLongUnbrokenWordOnlyInRenderedImage(t *testing.T) {
+	model := commanddeck.Model{ID: "test", Name: "Test", Rows: 1, Columns: 1, KeyImageW: 72, KeyImageH: 72}
+	title := strings.Repeat("documento-sem-separadores-", 8)
+	view := commandDeckKeyView(commandDeckBinding{commandID: "workspace.tab.go_to", title: title}, "en", model)
+	if view.Title != title || view.Announce != title {
+		t.Fatalf("full title must remain available to consumers and announcement: title=%q announce=%q", view.Title, view.Announce)
+	}
+	parsed, err := opentype.Parse(goregular.TTF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	face, err := opentype.NewFace(parsed, &opentype.FaceOptions{Size: 11, DPI: 72, Hinting: font.HintingFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := face.Close(); err != nil {
+			t.Errorf("fechar face de teste: %v", err)
+		}
+	})
+	visibleTitle := fitCommandDeckText(font.Drawer{Face: face}, title, model.KeyImageW-4)
+	drawer := font.Drawer{Face: face}
+	if visibleTitle == title || !strings.HasSuffix(visibleTitle, "…") || drawer.MeasureString(visibleTitle).Ceil() > model.KeyImageW-4 {
+		t.Fatalf("visible title was not fitted with an ellipsis: %q", visibleTitle)
+	}
+	wantImage := commandDeckPresentationImageWithStatus(visibleTitle, "", nil, "", model)
+	if !bytes.Equal(view.ImageRGBA, wantImage) {
+		t.Fatal("rendered title image did not use the fitted text")
+	}
+}

@@ -2683,6 +2683,19 @@ aceitam essas condições na paleta das abas do workspace. No Stream Deck,
 o grupo contextual tem 73 comandos (70 de workspace e três ações de camada),
 com os limites descritos em **Condições visuais no Stream Deck** acima.
 
+No Stream Deck, **Ir para aba** e os comandos de **primeira a nona aba** mostram
+o título e um ícone do tipo da aba que o comando alcançará. Posições acompanham
+a ordem atual; destinos por ID acompanham a mesma aba após renomear ou reordenar.
+Se o nome não couber na tecla, o texto visível é abreviado com reticências; o
+anúncio acessível conserva o título completo.
+Fechar a aba-alvo ou ativar outro workspace mostra **Aba indisponível** até o
+destino voltar a existir no workspace vinculado. Em ramos condicionais, a tecla
+mostra um alvo somente quando os ramos possíveis concordam; divergência é
+identificada como dependente do contexto. Essas informações são apresentação:
+não alteram o destino, não selecionam uma aba substituta e não adicionam
+auditoria por tecla. Personalizações de título, ícone e imagem continuam tendo
+precedência campo a campo, inclusive nas variantes de estado.
+
 ### Ações de camada condicionadas na paleta
 
 Em **Comandos e acionadores**, configure um acionador de paleta para
@@ -2699,7 +2712,6 @@ do escopo configurado. A aplicação atualiza o mapa após a operação; essa
 atualização não deve repetir a ação nem anunciar falha após um sucesso.
 Desabilitar uma camada impede novas ativações, mas não impede encerrar uma
 ativação manual anterior pelos controles de desativação.
-
 - [ ] Configure **Ativar camada** na paleta, limitado a uma aba escolhida
   pelo nome. Abra **Ctrl+K** nessa aba e execute. Confira a camada ativa.
   Resultado: ________.

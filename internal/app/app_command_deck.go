@@ -283,6 +283,7 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 	var frameForeground *commandforeground.Snapshot
 	frameCaptureFailed := false
 	locale := p.getDeckLocale()
+	activeWorkspace := p.deckPresentationWorkspaceSnapshot()
 	for _, identity := range configuration.TriggerIdentities() {
 		if !strings.HasPrefix(identity, "streamdeck.key:") {
 			continue
@@ -304,6 +305,7 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 			binding.conditions = append(binding.conditions, conditions...)
 			binding.profileBound = true
 			visual, variants := localDeckPresentations(configuration, p.registry, identity, binding.conditions, locale)
+			visual, variants = applyWorkspaceTabDeckVisual(configuration, p.registry, identity, nil, binding.conditions, nil, activeWorkspace, locale, visual, variants, "")
 			binding.title, binding.icon, binding.imageRef, binding.variants = visual.title, visual.icon, visual.imageRef, variants
 			bindings[spec.Device][spec.Key] = binding
 			continue
@@ -337,6 +339,9 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 			continue
 		}
 		title := commandDeckTitle(configuration, resolved.BindingIDs, definition, locale)
+		visual := commandDeckVisual{title: title, icon: configuration.IconForBindings(resolved.BindingIDs), imageRef: configuration.ImageForBindings(resolved.BindingIDs)}
+		variants := commandDeckStateVisuals(configuration, resolved.BindingIDs, definition, locale)
+		visual, variants = applyWorkspaceTabDeckVisual(configuration, p.registry, identity, resolved.BindingIDs, nil, []byte(resolved.ArgumentsKey), activeWorkspace, locale, visual, variants, resolved.CommandID)
 		if bindings[spec.Device] == nil {
 			bindings[spec.Device] = map[int]commandDeckBinding{}
 		}
@@ -344,9 +349,9 @@ func (p *commandProductRuntime) deckMap(ctx context.Context) (commandDeckMap, co
 		if profileBound && commandExecutionClassForDefinition(definition) == commandExecutionLocalUI {
 			continue
 		}
-		bindings[spec.Device][spec.Key] = commandDeckBinding{commandID: definition.ID, title: title, icon: configuration.IconForBindings(resolved.BindingIDs), imageRef: configuration.ImageForBindings(resolved.BindingIDs), identity: identity, profileBound: profileBound,
+		bindings[spec.Device][spec.Key] = commandDeckBinding{commandID: definition.ID, title: visual.title, arguments: append(json.RawMessage(nil), []byte(resolved.ArgumentsKey)...), icon: visual.icon, imageRef: visual.imageRef, identity: identity, profileBound: profileBound,
 			persistentState: p.commandDeckPersistentState(ctx, resolved, activeIDs, versions),
-			variants:        commandDeckStateVisuals(configuration, resolved.BindingIDs, definition, locale)}
+			variants:        variants}
 	}
 	return bindings, versions, nil
 }
