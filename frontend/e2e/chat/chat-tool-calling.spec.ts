@@ -80,7 +80,7 @@ test.describe('Chat — tool calls (histórico)', () => {
 
     const card = page.locator('.tool-calls-section__item');
     await expect(card).toHaveCount(1);
-    await expect(card.locator('.tool-calls-section__intent')).toContainText(/Buscando na web|Searching the web|Buscando en la web/);
+    await expect(card.locator('.tool-calls-section__intent')).toContainText(/Buscou na web|Searched the web|Buscó en la web/);
     await expect(card).not.toContainText('search_web');
   });
 
@@ -94,13 +94,14 @@ test.describe('Chat — tool calls (histórico)', () => {
     await expect(page.locator('.tool-calls-section__header')).toHaveCount(0);
   });
 
-  test('card preserva uma prévia e ação de auditoria', async ({ page, wails }) => {
+  test('card mantém a saída técnica somente nos detalhes', async ({ page, wails }) => {
     await setMessagesResponse(wails, messagesWithToolCalls);
     await wails.waitForApp();
 
     await page.waitForSelector('.tool-calls-section', { timeout: 5_000 });
 
-    await expect(page.locator('.tool-calls-section__result-summary')).toContainText('results');
+    await expect(page.locator('.tool-calls-section__result-summary')).toHaveCount(0);
+    await expect(page.locator('.tool-calls-section__item')).not.toContainText('"bytes"');
     await expect(page.getByRole('button', { name: /Detalhes técnicos|Technical details|Detalles técnicos/i })).toBeVisible();
   });
 

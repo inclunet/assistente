@@ -7,6 +7,8 @@ export type ToolTarget =
 export interface ToolPresentation {
   /** Chave i18n; a UI é responsável por localizar a frase. */
   labelKey: string;
+  /** Verbo no passado para uma execução concluída com sucesso. */
+  completedLabelKey?: string;
   labelValues?: Record<string, string>;
   /** Contexto curto exibido sem transformá-lo necessariamente em link. */
   subjectLabel?: string;
@@ -22,8 +24,9 @@ type TranslateToolPresentation = (
 export function formatToolPresentation(
   presentation: ToolPresentation,
   translate: TranslateToolPresentation,
+  completed = false,
 ): string {
-  const action = translate(presentation.labelKey, presentation.labelValues);
+  const action = translate(completed ? presentation.completedLabelKey ?? presentation.labelKey : presentation.labelKey, presentation.labelValues);
   const subject = presentation.target?.label ?? presentation.subjectLabel;
   return subject ? `${action}: ${subject}` : action;
 }
@@ -75,7 +78,7 @@ export function presentTool(name: string, origin?: ToolOrigin, serverLabel?: str
   }
 
   if (origin !== undefined && origin !== 'builtin') {
-    return { labelKey: 'chat.toolGeneric' };
+    return { labelKey: 'chat.toolGeneric', completedLabelKey: 'chat.toolGenericDone' };
   }
 
   const args = parseArguments(rawArgs);
@@ -86,19 +89,19 @@ export function presentTool(name: string, origin?: ToolOrigin, serverLabel?: str
   const webTarget = url ? urlTarget(url) : undefined;
 
   switch (name) {
-    case 'read_file': return { labelKey: 'chat.toolReadFile', target: fileTarget };
+    case 'read_file': return { labelKey: 'chat.toolReadFile', completedLabelKey: 'chat.toolReadFileDone', target: fileTarget };
     case 'write_file':
     case 'edit_file':
-    case 'apply_patch': return { labelKey: 'chat.toolEditFile', target: fileTarget };
-    case 'list_directory': return { labelKey: 'chat.toolListDirectory', subjectLabel: pathLabel };
+    case 'apply_patch': return { labelKey: 'chat.toolEditFile', completedLabelKey: 'chat.toolEditFileDone', target: fileTarget };
+    case 'list_directory': return { labelKey: 'chat.toolListDirectory', completedLabelKey: 'chat.toolListDirectoryDone', subjectLabel: pathLabel };
     case 'search_files':
-    case 'grep_search': return { labelKey: 'chat.toolSearchFiles', subjectLabel: pathLabel };
+    case 'grep_search': return { labelKey: 'chat.toolSearchFiles', completedLabelKey: 'chat.toolSearchFilesDone', subjectLabel: pathLabel };
     case 'run_command':
-    case 'terminal_session': return { labelKey: 'chat.toolRunCommand' };
+    case 'terminal_session': return { labelKey: 'chat.toolRunCommand', completedLabelKey: 'chat.toolRunCommandDone' };
     case 'web_search':
-    case 'search_web': return { labelKey: 'chat.toolSearchWeb', target: webTarget };
+    case 'search_web': return { labelKey: 'chat.toolSearchWeb', completedLabelKey: 'chat.toolSearchWebDone', target: webTarget };
     case 'web_fetch':
-    case 'http_request': return { labelKey: 'chat.toolAccessUrl', target: webTarget };
-    default: return { labelKey: 'chat.toolGeneric' };
+    case 'http_request': return { labelKey: 'chat.toolAccessUrl', completedLabelKey: 'chat.toolAccessUrlDone', target: webTarget };
+    default: return { labelKey: 'chat.toolGeneric', completedLabelKey: 'chat.toolGenericDone' };
   }
 }

@@ -340,7 +340,7 @@ export function startChatEventController({
     announce: (groups) => {
       const messages = groups.flatMap(({ state, tools }) => tools.map((tool) => {
         const presentation = presentTool(tool.name, tool.origin, tool.serverLabel, tool.args);
-        const action = formatToolPresentation(presentation, (key, values) => i18next.t(key, values));
+        const action = formatToolPresentation(presentation, (key, values) => i18next.t(key, values), state === 'done');
         return `${action}. ${i18next.t(state === 'done' ? 'chat.toolStatusSucceeded' : 'chat.toolStatusRunning')}`;
       }));
       if (messages.length === 0) return;
@@ -870,6 +870,7 @@ export function startChatEventController({
       const doneMessage = `${formatToolPresentation(
         presentTool(event.name ?? finishedCall?.name ?? '', event.origin ?? finishedCall?.origin, event.serverLabel ?? finishedCall?.serverLabel, finishedCall?.args),
         (key, values) => i18next.t(key, values),
+        true,
       )}. ${i18next.t('chat.toolStatusSucceeded')}`;
       announceForActiveChatConversation(conversationId, doneMessage, 'polite', getEventOrigin(event));
       return;
