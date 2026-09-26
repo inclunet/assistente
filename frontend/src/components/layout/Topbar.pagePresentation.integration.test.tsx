@@ -155,7 +155,7 @@ vi.mock('../../lib/commandLocalKeyboardWails', () => ({
           },
           fallback: null,
           fallbackToSequences: true,
-          ...(state.pathname === '/settings/commands' ? { bySurface: {}, fallbackToSequences: false, byPage: { settings: {
+          ...(state.pathname === '/settings' || state.pathname.startsWith('/settings/') ? { bySurface: {}, fallbackToSequences: false, byPage: { settings: {
             shortcut: { version: 1, code: 'KeyN', modifiers: ['Control'] },
             bySurface: { toolbar: state.settingsSuppressed ? null : {
               shortcut: { version: 1, code: 'KeyN', modifiers: ['Control'] },
@@ -262,6 +262,30 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe('Topbar + registry real de apresentação contextual', () => {
+  it.each(['/settings', '/settings/data', '/settings/providers'])('Ctrl+N sem apresentação em %s não consome o evento nem bloqueia listener legado', async (pathname) => {
+    state.pathname = pathname;
+    render(<><Topbar /><button aria-label="Settings origin">origin</button></>);
+    await waitFor(() => expect(state.mapReady).toBe(true));
+    await act(async () => { await Promise.resolve(); });
+    const origin = screen.getByRole('button', { name: 'Settings origin' });
+    origin.focus();
+    const legacy = vi.fn((event: KeyboardEvent) => {
+      expect(event.defaultPrevented).toBe(false);
+    });
+    window.addEventListener('keydown', legacy);
+    try {
+      const event = new KeyboardEvent('keydown', { key: 'n', code: 'KeyN', ctrlKey: true, bubbles: true, cancelable: true });
+      fireEvent(origin, event);
+      expect(event.defaultPrevented).toBe(false);
+      expect(legacy).toHaveBeenCalledExactlyOnceWith(event);
+      expect(state.actions).toEqual([]);
+      noTransport();
+    } finally {
+      fireEvent.keyUp(origin, { key: 'n', code: 'KeyN', ctrlKey: true });
+      window.removeEventListener('keydown', legacy);
+    }
+  });
+
   it('Ctrl+N selecionado no gerenciador prevalece sobre a sequência flat Ctrl+N, C', async () => {
     state.pathname = '/settings/commands';
     render(<><Topbar /><SettingsManagerSurface /></>);

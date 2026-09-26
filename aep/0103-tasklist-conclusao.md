@@ -11046,6 +11046,11 @@ linha de uma segunda camada, além das recusas de edição e trocas de identidad
 Estas variantes não promovem aceite manual nem alteram a contagem dos 48 casos.
 Prova consolidada do complemento: **11 arquivos / 312 testes Vitest PASS**;
 Goodall revisou o diff final incremental, sem achados pendentes.
+Revisão remota sobre subrotas de Configurações: integração com mapa `byPage.settings`
+em `/settings`, `/settings/data` e `/settings/providers`, sem apresentação registrada,
+comprova evento não consumido, listener existente alcançado e nenhum transporte.
+Suíte Topbar ampliada: **84/84 PASS**. Não foi necessário alterar produção:
+`canHandle` recusa antes de `preventDefault` quando não existe alvo de apresentação.
 
 **In Progress; 83 I / 1 P / 0 N**, C38 parcial; **11 A / 21 I / 16 P / 0 N**
 nas saídas R e **1/12 gates aceito**. Nenhum aceite final promovido por esta correção.
