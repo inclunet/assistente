@@ -5,6 +5,13 @@ weight: 3
 
 # Chat
 
+## Conversa indisponível ao enviar
+
+Se uma aba aponta para uma conversa que não está disponível para o usuário atual,
+o envio informa a causa no chat e pelo leitor de tela, tanto pelo botão quanto
+pelo teclado. O rascunho permanece no campo: copie-o e abra uma nova conversa
+para enviar. O app não cria uma conversa nem reenvia o texto automaticamente.
+
 ## Fixar mensagens
 
 Para guardar uma mensagem importante dentro da conversa:

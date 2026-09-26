@@ -373,7 +373,9 @@ function ChatSessionViewContent({
   const shortcutsOpen = showShortcutsHelp ?? variant === 'page';
 
   const [lastFailedMessage, setLastFailedMessage] = useState<{ content: string; media?: MediaFile[] } | null>(null);
-  const [sendError, setSendError] = useState<string | null>(null);
+  const [unavailableConversationID, setUnavailableConversationID] = useState<string | null>(null);
+  const [sendErrorMessage, setSendError] = useState<string | null>(null);
+  const sendError = unavailableConversationID === conversationId ? sendErrorMessage : null;
   const [dismissedSessionSendError, setDismissedSessionSendError] = useState<string | null>(null);
   const sessionSendFailureMessage = session?.sendFailureMessage ?? null;
   const sessionSendFailureAnnounced = session?.sendFailureAnnounced ?? false;
@@ -389,7 +391,7 @@ function ChatSessionViewContent({
   );
   const lastAnnouncedSessionSendFailureRef = useRef<string | null>(null);
   const effectiveFailedMessage = lastFailedMessage ?? (sessionSendFailureRetryable ? sessionSendFailureRetry : null);
-  const canRetryEffectiveSendError = !!effectiveFailedMessage && (!!sendError || sessionSendFailureRetryable);
+  const canRetryEffectiveSendError = unavailableConversationID !== conversationId && !!effectiveFailedMessage && (!!sendError || sessionSendFailureRetryable);
 
   const { pathname } = useLocation();
   const modalId = useModalId();
@@ -397,8 +399,8 @@ function ChatSessionViewContent({
   const messagingInstance = useRef(`chat-messaging-${crypto.randomUUID()}`);
   const voiceSetupPromptPendingRef = useRef(false);
   const navigate = useNavigate();
-  const messagingLive = useRef({ controller, conversationId, origin, draftMessage, draftMediaFiles, effectiveFailedMessage, isLoading, isInteractiveSurface, pathname, modalIsTopmost });
-  messagingLive.current = { controller, conversationId, origin, draftMessage, draftMediaFiles, effectiveFailedMessage, isLoading, isInteractiveSurface, pathname, modalIsTopmost };
+  const messagingLive = useRef({ controller, conversationId, origin, draftMessage, draftMediaFiles, effectiveFailedMessage, isLoading, isInteractiveSurface, pathname, modalIsTopmost, t });
+  messagingLive.current = { controller, conversationId, origin, draftMessage, draftMediaFiles, effectiveFailedMessage, isLoading, isInteractiveSurface, pathname, modalIsTopmost, t };
   const messagingUser = useAuthStore(state => state.user);
   const navigationInstance = useRef(`chat-navigation-${crypto.randomUUID()}`);
   const menuNavigationTargets = useRef(new WeakMap<Message, { read?: ChatNavigationTarget; reasoning?: ChatNavigationTarget }>());
@@ -541,6 +543,7 @@ function ChatSessionViewContent({
           succeeded() {
             if (!current()) return;
             setLastFailedMessage(null);
+            setUnavailableConversationID(null);
             setSendError(null);
             const latest = useChatStore.getState();
             if (id === 'chat.message.send' && !options?.recovery && latest.getDraftRevision(sessionKey) === draftRevision) {
@@ -548,6 +551,13 @@ function ChatSessionViewContent({
               else latest.clearConversationDraft(conversationId, sessionKey);
             }
             if (id === 'chat.message.retry' || options?.recovery) latest.clearConversationSendFailure(conversationId, sessionKey);
+          },
+          failed(reason) {
+            if (current() && reason === 'conversation_unavailable') {
+              setLastFailedMessage(null);
+              setUnavailableConversationID(conversationId);
+              setSendError(messagingLive.current.t('chat.conversationUnavailable'));
+            }
           },
           settled(status) {
             if (id !== 'chat.response.cancel' && runRevision !== undefined && current() && status !== 'succeeded' && status !== 'outcome_unknown') {

@@ -207,6 +207,7 @@ const en = {
       clearError: 'Error clearing conversation',
       profileChangeError: 'Could not change profile. Please try again.',
       errorPrefix: 'Error: {{message}}',
+      conversationUnavailable: 'This conversation is no longer available. Copy your draft and open a new conversation to send it.',
       sendErrorPrefix: 'Error sending message: {{message}}',
       historyLabel: 'History',
       tokenStatsOpened: 'Token statistics modal opened',

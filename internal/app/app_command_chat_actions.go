@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"assistente/internal/commandcatalog"
@@ -10,6 +11,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/workspace"
+	"gorm.io/gorm"
 )
 
 const (
@@ -17,6 +19,9 @@ const (
 	commandChatRetryID  = "chat.message.retry"
 	commandChatCancelID = "chat.response.cancel"
 )
+
+// Código público sem IDs ou detalhes do banco; ausência e falta de acesso são indistinguíveis.
+var errChatConversationUnavailable = errors.New("chat_conversation_unavailable")
 
 func isChatActionCommand(id string) bool {
 	return id == commandChatSendID || id == commandChatRetryID || id == commandChatCancelID
@@ -60,6 +65,9 @@ func (a *App) captureChatAction(ctx context.Context, p *commandProductRuntime, i
 			return commandexecution.ErrDenied
 		}
 		if _, err := database.GetConversationInfoWithContext(database.WithUserID(ctx, p.principal.UserID), current.Tab.ConversationID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errChatConversationUnavailable
+			}
 			return err
 		}
 		snapshot = current

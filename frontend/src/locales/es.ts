@@ -206,6 +206,7 @@ const es = {
       clearError: 'Error al vaciar conversación',
       profileChangeError: 'No se pudo cambiar el perfil. Inténtalo de nuevo.',
       errorPrefix: 'Error: {{message}}',
+      conversationUnavailable: 'Esta conversación ya no está disponible. Copia tu borrador y abre una nueva conversación para enviarlo.',
       sendErrorPrefix: 'Error al enviar el mensaje: {{message}}',
       historyLabel: 'Historial',
       tokenStatsOpened: 'Modal de estadísticas de tokens abierto',

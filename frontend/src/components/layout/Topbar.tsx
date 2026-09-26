@@ -799,18 +799,24 @@ export function Topbar() {
     activeChatMessagingRef.current.add(target);
     const unsubscribeAuth = useAuthStore.subscribe(() => { current(); });
     const unsubscribeWorkspace = useWorkspaceStore.subscribe(() => { current(); });
+    let conversationUnavailable = false;
     const report = (status: string) => {
       const now = useAuthStore.getState();
       if (status !== 'succeeded' && status !== 'cancelled' && now.isAuthenticated &&
           now.user?.userId === ownerId && now.user?.sessionId === sessionId &&
           commandRouteIdentityRef.current === route) {
         creationPresentationRef.current.announce(creationPresentationRef.current.t(
-          status === 'outcome_unknown' ? 'commandPalette.executionUnknown' : 'commandPalette.executionFailed',
+          conversationUnavailable ? 'chat.conversationUnavailable' : status === 'outcome_unknown' ? 'commandPalette.executionUnknown' : 'commandPalette.executionFailed',
         ));
       }
     };
     const guardedTarget: ChatMessagingTarget = {
       ...target,
+      failed: reason => {
+        if (!current()) return;
+        conversationUnavailable = reason === 'conversation_unavailable';
+        target.failed?.(reason);
+      },
       isCurrent: current,
       execute: handoff => {
         if (!current() || (lease && !lease.isCurrent())) return Promise.reject(new Error('contextual-palette-stale'));

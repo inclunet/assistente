@@ -759,7 +759,7 @@ func safeCommandSettingsError(err error) error {
 	if err == nil {
 		return nil
 	}
-	known := []error{context.Canceled, context.DeadlineExceeded, commandexecution.ErrDenied, commandexecution.ErrStale, commandexecution.ErrInvalidRequest, commandexecution.ErrInvalidConfiguration, commandconfig.ErrInvalid, commandconfig.ErrStale}
+	known := []error{errChatConversationUnavailable, context.Canceled, context.DeadlineExceeded, commandexecution.ErrDenied, commandexecution.ErrStale, commandexecution.ErrInvalidRequest, commandexecution.ErrInvalidConfiguration, commandconfig.ErrInvalid, commandconfig.ErrStale}
 	for _, sentinel := range known {
 		if errors.Is(err, sentinel) {
 			return sentinel
