@@ -28,7 +28,9 @@ export interface ChatMessagingExecution {
 export class ChatMessagingStaleError extends Error {
   constructor() { super('chat-messaging-stale'); }
 }
+export type ChatMessagingFailureReason = 'conversation_unavailable';
 export interface PreparedChatMessagingTarget {
+  failed?(reason: ChatMessagingFailureReason): void;
   readonly executionKind?: 'ui' | 'backend';
   prepareAdmission?(ticket: string): Promise<void>;
   finishAdmission?(): void;
@@ -135,6 +137,7 @@ export function captureChatMessagingTarget(
     },
     waitForAdmission: () => prepared.waitForAdmission?.() ?? Promise.resolve(),
     succeeded: () => { if (!disposed && surfaces.has(source) && source.root.isConnected && source.isCurrent()) prepared.succeeded?.(); },
+    failed: reason => { if (isCurrent()) prepared.failed?.(reason); },
     settled: status => { if (!disposed && surfaces.has(source) && source.root.isConnected && source.isCurrent()) prepared.settled?.(status); },
     canCommit: () => isCurrent() && visible(source.root) && document.hasFocus() &&
       ReadFocusContext().composition !== 'active' && prepared.canCommit(),
@@ -252,6 +255,10 @@ async function executeCaptured(port: CommandContextualBackendPort, target: ChatM
         if (result.invocationId === invocationId &&
             ['cancelled', 'cancelled_stale', 'denied', 'timed_out', 'rejected_stale'].includes(result.status)) return result.status;
       } catch { /* no effect was submitted */ }
+    }
+    if (!ticket && (target.commandId === 'chat.message.send' || target.commandId === 'chat.message.retry') &&
+        (error instanceof Error ? error.message : error) === 'chat_conversation_unavailable' && target.isCurrent()) {
+      try { target.failed?.('conversation_unavailable'); } catch { /* presentation only */ }
     }
     return 'failed';
   } finally {
