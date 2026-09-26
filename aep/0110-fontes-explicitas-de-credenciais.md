@@ -102,4 +102,10 @@ fora do escopo aceito para esta entrega.
   command-request-hmac legada é preservada, sem migração ou fallback de usuário.
 - Após essas correções, portability, MCP e commandledger passaram; build, vet
   e golangci-lint também passaram. Novo CI ainda pendente.
+- A investigação da falha de revogação revelou ausência de WatchEpoch durante
+  AwaitQueue. Corrigido com liberação garantida e admissão final preservada
+  (evidência no AEP-0103). O teste mantém a espera de 2s, com prazo de execução
+  de 1 minuto para impedir aprovação por timeout: 20 repetições e a suíte
+  commandexecution aprovadas. Build, vet e lint aprovados; revisão independente
+  dessa correção sem pendências.
 - Revisão remota em acompanhamento; nenhum merge de PR autorizado.
