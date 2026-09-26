@@ -23,7 +23,7 @@ export function commandConditionTargetID(origin: string, commandId: string, trig
 /** Disponibilidade do editor acompanha as fontes autoritativas de cada origem. */
 export function commandConditionSupportedByOrigin(origin: string, field: string, localUI: boolean, commandID = ''): boolean {
   if (origin === 'streamdeck.key' && !localUI && isCommandLayerAction(commandID)) {
-    return ['app.focused', 'surface.type', 'surface.id', 'profile', 'foreground.process', 'device'].includes(field);
+    return ['app.focused', 'app.page', 'surface.type', 'surface.id', 'profile', 'foreground.process', 'device'].includes(field);
   }
   if (origin === 'palette' && isContextualPagePaletteCommand(commandID)) {
     return ['app.focused', 'app.page', 'surface.type', 'profile'].includes(field);

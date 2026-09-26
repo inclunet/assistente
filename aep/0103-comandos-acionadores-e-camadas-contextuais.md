@@ -59,7 +59,9 @@ correlaciona página e superfície canônica tanto na projeção quanto na colet
 visual por rota. Regras perfil-only de comandos de página não vazam para outra
 rota, enquanto comandos independentes de página continuam observáveis. A
 paleta envia o DTO observado com `surfaceId` vazio, preserva a validação da
-lease e deixa o alvo para `PreparePageMutationCommand`. Beauvoir reavaliou o
+lease e deixa o alvo para `PreparePageMutationCommand`. O editor de condições
+também oferece `app.page` para `layer.activate`, `layer.toggle` e `layer.back`
+na origem Stream Deck. Beauvoir reavaliou o
 filtro visual sem bloqueios. Evidências: bateria Go ampliada reportada PASS em
 173,909 s antes do último ajuste visual, regressões focalizadas após esse
 ajuste PASS em 17,611 s, `commandconfig` PASS em 11,695 s, Vitest focal 80/80,

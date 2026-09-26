@@ -104,7 +104,7 @@ describe('Topbar physical contextual Deck offers — real providers and ports', 
       const conditions = [condition(id), condition('navigation.settings.open', false), condition('workspace.tab.close', false)];
       await act(async () => { event(conditions); event(conditions); });
       await waitFor(() => expect(state.announce).toHaveBeenCalledWith('commandSettings.layerActionCompleted'));
-      expect(api.ExecuteContextualDeckLayerCommand).toHaveBeenCalledExactlyOnceWith('offer', 'map', { surfaceType: 'chat', surfaceId: 'tab-a', profile: 'focused' });
+      expect(api.ExecuteContextualDeckLayerCommand).toHaveBeenCalledExactlyOnceWith('offer', 'map', { surfaceType: 'chat', surfaceId: 'tab-a', profile: 'focused', appPage: 'workspace' });
       expect(api.BeginContextualDeckUICommand).not.toHaveBeenCalled(); expect(api.TakeUICommand).not.toHaveBeenCalled();
       expect(api.CommitWorkspaceTabCommand).not.toHaveBeenCalled(); expect(api.ExecutePaletteCommand).not.toHaveBeenCalled();
       expect(api.ExecuteContextualPaletteLayerCommand).not.toHaveBeenCalled(); expect(state.navigate).not.toHaveBeenCalled();

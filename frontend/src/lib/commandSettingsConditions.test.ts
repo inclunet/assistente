@@ -30,13 +30,14 @@ describe('condições operacionais por origem', () => {
       expect(commandConditionSupportedByOrigin('streamdeck.key', field, false, id)).toBe(false);
     }
   });
-  it.each(['layer.activate', 'layer.toggle', 'layer.back'])('oferece os quatro campos na paleta e Deck para %s sem ampliar global', (id) => {
+  it.each(['layer.activate', 'layer.toggle', 'layer.back'])('oferece página e demais condições permitidas na paleta e Deck para %s', (id) => {
     const target = commandConditionTargetID('palette', '', JSON.stringify({ version: 1, selection: id }), true);
     expect(target).toBe(id);
-    for (const field of ['app.focused', 'surface.type', 'surface.id', 'profile']) {
+    for (const field of ['app.focused', 'app.page', 'surface.type', 'surface.id', 'profile']) {
       expect(commandConditionSupportedByOrigin('palette', field, false, target)).toBe(true);
       expect(commandConditionSupportedByOrigin('streamdeck.key', field, false, id)).toBe(true);
     }
+    expect(commandConditionSupportedByOrigin('keyboard.global', 'app.page', false, id)).toBe(false);
     for (const field of ['foreground.process', 'device']) {
       expect(commandConditionSupportedByOrigin('palette', field, false, target)).toBe(false);
       expect(commandConditionSupportedByOrigin('streamdeck.key', field, false, id)).toBe(true);

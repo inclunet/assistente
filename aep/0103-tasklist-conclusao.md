@@ -10655,5 +10655,18 @@ e sequências não encontrou outra perda do campo. Grupo focado de cinco suites:
 51 testes PASS; TypeScript, ESLint e diff check aprovados. Revisão independente
 do agente principal, sem ampliar as superfícies permitidas ou a autorização.
 
+Correção de integração: o editor de condições agora expõe `app.page` para
+`layer.activate`, `layer.toggle` e `layer.back` na origem Stream Deck, sem
+habilitar essa condição para `keyboard.global`. A expectativa exata de execução
+da camada também inclui `appPage: workspace`. Seis suites focadas (Topbar
+contextual Deck, condições e adaptadores Wails) passaram com 118/118 testes;
+`tsc --noEmit` e ESLint focado passaram.
+
+O diagnóstico de mistura de fatos visuais com processo/dispositivo também
+classifica `app.page` como visual. A matriz cobre as três ações, condições
+diretas/herdadas e perfil opcional: falhou antes da correção e o grupo Go
+`TestCommandSettings` passou depois (55,948 s). Revisão independente de Beauvoir
+e conferência do agente principal sem bloqueios; sem ampliar autorização.
+
 Aceite manual permanece pendente. Esta implementação não altera os totais
 de aceites físicos/NVDA. **In Progress; não representa aceite integral do AEP.**

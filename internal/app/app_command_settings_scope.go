@@ -747,7 +747,7 @@ func commandSettingsDeckLayerMixedFacts(row commandconfig.Binding, fields []stri
 	visual, physical := false, false
 	for _, field := range fields {
 		switch commandbindings.Field(field) {
-		case commandbindings.AppFocused, commandbindings.SurfaceType, commandbindings.SurfaceID:
+		case commandbindings.AppFocused, commandbindings.AppPage, commandbindings.SurfaceType, commandbindings.SurfaceID:
 			visual = true
 		case commandbindings.Process, commandbindings.Device:
 			physical = true

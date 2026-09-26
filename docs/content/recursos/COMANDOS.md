@@ -46,6 +46,10 @@ página continuam visíveis. Blur da janela, expiração e troca/reset da geraç
 limpam a indicação contextual; um blur dentro da própria janela não é perda de
 foco.
 
+No editor de regras, **Página do aplicativo** também está disponível para as
+ações de camada do Stream Deck: ativar, alternar e voltar. As restrições da
+origem continuam valendo para as demais condições.
+
 **Escape** fecha primeiro o formulário e retorna o foco à grade do gerenciador.
 Outro **Escape** fecha o gerenciador e volta à camada selecionada. Enquanto
 uma operação estiver em andamento, aguarde sua conclusão antes de fechar.
