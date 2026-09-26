@@ -330,6 +330,57 @@ func TestWebSearch_CadeiaBraveTavilyFallback(t *testing.T) {
 	}
 }
 
+func TestWebSearch_CadeiaBrave401CaiNaTavily(t *testing.T) {
+	// Caminho primário da cadeia: Brave responde 401 e a Tavily atende.
+	var braveChamadas int
+	var braveToken string
+	braveSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		braveChamadas++
+		braveToken = r.Header.Get("X-Subscription-Token")
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer braveSrv.Close()
+	var tavilyChamadas int
+	var tavilyAuth string
+	tavilySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tavilyChamadas++
+		tavilyAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results": [{"title": "Go", "url": "https://go.dev", "content": "Linguagem Go"}]}`))
+	}))
+	defer tavilySrv.Close()
+
+	credMgr := credentials.NewManager(nil)
+	if err := credMgr.RegisterPattern("127.0.0.1", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "chave-cadeia"}); err != nil {
+		t.Fatalf("registro de credencial: %v", err)
+	}
+	tool := NewWebSearch(credMgr)
+	tool.brave = &braveProvider{credMgr: credMgr, endpointOverride: braveSrv.URL}
+	tool.tavily = &tavilyProvider{credMgr: credMgr, endpointOverride: tavilySrv.URL}
+	tool.fallback = &mockSearchProvider{results: []SearchResult{
+		{Title: "Nunca", URL: "https://nunca.dev", Snippet: "não deve ser alcançado"},
+	}}
+
+	ctx := trustedTavilyTestContext(t, context.Background(), braveSrv)
+	ctx = trustedTavilyTestContext(t, ctx, tavilySrv)
+	results, providerName, err := tool.searchWithFallback(ctx, "go", 0, 5)
+	if err != nil {
+		t.Fatalf("cadeia falhou: %v", err)
+	}
+	if braveChamadas != 1 || braveToken != "chave-cadeia" {
+		t.Errorf("Brave deveria ser tentada primeiro com a chave (chamadas=%d token=%q)", braveChamadas, braveToken)
+	}
+	if tavilyChamadas != 1 || tavilyAuth != "Bearer chave-cadeia" {
+		t.Errorf("Tavily deveria atender em seguida (chamadas=%d auth=%q)", tavilyChamadas, tavilyAuth)
+	}
+	if providerName != "Tavily" {
+		t.Errorf("esperava provider Tavily, got %q", providerName)
+	}
+	if len(results) != 1 || results[0].Title != "Go" {
+		t.Errorf("resultado da Tavily não chegou: %+v", results)
+	}
+}
+
 func TestWebSearch_CadeiaTavily429CaiNoFallback(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
