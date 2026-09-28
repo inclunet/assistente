@@ -16,18 +16,16 @@ import (
 )
 
 // WebSearch realiza buscas na web usando uma API de busca.
-// Usa a cadeia Brave → Tavily → Bing (chaves via credmanager) quando há
-// credencial cadastrada, com fallback automático para DuckDuckGo HTML (sem
-// API key). Usa cliente HTTP centralizado com auth/retry automático.
+// Usa a cadeia Brave → Tavily (chaves via credmanager) quando há credencial
+// cadastrada, com fallback automático para DuckDuckGo HTML (sem API key).
+// Usa cliente HTTP centralizado com auth/retry automático.
 type WebSearch struct {
 	client   *httpclient.Client
 	provider SearchProvider
-	// brave/tavily/bing/fallback compõem a cadeia padrão; provider
-	// customizado injetado via NewWebSearchWithProvider tem precedência
-	// (usado em testes).
+	// brave/tavily/fallback compõem a cadeia padrão; provider customizado
+	// injetado via NewWebSearchWithProvider tem precedência (usado em testes).
 	brave    *braveProvider
 	tavily   *tavilyProvider
-	bing     *bingProvider
 	fallback SearchProvider
 	// allowPrivateHosts libera hosts privados nos guards (testes com
 	// httptest). Padrão: false.
@@ -50,9 +48,8 @@ type SearchResult struct {
 	Snippet string `json:"snippet"`
 }
 
-// NewWebSearch cria uma nova instância de WebSearch: cadeia
-// Brave → Tavily → Bing (via credmanager) com fallback para o provedor
-// DuckDuckGo padrão.
+// NewWebSearch cria uma nova instância de WebSearch: cadeia Brave → Tavily
+// (via credmanager) com fallback para o provedor DuckDuckGo padrão.
 func NewWebSearch(credMgr *credentials.Manager) *WebSearch {
 	if credMgr == nil {
 		credMgr = credentials.NewManager(nil)
@@ -65,7 +62,6 @@ func NewWebSearch(credMgr *credentials.Manager) *WebSearch {
 		provider: &duckDuckGoProvider{},
 		brave:    &braveProvider{credMgr: credMgr},
 		tavily:   &tavilyProvider{credMgr: credMgr},
-		bing:     &bingProvider{credMgr: credMgr},
 		fallback: &duckDuckGoProvider{},
 	}
 	// Os provedores com API trafegam a chave em header: o net/http propaga
@@ -102,7 +98,7 @@ func (t *WebSearch) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *WebSearch) Description() string {
-	return `Searches the web and returns ranked links with titles and snippets. Use when you need to discover sources or do not yet know the target URL; for example {"query":"Go context cancellation documentation","max_results":5}. Do not use to read a known page (use web_fetch), call an API with HTTP controls (use http_request), or parse a known RSS/Atom/JSON feed (use feed_read). Returns paginated JSON with query, provider, offset, count, has_more, and results; while has_more is true, request the next page with offset = previous offset + count. Set "provider" to brave, tavily, bing or duckduckgo to start from a specific backend (for example after weak results, try another source); default "auto" tries each backend with credentials in order. The response reports the provider that answered. Risk: sends the query to an external search provider and requires network access. If unavailable, discover and load it with tool_catalog when the profile permits on-demand tools.`
+	return `Searches the web and returns ranked links with titles and snippets. Use when you need to discover sources or do not yet know the target URL; for example {"query":"Go context cancellation documentation","max_results":5}. Do not use to read a known page (use web_fetch), call an API with HTTP controls (use http_request), or parse a known RSS/Atom/JSON feed (use feed_read). Returns paginated JSON with query, provider, offset, count, has_more, and results; while has_more is true, request the next page with offset = previous offset + count. Set "provider" to brave, tavily or duckduckgo to start from a specific backend (for example after weak results, try another source); default "auto" tries each backend with credentials in order. The response reports the provider that answered. Risk: sends the query to an external search provider and requires network access. If unavailable, discover and load it with tool_catalog when the profile permits on-demand tools.`
 }
 
 func (t *WebSearch) Parameters() json.RawMessage {
@@ -128,8 +124,8 @@ func (t *WebSearch) Parameters() json.RawMessage {
 			},
 			"provider": {
 				"type": "string",
-				"description": "Backend inicial da busca: auto (padrão, tenta cada provedor com credencial em ordem), brave, tavily, bing ou duckduckgo. A cadeia avança em caso de ausência de credencial ou auth/quota, e a resposta informa quem atendeu.",
-				"enum": ["auto", "brave", "tavily", "bing", "duckduckgo"],
+				"description": "Backend inicial da busca: auto (padrão, tenta cada provedor com credencial em ordem), brave, tavily ou duckduckgo. A cadeia avança em caso de ausência de credencial ou auth/quota, e a resposta informa quem atendeu.",
+				"enum": ["auto", "brave", "tavily", "duckduckgo"],
 				"default": "auto"
 			}
 		},
@@ -167,7 +163,7 @@ const searchDefaultMaxResults = 8
 // ddgFallbackNotice orienta o usuário a configurar um buscador melhor quando
 // a resposta veio do fallback gratuito. Vai no JSON (campo notice) para o
 // LLM repassar; é conciso de propósito (toda resposta DDG o carrega).
-const ddgFallbackNotice = "Busca atendida pelo DuckDuckGo (fallback gratuito, qualidade e paginação limitadas). Para resultados melhores, cadastre uma chave no gerenciador de credenciais: Brave (api.search.brave.com), Tavily (api.tavily.com) ou Bing (api.bing.microsoft.com)."
+const ddgFallbackNotice = "Busca atendida pelo DuckDuckGo (fallback gratuito, qualidade e paginação limitadas). Para resultados melhores, cadastre uma chave no gerenciador de credenciais: Brave (api.search.brave.com) ou Tavily (api.tavily.com)."
 
 func (t *WebSearch) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	var a webSearchArgs
@@ -263,22 +259,22 @@ func (t *WebSearch) searchWithFallback(ctx context.Context, query string, offset
 	return t.searchFrom(ctx, query, offset, maxResults, "auto")
 }
 
-// searchFrom executa a cadeia Brave → Tavily → Bing → DuckDuckGo a partir do
+// searchFrom executa a cadeia Brave → Tavily → DuckDuckGo a partir do
 // backend pedido e devolve os resultados com o nome do provedor que
 // respondeu. requested="auto" (ou vazio) começa do início; qualquer outro
-// valor deve nomear um elo (case-insensitive) — valor desconhecido é erro
-// com a lista válida. Um provider customizado injetado
+// valor deve nomear um elo (auto, brave, tavily, duckduckgo) — valor
+// desconhecido é erro com a lista válida. Um provider customizado injetado
 // (NewWebSearchWithProvider) tem precedência e é usado direto, sem cadeia —
 // preservando o comportamento dos testes com mock (nesse modo, só "auto" é
 // aceito).
 //
 // Avanço na cadeia acontece quando não há credencial do provedor, a API
 // responde auth/quota/limite (Brave: 401/403/429/422; Tavily:
-// 401/403/429/432/433; Bing: 401/403/429) ou o offset está além da janela
-// servível. Erro operacional na resolução da credencial e demais erros são
-// propagados sem fabricar resultados.
+// 401/403/429/432/433) ou o offset está além da janela servível. Erro
+// operacional na resolução da credencial e demais erros são propagados sem
+// fabricar resultados.
 // searchChainLink amarra um provedor à sua chave canônica de seleção
-// (auto, brave, tavily, bing, duckduckgo). O match é pela chave, nunca pelo
+// (auto, brave, tavily, duckduckgo). O match é pela chave, nunca pelo
 // nome de exibição — nomes podem variar (ex.: mocks em testes).
 type searchChainLink struct {
 	key      string
@@ -297,9 +293,6 @@ func (t *WebSearch) searchFrom(ctx context.Context, query string, offset, maxRes
 	if t.tavily != nil {
 		chain = append(chain, searchChainLink{key: "tavily", provider: t.tavily})
 	}
-	if t.bing != nil {
-		chain = append(chain, searchChainLink{key: "bing", provider: t.bing})
-	}
 	chain = append(chain, searchChainLink{key: "duckduckgo", provider: t.fallback})
 	requested = strings.ToLower(strings.TrimSpace(requested))
 	if requested != "" && requested != "auto" {
@@ -311,7 +304,7 @@ func (t *WebSearch) searchFrom(ctx context.Context, query string, offset, maxRes
 			}
 		}
 		if start < 0 {
-			return nil, requested, fmt.Errorf("provedor %q desconhecido (use auto, brave, tavily, bing ou duckduckgo)", requested)
+			return nil, requested, fmt.Errorf("provedor %q desconhecido (use auto, brave, tavily ou duckduckgo)", requested)
 		}
 		chain = chain[start:]
 	}
@@ -357,10 +350,10 @@ func trimBearerPrefix(token string) string {
 
 // isSearchFallbackable decide se um erro de qualquer provedor da cadeia
 // justifica avançar para o próximo: sentinelas de janela excedida e de
-// ausência de credencial (Tavily/Bing), regra do Brave via helper dedicado e
-// status HTTP fallbackables de Tavily e Bing.
+// ausência de credencial (Tavily), regra do Brave via helper dedicado e
+// status HTTP fallbackables da Tavily.
 func isSearchFallbackable(err error) bool {
-	if err == errNoTavilyCredential || err == errTavilyWindowExceeded || err == errNoBingCredential {
+	if err == errNoTavilyCredential || err == errTavilyWindowExceeded {
 		return true
 	}
 	if isBraveFallbackable(err) {
@@ -369,10 +362,6 @@ func isSearchFallbackable(err error) bool {
 	var tavilyErr *tavilyStatusError
 	if errors.As(err, &tavilyErr) {
 		return tavilyFallbackable(tavilyErr.StatusCode)
-	}
-	var bingErr *bingStatusError
-	if errors.As(err, &bingErr) {
-		return bingFallbackable(bingErr.StatusCode)
 	}
 	return false
 }

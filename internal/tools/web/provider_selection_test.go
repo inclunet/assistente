@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,7 +11,26 @@ import (
 	"testing"
 
 	"assistente/internal/credentials"
+	httpclient "assistente/internal/tools/http"
 )
+
+// trustedProviderTestContext libera o host do servidor fake no guard anti-SSRF.
+func trustedProviderTestContext(t *testing.T, ctx context.Context, srv *httptest.Server) context.Context {
+	t.Helper()
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("parse da URL do servidor: %v", err)
+	}
+	port := u.Port()
+	if port == "" {
+		port = "80"
+	}
+	ip := net.ParseIP(u.Hostname())
+	if ip == nil {
+		t.Fatalf("host do httptest não é IP: %q", u.Hostname())
+	}
+	return httpclient.WithTrustedIPs(ctx, []net.IP{ip}, port, true)
+}
 
 func TestWebSearch_ProviderInvalido(t *testing.T) {
 	tool := NewWebSearch(credentials.NewManager(nil))
@@ -21,7 +41,7 @@ func TestWebSearch_ProviderInvalido(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("provedor desconhecido deveria ser erro")
 	}
-	for _, want := range []string{"auto", "brave", "tavily", "bing", "duckduckgo"} {
+	for _, want := range []string{"auto", "brave", "tavily", "duckduckgo"} {
 		if !strings.Contains(result.Content, want) {
 			t.Errorf("erro deveria listar %q: %s", want, result.Content)
 		}
@@ -43,7 +63,7 @@ func TestWebSearch_ProviderSchemaEnum(t *testing.T) {
 	for _, v := range provider["enum"].([]any) {
 		got = append(got, v.(string))
 	}
-	want := []string{"auto", "brave", "tavily", "bing", "duckduckgo"}
+	want := []string{"auto", "brave", "tavily", "duckduckgo"}
 	if len(got) != len(want) {
 		t.Fatalf("enum incorreto: %v", got)
 	}
@@ -74,7 +94,7 @@ func TestWebSearch_ProviderExplicitoPulaCadeia(t *testing.T) {
 	tool.fallback = &mockSearchProvider{results: []SearchResult{{Title: "Nunca", URL: "https://nunca.dev"}}}
 
 	// Brave não tem credencial, mas o pedido explícito começa na Tavily.
-	result, err := tool.Execute(trustedBingTestContext(t, context.Background(), srv), json.RawMessage(`{"query":"go","provider":"tavily"}`))
+	result, err := tool.Execute(trustedProviderTestContext(t, context.Background(), srv), json.RawMessage(`{"query":"go","provider":"tavily"}`))
 	if err != nil {
 		t.Fatalf("Execute retornou erro: %v", err)
 	}
@@ -109,7 +129,7 @@ func TestWebSearch_NoticeNoFallbackAuto(t *testing.T) {
 	if out.Notice == "" {
 		t.Error("fallback gratuito deveria trazer aviso")
 	}
-	for _, want := range []string{"DuckDuckGo", "api.search.brave.com", "api.tavily.com", "api.bing.microsoft.com"} {
+	for _, want := range []string{"DuckDuckGo", "api.search.brave.com", "api.tavily.com"} {
 		if !strings.Contains(out.Notice, want) {
 			t.Errorf("aviso deveria mencionar %q: %q", want, out.Notice)
 		}
@@ -137,9 +157,9 @@ func TestWebSearch_ProviderDuckDuckGoExplicitoSemAviso(t *testing.T) {
 	}
 }
 
-func TestWebSearch_ProviderBing401AvancaComAviso(t *testing.T) {
+func TestWebSearch_ProviderTavily429AvancaComAviso(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
+		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer srv.Close()
 
@@ -149,10 +169,10 @@ func TestWebSearch_ProviderBing401AvancaComAviso(t *testing.T) {
 		t.Fatalf("registro de credencial: %v", err)
 	}
 	tool := NewWebSearch(credMgr)
-	tool.bing = &bingProvider{credMgr: credMgr, endpointOverride: srv.URL}
+	tool.tavily = &tavilyProvider{credMgr: credMgr, endpointOverride: srv.URL}
 	tool.fallback = &mockSearchProvider{results: []SearchResult{{Title: "DDG", URL: "https://exemplo.dev"}}}
 
-	result, err := tool.Execute(trustedBingTestContext(t, context.Background(), srv), json.RawMessage(`{"query":"go","provider":"bing"}`))
+	result, err := tool.Execute(trustedProviderTestContext(t, context.Background(), srv), json.RawMessage(`{"query":"go","provider":"tavily"}`))
 	if err != nil {
 		t.Fatalf("Execute retornou erro: %v", err)
 	}
@@ -170,7 +190,7 @@ func TestWebSearch_ProviderBing401AvancaComAviso(t *testing.T) {
 
 func TestWebSearch_ProviderCustomRejeitaSelecao(t *testing.T) {
 	tool := NewWebSearchWithProvider(credentials.NewManager(nil), &mockSearchProvider{})
-	result, err := tool.Execute(context.Background(), json.RawMessage(`{"query":"go","provider":"bing"}`))
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"query":"go","provider":"tavily"}`))
 	if err != nil {
 		t.Fatalf("Execute retornou erro: %v", err)
 	}
