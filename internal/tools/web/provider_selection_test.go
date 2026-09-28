@@ -133,7 +133,8 @@ func TestWebSearch_NoticeNoFallbackAuto(t *testing.T) {
 		"DuckDuckGo",
 		"https://api-dashboard.search.brave.com/register",
 		"https://app.tavily.com/",
-		"Credenciais",
+		"assistente://credentials/new?pattern=api.search.brave.com&type=bearer",
+		"assistente://credentials/new?pattern=api.tavily.com&type=bearer",
 		"Ao final da sua resposta",
 	} {
 		if !strings.Contains(out.Notice, want) {

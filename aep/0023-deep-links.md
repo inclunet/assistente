@@ -55,10 +55,17 @@ Parâmetros de query string devem ser codificados com `encodeURIComponent`.
 | URI | Ação |
 |-----|------|
 | `assistente://{recurso}/new` | Abre formulário de criação do recurso |
+| `assistente://credentials/new?pattern={domínio}&type={tipo}` | Abre criação de credencial com domínio e tipo pré-preenchidos (só falta colar o token) |
 | `assistente://{recurso}/edit/{id}` | Abre formulário de edição do recurso |
 | `assistente://profiles/edit/{slug}?tab=voice` | Edita o perfil diretamente na seção de voz |
 
 Recursos: `profiles`, `providers`, `credentials`, `allowlists`, `skills`, `mcp`, `channels`, `memories`, `tasklists`
+
+Pré-preenchimento hoje só existe para `credentials/new` (`pattern` + `type`
+bearer/basic/custom/secret; valores inválidos são ignorados e o formulário
+abre em branco). Por segurança, **segredos nunca trafegam por deep link**
+(token, senhas, valores de header vazariam para histórico de chat e logs) —
+o usuário sempre digita/cola o segredo no modal.
 
 ### Rotas Válidas para `navigate`
 
