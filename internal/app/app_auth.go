@@ -9,7 +9,6 @@ import (
 
 	"assistente/internal/auth"
 	"assistente/internal/channels"
-	"assistente/internal/config"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/wailsapi"
@@ -882,7 +881,9 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 		if err := a.jobMgr.Start(); err != nil {
 			logging.Errorf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)
 			result.add(runtimeSubsystemJobs, err)
+			return
 		}
+		result.add(runtimeSubsystemToolInvocations, a.jobMgr.InitialChatRetentionError())
 	}
 
 	a.commandJobsPending = nil
@@ -897,26 +898,9 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 	if a.msgCtrl != nil {
 		a.msgCtrl.StartAdapters(userID)
 	}
-	if a.toolInvocationSvc != nil {
-		// Retenção de tool calls de chat segue o ciclo de vida da conversa
-		// (AEP-0074): no login só varremos órfãos (rede de segurança) e, se o
-		// usuário configurou um cap de idade explícito, aplicamos esse limite.
-		if deleted, err := a.toolInvocationSvc.CleanOrphanChat(ctx); err != nil {
-			logging.Errorf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] erro ao limpar tool invocations órfãs de chat: %v", err)
-			result.add(runtimeSubsystemToolInvocations, err)
-		} else if deleted > 0 {
-			logging.Infof(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] tool invocations órfãs de chat removidas: %d", deleted)
-		}
-		if maint, mErr := config.GetMaintenance(); mErr == nil && maint.ChatToolCallsRetentionDays > 0 {
-			age := time.Duration(maint.ChatToolCallsRetentionDays) * 24 * time.Hour
-			if deleted, err := a.toolInvocationSvc.CleanOldChat(ctx, age); err != nil {
-				logging.Errorf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] erro ao aplicar cap de idade de tool calls de chat: %v", err)
-				result.add(runtimeSubsystemToolInvocations, err)
-			} else if deleted > 0 {
-				logging.Infof(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] tool calls de chat acima do cap removidas: %d", deleted)
-			}
-		}
-	}
+	// Retenção de chat (órfãos e cap opcional) pertence à manutenção do Manager,
+	// assíncrona após comandos prontos quando há coordenador. Sem armazenamento
+	// de comandos, o Start legado mantém sua passagem inicial síncrona.
 	if a.providerSvc != nil {
 		a.initLLMProviders(ctx)
 	}
