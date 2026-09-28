@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"assistente/internal/acp"
@@ -83,15 +84,10 @@ func (s *Service) CheckHealth(ctx context.Context, activeProfile *profiles.Profi
 		return s.checkACPHealth(ctx, provider, res)
 	}
 
-	apiKey := ""
-	if provider.CredentialPattern != "" && s.credMgr != nil {
-		if auth, err := s.credMgr.GetByPatternWithContext(ctx, provider.CredentialPattern); err == nil && auth != nil {
-			apiKey = auth.Token
-		}
-	}
-
 	start := time.Now()
-	probe := s.ProbeConnection(ctx, provider.BaseURL, apiKey)
+	probe := s.probeConnection(ctx, provider.BaseURL, "", func(request *http.Request, client *http.Client) error {
+		return s.prepareProbeAuth(ctx, TestRequest{BaseURL: provider.BaseURL, ProviderID: provider.ID}, request, client)
+	})
 	res.LatencyMs = time.Since(start).Milliseconds()
 	res.Reachable = probe.URLReachable
 	res.AuthOK = probe.AuthOK

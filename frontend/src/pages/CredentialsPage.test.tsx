@@ -287,6 +287,7 @@ describe('CredentialsPage', () => {
     render(<CredentialsPage />);
     await userEvent.click(await screen.findByText('command.example'));
     expect(screen.getByLabelText('credentials.sourceFields.commandName')).toHaveValue('nu');
+    expect(screen.getByText('credentials.sourceFields.cacheHint')).toBeInTheDocument();
     expect(screen.getByLabelText('credentials.sourceFields.args')).toHaveValue('["genai","token"]');
     expect(screen.queryByLabelText('Token')).not.toBeInTheDocument();
   });

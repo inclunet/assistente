@@ -554,6 +554,7 @@ export default function CredentialsPage() {
               <Input label={t('credentials.sourceFields.keyringUser')} value={crud.editingItem.keyringUser || ''} onChange={e => crud.updateField('keyringUser', e.target.value)} fullWidth />
             </>}
             {crud.editingItem.source === 'command' && <>
+              <p>{t('credentials.sourceFields.cacheHint')}</p>
               <Input label={t('credentials.sourceFields.commandName')} value={crud.editingItem.command || ''} onChange={e => crud.updateField('command', e.target.value)} fullWidth />
               <Input label={t('credentials.sourceFields.args')} value={crud.editingItem.argsText ?? '[]'} onChange={e => crud.updateField('argsText', e.target.value)} fullWidth />
               <Input label={t('credentials.sourceFields.timeout')} type="number" min={1} max={300} value={crud.editingItem.timeoutSeconds ?? 30} onChange={e => crud.updateField('timeoutSeconds', Number(e.target.value))} fullWidth />

@@ -28,8 +28,23 @@ atender executáveis locais e WSL sem acoplamento a fornecedor.
 - Resolução fora do lock do manager, com contexto. Listagem/configuração não
   executa programas. Command usa executável + array de argumentos, sem shell,
   timeout padrão 30s/máximo 300s, stdout até 64 KiB em uma linha e stderr descartado.
-  O erro não contém comando, argumentos ou saída. Não há cache: cada resolução
-  obtém material novo. WSL recebe argumentos como qualquer outro executável.
+  O erro não contém comando, argumentos ou saída. WSL recebe argumentos como
+  qualquer outro executável. Command reutiliza material cifrado em memória por
+  entrada/usuário, sem TTL presumido ou interpretação de JWT (decisão explícita
+  do mantenedor em 27/09/2026). Não persiste nem expõe o token materializado.
+- Execuções command concorrentes são serializadas por entrada, com espera
+  cancelável e reaproveitamento do sucesso. Falhas não são cacheadas. Alteração,
+  exclusão, recarga de configuração alterada, reset e troca/encerramento de
+  usuário invalidam material e execuções antigas. Renovar a mesma sessão ou
+  recarregar uma entrada persistida idêntica preserva o cache. Um 401 atrasado não invalida uma geração mais recente do token.
+- CredentialTransport invalida command somente em HTTP 401 e obtém material novo
+  sob demanda. Repete no máximo uma vez se o corpo for recriável e o material
+  mudou; nunca repete uploads sem GetBody, falhas de rede, 400 ou 403. Uma segunda
+  rejeição descarta o token sem nova execução nesse RoundTrip. Consumidores sem
+  esse transport continuam sem cache, pois não observam rejeição HTTP. Probes
+  e monitor de saúde de providers usam o transport para command. Gemini mantém
+  resolução direta: seu SDK captura X-Goog-Api-Key fora desse transport.
+- Env/keyring continuam resolvidos a cada uso. Não há renovação agendada.
 - Keyring seleciona explicitamente target Windows OU serviço+usuário; sem
   heurística de barra no segredo. Env usa nome sem prefixo.
 - Basic usa username configurado e source para password; custom usa um header.
@@ -43,7 +58,8 @@ atender executáveis locais e WSL sem acoplamento a fornecedor.
 
 - [x] Modelo, persistência e resolução de fontes.
 - [x] UI explícita e aplicação HTTP nos fluxos de providers.
-- [x] Validação completa, revisão independente local e CI/review remoto.
+- [x] Validação completa da entrega original, revisão independente local e CI/review remoto.
+- [x] Evolução de cache command: implementação e testes de concorrência, invalidação e renovação após 401.
 
 ## Riscos
 
@@ -63,8 +79,9 @@ retornados ao editor, nunca o token materializado.
 - [x] Build, vet, Go tests, TypeScript, ESLint, Stylelint e Vitest aprovados (CI Linux completo; limitações locais abaixo).
 - [x] Revisor independente sem pendências; CI verde e threads remotas resolvidas.
 
-OAuth completo, cache e renovação programada de command são evoluções futuras,
-fora do escopo aceito para esta entrega.
+OAuth completo e renovação programada de command continuam fora do escopo.
+A evolução de cache sob demanda está implementada; a entrega original permanece
+registrada nas evidências abaixo.
 
 ## Evidências de validação local
 
@@ -121,3 +138,71 @@ fora do escopo aceito para esta entrega.
   frontend, bindings e E2E. Confirma também a correção da revogação na fila.
 - Revisor local independente `review_credential_sources`: rodada final da
   correção de fila sem pendências. Nenhum merge automático autorizado.
+
+## Evolução: cache de command sob demanda (27/09/2026)
+
+Decisão do mantenedor: reutilizar tokens opacos até rejeição HTTP, sem supor TTL
+ou depender de JWT. O cache pertence ao transport HTTP; getters diretos mantêm
+resolução fresca. Probes e monitor de saúde compartilham o mesmo cache do chat.
+Gemini mantém resolução direta porque seu SDK captura a chave separadamente.
+Redirecionamentos de probes preparados ficam limitados à origem inicial,
+independentemente da fonte/scheme. O wrapper repassa CloseIdleConnections.
+
+Evidências verificáveis:
+- `command_cache_test.go`: execução única concorrente, isolamento entre usuários,
+  cache cifrado sem exposição por metadados, edição/delete/reset/sessão, falhas
+  sem cache, cancelamento de espera e execuções antigas, renovação única com
+  oito 401 concorrentes, preservação de corpo, token inalterado, segundo 401,
+  upload não repetível, erro de rede e respostas 400/403/500 sem renovação.
+- `TestProviderCommandCacheSharedByChatProbesAndHealth` e
+  `TestCommandProbeRejectsCrossOriginRedirect`: compartilhamento/renovação em
+  chat, sondagem, modelos e monitor; recusa de envio à origem externa.
+- `TestAuthSessionTransitionClearsCommandCredentialCache`: integração real de
+  transição de sessão com comando e HTTP; passou localmente.
+- Credenciais, provedores e LLM passaram localmente; build, vet e golangci-lint
+  passaram (zero issues). A orientação da tela tem regressão em CredentialsPage.
+- Revisor independente Codex `review_credential_sources`: nove rodadas; corrigidos
+  cache em consumidores sem observação HTTP e redirecionamento de probes;
+  terceira e quarta rodadas sem pendências. Quinta rodada identificou recarga
+  persistida redundante; corrigida com regressão DBStore. Sexta e sétima rodadas zeradas; oitava documental e nona sobre clientes compartilhados também sem achados.
+- Limitação local: detector de corrida indisponível sem CGO/GCC; suíte Go completa
+  encontrou saída 0xffffffff em ACP/acpregistry no Windows e atingiu o teto
+  agregado de 5 minutos de app durante teste de Deck. A suíte frontend passou
+  6.196 testes em 488 arquivos; tsc, ESLint e Stylelint passaram. A validação completa
+  Linux e o acompanhamento da revisão remota ficam registrados no PR da evolução.
+
+Revisão remota da evolução: proteção de redirects estendida a static/env/custom
+antes de qualquer retorno de preparação; regressão cobre as fontes e schemes em
+sondagem, modelos e saúde. `TestCommandTransportForwardsCloseIdleConnections`
+comprova que o fechamento pelo http.Client alcança o transport base. A limpeza
+de cancelamento mantém o gate da entrada retido: gerações novas não podem
+instalar cancel antes de a execução anterior sair; exclusão/sessão troca a entrada.
+
+- [CI da implementação 4e086ec8d](https://github.com/inclunet/assistente/actions/runs/36363992179):
+  aprovado, incluindo suíte Go completa no Linux, todos os grupos com detector
+  de corrida, frontend, bindings e E2E. Ajustes da revisão são revalidados no PR #849.
+
+Segunda revisão remota: renovação do login com o mesmo ID normalizado preserva
+cache; 401s concorrentes compartilham a renovação mesmo quando o valor não muda.
+Regressões: `TestAuthSessionTransitionClearsCommandCredentialCache` e
+`TestCommandTransportConcurrentUnchangedTokenRenewsOnce`. A proteção de origem
+abrange os clientes SDK normal/streaming e Gemini direto, incluindo ListModelsRaw
+com credencial existente ou ad-hoc. Testes cobrem origem, porta, downgrade,
+limite de redirects e listagem por OpenAI/Anthropic/Google.
+
+A recarga de uma entrada persistida idêntica preserva o cache, inclusive no
+RefreshAuth; salvar novamente ou carregar conteúdo alterado invalida a entrada.
+
+Terceira revisão remota: `ProbeConnection` público aplica a mesma restrição de
+origem, sem depender do callback de preparação. Falhas de resolução inicial e
+renovação no transport preservam o erro original e um marcador de credencial;
+a sondagem classifica `auth_invalid`, separando-as de falhas de rede.
+Regressões: `TestPublicProbeRejectsCrossOriginRedirect`,
+`TestCommandHealthClassifiesResolutionFailure` e `TestCommandTransportRetryLimits`.
+
+A política de redirects fica também nos construtores HTTP de credenciais
+compartilhados por chat, TTS e Whisper: o destino deve manter esquema, host e porta.
+
+A revisão independente confirmou os limites existentes: execução do comando
+limitada por SourceConfig e contexto; espera concorrente cancelável pelo contexto
+do chamador; sondagens limitadas pelo timeout do cliente. Não há TTL de cache.
