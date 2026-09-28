@@ -7,24 +7,25 @@ weight: 23
 
 ## Diagnosticar falhas de carregamento
 
-Se as camadas ou o mapa de teclado não carregarem, inicie o aplicativo com
-`ASSISTENTE_COMMAND_LOAD_DIAGNOSTICS=1`. No PowerShell, antes de abrir o executável:
+Falhas e lentidão ao carregar camadas ou o mapa de teclado são registradas
+automaticamente pelo logger do aplicativo, sem variável de ambiente adicional.
+Para gravar em arquivo, inicie no PowerShell:
 
 ```powershell
-$env:ASSISTENTE_COMMAND_LOAD_DIAGNOSTICS = "1"
 .\build\bin\assistente.exe --log-file assistente.log
 ```
 
 Use um executável compilado com esse diagnóstico e encerre a instância anterior
 normalmente primeiro: abrir uma segunda instância apenas apresenta a existente,
-não aplica a variável ao processo já aberto. Reproduza a falha abrindo
+não altera o destino do log do processo já aberto. Reproduza a falha abrindo
 **Configurações → Comandos e acionadores** e consulte `assistente.log`.
 
 Filtre por `component=app.command-load`. `load_id` correlaciona uma leitura;
 `operation=settings_load` identifica configurações/camadas e
 `operation=keyboard_map_load` identifica o mapa. `stage` informa a etapa,
-`elapsed_ms` a duração acumulada e `status` distingue início, etapa, lentidão,
-sucesso e falha. `slow` aparece uma vez após três segundos, sem interromper a
+`elapsed_ms` a duração acumulada e `status` distingue lentidão, sucesso e falha.
+Início e mudanças de etapa não geram linhas separadas: a etapa atual acompanha
+o resultado ou aviso. `slow` aparece uma vez após três segundos, sem interromper a
 operação. Em falhas, `error_class`, `error_types` e, quando disponível,
 `error_code` preservam a causa tipada anterior à mensagem genérica da interface.
 Erros desconhecidos têm classe `other`, não seu texto potencialmente sensível.
@@ -32,11 +33,8 @@ Erros desconhecidos têm classe `other`, não seu texto potencialmente sensível
 Isto não registra pressionamentos, atalhos individuais, conteúdo digitado,
 argumentos ou identificadores de sessão. Sucesso significa que o backend
 devolveu a leitura, não que a interface a aceitou. Não habilita comandos negados
-nem altera o banco. Para desligar, remova a variável e reinicie normalmente:
-
-```powershell
-Remove-Item Env:ASSISTENTE_COMMAND_LOAD_DIAGNOSTICS
-```
+nem altera o banco. Sem `--log-file`, não é criado arquivo de log por essa opção;
+as mensagens seguem a saída padrão de logging do aplicativo.
 
 Quando o armazenamento de comandos está habilitado, a limpeza automática de
 registros antigos ocorre em segundo plano após os comandos ficarem prontos,

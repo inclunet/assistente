@@ -63,23 +63,21 @@ type commandLoadCodedError struct{}
 func (commandLoadCodedError) Error() string { return "SECRET SQL arguments and user data" }
 func (commandLoadCodedError) Code() int     { return 517 }
 
-func TestCommandLoadDiagnosticsOptInAndNoSensitiveData(t *testing.T) {
+func TestCommandLoadDiagnosticsDefaultAndNoSensitiveData(t *testing.T) {
 	b := captureCommandLoadLogs(t)
-	t.Setenv("ASSISTENTE_COMMAND_LOAD_DIAGNOSTICS", "")
-	ctx, trace := beginCommandLoad(context.Background(), "settings_load")
-	trace.stage("store_load")
-	trace.finish(errors.New("SECRET"))
-	if trace != nil || len(commandLoadRecords(t, b)) != 0 {
-		t.Fatal("diagnóstico ativo sem opt-in")
-	}
-	t.Setenv("ASSISTENTE_COMMAND_LOAD_DIAGNOSTICS", "1")
-	ctx = logging.WithAttrs(ctx, slog.String("user_id", "SECRET"), slog.String("session_id", "SECRET"))
-	ctx, trace = beginCommandLoad(ctx, "settings_load")
+	ctx := logging.WithAttrs(context.Background(), slog.String("user_id", "SECRET"), slog.String("session_id", "SECRET"))
+	ctx, trace := beginCommandLoad(ctx, "settings_load")
 	defer trace.finish(nil)
 	commandLoadStage(ctx, "store_load")
+	if len(commandLoadRecords(t, b)) != 0 {
+		t.Fatal("início e etapas não devem gerar ruído")
+	}
 	commandLoadCause(ctx, fmt.Errorf("SECRET wrapped: %w", commandLoadCodedError{}))
 	trace.finish(commandexecution.ErrDenied)
 	records := commandLoadRecords(t, b)
+	if len(records) != 1 {
+		t.Fatalf("esperado um resultado sem opt-in, obtido %d", len(records))
+	}
 	last := records[len(records)-1]
 	if last["status"] != "failed" || last["stage"] != "store_load" || last["error_class"] != "sqlite_busy" || last["error_code"] != float64(517) {
 		t.Fatalf("causa perdida: %+v", last)
@@ -95,7 +93,6 @@ func TestCommandLoadDiagnosticsOptInAndNoSensitiveData(t *testing.T) {
 }
 
 func TestCommandLoadDiagnosticsSlowAndFinishAreBounded(t *testing.T) {
-	t.Setenv("ASSISTENTE_COMMAND_LOAD_DIAGNOSTICS", "1")
 	b := captureCommandLoadLogs(t)
 	_, trace := beginCommandLoad(context.Background(), "keyboard_map_load")
 	defer trace.finish(nil)
@@ -116,7 +113,6 @@ func TestCommandLoadDiagnosticsSlowAndFinishAreBounded(t *testing.T) {
 }
 
 func TestCommandLoadDiagnosticsEndpointsPreserveOriginalFailure(t *testing.T) {
-	t.Setenv("ASSISTENTE_COMMAND_LOAD_DIAGNOSTICS", "1")
 	b := captureCommandLoadLogs(t)
 	a := &App{}
 	if _, err := a.GetCommandSettingsForScope("pt-BR", "global"); !errors.Is(err, commandexecution.ErrInvalidConfiguration) {
@@ -141,7 +137,6 @@ func TestCommandLoadDiagnosticsEndpointsPreserveOriginalFailure(t *testing.T) {
 
 func TestCommandLoadDiagnosticsSuccessfulReads(t *testing.T) {
 	a := commandJobPublicationApp(t)
-	t.Setenv("ASSISTENTE_COMMAND_LOAD_DIAGNOSTICS", "1")
 	b := captureCommandLoadLogs(t)
 	if _, err := a.GetCommandSettingsForScope("pt-BR", "global"); err != nil {
 		t.Fatal(err)
@@ -161,7 +156,6 @@ func TestCommandLoadDiagnosticsSuccessfulReads(t *testing.T) {
 }
 
 func TestCommandLoadDiagnosticsTimerReportsWaitingStage(t *testing.T) {
-	t.Setenv("ASSISTENTE_COMMAND_LOAD_DIAGNOSTICS", "1")
 	b := captureCommandLoadLogs(t)
 	_, trace := beginCommandLoad(context.Background(), "settings_load")
 	defer trace.finish(nil)
