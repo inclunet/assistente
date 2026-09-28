@@ -121,11 +121,9 @@ func (p *tavilyProvider) Search(ctx context.Context, client *httpclient.Client, 
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
-	// Resolução única: aplica aqui o material de auth resolvido e pré-define
-	// Authorization para que o interceptor do cliente centralizado não
-	// execute uma segunda resolução (fontes dinâmicas como `command` teriam
-	// custo/efeitos repetidos e poderiam divergir). O header vai para o
-	// endpoint fixo via TLS.
+	// Resolução única via WithManualAuth: o interceptor não resolve nem
+	// injeta nada (fontes dinâmicas como `command` seriam executadas duas
+	// vezes, com custo/efeitos e risco de divergência).
 	req.Header.Set("Authorization", "Bearer "+token)
 	for key, val := range auth.Headers {
 		if !strings.EqualFold(key, "Authorization") {
@@ -133,7 +131,7 @@ func (p *tavilyProvider) Search(ctx context.Context, client *httpclient.Client, 
 		}
 	}
 
-	resp, err := client.Do(ctx, req)
+	resp, err := client.Do(httpclient.WithManualAuth(ctx), req)
 	if err != nil {
 		return nil, fmt.Errorf("erro na requisição: %w", err)
 	}

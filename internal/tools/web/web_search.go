@@ -16,16 +16,18 @@ import (
 )
 
 // WebSearch realiza buscas na web usando uma API de busca.
-// Usa a cadeia Brave → Tavily (chaves via credmanager) quando há credencial
-// cadastrada, com fallback automático para DuckDuckGo HTML (sem API key).
-// Usa cliente HTTP centralizado com auth/retry automático.
+// Usa a cadeia Brave → Tavily → Bing (chaves via credmanager) quando há
+// credencial cadastrada, com fallback automático para DuckDuckGo HTML (sem
+// API key). Usa cliente HTTP centralizado com auth/retry automático.
 type WebSearch struct {
 	client   *httpclient.Client
 	provider SearchProvider
-	// brave/tavily/fallback compõem a cadeia padrão; provider customizado
-	// injetado via NewWebSearchWithProvider tem precedência (usado em testes).
+	// brave/tavily/bing/fallback compõem a cadeia padrão; provider
+	// customizado injetado via NewWebSearchWithProvider tem precedência
+	// (usado em testes).
 	brave    *braveProvider
 	tavily   *tavilyProvider
+	bing     *bingProvider
 	fallback SearchProvider
 	// allowPrivateHosts libera hosts privados nos guards (testes com
 	// httptest). Padrão: false.
@@ -48,8 +50,9 @@ type SearchResult struct {
 	Snippet string `json:"snippet"`
 }
 
-// NewWebSearch cria uma nova instância de WebSearch: cadeia Brave → Tavily
-// (via credmanager) com fallback para o provedor DuckDuckGo padrão.
+// NewWebSearch cria uma nova instância de WebSearch: cadeia
+// Brave → Tavily → Bing (via credmanager) com fallback para o provedor
+// DuckDuckGo padrão.
 func NewWebSearch(credMgr *credentials.Manager) *WebSearch {
 	if credMgr == nil {
 		credMgr = credentials.NewManager(nil)
@@ -62,13 +65,14 @@ func NewWebSearch(credMgr *credentials.Manager) *WebSearch {
 		provider: &duckDuckGoProvider{},
 		brave:    &braveProvider{credMgr: credMgr},
 		tavily:   &tavilyProvider{credMgr: credMgr},
+		bing:     &bingProvider{credMgr: credMgr},
 		fallback: &duckDuckGoProvider{},
 	}
-	// Brave e Tavily trafegam chave de API em header (X-Subscription-Token e
-	// Authorization): o net/http propaga headers nesses casos em redirects
-	// para outro host. Instala o guard compartilhado para aparar
-	// headers sensíveis em redirect não confiável e manter a barreira
-	// anti-SSRF pós-DNS — mesmo padrão de WebFetch/FeedRead.
+	// Os provedores com API trafegam a chave em header: o net/http propaga
+	// headers nesses casos em redirects para outro host. Instala o guard
+	// compartilhado para aparar headers sensíveis em redirect não confiável
+	// e manter a barreira anti-SSRF pós-DNS — mesmo padrão de
+	// WebFetch/FeedRead.
 	if bc := client.GetBaseClient(); bc != nil {
 		bc.CheckRedirect = httpclient.RedirectGuard(httpclient.DefaultMaxRedirects, func() bool { return tool.allowPrivateHosts })
 		httpclient.SetTransportGuard(bc, func() bool { return tool.allowPrivateHosts })
@@ -76,7 +80,7 @@ func NewWebSearch(credMgr *credentials.Manager) *WebSearch {
 	return tool
 }
 
-// NewWebSearchWithProvider cria WebSearch com um provedor customizado (ex: Google, Bing).
+// NewWebSearchWithProvider cria WebSearch com um provedor customizado (ex: outro buscador).
 func NewWebSearchWithProvider(credMgr *credentials.Manager, provider SearchProvider) *WebSearch {
 	if credMgr == nil {
 		credMgr = credentials.NewManager(nil)
@@ -225,16 +229,17 @@ func (t *WebSearch) Execute(ctx context.Context, args json.RawMessage) (tools.To
 	}, nil
 }
 
-// searchWithFallback executa a cadeia padrão Brave → Tavily → DuckDuckGo e
-// devolve os resultados com o nome do provedor que respondeu. Um provider
-// customizado injetado (NewWebSearchWithProvider) tem precedência e é usado
-// direto, sem cadeia — preservando o comportamento dos testes com mock.
+// searchWithFallback executa a cadeia padrão Brave → Tavily → Bing →
+// DuckDuckGo e devolve os resultados com o nome do provedor que respondeu.
+// Um provider customizado injetado (NewWebSearchWithProvider) tem precedência
+// e é usado direto, sem cadeia — preservando o comportamento dos testes com
+// mock.
 //
 // Avanço na cadeia acontece quando não há credencial do provedor, a API
 // responde auth/quota/limite (Brave: 401/403/429/422; Tavily:
-// 401/403/429/432/433) ou o offset está além da janela servível. Erro
-// operacional na resolução da credencial e demais erros são propagados sem
-// fabricar resultados.
+// 401/403/429/432/433; Bing: 401/403/429) ou o offset está além da janela
+// servível. Erro operacional na resolução da credencial e demais erros são
+// propagados sem fabricar resultados.
 func (t *WebSearch) searchWithFallback(ctx context.Context, query string, offset, maxResults int) ([]SearchResult, string, error) {
 	if t.brave == nil || t.fallback == nil {
 		results, err := t.provider.Search(ctx, t.client, query, offset, maxResults)
@@ -243,6 +248,9 @@ func (t *WebSearch) searchWithFallback(ctx context.Context, query string, offset
 	chain := []SearchProvider{t.brave}
 	if t.tavily != nil {
 		chain = append(chain, t.tavily)
+	}
+	if t.bing != nil {
+		chain = append(chain, t.bing)
 	}
 	chain = append(chain, t.fallback)
 	var lastErr error
@@ -287,10 +295,10 @@ func trimBearerPrefix(token string) string {
 
 // isSearchFallbackable decide se um erro de qualquer provedor da cadeia
 // justifica avançar para o próximo: sentinelas de janela excedida e de
-// ausência de credencial Tavily, regra do Brave via helper dedicado e
-// status HTTP fallbackables da Tavily.
+// ausência de credencial (Tavily/Bing), regra do Brave via helper dedicado e
+// status HTTP fallbackables de Tavily e Bing.
 func isSearchFallbackable(err error) bool {
-	if err == errNoTavilyCredential || err == errTavilyWindowExceeded {
+	if err == errNoTavilyCredential || err == errTavilyWindowExceeded || err == errNoBingCredential {
 		return true
 	}
 	if isBraveFallbackable(err) {
@@ -299,6 +307,10 @@ func isSearchFallbackable(err error) bool {
 	var tavilyErr *tavilyStatusError
 	if errors.As(err, &tavilyErr) {
 		return tavilyFallbackable(tavilyErr.StatusCode)
+	}
+	var bingErr *bingStatusError
+	if errors.As(err, &bingErr) {
+		return bingFallbackable(bingErr.StatusCode)
 	}
 	return false
 }
