@@ -15,6 +15,7 @@ import (
 )
 
 func TestRunRemoveFlagPropagaStartupErrorEFechaLog(t *testing.T) {
+	isolateDesktopReservation(t)
 	previousRunDesktop := runDesktop
 	previousStartDesktop := startDesktop
 	previousQuitDesktop := quitDesktop
@@ -76,6 +77,7 @@ func TestRunRemoveFlagPropagaStartupErrorEFechaLog(t *testing.T) {
 }
 
 func TestRunPropagaErroDoRunnerEFechaLog(t *testing.T) {
+	isolateDesktopReservation(t)
 	previousRunDesktop := runDesktop
 	previousNativeError := showNativeFatalError
 	previousLocaleProvider := startupLocaleProvider

@@ -78,27 +78,28 @@ type UpdateLLMProviderRequest = apidto.UpdateLLMProviderRequest
 
 // App struct
 type App struct {
-	ctx               context.Context
-	cancel            context.CancelFunc    // cancela o ctx raiz no Shutdown
-	bgWG              sync.WaitGroup        // join das goroutines de background no Shutdown
-	llmRegistry       *llm.ProviderRegistry // Registro de provedores LLM
-	profileManager    *profiles.Manager
-	profileAccess     *profileaccess.Service
-	profileAccessOnce sync.Once
-	jobGrantStore     *jobprofilegrant.Store
-	toolRegistry      *tools.Registry          // Registro de ferramentas disponíveis
-	toolExecutor      *tools.Executor          // Executor de ferramentas com paralelismo e timeout
-	toolInvocationSvc *toolinvocations.Service // Persistência e execução comum de tool calls
-	terminalMgr       *terminal.Manager        // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
-	questionnaireMgr  *questionnaire.Manager   // Gerenciador de questionários (coleta estruturada)
-	allowlistMgr      *allowlist.Manager       // Gerenciador de allowlists de comandos
-	netTrustMgr       *nettrust.Manager        // Allowlist de rede escopável (anti-SSRF override)
-	fsTrustMgr        *fstrust.Manager         // Allowlist de paths fora do sandbox (AEP-0092)
-	mcpMgr            *mcpmgr.Manager          // Gerenciador de servidores MCP
-	acpMgr            *acp.Manager             // Processos e sessões dos agentes ACP (AEP-0084)
-	acpTrust          *acptrust.Store          // Permissões que o perfil concedeu ao agente para sempre (AEP-0084 D9)
-	acpRegistry       *acpregistry.Service     // Catálogo de agentes do registro oficial do ACP (AEP-0086 D2)
-	skillMgr          *skills.Manager          // Gerenciador de skills
+	desktopDatabasePath string // fixado antes do startup, sob a reserva desktop
+	ctx                 context.Context
+	cancel              context.CancelFunc    // cancela o ctx raiz no Shutdown
+	bgWG                sync.WaitGroup        // join das goroutines de background no Shutdown
+	llmRegistry         *llm.ProviderRegistry // Registro de provedores LLM
+	profileManager      *profiles.Manager
+	profileAccess       *profileaccess.Service
+	profileAccessOnce   sync.Once
+	jobGrantStore       *jobprofilegrant.Store
+	toolRegistry        *tools.Registry          // Registro de ferramentas disponíveis
+	toolExecutor        *tools.Executor          // Executor de ferramentas com paralelismo e timeout
+	toolInvocationSvc   *toolinvocations.Service // Persistência e execução comum de tool calls
+	terminalMgr         *terminal.Manager        // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
+	questionnaireMgr    *questionnaire.Manager   // Gerenciador de questionários (coleta estruturada)
+	allowlistMgr        *allowlist.Manager       // Gerenciador de allowlists de comandos
+	netTrustMgr         *nettrust.Manager        // Allowlist de rede escopável (anti-SSRF override)
+	fsTrustMgr          *fstrust.Manager         // Allowlist de paths fora do sandbox (AEP-0092)
+	mcpMgr              *mcpmgr.Manager          // Gerenciador de servidores MCP
+	acpMgr              *acp.Manager             // Processos e sessões dos agentes ACP (AEP-0084)
+	acpTrust            *acptrust.Store          // Permissões que o perfil concedeu ao agente para sempre (AEP-0084 D9)
+	acpRegistry         *acpregistry.Service     // Catálogo de agentes do registro oficial do ACP (AEP-0086 D2)
+	skillMgr            *skills.Manager          // Gerenciador de skills
 	// acpCatalogSvc é o catálogo do registro ACP: o serviço acima e o instalador
 	// de agentes (AEP-0086). Montado na primeira chamada que precisa dele — ver
 	// acpCatalogServices em app_acp_install.go —, porque o instalador só existe
@@ -939,7 +940,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.dialogPort = dialog
 
 	// Inicializa o banco de dados (falha crítica: sem DB nada funciona)
-	if err := InitDatabase(); err != nil {
+	if err := a.initDesktopDatabase(); err != nil {
 		return fmt.Errorf("erro ao inicializar banco de dados: %w", err)
 	}
 	// Drafts não são mais varridos por idade no boot pré-login. O cleanup
