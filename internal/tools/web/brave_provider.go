@@ -86,20 +86,17 @@ func (p *braveProvider) Search(ctx context.Context, client *httpclient.Client, q
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Subscription-Token", token)
-	// Resolução única: aplica aqui todo o material de auth resolvido e
-	// pré-define Authorization para que o interceptor do cliente
-	// centralizado não execute uma segunda resolução (fontes dinâmicas como
-	// `command` teriam custo/efeitos repetidos e poderiam divergir). O header
-	// redundante vai para o mesmo endpoint via TLS e é ignorado pela Brave,
-	// que autentica pelo X-Subscription-Token.
+	// Resolução única via WithManualAuth: o interceptor não resolve nem
+	// injeta nada (fontes dinâmicas como `command` seriam executadas duas
+	// vezes, com custo/efeitos e risco de divergência). Sem o header
+	// redundante `Authorization: Bearer`, que a Brave ignora.
 	for key, val := range auth.Headers {
 		if !strings.EqualFold(key, "X-Subscription-Token") {
 			req.Header.Set(key, val)
 		}
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := client.Do(ctx, req)
+	resp, err := client.Do(httpclient.WithManualAuth(ctx), req)
 	if err != nil {
 		return nil, fmt.Errorf("erro na requisição: %w", err)
 	}
