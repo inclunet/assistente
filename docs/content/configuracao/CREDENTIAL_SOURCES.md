@@ -29,7 +29,26 @@ O comando precisa estar instalado e autenticado, retornar um token em stdout
 O Assistente não exibe stdout nem stderr em erros. A execução ocorre com as
 permissões do app; evite segredos literais nos argumentos. Timeout cancela o
 processo direto, sem promessa de encerrar todos os descendentes ou processos WSL.
-Cada uso resolve novamente a fonte; não há cache nem renovação agendada.
+Para **Comando**, o resultado é reutilizado em memória, cifrado, separado por
+credencial e usuário. Não há TTL presumido, leitura de JWT ou renovação periódica:
+a saída é tratada como token opaco. Chamadas simultâneas aguardam a mesma execução
+bem-sucedida; cancelar uma espera não cancela a execução de outra chamada.
+
+Nas requisições HTTP que usam o transport de credenciais (incluindo provedores
+LLM), uma resposta **401** descarta o token rejeitado. Se o corpo puder ser
+recriado, o Assistente obtém um token novo e repete a requisição **no máximo uma
+vez**, apenas se o valor mudou. Uploads sem corpo repetível não são reenviados;
+a próxima chamada obtém um novo token. Erros 400, 403, de rede ou de banco não
+renovam credenciais. Se o servidor indicar expiração de outra forma, salve
+novamente a configuração da credencial para limpar o cache.
+
+Salvar/excluir a credencial, recarregar sua configuração, mudar/encerrar a sessão
+ou fechar o app descarta o cache. O token materializado não vai para o banco nem
+para a tela de edição. Env e keyring continuam sendo consultados a cada uso.
+Consumidores que obtêm o segredo diretamente, sem esse transport HTTP (como
+ferramentas HTTP e o SDK Gemini), continuam executando o comando a cada uso.
+As sondagens de conexão e o monitor de saúde do provedor compartilham o cache
+do transport; chaves digitadas apenas para teste continuam isoladas.
 
 Em Basic, o usuário fica na configuração e a fonte fornece a senha. Em header
 customizado, informe o nome do header; a fonte fornece seu valor.

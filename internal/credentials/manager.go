@@ -21,22 +21,25 @@ import (
 
 // AuthConfig descreve como autenticar em um domínio
 type AuthConfig struct {
-	Source          string
-	SourceConfig    *SourceConfig
-	SourceConfigEnc string            // configuração cifrada em memória e no store
-	Type            string            // "bearer", "basic", "oauth2", "custom", "none"
-	Token           string            // para bearer, oauth2
-	Username        string            // para basic auth
-	Password        string            // para basic auth
-	Headers         map[string]string // headers customizados (já com valores)
-	ExpiresAt       int64             // unix timestamp, 0 = sem expiração
-	RefreshURL      string            // para oauth2 refresh
-	ClientSecret    string            // para oauth2 client credentials (criptografado)
-	ClientID        string            // para oauth2 DCR (dynamic client registration)
+	commandEntry      *DomainCredential // recibo transitório; nunca serializado
+	commandGeneration uint64
+	Source            string
+	SourceConfig      *SourceConfig
+	SourceConfigEnc   string            // configuração cifrada em memória e no store
+	Type              string            // "bearer", "basic", "oauth2", "custom", "none"
+	Token             string            // para bearer, oauth2
+	Username          string            // para basic auth
+	Password          string            // para basic auth
+	Headers           map[string]string // headers customizados (já com valores)
+	ExpiresAt         int64             // unix timestamp, 0 = sem expiração
+	RefreshURL        string            // para oauth2 refresh
+	ClientSecret      string            // para oauth2 client credentials (criptografado)
+	ClientID          string            // para oauth2 DCR (dynamic client registration)
 }
 
 // DomainCredential mapeia um padrão de domínio a credenciais
 type DomainCredential struct {
+	command commandCredentialCache // protegido por Manager.mu
 	ID      string
 	UserID  string
 	Pattern string // "*.github.com", "api.example.com", etc
@@ -167,6 +170,7 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 		sameStoredCredential := persistedID != "" && existing.ID == persistedID
 		sameScopedPattern := existing.Pattern == pattern && existing.UserID == userID
 		if sameStoredCredential || sameScopedPattern {
+			existing.invalidateCommandCache()
 			m.credentials[i] = &DomainCredential{ID: persistedID, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth}
 			return nil
 		}
@@ -300,6 +304,11 @@ func (m *Manager) GetByPattern(pattern string) (*AuthConfig, error) {
 }
 
 func (m *Manager) GetByPatternWithContext(ctx context.Context, pattern string) (*AuthConfig, error) {
+	return m.getByPatternWithContext(ctx, pattern, false)
+}
+
+// O cache é opt-in do transport que observa rejeições de autenticação.
+func (m *Manager) getByPatternWithContext(ctx context.Context, pattern string, cacheCommand bool) (*AuthConfig, error) {
 	m.mu.RLock()
 	locked := true
 	defer func() {
@@ -330,6 +339,9 @@ func (m *Manager) GetByPatternWithContext(ctx context.Context, pattern string) (
 			}
 			m.mu.RUnlock()
 			locked = false
+			if cacheCommand {
+				return m.resolveCredentialSource(ctx, dc, auth)
+			}
 			return ResolveSource(ctx, auth)
 		}
 	}
@@ -357,6 +369,8 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 	for _, dc := range m.credentials {
 		if dc.Pattern != pattern || (userID != "" && dc.UserID != userID) {
 			filtered = append(filtered, dc)
+		} else {
+			dc.invalidateCommandCache()
 		}
 	}
 	// evita manter referências antigas
@@ -488,6 +502,9 @@ func (m *Manager) Reset(encryptionKey []byte, persist bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	for _, dc := range m.credentials {
+		dc.invalidateCommandCache()
+	}
 	m.encKey = encryptionKey
 	m.credentials = make([]*DomainCredential, 0)
 	m.persist = persist && m.store != nil
@@ -512,6 +529,7 @@ func (m *Manager) registerEncryptedPattern(id, userID, pattern string, encAuth *
 		sameStoredCredential := id != "" && existing.ID == id
 		sameScopedPattern := existing.Pattern == pattern && existing.UserID == userID
 		if sameStoredCredential || sameScopedPattern {
+			existing.invalidateCommandCache()
 			m.credentials[i] = &DomainCredential{ID: id, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth}
 			updated = true
 			break

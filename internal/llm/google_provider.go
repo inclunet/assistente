@@ -57,6 +57,11 @@ func (p *GoogleProvider) newStreamingClient(ctx context.Context) (*genai.Client,
 
 	tracker := &googleUsagePresenceTracker{}
 	httpClient := newStreamingHTTPClientForProvider(p.provider, p.credMgr)
+	// Gemini captura X-Goog-Api-Key na construção do SDK. Não cachear uma
+	// segunda credencial bearer que não controla esse header.
+	if ct, ok := httpClient.Transport.(*credentials.CredentialTransport); ok {
+		ct.DisableCommandCache = true
+	}
 	transport := httpClient.Transport
 	if transport == nil {
 		transport = http.DefaultTransport

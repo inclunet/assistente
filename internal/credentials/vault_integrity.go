@@ -256,6 +256,7 @@ func (m *Manager) PurgeUnreadableCredentials(ctx context.Context) (int, error) {
 		}
 		for _, c := range m.credentials {
 			if _, drop := removedSet[c.ID]; drop {
+				c.invalidateCommandCache()
 				continue
 			}
 			toKeep = append(toKeep, c)

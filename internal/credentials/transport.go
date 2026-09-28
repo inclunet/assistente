@@ -2,6 +2,7 @@ package credentials
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -37,9 +38,10 @@ const (
 // nos requests HTTP. Projetado para uso com SDKs oficiais (openai-go, etc)
 // que aceitam http.Client customizado.
 type CredentialTransport struct {
-	Base        http.RoundTripper
-	CredMgr     *Manager
-	CredPattern string // padr├úo para lookup no credMgr (ex: "api.openai.com")
+	DisableCommandCache bool // SDKs que capturam uma chave fora deste transport
+	Base                http.RoundTripper
+	CredMgr             *Manager
+	CredPattern         string // padr├úo para lookup no credMgr (ex: "api.openai.com")
 	// AuthMode classifica como tratar ausência de credencial. Default
 	// (zero value) = AuthRequired, mantendo o comportamento histórico
 	// para todos os providers cloud.
@@ -96,7 +98,7 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		return t.Base.RoundTrip(req)
 	}
 
-	auth, err := t.CredMgr.GetByPatternWithContext(req.Context(), t.CredPattern)
+	auth, err := t.CredMgr.getByPatternWithContext(req.Context(), t.CredPattern, !t.DisableCommandCache)
 	if err != nil {
 		if t.AuthMode == AuthOptional {
 			// AuthOptional + erro de resolução: tratamos como "sem
@@ -123,11 +125,56 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		return t.Base.RoundTrip(req)
 	}
 
-	if err := ApplyAuth(req, auth); err != nil {
+	first := req.Clone(req.Context())
+	if err := ApplyAuth(first, auth); err != nil {
 		return nil, err
 	}
+	response, err := t.Base.RoundTrip(first)
+	if err != nil || response == nil || response.StatusCode != http.StatusUnauthorized || !t.CredMgr.rejectCommandCredential(auth) {
+		return response, err
+	}
+	// Só repetimos uma rejeição explícita de autenticação, nunca falhas de rede,
+	// 403 ou streaming já iniciado. Corpos de upload sem GetBody não são repetidos.
+	if req.Body != nil && req.Body != http.NoBody && req.GetBody == nil {
+		return response, nil
+	}
+	fresh, err := t.CredMgr.getByPatternWithContext(req.Context(), t.CredPattern, !t.DisableCommandCache)
+	if err != nil {
+		_ = response.Body.Close()
+		return nil, err
+	}
+	if fresh == nil || fresh.commandEntry != auth.commandEntry {
+		return response, nil
+	}
+	if sameHTTPAuth(auth, fresh) {
+		t.CredMgr.rejectCommandCredential(fresh)
+		return response, nil
+	}
+	retry := req.Clone(req.Context())
+	if req.Body != nil && req.Body != http.NoBody {
+		retry.Body, err = req.GetBody()
+		if err != nil {
+			return response, nil
+		}
+	}
+	if err := ApplyAuth(retry, fresh); err != nil {
+		if retry.Body != nil {
+			_ = retry.Body.Close()
+		}
+		_ = response.Body.Close()
+		return nil, err
+	}
+	_ = response.Body.Close()
+	response, err = t.Base.RoundTrip(retry)
+	if err == nil && response != nil && response.StatusCode == http.StatusUnauthorized {
+		t.CredMgr.rejectCommandCredential(fresh)
+	}
+	return response, err
+}
 
-	return t.Base.RoundTrip(req)
+func sameHTTPAuth(a, b *AuthConfig) bool {
+	return a.Type == b.Type && a.Token == b.Token && a.Username == b.Username &&
+		a.Password == b.Password && maps.Equal(a.Headers, b.Headers)
 }
 
 func hasManagedCredentialPlaceholder(req *http.Request) bool {

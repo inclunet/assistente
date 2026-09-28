@@ -29,6 +29,10 @@ type ConnectionProbeResult struct {
 // Classifica a resposta em URLReachable, AuthOK, ModelsAvailable e retorna modelos se disponíveis.
 // apiKey pode ser vazio — neste caso a função apenas verifica acessibilidade da URL.
 func (s *Service) ProbeConnection(ctx context.Context, baseURL, apiKey string) ConnectionProbeResult {
+	return s.probeConnection(ctx, baseURL, apiKey, nil)
+}
+
+func (s *Service) probeConnection(ctx context.Context, baseURL, apiKey string, prepare func(*http.Request, *http.Client) error) ConnectionProbeResult {
 	result := ConnectionProbeResult{}
 
 	parsedURL, err := url.Parse(baseURL)
@@ -53,6 +57,13 @@ func (s *Service) ProbeConnection(ctx context.Context, baseURL, apiKey string) C
 		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	}
 
+	if prepare != nil {
+		if err := prepare(httpReq, client); err != nil {
+			result.ErrorType = "auth_invalid"
+			result.ErrorDetail = "Não foi possível resolver a credencial do provedor."
+			return result
+		}
+	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		result.ErrorType = "url_unreachable"
@@ -81,7 +92,7 @@ func (s *Service) ProbeConnection(ctx context.Context, baseURL, apiKey string) C
 		}
 
 	case resp.StatusCode == http.StatusUnauthorized:
-		if apiKey != "" {
+		if apiKey != "" || prepare != nil {
 			result.ErrorType = "auth_invalid"
 			result.ErrorDetail = "A API Key informada foi rejeitada pelo servidor (401 Unauthorized). Verifique se a chave está correta."
 		} else {

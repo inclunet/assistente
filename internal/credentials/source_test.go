@@ -18,6 +18,28 @@ func TestCredentialCommandHelper(t *testing.T) {
 	}
 	mode := os.Args[len(os.Args)-1]
 	switch mode {
+	case "cache":
+		f, err := os.OpenFile(os.Getenv("CREDENTIAL_CACHE_CALLS"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		if err != nil {
+			os.Exit(3)
+		}
+		if _, err := fmt.Fprintln(f, "call"); err != nil {
+			os.Exit(3)
+		}
+		if err := f.Close(); err != nil {
+			os.Exit(3)
+		}
+		for {
+			if _, err := os.Stat(os.Getenv("CREDENTIAL_CACHE_HOLD")); err != nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		value, err := os.ReadFile(os.Getenv("CREDENTIAL_CACHE_VALUE"))
+		if err != nil {
+			os.Exit(3)
+		}
+		fmt.Print(string(value))
 	case "success":
 		fmt.Print("  token-value\n")
 	case "fail":

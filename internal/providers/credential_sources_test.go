@@ -9,12 +9,33 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 )
 
 func TestProviderCredentialCommandHelper(t *testing.T) {
 	if os.Getenv("PROVIDER_CREDENTIAL_HELPER") != "1" {
 		return
+	}
+	if path := os.Getenv("PROVIDER_COMMAND_VALUE_FILE"); path != "" {
+		value, err := os.ReadFile(path)
+		if err != nil {
+			os.Exit(3)
+		}
+		f, err := os.OpenFile(os.Getenv("PROVIDER_COMMAND_CALLS_FILE"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		if err != nil {
+			os.Exit(3)
+		}
+		if _, err := fmt.Fprintln(f, "call"); err != nil {
+			os.Exit(3)
+		}
+		if err := f.Close(); err != nil {
+			os.Exit(3)
+		}
+		fmt.Print(string(value))
+		os.Exit(0)
 	}
 	fmt.Print("source-token")
 	os.Exit(0)
@@ -226,5 +247,123 @@ func TestProviderMetadataRequiresNonMaterializingReader(t *testing.T) {
 	status := svc.ListWithStatus(ctx)
 	if len(status) != 1 || !status[0].CredentialConfigured {
 		t.Fatal("listing lost configuration")
+	}
+}
+
+func TestProviderCommandCacheSharedByChatProbesAndHealth(t *testing.T) {
+	t.Setenv("PROVIDER_CREDENTIAL_HELPER", "1")
+	dir := t.TempDir()
+	valueFile := filepath.Join(dir, "value")
+	callsFile := filepath.Join(dir, "calls")
+	t.Setenv("PROVIDER_COMMAND_VALUE_FILE", valueFile)
+	t.Setenv("PROVIDER_COMMAND_CALLS_FILE", callsFile)
+	set := func(v string) {
+		t.Helper()
+		if e := os.WriteFile(valueFile, []byte(v), 0600); e != nil {
+			t.Fatal(e)
+		}
+	}
+	count := func() int { v, _ := os.ReadFile(callsFile); return strings.Count(string(v), "call\n") }
+	set("first")
+	var accepted atomic.Value
+	accepted.Store("first")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+accepted.Load().(string) {
+			w.WriteHeader(401)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"data":[{"id":"model"}]}`)
+	}))
+	defer server.Close()
+	u, _ := url.Parse(server.URL)
+	exe, e := os.Executable()
+	if e != nil {
+		t.Fatal(e)
+	}
+	mgr := credentials.NewManager(nil)
+	if e := mgr.RegisterPattern(u.Hostname(), &credentials.AuthConfig{Source: "command", Type: "bearer", SourceConfig: &credentials.SourceConfig{Command: exe, Args: []string{"-test.run=^TestProviderCredentialCommandHelper$"}}}); e != nil {
+		t.Fatal(e)
+	}
+	registry := llm.NewProviderRegistry()
+	if e := registry.Register(&llm.ProviderConfig{ID: "saved", Name: "saved", Type: llm.ProviderOpenAI, BaseURL: server.URL, CredentialPattern: u.Hostname()}); e != nil {
+		t.Fatal(e)
+	}
+	svc := NewService(ServiceConfig{Registry: registry, CredMgr: mgr, Store: NewMemoryStore()})
+	ctx := context.Background()
+	req := TestRequest{BaseURL: server.URL, ProviderID: "saved"}
+	client := credentials.NewHTTPClient(mgr, u.Hostname(), 0)
+	response, e := client.Get(server.URL)
+	if e != nil {
+		t.Fatal(e)
+	}
+	_ = response.Body.Close()
+	if ok, e := svc.TestConnection(ctx, req); e != nil || !ok {
+		t.Fatal(e)
+	}
+	if _, e := svc.ListModels(ctx, req); e != nil {
+		t.Fatal(e)
+	}
+	if health := svc.CheckHealth(ctx, profileForProvider("saved")); health.State != HealthOnline {
+		t.Fatalf("health=%+v", health)
+	}
+	if count() != 1 {
+		t.Fatalf("cache não compartilhado: %d", count())
+	}
+	accepted.Store("second")
+	set("second")
+	if health := svc.CheckHealth(ctx, profileForProvider("saved")); health.State != HealthOnline {
+		t.Fatalf("health renovado=%+v", health)
+	}
+	if count() != 2 {
+		t.Fatalf("renovação=%d", count())
+	}
+	accepted.Store("third")
+	set("third")
+	if _, e := svc.ListModels(ctx, req); e != nil {
+		t.Fatal(e)
+	}
+	accepted.Store("fourth")
+	set("fourth")
+	if ok, e := svc.TestConnection(ctx, req); e != nil || !ok {
+		t.Fatal(e)
+	}
+	if count() != 4 {
+		t.Fatalf("probes sem renovação: %d", count())
+	}
+}
+
+func TestCommandProbeRejectsCrossOriginRedirect(t *testing.T) {
+	t.Setenv("PROVIDER_CREDENTIAL_HELPER", "1")
+	var reached atomic.Int32
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached.Add(1); w.WriteHeader(200) }))
+	defer destination.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, destination.URL, http.StatusFound) }))
+	defer origin.Close()
+	u, _ := url.Parse(origin.URL)
+	exe, e := os.Executable()
+	if e != nil {
+		t.Fatal(e)
+	}
+	mgr := credentials.NewManager(nil)
+	if e := mgr.RegisterPattern(u.Hostname(), &credentials.AuthConfig{Source: "command", Type: "bearer", SourceConfig: &credentials.SourceConfig{Command: exe, Args: []string{"-test.run=^TestProviderCredentialCommandHelper$"}}}); e != nil {
+		t.Fatal(e)
+	}
+	registry := llm.NewProviderRegistry()
+	if e := registry.Register(&llm.ProviderConfig{ID: "redirect", Name: "redirect", Type: llm.ProviderOpenAI, BaseURL: origin.URL, CredentialPattern: u.Hostname()}); e != nil {
+		t.Fatal(e)
+	}
+	svc := NewService(ServiceConfig{Registry: registry, CredMgr: mgr, Store: NewMemoryStore()})
+	req := TestRequest{BaseURL: origin.URL, ProviderID: "redirect"}
+	if ok, e := svc.TestConnection(context.Background(), req); e == nil || ok {
+		t.Fatal("redirect externo aceito")
+	}
+	if _, e := svc.ListModels(context.Background(), req); e == nil {
+		t.Fatal("modelos seguiram redirect externo")
+	}
+	if health := svc.CheckHealth(context.Background(), profileForProvider("redirect")); health.State == HealthOnline {
+		t.Fatal("health seguiu redirect externo")
+	}
+	if reached.Load() != 0 {
+		t.Fatal("credencial foi enviada a outra origem")
 	}
 }
