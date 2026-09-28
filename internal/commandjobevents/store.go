@@ -344,11 +344,13 @@ func (s *Store) ClaimBatch(ctx context.Context, owner string, limit int) ([]Acti
 	if !s.Available() {
 		return nil, false, ErrSchemaUnavailable
 	}
-	now := s.now().UTC()
-	expiry := now.Add(s.leaseDuration)
 	var claimed []ActivationOutbox
 	var more bool
 	err := database.WithSQLiteBusyRetry(ctx, "command_job_events.claim_batch", func() error {
+		// O backoff pode ultrapassar a duração da lease; cada tentativa decide
+		// elegibilidade e reserva usando uma nova fotografia do relógio.
+		now := s.now().UTC()
+		expiry := now.Add(s.leaseDuration)
 		claimed = nil
 		more = false
 		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -453,8 +455,8 @@ func (s *Store) RequeueExpiredLeases(ctx context.Context, limit int) (processed 
 	if s == nil || s.db == nil || !s.Available() {
 		return 0, false, ErrSchemaUnavailable
 	}
-	now := s.now().UTC()
 	err = database.WithSQLiteBusyRetry(ctx, "command_job_events.requeue_expired_leases", func() error {
+		now := s.now().UTC()
 		processed = 0
 		more = false
 		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

@@ -26,6 +26,125 @@ type snapshotRetryFixture struct {
 	now    time.Time
 }
 
+func TestSQLiteBusyRetryRefreshesLeaseClockButPreservesExplicitPurgeTime(t *testing.T) {
+	for _, operation := range []string{"claim", "requeue", "purge"} {
+		t.Run(operation, func(t *testing.T) {
+			f := newSnapshotRetryFixture(t)
+			ctx := context.Background()
+			now := f.now
+			f.store.configure(func() time.Time { return now }, time.Second, time.Hour, 2)
+			facts := []Fact{testFact(t, f.now.Add(-time.Minute)), testFact(t, f.now.Add(-time.Minute))}
+			for i, fact := range facts {
+				insertTestFact(t, f.store, fact)
+				values := map[string]any{}
+				if operation == "purge" {
+					values["delivery_state"] = DeliveryDelivered
+					values["source_replay_deadline"] = f.now.Add(time.Duration(i*2-1) * time.Second)
+				} else if operation == "requeue" || i == 1 {
+					values["delivery_state"] = DeliveryProcessing
+					values["lease_owner"] = "previous-owner"
+					values["lease_expires_at"] = f.now.Add(time.Duration(i*2-1) * time.Second)
+				}
+				if len(values) > 0 {
+					if err := f.store.DB().Model(&ActivationOutbox{}).Where("source_event_id = ?", fact.SourceEventID).Updates(values).Error; err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			pool, err := f.writer.DB()
+			if err != nil {
+				t.Fatal(err)
+			}
+			conn, err := pool.Conn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = conn.Close() }()
+			if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+				t.Fatal(err)
+			}
+			var releaseOnce sync.Once
+			var releaseErr error
+			release := func() { releaseOnce.Do(func() { _, releaseErr = conn.ExecContext(ctx, "ROLLBACK") }) }
+			defer release()
+			busy := 0
+			hook := "test:advance-clock-after-real-busy"
+			afterWrite := func(tx *gorm.DB) {
+				if database.IsSQLiteBusyError(tx.Error) {
+					busy++
+					// Só avança depois do erro SQLite real, antes da nova tentativa.
+					now = f.now.Add(4 * time.Second)
+					release()
+				}
+			}
+			if operation == "purge" {
+				if err := f.store.DB().Callback().Delete().After("gorm:delete").Register(hook, afterWrite); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = f.store.DB().Callback().Delete().Remove(hook) })
+			} else {
+				if err := f.store.DB().Callback().Update().After("gorm:update").Register(hook, afterWrite); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = f.store.DB().Callback().Update().Remove(hook) })
+			}
+			var count int
+			var more bool
+			switch operation {
+			case "claim":
+				var rows []ActivationOutbox
+				rows, more, err = f.store.ClaimBatch(ctx, "fresh-owner", 2)
+				count = len(rows)
+				for _, row := range rows {
+					if row.LeaseExpiresAt == nil || !row.LeaseExpiresAt.Equal(now.Add(time.Second)) {
+						t.Errorf("lease retornada sem duração fresca: %+v now=%v", row.LeaseExpiresAt, now)
+					}
+				}
+			case "requeue":
+				count, more, err = f.store.RequeueExpiredLeases(ctx, 2)
+			case "purge":
+				count, more, err = f.store.PurgeExpiredAt(ctx, f.now, 2)
+			}
+			want := 2
+			if operation == "purge" {
+				want = 1
+			}
+			if err != nil || releaseErr != nil || busy != 1 || count != want || more {
+				t.Fatalf("resultado count=%d want=%d more=%v err=%v busy=%d release=%v", count, want, more, err, busy, releaseErr)
+			}
+			for i, fact := range facts {
+				row, err := f.store.Get(ctx, fact.SourceEventID)
+				if operation == "purge" && i == 0 {
+					if !errors.Is(err, gorm.ErrRecordNotFound) {
+						t.Fatalf("fonte vencida não purgada: %v", err)
+					}
+					continue
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				switch operation {
+				case "claim":
+					if row.Attempts != 1 || row.LeaseExpiresAt == nil || !row.LeaseExpiresAt.Equal(now.Add(time.Second)) {
+						t.Fatalf("claim persistido inválido: %+v", row)
+					}
+					if err := f.store.Ack(ctx, fact.SourceEventID, "fresh-owner"); err != nil {
+						t.Fatalf("lease já expirou após retry: %v", err)
+					}
+				case "requeue":
+					if row.DeliveryState != DeliveryPending || row.LeaseOwner != nil || row.LeaseExpiresAt != nil {
+						t.Fatalf("lease vencida durante espera não requeued: %+v", row)
+					}
+				case "purge":
+					if !row.SourceReplayDeadline.Equal(f.now.Add(time.Second)) {
+						t.Fatalf("deadline explícita alterada: %+v", row)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestSQLiteBusyRetryExhaustionPreservesDataAndReturnsEmptyResults(t *testing.T) {
 	for _, operation := range []string{"epoch", "claim", "requeue", "purge"} {
 		t.Run(operation, func(t *testing.T) {
