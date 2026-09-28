@@ -2,13 +2,18 @@ package controllers
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
+	"time"
 
 	"assistente/internal/config"
 	"assistente/internal/configdir"
 	"assistente/internal/database"
+	"assistente/internal/desktopinstance"
 	"assistente/internal/events"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -18,6 +23,8 @@ func TestSettingsControllerResetDatabaseUsesFixedDatabasePath(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", root)
 	t.Setenv("USERPROFILE", root)
+	t.Setenv("LOCALAPPDATA", root)
+	t.Setenv("XDG_CACHE_HOME", root)
 	t.Chdir(root)
 	configdir.ResetForTests()
 	t.Cleanup(configdir.ResetForTests)
@@ -66,8 +73,45 @@ func TestSettingsControllerResetDatabaseUsesFixedDatabasePath(t *testing.T) {
 		DatabasePath: dbPath,
 		Emitter:      events.NoopEmitter{},
 	})
+	aliasPath := filepath.Join(databaseDir, "hardlink.db")
+	if err := os.Link(dbPath, aliasPath); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activated := make(chan struct{}, 1)
+	guard, err := desktopinstance.Acquire(dbPath, func() { activated <- struct{}{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = guard.Close() })
 	if err := controller.ResetDatabase(); err != nil {
 		t.Fatalf("ResetDatabase: %v", err)
+	}
+	after, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias, err := os.Stat(aliasPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) || !os.SameFile(after, alias) {
+		t.Fatal("reset substituiu a identidade física do banco/hardlink")
+	}
+	second, err := desktopinstance.Acquire(aliasPath, func() {})
+	if second != nil {
+		_ = second.Close()
+	}
+	if !errors.Is(err, desktopinstance.ErrAlreadyRunning) {
+		t.Fatalf("alias após reset não ativou a instância reservada: %v", err)
+	}
+	select {
+	case <-activated:
+	case <-time.After(3 * time.Second):
+		t.Fatal("ativação via hardlink não chegou à primeira instância")
 	}
 	var attached []struct{ Name, File string }
 	if err := database.DB().Raw("PRAGMA database_list").Scan(&attached).Error; err != nil {
@@ -126,5 +170,57 @@ func TestSettingsControllerResetDatabaseRejectsRelativeConfiguredPathBeforeClose
 	}
 	if err := sqlDB.Ping(); err != nil {
 		t.Fatalf("DB foi fechado antes da validação do caminho: %v", err)
+	}
+}
+
+func TestSettingsControllerResetDatabaseRejectsUnsafePathBeforeClose(t *testing.T) {
+	for _, kind := range []string{"symlink", "directory", "missing"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("HOME", root)
+			t.Setenv("USERPROFILE", root)
+			t.Chdir(root)
+			configdir.ResetForTests()
+			t.Cleanup(configdir.ResetForTests)
+			sentinelPath := filepath.Join(root, "outside.db")
+			sentinel := []byte("outside-file-must-not-be-truncated")
+			if err := os.WriteFile(sentinelPath, sentinel, 0600); err != nil {
+				t.Fatal(err)
+			}
+			resetPath := filepath.Join(root, "reserved.db")
+			switch kind {
+			case "symlink":
+				if err := os.Symlink(sentinelPath, resetPath); err != nil {
+					if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+						t.Skip("Windows sem privilégio para criar symlink")
+					}
+					t.Fatal(err)
+				}
+			case "directory":
+				if err := os.Mkdir(resetPath, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			db, err := gorm.Open(sqlite.Open(filepath.Join(root, "open.db")), &gorm.Config{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			pool, err := db.DB()
+			if err != nil {
+				t.Fatal(err)
+			}
+			restoreDB := database.SetDB(db)
+			t.Cleanup(func() { restoreDB(); _ = pool.Close() })
+			controller := NewSettingsController(SettingsControllerConfig{DatabasePath: resetPath, Emitter: events.NoopEmitter{}})
+			if err := controller.ResetDatabase(); err == nil {
+				t.Fatal("reset aceitou caminho inseguro")
+			}
+			if err := pool.Ping(); err != nil {
+				t.Fatalf("reset fechou DB antes de rejeitar caminho: %v", err)
+			}
+			if got, err := os.ReadFile(sentinelPath); err != nil || !bytes.Equal(got, sentinel) {
+				t.Fatalf("reset alterou sentinela externa: %q, %v", got, err)
+			}
+		})
 	}
 }

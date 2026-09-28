@@ -45,7 +45,15 @@ contenção interna de uma única instância (AEP-0074 e AEP-0106).
   limitado. O único efeito admitido é enfileirar apresentação da janela.
 - Redes de arquivos, remoção maliciosa de sidecars e novos hardlinks criados
   durante a execução não fazem parte da garantia. O lock físico de comandos
-  continua necessário. O reset no mesmo caminho mantém a reserva desktop.
+  continua necessário. O reset, após drenagem e fechamento do SQLite, trunca
+  o arquivo sem removê-lo: preserva a identidade física e os hardlinks existentes,
+  além da reserva desktop. A limpeza de WAL/SHM e a reabertura usam o caminho fixado.
+  Antes de fechar SQLite, o reset rejeita symlink/arquivo não regular por `Lstat`
+  e compara a identidade com `f.Stat` após abrir sem truncamento; trunca somente
+  o handle validado. Substituição hostil posterior do pathname (inclusive antes
+  da reabertura) não está coberta por esta garantia local.
+  `TestSettingsControllerResetDatabaseUsesFixedDatabasePath` verifica `os.SameFile`,
+  remoção dos dados antigos e ativação da instância reservada pelo hardlink após reset.
 
 ## Fases
 

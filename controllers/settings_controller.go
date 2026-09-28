@@ -251,19 +251,41 @@ func (c *SettingsController) ResetDatabase() error {
 		return fmt.Errorf("caminho do banco de dados deve ser absoluto")
 	}
 	dbPath = filepath.Clean(dbPath)
+	before, err := os.Lstat(dbPath)
+	if err != nil {
+		return fmt.Errorf("erro ao inspecionar banco de dados: %w", err)
+	}
+	if !before.Mode().IsRegular() {
+		return fmt.Errorf("reset exige arquivo regular, sem link simbólico")
+	}
+	file, err := os.OpenFile(dbPath, os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("erro ao abrir banco para reset: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+	opened, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("erro ao validar arquivo aberto: %w", err)
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
+		return fmt.Errorf("identidade do banco mudou durante abertura para reset")
+	}
 
 	if err := database.Close(); err != nil {
 		return fmt.Errorf("erro ao fechar banco de dados: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	if _, err := os.Stat(dbPath); err == nil {
-		if err := os.Remove(dbPath); err != nil {
-			return fmt.Errorf("erro ao remover banco de dados: %v", err)
-		}
-		_ = os.Remove(dbPath + "-wal")
-		_ = os.Remove(dbPath + "-shm")
+	// Trunca o handle validado, nunca um pathname que pode ter sido trocado.
+	// Preserva a identidade física reservada, inclusive hardlinks existentes.
+	if err := file.Truncate(0); err != nil {
+		return fmt.Errorf("erro ao truncar banco de dados: %w", err)
 	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("erro ao fechar arquivo truncado: %w", err)
+	}
+	_ = os.Remove(dbPath + "-wal")
+	_ = os.Remove(dbPath + "-shm")
 
 	if err := database.InitPath(dbPath); err != nil {
 		return fmt.Errorf("erro ao reinicializar banco: %v", err)
