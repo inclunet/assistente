@@ -64,11 +64,11 @@ func NewWebSearch(credMgr *credentials.Manager) *WebSearch {
 		tavily:   &tavilyProvider{credMgr: credMgr},
 		fallback: &duckDuckGoProvider{},
 	}
-	// Brave e Tavily trafegam chave de API em header (X-Subscription-Token e
-	// Authorization): o net/http propaga headers nesses casos em redirects
-	// para outro host. Instala o guard compartilhado para aparar
-	// headers sensíveis em redirect não confiável e manter a barreira
-	// anti-SSRF pós-DNS — mesmo padrão de WebFetch/FeedRead.
+	// Os provedores com API trafegam a chave em header: o net/http propaga
+	// headers nesses casos em redirects para outro host. Instala o guard
+	// compartilhado para aparar headers sensíveis em redirect não confiável
+	// e manter a barreira anti-SSRF pós-DNS — mesmo padrão de
+	// WebFetch/FeedRead.
 	if bc := client.GetBaseClient(); bc != nil {
 		bc.CheckRedirect = httpclient.RedirectGuard(httpclient.DefaultMaxRedirects, func() bool { return tool.allowPrivateHosts })
 		httpclient.SetTransportGuard(bc, func() bool { return tool.allowPrivateHosts })
@@ -76,7 +76,7 @@ func NewWebSearch(credMgr *credentials.Manager) *WebSearch {
 	return tool
 }
 
-// NewWebSearchWithProvider cria WebSearch com um provedor customizado (ex: Google, Bing).
+// NewWebSearchWithProvider cria WebSearch com um provedor customizado (ex: outro buscador).
 func NewWebSearchWithProvider(credMgr *credentials.Manager, provider SearchProvider) *WebSearch {
 	if credMgr == nil {
 		credMgr = credentials.NewManager(nil)
@@ -287,7 +287,7 @@ func trimBearerPrefix(token string) string {
 
 // isSearchFallbackable decide se um erro de qualquer provedor da cadeia
 // justifica avançar para o próximo: sentinelas de janela excedida e de
-// ausência de credencial Tavily, regra do Brave via helper dedicado e
+// ausência de credencial (Tavily), regra do Brave via helper dedicado e
 // status HTTP fallbackables da Tavily.
 func isSearchFallbackable(err error) bool {
 	if err == errNoTavilyCredential || err == errTavilyWindowExceeded {

@@ -212,6 +212,28 @@ func WithTrustedIPs(ctx context.Context, ips []net.IP, port string, portExplicit
 	return context.WithValue(ctx, trustedIPsKey{}, set)
 }
 
+// manualAuthKey marca um ctx em que o chamador já aplicou a autenticação na
+// request (ex.: providers de busca que resolvem a credencial uma única vez
+// no credmanager). O interceptor do cliente (applyAuth) pula a resolução
+// nesses casos: sem isso, fontes dinâmicas (ex.: `command`) seriam
+// executadas duas vezes por request — com custo, efeitos colaterais e risco
+// de divergência entre as duas resoluções — e headers redundantes poderiam
+// ser enviados (algumas APIs, como a do Bing, rejeitam com 401 múltiplos
+// métodos de autenticação na mesma request).
+type manualAuthKey struct{}
+
+// WithManualAuth declara que a request associada ao ctx já carrega a
+// autenticação resolvida; o interceptor não deve resolver nem injetar nada.
+func WithManualAuth(ctx context.Context) context.Context {
+	return context.WithValue(ctx, manualAuthKey{}, true)
+}
+
+// hasManualAuth reporta se o ctx declara autenticação já aplicada.
+func hasManualAuth(ctx context.Context) bool {
+	v, _ := ctx.Value(manualAuthKey{}).(bool)
+	return v
+}
+
 // trustedIPSet devolve o conjunto de destinos confiáveis (IP:porta) do ctx (nil
 // se nenhum). As chaves seguem trustKey (ver WithTrustedIPs).
 func trustedIPSet(ctx context.Context) map[string]bool {

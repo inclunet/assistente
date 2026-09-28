@@ -1,10 +1,11 @@
 # AEP-0070 — Tool `web_search` (busca web → JSON canônico paginável)
 
 Status: Done — saída canônica paginável implementada em `internal/tools/web/web_search.go` e testes.
-Brave Search API implementada como primeiro provedor da cadeia
-(`internal/tools/web/brave_provider.go`); Tavily Search API implementada
-como segundo provedor (`internal/tools/web/tavily_provider.go`, cadeia
-Brave → Tavily → DuckDuckGo em `searchWithFallback`).
+Brave e Tavily implementadas como elos da cadeia
+(`brave_provider.go`, `tavily_provider.go`; cadeia Brave → Tavily →
+DuckDuckGo em `searchWithFallback`). Autenticação manual única via
+`WithManualAuth` em `internal/tools/http`. Bing descartado: APIs
+aposentadas pela Microsoft em 11/08/2025.
 Data: 2026-06-05
 Autor: Inclunet + Cursor Agent
 
@@ -33,6 +34,10 @@ como fallback universal.
 Escopo: **sem persistência, sem cache, sem ranking próprio** — as chaves
 vivem exclusivamente no credmanager (nunca em env/flag/argumento) e o
 contrato JSON permanece estável independente do provedor que respondeu.
+Cada provedor resolve a credencial uma única vez e declara auth manual
+(`httpclient.WithManualAuth`), para o interceptor não resolver nem injetar
+de novo — o Bing inclusive rejeita com 401 múltiplos métodos de auth na
+mesma request.
 
 ## Motivação
 
@@ -73,17 +78,20 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
   `feed_read`, herdando timeout/retry e o interceptor de auth (AEP-0018/0019).
 - **D5 — Provedor plugável com cadeia padrão.** Interface `SearchProvider`
   (`Search(ctx, client, query, offset, maxResults) ([]SearchResult, error)` + `Name()`).
-  A cadeia padrão é Brave → Tavily → DuckDuckGo (`searchWithFallback`): com
-  credencial Brave no credmanager usa-se a Brave; sem credencial ou com
-  status fallbackable, avança para a Tavily (credencial no credmanager) e,
-  em último caso, para `duckDuckGoProvider`. `NewWebSearchWithProvider`
-  permite injetar outros (Google/Bing) ou um mock em testes.
+  A cadeia padrão é Brave → Tavily → DuckDuckGo (`searchWithFallback`):
+  cada elo com credencial no credmanager é tentado em ordem; sem credencial
+  ou com status fallbackable, avança. `NewWebSearchWithProvider` permite
+  injetar outro ou um mock em testes.
 - **D6 — Descoberta separada da leitura.** `web_search` não baixa o conteúdo das
   páginas — só retorna links/trechos. Ler conteúdo é responsabilidade de `web_fetch`
   (que aplica a barreira anti-SSRF ao buscar a URL escolhida). Assim a busca não
   precisa validar host: ela só consulta o endpoint fixo do provedor.
 - **D7 — Parâmetros enxutos.** `query` (obrigatório), `max_results` (default 8, máx
   20 por página), `offset` (default 0). `Risk: network` no catálogo.
+- **D8 — Auth manual única.** Cada provedor com API resolve a credencial uma
+  única vez, aplica o material na request e chama `client.Do` com
+  `httpclient.WithManualAuth(ctx)`; o interceptor pula a resolução. Evita
+  duplo custo/efeito em fontes dinâmicas e headers redundantes.
 
 ## Realidade do código (estado atual)
 
@@ -121,7 +129,7 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
 
 ## Fora de escopo / evolução (próximas fases)
 
-- **Demais provedores com API key** (Google CSE, Bing): ranking melhor, paginação
+- **Demais provedores com API key**: ranking melhor, paginação
   confiável e **total de resultados real** (substituindo o `has_more`
   heurístico por um valor exato/`total`). A interface `SearchProvider` já
   comporta isso. **Brave implementado**: `braveProvider` consulta a Brave
@@ -140,6 +148,10 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
   (offset excedente não consome créditos). Evidências:
   `internal/tools/web/tavily_provider.go`,
   `internal/tools/web/tavily_provider_test.go`.
+- **Bing — descartado**: Bing Search APIs aposentadas pela Microsoft em
+  11/08/2025 (instâncias desativadas, sem cadastro novo); provedor chegou a
+  ser implementado e foi removido antes do merge. Substituto natural seria
+  o índice Google via Serper (SERP-as-a-service), a avaliar.
 - **Seleção/config de provedor** por credencial/preferência do usuário, com fallback
   automático para o DuckDuckGo quando não houver API key.
 - **Parâmetros de busca**: região/idioma (`region`, `language`), `safe_search`,
@@ -170,11 +182,13 @@ classes de provedores:
 - **Tavily Search API — implementada** (segundo elo): busca otimizada para
   agentes, com trechos de conteúdo densos por fonte; `search_depth=basic`
   (1 crédito); requer API key no credmanager.
-- **Google (Programmable Search / Custom Search JSON API)** — API oficial com
-  `cx` + API key; cota limitada, mas estável e com `total` real.
-- **Bing Web Search API** (Azure) — API key; resultados ricos (web/news/images).
-- Outras APIs especializadas (ex.: SerpAPI-like) podem entrar pela mesma
-  interface.
+- **Bing Web Search API — descartada**: APIs aposentadas pela Microsoft em
+  11/08/2025 (instâncias desativadas, sem cadastro novo); provedor chegou a
+  ser implementado e foi removido antes do merge.
+- Outras APIs especializadas (ex.: Serper/Google-SERP, Exa) podem entrar
+  pela mesma interface.
+- **Google CSE — descartado**: Custom Search JSON API fechada para novos
+  clientes, com desligamento em 01/01/2027; sem caminho público viável.
 
 Vantagens: paginação determinística, `total` exato (substitui o `has_more`
 heurístico), região/idioma/safe-search nativos e menor risco de quebra.
@@ -193,8 +207,7 @@ Para cenários sem credencial, manter alternativas por scraping — explicitamen
 assumidas como **frágeis e best-effort**:
 
 - **DuckDuckGo HTML** — provedor atual (fallback universal).
-- **Google via scraping** e **Bing via scraping** — extraem resultados da página de
-  busca pública.
+- **Google via scraping** — extrai resultados da página de busca pública.
 - Outros buscadores conforme necessidade.
 
 Riscos/cuidados a documentar e tratar nesses provedores: mudança de layout (parsing
@@ -208,8 +221,7 @@ oficiais quando disponíveis, com métricas de "parsing vazio" para detectar que
   sem credencial ou com 401/403/429/422, avança para a Tavily; sem
   credencial Tavily, com 401/403/429/432/433 ou com offset além da janela
   de 20, cai para o DuckDuckGo. A seleção futura por preferência do usuário
-  pode reordenar ou inserir outros provedores (ex.: Google API) na mesma
-  cadeia.
+  pode reordenar ou inserir outros provedores na mesma cadeia.
 - O campo `provider` no JSON canônico já identifica qual backend respondeu, de modo
   transparente para LLM e jobs.
 - Cadeia de fallback automática em caso de erro/quota de um provedor.
@@ -238,6 +250,7 @@ parâmetros da tool — apenas troca a implementação por trás de `SearchProvi
 Evidências: `internal/tools/web/web_search_test.go`,
 `internal/tools/web/brave_provider_test.go`,
 `internal/tools/web/tavily_provider_test.go`,
+`internal/tools/http/client_test.go` (auth manual),
 `internal/tools/catalog_test.go` e registro em
 `internal/app/app_tool_registry.go`. Demais provedores com API, cache e
 seleção por preferência do usuário permanecem fora do escopo (Brave e
@@ -257,5 +270,7 @@ Tavily implementadas como provedoras com API key, mantendo o contrato v1).
   parse, fallback, erro operacional) com HTTP fake, sem rede externa.
 - `internal/tools/web/tavily_provider_test.go` — testes da Tavily (token,
   parse, janela de offset, cadeia) com HTTP fake, sem rede externa.
+- `internal/tools/http/trust.go` + `client.go` — `WithManualAuth` (auth
+  manual única, interceptor pula a resolução).
 - `internal/app/app_tool_registry.go` — registro da tool.
 - `internal/tools/catalog.go` — metadado (`Category: web`, `Risk: network`).
