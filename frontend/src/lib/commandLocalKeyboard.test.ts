@@ -25,6 +25,133 @@ async function controller(overrides: Partial<Parameters<typeof createLocalComman
 }
 
 describe('commandLocalKeyboard', () => {
+  it('repete falha de transporte com backoff 1–2s e instala apenas o mapa recuperado', async () => {
+    vi.useFakeTimers();
+    const onDown = vi.fn(async () => {});
+    const loadMap = vi.fn()
+      .mockRejectedValueOnce(new Error('transporte indisponível'))
+      .mockRejectedValueOnce(new Error('transporte indisponível'))
+      .mockResolvedValueOnce({ generation: 'recovered', bindings: [{ shortcut, commandId: 'workspace.list', handler: 'backend' as const }] });
+    const keyboard = createLocalCommandKeyboard({
+      target: window, loadMap, onDown, onUp: vi.fn(async () => {}), reset: vi.fn(async () => {}), blocked: () => false,
+    });
+    try {
+      await keyboard.refresh();
+      window.dispatchEvent(event('keydown'));
+      expect(onDown).not.toHaveBeenCalled();
+      expect(loadMap).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(loadMap).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(loadMap).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(loadMap).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(loadMap).toHaveBeenCalledTimes(3);
+
+      window.dispatchEvent(event('keydown'));
+      expect(onDown).toHaveBeenCalledWith(expect.objectContaining({ generation: 'recovered', commandId: 'workspace.list' }));
+    } finally {
+      keyboard.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it('limita o backoff de recuperação a cinco segundos', async () => {
+    vi.useFakeTimers();
+    const loadMap = vi.fn(async (): Promise<LocalCommandKeyboardMap> => { throw new Error('transporte indisponível'); });
+    const keyboard = createLocalCommandKeyboard({
+      target: window, loadMap, onDown: vi.fn(async () => {}), onUp: vi.fn(async () => {}),
+      reset: vi.fn(async () => {}), blocked: () => false,
+    });
+    try {
+      await keyboard.refresh();
+      for (const [delay, calls] of [[1000, 2], [2000, 3], [4000, 4], [5000, 5], [5000, 6]] as const) {
+        await vi.advanceTimersByTimeAsync(delay - 1);
+        expect(loadMap).toHaveBeenCalledTimes(calls - 1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(loadMap).toHaveBeenCalledTimes(calls);
+      }
+    } finally {
+      keyboard.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['blur', 'dispose', 'new refresh'] as const)('cancela retry pendente em %s', async action => {
+    vi.useFakeTimers();
+    const loadMap = vi.fn()
+      .mockRejectedValueOnce(new Error('transporte indisponível'))
+      .mockResolvedValue({ generation: 'manual-recovery', bindings: [] });
+    const keyboard = createLocalCommandKeyboard({
+      target: window, loadMap, onDown: vi.fn(async () => {}), onUp: vi.fn(async () => {}),
+      reset: vi.fn(async () => {}), blocked: () => false,
+    });
+    try {
+      await keyboard.refresh();
+      if (action === 'blur') window.dispatchEvent(new FocusEvent('blur'));
+      if (action === 'dispose') keyboard.dispose();
+      if (action === 'new refresh') await keyboard.refresh();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(loadMap).toHaveBeenCalledTimes(action === 'new refresh' ? 2 : 1);
+    } finally {
+      keyboard.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it('não repete mapa inválido nem recusa de acceptMap', async () => {
+    vi.useFakeTimers();
+    const loadMap = vi.fn()
+      .mockResolvedValueOnce({ generation: '', bindings: [] })
+      .mockResolvedValue({ generation: 'valid-but-rejected', bindings: [] });
+    const keyboard = createLocalCommandKeyboard({
+      target: window, loadMap, onDown: vi.fn(async () => {}), onUp: vi.fn(async () => {}),
+      reset: vi.fn(async () => {}), blocked: () => false, acceptMap: () => false,
+    });
+    try {
+      await keyboard.refresh();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(loadMap).toHaveBeenCalledTimes(1);
+      await keyboard.refresh();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(loadMap).toHaveBeenCalledTimes(2);
+    } finally {
+      keyboard.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it('não agenda retry quando uma rejeição pertence a refresh obsoleto', async () => {
+    vi.useFakeTimers();
+    let rejectOld!: (reason: Error) => void;
+    let signalOldStarted!: () => void;
+    const oldStarted = new Promise<void>(resolve => { signalOldStarted = resolve; });
+    const loadMap = vi.fn()
+      .mockResolvedValueOnce({ generation: 'initial', bindings: [] })
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectOld = reject; signalOldStarted(); }))
+      .mockResolvedValueOnce({ generation: 'newer', bindings: [] });
+    const keyboard = createLocalCommandKeyboard({
+      target: window, loadMap, onDown: vi.fn(async () => {}), onUp: vi.fn(async () => {}),
+      reset: vi.fn(async () => {}), blocked: () => false,
+    });
+    try {
+      await keyboard.refresh();
+      const stale = keyboard.refresh();
+      await oldStarted;
+      const latest = keyboard.refresh();
+      await latest;
+      rejectOld(new Error('resposta antiga falhou'));
+      await stale;
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(loadMap).toHaveBeenCalledTimes(3);
+    } finally {
+      keyboard.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it.each([true, false])('checks the selected simple command, not dormant prefix sequences (allowed=%s)', async allowed => {
     const commandId = 'command_settings.create.open';
     const { keyboard, onDown } = await controller({
