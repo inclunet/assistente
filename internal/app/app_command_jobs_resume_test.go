@@ -67,6 +67,14 @@ func (e *commandJobsUnlockEmitter) Emit(event string, data any) {
 func TestCommandJobsOSUnlockReleasesBootstrapWhileAuthSessionBusy(t *testing.T) {
 	a, observer := commandJobsStartupFixture(t)
 	prepareCommandJobsResume(t, a)
+	// Uma observação real invalida a configuração; um aviso tardio já
+	// incorporado agora preserva a publicação sem reconstruí-la.
+	if err := a.commandHost.SetOSSessionState(context.Background(), true, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.commandHost.SetOSSessionState(context.Background(), true, false); err != nil {
+		t.Fatal(err)
+	}
 	emitter := &commandJobsUnlockEmitter{testEmitter: &testEmitter{}, published: make(chan struct{}, 1)}
 	a.emitter = emitter
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -204,6 +204,10 @@ func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
 }
 
 func (a *App) Login(req LoginRequest) (result *AuthUser, err error) {
+	if err := a.lockCommandStartup(a.appContext()); err != nil {
+		return nil, err
+	}
+	defer a.unlockCommandStartup()
 	var reloadResult runtimeReloadResult
 	// Invalida qualquer publicação anterior antes de adquirir authSessionMu.
 	// O defer de bootstrap é declarado antes do lock para executar depois dos
@@ -212,7 +216,7 @@ func (a *App) Login(req LoginRequest) (result *AuthUser, err error) {
 		return nil, err
 	}
 	defer func() {
-		if bootstrapErr := a.bootstrapCommandsAndStartPreparedJobs(a.appContext(), result, err); err == nil {
+		if bootstrapErr := a.bootstrapCommandsAndStartPreparedJobsInTransition(a.appContext(), result, err); err == nil {
 			a.addPendingJobsStartupFailure(&reloadResult, result, bootstrapErr)
 			a.emitRuntimePartialInit(reloadResult)
 		}
@@ -331,12 +335,16 @@ func (a *App) rollbackLoginState(refreshToken string) {
 }
 
 func (a *App) RefreshAuth(req RefreshRequest) (result *AuthUser, err error) {
+	if err := a.lockCommandStartup(a.appContext()); err != nil {
+		return nil, err
+	}
+	defer a.unlockCommandStartup()
 	var reloadResult runtimeReloadResult
 	if err := a.resetCommandLifecycleIfConfigured(a.appContext(), "refresh"); err != nil {
 		return nil, err
 	}
 	defer func() {
-		if bootstrapErr := a.bootstrapCommandsAndStartPreparedJobs(a.appContext(), result, err); err == nil {
+		if bootstrapErr := a.bootstrapCommandsAndStartPreparedJobsInTransition(a.appContext(), result, err); err == nil {
 			a.addPendingJobsStartupFailure(&reloadResult, result, bootstrapErr)
 			a.emitRuntimePartialInit(reloadResult)
 		}
@@ -437,6 +445,11 @@ func (a *App) loadAuthRefreshTokenCandidates() []string {
 // pensar que o logout falhou enquanto, do ponto de vista do app, ele
 // já tinha completado.
 func (a *App) Logout(req LogoutRequest) error {
+	// Mesmo com o contexto do app cancelado, a limpeza local continua obrigatória.
+	if err := a.lockCommandStartup(context.Background()); err != nil {
+		return err
+	}
+	defer a.unlockCommandStartup()
 	// A limpeza de comandos ocorre antes do lock de autenticação. Se uma porta
 	// falhar, o controller entra em estado fail-closed; o logout legado ainda
 	// prossegue para não deixar a sessão local presa.
@@ -947,6 +960,14 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 // sem depender de timer/eventos. Não emite runtime:partial-init neste caminho
 // (evita aviso duplicado: o retorno da RPC já carrega o estado).
 func (a *App) RetryUserRuntimeInit() (RuntimePartialInitPayload, error) {
+	return a.retryUserRuntimeInit(a.appContext())
+}
+
+func (a *App) retryUserRuntimeInit(ctx context.Context) (RuntimePartialInitPayload, error) {
+	if err := a.lockCommandStartup(ctx); err != nil {
+		return RuntimePartialInitPayload{Subsystems: []RuntimeSubsystemFailure{}}, err
+	}
+	defer a.unlockCommandStartup()
 	a.authSessionMu.Lock()
 	if _, err := a.requireAuthenticatedContext(); err != nil {
 		a.authSessionMu.Unlock()
@@ -962,7 +983,7 @@ func (a *App) RetryUserRuntimeInit() (RuntimePartialInitPayload, error) {
 	a.authMu.RUnlock()
 	a.authSessionMu.Unlock()
 	// Bootstrap e Start não podem rodar sob a transição de autenticação.
-	if err := a.bootstrapCommandsAndStartPreparedJobs(a.appContext(), user, nil); err != nil {
+	if err := a.bootstrapCommandsAndStartPreparedJobsInTransition(ctx, user, nil); err != nil {
 		a.addPendingJobsStartupFailure(&result, user, err)
 	}
 	subsystems := result.failures
