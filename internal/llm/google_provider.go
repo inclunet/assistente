@@ -156,7 +156,8 @@ func (p *GoogleProvider) newClient(ctx context.Context) (*genai.Client, error) {
 		APIKey:  apiKey,
 		Backend: genai.BackendGeminiAPI,
 		HTTPClient: &http.Client{
-			Timeout: providerTimeout(p.provider),
+			CheckRedirect: sameOriginProviderRedirect,
+			Timeout:       providerTimeout(p.provider),
 		},
 	}
 	if u := strings.TrimSpace(p.provider.BaseURL); u != "" {

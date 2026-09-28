@@ -160,9 +160,10 @@ Evidências verificáveis:
   transição de sessão com comando e HTTP; passou localmente.
 - Credenciais, provedores e LLM passaram localmente; build, vet e golangci-lint
   passaram (zero issues). A orientação da tela tem regressão em CredentialsPage.
-- Revisor independente Codex `review_credential_sources`: quatro rodadas; corrigidos
+- Revisor independente Codex `review_credential_sources`: seis rodadas; corrigidos
   cache em consumidores sem observação HTTP e redirecionamento de probes;
-  terceira e quarta rodadas sem pendências, incluindo os ajustes da revisão remota.
+  terceira e quarta rodadas sem pendências. Quinta rodada identificou recarga
+  persistida redundante; corrigida com regressão DBStore. Sexta rodada zerada.
 - Limitação local: detector de corrida indisponível sem CGO/GCC; suíte Go completa
   encontrou saída 0xffffffff em ACP/acpregistry no Windows e atingiu o teto
   agregado de 5 minutos de app durante teste de Deck. A suíte frontend passou
@@ -179,3 +180,14 @@ instalar cancel antes de a execução anterior sair; exclusão/sessão troca a e
 - [CI da implementação 4e086ec8d](https://github.com/inclunet/assistente/actions/runs/36363992179):
   aprovado, incluindo suíte Go completa no Linux, todos os grupos com detector
   de corrida, frontend, bindings e E2E. Ajustes da revisão são revalidados no PR #849.
+
+Segunda revisão remota: renovação do login com o mesmo ID normalizado preserva
+cache; 401s concorrentes compartilham a renovação mesmo quando o valor não muda.
+Regressões: `TestAuthSessionTransitionClearsCommandCredentialCache` e
+`TestCommandTransportConcurrentUnchangedTokenRenewsOnce`. A proteção de origem
+abrange os clientes SDK normal/streaming e Gemini direto, incluindo ListModelsRaw
+com credencial existente ou ad-hoc. Testes cobrem origem, porta, downgrade,
+limite de redirects e listagem por OpenAI/Anthropic/Google.
+
+A recarga de uma entrada persistida idêntica preserva o cache, inclusive no
+RefreshAuth; salvar novamente ou carregar conteúdo alterado invalida a entrada.

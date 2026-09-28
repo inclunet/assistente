@@ -383,6 +383,14 @@ func TestCommandProbeRejectsCrossOriginRedirect(t *testing.T) {
 				if health := svc.CheckHealth(context.Background(), profileForProvider("redirect")); health.State == HealthOnline {
 					t.Fatal("health seguiu redirect externo")
 				}
+				for _, kind := range []string{"openai", "anthropic", "google"} {
+					if _, e := svc.ListModelsRaw(context.Background(), ListModelsRawRequest{Type: kind, BaseURL: origin.URL, ProviderID: "redirect"}); e == nil {
+						t.Fatalf("raw %s seguiu redirect externo", kind)
+					}
+				}
+				if _, e := svc.ListModelsRaw(context.Background(), ListModelsRawRequest{Type: "openai", BaseURL: origin.URL, APIKey: "temporary"}); e == nil {
+					t.Fatal("raw ad-hoc seguiu redirect externo")
+				}
 				if reached.Load() != 0 {
 					t.Fatal("credencial foi enviada a outra origem")
 				}

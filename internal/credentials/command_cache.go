@@ -3,6 +3,8 @@ package credentials
 import (
 	"context"
 	"errors"
+	"maps"
+	"reflect"
 )
 
 // O token materializado é cifrado só em memória. Cada entrada/usuário tem sua
@@ -137,4 +139,14 @@ func (m *Manager) rejectCommandCredential(auth *AuthConfig) bool {
 		dc.invalidateCommandCache()
 	}
 	return true
+}
+
+func sameStoredCommandAuth(a, b *AuthConfig) bool {
+	if a == nil || b == nil || a.Source != "command" || b.Source != "command" || !maps.Equal(a.Headers, b.Headers) {
+		return false
+	}
+	left, right := *a, *b
+	// O DB normaliza headers ausentes como mapa vazio.
+	left.Headers, right.Headers = nil, nil
+	return reflect.DeepEqual(left, right)
 }

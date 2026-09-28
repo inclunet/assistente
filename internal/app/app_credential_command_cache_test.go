@@ -56,6 +56,10 @@ func TestAuthSessionTransitionClearsCommandCredentialCache(t *testing.T) {
 	if get() != first {
 		t.Fatal("token não reutilizado")
 	}
+	a.setCurrentUserID(" cache-user ")
+	if get() != first {
+		t.Fatal("renovação da mesma sessão descartou token")
+	}
 	a.setCurrentUserID("")
 	second := get()
 	if second == first {

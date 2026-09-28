@@ -443,6 +443,73 @@ func TestCommandTransportConcurrentUnauthorizedRenewsOnce(t *testing.T) {
 	}
 }
 
+func TestCommandTransportConcurrentUnchangedTokenRenewsOnce(t *testing.T) {
+	f := newCommandCacheFixture(t)
+	const concurrency = 8
+	var mu sync.Mutex
+	rejected := 0
+	ready := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer first" {
+			mu.Lock()
+			rejected++
+			if rejected == concurrency {
+				// Mantém o token rejeitado para todos os consumidores.
+				close(ready)
+			}
+			mu.Unlock()
+			select {
+			case <-ready:
+			case <-r.Context().Done():
+				return
+			}
+			w.WriteHeader(401)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer second" {
+			t.Error("token inesperado")
+		}
+		w.WriteHeader(200)
+	}))
+	defer server.Close()
+	tr := NewCredentialTransport(f.m, "cache.example")
+	ctx, cancel := context.WithTimeout(f.ctx, 20*time.Second)
+	defer cancel()
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			req, _ := http.NewRequestWithContext(ctx, "GET", server.URL, nil)
+			response, e := tr.RoundTrip(req)
+			if e != nil {
+				t.Error(e)
+				return
+			}
+			defer func() { _ = response.Body.Close() }()
+			if response.StatusCode != 401 {
+				t.Errorf("status=%d", response.StatusCode)
+			}
+		}()
+	}
+	wg.Wait()
+	if f.count() != 2 {
+		t.Fatalf("rajada de401 executou comando %d vezes", f.count())
+	}
+	// Uma chamada posterior pode recuperar quando o comando passar a emitir token novo.
+	f.setValue(t, "second")
+	req, _ := http.NewRequestWithContext(ctx, "GET", server.URL, nil)
+	response, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != 200 || f.count() != 3 {
+		t.Fatalf("recuperação: status=%d comandos=%d", response.StatusCode, f.count())
+	}
+
+}
+
 type commandCacheCloseTransport struct{ closed bool }
 
 func (t *commandCacheCloseTransport) RoundTrip(*http.Request) (*http.Response, error) {
@@ -455,5 +522,34 @@ func TestCommandTransportForwardsCloseIdleConnections(t *testing.T) {
 	client.CloseIdleConnections()
 	if !base.closed {
 		t.Fatal("conexões ociosas não foram fechadas")
+	}
+}
+
+func TestCommandCacheReloadPreservesOnlyIdenticalStoredEntry(t *testing.T) {
+	setupScopedCredentialStoreTestDB(t)
+	f := newCommandCacheFixture(t)
+	store := NewDBStore()
+	f.m = NewManagerWithStore(f.m.encKey, store, true)
+	if err := f.m.RegisterPatternWithContext(f.ctx, "cache.example", f.config); err != nil {
+		t.Fatal(err)
+	}
+	first := f.get(t)
+	if err := f.m.LoadUserCredentials(f.ctx, "cache-user"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.get(t); got.commandEntry != first.commandEntry || f.count() != 1 {
+		t.Fatal("recarga idêntica perdeu cache")
+	}
+	// Uma edição externa persistida exige descartar o cache, mesmo mantendo o ID.
+	other := NewManagerWithStore(f.m.encKey, store, true)
+	if err := other.RegisterPatternWithContext(f.ctx, "cache.example", f.config); err != nil {
+		t.Fatal(err)
+	}
+	f.setValue(t, "second")
+	if err := f.m.LoadUserCredentials(f.ctx, "cache-user"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.get(t); got.Token != "second" || got.commandEntry == first.commandEntry || f.count() != 2 {
+		t.Fatal("recarga alterada preservou cache antigo")
 	}
 }

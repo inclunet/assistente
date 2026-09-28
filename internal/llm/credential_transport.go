@@ -1,7 +1,9 @@
 package llm
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"assistente/internal/credentials"
@@ -14,7 +16,9 @@ import (
 // envia o header Authorization placeholder ao upstream.
 func newHTTPClientForProvider(provider *ProviderConfig, credMgr *credentials.Manager) *http.Client {
 	mode := credentialAuthRequirement(provider)
-	return credentials.NewHTTPClientWithAuthMode(credMgr, provider.CredentialPattern, mode, providerTimeout(provider))
+	client := credentials.NewHTTPClientWithAuthMode(credMgr, provider.CredentialPattern, mode, providerTimeout(provider))
+	client.CheckRedirect = sameOriginProviderRedirect
+	return client
 }
 
 // newStreamingHTTPClientForProvider cria o http.Client dedicado a streaming
@@ -22,7 +26,9 @@ func newHTTPClientForProvider(provider *ProviderConfig, credMgr *credentials.Man
 // credentials.NewStreamingHTTPClientWithAuthMode.
 func newStreamingHTTPClientForProvider(provider *ProviderConfig, credMgr *credentials.Manager) *http.Client {
 	mode := credentialAuthRequirement(provider)
-	return credentials.NewStreamingHTTPClientWithAuthMode(credMgr, provider.CredentialPattern, mode)
+	client := credentials.NewStreamingHTTPClientWithAuthMode(credMgr, provider.CredentialPattern, mode)
+	client.CheckRedirect = sameOriginProviderRedirect
+	return client
 }
 
 // credentialAuthRequirement converte llm.AuthMode em credentials.AuthRequirement.
@@ -51,4 +57,16 @@ func providerTimeout(p *ProviderConfig) time.Duration {
 		return time.Duration(p.Timeout) * time.Second
 	}
 	return 3 * time.Minute
+}
+
+// O SDK e o transport podem reaplicar segredos a cada request. Redirecionamentos
+// precisam permanecer na origem inicial, inclusive para listagem de modelos.
+func sameOriginProviderRedirect(next *http.Request, via []*http.Request) error {
+	if len(via) == 0 || !strings.EqualFold(next.URL.Scheme, via[0].URL.Scheme) || !strings.EqualFold(next.URL.Host, via[0].URL.Host) {
+		return fmt.Errorf("redirecionamento para outra origem recusado pelo provedor")
+	}
+	if len(via) >= 10 {
+		return fmt.Errorf("limite de redirecionamentos excedido")
+	}
+	return nil
 }

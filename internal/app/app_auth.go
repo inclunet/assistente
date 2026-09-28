@@ -555,12 +555,13 @@ func (a *App) GetAuthUser() (*AuthUser, error) {
 }
 
 func (a *App) setCurrentUserID(userID string) {
-	if a.credMgr != nil {
-		a.credMgr.ClearCommandCache()
-	}
+	userID = strings.TrimSpace(userID)
 	a.authMu.Lock()
 	defer a.authMu.Unlock()
-	a.currentUserID = strings.TrimSpace(userID)
+	if a.currentUserID != userID && a.credMgr != nil {
+		a.credMgr.ClearCommandCache()
+	}
+	a.currentUserID = userID
 }
 
 func (a *App) setCurrentAuthUser(user *AuthUser) {

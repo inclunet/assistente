@@ -529,6 +529,10 @@ func (m *Manager) registerEncryptedPattern(id, userID, pattern string, encAuth *
 		sameStoredCredential := id != "" && existing.ID == id
 		sameScopedPattern := existing.Pattern == pattern && existing.UserID == userID
 		if sameStoredCredential || sameScopedPattern {
+			// RefreshAuth recarrega o store: bytes cifrados idênticos não são edição.
+			if sameStoredCredential && sameScopedPattern && sameStoredCommandAuth(existing.Auth, encAuth) {
+				return nil
+			}
 			existing.invalidateCommandCache()
 			m.credentials[i] = &DomainCredential{ID: id, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth}
 			updated = true

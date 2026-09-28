@@ -154,7 +154,8 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		return response, nil
 	}
 	if sameHTTPAuth(auth, fresh) {
-		t.CredMgr.rejectCommandCredential(fresh)
+		// Preserve a geração renovada para compartilhar o resultado com 401s
+		// antigos concorrentes. Uma rejeição dessa nova geração pode renová-la.
 		return response, nil
 	}
 	retry := req.Clone(req.Context())
