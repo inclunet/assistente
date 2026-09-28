@@ -163,7 +163,7 @@ const searchDefaultMaxResults = 8
 // ddgFallbackNotice orienta o usuário a configurar um buscador melhor quando
 // a resposta veio do fallback gratuito. Vai no JSON (campo notice) para o
 // LLM repassar; é conciso de propósito (toda resposta DDG o carrega).
-const ddgFallbackNotice = "Busca atendida pelo DuckDuckGo (fallback gratuito, qualidade e paginação limitadas). Para resultados melhores: crie uma chave Brave em https://api-dashboard.search.brave.com/register ou Tavily em https://app.tavily.com/ e cadastre-a na página Credenciais das Configurações (domínios api.search.brave.com ou api.tavily.com). Ao final da sua resposta ao usuário, inclua um aviso curto com esses links."
+const ddgFallbackNotice = "Busca atendida pelo DuckDuckGo (fallback gratuito, qualidade e paginação limitadas). Para resultados melhores: crie uma chave [Brave](https://api-dashboard.search.brave.com/register) ou [Tavily](https://app.tavily.com/) e cadastre-a em [Cadastrar chave Brave](assistente://credentials/new?pattern=api.search.brave.com&type=bearer) ou [Cadastrar chave Tavily](assistente://credentials/new?pattern=api.tavily.com&type=bearer) (o formulário abre com domínio e tipo preenchidos, falta só colar o token). Ao final da sua resposta ao usuário, inclua um aviso curto com esses links."
 
 func (t *WebSearch) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	var a webSearchArgs

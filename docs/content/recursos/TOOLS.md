@@ -225,9 +225,10 @@ cadeia avança a partir do pedido em caso de ausência de credencial ou
 auth/quota, e a resposta informa quem atendeu de fato.
 
 Quando a resposta vier do DuckDuckGo sem ter sido pedido, ela traz um
-aviso (`notice`) com os links para criar as chaves (Brave e Tavily) e o
-caminho de cadastro (página Credenciais das Configurações), orientando o
-modelo a repassar o aviso ao final da resposta ao usuário. Demais erros
+aviso (`notice`) com os links para criar as chaves (Brave e Tavily) e
+deep links que abrem a criação de credencial com domínio e tipo já
+preenchidos (`assistente://credentials/new?...`) — falta só colar o token.
+O aviso orienta o modelo a repassar tudo ao final da resposta ao usuário. Demais erros
 das APIs Brave e Tavily (incluindo falha operacional ao resolver a
 credencial) são propagados sem fabricar resultados.
 

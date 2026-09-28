@@ -235,8 +235,10 @@ oficiais quando disponíveis, com métricas de "parsing vazio" para detectar que
   completa); valor desconhecido é erro com a lista válida. O servidor nunca
   expõe previamente quais chaves existem: a disponibilidade é imposta em
   runtime e o atendente é reportado post-hoc no campo `provider`.
-- Queda no DuckDuckGo sem pedido explícito devolve `notice` orientando a
-  configurar Brave/Tavily no credmanager. Seleção por preferência do
+- Queda no DuckDuckGo sem pedido explícito devolve `notice` com links de
+  criação das chaves e deep links `assistente://credentials/new` (domínio e
+  tipo pré-preenchidos, ver AEP-0023), orientando o modelo a repassar ao
+  final da resposta. Seleção por preferência do
   usuário (perfil) permanece futura.
 - O campo `provider` no JSON canônico já identifica qual backend respondeu, de modo
   transparente para LLM e jobs.
