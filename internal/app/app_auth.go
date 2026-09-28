@@ -897,7 +897,8 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 		a.msgCtrl.StartAdapters(userID)
 	}
 	// Retenção de chat (órfãos e cap opcional) pertence à manutenção do Manager,
-	// liberada após comandos prontos. Não disputar o writer SQLite no reload/login.
+	// assíncrona após comandos prontos quando há coordenador. Sem armazenamento
+	// de comandos, o Start legado mantém sua passagem inicial síncrona.
 	if a.providerSvc != nil {
 		a.initLLMProviders(ctx)
 	}

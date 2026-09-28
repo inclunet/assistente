@@ -1,9 +1,11 @@
 # AEP — Assistente Enhancement Proposals
 
 **Manutenção e contenção WAL (28/09/2026):** AEP-0074 permanece Done no escopo
-legado, com limpeza inicial fora do reload síncrono; AEP-0103 permanece
+legado; limpeza inicial sai do reload síncrono apenas no caminho com coordenador
+de comandos. O Start legado preserva a passagem síncrona. AEP-0103 permanece
 In Progress. Outbox recebe retry transacional limitado, sem repetir efeitos
-externos nem alterar heartbeat. Validação manual no banco real pendente.
+externos nem alterar heartbeat; claim/requeue recalculam o relógio em cada
+tentativa. Validação manual no banco real pendente.
 
 **AEP-0103 — concorrência de startup (28/09/2026): In Progress.** A barreira
 cancelável cobre preparação → bootstrap → Start da mesma sessão sem manter

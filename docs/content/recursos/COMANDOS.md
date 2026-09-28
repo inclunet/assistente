@@ -5,9 +5,11 @@ weight: 23
 
 # Comandos e acionadores
 
-A limpeza automática de registros antigos não faz parte da espera síncrona
-do login. Ela continua em segundo plano, pela manutenção existente, após os
-comandos ficarem prontos. As políticas de retenção configuradas são preservadas.
+Quando o armazenamento de comandos está habilitado, a limpeza automática de
+registros antigos ocorre em segundo plano após os comandos ficarem prontos,
+pela manutenção existente. No modo legado sem esse armazenamento, a passagem
+inicial ainda ocorre durante o início dos jobs. As políticas de retenção
+configuradas são preservadas nos dois modos.
 
 Abra **Configurações → Comandos e acionadores** para inspecionar os comandos
 padrão e organizar configurações pessoais em camadas. O seletor **Escopo**

@@ -2,15 +2,17 @@
 
 **Status:** Done
 
-**Ajuste de inicialização (28/09/2026):** limpeza de tool calls órfãs e cap de
-idade deixam de executar sincronamente no reload de login. Permanecem na
-passagem inicial e periódica do Manager; com o AEP-0103 montado, essa passagem
-só começa após publicação dos comandos. Não há timer extra, remoção de política
+**Ajuste de inicialização (28/09/2026):** com o coordenador AEP-0103 montado,
+limpeza de tool calls órfãs e cap de idade deixam de executar sincronamente no
+reload de login. Permanecem na passagem inicial e periódica do Manager, após
+publicação dos comandos. Sem armazenamento/coordenador de comandos, o caminho
+legado preserva a passagem inicial síncrona de `Manager.Start`; essa exceção
+não recebe a garantia de login sem retenção síncrona. Não há timer extra, remoção de política
 ou alteração da recuperação obrigatória. Contenção WAL na outbox repete apenas
 transações puramente locais já revertidas, com o retry SQLite central cancelável;
 nenhuma entrega/ativação externa é repetida por esse mecanismo.
-Evidências: `TestChatStartupRetentionRunsOnlyAfterCommandsReady` verifica
-registros reais com cap ligado/desligado; `sqlite_snapshot_retry_test.go`
+Evidências: `TestChatStartupRetentionCoordinatedAndLegacyPaths` verifica
+registros reais com cap ligado/desligado nos dois modos; `sqlite_snapshot_retry_test.go`
 reproduz conflito WAL e cobre cancelamento, esgotamento e rollback sem
 contagem de resultados não confirmados. Validação no banco real permanece
 pendente; não foi realizada limpeza no banco pessoal para estes testes.
@@ -129,7 +131,7 @@ Esta AEP define uma política de **compactação física** combinada a um **refo
 
 2. **Janela de 30 dias é insuficiente para alta frequência**: um job disparando a cada minuto gera ~43k runs antes de qualquer purga por idade. Cada run carrega colunas TEXT volumosas (`inputs`, `output`, `trigger_data`, `events_emitted`) e ainda gera `job_run_events`/`job_events` e `tool_invocations`. Falta um teto por contagem.
 
-3. **`tool_invocations` só limpa no login**: a limpeza por idade dessa tabela (AEP-0063) é disparada apenas em `reloadUserScopedRuntime` (login/refresh). Sessões longas (app aberto por dias) nunca disparam a purga.
+3. **Limitação anterior à AEP: `tool_invocations` só limpava no login**. A limpeza por idade da AEP-0063 dependia de `reloadUserScopedRuntime`, deixando sessões longas sem purga. A implementação atual mantém manutenção inicial e periódica; a passagem inicial é assíncrona após readiness no caminho coordenado AEP-0103 e síncrona em `Manager.Start` no legado sem coordenador.
 
 4. **Contenção (issue #292)**: `VACUUM` completo adquire lock exclusivo e pode levar segundos em bancos grandes, agravando `SQLITE_BUSY`. A estratégia precisa ser oportunista (momento ocioso), throttled e proteger leituras interativas.
 
@@ -224,7 +226,7 @@ Dados de jobs são **operacionais e descartáveis**, sem valor histórico. A jan
 
 ### D5 — Tool calls de chat seguem o ciclo de vida da conversa
 
-Diferentemente dos dados de jobs, tool calls de **chat** fazem parte do histórico da conversa. Por isso **não expiram por tempo por padrão**: só são removidas quando a conversa/mensagem de origem é deletada (cascata já existente). Como rede de segurança, `CleanOrphanChat` remove invocações de chat órfãs — roda na manutenção inicial após prontidão e no loop periódico, fora do reload síncrono do login.
+Diferentemente dos dados de jobs, tool calls de **chat** fazem parte do histórico da conversa. Por isso **não expiram por tempo por padrão**: só são removidas quando a conversa/mensagem de origem é deletada (cascata já existente). Como rede de segurança, `CleanOrphanChat` remove invocações de chat órfãs — roda na manutenção inicial e no loop periódico. Com coordenador AEP-0103, a passagem inicial é assíncrona após prontidão; sem ele, permanece síncrona em `Manager.Start`, inclusive quando chamado pelo reload/login legado.
 
 Um **cap de idade opcional** (`chat_tool_calls_retention_days`, padrão `0` = sem limite) permite ao usuário forçar a remoção de tool calls de chat mais antigas que X dias, via `CleanOldChat`.
 

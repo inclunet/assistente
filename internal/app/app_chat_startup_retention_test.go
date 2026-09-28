@@ -43,9 +43,13 @@ func (r *startupChatRetentionRepository) CleanOldChat(ctx context.Context, age t
 	return r.Repository.CleanOldChat(ctx, age)
 }
 
-func TestChatStartupRetentionRunsOnlyAfterCommandsReady(t *testing.T) {
-	for _, capDays := range []int{1, 0} {
-		t.Run(fmt.Sprintf("cap_%d", capDays), func(t *testing.T) {
+func TestChatStartupRetentionCoordinatedAndLegacyPaths(t *testing.T) {
+	for _, tc := range []struct {
+		capDays int
+		legacy  bool
+	}{{1, false}, {0, false}, {1, true}, {0, true}} {
+		capDays := tc.capDays
+		t.Run(fmt.Sprintf("legacy_%t_cap_%d", tc.legacy, capDays), func(t *testing.T) {
 			a, starts := commandJobsStartupFixture(t)
 			db := database.DB()
 			repo := &startupChatRetentionRepository{Repository: toolinvocations.NewDBRepository(db), app: a}
@@ -106,11 +110,33 @@ func TestChatStartupRetentionRunsOnlyAfterCommandsReady(t *testing.T) {
 			if err := ResetCommandLifecycle(ctx, a, "retention_startup_test"); err != nil {
 				t.Fatal(err)
 			}
+			if tc.legacy {
+				if a.commandMaintenance.Load() != nil {
+					t.Fatal("fixture legada não pode conter coordenador já montado")
+				}
+				a.commandStorageVersion = ""
+			}
 			a.authSessionMu.Lock()
 			result := a.reloadUserScopedRuntime()
 			a.authSessionMu.Unlock()
 			if result.hasFailures() {
 				t.Fatalf("reload: %+v", result.failures)
+			}
+			want := []string{"retention-recent"}
+			if capDays == 0 {
+				want = []string{"retention-old", "retention-recent"}
+			}
+			if tc.legacy {
+				// Sem armazenamento de comandos, o contrato legado preserva a
+				// passagem síncrona de Start: o reload já retorna com a limpeza.
+				if got := remaining(); !reflect.DeepEqual(got, want) {
+					t.Fatalf("retenção legada não ocorreu durante reload: got=%v want=%v", got, want)
+				}
+				a.jobMgr.Stop()
+				if repo.orphans.Load() == 0 || (capDays > 0 && repo.old.Load() == 0) || starts.starts.Load() != 1 || a.commandJobsPending != nil || !repo.beforeReady.Load() {
+					t.Fatal("caminho legado deixou de executar retenção síncrona independente dos comandos")
+				}
+				return
 			}
 			if repo.orphans.Load() != 0 || repo.old.Load() != 0 {
 				t.Fatalf("reload executou retenção síncrona: orphans=%d old=%d", repo.orphans.Load(), repo.old.Load())
@@ -123,10 +149,6 @@ func TestChatStartupRetentionRunsOnlyAfterCommandsReady(t *testing.T) {
 			}
 			if err := a.bootstrapCommandsAndStartPreparedJobs(ctx, a.currentAuthUser, nil); err != nil {
 				t.Fatal(err)
-			}
-			want := []string{"retention-recent"}
-			if capDays == 0 {
-				want = []string{"retention-old", "retention-recent"}
 			}
 			deadline := time.NewTimer(5 * time.Second)
 			defer deadline.Stop()
