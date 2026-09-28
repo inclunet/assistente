@@ -10,8 +10,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestSettingsControllerResetDatabaseAbortsBeforeResolvingOrClosing(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "commands.sqlite")), &gorm.Config{})
+func TestSettingsControllerResetDatabaseAbortsAfterPreflightBeforeClosing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "commands.sqlite")
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,6 +30,7 @@ func TestSettingsControllerResetDatabaseAbortsBeforeResolvingOrClosing(t *testin
 	want := errors.New("commands still running")
 	called := 0
 	controller := NewSettingsController(SettingsControllerConfig{
+		DatabasePath: path,
 		BeforeDatabaseReset: func() error {
 			called++
 			return want

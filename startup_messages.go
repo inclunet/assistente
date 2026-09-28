@@ -18,6 +18,7 @@ type startupMessages struct {
 	logClose        string
 	appStartup      string
 	appRun          string
+	instance        string
 }
 
 var startupCatalog = map[string]startupMessages{
@@ -30,6 +31,7 @@ var startupCatalog = map[string]startupMessages{
 		logClose:        "Erro ao fechar arquivo de log %q: %v",
 		appStartup:      "Falha ao inicializar aplicação: %v",
 		appRun:          "Erro: %v",
+		instance:        "Não foi possível reservar ou ativar a instância do Assistente. Se ele já estiver aberto, volte à janela existente. Nenhum processo foi encerrado: %v",
 	},
 	"en": {
 		appTitle:        "AI Assistant",
@@ -40,6 +42,7 @@ var startupCatalog = map[string]startupMessages{
 		logClose:        "Error closing log file %q: %v",
 		appStartup:      "Failed to start application: %v",
 		appRun:          "Error: %v",
+		instance:        "Could not reserve or activate the Assistant instance. If it is already open, return to the existing window. No process was terminated: %v",
 	},
 	"es": {
 		appTitle:        "Asistente IA",
@@ -50,6 +53,7 @@ var startupCatalog = map[string]startupMessages{
 		logClose:        "Error al cerrar el archivo de registro %q: %v",
 		appStartup:      "No se pudo iniciar la aplicación: %v",
 		appRun:          "Error: %v",
+		instance:        "No se pudo reservar o activar la instancia del Asistente. Si ya está abierto, vuelva a la ventana existente. No se terminó ningún proceso: %v",
 	},
 }
 
@@ -80,6 +84,10 @@ func startupApplicationError(err error) string {
 
 func startupRunError(err error) string {
 	return fmt.Sprintf(currentStartupMessages().appRun, err)
+}
+
+func startupInstanceError(err error) string {
+	return fmt.Sprintf(currentStartupMessages().instance, err)
 }
 
 func startupDialogTitle() string {
