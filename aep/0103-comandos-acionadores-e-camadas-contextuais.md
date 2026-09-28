@@ -12,6 +12,11 @@ Testes `TestCommandJobsConcurrentRetriesOwnPreparationThroughStart`,
 `TestCommandJobsLateOSUnlockKeepsAlreadyPublishedGeneration` cobrem a
 concorrência da mesma sessão, cancelamento e preservação da geração publicada.
 O aceite manual permanece pendente (**In Progress**).
+Troca de workspace compartilha `commandBootstrap` do reset à publicação, para
+não retirar readiness entre sua checagem e Start. Não adquire a barreira exterior,
+pois pode decorrer de uma execução a drenar. O teste
+`TestCommandWorkspaceReloadPreservesReadinessWhileBootstrapOwned` falha sem a
+proteção e comprova a reconstrução mantendo o lock exterior ocupado.
 
 **Ordem de startup de jobs (28/09/2026):** o reload autenticado monta as portas
 de manutenção, mas adia o scheduler e sua passagem inicial até a publicação

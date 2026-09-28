@@ -15,6 +15,13 @@ func (a *App) reloadCommandsAfterWorkspaceSwitch() {
 	if a == nil || a.commandProduct.Load() == nil {
 		return
 	}
+	ctx := a.commandBridgeContext()
+	// Compartilha a região crítica readiness -> Start. Não adquirir a barreira
+	// exterior de startup: a troca pode vir de uma execução que será drenada.
+	if err := a.lockCommandBootstrap(ctx); err != nil {
+		return
+	}
+	defer a.unlockCommandBootstrap()
 	// Primeiro retire a publicação: montar o produto novo sobre o mapa pronto
 	// do workspace anterior abriria uma janela de resolução com deltas errados.
 	cleanup, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -24,7 +31,6 @@ func (a *App) reloadCommandsAfterWorkspaceSwitch() {
 		logging.Errorf(context.Background(), "app.app-workspace", "comandos indisponíveis após troca de workspace: falha ao retirar mapa anterior: %v", err)
 		return
 	}
-	ctx := a.commandBridgeContext()
 	if err := a.ensureCommandLifecycleMountedForCurrentUser(ctx); err != nil {
 		logging.Warnf(ctx, "app.app-workspace", "comandos indisponíveis após troca de workspace: montagem: %v", err)
 		return

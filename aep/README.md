@@ -5,6 +5,8 @@ cancelável cobre preparação → bootstrap → Start da mesma sessão sem mant
 authSessionMu durante as portas de bootstrap. Regressões cobrem retries
 concorrentes, cancelamento do worker em espera e unlock tardio sem retirar
 uma publicação válida. Aceite manual inalterado.
+Troca de workspace agora compartilha a proteção bootstrap/publicação com Start,
+sem adquirir o lock exterior de startup; regressão concorrente cobre a região.
 
 **AEP-0103 — ordem de startup (28/09/2026): In Progress.** Com armazenamento
 de comandos disponível, jobs são preparados
