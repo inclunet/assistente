@@ -320,7 +320,9 @@ function validateContextualEntry(raw: unknown, allowProfiles: boolean, workspace
     if (validated === undefined) return null;
     bySurface[surface] = validated;
   }
-  if (Object.keys(bySurface).length === 0 && raw.byPage === undefined) return null;
+  // A page branch may have only an explicit fallback (including null/NoMatch).
+  // It must not invalidate unrelated shortcuts when no surface is selected.
+  if (Object.keys(bySurface).length === 0 && raw.byPage === undefined && !allowRoutePageSurfaces) return null;
   if (!allowProfiles && raw.byProfile !== undefined) return null;
   if (allowProfiles && raw.byProfile !== undefined) {
     if (!isRecord(raw.byProfile) || Object.keys(raw.byProfile).length === 0 ||
@@ -373,7 +375,7 @@ function validateContextualEntry(raw: unknown, allowProfiles: boolean, workspace
       if (!safeContextKey(profile) || !isRecord(projection) ||
           !isCommandKeyboardTrigger(projection.shortcut) ||
           serializeCommandKeyboardTrigger(projection.shortcut) !== serializeCommandKeyboardTrigger(raw.shortcut)) return null;
-      const leaf = validateContextualEntry(projection, false, !allowRoutePageSurfaces, false);
+      const leaf = validateContextualEntry(projection, false, !allowRoutePageSurfaces, false, allowRoutePageSurfaces);
       if (!leaf) return null;
       byProfile[profile] = leaf;
     }

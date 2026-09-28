@@ -5,6 +5,11 @@ weight: 23
 
 # Comandos e acionadores
 
+Condições de página também são reconhecidas ao carregar as configurações.
+Uma página sem ação para determinada combinação (como Ctrl+N) não desabilita
+os demais atalhos. A ação de criar nas configurações continua restrita ao
+contexto do gerenciador; não é executada ao navegar para outra página.
+
 ## Diagnosticar falhas de carregamento
 
 Falhas e lentidão ao carregar camadas ou o mapa de teclado são registradas

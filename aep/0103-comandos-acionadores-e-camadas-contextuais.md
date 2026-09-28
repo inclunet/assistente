@@ -1,5 +1,19 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Contrato de leitura frontend/backend (28/09/2026): In Progress.** O decoder
+de configurações reconhece `app.page` com o enum fechado já vigente. O mapa
+de teclado aceita ramos de página (e seus perfis) sem superfícies selecionadas,
+desde que mantenham fallback explícito válido: uma ausência de ação naquela
+página não invalida os atalhos de todo o aplicativo. Não relaxa identidade,
+foco, modal, IME, validação de páginas ou recusa de payload malformado.
+`TestCommandFrontendKeyboardWireContract` compara o endpoint Go real com a
+fixture JSON consumida por `commandFrontendContract.test.ts` através do
+adaptador Wails e controlador de teclado. Cobre instalação do mapa completo,
+Ctrl+Tab, Alt+M, Ctrl+N em configurações e ausência dessa ação fora da página.
+A qualificação no ambiente do mantenedor permanece pendente; não há novo
+aceite manual. A divergência de configurações tornou-se geral com o default
+Ctrl+N do PR #845, após a introdução de `app.page` no PR #839.
+
 **Diagnóstico de carregamento (28/09/2026): In Progress.**
 As leituras de configurações e mapa local registram seu resultado automaticamente
 no logger existente, sem flag adicional, conforme decisão do mantenedor.

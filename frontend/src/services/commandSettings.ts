@@ -17,6 +17,7 @@ import type {
   SaveCommandBindingRequest,
   SaveCommandLayerRequest,
 } from '../types/commandSettingsTypes';
+import { isAppPage } from '../lib/commandAppPage';
 
 export class CommandSettingsBindingUnavailableError extends Error {
   constructor(method: string) {
@@ -142,6 +143,7 @@ function decodeCondition(value: unknown): CommandCondition | undefined {
     'device',
     'foreground.process',
     'app.focused',
+    'app.page',
   ]);
   const seenFields = new Set<string>();
   for (const clause of clauses) {
@@ -156,6 +158,13 @@ function decodeCondition(value: unknown): CommandCondition | undefined {
     if (row.field === 'app.focused' && typeof row.value === 'boolean') {
       decodedClauses.push({ field: row.field, value: row.value });
       continue;
+    }
+    if (row.field === 'app.page' && isAppPage(row.value)) {
+      decodedClauses.push({ field: row.field, value: row.value });
+      continue;
+    }
+    if (row.field === 'app.page') {
+      return undefined;
     }
     if (row.field !== 'app.focused' && typeof row.value === 'string' && row.value.trim() !== '') {
       decodedClauses.push({ field: row.field, value: row.value });

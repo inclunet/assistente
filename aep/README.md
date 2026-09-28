@@ -1,5 +1,10 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — contrato de leitura frontend/backend: In Progress.** Configurações
+aceitam o enum `app.page`; ramos vazios por página/perfil não descartam o mapa
+inteiro. Fixture compartilhada entre endpoint Go e consumidor frontend cobre
+o mapa padrão e despacho de navegação. Validação manual do incidente pendente.
+
 **AEP-0103 — diagnóstico de carregamento: In Progress.** Leituras de camadas e
 mapa de teclado registram resultado, etapa, duração e causa tipada automaticamente antes
 da sanitização pública, sem capturar teclas/conteúdo ou alterar os gates.
