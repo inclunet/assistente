@@ -399,3 +399,37 @@ func TestCommandProbeRejectsCrossOriginRedirect(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicProbeRejectsCrossOriginRedirect(t *testing.T) {
+	var reached atomic.Int32
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached.Add(1); w.WriteHeader(200) }))
+	defer destination.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, destination.URL, http.StatusFound) }))
+	defer origin.Close()
+	svc := NewService(ServiceConfig{})
+	result := svc.ProbeConnection(context.Background(), origin.URL, "temporary")
+	if result.AuthOK || result.ErrorType != "url_unreachable" || reached.Load() != 0 {
+		t.Fatalf("redirect público não recusado: %+v", result)
+	}
+}
+
+func TestCommandHealthClassifiesResolutionFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("comando inválido alcançou servidor")
+		w.WriteHeader(200)
+	}))
+	defer server.Close()
+	mgr := credentials.NewManager(nil)
+	if err := mgr.RegisterPattern("health-command", &credentials.AuthConfig{Source: "command", Type: "bearer", SourceConfig: &credentials.SourceConfig{Command: filepath.Join(t.TempDir(), "missing-executable")}}); err != nil {
+		t.Fatal(err)
+	}
+	registry := llm.NewProviderRegistry()
+	if err := registry.Register(&llm.ProviderConfig{ID: "command-health", Name: "command-health", Type: llm.ProviderOpenAI, BaseURL: server.URL, CredentialPattern: "health-command"}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(ServiceConfig{Registry: registry, CredMgr: mgr, Store: NewMemoryStore()})
+	result := svc.CheckHealth(context.Background(), profileForProvider("command-health"))
+	if result.ErrorType != "auth_invalid" {
+		t.Fatalf("falha de comando classificada como rede: %+v", result)
+	}
+}

@@ -271,8 +271,8 @@ func TestCommandTransportRetryLimits(t *testing.T) {
 			}
 			response, e := NewCredentialTransport(f.m, "cache.example").RoundTrip(req)
 			if mode == "refresh-failure" {
-				if e == nil || response != nil {
-					t.Fatal("falha de renovação não propagada")
+				if !errors.Is(e, ErrCredentialResolution) || response != nil {
+					t.Fatal("falha de renovação não propagada como credencial")
 				}
 			} else {
 				if e != nil || response.StatusCode != 401 {

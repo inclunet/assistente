@@ -1,6 +1,7 @@
 package credentials
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -9,6 +10,9 @@ import (
 
 	"assistente/internal/database"
 )
+
+// ErrCredentialResolution permite distinguir falhas de credencial de falhas de rede.
+var ErrCredentialResolution = errors.New("falha ao resolver credencial")
 
 const managedCredentialPlaceholder = "managed-by-credential-transport"
 
@@ -114,7 +118,7 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 			stripManagedPlaceholder(req)
 			return t.Base.RoundTrip(req)
 		}
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrCredentialResolution, err)
 	}
 	if auth == nil {
 		if t.AuthMode == AuthOptional {
@@ -148,7 +152,7 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	fresh, err := t.CredMgr.getByPatternWithContext(req.Context(), t.CredPattern, !t.DisableCommandCache)
 	if err != nil {
 		_ = response.Body.Close()
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrCredentialResolution, err)
 	}
 	if fresh == nil || fresh.commandEntry != auth.commandEntry {
 		return response, nil

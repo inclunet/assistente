@@ -50,7 +50,9 @@ para a tela de edição. Env e keyring continuam sendo consultados a cada uso.
 Consumidores que obtêm o segredo diretamente, sem esse transport HTTP (como
 ferramentas HTTP e o SDK Gemini), continuam executando o comando a cada uso.
 Sondagens e clientes de provedores LLM (incluindo a listagem de modelos do
-formulário) não seguem redirecionamentos para outra origem.
+formulário e a sondagem do assistente de configuração) não seguem
+redirecionamentos para outra origem. Se o comando falhar, o monitor informa
+erro de credencial, em vez de indicar que a URL está inacessível.
 As sondagens de conexão e o monitor de saúde do provedor compartilham o cache
 do transport; chaves digitadas apenas para teste continuam isoladas.
 

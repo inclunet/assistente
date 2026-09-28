@@ -160,10 +160,10 @@ Evidências verificáveis:
   transição de sessão com comando e HTTP; passou localmente.
 - Credenciais, provedores e LLM passaram localmente; build, vet e golangci-lint
   passaram (zero issues). A orientação da tela tem regressão em CredentialsPage.
-- Revisor independente Codex `review_credential_sources`: seis rodadas; corrigidos
+- Revisor independente Codex `review_credential_sources`: sete rodadas; corrigidos
   cache em consumidores sem observação HTTP e redirecionamento de probes;
   terceira e quarta rodadas sem pendências. Quinta rodada identificou recarga
-  persistida redundante; corrigida com regressão DBStore. Sexta rodada zerada.
+  persistida redundante; corrigida com regressão DBStore. Sexta e sétima rodadas zeradas.
 - Limitação local: detector de corrida indisponível sem CGO/GCC; suíte Go completa
   encontrou saída 0xffffffff em ACP/acpregistry no Windows e atingiu o teto
   agregado de 5 minutos de app durante teste de Deck. A suíte frontend passou
@@ -191,3 +191,10 @@ limite de redirects e listagem por OpenAI/Anthropic/Google.
 
 A recarga de uma entrada persistida idêntica preserva o cache, inclusive no
 RefreshAuth; salvar novamente ou carregar conteúdo alterado invalida a entrada.
+
+Terceira revisão remota: `ProbeConnection` público aplica a mesma restrição de
+origem, sem depender do callback de preparação. Falhas de resolução inicial e
+renovação no transport preservam o erro original e um marcador de credencial;
+a sondagem classifica `auth_invalid`, separando-as de falhas de rede.
+Regressões: `TestPublicProbeRejectsCrossOriginRedirect`,
+`TestCommandHealthClassifiesResolutionFailure` e `TestCommandTransportRetryLimits`.

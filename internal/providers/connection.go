@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"assistente/internal/credentials"
 )
 
 // ConnectionProbeResult contém o resultado detalhado de uma sondagem de conexão a um endpoint LLM.
@@ -44,6 +47,7 @@ func (s *Service) probeConnection(ctx context.Context, baseURL, apiKey string, p
 
 	modelsEndpoint := strings.TrimSuffix(baseURL, "/") + "/models"
 	client := &http.Client{Timeout: 15 * time.Second}
+	restrictProbeRedirect(client, baseURL)
 	defer client.CloseIdleConnections()
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsEndpoint, nil)
@@ -66,6 +70,11 @@ func (s *Service) probeConnection(ctx context.Context, baseURL, apiKey string, p
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
+		if errors.Is(err, credentials.ErrCredentialResolution) {
+			result.ErrorType = "auth_invalid"
+			result.ErrorDetail = "Não foi possível resolver a credencial do provedor."
+			return result
+		}
 		result.ErrorType = "url_unreachable"
 		result.ErrorDetail = fmt.Sprintf("Não foi possível conectar ao servidor. Verifique se a URL está correta e o servidor está ativo.\n\nDetalhes: %v", err)
 		return result
