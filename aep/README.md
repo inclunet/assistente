@@ -1,5 +1,13 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — ordem de startup (28/09/2026): In Progress.** Com armazenamento
+de comandos disponível, jobs são preparados
+no reload e iniciados somente após a publicação dos comandos, com vínculo à
+sessão e retry pelo mesmo fluxo. `EnsureScope` evita escrita para contadores
+já válidos. Testes `TestCommandJobs*` e `TestEnsureScope*` cobrem a barreira,
+cancelamento, sessão obsoleta e writer WAL concorrente. Validação manual não
+foi promovida.
+
 **AEP-0103 — recuperação de teclado (28/09/2026): In Progress.** Hot-swap MCP
 notifica o mapa após readiness; falhas transitórias de carregamento recebem
 retry com backoff, mantendo os gates de segurança. Regressão de publicação

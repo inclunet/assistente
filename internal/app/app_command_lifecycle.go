@@ -243,14 +243,19 @@ func (a *App) bootstrapCommandLifecycleIfConfigured(ctx context.Context) error {
 // a transição de autenticação permanece válida e o controller fica fail-closed
 // (sem publicação/entradas prontas), preservando o contrato legado do App.
 func (a *App) bootstrapCommandLifecycleAfterAuth(ctx context.Context, result *AuthUser, authErr error) {
+	// Chamadores sem resultado síncrono conservam o diagnóstico de cada etapa.
+	_ = a.tryBootstrapCommandLifecycleAfterAuth(ctx, result, authErr)
+}
+
+func (a *App) tryBootstrapCommandLifecycleAfterAuth(ctx context.Context, result *AuthUser, authErr error) error {
 	if a == nil {
-		return
+		return nil
 	}
 	// Uma recarga explícita deve retirar o mapa antigo mesmo se seu contexto
 	// já foi cancelado. O worker de observação usa aquisição cancelável abaixo.
 	_ = a.lockCommandBootstrap(context.Background())
 	defer a.unlockCommandBootstrap()
-	a.bootstrapCommandLifecycleAfterAuthLocked(ctx, result, authErr)
+	return a.bootstrapCommandLifecycleAfterAuthLocked(ctx, result, authErr)
 }
 
 func (a *App) lockCommandBootstrap(ctx context.Context) error {
@@ -273,9 +278,17 @@ func (a *App) bootstrapCommandLifecycleAfterOSUnlock(ctx context.Context, host *
 	if err := a.lockCommandBootstrap(ctx); err != nil {
 		return
 	}
-	defer a.unlockCommandBootstrap()
-	a.authMu.RLock()
 	var result *AuthUser
+	var bootstrapOK bool
+	defer func() {
+		a.unlockCommandBootstrap()
+		if bootstrapOK {
+			if err := a.startPreparedJobsAfterCommands(ctx, result); err != nil {
+				logging.Warnf(ctx, "app.commands", "jobs pendentes após desbloqueio do SO: %v", err)
+			}
+		}
+	}()
+	a.authMu.RLock()
 	sessions, credentials := a.sessionSvc, a.credMgr
 	if a.commandHost == host && a.currentAuthUser != nil && a.commandLifecycle.Load() != nil {
 		copy := *a.currentAuthUser
@@ -293,17 +306,17 @@ func (a *App) bootstrapCommandLifecycleAfterOSUnlock(ctx context.Context, host *
 	if err != nil || current != principal || !a.commandPrincipalMatches(sessions, credentials, principal) {
 		return
 	}
-	a.bootstrapCommandLifecycleAfterAuthLocked(ctx, result, nil)
+	bootstrapOK = a.bootstrapCommandLifecycleAfterAuthLocked(ctx, result, nil) == nil
 }
 
-func (a *App) bootstrapCommandLifecycleAfterAuthLocked(ctx context.Context, result *AuthUser, authErr error) {
+func (a *App) bootstrapCommandLifecycleAfterAuthLocked(ctx context.Context, result *AuthUser, authErr error) error {
 	if authErr != nil || result == nil || !a.authResultStillCurrent(result) {
-		return
+		return authErr
 	}
 	if _, ok := loadCommandLifecycle(a); !ok || a.commandProduct.Load() != nil {
 		if err := a.ensureCommandLifecycleMountedForCurrentUser(ctx); err != nil {
 			logging.Warnf(context.Background(), "app.app", "ciclo de vida de comandos não montado após autenticação: %v", err)
-			return
+			return err
 		}
 	}
 	// Retire a publicação anterior antes de tentar recarregar. Uma falha de
@@ -320,15 +333,15 @@ func (a *App) bootstrapCommandLifecycleAfterAuthLocked(ctx context.Context, resu
 	cancel()
 	if resetErr != nil {
 		logging.Errorf(context.Background(), "app.app", "runtime de comandos não pôde ser desabilitado antes da recarga: %v", resetErr)
-		return
+		return resetErr
 	}
 	if err := a.rebuildCommandLifecyclePersistedConfiguration(ctx); err != nil {
 		logging.Warnf(context.Background(), "app.app", "configuração inicial de comandos indisponível após autenticação: %v", err)
-		return
+		return err
 	}
 	if err := a.bootstrapCommandLifecycleIfConfigured(ctx); err != nil {
 		logging.Errorf(context.Background(), "app.app", "ciclo de vida de comandos indisponível após autenticação: %v", err)
-		return
+		return err
 	}
 	// A publicação da projeção antecede a habilitação do lifecycle. Avise
 	// novamente quando a UI já pode ler o mapa, inclusive após a primeira
@@ -337,6 +350,54 @@ func (a *App) bootstrapCommandLifecycleAfterAuthLocked(ctx context.Context, resu
 		a.emitter.Emit("command:keyboard-map-changed", nil)
 	}
 	logging.Infof(ctx, "app.commands", "Configuração de comandos publicada após revalidação da sessão")
+	return nil
+}
+
+// Não chamar sob authSessionMu: o bootstrap tem seu próprio mutex e os
+// chamadores de mutação de perfil já usam a ordem authSessionMu -> bootstrap.
+// Solte bootstrap antes de serializar Start com autenticação.
+func (a *App) bootstrapCommandsAndStartPreparedJobs(ctx context.Context, user *AuthUser, authErr error) error {
+	if err := a.tryBootstrapCommandLifecycleAfterAuth(ctx, user, authErr); err != nil {
+		return err
+	}
+	return a.startPreparedJobsAfterCommands(ctx, user)
+}
+
+// Serializa com logout/troca de usuário. A preparação acontece sob o mesmo
+// mutex; um bootstrap atrasado nunca inicia os jobs da próxima sessão.
+func (a *App) startPreparedJobsAfterCommands(ctx context.Context, user *AuthUser) error {
+	a.authSessionMu.Lock()
+	defer a.authSessionMu.Unlock()
+	pending := a.commandJobsPending
+	if pending == nil || a.jobMgr == nil {
+		return nil
+	}
+	if user == nil || pending.UserID != user.UserID || pending.SessionID != user.SessionID || !a.authResultStillCurrent(user) {
+		return commandexecution.ErrStale
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Mesma ordem dos editores de perfil: authSessionMu -> bootstrap. Uma
+	// atualização MCP entre publicação e Start termina antes de verificar
+	// readiness; não deixa jobs pendentes por observar um estado intermediário.
+	if err := a.lockCommandBootstrap(ctx); err != nil {
+		return err
+	}
+	defer a.unlockCommandBootstrap()
+	snapshot, err := CommandLifecycleSnapshot(a)
+	if err != nil {
+		return err
+	}
+	if snapshot.State != commandruntime.StateReady || !snapshot.Published {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	if err := a.jobMgr.Start(); err != nil {
+		logging.Errorf(ctx, "app.commands", "jobs não iniciados após publicação dos comandos: %v", err)
+		return err
+	}
+	a.commandJobsPending = nil
+	return nil
 }
 
 func (a *App) bootstrapCommandLifecycleAfterUnlock(ctx context.Context) {
@@ -350,7 +411,9 @@ func (a *App) bootstrapCommandLifecycleAfterUnlock(ctx context.Context) {
 		result = &copy
 	}
 	a.authMu.RUnlock()
-	a.bootstrapCommandLifecycleAfterAuth(ctx, result, nil)
+	if err := a.bootstrapCommandsAndStartPreparedJobs(ctx, result, nil); err != nil {
+		logging.Warnf(ctx, "app.commands", "runtime pendente após desbloqueio do cofre: %v", err)
+	}
 }
 
 func (a *App) authResultStillCurrent(result *AuthUser) bool {

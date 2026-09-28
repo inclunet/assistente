@@ -1,5 +1,29 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Ordem de startup de jobs (28/09/2026):** o reload autenticado monta as portas
+de manutenção, mas adia o scheduler e sua passagem inicial até a publicação
+do runtime de comandos. O caminho legado sem armazenamento de comandos mantém
+seu Start anterior; falhas de bootstrap não são atribuídas a jobs já iniciados.
+A pendência pertence à sessão que a preparou; logout,
+troca de usuário e cancelamento não autorizam um bootstrap atrasado a iniciar
+jobs de outra sessão. O retry explícito também reconstrói comandos antes de
+liberar jobs. Não há sleep fixo nem remoção de imports/retenção. Evidências:
+`TestCommandJobsWaitForBootstrapAfterRuntimeReload`,
+`TestCommandJobsCancelledBootstrapKeepsPendingUntilRetry`,
+`TestCommandJobsRejectStaleSession` e
+`TestCommandJobsRuntimeRetryBootstrapsBeforeStart`.
+`TestCommandJobsResumeAfterFirstKnownOSSession` e
+`TestCommandJobsResumeRetriesFailedStart` cobrem retomada; o bootstrap de
+perfis conserva sua ordem de locks, sem iniciar jobs dentro da mutação.
+`EnsureScope` valida os contadores existentes por leitura antes de tentar
+criá-los, evitando disputar o writer SQLite em cada reconstrução de mapa.
+Escopos ausentes ainda exigem a transação original e dados inválidos continuam
+recusados. Evidência: `TestEnsureScopeExistingGlobalAndWorkspaceAvoidWriterLock`
+mantém um writer WAL real aberto em outra conexão; os testes de escopo ausente
+e geração corrompida preservam as recusas.
+**In Progress**: validação no banco real e investigação da contenção de manutenção
+posterior ao startup continuam necessárias; nenhum aceite manual promovido.
+
 **Recuperação do mapa de teclado (28/09/2026):** o hot-swap do catálogo MCP
 notifica a UI novamente após o bootstrap publicar readiness. A notificação
 anterior, emitida durante a publicação da configuração, podia encontrar o

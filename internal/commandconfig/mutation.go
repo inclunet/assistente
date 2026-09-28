@@ -3,6 +3,7 @@ package commandconfig
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"reflect"
 	"slices"
@@ -114,8 +115,17 @@ func (p *PreparedMutation) Diff() MutationDiff {
 // EnsureScope inicializa apenas contadores, sem binding/default/claim. O host
 // deve verificar ownership do workspace antes; nenhuma leitura chama isto.
 func (s *Store) EnsureScope(ctx context.Context, scope Scope) error {
-	if s == nil || ctx == nil || !validScope(scope) {
+	if s == nil || s.db == nil || ctx == nil || !validScope(scope) {
 		return ErrInvalid
+	}
+	scope = cloneScope(scope)
+	// Reconstruções de mapa não precisam disputar o writer da manutenção
+	// quando o escopo já está íntegro. Ausência/inconsistência ainda passa
+	// pela criação e validação transacionais abaixo.
+	if _, err := readGenerations(s.db.WithContext(ctx), scope); err == nil {
+		return nil
+	} else if !errors.Is(err, ErrInvalid) {
+		return err
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		workspaces := []*string{nil}

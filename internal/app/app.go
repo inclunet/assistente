@@ -138,6 +138,7 @@ type App struct {
 	commandProductBuild     sync.Mutex
 	commandBootstrapOnce    sync.Once
 	commandBootstrap        chan struct{} // serializa reconstruções por autenticação/cofre/SO
+	commandJobsPending      *AuthUser     // protegido por authSessionMu; iniciado só após publicar comandos
 	commandProduct          atomic.Pointer[commandProductRuntime]
 	commandStorageVersion   string // prontidão de armazenamento, NÃO de execução; authMu
 	commandStorageErr       error  // falha retida sem impedir autenticação legada; authMu

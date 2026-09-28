@@ -18,6 +18,15 @@ necessário alternar a janela para provocar uma nova tentativa. Um mapa antigo
 não é usado enquanto a nova configuração está indisponível. As restrições de
 sessão, foco e modais continuam valendo.
 
+Com o armazenamento de comandos disponível, no login e na restauração da
+sessão, os agendamentos de jobs e sua manutenção
+aguardam a publicação do sistema de comandos. Se essa preparação falhar, o app
+informa inicialização parcial; a ação **Tentar novamente** refaz a preparação
+antes de iniciar os jobs. Não é necessário desativar camadas nem remover os
+arquivos de importação para estabelecer essa ordem.
+A preparação de um escopo já configurado também evita uma escrita desnecessária
+no banco, reduzindo a disputa com a manutenção dos jobs.
+
 Uma camada com acionadores do Stream Deck não exige que o dispositivo esteja
 conectado para usar os atalhos de teclado de outras camadas. A ausência do
 dispositivo afeta sua entrada física; conectar novamente permite uma nova
