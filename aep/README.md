@@ -6,6 +6,8 @@ Reserva fixa o caminho canônico também no reset do banco; o worker de ativaç�
 é cancelado e aguardado antes do shutdown. Aceite físico/NVDA permanece pendente.
 Reset preserva a identidade física dos hardlinks existentes e recusa links
 simbólicos/não regulares antes do fechamento, truncando apenas o handle validado.
+O preflight antecede a drenagem dos comandos e a identidade é revalidada depois
+do callback; alvos inválidos não derrubam um runtime que ainda estava utilizável.
 
 **AEP-0103 — recuperação de teclado (28/09/2026): In Progress.** Hot-swap MCP
 notifica o mapa após readiness; falhas transitórias de carregamento recebem

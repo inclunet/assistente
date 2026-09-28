@@ -234,11 +234,6 @@ func (c *SettingsController) ClearAllChannels() error {
 
 // ResetDatabase apaga o banco de dados, resetando ao estado inicial.
 func (c *SettingsController) ResetDatabase() error {
-	if c.beforeDatabaseReset != nil {
-		if err := c.beforeDatabaseReset(); err != nil {
-			return fmt.Errorf("reset do banco recusado antes do fechamento: %w", err)
-		}
-	}
 	dbPath := c.databasePath
 	if dbPath == "" {
 		var err error
@@ -269,6 +264,23 @@ func (c *SettingsController) ResetDatabase() error {
 	}
 	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
 		return fmt.Errorf("identidade do banco mudou durante abertura para reset")
+	}
+	// Só drenar comandos depois de concluir o preflight não destrutivo.
+	if c.beforeDatabaseReset != nil {
+		if err := c.beforeDatabaseReset(); err != nil {
+			return fmt.Errorf("reset do banco recusado antes do fechamento: %w", err)
+		}
+	}
+	current, err := os.Lstat(dbPath)
+	if err != nil {
+		return fmt.Errorf("erro ao revalidar caminho após drenagem: %w", err)
+	}
+	opened, err = file.Stat()
+	if err != nil {
+		return fmt.Errorf("erro ao revalidar handle após drenagem: %w", err)
+	}
+	if !current.Mode().IsRegular() || !opened.Mode().IsRegular() || !os.SameFile(before, opened) || !os.SameFile(current, opened) {
+		return fmt.Errorf("identidade do banco mudou durante drenagem")
 	}
 
 	if err := database.Close(); err != nil {

@@ -48,9 +48,11 @@ contenção interna de uma única instância (AEP-0074 e AEP-0106).
   continua necessário. O reset, após drenagem e fechamento do SQLite, trunca
   o arquivo sem removê-lo: preserva a identidade física e os hardlinks existentes,
   além da reserva desktop. A limpeza de WAL/SHM e a reabertura usam o caminho fixado.
-  Antes de fechar SQLite, o reset rejeita symlink/arquivo não regular por `Lstat`
+  Antes de drenar comandos ou fechar SQLite, o reset rejeita symlink/arquivo não regular por `Lstat`
   e compara a identidade com `f.Stat` após abrir sem truncamento; trunca somente
-  o handle validado. Substituição hostil posterior do pathname (inclusive antes
+  o handle validado. Após o callback de drenagem, revalida `Lstat` e a identidade
+  caminho/handle antes de fechar SQLite; alvo alterado é recusado sem truncamento.
+  Substituição hostil posterior a essa revalidação (inclusive antes
   da reabertura) não está coberta por esta garantia local.
   `TestSettingsControllerResetDatabaseUsesFixedDatabasePath` verifica `os.SameFile`,
   remoção dos dados antigos e ativação da instância reservada pelo hardlink após reset.

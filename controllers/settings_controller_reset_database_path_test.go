@@ -164,12 +164,16 @@ func TestSettingsControllerResetDatabaseRejectsRelativeConfiguredPathBeforeClose
 		_ = sqlDB.Close()
 	})
 
-	controller := NewSettingsController(SettingsControllerConfig{DatabasePath: "relative/conversations.db"})
+	called := false
+	controller := NewSettingsController(SettingsControllerConfig{DatabasePath: "relative/conversations.db", BeforeDatabaseReset: func() error { called = true; return nil }})
 	if err := controller.ResetDatabase(); err == nil {
 		t.Fatal("caminho relativo deveria ser recusado")
 	}
 	if err := sqlDB.Ping(); err != nil {
 		t.Fatalf("DB foi fechado antes da validação do caminho: %v", err)
+	}
+	if called {
+		t.Fatal("caminho relativo drenou comandos antes de ser recusado")
 	}
 }
 
@@ -211,15 +215,86 @@ func TestSettingsControllerResetDatabaseRejectsUnsafePathBeforeClose(t *testing.
 			}
 			restoreDB := database.SetDB(db)
 			t.Cleanup(func() { restoreDB(); _ = pool.Close() })
-			controller := NewSettingsController(SettingsControllerConfig{DatabasePath: resetPath, Emitter: events.NoopEmitter{}})
+			called := false
+			controller := NewSettingsController(SettingsControllerConfig{DatabasePath: resetPath, Emitter: events.NoopEmitter{}, BeforeDatabaseReset: func() error { called = true; return nil }})
 			if err := controller.ResetDatabase(); err == nil {
 				t.Fatal("reset aceitou caminho inseguro")
 			}
 			if err := pool.Ping(); err != nil {
 				t.Fatalf("reset fechou DB antes de rejeitar caminho: %v", err)
 			}
+			if called {
+				t.Fatal("preflight inválido drenou comandos")
+			}
 			if got, err := os.ReadFile(sentinelPath); err != nil || !bytes.Equal(got, sentinel) {
 				t.Fatalf("reset alterou sentinela externa: %q, %v", got, err)
+			}
+		})
+	}
+}
+
+func TestSettingsControllerResetDatabaseRejectsPathChangedByDrain(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("prova de rename de SQLite aberto requer semântica POSIX")
+	}
+	for _, kind := range []string{"replacement", "symlink", "missing"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "reserved.db")
+			moved := filepath.Join(root, "original.db")
+			outside := filepath.Join(root, "outside.db")
+			sentinel := []byte("outside-must-survive")
+			if err := os.WriteFile(outside, sentinel, 0600); err != nil {
+				t.Fatal(err)
+			}
+			db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			pool, err := db.DB()
+			if err != nil {
+				t.Fatal(err)
+			}
+			restoreDB := database.SetDB(db)
+			t.Cleanup(func() { restoreDB(); _ = pool.Close() })
+			if err := db.Exec("CREATE TABLE preserved (value TEXT)").Error; err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			called := 0
+			controller := NewSettingsController(SettingsControllerConfig{DatabasePath: path, Emitter: events.NoopEmitter{}, BeforeDatabaseReset: func() error {
+				called++
+				if err := os.Rename(path, moved); err != nil {
+					return err
+				}
+				switch kind {
+				case "replacement":
+					return os.WriteFile(path, sentinel, 0600)
+				case "symlink":
+					return os.Symlink(outside, path)
+				}
+				return nil
+			}})
+			err = controller.ResetDatabase()
+			if err == nil || called != 1 {
+				t.Fatalf("reset=%v callback=%d", err, called)
+			}
+			if err := pool.Ping(); err != nil {
+				t.Fatalf("DB fechado apesar da troca: %v", err)
+			}
+			if got, err := os.ReadFile(moved); err != nil || !bytes.Equal(got, before) {
+				t.Fatalf("handle original truncado: %v", err)
+			}
+			if got, err := os.ReadFile(outside); err != nil || !bytes.Equal(got, sentinel) {
+				t.Fatalf("sentinela externa alterada: %v", err)
+			}
+			if kind != "missing" {
+				if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, sentinel) {
+					t.Fatalf("alvo substituto alterado: %v", err)
+				}
 			}
 		})
 	}
