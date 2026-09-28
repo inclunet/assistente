@@ -192,6 +192,9 @@ buildDeepLink({ type: 'tab:new', tabType: 'terminal', cmd: 'npm install' });
 
 buildDeepLink({ type: 'resource:new', resource: 'tasklists' });
 // → 'assistente://tasklists/new'
+buildDeepLink({ type: 'resource:new', resource: 'credentials', initial: { pattern: 'api.search.brave.com', type: 'bearer' } });
+// → 'assistente://credentials/new?pattern=api.search.brave.com&type=bearer'
+// (allowlist: só pattern/type; segredos nunca são serializados)
 ```
 
 ### `executeDeepLink(action: DeepLinkAction, deps: DeepLinkDeps): Promise<void>`
@@ -217,7 +220,7 @@ type DeepLinkAction =
   | { type: 'conversation:send'; conversationId: string; message: string }
   | { type: 'navigate'; route: string }
   | { type: 'resource:edit'; resource: EditableResource; resourceId: string; tab?: 'voice' }
-  | { type: 'resource:new'; resource: EditableResource }
+  | { type: 'resource:new'; resource: EditableResource; initial?: Record<string, string> }
   | { type: 'tab:open'; tabType: TabType; contentId: string; title?: string }
   | { type: 'tab:new'; tabType: TabType; title?: string; file?: string; cmd?: string };
 ```

@@ -235,6 +235,25 @@ describe('CredentialsPage', () => {
     expect(screen.getByLabelText('Token')).toHaveValue('');
   });
 
+  it('deep link abre o modal mesmo sem credenciais cadastradas', async () => {
+    mockList.mockResolvedValue([]);
+    useNavigationStore.setState({
+      pendingEdit: {
+        resource: 'credentials',
+        id: '',
+        action: 'new',
+        initial: { pattern: 'api.tavily.com', type: 'bearer' },
+        timestamp: Date.now(),
+      },
+    });
+
+    render(<CredentialsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Pattern')).toHaveValue('api.tavily.com');
+    });
+  });
+
   it('exclui credencial via menu de acoes', async () => {
     render(<CredentialsPage />);
 

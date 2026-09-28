@@ -214,7 +214,10 @@ export default function CredentialsPage() {
         crud.updateField('type', initial.type);
       }
     },
-    ready: !crud.loading && crud.items.length > 0,
+    // Só o fim do carregamento: exigir lista não-vazia deixaria o deep link
+    // morto em instalação nova (zero credenciais) — justo o cenário de
+    // primeira configuração.
+    ready: !crud.loading,
   });
 
   useActivePanelNewShortcut(crud.openNew);

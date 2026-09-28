@@ -637,6 +637,23 @@ describe('buildDeepLink', () => {
     expect(uri).toBe('assistente://credentials/new?pattern=api.search.brave.com&type=bearer');
   });
 
+  it('builder nunca serializa segredos', () => {
+    const uri = buildDeepLink({
+      type: 'resource:new', resource: 'credentials',
+      initial: { pattern: 'x', token: 'secreto', type: 'bearer' },
+    });
+    expect(uri).toBe('assistente://credentials/new?pattern=x&type=bearer');
+    expect(uri).not.toContain('secreto');
+  });
+
+  it('builder ignora initial em outros recursos', () => {
+    const uri = buildDeepLink({
+      type: 'resource:new', resource: 'skills',
+      initial: { pattern: 'x' },
+    });
+    expect(uri).toBe('assistente://skills/new');
+  });
+
   it('constrói tab:open para tasklist', () => {
     const uri = buildDeepLink({ type: 'tab:open', tabType: 'tasklist', contentId: '5' });
     expect(uri).toBe('assistente://tasklist/5');

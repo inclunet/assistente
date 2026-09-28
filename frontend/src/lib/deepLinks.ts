@@ -73,24 +73,39 @@ function isValidResourceTab(
 const CREDENTIAL_NEW_TYPES = new Set(['bearer', 'basic', 'custom', 'secret']);
 
 /**
- * Extrai valores iniciais para o formulário de criação a partir dos query
- * params — hoje somente `credentials` aceita (`pattern` + `type`).
+ * Sanitiza valores iniciais para o formulário de criação — hoje somente
+ * `credentials` aceita (`pattern` + `type` bearer/basic/custom/secret).
  * Segurança: allowlist explícita por recurso; segredos (token, senhas,
- * valores de header) nunca são aceitos por deep link, pois vazariam para
- * histórico de chat e logs. Valores inválidos são ignorados (formulário
- * abre em branco) em vez de falhar o link.
+ * valores de header) nunca passam, pois vazariam para histórico de chat e
+ * logs. Retorna undefined quando nada válido resta.
+ */
+function sanitizeResourceNewInitial(
+  resource: EditableResource,
+  initial: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!initial || resource !== 'credentials') return undefined;
+  const safe: Record<string, string> = {};
+  const pattern = (initial.pattern || '').trim();
+  if (pattern) safe.pattern = pattern;
+  const type = (initial.type || '').trim().toLowerCase();
+  if (type && CREDENTIAL_NEW_TYPES.has(type)) safe.type = type;
+  return Object.keys(safe).length > 0 ? safe : undefined;
+}
+
+/**
+ * Extrai valores iniciais para o formulário de criação a partir dos query
+ * params. Valores inválidos são ignorados (formulário abre em branco) em
+ * vez de falhar o link.
  */
 function parseResourceNewInitial(
   resource: EditableResource,
   params: URLSearchParams,
 ): Record<string, string> | undefined {
   if (resource !== 'credentials') return undefined;
-  const initial: Record<string, string> = {};
-  const pattern = (params.get('pattern') || '').trim();
-  if (pattern) initial.pattern = pattern;
-  const type = (params.get('type') || '').trim().toLowerCase();
-  if (type && CREDENTIAL_NEW_TYPES.has(type)) initial.type = type;
-  return Object.keys(initial).length > 0 ? initial : undefined;
+  return sanitizeResourceNewInitial(resource, {
+    pattern: params.get('pattern') || '',
+    type: params.get('type') || '',
+  });
 }
 
 function defaultTitleForNewTab(tabType: TabType): string {
@@ -273,9 +288,12 @@ export function buildDeepLink(action: DeepLinkAction): string {
     }
 
     case 'resource:new': {
+      // Sanitiza pela mesma allowlist do parser: o builder nunca deve
+      // serializar segredos (token, senhas) para uma URI.
       const params = new URLSearchParams();
-      if (action.initial) {
-        for (const [key, value] of Object.entries(action.initial)) {
+      const safe = sanitizeResourceNewInitial(action.resource, action.initial);
+      if (safe) {
+        for (const [key, value] of Object.entries(safe)) {
           params.set(key, value);
         }
       }
