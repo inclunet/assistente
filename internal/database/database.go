@@ -99,9 +99,13 @@ func DB() *gorm.DB {
 	return db
 }
 
-// SetDB define a instância do banco de dados (usado em testes)
-func SetDB(database *gorm.DB) {
+// SetDB define a instância do banco de dados (usado em testes). O retorno
+// restaura também o caminho, caso a fixture inicialize outro banco depois.
+// Não fecha conexões: a fixture permanece responsável por sua vida útil.
+func SetDB(database *gorm.DB) func() {
+	previousDB, previousPath := db, dbPath
 	db = database
+	return func() { db, dbPath = previousDB, previousPath }
 }
 
 // Close fecha a conexão com o banco de dados
@@ -118,22 +122,47 @@ func Close() error {
 	return sqlDB.Close()
 }
 
-// Init inicializa o banco de dados
-// Resolve conversations.db nos 3 diretórios (exe > home > workdir).
-// Se não existir em nenhum, cria em ~/.assistente/
-func Init() error {
-	rootResolver := configdir.NewResolver("")
+// ResolvePath seleciona o banco sem abri-lo ou executar migrações.
+// A prioridade é workdir > home > exe; um banco novo usa o home.
+func ResolvePath() (string, error) {
+	return resolvePath(configdir.NewResolver(""), configdir.GetHomeDir())
+}
 
+func resolvePath(rootResolver interface {
+	Resolve(string) (*configdir.ResolvedFile, error)
+}, homeDir string) (string, error) {
 	resolved, err := rootResolver.Resolve("conversations.db")
-	if err != nil {
-		// Não existe em nenhum diretório — criar no home
-		if err := rootResolver.EnsureHomeDir(); err != nil {
-			return err
-		}
-		dbPath = filepath.Join(configdir.GetHomeDir(), "conversations.db")
-	} else {
-		dbPath = resolved.Path
+	if err == nil {
+		return filepath.Abs(resolved.Path)
 	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if homeDir == "" {
+		return "", errors.New("diretório de dados do usuário indisponível")
+	}
+	return filepath.Abs(filepath.Join(homeDir, "conversations.db"))
+}
+
+// Init preserva a resolução padrão para CLI e testes.
+func Init() error {
+	path, err := ResolvePath()
+	if err != nil {
+		return err
+	}
+	return InitPath(path)
+}
+
+// InitPath abre exatamente o banco previamente reservado pelo desktop.
+func InitPath(path string) error {
+	if !filepath.IsAbs(path) {
+		return errors.New("caminho do banco deve ser absoluto")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	dbPath = filepath.Clean(path)
+	var err error
 
 	db, err = gorm.Open(sqlite.Open(sqliteDSN(dbPath)), &gorm.Config{
 		Logger: configuredGORMLogger(),
