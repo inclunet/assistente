@@ -299,3 +299,71 @@ func TestSettingsControllerResetDatabaseRejectsPathChangedByDrain(t *testing.T) 
 		})
 	}
 }
+
+func TestSettingsControllerResetDatabaseJournalFailurePreservesBytes(t *testing.T) {
+	for _, suffix := range []string{"-wal", "-shm"} {
+		t.Run(suffix, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("HOME", root)
+			t.Setenv("USERPROFILE", root)
+			t.Chdir(root)
+			configdir.ResetForTests()
+			t.Cleanup(configdir.ResetForTests)
+			// O alvo é uma sentinela regular; o pool separado evita que SQLite
+			// remova journals da fixture por conta própria durante Close.
+			path := filepath.Join(root, "reserved.db")
+			before := []byte("database-bytes-must-survive-journal-cleanup-failure")
+			walSentinel := []byte("wal-must-survive-shm-cleanup-failure")
+			if suffix == "-shm" {
+				if err := os.WriteFile(path+"-wal", walSentinel, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(path, before, 0600); err != nil {
+				t.Fatal(err)
+			}
+			journal := path + suffix
+			if err := os.Mkdir(journal, 0700); err != nil {
+				t.Fatal(err)
+			}
+			child := filepath.Join(journal, "keep")
+			if err := os.WriteFile(child, []byte("journal-sentinel"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			db, err := gorm.Open(sqlite.Open(filepath.Join(root, "active.db")), &gorm.Config{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			pool, err := db.DB()
+			if err != nil {
+				t.Fatal(err)
+			}
+			restoreDB := database.SetDB(db)
+			t.Cleanup(func() { _ = database.Close(); _ = pool.Close(); restoreDB() })
+			called := 0
+			controller := NewSettingsController(SettingsControllerConfig{DatabasePath: path, Emitter: events.NoopEmitter{}, BeforeDatabaseReset: func() error { called++; return nil }})
+			err = controller.ResetDatabase()
+			var pathErr *os.PathError
+			if !errors.As(err, &pathErr) || pathErr.Path != journal {
+				t.Fatalf("erro da remoção do journal não propagado: %v", err)
+			}
+			if called != 1 || pool.Ping() == nil {
+				t.Fatal("limpeza de journals deve ocorrer após drenagem e Close")
+			}
+			if database.DB() != db {
+				t.Fatal("InitPath executado após falha de journal")
+			}
+			if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, before) {
+				t.Fatalf("DB truncado antes de limpar journals: %q err=%v", got, err)
+			}
+			if got, err := os.ReadFile(child); err != nil || string(got) != "journal-sentinel" {
+				t.Fatalf("journal alterado: %q err=%v", got, err)
+			}
+			if suffix == "-shm" {
+				if got, err := os.ReadFile(path + "-wal"); err != nil || !bytes.Equal(got, walSentinel) {
+					t.Fatalf("WAL perdido após falha de SHM: %q err=%v", got, err)
+				}
+			}
+		})
+	}
+}

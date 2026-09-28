@@ -52,6 +52,10 @@ contenção interna de uma única instância (AEP-0074 e AEP-0106).
   e compara a identidade com `f.Stat` após abrir sem truncamento; trunca somente
   o handle validado. Após o callback de drenagem, revalida `Lstat` e a identidade
   caminho/handle antes de fechar SQLite; alvo alterado é recusado sem truncamento.
+  Após Close e antes de truncar, a remoção deve concluir na ordem SHM → WAL,
+  preservando WAL se a remoção de SHM falhar; somente
+  journal inexistente é ignorado. Outro erro interrompe sem truncar ou reabrir
+  o banco, embora a drenagem/Close já tenham ocorrido.
   Substituição hostil posterior a essa revalidação (inclusive antes
   da reabertura) não está coberta por esta garantia local.
   `TestSettingsControllerResetDatabaseUsesFixedDatabasePath` verifica `os.SameFile`,

@@ -3,6 +3,7 @@ package controllers
 import (
 	"assistente/internal/logging"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -287,6 +288,14 @@ func (c *SettingsController) ResetDatabase() error {
 		return fmt.Errorf("erro ao fechar banco de dados: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond)
+	// Não apagar o conteúdo enquanto um journal antigo puder sobreviver ao
+	// reset. Uma falha também impede InitPath de reabrir esse conjunto parcial.
+	// Remover SHM primeiro preserva WAL caso a limpeza do índice compartilhado falhe.
+	for _, suffix := range []string{"-shm", "-wal"} {
+		if err := os.Remove(dbPath + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("erro ao remover journal %s: %w", suffix, err)
+		}
+	}
 
 	// Trunca o handle validado, nunca um pathname que pode ter sido trocado.
 	// Preserva a identidade física reservada, inclusive hardlinks existentes.
@@ -296,8 +305,6 @@ func (c *SettingsController) ResetDatabase() error {
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("erro ao fechar arquivo truncado: %w", err)
 	}
-	_ = os.Remove(dbPath + "-wal")
-	_ = os.Remove(dbPath + "-shm")
 
 	if err := database.InitPath(dbPath); err != nil {
 		return fmt.Errorf("erro ao reinicializar banco: %v", err)
