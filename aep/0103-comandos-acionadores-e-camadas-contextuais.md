@@ -1,5 +1,18 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Diagnóstico de carregamento (28/09/2026): In Progress.**
+`ASSISTENTE_COMMAND_LOAD_DIAGNOSTICS=1` habilita rastreamento das leituras de
+configurações e mapa local, inclusive as etapas de autenticação/readiness
+compartilhadas. Registra início, etapa, duração, sucesso/contagens e falha antes
+da sanitização pública. A causa é representada por classe, tipos encadeados e
+código numérico quando disponível; texto arbitrário de erros/SQL não é emitido.
+Um aviso único após três segundos identifica a etapa de uma leitura demorada,
+sem cancelar a chamada ou alterar deadlines. Não observa pressionamentos,
+execuções, argumentos, IDs de sessão, nomes de camadas ou conteúdo digitado.
+Sem opt-in não gera estes logs; não muda guardas, permissões ou disponibilidade.
+Cobertura em `app_command_load_diagnostics_test.go`. Diagnóstico do incidente
+real e validação manual continuam pendentes; não constitui novo aceite do AEP.
+
 **Manutenção fora do caminho crítico (28/09/2026): In Progress.** Limpeza de
 tool calls de chat deixa o reload síncrono no caminho com coordenador e permanece
 na manutenção existente após publicação dos comandos. Sem armazenamento de

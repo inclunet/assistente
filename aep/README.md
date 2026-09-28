@@ -1,5 +1,10 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — diagnóstico de carregamento: In Progress.** Leituras de camadas e
+mapa de teclado têm rastreamento opt-in por etapa, duração e causa tipada antes
+da sanitização pública, sem capturar teclas/conteúdo ou alterar os gates.
+Validação do incidente real permanece pendente.
+
 **Manutenção e contenção WAL (28/09/2026):** AEP-0074 permanece Done no escopo
 legado; limpeza inicial sai do reload síncrono apenas no caminho com coordenador
 de comandos. O Start legado preserva a passagem síncrona. AEP-0103 permanece
