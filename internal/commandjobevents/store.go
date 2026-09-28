@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"assistente/internal/commandjson"
+	"assistente/internal/database"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -165,13 +166,19 @@ func (s *Store) EnsureReplayPolicyEpoch(ctx context.Context, producer string, ef
 		return ReplayPolicyEpoch{}, ErrInvalidFact
 	}
 	var result ReplayPolicyEpoch
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := s.ensureSchema(tx); err != nil {
-			return err
-		}
-		return s.ensureEpochTx(tx, producer, effectiveAt, horizon, &result)
+	err := database.WithSQLiteBusyRetry(ctx, "command_job_events.ensure_replay_epoch", func() error {
+		result = ReplayPolicyEpoch{}
+		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := s.ensureSchema(tx); err != nil {
+				return err
+			}
+			return s.ensureEpochTx(tx, producer, effectiveAt, horizon, &result)
+		})
 	})
-	return result, err
+	if err != nil {
+		return ReplayPolicyEpoch{}, err
+	}
+	return result, nil
 }
 
 func (s *Store) ensureEpochTx(tx *gorm.DB, producer string, effectiveAt time.Time, horizon time.Duration, out *ReplayPolicyEpoch) error {
@@ -341,42 +348,46 @@ func (s *Store) ClaimBatch(ctx context.Context, owner string, limit int) ([]Acti
 	expiry := now.Add(s.leaseDuration)
 	var claimed []ActivationOutbox
 	var more bool
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var rows []ActivationOutbox
-		if err := tx.Where("delivery_state = ? OR (delivery_state = ? AND lease_expires_at <= ?)", DeliveryPending, DeliveryProcessing, now).
-			Order("created_at ASC, source_event_id ASC").Limit(limit + 1).Find(&rows).Error; err != nil {
-			return err
-		}
-		more = len(rows) > limit
-		if more {
-			rows = rows[:limit]
-		}
-		for _, row := range rows {
-			if err := ctx.Err(); err != nil {
+	err := database.WithSQLiteBusyRetry(ctx, "command_job_events.claim_batch", func() error {
+		claimed = nil
+		more = false
+		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var rows []ActivationOutbox
+			if err := tx.Where("delivery_state = ? OR (delivery_state = ? AND lease_expires_at <= ?)", DeliveryPending, DeliveryProcessing, now).
+				Order("created_at ASC, source_event_id ASC").Limit(limit + 1).Find(&rows).Error; err != nil {
 				return err
 			}
-			if row.DeliveryState == DeliveryProcessing && row.Attempts >= s.maxAttempts {
-				res := tx.Model(&ActivationOutbox{}).Where("source_event_id = ? AND delivery_state = ? AND lease_expires_at <= ? AND attempts >= ?", row.SourceEventID, DeliveryProcessing, now, s.maxAttempts).
-					Updates(map[string]any{"delivery_state": DeliveryDeadLetter, "lease_owner": nil, "lease_expires_at": nil, "last_error_code": "attempt_limit"})
+			more = len(rows) > limit
+			if more {
+				rows = rows[:limit]
+			}
+			for _, row := range rows {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if row.DeliveryState == DeliveryProcessing && row.Attempts >= s.maxAttempts {
+					res := tx.Model(&ActivationOutbox{}).Where("source_event_id = ? AND delivery_state = ? AND lease_expires_at <= ? AND attempts >= ?", row.SourceEventID, DeliveryProcessing, now, s.maxAttempts).
+						Updates(map[string]any{"delivery_state": DeliveryDeadLetter, "lease_owner": nil, "lease_expires_at": nil, "last_error_code": "attempt_limit"})
+					if res.Error != nil {
+						return res.Error
+					}
+					continue
+				}
+				res := tx.Model(&ActivationOutbox{}).Where("source_event_id = ? AND (delivery_state = ? OR (delivery_state = ? AND lease_expires_at <= ?))", row.SourceEventID, DeliveryPending, DeliveryProcessing, now).
+					Updates(map[string]any{"delivery_state": DeliveryProcessing, "lease_owner": owner, "lease_expires_at": expiry, "attempts": gorm.Expr("attempts + 1")})
 				if res.Error != nil {
 					return res.Error
 				}
-				continue
+				if res.RowsAffected == 1 {
+					row.DeliveryState = DeliveryProcessing
+					row.LeaseOwner = &owner
+					row.LeaseExpiresAt = &expiry
+					row.Attempts++
+					claimed = append(claimed, row)
+				}
 			}
-			res := tx.Model(&ActivationOutbox{}).Where("source_event_id = ? AND (delivery_state = ? OR (delivery_state = ? AND lease_expires_at <= ?))", row.SourceEventID, DeliveryPending, DeliveryProcessing, now).
-				Updates(map[string]any{"delivery_state": DeliveryProcessing, "lease_owner": owner, "lease_expires_at": expiry, "attempts": gorm.Expr("attempts + 1")})
-			if res.Error != nil {
-				return res.Error
-			}
-			if res.RowsAffected == 1 {
-				row.DeliveryState = DeliveryProcessing
-				row.LeaseOwner = &owner
-				row.LeaseExpiresAt = &expiry
-				row.Attempts++
-				claimed = append(claimed, row)
-			}
-		}
-		return ctx.Err()
+			return ctx.Err()
+		})
 	})
 	if err != nil {
 		return nil, false, err
@@ -443,43 +454,50 @@ func (s *Store) RequeueExpiredLeases(ctx context.Context, limit int) (processed 
 		return 0, false, ErrSchemaUnavailable
 	}
 	now := s.now().UTC()
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		var rows []ActivationOutbox
-		if err := tx.Model(&ActivationOutbox{}).
-			Where("delivery_state = ? AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?", DeliveryProcessing, now).
-			Order("source_event_id ASC").Limit(limit + 1).Find(&rows).Error; err != nil {
-			return err
-		}
-		if len(rows) > limit {
-			more = true
-			rows = rows[:limit]
-		}
-		if len(rows) == 0 {
+	err = database.WithSQLiteBusyRetry(ctx, "command_job_events.requeue_expired_leases", func() error {
+		processed = 0
+		more = false
+		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			var rows []ActivationOutbox
+			if err := tx.Model(&ActivationOutbox{}).
+				Where("delivery_state = ? AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?", DeliveryProcessing, now).
+				Order("source_event_id ASC").Limit(limit + 1).Find(&rows).Error; err != nil {
+				return err
+			}
+			if len(rows) > limit {
+				more = true
+				rows = rows[:limit]
+			}
+			if len(rows) == 0 {
+				return nil
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			for _, row := range rows {
+				state := DeliveryPending
+				values := map[string]any{"delivery_state": state, "lease_owner": nil, "lease_expires_at": nil}
+				if row.Attempts >= s.maxAttempts {
+					values["delivery_state"] = DeliveryDeadLetter
+					values["last_error_code"] = "attempt_limit"
+				}
+				result := tx.Model(&ActivationOutbox{}).
+					Where("source_event_id = ? AND delivery_state = ? AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?", row.SourceEventID, DeliveryProcessing, now).
+					Updates(values)
+				if result.Error != nil {
+					return result.Error
+				}
+				processed += int(result.RowsAffected)
+			}
 			return nil
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		for _, row := range rows {
-			state := DeliveryPending
-			values := map[string]any{"delivery_state": state, "lease_owner": nil, "lease_expires_at": nil}
-			if row.Attempts >= s.maxAttempts {
-				values["delivery_state"] = DeliveryDeadLetter
-				values["last_error_code"] = "attempt_limit"
-			}
-			result := tx.Model(&ActivationOutbox{}).
-				Where("source_event_id = ? AND delivery_state = ? AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?", row.SourceEventID, DeliveryProcessing, now).
-				Updates(values)
-			if result.Error != nil {
-				return result.Error
-			}
-			processed += int(result.RowsAffected)
-		}
-		return nil
+		})
 	})
+	if err != nil {
+		return 0, false, err
+	}
 	return processed, more, err
 }
 
@@ -527,32 +545,36 @@ func (s *Store) PurgeExpiredAt(ctx context.Context, now time.Time, limit int) (p
 		  AND (claim.expires_at IS NULL OR claim.expires_at > ?)
 		  AND lease.expires_at > ?
 	)`
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if !tx.Migrator().HasTable("command_layer_activation_state") || !tx.Migrator().HasTable("command_job_activation_leases") {
-			return ErrSchemaUnavailable
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		var ids []string
-		if err := tx.Model(&ActivationOutbox{}).
-			Where("delivery_state IN ? AND source_replay_deadline <= ? AND NOT "+liveClaim, []string{DeliveryDelivered, DeliveryDeadLetter}, now, now, now).
-			Order("source_event_id ASC").Limit(limit+1).Pluck("source_event_id", &ids).Error; err != nil {
-			return err
-		}
-		if len(ids) > limit {
-			more = true
-			ids = ids[:limit]
-		}
-		if len(ids) == 0 {
-			return nil
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		result := tx.Where("source_event_id IN ? AND delivery_state IN ? AND source_replay_deadline <= ? AND NOT "+liveClaim, ids, []string{DeliveryDelivered, DeliveryDeadLetter}, now, now, now).Delete(&ActivationOutbox{})
-		processed = int(result.RowsAffected)
-		return result.Error
+	err = database.WithSQLiteBusyRetry(ctx, "command_job_events.purge_expired", func() error {
+		processed = 0
+		more = false
+		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if !tx.Migrator().HasTable("command_layer_activation_state") || !tx.Migrator().HasTable("command_job_activation_leases") {
+				return ErrSchemaUnavailable
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			var ids []string
+			if err := tx.Model(&ActivationOutbox{}).
+				Where("delivery_state IN ? AND source_replay_deadline <= ? AND NOT "+liveClaim, []string{DeliveryDelivered, DeliveryDeadLetter}, now, now, now).
+				Order("source_event_id ASC").Limit(limit+1).Pluck("source_event_id", &ids).Error; err != nil {
+				return err
+			}
+			if len(ids) > limit {
+				more = true
+				ids = ids[:limit]
+			}
+			if len(ids) == 0 {
+				return nil
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			result := tx.Where("source_event_id IN ? AND delivery_state IN ? AND source_replay_deadline <= ? AND NOT "+liveClaim, ids, []string{DeliveryDelivered, DeliveryDeadLetter}, now, now, now).Delete(&ActivationOutbox{})
+			processed = int(result.RowsAffected)
+			return result.Error
+		})
 	})
 	if err != nil {
 		return 0, false, err
