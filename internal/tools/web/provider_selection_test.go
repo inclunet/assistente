@@ -129,7 +129,13 @@ func TestWebSearch_NoticeNoFallbackAuto(t *testing.T) {
 	if out.Notice == "" {
 		t.Error("fallback gratuito deveria trazer aviso")
 	}
-	for _, want := range []string{"DuckDuckGo", "api-dashboard.search.brave.com", "app.tavily.com", "Credenciais"} {
+	for _, want := range []string{
+		"DuckDuckGo",
+		"https://api-dashboard.search.brave.com/register",
+		"https://app.tavily.com/",
+		"Credenciais",
+		"Ao final da sua resposta",
+	} {
 		if !strings.Contains(out.Notice, want) {
 			t.Errorf("aviso deveria mencionar %q: %q", want, out.Notice)
 		}
