@@ -74,3 +74,6 @@ Credenciais antigas sem source precisam ser reconfiguradas manualmente.
 Não existe migração automática. `env://NOME` e `keyring://entrada` não são
 referências suportadas; escolha a fonte correspondente e informe seus campos.
 Esses textos, se gravados em Valor salvo, são tratados literalmente.
+
+A política de redirects fica também nos construtores HTTP de credenciais
+compartilhados por chat, TTS e Whisper: o destino deve manter esquema, host e porta.

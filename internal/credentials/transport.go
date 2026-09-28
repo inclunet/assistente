@@ -228,8 +228,9 @@ func unresolvedCredentialError(req *http.Request, pattern string) error {
 // NewHTTPClient cria um http.Client configurado com CredentialTransport.
 func NewHTTPClient(credMgr *Manager, credPattern string, timeout time.Duration) *http.Client {
 	return &http.Client{
-		Transport: NewCredentialTransport(credMgr, credPattern),
-		Timeout:   timeout,
+		Transport:     NewCredentialTransport(credMgr, credPattern),
+		CheckRedirect: SameOriginRedirect,
+		Timeout:       timeout,
 	}
 }
 
@@ -251,14 +252,15 @@ func NewStreamingHTTPClientWithAuthMode(credMgr *Manager, credPattern string, mo
 	base.ResponseHeaderTimeout = streamingResponseHeaderTimeout
 	transport := NewCredentialTransportWithMode(credMgr, credPattern, mode)
 	transport.Base = base
-	return &http.Client{Transport: transport}
+	return &http.Client{Transport: transport, CheckRedirect: SameOriginRedirect}
 }
 
 // NewHTTPClientWithAuthMode cria um http.Client respeitando o modo de auth.
 func NewHTTPClientWithAuthMode(credMgr *Manager, credPattern string, mode AuthRequirement, timeout time.Duration) *http.Client {
 	return &http.Client{
-		Transport: NewCredentialTransportWithMode(credMgr, credPattern, mode),
-		Timeout:   timeout,
+		Transport:     NewCredentialTransportWithMode(credMgr, credPattern, mode),
+		CheckRedirect: SameOriginRedirect,
+		Timeout:       timeout,
 	}
 }
 
@@ -288,6 +290,19 @@ func ApplyAuth(req *http.Request, auth *AuthConfig) error {
 		}
 	default:
 		return fmt.Errorf("scheme de credencial não suportado para HTTP")
+	}
+	return nil
+}
+
+// SameOriginRedirect impede que SDKs e transports reapliquem segredos fora da origem.
+// O SDK e o transport podem reaplicar segredos a cada request. Redirecionamentos
+// precisam permanecer na origem inicial, inclusive para listagem de modelos.
+func SameOriginRedirect(next *http.Request, via []*http.Request) error {
+	if len(via) == 0 || !strings.EqualFold(next.URL.Scheme, via[0].URL.Scheme) || !strings.EqualFold(next.URL.Host, via[0].URL.Host) {
+		return fmt.Errorf("redirecionamento para outra origem recusado pelo provedor")
+	}
+	if len(via) >= 10 {
+		return fmt.Errorf("limite de redirecionamentos excedido")
 	}
 	return nil
 }
