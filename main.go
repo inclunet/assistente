@@ -8,7 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"time"
+	"runtime"
 
 	"assistente/adapters/wails"
 	application "assistente/internal/app"
@@ -25,16 +25,25 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+type desktopReservation interface {
+	io.Closer
+	DatabasePath() string
+}
+
 var (
 	// Mantém os handles vivos até os.Exit: Shutdown pode preservar serviços
 	// quando não consegue comprovar a drenagem. Não liberar a reserva nesse intervalo.
 	desktopProcessReservation io.Closer
 	resolveDesktopDatabase    = database.ResolvePath
-	acquireDesktopInstance    = func(path string, activate func()) (io.Closer, error) {
+	acquireDesktopInstance    = func(path string, activate func()) (desktopReservation, error) {
 		return desktopinstance.Acquire(path, activate)
 	}
 	activateDesktop = func(ctx context.Context) {
-		wailsruntime.WindowUnminimise(ctx)
+		// GTK precisa de present/deiconify; no Windows, Show já restaura
+		// e mantém todo o despacho nativo assíncrono.
+		if runtime.GOOS == "linux" {
+			wailsruntime.WindowUnminimise(ctx)
+		}
 		wailsruntime.WindowShow(ctx)
 	}
 	runDesktop   = wailslib.Run
@@ -125,10 +134,10 @@ func run(args []string) (exitCode int) {
 			exitCode = 1
 		}
 	}()
-	runCtx, stopActivation := context.WithCancel(context.Background())
+	activationReady, stopActivation := startDesktopActivations(activationRequests, activateDesktop)
 	defer stopActivation()
 	a := application.NewApp()
-	application.SetDesktopDatabasePath(a, databasePath)
+	application.SetDesktopDatabasePath(a, instance.DatabasePath())
 	tokensAPI := wailsapi.NewTokens()
 	application.SetTokensAPI(a, tokensAPI)
 	allowlistsAPI := wailsapi.NewAllowlists()
@@ -225,18 +234,7 @@ func run(args []string) (exitCode int) {
 				quitDesktop(ctx)
 				return
 			}
-			go serveDesktopActivations(runCtx, ctx, activationRequests, activateDesktop)
-			// Restaura foco da janela (resolve bug do Wails no Windows)
-			go func() {
-				timer := time.NewTimer(400 * time.Millisecond)
-				defer timer.Stop()
-				select {
-				case <-timer.C:
-					a.ShowWindow()
-				case <-ctx.Done():
-					return
-				}
-			}()
+			activationReady(ctx)
 		},
 		OnShutdown: func(_ context.Context) {
 			stopActivation()

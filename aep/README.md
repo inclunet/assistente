@@ -2,6 +2,9 @@
 
 - [AEP-0111 — Inicialização desktop exclusiva por banco](0111-inicializacao-desktop-exclusiva.md) — In Progress.
 
+Reserva fixa o caminho canônico também no reset do banco; o worker de ativação
+é cancelado e aguardado antes do shutdown. Aceite físico/NVDA permanece pendente.
+
 **AEP-0103 — recuperação de teclado (28/09/2026): In Progress.** Hot-swap MCP
 notifica o mapa após readiness; falhas transitórias de carregamento recebem
 retry com backoff, mantendo os gates de segurança. Regressão de publicação

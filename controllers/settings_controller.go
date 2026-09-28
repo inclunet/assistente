@@ -23,6 +23,9 @@ type SettingsControllerConfig struct {
 	ProfileMgr *profiles.Manager
 	SkillMgr   *skills.Manager
 	Emitter    ports.Emitter
+	// DatabasePath fixa o arquivo usado pelo desktop reservado. Callers legados
+	// sem esse valor usam database.ResolvePath (nunca inferem o DB pelo config.json).
+	DatabasePath string
 	// Callbacks cross-domain
 	RestartChannel      func(channelName string) error
 	GetModels           func() ([]string, error)
@@ -42,6 +45,7 @@ type SettingsController struct {
 	deleteProfile       func(string) error
 	clearMessages       func(context.Context) error
 	beforeDatabaseReset func() error
+	databasePath        string
 }
 
 // NewSettingsController cria um SettingsController com suas dependências.
@@ -56,6 +60,7 @@ func NewSettingsController(cfg SettingsControllerConfig) *SettingsController {
 		deleteProfile:       cfg.DeleteProfile,
 		clearMessages:       cfg.ClearMessages,
 		beforeDatabaseReset: cfg.BeforeDatabaseReset,
+		databasePath:        cfg.DatabasePath,
 	}
 }
 
@@ -234,11 +239,18 @@ func (c *SettingsController) ResetDatabase() error {
 			return fmt.Errorf("reset do banco recusado antes do fechamento: %w", err)
 		}
 	}
-	configPath, err := config.GetConfigPath()
-	if err != nil {
-		return fmt.Errorf("erro ao obter caminho do banco de dados: %v", err)
+	dbPath := c.databasePath
+	if dbPath == "" {
+		var err error
+		dbPath, err = database.ResolvePath()
+		if err != nil {
+			return fmt.Errorf("erro ao resolver caminho canônico do banco de dados: %w", err)
+		}
 	}
-	dbPath := filepath.Join(filepath.Dir(configPath), "conversations.db")
+	if !filepath.IsAbs(dbPath) {
+		return fmt.Errorf("caminho do banco de dados deve ser absoluto")
+	}
+	dbPath = filepath.Clean(dbPath)
 
 	if err := database.Close(); err != nil {
 		return fmt.Errorf("erro ao fechar banco de dados: %v", err)
@@ -253,7 +265,7 @@ func (c *SettingsController) ResetDatabase() error {
 		_ = os.Remove(dbPath + "-shm")
 	}
 
-	if err := database.Init(); err != nil {
+	if err := database.InitPath(dbPath); err != nil {
 		return fmt.Errorf("erro ao reinicializar banco: %v", err)
 	}
 	logging.Println(context.Background(), "controllers.settings-controller", "[ResetDatabase] Banco resetado com sucesso")

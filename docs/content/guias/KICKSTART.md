@@ -24,6 +24,9 @@ o aplicativo estiver aberto. Versões antigas não implementam essa proteção.
 
 Instalações de desenvolvimento com bancos diferentes continuam independentes;
 isso não permite compartilhar simultaneamente um Stream Deck ou o mesmo atalho global.
+Durante uma execução, o aplicativo mantém o banco selecionado na abertura,
+inclusive ao restaurar os dados pelo reset. Mudar arquivos de configuração ou
+atalhos para pastas não troca silenciosamente o banco dessa janela.
 
 ## Navegação em listas de mensagens
 

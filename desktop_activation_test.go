@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"errors"
-	"io"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,9 +14,13 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 )
 
-type desktopTestCloser struct{ closed bool }
+type desktopTestCloser struct {
+	closed bool
+	path   string
+}
 
-func (c *desktopTestCloser) Close() error { c.closed = true; return nil }
+func (c *desktopTestCloser) Close() error         { c.closed = true; return nil }
+func (c *desktopTestCloser) DatabasePath() string { return c.path }
 
 func isolateDesktopReservation(t *testing.T) *desktopTestCloser {
 	t.Helper()
@@ -28,8 +32,8 @@ func isolateDesktopReservation(t *testing.T) *desktopTestCloser {
 	})
 	path := filepath.Join(t.TempDir(), "conversations.db")
 	resolveDesktopDatabase = func() (string, error) { return path, nil }
-	closer := &desktopTestCloser{}
-	acquireDesktopInstance = func(got string, _ func()) (io.Closer, error) {
+	closer := &desktopTestCloser{path: path}
+	acquireDesktopInstance = func(got string, _ func()) (desktopReservation, error) {
 		if got != path {
 			t.Fatalf("reserved %q instead of %q", got, path)
 		}
@@ -61,7 +65,7 @@ func TestRunSecondInstanceDoesNotStartDesktop(t *testing.T) {
 	previous := runDesktop
 	t.Cleanup(func() { runDesktop = previous })
 	runDesktop = func(*options.App) error { t.Fatal("second instance started desktop"); return nil }
-	acquireDesktopInstance = func(string, func()) (io.Closer, error) {
+	acquireDesktopInstance = func(string, func()) (desktopReservation, error) {
 		return nil, desktopinstance.ErrAlreadyRunning
 	}
 	if code := run([]string{"assistente"}); code != 0 {
@@ -76,7 +80,7 @@ func TestRunInstanceFailureDoesNotStartDesktop(t *testing.T) {
 	runDesktop = func(*options.App) error { t.Fatal("failed guard started desktop"); return nil }
 	var message string
 	showNativeFatalError = func(_, text string) { message = text }
-	acquireDesktopInstance = func(string, func()) (io.Closer, error) {
+	acquireDesktopInstance = func(string, func()) (desktopReservation, error) {
 		return nil, errors.New("notification timeout")
 	}
 	if code := run([]string{"assistente"}); code != 1 || !strings.Contains(message, "notification timeout") {
@@ -129,4 +133,49 @@ func TestDesktopActivationDoesNotPresentAfterCancellation(t *testing.T) {
 	requests := make(chan struct{}, 1)
 	requests <- struct{}{}
 	serveDesktopActivations(lifetime, context.Background(), requests, func(context.Context) { t.Fatal("closed window activated") })
+}
+
+func TestDesktopActivationStopDrainsInFlightCall(t *testing.T) {
+	requests := make(chan struct{}, 1)
+	entered, release := make(chan struct{}, 1), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	ready, stop := startDesktopActivations(requests, func(context.Context) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-release
+	})
+	defer stop()
+	defer unblock()
+	ready(context.Background())
+	requests <- struct{}{}
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("activation did not start")
+	}
+	stopped := make(chan struct{})
+	go func() { stop(); close(stopped) }()
+	select {
+	case <-stopped:
+		t.Fatal("stop returned with activation still in flight")
+	default:
+	}
+	unblock()
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("stop did not join activation")
+	}
+}
+
+func TestDesktopActivationShutdownBeforeReadyDiscardsRequests(t *testing.T) {
+	requests := make(chan struct{}, 1)
+	requests <- struct{}{}
+	ready, stop := startDesktopActivations(requests, func(context.Context) { t.Error("activation after shutdown") })
+	stop()
+	ready(context.Background())
+	stop()
 }

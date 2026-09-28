@@ -18,11 +18,15 @@ contenção interna de uma única instância (AEP-0074 e AEP-0106).
 ## Decisões
 
 - Resolver o banco pela precedência existente (workdir > home > executável),
-  sem abrir SQLite; fixar esse caminho para todo o startup desktop.
+  sem abrir SQLite; fixar o caminho canônico devolvido pela reserva para todo o
+  startup desktop e para reset/reabertura, sem redescobrir o arquivo por config.json.
 - Reservar a instância antes de construir/inicializar os serviços.
 - Solicitação de ativação não executa comandos, não recebe argumentos de ação
   e não muda usuário, sessão, autorização ou contexto da primeira instância.
 - Se a janela ainda não estiver pronta, reter uma solicitação de apresentação.
+- Criar o worker de apresentação antes do runtime; cancelar e aguardar seu término
+  antes do shutdown dos serviços. A espera cobre chamadas Go em andamento, não
+  confirma a execução de mensagens já enfileiradas na UI nativa.
 - Falhas de reserva/notificação não autorizam abrir uma instância concorrente.
   Comunicar o problema no mecanismo nativo de erro, nos três idiomas.
 - Manter a reserva até terminar o encerramento. Não remover locks de processos
@@ -64,9 +68,22 @@ contenção interna de uma única instância (AEP-0074 e AEP-0106).
 - [x] Bancos distintos são independentes (`TestDifferentDatabasesAreIndependent`).
 - [x] Falha de notificação não libera abertura concorrente (`TestSilentEndpointFailsClosedWithinDeadline` e teste do entrypoint).
 - [x] Encerramento libera a reserva; reabertura funciona (`TestContentionActivationReopenAndUnchangedDatabase`).
+- [x] Caminho canônico reservado permanece fixo mesmo após troca de symlink
+  (`TestGuardCanonicalPathSurvivesSymlinkRetarget`); reset pela composição do App
+  reabre esse arquivo, preservando o banco alternativo da resolução de configuração
+  (`TestWireSettingsResetUsesDesktopDatabasePath`). O teste de symlink requer
+  privilégio não disponível no Windows local e roda no CI Linux; os testes de
+  reset/composição passaram localmente com bancos descartáveis.
+- [x] Encerramento aguarda o worker Go de ativação e descarta pedidos antes da
+  prontidão (`TestDesktopActivationStopDrainsInFlightCall` e
+  `TestDesktopActivationShutdownBeforeReadyDiscardsRequests`).
 - [x] Testes automatizados e revisão independente sem pendências (Averroes/Luna,
   duas rodadas; corrigida liberação antecipada no shutdown). Build, vet e lint
   passaram. As suítes emitiram PASS; duas execuções locais tiveram erro posterior
   ao remover o executável de teste por arquivo em uso no Windows, sem causa
   confirmada. Nenhum executável do app ou teste ACP foi iniciado.
+  A revisão incremental de caminho canônico, reset e worker (Averroes e Noether,
+  Luna) corrigiu restauração no Linux, wiring e isolamento das fixtures; rodada
+  final sem achados. Testes locais de raiz, guard, database, controller e App
+  passaram; o helper existente de fixture agora permite restaurar DB e caminho.
 - [ ] Validação manual de foco/restauração da janela e NVDA.

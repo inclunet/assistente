@@ -47,13 +47,14 @@ func (h heldLock) close() error { return errors.Join(h.file.Close(), h.lock.Clos
 
 // Guard implements io.Closer. Retain until desktop shutdown finishes.
 type Guard struct {
-	once     sync.Once
-	listener net.Listener
-	locks    []heldLock
-	done     chan struct{}
-	served   chan struct{}
-	activate chan struct{}
-	closeErr error
+	databasePath string
+	once         sync.Once
+	listener     net.Listener
+	locks        []heldLock
+	done         chan struct{}
+	served       chan struct{}
+	activate     chan struct{}
+	closeErr     error
 }
 
 // Acquire runs before SQLite/services. onActivate must only enqueue a request
@@ -115,7 +116,7 @@ func acquire(databasePath, identityDir string, onActivate func()) (_ *Guard, res
 	if err != nil {
 		return nil, err
 	}
-	g := &Guard{done: make(chan struct{}), served: make(chan struct{}), activate: make(chan struct{}, 1)}
+	g := &Guard{databasePath: path, done: make(chan struct{}), served: make(chan struct{}), activate: make(chan struct{}, 1)}
 	defer func() {
 		if resultErr != nil {
 			if g.listener != nil {
@@ -189,6 +190,9 @@ func acquire(databasePath, identityDir string, onActivate func()) (_ *Guard, res
 	}()
 	return g, nil
 }
+
+// DatabasePath é o caminho canônico protegido, sem redescobrir symlinks no boot.
+func (g *Guard) DatabasePath() string { return g.databasePath }
 
 func (g *Guard) take(path string) error {
 	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {

@@ -53,3 +53,14 @@ func TestInitPathRejectsRelativePath(t *testing.T) {
 		t.Fatal("relative path accepted")
 	}
 }
+
+func TestSetDBRestoreIncludesResolvedPath(t *testing.T) {
+	previousDB, previousPath := db, dbPath
+	restore := SetDB(nil)
+	t.Cleanup(restore)
+	dbPath = filepath.Join(t.TempDir(), "fixture.db")
+	restore()
+	if db != previousDB || dbPath != previousPath {
+		t.Fatalf("estado não restaurado: db=%p path=%q", db, dbPath)
+	}
+}

@@ -99,9 +99,13 @@ func DB() *gorm.DB {
 	return db
 }
 
-// SetDB define a instância do banco de dados (usado em testes)
-func SetDB(database *gorm.DB) {
+// SetDB define a instância do banco de dados (usado em testes). O retorno
+// restaura também o caminho, caso a fixture inicialize outro banco depois.
+// Não fecha conexões: a fixture permanece responsável por sua vida útil.
+func SetDB(database *gorm.DB) func() {
+	previousDB, previousPath := db, dbPath
 	db = database
+	return func() { db, dbPath = previousDB, previousPath }
 }
 
 // Close fecha a conexão com o banco de dados

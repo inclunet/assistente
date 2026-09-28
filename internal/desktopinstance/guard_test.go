@@ -375,3 +375,46 @@ func TestSlowCallbackDoesNotBlockNotificationOrClose(t *testing.T) {
 	default:
 	}
 }
+func TestGuardExposesReservedCanonicalPath(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "db", "..", "conversations.db")
+	g, err := acquire(path, filepath.Join(root, "identities"), func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = g.Close() }()
+	want, err := canonicalPath(path)
+	if err != nil || g.DatabasePath() != want {
+		t.Fatalf("reserved=%q want=%q err=%v", g.DatabasePath(), want, err)
+	}
+}
+
+func TestGuardCanonicalPathSurvivesSymlinkRetarget(t *testing.T) {
+	path, identities := fixture(t)
+	alias := filepath.Join(filepath.Dir(path), "alias.sqlite")
+	if err := os.Symlink(path, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	g := mustAcquire(t, alias, identities, func() {})
+	want, err := canonicalPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Apenas o alias descartável da fixture é substituído, nunca o banco.
+	if err := os.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(filepath.Dir(path), "other.sqlite")
+	if err := os.WriteFile(other, []byte("another database"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, alias); err != nil {
+		t.Fatal(err)
+	}
+	if g.DatabasePath() != want {
+		t.Fatalf("reserved path changed: got=%q want=%q", g.DatabasePath(), want)
+	}
+	if second, err := acquire(g.DatabasePath(), identities, func() {}); second != nil || !errors.Is(err, ErrAlreadyRunning) {
+		t.Fatalf("original database lost reservation: %v", err)
+	}
+}

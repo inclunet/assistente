@@ -316,6 +316,7 @@ func (a *App) wireSettings() {
 			_, err := a.conversationsCtrl.ClearConversations(ctx)
 			return err
 		},
+		DatabasePath:        a.desktopDatabasePath,
 		BeforeDatabaseReset: a.beforeCommandDatabaseReset,
 		DeleteProfile: func(slug string) error {
 			return a.profileAccessService().DeleteProfile(context.Background(), slug, func() error {
