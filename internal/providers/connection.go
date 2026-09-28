@@ -94,7 +94,7 @@ func (s *Service) probeConnection(ctx context.Context, baseURL, apiKey string, p
 	case resp.StatusCode == http.StatusUnauthorized:
 		if apiKey != "" || prepare != nil {
 			result.ErrorType = "auth_invalid"
-			result.ErrorDetail = "A API Key informada foi rejeitada pelo servidor (401 Unauthorized). Verifique se a chave está correta."
+			result.ErrorDetail = "A credencial foi rejeitada pelo servidor (401 Unauthorized). Verifique sua configuração."
 		} else {
 			result.ErrorType = "auth_required"
 			result.ErrorDetail = "Este servidor requer uma API Key para autenticação."
@@ -102,7 +102,7 @@ func (s *Service) probeConnection(ctx context.Context, baseURL, apiKey string, p
 
 	case resp.StatusCode == http.StatusForbidden:
 		result.ErrorType = "auth_invalid"
-		result.ErrorDetail = "Acesso negado (403 Forbidden). A API Key pode não ter permissões suficientes."
+		result.ErrorDetail = "Acesso negado (403 Forbidden). A credencial pode não ter permissões suficientes."
 
 	case resp.StatusCode == http.StatusNotFound:
 		result.AuthOK = true

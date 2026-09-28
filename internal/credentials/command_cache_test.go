@@ -442,3 +442,18 @@ func TestCommandTransportConcurrentUnauthorizedRenewsOnce(t *testing.T) {
 		t.Fatalf("rajada de401 executou comando %d vezes", f.count())
 	}
 }
+
+type commandCacheCloseTransport struct{ closed bool }
+
+func (t *commandCacheCloseTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("unused")
+}
+func (t *commandCacheCloseTransport) CloseIdleConnections() { t.closed = true }
+func TestCommandTransportForwardsCloseIdleConnections(t *testing.T) {
+	base := &commandCacheCloseTransport{}
+	client := &http.Client{Transport: &CredentialTransport{Base: base}}
+	client.CloseIdleConnections()
+	if !base.closed {
+		t.Fatal("conexões ociosas não foram fechadas")
+	}
+}

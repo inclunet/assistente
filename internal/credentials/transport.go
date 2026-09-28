@@ -68,6 +68,13 @@ func NewCredentialTransportWithMode(credMgr *Manager, credPattern string, mode A
 	}
 }
 
+// CloseIdleConnections preserva o contrato de limpeza do cliente encapsulado.
+func (t *CredentialTransport) CloseIdleConnections() {
+	if base, ok := t.Base.(interface{ CloseIdleConnections() }); ok {
+		base.CloseIdleConnections()
+	}
+}
+
 func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// AuthNone: nunca tenta resolver credencial e remove qualquer
 	// Authorization residual (placeholder do SDK ou inadvertidamente

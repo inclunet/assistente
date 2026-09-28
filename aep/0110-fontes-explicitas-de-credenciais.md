@@ -144,7 +144,8 @@ Decisão do mantenedor: reutilizar tokens opacos até rejeição HTTP, sem supor
 ou depender de JWT. O cache pertence ao transport HTTP; getters diretos mantêm
 resolução fresca. Probes e monitor de saúde compartilham o mesmo cache do chat.
 Gemini mantém resolução direta porque seu SDK captura a chave separadamente.
-Redirecionamentos de probes command ficam limitados à origem inicial.
+Redirecionamentos de probes preparados ficam limitados à origem inicial,
+independentemente da fonte/scheme. O wrapper repassa CloseIdleConnections.
 
 Evidências verificáveis:
 - `command_cache_test.go`: execução única concorrente, isolamento entre usuários,
@@ -159,11 +160,22 @@ Evidências verificáveis:
   transição de sessão com comando e HTTP; passou localmente.
 - Credenciais, provedores e LLM passaram localmente; build, vet e golangci-lint
   passaram (zero issues). A orientação da tela tem regressão em CredentialsPage.
-- Revisor independente Codex `review_credential_sources`: três rodadas; corrigidos
+- Revisor independente Codex `review_credential_sources`: quatro rodadas; corrigidos
   cache em consumidores sem observação HTTP e redirecionamento de probes;
-  terceira rodada sem pendências. Ajustes posteriores de errcheck são mecânicos.
+  terceira e quarta rodadas sem pendências, incluindo os ajustes da revisão remota.
 - Limitação local: detector de corrida indisponível sem CGO/GCC; suíte Go completa
   encontrou saída 0xffffffff em ACP/acpregistry no Windows e atingiu o teto
   agregado de 5 minutos de app durante teste de Deck. A suíte frontend passou
   6.196 testes em 488 arquivos; tsc, ESLint e Stylelint passaram. A validação completa
   Linux e o acompanhamento da revisão remota ficam registrados no PR da evolução.
+
+Revisão remota da evolução: proteção de redirects estendida a static/env/custom
+antes de qualquer retorno de preparação; regressão cobre as fontes e schemes em
+sondagem, modelos e saúde. `TestCommandTransportForwardsCloseIdleConnections`
+comprova que o fechamento pelo http.Client alcança o transport base. A limpeza
+de cancelamento mantém o gate da entrada retido: gerações novas não podem
+instalar cancel antes de a execução anterior sair; exclusão/sessão troca a entrada.
+
+- [CI da implementação 4e086ec8d](https://github.com/inclunet/assistente/actions/runs/36363992179):
+  aprovado, incluindo suíte Go completa no Linux, todos os grupos com detector
+  de corrida, frontend, bindings e E2E. Ajustes da revisão são revalidados no PR #849.

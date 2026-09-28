@@ -99,6 +99,8 @@ func (m *Manager) resolveCredentialSource(ctx context.Context, dc *DomainCredent
 	cancel()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// O gate desta entrada permanece retido até depois desta limpeza. Uma
+	// nova geração só pode instalar cancel quando a execução atual sair.
 	dc.command.cancel = nil
 	if !m.commandEntryCurrent(dc) || dc.command.generation != generation {
 		return nil, errCommandCredentialChanged

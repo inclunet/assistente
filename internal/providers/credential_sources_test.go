@@ -333,37 +333,61 @@ func TestProviderCommandCacheSharedByChatProbesAndHealth(t *testing.T) {
 }
 
 func TestCommandProbeRejectsCrossOriginRedirect(t *testing.T) {
-	t.Setenv("PROVIDER_CREDENTIAL_HELPER", "1")
-	var reached atomic.Int32
-	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached.Add(1); w.WriteHeader(200) }))
-	defer destination.Close()
-	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, destination.URL, http.StatusFound) }))
-	defer origin.Close()
-	u, _ := url.Parse(origin.URL)
-	exe, e := os.Executable()
-	if e != nil {
-		t.Fatal(e)
-	}
-	mgr := credentials.NewManager(nil)
-	if e := mgr.RegisterPattern(u.Hostname(), &credentials.AuthConfig{Source: "command", Type: "bearer", SourceConfig: &credentials.SourceConfig{Command: exe, Args: []string{"-test.run=^TestProviderCredentialCommandHelper$"}}}); e != nil {
-		t.Fatal(e)
-	}
-	registry := llm.NewProviderRegistry()
-	if e := registry.Register(&llm.ProviderConfig{ID: "redirect", Name: "redirect", Type: llm.ProviderOpenAI, BaseURL: origin.URL, CredentialPattern: u.Hostname()}); e != nil {
-		t.Fatal(e)
-	}
-	svc := NewService(ServiceConfig{Registry: registry, CredMgr: mgr, Store: NewMemoryStore()})
-	req := TestRequest{BaseURL: origin.URL, ProviderID: "redirect"}
-	if ok, e := svc.TestConnection(context.Background(), req); e == nil || ok {
-		t.Fatal("redirect externo aceito")
-	}
-	if _, e := svc.ListModels(context.Background(), req); e == nil {
-		t.Fatal("modelos seguiram redirect externo")
-	}
-	if health := svc.CheckHealth(context.Background(), profileForProvider("redirect")); health.State == HealthOnline {
-		t.Fatal("health seguiu redirect externo")
-	}
-	if reached.Load() != 0 {
-		t.Fatal("credencial foi enviada a outra origem")
+	for _, source := range []string{"command", "env", "static"} {
+		for _, scheme := range []string{"bearer", "custom"} {
+			t.Run(source+"/"+scheme, func(t *testing.T) {
+				t.Setenv("PROVIDER_CREDENTIAL_HELPER", "1")
+				var reached atomic.Int32
+				destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached.Add(1); w.WriteHeader(200) }))
+				defer destination.Close()
+				origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, destination.URL, http.StatusFound) }))
+				defer origin.Close()
+				u, _ := url.Parse(origin.URL)
+				exe, e := os.Executable()
+				if e != nil {
+					t.Fatal(e)
+				}
+				mgr := credentials.NewManager(nil)
+				config := &credentials.AuthConfig{Source: source, Type: scheme}
+				switch source {
+				case "command":
+					config.SourceConfig = &credentials.SourceConfig{Command: exe, Args: []string{"-test.run=^TestProviderCredentialCommandHelper$"}}
+				case "env":
+					t.Setenv("PROBE_REDIRECT_TOKEN", "source-token")
+					config.SourceConfig = &credentials.SourceConfig{Env: "PROBE_REDIRECT_TOKEN"}
+				case "static":
+					config.Token = "source-token"
+				}
+				if scheme == "custom" {
+					config.Headers = map[string]string{"X-Credential": ""}
+					if source == "static" {
+						config.Headers["X-Credential"] = "source-token"
+						config.Token = ""
+					}
+				}
+				if e := mgr.RegisterPattern(u.Hostname(), config); e != nil {
+					t.Fatal(e)
+				}
+				registry := llm.NewProviderRegistry()
+				if e := registry.Register(&llm.ProviderConfig{ID: "redirect", Name: "redirect", Type: llm.ProviderOpenAI, BaseURL: origin.URL, CredentialPattern: u.Hostname()}); e != nil {
+					t.Fatal(e)
+				}
+				svc := NewService(ServiceConfig{Registry: registry, CredMgr: mgr, Store: NewMemoryStore()})
+				req := TestRequest{BaseURL: origin.URL, ProviderID: "redirect"}
+				if ok, e := svc.TestConnection(context.Background(), req); e == nil || ok {
+					t.Fatal("redirect externo aceito")
+				}
+				if _, e := svc.ListModels(context.Background(), req); e == nil {
+					t.Fatal("modelos seguiram redirect externo")
+				}
+				if health := svc.CheckHealth(context.Background(), profileForProvider("redirect")); health.State == HealthOnline {
+					t.Fatal("health seguiu redirect externo")
+				}
+				if reached.Load() != 0 {
+					t.Fatal("credencial foi enviada a outra origem")
+				}
+
+			})
+		}
 	}
 }

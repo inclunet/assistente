@@ -47,6 +47,7 @@ ou fechar o app descarta o cache. O token materializado não vai para o banco ne
 para a tela de edição. Env e keyring continuam sendo consultados a cada uso.
 Consumidores que obtêm o segredo diretamente, sem esse transport HTTP (como
 ferramentas HTTP e o SDK Gemini), continuam executando o comando a cada uso.
+Sondagens preparadas não seguem redirecionamentos para outra origem.
 As sondagens de conexão e o monitor de saúde do provedor compartilham o cache
 do transport; chaves digitadas apenas para teste continuam isoladas.
 

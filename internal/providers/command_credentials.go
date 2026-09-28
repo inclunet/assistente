@@ -15,6 +15,19 @@ import (
 // estática que impediria observar 401 e renovar o cache. Outros managers/fontes
 // mantêm a aplicação existente, sem cache implícito.
 func (s *Service) prepareProbeAuth(ctx context.Context, req TestRequest, target *http.Request, client *http.Client) error {
+	previousRedirect := client.CheckRedirect
+	client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		if !sameCredentialOrigin(req.BaseURL, next.URL.String()) {
+			return fmt.Errorf("redirecionamento para outra origem recusado na sondagem autenticada")
+		}
+		if previousRedirect != nil {
+			return previousRedirect(next, via)
+		}
+		if len(via) >= 10 {
+			return fmt.Errorf("limite de redirecionamentos excedido")
+		}
+		return nil
+	}
 	cm, ok := s.credMgr.(*credentials.Manager)
 	if !ok || strings.TrimSpace(req.APIKey) != "" {
 		return s.applyProbeAuth(ctx, req, target)
@@ -52,19 +65,7 @@ func (s *Service) prepareProbeAuth(ctx context.Context, req TestRequest, target 
 	if client.Transport != nil {
 		transport.Base = client.Transport
 	}
-	previousRedirect := client.CheckRedirect
-	client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
-		if !sameCredentialOrigin(req.BaseURL, next.URL.String()) {
-			return fmt.Errorf("redirecionamento para outra origem recusado na sondagem autenticada")
-		}
-		if previousRedirect != nil {
-			return previousRedirect(next, via)
-		}
-		if len(via) >= 10 {
-			return fmt.Errorf("limite de redirecionamentos excedido")
-		}
-		return nil
-	}
+
 	client.Transport = transport
 	return nil
 }
