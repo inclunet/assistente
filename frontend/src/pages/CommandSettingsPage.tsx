@@ -1205,7 +1205,7 @@ export default function CommandSettingsPage() {
         actions={[
           { key: 'manual-back', label: t('commandSettings.manualBack'), icon: <UndoOutlined aria-hidden="true" />,
             'aria-describedby': 'command-manual-back-hint',
-            disabled: busy || loading || snapshotIdentity !== identityKey || !selectedLayer || selectedLayer.builtin || isInheritedLayer(selectedLayer),
+            disabled: busy || loading || snapshotIdentity !== identityKey,
             onClick: () => runLayerAction('', 'back', 0) },
           { key: 'restore-all', label: t('commandSettings.actions.restoreAll'), icon: <UndoOutlined />,
             disabled: busy || loading || snapshotIdentity !== identityKey,

@@ -817,6 +817,26 @@ describe('CommandSettingsPage', () => {
     expect(await screen.findByText('commandSettings.messages.saved')).toBeInTheDocument();
   });
 
+  it.each(['none', 'builtin', 'inherited'] as const)('back do escopo independe da seleção %s e mantém guardas de carregamento/busy', async (selection) => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      layers: selection === 'none' ? [] : [{ ...snapshot.layers[0], name: 'Camada do teste', builtin: selection === 'builtin', inherited: selection === 'inherited' }],
+    });
+    applyLayerAction.mockReturnValue(new Promise(() => undefined));
+    render(<CommandSettingsPage />);
+    const back = screen.getByRole('button', { name: 'commandSettings.manualBack' });
+    expect(back).toBeDisabled();
+    if (selection !== 'none') {
+      const grid = await screen.findByRole('grid', { name: 'commandSettings.layers' });
+      await userEvent.click(within(grid).getByText('Camada do teste'));
+    }
+    await waitFor(() => expect(back).toBeEnabled());
+    await userEvent.click(back);
+    await waitFor(() => expect(applyLayerAction).toHaveBeenCalledWith('global', '', 'back', 0));
+    expect(back).toBeDisabled();
+    expect(mutateSettings).not.toHaveBeenCalled();
+  });
+
   it('desativa regra manual ativa sem solicitar duração temporária', async () => {
     applyLayerAction.mockResolvedValue({ committed: true, published: true, id: 'activation' });
     getSettings.mockResolvedValue({

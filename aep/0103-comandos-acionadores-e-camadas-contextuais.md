@@ -10,7 +10,9 @@ e ativação de regras. Sem seleção única, Editar/Apagar ficam indisponíveis
 as restrições de padrões, herança, revisão, busy e identidade são preservadas.
 Voltar à última ativação sai do detalhe e fica após os dois controles principais,
 antes das ações de manutenção; sua descrição explica que atua no escopo e não
-necessariamente na camada selecionada. Nenhum listener ou atalho paralelo é
+necessariamente na camada selecionada. A disponibilidade de Voltar independe
+da seleção de camada; carregamento, busy, identidade e validação do backend
+continuam obrigatórios. Nenhum listener ou atalho paralelo é
 criado: Ctrl+N permanece no AEP-0103. Validação manual de navegação/NVDA pendente.
 
 **Contrato de leitura frontend/backend (28/09/2026): In Progress.** O decoder
