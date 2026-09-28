@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync/atomic"
@@ -22,6 +23,8 @@ type startupChatRetentionRepository struct {
 	orphans     atomic.Int32
 	old         atomic.Int32
 	beforeReady atomic.Bool
+	orphanErr   error
+	oldErr      error
 }
 
 func (r *startupChatRetentionRepository) observe() {
@@ -34,12 +37,18 @@ func (r *startupChatRetentionRepository) observe() {
 func (r *startupChatRetentionRepository) CleanOrphanChat(ctx context.Context) (int, error) {
 	r.orphans.Add(1)
 	r.observe()
+	if r.orphanErr != nil {
+		return 0, r.orphanErr
+	}
 	return r.Repository.CleanOrphanChat(ctx)
 }
 
 func (r *startupChatRetentionRepository) CleanOldChat(ctx context.Context, age time.Duration) (int, error) {
 	r.old.Add(1)
 	r.observe()
+	if r.oldErr != nil {
+		return 0, r.oldErr
+	}
 	return r.Repository.CleanOldChat(ctx, age)
 }
 
@@ -170,6 +179,78 @@ func TestChatStartupRetentionCoordinatedAndLegacyPaths(t *testing.T) {
 			}
 			if a.commandJobsPending != nil {
 				t.Fatal("Start não consumiu pendência")
+			}
+		})
+	}
+}
+
+func TestChatStartupRetentionLegacyReportsFailuresWithoutFailingJobs(t *testing.T) {
+	for _, failure := range []string{"orphan", "cap", "both"} {
+		t.Run(failure, func(t *testing.T) {
+			a, starts := commandJobsStartupFixture(t)
+			a.jobMgr.Stop()
+			repo := &startupChatRetentionRepository{Repository: toolinvocations.NewDBRepository(database.DB()), app: a}
+			orphanErr, capErr := errors.New("orphan cleanup failed"), errors.New("age cap failed")
+			if failure != "cap" {
+				repo.orphanErr = orphanErr
+			}
+			if failure != "orphan" {
+				repo.oldErr = capErr
+			}
+			a.toolInvocationSvc = toolinvocations.NewService(repo, nil)
+			a.jobMgr = jobs.NewManager(jobs.ManagerConfig{
+				Repository: jobs.NewDBRepository(database.DB()), ToolRegistry: a.toolRegistry,
+				ToolInvocations:        a.toolInvocationSvc,
+				ContextProvider:        func() context.Context { return database.WithUserID(context.Background(), a.currentUserID) },
+				CommandRuntimeIdentity: a.captureCommandJobIdentity,
+			})
+			t.Cleanup(a.jobMgr.Stop)
+			a.commandStorageVersion = ""
+			settings := config.DefaultMaintenanceSettings()
+			settings.ChatToolCallsRetentionDays = 1
+			if err := config.SaveMaintenance(settings); err != nil {
+				t.Fatal(err)
+			}
+			emitter := &testEmitter{}
+			a.emitter = emitter
+			a.authSessionMu.Lock()
+			result := a.reloadUserScopedRuntime()
+			a.authSessionMu.Unlock()
+			if len(result.failures) != 1 || result.failures[0].Subsystem != runtimeSubsystemToolInvocations {
+				t.Fatalf("diagnóstico deve conter somente tool_invocations: %+v", result.failures)
+			}
+			if starts.starts.Load() != 1 || a.commandJobsPending != nil {
+				t.Fatal("retenção impediu Start legado")
+			}
+			got := a.jobMgr.InitialChatRetentionError()
+			if errors.Is(got, orphanErr) != (failure != "cap") || errors.Is(got, capErr) != (failure != "orphan") {
+				t.Fatalf("diagnóstico perdeu erros: %v", got)
+			}
+			a.emitRuntimePartialInit(result)
+			events := emitter.find(RuntimePartialInitEventName)
+			if len(events) != 1 {
+				t.Fatalf("avisos=%d", len(events))
+			}
+			payload, ok := events[0].data.(RuntimePartialInitPayload)
+			if !ok || !reflect.DeepEqual(payload.Subsystems, result.failures) {
+				t.Fatalf("aviso inválido: %+v", events[0])
+			}
+			if err := a.jobMgr.Start(); err != nil {
+				t.Fatalf("Start já ativo: %v", err)
+			}
+			if repo.orphans.Load() != 1 || repo.old.Load() != 1 || a.jobMgr.InitialChatRetentionError() == nil {
+				t.Fatal("Start idempotente repetiu cleanup ou apagou diagnóstico")
+			}
+			a.jobMgr.Stop()
+			repo.orphanErr, repo.oldErr = nil, nil // só após join do loop
+			if err := a.jobMgr.Start(); err != nil {
+				t.Fatalf("nova partida: %v", err)
+			}
+			if got := a.jobMgr.InitialChatRetentionError(); got != nil {
+				t.Fatalf("erro antigo sobreviveu à nova partida: %v", got)
+			}
+			if starts.starts.Load() != 2 || repo.orphans.Load() != 2 || repo.old.Load() != 2 {
+				t.Fatal("nova partida não executou cleanup exatamente uma vez")
 			}
 		})
 	}

@@ -6,6 +6,9 @@ de comandos. O Start legado preserva a passagem síncrona. AEP-0103 permanece
 In Progress. Outbox recebe retry transacional limitado, sem repetir efeitos
 externos nem alterar heartbeat; claim/requeue recalculam o relógio em cada
 tentativa. Validação manual no banco real pendente.
+Falhas de retenção inicial de chat no modo legado preservam o diagnóstico
+`runtime:partial-init`/`tool_invocations`, sem falhar jobs; a próxima partida
+efetiva limpa o erro anterior. O caminho coordenado não aguarda essa limpeza.
 
 **AEP-0103 — concorrência de startup (28/09/2026): In Progress.** A barreira
 cancelável cobre preparação → bootstrap → Start da mesma sessão sem manter

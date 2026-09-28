@@ -881,7 +881,9 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 		if err := a.jobMgr.Start(); err != nil {
 			logging.Errorf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)
 			result.add(runtimeSubsystemJobs, err)
+			return
 		}
+		result.add(runtimeSubsystemToolInvocations, a.jobMgr.InitialChatRetentionError())
 	}
 
 	a.commandJobsPending = nil

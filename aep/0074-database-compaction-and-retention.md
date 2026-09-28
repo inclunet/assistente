@@ -11,6 +11,13 @@ não recebe a garantia de login sem retenção síncrona. Não há timer extra, 
 ou alteração da recuperação obrigatória. Contenção WAL na outbox repete apenas
 transações puramente locais já revertidas, com o retry SQLite central cancelável;
 nenhuma entrega/ativação externa é repetida por esse mecanismo.
+Na partida legada, falhas de limpeza de chat (órfãos/cap) são agregadas em
+`InitialChatRetentionError()` e preservam o aviso `runtime:partial-init` do
+subsistema `tool_invocations`, sem falhar Start nem interromper jobs ativos.
+Uma nova partida após Stop limpa o diagnóstico anterior; Start já ativo não
+repete a limpeza. Passagens periódicas continuam apenas registrando logs e o
+caminho coordenado não aguarda esse diagnóstico. Cobertura:
+`TestChatStartupRetentionLegacyReportsFailuresWithoutFailingJobs`.
 Evidências: `TestChatStartupRetentionCoordinatedAndLegacyPaths` verifica
 registros reais com cap ligado/desligado nos dois modos; `sqlite_snapshot_retry_test.go`
 reproduz conflito WAL e cobre cancelamento, esgotamento e rollback sem

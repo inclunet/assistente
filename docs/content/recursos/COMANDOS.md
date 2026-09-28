@@ -10,6 +10,11 @@ registros antigos ocorre em segundo plano após os comandos ficarem prontos,
 pela manutenção existente. No modo legado sem esse armazenamento, a passagem
 inicial ainda ocorre durante o início dos jobs. As políticas de retenção
 configuradas são preservadas nos dois modos.
+Se a limpeza inicial de chamadas de ferramentas do chat falhar no modo legado,
+o aviso de inicialização parcial identifica o subsistema `tool_invocations`.
+Isso não impede o início dos jobs; a manutenção periódica continua tentando
+a limpeza e registrando suas falhas nos logs. O aviso inicial não acompanha
+essas tentativas: uma nova partida dos jobs recalcula esse diagnóstico.
 
 Abra **Configurações → Comandos e acionadores** para inspecionar os comandos
 padrão e organizar configurações pessoais em camadas. O seletor **Escopo**
