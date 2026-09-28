@@ -205,6 +205,11 @@ func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
 }
 
 func (a *App) Login(req LoginRequest) (result *AuthUser, err error) {
+	if err := a.lockCommandStartup(a.appContext()); err != nil {
+		return nil, err
+	}
+	defer a.unlockCommandStartup()
+	var reloadResult runtimeReloadResult
 	// Invalida qualquer publicação anterior antes de adquirir authSessionMu.
 	// O defer de bootstrap é declarado antes do lock para executar depois dos
 	// defers de gate e unlock, mantendo portas externas fora dos locks.
@@ -212,7 +217,10 @@ func (a *App) Login(req LoginRequest) (result *AuthUser, err error) {
 		return nil, err
 	}
 	defer func() {
-		a.bootstrapCommandLifecycleAfterAuth(a.appContext(), result, err)
+		if bootstrapErr := a.bootstrapCommandsAndStartPreparedJobsInTransition(a.appContext(), result, err); err == nil {
+			a.addPendingJobsStartupFailure(&reloadResult, result, bootstrapErr)
+			a.emitRuntimePartialInit(reloadResult)
+		}
 	}()
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
@@ -259,7 +267,7 @@ func (a *App) Login(req LoginRequest) (result *AuthUser, err error) {
 		a.rollbackLoginState(pair.RefreshToken)
 		return nil, err
 	}
-	a.emitRuntimePartialInit(a.reloadUserScopedRuntime())
+	reloadResult = a.reloadUserScopedRuntime()
 	return a.GetAuthUser()
 }
 
@@ -328,11 +336,19 @@ func (a *App) rollbackLoginState(refreshToken string) {
 }
 
 func (a *App) RefreshAuth(req RefreshRequest) (result *AuthUser, err error) {
+	if err := a.lockCommandStartup(a.appContext()); err != nil {
+		return nil, err
+	}
+	defer a.unlockCommandStartup()
+	var reloadResult runtimeReloadResult
 	if err := a.resetCommandLifecycleIfConfigured(a.appContext(), "refresh"); err != nil {
 		return nil, err
 	}
 	defer func() {
-		a.bootstrapCommandLifecycleAfterAuth(a.appContext(), result, err)
+		if bootstrapErr := a.bootstrapCommandsAndStartPreparedJobsInTransition(a.appContext(), result, err); err == nil {
+			a.addPendingJobsStartupFailure(&reloadResult, result, bootstrapErr)
+			a.emitRuntimePartialInit(reloadResult)
+		}
 	}()
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
@@ -383,7 +399,7 @@ func (a *App) RefreshAuth(req RefreshRequest) (result *AuthUser, err error) {
 		a.rollbackLoginState(pair.RefreshToken)
 		return nil, err
 	}
-	a.emitRuntimePartialInit(a.reloadUserScopedRuntime())
+	reloadResult = a.reloadUserScopedRuntime()
 	return a.GetAuthUser()
 }
 
@@ -430,6 +446,11 @@ func (a *App) loadAuthRefreshTokenCandidates() []string {
 // pensar que o logout falhou enquanto, do ponto de vista do app, ele
 // já tinha completado.
 func (a *App) Logout(req LogoutRequest) error {
+	// Mesmo com o contexto do app cancelado, a limpeza local continua obrigatória.
+	if err := a.lockCommandStartup(context.Background()); err != nil {
+		return err
+	}
+	defer a.unlockCommandStartup()
 	// A limpeza de comandos ocorre antes do lock de autenticação. Se uma porta
 	// falhar, o controller entra em estado fail-closed; o logout legado ainda
 	// prossegue para não deixar a sessão local presa.
@@ -763,7 +784,26 @@ func (r *runtimeReloadResult) add(subsystem string, err error) {
 	if err == nil {
 		return
 	}
+	for _, failure := range r.failures {
+		if failure.Subsystem == subsystem {
+			return
+		}
+	}
 	r.failures = append(r.failures, RuntimeSubsystemFailure{Subsystem: subsystem})
+}
+
+// Um erro de comandos só implica jobs indisponíveis quando eles aguardam
+// esta publicação. No modo legado, jobs já podem ter iniciado normalmente.
+func (a *App) addPendingJobsStartupFailure(result *runtimeReloadResult, user *AuthUser, err error) {
+	if err == nil || user == nil {
+		return
+	}
+	a.authSessionMu.Lock()
+	defer a.authSessionMu.Unlock()
+	pending := a.commandJobsPending
+	if pending != nil && pending.UserID == user.UserID && pending.SessionID == user.SessionID {
+		result.add(runtimeSubsystemJobs, err)
+	}
 }
 
 // hasFailures indica se algum subsistema falhou durante o reload.
@@ -805,7 +845,7 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 	ctx, cancel := context.WithTimeout(authedCtx, reloadUserScopedRuntimeTimeout)
 	defer cancel()
 	userID, _ := database.UserIDFromContext(authedCtx)
-	startJobsForCurrentUser := func() {
+	prepareJobsForCurrentUser := func() {
 		if a.jobMgr == nil {
 			return
 		}
@@ -828,6 +868,16 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 				result.add(runtimeSubsystemJobs, err)
 				return
 			}
+			// A montagem é necessária à projeção de camadas, mas Start também
+			// dispara scheduler e manutenção. Só libere esses escritores depois
+			// do bootstrap, fora da transição de autenticação.
+			a.authMu.RLock()
+			if a.currentAuthUser != nil {
+				copy := *a.currentAuthUser
+				a.commandJobsPending = &copy
+			}
+			a.authMu.RUnlock()
+			return
 		}
 		if err := a.jobMgr.Start(); err != nil {
 			logging.Errorf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)
@@ -835,6 +885,7 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 		}
 	}
 
+	a.commandJobsPending = nil
 	if a.jobMgr != nil {
 		a.jobMgr.Stop()
 	}
@@ -877,7 +928,7 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 			logging.Errorf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] erro ao carregar MCP servers do usuário: %v", err)
 			result.add(runtimeSubsystemMCP, err)
 		}
-		startJobsForCurrentUser()
+		prepareJobsForCurrentUser()
 		// Auto-connect MCP só agora: depois de adoptLegacyDataForUser →
 		// LoadUserCredentials, as credenciais user-scoped (incluindo os
 		// tokens OAuth `mcp-tokens:*` / `mcp-client:*`) estão em memória.
@@ -906,7 +957,7 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 			a.mcpMgr.AutoConnectAll(ctx)
 		}(runtimeCtx)
 	} else {
-		startJobsForCurrentUser()
+		prepareJobsForCurrentUser()
 	}
 
 	// Inicia o health check periódico do provider LLM ativo (status na topbar).
@@ -928,12 +979,32 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 // sem depender de timer/eventos. Não emite runtime:partial-init neste caminho
 // (evita aviso duplicado: o retorno da RPC já carrega o estado).
 func (a *App) RetryUserRuntimeInit() (RuntimePartialInitPayload, error) {
+	return a.retryUserRuntimeInit(a.appContext())
+}
+
+func (a *App) retryUserRuntimeInit(ctx context.Context) (RuntimePartialInitPayload, error) {
+	if err := a.lockCommandStartup(ctx); err != nil {
+		return RuntimePartialInitPayload{Subsystems: []RuntimeSubsystemFailure{}}, err
+	}
+	defer a.unlockCommandStartup()
 	a.authSessionMu.Lock()
-	defer a.authSessionMu.Unlock()
 	if _, err := a.requireAuthenticatedContext(); err != nil {
+		a.authSessionMu.Unlock()
 		return RuntimePartialInitPayload{Subsystems: []RuntimeSubsystemFailure{}}, err
 	}
 	result := a.reloadUserScopedRuntime()
+	a.authMu.RLock()
+	var user *AuthUser
+	if a.currentAuthUser != nil {
+		copy := *a.currentAuthUser
+		user = &copy
+	}
+	a.authMu.RUnlock()
+	a.authSessionMu.Unlock()
+	// Bootstrap e Start não podem rodar sob a transição de autenticação.
+	if err := a.bootstrapCommandsAndStartPreparedJobsInTransition(ctx, user, nil); err != nil {
+		a.addPendingJobsStartupFailure(&result, user, err)
+	}
 	subsystems := result.failures
 	if subsystems == nil {
 		// Normaliza para slice vazio: o frontend recebe [] em vez de null.
@@ -943,6 +1014,7 @@ func (a *App) RetryUserRuntimeInit() (RuntimePartialInitPayload, error) {
 }
 
 func (a *App) stopUserScopedRuntime() {
+	a.commandJobsPending = nil
 	// Watchers e marcações de self-write pertencem à sessão que os criou.
 	// Encerrá-los antes de trocar/limpar o usuário impede que eventos tardios
 	// de uma conta sejam entregues à próxima sessão.
