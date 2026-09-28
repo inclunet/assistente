@@ -52,3 +52,18 @@ func TestStartupLogConfigurationErrorPreservaDetalhesDeAbertura(t *testing.T) {
 		t.Fatalf("mensagem perdeu detalhes do erro: %q", got)
 	}
 }
+
+func TestStartupInstanceErrorSuportaTresIdiomas(t *testing.T) {
+	previous := startupLocaleProvider
+	t.Cleanup(func() { startupLocaleProvider = previous })
+	for locale, expected := range map[string]string{
+		"pt-BR": "Nenhum processo foi encerrado",
+		"en-US": "No process was terminated",
+		"es-ES": "No se terminó ningún proceso",
+	} {
+		startupLocaleProvider = func() string { return locale }
+		if got := startupInstanceError(errors.New("timeout")); !strings.Contains(got, expected) || !strings.Contains(got, "timeout") {
+			t.Errorf("%s: %q", locale, got)
+		}
+	}
+}

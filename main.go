@@ -4,14 +4,16 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"embed"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
-	"time"
+	"runtime"
 
 	"assistente/adapters/wails"
 	application "assistente/internal/app"
 	"assistente/internal/database"
+	"assistente/internal/desktopinstance"
 	"assistente/internal/wailsapi"
 
 	wailslib "github.com/wailsapp/wails/v2"
@@ -23,7 +25,27 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+type desktopReservation interface {
+	io.Closer
+	DatabasePath() string
+}
+
 var (
+	// Mantém os handles vivos até os.Exit: Shutdown pode preservar serviços
+	// quando não consegue comprovar a drenagem. Não liberar a reserva nesse intervalo.
+	desktopProcessReservation io.Closer
+	resolveDesktopDatabase    = database.ResolvePath
+	acquireDesktopInstance    = func(path string, activate func()) (desktopReservation, error) {
+		return desktopinstance.Acquire(path, activate)
+	}
+	activateDesktop = func(ctx context.Context) {
+		// GTK precisa de present/deiconify; no Windows, Show já restaura
+		// e mantém todo o despacho nativo assíncrono.
+		if runtime.GOOS == "linux" {
+			wailsruntime.WindowUnminimise(ctx)
+		}
+		wailsruntime.WindowShow(ctx)
+	}
 	runDesktop   = wailslib.Run
 	quitDesktop  = wailsruntime.Quit
 	startDesktop = func(a *application.App, ctx context.Context) error {
@@ -82,7 +104,40 @@ func run(args []string) (exitCode int) {
 		os.Args = originalArgs
 	}()
 
+	databasePath, err := resolveDesktopDatabase()
+	if err != nil {
+		reportFatalError(errorOutput, startupApplicationError(err))
+		return 1
+	}
+	activationRequests := make(chan struct{}, 1)
+	instance, err := acquireDesktopInstance(databasePath, func() {
+		select {
+		case activationRequests <- struct{}{}:
+		default:
+		}
+	})
+	if errors.Is(err, desktopinstance.ErrAlreadyRunning) {
+		return 0
+	}
+	if err != nil {
+		reportFatalError(errorOutput, startupInstanceError(err))
+		return 1
+	}
+	var runtimeEntered bool
+	defer func() {
+		if runtimeEntered {
+			desktopProcessReservation = instance
+			return
+		}
+		if err := instance.Close(); err != nil {
+			logging.Errorf(context.Background(), "main", "Falha ao liberar reserva desktop: %v", err)
+			exitCode = 1
+		}
+	}()
+	activationReady, stopActivation := startDesktopActivations(activationRequests, activateDesktop)
+	defer stopActivation()
 	a := application.NewApp()
+	application.SetDesktopDatabasePath(a, instance.DatabasePath())
 	tokensAPI := wailsapi.NewTokens()
 	application.SetTokensAPI(a, tokensAPI)
 	allowlistsAPI := wailsapi.NewAllowlists()
@@ -163,6 +218,7 @@ func run(args []string) (exitCode int) {
 	application.SetExportImportAPI(a, exportImportAPI)
 
 	startupErrors := make(chan error, 1)
+	runtimeEntered = true
 	err = runDesktop(&options.App{
 		Title:  "assistente",
 		Width:  1024,
@@ -178,19 +234,10 @@ func run(args []string) (exitCode int) {
 				quitDesktop(ctx)
 				return
 			}
-			// Restaura foco da janela (resolve bug do Wails no Windows)
-			go func() {
-				timer := time.NewTimer(400 * time.Millisecond)
-				defer timer.Stop()
-				select {
-				case <-timer.C:
-					a.ShowWindow()
-				case <-ctx.Done():
-					return
-				}
-			}()
+			activationReady(ctx)
 		},
 		OnShutdown: func(_ context.Context) {
+			stopActivation()
 			a.Shutdown()
 		},
 		// AEP-0088: multi-bind — App + binds de domínio migrados.

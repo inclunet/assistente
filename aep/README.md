@@ -1,5 +1,16 @@
 # AEP — Assistente Enhancement Proposals
 
+- [AEP-0111 — Inicialização desktop exclusiva por banco](0111-inicializacao-desktop-exclusiva.md) — In Progress.
+
+Reserva fixa o caminho canônico também no reset do banco; o worker de ativação
+é cancelado e aguardado antes do shutdown. Aceite físico/NVDA permanece pendente.
+Reset preserva a identidade física dos hardlinks existentes e recusa links
+simbólicos/não regulares antes do fechamento, truncando apenas o handle validado.
+O preflight antecede a drenagem dos comandos e a identidade é revalidada depois
+do callback; alvos inválidos não derrubam um runtime que ainda estava utilizável.
+Falhas na limpeza de journals impedem truncamento/reabertura; SHM é removido
+antes do WAL para preservar este último quando a limpeza do SHM é recusada.
+
 **AEP-0103 — concorrência de startup (28/09/2026): In Progress.** A barreira
 cancelável cobre preparação → bootstrap → Start da mesma sessão sem manter
 authSessionMu durante as portas de bootstrap. Regressões cobrem retries
