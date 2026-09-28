@@ -87,7 +87,16 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
   (que aplica a barreira anti-SSRF ao buscar a URL escolhida). Assim a busca não
   precisa validar host: ela só consulta o endpoint fixo do provedor.
 - **D7 — Parâmetros enxutos.** `query` (obrigatório), `max_results` (default 8, máx
-  20 por página), `offset` (default 0). `Risk: network` no catálogo.
+  20 por página), `offset` (default 0), `provider` (default `auto`; `brave`,
+  `tavily`, `bing` ou `duckduckgo` para iniciar a cadeia num elo específico).
+  `Risk: network` no catálogo.
+- **D9 — Seleção pelo modelo + aviso de fallback.** O LLM escolhe o elo
+  inicial via `provider` (ex.: após resultado fraco, tenta outra fonte); o
+  servidor impõe disponibilidade e avança pela cadeia, reportando quem
+  atendeu no campo `provider`. Quando o DuckDuckGo atende sem ter sido
+  pedido, a saída traz `notice` (omitempty, sem quebrar jobs) orientando a
+  cadastrar chave de um provedor melhor. Pedido explícito de DDG não recebe
+  aviso. O match é por chave canônica, nunca por nome de exibição.
 - **D8 — Auth manual única.** Cada provedor com API resolve a credencial uma
   única vez, aplica o material na request e chama `client.Do` com
   `httpclient.WithManualAuth(ctx)`; o interceptor pula a resolução. Evita
@@ -152,8 +161,9 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
   11/08/2025 (instâncias desativadas, sem cadastro novo); provedor chegou a
   ser implementado e foi removido antes do merge. Substituto natural seria
   o índice Google via Serper (SERP-as-a-service), a avaliar.
-- **Seleção/config de provedor** por credencial/preferência do usuário, com fallback
-  automático para o DuckDuckGo quando não houver API key.
+- **Seleção por preferência do usuário** (perfil/config): a seleção atual é
+  do modelo via parâmetro `provider`, com disponibilidade imposta pelo
+  servidor; ordem preferencial configurável permanece futura.
 - **Parâmetros de busca**: região/idioma (`region`, `language`), `safe_search`,
   janela temporal (`freshness`), e tipos de resultado (web/news/images).
 - **Dedup e normalização** de URLs entre páginas (evitar repetição ao paginar).
@@ -220,8 +230,14 @@ oficiais quando disponíveis, com métricas de "parsing vazio" para detectar que
 - Cadeia Brave → Tavily → DuckDuckGo: com credencial Brave usa-se a Brave;
   sem credencial ou com 401/403/429/422, avança para a Tavily; sem
   credencial Tavily, com 401/403/429/432/433 ou com offset além da janela
-  de 20, cai para o DuckDuckGo. A seleção futura por preferência do usuário
-  pode reordenar ou inserir outros provedores na mesma cadeia.
+  de 20, cai para o DuckDuckGo.
+- O modelo escolhe o elo inicial via parâmetro `provider` (`auto` = cadeia
+  completa); valor desconhecido é erro com a lista válida. O servidor nunca
+  expõe previamente quais chaves existem: a disponibilidade é imposta em
+  runtime e o atendente é reportado post-hoc no campo `provider`.
+- Queda no DuckDuckGo sem pedido explícito devolve `notice` orientando a
+  configurar Brave/Tavily no credmanager. Seleção por preferência do
+  usuário (perfil) permanece futura.
 - O campo `provider` no JSON canônico já identifica qual backend respondeu, de modo
   transparente para LLM e jobs.
 - Cadeia de fallback automática em caso de erro/quota de um provedor.
@@ -250,6 +266,8 @@ parâmetros da tool — apenas troca a implementação por trás de `SearchProvi
 Evidências: `internal/tools/web/web_search_test.go`,
 `internal/tools/web/brave_provider_test.go`,
 `internal/tools/web/tavily_provider_test.go`,
+`internal/tools/web/provider_selection_test.go` (parâmetro `provider`,
+cadeia a partir do pedido, aviso DDG),
 `internal/tools/http/client_test.go` (auth manual),
 `internal/tools/catalog_test.go` e registro em
 `internal/app/app_tool_registry.go`. Demais provedores com API, cache e

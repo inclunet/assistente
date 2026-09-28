@@ -218,7 +218,15 @@ O provedor é selecionado automaticamente, na ordem:
   Tavily: 401/403/429/432/433) ou o `offset` pedido está além da janela do
   provedor.
 
-O campo `provider` na resposta identifica qual backend respondeu. Demais erros
+O campo `provider` na resposta identifica qual backend respondeu. O modelo
+pode pedir um backend específico com o parâmetro `provider` (`brave`,
+`tavily`, `duckduckgo`; padrão `auto`, que percorre a ordem); a
+cadeia avança a partir do pedido em caso de ausência de credencial ou
+auth/quota, e a resposta informa quem atendeu de fato.
+
+Quando a resposta vier do DuckDuckGo sem ter sido pedido, ela traz um
+aviso (`notice`) orientando a cadastrar a chave de um buscador melhor no
+gerenciador de credenciais. Demais erros
 das APIs Brave e Tavily (incluindo falha operacional ao resolver a
 credencial) são propagados sem fabricar resultados.
 
