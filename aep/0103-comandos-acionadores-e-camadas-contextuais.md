@@ -1,5 +1,18 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Concorrência de startup (28/09/2026):** uma barreira exterior cancelável
+serializa o ciclo completo de login/refresh/retry/logout e retomadas, incluindo
+preparação, bootstrap e Start. O bootstrap continua fora de `authSessionMu` e
+do gate de autenticação; não se adiciona aquisição exterior aos editores de
+perfil que já possuem esses locks. Um worker do SO esperando a barreira sai
+quando sua observação é cancelada. Um unlock tardio não retira uma publicação
+que já incorpora a observação, validada por snapshot do lifecycle e do host.
+Testes `TestCommandJobsConcurrentRetriesOwnPreparationThroughStart`,
+`TestCommandJobsOSUnlockWaitingForStartupIsCancelable` e
+`TestCommandJobsLateOSUnlockKeepsAlreadyPublishedGeneration` cobrem a
+concorrência da mesma sessão, cancelamento e preservação da geração publicada.
+O aceite manual permanece pendente (**In Progress**).
+
 **Ordem de startup de jobs (28/09/2026):** o reload autenticado monta as portas
 de manutenção, mas adia o scheduler e sua passagem inicial até a publicação
 do runtime de comandos. O caminho legado sem armazenamento de comandos mantém

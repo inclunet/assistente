@@ -274,7 +274,30 @@ func (a *App) lockCommandBootstrap(ctx context.Context) error {
 
 func (a *App) unlockCommandBootstrap() { <-a.commandBootstrap }
 
+// Serializa a transição completa sem manter authSessionMu/DispatchGate durante
+// as portas de bootstrap. O worker de SO usa seu contexto cancelável: parar o
+// watcher não pode esperar uma aquisição que o próprio chamador impede.
+func (a *App) lockCommandStartup(ctx context.Context) error {
+	a.commandStartupOnce.Do(func() { a.commandStartup = make(chan struct{}, 1) })
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case a.commandStartup <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			a.unlockCommandStartup()
+			return err
+		}
+		return nil
+	}
+}
+
+func (a *App) unlockCommandStartup() { <-a.commandStartup }
+
 func (a *App) bootstrapCommandLifecycleAfterOSUnlock(ctx context.Context, host *commandexecution.HostState) {
+	if err := a.lockCommandStartup(ctx); err != nil {
+		return
+	}
+	defer a.unlockCommandStartup()
 	if err := a.lockCommandBootstrap(ctx); err != nil {
 		return
 	}
@@ -305,6 +328,14 @@ func (a *App) bootstrapCommandLifecycleAfterOSUnlock(ctx context.Context, host *
 	current, err := sessions.RevalidateLocalSession(ctx, principal)
 	if err != nil || current != principal || !a.commandPrincipalMatches(sessions, credentials, principal) {
 		return
+	}
+	// Outro bootstrap pode ter incorporado esta observação enquanto o worker
+	// aguardava a transição. Não retirar uma publicação ainda válida após Start.
+	if snapshot, err := CommandLifecycleSnapshot(a); err == nil && snapshot.State == commandruntime.StateReady && snapshot.Published {
+		if versions, err := host.Snapshot(ctx, principal); err == nil && versions.Unlocked {
+			bootstrapOK = true
+			return
+		}
 	}
 	bootstrapOK = a.bootstrapCommandLifecycleAfterAuthLocked(ctx, result, nil) == nil
 }
@@ -357,6 +388,15 @@ func (a *App) bootstrapCommandLifecycleAfterAuthLocked(ctx context.Context, resu
 // chamadores de mutação de perfil já usam a ordem authSessionMu -> bootstrap.
 // Solte bootstrap antes de serializar Start com autenticação.
 func (a *App) bootstrapCommandsAndStartPreparedJobs(ctx context.Context, user *AuthUser, authErr error) error {
+	if err := a.lockCommandStartup(ctx); err != nil {
+		return err
+	}
+	defer a.unlockCommandStartup()
+	return a.bootstrapCommandsAndStartPreparedJobsInTransition(ctx, user, authErr)
+}
+
+// Login/refresh/retry já possuem commandStartup desde antes da preparação.
+func (a *App) bootstrapCommandsAndStartPreparedJobsInTransition(ctx context.Context, user *AuthUser, authErr error) error {
 	if err := a.tryBootstrapCommandLifecycleAfterAuth(ctx, user, authErr); err != nil {
 		return err
 	}

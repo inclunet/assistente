@@ -120,6 +120,8 @@ type App struct {
 	httpAPIServer           *http.Server
 	authMu                  sync.RWMutex
 	authSessionMu           sync.Mutex
+	commandStartupOnce      sync.Once
+	commandStartup          chan struct{} // transição completa prepare -> bootstrap -> Start; aquisição cancelável
 	commandEpochsOnce       sync.Once
 	commandGate             *commandsecurity.DispatchGate
 	commandMaintenanceBuild sync.Mutex

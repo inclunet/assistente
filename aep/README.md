@@ -1,5 +1,11 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — concorrência de startup (28/09/2026): In Progress.** A barreira
+cancelável cobre preparação → bootstrap → Start da mesma sessão sem manter
+authSessionMu durante as portas de bootstrap. Regressões cobrem retries
+concorrentes, cancelamento do worker em espera e unlock tardio sem retirar
+uma publicação válida. Aceite manual inalterado.
+
 **AEP-0103 — ordem de startup (28/09/2026): In Progress.** Com armazenamento
 de comandos disponível, jobs são preparados
 no reload e iniciados somente após a publicação dos comandos, com vínculo à
