@@ -523,9 +523,13 @@ export async function executeDeepLink(
 
     case 'resource:new': {
       const navStore = useNavigationStore.getState();
-      if (action.initial || deps.caller) {
+      // Sanitiza de novo na execução: a ação pode ter sido construída por
+      // código (sem passar pelo parser/builder), e segredos nunca entram no
+      // estado de navegação.
+      const initial = sanitizeResourceNewInitial(action.resource, action.initial);
+      if (initial || deps.caller) {
         navStore.requestResourceEdit(action.resource, '', 'new', {
-          ...(action.initial ? { initial: action.initial } : {}),
+          ...(initial ? { initial } : {}),
           ...(deps.caller ? { caller: deps.caller } : {}),
         });
       } else {

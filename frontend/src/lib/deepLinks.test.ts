@@ -1145,6 +1145,17 @@ describe('executeDeepLink', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/settings/credentials');
       expect(mockAnnounce).toHaveBeenCalled();
     });
+
+    it('executor sanitiza initial mesmo em ação construída por código', async () => {
+      await executeDeepLink(
+        { type: 'resource:new', resource: 'credentials', initial: { pattern: 'x', token: 'secreto' } },
+        deps,
+      );
+
+      expect(mockRequestResourceEdit).toHaveBeenCalledWith(
+        'credentials', '', 'new', { initial: { pattern: 'x' } },
+      );
+    });
   });
 
   describe('tab:open — dedup', () => {
