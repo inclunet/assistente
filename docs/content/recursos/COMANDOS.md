@@ -11,6 +11,18 @@ separa configurações **globais** das do **workspace atual**. Na visão do
 workspace, itens globais herdados continuam visíveis, mas são editados no
 escopo global. Restaurar o workspace não apaga a configuração global.
 
+Durante a inicialização ou atualização do catálogo MCP, os atalhos aguardam
+um mapa de comandos válido. Se o carregamento falhar temporariamente, o app
+tenta novamente automaticamente, com intervalos de até cinco segundos; não é
+necessário alternar a janela para provocar uma nova tentativa. Um mapa antigo
+não é usado enquanto a nova configuração está indisponível. As restrições de
+sessão, foco e modais continuam valendo.
+
+Uma camada com acionadores do Stream Deck não exige que o dispositivo esteja
+conectado para usar os atalhos de teclado de outras camadas. A ausência do
+dispositivo afeta sua entrada física; conectar novamente permite uma nova
+conexão, sem recriar os acionadores.
+
 ### Gerenciar uma camada
 
 Selecione uma camada na grade **Camadas**. Ao lado, consulte seu estado,

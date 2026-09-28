@@ -12,6 +12,9 @@ import { observeCommandShortcutComposition } from './commandFocusContext';
 import { isLocalUICommand } from './commandLocalUI';
 import { isAppPage } from './commandAppPage';
 
+const MAP_LOAD_RETRY_INITIAL_MS = 1000;
+const MAP_LOAD_RETRY_MAX_MS = 5000;
+
 export interface LocalCommandKeyboardMap {
   validUntil?: number;
   generation: string;
@@ -453,6 +456,8 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
   let generation: string | null = null;
   let validUntil = 0;
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+  let loadRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  let loadRetryDelayMs = MAP_LOAD_RETRY_INITIAL_MS;
   let bindings: ValidatedBindings = { simple: new Map(), sequences: new Map(), contextual: new Map(), contextualSequences: new Map() };
   const pressed = new Map<string, Press>();
   const modifiers = createCommandModifierState();
@@ -498,6 +503,22 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
     generation = null;
     options.onMapInvalidated?.();
     return queueBackendReset ? queueReset(value) : resetTail;
+  };
+
+  const cancelLoadRetry = (resetBackoff: boolean): void => {
+    if (loadRetryTimer !== undefined) clearTimeout(loadRetryTimer);
+    loadRetryTimer = undefined;
+    if (resetBackoff) loadRetryDelayMs = MAP_LOAD_RETRY_INITIAL_MS;
+  };
+
+  const scheduleLoadRetry = (id: number): void => {
+    if (disposed || id !== refreshId || loadRetryTimer !== undefined) return;
+    const delay = loadRetryDelayMs;
+    loadRetryDelayMs = Math.min(MAP_LOAD_RETRY_MAX_MS, loadRetryDelayMs * 2);
+    loadRetryTimer = setTimeout(() => {
+      loadRetryTimer = undefined;
+      void performRefresh(true);
+    }, delay);
   };
 
   const cancelSequence = (reason: CommandSequenceCancelReason): void => {
@@ -884,6 +905,7 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
     // has a Node target; only the Window-level target (or a null shim target) is valid.
     if (!disposed && (event.target === options.target || event.target === null || !(event.target instanceof Node))) {
       ++refreshId;
+      cancelLoadRetry(true);
       const oldGeneration = generation;
       cancelSequence('blur');
       void clearState(oldGeneration, true);
@@ -894,30 +916,53 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
   options.target.addEventListener('keyup', onKeyUp, true);
   options.target.addEventListener('blur', onBlur, true);
 
-  const refresh = async (): Promise<void> => {
+  async function performRefresh(retryAttempt: boolean): Promise<void> {
     if (disposed) return;
+    if (!retryAttempt) cancelLoadRetry(true);
     const id = ++refreshId;
     const oldGeneration = generation;
-    const resetBeforeLoad = clearState(oldGeneration, true);
     try {
-      await resetBeforeLoad;
-      if (disposed || id !== refreshId) return;
-      const map = await options.loadMap();
-      if (disposed || id !== refreshId) return;
-      const next = validateMap(map);
-      if (!next || (map.validUntil !== undefined && (!Number.isSafeInteger(map.validUntil) || map.validUntil <= Date.now())) || (options.acceptMap && !options.acceptMap(map))) {
-        options.onMapInvalidated?.();
-        return;
-      }
-      generation = map.generation;
-      validUntil = map.validUntil ?? 0;
-      bindings = next;
-      options.onMapAccepted?.(map);
-      if (validUntil > 0) expiryTimer = setTimeout(() => { void refresh(); }, Math.min(2_147_483_647, Math.max(0, validUntil - Date.now())));
+      await clearState(oldGeneration, true);
     } catch {
-      // A failed refresh deliberately leaves the empty, fail-closed map in place.
+      // Falha na invalidação/reset não é erro de transporte do mapa.
+      return;
     }
-  };
+    if (disposed || id !== refreshId) return;
+    let map: LocalCommandKeyboardMap;
+    try {
+      map = await options.loadMap();
+    } catch {
+      // Rejeição de transporte mantém o mapa vazio e tenta novamente com backoff.
+      if (!disposed && id === refreshId) scheduleLoadRetry(id);
+      return;
+    }
+    if (disposed || id !== refreshId) return;
+
+    let next: ValidatedBindings | null = null;
+    let accepted = false;
+    try {
+      next = validateMap(map);
+      accepted = !!next && !(map.validUntil !== undefined && (!Number.isSafeInteger(map.validUntil) || map.validUntil <= Date.now())) &&
+        (!options.acceptMap || options.acceptMap(map));
+    } catch {
+      // Mapa malformado, callback de aceitação com erro ou recusa não é falha de transporte.
+      try { options.onMapInvalidated?.(); } catch { /* callback isolado */ }
+      return;
+    }
+    if (!accepted || !next) {
+      try { options.onMapInvalidated?.(); } catch { /* callback isolado */ }
+      return;
+    }
+
+    generation = map.generation;
+    validUntil = map.validUntil ?? 0;
+    bindings = next;
+    loadRetryDelayMs = MAP_LOAD_RETRY_INITIAL_MS;
+    try { options.onMapAccepted?.(map); } catch { /* callback isolado */ }
+    if (validUntil > 0) expiryTimer = setTimeout(() => { void performRefresh(false); }, Math.min(2_147_483_647, Math.max(0, validUntil - Date.now())));
+  }
+
+  const refresh = (): Promise<void> => performRefresh(false);
 
   const dispose = (): void => {
     if (disposed) return;
@@ -925,6 +970,7 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
     void queueReset(oldGeneration);
     disposed = true;
     clearTimeout(expiryTimer);
+    cancelLoadRetry(true);
     ++refreshId;
     options.target.removeEventListener('keydown', onKeyDown, true);
     options.target.removeEventListener('keyup', onKeyUp, true);

@@ -715,7 +715,16 @@ func (a *App) refreshCommandProductCatalog(ctx context.Context) error {
 	if err := a.rebuildCommandLifecyclePersistedConfiguration(ctx); err != nil {
 		return err
 	}
-	return BootstrapCommandLifecycle(ctx, a)
+	if err := BootstrapCommandLifecycle(ctx, a); err != nil {
+		return err
+	}
+	// Configuration publication happens before lifecycle readiness. A UI that
+	// consumes that notification immediately must be notified again once the
+	// replacement product can actually serve a keyboard map (as after login).
+	if a.emitter != nil {
+		a.emitter.Emit("command:keyboard-map-changed", nil)
+	}
+	return nil
 }
 
 func (p *commandProductRuntime) dependenciesMatch(a *App) bool {

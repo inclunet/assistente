@@ -1,5 +1,19 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Recuperação do mapa de teclado (28/09/2026):** o hot-swap do catálogo MCP
+notifica a UI novamente após o bootstrap publicar readiness. A notificação
+anterior, emitida durante a publicação da configuração, podia encontrar o
+runtime ainda indisponível e deixar o mapa local vazio. Rejeições transitórias
+de carregamento passam a ter nova tentativa com backoff de 1 a 5 segundos,
+sem reutilizar mapa anterior nem relaxar validação, sessão, foco ou autorização.
+Blur, descarte do controller e uma nova atualização invalidam a tentativa pendente.
+Evidências: `TestCommandCatalogRefreshPublishesReadyKeyboardMap` reproduziu a
+falha antes da correção; `TestCommandDeckDisconnectKeepsLocalKeyboardMapAndBindings`
+cobre ausência inicial, conexão, atualização contextual, remoção e reconexão com
+driver sintético. O bloqueio físico relatado ainda requer confirmação no ambiente
+do usuário; esta prova não atribui sua causa ao HID. **In Progress**, sem promover
+critérios nem aceite manual.
+
 **Qualificação de CI (26/09/2026):** o grupo de contexto do Deck foi separado
 em páginas, Mermaid, camadas e base residual, preservando descoberta automática,
 flags e seleção exata de cada teste. Validações/compilações backend e testes com

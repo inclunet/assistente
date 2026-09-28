@@ -1,5 +1,11 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — recuperação de teclado (28/09/2026): In Progress.** Hot-swap MCP
+notifica o mapa após readiness; falhas transitórias de carregamento recebem
+retry com backoff, mantendo os gates de segurança. Regressão de publicação
+comprovada por teste e isolamento do Deck coberto com driver sintético.
+Confirmação física/NVDA permanece pendente; nenhuma alteração no aceite manual.
+
 **Qualificação de CI (26/09/2026):** o grupo de contexto do Deck foi separado
 em páginas, Mermaid, camadas e base residual, preservando descoberta automática,
 flags e seleção exata de cada teste. Validações/compilações backend e testes com
