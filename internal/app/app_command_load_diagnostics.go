@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,7 +18,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// Diagnóstico opt-in de leitura, nunca de pressionamento/execução. Não propaga
+// Diagnóstico de leitura, nunca de pressionamento/execução. Não propaga
 // atributos do contexto de usuário nem imprime Error(), SQL, argumentos ou IDs.
 type commandLoadTraceKey struct{}
 
@@ -38,14 +37,10 @@ type commandLoadTrace struct {
 }
 
 func beginCommandLoad(ctx context.Context, operation string) (context.Context, *commandLoadTrace) {
-	if os.Getenv("ASSISTENTE_COMMAND_LOAD_DIAGNOSTICS") != "1" {
-		return ctx, nil
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	t := &commandLoadTrace{logger: logging.Logger(context.Background(), "app.command-load"), id: commandLoadSequence.Add(1), operation: operation, currentStage: "entry", started: time.Now()}
-	t.write(slog.LevelInfo, "started", nil)
 	t.timer = time.AfterFunc(3*time.Second, t.slow)
 	return context.WithValue(ctx, commandLoadTraceKey{}, t), t
 }
@@ -84,7 +79,6 @@ func (t *commandLoadTrace) stage(stage string) {
 		return
 	}
 	t.currentStage = stage
-	t.write(slog.LevelInfo, "stage", nil)
 }
 
 func (t *commandLoadTrace) slow() {

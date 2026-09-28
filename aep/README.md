@@ -1,7 +1,7 @@
 # AEP — Assistente Enhancement Proposals
 
 **AEP-0103 — diagnóstico de carregamento: In Progress.** Leituras de camadas e
-mapa de teclado têm rastreamento opt-in por etapa, duração e causa tipada antes
+mapa de teclado registram resultado, etapa, duração e causa tipada automaticamente antes
 da sanitização pública, sem capturar teclas/conteúdo ou alterar os gates.
 Validação do incidente real permanece pendente.
 
