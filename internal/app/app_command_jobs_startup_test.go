@@ -168,3 +168,40 @@ func TestCommandJobsPendingStartupFailureIsReportedOnce(t *testing.T) {
 		t.Fatalf("failures=%+v", result.failures)
 	}
 }
+
+func TestCommandJobsMountedMaintenanceStorageFailureDoesNotDowngrade(t *testing.T) {
+	a, observer := commandJobsStartupFixture(t)
+	prepareCommandJobsResume(t, a)
+	if a.commandMaintenance.Load() == nil {
+		t.Fatal("maintenance was not mounted")
+	}
+	version := a.commandStorageVersion
+	a.authMu.Lock()
+	a.commandStorageVersion = ""
+	a.commandStorageErr = errors.New("storage temporarily unavailable")
+	a.authMu.Unlock()
+	a.authSessionMu.Lock()
+	result := a.reloadUserScopedRuntime()
+	a.authSessionMu.Unlock()
+	if !result.hasFailures() || observer.starts.Load() != 0 || a.commandJobsPending != nil {
+		t.Fatalf("storage failure downgraded maintenance: failures=%+v starts=%d pending=%v", result.failures, observer.starts.Load(), a.commandJobsPending)
+	}
+	found := false
+	for _, failure := range result.failures {
+		found = found || failure.Subsystem == runtimeSubsystemJobs
+	}
+	if !found {
+		t.Fatal("storage failure did not report unavailable jobs")
+	}
+	a.authMu.Lock()
+	a.commandStorageVersion = version
+	a.commandStorageErr = nil
+	a.authMu.Unlock()
+	prepareCommandJobsResume(t, a)
+	if err := a.bootstrapCommandsAndStartPreparedJobs(context.Background(), a.currentAuthUser, nil); err != nil {
+		t.Fatal(err)
+	}
+	if observer.starts.Load() != 1 || observer.beforeReady.Load() || a.commandJobsPending != nil {
+		t.Fatal("recovered storage did not start jobs after readiness")
+	}
+}

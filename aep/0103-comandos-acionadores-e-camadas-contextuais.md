@@ -4,6 +4,13 @@
 de manutenção, mas adia o scheduler e sua passagem inicial até a publicação
 do runtime de comandos. O caminho legado sem armazenamento de comandos mantém
 seu Start anterior; falhas de bootstrap não são atribuídas a jobs já iniciados.
+Isso não é fallback após falha: se a manutenção de comandos já foi montada,
+perda de readiness bloqueia Start e exige recuperação, sem trocar por retenção
+legada que desconhece outbox/leases. A regressão
+`TestCommandJobsMountedMaintenanceStorageFailureDoesNotDowngrade` cobre falha
+e retomada após restaurar o armazenamento. No unlock do SO, o defer libera
+`commandBootstrap` antes de chamar o helper de Start; a retomada com contexto
+sem deadline é exercitada por `TestCommandJobsResumeAfterFirstKnownOSSession`.
 A pendência pertence à sessão que a preparou; logout,
 troca de usuário e cancelamento não autorizam um bootstrap atrasado a iniciar
 jobs de outra sessão. O retry explícito também reconstrói comandos antes de
