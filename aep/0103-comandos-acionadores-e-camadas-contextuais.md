@@ -1,5 +1,13 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Manutenção fora do caminho crítico (28/09/2026): In Progress.** Limpeza de
+tool calls de chat deixa o reload síncrono e permanece na manutenção existente
+após publicação dos comandos. Reserva, requeue, purga e criação de epoch da
+outbox usam retry SQLite limitado por transação, com nova leitura a cada
+tentativa e sem repetir efeitos externos. Heartbeat, deadlines de replay e
+ordem de recuperação continuam inalterados. Qualificação do banco real e
+validação manual permanecem pendentes; não há novo aceite manual.
+
 **Ordem de startup de jobs (28/09/2026):** o reload autenticado monta as portas
 de manutenção, mas adia o scheduler e sua passagem inicial até a publicação
 do runtime de comandos. O caminho legado sem armazenamento de comandos mantém

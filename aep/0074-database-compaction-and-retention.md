@@ -2,6 +2,19 @@
 
 **Status:** Done
 
+**Ajuste de inicialização (28/09/2026):** limpeza de tool calls órfãs e cap de
+idade deixam de executar sincronamente no reload de login. Permanecem na
+passagem inicial e periódica do Manager; com o AEP-0103 montado, essa passagem
+só começa após publicação dos comandos. Não há timer extra, remoção de política
+ou alteração da recuperação obrigatória. Contenção WAL na outbox repete apenas
+transações puramente locais já revertidas, com o retry SQLite central cancelável;
+nenhuma entrega/ativação externa é repetida por esse mecanismo.
+Evidências: `TestChatStartupRetentionRunsOnlyAfterCommandsReady` verifica
+registros reais com cap ligado/desligado; `sqlite_snapshot_retry_test.go`
+reproduz conflito WAL e cobre cancelamento, esgotamento e rollback sem
+contagem de resultados não confirmados. Validação no banco real permanece
+pendente; não foi realizada limpeza no banco pessoal para estes testes.
+
 **Extensão AEP-0103, 17/09/2026 — seção 27:** cada passagem do coordenador
 publica a fotografia validada de MaintenanceSettings no contexto interno.
 Criação/renovação de leases e retenção de ativações usam a mesma fotografia,
@@ -157,7 +170,7 @@ transação; requeue ou drain com continuação impedem a limpeza da passagem.
 | Mecanismo | Onde | Comportamento |
 |---|---|---|
 | Retenção runs/eventos (24h, configurável) | `internal/jobs/manager.go` (`runRetention`, loop 24h + `Start`) | Remove `job_runs`/`job_events`/`job_run_events` por idade; cascata em `tool_invocations` (`origin_type=job_run`) |
-| Tool calls de chat | ciclo de vida da conversa + `CleanOrphanChat` (login e loop) | Sem expiração por tempo por padrão; cap de idade opcional |
+| Tool calls de chat | ciclo de vida da conversa + `CleanOrphanChat` (manutenção após prontidão e loop) | Sem expiração por tempo por padrão; cap de idade opcional |
 | Dry-runs operacionais | `CleanOldDryRuns` no `runRetention` | Idade curta de jobs |
 | Guardas de volume na escrita | budget 10 MiB por resultado; truncamento de input/output | Limita tamanho por linha, não o total |
 | Pragmas | `internal/database/database.go` (`Init`) | `journal_mode=WAL`, `synchronous=NORMAL`, `auto_vacuum=INCREMENTAL`, `busy_timeout` |
@@ -211,7 +224,7 @@ Dados de jobs são **operacionais e descartáveis**, sem valor histórico. A jan
 
 ### D5 — Tool calls de chat seguem o ciclo de vida da conversa
 
-Diferentemente dos dados de jobs, tool calls de **chat** fazem parte do histórico da conversa. Por isso **não expiram por tempo por padrão**: só são removidas quando a conversa/mensagem de origem é deletada (cascata já existente). Como rede de segurança, `CleanOrphanChat` remove invocações de chat cujo `origin_id` não existe mais em `chat_messages` — roda no login e no loop periódico.
+Diferentemente dos dados de jobs, tool calls de **chat** fazem parte do histórico da conversa. Por isso **não expiram por tempo por padrão**: só são removidas quando a conversa/mensagem de origem é deletada (cascata já existente). Como rede de segurança, `CleanOrphanChat` remove invocações de chat órfãs — roda na manutenção inicial após prontidão e no loop periódico, fora do reload síncrono do login.
 
 Um **cap de idade opcional** (`chat_tool_calls_retention_days`, padrão `0` = sem limite) permite ao usuário forçar a remoção de tool calls de chat mais antigas que X dias, via `CleanOldChat`.
 

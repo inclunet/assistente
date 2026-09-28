@@ -5,6 +5,10 @@ weight: 23
 
 # Comandos e acionadores
 
+A limpeza automática de registros antigos não faz parte da espera síncrona
+do login. Ela continua em segundo plano, pela manutenção existente, após os
+comandos ficarem prontos. As políticas de retenção configuradas são preservadas.
+
 Abra **Configurações → Comandos e acionadores** para inspecionar os comandos
 padrão e organizar configurações pessoais em camadas. O seletor **Escopo**
 separa configurações **globais** das do **workspace atual**. Na visão do
