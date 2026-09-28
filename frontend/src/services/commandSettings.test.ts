@@ -200,4 +200,49 @@ describe('commandSettings bridge', () => {
 
     await expect(getCommandSettingsForScope('pt-BR', 'global')).rejects.toThrow('Invalid command settings snapshot rule:rule');
   });
+
+  it('decodifica app.page=settings em condições wire de binding e regra', async () => {
+    const pageCondition = '{"version":1,"clauses":[{"field":"app.page","op":"eq","value":"settings"}]}';
+    bridge.GetCommandSettingsForScope.mockResolvedValue({
+      layers: [],
+      bindings: [{
+        id: 'binding', layerId: 'layer', commandId: 'command_settings.create.open', triggerType: 'keyboard.local', triggerSpec: '{}',
+        enabled: true, customized: true, readOnly: false, defaultId: '', reviewStatus: 'active', condition: pageCondition,
+      }],
+      rules: [{
+        id: 'rule', layerId: 'layer', mode: 'manual', condition: pageCondition,
+        lifecycle: 'persistent', enabled: true, reviewStatus: 'active',
+      }],
+      commands: [],
+      keyboardOperational: true,
+    });
+
+    const snapshot = await getCommandSettingsForScope('pt-BR', 'global');
+    expect(snapshot.bindings[0].condition).toEqual({
+      version: 1,
+      clauses: [{ field: 'app.page', value: 'settings' }],
+    });
+    expect(snapshot.rules?.[0].condition).toEqual({
+      version: 1,
+      clauses: [{ field: 'app.page', value: 'settings' }],
+    });
+  });
+
+  it.each(['"unknownpage"', 'true', 'null'])(
+    'recusa app.page com valor fora do enum fechado: %s',
+    async (wireValue) => {
+      bridge.GetCommandSettingsForScope.mockResolvedValue({
+        layers: [],
+        bindings: [{
+          id: 'binding', layerId: 'layer', commandId: 'command_settings.create.open', triggerType: 'keyboard.local', triggerSpec: '{}',
+          enabled: true, customized: true, readOnly: false, defaultId: '', reviewStatus: 'active',
+          condition: `{"version":1,"clauses":[{"field":"app.page","op":"eq","value":${wireValue}}]}`,
+        }],
+        commands: [],
+        keyboardOperational: true,
+      });
+
+      await expect(getCommandSettingsForScope('pt-BR', 'global')).rejects.toThrow('Invalid command settings snapshot binding:binding');
+    }
+  );
 });
