@@ -34,8 +34,9 @@ atender executáveis locais e WSL sem acoplamento a fornecedor.
   do mantenedor em 27/09/2026). Não persiste nem expõe o token materializado.
 - Execuções command concorrentes são serializadas por entrada, com espera
   cancelável e reaproveitamento do sucesso. Falhas não são cacheadas. Alteração,
-  exclusão, recarga, reset e transição de sessão invalidam material e execuções
-  antigas. Um 401 atrasado não invalida uma geração mais recente do token.
+  exclusão, recarga de configuração alterada, reset e troca/encerramento de
+  usuário invalidam material e execuções antigas. Renovar a mesma sessão ou
+  recarregar uma entrada persistida idêntica preserva o cache. Um 401 atrasado não invalida uma geração mais recente do token.
 - CredentialTransport invalida command somente em HTTP 401 e obtém material novo
   sob demanda. Repete no máximo uma vez se o corpo for recriável e o material
   mudou; nunca repete uploads sem GetBody, falhas de rede, 400 ou 403. Uma segunda
@@ -160,10 +161,10 @@ Evidências verificáveis:
   transição de sessão com comando e HTTP; passou localmente.
 - Credenciais, provedores e LLM passaram localmente; build, vet e golangci-lint
   passaram (zero issues). A orientação da tela tem regressão em CredentialsPage.
-- Revisor independente Codex `review_credential_sources`: sete rodadas; corrigidos
+- Revisor independente Codex `review_credential_sources`: oito rodadas; corrigidos
   cache em consumidores sem observação HTTP e redirecionamento de probes;
   terceira e quarta rodadas sem pendências. Quinta rodada identificou recarga
-  persistida redundante; corrigida com regressão DBStore. Sexta e sétima rodadas zeradas.
+  persistida redundante; corrigida com regressão DBStore. Sexta e sétima rodadas zeradas; oitava documental também sem achados.
 - Limitação local: detector de corrida indisponível sem CGO/GCC; suíte Go completa
   encontrou saída 0xffffffff em ACP/acpregistry no Windows e atingiu o teto
   agregado de 5 minutos de app durante teste de Deck. A suíte frontend passou
