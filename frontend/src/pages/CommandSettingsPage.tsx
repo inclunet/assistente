@@ -13,6 +13,7 @@ import {
   Toolbar,
 } from '../components/ui';
 import { Input } from '../components/ui/Input';
+import { ToolbarButton } from '../components/ui/Toolbar';
 import { MenuButton } from '../components/layout/MenuButton';
 import { DATAGRID_ENTRY_SELECTOR, type GridFocusRequest } from '../components/ui/DataGrid';
 import { isModalOpen } from '../components/ui/Modal';
@@ -904,13 +905,24 @@ export default function CommandSettingsPage() {
     : undefined;
   const selectedBindingActions = selectedManagerBinding ? bindingActions(selectedManagerBinding) : [];
   const selectedRuleActions = selectedManagerRule ? ruleActions(selectedManagerRule) : [];
-  const managerEditAction = manager?.kind === 'bindings'
-    ? selectedBindingActions.find((action) => action.id === 'edit' || action.id === 'customize-default')
-    : selectedRuleActions.find((action) => action.id === 'edit-rule');
-  const managerDeleteAction = manager?.kind === 'bindings'
-    ? selectedBindingActions.find((action) => action.id === 'delete')
-    : selectedRuleActions.find((action) => action.id === 'delete-rule');
   const managerSelectionBusy = busy || loading || !managerOpen || snapshotIdentity !== identityKey;
+  // MenuButton captura os itens ao abrir. Invalide o menu ao trocar alvo ou
+  // snapshot para não manter opções antigas durante recarga/mutação.
+  const layerMenuKey = JSON.stringify([identityKey, snapshotIdentity, snapshot.revision, selectedLayerId, loading, busy]);
+  const managerMenuKey = JSON.stringify([layerMenuKey, manager?.kind, selectedManagerIds]);
+  const selectedManagerActions = manager?.kind === 'bindings' ? selectedBindingActions : selectedRuleActions;
+  const managerMenuActions: MenuItem[] = selectedManagerActions.length ? selectedManagerActions : [
+    { id: 'new', label: t(manager?.kind === 'bindings' ? 'commandSettings.actions.newBinding' : 'commandSettings.rules.new'),
+      disabled: managerCreateDisabled, action: () => manager?.kind === 'bindings' ? openBinding() : openRule() },
+    { id: 'edit', label: t(manager?.kind === 'bindings' ? 'commandSettings.actions.editBinding' : 'commandSettings.rules.edit'), disabled: true },
+    { id: 'delete', label: t(manager?.kind === 'bindings' ? 'commandSettings.actions.deleteBinding' : 'commandSettings.rules.delete'), disabled: true },
+  ];
+  // A mesma lista governa o menu da linha e o dropdown da seleção.
+  const dropdownItems = (actions: MenuItem[], unavailable: boolean) => actions.map((action) => ({
+    id: action.id, label: action.label, icon: action.icon, shortcut: action.shortcut,
+    separator: action.separator, danger: action.danger,
+    disabled: unavailable || action.disabled, onClick: action.action,
+  }));
 
   function activateManagerRow(row: CommandBinding | CommandSettingsRule, actions: MenuItem[]) {
     if (busyRef.current || managerSelectionBusy) return;
@@ -1174,17 +1186,27 @@ export default function CommandSettingsPage() {
       <Toolbar
         className="command-settings__toolbar"
         ariaLabel={t('commandSettings.title')}
+        right={<>
+          <ToolbarButton label={t('commandSettings.actions.newLayer')} icon={<PlusOutlined />} variant="primary"
+            shortcut={createItemShortcut}
+            disabled={busy || loading || snapshotIdentity !== identityKey}
+            onClick={() => setEditor({ kind: 'layer', value: { name: '', description: '', enabled: true, resolutionPriority: 0 } })} />
+          <MenuButton
+            contextKey={layerMenuKey}
+            buttonLabel={t('commandSettings.managers.settings')}
+            items={dropdownItems(selectedLayer ? layerActions(selectedLayer) : [
+              { id: 'edit', label: t('commandSettings.actions.editLayer'), disabled: true },
+              { id: 'delete-layer', label: t('commandSettings.actions.deleteLayer'), disabled: true },
+              { id: 'command-bindings', label: t('commandSettings.managers.commands'), disabled: true },
+              { id: 'command-rules', label: t('commandSettings.rules.title'), disabled: true },
+            ], busy || loading || snapshotIdentity !== identityKey)}
+          />
+        </>}
         actions={[
-          { key: 'new-layer', label: t('commandSettings.actions.newLayer'), icon: <PlusOutlined />, variant: 'primary',
-            shortcut: createItemShortcut,
-            disabled: busy || loading || snapshotIdentity !== identityKey,
-            onClick: () => setEditor({ kind: 'layer', value: { name: '', description: '', enabled: true, resolutionPriority: 0 } }) },
-          { key: 'edit-layer', label: t('commandSettings.actions.editLayer'), icon: <EditOutlined aria-hidden="true" />,
+          { key: 'manual-back', label: t('commandSettings.manualBack'), icon: <UndoOutlined aria-hidden="true" />,
+            'aria-describedby': 'command-manual-back-hint',
             disabled: busy || loading || snapshotIdentity !== identityKey || !selectedLayer || selectedLayer.builtin || isInheritedLayer(selectedLayer),
-            onClick: () => openLayerEditor(selectedLayer) },
-          { key: 'delete-layer', label: t('commandSettings.actions.deleteLayer'), icon: <DeleteOutlined aria-hidden="true" />, variant: 'danger',
-            disabled: busy || loading || snapshotIdentity !== identityKey || !selectedLayer || selectedLayer.builtin || isInheritedLayer(selectedLayer),
-            onClick: () => selectedLayer && layerActions(selectedLayer).find((action) => action.id === 'delete-layer')?.action?.() },
+            onClick: () => runLayerAction('', 'back', 0) },
           { key: 'restore-all', label: t('commandSettings.actions.restoreAll'), icon: <UndoOutlined />,
             disabled: busy || loading || snapshotIdentity !== identityKey,
             onClick: () => void mutate(() => scopedMutation({ operation: 'config_restore' })) },
@@ -1193,20 +1215,10 @@ export default function CommandSettingsPage() {
             onClick: () => void mutate(() => scopedMutation({ operation: 'default_upgrade' })) },
         ]}
         rightEnd={<>
-          <MenuButton
-            buttonLabel={t('commandSettings.managers.settings')}
-            items={[
-              { id: 'command-bindings', label: t('commandSettings.managers.commands'),
-                disabled: busy || loading || !selectedLayer || snapshotIdentity !== identityKey,
-                onClick: () => openManager('bindings') },
-              { id: 'command-rules', label: t('commandSettings.rules.title'),
-                disabled: busy || loading || !selectedLayer || snapshotIdentity !== identityKey,
-                onClick: () => openManager('rules') },
-            ]}
-          />
           <div ref={setConsentTarget} className="command-settings__external-consent" />
         </>}
       />
+      <p id="command-manual-back-hint" className="command-settings__info">{t('commandSettings.manualBackHint')}</p>
       {snapshotIdentity === identityKey && !loading &&
         (snapshot.keyboardOperational ? (
           <p>{t('commandSettings.keyboardAvailable')}</p>
@@ -1286,13 +1298,6 @@ export default function CommandSettingsPage() {
                 <p className="command-settings__info">
                   {t('commandSettings.priority', { value: selectedLayer.resolutionPriority ?? 0 })}
                 </p>
-                <Button
-                  variant="secondary"
-                  disabled={busy || selectedLayer.builtin || isInheritedLayer(selectedLayer)}
-                  onClick={() => runLayerAction('', 'back', 0)}
-                >
-                  <UndoOutlined aria-hidden="true" /> {t('commandSettings.manualBack')}
-                </Button>
                 <p className="command-settings__info">{t('commandSettings.managers.hint')}</p>
                 <p>{t('commandSettings.managers.commandsCount', { count: layerBindings.length })}</p>
                 <p>{t('commandSettings.managers.rulesCount', { count: layerRules.length })}</p>
@@ -1329,22 +1334,8 @@ export default function CommandSettingsPage() {
                 disabled: managerCreateDisabled,
                 onClick: () => manager?.kind === 'bindings' ? openBinding() : openRule(),
               },
-              {
-                key: 'edit-selected',
-                label: t(manager?.kind === 'bindings' ? 'commandSettings.actions.editBinding' : 'commandSettings.rules.edit'),
-                icon: <EditOutlined aria-hidden="true" />,
-                disabled: managerSelectionBusy || !managerEditAction || managerEditAction.disabled,
-                onClick: () => managerEditAction?.action?.(),
-              },
-              {
-                key: 'delete-selected',
-                label: t(manager?.kind === 'bindings' ? 'commandSettings.actions.deleteBinding' : 'commandSettings.rules.delete'),
-                icon: <DeleteOutlined aria-hidden="true" />,
-                variant: 'danger',
-                disabled: managerSelectionBusy || !managerDeleteAction || managerDeleteAction.disabled,
-                onClick: () => managerDeleteAction?.action?.(),
-              },
             ]}
+            rightEnd={<MenuButton contextKey={managerMenuKey} buttonLabel={t('common.actions')} items={dropdownItems(managerMenuActions, managerSelectionBusy)} />}
           />
         </div>
         {loading ? <p aria-busy="true">{t('common.loading')}</p> : manager?.kind === 'bindings' ? (

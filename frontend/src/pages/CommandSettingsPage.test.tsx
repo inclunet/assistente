@@ -92,12 +92,18 @@ async function bindingAction(name: string) {
 
 async function clickBindingActions() {
   const dialog = await openManager('commands');
-  await userEvent.click(within(dialog).getByRole('button', { name: 'common.actions' }));
+  const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+  await userEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
 }
 
 async function clickNewBinding() {
   const dialog = await openManager('commands');
   await userEvent.click(within(dialog).getByRole('button', { name: 'commandSettings.actions.newBinding' }));
+}
+
+async function openManagerAction(dialog: HTMLElement, name: string) {
+  await userEvent.click(within(within(dialog).getByRole('toolbar')).getByRole('button', { name: 'common.actions' }));
+  return screen.findByRole('menuitem', { name });
 }
 
 async function ruleAction(name: string) {
@@ -124,7 +130,8 @@ async function openLayerEditor(name: string, entry: 'row-menu' | 'toolbar') {
     await userEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editLayer' }));
   } else {
     const toolbar = screen.getByRole('toolbar', { name: 'commandSettings.title' });
-    await userEvent.click(within(toolbar).getByRole('button', { name: 'commandSettings.actions.editLayer' }));
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'commandSettings.managers.settings' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editLayer' }));
   }
   return screen.findByRole('dialog', { name: 'commandSettings.dialog.layerTitle' });
 }
@@ -150,16 +157,20 @@ async function revealAdvancedOptionsIfNeeded() {
 }
 
 describe('CommandSettingsPage', () => {
-  it.each(['commands', 'rules'] as const)('menu da segunda camada abre %s e espelha editar/apagar da toolbar', async (kind) => {
+  it.each(['commands', 'rules'] as const)('menu da segunda camada abre %s e espelha as ações de camada da toolbar', async (kind) => {
     render(<CommandSettingsPage />);
     await selectLayer('Minha camada');
     const grid = screen.getByRole('grid', { name: 'commandSettings.layers' });
     const row = within(grid).getByText('Minha camada').closest('[role="row"]') as HTMLElement;
     await userEvent.click(within(row).getByRole('button', { name: 'common.actions' }));
-    for (const name of ['commandSettings.actions.editLayer', 'commandSettings.actions.deleteLayer']) {
-      expect(screen.getByRole('menuitem', { name })).not.toHaveAttribute('aria-disabled', 'true');
-      expect(screen.getByRole('button', { name })).toBeEnabled();
+    const names = ['commandSettings.actions.editLayer', 'commandSettings.actions.deleteLayer'];
+    for (const name of names) {
+      expect(screen.getByRole('menuitem', { name })).toBeEnabled();
     }
+    await userEvent.keyboard('{Escape}');
+    const toolbar = screen.getByRole('toolbar', { name: 'commandSettings.title' });
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'commandSettings.managers.settings' }));
+    for (const name of names) expect(screen.getByRole('menuitem', { name })).toBeEnabled();
     const name = kind === 'commands' ? 'commandSettings.managers.commands' : 'commandSettings.rules.title';
     await userEvent.click(screen.getByRole('menuitem', { name }));
     expect(within(await screen.findByRole('dialog', { name })).getByText('Minha camada')).toBeInTheDocument();
@@ -227,9 +238,35 @@ describe('CommandSettingsPage', () => {
       ? ['commandSettings.actions.newBinding', 'commandSettings.actions.editBinding', 'commandSettings.actions.deleteBinding']
       : ['commandSettings.rules.new', 'commandSettings.rules.edit', 'commandSettings.rules.delete'];
     for (const name of names) expect(screen.getByRole('menuitem', { name })).toBeEnabled();
+    const contextActions = screen.getAllByRole('menuitem').map((item) => [item.textContent?.trim(), (item as HTMLButtonElement).disabled]);
+    act(() => screen.getByRole('menuitem', { name: names[0] }).focus());
+    await userEvent.keyboard('{Escape}');
+    const toolbar = within(manager).getByRole('toolbar', { name: kind === 'commands' ? 'commandSettings.managers.commands' : 'commandSettings.rules.title' });
+    const selectedGrid = within(manager).getByRole('grid');
+    const selectedRow = within(selectedGrid).getAllByRole('row')[1];
+    await waitFor(() => expect(selectedRow.contains(document.activeElement)).toBe(true));
+    await userEvent.click(within(selectedRow).getAllByRole('gridcell')[0]);
+    expect(selectedRow).toHaveAttribute('aria-selected', 'true');
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'common.actions' }));
+    const toolbarActions = (await screen.findAllByRole('menuitem')).map((item) => [item.textContent?.trim(), (item as HTMLButtonElement).disabled]);
+    expect(toolbarActions).toEqual(contextActions);
     await userEvent.click(screen.getByRole('menuitem', { name: names[0] }));
     expect(await screen.findByRole('dialog', { name: kind === 'commands' ? 'commandSettings.dialog.bindingTitle' : 'commandSettings.dialog.ruleTitle' })).toBeInTheDocument();
     expect(mutateSettings).not.toHaveBeenCalled();
+  });
+
+  it.each(['commands', 'rules'] as const)('toolbar do modal de %s começa por Novo e Ações', async (kind) => {
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await selectLayer('Minha camada');
+    const manager = await openManager(kind);
+    const toolbar = within(manager).getByRole('toolbar', {
+      name: kind === 'commands' ? 'commandSettings.managers.commands' : 'commandSettings.rules.title',
+    });
+    expect(within(toolbar).getAllByRole('button').slice(0, 2).map((button) => button.getAttribute('aria-label'))).toEqual([
+      kind === 'commands' ? 'commandSettings.actions.newBinding' : 'commandSettings.rules.new',
+      'common.actions',
+    ]);
   });
 
   it.each(['binding-review', 'binding-inherited', 'rule-review', 'rule-inherited'] as const)('Enter mantém a recusa original para %s', async (policy) => {
@@ -264,11 +301,22 @@ describe('CommandSettingsPage', () => {
     expect(screen.queryByRole('button', { name: 'commandSettings.rules.new' })).not.toBeInTheDocument();
 
     const toolbar = screen.getByRole('toolbar', { name: 'commandSettings.title' });
+    const toolbarButtons = within(toolbar).getAllByRole('button').map((button) => button.getAttribute('aria-label'));
+    expect(toolbarButtons).toEqual(expect.arrayContaining([
+      'commandSettings.actions.newLayer', 'commandSettings.managers.settings', 'commandSettings.manualBack',
+      'commandSettings.actions.restoreAll', 'commandSettings.actions.upgradeDefaults',
+    ]));
+    const order = [
+      'commandSettings.actions.newLayer', 'commandSettings.managers.settings', 'commandSettings.manualBack',
+      'commandSettings.actions.restoreAll', 'commandSettings.actions.upgradeDefaults',
+    ].map((name) => toolbarButtons.indexOf(name));
+    expect(order).toEqual([...order].sort((a, b) => a - b));
     expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.newLayer' })).toBeEnabled();
-    expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.editLayer' })).toBeDisabled();
+    const back = within(toolbar).getByRole('button', { name: 'commandSettings.manualBack' });
+    expect(back).toHaveAttribute('aria-describedby', 'command-manual-back-hint');
+    expect(document.getElementById(back.getAttribute('aria-describedby')!)).toHaveTextContent('commandSettings.manualBackHint');
     expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.restoreAll' })).toBeEnabled();
     expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.upgradeDefaults' })).toBeEnabled();
-    expect(within(toolbar).getByRole('button', { name: 'commandSettings.managers.settings' })).toBeInTheDocument();
     expect(toolbar).not.toContainElement(screen.getByLabelText('commandSettings.scope.label'));
     const consent = await within(toolbar).findByRole('checkbox', { name: 'commandSettings.externalConnection.consent' });
     expect(consent).not.toBeChecked();
@@ -289,7 +337,7 @@ describe('CommandSettingsPage', () => {
     expect(within(fromToolbar).getByLabelText(/commandSettings\.form\.name/)).toHaveValue('Minha camada');
   });
 
-  it('desabilita edição na toolbar para camada builtin, herdada ou sem seleção', async () => {
+  it('mostra placeholders sem seleção e mantém ações de builtin/herdada iguais às ações contextuais', async () => {
     getSettings.mockResolvedValue({
       ...snapshot,
       layers: [snapshot.layers[0], { ...snapshot.layers[1], name: 'Camada herdada', inherited: true }],
@@ -297,17 +345,31 @@ describe('CommandSettingsPage', () => {
     const page = render(<CommandSettingsPage />);
     await screen.findByRole('grid', { name: 'commandSettings.layers' });
     const toolbar = screen.getByRole('toolbar', { name: 'commandSettings.title' });
-    const edit = within(toolbar).getByRole('button', { name: 'commandSettings.actions.editLayer' });
-    expect(edit).toBeDisabled();
+    const grid = screen.getByRole('grid', { name: 'commandSettings.layers' });
+    const builtinRow = within(grid).getAllByText('Base')[0].closest('[role="row"]') as HTMLElement;
+    await userEvent.click(within(builtinRow).getByRole('button', { name: 'common.actions' }));
+    const builtinContext = screen.getAllByRole('menuitem').map((item) => item.textContent);
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'commandSettings.managers.settings' }));
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(builtinContext);
+    await userEvent.keyboard('{Escape}');
     await selectLayer('Camada herdada');
-    expect(edit).toBeDisabled();
+    const inheritedRow = within(grid).getByText('Camada herdada').closest('[role="row"]') as HTMLElement;
+    await userEvent.click(within(inheritedRow).getByRole('button', { name: 'common.actions' }));
+    const inheritedContext = screen.getAllByRole('menuitem').map((item) => item.textContent);
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'commandSettings.managers.settings' }));
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(inheritedContext);
+    await userEvent.keyboard('{Escape}');
 
     page.unmount();
     getSettings.mockResolvedValue({ ...snapshot, layers: [] });
     const emptyPage = render(<CommandSettingsPage />);
     await screen.findByText('commandSettings.noLayer');
     const emptyToolbar = screen.getByRole('toolbar', { name: 'commandSettings.title' });
-    expect(within(emptyToolbar).getByRole('button', { name: 'commandSettings.actions.editLayer' })).toBeDisabled();
+    await userEvent.click(within(emptyToolbar).getByRole('button', { name: 'commandSettings.managers.settings' }));
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.editLayer' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.deleteLayer' })).toBeDisabled();
     emptyPage.unmount();
   });
 
@@ -322,14 +384,14 @@ describe('CommandSettingsPage', () => {
     const commands = await openManager('commands');
     expect(within(commands).getByRole('grid', { name: 'commandSettings.commands' })).toBeInTheDocument();
     expect(within(commands).queryByRole('grid', { name: 'commandSettings.rules.title' })).not.toBeInTheDocument();
-    expect(within(commands).getByRole('button', { name: 'commandSettings.actions.newBinding' })).toBeDisabled();
+    expect(await openManagerAction(commands, 'commandSettings.actions.newBinding')).toBeDisabled();
     expect(await axe(commands, { rules: { 'color-contrast': { enabled: false } } })).toHaveNoViolations();
     fireEvent.click(within(commands).getByRole('button', { name: 'ui.modal.close' }));
 
     const rules = await openManager('rules');
     expect(within(rules).getByRole('grid', { name: 'commandSettings.rules.title' })).toBeInTheDocument();
     expect(within(rules).queryByRole('grid', { name: 'commandSettings.commands' })).not.toBeInTheDocument();
-    expect(within(rules).getByRole('button', { name: 'commandSettings.rules.new' })).toBeDisabled();
+    expect(await openManagerAction(rules, 'commandSettings.rules.new')).toBeDisabled();
     expect(await axe(rules, { rules: { 'color-contrast': { enabled: false } } })).toHaveNoViolations();
   });
 
@@ -349,7 +411,7 @@ describe('CommandSettingsPage', () => {
 
     await selectLayer('Minha camada');
     const bindings = await openManager('commands');
-    within(bindings).getByRole('button', { name: 'commandSettings.actions.newBinding' }).focus();
+    within(bindings).getByRole('button', { name: 'common.actions' }).focus();
     const bindingTarget = await captureSettingsCreateTarget();
     act(() => { opened = bindingTarget!.open(COMMAND_SETTINGS_CREATE_COMMAND_ID); });
     expect(opened).toBe(true);
@@ -360,7 +422,7 @@ describe('CommandSettingsPage', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'commandSettings.managers.commands' })).not.toBeInTheDocument());
 
     const rules = await openManager('rules');
-    within(rules).getByRole('button', { name: 'commandSettings.rules.new' }).focus();
+    within(rules).getByRole('button', { name: 'common.actions' }).focus();
     const ruleTarget = await captureSettingsCreateTarget();
     act(() => { opened = ruleTarget!.open(COMMAND_SETTINGS_CREATE_COMMAND_ID); });
     expect(opened).toBe(true);
@@ -398,7 +460,7 @@ describe('CommandSettingsPage', () => {
     await screen.findByRole('grid', { name: 'commandSettings.layers' });
     await selectLayer('Minha camada');
     const dialog = await openManager('commands');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'commandSettings.actions.newBinding' }));
+    await clickNewBinding();
     expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).toBeInTheDocument();
     expect(capturePagePresentationTarget(() => '/settings/commands', COMMAND_SETTINGS_CREATE_COMMAND_ID)).toBeUndefined();
     await userEvent.click(screen.getByRole('button', { name: 'common.cancel' }));
@@ -407,9 +469,11 @@ describe('CommandSettingsPage', () => {
     const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
     fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: ' ' });
-    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'commandSettings.actions.deleteBinding' })).toBeEnabled());
-    await userEvent.click(within(dialog).getByRole('button', { name: 'commandSettings.actions.deleteBinding' }));
-    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'commandSettings.actions.deleteBinding' })).toBeDisabled());
+    const deleteAction = await openManagerAction(dialog, 'commandSettings.actions.deleteBinding');
+    await waitFor(() => expect(deleteAction).toBeEnabled());
+    await userEvent.click(deleteAction);
+    await userEvent.click(within(within(dialog).getByRole('toolbar')).getByRole('button', { name: 'common.actions' }));
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.deleteBinding' })).toBeDisabled());
     expect(capturePagePresentationTarget(() => '/settings/commands', COMMAND_SETTINGS_CREATE_COMMAND_ID)).toBeUndefined();
   });
 
@@ -423,22 +487,93 @@ describe('CommandSettingsPage', () => {
     await selectLayer('Minha camada');
     const dialog = await openManager('commands');
     const toolbar = within(dialog).getByRole('toolbar', { name: 'commandSettings.managers.commands' });
-    const edit = within(toolbar).getByRole('button', { name: 'commandSettings.actions.editBinding' });
-    const remove = within(toolbar).getByRole('button', { name: 'commandSettings.actions.deleteBinding' });
-    expect(within(toolbar).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
-      'commandSettings.actions.newBinding',
-      'commandSettings.actions.editBinding',
-      'commandSettings.actions.deleteBinding',
-    ]);
+    const menuButton = within(toolbar).getByRole('button', { name: 'common.actions' });
+    expect(menuButton).toBeInTheDocument();
+    await userEvent.click(menuButton);
+    let edit = screen.getByRole('menuitem', { name: 'commandSettings.actions.editBinding' });
+    let remove = screen.getByRole('menuitem', { name: 'commandSettings.actions.deleteBinding' });
     expect(edit).toBeDisabled();
     expect(remove).toBeDisabled();
 
     const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+    await userEvent.keyboard('{Escape}');
     fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: ' ' });
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'common.actions' }));
+    edit = screen.getByRole('menuitem', { name: 'commandSettings.actions.editBinding' });
+    remove = screen.getByRole('menuitem', { name: 'commandSettings.actions.deleteBinding' });
     expect(edit).toBeEnabled();
     expect(remove).toBeEnabled();
     await userEvent.click(edit);
+    expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).toBeInTheDocument();
+  });
+
+  it('desabilita ações de edição quando múltiplos bindings estão selecionados', async () => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: ['first-binding', 'second-binding'].map((id) => ({
+        ...snapshot.bindings[0], id, layerId: 'user', defaultId: undefined, readOnly: false,
+      })),
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await selectLayer('Minha camada');
+    const dialog = await openManager('commands');
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: ' ', ctrlKey: true });
+    expect(within(grid).getAllByRole('row').slice(1).filter((row) => row.getAttribute('aria-selected') === 'true')).toHaveLength(2);
+    const toolbar = within(dialog).getByRole('toolbar', { name: 'commandSettings.managers.commands' });
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'common.actions' }));
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.newBinding' })).toBeEnabled();
+    for (const name of ['commandSettings.actions.editBinding', 'commandSettings.actions.deleteBinding']) {
+      expect(screen.getByRole('menuitem', { name })).toBeDisabled();
+    }
+    expect(mutateSettings).not.toHaveBeenCalled();
+  });
+
+  it('fecha e invalida o menu de ações durante recarga do mapa e o reabilita após concluir', async () => {
+    const withUserBinding = {
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], id: 'user-binding', layerId: 'user', defaultId: undefined, readOnly: false }],
+    };
+    let resolveReload: (value: typeof withUserBinding) => void = () => undefined;
+    getSettings.mockResolvedValueOnce(withUserBinding)
+      .mockReturnValueOnce(new Promise<typeof withUserBinding>((resolve) => { resolveReload = resolve; }))
+      .mockResolvedValueOnce(withUserBinding);
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await selectLayer('Minha camada');
+    const dialog = await openManager('commands');
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+    const toolbar = within(dialog).getByRole('toolbar', { name: 'commandSettings.managers.commands' });
+    const actionsButton = within(toolbar).getByRole('button', { name: 'common.actions' });
+    await userEvent.click(actionsButton);
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.editBinding' })).toBeEnabled();
+
+    act(() => keyboardMapChanged?.());
+    expect(await within(dialog).findByText('common.loading')).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
+    expect(actionsButton).toHaveAttribute('aria-expanded', 'false');
+    expect(actionsButton.isConnected).toBe(true);
+    await waitFor(() => expect(document.activeElement).toBe(actionsButton));
+
+    await userEvent.click(actionsButton);
+    const unavailableEdit = screen.getByRole('menuitem', { name: 'commandSettings.actions.editBinding' });
+    expect(unavailableEdit).toBeDisabled();
+    await userEvent.click(unavailableEdit);
+    expect(screen.queryByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).not.toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+
+    await act(async () => resolveReload(withUserBinding));
+    await waitFor(() => expect(within(dialog).queryByText('common.loading')).not.toBeInTheDocument());
+    await userEvent.click(actionsButton);
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.editBinding' })).toBeEnabled();
+    await userEvent.click(screen.getByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
     expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).toBeInTheDocument();
   });
 
@@ -453,7 +588,7 @@ describe('CommandSettingsPage', () => {
     const dialog = await openManager('commands');
     const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
     await userEvent.click(within(grid).getByText('Novo'));
-    const remove = within(dialog).getByRole('button', { name: 'commandSettings.actions.deleteBinding' });
+    const remove = await openManagerAction(dialog, 'commandSettings.actions.deleteBinding');
     expect(remove).toBeEnabled();
     await userEvent.click(remove);
     await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -470,12 +605,12 @@ describe('CommandSettingsPage', () => {
     await screen.findByRole('grid', { name: 'commandSettings.layers' });
     await selectLayer('Minha camada');
     const dialog = await openManager('commands');
-    const toolbar = within(dialog).getByRole('toolbar', { name: 'commandSettings.managers.commands' });
     const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
     await userEvent.click(within(grid).getByText('Novo'));
-    expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.editBinding' })).toBeEnabled();
-    expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.deleteBinding' })).toBeDisabled();
-    await userEvent.click(within(toolbar).getByRole('button', { name: 'commandSettings.actions.editBinding' }));
+    const edit = await openManagerAction(dialog, 'commandSettings.actions.editBinding');
+    expect(edit).toBeEnabled();
+    expect(screen.queryByRole('menuitem', { name: 'commandSettings.actions.deleteBinding' })).not.toBeInTheDocument();
+    await userEvent.click(edit);
     expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).toBeInTheDocument();
   });
 
@@ -491,8 +626,9 @@ describe('CommandSettingsPage', () => {
     const toolbar = within(dialog).getByRole('toolbar', { name: 'commandSettings.managers.commands' });
     const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
     await userEvent.click(within(grid).getByText('Novo'));
-    expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.editBinding' })).toBeDisabled();
-    expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.deleteBinding' })).toBeEnabled();
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'common.actions' }));
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.editBinding' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.deleteBinding' })).toBeEnabled();
   });
 
   it('aplica as mesmas guardas de revisão da linha às ações de regras', async () => {
@@ -509,12 +645,15 @@ describe('CommandSettingsPage', () => {
     const dialog = await openManager('rules');
     const toolbar = within(dialog).getByRole('toolbar', { name: 'commandSettings.rules.title' });
     const grid = within(dialog).getByRole('grid', { name: 'commandSettings.rules.title' });
-    expect(within(toolbar).getByRole('button', { name: 'commandSettings.rules.edit' })).toBeDisabled();
-    expect(within(toolbar).getByRole('button', { name: 'commandSettings.rules.delete' })).toBeDisabled();
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'common.actions' }));
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.rules.edit' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.rules.delete' })).toBeDisabled();
+    await userEvent.keyboard('{Escape}');
     grid.focus();
     fireEvent.keyDown(grid, { key: ' ' });
-    expect(within(toolbar).getByRole('button', { name: 'commandSettings.rules.edit' })).toBeDisabled();
-    expect(within(toolbar).getByRole('button', { name: 'commandSettings.rules.delete' })).toBeDisabled();
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'common.actions' }));
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.rules.edit' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.rules.delete' })).toBeDisabled();
     expect(mutateSettings).not.toHaveBeenCalled();
   });
 
@@ -530,13 +669,13 @@ describe('CommandSettingsPage', () => {
     await screen.findByRole('grid', { name: 'commandSettings.layers' });
     await selectLayer('Minha camada');
     const dialog = await openManager('rules');
-    const toolbar = within(dialog).getByRole('toolbar', { name: 'commandSettings.rules.title' });
     const grid = within(dialog).getByRole('grid', { name: 'commandSettings.rules.title' });
     fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: ' ' });
-    expect(within(toolbar).getByRole('button', { name: 'commandSettings.rules.edit' })).toBeEnabled();
-    expect(within(toolbar).getByRole('button', { name: 'commandSettings.rules.delete' })).toBeEnabled();
-    await userEvent.click(within(toolbar).getByRole('button', { name: 'commandSettings.rules.edit' }));
+    const edit = await openManagerAction(dialog, 'commandSettings.rules.edit');
+    expect(edit).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.rules.delete' })).toBeEnabled();
+    await userEvent.click(edit);
     expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.ruleTitle' })).toBeInTheDocument();
   });
 
