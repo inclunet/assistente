@@ -22,9 +22,11 @@ func TestBraveToken_Bearer(t *testing.T) {
 }
 
 func TestBraveToken_BearerComPrefixo(t *testing.T) {
-	auth := &credentials.AuthConfig{Type: "bearer", Token: "Bearer minha-chave"}
-	if got := braveToken(auth); got != "minha-chave" {
-		t.Errorf("esperava prefixo removido, got %q", got)
+	for _, raw := range []string{"Bearer minha-chave", "bearer minha-chave", "BEARER minha-chave"} {
+		auth := &credentials.AuthConfig{Type: "bearer", Token: raw}
+		if got := braveToken(auth); got != "minha-chave" {
+			t.Errorf("prefixo %q: esperava remoção, got %q", raw, got)
+		}
 	}
 }
 

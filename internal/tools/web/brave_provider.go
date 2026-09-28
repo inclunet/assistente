@@ -44,13 +44,13 @@ func (p *braveProvider) endpoint() string {
 // braveToken extrai o token aceito no header X-Subscription-Token a partir do
 // AuthConfig resolvido: bearer usa Token; custom usa o header
 // X-Subscription-Token (case-insensitive); demais tipos não servem.
+// O prefixo "Bearer " é normalizado em qualquer caixa.
 func braveToken(auth *credentials.AuthConfig) string {
 	if auth == nil {
 		return ""
 	}
 	if auth.Type == "bearer" {
-		token := strings.TrimSpace(auth.Token)
-		return strings.TrimPrefix(token, "Bearer ")
+		return trimBearerPrefix(strings.TrimSpace(auth.Token))
 	}
 	if auth.Type == "custom" {
 		for key, val := range auth.Headers {

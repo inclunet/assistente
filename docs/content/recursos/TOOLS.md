@@ -202,18 +202,25 @@ A tool `web_search` descobre fontes na web e devolve links com título e trecho
 em JSON (`query`, `provider`, `offset`, `count`, `has_more`, `results`). Para
 ler o conteúdo de um resultado, use `web_fetch` na URL escolhida.
 
-O provedor é selecionado automaticamente:
+O provedor é selecionado automaticamente, na ordem:
 
 - **Brave Search API** — usada quando há chave cadastrada no gerenciador de
   credenciais para o domínio `api.search.brave.com` (tipo bearer com o token,
   ou tipo custom com o header `X-Subscription-Token`). Oferece ranking,
   paginação e contagem confiáveis.
+- **Tavily Search API** — usada quando há chave cadastrada para o domínio
+  `api.tavily.com` (tipo bearer com o token). Busca otimizada para agentes,
+  com trechos de conteúdo densos por resultado. A API não pagina por offset:
+  a tool serve a janela inicial (até 20 resultados) e páginas além dela caem
+  no próximo provedor, sem gastar créditos.
 - **DuckDuckGo (HTML)** — fallback universal sem chave, usado quando não há
-  credencial Brave, a API responde 401/403/429 (auth/quota) ou o `offset`
-  pedido está além da janela da Brave (422).
+  credenciais, a API responde auth/quota/limite (Brave: 401/403/429/422;
+  Tavily: 401/403/429/432/433) ou o `offset` pedido está além da janela do
+  provedor.
 
 O campo `provider` na resposta identifica qual backend respondeu. Demais erros
-da API Brave são propagados sem fabricar resultados.
+das APIs Brave e Tavily (incluindo falha operacional ao resolver a
+credencial) são propagados sem fabricar resultados.
 
 ## Histórico
 

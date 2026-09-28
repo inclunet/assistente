@@ -16,15 +16,16 @@ import (
 )
 
 // WebSearch realiza buscas na web usando uma API de busca.
-// Usa a Brave Search API (chave via credmanager) quando há credencial
+// Usa a cadeia Brave → Tavily (chaves via credmanager) quando há credencial
 // cadastrada, com fallback automático para DuckDuckGo HTML (sem API key).
 // Usa cliente HTTP centralizado com auth/retry automático.
 type WebSearch struct {
 	client   *httpclient.Client
 	provider SearchProvider
-	// brave/fallback compõem a cadeia padrão; provider customizado injetado
-	// via NewWebSearchWithProvider tem precedência (usado em testes).
+	// brave/tavily/fallback compõem a cadeia padrão; provider customizado
+	// injetado via NewWebSearchWithProvider tem precedência (usado em testes).
 	brave    *braveProvider
+	tavily   *tavilyProvider
 	fallback SearchProvider
 	// allowPrivateHosts libera hosts privados nos guards (testes com
 	// httptest). Padrão: false.
@@ -47,8 +48,8 @@ type SearchResult struct {
 	Snippet string `json:"snippet"`
 }
 
-// NewWebSearch cria uma nova instância de WebSearch: Brave (via credmanager)
-// com fallback para o provedor DuckDuckGo padrão.
+// NewWebSearch cria uma nova instância de WebSearch: cadeia Brave → Tavily
+// (via credmanager) com fallback para o provedor DuckDuckGo padrão.
 func NewWebSearch(credMgr *credentials.Manager) *WebSearch {
 	if credMgr == nil {
 		credMgr = credentials.NewManager(nil)
@@ -60,11 +61,12 @@ func NewWebSearch(credMgr *credentials.Manager) *WebSearch {
 		client:   client,
 		provider: &duckDuckGoProvider{},
 		brave:    &braveProvider{credMgr: credMgr},
+		tavily:   &tavilyProvider{credMgr: credMgr},
 		fallback: &duckDuckGoProvider{},
 	}
-	// O Brave trafega chave de API em header custom (X-Subscription-Token): o
-	// net/http copia headers custom em redirects de outro host (só remove
-	// Authorization/Cookie). Instala o guard compartilhado para aparar
+	// Brave e Tavily trafegam chave de API em header (X-Subscription-Token e
+	// Authorization): o net/http propaga headers nesses casos em redirects
+	// para outro host. Instala o guard compartilhado para aparar
 	// headers sensíveis em redirect não confiável e manter a barreira
 	// anti-SSRF pós-DNS — mesmo padrão de WebFetch/FeedRead.
 	if bc := client.GetBaseClient(); bc != nil {
@@ -223,37 +225,44 @@ func (t *WebSearch) Execute(ctx context.Context, args json.RawMessage) (tools.To
 	}, nil
 }
 
-// searchWithFallback executa a cadeia padrão Brave → DuckDuckGo e devolve os
-// resultados com o nome do provedor que respondeu. Um provider customizado
-// injetado (NewWebSearchWithProvider) tem precedência e é usado direto, sem
-// fallback — preservando o comportamento dos testes com mock.
+// searchWithFallback executa a cadeia padrão Brave → Tavily → DuckDuckGo e
+// devolve os resultados com o nome do provedor que respondeu. Um provider
+// customizado injetado (NewWebSearchWithProvider) tem precedência e é usado
+// direto, sem cadeia — preservando o comportamento dos testes com mock.
 //
-// Fallback para o DuckDuckGo acontece quando não há credencial Brave ou a
-// API responde 401/403/429 (auth/quota) ou 422 (offset além da janela da
-// Brave). Erro operacional na resolução da credencial e demais erros do
-// Brave são propagados sem fabricar resultados.
+// Avanço na cadeia acontece quando não há credencial do provedor, a API
+// responde auth/quota/limite (Brave: 401/403/429/422; Tavily:
+// 401/403/429/432/433) ou o offset está além da janela servível. Erro
+// operacional na resolução da credencial e demais erros são propagados sem
+// fabricar resultados.
 func (t *WebSearch) searchWithFallback(ctx context.Context, query string, offset, maxResults int) ([]SearchResult, string, error) {
 	if t.brave == nil || t.fallback == nil {
 		results, err := t.provider.Search(ctx, t.client, query, offset, maxResults)
 		return results, t.provider.Name(), err
 	}
-	results, err := t.brave.Search(ctx, t.client, query, offset, maxResults)
-	if err == nil {
-		return results, t.brave.Name(), nil
+	chain := []SearchProvider{t.brave}
+	if t.tavily != nil {
+		chain = append(chain, t.tavily)
 	}
-	if !isBraveFallbackable(err) {
-		return nil, t.brave.Name(), err
+	chain = append(chain, t.fallback)
+	var lastErr error
+	lastName := ""
+	for _, p := range chain {
+		results, err := p.Search(ctx, t.client, query, offset, maxResults)
+		if err == nil {
+			return results, p.Name(), nil
+		}
+		if !isSearchFallbackable(err) {
+			return nil, p.Name(), err
+		}
+		lastErr, lastName = err, p.Name()
 	}
-	fallbackResults, fallbackErr := t.fallback.Search(ctx, t.client, query, offset, maxResults)
-	if fallbackErr != nil {
-		return nil, t.fallback.Name(), fallbackErr
-	}
-	return fallbackResults, t.fallback.Name(), nil
+	return nil, lastName, lastErr
 }
 
-// isBraveFallbackable decide se um erro do Brave justifica fallback para o
-// DuckDuckGo: ausência de credencial ou 401/403/429/422 (auth/quota/janela
-// de paginação).
+// isBraveFallbackable decide se um erro do Brave justifica avançar na
+// cadeia: ausência de credencial ou 401/403/429/422 (auth/quota/janela de
+// paginação).
 func isBraveFallbackable(err error) bool {
 	if err == errNoBraveCredential {
 		return true
@@ -261,6 +270,35 @@ func isBraveFallbackable(err error) bool {
 	var statusErr *braveStatusError
 	if errors.As(err, &statusErr) {
 		return braveFallbackable(statusErr.StatusCode)
+	}
+	return false
+}
+
+// trimBearerPrefix remove o prefixo "Bearer " (qualquer caixa) de um token.
+// Credenciais cadastradas à mão podem trazer o esquema em minúsculas
+// ("bearer xyz"); sem a normalização, o prefixo seria enviado como parte da
+// chave e a API rejeitaria.
+func trimBearerPrefix(token string) string {
+	if len(token) >= len("Bearer ") && strings.EqualFold(token[:len("Bearer ")], "Bearer ") {
+		return token[len("Bearer "):]
+	}
+	return token
+}
+
+// isSearchFallbackable decide se um erro de qualquer provedor da cadeia
+// justifica avançar para o próximo: sentinelas de janela excedida e de
+// ausência de credencial Tavily, regra do Brave via helper dedicado e
+// status HTTP fallbackables da Tavily.
+func isSearchFallbackable(err error) bool {
+	if err == errNoTavilyCredential || err == errTavilyWindowExceeded {
+		return true
+	}
+	if isBraveFallbackable(err) {
+		return true
+	}
+	var tavilyErr *tavilyStatusError
+	if errors.As(err, &tavilyErr) {
+		return tavilyFallbackable(tavilyErr.StatusCode)
 	}
 	return false
 }
