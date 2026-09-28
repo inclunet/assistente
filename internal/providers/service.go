@@ -767,7 +767,7 @@ func (s *Service) TestConnection(ctx context.Context, req TestRequest) (bool, er
 	if err != nil {
 		return false, fmt.Errorf("erro ao criar requisição: %w", err)
 	}
-	if err := s.applyProbeAuth(ctx, req, httpReq); err != nil {
+	if err := s.prepareProbeAuth(ctx, req, httpReq, client); err != nil {
 		return false, err
 	}
 
@@ -811,7 +811,7 @@ func (s *Service) ListModels(ctx context.Context, req TestRequest) ([]string, er
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar requisição: %w", err)
 	}
-	if err := s.applyProbeAuth(ctx, req, httpReq); err != nil {
+	if err := s.prepareProbeAuth(ctx, req, httpReq, client); err != nil {
 		return nil, err
 	}
 

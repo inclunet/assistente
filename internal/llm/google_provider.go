@@ -57,6 +57,11 @@ func (p *GoogleProvider) newStreamingClient(ctx context.Context) (*genai.Client,
 
 	tracker := &googleUsagePresenceTracker{}
 	httpClient := newStreamingHTTPClientForProvider(p.provider, p.credMgr)
+	// Gemini captura X-Goog-Api-Key na construção do SDK. Não cachear uma
+	// segunda credencial bearer que não controla esse header.
+	if ct, ok := httpClient.Transport.(*credentials.CredentialTransport); ok {
+		ct.DisableCommandCache = true
+	}
 	transport := httpClient.Transport
 	if transport == nil {
 		transport = http.DefaultTransport
@@ -151,7 +156,8 @@ func (p *GoogleProvider) newClient(ctx context.Context) (*genai.Client, error) {
 		APIKey:  apiKey,
 		Backend: genai.BackendGeminiAPI,
 		HTTPClient: &http.Client{
-			Timeout: providerTimeout(p.provider),
+			CheckRedirect: credentials.SameOriginRedirect,
+			Timeout:       providerTimeout(p.provider),
 		},
 	}
 	if u := strings.TrimSpace(p.provider.BaseURL); u != "" {
