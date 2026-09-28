@@ -88,15 +88,11 @@ func (p *bingProvider) Search(ctx context.Context, client *httpclient.Client, qu
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Ocp-Apim-Subscription-Key", key)
 	// Resolução única via WithManualAuth: o interceptor não deve resolver nem
-	// injetar nada. Além do custo/efeitos de fontes dinâmicas, o Bing rejeita
-	// com 401 (AuthorizationRedundancy) múltiplos métodos de autenticação na
-	// mesma request — um `Authorization: Bearer` do interceptor junto da
-	// subscription key quebraria toda chamada com credencial bearer.
-	for hdr, val := range auth.Headers {
-		if !strings.EqualFold(hdr, "Ocp-Apim-Subscription-Key") {
-			req.Header.Set(hdr, val)
-		}
-	}
+	// injetar nada. Nenhum outro header de auth.Headers é copiado de
+	// propósito: o Bing rejeita com 401 (AuthorizationRedundancy) múltiplos
+	// métodos de autenticação na mesma request — um `Authorization` de
+	// credencial custom junto da subscription key quebraria a chamada e
+	// derrubaria o provedor para o fallback sem necessidade.
 
 	resp, err := client.Do(httpclient.WithManualAuth(ctx), req)
 	if err != nil {

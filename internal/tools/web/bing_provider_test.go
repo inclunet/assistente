@@ -216,6 +216,45 @@ func TestBingProvider_BuscaComCredencial(t *testing.T) {
 	}
 }
 
+func TestBingProvider_CustomComAuthorizationNaoVaza(t *testing.T) {
+	// Credencial custom com Authorization junto: só a subscription key pode
+	// viajar (redundância = 401 no Bing).
+	var gotKey, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.Header.Get("Ocp-Apim-Subscription-Key")
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"webPages": {"value": [{"name": "Go", "url": "https://go.dev", "snippet": ""}]}}`))
+	}))
+	defer srv.Close()
+
+	u, _ := url.Parse(srv.URL)
+	credMgr := credentials.NewManager(nil)
+	if err := credMgr.RegisterPattern(u.Hostname(), &credentials.AuthConfig{Source: "static",
+		Type:    "custom",
+		Headers: map[string]string{"Ocp-Apim-Subscription-Key": "bing-custom", "Authorization": "Bearer intruso"},
+	}); err != nil {
+		t.Fatalf("registro de credencial: %v", err)
+	}
+	client := httpclient.New(&httpclient.Config{CredentialManager: credMgr}, map[string]string{})
+	provider := &bingProvider{credMgr: credMgr, endpointOverride: srv.URL}
+
+	ctx := trustedBingTestContext(t, context.Background(), srv)
+	results, err := provider.Search(ctx, client, "go", 0, 5)
+	if err != nil {
+		t.Fatalf("Search falhou: %v", err)
+	}
+	if gotKey != "bing-custom" {
+		t.Errorf("subscription key incorreta: %q", gotKey)
+	}
+	if gotAuth != "" {
+		t.Errorf("Authorization não pode viajar junto (redundância=401): %q", gotAuth)
+	}
+	if len(results) != 1 {
+		t.Errorf("resultado não chegou: %+v", results)
+	}
+}
+
 func TestWebSearch_CadeiaTavily429CaiNoBing(t *testing.T) {
 	// Tavily 429 com Bing saudável: o Bing atende, sem alcançar o DDG.
 	tavilySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
