@@ -130,32 +130,33 @@ func (l *runLimiter) release() {
 
 // Manager orquestra todos os componentes do sistema de jobs.
 type Manager struct {
-	cfg                      ManagerConfig
-	registry                 *Registry
-	eventBus                 *EventBus
-	scheduler                *Scheduler
-	executor                 *JobExecutor
-	circuitBreaker           *CircuitBreaker
-	hotkeyIDs                map[string][]int // jobID -> hotkey IDs registrados
-	retentionStop            chan struct{}
-	retentionCancel          context.CancelFunc
-	retentionDone            chan struct{}
-	stopping                 chan struct{}
-	mu                       sync.Mutex
-	runtimeMu                sync.Mutex
-	triggerMu                sync.Mutex
-	hotkeyLifetimeMu         sync.Mutex
-	hotkeyLifetimes          map[string]map[int]*hotkeyRegistrationLifetime
-	started                  bool
-	compactMu                sync.Mutex
-	commandRuntimeMu         sync.Mutex
-	commandRuntime           map[string]commandRuntimeEntry
-	commandRuntimeAccepting  bool
-	commandRuntimeToken      uint64
-	commandMaintenanceClosed bool
-	lastCompaction           time.Time
-	compacting               bool
-	runLimiter               *runLimiter
+	cfg                       ManagerConfig
+	registry                  *Registry
+	eventBus                  *EventBus
+	scheduler                 *Scheduler
+	executor                  *JobExecutor
+	circuitBreaker            *CircuitBreaker
+	hotkeyIDs                 map[string][]int // jobID -> hotkey IDs registrados
+	retentionStop             chan struct{}
+	retentionCancel           context.CancelFunc
+	retentionDone             chan struct{}
+	stopping                  chan struct{}
+	mu                        sync.Mutex
+	initialChatRetentionError error // protegido por mu; diagnóstico da última partida efetiva
+	runtimeMu                 sync.Mutex
+	triggerMu                 sync.Mutex
+	hotkeyLifetimeMu          sync.Mutex
+	hotkeyLifetimes           map[string]map[int]*hotkeyRegistrationLifetime
+	started                   bool
+	compactMu                 sync.Mutex
+	commandRuntimeMu          sync.Mutex
+	commandRuntime            map[string]commandRuntimeEntry
+	commandRuntimeAccepting   bool
+	commandRuntimeToken       uint64
+	commandMaintenanceClosed  bool
+	lastCompaction            time.Time
+	compacting                bool
+	runLimiter                *runLimiter
 }
 
 // NewManager cria um Manager com todas as dependencias.
@@ -220,6 +221,7 @@ func (m *Manager) Start() error {
 	if m.started {
 		return nil
 	}
+	m.initialChatRetentionError = nil
 
 	if m.cfg.Repository == nil {
 		return fmt.Errorf("jobs repository not configured")
@@ -261,12 +263,20 @@ func (m *Manager) Start() error {
 	// mu/runtimeMu de Start: a passagem inicial pertence ao mesmo loop que
 	// Stop cancela e drena. O caminho legado mantém sua inicialização atual.
 	if m.cfg.MaintenanceCoordinator == nil {
-		m.runRetention(ctx)
+		m.initialChatRetentionError = m.runRetentionWithChatError(ctx)
 	}
 	m.started = true
 	m.startRetentionLoop(ctx)
 	logging.Infof(context.Background(), "jobs.manager", "[Jobs] Manager started")
 	return nil
+}
+
+// InitialChatRetentionError retorna somente o diagnóstico da retenção inicial
+// legada de chat. Não indica falha do scheduler nem aguarda manutenção coordenada.
+func (m *Manager) InitialChatRetentionError() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.initialChatRetentionError
 }
 
 // Stop para todos os componentes.
@@ -1874,13 +1884,18 @@ func maintenanceSettings() config.MaintenanceSettings {
 }
 
 func (m *Manager) runRetention(ctx context.Context) {
+	_ = m.runRetentionWithChatError(ctx)
+}
+
+func (m *Manager) runRetentionWithChatError(ctx context.Context) error {
 	if m.cfg.Repository == nil {
-		return
+		return nil
 	}
 	if m.cfg.MaintenanceCoordinator != nil {
 		m.runCommandMaintenance(ctx)
-		return
+		return nil
 	}
+	var chatErr error
 	maint := maintenanceSettings()
 	// Dados de jobs são efêmeros: janela curta (horas), configurável (AEP-0074).
 	jobsAge := time.Duration(maint.JobRetentionHours) * time.Hour
@@ -1914,8 +1929,10 @@ func (m *Manager) runRetention(ctx context.Context) {
 			logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d dry-run tool invocation(s)", deleted)
 		}
 		// Tool calls de chat: retenção = ciclo de vida da conversa. Aqui só
-		// varremos órfãos; o cap de idade opcional roda no login (AEP-0074, D5).
+		// varremos órfãos e aplicamos o cap opcional na passagem inicial e
+		// periódica (AEP-0074, D5).
 		if deleted, err := m.cfg.ToolInvocations.CleanOrphanChat(ctx); err != nil {
+			chatErr = errors.Join(chatErr, err)
 			logging.Errorf(ctx, "jobs.manager", "[Jobs] retention orphan chat tool invocations failed: %v", err)
 		} else if deleted > 0 {
 			logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d orphan chat tool invocation(s)", deleted)
@@ -1923,6 +1940,7 @@ func (m *Manager) runRetention(ctx context.Context) {
 		if maint.ChatToolCallsRetentionDays > 0 {
 			chatAge := time.Duration(maint.ChatToolCallsRetentionDays) * 24 * time.Hour
 			if deleted, err := m.cfg.ToolInvocations.CleanOldChat(ctx, chatAge); err != nil {
+				chatErr = errors.Join(chatErr, err)
 				logging.Errorf(ctx, "jobs.manager", "[Jobs] retention chat tool invocations age-cap failed: %v", err)
 			} else if deleted > 0 {
 				logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d chat tool invocation(s) over age cap", deleted)
@@ -1932,6 +1950,7 @@ func (m *Manager) runRetention(ctx context.Context) {
 	// Compactação física do arquivo: devolve espaço ao SO após as deleções
 	// acima. Throttled e global (AEP-0074, D3).
 	m.maybeCompact(ctx, maint.VacuumMinFreeBytes)
+	return chatErr
 }
 
 // maybeCompact dispara a compactação física do banco no máximo uma vez por
