@@ -9,6 +9,25 @@ simbólicos/não regulares antes do fechamento, truncando apenas o handle valida
 O preflight antecede a drenagem dos comandos e a identidade é revalidada depois
 do callback; alvos inválidos não derrubam um runtime que ainda estava utilizável.
 
+**AEP-0103 — concorrência de startup (28/09/2026): In Progress.** A barreira
+cancelável cobre preparação → bootstrap → Start da mesma sessão sem manter
+authSessionMu durante as portas de bootstrap. Regressões cobrem retries
+concorrentes, cancelamento do worker em espera e unlock tardio sem retirar
+uma publicação válida. Aceite manual inalterado.
+Troca de workspace agora compartilha a proteção bootstrap/publicação com Start,
+sem adquirir o lock exterior de startup; regressão concorrente cobre a região.
+
+**AEP-0103 — ordem de startup (28/09/2026): In Progress.** Com armazenamento
+de comandos disponível, jobs são preparados
+no reload e iniciados somente após a publicação dos comandos, com vínculo à
+sessão e retry pelo mesmo fluxo. `EnsureScope` evita escrita para contadores
+já válidos. Testes `TestCommandJobs*` e `TestEnsureScope*` cobrem a barreira,
+cancelamento, sessão obsoleta e writer WAL concorrente. Validação manual não
+foi promovida. A manutenção já montada não cai em retenção legada após falha
+de storage; teste de regressão cobre a recusa e a retomada após recuperação.
+Teste concorrente também verifica que unlock libera bootstrap antes de aguardar
+autenticação, sem bloquear a ordem usada por mutações de perfil.
+
 **AEP-0103 — recuperação de teclado (28/09/2026): In Progress.** Hot-swap MCP
 notifica o mapa após readiness; falhas transitórias de carregamento recebem
 retry com backoff, mantendo os gates de segurança. Regressão de publicação

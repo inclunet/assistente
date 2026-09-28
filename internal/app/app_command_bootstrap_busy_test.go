@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"assistente/internal/apidto"
+	"assistente/internal/commandconfig"
 	"assistente/internal/database"
 	"assistente/internal/wailsapi"
 	"gorm.io/gorm"
@@ -17,6 +18,10 @@ import (
 
 // O lock é de uma conexão SQLite real; o callback apenas detecta BUSY.
 func commandBootstrapBusyWriter(t *testing.T, operation func(context.Context) error) {
+	commandBootstrapWriter(t, operation, true)
+}
+
+func commandBootstrapWriter(t *testing.T, operation func(context.Context) error, expectBusy bool) {
 	t.Helper()
 	db := database.DB()
 	assertCommandBootstrapTemporaryDatabase(t, db)
@@ -108,6 +113,24 @@ func commandBootstrapBusyWriter(t *testing.T, operation func(context.Context) er
 	exited := make(chan struct{})
 	go func() { defer close(exited); done <- operation(ctx) }()
 	defer func() { cancel(); <-exited }()
+	if !expectBusy {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("leitura de escopo existente bloqueada por writer: %v", err)
+			}
+		case <-busy:
+			t.Fatal("escopo existente tentou adquirir writer")
+		case <-ctx.Done():
+			t.Fatal("leitura de escopo existente não terminou com writer ativo")
+		}
+		// A reconstrução terminou enquanto o writer ainda estava ativo.
+		if _, err := writer.ExecContext(ctx, "COMMIT"); err != nil {
+			t.Fatal(err)
+		}
+		writerTransactionActive = false
+		return
+	}
 	select {
 	case <-busy:
 	case err := <-done:
@@ -159,7 +182,26 @@ func TestCommandBootstrapBusyEnsuresScopeThenPublishesPaletteAndKeyboard(t *test
 	if err := ResetCommandLifecycle(ctx, a, "busy_restart"); err != nil {
 		t.Fatal(err)
 	}
+	// Simula a primeira criação: contadores já existentes não disputam mais
+	// o writer. A ausência ainda precisa de retry transacional real.
+	assertCommandBootstrapTemporaryDatabase(t, database.DB())
+	if err := database.DB().Where("user_id = ?", a.currentUserID).Delete(&commandconfig.Generation{}).Error; err != nil {
+		t.Fatal(err)
+	}
 	commandBootstrapBusyWriter(t, a.rebuildCommandLifecyclePersistedConfiguration)
+	if err := BootstrapCommandLifecycle(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	commandBootstrapAssertReady(t, a)
+}
+
+func TestCommandBootstrapExistingScopeDoesNotWaitForWriter(t *testing.T) {
+	a := readyCommandProduct(t)
+	ctx := context.Background()
+	if err := ResetCommandLifecycle(ctx, a, "existing_scope_restart"); err != nil {
+		t.Fatal(err)
+	}
+	commandBootstrapWriter(t, a.rebuildCommandLifecyclePersistedConfiguration, false)
 	if err := BootstrapCommandLifecycle(ctx, a); err != nil {
 		t.Fatal(err)
 	}

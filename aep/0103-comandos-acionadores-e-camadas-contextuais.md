@@ -1,5 +1,58 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Concorrência de startup (28/09/2026):** uma barreira exterior cancelável
+serializa o ciclo completo de login/refresh/retry/logout e retomadas, incluindo
+preparação, bootstrap e Start. O bootstrap continua fora de `authSessionMu` e
+do gate de autenticação; não se adiciona aquisição exterior aos editores de
+perfil que já possuem esses locks. Um worker do SO esperando a barreira sai
+quando sua observação é cancelada. Um unlock tardio não retira uma publicação
+que já incorpora a observação, validada por snapshot do lifecycle e do host.
+Testes `TestCommandJobsConcurrentRetriesOwnPreparationThroughStart`,
+`TestCommandJobsOSUnlockWaitingForStartupIsCancelable` e
+`TestCommandJobsLateOSUnlockKeepsAlreadyPublishedGeneration` cobrem a
+concorrência da mesma sessão, cancelamento e preservação da geração publicada.
+O aceite manual permanece pendente (**In Progress**).
+Troca de workspace compartilha `commandBootstrap` do reset à publicação, para
+não retirar readiness entre sua checagem e Start. Não adquire a barreira exterior,
+pois pode decorrer de uma execução a drenar. O teste
+`TestCommandWorkspaceReloadPreservesReadinessWhileBootstrapOwned` falha sem a
+proteção e comprova a reconstrução mantendo o lock exterior ocupado.
+
+**Ordem de startup de jobs (28/09/2026):** o reload autenticado monta as portas
+de manutenção, mas adia o scheduler e sua passagem inicial até a publicação
+do runtime de comandos. O caminho legado sem armazenamento de comandos mantém
+seu Start anterior; falhas de bootstrap não são atribuídas a jobs já iniciados.
+Isso não é fallback após falha: se a manutenção de comandos já foi montada,
+perda de readiness bloqueia Start e exige recuperação, sem trocar por retenção
+legada que desconhece outbox/leases. A regressão
+`TestCommandJobsMountedMaintenanceStorageFailureDoesNotDowngrade` cobre falha
+e retomada após restaurar o armazenamento. No unlock do SO, o defer libera
+`commandBootstrap` antes de chamar o helper de Start; a retomada com contexto
+sem deadline é exercitada por `TestCommandJobsResumeAfterFirstKnownOSSession`.
+`TestCommandJobsOSUnlockReleasesBootstrapWhileAuthSessionBusy` força concorrência
+com uma mutação que possui `authSessionMu`: ela adquire o bootstrap enquanto
+o worker de unlock aguarda autenticação e, após liberar a sessão, os jobs
+iniciam uma única vez. A ordem de locks não depende de sleeps no teste.
+A pendência pertence à sessão que a preparou; logout,
+troca de usuário e cancelamento não autorizam um bootstrap atrasado a iniciar
+jobs de outra sessão. O retry explícito também reconstrói comandos antes de
+liberar jobs. Não há sleep fixo nem remoção de imports/retenção. Evidências:
+`TestCommandJobsWaitForBootstrapAfterRuntimeReload`,
+`TestCommandJobsCancelledBootstrapKeepsPendingUntilRetry`,
+`TestCommandJobsRejectStaleSession` e
+`TestCommandJobsRuntimeRetryBootstrapsBeforeStart`.
+`TestCommandJobsResumeAfterFirstKnownOSSession` e
+`TestCommandJobsResumeRetriesFailedStart` cobrem retomada; o bootstrap de
+perfis conserva sua ordem de locks, sem iniciar jobs dentro da mutação.
+`EnsureScope` valida os contadores existentes por leitura antes de tentar
+criá-los, evitando disputar o writer SQLite em cada reconstrução de mapa.
+Escopos ausentes ainda exigem a transação original e dados inválidos continuam
+recusados. Evidência: `TestEnsureScopeExistingGlobalAndWorkspaceAvoidWriterLock`
+mantém um writer WAL real aberto em outra conexão; os testes de escopo ausente
+e geração corrompida preservam as recusas.
+**In Progress**: validação no banco real e investigação da contenção de manutenção
+posterior ao startup continuam necessárias; nenhum aceite manual promovido.
+
 **Recuperação do mapa de teclado (28/09/2026):** o hot-swap do catálogo MCP
 notifica a UI novamente após o bootstrap publicar readiness. A notificação
 anterior, emitida durante a publicação da configuração, podia encontrar o
