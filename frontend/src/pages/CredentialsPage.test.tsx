@@ -164,6 +164,7 @@ vi.mock('../components', () => ({
 }));
 
 import CredentialsPage from './CredentialsPage';
+import { useNavigationStore } from '../store/navigationStore';
 
 describe('CredentialsPage', () => {
   beforeEach(() => {
@@ -211,6 +212,27 @@ describe('CredentialsPage', () => {
       type: 'bearer',
       token: 'tok_123',
     }));
+  });
+
+  it('deep link pré-preenche pattern e tipo na criação', async () => {
+    useNavigationStore.setState({
+      pendingEdit: {
+        resource: 'credentials',
+        id: '',
+        action: 'new',
+        initial: { pattern: 'api.search.brave.com', type: 'bearer' },
+        timestamp: Date.now(),
+      },
+    });
+
+    render(<CredentialsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Pattern')).toHaveValue('api.search.brave.com');
+    });
+    expect(screen.getByLabelText('Tipo')).toHaveValue('bearer');
+    // Token continua vazio: segredo nunca vem por deep link.
+    expect(screen.getByLabelText('Token')).toHaveValue('');
   });
 
   it('exclui credencial via menu de acoes', async () => {

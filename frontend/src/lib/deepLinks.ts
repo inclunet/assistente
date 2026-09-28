@@ -39,7 +39,7 @@ export type DeepLinkAction =
       resourceId: string;
       tab?: ProfileEditSection;
     }
-  | { type: 'resource:new'; resource: EditableResource }
+  | { type: 'resource:new'; resource: EditableResource; initial?: Record<string, string> }
   | { type: 'tab:open'; tabType: TabType; contentId: string; title?: string }
   | { type: 'tab:new'; tabType: TabType; title?: string; file?: string; cmd?: string };
 
@@ -67,6 +67,30 @@ function isValidResourceTab(
 ): tab is ProfileEditSection | undefined {
   if (!tab) return true;
   return resource === 'profiles' && PROFILE_EDIT_SECTIONS.has(tab as ProfileEditSection);
+}
+
+// Tipos de credencial aceitos como valor inicial via deep link.
+const CREDENTIAL_NEW_TYPES = new Set(['bearer', 'basic', 'custom', 'secret']);
+
+/**
+ * Extrai valores iniciais para o formulário de criação a partir dos query
+ * params — hoje somente `credentials` aceita (`pattern` + `type`).
+ * Segurança: allowlist explícita por recurso; segredos (token, senhas,
+ * valores de header) nunca são aceitos por deep link, pois vazariam para
+ * histórico de chat e logs. Valores inválidos são ignorados (formulário
+ * abre em branco) em vez de falhar o link.
+ */
+function parseResourceNewInitial(
+  resource: EditableResource,
+  params: URLSearchParams,
+): Record<string, string> | undefined {
+  if (resource !== 'credentials') return undefined;
+  const initial: Record<string, string> = {};
+  const pattern = (params.get('pattern') || '').trim();
+  if (pattern) initial.pattern = pattern;
+  const type = (params.get('type') || '').trim().toLowerCase();
+  if (type && CREDENTIAL_NEW_TYPES.has(type)) initial.type = type;
+  return Object.keys(initial).length > 0 ? initial : undefined;
 }
 
 function defaultTitleForNewTab(tabType: TabType): string {
@@ -181,7 +205,12 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
     if (EDITABLE_RESOURCES.has(resource as EditableResource)) {
       const action = segments[1];
       if (action === 'new') {
-        return { type: 'resource:new', resource: resource as EditableResource };
+        const initial = parseResourceNewInitial(resource as EditableResource, params);
+        return {
+          type: 'resource:new',
+          resource: resource as EditableResource,
+          ...(initial ? { initial } : {}),
+        };
       }
       if (action === 'edit' && segments[2]) {
         const resourceId = decodeURIComponent(segments.slice(2).join('/'));
@@ -243,8 +272,16 @@ export function buildDeepLink(action: DeepLinkAction): string {
       return `${DEEP_LINK_PREFIX}${action.resource}/edit/${encodeURIComponent(action.resourceId)}${qs ? `?${qs}` : ''}`;
     }
 
-    case 'resource:new':
-      return `${DEEP_LINK_PREFIX}${action.resource}/new`;
+    case 'resource:new': {
+      const params = new URLSearchParams();
+      if (action.initial) {
+        for (const [key, value] of Object.entries(action.initial)) {
+          params.set(key, value);
+        }
+      }
+      const qs = params.toString();
+      return `${DEEP_LINK_PREFIX}${action.resource}/new${qs ? `?${qs}` : ''}`;
+    }
 
     case 'tab:open':
       return `${DEEP_LINK_PREFIX}${action.tabType}/${encodeURIComponent(action.contentId)}`;
@@ -468,7 +505,14 @@ export async function executeDeepLink(
 
     case 'resource:new': {
       const navStore = useNavigationStore.getState();
-      navStore.requestResourceEdit(action.resource, '', 'new');
+      if (action.initial || deps.caller) {
+        navStore.requestResourceEdit(action.resource, '', 'new', {
+          ...(action.initial ? { initial: action.initial } : {}),
+          ...(deps.caller ? { caller: deps.caller } : {}),
+        });
+      } else {
+        navStore.requestResourceEdit(action.resource, '', 'new');
+      }
       const settingsResources = new Set(['providers', 'mcp', 'skills', 'channels', 'credentials', 'allowlists']);
       const path = settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
       deps.navigate(path);

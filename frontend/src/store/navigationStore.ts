@@ -29,11 +29,18 @@ export interface ResourceEditRequest {
   tab?: ProfileEditSection;
   caller?: WorkspaceNavigationCaller;
   timestamp: number;
+  /**
+   * Valores iniciais para pré-preencher o formulário de criação.
+   * Restrito a campos não-sensíveis (ex.: pattern/type de credencial) —
+   * segredos (token, senhas) nunca trafegam aqui.
+   */
+  initial?: Record<string, string>;
 }
 
 export interface ResourceEditOptions {
   tab?: ProfileEditSection;
   caller?: WorkspaceNavigationCaller;
+  initial?: Record<string, string>;
 }
 
 interface NavigationState {
@@ -59,6 +66,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
         action,
         ...(options?.tab ? { tab: options.tab } : {}),
         ...(options?.caller ? { caller: options.caller } : {}),
+        ...(options?.initial ? { initial: options.initial } : {}),
         timestamp: Date.now(),
       },
     });

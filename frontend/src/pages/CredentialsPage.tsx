@@ -203,7 +203,17 @@ export default function CredentialsPage() {
 
   useResourceEditRequest('credentials', {
     onEdit: (pattern) => crud.openEdit({ id: pattern, pattern } as CredentialRow),
-    onNew: () => crud.openNew(),
+    onNew: (request) => {
+      crud.openNew();
+      // Pré-preenchimento via deep link (allowlist: pattern/type; segredos
+      // nunca chegam aqui — ver parseResourceNewInitial). updateField é
+      // funcional, então acumula sobre o item recém-aberto com segurança.
+      const initial = request?.initial;
+      if (initial?.pattern) crud.updateField('pattern', initial.pattern);
+      if (initial?.type && typeOptions.some((o) => o.value === initial.type)) {
+        crud.updateField('type', initial.type);
+      }
+    },
     ready: !crud.loading && crud.items.length > 0,
   });
 

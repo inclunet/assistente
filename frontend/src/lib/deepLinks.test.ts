@@ -373,6 +373,36 @@ describe('parseDeepLink', () => {
       expect(parseDeepLink('assistente://help/new')).toBeNull();
     });
 
+    it('faz parse de credentials/new com pattern e type', () => {
+      expect(parseDeepLink('assistente://credentials/new?pattern=api.search.brave.com&type=bearer')).toEqual({
+        type: 'resource:new', resource: 'credentials',
+        initial: { pattern: 'api.search.brave.com', type: 'bearer' },
+      });
+    });
+
+    it('ignora type inválido em credentials/new', () => {
+      expect(parseDeepLink('assistente://credentials/new?pattern=api.search.brave.com&type=oauth2')).toEqual({
+        type: 'resource:new', resource: 'credentials',
+        initial: { pattern: 'api.search.brave.com' },
+      });
+    });
+
+    it('nunca aceita segredo via deep link', () => {
+      expect(parseDeepLink('assistente://credentials/new?pattern=x&token=secreto')).toEqual({
+        type: 'resource:new', resource: 'credentials',
+        initial: { pattern: 'x' },
+      });
+      expect(parseDeepLink('assistente://credentials/new?token=secreto')).toEqual({
+        type: 'resource:new', resource: 'credentials',
+      });
+    });
+
+    it('ignora params de pré-preenchimento em outros recursos', () => {
+      expect(parseDeepLink('assistente://skills/new?pattern=x&type=bearer')).toEqual({
+        type: 'resource:new', resource: 'skills',
+      });
+    });
+
   });
 
   describe('resource:edit tasklists', () => {
@@ -597,6 +627,14 @@ describe('buildDeepLink', () => {
   it('constrói resource:new', () => {
     const uri = buildDeepLink({ type: 'resource:new', resource: 'skills' });
     expect(uri).toBe('assistente://skills/new');
+  });
+
+  it('constrói resource:new com valores iniciais', () => {
+    const uri = buildDeepLink({
+      type: 'resource:new', resource: 'credentials',
+      initial: { pattern: 'api.search.brave.com', type: 'bearer' },
+    });
+    expect(uri).toBe('assistente://credentials/new?pattern=api.search.brave.com&type=bearer');
   });
 
   it('constrói tab:open para tasklist', () => {
@@ -1076,6 +1114,18 @@ describe('executeDeepLink', () => {
 
       expect(mockRequestResourceEdit).toHaveBeenCalledWith('memories', '', 'new');
       expect(mockNavigate).toHaveBeenCalledWith('/memories');
+      expect(mockAnnounce).toHaveBeenCalled();
+    });
+
+    it('repasse valores iniciais de credentials/new ao store', async () => {
+      const initial = { pattern: 'api.search.brave.com', type: 'bearer' };
+      await executeDeepLink(
+        { type: 'resource:new', resource: 'credentials', initial },
+        deps,
+      );
+
+      expect(mockRequestResourceEdit).toHaveBeenCalledWith('credentials', '', 'new', { initial });
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/credentials');
       expect(mockAnnounce).toHaveBeenCalled();
     });
   });
