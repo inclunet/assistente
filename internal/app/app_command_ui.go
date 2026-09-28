@@ -95,36 +95,70 @@ func commandUIResultTTL(commandID string) time.Duration {
 // A identidade nunca é recebida da UI. Até respostas e cancelamentos exigem
 // a sessão local ainda válida e a mesma composição publicada pelo App.
 func (a *App) authenticatedCommandProduct() (*commandProductRuntime, error) {
+	return a.authenticatedCommandProductContext(a.commandBridgeContext())
+}
+
+func (a *App) authenticatedCommandProductContext(ctx context.Context) (*commandProductRuntime, error) {
 	if a == nil {
 		return nil, commandexecution.ErrDenied
 	}
+	commandLoadStage(ctx, "product")
 	p := a.commandProduct.Load()
 	if p == nil || !p.dependenciesMatch(a) {
+		commandLoadCause(ctx, commandruntime.ErrNotReady)
 		return nil, commandruntime.ErrNotReady
 	}
+	commandLoadStage(ctx, "principal")
 	principal, err := a.currentCommandPrincipal()
 	if err != nil || principal != p.principal {
+		if err != nil {
+			commandLoadCause(ctx, err)
+		} else {
+			commandLoadCause(ctx, commandexecution.ErrDenied)
+		}
 		return nil, commandexecution.ErrDenied
 	}
-	current, err := p.sessionSvc.RevalidateLocalSession(a.commandBridgeContext(), principal)
+	commandLoadStage(ctx, "session")
+	current, err := p.sessionSvc.RevalidateLocalSession(ctx, principal)
 	if err != nil || current != principal || !a.commandPrincipalMatches(p.sessionSvc, p.credMgr, principal) {
+		if err != nil {
+			commandLoadCause(ctx, err)
+		} else {
+			commandLoadCause(ctx, commandexecution.ErrDenied)
+		}
 		return nil, commandexecution.ErrDenied
 	}
-	if err := p.refreshCommandJobProjection(a.commandBridgeContext()); err != nil {
+	commandLoadStage(ctx, "job_projection")
+	if err := p.refreshCommandJobProjection(ctx); err != nil {
+		commandLoadCause(ctx, err)
 		return nil, err
 	}
-	state, err := p.host.Snapshot(a.commandBridgeContext(), principal)
+	commandLoadStage(ctx, "host_snapshot")
+	state, err := p.host.Snapshot(ctx, principal)
 	if err != nil || !state.Unlocked {
+		if err != nil {
+			commandLoadCause(ctx, err)
+		} else {
+			commandLoadCause(ctx, commandruntime.ErrNotReady)
+		}
 		return nil, commandruntime.ErrNotReady
 	}
+	commandLoadStage(ctx, "lifecycle")
 	snapshot, err := CommandLifecycleSnapshot(a)
 	if err != nil || snapshot.State != commandruntime.StateReady || !snapshot.Published || a.commandProduct.Load() != p || !p.dependenciesMatch(a) {
+		if err != nil {
+			commandLoadCause(ctx, err)
+		} else {
+			commandLoadCause(ctx, commandruntime.ErrNotReady)
+		}
 		return nil, commandruntime.ErrNotReady
 	}
+	commandLoadStage(ctx, "product_open")
 	p.mu.Lock()
 	closed := p.closed
 	p.mu.Unlock()
 	if closed {
+		commandLoadCause(ctx, commandruntime.ErrStopped)
 		return nil, commandruntime.ErrStopped
 	}
 	return p, nil

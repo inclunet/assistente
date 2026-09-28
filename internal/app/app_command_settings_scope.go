@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"reflect"
 	"strings"
 
@@ -106,33 +107,54 @@ type CommandSettingsMutationRequest struct {
 func (a *App) GetCommandSettingsForScope(locale, scopeName string) (result CommandSettingsSnapshot, err error) {
 	defer func() { err = safeCommandSettingsError(err) }()
 	ctx := a.commandBridgeContext()
+	ctx, trace := beginCommandLoad(ctx, "settings_load")
+	defer func() {
+		trace.finish(err,
+			slog.Int("layers", len(result.Layers)),
+			slog.Int("bindings", len(result.Bindings)),
+			slog.Int("rules", len(result.Rules)),
+		)
+	}()
+	trace.stage("scope")
 	if ctx == nil {
 		return CommandSettingsSnapshot{}, commandexecution.ErrDenied
 	}
-	p, err := a.authenticatedCommandProduct()
+	trace.stage("product")
+	p, err := a.authenticatedCommandProductContext(ctx)
 	if err != nil {
 		return CommandSettingsSnapshot{}, err
 	}
 	p.setDeckLocale(locale)
+	trace.stage("scope")
 	scope, err := a.commandSettingsScope(p, scopeName)
 	if err != nil {
 		return CommandSettingsSnapshot{}, err
 	}
 	principal := p.principal
+	trace.stage("epoch")
 	epoch, err := p.epochs.CaptureAuthenticated(ctx, func(ctx context.Context) (string, string, error) {
 		current, err := p.sessionSvc.RevalidateLocalSession(ctx, principal)
 		if err != nil || current != principal || !a.commandPrincipalMatches(p.sessionSvc, p.credMgr, principal) {
+			if err != nil {
+				commandLoadCause(ctx, err)
+			} else {
+				commandLoadCause(ctx, commandexecution.ErrDenied)
+			}
 			return "", "", commandexecution.ErrDenied
 		}
 		return principal.UserID, principal.SessionID, nil
 	})
 	if err != nil {
+		commandLoadCause(ctx, err)
 		return CommandSettingsSnapshot{}, err
 	}
+	trace.stage("store")
 	store, err := commandconfig.New(database.DB())
 	if err != nil {
+		commandLoadCause(ctx, err)
 		return CommandSettingsSnapshot{}, commandexecution.ErrInvalidConfiguration
 	}
+	trace.stage("authority")
 	snapshot, projection, active, err := a.commandSettingsAuthority(ctx, p, scope, store)
 	if err != nil {
 		return CommandSettingsSnapshot{}, err
@@ -140,28 +162,41 @@ func (a *App) GetCommandSettingsForScope(locale, scopeName string) (result Comma
 	result = commandSettingsSnapshot(ctx, locale, commandClaimsAtEpoch(snapshot, epoch), projection, active, principal, nowCommandSettings())
 	result.Scope = string(commandSettingsScopeName(scope))
 	result.Revision = commandSettingsRevision(snapshot)
+	trace.stage("fingerprint")
 	result.Fingerprint, err = commandSettingsFingerprint(snapshot, projection, active)
 	if err != nil {
+		commandLoadCause(ctx, err)
 		return CommandSettingsSnapshot{}, err
 	}
 	result.KeyboardOperational = p.keyboardService != nil
+	trace.stage("check_current")
 	if err := store.CheckCurrent(ctx, snapshot); err != nil {
+		commandLoadCause(ctx, err)
 		return CommandSettingsSnapshot{}, err
 	}
+	trace.stage("admit")
 	if err := p.epochs.Admit(ctx, epoch, func(ctx context.Context) error {
 		current, err := p.sessionSvc.RevalidateLocalSession(ctx, principal)
 		if err != nil || current != principal || !a.commandPrincipalMatches(p.sessionSvc, p.credMgr, principal) {
+			if err != nil {
+				commandLoadCause(ctx, err)
+			} else {
+				commandLoadCause(ctx, commandexecution.ErrStale)
+			}
 			return commandexecution.ErrStale
 		}
 		return nil
 	}, func() error { return nil }); err != nil {
 		return CommandSettingsSnapshot{}, err
 	}
-	current, err := a.authenticatedCommandProduct()
+	trace.stage("final_auth")
+	current, err := a.authenticatedCommandProductContext(ctx)
 	if err != nil || current != p {
 		if err != nil {
+			commandLoadCause(ctx, err)
 			return CommandSettingsSnapshot{}, err
 		}
+		commandLoadCause(ctx, commandexecution.ErrStale)
 		return CommandSettingsSnapshot{}, commandexecution.ErrStale
 	}
 	return result, nil
@@ -369,20 +404,28 @@ func (a *App) commandSettingsAuthority(ctx context.Context, p *commandProductRun
 	if ctx == nil || p == nil || store == nil {
 		return commandconfig.Snapshot{}, commandconfig.CompleteProjection{}, nil, commandconfig.ErrInvalid
 	}
+	commandLoadStage(ctx, "store")
 	snapshot, err := store.Load(ctx, scope)
 	if err != nil {
+		commandLoadCause(ctx, err)
 		return commandconfig.Snapshot{}, commandconfig.CompleteProjection{}, nil, err
 	}
+	commandLoadStage(ctx, "manual_authority")
 	epoch, _, err := p.commandManualClaimAuthority(ctx)
 	if err != nil {
+		commandLoadCause(ctx, err)
 		return commandconfig.Snapshot{}, commandconfig.CompleteProjection{}, nil, err
 	}
 	active := commandCurrentManualLayerIDs(snapshot, p.principal, nowCommandSettings(), epoch)
+	commandLoadStage(ctx, "global_projection")
 	projection, err := a.commandProductGlobalProjection(ctx, p.registry, active)
 	if err != nil {
+		commandLoadCause(ctx, err)
 		return commandconfig.Snapshot{}, commandconfig.CompleteProjection{}, nil, err
 	}
+	commandLoadStage(ctx, "project_complete")
 	if _, err := commandconfig.ProjectComplete(ctx, snapshot, projection); err != nil {
+		commandLoadCause(ctx, err)
 		return commandconfig.Snapshot{}, commandconfig.CompleteProjection{}, nil, err
 	}
 	return snapshot, projection, active, nil

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -194,17 +195,28 @@ type localCommandKeyboardContextProof struct {
 // ativação, conflitos e condições desconhecidas são avaliados no mapa real.
 func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err error) {
 	defer func() { err = safeCommandSettingsError(err) }()
-	p, err := a.authenticatedCommandProduct()
+	ctx, trace := beginCommandLoad(a.commandBridgeContext(), "keyboard_map_load")
+	defer func() {
+		trace.finish(err, slog.Int("keyboardbindings", len(result.Bindings)), slog.Int("contextualbindings", len(result.ContextualBindings)))
+	}()
+	trace.stage("product")
+	p, err := a.authenticatedCommandProductContext(ctx)
 	if err != nil {
 		return result, err
 	}
-	ctx := a.commandBridgeContext()
+	trace.stage("job_projection")
 	if err := p.refreshCommandJobProjection(ctx); err != nil {
 		return result, err
 	}
+	trace.stage("epoch")
 	epoch, err := p.epochs.CaptureAuthenticated(ctx, func(ctx context.Context) (string, string, error) {
 		current, err := p.sessionSvc.RevalidateLocalSession(ctx, p.principal)
 		if err != nil || current != p.principal || !p.dependenciesMatch(a) {
+			if err != nil {
+				commandLoadCause(ctx, err)
+			} else {
+				commandLoadCause(ctx, commandexecution.ErrDenied)
+			}
 			return "", "", commandexecution.ErrDenied
 		}
 		return current.UserID, current.SessionID, nil
@@ -212,6 +224,7 @@ func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err 
 	if err != nil {
 		return result, err
 	}
+	trace.stage("watch_epoch")
 	watched, release, err := p.epochs.WatchEpoch(ctx, epoch)
 	if err != nil {
 		return result, err
@@ -222,15 +235,23 @@ func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err 
 			release()
 		}
 	}()
+	trace.stage("host_snapshot")
 	configuration, _, versions, err := p.host.ResolutionSnapshot(ctx, p.principal)
 	if err != nil || !versions.Unlocked {
+		if err != nil {
+			commandLoadCause(ctx, err)
+		} else {
+			commandLoadCause(ctx, commandexecution.ErrDenied)
+		}
 		return result, commandexecution.ErrDenied
 	}
+	trace.stage("generation")
 	view := LocalCommandKeyboardMap{Generation: uuid.Must(uuid.NewV7()).String(), OwnerID: p.principal.UserID, SessionID: p.principal.SessionID, WorkspaceID: p.workspaceID, Bindings: []LocalCommandKeyboardBinding{}, ContextualBindings: []LocalCommandKeyboardContextualBinding{}, LocalPaletteCommands: localPaletteUICommands(configuration, p.registry), LocalPaletteArguments: localPaletteUIArguments(configuration, p.registry), LocalPaletteConditions: localPaletteUIConditions(configuration, p.registry)}
 	view.ContextualPaletteConditions = contextualPaletteUIConditions(configuration, p.registry)
 	if deadline := configuration.ValidUntil(); !deadline.IsZero() {
 		view.ValidUntil = deadline.UnixMilli()
 	}
+	trace.stage("registration")
 	identities := make(map[string]LocalCommandKeyboardBinding)
 	for _, identity := range configuration.TriggerIdentities() {
 		if !strings.HasPrefix(identity, "keyboard.local:") {
@@ -259,9 +280,15 @@ func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err 
 		view.Bindings = append(view.Bindings, binding)
 		identities[identity] = binding
 	}
+	trace.stage("admit")
 	err = p.epochs.Admit(ctx, epoch, func(ctx context.Context) error {
 		current, err := p.sessionSvc.RevalidateLocalSession(ctx, p.principal)
 		if err != nil || current != p.principal || a.commandProduct.Load() != p || !p.dependenciesMatch(a) {
+			if err != nil {
+				commandLoadCause(ctx, err)
+			} else {
+				commandLoadCause(ctx, commandexecution.ErrDenied)
+			}
 			return commandexecution.ErrDenied
 		}
 		return nil
@@ -274,6 +301,11 @@ func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err 
 		}
 		current, _, v, err := p.host.ResolutionSnapshot(ctx, p.principal)
 		if err != nil || current != configuration || v != versions || watched.Err() != nil {
+			if err != nil {
+				commandLoadCause(ctx, err)
+			} else {
+				commandLoadCause(ctx, commandexecution.ErrStale)
+			}
 			return commandexecution.ErrStale
 		}
 		p.keyboardMu.Lock()
