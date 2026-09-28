@@ -1,10 +1,11 @@
 # AEP-0070 — Tool `web_search` (busca web → JSON canônico paginável)
 
 Status: Done — saída canônica paginável implementada em `internal/tools/web/web_search.go` e testes.
-Brave, Tavily e Bing implementadas como elos da cadeia
-(`brave_provider.go`, `tavily_provider.go`, `bing_provider.go`; cadeia
-Brave → Tavily → Bing → DuckDuckGo em `searchWithFallback`). Autenticação
-manual única via `WithManualAuth` em `internal/tools/http`.
+Brave e Tavily implementadas como elos da cadeia
+(`brave_provider.go`, `tavily_provider.go`; cadeia Brave → Tavily →
+DuckDuckGo em `searchWithFallback`). Autenticação manual única via
+`WithManualAuth` em `internal/tools/http`. Bing descartado: APIs
+aposentadas pela Microsoft em 11/08/2025.
 Data: 2026-06-05
 Autor: Inclunet + Cursor Agent
 
@@ -22,14 +23,13 @@ offset**, permitindo varrer mais páginas de resultados quando necessário.
 
 A descoberta de conteúdo é separada da leitura: `web_search` devolve **links e
 trechos**; para ler o conteúdo de um resultado, chama-se `web_fetch` na URL
-escolhida. A tool usa a cadeia **Brave → Tavily → Bing → DuckDuckGo**,
-atrás da interface `SearchProvider` plugável: com chave Brave cadastrada
-no credmanager usa-se a Brave; sem credencial (ou com 401/403/429/422),
+escolhida. A tool usa a cadeia **Brave → Tavily → DuckDuckGo**, atrás da
+interface `SearchProvider` plugável: com chave Brave cadastrada no
+credmanager usa-se a Brave; sem credencial (ou com 401/403/429/422),
 avança para a **Tavily** (chave no credmanager; 401/403/429/432/433
 avançam); sem credencial Tavily, com limite de plano ou com offset além
-da janela de 20, avança para o **Bing** (chave no credmanager;
-401/403/429 avançam); sem credencial Bing, cai para o **DuckDuckGo**
-(HTML, sem API key) como fallback universal.
+da janela de 20 resultados, cai para o **DuckDuckGo** (HTML, sem API key)
+como fallback universal.
 
 Escopo: **sem persistência, sem cache, sem ranking próprio** — as chaves
 vivem exclusivamente no credmanager (nunca em env/flag/argumento) e o
@@ -78,7 +78,7 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
   `feed_read`, herdando timeout/retry e o interceptor de auth (AEP-0018/0019).
 - **D5 — Provedor plugável com cadeia padrão.** Interface `SearchProvider`
   (`Search(ctx, client, query, offset, maxResults) ([]SearchResult, error)` + `Name()`).
-  A cadeia padrão é Brave → Tavily → Bing → DuckDuckGo (`searchWithFallback`):
+  A cadeia padrão é Brave → Tavily → DuckDuckGo (`searchWithFallback`):
   cada elo com credencial no credmanager é tentado em ordem; sem credencial
   ou com status fallbackable, avança. `NewWebSearchWithProvider` permite
   injetar outro ou um mock em testes.
@@ -91,8 +91,7 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
 - **D8 — Auth manual única.** Cada provedor com API resolve a credencial uma
   única vez, aplica o material na request e chama `client.Do` com
   `httpclient.WithManualAuth(ctx)`; o interceptor pula a resolução. Evita
-  duplo custo/efeito em fontes dinâmicas e headers redundantes (o Bing
-  retorna 401 com múltiplos métodos de auth na mesma request).
+  duplo custo/efeito em fontes dinâmicas e headers redundantes.
 
 ## Realidade do código (estado atual)
 
@@ -105,12 +104,6 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
   (`q`/`count`/`offset`), header `X-Subscription-Token` com chave do
   credmanager; parse de `web.results[]` (`title`/`url`/`description`). Sem
   credencial ou com 401/403/429/422, avança na cadeia.
-- Provedor Bing: GET em `https://api.bing.microsoft.com/v7.0/search`
-  (`q`/`count`/`offset`, paginação nativa), header
-  `Ocp-Apim-Subscription-Key` com chave do credmanager; parse de
-  `webPages.value[]` (`name`/`url`/`snippet`; bloco ausente = zero matches,
-  por semântica documentada da API). Sem credencial ou com 401/403/429,
-  avança na cadeia.
 - Provedor Tavily: POST em `https://api.tavily.com/search`
   (`query`/`search_depth=basic`/`max_results`), header `Authorization:
   Bearer` com chave do credmanager; parse de `results[]`
@@ -155,13 +148,10 @@ varredura de fontes); por isso a tool ganhou **paginação por offset**.
   (offset excedente não consome créditos). Evidências:
   `internal/tools/web/tavily_provider.go`,
   `internal/tools/web/tavily_provider_test.go`.
-- **Bing implementado**: `bingProvider` consulta a Bing Web Search API v7
-  (`GET /v7.0/search`, `count`/`offset` nativos) com chave resolvida por URL
-  no credmanager (`api.bing.microsoft.com`, bearer ou custom com header
-  `Ocp-Apim-Subscription-Key`); sem credencial ou com 401/403/429, avança
-  na cadeia. Usa `WithManualAuth` (o Bing rejeita múltiplos métodos de auth
-  com 401). Evidências: `internal/tools/web/bing_provider.go`,
-  `internal/tools/web/bing_provider_test.go`.
+- **Bing — descartado**: Bing Search APIs aposentadas pela Microsoft em
+  11/08/2025 (instâncias desativadas, sem cadastro novo); provedor chegou a
+  ser implementado e foi removido antes do merge. Substituto natural seria
+  o índice Google via Serper (SERP-as-a-service), a avaliar.
 - **Seleção/config de provedor** por credencial/preferência do usuário, com fallback
   automático para o DuckDuckGo quando não houver API key.
 - **Parâmetros de busca**: região/idioma (`region`, `language`), `safe_search`,
@@ -192,12 +182,11 @@ classes de provedores:
 - **Tavily Search API — implementada** (segundo elo): busca otimizada para
   agentes, com trechos de conteúdo densos por fonte; `search_depth=basic`
   (1 crédito); requer API key no credmanager.
-- **Bing Web Search API — implementada** (terceiro elo): índice distinto
-  (Microsoft), paginação nativa `count`/`offset`, `safeSearch` moderado;
-  requer subscription key no credmanager (`api.bing.microsoft.com`).
-  Bloco `webPages` ausente = zero matches (semântica da API).
-- Outras APIs especializadas (ex.: SerpAPI-like) podem entrar pela mesma
-  interface.
+- **Bing Web Search API — descartada**: APIs aposentadas pela Microsoft em
+  11/08/2025 (instâncias desativadas, sem cadastro novo); provedor chegou a
+  ser implementado e foi removido antes do merge.
+- Outras APIs especializadas (ex.: Serper/Google-SERP, Exa) podem entrar
+  pela mesma interface.
 - **Google CSE — descartado**: Custom Search JSON API fechada para novos
   clientes, com desligamento em 01/01/2027; sem caminho público viável.
 
@@ -228,12 +217,11 @@ oficiais quando disponíveis, com métricas de "parsing vazio" para detectar que
 
 ### Seleção e fallback (implementado)
 
-- Cadeia Brave → Tavily → Bing → DuckDuckGo: com credencial Brave usa-se
-  a Brave; sem credencial ou com 401/403/429/422, avança para a Tavily; sem
+- Cadeia Brave → Tavily → DuckDuckGo: com credencial Brave usa-se a Brave;
+  sem credencial ou com 401/403/429/422, avança para a Tavily; sem
   credencial Tavily, com 401/403/429/432/433 ou com offset além da janela
-  de 20, avança para o Bing; sem credencial Bing ou com 401/403/429, cai
-  para o DuckDuckGo. A seleção futura por preferência do usuário pode
-  reordenar ou inserir outros provedores na mesma cadeia.
+  de 20, cai para o DuckDuckGo. A seleção futura por preferência do usuário
+  pode reordenar ou inserir outros provedores na mesma cadeia.
 - O campo `provider` no JSON canônico já identifica qual backend respondeu, de modo
   transparente para LLM e jobs.
 - Cadeia de fallback automática em caso de erro/quota de um provedor.
@@ -262,32 +250,26 @@ parâmetros da tool — apenas troca a implementação por trás de `SearchProvi
 Evidências: `internal/tools/web/web_search_test.go`,
 `internal/tools/web/brave_provider_test.go`,
 `internal/tools/web/tavily_provider_test.go`,
-`internal/tools/web/bing_provider_test.go`,
 `internal/tools/http/client_test.go` (auth manual),
 `internal/tools/catalog_test.go` e registro em
 `internal/app/app_tool_registry.go`. Demais provedores com API, cache e
-seleção por preferência do usuário permanecem fora do escopo (Brave,
-Tavily e Bing implementadas como provedoras com API key, mantendo o
-contrato v1).
+seleção por preferência do usuário permanecem fora do escopo (Brave e
+Tavily implementadas como provedoras com API key, mantendo o contrato v1).
 
 ## Arquivos
 
 - `internal/tools/web/web_search.go` — `WebSearch` (`tools.Tool`), `SearchProvider`,
   `SearchResult`, `webSearchJSONOutput`, `duckDuckGoProvider` e cadeia
-  `searchWithFallback` (Brave → Tavily → Bing → DuckDuckGo).
+  `searchWithFallback` (Brave → Tavily → DuckDuckGo).
 - `internal/tools/web/brave_provider.go` — `braveProvider` (Brave Search API
   via credmanager) e `parseBraveResponse`.
 - `internal/tools/web/tavily_provider.go` — `tavilyProvider` (Tavily Search
   API via credmanager) e `parseTavilyResponse`.
-- `internal/tools/web/bing_provider.go` — `bingProvider` (Bing Web Search
-  API v7 via credmanager) e `parseBingResponse`.
 - `internal/tools/web/web_search_test.go` — testes (mock provider, JSON, paginação).
 - `internal/tools/web/brave_provider_test.go` — testes do Brave (token,
   parse, fallback, erro operacional) com HTTP fake, sem rede externa.
 - `internal/tools/web/tavily_provider_test.go` — testes da Tavily (token,
   parse, janela de offset, cadeia) com HTTP fake, sem rede externa.
-- `internal/tools/web/bing_provider_test.go` — testes do Bing (token,
-  parse, redundância de auth, cadeia) com HTTP fake, sem rede externa.
 - `internal/tools/http/trust.go` + `client.go` — `WithManualAuth` (auth
   manual única, interceptor pula a resolução).
 - `internal/app/app_tool_registry.go` — registro da tool.

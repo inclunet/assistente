@@ -213,17 +213,13 @@ O provedor é selecionado automaticamente, na ordem:
   com trechos de conteúdo densos por resultado. A API não pagina por offset:
   a tool serve a janela inicial (até 20 resultados) e páginas além dela caem
   no próximo provedor, sem gastar créditos.
-- **Bing Web Search API** — usada quando há chave cadastrada para o domínio
-  `api.bing.microsoft.com` (tipo bearer com a subscription key, ou tipo
-  custom com o header `Ocp-Apim-Subscription-Key`). Índice da Microsoft com
-  paginação nativa (`count`/`offset`).
 - **DuckDuckGo (HTML)** — fallback universal sem chave, usado quando não há
   credenciais, a API responde auth/quota/limite (Brave: 401/403/429/422;
-  Tavily: 401/403/429/432/433; Bing: 401/403/429) ou o `offset` pedido está
-  além da janela do provedor.
+  Tavily: 401/403/429/432/433) ou o `offset` pedido está além da janela do
+  provedor.
 
 O campo `provider` na resposta identifica qual backend respondeu. Demais erros
-das APIs Brave, Tavily e Bing (incluindo falha operacional ao resolver a
+das APIs Brave e Tavily (incluindo falha operacional ao resolver a
 credencial) são propagados sem fabricar resultados.
 
 ## Histórico
