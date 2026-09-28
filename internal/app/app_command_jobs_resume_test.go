@@ -49,6 +49,71 @@ func TestCommandJobsResumeAfterFirstKnownOSSession(t *testing.T) {
 	}
 }
 
+type commandJobsUnlockEmitter struct {
+	*testEmitter
+	published chan struct{}
+}
+
+func (e *commandJobsUnlockEmitter) Emit(event string, data any) {
+	e.testEmitter.Emit(event, data)
+	if event == "command:keyboard-map-changed" {
+		select {
+		case e.published <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func TestCommandJobsOSUnlockReleasesBootstrapWhileAuthSessionBusy(t *testing.T) {
+	a, observer := commandJobsStartupFixture(t)
+	prepareCommandJobsResume(t, a)
+	emitter := &commandJobsUnlockEmitter{testEmitter: &testEmitter{}, published: make(chan struct{}, 1)}
+	a.emitter = emitter
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	done := make(chan struct{})
+	a.authSessionMu.Lock()
+	heldAuth := true
+	defer func() {
+		cancel()
+		if heldAuth {
+			a.authSessionMu.Unlock()
+		}
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("unlock worker não terminou após liberar authSessionMu")
+		}
+	}()
+	go func() {
+		defer close(done)
+		a.bootstrapCommandLifecycleAfterOSUnlock(ctx, a.commandHost)
+	}()
+	select {
+	case <-emitter.published:
+	case <-ctx.Done():
+		t.Fatal("unlock não alcançou publicação")
+	}
+	// Simula o editor de perfil: possui authSessionMu e precisa de bootstrap.
+	// O worker de unlock precisa liberar bootstrap ANTES de aguardar authSessionMu.
+	if err := a.lockCommandBootstrap(ctx); err != nil {
+		t.Fatalf("inversão authSessionMu/bootstrap: %v", err)
+	}
+	a.unlockCommandBootstrap()
+	if observer.starts.Load() != 0 {
+		t.Fatal("jobs iniciados sem adquirir a barreira de autenticação")
+	}
+	a.authSessionMu.Unlock()
+	heldAuth = false
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("unlock não retomou após liberar autenticação")
+	}
+	if observer.starts.Load() != 1 || observer.beforeReady.Load() || a.commandJobsPending != nil {
+		t.Fatal("unlock não iniciou jobs prontos exatamente uma vez")
+	}
+}
+
 func TestCommandJobsResumeRetriesFailedStart(t *testing.T) {
 	a, observer := commandJobsStartupFixture(t)
 	prepareCommandJobsResume(t, a)

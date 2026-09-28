@@ -11,6 +11,10 @@ legada que desconhece outbox/leases. A regressão
 e retomada após restaurar o armazenamento. No unlock do SO, o defer libera
 `commandBootstrap` antes de chamar o helper de Start; a retomada com contexto
 sem deadline é exercitada por `TestCommandJobsResumeAfterFirstKnownOSSession`.
+`TestCommandJobsOSUnlockReleasesBootstrapWhileAuthSessionBusy` força concorrência
+com uma mutação que possui `authSessionMu`: ela adquire o bootstrap enquanto
+o worker de unlock aguarda autenticação e, após liberar a sessão, os jobs
+iniciam uma única vez. A ordem de locks não depende de sleeps no teste.
 A pendência pertence à sessão que a preparou; logout,
 troca de usuário e cancelamento não autorizam um bootstrap atrasado a iniciar
 jobs de outra sessão. O retry explícito também reconstrói comandos antes de

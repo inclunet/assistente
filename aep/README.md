@@ -8,6 +8,8 @@ já válidos. Testes `TestCommandJobs*` e `TestEnsureScope*` cobrem a barreira,
 cancelamento, sessão obsoleta e writer WAL concorrente. Validação manual não
 foi promovida. A manutenção já montada não cai em retenção legada após falha
 de storage; teste de regressão cobre a recusa e a retomada após recuperação.
+Teste concorrente também verifica que unlock libera bootstrap antes de aguardar
+autenticação, sem bloquear a ordem usada por mutações de perfil.
 
 **AEP-0103 — recuperação de teclado (28/09/2026): In Progress.** Hot-swap MCP
 notifica o mapa após readiness; falhas transitórias de carregamento recebem
