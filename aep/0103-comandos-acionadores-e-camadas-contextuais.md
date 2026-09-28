@@ -1,5 +1,20 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Manutenção fora do caminho crítico (28/09/2026): In Progress.** Limpeza de
+tool calls de chat deixa o reload síncrono no caminho com coordenador e permanece
+na manutenção existente após publicação dos comandos. Sem armazenamento de
+comandos, o Start legado mantém a passagem inicial síncrona. Reserva, requeue, purga e criação de epoch da
+outbox usam retry SQLite limitado por transação, com nova leitura a cada
+tentativa e sem repetir efeitos externos. Claim e requeue recalculam o relógio
+por tentativa, evitando leases já vencidas após backoff; PurgeExpiredAt preserva
+o instante explícito. Heartbeat, deadlines de replay e
+ordem de recuperação continuam inalterados. Qualificação do banco real e
+validação manual permanecem pendentes; não há novo aceite manual.
+O caminho legado preserva o aviso `runtime:partial-init`/`tool_invocations`
+para falhas da retenção inicial de chat, sem transformar a falha de limpeza
+em falha de jobs. O diagnóstico é reiniciado na próxima partida efetiva;
+o caminho coordenado permanece assíncrono, sem aguardar retenção no reload.
+
 **Concorrência de startup (28/09/2026):** uma barreira exterior cancelável
 serializa o ciclo completo de login/refresh/retry/logout e retomadas, incluindo
 preparação, bootstrap e Start. O bootstrap continua fora de `authSessionMu` e

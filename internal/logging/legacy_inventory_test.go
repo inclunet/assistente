@@ -20,8 +20,10 @@ const (
 	// hotkeys controller +1, profiles controller -1, app +2, httpapi +6,
 	// jobs manager +9 e profiles manager -5. Logs movidos sem mudar formato
 	// se cancelam; o lifecycle unificado continua usando formatos normalizados.
-	expectedLegacyFormatCount  = 774
-	expectedLegacyFormatDigest = "025e87ebcb565f2a1bd687edaeeb4e496723c93d825503ec6c70265efcfecb4f"
+	// A retenção saiu do reload síncrono: quatro formatos desse bloco foram
+	// removidos. Os logs da manutenção existente continuam no jobs.Manager.
+	expectedLegacyFormatCount  = 770
+	expectedLegacyFormatDigest = "b6f3e9fb77159af3decc7a598e10a8950458e23dad95f0c32393e956e1db869b"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.
