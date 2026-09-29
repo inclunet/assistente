@@ -247,7 +247,7 @@ func TestCommandProjectionDeliberateResetRequiresAuthoritativePublication(t *tes
 	a := preparePersistentRestoreBusyFixture(t)
 	p := a.commandProduct.Load()
 	p.persistedConfigMu.RLock()
-	store, snapshot, epoch, revision := p.persistedConfigStore, p.persistedConfigSnapshot, p.persistedConfigEpoch, p.projectionResetRevision
+	store, snapshot, epoch, revision := p.persistedConfigStore, p.persistedConfigSnapshot, p.persistedConfigEpoch, p.projectionResetRevision.Load()
 	p.persistedConfigMu.RUnlock()
 	a.resetCommandHostSession(false)
 	// Nem o término tardio de uma publicação anterior pode reativar a prova.
@@ -295,5 +295,72 @@ func TestCommandProjectionResetCancelsRecoveryAlreadyReading(t *testing.T) {
 	}
 	if _, err := p.host.Snapshot(context.Background(), p.principal); !errors.Is(err, commandexecution.ErrHostUserNotPublished) {
 		t.Fatalf("reset deixou mapa republicado: %v", err)
+	}
+}
+
+func TestCommandProjectionResetRejectsNormalAndJobReads(t *testing.T) {
+	for _, job := range []bool{false, true} {
+		t.Run(map[bool]string{false: "normal", true: "job"}[job], func(t *testing.T) {
+			a := preparePersistentRestoreBusyFixture(t)
+			db := database.DB()
+			const hook = "test:ordinary_projection_reset"
+			var once sync.Once
+			reset := false
+			if err := db.Callback().Query().After("gorm:query").Register(hook, func(tx *gorm.DB) {
+				if tx.Statement.Table == "command_layer_activation_state" {
+					once.Do(func() {
+						reset = true
+						a.resetCommandHostSession(false)
+					})
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Callback().Query().Remove(hook) }()
+			err := a.rebuildCommandLifecycleProjectionMode(context.Background(), false, job)
+			if !reset || !errors.Is(err, commandexecution.ErrStale) {
+				t.Fatalf("projeção atravessou reset: reset=%v err=%v", reset, err)
+			}
+			p := a.commandProduct.Load()
+			if _, err := p.host.Snapshot(context.Background(), p.principal); !errors.Is(err, commandexecution.ErrHostUserNotPublished) {
+				t.Fatalf("reset deixou publicação anterior utilizável: %v", err)
+			}
+		})
+	}
+}
+
+func TestCommandProjectionResetSupersedesFailedClaimTransition(t *testing.T) {
+	a := preparePersistentRestoreBusyFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	run := startRestoreWithPersistentSQLiteWriterLock(t, a, ctx)
+	defer run.cleanup()
+	select {
+	case <-run.busy:
+	case <-time.After(2 * time.Second):
+		t.Fatal("restore não encontrou writer")
+	}
+	cancel()
+	if err := <-run.done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("restore interrompido: %v", err)
+	}
+	p := a.commandProduct.Load()
+	if p.currentCommandClaimTransition() == nil {
+		t.Fatal("transição pendente não registrada")
+	}
+	previous := p.currentCommandClaimTransition()
+	a.resetCommandHostSession(false)
+	run.release()
+	if err := a.reconcileCommandLifecycleClaimsAtReset(context.Background(), previous.restore, previous.workspaceSwitch, p, previous.resetRevision); !errors.Is(err, commandexecution.ErrStale) {
+		t.Fatalf("operação capturada antes do reset foi reaplicada: %v", err)
+	}
+	if err := a.reconcileCommandLifecycleClaimsForTransition(context.Background(), false, true); err != nil {
+		t.Fatalf("reset autoritativo ficou preso na operação antiga: %v", err)
+	}
+	if err := a.rebuildCommandLifecycleProjection(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.GetLocalCommandKeyboardMap(); err != nil {
+		t.Fatalf("mapa não voltou após nova transição: %v", err)
 	}
 }

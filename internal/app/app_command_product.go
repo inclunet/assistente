@@ -74,7 +74,7 @@ type commandProductRuntime struct {
 	persistedConfigEpoch                   commandsecurity.EpochSnapshot
 	projectionRecoveryContext              context.Context
 	projectionRecoveryCancel               context.CancelFunc
-	projectionResetRevision                uint64
+	projectionResetRevision                atomic.Uint64
 	hasPersistedSnapshot                   bool
 	bridge                                 *commandbridge.Bridge
 	mu                                     sync.Mutex

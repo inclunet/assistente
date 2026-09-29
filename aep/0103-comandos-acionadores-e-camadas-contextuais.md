@@ -17,6 +17,11 @@ recuperação antes de remover o mapa e cancela reconstruções em andamento.
 A prova é checada sincronamente no gate de publicação; um término tardio
 anterior ao reset não pode reativá-la. Só nova publicação autoritativa habilita
 recuperação novamente. Shutdown também libera essa prova.
+A revisão de reset é capturada antes das leituras e mantida nas tentativas
+e no fallback de projeção de jobs; os dois caminhos revalidam dentro do gate.
+Transições pendentes pertencem à revisão em que começaram: reset autoritativo
+as torna obsoletas, sem executar a operação antiga no novo contexto. O worker
+de expiração usa a mesma prova de recuperação, inclusive para timers antigos.
 `app_command_projection_recovery_test.go` cobre falha transitória, recuperação,
 bloqueio/cancelamento e restauração após liberar um writer SQLite real; os
 testes existentes de bootstrap continuam exigindo recusa enquanto o lock durar.

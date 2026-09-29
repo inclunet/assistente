@@ -38,6 +38,10 @@ func (a *App) loadCommandLifecyclePersistedConfiguration(ctx context.Context, st
 	if store == nil {
 		return commandLifecycleLoadedConfiguration{}, false, commandexecution.ErrInvalidConfiguration
 	}
+	var resetRevision uint64
+	if product := a.commandProduct.Load(); product != nil {
+		resetRevision = product.projectionResetRevision.Load()
+	}
 	principal, err := a.currentCommandPrincipal()
 	if err != nil {
 		return commandLifecycleLoadedConfiguration{}, false, err
@@ -68,7 +72,7 @@ func (a *App) loadCommandLifecyclePersistedConfiguration(ctx context.Context, st
 	if err != nil {
 		return commandLifecycleLoadedConfiguration{}, false, err
 	}
-	return commandLifecycleLoadedConfiguration{app: a, store: store, principal: principal, workspaceID: cloneCommandWorkspace(publicationScope.WorkspaceID), snapshot: snapshot, configuration: configuration, activeLayers: activeLayers}, true, nil
+	return commandLifecycleLoadedConfiguration{app: a, store: store, principal: principal, workspaceID: cloneCommandWorkspace(publicationScope.WorkspaceID), snapshot: snapshot, configuration: configuration, activeLayers: activeLayers, publicationResetRevision: resetRevision}, true, nil
 }
 
 func commandLifecycleHasBaseGeneration(ctx context.Context, scope commandconfig.Scope) (bool, error) {
