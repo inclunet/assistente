@@ -1,5 +1,13 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — recuperação de publicação (29/09/2026): In Progress.** Mapa
+ausente é reconstruído com autenticação nova; restauração/expiração pendente
+termina antes de republicar. Manutenção coordenada usa deadline cooperativo
+`min(TTL/3, 5s)` e lotes de registros de jobs por operação/usuário, mantendo
+proteções de outbox/leases. Diagnóstico distingue sentinelas de host/projeção.
+AEP-0074-B segue Done no legado, com extensão coordenada In Progress.
+Validação do incidente no ambiente afetado permanece pendente.
+
 **AEP-0103 — menus dos gerenciadores: In Progress.** Nova camada → Configurações
 da camada e Novo → Ações nos modais, compartilhando opções e restrições com
 os menus de contexto. Voltar à última ativação passa para a toolbar com descrição

@@ -11,6 +11,7 @@ import (
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandconfig"
 	"assistente/internal/commandexecution"
+	"assistente/internal/commandsecurity"
 )
 
 // commandJobLayerProjection carrega a prova durável somente na reconstrução.
@@ -126,21 +127,50 @@ func (p *commandProductRuntime) refreshCommandJobProjection(ctx context.Context)
 		return commandexecution.ErrStale
 	}
 	_, err := p.host.Snapshot(ctx, p.principal)
-	if !errors.Is(err, commandexecution.ErrStale) {
+	if !commandProjectionNeedsRebuild(err) {
 		return err
 	}
 	p.projectionMu.Lock()
 	defer p.projectionMu.Unlock()
 	_, err = p.host.Snapshot(ctx, p.principal)
-	if !errors.Is(err, commandexecution.ErrStale) {
+	if !commandProjectionNeedsRebuild(err) {
 		return err
 	}
 	if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
 		return commandexecution.ErrStale
 	}
+	if errors.Is(err, commandexecution.ErrHostUserNotPublished) {
+		// Recuperação de publicação não substitui o bootstrap após lock/logout.
+		// A prova de segurança da última projeção deve continuar viva.
+		p.persistedConfigMu.RLock()
+		epoch, published := p.persistedConfigEpoch, p.hasPersistedSnapshot
+		p.persistedConfigMu.RUnlock()
+		if !published {
+			return commandexecution.ErrStale
+		}
+		recoveryCtx, release, err := p.epochs.WatchSecurityEpoch(ctx, epoch)
+		if err != nil {
+			return err
+		}
+		defer release()
+		if transition := p.claimTransition.Load(); transition != nil {
+			if err := p.app.reconcileCommandLifecycleClaimsForTransition(recoveryCtx, transition.restore, transition.workspaceSwitch); err != nil {
+				return err
+			}
+		}
+		// Uma mutação suspende a projeção antes do commit. Se a republicação
+		// falhar (por exemplo, BUSY), a tentativa seguinte precisa reconstruir
+		// tudo com autenticação nova; não existe baseline para preservar claims.
+		// O caminho normal mantém os guards de cofre/SO, sessão e gerações.
+		return p.app.rebuildCommandLifecycleProjection(recoveryCtx, false)
+	}
 	// Reconciliação contextual não restaura claims manuais nem suspende o
 	// mapa previamente publicado; o guard já impede seu uso se estiver velho.
 	return p.app.rebuildCommandLifecycleJobProjection(ctx)
+}
+
+func commandProjectionNeedsRebuild(err error) bool {
+	return errors.Is(err, commandexecution.ErrStale) || errors.Is(err, commandexecution.ErrHostUserNotPublished)
 }
 
 // checkPersistedCommandConfiguration catches a durable configuration write
@@ -170,12 +200,13 @@ func (p *commandProductRuntime) checkPersistedCommandConfiguration(ctx context.C
 	return nil
 }
 
-func (p *commandProductRuntime) rememberPersistedCommandConfiguration(store *commandconfig.Store, snapshot commandconfig.Snapshot) {
+func (p *commandProductRuntime) rememberPersistedCommandConfiguration(store *commandconfig.Store, snapshot commandconfig.Snapshot, epoch commandsecurity.EpochSnapshot) {
 	if p == nil || store == nil {
 		return
 	}
 	p.persistedConfigMu.Lock()
 	p.persistedConfigStore = store
+	p.persistedConfigEpoch = epoch
 	p.persistedConfigSnapshot = snapshot
 	p.hasPersistedSnapshot = true
 	p.persistedConfigMu.Unlock()

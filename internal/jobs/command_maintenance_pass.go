@@ -9,6 +9,26 @@ import (
 	"assistente/internal/logging"
 )
 
+const commandMaintenancePassMaxDuration = 5 * time.Second
+
+func commandMaintenancePassBudget(lease time.Duration) time.Duration {
+	budget := lease / 3
+	if budget <= 0 {
+		budget = time.Nanosecond
+	}
+	if budget > commandMaintenancePassMaxDuration {
+		budget = commandMaintenancePassMaxDuration
+	}
+	return budget
+}
+
+func withCommandMaintenancePassTimeout(ctx context.Context, lease time.Duration) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithTimeout(ctx, commandMaintenancePassBudget(lease))
+}
+
 // A mesma goroutine de retenção passa a cuidar do heartbeat quando o host monta
 // o coordenador. Não há loop adicional nem fallback para limpeza legada em erro.
 func (m *Manager) runCommandMaintenance(ctx context.Context) time.Duration {
@@ -22,9 +42,12 @@ func (m *Manager) runCommandMaintenance(ctx context.Context) time.Duration {
 		logging.Errorf(ctx, "jobs.manager", "instance maintenance skipped: invalid complete policy: %v", err)
 		return time.Minute
 	}
-	report, err := m.cfg.MaintenanceCoordinator.Run(ctx, policy)
+	passCtx, cancel := withCommandMaintenancePassTimeout(ctx, policy.LeaseDuration)
+	defer cancel()
+	started := time.Now()
+	report, err := m.cfg.MaintenanceCoordinator.Run(passCtx, policy)
 	if err != nil {
-		logging.Errorf(ctx, "jobs.manager", "instance maintenance failed: stage=%s heartbeat=%d outbox_requeued=%d outbox_purged=%d recovered=%d jobs_deleted=%d tools_deleted=%d invocations_deleted=%d activations_deleted=%d: %v", report.Stage, report.HeartbeatProcessed, report.OutboxRequeued, report.OutboxPurged, report.Recovered, report.JobsDeleted, report.ToolsDeleted, report.InvocationsDeleted, report.ActivationsDeleted, err)
+		logging.Errorf(ctx, "jobs.manager", "instance maintenance failed: stage=%s elapsed_ms=%d budget_ms=%d heartbeat=%d outbox_requeued=%d outbox_purged=%d recovered=%d jobs_deleted=%d tools_deleted=%d invocations_deleted=%d activations_deleted=%d: %v", report.Stage, time.Since(started).Milliseconds(), commandMaintenancePassBudget(policy.LeaseDuration).Milliseconds(), report.HeartbeatProcessed, report.OutboxRequeued, report.OutboxPurged, report.Recovered, report.JobsDeleted, report.ToolsDeleted, report.InvocationsDeleted, report.ActivationsDeleted, err)
 	}
 	return commandMaintenanceDelay(policy, report, err)
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"assistente/internal/auth"
@@ -70,10 +71,13 @@ type commandProductRuntime struct {
 	persistedConfigMu                      sync.RWMutex
 	persistedConfigStore                   *commandconfig.Store
 	persistedConfigSnapshot                commandconfig.Snapshot
+	persistedConfigEpoch                   commandsecurity.EpochSnapshot
 	hasPersistedSnapshot                   bool
 	bridge                                 *commandbridge.Bridge
 	mu                                     sync.Mutex
 	projectionMu                           sync.Mutex
+	claimTransition                        atomic.Pointer[commandClaimTransition]
+	claimTransitionRevision                atomic.Uint64
 	pending                                map[string]context.CancelFunc
 	ui                                     *commandui.Broker
 	uiRuns                                 map[string]*commandUIRun

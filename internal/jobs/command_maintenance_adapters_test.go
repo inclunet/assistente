@@ -356,7 +356,7 @@ func TestCommandMaintenanceAdaptersPreservePartialCountFromFailingUser(t *testin
 		t.Fatal(err)
 	}
 	failure := errors.New("later cleanup failed")
-	deleted, more, err := adapters.Jobs.owner.retainUsers(context.Background(), "partial", commandMaintenanceTestPolicy(), func(context.Context) (int, error) { return 3, failure })
+	deleted, more, err := adapters.Jobs.owner.retainUsers(context.Background(), "partial", commandMaintenanceTestPolicy(), func(context.Context) (int, bool, error) { return 3, false, failure })
 	if deleted != 3 || !more || !errors.Is(err, failure) {
 		t.Fatalf("partial=%d more=%v err=%v", deleted, more, err)
 	}
@@ -373,12 +373,12 @@ func TestCommandMaintenanceAdaptersCancellationPreservesCountAndCursor(t *testin
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	calls := 0
-	deleted, more, err := adapters.Jobs.owner.retainUsers(ctx, "test.cancel", policy, func(context.Context) (int, error) {
+	deleted, more, err := adapters.Jobs.owner.retainUsers(ctx, "test.cancel", policy, func(context.Context) (int, bool, error) {
 		calls++
 		if calls == 1 {
 			cancel()
 		}
-		return 7, nil
+		return 7, false, nil
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled batch error = %v, want context canceled", err)
@@ -386,8 +386,8 @@ func TestCommandMaintenanceAdaptersCancellationPreservesCountAndCursor(t *testin
 	if deleted != 7 || !more {
 		t.Fatalf("canceled batch = deleted %d, more %v; want 7,true", deleted, more)
 	}
-	deleted, more, err = adapters.Jobs.owner.retainUsers(context.Background(), "test.cancel", policy, func(context.Context) (int, error) {
-		return 3, nil
+	deleted, more, err = adapters.Jobs.owner.retainUsers(context.Background(), "test.cancel", policy, func(context.Context) (int, bool, error) {
+		return 3, false, nil
 	})
 	if err != nil {
 		t.Fatalf("resumed batch: %v", err)

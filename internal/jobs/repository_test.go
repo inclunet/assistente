@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -1333,6 +1334,202 @@ func TestDBRepositoryCleanOldRunsBatchesDeletes(t *testing.T) {
 	}
 	if remainingEvents != recentRuns {
 		t.Fatalf("remaining run events = %d, want %d", remainingEvents, recentRuns)
+	}
+}
+
+func TestDBRepositoryCleanOldRunsBatchLimitsRowsAndResumes(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.SaveJob(userA, testRepositoryJob("bounded-old-job", "Bounded old")); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().Add(-48 * time.Hour)
+	for i := 0; i < retentionBatchSize+7; i++ {
+		if err := repo.LogRun(userA, &RunLog{RunID: fmt.Sprintf("bounded-old-%03d", i), JobID: "bounded-old-job", Status: RunStatusCompleted, Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: base.Add(time.Duration(i) * time.Second)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deleted, more, err := repo.CleanOldRunsBatch(userA, 24*time.Hour, retentionBatchSize)
+	if err != nil || deleted != retentionBatchSize || !more {
+		t.Fatalf("first retention batch=(%d,%v,%v), want (%d,true,nil)", deleted, more, err, retentionBatchSize)
+	}
+	var remaining int64
+	if err := repo.db.Model(&database.JobRun{}).Where("user_id = ?", "user-a").Count(&remaining).Error; err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 7 {
+		t.Fatalf("remaining after first batch=%d, want 7", remaining)
+	}
+	deleted, more, err = repo.CleanOldRunsBatch(userA, 24*time.Hour, retentionBatchSize)
+	if err != nil || deleted != 7 || more {
+		t.Fatalf("final retention batch=(%d,%v,%v), want (7,false,nil)", deleted, more, err)
+	}
+}
+
+func TestDBRepositoryEventRetentionBatchesAreScopedCancelableAndAtomic(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	old := time.Now().Add(-48 * time.Hour)
+	tests := []struct {
+		name  string
+		table string
+		batch func(context.Context, int) (int, bool, error)
+		seed  func(string, string, time.Time) error
+		count func(string) int64
+	}{
+		{
+			name: "job events", table: "job_events",
+			batch: func(ctx context.Context, limit int) (int, bool, error) {
+				return repo.CleanOldEventsBatch(ctx, 24*time.Hour, limit)
+			},
+			seed: func(user, id string, at time.Time) error {
+				return repo.db.Create(&database.JobEvent{UUIDModel: database.UUIDModel{ID: id}, UserID: user, OccurredAt: at, Type: "test"}).Error
+			},
+			count: func(user string) int64 {
+				var n int64
+				_ = repo.db.Model(&database.JobEvent{}).Where("user_id = ?", user).Count(&n).Error
+				return n
+			},
+		},
+		{
+			name: "job run events", table: "job_run_events",
+			batch: func(ctx context.Context, limit int) (int, bool, error) {
+				return repo.CleanOldRunEventsBatch(ctx, 24*time.Hour, limit)
+			},
+			seed: func(user, id string, at time.Time) error {
+				return repo.db.Create(&database.JobRunEvent{UUIDModel: database.UUIDModel{ID: id}, UserID: user, JobRunID: "source-" + id, Sequence: 1, OccurredAt: at, Type: "test"}).Error
+			},
+			count: func(user string) int64 {
+				var n int64
+				_ = repo.db.Model(&database.JobRunEvent{}).Where("user_id = ?", user).Count(&n).Error
+				return n
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for i := 0; i < 5; i++ {
+				if err := tc.seed("user-a", fmt.Sprintf("%s-a-%d", strings.ReplaceAll(tc.name, " ", "-"), i), old.Add(time.Duration(i)*time.Second)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := tc.seed("user-b", strings.ReplaceAll(tc.name, " ", "-")+"-b", old); err != nil {
+				t.Fatal(err)
+			}
+			deleted, more, err := tc.batch(userA, 2)
+			if err != nil || deleted != 2 || !more {
+				t.Fatalf("first batch=(%d,%v,%v), want (2,true,nil)", deleted, more, err)
+			}
+			if got := tc.count("user-a"); got != 3 {
+				t.Fatalf("user-a remaining=%d, want 3", got)
+			}
+			if got := tc.count("user-b"); got != 1 {
+				t.Fatalf("user-b rows=%d, want 1", got)
+			}
+			deleted, more, err = tc.batch(userA, 2)
+			if err != nil || deleted != 2 || !more {
+				t.Fatalf("second batch=(%d,%v,%v), want (2,true,nil)", deleted, more, err)
+			}
+			deleted, more, err = tc.batch(userA, 2)
+			if err != nil || deleted != 1 || more {
+				t.Fatalf("final batch=(%d,%v,%v), want (1,false,nil)", deleted, more, err)
+			}
+
+			if err := tc.seed("user-a", strings.ReplaceAll(tc.name, " ", "-")+"-cancel", old); err != nil {
+				t.Fatal(err)
+			}
+			canceled, cancel := context.WithCancel(userA)
+			cancel()
+			if _, _, err := tc.batch(canceled, 2); !errors.Is(err, context.Canceled) {
+				t.Fatalf("canceled batch error=%v, want context.Canceled", err)
+			}
+			if got := tc.count("user-a"); got != 1 {
+				t.Fatalf("canceled cleanup changed rows; remaining=%d, want 1", got)
+			}
+
+			if err := tc.seed("user-a", strings.ReplaceAll(tc.name, " ", "-")+"-rollback", old); err != nil {
+				t.Fatal(err)
+			}
+			trigger := "reject_" + strings.ReplaceAll(tc.name, " ", "_")
+			if err := repo.db.Exec("CREATE TRIGGER " + trigger + " BEFORE DELETE ON " + tc.table + " BEGIN SELECT RAISE(ABORT, 'retention rollback'); END").Error; err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = repo.db.Exec("DROP TRIGGER " + trigger).Error })
+			deleted, _, err = tc.batch(userA, 2)
+			if err == nil || deleted != 0 {
+				t.Fatalf("failed delete=(%d,%v), want zero confirmed rows and error", deleted, err)
+			}
+			if got := tc.count("user-a"); got != 2 {
+				t.Fatalf("failed delete changed rows; remaining=%d, want 2", got)
+			}
+		})
+	}
+}
+
+func TestDBRepositoryCleanRunsExceedingCountBatchLimitsAndResumes(t *testing.T) {
+	repo, userA, userB := setupJobsRepositoryTest(t)
+	if err := repo.SaveJob(userA, testRepositoryJob("count-batch-job", "Count batch")); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveJob(userB, testRepositoryJob("count-batch-job", "Count batch B")); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().Add(-time.Hour)
+	for i, ctx := range []context.Context{userA, userB} {
+		count := 7
+		if i == 1 {
+			count = 3
+		}
+		for n := 0; n < count; n++ {
+			if err := repo.LogRun(ctx, &RunLog{RunID: fmt.Sprintf("count-batch-%d-%d", i, n), JobID: "count-batch-job", Status: RunStatusCompleted, Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: base.Add(time.Duration(n) * time.Minute)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	deleted, more, err := repo.CleanRunsExceedingCountBatch(userA, 2, 2)
+	if err != nil || deleted != 2 || !more {
+		t.Fatalf("first count batch=(%d,%v,%v), want (2,true,nil)", deleted, more, err)
+	}
+	deleted, more, err = repo.CleanRunsExceedingCountBatch(userA, 2, 2)
+	if err != nil || deleted != 2 || !more {
+		t.Fatalf("second count batch=(%d,%v,%v), want (2,true,nil)", deleted, more, err)
+	}
+	deleted, more, err = repo.CleanRunsExceedingCountBatch(userA, 2, 2)
+	if err != nil || deleted != 1 || more {
+		t.Fatalf("final count batch=(%d,%v,%v), want (1,false,nil)", deleted, more, err)
+	}
+	for _, item := range []struct {
+		ctx  context.Context
+		want int
+	}{{userA, 2}, {userB, 3}} {
+		runs, err := repo.GetRuns(item.ctx, "count-batch-job", 20)
+		if err != nil || len(runs) != item.want {
+			t.Fatalf("retained runs=%d err=%v, want %d", len(runs), err, item.want)
+		}
+	}
+	if err := repo.LogRun(userA, &RunLog{RunID: "count-batch-cancel", JobID: "count-batch-job", Status: RunStatusCompleted, Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: base.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(userA)
+	cancel()
+	if _, _, err := repo.CleanRunsExceedingCountBatch(canceled, 2, 2); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled count batch error=%v, want context.Canceled", err)
+	}
+	if err := repo.db.Create(&database.JobRunEvent{UserID: "user-a", JobRunID: "count-batch-cancel", Sequence: 1, OccurredAt: base, Type: "preserved-on-rollback"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.db.Exec("CREATE TRIGGER reject_count_batch_run BEFORE DELETE ON job_runs BEGIN SELECT RAISE(ABORT, 'retention rollback'); END").Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = repo.db.Exec("DROP TRIGGER reject_count_batch_run").Error })
+	deleted, _, err = repo.CleanRunsExceedingCountBatch(userA, 2, 2)
+	if err == nil || deleted != 0 {
+		t.Fatalf("rolled back count batch=(%d,%v), want zero confirmed runs and error", deleted, err)
+	}
+	var preserved int64
+	if err := repo.db.Model(&database.JobRunEvent{}).Where("job_run_id = ?", "count-batch-cancel").Count(&preserved).Error; err != nil {
+		t.Fatal(err)
+	}
+	if preserved != 1 {
+		t.Fatalf("dependency rows after rollback=%d, want 1", preserved)
 	}
 }
 
