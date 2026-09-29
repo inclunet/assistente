@@ -146,7 +146,9 @@ func (b *limitedSecretOutput) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func resolveCommand(ctx context.Context, c *SourceConfig) (string, error) {
+func resolveCommand(ctx context.Context, c *SourceConfig) (value string, resultErr error) {
+	started := time.Now()
+	defer func() { logCommandExecution(ctx, started, resultErr) }()
 	timeout := c.TimeoutSeconds
 	if timeout == 0 {
 		timeout = 30
@@ -168,7 +170,7 @@ func resolveCommand(ctx context.Context, c *SourceConfig) (string, error) {
 	if output.exceeded {
 		return "", errors.New("comando de credencial excedeu o limite de saída")
 	}
-	value := strings.TrimSpace(string(output.data))
+	value = strings.TrimSpace(string(output.data))
 	if value == "" || strings.ContainsAny(value, "\r\n\x00") {
 		return "", errors.New("comando deve retornar uma credencial não vazia em uma única linha")
 	}

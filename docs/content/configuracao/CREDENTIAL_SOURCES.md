@@ -77,3 +77,37 @@ Esses textos, se gravados em Valor salvo, são tratados literalmente.
 
 A política de redirects fica também nos construtores HTTP de credenciais
 compartilhados por chat, TTS e Whisper: o destino deve manter esquema, host e porta.
+
+
+## Diagnóstico das execuções por comando
+
+O log padrão (`assistente.log`) registra `component=credentials.command` e
+`msg=credential_command_execution` uma vez ao terminar cada execução real.
+Reutilizar um token em cache não gera essa linha. Não é necessário habilitar
+logs detalhados nem reiniciar o app com uma flag.
+
+- `reason=initial`: primeira resolução da entrada em cache, inclusive após edição ou troca de sessão.
+- `reason=http_401`: execução para renovar após rejeição HTTP 401. Chamadas concorrentes que compartilham a renovação não multiplicam esse registro.
+- `reason=direct`: consumidor sem cache, como resolução direta da fonte.
+- `outcome=success|failure|timeout|canceled`: resultado da execução/validação da saída; sucesso não confirma que o servidor aceitou o token novo.
+- `duration_ms`: duração do comando e validação da saída, sem o tempo de espera pelo cache ou pelo servidor HTTP.
+- `credential_id`: ID persistido, quando disponível; `cache_ref`: identificador opaco da entrada em memória; `cache_generation`: geração invalidada por 401. A referência muda ao substituir a entrada ou reiniciar o app. Consumidores diretos podem não ter esses identificadores.
+
+O contexto disponível conserva IDs de usuário, conversa, perfil e job para
+correlação. Token, comando, argumentos, variáveis de ambiente, stdout e stderr
+não são registrados. Falha ao iniciar o executável também conta como tentativa;
+validação recusada antes de chegar à execução não conta. Um processo ainda em
+execução ou interrompido pelo encerramento abrupto do app pode não ter linha final.
+
+Para contar tentativas de renovação presentes no arquivo, no PowerShell:
+
+```powershell
+(Get-Content -LiteralPath .\assistente.log | Where-Object {
+    $_ -match 'credential_command_execution' -and $_ -match 'reason=http_401'
+} | Measure-Object).Count
+```
+
+Acrescente `-and $_ -match 'outcome=success'` para contar somente as execuções
+bem-sucedidas. O total cobre apenas o histórico disponível no arquivo, não um
+contador persistente. Para investigar uma credencial, filtre também seu
+`credential_id` ou `cache_ref`.

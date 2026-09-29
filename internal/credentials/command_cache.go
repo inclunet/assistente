@@ -5,15 +5,18 @@ import (
 	"errors"
 	"maps"
 	"reflect"
+
+	"github.com/google/uuid"
 )
 
 // O token materializado é cifrado só em memória. Cada entrada/usuário tem sua
 // própria exclusão de execução: consumidores aguardam com seu próprio contexto.
 type commandCredentialCache struct {
-	gate       chan struct{}
-	encrypted  *AuthConfig
-	generation uint64
-	cancel     context.CancelFunc
+	diagnosticID string
+	gate         chan struct{}
+	encrypted    *AuthConfig
+	generation   uint64
+	cancel       context.CancelFunc
 }
 
 var errCommandCredentialChanged = errors.New("credencial de comando alterada durante a resolução")
@@ -66,6 +69,7 @@ func (m *Manager) resolveCredentialSource(ctx context.Context, dc *DomainCredent
 	}
 	if dc.command.gate == nil {
 		dc.command.gate = make(chan struct{}, 1)
+		dc.command.diagnosticID = uuid.NewString()
 	}
 	gate := dc.command.gate
 	m.mu.Unlock()
@@ -97,7 +101,7 @@ func (m *Manager) resolveCredentialSource(ctx context.Context, dc *DomainCredent
 	commandCtx, cancel := context.WithCancel(ctx)
 	dc.command.cancel = cancel
 	m.mu.Unlock()
-	value, err := ResolveSource(commandCtx, auth)
+	value, err := ResolveSource(withCommandDiagnostic(commandCtx, dc, generation), auth)
 	cancel()
 	m.mu.Lock()
 	defer m.mu.Unlock()

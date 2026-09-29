@@ -206,3 +206,35 @@ compartilhados por chat, TTS e Whisper: o destino deve manter esquema, host e po
 A revisão independente confirmou os limites existentes: execução do comando
 limitada por SourceConfig e contexto; espera concorrente cancelável pelo contexto
 do chamador; sondagens limitadas pelo timeout do cliente. Não há TTL de cache.
+
+
+## Evolução: diagnóstico de command (29/09/2026)
+
+Cada tentativa real de execução emite um evento INFO `credential_command_execution`
+no componente `credentials.command`, ao terminar, com motivo (`initial`, `http_401`,
+`direct`), resultado, duração e identidade opaca da entrada/geração. Acertos de
+cache não emitem eventos; contar motivo `http_401` mede execuções de renovação,
+sem contar separadamente consumidores concorrentes. `success` valida a execução,
+não a aceitação HTTP do token. Não há contador durável nem mudança no cache.
+
+Não são registrados token, comando, argumentos, ambiente, stdout, stderr nem
+mensagem bruta de erro. A correlação usa o contexto de logging existente e IDs;
+a referência de cache é recriada quando a entrada é substituída. Consumidores
+diretos são identificados como tal, sem presumir renovação ou validade do token.
+Eventos de término podem faltar se o processo do app terminar abruptamente.
+
+Evidências: `TestCommandDiagnosticsCountExecutionsNotRequests` cobre concorrência,
+acertos de cache, renovação HTTP 401 e troca de entrada; `TestCommandDiagnosticsDirectOutcomesAndRedaction`
+cobre resolução direta, sucesso, falha, timeout e ausência de material sensível;
+`TestCommandDiagnosticsCancellation` verifica o evento de cancelamento.
+A documentação de usuário inclui filtro PowerShell para contar renovações.
+
+Revisão local desta evolução: Codex independente `review_credential_sources`,
+rodadas 1 e 2 sem achados. Build, vet e testes focados de diagnóstico aprovados.
+Validação adicional: lint Go sem issues, TypeScript/ESLint/Stylelint aprovados,
+6.232 testes frontend em 490 arquivos aprovados; suítes credentials/providers
+aprovadas. Race local indisponível (CGO desabilitado). A suíte Go completa no
+Windows apresenta saída 0xffffffff em ACP/ACPRegistry e timeout agregado de app
+em testes de Deck, fora do diff. O verificador global de AEPs também aponta
+status canônico fora das primeiras dez linhas no AEP-0103 da base; AEP-0110 e
+seu índice permanecem sincronizados. CI Linux será acompanhado no PR.
