@@ -226,7 +226,7 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 			}
 			m.mu.RUnlock()
 			locked = false
-			return ResolveSource(ctx, auth)
+			return ResolveSource(withDirectCommandDiagnostic(ctx, dc.ID), auth)
 		}
 	}
 
@@ -342,7 +342,7 @@ func (m *Manager) getByPatternWithContext(ctx context.Context, pattern string, c
 			if cacheCommand {
 				return m.resolveCredentialSource(ctx, dc, auth)
 			}
-			return ResolveSource(ctx, auth)
+			return ResolveSource(withDirectCommandDiagnostic(ctx, dc.ID), auth)
 		}
 	}
 

@@ -159,3 +159,36 @@ func TestCommandDiagnosticsCancellation(t *testing.T) {
 		t.Fatalf("cancelamento sem diagnóstico: %+v", records)
 	}
 }
+
+func TestCommandDiagnosticsDirectManagerPreservesCredentialID(t *testing.T) {
+	f := newCommandCacheFixture(t)
+	if err := f.m.RegisterStoredCredentialWithContext(f.ctx, StoredCredential{ID: "persisted-command", Pattern: "cache.example", Auth: f.config}); err != nil {
+		t.Fatal(err)
+	}
+	output := captureCommandLogs(t)
+	f.get(t) // Aquecer cache não deve transformar os getters diretos em consumidores dele.
+	f.setValue(t, "direct-secret-value")
+	for _, resolve := range []func() (*AuthConfig, error){
+		func() (*AuthConfig, error) { return f.m.GetByPatternWithContext(f.ctx, "cache.example") },
+		func() (*AuthConfig, error) {
+			return f.m.ResolveForURLWithContext(f.ctx, "https://cache.example/models")
+		},
+	} {
+		auth, err := resolve()
+		if err != nil || auth.Token != "direct-secret-value" {
+			t.Fatalf("getter direto alterado: %v", err)
+		}
+	}
+	records := commandLogRecords(t, output)
+	if len(records) != 3 || f.count() != 3 {
+		t.Fatal("execuções diretas não contadas")
+	}
+	for _, record := range records[1:] {
+		if record["credential_id"] != "persisted-command" || record["reason"] != "direct" || record["cache_ref"] != "" || record["cache_generation"] != float64(0) {
+			t.Fatalf("identidade direta inválida: %+v", record)
+		}
+	}
+	if strings.Contains(output.String(), "direct-secret-value") {
+		t.Fatal("token direto exposto")
+	}
+}

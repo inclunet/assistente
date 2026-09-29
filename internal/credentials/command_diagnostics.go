@@ -44,3 +44,7 @@ func logCommandExecution(ctx context.Context, started time.Time, err error) {
 		"credential_id", diagnostic.credentialID, "cache_ref", diagnostic.cacheRef,
 		"cache_generation", diagnostic.generation, "duration_ms", time.Since(started).Milliseconds())
 }
+
+func withDirectCommandDiagnostic(ctx context.Context, credentialID string) context.Context {
+	return context.WithValue(ctx, commandDiagnosticKey{}, commandDiagnostic{credentialID: credentialID, reason: "direct"})
+}

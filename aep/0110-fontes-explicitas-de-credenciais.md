@@ -230,7 +230,7 @@ cobre resolução direta, sucesso, falha, timeout e ausência de material sensí
 A documentação de usuário inclui filtro PowerShell para contar renovações.
 
 Revisão local desta evolução: Codex independente `review_credential_sources`,
-rodadas 1 e 2 sem achados. Build, vet e testes focados de diagnóstico aprovados.
+rodadas 1, 2 e 3 sem achados, incluindo os ajustes da revisão remota. Build, vet e testes focados de diagnóstico aprovados.
 Validação adicional: lint Go sem issues, TypeScript/ESLint/Stylelint aprovados,
 6.232 testes frontend em 490 arquivos aprovados; suítes credentials/providers
 aprovadas. Race local indisponível (CGO desabilitado). A suíte Go completa no
@@ -238,3 +238,8 @@ Windows apresenta saída 0xffffffff em ACP/ACPRegistry e timeout agregado de app
 em testes de Deck, fora do diff. O verificador global de AEPs também aponta
 status canônico fora das primeiras dez linhas no AEP-0103 da base; AEP-0110 e
 seu índice permanecem sincronizados. CI Linux será acompanhado no PR.
+
+Revisão remota do diagnóstico: getters diretos do Manager preservam credential_id
+sem inventar cache_ref (`TestCommandDiagnosticsDirectManagerPreservesCredentialID`).
+A documentação distingue eventos INFO do destino: arquivo exige `--log-file`,
+sem prometer criação automática de assistente.log.

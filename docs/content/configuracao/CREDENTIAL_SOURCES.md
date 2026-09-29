@@ -81,17 +81,26 @@ compartilhados por chat, TTS e Whisper: o destino deve manter esquema, host e po
 
 ## Diagnóstico das execuções por comando
 
-O log padrão (`assistente.log`) registra `component=credentials.command` e
+Os eventos de nível INFO registram `component=credentials.command` e
 `msg=credential_command_execution` uma vez ao terminar cada execução real.
 Reutilizar um token em cache não gera essa linha. Não é necessário habilitar
-logs detalhados nem reiniciar o app com uma flag.
+um nível detalhado. Para gravar um arquivo, inicie o executável com `--log-file`
+(ajuste o caminho do executável conforme sua instalação):
+
+```powershell
+.\assistente.exe --log-file .\assistente.log
+```
+
+Sem `--log-file`, o aplicativo não cria `assistente.log`; consulte a saída de
+logs do processo. Se já usa a opção, os novos eventos entram no arquivo escolhido.
+O arquivo recebe linhas adicionais e pode conter execuções de sessões anteriores.
 
 - `reason=initial`: primeira resolução da entrada em cache, inclusive após edição ou troca de sessão.
 - `reason=http_401`: execução para renovar após rejeição HTTP 401. Chamadas concorrentes que compartilham a renovação não multiplicam esse registro.
 - `reason=direct`: consumidor sem cache, como resolução direta da fonte.
 - `outcome=success|failure|timeout|canceled`: resultado da execução/validação da saída; sucesso não confirma que o servidor aceitou o token novo.
 - `duration_ms`: duração do comando e validação da saída, sem o tempo de espera pelo cache ou pelo servidor HTTP.
-- `credential_id`: ID persistido, quando disponível; `cache_ref`: identificador opaco da entrada em memória; `cache_generation`: geração invalidada por 401. A referência muda ao substituir a entrada ou reiniciar o app. Consumidores diretos podem não ter esses identificadores.
+- `credential_id`: ID persistido, quando disponível; `cache_ref`: identificador opaco da entrada em memória; `cache_generation`: geração invalidada por 401. A referência muda ao substituir a entrada ou reiniciar o app. Os getters diretos do manager preservam o ID da credencial, sem referência de cache; chamadas avulsas de ResolveSource podem não ter ID.
 
 O contexto disponível conserva IDs de usuário, conversa, perfil e job para
 correlação. Token, comando, argumentos, variáveis de ambiente, stdout e stderr
