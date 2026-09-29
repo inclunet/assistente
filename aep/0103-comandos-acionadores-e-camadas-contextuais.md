@@ -17,6 +17,9 @@ recuperação antes de remover o mapa e cancela reconstruções em andamento.
 A prova é checada sincronamente no gate de publicação; um término tardio
 anterior ao reset não pode reativá-la. Só nova publicação autoritativa habilita
 recuperação novamente. Shutdown também libera essa prova.
+A exigência vale também para refresh automático de mapa presente mas stale
+e de geração persistida desatualizada: nenhum dos dois substitui o bootstrap
+após reset, mesmo antes de o gate concluir a retirada do mapa anterior.
 A revisão de reset é capturada antes das leituras e mantida nas tentativas
 e no fallback de projeção de jobs; os dois caminhos revalidam dentro do gate.
 Transições pendentes pertencem à revisão em que começaram: reset autoritativo

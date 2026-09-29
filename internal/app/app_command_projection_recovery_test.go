@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"assistente/internal/commandactivation"
+	"assistente/internal/commandconfig"
 	"assistente/internal/commandexecution"
 	"assistente/internal/database"
 	"gorm.io/gorm"
@@ -263,6 +264,61 @@ func TestCommandProjectionDeliberateResetRequiresAuthoritativePublication(t *tes
 	}
 	if _, err := a.GetLocalCommandKeyboardMap(); err != nil {
 		t.Fatalf("publicação autoritativa não recuperou mapa: %v", err)
+	}
+}
+
+func TestCommandProjectionAutomaticRefreshRequiresPublicationProof(t *testing.T) {
+	for _, path := range []string{"stale_job_before_forget", "persisted_after_forget", "persisted_without_reset"} {
+		t.Run(path, func(t *testing.T) {
+			a := preparePersistentRestoreBusyFixture(t)
+			ctx := context.Background()
+			if err := a.rebuildCommandLifecyclePersistedConfiguration(ctx); err != nil {
+				t.Fatal(err)
+			}
+			p := a.commandProduct.Load()
+			if path == "stale_job_before_forget" {
+				// Pausa lógica entre invalidar a autorização de recuperação e
+				// adquirir o gate para Forget. O mapa ainda existe, mas está stale.
+				p.invalidateCommandProjectionRecovery()
+				if _, err := p.host.Snapshot(ctx, p.principal); !errors.Is(err, commandexecution.ErrStale) {
+					t.Fatalf("esperado mapa presente e stale: %v", err)
+				}
+				if err := p.refreshCommandJobProjection(ctx); err == nil {
+					t.Fatal("refresh job reativou mapa durante reset deliberado")
+				}
+				if _, err := p.host.Snapshot(ctx, p.principal); !errors.Is(err, commandexecution.ErrStale) {
+					t.Fatalf("refresh substituiu mapa invalidado: %v", err)
+				}
+				return
+			}
+			// Simula uma escrita durável cuja notificação não chegou ao App.
+			result := database.DB().Exec("UPDATE command_config_generations SET generation = generation + 1 WHERE user_id = ?", p.principal.UserID)
+			if result.Error != nil || result.RowsAffected == 0 {
+				t.Fatalf("alterar geração persistida: rows=%d err=%v", result.RowsAffected, result.Error)
+			}
+			p.persistedConfigMu.RLock()
+			store, snapshot := p.persistedConfigStore, p.persistedConfigSnapshot
+			p.persistedConfigMu.RUnlock()
+			if err := store.CheckCurrent(ctx, snapshot); !errors.Is(err, commandconfig.ErrStale) {
+				t.Fatalf("configuração deveria estar stale: %v", err)
+			}
+			if path == "persisted_after_forget" {
+				a.resetCommandHostSession(false)
+				if err := p.checkPersistedCommandConfiguration(ctx); err == nil {
+					t.Fatal("configuração durável republicou mapa depois do reset")
+				}
+				if _, err := p.host.Snapshot(ctx, p.principal); !errors.Is(err, commandexecution.ErrHostUserNotPublished) {
+					t.Fatalf("reset não permaneceu sem publicação: %v", err)
+				}
+			} else {
+				if err := p.checkPersistedCommandConfiguration(ctx); err != nil {
+					t.Fatalf("refresh autorizado falhou: %v", err)
+				}
+				if _, err := p.host.Snapshot(ctx, p.principal); err != nil {
+					t.Fatalf("refresh autorizado não publicou: %v", err)
+				}
+			}
+		})
 	}
 }
 

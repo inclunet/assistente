@@ -28,28 +28,6 @@ func (a *App) rebuildCommandLifecycleProjection(ctx context.Context, restoreManu
 	return a.rebuildCommandLifecycleProjectionMode(ctx, restoreManual, false)
 }
 
-// Job activation claims are the only projection changes eligible for the
-// per-execution proof path. Every other rebuild remains fail-closed and
-// cancels executions when its effective configuration changes.
-func (a *App) rebuildCommandLifecycleJobProjection(ctx context.Context) error {
-	if a == nil || ctx == nil {
-		return commandexecution.ErrInvalidConfiguration
-	}
-	product := a.commandProduct.Load()
-	if product == nil {
-		return commandexecution.ErrStale
-	}
-	revision := product.projectionResetRevision.Load()
-	err := a.rebuildCommandLifecycleProjectionAtReset(ctx, false, true, product, revision)
-	if errors.Is(err, commandexecution.ErrJobProjectionBaseChanged) {
-		// A user configuration mutation raced with the claim projection. It is
-		// not eligible for preservation; publish through the ordinary canceling
-		// lifecycle path using a fresh snapshot.
-		return a.rebuildCommandLifecycleProjectionAtReset(ctx, false, false, product, revision)
-	}
-	return err
-}
-
 func (a *App) rebuildCommandLifecycleProjectionMode(ctx context.Context, restoreManual, jobClaimProjection bool) error {
 	if a == nil || ctx == nil {
 		return commandexecution.ErrInvalidConfiguration
@@ -496,9 +474,13 @@ func (loaded commandLifecycleLoadedConfiguration) publish(ctx context.Context) e
 }
 
 func (loaded commandLifecycleLoadedConfiguration) publishJobClaimProjection(ctx context.Context) error {
+	if ctx == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
 	if loaded.jobProjectionCurrent == nil || !loaded.jobProjectionCurrent() {
 		return commandexecution.ErrStale
 	}
+	recoveryProof, _ := ctx.Value(commandProjectionRecoveryProofKey{}).(context.Context)
 	loaded.app.authMu.RLock()
 	state := loaded.app.commandHost
 	sessions, credentials := loaded.app.sessionSvc, loaded.app.credMgr
@@ -509,6 +491,9 @@ func (loaded commandLifecycleLoadedConfiguration) publishJobClaimProjection(ctx 
 	}
 	err := state.RebuildUserConfigurationForJobClaimProjection(ctx,
 		func(ctx context.Context) (auth.LocalSessionPrincipal, error) {
+			if recoveryProof != nil && recoveryProof.Err() != nil {
+				return auth.LocalSessionPrincipal{}, commandexecution.ErrStale
+			}
 			principal, err := loaded.app.currentCommandPrincipal()
 			if err != nil || principal != loaded.principal || loaded.app.commandProduct.Load() != product || product.projectionResetRevision.Load() != loaded.publicationResetRevision || !product.dependenciesMatch(loaded.app) ||
 				!loaded.app.commandPrincipalMatches(sessions, credentials, principal) {
@@ -520,6 +505,9 @@ func (loaded commandLifecycleLoadedConfiguration) publishJobClaimProjection(ctx 
 			}
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return auth.LocalSessionPrincipal{}, ctxErr
+			}
+			if recoveryProof != nil && recoveryProof.Err() != nil {
+				return auth.LocalSessionPrincipal{}, commandexecution.ErrStale
 			}
 			if validated != principal || !loaded.app.commandPrincipalMatches(sessions, credentials, principal) {
 				return auth.LocalSessionPrincipal{}, commandexecution.ErrDenied

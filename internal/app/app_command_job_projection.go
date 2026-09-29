@@ -125,7 +125,11 @@ func mergeCommandLayerIDs(a, b []string) []string {
 // guard local e reconstrói apenas se ele envelheceu. A admissão do executor
 // relê o mesmo guard sob seu gate; não se repete uma execução já iniciada.
 func (p *commandProductRuntime) refreshCommandJobProjection(ctx context.Context) error {
-	if p == nil || p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
+	if p == nil || p.app == nil || ctx == nil {
+		return commandexecution.ErrStale
+	}
+	resetRevision := p.projectionResetRevision.Load()
+	if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
 		return commandexecution.ErrStale
 	}
 	_, err := p.host.Snapshot(ctx, p.principal)
@@ -138,47 +142,83 @@ func (p *commandProductRuntime) refreshCommandJobProjection(ctx context.Context)
 	if !commandProjectionNeedsRebuild(err) {
 		return err
 	}
-	if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
+	if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) || p.projectionResetRevision.Load() != resetRevision {
 		return commandexecution.ErrStale
 	}
 	if errors.Is(err, commandexecution.ErrHostUserNotPublished) {
-		return p.recoverCommandProjection(ctx)
+		return p.recoverCommandProjectionAtReset(ctx, false, resetRevision)
 	}
-	// Reconciliação contextual não restaura claims manuais nem suspende o
-	// mapa previamente publicado; o guard já impede seu uso se estiver velho.
-	return p.app.rebuildCommandLifecycleJobProjection(ctx)
+	// A prova anterior autoriza somente a reconstrução contextual de job; essa
+	// modalidade preserva execuções e heartbeat quando a projeção está stale.
+	return p.recoverCommandProjectionAtReset(ctx, true, resetRevision)
 }
 
-// Chamado sob projectionMu também pelo worker de expiração: um timer antigo
-// não autoriza republicação depois de um reset deliberado.
-func (p *commandProductRuntime) recoverCommandProjection(ctx context.Context) error {
-	if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
-		return commandexecution.ErrStale
+func (p *commandProductRuntime) withCommandProjectionRecoveryProof(ctx context.Context, resetRevision uint64) (context.Context, func(), error) {
+	if ctx == nil || p == nil || p.app == nil || p.app.commandProduct.Load() != p ||
+		!p.dependenciesMatch(p.app) || p.projectionResetRevision.Load() != resetRevision {
+		return nil, nil, commandexecution.ErrStale
 	}
 	p.persistedConfigMu.RLock()
 	epoch, published := p.persistedConfigEpoch, p.hasPersistedSnapshot
 	proof := p.projectionRecoveryContext
 	p.persistedConfigMu.RUnlock()
 	if !published || proof == nil || proof.Err() != nil {
-		return commandexecution.ErrStale
+		return nil, nil, commandexecution.ErrStale
 	}
 	bounded, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(proof, cancel)
-	defer stop()
-	defer cancel()
 	recoveryCtx, release, err := p.epochs.WatchSecurityEpoch(bounded, epoch)
+	if err != nil {
+		stop()
+		cancel()
+		return nil, nil, err
+	}
+	cleanup := func() {
+		stop()
+		cancel()
+		release()
+	}
+	if err := ctx.Err(); err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	if proof.Err() != nil || p.app.commandProduct.Load() != p || p.projectionResetRevision.Load() != resetRevision {
+		cleanup()
+		return nil, nil, commandexecution.ErrStale
+	}
+	return context.WithValue(recoveryCtx, commandProjectionRecoveryProofKey{}, proof), cleanup, nil
+}
+
+// Chamado sob projectionMu também pelo worker de expiração. A revisão é
+// fixada antes de ler prova/epochs; um reset posterior invalida todo o rebuild.
+func (p *commandProductRuntime) recoverCommandProjection(ctx context.Context) error {
+	if p == nil {
+		return commandexecution.ErrStale
+	}
+	return p.recoverCommandProjectionAtReset(ctx, false, p.projectionResetRevision.Load())
+}
+
+func (p *commandProductRuntime) recoverCommandProjectionAtReset(ctx context.Context, jobClaimProjection bool, resetRevision uint64) error {
+	recoveryCtx, cleanup, err := p.withCommandProjectionRecoveryProof(ctx, resetRevision)
 	if err != nil {
 		return err
 	}
-	defer release()
-	recoveryCtx = context.WithValue(recoveryCtx, commandProjectionRecoveryProofKey{}, proof)
+	defer cleanup()
 	if transition := p.currentCommandClaimTransition(); transition != nil {
+		if transition.resetRevision != resetRevision || p.projectionResetRevision.Load() != resetRevision {
+			return commandexecution.ErrStale
+		}
 		if err := p.app.reconcileCommandLifecycleClaimsAtReset(recoveryCtx, transition.restore, transition.workspaceSwitch, p, transition.resetRevision); err != nil {
 			return err
 		}
 	}
-	// Sem baseline não se preservam execuções: reconstrução autenticada normal.
-	return p.app.rebuildCommandLifecycleProjection(recoveryCtx, false)
+	err = p.app.rebuildCommandLifecycleProjectionAtReset(recoveryCtx, false, jobClaimProjection, p, resetRevision)
+	if jobClaimProjection && errors.Is(err, commandexecution.ErrJobProjectionBaseChanged) {
+		// A mudança da base de configuração não pode usar o caminho que preserva
+		// execuções; mantém a revisão pinada e a mesma prova para o rebuild normal.
+		return p.app.rebuildCommandLifecycleProjectionAtReset(recoveryCtx, false, false, p, resetRevision)
+	}
+	return err
 }
 
 func commandProjectionNeedsRebuild(err error) bool {
@@ -191,7 +231,11 @@ func commandProjectionNeedsRebuild(err error) bool {
 // gets the ordinary, canceling lifecycle rebuild rather than the claim-only
 // preservation path.
 func (p *commandProductRuntime) checkPersistedCommandConfiguration(ctx context.Context) error {
-	if p == nil || p.app == nil || ctx == nil || p.app.commandProduct.Load() != p {
+	if p == nil || p.app == nil || ctx == nil {
+		return commandexecution.ErrStale
+	}
+	resetRevision := p.projectionResetRevision.Load()
+	if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
 		return commandexecution.ErrStale
 	}
 	p.persistedConfigMu.RLock()
@@ -204,10 +248,26 @@ func (p *commandProductRuntime) checkPersistedCommandConfiguration(ctx context.C
 		if !errors.Is(err, commandconfig.ErrStale) {
 			return err
 		}
-		if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
+		if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) || p.projectionResetRevision.Load() != resetRevision {
 			return commandexecution.ErrStale
 		}
-		return p.app.rebuildCommandLifecycleProjection(ctx, false)
+		p.projectionMu.Lock()
+		defer p.projectionMu.Unlock()
+		if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) || p.projectionResetRevision.Load() != resetRevision {
+			return commandexecution.ErrStale
+		}
+		p.persistedConfigMu.RLock()
+		store, snapshot, hasSnapshot = p.persistedConfigStore, p.persistedConfigSnapshot, p.hasPersistedSnapshot
+		p.persistedConfigMu.RUnlock()
+		if !hasSnapshot || store == nil {
+			return commandexecution.ErrStale
+		}
+		if err := store.CheckCurrent(ctx, snapshot); err == nil {
+			return nil
+		} else if !errors.Is(err, commandconfig.ErrStale) {
+			return err
+		}
+		return p.recoverCommandProjectionAtReset(ctx, false, resetRevision)
 	}
 	return nil
 }
