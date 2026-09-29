@@ -5,6 +5,16 @@ weight: 23
 
 # Comandos e acionadores
 
+A barra de camadas começa com **Nova camada** e **Configurações da camada**,
+lado a lado. O menu reúne as ações da camada selecionada, incluindo editar,
+apagar e abrir seus comandos ou regras, respeitando as restrições de camadas
+padrão e herdadas. As mesmas opções estão no menu de contexto da linha.
+Nos gerenciadores de comandos/acionadores e regras, **Novo** é seguido pelo
+menu **Ações**: selecione um item para editar, apagar ou usar as demais ações
+contextuais disponíveis. Seleção múltipla não habilita alterações individuais.
+**Voltar à última ativação** fica na barra principal, depois desses controles,
+seguido das ações menos frequentes de restauração e atualização dos padrões.
+
 Condições de página também são reconhecidas ao carregar as configurações.
 Uma página sem ação para determinada combinação (como Ctrl+N) não desabilita
 os demais atalhos. A ação de criar nas configurações continua restrita ao
@@ -83,8 +93,8 @@ conexão, sem recriar os acionadores.
 
 Selecione uma camada na grade **Camadas**. Ao lado, consulte seu estado,
 descrição e quantidades de acionadores e regras. Na mesma barra de ferramentas
-de **Nova camada**, use **Editar camada** para alterar a camada selecionada,
-ou **Configurações da camada** para escolher o gerenciador desejado:
+de **Nova camada**, abra **Configurações da camada** para editar/apagar a camada
+selecionada ou escolher o gerenciador desejado:
 
 - **Comandos e acionadores:** consulte as associações existentes; use **Novo
   acionador** ou o menu de ações da linha para configurar teclado, paleta ou
@@ -92,8 +102,8 @@ ou **Configurações da camada** para escolher o gerenciador desejado:
 - **Regras de ativação:** consulte quando a camada se aplica; use **Nova regra**
   ou o menu da linha para editar e acionar as operações permitidas.
 
-Nos dois gerenciadores, a barra reúne **Novo**, **Editar** e **Apagar**.
-Selecione um item na grade (Espaço alterna sua seleção) para editar/apagar;
+Nos dois gerenciadores, a barra reúne **Novo** e o dropdown **Ações**, nessa ordem.
+Selecione um item na grade (Espaço alterna sua seleção) e abra **Ações** para editar/apagar;
 essas ações só ficam disponíveis quando a seleção e as permissões permitem.
 As opções próprias dos padrões e dos itens herdados continuam valendo.
 

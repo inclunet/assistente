@@ -1,5 +1,20 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Menus dos gerenciadores (28/09/2026): In Progress.** Por decisão do mantenedor,
+a toolbar de camadas começa com Nova camada e, imediatamente à direita,
+Configurações da camada. Editar/Apagar deixam de ser botões avulsos e integram
+esse dropdown, que reutiliza as ações contextuais da camada selecionada.
+Comandos/acionadores e regras seguem Novo → Ações, também reutilizando todas
+as ações contextuais da seleção única, inclusive restaurar/suprimir padrões
+e ativação de regras. Sem seleção única, Editar/Apagar ficam indisponíveis;
+as restrições de padrões, herança, revisão, busy e identidade são preservadas.
+Voltar à última ativação sai do detalhe e fica após os dois controles principais,
+antes das ações de manutenção; sua descrição explica que atua no escopo e não
+necessariamente na camada selecionada. A disponibilidade de Voltar independe
+da seleção de camada; carregamento, busy, identidade e validação do backend
+continuam obrigatórios. Nenhum listener ou atalho paralelo é
+criado: Ctrl+N permanece no AEP-0103. Validação manual de navegação/NVDA pendente.
+
 **Contrato de leitura frontend/backend (28/09/2026): In Progress.** O decoder
 de configurações reconhece `app.page` com o enum fechado já vigente. O mapa
 de teclado aceita ramos de página (e seus perfis) sem superfícies selecionadas,
