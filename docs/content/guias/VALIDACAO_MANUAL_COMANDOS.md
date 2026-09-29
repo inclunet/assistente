@@ -33,9 +33,10 @@ confirmações substituem as pendências correspondentes do registro histórico
 abaixo, sem aprovar outras variantes de UI01/CF04, os 84 critérios ou gates
 inteiros. Não solicitar repetição sem uma mudança que justifique regressão.
 
-Defeito novo relatado: Enter não abre a leitura de mensagens durante o streaming
-ou logo após o término. O aceite anterior da navegação não cobre esse cenário;
-o reteste manual específico permanece pendente de correção.
+Defeito relatado e corrigido neste PR: Enter não abria a leitura de mensagens
+durante o streaming ou logo após o término. A correção tem regressão automatizada;
+o aceite anterior da navegação não cobre esse cenário, e somente o reteste
+manual específico permanece pendente.
 
 ## Registro reconciliado — 26/09/2026 (histórico)
 
