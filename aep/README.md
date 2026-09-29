@@ -1,9 +1,15 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — aceite incremental (29/09/2026): In Progress.** Confirmados pelo
+mantenedor: Enter para editar, lista aberta após salvar, toolbar/paridade
+contextual e ativação por página. Checklist manual registra as variantes;
+leitura durante/após streaming tem defeito relatado, sem aceite antecipado.
+
 **AEP-0103 — menus dos gerenciadores: In Progress.** Nova camada → Configurações
 da camada e Novo → Ações nos modais, compartilhando opções e restrições com
 os menus de contexto. Voltar à última ativação passa para a toolbar com descrição
-do escopo. Validação manual de navegação/NVDA pendente.
+do escopo. Aceite incremental dos gerenciadores registrado em 29/09;
+variantes não relatadas de navegação/NVDA seguem pendentes.
 
 **AEP-0103 — contrato de leitura frontend/backend: In Progress.** Configurações
 aceitam o enum `app.page`; ramos vazios por página/perfil não descartam o mapa

@@ -10,7 +10,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { createChatSurfaceIdentity, createEmptyChatSession, createEmptyChatSurfaceSession, patchChatConversation } from '../../services/chatSessionRegistry';
 import { CHAT_NAVIGATION_COMMAND_EVENT, captureChatNavigationTarget, requestChatNavigationCommand, type ChatNavigationRequest, type ChatNavigationCommandID } from '../../lib/commandChatNavigation';
-import { attachChildrenToMessage } from '../../lib/chatMessageTree';
+import { attachChildrenToMessage, updateMessageContentInTree, finalizeStreamingNode } from '../../lib/chatMessageTree';
 import { chat } from '../../../wailsjs/go/models';
 
 vi.mock('../../services/audioFeedback', () => ({ playBumpSound: vi.fn(), playMessageSound: vi.fn() }));
@@ -186,6 +186,7 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].visibleThreadedMessages?.[0].message).toBe(original.message);
     expect(oldLease.isCurrent()).toBe(false);
     expect(oldLease.open('chat.message.reasoning.toggle')).toBe(false);
+    expect(captureChatNavigationTarget(() => '/chat', 'chat.message.reasoning.toggle')).toBeUndefined();
 
     act(() => useChatStore.setState(state => ({
       surfaceSessionsByKey: {
@@ -215,6 +216,88 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     if (commandID === 'chat.message.read.open') expect(root()).toHaveAttribute('aria-modal', 'true');
     if (commandID === 'chat.message.menu.open') expect(menu).toHaveBeenCalledTimes(1);
     if (commandID === 'chat.message.reasoning.toggle') expect(useChatStore.getState().isConversationReasoningExpanded(cid, mid, surface.sessionKey)).toBe(true);
+  });
+  it('Enter abre leitura nas projeções clonadas durante streaming e após finalizar', () => {
+    const streamingNode = node();
+    streamingNode.message.isStreaming = true;
+    const conversation = { id: cid, title: 'Chat', threadedMessages: [streamingNode] };
+    const surfaceSession = {
+      ...createEmptyChatSurfaceSession(cid, surface.sessionKey),
+      visibleThreadedMessages: [streamingNode],
+    };
+    useChatStore.setState({
+      timelinesByConversationId: { [cid]: conversation },
+      sessionsByConversationId: { [cid]: { ...createEmptyChatSession(cid), conversation } },
+      surfaceSessionsByKey: { [surface.sessionKey]: surfaceSession },
+    });
+
+    // This is the same immutable update path used for streamed content. The
+    // canonical timeline and visible surface are projected independently.
+    act(() => useChatStore.setState(state => patchChatConversation(state, cid, current => ({
+      ...current,
+      threadedMessages: updateMessageContentInTree(current.threadedMessages, mid, 'trecho recebido'),
+    }))));
+    const projected = useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].visibleThreadedMessages![0];
+    const canonical = useChatStore.getState().getConversationMessages(cid)[0];
+    expect(projected.message).not.toBe(canonical);
+    mount(); root().focus();
+    fireEvent.keyDown(root(), { key: 'Enter' });
+    expect(root()).toHaveAttribute('aria-modal', 'true');
+    expect(document.activeElement).toHaveAttribute('role', 'document');
+
+    act(() => useChatStore.getState().updateConversationMessage(cid, mid, 'chunk atualizado durante a leitura'));
+    expect(root()).toHaveAttribute('aria-modal', 'true');
+    expect(document.activeElement).toHaveAttribute('role', 'document');
+    expect(root().textContent).toContain('chunk atualizado durante a leitura');
+
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    act(() => useChatStore.setState(state => patchChatConversation(
+      state,
+      cid,
+      current => finalizeStreamingNode(current, mid),
+    )));
+    const finalProjection = useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].visibleThreadedMessages![0];
+    expect(finalProjection.message).not.toBe(useChatStore.getState().getConversationMessages(cid)[0]);
+    root().focus(); fireEvent.keyDown(root(), { key: 'Enter' });
+    expect(root()).toHaveAttribute('aria-modal', 'true');
+  });
+  it('recusa clone arbitrário renderizado fora da projeção registrada mesmo com ID e streaming iguais', () => {
+    const canonicalNode = node(); canonicalNode.message.isStreaming = true;
+    const arbitraryNode = node(); arbitraryNode.message.isStreaming = true;
+    const conversation = { id: cid, title: 'Chat', threadedMessages: [canonicalNode] };
+    useChatStore.setState({
+      timelinesByConversationId: { [cid]: conversation },
+      sessionsByConversationId: { [cid]: { ...createEmptyChatSession(cid), conversation } },
+      surfaceSessionsByKey: { [surface.sessionKey]: {
+        ...createEmptyChatSurfaceSession(cid, surface.sessionKey), visibleThreadedMessages: [canonicalNode],
+      } },
+    });
+    render(<MemoryRouter initialEntries={['/chat']}><WorkspacePanelProvider value={{ tab, isActive: true }}>
+      <ChatSessionProvider surface={surface}>
+        <MessageNode node={arbitraryNode} commandPathname="/chat" />
+      </ChatSessionProvider>
+    </WorkspacePanelProvider></MemoryRouter>);
+    root().focus(); fireEvent.keyDown(root(), { key: 'Enter' });
+    expect(root()).not.toHaveAttribute('aria-modal');
+    expect(executed).not.toHaveBeenCalled();
+  });
+  it('recusa a leitura se a mensagem foi removida da timeline canônica', () => {
+    const original = node();
+    const conversation = { id: cid, title: 'Chat', threadedMessages: [original] };
+    useChatStore.setState({
+      timelinesByConversationId: { [cid]: conversation },
+      sessionsByConversationId: { [cid]: { ...createEmptyChatSession(cid), conversation } },
+      surfaceSessionsByKey: { [surface.sessionKey]: {
+        ...createEmptyChatSurfaceSession(cid, surface.sessionKey), visibleThreadedMessages: [original],
+      } },
+    });
+    mount(); root().focus();
+    act(() => useChatStore.setState({
+      timelinesByConversationId: { [cid]: { id: cid, title: 'Chat', threadedMessages: [] } },
+    }));
+    fireEvent.keyDown(root(), { key: 'Enter' });
+    expect(root()).not.toHaveAttribute('aria-modal');
+    expect(executed).not.toHaveBeenCalled();
   });
   it('remoção/recriação da sessão UI invalida lease mesmo com timeline intacta', () => {
     mount(); root().focus(); const lease = captureChatNavigationTarget(() => '/chat', 'chat.message.reasoning.toggle')!;

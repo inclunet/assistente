@@ -1,5 +1,17 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Aceite manual incremental (29/09/2026): In Progress.** O mantenedor confirmou
+Enter para editar, permanência do gerenciador após salvar, organização final
+das toolbars/paridade contextual e ativação por página. Evidências delimitadas
+no checklist manual; não promovem critérios ou gates integrais. Leitura de
+mensagens durante/após streaming tem defeito relatado e exige regressão própria.
+
+Na navegação do chat, a mensagem apresentada pode ser a projeção imutável da
+superfície, distinta do objeto da timeline após `patchChatConversation`. A
+validação deve reconhecer a projeção atual sem aceitar um objeto arbitrário
+apenas por compartilhar ID. Permanecem o isolamento de usuário/sessão/conversa,
+ownership da superfície, existência canônica e invalidação de alvos antigos.
+
 **Menus dos gerenciadores (28/09/2026): In Progress.** Por decisão do mantenedor,
 a toolbar de camadas começa com Nova camada e, imediatamente à direita,
 Configurações da camada. Editar/Apagar deixam de ser botões avulsos e integram
@@ -13,7 +25,8 @@ antes das ações de manutenção; sua descrição explica que atua no escopo e 
 necessariamente na camada selecionada. A disponibilidade de Voltar independe
 da seleção de camada; carregamento, busy, identidade e validação do backend
 continuam obrigatórios. Nenhum listener ou atalho paralelo é
-criado: Ctrl+N permanece no AEP-0103. Validação manual de navegação/NVDA pendente.
+criado: Ctrl+N permanece no AEP-0103. Aceite incremental dos gerenciadores
+registrado em 29/09; variantes não relatadas de navegação/NVDA seguem pendentes.
 
 **Contrato de leitura frontend/backend (28/09/2026): In Progress.** O decoder
 de configurações reconhece `app.page` com o enum fechado já vigente. O mapa

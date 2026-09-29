@@ -93,6 +93,10 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   const canonicalMessage = useChatStore(state => conversationId
     ? state.getConversationMessages(conversationId).find(message => message.id === node.message.id)
     : undefined);
+  const canonicalBinding = React.useRef<{ renderedMessage: Message; canonicalMessage: Message | undefined } | null>(null);
+  if (!canonicalBinding.current || canonicalBinding.current.renderedMessage !== node.message) {
+    canonicalBinding.current = { renderedMessage: node.message, canonicalMessage };
+  }
   
   const [isLoading, setIsLoading] = useState(false);
   const editDraft = useChatMessageEditDraft(nodeRef, node.message, conversationId, sessionKey, commandPathname);
@@ -223,12 +227,25 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     const workspace = useWorkspaceStore.getState().workspace;
     if (!root || !owner || !workspace || !panel || !conversationId || !sessionKey || !commandPathname) return;
     mounted.current = true;
+    const containsMessageReference = (nodes: MessageNodeType[] | undefined, message: Message): boolean => (
+      !!nodes?.some(item => item.message === message || containsMessageReference(item.children, message))
+    );
     const current = () => {
       const live = navigationLive.current;
+      const binding = canonicalBinding.current;
+      const state = useChatStore.getState();
+      const currentCanonicalMessage = state.getConversationMessages(conversationId)
+        .find(message => message.id === live.node.message.id);
+      const visibleNodes = state.surfaceSessionsByKey?.[sessionKey]?.visibleThreadedMessages;
+      const belongsToCurrentProjection = visibleNodes
+        ? containsMessageReference(visibleNodes, live.node.message)
+        : currentCanonicalMessage === live.node.message;
       return mounted.current && nodeRef.current === root && live.panel?.isActive === true &&
         live.panel.tab.id === panel.tab.id && live.conversationId === conversationId && live.sessionKey === sessionKey &&
-        useChatStore.getState().surfaceSessionsByKey?.[sessionKey]?.conversationId === conversationId &&
-        useChatStore.getState().getConversationMessages(conversationId).some(message => message === live.node.message);
+        state.surfaceSessionsByKey?.[sessionKey]?.conversationId === conversationId &&
+        binding?.renderedMessage === live.node.message && binding.canonicalMessage != null &&
+        currentCanonicalMessage === binding.canonicalMessage &&
+        belongsToCurrentProjection;
     };
     const off = registerChatNavigationSurface({
       root, instanceId: navigationInstanceId,
