@@ -12,6 +12,11 @@ Recuperação exige a prova de segurança ainda viva da projeção anterior e
 mantém um watch próprio durante o trabalho; lock/logout exigem o bootstrap
 autoritativo correspondente. Revisões de transição impedem publicar uma
 leitura que atravessou uma restauração, mesmo depois de ela terminar.
+Reset deliberado de sessão, workspace ou configuração retira a prova de
+recuperação antes de remover o mapa e cancela reconstruções em andamento.
+A prova é checada sincronamente no gate de publicação; um término tardio
+anterior ao reset não pode reativá-la. Só nova publicação autoritativa habilita
+recuperação novamente. Shutdown também libera essa prova.
 `app_command_projection_recovery_test.go` cobre falha transitória, recuperação,
 bloqueio/cancelamento e restauração após liberar um writer SQLite real; os
 testes existentes de bootstrap continuam exigindo recusa enquanto o lock durar.

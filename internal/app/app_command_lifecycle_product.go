@@ -169,17 +169,18 @@ func (a *App) buildCommandLifecycleProjection(ctx context.Context, restoreManual
 }
 
 type commandLifecycleLoadedConfiguration struct {
-	app                  *App
-	store                *commandconfig.Store
-	principal            auth.LocalSessionPrincipal
-	workspaceID          *string
-	snapshot             commandconfig.Snapshot
-	configuration        *commandbindings.Configuration
-	activeLayers         []string
-	guard                func(context.Context) error
-	jobClaimProjection   bool
-	jobProjectionCurrent func() bool
-	publicationEpoch     commandsecurity.EpochSnapshot
+	app                      *App
+	store                    *commandconfig.Store
+	principal                auth.LocalSessionPrincipal
+	workspaceID              *string
+	snapshot                 commandconfig.Snapshot
+	configuration            *commandbindings.Configuration
+	activeLayers             []string
+	guard                    func(context.Context) error
+	jobClaimProjection       bool
+	jobProjectionCurrent     func() bool
+	publicationEpoch         commandsecurity.EpochSnapshot
+	publicationResetRevision uint64
 }
 
 func (a *App) restoreCommandLifecyclePersistentClaims(ctx context.Context) error {
@@ -378,13 +379,17 @@ func commandLifecycleRuleKey(layerKind commandactivation.RefKind, layer string, 
 }
 
 func (loaded commandLifecycleLoadedConfiguration) publish(ctx context.Context) error {
-	if loaded.app == nil || loaded.store == nil || loaded.configuration == nil || loaded.principal.UserID == "" || loaded.principal.SessionID == "" {
+	if ctx == nil || loaded.app == nil || loaded.store == nil || loaded.configuration == nil || loaded.principal.UserID == "" || loaded.principal.SessionID == "" {
 		return commandexecution.ErrInvalidConfiguration
 	}
 	product := loaded.app.commandProduct.Load()
 	if product == nil || product.principal != loaded.principal {
 		return commandexecution.ErrStale
 	}
+	product.persistedConfigMu.RLock()
+	loaded.publicationResetRevision = product.projectionResetRevision
+	product.persistedConfigMu.RUnlock()
+	recoveryProof, _ := ctx.Value(commandProjectionRecoveryProofKey{}).(context.Context)
 	epoch, err := product.epochs.Capture(ctx, loaded.principal.UserID, loaded.principal.SessionID)
 	if err != nil {
 		return err
@@ -412,6 +417,11 @@ func (loaded commandLifecycleLoadedConfiguration) publish(ctx context.Context) e
 		}
 		return loaded.configuration, loaded.activeLayers, nil
 	}, func(ctx context.Context) error {
+		// Revalidado também dentro do gate de publicação. Não depender da
+		// entrega assíncrona de AfterFunc para impedir publicação após reset.
+		if recoveryProof != nil && recoveryProof.Err() != nil {
+			return commandexecution.ErrStale
+		}
 		principal, err := loaded.app.currentCommandPrincipal()
 		if err != nil || principal != loaded.principal {
 			return commandexecution.ErrDenied
@@ -430,7 +440,7 @@ func (loaded commandLifecycleLoadedConfiguration) publish(ctx context.Context) e
 	}
 	if err == nil {
 		if p := loaded.app.commandProduct.Load(); p != nil && p.principal == loaded.principal {
-			p.rememberPersistedCommandConfiguration(loaded.store, loaded.snapshot, loaded.publicationEpoch)
+			p.rememberPersistedCommandConfiguration(loaded.store, loaded.snapshot, loaded.publicationEpoch, loaded.publicationResetRevision)
 			p.scheduleCommandManualExpiry()
 		}
 	}
@@ -488,7 +498,7 @@ func (loaded commandLifecycleLoadedConfiguration) publishJobClaimProjection(ctx 
 	}
 	if err == nil {
 		if p := loaded.app.commandProduct.Load(); p != nil && p.principal == loaded.principal {
-			p.rememberPersistedCommandConfiguration(loaded.store, loaded.snapshot, loaded.publicationEpoch)
+			p.rememberPersistedCommandConfiguration(loaded.store, loaded.snapshot, loaded.publicationEpoch, loaded.publicationResetRevision)
 			p.scheduleCommandManualExpiry()
 		}
 	}

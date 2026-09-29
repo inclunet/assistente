@@ -23,6 +23,8 @@ type commandJobProjection struct {
 	current func() bool
 }
 
+type commandProjectionRecoveryProofKey struct{}
+
 func (a *App) commandJobLayerProjection(ctx context.Context, principal auth.LocalSessionPrincipal, scope commandconfig.Scope) (*commandJobProjection, func(context.Context) error, error) {
 	mounted := a.commandMaintenance.Load()
 	if mounted == nil {
@@ -144,15 +146,21 @@ func (p *commandProductRuntime) refreshCommandJobProjection(ctx context.Context)
 		// A prova de segurança da última projeção deve continuar viva.
 		p.persistedConfigMu.RLock()
 		epoch, published := p.persistedConfigEpoch, p.hasPersistedSnapshot
+		proof := p.projectionRecoveryContext
 		p.persistedConfigMu.RUnlock()
-		if !published {
+		if !published || proof == nil || proof.Err() != nil {
 			return commandexecution.ErrStale
 		}
-		recoveryCtx, release, err := p.epochs.WatchSecurityEpoch(ctx, epoch)
+		bounded, cancel := context.WithCancel(ctx)
+		stop := context.AfterFunc(proof, cancel)
+		defer stop()
+		defer cancel()
+		recoveryCtx, release, err := p.epochs.WatchSecurityEpoch(bounded, epoch)
 		if err != nil {
 			return err
 		}
 		defer release()
+		recoveryCtx = context.WithValue(recoveryCtx, commandProjectionRecoveryProofKey{}, proof)
 		if transition := p.claimTransition.Load(); transition != nil {
 			if err := p.app.reconcileCommandLifecycleClaimsForTransition(recoveryCtx, transition.restore, transition.workspaceSwitch); err != nil {
 				return err
@@ -200,14 +208,43 @@ func (p *commandProductRuntime) checkPersistedCommandConfiguration(ctx context.C
 	return nil
 }
 
-func (p *commandProductRuntime) rememberPersistedCommandConfiguration(store *commandconfig.Store, snapshot commandconfig.Snapshot, epoch commandsecurity.EpochSnapshot) {
+func (p *commandProductRuntime) rememberPersistedCommandConfiguration(store *commandconfig.Store, snapshot commandconfig.Snapshot, epoch commandsecurity.EpochSnapshot, resetRevision uint64) {
 	if p == nil || store == nil {
 		return
 	}
 	p.persistedConfigMu.Lock()
+	defer p.persistedConfigMu.Unlock()
+	if p.projectionResetRevision != resetRevision {
+		return
+	}
+	if p.projectionRecoveryCancel != nil {
+		p.projectionRecoveryCancel()
+	}
+	p.projectionRecoveryContext, p.projectionRecoveryCancel = context.WithCancel(p.app.commandBridgeContext())
 	p.persistedConfigStore = store
 	p.persistedConfigEpoch = epoch
 	p.persistedConfigSnapshot = snapshot
 	p.hasPersistedSnapshot = true
-	p.persistedConfigMu.Unlock()
+}
+
+// Retirada deliberada não é uma falha recuperável de publicação.
+func (a *App) invalidateCommandProjectionRecovery() {
+	if a == nil {
+		return
+	}
+	p := a.commandProduct.Load()
+	p.invalidateCommandProjectionRecovery()
+}
+
+func (p *commandProductRuntime) invalidateCommandProjectionRecovery() {
+	if p == nil {
+		return
+	}
+	p.persistedConfigMu.Lock()
+	defer p.persistedConfigMu.Unlock()
+	p.projectionResetRevision++
+	if p.projectionRecoveryCancel != nil {
+		p.projectionRecoveryCancel()
+	}
+	p.projectionRecoveryContext, p.projectionRecoveryCancel = nil, nil
 }

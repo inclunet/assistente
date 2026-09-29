@@ -242,3 +242,58 @@ func TestCommandProjectionSettingsAuthorityCannotReplacePublishedSecurityProof(t
 		t.Fatalf("bootstrap não liberou nova ocorrência: %v", err)
 	}
 }
+
+func TestCommandProjectionDeliberateResetRequiresAuthoritativePublication(t *testing.T) {
+	a := preparePersistentRestoreBusyFixture(t)
+	p := a.commandProduct.Load()
+	p.persistedConfigMu.RLock()
+	store, snapshot, epoch, revision := p.persistedConfigStore, p.persistedConfigSnapshot, p.persistedConfigEpoch, p.projectionResetRevision
+	p.persistedConfigMu.RUnlock()
+	a.resetCommandHostSession(false)
+	// Nem o término tardio de uma publicação anterior pode reativar a prova.
+	p.rememberPersistedCommandConfiguration(store, snapshot, epoch, revision)
+	if err := p.refreshCommandJobProjection(context.Background()); err == nil {
+		t.Fatal("reset deliberado foi interpretado como falha transitória")
+	}
+	if _, err := a.GetLocalCommandKeyboardMap(); err == nil {
+		t.Fatal("endpoint republicou antes do bootstrap autoritativo")
+	}
+	if err := a.rebuildCommandLifecyclePersistedConfiguration(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.GetLocalCommandKeyboardMap(); err != nil {
+		t.Fatalf("publicação autoritativa não recuperou mapa: %v", err)
+	}
+}
+
+func TestCommandProjectionResetCancelsRecoveryAlreadyReading(t *testing.T) {
+	a := preparePersistentRestoreBusyFixture(t)
+	p := a.commandProduct.Load()
+	if err := p.host.ForgetUserConfiguration(context.Background(), p.principal.UserID); err != nil {
+		t.Fatal(err)
+	}
+	db := database.DB()
+	const hook = "test:recovery_deliberate_reset"
+	var once sync.Once
+	reset := false
+	if err := db.Callback().Query().After("gorm:query").Register(hook, func(tx *gorm.DB) {
+		if tx.Statement.Table == "command_layer_activation_state" {
+			once.Do(func() {
+				reset = true
+				a.resetCommandHostSession(false)
+			})
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Callback().Query().Remove(hook) }()
+	if err := p.refreshCommandJobProjection(context.Background()); err == nil {
+		t.Fatal("recuperação em andamento republicou depois do reset")
+	}
+	if !reset {
+		t.Fatal("recuperação não alcançou o reset injetado")
+	}
+	if _, err := p.host.Snapshot(context.Background(), p.principal); !errors.Is(err, commandexecution.ErrHostUserNotPublished) {
+		t.Fatalf("reset deixou mapa republicado: %v", err)
+	}
+}

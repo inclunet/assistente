@@ -7,6 +7,8 @@ termina antes de republicar. Manutenção coordenada usa deadline cooperativo
 proteções de outbox/leases. Diagnóstico distingue sentinelas de host/projeção.
 AEP-0074-B segue Done no legado, com extensão coordenada In Progress.
 Validação do incidente no ambiente afetado permanece pendente.
+Resets deliberados invalidam a prova antes de retirar o mapa e cancelam
+recuperações em andamento; uma publicação anterior que termina tarde não a reativa.
 
 **AEP-0103 — menus dos gerenciadores: In Progress.** Nova camada → Configurações
 da camada e Novo → Ações nos modais, compartilhando opções e restrições com

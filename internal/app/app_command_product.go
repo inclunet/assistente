@@ -72,6 +72,9 @@ type commandProductRuntime struct {
 	persistedConfigStore                   *commandconfig.Store
 	persistedConfigSnapshot                commandconfig.Snapshot
 	persistedConfigEpoch                   commandsecurity.EpochSnapshot
+	projectionRecoveryContext              context.Context
+	projectionRecoveryCancel               context.CancelFunc
+	projectionResetRevision                uint64
 	hasPersistedSnapshot                   bool
 	bridge                                 *commandbridge.Bridge
 	mu                                     sync.Mutex
@@ -272,6 +275,7 @@ func (p *commandProductRuntime) Shutdown(ctx context.Context) error {
 		}
 		clear(p.uiRuns)
 		p.mu.Unlock()
+		p.invalidateCommandProjectionRecovery()
 		p.app.clearExternalUIConnections()
 		p.resolutionMu.Lock()
 		p.resolutionStopped = true

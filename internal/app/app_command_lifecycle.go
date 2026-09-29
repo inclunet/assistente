@@ -473,6 +473,7 @@ func (a *App) authResultStillCurrent(result *AuthUser) bool {
 // Deve ser chamado pelo principal fora de authMu, authSessionMu e do
 // DispatchGate, após a autenticação/transição que motivou o reset terminar.
 func ResetCommandLifecycle(ctx context.Context, a *App, reason string) error {
+	a.invalidateCommandProjectionRecovery()
 	runtime, ok := loadCommandLifecycle(a)
 	if !ok {
 		return commandruntime.ErrInvalidConfiguration
