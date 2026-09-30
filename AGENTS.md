@@ -35,6 +35,42 @@ Toda feature ou correção não-trivial segue este fluxo, sem exceções:
 - Nunca deletar testes para "resolver" falhas.
 - Nunca simplificar testes para facilitar aprovação; corrigir o código é sempre o caminho.
 
+## Executáveis e diretórios de build (OBRIGATÓRIO)
+
+- **NUNCA** direcione executáveis, binários de teste, bibliotecas carregáveis ou
+  scripts executáveis para pastas temporárias do sistema (`%TEMP%`, `%TMP%`,
+  `AppData/Local/Temp`, `/tmp`, `/var/tmp` ou equivalentes), nem os execute dali.
+  Isso inclui saídas intermediárias e executáveis criados automaticamente por
+  compiladores, geradores, testes e ferramentas auxiliares.
+- Use diretórios de build dentro do worktree ativo, sob `build/bin/` (já ignorado
+  pelo Git). Não versione artefatos nem altere a configuração global da máquina.
+- **Antes** de comandos que possam compilar ou executar artefatos (`go build`,
+  `go test`, `go run`, `go vet`, Wails, linters e geradores), configure os diretórios
+  no ambiente do processo e dos filhos. Go exige `GOTMPDIR` e `GOCACHE` fora da
+  pasta temporária do sistema; apenas `go test -o` não controla os intermediários.
+- Configure também `TEMP`, `TMP` e `TMPDIR` para um diretório de trabalho sob
+  `build/bin/`, para cobrir subprocessos e helpers que usam o diretório temporário
+  padrão. Reaplique as variáveis em cada shell novo; não presuma persistência.
+- Em PowerShell, a partir da raiz do worktree:
+
+  ```powershell
+  $agentBuildRoot = Join-Path (Get-Location).Path 'build/bin/agent-build'
+  'go-work', 'go-cache', 'scratch' | ForEach-Object {
+      New-Item -ItemType Directory -Force -Path (Join-Path $agentBuildRoot $_) | Out-Null
+  }
+  $env:GOTMPDIR = Join-Path $agentBuildRoot 'go-work'
+  $env:GOCACHE = Join-Path $agentBuildRoot 'go-cache'
+  $env:TEMP = $env:TMP = $env:TMPDIR = Join-Path $agentBuildRoot 'scratch'
+  ```
+
+- Em outros shells, aplique as mesmas variáveis com caminhos absolutos no worktree.
+  Confira os caminhos efetivos antes de compilar; saídas explícitas de binários
+  (`-o`) e intermediários executáveis de geradores também ficam sob `build/bin/`.
+  Código-fonte gerado e versionado mantém seu destino contratual, como
+  `frontend/wailsjs/`. Se uma ferramenta ignorar a configuração dos executáveis,
+  corrija seu destino antes de executá-la; não use a pasta temporária do sistema
+  como fallback.
+
 ## Logs (performance + ruído)
 - Evite adicionar `console.log` em código de produção.
 - Ao mexer em um recurso/arquivo, remova `console.log` existentes no trecho tocado.
