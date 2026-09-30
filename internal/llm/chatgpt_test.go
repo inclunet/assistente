@@ -152,3 +152,40 @@ func TestChatGPTCatalogFailuresAreSafeCodes(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestChatGPTMissingAuthorizationRequiresReconnect(t *testing.T) {
+	if got := chatGPTTransportFailure(context.Background(), fmt.Errorf("wrapped: %w", oauthflow.ErrNotFound)); got != "chatgpt_reauthorization_required" {
+		t.Fatal(got)
+	}
+}
+func TestChatGPTWatchdogDistinguishesUserCancellation(t *testing.T) {
+	for _, userCancel := range []bool{false, true} {
+		t.Run(fmt.Sprint(userCancel), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprint(w, "event: response.reasoning_summary_text.delta\ndata: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"thought\"}\n\n")
+				w.(http.Flusher).Flush()
+				if userCancel {
+					cancel()
+				}
+				<-r.Context().Done()
+			}))
+			defer server.Close()
+			p := NewOpenAIResponsesProvider(&ProviderConfig{ID: "chatgpt", Type: ProviderChatGPT, BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, StreamIdleTimeoutSeconds: 1}, nil)
+			handler := &chatGPTTerminalHandler{}
+			p.streamChatResponses(ctx, "model", []Message{{Role: "user", Content: "Hi"}}, ChatParams{}, handler)
+			expected := streamIdleErrorMessage
+			if userCancel {
+				expected = "chatgpt_request_cancelled"
+			}
+			if handler.err != expected || handler.done != "" || !handler.nonRetryable {
+				t.Fatalf("classification: %+v", handler)
+			}
+			if !userCancel && strings.Join(handler.sequence, ",") != "thinking_done,error" {
+				t.Fatalf("thinking: %v", handler.sequence)
+			}
+		})
+	}
+}

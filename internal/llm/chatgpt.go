@@ -126,7 +126,7 @@ func chatGPTFailure(ctx context.Context, code string) string {
 	return result
 }
 func chatGPTTransportFailure(ctx context.Context, err error) string {
-	if errors.Is(err, oauthflow.ErrReauthorize) {
+	if errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrNotFound) {
 		return chatGPTFailure(ctx, "authentication_error")
 	}
 	if errors.Is(err, oauthflow.ErrPermission) {

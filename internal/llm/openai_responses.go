@@ -689,6 +689,10 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	wd.Stop()
 	if err := stream.Err(); err != nil {
 		if p.provider.Type == ProviderChatGPT {
+			if ctx.Err() == nil && wd.TimedOut() {
+				failChatGPT(streamIdleErrorMessage)
+				return mcpStreamAttemptResult{done: true}
+			}
 			failChatGPT(chatGPTTransportFailure(ctx, err))
 			return mcpStreamAttemptResult{done: true}
 		}

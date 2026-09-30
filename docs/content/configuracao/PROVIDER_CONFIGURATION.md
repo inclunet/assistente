@@ -60,6 +60,9 @@ Falhas de resposta incompleta, conexão interrompida, autorização e limite do 
 são apresentadas no idioma da interface. Ao atingir o limite, consulte o uso pelo
 link junto ao seletor de modelos; a solicitação não é repetida automaticamente.
 O catálogo também traduz falhas de autorização, permissão e indisponibilidade.
+Uma autorização local ausente orienta reconectar. Se o stream ficar sem eventos
+até o limite de ociosidade, a mensagem informa o timeout, sem atribuí-lo a um
+cancelamento feito por você.
 Quando a renovação ainda não é permitida pelo servidor, aguarde e tente novamente;
 isso não significa que sua autorização foi revogada.
 A descoberta do modelo padrão é opcional: sua falha não desfaz uma conexão já autorizada.

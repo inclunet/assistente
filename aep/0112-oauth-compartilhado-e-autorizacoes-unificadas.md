@@ -287,7 +287,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   e tokens de teste, falha de persistência, concorrência, escopo e conclusão SSE.
 - O teste de consentimento com uma conta real depende de ação do usuário no
   navegador. Não foi realizado automaticamente nem usa credenciais de terceiros.
-- Revisão independente local em quinze rodadas, com correções de isolamento de
+- Revisão independente local em dezesseis rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Cancelamento é registrado antes do preflight; importação sem autorização local
   pode ser excluída com o cofre indisponível, após confirmar ausência na transação.
@@ -308,6 +308,8 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   o diálogo aguarda a persistência antes de fechar; o consentimento continua cancelável.
 - O transporte preserva a causa da falha de refresh; catálogo e chat traduzem
   indisponibilidade temporária sem confundi-la com autorização revogada.
+- Watchdog mantém a classificação de ociosidade; autorização ausente orienta
+  reconexão e exclusão com cofre indisponível orienta recuperação nos três idiomas.
 - Falhas ChatGPT usam códigos estáveis e traduções nos três idiomas. Salvar o
   modelo padrão é opcional e não invalida um consentimento já concluído.
 - MCP compartilha somente o árbitro de interação nesta fase. Discovery, DCR,

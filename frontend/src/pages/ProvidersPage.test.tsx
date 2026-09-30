@@ -293,7 +293,7 @@ describe('ProvidersPage', () => {
     expect(mockAddToast).not.toHaveBeenCalledWith(expect.anything(), 'error');
   });
 
-  it.each([['chatgpt_disconnect_before_delete', 'chatgpt.disconnectBeforeDelete'], ['chatgpt_authorization_in_progress', 'chatgpt.authorizationInProgress']])('traduz recusa de exclusao %s', async (code, key) => {
+  it.each([['oauth_vault_persistence_required', 'chatgpt.vaultUnavailable'], ['oauth_vault_unavailable', 'chatgpt.vaultUnavailable'], ['chatgpt_disconnect_before_delete', 'chatgpt.disconnectBeforeDelete'], ['chatgpt_authorization_in_progress', 'chatgpt.authorizationInProgress']])('traduz recusa de exclusao %s', async (code, key) => {
     mockDeleteProvider.mockRejectedValueOnce(new Error(code));
     const user = userEvent.setup();
     render(<ProvidersPage />);

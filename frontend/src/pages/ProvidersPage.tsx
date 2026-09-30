@@ -293,7 +293,11 @@ export default function ProvidersPage() {
       await loadProviders();
     } catch (error: unknown) {
       const message = getErrorMessage(error);
-      addToast(message.includes('chatgpt_authorization_in_progress') ? t('chatgpt.authorizationInProgress') : message.includes('chatgpt_disconnect_before_delete') ? t('chatgpt.disconnectBeforeDelete') : (message || t('providers.error.deleteFailed')), 'error');
+      const errorKey = message.includes('oauth_vault_persistence_required') || message.includes('oauth_vault_unavailable')
+        ? 'chatgpt.vaultUnavailable'
+        : message.includes('chatgpt_authorization_in_progress') ? 'chatgpt.authorizationInProgress'
+        : message.includes('chatgpt_disconnect_before_delete') ? 'chatgpt.disconnectBeforeDelete' : '';
+      addToast(errorKey ? t(errorKey) : (message || t('providers.error.deleteFailed')), 'error');
       return;
     }
 
