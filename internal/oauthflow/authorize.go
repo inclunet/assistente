@@ -82,6 +82,8 @@ func (s *Service) Authorize(ctx context.Context, store Store, id, hostID string,
 			values[key] = v
 		}
 	}
+	// Record exactly what this consent requested, including integration overrides.
+	r.RequestedScopes = strings.Fields(values.Get("scope"))
 	type callback struct{ values url.Values }
 	results := make(chan callback, 1)
 	var consumed atomic.Bool

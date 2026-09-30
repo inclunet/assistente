@@ -295,7 +295,11 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 - Coletor síncrono exige conclusão explícita; `response.completed` encerra a leitura
   sem depender de EOF. Revogação usa access token quando não há refresh token.
   Regressões cobrem conexão SSE aberta, erro tardio e revogação sem refresh.
-- Revisão independente local em vinte e uma rodadas, com correções de isolamento de
+- Resposta inicial sem `scope` usa o pedido efetivamente enviado no consentimento
+  atual (RFC 6749, seção 5.1), mantendo validação do ID token. Escopo explícito
+  reduzido não é ampliado; refresh sem escopo preserva as permissões anteriores.
+- Cancelamento anterior à primeira tentativa ChatGPT também usa código traduzível.
+- Revisão independente local em vinte e três rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
@@ -372,6 +376,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 
 Fontes oficiais consultadas em 30/09/2026; revalidar na implementação:
 
+- [OAuth 2.0 — resposta de token (RFC 6749, seção 5.1)](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.1)
 - [OpenAI — visão geral](https://developers.openai.com/siwc/token-sharing-open-source)
 - [OpenAI — registro e autorização](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
 - [OpenAI — referência de tokens](https://developers.openai.com/siwc/token-sharing-open-source/token-reference)

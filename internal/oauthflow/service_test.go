@@ -184,13 +184,14 @@ func TestAuthorizePKCECallbackAndValidatedIdentity(t *testing.T) {
 		}
 		signer, _ := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: key}, (&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", "test"))
 		signed, _ := jwt.Signed(signer).Claims(jwt.Claims{Issuer: issuer, Subject: "subject", Audience: jwt.Audience{"issued"}, Expiry: jwt.NewNumericDate(time.Now().Add(time.Hour))}).Claims(map[string]any{"nonce": nonce, "email": "user@example.test"}).Serialize()
-		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "access", "refresh_token": "refresh", "token_type": "Bearer", "id_token": signed, "scope": "openid invoke", "expires_in": 3600})
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "access", "refresh_token": "refresh", "token_type": "Bearer", "id_token": signed, "expires_in": 3600})
 	})
 	store = m
 	issuer = server.URL
 	store.r.Client.ID = ""
 	store.r.Tokens = Tokens{}
 	store.r.State = "pending"
+	store.r.RequestedScopes = []string{"obsolete-scope"}
 	summary, err := s.Authorize(context.Background(), store, store.r.ID, "host", func(raw string) error {
 		u, _ := url.Parse(raw)
 		q := u.Query()
@@ -215,6 +216,9 @@ func TestAuthorizePKCECallbackAndValidatedIdentity(t *testing.T) {
 	}, "Return to app")
 	if err != nil || summary.State != "connected" || summary.Email != "user@example.test" {
 		t.Fatalf("authorization: %+v %v", summary, err)
+	}
+	if strings.Join(store.r.RequestedScopes, " ") != "openid invoke" || strings.Join(store.r.GrantedScopes, " ") != "openid invoke" {
+		t.Fatal("omitted scope did not use current consent request")
 	}
 	if strings.Contains(fmt.Sprintf("%+v", summary), "refresh") {
 		t.Fatal("summary leaked token")
@@ -360,6 +364,67 @@ func TestDisconnectAccessOnlyRevocation(t *testing.T) {
 			}
 			if calls != expectedCalls || store.r.Tokens != (Tokens{ID: "validated-identity"}) || store.r.State != "disconnected" {
 				t.Fatal("revocation lifecycle", calls)
+			}
+		})
+	}
+}
+
+func TestInitialTokenScopeOmissionKeepsIdentityValidation(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, store, server := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &key.PublicKey, KeyID: "test", Algorithm: "RS256", Use: "sig"}}})
+	})
+	signer, _ := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: key}, (&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", "test"))
+	signed, _ := jwt.Signed(signer).Claims(jwt.Claims{Issuer: server.URL, Subject: "subject", Audience: jwt.Audience{"client"}, Expiry: jwt.NewNumericDate(time.Now().Add(time.Hour))}).Claims(map[string]any{"nonce": "nonce"}).Serialize()
+	integration, err := s.integration(store.r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, variant := range []string{"omitted", "empty", "reduced", "missing_id", "invalid_id", "refresh"} {
+		t.Run(variant, func(t *testing.T) {
+			record := store.r
+			token := tokenResponse{Access: "new", Type: "Bearer", ID: signed}
+			initial := true
+			switch variant {
+			case "empty":
+				scope := ""
+				token.Scope = &scope
+			case "reduced":
+				scope := "openid"
+				token.Scope = &scope
+			case "missing_id":
+				token.ID = ""
+			case "invalid_id":
+				token.ID = "invalid"
+			case "refresh":
+				initial = false
+				token.ID = ""
+			}
+			result, err := s.applyTokens(context.Background(), integration, record, token, "nonce", initial)
+			if variant == "missing_id" || variant == "invalid_id" {
+				if err == nil {
+					t.Fatal("unvalidated identity accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected := "connected"
+			if variant == "empty" || variant == "reduced" {
+				expected = "permission_required"
+			}
+			if result.State != expected {
+				t.Fatal("wrong permission state", result.State)
+			}
+			if variant == "omitted" && strings.Join(result.GrantedScopes, " ") != strings.Join(record.RequestedScopes, " ") {
+				t.Fatal("requested scopes not retained")
+			}
+			if variant == "refresh" && strings.Join(result.GrantedScopes, " ") != strings.Join(record.GrantedScopes, " ") {
+				t.Fatal("refresh expanded scopes")
 			}
 		})
 	}

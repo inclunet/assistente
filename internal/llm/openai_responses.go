@@ -98,7 +98,12 @@ func (p *OpenAIProvider) streamChatResponses(
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
-			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			if p.provider.Type == ProviderChatGPT {
+				markErrorNotRetryable(handler)
+				handler.OnError("chatgpt_request_cancelled")
+			} else {
+				handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			}
 			return
 		default:
 		}

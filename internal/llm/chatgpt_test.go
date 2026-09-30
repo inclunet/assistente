@@ -236,3 +236,17 @@ func TestChatGPTCompletedDoesNotWaitForEOF(t *testing.T) {
 		})
 	}
 }
+
+func TestChatGPTAlreadyCanceledUsesStableError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p := NewOpenAIResponsesProvider(&ProviderConfig{ID: "chatgpt", Type: ProviderChatGPT, BaseURL: "https://api.openai.com/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone}, nil)
+	h := &chatGPTTerminalHandler{}
+	p.streamChatResponses(ctx, "model", nil, ChatParams{}, h)
+	if h.err != "chatgpt_request_cancelled" || !h.nonRetryable {
+		t.Fatalf("unstable cancellation: %+v", h)
+	}
+	if _, err := p.SendChat(ctx, nil, ChatParams{Model: "model"}); err == nil || err.Error() != "chatgpt_request_cancelled" {
+		t.Fatalf("synchronous cancellation: %v", err)
+	}
+}

@@ -193,7 +193,7 @@ func (s *Service) exchange(ctx context.Context, r Record, form url.Values) (toke
 	return result, nil
 }
 func (s *Service) applyTokens(ctx context.Context, i Integration, r Record, t tokenResponse, nonce string, initial bool) (Record, error) {
-	if initial && (t.ID == "" || t.Scope == nil) {
+	if initial && t.ID == "" {
 		return Record{}, ErrReauthorize
 	}
 	if t.ID != "" {
@@ -207,6 +207,9 @@ func (s *Service) applyTokens(ctx context.Context, i Integration, r Record, t to
 	}
 	if t.Scope != nil {
 		r.GrantedScopes = strings.Fields(*t.Scope)
+	} else if initial {
+		// RFC 6749 section 5.1: omitted scope equals the requested scope.
+		r.GrantedScopes = append([]string(nil), r.RequestedScopes...)
 	}
 	r.Tokens.Access = t.Access
 	r.Tokens.Type = "Bearer"
