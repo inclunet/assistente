@@ -30,6 +30,8 @@ O navegador só abre quando você pede conexão ou reautorização. Novos proved
 importados não reutilizam referências OAuth do arquivo, mesmo que coincidam com
 uma autorização local. Ao sobrescrever o mesmo provedor e tipo já configurados,
 o vínculo local existente é preservado; o arquivo não pode trocá-lo por outro.
+Não é permitido sobrescrever com outro tipo um provedor que tenha vínculo OAuth.
+Desconecte e exclua o provedor primeiro, ou importe o novo item com outro ID.
 A importação normaliza a URL e o formato ChatGPT para a rota oficial Responses,
 mesmo se o arquivo trouxer valores diferentes. Ao importar um
 provedor em outro computador, ele aparece desconectado: edite esse provedor e

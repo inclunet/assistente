@@ -114,7 +114,12 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 		}
 		existing = current
 	}
-	if provider.Type == "chatgpt" || strings.HasPrefix(provider.CredentialPattern, "oauth:") {
+	linkedOAuth := existing != nil && strings.HasPrefix(existing.CredentialPattern, "oauth:")
+	if linkedOAuth && existing.Type != provider.Type {
+		return codedErrorf(CodeProviderOAuthTypeChange, params("providerId", provider.ID),
+			"O provider %q tem vínculo OAuth. Desconecte e exclua o provider antes de importar outro tipo com o mesmo ID.", provider.ID)
+	}
+	if linkedOAuth || provider.Type == "chatgpt" || strings.HasPrefix(provider.CredentialPattern, "oauth:") {
 		// Imported references cannot bind a new consumer to a local grant. Keep
 		// only the association already owned by this same local provider/type.
 		provider.CredentialPattern = "oauth:" + uuid.NewString()

@@ -7,7 +7,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -93,8 +95,21 @@ func TestOAuthDeletedRecordCannotBeResurrected(t *testing.T) {
 }
 
 func TestOAuthCreateConsumerCanceledBeforeCommitDoesNotPublish(t *testing.T) {
-	setupScopedCredentialStoreTestDB(t)
-	mgr := NewManagerWithStore(bytes.Repeat([]byte{7}, 32), NewDBStore(), true)
+	// Cancellation may discard a database/sql connection. A file-backed fixture
+	// keeps its schema when the subsequent verification opens another connection.
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "credentials.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&database.CredentialEntry{}); err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	mgr := NewManagerWithStore(bytes.Repeat([]byte{7}, 32), &DBStore{db: db}, true)
 	owner := database.WithUserID(context.Background(), "owner")
 	ctx, cancel := context.WithCancel(owner)
 	defer cancel()

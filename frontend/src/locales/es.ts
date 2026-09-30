@@ -798,6 +798,7 @@ const es = {
           missingType: 'El provider "{{providerId}}" no tiene type y no se puede importar.',
           missingBaseUrl: 'El provider "{{providerId}}" no tiene baseUrl y no se puede importar.',
           acpMissingCommand: 'El provider "{{providerId}}" usa el formato acp sin acpCommand, así que no se puede importar.',
+          oauthTypeChange: 'El provider "{{providerId}}" tiene un vínculo OAuth. Desconecte y elimine el provider antes de importar otro tipo con el mismo ID.',
           acpOutsideAcpFormat: 'El provider "{{providerId}}" trae configuración de agente, pero su apiFormat es "{{apiFormat}}". Use "{{expectedFormat}}".',
           acpCredentialEnvWithoutName: 'El provider "{{providerId}}" trae una credencial de la bóveda sin el nombre de la variable de entorno.',
           acpCredentialEnvInvalidName: 'El provider "{{providerId}}" trae un nombre de variable inválido para la credencial de la bóveda: "{{variable}}".',

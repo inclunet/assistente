@@ -126,3 +126,41 @@ func TestChatGPTImportNormalizesFixedConnection(t *testing.T) {
 		}
 	}
 }
+
+func TestOAuthImportCannotOrphanExistingGrant(t *testing.T) {
+	for _, incomingType := range []string{"openai", "chatgpt"} {
+		t.Run(incomingType, func(t *testing.T) {
+			setupPortabilityTestDB(t)
+			ctx := portabilityTestCtx()
+			user, _ := database.RequireUserID(ctx)
+			local := &database.LLMProvider{ID: "connected", Name: "Local", UserID: user, Type: "chatgpt", APIFormat: "openai_responses", BaseURL: "https://api.openai.com/v1", CredentialPattern: "oauth:owned"}
+			if err := database.SaveLLMProviderWithContext(ctx, local); err != nil {
+				t.Fatal(err)
+			}
+			entry := database.CredentialEntry{UUIDModel: database.UUIDModel{ID: "owned"}, UserID: user, Source: "oauth", Pattern: "oauth:owned", OAuthEnc: "existing-envelope"}
+			if err := database.DB().Create(&entry).Error; err != nil {
+				t.Fatal(err)
+			}
+			_, err := importProvider(ctx, ProviderExport{ID: local.ID, Name: "Replacement", Type: incomingType, APIFormat: "openai_responses", BaseURL: "https://api.openai.com/v1", CredentialPattern: "static:replacement"})
+			if incomingType != local.Type {
+				message := messageFromError(err)
+				if message.Code != CodeProviderOAuthTypeChange || message.Params["providerId"] != local.ID {
+					t.Fatalf("wrong rejection: %v", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			saved, err := database.GetLLMProviderWithContext(ctx, local.ID)
+			if err != nil || saved.Type != local.Type || saved.CredentialPattern != local.CredentialPattern {
+				t.Fatal("authorization orphaned", err)
+			}
+			if incomingType != local.Type && saved.Name != local.Name {
+				t.Fatal("rejected import partially persisted")
+			}
+			var after database.CredentialEntry
+			if err := database.DB().First(&after, "id = ?", entry.ID).Error; err != nil || after.OAuthEnc != entry.OAuthEnc {
+				t.Fatal("grant modified", err)
+			}
+		})
+	}
+}

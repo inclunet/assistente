@@ -795,6 +795,7 @@ const en = {
           missingType: 'Provider "{{providerId}}" has no type and cannot be imported.',
           missingBaseUrl: 'Provider "{{providerId}}" has no baseUrl and cannot be imported.',
           acpMissingCommand: 'Provider "{{providerId}}" uses the acp format without acpCommand, so it cannot be imported.',
+          oauthTypeChange: 'Provider "{{providerId}}" has an OAuth authorization link. Disconnect and delete the provider before importing another type with the same ID.',
           acpOutsideAcpFormat: 'Provider "{{providerId}}" carries agent configuration, but its apiFormat is "{{apiFormat}}". Use "{{expectedFormat}}".',
           acpCredentialEnvWithoutName: 'Provider "{{providerId}}" carries a vault credential without the environment variable name.',
           acpCredentialEnvInvalidName: 'Provider "{{providerId}}" carries an invalid variable name for the vault credential: "{{variable}}".',

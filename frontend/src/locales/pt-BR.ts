@@ -796,6 +796,7 @@ const ptBR = {
           missingType: 'O provider "{{providerId}}" não tem type e não pode ser importado.',
           missingBaseUrl: 'O provider "{{providerId}}" não tem baseUrl e não pode ser importado.',
           acpMissingCommand: 'O provider "{{providerId}}" está em formato acp e não traz acpCommand, então não pode ser importado.',
+          oauthTypeChange: 'O provider "{{providerId}}" tem vínculo OAuth. Desconecte e exclua o provider antes de importar outro tipo com o mesmo ID.',
           acpOutsideAcpFormat: 'O provider "{{providerId}}" traz configuração de agente, mas o apiFormat é "{{apiFormat}}". Use "{{expectedFormat}}".',
           acpCredentialEnvWithoutName: 'O provider "{{providerId}}" traz uma credencial do cofre sem o nome da variável de ambiente.',
           acpCredentialEnvInvalidName: 'O provider "{{providerId}}" traz um nome de variável inválido para a credencial do cofre: "{{variable}}".',
