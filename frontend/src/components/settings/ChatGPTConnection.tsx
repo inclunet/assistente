@@ -7,8 +7,8 @@ import { Button } from '../ui/Button';
 import { DialogActions } from '../ui/DialogActions';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 
-interface Props { id?: string; onChanged: () => void; onClose: () => void; onCreationChange?: (creating: boolean) => void }
-export function ChatGPTConnection({ id, onChanged, onClose, onCreationChange }: Props) {
+interface Props { id?: string; onChanged: () => void; onClose: () => void; onCloseBlockedChange?: (closeBlocked: boolean) => void }
+export function ChatGPTConnection({ id, onChanged, onClose, onCloseBlockedChange }: Props) {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const localUserID = useAuthStore(s => s.user?.userId);
@@ -25,7 +25,7 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCreationChange }: 
   const mounted = useRef(true);
   const loadGeneration = useRef(0);
   const [name, setName] = useState('');
-  const [creating, setCreating] = useState(false);
+  const [closeBlocked, setCloseBlocked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [state, setState] = useState('pending');
   const [email, setEmail] = useState('');
@@ -41,18 +41,18 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCreationChange }: 
   const connect = async () => {
     loadGeneration.current++;
     setBusy(true); setError('');
-    announce(t('chatgpt.waiting'));
     try {
       if (!currentID.current) {
-        setCreating(true); onCreationChange?.(true);
+        setCloseBlocked(true); onCloseBlockedChange?.(true); announce(t('chatgpt.operationPending'));
         try {
           const created = await CreateChatGPTConnection(name);
           currentID.current = created.id;
         } finally {
-          if (mounted.current) { setCreating(false); onCreationChange?.(false); }
+          if (mounted.current) { setCloseBlocked(false); onCloseBlockedChange?.(false); }
         }
         if (!mounted.current) { onChanged(); return; }
       }
+      announce(t('chatgpt.waiting'));
       const result = await AuthorizeChatGPT(currentID.current, t('chatgpt.browserReturn'));
       if (!mounted.current) return;
       setState(result.state); setEmail(result.email || '');
@@ -68,6 +68,7 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCreationChange }: 
   const disconnect = async () => {
     loadGeneration.current++;
     setBusy(true); setError('');
+    setCloseBlocked(true); onCloseBlockedChange?.(true); announce(t('chatgpt.operationPending'));
     try {
       const revoked = await DisconnectChatGPT(currentID.current);
       if (!mounted.current) return;
@@ -75,10 +76,12 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCreationChange }: 
       const message = t(revoked ? 'chatgpt.states.disconnected' : 'chatgpt.revocationUnconfirmed');
       setError(revoked ? '' : message); announce(message);
     } catch { if (mounted.current) { setError(t('chatgpt.connectionError')); announce(t('chatgpt.connectionError'), 'assertive'); } }
-    finally { if (mounted.current) setBusy(false); }
+    finally {
+      if (mounted.current) { setBusy(false); setCloseBlocked(false); onCloseBlockedChange?.(false); onChanged(); }
+    }
   };
   const close = () => {
-    if (creating) return;
+    if (closeBlocked) return;
     if (currentID.current) void CancelChatGPT(currentID.current).catch(() => undefined);
     onClose(); onChanged();
   };
@@ -94,13 +97,13 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCreationChange }: 
     <p>{t('chatgpt.status', { state: t(`chatgpt.states.${state}`, { defaultValue: state }) })}</p>
     {email && <p>{t('chatgpt.account', { email })}</p>}
     {id && <p>{t('chatgpt.providerID', { id })}</p>}
-    {busy && <p>{t('chatgpt.waiting')}</p>}
+    {busy && <p>{t(closeBlocked ? 'chatgpt.operationPending' : 'chatgpt.waiting')}</p>}
     {error && <p>{error}</p>}
     <p><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">{t('chatgpt.usage')}</a></p>
     <DialogActions primary={
       <Button ref={connectButton} variant="primary" disabled={busy || (!currentID.current && !name.trim())} onClick={() => void connect()}>{t(state === 'connected' ? 'chatgpt.reconnect' : 'chatgpt.connect')}</Button>} secondary={<>
       {currentID.current && <Button disabled={busy || state === 'disconnected'} onClick={() => void disconnect()}>{t('chatgpt.disconnect')}</Button>}
-      <Button disabled={creating} onClick={close}>{t(busy ? 'common.cancel' : 'common.close')}</Button>
+      <Button disabled={closeBlocked} onClick={close}>{t(busy ? 'common.cancel' : 'common.close')}</Button>
     </>} />
   </div>;
 }

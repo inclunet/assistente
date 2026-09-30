@@ -50,7 +50,8 @@ A renovação é coordenada entre chamadas e respeita a expiração informada pe
 Se houver interrupção ou falha ao salvar após possível rotação, use **Autorizar novamente**;
 o aplicativo não tenta reutilizar um refresh token possivelmente consumido.
 
-**Desconectar** interrompe o uso local e tenta revogar a sessão remota. Se a revogação
+**Desconectar** interrompe o uso local e tenta revogar a sessão remota. Aguarde o
+resultado antes de fechar a janela; o fechamento fica bloqueado durante a operação. Se a revogação
 não puder ser confirmada, o Assistente avisa e você pode remover a autorização nas
 configurações do ChatGPT. O cadastro e o ID token validado permanecem cifrados
 para reconectar à mesma conta; access token e refresh token são removidos.

@@ -90,7 +90,7 @@ export default function ProvidersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [isEditing, setIsEditing] = useState(false);
-  const [oauthCreating, setOAuthCreating] = useState(false);
+  const [oauthCloseBlocked, setOAuthCloseBlocked] = useState(false);
   const [oauthDialog, setOAuthDialog] = useState<{ id?: string } | null>(null);
   const [editingProvider, setEditingProvider] = useState<ProviderFormData | undefined>(undefined);
   const [focusedRow, setFocusedRow] = useState<ProviderRow | null>(null);
@@ -451,6 +451,9 @@ export default function ProvidersPage() {
   return (
     <div className="providers-page">
       {loading && <div className="loading">{t('providers.loading', 'Carregando...')}</div>}
+          <Modal isOpen={oauthDialog !== null} allowClose={!oauthCloseBlocked} onClose={() => { if (!oauthCloseBlocked) { setOAuthDialog(null); void loadProviders(); } }} title={t('chatgpt.title')} size="md">
+            {oauthDialog && <ChatGPTConnection onCloseBlockedChange={setOAuthCloseBlocked} id={oauthDialog.id} onClose={() => setOAuthDialog(null)} onChanged={() => void loadProviders()} />}
+          </Modal>
       {!loading && (
         <>
           <Toolbar
@@ -506,9 +509,7 @@ export default function ProvidersPage() {
             onFocusChange={handleFocusChange}
           />
 
-          <Modal isOpen={oauthDialog !== null} allowClose={!oauthCreating} onClose={() => { if (!oauthCreating) { setOAuthDialog(null); void loadProviders(); } }} title={t('chatgpt.title')} size="md">
-            {oauthDialog && <ChatGPTConnection onCreationChange={setOAuthCreating} id={oauthDialog.id} onClose={() => setOAuthDialog(null)} onChanged={() => void loadProviders()} />}
-          </Modal>
+
           <Modal
             isOpen={isEditing}
             onClose={handleCancelEdit}

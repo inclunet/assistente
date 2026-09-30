@@ -258,10 +258,13 @@ Cada fase tem PRs revisáveis, testes e documentação; não entregar somente um
 infraestrutura sem consumidor utilizável. Ao iniciar implementação, mudar este AEP
 e índice para In Progress; marcar Done somente após os critérios de todo o escopo.
 
-1. [x] Base mínima reutilizável + ChatGPT funcional: entrada composta/source OAuth,
+1. [ ] Base mínima reutilizável + ChatGPT funcional: entrada composta/source OAuth,
    PKCE/OIDC, callback, extensão de registro ChatGPT, refresh coordenado, UI de conexão,
    catálogo, Responses e ferramentas locais. Se dividida em PRs, infraestrutura e
    integração formam uma entrega funcional conjunta, sem anunciar suporte antes disso.
+   **Implementação e testes automatizados entregues; aceite funcional pendente** de
+   consentimento com conta real, reconexão, catálogo e envio de mensagem pelo usuário,
+   conforme o critério ChatGPT funcional abaixo.
 2. [ ] Paridade MCP: extrair/adaptar discovery, DCR, Device Flow, client credentials,
    callback manual/fixo e reautorização; adicionar consumidores do serviço compartilhado.
 3. [ ] Cutover MCP: migrar registros e referências, comprovar reinício/refresh/native/bridge,
@@ -287,7 +290,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   e tokens de teste, falha de persistência, concorrência, escopo e conclusão SSE.
 - O teste de consentimento com uma conta real depende de ação do usuário no
   navegador. Não foi realizado automaticamente nem usa credenciais de terceiros.
-- Revisão independente local em dezessete rodadas, com correções de isolamento de
+- Revisão independente local em dezenove rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
@@ -311,6 +314,8 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   o diálogo aguarda a persistência antes de fechar; o consentimento continua cancelável.
 - O transporte preserva a causa da falha de refresh; catálogo e chat traduzem
   indisponibilidade temporária sem confundi-la com autorização revogada.
+- Diálogo aguarda a conclusão da desconexão e apresenta o resultado da revogação
+  antes de permitir fechamento; consentimento no navegador permanece cancelável.
 - Watchdog mantém a classificação de ociosidade; autorização ausente orienta
   reconexão e exclusão com cofre indisponível orienta recuperação nos três idiomas.
 - Falhas ChatGPT usam códigos estáveis e traduções nos três idiomas. Salvar o

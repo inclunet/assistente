@@ -1,6 +1,7 @@
 const en = {
   translation: {
  chatgpt: {
+    operationPending: 'Wait for this operation to finish before closing the dialog.',
     vaultUnavailable: 'The credential vault is unavailable. Recover or unlock the vault before disconnecting and deleting this provider.',
     authorizationInProgress: 'Complete or cancel authorization in the ChatGPT connection dialog before deleting this provider.',
     errors: {

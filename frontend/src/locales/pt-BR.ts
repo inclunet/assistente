@@ -1,6 +1,7 @@
 const ptBR = {
   translation: {
  chatgpt: {
+    operationPending: 'Aguarde a conclusão desta operação antes de fechar a janela.',
     vaultUnavailable: 'O cofre de credenciais está indisponível. Recupere ou desbloqueie o cofre antes de desconectar e excluir este provedor.',
     authorizationInProgress: 'Conclua ou cancele a autorização na janela da conexão ChatGPT antes de excluir este provedor.',
     errors: {

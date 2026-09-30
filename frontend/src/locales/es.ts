@@ -1,6 +1,7 @@
 const es = {
   translation: {
  chatgpt: {
+    operationPending: 'Espera a que termine esta operación antes de cerrar la ventana.',
     vaultUnavailable: 'El almacén de credenciales no está disponible. Recupera o desbloquea el almacén antes de desconectar y eliminar este proveedor.',
     authorizationInProgress: 'Completa o cancela la autorización en el diálogo de conexión ChatGPT antes de eliminar este proveedor.',
     errors: {

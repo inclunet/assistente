@@ -16,6 +16,27 @@ beforeEach(() => {
   mocks.get.mockResolvedValue({ id: 'authorization', state: 'connected', email: 'user@example.test' });
 });
 describe('ChatGPT connection', () => {
+  it.each(['unconfirmed', 'failed'])('keeps disconnection results visible until completion: %s', async outcome => {
+    let resolve!: (value: boolean) => void, reject!: (reason: Error) => void;
+    mocks.disconnect.mockReturnValueOnce(new Promise((yes, no) => { resolve = yes; reject = no; }));
+    const user = userEvent.setup(), close = vi.fn(), blocked = vi.fn(), changed = vi.fn();
+    render(<ChatGPTConnection id="authorization" onChanged={changed} onClose={close} onCloseBlockedChange={blocked} />);
+    await screen.findByRole('button', { name: 'chatgpt.reconnect' });
+    await user.click(screen.getByRole('button', { name: 'chatgpt.disconnect' }));
+    expect(blocked).toHaveBeenLastCalledWith(true);
+    expect(screen.getByRole('button', { name: 'common.cancel' })).toBeDisabled();
+    expect(screen.getByText('chatgpt.operationPending')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'common.cancel' }));
+    expect(close).not.toHaveBeenCalled(); expect(changed).not.toHaveBeenCalled();
+    await act(async () => { if (outcome === 'unconfirmed') resolve(false); else reject(new Error('failure')); });
+    expect(blocked).toHaveBeenLastCalledWith(false);
+    expect(changed).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', { name: 'common.close' })).toBeEnabled();
+    const message = outcome === 'unconfirmed' ? 'chatgpt.revocationUnconfirmed' : 'chatgpt.connectionError';
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(mocks.announce.mock.calls.some(call => call[0] === message)).toBe(true);
+  });
+
   it.each(['resolve', 'reject'])('ignores an obsolete initial query after disconnect: %s', async outcome => {
     let resolve!: (value: unknown) => void, reject!: (reason: Error) => void;
     mocks.get.mockReturnValueOnce(new Promise((yes, no) => { resolve = yes; reject = no; }));
@@ -42,7 +63,7 @@ describe('ChatGPT connection', () => {
     mocks.authorize.mockReturnValueOnce(new Promise(() => undefined));
     const close = vi.fn(), creation = vi.fn();
     const user = userEvent.setup();
-    render(<ChatGPTConnection onChanged={vi.fn()} onClose={close} onCreationChange={creation} />);
+    render(<ChatGPTConnection onChanged={vi.fn()} onClose={close} onCloseBlockedChange={creation} />);
     await user.type(screen.getByLabelText('chatgpt.label'), 'Account');
     await user.click(screen.getByRole('button', { name: 'chatgpt.connect' }));
     expect(creation).toHaveBeenLastCalledWith(true);
