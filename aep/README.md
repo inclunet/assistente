@@ -1095,6 +1095,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0107](0107-tool-execution-ux.md) | Experiência de execução de tools: estado, contexto e resultados acionáveis | ✅ Done |
 | [0108](0108-sessao-acp-presa-diagnostico-e-recuperacao.md) | Sessão ACP presa: diagnóstico e recuperação | 🚧 In Progress |
 | [0109](0109-concorrencia-na-configuracao-da-tasklist.md) | Controle de concorrência na configuração da tasklist (workflow e custom actions) | ✅ Done |
+| [0112](0112-oauth-compartilhado-e-autorizacoes-unificadas.md) | OAuth compartilhado e autorizações unificadas: ChatGPT, MCP e canais | Draft |
 
 Correções paralelas posteriores à revisão da AEP-0103 estão registradas nas seções 10 e 11 da tasklist de conclusão: bridge, importação, restore, outbox, lifecycle e a primeira rodada real de produto. O executor desktop usa `newCommandDesktopExecutor` e `commandconfig.ProjectComplete`; autenticação é por sessão local sem JWT, a bridge é assíncrona com shutdown/join, e recovery é preflight somente leitura fail-closed sem reconciliação interprocesso. A limitação inicial de entrega somente de resumo/status foi resolvida na seção 14: `workspace.list` entrega resultado efêmero no picker compartilhado. A seção 15 liga a seleção da paleta à resolução de configuração persistida, supressão e recusa sem fallback, inclusive na bridge. A falha histórica de `internal/acpregistry` não reapareceu nas suítes completas das seções 12–14, mas sua causa não foi certificada. Providers/transporte de UI, origens físicas, recovery R04 e o aceite BASE-PRONTA permanecem pendentes.
 
@@ -1222,5 +1223,3 @@ ambos como documentos principais: por isso há 102 documentos para 101 números
 ocupados.
 
 - [AEP-0110 — Fontes explícitas de credenciais](0110-fontes-explicitas-de-credenciais.md) — Done — cache command sob demanda, renovação HTTP 401 e diagnóstico de execuções
-
-- [AEP-0112 — OAuth compartilhado e autorizações unificadas](0112-oauth-compartilhado-e-autorizacoes-unificadas.md) — Draft — source OAuth reutilizável, ChatGPT na primeira entrega e migração MCP/canais
