@@ -1222,3 +1222,5 @@ ambos como documentos principais: por isso há 102 documentos para 101 números
 ocupados.
 
 - [AEP-0110 — Fontes explícitas de credenciais](0110-fontes-explicitas-de-credenciais.md) — Done — cache command sob demanda, renovação HTTP 401 e diagnóstico de execuções
+
+- [AEP-0112 — OAuth compartilhado e autorizações unificadas](0112-oauth-compartilhado-e-autorizacoes-unificadas.md) — Draft — source OAuth reutilizável, ChatGPT na primeira entrega e migração MCP/canais
