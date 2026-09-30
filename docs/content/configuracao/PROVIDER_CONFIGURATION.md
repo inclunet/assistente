@@ -26,7 +26,10 @@ Cada autorização aparece como um provedor independente, com nome e identificad
 próprios. O identificador exibido na tela é o do provedor local; a autorização
 pode ter outro identificador após recuperar uma importação. Para outra conta/workspace, crie outra conexão. Para voltar à mesma conta,
 edite o provedor e use **Autorizar novamente**: o cadastro é reaproveitado.
-O navegador só abre quando você pede conexão ou reautorização. Ao importar um
+O navegador só abre quando você pede conexão ou reautorização. Novos provedores
+importados não reutilizam referências OAuth do arquivo, mesmo que coincidam com
+uma autorização local. Ao sobrescrever o mesmo provedor e tipo já configurados,
+o vínculo local existente é preservado; o arquivo não pode trocá-lo por outro. Ao importar um
 provedor em outro computador, ele aparece desconectado: edite esse provedor e
 acione **Continuar com ChatGPT** para criar sua autorização local, sem copiar
 tokens da máquina anterior. A ação **Conectar ChatGPT** da barra cria outro

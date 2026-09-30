@@ -14,6 +14,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -104,6 +105,24 @@ func overwriteProvider(ctx context.Context, provider ProviderExport) (bool, erro
 }
 
 func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, existing *database.LLMProvider) error {
+	if existing != nil {
+		// Read the trusted local association in this transaction, not the snapshot
+		// captured before a concurrent reconnection could replace its reference.
+		current, err := database.NewProviderRepository(tx).GetLLMProvider(ctx, existing.ID)
+		if err != nil {
+			return err
+		}
+		existing = current
+	}
+	if provider.Type == "chatgpt" || strings.HasPrefix(provider.CredentialPattern, "oauth:") {
+		// Imported references cannot bind a new consumer to a local grant. Keep
+		// only the association already owned by this same local provider/type.
+		provider.CredentialPattern = "oauth:" + uuid.NewString()
+		if existing != nil && existing.Type == provider.Type && strings.HasPrefix(existing.CredentialPattern, "oauth:") {
+			provider.CredentialPattern = existing.CredentialPattern
+		}
+	}
+
 	acpArgs, err := encodeACPList(provider.ACPArgs)
 	if err != nil {
 		return fmt.Errorf("erro ao serializar argumentos do agente do provider %q: %w", provider.ID, err)

@@ -287,8 +287,11 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   e tokens de teste, falha de persistência, concorrência, escopo e conclusão SSE.
 - O teste de consentimento com uma conta real depende de ação do usuário no
   navegador. Não foi realizado automaticamente nem usa credenciais de terceiros.
-- Revisão independente local em dezesseis rodadas, com correções de isolamento de
+- Revisão independente local em dezessete rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
+- Importação neutraliza referências OAuth recebidas e cria referência local sem
+  envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
+  relido dentro da transação; testes impedem associação e compartilhamento implícitos.
 - Cancelamento é registrado antes do preflight; importação sem autorização local
   pode ser excluída com o cofre indisponível, após confirmar ausência na transação.
 - Rejeição definitiva e desconexão limpam access/refresh, preservando somente o
