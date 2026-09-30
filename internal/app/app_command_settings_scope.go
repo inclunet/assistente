@@ -108,7 +108,12 @@ func (a *App) GetCommandSettingsForScope(locale, scopeName string) (result Comma
 	defer func() { err = safeCommandSettingsError(err) }()
 	ctx := a.commandBridgeContext()
 	ctx, trace := beginCommandLoad(ctx, "settings_load")
+	ctx, cancelRead := context.WithTimeout(ctx, commandReadTimeout)
+	defer cancelRead()
 	defer func() {
+		if ctx.Err() != nil {
+			result, err = CommandSettingsSnapshot{}, ctx.Err()
+		}
 		trace.finish(err,
 			slog.Int("layers", len(result.Layers)),
 			slog.Int("bindings", len(result.Bindings)),

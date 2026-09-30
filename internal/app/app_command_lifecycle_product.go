@@ -40,6 +40,8 @@ func (a *App) rebuildCommandLifecycleProjectionMode(ctx context.Context, restore
 }
 
 func (a *App) rebuildCommandLifecycleProjectionAtReset(ctx context.Context, restoreManual, jobClaimProjection bool, product *commandProductRuntime, resetRevision uint64) error {
+	ctx, cancel := context.WithTimeout(ctx, commandReadTimeout)
+	defer cancel()
 	// Só repetimos leituras/projeção antes de qualquer execução de comando.
 	// Restore concluído não é repetido; suas transações abortadas por BUSY
 	// usam retry próprio. Concorrência
@@ -69,6 +71,8 @@ func (a *App) buildCommandLifecycleProjection(ctx context.Context, restoreManual
 }
 
 func (a *App) buildCommandLifecycleProjectionAtReset(ctx context.Context, restoreManual, jobClaimProjection bool, product *commandProductRuntime, resetRevision uint64) error {
+	ctx, cancel := context.WithTimeout(ctx, commandReadTimeout)
+	defer cancel()
 	if a.commandProduct.Load() != product || product.projectionResetRevision.Load() != resetRevision {
 		return commandexecution.ErrStale
 	}

@@ -696,6 +696,161 @@ func TestConsumeAcceptedOnceOnly(t *testing.T) {
 	}
 }
 
+func TestConsumeWaitsForWriterBeforeRunningCallbackAndRunsOnce(t *testing.T) {
+	presenter := &testPresenter{fn: func(_ context.Context, req Request) (Response, error) {
+		return Response{DecisionID: req.DecisionID, ActionID: ApplyAction}, nil
+	}}
+	store, db, sqlDB, busy := openContentionStore(t, presenter)
+	if err := db.AutoMigrate(&decisionEffectRow{}); err != nil {
+		t.Fatal(err)
+	}
+	request := defaultRequest(t, time.Now().UTC())
+	if state, err := store.Decide(context.Background(), request); err != nil || state != Accepted {
+		t.Fatalf("decide: state=%q err=%v", state, err)
+	}
+	release := holdSQLiteWriter(t, sqlDB)
+	var calls atomic.Int32
+	done := make(chan error, 1)
+	go func() {
+		done <- store.Consume(context.Background(), request, func(tx *gorm.DB) error {
+			calls.Add(1)
+			if !isTransactionalDB(tx) {
+				return errors.New("callback recebeu conexão sem marcador transacional")
+			}
+			root, err := tx.DB()
+			if err != nil {
+				return err
+			}
+			expectedRoot, err := db.DB()
+			if err != nil {
+				return err
+			}
+			if root != expectedRoot {
+				return errors.New("callback não preservou o connector do DB raiz")
+			}
+			return tx.Transaction(func(nested *gorm.DB) error {
+				return nested.Create(&decisionEffectRow{ID: request.DecisionID, Value: "applied"}).Error
+			})
+		})
+	}()
+	select {
+	case <-busy:
+	case <-time.After(3 * time.Second):
+		t.Fatal("não observou SQLITE_BUSY em BEGIN IMMEDIATE")
+	}
+	if calls.Load() != 0 {
+		t.Fatal("callback executou enquanto aguardava writer")
+	}
+	release()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("consumo após liberar writer: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("consumo não se recuperou após liberar writer")
+	}
+	if calls.Load() != 1 || loadReceipt(t, db, request.DecisionID).State != Consumed || countEffects(t, db) != 1 {
+		t.Fatalf("estado após recovery inconsistente: calls=%d state=%s effects=%d", calls.Load(), loadReceipt(t, db, request.DecisionID).State, countEffects(t, db))
+	}
+}
+
+func TestConsumeCancellationWhileWaitingDoesNotApply(t *testing.T) {
+	presenter := &testPresenter{fn: func(_ context.Context, req Request) (Response, error) {
+		return Response{DecisionID: req.DecisionID, ActionID: ApplyAction}, nil
+	}}
+	store, db, sqlDB, busy := openContentionStore(t, presenter)
+	if err := db.AutoMigrate(&decisionEffectRow{}); err != nil {
+		t.Fatal(err)
+	}
+	request := defaultRequest(t, time.Now().UTC())
+	if state, err := store.Decide(context.Background(), request); err != nil || state != Accepted {
+		t.Fatalf("decide: state=%q err=%v", state, err)
+	}
+	release := holdSQLiteWriter(t, sqlDB)
+	ctx, cancel := context.WithCancel(context.Background())
+	var calls atomic.Int32
+	done := make(chan error, 1)
+	go func() {
+		done <- store.Consume(ctx, request, func(*gorm.DB) error { calls.Add(1); return nil })
+	}()
+	select {
+	case <-busy:
+	case <-time.After(3 * time.Second):
+		t.Fatal("não observou SQLITE_BUSY em BEGIN IMMEDIATE")
+	}
+	cancel()
+	release()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelamento durante espera: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("consume não respeitou cancelamento")
+	}
+	if calls.Load() != 0 || loadReceipt(t, db, request.DecisionID).State != Accepted || countEffects(t, db) != 0 {
+		t.Fatalf("cancelamento aplicou efeito: calls=%d state=%s effects=%d", calls.Load(), loadReceipt(t, db, request.DecisionID).State, countEffects(t, db))
+	}
+}
+
+func TestConsumeReceiptExpiryBoundsWriterWait(t *testing.T) {
+	presenter := &testPresenter{fn: func(_ context.Context, req Request) (Response, error) {
+		return Response{DecisionID: req.DecisionID, ActionID: ApplyAction}, nil
+	}}
+	store, db, sqlDB, busy := openContentionStore(t, presenter)
+	if err := db.AutoMigrate(&decisionEffectRow{}); err != nil {
+		t.Fatal(err)
+	}
+	request := defaultRequest(t, time.Now().UTC())
+	request.ExpiresAt = time.Now().Add(500 * time.Millisecond)
+	if state, err := store.Decide(context.Background(), request); err != nil || state != Accepted {
+		t.Fatalf("decide: state=%q err=%v", state, err)
+	}
+	release := holdSQLiteWriter(t, sqlDB)
+	var calls atomic.Int32
+	done := make(chan error, 1)
+	go func() {
+		done <- store.Consume(context.Background(), request, func(*gorm.DB) error { calls.Add(1); return nil })
+	}()
+	select {
+	case <-busy:
+	case <-time.After(3 * time.Second):
+		t.Fatal("não observou espera pelo writer")
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("espera limitada pela expiração retornou %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("espera pelo writer ultrapassou a expiração da receipt")
+	}
+	release()
+	if calls.Load() != 0 || loadReceipt(t, db, request.DecisionID).State != Accepted || countEffects(t, db) != 0 {
+		t.Fatalf("receipt expirada durante aquisição executou efeito: calls=%d state=%s", calls.Load(), loadReceipt(t, db, request.DecisionID).State)
+	}
+}
+
+func TestConsumeCallbackSQLiteBusyIsNotRetriedAndRollsBack(t *testing.T) {
+	store, db, _, request := acceptedFixture(t)
+	var calls atomic.Int32
+	wantErr := errors.New("database is locked")
+	err := store.Consume(context.Background(), request, func(tx *gorm.DB) error {
+		calls.Add(1)
+		if err := tx.Create(&decisionEffectRow{ID: request.DecisionID, Value: "must rollback"}).Error; err != nil {
+			return err
+		}
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) || calls.Load() != 1 {
+		t.Fatalf("erro busy callback=%v calls=%d", err, calls.Load())
+	}
+	if loadReceipt(t, db, request.DecisionID).State != Accepted || countEvents(t, db, request.DecisionID) != 2 || countEffects(t, db) != 0 {
+		t.Fatal("busy do callback não reverteu receipt, auditoria e efeito")
+	}
+}
+
 func TestConsumeRejectsEveryMismatchedExpectedFieldWithoutEffect(t *testing.T) {
 	tests := []struct {
 		name   string

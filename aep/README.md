@@ -1,5 +1,11 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — contenção cancelável (30/09/2026): In Progress.** Gate de segurança
+e aquisição de reconstrução canceláveis; leitura do mapa/configurações e refresh
+com orçamento cooperativo total de cinco segundos, sem cancelar o mapa retido.
+Consumo de recibos não repete aplicação/commit, apenas aquisição do writer.
+Regressões de contenção e recuperação; sem novo aceite manual.
+
 **AEP-0103 — estabilidade sob concorrência (29/09/2026): In Progress.**
 Leitura do mapa limitada a três tentativas para projeção obsoleta, mantendo
 a prova de segurança e a revisão de reset originais. Recibos reutilizam a

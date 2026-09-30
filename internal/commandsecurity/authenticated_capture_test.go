@@ -16,23 +16,13 @@ func TestAuthenticatedCaptureHoldsExclusiveGate(t *testing.T) {
 	}
 	user, session := uuid.Must(uuid.NewV7()).String(), uuid.Must(uuid.NewV7()).String()
 	snapshot, err := s.CaptureAuthenticated(context.Background(), func(context.Context) (string, string, error) {
-		if gate.mu.TryLock() {
-			gate.mu.Unlock()
-			t.Error("gate exclusivo ausente")
-		}
-		if gate.mu.TryRLock() {
-			gate.mu.RUnlock()
-			t.Error("admissão concorrente permitida")
-		}
+		assertGateExclusiveHeld(t, gate)
 		return user, session, nil
 	})
 	if err != nil || snapshot.UserID != user || snapshot.SessionID != session || snapshot.AuthGeneration == "" || snapshot.SecurityGeneration == "" {
 		t.Fatalf("snapshot incorreto: %+v, %v", snapshot, err)
 	}
-	if !gate.mu.TryLock() {
-		t.Fatal("gate retido após captura")
-	}
-	gate.mu.Unlock()
+	assertGateReleased(t, gate)
 	if err := s.InvalidatePrincipal(context.Background(), user, session); err != nil {
 		t.Fatal(err)
 	}
@@ -119,10 +109,7 @@ func TestAuthenticatedCapturePanicReleasesGate(t *testing.T) {
 		}()
 		_, _ = s.CaptureAuthenticated(context.Background(), func(context.Context) (string, string, error) { panic("fixture") })
 	}()
-	if !gate.mu.TryLock() {
-		t.Fatal("gate retido após panic")
-	}
-	gate.mu.Unlock()
+	assertGateReleased(t, gate)
 	if len(s.sessions) != 0 || s.sequence != 0 {
 		t.Fatal("panic publicou identidade")
 	}

@@ -22,6 +22,12 @@ contexto do gerenciador; não é executada ao navegar para outra página.
 
 ## Diagnosticar falhas de carregamento
 
+O carregamento do mapa e das configurações tem um orçamento de cinco segundos.
+A espera pela reconstrução ou pela coordenação de segurança pode ser cancelada;
+se o recurso continuar ocupado, a leitura retorna erro e pode ser tentada novamente
+após a liberação. Esse prazo é cooperativo: não força o encerramento de uma ação
+em andamento. Também não cancela um mapa válido só porque sua leitura terminou.
+
 Quando uma alteração suspende o mapa e a publicação falha temporariamente,
 a próxima tentativa de carregamento pode reconstruí-lo sem reiniciar o app.
 Uma restauração de camadas incompleta precisa terminar primeiro: não se usa

@@ -22,10 +22,7 @@ func TestEpochAdmissionKeepsSameGateThroughRevalidationAndHandoff(t *testing.T) 
 	}
 	checkLock := func() {
 		t.Helper()
-		if gate.mu.TryLock() {
-			gate.mu.Unlock()
-			t.Fatal("admissão fora do gate compartilhado")
-		}
+		assertGateSharedHeld(t, gate)
 	}
 	checked, started := false, false
 	err = service.Admit(context.Background(), snapshot, func(context.Context) error { checkLock(); checked = true; return nil }, func() error {
@@ -39,10 +36,7 @@ func TestEpochAdmissionKeepsSameGateThroughRevalidationAndHandoff(t *testing.T) 
 	if err != nil || !started {
 		t.Fatal(err)
 	}
-	if !gate.mu.TryLock() {
-		t.Fatal("gate não liberado após handoff")
-	}
-	gate.mu.Unlock()
+	assertGateReleased(t, gate)
 }
 
 func TestEpochInvalidationDoesNotResurrectAndOverflowFailsAtomically(t *testing.T) {

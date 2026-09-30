@@ -78,7 +78,8 @@ type commandProductRuntime struct {
 	hasPersistedSnapshot                   bool
 	bridge                                 *commandbridge.Bridge
 	mu                                     sync.Mutex
-	projectionMu                           sync.Mutex
+	projectionOnce                         sync.Once
+	projectionGate                         chan struct{}
 	claimTransition                        atomic.Pointer[commandClaimTransition]
 	claimTransitionRevision                atomic.Uint64
 	pending                                map[string]context.CancelFunc

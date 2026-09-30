@@ -1,5 +1,22 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Contenção cancelável (30/09/2026): In Progress.** A espera pelo gate de
+admissão/segurança respeita cancelamento, preservando leitores simultâneos,
+exclusão de mutações e prioridade de escritores já enfileirados. Não interrompe
+callbacks admitidos à força nem permite reentrância. A reconstrução de projeção
+usa aquisição cancelável, inclusive no worker de expiração e hotkeys globais.
+Leituras de configurações/mapa e refresh de projeção recebem orçamento total
+cooperativo de cinco segundos, respeitando prazos menores do chamador; não há
+renovação do orçamento por tentativa. O mapa publicado mantém a vida do App,
+separada do contexto curto da leitura. Timeout retorna erro e permite nova
+tentativa; não publica configuração antiga nem repete comandos.
+O consumo de recibos só pode repetir a aquisição do writer SQLite, nunca o
+callback de aplicação ou commit. Permanecem a atomicidade e as verificações
+de expiração, identidade e autorização. Locks/portas internos precisam cooperar:
+o orçamento não promete preempção de código arbitrário já em execução.
+Regressões cobrem contenção real de pool/writer, gate, cancelamento e recuperação
+após liberar recursos. Não constitui novo aceite manual ou conclusão do AEP.
+
 **Estabilidade sob concorrência (29/09/2026): In Progress.** A leitura do
 mapa repete no máximo três tentativas quando uma renovação de projeção torna
 o snapshot obsoleto antes da publicação. A prova de segurança e a revisão de

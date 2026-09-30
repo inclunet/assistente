@@ -40,10 +40,7 @@ func TestEpochAdmissionWaitsForCoordinatedMutationAndRejectsOldSnapshot(t *testi
 	case <-ctx.Done():
 		t.Fatal("mutação não iniciou")
 	}
-	if service.gate.mu.TryRLock() {
-		service.gate.mu.RUnlock()
-		t.Fatal("mutação sem exclusão")
-	}
+	assertGateExclusiveHeld(t, service.gate)
 	admission := make(chan error, 1)
 	go func() {
 		admission <- service.Admit(ctx, snapshot, func(context.Context) error { return errors.New("revalidação inesperada de snapshot antigo") }, func() error { return errors.New("handoff indevido") })

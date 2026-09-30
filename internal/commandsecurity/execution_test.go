@@ -41,10 +41,7 @@ func TestAdmitExecutionInscreveAntesDoHandoffEReleaseEIdempotente(t *testing.T) 
 		if got := executionWatchCount(service); got != 1 {
 			t.Fatalf("handoff observou %d watchers, want 1", got)
 		}
-		if service.gate.mu.TryLock() {
-			service.gate.mu.Unlock()
-			t.Fatal("handoff não manteve o gate")
-		}
+		assertGateSharedHeld(t, service.gate)
 		return nil
 	})
 	if err != nil {

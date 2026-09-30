@@ -14,9 +14,11 @@ import (
 // A source watch survives configuration publication but not auth/security
 // invalidation. Guards only inspect its context: no reentrant gate or SQL.
 func (p *commandProductRuntime) commandManualClaimAuthority(ctx context.Context) (commandsecurity.EpochSnapshot, func(context.Context) error, error) {
-	if p == nil {
+	if p == nil || ctx == nil {
 		return commandsecurity.EpochSnapshot{}, nil, commandexecution.ErrInvalidConfiguration
 	}
+	ctx, cancel := context.WithTimeout(ctx, commandReadTimeout)
+	defer cancel()
 	epoch, err := p.epochs.CaptureAuthenticated(ctx, func(ctx context.Context) (string, string, error) {
 		current, err := p.sessionSvc.RevalidateLocalSession(ctx, p.principal)
 		if err != nil || current != p.principal || p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
@@ -27,7 +29,7 @@ func (p *commandProductRuntime) commandManualClaimAuthority(ctx context.Context)
 	if err != nil {
 		return epoch, nil, err
 	}
-	watch, release, err := p.epochs.WatchSecurityEpoch(p.app.commandBridgeContext(), epoch)
+	watch, release, err := p.epochs.WatchSecurityEpochForLifetime(ctx, p.app.commandBridgeContext(), epoch)
 	if err != nil {
 		return epoch, nil, err
 	}
@@ -143,9 +145,7 @@ func (p *commandProductRuntime) runCommandManualExpiry(ctx context.Context, wake
 			}
 			// Guard already denies the expired snapshot, even if this rebuild
 			// fails. Never replay an invocation after a publication failure.
-			p.projectionMu.Lock()
-			_ = p.recoverCommandProjection(ctx)
-			p.projectionMu.Unlock()
+			_ = p.withCommandProjection(ctx, p.recoverCommandProjection)
 		}
 		if ctx.Err() != nil {
 			return

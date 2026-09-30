@@ -63,10 +63,7 @@ func TestBeginTransitionLeavesGateAvailableButRejectsEpochOperations(t *testing.
 	}
 	defer finish()
 
-	if !service.gate.mu.TryLock() {
-		t.Fatal("gate permaneceu retido durante a transição")
-	}
-	service.gate.mu.Unlock()
+	assertGateReleased(t, service.gate)
 
 	callbacks := 0
 	if err := service.Admit(ctx, old, func(context.Context) error {

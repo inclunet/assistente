@@ -22,15 +22,13 @@ type executionWatch struct {
 // capturado pelo host. A inscrição revalida esse epoch sob gate para não perder
 // uma invalidação entre a captura e a espera. release é obrigatório/idempotente.
 func (s *EpochService) WatchEpoch(ctx context.Context, snapshot EpochSnapshot) (context.Context, func(), error) {
-	var watched context.Context
-	release, err := s.AdmitExecution(ctx, snapshot, func(context.Context) error { return nil }, func(runCtx context.Context) error {
-		watched = runCtx
-		return nil
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return watched, release, nil
+	return s.WatchEpochForLifetime(ctx, ctx, snapshot)
+}
+
+// WatchEpochForLifetime limita a aquisição com ctx, mas retém o watch até
+// lifetimeCtx terminar ou o epoch ser invalidado. release continua obrigatório.
+func (s *EpochService) WatchEpochForLifetime(ctx, lifetimeCtx context.Context, snapshot EpochSnapshot) (context.Context, func(), error) {
+	return s.watchEpochForLifetime(ctx, lifetimeCtx, snapshot, true)
 }
 
 // WatchSecurityEpoch acompanha a vida da fonte (por exemplo, um run de job),
@@ -39,11 +37,24 @@ func (s *EpochService) WatchEpoch(ctx context.Context, snapshot EpochSnapshot) (
 // cancelando a inscrição. Não autoriza camada: grants/condições são revalidados
 // pelo consumidor a cada uso da fonte. release é obrigatório e idempotente.
 func (s *EpochService) WatchSecurityEpoch(ctx context.Context, snapshot EpochSnapshot) (context.Context, func(), error) {
+	return s.WatchSecurityEpochForLifetime(ctx, ctx, snapshot)
+}
+
+// WatchSecurityEpochForLifetime separa o prazo de aquisição da vida da fonte.
+// Configuração não a cancela; invalidação de segurança continua cancelando.
+func (s *EpochService) WatchSecurityEpochForLifetime(ctx, lifetimeCtx context.Context, snapshot EpochSnapshot) (context.Context, func(), error) {
+	return s.watchEpochForLifetime(ctx, lifetimeCtx, snapshot, false)
+}
+
+func (s *EpochService) watchEpochForLifetime(ctx, lifetimeCtx context.Context, snapshot EpochSnapshot, configurationSensitive bool) (context.Context, func(), error) {
+	if lifetimeCtx == nil {
+		return nil, nil, ErrInvalidEpochInput
+	}
 	var watched context.Context
-	release, err := s.admitExecution(ctx, snapshot, func(context.Context) error { return nil }, func(runCtx context.Context) error {
+	release, err := s.admitExecutionForLifetime(ctx, lifetimeCtx, snapshot, func(context.Context) error { return lifetimeCtx.Err() }, func(runCtx context.Context) error {
 		watched = runCtx
 		return nil
-	}, false, nil)
+	}, configurationSensitive, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -73,11 +84,15 @@ func (s *EpochService) AdmitExecutionWithProjectionProof(ctx context.Context, sn
 }
 
 func (s *EpochService) admitExecution(ctx context.Context, snapshot EpochSnapshot, revalidate func(context.Context) error, handoff func(context.Context) error, configurationSensitive bool, proof func(*commandbindings.Configuration) bool) (release func(), err error) {
+	return s.admitExecutionForLifetime(ctx, ctx, snapshot, revalidate, handoff, configurationSensitive, proof)
+}
+
+func (s *EpochService) admitExecutionForLifetime(ctx, lifetimeCtx context.Context, snapshot EpochSnapshot, revalidate func(context.Context) error, handoff func(context.Context) error, configurationSensitive bool, proof func(*commandbindings.Configuration) bool) (release func(), err error) {
 	if handoff == nil {
 		return nil, ErrInvalidEpochInput
 	}
 	err = s.Admit(ctx, snapshot, revalidate, func() error {
-		runCtx, cancel := context.WithCancel(ctx)
+		runCtx, cancel := context.WithCancel(lifetimeCtx)
 		watch := &executionWatch{user: snapshot.UserID, session: snapshot.SessionID, authGeneration: snapshot.AuthGeneration, securityGeneration: snapshot.SecurityGeneration, cancel: cancel, configurationSensitive: configurationSensitive, projectionProof: proof}
 		s.watchesMu.Lock()
 		if s.watches == nil {

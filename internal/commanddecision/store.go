@@ -334,7 +334,14 @@ func (s *Store) consumeBatch(ctx context.Context, db *gorm.DB, expected []Reques
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	acquisitionDeadline := time.Now().Add(4 * time.Second)
+	for _, request := range expected {
+		expiresAt := time.UnixMilli(request.ExpiresAt.UnixMilli())
+		if expiresAt.Before(acquisitionDeadline) {
+			acquisitionDeadline = expiresAt
+		}
+	}
+	return database.WithSQLiteImmediateTransactionOnce(ctx, acquisitionDeadline, db, "command_decision.consume", func(tx *gorm.DB) error {
 		for _, request := range expected {
 			now := s.now()
 			if !time.UnixMilli(request.ExpiresAt.UnixMilli()).After(now) {
