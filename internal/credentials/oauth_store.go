@@ -260,21 +260,12 @@ func (s *oauthStore) SessionContext(ctx context.Context) (context.Context, conte
 // DeleteOAuthAuthorization commits deletion of a disconnected authorization and
 // its consumer together. Neither the cache nor the consumer changes on failure.
 func (m *Manager) DeleteOAuthAuthorization(ctx context.Context, id string, deleteConsumer func(*gorm.DB) error) error {
-	scoped, err := m.OAuthStore(ctx)
+	user, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
 	}
-	s := scoped.(*oauthStore)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	r, enc, err := s.load(ctx, id)
-	missing := errors.Is(err, oauthflow.ErrNotFound)
-	if err != nil && !missing {
-		return err
-	}
-	if !missing && (r.State != "disconnected" || r.RefreshPending) {
-		return oauthflow.ErrConflict
-	}
 	persistence, ok := m.store.(*DBStore)
 	if !ok {
 		return errors.New("oauth_store_not_supported")
@@ -284,8 +275,28 @@ func (m *Manager) DeleteOAuthAuthorization(ctx context.Context, id string, delet
 		return err
 	}
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if !missing {
-			result := database.ScopeByUser(ctx, tx, "user_id").Where("id = ? AND source = ? AND oauth_enc = ?", id, "oauth", enc).Delete(&database.CredentialEntry{})
+		var entry database.CredentialEntry
+		scoped := database.ScopeByUser(ctx, tx, "user_id")
+		err := scoped.Where("id = ? AND source = ?", id, "oauth").First(&entry).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if err == nil {
+			if !m.persist {
+				return errors.New("oauth_vault_persistence_required")
+			}
+			data, err := m.decrypt(entry.OAuthEnc)
+			if err != nil {
+				return err
+			}
+			var record oauthflow.Record
+			if err = json.Unmarshal([]byte(data), &record); err != nil {
+				return err
+			}
+			if record.Version != 1 || record.ID != id || record.UserID != user || record.State != "disconnected" || record.RefreshPending {
+				return oauthflow.ErrConflict
+			}
+			result := database.ScopeByUser(ctx, tx, "user_id").Where("id = ? AND source = ? AND oauth_enc = ?", id, "oauth", entry.OAuthEnc).Delete(&database.CredentialEntry{})
 			if result.Error != nil {
 				return result.Error
 			}
@@ -293,13 +304,16 @@ func (m *Manager) DeleteOAuthAuthorization(ctx context.Context, id string, delet
 				return oauthflow.ErrConflict
 			}
 		}
+		// Imported providers without a local grant can be removed with a locked vault.
+		// Read and consumer deletion share the transaction, so a concurrent grant
+		// creation cannot slip between the absence check and deletion.
 		return deleteConsumer(tx)
 	})
 	if err != nil {
 		return err
 	}
 	for index, dc := range m.credentials {
-		if dc.ID == id && dc.UserID == s.userID {
+		if dc.ID == id && dc.UserID == user {
 			m.credentials = append(m.credentials[:index], m.credentials[index+1:]...)
 			break
 		}

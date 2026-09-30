@@ -398,6 +398,8 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 
 // CanPersist indica se o manager está configurado para persistir credenciais.
 func (m *Manager) CanPersist() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.persist && m.store != nil
 }
 

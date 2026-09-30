@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1115,4 +1116,27 @@ func TestContextCancellation(t *testing.T) {
 	// Desde que não cause panic, está OK
 	err := mgr.RegisterPatternWithContext(ctx, "test.com", auth)
 	_ = err // Ignorar resultado
+}
+
+func TestCanPersistConcurrentReset(t *testing.T) {
+	key := []byte("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+	mgr := NewManagerWithStore(key, newMemoryConsistencyStore(), true)
+	var workers sync.WaitGroup
+	workers.Add(2)
+	go func() {
+		defer workers.Done()
+		for range 1000 {
+			_ = mgr.CanPersist()
+		}
+	}()
+	go func() {
+		defer workers.Done()
+		for i := range 1000 {
+			mgr.Reset(key, i%2 == 0)
+		}
+	}()
+	workers.Wait()
+	if mgr.CanPersist() {
+		t.Fatal("last reset disabled persistence")
+	}
 }

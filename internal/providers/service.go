@@ -622,16 +622,18 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 			return errors.New("chatgpt_authorization_in_progress")
 		}
 
-		status, err := s.ChatGPTConnection(ctx, id)
-		if err != nil {
-			return err
-		}
-		if status.State != "disconnected" {
-			return fmt.Errorf("chatgpt_disconnect_before_delete")
-		}
 		mgr, ok := s.credMgr.(*credentials.Manager)
 		if !ok {
 			return errors.New("oauth_vault_unavailable")
+		}
+		if mgr.CanPersist() {
+			status, err := s.ChatGPTConnection(ctx, id)
+			if err != nil {
+				return err
+			}
+			if status.State != "disconnected" {
+				return fmt.Errorf("chatgpt_disconnect_before_delete")
+			}
 		}
 		if err = mgr.DeleteOAuthAuthorization(ctx, credentials.OAuthCredentialID(provider.CredentialPattern), func(tx *gorm.DB) error {
 			repository := database.NewProviderRepository(tx)

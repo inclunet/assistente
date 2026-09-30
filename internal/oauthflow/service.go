@@ -14,7 +14,7 @@ import (
 	"assistente/internal/logging"
 )
 
-// An explicit invalid-grant response confirms that these tokens cannot be reused.
+// An explicit invalid-grant response prevents access/refresh token reuse.
 var errRejectedGrant = errors.New("oauth_grant_rejected")
 
 type Service struct {
@@ -115,7 +115,8 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 	response, err := s.exchange(ctx, r, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {r.Tokens.Refresh}, "client_id": {r.Client.ID}, "resource": {r.Resource}})
 	if err != nil {
 		if errors.Is(err, errRejectedGrant) {
-			r.Tokens = Tokens{}
+			// Keep the validated identity hint for explicit reconnection to this account.
+			r.Tokens = Tokens{ID: r.Tokens.ID}
 			r.State = "reauthorization_required"
 			r.RefreshPending = false
 			r.Revision++
@@ -258,7 +259,8 @@ func (s *Service) Disconnect(ctx context.Context, store Store, id string) (bool,
 		return false, err
 	}
 	old := r.Tokens
-	r.Tokens = Tokens{}
+	// Keep the validated identity hint for explicit reconnection to this account.
+	r.Tokens = Tokens{ID: r.Tokens.ID}
 	r.RefreshPending = false
 	r.State = "disconnected"
 	r.Revision++

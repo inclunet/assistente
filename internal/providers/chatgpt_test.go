@@ -10,6 +10,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func chatGPTTestService(t *testing.T) (*Service, *credentials.Manager, context.Context) {
@@ -345,5 +346,92 @@ func TestChatGPTDeleteRejectsChangedAuthorizationReference(t *testing.T) {
 	current, err := s.store.Get(ctx, old.ID)
 	if err != nil || current.CredentialPattern != "oauth:replacement" || s.registry.Get(old.ID) == nil {
 		t.Fatal("consumer lost")
+	}
+}
+
+type blockedChatGPTPreflight struct {
+	ProviderStore
+	entered chan context.Context
+	release chan struct{}
+}
+
+func (s *blockedChatGPTPreflight) Get(ctx context.Context, _ string) (*llm.ProviderConfig, error) {
+	s.entered <- ctx
+	<-s.release
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return nil, errors.New("preflight was not canceled")
+}
+func TestChatGPTCancelDuringPreflight(t *testing.T) {
+	s, _, ctx := chatGPTTestService(t)
+	created, err := s.CreateChatGPTConnection(ctx, "Pending")
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked := &blockedChatGPTPreflight{ProviderStore: s.store, entered: make(chan context.Context, 1), release: make(chan struct{})}
+	s.store = blocked
+	done := make(chan error, 1)
+	go func() { _, err := s.AuthorizeChatGPT(ctx, created.ID, "Return"); done <- err }()
+	select {
+	case <-blocked.entered:
+	case <-time.After(time.Second):
+		close(blocked.release)
+		t.Fatal("preflight not reached")
+	}
+	err = s.CancelChatGPT(ctx, created.ID)
+	close(blocked.release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err = <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancel lost during preflight: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("authorization survived cancel")
+	}
+	s.oauthMu.Lock()
+	attempts := len(s.oauthAttempts)
+	s.oauthMu.Unlock()
+	if attempts != 0 {
+		t.Fatal("attempt retained")
+	}
+}
+
+func TestImportedChatGPTCanBeDeletedWithoutVault(t *testing.T) {
+	s, mgr, ctx := chatGPTTestService(t)
+	p := &llm.ProviderConfig{ID: "imported", Name: "Imported", Type: llm.ProviderChatGPT, BaseURL: "https://api.openai.com/v1", APIFormat: llm.APIFormatOpenAIResponses, CredentialPattern: "oauth:foreign", AuthMode: llm.AuthModeRequired}
+	if err := s.store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mgr.Reset(nil, false)
+	if err := s.Delete(ctx, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if current, _ := s.store.Get(ctx, p.ID); current != nil || s.registry.Get(p.ID) != nil {
+		t.Fatal("import retained")
+	}
+}
+func TestChatGPTWithEnvelopeCannotBeDeletedWithoutVault(t *testing.T) {
+	s, mgr, ctx := chatGPTTestService(t)
+	p, err := s.CreateChatGPTConnection(ctx, "Account")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr.Reset(nil, false)
+	if err = s.Delete(ctx, p.ID); err == nil {
+		t.Fatal("deleted unreadable authorization")
+	}
+	var entry database.CredentialEntry
+	if err = database.DB().First(&entry, "id = ?", p.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if current, _ := s.store.Get(ctx, p.ID); current == nil || s.registry.Get(p.ID) == nil {
+		t.Fatal("provider lost")
 	}
 }

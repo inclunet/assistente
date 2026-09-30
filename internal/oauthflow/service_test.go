@@ -249,11 +249,12 @@ func TestRefreshConfirmedInvalidGrantClearsTokens(t *testing.T) {
 				w.WriteHeader(http.StatusBadRequest)
 				_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "error_description": "secret-refresh"})
 			})
+			store.r.Tokens.ID = "validated-identity"
 			_, err := s.Resolve(context.Background(), store, store.r.ID, store.r.Resource, "")
 			if !errors.Is(err, ErrReauthorize) || strings.Contains(err.Error(), "secret-refresh") {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if store.r.Tokens != (Tokens{}) || store.r.RefreshPending || store.r.State != "reauthorization_required" || store.r.Client.ID != "client" {
+			if store.r.Tokens != (Tokens{ID: "validated-identity"}) || store.r.RefreshPending || store.r.State != "reauthorization_required" || store.r.Client.ID != "client" {
 				t.Fatal("invalid grant was not cleared while retaining registration")
 			}
 			_, _ = s.Resolve(context.Background(), store, store.r.ID, store.r.Resource, "")
@@ -310,5 +311,20 @@ func TestCallbackBodyDeliveredBeforeFastAuthorizationFailure(t *testing.T) {
 			t.Fatal("callback not delivered")
 		}
 		cancel()
+	}
+}
+
+func TestDisconnectRetainsOnlyIdentityHint(t *testing.T) {
+	s, store, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	store.r.Tokens.ID = "validated-identity"
+	revoked, err := s.Disconnect(context.Background(), store, store.r.ID)
+	if err != nil || !revoked {
+		t.Fatalf("disconnect: %v", err)
+	}
+	if store.r.Tokens != (Tokens{ID: "validated-identity"}) || store.r.State != "disconnected" {
+		t.Fatal("access retained or identity hint lost")
+	}
+	if _, err = s.Resolve(context.Background(), store, store.r.ID, store.r.Resource, ""); !errors.Is(err, ErrReauthorize) {
+		t.Fatalf("disconnected grant used: %v", err)
 	}
 }

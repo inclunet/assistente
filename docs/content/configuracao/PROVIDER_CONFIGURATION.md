@@ -30,7 +30,9 @@ O navegador só abre quando você pede conexão ou reautorização. Ao importar 
 provedor em outro computador, ele aparece desconectado: edite esse provedor e
 acione **Continuar com ChatGPT** para criar sua autorização local, sem copiar
 tokens da máquina anterior. A ação **Conectar ChatGPT** da barra cria outro
-provedor e não é necessária para reparar o item importado.
+provedor e não é necessária para reparar o item importado. Um item importado sem
+autorização local pode ser excluído mesmo se o cofre estiver indisponível. Se houver
+uma autorização cifrada local, recupere o acesso ao cofre para desconectar e excluir.
 
 A conexão usa seu plano ChatGPT e seus limites; não troca automaticamente para uma
 chave de API. Consulte [uso e permissões no ChatGPT](https://chatgpt.com/settings/usage).
@@ -47,7 +49,9 @@ o aplicativo não tenta reutilizar um refresh token possivelmente consumido.
 
 **Desconectar** interrompe o uso local e tenta revogar a sessão remota. Se a revogação
 não puder ser confirmada, o Assistente avisa e você pode remover a autorização nas
-configurações do ChatGPT. O cadastro permanece disponível para reconectar. Antes de
+configurações do ChatGPT. O cadastro e o ID token validado permanecem cifrados
+para reconectar à mesma conta; access token e refresh token são removidos.
+Excluir o provedor após desconectar remove também esse cadastro local. Antes de
 excluir esse provedor do Assistente, conclua ou cancele qualquer autorização em
 andamento e desconecte a conta. A migração das autorizações
 MCP e dos tokens de canais Slack será entregue separadamente.

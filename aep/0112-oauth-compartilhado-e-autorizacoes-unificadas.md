@@ -287,8 +287,12 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   e tokens de teste, falha de persistência, concorrência, escopo e conclusão SSE.
 - O teste de consentimento com uma conta real depende de ação do usuário no
   navegador. Não foi realizado automaticamente nem usa credenciais de terceiros.
-- Revisão independente local em doze rodadas, com correções de isolamento de
+- Revisão independente local em quinze rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
+- Cancelamento é registrado antes do preflight; importação sem autorização local
+  pode ser excluída com o cofre indisponível, após confirmar ausência na transação.
+- Rejeição definitiva e desconexão limpam access/refresh, preservando somente o
+  ID token validado para reconexão; testes do núcleo e extensão comprovam o hint.
 - O scanner de integridade inclui o envelope OAuth e identifica autorizações
   ilegíveis; teste de recuperação preserva envelopes saudáveis ao remover órfãos.
 - Exclusão compara a referência persistida dentro da transação; consultas iniciais
@@ -333,7 +337,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   novo DCR malsucedido preserva a autorização anterior.
 - [x] Falha de persistência após rotação e queda antes do commit exigem recuperação
   explícita, sem reutilizar refresh token potencialmente consumido após reinício.
-- [ ] Retenção protegida de ID token e reconexão com `id_token_hint` testadas;
+- [x] Retenção protegida de ID token e reconexão com `id_token_hint` testadas;
   refresh respeita `earliest_refresh_at` e atualiza o limite com tokens rotacionados.
 - [ ] PKCE/state/nonce/identidade nos fluxos aplicáveis, Device Flow sem callback
   e client credentials sem consentimento interativo cobertos por testes;

@@ -125,14 +125,10 @@ func (s *Service) ensureChatGPTAuthorization(ctx context.Context, store oauthflo
 	return id, nil
 }
 func (s *Service) AuthorizeChatGPT(ctx context.Context, id, completionText string) (oauthflow.Summary, error) {
-	store, err := s.oauthStore(ctx)
+	user, err := database.RequireUserID(ctx)
 	if err != nil {
 		return oauthflow.Summary{}, err
 	}
-	if _, err = s.ChatGPTConnection(ctx, id); err != nil {
-		return oauthflow.Summary{}, err
-	}
-	user, _ := database.RequireUserID(ctx)
 	key := user + ":" + id
 	ctx, cancel := context.WithCancel(ctx)
 	s.oauthMu.Lock()
@@ -144,6 +140,16 @@ func (s *Service) AuthorizeChatGPT(ctx context.Context, id, completionText strin
 	s.oauthAttempts[key] = cancel
 	s.oauthMu.Unlock()
 	defer func() { cancel(); s.oauthMu.Lock(); delete(s.oauthAttempts, key); s.oauthMu.Unlock() }()
+	store, err := s.oauthStore(ctx)
+	if err != nil {
+		return oauthflow.Summary{}, err
+	}
+	if _, err = s.ChatGPTConnection(ctx, id); err != nil {
+		return oauthflow.Summary{}, err
+	}
+	if err = ctx.Err(); err != nil {
+		return oauthflow.Summary{}, err
+	}
 	provider, err := s.chatGPTProvider(ctx, id)
 	if err != nil {
 		return oauthflow.Summary{}, err
