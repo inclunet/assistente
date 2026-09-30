@@ -1,5 +1,15 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — menu Nova aba sem prazo motor (30/09/2026): In Progress.**
+Ctrl+N mantém o menu e a escolha por letra abertos até seleção ou cancelamento,
+sem exigir rapidez. Guardas de contexto/mapa permanecem; outras sequências
+sem menu conservam o prazo existente. Sem novo aceite manual.
+
+**AEP-0103 — foco após criação de abas (30/09/2026): In Progress.** Após sucesso
+da criação, o registro de foco do painel recebe a nova aba do tipo solicitado.
+Mudança de contexto ou foco impede apresentação tardia. Regressões integradas
+dos quatro tipos de aba; sem novo aceite manual.
+
 **AEP-0103 — contenção cancelável (30/09/2026): In Progress.** Gate de segurança
 e aquisição de reconstrução canceláveis; leitura do mapa/configurações e refresh
 com orçamento cooperativo total de cinco segundos, sem cancelar o mapa retido.

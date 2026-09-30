@@ -29,6 +29,7 @@ import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { captureWorkspaceTabCreateFocus } from '../../lib/commandWorkspaceTabCreateFocus';
 import { describeCommandCatalogItem, listCommandCatalog } from '../../services/commandCatalog';
 import { CommandArgumentsDialog } from '../commands/CommandArgumentsDialog';
 import { getRuntimeCommandToolGuidance, type RuntimeCommandToolGuidance } from '../../lib/commandToolGuidance';
@@ -1365,13 +1366,18 @@ export function Topbar() {
     }
     let editorModeTarget: EditorModeTargetLease | undefined;
     const cancellationGeneration = commandCancellationGenerationRef.current;
+    const completionRoute = commandRouteIdentityRef.current;
     const pendingTargetForExecution = commandID === WORKSPACE_CREATE_COMMAND_ID &&
       activeCommandIntentRef.current?.commandID === WORKSPACE_CREATE_COMMAND_ID
       ? pendingWorkspaceCreateTargetRef.current
       : null;
     const completionFocus = commandID === WORKSPACE_TAB_CLOSE_COMMAND_ID
       ? captureWorkspaceTabCloseFocus(() => pathnameRef.current)
-      : undefined;
+      : isWorkspaceTabCreateCommand(commandID)
+        ? captureWorkspaceTabCreateFocus(() => pathnameRef.current, commandID, () =>
+          commandPickerMountedRef.current && cancellationGeneration === commandCancellationGenerationRef.current &&
+          completionRoute === commandRouteIdentityRef.current)
+        : undefined;
     let chatLease: PreparedWorkspaceChatOpen | null = null;
     let preparationToken: {
       generation: number;
@@ -1497,8 +1503,9 @@ export function Topbar() {
       }
       // Foco é apresentação pós-escrita: nunca submete outra mutação nem
       // transforma um resultado backend em uma confirmação visual.
-      if (result.status === 'succeeded' && commandPickerMountedRef.current) {
-        try { completionFocus?.apply(); }
+      if (result.status === 'succeeded' && commandPickerMountedRef.current &&
+          cancellationGeneration === commandCancellationGenerationRef.current && completionRoute === commandRouteIdentityRef.current) {
+        try { await completionFocus?.apply(); }
         catch (error) { logger.warn('[Commands] Falha ao restaurar foco após comando de aba', error); }
       }
       return result;
@@ -1751,7 +1758,10 @@ export function Topbar() {
       intentIsCurrent({ ...intent, commandID: '' }) &&
       intent.modalGeneration === getModalRegistrySnapshot().generationNumber &&
       document.hasFocus();
+    let creationCatalogTimer: ReturnType<typeof setTimeout> | undefined;
     const closeCreationMenu = (restoreFocus = false) => {
+      clearTimeout(creationCatalogTimer);
+      creationCatalogTimer = undefined;
       newTabMenuIntentRef.current = null;
       tabCreationMenu?.close({ restoreFocus });
     };
@@ -1759,12 +1769,12 @@ export function Topbar() {
       closeCreationMenu(restoreFocus);
       localCommandKeyboardRef.current?.cancelSequence();
     };
-    const openCreationMenu = (bindings?: readonly LocalCommandKeyboardBinding[]) => {
+    const openCreationMenu = (bindings?: readonly LocalCommandKeyboardBinding[]): boolean => {
       const auth = useAuthStore.getState();
       const current = useWorkspaceStore.getState().workspace;
-      if (disposed || !auth.isAuthenticated || !auth.user || !current || isModalOpen() || !document.hasFocus()) return;
+      if (disposed || !auth.isAuthenticated || !auth.user || !current || isModalOpen() || !document.hasFocus()) return false;
       const canShowCreationMenu = Boolean(tabCreationMenu) && workspaceTabMutationAvailable('workspace.tab.chat.create');
-      if (!bindings && !canShowCreationMenu) return;
+      if (!bindings && !canShowCreationMenu) return false;
       const intent: WorkspaceTabCreationIntent = {
         userId: auth.user.userId, sessionId: auth.user.sessionId,
         workspaceId: current.id, activeTabId: current.activeTabId ?? null,
@@ -1774,14 +1784,25 @@ export function Topbar() {
       newTabMenuIntentRef.current = intent;
       // The sequence recognizer is generic. Only workspace origins have a
       // creation-menu host; other v2 bindings still use their normal ingress.
-      if (!tabCreationMenu || !canShowCreationMenu) return;
+      if (!tabCreationMenu || !canShowCreationMenu) return false;
       const openingFocus = document.activeElement;
       const ids = bindings ? new Set(bindings.map((binding) => binding.commandId)) : new Set<string>(WORKSPACE_TAB_CREATE_COMMAND_IDS);
+      const failCatalogLoad = (error: unknown) => {
+        if (!creationIntentCurrent(intent)) return;
+        cancelCreationMenu();
+        logger.error('[Commands] Falha ao carregar comandos de criação', error);
+        creationPresentationRef.current.announce(creationPresentationRef.current.t('commandPalette.error'));
+      };
+      // Limita somente o carregamento: depois de exibido, o menu não tem prazo.
+      clearTimeout(creationCatalogTimer);
+      creationCatalogTimer = setTimeout(() => failCatalogLoad(new Error('creation-catalog-timeout')), 5_000);
       void listCommandCatalog({ locale: creationPresentationRef.current.locale, source: 'palette' }).then((catalog) => {
         if (!creationIntentCurrent(intent)) {
           if (newTabMenuIntentRef.current === intent) cancelCreationMenu();
           return;
         }
+        clearTimeout(creationCatalogTimer);
+        creationCatalogTimer = undefined;
         if (document.activeElement !== openingFocus) { cancelCreationMenu(); return; }
         const items = catalog.filter((item) => ids.has(item.id)).map((item) => ({
           commandID: item.id,
@@ -1803,12 +1824,8 @@ export function Topbar() {
           executePendingCommandRef.current?.();
         });
         if (!shown) cancelCreationMenu();
-      }).catch((error) => {
-        if (!creationIntentCurrent(intent)) return;
-        cancelCreationMenu();
-        logger.error('[Commands] Falha ao carregar comandos de criação', error);
-        creationPresentationRef.current.announce(creationPresentationRef.current.t('commandPalette.error'));
-      });
+      }).catch(failCatalogLoad);
+      return true;
     };
     const unregisterCreationActions = tabCreationMenu?.registerActions({
       openFromToolbar: () => {
@@ -2218,7 +2235,9 @@ export function Topbar() {
       onSequenceStarted: (bindings) => {
         const creationBindings = bindings.filter(binding =>
           isWorkspaceTabCreateCommand(binding.commandId) || binding.commandId === WORKSPACE_CREATE_COMMAND_ID);
-        if (creationBindings.length > 0) openCreationMenu(creationBindings);
+        if (creationBindings.length > 0 && openCreationMenu(creationBindings)) {
+          return { menuCommandIds: creationBindings.map(binding => binding.commandId) };
+        }
       },
       onSequenceCancelled: (reason) => {
         if (reason !== 'menu-navigation') {

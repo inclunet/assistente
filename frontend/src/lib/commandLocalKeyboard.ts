@@ -110,7 +110,8 @@ export interface LocalCommandKeyboardOptions {
   acceptMap?: (map: LocalCommandKeyboardMap) => boolean;
   onMapAccepted?: (map: LocalCommandKeyboardMap) => void;
   onMapInvalidated?: () => void;
-  onSequenceStarted?: (bindings: readonly LocalCommandKeyboardBinding[]) => void | Promise<void>;
+  /** O host de menu assume carregamento e escolha até seleção/cancelamento, sem prazo motor. */
+  onSequenceStarted?: (bindings: readonly LocalCommandKeyboardBinding[]) => { menuCommandIds: readonly string[] } | void | Promise<void>;
   onSequenceCancelled?: (reason: CommandSequenceCancelReason) => void;
   sequenceTimeoutMs?: number;
 }
@@ -615,7 +616,18 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
     }
     if (finalByCode.size === 0) return;
     const timeoutMs = options.sequenceTimeoutMs ?? 1500;
-    const timer = setTimeout(() => cancelSequence('timeout'), timeoutMs);
+    let menuCommandIds: ReadonlySet<string> = new Set();
+    const timer = setTimeout(() => {
+      if (pendingSequence?.finalByCode !== finalByCode) return;
+      // O menu assume somente suas opções. Outros comandos que compartilham
+      // o prefixo continuam sujeitos ao prazo normal da sequência.
+      for (const [code, choices] of finalByCode) {
+        const retained = choices.filter(binding => menuCommandIds.has(binding.commandId));
+        if (retained.length) finalByCode.set(code, retained);
+        else finalByCode.delete(code);
+      }
+      if (!finalByCode.size) cancelSequence('timeout');
+    }, timeoutMs);
     pendingSequence = {
       bindings: candidates,
       finalByCode,
@@ -635,7 +647,11 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
       const started = options.onSequenceStarted?.(candidates.map((binding) => ({
         shortcut: cloneShortcut(binding.shortcut), commandId: binding.commandId, handler: binding.handler,
       })));
-      if (started) void Promise.resolve(started).catch(() => cancelSequence('unexpected'));
+      if (started && 'menuCommandIds' in started) {
+        menuCommandIds = new Set(started.menuCommandIds);
+        if (candidates.every(binding => menuCommandIds.has(binding.commandId))) clearTimeout(timer);
+      }
+      else if (started) void Promise.resolve(started).catch(() => cancelSequence('unexpected'));
     } catch {
       cancelSequence('unexpected');
       return;
