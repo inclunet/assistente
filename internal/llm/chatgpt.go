@@ -9,6 +9,9 @@ import (
 	"net/http"
 	"strings"
 
+	"assistente/internal/logging"
+	"assistente/internal/oauthflow"
+	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
 )
@@ -102,3 +105,46 @@ func (h *chatGPTCollector) OnToolCalls([]ToolCall, string, Usage, string) {
 }
 func (h *chatGPTCollector) OnError(e string)                      { h.err = errors.New(e) }
 func (h *chatGPTCollector) OnDone(text string, _ Usage, _ string) { h.text = text }
+
+func chatGPTFailure(ctx context.Context, code string) string {
+	result := "chatgpt_request_failed"
+	switch code {
+	case "subscription_sharing_usage_limit_exceeded":
+		result = "chatgpt_plan_limit"
+	case "model_not_found", "model_not_available":
+		result = "chatgpt_model_unavailable"
+	case "invalid_api_key", "authentication_error":
+		result = "chatgpt_reauthorization_required"
+	case "permission_denied", "insufficient_scope":
+		result = "chatgpt_permission_required"
+	case "rate_limit_exceeded":
+		result = "chatgpt_rate_limit"
+	}
+	// Only allowlisted diagnostics; the remote description can contain secrets.
+	logging.Warnf(ctx, "llm.chatgpt", "chatgpt_failure code=%s", result)
+	return result
+}
+func chatGPTTransportFailure(ctx context.Context, err error) string {
+	if errors.Is(err, oauthflow.ErrReauthorize) {
+		return chatGPTFailure(ctx, "authentication_error")
+	}
+	if errors.Is(err, oauthflow.ErrPermission) {
+		return chatGPTFailure(ctx, "insufficient_scope")
+	}
+	if errors.Is(err, context.Canceled) {
+		return "chatgpt_request_cancelled"
+	}
+	var apiError *openai.Error
+	if errors.As(err, &apiError) {
+		if apiError.Code != "" {
+			return chatGPTFailure(ctx, apiError.Code)
+		}
+		if apiError.StatusCode == http.StatusUnauthorized {
+			return chatGPTFailure(ctx, "authentication_error")
+		}
+		if apiError.StatusCode == http.StatusForbidden {
+			return chatGPTFailure(ctx, "permission_denied")
+		}
+	}
+	return chatGPTFailure(ctx, "")
+}

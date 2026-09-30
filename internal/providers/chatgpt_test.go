@@ -148,3 +148,105 @@ func TestChatGPTDeleteRollbackRetainsBothRecords(t *testing.T) {
 		t.Fatal("second delete should fail without panic")
 	}
 }
+
+func TestChatGPTCreateRollbackDoesNotLeaveOrphan(t *testing.T) {
+	s, _, ctx := chatGPTTestService(t)
+	db := database.DB()
+	if err := db.Exec("CREATE TRIGGER reject_provider_insert BEFORE INSERT ON llm_providers BEGIN SELECT RAISE(ABORT, 'insert denied'); END").Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChatGPTConnection(ctx, "Failed create"); err == nil {
+		t.Fatal("expected failure")
+	}
+	var count int64
+	if err := db.Model(&database.CredentialEntry{}).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("orphan credentials: %d %v", count, err)
+	}
+	if len(s.registry.List()) != 0 {
+		t.Fatal("uncommitted provider in registry")
+	}
+	if err := db.Exec("DROP TRIGGER reject_provider_insert").Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChatGPTConnection(ctx, "Retry"); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestImportedChatGPTCreateRollbackPreservesReference(t *testing.T) {
+	s, mgr, ctx := chatGPTTestService(t)
+	p := &llm.ProviderConfig{ID: "imported", Name: "Imported", Type: llm.ProviderChatGPT, BaseURL: "https://api.openai.com/v1", APIFormat: llm.APIFormatOpenAIResponses, CredentialPattern: "oauth:foreign", AuthMode: llm.AuthModeRequired}
+	if err := s.store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
+		t.Fatal(err)
+	}
+	db := database.DB()
+	if err := db.Exec("CREATE TRIGGER reject_provider_update BEFORE UPDATE ON llm_providers BEGIN SELECT RAISE(ABORT, 'update denied'); END").Error; err != nil {
+		t.Fatal(err)
+	}
+	store, err := mgr.OAuthStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ensureChatGPTAuthorization(ctx, store, p); err == nil {
+		t.Fatal("expected failure")
+	}
+	var count int64
+	if err = db.Model(&database.CredentialEntry{}).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("orphan credentials: %d %v", count, err)
+	}
+	saved, err := s.store.Get(ctx, p.ID)
+	if err != nil || saved.CredentialPattern != "oauth:foreign" {
+		t.Fatal("import reference changed on failure", err)
+	}
+}
+
+func TestImportedChatGPTRejectsStaleRecovery(t *testing.T) {
+	s, mgr, ctx := chatGPTTestService(t)
+	p := &llm.ProviderConfig{ID: "imported", Name: "Imported", Type: llm.ProviderChatGPT, BaseURL: "https://api.openai.com/v1", APIFormat: llm.APIFormatOpenAIResponses, CredentialPattern: "oauth:foreign", AuthMode: llm.AuthModeRequired}
+	if err := s.store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
+		t.Fatal(err)
+	}
+	store, err := mgr.OAuthStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	winner, err := s.ensureChatGPTAuthorization(ctx, store, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ensureChatGPTAuthorization(ctx, store, p); !errors.Is(err, oauthflow.ErrConflict) {
+		t.Fatal("stale recovery accepted", err)
+	}
+	var count int64
+	if err = database.DB().Model(&database.CredentialEntry{}).Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("credentials=%d err=%v", count, err)
+	}
+	saved, err := s.store.Get(ctx, p.ID)
+	if err != nil || saved.CredentialPattern != "oauth:"+winner {
+		t.Fatal("winner overwritten", err)
+	}
+}
+func TestChatGPTDefaultModelSaveFailurePreservesConnection(t *testing.T) {
+	s, mgr, ctx := chatGPTTestService(t)
+	created, err := s.CreateChatGPTConnection(ctx, "Connected")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, _ := mgr.OAuthStore(ctx)
+	r, _ := store.Load(ctx, created.ID)
+	r.State = "connected"
+	r.Revision++
+	if err = store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.DB().Exec("CREATE TRIGGER reject_default BEFORE UPDATE ON llm_providers BEGIN SELECT RAISE(ABORT, 'write denied'); END").Error; err != nil {
+		t.Fatal(err)
+	}
+	s.setChatGPTDefaultModel(ctx, s.registry.Get(created.ID), "account-model")
+	summary, err := s.ChatGPTConnection(ctx, created.ID)
+	if err != nil || summary.State != "connected" {
+		t.Fatal("optional default invalidated connection", err)
+	}
+	if s.registry.Get(created.ID).DefaultModel != "" {
+		t.Fatal("unpersisted default published")
+	}
+}

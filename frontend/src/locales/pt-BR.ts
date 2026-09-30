@@ -1,6 +1,17 @@
 const ptBR = {
   translation: {
  chatgpt: {
+    errors: {
+      incomplete: 'O ChatGPT não concluiu a resposta. Tente novamente.',
+      interrupted: 'A conexão com o ChatGPT foi interrompida antes de concluir a resposta.',
+      planLimit: 'O limite do seu plano ChatGPT foi atingido. Consulte o uso pelo link ao lado do seletor de modelos.',
+      modelUnavailable: 'Este modelo não está disponível para sua conta ChatGPT. Escolha outro modelo.',
+      reauthorize: 'Reconecte sua conta ChatGPT na página de provedores.',
+      permission: 'A conexão ChatGPT não tem a permissão necessária. Revise a autorização na página de provedores.',
+      rateLimit: 'O ChatGPT recebeu muitas solicitações. Aguarde e tente novamente.',
+      cancelled: 'A solicitação ao ChatGPT foi cancelada.',
+      failed: 'Não foi possível concluir a solicitação ao ChatGPT. Tente novamente.',
+    },
     disconnectBeforeDelete: 'Desconecte a conta ChatGPT antes de excluir este provedor.',
  usingPlan: "Usando seu plano ChatGPT",
  gotIt: "Entendi",

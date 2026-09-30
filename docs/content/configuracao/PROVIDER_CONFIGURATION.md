@@ -45,6 +45,11 @@ configurações do ChatGPT. O cadastro permanece disponível para reconectar. An
 excluir esse provedor do Assistente, desconecte a conta. A migração das autorizações
 MCP e dos tokens de canais Slack será entregue separadamente.
 
+Falhas de resposta incompleta, conexão interrompida, autorização e limite do plano
+são apresentadas no idioma da interface. Ao atingir o limite, consulte o uso pelo
+link junto ao seletor de modelos; a solicitação não é repetida automaticamente.
+A descoberta do modelo padrão é opcional: sua falha não desfaz uma conexão já autorizada.
+
 ## Provedores Suportados
 
 ### Provedores Cloud (API Key obrigatória)

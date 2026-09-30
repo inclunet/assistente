@@ -78,6 +78,11 @@ func (s *oauthStore) Load(ctx context.Context, id string) (oauthflow.Record, err
 	return r, err
 }
 func (s *oauthStore) Create(ctx context.Context, r oauthflow.Record) error {
+	return s.CreateWithConsumer(ctx, r, nil)
+}
+
+// CreateWithConsumer publishes the authorization and consumer in one transaction.
+func (s *oauthStore) CreateWithConsumer(ctx context.Context, r oauthflow.Record, createConsumer func(*gorm.DB) error) error {
 	m := s.manager
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -95,7 +100,26 @@ func (s *oauthStore) Create(ctx context.Context, r oauthflow.Record) error {
 	if err != nil {
 		return err
 	}
-	if err = m.store.(oauthPersistence).CreateOAuth(ctx, r.ID, enc); err != nil {
+	if createConsumer == nil {
+		err = m.store.(oauthPersistence).CreateOAuth(ctx, r.ID, enc)
+	} else {
+		persistence, ok := m.store.(*DBStore)
+		if !ok {
+			return errors.New("oauth_store_not_supported")
+		}
+		db, dbErr := persistence.ensureDB()
+		if dbErr != nil {
+			return dbErr
+		}
+		err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			entry := database.CredentialEntry{UUIDModel: database.UUIDModel{ID: r.ID}, UserID: s.userID, Pattern: "oauth:" + r.ID, Source: "oauth", AuthType: "bearer", OAuthEnc: enc}
+			if err := tx.Create(&entry).Error; err != nil {
+				return err
+			}
+			return createConsumer(tx)
+		})
+	}
+	if err != nil {
 		return err
 	}
 	m.credentials = append(m.credentials, &DomainCredential{ID: r.ID, UserID: r.UserID, Pattern: "oauth:" + r.ID, Auth: &AuthConfig{Source: "oauth", Type: "bearer", OAuthEnc: enc}})

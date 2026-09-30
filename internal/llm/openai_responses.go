@@ -637,7 +637,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		case "response.failed":
 			ev := event.AsResponseFailed()
 			if p.provider.Type == ProviderChatGPT {
-				handler.OnError(string(ev.Response.Error.Code) + ": " + ev.Response.Error.Message)
+				handler.OnError(chatGPTFailure(ctx, string(ev.Response.Error.Code)))
 				return mcpStreamAttemptResult{done: true}
 			}
 			errMsg := "erro na Responses API"
@@ -682,7 +682,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	wd.Stop()
 	if err := stream.Err(); err != nil {
 		if p.provider.Type == ProviderChatGPT {
-			handler.OnError(err.Error())
+			handler.OnError(chatGPTTransportFailure(ctx, err))
 			return mcpStreamAttemptResult{done: true}
 		}
 		errStr := err.Error()

@@ -287,10 +287,15 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   e tokens de teste, falha de persistência, concorrência, escopo e conclusão SSE.
 - O teste de consentimento com uma conta real depende de ação do usuário no
   navegador. Não foi realizado automaticamente nem usa credenciais de terceiros.
-- Revisão independente local em seis rodadas, com correções de isolamento de
+- Revisão independente local em oito rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
-- Exclusão de provedor ChatGPT e autorização desconectada na mesma transação;
-  `providers/chatgpt_test.go` força falha e comprova rollback de ambos os registros.
+- Criação e exclusão de provedor ChatGPT e autorização na mesma transação;
+  `providers/chatgpt_test.go` força falha, comprova rollback e rejeita recuperação
+  importada com referência obsoleta. Cancelamento não publica registro no cache.
+- `oauthflow/host_test.go` verifica publicação atômica do identificador da
+  instalação com oito processos; arquivo temporário interrompido não afeta o ID.
+- Falhas ChatGPT usam códigos estáveis e traduções nos três idiomas. Salvar o
+  modelo padrão é opcional e não invalida um consentimento já concluído.
 - MCP compartilha somente o árbitro de interação nesta fase. Discovery, DCR,
   Device Flow, client credentials, persistência MCP e Slack permanecem pendentes.
 

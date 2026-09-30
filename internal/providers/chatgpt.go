@@ -9,10 +9,12 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/logging"
 	"assistente/internal/oauthflow"
 
 	"github.com/google/uuid"
 	"github.com/pkg/browser"
+	"gorm.io/gorm"
 )
 
 func (s *Service) oauthStore(ctx context.Context) (oauthflow.Store, error) {
@@ -40,12 +42,8 @@ func (s *Service) CreateChatGPTConnection(ctx context.Context, name string) (oau
 	if err != nil {
 		return oauthflow.Summary{}, err
 	}
-	if err = store.Create(ctx, r); err != nil {
-		return oauthflow.Summary{}, err
-	}
 	p := &llm.ProviderConfig{ID: id, Name: name, Type: llm.ProviderChatGPT, APIFormat: llm.APIFormatOpenAIResponses, BaseURL: r.Resource, CredentialPattern: "oauth:" + id, AuthMode: llm.AuthModeRequired, Timeout: 180}
-	if err = s.store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
-		_ = s.credMgr.DeletePattern(ctx, p.CredentialPattern)
+	if err = persistChatGPTAuthorization(ctx, store, r, p, nil); err != nil {
 		return oauthflow.Summary{}, err
 	}
 	if err = s.registry.Register(p); err != nil {
@@ -113,16 +111,12 @@ func (s *Service) ensureChatGPTAuthorization(ctx context.Context, store oauthflo
 	if err != nil {
 		return "", err
 	}
-	if err = store.Create(ctx, r); err != nil {
-		return "", err
-	}
 	updated := *provider
 	updated.CredentialPattern = "oauth:" + id
 	updated.BaseURL = r.Resource
 	updated.APIFormat = llm.APIFormatOpenAIResponses
 	updated.AuthMode = llm.AuthModeRequired
-	if err = s.store.Save(ctx, []*llm.ProviderConfig{&updated}); err != nil {
-		_ = s.credMgr.DeletePattern(ctx, updated.CredentialPattern)
+	if err = persistChatGPTAuthorization(ctx, store, r, &updated, &provider.CredentialPattern); err != nil {
 		return "", err
 	}
 	if err = s.registry.Register(&updated); err != nil {
@@ -177,14 +171,7 @@ func (s *Service) AuthorizeChatGPT(ctx context.Context, id, completionText strin
 				if _, err = store.Load(ctx, authorizationID); err != nil {
 					return summary, err
 				}
-				updated := *provider
-				updated.DefaultModel = models[0]
-				if err = s.store.Save(ctx, []*llm.ProviderConfig{&updated}); err != nil {
-					return summary, err
-				}
-				if err = s.registry.Register(&updated); err != nil {
-					return summary, err
-				}
+				s.setChatGPTDefaultModel(ctx, provider, models[0])
 			}
 		}
 	}
@@ -224,4 +211,42 @@ func (s *Service) DisconnectChatGPT(ctx context.Context, id string) (bool, error
 		return false, err
 	}
 	return s.oauth.Disconnect(ctx, store, authorizationID)
+}
+
+func persistChatGPTAuthorization(ctx context.Context, store oauthflow.Store, r oauthflow.Record, p *llm.ProviderConfig, expectedPattern *string) error {
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	transaction, ok := store.(interface {
+		CreateWithConsumer(context.Context, oauthflow.Record, func(*gorm.DB) error) error
+	})
+	if !ok {
+		return errors.New("oauth_store_not_supported")
+	}
+	return transaction.CreateWithConsumer(ctx, r, func(tx *gorm.DB) error {
+		repository := database.NewProviderRepository(tx)
+		if expectedPattern != nil {
+			current, err := repository.GetLLMProvider(ctx, p.ID)
+			if err != nil {
+				return err
+			}
+			if current.CredentialPattern != *expectedPattern {
+				return oauthflow.ErrConflict
+			}
+		}
+		return repository.SaveLLMProvider(ctx, toDBModel(p))
+	})
+}
+
+// Optional catalog persistence must not turn successful consent into a failure.
+func (s *Service) setChatGPTDefaultModel(ctx context.Context, provider *llm.ProviderConfig, model string) {
+	updated := *provider
+	updated.DefaultModel = model
+	if err := s.store.Save(ctx, []*llm.ProviderConfig{&updated}); err != nil {
+		logging.Warnf(ctx, "providers.service", "chatgpt_default_model_save_failed")
+		return
+	}
+	if err := s.registry.Register(&updated); err != nil {
+		logging.Warnf(ctx, "providers.service", "chatgpt_default_model_registry_failed")
+	}
 }

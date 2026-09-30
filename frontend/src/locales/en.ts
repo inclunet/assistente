@@ -1,6 +1,17 @@
 const en = {
   translation: {
  chatgpt: {
+    errors: {
+      incomplete: 'ChatGPT did not complete the response. Try again.',
+      interrupted: 'The ChatGPT connection ended before the response was completed.',
+      planLimit: 'Your ChatGPT plan limit was reached. Check usage using the link beside the model picker.',
+      modelUnavailable: 'This model is unavailable for your ChatGPT account. Choose another model.',
+      reauthorize: 'Reconnect your ChatGPT account on the providers page.',
+      permission: 'The ChatGPT connection lacks the required permission. Review authorization on the providers page.',
+      rateLimit: 'ChatGPT received too many requests. Wait and try again.',
+      cancelled: 'The ChatGPT request was canceled.',
+      failed: 'The ChatGPT request could not be completed. Try again.',
+    },
     disconnectBeforeDelete: 'Disconnect the ChatGPT account before deleting this provider.',
  usingPlan: "Using your ChatGPT plan",
  gotIt: "Got it",

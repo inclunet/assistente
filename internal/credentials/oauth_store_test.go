@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"gorm.io/gorm"
 	"strings"
 	"testing"
 	"time"
@@ -88,5 +89,31 @@ func TestOAuthDeletedRecordCannotBeResurrected(t *testing.T) {
 	r.Revision++
 	if err := store.CompareAndSwap(ctx, r, 1); err == nil {
 		t.Fatal("deleted authorization restored")
+	}
+}
+
+func TestOAuthCreateConsumerCanceledBeforeCommitDoesNotPublish(t *testing.T) {
+	setupScopedCredentialStoreTestDB(t)
+	mgr := NewManagerWithStore(bytes.Repeat([]byte{7}, 32), NewDBStore(), true)
+	owner := database.WithUserID(context.Background(), "owner")
+	ctx, cancel := context.WithCancel(owner)
+	defer cancel()
+	store, err := mgr.OAuthStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _ := oauthflow.New(oauthintegrations.ChatGPT()).Pending("canceled", "owner", "chatgpt")
+	err = store.(*oauthStore).CreateWithConsumer(ctx, r, func(tx *gorm.DB) error { cancel(); return nil })
+	if err == nil {
+		t.Fatal("canceled transaction succeeded")
+	}
+	// A new context can read the database, but neither durable nor cached records exist.
+	if _, err = store.Load(owner, r.ID); !errors.Is(err, oauthflow.ErrNotFound) {
+		t.Fatal("orphan durable record", err)
+	}
+	mgr.mu.RLock()
+	defer mgr.mu.RUnlock()
+	if len(mgr.credentials) != 0 {
+		t.Fatal("uncommitted credential published in cache")
 	}
 }

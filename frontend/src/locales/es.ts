@@ -1,6 +1,17 @@
 const es = {
   translation: {
  chatgpt: {
+    errors: {
+      incomplete: 'ChatGPT no completó la respuesta. Inténtalo de nuevo.',
+      interrupted: 'La conexión con ChatGPT terminó antes de completar la respuesta.',
+      planLimit: 'Se alcanzó el límite de tu plan ChatGPT. Consulta el uso mediante el enlace junto al selector de modelos.',
+      modelUnavailable: 'Este modelo no está disponible para tu cuenta de ChatGPT. Elige otro modelo.',
+      reauthorize: 'Vuelve a conectar tu cuenta de ChatGPT en la página de proveedores.',
+      permission: 'La conexión ChatGPT no tiene el permiso necesario. Revisa la autorización en la página de proveedores.',
+      rateLimit: 'ChatGPT recibió demasiadas solicitudes. Espera e inténtalo de nuevo.',
+      cancelled: 'Se canceló la solicitud a ChatGPT.',
+      failed: 'No se pudo completar la solicitud a ChatGPT. Inténtalo de nuevo.',
+    },
     disconnectBeforeDelete: 'Desconecta la cuenta de ChatGPT antes de eliminar este proveedor.',
  usingPlan: "Usando tu plan ChatGPT",
  gotIt: "Entendido",

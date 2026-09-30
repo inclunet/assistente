@@ -51,6 +51,11 @@ func TestChatGPTRequestAndTerminalEvents(t *testing.T) {
 				}
 			} else if err == nil {
 				t.Fatal("incomplete stream succeeded")
+			} else {
+				expected := map[string]string{"failed": "chatgpt_plan_limit", "incomplete": "chatgpt_response_incomplete", "interrupted": "chatgpt_stream_interrupted"}[terminal]
+				if err.Error() != expected {
+					t.Fatalf("untranslated remote failure: %v", err)
+				}
 			}
 		})
 	}
@@ -75,5 +80,11 @@ func TestChatGPTFunctionNamespace(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"type":"namespace"`) || !strings.Contains(string(data), `"name":"local_tool"`) {
 		t.Fatalf("tools: %s", data)
+	}
+}
+
+func TestChatGPTUnknownRemoteFailureDoesNotExposeDescription(t *testing.T) {
+	if got := chatGPTFailure(context.Background(), "secret echoed by remote"); got != "chatgpt_request_failed" {
+		t.Fatal(got)
 	}
 }
