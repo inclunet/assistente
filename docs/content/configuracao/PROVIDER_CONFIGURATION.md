@@ -9,6 +9,42 @@ weight: 1
 
 O Assistente suporta múltiplos provedores de LLM, tanto comerciais (cloud) quanto locais. Basta adicionar um provedor nas configurações (`Alt + 2`) e informar uma chave de API ou usar uma credencial já cadastrada para o domínio.
 
+## Conectar sua conta ChatGPT
+
+Na página **Provedores**, escolha **Conectar ChatGPT**, dê um nome à autorização
+(por exemplo, “ChatGPT pessoal”) e acione **Continuar com ChatGPT**. Autorize no
+navegador o uso do plano de uma conta elegível. Retorne ao Assistente para conferir
+o estado **Conectado** e selecione esse provedor no perfil de chat. O primeiro
+modelo listado pela conta será o padrão quando o catálogo estiver disponível;
+você pode selecionar outro modelo no perfil. Se o catálogo falhar temporariamente,
+recarregue a lista de modelos no perfil e escolha um explicitamente.
+
+Cada autorização aparece como um provedor independente, com nome e identificador
+próprios. Para outra conta/workspace, crie outra conexão. Para voltar à mesma conta,
+edite o provedor e use **Autorizar novamente**: o cadastro é reaproveitado.
+O navegador só abre quando você pede conexão ou reautorização. Ao importar um
+provedor em outro computador, ele aparece desconectado: escolha **Conectar com
+ChatGPT** para criar a autorização local, sem copiar tokens da máquina anterior.
+
+A conexão usa seu plano ChatGPT e seus limites; não troca automaticamente para uma
+chave de API. Consulte [uso e permissões no ChatGPT](https://chatgpt.com/settings/usage).
+Suporta chat via Responses e ferramentas executadas localmente pelo Assistente,
+incluindo ferramentas MCP pelo adaptador local. Não oferece áudio nem ferramentas
+hospedadas de MCP, arquivos ou execução de código. Os parâmetros incompatíveis com
+essa rota são omitidos da requisição sem alterar o perfil salvo.
+
+O cofre precisa estar habilitado para persistir. Cadastro, access token, refresh token
+e ID token ficam cifrados juntos; a tela e as exportações não incluem esses segredos.
+A renovação é coordenada entre chamadas e respeita a expiração informada pelo servidor.
+Se houver interrupção ou falha ao salvar após possível rotação, use **Autorizar novamente**;
+o aplicativo não tenta reutilizar um refresh token possivelmente consumido.
+
+**Desconectar** interrompe o uso local e tenta revogar a sessão remota. Se a revogação
+não puder ser confirmada, o Assistente avisa e você pode remover a autorização nas
+configurações do ChatGPT. O cadastro permanece disponível para reconectar. Antes de
+excluir esse provedor do Assistente, desconecte a conta. A migração das autorizações
+MCP e dos tokens de canais Slack será entregue separadamente.
+
 ## Provedores Suportados
 
 ### Provedores Cloud (API Key obrigatória)

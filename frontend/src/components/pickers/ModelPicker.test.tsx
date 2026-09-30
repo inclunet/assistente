@@ -57,6 +57,17 @@ beforeEach(() => {
 });
 
 describe('ModelPicker', () => {
+  it('identifica o uso do plano ChatGPT e remove o aviso ao trocar de provedor', async () => {
+    getModelsSpy.mockResolvedValueOnce({ ...catalogo(['m1']), usesChatGPTPlan: true });
+    const view = render(<ModelPicker value="" onChange={() => {}} providerID="chatgpt" />);
+    expect(await screen.findByText('chatgpt.usingPlan')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'chatgpt.usage' })).toHaveAttribute('href', 'https://chatgpt.com/settings/usage');
+    getModelsSpy.mockResolvedValueOnce(catalogo(['other']));
+    view.rerender(<ModelPicker value="" onChange={() => {}} providerID="api" />);
+    await waitFor(() => expect(screen.getByTestId('base-picker')).toHaveAttribute('data-labels', 'other'));
+    expect(screen.queryByText('chatgpt.usingPlan')).not.toBeInTheDocument();
+  });
+
   it('carrega modelos por provider', async () => {
     getModelsSpy.mockResolvedValueOnce(catalogo(['m1']));
 

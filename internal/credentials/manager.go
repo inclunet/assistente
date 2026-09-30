@@ -17,10 +17,13 @@ import (
 	"sync"
 
 	"assistente/internal/database"
+	"assistente/internal/oauthflow"
 )
 
 // AuthConfig descreve como autenticar em um domínio
 type AuthConfig struct {
+	OAuth             *oauthflow.Record `json:"-"`
+	OAuthEnc          string            `json:"-"`
 	commandEntry      *DomainCredential // recibo transitório; nunca serializado
 	commandGeneration uint64
 	Source            string
@@ -49,11 +52,16 @@ type DomainCredential struct {
 
 // Manager armazena e resolve credenciais por domínio.
 type Manager struct {
-	mu          sync.RWMutex
-	credentials []*DomainCredential
-	encKey      []byte // para criptografar credenciais em memória
-	store       Store
-	persist     bool
+	oauthRequests map[string]map[string]context.CancelFunc
+	oauthContext  context.Context
+	oauthCancel   context.CancelFunc
+	oauthEpoch    uint64
+	oauthService  *oauthflow.Service
+	mu            sync.RWMutex
+	credentials   []*DomainCredential
+	encKey        []byte // para criptografar credenciais em memória
+	store         Store
+	persist       bool
 
 	// integrity guarda o último resultado de `verifyDEKConsistency`,
 	// consultável via `IntegrityStatus()`. Atualizado em
@@ -218,7 +226,7 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 		if userID == "" && dc.UserID != "" {
 			continue
 		}
-		if dc.regex.MatchString(domain) {
+		if dc.regex != nil && dc.Auth.Source != "oauth" && dc.regex.MatchString(domain) {
 			// Descriptografar antes de retornar
 			auth, err := m.decryptAuth(dc.Auth)
 			if err != nil {
@@ -370,6 +378,9 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 		if dc.Pattern != pattern || (userID != "" && dc.UserID != userID) {
 			filtered = append(filtered, dc)
 		} else {
+			for _, cancel := range m.oauthRequests[dc.ID] {
+				cancel()
+			}
 			dc.invalidateCommandCache()
 		}
 	}
@@ -501,6 +512,7 @@ func (m *Manager) Reset(encryptionKey []byte, persist bool) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.invalidateOAuthSession()
 
 	for _, dc := range m.credentials {
 		dc.invalidateCommandCache()
@@ -555,6 +567,17 @@ func (m *Manager) encryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 	}
 
 	encrypted := *auth
+	if auth.OAuth != nil {
+		data, err := json.Marshal(auth.OAuth)
+		if err != nil {
+			return nil, err
+		}
+		encrypted.OAuthEnc, err = m.encrypt(string(data))
+		if err != nil {
+			return nil, err
+		}
+		encrypted.OAuth = nil
+	}
 	if auth.SourceConfig != nil {
 		data, err := json.Marshal(auth.SourceConfig)
 		if err != nil {
@@ -633,6 +656,17 @@ func (m *Manager) decryptAuthRaw(auth *AuthConfig) (*AuthConfig, error) {
 		return nil, nil
 	}
 	decrypted := *auth
+	if auth.OAuthEnc != "" {
+		data, err := m.decrypt(auth.OAuthEnc)
+		if err != nil {
+			return nil, err
+		}
+		decrypted.OAuth = &oauthflow.Record{}
+		if err = json.Unmarshal([]byte(data), decrypted.OAuth); err != nil {
+			return nil, err
+		}
+		decrypted.OAuthEnc = ""
+	}
 	if auth.SourceConfigEnc != "" {
 		data, err := m.decrypt(auth.SourceConfigEnc)
 		if err != nil {
@@ -749,6 +783,7 @@ func (m *Manager) decrypt(ciphertext string) (string, error) {
 // managedPrefixes contém prefixos de patterns gerenciados automaticamente pelo sistema.
 // Credenciais com esses prefixos não devem ser editáveis pelo usuário.
 var managedPrefixes = []string{
+	"oauth:",
 	"mcp-client:",
 	"mcp-tokens:",
 	"internal-auth:",

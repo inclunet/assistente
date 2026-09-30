@@ -78,6 +78,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
 }, ref) => {
   const { t } = useTranslation();
   const [models, setModels] = useState<ModelItem[]>([]);
+  const [usesChatGPTPlan, setUsesChatGPTPlan] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [endpointNotSupported, setEndpointNotSupported] = useState(false);
@@ -107,6 +108,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
    * tela vive em `useState` e não está legível na volta da promessa.
    */
   const loadModels = async (refresh = false): Promise<LoadOutcome> => {
+    setUsesChatGPTPlan(false);
     if (variant === 'form' && !providerID) {
       const msg = t('pickers.model.selectProvider');
       setLoading(false);
@@ -131,6 +133,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
           ? await RefreshModelCatalogByProvider(resolvedID)
           : await GetModelCatalogByProvider(resolvedID);
         agent = catalog?.agent ?? false;
+        setUsesChatGPTPlan(catalog?.usesChatGPTPlan ?? false);
         modelsList = (catalog?.models || []).map(({ value, label }) => ({
           value,
           label: label || value,
@@ -279,7 +282,8 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
     />
   );
 
-  if (variant !== 'form') return picker;
+  const planNotice = usesChatGPTPlan ? <span>{t('chatgpt.usingPlan')} <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">{t('chatgpt.usage')}</a></span> : null;
+  if (variant !== 'form') return <>{picker}{planNotice}</>;
 
   // O recarregar só existe no formulário porque é lá que a pessoa escolhe o
   // modelo do perfil. Provedor que guarda a lista — o agente de código — só
@@ -287,6 +291,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   return (
     <div className="model-picker-form__stack">
       {picker}
+ {planNotice}
       <Button
         type="button"
         variant="ghost"

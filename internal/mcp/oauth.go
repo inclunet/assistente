@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"assistente/internal/credentials"
+	"assistente/internal/oauthflow"
 
 	"github.com/pkg/browser"
 	"golang.org/x/oauth2"
@@ -39,7 +40,7 @@ var browserOpen = browser.OpenURL
 // (5min PKCE, poll budget Device Flow). Um flow congelado bloqueia o
 // próximo na fila, e isso é o comportamento desejado — não faz
 // sentido empilhar fluxos abertos.
-var oauthFlowArbiter sync.Mutex
+var oauthFlowArbiter = oauthflow.Interactive
 
 // SessionExpiredError indica que a sessão Streamable HTTP expirou no servidor.
 // O servidor retornou 404 ou 410, significando que o Mcp-Session-Id é inválido.

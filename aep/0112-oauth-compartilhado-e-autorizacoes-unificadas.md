@@ -1,6 +1,6 @@
 # AEP-0112 — OAuth compartilhado e autorizações unificadas
 
-**Status:** Draft
+**Status:** In Progress
 **Data:** 2026-09-30
 
 ## Resumo
@@ -10,7 +10,8 @@ e implementar a source `oauth` com um serviço compartilhado de registro,
 autorização e renovação. MCP, provedores LLM e canais consomem credenciais sem
 implementar novamente esse ciclo. A primeira entrega habilita o uso oficial da
 conta ChatGPT no Assistente; entregas seguintes migram MCP para a mesma base.
-Este AEP é uma proposta: nenhum comportamento de runtime muda neste PR.
+A primeira entrega implementa a base OAuth e o consumidor ChatGPT. As migrações
+MCP e Slack continuam nas fases seguintes; não estão habilitadas por esta entrega.
 
 ## Motivação
 
@@ -257,7 +258,7 @@ Cada fase tem PRs revisáveis, testes e documentação; não entregar somente um
 infraestrutura sem consumidor utilizável. Ao iniciar implementação, mudar este AEP
 e índice para In Progress; marcar Done somente após os critérios de todo o escopo.
 
-1. [ ] Base mínima reutilizável + ChatGPT funcional: entrada composta/source OAuth,
+1. [x] Base mínima reutilizável + ChatGPT funcional: entrada composta/source OAuth,
    PKCE/OIDC, callback, extensão de registro ChatGPT, refresh coordenado, UI de conexão,
    catálogo, Responses e ferramentas locais. Se dividida em PRs, infraestrutura e
    integração formam uma entrega funcional conjunta, sem anunciar suporte antes disso.
@@ -267,6 +268,29 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    remover persistência dupla, configurações OAuth duplicadas e ciclo próprio de renovação.
 4. [ ] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
    conexão e referências por papel, sem alterar protocolo nem exigir OAuth inexistente.
+
+### Evidências da primeira entrega
+
+- `internal/oauthflow`: registro composto, PKCE/state/nonce, validação OIDC via
+  `go-oidc`, callback reservado, arbitragem interativa, renovação e revogação.
+  O núcleo recebe extensões e armazenamento por interface; a extensão ChatGPT
+  fica em `internal/oauthintegrations`.
+- `internal/credentials/oauth_store.go`: envelope `oauth_enc` cifrado com a DEK
+  existente, uma linha por autorização, CAS do envelope e geração de sessão.
+  Marcador durável precede refresh; resultado ambíguo exige reautorização.
+- `internal/llm/chatgpt.go`: catálogo da conta, capacidades da rota Responses,
+  namespaces de funções locais e coletor síncrono sobre o parser SSE existente.
+- `ChatGPTConnection.tsx`: conexão explícita por provedor/autorização, cancelamento,
+  reconexão e desconexão; nenhuma credencial trafega nos DTOs da interface.
+- Testes `oauthflow/service_test.go`, `credentials/oauth_store_test.go`,
+  `llm/chatgpt_test.go` e `ChatGPTConnection.test.tsx` cobrem o fluxo com servidores
+  e tokens de teste, falha de persistência, concorrência, escopo e conclusão SSE.
+- O teste de consentimento com uma conta real depende de ação do usuário no
+  navegador. Não foi realizado automaticamente nem usa credenciais de terceiros.
+- Revisão independente local em quatro rodadas, com correções de isolamento de
+  sessão, escopo, importação e cancelamento; última rodada sem achados.
+- MCP compartilha somente o árbitro de interação nesta fase. Discovery, DCR,
+  Device Flow, client credentials, persistência MCP e Slack permanecem pendentes.
 
 ## Riscos
 
@@ -286,11 +310,11 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 - [ ] Uma entrada por autorização, sem pares MCP de cadastro/token após conversão.
 - [ ] ChatGPT funcional na primeira entrega, incluindo refresh, troca de conta, catálogo,
   ferramentas locais, limites do plano e falhas durante streaming.
-- [ ] OAuth genérico não depende de MCP/LLM/channels nem contém regras ChatGPT.
+- [x] OAuth genérico não depende de MCP/LLM/channels nem contém regras ChatGPT.
 - [ ] Client secret opcional, registro manual/DCR/extensão e autorização pendente cobertos.
 - [ ] Callbacks fixos, registrados e dinâmicos testados; colisão não muda cliente manual;
   novo DCR malsucedido preserva a autorização anterior.
-- [ ] Falha de persistência após rotação e queda antes do commit exigem recuperação
+- [x] Falha de persistência após rotação e queda antes do commit exigem recuperação
   explícita, sem reutilizar refresh token potencialmente consumido após reinício.
 - [ ] Retenção protegida de ID token e reconexão com `id_token_hint` testadas;
   refresh respeita `earliest_refresh_at` e atualiza o limite com tokens rotacionados.

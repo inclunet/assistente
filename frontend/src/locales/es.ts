@@ -1,5 +1,34 @@
 const es = {
   translation: {
+ chatgpt: {
+ usingPlan: "Usando tu plan ChatGPT",
+ gotIt: "Entendido",
+  "title": "Cuenta ChatGPT",
+  "add": "Conectar ChatGPT",
+  "label": "Nombre de esta autorización",
+  "planNotice": "Conecta una cuenta ChatGPT elegible y autoriza el uso de tu plan. Se aplican los límites de la cuenta y de esta aplicación.",
+  "limitations": "Disponible para chat y herramientas ejecutadas por Assistente. El audio y las herramientas alojadas no están disponibles en esta conexión.",
+  "status": "Estado: {{state}}",
+  "account": "Cuenta: {{email}}",
+  "registration": "Autorización: {{id}}",
+  "waiting": "Esperando autorización en el navegador. Puedes cancelar.",
+  "browserReturn": "Regresa a Assistente para comprobar el resultado de la conexión.",
+  "connectionError": "No se pudo completar la conexión. Comprueba el consentimiento en el navegador e intenta conectar de nuevo.",
+  "revocationUnconfirmed": "Desconectado en este equipo. No se pudo confirmar la revocación remota; revisa las aplicaciones en la configuración de ChatGPT.",
+  "usage": "Ver uso y permisos en ChatGPT",
+  "connect": "Continuar con ChatGPT",
+  "reconnect": "Autorizar de nuevo",
+  "disconnect": "Desconectar",
+  "states": {
+    "pending": "Esperando conexión",
+    "connected": "Conectado",
+    "permission_required": "Uso del plan no autorizado",
+    "reauthorization_required": "Autoriza de nuevo para continuar",
+    "disconnected": "Desconectado",
+    "refreshing": "Renovando conexión",
+    "transient_failure": "No disponible temporalmente"
+  }
+},
     common: {
       loading: 'Cargando...',
       error: 'Error',

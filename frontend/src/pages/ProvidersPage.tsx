@@ -1,3 +1,4 @@
+import { ChatGPTConnection } from '../components/settings/ChatGPTConnection';
 import { logger } from '../utils/logger';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -89,6 +90,7 @@ export default function ProvidersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [isEditing, setIsEditing] = useState(false);
+ const [oauthDialog, setOAuthDialog] = useState<{ id?: string } | null>(null);
   const [editingProvider, setEditingProvider] = useState<ProviderFormData | undefined>(undefined);
   const [focusedRow, setFocusedRow] = useState<ProviderRow | null>(null);
   const [updatePlans, setUpdatePlans] = useState<Record<string, InstallPlan>>({});
@@ -166,6 +168,7 @@ export default function ProvidersPage() {
   useActivePanelNewShortcut(handleAddProvider);
 
   const handleEditProvider = useCallback((provider: ProviderRow) => {
+ if (provider.type === 'chatgpt') { setOAuthDialog({id: provider.id}); return; }
     setEditingProvider({
       id: provider.id,
       name: provider.name,
@@ -208,6 +211,7 @@ export default function ProvidersPage() {
   };
 
   const handleDuplicateProvider = async (provider: ProviderRow) => {
+ if (provider.type === 'chatgpt') { setOAuthDialog({}); return; }
     try {
       const name = getDuplicateName(provider.name);
       await CreateLLMProvider({
@@ -450,7 +454,12 @@ export default function ProvidersPage() {
             onSearchChange={setSearchTerm}
             actions={[
               {
-                key: 'add',
+                key: 'chatgpt',
+ label: t('chatgpt.add'),
+ onClick: () => setOAuthDialog({}),
+ },
+ {
+ key: 'add',
                 label: t('providers.actions.add', 'Adicionar Provedor'),
                 onClick: handleAddProvider,
                 shortcut: 'Ctrl+N',
@@ -491,6 +500,9 @@ export default function ProvidersPage() {
             onFocusChange={handleFocusChange}
           />
 
+          <Modal isOpen={oauthDialog !== null} onClose={() => { setOAuthDialog(null); void loadProviders(); }} title={t('chatgpt.title')} size="md">
+            {oauthDialog && <ChatGPTConnection id={oauthDialog.id} onClose={() => setOAuthDialog(null)} onChanged={() => void loadProviders()} />}
+          </Modal>
           <Modal
             isOpen={isEditing}
             onClose={handleCancelEdit}

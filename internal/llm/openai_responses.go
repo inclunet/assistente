@@ -16,6 +16,11 @@ import (
 
 // sendChatResponses envia uma mensagem (não-streaming) via Responses API.
 func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, messages []Message, params ChatParams) (string, error) {
+	if p.provider.Type == ProviderChatGPT {
+		h := &chatGPTCollector{}
+		p.streamChatResponses(ctx, model, messages, params, h)
+		return h.text, h.err
+	}
 	if !params.AllowAssistantPrefill {
 		messages = removeTrailingAssistantPrefill(messages)
 	}
@@ -250,6 +255,9 @@ func (p *OpenAIProvider) buildResponsesParams(
 		}
 	}
 
+	if p.provider.Type == ProviderChatGPT {
+		applyChatGPTParams(&respParams, messages)
+	}
 	return respParams
 }
 
@@ -264,6 +272,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 	stream := p.streamClient.Responses.NewStreaming(watchCtx, params)
 
+	completed := false
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
 	// Texto visível e eventos MCP impedem retry automático porque seriam
@@ -577,6 +586,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			}
 
 		case "response.completed":
+			completed = true
 			ev := event.AsResponseCompleted()
 			// "response.completed" é o tipo do evento, não um finish_reason
 			// informado pelo provider. Preserve a ausência no motivo bruto.
@@ -600,6 +610,10 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				eventCount, fullResponse.Len(), len(finishedToolCalls), lastModel)
 
 		case "response.incomplete":
+			if p.provider.Type == ProviderChatGPT {
+				handler.OnError("chatgpt_response_incomplete")
+				return mcpStreamAttemptResult{done: true}
+			}
 			ev := event.AsResponseIncomplete()
 			finish = normalizeOpenAIResponsesFinishReason(ev.Response.IncompleteDetails.Reason)
 			usageRaw := ev.Response.Usage.RawJSON()
@@ -622,6 +636,10 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 		case "response.failed":
 			ev := event.AsResponseFailed()
+			if p.provider.Type == ProviderChatGPT {
+				handler.OnError(string(ev.Response.Error.Code) + ": " + ev.Response.Error.Message)
+				return mcpStreamAttemptResult{done: true}
+			}
 			errMsg := "erro na Responses API"
 			if ev.Response.Error.Message != "" {
 				errMsg = ev.Response.Error.Message
@@ -663,6 +681,10 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 	wd.Stop()
 	if err := stream.Err(); err != nil {
+		if p.provider.Type == ProviderChatGPT {
+			handler.OnError(err.Error())
+			return mcpStreamAttemptResult{done: true}
+		}
 		errStr := err.Error()
 
 		// Classifica ANTES de logar: uma falha de handshake/listagem MCP
@@ -724,6 +746,11 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			markErrorNotRetryable(handler)
 		}
 		handler.OnError(errStr)
+		return mcpStreamAttemptResult{done: true}
+	}
+
+	if p.provider.Type == ProviderChatGPT && !completed {
+		handler.OnError("chatgpt_stream_interrupted")
 		return mcpStreamAttemptResult{done: true}
 	}
 

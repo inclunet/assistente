@@ -1,0 +1,79 @@
+package llm
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+func TestChatGPTRequestAndTerminalEvents(t *testing.T) {
+	for _, terminal := range []string{"completed", "incomplete", "failed", "interrupted"} {
+		t.Run(terminal, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1/responses" || r.Method != "POST" {
+					t.Errorf("route: %s", r.URL.Path)
+				}
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatal(err)
+				}
+				if body["stream"] != true || body["store"] != false {
+					t.Errorf("stream/store: %+v", body)
+				}
+				for _, key := range []string{"temperature", "top_p", "max_output_tokens", "previous_response_id"} {
+					if _, ok := body[key]; ok {
+						t.Errorf("unsupported %s", key)
+					}
+				}
+				if body["instructions"] != "system instruction" {
+					t.Error("missing instructions")
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprint(w, "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\n")
+				if terminal != "interrupted" {
+					_, _ = fmt.Fprintf(w, "event: response.%s\ndata: {\"type\":\"response.%s\",\"response\":{\"model\":\"account-model\",\"error\":{\"code\":\"subscription_sharing_usage_limit_exceeded\",\"message\":\"Plan limit\"}}}\n\n", terminal, terminal)
+				}
+			}))
+			defer server.Close()
+			config := &ProviderConfig{ID: "chatgpt", Type: ProviderChatGPT, APIFormat: APIFormatOpenAIResponses, BaseURL: server.URL + "/v1", AuthMode: AuthModeNone}
+			p := NewOpenAIResponsesProvider(config, nil)
+			if p.NativeMCPCapable() || config.SupportsTTS() || config.SupportsSTT() {
+				t.Fatal("unsupported capability advertised")
+			}
+			text, err := p.SendChat(context.Background(), []Message{{Role: "system", Content: "system instruction"}, {Role: "user", Content: "Hi"}}, ChatParams{Model: "account-model", Temperature: 0.8, TopP: 0.5, MaxTokens: 100})
+			if terminal == "completed" {
+				if err != nil || text != "Hello" {
+					t.Fatalf("%q %v", text, err)
+				}
+			} else if err == nil {
+				t.Fatal("incomplete stream succeeded")
+			}
+		})
+	}
+}
+func TestChatGPTCatalogPreservesAccountOrderAndLabels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"models":[{"slug":"z","display_name":"Preferred","visibility":"list"},{"slug":"hidden","visibility":"hidden"},{"slug":"a","display_name":"Second","visibility":"list"}]}`)
+	}))
+	defer server.Close()
+	p := NewOpenAIResponsesProvider(&ProviderConfig{ID: "chatgpt", Type: ProviderChatGPT, BaseURL: server.URL, AuthMode: AuthModeNone}, nil)
+	models, err := p.ModelOptions(context.Background())
+	if err != nil || len(models) != 2 || models[0].Value != "z" || models[0].Label != "Preferred" {
+		t.Fatalf("models=%+v err=%v", models, err)
+	}
+}
+func TestChatGPTFunctionNamespace(t *testing.T) {
+	p := NewOpenAIResponsesProvider(&ProviderConfig{Type: ProviderChatGPT, BaseURL: "https://api.openai.com/v1"}, nil)
+	params := p.buildResponsesParams(context.Background(), "model", []Message{{Role: "user", Content: "Hi"}}, ChatParams{}, nil, ToolDefinition{Type: "function", Function: FunctionDefinition{Name: "local_tool", Parameters: json.RawMessage(`{"type":"object"}`)}})
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"type":"namespace"`) || !strings.Contains(string(data), `"name":"local_tool"`) {
+		t.Fatalf("tools: %s", data)
+	}
+}

@@ -78,6 +78,7 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 		UserID:          userID,
 		Pattern:         cred.Pattern,
 		AuthType:        cred.Auth.Type,
+		OAuthEnc:        cred.Auth.OAuthEnc,
 		Source:          cred.Auth.Source,
 		SourceConfigEnc: cred.Auth.SourceConfigEnc,
 		TokenEnc:        cred.Auth.Token,
@@ -127,6 +128,7 @@ func (s *DBStore) ListCredentials(ctx context.Context) ([]StoredCredential, erro
 		auth := &AuthConfig{
 			Type:            entry.AuthType,
 			Source:          entry.Source,
+			OAuthEnc:        entry.OAuthEnc,
 			SourceConfigEnc: entry.SourceConfigEnc,
 			Token:           entry.TokenEnc,
 			Username:        entry.Username,
@@ -178,6 +180,7 @@ func (s *DBStore) ListInstanceCredentials(ctx context.Context) ([]StoredCredenti
 			Auth: &AuthConfig{
 				Type:            entry.AuthType,
 				Source:          entry.Source,
+				OAuthEnc:        entry.OAuthEnc,
 				SourceConfigEnc: entry.SourceConfigEnc,
 				Token:           entry.TokenEnc,
 				Username:        entry.Username,
@@ -236,6 +239,7 @@ func (s *DBStore) ListAllCredentialsIgnoringScope(ctx context.Context) ([]Stored
 			Auth: &AuthConfig{
 				Type:            entry.AuthType,
 				Source:          entry.Source,
+				OAuthEnc:        entry.OAuthEnc,
 				SourceConfigEnc: entry.SourceConfigEnc,
 				Token:           entry.TokenEnc,
 				Username:        entry.Username,
@@ -281,6 +285,7 @@ func (s *DBStore) ListCredentialsWithRefreshTokensIgnoringScope(ctx context.Cont
 			Auth: &AuthConfig{
 				Type:            entry.AuthType,
 				Source:          entry.Source,
+				OAuthEnc:        entry.OAuthEnc,
 				SourceConfigEnc: entry.SourceConfigEnc,
 				Token:           entry.TokenEnc,
 				Username:        entry.Username,

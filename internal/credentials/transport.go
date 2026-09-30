@@ -109,6 +109,9 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		return t.Base.RoundTrip(req)
 	}
 
+	if strings.HasPrefix(t.CredPattern, "oauth:") {
+		return t.roundTripOAuth(req)
+	}
 	auth, err := t.CredMgr.getByPatternWithContext(req.Context(), t.CredPattern, !t.DisableCommandCache)
 	if err != nil {
 		if t.AuthMode == AuthOptional {

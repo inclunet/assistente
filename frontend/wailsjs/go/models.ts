@@ -6125,6 +6125,7 @@ export namespace llm {
 	    }
 	}
 	export class ModelCatalog {
+	    usesChatGPTPlan: boolean;
 	    models: ModelOption[];
 	    agent: boolean;
 	
@@ -6134,6 +6135,7 @@ export namespace llm {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.usesChatGPTPlan = source["usesChatGPTPlan"];
 	        this.models = this.convertValues(source["models"], ModelOption);
 	        this.agent = source["agent"];
 	    }
@@ -6773,6 +6775,31 @@ export namespace memory {
 		    }
 		    return a;
 		}
+	}
+
+}
+
+export namespace oauthflow {
+	
+	export class Summary {
+	    id: string;
+	    integration: string;
+	    state: string;
+	    email?: string;
+	    hasRefreshToken: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Summary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.integration = source["integration"];
+	        this.state = source["state"];
+	        this.email = source["email"];
+	        this.hasRefreshToken = source["hasRefreshToken"];
+	    }
 	}
 
 }
