@@ -3,7 +3,8 @@
 **AEP-0103 — aceite incremental (29/09/2026): In Progress.** Confirmados pelo
 mantenedor: Enter para editar, lista aberta após salvar, toolbar/paridade
 contextual e ativação por página. Checklist manual registra as variantes;
-leitura durante/após streaming tem defeito relatado, sem aceite antecipado.
+leitura durante/após streaming corrigida com regressões automatizadas,
+com reteste manual pendente e sem aceite antecipado.
 
 **AEP-0103 — recuperação de publicação (29/09/2026): In Progress.** Mapa
 ausente é reconstruído com autenticação nova; restauração/expiração pendente

@@ -3,8 +3,9 @@
 **Aceite manual incremental (29/09/2026): In Progress.** O mantenedor confirmou
 Enter para editar, permanência do gerenciador após salvar, organização final
 das toolbars/paridade contextual e ativação por página. Evidências delimitadas
-no checklist manual; não promovem critérios ou gates integrais. Leitura de
-mensagens durante/após streaming tem defeito relatado e exige regressão própria.
+no checklist manual; não promovem critérios ou gates integrais. A leitura de
+mensagens durante/após streaming foi corrigida com regressões automatizadas;
+o reteste manual permanece pendente, sem aceite antecipado.
 
 Na navegação do chat, a mensagem apresentada pode ser a projeção imutável da
 superfície, distinta do objeto da timeline após `patchChatConversation`. A
