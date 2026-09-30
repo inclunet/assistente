@@ -128,6 +128,8 @@ func (p *commandProductRuntime) refreshCommandJobProjection(ctx context.Context)
 	if p == nil || p.app == nil || ctx == nil {
 		return commandexecution.ErrStale
 	}
+	ctx, cancel := context.WithTimeout(ctx, commandReadTimeout)
+	defer cancel()
 	resetRevision := p.projectionResetRevision.Load()
 	if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
 		return commandexecution.ErrStale
@@ -136,8 +138,13 @@ func (p *commandProductRuntime) refreshCommandJobProjection(ctx context.Context)
 	if !commandProjectionNeedsRebuild(err) {
 		return err
 	}
-	p.projectionMu.Lock()
-	defer p.projectionMu.Unlock()
+	commandLoadStage(ctx, "projection_wait")
+	release, err := p.acquireCommandProjection(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	commandLoadStage(ctx, "projection_rebuild")
 	_, err = p.host.Snapshot(ctx, p.principal)
 	if !commandProjectionNeedsRebuild(err) {
 		return err
@@ -189,7 +196,7 @@ func (p *commandProductRuntime) withCommandProjectionRecoveryProof(ctx context.C
 	return context.WithValue(recoveryCtx, commandProjectionRecoveryProofKey{}, proof), cleanup, nil
 }
 
-// Chamado sob projectionMu também pelo worker de expiração. A revisão é
+// Chamado sob projectionGate também pelo worker de expiração. A revisão é
 // fixada antes de ler prova/epochs; um reset posterior invalida todo o rebuild.
 func (p *commandProductRuntime) recoverCommandProjection(ctx context.Context) error {
 	if p == nil {
@@ -234,6 +241,8 @@ func (p *commandProductRuntime) checkPersistedCommandConfiguration(ctx context.C
 	if p == nil || p.app == nil || ctx == nil {
 		return commandexecution.ErrStale
 	}
+	ctx, cancel := context.WithTimeout(ctx, commandReadTimeout)
+	defer cancel()
 	resetRevision := p.projectionResetRevision.Load()
 	if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
 		return commandexecution.ErrStale
@@ -251,8 +260,11 @@ func (p *commandProductRuntime) checkPersistedCommandConfiguration(ctx context.C
 		if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) || p.projectionResetRevision.Load() != resetRevision {
 			return commandexecution.ErrStale
 		}
-		p.projectionMu.Lock()
-		defer p.projectionMu.Unlock()
+		release, err := p.acquireCommandProjection(ctx)
+		if err != nil {
+			return err
+		}
+		defer release()
 		if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) || p.projectionResetRevision.Load() != resetRevision {
 			return commandexecution.ErrStale
 		}

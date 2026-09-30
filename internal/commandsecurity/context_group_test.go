@@ -49,10 +49,7 @@ func TestMutateContextGroupRevokesOnlyMatchingExternalTokensAndWatches(t *testin
 	called := false
 	err = service.MutateContextGroup(context.Background(), ContextPrincipal{UserID: user, Type: "external_token", GroupID: "operators"}, func() error {
 		called = true
-		if service.gate.mu.TryLock() {
-			service.gate.mu.Unlock()
-			t.Error("callback sem gate exclusivo")
-		}
+		assertGateExclusiveHeld(t, service.gate)
 		if watchFirst.Err() == nil || watchSecond.Err() == nil {
 			t.Error("watches do grupo ainda ativos durante callback")
 		}
@@ -197,10 +194,7 @@ func TestMutateContextGroupSerializesConcurrentCapture(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("mutação não entrou no gate")
 	}
-	if service.gate.mu.TryRLock() {
-		service.gate.mu.RUnlock()
-		t.Fatal("mutação de grupo não reteve o gate")
-	}
+	assertGateExclusiveHeld(t, service.gate)
 	captured := make(chan struct {
 		snapshot EpochSnapshot
 		err      error

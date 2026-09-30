@@ -70,10 +70,11 @@ func (s *EpochService) CloseAndDrain(ctx context.Context) (DrainedGenerations, e
 	defer s.drainRunning.Store(false)
 	var drains []func(context.Context) error
 	var issued map[string]struct{}
-	// A intenção de fechar não pode desaparecer se ctx expirar na espera pelo
-	// gate. Essa espera já não é cancelável no DispatchGate; usamos contexto
-	// independente somente para publicar a barreira curta, nunca para drenar.
-	err := s.gate.WithMutation(context.Background(), func() error {
+	// A aquisição normal do gate é cancelável. O fechamento é uma barreira
+	// necessária para encerrar este domínio mesmo se ctx expirar enquanto espera;
+	// só essa publicação curta usa WithoutCancel. A drenagem continua em ctx.
+	closeCtx := context.WithoutCancel(ctx)
+	err := s.gate.WithMutation(closeCtx, func() error {
 		s.closing, s.disabled = true, true
 		s.cancelExecutions("", true)
 		drains = append(drains, s.executorDrains...)

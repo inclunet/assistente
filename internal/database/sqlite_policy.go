@@ -181,3 +181,83 @@ func WithSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation 
 		})
 	})
 }
+
+// WithSQLiteImmediateTransactionOnce retries only acquisition of the SQLite
+// writer. Once acquired, fn and COMMIT are each attempted exactly once. The
+// acquisition deadline bounds pool and writer waits, but fn receives ctx.
+// When db is already transactional, GORM's nested Transaction creates a
+// savepoint and no acquisition retry is attempted.
+func WithSQLiteImmediateTransactionOnce(ctx context.Context, acquisitionDeadline time.Time, db *gorm.DB, operation string, fn func(*gorm.DB) error) error {
+	if ctx == nil || db == nil || fn == nil {
+		return fmt.Errorf("%s: invalid transaction arguments", operation)
+	}
+	connPool := db.ConnPool
+	if db.Statement != nil && db.Statement.ConnPool != nil {
+		connPool = db.Statement.ConnPool
+	}
+	if _, ok := connPool.(gorm.TxCommitter); ok {
+		return db.WithContext(ctx).Transaction(fn)
+	}
+	acquireCtx := ctx
+	var cancel context.CancelFunc
+	if !acquisitionDeadline.IsZero() {
+		if parentDeadline, ok := ctx.Deadline(); !ok || acquisitionDeadline.Before(parentDeadline) {
+			acquireCtx, cancel = context.WithDeadline(ctx, acquisitionDeadline)
+			defer cancel()
+		}
+	}
+	rootSQLDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("%s: database root unavailable: %w", operation, err)
+	}
+	if rootSQLDB == nil {
+		return fmt.Errorf("%s: database root unavailable", operation)
+	}
+	return db.WithContext(acquireCtx).Connection(func(connectionDB *gorm.DB) error {
+		connectionDB = connectionDB.Session(&gorm.Session{SkipDefaultTransaction: true})
+		connPool := &sqliteImmediateConnPool{ConnPool: connectionDB.Statement.ConnPool, root: rootSQLDB}
+		connectionDB.Statement.ConnPool = connPool
+		if err := WithSQLiteBusyRetry(acquireCtx, operation+".begin", func() error {
+			return connectionDB.Exec("BEGIN IMMEDIATE").Error
+		}); err != nil {
+			return err
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				rollbackCtx := context.WithoutCancel(ctx)
+				if err := connectionDB.WithContext(rollbackCtx).Exec("ROLLBACK").Error; err != nil {
+					logging.Errorf(rollbackCtx, "database.sqlite", "falha no rollback de %s: %v", operation, err)
+				}
+			}
+		}()
+		if err := acquireCtx.Err(); err != nil {
+			return err
+		}
+		if err := fn(connectionDB.WithContext(ctx)); err != nil {
+			return err
+		}
+		if err := connectionDB.WithContext(ctx).Exec("COMMIT").Error; err != nil {
+			return err
+		}
+		committed = true
+		return nil
+	})
+}
+
+// Marca a conexão com BEGIN IMMEDIATE como transacional para que chamadas
+// gorm.Transaction aninhadas usem SAVEPOINT em vez de tentar outro BEGIN.
+type sqliteImmediateConnPool struct {
+	gorm.ConnPool
+	root *sql.DB
+}
+
+func (pool *sqliteImmediateConnPool) GetDBConn() (*sql.DB, error) { return pool.root, nil }
+
+func (sqliteImmediateConnPool) Commit() error {
+	return errors.New("commit controlado por WithSQLiteImmediateTransactionOnce")
+}
+
+func (sqliteImmediateConnPool) Rollback() error {
+	return errors.New("rollback controlado por WithSQLiteImmediateTransactionOnce")
+}

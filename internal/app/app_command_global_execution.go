@@ -180,9 +180,9 @@ func (p *commandProductRuntime) prepareGlobalOccurrence(ctx context.Context, bin
 		return nil, commandexecution.ErrDenied
 	}
 	if !ok {
-		p.projectionMu.Lock()
-		err := p.app.rebuildCommandLifecycleProjection(ctx, false)
-		p.projectionMu.Unlock()
+		err := p.withCommandProjection(ctx, func(ctx context.Context) error {
+			return p.app.rebuildCommandLifecycleProjection(ctx, false)
+		})
 		if err != nil {
 			return nil, err
 		}

@@ -199,7 +199,13 @@ type localCommandKeyboardContextProof struct {
 func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err error) {
 	defer func() { err = safeCommandSettingsError(err) }()
 	ctx, trace := beginCommandLoad(a.commandBridgeContext(), "keyboard_map_load")
+	lifetimeCtx := ctx
+	ctx, cancelRead := context.WithTimeout(ctx, commandReadTimeout)
+	defer cancelRead()
 	defer func() {
+		if ctx.Err() != nil {
+			result, err = LocalCommandKeyboardMap{}, ctx.Err()
+		}
 		trace.finish(err, slog.Int("keyboardbindings", len(result.Bindings)), slog.Int("contextualbindings", len(result.ContextualBindings)))
 	}()
 	trace.stage("product")
@@ -234,7 +240,7 @@ func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err 
 		if readCtx.Err() != nil || p.projectionResetRevision.Load() != resetRevision || a.commandProduct.Load() != p || !p.dependenciesMatch(a) {
 			return LocalCommandKeyboardMap{}, commandexecution.ErrStale
 		}
-		result, err = p.loadLocalCommandKeyboardMap(readCtx, ctx, trace, resetRevision)
+		result, err = p.loadLocalCommandKeyboardMap(readCtx, lifetimeCtx, trace, resetRevision)
 		if !errors.Is(err, commandexecution.ErrStale) && !errors.Is(err, commandsecurity.ErrStaleEpoch) {
 			return result, err
 		}
@@ -269,7 +275,7 @@ func (p *commandProductRuntime) loadLocalCommandKeyboardMap(ctx, lifetimeCtx con
 	}
 	trace.stage("watch_epoch")
 	// O mapa retido vive com o App, não com o watch temporário desta leitura.
-	watched, release, err := p.epochs.WatchEpoch(lifetimeCtx, epoch)
+	watched, release, err := p.epochs.WatchEpochForLifetime(ctx, lifetimeCtx, epoch)
 	if err != nil {
 		return result, err
 	}

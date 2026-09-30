@@ -3,6 +3,7 @@ package commandsecurity
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -45,23 +46,57 @@ func TestDispatchGateNilReceiverFailsClosed(t *testing.T) {
 
 func TestDispatchGateAdmissionHoldsSharedLock(t *testing.T) {
 	var gate DispatchGate
-	checks := make(chan bool, 1)
-	if err := gate.WithAdmission(context.Background(), func() error { checks <- !gate.mu.TryLock(); return nil }); err != nil {
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		result <- gate.WithAdmission(context.Background(), func() error {
+			entered <- struct{}{}
+			return waitFor(release)
+		})
+	}()
+	receive(t, entered)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	observed := &doneObservedContext{Context: ctx, doneSeen: make(chan struct{})}
+	mutation := make(chan error, 1)
+	go func() { mutation <- gate.WithMutation(observed, func() error { return nil }) }()
+	receive(t, observed.doneSeen)
+	assertNoSignal(t, mutation)
+	close(release)
+	if err := receive(t, result); err != nil {
 		t.Fatal(err)
 	}
-	if got := receive(t, checks); !got {
-		t.Fatal("admission não manteve o lock compartilhado")
+	if err := receive(t, mutation); err != nil {
+		t.Fatal(err)
 	}
 }
 
 func TestDispatchGateMutationHoldsExclusiveLock(t *testing.T) {
 	var gate DispatchGate
-	checks := make(chan bool, 1)
-	if err := gate.WithMutation(context.Background(), func() error { checks <- !gate.mu.TryRLock(); return nil }); err != nil {
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		result <- gate.WithMutation(context.Background(), func() error {
+			entered <- struct{}{}
+			return waitFor(release)
+		})
+	}()
+	receive(t, entered)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	observed := &doneObservedContext{Context: ctx, doneSeen: make(chan struct{})}
+	admission := make(chan error, 1)
+	go func() { admission <- gate.WithAdmission(observed, func() error { return nil }) }()
+	receive(t, observed.doneSeen)
+	assertNoSignal(t, admission)
+	close(release)
+	if err := receive(t, result); err != nil {
 		t.Fatal(err)
 	}
-	if got := receive(t, checks); !got {
-		t.Fatal("mutation não manteve o lock exclusivo")
+	if err := receive(t, admission); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -102,11 +137,6 @@ func TestDispatchGateMutationWaitsAdmissionAndAdmissionWaitsMutation(t *testing.
 		admissionResult <- gate.WithAdmission(context.Background(), func() error { admissionEntered <- struct{}{}; return waitFor(releaseAdmission) })
 	}()
 	receive(t, admissionEntered)
-	if gate.mu.TryLock() {
-		gate.mu.Unlock()
-		t.Fatal("admission deveria manter o lock compartilhado")
-	}
-
 	mutationEntered := make(chan struct{}, 1)
 	releaseMutation := make(chan struct{})
 	mutationResult := make(chan error, 1)
@@ -118,11 +148,6 @@ func TestDispatchGateMutationWaitsAdmissionAndAdmissionWaitsMutation(t *testing.
 		t.Fatal(err)
 	}
 	receive(t, mutationEntered)
-	if gate.mu.TryRLock() {
-		gate.mu.RUnlock()
-		t.Fatal("mutation deveria manter o lock exclusivo")
-	}
-
 	secondAdmission := make(chan struct{}, 1)
 	secondResult := make(chan error, 1)
 	go func() {
@@ -138,31 +163,148 @@ func TestDispatchGateMutationWaitsAdmissionAndAdmissionWaitsMutation(t *testing.
 	}
 }
 
-func TestDispatchGateCancelledAfterAdmissionAttemptSkipsCallback(t *testing.T) {
-	var gate DispatchGate
-	holderEntered := make(chan struct{}, 1)
-	releaseHolder := make(chan struct{})
-	holderResult := make(chan error, 1)
-	go func() {
-		holderResult <- gate.WithMutation(context.Background(), func() error { holderEntered <- struct{}{}; return waitFor(releaseHolder) })
-	}()
-	receive(t, holderEntered)
+func TestDispatchGateCancellationWhileBlockedSkipsCallback(t *testing.T) {
+	for _, mode := range []string{"reader", "writer"} {
+		t.Run(mode, func(t *testing.T) {
+			var gate DispatchGate
+			releaseHolder, holderResult := holdGateAgainst(t, &gate, mode)
 
-	ctx, cancel := newFirstErrContext(context.Background())
-	defer cancel()
-	called := make(chan struct{}, 1)
+			base, cancel := context.WithCancel(context.Background())
+			ctx := &doneObservedContext{Context: base, doneSeen: make(chan struct{})}
+			defer cancel()
+			called := make(chan struct{}, 1)
+			result := make(chan error, 1)
+			go func() {
+				fn := func() error { called <- struct{}{}; return nil }
+				if mode == "reader" {
+					result <- gate.WithAdmission(ctx, fn)
+				} else {
+					result <- gate.WithMutation(ctx, fn)
+				}
+			}()
+			// Done informa que o Acquire começou; não é usado como prova de fila.
+			receive(t, ctx.doneSeen)
+			if mode == "writer" {
+				waitForWriterQueued(t, &gate)
+			}
+			cancel()
+			if err := receive(t, result); !errors.Is(err, context.Canceled) {
+				t.Fatalf("erro = %v, want context.Canceled", err)
+			}
+			assertNoSignal(t, called)
+			close(releaseHolder)
+			if err := receive(t, holderResult); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestDispatchGateDeadlineWhileBlockedSkipsCallback(t *testing.T) {
+	for _, mode := range []string{"reader", "writer"} {
+		t.Run(mode, func(t *testing.T) {
+			var gate DispatchGate
+			releaseHolder, holderResult := holdGateAgainst(t, &gate, mode)
+
+			base, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+			defer cancel()
+			ctx := &doneObservedContext{Context: base, doneSeen: make(chan struct{})}
+			called := make(chan struct{}, 1)
+			result := make(chan error, 1)
+			go func() {
+				fn := func() error { called <- struct{}{}; return nil }
+				if mode == "reader" {
+					result <- gate.WithAdmission(ctx, fn)
+				} else {
+					result <- gate.WithMutation(ctx, fn)
+				}
+			}()
+			// O canal só confirma que Acquire consultou Done, antes de enfileirar.
+			receive(t, ctx.doneSeen)
+			// O deadline pode vencer antes de observarmos a fila num runner lento.
+			// O holder permanece ocupado até comprovar o retorno por deadline.
+			if err := receive(t, result); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("erro = %v, want context.DeadlineExceeded", err)
+			}
+			assertNoSignal(t, called)
+			close(releaseHolder)
+			if err := receive(t, holderResult); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func holdGateAgainst(t *testing.T, gate *DispatchGate, waiterMode string) (chan struct{}, chan error) {
+	t.Helper()
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
 	result := make(chan error, 1)
-	go func() { result <- gate.WithAdmission(ctx, func() error { called <- struct{}{}; return nil }) }()
-	receive(t, ctx.firstErrSeen)
-	cancel()
-	close(releaseHolder)
-	if err := receive(t, holderResult); err != nil {
+	go func() {
+		result <- gate.WithAdmission(context.Background(), func() error {
+			entered <- struct{}{}
+			return waitFor(release)
+		})
+	}()
+	receive(t, entered)
+	if waiterMode == "reader" {
+		writerEntered := make(chan struct{}, 1)
+		writerRelease := make(chan struct{})
+		writerResult := make(chan error, 1)
+		go func() {
+			writerResult <- gate.WithMutation(context.Background(), func() error {
+				writerEntered <- struct{}{}
+				return waitFor(writerRelease)
+			})
+		}()
+		waitForWriterQueued(t, gate)
+		close(release)
+		if err := receive(t, result); err != nil {
+			t.Fatal(err)
+		}
+		receive(t, writerEntered)
+		return writerRelease, writerResult
+	}
+	return release, result
+}
+
+func TestDispatchGateWriterPreferencePreventsStarvation(t *testing.T) {
+	var gate DispatchGate
+	readerEntered := make(chan struct{}, 1)
+	releaseReader := make(chan struct{})
+	readerResult := make(chan error, 1)
+	go func() {
+		readerResult <- gate.WithAdmission(context.Background(), func() error { readerEntered <- struct{}{}; return waitFor(releaseReader) })
+	}()
+	receive(t, readerEntered)
+
+	writerEntered := make(chan struct{}, 1)
+	releaseWriter := make(chan struct{})
+	writerResult := make(chan error, 1)
+	go func() {
+		writerResult <- gate.WithMutation(context.Background(), func() error { writerEntered <- struct{}{}; return waitFor(releaseWriter) })
+	}()
+	waitForWriterQueued(t, &gate)
+
+	lateReader := make(chan struct{}, 1)
+	lateReaderResult := make(chan error, 1)
+	go func() {
+		lateReaderResult <- gate.WithAdmission(context.Background(), func() error { lateReader <- struct{}{}; return nil })
+	}()
+	close(releaseReader)
+	receive(t, writerEntered)
+	assertNoSignal(t, lateReader)
+	close(releaseWriter)
+	if err := receive(t, writerResult); err != nil {
 		t.Fatal(err)
 	}
-	if err := receive(t, result); !errors.Is(err, context.Canceled) {
-		t.Fatalf("erro = %v, want context.Canceled", err)
+	receive(t, lateReader)
+	if err := receive(t, lateReaderResult); err != nil {
+		t.Fatal(err)
 	}
-	assertNoSignal(t, called)
+	if err := receive(t, readerResult); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestDispatchGatePanicUnlocksAdmissionAndMutation(t *testing.T) {
@@ -240,19 +382,54 @@ func assertPanicCompletes(t *testing.T, fn func()) {
 	}
 }
 
-type firstErrContext struct {
+func assertGateSharedHeld(t *testing.T, gate *DispatchGate) {
+	t.Helper()
+	const capacity = int64(1<<63 - 1)
+	if gate.semaphore().TryAcquire(capacity) {
+		gate.semaphore().Release(capacity)
+		t.Fatal("callback deveria manter o gate compartilhado")
+	}
+}
+
+func assertGateExclusiveHeld(t *testing.T, gate *DispatchGate) {
+	t.Helper()
+	if gate.semaphore().TryAcquire(1) {
+		gate.semaphore().Release(1)
+		t.Fatal("callback deveria manter o gate exclusivo")
+	}
+}
+
+func assertGateReleased(t *testing.T, gate *DispatchGate) {
+	t.Helper()
+	const capacity = int64(1<<63 - 1)
+	if !gate.semaphore().TryAcquire(capacity) {
+		t.Fatal("gate deveria estar liberado")
+	}
+	gate.semaphore().Release(capacity)
+}
+
+// Com um leitor mantendo uma unidade, só um waiter (o writer que solicita
+// toda a capacidade) faz TryAcquire(1) falhar: sem waiters, sobra capacidade.
+func waitForWriterQueued(t *testing.T, gate *DispatchGate) {
+	t.Helper()
+	deadline := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) {
+		if !gate.semaphore().TryAcquire(1) {
+			return
+		}
+		gate.semaphore().Release(1)
+		runtime.Gosched()
+	}
+	t.Fatal("writer não apareceu na fila do semáforo")
+}
+
+type doneObservedContext struct {
 	context.Context
-	firstErrSeen chan struct{}
-	once         sync.Once
+	doneSeen chan struct{}
+	once     sync.Once
 }
 
-func newFirstErrContext(parent context.Context) (*firstErrContext, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(parent)
-	return &firstErrContext{Context: ctx, firstErrSeen: make(chan struct{})}, cancel
-}
-
-func (c *firstErrContext) Err() error {
-	err := c.Context.Err()
-	c.once.Do(func() { close(c.firstErrSeen) })
-	return err
+func (c *doneObservedContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.doneSeen) })
+	return c.Context.Done()
 }

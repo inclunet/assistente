@@ -120,12 +120,30 @@ func TestDrainPanicAndReentryNeverSealAndDoNotSkipOtherExecutors(t *testing.T) {
 
 func TestCancelledDrainStillClosesAfterWaitingForGate(t *testing.T) {
 	core := newEpochServiceForTest(t)
-	core.gate.mu.Lock()
+	holderEntered := make(chan struct{}, 1)
+	releaseHolder := make(chan struct{})
+	holderResult := make(chan error, 1)
+	go func() {
+		holderResult <- core.gate.WithMutation(context.Background(), func() error {
+			holderEntered <- struct{}{}
+			return waitFor(releaseHolder)
+		})
+	}()
+	receive(t, holderEntered)
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan error, 1)
-	go func() { _, err := core.CloseAndDrain(ctx); result <- err }()
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		_, err := core.CloseAndDrain(ctx)
+		result <- err
+	}()
+	receive(t, started)
 	cancel()
-	core.gate.mu.Unlock()
+	close(releaseHolder)
+	if err := receive(t, holderResult); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case err := <-result:
 		if !errors.Is(err, context.Canceled) {

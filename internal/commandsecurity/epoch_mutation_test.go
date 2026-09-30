@@ -9,18 +9,12 @@ import (
 
 func assertEpochGateExclusive(t *testing.T, gate *DispatchGate) {
 	t.Helper()
-	if gate.mu.TryRLock() {
-		gate.mu.RUnlock()
-		t.Fatal("callback deveria executar sob o gate exclusivo")
-	}
+	assertGateExclusiveHeld(t, gate)
 }
 
 func assertEpochGateReleased(t *testing.T, gate *DispatchGate) {
 	t.Helper()
-	if !gate.mu.TryLock() {
-		t.Fatal("gate deveria estar liberado após a mutação")
-	}
-	gate.mu.Unlock()
+	assertGateReleased(t, gate)
 }
 
 func assertEpochSnapshotStale(t *testing.T, service *EpochService, snapshot EpochSnapshot) {

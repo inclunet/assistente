@@ -40,11 +40,11 @@ func TestCommandManualExpiryResetStopsOldTimer(t *testing.T) {
 	p.mu.Unlock()
 	p.workers.Add(1)
 	go func() { defer close(done); p.runCommandManualExpiry(ctx, wake) }()
-	locked := false
+	var releaseProjection func()
 	defer func() {
 		cancel()
-		if locked {
-			p.projectionMu.Unlock()
+		if releaseProjection != nil {
+			releaseProjection()
 		}
 		<-done
 	}()
@@ -60,11 +60,14 @@ func TestCommandManualExpiryResetStopsOldTimer(t *testing.T) {
 	a.resetCommandHostSession(false)
 	ping()
 	ping() // confirma uma iteração completa após o reset.
-	p.projectionMu.Lock()
-	locked = true
-	// Um timer retido tentaria adquirir projectionMu após vencer e impediria
-	// o shutdown abaixo. Sem prazo, o worker aguarda wake/cancelamento.
+	releaseProjection, err = p.acquireCommandProjection(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Um timer retido ficaria aguardando a projeção após vencer, sem consumir
+	// o wake abaixo. Sem prazo, o worker continua atendendo wake/cancelamento.
 	<-time.After(max(time.Millisecond, time.Until(deadline)+1100*time.Millisecond))
+	ping()
 	cancel()
 	select {
 	case <-done:

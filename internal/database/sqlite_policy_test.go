@@ -2,6 +2,8 @@ package database
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -224,5 +226,111 @@ func TestImmediateTransactionRollsBackAfterContextCancellation(t *testing.T) {
 	}
 	if cancelledRows != 0 {
 		t.Fatalf("rollback não removeu escrita cancelada: %d", cancelledRows)
+	}
+}
+
+func TestImmediateTransactionOnceUsesSavepointInsideOuterTransaction(t *testing.T) {
+	gdb, cleanup := openSQLitePolicyTestDB(t, sqliteDSN(t.TempDir()+"/savepoint-once.db"))
+	defer cleanup()
+	if err := gdb.Exec("CREATE TABLE once_savepoint_rows (value TEXT PRIMARY KEY)").Error; err != nil {
+		t.Fatal(err)
+	}
+	wantErr := fmt.Errorf("callback failure")
+	if err := gdb.Transaction(func(outer *gorm.DB) error {
+		if err := WithSQLiteImmediateTransactionOnce(context.Background(), time.Time{}, outer, "test.savepoint_once", func(tx *gorm.DB) error {
+			if err := tx.Exec("INSERT INTO once_savepoint_rows(value) VALUES (?)", "inner").Error; err != nil {
+				return err
+			}
+			return wantErr
+		}); !errors.Is(err, wantErr) {
+			return fmt.Errorf("erro do savepoint: %w", err)
+		}
+		return outer.Exec("INSERT INTO once_savepoint_rows(value) VALUES (?)", "outer").Error
+	}); err != nil {
+		t.Fatalf("transação externa: %v", err)
+	}
+	var values []string
+	if err := gdb.Raw("SELECT value FROM once_savepoint_rows ORDER BY value").Scan(&values).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 || values[0] != "outer" {
+		t.Fatalf("savepoint não preservou apenas a escrita externa: %v", values)
+	}
+}
+
+func TestImmediateTransactionOncePoolWaitHonorsAcquisitionDeadline(t *testing.T) {
+	gdb, cleanup := openSQLitePolicyTestDB(t, sqliteDSN(t.TempDir()+"/once-pool.db"))
+	defer cleanup()
+	root, err := gdb.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root.SetMaxOpenConns(1)
+	conn, err := root.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	called := false
+	err = WithSQLiteImmediateTransactionOnce(context.Background(), time.Now().Add(30*time.Millisecond), gdb, "test.pool_wait", func(*gorm.DB) error { called = true; return nil })
+	if !errors.Is(err, context.DeadlineExceeded) || called {
+		t.Fatalf("aquisição bloqueada iniciou callback: called=%v err=%v", called, err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := WithSQLiteImmediateTransactionOnce(context.Background(), time.Now().Add(time.Second), gdb, "test.pool_recovered", func(*gorm.DB) error { called = true; return nil }); err != nil || !called {
+		t.Fatalf("pool não recuperou: called=%v err=%v", called, err)
+	}
+}
+
+func TestImmediateTransactionOnceCallbackSavepointUsesPinnedConnectionAndRoot(t *testing.T) {
+	gdb, cleanup := openSQLitePolicyTestDB(t, sqliteDSN(t.TempDir()+"/once-wrapper-savepoint.db"))
+	defer cleanup()
+	if err := gdb.Exec("CREATE TABLE once_wrapper_rows (value TEXT PRIMARY KEY)").Error; err != nil {
+		t.Fatal(err)
+	}
+	root, err := gdb.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("rollback nested savepoint")
+	callbackCalls := 0
+	err = WithSQLiteImmediateTransactionOnce(context.Background(), time.Now().Add(time.Second), gdb, "test.once_wrapper_savepoint", func(tx *gorm.DB) error {
+		callbackCalls++
+		gotRoot, err := tx.DB()
+		if err != nil {
+			return err
+		}
+		if gotRoot != root {
+			return errors.New("GetDBConn não retornou o pool raiz")
+		}
+		if _, ok := tx.Statement.ConnPool.(gorm.TxCommitter); !ok {
+			return errors.New("conexão BEGIN IMMEDIATE não foi reconhecida como transação")
+		}
+		if err := tx.Transaction(func(nested *gorm.DB) error {
+			if err := nested.Exec("INSERT INTO once_wrapper_rows(value) VALUES (?)", "rolled-back").Error; err != nil {
+				return err
+			}
+			return wantErr
+		}); !errors.Is(err, wantErr) {
+			return fmt.Errorf("nested rollback retornou %v", err)
+		}
+		return tx.Transaction(func(nested *gorm.DB) error {
+			return nested.Exec("INSERT INTO once_wrapper_rows(value) VALUES (?)", "committed").Error
+		})
+	})
+	if err != nil {
+		t.Fatalf("transação wrapper: %v", err)
+	}
+	if callbackCalls != 1 {
+		t.Fatalf("callback chamado %d vezes", callbackCalls)
+	}
+	var values []string
+	if err := gdb.Raw("SELECT value FROM once_wrapper_rows ORDER BY value").Scan(&values).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 || values[0] != "committed" {
+		t.Fatalf("nested savepoint não preservou commit/rollback esperado: %v", values)
 	}
 }
