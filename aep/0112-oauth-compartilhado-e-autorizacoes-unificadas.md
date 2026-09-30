@@ -299,7 +299,10 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   atual (RFC 6749, seção 5.1), mantendo validação do ID token. Escopo explícito
   reduzido não é ampliado; refresh sem escopo preserva as permissões anteriores.
 - Cancelamento anterior à primeira tentativa ChatGPT também usa código traduzível.
-- Revisão independente local em vinte e três rodadas, com correções de isolamento de
+- Reautorização com escopo reduzido retorna erro de permissão sem substituir
+  autorização conectada anterior. Importação normaliza URL/formato ChatGPT antes
+  de persistir; regressões cobrem criação e sobrescrita com vínculo local.
+- Revisão independente local em vinte e quatro rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,

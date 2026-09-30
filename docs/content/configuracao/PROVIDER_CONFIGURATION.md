@@ -29,7 +29,9 @@ edite o provedor e use **Autorizar novamente**: o cadastro é reaproveitado.
 O navegador só abre quando você pede conexão ou reautorização. Novos provedores
 importados não reutilizam referências OAuth do arquivo, mesmo que coincidam com
 uma autorização local. Ao sobrescrever o mesmo provedor e tipo já configurados,
-o vínculo local existente é preservado; o arquivo não pode trocá-lo por outro. Ao importar um
+o vínculo local existente é preservado; o arquivo não pode trocá-lo por outro.
+A importação normaliza a URL e o formato ChatGPT para a rota oficial Responses,
+mesmo se o arquivo trouxer valores diferentes. Ao importar um
 provedor em outro computador, ele aparece desconectado: edite esse provedor e
 acione **Continuar com ChatGPT** para criar sua autorização local, sem copiar
 tokens da máquina anterior. A ação **Conectar ChatGPT** da barra cria outro

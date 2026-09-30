@@ -50,6 +50,7 @@ func (s *Service) Authorize(ctx context.Context, store Store, id, hostID string,
 	if err != nil {
 		return Summary{}, err
 	}
+	previous := r
 	if hostID == "" || openBrowser == nil {
 		return Summary{}, ErrResource
 	}
@@ -163,6 +164,9 @@ func (s *Service) Authorize(ctx context.Context, store Store, id, hostID string,
 	updated, err := s.applyTokens(ctx, i, r, response, nonce, true)
 	if err != nil {
 		return Summary{}, err
+	}
+	if updated.State != "connected" && previous.State == "connected" && previous.Tokens.Access != "" && !previous.RefreshPending && i.permits(previous.GrantedScopes) {
+		return previous.Summary(), ErrPermission
 	}
 	updated.Revision++
 	updated.RefreshPending = false

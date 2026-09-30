@@ -236,6 +236,11 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 			"provider %q sem type não pode ser importado", normalized.ID,
 		)
 	}
+	if normalized.Type == "chatgpt" {
+		// This account integration has a fixed inference endpoint and protocol.
+		normalized.BaseURL = "https://api.openai.com/v1"
+		normalized.APIFormat = "openai_responses"
+	}
 	if isACPExport(normalized) {
 		// O agente não tem endereço: o que o encontra é o comando, e é ele que
 		// passa a ser obrigatório.

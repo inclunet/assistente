@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -425,6 +426,52 @@ func TestInitialTokenScopeOmissionKeepsIdentityValidation(t *testing.T) {
 			}
 			if variant == "refresh" && strings.Join(result.GrantedScopes, " ") != strings.Join(record.GrantedScopes, " ") {
 				t.Fatal("refresh expanded scopes")
+			}
+		})
+	}
+}
+
+func TestReauthorizationWithReducedScopePreservesConnectedGrant(t *testing.T) {
+	for _, connected := range []bool{false, true} {
+		t.Run(fmt.Sprint(connected), func(t *testing.T) {
+			key, err := rsa.GenerateKey(rand.Reader, 2048)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var issuer, nonce string
+			s, store, server := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/jwks" {
+					_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &key.PublicKey, KeyID: "test", Algorithm: "RS256", Use: "sig"}}})
+					return
+				}
+				signer, _ := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: key}, (&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", "test"))
+				signed, _ := jwt.Signed(signer).Claims(jwt.Claims{Issuer: issuer, Subject: "subject", Audience: jwt.Audience{"client"}, Expiry: jwt.NewNumericDate(time.Now().Add(time.Hour))}).Claims(map[string]any{"nonce": nonce}).Serialize()
+				_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "reduced-access", "refresh_token": "reduced-refresh", "token_type": "Bearer", "id_token": signed, "scope": "openid"})
+			})
+			issuer = server.URL
+			if connected {
+				store.r.Tokens.ExpiresAt = time.Now().Add(time.Hour)
+			} else {
+				store.r.State = "pending"
+				store.r.Tokens = Tokens{}
+			}
+			before := store.r
+			summary, err := s.Authorize(context.Background(), store, store.r.ID, "host", func(raw string) error {
+				u, _ := url.Parse(raw)
+				q := u.Query()
+				nonce = q.Get("nonce")
+				response, err := http.Get(q.Get("redirect_uri") + "?" + url.Values{"state": {q.Get("state")}, "code": {"code"}, "client_id": {"client"}}.Encode())
+				if err != nil {
+					return err
+				}
+				return response.Body.Close()
+			}, "Return")
+			if connected {
+				if !errors.Is(err, ErrPermission) || summary.State != "connected" || !reflect.DeepEqual(before, store.r) {
+					t.Fatalf("valid grant overwritten: %v", err)
+				}
+			} else if err != nil || summary.State != "permission_required" || store.r.Tokens.Access != "reduced-access" {
+				t.Fatalf("pending grant result: %v", err)
 			}
 		})
 	}
