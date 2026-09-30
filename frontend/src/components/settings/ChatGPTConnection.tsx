@@ -7,6 +7,12 @@ import { Button } from '../ui/Button';
 import { DialogActions } from '../ui/DialogActions';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 
+function connectionFailureKey(failure: unknown): string {
+  const code = failure instanceof Error ? failure.message : String(failure);
+  return code === 'oauth_vault_persistence_required' || code === 'oauth_vault_unavailable'
+    ? 'chatgpt.vaultUnavailable' : 'chatgpt.connectionError';
+}
+
 interface Props { id?: string; onChanged: () => void; onClose: () => void; onCloseBlockedChange?: (closeBlocked: boolean) => void }
 export function ChatGPTConnection({ id, onChanged, onClose, onCloseBlockedChange }: Props) {
   const { t } = useTranslation();
@@ -35,7 +41,7 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCloseBlockedChange
     const generation = ++loadGeneration.current;
     if (id) void GetConnection(id).then(value => {
       if (mounted.current && generation === loadGeneration.current) { setState(value.state); setEmail(value.email || ''); announce(t(`chatgpt.states.${value.state}`, { defaultValue: t('chatgpt.connectionError') })); }
-    }).catch(() => { if (mounted.current && generation === loadGeneration.current) { setError(t('chatgpt.connectionError')); announce(t('chatgpt.connectionError'), 'assertive'); } });
+    }).catch((failure: unknown) => { if (mounted.current && generation === loadGeneration.current) { const message = t(connectionFailureKey(failure)); setError(message); announce(message, 'assertive'); } });
     return () => { loadGeneration.current++; mounted.current = false; if (currentID.current) void CancelChatGPT(currentID.current).catch(() => undefined); };
   }, [id, t, announce]);
   const connect = async () => {
@@ -61,8 +67,8 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCloseBlockedChange
         try { if (!localStorage.getItem(key)) { setWelcome(true); localStorage.setItem(key, 'seen'); } } catch { setWelcome(true); }
       }
       announce(t(`chatgpt.states.${result.state}`, { defaultValue: t('chatgpt.connectionError') }));
-    } catch {
-      if (mounted.current) { setError(t('chatgpt.connectionError')); announce(t('chatgpt.connectionError')); }
+    } catch (failure: unknown) {
+      if (mounted.current) { const message = t(connectionFailureKey(failure)); setError(message); announce(message, 'assertive'); }
     } finally { if (mounted.current) setBusy(false); }
   };
   const disconnect = async () => {
@@ -77,10 +83,7 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCloseBlockedChange
       setError(revoked ? '' : message); announce(message);
     } catch (failure: unknown) {
       if (mounted.current) {
-        const code = failure instanceof Error ? failure.message : String(failure);
-        const key = code === 'oauth_vault_persistence_required' || code === 'oauth_vault_unavailable'
-          ? 'chatgpt.vaultUnavailable' : 'chatgpt.connectionError';
-        const message = t(key);
+        const message = t(connectionFailureKey(failure));
         setError(message); announce(message, 'assertive');
       }
     }

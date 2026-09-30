@@ -16,6 +16,22 @@ beforeEach(() => {
   mocks.get.mockResolvedValue({ id: 'authorization', state: 'connected', email: 'user@example.test' });
 });
 describe('ChatGPT connection', () => {
+  it.each(['query', 'create', 'authorize'])('orienta desbloqueio do cofre na etapa %s', async stage => {
+    if (stage === 'query') mocks.get.mockRejectedValueOnce(new Error('oauth_vault_unavailable'));
+    if (stage === 'create') mocks.create.mockRejectedValueOnce('oauth_vault_persistence_required');
+    if (stage === 'authorize') mocks.authorize.mockRejectedValueOnce(new Error('oauth_vault_unavailable'));
+    render(<ChatGPTConnection id={stage === 'create' ? undefined : 'authorization'} onChanged={vi.fn()} onClose={vi.fn()} />);
+    if (stage === 'create') {
+      await userEvent.type(screen.getByLabelText('chatgpt.label'), 'Account');
+      await userEvent.click(screen.getByRole('button', { name: 'chatgpt.connect' }));
+    } else if (stage === 'authorize') {
+      await userEvent.click(await screen.findByRole('button', { name: 'chatgpt.reconnect' }));
+    }
+    expect(await screen.findByText('chatgpt.vaultUnavailable')).toBeInTheDocument();
+    expect(mocks.announce).toHaveBeenCalledWith('chatgpt.vaultUnavailable', 'assertive');
+    expect(screen.queryByText('chatgpt.connectionError')).not.toBeInTheDocument();
+  });
+
   it.each(['oauth_vault_persistence_required', 'oauth_vault_unavailable'])('explica cofre indisponível ao desconectar: %s', async code => {
     mocks.disconnect.mockRejectedValueOnce(code === 'oauth_vault_unavailable' ? new Error(code) : code);
     render(<ChatGPTConnection id="authorization" onChanged={vi.fn()} onClose={vi.fn()} />);
