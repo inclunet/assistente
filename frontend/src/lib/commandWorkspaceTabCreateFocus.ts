@@ -119,9 +119,9 @@ export function captureWorkspaceTabCreateFocus(
     const ws = snapshot();
     if (!ws || ws.id !== captured.workspaceId) { invalidate(); return; }
     const created = identifyCreation();
-      if (created) {
-        if (newTabId && created.id !== newTabId) invalidate();
-        else newTabId = created.id;
+    if (created) {
+      if (newTabId && created.id !== newTabId) invalidate();
+      else newTabId = created.id;
     } else if (newTabId || ws.activeTabId !== initial.activeTabId ||
       ws.tabs.length !== originalIds.size || ws.tabs.some((tab) => !originalIds.has(tab.id))) invalidate();
   });

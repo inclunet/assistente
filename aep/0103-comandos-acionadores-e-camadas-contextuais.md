@@ -1,5 +1,17 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Menu Nova aba sem prazo motor (30/09/2026): In Progress.** Por decisão do
+mantenedor, o menu aberto por Ctrl+N não fecha por tempo. O host assume a
+espera da sequência enquanto oferece a escolha: letra, setas/Enter e clique
+continuam disponíveis sem exigir rapidez. Escape/Tab, clique fora, mudança
+de contexto, perda de foco da janela ou invalidação do mapa continuam
+cancelando a escolha. O carregamento do catálogo tem limite operacional de
+cinco segundos; falha anuncia erro e libera nova tentativa, descartando
+respostas tardias. Esse limite não se aplica ao menu já exibido.
+Não há execução nem autorização persistida no prefixo. Esta decisão substitui
+o prazo de 1.500 ms da seção 71 somente para sequências assumidas pelo menu;
+sequências sem menu mantêm o prazo existente. Aceite manual pendente.
+
 **Foco após criação de abas (30/09/2026): In Progress.** O executor contextual
 solicita foco à área default da aba criada somente após confirmação de sucesso.
 O alvo é a nova aba do tipo solicitado, preservando identidade, sessão,

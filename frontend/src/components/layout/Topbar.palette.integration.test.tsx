@@ -1087,14 +1087,64 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
     expect(screen.queryByRole('menu', { name: 'workspace.newTabMenu' })).not.toBeInTheDocument();
   });
 
-  it('timeout fecha a escolha e uma letra posterior não cria aba', async () => {
+  it('limita somente o carregamento travado e permite tentar novamente sem reabrir resposta antiga', async () => {
     await mountCreation();
-    fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true });
-    await screen.findByRole('menu', { name: 'workspace.newTabMenu' });
-    await waitFor(() => expect(screen.queryByRole('menu', { name: 'workspace.newTabMenu' })).not.toBeInTheDocument(), { timeout: 2200 });
-    fireEvent.keyDown(document.activeElement!, { key: 'c', code: 'KeyC' });
-    expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
-    expect(state.commitBackendCommand).not.toHaveBeenCalled();
+    let finishOld!: (items: unknown[]) => void;
+    listCommandCatalog.mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }));
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true });
+        fireEvent.keyUp(document.activeElement!, { code: 'KeyN' });
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(screen.queryByRole('menu', { name: 'workspace.newTabMenu' })).not.toBeInTheDocument();
+      expect(state.announce).toHaveBeenCalledWith('commandPalette.error');
+      fireEvent.keyDown(document.activeElement!, { key: 'c', code: 'KeyC' });
+      expect(state.commitBackendCommand).not.toHaveBeenCalled();
+      await act(async () => {
+        fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true });
+        fireEvent.keyUp(document.activeElement!, { code: 'KeyN' });
+      });
+      expect(screen.getByRole('menuitem', { name: /^editor,/ })).toBeInTheDocument();
+      await act(async () => { finishOld([]); await vi.advanceTimersByTimeAsync(60_000); });
+      expect(screen.getByRole('menuitem', { name: /^editor,/ })).toBeInTheDocument();
+      await act(async () => { fireEvent.keyDown(document.activeElement!, { key: 'c', code: 'KeyC' }); });
+      expect(state.commitBackendCommand).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['letter', 'arrows', 'escape'] as const)('mantém o menu após um minuto e permite %s sem prazo motor', async mode => {
+    await mountCreation();
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true });
+        fireEvent.keyUp(document.activeElement!, { code: 'KeyN' });
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(screen.getByRole('menu', { name: 'workspace.newTabMenu' })).toBeInTheDocument();
+      expect(state.commitBackendCommand).not.toHaveBeenCalled();
+      await act(async () => {
+        if (mode === 'arrows') {
+          fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown', code: 'ArrowDown' });
+        }
+      });
+      await act(async () => {
+        const key = mode === 'letter' ? 'c' : mode === 'arrows' ? 'Enter' : 'Escape';
+        fireEvent.keyDown(document.activeElement!, { key, code: mode === 'letter' ? 'KeyC' : key });
+      });
+      expect(screen.queryByRole('menu', { name: 'workspace.newTabMenu' })).not.toBeInTheDocument();
+      if (mode === 'escape') {
+        fireEvent.keyDown(document.activeElement!, { key: 'c', code: 'KeyC' });
+        expect(state.commitBackendCommand).not.toHaveBeenCalled();
+        expect(screen.getByRole('button', { name: 'workspace.newTab, Ctrl+N' })).toHaveFocus();
+      } else {
+        expect(state.commitBackendCommand).toHaveBeenCalledExactlyOnceWith('ticket', 'handoff');
+        if (mode === 'letter') expect(state.beginLocalCommandUIKey).toHaveBeenCalledTimes(1);
+        else expect(beginUICommand).toHaveBeenCalledExactlyOnceWith('workspace.tab.editor.create');
+      }
+    } finally { vi.useRealTimers(); }
   });
 });
 

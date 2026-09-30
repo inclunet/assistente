@@ -110,7 +110,8 @@ export interface LocalCommandKeyboardOptions {
   acceptMap?: (map: LocalCommandKeyboardMap) => boolean;
   onMapAccepted?: (map: LocalCommandKeyboardMap) => void;
   onMapInvalidated?: () => void;
-  onSequenceStarted?: (bindings: readonly LocalCommandKeyboardBinding[]) => void | Promise<void>;
+  /** O host de menu assume carregamento e escolha até seleção/cancelamento, sem prazo motor. */
+  onSequenceStarted?: (bindings: readonly LocalCommandKeyboardBinding[]) => 'menu' | void | Promise<void>;
   onSequenceCancelled?: (reason: CommandSequenceCancelReason) => void;
   sequenceTimeoutMs?: number;
 }
@@ -635,7 +636,8 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
       const started = options.onSequenceStarted?.(candidates.map((binding) => ({
         shortcut: cloneShortcut(binding.shortcut), commandId: binding.commandId, handler: binding.handler,
       })));
-      if (started) void Promise.resolve(started).catch(() => cancelSequence('unexpected'));
+      if (started === 'menu') clearTimeout(timer);
+      else if (started) void Promise.resolve(started).catch(() => cancelSequence('unexpected'));
     } catch {
       cancelSequence('unexpected');
       return;

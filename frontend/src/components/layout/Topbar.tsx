@@ -1758,7 +1758,10 @@ export function Topbar() {
       intentIsCurrent({ ...intent, commandID: '' }) &&
       intent.modalGeneration === getModalRegistrySnapshot().generationNumber &&
       document.hasFocus();
+    let creationCatalogTimer: ReturnType<typeof setTimeout> | undefined;
     const closeCreationMenu = (restoreFocus = false) => {
+      clearTimeout(creationCatalogTimer);
+      creationCatalogTimer = undefined;
       newTabMenuIntentRef.current = null;
       tabCreationMenu?.close({ restoreFocus });
     };
@@ -1766,12 +1769,12 @@ export function Topbar() {
       closeCreationMenu(restoreFocus);
       localCommandKeyboardRef.current?.cancelSequence();
     };
-    const openCreationMenu = (bindings?: readonly LocalCommandKeyboardBinding[]) => {
+    const openCreationMenu = (bindings?: readonly LocalCommandKeyboardBinding[]): boolean => {
       const auth = useAuthStore.getState();
       const current = useWorkspaceStore.getState().workspace;
-      if (disposed || !auth.isAuthenticated || !auth.user || !current || isModalOpen() || !document.hasFocus()) return;
+      if (disposed || !auth.isAuthenticated || !auth.user || !current || isModalOpen() || !document.hasFocus()) return false;
       const canShowCreationMenu = Boolean(tabCreationMenu) && workspaceTabMutationAvailable('workspace.tab.chat.create');
-      if (!bindings && !canShowCreationMenu) return;
+      if (!bindings && !canShowCreationMenu) return false;
       const intent: WorkspaceTabCreationIntent = {
         userId: auth.user.userId, sessionId: auth.user.sessionId,
         workspaceId: current.id, activeTabId: current.activeTabId ?? null,
@@ -1781,14 +1784,25 @@ export function Topbar() {
       newTabMenuIntentRef.current = intent;
       // The sequence recognizer is generic. Only workspace origins have a
       // creation-menu host; other v2 bindings still use their normal ingress.
-      if (!tabCreationMenu || !canShowCreationMenu) return;
+      if (!tabCreationMenu || !canShowCreationMenu) return false;
       const openingFocus = document.activeElement;
       const ids = bindings ? new Set(bindings.map((binding) => binding.commandId)) : new Set<string>(WORKSPACE_TAB_CREATE_COMMAND_IDS);
+      const failCatalogLoad = (error: unknown) => {
+        if (!creationIntentCurrent(intent)) return;
+        cancelCreationMenu();
+        logger.error('[Commands] Falha ao carregar comandos de criação', error);
+        creationPresentationRef.current.announce(creationPresentationRef.current.t('commandPalette.error'));
+      };
+      // Limita somente o carregamento: depois de exibido, o menu não tem prazo.
+      clearTimeout(creationCatalogTimer);
+      creationCatalogTimer = setTimeout(() => failCatalogLoad(new Error('creation-catalog-timeout')), 5_000);
       void listCommandCatalog({ locale: creationPresentationRef.current.locale, source: 'palette' }).then((catalog) => {
         if (!creationIntentCurrent(intent)) {
           if (newTabMenuIntentRef.current === intent) cancelCreationMenu();
           return;
         }
+        clearTimeout(creationCatalogTimer);
+        creationCatalogTimer = undefined;
         if (document.activeElement !== openingFocus) { cancelCreationMenu(); return; }
         const items = catalog.filter((item) => ids.has(item.id)).map((item) => ({
           commandID: item.id,
@@ -1810,12 +1824,8 @@ export function Topbar() {
           executePendingCommandRef.current?.();
         });
         if (!shown) cancelCreationMenu();
-      }).catch((error) => {
-        if (!creationIntentCurrent(intent)) return;
-        cancelCreationMenu();
-        logger.error('[Commands] Falha ao carregar comandos de criação', error);
-        creationPresentationRef.current.announce(creationPresentationRef.current.t('commandPalette.error'));
-      });
+      }).catch(failCatalogLoad);
+      return true;
     };
     const unregisterCreationActions = tabCreationMenu?.registerActions({
       openFromToolbar: () => {
@@ -2225,7 +2235,7 @@ export function Topbar() {
       onSequenceStarted: (bindings) => {
         const creationBindings = bindings.filter(binding =>
           isWorkspaceTabCreateCommand(binding.commandId) || binding.commandId === WORKSPACE_CREATE_COMMAND_ID);
-        if (creationBindings.length > 0) openCreationMenu(creationBindings);
+        if (creationBindings.length > 0 && openCreationMenu(creationBindings)) return 'menu';
       },
       onSequenceCancelled: (reason) => {
         if (reason !== 'menu-navigation') {

@@ -289,6 +289,11 @@ atalho para esses dispositivos é declarado por esta checklist.
 
 ## Foco ao criar uma aba
 
+O menu **Nova aba**, aberto por **Ctrl+N**, não fecha por tempo. Você pode
+esperar e depois escolher com a letra indicada, setas e Enter ou clique.
+**Escape** cancela e devolve o foco ao botão. Sair do contexto, abrir um modal
+ou perder o foco da janela cancela a escolha para evitar ações em outra tela.
+
 Após criar uma aba pelo menu **Nova aba**, o foco vai para sua área principal:
 campo de mensagem do chat, editor, terminal ou painel da lista de tarefas.
 Se você mudar de tela, aba ou controle enquanto a criação estiver em andamento,
@@ -666,7 +671,8 @@ sem gravar cada tecla ou consultar o banco a cada pressionamento.
    as teclas e pressione **L** em até 1,5 segundo. O prefixo sozinho não executa.
 
 A gravação não tem limite de tempo entre etapas. O limite de 1,5 segundo vale
-para **usar** a sequência, não para configurá-la. Escape cancela; Tab cancela
+para **usar** sequências sem menu, não para configurá-las. O menu **Nova aba**
+não impõe esse prazo à escolha. Na gravação, Escape cancela; Tab cancela
 e move o foco. Perder o foco ou sair da tela também cancela sem substituir
 o valor anterior. Escape e Tab são controles de saída da gravação, não
 teclas finais graváveis. **Salvar** fica indisponível durante a captura.
