@@ -205,7 +205,15 @@ migração com diagnóstico, sem fabricar token/cliente novo.
 
 Inventariar também client credentials e registros legados por hostname antes do
 cutover; migração não pode assumir que todo MCP tem o par completo. Um snapshot
-recuperável e testes com dados de versões publicadas precedem a conversão. No sucesso,
+recuperável e testes com dados de versões publicadas precedem a conversão.
+O snapshot conserva os segredos cifrados, nunca materializa uma cópia plaintext
+nem inclui a DEK em claro; usa armazenamento privado com permissões restritas ao
+usuário e restauração autenticada com a chave compatível. Não entra em exportação,
+logs ou sincronização automática. A migração registra localização, prazo de retenção
+explícito e procedimento de restauração/descarte; o prazo deve cobrir a janela de
+rollback da entrega e não pode ser indefinido. Antes de remover o último snapshot,
+confirmar o fim dessa janela e a validação da migração. Testar confidencialidade,
+controle de acesso, restauração e descarte, sem prometer apagamento físico em SSD. No sucesso,
 referências e remoção das entradas substituídas são atômicas; na falha, permanecem
 íntegras. Conversão não faz requests de autorização nem exige consentimento apenas
 porque o formato mudou. Downgrade requer restaurar snapshot compatível; não manter
