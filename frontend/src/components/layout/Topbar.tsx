@@ -2235,7 +2235,9 @@ export function Topbar() {
       onSequenceStarted: (bindings) => {
         const creationBindings = bindings.filter(binding =>
           isWorkspaceTabCreateCommand(binding.commandId) || binding.commandId === WORKSPACE_CREATE_COMMAND_ID);
-        if (creationBindings.length > 0 && openCreationMenu(creationBindings)) return 'menu';
+        if (creationBindings.length > 0 && openCreationMenu(creationBindings)) {
+          return { menuCommandIds: creationBindings.map(binding => binding.commandId) };
+        }
       },
       onSequenceCancelled: (reason) => {
         if (reason !== 'menu-navigation') {

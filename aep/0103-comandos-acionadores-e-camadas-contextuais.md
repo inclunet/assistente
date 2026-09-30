@@ -10,7 +10,10 @@ cinco segundos; falha anuncia erro e libera nova tentativa, descartando
 respostas tardias. Esse limite não se aplica ao menu já exibido.
 Não há execução nem autorização persistida no prefixo. Esta decisão substitui
 o prazo de 1.500 ms da seção 71 somente para sequências assumidas pelo menu;
-sequências sem menu mantêm o prazo existente. Aceite manual pendente.
+sequências sem menu mantêm o prazo existente, mesmo quando compartilham o
+prefixo Ctrl+N com opções exibidas. O host informa os comandos assumidos;
+ao expirar o prazo normal, somente os demais candidatos são retirados.
+Aceite manual pendente.
 
 **Foco após criação de abas (30/09/2026): In Progress.** O executor contextual
 solicita foco à área default da aba criada somente após confirmação de sucesso.
