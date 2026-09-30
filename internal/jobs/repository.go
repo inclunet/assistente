@@ -94,6 +94,10 @@ type jobRowCacheEntry struct {
 
 const sqliteDeleteBatchSize = 500
 
+// retentionBatchSize limita o trabalho de uma chamada de manutenção, inclusive
+// quando a passagem é retomada pelo coordinator.
+const retentionBatchSize = 128
+
 func stringBatches(values []string, size int) [][]string {
 	if size <= 0 {
 		size = sqliteDeleteBatchSize
@@ -1782,20 +1786,39 @@ func (r *DBRepository) deleteRunsByIDsTx(ctx context.Context, tx *gorm.DB, runID
 }
 
 func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (int, error) {
+	var total int
+	for {
+		deleted, more, err := r.CleanOldRunsBatch(ctx, maxAge, retentionBatchSize)
+		total += deleted
+		if err != nil || !more {
+			return total, err
+		}
+	}
+}
+
+func (r *DBRepository) CleanOldRunsBatch(ctx context.Context, maxAge time.Duration, limit int) (int, bool, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
-		return 0, err
+		return 0, false, err
+	}
+	if limit <= 0 {
+		return 0, false, fmt.Errorf("limite de retenção inválido")
 	}
 	now := r.now()
 	cutoff := now.Add(-maxAge)
 	deleted := int64(0)
-	hasToolInvocations := r.db.Migrator().HasTable(&database.ToolInvocation{})
+	more := false
+	hasToolInvocations := r.db.WithContext(ctx).Migrator().HasTable(&database.ToolInvocation{})
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var runIDs []string
 		query := database.ScopeByUser(ctx, tx.Model(&database.JobRun{}), "user_id").
 			Where("julianday(COALESCE(started_at, queued_at)) < julianday(?)", cutoff.UTC())
 		query = r.retainableRunQuery(query, now)
-		if err := query.Pluck("id", &runIDs).Error; err != nil {
+		if err := query.Order("COALESCE(started_at, queued_at) ASC, id ASC").Limit(limit+1).Pluck("id", &runIDs).Error; err != nil {
 			return err
+		}
+		more = len(runIDs) > limit
+		if more {
+			runIDs = runIDs[:limit]
 		}
 		if err := r.deleteRunDependenciesByIDsTx(ctx, tx, runIDs, hasToolInvocations); err != nil {
 			return err
@@ -1805,9 +1828,9 @@ func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (
 		return err
 	})
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return int(deleted), nil
+	return int(deleted), more, nil
 }
 
 // CleanRunsExceedingCount mantém apenas os `keepPerJob` runs mais recentes por
@@ -1815,12 +1838,26 @@ func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (
 // retenção por idade para conter jobs de alta frequência (AEP-0074, D4).
 // keepPerJob <= 0 desativa a limpeza.
 func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob int) (int, error) {
+	var total int
+	for {
+		deleted, more, err := r.CleanRunsExceedingCountBatch(ctx, keepPerJob, retentionBatchSize)
+		total += deleted
+		if err != nil || !more {
+			return total, err
+		}
+	}
+}
+
+func (r *DBRepository) CleanRunsExceedingCountBatch(ctx context.Context, keepPerJob, limit int) (int, bool, error) {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	if keepPerJob <= 0 {
-		return 0, nil
+		return 0, false, nil
+	}
+	if limit <= 0 {
+		return 0, false, fmt.Errorf("limite de retenção inválido")
 	}
 	// Enumera os runs de cada job em ordem decrescente (mais recentes primeiro)
 	// com uma window function e remove tudo além dos `keepPerJob` mais novos.
@@ -1828,7 +1865,8 @@ func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob i
 	// jobs de alta frequência que este cap quer conter. O desempate por id trata
 	// started_at idêntico.
 	deleted := int64(0)
-	hasToolInvocations := r.db.Migrator().HasTable(&database.ToolInvocation{})
+	more := false
+	hasToolInvocations := r.db.WithContext(ctx).Migrator().HasTable(&database.ToolInvocation{})
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Seleção e remoção usam o mesmo snapshot transacional: uma lease
 		// não pode ser concedida entre a escolha do run e sua exclusão.
@@ -1837,8 +1875,12 @@ func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob i
 			Where("user_id = ?", userID)
 		ranked = r.retainableRunQuery(ranked, r.now())
 		var runIDs []string
-		if err := tx.Table("(?) AS ranked", ranked).Where("rn > ?", keepPerJob).Pluck("id", &runIDs).Error; err != nil {
+		if err := tx.Table("(?) AS ranked", ranked).Where("rn > ?", keepPerJob).Order("id ASC").Limit(limit+1).Pluck("id", &runIDs).Error; err != nil {
 			return err
+		}
+		more = len(runIDs) > limit
+		if more {
+			runIDs = runIDs[:limit]
 		}
 		if err := r.deleteRunDependenciesByIDsTx(ctx, tx, runIDs, hasToolInvocations); err != nil {
 			return err
@@ -1848,9 +1890,9 @@ func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob i
 		return err
 	})
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return int(deleted), nil
+	return int(deleted), more, nil
 }
 
 // retainableRunQuery protege runs que ainda são fontes necessárias para o
@@ -1889,23 +1931,73 @@ func (r *DBRepository) retainableRunQuery(query *gorm.DB, now time.Time) *gorm.D
 }
 
 func (r *DBRepository) CleanOldEvents(ctx context.Context, maxAge time.Duration) (int, error) {
+	var total int
+	for {
+		deleted, more, err := r.CleanOldEventsBatch(ctx, maxAge, retentionBatchSize)
+		total += deleted
+		if err != nil || !more {
+			return total, err
+		}
+	}
+}
+
+func (r *DBRepository) CleanOldEventsBatch(ctx context.Context, maxAge time.Duration, limit int) (int, bool, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
-		return 0, err
+		return 0, false, err
+	}
+	if limit <= 0 {
+		return 0, false, fmt.Errorf("limite de retenção inválido")
 	}
 	cutoff := r.now().Add(-maxAge)
-	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("occurred_at < ?", cutoff).Delete(&database.JobEvent{})
-	return int(res.RowsAffected), res.Error
+	var ids []string
+	query := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.JobEvent{}), "user_id").Where("occurred_at < ?", cutoff).Order("occurred_at ASC").Limit(limit + 1)
+	if err := query.Pluck("id", &ids).Error; err != nil {
+		return 0, false, err
+	}
+	more := len(ids) > limit
+	if more {
+		ids = ids[:limit]
+	}
+	if len(ids) == 0 {
+		return 0, false, nil
+	}
+	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Where("id IN ?", ids).Delete(&database.JobEvent{})
+	return int(res.RowsAffected), more, res.Error
 }
 
 func (r *DBRepository) CleanOldRunEvents(ctx context.Context, maxAge time.Duration) (int, error) {
+	var total int
+	for {
+		deleted, more, err := r.CleanOldRunEventsBatch(ctx, maxAge, retentionBatchSize)
+		total += deleted
+		if err != nil || !more {
+			return total, err
+		}
+	}
+}
+
+func (r *DBRepository) CleanOldRunEventsBatch(ctx context.Context, maxAge time.Duration, limit int) (int, bool, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
-		return 0, err
+		return 0, false, err
+	}
+	if limit <= 0 {
+		return 0, false, fmt.Errorf("limite de retenção inválido")
 	}
 	cutoff := r.now().Add(-maxAge)
-	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("occurred_at < ?", cutoff).Delete(&database.JobRunEvent{})
-	return int(res.RowsAffected), res.Error
+	var ids []string
+	query := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.JobRunEvent{}), "user_id").Where("occurred_at < ?", cutoff).Order("occurred_at ASC").Limit(limit + 1)
+	if err := query.Pluck("id", &ids).Error; err != nil {
+		return 0, false, err
+	}
+	more := len(ids) > limit
+	if more {
+		ids = ids[:limit]
+	}
+	if len(ids) == 0 {
+		return 0, false, nil
+	}
+	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Where("id IN ?", ids).Delete(&database.JobRunEvent{})
+	return int(res.RowsAffected), more, res.Error
 }
 
 func (r *DBRepository) ensureTagTx(ctx context.Context, tx *gorm.DB, userID, slug string) (*database.Tag, error) {

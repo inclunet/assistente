@@ -28,30 +28,24 @@ func (a *App) rebuildCommandLifecycleProjection(ctx context.Context, restoreManu
 	return a.rebuildCommandLifecycleProjectionMode(ctx, restoreManual, false)
 }
 
-// Job activation claims are the only projection changes eligible for the
-// per-execution proof path. Every other rebuild remains fail-closed and
-// cancels executions when its effective configuration changes.
-func (a *App) rebuildCommandLifecycleJobProjection(ctx context.Context) error {
-	err := a.rebuildCommandLifecycleProjectionMode(ctx, false, true)
-	if errors.Is(err, commandexecution.ErrJobProjectionBaseChanged) {
-		// A user configuration mutation raced with the claim projection. It is
-		// not eligible for preservation; publish through the ordinary canceling
-		// lifecycle path using a fresh snapshot.
-		return a.rebuildCommandLifecycleProjectionMode(ctx, false, false)
-	}
-	return err
-}
-
 func (a *App) rebuildCommandLifecycleProjectionMode(ctx context.Context, restoreManual, jobClaimProjection bool) error {
 	if a == nil || ctx == nil {
 		return commandexecution.ErrInvalidConfiguration
 	}
+	product := a.commandProduct.Load()
+	if product == nil {
+		return commandexecution.ErrStale
+	}
+	return a.rebuildCommandLifecycleProjectionAtReset(ctx, restoreManual, jobClaimProjection, product, product.projectionResetRevision.Load())
+}
+
+func (a *App) rebuildCommandLifecycleProjectionAtReset(ctx context.Context, restoreManual, jobClaimProjection bool, product *commandProductRuntime, resetRevision uint64) error {
 	// Só repetimos leituras/projeção antes de qualquer execução de comando.
 	// Restore concluído não é repetido; suas transações abortadas por BUSY
 	// usam retry próprio. Concorrência
 	// contínua permanece indisponível após três tentativas, sem loop infinito.
 	for attempt := 0; attempt < 3; attempt++ {
-		err := a.buildCommandLifecycleProjection(ctx, restoreManual && attempt == 0, jobClaimProjection)
+		err := a.buildCommandLifecycleProjectionAtReset(ctx, restoreManual && attempt == 0, jobClaimProjection, product, resetRevision)
 		if !errors.Is(err, commandexecution.ErrStale) && !errors.Is(err, commandconfig.ErrStale) {
 			return err
 		}
@@ -65,6 +59,18 @@ func (a *App) rebuildCommandLifecycleProjectionMode(ctx context.Context, restore
 func (a *App) buildCommandLifecycleProjection(ctx context.Context, restoreManual, jobClaimProjection bool) error {
 	if a == nil || ctx == nil {
 		return commandexecution.ErrInvalidConfiguration
+	}
+	product := a.commandProduct.Load()
+	if product == nil {
+		return commandexecution.ErrStale
+	}
+	resetRevision := product.projectionResetRevision.Load()
+	return a.buildCommandLifecycleProjectionAtReset(ctx, restoreManual, jobClaimProjection, product, resetRevision)
+}
+
+func (a *App) buildCommandLifecycleProjectionAtReset(ctx context.Context, restoreManual, jobClaimProjection bool, product *commandProductRuntime, resetRevision uint64) error {
+	if a.commandProduct.Load() != product || product.projectionResetRevision.Load() != resetRevision {
+		return commandexecution.ErrStale
 	}
 	store, err := commandconfig.New(database.DB())
 	if err != nil {
@@ -91,6 +97,10 @@ func (a *App) buildCommandLifecycleProjection(ctx context.Context, restoreManual
 		if err := a.restoreCommandLifecyclePersistentClaims(ctx); err != nil {
 			return err
 		}
+	}
+	claimRevision := product.claimTransitionRevision.Load()
+	if product.currentCommandClaimTransition() != nil {
+		return commandexecution.ErrStale
 	}
 	jobProjection, guard, err := a.commandJobLayerProjection(ctx, principal, scope)
 	if err != nil {
@@ -143,6 +153,9 @@ func (a *App) buildCommandLifecycleProjection(ctx context.Context, restoreManual
 	configuration = configuration.WithValidityDeadline(deadline)
 	jobGuard := guard
 	guard = func(ctx context.Context) error {
+		if a.commandProduct.Load() != product || product.projectionResetRevision.Load() != resetRevision || product.currentCommandClaimTransition() != nil || product.claimTransitionRevision.Load() != claimRevision {
+			return commandexecution.ErrStale
+		}
 		if err := manualGuard(ctx); err != nil {
 			return err
 		}
@@ -154,20 +167,22 @@ func (a *App) buildCommandLifecycleProjection(ctx context.Context, restoreManual
 		}
 		return ctx.Err()
 	}
-	return (commandLifecycleLoadedConfiguration{app: a, store: store, principal: principal, workspaceID: cloneCommandWorkspace(scope.WorkspaceID), snapshot: snapshot, configuration: configuration, activeLayers: active, guard: guard, jobClaimProjection: jobClaimProjection, jobProjectionCurrent: jobProjection.current}).publish(ctx)
+	return (commandLifecycleLoadedConfiguration{app: a, store: store, principal: principal, workspaceID: cloneCommandWorkspace(scope.WorkspaceID), snapshot: snapshot, configuration: configuration, activeLayers: active, guard: guard, jobClaimProjection: jobClaimProjection, jobProjectionCurrent: jobProjection.current, publicationResetRevision: resetRevision}).publish(ctx)
 }
 
 type commandLifecycleLoadedConfiguration struct {
-	app                  *App
-	store                *commandconfig.Store
-	principal            auth.LocalSessionPrincipal
-	workspaceID          *string
-	snapshot             commandconfig.Snapshot
-	configuration        *commandbindings.Configuration
-	activeLayers         []string
-	guard                func(context.Context) error
-	jobClaimProjection   bool
-	jobProjectionCurrent func() bool
+	app                      *App
+	store                    *commandconfig.Store
+	principal                auth.LocalSessionPrincipal
+	workspaceID              *string
+	snapshot                 commandconfig.Snapshot
+	configuration            *commandbindings.Configuration
+	activeLayers             []string
+	guard                    func(context.Context) error
+	jobClaimProjection       bool
+	jobProjectionCurrent     func() bool
+	publicationEpoch         commandsecurity.EpochSnapshot
+	publicationResetRevision uint64
 }
 
 func (a *App) restoreCommandLifecyclePersistentClaims(ctx context.Context) error {
@@ -178,6 +193,22 @@ func (a *App) reconcileCommandLifecycleClaims(ctx context.Context, restore bool)
 	return a.reconcileCommandLifecycleClaimsForTransition(ctx, restore, false)
 }
 
+// Uma transição que já suspendeu o mapa precisa terminar antes da republicação.
+// Guardamos a operação, não uma configuração antiga a ser reutilizada.
+type commandClaimTransition struct {
+	restore         bool
+	workspaceSwitch bool
+	resetRevision   uint64
+}
+
+func (p *commandProductRuntime) currentCommandClaimTransition() *commandClaimTransition {
+	pending := p.claimTransition.Load()
+	if pending != nil && pending.resetRevision != p.projectionResetRevision.Load() {
+		return nil
+	}
+	return pending
+}
+
 func (a *App) reconcileCommandLifecycleClaimsForTransition(ctx context.Context, restore, workspaceSwitch bool) error {
 	if a == nil || ctx == nil {
 		return commandexecution.ErrInvalidConfiguration
@@ -186,6 +217,19 @@ func (a *App) reconcileCommandLifecycleClaimsForTransition(ctx context.Context, 
 	if err != nil {
 		return err
 	}
+	product := a.commandProduct.Load()
+	if product == nil || product.principal != original {
+		return commandexecution.ErrStale
+	}
+	transitionRevision := product.projectionResetRevision.Load()
+	return a.reconcileCommandLifecycleClaimsAtReset(ctx, restore, workspaceSwitch, product, transitionRevision)
+}
+
+func (a *App) reconcileCommandLifecycleClaimsAtReset(ctx context.Context, restore, workspaceSwitch bool, product *commandProductRuntime, transitionRevision uint64) error {
+	if a.commandProduct.Load() != product || product.projectionResetRevision.Load() != transitionRevision {
+		return commandexecution.ErrStale
+	}
+	original := product.principal
 	a.authMu.RLock()
 	state := a.commandHost
 	sessions, credentials := a.sessionSvc, a.credMgr
@@ -224,6 +268,20 @@ func (a *App) reconcileCommandLifecycleClaimsForTransition(ctx context.Context, 
 				AuthGeneration: epoch.AuthGeneration, SecurityGeneration: epoch.SecurityGeneration,
 			}
 			return func(commitCtx context.Context) error {
+				if a.commandProduct.Load() != product || product.projectionResetRevision.Load() != transitionRevision {
+					return commandexecution.ErrStale
+				}
+				if pending := product.currentCommandClaimTransition(); pending != nil &&
+					(pending.restore != restore || pending.workspaceSwitch != workspaceSwitch) {
+					// Outra operação não pode apagar uma restauração incompleta.
+					return commandexecution.ErrStale
+				}
+				transition := &commandClaimTransition{restore: restore, workspaceSwitch: workspaceSwitch, resetRevision: transitionRevision}
+				// A revisão cobre inclusive leitura que começou antes do Store e
+				// terminou depois do commit/CAS, quando a marca já está limpa.
+				product.claimTransitionRevision.Add(1)
+				defer product.claimTransitionRevision.Add(1)
+				product.claimTransition.Store(transition)
 				service, err := newCommandLifecycleActivationService(owner)
 				if err != nil {
 					return err
@@ -234,6 +292,9 @@ func (a *App) reconcileCommandLifecycleClaimsForTransition(ctx context.Context, 
 					_, err = service.RestorePersistent(commitCtx, owner, commandLifecycleRestoreOrigin(principal))
 				} else {
 					_, err = service.Expire(commitCtx, owner)
+				}
+				if err == nil {
+					product.claimTransition.CompareAndSwap(transition, nil)
 				}
 				return err
 			}, nil
@@ -341,13 +402,32 @@ func commandLifecycleRuleKey(layerKind commandactivation.RefKind, layer string, 
 }
 
 func (loaded commandLifecycleLoadedConfiguration) publish(ctx context.Context) error {
-	if loaded.app == nil || loaded.store == nil || loaded.configuration == nil || loaded.principal.UserID == "" || loaded.principal.SessionID == "" {
+	if ctx == nil || loaded.app == nil || loaded.store == nil || loaded.configuration == nil || loaded.principal.UserID == "" || loaded.principal.SessionID == "" {
 		return commandexecution.ErrInvalidConfiguration
 	}
+	product := loaded.app.commandProduct.Load()
+	if product == nil || product.principal != loaded.principal {
+		return commandexecution.ErrStale
+	}
+	if product.projectionResetRevision.Load() != loaded.publicationResetRevision {
+		return commandexecution.ErrStale
+	}
+	recoveryProof, _ := ctx.Value(commandProjectionRecoveryProofKey{}).(context.Context)
+	epoch, err := product.epochs.Capture(ctx, loaded.principal.UserID, loaded.principal.SessionID)
+	if err != nil {
+		return err
+	}
+	publicationCtx, release, err := product.epochs.WatchSecurityEpoch(ctx, epoch)
+	if err != nil {
+		return err
+	}
+	defer release()
+	ctx = publicationCtx
+	loaded.publicationEpoch = epoch
 	if loaded.jobClaimProjection {
 		return loaded.publishJobClaimProjection(ctx)
 	}
-	err := loaded.app.rebuildCommandLifecycleConfigurationChecked(ctx, func(ctx context.Context, principal auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
+	err = loaded.app.rebuildCommandLifecycleConfigurationChecked(ctx, func(ctx context.Context, principal auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
 		if principal != loaded.principal || principal.UserID != loaded.snapshot.Scope.UserID {
 			return nil, nil, commandexecution.ErrDenied
 		}
@@ -360,6 +440,14 @@ func (loaded commandLifecycleLoadedConfiguration) publish(ctx context.Context) e
 		}
 		return loaded.configuration, loaded.activeLayers, nil
 	}, func(ctx context.Context) error {
+		if product.projectionResetRevision.Load() != loaded.publicationResetRevision {
+			return commandexecution.ErrStale
+		}
+		// Revalidado também dentro do gate de publicação. Não depender da
+		// entrega assíncrona de AfterFunc para impedir publicação após reset.
+		if recoveryProof != nil && recoveryProof.Err() != nil {
+			return commandexecution.ErrStale
+		}
 		principal, err := loaded.app.currentCommandPrincipal()
 		if err != nil || principal != loaded.principal {
 			return commandexecution.ErrDenied
@@ -378,7 +466,7 @@ func (loaded commandLifecycleLoadedConfiguration) publish(ctx context.Context) e
 	}
 	if err == nil {
 		if p := loaded.app.commandProduct.Load(); p != nil && p.principal == loaded.principal {
-			p.rememberPersistedCommandConfiguration(loaded.store, loaded.snapshot)
+			p.rememberPersistedCommandConfiguration(loaded.store, loaded.snapshot, loaded.publicationEpoch, loaded.publicationResetRevision)
 			p.scheduleCommandManualExpiry()
 		}
 	}
@@ -386,9 +474,13 @@ func (loaded commandLifecycleLoadedConfiguration) publish(ctx context.Context) e
 }
 
 func (loaded commandLifecycleLoadedConfiguration) publishJobClaimProjection(ctx context.Context) error {
+	if ctx == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
 	if loaded.jobProjectionCurrent == nil || !loaded.jobProjectionCurrent() {
 		return commandexecution.ErrStale
 	}
+	recoveryProof, _ := ctx.Value(commandProjectionRecoveryProofKey{}).(context.Context)
 	loaded.app.authMu.RLock()
 	state := loaded.app.commandHost
 	sessions, credentials := loaded.app.sessionSvc, loaded.app.credMgr
@@ -399,8 +491,11 @@ func (loaded commandLifecycleLoadedConfiguration) publishJobClaimProjection(ctx 
 	}
 	err := state.RebuildUserConfigurationForJobClaimProjection(ctx,
 		func(ctx context.Context) (auth.LocalSessionPrincipal, error) {
+			if recoveryProof != nil && recoveryProof.Err() != nil {
+				return auth.LocalSessionPrincipal{}, commandexecution.ErrStale
+			}
 			principal, err := loaded.app.currentCommandPrincipal()
-			if err != nil || principal != loaded.principal || loaded.app.commandProduct.Load() != product || !product.dependenciesMatch(loaded.app) ||
+			if err != nil || principal != loaded.principal || loaded.app.commandProduct.Load() != product || product.projectionResetRevision.Load() != loaded.publicationResetRevision || !product.dependenciesMatch(loaded.app) ||
 				!loaded.app.commandPrincipalMatches(sessions, credentials, principal) {
 				return auth.LocalSessionPrincipal{}, commandexecution.ErrDenied
 			}
@@ -410,6 +505,9 @@ func (loaded commandLifecycleLoadedConfiguration) publishJobClaimProjection(ctx 
 			}
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return auth.LocalSessionPrincipal{}, ctxErr
+			}
+			if recoveryProof != nil && recoveryProof.Err() != nil {
+				return auth.LocalSessionPrincipal{}, commandexecution.ErrStale
 			}
 			if validated != principal || !loaded.app.commandPrincipalMatches(sessions, credentials, principal) {
 				return auth.LocalSessionPrincipal{}, commandexecution.ErrDenied
@@ -436,7 +534,7 @@ func (loaded commandLifecycleLoadedConfiguration) publishJobClaimProjection(ctx 
 	}
 	if err == nil {
 		if p := loaded.app.commandProduct.Load(); p != nil && p.principal == loaded.principal {
-			p.rememberPersistedCommandConfiguration(loaded.store, loaded.snapshot)
+			p.rememberPersistedCommandConfiguration(loaded.store, loaded.snapshot, loaded.publicationEpoch, loaded.publicationResetRevision)
 			p.scheduleCommandManualExpiry()
 		}
 	}

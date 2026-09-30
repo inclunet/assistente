@@ -13,7 +13,10 @@ import (
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandautomation"
 	"assistente/internal/commandexecution"
+	"assistente/internal/commandjobactivation"
+	"assistente/internal/commandjobevents"
 	"assistente/internal/logging"
 )
 
@@ -189,5 +192,47 @@ func TestCommandLoadDiagnosticsErrorClassification(t *testing.T) {
 		if got := commandLoadErrorClass(fmt.Errorf("SECRET: %w", tc.err)); got != tc.want {
 			t.Fatalf("classe=%s want=%s", got, tc.want)
 		}
+	}
+}
+
+func TestCommandLoadDiagnosticsHostAndJobProjectionSentinels(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"invalid host state", commandexecution.ErrInvalidHostState, "invalid_host_state"},
+		{"disabled host", commandexecution.ErrHostStateDisabled, "host_state_disabled"},
+		{"invalid host user", commandexecution.ErrInvalidHostUser, "invalid_host_user"},
+		{"invalid host principal", commandexecution.ErrInvalidHostPrincipal, "invalid_host_principal"},
+		{"unpublished host user", commandexecution.ErrHostUserNotPublished, "host_user_not_published"},
+		{"invalid host layers", commandexecution.ErrInvalidHostLayers, "invalid_host_layers"},
+		{"host generation overflow", commandexecution.ErrHostGenerationOverflow, "host_generation_overflow"},
+		{"projection base changed", commandexecution.ErrJobProjectionBaseChanged, "job_projection_base_changed"},
+		{"projection unavailable", commandjobactivation.ErrUnavailable, "job_projection_unavailable"},
+		{"projection schema unavailable", commandjobevents.ErrSchemaUnavailable, "job_projection_schema_unavailable"},
+		{"projection bootstrap incomplete", commandjobevents.ErrBootstrapIncomplete, "job_projection_bootstrap_incomplete"},
+		{"projection invalid fact", commandjobevents.ErrInvalidFact, "job_projection_invalid_fact"},
+		{"projection fingerprint conflict", commandjobevents.ErrFingerprintConflict, "job_projection_fingerprint_conflict"},
+		{"grant invalid", commandautomation.ErrInvalid, "job_projection_grant_invalid"},
+		{"grant stale", commandautomation.ErrStale, "job_projection_grant_stale"},
+		{"grant missing", commandautomation.ErrNotFound, "job_projection_grant_not_found"},
+		{"grant foreign scope", commandautomation.ErrForeignScope, "job_projection_grant_foreign_scope"},
+		{"grant fingerprint unavailable", commandautomation.ErrFingerprint, "job_projection_fingerprint_unavailable"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			wrapped := fmt.Errorf("private detail: %w", tc.err)
+			if got := commandLoadErrorClass(wrapped); got != tc.want {
+				t.Fatalf("classe wrapped=%s want=%s", got, tc.want)
+			}
+			joined := errors.Join(errors.New("SECRET SQL and identifiers"), wrapped)
+			if got := commandLoadErrorClass(joined); got != tc.want {
+				t.Fatalf("classe joined=%s want=%s", got, tc.want)
+			}
+			if strings.Contains(commandLoadErrorClass(joined), "SECRET") {
+				t.Fatal("classe de erro expôs conteúdo arbitrário")
+			}
+		})
 	}
 }

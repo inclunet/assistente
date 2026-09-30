@@ -49,6 +49,11 @@ func TestMountCommandProductRemountsSamePrincipalWhenCapturedDependenciesChange(
 	if _, err := previous.execute(ctx, productRemountCandidate()); !errors.Is(err, commandexecution.ErrDenied) {
 		t.Fatalf("executor antigo aceitou execução após remontagem: %v", err)
 	}
+	// Montagem troca dependências, mas não autoriza herdar a publicação antiga.
+	if _, err := current.execute(ctx, productRemountCandidate()); !errors.Is(err, commandexecution.ErrStale) {
+		t.Fatalf("executor remontado não aguardou publicação autoritativa: %v", err)
+	}
+	a.bootstrapCommandLifecycleAfterAuth(ctx, a.currentAuthUser, nil)
 	record, err := current.execute(ctx, productRemountCandidate())
 	if err != nil || record.Status != commandledger.Succeeded {
 		t.Fatalf("executor novo não executou: status=%s err=%v", record.Status, err)
@@ -153,6 +158,11 @@ func TestCommandProductOldRuntimeRejectsAfterWorkspaceSwitchAndRemounts(t *testi
 	if current == previous || current.workspaceID != second.ID {
 		t.Fatalf("composição nova não capturou workspace ativo: previous=%p current=%p workspace=%q", previous, current, current.workspaceID)
 	}
+	if _, err := current.execute(ctx, productRemountCandidate()); !errors.Is(err, commandexecution.ErrStale) {
+		t.Fatalf("workspace novo herdou publicação antes do bootstrap: %v", err)
+	}
+	// Completa a mesma sequência que o controller usa após confirmar a troca.
+	a.reloadCommandsAfterWorkspaceSwitch()
 	record, err := current.execute(ctx, productRemountCandidate())
 	if err != nil || record.Status != commandledger.Succeeded {
 		t.Fatalf("runtime novo não executou: status=%s err=%v", record.Status, err)

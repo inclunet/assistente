@@ -2,6 +2,20 @@
 
 **Status:** Done
 
+**Extensão coordenada, recuperação sob contenção (29/09/2026): In Progress.**
+A passagem AEP-0103 usa contexto com timeout de `min(TTL/3, 5s)` e cancelamento
+propagado ao SQL. Continua na mesma goroutine, sem scheduler adicional.
+Retenção de jobs passa a limitar a seleção de registros por operação e usuário
+ao BatchSize; o cursor só avança quando esse usuário termina, e continuação
+impede compactação. Cascatas de dependências de um run não recebem limite de
+linhas separado; o deadline é cooperativo, não uma promessa de prazo rígido.
+Falhas preservam contagens de commits anteriores e retomam na próxima passagem.
+Os métodos legados continuam completando a limpeza em chamadas sucessivas.
+Critérios de idade/quantidade, isolamento por usuário e proteção de outbox/leases
+não mudam. Evidências: testes de retenção em `internal/jobs/repository_test.go`,
+adapters e `command_maintenance_pass_test.go`. Qualificação no banco real ainda
+pendente; Done permanece restrito ao escopo legado já entregue.
+
 **Ajuste de inicialização (28/09/2026):** com o coordenador AEP-0103 montado,
 limpeza de tool calls órfãs e cap de idade deixam de executar sincronamente no
 reload de login. Permanecem na passagem inicial e periódica do Manager, após

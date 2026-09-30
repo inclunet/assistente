@@ -12,6 +12,45 @@ validação deve reconhecer a projeção atual sem aceitar um objeto arbitrário
 apenas por compartilhar ID. Permanecem o isolamento de usuário/sessão/conversa,
 ownership da superfície, existência canônica e invalidação de alvos antigos.
 
+**Recuperação de publicação e manutenção (29/09/2026): In Progress.**
+Um mapa ausente após invalidação deixa de ser um estado sem recuperação:
+a próxima leitura reconstrói a configuração pelo caminho autenticado normal,
+sem preservar execuções com uma baseline inexistente. Se a suspensão ocorreu
+durante restauração/expiração de claims e essa operação falhou, a operação
+pendente precisa terminar antes da republicação. Não se reutiliza mapa antigo,
+não se restaura claim temporária como se fosse persistente e os guards de
+cofre, SO, sessão, gerações e configuração continuam obrigatórios.
+Recuperação exige a prova de segurança ainda viva da projeção anterior e
+mantém um watch próprio durante o trabalho; lock/logout exigem o bootstrap
+autoritativo correspondente. Revisões de transição impedem publicar uma
+leitura que atravessou uma restauração, mesmo depois de ela terminar.
+Reset deliberado de sessão, workspace ou configuração retira a prova de
+recuperação antes de remover o mapa e cancela reconstruções em andamento.
+A prova é checada sincronamente no gate de publicação; um término tardio
+anterior ao reset não pode reativá-la. Só nova publicação autoritativa habilita
+recuperação novamente. Shutdown também libera essa prova.
+A exigência vale também para refresh automático de mapa presente mas stale
+e de geração persistida desatualizada: nenhum dos dois substitui o bootstrap
+após reset, mesmo antes de o gate concluir a retirada do mapa anterior.
+A revisão de reset é capturada antes das leituras e mantida nas tentativas
+e no fallback de projeção de jobs; os dois caminhos revalidam dentro do gate.
+Transições pendentes pertencem à revisão em que começaram: reset autoritativo
+as torna obsoletas, sem executar a operação antiga no novo contexto. O worker
+de expiração usa a mesma prova de recuperação, inclusive para timers antigos.
+`app_command_projection_recovery_test.go` cobre falha transitória, recuperação,
+bloqueio/cancelamento e restauração após liberar um writer SQLite real; os
+testes existentes de bootstrap continuam exigindo recusa enquanto o lock durar.
+
+A passagem coordenada de manutenção recebe cancelamento por deadline de
+`min(TTL/3, 5s)`, na mesma goroutine/cadência. Retenção de jobs seleciona lotes
+de registros por operação/usuário, informa continuação e só contabiliza commits.
+O limite não promete duração rígida nem limita o número de dependências de um
+run: SQL e portas precisam cooperar com o contexto. Os logs de carregamento
+classificam também sentinelas de host/projeção, sem texto arbitrário ou teclas.
+O incidente real mostrou falhas repetidas em `job_projection` e uma passagem
+de retenção extremamente longa; a relação causal ainda requer qualificação
+no ambiente afetado. Não constitui novo aceite manual nem conclusão do AEP.
+
 **Menus dos gerenciadores (28/09/2026): In Progress.** Por decisão do mantenedor,
 a toolbar de camadas começa com Nova camada e, imediatamente à direita,
 Configurações da camada. Editar/Apagar deixam de ser botões avulsos e integram

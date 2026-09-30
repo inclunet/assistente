@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"assistente/internal/auth"
@@ -70,10 +71,16 @@ type commandProductRuntime struct {
 	persistedConfigMu                      sync.RWMutex
 	persistedConfigStore                   *commandconfig.Store
 	persistedConfigSnapshot                commandconfig.Snapshot
+	persistedConfigEpoch                   commandsecurity.EpochSnapshot
+	projectionRecoveryContext              context.Context
+	projectionRecoveryCancel               context.CancelFunc
+	projectionResetRevision                atomic.Uint64
 	hasPersistedSnapshot                   bool
 	bridge                                 *commandbridge.Bridge
 	mu                                     sync.Mutex
 	projectionMu                           sync.Mutex
+	claimTransition                        atomic.Pointer[commandClaimTransition]
+	claimTransitionRevision                atomic.Uint64
 	pending                                map[string]context.CancelFunc
 	ui                                     *commandui.Broker
 	uiRuns                                 map[string]*commandUIRun
@@ -268,6 +275,7 @@ func (p *commandProductRuntime) Shutdown(ctx context.Context) error {
 		}
 		clear(p.uiRuns)
 		p.mu.Unlock()
+		p.invalidateCommandProjectionRecovery()
 		p.app.clearExternalUIConnections()
 		p.resolutionMu.Lock()
 		p.resolutionStopped = true

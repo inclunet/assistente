@@ -19,6 +19,20 @@ import (
 )
 
 func TestCleanRunsExceedingCountPreservesActivationSourcesAndClaims(t *testing.T) {
+	for _, mode := range []struct {
+		name   string
+		status string
+	}{
+		{name: "terminal run remains eligible despite lease", status: RunStatusCompleted},
+		{name: "nonterminal run requires live lease protection", status: RunStatusRunning},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			testCleanRunsExceedingCountPreservesActivationSourcesAndClaims(t, mode.status)
+		})
+	}
+}
+
+func testCleanRunsExceedingCountPreservesActivationSourcesAndClaims(t *testing.T, oldRunStatus string) {
 	repo, _, _ := setupJobsRepositoryTest(t)
 	userID, err := uuid.NewV7()
 	if err != nil {
@@ -48,8 +62,12 @@ func TestCleanRunsExceedingCountPreservesActivationSourcesAndClaims(t *testing.T
 	pendingRun := "retention-pending-run"
 	newRun := "retention-new-run"
 	for i, runID := range []string{oldRun, pendingRun, newRun} {
+		status := RunStatusCompleted
+		if runID == oldRun {
+			status = oldRunStatus
+		}
 		if err := repo.LogRun(userCtx, &RunLog{
-			RunID: runID, JobID: job.ID, Status: RunStatusCompleted,
+			RunID: runID, JobID: job.ID, Status: status,
 			Trigger: TriggerInfo{Type: TriggerManual}, StartedAt: clock.Add(time.Duration(i) * time.Minute),
 		}); err != nil {
 			t.Fatalf("log run %s: %v", runID, err)
@@ -110,12 +128,12 @@ func TestCleanRunsExceedingCountPreservesActivationSourcesAndClaims(t *testing.T
 		t.Fatalf("mark source processing: %v", err)
 	}
 
-	deleted, err := repo.CleanRunsExceedingCount(userCtx, 1)
+	deleted, more, err := repo.CleanRunsExceedingCountBatch(userCtx, 1, 1)
 	if err != nil {
 		t.Fatalf("count cap: %v", err)
 	}
-	if deleted != 0 {
-		t.Fatalf("count cap removeu runs ainda referenciados por outbox pendente/em processamento: deleted=%d", deleted)
+	if deleted != 0 || more {
+		t.Fatalf("count cap batch removeu/indicou trabalho para runs ainda protegidos: deleted=%d more=%v", deleted, more)
 	}
 	for _, runID := range []string{oldRun, pendingRun, newRun} {
 		var remaining database.JobRun
@@ -158,13 +176,35 @@ func TestCleanRunsExceedingCountPreservesActivationSourcesAndClaims(t *testing.T
 		t.Fatal(err)
 	}
 	deleted, err = repo.CleanRunsExceedingCount(userCtx, 1)
-	if err != nil || deleted != 2 {
-		t.Fatalf("count-cap não voltou a limpar após estados terminais da outbox: deleted=%d err=%v", deleted, err)
+	wantDeleted := 2
+	if oldRunStatus == RunStatusRunning {
+		wantDeleted = 1
 	}
-	for _, runID := range []string{oldRun, pendingRun} {
-		var remaining database.JobRun
-		if err := repo.db.Where("user_id = ? AND id = ?", userID.String(), runID).First(&remaining).Error; err == nil {
-			t.Fatalf("run terminal %s continuou retido depois de delivered/dead_letter", runID)
+	if err != nil || deleted != wantDeleted {
+		t.Fatalf("count-cap após estados terminais da outbox: deleted=%d err=%v want=%d", deleted, err, wantDeleted)
+	}
+	var leasedRun database.JobRun
+	if oldRunStatus == RunStatusRunning {
+		if err := repo.db.Where("user_id = ? AND id = ?", userID.String(), oldRun).First(&leasedRun).Error; err != nil {
+			t.Fatalf("run não terminal com lease viva foi removido: %v", err)
+		}
+	} else if err := repo.db.Where("user_id = ? AND id = ?", userID.String(), oldRun).First(&leasedRun).Error; err == nil {
+		t.Fatal("run terminal com lease viva permaneceu retido")
+	}
+	var pendingRunRow database.JobRun
+	if err := repo.db.Where("user_id = ? AND id = ?", userID.String(), pendingRun).First(&pendingRunRow).Error; err == nil {
+		t.Fatalf("run sem lease e outbox terminal continuou retido")
+	}
+	if oldRunStatus == RunStatusRunning {
+		if err := repo.db.Model(&commandjobactivation.Lease{}).Where("run_id = ? AND user_id = ?", oldRun, userID.String()).Update("expires_at", clock.Add(-time.Minute)).Error; err != nil {
+			t.Fatal(err)
+		}
+		deleted, more, err = repo.CleanRunsExceedingCountBatch(userCtx, 1, 1)
+		if err != nil || deleted != 1 || more {
+			t.Fatalf("bounded count-cap após expiração de lease=(%d,%v,%v), want (1,false,nil)", deleted, more, err)
+		}
+		if err := repo.db.Where("user_id = ? AND id = ?", userID.String(), oldRun).First(&leasedRun).Error; err == nil {
+			t.Fatalf("run permaneceu retido após expiração da lease")
 		}
 	}
 	for _, expected := range []struct{ id, runID, state string }{

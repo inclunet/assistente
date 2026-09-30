@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandautomation"
 	"assistente/internal/commandconfig"
 	"assistente/internal/commandexecution"
+	"assistente/internal/commandjobactivation"
+	"assistente/internal/commandjobevents"
 	"assistente/internal/commandruntime"
 	"assistente/internal/commandsecurity"
 	"assistente/internal/logging"
@@ -137,6 +140,24 @@ func commandLoadErrorClass(err error) string {
 		{commandsecurity.ErrStaleEpoch, "stale_epoch"}, {commandsecurity.ErrDrainInProgress, "draining"},
 		{commandsecurity.ErrDrainFailed, "drain_failed"},
 		{commandruntime.ErrNotReady, "not_ready"}, {commandruntime.ErrStopped, "stopped"},
+		{commandexecution.ErrInvalidHostState, "invalid_host_state"},
+		{commandexecution.ErrHostStateDisabled, "host_state_disabled"},
+		{commandexecution.ErrInvalidHostUser, "invalid_host_user"},
+		{commandexecution.ErrInvalidHostPrincipal, "invalid_host_principal"},
+		{commandexecution.ErrHostUserNotPublished, "host_user_not_published"},
+		{commandexecution.ErrInvalidHostLayers, "invalid_host_layers"},
+		{commandexecution.ErrHostGenerationOverflow, "host_generation_overflow"},
+		{commandexecution.ErrJobProjectionBaseChanged, "job_projection_base_changed"},
+		{commandjobactivation.ErrUnavailable, "job_projection_unavailable"},
+		{commandjobevents.ErrSchemaUnavailable, "job_projection_schema_unavailable"},
+		{commandjobevents.ErrBootstrapIncomplete, "job_projection_bootstrap_incomplete"},
+		{commandjobevents.ErrInvalidFact, "job_projection_invalid_fact"},
+		{commandjobevents.ErrFingerprintConflict, "job_projection_fingerprint_conflict"},
+		{commandautomation.ErrInvalid, "job_projection_grant_invalid"},
+		{commandautomation.ErrStale, "job_projection_grant_stale"},
+		{commandautomation.ErrNotFound, "job_projection_grant_not_found"},
+		{commandautomation.ErrForeignScope, "job_projection_grant_foreign_scope"},
+		{commandautomation.ErrFingerprint, "job_projection_fingerprint_unavailable"},
 		{commandexecution.ErrDenied, "denied"}, {commandexecution.ErrStale, "stale"},
 		{commandconfig.ErrStale, "configuration_stale"}, {gorm.ErrRecordNotFound, "not_found"},
 		{commandexecution.ErrInvalidConfiguration, "invalid_configuration"},

@@ -143,7 +143,9 @@ func (p *commandProductRuntime) runCommandManualExpiry(ctx context.Context, wake
 			}
 			// Guard already denies the expired snapshot, even if this rebuild
 			// fails. Never replay an invocation after a publication failure.
-			_ = p.app.rebuildCommandLifecycleProjection(ctx, false)
+			p.projectionMu.Lock()
+			_ = p.recoverCommandProjection(ctx)
+			p.projectionMu.Unlock()
 		}
 		if ctx.Err() != nil {
 			return
@@ -156,7 +158,13 @@ func (p *commandProductRuntime) runCommandManualExpiry(ctx context.Context, wake
 		// ResolutionSnapshot would reject its guard before we could discover
 		// the deadline if the worker's first wake was delayed past expiry.
 		configuration, _, err := p.host.UserConfiguration(ctx, p.principal.UserID)
-		if err == nil {
+		p.persistedConfigMu.RLock()
+		proof := p.projectionRecoveryContext
+		p.persistedConfigMu.RUnlock()
+		if proof == nil || proof.Err() != nil {
+			// Reset exige uma nova publicação/wake, não polling do timer velho.
+			pendingDeadline = time.Time{}
+		} else if err == nil {
 			pendingDeadline = configuration.ValidUntil()
 		}
 		// Unrelated readiness/security failures are not an invitation for an

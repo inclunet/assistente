@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"assistente/internal/commandmaintenance"
+	"assistente/internal/config"
 )
 
 func TestRetentionLoopHasSingleOwnerAndStopsOnCancellation(t *testing.T) {
@@ -169,6 +170,149 @@ func TestCommandMaintenanceDelayKeepsContinuationWithinLeaseTTL(t *testing.T) {
 				t.Fatalf("continuação longa delay=%v, want %v", got, want)
 			}
 		})
+	}
+}
+
+func TestCommandMaintenancePassBudgetUsesLeaseFractionAndCap(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		lease time.Duration
+		want  time.Duration
+	}{
+		{name: "fraction of lease", lease: 12 * time.Second, want: 4 * time.Second},
+		{name: "short lease", lease: 900 * time.Millisecond, want: 300 * time.Millisecond},
+		{name: "capped", lease: time.Minute, want: commandMaintenancePassMaxDuration},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := commandMaintenancePassBudget(tc.lease); got != tc.want {
+				t.Fatalf("budget=%v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCommandMaintenancePassTimeoutCancelsBlockedPortAndKeepsProgress(t *testing.T) {
+	policy := commandMaintenanceTestPolicy()
+	policy.LeaseDuration = 90 * time.Millisecond
+	policy.BatchSize = 2 // o resultado fixture processa dois itens confirmados
+	empty := commandMaintenanceNoopPort{}
+	retention := &recordingMaintenance{}
+	entered := make(chan struct{})
+	cancelled := make(chan struct{})
+	coordinator, err := commandmaintenance.New(commandmaintenance.Ports{
+		Heartbeat: maintenanceHeartbeatFunc(func(ctx context.Context, _ commandmaintenance.Policy) (commandmaintenance.BatchResult, error) {
+			close(entered)
+			<-ctx.Done()
+			close(cancelled)
+			return commandmaintenance.BatchResult{Processed: 2}, ctx.Err()
+		}),
+		Outbox: empty, Decisions: empty, Invocations: empty, Claims: empty,
+		Jobs: retention, Tools: retention, InvocationDB: retention,
+		Activations: retention, Compaction: retention,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	passCtx, cancel := withCommandMaintenancePassTimeout(context.Background(), policy.LeaseDuration)
+	defer cancel()
+	deadline, ok := passCtx.Deadline()
+	if !ok || time.Until(deadline) > commandMaintenancePassBudget(policy.LeaseDuration) {
+		t.Fatalf("deadline não respeita budget: %v ok=%v", deadline, ok)
+	}
+	report, err := coordinator.Run(passCtx, policy)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Run err=%v, want DeadlineExceeded", err)
+	}
+	select {
+	case <-entered:
+	default:
+		t.Fatal("porta bloqueada não iniciou")
+	}
+	select {
+	case <-cancelled:
+	default:
+		t.Fatal("Done não cancelou a porta bloqueada")
+	}
+	if report.HeartbeatProcessed != 2 || report.Stage != "heartbeat" {
+		t.Fatalf("progresso/etapa perdidos: %+v", report)
+	}
+	if calls := retention.callSnapshot(); len(calls) != 0 {
+		t.Fatalf("retenção após expirar o budget: %v", calls)
+	}
+}
+
+func TestRunCommandMaintenanceUsesPassTimeoutFromIsolatedSettings(t *testing.T) {
+	settings := config.DefaultMaintenanceSettings()
+	settings.CommandJobActivationLeaseSeconds = 1
+	path := isolatedJobsConfigFile(t, []byte(`{"maintenance":{}}`))
+	writeIsolatedMaintenanceSettings(t, path, settings)
+
+	entered := make(chan struct{})
+	cancelled := make(chan struct{})
+	var processed atomic.Int32
+	empty := commandMaintenanceNoopPort{}
+	retention := &recordingMaintenance{}
+	coordinator, err := commandmaintenance.New(commandmaintenance.Ports{
+		Heartbeat: maintenanceHeartbeatFunc(func(ctx context.Context, _ commandmaintenance.Policy) (commandmaintenance.BatchResult, error) {
+			close(entered)
+			<-ctx.Done()
+			processed.Store(2)
+			close(cancelled)
+			return commandmaintenance.BatchResult{Processed: 2}, ctx.Err()
+		}),
+		Outbox: empty, Decisions: empty, Invocations: empty, Claims: empty,
+		Jobs: retention, Tools: retention, InvocationDB: retention,
+		Activations: retention, Compaction: retention,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := &Manager{cfg: ManagerConfig{MaintenanceCoordinator: coordinator}}
+	parent, cancelParent := context.WithCancel(context.Background())
+	defer cancelParent()
+	done := make(chan time.Duration, 1)
+	started := time.Now()
+	go func() { done <- manager.runCommandMaintenance(parent) }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("runCommandMaintenance não iniciou o heartbeat")
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		cancelParent()
+		<-done
+		t.Fatal("runCommandMaintenance não encerrou a porta bloqueada no timeout da passagem")
+	}
+	if elapsed := time.Since(started); elapsed > commandMaintenancePassBudget(time.Second)+time.Second {
+		t.Fatalf("passagem excedeu seu budget por mais de uma tolerância: %v", elapsed)
+	}
+	select {
+	case <-cancelled:
+	default:
+		t.Fatal("Done não cancelou a porta bloqueada")
+	}
+	if got := processed.Load(); got != 2 {
+		t.Fatalf("itens confirmados=%d, want 2", got)
+	}
+	if calls := retention.callSnapshot(); len(calls) != 0 {
+		t.Fatalf("retenção executada após timeout do heartbeat: %v", calls)
+	}
+}
+
+func TestCommandMaintenancePassTimeoutRespectsParentCancellation(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	ctx, cancel := withCommandMaintenancePassTimeout(parent, time.Minute)
+	defer cancel()
+	cancelParent()
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("cancelamento do pai não fechou Done")
+	}
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatalf("cancelamento do pai não propagado: %v", ctx.Err())
 	}
 }
 

@@ -49,6 +49,13 @@ const (
 	maintenanceToolsOldChats    = "tools.old_chats"
 )
 
+func maintenanceRecordBatchSize(policy commandmaintenance.Policy) int {
+	if policy.BatchSize <= 0 {
+		return retentionBatchSize
+	}
+	return policy.BatchSize
+}
+
 // NewCommandMaintenanceAdapters cria adapters somente sobre dependências reais
 // do Manager. A enumeração de usuários é instance-wide, mas cada operação de
 // domínio recebe depois um contexto explícito com database.WithUserID, para
@@ -122,7 +129,7 @@ func (o *maintenanceOwner) nextUsers(ctx context.Context, operation string, poli
 	return ids, more, nil
 }
 
-func (o *maintenanceOwner) retainUsers(ctx context.Context, operation string, policy commandmaintenance.Policy, fn func(context.Context) (int, error)) (int64, bool, error) {
+func (o *maintenanceOwner) retainUsers(ctx context.Context, operation string, policy commandmaintenance.Policy, fn func(context.Context) (int, bool, error)) (int64, bool, error) {
 	if !o.tryAdmit() {
 		return 0, false, ErrCommandMaintenanceBusy
 	}
@@ -137,13 +144,16 @@ func (o *maintenanceOwner) retainUsers(ctx context.Context, operation string, po
 		if err := ctx.Err(); err != nil {
 			return total, true, err
 		}
-		deleted, err := fn(database.WithUserID(ctx, id))
+		deleted, recordMore, err := fn(database.WithUserID(ctx, id))
 		if deleted < 0 {
 			return total, true, commandmaintenance.ErrInvalidRetentionResult
 		}
 		total += int64(deleted)
 		if err != nil {
 			return total, true, err
+		}
+		if recordMore {
+			return total, true, nil
 		}
 		o.advanceCursor(operation, policy, id)
 	}
@@ -223,27 +233,31 @@ func (a *JobsRetentionAdapter) RetainBatch(ctx context.Context, policy commandma
 	if err := policy.Validate(); err != nil {
 		return commandmaintenance.RetentionResult{}, err
 	}
-	deleted, more, err := a.owner.retainUsers(ctx, maintenanceJobsCursor, policy, func(userCtx context.Context) (int, error) {
+	deleted, more, err := a.owner.retainUsers(ctx, maintenanceJobsCursor, policy, func(userCtx context.Context) (int, bool, error) {
 		var total int
-		for _, clean := range []func(context.Context, time.Duration) (int, error){
-			a.owner.repository.CleanOldRunEvents,
-			a.owner.repository.CleanOldEvents,
-			a.owner.repository.CleanOldRuns,
+		limit := maintenanceRecordBatchSize(policy)
+		for _, clean := range []func(context.Context, time.Duration, int) (int, bool, error){
+			a.owner.repository.CleanOldRunEventsBatch,
+			a.owner.repository.CleanOldEventsBatch,
+			a.owner.repository.CleanOldRunsBatch,
 		} {
-			deleted, err := clean(userCtx, policy.JobRetention)
+			deleted, recordMore, err := clean(userCtx, policy.JobRetention, limit)
 			if deleted < 0 {
-				return total, commandmaintenance.ErrInvalidRetentionResult
+				return total, false, commandmaintenance.ErrInvalidRetentionResult
 			}
 			total += deleted
 			if err != nil {
-				return total, err
+				return total, false, err
+			}
+			if recordMore {
+				return total, true, nil
 			}
 		}
-		deleted, err := a.owner.repository.CleanRunsExceedingCount(userCtx, policy.RunsPerJobKeep)
+		deleted, recordMore, err := a.owner.repository.CleanRunsExceedingCountBatch(userCtx, policy.RunsPerJobKeep, limit)
 		if deleted < 0 {
-			return total, commandmaintenance.ErrInvalidRetentionResult
+			return total, false, commandmaintenance.ErrInvalidRetentionResult
 		}
-		return total + deleted, err
+		return total + deleted, recordMore, err
 	})
 	return commandmaintenance.RetentionResult{Deleted: deleted, More: more}, err
 }
@@ -267,8 +281,9 @@ func (a *ToolsRetentionAdapter) CleanOldDryRunsBatch(ctx context.Context, policy
 	if err := validateToolsAdapter(a, ctx, policy); err != nil {
 		return commandmaintenance.RetentionResult{}, err
 	}
-	deleted, more, err := a.owner.retainUsers(ctx, maintenanceToolsDryRuns, policy, func(userCtx context.Context) (int, error) {
-		return a.owner.toolInvocations.CleanOldDryRuns(userCtx, policy.JobRetention)
+	deleted, more, err := a.owner.retainUsers(ctx, maintenanceToolsDryRuns, policy, func(userCtx context.Context) (int, bool, error) {
+		deleted, err := a.owner.toolInvocations.CleanOldDryRuns(userCtx, policy.JobRetention)
+		return deleted, false, err
 	})
 	return commandmaintenance.RetentionResult{Deleted: deleted, More: more}, err
 }
@@ -288,8 +303,9 @@ func (a *ToolsRetentionAdapter) CleanOrphanChatBatch(ctx context.Context, policy
 	if err := validateToolsAdapter(a, ctx, policy); err != nil {
 		return commandmaintenance.RetentionResult{}, err
 	}
-	deleted, more, err := a.owner.retainUsers(ctx, maintenanceToolsOrphanChats, policy, func(userCtx context.Context) (int, error) {
-		return a.owner.toolInvocations.CleanOrphanChat(userCtx)
+	deleted, more, err := a.owner.retainUsers(ctx, maintenanceToolsOrphanChats, policy, func(userCtx context.Context) (int, bool, error) {
+		deleted, err := a.owner.toolInvocations.CleanOrphanChat(userCtx)
+		return deleted, false, err
 	})
 	return commandmaintenance.RetentionResult{Deleted: deleted, More: more}, err
 }
@@ -309,8 +325,9 @@ func (a *ToolsRetentionAdapter) CleanOldChatBatch(ctx context.Context, policy co
 	if err := validateToolsAdapter(a, ctx, policy); err != nil {
 		return commandmaintenance.RetentionResult{}, err
 	}
-	deleted, more, err := a.owner.retainUsers(ctx, maintenanceToolsOldChats, policy, func(userCtx context.Context) (int, error) {
-		return a.owner.toolInvocations.CleanOldChat(userCtx, policy.ChatRetention)
+	deleted, more, err := a.owner.retainUsers(ctx, maintenanceToolsOldChats, policy, func(userCtx context.Context) (int, bool, error) {
+		deleted, err := a.owner.toolInvocations.CleanOldChat(userCtx, policy.ChatRetention)
+		return deleted, false, err
 	})
 	return commandmaintenance.RetentionResult{Deleted: deleted, More: more}, err
 }

@@ -11,6 +11,7 @@ import (
 	"assistente/internal/commandbindings"
 	"assistente/internal/commandconfig"
 	"assistente/internal/commandexecution"
+	"assistente/internal/commandsecurity"
 )
 
 // commandJobLayerProjection carrega a prova durável somente na reconstrução.
@@ -21,6 +22,8 @@ type commandJobProjection struct {
 	sources map[string][]commandbindings.LayerProvenance
 	current func() bool
 }
+
+type commandProjectionRecoveryProofKey struct{}
 
 func (a *App) commandJobLayerProjection(ctx context.Context, principal auth.LocalSessionPrincipal, scope commandconfig.Scope) (*commandJobProjection, func(context.Context) error, error) {
 	mounted := a.commandMaintenance.Load()
@@ -122,25 +125,104 @@ func mergeCommandLayerIDs(a, b []string) []string {
 // guard local e reconstrói apenas se ele envelheceu. A admissão do executor
 // relê o mesmo guard sob seu gate; não se repete uma execução já iniciada.
 func (p *commandProductRuntime) refreshCommandJobProjection(ctx context.Context) error {
-	if p == nil || p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
+	if p == nil || p.app == nil || ctx == nil {
+		return commandexecution.ErrStale
+	}
+	resetRevision := p.projectionResetRevision.Load()
+	if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
 		return commandexecution.ErrStale
 	}
 	_, err := p.host.Snapshot(ctx, p.principal)
-	if !errors.Is(err, commandexecution.ErrStale) {
+	if !commandProjectionNeedsRebuild(err) {
 		return err
 	}
 	p.projectionMu.Lock()
 	defer p.projectionMu.Unlock()
 	_, err = p.host.Snapshot(ctx, p.principal)
-	if !errors.Is(err, commandexecution.ErrStale) {
+	if !commandProjectionNeedsRebuild(err) {
 		return err
 	}
-	if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
+	if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) || p.projectionResetRevision.Load() != resetRevision {
 		return commandexecution.ErrStale
 	}
-	// Reconciliação contextual não restaura claims manuais nem suspende o
-	// mapa previamente publicado; o guard já impede seu uso se estiver velho.
-	return p.app.rebuildCommandLifecycleJobProjection(ctx)
+	if errors.Is(err, commandexecution.ErrHostUserNotPublished) {
+		return p.recoverCommandProjectionAtReset(ctx, false, resetRevision)
+	}
+	// A prova anterior autoriza somente a reconstrução contextual de job; essa
+	// modalidade preserva execuções e heartbeat quando a projeção está stale.
+	return p.recoverCommandProjectionAtReset(ctx, true, resetRevision)
+}
+
+func (p *commandProductRuntime) withCommandProjectionRecoveryProof(ctx context.Context, resetRevision uint64) (context.Context, func(), error) {
+	if ctx == nil || p == nil || p.app == nil || p.app.commandProduct.Load() != p ||
+		!p.dependenciesMatch(p.app) || p.projectionResetRevision.Load() != resetRevision {
+		return nil, nil, commandexecution.ErrStale
+	}
+	p.persistedConfigMu.RLock()
+	epoch, published := p.persistedConfigEpoch, p.hasPersistedSnapshot
+	proof := p.projectionRecoveryContext
+	p.persistedConfigMu.RUnlock()
+	if !published || proof == nil || proof.Err() != nil {
+		return nil, nil, commandexecution.ErrStale
+	}
+	bounded, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(proof, cancel)
+	recoveryCtx, release, err := p.epochs.WatchSecurityEpoch(bounded, epoch)
+	if err != nil {
+		stop()
+		cancel()
+		return nil, nil, err
+	}
+	cleanup := func() {
+		stop()
+		cancel()
+		release()
+	}
+	if err := ctx.Err(); err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	if proof.Err() != nil || p.app.commandProduct.Load() != p || p.projectionResetRevision.Load() != resetRevision {
+		cleanup()
+		return nil, nil, commandexecution.ErrStale
+	}
+	return context.WithValue(recoveryCtx, commandProjectionRecoveryProofKey{}, proof), cleanup, nil
+}
+
+// Chamado sob projectionMu também pelo worker de expiração. A revisão é
+// fixada antes de ler prova/epochs; um reset posterior invalida todo o rebuild.
+func (p *commandProductRuntime) recoverCommandProjection(ctx context.Context) error {
+	if p == nil {
+		return commandexecution.ErrStale
+	}
+	return p.recoverCommandProjectionAtReset(ctx, false, p.projectionResetRevision.Load())
+}
+
+func (p *commandProductRuntime) recoverCommandProjectionAtReset(ctx context.Context, jobClaimProjection bool, resetRevision uint64) error {
+	recoveryCtx, cleanup, err := p.withCommandProjectionRecoveryProof(ctx, resetRevision)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	if transition := p.currentCommandClaimTransition(); transition != nil {
+		if transition.resetRevision != resetRevision || p.projectionResetRevision.Load() != resetRevision {
+			return commandexecution.ErrStale
+		}
+		if err := p.app.reconcileCommandLifecycleClaimsAtReset(recoveryCtx, transition.restore, transition.workspaceSwitch, p, transition.resetRevision); err != nil {
+			return err
+		}
+	}
+	err = p.app.rebuildCommandLifecycleProjectionAtReset(recoveryCtx, false, jobClaimProjection, p, resetRevision)
+	if jobClaimProjection && errors.Is(err, commandexecution.ErrJobProjectionBaseChanged) {
+		// A mudança da base de configuração não pode usar o caminho que preserva
+		// execuções; mantém a revisão pinada e a mesma prova para o rebuild normal.
+		return p.app.rebuildCommandLifecycleProjectionAtReset(recoveryCtx, false, false, p, resetRevision)
+	}
+	return err
+}
+
+func commandProjectionNeedsRebuild(err error) bool {
+	return errors.Is(err, commandexecution.ErrStale) || errors.Is(err, commandexecution.ErrHostUserNotPublished)
 }
 
 // checkPersistedCommandConfiguration catches a durable configuration write
@@ -149,7 +231,11 @@ func (p *commandProductRuntime) refreshCommandJobProjection(ctx context.Context)
 // gets the ordinary, canceling lifecycle rebuild rather than the claim-only
 // preservation path.
 func (p *commandProductRuntime) checkPersistedCommandConfiguration(ctx context.Context) error {
-	if p == nil || p.app == nil || ctx == nil || p.app.commandProduct.Load() != p {
+	if p == nil || p.app == nil || ctx == nil {
+		return commandexecution.ErrStale
+	}
+	resetRevision := p.projectionResetRevision.Load()
+	if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
 		return commandexecution.ErrStale
 	}
 	p.persistedConfigMu.RLock()
@@ -162,21 +248,67 @@ func (p *commandProductRuntime) checkPersistedCommandConfiguration(ctx context.C
 		if !errors.Is(err, commandconfig.ErrStale) {
 			return err
 		}
-		if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) {
+		if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) || p.projectionResetRevision.Load() != resetRevision {
 			return commandexecution.ErrStale
 		}
-		return p.app.rebuildCommandLifecycleProjection(ctx, false)
+		p.projectionMu.Lock()
+		defer p.projectionMu.Unlock()
+		if p.app.commandProduct.Load() != p || !p.dependenciesMatch(p.app) || p.projectionResetRevision.Load() != resetRevision {
+			return commandexecution.ErrStale
+		}
+		p.persistedConfigMu.RLock()
+		store, snapshot, hasSnapshot = p.persistedConfigStore, p.persistedConfigSnapshot, p.hasPersistedSnapshot
+		p.persistedConfigMu.RUnlock()
+		if !hasSnapshot || store == nil {
+			return commandexecution.ErrStale
+		}
+		if err := store.CheckCurrent(ctx, snapshot); err == nil {
+			return nil
+		} else if !errors.Is(err, commandconfig.ErrStale) {
+			return err
+		}
+		return p.recoverCommandProjectionAtReset(ctx, false, resetRevision)
 	}
 	return nil
 }
 
-func (p *commandProductRuntime) rememberPersistedCommandConfiguration(store *commandconfig.Store, snapshot commandconfig.Snapshot) {
+func (p *commandProductRuntime) rememberPersistedCommandConfiguration(store *commandconfig.Store, snapshot commandconfig.Snapshot, epoch commandsecurity.EpochSnapshot, resetRevision uint64) {
 	if p == nil || store == nil {
 		return
 	}
 	p.persistedConfigMu.Lock()
+	defer p.persistedConfigMu.Unlock()
+	if p.projectionResetRevision.Load() != resetRevision {
+		return
+	}
+	if p.projectionRecoveryCancel != nil {
+		p.projectionRecoveryCancel()
+	}
+	p.projectionRecoveryContext, p.projectionRecoveryCancel = context.WithCancel(p.app.commandBridgeContext())
 	p.persistedConfigStore = store
+	p.persistedConfigEpoch = epoch
 	p.persistedConfigSnapshot = snapshot
 	p.hasPersistedSnapshot = true
-	p.persistedConfigMu.Unlock()
+}
+
+// Retirada deliberada não é uma falha recuperável de publicação.
+func (a *App) invalidateCommandProjectionRecovery() {
+	if a == nil {
+		return
+	}
+	p := a.commandProduct.Load()
+	p.invalidateCommandProjectionRecovery()
+}
+
+func (p *commandProductRuntime) invalidateCommandProjectionRecovery() {
+	if p == nil {
+		return
+	}
+	p.persistedConfigMu.Lock()
+	defer p.persistedConfigMu.Unlock()
+	p.projectionResetRevision.Add(1)
+	if p.projectionRecoveryCancel != nil {
+		p.projectionRecoveryCancel()
+	}
+	p.projectionRecoveryContext, p.projectionRecoveryCancel = nil, nil
 }
