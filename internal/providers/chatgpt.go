@@ -174,10 +174,7 @@ func (s *Service) AuthorizeChatGPT(ctx context.Context, id, completionText strin
 		if err == nil {
 			models, listErr := cp.GetModels(ctx)
 			if listErr == nil && len(models) > 0 {
-				if _, err = store.Load(ctx, authorizationID); err != nil {
-					return summary, err
-				}
-				s.setChatGPTDefaultModel(ctx, provider, models[0])
+				s.setChatGPTDefaultModel(ctx, store, authorizationID, provider, models[0])
 			}
 		}
 	}
@@ -251,7 +248,11 @@ func persistChatGPTAuthorization(ctx context.Context, store oauthflow.Store, r o
 }
 
 // Optional catalog persistence must not turn successful consent into a failure.
-func (s *Service) setChatGPTDefaultModel(ctx context.Context, provider *llm.ProviderConfig, model string) {
+func (s *Service) setChatGPTDefaultModel(ctx context.Context, store oauthflow.Store, authorizationID string, provider *llm.ProviderConfig, model string) {
+	if _, err := store.Load(ctx, authorizationID); err != nil {
+		logging.Warnf(ctx, "providers.service", "chatgpt_default_model_authorization_unavailable")
+		return
+	}
 	updated := *provider
 	updated.DefaultModel = model
 	if err := s.store.Save(ctx, []*llm.ProviderConfig{&updated}); err != nil {

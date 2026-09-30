@@ -242,7 +242,7 @@ func TestChatGPTDefaultModelSaveFailurePreservesConnection(t *testing.T) {
 	if err = database.DB().Exec("CREATE TRIGGER reject_default BEFORE UPDATE ON llm_providers BEGIN SELECT RAISE(ABORT, 'write denied'); END").Error; err != nil {
 		t.Fatal(err)
 	}
-	s.setChatGPTDefaultModel(ctx, s.registry.Get(created.ID), "account-model")
+	s.setChatGPTDefaultModel(ctx, store, created.ID, s.registry.Get(created.ID), "account-model")
 	summary, err := s.ChatGPTConnection(ctx, created.ID)
 	if err != nil || summary.State != "connected" {
 		t.Fatal("optional default invalidated connection", err)
@@ -433,5 +433,34 @@ func TestChatGPTWithEnvelopeCannotBeDeletedWithoutVault(t *testing.T) {
 	}
 	if current, _ := s.store.Get(ctx, p.ID); current == nil || s.registry.Get(p.ID) == nil {
 		t.Fatal("provider lost")
+	}
+}
+
+type unreadableOptionalAuthorization struct{ oauthflow.Store }
+
+func (s unreadableOptionalAuthorization) Load(context.Context, string) (oauthflow.Record, error) {
+	return oauthflow.Record{}, errors.New("temporary read failure")
+}
+func TestChatGPTOptionalModelSkipsUnconfirmedAuthorization(t *testing.T) {
+	s, mgr, ctx := chatGPTTestService(t)
+	created, err := s.CreateChatGPTConnection(ctx, "Connected")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, _ := mgr.OAuthStore(ctx)
+	record, _ := store.Load(ctx, created.ID)
+	record.State = "connected"
+	record.Revision++
+	if err = store.CompareAndSwap(ctx, record, record.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	s.setChatGPTDefaultModel(ctx, unreadableOptionalAuthorization{store}, created.ID, s.registry.Get(created.ID), "account-model")
+	status, err := s.ChatGPTConnection(ctx, created.ID)
+	if err != nil || status.State != "connected" {
+		t.Fatalf("optional read changed connection: %v", err)
+	}
+	saved, err := s.store.Get(ctx, created.ID)
+	if err != nil || saved.DefaultModel != "" || s.registry.Get(created.ID).DefaultModel != "" {
+		t.Fatal("default saved without confirming authorization")
 	}
 }
