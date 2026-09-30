@@ -908,6 +908,64 @@ describe('commandLocalKeyboard', () => {
     keyboard.dispose();
   });
 
+  it.each(['complete', 'escape', 'blur', 'refresh'] as const)('menu assume a espera sem timeout, preservando %s', async outcome => {
+    vi.useFakeTimers();
+    const onDown = vi.fn(async () => {});
+    const onSequenceCancelled = vi.fn();
+    const keyboard = createLocalCommandKeyboard({
+      target: window,
+      loadMap: async () => ({ generation: 'menu-sequence', bindings: [
+        { shortcut: sequence, commandId: 'workspace.tab.terminal.create', handler: 'contextual' as const },
+      ] }),
+      onDown, onUp: vi.fn(async () => {}), reset: vi.fn(async () => {}),
+      blocked: () => false, onSequenceStarted: () => ({ menuCommandIds: ['workspace.tab.terminal.create'] }), onSequenceCancelled,
+    });
+    try {
+      await keyboard.refresh();
+      window.dispatchEvent(sequenceEvent('keydown', 'KeyK', { ctrlKey: true }));
+      window.dispatchEvent(sequenceEvent('keyup', 'KeyK'));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(onSequenceCancelled).not.toHaveBeenCalled();
+      expect(onDown).not.toHaveBeenCalled();
+      if (outcome === 'escape') window.dispatchEvent(sequenceEvent('keydown', 'Escape'));
+      if (outcome === 'blur') window.dispatchEvent(new Event('blur'));
+      if (outcome === 'refresh') await keyboard.refresh();
+      window.dispatchEvent(sequenceEvent('keydown', 'KeyN'));
+      if (outcome === 'complete') {
+        expect(onDown).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ shortcut: sequence }));
+      } else {
+        expect(onSequenceCancelled).toHaveBeenLastCalledWith(outcome);
+        expect(onDown).not.toHaveBeenCalled();
+      }
+    } finally { keyboard.dispose(); vi.useRealTimers(); }
+  });
+
+  it.each([
+    ['KeyN', 60_000, true], ['KeyX', 1_000, true], ['KeyX', 60_000, false],
+  ] as const)('prefixo misto preserva somente a opção do menu após o prazo: %s / %s ms', async (code, delay, accepted) => {
+    vi.useFakeTimers();
+    const onDown = vi.fn(async () => {});
+    const other: CommandShortcutSequence = { version: 2, steps: [sequence.steps[0], { code: 'KeyX', modifiers: [] }] };
+    const keyboard = createLocalCommandKeyboard({
+      target: window,
+      loadMap: async () => ({ generation: 'mixed-menu', bindings: [
+        { shortcut: sequence, commandId: 'workspace.tab.terminal.create', handler: 'contextual' as const },
+        { shortcut: other, commandId: 'workspace.list', handler: 'backend' as const },
+      ] }),
+      onDown, onUp: vi.fn(async () => {}), reset: vi.fn(async () => {}), blocked: () => false,
+      onSequenceStarted: () => ({ menuCommandIds: ['workspace.tab.terminal.create'] }),
+    });
+    try {
+      await keyboard.refresh();
+      window.dispatchEvent(sequenceEvent('keydown', 'KeyK', { ctrlKey: true }));
+      window.dispatchEvent(sequenceEvent('keyup', 'KeyK'));
+      await vi.advanceTimersByTimeAsync(delay);
+      window.dispatchEvent(sequenceEvent('keydown', code));
+      expect(onDown).toHaveBeenCalledTimes(accepted ? 1 : 0);
+      if (accepted) expect(onDown).toHaveBeenCalledWith(expect.objectContaining({ shortcut: code === 'KeyN' ? sequence : other }));
+    } finally { keyboard.dispose(); vi.useRealTimers(); }
+  });
+
   it('prioriza binding simples, processa tecla inesperada standalone e cancela Escape/timeout', async () => {
     vi.useFakeTimers();
     const simple = { version: 1 as const, code: 'KeyX', modifiers: ['Control'] as const };

@@ -15,6 +15,7 @@ vi.mock('../../lib/commandGlobalOwnershipWails', () => ({
   }),
 }));
 import { WorkspaceToolbar } from '../workspace/WorkspaceToolbar';
+import { registerWorkspacePanelFocus } from '../workspace/workspacePanelFocusRegistry';
 import { WorkspaceTabCreationMenuProvider } from '../../lib/workspaceTabCreationMenu';
 import { getModalRegistrySnapshot, registerOpenModal, unregisterOpenModal } from '../../lib/modalRegistry';
 import { Modal, isModalOpen, useModalId } from '../ui/Modal';
@@ -962,6 +963,44 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
     expect(destination).toHaveFocus();
   });
 
+  it.each(['chat', 'editor', 'terminal', 'tasklist'])('criar %s pelo menu entrega o foco à área default da nova aba', async type => {
+    const originalWorkspace = state.workspace.workspace;
+    const view = await mountCreation();
+    const panel = document.createElement('section');
+    panel.className = 'ws-content__panel';
+    panel.dataset.tabId = 'created-tab';
+    panel.dataset.tabType = type;
+    const sourcePanel = document.createElement('section');
+    sourcePanel.className = 'ws-content__panel';
+    sourcePanel.dataset.tabId = originalWorkspace.activeTabId;
+    document.querySelector('.workspace-layout')!.append(sourcePanel);
+    const input = document.createElement('textarea');
+    panel.append(input);
+    const focus = vi.fn(() => { input.focus(); return true; });
+    const unregister = registerWorkspacePanelFocus('created-tab', focus, focus);
+    state.commitBackendCommand.mockImplementation(async () => {
+      document.querySelector('.workspace-layout')!.append(panel);
+      state.workspace.workspace = { ...originalWorkspace, activeTabId: 'created-tab',
+        tabs: [...originalWorkspace.tabs, { id: 'created-tab', type }] };
+      state.workspaceListeners.forEach(listener => listener());
+    });
+    try {
+      fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true });
+      const menu = await screen.findByRole('menu', { name: 'workspace.newTabMenu' });
+      fireEvent.click(within(menu).getByRole('menuitem', { name: new RegExp(`^${type},`) }));
+      await waitFor(() => expect(state.commitBackendCommand).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(input).toHaveFocus());
+      expect(focus).toHaveBeenCalledTimes(1);
+      expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+      unregister();
+      panel.remove();
+      sourcePanel.remove();
+      state.workspace.workspace = originalWorkspace;
+    }
+  });
+
   it('botão e Escape usam o host compartilhado; clicar executa o comando escolhido', async () => {
     await mountCreation();
     const button = screen.getByRole('button', { name: 'workspace.newTab, Ctrl+N' });
@@ -975,6 +1014,46 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'terminal, Ctrl+N R' }));
     await waitFor(() => expect(state.commitBackendCommand).toHaveBeenCalledExactlyOnceWith('ticket', 'handoff'));
     expect(beginUICommand).toHaveBeenCalledExactlyOnceWith('workspace.tab.terminal.create');
+  });
+
+  it('Escape durante a criação impede foco tardio mesmo quando o commit termina', async () => {
+    const originalWorkspace = state.workspace.workspace;
+    const view = await mountCreation();
+    const source = document.createElement('section');
+    source.className = 'ws-content__panel';
+    source.dataset.tabId = originalWorkspace.activeTabId;
+    document.querySelector('.workspace-layout')!.append(source);
+    const panel = document.createElement('section');
+    panel.className = 'ws-content__panel';
+    panel.dataset.tabId = 'created-tab';
+    panel.dataset.tabType = 'chat';
+    const input = document.createElement('textarea');
+    panel.append(input);
+    const focus = vi.fn(() => { input.focus(); return true; });
+    const unregister = registerWorkspacePanelFocus('created-tab', focus, focus);
+    let complete!: () => void;
+    state.commitBackendCommand.mockImplementation(() => new Promise<void>(resolve => {
+      complete = () => {
+        document.querySelector('.workspace-layout')!.append(panel);
+        state.workspace.workspace = { ...originalWorkspace, activeTabId: 'created-tab',
+          tabs: [...originalWorkspace.tabs, { id: 'created-tab', type: 'chat' }] };
+        state.workspaceListeners.forEach(listener => listener());
+        resolve();
+      };
+    }));
+    try {
+      fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true });
+      fireEvent.click(await screen.findByRole('menuitem', { name: /^chat,/ }));
+      await waitFor(() => expect(state.commitBackendCommand).toHaveBeenCalledTimes(1));
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape', code: 'Escape' });
+      await act(async () => { complete(); });
+      expect(focus).not.toHaveBeenCalled();
+      expect(input).not.toHaveFocus();
+      expect(state.workspace.workspace.activeTabId).toBe('created-tab');
+    } finally {
+      view.unmount(); unregister(); source.remove(); panel.remove();
+      state.workspace.workspace = originalWorkspace;
+    }
   });
 
   it('segunda tecla rápida executa antes do catálogo e a resposta tardia não reabre o menu', async () => {
@@ -1008,14 +1087,64 @@ describe('Criação de abas — Topbar, Toolbar e Menu reais', () => {
     expect(screen.queryByRole('menu', { name: 'workspace.newTabMenu' })).not.toBeInTheDocument();
   });
 
-  it('timeout fecha a escolha e uma letra posterior não cria aba', async () => {
+  it('limita somente o carregamento travado e permite tentar novamente sem reabrir resposta antiga', async () => {
     await mountCreation();
-    fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true });
-    await screen.findByRole('menu', { name: 'workspace.newTabMenu' });
-    await waitFor(() => expect(screen.queryByRole('menu', { name: 'workspace.newTabMenu' })).not.toBeInTheDocument(), { timeout: 2200 });
-    fireEvent.keyDown(document.activeElement!, { key: 'c', code: 'KeyC' });
-    expect(state.beginLocalCommandUIKey).not.toHaveBeenCalled();
-    expect(state.commitBackendCommand).not.toHaveBeenCalled();
+    let finishOld!: (items: unknown[]) => void;
+    listCommandCatalog.mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }));
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true });
+        fireEvent.keyUp(document.activeElement!, { code: 'KeyN' });
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(screen.queryByRole('menu', { name: 'workspace.newTabMenu' })).not.toBeInTheDocument();
+      expect(state.announce).toHaveBeenCalledWith('commandPalette.error');
+      fireEvent.keyDown(document.activeElement!, { key: 'c', code: 'KeyC' });
+      expect(state.commitBackendCommand).not.toHaveBeenCalled();
+      await act(async () => {
+        fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true });
+        fireEvent.keyUp(document.activeElement!, { code: 'KeyN' });
+      });
+      expect(screen.getByRole('menuitem', { name: /^editor,/ })).toBeInTheDocument();
+      await act(async () => { finishOld([]); await vi.advanceTimersByTimeAsync(60_000); });
+      expect(screen.getByRole('menuitem', { name: /^editor,/ })).toBeInTheDocument();
+      await act(async () => { fireEvent.keyDown(document.activeElement!, { key: 'c', code: 'KeyC' }); });
+      expect(state.commitBackendCommand).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['letter', 'arrows', 'escape'] as const)('mantém o menu após um minuto e permite %s sem prazo motor', async mode => {
+    await mountCreation();
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true });
+        fireEvent.keyUp(document.activeElement!, { code: 'KeyN' });
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(screen.getByRole('menu', { name: 'workspace.newTabMenu' })).toBeInTheDocument();
+      expect(state.commitBackendCommand).not.toHaveBeenCalled();
+      await act(async () => {
+        if (mode === 'arrows') {
+          fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown', code: 'ArrowDown' });
+        }
+      });
+      await act(async () => {
+        const key = mode === 'letter' ? 'c' : mode === 'arrows' ? 'Enter' : 'Escape';
+        fireEvent.keyDown(document.activeElement!, { key, code: mode === 'letter' ? 'KeyC' : key });
+      });
+      expect(screen.queryByRole('menu', { name: 'workspace.newTabMenu' })).not.toBeInTheDocument();
+      if (mode === 'escape') {
+        fireEvent.keyDown(document.activeElement!, { key: 'c', code: 'KeyC' });
+        expect(state.commitBackendCommand).not.toHaveBeenCalled();
+        expect(screen.getByRole('button', { name: 'workspace.newTab, Ctrl+N' })).toHaveFocus();
+      } else {
+        expect(state.commitBackendCommand).toHaveBeenCalledExactlyOnceWith('ticket', 'handoff');
+        if (mode === 'letter') expect(state.beginLocalCommandUIKey).toHaveBeenCalledTimes(1);
+        else expect(beginUICommand).toHaveBeenCalledExactlyOnceWith('workspace.tab.editor.create');
+      }
+    } finally { vi.useRealTimers(); }
   });
 });
 
