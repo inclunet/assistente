@@ -29,6 +29,7 @@ import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { captureWorkspaceTabCreateFocus } from '../../lib/commandWorkspaceTabCreateFocus';
 import { describeCommandCatalogItem, listCommandCatalog } from '../../services/commandCatalog';
 import { CommandArgumentsDialog } from '../commands/CommandArgumentsDialog';
 import { getRuntimeCommandToolGuidance, type RuntimeCommandToolGuidance } from '../../lib/commandToolGuidance';
@@ -1365,13 +1366,18 @@ export function Topbar() {
     }
     let editorModeTarget: EditorModeTargetLease | undefined;
     const cancellationGeneration = commandCancellationGenerationRef.current;
+    const completionRoute = commandRouteIdentityRef.current;
     const pendingTargetForExecution = commandID === WORKSPACE_CREATE_COMMAND_ID &&
       activeCommandIntentRef.current?.commandID === WORKSPACE_CREATE_COMMAND_ID
       ? pendingWorkspaceCreateTargetRef.current
       : null;
     const completionFocus = commandID === WORKSPACE_TAB_CLOSE_COMMAND_ID
       ? captureWorkspaceTabCloseFocus(() => pathnameRef.current)
-      : undefined;
+      : isWorkspaceTabCreateCommand(commandID)
+        ? captureWorkspaceTabCreateFocus(() => pathnameRef.current, commandID, () =>
+          commandPickerMountedRef.current && cancellationGeneration === commandCancellationGenerationRef.current &&
+          completionRoute === commandRouteIdentityRef.current)
+        : undefined;
     let chatLease: PreparedWorkspaceChatOpen | null = null;
     let preparationToken: {
       generation: number;
@@ -1497,8 +1503,9 @@ export function Topbar() {
       }
       // Foco é apresentação pós-escrita: nunca submete outra mutação nem
       // transforma um resultado backend em uma confirmação visual.
-      if (result.status === 'succeeded' && commandPickerMountedRef.current) {
-        try { completionFocus?.apply(); }
+      if (result.status === 'succeeded' && commandPickerMountedRef.current &&
+          cancellationGeneration === commandCancellationGenerationRef.current && completionRoute === commandRouteIdentityRef.current) {
+        try { await completionFocus?.apply(); }
         catch (error) { logger.warn('[Commands] Falha ao restaurar foco após comando de aba', error); }
       }
       return result;

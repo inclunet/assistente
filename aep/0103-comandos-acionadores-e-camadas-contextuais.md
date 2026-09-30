@@ -1,5 +1,14 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Foco após criação de abas (30/09/2026): In Progress.** O executor contextual
+solicita foco à área default da aba criada somente após confirmação de sucesso.
+O alvo é a nova aba do tipo solicitado, preservando identidade, sessão,
+workspace e origem; mudanças de foco, modal ou navegação invalidam a apresentação.
+O shell reutiliza o registro de foco dos painéis, sem conhecer inputs específicos
+de chat, editor, terminal ou tasklist e sem repetir a mutação de criação.
+Regressões integradas cobrem os quatro tipos pelo menu real; aceite manual
+desta correção permanece pendente.
+
 **Contenção cancelável (30/09/2026): In Progress.** A espera pelo gate de
 admissão/segurança respeita cancelamento, preservando leitores simultâneos,
 exclusão de mutações e prioridade de escritores já enfileirados. Não interrompe

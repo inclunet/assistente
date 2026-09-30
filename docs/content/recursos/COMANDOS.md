@@ -287,6 +287,13 @@ calibração, reconexão e identidade do dispositivo, cancelamento/repetição,
 feedback e operação por teclado/leitor de tela. Nenhum suporte, comando ou
 atalho para esses dispositivos é declarado por esta checklist.
 
+## Foco ao criar uma aba
+
+Após criar uma aba pelo menu **Nova aba**, o foco vai para sua área principal:
+campo de mensagem do chat, editor, terminal ou painel da lista de tarefas.
+Se você mudar de tela, aba ou controle enquanto a criação estiver em andamento,
+o aplicativo não deve puxar o foco de volta quando ela terminar.
+
 ## Limites atuais de Ctrl+N
 
 Nas páginas de credenciais, provedores, MCP, skills, allowlist e canais,
