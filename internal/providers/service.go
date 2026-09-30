@@ -612,6 +612,16 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("provider '%s' não encontrado", id)
 	}
 	if provider.Type == llm.ProviderChatGPT {
+		user, err := database.RequireUserID(ctx)
+		if err != nil {
+			return err
+		}
+		s.oauthMu.Lock()
+		defer s.oauthMu.Unlock()
+		if _, active := s.oauthAttempts[user+":"+id]; active {
+			return errors.New("chatgpt_authorization_in_progress")
+		}
+
 		status, err := s.ChatGPTConnection(ctx, id)
 		if err != nil {
 			return err

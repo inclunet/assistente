@@ -16,6 +16,16 @@ beforeEach(() => {
   mocks.get.mockResolvedValue({ id: 'authorization', state: 'connected', email: 'user@example.test' });
 });
 describe('ChatGPT connection', () => {
+  it('announces the asynchronously loaded state', async () => {
+    render(<ChatGPTConnection id="authorization" onChanged={vi.fn()} onClose={vi.fn()} />);
+    await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('chatgpt.states.connected'));
+  });
+  it('announces an initial load failure assertively', async () => {
+    mocks.get.mockRejectedValueOnce(new Error('load'));
+    render(<ChatGPTConnection id="authorization" onChanged={vi.fn()} onClose={vi.fn()} />);
+    await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('chatgpt.connectionError', 'assertive'));
+  });
+
   it('announces disconnection failure assertively', async () => {
     mocks.disconnect.mockRejectedValue(new Error('network'));
     const user = userEvent.setup();

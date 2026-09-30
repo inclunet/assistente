@@ -315,6 +315,13 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		ReportFinishReason(handler, currentFinish)
 	}
 
+	failChatGPT := func(code string) {
+		finishThinking()
+		reportCurrentDiagnostics()
+		markErrorNotRetryable(handler)
+		handler.OnError(code)
+	}
+
 	type pendingFuncCall struct {
 		ID   string
 		Name string
@@ -611,7 +618,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 		case "response.incomplete":
 			if p.provider.Type == ProviderChatGPT {
-				handler.OnError("chatgpt_response_incomplete")
+				failChatGPT("chatgpt_response_incomplete")
 				return mcpStreamAttemptResult{done: true}
 			}
 			ev := event.AsResponseIncomplete()
@@ -637,7 +644,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		case "response.failed":
 			ev := event.AsResponseFailed()
 			if p.provider.Type == ProviderChatGPT {
-				handler.OnError(chatGPTFailure(ctx, string(ev.Response.Error.Code)))
+				failChatGPT(chatGPTFailure(ctx, string(ev.Response.Error.Code)))
 				return mcpStreamAttemptResult{done: true}
 			}
 			errMsg := "erro na Responses API"
@@ -682,7 +689,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	wd.Stop()
 	if err := stream.Err(); err != nil {
 		if p.provider.Type == ProviderChatGPT {
-			handler.OnError(chatGPTTransportFailure(ctx, err))
+			failChatGPT(chatGPTTransportFailure(ctx, err))
 			return mcpStreamAttemptResult{done: true}
 		}
 		errStr := err.Error()
@@ -750,7 +757,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	}
 
 	if p.provider.Type == ProviderChatGPT && !completed {
-		handler.OnError("chatgpt_stream_interrupted")
+		failChatGPT("chatgpt_stream_interrupted")
 		return mcpStreamAttemptResult{done: true}
 	}
 

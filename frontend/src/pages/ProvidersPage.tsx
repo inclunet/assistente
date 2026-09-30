@@ -292,7 +292,7 @@ export default function ProvidersPage() {
       await loadProviders();
     } catch (error: unknown) {
       const message = getErrorMessage(error);
-      addToast(message.includes('chatgpt_disconnect_before_delete') ? t('chatgpt.disconnectBeforeDelete') : (message || t('providers.error.deleteFailed')), 'error');
+      addToast(message.includes('chatgpt_authorization_in_progress') ? t('chatgpt.authorizationInProgress') : message.includes('chatgpt_disconnect_before_delete') ? t('chatgpt.disconnectBeforeDelete') : (message || t('providers.error.deleteFailed')), 'error');
       return;
     }
 

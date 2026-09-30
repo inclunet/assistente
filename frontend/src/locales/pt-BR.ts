@@ -1,6 +1,7 @@
 const ptBR = {
   translation: {
  chatgpt: {
+    authorizationInProgress: 'Conclua ou cancele a autorização na janela da conexão ChatGPT antes de excluir este provedor.',
     errors: {
       incomplete: 'O ChatGPT não concluiu a resposta. Tente novamente.',
       interrupted: 'A conexão com o ChatGPT foi interrompida antes de concluir a resposta.',

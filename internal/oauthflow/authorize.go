@@ -108,12 +108,15 @@ func (s *Service) Authorize(ctx context.Context, store Store, id, hostID string,
 			http.Error(w, "", http.StatusConflict)
 			return
 		}
+
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Length", strconv.Itoa(len(completionText)))
+		_, _ = w.Write([]byte(completionText))
+		_ = http.NewResponseController(w).Flush()
 		select {
 		case results <- callback{v}:
 		default:
 		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte(completionText))
 	})}
 	defer func() { _ = server.Close() }()
 	go func() { _ = server.Serve(listener) }()

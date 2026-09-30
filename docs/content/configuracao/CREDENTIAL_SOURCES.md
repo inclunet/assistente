@@ -18,7 +18,8 @@ O tipo Segredo atende consumidores internos, como canais.
   entre 1 e 300 segundos. O padrão é 30 segundos. Não há shell implícito:
   pipes, redirecionamentos e expansões não são interpretados.
 - **OAuth:** autorizações gerenciadas pelo Assistente, começando pela conexão
-  ChatGPT em **Provedores → Continuar com ChatGPT**. O consentimento acontece no
+  ChatGPT em **Provedores → Conectar ChatGPT**, seguida de **Continuar com ChatGPT**.
+  O consentimento acontece no
   navegador; cadastro, tokens e renovação ficam em uma entrada cifrada do cofre.
   Não é um campo para colar tokens manualmente. O OAuth MCP mantém o fluxo atual.
   Veja [Conectar sua conta ChatGPT](PROVIDER_CONFIGURATION.md#conectar-sua-conta-chatgpt).

@@ -1,6 +1,7 @@
 const en = {
   translation: {
  chatgpt: {
+    authorizationInProgress: 'Complete or cancel authorization in the ChatGPT connection dialog before deleting this provider.',
     errors: {
       incomplete: 'ChatGPT did not complete the response. Try again.',
       interrupted: 'The ChatGPT connection ended before the response was completed.',

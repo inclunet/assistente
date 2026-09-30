@@ -270,14 +270,14 @@ describe('ProvidersPage', () => {
     expect(mockAddToast).not.toHaveBeenCalledWith(expect.anything(), 'error');
   });
 
-  it('traduz a exigencia de desconectar antes de excluir ChatGPT', async () => {
-    mockDeleteProvider.mockRejectedValueOnce(new Error('chatgpt_disconnect_before_delete'));
+  it.each([['chatgpt_disconnect_before_delete', 'chatgpt.disconnectBeforeDelete'], ['chatgpt_authorization_in_progress', 'chatgpt.authorizationInProgress']])('traduz recusa de exclusao %s', async (code, key) => {
+    mockDeleteProvider.mockRejectedValueOnce(new Error(code));
     const user = userEvent.setup();
     render(<ProvidersPage />);
     await screen.findByText('OpenAI');
     await user.click(screen.getByRole('button', { name: 'focus-first' }));
     await user.click(screen.getByTestId('toolbar-action-delete'));
-    await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('chatgpt.disconnectBeforeDelete', 'error'));
+    await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith(key, 'error'));
   });
 
   it('habilita acao de excluir na toolbar apos foco', async () => {

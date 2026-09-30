@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -260,5 +261,54 @@ func TestRefreshConfirmedInvalidGrantClearsTokens(t *testing.T) {
 				t.Fatal("retried rejected grant")
 			}
 		})
+	}
+}
+
+func TestCallbackBodyDeliveredBeforeFastAuthorizationFailure(t *testing.T) {
+	const completion = "Retorne à aplicação"
+	for attempt := range 20 {
+		s, store, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadRequest) })
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		result := make(chan string, 1)
+		_, err := s.Authorize(ctx, store, store.r.ID, "host", func(raw string) error {
+			u, _ := url.Parse(raw)
+			q := u.Query()
+			go func() {
+				values := url.Values{"state": {q.Get("state")}, "code": {"code"}, "client_id": {"client"}}
+				if attempt%2 == 0 {
+					values.Del("code")
+					values.Set("error", "access_denied")
+				}
+				response, err := http.Get(q.Get("redirect_uri") + "?" + values.Encode())
+				if err != nil {
+					result <- err.Error()
+					return
+				}
+				body, err := io.ReadAll(response.Body)
+				_ = response.Body.Close()
+				if err != nil {
+					result <- err.Error()
+					return
+				}
+				if response.ContentLength != int64(len(completion)) {
+					result <- "incomplete framing"
+					return
+				}
+				result <- string(body)
+			}()
+			return nil
+		}, completion)
+		if err == nil {
+			t.Fatal("expected token failure")
+		}
+		select {
+		case body := <-result:
+			if body != completion {
+				t.Fatalf("callback truncated: %q", body)
+			}
+		case <-ctx.Done():
+			t.Fatal("callback not delivered")
+		}
+		cancel()
 	}
 }

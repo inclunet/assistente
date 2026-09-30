@@ -31,10 +31,10 @@ export function ChatGPTConnection({ id, onChanged, onClose }: Props) {
   useEffect(() => {
     mounted.current = true;
     if (id) void GetConnection(id).then(value => {
-      if (mounted.current) { setState(value.state); setEmail(value.email || ''); }
-    }).catch(() => { if (mounted.current) setError(t('chatgpt.connectionError')); });
+      if (mounted.current) { setState(value.state); setEmail(value.email || ''); announce(t(`chatgpt.states.${value.state}`, { defaultValue: t('chatgpt.connectionError') })); }
+    }).catch(() => { if (mounted.current) { setError(t('chatgpt.connectionError')); announce(t('chatgpt.connectionError'), 'assertive'); } });
     return () => { mounted.current = false; if (currentID.current) void CancelChatGPT(currentID.current).catch(() => undefined); };
-  }, [id, t]);
+  }, [id, t, announce]);
   const connect = async () => {
     setBusy(true); setError('');
     announce(t('chatgpt.waiting'));

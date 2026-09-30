@@ -23,8 +23,10 @@ Cada autorização aparece como um provedor independente, com nome e identificad
 próprios. Para outra conta/workspace, crie outra conexão. Para voltar à mesma conta,
 edite o provedor e use **Autorizar novamente**: o cadastro é reaproveitado.
 O navegador só abre quando você pede conexão ou reautorização. Ao importar um
-provedor em outro computador, ele aparece desconectado: escolha **Conectar com
-ChatGPT** para criar a autorização local, sem copiar tokens da máquina anterior.
+provedor em outro computador, ele aparece desconectado: edite esse provedor e
+acione **Continuar com ChatGPT** para criar sua autorização local, sem copiar
+tokens da máquina anterior. A ação **Conectar ChatGPT** da barra cria outro
+provedor e não é necessária para reparar o item importado.
 
 A conexão usa seu plano ChatGPT e seus limites; não troca automaticamente para uma
 chave de API. Consulte [uso e permissões no ChatGPT](https://chatgpt.com/settings/usage).
@@ -42,7 +44,8 @@ o aplicativo não tenta reutilizar um refresh token possivelmente consumido.
 **Desconectar** interrompe o uso local e tenta revogar a sessão remota. Se a revogação
 não puder ser confirmada, o Assistente avisa e você pode remover a autorização nas
 configurações do ChatGPT. O cadastro permanece disponível para reconectar. Antes de
-excluir esse provedor do Assistente, desconecte a conta. A migração das autorizações
+excluir esse provedor do Assistente, conclua ou cancele qualquer autorização em
+andamento e desconecte a conta. A migração das autorizações
 MCP e dos tokens de canais Slack será entregue separadamente.
 
 Falhas de resposta incompleta, conexão interrompida, autorização e limite do plano

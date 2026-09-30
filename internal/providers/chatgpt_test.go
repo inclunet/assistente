@@ -250,3 +250,34 @@ func TestChatGPTDefaultModelSaveFailurePreservesConnection(t *testing.T) {
 		t.Fatal("unpersisted default published")
 	}
 }
+
+func TestChatGPTDeleteRejectsActiveReauthorization(t *testing.T) {
+	s, mgr, ctx := chatGPTTestService(t)
+	created, err := s.CreateChatGPTConnection(ctx, "Reauthorizing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.DisconnectChatGPT(ctx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	key := "owner:" + created.ID
+	s.oauthMu.Lock()
+	s.oauthAttempts[key] = func() {}
+	s.oauthMu.Unlock()
+	if err = s.Delete(ctx, created.ID); err == nil || err.Error() != "chatgpt_authorization_in_progress" {
+		t.Fatal("active grant deleted", err)
+	}
+	store, _ := mgr.OAuthStore(ctx)
+	if _, err = store.Load(ctx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if s.registry.Get(created.ID) == nil {
+		t.Fatal("provider lost")
+	}
+	s.oauthMu.Lock()
+	delete(s.oauthAttempts, key)
+	s.oauthMu.Unlock()
+	if err = s.Delete(ctx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -88,3 +88,41 @@ func TestChatGPTUnknownRemoteFailureDoesNotExposeDescription(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+type chatGPTTerminalHandler struct {
+	spyHandler
+	sequence []string
+}
+
+func (h *chatGPTTerminalHandler) OnThinkingDone(value string) {
+	h.spyHandler.OnThinkingDone(value)
+	h.sequence = append(h.sequence, "thinking_done")
+}
+func (h *chatGPTTerminalHandler) OnError(value string) {
+	h.spyHandler.OnError(value)
+	h.sequence = append(h.sequence, "error")
+}
+func TestChatGPTFailuresFinishThinkingBeforeError(t *testing.T) {
+	for _, terminal := range []string{"failed", "incomplete", "interrupted", "transport"} {
+		t.Run(terminal, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprint(w, "event: response.reasoning_summary_text.delta\ndata: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"thought\"}\n\n")
+				switch terminal {
+				case "transport":
+					_, _ = fmt.Fprint(w, "event: response.output_text.delta\ndata: invalid-json\n\n")
+				case "interrupted":
+				default:
+					_, _ = fmt.Fprintf(w, "event: response.%s\ndata: {\"type\":\"response.%s\",\"response\":{}}\n\n", terminal, terminal)
+				}
+			}))
+			defer server.Close()
+			p := NewOpenAIResponsesProvider(&ProviderConfig{ID: "chatgpt", Type: ProviderChatGPT, BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone}, nil)
+			handler := &chatGPTTerminalHandler{}
+			p.streamChatResponses(context.Background(), "model", []Message{{Role: "user", Content: "Hi"}}, ChatParams{}, handler)
+			if strings.Join(handler.sequence, ",") != "thinking_done,error" || handler.done != "" || !handler.nonRetryable {
+				t.Fatalf("terminal lifecycle: %+v", handler)
+			}
+		})
+	}
+}
