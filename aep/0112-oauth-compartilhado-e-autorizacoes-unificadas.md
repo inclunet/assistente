@@ -306,7 +306,10 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   provedor ou envelope, e comunica o motivo nos três idiomas. O teste de rollback
   por cancelamento usa banco temporário persistente para sobreviver ao descarte
   da conexão SQLite sem relaxar as verificações de persistência/cache.
-- Revisão independente local em vinte e seis rodadas, com correções de isolamento de
+- Falha de catálogo mantém indicação de plano e link de uso ChatGPT; desconexão
+  com cofre indisponível orienta desbloqueio e anuncia o erro sem alterar estado.
+  Regressões de componentes e página passaram junto a TypeScript e ESLint.
+- Revisão independente local em vinte e sete rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,

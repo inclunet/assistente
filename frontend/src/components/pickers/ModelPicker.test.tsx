@@ -66,6 +66,17 @@ describe('ModelPicker', () => {
     await waitFor(() => expect(screen.getByTestId('base-picker')).toHaveAttribute('data-error', `chatgpt.errors.${key}`));
   });
 
+  it('mantém indicação do plano e link de uso após falha na recarga', async () => {
+    getModelsSpy.mockResolvedValueOnce({ ...catalogo(['m1']), usesChatGPTPlan: true });
+    refreshModelsSpy.mockRejectedValueOnce(new Error('chatgpt_plan_limit'));
+    render(<ModelPicker value="" onChange={() => {}} providerID="chatgpt" variant="form" />);
+    await screen.findByText('chatgpt.usingPlan');
+    await userEvent.click(screen.getByRole('button', { name: 'pickers.model.refreshLabel' }));
+    await waitFor(() => expect(screen.getByTestId('base-picker')).toHaveAttribute('data-error', 'chatgpt.errors.planLimit'));
+    expect(screen.getByText('chatgpt.usingPlan')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'chatgpt.usage' })).toHaveAttribute('href', 'https://chatgpt.com/settings/usage');
+  });
+
   it('ignora catalogo ChatGPT que responde depois da troca de provedor', async () => {
     let resolveOld!: (value: unknown) => void;
     getModelsSpy.mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve; }));

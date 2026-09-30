@@ -75,7 +75,15 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCloseBlockedChange
       setState('disconnected'); setEmail('');
       const message = t(revoked ? 'chatgpt.states.disconnected' : 'chatgpt.revocationUnconfirmed');
       setError(revoked ? '' : message); announce(message);
-    } catch { if (mounted.current) { setError(t('chatgpt.connectionError')); announce(t('chatgpt.connectionError'), 'assertive'); } }
+    } catch (failure: unknown) {
+      if (mounted.current) {
+        const code = failure instanceof Error ? failure.message : String(failure);
+        const key = code === 'oauth_vault_persistence_required' || code === 'oauth_vault_unavailable'
+          ? 'chatgpt.vaultUnavailable' : 'chatgpt.connectionError';
+        const message = t(key);
+        setError(message); announce(message, 'assertive');
+      }
+    }
     finally {
       if (mounted.current) { setBusy(false); setCloseBlocked(false); onCloseBlockedChange?.(false); onChanged(); }
     }

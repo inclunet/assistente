@@ -48,6 +48,10 @@ incluindo ferramentas MCP pelo adaptador local. Não oferece áudio nem ferramen
 hospedadas de MCP, arquivos ou execução de código. Os parâmetros incompatíveis com
 essa rota são omitidos da requisição sem alterar o perfil salvo.
 
+Se o catálogo ChatGPT falhar, o aviso de uso do plano e o link de acompanhamento
+continuam disponíveis. Se a desconexão informar cofre indisponível, desbloqueie
+o cofre e tente novamente; essa falha não confirma a desconexão.
+
 O cofre precisa estar habilitado para persistir. Cadastro, access token, refresh token
 e ID token ficam cifrados juntos; a tela e as exportações não incluem esses segredos.
 A renovação é coordenada entre chamadas e respeita a expiração informada pelo servidor.

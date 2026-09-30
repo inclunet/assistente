@@ -16,6 +16,16 @@ beforeEach(() => {
   mocks.get.mockResolvedValue({ id: 'authorization', state: 'connected', email: 'user@example.test' });
 });
 describe('ChatGPT connection', () => {
+  it.each(['oauth_vault_persistence_required', 'oauth_vault_unavailable'])('explica cofre indisponível ao desconectar: %s', async code => {
+    mocks.disconnect.mockRejectedValueOnce(code === 'oauth_vault_unavailable' ? new Error(code) : code);
+    render(<ChatGPTConnection id="authorization" onChanged={vi.fn()} onClose={vi.fn()} />);
+    await screen.findByRole('button', { name: 'chatgpt.reconnect' });
+    await userEvent.click(screen.getByRole('button', { name: 'chatgpt.disconnect' }));
+    expect(await screen.findByText('chatgpt.vaultUnavailable')).toBeInTheDocument();
+    expect(mocks.announce).toHaveBeenCalledWith('chatgpt.vaultUnavailable', 'assertive');
+    expect(screen.getByRole('button', { name: 'chatgpt.reconnect' })).toBeInTheDocument();
+  });
+
   it.each(['unconfirmed', 'failed'])('keeps disconnection results visible until completion: %s', async outcome => {
     let resolve!: (value: boolean) => void, reject!: (reason: Error) => void;
     mocks.disconnect.mockReturnValueOnce(new Promise((yes, no) => { resolve = yes; reject = no; }));

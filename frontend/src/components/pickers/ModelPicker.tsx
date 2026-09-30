@@ -183,6 +183,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       
       const chatGPTKey = chatGPTErrorKey(errorMsg);
       if (chatGPTKey) {
+        setUsesChatGPTPlan(true);
         const msg = t(chatGPTKey);
         setError(msg);
         setEndpointNotSupported(false);
