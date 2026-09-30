@@ -1,5 +1,17 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — estabilidade sob concorrência (29/09/2026): In Progress.**
+Leitura do mapa limitada a três tentativas para projeção obsoleta, mantendo
+a prova de segurança e a revisão de reset originais. Recibos reutilizam a
+política SQLite de contenção limitada sem repetir a pergunta nem ações;
+cancelamento e expiração permanecem obrigatórios. Sem novo aceite manual.
+
+**AEP-0103 — aceite incremental (29/09/2026): In Progress.** Confirmados pelo
+mantenedor: Enter para editar, lista aberta após salvar, toolbar/paridade
+contextual e ativação por página. Checklist manual registra as variantes;
+leitura durante/após streaming corrigida com regressões automatizadas,
+com reteste manual pendente e sem aceite antecipado.
+
 **AEP-0103 — recuperação de publicação (29/09/2026): In Progress.** Mapa
 ausente é reconstruído com autenticação nova; restauração/expiração pendente
 termina antes de republicar. Manutenção coordenada usa deadline cooperativo
@@ -15,7 +27,8 @@ jobs; transições pendentes anteriores ao reset não bloqueiam o novo bootstrap
 **AEP-0103 — menus dos gerenciadores: In Progress.** Nova camada → Configurações
 da camada e Novo → Ações nos modais, compartilhando opções e restrições com
 os menus de contexto. Voltar à última ativação passa para a toolbar com descrição
-do escopo. Validação manual de navegação/NVDA pendente.
+do escopo. Aceite incremental dos gerenciadores registrado em 29/09;
+variantes não relatadas de navegação/NVDA seguem pendentes.
 
 **AEP-0103 — contrato de leitura frontend/backend: In Progress.** Configurações
 aceitam o enum `app.page`; ramos vazios por página/perfil não descartam o mapa

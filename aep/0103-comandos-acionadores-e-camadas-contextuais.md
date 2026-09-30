@@ -1,5 +1,29 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Estabilidade sob concorrência (29/09/2026): In Progress.** A leitura do
+mapa repete no máximo três tentativas quando uma renovação de projeção torna
+o snapshot obsoleto antes da publicação. A prova de segurança e a revisão de
+reset são mantidas desde o início: não se atravessa lock, troca de sessão ou
+reset, nem se repetem ações. A reserva e a finalização de recibos usam a
+política SQLite limitada de contenção já existente; a pergunta é apresentada
+uma única vez, preservando cancelamento, expiração e atomicidade da auditoria.
+Regressões: `TestCommandKeyboardMapReadRetriesOnlyTransientProjection` e
+testes de writer real em `internal/commanddecision/store_test.go`.
+Não constitui novo aceite manual.
+
+**Aceite manual incremental (29/09/2026): In Progress.** O mantenedor confirmou
+Enter para editar, permanência do gerenciador após salvar, organização final
+das toolbars/paridade contextual e ativação por página. Evidências delimitadas
+no checklist manual; não promovem critérios ou gates integrais. A leitura de
+mensagens durante/após streaming foi corrigida com regressões automatizadas;
+o reteste manual permanece pendente, sem aceite antecipado.
+
+Na navegação do chat, a mensagem apresentada pode ser a projeção imutável da
+superfície, distinta do objeto da timeline após `patchChatConversation`. A
+validação deve reconhecer a projeção atual sem aceitar um objeto arbitrário
+apenas por compartilhar ID. Permanecem o isolamento de usuário/sessão/conversa,
+ownership da superfície, existência canônica e invalidação de alvos antigos.
+
 **Recuperação de publicação e manutenção (29/09/2026): In Progress.**
 Um mapa ausente após invalidação deixa de ser um estado sem recuperação:
 a próxima leitura reconstrói a configuração pelo caminho autenticado normal,
@@ -52,7 +76,8 @@ antes das ações de manutenção; sua descrição explica que atua no escopo e 
 necessariamente na camada selecionada. A disponibilidade de Voltar independe
 da seleção de camada; carregamento, busy, identidade e validação do backend
 continuam obrigatórios. Nenhum listener ou atalho paralelo é
-criado: Ctrl+N permanece no AEP-0103. Validação manual de navegação/NVDA pendente.
+criado: Ctrl+N permanece no AEP-0103. Aceite incremental dos gerenciadores
+registrado em 29/09; variantes não relatadas de navegação/NVDA seguem pendentes.
 
 **Contrato de leitura frontend/backend (28/09/2026): In Progress.** O decoder
 de configurações reconhece `app.page` com o enum fechado já vigente. O mapa

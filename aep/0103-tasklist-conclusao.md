@@ -1,5 +1,26 @@
 # AEP-0103 — Tasklist de conclusão integral
 
+## Evidências incrementais — 29/09/2026
+
+O mantenedor confirmou Enter para editar, lista do gerenciador aberta após
+salvar, toolbar/paridade com menus contextuais e ativação condicional por página.
+O [checklist único](../docs/content/guias/VALIDACAO_MANUAL_COMANDOS.md) delimita
+essas aprovações, sem inventar commit testado nem promover critérios completos.
+Não repetir essas variantes salvo alteração que exija regressão.
+
+Defeito relatado separadamente: Enter não abre leitura durante streaming nem
+logo após a resposta. Não está coberto pelo aceite anterior de navegação.
+Status global permanece **In Progress**, com os denominadores históricos
+inalterados; correção automatizada não substitui o reteste manual desse defeito.
+
+Correção: a navegação reconhece a referência exibida na projeção atual, vinculada
+à versão canônica capturada, sem exigir igualdade de objetos entre as árvores.
+Regressões usam `patchChatConversation`, atualizam texto durante a leitura e
+finalizam o streaming; cobrem recusa de clones não registrados, exclusão canônica
+e troca same-ID antes da atualização da projeção. **97 testes / 4 arquivos PASS**;
+TypeScript, ESLint dos dois arquivos e `git diff --check` PASS. Revisão independente
+de Hubble (Luna), uma rodada, sem achados. Sem execução local de Go/Wails/ACP.
+
 Baseline inicial de 16/09/2026; reconciliação vigente de **26/09/2026, seção167**, sobre `main` em `116eda53b` (merge do PR #839). Os commits e resultados anteriores permanecem como histórico, não como estado atual da antiga branch. Status do AEP: **In Progress**.
 
 Este é o acompanhamento operacional vigente até concluir o AEP inteiro. Substitui as contagens narrativas da [tasklist anterior](0103-tasklist-infraestrutura.md), preservada como histórico. Não substitui contratos do [AEP](0103-comandos-acionadores-e-camadas-contextuais.md). A [revisão técnica](0103-revisao-integral-2026-09-16.md) registra achados, evidências e limitações desta baseline.

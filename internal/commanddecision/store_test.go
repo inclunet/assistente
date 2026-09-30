@@ -2,7 +2,10 @@ package commanddecision
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"io"
+	stdlog "log"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -11,14 +14,102 @@ import (
 	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/database"
 	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type testPresenter struct {
 	fn    func(context.Context, Request) (Response, error)
 	calls atomic.Int32
+}
+
+type busyBeginObserver struct {
+	logger.Interface
+	busy chan struct{}
+	once sync.Once
+}
+
+func (l *busyBeginObserver) Trace(ctx context.Context, begin time.Time, query func() (string, int64), err error) {
+	sql, rows := query()
+	if strings.EqualFold(strings.TrimSpace(sql), "BEGIN IMMEDIATE") && database.IsSQLiteBusyError(err) {
+		l.once.Do(func() { close(l.busy) })
+	}
+	l.Interface.Trace(ctx, begin, func() (string, int64) { return sql, rows }, err)
+}
+
+type decisionRunResult struct {
+	state string
+	err   error
+}
+
+func openContentionStore(t *testing.T, presenter Presenter) (*Store, *gorm.DB, *sql.DB, <-chan struct{}) {
+	t.Helper()
+	observer := &busyBeginObserver{Interface: logger.New(stdlog.New(io.Discard, "", 0), logger.Config{LogLevel: logger.Info}), busy: make(chan struct{})}
+	path := filepath.Join(t.TempDir(), "command-decision-contention.db")
+	db, err := gorm.Open(sqlite.Open("file:"+path+"?_pragma=busy_timeout(1)&_pragma=journal_mode(WAL)"), &gorm.Config{Logger: observer})
+	if err != nil {
+		t.Fatalf("abrir sqlite temporário: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("obter sql.DB: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	sqlDB.SetMaxOpenConns(16)
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("migrar receipts: %v", err)
+	}
+	store, err := New(db, presenter, time.Now)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return store, db, sqlDB, observer.busy
+}
+
+func holdSQLiteWriter(t *testing.T, sqlDB *sql.DB) (release func()) {
+	t.Helper()
+	conn, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("reservar conexão para lock: %v", err)
+	}
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		_ = conn.Close()
+		t.Fatalf("adquirir writer lock: %v", err)
+	}
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+			_ = conn.Close()
+		})
+	}
+	t.Cleanup(release)
+	return release
+}
+
+func startDecisionRun(t *testing.T, store *Store, ctx context.Context, request Request, releaseWriter func()) <-chan decisionRunResult {
+	t.Helper()
+	workerCtx, cancel := context.WithCancel(ctx)
+	done := make(chan decisionRunResult, 1)
+	exited := make(chan struct{})
+	go func() {
+		defer close(exited)
+		state, err := store.Decide(workerCtx, request)
+		done <- decisionRunResult{state: state, err: err}
+	}()
+	t.Cleanup(func() {
+		cancel()
+		releaseWriter()
+		select {
+		case <-exited:
+		case <-time.After(3 * time.Second):
+			t.Error("goroutine Decide não terminou durante cleanup")
+		}
+	})
+	return done
 }
 
 func (p *testPresenter) Present(ctx context.Context, request Request) (Response, error) {
@@ -181,6 +272,187 @@ func TestDecidePersistsAcceptedReceiptAndPendingAcceptedEvents(t *testing.T) {
 	}
 	if countEvents(t, db, request.DecisionID) != 2 {
 		t.Fatal("receipt accepted deveria ter evento pending e accepted")
+	}
+}
+
+func TestDecideRetriesTransientSQLiteWriterContentionBeforePresentation(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	presenter := &testPresenter{fn: func(_ context.Context, req Request) (Response, error) {
+		return Response{DecisionID: req.DecisionID, ActionID: ApplyAction}, nil
+	}}
+	store, db, sqlDB, busy := openContentionStore(t, presenter)
+	release := holdSQLiteWriter(t, sqlDB)
+	request := defaultRequest(t, now)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := startDecisionRun(t, store, ctx, request, release)
+	select {
+	case <-busy:
+	case <-ctx.Done():
+		t.Fatal("loggerTrace não observou SQLITE_BUSY em BEGIN IMMEDIATE")
+	}
+	release()
+	select {
+	case got := <-done:
+		if got.err != nil || got.state != Accepted {
+			t.Fatalf("Decide após contenção: state=%q err=%v", got.state, got.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Decide não terminou após liberar writer lock")
+	}
+	if presenter.calls.Load() != 1 {
+		t.Fatalf("decisão foi apresentada %d vezes, esperado uma", presenter.calls.Load())
+	}
+	if row := loadReceipt(t, db, request.DecisionID); row.State != Accepted || countEvents(t, db, request.DecisionID) != 2 {
+		t.Fatalf("reserva/finalização não persistida após retry: receipt=%+v events=%d", row, countEvents(t, db, request.DecisionID))
+	}
+}
+
+func TestDecideCancellationWhileWaitingForWriterDoesNotPresentOrInsert(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	presenter := &testPresenter{fn: func(_ context.Context, req Request) (Response, error) {
+		return Response{DecisionID: req.DecisionID, ActionID: ApplyAction}, nil
+	}}
+	store, db, sqlDB, busy := openContentionStore(t, presenter)
+	release := holdSQLiteWriter(t, sqlDB)
+	request := defaultRequest(t, now)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := startDecisionRun(t, store, ctx, request, release)
+	select {
+	case <-busy:
+	case <-time.After(2 * time.Second):
+		t.Fatal("loggerTrace não observou SQLITE_BUSY em BEGIN IMMEDIATE")
+	}
+	cancel()
+	select {
+	case got := <-done:
+		if !errors.Is(got.err, context.Canceled) {
+			t.Fatalf("Decide cancelado retornou state=%q err=%v", got.state, got.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Decide não encerrou após cancelamento")
+	}
+	release()
+	if presenter.calls.Load() != 0 {
+		t.Fatalf("presenter chamado %d vezes após cancelamento pré-reserva", presenter.calls.Load())
+	}
+	var receipts, events int64
+	if err := db.Model(&receiptRow{}).Where("decision_id = ?", request.DecisionID).Count(&receipts).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&auditRow{}).Where("decision_id = ?", request.DecisionID).Count(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	if receipts != 0 || events != 0 {
+		t.Fatalf("cancelamento pré-reserva persistiu receipt/eventos: %d/%d", receipts, events)
+	}
+}
+
+func TestDecideRetriesFinalizationAfterTransientWriterContention(t *testing.T) {
+	presenterEntered := make(chan struct{})
+	allowResponse := make(chan struct{})
+	presenter := &testPresenter{fn: func(ctx context.Context, req Request) (Response, error) {
+		close(presenterEntered)
+		select {
+		case <-allowResponse:
+			return Response{DecisionID: req.DecisionID, ActionID: ApplyAction}, nil
+		case <-ctx.Done():
+			return Response{}, ctx.Err()
+		}
+	}}
+	store, db, sqlDB, busy := openContentionStore(t, presenter)
+	request := defaultRequest(t, time.Now().UTC())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var release func()
+	done := startDecisionRun(t, store, ctx, request, func() {
+		if release != nil {
+			release()
+		}
+	})
+	select {
+	case <-presenterEntered:
+	case <-ctx.Done():
+		t.Fatal("receipt não chegou ao presenter")
+	}
+	release = holdSQLiteWriter(t, sqlDB)
+	close(allowResponse)
+	select {
+	case <-busy:
+	case <-ctx.Done():
+		t.Fatal("loggerTrace não observou contenção durante finalização")
+	}
+	release()
+	select {
+	case got := <-done:
+		if got.err != nil || got.state != Accepted {
+			t.Fatalf("Decide após retry de finalização: state=%q err=%v", got.state, got.err)
+		}
+	case <-ctx.Done():
+		t.Fatal("finalização não terminou após liberar writer")
+	}
+	if presenter.calls.Load() != 1 || loadReceipt(t, db, request.DecisionID).State != Accepted {
+		t.Fatalf("finalização alterou apresentação/estado: calls=%d receipt=%+v", presenter.calls.Load(), loadReceipt(t, db, request.DecisionID))
+	}
+}
+
+func TestDecideExpiresWhileWaitingForFinalizationWriter(t *testing.T) {
+	presenterEntered := make(chan struct{})
+	allowResponse := make(chan struct{})
+	presenter := &testPresenter{fn: func(ctx context.Context, req Request) (Response, error) {
+		close(presenterEntered)
+		select {
+		case <-allowResponse:
+			return Response{DecisionID: req.DecisionID, ActionID: ApplyAction}, nil
+		case <-ctx.Done():
+			return Response{}, ctx.Err()
+		}
+	}}
+	store, db, sqlDB, busy := openContentionStore(t, presenter)
+	request := defaultRequest(t, time.Now().UTC())
+	request.ExpiresAt = time.Now().Add(300 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var release func()
+	done := startDecisionRun(t, store, ctx, request, func() {
+		if release != nil {
+			release()
+		}
+	})
+	select {
+	case <-presenterEntered:
+	case <-ctx.Done():
+		t.Fatal("receipt não chegou ao presenter")
+	}
+	release = holdSQLiteWriter(t, sqlDB)
+	close(allowResponse)
+	select {
+	case <-busy:
+	case <-ctx.Done():
+		t.Fatal("loggerTrace não observou contenção durante finalização")
+	}
+	deadlineWait := time.Until(request.ExpiresAt)
+	if deadlineWait > 0 {
+		timer := time.NewTimer(deadlineWait)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			t.Fatal("teste terminou antes do deadline da decisão")
+		}
+	}
+	release()
+	select {
+	case got := <-done:
+		if got.state != Expired || !errors.Is(got.err, context.DeadlineExceeded) {
+			t.Fatalf("deadline expirado na finalização: state=%q err=%v", got.state, got.err)
+		}
+	case <-ctx.Done():
+		t.Fatal("finalização expirada não persistiu estado terminal")
+	}
+	row := loadReceipt(t, db, request.DecisionID)
+	if row.State != Expired || row.AcceptedActionID != nil || presenter.calls.Load() != 1 {
+		t.Fatalf("deadline permitiu aceite: receipt=%+v presenter_calls=%d", row, presenter.calls.Load())
 	}
 }
 

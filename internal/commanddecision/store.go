@@ -9,6 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"assistente/internal/database"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -181,8 +182,13 @@ func (s *Store) Decide(ctx context.Context, request Request) (string, error) {
 	if !request.ExpiresAt.After(s.now()) {
 		return "", ErrStale
 	}
+	decisionCtx, cancel := context.WithDeadline(ctx, request.ExpiresAt)
+	defer cancel()
+	if err := decisionCtx.Err(); err != nil {
+		return "", err
+	}
 	row := rowOf(request)
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := database.WithSQLiteImmediateTransaction(decisionCtx, s.db, "command_decision.reserve", func(tx *gorm.DB) error {
 		if err := tx.Create(&row).Error; err != nil {
 			return err
 		}
@@ -190,8 +196,6 @@ func (s *Store) Decide(ctx context.Context, request Request) (string, error) {
 	}); err != nil {
 		return "", err
 	}
-	decisionCtx, cancel := context.WithDeadline(ctx, request.ExpiresAt)
-	defer cancel()
 	response, presentationErr := present(s.presenter, decisionCtx, request)
 	state := Cancelled
 	if !request.ExpiresAt.After(s.now()) || decisionCtx.Err() == context.DeadlineExceeded {
@@ -213,7 +217,7 @@ func (s *Store) Decide(ctx context.Context, request Request) (string, error) {
 	// Usa contexto de limpeza limitado, sem reapresentar nem executar efeitos.
 	cleanup, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cleanupCancel()
-	if err := s.db.WithContext(cleanup).Transaction(func(tx *gorm.DB) error {
+	if err := database.WithSQLiteImmediateTransaction(cleanup, s.db, "command_decision.finalize", func(tx *gorm.DB) error {
 		var accepted *string
 		if state == Accepted {
 			action := ApplyAction

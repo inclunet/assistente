@@ -5,6 +5,14 @@ weight: 3
 
 # Chat
 
+## Ler uma mensagem pelo teclado
+
+Na lista de mensagens, foque uma mensagem e pressione **Enter** para abrir o
+modo de leitura. **Escape** sai da leitura e devolve o foco à mensagem.
+Isso também vale para respostas em streaming ou recém-concluídas: não é
+necessário trocar de aba ou recarregar a conversa para ler o texto recebido.
+Abrir a leitura não cancela a geração e não inicia leitura em voz alta (TTS).
+
 ## Conversa indisponível ao enviar
 
 Se uma aba aponta para uma conversa que não está disponível para o usuário atual,

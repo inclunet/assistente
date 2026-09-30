@@ -20,7 +20,25 @@ em sessões diferentes. Na conversa, apresentar somente **cinco testes por vez,
 numerados de 1 a 5**; o responsável associa as respostas aos IDs abaixo.
 O mantenedor não precisa memorizar códigos.
 
-## Registro reconciliado — 26/09/2026
+## Confirmações adicionais do mantenedor — 29/09/2026
+
+- [x] Enter abre a edição de camadas, acionadores e regras nos gerenciadores.
+- [x] Salvar a edição mantém a lista do gerenciador aberta.
+- [x] Organização final da toolbar e paridade com os menus de contexto.
+- [x] Ativação condicional da camada conforme a página selecionada no aplicativo.
+
+Evidência: confirmação explícita do mantenedor nesta conversa, que informou
+funcionamento perfeito dessas variantes. Commit testado não informado. Estas
+confirmações substituem as pendências correspondentes do registro histórico
+abaixo, sem aprovar outras variantes de UI01/CF04, os 84 critérios ou gates
+inteiros. Não solicitar repetição sem uma mudança que justifique regressão.
+
+Defeito relatado e corrigido neste PR: Enter não abria a leitura de mensagens
+durante o streaming ou logo após o término. A correção tem regressão automatizada;
+o aceite anterior da navegação não cobre esse cenário, e somente o reteste
+manual específico permanece pendente.
+
+## Registro reconciliado — 26/09/2026 (histórico)
 
 Baseline de implementação: `main` em `116eda53b`, após os PRs #833, #834,
 #836, #838 e #839. Essa é a versão de referência documental, **não o commit
