@@ -107,7 +107,7 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCloseBlockedChange
     {!id && <Input label={t('chatgpt.label')} value={name} maxLength={100} disabled={busy || !!currentID.current} onChange={e => setName(e.target.value)} />}
     <p>{t('chatgpt.status', { state: t(`chatgpt.states.${state}`, { defaultValue: state }) })}</p>
     {email && <p>{t('chatgpt.account', { email })}</p>}
-    {id && <p>{t('chatgpt.providerID', { id })}</p>}
+    {currentID.current && <p>{t('chatgpt.providerID', { id: currentID.current })}</p>}
     {busy && <p>{t(closeBlocked ? 'chatgpt.operationPending' : 'chatgpt.waiting')}</p>}
     {error && <p>{error}</p>}
     <p><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">{t('chatgpt.usage')}</a></p>

@@ -23,7 +23,8 @@ Durante a gravação inicial, aguarde a liberação do botão de fechar; depois 
 você pode cancelar a espera pelo navegador.
 
 Cada autorização aparece como um provedor independente, com nome e identificador
-próprios. O identificador exibido na tela é o do provedor local; a autorização
+próprios. O identificador aparece assim que o cadastro é criado, sem precisar
+fechar e reabrir a janela. O identificador exibido é o do provedor local; a autorização
 pode ter outro identificador após recuperar uma importação. Para outra conta/workspace, crie outra conexão. Para voltar à mesma conta,
 edite o provedor e use **Autorizar novamente**: o cadastro é reaproveitado.
 O navegador só abre quando você pede conexão ou reautorização. Novos provedores

@@ -476,3 +476,76 @@ func TestReauthorizationWithReducedScopePreservesConnectedGrant(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthorizationGatesSerializeAndReleaseAllReferences(t *testing.T) {
+	s := New()
+	ctx := context.Background()
+	for index := range 100 {
+		release, err := s.gate(ctx, fmt.Sprint(index))
+		if err != nil {
+			t.Fatal(err)
+		}
+		release()
+	}
+	holder, err := s.gate(ctx, "shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder()
+	canceled, cancel := context.WithCancel(ctx)
+	defer cancel()
+	canceledResult := make(chan error, 1)
+	go func() {
+		release, err := s.gate(canceled, "shared")
+		if release != nil {
+			release()
+		}
+		canceledResult <- err
+	}()
+	// Ensure cancellation exercises an already registered waiter.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		s.gatesMu.Lock()
+		users := s.gates["shared"].users
+		s.gatesMu.Unlock()
+		if users == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("waiter not registered")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	var wg sync.WaitGroup
+	var active atomic.Int32
+	for range 24 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 20 {
+				release, err := s.gate(ctx, "shared")
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if active.Add(1) != 1 {
+					t.Error("concurrent holder for one authorization")
+				}
+				time.Sleep(time.Microsecond)
+				active.Add(-1)
+				release()
+			}
+		}()
+	}
+	cancel()
+	if err := <-canceledResult; !errors.Is(err, context.Canceled) {
+		t.Fatal("waiter cancellation", err)
+	}
+	holder()
+	wg.Wait()
+	s.gatesMu.Lock()
+	defer s.gatesMu.Unlock()
+	if len(s.gates) != 0 {
+		t.Fatalf("retained %d unused gates", len(s.gates))
+	}
+}

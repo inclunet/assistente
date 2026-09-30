@@ -131,6 +131,7 @@ describe('ChatGPT connection', () => {
     await user.type(screen.getByLabelText('chatgpt.label'), 'Work account');
     await user.click(screen.getByRole('button', { name: 'chatgpt.connect' }));
     await screen.findByRole('button', { name: 'chatgpt.reconnect' });
+    expect(screen.getByText('chatgpt.providerID')).toBeInTheDocument();
     expect(mocks.create).toHaveBeenCalledWith('Work account');
     expect(mocks.authorize).toHaveBeenCalledWith('authorization', 'chatgpt.browserReturn');
     await user.click(screen.getByRole('button', { name: 'chatgpt.reconnect' }));

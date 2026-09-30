@@ -17,10 +17,16 @@ import (
 // An explicit invalid-grant response prevents access/refresh token reuse.
 var errRejectedGrant = errors.New("oauth_grant_rejected")
 
+type authorizationGate struct {
+	channel chan struct{}
+	users   int
+}
+
 type Service struct {
 	HTTP         *http.Client
 	integrations map[string]Integration
-	gates        sync.Map
+	gatesMu      sync.Mutex
+	gates        map[string]*authorizationGate
 }
 
 func New(integrations ...Integration) *Service {
@@ -31,15 +37,40 @@ func New(integrations ...Integration) *Service {
 	return s
 }
 func (s *Service) gate(ctx context.Context, id string) (func(), error) {
-	value, _ := s.gates.LoadOrStore(id, make(chan struct{}, 1))
-	ch := value.(chan struct{})
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.gatesMu.Lock()
+	if s.gates == nil {
+		s.gates = make(map[string]*authorizationGate)
+	}
+	gate := s.gates[id]
+	if gate == nil {
+		gate = &authorizationGate{channel: make(chan struct{}, 1)}
+		s.gates[id] = gate
+	}
+	// Count holders and waiters before leaving the map lock, so cleanup cannot
+	// create a second gate while an existing caller still references the first.
+	gate.users++
+	s.gatesMu.Unlock()
+	leave := func() {
+		s.gatesMu.Lock()
+		gate.users--
+		if gate.users == 0 {
+			delete(s.gates, id)
+		}
+		s.gatesMu.Unlock()
+	}
 	select {
-	case ch <- struct{}{}:
-		return func() { <-ch }, nil
+	case gate.channel <- struct{}{}:
+		var once sync.Once
+		return func() { once.Do(func() { <-gate.channel; leave() }) }, nil
 	case <-ctx.Done():
+		leave()
 		return nil, ctx.Err()
 	}
 }
+
 func (s *Service) integration(r Record) (Integration, error) {
 	i, ok := s.integrations[r.Integration]
 	if !ok {

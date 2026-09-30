@@ -310,7 +310,10 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   com cofre indisponível orienta desbloqueio e anuncia o erro sem alterar estado.
   Consulta inicial, criação e autorização usam o mesmo mapeamento de erro do cofre.
   Regressões de componentes e página passaram junto a TypeScript e ESLint.
-- Revisão independente local em vinte e oito rodadas, com correções de isolamento de
+- Gates OAuth contam titulares e aguardantes e são removidos ao liberar a última
+  referência, inclusive em cancelamento; teste repetido preserva exclusão mútua
+  e comprova ausência de entradas residuais. A UI exibe o ID logo após a criação.
+- Revisão independente local em vinte e nove rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
