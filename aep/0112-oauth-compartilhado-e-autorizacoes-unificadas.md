@@ -94,6 +94,17 @@ em voo: resultados atrasados não podem restaurar uma credencial removida, sobre
 uma revisão nova ou gravar sob outro usuário. Não há refresh concorrente independente
 em MCP e no transporte. Persistência que falha não pode ser reportada como sucesso.
 
+Rotação remota e commit local não formam uma transação atômica. Antes de enviar
+um refresh potencialmente rotativo, persistir uma marca de operação pendente sob
+a revisão esperada; se isso falhar, não enviar. Salvar o resultado e limpar a marca
+na mesma transação local. Falha de gravação após rotação ou resposta ambígua não
+permite reenviar o refresh token antigo: bloquear resolução e sinalizar estado
+indeterminado/reautorização necessária. Após reinício, uma marca pendente sem
+conclusão tem o mesmo tratamento conservador. Reconexão explícita recupera acesso;
+o documento não promete recuperar tokens que o servidor já invalidou. A marca é
+metadado da mesma entrada, sem outro cofre. Testar também queda entre resposta
+remota e commit, sem interpretar esse caso como simples retry de rede.
+
 Expiração conhecida permite refresh antecipado com margem limitada, respeitando
 o instante mínimo de renovação do servidor. Antes dele, não executar refresh
 antecipado; seguir a recuperação documentada pela integração se o token for
@@ -263,6 +274,8 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 - [ ] Client secret opcional, registro manual/DCR/extensão e autorização pendente cobertos.
 - [ ] Callbacks fixos, registrados e dinâmicos testados; colisão não muda cliente manual;
   novo DCR malsucedido preserva a autorização anterior.
+- [ ] Falha de persistência após rotação e queda antes do commit exigem recuperação
+  explícita, sem reutilizar refresh token potencialmente consumido após reinício.
 - [ ] Retenção protegida de ID token e reconexão com `id_token_hint` testadas;
   refresh respeita `earliest_refresh_at` e atualiza o limite com tokens rotacionados.
 - [ ] PKCE/state/nonce/identidade, cancelamento, revogação e rotação cobertos por testes;
