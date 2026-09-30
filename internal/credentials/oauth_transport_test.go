@@ -15,6 +15,11 @@ import (
 )
 
 func TestOAuthTransportReusesRotatesAndRestrictsDestination(t *testing.T) {
+	for _, replayable := range []bool{true, false} {
+		t.Run(fmt.Sprintf("replayable=%t", replayable), func(t *testing.T) { testOAuthTransportRotation(t, replayable) })
+	}
+}
+func testOAuthTransportRotation(t *testing.T, replayable bool) {
 	setupScopedCredentialStoreTestDB(t)
 	calls, refreshes := 0, 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -53,19 +58,32 @@ func TestOAuthTransportReusesRotatesAndRestrictsDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := NewHTTPClientWithAuthMode(mgr, "oauth:transport", AuthRequired, 0)
-	for range 2 {
+	for attempt := range 2 {
 		req, _ := http.NewRequestWithContext(ctx, "POST", server.URL+"/v1/responses", strings.NewReader(`{}`))
+		if !replayable {
+			req.GetBody = nil
+		}
 		response, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
 		body, _ := io.ReadAll(response.Body)
 		_ = response.Body.Close()
+		if !replayable && attempt == 0 {
+			if response.StatusCode != http.StatusUnauthorized || calls != 1 || refreshes != 1 {
+				t.Fatal("non-replayable request must refresh without retrying")
+			}
+			continue
+		}
 		if string(body) != "ok" {
 			t.Fatalf("body=%s", body)
 		}
 	}
-	if calls != 3 || refreshes != 1 {
+	expectedCalls := 3
+	if !replayable {
+		expectedCalls = 2
+	}
+	if calls != expectedCalls || refreshes != 1 {
 		t.Fatalf("calls=%d refreshes=%d", calls, refreshes)
 	}
 	for _, path := range []string{"/v1/audio/speech", "/v1/../other"} {
@@ -80,7 +98,7 @@ func TestOAuthTransportReusesRotatesAndRestrictsDestination(t *testing.T) {
 		_ = resp.Body.Close()
 		t.Fatal("cross-origin authorization")
 	}
-	if calls != 3 || refreshes != 1 {
+	if calls != expectedCalls || refreshes != 1 {
 		t.Fatal("unexpected calls")
 	}
 }

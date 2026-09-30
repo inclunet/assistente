@@ -198,4 +198,4 @@ selfHosted: {
 }
 ```
 
-Consulte [Fontes de credenciais](../CREDENTIAL_SOURCES/) para usar env, keyring ou comando sem inserir tokens estáticos.
+Consulte [Fontes de credenciais](CREDENTIAL_SOURCES.md) para usar env, keyring ou comando sem inserir tokens estáticos.

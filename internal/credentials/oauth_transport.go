@@ -74,11 +74,12 @@ func (t *CredentialTransport) roundTripOAuth(req *http.Request) (result *http.Re
 	if err != nil || response == nil || response.StatusCode != http.StatusUnauthorized {
 		return response, err
 	}
-	if req.Body != nil && req.Body != http.NoBody && req.GetBody == nil {
-		return response, nil
-	}
 	fresh, err := t.CredMgr.resolveOAuth(req.Context(), id, record.Resource, auth.Token)
 	if err != nil || fresh.Token == auth.Token {
+		return response, nil
+	}
+	// Refresh also repairs future requests when this body cannot be replayed.
+	if req.Body != nil && req.Body != http.NoBody && req.GetBody == nil {
 		return response, nil
 	}
 	retry := req.Clone(req.Context())
