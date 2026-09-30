@@ -1,6 +1,7 @@
 const ptBR = {
   translation: {
  chatgpt: {
+    disconnectBeforeDelete: 'Desconecte a conta ChatGPT antes de excluir este provedor.',
  usingPlan: "Usando seu plano ChatGPT",
  gotIt: "Entendi",
   "title": "Conta ChatGPT",

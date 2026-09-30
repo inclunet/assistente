@@ -4,8 +4,11 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/oauthflow"
 	"bytes"
 	"context"
+	"errors"
+	"strings"
 	"testing"
 )
 
@@ -91,5 +94,57 @@ func TestImportedChatGPTWithoutAuthorizationCanBeDeleted(t *testing.T) {
 	}
 	if err := service.Delete(ctx, p.ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestChatGPTUnicodeLabel(t *testing.T) {
+	s, _, ctx := chatGPTTestService(t)
+	if _, err := s.CreateChatGPTConnection(ctx, strings.Repeat("é", 100)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChatGPTConnection(ctx, strings.Repeat("é", 101)); err == nil {
+		t.Fatal("accepted oversized label")
+	}
+}
+func TestChatGPTDeleteRollbackRetainsBothRecords(t *testing.T) {
+	s, mgr, ctx := chatGPTTestService(t)
+	created, err := s.CreateChatGPTConnection(ctx, "Rollback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.DisconnectChatGPT(ctx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	db := database.DB()
+	if err = db.Exec("CREATE TRIGGER reject_provider_delete BEFORE DELETE ON llm_providers BEGIN SELECT RAISE(ABORT, 'delete denied'); END").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Delete(ctx, created.ID); err == nil {
+		t.Fatal("expected delete failure")
+	}
+	store, err := mgr.OAuthStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Load(ctx, created.ID); err != nil {
+		t.Fatal("authorization lost on failed delete", err)
+	}
+	if p, err := s.store.Get(ctx, created.ID); err != nil || p == nil || s.registry.Get(created.ID) == nil {
+		t.Fatal("provider lost on failed delete")
+	}
+	if err = db.Exec("DROP TRIGGER reject_provider_delete").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Delete(ctx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Load(ctx, created.ID); !errors.Is(err, oauthflow.ErrNotFound) {
+		t.Fatal("authorization retained", err)
+	}
+	if p, _ := s.store.Get(ctx, created.ID); p != nil {
+		t.Fatal("provider retained")
+	}
+	if err = s.Delete(ctx, created.ID); err == nil {
+		t.Fatal("second delete should fail without panic")
 	}
 }

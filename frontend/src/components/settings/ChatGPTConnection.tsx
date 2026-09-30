@@ -64,7 +64,7 @@ export function ChatGPTConnection({ id, onChanged, onClose }: Props) {
       setState('disconnected');
       const message = t(revoked ? 'chatgpt.states.disconnected' : 'chatgpt.revocationUnconfirmed');
       setError(revoked ? '' : message); announce(message);
-    } catch { if (mounted.current) setError(t('chatgpt.connectionError')); }
+    } catch { if (mounted.current) { setError(t('chatgpt.connectionError')); announce(t('chatgpt.connectionError'), 'assertive'); } }
     finally { if (mounted.current) setBusy(false); }
   };
   const close = () => {

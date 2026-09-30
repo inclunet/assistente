@@ -287,8 +287,10 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   e tokens de teste, falha de persistência, concorrência, escopo e conclusão SSE.
 - O teste de consentimento com uma conta real depende de ação do usuário no
   navegador. Não foi realizado automaticamente nem usa credenciais de terceiros.
-- Revisão independente local em quatro rodadas, com correções de isolamento de
+- Revisão independente local em cinco rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
+- Exclusão de provedor ChatGPT e autorização desconectada na mesma transação;
+  `providers/chatgpt_test.go` força falha e comprova rollback de ambos os registros.
 - MCP compartilha somente o árbitro de interação nesta fase. Discovery, DCR,
   Device Flow, client credentials, persistência MCP e Slack permanecem pendentes.
 

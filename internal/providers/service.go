@@ -6,7 +6,9 @@ import (
 	"assistente/internal/oauthintegrations"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"gorm.io/gorm"
 	"io"
 	"net/http"
 	"net/url"
@@ -17,6 +19,7 @@ import (
 	"assistente/internal/acp"
 	"assistente/internal/acpregistry"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 )
@@ -604,10 +607,11 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 
 // Delete remove um provedor do registry.
 func (s *Service) Delete(ctx context.Context, id string) error {
-	if s.registry.Get(id) == nil {
+	provider := s.registry.Get(id)
+	if provider == nil {
 		return fmt.Errorf("provider '%s' não encontrado", id)
 	}
-	if provider := s.registry.Get(id); provider.Type == llm.ProviderChatGPT {
+	if provider.Type == llm.ProviderChatGPT {
 		status, err := s.ChatGPTConnection(ctx, id)
 		if err != nil {
 			return err
@@ -615,10 +619,14 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		if status.State != "disconnected" {
 			return fmt.Errorf("chatgpt_disconnect_before_delete")
 		}
-		if strings.HasPrefix(provider.CredentialPattern, "oauth:") {
-			if err = s.credMgr.DeletePattern(ctx, provider.CredentialPattern); err != nil {
-				return err
-			}
+		mgr, ok := s.credMgr.(*credentials.Manager)
+		if !ok {
+			return errors.New("oauth_vault_unavailable")
+		}
+		if err = mgr.DeleteOAuthAuthorization(ctx, credentials.OAuthCredentialID(provider.CredentialPattern), func(tx *gorm.DB) error {
+			return database.NewProviderRepository(tx).DeleteLLMProvider(ctx, id)
+		}); err != nil {
+			return err
 		}
 	}
 	if err := s.registry.Remove(id); err != nil {

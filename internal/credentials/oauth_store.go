@@ -232,3 +232,57 @@ func (s *oauthStore) SessionContext(ctx context.Context) (context.Context, conte
 	}
 	return child, func() { stop(); cancel() }
 }
+
+// DeleteOAuthAuthorization commits deletion of a disconnected authorization and
+// its consumer together. Neither the cache nor the consumer changes on failure.
+func (m *Manager) DeleteOAuthAuthorization(ctx context.Context, id string, deleteConsumer func(*gorm.DB) error) error {
+	scoped, err := m.OAuthStore(ctx)
+	if err != nil {
+		return err
+	}
+	s := scoped.(*oauthStore)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, enc, err := s.load(ctx, id)
+	missing := errors.Is(err, oauthflow.ErrNotFound)
+	if err != nil && !missing {
+		return err
+	}
+	if !missing && (r.State != "disconnected" || r.RefreshPending) {
+		return oauthflow.ErrConflict
+	}
+	persistence, ok := m.store.(*DBStore)
+	if !ok {
+		return errors.New("oauth_store_not_supported")
+	}
+	db, err := persistence.ensureDB()
+	if err != nil {
+		return err
+	}
+	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if !missing {
+			result := database.ScopeByUser(ctx, tx, "user_id").Where("id = ? AND source = ? AND oauth_enc = ?", id, "oauth", enc).Delete(&database.CredentialEntry{})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return oauthflow.ErrConflict
+			}
+		}
+		return deleteConsumer(tx)
+	})
+	if err != nil {
+		return err
+	}
+	for index, dc := range m.credentials {
+		if dc.ID == id && dc.UserID == s.userID {
+			m.credentials = append(m.credentials[:index], m.credentials[index+1:]...)
+			break
+		}
+	}
+	for _, cancel := range m.oauthRequests[id] {
+		cancel()
+	}
+	delete(m.oauthRequests, id)
+	return nil
+}

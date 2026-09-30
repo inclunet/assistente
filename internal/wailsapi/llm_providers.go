@@ -192,10 +192,12 @@ func (p *LLMProviders) DeleteLLMProvider(id string) error {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		provider := ctrl.GetLLMProvider(id)
+		oauthManaged := provider != nil && provider.Type == llm.ProviderChatGPT
 		if err := ctrl.DeleteLLMProvider(ctx, id); err != nil {
 			return struct{}{}, err
 		}
-		if hooks.PersistDelete != nil {
+		if hooks.PersistDelete != nil && !oauthManaged {
 			return struct{}{}, hooks.PersistDelete(ctx, id)
 		}
 		return struct{}{}, nil

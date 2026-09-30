@@ -16,6 +16,14 @@ beforeEach(() => {
   mocks.get.mockResolvedValue({ id: 'authorization', state: 'connected', email: 'user@example.test' });
 });
 describe('ChatGPT connection', () => {
+  it('announces disconnection failure assertively', async () => {
+    mocks.disconnect.mockRejectedValue(new Error('network'));
+    const user = userEvent.setup();
+    render(<ChatGPTConnection id="authorization" onChanged={vi.fn()} onClose={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'chatgpt.disconnect' }));
+    await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('chatgpt.connectionError', 'assertive'));
+  });
+
   it('only authorizes after an explicit action and retains the issued registration on reconnect', async () => {
     const user = userEvent.setup();
     render(<ChatGPTConnection onChanged={vi.fn()} onClose={vi.fn()} />);

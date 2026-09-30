@@ -1,6 +1,7 @@
 const en = {
   translation: {
  chatgpt: {
+    disconnectBeforeDelete: 'Disconnect the ChatGPT account before deleting this provider.',
  usingPlan: "Using your ChatGPT plan",
  gotIt: "Got it",
   "title": "ChatGPT account",

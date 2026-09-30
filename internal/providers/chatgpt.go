@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"unicode/utf8"
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
@@ -27,7 +28,7 @@ func (s *Service) CreateChatGPTConnection(ctx context.Context, name string) (oau
 		return oauthflow.Summary{}, err
 	}
 	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 100 {
+	if name == "" || utf8.RuneCountInString(name) > 100 {
 		return oauthflow.Summary{}, errors.New("oauth_label_required")
 	}
 	store, err := s.oauthStore(ctx)

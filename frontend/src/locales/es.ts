@@ -1,6 +1,7 @@
 const es = {
   translation: {
  chatgpt: {
+    disconnectBeforeDelete: 'Desconecta la cuenta de ChatGPT antes de eliminar este proveedor.',
  usingPlan: "Usando tu plan ChatGPT",
  gotIt: "Entendido",
   "title": "Cuenta ChatGPT",

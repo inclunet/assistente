@@ -360,13 +360,13 @@ func isOpenAIRealURL(baseURL string) bool {
 
 // Validate verifica se o ProviderConfig é válido
 func (p *ProviderConfig) Validate() error {
+	if p == nil {
+		return fmt.Errorf("provider config nil")
+	}
 	if p.Type == ProviderChatGPT && (p.BaseURL != "https://api.openai.com/v1" || p.APIFormat != APIFormatOpenAIResponses || !strings.HasPrefix(p.CredentialPattern, "oauth:") || p.EffectiveAuthMode() != AuthModeRequired) {
 		return fmt.Errorf("chatgpt_invalid_connection_configuration")
 	}
 
-	if p == nil {
-		return fmt.Errorf("provider config nil")
-	}
 	p.ID = strings.TrimSpace(p.ID)
 	p.Name = strings.TrimSpace(p.Name)
 	p.BaseURL = strings.TrimSpace(p.BaseURL)

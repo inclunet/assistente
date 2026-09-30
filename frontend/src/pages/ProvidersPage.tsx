@@ -291,7 +291,8 @@ export default function ProvidersPage() {
       announce(t('providers.toast.deleted'));
       await loadProviders();
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || t('providers.error.deleteFailed'), 'error');
+      const message = getErrorMessage(error);
+      addToast(message.includes('chatgpt_disconnect_before_delete') ? t('chatgpt.disconnectBeforeDelete') : (message || t('providers.error.deleteFailed')), 'error');
       return;
     }
 
