@@ -122,12 +122,12 @@ a UI informa quando a revogação remota não for suportada ou não concluir.
 
 ### D4 — Autorização interativa e callback pertencem ao OAuth
 
-O cadastro OAuth possui URI registrada (scheme, host, porta, path) e política de
+Nos fluxos Authorization Code com redirecionamento, o cadastro OAuth possui URI registrada (scheme, host, porta, path) e política de
 callback: porta fixa manual, escolhida e persistida no registro, ou efêmera quando
 permitida pelo serviço. Host anunciado e endereço de bind são distintos;
 `localhost`, `127.0.0.1` e `[::1]` não são substituídos arbitrariamente.
 
-O serviço reserva o listener loopback antes de registrar/autorizar e o mantém até
+Nesses fluxos locais com callback, o serviço reserva o listener loopback antes de registrar/autorizar e o mantém até
 concluir/cancelar a tentativa. O listener é temporário e local à máquina; a URI e
 as restrições do registro são persistidas com a credencial. Não se abre bind público
 para resolver callback. Copiar uma autorização para outra máquina não garante
@@ -141,11 +141,19 @@ pela política da integração; fica pendente, preservando a autorização ativa
 concluir. DCR e registro dinâmico específico de um fornecedor são extensões
 separadas, não nomes intercambiáveis para o mesmo protocolo.
 
-Cada tentativa usa state e PKCE novos; OIDC inclui nonce e valida assinatura,
+Cada tentativa Authorization Code usa state e PKCE novos; quando usar OIDC nesse
+fluxo, inclui nonce e valida assinatura,
 issuer, audience e expiração antes de aceitar identidade. Callback rejeita state
 incorreto, código reutilizado e transações expiradas; dados transitórios não viram
 campos permanentes da autorização. Fluxos interativos são arbitrados, canceláveis
 e encerrados na troca/logout do usuário, sem abrir várias janelas em paralelo.
+
+Device Authorization não exige callback, bind de porta, state ou PKCE: usa os
+códigos de dispositivo/usuário e a URI de verificação, respeitando intervalo de
+polling, slow_down, expiração, recusa e cancelamento. Client credentials não abre
+navegador/listener nem exige identidade OIDC do usuário: usa a autenticação do
+cliente e obtém novo access token pelo grant quando necessário, sem presumir
+refresh token. Configuração, validação e testes são específicos de cada grant.
 
 Abertura do navegador requer ação explícita de conectar/reautorizar. Startup,
 listagem, envio e refresh silencioso não iniciam consentimento. A tela MCP poderá
@@ -286,7 +294,9 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   explícita, sem reutilizar refresh token potencialmente consumido após reinício.
 - [ ] Retenção protegida de ID token e reconexão com `id_token_hint` testadas;
   refresh respeita `earliest_refresh_at` e atualiza o limite com tokens rotacionados.
-- [ ] PKCE/state/nonce/identidade, cancelamento, revogação e rotação cobertos por testes;
+- [ ] PKCE/state/nonce/identidade nos fluxos aplicáveis, Device Flow sem callback
+  e client credentials sem consentimento interativo cobertos por testes;
+  cancelamento, revogação e rotação também cobertos;
   refresh concorrente único, logout/edição/exclusão impedem gravação tardia.
 - [ ] MCP preserva discovery, Device Flow, client credentials, PKCE, native e bridge;
   reautorização explícita, sem navegador inesperado nem renovadores duplicados.
