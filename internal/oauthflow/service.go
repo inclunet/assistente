@@ -267,10 +267,14 @@ func (s *Service) Disconnect(ctx context.Context, store Store, id string) (bool,
 	if err = store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
 		return false, err
 	}
-	if old.Refresh == "" {
+	token, hint := old.Refresh, "refresh_token"
+	if token == "" {
+		token, hint = old.Access, "access_token"
+	}
+	if token == "" {
 		return true, nil
 	}
-	form := url.Values{"token": {old.Refresh}, "token_type_hint": {"refresh_token"}, "client_id": {r.Client.ID}}
+	form := url.Values{"token": {token}, "token_type_hint": {hint}, "client_id": {r.Client.ID}}
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt > 0 {
 			timer := time.NewTimer(500 * time.Millisecond)

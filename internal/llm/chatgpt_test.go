@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestChatGPTRequestAndTerminalEvents(t *testing.T) {
@@ -185,6 +186,52 @@ func TestChatGPTWatchdogDistinguishesUserCancellation(t *testing.T) {
 			}
 			if !userCancel && strings.Join(handler.sequence, ",") != "thinking_done,error" {
 				t.Fatalf("thinking: %v", handler.sequence)
+			}
+		})
+	}
+}
+
+func TestChatGPTCollectorRequiresTerminalCallback(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		ctx, cancel := context.WithCancel(context.Background())
+		if cancelled {
+			cancel()
+		}
+		h := &chatGPTCollector{}
+		text, err := h.result(ctx)
+		expected := "chatgpt_stream_interrupted"
+		if cancelled {
+			expected = "chatgpt_request_cancelled"
+		}
+		if text != "" || err == nil || err.Error() != expected {
+			t.Fatalf("silent termination: %q %v", text, err)
+		}
+		h.OnDone("", Usage{}, "model")
+		if text, err = h.result(ctx); err != nil || text != "" {
+			t.Fatal("legitimate empty completion rejected", err)
+		}
+		cancel()
+	}
+}
+func TestChatGPTCompletedDoesNotWaitForEOF(t *testing.T) {
+	for _, lateError := range []bool{false, true} {
+		t.Run(fmt.Sprint(lateError), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Done\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"model\":\"account-model\"}}\n\n")
+				if lateError {
+					_, _ = fmt.Fprint(w, "data: invalid-json\n\n")
+				}
+				w.(http.Flusher).Flush()
+				<-r.Context().Done()
+			}))
+			defer server.Close()
+			p := NewOpenAIResponsesProvider(&ProviderConfig{ID: "chatgpt", Type: ProviderChatGPT, BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone}, nil)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			text, err := p.SendChat(ctx, []Message{{Role: "user", Content: "Hi"}}, ChatParams{Model: "account-model"})
+			if err != nil || text != "Done" || ctx.Err() != nil {
+				t.Fatalf("terminal event ignored: %q %v", text, err)
 			}
 		})
 	}

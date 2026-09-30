@@ -328,3 +328,39 @@ func TestDisconnectRetainsOnlyIdentityHint(t *testing.T) {
 		t.Fatalf("disconnected grant used: %v", err)
 	}
 }
+
+func TestDisconnectAccessOnlyRevocation(t *testing.T) {
+	for _, status := range []int{200, 400, 503, 0} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			calls := 0
+			s, store, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if err := r.ParseForm(); err != nil {
+					t.Error(err)
+				}
+				if r.Form.Get("token") != "access-only" || r.Form.Get("token_type_hint") != "access_token" {
+					t.Error("wrong revocation token")
+				}
+				w.WriteHeader(status)
+			})
+			store.r.Tokens = Tokens{Access: "access-only", ID: "validated-identity"}
+			if status == 0 {
+				store.r.Tokens.Access = ""
+			}
+			confirmed, err := s.Disconnect(context.Background(), store, store.r.ID)
+			if err != nil || confirmed != (status == 200 || status == 0) {
+				t.Fatalf("confirmation: %v %v", confirmed, err)
+			}
+			expectedCalls := 1
+			if status == 0 {
+				expectedCalls = 0
+			}
+			if status == 503 {
+				expectedCalls = 2
+			}
+			if calls != expectedCalls || store.r.Tokens != (Tokens{ID: "validated-identity"}) || store.r.State != "disconnected" {
+				t.Fatal("revocation lifecycle", calls)
+			}
+		})
+	}
+}

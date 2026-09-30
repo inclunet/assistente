@@ -253,13 +253,39 @@ func (s *Service) setChatGPTDefaultModel(ctx context.Context, store oauthflow.St
 		logging.Warnf(ctx, "providers.service", "chatgpt_default_model_authorization_unavailable")
 		return
 	}
-	updated := *provider
-	updated.DefaultModel = model
-	if err := s.store.Save(ctx, []*llm.ProviderConfig{&updated}); err != nil {
+	transaction, ok := store.(interface {
+		WithAuthorization(context.Context, string, func(*gorm.DB) error) error
+	})
+	if !ok {
+		return
+	}
+	var updated *llm.ProviderConfig
+	err := transaction.WithAuthorization(ctx, authorizationID, func(tx *gorm.DB) error {
+		current, err := database.NewProviderRepository(tx).GetLLMProvider(ctx, provider.ID)
+		if err != nil {
+			return err
+		}
+		if current.Type != string(llm.ProviderChatGPT) || current.CredentialPattern != "oauth:"+authorizationID {
+			return oauthflow.ErrConflict
+		}
+		if current.DefaultModel == "" {
+			result := database.ScopeByUser(ctx, tx.Model(&database.LLMProvider{}), "user_id").Where("id = ? AND credential_pattern = ? AND default_model = ?", provider.ID, current.CredentialPattern, "").Update("default_model", model)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return oauthflow.ErrConflict
+			}
+			current.DefaultModel = model
+		}
+		updated, err = fromDBModel(current)
+		return err
+	})
+	if err != nil {
 		logging.Warnf(ctx, "providers.service", "chatgpt_default_model_save_failed")
 		return
 	}
-	if err := s.registry.Register(&updated); err != nil {
+	if err := s.registry.Register(updated); err != nil {
 		logging.Warnf(ctx, "providers.service", "chatgpt_default_model_registry_failed")
 	}
 }

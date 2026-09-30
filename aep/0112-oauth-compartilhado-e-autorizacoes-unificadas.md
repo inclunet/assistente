@@ -290,7 +290,12 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   e tokens de teste, falha de persistência, concorrência, escopo e conclusão SSE.
 - O teste de consentimento com uma conta real depende de ação do usuário no
   navegador. Não foi realizado automaticamente nem usa credenciais de terceiros.
-- Revisão independente local em vinte rodadas, com correções de isolamento de
+- Modelo padrão opcional altera somente o campo em transação com a autorização;
+  testes preservam edição concorrente e recusam exclusão, novo vínculo ou desconexão.
+- Coletor síncrono exige conclusão explícita; `response.completed` encerra a leitura
+  sem depender de EOF. Revogação usa access token quando não há refresh token.
+  Regressões cobrem conexão SSE aberta, erro tardio e revogação sem refresh.
+- Revisão independente local em vinte e uma rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,

@@ -324,3 +324,32 @@ func (m *Manager) DeleteOAuthAuthorization(ctx context.Context, id string, delet
 	delete(m.oauthRequests, id)
 	return nil
 }
+
+// WithAuthorization validates a live envelope and changes its consumer in the
+// same database transaction. The vault session cannot change during the update.
+func (s *oauthStore) WithAuthorization(ctx context.Context, id string, update func(*gorm.DB) error) error {
+	s.manager.mu.RLock()
+	defer s.manager.mu.RUnlock()
+	r, enc, err := s.load(ctx, id)
+	if err != nil {
+		return err
+	}
+	if r.State != "connected" || r.RefreshPending {
+		return oauthflow.ErrConflict
+	}
+	persistence, ok := s.manager.store.(*DBStore)
+	if !ok {
+		return errors.New("oauth_store_not_supported")
+	}
+	db, err := persistence.ensureDB()
+	if err != nil {
+		return err
+	}
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var entry database.CredentialEntry
+		if err := database.ScopeByUser(ctx, tx, "user_id").Where("id = ? AND source = ? AND oauth_enc = ?", id, "oauth", enc).First(&entry).Error; err != nil {
+			return err
+		}
+		return update(tx)
+	})
+}

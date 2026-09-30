@@ -91,8 +91,9 @@ func (p *OpenAIProvider) chatGPTModels(ctx context.Context) ([]ModelOption, erro
 
 // Synchronous callers still use the same streaming parser and completion guard.
 type chatGPTCollector struct {
-	text string
-	err  error
+	text      string
+	err       error
+	completed bool
 }
 
 func (h *chatGPTCollector) OnChunk(string)              {}
@@ -103,7 +104,7 @@ func (h *chatGPTCollector) OnToolCalls([]ToolCall, string, Usage, string) {
 	h.err = errors.New("chatgpt_unexpected_tool_call")
 }
 func (h *chatGPTCollector) OnError(e string)                      { h.err = errors.New(e) }
-func (h *chatGPTCollector) OnDone(text string, _ Usage, _ string) { h.text = text }
+func (h *chatGPTCollector) OnDone(text string, _ Usage, _ string) { h.text = text; h.completed = true }
 
 func chatGPTFailure(ctx context.Context, code string) string {
 	result := "chatgpt_request_failed"
@@ -161,4 +162,17 @@ func chatGPTStatusFailure(ctx context.Context, status int) string {
 	default:
 		return chatGPTFailure(ctx, "")
 	}
+}
+
+func (h *chatGPTCollector) result(ctx context.Context) (string, error) {
+	if h.err != nil {
+		return "", h.err
+	}
+	if !h.completed {
+		if ctx.Err() != nil {
+			return "", errors.New("chatgpt_request_cancelled")
+		}
+		return "", errors.New("chatgpt_stream_interrupted")
+	}
+	return h.text, nil
 }

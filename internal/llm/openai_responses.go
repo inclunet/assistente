@@ -19,7 +19,7 @@ func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, me
 	if p.provider.Type == ProviderChatGPT {
 		h := &chatGPTCollector{}
 		p.streamChatResponses(ctx, model, messages, params, h)
-		return h.text, h.err
+		return h.result(ctx)
 	}
 	if !params.AllowAssistantPrefill {
 		messages = removeTrailingAssistantPrefill(messages)
@@ -339,6 +339,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 	var eventCount int
 
+responseEvents:
 	for stream.Next() {
 		wd.Kick()
 		if ctx.Err() != nil {
@@ -616,6 +617,10 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] Stream completed: %d events, response=%d bytes, toolCalls=%d, model=%s",
 				eventCount, fullResponse.Len(), len(finishedToolCalls), lastModel)
 
+			if p.provider.Type == ProviderChatGPT {
+				break responseEvents
+			}
+
 		case "response.incomplete":
 			if p.provider.Type == ProviderChatGPT {
 				failChatGPT("chatgpt_response_incomplete")
@@ -687,7 +692,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	}
 
 	wd.Stop()
-	if err := stream.Err(); err != nil {
+	if err := stream.Err(); err != nil && (p.provider.Type != ProviderChatGPT || !completed) {
 		if p.provider.Type == ProviderChatGPT {
 			if ctx.Err() == nil && wd.TimedOut() {
 				failChatGPT(streamIdleErrorMessage)
@@ -769,7 +774,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
 	// truncada. Parar e aguardar o watchdog fecha a janela entre consultar
 	// TimedOut e entregar OnDone.
-	if wd.TimedOut() {
+	if wd.TimedOut() && (p.provider.Type != ProviderChatGPT || !completed) {
 		logging.Logger(ctx, "llm.openai-responses").ErrorContext(
 			ctx,
 			"stream encerrou junto com timeout de inatividade",

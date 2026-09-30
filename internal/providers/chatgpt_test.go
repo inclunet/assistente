@@ -464,3 +464,69 @@ func TestChatGPTOptionalModelSkipsUnconfirmedAuthorization(t *testing.T) {
 		t.Fatal("default saved without confirming authorization")
 	}
 }
+
+func TestChatGPTDefaultModelUsesCurrentConsumer(t *testing.T) {
+	for _, change := range []string{"rename", "delete", "rebind", "chosen_model", "disconnect"} {
+		t.Run(change, func(t *testing.T) {
+			s, mgr, ctx := chatGPTTestService(t)
+			created, err := s.CreateChatGPTConnection(ctx, "Original")
+			if err != nil {
+				t.Fatal(err)
+			}
+			store, _ := mgr.OAuthStore(ctx)
+			r, _ := store.Load(ctx, created.ID)
+			r.State = "connected"
+			r.Revision++
+			if err := store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
+				t.Fatal(err)
+			}
+			stale := s.registry.Get(created.ID)
+			current, err := database.GetLLMProviderWithContext(ctx, created.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch change {
+			case "delete":
+				err = database.DB().Delete(current).Error
+			case "rename":
+				err = database.DB().Model(current).Update("name", "Imported name").Error
+			case "rebind":
+				err = database.DB().Model(current).Update("credential_pattern", "oauth:another-grant").Error
+			case "chosen_model":
+				err = database.DB().Model(current).Update("default_model", "chosen-model").Error
+			case "disconnect":
+				r.State = "disconnected"
+				r.Revision++
+				err = store.CompareAndSwap(ctx, r, r.Revision-1)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.setChatGPTDefaultModel(ctx, store, created.ID, stale, "account-model")
+			saved, err := database.GetLLMProviderWithContext(ctx, created.ID)
+			if change == "delete" {
+				if err == nil {
+					t.Fatal("deleted provider resurrected")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch change {
+			case "rename":
+				if saved.Name != "Imported name" || saved.DefaultModel != "account-model" || s.registry.Get(created.ID).Name != saved.Name {
+					t.Fatal("stale snapshot published")
+				}
+			case "chosen_model":
+				if saved.DefaultModel != "chosen-model" || s.registry.Get(created.ID).DefaultModel != "chosen-model" {
+					t.Fatal("explicit model overwritten")
+				}
+			default:
+				if saved.DefaultModel != "" {
+					t.Fatal("changed authorization accepted")
+				}
+			}
+		})
+	}
+}
