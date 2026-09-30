@@ -239,7 +239,7 @@ func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err 
 			return result, err
 		}
 	}
-	return result, err
+	return LocalCommandKeyboardMap{}, commandexecution.ErrStale
 }
 
 func (p *commandProductRuntime) loadLocalCommandKeyboardMap(ctx, lifetimeCtx context.Context, trace *commandLoadTrace, resetRevision uint64) (result LocalCommandKeyboardMap, err error) {
