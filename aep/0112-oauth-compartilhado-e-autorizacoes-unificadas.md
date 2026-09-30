@@ -60,6 +60,9 @@ O registro composto, versionado, reúne:
 - endpoints e configuração de callback;
 - identidade validada da conta/workspace quando o protocolo a fornecer;
 - access token, refresh token opcional, tipo do token e expiração conhecida;
+- ID token validado e cifrado quando a integração exigir sua retenção para
+  `id_token_hint`, e instante mínimo de renovação informado pelo servidor
+  (`earliest_refresh_at` no ChatGPT), ambos associados à mesma revisão;
 - componentes adicionais tipados por papel, quando a integração exigir.
 
 Client secret é opcional: clientes públicos com PKCE não passam a exigir segredo.
@@ -91,7 +94,10 @@ em voo: resultados atrasados não podem restaurar uma credencial removida, sobre
 uma revisão nova ou gravar sob outro usuário. Não há refresh concorrente independente
 em MCP e no transporte. Persistência que falha não pode ser reportada como sucesso.
 
-Expiração conhecida permite refresh antecipado com margem limitada. Expiração
+Expiração conhecida permite refresh antecipado com margem limitada, respeitando
+o instante mínimo de renovação do servidor. Antes dele, não executar refresh
+antecipado; seguir a recuperação documentada pela integração se o token for
+rejeitado. Atualizar esse instante junto dos tokens após cada troca. Expiração
 desconhecida não implica interpretar tokens opacos como JWT nem inventar validade.
 Recuperação após rejeição depende do contrato da integração: no máximo uma tentativa
 de recuperação, sem loops e sem confundir limite de plano, 400 ou 403 com expiração.
@@ -152,7 +158,9 @@ de OAuth por outro provedor não garante compatibilidade automática de todas as
 
 Entregar conexão, reconexão/desconexão, catálogo da conta, chat e ferramentas locais
 pela Responses API usando a autorização oficial, sem API key do usuário. Validar
-ID token e scopes de uso do plano, registro dinâmico emitido por OpenAI e identificador
+ID token e scopes de uso do plano, reter o ID token protegido para `id_token_hint`
+na reconexão da mesma conta e persistir/respeitar `earliest_refresh_at` conforme
+o token endpoint. Validar o registro dinâmico emitido por OpenAI e identificador
 estável do host conforme documentação. Login de identidade isolado não habilita inferência.
 O fluxo público não exige client secret. Renovação e armazenamento pertencem à base
 comum; detalhes do registro pertencem à extensão ChatGPT.
@@ -255,6 +263,8 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 - [ ] Client secret opcional, registro manual/DCR/extensão e autorização pendente cobertos.
 - [ ] Callbacks fixos, registrados e dinâmicos testados; colisão não muda cliente manual;
   novo DCR malsucedido preserva a autorização anterior.
+- [ ] Retenção protegida de ID token e reconexão com `id_token_hint` testadas;
+  refresh respeita `earliest_refresh_at` e atualiza o limite com tokens rotacionados.
 - [ ] PKCE/state/nonce/identidade, cancelamento, revogação e rotação cobertos por testes;
   refresh concorrente único, logout/edição/exclusão impedem gravação tardia.
 - [ ] MCP preserva discovery, Device Flow, client credentials, PKCE, native e bridge;
@@ -272,6 +282,7 @@ Fontes oficiais consultadas em 30/09/2026; revalidar na implementação:
 
 - [OpenAI — visão geral](https://developers.openai.com/siwc/token-sharing-open-source)
 - [OpenAI — registro e autorização](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
+- [OpenAI — referência de tokens](https://developers.openai.com/siwc/token-sharing-open-source/token-reference)
 - [OpenAI — modelos e inferência](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)
 - [OpenAI — limitações da preview](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
 - [AEP-0110](0110-fontes-explicitas-de-credenciais.md)
