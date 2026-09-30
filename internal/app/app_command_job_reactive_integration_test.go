@@ -26,6 +26,7 @@ import (
 // DecisionDialog, sessão, handler e runtime são os usados pelo App.
 func publishReactiveJobTestBinding(t *testing.T, a *App, registry *commandcatalog.Registry, target, command string, claim commandactivation.Claim, arguments string) {
 	t.Helper()
+	resetRevision := a.commandProduct.Load().projectionResetRevision.Load()
 	ctx := database.WithUserID(context.Background(), a.currentUserID)
 	spec, _ := json.Marshal(map[string]any{"version": 1, "selection": command})
 	if _, err := registry.ValidateArguments(command, []byte(arguments)); err != nil {
@@ -73,7 +74,7 @@ func publishReactiveJobTestBinding(t *testing.T, a *App, registry *commandcatalo
 		t.Fatal(err)
 	}
 	if err := (commandLifecycleLoadedConfiguration{app: a, store: store, principal: principal, workspaceID: scope.WorkspaceID,
-		snapshot: snapshot, configuration: configuration, activeLayers: projection.layers, guard: guard}).publish(ctx); err != nil {
+		snapshot: snapshot, configuration: configuration, activeLayers: projection.layers, guard: guard, publicationResetRevision: resetRevision}).publish(ctx); err != nil {
 		t.Fatalf("publicar binding reativo: %v", err)
 	}
 }

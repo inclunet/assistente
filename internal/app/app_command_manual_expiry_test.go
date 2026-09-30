@@ -1,13 +1,77 @@
 package app
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"assistente/internal/auth"
 	"assistente/internal/commandactivation"
 	"assistente/internal/commandbindings"
 	"assistente/internal/database"
 )
+
+func TestCommandManualExpiryResetStopsOldTimer(t *testing.T) {
+	a := readyCommandProduct(t)
+	p := a.commandProduct.Load()
+	p.mu.Lock()
+	if p.manualExpiryCancel != nil {
+		p.manualExpiryCancel()
+	}
+	p.mu.Unlock()
+	p.workers.Wait()
+	configuration, layers, err := p.host.UserConfiguration(context.Background(), p.principal.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	configuration = configuration.WithValidityDeadline(deadline)
+	if err := p.host.RebuildUserConfiguration(context.Background(), func(context.Context) (auth.LocalSessionPrincipal, error) {
+		return p.principal, nil
+	}, func(context.Context, auth.LocalSessionPrincipal) (*commandbindings.Configuration, []string, error) {
+		return configuration, layers, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	wake, done := make(chan struct{}), make(chan struct{})
+	p.mu.Lock()
+	p.manualExpiryCancel, p.manualExpiryWake = cancel, wake
+	p.mu.Unlock()
+	p.workers.Add(1)
+	go func() { defer close(done); p.runCommandManualExpiry(ctx, wake) }()
+	locked := false
+	defer func() {
+		cancel()
+		if locked {
+			p.projectionMu.Unlock()
+		}
+		<-done
+	}()
+	ping := func() {
+		select {
+		case wake <- struct{}{}:
+		case <-ctx.Done():
+			t.Fatal("worker não consumiu wake")
+		}
+	}
+	ping()
+	ping() // confirma que a primeira iteração já leu/armou o prazo.
+	a.resetCommandHostSession(false)
+	ping()
+	ping() // confirma uma iteração completa após o reset.
+	p.projectionMu.Lock()
+	locked = true
+	// Um timer retido tentaria adquirir projectionMu após vencer e impediria
+	// o shutdown abaixo. Sem prazo, o worker aguarda wake/cancelamento.
+	<-time.After(max(time.Millisecond, time.Until(deadline)+1100*time.Millisecond))
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timer antigo tentou reconstruir sem nova publicação")
+	}
+}
 
 func TestCommandManualRuleEditorPreservesIndependentJobLifecycle(t *testing.T) {
 	for _, lifecycle := range []string{"persistent", "session"} {

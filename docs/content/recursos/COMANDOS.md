@@ -22,6 +22,13 @@ contexto do gerenciador; não é executada ao navegar para outra página.
 
 ## Diagnosticar falhas de carregamento
 
+Quando uma alteração suspende o mapa e a publicação falha temporariamente,
+a próxima tentativa de carregamento pode reconstruí-lo sem reiniciar o app.
+Uma restauração de camadas incompleta precisa terminar primeiro: não se usa
+um mapa antigo para contornar falhas, sessão inválida ou cofre bloqueado.
+A manutenção coordenada de jobs trabalha em lotes e solicita cancelamento
+quando sua passagem excede o orçamento, para permitir novas tentativas.
+
 Falhas e lentidão ao carregar camadas ou o mapa de teclado são registradas
 automaticamente pelo logger do aplicativo, sem variável de ambiente adicional.
 Para gravar em arquivo, inicie no PowerShell:
@@ -44,6 +51,10 @@ o resultado ou aviso. `slow` aparece uma vez após três segundos, sem interromp
 operação. Em falhas, `error_class`, `error_types` e, quando disponível,
 `error_code` preservam a causa tipada anterior à mensagem genérica da interface.
 Erros desconhecidos têm classe `other`, não seu texto potencialmente sensível.
+Classes como `host_user_not_published`, `host_state_disabled` e
+`job_projection_unavailable` distinguem estados antes classificados apenas
+como `other`. Uma classe isolada indica onde investigar, não comprova a causa
+raiz. Compare a sequência de falhas/sucessos com os registros de manutenção.
 
 Isto não registra pressionamentos, atalhos individuais, conteúdo digitado,
 argumentos ou identificadores de sessão. Sucesso significa que o backend
