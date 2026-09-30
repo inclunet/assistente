@@ -1,5 +1,11 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — estabilidade sob concorrência (29/09/2026): In Progress.**
+Leitura do mapa limitada a três tentativas para projeção obsoleta, mantendo
+a prova de segurança e a revisão de reset originais. Recibos reutilizam a
+política SQLite de contenção limitada sem repetir a pergunta nem ações;
+cancelamento e expiração permanecem obrigatórios. Sem novo aceite manual.
+
 **AEP-0103 — aceite incremental (29/09/2026): In Progress.** Confirmados pelo
 mantenedor: Enter para editar, lista aberta após salvar, toolbar/paridade
 contextual e ativação por página. Checklist manual registra as variantes;

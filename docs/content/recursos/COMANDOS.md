@@ -26,6 +26,10 @@ Quando uma alteração suspende o mapa e a publicação falha temporariamente,
 a próxima tentativa de carregamento pode reconstruí-lo sem reiniciar o app.
 Uma restauração de camadas incompleta precisa terminar primeiro: não se usa
 um mapa antigo para contornar falhas, sessão inválida ou cofre bloqueado.
+Se a configuração mudar durante essa leitura, o aplicativo tenta obter um
+mapa atual até três vezes, sem repetir comandos nem atravessar um bloqueio
+ou troca de sessão. Confirmações também toleram contenção temporária do banco
+com espera limitada, sem reapresentar a pergunta ou aceitar respostas expiradas.
 A manutenção coordenada de jobs trabalha em lotes e solicita cancelamento
 quando sua passagem excede o orçamento, para permitir novas tentativas.
 

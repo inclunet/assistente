@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -17,6 +18,8 @@ import (
 	"assistente/internal/commandcontract"
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandledger"
+	"assistente/internal/commandruntime"
+	"assistente/internal/commandsecurity"
 	"assistente/internal/commandui"
 	"assistente/internal/workspace"
 	"github.com/google/uuid"
@@ -200,13 +203,53 @@ func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err 
 		trace.finish(err, slog.Int("keyboardbindings", len(result.Bindings)), slog.Int("contextualbindings", len(result.ContextualBindings)))
 	}()
 	trace.stage("product")
-	p, err := a.authenticatedCommandProductContext(ctx)
+	if a == nil {
+		return result, commandexecution.ErrDenied
+	}
+	p := a.commandProduct.Load()
+	if p == nil {
+		commandLoadCause(ctx, commandruntime.ErrNotReady)
+		return result, commandruntime.ErrNotReady
+	}
+	resetRevision := p.projectionResetRevision.Load()
+	epoch, err := p.epochs.CaptureAuthenticated(ctx, func(ctx context.Context) (string, string, error) {
+		current, err := p.sessionSvc.RevalidateLocalSession(ctx, p.principal)
+		if err != nil || current != p.principal || a.commandProduct.Load() != p || !p.dependenciesMatch(a) {
+			return "", "", commandexecution.ErrDenied
+		}
+		return current.UserID, current.SessionID, nil
+	})
 	if err != nil {
 		return result, err
 	}
-	trace.stage("job_projection")
-	if err := p.refreshCommandJobProjection(ctx); err != nil {
+	readCtx, releaseRead, err := p.epochs.WatchSecurityEpoch(ctx, epoch)
+	if err != nil {
 		return result, err
+	}
+	defer releaseRead()
+	// A renovação de uma projeção pode ocorrer durante a construção do mapa.
+	// Repete somente a leitura, sem executar ações, e sem atravessar reset,
+	// troca de produto ou invalidação da segurança que iniciou a chamada.
+	for attempt := 0; attempt < 3; attempt++ {
+		if readCtx.Err() != nil || p.projectionResetRevision.Load() != resetRevision || a.commandProduct.Load() != p || !p.dependenciesMatch(a) {
+			return LocalCommandKeyboardMap{}, commandexecution.ErrStale
+		}
+		result, err = p.loadLocalCommandKeyboardMap(readCtx, ctx, trace, resetRevision)
+		if !errors.Is(err, commandexecution.ErrStale) && !errors.Is(err, commandsecurity.ErrStaleEpoch) {
+			return result, err
+		}
+	}
+	return result, err
+}
+
+func (p *commandProductRuntime) loadLocalCommandKeyboardMap(ctx, lifetimeCtx context.Context, trace *commandLoadTrace, resetRevision uint64) (result LocalCommandKeyboardMap, err error) {
+	a := p.app
+	authenticated, err := a.authenticatedCommandProductContext(ctx)
+	if err != nil {
+		return result, err
+	}
+	if authenticated != p || p.projectionResetRevision.Load() != resetRevision {
+		return result, commandexecution.ErrStale
 	}
 	trace.stage("epoch")
 	epoch, err := p.epochs.CaptureAuthenticated(ctx, func(ctx context.Context) (string, string, error) {
@@ -225,7 +268,8 @@ func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err 
 		return result, err
 	}
 	trace.stage("watch_epoch")
-	watched, release, err := p.epochs.WatchEpoch(ctx, epoch)
+	// O mapa retido vive com o App, não com o watch temporário desta leitura.
+	watched, release, err := p.epochs.WatchEpoch(lifetimeCtx, epoch)
 	if err != nil {
 		return result, err
 	}
@@ -240,6 +284,7 @@ func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err 
 	if err != nil || !versions.Unlocked {
 		if err != nil {
 			commandLoadCause(ctx, err)
+			return result, err
 		} else {
 			commandLoadCause(ctx, commandexecution.ErrDenied)
 		}
@@ -282,6 +327,9 @@ func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err 
 	}
 	trace.stage("admit")
 	err = p.epochs.Admit(ctx, epoch, func(ctx context.Context) error {
+		if p.projectionResetRevision.Load() != resetRevision {
+			return commandexecution.ErrStale
+		}
 		current, err := p.sessionSvc.RevalidateLocalSession(ctx, p.principal)
 		if err != nil || current != p.principal || a.commandProduct.Load() != p || !p.dependenciesMatch(a) {
 			if err != nil {
@@ -310,6 +358,9 @@ func (a *App) GetLocalCommandKeyboardMap() (result LocalCommandKeyboardMap, err 
 		}
 		p.keyboardMu.Lock()
 		defer p.keyboardMu.Unlock()
+		if p.projectionResetRevision.Load() != resetRevision {
+			return commandexecution.ErrStale
+		}
 		if old := p.keyboardMap; old != nil && old.ctx.Err() == nil && old.configuration == configuration && old.versions == versions {
 			result = cloneLocalCommandKeyboardMap(old.view)
 			return nil

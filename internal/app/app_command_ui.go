@@ -138,6 +138,9 @@ func (a *App) authenticatedCommandProductContext(ctx context.Context) (*commandP
 	if err != nil || !state.Unlocked {
 		if err != nil {
 			commandLoadCause(ctx, err)
+			if errors.Is(err, commandexecution.ErrStale) {
+				return nil, err
+			}
 		} else {
 			commandLoadCause(ctx, commandruntime.ErrNotReady)
 		}

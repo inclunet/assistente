@@ -1,5 +1,16 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Estabilidade sob concorrência (29/09/2026): In Progress.** A leitura do
+mapa repete no máximo três tentativas quando uma renovação de projeção torna
+o snapshot obsoleto antes da publicação. A prova de segurança e a revisão de
+reset são mantidas desde o início: não se atravessa lock, troca de sessão ou
+reset, nem se repetem ações. A reserva e a finalização de recibos usam a
+política SQLite limitada de contenção já existente; a pergunta é apresentada
+uma única vez, preservando cancelamento, expiração e atomicidade da auditoria.
+Regressões: `TestCommandKeyboardMapReadRetriesOnlyTransientProjection` e
+testes de writer real em `internal/commanddecision/store_test.go`.
+Não constitui novo aceite manual.
+
 **Aceite manual incremental (29/09/2026): In Progress.** O mantenedor confirmou
 Enter para editar, permanência do gerenciador após salvar, organização final
 das toolbars/paridade contextual e ativação por página. Evidências delimitadas
