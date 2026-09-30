@@ -287,8 +287,12 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   e tokens de teste, falha de persistência, concorrência, escopo e conclusão SSE.
 - O teste de consentimento com uma conta real depende de ação do usuário no
   navegador. Não foi realizado automaticamente nem usa credenciais de terceiros.
-- Revisão independente local em onze rodadas, com correções de isolamento de
+- Revisão independente local em doze rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
+- O scanner de integridade inclui o envelope OAuth e identifica autorizações
+  ilegíveis; teste de recuperação preserva envelopes saudáveis ao remover órfãos.
+- Exclusão compara a referência persistida dentro da transação; consultas iniciais
+  da interface não sobrescrevem ações posteriores de autorização/desconexão.
 - Criação e exclusão de provedor ChatGPT e autorização na mesma transação;
   `providers/chatgpt_test.go` força falha, comprova rollback e rejeita recuperação
   importada com referência obsoleta. Cancelamento não publica registro no cache.

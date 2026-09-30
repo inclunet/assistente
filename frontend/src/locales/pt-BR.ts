@@ -24,7 +24,7 @@ const ptBR = {
   "limitations": "Disponível para chat e ferramentas executadas pelo Assistente. Recursos de áudio e ferramentas hospedadas não estão disponíveis nesta conexão.",
   "status": "Estado: {{state}}",
   "account": "Conta: {{email}}",
-  "registration": "Autorização: {{id}}",
+  "providerID": "Provedor: {{id}}",
   "waiting": "Aguardando a autorização no navegador. Você pode cancelar.",
   "browserReturn": "Retorne ao Assistente para verificar o resultado da conexão.",
   "connectionError": "Não foi possível concluir a conexão. Verifique o consentimento no navegador e tente conectar novamente.",

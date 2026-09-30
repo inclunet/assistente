@@ -201,6 +201,10 @@ type allCredentialsLister interface {
 // `gcm.Open` retorna `cipher: message authentication failed` e
 // reportamos como ilegível.
 func (m *Manager) isAuthDecryptable(auth *AuthConfig) bool {
+	if auth.OAuthEnc != "" {
+		_, err := m.decrypt(auth.OAuthEnc)
+		return err == nil
+	}
 	probes := []string{auth.Token, auth.Password, auth.RefreshURL, auth.ClientSecret, auth.ClientID}
 	for _, v := range auth.Headers {
 		probes = append(probes, v)

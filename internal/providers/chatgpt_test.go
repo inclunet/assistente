@@ -312,3 +312,38 @@ func TestFirstChatGPTProviderBecomesDefault(t *testing.T) {
 		t.Fatalf("other default: %v", err)
 	}
 }
+
+func TestChatGPTDeleteRejectsChangedAuthorizationReference(t *testing.T) {
+	s, mgr, ctx := chatGPTTestService(t)
+	old, err := s.CreateChatGPTConnection(ctx, "Original")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.DisconnectChatGPT(ctx, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	store, _ := mgr.OAuthStore(ctx)
+	replacement, _ := s.oauth.Pending("replacement", "owner", "chatgpt")
+	replacement.State = "disconnected"
+	if err = store.Create(ctx, replacement); err != nil {
+		t.Fatal(err)
+	}
+	// A second instance updates the persisted reference while this registry is stale.
+	updated, _ := s.store.Get(ctx, old.ID)
+	updated.CredentialPattern = "oauth:replacement"
+	if err = s.store.Save(ctx, []*llm.ProviderConfig{updated}); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Delete(ctx, old.ID); !errors.Is(err, oauthflow.ErrConflict) {
+		t.Fatalf("stale delete: %v", err)
+	}
+	for _, id := range []string{old.ID, replacement.ID} {
+		if _, err = store.Load(ctx, id); err != nil {
+			t.Fatalf("authorization %s lost: %v", id, err)
+		}
+	}
+	current, err := s.store.Get(ctx, old.ID)
+	if err != nil || current.CredentialPattern != "oauth:replacement" || s.registry.Get(old.ID) == nil {
+		t.Fatal("consumer lost")
+	}
+}

@@ -16,6 +16,26 @@ beforeEach(() => {
   mocks.get.mockResolvedValue({ id: 'authorization', state: 'connected', email: 'user@example.test' });
 });
 describe('ChatGPT connection', () => {
+  it.each(['resolve', 'reject'])('ignores an obsolete initial query after disconnect: %s', async outcome => {
+    let resolve!: (value: unknown) => void, reject!: (reason: Error) => void;
+    mocks.get.mockReturnValueOnce(new Promise((yes, no) => { resolve = yes; reject = no; }));
+    mocks.disconnect.mockResolvedValueOnce(true);
+    const user = userEvent.setup();
+    render(<ChatGPTConnection id="provider-id" onChanged={vi.fn()} onClose={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'chatgpt.disconnect' }));
+    await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('chatgpt.states.disconnected'));
+    mocks.announce.mockClear();
+    await act(async () => {
+      if (outcome === 'resolve') resolve({ id: 'authorization-id', state: 'connected', email: 'old@example.test' });
+      else reject(new Error('obsolete'));
+    });
+    expect(screen.getByRole('button', { name: 'chatgpt.disconnect' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'chatgpt.reconnect' })).not.toBeInTheDocument();
+    expect(screen.queryByText('chatgpt.connectionError')).not.toBeInTheDocument();
+    expect(mocks.announce).not.toHaveBeenCalled();
+    expect(screen.getByText('chatgpt.providerID')).toBeInTheDocument();
+  });
+
   it('blocks closing only while the initial record is being created', async () => {
     let resolveCreate!: (value: {id: string}) => void;
     mocks.create.mockReturnValueOnce(new Promise(resolve => { resolveCreate = resolve; }));

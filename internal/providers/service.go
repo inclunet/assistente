@@ -634,7 +634,15 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 			return errors.New("oauth_vault_unavailable")
 		}
 		if err = mgr.DeleteOAuthAuthorization(ctx, credentials.OAuthCredentialID(provider.CredentialPattern), func(tx *gorm.DB) error {
-			return database.NewProviderRepository(tx).DeleteLLMProvider(ctx, id)
+			repository := database.NewProviderRepository(tx)
+			current, err := repository.GetLLMProvider(ctx, id)
+			if err != nil {
+				return err
+			}
+			if current.Type != string(llm.ProviderChatGPT) || current.CredentialPattern != provider.CredentialPattern {
+				return oauthflow.ErrConflict
+			}
+			return repository.DeleteLLMProvider(ctx, id)
 		}); err != nil {
 			return err
 		}

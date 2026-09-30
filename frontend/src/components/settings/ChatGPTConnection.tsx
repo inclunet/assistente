@@ -23,6 +23,7 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCreationChange }: 
     }
   }, [welcome]);
   const mounted = useRef(true);
+  const loadGeneration = useRef(0);
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -31,12 +32,14 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCreationChange }: 
   const [error, setError] = useState('');
   useEffect(() => {
     mounted.current = true;
+    const generation = ++loadGeneration.current;
     if (id) void GetConnection(id).then(value => {
-      if (mounted.current) { setState(value.state); setEmail(value.email || ''); announce(t(`chatgpt.states.${value.state}`, { defaultValue: t('chatgpt.connectionError') })); }
-    }).catch(() => { if (mounted.current) { setError(t('chatgpt.connectionError')); announce(t('chatgpt.connectionError'), 'assertive'); } });
-    return () => { mounted.current = false; if (currentID.current) void CancelChatGPT(currentID.current).catch(() => undefined); };
+      if (mounted.current && generation === loadGeneration.current) { setState(value.state); setEmail(value.email || ''); announce(t(`chatgpt.states.${value.state}`, { defaultValue: t('chatgpt.connectionError') })); }
+    }).catch(() => { if (mounted.current && generation === loadGeneration.current) { setError(t('chatgpt.connectionError')); announce(t('chatgpt.connectionError'), 'assertive'); } });
+    return () => { loadGeneration.current++; mounted.current = false; if (currentID.current) void CancelChatGPT(currentID.current).catch(() => undefined); };
   }, [id, t, announce]);
   const connect = async () => {
+    loadGeneration.current++;
     setBusy(true); setError('');
     announce(t('chatgpt.waiting'));
     try {
@@ -63,11 +66,12 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCreationChange }: 
     } finally { if (mounted.current) setBusy(false); }
   };
   const disconnect = async () => {
+    loadGeneration.current++;
     setBusy(true); setError('');
     try {
       const revoked = await DisconnectChatGPT(currentID.current);
       if (!mounted.current) return;
-      setState('disconnected');
+      setState('disconnected'); setEmail('');
       const message = t(revoked ? 'chatgpt.states.disconnected' : 'chatgpt.revocationUnconfirmed');
       setError(revoked ? '' : message); announce(message);
     } catch { if (mounted.current) { setError(t('chatgpt.connectionError')); announce(t('chatgpt.connectionError'), 'assertive'); } }
@@ -89,7 +93,7 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCreationChange }: 
     {!id && <Input label={t('chatgpt.label')} value={name} maxLength={100} disabled={busy || !!currentID.current} onChange={e => setName(e.target.value)} />}
     <p>{t('chatgpt.status', { state: t(`chatgpt.states.${state}`, { defaultValue: state }) })}</p>
     {email && <p>{t('chatgpt.account', { email })}</p>}
-    {id && <p>{t('chatgpt.registration', { id })}</p>}
+    {id && <p>{t('chatgpt.providerID', { id })}</p>}
     {busy && <p>{t('chatgpt.waiting')}</p>}
     {error && <p>{error}</p>}
     <p><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">{t('chatgpt.usage')}</a></p>

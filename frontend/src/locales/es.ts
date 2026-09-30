@@ -24,7 +24,7 @@ const es = {
   "limitations": "Disponible para chat y herramientas ejecutadas por Assistente. El audio y las herramientas alojadas no están disponibles en esta conexión.",
   "status": "Estado: {{state}}",
   "account": "Cuenta: {{email}}",
-  "registration": "Autorización: {{id}}",
+  "providerID": "Proveedor: {{id}}",
   "waiting": "Esperando autorización en el navegador. Puedes cancelar.",
   "browserReturn": "Regresa a Assistente para comprobar el resultado de la conexión.",
   "connectionError": "No se pudo completar la conexión. Comprueba el consentimiento en el navegador e intenta conectar de nuevo.",
