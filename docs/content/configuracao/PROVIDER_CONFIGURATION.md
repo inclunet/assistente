@@ -17,7 +17,10 @@ navegador o uso do plano de uma conta elegível. Retorne ao Assistente para conf
 o estado **Conectado** e selecione esse provedor no perfil de chat. O primeiro
 modelo listado pela conta será o padrão quando o catálogo estiver disponível;
 você pode selecionar outro modelo no perfil. Se o catálogo falhar temporariamente,
-recarregue a lista de modelos no perfil e escolha um explicitamente.
+recarregue a lista de modelos no perfil e escolha um explicitamente. Se esta for
+a primeira conexão da sua conta local, ela também se torna o provedor padrão.
+Durante a gravação inicial, aguarde a liberação do botão de fechar; depois disso,
+você pode cancelar a espera pelo navegador.
 
 Cada autorização aparece como um provedor independente, com nome e identificador
 próprios. Para outra conta/workspace, crie outra conexão. Para voltar à mesma conta,
@@ -51,6 +54,9 @@ MCP e dos tokens de canais Slack será entregue separadamente.
 Falhas de resposta incompleta, conexão interrompida, autorização e limite do plano
 são apresentadas no idioma da interface. Ao atingir o limite, consulte o uso pelo
 link junto ao seletor de modelos; a solicitação não é repetida automaticamente.
+O catálogo também traduz falhas de autorização, permissão e indisponibilidade.
+Quando a renovação ainda não é permitida pelo servidor, aguarde e tente novamente;
+isso não significa que sua autorização foi revogada.
 A descoberta do modelo padrão é opcional: sua falha não desfaz uma conexão já autorizada.
 
 ## Provedores Suportados

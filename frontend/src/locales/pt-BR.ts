@@ -3,6 +3,7 @@ const ptBR = {
  chatgpt: {
     authorizationInProgress: 'Conclua ou cancele a autorização na janela da conexão ChatGPT antes de excluir este provedor.',
     errors: {
+      temporary: 'A conexão com o ChatGPT está temporariamente indisponível. Aguarde e tente novamente; não é necessário reconectar agora.',
       incomplete: 'O ChatGPT não concluiu a resposta. Tente novamente.',
       interrupted: 'A conexão com o ChatGPT foi interrompida antes de concluir a resposta.',
       planLimit: 'O limite do seu plano ChatGPT foi atingido. Consulte o uso pelo link ao lado do seletor de modelos.',

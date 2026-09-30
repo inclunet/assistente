@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -57,15 +56,15 @@ func (p *OpenAIProvider) RefreshModelOptions(ctx context.Context) ([]ModelOption
 func (p *OpenAIProvider) chatGPTModels(ctx context.Context) ([]ModelOption, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(p.provider.BaseURL, "/")+"/models", nil)
 	if err != nil {
-		return nil, err
+		return nil, errors.New(chatGPTTransportFailure(ctx, err))
 	}
 	resp, err := newHTTPClientForProvider(p.provider, p.credMgr).Do(req)
 	if err != nil {
-		return nil, err
+		return nil, errors.New(chatGPTTransportFailure(ctx, err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("chatgpt_models_http_%d", resp.StatusCode)
+		return nil, errors.New(chatGPTStatusFailure(ctx, resp.StatusCode))
 	}
 	var result struct {
 		Models []struct {
@@ -75,7 +74,7 @@ func (p *OpenAIProvider) chatGPTModels(ctx context.Context) ([]ModelOption, erro
 		} `json:"models"`
 	}
 	if err = json.NewDecoder(io.LimitReader(resp.Body, 2*1024*1024)).Decode(&result); err != nil {
-		return nil, errors.New("chatgpt_models_invalid")
+		return nil, errors.New(chatGPTFailure(ctx, ""))
 	}
 	options := make([]ModelOption, 0, len(result.Models))
 	for _, m := range result.Models {
@@ -117,6 +116,8 @@ func chatGPTFailure(ctx context.Context, code string) string {
 		result = "chatgpt_reauthorization_required"
 	case "permission_denied", "insufficient_scope":
 		result = "chatgpt_permission_required"
+	case "temporarily_unavailable":
+		result = "chatgpt_temporarily_unavailable"
 	case "rate_limit_exceeded":
 		result = "chatgpt_rate_limit"
 	}
@@ -131,6 +132,9 @@ func chatGPTTransportFailure(ctx context.Context, err error) string {
 	if errors.Is(err, oauthflow.ErrPermission) {
 		return chatGPTFailure(ctx, "insufficient_scope")
 	}
+	if errors.Is(err, oauthflow.ErrTransient) {
+		return chatGPTFailure(ctx, "temporarily_unavailable")
+	}
 	if errors.Is(err, context.Canceled) {
 		return "chatgpt_request_cancelled"
 	}
@@ -139,12 +143,22 @@ func chatGPTTransportFailure(ctx context.Context, err error) string {
 		if apiError.Code != "" {
 			return chatGPTFailure(ctx, apiError.Code)
 		}
-		if apiError.StatusCode == http.StatusUnauthorized {
-			return chatGPTFailure(ctx, "authentication_error")
-		}
-		if apiError.StatusCode == http.StatusForbidden {
-			return chatGPTFailure(ctx, "permission_denied")
-		}
+		return chatGPTStatusFailure(ctx, apiError.StatusCode)
 	}
 	return chatGPTFailure(ctx, "")
+}
+
+func chatGPTStatusFailure(ctx context.Context, status int) string {
+	switch {
+	case status == http.StatusUnauthorized:
+		return chatGPTFailure(ctx, "authentication_error")
+	case status == http.StatusForbidden:
+		return chatGPTFailure(ctx, "permission_denied")
+	case status == http.StatusTooManyRequests:
+		return chatGPTFailure(ctx, "rate_limit_exceeded")
+	case status >= 500:
+		return chatGPTFailure(ctx, "temporarily_unavailable")
+	default:
+		return chatGPTFailure(ctx, "")
+	}
 }

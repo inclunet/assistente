@@ -109,10 +109,17 @@ vi.mock('../components/ui/DataGrid', () => ({
 }));
 
 vi.mock('../components/ui/Modal', () => ({
-  Modal: ({ isOpen, children }: { isOpen: boolean; children?: ReactNode }) => (isOpen ? <div>{children}</div> : null),
+  Modal: ({ isOpen, children, allowClose = true, onClose }: { isOpen: boolean; children?: ReactNode; allowClose?: boolean; onClose: () => void }) => (isOpen ? <div><button disabled={!allowClose} onClick={onClose}>modal-close</button>{children}</div> : null),
   isModalOpen: () => false,
   useModalId: () => null,
   useModalIsTopmost: () => () => true,
+}));
+
+vi.mock('../components/settings/ChatGPTConnection', () => ({
+  ChatGPTConnection: ({ onCreationChange }: { onCreationChange: (creating: boolean) => void }) => <div>
+    <button onClick={() => onCreationChange(true)}>start-create</button>
+    <button onClick={() => onCreationChange(false)}>finish-create</button>
+  </div>,
 }));
 
 // O dublê mostra o que recebeu: é a única forma de um teste de página provar que
@@ -174,6 +181,22 @@ describe('ProvidersPage', () => {
 
   afterEach(() => {
     nowSpy.mockRestore();
+  });
+
+  it('blocks the modal close control until the connection record is created', async () => {
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+    await screen.findByText('OpenAI');
+    await user.click(screen.getByRole('button', { name: 'chatgpt.add' }));
+    await user.click(screen.getByRole('button', { name: 'start-create' }));
+    const close = screen.getByRole('button', { name: 'modal-close' });
+    expect(close).toBeDisabled();
+    await user.click(close);
+    expect(screen.getByRole('button', { name: 'finish-create' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'finish-create' }));
+    expect(close).toBeEnabled();
+    await user.click(close);
+    expect(screen.queryByRole('button', { name: 'start-create' })).not.toBeInTheDocument();
   });
 
   it('duplica provedor via menu de acoes', async () => {

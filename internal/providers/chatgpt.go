@@ -225,7 +225,13 @@ func persistChatGPTAuthorization(ctx context.Context, store oauthflow.Store, r o
 	}
 	return transaction.CreateWithConsumer(ctx, r, func(tx *gorm.DB) error {
 		repository := database.NewProviderRepository(tx)
-		if expectedPattern != nil {
+		if expectedPattern == nil {
+			count, err := repository.CountLLMProviders(ctx)
+			if err != nil {
+				return err
+			}
+			p.IsDefault = count == 0
+		} else {
 			current, err := repository.GetLLMProvider(ctx, p.ID)
 			if err != nil {
 				return err

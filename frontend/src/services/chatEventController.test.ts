@@ -1961,7 +1961,7 @@ describe('chatEventController', () => {
     ['chatgpt_response_incomplete', 'incomplete'], ['chatgpt_stream_interrupted', 'interrupted'],
     ['chatgpt_plan_limit', 'planLimit'], ['chatgpt_model_unavailable', 'modelUnavailable'],
     ['chatgpt_reauthorization_required', 'reauthorize'], ['chatgpt_permission_required', 'permission'],
-    ['chatgpt_rate_limit', 'rateLimit'], ['chatgpt_request_cancelled', 'cancelled'], ['chatgpt_request_failed', 'failed'],
+    ['chatgpt_temporarily_unavailable', 'temporary'], ['chatgpt_rate_limit', 'rateLimit'], ['chatgpt_request_cancelled', 'cancelled'], ['chatgpt_request_failed', 'failed'],
   ])('traduz falha ChatGPT %s', (error, key) => {
     const { adapter, sessions } = createAdapter(['conversation-2']);
     startChatEventController({ conversationId: 'conversation-2', adapter });

@@ -5,6 +5,7 @@ import (
 	"assistente/internal/oauthflow"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -144,5 +145,62 @@ func TestOAuthDisconnectCancelsStreamingBody(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("stream survived disconnect")
+	}
+}
+
+func TestOAuthTransportPreservesRefreshFailure(t *testing.T) {
+	for _, mode := range []string{"earliest", "unavailable", "revoked"} {
+		t.Run(mode, func(t *testing.T) {
+			setupScopedCredentialStoreTestDB(t)
+			calls, refreshes := 0, 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/token" {
+					refreshes++
+					if mode == "revoked" {
+						w.WriteHeader(400)
+						_, _ = fmt.Fprint(w, `{"error":"invalid_grant"}`)
+					} else {
+						w.WriteHeader(503)
+					}
+					return
+				}
+				calls++
+				w.WriteHeader(401)
+			}))
+			defer server.Close()
+			service := oauthflow.New(oauthflow.Integration{ID: "test", Issuer: server.URL, Resource: server.URL + "/v1", Endpoints: oauthflow.Endpoints{Token: server.URL + "/token"}, RequiredScopes: []string{"invoke"}, Routes: []oauthflow.Route{{Method: "POST", Path: "/responses"}}})
+			mgr := NewManagerWithStore(bytes.Repeat([]byte{2}, 32), NewDBStore(), true)
+			mgr.SetOAuthService(service)
+			ctx := database.WithUserID(context.Background(), "owner")
+			store, _ := mgr.OAuthStore(ctx)
+			r, _ := service.Pending("failure", "owner", "test")
+			r.State = "connected"
+			r.Client.ID = "client"
+			r.GrantedScopes = []string{"invoke"}
+			r.Tokens = oauthflow.Tokens{Access: "old", Refresh: "original", Type: "Bearer"}
+			if mode == "earliest" {
+				r.Tokens.EarliestRefreshAt = time.Now().Add(time.Hour)
+			}
+			if err := store.Create(ctx, r); err != nil {
+				t.Fatal(err)
+			}
+			client := NewHTTPClientWithAuthMode(mgr, "oauth:failure", AuthRequired, 0)
+			req, _ := http.NewRequestWithContext(ctx, "POST", server.URL+"/v1/responses", strings.NewReader(`{}`))
+			response, err := client.Do(req)
+			expected := oauthflow.ErrTransient
+			if mode == "revoked" {
+				expected = oauthflow.ErrReauthorize
+			}
+			if response != nil || !errors.Is(err, expected) {
+				t.Fatalf("response=%v err=%v expected=%v", response, err, expected)
+			}
+			expectedRefreshes := 1
+			if mode == "earliest" {
+				expectedRefreshes = 0
+			}
+			if calls != 1 || refreshes != expectedRefreshes {
+				t.Fatalf("calls=%d refreshes=%d", calls, refreshes)
+			}
+		})
 	}
 }

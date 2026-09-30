@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"assistente/internal/oauthflow"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -124,5 +125,30 @@ func TestChatGPTFailuresFinishThinkingBeforeError(t *testing.T) {
 				t.Fatalf("terminal lifecycle: %+v", handler)
 			}
 		})
+	}
+}
+
+func TestChatGPTCatalogFailuresAreSafeCodes(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		code   string
+	}{
+		{401, "chatgpt_reauthorization_required"}, {403, "chatgpt_permission_required"}, {429, "chatgpt_rate_limit"}, {503, "chatgpt_temporarily_unavailable"}, {400, "chatgpt_request_failed"}, {200, "chatgpt_request_failed"},
+	} {
+		t.Run(fmt.Sprint(tc.status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = fmt.Fprint(w, "private remote detail")
+			}))
+			defer server.Close()
+			p := NewOpenAIResponsesProvider(&ProviderConfig{ID: "chatgpt", Type: ProviderChatGPT, BaseURL: server.URL, AuthMode: AuthModeNone}, nil)
+			_, err := p.ModelOptions(context.Background())
+			if err == nil || err.Error() != tc.code {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+	if got := chatGPTTransportFailure(context.Background(), fmt.Errorf("wrapped: %w", oauthflow.ErrTransient)); got != "chatgpt_temporarily_unavailable" {
+		t.Fatal(got)
 	}
 }

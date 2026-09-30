@@ -7,8 +7,8 @@ import { Button } from '../ui/Button';
 import { DialogActions } from '../ui/DialogActions';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 
-interface Props { id?: string; onChanged: () => void; onClose: () => void }
-export function ChatGPTConnection({ id, onChanged, onClose }: Props) {
+interface Props { id?: string; onChanged: () => void; onClose: () => void; onCreationChange?: (creating: boolean) => void }
+export function ChatGPTConnection({ id, onChanged, onClose, onCreationChange }: Props) {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const localUserID = useAuthStore(s => s.user?.userId);
@@ -24,6 +24,7 @@ export function ChatGPTConnection({ id, onChanged, onClose }: Props) {
   }, [welcome]);
   const mounted = useRef(true);
   const [name, setName] = useState('');
+  const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [state, setState] = useState('pending');
   const [email, setEmail] = useState('');
@@ -40,9 +41,14 @@ export function ChatGPTConnection({ id, onChanged, onClose }: Props) {
     announce(t('chatgpt.waiting'));
     try {
       if (!currentID.current) {
-        const created = await CreateChatGPTConnection(name);
-        currentID.current = created.id;
-        if (!mounted.current) return;
+        setCreating(true); onCreationChange?.(true);
+        try {
+          const created = await CreateChatGPTConnection(name);
+          currentID.current = created.id;
+        } finally {
+          if (mounted.current) { setCreating(false); onCreationChange?.(false); }
+        }
+        if (!mounted.current) { onChanged(); return; }
       }
       const result = await AuthorizeChatGPT(currentID.current, t('chatgpt.browserReturn'));
       if (!mounted.current) return;
@@ -68,6 +74,7 @@ export function ChatGPTConnection({ id, onChanged, onClose }: Props) {
     finally { if (mounted.current) setBusy(false); }
   };
   const close = () => {
+    if (creating) return;
     if (currentID.current) void CancelChatGPT(currentID.current).catch(() => undefined);
     onClose(); onChanged();
   };
@@ -89,7 +96,7 @@ export function ChatGPTConnection({ id, onChanged, onClose }: Props) {
     <DialogActions primary={
       <Button ref={connectButton} variant="primary" disabled={busy || (!currentID.current && !name.trim())} onClick={() => void connect()}>{t(state === 'connected' ? 'chatgpt.reconnect' : 'chatgpt.connect')}</Button>} secondary={<>
       {currentID.current && <Button disabled={busy || state === 'disconnected'} onClick={() => void disconnect()}>{t('chatgpt.disconnect')}</Button>}
-      <Button onClick={close}>{t(busy ? 'common.cancel' : 'common.close')}</Button>
+      <Button disabled={creating} onClick={close}>{t(busy ? 'common.cancel' : 'common.close')}</Button>
     </>} />
   </div>;
 }

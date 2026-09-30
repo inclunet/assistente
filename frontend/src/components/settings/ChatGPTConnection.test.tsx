@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatGPTConnection } from './ChatGPTConnection';
@@ -16,6 +16,28 @@ beforeEach(() => {
   mocks.get.mockResolvedValue({ id: 'authorization', state: 'connected', email: 'user@example.test' });
 });
 describe('ChatGPT connection', () => {
+  it('blocks closing only while the initial record is being created', async () => {
+    let resolveCreate!: (value: {id: string}) => void;
+    mocks.create.mockReturnValueOnce(new Promise(resolve => { resolveCreate = resolve; }));
+    mocks.authorize.mockReturnValueOnce(new Promise(() => undefined));
+    const close = vi.fn(), creation = vi.fn();
+    const user = userEvent.setup();
+    render(<ChatGPTConnection onChanged={vi.fn()} onClose={close} onCreationChange={creation} />);
+    await user.type(screen.getByLabelText('chatgpt.label'), 'Account');
+    await user.click(screen.getByRole('button', { name: 'chatgpt.connect' }));
+    expect(creation).toHaveBeenLastCalledWith(true);
+    const cancel = screen.getByRole('button', { name: 'common.cancel' });
+    expect(cancel).toBeDisabled();
+    await user.click(cancel);
+    expect(close).not.toHaveBeenCalled();
+    await act(async () => resolveCreate({ id: 'issued' }));
+    expect(creation).toHaveBeenLastCalledWith(false);
+    expect(cancel).toBeEnabled();
+    await user.click(cancel);
+    expect(close).toHaveBeenCalledOnce();
+    expect(mocks.cancel).toHaveBeenCalledWith('issued');
+  });
+
   it('announces the asynchronously loaded state', async () => {
     render(<ChatGPTConnection id="authorization" onChanged={vi.fn()} onClose={vi.fn()} />);
     await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('chatgpt.states.connected'));

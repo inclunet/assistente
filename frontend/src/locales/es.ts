@@ -3,6 +3,7 @@ const es = {
  chatgpt: {
     authorizationInProgress: 'Completa o cancela la autorización en el diálogo de conexión ChatGPT antes de eliminar este proveedor.',
     errors: {
+      temporary: 'La conexión con ChatGPT no está disponible temporalmente. Espera e inténtalo de nuevo; no necesitas reconectar ahora.',
       incomplete: 'ChatGPT no completó la respuesta. Inténtalo de nuevo.',
       interrupted: 'La conexión con ChatGPT terminó antes de completar la respuesta.',
       planLimit: 'Se alcanzó el límite de tu plan ChatGPT. Consulta el uso mediante el enlace junto al selector de modelos.',

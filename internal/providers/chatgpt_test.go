@@ -281,3 +281,34 @@ func TestChatGPTDeleteRejectsActiveReauthorization(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestFirstChatGPTProviderBecomesDefault(t *testing.T) {
+	s, _, ctx := chatGPTTestService(t)
+	first, err := s.CreateChatGPTConnection(ctx, "First")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.CreateChatGPTConnection(ctx, "Second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{first.ID, second.ID} {
+		persisted, err := s.store.Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if persisted.IsDefault != (id == first.ID) || s.registry.Get(id).IsDefault != persisted.IsDefault {
+			t.Fatalf("default mismatch for %s", id)
+		}
+	}
+	// Another local user's providers must not affect first-provider selection.
+	other := database.WithUserID(context.Background(), "other")
+	created, err := s.CreateChatGPTConnection(other, "Other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := s.store.Get(other, created.ID)
+	if err != nil || !persisted.IsDefault {
+		t.Fatalf("other default: %v", err)
+	}
+}

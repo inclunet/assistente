@@ -57,6 +57,15 @@ beforeEach(() => {
 });
 
 describe('ModelPicker', () => {
+  it.each([
+    ['chatgpt_reauthorization_required', 'reauthorize'], ['chatgpt_permission_required', 'permission'],
+    ['chatgpt_rate_limit', 'rateLimit'], ['chatgpt_temporarily_unavailable', 'temporary'], ['chatgpt_request_failed', 'failed'],
+  ])('translates catalog failure %s without exposing the technical code', async (code, key) => {
+    getModelsSpy.mockRejectedValueOnce(new Error(code));
+    render(<ModelPicker value="" onChange={() => {}} providerID="chatgpt" />);
+    await waitFor(() => expect(screen.getByTestId('base-picker')).toHaveAttribute('data-error', `chatgpt.errors.${key}`));
+  });
+
   it('ignora catalogo ChatGPT que responde depois da troca de provedor', async () => {
     let resolveOld!: (value: unknown) => void;
     getModelsSpy.mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve; }));

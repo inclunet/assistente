@@ -287,7 +287,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   e tokens de teste, falha de persistência, concorrência, escopo e conclusão SSE.
 - O teste de consentimento com uma conta real depende de ação do usuário no
   navegador. Não foi realizado automaticamente nem usa credenciais de terceiros.
-- Revisão independente local em dez rodadas, com correções de isolamento de
+- Revisão independente local em onze rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Criação e exclusão de provedor ChatGPT e autorização na mesma transação;
   `providers/chatgpt_test.go` força falha, comprova rollback e rejeita recuperação
@@ -296,6 +296,10 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   instalação com oito processos; arquivo temporário interrompido não afeta o ID.
 - Callback entrega resposta com tamanho explícito antes de concluir; terminais de
   erro finalizam o raciocínio. Exclusão recusa uma autorização interativa em curso.
+- A primeira conexão da conta vira o provedor padrão. Durante a criação local,
+  o diálogo aguarda a persistência antes de fechar; o consentimento continua cancelável.
+- O transporte preserva a causa da falha de refresh; catálogo e chat traduzem
+  indisponibilidade temporária sem confundi-la com autorização revogada.
 - Falhas ChatGPT usam códigos estáveis e traduções nos três idiomas. Salvar o
   modelo padrão é opcional e não invalida um consentimento já concluído.
 - MCP compartilha somente o árbitro de interação nesta fase. Discovery, DCR,

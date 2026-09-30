@@ -1,3 +1,4 @@
+import { chatGPTErrorKey } from '../lib/chatgptErrors';
 import { logger } from '../utils/logger';
 import i18next from 'i18next';
 import { chat } from '../../wailsjs/go/models';
@@ -31,18 +32,8 @@ import { clearChatTurnRoutes, createChatTurnEventRouter } from './chatEventHub';
 import { invalidateToolInvocationDetails } from './toolInvocationDetailsCache';
 
 const translateBackendChatError = (message: string) => {
-  const chatGPTKeys: Record<string, string> = {
-    chatgpt_response_incomplete: 'chatgpt.errors.incomplete',
-    chatgpt_stream_interrupted: 'chatgpt.errors.interrupted',
-    chatgpt_plan_limit: 'chatgpt.errors.planLimit',
-    chatgpt_model_unavailable: 'chatgpt.errors.modelUnavailable',
-    chatgpt_reauthorization_required: 'chatgpt.errors.reauthorize',
-    chatgpt_permission_required: 'chatgpt.errors.permission',
-    chatgpt_rate_limit: 'chatgpt.errors.rateLimit',
-    chatgpt_request_cancelled: 'chatgpt.errors.cancelled',
-    chatgpt_request_failed: 'chatgpt.errors.failed',
-  };
-  if (typeof chatGPTKeys[message] === 'string') return i18next.t(chatGPTKeys[message]);
+  const chatGPTKey = chatGPTErrorKey(message);
+  if (chatGPTKey) return i18next.t(chatGPTKey);
 
   if (message === 'assistant_placeholder_error') {
     return i18next.t('chat.errors.assistantPlaceholder');

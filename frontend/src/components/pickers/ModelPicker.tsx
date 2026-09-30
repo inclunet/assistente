@@ -1,3 +1,4 @@
+import { chatGPTErrorKey } from '../../lib/chatgptErrors';
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef, type ReactNode } from 'react';
 import { CloseCircleOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -180,6 +181,14 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
         : typeof e === 'string' ? e : ''
       ).trim();
       
+      const chatGPTKey = chatGPTErrorKey(errorMsg);
+      if (chatGPTKey) {
+        const msg = t(chatGPTKey);
+        setError(msg);
+        setEndpointNotSupported(false);
+        setModels([]);
+        return { ok: false, message: msg, count: 0 };
+      }
       // Detecta se o endpoint de modelos não é suportado (404)
       if (errorMsg.includes('models_endpoint_not_supported')) {
         setEndpointNotSupported(true);

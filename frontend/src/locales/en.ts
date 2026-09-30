@@ -3,6 +3,7 @@ const en = {
  chatgpt: {
     authorizationInProgress: 'Complete or cancel authorization in the ChatGPT connection dialog before deleting this provider.',
     errors: {
+      temporary: 'The ChatGPT connection is temporarily unavailable. Wait and try again; you do not need to reconnect now.',
       incomplete: 'ChatGPT did not complete the response. Try again.',
       interrupted: 'The ChatGPT connection ended before the response was completed.',
       planLimit: 'Your ChatGPT plan limit was reached. Check usage using the link beside the model picker.',
