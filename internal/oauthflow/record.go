@@ -78,7 +78,9 @@ type Summary struct {
 
 func (r Record) Summary() Summary {
 	state := r.State
-	if r.RefreshPending {
+	if r.RefreshActive() {
+		state = "refreshing"
+	} else if r.RefreshPending {
 		state = "reauthorization_required"
 	}
 	return Summary{r.ID, r.Integration, state, r.Email, r.Tokens.Refresh != ""}

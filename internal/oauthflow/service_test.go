@@ -130,6 +130,17 @@ func TestRefreshCrashSafetyAndNoImplicitRetry(t *testing.T) {
 					t.Fatalf("ambiguous refresh did not request reconnection: %v", err)
 				}
 				restarted := New(s.integrations["fixture"])
+				if failure == "after" {
+					// The vault also rejects releasing the lease. Other instances
+					// wait until its deadline without retrying the rotating token.
+					_, activeErr := restarted.Resolve(context.Background(), store, store.r.ID, store.r.Resource, "")
+					if !errors.Is(activeErr, ErrTransient) || calls != 1 || store.r.Summary().State != "refreshing" {
+						t.Fatal("failed persistence lost bounded live-operation state")
+					}
+					store.r.RefreshUntil = time.Now().Add(-time.Second)
+				} else if store.r.Summary().State != "reauthorization_required" {
+					t.Fatal("finished ambiguous request still reported active")
+				}
 				_, err = restarted.Resolve(context.Background(), store, store.r.ID, store.r.Resource, "")
 				if !errors.Is(err, ErrReauthorize) || calls != 1 {
 					t.Fatal("reused ambiguous refresh")
@@ -686,5 +697,24 @@ func TestDisconnectAfterAbandonedRefreshDoesNotClaimRevocation(t *testing.T) {
 	confirmed, err := service.Disconnect(context.Background(), store, store.r.ID)
 	if err != nil || confirmed || store.r.State != "disconnected" || store.r.Tokens.Access != "" || store.r.RefreshPending {
 		t.Fatalf("ambiguous rotation reported remote revocation: %v %v", confirmed, err)
+	}
+}
+
+func TestActiveRefreshSummaryAndResolution(t *testing.T) {
+	service, store, _ := fixture(t, func(http.ResponseWriter, *http.Request) { t.Error("concurrent refresh reused token") })
+	store.r.RefreshPending = true
+	store.r.RefreshUntil = time.Now().Add(time.Minute)
+	if state := store.r.Summary().State; state != "refreshing" {
+		t.Fatal(state)
+	}
+	if _, err := service.Resolve(context.Background(), store, store.r.ID, store.r.Resource, ""); !errors.Is(err, ErrTransient) || errors.Is(err, ErrReauthorize) {
+		t.Fatalf("active refresh: %v", err)
+	}
+	store.r.RefreshUntil = time.Now().Add(-time.Second)
+	if state := store.r.Summary().State; state != "reauthorization_required" {
+		t.Fatal(state)
+	}
+	if _, err := service.Resolve(context.Background(), store, store.r.ID, store.r.Resource, ""); !errors.Is(err, ErrReauthorize) {
+		t.Fatalf("abandoned refresh: %v", err)
 	}
 }

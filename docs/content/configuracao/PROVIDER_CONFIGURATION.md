@@ -71,7 +71,8 @@ autorização persistida é preservada.
 
 **Desconectar** interrompe o uso local e tenta revogar a sessão remota. Aguarde o
 resultado antes de fechar a janela; se uma renovação estiver em andamento em
-outra instância, aguarde até 30 segundos e tente novamente. Após uma renovação
+outra instância, o estado aparece como renovando: aguarde até 30 segundos e
+tente novamente, sem iniciar outro login. Após uma renovação
 ambígua, a desconexão local avisa que a revogação remota não está confirmada; o fechamento fica bloqueado durante a operação. Se a revogação
 não puder ser confirmada, o Assistente avisa e você pode remover a autorização nas
 configurações do ChatGPT. O cadastro e o ID token validado permanecem cifrados

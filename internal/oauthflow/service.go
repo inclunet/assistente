@@ -110,6 +110,9 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 	if r.Resource != resource {
 		return Record{}, ErrResource
 	}
+	if r.RefreshActive() {
+		return Record{}, ErrTransient
+	}
 	if r.RefreshPending || r.State != "connected" || r.Tokens.Access == "" {
 		return Record{}, ErrReauthorize
 	}
@@ -158,7 +161,11 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 		reason = "http_401"
 	}
 	outcome := "failure"
+	pendingRevision := r.Revision
 	defer func() {
+		if outcome != "success" {
+			finishRefreshAttempt(ctx, store, r.ID, pendingRevision)
+		}
 		logging.Infof(ctx, "oauthflow", "oauth_refresh credential_id=%s integration=%s reason=%s duration_ms=%d outcome=%s", r.ID, r.Integration, reason, time.Since(started).Milliseconds(), outcome)
 	}()
 	response, err := s.exchange(ctx, r, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {r.Tokens.Refresh}, "client_id": {r.Client.ID}, "resource": {r.Resource}})
@@ -366,4 +373,18 @@ func (s *Service) Disconnect(ctx context.Context, store Store, id string) (bool,
 		}
 	}
 	return false, nil
+}
+
+// End the live-operation lease after a known local failure while preserving the
+// durable ambiguous-rotation marker. A failed vault write still expires safely.
+func finishRefreshAttempt(ctx context.Context, store Store, id string, revision uint64) {
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	current, err := store.Load(cleanup, id)
+	if err != nil || current.Revision != revision || !current.RefreshPending {
+		return
+	}
+	current.RefreshUntil = time.Time{}
+	current.Revision++
+	_ = store.CompareAndSwap(cleanup, current, revision)
 }
