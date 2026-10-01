@@ -562,11 +562,13 @@ poderia apagar alterações concorrentes; a issue exige transação e testes de 
   Consentimento de rede não amplia a audience do Bearer. Outra origem exige
   configuração explícita da URL final e autorização compatível com o recurso.
 - A política do socket e o motor de consentimento são reutilizados. Streams do
-  recurso têm prazo para conexão/cabeçalhos, sem timeout OAuth no corpo; mantêm
+  recurso têm prazo para DNS (cinco segundos por consulta), conexão/cabeçalhos,
+  sem timeout OAuth no corpo; mantêm
   cancelamento do chamador. A política de credenciais estáticas e o transporte
   remoto do MCP nativo não são alterados por esta entrega.
   Evidências: `TestResourceOriginCheckedBeforeAuthentication`,
   `TestResourceCorporateConsentAndStreaming`, `TestResourceSocketCannotBypassApproval`,
+  `TestResourcePreflightDNSHasIndependentDeadline`,
   `TestOAuthResourceRedirectsAndAudience`,
   `TestOAuthResourceRejectsConfiguredRemoteHTTPBeforeToken` e
   `TestOAuthResourcePreservesMCPStreaming` (PKCE/Client Credentials, SSE/Streamable).
@@ -580,5 +582,6 @@ achados de rede, identidade, cancelamento e apresentação corrigidos, última r
 sem pendências. A validação funcional ChatGPT da fase 1 continua a cargo do
 usuário e não foi marcada como concluída por esta entrega.
 
-Revisão local da proteção do recurso MCP: `review_credential_sources`, uma rodada;
-exceção HTTP/localhost corrigida para exigir IP real loopback, zero pendências.
+Revisão local da proteção do recurso MCP: `review_credential_sources`, duas rodadas;
+exceção HTTP/localhost corrigida para exigir IP real loopback e preflight DNS
+limitado independentemente do stream, zero pendências.

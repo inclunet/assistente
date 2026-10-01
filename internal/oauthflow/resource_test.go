@@ -186,3 +186,25 @@ func TestHTTPExceptionRequiresActualLoopback(t *testing.T) {
 		})
 	}
 }
+
+func TestResourcePreflightDNSHasIndependentDeadline(t *testing.T) {
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://mcp.example/stream", nil)
+	calls := 0
+	policy := &discoveryNetwork{lookup: func(ctx context.Context, _ string) ([]net.IPAddr, error) {
+		calls++
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) > 5*time.Second {
+			t.Error("resource DNS lacks its five-second budget")
+			return nil, errors.New("missing DNS deadline")
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}
+	_, err := (discoveryRoundTripper{policy: policy, resourceOnly: true}).RoundTrip(req)
+	if !errors.Is(err, context.DeadlineExceeded) || calls != 1 {
+		t.Fatalf("DNS did not time out: %v calls=%d", err, calls)
+	}
+	if req.Context().Err() != nil {
+		t.Fatal("DNS budget canceled parent resource context")
+	}
+}

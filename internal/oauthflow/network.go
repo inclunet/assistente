@@ -316,7 +316,16 @@ type discoveryRoundTripper struct {
 }
 
 func (r discoveryRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
-	if err := r.policy.checkDestination(request.Context(), request.URL); err != nil {
+	// Bound preflight separately: a stalled resolver must not consume the
+	// lifetime of the MCP session, nor may this deadline close its stream.
+	preflightCtx := request.Context()
+	cancel := func() {}
+	if r.resourceOnly {
+		preflightCtx, cancel = context.WithTimeout(preflightCtx, 5*time.Second)
+	}
+	err := r.policy.checkDestination(preflightCtx, request.URL)
+	cancel()
+	if err != nil {
 		if request.Body != nil {
 			_ = request.Body.Close()
 		}
