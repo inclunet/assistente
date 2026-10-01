@@ -17,8 +17,16 @@ import (
 
 var ErrCallbackPort = errors.New("oauth_callback_port_unavailable")
 
+// CallbackNoncePlaceholder is replaced only in trusted HTML opting into nonces.
+const CallbackNoncePlaceholder = "__OAUTH_CALLBACK_NONCE__"
+
 // CallbackPage belongs to the consumer, including localization and presentation.
-type CallbackPage struct{ Success, Failure, ContentType string }
+type CallbackPage struct {
+	Success, Failure, ContentType string
+	// HTMLNonce opts trusted consumer HTML into nonce-protected style/script blocks.
+	// Inline attributes remain blocked; plaintext callbacks retain default-src none.
+	HTMLNonce bool
+}
 
 // LoopbackCallback reserves the exact redirect URI before DCR or authorization.
 // A single owner starts, waits and closes it; requests are consumed at most once.
@@ -109,6 +117,11 @@ func (c *LoopbackCallback) Start(state string, page CallbackPage) error {
 		contentType := page.ContentType
 		if contentType == "" {
 			contentType = "text/plain; charset=utf-8"
+		}
+		if page.HTMLNonce && strings.EqualFold(strings.TrimSpace(strings.Split(contentType, ";")[0]), "text/html") {
+			nonce := randomValue()
+			body = strings.ReplaceAll(body, CallbackNoncePlaceholder, nonce)
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'nonce-"+nonce+"'; script-src 'nonce-"+nonce+"'")
 		}
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("Content-Length", strconv.Itoa(len(body)))

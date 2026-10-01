@@ -635,7 +635,7 @@ A reautorização nativa mantém o contrato existente. Cutover, migração atôm
 convergência Slack e validação funcional ChatGPT pelo usuário continuam pendentes.
 
 
-Revisão local dos grants/callbacks: `review_credential_sources`, cinco rodadas;
+Revisão local dos grants/callbacks: `review_credential_sources`, sete rodadas;
 recuperação de porta antes de DCR e identificação persistida de registro Device-only
 corrigidas, última rodada sem pendências. A suite local não executa
 `internal/acpregistry` por restrição do antivírus; a confirmação de `internal/acp`
@@ -645,3 +645,14 @@ rodada. Esses pacotes permanecem cobertos pelo CI, sem contorno de bloqueio loca
 Inventário de logs: 766 → 751 formatos legados, correspondentes às quinze
 mensagens removidas na extração; zero chamadas `logging.Printf`. Novos eventos
 usam formatos normalizados sem código de dispositivo ou URL de autorização.
+
+O registro exclusivo Device declara `response_types: []`: omitir esse campo
+ativaria o padrão `code` da [RFC 7591 §2](https://www.rfc-editor.org/rfc/rfc7591#section-2).
+O DTO preserva a diferença entre ausência (padrão do protocolo), lista vazia
+(Device) e `code` (PKCE), coberta por
+`TestRegistrationResponseTypesDistinguishesDefaultFromEmpty` e pelo teste DCR MCP.
+
+A página HTML MCP usa nonce novo por resposta para seus blocos estáticos de estilo
+e fechamento da janela, sem liberar atributos inline ou recursos externos.
+Callbacks de texto mantêm `default-src 'none'`. Evidência:
+`TestHTMLCallbackUsesFreshNonceWithoutRelaxingPlaintext` (sucesso, recusa e texto).

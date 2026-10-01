@@ -36,8 +36,8 @@ func TestDeviceDCRNeverRequiresCallbackPort(t *testing.T) {
 			if _, ok := metadata["redirect_uris"]; ok {
 				t.Error("Device DCR registered callback")
 			}
-			if _, ok := metadata["response_types"]; ok {
-				t.Error("Device DCR registered code response")
+			if responseTypes, ok := metadata["response_types"].([]any); !ok || len(responseTypes) != 0 {
+				t.Error("Device DCR must explicitly disable the default code response")
 			}
 			registrations.Add(1)
 			w.Header().Set("Content-Type", "application/json")

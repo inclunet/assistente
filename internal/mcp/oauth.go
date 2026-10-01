@@ -643,7 +643,7 @@ func (rt *pkceRoundTripper) registerClient(ctx context.Context, pkce bool) error
 		result, err = registerDynamicClient(ctx, rt.cfg, callback.RedirectURI(), rt.effectiveScopes())
 	} else {
 		result, err = oauthflow.RegisterDynamicClient(ctx, rt.cfg.URL, rt.cfg.OAuth2RegistrationURL, oauthflow.RegistrationRequest{
-			ClientName: "Assistente", GrantTypes: []string{"urn:ietf:params:oauth:grant-type:device_code", "refresh_token"}, TokenEndpointAuthMethod: "none", Scope: strings.Join(rt.effectiveScopes(), " "),
+			ClientName: "Assistente", GrantTypes: []string{"urn:ietf:params:oauth:grant-type:device_code", "refresh_token"}, ResponseTypes: []string{}, TokenEndpointAuthMethod: "none", Scope: strings.Join(rt.effectiveScopes(), " "),
 		})
 	}
 	if err != nil {
@@ -765,7 +765,7 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 	}
 	authURL := oauthCfg.AuthCodeURL(state, authURLOpts...)
 
-	if err := callback.Start(state, oauthflow.CallbackPage{Success: authSuccessHTML, Failure: authErrorHTML, ContentType: "text/html; charset=utf-8"}); err != nil {
+	if err := callback.Start(state, oauthflow.CallbackPage{Success: authSuccessHTML, Failure: authErrorHTML, ContentType: "text/html; charset=utf-8", HTMLNonce: true}); err != nil {
 		return err
 	}
 
@@ -1075,16 +1075,18 @@ func buildPKCEHTTPClient(cfg ServerConfig, credMgr *credentials.Manager, emitEve
 }
 
 const authSuccessHTML = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Autorização concluída</title></head>
-<body style="font-family:sans-serif;text-align:center;padding:40px">
+<html><head><meta charset="utf-8"><title>Autorização concluída</title>
+<style nonce="` + oauthflow.CallbackNoncePlaceholder + `">body{font-family:sans-serif;text-align:center;padding:40px}</style></head>
+<body>
 <h2>Autorização concluída!</h2>
 <p>Pode fechar esta janela e retornar ao Assistente.</p>
-<script>setTimeout(function(){window.close()},3000)</script>
+<script nonce="` + oauthflow.CallbackNoncePlaceholder + `">setTimeout(function(){window.close()},3000)</script>
 </body></html>`
 
 const authErrorHTML = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Erro de autorização</title></head>
-<body style="font-family:sans-serif;text-align:center;padding:40px">
+<html><head><meta charset="utf-8"><title>Erro de autorização</title>
+<style nonce="` + oauthflow.CallbackNoncePlaceholder + `">body{font-family:sans-serif;text-align:center;padding:40px}</style></head>
+<body>
 <h2>Erro na autorização</h2>
 <p>Verifique os logs no Assistente para mais detalhes.</p>
 </body></html>`

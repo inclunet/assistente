@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -306,12 +307,21 @@ func TestAuthorizePKCEReregistersWhenFixedCallbackPortIsBusy(t *testing.T) {
 				}
 				redirectURI := u.Query().Get("redirect_uri")
 				state := u.Query().Get("state")
-				go func() {
-					resp, err := http.Get(redirectURI + "?code=ok&state=" + url.QueryEscape(state))
-					if err == nil {
-						_ = resp.Body.Close()
-					}
-				}()
+				resp, err := http.Get(redirectURI + "?code=ok&state=" + url.QueryEscape(state))
+				if err != nil {
+					return err
+				}
+				body, err := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				if err != nil {
+					return err
+				}
+				_, nonceHTML, found := strings.Cut(string(body), `<style nonce="`)
+				nonce, _, closed := strings.Cut(nonceHTML, `"`)
+				policy := resp.Header.Get("Content-Security-Policy")
+				if !found || !closed || len(nonce) < 32 || !strings.Contains(string(body), `<script nonce="`+nonce+`">`) || !strings.Contains(policy, "style-src 'nonce-"+nonce+"'") || !strings.Contains(policy, "script-src 'nonce-"+nonce+"'") || strings.Contains(string(body), "style=") {
+					t.Error("MCP callback assets do not match the restricted CSP")
+				}
 				return nil
 			}
 			defer func() { browserOpen = oldBrowserOpen }()

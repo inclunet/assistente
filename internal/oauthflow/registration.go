@@ -17,10 +17,11 @@ var ErrRegistration = errors.New("oauth_registration_failed")
 // RegistrationRequest describes RFC 7591 metadata. The caller owns callback
 // reservation and grant policy; registration never opens a browser or persists secrets.
 type RegistrationRequest struct {
-	RedirectURIs            []string `json:"redirect_uris,omitempty"`
-	ClientName              string   `json:"client_name"`
-	GrantTypes              []string `json:"grant_types"`
-	ResponseTypes           []string `json:"response_types,omitempty"`
+	RedirectURIs []string `json:"redirect_uris,omitempty"`
+	ClientName   string   `json:"client_name"`
+	GrantTypes   []string `json:"grant_types"`
+	// Nil keeps the RFC 7591 default (code); an explicit empty slice disables it.
+	ResponseTypes           []string `json:"response_types,omitzero"`
 	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
 	Scope                   string   `json:"scope,omitempty"`
 }

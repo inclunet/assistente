@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -134,5 +135,64 @@ func TestSharedCallbackRejectsNonLoopbackAndInvalidPolicy(t *testing.T) {
 		if !errors.Is(err, ErrResource) {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestHTMLCallbackUsesFreshNonceWithoutRelaxingPlaintext(t *testing.T) {
+	nonces := map[string]bool{}
+	for _, mode := range []string{"success", "refused", "plaintext"} {
+		t.Run(mode, func(t *testing.T) {
+			c, err := ReserveCallback(CallbackConfig{Host: "127.0.0.1", Path: "/callback", PortPolicy: "ephemeral"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			const template = `<style nonce="` + CallbackNoncePlaceholder + `">body{font-family:sans-serif}</style><script nonce="` + CallbackNoncePlaceholder + `">window.close()</script>`
+			contentType := "text/html; charset=utf-8"
+			if mode == "plaintext" {
+				contentType = "text/plain; charset=utf-8"
+			}
+			if err := c.Start("state", CallbackPage{Success: template, Failure: template, ContentType: contentType, HTMLNonce: true}); err != nil {
+				t.Fatal(err)
+			}
+			query := "?state=state&code=ok"
+			if mode == "refused" {
+				query = "?state=state&error=access_denied"
+			}
+			resp, err := http.Get(c.RedirectURI() + query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.ContentLength != int64(len(body)) {
+				t.Fatal("incorrect response length")
+			}
+			policy := resp.Header.Get("Content-Security-Policy")
+			if mode == "plaintext" {
+				if policy != "default-src 'none'" || string(body) != template {
+					t.Fatal("plaintext policy changed")
+				}
+				return
+			}
+			prefix := "default-src 'none'; style-src 'nonce-"
+			if !strings.HasPrefix(policy, prefix) {
+				t.Fatal(policy)
+			}
+			nonce, _, ok := strings.Cut(strings.TrimPrefix(policy, prefix), "'")
+			if !ok || len(nonce) < 32 || nonces[nonce] {
+				t.Fatal("invalid or reused nonce")
+			}
+			nonces[nonce] = true
+			if policy != prefix+nonce+"'; script-src 'nonce-"+nonce+"'" {
+				t.Fatal("unrestricted policy")
+			}
+			if strings.Contains(string(body), CallbackNoncePlaceholder) || strings.Count(string(body), `nonce="`+nonce+`"`) != 2 {
+				t.Fatal("page nonce does not match policy")
+			}
+		})
 	}
 }
