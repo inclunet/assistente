@@ -549,3 +549,46 @@ func TestAuthorizationGatesSerializeAndReleaseAllReferences(t *testing.T) {
 		t.Fatalf("retained %d unused gates", len(s.gates))
 	}
 }
+
+func TestAccessOnlyAuthorizationRequiresDurableReconnect(t *testing.T) {
+	for _, scenario := range []string{"rejected", "expired", "still_valid", "save_failure"} {
+		t.Run(scenario, func(t *testing.T) {
+			s, store, _ := fixture(t, func(http.ResponseWriter, *http.Request) { t.Error("refresh attempted without token") })
+			store.r.Tokens.Refresh = ""
+			store.r.Tokens.ID = "validated-identity"
+			// The refresh minimum must not hide the need for consent without a refresh token.
+			store.r.Tokens.EarliestRefreshAt = time.Now().Add(time.Hour)
+			rejected := ""
+			if scenario == "rejected" {
+				rejected = store.r.Tokens.Access
+				store.r.Tokens.ExpiresAt = time.Now().Add(time.Hour)
+			}
+			if scenario == "still_valid" {
+				store.r.Tokens.ExpiresAt = time.Now().Add(30 * time.Second)
+			}
+			if scenario == "save_failure" {
+				store.failRevision = store.r.Revision + 1
+			}
+			before := store.r
+			result, err := s.Resolve(context.Background(), store, store.r.ID, store.r.Resource, rejected)
+			if scenario == "still_valid" {
+				if err != nil || result.Tokens.Access != before.Tokens.Access || !reflect.DeepEqual(before, store.r) {
+					t.Fatal("unexpired token rejected", err)
+				}
+				return
+			}
+			if scenario == "save_failure" {
+				if err == nil || errors.Is(err, ErrReauthorize) || !reflect.DeepEqual(before, store.r) {
+					t.Fatal("save failure hidden", err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrReauthorize) || store.r.State != "reauthorization_required" || store.r.Tokens != (Tokens{ID: "validated-identity"}) {
+				t.Fatal("invalid token remains connected", err)
+			}
+			if _, err = s.Resolve(context.Background(), store, store.r.ID, store.r.Resource, ""); !errors.Is(err, ErrReauthorize) {
+				t.Fatal("old grant reused", err)
+			}
+		})
+	}
+}

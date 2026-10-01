@@ -119,14 +119,25 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 	if !rejected && !due {
 		return r, nil
 	}
+	if r.Tokens.Refresh == "" {
+		// A token that cannot refresh remains usable until its actual expiry.
+		if !rejected && now.Before(r.Tokens.ExpiresAt) {
+			return r, nil
+		}
+		r.Tokens = Tokens{ID: r.Tokens.ID}
+		r.State = "reauthorization_required"
+		r.RefreshPending = false
+		r.Revision++
+		if err := store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
+			return Record{}, err
+		}
+		return Record{}, ErrReauthorize
+	}
 	if now.Before(r.Tokens.EarliestRefreshAt) {
 		if rejected || (!r.Tokens.ExpiresAt.IsZero() && !now.Before(r.Tokens.ExpiresAt)) {
 			return Record{}, ErrTransient
 		}
 		return r, nil
-	}
-	if r.Tokens.Refresh == "" {
-		return Record{}, ErrReauthorize
 	}
 	before := r.Revision
 	r.Revision++

@@ -313,7 +313,11 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 - Gates OAuth contam titulares e aguardantes e são removidos ao liberar a última
   referência, inclusive em cancelamento; teste repetido preserva exclusão mútua
   e comprova ausência de entradas residuais. A UI exibe o ID logo após a criação.
-- Revisão independente local em vinte e nove rodadas, com correções de isolamento de
+- Recuperação de provedor importado altera somente os campos da conexão na
+  transação e publica os demais campos atuais. Token sem refresh exige reconexão
+  persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
+  Testes cobrem preservação de edições e falha na gravação da transição.
+- Revisão independente local em trinta rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,

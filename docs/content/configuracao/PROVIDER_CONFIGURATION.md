@@ -57,6 +57,8 @@ a desconexão.
 O cofre precisa estar habilitado para persistir. Cadastro, access token, refresh token
 e ID token ficam cifrados juntos; a tela e as exportações não incluem esses segredos.
 A renovação é coordenada entre chamadas e respeita a expiração informada pelo servidor.
+Se não houver refresh token, o access token é usado até expirar; após expiração
+ou rejeição pelo serviço, a conexão passa a exigir **Autorizar novamente**.
 Se houver interrupção ou falha ao salvar após possível rotação, use **Autorizar novamente**;
 o aplicativo não tenta reutilizar um refresh token possivelmente consumido.
 

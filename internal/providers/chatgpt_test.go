@@ -530,3 +530,36 @@ func TestChatGPTDefaultModelUsesCurrentConsumer(t *testing.T) {
 		})
 	}
 }
+
+func TestChatGPTRecoveryPreservesConcurrentProviderEdits(t *testing.T) {
+	s, mgr, ctx := chatGPTTestService(t)
+	imported := &llm.ProviderConfig{ID: "imported", Name: "Before", Type: llm.ProviderChatGPT, BaseURL: "https://api.openai.com/v1", APIFormat: llm.APIFormatOpenAIResponses, CredentialPattern: "oauth:foreign", AuthMode: llm.AuthModeRequired}
+	if err := s.store.Save(ctx, []*llm.ProviderConfig{imported}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stale := s.registry.Get(imported.ID)
+	edits := map[string]any{"name": "Concurrent name", "default_model": "selected-model", "timeout": 145, "is_default": true}
+	if err := database.DB().Model(&database.LLMProvider{}).Where("id = ?", imported.ID).Updates(edits).Error; err != nil {
+		t.Fatal(err)
+	}
+	store, err := mgr.OAuthStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorization, err := s.ensureChatGPTAuthorization(ctx, store, stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.store.Get(ctx, imported.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []*llm.ProviderConfig{saved, s.registry.Get(imported.ID)} {
+		if provider.Name != "Concurrent name" || provider.DefaultModel != "selected-model" || provider.Timeout != 145 || !provider.IsDefault || provider.CredentialPattern != "oauth:"+authorization {
+			t.Fatal("recovery lost concurrent edits", provider)
+		}
+	}
+}
