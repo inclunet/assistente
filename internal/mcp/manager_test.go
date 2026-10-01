@@ -426,6 +426,7 @@ func TestCheckAndRefreshToken_RefreshesExpiringToken(t *testing.T) {
 		Config: ServerConfig{
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},
@@ -482,6 +483,7 @@ func TestCheckAndRefreshToken_PersistsSobContextoDoUsuario(t *testing.T) {
 		Config: ServerConfig{
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},
@@ -522,6 +524,7 @@ func TestCheckAndRefreshToken_HandlesRefreshFailure(t *testing.T) {
 		Config: ServerConfig{
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},
@@ -563,6 +566,7 @@ func TestCheckAndRefreshToken_UsesStoredClientCreds(t *testing.T) {
 		Config: ServerConfig{
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},
@@ -610,6 +614,7 @@ func TestRecoverServerBestEffort_RefreshesOAuthToken(t *testing.T) {
 			Enabled:        true,
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},
@@ -660,6 +665,7 @@ func TestRecoverServerBestEffort_RefreshesOAuthTokenWithoutExpiryWhenForced(t *t
 			Enabled:        true,
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},
@@ -720,6 +726,7 @@ func TestRecoverServerBestEffort_JoinsRefreshAndReconnectErrors(t *testing.T) {
 			Enabled:        true,
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},

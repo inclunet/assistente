@@ -151,7 +151,7 @@ func TestGetEligibleNativeMCPServers_ExpiredTokenRefreshedAndDelivered(t *testin
 		Config: ServerConfig{
 			Name:           "Srv",
 			Transport:      TransportSSE,
-			URL:            "https://mcp.example.com/sse",
+			URL:            tokenSrv.URL + "/sse",
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "client-x",
 			OAuth2TokenURL: tokenSrv.URL + "/token",
@@ -333,7 +333,7 @@ func TestRefreshOAuthPersistsExplicitStaticSource(t *testing.T) {
 	defer server.Close()
 	m := newTestManagerWithEmit(func(string, any) {})
 	storeUserToken(t, m, "source-test", "old", "refresh", time.Now().Add(-time.Hour).Unix())
-	m.servers["source-test"] = &ServerStatus{Slug: "source-test", Config: ServerConfig{AuthType: AuthOAuth2PKCE, OAuth2TokenURL: server.URL, OAuth2ClientID: "client"}}
+	m.servers["source-test"] = &ServerStatus{Slug: "source-test", Config: ServerConfig{URL: server.URL + "/mcp", AuthType: AuthOAuth2PKCE, OAuth2TokenURL: server.URL, OAuth2ClientID: "client"}}
 	refreshed, err := m.refreshOAuthTokenBestEffort(context.Background(), "source-test", true)
 	if err != nil || !refreshed {
 		t.Fatalf("refreshed=%v err=%v", refreshed, err)

@@ -1722,7 +1722,7 @@ func newMCPTransport() http.RoundTripper {
 // endpoint to check if the server supports SSE. Returns (true, "") if supported,
 // or (false, reason) if not. Uses a short timeout so this doesn't slow down connect.
 func probeSSESupport(parentCtx context.Context, mcpURL string, authClient *http.Client) (bool, string) {
-	ctx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
+	ctx, cancel := oauthHandshakeContext(parentCtx, parentCtx, 10*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mcpURL, nil)
@@ -1943,15 +1943,18 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 		Expiry:       time.Now().Add(-1 * time.Hour),
 	}
 
-	// O refresh deriva de authCtx (o contexto user-scoped usado para LER as
-	// credenciais acima), não do ctx do caller. A persistência do token renovado
-	// é user-scoped: se ela usasse um ctx sem usuário (ex.: m.ctx do loop
-	// proativo), o refresh LIA as credenciais do usuário mas falhava ao GRAVAR
-	// com "authenticated user required" — gravando fora de escopo e emitindo o
-	// falso ERROR observado no assistente.log. Ler e gravar pelo mesmo contexto
-	// mantém a operação inteira consistente com o escopo do usuário.
-	refreshCtx, cancel := context.WithTimeout(authCtx, 15*time.Second)
+	// Preserve the credential owner's identity while retaining caller cancellation.
+	// The HTTP budget belongs to each attempt, not to a human network decision.
+	refreshCtx, cancel := context.WithCancel(authCtx)
 	defer cancel()
+	stopCaller := context.AfterFunc(ctx, cancel)
+	defer stopCaller()
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	refreshCtx = oauthflow.WithNetworkAuthorizer(refreshCtx, m.authorizeOAuthNetwork)
+	refreshCtx = context.WithValue(refreshCtx, oauth2.HTTPClient,
+		oauthflow.NewNetworkHTTPClient(cfg.URL, m.authorizeOAuthNetwork, 15*time.Second))
 
 	newToken, err := oauthCfg.TokenSource(refreshCtx, expiredToken).Token()
 	if err != nil {
@@ -2004,6 +2007,10 @@ func (m *Manager) RecoverServerBestEffort(ctx context.Context, slug string) Reco
 	result.Attempted = true
 
 	refreshed, refreshErr := m.refreshOAuthTokenBestEffort(ctx, slug, true)
+	if terminalOAuthNetworkError(ctx, refreshErr) {
+		result.Err = refreshErr
+		return result
+	}
 	if refreshed {
 		result.Refreshed = true
 	}

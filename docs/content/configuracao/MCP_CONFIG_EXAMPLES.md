@@ -493,7 +493,10 @@ não desativa essa verificação nem a validação de identidade do servidor.
 A opção de permitir somente esta vez vale durante a operação OAuth, inclusive
 nas consultas repetidas do Device Flow ao mesmo destino/IP. A espera pelo login
 ou pela decisão de rede não consome o timeout do handshake MCP; Desconectar
-continua cancelando a operação. Uma nova origem, porta ou IP exige nova avaliação.
+continua cancelando a operação. Isso também vale para a verificação inicial
+da conexão SSE. Se você negar o destino durante uma renovação, a recuperação
+encerra a tentativa sem reconectar e perguntar novamente. Uma nova origem, porta
+ou IP exige nova avaliação.
 
 ### URL do recurso MCP com OAuth
 

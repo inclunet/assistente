@@ -537,7 +537,14 @@ poderia apagar alterações concorrentes; a issue exige transação e testes de 
   durante OAuth/consentimento, mantendo cancelamento pelo chamador e Disconnect.
   Evidências: `TestOAuthPollingReusesConsentAcrossHTTPClients`,
   `TestConnectDevicePollingOutlivesHandshakeAndReusesApproval` e
-  `TestConnectConsentOutlivesHandshakeBudget` (com probe SSE desativado).
+  `TestConnectConsentOutlivesHandshakeBudget`; o Device Flow cobre probe SSE
+  habilitado e desabilitado, ambos com orçamento pausável.
+- Refresh best-effort/proativo usa o mesmo cliente autorizado, preservando
+  identidade e cancelamento do chamador. Recuperação termina após recusa,
+  sem tentar reconexão nem abrir outro consentimento. Evidências:
+  `TestBestEffortRefreshUsesNetworkConsentAndCredentialIdentity`,
+  `TestBestEffortRefreshConsentRetainsCallerCancellation` e
+  `TestRecoveryStopsAfterRefreshNetworkRefusal`.
 - Pendente em D5/fase 2: a política do transporte do recurso MCP (Bearer,
   TLS e redirects) em Client Credentials e PKCE permanece no comportamento
   legado, anterior a esta extração. O guard dos endpoints OAuth não deve
@@ -549,7 +556,7 @@ poderia apagar alterações concorrentes; a issue exige transação e testes de 
   tokens MCP continua exclusivamente no MCP legado
   até a entrega dos grants e do cutover. Fases 2, 3 e 4 seguem abertas.
 
-Revisão local desta entrega incremental: `review_credential_sources`, doze rodadas;
+Revisão local desta entrega incremental: `review_credential_sources`, quinze rodadas;
 achados de rede, identidade, cancelamento e apresentação corrigidos, última rodada
 sem pendências. A validação funcional ChatGPT da fase 1 continua a cargo do
 usuário e não foi marcada como concluída por esta entrega.
