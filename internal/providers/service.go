@@ -588,6 +588,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 
 	credConfigured := false
 	if req.APIKey != "" {
+		if strings.HasPrefix(updated.CredentialPattern, "oauth:") {
+			return nil, oauthflow.ErrConflict
+		}
 		if err := s.credMgr.RegisterPatternWithContext(ctx, updated.CredentialPattern, &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: req.APIKey,

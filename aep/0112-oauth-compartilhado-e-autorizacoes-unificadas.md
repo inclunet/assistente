@@ -317,7 +317,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   transação e publica os demais campos atuais. Token sem refresh exige reconexão
   persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
   Testes cobrem preservação de edições e falha na gravação da transição.
-- Revisão independente local em quarenta e cinco rodadas, com correções de isolamento de
+- Revisão independente local em quarenta e seis rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
@@ -482,3 +482,10 @@ e antes de helpers tardios, sem perder os dados persistidos.
 A importação de provedores genéricos consulta a credencial OAuth do mesmo
 usuário antes de proteger um vínculo. Referências órfãs podem ser substituídas;
 ChatGPT permanece protegido. Evidência: `TestImportGenericOrphanOAuthReference`.
+
+A atomicidade entre API key por hostname e provedor genérico é uma limitação
+preexistente em main fcadf5710, acompanhada na [issue #872](https://github.com/inclunet/assistente/issues/872).
+Esse fluxo não usa o registro composto OAuth. A entrega impede substituir um
+envelope OAuth por API key estática (`TestGenericAPIKeyCannotOverwriteOAuthEnvelope`),
+mas não declara atomicidade para o cadastro genérico legado. Um rollback sem CAS
+poderia apagar alterações concorrentes; a issue exige transação e testes de falha.

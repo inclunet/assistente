@@ -804,3 +804,32 @@ func TestChatGPTLateHelpersRetainOperationGeneration(t *testing.T) {
 		})
 	}
 }
+
+func TestGenericAPIKeyCannotOverwriteOAuthEnvelope(t *testing.T) {
+	s, _, ctx := chatGPTTestService(t)
+	p := &llm.ProviderConfig{ID: "legacy", Name: "Legacy", Type: llm.ProviderOpenAI, BaseURL: "https://example.com/v1", CredentialPattern: "oauth:owned"}
+	if err := database.SaveLLMProviderWithContext(ctx, toDBModel(p)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.registry.Register(p); err != nil {
+		t.Fatal(err)
+	}
+	entry := database.CredentialEntry{UUIDModel: database.UUIDModel{ID: "owned"}, UserID: "owner", Pattern: p.CredentialPattern, Source: "oauth", OAuthEnc: "protected-envelope"}
+	if err := database.DB().Create(&entry).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Update(ctx, p.ID, UpdateRequest{APIKey: "replacement"}); !errors.Is(err, oauthflow.ErrConflict) {
+		t.Fatalf("OAuth overwritten: %v", err)
+	}
+	var saved database.CredentialEntry
+	if err := database.DB().First(&saved, "id = ?", entry.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if saved.Source != "oauth" || saved.OAuthEnc != entry.OAuthEnc {
+		t.Fatal("envelope mutated")
+	}
+	persisted, err := s.store.Get(ctx, p.ID)
+	if err != nil || persisted.CredentialPattern != p.CredentialPattern || s.registry.Get(p.ID).CredentialPattern != p.CredentialPattern {
+		t.Fatal("consumer mutated")
+	}
+}

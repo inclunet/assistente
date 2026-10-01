@@ -256,3 +256,13 @@ Consulte [Fontes de credenciais](CREDENTIAL_SOURCES.md) para usar env, keyring o
 Provedores genéricos antigos com referência OAuth sem credencial local podem ser
 excluídos ou corrigidos editando a URL e configurando a credencial normalmente.
 Uma autorização local existente continua protegida contra desvinculação acidental.
+
+### Falha ao salvar um provedor com API key
+
+No cadastro genérico com API key, a chave e a configuração do provedor ainda
+são gravadas separadamente. Se o salvamento falhar, confira a credencial do
+hostname no gerenciador antes de tentar novamente: ela pode ter sido alterada,
+inclusive para outros provedores que usam o mesmo hostname. A melhoria é
+acompanhada na [issue #872](https://github.com/inclunet/assistente/issues/872).
+A conexão ChatGPT usa o fluxo OAuth dedicado; uma API key estática não pode
+substituir seu registro OAuth pela edição genérica.
