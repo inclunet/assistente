@@ -35,7 +35,7 @@ func NewConfigured(r Record, authorize NetworkAuthorizer) (*Service, error) {
 	default:
 		return nil, ErrResource
 	}
-	s := New(Integration{ID: r.Integration, Issuer: r.Issuer, Resource: r.Resource, Endpoints: r.Endpoints, Callback: r.Callback, Scopes: r.RequestedScopes, RequiredScopes: r.RequestedScopes, IdentityOptional: true, ClientCredentials: r.GrantType == "client_credentials"})
+	s := New(Integration{ID: r.Integration, Issuer: r.Issuer, Resource: r.Resource, Endpoints: r.Endpoints, Callback: r.Callback, GrantType: r.GrantType, ConsumerID: r.ConsumerID, Scopes: append([]string(nil), r.RequestedScopes...), RequiredScopes: append([]string(nil), r.RequestedScopes...), IdentityOptional: true, ClientCredentials: r.GrantType == "client_credentials"})
 	s.gateOwner = &configuredGates
 	s.BeforeRefresh = func(ctx context.Context, r Record) error {
 		target, err := endpointURL(r.Endpoints.Token)

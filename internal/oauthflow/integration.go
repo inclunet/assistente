@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,16 +15,17 @@ import (
 // Integration isolates protocol extensions from the common lifecycle.
 type Route struct{ Method, Path string }
 type Integration struct {
-	IdentityOptional     bool
-	ClientCredentials    bool
-	Routes               []Route
-	ID, Issuer, Resource string
-	Endpoints            Endpoints
-	Scopes               []string
-	RequiredScopes       []string
-	Callback             CallbackConfig
-	InitialClientID      string
-	RegistrationMethod   string
+	IdentityOptional      bool
+	ClientCredentials     bool
+	GrantType, ConsumerID string
+	Routes                []Route
+	ID, Issuer, Resource  string
+	Endpoints             Endpoints
+	Scopes                []string
+	RequiredScopes        []string
+	Callback              CallbackConfig
+	InitialClientID       string
+	RegistrationMethod    string
 	// AuthorizationParameters supplies service-specific registration parameters.
 	AuthorizationParameters func(Record, string) url.Values
 	// CallbackClientID validates a dynamically issued registration.
@@ -31,6 +33,9 @@ type Integration struct {
 }
 
 func (i Integration) Validate(r Record) error {
+	if i.GrantType != "" && (r.GrantType != i.GrantType || r.ConsumerID != i.ConsumerID || !slices.Equal(r.RequestedScopes, i.Scopes)) {
+		return ErrResource
+	}
 	if r.Integration != i.ID || r.Issuer != i.Issuer || r.Resource != i.Resource || r.Endpoints != i.Endpoints || r.Callback != i.Callback {
 		return ErrResource
 	}

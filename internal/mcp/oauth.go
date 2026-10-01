@@ -783,7 +783,7 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 
 	if rt.protocolOnly {
 		oauthCfg.Endpoint.AuthStyle = oauth2.AuthStyleInParams
-		if rt.clientAuthMethod == "client_secret_basic" {
+		if rt.clientAuthMethod == "client_secret_basic" && clientSecret != "" {
 			oauthCfg.Endpoint.AuthStyle = oauth2.AuthStyleInHeader
 		}
 	}

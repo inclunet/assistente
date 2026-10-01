@@ -190,3 +190,40 @@ func TestConfiguredBasicAuthenticationOmitsBodyClientID(t *testing.T) {
 		})
 	}
 }
+
+func TestConfiguredRejectsChangedConsumerGrantAndScopes(t *testing.T) {
+	for _, field := range []string{"grant", "scopes", "consumer"} {
+		t.Run(field, func(t *testing.T) {
+			var calls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.WriteHeader(500) }))
+			defer srv.Close()
+			r := configuredRecord(srv.URL)
+			r.GrantType = "client_credentials"
+			r.RequestedScopes = []string{"read"}
+			r.GrantedScopes = []string{"read"}
+			r.Client.Secret = "secret"
+			r.Client.AuthMethod = "client_secret_post"
+			service, err := NewConfigured(r, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch field {
+			case "grant":
+				r.GrantType = "authorization_code"
+			case "scopes":
+				r.RequestedScopes[0] = "write"
+			case "consumer":
+				r.ConsumerID = "another"
+			}
+			r.Revision++
+			store := &memoryStore{r: r}
+			if _, err = service.Resolve(WithNetworkOperation(context.Background()), store, r.ID, r.Resource, ""); !errors.Is(err, ErrResource) {
+				t.Fatalf("stale config accepted: %v", err)
+			}
+			persisted, _ := store.Load(context.Background(), r.ID)
+			if calls.Load() != 0 || persisted.Revision != r.Revision || persisted.RefreshPending {
+				t.Fatal("stale service issued or persisted grant")
+			}
+		})
+	}
+}

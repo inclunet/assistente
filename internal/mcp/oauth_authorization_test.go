@@ -151,6 +151,9 @@ func TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart(t *testing.T)
 			_ = json.NewEncoder(w).Encode(map[string]string{"client_id": "registered"})
 		case "/token":
 			_ = r.ParseForm()
+			if r.Header.Get("Authorization") != "" || r.Form.Get("client_id") != "registered" {
+				t.Error("public client used Basic or omitted client_id")
+			}
 			n := tokenCalls.Add(1)
 			if n == 1 && r.Form.Get("redirect_uri") != redirect {
 				t.Error("callback differs from registration")
@@ -165,6 +168,7 @@ func TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart(t *testing.T)
 	defer srv.Close()
 	cfg := managedConfig(srv.URL)
 	cfg.OAuth2ClientID = ""
+	cfg.OAuth2TokenAuthMethod = "client_secret_basic"
 	cfg.OAuth2RegistrationURL = srv.URL + "/register"
 	if err := m.SaveConfig("new", cfg); err != nil {
 		t.Fatal(err)
