@@ -25,6 +25,7 @@ import { MenuButton } from '../components/layout/MenuButton';
 import { Button, PageLoading } from '../components';
 import { McpConnectionSection } from '../components/mcp/McpConnectionSection';
 import { McpGeneralSection } from '../components/mcp/McpGeneralSection';
+import { McpOAuthInventory } from '../components/mcp/McpOAuthInventory';
 import { Modal } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { DialogActions } from '../components/ui/DialogActions';
@@ -104,6 +105,7 @@ export default function McpPage() {
   const confirm = useConfirm();
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [showOAuthInventory, setShowOAuthInventory] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [focusedRow, setFocusedRow] = useState<ServerRow | null>(null);
 
@@ -770,6 +772,12 @@ export default function McpPage() {
         onSearchChange={setSearchTerm}
         actions={[
           {
+            key: 'oauth-inventory',
+            label: t('mcp.inventory.title'),
+            icon: <SafetyOutlined aria-hidden="true" />,
+            onClick: () => setShowOAuthInventory(true),
+          },
+          {
             key: 'new',
             label: t('mcp.buttons.newServer'),
             icon: <PlusOutlined aria-hidden="true" />,
@@ -847,6 +855,7 @@ export default function McpPage() {
         onFocusChange={handleFocusChange}
       />
 
+      {showOAuthInventory && <McpOAuthInventory onClose={() => setShowOAuthInventory(false)} />}
       <Modal
         isOpen={!!editing}
         onClose={handleCloseEditor}

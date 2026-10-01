@@ -27,6 +27,8 @@ export function GetMCPServerTools(arg1:string):Promise<Array<mcp.MCPToolInfo>>;
 
 export function GetMCPWorkspaceRoots():Promise<Array<mcp.Root>>;
 
+export function InspectMCPOAuthInventory():Promise<Array<mcp.OAuthInventoryItem>>;
+
 export function ListMCPServers():Promise<Array<mcp.ServerInfo>>;
 
 export function ReadMCPResource(arg1:string,arg2:string):Promise<string>;

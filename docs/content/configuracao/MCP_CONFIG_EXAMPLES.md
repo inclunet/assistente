@@ -545,6 +545,23 @@ para um único registro por autorização será feita em uma etapa posterior.
 
 ### Novos cadastros com autorização unificada
 
+Para conferir o formato das configurações existentes, abra **Servidores MCP →
+Diagnóstico OAuth**. A consulta mostra autorizações compostas, OAuth legado por
+servidor, Client Credentials, entradas sem servidor OAuth correspondente e
+credenciais por hostname (que também podem atender recursos fora do MCP).
+
+O diagnóstico consulta apenas dados locais do usuário atual. Não conecta,
+executa comandos, abre o navegador, renova tokens ou altera credenciais. Ele
+aponta referências inválidas, registros incompletos, client IDs divergentes,
+campos ilegíveis e associações por hostname que precisam de análise. Dados de
+versões antigas que não estejam cifrados também aparecem como ilegíveis: isso
+não significa que foram perdidos. Não apague entradas com base nesse relatório.
+
+O inventário prepara a migração, mas **não migra nem certifica a validade da
+autorização**. A ausência de alertas não substitui uma conexão bem-sucedida.
+Metadados descobertos apenas durante a conexão podem não constar no banco.
+Após alterações, feche e reabra o diagnóstico para consultar novamente.
+
 Ao criar um servidor OAuth no editor MCP, o Assistente guarda cliente, segredo
 opcional, tokens e configuração OAuth em uma única entrada cifrada do cofre.
 Conexões existentes e importadas continuam funcionando no formato anterior;

@@ -38,6 +38,13 @@ func (c *MCPController) ListMCPServers() []mcpmgr.ServerInfo {
 	return c.mcpMgr.List()
 }
 
+func (c *MCPController) InspectMCPOAuthInventory(ctx context.Context) ([]mcpmgr.OAuthInventoryItem, error) {
+	if err := c.guardMgr(); err != nil {
+		return nil, err
+	}
+	return c.mcpMgr.InspectOAuthInventory(ctx)
+}
+
 func (c *MCPController) ConnectMCPServer(slug string) error {
 	if err := c.guardMgr(); err != nil {
 		return err

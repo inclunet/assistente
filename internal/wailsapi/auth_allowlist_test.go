@@ -211,6 +211,7 @@ func TestMCPMethodsNotOnUnauthAllowlist(t *testing.T) {
 		"ReauthorizeMCPServer",
 		"SaveMCPServer",
 		"SaveMCPServerWithOAuthSecret",
+		"InspectMCPOAuthInventory",
 		"DuplicateMCPServer",
 		"DeleteMCPServer",
 		"GetMCPServerTools",

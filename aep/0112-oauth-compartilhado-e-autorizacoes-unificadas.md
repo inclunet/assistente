@@ -292,6 +292,8 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    A migração de credenciais continua exclusiva da fase 3.
 3. [ ] Cutover MCP: migrar registros e referências, comprovar reinício/refresh/native/bridge,
    remover persistência dupla, configurações OAuth duplicadas e ciclo próprio de renovação.
+   O inventário local preparatório está entregue (seção de evidências da fase 3);
+   conversão, snapshot recuperável e retirada do legado permanecem pendentes.
 4. [ ] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
    conexão e referências por papel, sem alterar protocolo nem exigir OAuth inexistente.
 
@@ -754,3 +756,35 @@ DCR público persiste `Client.AuthMethod=none` no candidato e no grant final, ig
 `TestConfiguredClientGrantReportsConfigurationErrors` cobre ID/segredo/endpoint ausentes e `invalid_client` como erro de configuração do cliente, também no caminho Conectar; não recomenda reautorização interativa para esse grant.
 
 Conectar e Reautorizar compartilham a publicação de tentativa em `beginManagedAttempt`. `TestManagedOAuthReauthorizationPublishesCancelableAttempt` cobre Cancelar/Desconectar e restauração do estado anterior em cancelamento do contexto durante Device Flow.
+
+
+### Fase 3 — inventário local antes da conversão
+
+Status: **In Progress**. O primeiro incremento da fase 3 disponibiliza
+**Diagnóstico OAuth** na página MCP, com consulta autenticada por usuário aos
+registros persistidos. Distingue autorizações compostas, pares legados por
+servidor, Client Credentials, credenciais por hostname e entradas sem consumidor
+OAuth correspondente. Detecta referências incompatíveis, material incompleto,
+client IDs divergentes, fonte externa e campos ilegíveis sem executar resolução
+de command/keyring, discovery, refresh ou consentimento.
+
+A classificação é observacional: não declara um registro pronto para migrar,
+não prova validade remota, não infere exclusividade de credenciais por hostname
+nem a origem DCR/manual quando faltam metadados. A inspeção criptográfica é
+estrita; campos plaintext de versões antigas são reportados para análise em vez
+de tratados como segredos válidos após erro de decifragem. Nenhum dado é alterado.
+O payload da UI contém apenas identificação do consumidor e códigos diagnósticos,
+sem tokens, client IDs, endpoints ou configuração de comandos.
+
+Evidências: `internal/credentials/oauth_inventory_test.go` cobre leitura do banco,
+isolamento por usuário, ausência de mutação, chave incompatível, plaintext e fontes
+externas; `internal/mcp/oauth_inventory_test.go` cobre classificação, ausência de
+rede e referências compostas inválidas; `internal/wailsapi/mcp_test.go` cobre a
+sessão obrigatória; `McpOAuthInventory.test.tsx` cobre apresentação acessível,
+falhas sem detalhes internos e respostas após fechamento.
+
+Continuam pendentes na fase 3: snapshot cifrado com retenção/restauração,
+fixtures de conversão de versões publicadas, migração transacional/idempotente,
+coordenação com escritores legados, comprovação reinício/refresh/native/bridge
+e retirada do runtime legado. Este incremento não cria snapshots nem executa
+conversão, descarte ou exportação de credenciais.
