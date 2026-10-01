@@ -127,7 +127,7 @@ func (m *Manager) GetServerAuthInfo(slug string) (string, bool, error) {
 
 	if cfg.OAuthAuthorizationID != "" {
 		_, r, _, err := m.managedOAuth(m.credentialContext(), *cfg)
-		return string(cfg.AuthType), err == nil && (r.Tokens.Access != "" || r.Client.ID != "" || r.Client.Secret != ""), err
+		return string(cfg.AuthType), err == nil && (r.Tokens.Access != "" || r.Client.Secret != ""), err
 	}
 	// Verifica entrada OAuth (mcp-client:{slug})
 	ctx := m.credentialContext()

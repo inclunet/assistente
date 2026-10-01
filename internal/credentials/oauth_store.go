@@ -287,12 +287,27 @@ func (s *oauthStore) SessionContext(ctx context.Context) (context.Context, conte
 // DeleteOAuthAuthorization commits deletion of a disconnected authorization and
 // its consumer together. Neither the cache nor the consumer changes on failure.
 func (m *Manager) DeleteOAuthAuthorization(ctx context.Context, id string, deleteConsumer func(*gorm.DB) error) error {
+	return m.deleteOAuthAuthorization(ctx, id, nil, nil, deleteConsumer)
+}
+
+// DeleteWithConsumer atomically removes a versioned grant and its consumer.
+// An active lease or a changed vault session/revision prevents the deletion.
+func (s *oauthStore) DeleteWithConsumer(ctx context.Context, id string, expected uint64, deleteConsumer func(*gorm.DB) error) error {
+	return s.manager.deleteOAuthAuthorization(ctx, id, &expected, func() error { return s.check(ctx) }, deleteConsumer)
+}
+
+func (m *Manager) deleteOAuthAuthorization(ctx context.Context, id string, expected *uint64, checkSession func() error, deleteConsumer func(*gorm.DB) error) error {
 	user, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if checkSession != nil {
+		if err := checkSession(); err != nil {
+			return err
+		}
+	}
 	persistence, ok := m.store.(*DBStore)
 	if !ok {
 		return errors.New("oauth_store_not_supported")
@@ -308,6 +323,9 @@ func (m *Manager) DeleteOAuthAuthorization(ctx context.Context, id string, delet
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
+		if errors.Is(err, gorm.ErrRecordNotFound) && expected != nil {
+			return oauthflow.ErrConflict
+		}
 		if err == nil {
 			if !m.persist {
 				return errors.New("oauth_vault_persistence_required")
@@ -320,7 +338,7 @@ func (m *Manager) DeleteOAuthAuthorization(ctx context.Context, id string, delet
 			if err = json.Unmarshal([]byte(data), &record); err != nil {
 				return err
 			}
-			if record.Version != 1 || record.ID != id || record.UserID != user || record.State != "disconnected" || record.RefreshPending || record.AuthorizationActive() {
+			if record.Version != 1 || record.ID != id || record.UserID != user || record.AuthorizationActive() || record.RefreshActive() || (expected == nil && (record.State != "disconnected" || record.RefreshPending)) || (expected != nil && record.Revision != *expected) {
 				return oauthflow.ErrConflict
 			}
 			result := database.ScopeByUser(ctx, tx, "user_id").Where("id = ? AND source = ? AND oauth_enc = ?", id, "oauth", entry.OAuthEnc).Delete(&database.CredentialEntry{})

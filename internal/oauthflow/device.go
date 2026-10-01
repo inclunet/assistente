@@ -66,13 +66,15 @@ func DeviceGrantErrorCode(err error) string {
 	return ""
 }
 
-func deviceJSON(ctx context.Context, client *http.Client, endpoint string, form url.Values, cfg DeviceGrantConfig, out any) (int, error) {
+func deviceJSON(ctx context.Context, client *http.Client, endpoint string, form url.Values, cfg DeviceGrantConfig, deviceAuthorization bool, out any) (int, error) {
 	if cfg.ClientSecret != "" {
 		switch cfg.AuthMethod {
 		case "client_secret_post":
 			form.Set("client_secret", cfg.ClientSecret)
 		case "client_secret_basic":
-			form.Del("client_id")
+			if !deviceAuthorization {
+				form.Del("client_id")
+			}
 		default:
 			return 0, ErrDeviceGrant
 		}
@@ -160,7 +162,7 @@ func authorizeDevice(parent context.Context, cfg DeviceGrantConfig, verify func(
 		form.Set("scope", strings.Join(cfg.Scopes, " "))
 	}
 	var device deviceResponse
-	status, err := deviceJSON(ctx, client, cfg.DeviceEndpoint, form, cfg, &device)
+	status, err := deviceJSON(ctx, client, cfg.DeviceEndpoint, form, cfg, true, &device)
 	if err != nil {
 		return DeviceGrantResult{}, err
 	}
@@ -216,7 +218,7 @@ func authorizeDevice(parent context.Context, cfg DeviceGrantConfig, verify func(
 			form.Set("resource", cfg.Audience)
 		}
 		var token deviceTokenResponse
-		status, err := deviceJSON(ctx, client, cfg.TokenEndpoint, form, cfg, &token)
+		status, err := deviceJSON(ctx, client, cfg.TokenEndpoint, form, cfg, false, &token)
 		if err != nil {
 			return DeviceGrantResult{}, err
 		}

@@ -223,9 +223,21 @@ func TestManagedOAuthDeviceAndStartupNeverOpenBrowserImplicitly(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/.well-known/oauth-protected-resource":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resource": "http://" + r.Host + "/canonical", "authorization_servers": []string{"http://" + r.Host}})
+		case "/.well-known/oauth-authorization-server":
+			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": "http://" + r.Host, "authorization_endpoint": "http://" + r.Host + "/authorize", "token_endpoint": "http://" + r.Host + "/token", "device_authorization_endpoint": "http://" + r.Host + "/device"})
 		case "/device":
+			_ = r.ParseForm()
+			if r.Form.Get("resource") != "http://"+r.Host+"/canonical" {
+				t.Error("device ignored canonical audience")
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"device_code": "DEVICE", "user_code": "USER", "verification_uri": "http://" + r.Host + "/verify", "expires_in": 60, "interval": 1})
 		case "/token":
+			_ = r.ParseForm()
+			if r.Form.Get("resource") != "http://"+r.Host+"/canonical" {
+				t.Error("token ignored canonical audience")
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "device-token", "token_type": "Bearer", "expires_in": 3600})
 		case "/authorize", "/verify":
 			w.WriteHeader(200)
@@ -255,7 +267,7 @@ func TestManagedOAuthDeviceAndStartupNeverOpenBrowserImplicitly(t *testing.T) {
 		t.Fatal(err)
 	}
 	projected, _, r := loadManaged(t, m, ctx, "new")
-	if r.Tokens.Access != "device-token" || opened.Load() != 1 {
+	if r.Tokens.Access != "device-token" || opened.Load() != 1 || r.Audience != srv.URL+"/canonical" {
 		t.Fatal("device authorization not committed")
 	}
 	projected.Name = "Renamed"
@@ -563,5 +575,83 @@ func TestManagedOAuthRenamePreservesDiscoveredAudience(t *testing.T) {
 	latest, err := store.Load(ctx, record.ID)
 	if err != nil || latest.Audience != record.Audience || latest.Tokens.Access != "VALID" || latest.State != "connected" {
 		t.Fatalf("rename invalidated discovered resource: %v", err)
+	}
+}
+
+func TestManagedOAuthDetachFailurePreservesAuthorization(t *testing.T) {
+	for _, remove := range []bool{false, true} {
+		t.Run(map[bool]string{false: "detach", true: "delete"}[remove], func(t *testing.T) {
+			m, repo, ctx := managedFixture(t)
+			if err := m.SaveConfig("atomic", managedConfig("https://resource.example")); err != nil {
+				t.Fatal(err)
+			}
+			cfg, store, record := loadManaged(t, m, ctx, "atomic")
+			record.State = "connected"
+			record.Tokens = oauthflow.Tokens{Access: "VALID", Refresh: "REFRESH", Type: "Bearer"}
+			record.Revision++
+			if err := store.CompareAndSwap(ctx, record, record.Revision-1); err != nil {
+				t.Fatal(err)
+			}
+			reject := func(tx *gorm.DB) {
+				if tx.Statement.Table == "mcp_servers" {
+					_ = tx.AddError(errors.New("consumer failed"))
+				}
+			}
+			if remove {
+				if err := repo.db.Callback().Delete().Before("gorm:delete").Register("reject_detach", reject); err != nil {
+					t.Fatal(err)
+				}
+				defer func() { _ = repo.db.Callback().Delete().Remove("reject_detach") }()
+			} else {
+				if err := repo.db.Callback().Update().Before("gorm:update").Register("reject_detach", reject); err != nil {
+					t.Fatal(err)
+				}
+				defer func() { _ = repo.db.Callback().Update().Remove("reject_detach") }()
+			}
+			var err error
+			if remove {
+				err = m.DeleteConfig("atomic")
+			} else {
+				cfg.AuthType = AuthNone
+				err = m.SaveConfig("atomic", cfg)
+			}
+			if err == nil {
+				t.Fatal("consumer failure ignored")
+			}
+			latest, err := store.Load(ctx, record.ID)
+			if err != nil || latest.Revision != record.Revision || latest.Tokens.Access != "VALID" || latest.Tokens.Refresh != "REFRESH" || latest.State != "connected" {
+				t.Fatalf("failed detach destroyed authorization: %v", err)
+			}
+			persisted, err := repo.GetServer(ctx, "atomic")
+			if err != nil || persisted.OAuthAuthorizationID != record.ID || persisted.AuthType != AuthOAuth2PKCE {
+				t.Fatalf("consumer changed after rollback: %v", err)
+			}
+		})
+	}
+}
+
+func TestManagedOAuthAuthInfoAfterRemovingSecret(t *testing.T) {
+	m, _, ctx := managedFixture(t)
+	if err := m.SaveConfig("info", managedConfig("https://resource.example")); err != nil {
+		t.Fatal(err)
+	}
+	if _, has, err := m.GetServerAuthInfo("info"); err != nil || has {
+		t.Fatalf("public ID shown as secret: %v", err)
+	}
+	if err := m.SaveServerAuth("info", string(AuthOAuth2PKCE), "", "", "", "SECRET"); err != nil {
+		t.Fatal(err)
+	}
+	if _, has, err := m.GetServerAuthInfo("info"); err != nil || !has {
+		t.Fatalf("secret not shown: %v", err)
+	}
+	if err := m.DeleteServerAuth("info"); err != nil {
+		t.Fatal(err)
+	}
+	if _, has, err := m.GetServerAuthInfo("info"); err != nil || has {
+		t.Fatalf("removed secret shown configured: %v", err)
+	}
+	_, _, record := loadManaged(t, m, ctx, "info")
+	if record.Client.ID != "client" {
+		t.Fatal("public registration was lost")
 	}
 }

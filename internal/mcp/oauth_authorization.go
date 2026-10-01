@@ -444,17 +444,20 @@ func (m *Manager) detachManagedOAuth(ctx context.Context, slug string, cfg Serve
 	if err != nil {
 		return err
 	}
-	store, r, service, err := m.managedOAuth(ctx, *existing)
+	store, r, _, err := m.managedOAuth(ctx, *existing)
 	if err != nil {
 		return err
 	}
-	if err = service.Invalidate(ctx, store, r.ID); err != nil {
-		return err
+	atomicStore, ok := store.(interface {
+		DeleteWithConsumer(context.Context, string, uint64, func(*gorm.DB) error) error
+	})
+	if !ok {
+		return oauthflow.ErrResource
 	}
 	cfg.OAuthAuthorizationID = ""
 	cfg.OAuthManaged = false
 	clearOAuthConfiguration(&cfg)
-	err = m.credMgr.DeleteOAuthAuthorization(ctx, r.ID, func(tx *gorm.DB) error {
+	err = atomicStore.DeleteWithConsumer(ctx, r.ID, r.Revision, func(tx *gorm.DB) error {
 		var bound database.MCPServer
 		if err := tx.Where("id = ? AND user_id = ? AND slug = ? AND oauth_authorization_id = ?", existing.ID, r.UserID, slug, r.ID).First(&bound).Error; err != nil {
 			return err

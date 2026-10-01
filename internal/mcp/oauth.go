@@ -605,7 +605,7 @@ func (rt *pkceRoundTripper) mergeDiscovery() {
 	if d == nil {
 		return
 	}
-	if rt.resourceURL == "" {
+	if rt.resourceURL == "" || (rt.protocolOnly && d.Resource != "") {
 		rt.resourceURL = d.Resource
 	}
 	if rt.cfg.OAuth2AuthURL == "" {

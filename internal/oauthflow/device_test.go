@@ -192,6 +192,11 @@ func TestDeviceConfidentialClientAuthentication(t *testing.T) {
 				if method == "client_secret_basic" {
 					user, secret, ok := r.BasicAuth()
 					valid = ok && user == "client" && secret == "secret" && r.Form.Get("client_secret") == ""
+					if r.URL.Path == "/device" {
+						valid = valid && r.Form.Get("client_id") == "client"
+					} else {
+						valid = valid && r.Form.Get("client_id") == ""
+					}
 				} else {
 					valid = r.Form.Get("client_id") == "client" && r.Form.Get("client_secret") == "secret" && r.Header.Get("Authorization") == ""
 				}
