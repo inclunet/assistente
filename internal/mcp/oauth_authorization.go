@@ -152,14 +152,16 @@ func (m *Manager) saveManagedOAuth(slug string, cfg ServerConfig, secret *string
 	if err != nil {
 		return err
 	}
+	roots := m.GetWorkspaceRoots()
 	publish := func() error {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		if current := m.servers[slug]; current != nil {
 			current.ID = cfg.ID
 			current.Config = cfg
+			current.Roots = roots
 		} else {
-			m.servers[slug] = &ServerStatus{ID: cfg.ID, Slug: slug, Config: cfg, Status: StatusDisconnected, Tools: []MCPToolInfo{}}
+			m.servers[slug] = &ServerStatus{ID: cfg.ID, Slug: slug, Config: cfg, Status: StatusDisconnected, Tools: []MCPToolInfo{}, Roots: roots}
 		}
 		return nil
 	}
@@ -401,6 +403,11 @@ func (t *managedOAuthTransport) RoundTrip(req *http.Request) (*http.Response, er
 	if err != nil {
 		cleanup()
 		return nil, err
+	}
+	if isSessionExpiredStatus(response.StatusCode) {
+		_ = response.Body.Close()
+		cleanup()
+		return nil, &SessionExpiredError{StatusCode: response.StatusCode}
 	}
 	response.Body = &managedOAuthBody{ReadCloser: response.Body, cleanup: cleanup}
 	return response, nil

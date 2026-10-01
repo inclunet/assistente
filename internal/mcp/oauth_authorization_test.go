@@ -685,3 +685,94 @@ func TestManagedOAuthRemoveSecretFailureIsAtomic(t *testing.T) {
 		t.Fatalf("partial clear: %v", err)
 	}
 }
+
+func TestManagedOAuthPublishesWorkspaceRoots(t *testing.T) {
+	m, _, _ := managedFixture(t)
+	if err := m.SetWorkspaceRoots([]Root{{URI: "file:///first", Name: "first"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SaveConfig("roots", managedConfig("https://resource.example")); err != nil {
+		t.Fatal(err)
+	}
+	assertRoot := func(slug, uri string) {
+		t.Helper()
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		status := m.servers[slug]
+		if status == nil || len(status.Roots) != 1 || status.Roots[0].URI != uri {
+			t.Fatalf("missing roots for %s", slug)
+		}
+	}
+	assertRoot("roots", "file:///first")
+	if err := m.SetWorkspaceRoots([]Root{{URI: "file:///second", Name: "second"}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := m.GetConfig("roots")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Name = "Updated"
+	if err = m.SaveConfig("roots", *cfg); err != nil {
+		t.Fatal(err)
+	}
+	assertRoot("roots", "file:///second")
+	copySlug, err := m.DuplicateConfig("roots")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRoot(copySlug, "file:///second")
+}
+
+func TestManagedOAuthSessionExpiryTriggersBridgeRecovery(t *testing.T) {
+	for _, status := range []int{404, 410} {
+		for _, retry := range []bool{false, true} {
+			t.Run(http.StatusText(status)+map[bool]string{false: "/initial", true: "/retry"}[retry], func(t *testing.T) {
+				m, _, ctx := managedFixture(t)
+				var tokenCalls atomic.Int32
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					tokenCalls.Add(1)
+					_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "NEW", "refresh_token": "ROTATED", "token_type": "Bearer", "expires_in": 3600})
+				}))
+				defer srv.Close()
+				if err := m.SaveConfig("expired", managedConfig(srv.URL)); err != nil {
+					t.Fatal(err)
+				}
+				cfg, store, record := loadManaged(t, m, ctx, "expired")
+				record.State = "connected"
+				record.Tokens = oauthflow.Tokens{Access: "OLD", Refresh: "REFRESH", Type: "Bearer", ExpiresAt: time.Now().Add(time.Hour)}
+				record.Revision++
+				if err := store.CompareAndSwap(ctx, record, record.Revision-1); err != nil {
+					t.Fatal(err)
+				}
+				var bodies []*managedTrackedBody
+				transport := &managedOAuthTransport{manager: m, cfg: cfg, store: store, ctx: ctx, base: managedTestRoundTrip(func(*http.Request) (*http.Response, error) {
+					code := status
+					if retry && len(bodies) == 0 {
+						code = 401
+					}
+					body := &managedTrackedBody{Reader: strings.NewReader("expired")}
+					bodies = append(bodies, body)
+					return &http.Response{StatusCode: code, Body: body, Header: make(http.Header)}, nil
+				})}
+				req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+				resp, err := transport.RoundTrip(req)
+				var expired *SessionExpiredError
+				if resp != nil || !errors.As(err, &expired) || expired.StatusCode != status || !isSessionOrTransportError(err) {
+					t.Fatalf("bridge recovery not signaled: %v", err)
+				}
+				for _, body := range bodies {
+					if !body.closed {
+						t.Fatal("session error leaked response")
+					}
+				}
+				expected := int32(0)
+				if retry {
+					expected = 1
+				}
+				if tokenCalls.Load() != expected {
+					t.Fatal("session expiry triggered OAuth renewal")
+				}
+			})
+		}
+	}
+}

@@ -370,8 +370,9 @@ export default function McpPage() {
     setDiscoveryRegistrationUrl('');
     setDiscoveryResourceName('');
     setDiscoveryStatus('idle');
+    if (!isSameDiscoveryResource(value, formUrl)) setFormOAuthDeviceUrl('');
     setFormUrl(value);
-  }, []);
+  }, [formUrl]);
 
   const handleUrlBlur = useCallback(() => {
     const isHTTP = formTransport === 'streamable' || formTransport === 'sse';

@@ -120,6 +120,9 @@ func (s *Service) AuthorizeUsing(ctx context.Context, store Store, id string, gr
 // Client credentials obtains a new grant, never reuses a rotating refresh token.
 // The durable lease still serializes processes; after a crash it can safely retry.
 func (s *Service) resolveClientGrant(ctx context.Context, store Store, i Integration, r Record, rejected string) (Record, error) {
+	if r.State == "permission_required" {
+		return Record{}, ErrPermission
+	}
 	if r.State == "disconnected" {
 		return Record{}, ErrReauthorize
 	}

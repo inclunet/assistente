@@ -698,6 +698,9 @@ persistidos entre processos. O método de autenticação do cliente (Basic ou co
 marca de refresh rotativo; socket e endpoint continuam protegidos.
 Startup e resolução silenciosa não abrem navegador para registros compostos;
 Conectar/Reautorizar são ações explícitas. Desconectar cancela a tentativa local.
+Respostas 404/410 mantêm a recuperação de sessão pelo bridge, sem renovar OAuth.
+O editor descarta endpoint Device herdado quando o recurso muda e o preserva em
+renomeações, coberto em `McpPage.test.tsx`.
 Edição e exclusão recusam leases ativos; CAS impede publicação de resultados
 atrasados. Logout invalida a sessão capturada pelo transporte. Resposta 403 não
 renova; 401 admite uma recuperação e replay somente com corpo recriável.
@@ -717,6 +720,9 @@ Evidências: `TestManagedOAuthOneEncryptedEntryAndAtomicConsumer`,
 `TestManagedOAuthRemoveSecretFailureIsAtomic`,
 `TestConfiguredBasicAuthenticationOmitsBodyClientID`,
 `TestConfiguredRejectsChangedConsumerGrantAndScopes`,
+`TestConfiguredClientGrantWaitsForScopeCorrection`,
+`TestManagedOAuthPublishesWorkspaceRoots`,
+`TestManagedOAuthSessionExpiryTriggersBridgeRecovery`,
 `TestManagedOAuthSSEFallbackPreservesAuthorization`,
 `TestManagedOAuthRenamePreservesDiscoveredAudience`,
 `TestDeviceConfidentialClientAuthentication`,

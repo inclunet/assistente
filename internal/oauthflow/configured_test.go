@@ -227,3 +227,43 @@ func TestConfiguredRejectsChangedConsumerGrantAndScopes(t *testing.T) {
 		})
 	}
 }
+
+func TestConfiguredClientGrantWaitsForScopeCorrection(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "TOKEN", "token_type": "Bearer", "scope": "read"})
+	}))
+	defer srv.Close()
+	r := configuredRecord(srv.URL)
+	r.GrantType = "client_credentials"
+	r.State = "pending"
+	r.Tokens = Tokens{}
+	r.RequestedScopes = []string{"read", "write"}
+	r.Client.Secret = "secret"
+	r.Client.AuthMethod = "client_secret_post"
+	store := &memoryStore{r: r}
+	for range 3 {
+		current, _ := store.Load(context.Background(), r.ID)
+		service, _ := NewConfigured(current, nil)
+		if _, err := service.Resolve(WithNetworkOperation(context.Background()), store, r.ID, r.Resource, ""); !errors.Is(err, ErrPermission) {
+			t.Fatalf("permission not reported: %v", err)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatal("permission failure repeated grants")
+	}
+	edited, _ := store.Load(context.Background(), r.ID)
+	edited.RequestedScopes = []string{"read"}
+	edited.State = "pending"
+	edited.Tokens = Tokens{}
+	edited.Revision++
+	if err := store.CompareAndSwap(context.Background(), edited, edited.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	service, _ := NewConfigured(edited, nil)
+	got, err := service.Resolve(WithNetworkOperation(context.Background()), store, r.ID, r.Resource, "")
+	if err != nil || got.State != "connected" || calls.Load() != 2 {
+		t.Fatalf("scope correction did not recover: %v", err)
+	}
+}
