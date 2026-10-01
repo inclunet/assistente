@@ -108,11 +108,8 @@ func (r *DBRepository) SaveServer(ctx context.Context, cfg *ServerConfig) error 
 		return fmt.Errorf("config MCP nil")
 	}
 	cfg.Slug = strings.TrimSpace(cfg.Slug)
-	if cfg.Slug == "" {
-		return fmt.Errorf("slug do servidor MCP é obrigatório")
-	}
-	if strings.EqualFold(cfg.Slug, "native") {
-		return fmt.Errorf("slug do servidor MCP 'native' é reservado")
+	if err := validateServerSlug(cfg.Slug); err != nil {
+		return err
 	}
 	cfg.UserID = userID
 	cfg.applyDefaults(cfg.Slug)
@@ -302,6 +299,8 @@ func serverConfigToModel(cfg ServerConfig) (database.MCPServer, error) {
 		Env:                   env,
 		URL:                   cfg.URL,
 		AuthType:              string(cfg.AuthType),
+		OAuthManaged:          cfg.OAuthManaged,
+		OAuthAuthorizationID:  cfg.OAuthAuthorizationID,
 		OAuth2ClientID:        cfg.OAuth2ClientID,
 		OAuth2AuthURL:         cfg.OAuth2AuthURL,
 		OAuth2TokenURL:        cfg.OAuth2TokenURL,
@@ -342,6 +341,8 @@ func serverModelToConfig(row database.MCPServer) (ServerConfig, error) {
 		Env:                   env,
 		URL:                   row.URL,
 		AuthType:              AuthType(row.AuthType),
+		OAuthManaged:          row.OAuthManaged,
+		OAuthAuthorizationID:  row.OAuthAuthorizationID,
 		OAuth2ClientID:        row.OAuth2ClientID,
 		OAuth2AuthURL:         row.OAuth2AuthURL,
 		OAuth2TokenURL:        row.OAuth2TokenURL,
@@ -390,4 +391,14 @@ func unmarshalJSONString(raw string, dest any) error {
 		return nil
 	}
 	return json.Unmarshal([]byte(raw), dest)
+}
+
+func validateServerSlug(slug string) error {
+	if strings.TrimSpace(slug) == "" {
+		return fmt.Errorf("slug do servidor MCP é obrigatório")
+	}
+	if strings.EqualFold(strings.TrimSpace(slug), "native") {
+		return fmt.Errorf("slug do servidor MCP 'native' é reservado")
+	}
+	return nil
 }

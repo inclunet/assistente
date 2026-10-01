@@ -6511,6 +6511,8 @@ export namespace mcp {
 	    }
 	}
 	export class ServerConfig {
+	    oauth2_client_method?: string;
+	    oauth2_token_auth_method?: string;
 	    id?: string;
 	    user_id?: string;
 	    slug?: string;
@@ -6522,6 +6524,8 @@ export namespace mcp {
 	    env?: Record<string, string>;
 	    url?: string;
 	    auth_type?: string;
+	    oauth_managed?: boolean;
+	    oauth_authorization_id?: string;
 	    oauth2_client_id?: string;
 	    oauth2_auth_url?: string;
 	    oauth2_token_url?: string;
@@ -6541,6 +6545,8 @@ export namespace mcp {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.oauth2_client_method = source["oauth2_client_method"];
+	        this.oauth2_token_auth_method = source["oauth2_token_auth_method"];
 	        this.id = source["id"];
 	        this.user_id = source["user_id"];
 	        this.slug = source["slug"];
@@ -6552,6 +6558,8 @@ export namespace mcp {
 	        this.env = source["env"];
 	        this.url = source["url"];
 	        this.auth_type = source["auth_type"];
+	        this.oauth_managed = source["oauth_managed"];
+	        this.oauth_authorization_id = source["oauth_authorization_id"];
 	        this.oauth2_client_id = source["oauth2_client_id"];
 	        this.oauth2_auth_url = source["oauth2_auth_url"];
 	        this.oauth2_token_url = source["oauth2_token_url"];

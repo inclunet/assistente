@@ -83,6 +83,12 @@ func (s *oauthStore) Create(ctx context.Context, r oauthflow.Record) error {
 
 // CreateWithConsumer publishes the authorization and consumer in one transaction.
 func (s *oauthStore) CreateWithConsumer(ctx context.Context, r oauthflow.Record, createConsumer func(*gorm.DB) error) error {
+	return s.CreateWithConsumerAndPublish(ctx, r, createConsumer, nil)
+}
+
+// CreateWithConsumerAndPublish publishes after commit, before releasing the vault
+// lock. The callback must be non-failing, local and non-reentrant.
+func (s *oauthStore) CreateWithConsumerAndPublish(ctx context.Context, r oauthflow.Record, createConsumer func(*gorm.DB) error, publish func()) error {
 	m := s.manager
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -123,9 +129,23 @@ func (s *oauthStore) CreateWithConsumer(ctx context.Context, r oauthflow.Record,
 		return err
 	}
 	m.credentials = append(m.credentials, &DomainCredential{ID: r.ID, UserID: r.UserID, Pattern: "oauth:" + r.ID, Auth: &AuthConfig{Source: "oauth", Type: "bearer", OAuthEnc: enc}})
+	if publish != nil {
+		publish()
+	}
 	return nil
 }
 func (s *oauthStore) CompareAndSwap(ctx context.Context, r oauthflow.Record, revision uint64) error {
+	return s.CompareAndSwapWithConsumer(ctx, r, revision, nil)
+}
+
+// CompareAndSwapWithConsumer commits a configuration edit and its consumer together.
+func (s *oauthStore) CompareAndSwapWithConsumer(ctx context.Context, r oauthflow.Record, revision uint64, update func(*gorm.DB) error) error {
+	return s.CompareAndSwapWithConsumerAndPublish(ctx, r, revision, update, nil)
+}
+
+// CompareAndSwapWithConsumerAndPublish orders the same local publication with CAS.
+// The callback follows the same contract as CreateWithConsumerAndPublish.
+func (s *oauthStore) CompareAndSwapWithConsumerAndPublish(ctx context.Context, r oauthflow.Record, revision uint64, update func(*gorm.DB) error, publish func()) error {
 	m := s.manager
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -144,7 +164,29 @@ func (s *oauthStore) CompareAndSwap(ctx context.Context, r oauthflow.Record, rev
 	if err != nil {
 		return err
 	}
-	if err = m.store.(oauthPersistence).SwapOAuth(ctx, r.ID, enc, next); err != nil {
+	if update == nil {
+		err = m.store.(oauthPersistence).SwapOAuth(ctx, r.ID, enc, next)
+	} else {
+		persistence, ok := m.store.(*DBStore)
+		if !ok {
+			return errors.New("oauth_store_not_supported")
+		}
+		db, dbErr := persistence.ensureDB()
+		if dbErr != nil {
+			return dbErr
+		}
+		err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			result := tx.Model(&database.CredentialEntry{}).Where("id = ? AND user_id = ? AND source = ? AND oauth_enc = ?", r.ID, s.userID, "oauth", enc).Update("oauth_enc", next)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return oauthflow.ErrConflict
+			}
+			return update(tx)
+		})
+	}
+	if err != nil {
 		return err
 	}
 	if r.State != "connected" {
@@ -157,6 +199,9 @@ func (s *oauthStore) CompareAndSwap(ctx context.Context, r oauthflow.Record, rev
 			dc.Auth = &AuthConfig{Source: "oauth", Type: "bearer", OAuthEnc: next}
 			break
 		}
+	}
+	if publish != nil {
+		publish()
 	}
 	return nil
 }
@@ -260,12 +305,27 @@ func (s *oauthStore) SessionContext(ctx context.Context) (context.Context, conte
 // DeleteOAuthAuthorization commits deletion of a disconnected authorization and
 // its consumer together. Neither the cache nor the consumer changes on failure.
 func (m *Manager) DeleteOAuthAuthorization(ctx context.Context, id string, deleteConsumer func(*gorm.DB) error) error {
+	return m.deleteOAuthAuthorization(ctx, id, nil, nil, deleteConsumer)
+}
+
+// DeleteWithConsumer atomically removes a versioned grant and its consumer.
+// An active lease or a changed vault session/revision prevents the deletion.
+func (s *oauthStore) DeleteWithConsumer(ctx context.Context, id string, expected uint64, deleteConsumer func(*gorm.DB) error) error {
+	return s.manager.deleteOAuthAuthorization(ctx, id, &expected, func() error { return s.check(ctx) }, deleteConsumer)
+}
+
+func (m *Manager) deleteOAuthAuthorization(ctx context.Context, id string, expected *uint64, checkSession func() error, deleteConsumer func(*gorm.DB) error) error {
 	user, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if checkSession != nil {
+		if err := checkSession(); err != nil {
+			return err
+		}
+	}
 	persistence, ok := m.store.(*DBStore)
 	if !ok {
 		return errors.New("oauth_store_not_supported")
@@ -281,6 +341,9 @@ func (m *Manager) DeleteOAuthAuthorization(ctx context.Context, id string, delet
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
+		if errors.Is(err, gorm.ErrRecordNotFound) && expected != nil {
+			return oauthflow.ErrConflict
+		}
 		if err == nil {
 			if !m.persist {
 				return errors.New("oauth_vault_persistence_required")
@@ -293,7 +356,7 @@ func (m *Manager) DeleteOAuthAuthorization(ctx context.Context, id string, delet
 			if err = json.Unmarshal([]byte(data), &record); err != nil {
 				return err
 			}
-			if record.Version != 1 || record.ID != id || record.UserID != user || record.State != "disconnected" || record.RefreshPending || record.AuthorizationActive() {
+			if record.Version != 1 || record.ID != id || record.UserID != user || record.AuthorizationActive() || record.RefreshActive() || (expected == nil && (record.State != "disconnected" || record.RefreshPending)) || (expected != nil && record.Revision != *expected) {
 				return oauthflow.ErrConflict
 			}
 			result := database.ScopeByUser(ctx, tx, "user_id").Where("id = ? AND source = ? AND oauth_enc = ?", id, "oauth", entry.OAuthEnc).Delete(&database.CredentialEntry{})
@@ -355,7 +418,8 @@ func (s *oauthStore) WithAuthorization(ctx context.Context, id string, update fu
 }
 
 // WithSession serializes a short, non-reentrant publication with vault invalidation.
-// The callback must not call the credential manager or perform I/O.
+// The callback may read local consumer state, but must not call the credential
+// manager, mutate the vault, or perform network I/O.
 func (s *oauthStore) WithSession(ctx context.Context, publish func() error) error {
 	s.manager.mu.RLock()
 	defer s.manager.mu.RUnlock()

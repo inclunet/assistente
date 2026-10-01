@@ -180,3 +180,42 @@ func TestDeviceRequestTimeoutDoesNotClaimGrantExpired(t *testing.T) {
 		t.Fatalf("flow expiry lost: %v", err)
 	}
 }
+
+func TestDeviceConfidentialClientAuthentication(t *testing.T) {
+	for _, method := range []string{"client_secret_basic", "client_secret_post"} {
+		t.Run(method, func(t *testing.T) {
+			calls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				_ = r.ParseForm()
+				valid := false
+				if method == "client_secret_basic" {
+					user, secret, ok := r.BasicAuth()
+					valid = ok && user == "client" && secret == "secret" && r.Form.Get("client_secret") == ""
+					if r.URL.Path == "/device" {
+						valid = valid && r.Form.Get("client_id") == "client"
+					} else {
+						valid = valid && r.Form.Get("client_id") == ""
+					}
+				} else {
+					valid = r.Form.Get("client_id") == "client" && r.Form.Get("client_secret") == "secret" && r.Header.Get("Authorization") == ""
+				}
+				if !valid {
+					w.WriteHeader(401)
+					_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+					return
+				}
+				if r.URL.Path == "/device" {
+					_ = json.NewEncoder(w).Encode(map[string]any{"device_code": "device", "user_code": "user", "verification_uri": "http://" + r.Host + "/verify", "expires_in": 60})
+				} else {
+					_, _ = w.Write([]byte(`{"access_token":"token","token_type":"Bearer"}`))
+				}
+			}))
+			defer srv.Close()
+			result, err := authorizeDevice(context.Background(), DeviceGrantConfig{Resource: srv.URL, ClientID: "client", ClientSecret: "secret", AuthMethod: method, DeviceEndpoint: srv.URL + "/device", TokenEndpoint: srv.URL + "/token"}, func(context.Context, DeviceVerification) error { return nil }, func(context.Context, time.Duration) error { return nil })
+			if err != nil || result.Token == nil || calls != 2 {
+				t.Fatalf("confidential device: calls=%d err=%v", calls, err)
+			}
+		})
+	}
+}

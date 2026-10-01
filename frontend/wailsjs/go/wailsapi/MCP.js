@@ -74,6 +74,10 @@ export function SaveMCPServerAuth(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['wailsapi']['MCP']['SaveMCPServerAuth'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
+export function SaveMCPServerWithOAuthSecret(arg1, arg2, arg3) {
+  return window['go']['wailsapi']['MCP']['SaveMCPServerWithOAuthSecret'](arg1, arg2, arg3);
+}
+
 export function SetMCPWorkspaceRoots(arg1) {
   return window['go']['wailsapi']['MCP']['SetMCPWorkspaceRoots'](arg1);
 }

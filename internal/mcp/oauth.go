@@ -234,11 +234,15 @@ func (rt *pkceRoundTripper) fixBlockedEndpoint(ctx context.Context, rawURL strin
 // - Porta de callback fixa (oauth2_callback_port) para redirect_uri determinístico
 // - Parâmetro resource (RFC 8707)
 type pkceRoundTripper struct {
-	base       http.RoundTripper
-	credMgr    *credentials.Manager
-	cfg        ServerConfig
-	emitEvent  emitFunc
-	serverSlug string
+	protocolOnly           bool
+	registrationCheckpoint func() error
+	clientAuthMethod       string
+	issuedToken            *oauth2.Token
+	base                   http.RoundTripper
+	credMgr                *credentials.Manager
+	cfg                    ServerConfig
+	emitEvent              emitFunc
+	serverSlug             string
 
 	// onConfigUpdate é chamado para persistir mudanças no config (ex: porta após DCR).
 	onConfigUpdate func(ServerConfig)
@@ -602,7 +606,7 @@ func (rt *pkceRoundTripper) mergeDiscovery() {
 	if d == nil {
 		return
 	}
-	if rt.resourceURL == "" {
+	if rt.resourceURL == "" || (rt.protocolOnly && d.Resource != "") {
 		rt.resourceURL = d.Resource
 	}
 	if rt.cfg.OAuth2AuthURL == "" {
@@ -650,6 +654,11 @@ func (rt *pkceRoundTripper) registerClient(ctx context.Context, pkce bool) error
 		return err
 	}
 	rt.resolvedClientID, rt.resolvedClientSecret = result.ClientID, result.ClientSecret
+	if rt.protocolOnly {
+		// Managed DCR explicitly registers a public client, even if the response
+		// contains an unsolicited secret. Never authenticate that client with it.
+		rt.clientAuthMethod, rt.resolvedClientSecret = "none", ""
+	}
 	rt.clientGrantType = "urn:ietf:params:oauth:grant-type:device_code"
 	if pkce {
 		rt.clientGrantType = "authorization_code"
@@ -657,6 +666,11 @@ func (rt *pkceRoundTripper) registerClient(ctx context.Context, pkce bool) error
 	rt.cfg.OAuth2ClientID = result.ClientID
 	if callback != nil {
 		rt.cfg.OAuth2CallbackPort = callback.Port()
+	}
+	if rt.registrationCheckpoint != nil {
+		if err := rt.registrationCheckpoint(); err != nil {
+			return err
+		}
 	}
 	rt.persistClientCreds(result.ClientID, result.ClientSecret)
 	if rt.onConfigUpdate != nil {
@@ -702,8 +716,12 @@ func (rt *pkceRoundTripper) deviceVerificationURL(ctx context.Context, verificat
 func (rt *pkceRoundTripper) authorizeDeviceFlow(ctx context.Context) error {
 	clientID := rt.effectiveClientID()
 	deviceScopes := rt.effectiveScopes()
+	var clientSecret, authMethod string
+	if rt.protocolOnly {
+		clientSecret, authMethod = rt.effectiveClientSecret(), rt.clientAuthMethod
+	}
 	result, err := oauthflow.AuthorizeDevice(ctx, oauthflow.DeviceGrantConfig{
-		Resource: rt.cfg.URL, Audience: rt.resourceURL, ClientID: clientID, DeviceEndpoint: rt.cfg.OAuth2DeviceAuthURL, TokenEndpoint: rt.cfg.OAuth2TokenURL, Scopes: deviceScopes, AuthorizeNetwork: rt.networkAuthorizer,
+		ClientSecret: clientSecret, AuthMethod: authMethod, Resource: rt.cfg.URL, Audience: rt.resourceURL, ClientID: clientID, DeviceEndpoint: rt.cfg.OAuth2DeviceAuthURL, TokenEndpoint: rt.cfg.OAuth2TokenURL, Scopes: deviceScopes, AuthorizeNetwork: rt.networkAuthorizer,
 	}, func(ctx context.Context, verification oauthflow.DeviceVerification) error {
 		verifyURL, err := rt.deviceVerificationURL(ctx, verification)
 		if err != nil {
@@ -774,6 +792,12 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 		Scopes:      scopes,
 	}
 
+	if rt.protocolOnly {
+		oauthCfg.Endpoint.AuthStyle = oauth2.AuthStyleInParams
+		if rt.clientAuthMethod == "client_secret_basic" && clientSecret != "" {
+			oauthCfg.Endpoint.AuthStyle = oauth2.AuthStyleInHeader
+		}
+	}
 	codeVerifier := oauth2.GenerateVerifier()
 	state := generateState()
 
@@ -913,6 +937,10 @@ func (rt *pkceRoundTripper) persistClientCreds(clientID, clientSecret string) {
 // e o ctx da operação pode não carregar o `user_id` (ex.: device flow deriva de
 // context.Background()).
 func (rt *pkceRoundTripper) persistTokens(token *oauth2.Token) {
+	if rt.protocolOnly {
+		rt.issuedToken = token
+		return
+	}
 	if rt.credMgr == nil || token == nil {
 		return
 	}

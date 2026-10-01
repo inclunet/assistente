@@ -542,3 +542,50 @@ mensagens próprias. Não é necessário apagar as credenciais para tentar uma n
 autorização. Client Credentials continua obtendo e reutilizando tokens sem abrir
 o navegador. Esta atualização preserva as credenciais MCP existentes; a conversão
 para um único registro por autorização será feita em uma etapa posterior.
+
+### Novos cadastros com autorização unificada
+
+Ao criar um servidor OAuth no editor MCP, o Assistente guarda cliente, segredo
+opcional, tokens e configuração OAuth em uma única entrada cifrada do cofre.
+Conexões existentes e importadas continuam funcionando no formato anterior;
+não é necessário apagá-las ou cadastrá-las novamente.
+
+Use **Conectar** para autorizar um novo servidor ou **Reautorizar** para repetir
+o consentimento. Iniciar o aplicativo, listar ferramentas ou enviar mensagens
+não abre o navegador automaticamente para essas novas autorizações. Se faltar
+consentimento, a interface orienta a ação necessária. **Desconectar** cancela uma
+tentativa em andamento e encerra a conexão; isso não revoga a autorização remota.
+
+No formulário avançado, **Autenticação do cliente OAuth** permite escolher como
+enviar o client secret quando ele existir: no corpo (`client_secret_post`) ou por
+HTTP Basic (`client_secret_basic`). Use o método exigido pelo provedor. Clientes
+públicos continuam sem precisar de segredo. Client Credentials funciona sem
+navegador e reutiliza o token até precisar obter outro.
+
+Os modos nativo e bridge usam a mesma autorização e renovação. Alterar apenas o
+nome preserva os tokens. Alterar cliente, recurso, scopes ou endpoints invalida
+o material anterior e pode exigir novo consentimento. Durante uma autorização
+ou renovação ativa, aguarde a conclusão antes de editar ou excluir. Falhas na
+gravação são reportadas; uma resposta ambígua de refresh rotativo exige nova
+autorização, evitando reenviar um refresh token que pode já ter sido consumido.
+
+A migração de cadastros existentes e a portabilidade do registro composto serão
+entregues separadamente. Duplicar um cadastro não compartilha seus tokens ou
+client secret: configure o segredo, se necessário, e autorize a nova conexão.
+
+
+Se Client Credentials retornar permissões insuficientes, corrija os escopos na
+configuração do servidor e conecte novamente. O Assistente não repete o pedido
+de token a cada chamada enquanto essa condição permanecer.
+
+Alterações de callback, recurso, endpoints ou escopos em um cadastro DCR invalidam o cliente registrado; a próxima autorização registra outro cliente. Renomear o servidor preserva o registro. A rejeição `invalid_scope` em Client Credentials também exige corrigir os escopos antes de uma nova tentativa.
+
+Se o consentimento falhar após o DCR, o cliente registrado é preservado para a próxima tentativa. Uma conexão OAuth bem-sucedida limpa o aviso anterior de reautorização. Para Client Credentials inválido, revise ID/segredo ou escopos e conecte novamente; esse fluxo não usa o botão Reautorizar.
+
+Durante a autorização ao conectar, o servidor fica em Conectando e oferece Cancelar. Recusa ou falha do login exibe erro; a interface só confirma sucesso após a conexão completar.
+
+O seletor de autenticação Basic/Post aplica-se a clientes configurados manualmente e Client Credentials. Quando o discovery seleciona registro dinâmico público (DCR), o seletor é ocultado, pois o cliente é registrado sem segredo (`none`).
+
+Clientes DCR públicos não aceitam segredo manual. Para usar um cliente confidencial, configure outro ID de cliente e seu método de autenticação; renomear o servidor preserva o registro público existente.
+
+Reautorizar também oferece Cancelar durante o login, mesmo quando o servidor estava desconectado ou em erro. Cancelar/Desconectar encerra a tentativa; uma falha de autorização preserva o estado anterior da conexão.

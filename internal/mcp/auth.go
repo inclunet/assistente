@@ -22,6 +22,12 @@ func (m *Manager) SaveServerAuth(slug, authType, token, username, password, clie
 		return err
 	}
 
+	if cfg.OAuthAuthorizationID != "" {
+		if authType != string(cfg.AuthType) {
+			return fmt.Errorf("oauth_resource_not_authorized")
+		}
+		return m.saveManagedOAuth(slug, *cfg, &clientSecret)
+	}
 	switch authType {
 	case "bearer":
 		hostname := hostnameFromURL(cfg.URL)
@@ -66,6 +72,21 @@ func (m *Manager) DeleteServerAuth(slug string) error {
 		return err
 	}
 
+	cfgManaged, err := m.GetConfig(slug)
+	if err != nil {
+		return err
+	}
+	if cfgManaged.OAuthAuthorizationID != "" {
+		store, r, service, err := m.managedOAuth(ctx, *cfgManaged)
+		if err != nil {
+			return err
+		}
+		if err = service.InvalidateAndClearClientSecret(ctx, store, r.ID); err != nil {
+			return err
+		}
+		_ = m.Disconnect(slug)
+		return nil
+	}
 	// Limpar entradas OAuth (client + tokens)
 	_ = m.credMgr.DeletePattern(ctx, clientCredPattern(slug))
 	_ = m.credMgr.DeletePattern(ctx, userTokensPattern(slug))
@@ -91,6 +112,10 @@ func (m *Manager) GetServerAuthInfo(slug string) (string, bool, error) {
 		return "", false, err
 	}
 
+	if cfg.OAuthAuthorizationID != "" {
+		_, r, _, err := m.managedOAuth(m.credentialContext(), *cfg)
+		return string(cfg.AuthType), err == nil && (r.Tokens.Access != "" || r.Client.Secret != ""), err
+	}
 	// Verifica entrada OAuth (mcp-client:{slug})
 	ctx := m.credentialContext()
 	if _, err := database.RequireUserID(ctx); err != nil {

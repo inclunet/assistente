@@ -18,6 +18,7 @@ var ErrDeviceGrant = errors.New("oauth_device_grant_failed")
 // presentation and persistence until its authorization records are migrated.
 type DeviceGrantConfig struct {
 	Resource, Audience, ClientID, DeviceEndpoint, TokenEndpoint string
+	ClientSecret, AuthMethod                                    string
 	Scopes                                                      []string
 	AuthorizeNetwork                                            NetworkAuthorizer
 }
@@ -65,10 +66,25 @@ func DeviceGrantErrorCode(err error) string {
 	return ""
 }
 
-func deviceJSON(ctx context.Context, client *http.Client, endpoint string, form url.Values, out any) (int, error) {
+func deviceJSON(ctx context.Context, client *http.Client, endpoint string, form url.Values, cfg DeviceGrantConfig, deviceAuthorization bool, out any) (int, error) {
+	if cfg.ClientSecret != "" {
+		switch cfg.AuthMethod {
+		case "client_secret_post":
+			form.Set("client_secret", cfg.ClientSecret)
+		case "client_secret_basic":
+			if !deviceAuthorization {
+				form.Del("client_id")
+			}
+		default:
+			return 0, ErrDeviceGrant
+		}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return 0, ErrDeviceGrant
+	}
+	if cfg.ClientSecret != "" && cfg.AuthMethod == "client_secret_basic" {
+		req.SetBasicAuth(url.QueryEscape(cfg.ClientID), url.QueryEscape(cfg.ClientSecret))
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := client.Do(req)
@@ -146,7 +162,7 @@ func authorizeDevice(parent context.Context, cfg DeviceGrantConfig, verify func(
 		form.Set("scope", strings.Join(cfg.Scopes, " "))
 	}
 	var device deviceResponse
-	status, err := deviceJSON(ctx, client, cfg.DeviceEndpoint, form, &device)
+	status, err := deviceJSON(ctx, client, cfg.DeviceEndpoint, form, cfg, true, &device)
 	if err != nil {
 		return DeviceGrantResult{}, err
 	}
@@ -202,7 +218,7 @@ func authorizeDevice(parent context.Context, cfg DeviceGrantConfig, verify func(
 			form.Set("resource", cfg.Audience)
 		}
 		var token deviceTokenResponse
-		status, err := deviceJSON(ctx, client, cfg.TokenEndpoint, form, &token)
+		status, err := deviceJSON(ctx, client, cfg.TokenEndpoint, form, cfg, false, &token)
 		if err != nil {
 			return DeviceGrantResult{}, err
 		}

@@ -110,6 +110,7 @@ type connectionAttempt struct {
 // Manager gerencia servidores MCP: configuração, conexão, discovery de tools.
 // Thread-safe para uso concorrente.
 type Manager struct {
+	managedAttempts   map[string]context.CancelFunc
 	mu                sync.RWMutex
 	resolver          *configdir.Resolver
 	repo              Repository
@@ -538,7 +539,52 @@ func (m *Manager) AutoConnectAll(ctx context.Context) {
 }
 
 // Connect conecta a um servidor MCP pelo slug.
-func (m *Manager) Connect(slug string) error {
+func (m *Manager) Connect(slug string) (connectErr error) {
+	cfg, err := m.GetConfig(slug)
+	if err != nil {
+		return err
+	}
+	if cfg.OAuthAuthorizationID != "" && cfg.AuthType == AuthOAuth2PKCE && cfg.Enabled {
+		m.mu.RLock()
+		_, connected := m.connections[slug]
+		m.mu.RUnlock()
+		if connected {
+			if err := m.Disconnect(slug); err != nil {
+				return err
+			}
+		}
+		ctx, done, err := m.beginManagedAttempt(m.credentialContext(), slug)
+		if err != nil {
+			return err
+		}
+		defer done()
+		defer func() {
+			if connectErr == nil {
+				return
+			}
+			if ctx.Err() != nil {
+				m.resetConnectingStatus(slug)
+				return
+			}
+			m.mu.RLock()
+			status := m.servers[slug]
+			connecting := status != nil && status.Status == StatusConnecting
+			m.mu.RUnlock()
+			if connecting {
+				m.setError(slug, connectErr.Error())
+			}
+		}()
+		if _, err = m.resolveManagedOAuth(ctx, *cfg, ""); err != nil {
+			if !errors.Is(err, oauthflow.ErrReauthorize) {
+				return err
+			}
+			if err = m.authorizeManagedOAuthInAttempt(ctx, slug, *cfg); err != nil {
+				return err
+			}
+		}
+		m.clearNeedsReauth(slug)
+		return m.connectWithContext(ctx, slug)
+	}
 	return m.connectWithContext(m.ctx, slug)
 }
 
@@ -691,7 +737,11 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 				s.Config.DisableSSE = true
 			}
 			m.mu.Unlock()
-			_ = m.SaveConfig(slug, cfg)
+			if cfg.OAuthAuthorizationID != "" {
+				_ = m.persistManagedPolling(sessionCtx, cfg)
+			} else {
+				_ = m.SaveConfig(slug, cfg)
+			}
 
 			client = mcpsdk.NewClient(&mcpsdk.Implementation{Name: "assistente", Version: "1.0.0"}, nil)
 			transport2, err2 := m.createTransport(sessionCtx, slug, cfg)
@@ -1074,8 +1124,12 @@ func (m *Manager) refreshServerOfferingsWithContextFor(parentCtx context.Context
 func (m *Manager) Disconnect(slug string) error {
 	m.mu.Lock()
 	conn, ok := m.connections[slug]
+	managedCancel := m.managedAttempts[slug]
+	if managedCancel != nil {
+		managedCancel()
+	}
 	attempt := m.connectCancels[slug]
-	if !ok && attempt == nil {
+	if !ok && attempt == nil && managedCancel == nil {
 		m.mu.Unlock()
 		return nil
 	}
@@ -1290,6 +1344,18 @@ func (m *Manager) ReauthorizeServer(ctx context.Context, slug string) error {
 		return fmt.Errorf("reautorização interativa só é suportada em servidores OAuth2 PKCE (servidor '%s' usa auth '%s')", slug, cfg.AuthType)
 	}
 
+	if cfg.OAuthAuthorizationID != "" {
+		user, err := database.RequireUserID(m.credentialContext())
+		if err != nil {
+			return err
+		}
+		ctx = database.WithUserID(ctx, user)
+		if err = m.authorizeManagedOAuth(ctx, slug, cfg); err != nil {
+			return err
+		}
+		m.clearNeedsReauth(slug)
+		return m.reconnectWithContext(ctx, slug)
+	}
 	logging.Infof(ctx, "mcp.manager", "[MCP:%s] Reautorização interativa solicitada", slug)
 	rt := m.buildPKCERoundTripperForServer(ctx, slug, cfg)
 	if err := rt.authorize(ctx); err != nil {
@@ -1375,14 +1441,14 @@ func (m *Manager) GetConfig(slug string) (*ServerConfig, error) {
 	if s, ok := m.servers[slug]; ok {
 		cfg := s.Config // cópia
 		m.mu.RUnlock()
-		return &cfg, nil
+		return m.projectManagedOAuth(&cfg)
 	}
 	m.mu.RUnlock()
 
 	if repo := m.repository(); repo != nil {
 		cfg, err := repo.GetServer(m.credentialContext(), slug)
 		if err == nil {
-			return cfg, nil
+			return m.projectManagedOAuth(cfg)
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("servidor MCP '%s' não encontrado: %w", slug, err)
@@ -1407,6 +1473,19 @@ func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
 		return err
 	}
 	cfg.Slug = slug
+	existing, loadErr := repo.GetServer(ctx, slug)
+	if loadErr != nil && !errors.Is(loadErr, gorm.ErrRecordNotFound) {
+		return loadErr
+	}
+	if existing != nil && existing.OAuthAuthorizationID != "" {
+		if cfg.AuthType != AuthOAuth2PKCE && cfg.AuthType != AuthOAuth2ClientCredentials {
+			return m.detachManagedOAuth(ctx, slug, cfg, false)
+		}
+		cfg.OAuthManaged = true
+	}
+	if cfg.OAuthManaged || cfg.OAuthAuthorizationID != "" {
+		return m.saveManagedOAuth(slug, cfg, nil)
+	}
 	if err := repo.SaveServer(ctx, &cfg); err != nil {
 		return fmt.Errorf("erro ao salvar config: %w", err)
 	}
@@ -1442,6 +1521,7 @@ func (m *Manager) DuplicateConfig(slug string) (string, error) {
 	newSlug := m.nextCopySlug(slug)
 	newCfg := *cfg
 	newCfg.ID = ""
+	newCfg.OAuthAuthorizationID = ""
 	newCfg.Slug = newSlug
 	if newCfg.Name == "" {
 		newCfg.Name = slug
@@ -1496,6 +1576,13 @@ func (m *Manager) DeleteConfig(slug string) error {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return err
 	}
+	existing, loadErr := repo.GetServer(ctx, slug)
+	if loadErr != nil {
+		return loadErr
+	}
+	if existing.OAuthAuthorizationID != "" {
+		return m.detachManagedOAuth(ctx, slug, *existing, true)
+	}
 	_ = m.Disconnect(slug)
 	if err := repo.DeleteServer(ctx, slug); err != nil {
 		return fmt.Errorf("erro ao deletar config: %w", err)
@@ -1542,6 +1629,9 @@ func (m *Manager) disconnectAllConnections(reason string) {
 		slugSet[slug] = struct{}{}
 	}
 	for slug := range m.connectCancels {
+		slugSet[slug] = struct{}{}
+	}
+	for slug := range m.managedAttempts {
 		slugSet[slug] = struct{}{}
 	}
 	m.mu.RUnlock()
@@ -1621,6 +1711,9 @@ func (m *Manager) createTransport(ctx context.Context, slug string, cfg ServerCo
 // com base no authType do servidor e credenciais do gerenciador.
 // Retorna nil se nenhuma autenticação estiver configurada (o SDK usará http.DefaultClient).
 func (m *Manager) buildAuthHTTPClient(ctx context.Context, slug string, cfg ServerConfig) *http.Client {
+	if cfg.OAuthAuthorizationID != "" {
+		return m.managedHTTPClient(ctx, cfg)
+	}
 	switch cfg.AuthType {
 	case AuthOAuth2PKCE:
 		rt := m.buildPKCERoundTripperForServer(ctx, slug, cfg)
@@ -1887,6 +1980,23 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 	cfg := status.Config
 	m.mu.RUnlock()
 
+	if cfg.OAuthAuthorizationID != "" {
+		user, err := database.RequireUserID(m.credentialContext())
+		if err != nil {
+			return false, err
+		}
+		ctx = database.WithUserID(ctx, user)
+		_, before, _, err := m.managedOAuth(ctx, cfg)
+		if err != nil {
+			return false, err
+		}
+		rejected := ""
+		if force {
+			rejected = before.Tokens.Access
+		}
+		after, err := m.resolveManagedOAuth(ctx, cfg, rejected)
+		return err == nil && after.Revision != before.Revision, err
+	}
 	if cfg.AuthType != AuthOAuth2PKCE {
 		return false, nil
 	}
@@ -2539,11 +2649,12 @@ type MCPServerReauthEvent struct {
 // locks) acontece FORA do lock a partir deste snapshot, evitando deadlock/corrida
 // no RWMutex do Manager (AEP-0105).
 type nativeMCPCandidate struct {
-	slug      string
-	name      string
-	url       string
-	authType  AuthType
-	toolNames []string
+	managedConfig ServerConfig
+	slug          string
+	name          string
+	url           string
+	authType      AuthType
+	toolNames     []string
 }
 
 // RecoveryResult descreve o resultado de uma tentativa best-effort de recuperação
@@ -2604,10 +2715,11 @@ func (m *Manager) collectNativeMCPCandidates() []nativeMCPCandidate {
 		}
 
 		c := nativeMCPCandidate{
-			slug:     slug,
-			name:     status.Config.Name,
-			url:      status.Config.URL,
-			authType: status.Config.AuthType,
+			managedConfig: status.Config,
+			slug:          slug,
+			name:          status.Config.Name,
+			url:           status.Config.URL,
+			authType:      status.Config.AuthType,
 		}
 		for _, t := range status.Tools {
 			c.toolNames = append(c.toolNames, t.FullName)
@@ -2674,6 +2786,33 @@ func nativeTokenExpiredOrNear(expiresAt int64) bool {
 // sem token (ex.: AuthNone) retorna ("", true), preservando o comportamento
 // anterior de entregar sem Bearer.
 func (m *Manager) resolveNativeAuthToken(ctx context.Context, c nativeMCPCandidate) (string, bool) {
+	if c.managedConfig.OAuthAuthorizationID != "" {
+		r, err := m.resolveManagedOAuth(ctx, c.managedConfig, "")
+		if err != nil {
+			if errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrPermission) || errors.Is(err, oauthflow.ErrClientConfiguration) {
+				if c.managedConfig.AuthType == AuthOAuth2ClientCredentials {
+					m.clearNeedsReauth(c.slug)
+					reason := "oauth_client_configuration_required"
+					if errors.Is(err, oauthflow.ErrPermission) {
+						reason = "oauth_permission_missing"
+					}
+					m.mu.RLock()
+					status := m.servers[c.slug]
+					unchanged := status != nil && status.Status == StatusError && status.Error == reason
+					m.mu.RUnlock()
+					if !unchanged {
+						m.setError(c.slug, reason)
+					}
+				} else {
+					m.signalNeedsReauth(c.slug, c.name, "oauth_reauthorization_required")
+				}
+			}
+			return "", false
+		}
+		m.clearNeedsReauth(c.slug)
+		return r.Tokens.Access, true
+	}
+
 	if m.credMgr == nil {
 		return "", true
 	}

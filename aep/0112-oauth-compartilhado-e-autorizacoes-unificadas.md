@@ -10,8 +10,8 @@ e implementar a source `oauth` com um serviço compartilhado de registro,
 autorização e renovação. MCP, provedores LLM e canais consomem credenciais sem
 implementar novamente esse ciclo. A primeira entrega habilita o uso oficial da
 conta ChatGPT no Assistente; entregas seguintes migram MCP para a mesma base.
-A primeira entrega implementa a base OAuth e o consumidor ChatGPT. As migrações
-MCP e Slack continuam nas fases seguintes; não estão habilitadas por esta entrega.
+A primeira entrega implementa a base OAuth e o consumidor ChatGPT. Novos cadastros OAuth no editor MCP já consomem essa base. A migração dos
+cadastros MCP legados e a convergência Slack continuam nas fases seguintes.
 
 ## Motivação
 
@@ -282,8 +282,11 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    **Em andamento:** discovery e registro RFC 7591 foram extraídos para
    `internal/oauthflow`, consumidos pela tela e pelo runtime MCP. Device Flow,
    client credentials, cache/serialização de renovação e listener de callback
-   também foram extraídos. O MCP permanece responsável pela persistência legada;
-   a adaptação completa da reautorização e o cutover ainda não foram entregues.
+   também foram extraídos. Novos cadastros OAuth no editor MCP já usam registro
+   composto e o serviço compartilhado para autorização, reautorização e renovação
+   em native/bridge. A seção de evidências do consumidor MCP registra os testes.
+   Cadastros legados e importações ainda usam a persistência anterior; sua conversão
+   e o cutover pertencem à fase 3. O aceite com provedores reais permanece pendente.
    O transporte local do recurso MCP em PKCE/Client Credentials também aplica
    isolamento por origem, TLS e guard de rede compartilhado, preservando streams.
    A migração de credenciais continua exclusiva da fase 3.
@@ -404,6 +407,9 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   refresh concorrente único, logout/edição/exclusão impedem gravação tardia.
 - [ ] MCP preserva discovery, Device Flow, client credentials, PKCE, native e bridge;
   reautorização explícita, sem navegador inesperado nem renovadores duplicados.
+- [x] Novos cadastros OAuth no editor MCP usam uma autorização composta, sem
+  persistência dupla nem renovador próprio; testes de PKCE/DCR/Device, Client
+  Credentials, reinício, isolamento, cancelamento e fallback listados abaixo.
 - [ ] Migração idempotente/atômica provada com registros completos, parciais, ilegíveis,
   usuários diferentes e interrupção; restore documentado e segredos preservados.
 - [ ] Slack Channels mantém bot/app token por papel numa entrada, sem OAuth artificial.
@@ -629,9 +635,9 @@ limitado independentemente do stream, zero pendências.
   `TestStoredAndClientCredentialsRefreshApprovalIsPerOperation`,
   `TestCallbackBodyDeliveredBeforeFastAuthorizationFailure` e `mcpOAuthErrors.test.ts`.
 
-A fase 2 permanece **In Progress**: esta entrega compartilha os protocolos e o
-callback, mas não converte registros MCP nem transfere seu lifecycle persistido.
-A reautorização nativa mantém o contrato existente. Cutover, migração atômica,
+A entrega de grants/callbacks (#876) manteve a fase 2 **In Progress**: compartilhou
+os protocolos sem converter registros MCP ou transferir seu lifecycle persistido.
+A continuação abaixo integra novos cadastros ao lifecycle comum. Migração atômica,
 convergência Slack e validação funcional ChatGPT pelo usuário continuam pendentes.
 
 
@@ -664,3 +670,87 @@ Evidência: `TestDeviceVerificationProbesOnlyCodeFreeEndpoint` e o fluxo Device 
 Timeout/cancelamento do chamador preservam seu erro; somente o prazo interno
 é classificado como expiração do código, coberto por
 `TestDeviceGrantExpiresDuringPresentationAndCancelsPolling`.
+
+### Consumidor MCP de autorizações compostas (continuação da fase 2)
+
+Novos cadastros OAuth feitos no editor MCP usam `oauth_managed` e uma referência
+`OAuthAuthorizationID`. O registro cifrado contém cliente, método de autenticação,
+endpoints, scopes, callback e tokens, vinculado ao usuário e ID estável do servidor.
+A configuração persistida do servidor guarda a referência; o editor recebe uma
+projeção sem segredos. Criação e edição do consumidor/envelope são transacionais. Quando há secret
+novo, o editor usa `SaveMCPServerWithOAuthSecret` na mesma transação; remoção
+do secret e invalidação do grant também usam uma única revisão.
+Cadastros legados e importações continuam no caminho anterior: não houve conversão
+implícita, snapshot ou remoção de dados legados nesta entrega.
+
+`oauthflow.Service.AuthorizeUsing` controla lease, preservação da autorização
+anterior e commit por revisão. O adaptador MCP reutiliza a coreografia existente
+com CredentialManager e escritor de configuração ausentes, retornando somente o
+resultado ao serviço: nenhum token source desse adaptador fica numa conexão viva.
+PKCE/DCR/Device compartilham os componentes extraídos no PR #876. Client Credentials
+obtém e persiste um novo grant sem identidade OIDC ou refresh token; seu retry após
+falha não reutiliza material rotativo. OIDC ChatGPT mantém validação obrigatória.
+
+Bridge, guarda nativa e recuperação/proatividade consultam o mesmo serviço.
+Instâncias configuradas compartilham gate cancelável por autorização e leases
+persistidos entre processos. O método de autenticação do cliente (Basic ou corpo)
+é explícito e reutilizado na renovação. Aprovação inicial de rede ocorre antes da
+marca de refresh rotativo; socket e endpoint continuam protegidos.
+Startup e resolução silenciosa não abrem navegador para registros compostos;
+Conectar/Reautorizar são ações explícitas. Desconectar cancela a tentativa local.
+Respostas 404/410 mantêm a recuperação de sessão pelo bridge, sem renovar OAuth.
+O editor envia o endpoint Device herdado apenas se a URL final corresponde ao
+recurso originalmente carregado. Renomear ou desfazer uma edição de URL preserva
+o endpoint, coberto em `McpPage.test.tsx`. Permissões insuficientes têm orientação
+específica para corrigir scopes, localizada nos três idiomas.
+Edição e exclusão recusam leases ativos; CAS impede publicação de resultados
+atrasados. Logout invalida a sessão capturada pelo transporte. Resposta 403 não
+renova; 401 admite uma recuperação e replay somente com corpo recriável.
+
+Evidências: `TestManagedOAuthOneEncryptedEntryAndAtomicConsumer`,
+`TestManagedOAuthLegacyIsNotMigratedOrUsedAsFallback`,
+`TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart`,
+`TestManagedOAuthDeviceAndStartupNeverOpenBrowserImplicitly`,
+`TestManagedOAuthClientCredentialsAndDeleteFenceTransport`,
+`TestManagedOAuthEditsRefuseLiveLeasesAndRollbackConsumerFailure`,
+`TestManagedOAuthReplayFailureCloses401And403DoesNotRefresh`,
+`TestManagedOAuthTransportCannotSurviveVaultSession`,
+`TestManagedOAuthDisconnectCancelsRefreshPreflight`,
+`TestManagedOAuthReservedSlugIsAtomic`,
+`TestManagedOAuthDetachFailurePreservesAuthorization`,
+`TestManagedOAuthAuthInfoAfterRemovingSecret`,
+`TestManagedOAuthRemoveSecretFailureIsAtomic`,
+`TestConfiguredBasicAuthenticationOmitsBodyClientID`,
+`TestConfiguredRejectsChangedConsumerGrantAndScopes`,
+`TestConfiguredClientGrantWaitsForScopeCorrection`,
+`TestManagedOAuthPublishesWorkspaceRoots`,
+`TestManagedOAuthSessionExpiryTriggersBridgeRecovery`,
+`TestManagedOAuthSSEFallbackPreservesAuthorization`,
+`TestManagedOAuthRenamePreservesDiscoveredAudience`,
+`TestDeviceConfidentialClientAuthentication`,
+`TestConfiguredRefreshCoordinatesServiceInstances`,
+`TestConfiguredAuthorizationFailurePreservesPreviousAndLateResultsCannotRestore`,
+`TestConfiguredClientCredentialsRetriesWithoutRotatingRefresh` e
+`TestConfiguredFailedRotationCannotReuseRefreshAfterRestart`.
+
+Status permanece **In Progress**: falta migrar configurações/pares existentes e
+importações com snapshot e restauração, retirar o caminho legado após a conversão,
+e executar a convergência Slack. A validação com provedores reais é feita pelo usuário.
+
+Evidências adicionais da fase 2: `TestManagedOAuthRegistrationMetadataInvalidatesDCR` cobre re-registro após edição dos metadados e preservação em renomeações; `TestConfiguredClientGrantWaitsForScopeCorrection` cobre tanto escopos reduzidos como rejeição `invalid_scope`, sem repetição antes da correção.
+
+`TestManagedOAuthLatePublicationLoadsLatestCommit` prova que a publicação em memória ocorre após o commit e antes de liberar o lock do cofre, sem I/O ou falha posterior ao commit, preservando a ordem das edições.
+
+O serviço compartilhado confirma um checkpoint versionado do cliente DCR antes do consentimento, preservando o grant anterior em falha e recusando gravações tardias. Evidências: `TestConfiguredRegistrationCheckpointPreservesGrantAndFencesLateWrites` e o fluxo integrado DCR/PKCE com recusa seguida de nova tentativa sem repetir registro. A resolução em cache não contabiliza refresh; Client Credentials sinaliza correção de configuração, sem badge de reautorização interativa.
+
+O checkpoint usa `pendingRegistration` cifrado no mesmo registro: cliente/endpoints/escopos candidatos não substituem o vínculo dos tokens ativos. Somente o commit do consentimento promove o candidato; edição da configuração ou invalidação o descarta. `TestConfiguredRefusedCandidateKeepsOriginalRefreshBinding` prova renovação HTTP com o cliente original após recusa e promoção atômica na tentativa seguinte.
+
+A tentativa OAuth explícita publica o estado de conexão antes do protocolo, permite Desconectar/Cancelar durante preflight e propaga falhas até a página. Client Credentials sem escopos omite o parâmetro opcional, coberto por teste do grant.
+
+`TestOAuthCommitPublishesBeforeSessionRelease` cobre publicação mesmo com cancelamento após commit e ausência de publicação em rollback. Os roots são copiados sob o lock MCP da publicação. O seletor Basic/Post é reservado a clientes manuais/Client Credentials; DCR público permanece `none`.
+
+DCR público persiste `Client.AuthMethod=none` no candidato e no grant final, ignora segredo não solicitado na resposta de registro e recusa segredo manual enquanto o mesmo ID DCR for mantido. O teste PKCE/DCR confirma ausência de autenticação secreta na troca e no refresh, preservação em renomeação e rejeição de segredo manual. O inventário de métodos Wails autenticados inclui a gravação atômica com segredo.
+
+`TestConfiguredClientGrantReportsConfigurationErrors` cobre ID/segredo/endpoint ausentes e `invalid_client` como erro de configuração do cliente, também no caminho Conectar; não recomenda reautorização interativa para esse grant.
+
+Conectar e Reautorizar compartilham a publicação de tentativa em `beginManagedAttempt`. `TestManagedOAuthReauthorizationPublishesCancelableAttempt` cobre Cancelar/Desconectar e restauração do estado anterior em cancelamento do contexto durante Device Flow.

@@ -284,3 +284,15 @@ func (m *MCP) GetMCPServerLogs(slug string, limit int) ([]mcpmgr.MCPServerLog, e
 		return ctrl.GetMCPServerLogs(slug, limit)
 	})
 }
+
+// SaveMCPServerWithOAuthSecret saves a managed consumer and its secret atomically.
+func (m *MCP) SaveMCPServerWithOAuthSecret(slug string, cfg mcpmgr.ServerConfig, secret string) error {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.SaveMCPServerWithOAuthSecret(slug, cfg, secret)
+	})
+	return err
+}
