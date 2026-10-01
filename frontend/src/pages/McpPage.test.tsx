@@ -156,6 +156,9 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
     oauth2TokenUrl: string;
     oauth2Scopes: string;
     oauth2ClientSecret: string;
+    oauth2ClientId: string;
+    oauthDCRRegistered: boolean;
+    onOAuth2ClientIdChange: (value: string) => void;
     onOAuth2ClientSecretChange: (value: string) => void;
     discoveryStatus: string;
     discoveryRegistrationUrl: string;
@@ -173,6 +176,8 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
     onManualOverride: () => void;
   }) => (
     <div data-testid="connection-section">
+      <input aria-label="Client ID" value={props.oauth2ClientId} onChange={(e) => props.onOAuth2ClientIdChange(e.target.value)} />
+      <span data-testid="dcr-registered">{String(props.oauthDCRRegistered)}</span>
       <input aria-label="Client Secret" value={props.oauth2ClientSecret} onChange={(e) => props.onOAuth2ClientSecretChange(e.target.value)} />
       <input aria-label="Server URL" value={props.url} onChange={(e) => props.onUrlChange(e.target.value)} />
       <input aria-label="Authorization URL" value={props.oauth2AuthUrl} onChange={(e) => props.onOAuth2AuthUrlChange(e.target.value)} />
@@ -684,4 +689,19 @@ it('mostra erro OAuth localizado sem toast de sucesso quando Conectar falha', as
  await userEvent.click(within(row).getByRole('button', {name:'mcp.actions.connect'}));
  await waitFor(() => expect(mockToast).toHaveBeenCalledWith('mcp.error.consentDeclined','error'));
  expect(mockToast.mock.calls.some((call) => call[1] === 'success')).toBe(false);
+});
+
+it('mantém vínculo DCR em modo manual e ao acrescentar espaços no mesmo ID', async () => {
+ mockServers = [{slug:'dcr',name:'Saved DCR',status:'disconnected',enabled:true,transport:'streamable',authType:'oauth2_pkce',tools:[]}];
+ mockGetConfig.mockResolvedValue({slug:'dcr',name:'Saved DCR',transport:'streamable',url:'https://example.com/mcp',auth_type:'oauth2_pkce',oauth_managed:true,oauth2_client_id:'registered',oauth2_client_method:'dcr'});
+ render(<McpPage />);
+ const row = screen.getByText('Saved DCR').closest('div');
+ if (!row) throw new Error('Linha ausente');
+ await userEvent.click(within(row).getByRole('button',{name:'mcp.actions.edit'}));
+ await screen.findByLabelText('Client ID');
+ await userEvent.click(screen.getByRole('button',{name:'Configurar manualmente'}));
+ fireEvent.change(screen.getByLabelText('Client ID'),{target:{value:' registered '}});
+ expect(screen.getByTestId('dcr-registered')).toHaveTextContent('true');
+ fireEvent.change(screen.getByLabelText('Client ID'),{target:{value:'manual-client'}});
+ expect(screen.getByTestId('dcr-registered')).toHaveTextContent('false');
 });

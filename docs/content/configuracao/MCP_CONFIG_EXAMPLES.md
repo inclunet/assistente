@@ -583,3 +583,5 @@ Alterações de callback, recurso, endpoints ou escopos em um cadastro DCR inval
 Se o consentimento falhar após o DCR, o cliente registrado é preservado para a próxima tentativa. Uma conexão OAuth bem-sucedida limpa o aviso anterior de reautorização. Para Client Credentials inválido, revise ID/segredo ou escopos e conecte novamente; esse fluxo não usa o botão Reautorizar.
 
 Durante a autorização ao conectar, o servidor fica em Conectando e oferece Cancelar. Recusa ou falha do login exibe erro; a interface só confirma sucesso após a conexão completar.
+
+O seletor de autenticação Basic/Post aplica-se a clientes configurados manualmente e Client Credentials. Quando o discovery seleciona registro dinâmico público (DCR), o seletor é ocultado, pois o cliente é registrado sem segredo (`none`).

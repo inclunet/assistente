@@ -145,26 +145,23 @@ func (m *Manager) saveManagedOAuth(slug string, cfg ServerConfig, secret *string
 	}
 	if creating {
 		atomicStore, ok := store.(interface {
-			CreateWithConsumer(context.Context, oauthflow.Record, func(*gorm.DB) error) error
+			CreateWithConsumerAndPublish(context.Context, oauthflow.Record, func(*gorm.DB) error, func()) error
 		})
 		if !ok {
 			return oauthflow.ErrResource
 		}
-		err = atomicStore.CreateWithConsumer(ctx, r, save)
+		err = atomicStore.CreateWithConsumerAndPublish(ctx, r, save, func() { m.publishManagedOAuth(cfg) })
 	} else {
 		atomicStore, ok := store.(interface {
-			CompareAndSwapWithConsumer(context.Context, oauthflow.Record, uint64, func(*gorm.DB) error) error
+			CompareAndSwapWithConsumerAndPublish(context.Context, oauthflow.Record, uint64, func(*gorm.DB) error, func()) error
 		})
 		if !ok {
 			return oauthflow.ErrResource
 		}
 		r.Revision++
-		err = atomicStore.CompareAndSwapWithConsumer(ctx, r, previous.Revision, save)
+		err = atomicStore.CompareAndSwapWithConsumerAndPublish(ctx, r, previous.Revision, save, func() { m.publishManagedOAuth(cfg) })
 	}
 	if err != nil {
-		return err
-	}
-	if err = m.publishManagedOAuth(ctx, store, repo, slug); err != nil {
 		return err
 	}
 	if changed && !creating {
@@ -174,35 +171,21 @@ func (m *Manager) saveManagedOAuth(slug string, cfg ServerConfig, secret *string
 	return nil
 }
 
-// Reload after acquiring the vault session lock: another edit may have committed
-// since this caller's CAS. Never publish a captured pre-commit configuration.
-func (m *Manager) publishManagedOAuth(ctx context.Context, store oauthflow.Store, repo *DBRepository, slug string) error {
-	roots := m.GetWorkspaceRoots()
-	publish := func() error {
-		cfg, err := repo.GetServer(ctx, slug)
-		if err != nil {
-			return err
-		}
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		if current := m.servers[slug]; current != nil {
-			current.ID = cfg.ID
-			current.Config = *cfg
-			current.Roots = roots
-		} else {
-			m.servers[slug] = &ServerStatus{ID: cfg.ID, Slug: slug, Config: *cfg, Status: StatusDisconnected, Tools: []MCPToolInfo{}, Roots: roots}
-		}
-		return nil
+// Called after the transaction commits, while the vault still serializes writes
+// and session changes. This publication cannot fail and performs no I/O.
+func (m *Manager) publishManagedOAuth(cfg ServerConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	roots := append([]Root(nil), m.roots...)
+	if current := m.servers[cfg.Slug]; current != nil {
+		current.ID, current.Config, current.Roots = cfg.ID, cfg, roots
+	} else {
+		m.servers[cfg.Slug] = &ServerStatus{ID: cfg.ID, Slug: cfg.Slug, Config: cfg, Roots: roots, Status: StatusDisconnected, Tools: []MCPToolInfo{}}
 	}
-	if scoped, ok := store.(interface {
-		WithSession(context.Context, func() error) error
-	}); ok {
-		return scoped.WithSession(ctx, publish)
-	}
-	return oauthflow.ErrConflict
 }
 
 func clearOAuthConfiguration(cfg *ServerConfig) {
+	cfg.OAuth2ClientMethod = ""
 	cfg.OAuth2TokenAuthMethod = ""
 	cfg.OAuth2ClientID = ""
 	cfg.OAuth2AuthURL = ""
@@ -214,6 +197,7 @@ func clearOAuthConfiguration(cfg *ServerConfig) {
 	cfg.OAuth2DeviceAuthURL = ""
 }
 func projectOAuthConfiguration(cfg ServerConfig, r oauthflow.Record) ServerConfig {
+	cfg.OAuth2ClientMethod = r.Client.Method
 	cfg.OAuth2TokenAuthMethod = r.Client.AuthMethod
 	cfg.OAuth2ClientID = r.Client.ID
 	cfg.OAuth2AuthURL = r.Endpoints.Authorization

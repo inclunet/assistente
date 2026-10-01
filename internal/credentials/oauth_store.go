@@ -83,6 +83,12 @@ func (s *oauthStore) Create(ctx context.Context, r oauthflow.Record) error {
 
 // CreateWithConsumer publishes the authorization and consumer in one transaction.
 func (s *oauthStore) CreateWithConsumer(ctx context.Context, r oauthflow.Record, createConsumer func(*gorm.DB) error) error {
+	return s.CreateWithConsumerAndPublish(ctx, r, createConsumer, nil)
+}
+
+// CreateWithConsumerAndPublish publishes after commit, before releasing the vault
+// lock. The callback must be non-failing, local and non-reentrant.
+func (s *oauthStore) CreateWithConsumerAndPublish(ctx context.Context, r oauthflow.Record, createConsumer func(*gorm.DB) error, publish func()) error {
 	m := s.manager
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -123,6 +129,9 @@ func (s *oauthStore) CreateWithConsumer(ctx context.Context, r oauthflow.Record,
 		return err
 	}
 	m.credentials = append(m.credentials, &DomainCredential{ID: r.ID, UserID: r.UserID, Pattern: "oauth:" + r.ID, Auth: &AuthConfig{Source: "oauth", Type: "bearer", OAuthEnc: enc}})
+	if publish != nil {
+		publish()
+	}
 	return nil
 }
 func (s *oauthStore) CompareAndSwap(ctx context.Context, r oauthflow.Record, revision uint64) error {
@@ -131,6 +140,12 @@ func (s *oauthStore) CompareAndSwap(ctx context.Context, r oauthflow.Record, rev
 
 // CompareAndSwapWithConsumer commits a configuration edit and its consumer together.
 func (s *oauthStore) CompareAndSwapWithConsumer(ctx context.Context, r oauthflow.Record, revision uint64, update func(*gorm.DB) error) error {
+	return s.CompareAndSwapWithConsumerAndPublish(ctx, r, revision, update, nil)
+}
+
+// CompareAndSwapWithConsumerAndPublish orders the same local publication with CAS.
+// The callback follows the same contract as CreateWithConsumerAndPublish.
+func (s *oauthStore) CompareAndSwapWithConsumerAndPublish(ctx context.Context, r oauthflow.Record, revision uint64, update func(*gorm.DB) error, publish func()) error {
 	m := s.manager
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -184,6 +199,9 @@ func (s *oauthStore) CompareAndSwapWithConsumer(ctx context.Context, r oauthflow
 			dc.Auth = &AuthConfig{Source: "oauth", Type: "bearer", OAuthEnc: next}
 			break
 		}
+	}
+	if publish != nil {
+		publish()
 	}
 	return nil
 }

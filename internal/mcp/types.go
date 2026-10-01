@@ -41,6 +41,7 @@ const (
 // ServerConfig é a configuração de um servidor MCP.
 // A fonte persistida é o banco; JSON permanece como formato de import/export legado.
 type ServerConfig struct {
+	OAuth2ClientMethod    string            `json:"oauth2_client_method,omitempty" yaml:"-"` // Read-only projection of the managed registration.
 	OAuth2TokenAuthMethod string            `json:"oauth2_token_auth_method,omitempty" yaml:"oauth2_token_auth_method,omitempty"`
 	ID                    string            `json:"id,omitempty" yaml:"id,omitempty"`
 	UserID                string            `json:"user_id,omitempty" yaml:"user_id,omitempty"`

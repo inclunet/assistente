@@ -367,3 +367,13 @@ describe('McpConnectionSection — autenticação do cliente no OAuth compartilh
     expect(screen.queryByLabelText('Autenticação do cliente OAuth')).not.toBeInTheDocument();
   });
 });
+
+it('oculta Basic/Post quando o discovery seleciona DCR público', () => {
+ renderWith({oauthManaged:true, discoveryStatus:'found', discoveryRegistrationUrl:'https://issuer.example/register'});
+ expect(screen.queryByLabelText('Autenticação do cliente OAuth')).not.toBeInTheDocument();
+});
+
+it.each(['manual', 'not_found'] as const)('mantém seletor oculto para DCR salvo no estado %s', (discoveryStatus) => {
+ renderWith({oauthManaged:true, oauthDCRRegistered:true, discoveryStatus, discoveryRegistrationUrl:'https://issuer.example/register'});
+ expect(screen.queryByLabelText('Autenticação do cliente OAuth')).not.toBeInTheDocument();
+});

@@ -11,6 +11,7 @@ type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'partial' | 'not_found' | 
 
 interface McpConnectionSectionProps {
   oauthManaged?: boolean;
+  oauthDCRRegistered?: boolean;
   oauth2TokenAuthMethod?: string;
   onOAuth2TokenAuthMethodChange?: (value: string) => void;
   transport: string;
@@ -63,6 +64,7 @@ const isHTTPTransport = (transportKind: string) =>
 
 export function McpConnectionSection({
   oauthManaged = false,
+  oauthDCRRegistered = false,
   oauth2TokenAuthMethod = "client_secret_post",
   onOAuth2TokenAuthMethodChange,
   transport,
@@ -515,7 +517,7 @@ export function McpConnectionSection({
                 )}
               </>
             )}
-            {oauthManaged && isHTTPTransport(transport) && (authType === 'oauth2_pkce' || authType === 'oauth2_client_credentials') && (
+            {oauthManaged && isHTTPTransport(transport) && (authType === 'oauth2_client_credentials' || (authType === 'oauth2_pkce' && !hasDCR && !oauthDCRRegistered)) && (
               <Select
                 label={t('mcp.connection.tokenAuthMethod')}
                 value={oauth2TokenAuthMethod}

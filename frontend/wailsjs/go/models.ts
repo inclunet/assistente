@@ -6511,6 +6511,7 @@ export namespace mcp {
 	    }
 	}
 	export class ServerConfig {
+	    oauth2_client_method?: string;
 	    oauth2_token_auth_method?: string;
 	    id?: string;
 	    user_id?: string;
@@ -6544,6 +6545,7 @@ export namespace mcp {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.oauth2_client_method = source["oauth2_client_method"];
 	        this.oauth2_token_auth_method = source["oauth2_token_auth_method"];
 	        this.id = source["id"];
 	        this.user_id = source["user_id"];

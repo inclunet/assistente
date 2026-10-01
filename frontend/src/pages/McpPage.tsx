@@ -151,6 +151,7 @@ export default function McpPage() {
   const [formOAuthDeviceUrl, setFormOAuthDeviceUrl] = useState('');
   const [formOAuthTokenAuthMethod, setFormOAuthTokenAuthMethod] = useState('client_secret_post');
   const [formOAuth2ClientId, setFormOAuth2ClientId] = useState('');
+  const [registeredDCRClientId, setRegisteredDCRClientId] = useState('');
   const [formOAuth2ClientSecret, setFormOAuth2ClientSecret] = useState('');
   const [formOAuth2TokenUrl, setFormOAuth2TokenUrl] = useState('');
   const [formOAuth2AuthUrl, setFormOAuth2AuthUrl] = useState('');
@@ -219,6 +220,7 @@ export default function McpPage() {
     setFormOAuthDeviceUrl(config?.oauth2_device_auth_url || '');
     setFormOAuthTokenAuthMethod(config?.oauth2_token_auth_method === 'client_secret_basic' ? 'client_secret_basic' : 'client_secret_post');
     setFormOAuth2ClientId(config?.oauth2_client_id || '');
+    setRegisteredDCRClientId(config?.oauth2_client_method === 'dcr' ? config.oauth2_client_id || '' : '');
     setFormOAuth2ClientSecret('');
     setFormOAuth2TokenUrl(config?.oauth2_token_url || '');
     setFormOAuth2AuthUrl(config?.oauth2_auth_url || '');
@@ -877,6 +879,7 @@ export default function McpPage() {
               authPassword={formAuthPassword}
               hasExistingAuth={hasExistingAuth}
               oauthManaged={isNew || formOAuthManaged}
+              oauthDCRRegistered={!!registeredDCRClientId && formOAuth2ClientId.trim() === registeredDCRClientId}
               oauth2TokenAuthMethod={formOAuthTokenAuthMethod}
               onOAuth2TokenAuthMethodChange={setFormOAuthTokenAuthMethod}
               oauth2ClientId={formOAuth2ClientId}
