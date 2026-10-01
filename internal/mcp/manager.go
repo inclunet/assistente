@@ -1625,7 +1625,7 @@ func (m *Manager) buildAuthHTTPClient(ctx context.Context, slug string, cfg Serv
 	case AuthOAuth2PKCE:
 		rt := m.buildPKCERoundTripperForServer(ctx, slug, cfg)
 		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com OAuth2 PKCE", slug)
-		return &http.Client{Transport: rt}
+		return oauthflow.NewResourceHTTPClient(cfg.URL, rt)
 
 	case AuthOAuth2ClientCredentials:
 		_, clientSecret := loadClientCreds(m.credentialContext(), m.credMgr, slug)

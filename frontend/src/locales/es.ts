@@ -1398,6 +1398,7 @@ const es = {
         serverReauthorized: 'Servidor {{name}} reautorizado',
       },
       error: {
+        resourceDestinationBlocked: 'El recurso MCP OAuth requiere HTTPS (excepto localhost) y no puede redirigir el token a otro dominio o puerto. Configura la URL final del servidor y vuelve a conectar.',
         networkAuthorizationFailed: 'No se completó la autorización de red OAuth. Revisa el destino y los permisos de la lista de redes permitidas antes de intentarlo de nuevo.',
         registrationFailed: 'No se pudo registrar el cliente OAuth. Comprueba el endpoint de registro y la URL de callback e inténtalo de nuevo.',
         slugRequired: 'Slug (identificador) es obligatorio',
