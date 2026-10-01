@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useState } from 'react';
+import { StrictMode, useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axe from 'axe-core';
 import { McpOAuthInventory } from './McpOAuthInventory';
@@ -57,6 +57,15 @@ describe('McpOAuthInventory', () => {
     vi.mocked(InspectMCPOAuthInventory).mockResolvedValue([]);
     render(<McpOAuthInventory isOpen onClose={vi.fn()} />);
     expect(await screen.findByText('mcp.inventory.empty')).toBeInTheDocument();
+  });
+
+  it('reutiliza a consulta e anuncia carregamento uma vez em StrictMode', async () => {
+    vi.mocked(InspectMCPOAuthInventory).mockResolvedValue([]);
+    render(<StrictMode><McpOAuthInventory isOpen onClose={vi.fn()} /></StrictMode>);
+    await screen.findByText('mcp.inventory.empty');
+    expect(InspectMCPOAuthInventory).toHaveBeenCalledOnce();
+    expect(announce.mock.calls.filter(([message]) => message === 'mcp.inventory.loading')).toHaveLength(1);
+    expect(announce.mock.calls.filter(([message]) => message === 'mcp.inventory.loaded')).toHaveLength(1);
   });
 
   it('restaura foco no fechamento e consulta novamente somente ao reabrir', async () => {

@@ -791,6 +791,8 @@ falhas sem detalhes internos e respostas após fechamento.
 O modal permanece montado para restaurar o foco da página na transição de
 fechamento; apenas o conteúdo da consulta é remontado ao reabrir. O teste de
 interface cobre fechamento por botão/Escape, restauração de foco e nova consulta.
+Uma Promise por abertura evita duplicar consultas/anúncios no replay de efeitos
+do `StrictMode`; uma reabertura cria nova consulta. Há teste explícito desse modo.
 
 Continuam pendentes na fase 3: snapshot cifrado com retenção/restauração,
 fixtures de conversão de versões publicadas, migração transacional/idempotente,

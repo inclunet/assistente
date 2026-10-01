@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { InspectMCPOAuthInventory } from '@wailsjs/go/wailsapi/MCP';
 import type { mcp } from '../../../wailsjs/go/models';
@@ -24,11 +24,15 @@ function OAuthInventoryContent() {
   const { announce } = useAnnouncer();
   const [items, setItems] = useState<mcp.OAuthInventoryItem[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const request = useRef<Promise<mcp.OAuthInventoryItem[]> | null>(null);
 
   useEffect(() => {
     let active = true;
-    announce(t('mcp.inventory.loading'));
-    void InspectMCPOAuthInventory().then((result) => {
+    if (!request.current) {
+      request.current = Promise.resolve().then(() => InspectMCPOAuthInventory());
+      announce(t('mcp.inventory.loading'));
+    }
+    void request.current.then((result) => {
       if (!active) return;
       setItems(result || []);
       announce(t('mcp.inventory.loaded'));
