@@ -699,8 +699,10 @@ marca de refresh rotativo; socket e endpoint continuam protegidos.
 Startup e resolução silenciosa não abrem navegador para registros compostos;
 Conectar/Reautorizar são ações explícitas. Desconectar cancela a tentativa local.
 Respostas 404/410 mantêm a recuperação de sessão pelo bridge, sem renovar OAuth.
-O editor descarta endpoint Device herdado quando o recurso muda e o preserva em
-renomeações, coberto em `McpPage.test.tsx`.
+O editor envia o endpoint Device herdado apenas se a URL final corresponde ao
+recurso originalmente carregado. Renomear ou desfazer uma edição de URL preserva
+o endpoint, coberto em `McpPage.test.tsx`. Permissões insuficientes têm orientação
+específica para corrigir scopes, localizada nos três idiomas.
 Edição e exclusão recusam leases ativos; CAS impede publicação de resultados
 atrasados. Logout invalida a sessão capturada pelo transporte. Resposta 403 não
 renova; 401 admite uma recuperação e replay somente com corpo recriável.

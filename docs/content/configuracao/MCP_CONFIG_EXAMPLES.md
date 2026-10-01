@@ -572,3 +572,8 @@ autorização, evitando reenviar um refresh token que pode já ter sido consumid
 A migração de cadastros existentes e a portabilidade do registro composto serão
 entregues separadamente. Duplicar um cadastro não compartilha seus tokens ou
 client secret: configure o segredo, se necessário, e autorize a nova conexão.
+
+
+Se Client Credentials retornar permissões insuficientes, corrija os escopos na
+configuração do servidor e conecte novamente. O Assistente não repete o pedido
+de token a cada chamada enquanto essa condição permanecer.

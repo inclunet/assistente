@@ -1404,6 +1404,7 @@ const ptBR = {
         deviceFailed: 'Não foi possível concluir a autorização por código de dispositivo. Confira a configuração OAuth e tente novamente.',
         authorizationChanged: 'A autorização mudou ou está em uso. Aguarde a operação terminar e tente novamente.',
         authorizationRequired: 'Este servidor precisa de autorização. Use Conectar ou Reautorizar para continuar.',
+        authorizationPermissions: 'Permissões OAuth insuficientes. Corrija os escopos configurados para este servidor e conecte novamente.',
         authorizationTemporary: 'A autorização está temporariamente indisponível. Tente novamente em instantes.',
         authorizationMismatch: 'A autorização não corresponde a este servidor. Confira a configuração OAuth.',
         codeExchangeFailed: 'Não foi possível trocar o código de autorização por um token. Confira a configuração OAuth e inicie uma nova autorização.',

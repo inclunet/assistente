@@ -1403,6 +1403,7 @@ const en = {
         deviceFailed: 'Could not complete device authorization. Check the OAuth configuration and try again.',
         authorizationChanged: 'The authorization changed or is in use. Wait for the operation to finish and try again.',
         authorizationRequired: 'This server needs authorization. Use Connect or Reauthorize to continue.',
+        authorizationPermissions: 'Insufficient OAuth permissions. Correct the scopes configured for this server, then connect again.',
         authorizationTemporary: 'Authorization is temporarily unavailable. Try again shortly.',
         authorizationMismatch: 'The authorization does not match this server. Check the OAuth configuration.',
         codeExchangeFailed: 'Could not exchange the authorization code for a token. Check the OAuth configuration and start a new authorization.',

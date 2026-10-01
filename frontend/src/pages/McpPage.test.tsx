@@ -655,19 +655,20 @@ describe('McpPage — oauth2_callback_host', () => {
     const [, config] = mockSave.mock.calls[mockSave.mock.calls.length - 1];
     expect(config.oauth2_registration_url).toBeUndefined();
   });
-  it.each([false,true])('invalida Device herdado apenas ao trocar recurso (troca=%s)', async (changeResource) => {
+  it.each(['rename','change','revert'])('vincula Device ao recurso original (%s)', async (mode) => {
     mockServers = [{slug:'device',name:'Device',transport:'streamable',status:'disconnected',toolCount:0,enabled:true}];
     mockGetConfig.mockResolvedValue({name:'Device',transport:'streamable',url:'https://old.example/mcp',auth_type:'oauth2_pkce',oauth_managed:true,oauth2_device_auth_url:'https://old.example/device',enabled:true});
     render(<McpPage />);
     const buttons = await screen.findAllByRole('button',{name:'mcp.actions.edit'});
     await userEvent.click(buttons[buttons.length-1]);
     await waitFor(() => expect(screen.getByLabelText('Server URL')).toHaveValue('https://old.example/mcp'));
-    if (changeResource) fireEvent.change(screen.getByLabelText('Server URL'),{target:{value:'https://new.example/mcp'}});
+    if (mode !== 'rename') fireEvent.change(screen.getByLabelText('Server URL'),{target:{value:'https://new.example/mcp'}});
     else fireEvent.change(screen.getByLabelText('Nome'),{target:{value:'Renamed'}});
+    if (mode === 'revert') fireEvent.change(screen.getByLabelText('Server URL'),{target:{value:'https://old.example/mcp'}});
     await userEvent.click(screen.getByText('Salvar'));
     await waitFor(() => expect(mockSave).toHaveBeenCalled());
     const [,config]=mockSave.mock.calls[mockSave.mock.calls.length-1];
-    expect(config.oauth2_device_auth_url).toBe(changeResource ? undefined : 'https://old.example/device');
+    expect(config.oauth2_device_auth_url).toBe(mode === 'change' ? undefined : 'https://old.example/device');
   });
 
 });

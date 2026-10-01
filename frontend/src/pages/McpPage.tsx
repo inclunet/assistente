@@ -164,7 +164,7 @@ export default function McpPage() {
   const [discoveryResourceName, setDiscoveryResourceName] = useState('');
   const [discoveryRegistrationUrl, setDiscoveryRegistrationUrl] = useState('');
   const [manualRegistrationUrl, setManualRegistrationUrl] = useState('');
-  const [manualRegistrationServerUrl, setManualRegistrationServerUrl] = useState('');
+  const [loadedResourceUrl, setLoadedResourceUrl] = useState('');
   const lastDiscoveredUrlRef = useRef('');
   const discoveryRequestRef = useRef(0);
   const wasHTTPTransportRef = useRef(false);
@@ -230,7 +230,7 @@ export default function McpPage() {
     setDiscoveryResourceName('');
     setDiscoveryRegistrationUrl('');
     setManualRegistrationUrl(config?.oauth2_registration_url || '');
-    setManualRegistrationServerUrl(config?.url || '');
+    setLoadedResourceUrl(config?.url || '');
     lastDiscoveredUrlRef.current = '';
     discoveryRequestRef.current += 1;
     wasHTTPTransportRef.current = false;
@@ -370,9 +370,8 @@ export default function McpPage() {
     setDiscoveryRegistrationUrl('');
     setDiscoveryResourceName('');
     setDiscoveryStatus('idle');
-    if (!isSameDiscoveryResource(value, formUrl)) setFormOAuthDeviceUrl('');
     setFormUrl(value);
-  }, [formUrl]);
+  }, []);
 
   const handleUrlBlur = useCallback(() => {
     const isHTTP = formTransport === 'streamable' || formTransport === 'sse';
@@ -442,7 +441,7 @@ export default function McpPage() {
     const isOAuth2 = formAuthType === 'oauth2_client_credentials' || formAuthType === 'oauth2_pkce';
     const scopesArr = formOAuth2Scopes.trim() ? formOAuth2Scopes.trim().split(/\s+/) : undefined;
     const applicableManualRegistrationUrl =
-      isSameDiscoveryResource(formUrl, manualRegistrationServerUrl) ? manualRegistrationUrl : '';
+      isSameDiscoveryResource(formUrl, loadedResourceUrl) ? manualRegistrationUrl : '';
 
     const config = new mcp.ServerConfig({
       name: formName.trim(),
@@ -457,7 +456,7 @@ export default function McpPage() {
       prefer_bridge: isHTTP ? formPreferBridge : undefined,
       auth_type: isHTTP ? formAuthType : undefined,
       oauth_managed: isHTTP && isOAuth2 && (isNew || formOAuthManaged),
-      oauth2_device_auth_url: isHTTP && isOAuth2 ? formOAuthDeviceUrl || undefined : undefined,
+      oauth2_device_auth_url: isHTTP && isOAuth2 && isSameDiscoveryResource(formUrl, loadedResourceUrl) ? formOAuthDeviceUrl || undefined : undefined,
       oauth2_token_auth_method: isHTTP && isOAuth2 && (isNew || formOAuthManaged) ? formOAuthTokenAuthMethod : undefined,
       oauth2_client_id: isHTTP && isOAuth2 ? formOAuth2ClientId.trim() || undefined : undefined,
       oauth2_token_url: isHTTP && isOAuth2 ? formOAuth2TokenUrl.trim() || undefined : undefined,
@@ -520,7 +519,7 @@ export default function McpPage() {
     } finally {
       setSaving(false);
     }
-  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuthManaged, formOAuthDeviceUrl, formOAuthTokenAuthMethod, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, manualRegistrationUrl, manualRegistrationServerUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
+  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuthManaged, formOAuthDeviceUrl, formOAuthTokenAuthMethod, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, manualRegistrationUrl, loadedResourceUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
 
   const handleDelete = useCallback(async (slug: string, name: string) => {
     const shouldDelete = await confirm({
@@ -888,7 +887,7 @@ export default function McpPage() {
               discoveryStatus={discoveryStatus}
               discoveryResourceName={discoveryResourceName}
               discoveryRegistrationUrl={
-                (isSameDiscoveryResource(formUrl, manualRegistrationServerUrl) ? manualRegistrationUrl : '') ||
+                (isSameDiscoveryResource(formUrl, loadedResourceUrl) ? manualRegistrationUrl : '') ||
                 discoveryRegistrationUrl
               }
               onCommandChange={setFormCommand}

@@ -1406,6 +1406,7 @@ const es = {
         deviceFailed: 'No se pudo completar la autorización de dispositivo. Revisa la configuración OAuth e inténtalo de nuevo.',
         authorizationChanged: 'La autorización cambió o está en uso. Espere a que termine la operación e inténtelo de nuevo.',
         authorizationRequired: 'Este servidor necesita autorización. Use Conectar o Reautorizar para continuar.',
+        authorizationPermissions: 'Permisos OAuth insuficientes. Corrija los alcances configurados para este servidor y vuelva a conectar.',
         authorizationTemporary: 'La autorización no está disponible temporalmente. Inténtelo de nuevo en unos momentos.',
         authorizationMismatch: 'La autorización no corresponde a este servidor. Revise la configuración OAuth.',
         codeExchangeFailed: 'No se pudo cambiar el código de autorización por un token. Revisa la configuración OAuth e inicia una nueva autorización.',
