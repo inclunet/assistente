@@ -3,6 +3,7 @@ const en = {
  chatgpt: {
     operationPending: 'Wait for this operation to finish before closing the dialog.',
     vaultUnavailable: 'The credential vault is unavailable. Recover or unlock the vault before disconnecting and deleting this provider.',
+    authorizationChanged: 'The connection changed or is in use by another authorization. Wait, reload the list, and try deleting it again.',
     authorizationInProgress: 'Complete or cancel authorization in the ChatGPT connection dialog before deleting this provider.',
     errors: {
       temporary: 'The ChatGPT connection is temporarily unavailable. Wait and try again; you do not need to reconnect now.',

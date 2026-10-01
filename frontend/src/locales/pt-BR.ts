@@ -3,6 +3,7 @@ const ptBR = {
  chatgpt: {
     operationPending: 'Aguarde a conclusão desta operação antes de fechar a janela.',
     vaultUnavailable: 'O cofre de credenciais está indisponível. Recupere ou desbloqueie o cofre antes de desconectar e excluir este provedor.',
+    authorizationChanged: 'A conexão foi alterada ou está em uso por outra autorização. Aguarde, recarregue a lista e tente excluir novamente.',
     authorizationInProgress: 'Conclua ou cancele a autorização na janela da conexão ChatGPT antes de excluir este provedor.',
     errors: {
       temporary: 'A conexão com o ChatGPT está temporariamente indisponível. Aguarde e tente novamente; não é necessário reconectar agora.',

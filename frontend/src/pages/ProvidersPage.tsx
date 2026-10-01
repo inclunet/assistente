@@ -295,6 +295,7 @@ export default function ProvidersPage() {
       const message = getErrorMessage(error);
       const errorKey = message.includes('oauth_vault_persistence_required') || message.includes('oauth_vault_unavailable')
         ? 'chatgpt.vaultUnavailable'
+        : message.includes('oauth_authorization_changed') ? 'chatgpt.authorizationChanged'
         : message.includes('chatgpt_authorization_in_progress') ? 'chatgpt.authorizationInProgress'
         : message.includes('chatgpt_disconnect_before_delete') ? 'chatgpt.disconnectBeforeDelete' : '';
       addToast(errorKey ? t(errorKey) : (message || t('providers.error.deleteFailed')), 'error');

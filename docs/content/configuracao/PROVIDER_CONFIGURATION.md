@@ -266,3 +266,6 @@ inclusive para outros provedores que usam o mesmo hostname. A melhoria é
 acompanhada na [issue #872](https://github.com/inclunet/assistente/issues/872).
 A conexão ChatGPT usa o fluxo OAuth dedicado; uma API key estática não pode
 substituir seu registro OAuth pela edição genérica.
+
+Se a exclusão informar que a conexão mudou ou está em uso por outra
+autorização, aguarde a operação terminar, recarregue a lista e tente novamente.

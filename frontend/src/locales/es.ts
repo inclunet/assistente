@@ -3,6 +3,7 @@ const es = {
  chatgpt: {
     operationPending: 'Espera a que termine esta operación antes de cerrar la ventana.',
     vaultUnavailable: 'El almacén de credenciales no está disponible. Recupera o desbloquea el almacén antes de desconectar y eliminar este proveedor.',
+    authorizationChanged: 'La conexión cambió o está en uso por otra autorización. Espera, vuelve a cargar la lista e intenta eliminarla de nuevo.',
     authorizationInProgress: 'Completa o cancela la autorización en el diálogo de conexión ChatGPT antes de eliminar este proveedor.',
     errors: {
       temporary: 'La conexión con ChatGPT no está disponible temporalmente. Espera e inténtalo de nuevo; no necesitas reconectar ahora.',

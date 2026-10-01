@@ -317,7 +317,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   transação e publica os demais campos atuais. Token sem refresh exige reconexão
   persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
   Testes cobrem preservação de edições e falha na gravação da transição.
-- Revisão independente local em quarenta e seis rodadas, com correções de isolamento de
+- Revisão independente local em quarenta e sete rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
