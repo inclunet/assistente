@@ -5,6 +5,7 @@ import { ChatMessage } from './ChatMessage';
 import { MessageNode as MessageNodeType, Message, useChatStore } from '../../store/chatStore';
 import { useChatNodeSessionState } from './ChatSessionContext';
 import { playBumpSound } from '../../services/audioFeedback';
+import { getChatEventControllerExecutionId } from '../../services/chatEventController';
 import { useChatMessageEditDraft } from './useChatMessageEditDraft';
 import { announce } from '../../hooks/useAnnouncer';
 import { useVirtualModal } from '../../hooks/useVirtualModal';
@@ -236,15 +237,21 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       const state = useChatStore.getState();
       const currentCanonicalMessage = state.getConversationMessages(conversationId)
         .find(message => message.id === live.node.message.id);
-      const visibleNodes = state.surfaceSessionsByKey?.[sessionKey]?.visibleThreadedMessages;
+      const surfaceSession = state.surfaceSessionsByKey?.[sessionKey];
+      const visibleNodes = surfaceSession?.visibleThreadedMessages;
       const belongsToCurrentProjection = visibleNodes
         ? containsMessageReference(visibleNodes, live.node.message)
         : currentCanonicalMessage === live.node.message;
+      const executionId = getChatEventControllerExecutionId(conversationId);
+      const isActiveSurfaceStream = !!executionId && surfaceSession?.surfaceOrigin?.executionId === executionId &&
+        surfaceSession.conversationId === conversationId &&
+        surfaceSession.streamingMessageId === live.node.message.id && live.node.message.isStreaming &&
+        binding?.canonicalMessage == null && currentCanonicalMessage == null && belongsToCurrentProjection;
       return mounted.current && nodeRef.current === root && live.panel?.isActive === true &&
         live.panel.tab.id === panel.tab.id && live.conversationId === conversationId && live.sessionKey === sessionKey &&
-        state.surfaceSessionsByKey?.[sessionKey]?.conversationId === conversationId &&
-        binding?.renderedMessage === live.node.message && binding.canonicalMessage != null &&
-        currentCanonicalMessage === binding.canonicalMessage &&
+        surfaceSession?.conversationId === conversationId &&
+        binding?.renderedMessage === live.node.message &&
+        ((binding.canonicalMessage != null && currentCanonicalMessage === binding.canonicalMessage) || isActiveSurfaceStream) &&
         belongsToCurrentProjection;
     };
     const off = registerChatNavigationSurface({
@@ -264,6 +271,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
         const message = live.node.message;
         if (!current() || live.isReading || live.isEditing ||
           target instanceof Element && target !== root && !!target.closest('input,textarea,select,[contenteditable="true"]')) return false;
+        const state = useChatStore.getState();
+        const isTransientSurfaceStream = message.isStreaming &&
+          state.surfaceSessionsByKey?.[sessionKey]?.streamingMessageId === message.id &&
+          state.getConversationMessages(conversationId).every(candidate => candidate.id !== message.id);
+        if (isTransientSurfaceStream) return id === 'chat.message.read.open' && !message.internal;
         const expanded = useChatStore.getState().isConversationThreadExpanded(conversationId, message.id, sessionKey);
         if (id === 'chat.message.read.open') return !message.internal;
         if (id === 'chat.message.menu.open') return !message.internal && !!live.onContextMenu;
