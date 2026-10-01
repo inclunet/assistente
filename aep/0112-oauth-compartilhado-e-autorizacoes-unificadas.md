@@ -767,6 +767,9 @@ servidor, Client Credentials, credenciais por hostname e entradas sem consumidor
 OAuth correspondente. Detecta referências incompatíveis, material incompleto,
 client IDs divergentes, fonte externa e campos ilegíveis sem executar resolução
 de command/keyring, discovery, refresh ou consentimento.
+Inclui Bearer legado importado por hostname somente quando corresponde a um
+consumidor OAuth, normalizando o host como o resolvedor. Tokens Bearer alheios
+ao MCP não são inspecionados nem exibidos.
 
 A classificação é observacional: não declara um registro pronto para migrar,
 não prova validade remota, não infere exclusividade de credenciais por hostname

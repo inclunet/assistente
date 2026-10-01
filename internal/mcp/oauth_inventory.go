@@ -42,7 +42,17 @@ func (m *Manager) InspectOAuthInventory(ctx context.Context) ([]OAuthInventoryIt
 	if err != nil {
 		return nil, err
 	}
-	entries, err := m.credMgr.InspectLegacyOAuth(ctx)
+	var hosts []string
+	for _, cfg := range configs {
+		if !isOAuthInventoryServer(cfg) {
+			continue
+		}
+		parsed, parseErr := url.Parse(cfg.URL)
+		if parseErr == nil && parsed.Hostname() != "" {
+			hosts = append(hosts, parsed.Hostname())
+		}
+	}
+	entries, err := m.credMgr.InspectLegacyOAuth(ctx, hosts...)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +90,7 @@ func classifyOAuthInventory(configs []ServerConfig, entries []credentials.Legacy
 	}
 	result := make([]OAuthInventoryItem, 0)
 	for _, cfg := range configs {
-		if cfg.AuthType != AuthOAuth2PKCE && cfg.AuthType != AuthOAuth2ClientCredentials && cfg.OAuthAuthorizationID == "" && !cfg.OAuthManaged {
+		if !isOAuthInventoryServer(cfg) {
 			continue
 		}
 		item := OAuthInventoryItem{ID: cfg.ID, Name: cfg.Name, Kind: "legacy", Issues: []string{}}
@@ -165,6 +175,10 @@ func classifyOAuthInventory(configs []ServerConfig, entries []credentials.Legacy
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
+}
+
+func isOAuthInventoryServer(cfg ServerConfig) bool {
+	return cfg.AuthType == AuthOAuth2PKCE || cfg.AuthType == AuthOAuth2ClientCredentials || cfg.OAuthAuthorizationID != "" || cfg.OAuthManaged
 }
 
 func uniqueIssues(items []string) []string {

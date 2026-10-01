@@ -94,8 +94,12 @@ func TestInspectLegacyOAuthPersistedScopedAndReadOnly(t *testing.T) {
 
 func TestLegacyOAuthHostMatchingUsesResolverSemantics(t *testing.T) {
 	entry := LegacyOAuthEntry{Pattern: "*.example.com"}
-	if !entry.MatchesHost("mcp.example.com") || entry.MatchesHost("a.b.example.com") || entry.MatchesHost("example.com") {
+	if !entry.MatchesHost("mcp.example.com") || !entry.MatchesHost("MCP.EXAMPLE.COM") || entry.MatchesHost("a.b.example.com") || entry.MatchesHost("example.com") {
 		t.Fatal("wildcard matching changed")
+	}
+	entry.Pattern = "MCP.EXAMPLE.COM"
+	if !entry.MatchesHost("MCP.EXAMPLE.COM") {
+		t.Fatal("exact native fallback hidden")
 	}
 }
 

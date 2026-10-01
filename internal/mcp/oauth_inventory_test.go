@@ -72,6 +72,52 @@ func TestOAuthInventoryDiscardsResultWhenVaultSessionChanges(t *testing.T) {
 	}
 }
 
+func TestOAuthInventoryIncludesOnlyBearerHostsMatchingOAuthConsumers(t *testing.T) {
+	m, repo, ctx := managedFixture(t)
+	cfg := ServerConfig{Slug: "legacy", Name: "Legacy", Transport: TransportStreamable, URL: "https://MCP.EXAMPLE.COM:8443/api", AuthType: AuthOAuth2PKCE}
+	if err := repo.SaveServer(ctx, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	static := ServerConfig{Slug: "static", Name: "Static", Transport: TransportStreamable, URL: "https://static.example.net", AuthType: AuthBearer}
+	if err := repo.SaveServer(ctx, &static); err != nil {
+		t.Fatal(err)
+	}
+	for _, pattern := range []string{"*.example.com", "MCP.EXAMPLE.COM", "unrelated.example.net", "static.example.net"} {
+		if err := m.credMgr.RegisterPatternWithContext(ctx, pattern, &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "IMPORTED-SECRET"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := m.InspectOAuthInventory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("unexpected inventory: %+v", items)
+	}
+	var consumer, hostname, exactHostname bool
+	for _, item := range items {
+		if item.ID == cfg.ID {
+			consumer = slices.Contains(item.Issues, "hostname_credential")
+		}
+		if item.ID == "credential:*.example.com" {
+			hostname = item.Kind == "hostname"
+		}
+		if item.ID == "credential:MCP.EXAMPLE.COM" {
+			exactHostname = item.Kind == "hostname"
+		}
+	}
+	if !consumer || !hostname || !exactHostname {
+		t.Fatal("imported hostname token not associated with uppercase OAuth resource")
+	}
+	raw, err := json.Marshal(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "IMPORTED-SECRET") {
+		t.Fatal("imported token exposed")
+	}
+}
+
 func TestOAuthInventoryNoNetworkNoMutationAndUserIsolation(t *testing.T) {
 	m, repo, ctx := managedFixture(t)
 	var requests atomic.Int32

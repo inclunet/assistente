@@ -549,6 +549,9 @@ Para conferir o formato das configurações existentes, abra **Servidores MCP �
 Diagnóstico OAuth**. A consulta mostra autorizações compostas, OAuth legado por
 servidor, Client Credentials, entradas sem servidor OAuth correspondente e
 credenciais por hostname (que também podem atender recursos fora do MCP).
+Tokens Bearer importados por hostname entram no inventário quando correspondem
+a um servidor OAuth. A comparação normaliza maiúsculas no hostname, como o
+resolvedor de credenciais; tokens Bearer de outros recursos ficam fora da consulta.
 
 O diagnóstico consulta apenas dados locais do usuário atual. Não conecta,
 executa comandos, abre o navegador, renova tokens ou altera credenciais. Ele
