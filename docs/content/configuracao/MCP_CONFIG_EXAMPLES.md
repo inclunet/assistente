@@ -462,3 +462,16 @@ servers.forEach(srv => {
 - **Auth**: Tokens via env vars, nunca hardcoded no JSON
 - **Docker**: Servidores containerizados via stdio
 - **Auto-reconnect**: Health checks + exponential backoff automático
+
+## Diagnóstico do registro OAuth dinâmico
+
+Quando o servidor oferece registro dinâmico (DCR), o Assistente usa o endpoint
+informado e conserva a URL de callback configurada, incluindo host, porta e path.
+O pedido de registro tem limite de dez segundos e acompanha o cancelamento da
+operação. Redirecionamentos HTTP nesse pedido não são seguidos: configure o
+endpoint final de registro, sem um redirecionamento intermediário.
+
+Se aparecer a mensagem de falha ao registrar o cliente OAuth, confira esse endpoint
+e a URL de callback. O diagnóstico omite o corpo remoto para proteger segredos.
+As conexões já cadastradas continuam usando suas credenciais; esta etapa não exige
+novo login nem converte os registros existentes no cofre.

@@ -1,0 +1,22 @@
+import { describe, expect, it } from 'vitest';
+import i18next from 'i18next';
+import ptBR from '../locales/pt-BR';
+import en from '../locales/en';
+import es from '../locales/es';
+import { mcpOAuthErrorMessage } from './mcpOAuthErrors';
+
+describe('OAuth registration errors', () => {
+  it.each(['pt-BR', 'en', 'es'])('localizes wrapped errors in %s', async (lng) => {
+    const i18n = i18next.createInstance();
+    await i18n.init({ lng, resources: { 'pt-BR': ptBR, en, es } });
+    const result = mcpOAuthErrorMessage(new Error('failed to connect: oauth_registration_failed: HTTP 400'), i18n.t);
+    expect(result).toBe(i18n.t('mcp.error.registrationFailed'));
+    expect(result).not.toContain('oauth_registration_failed');
+    expect(result).not.toBe('mcp.error.registrationFailed');
+    expect(mcpOAuthErrorMessage('oauth_registration_failed', i18n.t)).toBe(result);
+  });
+  it('preserves unrelated failures and empty values', () => {
+    expect(mcpOAuthErrorMessage(new Error('existing failure'), i18next.t)).toBe('existing failure');
+    expect(mcpOAuthErrorMessage(null, i18next.t)).toBe('');
+  });
+});

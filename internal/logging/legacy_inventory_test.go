@@ -24,8 +24,9 @@ const (
 	// removidos. Os logs da manutenção existente continuam no jobs.Manager.
 	// Provider CRUD now propagates persistence failures before publishing: three
 	// obsolete creation/update/removal warning formats were removed.
-	expectedLegacyFormatCount  = 767
-	expectedLegacyFormatDigest = "5b528b16bf500248a1e590dedf6acf11f33de9e3399f9e28509e438866562cf2"
+	// OAuth discovery moved to oauthflow; the DCR URL/redirect diagnostic was removed.
+	expectedLegacyFormatCount  = 766
+	expectedLegacyFormatDigest = "0463eecb6d2e91ff8c8b64b00a124585584deb1cb289e3d2664d5452d9300236"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

@@ -1395,6 +1395,7 @@ const en = {
         serverReauthorized: 'Server {{name}} reauthorized',
       },
       error: {
+        registrationFailed: 'Could not register the OAuth client. Check the registration endpoint and callback URL, then try again.',
         slugRequired: 'Slug (identifier) is required',
         nameRequired: 'Name is required',
         duplicate: 'Error duplicating MCP server',

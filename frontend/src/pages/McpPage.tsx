@@ -1,3 +1,4 @@
+import { mcpOAuthErrorMessage } from '../lib/mcpOAuthErrors';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -99,7 +100,7 @@ export default function McpPage() {
   useGridPageLandmarks({ pageClass: 'mcp-page' });
 
   const getErrorMessage = (error: unknown) =>
-    error instanceof Error ? error.message : String(error ?? '');
+    mcpOAuthErrorMessage(error, t);
   const confirm = useConfirm();
 
   const [searchTerm, setSearchTerm] = useState('');

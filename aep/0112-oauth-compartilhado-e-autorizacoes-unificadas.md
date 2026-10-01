@@ -267,6 +267,10 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    conforme o critério ChatGPT funcional abaixo.
 2. [ ] Paridade MCP: extrair/adaptar discovery, DCR, Device Flow, client credentials,
    callback manual/fixo e reautorização; adicionar consumidores do serviço compartilhado.
+   **Em andamento:** discovery e registro RFC 7591 foram extraídos para
+   `internal/oauthflow`, consumidos pela tela e pelo runtime MCP. Device Flow,
+   client credentials, callback e reautorização ainda usam o ciclo MCP legado.
+   A migração de credenciais continua exclusiva da fase 3.
 3. [ ] Cutover MCP: migrar registros e referências, comprovar reinício/refresh/native/bridge,
    remover persistência dupla, configurações OAuth duplicadas e ciclo próprio de renovação.
 4. [ ] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
@@ -489,3 +493,26 @@ Esse fluxo não usa o registro composto OAuth. A entrega impede substituir um
 envelope OAuth por API key estática (`TestGenericAPIKeyCannotOverwriteOAuthEnvelope`),
 mas não declara atomicidade para o cadastro genérico legado. Um rollback sem CAS
 poderia apagar alterações concorrentes; a issue exige transação e testes de falha.
+
+### Primeira entrega de paridade MCP (fase 2)
+
+- `oauthflow.DiscoverOAuthContext` e `DiscoverEndpoints` concentram discovery
+  RFC 9728/8414 e OIDC; `mcp.DiscoverOAuth` preserva o DTO da tela. O runtime MCP
+  usa o mesmo componente para descobrir endpoints, scopes e Device Authorization.
+- Candidatos, ordem, saneamento, limites e cancelamento do AEP-0033 foram
+  preservados. Os testes completos foram movidos para `oauthflow/discovery_test.go`;
+  testes de consumo continuam em `mcp/oauth_test.go`.
+- `RegisterDynamicClient` recebe metadados RFC 7591 sem depender de `ServerConfig`.
+  MCP continua selecionando grants e a URI exata; o HTTP comum respeita contexto,
+  timeout de dez segundos, limite de 256 KiB e rejeita redirects. Erros não
+  incluem corpo remoto, client secret nem URL com query.
+- `registration_test.go` cobre metadados, cancelamento, redirects, respostas
+  excessivas/inválidas e confidencialidade. A tela traduz falhas de registro nos
+  três idiomas, com teste em `mcpOAuthErrors.test.ts`.
+- Não houve conversão de dados, novo consentimento nem mudança da URI de callback
+  por esta extração. O owner de tokens MCP continua exclusivamente no MCP legado
+  até a entrega dos grants e do cutover. Fases 2, 3 e 4 seguem abertas.
+
+Revisão local desta entrega incremental: `review_credential_sources`, duas rodadas,
+sem pendências. A validação funcional ChatGPT da fase 1 continua a cargo do
+usuário e não foi marcada como concluída por esta entrega.

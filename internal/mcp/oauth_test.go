@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"assistente/internal/credentials"
+	"assistente/internal/oauthflow"
 
 	"golang.org/x/oauth2"
 )
@@ -270,7 +271,7 @@ func TestAuthorizePKCEReregistersWhenFixedCallbackPortIsBusy(t *testing.T) {
 	authServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/register":
-			var req dcrRequest
+			var req oauthflow.RegistrationRequest
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Errorf("DCR body inválido: %v", err)
 				w.WriteHeader(http.StatusBadRequest)
@@ -741,99 +742,6 @@ func TestDiscoverOAuthEndpoints_Fallback(t *testing.T) {
 
 // ============ Discovery Fallback Tests ============
 
-func TestBuildPRMCandidates(t *testing.T) {
-	tests := []struct {
-		name      string
-		mcpURL    string
-		wantCount int
-		wantFirst string
-		wantLast  string
-	}{
-		{
-			name:      "URL with path tries RFC 9728 and compatibility locations for each ancestor",
-			mcpURL:    "https://example.com/mcp/default",
-			wantCount: 5,
-			wantFirst: "https://example.com/.well-known/oauth-protected-resource/mcp/default",
-			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
-		},
-		{
-			name:      "URL at root only tries origin",
-			mcpURL:    "https://example.com",
-			wantCount: 1,
-			wantFirst: "https://example.com/.well-known/oauth-protected-resource",
-			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
-		},
-		{
-			name:      "URL with single path segment",
-			mcpURL:    "https://example.com/mcp",
-			wantCount: 3,
-			wantFirst: "https://example.com/.well-known/oauth-protected-resource/mcp",
-			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			candidates := buildPRMCandidates(tc.mcpURL)
-			if len(candidates) != tc.wantCount {
-				t.Fatalf("got %d candidates, want %d: %v", len(candidates), tc.wantCount, candidates)
-			}
-			if candidates[0] != tc.wantFirst {
-				t.Errorf("first candidate: got %q, want %q", candidates[0], tc.wantFirst)
-			}
-			if candidates[len(candidates)-1] != tc.wantLast {
-				t.Errorf("last candidate: got %q, want %q", candidates[len(candidates)-1], tc.wantLast)
-			}
-		})
-	}
-}
-
-func TestBuildASMCandidates(t *testing.T) {
-	tests := []struct {
-		name      string
-		base      string
-		wantCount int
-		wantURLs  []string
-	}{
-		{
-			name:      "auth server at origin has 2 candidates",
-			base:      "https://example.com",
-			wantCount: 2,
-			wantURLs: []string{
-				"https://example.com/.well-known/oauth-authorization-server",
-				"https://example.com/.well-known/openid-configuration",
-			},
-		},
-		{
-			name:      "auth server with path generates 6 candidates",
-			base:      "https://example.com/oauth",
-			wantCount: 6,
-			wantURLs: []string{
-				"https://example.com/.well-known/oauth-authorization-server/oauth",
-				"https://example.com/oauth/.well-known/openid-configuration",
-				"https://example.com/oauth/.well-known/oauth-authorization-server",
-				"https://example.com/.well-known/openid-configuration/oauth",
-				"https://example.com/.well-known/oauth-authorization-server",
-				"https://example.com/.well-known/openid-configuration",
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			candidates := buildASMCandidates(tc.base)
-			if len(candidates) != tc.wantCount {
-				t.Fatalf("got %d candidates, want %d: %v", len(candidates), tc.wantCount, candidates)
-			}
-			for i, want := range tc.wantURLs {
-				if candidates[i] != want {
-					t.Errorf("candidate[%d]: got %q, want %q", i, candidates[i], want)
-				}
-			}
-		})
-	}
-}
-
 func TestDiscoverOAuth_AuthServerWithPath_FallbackToOriginRoot(t *testing.T) {
 	// PRM aponta para auth server em /oauth,
 	// mas ASM está publicado na raiz do origin.
@@ -1214,7 +1122,7 @@ func TestDCRIncludesDeviceCodeGrant(t *testing.T) {
 	cfg := ServerConfig{
 		OAuth2RegistrationURL: srv.URL + "/register",
 	}
-	_, err := registerDynamicClient(cfg, "http://localhost:9999/callback", nil)
+	_, err := registerDynamicClient(context.Background(), cfg, "http://localhost:9999/callback", nil)
 	if err != nil {
 		t.Fatalf("registerDynamicClient failed: %v", err)
 	}

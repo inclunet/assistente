@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"assistente/internal/logging"
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -150,78 +149,13 @@ func buildClientCredentialsHTTPClient(cfg ServerConfig, clientSecret string) *ht
 
 // ============ OAuth Discovery (uses discovery.go infrastructure) ============
 
-// OAuthDiscovery holds endpoints discovered via .well-known metadata.
-type OAuthDiscovery struct {
-	Resource                    string
-	AuthorizationEndpoint       string
-	TokenEndpoint               string
-	RegistrationEndpoint        string
-	DeviceAuthorizationEndpoint string
-	GrantTypesSupported         []string
-	// ScopesSupported lista os scopes anunciados pelo auth server (e/ou recurso).
-	// Usado para decidir, com segurança, se devemos pedir "offline_access" — só o
-	// fazemos quando o servidor o anuncia, evitando erro invalid_scope em servidores
-	// que não o suportam.
-	ScopesSupported []string
+type OAuthDiscovery = oauthflow.DiscoveryEndpoints
+
+func discoverOAuthEndpoints(ctx context.Context, resourceURL string) (*OAuthDiscovery, error) {
+	return oauthflow.DiscoverEndpoints(ctx, resourceURL)
 }
 
-// discoverOAuthEndpoints uses the existing discovery infrastructure from
-// discovery.go to fetch protected resource + auth server metadata.
-func discoverOAuthEndpoints(ctx context.Context, mcpURL string) (*OAuthDiscovery, error) {
-	_, err := extractOrigin(mcpURL)
-	if err != nil {
-		return nil, err
-	}
-	budget := newDiscoveryBudget(ctx)
-	defer budget.close()
-
-	authServerBases := buildResourceBases(mcpURL)
-	resource := mcpURL
-	if len(authServerBases) > 0 {
-		resource = authServerBases[0]
-	}
-	var resourceScopes []string
-
-	prm, _, err := fetchProtectedResourceMetadataDetailedWithBudget(budget, mcpURL)
-	if err == nil && prm != nil {
-		hasExplicitAuthServer := false
-		if len(prm.AuthorizationServers) > 0 {
-			if canonicalBases := canonicalAuthorizationServerBases(prm.AuthorizationServers); len(canonicalBases) > 0 {
-				authServerBases = canonicalBases
-				hasExplicitAuthServer = true
-			}
-		}
-		if prm.Resource != "" {
-			if canonicalResourceBases := buildResourceBases(prm.Resource); len(canonicalResourceBases) > 0 {
-				resource = canonicalResourceBases[0]
-				if !hasExplicitAuthServer {
-					authServerBases = canonicalResourceBases
-				}
-			}
-		}
-		resourceScopes = prm.ScopesSupported
-	}
-
-	asm, _, _, err := fetchAuthServerMetadataFromBasesWithBudget(budget, authServerBases)
-	if err != nil {
-		return nil, fmt.Errorf("auth server metadata unavailable: %w", err)
-	}
-
-	// scopes_supported pode vir do recurso protegido (RFC 9728) e/ou do auth server
-	// (RFC 8414). Une os dois para a decisão de offline_access.
-	scopes := append([]string(nil), resourceScopes...)
-	scopes = append(scopes, asm.ScopesSupported...)
-
-	return &OAuthDiscovery{
-		Resource:                    resource,
-		AuthorizationEndpoint:       asm.AuthorizationEndpoint,
-		TokenEndpoint:               asm.TokenEndpoint,
-		RegistrationEndpoint:        asm.RegistrationEndpoint,
-		DeviceAuthorizationEndpoint: asm.DeviceAuthorizationEndpoint,
-		GrantTypesSupported:         asm.GrantTypesSupported,
-		ScopesSupported:             scopes,
-	}, nil
-}
+var discoveryHTTPClient = &http.Client{Timeout: 5 * time.Second}
 
 // ============ Blocked endpoint workaround (Istio/mTLS) ============
 
@@ -660,7 +594,7 @@ func (rt *pkceRoundTripper) resolveClientID(ctx context.Context) error {
 	}
 	redirectURL := fmt.Sprintf("http://%s:%d/callback", callbackHost, port)
 
-	dcrResult, err := registerDynamicClient(rt.cfg, redirectURL, rt.effectiveScopes())
+	dcrResult, err := registerDynamicClient(ctx, rt.cfg, redirectURL, rt.effectiveScopes())
 	if err != nil {
 		return fmt.Errorf("dynamic client registration failed: %w", err)
 	}
@@ -695,7 +629,7 @@ func (rt *pkceRoundTripper) reRegisterClient(ctx context.Context) error {
 	}
 	redirectURL := fmt.Sprintf("http://%s:%d/callback", callbackHost, port)
 
-	dcrResult, err := registerDynamicClient(rt.cfg, redirectURL, rt.effectiveScopes())
+	dcrResult, err := registerDynamicClient(ctx, rt.cfg, redirectURL, rt.effectiveScopes())
 	if err != nil {
 		return fmt.Errorf("re-registration failed: %w", err)
 	}
@@ -1065,72 +999,15 @@ func isAddressInUse(err error) bool {
 
 // ============ Dynamic Client Registration (RFC 7591) ============
 
-type dcrRequest struct {
-	RedirectURIs            []string `json:"redirect_uris"`
-	ClientName              string   `json:"client_name"`
-	GrantTypes              []string `json:"grant_types"`
-	ResponseTypes           []string `json:"response_types"`
-	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
-	Scope                   string   `json:"scope,omitempty"`
-}
-
-type dcrResponse struct {
-	ClientID     string `json:"client_id"`
-	ClientSecret string `json:"client_secret,omitempty"`
-}
-
-var dcrHTTPClient = &http.Client{Timeout: 10 * time.Second}
-
-func registerDynamicClient(cfg ServerConfig, redirectURL string, scopes []string) (*dcrResponse, error) {
-	scope := strings.Join(scopes, " ")
-
-	reqBody := dcrRequest{
+func registerDynamicClient(ctx context.Context, cfg ServerConfig, redirectURL string, scopes []string) (*oauthflow.RegistrationResponse, error) {
+	return oauthflow.RegisterDynamicClient(ctx, cfg.OAuth2RegistrationURL, oauthflow.RegistrationRequest{
 		RedirectURIs:            []string{redirectURL},
 		ClientName:              "Assistente",
 		GrantTypes:              []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
 		ResponseTypes:           []string{"code"},
 		TokenEndpointAuthMethod: "none",
-		Scope:                   scope,
-	}
-
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal DCR request: %w", err)
-	}
-
-	logging.Infof(context.Background(), "mcp.oauth", "[MCP:dcr] POST %s with redirect_uris=%v", cfg.OAuth2RegistrationURL, reqBody.RedirectURIs)
-
-	req, err := http.NewRequest("POST", cfg.OAuth2RegistrationURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := dcrHTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("DCR request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read DCR response: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("DCR returned HTTP %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var result dcrResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse DCR response: %w", err)
-	}
-
-	if result.ClientID == "" {
-		return nil, fmt.Errorf("DCR response missing client_id")
-	}
-
-	return &result, nil
+		Scope:                   strings.Join(scopes, " "),
+	})
 }
 
 // ============ Persist (duas entradas separadas no credential manager) ============

@@ -1396,6 +1396,7 @@ const ptBR = {
         serverReauthorized: 'Servidor {{name}} reautorizado',
       },
       error: {
+        registrationFailed: 'Não foi possível registrar o cliente OAuth. Verifique o endpoint de registro e a URL de callback e tente novamente.',
         slugRequired: 'Slug (identificador) é obrigatório',
         nameRequired: 'Nome é obrigatório',
         duplicate: 'Erro ao duplicar servidor MCP',
