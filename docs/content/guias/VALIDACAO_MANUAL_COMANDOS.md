@@ -33,10 +33,23 @@ confirmações substituem as pendências correspondentes do registro histórico
 abaixo, sem aprovar outras variantes de UI01/CF04, os 84 critérios ou gates
 inteiros. Não solicitar repetição sem uma mudança que justifique regressão.
 
-Defeito relatado e corrigido neste PR: Enter não abria a leitura de mensagens
-durante o streaming ou logo após o término. A correção tem regressão automatizada;
-o aceite anterior da navegação não cobre esse cenário, e somente o reteste
-manual específico permanece pendente.
+### Reteste de leitura após atualização — 30/09/2026
+
+- [x] Enter abre a leitura da última mensagem depois de concluída: confirmado
+  explicitamente pelo mantenedor após atualizar e recompilar o aplicativo.
+- [ ] Enter abre a leitura da mensagem enquanto recebe streaming: **FALHOU**
+  no mesmo reteste; correção específica com testes automatizados, aguardando
+  nova confirmação com NVDA, sem aceite antecipado.
+- Comandos e teclado não voltaram a desconectar nesse período: **em observação**,
+  não constitui comprovação definitiva da recuperação sob contenção.
+
+Para o reteste específico, use uma conversa descartável e uma resposta longa:
+enquanto o texto chega, foque a mensagem e pressione Enter. Confira que a
+leitura abre antes do término, o texto continua atualizando sem retirar o foco
+e Escape retorna à mensagem. Entre novamente ainda durante a geração e mantenha
+a leitura até o término. Registre separadamente entrada, atualização e foco.
+O aceite da mensagem concluída não aprova estas variantes de streaming nem CH01
+inteiro. Não é necessário repetir os demais blocos por esta correção.
 
 ## Registro reconciliado — 26/09/2026 (histórico)
 

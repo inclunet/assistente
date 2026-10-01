@@ -1,5 +1,28 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+**Reteste de leitura ao vivo (30/09/2026): In Progress.** Após atualizar e
+recompilar, o mantenedor confirmou Enter na última mensagem concluída. A
+variante durante streaming ainda falhou e recebe correção exclusiva; não se
+considera validada por testes que só representam mensagens persistidas.
+A estabilidade de comandos/teclado segue em observação, sem nova desconexão
+relatada e sem promoção de critério ou gate. O registro manual distingue esses
+resultados em `docs/content/guias/VALIDACAO_MANUAL_COMANDOS.md`.
+
+A leitura explícita durante geração reconhece a mensagem transitória pertencente
+à projeção visível da própria superfície e à execução em streaming nela ativa,
+com o mesmo `executionId` no controller e na origem da superfície.
+Isso não transforma o item em mensagem persistida nem autoriza mutações por ID.
+Alvos canônicos continuam sujeitos ao vínculo de referência existente; clones,
+outras superfícies e alvos obsoletos permanecem recusados. Durante a leitura,
+o conteúdo não mantém `aria-busy=true` até o fim da geração: os trechos recebidos
+ficam expostos sem criar `aria-live` local ou TTS concorrente. Fora da leitura,
+a indicação de ocupado mantém o comportamento existente. Confirmação com NVDA
+no ambiente do mantenedor permanece pendente.
+Regressões em `MessageNode.navigation.test.tsx` usam envio/store/controller reais
+com transporte Wails simulado: origem, chunks, Escape/reentrada, patch terminal e
+recusa de projeção antiga remontada sem execução ativa. `ChatMessage.test.tsx`
+cobre a indicação de ocupado na leitura de texto simples e com ferramentas.
+
 **Menu Nova aba sem prazo motor (30/09/2026): In Progress.** Por decisão do
 mantenedor, o menu aberto por Ctrl+N não fecha por tempo. O host assume a
 espera da sequência enquanto oferece a escolha: letra, setas/Enter e clique
@@ -63,7 +86,9 @@ Na navegação do chat, a mensagem apresentada pode ser a projeção imutável d
 superfície, distinta do objeto da timeline após `patchChatConversation`. A
 validação deve reconhecer a projeção atual sem aceitar um objeto arbitrário
 apenas por compartilhar ID. Permanecem o isolamento de usuário/sessão/conversa,
-ownership da superfície, existência canônica e invalidação de alvos antigos.
+ownership da superfície, existência canônica dos alvos persistidos e invalidação
+de alvos antigos. A exceção de leitura do streaming transitório é delimitada
+na atualização de 30/09/2026 acima, sem autorizar outras ações sobre ele.
 
 **Recuperação de publicação e manutenção (29/09/2026): In Progress.**
 Um mapa ausente após invalidação deixa de ser um estado sem recuperação:

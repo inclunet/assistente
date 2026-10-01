@@ -258,6 +258,20 @@ describe('ChatMessage', () => {
     expect(screen.getByRole('button', { name: 'chat.playAudio' })).toHaveAttribute('tabindex', '0');
   });
 
+  it.each([false, true])('leitura ao vivo não mantém texto sob aria-busy (com ferramentas: %s)', agentic => {
+    const message = new chat.EnrichedMessage({
+      id: 'live-reading-busy', conversationId, role: 'assistant',
+      content: 'Texto chegando', isStreaming: true, internal: false,
+    });
+    const props = agentic ? { activeToolCalls: [{ callId: 'call', name: 'tool', status: 'running' as const }] } : {};
+    const { container, rerender } = render(<ChatMessage message={message} {...props} />);
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+    rerender(<ChatMessage message={message} {...props} isReading />);
+    expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+    rerender(<ChatMessage message={message} {...props} />);
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+  });
+
   it('renderiza modo de edicao', () => {
     const message = new chat.EnrichedMessage({
       id: '1',

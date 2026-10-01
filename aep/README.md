@@ -1,5 +1,12 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — reteste de leitura ao vivo (30/09/2026): In Progress.** Enter na
+última mensagem concluída foi confirmado pelo mantenedor após atualização.
+Leitura durante streaming reconhece o alvo transitório da superfície ativa e
+libera a exposição acessível dos trechos durante leitura explícita; reteste
+com NVDA pendente. Comandos/teclado em observação. Sem promoção dos critérios
+ou gates integrais.
+
 **AEP-0103 — menu Nova aba sem prazo motor (30/09/2026): In Progress.**
 Ctrl+N mantém o menu e a escolha por letra abertos até seleção ou cancelamento,
 sem exigir rapidez. Guardas de contexto/mapa permanecem; outras sequências

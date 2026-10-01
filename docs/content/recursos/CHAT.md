@@ -12,6 +12,10 @@ modo de leitura. **Escape** sai da leitura e devolve o foco à mensagem.
 Isso também vale para respostas em streaming ou recém-concluídas: não é
 necessário trocar de aba ou recarregar a conversa para ler o texto recebido.
 Abrir a leitura não cancela a geração e não inicia leitura em voz alta (TTS).
+Durante a leitura, os novos trechos permanecem disponíveis sem esperar a resposta
+terminar, e o foco não é reiniciado a cada trecho. Escape devolve o foco à mesma
+mensagem; é possível entrar novamente enquanto a geração continua. Isso não
+ativa anúncios automáticos de cada trecho nem outra voz concorrente.
 
 ## Conversa indisponível ao enviar
 

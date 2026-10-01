@@ -8,12 +8,25 @@ import { useAuthStore } from '../../store/authStore';
 import { useChatStore } from '../../store/chatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
-import { createChatSurfaceIdentity, createEmptyChatSession, createEmptyChatSurfaceSession, patchChatConversation } from '../../services/chatSessionRegistry';
+import { createChatSurfaceIdentity, createChatSurfaceOrigin, createEmptyChatSession, createEmptyChatSurfaceSession, patchChatConversation } from '../../services/chatSessionRegistry';
 import { CHAT_NAVIGATION_COMMAND_EVENT, captureChatNavigationTarget, requestChatNavigationCommand, type ChatNavigationRequest, type ChatNavigationCommandID } from '../../lib/commandChatNavigation';
 import { attachChildrenToMessage, updateMessageContentInTree, finalizeStreamingNode } from '../../lib/chatMessageTree';
 import { chat } from '../../../wailsjs/go/models';
+import { getChatEventControllerExecutionId, stopAllChatEventControllers } from '../../services/chatEventController';
 
-vi.mock('../../services/audioFeedback', () => ({ playBumpSound: vi.fn(), playMessageSound: vi.fn() }));
+const { mockSendMessage } = vi.hoisted(() => ({ mockSendMessage: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('@wailsjs/go/wailsapi/Chat', () => ({ SendMessage: mockSendMessage, RetryMessage: vi.fn().mockResolvedValue(undefined) }));
+
+const runtimeListeners = new Map<string, Array<(event: unknown) => void>>();
+vi.mock('@wailsjs/runtime/runtime', () => ({
+  EventsOn: (name: string, callback: (event: unknown) => void) => {
+    const listeners = runtimeListeners.get(name) ?? [];
+    runtimeListeners.set(name, [...listeners, callback]);
+    return () => runtimeListeners.set(name, (runtimeListeners.get(name) ?? []).filter(item => item !== callback));
+  },
+}));
+
+vi.mock('../../services/audioFeedback', () => ({ playBumpSound: vi.fn(), playMessageSound: vi.fn(), playSendSound: vi.fn() }));
 vi.mock('../../services/messageAudio', () => ({ messageAudioService: { isCurrentlyPlaying: () => false, stopCurrentAudio: vi.fn() } }));
 vi.mock('../../services/tts', () => ({ ttsService: { isSpeaking: () => false, stop: vi.fn() } }));
 const cid = '01926b90-7a5a-7c4e-8d3f-000000000001';
@@ -65,7 +78,7 @@ beforeEach(() => {
   seed([node()]); executed.mockClear();
   window.addEventListener(CHAT_NAVIGATION_COMMAND_EVENT, dispatch);
 });
-afterEach(() => { cleanup(); window.removeEventListener(CHAT_NAVIGATION_COMMAND_EVENT, dispatch); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); stopAllChatEventControllers(); window.removeEventListener(CHAT_NAVIGATION_COMMAND_EVENT, dispatch); vi.restoreAllMocks(); });
 
 describe('MessageNode navigation — registry, Provider, store e leitura reais', () => {
   it('paleta abre leitura exata e Escape retorna ao root original, não picker', () => {
@@ -260,6 +273,133 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     expect(finalProjection.message).not.toBe(useChatStore.getState().getConversationMessages(cid)[0]);
     root().focus(); fireEvent.keyDown(root(), { key: 'Enter' });
     expect(root()).toHaveAttribute('aria-modal', 'true');
+  });
+  it('Enter abre leitura no pipeline real do store, mantém chunks e Escape restaura foco', async () => {
+    seed([]);
+    useChatStore.getState().ensureConversationSurfaceSession(cid, surface.sessionKey, surface);
+    const accepted = await useChatStore.getState().sendMessageToConversation(cid, 'pergunta', undefined, undefined, {
+      origin: createChatSurfaceOrigin(surface),
+    });
+    expect(accepted).toBe(true);
+    const executionId = getChatEventControllerExecutionId(cid);
+    expect(executionId).toBeTruthy();
+    const surfaceOrigin = { ...createChatSurfaceOrigin(surface), executionId };
+    const emit = (name: string, payload: Record<string, unknown>) => {
+      act(() => {
+        for (const listener of runtimeListeners.get(name) ?? []) listener(payload);
+      });
+    };
+    emit('chat:messages_ready', {
+      conversationId: cid, turnId: 'turn-live', userMessageId: 'turn-live', userContent: 'pergunta', surfaceOrigin,
+    });
+    emit('chat:stream', {
+      conversationId: cid, turnId: 'turn-live', messageId: mid, delta: 'primeiro chunk', reset: true, sequence: 0, surfaceOrigin,
+    });
+    await waitFor(() => expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey]?.streamingMessageId).toBe(mid));
+    expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].visibleThreadedMessages?.some(item => item.message.id === mid)).toBe(true);
+    expect(useChatStore.getState().getConversationMessages(cid).some(message => message.id === mid)).toBe(false);
+    const view = mount(); await waitFor(() => expect(root()).toHaveAttribute('data-message-id', mid)); root().focus();
+    const liveSurface = useChatStore.getState().surfaceSessionsByKey[surface.sessionKey];
+    act(() => useChatStore.setState(state => ({ surfaceSessionsByKey: { ...state.surfaceSessionsByKey,
+      [surface.sessionKey]: { ...liveSurface, surfaceOrigin: { ...surfaceOrigin, executionId: 'old-execution' } },
+    } })));
+    fireEvent.keyDown(root(), { key: 'Enter' });
+    expect(root()).not.toHaveAttribute('aria-modal');
+    act(() => useChatStore.setState(state => ({ surfaceSessionsByKey: { ...state.surfaceSessionsByKey,
+      [surface.sessionKey]: liveSurface,
+    } })));
+    expect(request('chat.message.menu.open')).toBe(false);
+    expect(request('chat.message.reasoning.toggle')).toBe(false);
+    fireEvent.keyDown(root(), { key: 'Enter' });
+    expect(root()).toHaveAttribute('aria-modal', 'true');
+    expect(document.activeElement).toHaveAttribute('role', 'document');
+    expect(root().querySelector('.chat-message')).not.toHaveAttribute('aria-busy', 'true');
+    emit('chat:stream', {
+      conversationId: cid, turnId: 'turn-live', messageId: mid, delta: ' segundo chunk', sequence: 1, surfaceOrigin,
+    });
+    await waitFor(() => expect(root().textContent).toContain('segundo chunk'));
+    expect(root()).toHaveAttribute('aria-modal', 'true');
+    expect(document.activeElement).toHaveAttribute('role', 'document');
+    expect(root().querySelector('.chat-message')).not.toHaveAttribute('aria-busy', 'true');
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(root()).not.toHaveAttribute('aria-modal');
+    expect(root().querySelector('.chat-message')).toHaveAttribute('aria-busy', 'true');
+    expect(document.activeElement).toBe(root());
+    fireEvent.keyDown(root(), { key: 'Enter' });
+    expect(root()).toHaveAttribute('aria-modal', 'true');
+    expect(document.activeElement).toHaveAttribute('role', 'document');
+    emit('chat:done', {
+      conversationId: cid, turnId: 'turn-live', assistantMessageId: mid, hadToolCalls: false, surfaceOrigin,
+      turnPatch: { message: {
+        id: mid, conversationId: cid, turnId: 'turn-live', role: 'assistant',
+        content: 'primeiro chunk segundo chunk', createdAt: '2026-09-30T12:00:00Z', timestamp: 1,
+      } },
+    });
+    await waitFor(() => expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey]?.streamingMessageId).toBeNull());
+    expect(root()).toHaveAttribute('aria-modal', 'true');
+    expect(document.activeElement).toHaveAttribute('role', 'document');
+    expect(root().querySelector('.chat-message')).not.toHaveAttribute('aria-busy', 'true');
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(root()).not.toHaveAttribute('aria-modal');
+    expect(document.activeElement).toBe(root());
+    fireEvent.keyDown(root(), { key: 'Enter' });
+    expect(root()).toHaveAttribute('aria-modal', 'true');
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+
+    // Uma projeção antiga remontada não ganha autoridade sem a execução original.
+    view.unmount();
+    act(() => useChatStore.setState(state => ({
+      timelinesByConversationId: { [cid]: { id: cid, title: 'Chat', threadedMessages: [] } },
+      surfaceSessionsByKey: { ...state.surfaceSessionsByKey, [surface.sessionKey]: liveSurface },
+    })));
+    mount(); root().focus();
+    fireEvent.keyDown(root(), { key: 'Enter' });
+    expect(root()).not.toHaveAttribute('aria-modal');
+  });
+  it.each(['wrong projection', 'wrong conversation context', 'stream ended and removed'] as const)(
+    'does not open reading for transient message with %s', kind => {
+      const streamingNode = node();
+      streamingNode.message.isStreaming = kind !== 'stream ended and removed';
+      const visibleNode = kind === 'wrong projection' ? node() : streamingNode;
+      useChatStore.setState({
+        timelinesByConversationId: { [cid]: { id: cid, title: 'Chat', threadedMessages: [] } },
+        sessionsByConversationId: { [cid]: { ...createEmptyChatSession(cid), conversation: { id: cid, title: 'Chat', threadedMessages: [] } } },
+        surfaceSessionsByKey: { [surface.sessionKey]: {
+          ...createEmptyChatSurfaceSession(cid, surface.sessionKey),
+          ...(kind === 'wrong conversation context' ? { conversationId: 'other-conversation' } : {}),
+          streamingMessageId: kind === 'stream ended and removed' ? null : mid,
+          visibleThreadedMessages: [visibleNode],
+        } },
+      });
+      render(<MemoryRouter initialEntries={['/chat']}><WorkspacePanelProvider value={{ tab, isActive: true }}>
+        <ChatSessionProvider surface={surface}>
+          <MessageNode node={streamingNode} commandPathname="/chat" />
+        </ChatSessionProvider>
+      </WorkspacePanelProvider></MemoryRouter>);
+      root().focus();
+      fireEvent.keyDown(root(), { key: 'Enter' });
+      expect(root()).not.toHaveAttribute('aria-modal');
+      expect(executed).not.toHaveBeenCalled();
+    },
+  );
+  it('does not treat a formerly canonical message removed during streaming as a transient surface message', () => {
+    const streamingNode = node();
+    streamingNode.message.isStreaming = true;
+    const conversation = { id: cid, title: 'Chat', threadedMessages: [streamingNode] };
+    useChatStore.setState({
+      timelinesByConversationId: { [cid]: conversation },
+      sessionsByConversationId: { [cid]: { ...createEmptyChatSession(cid), conversation } },
+      surfaceSessionsByKey: { [surface.sessionKey]: {
+        ...createEmptyChatSurfaceSession(cid, surface.sessionKey),
+        streamingMessageId: mid,
+        visibleThreadedMessages: [streamingNode],
+      } },
+    });
+    mount(); root().focus();
+    act(() => replaceTree([]));
+    fireEvent.keyDown(root(), { key: 'Enter' });
+    expect(root()).not.toHaveAttribute('aria-modal');
+    expect(executed).not.toHaveBeenCalled();
   });
   it('recusa clone arbitrário renderizado fora da projeção registrada mesmo com ID e streaming iguais', () => {
     const canonicalNode = node(); canonicalNode.message.isStreaming = true;

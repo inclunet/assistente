@@ -500,7 +500,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       aria-label={isEditing || isReading
         ? undefined
         : `${message.pinned ? `${t('chat.pinnedMessage')}. ` : ''}${getAriaLabel()}`}
-      aria-busy={effectiveIsStreaming && !isAgenticStreaming}
+      aria-busy={!isReading && effectiveIsStreaming && !isAgenticStreaming}
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
       onContextMenu={handleContextMenuEvent}
@@ -657,8 +657,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               </div>
             )}
 
-            {/* Current iteration keeps busy state without local aria-live updates. */}
-            <div aria-busy={effectiveIsStreaming}>
+            {/* A leitura explícita expõe os chunks sem aguardar o fim do turno.
+                Não cria anúncios aria-live concorrentes com o announcer global. */}
+            <div aria-busy={!isReading && effectiveIsStreaming}>
               {effectiveIsStreaming && displayContent && (
                 <div className="chat-message__text">
                   <MarkdownRenderer
