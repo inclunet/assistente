@@ -2,18 +2,24 @@ package providers
 
 import (
 	"assistente/internal/logging"
+	"assistente/internal/oauthflow"
+	"assistente/internal/oauthintegrations"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"gorm.io/gorm"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"assistente/internal/acp"
 	"assistente/internal/acpregistry"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 )
@@ -52,6 +58,9 @@ type ServiceConfig struct {
 // Service encapsula a lógica de negócio de gerenciamento de provedores LLM.
 // Não depende de Wails — é testável de forma isolada.
 type Service struct {
+	oauth            *oauthflow.Service
+	oauthMu          sync.Mutex
+	oauthAttempts    map[string]context.CancelFunc
 	registry         *llm.ProviderRegistry
 	credMgr          CredentialManager
 	store            ProviderStore
@@ -68,7 +77,12 @@ func (s *Service) Count(ctx context.Context) (int, error) {
 
 // NewService cria um Service com as dependências injetadas.
 func NewService(cfg ServiceConfig) *Service {
+	oauth := oauthflow.New(oauthintegrations.ChatGPT())
+	if mgr, ok := cfg.CredMgr.(*credentials.Manager); ok {
+		mgr.SetOAuthService(oauth)
+	}
 	return &Service{
+		oauth: oauth, oauthAttempts: make(map[string]context.CancelFunc),
 		registry:         cfg.Registry,
 		credMgr:          cfg.CredMgr,
 		store:            cfg.Store,
@@ -103,10 +117,16 @@ func ExtractHostname(baseURL string) (string, error) {
 // Persistence
 // ============================================================================
 
-// Save persiste todos os provedores do registry no store.
+// Save persists generic providers. OAuth consumers have transactional lifecycle
+// methods and must never be overwritten by an unrelated registry snapshot.
 func (s *Service) Save(ctx context.Context) error {
-	providers := s.registry.List()
-	return s.store.Save(ctx, providers)
+	var generic []*llm.ProviderConfig
+	for _, provider := range s.registry.List() {
+		if provider.Type != llm.ProviderChatGPT && !strings.HasPrefix(provider.CredentialPattern, "oauth:") {
+			generic = append(generic, provider)
+		}
+	}
+	return s.store.Save(ctx, generic)
 }
 
 // Load carrega provedores do store para o registry.
@@ -167,7 +187,7 @@ func (s *Service) EnsureDefault(ctx context.Context) {
 	}
 	first.IsDefault = true
 
-	if first.DefaultModel == "" && first.Model != "" {
+	if first.Type != llm.ProviderChatGPT && !strings.HasPrefix(first.CredentialPattern, "oauth:") && first.DefaultModel == "" && first.Model != "" {
 		first.DefaultModel = first.Model
 		// Persiste o DefaultModel preenchido
 		if err := s.store.Save(ctx, []*llm.ProviderConfig{first}); err != nil {
@@ -311,6 +331,9 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	// espaço nas pontas é acidente comum. Aparar antes de decidir evita que
 	// " acp " caia no caminho HTTP e a pessoa receba uma cobrança de URL que
 	// o provedor dela não tem.
+	if req.Type == string(llm.ProviderChatGPT) {
+		return nil, fmt.Errorf("chatgpt_use_oauth_connection")
+	}
 	apiFormat := llm.APIFormat(strings.TrimSpace(req.APIFormat))
 	baseURL := strings.TrimSpace(req.BaseURL)
 	isACP := apiFormat == llm.APIFormatACP
@@ -389,11 +412,14 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	}
 	normalizeProviderRuntimeDefaults(provider)
 
+	if err := provider.Validate(); err != nil {
+		return nil, err
+	}
+	if err := s.store.Save(ctx, []*llm.ProviderConfig{provider}); err != nil {
+		return nil, err
+	}
 	if err := s.registry.Register(provider); err != nil {
 		return nil, fmt.Errorf("erro ao registrar provider: %w", err)
-	}
-	if err := s.Save(ctx); err != nil {
-		logging.Errorf(ctx, "providers.service", "[providers] Erro ao salvar após criação: %v", err)
 	}
 	if isFirst {
 		if err := s.store.SetDefault(ctx, req.ID); err != nil {
@@ -453,6 +479,10 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	existing := s.registry.Get(id)
 	if existing == nil {
 		return nil, fmt.Errorf("provider '%s' não encontrado", id)
+	}
+
+	if existing.Type == llm.ProviderChatGPT {
+		return nil, fmt.Errorf("chatgpt_use_oauth_connection")
 	}
 
 	updated := &llm.ProviderConfig{
@@ -558,6 +588,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 
 	credConfigured := false
 	if req.APIKey != "" {
+		if strings.HasPrefix(updated.CredentialPattern, "oauth:") {
+			return nil, oauthflow.ErrConflict
+		}
 		if err := s.credMgr.RegisterPatternWithContext(ctx, updated.CredentialPattern, &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: req.APIKey,
@@ -570,14 +603,11 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		credConfigured = err == nil && auth != nil && auth.Source != ""
 	}
 
-	if err := s.registry.Remove(id); err != nil {
-		logging.Warnf(ctx, "providers.service", "[providers] Aviso: falha ao remover provider antigo '%s': %v", id, err)
+	if err := s.store.Save(ctx, []*llm.ProviderConfig{updated}); err != nil {
+		return nil, err
 	}
 	if err := s.registry.Register(updated); err != nil {
 		return nil, fmt.Errorf("erro ao atualizar provider: %w", err)
-	}
-	if err := s.Save(ctx); err != nil {
-		logging.Errorf(ctx, "providers.service", "[providers] Erro ao salvar após atualização: %v", err)
 	}
 
 	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' atualizado", id)
@@ -586,8 +616,49 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 
 // Delete remove um provedor do registry.
 func (s *Service) Delete(ctx context.Context, id string) error {
-	if s.registry.Get(id) == nil {
+	provider := s.registry.Get(id)
+	if provider == nil {
 		return fmt.Errorf("provider '%s' não encontrado", id)
+	}
+	if provider.Type == llm.ProviderChatGPT {
+		user, err := database.RequireUserID(ctx)
+		if err != nil {
+			return err
+		}
+		s.oauthMu.Lock()
+		defer s.oauthMu.Unlock()
+		if _, active := s.oauthAttempts[user+":"+id]; active {
+			return errors.New("chatgpt_authorization_in_progress")
+		}
+
+		mgr, ok := s.credMgr.(*credentials.Manager)
+		if !ok {
+			return errors.New("oauth_vault_unavailable")
+		}
+		if mgr.CanPersist() {
+			status, err := s.ChatGPTConnection(ctx, id)
+			if err != nil {
+				return err
+			}
+			if status.State != "disconnected" {
+				return fmt.Errorf("chatgpt_disconnect_before_delete")
+			}
+		}
+		if err = mgr.DeleteOAuthAuthorization(ctx, credentials.OAuthCredentialID(provider.CredentialPattern), func(tx *gorm.DB) error {
+			repository := database.NewProviderRepository(tx)
+			current, err := repository.GetLLMProvider(ctx, id)
+			if err != nil {
+				return err
+			}
+			if current.Type != string(llm.ProviderChatGPT) || current.CredentialPattern != provider.CredentialPattern {
+				return oauthflow.ErrConflict
+			}
+			return repository.DeleteLLMProvider(ctx, id)
+		}); err != nil {
+			return err
+		}
+	} else if err := s.store.Delete(ctx, id); err != nil {
+		return err
 	}
 	if err := s.registry.Remove(id); err != nil {
 		return fmt.Errorf("erro ao remover provider: %w", err)
@@ -633,6 +704,10 @@ func (s *Service) ListWithStatus(ctx context.Context) []ProviderStatus {
 				logging.Infof(ctx, "providers.service", "[providers] Credencial '%s' do provider '%s' não pode ser usada: %v", p.CredentialPattern, p.ID, err)
 			}
 			credConfigured = err == nil && auth != nil && auth.Source != ""
+		}
+		if p.Type == llm.ProviderChatGPT {
+			status, err := s.ChatGPTConnection(ctx, p.ID)
+			credConfigured = err == nil && status.State == "connected"
 		}
 		result = append(result, ProviderStatus{Provider: p, CredentialConfigured: credConfigured})
 	}
@@ -1016,6 +1091,9 @@ func (s *Service) modelCatalog(
 		return catalog, nil
 	}
 	catalog.Agent = s.providerIsAgent(providerID)
+	if p := s.registry.Get(providerID); p != nil {
+		catalog.UsesChatGPTPlan = p.Type == llm.ProviderChatGPT
+	}
 	cp, err := s.GetChatProvider(ctx, providerID)
 	if err != nil {
 		return llm.ModelCatalog{}, err

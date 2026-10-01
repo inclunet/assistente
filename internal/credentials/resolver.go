@@ -65,7 +65,9 @@ func ValidateSource(auth *AuthConfig) error {
 			return errors.New("timeout deve estar entre 1 e 300 segundos (0 usa 30)")
 		}
 	case "oauth":
-		return ErrOAuthSourceUnavailable
+		if auth.OAuth == nil || auth.OAuth.ID == "" || auth.Type != "bearer" {
+			return ErrOAuthSourceUnavailable
+		}
 	default:
 		return errors.New("source ausente ou inválida; reconfigure a credencial manualmente")
 	}
@@ -79,6 +81,9 @@ func ResolveSource(ctx context.Context, auth *AuthConfig) (*AuthConfig, error) {
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if auth.Source == "oauth" {
+		return nil, ErrOAuthSourceUnavailable
 	}
 	result := *auth
 	if auth.Source == "static" {

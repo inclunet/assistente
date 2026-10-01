@@ -16,6 +16,11 @@ import (
 
 // sendChatResponses envia uma mensagem (não-streaming) via Responses API.
 func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, messages []Message, params ChatParams) (string, error) {
+	if p.provider.Type == ProviderChatGPT {
+		h := &chatGPTCollector{}
+		p.streamChatResponses(ctx, model, messages, params, h)
+		return h.result(ctx)
+	}
 	if !params.AllowAssistantPrefill {
 		messages = removeTrailingAssistantPrefill(messages)
 	}
@@ -93,7 +98,12 @@ func (p *OpenAIProvider) streamChatResponses(
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
-			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			if p.provider.Type == ProviderChatGPT {
+				markErrorNotRetryable(handler)
+				handler.OnError("chatgpt_request_cancelled")
+			} else {
+				handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			}
 			return
 		default:
 		}
@@ -250,6 +260,9 @@ func (p *OpenAIProvider) buildResponsesParams(
 		}
 	}
 
+	if p.provider.Type == ProviderChatGPT {
+		applyChatGPTParams(&respParams, messages)
+	}
 	return respParams
 }
 
@@ -263,7 +276,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	defer wd.Stop()
 
 	stream := p.streamClient.Responses.NewStreaming(watchCtx, params)
+	defer func() { _ = stream.Close() }()
 
+	completed := false
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
 	// Texto visível e eventos MCP impedem retry automático porque seriam
@@ -306,6 +321,21 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		ReportFinishReason(handler, currentFinish)
 	}
 
+	failChatGPT := func(code string) {
+		finishThinking()
+		reportCurrentDiagnostics()
+		markErrorNotRetryable(handler)
+		handler.OnError(code)
+	}
+
+	cancelStream := func() {
+		if p.provider.Type == ProviderChatGPT {
+			failChatGPT("chatgpt_request_cancelled")
+		} else {
+			finishThinking()
+		}
+	}
+
 	type pendingFuncCall struct {
 		ID   string
 		Name string
@@ -323,10 +353,11 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 	var eventCount int
 
+responseEvents:
 	for stream.Next() {
 		wd.Kick()
 		if ctx.Err() != nil {
-			finishThinking()
+			cancelStream()
 			return mcpStreamAttemptResult{done: true}
 		}
 		if wd.TimedOut() {
@@ -360,7 +391,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				if content != "" {
 					select {
 					case <-ctx.Done():
-						finishThinking()
+						cancelStream()
 						return mcpStreamAttemptResult{done: true}
 					default:
 					}
@@ -388,7 +419,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			ev := event.AsResponseReasoningSummaryTextDelta()
 			if ev.Delta != "" {
 				if ctx.Err() != nil {
-					finishThinking()
+					cancelStream()
 					return mcpStreamAttemptResult{done: true}
 				}
 				if wd.TimedOut() {
@@ -405,7 +436,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				fullReasoning.WriteString(ev.Delta)
 				handler.OnThinking(ev.Delta)
 				if ctx.Err() != nil {
-					finishThinking()
+					cancelStream()
 					return mcpStreamAttemptResult{done: true}
 				}
 			}
@@ -577,6 +608,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			}
 
 		case "response.completed":
+			completed = true
 			ev := event.AsResponseCompleted()
 			// "response.completed" é o tipo do evento, não um finish_reason
 			// informado pelo provider. Preserve a ausência no motivo bruto.
@@ -599,7 +631,15 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] Stream completed: %d events, response=%d bytes, toolCalls=%d, model=%s",
 				eventCount, fullResponse.Len(), len(finishedToolCalls), lastModel)
 
+			if p.provider.Type == ProviderChatGPT {
+				break responseEvents
+			}
+
 		case "response.incomplete":
+			if p.provider.Type == ProviderChatGPT {
+				failChatGPT("chatgpt_response_incomplete")
+				return mcpStreamAttemptResult{done: true}
+			}
 			ev := event.AsResponseIncomplete()
 			finish = normalizeOpenAIResponsesFinishReason(ev.Response.IncompleteDetails.Reason)
 			usageRaw := ev.Response.Usage.RawJSON()
@@ -622,6 +662,10 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 		case "response.failed":
 			ev := event.AsResponseFailed()
+			if p.provider.Type == ProviderChatGPT {
+				failChatGPT(chatGPTFailure(ctx, string(ev.Response.Error.Code)))
+				return mcpStreamAttemptResult{done: true}
+			}
 			errMsg := "erro na Responses API"
 			if ev.Response.Error.Message != "" {
 				errMsg = ev.Response.Error.Message
@@ -662,7 +706,15 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	}
 
 	wd.Stop()
-	if err := stream.Err(); err != nil {
+	if err := stream.Err(); err != nil && (p.provider.Type != ProviderChatGPT || !completed) {
+		if p.provider.Type == ProviderChatGPT {
+			if ctx.Err() == nil && wd.TimedOut() {
+				failChatGPT(streamIdleErrorMessage)
+				return mcpStreamAttemptResult{done: true}
+			}
+			failChatGPT(chatGPTTransportFailure(ctx, err))
+			return mcpStreamAttemptResult{done: true}
+		}
 		errStr := err.Error()
 
 		// Classifica ANTES de logar: uma falha de handshake/listagem MCP
@@ -677,7 +729,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 		// Cancelamento do usuário (contexto pai): nunca retentar.
 		if ctx.Err() != nil {
-			finishThinking()
+			cancelStream()
 			reportCurrentDiagnostics()
 			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
 			return mcpStreamAttemptResult{done: true}
@@ -727,11 +779,16 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		return mcpStreamAttemptResult{done: true}
 	}
 
+	if p.provider.Type == ProviderChatGPT && !completed {
+		failChatGPT("chatgpt_stream_interrupted")
+		return mcpStreamAttemptResult{done: true}
+	}
+
 	// Guarda de corrida: o watchdog pode estourar exatamente quando o
 	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
 	// truncada. Parar e aguardar o watchdog fecha a janela entre consultar
 	// TimedOut e entregar OnDone.
-	if wd.TimedOut() {
+	if wd.TimedOut() && (p.provider.Type != ProviderChatGPT || !completed) {
 		logging.Logger(ctx, "llm.openai-responses").ErrorContext(
 			ctx,
 			"stream encerrou junto com timeout de inatividade",
@@ -781,7 +838,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	if isThinking && thinkingBuffer.Len() > 0 {
 		select {
 		case <-ctx.Done():
-			finishThinking()
+			cancelStream()
 			return mcpStreamAttemptResult{done: true}
 		default:
 		}
@@ -821,11 +878,15 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	}
 	select {
 	case <-ctx.Done():
-		finishThinking()
+		cancelStream()
 		return mcpStreamAttemptResult{done: true}
 	default:
 	}
 	ReportFinishReason(handler, finish)
+	if p.provider.Type == ProviderChatGPT && ctx.Err() != nil {
+		cancelStream()
+		return mcpStreamAttemptResult{done: true}
+	}
 
 	if finish.Reason == "" && len(finishedToolCalls) == 0 {
 		if emittedNonRetryableEffect {

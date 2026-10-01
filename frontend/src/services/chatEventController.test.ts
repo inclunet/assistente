@@ -1957,6 +1957,18 @@ describe('chatEventController', () => {
     ).toBe('Erro: chat.errors.streamingPromptCacheHintRejected');
   });
 
+  it.each([
+    ['chatgpt_response_incomplete', 'incomplete'], ['chatgpt_stream_interrupted', 'interrupted'],
+    ['chatgpt_plan_limit', 'planLimit'], ['chatgpt_model_unavailable', 'modelUnavailable'],
+    ['chatgpt_reauthorization_required', 'reauthorize'], ['chatgpt_permission_required', 'permission'],
+    ['chatgpt_temporarily_unavailable', 'temporary'], ['chatgpt_rate_limit', 'rateLimit'], ['chatgpt_request_cancelled', 'cancelled'], ['chatgpt_request_failed', 'failed'],
+  ])('traduz falha ChatGPT %s', (error, key) => {
+    const { adapter, sessions } = createAdapter(['conversation-2']);
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+    emitEvent('chat:stream', { conversationId: 'conversation-2', error, turnId: 't1', messageId: 'a1' });
+    expect(sessions['conversation-2'].conversation?.threadedMessages[0].message.content).toBe(`Erro: chatgpt.errors.${key}`);
+  });
+
   it('traduz streaming_token_rate_limit', () => {
     const { adapter, sessions } = createAdapter(['conversation-2']);
     startChatEventController({ conversationId: 'conversation-2', adapter });

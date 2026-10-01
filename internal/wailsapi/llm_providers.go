@@ -17,9 +17,6 @@ type LLMProvidersHooks struct {
 	ApplyInstalledBinaryEnv func(ctx context.Context, providerID, agentID string)
 	// ReloadClient reinicializa o cliente LLM ativo (ReloadLLMClient).
 	ReloadClient func()
-	// PersistDelete remove o provedor do store após a remoção no registry
-	// (Service.Delete só tira da memória).
-	PersistDelete func(ctx context.Context, id string) error
 	// CreateDefault cria o primeiro provedor no wizard/CLI setup.
 	// Pré-login: NÃO usa WithUser — preserva bootstrap (WithBootstrap).
 	CreateDefault func(providerType, apiKey string) error
@@ -187,18 +184,12 @@ func (p *LLMProviders) SetDefaultProvider(id string) error {
 
 // DeleteLLMProvider remove do registry e persiste a exclusão no store.
 func (p *LLMProviders) DeleteLLMProvider(id string) error {
-	session, ctrl, hooks, err := p.deps()
+	session, ctrl, _, err := p.deps()
 	if err != nil {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		if err := ctrl.DeleteLLMProvider(ctx, id); err != nil {
-			return struct{}{}, err
-		}
-		if hooks.PersistDelete != nil {
-			return struct{}{}, hooks.PersistDelete(ctx, id)
-		}
-		return struct{}{}, nil
+		return struct{}{}, ctrl.DeleteLLMProvider(ctx, id)
 	})
 	return err
 }

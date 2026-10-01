@@ -46,7 +46,7 @@ func (s *Service) prepareProbeAuth(ctx context.Context, req TestRequest, target 
 		}
 	}
 	config, err := cm.GetConfigByPatternWithContext(ctx, pattern)
-	if err != nil || config == nil || config.Source != "command" {
+	if err != nil || config == nil || (config.Source != "command" && config.Source != "oauth") {
 		return s.applyProbeAuth(ctx, req, target)
 	}
 	transport := credentials.NewCredentialTransportWithMode(cm, pattern, mode)

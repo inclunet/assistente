@@ -1,6 +1,6 @@
 # AEP-0112 — OAuth compartilhado e autorizações unificadas
 
-**Status:** Draft
+**Status:** In Progress
 **Data:** 2026-09-30
 
 ## Resumo
@@ -10,7 +10,8 @@ e implementar a source `oauth` com um serviço compartilhado de registro,
 autorização e renovação. MCP, provedores LLM e canais consomem credenciais sem
 implementar novamente esse ciclo. A primeira entrega habilita o uso oficial da
 conta ChatGPT no Assistente; entregas seguintes migram MCP para a mesma base.
-Este AEP é uma proposta: nenhum comportamento de runtime muda neste PR.
+A primeira entrega implementa a base OAuth e o consumidor ChatGPT. As migrações
+MCP e Slack continuam nas fases seguintes; não estão habilitadas por esta entrega.
 
 ## Motivação
 
@@ -261,12 +262,94 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    PKCE/OIDC, callback, extensão de registro ChatGPT, refresh coordenado, UI de conexão,
    catálogo, Responses e ferramentas locais. Se dividida em PRs, infraestrutura e
    integração formam uma entrega funcional conjunta, sem anunciar suporte antes disso.
+   **Implementação e testes automatizados entregues; aceite funcional pendente** de
+   consentimento com conta real, reconexão, catálogo e envio de mensagem pelo usuário,
+   conforme o critério ChatGPT funcional abaixo.
 2. [ ] Paridade MCP: extrair/adaptar discovery, DCR, Device Flow, client credentials,
    callback manual/fixo e reautorização; adicionar consumidores do serviço compartilhado.
 3. [ ] Cutover MCP: migrar registros e referências, comprovar reinício/refresh/native/bridge,
    remover persistência dupla, configurações OAuth duplicadas e ciclo próprio de renovação.
 4. [ ] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
    conexão e referências por papel, sem alterar protocolo nem exigir OAuth inexistente.
+
+### Evidências da primeira entrega
+
+- `internal/oauthflow`: registro composto, PKCE/state/nonce, validação OIDC via
+  `go-oidc`, callback reservado, arbitragem interativa, renovação e revogação.
+  O núcleo recebe extensões e armazenamento por interface; a extensão ChatGPT
+  fica em `internal/oauthintegrations`.
+- `internal/credentials/oauth_store.go`: envelope `oauth_enc` cifrado com a DEK
+  existente, uma linha por autorização, CAS do envelope e geração de sessão.
+  Marcador durável precede refresh; resultado ambíguo exige reautorização.
+- `internal/llm/chatgpt.go`: catálogo da conta, capacidades da rota Responses,
+  namespaces de funções locais e coletor síncrono sobre o parser SSE existente.
+- `ChatGPTConnection.tsx`: conexão explícita por provedor/autorização, cancelamento,
+  reconexão e desconexão; nenhuma credencial trafega nos DTOs da interface.
+- Testes `oauthflow/service_test.go`, `credentials/oauth_store_test.go`,
+  `llm/chatgpt_test.go` e `ChatGPTConnection.test.tsx` cobrem o fluxo com servidores
+  e tokens de teste, falha de persistência, concorrência, escopo e conclusão SSE.
+- O teste de consentimento com uma conta real depende de ação do usuário no
+  navegador. Não foi realizado automaticamente nem usa credenciais de terceiros.
+- Modelo padrão opcional altera somente o campo em transação com a autorização;
+  testes preservam edição concorrente e recusam exclusão, novo vínculo ou desconexão.
+- Coletor síncrono exige conclusão explícita; `response.completed` encerra a leitura
+  sem depender de EOF. Revogação usa access token quando não há refresh token.
+  Regressões cobrem conexão SSE aberta, erro tardio e revogação sem refresh.
+- Resposta inicial sem `scope` usa o pedido efetivamente enviado no consentimento
+  atual (RFC 6749, seção 5.1), mantendo validação do ID token. Escopo explícito
+  reduzido não é ampliado; refresh sem escopo preserva as permissões anteriores.
+- Cancelamento anterior à primeira tentativa ChatGPT também usa código traduzível.
+- Reautorização com escopo reduzido retorna erro de permissão sem substituir
+  autorização conectada anterior. Importação normaliza URL/formato ChatGPT antes
+  de persistir; regressões cobrem criação e sobrescrita com vínculo local.
+- Importação recusa mudança de tipo de consumidor com vínculo OAuth, sem alterar
+  provedor ou envelope, e comunica o motivo nos três idiomas. O teste de rollback
+  por cancelamento usa banco temporário persistente para sobreviver ao descarte
+  da conexão SQLite sem relaxar as verificações de persistência/cache.
+- Falha de catálogo mantém indicação de plano e link de uso ChatGPT; desconexão
+  com cofre indisponível orienta desbloqueio e anuncia o erro sem alterar estado.
+  Consulta inicial, criação e autorização usam o mesmo mapeamento de erro do cofre.
+  Regressões de componentes e página passaram junto a TypeScript e ESLint.
+- Gates OAuth contam titulares e aguardantes e são removidos ao liberar a última
+  referência, inclusive em cancelamento; teste repetido preserva exclusão mútua
+  e comprova ausência de entradas residuais. A UI exibe o ID logo após a criação.
+- Recuperação de provedor importado altera somente os campos da conexão na
+  transação e publica os demais campos atuais. Token sem refresh exige reconexão
+  persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
+  Testes cobrem preservação de edições e falha na gravação da transição.
+- Revisão independente local em quarenta e sete rodadas, com correções de isolamento de
+  sessão, escopo, importação e cancelamento; última rodada sem achados.
+- Importação neutraliza referências OAuth recebidas e cria referência local sem
+  envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
+  relido dentro da transação; testes impedem associação e compartilhamento implícitos.
+- Cancelamento é registrado antes do preflight; importação sem autorização local
+  pode ser excluída com o cofre indisponível, após confirmar ausência na transação.
+- Rejeição definitiva e desconexão limpam access/refresh, preservando somente o
+  ID token validado para reconexão; testes do núcleo e extensão comprovam o hint.
+- O scanner de integridade inclui o envelope OAuth e identifica autorizações
+  ilegíveis; teste de recuperação preserva envelopes saudáveis ao remover órfãos.
+- Exclusão compara a referência persistida dentro da transação; consultas iniciais
+  da interface não sobrescrevem ações posteriores de autorização/desconexão.
+- Criação e exclusão de provedor ChatGPT e autorização na mesma transação;
+  `providers/chatgpt_test.go` força falha, comprova rollback e rejeita recuperação
+  importada com referência obsoleta. Cancelamento não publica registro no cache.
+- `oauthflow/host_test.go` verifica publicação atômica do identificador da
+  instalação com oito processos; arquivo temporário interrompido não afeta o ID.
+- Callback entrega resposta com tamanho explícito antes de concluir; terminais de
+  erro finalizam o raciocínio. Exclusão recusa uma autorização interativa em curso.
+- A primeira conexão da conta vira o provedor padrão. Durante a criação local,
+  o diálogo aguarda a persistência antes de fechar; o consentimento continua cancelável.
+- O transporte preserva a causa da falha de refresh; catálogo e chat traduzem
+  indisponibilidade temporária sem confundi-la com autorização revogada.
+- Diálogo aguarda a conclusão da desconexão e apresenta o resultado da revogação
+  antes de permitir fechamento; consentimento no navegador permanece cancelável.
+- Watchdog mantém a classificação de ociosidade; autorização ausente orienta
+  reconexão e exclusão com cofre indisponível orienta recuperação nos três idiomas.
+- Falhas ChatGPT usam códigos estáveis e traduções nos três idiomas. Salvar o
+  modelo padrão é opcional e não invalida um consentimento já concluído, inclusive
+  se a releitura da autorização falhar antes da gravação opcional.
+- MCP compartilha somente o árbitro de interação nesta fase. Discovery, DCR,
+  Device Flow, client credentials, persistência MCP e Slack permanecem pendentes.
 
 ## Riscos
 
@@ -286,13 +369,13 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 - [ ] Uma entrada por autorização, sem pares MCP de cadastro/token após conversão.
 - [ ] ChatGPT funcional na primeira entrega, incluindo refresh, troca de conta, catálogo,
   ferramentas locais, limites do plano e falhas durante streaming.
-- [ ] OAuth genérico não depende de MCP/LLM/channels nem contém regras ChatGPT.
+- [x] OAuth genérico não depende de MCP/LLM/channels nem contém regras ChatGPT.
 - [ ] Client secret opcional, registro manual/DCR/extensão e autorização pendente cobertos.
 - [ ] Callbacks fixos, registrados e dinâmicos testados; colisão não muda cliente manual;
   novo DCR malsucedido preserva a autorização anterior.
-- [ ] Falha de persistência após rotação e queda antes do commit exigem recuperação
+- [x] Falha de persistência após rotação e queda antes do commit exigem recuperação
   explícita, sem reutilizar refresh token potencialmente consumido após reinício.
-- [ ] Retenção protegida de ID token e reconexão com `id_token_hint` testadas;
+- [x] Retenção protegida de ID token e reconexão com `id_token_hint` testadas;
   refresh respeita `earliest_refresh_at` e atualiza o limite com tokens rotacionados.
 - [ ] PKCE/state/nonce/identidade nos fluxos aplicáveis, Device Flow sem callback
   e client credentials sem consentimento interativo cobertos por testes;
@@ -311,6 +394,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 
 Fontes oficiais consultadas em 30/09/2026; revalidar na implementação:
 
+- [OAuth 2.0 — resposta de token (RFC 6749, seção 5.1)](https://www.rfc-editor.org/rfc/rfc6749.html#section-5.1)
 - [OpenAI — visão geral](https://developers.openai.com/siwc/token-sharing-open-source)
 - [OpenAI — registro e autorização](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
 - [OpenAI — referência de tokens](https://developers.openai.com/siwc/token-sharing-open-source/token-reference)
@@ -322,3 +406,86 @@ Fontes oficiais consultadas em 30/09/2026; revalidar na implementação:
 - [AEP-0033](0033-mcp-oauth-autodiscovery.md)
 - [AEP-0105](0105-reautorizacao-oauth-mcp-nativo.md)
 - [AEP-0083](0083-channels-database-migration.md)
+
+O MCP respeita cancelamento enquanto aguarda o árbitro interativo compartilhado,
+sem iniciar novo consentimento após a espera cancelada. Evidência:
+`TestAuthorizeCanceledWhileWaitingForSharedArbiter`.
+
+O consentimento mantém tentativa e prazo no envelope por CAS antes do navegador.
+Exclusão, desconexão e outra autorização recusam a reserva ativa entre processos;
+a tentativa verifica ownership antes da troca e da persistência. Cancelamento
+limpa somente a própria reserva, preservando o registro atual; falha de limpeza
+ou processo interrompido permite recuperação após expiração (até cinco minutos).
+Emissão remota e persistência local não são uma transação distribuída: falhas de
+rede ou disco após a emissão ainda podem exigir revogação pela conta do serviço.
+Evidências: `TestAuthorizationLeaseOwnershipAndRecovery` e
+`TestOAuthConsentLeasePreventsDeletionByAnotherManager`.
+
+Importar ChatGPT define autenticação `required` também ao sobrescrever provedor
+com modo `none`. Evidência: `TestChatGPTImportReplacesExplicitUnauthenticatedMode`.
+
+Limitação preexistente da portabilidade: importação/sobrescrita de provedores
+atualiza o banco, mas a listagem em memória só reflete as alterações após reiniciar.
+A documentação orienta reiniciar antes de editar/reconectar o ChatGPT importado.
+Publicação imediata e segura por sessão permanece follow-up separado: chamar
+`providerSvc.Load` diretamente não basta, pois também pode persistir defaults e
+materializações. Isso não invalida a importação nem exige repeti-la.
+
+Follow-up da publicação de provedores importados: [#870](https://github.com/inclunet/assistente/issues/870).
+
+Edição e exclusão genéricas verificam o vínculo persistido transacionalmente,
+recusando snapshots que descartariam um consumidor OAuth. Exclusão pertence ao
+serviço/store antes de remover o registry; Wails não decide o caminho pelo cache.
+Refresh ambíguo ou falha de persistência após troca exige reconexão já no primeiro
+erro. Evidências: `TestStaleGenericRegistryCannotDetachOAuthConsumer`,
+`TestRefreshCrashSafetyAndNoImplicitRetry` e
+`TestAmbiguousChatGPTRefreshRequiresReconnectImmediately`.
+
+Criação genérica persiste somente o novo provedor e publica após confirmação,
+sem regravar snapshots OAuth de outros consumidores. Referências OAuth importadas
+para tipos sem integração suportada são removidas; esses provedores continuam
+editáveis/excluíveis e usam a configuração de credencial convencional.
+Refresh tem prazo operacional durável de até 30 segundos; desconexão e novo
+consentimento recusam enquanto estiver em voo. Após refresh abandonado/ambíguo,
+a desconexão local é permitida, mas nunca confirma revogação remota com token
+possivelmente antigo. Evidências: `TestCreateDoesNotSaveUnrelatedOAuthSnapshots`,
+`TestCreatePersistenceFailureDoesNotPublish`, `TestOAuthImportCannotBindAnotherLocalAuthorization`,
+`TestDisconnectCoordinatesCrossServiceRefresh` e
+`TestDisconnectAfterAbandonedRefreshDoesNotClaimRevocation`.
+
+Renovação ativa aparece como `refreshing` e chamadas concorrentes recebem falha
+transitória, sem pedir login. Falha local encerra a reserva ativa por CAS sem
+remover `RefreshPending`; se essa gravação falhar, o prazo limita a espera.
+Após expiração/ambiguidade, o estado exige reautorização. Evidências:
+`TestActiveRefreshSummaryAndResolution` e `TestRefreshCrashSafetyAndNoImplicitRetry`.
+
+Streams Responses fecham explicitamente o corpo HTTP em todos os retornos,
+inclusive `response.completed`; cancelamento após delta de texto ou raciocínio
+emite um único terminal traduzido não repetível. Provedores genéricos legados com
+referência `oauth:` podem ser corrigidos/excluídos após confirmar transacionalmente
+que não existe envelope local; vínculos reais continuam protegidos. Evidências:
+`TestChatGPTCompletionClosesBodyWithoutCallerCancellation`,
+`TestChatGPTCancellationAfterDeltaHasOneTerminal` e
+`TestLegacyGenericOAuthReferenceRequiresEnvelopeBeforeProtection`.
+Inventário de logs atualizado de 770 para 767 formatos: as três mensagens
+obsoletas de falha ignorada no CRUD foram removidas ao propagar esses erros.
+
+### Publicação protegida no encerramento da sessão
+
+As publicações de criação, reparo e modelo padrão ChatGPT verificam o epoch do
+cofre e a geração do registry sob seus respectivos locks. A geração vem da
+entrada da operação e é invalidada por `Clear`; helpers não readquirem uma
+geração nova depois de I/O. Os testes `TestChatGPTPublicationCannotSurviveLogout`
+e `TestChatGPTLateHelpersRetainOperationGeneration` cobrem logout depois do commit
+e antes de helpers tardios, sem perder os dados persistidos.
+
+A importação de provedores genéricos consulta a credencial OAuth do mesmo
+usuário antes de proteger um vínculo. Referências órfãs podem ser substituídas;
+ChatGPT permanece protegido. Evidência: `TestImportGenericOrphanOAuthReference`.
+
+A atomicidade entre API key por hostname e provedor genérico é uma limitação
+preexistente em main fcadf5710, acompanhada na [issue #872](https://github.com/inclunet/assistente/issues/872).
+Esse fluxo não usa o registro composto OAuth. A entrega impede substituir um
+envelope OAuth por API key estática (`TestGenericAPIKeyCannotOverwriteOAuthEnvelope`),
+mas não declara atomicidade para o cadastro genérico legado. Um rollback sem CAS
+poderia apagar alterações concorrentes; a issue exige transação e testes de falha.

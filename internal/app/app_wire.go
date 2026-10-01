@@ -6,7 +6,6 @@ import (
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandruntime"
 	"assistente/internal/core/ports"
-	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/wailsapi"
 	"assistente/internal/workspace"
@@ -544,10 +543,7 @@ func (a *App) wireLLMProviders() {
 		wailsapi.AttachLLMProviders(a.llmProvidersAPI, wailsSession{app: a}, a.llmCtrl, wailsapi.LLMProvidersHooks{
 			ApplyInstalledBinaryEnv: a.applyInstalledBinaryEnv,
 			ReloadClient:            a.initLLMClient,
-			PersistDelete: func(ctx context.Context, id string) error {
-				return database.DeleteLLMProviderWithContext(ctx, id)
-			},
-			CreateDefault: a.createDefaultLLMProvider,
+			CreateDefault:           a.createDefaultLLMProvider,
 		})
 	}
 }

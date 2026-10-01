@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ModelPicker } from './ModelPicker';
 
@@ -57,6 +57,50 @@ beforeEach(() => {
 });
 
 describe('ModelPicker', () => {
+  it.each([
+    ['chatgpt_reauthorization_required', 'reauthorize'], ['chatgpt_permission_required', 'permission'],
+    ['chatgpt_rate_limit', 'rateLimit'], ['chatgpt_temporarily_unavailable', 'temporary'], ['chatgpt_request_failed', 'failed'],
+  ])('translates catalog failure %s without exposing the technical code', async (code, key) => {
+    getModelsSpy.mockRejectedValueOnce(new Error(code));
+    render(<ModelPicker value="" onChange={() => {}} providerID="chatgpt" />);
+    await waitFor(() => expect(screen.getByTestId('base-picker')).toHaveAttribute('data-error', `chatgpt.errors.${key}`));
+  });
+
+  it('mantém indicação do plano e link de uso após falha na recarga', async () => {
+    getModelsSpy.mockResolvedValueOnce({ ...catalogo(['m1']), usesChatGPTPlan: true });
+    refreshModelsSpy.mockRejectedValueOnce(new Error('chatgpt_plan_limit'));
+    render(<ModelPicker value="" onChange={() => {}} providerID="chatgpt" variant="form" />);
+    await screen.findByText('chatgpt.usingPlan');
+    await userEvent.click(screen.getByRole('button', { name: 'pickers.model.refreshLabel' }));
+    await waitFor(() => expect(screen.getByTestId('base-picker')).toHaveAttribute('data-error', 'chatgpt.errors.planLimit'));
+    expect(screen.getByText('chatgpt.usingPlan')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'chatgpt.usage' })).toHaveAttribute('href', 'https://chatgpt.com/settings/usage');
+  });
+
+  it('ignora catalogo ChatGPT que responde depois da troca de provedor', async () => {
+    let resolveOld!: (value: unknown) => void;
+    getModelsSpy.mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve; }));
+    const view = render(<ModelPicker value="" onChange={() => {}} providerID="chatgpt" />);
+    await waitFor(() => expect(getModelsSpy).toHaveBeenCalledWith('chatgpt'));
+    getModelsSpy.mockResolvedValueOnce(catalogo(['current']));
+    view.rerender(<ModelPicker value="" onChange={() => {}} providerID="api" />);
+    await waitFor(() => expect(screen.getByTestId('base-picker')).toHaveAttribute('data-labels', 'current'));
+    await act(async () => resolveOld({ ...catalogo(['obsolete']), usesChatGPTPlan: true }));
+    expect(screen.getByTestId('base-picker')).toHaveAttribute('data-labels', 'current');
+    expect(screen.queryByText('chatgpt.usingPlan')).not.toBeInTheDocument();
+  });
+
+  it('identifica o uso do plano ChatGPT e remove o aviso ao trocar de provedor', async () => {
+    getModelsSpy.mockResolvedValueOnce({ ...catalogo(['m1']), usesChatGPTPlan: true });
+    const view = render(<ModelPicker value="" onChange={() => {}} providerID="chatgpt" />);
+    expect(await screen.findByText('chatgpt.usingPlan')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'chatgpt.usage' })).toHaveAttribute('href', 'https://chatgpt.com/settings/usage');
+    getModelsSpy.mockResolvedValueOnce(catalogo(['other']));
+    view.rerender(<ModelPicker value="" onChange={() => {}} providerID="api" />);
+    await waitFor(() => expect(screen.getByTestId('base-picker')).toHaveAttribute('data-labels', 'other'));
+    expect(screen.queryByText('chatgpt.usingPlan')).not.toBeInTheDocument();
+  });
+
   it('carrega modelos por provider', async () => {
     getModelsSpy.mockResolvedValueOnce(catalogo(['m1']));
 

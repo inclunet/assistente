@@ -17,8 +17,12 @@ O tipo Segredo atende consumidores internos, como canais.
 - **Comando:** informe executável, argumentos como array JSON de strings e timeout
   entre 1 e 300 segundos. O padrão é 30 segundos. Não há shell implícito:
   pipes, redirecionamentos e expansões não são interpretados.
-- **OAuth:** reservado para uma evolução futura; ainda não pode ser salvo como
-  fonte. Isso não altera o OAuth dos servidores MCP.
+- **OAuth:** autorizações gerenciadas pelo Assistente, começando pela conexão
+  ChatGPT em **Provedores → Conectar ChatGPT**, seguida de **Continuar com ChatGPT**.
+  O consentimento acontece no
+  navegador; cadastro, tokens e renovação ficam em uma entrada cifrada do cofre.
+  Não é um campo para colar tokens manualmente. O OAuth MCP mantém o fluxo atual.
+  Veja [Conectar sua conta ChatGPT](PROVIDER_CONFIGURATION.md#conectar-sua-conta-chatgpt).
 
 Exemplo local: executável `nu`, argumentos `["genai", "ai-gateway", "token"]`.
 No Windows via WSL: executável `wsl.exe`, argumentos

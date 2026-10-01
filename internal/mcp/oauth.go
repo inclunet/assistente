@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"assistente/internal/credentials"
+	"assistente/internal/oauthflow"
 
 	"github.com/pkg/browser"
 	"golang.org/x/oauth2"
@@ -39,7 +40,7 @@ var browserOpen = browser.OpenURL
 // (5min PKCE, poll budget Device Flow). Um flow congelado bloqueia o
 // próximo na fila, e isso é o comportamento desejado — não faz
 // sentido empilhar fluxos abertos.
-var oauthFlowArbiter sync.Mutex
+var oauthFlowArbiter = oauthflow.Interactive
 
 // SessionExpiredError indica que a sessão Streamable HTTP expirou no servidor.
 // O servidor retornou 404 ou 410, significando que o Mcp-Session-Id é inválido.
@@ -525,11 +526,17 @@ func (rt *pkceRoundTripper) authorize(ctx context.Context) error {
 	// Serializa entre servidores: enquanto outro MCP estiver fazendo
 	// flow OAuth interativo, este espera. rt.mu (logo abaixo) protege
 	// dentro DE UM servidor — não substitui o arbiter global.
-	oauthFlowArbiter.Lock()
-	defer oauthFlowArbiter.Unlock()
+	release, err := oauthFlowArbiter.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	// Single-flight por servidor: pula a janela SOMENTE se outro flow concorrente
 	// instalou um token NOVO e válido (diferente do que foi rejeitado) enquanto
