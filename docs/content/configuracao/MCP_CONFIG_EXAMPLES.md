@@ -577,3 +577,5 @@ client secret: configure o segredo, se necessário, e autorize a nova conexão.
 Se Client Credentials retornar permissões insuficientes, corrija os escopos na
 configuração do servidor e conecte novamente. O Assistente não repete o pedido
 de token a cada chamada enquanto essa condição permanecer.
+
+Alterações de callback, recurso, endpoints ou escopos em um cadastro DCR invalidam o cliente registrado; a próxima autorização registra outro cliente. Renomear o servidor preserva o registro. A rejeição `invalid_scope` em Client Credentials também exige corrigir os escopos antes de uma nova tentativa.

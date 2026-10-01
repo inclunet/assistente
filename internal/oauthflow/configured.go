@@ -153,6 +153,11 @@ func (s *Service) resolveClientGrant(ctx context.Context, store Store, i Integra
 		defer cancel()
 		r.RefreshPending = false
 		r.RefreshUntil = time.Time{}
+		if errors.Is(err, ErrPermission) {
+			r.State = "permission_required"
+			r.Tokens = Tokens{}
+			r.GrantedScopes = nil
+		}
 		r.Revision++
 		return Record{}, errors.Join(err, store.CompareAndSwap(cleanup, r, before))
 	}

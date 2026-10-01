@@ -736,3 +736,5 @@ Evidências: `TestManagedOAuthOneEncryptedEntryAndAtomicConsumer`,
 Status permanece **In Progress**: falta migrar configurações/pares existentes e
 importações com snapshot e restauração, retirar o caminho legado após a conversão,
 e executar a convergência Slack. A validação com provedores reais é feita pelo usuário.
+
+Evidências adicionais da fase 2: `TestManagedOAuthRegistrationMetadataInvalidatesDCR` cobre re-registro após edição dos metadados e preservação em renomeações; `TestConfiguredClientGrantWaitsForScopeCorrection` cobre tanto escopos reduzidos como rejeição `invalid_scope`, sem repetição antes da correção.

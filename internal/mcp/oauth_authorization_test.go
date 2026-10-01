@@ -776,3 +776,44 @@ func TestManagedOAuthSessionExpiryTriggersBridgeRecovery(t *testing.T) {
 		}
 	}
 }
+
+func TestManagedOAuthRegistrationMetadataInvalidatesDCR(t *testing.T) {
+	edits := map[string]func(*ServerConfig){
+		"callback":     func(c *ServerConfig) { c.OAuth2CallbackPort = 12345 },
+		"scopes":       func(c *ServerConfig) { c.OAuth2Scopes = []string{"read", "write"} },
+		"resource":     func(c *ServerConfig) { c.URL = "https://other.example" },
+		"registration": func(c *ServerConfig) { c.OAuth2RegistrationURL = "https://resource.example/new-registration" },
+		"token":        func(c *ServerConfig) { c.OAuth2TokenURL = "https://resource.example/new-token" },
+		"rename":       func(c *ServerConfig) { c.Name = "Renamed" },
+	}
+	for _, method := range []string{"dcr", "manual"} {
+		for name, edit := range edits {
+			t.Run(method+"/"+name, func(t *testing.T) {
+				m, _, ctx := managedFixture(t)
+				cfg := managedConfig("https://resource.example")
+				if err := m.SaveConfig("new", cfg); err != nil {
+					t.Fatal(err)
+				}
+				cfg, store, r := loadManaged(t, m, ctx, "new")
+				r.Client.Method = method
+				r.Client.Secret = "registered-secret"
+				r.Revision++
+				if err := store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
+					t.Fatal(err)
+				}
+				edit(&cfg)
+				if err := m.SaveConfig("new", cfg); err != nil {
+					t.Fatal(err)
+				}
+				_, _, got := loadManaged(t, m, ctx, "new")
+				if method == "dcr" && name != "rename" {
+					if got.Client.ID != "" || got.Client.Secret != "" {
+						t.Fatal("stale DCR registration preserved")
+					}
+				} else if got.Client.ID != r.Client.ID {
+					t.Fatal("unchanged or manual registration lost")
+				}
+			})
+		}
+	}
+}

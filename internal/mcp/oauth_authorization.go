@@ -96,6 +96,17 @@ func (m *Manager) saveManagedOAuth(slug string, cfg ServerConfig, secret *string
 	if r.Client.AuthMethod == "" || r.Client.AuthMethod == "none" {
 		r.Client.AuthMethod = "client_secret_post"
 	}
+	// A DCR registration is bound to its registration metadata. A projected ID
+	// is not a manual override; changing that metadata requires a fresh client.
+	if previous.Client.Method == "dcr" && cfg.OAuth2ClientID == previous.Client.ID &&
+		(previous.Resource != r.Resource || previous.Endpoints != r.Endpoints ||
+			previous.Callback != r.Callback || previous.GrantType != r.GrantType ||
+			previous.Client.AuthMethod != r.Client.AuthMethod || !reflect.DeepEqual(previous.RequestedScopes, r.RequestedScopes)) {
+		r.Client.ID = ""
+		r.Client.Secret = ""
+		r.Client.GrantType = ""
+		r.Client.Method = "dcr"
+	}
 	if _, err = oauthflow.NewConfigured(r, m.authorizeOAuthNetwork); err != nil {
 		return err
 	}
