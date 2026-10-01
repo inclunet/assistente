@@ -93,7 +93,12 @@ func (m *Manager) saveManagedOAuth(slug string, cfg ServerConfig, secret *string
 		r.Client.Secret = *secret
 	}
 	r.Client.AuthMethod = cfg.OAuth2TokenAuthMethod
-	if r.Client.AuthMethod == "" || r.Client.AuthMethod == "none" {
+	if previous.Client.Method == "dcr" && cfg.OAuth2ClientID == previous.Client.ID {
+		if secret != nil && *secret != "" {
+			return errors.New("oauth_public_client_secret_not_allowed")
+		}
+		r.Client.AuthMethod, r.Client.Secret = "none", ""
+	} else if r.Client.AuthMethod == "" || r.Client.AuthMethod == "none" {
 		r.Client.AuthMethod = "client_secret_post"
 	}
 	// A DCR registration is bound to its registration metadata. A projected ID
@@ -311,6 +316,7 @@ func (m *Manager) authorizeManagedOAuthInAttempt(ctx context.Context, slug strin
 			candidate := r
 			candidate.Client.ID, candidate.Client.Secret = rt.effectiveClientID(), rt.effectiveClientSecret()
 			candidate.Client.GrantType, candidate.Client.Method = rt.clientGrantType, "dcr"
+			candidate.Client.AuthMethod = rt.clientAuthMethod
 			candidate.Endpoints.Authorization, candidate.Endpoints.Token = rt.cfg.OAuth2AuthURL, rt.cfg.OAuth2TokenURL
 			candidate.Endpoints.Device, candidate.Endpoints.Registration = rt.cfg.OAuth2DeviceAuthURL, rt.cfg.OAuth2RegistrationURL
 			candidate.Callback.Host, candidate.Callback.Port = rt.cfg.OAuth2CallbackHost, rt.cfg.OAuth2CallbackPort
@@ -334,6 +340,7 @@ func (m *Manager) authorizeManagedOAuthInAttempt(ctx context.Context, slug strin
 		r.Client.ID = rt.effectiveClientID()
 		r.Client.Secret = rt.effectiveClientSecret()
 		r.Client.GrantType = rt.clientGrantType
+		r.Client.AuthMethod = rt.clientAuthMethod
 		if rt.clientGrantType != "" {
 			r.Client.Method = "dcr"
 		}

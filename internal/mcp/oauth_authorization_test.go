@@ -146,16 +146,19 @@ func TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart(t *testing.T)
 			registrations.Add(1)
 			var body oauthflow.RegistrationRequest
 			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body.TokenEndpointAuthMethod != "none" {
+				t.Error("DCR not public")
+			}
 			if len(body.RedirectURIs) != 1 {
 				t.Error("missing exact callback")
 				w.WriteHeader(400)
 				return
 			}
 			redirect = body.RedirectURIs[0]
-			_ = json.NewEncoder(w).Encode(map[string]string{"client_id": "registered"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"client_id": "registered", "client_secret": "unsolicited-secret"})
 		case "/token":
 			_ = r.ParseForm()
-			if r.Header.Get("Authorization") != "" || r.Form.Get("client_id") != "registered" {
+			if r.Header.Get("Authorization") != "" || r.Form.Get("client_id") != "registered" || r.Form.Has("client_secret") {
 				t.Error("public client used Basic or omitted client_id")
 			}
 			n := tokenCalls.Add(1)
@@ -206,9 +209,23 @@ func TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart(t *testing.T)
 	if err := m.authorizeManagedOAuth(ctx, "new", cfg); err != nil {
 		t.Fatal(err)
 	}
-	cfg, store, r := loadManaged(t, m, ctx, "new")
+	cfg, _, r := loadManaged(t, m, ctx, "new")
 	if r.Client.ID != "registered" || r.Tokens.Refresh != "REFRESH" || r.Callback.Port == 0 || r.State != "connected" {
 		t.Fatalf("grant not persisted: %s", r.State)
+	}
+	if r.Client.AuthMethod != "none" || r.Client.Secret != "" {
+		t.Fatal("DCR persisted non-public authentication")
+	}
+	cfg.Name = "Renamed DCR"
+	if err := m.SaveConfig("new", cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg, store, r := loadManaged(t, m, ctx, "new")
+	if r.Client.AuthMethod != "none" || r.Tokens.Access == "" {
+		t.Fatal("rename changed public grant")
+	}
+	if err := m.SaveConfigWithOAuthSecret("new", cfg, "manual-secret"); err == nil {
+		t.Fatal("accepted manual secret for DCR")
 	}
 	if registrations.Load() != 1 {
 		t.Fatal("DCR repeated after failed consent")
@@ -824,6 +841,10 @@ func TestManagedOAuthRegistrationMetadataInvalidatesDCR(t *testing.T) {
 				}
 				cfg, store, r := loadManaged(t, m, ctx, "new")
 				r.Client.Method = method
+				if method == "dcr" {
+					r.Client.AuthMethod = "none"
+					cfg.OAuth2TokenAuthMethod = "none"
+				}
 				r.Client.Secret = "registered-secret"
 				r.Revision++
 				if err := store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {

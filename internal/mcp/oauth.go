@@ -654,6 +654,11 @@ func (rt *pkceRoundTripper) registerClient(ctx context.Context, pkce bool) error
 		return err
 	}
 	rt.resolvedClientID, rt.resolvedClientSecret = result.ClientID, result.ClientSecret
+	if rt.protocolOnly {
+		// Managed DCR explicitly registers a public client, even if the response
+		// contains an unsolicited secret. Never authenticate that client with it.
+		rt.clientAuthMethod, rt.resolvedClientSecret = "none", ""
+	}
 	rt.clientGrantType = "urn:ietf:params:oauth:grant-type:device_code"
 	if pkce {
 		rt.clientGrantType = "authorization_code"

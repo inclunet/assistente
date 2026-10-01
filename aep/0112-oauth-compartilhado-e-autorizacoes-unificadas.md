@@ -748,3 +748,5 @@ O checkpoint usa `pendingRegistration` cifrado no mesmo registro: cliente/endpoi
 A tentativa OAuth explícita publica o estado de conexão antes do protocolo, permite Desconectar/Cancelar durante preflight e propaga falhas até a página. Client Credentials sem escopos omite o parâmetro opcional, coberto por teste do grant.
 
 `TestOAuthCommitPublishesBeforeSessionRelease` cobre publicação mesmo com cancelamento após commit e ausência de publicação em rollback. Os roots são copiados sob o lock MCP da publicação. O seletor Basic/Post é reservado a clientes manuais/Client Credentials; DCR público permanece `none`.
+
+DCR público persiste `Client.AuthMethod=none` no candidato e no grant final, ignora segredo não solicitado na resposta de registro e recusa segredo manual enquanto o mesmo ID DCR for mantido. O teste PKCE/DCR confirma ausência de autenticação secreta na troca e no refresh, preservação em renomeação e rejeição de segredo manual. O inventário de métodos Wails autenticados inclui a gravação atômica com segredo.
