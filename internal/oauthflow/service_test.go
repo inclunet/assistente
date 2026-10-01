@@ -126,6 +126,9 @@ func TestRefreshCrashSafetyAndNoImplicitRetry(t *testing.T) {
 				t.Fatalf("calls=%d", calls)
 			}
 			if failure != "before" {
+				if !errors.Is(err, ErrReauthorize) {
+					t.Fatalf("ambiguous refresh did not request reconnection: %v", err)
+				}
 				restarted := New(s.integrations["fixture"])
 				_, err = restarted.Resolve(context.Background(), store, store.r.ID, store.r.Resource, "")
 				if !errors.Is(err, ErrReauthorize) || calls != 1 {

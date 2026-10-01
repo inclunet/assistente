@@ -166,22 +166,22 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 			r.RefreshPending = false
 			r.Revision++
 			if saveErr := store.CompareAndSwap(ctx, r, r.Revision-1); saveErr != nil {
-				return Record{}, saveErr
+				return Record{}, errors.Join(ErrReauthorize, saveErr)
 			}
 			return Record{}, ErrReauthorize
 		}
 		// Keep the durable pending marker on ambiguous network/server responses.
 		// The old rotating token must not be sent again, even after a restart.
-		return Record{}, err
+		return Record{}, errors.Join(ErrReauthorize, err)
 	}
 	updated, err := s.applyTokens(ctx, i, r, response, "", false)
 	if err != nil {
-		return Record{}, err
+		return Record{}, errors.Join(ErrReauthorize, err)
 	}
 	updated.Revision++
 	updated.RefreshPending = false
 	if err = store.CompareAndSwap(ctx, updated, r.Revision); err != nil {
-		return Record{}, err
+		return Record{}, errors.Join(ErrReauthorize, err)
 	}
 	outcome = "success"
 	if updated.State != "connected" {

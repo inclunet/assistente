@@ -4,6 +4,7 @@ import (
 	"assistente/internal/oauthflow"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -248,5 +249,12 @@ func TestChatGPTAlreadyCanceledUsesStableError(t *testing.T) {
 	}
 	if _, err := p.SendChat(ctx, nil, ChatParams{Model: "model"}); err == nil || err.Error() != "chatgpt_request_cancelled" {
 		t.Fatalf("synchronous cancellation: %v", err)
+	}
+}
+
+func TestAmbiguousChatGPTRefreshRequiresReconnectImmediately(t *testing.T) {
+	err := errors.Join(oauthflow.ErrReauthorize, oauthflow.ErrTransient)
+	if got := chatGPTTransportFailure(context.Background(), err); got != "chatgpt_reauthorization_required" {
+		t.Fatal(got)
 	}
 }
