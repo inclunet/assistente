@@ -40,6 +40,7 @@ type networkAuthorization struct {
 	mu        sync.Mutex
 	authorize NetworkAuthorizer
 	denied    error
+	approved  map[string]map[string]bool
 }
 
 func NetworkAuthorizationError(ctx context.Context) error {
@@ -54,7 +55,21 @@ func NetworkAuthorizationError(ctx context.Context) error {
 func (state *networkAuthorization) decide(ctx context.Context, d NetworkDestination) ([]net.IP, bool, error) {
 	state.mu.Lock()
 	denied := state.denied
+	u, parseErr := url.Parse(d.URL)
+	origin := ""
+	if parseErr == nil {
+		origin = networkOrigin(u)
+	}
+	cached := len(d.IPs) > 0
+	for _, ip := range d.IPs {
+		if !state.approved[origin][ip.String()] {
+			cached = false
+		}
+	}
 	state.mu.Unlock()
+	if denied == nil && cached {
+		return d.IPs, true, nil
+	}
 	if denied != nil {
 		return nil, false, denied
 	}
@@ -65,6 +80,21 @@ func (state *networkAuthorization) decide(ctx context.Context, d NetworkDestinat
 	if !ok || err != nil || len(ips) == 0 {
 		state.mu.Lock()
 		state.denied = errors.Join(ErrNetworkAuthorization, err)
+		state.mu.Unlock()
+	}
+	if ok && err == nil && len(ips) > 0 {
+		state.mu.Lock()
+		if state.approved == nil {
+			state.approved = make(map[string]map[string]bool)
+		}
+		if state.approved[origin] == nil {
+			state.approved[origin] = make(map[string]bool)
+		}
+		for _, ip := range ips {
+			if ip != nil {
+				state.approved[origin][ip.String()] = true
+			}
+		}
 		state.mu.Unlock()
 	}
 	return ips, ok, err

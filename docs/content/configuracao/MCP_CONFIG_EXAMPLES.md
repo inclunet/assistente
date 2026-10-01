@@ -484,8 +484,12 @@ rede usado nas demais operações, com destino, porta e IPs, para você aprovar 
 negar. Isso também vale para redirects da descoberta. Confira o destino antes de
 aprovar; uma negativa ou cancelamento encerra a tentativa.
 
-A opção de autorizar somente esta vez vale para a operação OAuth em andamento.
 Autorizações persistentes continuam gerenciadas na allowlist de rede. O tempo para
 responder ao diálogo não consome os dez segundos do pedido de registro.
 Endpoints OAuth exigem HTTPS, com exceção de localhost/loopback; autorizar a rede
 não desativa essa verificação nem a validação de identidade do servidor.
+
+A opção de permitir somente esta vez vale durante a operação OAuth, inclusive
+nas consultas repetidas do Device Flow ao mesmo destino/IP. A espera pelo login
+ou pela decisão de rede não consome o timeout do handshake MCP; Desconectar
+continua cancelando a operação. Uma nova origem, porta ou IP exige nova avaliação.

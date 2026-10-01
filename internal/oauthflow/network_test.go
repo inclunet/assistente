@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -254,5 +255,60 @@ func TestOAuthHTTPClientBoundsResponseBodyRead(t *testing.T) {
 	_, err = io.ReadAll(response.Body)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("response read not bounded: %v", err)
+	}
+}
+
+func TestNetworkApprovalReusedOnlyForApprovedOriginAndIPs(t *testing.T) {
+	calls := 0
+	ctx := WithNetworkAuthorizer(context.Background(), func(_ context.Context, d NetworkDestination) ([]net.IP, bool, error) {
+		calls++
+		return d.IPs, true, nil
+	})
+	state := ctx.Value(networkAuthorizerKey{}).(*networkAuthorization)
+	for _, raw := range []string{"https://internal.example/token", "https://internal.example/next", "https://internal.example:444/token"} {
+		_, ok, err := state.decide(ctx, NetworkDestination{URL: raw, IPs: []net.IP{net.ParseIP("10.0.0.1")}})
+		if !ok || err != nil {
+			t.Fatalf("decision: %v", err)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("expected one decision per origin, got %d", calls)
+	}
+	_, _, _ = state.decide(ctx, NetworkDestination{URL: "https://internal.example/token", IPs: []net.IP{net.ParseIP("10.0.0.2")}})
+	if calls != 3 {
+		t.Fatal("DNS change reused unapproved IP")
+	}
+	fresh := WithNetworkAuthorizer(context.Background(), state.authorize).Value(networkAuthorizerKey{}).(*networkAuthorization)
+	_, _, _ = fresh.decide(ctx, NetworkDestination{URL: "https://internal.example/token", IPs: []net.IP{net.ParseIP("10.0.0.1")}})
+	if calls != 4 {
+		t.Fatal("approval escaped operation")
+	}
+}
+
+func TestOAuthPollingReusesConsentAcrossHTTPClients(t *testing.T) {
+	var prompts, hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1); w.WriteHeader(http.StatusOK) }))
+	defer server.Close()
+	authorize := func(_ context.Context, d NetworkDestination) ([]net.IP, bool, error) {
+		prompts.Add(1)
+		return d.IPs, true, nil
+	}
+	ctx := WithNetworkAuthorizer(context.Background(), authorize)
+	for i := 0; i < 3; i++ {
+		client := NewNetworkHTTPClient("https://192.0.2.1/mcp", authorize, time.Second)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/token", strings.NewReader("grant_type=device_code"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := resp.Body.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if prompts.Load() != 1 || hits.Load() != 3 {
+		t.Fatalf("prompts=%d requests=%d", prompts.Load(), hits.Load())
 	}
 }

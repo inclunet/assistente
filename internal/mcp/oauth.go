@@ -464,6 +464,8 @@ func isSessionExpiredStatus(statusCode int) bool {
 }
 
 func (rt *pkceRoundTripper) authorize(ctx context.Context) (resultErr error) {
+	endInteraction := beginOAuthInteraction(ctx)
+	defer endInteraction()
 	defer func() {
 		if errors.Is(resultErr, oauthflow.ErrNetworkAuthorization) {
 			rt.mu.Lock()

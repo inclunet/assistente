@@ -530,12 +530,18 @@ poderia apagar alterações concorrentes; a issue exige transação e testes de 
 - Os consumidores MCP usam o transporte autorizado nos probes e nas chamadas
   de token, device e refresh. O ciclo de vida dos grants continua no MCP legado;
   sua extração e a migração de dados não foram antecipadas.
+- Aprovação temporária preserva os pares origem/IP durante a operação, inclusive
+  entre clientes HTTP e polls de Device Flow. O orçamento do handshake pausa
+  durante OAuth/consentimento, mantendo cancelamento pelo chamador e Disconnect.
+  Evidências: `TestOAuthPollingReusesConsentAcrossHTTPClients`,
+  `TestConnectDevicePollingOutlivesHandshakeAndReusesApproval` e
+  `TestConnectConsentOutlivesHandshakeBudget` (com probe SSE desativado).
 - Não houve conversão de dados nem mudança da URI de callback por esta extração.
   Destinos internos adicionais podem solicitar autorização de rede. O owner de
   tokens MCP continua exclusivamente no MCP legado
   até a entrega dos grants e do cutover. Fases 2, 3 e 4 seguem abertas.
 
-Revisão local desta entrega incremental: `review_credential_sources`, seis rodadas;
+Revisão local desta entrega incremental: `review_credential_sources`, nove rodadas;
 achados de rede, identidade, cancelamento e apresentação corrigidos, última rodada
 sem pendências. A validação funcional ChatGPT da fase 1 continua a cargo do
 usuário e não foi marcada como concluída por esta entrega.

@@ -596,6 +596,7 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	// sessão), nunca no retorno desta função. O timeout do handshake é imposto
 	// separadamente em connectClientSession.
 	sessionCtx, sessionCancel := context.WithCancel(sessionBase)
+	sessionCtx = withOAuthInteraction(sessionCtx)
 	sessionCtx = oauthflow.WithNetworkAuthorizer(sessionCtx, m.authorizeOAuthNetwork)
 	attempt := &connectionAttempt{cancel: sessionCancel, done: make(chan struct{})}
 	m.connectCancels[slug] = attempt
@@ -934,7 +935,7 @@ func (m *Manager) connectClientSessionWithTimeout(
 	client *mcpsdk.Client,
 	transport mcpsdk.Transport,
 ) (*mcpsdk.ClientSession, error) {
-	handshakeCtx, handshakeCancel := context.WithTimeout(parentCtx, m.connectTimeout)
+	handshakeCtx, handshakeCancel := oauthHandshakeContext(parentCtx, sessionCtx, m.connectTimeout)
 	defer handshakeCancel()
 	return connectClientSession(handshakeCtx, sessionCtx, sessionCancel, client, transport)
 }

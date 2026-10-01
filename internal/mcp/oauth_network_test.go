@@ -143,3 +143,99 @@ func TestDisconnectCancelsPersistedRefreshConsent(t *testing.T) {
 		t.Fatal("refresh sent despite cancellation")
 	}
 }
+
+func TestConnectConsentOutlivesHandshakeBudget(t *testing.T) {
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(401) }))
+	defer source.Close()
+	m := newTestManagerWithEmit(func(string, any) {})
+	defer m.CloseAll()
+	m.connectTimeout = 100 * time.Millisecond
+	storeUserToken(t, m, "srv", "expired", "refresh", time.Now().Add(-time.Hour).Unix())
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	m.SetOAuthNetworkAuthorizer(func(ctx context.Context, _ oauthflow.NetworkDestination) ([]net.IP, bool, error) {
+		close(started)
+		select {
+		case <-ctx.Done():
+			return nil, false, ctx.Err()
+		case <-release:
+			return nil, false, nil
+		}
+	})
+	m.servers["srv"] = &ServerStatus{Slug: "srv", Config: ServerConfig{Enabled: true, Transport: TransportStreamable, DisableSSE: true, URL: source.URL, AuthType: AuthOAuth2PKCE, OAuth2ClientID: "client", OAuth2TokenURL: "http://127.0.0.1:1/token"}}
+	done := make(chan error, 1)
+	go func() { done <- m.Connect("srv") }()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("consent did not start")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("handshake cancelled consent: %v", err)
+	case <-time.After(250 * time.Millisecond):
+	}
+	if err := m.Disconnect("srv"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("cancelled connection succeeded")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Disconnect did not stop consent")
+	}
+}
+
+func TestConnectDevicePollingOutlivesHandshakeAndReusesApproval(t *testing.T) {
+	var polls, prompts, authenticated atomic.Int32
+	token := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if polls.Add(1) == 1 {
+			w.WriteHeader(400)
+			_, _ = w.Write([]byte(`{"error":"authorization_pending"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"access_token":"device-access","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer token.Close()
+	var origin string
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/.well-known/oauth-authorization-server":
+			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": origin, "token_endpoint": token.URL, "device_authorization_endpoint": origin + "/device"})
+		case "/device":
+			_ = json.NewEncoder(w).Encode(map[string]any{"device_code": "device", "user_code": "user", "verification_uri": origin + "/verify", "expires_in": 60, "interval": 5})
+		case "/verify":
+			w.WriteHeader(200)
+		case "/mcp":
+			if r.Header.Get("Authorization") == "Bearer device-access" {
+				authenticated.Add(1)
+				w.WriteHeader(400)
+			} else {
+				w.WriteHeader(401)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer source.Close()
+	origin = source.URL
+	m := newTestManagerWithEmit(func(string, any) {})
+	defer m.CloseAll()
+	m.connectTimeout = time.Second
+	m.SetOAuthNetworkAuthorizer(func(_ context.Context, d oauthflow.NetworkDestination) ([]net.IP, bool, error) {
+		prompts.Add(1)
+		return d.IPs, true, nil
+	})
+	m.servers["srv"] = &ServerStatus{Slug: "srv", Config: ServerConfig{Enabled: true, Transport: TransportStreamable, DisableSSE: true, URL: source.URL + "/mcp", AuthType: AuthOAuth2PKCE, OAuth2ClientID: "client", OAuth2DeviceAuthURL: source.URL + "/device", OAuth2TokenURL: token.URL}}
+	err := m.Connect("srv")
+	// The fixture intentionally rejects MCP after OAuth: reaching it with the token
+	// proves the real handshake survived two polling intervals and resumed.
+	if errors.Is(err, context.DeadlineExceeded) || polls.Load() != 2 || prompts.Load() != 1 || authenticated.Load() == 0 {
+		t.Fatalf("err=%v polls=%d prompts=%d authenticated=%d", err, polls.Load(), prompts.Load(), authenticated.Load())
+	}
+}

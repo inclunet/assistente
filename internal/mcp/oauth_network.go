@@ -18,6 +18,8 @@ func (m *Manager) authorizeOAuthNetwork(ctx context.Context, destination oauthfl
 	if authorize == nil {
 		return nil, false, nil
 	}
+	endInteraction := beginOAuthInteraction(ctx)
+	defer endInteraction()
 	return authorize(ctx, destination)
 }
 func (m *Manager) DiscoverOAuth(ctx context.Context, resource string) OAuthDiscoveryResult {
