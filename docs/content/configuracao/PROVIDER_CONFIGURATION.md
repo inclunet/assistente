@@ -36,7 +36,9 @@ Desconecte e exclua o provedor primeiro, ou importe o novo item com outro ID.
 A importação normaliza a URL, o formato ChatGPT para a rota oficial Responses
 e a autenticação obrigatória,
 mesmo se o arquivo trouxer valores diferentes. Ao importar um
-provedor em outro computador, ele aparece desconectado: edite esse provedor e
+provedor em outro computador, reinicie o Assistente após concluir a importação.
+A listagem de provedores só incorpora importações e sobrescritas após o reinício.
+O ChatGPT importado aparece desconectado: edite esse provedor e
 acione **Continuar com ChatGPT** para criar sua autorização local, sem copiar
 tokens da máquina anterior. A ação **Conectar ChatGPT** da barra cria outro
 provedor e não é necessária para reparar o item importado. Um item importado sem

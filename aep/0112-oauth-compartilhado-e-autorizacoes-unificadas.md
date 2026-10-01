@@ -317,7 +317,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   transação e publica os demais campos atuais. Token sem refresh exige reconexão
   persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
   Testes cobrem preservação de edições e falha na gravação da transição.
-- Revisão independente local em trinta e três rodadas, com correções de isolamento de
+- Revisão independente local em trinta e quatro rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
@@ -423,3 +423,12 @@ Evidências: `TestAuthorizationLeaseOwnershipAndRecovery` e
 
 Importar ChatGPT define autenticação `required` também ao sobrescrever provedor
 com modo `none`. Evidência: `TestChatGPTImportReplacesExplicitUnauthenticatedMode`.
+
+Limitação preexistente da portabilidade: importação/sobrescrita de provedores
+atualiza o banco, mas a listagem em memória só reflete as alterações após reiniciar.
+A documentação orienta reiniciar antes de editar/reconectar o ChatGPT importado.
+Publicação imediata e segura por sessão permanece follow-up separado: chamar
+`providerSvc.Load` diretamente não basta, pois também pode persistir defaults e
+materializações. Isso não invalida a importação nem exige repeti-la.
+
+Follow-up da publicação de provedores importados: [#870](https://github.com/inclunet/assistente/issues/870).
