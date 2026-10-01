@@ -112,6 +112,7 @@ func (m *Manager) saveManagedOAuth(slug string, cfg ServerConfig, secret *string
 	}
 	changed := !reflect.DeepEqual(r, previous)
 	if !creating && changed {
+		r.PendingRegistration = nil
 		r.State = "pending"
 		r.Tokens = oauthflow.Tokens{}
 		r.GrantedScopes = nil
@@ -313,7 +314,7 @@ func (m *Manager) authorizeManagedOAuthInAttempt(ctx context.Context, slug strin
 	if err != nil {
 		return err
 	}
-	_, err = service.AuthorizeUsing(ctx, store, cfg.OAuthAuthorizationID, func(flowCtx context.Context, r oauthflow.Record) (oauthflow.Record, error) {
+	_, err = service.AuthorizeUsingCheckpoint(ctx, store, cfg.OAuthAuthorizationID, func(flowCtx context.Context, r oauthflow.Record, checkpoint func(oauthflow.Record) (oauthflow.Record, error)) (oauthflow.Record, error) {
 		// This adapter runs only the existing protocol choreography. It has no vault,
 		// config writer or live connection: only the shared service commits its result.
 		rt := &pkceRoundTripper{
@@ -321,6 +322,23 @@ func (m *Manager) authorizeManagedOAuthInAttempt(ctx context.Context, slug strin
 			resolvedClientID: r.Client.ID, resolvedClientSecret: r.Client.Secret, clientGrantType: r.Client.GrantType,
 			clientAuthMethod: r.Client.AuthMethod, resourceURL: r.Audience, networkAuthorizer: m.authorizeOAuthNetwork,
 			authCtxProvider: func() context.Context { return flowCtx }, lifetimeCtx: flowCtx,
+		}
+		rt.registrationCheckpoint = func() error {
+			candidate := r
+			candidate.Client.ID, candidate.Client.Secret = rt.effectiveClientID(), rt.effectiveClientSecret()
+			candidate.Client.GrantType, candidate.Client.Method = rt.clientGrantType, "dcr"
+			candidate.Endpoints.Authorization, candidate.Endpoints.Token = rt.cfg.OAuth2AuthURL, rt.cfg.OAuth2TokenURL
+			candidate.Endpoints.Device, candidate.Endpoints.Registration = rt.cfg.OAuth2DeviceAuthURL, rt.cfg.OAuth2RegistrationURL
+			candidate.Callback.Host, candidate.Callback.Port = rt.cfg.OAuth2CallbackHost, rt.cfg.OAuth2CallbackPort
+			if candidate.Callback.Port != 0 {
+				candidate.Callback.PortPolicy = "fixed"
+			}
+			candidate.Audience, candidate.RequestedScopes = rt.resourceURL, rt.effectiveScopes()
+			saved, err := checkpoint(candidate)
+			if err == nil {
+				r = saved
+			}
+			return err
 		}
 		if err := rt.authorize(flowCtx); err != nil {
 			return r, err

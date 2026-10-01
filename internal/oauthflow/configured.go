@@ -62,6 +62,17 @@ func NewConfigured(r Record, authorize NetworkAuthorizer) (*Service, error) {
 // to this method, and never persist credentials or install a background refresher.
 // A failed attempt leaves the previous authorization intact.
 func (s *Service) AuthorizeUsing(ctx context.Context, store Store, id string, grant func(context.Context, Record) (Record, error)) (Summary, error) {
+	if grant == nil {
+		return Summary{}, ErrResource
+	}
+	return s.AuthorizeUsingCheckpoint(ctx, store, id, func(ctx context.Context, r Record, _ func(Record) (Record, error)) (Record, error) {
+		return grant(ctx, r)
+	})
+}
+
+// AuthorizeUsingCheckpoint lets the service persist an issued registration before
+// user consent completes. Only registration metadata changes; prior tokens remain.
+func (s *Service) AuthorizeUsingCheckpoint(ctx context.Context, store Store, id string, grant func(context.Context, Record, func(Record) (Record, error)) (Record, error)) (Summary, error) {
 	ctx, cancelSession := sessionContext(ctx, store)
 	defer cancelSession()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
@@ -89,7 +100,39 @@ func (s *Service) AuthorizeUsing(ctx context.Context, store Store, id string, gr
 		return Summary{}, err
 	}
 	defer clearAuthorizationAttempt(ctx, store, id, r.AuthorizationAttempt)
-	updated, err := grant(ctx, r)
+	withCandidate := func(base Record) Record {
+		if candidate := base.PendingRegistration; candidate != nil {
+			base.Client, base.Endpoints, base.Callback = candidate.Client, candidate.Endpoints, candidate.Callback
+			base.Audience = candidate.Audience
+			base.RequestedScopes = append([]string(nil), candidate.RequestedScopes...)
+		}
+		base.PendingRegistration = nil
+		return base
+	}
+	checkpoint := func(registration Record) (Record, error) {
+		if err := checkAuthorizationAttempt(ctx, store, r); err != nil {
+			return Record{}, err
+		}
+		next := r
+		next.PendingRegistration = &RegistrationCandidate{
+			Client: registration.Client, Endpoints: registration.Endpoints, Callback: registration.Callback,
+			Audience: registration.Audience, RequestedScopes: append([]string(nil), registration.RequestedScopes...),
+		}
+		candidate := withCandidate(next)
+		if candidate.Client.ID == "" || candidate.Client.Method != "dcr" {
+			return Record{}, ErrResource
+		}
+		if _, err := NewConfigured(candidate, nil); err != nil {
+			return Record{}, err
+		}
+		next.Revision++
+		if err := store.CompareAndSwap(ctx, next, r.Revision); err != nil {
+			return Record{}, err
+		}
+		r = next
+		return withCandidate(r), nil
+	}
+	updated, err := grant(ctx, withCandidate(r), checkpoint)
 	if err != nil {
 		return Summary{}, err
 	}
@@ -105,6 +148,7 @@ func (s *Service) AuthorizeUsing(ctx context.Context, store Store, id string, gr
 	if err = checkAuthorizationAttempt(ctx, store, r); err != nil {
 		return Summary{}, err
 	}
+	updated.PendingRegistration = nil
 	updated.State = "connected"
 	updated.AuthorizationAttempt = ""
 	updated.AuthorizationUntil = time.Time{}
@@ -200,6 +244,7 @@ func (s *Service) invalidate(ctx context.Context, store Store, id string, clearS
 	if r.AuthorizationActive() || r.RefreshActive() {
 		return ErrConflict
 	}
+	r.PendingRegistration = nil
 	r.State = "disconnected"
 	if clearSecret {
 		r.Client.Secret = ""

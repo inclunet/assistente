@@ -26,6 +26,7 @@ describe('OAuth registration errors', () => {
       ['oauth_authorization_changed', 'authorizationChanged'],
       ['oauth_reauthorization_required', 'authorizationRequired'],
       ['oauth_permission_missing', 'authorizationPermissions'],
+      ['oauth_client_configuration_required', 'clientConfigurationRequired'],
       ['oauth_temporarily_unavailable', 'authorizationTemporary'],
       ['oauth_resource_not_authorized', 'authorizationMismatch'],
       ['oauth_callback_port_unavailable', 'callbackPortUnavailable'],

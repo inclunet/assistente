@@ -740,3 +740,7 @@ e executar a convergência Slack. A validação com provedores reais é feita pe
 Evidências adicionais da fase 2: `TestManagedOAuthRegistrationMetadataInvalidatesDCR` cobre re-registro após edição dos metadados e preservação em renomeações; `TestConfiguredClientGrantWaitsForScopeCorrection` cobre tanto escopos reduzidos como rejeição `invalid_scope`, sem repetição antes da correção.
 
 `TestManagedOAuthLatePublicationLoadsLatestCommit` prova que a publicação em memória recarrega o consumidor sob a sessão do cofre e não restaura uma configuração obsoleta após outra edição confirmar.
+
+O serviço compartilhado confirma um checkpoint versionado do cliente DCR antes do consentimento, preservando o grant anterior em falha e recusando gravações tardias. Evidências: `TestConfiguredRegistrationCheckpointPreservesGrantAndFencesLateWrites` e o fluxo integrado DCR/PKCE com recusa seguida de nova tentativa sem repetir registro. A resolução em cache não contabiliza refresh; Client Credentials sinaliza correção de configuração, sem badge de reautorização interativa.
+
+O checkpoint usa `pendingRegistration` cifrado no mesmo registro: cliente/endpoints/escopos candidatos não substituem o vínculo dos tokens ativos. Somente o commit do consentimento promove o candidato; edição da configuração ou invalidação o descarta. `TestConfiguredRefusedCandidateKeepsOriginalRefreshBinding` prova renovação HTTP com o cliente original após recusa e promoção atômica na tentativa seguinte.

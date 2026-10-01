@@ -234,14 +234,15 @@ func (rt *pkceRoundTripper) fixBlockedEndpoint(ctx context.Context, rawURL strin
 // - Porta de callback fixa (oauth2_callback_port) para redirect_uri determinístico
 // - Parâmetro resource (RFC 8707)
 type pkceRoundTripper struct {
-	protocolOnly     bool
-	clientAuthMethod string
-	issuedToken      *oauth2.Token
-	base             http.RoundTripper
-	credMgr          *credentials.Manager
-	cfg              ServerConfig
-	emitEvent        emitFunc
-	serverSlug       string
+	protocolOnly           bool
+	registrationCheckpoint func() error
+	clientAuthMethod       string
+	issuedToken            *oauth2.Token
+	base                   http.RoundTripper
+	credMgr                *credentials.Manager
+	cfg                    ServerConfig
+	emitEvent              emitFunc
+	serverSlug             string
 
 	// onConfigUpdate é chamado para persistir mudanças no config (ex: porta após DCR).
 	onConfigUpdate func(ServerConfig)
@@ -660,6 +661,11 @@ func (rt *pkceRoundTripper) registerClient(ctx context.Context, pkce bool) error
 	rt.cfg.OAuth2ClientID = result.ClientID
 	if callback != nil {
 		rt.cfg.OAuth2CallbackPort = callback.Port()
+	}
+	if rt.registrationCheckpoint != nil {
+		if err := rt.registrationCheckpoint(); err != nil {
+			return err
+		}
 	}
 	rt.persistClientCreds(result.ClientID, result.ClientSecret)
 	if rt.onConfigUpdate != nil {

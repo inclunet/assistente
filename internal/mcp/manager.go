@@ -566,6 +566,7 @@ func (m *Manager) Connect(slug string) error {
 				return err
 			}
 		}
+		m.clearNeedsReauth(slug)
 		return m.connectWithContext(ctx, slug)
 	}
 	return m.connectWithContext(m.ctx, slug)
@@ -1969,16 +1970,16 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 			return false, err
 		}
 		ctx = database.WithUserID(ctx, user)
+		_, before, _, err := m.managedOAuth(ctx, cfg)
+		if err != nil {
+			return false, err
+		}
 		rejected := ""
 		if force {
-			_, r, _, err := m.managedOAuth(ctx, cfg)
-			if err != nil {
-				return false, err
-			}
-			rejected = r.Tokens.Access
+			rejected = before.Tokens.Access
 		}
-		_, err = m.resolveManagedOAuth(ctx, cfg, rejected)
-		return err == nil, err
+		after, err := m.resolveManagedOAuth(ctx, cfg, rejected)
+		return err == nil && after.Revision != before.Revision, err
 	}
 	if cfg.AuthType != AuthOAuth2PKCE {
 		return false, nil
@@ -2773,7 +2774,22 @@ func (m *Manager) resolveNativeAuthToken(ctx context.Context, c nativeMCPCandida
 		r, err := m.resolveManagedOAuth(ctx, c.managedConfig, "")
 		if err != nil {
 			if errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrPermission) {
-				m.signalNeedsReauth(c.slug, c.name, "oauth_reauthorization_required")
+				if c.managedConfig.AuthType == AuthOAuth2ClientCredentials {
+					m.clearNeedsReauth(c.slug)
+					reason := "oauth_client_configuration_required"
+					if errors.Is(err, oauthflow.ErrPermission) {
+						reason = "oauth_permission_missing"
+					}
+					m.mu.RLock()
+					status := m.servers[c.slug]
+					unchanged := status != nil && status.Status == StatusError && status.Error == reason
+					m.mu.RUnlock()
+					if !unchanged {
+						m.setError(c.slug, reason)
+					}
+				} else {
+					m.signalNeedsReauth(c.slug, c.name, "oauth_reauthorization_required")
+				}
 			}
 			return "", false
 		}

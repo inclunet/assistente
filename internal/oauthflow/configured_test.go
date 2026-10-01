@@ -278,3 +278,74 @@ func TestConfiguredClientGrantWaitsForScopeCorrection(t *testing.T) {
 		})
 	}
 }
+
+func TestConfiguredRegistrationCheckpointPreservesGrantAndFencesLateWrites(t *testing.T) {
+	r := configuredRecord("https://resource.example")
+	store := &memoryStore{r: r}
+	service, _ := NewConfigured(r, nil)
+	var late func(Record) (Record, error)
+	_, err := service.AuthorizeUsingCheckpoint(context.Background(), store, r.ID, func(ctx context.Context, candidate Record, checkpoint func(Record) (Record, error)) (Record, error) {
+		late = checkpoint
+		candidate.Client.ID, candidate.Client.Method = "registered", "dcr"
+		candidate.Tokens.Access = "must-not-replace"
+		saved, err := checkpoint(candidate)
+		if err != nil || saved.Tokens.Access != "old" {
+			t.Fatalf("checkpoint replaced grant: %v", err)
+		}
+		return Record{}, errors.New("consent denied")
+	})
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	saved, _ := store.Load(context.Background(), r.ID)
+	if saved.PendingRegistration == nil || saved.PendingRegistration.Client.ID != "registered" || saved.Client.ID != r.Client.ID || saved.Tokens.Access != "old" || saved.AuthorizationActive() {
+		t.Fatal("checkpoint or previous grant lost")
+	}
+	if _, err := late(saved); err == nil {
+		t.Fatal("late checkpoint accepted")
+	}
+}
+
+func TestConfiguredRefusedCandidateKeepsOriginalRefreshBinding(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		_ = req.ParseForm()
+		if req.Form.Get("client_id") != "client" || req.Form.Get("refresh_token") != "refresh" {
+			t.Error("refresh used candidate client")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "renewed", "token_type": "Bearer", "expires_in": 3600})
+	}))
+	defer srv.Close()
+	r := configuredRecord(srv.URL)
+	store := &memoryStore{r: r}
+	service, _ := NewConfigured(r, nil)
+	_, err := service.AuthorizeUsingCheckpoint(context.Background(), store, r.ID, func(ctx context.Context, candidate Record, checkpoint func(Record) (Record, error)) (Record, error) {
+		candidate.Client.ID, candidate.Client.Method = "different-client", "dcr"
+		if _, err := checkpoint(candidate); err != nil {
+			t.Fatal(err)
+		}
+		return Record{}, errors.New("consent denied")
+	})
+	if err == nil {
+		t.Fatal("expected refused consent")
+	}
+	saved, _ := store.Load(context.Background(), r.ID)
+	service, _ = NewConfigured(saved, nil)
+	renewed, err := service.Resolve(WithNetworkOperation(context.Background()), store, r.ID, r.Resource, "")
+	if err != nil || renewed.Tokens.Access != "renewed" {
+		t.Fatalf("original grant lost: %v", err)
+	}
+	_, err = service.AuthorizeUsingCheckpoint(context.Background(), store, r.ID, func(ctx context.Context, candidate Record, _ func(Record) (Record, error)) (Record, error) {
+		if candidate.Client.ID != "different-client" {
+			t.Fatal("candidate was not reused")
+		}
+		candidate.Tokens = Tokens{Access: "candidate-token", Type: "Bearer"}
+		return candidate, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, _ = store.Load(context.Background(), r.ID)
+	if saved.PendingRegistration != nil || saved.Client.ID != "different-client" || saved.Tokens.Access != "candidate-token" {
+		t.Fatal("candidate was not promoted atomically")
+	}
+}

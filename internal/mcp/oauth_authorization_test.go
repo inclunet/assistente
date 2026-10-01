@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -134,12 +135,14 @@ func TestManagedOAuthLegacyIsNotMigratedOrUsedAsFallback(t *testing.T) {
 
 func TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart(t *testing.T) {
 	m, repo, ctx := managedFixture(t)
-	var tokenCalls atomic.Int32
+	var tokenCalls, registrations atomic.Int32
+	denied := true
 	var redirect string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/register":
+			registrations.Add(1)
 			var body oauthflow.RegistrationRequest
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			if len(body.RedirectURIs) != 1 {
@@ -180,6 +183,9 @@ func TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart(t *testing.T)
 		u, _ := url.Parse(raw)
 		q := u.Query()
 		callback := q.Get("redirect_uri") + "?state=" + url.QueryEscape(q.Get("state")) + "&code=CODE"
+		if denied {
+			callback = q.Get("redirect_uri") + "?state=" + url.QueryEscape(q.Get("state")) + "&error=access_denied"
+		}
 		resp, err := http.Get(callback)
 		if err != nil {
 			return err
@@ -188,12 +194,23 @@ func TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart(t *testing.T)
 		_ = resp.Body.Close()
 		return nil
 	}
+	if err := m.authorizeManagedOAuth(ctx, "new", cfg); err == nil {
+		t.Fatal("expected denied consent")
+	}
+	cfg, _, checkpoint := loadManaged(t, m, ctx, "new")
+	if checkpoint.PendingRegistration == nil || checkpoint.PendingRegistration.Client.ID != "registered" || checkpoint.PendingRegistration.Callback.Port == 0 || checkpoint.Tokens.Access != "" || checkpoint.AuthorizationActive() {
+		t.Fatal("registration checkpoint lost")
+	}
+	denied = false
 	if err := m.authorizeManagedOAuth(ctx, "new", cfg); err != nil {
 		t.Fatal(err)
 	}
 	cfg, store, r := loadManaged(t, m, ctx, "new")
 	if r.Client.ID != "registered" || r.Tokens.Refresh != "REFRESH" || r.Callback.Port == 0 || r.State != "connected" {
 		t.Fatalf("grant not persisted: %s", r.State)
+	}
+	if registrations.Load() != 1 {
+		t.Fatal("DCR repeated after failed consent")
 	}
 	r.Tokens.ExpiresAt = time.Now().Add(-time.Hour)
 	r.Revision++
@@ -542,10 +559,17 @@ func TestManagedOAuthSSEFallbackPreservesAuthorization(t *testing.T) {
 		t.Cleanup(func() { _ = session.Close() })
 		return clientTransport, nil
 	}
+	m.signalNeedsReauth("polling", "polling", "expired")
 	if err := m.Connect("polling"); err != nil {
 		t.Fatal(err)
 	}
 	defer m.CloseAll()
+	if m.List()[0].NeedsReauth {
+		t.Fatal("successful connect retained reauth badge")
+	}
+	if renewed, err := m.refreshOAuthTokenBestEffort(ctx, "polling", false); err != nil || renewed {
+		t.Fatalf("cached grant counted as renewal: %v", err)
+	}
 	latest, err := store.Load(ctx, record.ID)
 	if err != nil || latest.Revision != record.Revision || (latest.Tokens.Access != record.Tokens.Access || latest.Tokens.Refresh != record.Tokens.Refresh || latest.Tokens.Type != record.Tokens.Type || !latest.Tokens.ExpiresAt.Equal(record.Tokens.ExpiresAt)) {
 		t.Fatalf("fallback changed authorization: %v", err)
@@ -852,5 +876,35 @@ func TestManagedOAuthLatePublicationLoadsLatestCommit(t *testing.T) {
 	got, _, record := loadManaged(t, m, ctx, "new")
 	if got.Name != "Newest" || got.URL != cfg.URL || record.Resource != cfg.URL {
 		t.Fatal("late publication restored an obsolete consumer")
+	}
+}
+
+func TestManagedOAuthNativeClientCredentialsNeedsConfiguration(t *testing.T) {
+	for _, permission := range []bool{false, true} {
+		t.Run(fmt.Sprint(permission), func(t *testing.T) {
+			m, _, ctx := managedFixture(t)
+			cfg := managedConfig("https://resource.example")
+			cfg.AuthType = AuthOAuth2ClientCredentials
+			if err := m.SaveConfig("cc", cfg); err != nil {
+				t.Fatal(err)
+			}
+			cfg, store, r := loadManaged(t, m, ctx, "cc")
+			reason := "oauth_client_configuration_required"
+			if permission {
+				r.State = "permission_required"
+				r.Revision++
+				if err := store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
+					t.Fatal(err)
+				}
+				reason = "oauth_permission_missing"
+			}
+			if _, ok := m.resolveNativeAuthToken(ctx, nativeMCPCandidate{slug: "cc", managedConfig: cfg}); ok {
+				t.Fatal("invalid credentials accepted")
+			}
+			info := m.List()[0]
+			if info.NeedsReauth || info.Status != StatusError || info.Error != reason {
+				t.Fatalf("wrong recovery state: %+v", info)
+			}
+		})
 	}
 }
