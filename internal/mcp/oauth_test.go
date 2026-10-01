@@ -977,6 +977,9 @@ func TestDiscoverOAuth_ASMDirectAtBase(t *testing.T) {
 
 func TestAuthorizeDeviceFlow_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			t.Errorf("verification code sent before browser: %s", r.URL.RequestURI())
+		}
 		switch r.URL.Path {
 		case "/device/authorize":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1542,5 +1545,47 @@ func TestAuthorizeCanceledWhileWaitingForSharedArbiter(t *testing.T) {
 	release()
 	if err := rt.authorize(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("already canceled authorization proceeded with free arbiter: %v", err)
+	}
+}
+
+func TestDeviceVerificationProbesOnlyCodeFreeEndpoint(t *testing.T) {
+	for _, mode := range []string{"reachable", "rewrite", "different_path", "missing_base", "base_query"} {
+		t.Run(mode, func(t *testing.T) {
+			var probes []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				probes = append(probes, r.URL.RequestURI())
+				if r.URL.RawQuery != "" {
+					t.Errorf("probe leaked code: %s", r.URL.RequestURI())
+				}
+				if mode != "reachable" && r.URL.Path == "/oauth/verify" {
+					w.WriteHeader(http.StatusUnauthorized)
+				}
+			}))
+			defer srv.Close()
+			base := srv.URL + "/oauth/verify"
+			complete := base + "?user_code=SECRET#confirm"
+			want := complete
+			wantProbes := 1
+			switch mode {
+			case "rewrite":
+				want = srv.URL + "/api/oauth/verify?user_code=SECRET#confirm"
+				wantProbes = 2
+			case "different_path":
+				complete = srv.URL + "/other?user_code=SECRET"
+				want = complete
+				wantProbes = 2
+			case "missing_base":
+				base = ""
+				wantProbes = 0
+			case "base_query":
+				base += "?code=SECRET"
+				wantProbes = 0
+			}
+			rt := &pkceRoundTripper{cfg: ServerConfig{URL: srv.URL}}
+			got, err := rt.deviceVerificationURL(context.Background(), oauthflow.DeviceVerification{BaseURL: base, URL: complete, UserCode: "SECRET"})
+			if err != nil || got != want || len(probes) != wantProbes {
+				t.Fatalf("got=%s err=%v probes=%v", got, err, probes)
+			}
+		})
 	}
 }

@@ -337,7 +337,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   transação e publica os demais campos atuais. Token sem refresh exige reconexão
   persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
   Testes cobrem preservação de edições e falha na gravação da transição.
-- Revisão independente local em quarenta e sete rodadas, com correções de isolamento de
+- Revisão independente local em quarenta e oito rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
@@ -635,7 +635,7 @@ A reautorização nativa mantém o contrato existente. Cutover, migração atôm
 convergência Slack e validação funcional ChatGPT pelo usuário continuam pendentes.
 
 
-Revisão local dos grants/callbacks: `review_credential_sources`, sete rodadas;
+Revisão local dos grants/callbacks: `review_credential_sources`, oito rodadas;
 recuperação de porta antes de DCR e identificação persistida de registro Device-only
 corrigidas, última rodada sem pendências. A suite local não executa
 `internal/acpregistry` por restrição do antivírus; a confirmação de `internal/acp`
@@ -656,3 +656,11 @@ A página HTML MCP usa nonce novo por resposta para seus blocos estáticos de es
 e fechamento da janela, sem liberar atributos inline ou recursos externos.
 Callbacks de texto mantêm `default-src 'none'`. Evidência:
 `TestHTMLCallbackUsesFreshNonceWithoutRelaxingPlaintext` (sucesso, recusa e texto).
+
+A sondagem MCP de compatibilidade usa somente `verification_uri` sem query ou
+fragmento; nunca requisita `verification_uri_complete`. Uma reescrita `/api`
+só é aplicada ao endereço completo quando origem e caminho correspondem.
+Evidência: `TestDeviceVerificationProbesOnlyCodeFreeEndpoint` e o fluxo Device MCP.
+Timeout/cancelamento do chamador preservam seu erro; somente o prazo interno
+é classificado como expiração do código, coberto por
+`TestDeviceGrantExpiresDuringPresentationAndCancelsPolling`.

@@ -681,13 +681,31 @@ func (rt *pkceRoundTripper) reserveRegistrationCallback() (*oauthflow.LoopbackCa
 
 // ============ Device Authorization Flow (RFC 8628) ============
 
+// Probe only the code-free endpoint. Never send the complete verification URI
+// through the HTTP client: its session belongs to the browser.
+func (rt *pkceRoundTripper) deviceVerificationURL(ctx context.Context, verification oauthflow.DeviceVerification) (string, error) {
+	base, err := url.Parse(verification.BaseURL)
+	if err != nil || base.Scheme == "" || base.Host == "" || base.RawQuery != "" || base.Fragment != "" {
+		return verification.URL, nil
+	}
+	fixed, err := rt.fixBlockedEndpoint(ctx, verification.BaseURL)
+	if err != nil {
+		return "", err
+	}
+	complete, err := url.Parse(verification.URL)
+	if err == nil && fixed != verification.BaseURL && complete.Scheme == base.Scheme && complete.Host == base.Host && complete.EscapedPath() == base.EscapedPath() {
+		return tryAPIPrefix(verification.URL), nil
+	}
+	return verification.URL, nil
+}
+
 func (rt *pkceRoundTripper) authorizeDeviceFlow(ctx context.Context) error {
 	clientID := rt.effectiveClientID()
 	deviceScopes := rt.effectiveScopes()
 	result, err := oauthflow.AuthorizeDevice(ctx, oauthflow.DeviceGrantConfig{
 		Resource: rt.cfg.URL, Audience: rt.resourceURL, ClientID: clientID, DeviceEndpoint: rt.cfg.OAuth2DeviceAuthURL, TokenEndpoint: rt.cfg.OAuth2TokenURL, Scopes: deviceScopes, AuthorizeNetwork: rt.networkAuthorizer,
 	}, func(ctx context.Context, verification oauthflow.DeviceVerification) error {
-		verifyURL, err := rt.fixBlockedEndpoint(ctx, verification.URL)
+		verifyURL, err := rt.deviceVerificationURL(ctx, verification)
 		if err != nil {
 			return err
 		}

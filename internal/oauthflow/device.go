@@ -21,7 +21,7 @@ type DeviceGrantConfig struct {
 	Scopes                                                      []string
 	AuthorizeNetwork                                            NetworkAuthorizer
 }
-type DeviceVerification struct{ UserCode, URL string }
+type DeviceVerification struct{ UserCode, URL, BaseURL string }
 type DeviceGrantResult struct {
 	Token  *oauth2.Token
 	Scopes []string
@@ -119,6 +119,9 @@ func waitDevicePoll(ctx context.Context, interval time.Duration) error {
 // Verification presentation is supplied by the consumer after destination consent.
 func AuthorizeDevice(ctx context.Context, cfg DeviceGrantConfig, verify func(context.Context, DeviceVerification) error) (DeviceGrantResult, error) {
 	result, err := authorizeDevice(ctx, cfg, verify, waitDevicePoll)
+	if err != nil && ctx.Err() != nil {
+		return result, ctx.Err()
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return result, errors.Join(deviceFailure("expired_token"), context.DeadlineExceeded)
 	}
@@ -177,7 +180,7 @@ func authorizeDevice(parent context.Context, cfg DeviceGrantConfig, verify func(
 	if destinationErr != nil {
 		return DeviceGrantResult{}, safeDeviceTransportError(ctx, destinationErr)
 	}
-	if err := verify(ctx, DeviceVerification{UserCode: device.UserCode, URL: verifyURL}); err != nil {
+	if err := verify(ctx, DeviceVerification{UserCode: device.UserCode, URL: verifyURL, BaseURL: device.VerificationURI}); err != nil {
 		return DeviceGrantResult{}, err
 	}
 	interval := device.Interval

@@ -118,7 +118,7 @@ func TestDeviceGrantErrorsAreTerminalAndSanitized(t *testing.T) {
 	}
 }
 func TestDeviceGrantExpiresDuringPresentationAndCancelsPolling(t *testing.T) {
-	for _, mode := range []string{"expires", "cancel"} {
+	for _, mode := range []string{"expires", "cancel", "caller_deadline"} {
 		t.Run(mode, func(t *testing.T) {
 			var polls atomic.Int32
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -131,6 +131,11 @@ func TestDeviceGrantExpiresDuringPresentationAndCancelsPolling(t *testing.T) {
 			defer srv.Close()
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
+			if mode == "caller_deadline" {
+				var deadlineCancel context.CancelFunc
+				ctx, deadlineCancel = context.WithTimeout(ctx, 100*time.Millisecond)
+				defer deadlineCancel()
+			}
 			_, err := AuthorizeDevice(ctx, DeviceGrantConfig{Resource: srv.URL, ClientID: "c", DeviceEndpoint: srv.URL + "/device", TokenEndpoint: srv.URL + "/token"}, func(ctx context.Context, _ DeviceVerification) error {
 				if mode == "cancel" {
 					cancel()
@@ -143,7 +148,11 @@ func TestDeviceGrantExpiresDuringPresentationAndCancelsPolling(t *testing.T) {
 			if mode == "cancel" {
 				want = context.Canceled
 			}
-			if !errors.Is(err, want) || polls.Load() != 0 {
+			wantCode := ""
+			if mode == "expires" {
+				wantCode = "expired_token"
+			}
+			if !errors.Is(err, want) || DeviceGrantErrorCode(err) != wantCode || polls.Load() != 0 {
 				t.Fatalf("err=%v polls=%d", err, polls.Load())
 			}
 		})
