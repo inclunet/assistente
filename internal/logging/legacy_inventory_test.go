@@ -22,8 +22,10 @@ const (
 	// se cancelam; o lifecycle unificado continua usando formatos normalizados.
 	// A retenção saiu do reload síncrono: quatro formatos desse bloco foram
 	// removidos. Os logs da manutenção existente continuam no jobs.Manager.
-	expectedLegacyFormatCount  = 770
-	expectedLegacyFormatDigest = "b6f3e9fb77159af3decc7a598e10a8950458e23dad95f0c32393e956e1db869b"
+	// Provider CRUD now propagates persistence failures before publishing: three
+	// obsolete creation/update/removal warning formats were removed.
+	expectedLegacyFormatCount  = 767
+	expectedLegacyFormatDigest = "5b528b16bf500248a1e590dedf6acf11f33de9e3399f9e28509e438866562cf2"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.
