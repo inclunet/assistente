@@ -128,3 +128,27 @@ func TestDynamicRegistrationRejectsInvalidEndpoint(t *testing.T) {
 		}
 	}
 }
+
+func TestRegistrationResponseTypesDistinguishesDefaultFromEmpty(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		types []string
+		want  string
+	}{
+		{"default", nil, ""}, {"device", []string{}, "[]"}, {"pkce", []string{"code"}, `["code"]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := json.Marshal(RegistrationRequest{ResponseTypes: tc.types})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if got := string(fields["response_types"]); got != tc.want {
+				t.Fatalf("response_types=%q want=%q", got, tc.want)
+			}
+		})
+	}
+}

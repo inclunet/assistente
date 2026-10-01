@@ -5,5 +5,10 @@ export function mcpOAuthErrorMessage(error: unknown, t: TFunction): string {
   if (message.includes('oauth_resource_destination_blocked')) return t('mcp.error.resourceDestinationBlocked');
   if (message.includes('oauth_discovery_destination_blocked')) return t('mcp.error.networkAuthorizationFailed');
   if (message.includes('oauth_registration_failed')) return t('mcp.error.registrationFailed');
+  if (message.includes('oauth_callback_port_unavailable')) return t('mcp.error.callbackPortUnavailable');
+  if (message.includes('oauth_consent_declined') || message.includes('oauth_device_grant_failed: access_denied')) return t('mcp.error.consentDeclined');
+  if (message.includes('oauth_device_grant_failed: expired_token')) return t('mcp.error.deviceExpired');
+  if (message.includes('oauth_device_grant_failed')) return t('mcp.error.deviceFailed');
+  if (message.includes('oauth_code_exchange_failed')) return t('mcp.error.codeExchangeFailed');
   return message;
 }

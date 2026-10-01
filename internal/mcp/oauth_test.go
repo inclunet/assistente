@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -255,112 +256,125 @@ func TestDCRDoesNotOverwriteFixedPort(t *testing.T) {
 }
 
 func TestAuthorizePKCEReregistersWhenFixedCallbackPortIsBusy(t *testing.T) {
-	occupied, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen failed: %v", err)
-	}
-	defer func() { _ = occupied.Close() }()
-	occupiedPort := occupied.Addr().(*net.TCPAddr).Port
-
-	var (
-		mu                 sync.Mutex
-		registeredRedirect string
-		savedConfig        *ServerConfig
-	)
-
-	authServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/register":
-			var req oauthflow.RegistrationRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				t.Errorf("DCR body inválido: %v", err)
-				w.WriteHeader(http.StatusBadRequest)
-				return
+	for _, initialClient := range []string{"old-client", ""} {
+		t.Run("client="+initialClient, func(t *testing.T) {
+			occupied, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatalf("net.Listen failed: %v", err)
 			}
-			if len(req.RedirectURIs) != 1 {
-				t.Errorf("redirect_uris: got %v, want 1 item", req.RedirectURIs)
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			mu.Lock()
-			registeredRedirect = req.RedirectURIs[0]
-			mu.Unlock()
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprint(w, `{"client_id":"new-client"}`)
-		case "/token":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprint(w, `{"access_token":"access","token_type":"Bearer","expires_in":3600}`)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer authServer.Close()
+			defer func() { _ = occupied.Close() }()
+			occupiedPort := occupied.Addr().(*net.TCPAddr).Port
 
-	oldBrowserOpen := browserOpen
-	browserOpen = func(rawURL string) error {
-		u, err := url.Parse(rawURL)
-		if err != nil {
-			return err
-		}
-		redirectURI := u.Query().Get("redirect_uri")
-		state := u.Query().Get("state")
-		go func() {
-			resp, err := http.Get(redirectURI + "?code=ok&state=" + url.QueryEscape(state))
-			if err == nil {
+			var (
+				mu                 sync.Mutex
+				registeredRedirect string
+				savedConfig        *ServerConfig
+			)
+
+			authServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/register":
+					var req oauthflow.RegistrationRequest
+					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+						t.Errorf("DCR body inválido: %v", err)
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					if len(req.RedirectURIs) != 1 {
+						t.Errorf("redirect_uris: got %v, want 1 item", req.RedirectURIs)
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					mu.Lock()
+					registeredRedirect = req.RedirectURIs[0]
+					mu.Unlock()
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprint(w, `{"client_id":"new-client"}`)
+				case "/token":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprint(w, `{"access_token":"access","token_type":"Bearer","expires_in":3600}`)
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer authServer.Close()
+
+			oldBrowserOpen := browserOpen
+			browserOpen = func(rawURL string) error {
+				u, err := url.Parse(rawURL)
+				if err != nil {
+					return err
+				}
+				redirectURI := u.Query().Get("redirect_uri")
+				state := u.Query().Get("state")
+				resp, err := http.Get(redirectURI + "?code=ok&state=" + url.QueryEscape(state))
+				if err != nil {
+					return err
+				}
+				body, err := io.ReadAll(resp.Body)
 				_ = resp.Body.Close()
+				if err != nil {
+					return err
+				}
+				_, nonceHTML, found := strings.Cut(string(body), `<style nonce="`)
+				nonce, _, closed := strings.Cut(nonceHTML, `"`)
+				policy := resp.Header.Get("Content-Security-Policy")
+				if !found || !closed || len(nonce) < 32 || !strings.Contains(string(body), `<script nonce="`+nonce+`">`) || !strings.Contains(policy, "style-src 'nonce-"+nonce+"'") || !strings.Contains(policy, "script-src 'nonce-"+nonce+"'") || strings.Contains(string(body), "style=") {
+					t.Error("MCP callback assets do not match the restricted CSP")
+				}
+				return nil
 			}
-		}()
-		return nil
-	}
-	defer func() { browserOpen = oldBrowserOpen }()
+			defer func() { browserOpen = oldBrowserOpen }()
 
-	rt := &pkceRoundTripper{
-		base: http.DefaultTransport,
-		cfg: ServerConfig{
-			URL:                   authServer.URL,
-			OAuth2ClientID:        "old-client",
-			OAuth2AuthURL:         authServer.URL + "/authorize",
-			OAuth2TokenURL:        authServer.URL + "/token",
-			OAuth2CallbackPort:    occupiedPort,
-			OAuth2CallbackHost:    "127.0.0.1",
-			OAuth2RegistrationURL: authServer.URL + "/register",
-		},
-		serverSlug: "test",
-		onConfigUpdate: func(cfg ServerConfig) {
+			rt := &pkceRoundTripper{
+				base: http.DefaultTransport,
+				cfg: ServerConfig{
+					URL:                   authServer.URL,
+					OAuth2ClientID:        initialClient,
+					OAuth2AuthURL:         authServer.URL + "/authorize",
+					OAuth2TokenURL:        authServer.URL + "/token",
+					OAuth2CallbackPort:    occupiedPort,
+					OAuth2CallbackHost:    "127.0.0.1",
+					OAuth2RegistrationURL: authServer.URL + "/register",
+				},
+				serverSlug: "test",
+				onConfigUpdate: func(cfg ServerConfig) {
+					mu.Lock()
+					defer mu.Unlock()
+					c := cfg
+					savedConfig = &c
+				},
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := rt.authorize(ctx); err != nil {
+				t.Fatalf("authorizePKCE failed: %v", err)
+			}
+
+			if rt.cfg.OAuth2ClientID != "new-client" {
+				t.Fatalf("client_id: got %q, want new-client", rt.cfg.OAuth2ClientID)
+			}
+			if rt.cfg.OAuth2CallbackPort == 0 || rt.cfg.OAuth2CallbackPort == occupiedPort {
+				t.Fatalf("callback port não foi substituída: got %d, busy %d", rt.cfg.OAuth2CallbackPort, occupiedPort)
+			}
+
 			mu.Lock()
 			defer mu.Unlock()
-			c := cfg
-			savedConfig = &c
-		},
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := rt.authorizePKCE(ctx); err != nil {
-		t.Fatalf("authorizePKCE failed: %v", err)
-	}
-
-	if rt.cfg.OAuth2ClientID != "new-client" {
-		t.Fatalf("client_id: got %q, want new-client", rt.cfg.OAuth2ClientID)
-	}
-	if rt.cfg.OAuth2CallbackPort == 0 || rt.cfg.OAuth2CallbackPort == occupiedPort {
-		t.Fatalf("callback port não foi substituída: got %d, busy %d", rt.cfg.OAuth2CallbackPort, occupiedPort)
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-	if savedConfig == nil {
-		t.Fatal("onConfigUpdate não foi chamado")
-	}
-	if savedConfig.OAuth2CallbackPort != rt.cfg.OAuth2CallbackPort {
-		t.Fatalf("porta persistida: got %d, want %d", savedConfig.OAuth2CallbackPort, rt.cfg.OAuth2CallbackPort)
-	}
-	redirectURL, err := url.Parse(registeredRedirect)
-	if err != nil {
-		t.Fatalf("redirect_uri registrado inválido: %q: %v", registeredRedirect, err)
-	}
-	if redirectURL.Port() == "" || redirectURL.Port() == fmt.Sprint(occupiedPort) {
-		t.Fatalf("redirect_uri registrado usou porta inválida: %q", registeredRedirect)
+			if savedConfig == nil {
+				t.Fatal("onConfigUpdate não foi chamado")
+			}
+			if savedConfig.OAuth2CallbackPort != rt.cfg.OAuth2CallbackPort {
+				t.Fatalf("porta persistida: got %d, want %d", savedConfig.OAuth2CallbackPort, rt.cfg.OAuth2CallbackPort)
+			}
+			redirectURL, err := url.Parse(registeredRedirect)
+			if err != nil {
+				t.Fatalf("redirect_uri registrado inválido: %q: %v", registeredRedirect, err)
+			}
+			if redirectURL.Port() == "" || redirectURL.Port() == fmt.Sprint(occupiedPort) {
+				t.Fatalf("redirect_uri registrado usou porta inválida: %q", registeredRedirect)
+			}
+		})
 	}
 }
 
@@ -963,13 +977,16 @@ func TestDiscoverOAuth_ASMDirectAtBase(t *testing.T) {
 
 func TestAuthorizeDeviceFlow_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			t.Errorf("verification code sent before browser: %s", r.URL.RequestURI())
+		}
 		switch r.URL.Path {
 		case "/device/authorize":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"device_code":               "DEV-CODE-123",
 				"user_code":                 "ABCD-1234",
-				"verification_uri":          "https://auth.example.com/verify",
-				"verification_uri_complete": "https://auth.example.com/verify?user_code=ABCD-1234",
+				"verification_uri":          "http://" + r.Host + "/verify",
+				"verification_uri_complete": "http://" + r.Host + "/verify?user_code=ABCD-1234",
 				"expires_in":                300,
 				"interval":                  1,
 			})
@@ -1023,7 +1040,7 @@ func TestAuthorizeDeviceFlow_SlowDown(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"device_code":      "DEV-CODE",
 				"user_code":        "SLOW-1234",
-				"verification_uri": "https://example.com/verify",
+				"verification_uri": "http://" + r.Host + "/verify",
 				"expires_in":       300,
 				"interval":         1,
 			})
@@ -1074,7 +1091,7 @@ func TestAuthorizeDeviceFlow_Timeout(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"device_code":      "DEV-TIMEOUT",
 				"user_code":        "TIMEOUT-1",
-				"verification_uri": "https://example.com/verify",
+				"verification_uri": "http://" + r.Host + "/verify",
 				"expires_in":       2,
 				"interval":         1,
 			})
@@ -1103,7 +1120,7 @@ func TestAuthorizeDeviceFlow_Timeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
-	if !strings.Contains(err.Error(), "timed out") {
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("expected timeout error, got: %v", err)
 	}
 }
@@ -1528,5 +1545,47 @@ func TestAuthorizeCanceledWhileWaitingForSharedArbiter(t *testing.T) {
 	release()
 	if err := rt.authorize(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("already canceled authorization proceeded with free arbiter: %v", err)
+	}
+}
+
+func TestDeviceVerificationProbesOnlyCodeFreeEndpoint(t *testing.T) {
+	for _, mode := range []string{"reachable", "rewrite", "different_path", "missing_base", "base_query"} {
+		t.Run(mode, func(t *testing.T) {
+			var probes []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				probes = append(probes, r.URL.RequestURI())
+				if r.URL.RawQuery != "" {
+					t.Errorf("probe leaked code: %s", r.URL.RequestURI())
+				}
+				if mode != "reachable" && r.URL.Path == "/oauth/verify" {
+					w.WriteHeader(http.StatusUnauthorized)
+				}
+			}))
+			defer srv.Close()
+			base := srv.URL + "/oauth/verify"
+			complete := base + "?user_code=SECRET#confirm"
+			want := complete
+			wantProbes := 1
+			switch mode {
+			case "rewrite":
+				want = srv.URL + "/api/oauth/verify?user_code=SECRET#confirm"
+				wantProbes = 2
+			case "different_path":
+				complete = srv.URL + "/other?user_code=SECRET"
+				want = complete
+				wantProbes = 2
+			case "missing_base":
+				base = ""
+				wantProbes = 0
+			case "base_query":
+				base += "?code=SECRET"
+				wantProbes = 0
+			}
+			rt := &pkceRoundTripper{cfg: ServerConfig{URL: srv.URL}}
+			got, err := rt.deviceVerificationURL(context.Background(), oauthflow.DeviceVerification{BaseURL: base, URL: complete, UserCode: "SECRET"})
+			if err != nil || got != want || len(probes) != wantProbes {
+				t.Fatalf("got=%s err=%v probes=%v", got, err, probes)
+			}
+		})
 	}
 }

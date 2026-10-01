@@ -1397,6 +1397,11 @@ const en = {
       error: {
         resourceDestinationBlocked: 'The OAuth MCP resource requires HTTPS (except localhost) and cannot redirect the token to another domain or port. Configure the final server URL and reconnect.',
         networkAuthorizationFailed: 'OAuth network authorization was not completed. Check the destination and network allowlist permissions before trying again.',
+        callbackPortUnavailable: 'Could not reserve the OAuth callback port. Close the application using the port or check the callback configuration.',
+        consentDeclined: 'Authorization was declined. Start a new authorization to try again.',
+        deviceExpired: 'The authorization code expired. Start a new authorization to obtain another code.',
+        deviceFailed: 'Could not complete device authorization. Check the OAuth configuration and try again.',
+        codeExchangeFailed: 'Could not exchange the authorization code for a token. Check the OAuth configuration and start a new authorization.',
         registrationFailed: 'Could not register the OAuth client. Check the registration endpoint and callback URL, then try again.',
         slugRequired: 'Slug (identifier) is required',
         nameRequired: 'Name is required',

@@ -282,6 +282,7 @@ type MemoryRecord struct {
 // `dedupCredentialEntriesBeforeMigrate` antes do AutoMigrate aplicar o
 // índice (review do AEP-0052, B31).
 type CredentialEntry struct {
+	ClientGrantType string `json:"client_grant_type,omitempty"`
 	OAuthEnc        string `json:"-" gorm:"column:oauth_enc;type:text"`
 	Source          string `json:"source"`
 	SourceConfigEnc string `json:"source_config_enc" gorm:"type:text"`

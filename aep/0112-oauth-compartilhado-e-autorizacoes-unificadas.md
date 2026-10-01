@@ -281,7 +281,9 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    callback manual/fixo e reautorização; adicionar consumidores do serviço compartilhado.
    **Em andamento:** discovery e registro RFC 7591 foram extraídos para
    `internal/oauthflow`, consumidos pela tela e pelo runtime MCP. Device Flow,
-   client credentials, callback e reautorização ainda usam o ciclo MCP legado.
+   client credentials, cache/serialização de renovação e listener de callback
+   também foram extraídos. O MCP permanece responsável pela persistência legada;
+   a adaptação completa da reautorização e o cutover ainda não foram entregues.
    O transporte local do recurso MCP em PKCE/Client Credentials também aplica
    isolamento por origem, TLS e guard de rede compartilhado, preservando streams.
    A migração de credenciais continua exclusiva da fase 3.
@@ -335,7 +337,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   transação e publica os demais campos atuais. Token sem refresh exige reconexão
   persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
   Testes cobrem preservação de edições e falha na gravação da transição.
-- Revisão independente local em quarenta e sete rodadas, com correções de isolamento de
+- Revisão independente local em quarenta e oito rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
@@ -366,8 +368,9 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 - Falhas ChatGPT usam códigos estáveis e traduções nos três idiomas. Salvar o
   modelo padrão é opcional e não invalida um consentimento já concluído, inclusive
   se a releitura da autorização falhar antes da gravação opcional.
-- MCP compartilha somente o árbitro de interação nesta fase. Discovery, DCR,
-  Device Flow, client credentials, persistência MCP e Slack permanecem pendentes.
+- Ao final da fase 1, MCP compartilhava somente o árbitro de interação.
+  As extrações seguintes de discovery, DCR, grants e callbacks estão documentadas
+  nas entregas da fase 2 abaixo; persistência unificada MCP e Slack seguem pendentes.
 
 ## Riscos
 
@@ -585,3 +588,79 @@ usuário e não foi marcada como concluída por esta entrega.
 Revisão local da proteção do recurso MCP: `review_credential_sources`, duas rodadas;
 exceção HTTP/localhost corrigida para exigir IP real loopback e preflight DNS
 limitado independentemente do stream, zero pendências.
+
+
+### Grants e callbacks compartilhados (continuação da fase 2)
+
+- `oauthflow.AuthorizeDevice` concentra RFC 8628: apresentação pelo consumidor,
+  intervalo do servidor (padrão de cinco segundos), `authorization_pending`,
+  aumento por `slow_down`, prazo/cancelamento e scopes concedidos. Respostas são
+  limitadas e erros expõem somente códigos permitidos, sem corpo ou códigos de
+  autorização. Recusa e expiração encerram a tentativa, sem fallback PKCE.
+- `ClientCredentialsTokenSource` e `NewOperationTokenSource` compartilham cache,
+  serialização e consentimento por renovação. O MCP continua sendo o único owner
+  da persistência de seus tokens; não existe um segundo fluxo de refresh.
+- `ReserveCallback` mantém a URI exata reservada antes de DCR e da abertura do
+  navegador. `Service.Authorize` e MCP usam o mesmo listener, que verifica
+  método, host, path, state e parâmetros duplicados; callbacks inválidos não
+  consomem a tentativa válida. O resultado é consumido uma vez e a resposta
+  completa chega ao navegador antes de encerrar a autorização.
+- Clientes manuais não trocam de porta após colisão. DCR pode reservar outra
+  porta e registrar a nova URI antes de prosseguir, inclusive sem cliente inicial.
+  Device Flow/DCR pede apenas seus grants, sem callback/listener; fallback para
+  PKCE registra a URI reservada antes de abrir o navegador quando o cliente foi
+  criado exclusivamente para Device. `ClientGrantType` preserva essa informação
+  na credencial legada, inclusive após reinício; ausência do metadado preserva
+  clientes manuais/legados. Isso não converte as duas entradas MCP nem cria
+  um segundo owner. Evidências: `TestClientRegistrationGrantSurvivesReload` e
+  `TestPKCEFallbackRespectsClientRegistrationGrant`.
+- Mensagens de falha de callback, recusa, expiração, Device Flow e troca de código
+  são traduzidas em pt-BR/en/es. URLs de autorização e corpos remotos não aparecem
+  nos novos erros ou logs desses componentes.
+- Evidências: `TestDeviceGrantPollingAndScopes`,
+  `TestDeviceGrantErrorsAreTerminalAndSanitized`,
+  `TestDeviceGrantExpiresDuringPresentationAndCancelsPolling`,
+  `TestSharedCallbackRejectsInvalidRequestsWithoutConsuming`,
+  `TestSharedCallbackReservationAndCancellation`,
+  `TestAuthorizePKCEReregistersWhenFixedCallbackPortIsBusy`,
+  `TestDeviceDCRNeverRequiresCallbackPort`,
+  `TestManualPKCEPortCollisionDoesNotOpenBrowser`,
+  `TestDeviceRefusalNeverFallsBackToPKCE`,
+  `TestStoredAndClientCredentialsRefreshApprovalIsPerOperation`,
+  `TestCallbackBodyDeliveredBeforeFastAuthorizationFailure` e `mcpOAuthErrors.test.ts`.
+
+A fase 2 permanece **In Progress**: esta entrega compartilha os protocolos e o
+callback, mas não converte registros MCP nem transfere seu lifecycle persistido.
+A reautorização nativa mantém o contrato existente. Cutover, migração atômica,
+convergência Slack e validação funcional ChatGPT pelo usuário continuam pendentes.
+
+
+Revisão local dos grants/callbacks: `review_credential_sources`, oito rodadas;
+recuperação de porta antes de DCR e identificação persistida de registro Device-only
+corrigidas, última rodada sem pendências. A suite local não executa
+`internal/acpregistry` por restrição do antivírus; a confirmação de `internal/acp`
+no Windows encerrou com `0xffffffff`, sem asserção, após aprovação na primeira
+rodada. Esses pacotes permanecem cobertos pelo CI, sem contorno de bloqueio local.
+
+Inventário de logs: 766 → 751 formatos legados, correspondentes às quinze
+mensagens removidas na extração; zero chamadas `logging.Printf`. Novos eventos
+usam formatos normalizados sem código de dispositivo ou URL de autorização.
+
+O registro exclusivo Device declara `response_types: []`: omitir esse campo
+ativaria o padrão `code` da [RFC 7591 §2](https://www.rfc-editor.org/rfc/rfc7591#section-2).
+O DTO preserva a diferença entre ausência (padrão do protocolo), lista vazia
+(Device) e `code` (PKCE), coberta por
+`TestRegistrationResponseTypesDistinguishesDefaultFromEmpty` e pelo teste DCR MCP.
+
+A página HTML MCP usa nonce novo por resposta para seus blocos estáticos de estilo
+e fechamento da janela, sem liberar atributos inline ou recursos externos.
+Callbacks de texto mantêm `default-src 'none'`. Evidência:
+`TestHTMLCallbackUsesFreshNonceWithoutRelaxingPlaintext` (sucesso, recusa e texto).
+
+A sondagem MCP de compatibilidade usa somente `verification_uri` sem query ou
+fragmento; nunca requisita `verification_uri_complete`. Uma reescrita `/api`
+só é aplicada ao endereço completo quando origem e caminho correspondem.
+Evidência: `TestDeviceVerificationProbesOnlyCodeFreeEndpoint` e o fluxo Device MCP.
+Timeout/cancelamento do chamador preservam seu erro; somente o prazo interno
+é classificado como expiração do código, coberto por
+`TestDeviceGrantExpiresDuringPresentationAndCancelsPolling`.

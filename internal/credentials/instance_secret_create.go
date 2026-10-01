@@ -333,6 +333,7 @@ func (s *DBStore) InsertInstanceCredentialIfAbsent(ctx context.Context, cred Sto
 		ExpiresAt:       cred.Auth.ExpiresAt,
 		RefreshTokenEnc: cred.Auth.RefreshURL,
 		ClientIDEnc:     cred.Auth.ClientID,
+		ClientGrantType: cred.Auth.ClientGrantType,
 		ClientSecretEnc: cred.Auth.ClientSecret,
 	}
 
@@ -358,15 +359,16 @@ func storedCredentialFromDatabaseEntry(entry database.CredentialEntry) (StoredCr
 		UserID:  entry.UserID,
 		Pattern: entry.Pattern,
 		Auth: &AuthConfig{Source: entry.Source, SourceConfigEnc: entry.SourceConfigEnc,
-			Type:         entry.AuthType,
-			Token:        entry.TokenEnc,
-			Username:     entry.Username,
-			Password:     entry.PasswordEnc,
-			Headers:      headers,
-			ExpiresAt:    entry.ExpiresAt,
-			RefreshURL:   entry.RefreshTokenEnc,
-			ClientID:     entry.ClientIDEnc,
-			ClientSecret: entry.ClientSecretEnc,
+			Type:            entry.AuthType,
+			Token:           entry.TokenEnc,
+			Username:        entry.Username,
+			Password:        entry.PasswordEnc,
+			Headers:         headers,
+			ExpiresAt:       entry.ExpiresAt,
+			RefreshURL:      entry.RefreshTokenEnc,
+			ClientID:        entry.ClientIDEnc,
+			ClientGrantType: entry.ClientGrantType,
+			ClientSecret:    entry.ClientSecretEnc,
 		},
 	}, nil
 }
