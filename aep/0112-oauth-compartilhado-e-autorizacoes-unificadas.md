@@ -317,7 +317,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   transação e publica os demais campos atuais. Token sem refresh exige reconexão
   persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
   Testes cobrem preservação de edições e falha na gravação da transição.
-- Revisão independente local em trinta e oito rodadas, com correções de isolamento de
+- Revisão independente local em quarenta rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
@@ -458,3 +458,14 @@ transitória, sem pedir login. Falha local encerra a reserva ativa por CAS sem
 remover `RefreshPending`; se essa gravação falhar, o prazo limita a espera.
 Após expiração/ambiguidade, o estado exige reautorização. Evidências:
 `TestActiveRefreshSummaryAndResolution` e `TestRefreshCrashSafetyAndNoImplicitRetry`.
+
+Streams Responses fecham explicitamente o corpo HTTP em todos os retornos,
+inclusive `response.completed`; cancelamento após delta de texto ou raciocínio
+emite um único terminal traduzido não repetível. Provedores genéricos legados com
+referência `oauth:` podem ser corrigidos/excluídos após confirmar transacionalmente
+que não existe envelope local; vínculos reais continuam protegidos. Evidências:
+`TestChatGPTCompletionClosesBodyWithoutCallerCancellation`,
+`TestChatGPTCancellationAfterDeltaHasOneTerminal` e
+`TestLegacyGenericOAuthReferenceRequiresEnvelopeBeforeProtection`.
+Inventário de logs atualizado de 770 para 767 formatos: as três mensagens
+obsoletas de falha ignorada no CRUD foram removidas ao propagar esses erros.

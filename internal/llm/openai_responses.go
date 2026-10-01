@@ -276,6 +276,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	defer wd.Stop()
 
 	stream := p.streamClient.Responses.NewStreaming(watchCtx, params)
+	defer func() { _ = stream.Close() }()
 
 	completed := false
 	var fullResponse strings.Builder
@@ -327,6 +328,14 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		handler.OnError(code)
 	}
 
+	cancelStream := func() {
+		if p.provider.Type == ProviderChatGPT {
+			failChatGPT("chatgpt_request_cancelled")
+		} else {
+			finishThinking()
+		}
+	}
+
 	type pendingFuncCall struct {
 		ID   string
 		Name string
@@ -348,7 +357,7 @@ responseEvents:
 	for stream.Next() {
 		wd.Kick()
 		if ctx.Err() != nil {
-			finishThinking()
+			cancelStream()
 			return mcpStreamAttemptResult{done: true}
 		}
 		if wd.TimedOut() {
@@ -382,7 +391,7 @@ responseEvents:
 				if content != "" {
 					select {
 					case <-ctx.Done():
-						finishThinking()
+						cancelStream()
 						return mcpStreamAttemptResult{done: true}
 					default:
 					}
@@ -410,7 +419,7 @@ responseEvents:
 			ev := event.AsResponseReasoningSummaryTextDelta()
 			if ev.Delta != "" {
 				if ctx.Err() != nil {
-					finishThinking()
+					cancelStream()
 					return mcpStreamAttemptResult{done: true}
 				}
 				if wd.TimedOut() {
@@ -427,7 +436,7 @@ responseEvents:
 				fullReasoning.WriteString(ev.Delta)
 				handler.OnThinking(ev.Delta)
 				if ctx.Err() != nil {
-					finishThinking()
+					cancelStream()
 					return mcpStreamAttemptResult{done: true}
 				}
 			}
@@ -720,7 +729,7 @@ responseEvents:
 
 		// Cancelamento do usuário (contexto pai): nunca retentar.
 		if ctx.Err() != nil {
-			finishThinking()
+			cancelStream()
 			reportCurrentDiagnostics()
 			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
 			return mcpStreamAttemptResult{done: true}
@@ -829,7 +838,7 @@ responseEvents:
 	if isThinking && thinkingBuffer.Len() > 0 {
 		select {
 		case <-ctx.Done():
-			finishThinking()
+			cancelStream()
 			return mcpStreamAttemptResult{done: true}
 		default:
 		}
@@ -869,11 +878,15 @@ responseEvents:
 	}
 	select {
 	case <-ctx.Done():
-		finishThinking()
+		cancelStream()
 		return mcpStreamAttemptResult{done: true}
 	default:
 	}
 	ReportFinishReason(handler, finish)
+	if p.provider.Type == ProviderChatGPT && ctx.Err() != nil {
+		cancelStream()
+		return mcpStreamAttemptResult{done: true}
+	}
 
 	if finish.Reason == "" && len(finishedToolCalls) == 0 {
 		if emittedNonRetryableEffect {

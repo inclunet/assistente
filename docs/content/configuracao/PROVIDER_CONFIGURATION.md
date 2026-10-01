@@ -252,3 +252,7 @@ selfHosted: {
 ```
 
 Consulte [Fontes de credenciais](CREDENTIAL_SOURCES.md) para usar env, keyring ou comando sem inserir tokens estáticos.
+
+Provedores genéricos antigos com referência OAuth sem credencial local podem ser
+excluídos ou corrigidos editando a URL e configurando a credencial normalmente.
+Uma autorização local existente continua protegida contra desvinculação acidental.
