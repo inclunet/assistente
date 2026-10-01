@@ -38,6 +38,7 @@ type Record struct {
 	// RefreshPending is persisted BEFORE sending a potentially rotating refresh.
 	// A crash or ambiguous response must never cause the old token to be reused.
 	RefreshPending       bool      `json:"refreshPending,omitempty"`
+	RefreshUntil         time.Time `json:"refreshUntil,omitempty"`
 	AuthorizationAttempt string    `json:"authorizationAttempt,omitempty"`
 	AuthorizationUntil   time.Time `json:"authorizationUntil,omitempty"`
 }
@@ -95,4 +96,8 @@ type Store interface {
 // AuthorizationActive fences interactive consent across processes sharing a vault.
 func (r Record) AuthorizationActive() bool {
 	return r.AuthorizationAttempt != "" && time.Now().Before(r.AuthorizationUntil)
+}
+
+func (r Record) RefreshActive() bool {
+	return r.RefreshPending && time.Now().Before(r.RefreshUntil)
 }

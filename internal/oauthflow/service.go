@@ -130,6 +130,7 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 		r.Tokens = Tokens{ID: r.Tokens.ID}
 		r.State = "reauthorization_required"
 		r.RefreshPending = false
+		r.RefreshUntil = time.Time{}
 		r.Revision++
 		if err := store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
 			return Record{}, err
@@ -145,6 +146,9 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 	before := r.Revision
 	r.Revision++
 	r.RefreshPending = true
+	r.RefreshUntil = time.Now().Add(30 * time.Second)
+	ctx, refreshCancel := context.WithDeadline(ctx, r.RefreshUntil)
+	defer refreshCancel()
 	if err = store.CompareAndSwap(ctx, r, before); err != nil {
 		return Record{}, err
 	}
@@ -164,6 +168,7 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 			r.Tokens = Tokens{ID: r.Tokens.ID}
 			r.State = "reauthorization_required"
 			r.RefreshPending = false
+			r.RefreshUntil = time.Time{}
 			r.Revision++
 			if saveErr := store.CompareAndSwap(ctx, r, r.Revision-1); saveErr != nil {
 				return Record{}, errors.Join(ErrReauthorize, saveErr)
@@ -180,6 +185,7 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 	}
 	updated.Revision++
 	updated.RefreshPending = false
+	updated.RefreshUntil = time.Time{}
 	if err = store.CompareAndSwap(ctx, updated, r.Revision); err != nil {
 		return Record{}, errors.Join(ErrReauthorize, err)
 	}
@@ -309,12 +315,17 @@ func (s *Service) Disconnect(ctx context.Context, store Store, id string) (bool,
 	if r.AuthorizationActive() {
 		return false, ErrConflict
 	}
+	if r.RefreshActive() {
+		return false, ErrTransient
+	}
+	ambiguousRefresh := r.RefreshPending
 	r.AuthorizationAttempt = ""
 	r.AuthorizationUntil = time.Time{}
 	old := r.Tokens
 	// Keep the validated identity hint for explicit reconnection to this account.
 	r.Tokens = Tokens{ID: r.Tokens.ID}
 	r.RefreshPending = false
+	r.RefreshUntil = time.Time{}
 	r.State = "disconnected"
 	r.Revision++
 	if err = store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
@@ -325,7 +336,7 @@ func (s *Service) Disconnect(ctx context.Context, store Store, id string) (bool,
 		token, hint = old.Access, "access_token"
 	}
 	if token == "" {
-		return true, nil
+		return !ambiguousRefresh, nil
 	}
 	form := url.Values{"token": {token}, "token_type_hint": {hint}, "client_id": {r.Client.ID}}
 	for attempt := 0; attempt < 2; attempt++ {
@@ -347,7 +358,7 @@ func (s *Service) Disconnect(ctx context.Context, store Store, id string) (bool,
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				return true, nil
+				return !ambiguousRefresh, nil
 			}
 			if resp.StatusCode < 500 {
 				return false, nil

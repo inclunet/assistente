@@ -40,7 +40,8 @@ provedor em outro computador, reinicie o Assistente após concluir a importaçã
 A listagem de provedores só incorpora importações e sobrescritas após o reinício.
 O ChatGPT importado aparece desconectado: edite esse provedor e
 acione **Continuar com ChatGPT** para criar sua autorização local, sem copiar
-tokens da máquina anterior. A ação **Conectar ChatGPT** da barra cria outro
+tokens da máquina anterior. Em outros tipos de provedor, referências OAuth
+do arquivo são removidas; configure uma credencial compatível normalmente. A ação **Conectar ChatGPT** da barra cria outro
 provedor e não é necessária para reparar o item importado. Um item importado sem
 autorização local pode ser excluído mesmo se o cofre estiver indisponível. Se houver
 uma autorização cifrada local, recupere o acesso ao cofre para desconectar e excluir.
@@ -69,7 +70,9 @@ após outra instância mudar sua conexão, reinicie para atualizar a lista; a
 autorização persistida é preservada.
 
 **Desconectar** interrompe o uso local e tenta revogar a sessão remota. Aguarde o
-resultado antes de fechar a janela; o fechamento fica bloqueado durante a operação. Se a revogação
+resultado antes de fechar a janela; se uma renovação estiver em andamento em
+outra instância, aguarde até 30 segundos e tente novamente. Após uma renovação
+ambígua, a desconexão local avisa que a revogação remota não está confirmada; o fechamento fica bloqueado durante a operação. Se a revogação
 não puder ser confirmada, o Assistente avisa e você pode remover a autorização nas
 configurações do ChatGPT. O cadastro e o ID token validado permanecem cifrados
 para reconectar à mesma conta; access token e refresh token são removidos.

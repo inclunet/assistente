@@ -50,7 +50,7 @@ func (s *Service) Authorize(ctx context.Context, store Store, id, hostID string,
 	if err != nil {
 		return Summary{}, err
 	}
-	if r.AuthorizationActive() {
+	if r.AuthorizationActive() || r.RefreshActive() {
 		return Summary{}, ErrConflict
 	}
 	previous := r
@@ -191,6 +191,7 @@ func (s *Service) Authorize(ctx context.Context, store Store, id, hostID string,
 	updated.AuthorizationUntil = time.Time{}
 	updated.Revision++
 	updated.RefreshPending = false
+	updated.RefreshUntil = time.Time{}
 	if err = store.CompareAndSwap(ctx, updated, r.Revision); err != nil {
 		return Summary{}, err
 	}

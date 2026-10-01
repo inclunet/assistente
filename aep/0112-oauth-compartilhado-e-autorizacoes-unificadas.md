@@ -317,7 +317,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   transação e publica os demais campos atuais. Token sem refresh exige reconexão
   persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
   Testes cobrem preservação de edições e falha na gravação da transição.
-- Revisão independente local em trinta e seis rodadas, com correções de isolamento de
+- Revisão independente local em trinta e sete rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
@@ -440,3 +440,15 @@ Refresh ambíguo ou falha de persistência após troca exige reconexão já no p
 erro. Evidências: `TestStaleGenericRegistryCannotDetachOAuthConsumer`,
 `TestRefreshCrashSafetyAndNoImplicitRetry` e
 `TestAmbiguousChatGPTRefreshRequiresReconnectImmediately`.
+
+Criação genérica persiste somente o novo provedor e publica após confirmação,
+sem regravar snapshots OAuth de outros consumidores. Referências OAuth importadas
+para tipos sem integração suportada são removidas; esses provedores continuam
+editáveis/excluíveis e usam a configuração de credencial convencional.
+Refresh tem prazo operacional durável de até 30 segundos; desconexão e novo
+consentimento recusam enquanto estiver em voo. Após refresh abandonado/ambíguo,
+a desconexão local é permitida, mas nunca confirma revogação remota com token
+possivelmente antigo. Evidências: `TestCreateDoesNotSaveUnrelatedOAuthSnapshots`,
+`TestCreatePersistenceFailureDoesNotPublish`, `TestOAuthImportCannotBindAnotherLocalAuthorization`,
+`TestDisconnectCoordinatesCrossServiceRefresh` e
+`TestDisconnectAfterAbandonedRefreshDoesNotClaimRevocation`.

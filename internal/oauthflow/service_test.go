@@ -630,3 +630,61 @@ func TestAuthorizationLeaseOwnershipAndRecovery(t *testing.T) {
 		t.Fatal("stale exchange allowed")
 	}
 }
+
+func TestDisconnectCoordinatesCrossServiceRefresh(t *testing.T) {
+	entered := make(chan struct{})
+	finish := make(chan struct{})
+	var once sync.Once
+	release := func() { once.Do(func() { close(finish) }) }
+	defer release()
+	revoked := make(chan string, 1)
+	service, store, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/token" {
+			close(entered)
+			select {
+			case <-finish:
+			case <-r.Context().Done():
+				return
+			}
+			_, _ = fmt.Fprint(w, `{"access_token":"new","refresh_token":"rotated","token_type":"Bearer","expires_in":3600}`)
+		} else {
+			_ = r.ParseForm()
+			revoked <- r.Form.Get("token")
+			w.WriteHeader(http.StatusOK)
+		}
+	})
+	other := New(service.integrations["fixture"])
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	id, resource := store.r.ID, store.r.Resource
+	done := make(chan error, 1)
+	go func() { _, err := service.Resolve(ctx, store, id, resource, ""); done <- err }()
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if confirmed, err := other.Disconnect(ctx, store, id); confirmed || !errors.Is(err, ErrTransient) {
+		t.Fatalf("disconnected during rotation: %v %v", confirmed, err)
+	}
+	release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if confirmed, err := other.Disconnect(ctx, store, id); !confirmed || err != nil {
+		t.Fatalf("disconnect after refresh: %v %v", confirmed, err)
+	}
+	if token := <-revoked; token != "rotated" {
+		t.Fatal("revoked stale token")
+	}
+}
+
+func TestDisconnectAfterAbandonedRefreshDoesNotClaimRevocation(t *testing.T) {
+	service, store, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	store.r.RefreshPending = true
+	store.r.RefreshUntil = time.Now().Add(-time.Minute)
+	confirmed, err := service.Disconnect(context.Background(), store, store.r.ID)
+	if err != nil || confirmed || store.r.State != "disconnected" || store.r.Tokens.Access != "" || store.r.RefreshPending {
+		t.Fatalf("ambiguous rotation reported remote revocation: %v %v", confirmed, err)
+	}
+}
