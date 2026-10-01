@@ -56,6 +56,28 @@ func TestOAuthInventoryClassifiesWithoutInferringMigrationSafety(t *testing.T) {
 	}
 }
 
+func TestOAuthInventoryReportsProblemsInManagedResidueAndUnassociatedEntries(t *testing.T) {
+	configs := []ServerConfig{{ID: "managed", Slug: "managed", AuthType: AuthOAuth2PKCE, OAuthManaged: true}}
+	entries := []credentials.LegacyOAuthEntry{
+		{Pattern: "mcp-client:managed", Source: "command", AuthType: "bearer"},
+		{Pattern: "mcp-tokens:managed", Source: "static", AuthType: "oauth2", Readable: false},
+		{Pattern: "mcp-client:orphan", Source: "static", AuthType: "basic", Readable: false},
+	}
+	items := classifyOAuthInventory(configs, entries)
+	if len(items) != 2 {
+		t.Fatalf("unexpected inventory: %+v", items)
+	}
+	for _, item := range items {
+		if item.ID == "managed" {
+			if !reflect.DeepEqual(item.Issues, []string{"external_source", "legacy_residue", "unexpected_type", "unreadable"}) {
+				t.Fatalf("residue details hidden: %+v", item)
+			}
+		} else if !slices.Contains(item.Issues, "unexpected_type") || !slices.Contains(item.Issues, "unreadable") {
+			t.Fatalf("orphan details hidden: %+v", item)
+		}
+	}
+}
+
 func TestOAuthInventoryDiscardsResultWhenVaultSessionChanges(t *testing.T) {
 	m, repo, ctx := managedFixture(t)
 	if err := repo.db.Callback().Query().After("gorm:query").Register("reset_inventory_session", func(tx *gorm.DB) {

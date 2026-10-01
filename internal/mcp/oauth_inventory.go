@@ -103,25 +103,17 @@ func classifyOAuthInventory(configs []ServerConfig, entries []credentials.Legacy
 		client, hasClient := byPattern[clientCredPattern(cfg.Slug)]
 		tokens, hasTokens := byPattern[userTokensPattern(cfg.Slug)]
 		used[client.Pattern], used[tokens.Pattern] = true, true
+		for _, entry := range []credentials.LegacyOAuthEntry{client, tokens} {
+			if entry.Pattern != "" {
+				item.Issues = append(item.Issues, legacyOAuthEntryIssues(entry, true)...)
+			}
+		}
 		if cfg.OAuthManaged || cfg.OAuthAuthorizationID != "" {
 			item.Kind = "managed"
 			if hasClient || hasTokens {
 				item.Issues = append(item.Issues, "legacy_residue")
 			}
 		} else {
-			for _, entry := range []credentials.LegacyOAuthEntry{client, tokens} {
-				if entry.Pattern == "" {
-					continue
-				}
-				if entry.Source != "" && entry.Source != "static" {
-					item.Issues = append(item.Issues, "external_source")
-				} else if !entry.Readable {
-					item.Issues = append(item.Issues, "unreadable")
-				}
-				if entry.AuthType != "oauth2" {
-					item.Issues = append(item.Issues, "unexpected_type")
-				}
-			}
 			if cfg.OAuth2ClientID == "" && client.ClientID == "" {
 				item.Issues = append(item.Issues, "missing_client")
 			}
@@ -166,15 +158,24 @@ func classifyOAuthInventory(configs []ServerConfig, entries []credentials.Legacy
 			kind = "unassociated"
 		}
 		item := OAuthInventoryItem{ID: "credential:" + entry.Pattern, Name: entry.Pattern, Kind: kind, Issues: []string{}}
-		if entry.Source != "" && entry.Source != "static" {
-			item.Issues = append(item.Issues, "external_source")
-		} else if !entry.Readable {
-			item.Issues = append(item.Issues, "unreadable")
-		}
+		item.Issues = append(item.Issues, legacyOAuthEntryIssues(entry, kind == "unassociated")...)
 		result = append(result, item)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
+}
+
+func legacyOAuthEntryIssues(entry credentials.LegacyOAuthEntry, requiresOAuthType bool) []string {
+	issues := []string{}
+	if entry.Source != "" && entry.Source != "static" {
+		issues = append(issues, "external_source")
+	} else if !entry.Readable {
+		issues = append(issues, "unreadable")
+	}
+	if requiresOAuthType && entry.AuthType != "oauth2" {
+		issues = append(issues, "unexpected_type")
+	}
+	return issues
 }
 
 func isOAuthInventoryServer(cfg ServerConfig) bool {

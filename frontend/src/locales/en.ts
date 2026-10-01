@@ -1397,7 +1397,7 @@ const en = {
           "legacy_residue": "Legacy credentials coexist with the composite authorization. Verify their origin before deleting them.",
           "external_source": "A credential uses an external source. Diagnostics do not execute commands or access keyrings.",
           "unreadable": "Some fields could not be decrypted. Plaintext from older versions also requires investigation; data was preserved.",
-          "unexpected_type": "An entry associated with the server has an unexpected authentication type.",
+          "unexpected_type": "A credential has an unexpected authentication type for this record.",
           "missing_client": "No readable client ID found in the configuration or credential.",
           "conflicting_client": "The configured client ID differs from the credential.",
           "missing_endpoint": "The token endpoint is not persisted. It may depend on discovery when connecting.",

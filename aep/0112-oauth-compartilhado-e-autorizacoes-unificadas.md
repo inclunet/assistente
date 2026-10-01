@@ -770,6 +770,9 @@ de command/keyring, discovery, refresh ou consentimento.
 Inclui Bearer legado importado por hostname somente quando corresponde a um
 consumidor OAuth, normalizando o host como o resolvedor. Tokens Bearer alheios
 ao MCP não são inspecionados nem exibidos.
+Resíduos de consumidores já compostos e entradas sem consumidor mantêm os
+diagnósticos específicos de fonte externa, ilegibilidade e tipo incompatível;
+a classificação como resíduo não oculta problemas do material legado.
 
 A classificação é observacional: não declara um registro pronto para migrar,
 não prova validade remota, não infere exclusividade de credenciais por hostname

@@ -1400,7 +1400,7 @@ const es = {
           "legacy_residue": "Existen credenciales heredadas junto a la autorización compuesta. Verifique su origen antes de eliminarlas.",
           "external_source": "Una credencial usa una fuente externa. El diagnóstico no ejecuta comandos ni accede a keyrings.",
           "unreadable": "No se pudieron descifrar algunos campos. El texto de versiones antiguas también requiere análisis; los datos se conservaron.",
-          "unexpected_type": "Una entrada asociada al servidor tiene un tipo de autenticación inesperado.",
+          "unexpected_type": "Una credencial tiene un tipo de autenticación inesperado para este registro.",
           "missing_client": "No se encontró un client ID legible en la configuración ni en la credencial.",
           "conflicting_client": "El client ID configurado difiere del almacenado en la credencial.",
           "missing_endpoint": "El endpoint de tokens no está persistido. Puede depender del descubrimiento al conectar.",
