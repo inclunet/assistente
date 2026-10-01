@@ -117,10 +117,16 @@ func ExtractHostname(baseURL string) (string, error) {
 // Persistence
 // ============================================================================
 
-// Save persiste todos os provedores do registry no store.
+// Save persists generic providers. OAuth consumers have transactional lifecycle
+// methods and must never be overwritten by an unrelated registry snapshot.
 func (s *Service) Save(ctx context.Context) error {
-	providers := s.registry.List()
-	return s.store.Save(ctx, providers)
+	var generic []*llm.ProviderConfig
+	for _, provider := range s.registry.List() {
+		if provider.Type != llm.ProviderChatGPT && !strings.HasPrefix(provider.CredentialPattern, "oauth:") {
+			generic = append(generic, provider)
+		}
+	}
+	return s.store.Save(ctx, generic)
 }
 
 // Load carrega provedores do store para o registry.
@@ -181,7 +187,7 @@ func (s *Service) EnsureDefault(ctx context.Context) {
 	}
 	first.IsDefault = true
 
-	if first.DefaultModel == "" && first.Model != "" {
+	if first.Type != llm.ProviderChatGPT && !strings.HasPrefix(first.CredentialPattern, "oauth:") && first.DefaultModel == "" && first.Model != "" {
 		first.DefaultModel = first.Model
 		// Persiste o DefaultModel preenchido
 		if err := s.store.Save(ctx, []*llm.ProviderConfig{first}); err != nil {
@@ -406,11 +412,14 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	}
 	normalizeProviderRuntimeDefaults(provider)
 
+	if err := provider.Validate(); err != nil {
+		return nil, err
+	}
+	if err := s.store.Save(ctx, []*llm.ProviderConfig{provider}); err != nil {
+		return nil, err
+	}
 	if err := s.registry.Register(provider); err != nil {
 		return nil, fmt.Errorf("erro ao registrar provider: %w", err)
-	}
-	if err := s.Save(ctx); err != nil {
-		logging.Errorf(ctx, "providers.service", "[providers] Erro ao salvar após criação: %v", err)
 	}
 	if isFirst {
 		if err := s.store.SetDefault(ctx, req.ID); err != nil {

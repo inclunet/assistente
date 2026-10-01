@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -613,5 +614,56 @@ func TestStaleGenericRegistryCannotDetachOAuthConsumer(t *testing.T) {
 				t.Fatal("failed operation published registry changes")
 			}
 		})
+	}
+}
+
+func TestCreateDoesNotSaveUnrelatedOAuthSnapshots(t *testing.T) {
+	for _, reference := range []bool{false, true} {
+		t.Run(fmt.Sprint(reference), func(t *testing.T) {
+			service, _, ctx := chatGPTTestService(t)
+			created, err := service.CreateChatGPTConnection(ctx, "Original")
+			if err != nil {
+				t.Fatal(err)
+			}
+			changed, err := database.GetLLMProviderWithContext(ctx, created.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			changed.Name = "Concurrent name"
+			changed.DefaultModel = "concurrent-model"
+			if reference {
+				changed.CredentialPattern = "oauth:new-link"
+			}
+			if err := database.SaveLLMProviderWithContext(ctx, changed); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.Create(ctx, CreateRequest{ID: "unrelated", Name: "Other", Type: "openai", BaseURL: "https://api.example.test/v1"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := service.Save(ctx); err != nil {
+				t.Fatal(err)
+			}
+			saved, err := database.GetLLMProviderWithContext(ctx, created.ID)
+			if err != nil || saved.Name != changed.Name || saved.DefaultModel != changed.DefaultModel || saved.CredentialPattern != changed.CredentialPattern {
+				t.Fatalf("unrelated OAuth snapshot overwritten: %v", err)
+			}
+			if _, err := database.GetLLMProviderWithContext(ctx, "unrelated"); err != nil {
+				t.Fatal("creation not persisted", err)
+			}
+		})
+	}
+}
+
+type failingProviderSave struct{ ProviderStore }
+
+func (s failingProviderSave) Save(context.Context, []*llm.ProviderConfig) error {
+	return errors.New("disk unavailable")
+}
+func TestCreatePersistenceFailureDoesNotPublish(t *testing.T) {
+	registry := llm.NewProviderRegistry()
+	service := NewService(ServiceConfig{Registry: registry, Store: failingProviderSave{NewMemoryStore()}})
+	result, err := service.Create(context.Background(), CreateRequest{ID: "failed", Name: "Failure", Type: "openai", BaseURL: "https://api.example.test/v1"})
+	if err == nil || result != nil || registry.Get("failed") != nil {
+		t.Fatal("failed create was published")
 	}
 }
