@@ -145,7 +145,13 @@ func withDiscoveryNetwork(ctx context.Context, raw string) context.Context {
 	}
 	p := &discoveryNetwork{ips: map[string]bool{}, trusted: map[string]map[string]bool{}, lookup: net.DefaultResolver.LookupIPAddr}
 	u, err := url.Parse(raw)
-	if err == nil && u.Hostname() != "" && u.User == nil && (u.Scheme == "https" || u.Scheme == "http") {
+	if err == nil {
+		// Resource fragments are discarded by discovery URL normalization.
+		// Validate TLS before prelookup without changing that input contract.
+		u.Fragment, u.RawFragment = "", ""
+		_, err = endpointURL(u.String())
+	}
+	if err == nil {
 		p.origin = networkOrigin(u)
 		lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		ips, lookupErr := p.lookup(lookupCtx, u.Hostname())

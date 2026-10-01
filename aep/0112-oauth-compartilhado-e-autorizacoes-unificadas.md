@@ -526,7 +526,8 @@ poderia apagar alterações concorrentes; a issue exige transação e testes de 
   `app_oauth_network_test.go` prova reuso do authorizer com identidade do usuário
   e saneamento do pedido. Discovery exige issuer correspondente ao candidato,
   endpoints HTTPS (HTTP somente loopback), inclusive discovery da origem inicial,
-  e recurso na origem configurada (`TestDiscoveryInitialOriginCannotBypassTLS`);
+  e recurso na origem configurada (`TestDiscoveryInitialOriginCannotBypassTLS` e
+  `TestPublicDiscoveryRejectsRemoteHTTPBeforeDNS`, incluindo prelookup);
   aliases de path legados continuam aceitos.
 - Os consumidores MCP usam o transporte autorizado nos probes e nas chamadas
   de token, device e refresh. O ciclo de vida dos grants continua no MCP legado;
@@ -542,7 +543,7 @@ poderia apagar alterações concorrentes; a issue exige transação e testes de 
   tokens MCP continua exclusivamente no MCP legado
   até a entrega dos grants e do cutover. Fases 2, 3 e 4 seguem abertas.
 
-Revisão local desta entrega incremental: `review_credential_sources`, dez rodadas;
+Revisão local desta entrega incremental: `review_credential_sources`, onze rodadas;
 achados de rede, identidade, cancelamento e apresentação corrigidos, última rodada
 sem pendências. A validação funcional ChatGPT da fase 1 continua a cargo do
 usuário e não foi marcada como concluída por esta entrega.

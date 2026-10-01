@@ -341,3 +341,23 @@ func TestDiscoveryInitialOriginCannotBypassTLS(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicDiscoveryRejectsRemoteHTTPBeforeDNS(t *testing.T) {
+	var lookups atomic.Int32
+	original := net.DefaultResolver
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
+		lookups.Add(1)
+		return nil, errors.New("unexpected DNS")
+	}}
+	t.Cleanup(func() { net.DefaultResolver = original })
+	raw := "http://oauth-insecure.example/mcp"
+	if result := DiscoverOAuthContext(context.Background(), raw); result.Found {
+		t.Fatal("insecure discovery succeeded")
+	}
+	if _, err := DiscoverEndpoints(context.Background(), raw); err == nil {
+		t.Fatal("insecure runtime discovery succeeded")
+	}
+	if lookups.Load() != 0 {
+		t.Fatalf("insecure discovery performed %d DNS attempts", lookups.Load())
+	}
+}
