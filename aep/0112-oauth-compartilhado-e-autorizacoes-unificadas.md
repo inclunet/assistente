@@ -752,3 +752,5 @@ A tentativa OAuth explícita publica o estado de conexão antes do protocolo, pe
 DCR público persiste `Client.AuthMethod=none` no candidato e no grant final, ignora segredo não solicitado na resposta de registro e recusa segredo manual enquanto o mesmo ID DCR for mantido. O teste PKCE/DCR confirma ausência de autenticação secreta na troca e no refresh, preservação em renomeação e rejeição de segredo manual. O inventário de métodos Wails autenticados inclui a gravação atômica com segredo.
 
 `TestConfiguredClientGrantReportsConfigurationErrors` cobre ID/segredo/endpoint ausentes e `invalid_client` como erro de configuração do cliente, também no caminho Conectar; não recomenda reautorização interativa para esse grant.
+
+Conectar e Reautorizar compartilham a publicação de tentativa em `beginManagedAttempt`. `TestManagedOAuthReauthorizationPublishesCancelableAttempt` cobre Cancelar/Desconectar e restauração do estado anterior em cancelamento do contexto durante Device Flow.

@@ -278,15 +278,35 @@ func (m *Manager) beginManagedAttempt(ctx context.Context, slug string) (context
 	if m.managedAttempts == nil {
 		m.managedAttempts = make(map[string]context.CancelFunc)
 	}
-	if m.managedAttempts[slug] != nil {
+	if m.managedAttempts[slug] != nil || m.connectCancels[slug] != nil {
 		m.mu.Unlock()
 		stop()
 		cancel()
 		return nil, nil, oauthflow.ErrConflict
 	}
 	m.managedAttempts[slug] = cancel
+	previousStatus, previousError := StatusDisconnected, ""
+	if status := m.servers[slug]; status != nil {
+		previousStatus, previousError = status.Status, status.Error
+		status.Status, status.Error = StatusConnecting, ""
+	}
 	m.mu.Unlock()
-	return ctx, func() { stop(); cancel(); m.mu.Lock(); delete(m.managedAttempts, slug); m.mu.Unlock() }, nil
+	m.emit("mcp:server_connecting", map[string]string{"slug": slug})
+	return ctx, func() {
+		stop()
+		cancel()
+		m.mu.Lock()
+		delete(m.managedAttempts, slug)
+		restored := false
+		if status := m.servers[slug]; status != nil && status.Status == StatusConnecting {
+			status.Status, status.Error = previousStatus, previousError
+			restored = true
+		}
+		m.mu.Unlock()
+		if restored {
+			m.emit("mcp:config_changed", map[string]string{"slug": slug})
+		}
+	}, nil
 }
 
 func (m *Manager) authorizeManagedOAuth(ctx context.Context, slug string, cfg ServerConfig) error {

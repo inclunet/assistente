@@ -947,3 +947,72 @@ func TestManagedOAuthNativeClientCredentialsNeedsConfiguration(t *testing.T) {
 		})
 	}
 }
+
+func TestManagedOAuthReauthorizationPublishesCancelableAttempt(t *testing.T) {
+	for _, mode := range []string{"disconnect", "context"} {
+		t.Run(mode, func(t *testing.T) {
+			m, _, ctx := managedFixture(t)
+			started := make(chan struct{})
+			release := make(chan struct{})
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/device":
+					_ = json.NewEncoder(w).Encode(map[string]any{"device_code": "DEVICE", "user_code": "CODE", "verification_uri": "http://" + r.Host + "/verify", "expires_in": 60, "interval": 1})
+				case "/token":
+					close(started)
+					select {
+					case <-r.Context().Done():
+					case <-release:
+					}
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+			defer close(release)
+			cfg := managedConfig(srv.URL)
+			cfg.OAuth2DeviceAuthURL = srv.URL + "/device"
+			if err := m.SaveConfig("reauth", cfg); err != nil {
+				t.Fatal(err)
+			}
+			m.setError("reauth", "previous failure")
+			oldBrowser := browserOpen
+			browserOpen = func(string) error { return nil }
+			defer func() { browserOpen = oldBrowser }()
+			attempt, cancel := context.WithCancel(ctx)
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- m.ReauthorizeServer(attempt, "reauth") }()
+			select {
+			case <-started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("reauthorization did not start")
+			}
+			if m.List()[0].Status != StatusConnecting {
+				t.Fatal("reauthorization did not expose cancellation")
+			}
+			if mode == "disconnect" {
+				if err := m.Disconnect("reauth"); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				cancel()
+			}
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Fatal("canceled reauthorization succeeded")
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("cancellation did not finish")
+			}
+			info := m.List()[0]
+			if mode == "disconnect" && info.Status != StatusDisconnected {
+				t.Fatal("disconnect did not finish")
+			}
+			if mode == "context" && (info.Status != StatusError || info.Error != "previous failure") {
+				t.Fatal("previous state not restored")
+			}
+		})
+	}
+}

@@ -558,12 +558,6 @@ func (m *Manager) Connect(slug string) (connectErr error) {
 			return err
 		}
 		defer done()
-		m.mu.Lock()
-		if status := m.servers[slug]; status != nil {
-			status.Status, status.Error = StatusConnecting, ""
-		}
-		m.mu.Unlock()
-		m.emit("mcp:server_connecting", map[string]string{"slug": slug})
 		defer func() {
 			if connectErr == nil {
 				return
