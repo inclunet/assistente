@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { SaveMCPServerAuth } from '@wailsjs/go/wailsapi/MCP';
 
 const mockSave = vi.fn();
+const mockConnect = vi.fn();
 const mockToast = vi.fn();
 const mockGetConfig = vi.fn();
 const mockLoadServers = vi.fn();
@@ -32,7 +33,7 @@ vi.mock('../store/mcpStore', () => ({
     servers: mockServers,
     isLoading: false,
     loadServers: mockLoadServers,
-    connect: vi.fn(),
+    connect: mockConnect,
     disconnect: vi.fn(),
     reconnect: vi.fn(),
     save: mockSave,
@@ -671,4 +672,16 @@ describe('McpPage — oauth2_callback_host', () => {
     expect(config.oauth2_device_auth_url).toBe(mode === 'change' ? undefined : 'https://old.example/device');
   });
 
+});
+
+it('mostra erro OAuth localizado sem toast de sucesso quando Conectar falha', async () => {
+ mockServers = [{slug:'managed', name:'Managed', status:'disconnected', enabled:true, transport:'streamable', authType:'oauth2_pkce', tools:[]}];
+ mockToast.mockClear();
+ mockConnect.mockRejectedValueOnce(new Error('oauth_consent_declined'));
+ render(<McpPage />);
+ const row = screen.getByText('Managed').closest('div');
+ if (!row) throw new Error('Linha do servidor ausente');
+ await userEvent.click(within(row).getByRole('button', {name:'mcp.actions.connect'}));
+ await waitFor(() => expect(mockToast).toHaveBeenCalledWith('mcp.error.consentDeclined','error'));
+ expect(mockToast.mock.calls.some((call) => call[1] === 'success')).toBe(false);
 });

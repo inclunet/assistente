@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mcp } from '@wailsjs/go/models';
-import { SaveMCPServer, SaveMCPServerWithOAuthSecret } from '@wailsjs/go/wailsapi/MCP';
+import { ConnectMCPServer, SaveMCPServer, SaveMCPServerWithOAuthSecret } from '@wailsjs/go/wailsapi/MCP';
 import { useMCPStore } from './mcpStore';
 
 const mockListMCPServers = vi.fn();
@@ -83,4 +83,11 @@ it('salva configuração e segredo gerenciados pela mesma operação e propaga r
  vi.mocked(SaveMCPServerWithOAuthSecret).mockRejectedValueOnce(new Error('atomic failure'));
  await expect(useMCPStore.getState().save('managed',config,'new')).rejects.toThrow('atomic failure');
  expect(SaveMCPServer).not.toHaveBeenCalled();
+});
+
+it('propaga recusa OAuth ao handler e recarrega o estado após conectar', async () => {
+ mockListMCPServers.mockResolvedValue([]);
+ vi.mocked(ConnectMCPServer).mockRejectedValueOnce(new Error('oauth_consent_declined'));
+ await expect(useMCPStore.getState().connect('managed')).rejects.toThrow('oauth_consent_declined');
+ expect(mockListMCPServers).toHaveBeenCalled();
 });

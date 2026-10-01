@@ -523,6 +523,9 @@ func TestManagedOAuthDisconnectCancelsRefreshPreflight(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("refresh was not canceled")
 	}
+	if m.List()[0].Status != StatusDisconnected {
+		t.Fatal("canceled attempt remains connecting")
+	}
 	if resources.Load() != 0 {
 		t.Fatal("resource connected after cancellation")
 	}

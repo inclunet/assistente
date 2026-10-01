@@ -191,7 +191,11 @@ func (s *Service) resolveClientGrant(ctx context.Context, store Store, i Integra
 		return Record{}, err
 	}
 	before := r.Revision
-	response, err := s.exchange(ctx, r, url.Values{"grant_type": {"client_credentials"}, "client_id": {r.Client.ID}, "scope": {strings.Join(r.RequestedScopes, " ")}})
+	form := url.Values{"grant_type": {"client_credentials"}, "client_id": {r.Client.ID}}
+	if len(r.RequestedScopes) != 0 {
+		form.Set("scope", strings.Join(r.RequestedScopes, " "))
+	}
+	response, err := s.exchange(ctx, r, form)
 	if err != nil {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()

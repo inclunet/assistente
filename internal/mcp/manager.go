@@ -539,7 +539,7 @@ func (m *Manager) AutoConnectAll(ctx context.Context) {
 }
 
 // Connect conecta a um servidor MCP pelo slug.
-func (m *Manager) Connect(slug string) error {
+func (m *Manager) Connect(slug string) (connectErr error) {
 	cfg, err := m.GetConfig(slug)
 	if err != nil {
 		return err
@@ -558,6 +558,28 @@ func (m *Manager) Connect(slug string) error {
 			return err
 		}
 		defer done()
+		m.mu.Lock()
+		if status := m.servers[slug]; status != nil {
+			status.Status, status.Error = StatusConnecting, ""
+		}
+		m.mu.Unlock()
+		m.emit("mcp:server_connecting", map[string]string{"slug": slug})
+		defer func() {
+			if connectErr == nil {
+				return
+			}
+			if ctx.Err() != nil {
+				m.resetConnectingStatus(slug)
+				return
+			}
+			m.mu.RLock()
+			status := m.servers[slug]
+			connecting := status != nil && status.Status == StatusConnecting
+			m.mu.RUnlock()
+			if connecting {
+				m.setError(slug, connectErr.Error())
+			}
+		}()
 		if _, err = m.resolveManagedOAuth(ctx, *cfg, ""); err != nil {
 			if !errors.Is(err, oauthflow.ErrReauthorize) {
 				return err
@@ -1113,7 +1135,7 @@ func (m *Manager) Disconnect(slug string) error {
 		managedCancel()
 	}
 	attempt := m.connectCancels[slug]
-	if !ok && attempt == nil {
+	if !ok && attempt == nil && managedCancel == nil {
 		m.mu.Unlock()
 		return nil
 	}

@@ -99,6 +99,9 @@ func TestConfiguredClientCredentialsRetriesWithoutRotatingRefresh(t *testing.T) 
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
+		if r.Form.Has("scope") {
+			t.Error("empty scope must be omitted")
+		}
 		if r.Form.Get("client_secret") != "secret" || r.Form.Get("grant_type") != "client_credentials" || r.Form.Get("refresh_token") != "" {
 			t.Error("incorrect client authentication")
 		}

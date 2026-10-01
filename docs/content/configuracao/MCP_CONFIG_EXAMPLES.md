@@ -581,3 +581,5 @@ de token a cada chamada enquanto essa condição permanecer.
 Alterações de callback, recurso, endpoints ou escopos em um cadastro DCR invalidam o cliente registrado; a próxima autorização registra outro cliente. Renomear o servidor preserva o registro. A rejeição `invalid_scope` em Client Credentials também exige corrigir os escopos antes de uma nova tentativa.
 
 Se o consentimento falhar após o DCR, o cliente registrado é preservado para a próxima tentativa. Uma conexão OAuth bem-sucedida limpa o aviso anterior de reautorização. Para Client Credentials inválido, revise ID/segredo ou escopos e conecte novamente; esse fluxo não usa o botão Reautorizar.
+
+Durante a autorização ao conectar, o servidor fica em Conectando e oferece Cancelar. Recusa ou falha do login exibe erro; a interface só confirma sucesso após a conexão completar.

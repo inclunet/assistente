@@ -65,6 +65,7 @@ export const useMCPStore = create<MCPState>((set, get) => ({
     } catch (err) {
       logger.error(`[MCP] Erro ao conectar '${slug}':`, err);
       await get().loadServers();
+      throw err;
     }
   },
 
