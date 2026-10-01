@@ -70,6 +70,27 @@ function request(id: ChatNavigationCommandID, messageId = mid) {
   return requestChatNavigationCommand(id, root(messageId).dataset.chatNavigationInstance!);
 }
 function deferred() { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done; }); return { promise, resolve }; }
+async function startSurfaceStream() {
+  seed([]);
+  useChatStore.getState().ensureConversationSurfaceSession(cid, surface.sessionKey, surface);
+  expect(await useChatStore.getState().sendMessageToConversation(cid, 'pergunta', undefined, undefined, {
+    origin: createChatSurfaceOrigin(surface),
+  })).toBe(true);
+  const executionId = getChatEventControllerExecutionId(cid);
+  expect(executionId).toBeTruthy();
+  const surfaceOrigin = { ...createChatSurfaceOrigin(surface), executionId };
+  const emit = (name: string, payload: Record<string, unknown>) => act(() => {
+    for (const listener of runtimeListeners.get(name) ?? []) listener(payload);
+  });
+  emit('chat:messages_ready', {
+    conversationId: cid, turnId: 'turn-live', userMessageId: 'turn-live', userContent: 'pergunta', surfaceOrigin,
+  });
+  emit('chat:stream', {
+    conversationId: cid, turnId: 'turn-live', messageId: mid, delta: 'primeiro chunk', reset: true, sequence: 0, surfaceOrigin,
+  });
+  await waitFor(() => expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey]?.streamingMessageId).toBe(mid));
+  return { emit, surfaceOrigin };
+}
 beforeEach(() => {
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   useAuthStore.setState({ isAuthenticated: true, user: { userId: 'owner', sessionId: 'session', role: 'admin' } });
@@ -357,46 +378,45 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     expect(root()).not.toHaveAttribute('aria-modal');
   });
   it.each(['wrong projection', 'wrong conversation context', 'stream ended and removed'] as const)(
-    'does not open reading for transient message with %s', kind => {
-      const streamingNode = node();
-      streamingNode.message.isStreaming = kind !== 'stream ended and removed';
-      const visibleNode = kind === 'wrong projection' ? node() : streamingNode;
-      useChatStore.setState({
-        timelinesByConversationId: { [cid]: { id: cid, title: 'Chat', threadedMessages: [] } },
-        sessionsByConversationId: { [cid]: { ...createEmptyChatSession(cid), conversation: { id: cid, title: 'Chat', threadedMessages: [] } } },
-        surfaceSessionsByKey: { [surface.sessionKey]: {
-          ...createEmptyChatSurfaceSession(cid, surface.sessionKey),
-          ...(kind === 'wrong conversation context' ? { conversationId: 'other-conversation' } : {}),
-          streamingMessageId: kind === 'stream ended and removed' ? null : mid,
-          visibleThreadedMessages: [visibleNode],
-        } },
-      });
+    'does not open reading for transient message with %s', async kind => {
+      const { surfaceOrigin } = await startSurfaceStream();
+      const liveSurface = useChatStore.getState().surfaceSessionsByKey[surface.sessionKey];
+      const streamingNode = liveSurface.visibleThreadedMessages!.find(item => item.message.id === mid)!;
       render(<MemoryRouter initialEntries={['/chat']}><WorkspacePanelProvider value={{ tab, isActive: true }}>
         <ChatSessionProvider surface={surface}>
           <MessageNode node={streamingNode} commandPathname="/chat" />
         </ChatSessionProvider>
       </WorkspacePanelProvider></MemoryRouter>);
       root().focus();
+      const validTarget = captureChatNavigationTarget(() => '/chat', 'chat.message.read.open');
+      expect(validTarget?.canOpen('chat.message.read.open')).toBe(true);
+      validTarget?.dispose();
+      act(() => useChatStore.setState(state => ({ surfaceSessionsByKey: {
+        ...state.surfaceSessionsByKey,
+        [surface.sessionKey]: {
+          ...liveSurface,
+          ...(kind === 'wrong projection' ? { visibleThreadedMessages: [node()] } : {}),
+          ...(kind === 'wrong conversation context' ? { conversationId: 'other-conversation' } : {}),
+          ...(kind === 'stream ended and removed' ? { streamingMessageId: null } : {}),
+        },
+      } })));
+      expect(getChatEventControllerExecutionId(cid)).toBe(surfaceOrigin.executionId);
       fireEvent.keyDown(root(), { key: 'Enter' });
       expect(root()).not.toHaveAttribute('aria-modal');
       expect(executed).not.toHaveBeenCalled();
     },
   );
-  it('does not treat a formerly canonical message removed during streaming as a transient surface message', () => {
-    const streamingNode = node();
-    streamingNode.message.isStreaming = true;
-    const conversation = { id: cid, title: 'Chat', threadedMessages: [streamingNode] };
-    useChatStore.setState({
-      timelinesByConversationId: { [cid]: conversation },
-      sessionsByConversationId: { [cid]: { ...createEmptyChatSession(cid), conversation } },
-      surfaceSessionsByKey: { [surface.sessionKey]: {
-        ...createEmptyChatSurfaceSession(cid, surface.sessionKey),
-        streamingMessageId: mid,
-        visibleThreadedMessages: [streamingNode],
-      } },
-    });
+  it('does not treat a formerly canonical message removed during streaming as a transient surface message', async () => {
+    const { surfaceOrigin } = await startSurfaceStream();
+    const liveSurface = useChatStore.getState().surfaceSessionsByKey[surface.sessionKey];
+    const streamingNode = liveSurface.visibleThreadedMessages!.find(item => item.message.id === mid)!;
+    act(() => replaceTree([streamingNode]));
     mount(); root().focus();
+    const validTarget = captureChatNavigationTarget(() => '/chat', 'chat.message.read.open');
+    expect(validTarget?.canOpen('chat.message.read.open')).toBe(true);
+    validTarget?.dispose();
     act(() => replaceTree([]));
+    expect(getChatEventControllerExecutionId(cid)).toBe(surfaceOrigin.executionId);
     fireEvent.keyDown(root(), { key: 'Enter' });
     expect(root()).not.toHaveAttribute('aria-modal');
     expect(executed).not.toHaveBeenCalled();
