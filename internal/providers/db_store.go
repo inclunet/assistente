@@ -45,8 +45,14 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
 			}
-			if err == nil && (current.Type == string(llm.ProviderChatGPT) || strings.HasPrefix(current.CredentialPattern, "oauth:")) && (current.Type != string(p.Type) || current.CredentialPattern != p.CredentialPattern) {
-				return oauthflow.ErrConflict
+			if err == nil && (current.Type != string(p.Type) || current.CredentialPattern != p.CredentialPattern) {
+				protected, err := hasProtectedOAuthConsumer(tx, current)
+				if err != nil {
+					return err
+				}
+				if protected {
+					return oauthflow.ErrConflict
+				}
 			}
 			if err := repository.SaveLLMProvider(ctx, toDBModel(p)); err != nil {
 				return err
@@ -250,9 +256,25 @@ func (s *DBStore) Delete(ctx context.Context, id string) error {
 		if err != nil {
 			return err
 		}
-		if current.Type == string(llm.ProviderChatGPT) || strings.HasPrefix(current.CredentialPattern, "oauth:") {
+		protected, err := hasProtectedOAuthConsumer(tx, *current)
+		if err != nil {
+			return err
+		}
+		if protected {
 			return oauthflow.ErrConflict
 		}
 		return repository.DeleteLLMProvider(ctx, id)
 	})
+}
+
+func hasProtectedOAuthConsumer(tx *gorm.DB, current database.LLMProvider) (bool, error) {
+	if current.Type == string(llm.ProviderChatGPT) {
+		return true, nil
+	}
+	if !strings.HasPrefix(current.CredentialPattern, "oauth:") {
+		return false, nil
+	}
+	var count int64
+	err := tx.Model(&database.CredentialEntry{}).Where("id = ? AND user_id = ? AND source = ?", strings.TrimPrefix(current.CredentialPattern, "oauth:"), current.UserID, "oauth").Count(&count).Error
+	return count != 0, err
 }

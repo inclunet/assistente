@@ -667,3 +667,53 @@ func TestCreatePersistenceFailureDoesNotPublish(t *testing.T) {
 		t.Fatal("failed create was published")
 	}
 }
+
+func TestLegacyGenericOAuthReferenceRequiresEnvelopeBeforeProtection(t *testing.T) {
+	for _, envelope := range []bool{false, true} {
+		for _, operation := range []string{"update", "delete"} {
+			t.Run(fmt.Sprintf("envelope=%v/%s", envelope, operation), func(t *testing.T) {
+				service, _, ctx := chatGPTTestService(t)
+				legacy := &llm.ProviderConfig{ID: "legacy", Name: "Legacy", Type: llm.ProviderOpenAI, APIFormat: llm.APIFormatOpenAI, BaseURL: "https://api.example.test/v1", CredentialPattern: "oauth:legacy-grant"}
+				if err := database.SaveLLMProviderWithContext(ctx, toDBModel(legacy)); err != nil {
+					t.Fatal(err)
+				}
+				if err := service.registry.Register(legacy); err != nil {
+					t.Fatal(err)
+				}
+				if envelope {
+					entry := database.CredentialEntry{UUIDModel: database.UUIDModel{ID: "legacy-grant"}, UserID: "owner", Pattern: legacy.CredentialPattern, Source: "oauth", OAuthEnc: "protected-envelope"}
+					if err := database.DB().Create(&entry).Error; err != nil {
+						t.Fatal(err)
+					}
+				}
+				var err error
+				if operation == "update" {
+					_, err = service.Update(ctx, legacy.ID, UpdateRequest{BaseURL: "https://repaired.example.test/v1"})
+				} else {
+					err = service.Delete(ctx, legacy.ID)
+				}
+				if envelope {
+					if !errors.Is(err, oauthflow.ErrConflict) {
+						t.Fatalf("protected envelope bypassed: %v", err)
+					}
+					saved, err := service.store.Get(ctx, legacy.ID)
+					if err != nil || saved.CredentialPattern != legacy.CredentialPattern {
+						t.Fatal("protected consumer changed")
+					}
+				} else {
+					if err != nil {
+						t.Fatalf("orphan reference trapped user: %v", err)
+					}
+					saved, err := service.store.Get(ctx, legacy.ID)
+					if operation == "delete" {
+						if err == nil {
+							t.Fatal("legacy row retained")
+						}
+					} else if err != nil || saved.CredentialPattern != "repaired.example.test" {
+						t.Fatal("legacy reference not repaired")
+					}
+				}
+			})
+		}
+	}
+}
