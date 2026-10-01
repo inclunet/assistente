@@ -1398,6 +1398,11 @@ const ptBR = {
       error: {
         resourceDestinationBlocked: 'O recurso MCP OAuth exige HTTPS (exceto localhost) e não pode redirecionar o token para outro domínio ou porta. Configure a URL final do servidor e reconecte.',
         networkAuthorizationFailed: 'A autorização de rede OAuth não foi concluída. Confira o destino e as permissões na allowlist de rede antes de tentar novamente.',
+        callbackPortUnavailable: 'Não foi possível reservar a porta de callback OAuth. Feche o aplicativo que está usando a porta ou confira a configuração de callback.',
+        consentDeclined: 'A autorização foi recusada. Para tentar novamente, inicie uma nova autorização.',
+        deviceExpired: 'O código de autorização expirou. Inicie uma nova autorização para obter outro código.',
+        deviceFailed: 'Não foi possível concluir a autorização por código de dispositivo. Confira a configuração OAuth e tente novamente.',
+        codeExchangeFailed: 'Não foi possível trocar o código de autorização por um token. Confira a configuração OAuth e inicie uma nova autorização.',
         registrationFailed: 'Não foi possível registrar o cliente OAuth. Verifique o endpoint de registro e a URL de callback e tente novamente.',
         slugRequired: 'Slug (identificador) é obrigatório',
         nameRequired: 'Nome é obrigatório',

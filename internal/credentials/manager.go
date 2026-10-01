@@ -22,6 +22,7 @@ import (
 
 // AuthConfig descreve como autenticar em um domínio
 type AuthConfig struct {
+	ClientGrantType   string            // grant do registro; vazio preserva clientes legados/manuais
 	OAuth             *oauthflow.Record `json:"-"`
 	OAuthEnc          string            `json:"-"`
 	commandEntry      *DomainCredential // recibo transitório; nunca serializado

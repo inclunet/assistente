@@ -519,3 +519,26 @@ descritas. SSE e Streamable HTTP permanecem disponíveis; uma resposta em stream
 não é encerrada pelo prazo de leitura das chamadas de token OAuth. Desconectar
 continua cancelando a conexão. Esta mudança não altera os modos Bearer/Basic
 estáticos nem o transporte remoto executado pelo provedor no modo MCP nativo.
+
+
+### Código de dispositivo e porta de callback
+
+Na autorização por código de dispositivo, o Assistente mostra o código e abre a
+página de verificação. Aguarde a confirmação: as consultas respeitam o intervalo
+informado pelo serviço e ficam mais espaçadas se ele pedir. Se você recusar ou o
+código expirar, inicie uma nova autorização para tentar novamente; a tentativa
+não abre automaticamente outro login. Esse fluxo não precisa de porta local.
+
+Para autorização com callback, mantenha exatamente o host, a porta e o caminho
+cadastrados no provedor. O Assistente reserva a porta antes de registrar o cliente
+ou abrir o navegador. Se um cliente cadastrado manualmente usa uma porta ocupada,
+feche o programa que a utiliza ou ajuste o cadastro e a configuração juntos.
+Com registro dinâmico (DCR), o Assistente pode reservar outra porta e registrar a
+nova URL antes de continuar. O host de callback deve ser `localhost`, `127.0.0.1`
+ou `[::1]`; nunca um endereço de rede externa.
+
+Recusas, códigos expirados, falhas de troca de código e portas indisponíveis têm
+mensagens próprias. Não é necessário apagar as credenciais para tentar uma nova
+autorização. Client Credentials continua obtendo e reutilizando tokens sem abrir
+o navegador. Esta atualização preserva as credenciais MCP existentes; a conversão
+para um único registro por autorização será feita em uma etapa posterior.

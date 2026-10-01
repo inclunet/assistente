@@ -1400,6 +1400,11 @@ const es = {
       error: {
         resourceDestinationBlocked: 'El recurso MCP OAuth requiere HTTPS (excepto localhost) y no puede redirigir el token a otro dominio o puerto. Configura la URL final del servidor y vuelve a conectar.',
         networkAuthorizationFailed: 'No se completó la autorización de red OAuth. Revisa el destino y los permisos de la lista de redes permitidas antes de intentarlo de nuevo.',
+        callbackPortUnavailable: 'No se pudo reservar el puerto de callback OAuth. Cierra la aplicación que usa el puerto o revisa la configuración de callback.',
+        consentDeclined: 'Se rechazó la autorización. Inicia una nueva autorización para volver a intentarlo.',
+        deviceExpired: 'El código de autorización ha caducado. Inicia una nueva autorización para obtener otro código.',
+        deviceFailed: 'No se pudo completar la autorización de dispositivo. Revisa la configuración OAuth e inténtalo de nuevo.',
+        codeExchangeFailed: 'No se pudo cambiar el código de autorización por un token. Revisa la configuración OAuth e inicia una nueva autorización.',
         registrationFailed: 'No se pudo registrar el cliente OAuth. Comprueba el endpoint de registro y la URL de callback e inténtalo de nuevo.',
         slugRequired: 'Slug (identificador) es obligatorio',
         nameRequired: 'Nombre es obligatorio',

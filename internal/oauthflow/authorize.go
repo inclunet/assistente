@@ -4,15 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"errors"
-	"net"
-	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
@@ -57,21 +52,12 @@ func (s *Service) Authorize(ctx context.Context, store Store, id, hostID string,
 	if hostID == "" || openBrowser == nil {
 		return Summary{}, ErrResource
 	}
-	if i.Callback.Host != "127.0.0.1" || !strings.HasPrefix(i.Callback.Path, "/") {
-		return Summary{}, ErrResource
-	}
-	port := i.Callback.Port
-	if i.Callback.PortPolicy == "ephemeral" {
-		port = 0
-	} else if i.Callback.PortPolicy != "fixed" || port < 1 || port > 65535 {
-		return Summary{}, ErrResource
-	}
-	listener, err := net.Listen("tcp4", net.JoinHostPort(i.Callback.Host, strconv.Itoa(port)))
+	callback, err := ReserveCallback(i.Callback)
 	if err != nil {
-		return Summary{}, errors.New("oauth_callback_port_unavailable")
+		return Summary{}, err
 	}
-	defer func() { _ = listener.Close() }()
-	redirect := "http://" + listener.Addr().String() + i.Callback.Path
+	defer callback.Close()
+	redirect := callback.RedirectURI()
 	state, nonce, verifier := randomValue(), randomValue(), randomValue()
 	digest := sha256.Sum256([]byte(verifier))
 	values := url.Values{"response_type": {"code"}, "client_id": {r.Client.ID}, "redirect_uri": {redirect}, "scope": {strings.Join(i.Scopes, " ")}, "resource": {i.Resource}, "state": {state}, "nonce": {nonce}, "code_challenge_method": {"S256"}, "code_challenge": {base64.RawURLEncoding.EncodeToString(digest[:])}}
@@ -88,44 +74,9 @@ func (s *Service) Authorize(ctx context.Context, store Store, id, hostID string,
 	}
 	// Record exactly what this consent requested, including integration overrides.
 	r.RequestedScopes = strings.Fields(values.Get("scope"))
-	type callback struct{ values url.Values }
-	results := make(chan callback, 1)
-	var consumed atomic.Bool
-	server := &http.Server{ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 8192, Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'")
-		if req.Method != http.MethodGet || req.Host != listener.Addr().String() || req.URL.Path != i.Callback.Path {
-			http.Error(w, "", http.StatusNotFound)
-			return
-		}
-		v, parseErr := url.ParseQuery(req.URL.RawQuery)
-		if parseErr != nil || len(v["state"]) != 1 || subtle.ConstantTimeCompare([]byte(v.Get("state")), []byte(state)) != 1 {
-			http.Error(w, "", http.StatusBadRequest)
-			return
-		}
-		for _, key := range []string{"code", "error", "client_id"} {
-			if len(v[key]) > 1 {
-				http.Error(w, "", http.StatusBadRequest)
-				return
-			}
-		}
-		if !consumed.CompareAndSwap(false, true) {
-			http.Error(w, "", http.StatusConflict)
-			return
-		}
-
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Header().Set("Content-Length", strconv.Itoa(len(completionText)))
-		_, _ = w.Write([]byte(completionText))
-		_ = http.NewResponseController(w).Flush()
-		select {
-		case results <- callback{v}:
-		default:
-		}
-	})}
-	defer func() { _ = server.Close() }()
-	go func() { _ = server.Serve(listener) }()
+	if err = callback.Start(state, CallbackPage{Success: completionText, Failure: completionText}); err != nil {
+		return Summary{}, err
+	}
 	if err = ctx.Err(); err != nil {
 		return Summary{}, err
 	}
@@ -142,18 +93,16 @@ func (s *Service) Authorize(ctx context.Context, store Store, id, hostID string,
 	if err = openBrowser(i.Endpoints.Authorization + "?" + values.Encode()); err != nil {
 		return Summary{}, errors.New("oauth_browser_unavailable")
 	}
-	var result callback
-	select {
-	case <-ctx.Done():
-		return Summary{}, ctx.Err()
-	case result = <-results:
+	result, err := callback.Wait(ctx)
+	if err != nil {
+		return Summary{}, err
 	}
-	if result.values.Get("error") != "" || result.values.Get("code") == "" {
+	if result.Get("error") != "" || result.Get("code") == "" {
 		return Summary{}, errors.New("oauth_consent_declined")
 	}
 	clientID := r.Client.ID
 	if i.CallbackClientID != nil {
-		clientID, err = i.CallbackClientID(r, result.values)
+		clientID, err = i.CallbackClientID(r, result)
 		if err != nil {
 			return Summary{}, err
 		}
@@ -173,7 +122,7 @@ func (s *Service) Authorize(ctx context.Context, store Store, id, hostID string,
 	if err = checkAuthorizationAttempt(ctx, store, r); err != nil {
 		return Summary{}, err
 	}
-	response, err := s.exchange(ctx, r, url.Values{"grant_type": {"authorization_code"}, "client_id": {clientID}, "code": {result.values.Get("code")}, "code_verifier": {verifier}, "redirect_uri": {redirect}, "resource": {r.Resource}})
+	response, err := s.exchange(ctx, r, url.Values{"grant_type": {"authorization_code"}, "client_id": {clientID}, "code": {result.Get("code")}, "code_verifier": {verifier}, "redirect_uri": {redirect}, "resource": {r.Resource}})
 	if err != nil {
 		return Summary{}, err
 	}

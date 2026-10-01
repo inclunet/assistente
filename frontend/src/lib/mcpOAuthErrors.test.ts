@@ -22,6 +22,19 @@ describe('OAuth registration errors', () => {
     expect(denied).toBe(i18n.t('mcp.error.networkAuthorizationFailed'));
     expect(denied).not.toContain('oauth_discovery_destination_blocked');
     expect(denied).not.toBe('mcp.error.networkAuthorizationFailed');
+    for (const [code, key] of [
+      ['oauth_callback_port_unavailable', 'callbackPortUnavailable'],
+      ['oauth_consent_declined', 'consentDeclined'],
+      ['oauth_device_grant_failed: access_denied', 'consentDeclined'],
+      ['oauth_device_grant_failed: expired_token', 'deviceExpired'],
+      ['oauth_device_grant_failed', 'deviceFailed'],
+      ['oauth_code_exchange_failed', 'codeExchangeFailed'],
+    ]) {
+      const localized = mcpOAuthErrorMessage(`connection failed: ${code}`, i18n.t);
+      expect(localized).toBe(i18n.t(`mcp.error.${key}`));
+      expect(localized).not.toBe(`mcp.error.${key}`);
+      expect(localized).not.toContain('oauth_');
+    }
   });
   it('preserves unrelated failures and empty values', () => {
     expect(mcpOAuthErrorMessage(new Error('existing failure'), i18next.t)).toBe('existing failure');

@@ -70,3 +70,34 @@ func TestDBStoreScopesCredentialsByContextUser(t *testing.T) {
 		t.Fatalf("expected leo credential to remain, got %+v", leoCredentials)
 	}
 }
+
+func TestClientRegistrationGrantSurvivesReload(t *testing.T) {
+	setupScopedCredentialStoreTestDB(t)
+	ctx := database.WithUserID(context.Background(), "user")
+	key := []byte("test-key-exactly-32-bytes-long!!")
+	store := NewDBStore()
+	manager := NewManagerWithStoreAndPersistence(key, store, true)
+	const pattern = "mcp-client:device"
+	if err := manager.RegisterPatternWithContext(ctx, pattern, &AuthConfig{Source: "static", Type: "oauth2", ClientID: "client", ClientSecret: "secret", ClientGrantType: "urn:ietf:params:oauth:grant-type:device_code"}); err != nil {
+		t.Fatal(err)
+	}
+	reopened := NewManagerWithStoreAndPersistence(key, store, true)
+	if err := reopened.LoadUserCredentials(ctx, "user"); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := reopened.GetByPatternWithContext(ctx, pattern)
+	if err != nil || auth == nil || auth.ClientID != "client" || auth.ClientSecret != "secret" || auth.ClientGrantType != "urn:ietf:params:oauth:grant-type:device_code" {
+		t.Fatalf("registration metadata lost: err=%v", err)
+	}
+	if err := reopened.RegisterPatternWithContext(ctx, pattern, &AuthConfig{Source: "static", Type: "oauth2", ClientID: "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	replaced := NewManagerWithStoreAndPersistence(key, store, true)
+	if err := replaced.LoadUserCredentials(ctx, "user"); err != nil {
+		t.Fatal(err)
+	}
+	auth, err = replaced.GetByPatternWithContext(ctx, pattern)
+	if err != nil || auth == nil || auth.ClientGrantType != "" {
+		t.Fatal("manual replacement inherited Device-only registration")
+	}
+}

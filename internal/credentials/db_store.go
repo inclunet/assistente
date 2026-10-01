@@ -88,6 +88,7 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 		ExpiresAt:       cred.Auth.ExpiresAt,
 		RefreshTokenEnc: cred.Auth.RefreshURL,
 		ClientIDEnc:     cred.Auth.ClientID,
+		ClientGrantType: cred.Auth.ClientGrantType,
 		ClientSecretEnc: cred.Auth.ClientSecret,
 	}
 
@@ -137,6 +138,7 @@ func (s *DBStore) ListCredentials(ctx context.Context) ([]StoredCredential, erro
 			ExpiresAt:       entry.ExpiresAt,
 			RefreshURL:      entry.RefreshTokenEnc,
 			ClientID:        entry.ClientIDEnc,
+			ClientGrantType: entry.ClientGrantType,
 			ClientSecret:    entry.ClientSecretEnc,
 		}
 
@@ -189,6 +191,7 @@ func (s *DBStore) ListInstanceCredentials(ctx context.Context) ([]StoredCredenti
 				ExpiresAt:       entry.ExpiresAt,
 				RefreshURL:      entry.RefreshTokenEnc,
 				ClientID:        entry.ClientIDEnc,
+				ClientGrantType: entry.ClientGrantType,
 				ClientSecret:    entry.ClientSecretEnc,
 			},
 		})
@@ -248,6 +251,7 @@ func (s *DBStore) ListAllCredentialsIgnoringScope(ctx context.Context) ([]Stored
 				ExpiresAt:       entry.ExpiresAt,
 				RefreshURL:      entry.RefreshTokenEnc,
 				ClientID:        entry.ClientIDEnc,
+				ClientGrantType: entry.ClientGrantType,
 				ClientSecret:    entry.ClientSecretEnc,
 			},
 		})
@@ -294,6 +298,7 @@ func (s *DBStore) ListCredentialsWithRefreshTokensIgnoringScope(ctx context.Cont
 				ExpiresAt:       entry.ExpiresAt,
 				RefreshURL:      entry.RefreshTokenEnc,
 				ClientID:        entry.ClientIDEnc,
+				ClientGrantType: entry.ClientGrantType,
 				ClientSecret:    entry.ClientSecretEnc,
 			},
 		})

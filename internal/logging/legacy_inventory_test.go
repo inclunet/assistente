@@ -25,8 +25,9 @@ const (
 	// Provider CRUD now propagates persistence failures before publishing: three
 	// obsolete creation/update/removal warning formats were removed.
 	// OAuth discovery moved to oauthflow; the DCR URL/redirect diagnostic was removed.
-	expectedLegacyFormatCount  = 766
-	expectedLegacyFormatDigest = "0463eecb6d2e91ff8c8b64b00a124585584deb1cb289e3d2664d5452d9300236"
+	// Shared OAuth grants/callbacks remove 15 legacy formats, including codes and authorization URLs.
+	expectedLegacyFormatCount  = 751
+	expectedLegacyFormatDigest = "351bcd3f09fd7f6126f642741ddb5528dd00c3fc7bb4cca4775e3e7eaf4e9a8f"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.
