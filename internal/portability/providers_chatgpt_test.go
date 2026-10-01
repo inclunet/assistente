@@ -113,7 +113,7 @@ func TestChatGPTImportNormalizesFixedConnection(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if saved.Type != "chatgpt" || saved.BaseURL != "https://api.openai.com/v1" || saved.APIFormat != "openai_responses" {
+				if saved.Type != "chatgpt" || saved.BaseURL != "https://api.openai.com/v1" || saved.APIFormat != "openai_responses" || saved.AuthMode != "required" {
 					t.Fatal("invalid configuration persisted")
 				}
 				if overwrite && saved.CredentialPattern != "oauth:owned" {
@@ -162,5 +162,25 @@ func TestOAuthImportCannotOrphanExistingGrant(t *testing.T) {
 				t.Fatal("grant modified", err)
 			}
 		})
+	}
+}
+
+func TestChatGPTImportReplacesExplicitUnauthenticatedMode(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	local := &database.LLMProvider{ID: "local-provider", Name: "Ollama", Type: "ollama", APIFormat: "openai", BaseURL: "http://localhost:11434/v1", AuthMode: "none"}
+	if err := database.SaveLLMProviderWithContext(ctx, local); err != nil {
+		t.Fatal(err)
+	}
+	incoming := ProviderExport{ID: local.ID, Name: "ChatGPT", Type: "chatgpt"}
+	if _, err := importProvider(ctx, incoming); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := database.GetLLMProviderWithContext(ctx, local.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.AuthMode != "required" || saved.Type != "chatgpt" || saved.APIFormat != "openai_responses" || saved.BaseURL != "https://api.openai.com/v1" || !strings.HasPrefix(saved.CredentialPattern, "oauth:") {
+		t.Fatalf("incomplete canonical connection: %+v", saved)
 	}
 }

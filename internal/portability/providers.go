@@ -182,12 +182,18 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 			CreatedAt:                createdAt,
 			UpdatedAt:                updatedAt,
 		}
+		if provider.Type == "chatgpt" {
+			model.AuthMode = "required"
+		}
 		if userID, ok := database.UserIDFromContext(ctx); ok {
 			model.UserID = userID
 		}
 		return tx.Create(&model).Error
 	}
 
+	if provider.Type == "chatgpt" {
+		existing.AuthMode = "required"
+	}
 	existing.Name = provider.Name
 	existing.Type = provider.Type
 	existing.APIFormat = provider.APIFormat

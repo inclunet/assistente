@@ -33,7 +33,8 @@ uma autorização local. Ao sobrescrever o mesmo provedor e tipo já configurado
 o vínculo local existente é preservado; o arquivo não pode trocá-lo por outro.
 Não é permitido sobrescrever com outro tipo um provedor que tenha vínculo OAuth.
 Desconecte e exclua o provedor primeiro, ou importe o novo item com outro ID.
-A importação normaliza a URL e o formato ChatGPT para a rota oficial Responses,
+A importação normaliza a URL, o formato ChatGPT para a rota oficial Responses
+e a autenticação obrigatória,
 mesmo se o arquivo trouxer valores diferentes. Ao importar um
 provedor em outro computador, ele aparece desconectado: edite esse provedor e
 acione **Continuar com ChatGPT** para criar sua autorização local, sem copiar
