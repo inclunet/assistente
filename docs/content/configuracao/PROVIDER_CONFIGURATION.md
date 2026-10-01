@@ -83,6 +83,11 @@ Quando a renovação ainda não é permitida pelo servidor, aguarde e tente nova
 isso não significa que sua autorização foi revogada.
 A descoberta do modelo padrão é opcional: sua falha não desfaz uma conexão já autorizada.
 
+Se outra instância do Assistente estiver conectando a mesma conta, aguarde a
+conclusão ou cancele naquela instância antes de excluir ou desconectar o provedor.
+Se o aplicativo encerrar durante o consentimento, tente novamente após até cinco
+minutos, quando a reserva da tentativa expira.
+
 ## Provedores Suportados
 
 ### Provedores Cloud (API Key obrigatória)

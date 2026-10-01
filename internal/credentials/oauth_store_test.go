@@ -132,3 +132,63 @@ func TestOAuthCreateConsumerCanceledBeforeCommitDoesNotPublish(t *testing.T) {
 		t.Fatal("uncommitted credential published in cache")
 	}
 }
+
+func TestOAuthConsentLeasePreventsDeletionByAnotherManager(t *testing.T) {
+	setupScopedCredentialStoreTestDB(t)
+	key := bytes.Repeat([]byte{9}, 32)
+	first := NewManagerWithStore(key, NewDBStore(), true)
+	second := NewManagerWithStore(key, NewDBStore(), true)
+	ctx := database.WithUserID(context.Background(), "owner")
+	service := oauthflow.New(oauthintegrations.ChatGPT())
+	otherService := oauthflow.New(oauthintegrations.ChatGPT())
+	store, err := first.OAuthStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := second.OAuthStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, _ := service.Pending("consent-lease", "owner", "chatgpt")
+	record.State = "disconnected"
+	if err := store.Create(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	deletedConsumer := false
+	deleteConsumer := func(*gorm.DB) error { deletedConsumer = true; return nil }
+	opened := false
+	_, err = service.Authorize(ctx, store, record.ID, "host", func(string) error {
+		opened = true
+		active, err := other.Load(ctx, record.ID)
+		if err != nil || !active.AuthorizationActive() {
+			t.Fatalf("lease not durable before browser: %v", err)
+		}
+		if err := second.DeleteOAuthAuthorization(ctx, record.ID, deleteConsumer); !errors.Is(err, oauthflow.ErrConflict) || deletedConsumer {
+			t.Fatalf("second manager deleted active consent: %v", err)
+		}
+		if _, err := otherService.Disconnect(ctx, other, record.ID); !errors.Is(err, oauthflow.ErrConflict) {
+			t.Fatalf("second service disconnected active consent: %v", err)
+		}
+		return errors.New("browser unavailable")
+	}, "Return")
+	if err == nil || !opened {
+		t.Fatal("expected browser failure")
+	}
+	released, err := other.Load(ctx, record.ID)
+	if err != nil || released.AuthorizationActive() || released.AuthorizationAttempt != "" {
+		t.Fatalf("lease not released: %v", err)
+	}
+	// An abandoned process leaves an expired lease; deletion can recover it.
+	released.AuthorizationAttempt = "abandoned"
+	released.AuthorizationUntil = time.Now().Add(-time.Minute)
+	released.Revision++
+	if err := other.CompareAndSwap(ctx, released, released.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.DeleteOAuthAuthorization(ctx, record.ID, deleteConsumer); err != nil || !deletedConsumer {
+		t.Fatalf("expired lease prevented deletion: %v", err)
+	}
+	if _, err := store.Load(ctx, record.ID); err == nil {
+		t.Fatal("deleted record remained visible to first manager")
+	}
+}

@@ -104,6 +104,9 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 	if err != nil {
 		return Record{}, err
 	}
+	if r.AuthorizationActive() {
+		return Record{}, ErrTransient
+	}
 	if r.Resource != resource {
 		return Record{}, ErrResource
 	}
@@ -303,6 +306,11 @@ func (s *Service) Disconnect(ctx context.Context, store Store, id string) (bool,
 	if _, err = s.integration(r); err != nil {
 		return false, err
 	}
+	if r.AuthorizationActive() {
+		return false, ErrConflict
+	}
+	r.AuthorizationAttempt = ""
+	r.AuthorizationUntil = time.Time{}
 	old := r.Tokens
 	// Keep the validated identity hint for explicit reconnection to this account.
 	r.Tokens = Tokens{ID: r.Tokens.ID}

@@ -50,6 +50,9 @@ func (s *Service) Authorize(ctx context.Context, store Store, id, hostID string,
 	if err != nil {
 		return Summary{}, err
 	}
+	if r.AuthorizationActive() {
+		return Summary{}, ErrConflict
+	}
 	previous := r
 	if hostID == "" || openBrowser == nil {
 		return Summary{}, ErrResource
@@ -126,6 +129,16 @@ func (s *Service) Authorize(ctx context.Context, store Store, id, hostID string,
 	if err = ctx.Err(); err != nil {
 		return Summary{}, err
 	}
+	// Persist ownership before any browser interaction; another process must not
+	// delete this disconnected grant or begin a second consent concurrently.
+	r.AuthorizationAttempt = randomValue()
+	r.AuthorizationUntil, _ = ctx.Deadline()
+	r.Revision++
+	if err = store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
+		return Summary{}, err
+	}
+	attempt := r.AuthorizationAttempt
+	defer clearAuthorizationAttempt(ctx, store, id, attempt)
 	if err = openBrowser(i.Endpoints.Authorization + "?" + values.Encode()); err != nil {
 		return Summary{}, errors.New("oauth_browser_unavailable")
 	}
@@ -157,6 +170,9 @@ func (s *Service) Authorize(ctx context.Context, store Store, id, hostID string,
 			return Summary{}, err
 		}
 	}
+	if err = checkAuthorizationAttempt(ctx, store, r); err != nil {
+		return Summary{}, err
+	}
 	response, err := s.exchange(ctx, r, url.Values{"grant_type": {"authorization_code"}, "client_id": {clientID}, "code": {result.values.Get("code")}, "code_verifier": {verifier}, "redirect_uri": {redirect}, "resource": {r.Resource}})
 	if err != nil {
 		return Summary{}, err
@@ -168,10 +184,43 @@ func (s *Service) Authorize(ctx context.Context, store Store, id, hostID string,
 	if updated.State != "connected" && previous.State == "connected" && previous.Tokens.Access != "" && !previous.RefreshPending && i.permits(previous.GrantedScopes) {
 		return previous.Summary(), ErrPermission
 	}
+	if err = checkAuthorizationAttempt(ctx, store, r); err != nil {
+		return Summary{}, err
+	}
+	updated.AuthorizationAttempt = ""
+	updated.AuthorizationUntil = time.Time{}
 	updated.Revision++
 	updated.RefreshPending = false
 	if err = store.CompareAndSwap(ctx, updated, r.Revision); err != nil {
 		return Summary{}, err
 	}
 	return updated.Summary(), nil
+}
+
+func checkAuthorizationAttempt(ctx context.Context, store Store, expected Record) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	current, err := store.Load(ctx, expected.ID)
+	if err != nil {
+		return err
+	}
+	if current.AuthorizationAttempt != expected.AuthorizationAttempt || !current.AuthorizationActive() || current.Revision != expected.Revision {
+		return ErrConflict
+	}
+	return nil
+}
+
+func clearAuthorizationAttempt(ctx context.Context, store Store, id, attempt string) {
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	current, err := store.Load(cleanup, id)
+	if err != nil || current.AuthorizationAttempt != attempt {
+		return
+	}
+	current.AuthorizationAttempt = ""
+	current.AuthorizationUntil = time.Time{}
+	current.Revision++
+	// Session validation still belongs to Store. Failed cleanup expires naturally.
+	_ = store.CompareAndSwap(cleanup, current, current.Revision-1)
 }

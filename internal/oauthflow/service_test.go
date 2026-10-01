@@ -467,6 +467,8 @@ func TestReauthorizationWithReducedScopePreservesConnectedGrant(t *testing.T) {
 				return response.Body.Close()
 			}, "Return")
 			if connected {
+				// Acquiring and releasing consent ownership each advance the CAS revision.
+				before.Revision += 2
 				if !errors.Is(err, ErrPermission) || summary.State != "connected" || !reflect.DeepEqual(before, store.r) {
 					t.Fatalf("valid grant overwritten: %v", err)
 				}
@@ -590,5 +592,38 @@ func TestAccessOnlyAuthorizationRequiresDurableReconnect(t *testing.T) {
 				t.Fatal("old grant reused", err)
 			}
 		})
+	}
+}
+
+func TestAuthorizationLeaseOwnershipAndRecovery(t *testing.T) {
+	s, store, _ := fixture(t, func(http.ResponseWriter, *http.Request) { t.Error("unexpected exchange") })
+	store.r.AuthorizationAttempt = "other-process"
+	store.r.AuthorizationUntil = time.Now().Add(time.Minute)
+	opened := false
+	open := func(string) error { opened = true; return errors.New("browser unavailable") }
+	if _, err := s.Authorize(context.Background(), store, store.r.ID, "host", open, "Return"); !errors.Is(err, ErrConflict) || opened {
+		t.Fatalf("active lease accepted: %v", err)
+	}
+	if _, err := s.Disconnect(context.Background(), store, store.r.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("disconnected active consent: %v", err)
+	}
+	store.r.AuthorizationUntil = time.Now().Add(-time.Minute)
+	if _, err := s.Authorize(context.Background(), store, store.r.ID, "host", open, "Return"); err == nil || !opened {
+		t.Fatal("expired consent was not recovered")
+	}
+	if store.r.AuthorizationAttempt != "" || !store.r.AuthorizationUntil.IsZero() {
+		t.Fatal("failed browser left lease")
+	}
+	store.r.AuthorizationAttempt = "new-owner"
+	store.r.AuthorizationUntil = time.Now().Add(time.Minute)
+	before := store.r
+	clearAuthorizationAttempt(context.Background(), store, store.r.ID, "old-owner")
+	if !reflect.DeepEqual(before, store.r) {
+		t.Fatal("old cleanup altered new owner")
+	}
+	stale := store.r
+	stale.AuthorizationAttempt = "old-owner"
+	if err := checkAuthorizationAttempt(context.Background(), store, stale); !errors.Is(err, ErrConflict) {
+		t.Fatal("stale exchange allowed")
 	}
 }

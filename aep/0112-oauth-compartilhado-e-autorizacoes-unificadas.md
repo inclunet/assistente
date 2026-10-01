@@ -317,7 +317,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   transação e publica os demais campos atuais. Token sem refresh exige reconexão
   persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
   Testes cobrem preservação de edições e falha na gravação da transição.
-- Revisão independente local em trinta e uma rodadas, com correções de isolamento de
+- Revisão independente local em trinta e duas rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
@@ -410,3 +410,13 @@ Fontes oficiais consultadas em 30/09/2026; revalidar na implementação:
 O MCP respeita cancelamento enquanto aguarda o árbitro interativo compartilhado,
 sem iniciar novo consentimento após a espera cancelada. Evidência:
 `TestAuthorizeCanceledWhileWaitingForSharedArbiter`.
+
+O consentimento mantém tentativa e prazo no envelope por CAS antes do navegador.
+Exclusão, desconexão e outra autorização recusam a reserva ativa entre processos;
+a tentativa verifica ownership antes da troca e da persistência. Cancelamento
+limpa somente a própria reserva, preservando o registro atual; falha de limpeza
+ou processo interrompido permite recuperação após expiração (até cinco minutos).
+Emissão remota e persistência local não são uma transação distribuída: falhas de
+rede ou disco após a emissão ainda podem exigir revogação pela conta do serviço.
+Evidências: `TestAuthorizationLeaseOwnershipAndRecovery` e
+`TestOAuthConsentLeasePreventsDeletionByAnotherManager`.

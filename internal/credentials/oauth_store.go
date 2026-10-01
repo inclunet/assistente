@@ -293,7 +293,7 @@ func (m *Manager) DeleteOAuthAuthorization(ctx context.Context, id string, delet
 			if err = json.Unmarshal([]byte(data), &record); err != nil {
 				return err
 			}
-			if record.Version != 1 || record.ID != id || record.UserID != user || record.State != "disconnected" || record.RefreshPending {
+			if record.Version != 1 || record.ID != id || record.UserID != user || record.State != "disconnected" || record.RefreshPending || record.AuthorizationActive() {
 				return oauthflow.ErrConflict
 			}
 			result := database.ScopeByUser(ctx, tx, "user_id").Where("id = ? AND source = ? AND oauth_enc = ?", id, "oauth", entry.OAuthEnc).Delete(&database.CredentialEntry{})
