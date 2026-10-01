@@ -187,3 +187,50 @@ func TestChatGPTImportReplacesExplicitUnauthenticatedMode(t *testing.T) {
 		t.Fatalf("incomplete canonical connection: %+v", saved)
 	}
 }
+
+func TestImportGenericOrphanOAuthReference(t *testing.T) {
+	for _, envelope := range []string{"absent", "owned", "other-user", "static"} {
+		for _, incomingType := range []string{"openai", "ollama"} {
+			t.Run(envelope+"/"+incomingType, func(t *testing.T) {
+				setupPortabilityTestDB(t)
+				ctx := portabilityTestCtx()
+				user, _ := database.RequireUserID(ctx)
+				local := &database.LLMProvider{ID: "legacy", Name: "Legacy", Type: "openai", APIFormat: "openai", BaseURL: "https://example.com/v1", CredentialPattern: "oauth:orphan"}
+				if err := database.SaveLLMProviderWithContext(ctx, local); err != nil {
+					t.Fatal(err)
+				}
+				if envelope != "absent" {
+					entry := database.CredentialEntry{UUIDModel: database.UUIDModel{ID: "orphan"}, UserID: user, Source: "oauth", Pattern: "oauth:orphan", OAuthEnc: "envelope"}
+					if envelope == "other-user" {
+						entry.UserID = "another-user"
+					}
+					if envelope == "static" {
+						entry.Source = "static"
+					}
+					if err := database.DB().Create(&entry).Error; err != nil {
+						t.Fatal(err)
+					}
+				}
+				_, err := importProvider(ctx, ProviderExport{ID: local.ID, Name: "Imported", Type: incomingType, APIFormat: "openai", BaseURL: local.BaseURL, CredentialPattern: "static:replacement"})
+				if envelope == "owned" && incomingType != local.Type {
+					if messageFromError(err).Code != CodeProviderOAuthTypeChange {
+						t.Fatalf("wrong rejection: %v", err)
+					}
+				} else if err != nil {
+					t.Fatal(err)
+				}
+				saved, err := database.GetLLMProviderWithContext(ctx, local.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if envelope == "owned" {
+					if saved.CredentialPattern != local.CredentialPattern || saved.Type != local.Type {
+						t.Fatal("detached real grant")
+					}
+				} else if saved.CredentialPattern != "static:replacement" || saved.Type != incomingType {
+					t.Fatal("orphan reference prevented overwrite")
+				}
+			})
+		}
+	}
+}

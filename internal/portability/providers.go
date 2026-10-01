@@ -114,7 +114,15 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 		}
 		existing = current
 	}
-	linkedOAuth := existing != nil && strings.HasPrefix(existing.CredentialPattern, "oauth:")
+	linkedOAuth := existing != nil && existing.Type == "chatgpt"
+	if existing != nil && !linkedOAuth && strings.HasPrefix(existing.CredentialPattern, "oauth:") {
+		var count int64
+		err := tx.Model(&database.CredentialEntry{}).Where("id = ? AND user_id = ? AND source = ?", strings.TrimPrefix(existing.CredentialPattern, "oauth:"), existing.UserID, "oauth").Count(&count).Error
+		if err != nil {
+			return err
+		}
+		linkedOAuth = count > 0
+	}
 	if linkedOAuth && existing.Type != provider.Type {
 		return codedErrorf(CodeProviderOAuthTypeChange, params("providerId", provider.ID),
 			"O provider %q tem vínculo OAuth. Desconecte e exclua o provider antes de importar outro tipo com o mesmo ID.", provider.ID)

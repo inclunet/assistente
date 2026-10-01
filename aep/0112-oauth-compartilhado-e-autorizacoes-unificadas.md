@@ -317,7 +317,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   transação e publica os demais campos atuais. Token sem refresh exige reconexão
   persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
   Testes cobrem preservação de edições e falha na gravação da transição.
-- Revisão independente local em quarenta e quatro rodadas, com correções de isolamento de
+- Revisão independente local em quarenta e cinco rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
@@ -478,3 +478,7 @@ entrada da operação e é invalidada por `Clear`; helpers não readquirem uma
 geração nova depois de I/O. Os testes `TestChatGPTPublicationCannotSurviveLogout`
 e `TestChatGPTLateHelpersRetainOperationGeneration` cobrem logout depois do commit
 e antes de helpers tardios, sem perder os dados persistidos.
+
+A importação de provedores genéricos consulta a credencial OAuth do mesmo
+usuário antes de proteger um vínculo. Referências órfãs podem ser substituídas;
+ChatGPT permanece protegido. Evidência: `TestImportGenericOrphanOAuthReference`.
