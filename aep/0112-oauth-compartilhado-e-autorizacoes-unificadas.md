@@ -785,6 +785,9 @@ externas; `internal/mcp/oauth_inventory_test.go` cobre classificação, ausênci
 rede e referências compostas inválidas; `internal/wailsapi/mcp_test.go` cobre a
 sessão obrigatória; `McpOAuthInventory.test.tsx` cobre apresentação acessível,
 falhas sem detalhes internos e respostas após fechamento.
+O modal permanece montado para restaurar o foco da página na transição de
+fechamento; apenas o conteúdo da consulta é remontado ao reabrir. O teste de
+interface cobre fechamento por botão/Escape, restauração de foco e nova consulta.
 
 Continuam pendentes na fase 3: snapshot cifrado com retenção/restauração,
 fixtures de conversão de versões publicadas, migração transacional/idempotente,

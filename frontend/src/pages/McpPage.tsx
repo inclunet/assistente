@@ -855,7 +855,7 @@ export default function McpPage() {
         onFocusChange={handleFocusChange}
       />
 
-      {showOAuthInventory && <McpOAuthInventory onClose={() => setShowOAuthInventory(false)} />}
+      <McpOAuthInventory isOpen={showOAuthInventory} onClose={() => setShowOAuthInventory(false)} />
       <Modal
         isOpen={!!editing}
         onClose={handleCloseEditor}
