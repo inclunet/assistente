@@ -475,10 +475,14 @@ export default function McpPage() {
 
     setSaving(true);
     try {
-      await save(slug, config);
+      if (config.oauth_managed && formOAuth2ClientSecret.trim()) {
+        await save(slug, config, formOAuth2ClientSecret.trim());
+      } else {
+        await save(slug, config);
+      }
 
       // Salva auth no credential manager (separado do config JSON)
-      if (isHTTP && formAuthType !== 'none') {
+      if (isHTTP && formAuthType !== 'none' && !config.oauth_managed) {
         if (formAuthType === 'oauth2_client_credentials') {
           if (formOAuth2ClientSecret.trim()) {
             await SaveMCPServerAuth(slug, formAuthType, '', '', '', formOAuth2ClientSecret.trim());

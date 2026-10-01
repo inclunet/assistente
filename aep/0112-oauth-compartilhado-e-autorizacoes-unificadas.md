@@ -677,7 +677,9 @@ Novos cadastros OAuth feitos no editor MCP usam `oauth_managed` e uma referênci
 `OAuthAuthorizationID`. O registro cifrado contém cliente, método de autenticação,
 endpoints, scopes, callback e tokens, vinculado ao usuário e ID estável do servidor.
 A configuração persistida do servidor guarda a referência; o editor recebe uma
-projeção sem segredos. Criação e edição do consumidor/envelope são transacionais.
+projeção sem segredos. Criação e edição do consumidor/envelope são transacionais. Quando há secret
+novo, o editor usa `SaveMCPServerWithOAuthSecret` na mesma transação; remoção
+do secret e invalidação do grant também usam uma única revisão.
 Cadastros legados e importações continuam no caminho anterior: não houve conversão
 implícita, snapshot ou remoção de dados legados nesta entrega.
 
@@ -712,6 +714,8 @@ Evidências: `TestManagedOAuthOneEncryptedEntryAndAtomicConsumer`,
 `TestManagedOAuthReservedSlugIsAtomic`,
 `TestManagedOAuthDetachFailurePreservesAuthorization`,
 `TestManagedOAuthAuthInfoAfterRemovingSecret`,
+`TestManagedOAuthRemoveSecretFailureIsAtomic`,
+`TestConfiguredBasicAuthenticationOmitsBodyClientID`,
 `TestManagedOAuthSSEFallbackPreservesAuthorization`,
 `TestManagedOAuthRenamePreservesDiscoveredAudience`,
 `TestDeviceConfidentialClientAuthentication`,

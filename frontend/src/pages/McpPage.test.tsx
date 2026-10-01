@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, type ReactNode } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { SaveMCPServerAuth } from '@wailsjs/go/wailsapi/MCP';
 
 const mockSave = vi.fn();
 const mockToast = vi.fn();
@@ -153,6 +154,8 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
     oauth2AuthUrl: string;
     oauth2TokenUrl: string;
     oauth2Scopes: string;
+    oauth2ClientSecret: string;
+    onOAuth2ClientSecretChange: (value: string) => void;
     discoveryStatus: string;
     discoveryRegistrationUrl: string;
     oauth2CallbackHost: string;
@@ -169,6 +172,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
     onManualOverride: () => void;
   }) => (
     <div data-testid="connection-section">
+      <input aria-label="Client Secret" value={props.oauth2ClientSecret} onChange={(e) => props.onOAuth2ClientSecretChange(e.target.value)} />
       <input aria-label="Server URL" value={props.url} onChange={(e) => props.onUrlChange(e.target.value)} />
       <input aria-label="Authorization URL" value={props.oauth2AuthUrl} onChange={(e) => props.onOAuth2AuthUrlChange(e.target.value)} />
       <input aria-label="Token URL" value={props.oauth2TokenUrl} onChange={(e) => props.onOAuth2TokenUrlChange(e.target.value)} />
@@ -267,6 +271,19 @@ describe('McpPage — oauth2_callback_host', () => {
     expect(config.oauth2_callback_host).toBe('127.0.0.1');
     expect(config.oauth2_callback_port).toBe(3118);
     expect(config.oauth_managed).toBe(true);
+  });
+
+  it.each([false, true])('envia segredo na gravação atômica (falha=%s)', async (fail) => {
+    await openNewServerForm();
+    await userEvent.type(screen.getByLabelText('Nome'), 'Atomic');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await userEvent.selectOptions(screen.getByLabelText('Auth Type'), 'oauth2_pkce');
+    await userEvent.type(screen.getByLabelText('Client Secret'), 'secret');
+    if (fail) mockSave.mockRejectedValueOnce(new Error('atomic failure'));
+    await userEvent.click(screen.getByText('Salvar'));
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith('atomic', expect.objectContaining({oauth_managed: true}), 'secret'));
+    expect(SaveMCPServerAuth).not.toHaveBeenCalled();
+    if (fail) await waitFor(() => expect(screen.getByLabelText('Nome')).toHaveValue('Atomic'));
   });
 
   it('não inclui oauth2_callback_host quando authType não é PKCE', async () => {

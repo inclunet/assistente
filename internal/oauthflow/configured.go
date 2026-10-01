@@ -173,6 +173,15 @@ func (s *Service) resolveClientGrant(ctx context.Context, store Store, i Integra
 // Invalidate is local sign-out. It refuses active leases without claiming remote
 // revocation and is separate from Disconnect's optional revocation request.
 func (s *Service) Invalidate(ctx context.Context, store Store, id string) error {
+	return s.invalidate(ctx, store, id, false)
+}
+
+// InvalidateAndClearClientSecret removes grant and client secret in one revision.
+func (s *Service) InvalidateAndClearClientSecret(ctx context.Context, store Store, id string) error {
+	return s.invalidate(ctx, store, id, true)
+}
+
+func (s *Service) invalidate(ctx context.Context, store Store, id string, clearSecret bool) error {
 	r, err := store.Load(ctx, id)
 	if err != nil {
 		return err
@@ -184,6 +193,9 @@ func (s *Service) Invalidate(ctx context.Context, store Store, id string) error 
 		return ErrConflict
 	}
 	r.State = "disconnected"
+	if clearSecret {
+		r.Client.Secret = ""
+	}
 	r.Tokens = Tokens{}
 	r.RefreshPending = false
 	r.RefreshUntil = time.Time{}

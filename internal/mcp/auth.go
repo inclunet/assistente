@@ -5,7 +5,6 @@ import (
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
-	"assistente/internal/oauthflow"
 )
 
 func (m *Manager) SaveServerAuth(slug, authType, token, username, password, clientSecret string) error {
@@ -82,19 +81,7 @@ func (m *Manager) DeleteServerAuth(slug string) error {
 		if err != nil {
 			return err
 		}
-		if err = service.Invalidate(ctx, store, r.ID); err != nil {
-			return err
-		}
-		cleared, err := store.Load(ctx, r.ID)
-		if err != nil {
-			return err
-		}
-		if cleared.AuthorizationActive() || cleared.RefreshActive() {
-			return oauthflow.ErrConflict
-		}
-		cleared.Client.Secret = ""
-		cleared.Revision++
-		if err = store.CompareAndSwap(ctx, cleared, cleared.Revision-1); err != nil {
+		if err = service.InvalidateAndClearClientSecret(ctx, store, r.ID); err != nil {
 			return err
 		}
 		_ = m.Disconnect(slug)

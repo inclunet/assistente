@@ -7,6 +7,7 @@ import {
   ReconnectMCPServer,
   ReauthorizeMCPServer,
   SaveMCPServer,
+  SaveMCPServerWithOAuthSecret,
   DeleteMCPServer,
   GetMCPServerTools,
   GetMCPServerConfig,
@@ -30,7 +31,7 @@ interface MCPState {
   disconnect: (slug: string) => Promise<void>;
   reconnect: (slug: string) => Promise<void>;
   reauthorize: (slug: string) => Promise<void>;
-  save: (slug: string, config: ServerConfig) => Promise<void>;
+  save: (slug: string, config: ServerConfig, oauthSecret?: string) => Promise<void>;
   remove: (slug: string) => Promise<void>;
   getTools: (slug: string) => Promise<MCPToolInfo[]>;
   getConfig: (slug: string) => Promise<ServerConfig | null>;
@@ -98,9 +99,13 @@ export const useMCPStore = create<MCPState>((set, get) => ({
     }
   },
 
-  save: async (slug: string, config: ServerConfig) => {
+  save: async (slug: string, config: ServerConfig, oauthSecret?: string) => {
     try {
-      await SaveMCPServer(slug, config);
+      if (config.oauth_managed && oauthSecret !== undefined) {
+        await SaveMCPServerWithOAuthSecret(slug, config, oauthSecret);
+      } else {
+        await SaveMCPServer(slug, config);
+      }
       await get().loadServers();
     } catch (err) {
       logger.error(`[MCP] Erro ao salvar '${slug}':`, err);

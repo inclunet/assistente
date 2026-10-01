@@ -151,3 +151,42 @@ func TestConfiguredFailedRotationCannotReuseRefreshAfterRestart(t *testing.T) {
 		t.Fatal("reused rotating token")
 	}
 }
+
+func TestConfiguredBasicAuthenticationOmitsBodyClientID(t *testing.T) {
+	for _, grant := range []string{"authorization_code", "client_credentials"} {
+		t.Run(grant, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = r.ParseForm()
+				user, secret, ok := r.BasicAuth()
+				if !ok || user != "client" || secret != "secret" || r.Form.Get("client_id") != "" || r.Form.Get("client_secret") != "" {
+					t.Error("duplicated or missing authentication")
+					w.WriteHeader(400)
+					return
+				}
+				expected := "refresh_token"
+				if grant == "client_credentials" {
+					expected = grant
+				}
+				if r.Form.Get("grant_type") != expected {
+					t.Error("wrong grant")
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "NEW", "token_type": "Bearer", "expires_in": 3600})
+			}))
+			defer srv.Close()
+			r := configuredRecord(srv.URL)
+			r.GrantType = grant
+			r.Client.Secret = "secret"
+			r.Client.AuthMethod = "client_secret_basic"
+			if grant == "client_credentials" {
+				r.State = "pending"
+				r.Tokens = Tokens{}
+			}
+			store := &memoryStore{r: r}
+			service, _ := NewConfigured(r, nil)
+			got, err := service.Resolve(WithNetworkOperation(context.Background()), store, r.ID, r.Resource, "")
+			if err != nil || got.Tokens.Access != "NEW" {
+				t.Fatalf("Basic grant failed: %v", err)
+			}
+		})
+	}
+}

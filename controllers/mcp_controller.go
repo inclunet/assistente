@@ -203,3 +203,10 @@ func (c *MCPController) NewMCPEventEmitter() func(event string, data any) {
 		}
 	}
 }
+
+func (c *MCPController) SaveMCPServerWithOAuthSecret(slug string, cfg mcpmgr.ServerConfig, secret string) error {
+	if err := c.guardMgr(); err != nil {
+		return err
+	}
+	return c.mcpMgr.SaveConfigWithOAuthSecret(slug, cfg, secret)
+}

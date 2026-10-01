@@ -236,6 +236,9 @@ func (s *Service) exchange(ctx context.Context, r Record, form url.Values) (toke
 	if r.Client.AuthMethod == "client_secret_post" && r.Client.Secret != "" {
 		form.Set("client_secret", r.Client.Secret)
 	}
+	if r.Client.AuthMethod == "client_secret_basic" && r.Client.Secret != "" {
+		form.Del("client_id")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.Endpoints.Token, strings.NewReader(form.Encode()))
 	if err != nil {
 		return tokenResponse{}, ErrResource

@@ -53,10 +53,7 @@ func loadManaged(t *testing.T, m *Manager, ctx context.Context, slug string) (Se
 func TestManagedOAuthOneEncryptedEntryAndAtomicConsumer(t *testing.T) {
 	m, repo, ctx := managedFixture(t)
 	cfg := managedConfig("https://resource.example")
-	if err := m.SaveConfig("new", cfg); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.SaveServerAuth("new", string(cfg.AuthType), "", "", "", "CLIENT-SECRET"); err != nil {
+	if err := m.SaveConfigWithOAuthSecret("new", cfg, "CLIENT-SECRET"); err != nil {
 		t.Fatal(err)
 	}
 	projected, _, r := loadManaged(t, m, ctx, "new")
@@ -94,7 +91,7 @@ func TestManagedOAuthOneEncryptedEntryAndAtomicConsumer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = repo.db.Callback().Create().Remove("reject_managed_consumer") }()
-	if err := m.SaveConfig("fail", cfg); err == nil {
+	if err := m.SaveConfigWithOAuthSecret("fail", cfg, "FAILED-SECRET"); err == nil {
 		t.Fatal("expected atomic create failure")
 	}
 	var count int64
@@ -653,5 +650,34 @@ func TestManagedOAuthAuthInfoAfterRemovingSecret(t *testing.T) {
 	_, _, record := loadManaged(t, m, ctx, "info")
 	if record.Client.ID != "client" {
 		t.Fatal("public registration was lost")
+	}
+}
+
+func TestManagedOAuthRemoveSecretFailureIsAtomic(t *testing.T) {
+	m, repo, ctx := managedFixture(t)
+	if err := m.SaveConfigWithOAuthSecret("clear", managedConfig("https://resource.example"), "SECRET"); err != nil {
+		t.Fatal(err)
+	}
+	_, store, record := loadManaged(t, m, ctx, "clear")
+	record.State = "connected"
+	record.Tokens = oauthflow.Tokens{Access: "VALID", Type: "Bearer"}
+	record.Revision++
+	if err := store.CompareAndSwap(ctx, record, record.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.db.Callback().Update().Before("gorm:update").Register("reject_clear", func(tx *gorm.DB) {
+		if tx.Statement.Table == "credential_entries" {
+			_ = tx.AddError(errors.New("write failed"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = repo.db.Callback().Update().Remove("reject_clear") }()
+	if err := m.DeleteServerAuth("clear"); err == nil {
+		t.Fatal("write failure ignored")
+	}
+	latest, err := store.Load(ctx, record.ID)
+	if err != nil || latest.Revision != record.Revision || latest.Tokens.Access != "VALID" || latest.Client.Secret != "SECRET" || latest.State != "connected" {
+		t.Fatalf("partial clear: %v", err)
 	}
 }

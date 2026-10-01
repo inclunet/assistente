@@ -503,3 +503,13 @@ func (m *Manager) persistManagedPolling(ctx context.Context, cfg ServerConfig) e
 	}
 	return nil
 }
+
+// SaveConfigWithOAuthSecret commits configuration and supplied secret together.
+func (m *Manager) SaveConfigWithOAuthSecret(slug string, cfg ServerConfig, secret string) error {
+	slug = strings.TrimSpace(slug)
+	cfg.Slug = slug
+	if !cfg.OAuthManaged {
+		return oauthflow.ErrResource
+	}
+	return m.saveManagedOAuth(slug, cfg, &secret)
+}
