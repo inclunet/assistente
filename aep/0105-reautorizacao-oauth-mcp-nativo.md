@@ -146,3 +146,20 @@ código necessária aqui** — apenas registro da decisão e dos testes existent
 - AEP-0033 — MCP OAuth Auto-Discovery (`effectiveScopes`, `scopes_supported`).
 - AEP-0061 — Incidente de perda de credenciais e defesas (`oauthFlowArbiter`,
   persistência de tokens).
+
+
+## Integração incremental com AEP-0112
+
+O status desta proposta permanece **In Progress**. Para os novos cadastros MCP
+com `oauth_authorization_id`, a reautorização usa o lifecycle compartilhado:
+`pkceRoundTripper` executa somente o protocolo; `oauthflow.Service.AuthorizeUsing`
+possui o lease e persiste o resultado no registro composto. Resolução nativa,
+bridge e renovação proativa usam o mesmo serviço. A descrição legada de D3
+continua aplicável aos cadastros sem referência composta até a migração prevista
+na AEP-0112. Autoconexão e requisições incidentais desses novos cadastros não
+abrem navegador: Conectar e Reautorizar são as entradas interativas explícitas.
+
+Evidências: `TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart`,
+`TestManagedOAuthDeviceAndStartupNeverOpenBrowserImplicitly` e
+`TestManagedOAuthDisconnectCancelsRefreshPreflight` em
+`internal/mcp/oauth_authorization_test.go`.

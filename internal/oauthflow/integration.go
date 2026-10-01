@@ -14,6 +14,8 @@ import (
 // Integration isolates protocol extensions from the common lifecycle.
 type Route struct{ Method, Path string }
 type Integration struct {
+	IdentityOptional     bool
+	ClientCredentials    bool
 	Routes               []Route
 	ID, Issuer, Resource string
 	Endpoints            Endpoints

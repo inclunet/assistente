@@ -23,10 +23,12 @@ type authorizationGate struct {
 }
 
 type Service struct {
-	HTTP         *http.Client
-	integrations map[string]Integration
-	gatesMu      sync.Mutex
-	gates        map[string]*authorizationGate
+	gateOwner     *Service
+	BeforeRefresh func(context.Context, Record) error
+	HTTP          *http.Client
+	integrations  map[string]Integration
+	gatesMu       sync.Mutex
+	gates         map[string]*authorizationGate
 }
 
 func New(integrations ...Integration) *Service {
@@ -37,6 +39,9 @@ func New(integrations ...Integration) *Service {
 	return s
 }
 func (s *Service) gate(ctx context.Context, id string) (func(), error) {
+	if s.gateOwner != nil {
+		return s.gateOwner.gate(ctx, id)
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -110,6 +115,9 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 	if r.Resource != resource {
 		return Record{}, ErrResource
 	}
+	if i.ClientCredentials {
+		return s.resolveClientGrant(ctx, store, i, r, rejectedAccess)
+	}
 	if r.RefreshActive() {
 		return Record{}, ErrTransient
 	}
@@ -145,6 +153,11 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 			return Record{}, ErrTransient
 		}
 		return r, nil
+	}
+	if s.BeforeRefresh != nil {
+		if err = s.BeforeRefresh(ctx, r); err != nil {
+			return Record{}, err
+		}
 	}
 	before := r.Revision
 	r.Revision++
@@ -214,11 +227,23 @@ type tokenResponse struct {
 }
 
 func (s *Service) exchange(ctx context.Context, r Record, form url.Values) (tokenResponse, error) {
+	if r.GrantType != "" {
+		form.Del("resource")
+		if r.Audience != "" {
+			form.Set("resource", r.Audience)
+		}
+	}
+	if r.Client.AuthMethod == "client_secret_post" && r.Client.Secret != "" {
+		form.Set("client_secret", r.Client.Secret)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.Endpoints.Token, strings.NewReader(form.Encode()))
 	if err != nil {
 		return tokenResponse{}, ErrResource
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if r.Client.AuthMethod == "client_secret_basic" && r.Client.Secret != "" {
+		req.SetBasicAuth(url.QueryEscape(r.Client.ID), url.QueryEscape(r.Client.Secret))
+	}
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
 		return tokenResponse{}, ErrTransient
@@ -251,10 +276,10 @@ func (s *Service) exchange(ctx context.Context, r Record, form url.Values) (toke
 	return result, nil
 }
 func (s *Service) applyTokens(ctx context.Context, i Integration, r Record, t tokenResponse, nonce string, initial bool) (Record, error) {
-	if initial && t.ID == "" {
+	if initial && !i.IdentityOptional && t.ID == "" {
 		return Record{}, ErrReauthorize
 	}
-	if t.ID != "" {
+	if t.ID != "" && !i.IdentityOptional {
 		sub, email, err := verifyIdentity(ctx, s.HTTP, r, t.ID, nonce)
 		if err != nil {
 			return Record{}, err

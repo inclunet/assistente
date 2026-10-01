@@ -41,6 +41,7 @@ const (
 // ServerConfig é a configuração de um servidor MCP.
 // A fonte persistida é o banco; JSON permanece como formato de import/export legado.
 type ServerConfig struct {
+	OAuth2TokenAuthMethod string            `json:"oauth2_token_auth_method,omitempty" yaml:"oauth2_token_auth_method,omitempty"`
 	ID                    string            `json:"id,omitempty" yaml:"id,omitempty"`
 	UserID                string            `json:"user_id,omitempty" yaml:"user_id,omitempty"`
 	Slug                  string            `json:"slug,omitempty" yaml:"slug,omitempty"`
@@ -52,6 +53,8 @@ type ServerConfig struct {
 	Env                   map[string]string `json:"env,omitempty" yaml:"env,omitempty"`         // variáveis de ambiente
 	URL                   string            `json:"url,omitempty" yaml:"url,omitempty"`         // sse/streamable
 	AuthType              AuthType          `json:"auth_type,omitempty" yaml:"auth_type,omitempty"`
+	OAuthManaged          bool              `json:"oauth_managed,omitempty" yaml:"oauth_managed,omitempty"`
+	OAuthAuthorizationID  string            `json:"oauth_authorization_id,omitempty" yaml:"oauth_authorization_id,omitempty"`
 	OAuth2ClientID        string            `json:"oauth2_client_id,omitempty" yaml:"oauth2_client_id,omitempty"`
 	OAuth2AuthURL         string            `json:"oauth2_auth_url,omitempty" yaml:"oauth2_auth_url,omitempty"`
 	OAuth2TokenURL        string            `json:"oauth2_token_url,omitempty" yaml:"oauth2_token_url,omitempty"`
@@ -160,12 +163,12 @@ type ServerStatus struct {
 
 // ServerInfo é a versão exportada para o frontend (sem campos sensíveis como env).
 type ServerInfo struct {
-	ID            string            `json:"id,omitempty"`
-	Slug          string            `json:"slug"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description,omitempty"`
-	Transport     TransportType     `json:"transport"`
-	Status        ConnectionStatus  `json:"status"`
+	ID          string           `json:"id,omitempty"`
+	Slug        string           `json:"slug"`
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	Transport   TransportType    `json:"transport"`
+	Status      ConnectionStatus `json:"status"`
 	// AuthType expõe ao frontend o tipo de autenticação configurado, permitindo
 	// habilitar a ação de reautorização apenas para servidores OAuth2 PKCE.
 	AuthType      AuthType          `json:"authType,omitempty"`

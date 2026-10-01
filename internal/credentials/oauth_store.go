@@ -126,6 +126,11 @@ func (s *oauthStore) CreateWithConsumer(ctx context.Context, r oauthflow.Record,
 	return nil
 }
 func (s *oauthStore) CompareAndSwap(ctx context.Context, r oauthflow.Record, revision uint64) error {
+	return s.CompareAndSwapWithConsumer(ctx, r, revision, nil)
+}
+
+// CompareAndSwapWithConsumer commits a configuration edit and its consumer together.
+func (s *oauthStore) CompareAndSwapWithConsumer(ctx context.Context, r oauthflow.Record, revision uint64, update func(*gorm.DB) error) error {
 	m := s.manager
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -144,7 +149,29 @@ func (s *oauthStore) CompareAndSwap(ctx context.Context, r oauthflow.Record, rev
 	if err != nil {
 		return err
 	}
-	if err = m.store.(oauthPersistence).SwapOAuth(ctx, r.ID, enc, next); err != nil {
+	if update == nil {
+		err = m.store.(oauthPersistence).SwapOAuth(ctx, r.ID, enc, next)
+	} else {
+		persistence, ok := m.store.(*DBStore)
+		if !ok {
+			return errors.New("oauth_store_not_supported")
+		}
+		db, dbErr := persistence.ensureDB()
+		if dbErr != nil {
+			return dbErr
+		}
+		err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			result := tx.Model(&database.CredentialEntry{}).Where("id = ? AND user_id = ? AND source = ? AND oauth_enc = ?", r.ID, s.userID, "oauth", enc).Update("oauth_enc", next)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return oauthflow.ErrConflict
+			}
+			return update(tx)
+		})
+	}
+	if err != nil {
 		return err
 	}
 	if r.State != "connected" {

@@ -1,0 +1,567 @@
+package mcp
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"assistente/internal/credentials"
+	"assistente/internal/database"
+	"assistente/internal/oauthflow"
+	"assistente/internal/tools"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"gorm.io/gorm"
+)
+
+func managedFixture(t *testing.T) (*Manager, *DBRepository, context.Context) {
+	t.Helper()
+	repo, ctx, _ := setupRepositoryTest(t)
+	if err := repo.db.AutoMigrate(&database.CredentialEntry{}); err != nil {
+		t.Fatal(err)
+	}
+	mgr := NewManager(tools.NewRegistry(), credentials.NewManagerWithStore(bytes.Repeat([]byte{7}, 32), credentials.NewDBStore(), true), func(string, any) {})
+	mgr.SetRepository(repo)
+	mgr.SetAuthContextProvider(func() context.Context { return ctx })
+	t.Cleanup(mgr.CloseAll)
+	return mgr, repo, ctx
+}
+func managedConfig(resource string) ServerConfig {
+	return ServerConfig{Name: "Managed", Transport: TransportStreamable, URL: resource, AuthType: AuthOAuth2PKCE, OAuthManaged: true, OAuth2ClientID: "client", OAuth2TokenURL: resource + "/token", OAuth2AuthURL: resource + "/authorize", Enabled: true}
+}
+func loadManaged(t *testing.T, m *Manager, ctx context.Context, slug string) (ServerConfig, oauthflow.Store, oauthflow.Record) {
+	t.Helper()
+	cfg, err := m.GetConfig(slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, r, _, err := m.managedOAuth(ctx, *cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return *cfg, store, r
+}
+
+func TestManagedOAuthOneEncryptedEntryAndAtomicConsumer(t *testing.T) {
+	m, repo, ctx := managedFixture(t)
+	cfg := managedConfig("https://resource.example")
+	if err := m.SaveConfig("new", cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SaveServerAuth("new", string(cfg.AuthType), "", "", "", "CLIENT-SECRET"); err != nil {
+		t.Fatal(err)
+	}
+	projected, _, r := loadManaged(t, m, ctx, "new")
+	if projected.OAuth2ClientID != "client" || r.Client.Secret != "CLIENT-SECRET" {
+		t.Fatal("configuration lost")
+	}
+	var rows []database.CredentialEntry
+	if err := repo.db.Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Source != "oauth" || strings.Contains(rows[0].OAuthEnc, "CLIENT-SECRET") {
+		t.Fatal("not one encrypted entry")
+	}
+	stored, err := repo.GetServer(ctx, "new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.OAuth2ClientID != "" || stored.OAuth2TokenURL != "" || stored.OAuthAuthorizationID != r.ID {
+		t.Fatal("duplicated OAuth configuration")
+	}
+	other := database.WithUserID(context.Background(), "user-b")
+	if _, err = m.resolveManagedOAuth(other, *stored, ""); err == nil {
+		t.Fatal("cross-user resolution")
+	}
+	forged := *stored
+	forged.URL = "https://other.example"
+	if _, err = m.resolveManagedOAuth(ctx, forged, ""); err == nil {
+		t.Fatal("cross-resource resolution")
+	}
+	if err := repo.db.Callback().Create().Before("gorm:create").Register("reject_managed_consumer", func(tx *gorm.DB) {
+		if tx.Statement.Table == "mcp_servers" {
+			_ = tx.AddError(errors.New("consumer write failed"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = repo.db.Callback().Create().Remove("reject_managed_consumer") }()
+	if err := m.SaveConfig("fail", cfg); err == nil {
+		t.Fatal("expected atomic create failure")
+	}
+	var count int64
+	repo.db.Model(&database.CredentialEntry{}).Count(&count)
+	if count != 1 {
+		t.Fatal("orphan authorization after failed create")
+	}
+	if _, ok := m.servers["fail"]; ok {
+		t.Fatal("published failed consumer")
+	}
+}
+
+func TestManagedOAuthLegacyIsNotMigratedOrUsedAsFallback(t *testing.T) {
+	m, repo, ctx := managedFixture(t)
+	legacy := managedConfig("https://resource.example")
+	legacy.OAuthManaged = false
+	if err := m.SaveConfig("legacy", legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacy.OAuthManaged = true
+	if err := m.SaveConfig("legacy", legacy); err == nil {
+		t.Fatal("implicit migration")
+	}
+	if err := m.SaveConfig("new", managedConfig("https://resource.example")); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, _ := loadManaged(t, m, ctx, "new")
+	if err := m.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("new"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "LEGACY"}); err != nil {
+		t.Fatal(err)
+	}
+	tok, ok := m.resolveNativeAuthToken(ctx, nativeMCPCandidate{slug: "new", name: "new", url: cfg.URL, authType: cfg.AuthType, managedConfig: cfg})
+	if ok || tok != "" {
+		t.Fatal("managed authorization fell back to legacy token")
+	}
+	old, err := repo.GetServer(ctx, "legacy")
+	if err != nil || old.OAuthAuthorizationID != "" {
+		t.Fatal("legacy changed")
+	}
+}
+
+func TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart(t *testing.T) {
+	m, repo, ctx := managedFixture(t)
+	var tokenCalls atomic.Int32
+	var redirect string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/register":
+			var body oauthflow.RegistrationRequest
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if len(body.RedirectURIs) != 1 {
+				t.Error("missing exact callback")
+				w.WriteHeader(400)
+				return
+			}
+			redirect = body.RedirectURIs[0]
+			_ = json.NewEncoder(w).Encode(map[string]string{"client_id": "registered"})
+		case "/token":
+			_ = r.ParseForm()
+			n := tokenCalls.Add(1)
+			if n == 1 && r.Form.Get("redirect_uri") != redirect {
+				t.Error("callback differs from registration")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "ACCESS-" + r.Form.Get("grant_type"), "refresh_token": "REFRESH", "token_type": "Bearer", "expires_in": 3600})
+		case "/authorize":
+			w.WriteHeader(200)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	cfg := managedConfig(srv.URL)
+	cfg.OAuth2ClientID = ""
+	cfg.OAuth2RegistrationURL = srv.URL + "/register"
+	if err := m.SaveConfig("new", cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, _ = loadManaged(t, m, ctx, "new")
+	oldBrowser := browserOpen
+	defer func() { browserOpen = oldBrowser }()
+	browserOpen = func(raw string) error {
+		u, _ := url.Parse(raw)
+		q := u.Query()
+		callback := q.Get("redirect_uri") + "?state=" + url.QueryEscape(q.Get("state")) + "&code=CODE"
+		resp, err := http.Get(callback)
+		if err != nil {
+			return err
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		return nil
+	}
+	if err := m.authorizeManagedOAuth(ctx, "new", cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg, store, r := loadManaged(t, m, ctx, "new")
+	if r.Client.ID != "registered" || r.Tokens.Refresh != "REFRESH" || r.Callback.Port == 0 || r.State != "connected" {
+		t.Fatalf("grant not persisted: %s", r.State)
+	}
+	r.Tokens.ExpiresAt = time.Now().Add(-time.Hour)
+	r.Revision++
+	if err := store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	restarted := NewManager(tools.NewRegistry(), credentials.NewManagerWithStore(bytes.Repeat([]byte{7}, 32), credentials.NewDBStore(), true), func(string, any) {})
+	restarted.SetRepository(repo)
+	restarted.SetAuthContextProvider(func() context.Context { return ctx })
+	defer restarted.CloseAll()
+	if err := restarted.LoadConfigs(); err != nil {
+		t.Fatal(err)
+	}
+	tok, ok := restarted.resolveNativeAuthToken(ctx, nativeMCPCandidate{slug: "new", name: "new", managedConfig: cfg})
+	if !ok || tok != "ACCESS-refresh_token" || tokenCalls.Load() != 2 {
+		t.Fatalf("restart/native refresh failed: ok=%v calls=%d", ok, tokenCalls.Load())
+	}
+	var count int64
+	repo.db.Model(&database.CredentialEntry{}).Count(&count)
+	if count != 1 {
+		t.Fatal("legacy credential pair was created")
+	}
+}
+
+func TestManagedOAuthDeviceAndStartupNeverOpenBrowserImplicitly(t *testing.T) {
+	m, _, ctx := managedFixture(t)
+	var opened atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/device":
+			_ = json.NewEncoder(w).Encode(map[string]any{"device_code": "DEVICE", "user_code": "USER", "verification_uri": "http://" + r.Host + "/verify", "expires_in": 60, "interval": 1})
+		case "/token":
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "device-token", "token_type": "Bearer", "expires_in": 3600})
+		case "/authorize", "/verify":
+			w.WriteHeader(200)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	cfg := managedConfig(srv.URL)
+	cfg.OAuth2DeviceAuthURL = srv.URL + "/device"
+	cfg.AutoConnect = true
+	if err := m.SaveConfig("new", cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, _ = loadManaged(t, m, ctx, "new")
+	oldBrowser := browserOpen
+	defer func() { browserOpen = oldBrowser }()
+	browserOpen = func(string) error { opened.Add(1); return nil }
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	if _, err := m.managedHTTPClient(ctx, cfg).Do(req); err == nil {
+		t.Fatal("pending grant unexpectedly connected")
+	}
+	if opened.Load() != 0 {
+		t.Fatal("silent resolution opened browser")
+	}
+	if err := m.authorizeManagedOAuth(ctx, "new", cfg); err != nil {
+		t.Fatal(err)
+	}
+	projected, _, r := loadManaged(t, m, ctx, "new")
+	if r.Tokens.Access != "device-token" || opened.Load() != 1 {
+		t.Fatal("device authorization not committed")
+	}
+	projected.Name = "Renamed"
+	if err := m.SaveConfig("new", projected); err != nil {
+		t.Fatal(err)
+	}
+	_, _, edited := loadManaged(t, m, ctx, "new")
+	if edited.Tokens.Access != "device-token" || edited.Endpoints.Device != r.Endpoints.Device {
+		t.Fatal("name edit discarded authorization")
+	}
+
+}
+
+func TestManagedOAuthClientCredentialsAndDeleteFenceTransport(t *testing.T) {
+	m, repo, ctx := managedFixture(t)
+	var tokens, requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/token" {
+			tokens.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "CC", "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+		requests.Add(1)
+		if r.Header.Get("Authorization") != "Bearer CC" {
+			t.Error("missing bearer")
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	cfg := managedConfig(srv.URL)
+	cfg.AuthType = AuthOAuth2ClientCredentials
+	if err := m.SaveConfig("cc", cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SaveServerAuth("cc", string(cfg.AuthType), "", "", "", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, _ = loadManaged(t, m, ctx, "cc")
+	client := m.managedHTTPClient(ctx, cfg)
+	for range 2 {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+	}
+	if tokens.Load() != 1 {
+		t.Fatal("client grant was not cached")
+	}
+	if err := m.DeleteConfig("cc"); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	if resp, err := client.Do(req); err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("old transport survived deletion")
+	}
+	var count int64
+	repo.db.Model(&database.CredentialEntry{}).Count(&count)
+	if count != 0 || requests.Load() != 2 {
+		t.Fatal("deletion did not remove/fence authorization")
+	}
+}
+
+func TestManagedOAuthEditsRefuseLiveLeasesAndRollbackConsumerFailure(t *testing.T) {
+	m, repo, ctx := managedFixture(t)
+	if err := m.SaveConfig("new", managedConfig("https://resource.example")); err != nil {
+		t.Fatal(err)
+	}
+	cfg, store, r := loadManaged(t, m, ctx, "new")
+	r.State = "connected"
+	r.Tokens = oauthflow.Tokens{Access: "OLD", Type: "Bearer"}
+	r.AuthorizationAttempt = "active"
+	r.AuthorizationUntil = time.Now().Add(time.Minute)
+	r.Revision++
+	if err := store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Name = "Changed"
+	if err := m.SaveConfig("new", cfg); !errors.Is(err, oauthflow.ErrConflict) {
+		t.Fatalf("edit active lease: %v", err)
+	}
+	if err := m.DeleteConfig("new"); !errors.Is(err, oauthflow.ErrConflict) {
+		t.Fatalf("delete active lease: %v", err)
+	}
+	r.AuthorizationAttempt = ""
+	r.AuthorizationUntil = time.Time{}
+	r.Revision++
+	if err := store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.db.Callback().Update().Before("gorm:update").Register("reject_consumer_edit", func(tx *gorm.DB) {
+		if tx.Statement.Table == "mcp_servers" {
+			_ = tx.AddError(errors.New("consumer edit failed"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = repo.db.Callback().Update().Remove("reject_consumer_edit") }()
+	cfg.OAuth2Scopes = []string{"expanded"}
+	if err := m.SaveConfig("new", cfg); err == nil {
+		t.Fatal("expected atomic edit failure")
+	}
+	_, _, after := loadManaged(t, m, ctx, "new")
+	if after.Revision != r.Revision || after.Tokens.Access != "OLD" || len(after.RequestedScopes) != 0 {
+		t.Fatal("failed consumer edit changed envelope")
+	}
+}
+
+type managedTestRoundTrip func(*http.Request) (*http.Response, error)
+
+func (f managedTestRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+type managedTrackedBody struct {
+	io.Reader
+	closed bool
+}
+
+func (b *managedTrackedBody) Close() error { b.closed = true; return nil }
+func TestManagedOAuthReplayFailureCloses401And403DoesNotRefresh(t *testing.T) {
+	for _, status := range []int{401, 403} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			m, _, ctx := managedFixture(t)
+			var tokens atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				tokens.Add(1)
+				_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "NEW", "refresh_token": "ROTATED", "token_type": "Bearer", "expires_in": 3600})
+			}))
+			defer srv.Close()
+			if err := m.SaveConfig("new", managedConfig(srv.URL)); err != nil {
+				t.Fatal(err)
+			}
+			cfg, store, r := loadManaged(t, m, ctx, "new")
+			r.State = "connected"
+			r.Tokens = oauthflow.Tokens{Access: "OLD", Refresh: "REFRESH", Type: "Bearer", ExpiresAt: time.Now().Add(time.Hour)}
+			r.Revision++
+			if err := store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
+				t.Fatal(err)
+			}
+			body := &managedTrackedBody{Reader: strings.NewReader("rejected")}
+			transport := &managedOAuthTransport{manager: m, cfg: cfg, store: store, ctx: ctx, base: managedTestRoundTrip(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: status, Body: body, Header: make(http.Header)}, nil
+			})}
+			req, _ := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL, strings.NewReader("payload"))
+			req.GetBody = func() (io.ReadCloser, error) { return nil, errors.New("cannot recreate body") }
+			resp, err := transport.RoundTrip(req)
+			if status == 401 {
+				if err == nil || !body.closed || tokens.Load() != 1 {
+					t.Fatalf("401 leaked body or did not renew: %v %v %d", err, body.closed, tokens.Load())
+				}
+			} else {
+				if err != nil || resp.StatusCode != 403 || tokens.Load() != 0 {
+					t.Fatalf("403 refreshed: %v", err)
+				}
+				_ = resp.Body.Close()
+			}
+		})
+	}
+}
+
+func TestManagedOAuthTransportCannotSurviveVaultSession(t *testing.T) {
+	m, _, ctx := managedFixture(t)
+	if err := m.SaveConfig("new", managedConfig("https://resource.example")); err != nil {
+		t.Fatal(err)
+	}
+	cfg, store, r := loadManaged(t, m, ctx, "new")
+	r.State = "connected"
+	r.Tokens = oauthflow.Tokens{Access: "OLD", Type: "Bearer"}
+	r.Revision++
+	if err := store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	var requests int
+	transport := &managedOAuthTransport{manager: m, cfg: cfg, store: store, ctx: ctx, base: managedTestRoundTrip(func(*http.Request) (*http.Response, error) { requests++; return nil, errors.New("must not send") })}
+	m.credMgr.ClearCommandCache() // Also invalidates the shared OAuth session epoch.
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, cfg.URL, nil)
+	if _, err := transport.RoundTrip(req); err == nil || requests != 0 {
+		t.Fatal("transport survived invalidated vault session")
+	}
+}
+
+func TestManagedOAuthReservedSlugIsAtomic(t *testing.T) {
+	m, repo, _ := managedFixture(t)
+	if err := m.SaveConfig("native", managedConfig("https://resource.example")); err == nil {
+		t.Fatal("reserved namespace accepted")
+	}
+	var count int64
+	if err := repo.db.Model(&database.CredentialEntry{}).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("orphan authorization: %d %v", count, err)
+	}
+}
+
+func TestManagedOAuthDisconnectCancelsRefreshPreflight(t *testing.T) {
+	m, _, ctx := managedFixture(t)
+	started := make(chan struct{})
+	var resources atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/token" {
+			_ = r.ParseForm()
+			close(started)
+			select {
+			case <-r.Context().Done():
+			case <-time.After(10 * time.Second):
+			}
+			return
+		}
+		resources.Add(1)
+	}))
+	defer srv.Close()
+	if err := m.SaveConfig("cancel", managedConfig(srv.URL)); err != nil {
+		t.Fatal(err)
+	}
+	_, store, record := loadManaged(t, m, ctx, "cancel")
+	record.State = "connected"
+	record.Tokens = oauthflow.Tokens{Access: "OLD", Refresh: "REFRESH", Type: "Bearer", ExpiresAt: time.Now().Add(-time.Hour)}
+	record.Revision++
+	if err := store.CompareAndSwap(ctx, record, record.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- m.Connect("cancel") }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("refresh did not start")
+	}
+	_ = m.Disconnect("cancel")
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("connect survived cancellation")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("refresh was not canceled")
+	}
+	if resources.Load() != 0 {
+		t.Fatal("resource connected after cancellation")
+	}
+}
+
+func TestManagedOAuthSSEFallbackPreservesAuthorization(t *testing.T) {
+	m, repo, ctx := managedFixture(t)
+	probe := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+	}))
+	defer probe.Close()
+	if err := m.SaveConfig("polling", managedConfig(probe.URL)); err != nil {
+		t.Fatal(err)
+	}
+	_, store, record := loadManaged(t, m, ctx, "polling")
+	record.State = "connected"
+	record.Tokens = oauthflow.Tokens{Access: "VALID", Refresh: "REFRESH", Type: "Bearer", ExpiresAt: time.Now().Add(time.Hour)}
+	record.Revision++
+	if err := store.CompareAndSwap(ctx, record, record.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "fallback-test", Version: "1"}, nil)
+	var calls atomic.Int32
+	m.transportFactory = func(context.Context, string, ServerConfig) (mcpsdk.Transport, error) {
+		if calls.Add(1) == 1 {
+			return &delayedErrorTransport{err: errors.New("standalone SSE request failed")}, nil
+		}
+		clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+		session, err := server.Connect(m.ctx, serverTransport, nil)
+		if err != nil {
+			return nil, err
+		}
+		t.Cleanup(func() { _ = session.Close() })
+		return clientTransport, nil
+	}
+	if err := m.Connect("polling"); err != nil {
+		t.Fatal(err)
+	}
+	defer m.CloseAll()
+	latest, err := store.Load(ctx, record.ID)
+	if err != nil || latest.Revision != record.Revision || (latest.Tokens.Access != record.Tokens.Access || latest.Tokens.Refresh != record.Tokens.Refresh || latest.Tokens.Type != record.Tokens.Type || !latest.Tokens.ExpiresAt.Equal(record.Tokens.ExpiresAt)) {
+		t.Fatalf("fallback changed authorization: %v", err)
+	}
+	cfg, err := repo.GetServer(ctx, "polling")
+	if err != nil || !cfg.DisableSSE || calls.Load() != 2 {
+		t.Fatalf("fallback not persisted: calls=%d err=%v", calls.Load(), err)
+	}
+}
+
+func TestManagedOAuthRenamePreservesDiscoveredAudience(t *testing.T) {
+	m, _, ctx := managedFixture(t)
+	if err := m.SaveConfig("audience", managedConfig("https://resource.example")); err != nil {
+		t.Fatal(err)
+	}
+	cfg, store, record := loadManaged(t, m, ctx, "audience")
+	record.Audience = "https://canonical.example/resource"
+	record.State = "connected"
+	record.Tokens = oauthflow.Tokens{Access: "VALID", Type: "Bearer"}
+	record.Revision++
+	if err := store.CompareAndSwap(ctx, record, record.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Name = "Renamed"
+	if err := m.SaveConfig("audience", cfg); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := store.Load(ctx, record.ID)
+	if err != nil || latest.Audience != record.Audience || latest.Tokens.Access != "VALID" || latest.State != "connected" {
+		t.Fatalf("rename invalidated discovered resource: %v", err)
+	}
+}

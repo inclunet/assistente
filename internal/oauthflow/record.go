@@ -19,6 +19,9 @@ var (
 // Record is secret material: only the vault may serialize it for persistence.
 // UI contracts must use Summary, never Record.
 type Record struct {
+	ConsumerID      string             `json:"consumerId,omitempty"`
+	GrantType       string             `json:"grantType,omitempty"`
+	Audience        string             `json:"audience,omitempty"`
 	Version         int                `json:"version"`
 	ID              string             `json:"id"`
 	UserID          string             `json:"userId"`
@@ -43,6 +46,7 @@ type Record struct {
 	AuthorizationUntil   time.Time `json:"authorizationUntil,omitempty"`
 }
 type ClientRegistration struct {
+	GrantType  string `json:"grantType,omitempty"`
 	Method     string `json:"method"`
 	ID         string `json:"id"`
 	Secret     string `json:"secret,omitempty"`
@@ -50,6 +54,8 @@ type ClientRegistration struct {
 }
 type Endpoints struct {
 	Authorization string `json:"authorization"`
+	Registration  string `json:"registration,omitempty"`
+	Device        string `json:"device,omitempty"`
 	Token         string `json:"token"`
 	Revocation    string `json:"revocation"`
 	JWKS          string `json:"jwks"`

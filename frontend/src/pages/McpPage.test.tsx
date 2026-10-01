@@ -266,6 +266,7 @@ describe('McpPage — oauth2_callback_host', () => {
     expect(slug).toBe('test-server');
     expect(config.oauth2_callback_host).toBe('127.0.0.1');
     expect(config.oauth2_callback_port).toBe(3118);
+    expect(config.oauth_managed).toBe(true);
   });
 
   it('não inclui oauth2_callback_host quando authType não é PKCE', async () => {
