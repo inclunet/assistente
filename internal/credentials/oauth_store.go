@@ -400,7 +400,8 @@ func (s *oauthStore) WithAuthorization(ctx context.Context, id string, update fu
 }
 
 // WithSession serializes a short, non-reentrant publication with vault invalidation.
-// The callback must not call the credential manager or perform I/O.
+// The callback may read local consumer state, but must not call the credential
+// manager, mutate the vault, or perform network I/O.
 func (s *oauthStore) WithSession(ctx context.Context, publish func() error) error {
 	s.manager.mu.RLock()
 	defer s.manager.mu.RUnlock()

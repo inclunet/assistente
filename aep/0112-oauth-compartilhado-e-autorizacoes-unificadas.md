@@ -738,3 +738,5 @@ importações com snapshot e restauração, retirar o caminho legado após a con
 e executar a convergência Slack. A validação com provedores reais é feita pelo usuário.
 
 Evidências adicionais da fase 2: `TestManagedOAuthRegistrationMetadataInvalidatesDCR` cobre re-registro após edição dos metadados e preservação em renomeações; `TestConfiguredClientGrantWaitsForScopeCorrection` cobre tanto escopos reduzidos como rejeição `invalid_scope`, sem repetição antes da correção.
+
+`TestManagedOAuthLatePublicationLoadsLatestCommit` prova que a publicação em memória recarrega o consumidor sob a sessão do cofre e não restaura uma configuração obsoleta após outra edição confirmar.

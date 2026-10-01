@@ -817,3 +817,40 @@ func TestManagedOAuthRegistrationMetadataInvalidatesDCR(t *testing.T) {
 		}
 	}
 }
+
+type delayedManagedPublication struct {
+	oauthflow.Store
+	before func()
+}
+
+func (s delayedManagedPublication) WithSession(ctx context.Context, publish func() error) error {
+	s.before()
+	return s.Store.(interface {
+		WithSession(context.Context, func() error) error
+	}).WithSession(ctx, publish)
+}
+
+func TestManagedOAuthLatePublicationLoadsLatestCommit(t *testing.T) {
+	m, repo, ctx := managedFixture(t)
+	cfg := managedConfig("https://resource.example")
+	if err := m.SaveConfig("new", cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg, store, _ := loadManaged(t, m, ctx, "new")
+	delayed := delayedManagedPublication{Store: store, before: func() {
+		cfg.URL = "https://new.example"
+		cfg.Name = "Newest"
+		if err := m.SaveConfig("new", cfg); err != nil {
+			t.Fatal(err)
+		}
+	}}
+	// Publication from the first commit resumes only after the next edit has
+	// committed and published; it must not restore the first configuration.
+	if err := m.publishManagedOAuth(ctx, delayed, repo, "new"); err != nil {
+		t.Fatal(err)
+	}
+	got, _, record := loadManaged(t, m, ctx, "new")
+	if got.Name != "Newest" || got.URL != cfg.URL || record.Resource != cfg.URL {
+		t.Fatal("late publication restored an obsolete consumer")
+	}
+}

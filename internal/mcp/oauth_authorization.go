@@ -163,27 +163,7 @@ func (m *Manager) saveManagedOAuth(slug string, cfg ServerConfig, secret *string
 	if err != nil {
 		return err
 	}
-	roots := m.GetWorkspaceRoots()
-	publish := func() error {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		if current := m.servers[slug]; current != nil {
-			current.ID = cfg.ID
-			current.Config = cfg
-			current.Roots = roots
-		} else {
-			m.servers[slug] = &ServerStatus{ID: cfg.ID, Slug: slug, Config: cfg, Status: StatusDisconnected, Tools: []MCPToolInfo{}, Roots: roots}
-		}
-		return nil
-	}
-	if scoped, ok := store.(interface {
-		WithSession(context.Context, func() error) error
-	}); ok {
-		err = scoped.WithSession(ctx, publish)
-	} else {
-		err = publish()
-	}
-	if err != nil {
+	if err = m.publishManagedOAuth(ctx, store, repo, slug); err != nil {
 		return err
 	}
 	if changed && !creating {
@@ -191,6 +171,34 @@ func (m *Manager) saveManagedOAuth(slug string, cfg ServerConfig, secret *string
 	}
 	m.emit("mcp:config_changed", map[string]string{"slug": slug})
 	return nil
+}
+
+// Reload after acquiring the vault session lock: another edit may have committed
+// since this caller's CAS. Never publish a captured pre-commit configuration.
+func (m *Manager) publishManagedOAuth(ctx context.Context, store oauthflow.Store, repo *DBRepository, slug string) error {
+	roots := m.GetWorkspaceRoots()
+	publish := func() error {
+		cfg, err := repo.GetServer(ctx, slug)
+		if err != nil {
+			return err
+		}
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if current := m.servers[slug]; current != nil {
+			current.ID = cfg.ID
+			current.Config = *cfg
+			current.Roots = roots
+		} else {
+			m.servers[slug] = &ServerStatus{ID: cfg.ID, Slug: slug, Config: *cfg, Status: StatusDisconnected, Tools: []MCPToolInfo{}, Roots: roots}
+		}
+		return nil
+	}
+	if scoped, ok := store.(interface {
+		WithSession(context.Context, func() error) error
+	}); ok {
+		return scoped.WithSession(ctx, publish)
+	}
+	return oauthflow.ErrConflict
 }
 
 func clearOAuthConfiguration(cfg *ServerConfig) {
