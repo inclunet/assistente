@@ -13,6 +13,7 @@ import (
 type ProviderType string
 
 const (
+	ProviderChatGPT    ProviderType = "chatgpt"
 	ProviderOpenAI     ProviderType = "openai"
 	ProviderClaude     ProviderType = "claude"
 	ProviderGrok       ProviderType = "grok"
@@ -362,6 +363,10 @@ func (p *ProviderConfig) Validate() error {
 	if p == nil {
 		return fmt.Errorf("provider config nil")
 	}
+	if p.Type == ProviderChatGPT && (p.BaseURL != "https://api.openai.com/v1" || p.APIFormat != APIFormatOpenAIResponses || !strings.HasPrefix(p.CredentialPattern, "oauth:") || p.EffectiveAuthMode() != AuthModeRequired) {
+		return fmt.Errorf("chatgpt_invalid_connection_configuration")
+	}
+
 	p.ID = strings.TrimSpace(p.ID)
 	p.Name = strings.TrimSpace(p.Name)
 	p.BaseURL = strings.TrimSpace(p.BaseURL)
@@ -439,6 +444,9 @@ func (p *ProviderConfig) validateCredentialEnv() error {
 // SupportsTTS retorna true se o SDK do provider suporta síntese de voz (TTS).
 // Atualmente apenas o SDK OpenAI (formatos openai e openai_responses) tem endpoint /audio/speech.
 func (p *ProviderConfig) SupportsTTS() bool {
+	if p.Type == ProviderChatGPT {
+		return false
+	}
 	f := p.GetAPIFormat()
 	return f == APIFormatOpenAI || f == APIFormatOpenAIResponses
 }
@@ -446,6 +454,9 @@ func (p *ProviderConfig) SupportsTTS() bool {
 // SupportsSTT retorna true se o SDK do provider suporta transcrição de voz (STT/Whisper).
 // Atualmente apenas o SDK OpenAI (formatos openai e openai_responses) tem endpoint /audio/transcriptions.
 func (p *ProviderConfig) SupportsSTT() bool {
+	if p.Type == ProviderChatGPT {
+		return false
+	}
 	f := p.GetAPIFormat()
 	return f == APIFormatOpenAI || f == APIFormatOpenAIResponses
 }

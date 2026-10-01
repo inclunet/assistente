@@ -21,6 +21,7 @@ type blockingProviderStore struct {
 	release <-chan struct{}
 }
 
+func (s *blockingProviderStore) Delete(context.Context, string) error              { return nil }
 func (s *blockingProviderStore) Save(context.Context, []*llm.ProviderConfig) error { return nil }
 func (s *blockingProviderStore) Load(context.Context) ([]*llm.ProviderConfig, error) {
 	return nil, nil

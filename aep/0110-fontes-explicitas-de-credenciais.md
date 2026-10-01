@@ -14,9 +14,10 @@ atender executáveis locais e WSL sem acoplamento a fornecedor.
 
 ## Decisões
 
-- Sources: static, env, keyring, command; oauth tem contrato próprio reservado e
-  retorna erro explícito de indisponibilidade. O fluxo OAuth interativo é futuro;
-  OAuth MCP gerenciado mantém seu ciclo atual, independente desta nova source.
+- Sources: static, env, keyring, command. A evolução do AEP-0112 implementa
+  oauth para autorizações gerenciadas, começando por ChatGPT. O formulário
+  genérico não cadastra tokens OAuth manualmente; OAuth MCP gerenciado mantém
+  seu ciclo atual até a migração prevista no AEP-0112.
 - Source obrigatória em novas gravações. Registros antigos sem source permanecem
   no banco e falham na materialização com orientação de reconfiguração manual.
   Nenhuma migração de dados nem interpretação de env:// ou keyring://.

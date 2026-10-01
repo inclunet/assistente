@@ -1589,3 +1589,28 @@ func TestAuthorizeProceedsWhenTokenUnchanged(t *testing.T) {
 		t.Fatal("authorize não deveria pular quando o token rejeitado permanece; deveria prosseguir e falhar sem config")
 	}
 }
+
+func TestAuthorizeCanceledWhileWaitingForSharedArbiter(t *testing.T) {
+	oauthFlowArbiter.Lock()
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(oauthFlowArbiter.Unlock) }
+	defer release()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rt := &pkceRoundTripper{}
+	done := make(chan error, 1)
+	go func() { done <- rt.authorize(ctx) }()
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected cancellation, got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled MCP authorization waited for the shared arbiter")
+	}
+	release()
+	if err := rt.authorize(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("already canceled authorization proceeded with free arbiter: %v", err)
+	}
+}

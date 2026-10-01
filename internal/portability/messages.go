@@ -42,6 +42,7 @@ const (
 	CodeMessageInvalidTurnID    = "message.invalidTurnId"
 	CodeMessageInvalidTurnIdx   = "message.invalidTurnIndex"
 
+	CodeProviderOAuthTypeChange           = "provider.oauthTypeChange"
 	CodeProviderMissingID                 = "provider.missingId"
 	CodeProviderMissingName               = "provider.missingName"
 	CodeProviderMissingType               = "provider.missingType"

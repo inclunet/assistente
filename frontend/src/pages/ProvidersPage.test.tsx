@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockGetProviders = vi.fn();
@@ -15,11 +15,17 @@ const mockAddToast = vi.fn();
 const mockAnnounce = vi.fn();
 const mockAnnounceRequest = vi.fn();
 
+const mockGetConnection = vi.fn();
+const mockDisconnectChatGPT = vi.fn();
+const mockCreateChatGPT = vi.fn();
+const mockAuthorizeChatGPT = vi.fn();
+const mockCancelChatGPT = vi.fn();
+const mockT = (key: string, fallback?: string | Record<string, unknown>) => typeof fallback === 'string' ? fallback : key;
+
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
-    t: (key: string, fallback?: string | Record<string, unknown>) =>
-      typeof fallback === 'string' ? fallback : key,
+    t: mockT,
     i18n: { language: 'pt-BR' },
   }),
 }));
@@ -36,6 +42,11 @@ vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
   CreateLLMProvider: (payload: unknown) => mockCreateProvider(payload),
   DeleteLLMProvider: (id: string) => mockDeleteProvider(id),
   SetDefaultProvider: vi.fn(),
+  ChatGPTConnection: (...args: unknown[]) => mockGetConnection(...args),
+  DisconnectChatGPT: (...args: unknown[]) => mockDisconnectChatGPT(...args),
+  CreateChatGPTConnection: (...args: unknown[]) => mockCreateChatGPT(...args),
+  AuthorizeChatGPT: (...args: unknown[]) => mockAuthorizeChatGPT(...args),
+  CancelChatGPT: (...args: unknown[]) => mockCancelChatGPT(...args),
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({
@@ -109,7 +120,7 @@ vi.mock('../components/ui/DataGrid', () => ({
 }));
 
 vi.mock('../components/ui/Modal', () => ({
-  Modal: ({ isOpen, children }: { isOpen: boolean; children?: ReactNode }) => (isOpen ? <div>{children}</div> : null),
+  Modal: ({ isOpen, children, allowClose = true, onClose }: { isOpen: boolean; children?: ReactNode; allowClose?: boolean; onClose: () => void }) => (isOpen ? <div><button disabled={!allowClose} onClick={onClose}>modal-close</button>{children}</div> : null),
   isModalOpen: () => false,
   useModalId: () => null,
   useModalIsTopmost: () => () => true,
@@ -143,6 +154,11 @@ describe('ProvidersPage', () => {
 
   beforeEach(() => {
     nowSpy = vi.spyOn(Date, 'now');
+    mockGetConnection.mockReset().mockResolvedValue({ id: 'chatgpt', state: 'connected' });
+    mockDisconnectChatGPT.mockReset();
+    mockCreateChatGPT.mockReset();
+    mockAuthorizeChatGPT.mockReset().mockReturnValue(new Promise(() => undefined));
+    mockCancelChatGPT.mockReset().mockResolvedValue(undefined);
     mockGetProviders.mockResolvedValue([
       {
         id: 'openai-1',
@@ -174,6 +190,52 @@ describe('ProvidersPage', () => {
 
   afterEach(() => {
     nowSpy.mockRestore();
+  });
+
+  it('blocks the modal close control until the connection record is created', async () => {
+    let complete!: (value: { id: string }) => void;
+    mockCreateChatGPT.mockReturnValueOnce(new Promise(resolve => { complete = resolve; }));
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+    await screen.findByText('OpenAI');
+    await user.click(screen.getByRole('button', { name: 'chatgpt.add' }));
+    await user.type(screen.getByLabelText('chatgpt.label'), 'Account');
+    await user.click(screen.getByRole('button', { name: 'chatgpt.connect' }));
+    const close = screen.getByRole('button', { name: 'modal-close' });
+    expect(close).toBeDisabled();
+    await user.click(close);
+    expect(screen.getByRole('button', { name: 'common.cancel' })).toBeDisabled();
+    await act(async () => complete({ id: 'created' }));
+    expect(close).toBeEnabled();
+    await user.click(close);
+    expect(screen.queryByRole('button', { name: 'chatgpt.connect' })).not.toBeInTheDocument();
+    expect(mockCancelChatGPT).toHaveBeenCalledWith('created');
+  });
+
+  it.each(['unconfirmed', 'failed'])('preserves the disconnection result while refreshing the list: %s', async outcome => {
+    const providers = [{ id: 'chatgpt', name: 'ChatGPT', type: 'chatgpt', base_url: 'https://api.openai.com/v1', credential_status: 'configured' }];
+    mockGetProviders.mockResolvedValue(providers);
+    let complete!: (value: boolean) => void, fail!: (error: Error) => void;
+    mockDisconnectChatGPT.mockReturnValueOnce(new Promise((resolve, reject) => { complete = resolve; fail = reject; }));
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+    await screen.findByText('ChatGPT');
+    await user.click(screen.getByRole('button', { name: 'focus-first' }));
+    await user.click(screen.getByTestId('toolbar-action-edit'));
+    await screen.findByRole('button', { name: 'chatgpt.reconnect' });
+    await user.click(screen.getByRole('button', { name: 'chatgpt.disconnect' }));
+    expect(screen.getByRole('button', { name: 'modal-close' })).toBeDisabled();
+    let refreshed!: (value: typeof providers) => void;
+    mockGetProviders.mockReturnValueOnce(new Promise(resolve => { refreshed = resolve; }));
+    await act(async () => { if (outcome === 'unconfirmed') complete(false); else fail(new Error('failure')); });
+    const message = outcome === 'unconfirmed' ? 'chatgpt.revocationUnconfirmed' : 'chatgpt.connectionError';
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.getByText('Carregando...')).toBeInTheDocument();
+    await act(async () => refreshed(providers));
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'modal-close' })).toBeEnabled();
+    expect(mockGetConnection).toHaveBeenCalledTimes(1);
+    expect(mockAnnounce.mock.calls.some(call => call[0] === message)).toBe(true);
   });
 
   it('duplica provedor via menu de acoes', async () => {
@@ -268,6 +330,16 @@ describe('ProvidersPage', () => {
     // Sem erro: o backend recusa o formato acp sem comando, e a cópia sem ele
     // morreria em toast de erro.
     expect(mockAddToast).not.toHaveBeenCalledWith(expect.anything(), 'error');
+  });
+
+  it.each([['oauth_authorization_changed', 'chatgpt.authorizationChanged'], ['oauth_vault_persistence_required', 'chatgpt.vaultUnavailable'], ['oauth_vault_unavailable', 'chatgpt.vaultUnavailable'], ['chatgpt_disconnect_before_delete', 'chatgpt.disconnectBeforeDelete'], ['chatgpt_authorization_in_progress', 'chatgpt.authorizationInProgress']])('traduz recusa de exclusao %s', async (code, key) => {
+    mockDeleteProvider.mockRejectedValueOnce(new Error(code));
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+    await screen.findByText('OpenAI');
+    await user.click(screen.getByRole('button', { name: 'focus-first' }));
+    await user.click(screen.getByTestId('toolbar-action-delete'));
+    await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith(key, 'error'));
   });
 
   it('habilita acao de excluir na toolbar apos foco', async () => {

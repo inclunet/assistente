@@ -87,3 +87,13 @@ func (s *MemoryStore) Count(_ context.Context) (int, error) {
 	defer s.mu.RUnlock()
 	return len(s.providers), nil
 }
+
+func (s *MemoryStore) Delete(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.providers, id)
+	if s.defaultID == id {
+		s.defaultID = ""
+	}
+	return nil
+}

@@ -9,6 +9,95 @@ weight: 1
 
 O Assistente suporta múltiplos provedores de LLM, tanto comerciais (cloud) quanto locais. Basta adicionar um provedor nas configurações (`Alt + 2`) e informar uma chave de API ou usar uma credencial já cadastrada para o domínio.
 
+## Conectar sua conta ChatGPT
+
+Na página **Provedores**, escolha **Conectar ChatGPT**, dê um nome à autorização
+(por exemplo, “ChatGPT pessoal”) e acione **Continuar com ChatGPT**. Autorize no
+navegador o uso do plano de uma conta elegível. Retorne ao Assistente para conferir
+o estado **Conectado** e selecione esse provedor no perfil de chat. O primeiro
+modelo listado pela conta será o padrão quando o catálogo estiver disponível;
+você pode selecionar outro modelo no perfil. Se o catálogo falhar temporariamente,
+recarregue a lista de modelos no perfil e escolha um explicitamente. Se esta for
+a primeira conexão da sua conta local, ela também se torna o provedor padrão.
+Durante a gravação inicial, aguarde a liberação do botão de fechar; depois disso,
+você pode cancelar a espera pelo navegador.
+
+Cada autorização aparece como um provedor independente, com nome e identificador
+próprios. O identificador aparece assim que o cadastro é criado, sem precisar
+fechar e reabrir a janela. O identificador exibido é o do provedor local; a autorização
+pode ter outro identificador após recuperar uma importação. Para outra conta/workspace, crie outra conexão. Para voltar à mesma conta,
+edite o provedor e use **Autorizar novamente**: o cadastro é reaproveitado.
+O navegador só abre quando você pede conexão ou reautorização. Novos provedores
+importados não reutilizam referências OAuth do arquivo, mesmo que coincidam com
+uma autorização local. Ao sobrescrever o mesmo provedor e tipo já configurados,
+o vínculo local existente é preservado; o arquivo não pode trocá-lo por outro.
+Não é permitido sobrescrever com outro tipo um provedor que tenha vínculo OAuth.
+Desconecte e exclua o provedor primeiro, ou importe o novo item com outro ID.
+A importação normaliza a URL, o formato ChatGPT para a rota oficial Responses
+e a autenticação obrigatória,
+mesmo se o arquivo trouxer valores diferentes. Ao importar um
+provedor em outro computador, reinicie o Assistente após concluir a importação.
+A listagem de provedores só incorpora importações e sobrescritas após o reinício.
+O ChatGPT importado aparece desconectado: edite esse provedor e
+acione **Continuar com ChatGPT** para criar sua autorização local, sem copiar
+tokens da máquina anterior. Em outros tipos de provedor, referências OAuth
+do arquivo são removidas; configure uma credencial compatível normalmente. A ação **Conectar ChatGPT** da barra cria outro
+provedor e não é necessária para reparar o item importado. Um item importado sem
+autorização local pode ser excluído mesmo se o cofre estiver indisponível. Se houver
+uma autorização cifrada local, recupere o acesso ao cofre para desconectar e excluir.
+
+A conexão usa seu plano ChatGPT e seus limites; não troca automaticamente para uma
+chave de API. Consulte [uso e permissões no ChatGPT](https://chatgpt.com/settings/usage).
+Suporta chat via Responses e ferramentas executadas localmente pelo Assistente,
+incluindo ferramentas MCP pelo adaptador local. Não oferece áudio nem ferramentas
+hospedadas de MCP, arquivos ou execução de código. Os parâmetros incompatíveis com
+essa rota são omitidos da requisição sem alterar o perfil salvo.
+
+Se o catálogo ChatGPT falhar, o aviso de uso do plano e o link de acompanhamento
+continuam disponíveis. Se a abertura, conexão ou desconexão informar cofre
+indisponível, desbloqueie o cofre e tente novamente; essa falha não confirma
+a desconexão.
+
+O cofre precisa estar habilitado para persistir. Cadastro, access token, refresh token
+e ID token ficam cifrados juntos; a tela e as exportações não incluem esses segredos.
+A renovação é coordenada entre chamadas e respeita a expiração informada pelo servidor.
+Se não houver refresh token, o access token é usado até expirar; após expiração
+ou rejeição pelo serviço, a conexão passa a exigir **Autorizar novamente**.
+Se houver interrupção ou falha ao salvar após possível rotação, use **Autorizar novamente**;
+o aplicativo não tenta reutilizar um refresh token possivelmente consumido.
+A primeira falha já orienta reconectar. Se editar ou excluir um provedor falhar
+após outra instância mudar sua conexão, reinicie para atualizar a lista; a
+autorização persistida é preservada.
+
+**Desconectar** interrompe o uso local e tenta revogar a sessão remota. Aguarde o
+resultado antes de fechar a janela; se uma renovação estiver em andamento em
+outra instância, o estado aparece como renovando: aguarde até 30 segundos e
+tente novamente, sem iniciar outro login. Após uma renovação
+ambígua, a desconexão local avisa que a revogação remota não está confirmada; o fechamento fica bloqueado durante a operação. Se a revogação
+não puder ser confirmada, o Assistente avisa e você pode remover a autorização nas
+configurações do ChatGPT. O cadastro e o ID token validado permanecem cifrados
+para reconectar à mesma conta; access token e refresh token são removidos.
+Excluir o provedor após desconectar remove também esse cadastro local. Antes de
+excluir esse provedor do Assistente, conclua ou cancele qualquer autorização em
+andamento e desconecte a conta. A migração das autorizações
+MCP e dos tokens de canais Slack será entregue separadamente.
+
+Falhas de resposta incompleta, conexão interrompida, autorização e limite do plano
+são apresentadas no idioma da interface. Ao atingir o limite, consulte o uso pelo
+link junto ao seletor de modelos; a solicitação não é repetida automaticamente.
+O catálogo também traduz falhas de autorização, permissão e indisponibilidade.
+Uma autorização local ausente orienta reconectar. Se o stream ficar sem eventos
+até o limite de ociosidade, a mensagem informa o timeout, sem atribuí-lo a um
+cancelamento feito por você.
+Quando a renovação ainda não é permitida pelo servidor, aguarde e tente novamente;
+isso não significa que sua autorização foi revogada.
+A descoberta do modelo padrão é opcional: sua falha não desfaz uma conexão já autorizada.
+
+Se outra instância do Assistente estiver conectando a mesma conta, aguarde a
+conclusão ou cancele naquela instância antes de excluir ou desconectar o provedor.
+Se o aplicativo encerrar durante o consentimento, tente novamente após até cinco
+minutos, quando a reserva da tentativa expira.
+
 ## Provedores Suportados
 
 ### Provedores Cloud (API Key obrigatória)
@@ -162,4 +251,21 @@ selfHosted: {
 }
 ```
 
-Consulte [Fontes de credenciais](../CREDENTIAL_SOURCES/) para usar env, keyring ou comando sem inserir tokens estáticos.
+Consulte [Fontes de credenciais](CREDENTIAL_SOURCES.md) para usar env, keyring ou comando sem inserir tokens estáticos.
+
+Provedores genéricos antigos com referência OAuth sem credencial local podem ser
+excluídos ou corrigidos editando a URL e configurando a credencial normalmente.
+Uma autorização local existente continua protegida contra desvinculação acidental.
+
+### Falha ao salvar um provedor com API key
+
+No cadastro genérico com API key, a chave e a configuração do provedor ainda
+são gravadas separadamente. Se o salvamento falhar, confira a credencial do
+hostname no gerenciador antes de tentar novamente: ela pode ter sido alterada,
+inclusive para outros provedores que usam o mesmo hostname. A melhoria é
+acompanhada na [issue #872](https://github.com/inclunet/assistente/issues/872).
+A conexão ChatGPT usa o fluxo OAuth dedicado; uma API key estática não pode
+substituir seu registro OAuth pela edição genérica.
+
+Se a exclusão informar que a conexão mudou ou está em uso por outra
+autorização, aguarde a operação terminar, recarregue a lista e tente novamente.

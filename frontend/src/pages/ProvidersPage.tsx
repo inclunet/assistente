@@ -1,3 +1,4 @@
+import { ChatGPTConnection } from '../components/settings/ChatGPTConnection';
 import { logger } from '../utils/logger';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -89,6 +90,8 @@ export default function ProvidersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [isEditing, setIsEditing] = useState(false);
+  const [oauthCloseBlocked, setOAuthCloseBlocked] = useState(false);
+  const [oauthDialog, setOAuthDialog] = useState<{ id?: string } | null>(null);
   const [editingProvider, setEditingProvider] = useState<ProviderFormData | undefined>(undefined);
   const [focusedRow, setFocusedRow] = useState<ProviderRow | null>(null);
   const [updatePlans, setUpdatePlans] = useState<Record<string, InstallPlan>>({});
@@ -166,6 +169,7 @@ export default function ProvidersPage() {
   useActivePanelNewShortcut(handleAddProvider);
 
   const handleEditProvider = useCallback((provider: ProviderRow) => {
+ if (provider.type === 'chatgpt') { setOAuthDialog({id: provider.id}); return; }
     setEditingProvider({
       id: provider.id,
       name: provider.name,
@@ -208,6 +212,7 @@ export default function ProvidersPage() {
   };
 
   const handleDuplicateProvider = async (provider: ProviderRow) => {
+ if (provider.type === 'chatgpt') { setOAuthDialog({}); return; }
     try {
       const name = getDuplicateName(provider.name);
       await CreateLLMProvider({
@@ -287,7 +292,13 @@ export default function ProvidersPage() {
       announce(t('providers.toast.deleted'));
       await loadProviders();
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || t('providers.error.deleteFailed'), 'error');
+      const message = getErrorMessage(error);
+      const errorKey = message.includes('oauth_vault_persistence_required') || message.includes('oauth_vault_unavailable')
+        ? 'chatgpt.vaultUnavailable'
+        : message.includes('oauth_authorization_changed') ? 'chatgpt.authorizationChanged'
+        : message.includes('chatgpt_authorization_in_progress') ? 'chatgpt.authorizationInProgress'
+        : message.includes('chatgpt_disconnect_before_delete') ? 'chatgpt.disconnectBeforeDelete' : '';
+      addToast(errorKey ? t(errorKey) : (message || t('providers.error.deleteFailed')), 'error');
       return;
     }
 
@@ -441,6 +452,9 @@ export default function ProvidersPage() {
   return (
     <div className="providers-page">
       {loading && <div className="loading">{t('providers.loading', 'Carregando...')}</div>}
+          <Modal isOpen={oauthDialog !== null} allowClose={!oauthCloseBlocked} onClose={() => { if (!oauthCloseBlocked) { setOAuthDialog(null); void loadProviders(); } }} title={t('chatgpt.title')} size="md">
+            {oauthDialog && <ChatGPTConnection onCloseBlockedChange={setOAuthCloseBlocked} id={oauthDialog.id} onClose={() => setOAuthDialog(null)} onChanged={() => void loadProviders()} />}
+          </Modal>
       {!loading && (
         <>
           <Toolbar
@@ -450,7 +464,12 @@ export default function ProvidersPage() {
             onSearchChange={setSearchTerm}
             actions={[
               {
-                key: 'add',
+                key: 'chatgpt',
+ label: t('chatgpt.add'),
+ onClick: () => setOAuthDialog({}),
+ },
+ {
+ key: 'add',
                 label: t('providers.actions.add', 'Adicionar Provedor'),
                 onClick: handleAddProvider,
                 shortcut: 'Ctrl+N',
@@ -490,6 +509,7 @@ export default function ProvidersPage() {
             getRowActions={getProviderRowActions}
             onFocusChange={handleFocusChange}
           />
+
 
           <Modal
             isOpen={isEditing}

@@ -34,6 +34,7 @@ func (dc *DomainCredential) invalidateCommandCache() {
 func (m *Manager) ClearCommandCache() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.invalidateOAuthSession()
 	for i, dc := range m.credentials {
 		if dc.Auth.Source != "command" {
 			continue

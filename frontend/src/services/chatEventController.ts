@@ -1,3 +1,4 @@
+import { chatGPTErrorKey } from '../lib/chatgptErrors';
 import { logger } from '../utils/logger';
 import i18next from 'i18next';
 import { chat } from '../../wailsjs/go/models';
@@ -31,6 +32,9 @@ import { clearChatTurnRoutes, createChatTurnEventRouter } from './chatEventHub';
 import { invalidateToolInvocationDetails } from './toolInvocationDetailsCache';
 
 const translateBackendChatError = (message: string) => {
+  const chatGPTKey = chatGPTErrorKey(message);
+  if (chatGPTKey) return i18next.t(chatGPTKey);
+
   if (message === 'assistant_placeholder_error') {
     return i18next.t('chat.errors.assistantPlaceholder');
   }

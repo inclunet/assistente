@@ -9,8 +9,9 @@ import (
 // ProviderRegistry armazena os provedores LLM disponíveis
 // Thread-safe para acesso concorrente.
 type ProviderRegistry struct {
-	mu        sync.RWMutex
-	providers map[string]*ProviderConfig
+	mu         sync.RWMutex
+	generation uint64
+	providers  map[string]*ProviderConfig
 }
 
 // NewProviderRegistry cria um novo registry vazio
@@ -36,6 +37,30 @@ func (r *ProviderRegistry) Register(provider *ProviderConfig) error {
 	defer r.mu.Unlock()
 
 	// Sobrescreve se existir (para permitir update)
+	r.providers[provider.ID] = provider
+	return nil
+}
+
+// Generation identifies the current registry lifetime. Clear invalidates snapshots.
+func (r *ProviderRegistry) Generation() uint64 {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.generation
+}
+
+// RegisterGeneration publishes only into the lifetime where work started.
+func (r *ProviderRegistry) RegisterGeneration(provider *ProviderConfig, generation uint64) error {
+	if provider == nil {
+		return fmt.Errorf("provider nil")
+	}
+	if err := provider.Validate(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if generation != r.generation {
+		return fmt.Errorf("provider registry session changed")
+	}
 	r.providers[provider.ID] = provider
 	return nil
 }
@@ -78,6 +103,7 @@ func (r *ProviderRegistry) Clear() {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.generation++
 	r.providers = make(map[string]*ProviderConfig)
 }
 
