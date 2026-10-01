@@ -226,10 +226,8 @@ func (p *discoveryNetwork) checkDestination(ctx context.Context, u *url.URL) err
 	if u == nil || u.Hostname() == "" || u.User != nil || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return ErrNetworkAuthorization
 	}
-	if networkOrigin(u) != p.origin {
-		if _, err := endpointURL(u.String()); err != nil {
-			return err
-		}
+	if _, err := endpointURL(u.String()); err != nil {
+		return err
 	}
 	resolved, err := p.lookup(ctx, u.Hostname())
 	if err != nil {

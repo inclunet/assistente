@@ -312,3 +312,32 @@ func TestOAuthPollingReusesConsentAcrossHTTPClients(t *testing.T) {
 		t.Fatalf("prompts=%d requests=%d", prompts.Load(), hits.Load())
 	}
 }
+
+func TestDiscoveryInitialOriginCannotBypassTLS(t *testing.T) {
+	for _, raw := range []string{"http://public.example/mcp", "http://10.0.0.1/mcp"} {
+		t.Run(raw, func(t *testing.T) {
+			u, err := url.Parse(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			policy := &discoveryNetwork{origin: networkOrigin(u), lookup: func(context.Context, string) ([]net.IPAddr, error) {
+				t.Fatal("insecure origin reached DNS")
+				return nil, nil
+			}}
+			if err := policy.checkDestination(context.Background(), u); !errors.Is(err, ErrNetworkAuthorization) {
+				t.Fatalf("insecure explicit origin accepted: %v", err)
+			}
+		})
+	}
+	for _, raw := range []string{"http://localhost/mcp", "http://127.0.0.1/mcp", "http://[::1]/mcp"} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ip := net.ParseIP("127.0.0.1")
+		policy := &discoveryNetwork{origin: networkOrigin(u), ips: map[string]bool{ip.String(): true}, lookup: func(context.Context, string) ([]net.IPAddr, error) { return []net.IPAddr{{IP: ip}}, nil }}
+		if err := policy.checkDestination(context.Background(), u); err != nil {
+			t.Fatalf("local explicit origin rejected: %v", err)
+		}
+	}
+}

@@ -486,7 +486,8 @@ aprovar; uma negativa ou cancelamento encerra a tentativa.
 
 Autorizações persistentes continuam gerenciadas na allowlist de rede. O tempo para
 responder ao diálogo não consome os dez segundos do pedido de registro.
-Endpoints OAuth exigem HTTPS, com exceção de localhost/loopback; autorizar a rede
+Endpoints OAuth e a descoberta no destino inicial exigem HTTPS, com exceção
+de localhost/loopback; autorizar a rede
 não desativa essa verificação nem a validação de identidade do servidor.
 
 A opção de permitir somente esta vez vale durante a operação OAuth, inclusive
