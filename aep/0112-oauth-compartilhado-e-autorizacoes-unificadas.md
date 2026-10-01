@@ -317,7 +317,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   transação e publica os demais campos atuais. Token sem refresh exige reconexão
   persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
   Testes cobrem preservação de edições e falha na gravação da transição.
-- Revisão independente local em quarenta rodadas, com correções de isolamento de
+- Revisão independente local em quarenta e três rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
@@ -469,3 +469,12 @@ que não existe envelope local; vínculos reais continuam protegidos. Evidência
 `TestLegacyGenericOAuthReferenceRequiresEnvelopeBeforeProtection`.
 Inventário de logs atualizado de 770 para 767 formatos: as três mensagens
 obsoletas de falha ignorada no CRUD foram removidas ao propagar esses erros.
+
+### Publicação protegida no encerramento da sessão
+
+As publicações de criação, reparo e modelo padrão ChatGPT verificam o epoch do
+cofre e a geração do registry sob seus respectivos locks. A geração vem da
+entrada da operação e é invalidada por `Clear`; helpers não readquirem uma
+geração nova depois de I/O. Os testes `TestChatGPTPublicationCannotSurviveLogout`
+e `TestChatGPTLateHelpersRetainOperationGeneration` cobrem logout depois do commit
+e antes de helpers tardios, sem perder os dados persistidos.

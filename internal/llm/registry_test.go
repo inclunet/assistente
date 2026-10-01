@@ -67,3 +67,22 @@ func TestProviderRegistryRegisterValidation(t *testing.T) {
 		t.Fatalf("Register invalid provider: expected error")
 	}
 }
+
+func TestRegistryGenerationRejectsLatePublication(t *testing.T) {
+	r := NewProviderRegistry()
+	p := &ProviderConfig{ID: "session", Name: "Session", Type: ProviderOpenAI, BaseURL: "https://api.openai.com/v1"}
+	generation := r.Generation()
+	if err := r.RegisterGeneration(p, generation); err != nil {
+		t.Fatal(err)
+	}
+	r.Clear()
+	if err := r.RegisterGeneration(p, generation); err == nil {
+		t.Fatal("old generation accepted")
+	}
+	if r.Get(p.ID) != nil {
+		t.Fatal("cleared provider restored")
+	}
+	if err := r.RegisterGeneration(p, r.Generation()); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -61,7 +61,7 @@ func TestImportedChatGPTRecoversWithoutForeignRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := service.ensureChatGPTAuthorization(ctx, store, imported)
+	id, err := service.ensureChatGPTAuthorization(ctx, store, imported, service.registry.Generation())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestImportedChatGPTRecoversWithoutForeignRegistration(t *testing.T) {
 		t.Fatalf("reference: %v", err)
 	}
 	// Repeating the explicit action reuses the newly created pending record.
-	again, err := service.ensureChatGPTAuthorization(ctx, store, updated)
+	again, err := service.ensureChatGPTAuthorization(ctx, store, updated, service.registry.Generation())
 	if err != nil || again != id {
 		t.Fatal("duplicate local registration")
 	}
@@ -188,7 +188,7 @@ func TestImportedChatGPTCreateRollbackPreservesReference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.ensureChatGPTAuthorization(ctx, store, p); err == nil {
+	if _, err = s.ensureChatGPTAuthorization(ctx, store, p, s.registry.Generation()); err == nil {
 		t.Fatal("expected failure")
 	}
 	var count int64
@@ -211,11 +211,11 @@ func TestImportedChatGPTRejectsStaleRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	winner, err := s.ensureChatGPTAuthorization(ctx, store, p)
+	winner, err := s.ensureChatGPTAuthorization(ctx, store, p, s.registry.Generation())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.ensureChatGPTAuthorization(ctx, store, p); !errors.Is(err, oauthflow.ErrConflict) {
+	if _, err = s.ensureChatGPTAuthorization(ctx, store, p, s.registry.Generation()); !errors.Is(err, oauthflow.ErrConflict) {
 		t.Fatal("stale recovery accepted", err)
 	}
 	var count int64
@@ -243,7 +243,7 @@ func TestChatGPTDefaultModelSaveFailurePreservesConnection(t *testing.T) {
 	if err = database.DB().Exec("CREATE TRIGGER reject_default BEFORE UPDATE ON llm_providers BEGIN SELECT RAISE(ABORT, 'write denied'); END").Error; err != nil {
 		t.Fatal(err)
 	}
-	s.setChatGPTDefaultModel(ctx, store, created.ID, s.registry.Get(created.ID), "account-model")
+	s.setChatGPTDefaultModel(ctx, store, created.ID, s.registry.Get(created.ID), "account-model", s.registry.Generation())
 	summary, err := s.ChatGPTConnection(ctx, created.ID)
 	if err != nil || summary.State != "connected" {
 		t.Fatal("optional default invalidated connection", err)
@@ -455,7 +455,7 @@ func TestChatGPTOptionalModelSkipsUnconfirmedAuthorization(t *testing.T) {
 	if err = store.CompareAndSwap(ctx, record, record.Revision-1); err != nil {
 		t.Fatal(err)
 	}
-	s.setChatGPTDefaultModel(ctx, unreadableOptionalAuthorization{store}, created.ID, s.registry.Get(created.ID), "account-model")
+	s.setChatGPTDefaultModel(ctx, unreadableOptionalAuthorization{store}, created.ID, s.registry.Get(created.ID), "account-model", s.registry.Generation())
 	status, err := s.ChatGPTConnection(ctx, created.ID)
 	if err != nil || status.State != "connected" {
 		t.Fatalf("optional read changed connection: %v", err)
@@ -503,7 +503,7 @@ func TestChatGPTDefaultModelUsesCurrentConsumer(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			s.setChatGPTDefaultModel(ctx, store, created.ID, stale, "account-model")
+			s.setChatGPTDefaultModel(ctx, store, created.ID, stale, "account-model", s.registry.Generation())
 			saved, err := database.GetLLMProviderWithContext(ctx, created.ID)
 			if change == "delete" {
 				if err == nil {
@@ -550,7 +550,7 @@ func TestChatGPTRecoveryPreservesConcurrentProviderEdits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authorization, err := s.ensureChatGPTAuthorization(ctx, store, stale)
+	authorization, err := s.ensureChatGPTAuthorization(ctx, store, stale, s.registry.Generation())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -715,5 +715,92 @@ func TestLegacyGenericOAuthReferenceRequiresEnvelopeBeforeProtection(t *testing.
 				}
 			})
 		}
+	}
+}
+
+func TestChatGPTPublicationCannotSurviveLogout(t *testing.T) {
+	for _, invalidate := range []string{"registry", "vault", "both", "cancel"} {
+		t.Run(invalidate, func(t *testing.T) {
+			s, mgr, ctx := chatGPTTestService(t)
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			store, err := mgr.OAuthStore(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			generation := s.registry.Generation()
+			record, err := s.oauth.Pending("late-provider", "owner", "chatgpt")
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := &llm.ProviderConfig{ID: record.ID, Name: "Old session", Type: llm.ProviderChatGPT, APIFormat: llm.APIFormatOpenAIResponses, BaseURL: record.Resource, CredentialPattern: "oauth:" + record.ID, AuthMode: llm.AuthModeRequired}
+			if err = persistChatGPTAuthorization(ctx, store, record, p, nil); err != nil {
+				t.Fatal(err)
+			}
+			// Logout between committed creation and publication; Clear happens before
+			// vault invalidation in the application, so both boundaries need guards.
+			if invalidate == "registry" || invalidate == "both" {
+				s.registry.Clear()
+			}
+			if invalidate == "vault" || invalidate == "both" {
+				mgr.ClearCommandCache()
+			}
+			if invalidate == "cancel" {
+				cancel()
+			}
+			if err = s.publishChatGPT(ctx, store, p, generation); err == nil {
+				t.Fatal("published previous session")
+			}
+			if s.registry.Get(p.ID) != nil {
+				t.Fatal("old provider leaked")
+			}
+			persisted, err := s.store.Get(database.WithUserID(context.Background(), "owner"), p.ID)
+			if err != nil || persisted == nil {
+				t.Fatalf("lost committed provider: %v", err)
+			}
+		})
+	}
+}
+
+func TestChatGPTLateHelpersRetainOperationGeneration(t *testing.T) {
+	for _, operation := range []string{"default", "repair"} {
+		t.Run(operation, func(t *testing.T) {
+			s, mgr, ctx := chatGPTTestService(t)
+			created, err := s.CreateChatGPTConnection(ctx, "Connected")
+			if err != nil {
+				t.Fatal(err)
+			}
+			store, err := mgr.OAuthStore(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := s.registry.Get(created.ID)
+			r, err := store.Load(ctx, created.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.State = "connected"
+			r.Revision++
+			if err = store.CompareAndSwap(ctx, r, r.Revision-1); err != nil {
+				t.Fatal(err)
+			}
+			generation := s.registry.Generation()
+			// Simulate logout while the catalog/preflight was running. Vault epoch
+			// has not changed yet, and Wails context is not the runtime context.
+			s.registry.Clear()
+			if operation == "default" {
+				s.setChatGPTDefaultModel(ctx, store, created.ID, p, "account-model", generation)
+			} else {
+				if err = database.DB().Where("id = ?", created.ID).Delete(&database.CredentialEntry{}).Error; err != nil {
+					t.Fatal(err)
+				}
+				if _, err = s.ensureChatGPTAuthorization(ctx, store, p, generation); err == nil {
+					t.Fatal("late repair published")
+				}
+			}
+			if len(s.registry.List()) != 0 {
+				t.Fatal("late helper restored previous session")
+			}
+		})
 	}
 }

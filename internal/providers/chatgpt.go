@@ -25,6 +25,7 @@ func (s *Service) oauthStore(ctx context.Context) (oauthflow.Store, error) {
 	return mgr.OAuthStore(ctx)
 }
 func (s *Service) CreateChatGPTConnection(ctx context.Context, name string) (oauthflow.Summary, error) {
+	generation := s.registry.Generation()
 	user, err := database.RequireUserID(ctx)
 	if err != nil {
 		return oauthflow.Summary{}, err
@@ -46,7 +47,7 @@ func (s *Service) CreateChatGPTConnection(ctx context.Context, name string) (oau
 	if err = persistChatGPTAuthorization(ctx, store, r, p, nil); err != nil {
 		return oauthflow.Summary{}, err
 	}
-	if err = s.registry.Register(p); err != nil {
+	if err = s.publishChatGPT(ctx, store, p, generation); err != nil {
 		return oauthflow.Summary{}, err
 	}
 	return r.Summary(), nil
@@ -88,7 +89,7 @@ func (s *Service) ChatGPTConnection(ctx context.Context, id string) (oauthflow.S
 
 // Explicit reconnect repairs an imported provider without importing tokens or
 // reusing another host's registration. Merely listing it never creates grants.
-func (s *Service) ensureChatGPTAuthorization(ctx context.Context, store oauthflow.Store, provider *llm.ProviderConfig) (string, error) {
+func (s *Service) ensureChatGPTAuthorization(ctx context.Context, store oauthflow.Store, provider *llm.ProviderConfig, generation uint64) (string, error) {
 	if strings.HasPrefix(provider.CredentialPattern, "oauth:") {
 		id := credentials.OAuthCredentialID(provider.CredentialPattern)
 		r, err := store.Load(ctx, id)
@@ -119,12 +120,13 @@ func (s *Service) ensureChatGPTAuthorization(ctx context.Context, store oauthflo
 	if err = persistChatGPTAuthorization(ctx, store, r, &updated, &provider.CredentialPattern); err != nil {
 		return "", err
 	}
-	if err = s.registry.Register(&updated); err != nil {
+	if err = s.publishChatGPT(ctx, store, &updated, generation); err != nil {
 		return "", err
 	}
 	return id, nil
 }
 func (s *Service) AuthorizeChatGPT(ctx context.Context, id, completionText string) (oauthflow.Summary, error) {
+	generation := s.registry.Generation()
 	user, err := database.RequireUserID(ctx)
 	if err != nil {
 		return oauthflow.Summary{}, err
@@ -154,7 +156,7 @@ func (s *Service) AuthorizeChatGPT(ctx context.Context, id, completionText strin
 	if err != nil {
 		return oauthflow.Summary{}, err
 	}
-	authorizationID, err := s.ensureChatGPTAuthorization(ctx, store, provider)
+	authorizationID, err := s.ensureChatGPTAuthorization(ctx, store, provider, generation)
 	if err != nil {
 		return oauthflow.Summary{}, err
 	}
@@ -174,7 +176,7 @@ func (s *Service) AuthorizeChatGPT(ctx context.Context, id, completionText strin
 		if err == nil {
 			models, listErr := cp.GetModels(ctx)
 			if listErr == nil && len(models) > 0 {
-				s.setChatGPTDefaultModel(ctx, store, authorizationID, provider, models[0])
+				s.setChatGPTDefaultModel(ctx, store, authorizationID, provider, models[0], generation)
 			}
 		}
 	}
@@ -264,7 +266,7 @@ func persistChatGPTAuthorization(ctx context.Context, store oauthflow.Store, r o
 }
 
 // Optional catalog persistence must not turn successful consent into a failure.
-func (s *Service) setChatGPTDefaultModel(ctx context.Context, store oauthflow.Store, authorizationID string, provider *llm.ProviderConfig, model string) {
+func (s *Service) setChatGPTDefaultModel(ctx context.Context, store oauthflow.Store, authorizationID string, provider *llm.ProviderConfig, model string, generation uint64) {
 	if _, err := store.Load(ctx, authorizationID); err != nil {
 		logging.Warnf(ctx, "providers.service", "chatgpt_default_model_authorization_unavailable")
 		return
@@ -301,7 +303,19 @@ func (s *Service) setChatGPTDefaultModel(ctx context.Context, store oauthflow.St
 		logging.Warnf(ctx, "providers.service", "chatgpt_default_model_save_failed")
 		return
 	}
-	if err := s.registry.Register(updated); err != nil {
+	if err := s.publishChatGPT(ctx, store, updated, generation); err != nil {
 		logging.Warnf(ctx, "providers.service", "chatgpt_default_model_registry_failed")
 	}
+}
+
+func (s *Service) publishChatGPT(ctx context.Context, store oauthflow.Store, provider *llm.ProviderConfig, generation uint64) error {
+	session, ok := store.(interface {
+		WithSession(context.Context, func() error) error
+	})
+	if !ok {
+		return errors.New("oauth_store_not_supported")
+	}
+	return session.WithSession(ctx, func() error {
+		return s.registry.RegisterGeneration(provider, generation)
+	})
 }
