@@ -169,6 +169,18 @@ impedir envio de tokens/client secret para origem não autorizada. Recursos MCP
 locais explicitamente configurados devem seguir as regras de rede existentes,
 sem permitir que discovery abra acesso arbitrário à rede local.
 
+Destinos internos descobertos (inclusive redirects corporativos) reutilizam o
+`nettrust.Authorizer`, sua allowlist e o `DecisionDialog` do AEP-0091. Esta é uma
+exceção OAuth à recusa sem prompt dos redirects de ferramentas HTTP do AEP-0082;
+a política das ferramentas permanece inalterada. A decisão identifica o destino
+real, IPs e porta; aprovação não autoriza outro destino, downgrade TLS ou issuer
+incompatível. O socket revalida os IPs e não usa proxy do ambiente.
+A espera humana preserva contexto/cancelamento do chamador e fica fora dos
+orçamentos de rede. Negativa/cancelamento encerra a operação; no máximo oito
+retomadas são permitidas. `once` vale apenas para a operação OAuth em andamento.
+DCR só é retomado quando o guard impediu o envio: timeout, resposta HTTP e falha
+após envio nunca provocam repetição automática do POST.
+
 A implementação extrai e reutiliza componentes testados do OAuth MCP quando
 adequados, preservando PKCE, DCR, Device Flow e client credentials nas fases
 correspondentes. O núcleo pode atender novos fornecedores; disponibilização futura
@@ -509,10 +521,21 @@ poderia apagar alterações concorrentes; a issue exige transação e testes de 
 - `registration_test.go` cobre metadados, cancelamento, redirects, respostas
   excessivas/inválidas e confidencialidade. A tela traduz falhas de registro nos
   três idiomas, com teste em `mcpOAuthErrors.test.ts`.
-- Não houve conversão de dados, novo consentimento nem mudança da URI de callback
-  por esta extração. O owner de tokens MCP continua exclusivamente no MCP legado
+- `network_test.go` cobre destino privado, troca de porta, IP efetivo, issuer,
+  aprovação/negativa, cancelamento e DCR com exatamente um POST transmitido.
+  `app_oauth_network_test.go` prova reuso do authorizer com identidade do usuário
+  e saneamento do pedido. Discovery exige issuer correspondente ao candidato,
+  endpoints HTTPS (HTTP somente loopback) e recurso na origem configurada;
+  aliases de path legados continuam aceitos.
+- Os consumidores MCP usam o transporte autorizado nos probes e nas chamadas
+  de token, device e refresh. O ciclo de vida dos grants continua no MCP legado;
+  sua extração e a migração de dados não foram antecipadas.
+- Não houve conversão de dados nem mudança da URI de callback por esta extração.
+  Destinos internos adicionais podem solicitar autorização de rede. O owner de
+  tokens MCP continua exclusivamente no MCP legado
   até a entrega dos grants e do cutover. Fases 2, 3 e 4 seguem abertas.
 
-Revisão local desta entrega incremental: `review_credential_sources`, duas rodadas,
+Revisão local desta entrega incremental: `review_credential_sources`, seis rodadas;
+achados de rede, identidade, cancelamento e apresentação corrigidos, última rodada
 sem pendências. A validação funcional ChatGPT da fase 1 continua a cargo do
 usuário e não foi marcada como concluída por esta entrega.

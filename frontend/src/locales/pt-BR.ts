@@ -1396,6 +1396,7 @@ const ptBR = {
         serverReauthorized: 'Servidor {{name}} reautorizado',
       },
       error: {
+        networkAuthorizationFailed: 'A autorização de rede OAuth não foi concluída. Confira o destino e as permissões na allowlist de rede antes de tentar novamente.',
         registrationFailed: 'Não foi possível registrar o cliente OAuth. Verifique o endpoint de registro e a URL de callback e tente novamente.',
         slugRequired: 'Slug (identificador) é obrigatório',
         nameRequired: 'Nome é obrigatório',

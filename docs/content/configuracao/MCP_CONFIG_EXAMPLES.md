@@ -475,3 +475,17 @@ Se aparecer a mensagem de falha ao registrar o cliente OAuth, confira esse endpo
 e a URL de callback. O diagnóstico omite o corpo remoto para proteger segredos.
 As conexões já cadastradas continuam usando suas credenciais; esta etapa não exige
 novo login nem converte os registros existentes no cofre.
+
+### Serviços corporativos e destinos internos
+
+Se a descoberta OAuth apontar para um domínio ou IP interno, o Assistente consulta
+as autorizações de rede existentes. Quando necessário, mostra o mesmo diálogo de
+rede usado nas demais operações, com destino, porta e IPs, para você aprovar ou
+negar. Isso também vale para redirects da descoberta. Confira o destino antes de
+aprovar; uma negativa ou cancelamento encerra a tentativa.
+
+A opção de autorizar somente esta vez vale para a operação OAuth em andamento.
+Autorizações persistentes continuam gerenciadas na allowlist de rede. O tempo para
+responder ao diálogo não consome os dez segundos do pedido de registro.
+Endpoints OAuth exigem HTTPS, com exceção de localhost/loopback; autorizar a rede
+não desativa essa verificação nem a validação de identidade do servidor.

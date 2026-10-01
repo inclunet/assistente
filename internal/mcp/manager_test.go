@@ -1153,7 +1153,7 @@ func TestBuildAuthHTTPClient_LogoutMidFlightDegrades(t *testing.T) {
 		t.Fatalf("RegisterPatternWithContext failed: %v", err)
 	}
 
-	clientLoggedIn := m.buildAuthHTTPClient("github", ServerConfig{
+	clientLoggedIn := m.buildAuthHTTPClient(context.Background(), "github", ServerConfig{
 		URL:      srv.URL,
 		AuthType: AuthBearer,
 	})
@@ -1163,7 +1163,7 @@ func TestBuildAuthHTTPClient_LogoutMidFlightDegrades(t *testing.T) {
 
 	loggedInOut = context.Background()
 
-	clientLoggedOut := m.buildAuthHTTPClient("github", ServerConfig{
+	clientLoggedOut := m.buildAuthHTTPClient(context.Background(), "github", ServerConfig{
 		URL:      srv.URL,
 		AuthType: AuthBearer,
 	})
@@ -1190,7 +1190,7 @@ func TestBuildAuthHTTPClientResolvesUserScopedBearer(t *testing.T) {
 		t.Fatalf("RegisterPatternWithContext failed: %v", err)
 	}
 
-	client := m.buildAuthHTTPClient("github", ServerConfig{
+	client := m.buildAuthHTTPClient(context.Background(), "github", ServerConfig{
 		URL:      srv.URL,
 		AuthType: AuthBearer,
 	})

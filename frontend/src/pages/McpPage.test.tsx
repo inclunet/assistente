@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 
 const mockSave = vi.fn();
+const mockToast = vi.fn();
 const mockGetConfig = vi.fn();
 const mockLoadServers = vi.fn();
 const mockDuplicate = vi.fn();
@@ -66,7 +67,7 @@ vi.mock('../hooks/useConfirm', () => ({
 
 vi.mock('../store/uiStore', () => ({
   useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
-    const s = { addToast: vi.fn() };
+    const s = { addToast: mockToast };
     return selector ? selector(s) : s;
   },
 }));
@@ -338,6 +339,15 @@ describe('McpPage — oauth2_callback_host', () => {
 
     const [, config] = mockSave.mock.calls[0];
     expect(config.oauth2_callback_host).toBeUndefined();
+  });
+
+  it('traduz negativa de rede na descoberta sem preencher endpoints', async () => {
+    mockDiscover.mockResolvedValue({ found: false, status: 'partial', error: 'oauth_discovery_destination_blocked' });
+    await openNewServerForm();
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/internal');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith('mcp.error.networkAuthorizationFailed', 'error'));
+    expect(screen.getByTestId('discovery-status-value')).toHaveTextContent('not_found');
   });
 
   it('preserva endpoints OAuth preenchidos manualmente durante discovery', async () => {

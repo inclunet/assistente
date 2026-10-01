@@ -38,7 +38,11 @@ type DiscoveryResponseHint struct {
 
 // DiscoverOAuth retains the MCP UI contract while the shared OAuth layer owns discovery.
 func DiscoverOAuth(resourceURL string) OAuthDiscoveryResult {
-	result := oauthflow.DiscoverOAuthContext(context.Background(), resourceURL)
+	return DiscoverOAuthContext(context.Background(), resourceURL)
+}
+
+func DiscoverOAuthContext(ctx context.Context, resourceURL string) OAuthDiscoveryResult {
+	result := oauthflow.DiscoverOAuthContext(ctx, resourceURL)
 	authType := AuthType("")
 	switch result.GrantType {
 	case "authorization_code":

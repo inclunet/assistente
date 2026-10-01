@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 )
@@ -36,9 +35,20 @@ const registrationBodyLimit = 256 * 1024
 
 // RegisterDynamicClient registers at the explicitly selected endpoint, with a
 // bounded lifetime and response. Redirects cannot move registration to a new origin.
-func RegisterDynamicClient(ctx context.Context, endpoint string, metadata RegistrationRequest) (*RegistrationResponse, error) {
-	target, err := url.Parse(endpoint)
-	if err != nil || target.Host == "" || target.User != nil || target.Fragment != "" || (target.Scheme != "https" && target.Scheme != "http") {
+func RegisterDynamicClient(ctx context.Context, resourceURL, endpoint string, metadata RegistrationRequest) (*RegistrationResponse, error) {
+	var result *RegistrationResponse
+	var resultErr error
+	err := runNetworkOperation(ctx, resourceURL, func(operationCtx context.Context) {
+		result, resultErr = registerDynamicClientOnce(operationCtx, resourceURL, endpoint, metadata)
+	})
+	if err != nil {
+		return nil, errors.Join(ErrRegistration, err)
+	}
+	return result, resultErr
+}
+func registerDynamicClientOnce(ctx context.Context, resourceURL, endpoint string, metadata RegistrationRequest) (*RegistrationResponse, error) {
+	_, err := endpointURL(endpoint)
+	if err != nil {
 		return nil, ErrRegistration
 	}
 	body, err := json.Marshal(metadata)
@@ -53,6 +63,8 @@ func RegisterDynamicClient(ctx context.Context, endpoint string, metadata Regist
 	}
 	request.Header.Set("Content-Type", "application/json")
 	client := NewHTTPClient()
+	ctx = withDiscoveryNetwork(ctx, resourceURL)
+	client.Transport = discoveryRoundTripper{policy: ctx.Value(discoveryNetworkKey{}).(*discoveryNetwork)}
 	response, err := client.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {

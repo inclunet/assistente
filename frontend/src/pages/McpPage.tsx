@@ -313,6 +313,12 @@ export default function McpPage() {
     try {
       const result = await DiscoverMCPServerAuth(urlToDiscover);
       if (requestID !== discoveryRequestRef.current) return;
+      if (result.error?.includes('oauth_discovery_destination_blocked')) {
+        addToast(mcpOAuthErrorMessage(result.error, t), 'error');
+        setDiscoveryStatus('not_found');
+        lastDiscoveredUrlRef.current = '';
+        return;
+      }
       if (result.found) {
         if (result.authType) {
           setFormAuthType((current) => current === 'none' ? result.authType : current);
@@ -344,12 +350,13 @@ export default function McpPage() {
         setDiscoveryStatus('not_found');
         lastDiscoveredUrlRef.current = '';
       }
-    } catch {
+    } catch (error) {
       if (requestID !== discoveryRequestRef.current) return;
+      if (String(error).includes('oauth_discovery_destination_blocked')) addToast(mcpOAuthErrorMessage(error, t), 'error');
       setDiscoveryStatus('not_found');
       lastDiscoveredUrlRef.current = '';
     }
-  }, []);
+  }, [addToast, t]);
 
   const handleFormURLChange = useCallback((value: string) => {
     discoveryRequestRef.current += 1;

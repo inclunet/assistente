@@ -1,0 +1,258 @@
+package oauthflow
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"golang.org/x/oauth2"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestDiscoveryCannotExpandPrivateTrust(t *testing.T) {
+	for _, mode := range []string{"authorization-server", "resource", "redirect"} {
+		t.Run(mode, func(t *testing.T) {
+			var hits atomic.Int32
+			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1); w.WriteHeader(500) }))
+			defer target.Close()
+			var origin string
+			source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if mode == "redirect" {
+					http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+					return
+				}
+				if mode == "resource" {
+					_ = json.NewEncoder(w).Encode(map[string]any{"resource": target.URL})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"resource": origin, "authorization_servers": []string{target.URL}})
+			}))
+			defer source.Close()
+			origin = source.URL
+			result := DiscoverOAuth(source.URL)
+			if result.Found || hits.Load() != 0 {
+				t.Fatalf("private trust expanded: found=%v hits=%d", result.Found, hits.Load())
+			}
+		})
+	}
+}
+func TestDiscoverySocketRejectsPrivateDNSResult(t *testing.T) {
+	target, _ := url.Parse("https://public.example/metadata")
+	policy := &discoveryNetwork{origin: networkOrigin(target), ips: map[string]bool{"8.8.8.8": true}}
+	transport := discoveryTransport(policy, target)
+	defer transport.CloseIdleConnections()
+	for _, address := range []string{"127.0.0.1:443", "10.0.0.1:443", "169.254.169.254:443", "100.64.0.1:443", "[::1]:443", "[::ffff:127.0.0.1]:443", "0.0.0.0:443", "224.0.0.1:443"} {
+		conn, err := transport.DialContext(context.Background(), "tcp", address)
+		if conn != nil {
+			_ = conn.Close()
+			t.Fatalf("connected to %s", address)
+		}
+		if !errors.Is(err, ErrNetworkAuthorization) {
+			t.Fatalf("unguarded address %s: %v", address, err)
+		}
+	}
+}
+func TestDiscoveredMetadataRejectsUnsafeEndpointsAndIssuer(t *testing.T) {
+	ctx := context.WithValue(context.Background(), discoveryNetworkKey{}, &discoveryNetwork{origin: "https://mcp.example:443", lookup: func(_ context.Context, host string) ([]net.IPAddr, error) {
+		ip := net.ParseIP(host)
+		if ip == nil {
+			if host == "localhost" {
+				ip = net.ParseIP("127.0.0.1")
+			} else {
+				ip = net.ParseIP("8.8.8.8")
+			}
+		}
+		return []net.IPAddr{{IP: ip}}, nil
+	}})
+	for _, endpoint := range []string{"file:///secret", "javascript:alert(1)", "http://public.example/token", "https://user:secret@example.com/token", "https://example.com/token#secret", "https://127.0.0.1/token", "https://10.0.0.1/token", "https://169.254.169.254/token", "https://localhost/token"} {
+		for _, field := range []string{"token", "authorization", "device", "registration"} {
+			metadata := &authServerMetadata{Issuer: "https://issuer.example", TokenEndpoint: "https://tokens.example/token"}
+			switch field {
+			case "token":
+				metadata.TokenEndpoint = endpoint
+			case "authorization":
+				metadata.AuthorizationEndpoint = endpoint
+			case "device":
+				metadata.DeviceAuthorizationEndpoint = endpoint
+			case "registration":
+				metadata.RegistrationEndpoint = endpoint
+			}
+			if validDiscoveredMetadata(ctx, metadata, []string{metadata.Issuer}) {
+				t.Fatalf("accepted %s %s", field, endpoint)
+			}
+		}
+	}
+	metadata := &authServerMetadata{Issuer: "https://issuer.example", TokenEndpoint: "https://tokens.example/token"}
+	if validDiscoveredMetadata(ctx, metadata, []string{"https://issuer.example/other"}) {
+		t.Fatal("accepted mismatched issuer")
+	}
+	if !validDiscoveredMetadata(ctx, metadata, []string{metadata.Issuer}) {
+		t.Fatal("rejected public cross-origin endpoint")
+	}
+}
+func TestDynamicRegistrationCannotExpandPrivateTrust(t *testing.T) {
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(`{"client_id":"wrong"}`))
+	}))
+	defer target.Close()
+	_, err := RegisterDynamicClient(context.Background(), "https://192.0.2.1/mcp", target.URL, RegistrationRequest{})
+	if !errors.Is(err, ErrRegistration) || hits.Load() != 0 {
+		t.Fatalf("DCR expanded private trust: %v hits=%d", err, hits.Load())
+	}
+}
+func TestDiscoveryRootIssuerFallback(t *testing.T) {
+	var origin string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/.well-known/oauth-authorization-server" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"issuer": origin, "token_endpoint": origin + "/token"})
+	}))
+	defer server.Close()
+	origin = server.URL
+	if result := DiscoverOAuth(server.URL + "/deep/mcp"); !result.Found {
+		t.Fatalf("root issuer fallback failed: %+v", result)
+	}
+}
+
+func TestDiscoveryPrivateRedirectUsesConsent(t *testing.T) {
+	for _, approve := range []bool{false, true} {
+		t.Run(map[bool]string{false: "deny", true: "approve"}[approve], func(t *testing.T) {
+			var hits, prompts atomic.Int32
+			var origin, targetURL string
+			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				_ = json.NewEncoder(w).Encode(map[string]any{"issuer": origin, "token_endpoint": targetURL + "/token"})
+			}))
+			defer target.Close()
+			targetURL = target.URL
+			source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/.well-known/oauth-authorization-server" {
+					http.NotFound(w, r)
+					return
+				}
+				http.Redirect(w, r, target.URL+"/metadata", http.StatusTemporaryRedirect)
+			}))
+			defer source.Close()
+			origin = source.URL
+			ctx := WithNetworkAuthorizer(context.Background(), func(ctx context.Context, d NetworkDestination) ([]net.IP, bool, error) {
+				prompts.Add(1)
+				if _, bounded := ctx.Deadline(); bounded {
+					t.Error("network deadline leaked into human decision")
+				}
+				if d.URL != target.URL+"/metadata" {
+					t.Errorf("wrong destination %s", d.URL)
+				}
+				return d.IPs, approve, nil
+			})
+			result := DiscoverOAuthContext(ctx, source.URL)
+			if result.Found != approve || prompts.Load() != 1 || (!approve && hits.Load() != 0) {
+				t.Fatalf("found=%v prompts=%d hits=%d", result.Found, prompts.Load(), hits.Load())
+			}
+		})
+	}
+}
+func TestDCRApprovalTransmitsExactlyOnePOST(t *testing.T) {
+	var posts, prompts atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		posts.Add(1)
+		_, _ = w.Write([]byte(`{"client_id":"issued"}`))
+	}))
+	defer target.Close()
+	ctx := WithNetworkAuthorizer(context.Background(), func(ctx context.Context, d NetworkDestination) ([]net.IP, bool, error) {
+		prompts.Add(1)
+		if posts.Load() != 0 {
+			t.Error("POST sent before approval")
+		}
+		if _, bounded := ctx.Deadline(); bounded {
+			t.Error("DCR timeout applies to human decision")
+		}
+		return d.IPs, true, nil
+	})
+	result, err := RegisterDynamicClient(ctx, "https://192.0.2.1/mcp", target.URL, RegistrationRequest{})
+	if err != nil || result.ClientID != "issued" || posts.Load() != 1 || prompts.Load() != 1 {
+		t.Fatalf("err=%v posts=%d prompts=%d", err, posts.Load(), prompts.Load())
+	}
+}
+func TestDCRDoesNotRetryRemoteFailureAfterConsent(t *testing.T) {
+	var posts atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { posts.Add(1); w.WriteHeader(500) }))
+	defer target.Close()
+	ctx := WithNetworkAuthorizer(context.Background(), func(_ context.Context, d NetworkDestination) ([]net.IP, bool, error) { return d.IPs, true, nil })
+	_, err := RegisterDynamicClient(ctx, "https://192.0.2.1/mcp", target.URL, RegistrationRequest{})
+	if !errors.Is(err, ErrRegistration) || posts.Load() != 1 {
+		t.Fatalf("ambiguous registration retried: %v posts=%d", err, posts.Load())
+	}
+}
+func TestNetworkConsentCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{})
+	ctx = WithNetworkAuthorizer(ctx, func(ctx context.Context, _ NetworkDestination) ([]net.IP, bool, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, false, ctx.Err()
+	})
+	done := make(chan error, 1)
+	go func() {
+		_, err := RegisterDynamicClient(ctx, "https://192.0.2.1/mcp", "http://127.0.0.1:1/register", RegistrationRequest{})
+		done <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("consent did not start")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("lost cancellation: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("consent did not cancel")
+	}
+}
+
+func TestOAuthSDKDoesNotRepeatDeniedConsent(t *testing.T) {
+	var prompts, posts atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { posts.Add(1); w.WriteHeader(500) }))
+	defer target.Close()
+	client := NewNetworkHTTPClient("https://192.0.2.1", func(context.Context, NetworkDestination) ([]net.IP, bool, error) {
+		prompts.Add(1)
+		return nil, false, nil
+	}, time.Second)
+	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, client)
+	cfg := oauth2.Config{ClientID: "client", ClientSecret: "secret", Endpoint: oauth2.Endpoint{TokenURL: target.URL}}
+	_, err := cfg.Exchange(ctx, "code")
+	if !errors.Is(err, ErrNetworkAuthorization) || prompts.Load() != 1 || posts.Load() != 0 {
+		t.Fatalf("SDK retried consent: %v prompts=%d posts=%d", err, prompts.Load(), posts.Load())
+	}
+}
+func TestOAuthHTTPClientBoundsResponseBodyRead(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	client := NewNetworkHTTPClient(server.URL, nil, 50*time.Millisecond)
+	response, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	_, err = io.ReadAll(response.Body)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("response read not bounded: %v", err)
+	}
+}

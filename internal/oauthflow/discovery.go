@@ -97,6 +97,14 @@ func newDiscoveryBudgetWithLimits(
 }
 
 func (budget *discoveryBudget) beginAttempt() error {
+	if policy, ok := budget.ctx.Value(discoveryNetworkKey{}).(*discoveryNetwork); ok {
+		policy.mu.Lock()
+		pending := policy.pending != nil
+		policy.mu.Unlock()
+		if pending {
+			return ErrNetworkAuthorization
+		}
+	}
 	if budget.exhaustedErr != nil {
 		return budget.exhaustedErr
 	}
@@ -180,12 +188,24 @@ func DiscoverOAuth(serverURL string) DiscoveryResult {
 }
 
 func DiscoverOAuthContext(ctx context.Context, serverURL string) DiscoveryResult {
+	var result DiscoveryResult
+	err := runNetworkOperation(ctx, serverURL, func(operationCtx context.Context) { result = discoverOAuthOnce(operationCtx, serverURL) })
+	if err != nil {
+		result.Found = false
+		result.Status = "partial"
+		result.ManualCompletionRequired = true
+		result.Error = err.Error()
+	}
+	return result
+}
+func discoverOAuthOnce(ctx context.Context, serverURL string) DiscoveryResult {
 	budget := newDiscoveryBudget(ctx)
 	defer budget.close()
 	return discoverOAuthWithBudget(serverURL, budget)
 }
 
 func discoverOAuthWithBudget(serverURL string, budget *discoveryBudget) DiscoveryResult {
+	budget.ctx = withDiscoveryNetwork(budget.ctx, serverURL)
 	origin, err := extractOrigin(serverURL)
 	if err != nil {
 		return DiscoveryResult{Status: "not_found", Error: err.Error()}
@@ -317,6 +337,7 @@ func fetchProtectedResourceMetadataDetailedWithBudget(
 	budget *discoveryBudget,
 	mcpURL string,
 ) (*protectedResourceMetadata, []DiscoveryResponseHint, error) {
+	budget.ctx = withDiscoveryNetwork(budget.ctx, mcpURL)
 	candidates := buildPRMCandidates(mcpURL)
 	var hints []DiscoveryResponseHint
 	for _, candidateURL := range candidates {
@@ -332,7 +353,7 @@ func fetchProtectedResourceMetadataDetailedWithBudget(
 		}
 		// RFC 9728 §2 exige o identificador do recurso. Outros membros isolados
 		// são hints insuficientes e não transformam a resposta em PRM válido.
-		if err == nil && result.Resource != "" {
+		if err == nil && validProtectedResource(budget.ctx, mcpURL, result.Resource) {
 			logging.Infof(budget.ctx, "oauthflow.discovery", "[OAuth:discovery] PRM: encontrado em %s", candidateURL)
 			return &result, hints, nil
 		}
@@ -417,16 +438,16 @@ func canonicalAuthorizationServerBases(values []string) []string {
 	seen := make(map[string]struct{})
 	bases := make([]string, 0, len(values))
 	for _, value := range values {
-		candidates := buildResourceBases(value)
-		if len(candidates) == 0 {
+		issuer, err := endpointURL(value)
+		if err != nil || issuer.RawQuery != "" || issuer.ForceQuery {
 			continue
 		}
-		base := candidates[0]
-		if _, exists := seen[base]; exists {
+		// RFC 8414 issuer comparison is exact, including a trailing slash.
+		if _, exists := seen[value]; exists {
 			continue
 		}
-		seen[base] = struct{}{}
-		bases = append(bases, base)
+		seen[value] = struct{}{}
+		bases = append(bases, value)
 	}
 	return bases
 }
@@ -453,9 +474,11 @@ func fetchAuthServerMetadataFromBasesWithBudget(
 ) (*authServerMetadata, string, []DiscoveryResponseHint, error) {
 	var hints []DiscoveryResponseHint
 	candidateTypes := make(map[string]string)
+	candidateIssuers := make(map[string][]string)
 	var candidates []string
 	for _, base := range bases {
 		for _, candidate := range buildASMCandidateDetails(base) {
+			candidateIssuers[candidate.url] = append(candidateIssuers[candidate.url], base)
 			if _, exists := candidateTypes[candidate.url]; exists {
 				continue
 			}
@@ -474,7 +497,7 @@ func fetchAuthServerMetadataFromBasesWithBudget(
 		if attempt.hint != nil {
 			hints = appendHints(hints, *attempt.hint)
 		}
-		if err == nil && validAuthServerMetadata(&result) {
+		if err == nil && validDiscoveredMetadata(budget.ctx, &result, candidateIssuers[candidateURL]) {
 			logging.Infof(budget.ctx, "oauthflow.discovery", "[OAuth:discovery] ASM: encontrado em %s", candidateURL)
 			return &result, candidateTypes[candidateURL], hints, nil
 		}
@@ -548,6 +571,7 @@ func fetchJSON(rawURL string, target any) (fetchAttempt, error) {
 }
 
 func fetchJSONContext(ctx context.Context, rawURL string, target any) (fetchAttempt, error) {
+	ctx = withDiscoveryNetwork(ctx, rawURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return fetchAttempt{}, err
@@ -556,6 +580,7 @@ func fetchJSONContext(ctx context.Context, rawURL string, target any) (fetchAtte
 
 	redirects := make([]DiscoveryResponseHint, 0, 2)
 	client := *discoveryHTTPClient
+	client.Transport = discoveryRoundTripper{policy: ctx.Value(discoveryNetworkKey{}).(*discoveryNetwork)}
 	originalRedirectPolicy := client.CheckRedirect
 	client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
 		redirects = append(redirects, DiscoveryResponseHint{
@@ -809,6 +834,15 @@ type DiscoveryEndpoints struct {
 // DiscoverEndpoints uses the existing discovery infrastructure from
 // discovery.go to fetch protected resource + auth server metadata.
 func DiscoverEndpoints(ctx context.Context, mcpURL string) (*DiscoveryEndpoints, error) {
+	var result *DiscoveryEndpoints
+	var resultErr error
+	err := runNetworkOperation(ctx, mcpURL, func(operationCtx context.Context) { result, resultErr = discoverEndpointsOnce(operationCtx, mcpURL) })
+	if err != nil {
+		return nil, err
+	}
+	return result, resultErr
+}
+func discoverEndpointsOnce(ctx context.Context, mcpURL string) (*DiscoveryEndpoints, error) {
 	_, err := extractOrigin(mcpURL)
 	if err != nil {
 		return nil, err

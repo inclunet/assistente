@@ -1,9 +1,11 @@
 package mcp
 
 import (
+	"assistente/internal/oauthflow"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -264,6 +266,9 @@ func TestReauthorizeServer_RunsInteractiveFlowPersistsTokenAndReconnects(t *test
 
 	emitter := &capturingEmitter{}
 	m := newTestManagerWithEmit(emitter.emit)
+	m.SetOAuthNetworkAuthorizer(func(_ context.Context, d oauthflow.NetworkDestination) ([]net.IP, bool, error) {
+		return d.IPs, true, nil
+	})
 
 	// Transport in-memory para a reconexão pós-reauth ter sucesso sem rede.
 	factory := newInMemoryMCPFactory(t, m.ctx)

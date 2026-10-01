@@ -1,6 +1,7 @@
 package http
 
 import (
+	"assistente/internal/networkpolicy"
 	"context"
 	"net"
 	"strings"
@@ -54,7 +55,7 @@ func Classify(ip net.IP) Category {
 		return CategoryMetadata
 	case ip.IsLoopback():
 		return CategoryLoopback
-	case cgnatNet.Contains(ip):
+	case networkpolicy.IsCGNAT(ip):
 		return CategoryCGNAT
 	case ip.IsPrivate():
 		return CategoryPrivateRFC1918

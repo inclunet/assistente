@@ -29,7 +29,7 @@ func TestDynamicRegistrationPreservesMetadata(t *testing.T) {
 		_, _ = w.Write([]byte(`{"client_id":"issued","client_secret":"sensitive"}`))
 	}))
 	defer server.Close()
-	result, err := RegisterDynamicClient(context.Background(), server.URL, metadata)
+	result, err := RegisterDynamicClient(context.Background(), server.URL, server.URL, metadata)
 	if err != nil || result.ClientID != "issued" || result.ClientSecret != "sensitive" {
 		t.Fatalf("registration failed: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestDynamicRegistrationRejectsUnsafeResponses(t *testing.T) {
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer server.Close()
-			result, err := RegisterDynamicClient(context.Background(), server.URL+"?secret=sensitive-token", RegistrationRequest{})
+			result, err := RegisterDynamicClient(context.Background(), server.URL, server.URL+"?secret=sensitive-token", RegistrationRequest{})
 			if result != nil || !errors.Is(err, ErrRegistration) {
 				t.Fatalf("accepted invalid registration: %v", err)
 			}
@@ -78,7 +78,7 @@ func TestDynamicRegistrationRejectsRedirect(t *testing.T) {
 		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
 	}))
 	defer server.Close()
-	if _, err := RegisterDynamicClient(context.Background(), server.URL, RegistrationRequest{}); !errors.Is(err, ErrRegistration) {
+	if _, err := RegisterDynamicClient(context.Background(), server.URL, server.URL, RegistrationRequest{}); !errors.Is(err, ErrRegistration) {
 		t.Fatalf("redirect accepted: %v", err)
 	}
 	if calls.Load() != 0 {
@@ -101,7 +101,10 @@ func TestDynamicRegistrationCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { _, err := RegisterDynamicClient(ctx, server.URL, RegistrationRequest{}); done <- err }()
+	go func() {
+		_, err := RegisterDynamicClient(ctx, server.URL, server.URL, RegistrationRequest{})
+		done <- err
+	}()
 	select {
 	case <-started:
 	case <-time.After(time.Second):
@@ -119,8 +122,8 @@ func TestDynamicRegistrationCancellation(t *testing.T) {
 }
 
 func TestDynamicRegistrationRejectsInvalidEndpoint(t *testing.T) {
-	for _, endpoint := range []string{"file:///secret", "https://user:secret@example.com/register", "https://example.com/register#fragment", "https:///register"} {
-		if _, err := RegisterDynamicClient(context.Background(), endpoint, RegistrationRequest{}); !errors.Is(err, ErrRegistration) {
+	for _, endpoint := range []string{"http://example.com/register", "http://10.0.0.1/register", "file:///secret", "https://user:secret@example.com/register", "https://example.com/register#fragment", "https:///register"} {
+		if _, err := RegisterDynamicClient(context.Background(), endpoint, endpoint, RegistrationRequest{}); !errors.Is(err, ErrRegistration) {
 			t.Fatalf("accepted endpoint: %v", err)
 		}
 	}
