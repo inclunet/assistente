@@ -526,11 +526,17 @@ func (rt *pkceRoundTripper) authorize(ctx context.Context) error {
 	// Serializa entre servidores: enquanto outro MCP estiver fazendo
 	// flow OAuth interativo, este espera. rt.mu (logo abaixo) protege
 	// dentro DE UM servidor — não substitui o arbiter global.
-	oauthFlowArbiter.Lock()
-	defer oauthFlowArbiter.Unlock()
+	release, err := oauthFlowArbiter.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	// Single-flight por servidor: pula a janela SOMENTE se outro flow concorrente
 	// instalou um token NOVO e válido (diferente do que foi rejeitado) enquanto

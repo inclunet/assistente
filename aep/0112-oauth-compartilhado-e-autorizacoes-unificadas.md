@@ -317,7 +317,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   transação e publica os demais campos atuais. Token sem refresh exige reconexão
   persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
   Testes cobrem preservação de edições e falha na gravação da transição.
-- Revisão independente local em trinta rodadas, com correções de isolamento de
+- Revisão independente local em trinta e uma rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
@@ -406,3 +406,7 @@ Fontes oficiais consultadas em 30/09/2026; revalidar na implementação:
 - [AEP-0033](0033-mcp-oauth-autodiscovery.md)
 - [AEP-0105](0105-reautorizacao-oauth-mcp-nativo.md)
 - [AEP-0083](0083-channels-database-migration.md)
+
+O MCP respeita cancelamento enquanto aguarda o árbitro interativo compartilhado,
+sem iniciar novo consentimento após a espera cancelada. Evidência:
+`TestAuthorizeCanceledWhileWaitingForSharedArbiter`.
