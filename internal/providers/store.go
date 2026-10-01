@@ -9,6 +9,9 @@ import (
 // ProviderStore abstrai operações de persistência de provedores LLM.
 // Implementado por database.LLMProviderStore; pode ser mockado em testes.
 type ProviderStore interface {
+	// Delete removes a generic provider, refusing OAuth consumers.
+	Delete(ctx context.Context, id string) error
+
 	// Save persiste um ou mais provedores (upsert por ID).
 	Save(ctx context.Context, providers []*llm.ProviderConfig) error
 

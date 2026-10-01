@@ -591,14 +591,11 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		credConfigured = err == nil && auth != nil && auth.Source != ""
 	}
 
-	if err := s.registry.Remove(id); err != nil {
-		logging.Warnf(ctx, "providers.service", "[providers] Aviso: falha ao remover provider antigo '%s': %v", id, err)
+	if err := s.store.Save(ctx, []*llm.ProviderConfig{updated}); err != nil {
+		return nil, err
 	}
 	if err := s.registry.Register(updated); err != nil {
 		return nil, fmt.Errorf("erro ao atualizar provider: %w", err)
-	}
-	if err := s.Save(ctx); err != nil {
-		logging.Errorf(ctx, "providers.service", "[providers] Erro ao salvar após atualização: %v", err)
 	}
 
 	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' atualizado", id)
@@ -648,6 +645,8 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		}); err != nil {
 			return err
 		}
+	} else if err := s.store.Delete(ctx, id); err != nil {
+		return err
 	}
 	if err := s.registry.Remove(id); err != nil {
 		return fmt.Errorf("erro ao remover provider: %w", err)

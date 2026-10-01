@@ -64,6 +64,9 @@ Se não houver refresh token, o access token é usado até expirar; após expira
 ou rejeição pelo serviço, a conexão passa a exigir **Autorizar novamente**.
 Se houver interrupção ou falha ao salvar após possível rotação, use **Autorizar novamente**;
 o aplicativo não tenta reutilizar um refresh token possivelmente consumido.
+A primeira falha já orienta reconectar. Se editar ou excluir um provedor falhar
+após outra instância mudar sua conexão, reinicie para atualizar a lista; a
+autorização persistida é preservada.
 
 **Desconectar** interrompe o uso local e tenta revogar a sessão remota. Aguarde o
 resultado antes de fechar a janela; o fechamento fica bloqueado durante a operação. Se a revogação

@@ -317,7 +317,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   transação e publica os demais campos atuais. Token sem refresh exige reconexão
   persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
   Testes cobrem preservação de edições e falha na gravação da transição.
-- Revisão independente local em trinta e quatro rodadas, com correções de isolamento de
+- Revisão independente local em trinta e seis rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
@@ -432,3 +432,11 @@ Publicação imediata e segura por sessão permanece follow-up separado: chamar
 materializações. Isso não invalida a importação nem exige repeti-la.
 
 Follow-up da publicação de provedores importados: [#870](https://github.com/inclunet/assistente/issues/870).
+
+Edição e exclusão genéricas verificam o vínculo persistido transacionalmente,
+recusando snapshots que descartariam um consumidor OAuth. Exclusão pertence ao
+serviço/store antes de remover o registry; Wails não decide o caminho pelo cache.
+Refresh ambíguo ou falha de persistência após troca exige reconexão já no primeiro
+erro. Evidências: `TestStaleGenericRegistryCannotDetachOAuthConsumer`,
+`TestRefreshCrashSafetyAndNoImplicitRetry` e
+`TestAmbiguousChatGPTRefreshRequiresReconnectImmediately`.

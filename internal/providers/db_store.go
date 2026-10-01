@@ -1,9 +1,12 @@
 package providers
 
 import (
+	"assistente/internal/oauthflow"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"gorm.io/gorm"
 	"strings"
 
 	"assistente/internal/database"
@@ -34,13 +37,23 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 	if err := database.RequireUserIDOrBootstrap(ctx); err != nil {
 		return err
 	}
-	for _, p := range providers {
-		dbP := toDBModel(p)
-		if err := database.SaveLLMProviderWithContext(ctx, dbP); err != nil {
-			return err
+	return database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		repository := database.NewProviderRepository(tx)
+		for _, p := range providers {
+			var current database.LLMProvider
+			err := tx.Where("id = ?", p.ID).First(&current).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			if err == nil && (current.Type == string(llm.ProviderChatGPT) || strings.HasPrefix(current.CredentialPattern, "oauth:")) && (current.Type != string(p.Type) || current.CredentialPattern != p.CredentialPattern) {
+				return oauthflow.ErrConflict
+			}
+			if err := repository.SaveLLMProvider(ctx, toDBModel(p)); err != nil {
+				return err
+			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // Load retorna todos os provedores do banco convertidos para ProviderConfig.
@@ -220,4 +233,26 @@ func decodeACPMap(raw string) (map[string]string, error) {
 		return nil, err
 	}
 	return values, nil
+}
+
+// Delete refuses OAuth consumers even if the caller's registry is stale.
+// Their deletion must go through the vault's joint consumer/authorization transaction.
+func (s *DBStore) Delete(ctx context.Context, id string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		repository := database.NewProviderRepository(tx)
+		current, err := repository.GetLLMProvider(ctx, id)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if current.Type == string(llm.ProviderChatGPT) || strings.HasPrefix(current.CredentialPattern, "oauth:") {
+			return oauthflow.ErrConflict
+		}
+		return repository.DeleteLLMProvider(ctx, id)
+	})
 }

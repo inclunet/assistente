@@ -332,7 +332,7 @@ func TestChatGPTDeleteRejectsChangedAuthorizationReference(t *testing.T) {
 	// A second instance updates the persisted reference while this registry is stale.
 	updated, _ := s.store.Get(ctx, old.ID)
 	updated.CredentialPattern = "oauth:replacement"
-	if err = s.store.Save(ctx, []*llm.ProviderConfig{updated}); err != nil {
+	if err = database.SaveLLMProviderWithContext(ctx, toDBModel(updated)); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.Delete(ctx, old.ID); !errors.Is(err, oauthflow.ErrConflict) {
@@ -561,5 +561,57 @@ func TestChatGPTRecoveryPreservesConcurrentProviderEdits(t *testing.T) {
 		if provider.Name != "Concurrent name" || provider.DefaultModel != "selected-model" || provider.Timeout != 145 || !provider.IsDefault || provider.CredentialPattern != "oauth:"+authorization {
 			t.Fatal("recovery lost concurrent edits", provider)
 		}
+	}
+}
+
+func TestStaleGenericRegistryCannotDetachOAuthConsumer(t *testing.T) {
+	for _, operation := range []string{"update", "delete"} {
+		t.Run(operation, func(t *testing.T) {
+			service, mgr, ctx := chatGPTTestService(t)
+			created, err := service.CreateChatGPTConnection(ctx, "OAuth persisted")
+			if err != nil {
+				t.Fatal(err)
+			}
+			original, err := service.store.Get(ctx, created.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			store, _ := mgr.OAuthStore(ctx)
+			grant, err := store.Load(ctx, credentials.OAuthCredentialID(original.CredentialPattern))
+			if err != nil {
+				t.Fatal(err)
+			}
+			grant.State = "connected"
+			grant.Tokens = oauthflow.Tokens{Access: "access", Refresh: "refresh", Type: "Bearer"}
+			grant.Revision++
+			if err := store.CompareAndSwap(ctx, grant, grant.Revision-1); err != nil {
+				t.Fatal(err)
+			}
+			stale := &llm.ProviderConfig{ID: created.ID, Name: "Old generic", Type: llm.ProviderOpenAI, BaseURL: "https://api.openai.com/v1", APIFormat: llm.APIFormatOpenAI, AuthMode: llm.AuthModeRequired}
+			if err := service.registry.Register(stale); err != nil {
+				t.Fatal(err)
+			}
+			if operation == "update" {
+				name := "Unsafe edit"
+				_, err = service.Update(ctx, created.ID, UpdateRequest{Name: name})
+			} else {
+				err = service.Delete(ctx, created.ID)
+			}
+			if !errors.Is(err, oauthflow.ErrConflict) {
+				t.Fatalf("stale %s accepted: %v", operation, err)
+			}
+			saved, err := service.store.Get(ctx, created.ID)
+			if err != nil || saved.Type != original.Type || saved.CredentialPattern != original.CredentialPattern || saved.Name != original.Name {
+				t.Fatalf("OAuth consumer changed: %v", err)
+			}
+			retained, err := store.Load(ctx, grant.ID)
+			if err != nil || retained.Revision != grant.Revision || retained.Tokens != grant.Tokens {
+				t.Fatalf("grant changed: %v", err)
+			}
+			cached := service.registry.Get(created.ID)
+			if cached == nil || cached.Name != stale.Name {
+				t.Fatal("failed operation published registry changes")
+			}
+		})
 	}
 }
