@@ -264,6 +264,7 @@ func TestNetworkApprovalReusedOnlyForApprovedOriginAndIPs(t *testing.T) {
 		calls++
 		return d.IPs, true, nil
 	})
+	ctx = WithNetworkOperation(ctx)
 	state := ctx.Value(networkAuthorizerKey{}).(*networkAuthorization)
 	for _, raw := range []string{"https://internal.example/token", "https://internal.example/next", "https://internal.example:444/token"} {
 		_, ok, err := state.decide(ctx, NetworkDestination{URL: raw, IPs: []net.IP{net.ParseIP("10.0.0.1")}})
@@ -278,8 +279,8 @@ func TestNetworkApprovalReusedOnlyForApprovedOriginAndIPs(t *testing.T) {
 	if calls != 3 {
 		t.Fatal("DNS change reused unapproved IP")
 	}
-	fresh := WithNetworkAuthorizer(context.Background(), state.authorize).Value(networkAuthorizerKey{}).(*networkAuthorization)
-	_, _, _ = fresh.decide(ctx, NetworkDestination{URL: "https://internal.example/token", IPs: []net.IP{net.ParseIP("10.0.0.1")}})
+	ctx = WithNetworkOperation(ctx)
+	_, _, _ = state.decide(ctx, NetworkDestination{URL: "https://internal.example/token", IPs: []net.IP{net.ParseIP("10.0.0.1")}})
 	if calls != 4 {
 		t.Fatal("approval escaped operation")
 	}
@@ -293,7 +294,7 @@ func TestOAuthPollingReusesConsentAcrossHTTPClients(t *testing.T) {
 		prompts.Add(1)
 		return d.IPs, true, nil
 	}
-	ctx := WithNetworkAuthorizer(context.Background(), authorize)
+	ctx := WithNetworkOperation(WithNetworkAuthorizer(context.Background(), authorize))
 	for i := 0; i < 3; i++ {
 		client := NewNetworkHTTPClient("https://192.0.2.1/mcp", authorize, time.Second)
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/token", strings.NewReader("grant_type=device_code"))

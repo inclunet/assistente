@@ -539,6 +539,11 @@ poderia apagar alterações concorrentes; a issue exige transação e testes de 
   `TestConnectDevicePollingOutlivesHandshakeAndReusesApproval` e
   `TestConnectConsentOutlivesHandshakeBudget`; o Device Flow cobre probe SSE
   habilitado e desabilitado, ambos com orçamento pausável.
+- Cada renovação efetiva de token abre uma nova operação de consentimento; retries
+  internos compartilham a aprovação somente nessa operação. O cache continua
+  reutilizando tokens válidos, serializando refreshes concorrentes e preservando
+  rotação do refresh token. Evidência para PKCE e Client Credentials:
+  `TestStoredAndClientCredentialsRefreshApprovalIsPerOperation`.
 - Refresh best-effort/proativo usa o mesmo cliente autorizado, preservando
   identidade e cancelamento do chamador. Recuperação termina após recusa,
   sem tentar reconexão nem abrir outro consentimento. Evidências:
@@ -556,7 +561,7 @@ poderia apagar alterações concorrentes; a issue exige transação e testes de 
   tokens MCP continua exclusivamente no MCP legado
   até a entrega dos grants e do cutover. Fases 2, 3 e 4 seguem abertas.
 
-Revisão local desta entrega incremental: `review_credential_sources`, quinze rodadas;
+Revisão local desta entrega incremental: `review_credential_sources`, dezesseis rodadas;
 achados de rede, identidade, cancelamento e apresentação corrigidos, última rodada
 sem pendências. A validação funcional ChatGPT da fase 1 continua a cargo do
 usuário e não foi marcada como concluída por esta entrega.

@@ -490,6 +490,9 @@ Endpoints OAuth e a descoberta no destino inicial exigem HTTPS, com exceção
 de localhost/loopback; autorizar a rede
 não desativa essa verificação nem a validação de identidade do servidor.
 
+Uma renovação posterior do token pode solicitar autorização de rede novamente.
+Para permitir também operações futuras, use a autorização persistente da allowlist.
+
 A opção de permitir somente esta vez vale durante a operação OAuth, inclusive
 nas consultas repetidas do Device Flow ao mesmo destino/IP. A espera pelo login
 ou pela decisão de rede não consome o timeout do handshake MCP; Desconectar

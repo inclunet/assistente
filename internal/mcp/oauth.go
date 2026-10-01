@@ -117,7 +117,7 @@ func (rt *pkceRoundTripper) trySilentRefresh(ctx context.Context) error {
 		Expiry:       time.Now().Add(-1 * time.Hour),
 	}
 
-	refreshCtx := ctx
+	refreshCtx := oauthflow.WithNetworkOperation(ctx)
 
 	newSource := rt.oauthCfg.TokenSource(context.WithValue(refreshCtx, oauth2.HTTPClient, rt.oauthHTTPClient(15*time.Second)), expiredToken)
 	newToken, err := newSource.Token()
@@ -126,7 +126,7 @@ func (rt *pkceRoundTripper) trySilentRefresh(ctx context.Context) error {
 		return fmt.Errorf("silent refresh failed: %w", err)
 	}
 
-	rt.tokenSource = rt.wrapWithPersistence(rt.oauthCfg.TokenSource(rt.longLivedCtx(), newToken))
+	rt.tokenSource = rt.wrapWithPersistence(newScopedTokenSource(rt.longLivedCtx(), newToken, rt.oauthCfg.TokenSource))
 	rt.persistTokens(newToken)
 
 	rotated := newToken.RefreshToken != "" && newToken.RefreshToken != refreshToken
@@ -144,7 +144,9 @@ func buildClientCredentialsHTTPClient(ctx context.Context, cfg ServerConfig, cli
 		Scopes:       cfg.OAuth2Scopes,
 	}
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, oauthflow.NewNetworkHTTPClient(cfg.URL, authorize, 30*time.Second))
-	return &http.Client{Transport: &oauth2.Transport{Source: cc.TokenSource(ctx), Base: http.DefaultTransport}}
+	return &http.Client{Transport: &oauth2.Transport{Source: newScopedTokenSource(ctx, nil, func(operationCtx context.Context, _ *oauth2.Token) oauth2.TokenSource {
+		return cc.TokenSource(operationCtx)
+	}), Base: http.DefaultTransport}}
 }
 
 // ============ OAuth Discovery (uses discovery.go infrastructure) ============
@@ -464,6 +466,7 @@ func isSessionExpiredStatus(statusCode int) bool {
 }
 
 func (rt *pkceRoundTripper) authorize(ctx context.Context) (resultErr error) {
+	ctx = oauthflow.WithNetworkOperation(ctx)
 	endInteraction := beginOAuthInteraction(ctx)
 	defer endInteraction()
 	defer func() {
@@ -844,7 +847,7 @@ func (rt *pkceRoundTripper) authorizeDeviceFlow(parentCtx context.Context) error
 				Scopes: deviceScopes,
 			}
 			rt.oauthCfg = oauthCfg
-			rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(rt.longLivedCtx(), token))
+			rt.tokenSource = rt.wrapWithPersistence(newScopedTokenSource(rt.longLivedCtx(), token, oauthCfg.TokenSource))
 			rt.persistTokens(token)
 			if tokenResp.RefreshToken == "" {
 				logging.Warnf(context.Background(), "mcp.oauth", "[MCP:%s] AVISO: device flow não retornou refresh_token — reauth será necessária na expiração (verifique offline_access)", rt.serverSlug)
@@ -1025,7 +1028,7 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 		}
 
 		rt.oauthCfg = oauthCfg
-		rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(rt.longLivedCtx(), token))
+		rt.tokenSource = rt.wrapWithPersistence(newScopedTokenSource(rt.longLivedCtx(), token, oauthCfg.TokenSource))
 		rt.persistTokens(token)
 
 		logging.Infof(ctx, "mcp.oauth", "[MCP:%s] Autorização OAuth2 PKCE concluída com sucesso", rt.serverSlug)
@@ -1260,7 +1263,7 @@ func buildPKCERoundTripper(cfg ServerConfig, credMgr *credentials.Manager, emitE
 		}
 		rt.oauthCfg = oauthCfg
 		// Token source persistido: ctx long-lived para não morrer com o bootstrap.
-		rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(rt.longLivedCtx(), token))
+		rt.tokenSource = rt.wrapWithPersistence(newScopedTokenSource(rt.longLivedCtx(), token, oauthCfg.TokenSource))
 	}
 
 	return rt

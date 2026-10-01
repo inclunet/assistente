@@ -40,7 +40,6 @@ type networkAuthorization struct {
 	mu        sync.Mutex
 	authorize NetworkAuthorizer
 	denied    error
-	approved  map[string]map[string]bool
 }
 
 func NetworkAuthorizationError(ctx context.Context) error {
@@ -52,26 +51,43 @@ func NetworkAuthorizationError(ctx context.Context) error {
 	defer state.mu.Unlock()
 	return state.denied
 }
+
+type networkOperationKey struct{}
+type networkApprovals struct {
+	mu       sync.Mutex
+	approved map[string]map[string]bool
+}
+
+// WithNetworkOperation starts a logical OAuth flow or token refresh. It replaces
+// inherited approvals; polls and SDK retries must retain this returned context.
+func WithNetworkOperation(ctx context.Context) context.Context {
+	return context.WithValue(ctx, networkOperationKey{}, &networkApprovals{approved: make(map[string]map[string]bool)})
+}
 func (state *networkAuthorization) decide(ctx context.Context, d NetworkDestination) ([]net.IP, bool, error) {
 	state.mu.Lock()
 	denied := state.denied
-	u, parseErr := url.Parse(d.URL)
-	origin := ""
-	if parseErr == nil {
-		origin = networkOrigin(u)
-	}
-	cached := len(d.IPs) > 0
-	for _, ip := range d.IPs {
-		if !state.approved[origin][ip.String()] {
-			cached = false
-		}
-	}
 	state.mu.Unlock()
-	if denied == nil && cached {
-		return d.IPs, true, nil
-	}
 	if denied != nil {
 		return nil, false, denied
+	}
+	u, err := url.Parse(d.URL)
+	if err != nil {
+		return nil, false, ErrNetworkAuthorization
+	}
+	origin := networkOrigin(u)
+	scope, _ := ctx.Value(networkOperationKey{}).(*networkApprovals)
+	if scope != nil {
+		scope.mu.Lock()
+		cached := len(d.IPs) > 0
+		for _, ip := range d.IPs {
+			if ip == nil || !scope.approved[origin][ip.String()] {
+				cached = false
+			}
+		}
+		scope.mu.Unlock()
+		if cached {
+			return d.IPs, true, nil
+		}
 	}
 	if state.authorize == nil {
 		return nil, false, nil
@@ -81,27 +97,24 @@ func (state *networkAuthorization) decide(ctx context.Context, d NetworkDestinat
 		state.mu.Lock()
 		state.denied = errors.Join(ErrNetworkAuthorization, err)
 		state.mu.Unlock()
-	}
-	if ok && err == nil && len(ips) > 0 {
-		state.mu.Lock()
-		if state.approved == nil {
-			state.approved = make(map[string]map[string]bool)
-		}
-		if state.approved[origin] == nil {
-			state.approved[origin] = make(map[string]bool)
+	} else if scope != nil {
+		scope.mu.Lock()
+		if scope.approved[origin] == nil {
+			scope.approved[origin] = make(map[string]bool)
 		}
 		for _, ip := range ips {
 			if ip != nil {
-				state.approved[origin][ip.String()] = true
+				scope.approved[origin][ip.String()] = true
 			}
 		}
-		state.mu.Unlock()
+		scope.mu.Unlock()
 	}
 	return ips, ok, err
 }
 
 type discoveryNetworkKey struct{}
 type discoveryNetwork struct {
+	scope         *networkApprovals
 	mu            sync.Mutex
 	origin        string
 	ips           map[string]bool
@@ -140,10 +153,11 @@ func networkOrigin(u *url.URL) string {
 }
 
 func withDiscoveryNetwork(ctx context.Context, raw string) context.Context {
-	if ctx.Value(discoveryNetworkKey{}) != nil {
+	scope, _ := ctx.Value(networkOperationKey{}).(*networkApprovals)
+	if existing, ok := ctx.Value(discoveryNetworkKey{}).(*discoveryNetwork); ok && existing.scope == scope {
 		return ctx
 	}
-	p := &discoveryNetwork{ips: map[string]bool{}, trusted: map[string]map[string]bool{}, lookup: net.DefaultResolver.LookupIPAddr}
+	p := &discoveryNetwork{scope: scope, ips: map[string]bool{}, trusted: map[string]map[string]bool{}, lookup: net.DefaultResolver.LookupIPAddr}
 	u, err := url.Parse(raw)
 	if err == nil {
 		// Resource fragments are discarded by discovery URL normalization.
@@ -168,6 +182,9 @@ func withDiscoveryNetwork(ctx context.Context, raw string) context.Context {
 // Authorization is outside HTTP/discovery deadlines, but retains caller cancellation
 // and identity. Only socket/preflight refusals trigger replay, never HTTP failures.
 func runNetworkOperation(ctx context.Context, resource string, run func(context.Context)) error {
+	if ctx.Value(networkOperationKey{}) == nil {
+		ctx = WithNetworkOperation(ctx)
+	}
 	ctx = withDiscoveryNetwork(ctx, resource)
 	p := ctx.Value(discoveryNetworkKey{}).(*discoveryNetwork)
 	state, _ := ctx.Value(networkAuthorizerKey{}).(*networkAuthorization)

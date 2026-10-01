@@ -1952,7 +1952,7 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	refreshCtx = oauthflow.WithNetworkAuthorizer(refreshCtx, m.authorizeOAuthNetwork)
+	refreshCtx = oauthflow.WithNetworkOperation(oauthflow.WithNetworkAuthorizer(refreshCtx, m.authorizeOAuthNetwork))
 	refreshCtx = context.WithValue(refreshCtx, oauth2.HTTPClient,
 		oauthflow.NewNetworkHTTPClient(cfg.URL, m.authorizeOAuthNetwork, 15*time.Second))
 
