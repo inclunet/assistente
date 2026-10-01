@@ -119,7 +119,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 		return codedErrorf(CodeProviderOAuthTypeChange, params("providerId", provider.ID),
 			"O provider %q tem vínculo OAuth. Desconecte e exclua o provider antes de importar outro tipo com o mesmo ID.", provider.ID)
 	}
-	if linkedOAuth || provider.Type == "chatgpt" || strings.HasPrefix(provider.CredentialPattern, "oauth:") {
+	if linkedOAuth || provider.Type == "chatgpt" {
 		// Imported references cannot bind a new consumer to a local grant. Keep
 		// only the association already owned by this same local provider/type.
 		provider.CredentialPattern = "oauth:" + uuid.NewString()
@@ -246,6 +246,10 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 			params("providerId", normalized.ID),
 			"provider %q sem type não pode ser importado", normalized.ID,
 		)
+	}
+	if normalized.Type != "chatgpt" && strings.HasPrefix(normalized.CredentialPattern, "oauth:") {
+		// Only ChatGPT currently supports restoring an imported OAuth connection.
+		normalized.CredentialPattern = ""
 	}
 	if normalized.Type == "chatgpt" {
 		// This account integration has a fixed inference endpoint and protocol.

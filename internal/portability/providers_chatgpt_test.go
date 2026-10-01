@@ -66,8 +66,11 @@ func TestOAuthImportCannotBindAnotherLocalAuthorization(t *testing.T) {
 				t.Fatal(err)
 			}
 			second, _ := database.GetLLMProviderWithContext(ctx, incoming.ID)
-			if second.CredentialPattern == first.CredentialPattern {
+			if providerType == "chatgpt" && second.CredentialPattern == first.CredentialPattern {
 				t.Fatal("copies share authorization reference")
+			}
+			if providerType != "chatgpt" && (first.CredentialPattern != "" || second.CredentialPattern != "") {
+				t.Fatal("unsupported OAuth reference retained")
 			}
 			var count int64
 			if err = database.DB().Model(&database.CredentialEntry{}).Count(&count).Error; err != nil || count != 1 {
