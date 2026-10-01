@@ -14,6 +14,10 @@ describe('OAuth registration errors', () => {
     expect(result).not.toContain('oauth_registration_failed');
     expect(result).not.toBe('mcp.error.registrationFailed');
     expect(mcpOAuthErrorMessage('oauth_registration_failed', i18n.t)).toBe(result);
+    const resource = mcpOAuthErrorMessage('oauth_resource_destination_blocked: oauth_discovery_destination_blocked', i18n.t);
+    expect(resource).toBe(i18n.t('mcp.error.resourceDestinationBlocked'));
+    expect(resource).not.toBe('mcp.error.resourceDestinationBlocked');
+    expect(resource).not.toContain('oauth_resource_destination_blocked');
     const denied = mcpOAuthErrorMessage('oauth_registration_failed: oauth_discovery_destination_blocked', i18n.t);
     expect(denied).toBe(i18n.t('mcp.error.networkAuthorizationFailed'));
     expect(denied).not.toContain('oauth_discovery_destination_blocked');

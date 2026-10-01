@@ -137,6 +137,13 @@ func (rt *pkceRoundTripper) trySilentRefresh(ctx context.Context) error {
 // buildClientCredentialsHTTPClient cria um *http.Client que obtém tokens
 // via OAuth2 Client Credentials Grant (machine-to-machine).
 func buildClientCredentialsHTTPClient(ctx context.Context, cfg ServerConfig, clientSecret string, authorize oauthflow.NetworkAuthorizer) *http.Client {
+	return oauthflow.NewResourceHTTPClient(cfg.URL, &oauth2.Transport{
+		Source: buildClientCredentialsTokenSource(ctx, cfg, clientSecret, authorize),
+		Base:   oauthflow.NewResourceTransport(cfg.URL, authorize),
+	})
+}
+
+func buildClientCredentialsTokenSource(ctx context.Context, cfg ServerConfig, clientSecret string, authorize oauthflow.NetworkAuthorizer) oauth2.TokenSource {
 	cc := &clientcredentials.Config{
 		ClientID:     cfg.OAuth2ClientID,
 		ClientSecret: clientSecret,
@@ -144,9 +151,9 @@ func buildClientCredentialsHTTPClient(ctx context.Context, cfg ServerConfig, cli
 		Scopes:       cfg.OAuth2Scopes,
 	}
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, oauthflow.NewNetworkHTTPClient(cfg.URL, authorize, 30*time.Second))
-	return &http.Client{Transport: &oauth2.Transport{Source: newScopedTokenSource(ctx, nil, func(operationCtx context.Context, _ *oauth2.Token) oauth2.TokenSource {
+	return newScopedTokenSource(ctx, nil, func(operationCtx context.Context, _ *oauth2.Token) oauth2.TokenSource {
 		return cc.TokenSource(operationCtx)
-	}), Base: http.DefaultTransport}}
+	})
 }
 
 // ============ OAuth Discovery (uses discovery.go infrastructure) ============
@@ -1225,7 +1232,7 @@ func generateState() string {
 // (ex: porta após DCR).
 func buildPKCERoundTripper(cfg ServerConfig, credMgr *credentials.Manager, emitEvent emitFunc, slug string, onConfigUpdate func(ServerConfig), authCtxProvider func() context.Context, networkAuthorizer oauthflow.NetworkAuthorizer, lifetimeCtx context.Context) *pkceRoundTripper {
 	rt := &pkceRoundTripper{
-		base:              newMCPTransport(),
+		base:              oauthflow.NewResourceTransport(cfg.URL, networkAuthorizer),
 		credMgr:           credMgr,
 		cfg:               cfg,
 		emitEvent:         emitEvent,
@@ -1273,7 +1280,7 @@ func buildPKCERoundTripper(cfg ServerConfig, credMgr *credentials.Manager, emitE
 // Tenta reutilizar tokens e credenciais do credential manager.
 func buildPKCEHTTPClient(cfg ServerConfig, credMgr *credentials.Manager, emitEvent emitFunc, slug string, onConfigUpdate func(ServerConfig), authCtxProvider func() context.Context) *http.Client {
 	rt := buildPKCERoundTripper(cfg, credMgr, emitEvent, slug, onConfigUpdate, authCtxProvider, nil, nil)
-	return &http.Client{Transport: rt}
+	return oauthflow.NewResourceHTTPClient(cfg.URL, rt)
 }
 
 const authSuccessHTML = `<!DOCTYPE html>

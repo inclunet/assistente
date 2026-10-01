@@ -2,6 +2,7 @@ package oauthflow
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"io"
 	"net"
@@ -259,6 +260,11 @@ func (p *discoveryNetwork) checkDestination(ctx context.Context, u *url.URL) err
 	ips := make([]net.IP, 0, len(resolved))
 	blocked := false
 	for _, address := range resolved {
+		// The HTTP exception is for actual loopback, not just a hostname that
+		// happens to be spelled localhost. Consent cannot waive TLS.
+		if u.Scheme == "http" && !address.IP.IsLoopback() {
+			return ErrNetworkAuthorization
+		}
 		ips = append(ips, address.IP)
 		if !p.permits(u, address.IP) {
 			blocked = true
@@ -291,6 +297,9 @@ func discoveryTransport(p *discoveryNetwork, target *url.URL) *http.Transport {
 				return ErrNetworkAuthorization
 			}
 			ip := net.ParseIP(host)
+			if target.Scheme == "http" && !ip.IsLoopback() {
+				return ErrNetworkAuthorization
+			}
 			if !p.permits(target, ip) {
 				return &blockedOAuthIP{ip: ip}
 			}
@@ -301,16 +310,39 @@ func discoveryTransport(p *discoveryNetwork, target *url.URL) *http.Transport {
 	return transport
 }
 
-type discoveryRoundTripper struct{ policy *discoveryNetwork }
+type discoveryRoundTripper struct {
+	policy       *discoveryNetwork
+	resourceOnly bool
+}
 
 func (r discoveryRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
-	if err := r.policy.checkDestination(request.Context(), request.URL); err != nil {
+	// Bound preflight separately: a stalled resolver must not consume the
+	// lifetime of the MCP session, nor may this deadline close its stream.
+	preflightCtx := request.Context()
+	cancel := func() {}
+	if r.resourceOnly {
+		preflightCtx, cancel = context.WithTimeout(preflightCtx, 5*time.Second)
+	}
+	err := r.policy.checkDestination(preflightCtx, request.URL)
+	cancel()
+	if err != nil {
 		if request.Body != nil {
 			_ = request.Body.Close()
 		}
 		return nil, err
 	}
 	transport := discoveryTransport(r.policy, request.URL)
+	if r.resourceOnly {
+		transport.ResponseHeaderTimeout = 30 * time.Second
+		if request.Method == http.MethodGet && strings.Contains(request.Header.Get("Accept"), "text/event-stream") {
+			transport.ResponseHeaderTimeout = 60 * time.Second
+			transport.ForceAttemptHTTP2 = false
+			transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+			request = request.Clone(request.Context())
+			request.Header.Set("X-Accel-Buffering", "no")
+			request.Header.Set("Cache-Control", "no-cache")
+		}
+	}
 	response, err := transport.RoundTrip(request)
 	var blocked *blockedOAuthIP
 	if errors.As(err, &blocked) {
@@ -358,11 +390,12 @@ func NewNetworkHTTPClient(resource string, authorize NetworkAuthorizer, timeout 
 }
 
 type authorizedOAuthTransport struct {
-	mu        sync.Mutex
-	denied    error
-	resource  string
-	authorize NetworkAuthorizer
-	timeout   time.Duration
+	mu           sync.Mutex
+	denied       error
+	resource     string
+	authorize    NetworkAuthorizer
+	timeout      time.Duration
+	resourceOnly bool
 }
 type cancelBody struct {
 	io.ReadCloser
@@ -388,7 +421,18 @@ func (t *authorizedOAuthTransport) RoundTrip(request *http.Request) (result *htt
 		}
 	}()
 
+	if t.resourceOnly {
+		if err := validateResourceDestination(t.resource, request.URL); err != nil {
+			if request.Body != nil {
+				_ = request.Body.Close()
+			}
+			return nil, err
+		}
+	}
 	if _, err := endpointURL(request.URL.String()); err != nil {
+		if request.Body != nil {
+			_ = request.Body.Close()
+		}
 		return nil, err
 	}
 	ctx := request.Context()
@@ -399,7 +443,11 @@ func (t *authorizedOAuthTransport) RoundTrip(request *http.Request) (result *htt
 	var responseErr error
 	attempts := 0
 	err := runNetworkOperation(ctx, t.resource, func(operationCtx context.Context) {
-		callCtx, cancel := context.WithTimeout(operationCtx, t.timeout)
+		callCtx, cancel := context.WithCancel(operationCtx)
+		if !t.resourceOnly {
+			cancel()
+			callCtx, cancel = context.WithTimeout(operationCtx, t.timeout)
+		}
 		clone := request.Clone(callCtx)
 		if attempts > 0 && request.Body != nil {
 			if request.GetBody == nil {
@@ -415,7 +463,7 @@ func (t *authorizedOAuthTransport) RoundTrip(request *http.Request) (result *htt
 		}
 		attempts++
 		policy := operationCtx.Value(discoveryNetworkKey{}).(*discoveryNetwork)
-		response, responseErr = (discoveryRoundTripper{policy: policy}).RoundTrip(clone)
+		response, responseErr = (discoveryRoundTripper{policy: policy, resourceOnly: t.resourceOnly}).RoundTrip(clone)
 		if responseErr != nil {
 			cancel()
 			return

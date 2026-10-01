@@ -503,8 +503,19 @@ ou IP exige nova avaliação.
 
 ### URL do recurso MCP com OAuth
 
-Configure HTTPS também na URL do próprio servidor MCP remoto e use o destino
-final, sem redirects entre origens. A proteção descrita acima cobre descoberta
-e endpoints OAuth; o transporte legado do recurso em PKCE e Client Credentials
-ainda não impõe toda essa política. A [issue #874](https://github.com/inclunet/assistente/issues/874)
-acompanha a validação do recurso e de redirects, preservando SSE e streaming.
+Em conexões locais do Assistente ao MCP com OAuth PKCE ou Client Credentials,
+configure a URL final do recurso com HTTPS. HTTP continua permitido para
+localhost e IPs de loopback. O token só é enviado ao scheme, domínio e porta
+configurados; redirects para outro caminho nessa mesma origem são aceitos.
+
+Redirects para outra origem ou para HTTP remoto são recusados antes do envio de
+credenciais. A mesma proteção vale quando o servidor SSE anuncia um endpoint para
+mensagens. Se isso ocorrer, confira a URL final com o administrador do serviço,
+atualize a configuração e reconecte com a autorização adequada àquele recurso.
+Uma permissão na allowlist de rede não autoriza encaminhar o token a outro serviço.
+
+Destinos internos continuam usando as regras de confiança e consentimento já
+descritas. SSE e Streamable HTTP permanecem disponíveis; uma resposta em streaming
+não é encerrada pelo prazo de leitura das chamadas de token OAuth. Desconectar
+continua cancelando a conexão. Esta mudança não altera os modos Bearer/Basic
+estáticos nem o transporte remoto executado pelo provedor no modo MCP nativo.

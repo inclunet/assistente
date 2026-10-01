@@ -60,7 +60,7 @@ func TestStoredAndClientCredentialsRefreshApprovalIsPerOperation(t *testing.T) {
 				storeUserToken(t, m, "srv", "expired", "seed", time.Now().Add(-time.Hour).Unix())
 				source = m.buildPKCERoundTripperForServer(ctx, "srv", cfg).tokenSource
 			} else {
-				source = buildClientCredentialsHTTPClient(ctx, cfg, "secret", authorize).Transport.(*oauth2.Transport).Source
+				source = buildClientCredentialsTokenSource(ctx, cfg, "secret", authorize)
 			}
 			first, err := source.Token()
 			if err != nil || first == nil || first.AccessToken != "first" {

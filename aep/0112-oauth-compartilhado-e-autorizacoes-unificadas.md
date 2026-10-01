@@ -282,6 +282,8 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    **Em andamento:** discovery e registro RFC 7591 foram extraídos para
    `internal/oauthflow`, consumidos pela tela e pelo runtime MCP. Device Flow,
    client credentials, callback e reautorização ainda usam o ciclo MCP legado.
+   O transporte local do recurso MCP em PKCE/Client Credentials também aplica
+   isolamento por origem, TLS e guard de rede compartilhado, preservando streams.
    A migração de credenciais continua exclusiva da fase 3.
 3. [ ] Cutover MCP: migrar registros e referências, comprovar reinício/refresh/native/bridge,
    remover persistência dupla, configurações OAuth duplicadas e ciclo próprio de renovação.
@@ -550,18 +552,36 @@ poderia apagar alterações concorrentes; a issue exige transação e testes de 
   `TestBestEffortRefreshUsesNetworkConsentAndCredentialIdentity`,
   `TestBestEffortRefreshConsentRetainsCallerCancellation` e
   `TestRecoveryStopsAfterRefreshNetworkRefusal`.
-- Pendente em D5/fase 2: a política do transporte do recurso MCP (Bearer,
-  TLS e redirects) em Client Credentials e PKCE permanece no comportamento
-  legado, anterior a esta extração. O guard dos endpoints OAuth não deve
-  ser confundido com proteção integral do recurso. A [issue #874](https://github.com/inclunet/assistente/issues/874)
-  exige tratar as duas modalidades, origem autorizada, downgrade e SSE/streaming
-  sem reutilizar o timeout de corpo do cliente de tokens.
+- A pendência do transporte local do recurso MCP da [issue #874](https://github.com/inclunet/assistente/issues/874)
+  foi implementada na entrega seguinte: PKCE e Client Credentials usam
+  `oauthflow.NewResourceHTTPClient`/`NewResourceTransport`. Antes de resolver
+  credenciais, o destino deve ter a mesma origem (scheme, host e porta efetiva)
+  configurada, com HTTPS ou HTTP loopback (IP real no DNS e no socket;
+  `TestHTTPExceptionRequiresActualLoopback`). Redirects podem alterar o path, mas
+  não a origem; isso também vale para endpoints enviados por eventos SSE.
+  Consentimento de rede não amplia a audience do Bearer. Outra origem exige
+  configuração explícita da URL final e autorização compatível com o recurso.
+- A política do socket e o motor de consentimento são reutilizados. Streams do
+  recurso têm prazo para DNS (cinco segundos por consulta), conexão/cabeçalhos,
+  sem timeout OAuth no corpo; mantêm
+  cancelamento do chamador. A política de credenciais estáticas e o transporte
+  remoto do MCP nativo não são alterados por esta entrega.
+  Evidências: `TestResourceOriginCheckedBeforeAuthentication`,
+  `TestResourceCorporateConsentAndStreaming`, `TestResourceSocketCannotBypassApproval`,
+  `TestResourcePreflightDNSHasIndependentDeadline`,
+  `TestOAuthResourceRedirectsAndAudience`,
+  `TestOAuthResourceRejectsConfiguredRemoteHTTPBeforeToken` e
+  `TestOAuthResourcePreservesMCPStreaming` (PKCE/Client Credentials, SSE/Streamable).
 - Não houve conversão de dados nem mudança da URI de callback por esta extração.
   Destinos internos adicionais podem solicitar autorização de rede. O owner de
   tokens MCP continua exclusivamente no MCP legado
   até a entrega dos grants e do cutover. Fases 2, 3 e 4 seguem abertas.
 
-Revisão local desta entrega incremental: `review_credential_sources`, dezesseis rodadas;
+Revisão local da extração inicial (PR #873): `review_credential_sources`, dezesseis rodadas;
 achados de rede, identidade, cancelamento e apresentação corrigidos, última rodada
 sem pendências. A validação funcional ChatGPT da fase 1 continua a cargo do
 usuário e não foi marcada como concluída por esta entrega.
+
+Revisão local da proteção do recurso MCP: `review_credential_sources`, duas rodadas;
+exceção HTTP/localhost corrigida para exigir IP real loopback e preflight DNS
+limitado independentemente do stream, zero pendências.
