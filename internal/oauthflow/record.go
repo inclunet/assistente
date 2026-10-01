@@ -8,12 +8,13 @@ import (
 )
 
 var (
-	ErrNotFound    = errors.New("oauth_authorization_not_found")
-	ErrReauthorize = errors.New("oauth_reauthorization_required")
-	ErrConflict    = errors.New("oauth_authorization_changed")
-	ErrPermission  = errors.New("oauth_permission_missing")
-	ErrResource    = errors.New("oauth_resource_not_authorized")
-	ErrTransient   = errors.New("oauth_temporarily_unavailable")
+	ErrClientConfiguration = errors.New("oauth_client_configuration_required")
+	ErrNotFound            = errors.New("oauth_authorization_not_found")
+	ErrReauthorize         = errors.New("oauth_reauthorization_required")
+	ErrConflict            = errors.New("oauth_authorization_changed")
+	ErrPermission          = errors.New("oauth_permission_missing")
+	ErrResource            = errors.New("oauth_resource_not_authorized")
+	ErrTransient           = errors.New("oauth_temporarily_unavailable")
 )
 
 // Record is secret material: only the vault may serialize it for persistence.

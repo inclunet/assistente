@@ -352,3 +352,46 @@ func TestConfiguredRefusedCandidateKeepsOriginalRefreshBinding(t *testing.T) {
 		t.Fatal("candidate was not promoted atomically")
 	}
 }
+
+func TestConfiguredClientGrantReportsConfigurationErrors(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+	}))
+	defer srv.Close()
+	for _, missing := range []string{"id", "secret", "endpoint", "rejected", "removed"} {
+		t.Run(missing, func(t *testing.T) {
+			r := configuredRecord(srv.URL)
+			r.GrantType, r.State = "client_credentials", "pending"
+			r.Client.Secret = "secret"
+			switch missing {
+			case "id":
+				r.Client.ID = ""
+			case "secret":
+				r.Client.Secret = ""
+			case "endpoint":
+				r.Endpoints.Token = ""
+			}
+			store := &memoryStore{r: r}
+			service, err := NewConfigured(r, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if missing == "removed" {
+				if err := service.InvalidateAndClearClientSecret(context.Background(), store, r.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := calls.Load()
+			_, err = service.Resolve(WithNetworkOperation(context.Background()), store, r.ID, r.Resource, "")
+			if !errors.Is(err, ErrClientConfiguration) || errors.Is(err, ErrReauthorize) {
+				t.Fatalf("wrong guidance: %v", err)
+			}
+			if missing != "rejected" && calls.Load() != before {
+				t.Fatal("incomplete configuration sent request")
+			}
+		})
+	}
+}

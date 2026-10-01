@@ -168,13 +168,13 @@ func (s *Service) resolveClientGrant(ctx context.Context, store Store, i Integra
 		return Record{}, ErrPermission
 	}
 	if r.State == "disconnected" {
-		return Record{}, ErrReauthorize
+		return Record{}, ErrClientConfiguration
 	}
 	if r.RefreshActive() {
 		return Record{}, ErrTransient
 	}
 	if r.Client.ID == "" || r.Client.Secret == "" || r.Endpoints.Token == "" {
-		return Record{}, ErrReauthorize
+		return Record{}, ErrClientConfiguration
 	}
 	if !r.RefreshPending && r.State == "connected" && r.Tokens.Access != "" && r.Tokens.Access != rejected && (r.Tokens.ExpiresAt.IsZero() || time.Now().Before(r.Tokens.ExpiresAt.Add(-time.Minute))) {
 		return r, nil

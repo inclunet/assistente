@@ -260,6 +260,10 @@ func (s *Service) exchange(ctx context.Context, r Record, form url.Values) (toke
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&failure)
 		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
 			switch failure.Error {
+			case "invalid_client":
+				if form.Get("grant_type") == "client_credentials" {
+					return tokenResponse{}, ErrClientConfiguration
+				}
 			case "invalid_scope":
 				if form.Get("grant_type") == "client_credentials" {
 					return tokenResponse{}, ErrPermission

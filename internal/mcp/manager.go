@@ -2795,7 +2795,7 @@ func (m *Manager) resolveNativeAuthToken(ctx context.Context, c nativeMCPCandida
 	if c.managedConfig.OAuthAuthorizationID != "" {
 		r, err := m.resolveManagedOAuth(ctx, c.managedConfig, "")
 		if err != nil {
-			if errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrPermission) {
+			if errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrPermission) || errors.Is(err, oauthflow.ErrClientConfiguration) {
 				if c.managedConfig.AuthType == AuthOAuth2ClientCredentials {
 					m.clearNeedsReauth(c.slug)
 					reason := "oauth_client_configuration_required"
