@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"assistente/internal/logging"
+	"assistente/internal/oauthflow"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -109,25 +110,27 @@ type connectionAttempt struct {
 // Manager gerencia servidores MCP: configuração, conexão, discovery de tools.
 // Thread-safe para uso concorrente.
 type Manager struct {
-	mu             sync.RWMutex
-	resolver       *configdir.Resolver
-	repo           Repository
-	catalog        ToolCatalog
-	credMgr        *credentials.Manager
-	registry       *tools.Registry
-	emitEvent      emitFunc
-	llmHandler     func(context.Context, SamplingRequest) (string, error) // handler para sampling requests
-	servers        map[string]*ServerStatus                               // slug -> status
-	connections    map[string]*serverConnection                           // slug -> connection ativa
-	connectCancels map[string]*connectionAttempt                          // slug -> tentativa de Connect em andamento
-	ctx            context.Context
-	cancel         context.CancelFunc
-	bgWG           sync.WaitGroup // join de loops (health/token refresh) e reconexões no CloseAll
-	bgMu           sync.Mutex     // protege bgClosed e serializa Add(1) contra Wait (evita WaitGroup misuse)
-	bgClosed       bool           // true após CloseAll iniciar o join; bloqueia novas goroutines rastreadas
-	authContext    func() context.Context
-	roots          []Root // workspace roots globais
-	connectTimeout time.Duration
+	mu                sync.RWMutex
+	resolver          *configdir.Resolver
+	repo              Repository
+	catalog           ToolCatalog
+	credMgr           *credentials.Manager
+	registry          *tools.Registry
+	emitEvent         emitFunc
+	llmHandler        func(context.Context, SamplingRequest) (string, error) // handler para sampling requests
+	servers           map[string]*ServerStatus                               // slug -> status
+	connections       map[string]*serverConnection                           // slug -> connection ativa
+	connectCancels    map[string]*connectionAttempt                          // slug -> tentativa de Connect em andamento
+	ctx               context.Context
+	cancel            context.CancelFunc
+	bgWG              sync.WaitGroup // join de loops (health/token refresh) e reconexões no CloseAll
+	bgMu              sync.Mutex     // protege bgClosed e serializa Add(1) contra Wait (evita WaitGroup misuse)
+	bgClosed          bool           // true após CloseAll iniciar o join; bloqueia novas goroutines rastreadas
+	authContext       func() context.Context
+	networkMu         sync.RWMutex
+	networkAuthorizer oauthflow.NetworkAuthorizer
+	roots             []Root // workspace roots globais
+	connectTimeout    time.Duration
 
 	// transportFactory existe para testes de lifecycle sem processos ou rede
 	// externa. Em produção, createTransport usa os transports oficiais.
@@ -544,6 +547,15 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 		parentCtx = context.Background()
 	}
 
+	identityCtx := parentCtx
+	if _, err := database.RequireUserID(identityCtx); err != nil {
+		identityCtx = m.credentialContext()
+	}
+	sessionBase := m.ctx
+	if userID, err := database.RequireUserID(identityCtx); err == nil {
+		sessionBase = database.WithUserID(sessionBase, userID)
+	}
+
 	m.mu.Lock()
 	status, ok := m.servers[slug]
 	if !ok {
@@ -583,7 +595,9 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	// ele é persistente e só termina em Disconnect/CloseAll (ou falha da
 	// sessão), nunca no retorno desta função. O timeout do handshake é imposto
 	// separadamente em connectClientSession.
-	sessionCtx, sessionCancel := context.WithCancel(m.ctx)
+	sessionCtx, sessionCancel := context.WithCancel(sessionBase)
+	sessionCtx = withOAuthInteraction(sessionCtx)
+	sessionCtx = oauthflow.WithNetworkAuthorizer(sessionCtx, m.authorizeOAuthNetwork)
 	attempt := &connectionAttempt{cancel: sessionCancel, done: make(chan struct{})}
 	m.connectCancels[slug] = attempt
 	status.Status = StatusConnecting
@@ -620,12 +634,17 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	// Probe SSE: para Streamable HTTP, verifica se o servidor suporta SSE
 	// antes de conectar, evitando esperar timeouts longos em 5 retries do SDK.
 	if cfg.Transport == TransportStreamable && !cfg.DisableSSE && cfg.URL != "" {
-		httpClient := m.buildAuthHTTPClient(slug, cfg)
+		httpClient := m.buildAuthHTTPClient(sessionCtx, slug, cfg)
 		probeCtx, probeCancel := context.WithCancel(sessionCtx)
 		stopParentCancel := context.AfterFunc(parentCtx, probeCancel)
 		sseSupported, reason := probeSSESupport(probeCtx, cfg.URL, httpClient)
 		stopParentCancel()
 		probeCancel()
+		if denied := oauthflow.NetworkAuthorizationError(sessionCtx); denied != nil {
+			sessionCancel()
+			m.setError(slug, denied.Error())
+			return denied
+		}
 		if !sseSupported {
 			if err := parentCtx.Err(); err != nil {
 				sessionCancel()
@@ -916,7 +935,7 @@ func (m *Manager) connectClientSessionWithTimeout(
 	client *mcpsdk.Client,
 	transport mcpsdk.Transport,
 ) (*mcpsdk.ClientSession, error) {
-	handshakeCtx, handshakeCancel := context.WithTimeout(parentCtx, m.connectTimeout)
+	handshakeCtx, handshakeCancel := oauthHandshakeContext(parentCtx, sessionCtx, m.connectTimeout)
 	defer handshakeCancel()
 	return connectClientSession(handshakeCtx, sessionCtx, sessionCancel, client, transport)
 }
@@ -1233,13 +1252,14 @@ func (m *Manager) reconnectWithContext(ctx context.Context, slug string) error {
 // buildPKCERoundTripperForServer monta o pkceRoundTripper de um servidor
 // reutilizando a infra de OAuth PKCE (discovery, DCR, device/PKCE flow) com o
 // callback de persistência de config e o ctx user-scoped do Manager.
-func (m *Manager) buildPKCERoundTripperForServer(slug string, cfg ServerConfig) *pkceRoundTripper {
+func (m *Manager) buildPKCERoundTripperForServer(ctx context.Context, slug string, cfg ServerConfig) *pkceRoundTripper {
 	onConfigUpdate := func(updated ServerConfig) {
 		if err := m.SaveConfig(slug, updated); err != nil {
 			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Erro ao persistir config após atualização OAuth: %v", slug, err)
 		}
 	}
-	return buildPKCERoundTripper(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate, m.credentialContext)
+	rt := buildPKCERoundTripper(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate, m.credentialContext, m.authorizeOAuthNetwork, ctx)
+	return rt
 }
 
 // ReauthorizeServer força o fluxo OAuth interativo (abre o browser) de um
@@ -1271,7 +1291,7 @@ func (m *Manager) ReauthorizeServer(ctx context.Context, slug string) error {
 	}
 
 	logging.Infof(ctx, "mcp.manager", "[MCP:%s] Reautorização interativa solicitada", slug)
-	rt := m.buildPKCERoundTripperForServer(slug, cfg)
+	rt := m.buildPKCERoundTripperForServer(ctx, slug, cfg)
 	if err := rt.authorize(ctx); err != nil {
 		return fmt.Errorf("reautorização OAuth do servidor '%s' falhou: %w", slug, err)
 	}
@@ -1566,7 +1586,7 @@ func (m *Manager) createTransport(ctx context.Context, slug string, cfg ServerCo
 			return nil, fmt.Errorf("campo 'url' é obrigatório para transport sse")
 		}
 
-		httpClient := m.buildAuthHTTPClient(slug, cfg)
+		httpClient := m.buildAuthHTTPClient(ctx, slug, cfg)
 
 		return &mcpsdk.SSEClientTransport{
 			Endpoint:   cfg.URL,
@@ -1578,7 +1598,7 @@ func (m *Manager) createTransport(ctx context.Context, slug string, cfg ServerCo
 			return nil, fmt.Errorf("campo 'url' é obrigatório para transport streamable")
 		}
 
-		httpClient := m.buildAuthHTTPClient(slug, cfg)
+		httpClient := m.buildAuthHTTPClient(ctx, slug, cfg)
 
 		transport := &mcpsdk.StreamableClientTransport{
 			Endpoint:             cfg.URL,
@@ -1600,17 +1620,17 @@ func (m *Manager) createTransport(ctx context.Context, slug string, cfg ServerCo
 // buildAuthHTTPClient cria um *http.Client com autenticação configurada
 // com base no authType do servidor e credenciais do gerenciador.
 // Retorna nil se nenhuma autenticação estiver configurada (o SDK usará http.DefaultClient).
-func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Client {
+func (m *Manager) buildAuthHTTPClient(ctx context.Context, slug string, cfg ServerConfig) *http.Client {
 	switch cfg.AuthType {
 	case AuthOAuth2PKCE:
-		rt := m.buildPKCERoundTripperForServer(slug, cfg)
+		rt := m.buildPKCERoundTripperForServer(ctx, slug, cfg)
 		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com OAuth2 PKCE", slug)
 		return &http.Client{Transport: rt}
 
 	case AuthOAuth2ClientCredentials:
 		_, clientSecret := loadClientCreds(m.credentialContext(), m.credMgr, slug)
 		if clientSecret != "" {
-			client := buildClientCredentialsHTTPClient(cfg, clientSecret)
+			client := buildClientCredentialsHTTPClient(ctx, cfg, clientSecret, m.authorizeOAuthNetwork)
 			logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com OAuth2 Client Credentials", slug)
 			return client
 		}
@@ -1702,7 +1722,7 @@ func newMCPTransport() http.RoundTripper {
 // endpoint to check if the server supports SSE. Returns (true, "") if supported,
 // or (false, reason) if not. Uses a short timeout so this doesn't slow down connect.
 func probeSSESupport(parentCtx context.Context, mcpURL string, authClient *http.Client) (bool, string) {
-	ctx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
+	ctx, cancel := oauthHandshakeContext(parentCtx, parentCtx, 10*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mcpURL, nil)
@@ -1923,15 +1943,18 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 		Expiry:       time.Now().Add(-1 * time.Hour),
 	}
 
-	// O refresh deriva de authCtx (o contexto user-scoped usado para LER as
-	// credenciais acima), não do ctx do caller. A persistência do token renovado
-	// é user-scoped: se ela usasse um ctx sem usuário (ex.: m.ctx do loop
-	// proativo), o refresh LIA as credenciais do usuário mas falhava ao GRAVAR
-	// com "authenticated user required" — gravando fora de escopo e emitindo o
-	// falso ERROR observado no assistente.log. Ler e gravar pelo mesmo contexto
-	// mantém a operação inteira consistente com o escopo do usuário.
-	refreshCtx, cancel := context.WithTimeout(authCtx, 15*time.Second)
+	// Preserve the credential owner's identity while retaining caller cancellation.
+	// The HTTP budget belongs to each attempt, not to a human network decision.
+	refreshCtx, cancel := context.WithCancel(authCtx)
 	defer cancel()
+	stopCaller := context.AfterFunc(ctx, cancel)
+	defer stopCaller()
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	refreshCtx = oauthflow.WithNetworkOperation(oauthflow.WithNetworkAuthorizer(refreshCtx, m.authorizeOAuthNetwork))
+	refreshCtx = context.WithValue(refreshCtx, oauth2.HTTPClient,
+		oauthflow.NewNetworkHTTPClient(cfg.URL, m.authorizeOAuthNetwork, 15*time.Second))
 
 	newToken, err := oauthCfg.TokenSource(refreshCtx, expiredToken).Token()
 	if err != nil {
@@ -1984,6 +2007,10 @@ func (m *Manager) RecoverServerBestEffort(ctx context.Context, slug string) Reco
 	result.Attempted = true
 
 	refreshed, refreshErr := m.refreshOAuthTokenBestEffort(ctx, slug, true)
+	if terminalOAuthNetworkError(ctx, refreshErr) {
+		result.Err = refreshErr
+		return result
+	}
 	if refreshed {
 		result.Refreshed = true
 	}

@@ -1,4 +1,4 @@
-package mcp
+package oauthflow
 
 import (
 	"context"
@@ -112,7 +112,7 @@ func TestDiscoverOAuthWithoutPRMFindsOIDCAtResourceAncestor(t *testing.T) {
 		t.Fatal("OIDC sem registration_endpoint exige conclusão manual")
 	}
 
-	runtimeDiscovery, err := discoverOAuthEndpoints(context.Background(), server.URL+"/api/2.0/mcp/sql")
+	runtimeDiscovery, err := DiscoverEndpoints(context.Background(), server.URL+"/api/2.0/mcp/sql")
 	if err != nil {
 		t.Fatalf("discovery usado pelo fluxo OAuth também deve funcionar sem PRM: %v", err)
 	}
@@ -203,9 +203,9 @@ func TestDiscoverOAuthCancellationStopsInFlightRequest(t *testing.T) {
 	defer server.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	resultCh := make(chan OAuthDiscoveryResult, 1)
+	resultCh := make(chan DiscoveryResult, 1)
 	go func() {
-		resultCh <- discoverOAuthContext(ctx, server.URL+"/deep/mcp")
+		resultCh <- DiscoverOAuthContext(ctx, server.URL+"/deep/mcp")
 	}()
 
 	select {
@@ -243,7 +243,7 @@ func TestDiscoverOAuthEndpointsPropagatesCallerCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := discoverOAuthEndpoints(ctx, server.URL+"/mcp")
+		_, err := DiscoverEndpoints(ctx, server.URL+"/mcp")
 		errCh <- err
 	}()
 	select {
@@ -306,11 +306,11 @@ func TestDiscoverOAuthInfersClientCredentialsWithoutGrantList(t *testing.T) {
 	serverURL = server.URL
 
 	result := DiscoverOAuth(server.URL + "/mcp")
-	if !result.Found || result.AuthType != AuthOAuth2ClientCredentials ||
+	if !result.Found || result.GrantType != "client_credentials" ||
 		result.AuthURL != "" || result.TokenURL != server.URL+"/token" {
 		t.Fatalf("metadata token-only não inferiu client credentials: %+v", result)
 	}
-	runtimeResult, err := discoverOAuthEndpoints(context.Background(), server.URL+"/mcp")
+	runtimeResult, err := DiscoverEndpoints(context.Background(), server.URL+"/mcp")
 	if err != nil || runtimeResult.TokenEndpoint != server.URL+"/token" {
 		t.Fatalf("runtime rejeitou metadata token-only: result=%+v err=%v", runtimeResult, err)
 	}
@@ -367,7 +367,7 @@ func TestDiscoverOAuthUsesCanonicalPRMResourceAsAuthorizationBase(t *testing.T) 
 		switch r.URL.Path {
 		case "/.well-known/oauth-protected-resource/input":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"resource":              serverURL + "/canonical/deep/mcp/../resource?tenant=secret#fragment",
+				"resource":              serverURL + "/canonical/deep/mcp/../resource?tenant=secret",
 				"authorization_servers": []string{"not-a-url", "https://user:secret@example.test/issuer"},
 			})
 		case "/canonical/deep/.well-known/openid-configuration":
@@ -387,7 +387,7 @@ func TestDiscoverOAuthUsesCanonicalPRMResourceAsAuthorizationBase(t *testing.T) 
 	if !result.Found || result.TokenURL != server.URL+"/token" {
 		t.Fatalf("base canônica do PRM não usada: %+v", result)
 	}
-	runtimeResult, err := discoverOAuthEndpoints(context.Background(), server.URL+"/input?ignored=1#fragment")
+	runtimeResult, err := DiscoverEndpoints(context.Background(), server.URL+"/input?ignored=1#fragment")
 	if err != nil {
 		t.Fatalf("runtime discovery falhou: %v", err)
 	}
@@ -598,5 +598,98 @@ func TestDiscoveryFollowsSafeRedirect(t *testing.T) {
 			hint.Location == server.URL+"/metadata"
 	}) {
 		t.Fatalf("redirect seguro não registrado nos hints: %+v", result.ResponseHints)
+	}
+}
+
+func TestBuildPRMCandidates(t *testing.T) {
+	tests := []struct {
+		name      string
+		mcpURL    string
+		wantCount int
+		wantFirst string
+		wantLast  string
+	}{
+		{
+			name:      "URL with path tries RFC 9728 and compatibility locations for each ancestor",
+			mcpURL:    "https://example.com/mcp/default",
+			wantCount: 5,
+			wantFirst: "https://example.com/.well-known/oauth-protected-resource/mcp/default",
+			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
+		},
+		{
+			name:      "URL at root only tries origin",
+			mcpURL:    "https://example.com",
+			wantCount: 1,
+			wantFirst: "https://example.com/.well-known/oauth-protected-resource",
+			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
+		},
+		{
+			name:      "URL with single path segment",
+			mcpURL:    "https://example.com/mcp",
+			wantCount: 3,
+			wantFirst: "https://example.com/.well-known/oauth-protected-resource/mcp",
+			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			candidates := buildPRMCandidates(tc.mcpURL)
+			if len(candidates) != tc.wantCount {
+				t.Fatalf("got %d candidates, want %d: %v", len(candidates), tc.wantCount, candidates)
+			}
+			if candidates[0] != tc.wantFirst {
+				t.Errorf("first candidate: got %q, want %q", candidates[0], tc.wantFirst)
+			}
+			if candidates[len(candidates)-1] != tc.wantLast {
+				t.Errorf("last candidate: got %q, want %q", candidates[len(candidates)-1], tc.wantLast)
+			}
+		})
+	}
+}
+
+func TestBuildASMCandidates(t *testing.T) {
+	tests := []struct {
+		name      string
+		base      string
+		wantCount int
+		wantURLs  []string
+	}{
+		{
+			name:      "auth server at origin has 2 candidates",
+			base:      "https://example.com",
+			wantCount: 2,
+			wantURLs: []string{
+				"https://example.com/.well-known/oauth-authorization-server",
+				"https://example.com/.well-known/openid-configuration",
+			},
+		},
+		{
+			name:      "auth server with path generates 6 candidates",
+			base:      "https://example.com/oauth",
+			wantCount: 6,
+			wantURLs: []string{
+				"https://example.com/.well-known/oauth-authorization-server/oauth",
+				"https://example.com/oauth/.well-known/openid-configuration",
+				"https://example.com/oauth/.well-known/oauth-authorization-server",
+				"https://example.com/.well-known/openid-configuration/oauth",
+				"https://example.com/.well-known/oauth-authorization-server",
+				"https://example.com/.well-known/openid-configuration",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			candidates := buildASMCandidates(tc.base)
+			if len(candidates) != tc.wantCount {
+				t.Fatalf("got %d candidates, want %d: %v", len(candidates), tc.wantCount, candidates)
+			}
+			for i, want := range tc.wantURLs {
+				if candidates[i] != want {
+					t.Errorf("candidate[%d]: got %q, want %q", i, candidates[i], want)
+				}
+			}
+		})
 	}
 }

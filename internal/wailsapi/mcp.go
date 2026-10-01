@@ -270,7 +270,7 @@ func (m *MCP) DiscoverMCPServerAuth(serverURL string) (mcpmgr.OAuthDiscoveryResu
 		return mcpmgr.OAuthDiscoveryResult{}, err
 	}
 	return WithUser(session, func(ctx context.Context) (mcpmgr.OAuthDiscoveryResult, error) {
-		return ctrl.DiscoverMCPServerAuth(serverURL), nil
+		return ctrl.DiscoverMCPServerAuth(ctx, serverURL), nil
 	})
 }
 

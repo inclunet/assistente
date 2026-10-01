@@ -462,3 +462,49 @@ servers.forEach(srv => {
 - **Auth**: Tokens via env vars, nunca hardcoded no JSON
 - **Docker**: Servidores containerizados via stdio
 - **Auto-reconnect**: Health checks + exponential backoff automático
+
+## Diagnóstico do registro OAuth dinâmico
+
+Quando o servidor oferece registro dinâmico (DCR), o Assistente usa o endpoint
+informado e conserva a URL de callback configurada, incluindo host, porta e path.
+O pedido de registro tem limite de dez segundos e acompanha o cancelamento da
+operação. Redirecionamentos HTTP nesse pedido não são seguidos: configure o
+endpoint final de registro, sem um redirecionamento intermediário.
+
+Se aparecer a mensagem de falha ao registrar o cliente OAuth, confira esse endpoint
+e a URL de callback. O diagnóstico omite o corpo remoto para proteger segredos.
+As conexões já cadastradas continuam usando suas credenciais; esta etapa não exige
+novo login nem converte os registros existentes no cofre.
+
+### Serviços corporativos e destinos internos
+
+Se a descoberta OAuth apontar para um domínio ou IP interno, o Assistente consulta
+as autorizações de rede existentes. Quando necessário, mostra o mesmo diálogo de
+rede usado nas demais operações, com destino, porta e IPs, para você aprovar ou
+negar. Isso também vale para redirects da descoberta. Confira o destino antes de
+aprovar; uma negativa ou cancelamento encerra a tentativa.
+
+Autorizações persistentes continuam gerenciadas na allowlist de rede. O tempo para
+responder ao diálogo não consome os dez segundos do pedido de registro.
+Endpoints OAuth e a descoberta no destino inicial exigem HTTPS, com exceção
+de localhost/loopback; autorizar a rede
+não desativa essa verificação nem a validação de identidade do servidor.
+
+Uma renovação posterior do token pode solicitar autorização de rede novamente.
+Para permitir também operações futuras, use a autorização persistente da allowlist.
+
+A opção de permitir somente esta vez vale durante a operação OAuth, inclusive
+nas consultas repetidas do Device Flow ao mesmo destino/IP. A espera pelo login
+ou pela decisão de rede não consome o timeout do handshake MCP; Desconectar
+continua cancelando a operação. Isso também vale para a verificação inicial
+da conexão SSE. Se você negar o destino durante uma renovação, a recuperação
+encerra a tentativa sem reconectar e perguntar novamente. Uma nova origem, porta
+ou IP exige nova avaliação.
+
+### URL do recurso MCP com OAuth
+
+Configure HTTPS também na URL do próprio servidor MCP remoto e use o destino
+final, sem redirects entre origens. A proteção descrita acima cobre descoberta
+e endpoints OAuth; o transporte legado do recurso em PKCE e Client Credentials
+ainda não impõe toda essa política. A [issue #874](https://github.com/inclunet/assistente/issues/874)
+acompanha a validação do recurso e de redirects, preservando SSE e streaming.

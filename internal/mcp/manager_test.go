@@ -426,6 +426,7 @@ func TestCheckAndRefreshToken_RefreshesExpiringToken(t *testing.T) {
 		Config: ServerConfig{
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},
@@ -482,6 +483,7 @@ func TestCheckAndRefreshToken_PersistsSobContextoDoUsuario(t *testing.T) {
 		Config: ServerConfig{
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},
@@ -522,6 +524,7 @@ func TestCheckAndRefreshToken_HandlesRefreshFailure(t *testing.T) {
 		Config: ServerConfig{
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},
@@ -563,6 +566,7 @@ func TestCheckAndRefreshToken_UsesStoredClientCreds(t *testing.T) {
 		Config: ServerConfig{
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},
@@ -610,6 +614,7 @@ func TestRecoverServerBestEffort_RefreshesOAuthToken(t *testing.T) {
 			Enabled:        true,
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},
@@ -660,6 +665,7 @@ func TestRecoverServerBestEffort_RefreshesOAuthTokenWithoutExpiryWhenForced(t *t
 			Enabled:        true,
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},
@@ -720,6 +726,7 @@ func TestRecoverServerBestEffort_JoinsRefreshAndReconnectErrors(t *testing.T) {
 			Enabled:        true,
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
 			OAuth2AuthURL:  "http://unused/auth",
 		},
@@ -1153,7 +1160,7 @@ func TestBuildAuthHTTPClient_LogoutMidFlightDegrades(t *testing.T) {
 		t.Fatalf("RegisterPatternWithContext failed: %v", err)
 	}
 
-	clientLoggedIn := m.buildAuthHTTPClient("github", ServerConfig{
+	clientLoggedIn := m.buildAuthHTTPClient(context.Background(), "github", ServerConfig{
 		URL:      srv.URL,
 		AuthType: AuthBearer,
 	})
@@ -1163,7 +1170,7 @@ func TestBuildAuthHTTPClient_LogoutMidFlightDegrades(t *testing.T) {
 
 	loggedInOut = context.Background()
 
-	clientLoggedOut := m.buildAuthHTTPClient("github", ServerConfig{
+	clientLoggedOut := m.buildAuthHTTPClient(context.Background(), "github", ServerConfig{
 		URL:      srv.URL,
 		AuthType: AuthBearer,
 	})
@@ -1190,7 +1197,7 @@ func TestBuildAuthHTTPClientResolvesUserScopedBearer(t *testing.T) {
 		t.Fatalf("RegisterPatternWithContext failed: %v", err)
 	}
 
-	client := m.buildAuthHTTPClient("github", ServerConfig{
+	client := m.buildAuthHTTPClient(context.Background(), "github", ServerConfig{
 		URL:      srv.URL,
 		AuthType: AuthBearer,
 	})

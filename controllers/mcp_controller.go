@@ -173,8 +173,11 @@ func (c *MCPController) GetMCPServerAuthInfo(slug string) (apidto.MCPServerAuthI
 	}, nil
 }
 
-func (c *MCPController) DiscoverMCPServerAuth(serverURL string) mcpmgr.OAuthDiscoveryResult {
-	return mcpmgr.DiscoverOAuth(serverURL)
+func (c *MCPController) DiscoverMCPServerAuth(ctx context.Context, serverURL string) mcpmgr.OAuthDiscoveryResult {
+	if c.mcpMgr == nil {
+		return mcpmgr.DiscoverOAuthContext(ctx, serverURL)
+	}
+	return c.mcpMgr.DiscoverOAuth(ctx, serverURL)
 }
 
 func (c *MCPController) GetMCPServerLogs(slug string, limit int) ([]mcpmgr.MCPServerLog, error) {

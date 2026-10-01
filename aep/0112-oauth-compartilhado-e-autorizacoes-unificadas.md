@@ -169,6 +169,18 @@ impedir envio de tokens/client secret para origem não autorizada. Recursos MCP
 locais explicitamente configurados devem seguir as regras de rede existentes,
 sem permitir que discovery abra acesso arbitrário à rede local.
 
+Destinos internos descobertos (inclusive redirects corporativos) reutilizam o
+`nettrust.Authorizer`, sua allowlist e o `DecisionDialog` do AEP-0091. Esta é uma
+exceção OAuth à recusa sem prompt dos redirects de ferramentas HTTP do AEP-0082;
+a política das ferramentas permanece inalterada. A decisão identifica o destino
+real, IPs e porta; aprovação não autoriza outro destino, downgrade TLS ou issuer
+incompatível. O socket revalida os IPs e não usa proxy do ambiente.
+A espera humana preserva contexto/cancelamento do chamador e fica fora dos
+orçamentos de rede. Negativa/cancelamento encerra a operação; no máximo oito
+retomadas são permitidas. `once` vale apenas para a operação OAuth em andamento.
+DCR só é retomado quando o guard impediu o envio: timeout, resposta HTTP e falha
+após envio nunca provocam repetição automática do POST.
+
 A implementação extrai e reutiliza componentes testados do OAuth MCP quando
 adequados, preservando PKCE, DCR, Device Flow e client credentials nas fases
 correspondentes. O núcleo pode atender novos fornecedores; disponibilização futura
@@ -267,6 +279,10 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    conforme o critério ChatGPT funcional abaixo.
 2. [ ] Paridade MCP: extrair/adaptar discovery, DCR, Device Flow, client credentials,
    callback manual/fixo e reautorização; adicionar consumidores do serviço compartilhado.
+   **Em andamento:** discovery e registro RFC 7591 foram extraídos para
+   `internal/oauthflow`, consumidos pela tela e pelo runtime MCP. Device Flow,
+   client credentials, callback e reautorização ainda usam o ciclo MCP legado.
+   A migração de credenciais continua exclusiva da fase 3.
 3. [ ] Cutover MCP: migrar registros e referências, comprovar reinício/refresh/native/bridge,
    remover persistência dupla, configurações OAuth duplicadas e ciclo próprio de renovação.
 4. [ ] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
@@ -489,3 +505,63 @@ Esse fluxo não usa o registro composto OAuth. A entrega impede substituir um
 envelope OAuth por API key estática (`TestGenericAPIKeyCannotOverwriteOAuthEnvelope`),
 mas não declara atomicidade para o cadastro genérico legado. Um rollback sem CAS
 poderia apagar alterações concorrentes; a issue exige transação e testes de falha.
+
+### Primeira entrega de paridade MCP (fase 2)
+
+- `oauthflow.DiscoverOAuthContext` e `DiscoverEndpoints` concentram discovery
+  RFC 9728/8414 e OIDC; `mcp.DiscoverOAuth` preserva o DTO da tela. O runtime MCP
+  usa o mesmo componente para descobrir endpoints, scopes e Device Authorization.
+- Candidatos, ordem, saneamento, limites e cancelamento do AEP-0033 foram
+  preservados. Os testes completos foram movidos para `oauthflow/discovery_test.go`;
+  testes de consumo continuam em `mcp/oauth_test.go`.
+- `RegisterDynamicClient` recebe metadados RFC 7591 sem depender de `ServerConfig`.
+  MCP continua selecionando grants e a URI exata; o HTTP comum respeita contexto,
+  timeout de dez segundos, limite de 256 KiB e rejeita redirects. Erros não
+  incluem corpo remoto, client secret nem URL com query.
+- `registration_test.go` cobre metadados, cancelamento, redirects, respostas
+  excessivas/inválidas e confidencialidade. A tela traduz falhas de registro nos
+  três idiomas, com teste em `mcpOAuthErrors.test.ts`.
+- `network_test.go` cobre destino privado, troca de porta, IP efetivo, issuer,
+  aprovação/negativa, cancelamento e DCR com exatamente um POST transmitido.
+  `app_oauth_network_test.go` prova reuso do authorizer com identidade do usuário
+  e saneamento do pedido. Discovery exige issuer correspondente ao candidato,
+  endpoints HTTPS (HTTP somente loopback), inclusive discovery da origem inicial,
+  e recurso na origem configurada (`TestDiscoveryInitialOriginCannotBypassTLS` e
+  `TestPublicDiscoveryRejectsRemoteHTTPBeforeDNS`, incluindo prelookup);
+  aliases de path legados continuam aceitos.
+- Os consumidores MCP usam o transporte autorizado nos probes e nas chamadas
+  de token, device e refresh. O ciclo de vida dos grants continua no MCP legado;
+  sua extração e a migração de dados não foram antecipadas.
+- Aprovação temporária preserva os pares origem/IP durante a operação, inclusive
+  entre clientes HTTP e polls de Device Flow. O orçamento do handshake pausa
+  durante OAuth/consentimento, mantendo cancelamento pelo chamador e Disconnect.
+  Evidências: `TestOAuthPollingReusesConsentAcrossHTTPClients`,
+  `TestConnectDevicePollingOutlivesHandshakeAndReusesApproval` e
+  `TestConnectConsentOutlivesHandshakeBudget`; o Device Flow cobre probe SSE
+  habilitado e desabilitado, ambos com orçamento pausável.
+- Cada renovação efetiva de token abre uma nova operação de consentimento; retries
+  internos compartilham a aprovação somente nessa operação. O cache continua
+  reutilizando tokens válidos, serializando refreshes concorrentes e preservando
+  rotação do refresh token. Evidência para PKCE e Client Credentials:
+  `TestStoredAndClientCredentialsRefreshApprovalIsPerOperation`.
+- Refresh best-effort/proativo usa o mesmo cliente autorizado, preservando
+  identidade e cancelamento do chamador. Recuperação termina após recusa,
+  sem tentar reconexão nem abrir outro consentimento. Evidências:
+  `TestBestEffortRefreshUsesNetworkConsentAndCredentialIdentity`,
+  `TestBestEffortRefreshConsentRetainsCallerCancellation` e
+  `TestRecoveryStopsAfterRefreshNetworkRefusal`.
+- Pendente em D5/fase 2: a política do transporte do recurso MCP (Bearer,
+  TLS e redirects) em Client Credentials e PKCE permanece no comportamento
+  legado, anterior a esta extração. O guard dos endpoints OAuth não deve
+  ser confundido com proteção integral do recurso. A [issue #874](https://github.com/inclunet/assistente/issues/874)
+  exige tratar as duas modalidades, origem autorizada, downgrade e SSE/streaming
+  sem reutilizar o timeout de corpo do cliente de tokens.
+- Não houve conversão de dados nem mudança da URI de callback por esta extração.
+  Destinos internos adicionais podem solicitar autorização de rede. O owner de
+  tokens MCP continua exclusivamente no MCP legado
+  até a entrega dos grants e do cutover. Fases 2, 3 e 4 seguem abertas.
+
+Revisão local desta entrega incremental: `review_credential_sources`, dezesseis rodadas;
+achados de rede, identidade, cancelamento e apresentação corrigidos, última rodada
+sem pendências. A validação funcional ChatGPT da fase 1 continua a cargo do
+usuário e não foi marcada como concluída por esta entrega.

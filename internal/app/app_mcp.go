@@ -7,6 +7,7 @@ import (
 
 	"assistente/internal/database"
 	mcpmgr "assistente/internal/mcp"
+	"assistente/internal/nettrust"
 	"assistente/internal/toolcatalog"
 	toolpkg "assistente/internal/tools"
 )
@@ -39,6 +40,9 @@ func (a *App) initMCP() {
 	// propaga o userID quando existe e devolve ctx puro durante o boot.
 	// Escritores reais dentro do MCP manager seguem usando RequireUserID.
 	a.mcpMgr.SetAuthContextProvider(a.internalBootstrapCtx)
+	if a.netTrustMgr != nil {
+		a.mcpMgr.SetOAuthNetworkAuthorizer(oauthNetworkAuthorizer(nettrust.NewAuthorizer(a.netTrustMgr, &appNetworkPrompter{qm: a.questionnaireMgr})))
+	}
 	if database.DB() != nil {
 		repo := mcpmgr.NewDBRepository(database.DB())
 		a.mcpMgr.SetRepository(repo)

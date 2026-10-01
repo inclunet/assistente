@@ -1395,6 +1395,8 @@ const en = {
         serverReauthorized: 'Server {{name}} reauthorized',
       },
       error: {
+        networkAuthorizationFailed: 'OAuth network authorization was not completed. Check the destination and network allowlist permissions before trying again.',
+        registrationFailed: 'Could not register the OAuth client. Check the registration endpoint and callback URL, then try again.',
         slugRequired: 'Slug (identifier) is required',
         nameRequired: 'Name is required',
         duplicate: 'Error duplicating MCP server',
