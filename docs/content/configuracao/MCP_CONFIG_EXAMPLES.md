@@ -494,3 +494,11 @@ A opção de permitir somente esta vez vale durante a operação OAuth, inclusiv
 nas consultas repetidas do Device Flow ao mesmo destino/IP. A espera pelo login
 ou pela decisão de rede não consome o timeout do handshake MCP; Desconectar
 continua cancelando a operação. Uma nova origem, porta ou IP exige nova avaliação.
+
+### URL do recurso MCP com OAuth
+
+Configure HTTPS também na URL do próprio servidor MCP remoto e use o destino
+final, sem redirects entre origens. A proteção descrita acima cobre descoberta
+e endpoints OAuth; o transporte legado do recurso em PKCE e Client Credentials
+ainda não impõe toda essa política. A [issue #874](https://github.com/inclunet/assistente/issues/874)
+acompanha a validação do recurso e de redirects, preservando SSE e streaming.

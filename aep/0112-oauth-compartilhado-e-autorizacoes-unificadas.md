@@ -538,12 +538,18 @@ poderia apagar alterações concorrentes; a issue exige transação e testes de 
   Evidências: `TestOAuthPollingReusesConsentAcrossHTTPClients`,
   `TestConnectDevicePollingOutlivesHandshakeAndReusesApproval` e
   `TestConnectConsentOutlivesHandshakeBudget` (com probe SSE desativado).
+- Pendente em D5/fase 2: a política do transporte do recurso MCP (Bearer,
+  TLS e redirects) em Client Credentials e PKCE permanece no comportamento
+  legado, anterior a esta extração. O guard dos endpoints OAuth não deve
+  ser confundido com proteção integral do recurso. A [issue #874](https://github.com/inclunet/assistente/issues/874)
+  exige tratar as duas modalidades, origem autorizada, downgrade e SSE/streaming
+  sem reutilizar o timeout de corpo do cliente de tokens.
 - Não houve conversão de dados nem mudança da URI de callback por esta extração.
   Destinos internos adicionais podem solicitar autorização de rede. O owner de
   tokens MCP continua exclusivamente no MCP legado
   até a entrega dos grants e do cutover. Fases 2, 3 e 4 seguem abertas.
 
-Revisão local desta entrega incremental: `review_credential_sources`, onze rodadas;
+Revisão local desta entrega incremental: `review_credential_sources`, doze rodadas;
 achados de rede, identidade, cancelamento e apresentação corrigidos, última rodada
 sem pendências. A validação funcional ChatGPT da fase 1 continua a cargo do
 usuário e não foi marcada como concluída por esta entrega.
