@@ -2,7 +2,10 @@
 
 package oauthsnapshot
 
-import "os"
+import (
+	"os"
+	"syscall"
+)
 
 func (f *Files) syncDirectory() error {
 	dir, err := f.root.Open(".")
@@ -16,8 +19,11 @@ func (f *Files) syncDirectory() error {
 	return nil
 }
 
-func openPrivateDirectory(path string) (*os.File, error) { return os.Open(path) }
-func rejectReparse(string) error                         { return nil }
+func openPrivateDirectory(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_DIRECTORY, 0)
+}
+func checkDirectoryHandle(*os.File) error { return nil }
+func rejectReparse(string) error          { return nil }
 func protect(file *os.File, directory bool) error {
 	mode := os.FileMode(0600)
 	if directory {

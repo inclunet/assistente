@@ -1384,7 +1384,11 @@ func (m *Manager) ReauthorizeServer(ctx context.Context, slug string) error {
 			return err
 		}
 		m.clearNeedsReauth(slug)
-		if !cfg.Enabled {
+		current, err := m.GetConfig(slug)
+		if err != nil {
+			return err
+		}
+		if !current.Enabled {
 			return nil
 		}
 		return m.reconnectWithContext(ctx, slug)
@@ -1399,7 +1403,11 @@ func (m *Manager) ReauthorizeServer(ctx context.Context, slug string) error {
 	// authorize já persistiu os tokens novos. Limpa o sinal de reauth e reconecta
 	// para o transport adotar o token renovado e atualizar tools/resources/prompts.
 	m.clearNeedsReauth(slug)
-	if !cfg.Enabled {
+	current, err := m.GetConfig(slug)
+	if err != nil {
+		return err
+	}
+	if !current.Enabled {
 		return nil
 	}
 	if err := m.reconnectWithContext(ctx, slug); err != nil {

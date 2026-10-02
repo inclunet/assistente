@@ -11,7 +11,7 @@ import { McpOAuthSnapshots } from './McpOAuthSnapshots';
 export function McpOAuthInventory({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { t } = useTranslation();
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={t('mcp.inventory.title')} readingMode size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={t('mcp.inventory.title')} size="lg">
       {isOpen && <OAuthInventoryContent />}
       <DialogActions primary={<Button onClick={onClose}>{t('common.close')}</Button>} />
     </Modal>

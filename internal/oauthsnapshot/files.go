@@ -22,6 +22,10 @@ type Files struct{ root *os.Root }
 // Open refuses symlinks/reparse points and restricts the directory before any
 // ciphertext is written. os.Root confines every subsequent filesystem action.
 func Open(path string) (*Files, error) {
+	return open(path, os.OpenRoot)
+}
+
+func open(path string, bind func(string) (*os.Root, error)) (*Files, error) {
 	if !filepath.IsAbs(path) {
 		return nil, ErrStorage
 	}
@@ -44,13 +48,23 @@ func Open(path string) (*Files, error) {
 	if err != nil {
 		return nil, ErrStorage
 	}
-	if err = protect(f, true); err != nil {
-		_ = f.Close()
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil || !info.IsDir() || checkDirectoryHandle(f) != nil {
 		return nil, ErrStorage
 	}
-	_ = f.Close()
-	root, err := os.OpenRoot(path)
+	if err = protect(f, true); err != nil {
+		return nil, ErrStorage
+	}
+	root, err := bind(path)
 	if err != nil {
+		return nil, ErrStorage
+	}
+	// Keep the protected handle alive until the confined root is verified to
+	// reference that exact object. A rename/reparse replacement must fail closed.
+	bound, err := root.Stat(".")
+	if err != nil || !os.SameFile(info, bound) {
+		_ = root.Close()
 		return nil, ErrStorage
 	}
 	return &Files{root: root}, nil

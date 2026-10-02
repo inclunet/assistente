@@ -1036,3 +1036,10 @@ Continuam pendentes: snapshots/conversão de Client Credentials e credenciais
 compartilhadas por hostname, fixtures de versões publicadas para a conversão,
 cutover transacional/idempotente, paridade após reinício/native/bridge e remoção
 do runtime legado. A convergência de Slack permanece na etapa seguinte.
+
+Revisão da recuperação: a raiz confinada tem sua identidade comparada com o
+handle protegido ainda aberto, recusando substituição por rename/reparse. O
+modal de snapshots usa semântica de formulário, e a decisão de reconectar relê
+a configuração após reautorizar. Evidências: `TestOpenRejectsDirectoryReplacedAfterProtection`,
+`TestOpenKeepsValidatedDirectoryAfterRename`, `McpOAuthInventory.test.tsx` e
+`TestOAuthSnapshotRestoreReauthorizeThenEnable/enabled_after_authorization`.

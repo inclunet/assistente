@@ -15,10 +15,18 @@ import (
 )
 
 func TestOAuthSnapshotRestoreReauthorizeThenEnable(t *testing.T) {
+	t.Run("disabled", func(t *testing.T) { testSnapshotReauthorization(t, false) })
+	t.Run("enabled_after_authorization", func(t *testing.T) { testSnapshotReauthorization(t, true) })
+}
+
+func testSnapshotReauthorization(t *testing.T, enableAfterAuthorization bool) {
+	t.Helper()
 	var requests atomic.Int32
+	var resourceRequests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		if r.URL.Path != "/token" {
+			resourceRequests.Add(1)
 			http.NotFound(w, r)
 			return
 		}
@@ -74,13 +82,34 @@ func TestOAuthSnapshotRestoreReauthorizeThenEnable(t *testing.T) {
 		}
 		return resp.Body.Close()
 	}
-	if err := m.ReauthorizeServer(ctx, "legacy"); err != nil {
+	if enableAfterAuthorization {
+		m.emitEvent = func(event string, _ any) {
+			if event == "mcp:server_reauthorized" {
+				current, err := m.GetConfig("legacy")
+				if err != nil {
+					t.Fatal(err)
+				}
+				current.Enabled = true
+				if err := m.SaveConfig("legacy", *current); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	err = m.ReauthorizeServer(ctx, "legacy")
+	if enableAfterAuthorization {
+		// The mock resource rejects the handshake; reaching it proves the latest
+		// Enabled state was observed after OAuth, instead of the captured false.
+		if err == nil || resourceRequests.Load() == 0 {
+			t.Fatal("reauthorization did not reconnect newly enabled consumer")
+		}
+	} else if err != nil {
 		t.Fatal(err)
 	}
 	m.mu.RLock()
 	status := m.servers["legacy"].Status
 	m.mu.RUnlock()
-	if status != StatusDisconnected {
+	if !enableAfterAuthorization && status != StatusDisconnected {
 		t.Fatal("reauthorization connected disabled consumer")
 	}
 	tokens, err := m.credMgr.ReadLegacyOAuthToken(ctx, "legacy", cfg.ID, nil)
