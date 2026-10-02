@@ -11,20 +11,31 @@ import (
 	"gorm.io/gorm"
 )
 
-func (m *Manager) detachLegacyOAuth(ctx context.Context, original, cfg ServerConfig) error {
+func (m *Manager) detachLegacyOAuth(ctx context.Context, original, cfg ServerConfig, remove bool) error {
 	if m.credMgr == nil {
 		return oauthflow.ErrResource
 	}
 	cfg.ID, cfg.UserID, cfg.Slug = original.ID, original.UserID, original.Slug
 	clearOAuthConfiguration(&cfg)
+	// The cache may already lag another process. Compare publication with the
+	// cache captured here, while the transaction validates the DB snapshot.
+	cached := original
+	m.mu.RLock()
+	if current := m.servers[original.Slug]; current != nil {
+		cached = current.Config
+	}
+	m.mu.RUnlock()
 	err := m.credMgr.ClearLegacyOAuthWithConsumer(ctx, original.Slug, original.ID, hostnameFromURL(original.URL), func(tx *gorm.DB) error {
 		current, err := NewDBRepository(tx).GetServerByID(ctx, original.ID)
 		if err != nil || !reflect.DeepEqual(persistedLegacyConfig(*current), persistedLegacyConfig(original)) {
 			return oauthflow.ErrConflict
 		}
+		if remove {
+			return NewDBRepository(tx).DeleteServer(ctx, original.Slug)
+		}
 		return NewDBRepository(tx).SaveServer(ctx, &cfg)
 	}, func() {
-		m.publishLegacyDetach(original, cfg)
+		m.publishLegacyDetach(cached, cfg, remove)
 	})
 	if err != nil {
 		return err
@@ -34,11 +45,15 @@ func (m *Manager) detachLegacyOAuth(ctx context.Context, original, cfg ServerCon
 	return nil
 }
 
-func (m *Manager) publishLegacyDetach(original, cfg ServerConfig) {
+func (m *Manager) publishLegacyDetach(original, cfg ServerConfig, remove bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if current := m.servers[original.Slug]; current != nil && reflect.DeepEqual(persistedLegacyConfig(current.Config), persistedLegacyConfig(original)) {
-		current.Config = cfg
+		if remove {
+			delete(m.servers, original.Slug)
+		} else {
+			current.Config = cfg
+		}
 	}
 }
 

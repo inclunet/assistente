@@ -1517,7 +1517,7 @@ func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
 		return m.saveManagedOAuth(slug, cfg, nil)
 	}
 	if existing != nil && existing.AuthType == AuthOAuth2PKCE && cfg.AuthType == AuthNone {
-		return m.detachLegacyOAuth(ctx, *existing, cfg)
+		return m.detachLegacyOAuth(ctx, *existing, cfg, false)
 	}
 	if err := repo.SaveServer(ctx, &cfg); err != nil {
 		return fmt.Errorf("erro ao salvar config: %w", err)
@@ -1615,6 +1615,9 @@ func (m *Manager) DeleteConfig(slug string) error {
 	}
 	if existing.OAuthAuthorizationID != "" {
 		return m.detachManagedOAuth(ctx, slug, *existing, true)
+	}
+	if existing.AuthType == AuthOAuth2PKCE {
+		return m.detachLegacyOAuth(ctx, *existing, *existing, true)
 	}
 	_ = m.Disconnect(slug)
 	if err := repo.DeleteServer(ctx, slug); err != nil {

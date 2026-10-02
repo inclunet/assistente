@@ -287,10 +287,89 @@ func TestLegacyDetachLatePublicationPreservesNewEdit(t *testing.T) {
 	}
 	// Reproduce a detach callback delayed until after another SaveConfig
 	// committed and published; it must not roll the cache back.
-	a.publishLegacyDetach(original, detached)
+	a.publishLegacyDetach(original, detached, false)
 	actual, err := a.GetConfig("legacy")
 	if err != nil || actual.Name != newer.Name || actual.URL != newer.URL {
 		t.Fatalf("new edit lost: %v", err)
+	}
+}
+
+func TestLegacyDeleteServerAllowsInactivePendingAndRollsBack(t *testing.T) {
+	a, _, ctx, cfg := legacyWALManagers(t, "https://example.com")
+	db := a.repository().(*DBRepository).db
+	if err := db.AutoMigrate(&database.ToolCatalog{}); err != nil {
+		t.Fatal(err)
+	}
+	op, _, err := a.credMgr.BeginLegacyOAuth(ctx, "legacy", cfg.ID, false, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.DeleteConfig("legacy"); !errors.Is(err, oauthflow.ErrTransient) {
+		t.Fatalf("active delete: %v", err)
+	}
+	op.End()
+	if err := db.Callback().Delete().Before("gorm:delete").Register("reject_server_delete", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*database.MCPServer); ok {
+			_ = tx.AddError(errors.New("simulated delete failure"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Delete().Remove("reject_server_delete") })
+	if err := a.DeleteConfig("legacy"); err == nil {
+		t.Fatal("delete must fail")
+	}
+	if _, has, err := a.GetServerAuthInfo("legacy"); err != nil || !has {
+		t.Fatalf("rollback lost grant: %v %v", has, err)
+	}
+	if err := db.Callback().Delete().Remove("reject_server_delete"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.DeleteConfig("legacy"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.repository().GetServer(ctx, "legacy"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("consumer remains: %v", err)
+	}
+	var count int64
+	if err := db.Model(&database.CredentialEntry{}).Where("user_id = ?", cfg.UserID).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("credentials remain: %d %v", count, err)
+	}
+	a.mu.RLock()
+	cached := a.servers["legacy"]
+	a.mu.RUnlock()
+	if cached != nil {
+		t.Fatal("deleted consumer remains cached")
+	}
+}
+
+func TestLegacyDeleteServerClearsAlreadyStaleCache(t *testing.T) {
+	a, b, ctx, cfg := legacyWALManagers(t, "https://example.com")
+	db := a.repository().(*DBRepository).db
+	if err := db.AutoMigrate(&database.ToolCatalog{}); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Name = "edited elsewhere"
+	if err := b.SaveConfig("legacy", cfg); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.RLock()
+	stale := a.servers["legacy"].Config.Name
+	a.mu.RUnlock()
+	if stale == cfg.Name {
+		t.Fatal("fixture cache should lag DB")
+	}
+	if err := a.DeleteConfig("legacy"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.repository().GetServer(ctx, "legacy"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("DB record remains: %v", err)
+	}
+	a.mu.RLock()
+	cached := a.servers["legacy"]
+	a.mu.RUnlock()
+	if cached != nil {
+		t.Fatal("deleted server remains in stale cache")
 	}
 }
 

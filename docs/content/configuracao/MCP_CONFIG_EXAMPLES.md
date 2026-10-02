@@ -661,3 +661,7 @@ autorização pendente, escolha autenticação **Nenhuma** e salve: a remoção 
 credenciais e a alteração da configuração são confirmadas juntas. Se a gravação
 falhar ou houver uma tentativa ativa, ambas são preservadas. Cadastros que dependem de
 discovery continuam descobrindo o endpoint de renovação após reiniciar.
+
+A ação **Remover** também pode descartar um servidor com renovação pendente
+inativa: servidor e credenciais PKCE são removidos juntos. Uma tentativa ainda
+ativa impede essa exclusão até terminar.

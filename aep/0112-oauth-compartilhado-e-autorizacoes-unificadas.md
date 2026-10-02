@@ -919,6 +919,9 @@ A consulta de autenticação reconhece tokens de clientes públicos sem segredo;
 ao escolher `none`, o backend remove a credencial do consumidor original,
 incluindo pendência inativa, e salva a configuração na mesma transação. Falha
 de gravação preserva ambos; publicação atrasada não substitui edição posterior.
+A exclusão do servidor usa a mesma transação para remover par e consumidor,
+permitindo pendência inativa e recusando tentativa ativa. Falha de exclusão
+também preserva o grant (`TestLegacyDeleteServerAllowsInactivePendingAndRollsBack`).
 Evidências: `TestLegacyTransportSerializesTokenResolutionWithConfiguration`,
 `TestLegacyRestartDiscoversRefreshEndpoint`,
 `TestLegacyPublicClientAuthInfoAndPendingRemoval`,
