@@ -975,3 +975,9 @@ do hostname é comprovada sob o writer SQLite antes do save. Se houver dados,
 a validação do cofre/marcador permanece obrigatória. Evidência:
 `TestSaveHTTPNoneWithoutVaultOrStoredCredentials`.
 
+
+A exclusão explícita de autenticação persistida remove cliente, tokens e hostname
+na mesma transação também para Bearer, Basic, Client Credentials e None, com
+validação do consumidor e rollback integral. O fallback não-PKCE em memória
+permanece disponível. Evidências: `TestUnmanagedAuthDeletionRollsBackEveryPattern`
+e `TestUnmanagedAuthDeletionKeepsInMemoryFallback`.

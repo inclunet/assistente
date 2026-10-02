@@ -184,7 +184,7 @@ func (m *Manager) DeleteServerAuth(slug string) error {
 		_ = m.Disconnect(slug)
 		return nil
 	}
-	if cfgManaged.AuthType == AuthOAuth2PKCE && cfgManaged.ID != "" {
+	if cfgManaged.ID != "" && (cfgManaged.AuthType == AuthOAuth2PKCE || m.credMgr.CanPersist()) {
 		return m.credMgr.ClearLegacyOAuthWithConsumer(ctx, slug, cfgManaged.ID, hostnameFromURL(cfgManaged.URL), func(tx *gorm.DB) error {
 			current, err := NewDBRepository(tx).GetServerByID(ctx, cfgManaged.ID)
 			if err != nil || !reflect.DeepEqual(persistedLegacyConfig(*current), persistedLegacyConfig(*cfgManaged)) {
