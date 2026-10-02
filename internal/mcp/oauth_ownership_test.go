@@ -18,6 +18,28 @@ import (
 	"gorm.io/gorm"
 )
 
+type deadlineTokenSource struct{}
+
+func (deadlineTokenSource) Token() (*oauth2.Token, error) {
+	return nil, errors.Join(errors.New("preflight"), context.DeadlineExceeded)
+}
+
+func TestLegacyPreflightDeadlineStopsBeforeAnonymousRequest(t *testing.T) {
+	ctx := context.Background() // the preflight deadline does not cancel the caller
+	rt := &pkceRoundTripper{tokenSource: deadlineTokenSource{}, base: managedTestRoundTrip(func(*http.Request) (*http.Response, error) {
+		t.Fatal("preflight timeout must not send an anonymous request or start interactive fallback")
+		return nil, nil
+	})}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com/mcp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := rt.RoundTrip(req)
+	if response != nil || !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+		t.Fatalf("unexpected deadline propagation: %v", err)
+	}
+}
+
 func TestOAuthCreationPreservesExplicitConnectionFlags(t *testing.T) {
 	for _, managed := range []bool{false, true} {
 		for _, enabled := range []bool{false, true} {

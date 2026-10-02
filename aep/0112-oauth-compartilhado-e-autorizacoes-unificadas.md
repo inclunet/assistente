@@ -935,3 +935,8 @@ operações OAuth. O controle não é um backup exportável nem comprova validad
 remota. Snapshot cifrado, retenção/restauração, fixtures publicadas, conversão
 transacional/idempotente e retirada do runtime legado continuam pendentes;
 a fase 3 não está concluída.
+
+Timeout de DNS no preflight encerra a tentativa mesmo quando o contexto externo
+continua válido, sem requisição anônima ou consentimento como fallback.
+Evidência: `TestLegacyPreflightDeadlineStopsBeforeAnonymousRequest`.
+

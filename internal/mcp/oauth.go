@@ -1265,7 +1265,7 @@ func (rt *pkceRoundTripper) oauthHTTPClient(timeout time.Duration) *http.Client 
 }
 
 func terminalOAuthNetworkError(ctx context.Context, err error) bool {
-	return err != nil && (errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrTransient) || errors.Is(err, oauthflow.ErrConflict) || errors.Is(err, errOAuthPersistence) || errors.Is(err, oauthflow.ErrNetworkAuthorization) || errors.Is(err, context.Canceled) || ctx.Err() != nil)
+	return err != nil && (errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrTransient) || errors.Is(err, oauthflow.ErrConflict) || errors.Is(err, errOAuthPersistence) || errors.Is(err, oauthflow.ErrNetworkAuthorization) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil)
 }
 
 func terminalDeviceGrantError(ctx context.Context, err error) bool {
