@@ -113,60 +113,73 @@ func TestPublishedPKCEReconnectKeepsClientAndReplacesGrant(t *testing.T) {
 }
 
 func TestReconnectCrashPreservesPendingAndRecoversMissingTokenRow(t *testing.T) {
-	for _, missing := range []bool{false, true} {
-		t.Run(map[bool]string{false: "pending", true: "missing"}[missing], func(t *testing.T) {
-			m, db, ctx := publishedOAuthFixture(t, "0.5.0", "")
-			dir := t.TempDir()
-			if missing {
-				if err := db.Where("user_id = ? AND pattern = ?", publishedOAuthOwner, "mcp-tokens:published").Delete(&database.CredentialEntry{}).Error; err != nil {
-					t.Fatal(err)
-				}
-			} else {
-				body, _ := json.Marshal(legacyOAuthControl{Version: 1, ConsumerID: "fixture-server", Pending: true})
-				enc, _ := m.encrypt(string(body))
-				if err := db.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern = ?", publishedOAuthOwner, "mcp-tokens:published").Update("legacy_oauth_control_enc", enc).Error; err != nil {
-					t.Fatal(err)
-				}
-			}
-			info, err := m.CreateLegacyOAuthSnapshot(ctx, dir, "fixture-server")
-			if err != nil {
-				t.Fatal(err)
-			}
-			crash := func(ctx context.Context, store oauthflow.Store, r oauthflow.Record, _ database.MCPServer) error {
-				staged := store.(*reconnectStore)
-				plain, err := m.decrypt(staged.control)
-				if err != nil {
-					t.Fatal(err)
-				}
-				var c legacyOAuthControl
-				if err := json.Unmarshal([]byte(plain), &c); err != nil {
-					t.Fatal(err)
-				}
-				if c.Pending == missing {
-					t.Fatal("pending barrier changed")
-				}
-				c.Until = time.Now().Add(-time.Minute)
-				body, _ := json.Marshal(c)
-				enc, _ := m.encrypt(string(body))
-				// Simulate expired durable staging left by a terminated process.
-				if err := db.Model(&database.CredentialEntry{}).Where("id = ?", staged.rowID).Update("legacy_oauth_control_enc", enc).Error; err != nil {
-					t.Fatal(err)
-				}
-				return errors.New("crash")
-			}
-			if err := m.ReconnectLegacyOAuth(ctx, dir, info.ID, "client_secret_post", reconnectTestPrepare, crash, reconnectTestProject, nil); err == nil {
-				t.Fatal("crash accepted")
-			}
-			if !missing {
-				if op, _, err := m.BeginLegacyOAuth(ctx, "published", "fixture-server", false, false, nil); !errors.Is(err, oauthflow.ErrReauthorize) {
-					if op != nil {
-						op.End()
+	for _, freshSnapshot := range []bool{false, true} {
+		t.Run(map[bool]string{false: "original_snapshot", true: "new_snapshot"}[freshSnapshot], func(t *testing.T) {
+			for _, missing := range []bool{false, true} {
+				t.Run(map[bool]string{false: "pending", true: "missing"}[missing], func(t *testing.T) {
+					m, db, ctx := publishedOAuthFixture(t, "0.5.0", "")
+					dir := t.TempDir()
+					if missing {
+						if err := db.Where("user_id = ? AND pattern = ?", publishedOAuthOwner, "mcp-tokens:published").Delete(&database.CredentialEntry{}).Error; err != nil {
+							t.Fatal(err)
+						}
+					} else {
+						body, _ := json.Marshal(legacyOAuthControl{Version: 1, ConsumerID: "fixture-server", Pending: true})
+						enc, _ := m.encrypt(string(body))
+						if err := db.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern = ?", publishedOAuthOwner, "mcp-tokens:published").Update("legacy_oauth_control_enc", enc).Error; err != nil {
+							t.Fatal(err)
+						}
 					}
-					t.Fatal("uncertain refresh released", err)
-				}
-			}
-			if err := m.ReconnectLegacyOAuth(ctx, dir, info.ID, "client_secret_post", reconnectTestPrepare, reconnectTestAuthorize, reconnectTestProject, nil); err != nil {
-				t.Fatal("crash recovery", err)
+					info, err := m.CreateLegacyOAuthSnapshot(ctx, dir, "fixture-server")
+					if err != nil {
+						t.Fatal(err)
+					}
+					crash := func(ctx context.Context, store oauthflow.Store, r oauthflow.Record, _ database.MCPServer) error {
+						staged := store.(*reconnectStore)
+						plain, err := m.decrypt(staged.control)
+						if err != nil {
+							t.Fatal(err)
+						}
+						var c legacyOAuthControl
+						if err := json.Unmarshal([]byte(plain), &c); err != nil {
+							t.Fatal(err)
+						}
+						if c.Pending == missing {
+							t.Fatal("pending barrier changed")
+						}
+						c.Until = time.Now().Add(-time.Minute)
+						body, _ := json.Marshal(c)
+						enc, _ := m.encrypt(string(body))
+						// Simulate expired durable staging left by a terminated process.
+						if err := db.Model(&database.CredentialEntry{}).Where("id = ?", staged.rowID).Update("legacy_oauth_control_enc", enc).Error; err != nil {
+							t.Fatal(err)
+						}
+						return errors.New("crash")
+					}
+					if err := m.ReconnectLegacyOAuth(ctx, dir, info.ID, "client_secret_post", reconnectTestPrepare, crash, reconnectTestProject, nil); err == nil {
+						t.Fatal("crash accepted")
+					}
+					if !missing {
+						if op, _, err := m.BeginLegacyOAuth(ctx, "published", "fixture-server", false, false, nil); !errors.Is(err, oauthflow.ErrReauthorize) {
+							if op != nil {
+								op.End()
+							}
+							t.Fatal("uncertain refresh released", err)
+						}
+					}
+					if freshSnapshot {
+						if err := db.Model(&database.MCPServer{}).Where("id = ?", "fixture-server").Update("name", "Edited after crash").Error; err != nil {
+							t.Fatal(err)
+						}
+						info, err = m.CreateLegacyOAuthSnapshot(ctx, dir, "fixture-server")
+						if err != nil {
+							t.Fatal("new capture", err)
+						}
+					}
+					if err := m.ReconnectLegacyOAuth(ctx, dir, info.ID, "client_secret_post", reconnectTestPrepare, reconnectTestAuthorize, reconnectTestProject, nil); err != nil {
+						t.Fatal("crash recovery", err)
+					}
+				})
 			}
 		})
 	}
@@ -188,5 +201,38 @@ func TestReconnectRejectsChangedSnapshotBeforeAuthorization(t *testing.T) {
 	}
 	if err := m.ReconnectLegacyOAuth(ctx, dir, info.ID, "client_secret_post", reconnectTestPrepare, authorize, reconnectTestProject, nil); !errors.Is(err, ErrSnapshotConflict) {
 		t.Fatal(err)
+	}
+}
+
+func TestExpiredReconnectSnapshotRefusesForeignOrUnsafeControl(t *testing.T) {
+	for _, scenario := range []string{"other_user", "other_consumer", "pending_lost", "inserted_with_tokens", "active"} {
+		t.Run(scenario, func(t *testing.T) {
+			m, db, ctx := publishedOAuthFixture(t, "0.5.0", "")
+			original, _ := json.Marshal(legacyOAuthControl{Version: 1, ConsumerID: "fixture-server", Pending: true})
+			originalEnc, _ := m.encrypt(string(original))
+			c := legacyOAuthControl{Version: 1, ConsumerID: "fixture-server", Pending: true, Until: time.Now().Add(-time.Minute), OriginalControl: originalEnc, Migration: &oauthflow.Record{Version: 1, ID: "abandoned", UserID: publishedOAuthOwner, ConsumerID: "fixture-server", Integration: "mcp", GrantType: "authorization_code"}}
+			switch scenario {
+			case "other_user":
+				c.Migration.UserID = "another-user"
+			case "other_consumer":
+				c.Migration.ConsumerID = "another-server"
+			case "pending_lost":
+				c.Pending = false
+			case "inserted_with_tokens":
+				c.MigrationInserted = true
+				c.OriginalControl = ""
+				c.Pending = false
+			case "active":
+				c.Until = time.Now().Add(time.Minute)
+			}
+			body, _ := json.Marshal(c)
+			enc, _ := m.encrypt(string(body))
+			if err := db.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern = ?", publishedOAuthOwner, "mcp-tokens:published").Update("legacy_oauth_control_enc", enc).Error; err != nil {
+				t.Fatal(err)
+			}
+			if _, err := m.CreateLegacyOAuthSnapshot(ctx, t.TempDir(), "fixture-server"); err == nil {
+				t.Fatal("unsafe staging normalized")
+			}
+		})
 	}
 }

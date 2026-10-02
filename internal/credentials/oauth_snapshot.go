@@ -210,8 +210,12 @@ func (m *Manager) CreateLegacyOAuthSnapshot(ctx context.Context, directory, cons
 				if row.OAuthEnc != "" || (row.Source != "" && row.Source != "static") {
 					return ErrSnapshot
 				}
-				if err := m.snapshotInactive(row.LegacyOAuthControlEnc, p.Consumer.ID); err != nil {
+				row, omit, err := m.snapshotLegacyCredential(row, p.Consumer)
+				if err != nil {
 					return err
+				}
+				if omit {
+					continue
 				}
 				p.Credentials = append(p.Credentials, snapshotCredential{Entry: row, Control: row.LegacyOAuthControlEnc})
 			}
@@ -259,6 +263,57 @@ func (m *Manager) snapshotInactive(enc, consumerID string) error {
 		return oauthflow.ErrTransient
 	}
 	return nil
+}
+
+// An expired reconnection envelope is coordination metadata, not part of the
+// previous grant. A new snapshot captures that grant and its original refresh
+// barrier, independent of which snapshot started the abandoned attempt.
+func (m *Manager) snapshotLegacyCredential(row database.CredentialEntry, consumer database.MCPServer) (database.CredentialEntry, bool, error) {
+	if err := m.snapshotInactive(row.LegacyOAuthControlEnc, consumer.ID); err != nil {
+		return row, false, err
+	}
+	if row.LegacyOAuthControlEnc == "" {
+		return row, false, nil
+	}
+	plain, err := m.decrypt(row.LegacyOAuthControlEnc)
+	var c legacyOAuthControl
+	if err != nil || json.Unmarshal([]byte(plain), &c) != nil {
+		return row, false, ErrSnapshot
+	}
+	if c.Migration == nil {
+		return row, false, nil
+	}
+	r := c.Migration
+	if row.UserID != consumer.UserID || row.Pattern != "mcp-tokens:"+consumer.Slug || consumer.AuthType != "oauth2_pkce" || r.Version != 1 || r.ID == "" || r.UserID != consumer.UserID || r.ConsumerID != consumer.ID || r.Integration != "mcp" || r.GrantType != "authorization_code" {
+		return row, false, ErrSnapshotConflict
+	}
+	pending := false
+	if c.OriginalControl != "" {
+		if err := m.snapshotInactive(c.OriginalControl, consumer.ID); err != nil {
+			return row, false, err
+		}
+		original, err := m.decrypt(c.OriginalControl)
+		var previous legacyOAuthControl
+		if err != nil || json.Unmarshal([]byte(original), &previous) != nil || previous.Migration != nil {
+			return row, false, ErrSnapshot
+		}
+		pending = previous.Pending
+	}
+	if c.Pending != pending {
+		return row, false, ErrSnapshotConflict
+	}
+	row.LegacyOAuthControlEnc = c.OriginalControl
+	if c.MigrationInserted {
+		if c.OriginalControl != "" || !emptyReconnectTokenRow(row) {
+			return row, false, ErrSnapshotConflict
+		}
+		return row, true, nil
+	}
+	return row, false, nil
+}
+
+func emptyReconnectTokenRow(row database.CredentialEntry) bool {
+	return row.TokenEnc == "" && row.RefreshTokenEnc == "" && row.ClientIDEnc == "" && row.ClientSecretEnc == "" && row.ClientGrantType == "" && row.ExpiresAt == 0 && row.Source == "static" && row.AuthType == "oauth2" && row.OAuthEnc == "" && row.SourceConfigEnc == "" && row.PasswordEnc == "" && row.HeadersEnc == "" && row.Username == ""
 }
 
 func (m *Manager) ListLegacyOAuthSnapshots(ctx context.Context, directory string) ([]OAuthSnapshotInfo, error) {

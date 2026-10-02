@@ -806,7 +806,8 @@ ação com o mesmo snapshot e método não abre outro login após o sucesso.
 Se cancelar ou ocorrer uma falha, o cadastro local anterior é preservado.
 Durante o fluxo, renovações concorrentes são recusadas. Após queda do app,
 aguarde a reserva expirar (até dez minutos) e tente novamente com o snapshot
-original. Se o cadastro foi editado desde a captura, faça outro snapshot.
+original ou crie outro. Se o cadastro foi editado desde a captura, faça outro
+snapshot; a reserva expirada não prende a recuperação à captura anterior.
 
 O provedor pode invalidar tokens anteriores durante a nova autorização; o
 snapshot não reverte essa invalidação. A ação é opcional: cadastros legados

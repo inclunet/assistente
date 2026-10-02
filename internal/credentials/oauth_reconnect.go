@@ -182,65 +182,40 @@ func (r *reconnectStore) validate(tx *gorm.DB, owned bool) ([]database.Credentia
 	if err := tx.Where("user_id = ? AND pattern IN ?", p.UserID, []string{"mcp-client:" + current.Slug, "mcp-tokens:" + current.Slug}).Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	want := len(p.Credentials)
-	if owned && r.inserted {
-		want++
-	}
-	if !owned && len(rows) == want+1 {
-		for _, row := range rows {
-			if row.Pattern != "mcp-tokens:"+current.Slug || row.LegacyOAuthControlEnc == "" {
-				continue
-			}
-			plain, err := m.decrypt(row.LegacyOAuthControlEnc)
-			var c legacyOAuthControl
-			if err != nil || json.Unmarshal([]byte(plain), &c) != nil || c.Migration == nil || !r.bound(*c.Migration) || !c.MigrationInserted || time.Now().Before(c.Until) || c.OriginalControl != "" {
-				continue
-			}
-			if row.TokenEnc != "" || row.RefreshTokenEnc != "" || row.ClientIDEnc != "" || row.ClientSecretEnc != "" || row.Source != "static" || row.AuthType != "oauth2" || row.SourceConfigEnc != "" || row.OAuthEnc != "" || row.PasswordEnc != "" || row.HeadersEnc != "" || row.Username != "" {
-				return nil, ErrSnapshotConflict
-			}
-			r.inserted, r.rowID = true, row.ID
-			want++
-			break
-		}
-	}
-	if len(rows) != want {
-		return nil, ErrSnapshotConflict
-	}
-	for i := range rows {
-		row := rows[i]
+	previousRows := make([]database.CredentialEntry, 0, len(rows))
+	for _, row := range rows {
 		if owned && row.ID == r.rowID {
 			if row.LegacyOAuthControlEnc != r.control || !time.Now().Before(r.until) {
 				return nil, oauthflow.ErrConflict
 			}
 			row.LegacyOAuthControlEnc = r.original
 			if r.inserted {
-				if row.TokenEnc != "" || row.RefreshTokenEnc != "" || row.ClientIDEnc != "" || row.ClientSecretEnc != "" || row.Source != "static" || row.AuthType != "oauth2" || row.OAuthEnc != "" || row.SourceConfigEnc != "" {
+				if !emptyReconnectTokenRow(row) {
 					return nil, ErrSnapshotConflict
 				}
 				continue
 			}
 		} else {
-			if err := m.snapshotInactive(row.LegacyOAuthControlEnc, current.ID); err != nil {
+			var omit bool
+			var err error
+			row, omit, err = m.snapshotLegacyCredential(row, current)
+			if err != nil {
 				return nil, err
 			}
-			// A crashed reconnection never touched the old grant. Its expired
-			// staging envelope can be replaced using the same original snapshot.
-			if row.LegacyOAuthControlEnc != "" {
-				plain, _ := m.decrypt(row.LegacyOAuthControlEnc)
-				var c legacyOAuthControl
-				if json.Unmarshal([]byte(plain), &c) == nil && c.Migration != nil {
-					if !r.bound(*c.Migration) {
-						return nil, ErrSnapshotConflict
-					}
-					row.LegacyOAuthControlEnc = c.OriginalControl
-					rows[i].LegacyOAuthControlEnc = c.OriginalControl
-					if r.inserted && row.ID == r.rowID {
-						continue
-					}
+			if omit {
+				if owned {
+					return nil, ErrSnapshotConflict
 				}
+				r.inserted, r.rowID, r.original = true, row.ID, ""
+				continue
 			}
 		}
+		previousRows = append(previousRows, row)
+	}
+	if len(previousRows) != len(p.Credentials) {
+		return nil, ErrSnapshotConflict
+	}
+	for _, row := range previousRows {
 		found := false
 		for _, saved := range p.Credentials {
 			e := saved.Entry
@@ -267,7 +242,7 @@ func (r *reconnectStore) validate(tx *gorm.DB, owned bool) ([]database.Credentia
 			}
 		}
 	}
-	return rows, nil
+	return previousRows, nil
 }
 
 func (r *reconnectStore) write(tx *gorm.DB, record oauthflow.Record) error {

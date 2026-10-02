@@ -1258,7 +1258,10 @@ idempotente e encerra apenas uma eventual conexão legada local.
 
 Cancelamento, recusa e falha local conservam o grant anterior. Uma queda deixa
 uma reserva que expira; a próxima tentativa explícita pode usar o snapshot
-original, inclusive quando a linha de tokens foi criada só para a reserva.
+original ou um novo snapshot correspondente ao cadastro, inclusive quando a
+linha de tokens foi criada só para a reserva. A captura/comparação normaliza
+somente reservas expiradas do mesmo usuário e consumidor, preservando o controle
+de refresh original e omitindo linhas vazias criadas exclusivamente pela tentativa.
 A barreira de refresh ambíguo anterior permanece após uma queda. A nova
 autorização pode invalidar tokens no provedor: a UI explica que rollback local
 não desfaz esse efeito remoto.
