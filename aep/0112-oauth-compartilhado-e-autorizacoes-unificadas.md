@@ -982,6 +982,11 @@ validação do consumidor e rollback integral. O fallback não-PKCE em memória
 permanece disponível. Evidências: `TestUnmanagedAuthDeletionRollsBackEveryPattern`
 e `TestUnmanagedAuthDeletionKeepsInMemoryFallback`.
 
+Depois de resolver uma fonte externa do fallback por hostname, o runtime revalida
+consumidor, ausência de grant próprio e identidade/conteúdo da credencial na
+mesma leitura transacional. Uma alteração durante o comando invalida o resultado.
+Evidência: `TestLegacyHostnameRevalidatesAfterSourceResolution`.
+
 ### Fase 3 — recuperação estrutural do PKCE legado
 
 Status: **In Progress**. O diagnóstico OAuth oferece criação, consulta,

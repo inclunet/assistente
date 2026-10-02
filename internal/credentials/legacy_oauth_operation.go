@@ -505,6 +505,10 @@ func (m *Manager) ReadLegacyOAuthToken(ctx context.Context, slug, consumerID str
 // ReadLegacyHostnameToken keeps the native compatibility fallback authoritative.
 // The consumer and absence of its own grant are checked in the same read snapshot.
 func (m *Manager) ReadLegacyHostnameToken(ctx context.Context, slug, hostname string, validate func(*gorm.DB) error) (*AuthConfig, error) {
+	return m.readLegacyHostnameToken(ctx, slug, hostname, validate, ResolveSource)
+}
+
+func (m *Manager) readLegacyHostnameToken(ctx context.Context, slug, hostname string, validate func(*gorm.DB) error, resolve func(context.Context, *AuthConfig) (*AuthConfig, error)) (*AuthConfig, error) {
 	base, err := m.OAuthStore(ctx)
 	if err != nil {
 		return nil, err
@@ -512,24 +516,30 @@ func (m *Manager) ReadLegacyHostnameToken(ctx context.Context, slug, hostname st
 	s := base.(*oauthStore)
 	var auth *AuthConfig
 	var row database.CredentialEntry
+	checkConsumer := func(tx *gorm.DB) error {
+		if validate == nil {
+			return oauthflow.ErrConflict
+		}
+		if err := validate(tx); err != nil {
+			return err
+		}
+		var count int64
+		if err := tx.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern = ?", s.userID, "mcp-tokens:"+slug).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 0 {
+			return oauthflow.ErrConflict
+		}
+		return nil
+	}
 	err = s.WithSession(ctx, func() error {
 		store, ok := m.store.(*DBStore)
 		if !ok {
 			return oauthflow.ErrResource
 		}
 		return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			if validate == nil {
-				return oauthflow.ErrConflict
-			}
-			if err := validate(tx); err != nil {
+			if err := checkConsumer(tx); err != nil {
 				return err
-			}
-			var count int64
-			if err := tx.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern = ?", s.userID, "mcp-tokens:"+slug).Count(&count).Error; err != nil {
-				return err
-			}
-			if count != 0 {
-				return oauthflow.ErrConflict
 			}
 			if hostname == "" {
 				return nil
@@ -550,11 +560,28 @@ func (m *Manager) ReadLegacyHostnameToken(ctx context.Context, slug, hostname st
 	}
 	sourceCtx, cancel := s.SessionContext(ctx)
 	defer cancel()
-	auth, err = ResolveSource(withDirectCommandDiagnostic(sourceCtx, row.ID), auth)
+	auth, err = resolve(withDirectCommandDiagnostic(sourceCtx, row.ID), auth)
 	if err != nil {
 		return nil, err
 	}
-	if err = s.WithSession(ctx, func() error { return nil }); err != nil {
+	if err = s.WithSession(ctx, func() error {
+		return m.store.(*DBStore).db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := checkConsumer(tx); err != nil {
+				return err
+			}
+			var current database.CredentialEntry
+			if err := tx.Where("user_id = ? AND pattern = ?", s.userID, hostname).First(&current).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return oauthflow.ErrConflict
+				}
+				return err
+			}
+			if current.ID != row.ID || !current.UpdatedAt.Equal(row.UpdatedAt) || current.Source != row.Source || current.SourceConfigEnc != row.SourceConfigEnc || current.AuthType != row.AuthType || current.TokenEnc != row.TokenEnc || current.ExpiresAt != row.ExpiresAt || current.OAuthEnc != row.OAuthEnc || current.LegacyOAuthControlEnc != row.LegacyOAuthControlEnc {
+				return oauthflow.ErrConflict
+			}
+			return nil
+		})
+	}); err != nil {
 		return nil, err
 	}
 	return auth, nil
