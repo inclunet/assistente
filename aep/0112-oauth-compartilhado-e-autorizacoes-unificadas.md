@@ -986,3 +986,8 @@ Depois de resolver uma fonte externa do fallback por hostname, o runtime revalid
 consumidor, ausência de grant próprio e identidade/conteúdo da credencial na
 mesma leitura transacional. Uma alteração durante o comando invalida o resultado.
 Evidência: `TestLegacyHostnameRevalidatesAfterSourceResolution`.
+
+Toda falha da resolução coordenada do token legado é terminal para o transporte,
+inclusive erros genéricos do banco/discovery, preservando a causa para errors.Is.
+Não há envio anônimo nem autorização interativa após essa falha. Evidência:
+`TestLegacyStoreFailureStopsBeforeAnonymousRequest`. Ausência explícita de grant continua permitindo o bootstrap, coberto por `TestLegacyMissingGrantAllowsInitialProbe` e `TestLegacyPollingDCRPersistsCallbackForReauthorization`.

@@ -23,6 +23,8 @@ type legacyTokenSource struct {
 	cfg *oauth2.Config
 }
 
+var errLegacyOAuthResolution = errors.New("oauth_legacy_resolution_failed")
+
 func (s *legacyTokenSource) Token() (*oauth2.Token, error) {
 	return s.rt.resolveLegacyToken(s.rt.longLivedCtx(), s.cfg, false)
 }
@@ -92,7 +94,13 @@ func (rt *pkceRoundTripper) resolveLegacyToken(ctx context.Context, cfg *oauth2.
 	return rt.resolveLegacyTokenWithValidity(ctx, cfg, force, 0, rejected...)
 }
 
-func (rt *pkceRoundTripper) resolveLegacyTokenWithValidity(ctx context.Context, cfg *oauth2.Config, force bool, minimum time.Duration, rejected ...string) (*oauth2.Token, error) {
+func (rt *pkceRoundTripper) resolveLegacyTokenWithValidity(ctx context.Context, cfg *oauth2.Config, force bool, minimum time.Duration, rejected ...string) (resolved *oauth2.Token, err error) {
+	defer func() {
+		// Absence is the initial authorization path, not a failed resolution.
+		if err != nil && !errors.Is(err, oauthflow.ErrNotFound) {
+			err = errors.Join(errLegacyOAuthResolution, err)
+		}
+	}()
 	valid := func(token *oauth2.Token) bool {
 		return token.Valid() && (token.Expiry.IsZero() || time.Until(token.Expiry) > minimum)
 	}

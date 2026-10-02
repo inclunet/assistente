@@ -40,6 +40,63 @@ func TestLegacyPreflightDeadlineStopsBeforeAnonymousRequest(t *testing.T) {
 	}
 }
 
+func TestLegacyStoreFailureStopsBeforeAnonymousRequest(t *testing.T) {
+	m, _, ctx, cfg := legacyWALManagers(t, "https://resource.example")
+	rt := m.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
+	injected := errors.New("injected store failure")
+	db := m.repository().(*DBRepository).db
+	if err := db.Callback().Query().Before("gorm:query").Register("fail_legacy_read", func(tx *gorm.DB) {
+		if tx.Statement.Table == "credential_entries" {
+			_ = tx.AddError(injected)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Query().Remove("fail_legacy_read") })
+	rt.base = managedTestRoundTrip(func(*http.Request) (*http.Response, error) {
+		t.Fatal("store failure must not send an anonymous request")
+		return nil, nil
+	})
+	previousBrowser := browserOpen
+	browserOpen = func(string) error {
+		t.Fatal("store failure must not start interactive fallback")
+		return nil
+	}
+	t.Cleanup(func() { browserOpen = previousBrowser })
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := rt.RoundTrip(req)
+	if response != nil || !errors.Is(err, injected) || !errors.Is(err, errLegacyOAuthResolution) {
+		t.Fatalf("store failure was not preserved as terminal: %v", err)
+	}
+}
+
+func TestLegacyMissingGrantAllowsInitialProbe(t *testing.T) {
+	m, _, ctx, cfg := legacyWALManagers(t, "https://resource.example")
+	if err := m.DeleteServerAuth("legacy"); err != nil {
+		t.Fatal(err)
+	}
+	rt := m.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
+	called := false
+	rt.base = managedTestRoundTrip(func(req *http.Request) (*http.Response, error) {
+		called = true
+		if req.Header.Get("Authorization") != "" {
+			t.Fatal("initial probe unexpectedly authenticated")
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := rt.RoundTrip(req)
+	if err != nil || response == nil || !called {
+		t.Fatalf("missing grant prevented initial probe: %v", err)
+	}
+}
+
 func TestOAuthCreationPreservesExplicitConnectionFlags(t *testing.T) {
 	for _, managed := range []bool{false, true} {
 		for _, enabled := range []bool{false, true} {
