@@ -1171,7 +1171,7 @@ snapshot recusam uma tentativa ativa também neste fluxo.
 
 Client Credentials emite um grant novo, sem reutilizar refresh token. Uma falha
 ou tentativa expirada pode ser repetida; não marca refresh pendente nem exige
-consentimento interativo. Um refresh token residual do PKCE é ambiguidade e
+consentimento interativo. Um access token ou refresh token residual do PKCE é ambiguidade e
 continua bloqueado. Respostas de erro do provedor não são expostas pela resolução.
 Client Credentials legado persistido usa o bridge local: não pode expor ao MCP nativo o fallback genérico por hostname ou token em cache. Client Credentials composto conserva o suporte nativo pelo serviço comum. Entradas não persistidas conservam o caminho anterior. Executáveis antigos não
 participam desta coordenação e não devem compartilhar o banco durante operações.

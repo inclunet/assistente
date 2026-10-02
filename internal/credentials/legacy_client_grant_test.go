@@ -83,6 +83,22 @@ func TestLegacyClientGrantAcquisitionRollsBackAndRefusesPKCEResidue(t *testing.T
 	if _, _, err := a.BeginLegacyClientGrant(ctx, "legacy", id, nil); err == nil {
 		t.Fatal("rotating grant repurposed")
 	}
+	if err := a.RegisterPatternWithContext(ctx, "mcp-tokens:legacy", &AuthConfig{Source: "static", Type: "oauth2", Token: "access-only-residue"}); err != nil {
+		t.Fatal(err)
+	}
+	var before, after database.CredentialEntry
+	if err := db.Where("pattern = ?", "mcp-tokens:legacy").First(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.BeginLegacyClientGrant(ctx, "legacy", id, nil); err == nil {
+		t.Fatal("access-only PKCE grant repurposed")
+	}
+	if err := db.Where("id = ?", before.ID).First(&after).Error; err != nil {
+		t.Fatal(err)
+	}
+	if before.TokenEnc == "" || before.TokenEnc != after.TokenEnc || after.LegacyOAuthControlEnc != "" {
+		t.Fatal("rejected residue was altered or acquired a lease")
+	}
 	if err := a.DeletePattern(ctx, "mcp-tokens:legacy"); err != nil {
 		t.Fatal(err)
 	}

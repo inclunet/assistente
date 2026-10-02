@@ -314,7 +314,7 @@ func (m *Manager) beginLegacyOAuth(ctx context.Context, slug, consumerID string,
 				}
 			}
 		}
-		if clientGrant && (clientErr != nil || auth.ClientSecret == "" || auth.RefreshURL != "") {
+		if clientGrant && (clientErr != nil || auth.ClientSecret == "" || auth.Token != "" || auth.RefreshURL != "") {
 			return oauthflow.ErrConflict
 		}
 		var nonce [24]byte
