@@ -221,6 +221,12 @@ func TestLegacyPublicClientAuthInfoAndPendingRemoval(t *testing.T) {
 }
 
 func TestLegacyDetachRollsBackCredentialsWithConfig(t *testing.T) {
+	for _, stdio := range []bool{false, true} {
+		t.Run(map[bool]string{false: "explicit_none", true: "stdio_implicit_none"}[stdio], func(t *testing.T) { testLegacyDetachRollsBackCredentialsWithConfig(t, stdio) })
+	}
+}
+
+func testLegacyDetachRollsBackCredentialsWithConfig(t *testing.T, stdio bool) {
 	a, _, ctx, cfg := legacyWALManagers(t, "https://example.com")
 	op, _, err := a.credMgr.BeginLegacyOAuth(ctx, "legacy", cfg.ID, false, false, nil)
 	if err != nil {
@@ -238,6 +244,10 @@ func TestLegacyDetachRollsBackCredentialsWithConfig(t *testing.T) {
 	t.Cleanup(func() { _ = db.Callback().Update().Remove("reject_detach_config") })
 	none := cfg
 	none.AuthType = AuthNone
+	if stdio {
+		// The editor omits auth_type and all HTTP/OAuth fields for stdio.
+		none = ServerConfig{ID: cfg.ID, UserID: cfg.UserID, Name: cfg.Name, Transport: TransportStdio, Command: "local-mcp", Enabled: cfg.Enabled, AutoConnect: cfg.AutoConnect}
+	}
 	if err := a.SaveConfig("legacy", none); err == nil {
 		t.Fatal("expected save failure")
 	}
