@@ -549,7 +549,9 @@ func TestPersistAndLoadUserTokens(t *testing.T) {
 		RefreshToken: "refresh-456",
 	}
 	ctx := context.Background()
-	rt.persistTokens(toOAuth2Token(token))
+	if err := rt.persistTokens(toOAuth2Token(token)); err != nil {
+		t.Fatal(err)
+	}
 
 	loaded := loadUserTokens(ctx, credMgr, "test-server")
 	if loaded == nil {
@@ -1327,9 +1329,13 @@ func TestPersistTokens_PreservesRefreshTokenWhenEmpty(t *testing.T) {
 	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv"}
 	ctx := context.Background()
 
-	rt.persistTokens(&oauth2.Token{AccessToken: "a1", RefreshToken: "r1"})
+	if err := rt.persistTokens(&oauth2.Token{AccessToken: "a1", RefreshToken: "r1"}); err != nil {
+		t.Fatal(err)
+	}
 	// Refresh non-rotativo: novo access_token, refresh_token ausente na resposta.
-	rt.persistTokens(&oauth2.Token{AccessToken: "a2"})
+	if err := rt.persistTokens(&oauth2.Token{AccessToken: "a2"}); err != nil {
+		t.Fatal(err)
+	}
 
 	loaded := loadUserTokens(ctx, credMgr, "srv")
 	if loaded == nil {
@@ -1349,7 +1355,9 @@ func TestPersistTokens_PersistsExpiry(t *testing.T) {
 	ctx := context.Background()
 
 	exp := time.Now().Add(2 * time.Hour).Truncate(time.Second)
-	rt.persistTokens(&oauth2.Token{AccessToken: "a", RefreshToken: "r", Expiry: exp})
+	if err := rt.persistTokens(&oauth2.Token{AccessToken: "a", RefreshToken: "r", Expiry: exp}); err != nil {
+		t.Fatal(err)
+	}
 
 	loaded := loadUserTokens(ctx, credMgr, "srv")
 	if loaded == nil {
@@ -1381,7 +1389,9 @@ func TestTrySilentRefresh_UsesStoreRefreshTokenWhenMemoryLacksIt(t *testing.T) {
 	credMgr := newTestCredMgr()
 	ctx := context.Background()
 	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv", cfg: ServerConfig{URL: srv.URL}}
-	rt.persistTokens(&oauth2.Token{AccessToken: "old-access", RefreshToken: "stored-refresh"})
+	if err := rt.persistTokens(&oauth2.Token{AccessToken: "old-access", RefreshToken: "stored-refresh"}); err != nil {
+		t.Fatal(err)
+	}
 
 	rt.oauthCfg = &oauth2.Config{
 		ClientID: "c",
@@ -1429,7 +1439,9 @@ func TestStoredTokenSourceSurvivesOperationCtxCancel(t *testing.T) {
 
 	credMgr := newTestCredMgr()
 	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv", cfg: ServerConfig{URL: srv.URL}}
-	rt.persistTokens(&oauth2.Token{AccessToken: "seed", RefreshToken: "seed-ref"})
+	if err := rt.persistTokens(&oauth2.Token{AccessToken: "seed", RefreshToken: "seed-ref"}); err != nil {
+		t.Fatal(err)
+	}
 	rt.oauthCfg = &oauth2.Config{ClientID: "c", Endpoint: oauth2.Endpoint{TokenURL: srv.URL + "/token"}}
 	rt.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "seed"})
 

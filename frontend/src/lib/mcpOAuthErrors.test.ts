@@ -24,6 +24,7 @@ describe('OAuth registration errors', () => {
     expect(denied).not.toBe('mcp.error.networkAuthorizationFailed');
     for (const [code, key] of [
       ['oauth_authorization_changed', 'authorizationChanged'],
+      ['oauth_legacy_persistence_failed', 'legacyPersistenceFailed'],
       ['oauth_reauthorization_required', 'authorizationRequired'],
       ['oauth_permission_missing', 'authorizationPermissions'],
       ['oauth_public_client_secret_not_allowed', 'publicClientSecret'],

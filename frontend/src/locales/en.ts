@@ -1432,6 +1432,7 @@ const en = {
         deviceExpired: 'The authorization code expired. Start a new authorization to obtain another code.',
         deviceFailed: 'Could not complete device authorization. Check the OAuth configuration and try again.',
         authorizationChanged: 'The authorization changed or is in use. Wait for the operation to finish and try again.',
+        legacyPersistenceFailed: 'The OAuth credential could not be saved. The operation stopped so a renewal is not reported as complete without saving the token. Check vault access before trying again.',
         authorizationRequired: 'This server needs authorization. Use Connect or Reauthorize to continue.',
         publicClientSecret: "This DCR client is public and does not accept a manual secret. Use a different client ID to configure secret-based authentication.",
       clientConfigurationRequired: "Review the OAuth client ID and secret in the server configuration, then connect again.",

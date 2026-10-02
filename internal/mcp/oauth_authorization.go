@@ -520,7 +520,7 @@ func (m *Manager) detachManagedOAuth(ctx context.Context, slug string, cfg Serve
 		if remove {
 			return NewDBRepository(tx).DeleteServer(ctx, slug)
 		}
-		return NewDBRepository(tx).SaveServer(ctx, &cfg)
+		return NewDBRepository(tx).saveServer(ctx, &cfg, true)
 	})
 	if err != nil {
 		return err

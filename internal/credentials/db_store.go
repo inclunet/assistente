@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"assistente/internal/database"
+	"assistente/internal/oauthflow"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -92,17 +93,53 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 		ClientSecretEnc: cred.Auth.ClientSecret,
 	}
 
-	if cred.ID != "" {
-		if IsInstanceSecretPattern(cred.Pattern) {
-			return db.WithContext(ctx).Where("user_id = '' AND id = ?", cred.ID).Save(&entry).Error
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// A late legacy writer must not recreate a pair after its consumer has
+		// transferred ownership to the shared OAuth service. Check and write in
+		// the same transaction, including writes that carry a persisted ID.
+		if err := guardLegacyMCPOAuthWrite(tx, userID, cred.Pattern); err != nil {
+			return err
 		}
-		return database.ScopeByUser(ctx, db.WithContext(ctx), "user_id").Save(&entry).Error
-	}
+		if cred.ID != "" {
+			if IsInstanceSecretPattern(cred.Pattern) {
+				return tx.Where("user_id = '' AND id = ?", cred.ID).Save(&entry).Error
+			}
+			return database.ScopeByUser(ctx, tx, "user_id").Save(&entry).Error
+		}
 
-	return db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "user_id"}, {Name: "pattern"}},
-		UpdateAll: true,
-	}).Create(&entry).Error
+		return tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "user_id"}, {Name: "pattern"}},
+			UpdateAll: true,
+		}).Create(&entry).Error
+	})
+}
+
+func guardLegacyMCPOAuthWrite(tx *gorm.DB, userID, pattern string) error {
+	slug := ""
+	for _, prefix := range []string{"mcp-client:", "mcp-tokens:"} {
+		if strings.HasPrefix(pattern, prefix) {
+			slug = strings.TrimPrefix(pattern, prefix)
+			break
+		}
+	}
+	if slug == "" {
+		return nil
+	}
+	// Credential-only stores (including import tooling) can exist before the
+	// MCP schema. Once consumers exist, ownership is authoritative in the DB.
+	if !tx.Migrator().HasTable(&database.MCPServer{}) {
+		return nil
+	}
+	var count int64
+	if err := tx.Model(&database.MCPServer{}).
+		Where("user_id = ? AND slug = ? AND (oauth_managed = ? OR oauth_authorization_id <> '')", userID, slug, true).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count != 0 {
+		return oauthflow.ErrConflict
+	}
+	return nil
 }
 
 func (s *DBStore) ListCredentials(ctx context.Context) ([]StoredCredential, error) {

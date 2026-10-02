@@ -1307,8 +1307,9 @@ func (m *Manager) reconnectWithContext(ctx context.Context, slug string) error {
 // reutilizando a infra de OAuth PKCE (discovery, DCR, device/PKCE flow) com o
 // callback de persistência de config e o ctx user-scoped do Manager.
 func (m *Manager) buildPKCERoundTripperForServer(ctx context.Context, slug string, cfg ServerConfig) *pkceRoundTripper {
+	persistConfig := m.legacyOAuthConfigWriter(cfg)
 	onConfigUpdate := func(updated ServerConfig) {
-		if err := m.SaveConfig(slug, updated); err != nil {
+		if err := persistConfig(updated); err != nil {
 			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Erro ao persistir config após atualização OAuth: %v", slug, err)
 		}
 	}

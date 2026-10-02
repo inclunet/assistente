@@ -274,8 +274,9 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    PKCE/OIDC, callback, extensão de registro ChatGPT, refresh coordenado, UI de conexão,
    catálogo, Responses e ferramentas locais. Se dividida em PRs, infraestrutura e
    integração formam uma entrega funcional conjunta, sem anunciar suporte antes disso.
-   **Implementação e testes automatizados entregues; aceite funcional pendente** de
-   consentimento com conta real, reconexão, catálogo e envio de mensagem pelo usuário,
+   **Implementação e testes automatizados entregues; conexão com conta real validada
+   pelo mantenedor em 01/10/2026.** Permanecem sem confirmação funcional reconexão,
+   catálogo e envio de mensagem pelo usuário,
    conforme o critério ChatGPT funcional abaixo.
 2. [ ] Paridade MCP: extrair/adaptar discovery, DCR, Device Flow, client credentials,
    callback manual/fixo e reautorização; adicionar consumidores do serviço compartilhado.
@@ -313,8 +314,9 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 - Testes `oauthflow/service_test.go`, `credentials/oauth_store_test.go`,
   `llm/chatgpt_test.go` e `ChatGPTConnection.test.tsx` cobrem o fluxo com servidores
   e tokens de teste, falha de persistência, concorrência, escopo e conclusão SSE.
-- O teste de consentimento com uma conta real depende de ação do usuário no
-  navegador. Não foi realizado automaticamente nem usa credenciais de terceiros.
+- O mantenedor confirmou em 01/10/2026 que testou a fase 1 e a conta ChatGPT
+  conectou normalmente. Essa evidência valida conexão/consentimento real; não
+  presume confirmação dos demais cenários de reconexão, catálogo e envio.
 - Modelo padrão opcional altera somente o campo em transação com a autorização;
   testes preservam edição concorrente e recusam exclusão, novo vínculo ou desconexão.
 - Coletor síncrono exige conclusão explícita; `response.completed` encerra a leitura
@@ -799,3 +801,33 @@ fixtures de conversão de versões publicadas, migração transacional/idempoten
 coordenação com escritores legados, comprovação reinício/refresh/native/bridge
 e retirada do runtime legado. Este incremento não cria snapshots nem executa
 conversão, descarte ou exportação de credenciais.
+
+### Fase 3 — barreiras contra publicação legada tardia
+
+Status: **In Progress**. Antes da conversão, a persistência passa a recusar
+escritas em `mcp-client:<slug>` e `mcp-tokens:<slug>` quando o consumidor do mesmo
+usuário já pertence ao serviço compartilhado. A checagem e a gravação ficam na
+mesma transação, inclusive quando o escritor informa o ID da entrada existente.
+Resíduos anteriores permanecem intactos; a barreira não os apaga nem os migra.
+Callbacks antigos de configuração também não podem remover ou trocar o vínculo
+composto. A desvinculação explícita continua no callback transacional do cofre.
+
+O token source legado propaga falha de persistência, sem informar renovação
+concluída nem iniciar outro consentimento como fallback. A apresentação usa
+mensagem localizada e não expõe o erro bruto de armazenamento. O token recebido
+fica no token source em memória para que uma nova tentativa de persistência não
+precise renovar novamente o mesmo grant.
+
+Evidências: `TestManagedOAuthRejectsLateLegacyWriters`,
+`TestManagedOAuthLegacyFencePreservesOtherConsumersAndResidues`,
+`TestLegacyTokenPersistenceFailureIsTerminalAndSanitized` e
+`mcpOAuthErrors.test.ts`.
+
+Esta barreira de gravação não é exclusão antes da operação remota. Antes de
+converter, ainda é necessário coordenar autorização/refresh e edição desde
+antes do request até o commit, incluindo operações em outros processos. Os
+registros publicados não preservam necessariamente scopes concedidos nem o
+método de autenticação efetivamente negociado; esses casos não podem ser
+convertidos por inferência. Snapshot não desfaz rotação remota: a recuperação
+precisa distinguir restauração estrutural de validade do grant. Snapshot,
+retenção, restauração, conversão e retirada do runtime legado seguem pendentes.
