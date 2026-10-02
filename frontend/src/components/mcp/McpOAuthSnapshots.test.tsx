@@ -24,6 +24,15 @@ beforeEach(() => {
 });
 
 describe('McpOAuthSnapshots', () => {
+  it('permite criar snapshot de Client Credentials sem incluir credenciais compartilhadas', async () => {
+    render(<McpOAuthSnapshots consumers={[...consumers, { id: 'cc', name: 'Aplicação', kind: 'client_credentials', issues: [] }, { id: 'host', name: 'Compartilhada', kind: 'hostname', issues: [] }] as mcp.OAuthInventoryItem[]} />);
+    await screen.findByText('Servidor');
+    expect(screen.queryByRole('option', { name: 'Compartilhada' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('mcp.snapshots.consumer'), { target: { value: 'cc' } });
+    fireEvent.click(screen.getByRole('button', { name: 'mcp.snapshots.create' }));
+    await waitFor(() => expect(CreateMCPOAuthSnapshot).toHaveBeenCalledWith('cc'));
+    expect(RestoreMCPOAuthSnapshot).not.toHaveBeenCalled();
+  });
   it('preserva a lista atual após descarte e troca de idioma', async () => {
     render(<McpOAuthSnapshots consumers={consumers} />);
     fireEvent.click(await screen.findByRole('button', { name: 'mcp.snapshots.discardNamed' }));

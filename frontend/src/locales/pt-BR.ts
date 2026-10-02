@@ -1380,9 +1380,9 @@ const ptBR = {
     mcp: {
       snapshots: {
         "title": "Snapshots OAuth",
-        "description": "Crie uma cópia cifrada da configuração e do par de credenciais PKCE legado. Client Credentials, credenciais por hostname e autorizações compostas não são incluídos.",
+        "description": "Crie uma cópia cifrada da configuração e das credenciais de servidores PKCE ou Client Credentials legados. Credenciais compartilhadas por hostname e autorizações compostas não são incluídas.",
         "retention": "Retenção: 30 dias. A expiração bloqueia a restauração, mas não apaga a última cópia sem sua confirmação. Os arquivos ficam fora da exportação e sincronização do Assistente.",
-        "consumer": "Servidor PKCE legado",
+        "consumer": "Servidor OAuth legado",
         "select": "Selecione um servidor",
         "create": "Criar snapshot",
         "created": "Snapshot cifrado criado.",
@@ -1395,8 +1395,8 @@ const ptBR = {
         "expired": "Prazo de recuperação encerrado. Confirme o fim da janela de rollback antes de descartar.",
         "restore": "Restaurar configuração",
         "restoreNamed": "Restaurar configuração de {{name}}",
-        "restoreConfirm": "Restaurar somente se não houver credenciais atuais nem edições posteriores? O servidor ficará desabilitado e sem conexão automática. Tokens antigos não serão reutilizados: será necessário reautorizar. O snapshot permanecerá disponível.",
-        "restored": "Configuração restaurada. Use Reautorizar e, após concluir, habilite o servidor.",
+        "restoreConfirm": "Restaurar somente se não houver credenciais atuais nem edições posteriores? O servidor ficará desabilitado e sem conexão automática. Tokens antigos não serão reutilizados. PKCE exige Reautorizar; Client Credentials obtém um token novo ao conectar após habilitar. O snapshot permanecerá disponível.",
+        "restored": "Configuração restaurada e servidor desabilitado. Para PKCE, use Reautorizar antes de habilitar. Para Client Credentials, confira cliente e segredo antes de habilitar e conectar.",
         "discard": "Descartar snapshot",
         "discardNamed": "Descartar snapshot de {{name}}",
         "discardConfirm": "Você confirma que a janela de rollback terminou e que a migração ou recuperação foi validada? Esta ação pode remover a última cópia e não pode ser desfeita.",

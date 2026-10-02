@@ -8,6 +8,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime/debug"
 	"sort"
 	"time"
@@ -113,7 +114,7 @@ func (s *snapshotSession) read(ctx context.Context, files *oauthsnapshot.Files, 
 		return nil, ErrSnapshot
 	}
 	var p legacySnapshot
-	if json.Unmarshal([]byte(plain), &p) != nil || p.Version != 1 || p.Schema != "legacy-pkce-v1" || p.ID != id || p.UserID != s.store.userID || p.Database != s.identity || p.Consumer.UserID != s.store.userID || p.Consumer.ID == "" || p.Consumer.Slug == "" || p.Consumer.OAuthManaged || p.Consumer.OAuthAuthorizationID != "" || p.Consumer.AuthType != "oauth2_pkce" {
+	if json.Unmarshal([]byte(plain), &p) != nil || p.Version != 1 || !validLegacySnapshotSchema(p) || p.ID != id || p.UserID != s.store.userID || p.Database != s.identity || p.Consumer.UserID != s.store.userID || p.Consumer.ID == "" || p.Consumer.Slug == "" || p.Consumer.OAuthManaged || p.Consumer.OAuthAuthorizationID != "" {
 		return nil, ErrSnapshot
 	}
 	if err := s.check(ctx); err != nil {
@@ -122,8 +123,14 @@ func (s *snapshotSession) read(ctx context.Context, files *oauthsnapshot.Files, 
 	return &p, nil
 }
 
+func validLegacySnapshotSchema(p legacySnapshot) bool {
+	return p.Schema == "legacy-pkce-v1" && p.Consumer.AuthType == "oauth2_pkce" ||
+		p.Schema == "legacy-client-credentials-v1" && p.Consumer.AuthType == "oauth2_client_credentials"
+}
+
 // CreateLegacyOAuthSnapshot does not resolve credentials, invoke sources, or
-// contact OAuth servers. Only persisted PKCE consumers are supported here.
+// contact OAuth servers. Persisted PKCE and Client Credentials consumers use
+// separate schemas so an older reader cannot misinterpret recovery semantics.
 func (m *Manager) CreateLegacyOAuthSnapshot(ctx context.Context, directory, consumerID string) (OAuthSnapshotInfo, error) {
 	s, err := m.snapshotSession(ctx, directory)
 	if err != nil {
@@ -148,7 +155,10 @@ func (m *Manager) CreateLegacyOAuthSnapshot(ctx context.Context, directory, cons
 			if err := tx.Where("user_id = ? AND id = ?", p.UserID, consumerID).First(&p.Consumer).Error; err != nil {
 				return ErrSnapshot
 			}
-			if p.Consumer.AuthType != "oauth2_pkce" || p.Consumer.OAuthManaged || p.Consumer.OAuthAuthorizationID != "" {
+			if p.Consumer.AuthType == "oauth2_client_credentials" {
+				p.Schema = "legacy-client-credentials-v1"
+			}
+			if !validLegacySnapshotSchema(p) || p.Consumer.OAuthManaged || p.Consumer.OAuthAuthorizationID != "" {
 				return ErrSnapshot
 			}
 			var rows []database.CredentialEntry
@@ -278,6 +288,7 @@ func (m *Manager) RestoreLegacyOAuthSnapshot(ctx context.Context, directory, id 
 	consumer.LastDiscoveredAt = nil
 	consumer.User = nil
 	consumer.Tools = nil
+	var recoveredClient *database.CredentialEntry
 	for _, check := range validate {
 		if err := check(consumer); err != nil {
 			return ErrSnapshot
@@ -333,14 +344,21 @@ func (m *Manager) RestoreLegacyOAuthSnapshot(ctx context.Context, directory, id 
 					}
 				}
 			}
-			entry.LegacyOAuthControlEnc = ""
+			// Recover client registration only. Even malformed legacy client rows
+			// must not reactivate access/refresh tokens or external source settings.
+			entry = database.CredentialEntry{UUIDModel: entry.UUIDModel, UserID: p.UserID,
+				Pattern: entry.Pattern, Source: "static", AuthType: "oauth2",
+				ClientIDEnc: entry.ClientIDEnc, ClientSecretEnc: entry.ClientSecretEnc, ClientGrantType: entry.ClientGrantType}
 			if err := tx.Create(&entry).Error; err != nil {
 				return err
 			}
+			recoveredClient = &entry
 		}
-		tokens := database.CredentialEntry{UserID: p.UserID, Pattern: "mcp-tokens:" + consumer.Slug, Source: "static", AuthType: "oauth2", LegacyOAuthControlEnc: control}
-		if err := tx.Create(&tokens).Error; err != nil {
-			return err
+		if consumer.AuthType == "oauth2_pkce" {
+			tokens := database.CredentialEntry{UserID: p.UserID, Pattern: "mcp-tokens:" + consumer.Slug, Source: "static", AuthType: "oauth2", LegacyOAuthControlEnc: control}
+			if err := tx.Create(&tokens).Error; err != nil {
+				return err
+			}
 		}
 		if errors.Is(readErr, gorm.ErrRecordNotFound) {
 			if err := tx.Omit("User", "Tools").Create(&consumer).Error; err != nil {
@@ -361,6 +379,14 @@ func (m *Manager) RestoreLegacyOAuthSnapshot(ctx context.Context, directory, id 
 		}
 	}
 	m.credentials = kept
+	// Client Credentials reads registration from the vault cache. Publish only
+	// after the transaction succeeds, under the captured session's vault lock.
+	if consumer.AuthType == "oauth2_client_credentials" && recoveredClient != nil {
+		entry := recoveredClient
+		m.credentials = append(m.credentials, &DomainCredential{ID: entry.ID, UserID: entry.UserID, Pattern: entry.Pattern,
+			Auth:  &AuthConfig{Source: "static", Type: "oauth2", ClientID: entry.ClientIDEnc, ClientSecret: entry.ClientSecretEnc, ClientGrantType: entry.ClientGrantType},
+			regex: regexp.MustCompile(wildcardToRegex(entry.Pattern))})
+	}
 	if publish != nil {
 		publish(consumer)
 	}

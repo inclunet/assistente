@@ -294,7 +294,8 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 3. [ ] Cutover MCP: migrar registros e referências, comprovar reinício/refresh/native/bridge,
    remover persistência dupla, configurações OAuth duplicadas e ciclo próprio de renovação.
    O inventário local preparatório está entregue (seção de evidências da fase 3);
-   conversão, snapshot recuperável e retirada do legado permanecem pendentes.
+   snapshots recuperáveis de PKCE e Client Credentials estão entregues;
+   recuperação por hostname, conversão e retirada do legado permanecem pendentes.
 4. [ ] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
    conexão e referências por papel, sem alterar protocolo nem exigir OAuth inexistente.
 
@@ -1032,8 +1033,8 @@ Evidências: `TestPrivateSnapshotPublication`, `TestWindowsSnapshotDACL`,
 `TestOAuthSnapshotTamperAndRetention`,
 `TestOAuthSnapshotRestoreReauthorizeThenEnable` e `McpOAuthSnapshots.test.tsx`.
 
-Continuam pendentes: snapshots/conversão de Client Credentials e credenciais
-compartilhadas por hostname, fixtures de versões publicadas para a conversão,
+Continuam pendentes: snapshots de credenciais compartilhadas por hostname e
+conversão dos cadastros PKCE/Client Credentials, fixtures de versões publicadas,
 cutover transacional/idempotente, paridade após reinício/native/bridge e remoção
 do runtime legado. A convergência de Slack permanece na etapa seguinte.
 
@@ -1043,3 +1044,32 @@ modal de snapshots usa semântica de formulário, e a decisão de reconectar rel
 a configuração após reautorizar. Evidências: `TestOpenRejectsDirectoryReplacedAfterProtection`,
 `TestOpenKeepsValidatedDirectoryAfterRename`, `McpOAuthInventory.test.tsx` e
 `TestOAuthSnapshotRestoreReauthorizeThenEnable/enabled_after_authorization`.
+
+### Fase 3 — recuperação de Client Credentials legado
+
+Status: **In Progress**. O mesmo diagnóstico permite criar, listar, restaurar e
+descartar snapshots dos consumidores Client Credentials legados. O envelope
+`legacy-client-credentials-v1` mantém configuração e registros específicos por
+slug; o leitor continua aceitando `legacy-pkce-v1`, sem reinterpretar seu contrato.
+Credenciais por hostname não são capturadas, removidas nem restauradas.
+
+A restauração mantém as guardas transacionais de identidade, ausência de
+credenciais atuais, sessão e retenção. Recupera somente os campos de registro do
+cliente (ID, segredo e grant), descartando access/refresh mesmo se indevidamente
+presentes na entrada de cliente. Segredos ilegíveis abortam sem publicar no banco
+ou cache. O cliente recuperado é publicado no cache após o commit para funcionar
+sem reinício; o carregamento normal do cofre preserva o resultado após reinício.
+O servidor permanece desabilitado e sem autoconexão. Client Credentials não cria
+marcador PKCE nem solicita consentimento interativo: ao habilitar e conectar,
+obtém um token novo. Cadastros incompletos exigem correção antes da conexão.
+
+Evidências: `TestClientCredentialsSnapshotRestoresOnlyRegistration`,
+`TestClientCredentialsSnapshotRestoreRollsBackCacheAndDatabase`,
+`TestClientCredentialsSnapshotRejectsUnreadableRegistration`,
+`TestClientCredentialsSnapshotGetsNewTokenAfterEnable` e
+`McpOAuthSnapshots.test.tsx`. Os testes PKCE anteriores permanecem no mesmo fluxo.
+
+Este incremento não inicia conversão automática nem conclui a fase 3. Faltam
+recuperação das credenciais compartilhadas por hostname, fixtures de versões
+publicadas, conversão transacional/idempotente e remoção do runtime legado.
+Slack e os aceites funcionais com provedores reais continuam pendentes.

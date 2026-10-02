@@ -678,9 +678,9 @@ nenhuma das credenciais é removida parcialmente.
 ### Recuperar configuração OAuth antiga
 
 Em **Servidores MCP → Diagnóstico OAuth → Snapshots OAuth**, selecione um
-servidor PKCE legado e escolha **Criar snapshot**. A cópia é cifrada com a chave
-do seu cofre e inclui configuração e par de credenciais desse servidor. Não
-inclui Client Credentials, credenciais compartilhadas por hostname nem os
+servidor PKCE ou Client Credentials legado e escolha **Criar snapshot**. A cópia
+é cifrada com a chave do seu cofre e inclui configuração e credenciais específicas
+desse servidor. Não inclui credenciais compartilhadas por hostname nem os
 cadastros que já usam autorização unificada.
 
 A lista mostra a localização e o prazo de recuperação de 30 dias. Os arquivos
@@ -693,9 +693,15 @@ perder ou substituir a chave impede abrir a cópia.
 **Restaurar configuração** só funciona quando as credenciais estão ausentes e
 não houve alterações posteriores no cadastro, ou quando o servidor foi removido
 inteiramente. A ação não sobrescreve credenciais atuais. O servidor restaurado
-fica desabilitado e sem conexão automática. Use **Reautorizar** e, após concluir
-o login, habilite o servidor. Tokens antigos não são reutilizados: restaurar um
-arquivo não desfaz rotação ou revogação no serviço remoto.
+fica desabilitado e sem conexão automática. Para **PKCE**, use **Reautorizar** e,
+após concluir o login, habilite o servidor. Para **Client Credentials**, confira
+o cliente e o segredo recuperados, habilite e conecte: o serviço obtém um token
+novo sem consentimento no navegador. Se o cadastro era incompleto, complete os
+campos antes de conectar. Tokens antigos nunca são restaurados ao cofre ativo:
+restaurar um arquivo não desfaz rotação ou revogação no serviço remoto.
+
+Snapshots PKCE anteriores continuam legíveis. Snapshots Client Credentials têm
+formato próprio e exigem uma versão com este suporte para recuperação.
 
 Ao vencer o prazo, a restauração é bloqueada, mas o arquivo não é apagado
 automaticamente. **Descartar snapshot** pede confirmação de que a janela de
