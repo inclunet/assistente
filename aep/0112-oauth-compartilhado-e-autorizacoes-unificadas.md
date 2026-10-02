@@ -947,3 +947,47 @@ consumidor/ausência do par na mesma transação, sem reutilizar cache removido.
 Evidências: `TestLegacyProactiveAdoptsConcurrentRotation` e
 `TestLegacyNativeFallbackDoesNotReuseDeletedHostname`.
 
+### Fase 3 — recuperação estrutural do PKCE legado
+
+Status: **In Progress**. O diagnóstico OAuth oferece criação, consulta,
+restauração e descarte de snapshots dos consumidores PKCE legados persistidos.
+Este incremento entrega recuperação estrutural; não converte grants, não executa
+fontes externas e não restaura tokens antigos sobre autorizações atuais.
+
+O envelope `legacy-pkce-v1` inclui configuração, par exato (inclusive ausências),
+controle durável, versão/build, usuário e identidade do banco. O cofre cifra todo
+o envelope com sua DEK. Os arquivos ficam em `~/.assistente-oauth-recovery/`,
+separados por hash do caminho absoluto do banco e usuário, fora dos diretórios de
+exportação/sincronização. Acesso exige a sessão e a chave compatível; a API da UI
+recebe somente identificação, localização e datas. Unix usa diretório 0700 e
+arquivo 0600; Windows usa DACL protegida exclusiva do usuário do processo.
+Publicação é exclusiva, com arquivo sincronizado antes do link final; Unix também
+sincroniza o diretório. Leitura/escrita de arquivos não retém a trava do cofre;
+a publicação valida a sessão novamente. Não há promessa de apagamento físico.
+
+A validade explícita inicial é de 30 dias. Expiração impede restauração, mas não
+remove o último arquivo: descarte exige confirmação do fim da janela de rollback
+e da validação da recuperação/migração. Antes de automatizar a conversão, sua
+janela de rollback deverá caber na retenção configurada para aquela entrega.
+
+Restaurar exige o par ausente e o consumidor original sem edições posteriores,
+ou consumidor inteiramente removido. Não substitui grant ou cadastro mais novo.
+Configuração e cliente são restaurados na mesma transação; tokens antigos ficam
+somente no snapshot, enquanto um marcador pendente força autorização explícita.
+O servidor permanece desabilitado, sem conexão automática. **Reautorizar** funciona
+nesse estado sem reconectá-lo; após concluir, o usuário pode habilitá-lo.
+O snapshot não desfaz rotação/revogação remota nem oferece downgrade automático.
+
+Evidências: `TestPrivateSnapshotPublication`, `TestWindowsSnapshotDACL`,
+`TestOAuthSnapshotRecoveryNeverReplaysStoredRefresh`,
+`TestOAuthSnapshotRejectsActiveOperationsSourcesAndWrongKey`,
+`TestOAuthSnapshotRestoreIsAtomicAndRejectsEdits`,
+`TestOAuthSnapshotMissingConsumerRemainsDisabled`,
+`TestOAuthSnapshotPublicationRefusesEndedSession`,
+`TestOAuthSnapshotTamperAndRetention`,
+`TestOAuthSnapshotRestoreReauthorizeThenEnable` e `McpOAuthSnapshots.test.tsx`.
+
+Continuam pendentes: snapshots/conversão de Client Credentials e credenciais
+compartilhadas por hostname, fixtures de versões publicadas para a conversão,
+cutover transacional/idempotente, paridade após reinício/native/bridge e remoção
+do runtime legado. A convergência de Slack permanece na etapa seguinte.

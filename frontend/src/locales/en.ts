@@ -1377,6 +1377,30 @@ const en = {
     },
 
     mcp: {
+      snapshots: {
+        "title": "OAuth snapshots",
+        "description": "Create an encrypted copy of a legacy PKCE configuration and credential pair. Client Credentials, hostname credentials and composite authorizations are excluded.",
+        "retention": "Retention: 30 days. Expiration blocks recovery but never deletes the last copy without confirmation. Files are excluded from Assistente exports and synchronization.",
+        "consumer": "Legacy PKCE server",
+        "select": "Select a server",
+        "create": "Create snapshot",
+        "created": "Encrypted snapshot created.",
+        "loading": "Loading snapshots…",
+        "empty": "No snapshots found.",
+        "failed": "Unable to complete. Check the vault and permissions. Recovery requires missing credentials, the original configuration and no active OAuth operation.",
+        "createdAt": "Created on {{date}}",
+        "retainUntil": "Recovery available until {{date}}",
+        "location": "Location: {{path}}",
+        "expired": "Recovery period ended. Confirm the rollback window has closed before discarding.",
+        "restore": "Restore configuration",
+        "restoreNamed": "Restore configuration for {{name}}",
+        "restoreConfirm": "Restore only if there are no current credentials or later edits? The server will be disabled and automatic connection turned off. Old tokens will not be reused: reauthorization is required. The snapshot will remain available.",
+        "restored": "Configuration restored. Choose Reauthorize, then enable the server after authorization completes.",
+        "discard": "Discard snapshot",
+        "discardNamed": "Discard snapshot for {{name}}",
+        "discardConfirm": "Do you confirm the rollback window has closed and migration or recovery has been validated? This may remove the last copy and cannot be undone.",
+        "discarded": "Snapshot discarded."
+      },
       inventory: {
         "title": "OAuth diagnostics",
         "description": "This inventory reads local data for the current user. It does not connect servers, refresh tokens or change credentials. It prepares migration; it does not confirm token validity.",

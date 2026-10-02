@@ -8,7 +8,7 @@ import type { mcp } from '../../../wailsjs/go/models';
 import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
 
 const { announce } = vi.hoisted(() => ({ announce: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/MCP', () => ({ InspectMCPOAuthInventory: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/MCP', () => ({ InspectMCPOAuthInventory: vi.fn(), ListMCPOAuthSnapshots: vi.fn(async () => []), CreateMCPOAuthSnapshot: vi.fn(), RestoreMCPOAuthSnapshot: vi.fn(), DiscardMCPOAuthSnapshot: vi.fn() }));
 vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce }) }));
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });

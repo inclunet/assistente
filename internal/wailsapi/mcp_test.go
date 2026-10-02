@@ -39,6 +39,24 @@ func TestMCPOAuthInventoryRequiresSession(t *testing.T) {
 	}
 }
 
+func TestMCPOAuthSnapshotsRequireSession(t *testing.T) {
+	want := errors.New("no session")
+	api := NewMCP()
+	AttachMCP(api, stubSession{err: want}, controllers.NewMCPController(nil, nil, nil))
+	if _, err := api.ListMCPOAuthSnapshots(); !errors.Is(err, want) {
+		t.Fatalf("list: %v", err)
+	}
+	if _, err := api.CreateMCPOAuthSnapshot("consumer"); !errors.Is(err, want) {
+		t.Fatalf("create: %v", err)
+	}
+	if err := api.RestoreMCPOAuthSnapshot("snapshot"); !errors.Is(err, want) {
+		t.Fatalf("restore: %v", err)
+	}
+	if err := api.DiscardMCPOAuthSnapshot("snapshot", true); !errors.Is(err, want) {
+		t.Fatalf("discard: %v", err)
+	}
+}
+
 func TestMCPUsesWithUserNotRequireAuth(t *testing.T) {
 	t.Parallel()
 	_, thisFile, _, ok := runtime.Caller(0)

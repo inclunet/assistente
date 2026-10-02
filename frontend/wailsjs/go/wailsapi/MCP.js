@@ -6,12 +6,20 @@ export function ConnectMCPServer(arg1) {
   return window['go']['wailsapi']['MCP']['ConnectMCPServer'](arg1);
 }
 
+export function CreateMCPOAuthSnapshot(arg1) {
+  return window['go']['wailsapi']['MCP']['CreateMCPOAuthSnapshot'](arg1);
+}
+
 export function DeleteMCPServer(arg1) {
   return window['go']['wailsapi']['MCP']['DeleteMCPServer'](arg1);
 }
 
 export function DeleteMCPServerAuth(arg1) {
   return window['go']['wailsapi']['MCP']['DeleteMCPServerAuth'](arg1);
+}
+
+export function DiscardMCPOAuthSnapshot(arg1, arg2) {
+  return window['go']['wailsapi']['MCP']['DiscardMCPOAuthSnapshot'](arg1, arg2);
 }
 
 export function DisconnectMCPServer(arg1) {
@@ -54,6 +62,10 @@ export function InspectMCPOAuthInventory() {
   return window['go']['wailsapi']['MCP']['InspectMCPOAuthInventory']();
 }
 
+export function ListMCPOAuthSnapshots() {
+  return window['go']['wailsapi']['MCP']['ListMCPOAuthSnapshots']();
+}
+
 export function ListMCPServers() {
   return window['go']['wailsapi']['MCP']['ListMCPServers']();
 }
@@ -68,6 +80,10 @@ export function ReauthorizeMCPServer(arg1) {
 
 export function ReconnectMCPServer(arg1) {
   return window['go']['wailsapi']['MCP']['ReconnectMCPServer'](arg1);
+}
+
+export function RestoreMCPOAuthSnapshot(arg1) {
+  return window['go']['wailsapi']['MCP']['RestoreMCPOAuthSnapshot'](arg1);
 }
 
 export function SaveMCPServer(arg1, arg2) {

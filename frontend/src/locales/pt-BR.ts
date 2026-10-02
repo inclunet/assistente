@@ -1378,6 +1378,30 @@ const ptBR = {
     },
 
     mcp: {
+      snapshots: {
+        "title": "Snapshots OAuth",
+        "description": "Crie uma cópia cifrada da configuração e do par de credenciais PKCE legado. Client Credentials, credenciais por hostname e autorizações compostas não são incluídos.",
+        "retention": "Retenção: 30 dias. A expiração bloqueia a restauração, mas não apaga a última cópia sem sua confirmação. Os arquivos ficam fora da exportação e sincronização do Assistente.",
+        "consumer": "Servidor PKCE legado",
+        "select": "Selecione um servidor",
+        "create": "Criar snapshot",
+        "created": "Snapshot cifrado criado.",
+        "loading": "Consultando snapshots…",
+        "empty": "Nenhum snapshot encontrado.",
+        "failed": "Não foi possível concluir. Verifique o cofre e as permissões. A recuperação exige credenciais ausentes, configuração original e nenhuma operação OAuth ativa.",
+        "createdAt": "Criado em {{date}}",
+        "retainUntil": "Recuperação disponível até {{date}}",
+        "location": "Local: {{path}}",
+        "expired": "Prazo de recuperação encerrado. Confirme o fim da janela de rollback antes de descartar.",
+        "restore": "Restaurar configuração",
+        "restoreNamed": "Restaurar configuração de {{name}}",
+        "restoreConfirm": "Restaurar somente se não houver credenciais atuais nem edições posteriores? O servidor ficará desabilitado e sem conexão automática. Tokens antigos não serão reutilizados: será necessário reautorizar. O snapshot permanecerá disponível.",
+        "restored": "Configuração restaurada. Use Reautorizar e, após concluir, habilite o servidor.",
+        "discard": "Descartar snapshot",
+        "discardNamed": "Descartar snapshot de {{name}}",
+        "discardConfirm": "Você confirma que a janela de rollback terminou e que a migração ou recuperação foi validada? Esta ação pode remover a última cópia e não pode ser desfeita.",
+        "discarded": "Snapshot descartado."
+      },
       inventory: {
         "title": "Diagnóstico OAuth",
         "description": "Este inventário consulta os dados locais do usuário atual. Não conecta servidores, renova tokens ou altera credenciais. É uma preparação para a migração; não confirma a validade dos tokens.",
