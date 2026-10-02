@@ -51,6 +51,60 @@ type racingRefreshStore struct {
 	before func()
 }
 
+func TestLegacyHostnameRevalidatesAfterSourceResolution(t *testing.T) {
+	for _, change := range []string{"unchanged", "grant", "consumer", "hostname_changed", "hostname_deleted"} {
+		t.Run(change, func(t *testing.T) {
+			a, b, db, ctx, id := legacyOperationFixture(t)
+			if err := db.Where("pattern = ?", "mcp-tokens:legacy").Delete(&database.CredentialEntry{}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := a.RegisterPatternWithContext(ctx, "fallback.example", &AuthConfig{Source: "static", Type: "bearer", Token: "fallback"}); err != nil {
+				t.Fatal(err)
+			}
+			validate := func(tx *gorm.DB) error {
+				var count int64
+				if err := tx.Model(&database.MCPServer{}).Where("id = ? AND auth_type = ?", id, "oauth2_pkce").Count(&count).Error; err != nil {
+					return err
+				}
+				if count != 1 {
+					return oauthflow.ErrConflict
+				}
+				return nil
+			}
+			called := false
+			auth, err := a.readLegacyHostnameToken(ctx, "legacy", "fallback.example", validate, func(_ context.Context, auth *AuthConfig) (*AuthConfig, error) {
+				called = true
+				other := b.store.(*DBStore).db
+				var err error
+				switch change {
+				case "grant":
+					err = b.RegisterPatternWithContext(ctx, "mcp-tokens:legacy", &AuthConfig{Source: "static", Type: "oauth2", Token: "new-grant"})
+				case "consumer":
+					err = other.Model(&database.MCPServer{}).Where("id = ?", id).Update("auth_type", "none").Error
+				case "hostname_changed":
+					err = b.RegisterPatternWithContext(ctx, "fallback.example", &AuthConfig{Source: "static", Type: "bearer", Token: "replacement"})
+				case "hostname_deleted":
+					err = b.DeletePattern(ctx, "fallback.example")
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				return auth, nil
+			})
+			if !called {
+				t.Fatal("source was not resolved")
+			}
+			if change == "unchanged" {
+				if err != nil || auth == nil || auth.Token != "fallback" {
+					t.Fatalf("unchanged fallback: %v", err)
+				}
+			} else if !errors.Is(err, oauthflow.ErrConflict) || auth != nil {
+				t.Fatalf("stale source accepted: %v", err)
+			}
+		})
+	}
+}
+
 func (s *racingRefreshStore) UpdateRefreshTokenEncByID(ctx context.Context, id, previous, value string) error {
 	if s.before != nil {
 		before := s.before
