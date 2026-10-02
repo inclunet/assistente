@@ -680,8 +680,9 @@ nenhuma das credenciais é removida parcialmente.
 Em **Servidores MCP → Diagnóstico OAuth → Snapshots OAuth**, selecione um
 servidor PKCE ou Client Credentials legado e escolha **Criar snapshot**. A cópia
 é cifrada com a chave do seu cofre e inclui configuração e credenciais específicas
-desse servidor. Não inclui credenciais compartilhadas por hostname nem os
-cadastros que já usam autorização unificada.
+desse servidor. Também é possível selecionar separadamente uma credencial estática
+por hostname apresentada no diagnóstico. Cadastros que já usam autorização
+unificada e fontes externas não são incluídos.
 
 A lista mostra a localização e o prazo de recuperação de 30 dias. Os arquivos
 ficam na pasta `.assistente-oauth-recovery` do seu usuário, separados por banco e
@@ -697,8 +698,21 @@ fica desabilitado e sem conexão automática. Para **PKCE**, use **Reautorizar**
 após concluir o login, habilite o servidor. Para **Client Credentials**, confira
 o cliente e o segredo recuperados, habilite e conecte: o serviço obtém um token
 novo sem consentimento no navegador. Se o cadastro era incompleto, complete os
-campos antes de conectar. Se o Client ID estiver somente no cofre legado, ele será usado quando o campo da configuração estiver vazio. Tokens antigos nunca são restaurados ao cofre ativo:
+campos antes de conectar. Se o Client ID estiver somente no cofre legado, ele será usado quando o campo da configuração estiver vazio. Nesses snapshots de servidor, tokens antigos não são restaurados ao cofre ativo:
 restaurar um arquivo não desfaz rotação ou revogação no serviço remoto.
+
+**Para snapshots por hostname**, a confirmação informa que os tokens e demais
+segredos serão recuperados. Isso permite recuperar, por exemplo, um token copiado
+do provedor cuja única cópia estava no Assistente. A entrada deve estar ausente:
+uma credencial existente, mesmo vazia ou diferente, nunca é sobrescrita. A cópia
+recupera o padrão original, os segredos e a validade original como fonte estática;
+não prolonga tokens expirados nem garante que tokens revogados ou rotacionados
+funcionem. Confira o acesso ao provedor após restaurar.
+
+Uma credencial por hostname pode atender vários servidores e outros recursos.
+Os próximos usos desse padrão poderão utilizar o token recuperado. Restaurar não
+modifica, recria, habilita ou conecta servidores, nem associa a credencial a um
+MCP específico. O snapshot permanece disponível para consulta ou descarte.
 
 Snapshots PKCE anteriores continuam legíveis. Snapshots Client Credentials têm
 formato próprio e exigem uma versão com este suporte para recuperação.

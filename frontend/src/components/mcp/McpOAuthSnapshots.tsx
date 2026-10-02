@@ -19,7 +19,7 @@ export function McpOAuthSnapshots({ consumers }: { consumers: mcp.OAuthInventory
   const consumerSelect = useRef<HTMLSelectElement>(null);
   const restoreFocus = useRef(false);
   const query = useRef<Promise<credentials.OAuthSnapshotInfo[]> | null>(null);
-  const eligible = consumers.filter((item) => item.kind === 'legacy' || item.kind === 'client_credentials');
+  const eligible = consumers.filter((item) => item.kind === 'legacy' || item.kind === 'client_credentials' || (item.kind === 'hostname' && !item.issues.includes('external_source')));
 
   useEffect(() => {
     active.current = true;
@@ -56,9 +56,10 @@ export function McpOAuthSnapshots({ consumers }: { consumers: mcp.OAuthInventory
     }
   }
 
-  async function restore(id: string) {
-    const accepted = await confirm({ title: t('mcp.snapshots.restore'), message: t('mcp.snapshots.restoreConfirm'), confirmText: t('mcp.snapshots.restore'), cancelText: t('common.cancel'), variant: 'warning' });
-    if (accepted && active.current) await run(() => RestoreMCPOAuthSnapshot(id), 'mcp.snapshots.restored');
+  async function restore(item: credentials.OAuthSnapshotInfo) {
+    const hostname = item.consumerId.startsWith('credential:');
+    const accepted = await confirm({ title: t('mcp.snapshots.restore'), message: t(hostname ? 'mcp.snapshots.restoreHostnameConfirm' : 'mcp.snapshots.restoreConfirm'), confirmText: t('mcp.snapshots.restore'), cancelText: t('common.cancel'), variant: 'warning' });
+    if (accepted && active.current) await run(() => RestoreMCPOAuthSnapshot(item.id), hostname ? 'mcp.snapshots.hostnameRestored' : 'mcp.snapshots.restored');
   }
   async function discard(id: string) {
     const accepted = await confirm({ title: t('mcp.snapshots.discard'), message: t('mcp.snapshots.discardConfirm'), confirmText: t('mcp.snapshots.discard'), cancelText: t('common.cancel'), variant: 'danger' });
@@ -86,7 +87,7 @@ export function McpOAuthSnapshots({ consumers }: { consumers: mcp.OAuthInventory
         <p>{t('mcp.snapshots.retainUntil', { date: new Date(String(item.retainUntil)).toLocaleString(i18n?.language) })}</p>
         <p>{t('mcp.snapshots.location', { path: item.location })}</p>
         {item.expired && <p>{t('mcp.snapshots.expired')}</p>}
-        <Button disabled={busy || item.expired} aria-label={t('mcp.snapshots.restoreNamed', { name: item.name })} onClick={() => void restore(item.id)}>{t('mcp.snapshots.restore')}</Button>
+        <Button disabled={busy || item.expired} aria-label={t('mcp.snapshots.restoreNamed', { name: item.name })} onClick={() => void restore(item)}>{t('mcp.snapshots.restore')}</Button>
         <Button disabled={busy} variant="danger" aria-label={t('mcp.snapshots.discardNamed', { name: item.name })} onClick={() => void discard(item.id)}>{t('mcp.snapshots.discard')}</Button>
       </li>)}
     </ul>}
