@@ -8,13 +8,13 @@ import type { mcp } from '../../../wailsjs/go/models';
 import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
 
 const { announce } = vi.hoisted(() => ({ announce: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/MCP', () => ({ InspectMCPOAuthInventory: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/MCP', () => ({ InspectMCPOAuthInventory: vi.fn(), ListMCPOAuthSnapshots: vi.fn(async () => []), CreateMCPOAuthSnapshot: vi.fn(), RestoreMCPOAuthSnapshot: vi.fn(), DiscardMCPOAuthSnapshot: vi.fn() }));
 vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce }) }));
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('McpOAuthInventory', () => {
-  it('apresenta os diagnósticos com semântica de leitura e fecha por botão', async () => {
+  it('apresenta os diagnósticos com semântica de formulário e fecha por botão', async () => {
     vi.mocked(InspectMCPOAuthInventory).mockResolvedValue([
       { id: 'one', name: 'Servidor legado', kind: 'legacy', issues: ['conflicting_client', 'unreadable'] } as mcp.OAuthInventoryItem,
     ]);
@@ -23,7 +23,8 @@ describe('McpOAuthInventory', () => {
     expect(await screen.findByRole('heading', { name: 'Servidor legado' })).toBeInTheDocument();
     expect(screen.getByText('mcp.inventory.issues.conflicting_client')).toBeInTheDocument();
     expect(screen.getByText('mcp.inventory.issues.unreadable')).toBeInTheDocument();
-    expect(screen.getByRole('document')).toBeInTheDocument();
+    expect(screen.getByRole('application')).toBeInTheDocument();
+    expect(screen.getByLabelText('mcp.snapshots.consumer')).toBeInTheDocument();
     expect(announce).toHaveBeenCalledWith('mcp.inventory.loaded');
     expect((await axe.run(screen.getByRole('dialog'))).violations).toEqual([]);
     fireEvent.click(screen.getByRole('button', { name: 'common.close' }));

@@ -6,11 +6,12 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { DialogActions } from '../ui/DialogActions';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { McpOAuthSnapshots } from './McpOAuthSnapshots';
 
 export function McpOAuthInventory({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { t } = useTranslation();
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={t('mcp.inventory.title')} readingMode size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={t('mcp.inventory.title')} size="lg">
       {isOpen && <OAuthInventoryContent />}
       <DialogActions primary={<Button onClick={onClose}>{t('common.close')}</Button>} />
     </Modal>
@@ -63,6 +64,7 @@ function OAuthInventoryContent() {
           ))}
         </ul>
       )}
+      {items !== null && <McpOAuthSnapshots consumers={items} />}
     </>
   );
 }

@@ -110,6 +110,7 @@ type connectionAttempt struct {
 // Manager gerencia servidores MCP: configuração, conexão, discovery de tools.
 // Thread-safe para uso concorrente.
 type Manager struct {
+	snapshotRoot      string // optional test root; production stays outside exported config
 	managedAttempts   map[string]context.CancelFunc
 	mu                sync.RWMutex
 	resolver          *configdir.Resolver
@@ -1383,6 +1384,13 @@ func (m *Manager) ReauthorizeServer(ctx context.Context, slug string) error {
 			return err
 		}
 		m.clearNeedsReauth(slug)
+		current, err := m.GetConfig(slug)
+		if err != nil {
+			return err
+		}
+		if !current.Enabled {
+			return nil
+		}
 		return m.reconnectWithContext(ctx, slug)
 	}
 	logging.Infof(ctx, "mcp.manager", "[MCP:%s] Reautorização interativa solicitada", slug)
@@ -1395,6 +1403,13 @@ func (m *Manager) ReauthorizeServer(ctx context.Context, slug string) error {
 	// authorize já persistiu os tokens novos. Limpa o sinal de reauth e reconecta
 	// para o transport adotar o token renovado e atualizar tools/resources/prompts.
 	m.clearNeedsReauth(slug)
+	current, err := m.GetConfig(slug)
+	if err != nil {
+		return err
+	}
+	if !current.Enabled {
+		return nil
+	}
 	if err := m.reconnectWithContext(ctx, slug); err != nil {
 		logging.Errorf(ctx, "mcp.manager", "[MCP:%s] Reautorização concluída, mas a reconexão falhou: %v", slug, err)
 		return fmt.Errorf("reautorização concluída, mas a reconexão do servidor '%s' falhou: %w", slug, err)

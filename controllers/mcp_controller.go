@@ -3,6 +3,7 @@ package controllers
 import (
 	"assistente/internal/apidto"
 	"assistente/internal/core/ports"
+	"assistente/internal/credentials"
 	"assistente/internal/jobs"
 	"assistente/internal/logging"
 	mcpmgr "assistente/internal/mcp"
@@ -43,6 +44,31 @@ func (c *MCPController) InspectMCPOAuthInventory(ctx context.Context) ([]mcpmgr.
 		return nil, err
 	}
 	return c.mcpMgr.InspectOAuthInventory(ctx)
+}
+
+func (c *MCPController) CreateMCPOAuthSnapshot(ctx context.Context, id string) (credentials.OAuthSnapshotInfo, error) {
+	if err := c.guardMgr(); err != nil {
+		return credentials.OAuthSnapshotInfo{}, err
+	}
+	return c.mcpMgr.CreateOAuthSnapshot(ctx, id)
+}
+func (c *MCPController) ListMCPOAuthSnapshots(ctx context.Context) ([]credentials.OAuthSnapshotInfo, error) {
+	if err := c.guardMgr(); err != nil {
+		return nil, err
+	}
+	return c.mcpMgr.ListOAuthSnapshots(ctx)
+}
+func (c *MCPController) RestoreMCPOAuthSnapshot(ctx context.Context, id string) error {
+	if err := c.guardMgr(); err != nil {
+		return err
+	}
+	return c.mcpMgr.RestoreOAuthSnapshot(ctx, id)
+}
+func (c *MCPController) DiscardMCPOAuthSnapshot(ctx context.Context, id string, confirmed bool) error {
+	if err := c.guardMgr(); err != nil {
+		return err
+	}
+	return c.mcpMgr.DiscardOAuthSnapshot(ctx, id, confirmed)
 }
 
 func (c *MCPController) ConnectMCPServer(slug string) error {

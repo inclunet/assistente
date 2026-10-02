@@ -3,6 +3,7 @@ package wailsapi
 import (
 	"assistente/controllers"
 	"assistente/internal/apidto"
+	"assistente/internal/credentials"
 	mcpmgr "assistente/internal/mcp"
 	"context"
 	"sync"
@@ -60,6 +61,41 @@ func (m *MCP) InspectMCPOAuthInventory() ([]mcpmgr.OAuthInventoryItem, error) {
 		return nil, err
 	}
 	return WithUser(session, ctrl.InspectMCPOAuthInventory)
+}
+
+func (m *MCP) CreateMCPOAuthSnapshot(id string) (credentials.OAuthSnapshotInfo, error) {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return credentials.OAuthSnapshotInfo{}, err
+	}
+	return WithUser(session, func(ctx context.Context) (credentials.OAuthSnapshotInfo, error) {
+		return ctrl.CreateMCPOAuthSnapshot(ctx, id)
+	})
+}
+func (m *MCP) ListMCPOAuthSnapshots() ([]credentials.OAuthSnapshotInfo, error) {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, ctrl.ListMCPOAuthSnapshots)
+}
+func (m *MCP) RestoreMCPOAuthSnapshot(id string) error {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) { return struct{}{}, ctrl.RestoreMCPOAuthSnapshot(ctx, id) })
+	return err
+}
+func (m *MCP) DiscardMCPOAuthSnapshot(id string, confirmed bool) error {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.DiscardMCPOAuthSnapshot(ctx, id, confirmed)
+	})
+	return err
 }
 
 // ConnectMCPServer conecta um servidor pelo slug.

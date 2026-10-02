@@ -1,0 +1,15 @@
+.mcp-oauth-snapshots select {
+  height: 32px;
+  max-width: 100%;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+}
+
+.mcp-oauth-snapshots label {
+  display: block;
+}
+
+.mcp-oauth-snapshots p {
+  overflow-wrap: anywhere;
+}

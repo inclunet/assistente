@@ -674,3 +674,31 @@ desde a abertura do editor; uma falha preserva configuração e credenciais.
 Ao remover a autenticação de um servidor, as credenciais persistidas são
 excluídas juntas. Se a operação falhar ou outra instância alterar o cadastro,
 nenhuma das credenciais é removida parcialmente.
+
+### Recuperar configuração OAuth antiga
+
+Em **Servidores MCP → Diagnóstico OAuth → Snapshots OAuth**, selecione um
+servidor PKCE legado e escolha **Criar snapshot**. A cópia é cifrada com a chave
+do seu cofre e inclui configuração e par de credenciais desse servidor. Não
+inclui Client Credentials, credenciais compartilhadas por hostname nem os
+cadastros que já usam autorização unificada.
+
+A lista mostra a localização e o prazo de recuperação de 30 dias. Os arquivos
+ficam na pasta `.assistente-oauth-recovery` do seu usuário, separados por banco e
+usuário do Assistente. Eles não entram na exportação ou sincronização automática.
+É necessário manter o banco no mesmo caminho, a conta e a chave do cofre para
+recuperar. Mudar a senha preservando a mesma chave não altera essa associação;
+perder ou substituir a chave impede abrir a cópia.
+
+**Restaurar configuração** só funciona quando as credenciais estão ausentes e
+não houve alterações posteriores no cadastro, ou quando o servidor foi removido
+inteiramente. A ação não sobrescreve credenciais atuais. O servidor restaurado
+fica desabilitado e sem conexão automática. Use **Reautorizar** e, após concluir
+o login, habilite o servidor. Tokens antigos não são reutilizados: restaurar um
+arquivo não desfaz rotação ou revogação no serviço remoto.
+
+Ao vencer o prazo, a restauração é bloqueada, mas o arquivo não é apagado
+automaticamente. **Descartar snapshot** pede confirmação de que a janela de
+rollback terminou e a recuperação ou migração foi validada; pode remover a última
+cópia e não pode ser desfeito. A exclusão não garante apagamento físico em SSD.
+Esta entrega ainda não converte os cadastros antigos para autorização unificada.
