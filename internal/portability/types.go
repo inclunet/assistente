@@ -154,6 +154,9 @@ type ProviderExport struct {
 }
 
 type MCPServerExport struct {
+	// Only the external Cursor/Claude adapter sets this; historical backups still
+	// require the explicit snapshot migration, including any existing credentials.
+	externalOAuth         bool
 	ID                    string            `json:"id,omitempty"`
 	Slug                  string            `json:"slug"`
 	Name                  string            `json:"name"`

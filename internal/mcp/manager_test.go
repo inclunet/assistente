@@ -907,6 +907,10 @@ func TestParseServerConfig_DefaultsForMinimalURL(t *testing.T) {
 
 func TestImportFromMCPJSON_CursorFormat(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
+	if err := database.DB().AutoMigrate(&database.CredentialEntry{}); err != nil {
+		t.Fatal(err)
+	}
+	m.credMgr = credentials.NewManagerWithStoreAndPersistence([]byte("01234567890123456789012345678901"), credentials.NewDBStore(), true)
 
 	mcpJSON := []byte(`{
 		"mcpServers": {
@@ -962,6 +966,20 @@ func TestImportFromMCPJSONRequiresRepositoryBeforeImport(t *testing.T) {
 	}
 	if rows != 0 {
 		t.Fatalf("ImportFromMCPJSON should not write without repository, rows=%d", rows)
+	}
+}
+
+func TestImportFromMCPJSONReportsLockedVaultAndLoadsSuccessfulEntries(t *testing.T) {
+	m := newTestManagerWithTempDir(t)
+	count, err := m.ImportFromMCPJSON([]byte(`{"mcpServers":{"remote":{"url":"https://remote.example/mcp"},"local":{"command":"node"}}}`))
+	if err == nil || !strings.Contains(err.Error(), "oauth_vault_persistence_required") || count != 1 {
+		t.Fatalf("expected partial import and vault error, count=%d err=%v", count, err)
+	}
+	if _, err := m.GetConfig("local"); err != nil {
+		t.Fatal("successful entry was not loaded", err)
+	}
+	if _, err := m.GetConfig("remote"); err == nil {
+		t.Fatal("failed OAuth import left a consumer")
 	}
 }
 

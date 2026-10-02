@@ -9,6 +9,23 @@ weight: 3
 
 Este arquivo contém exemplos práticos de configuração de servidores MCP para o Assistente.
 
+## Importar arquivos de Cursor ou Claude
+
+Ao importar um JSON `mcpServers` (ou o formato com servidores diretamente na
+raiz), servidores HTTP sem um Bearer explícito recebem uma autorização OAuth
+pendente no cofre. A importação não faz login nem abre o navegador. Use
+**Conectar** para iniciar o acesso; a conexão automática começa desativada e
+pode ser habilitada depois nas configurações do servidor.
+
+O cofre precisa estar disponível: se a gravação falhar, nem o servidor nem a
+autorização parcial ficam salvos. Em uma importação com vários itens, os itens
+válidos são preservados e as falhas são informadas. Um servidor com o mesmo
+identificador já existente é ignorado, sem sobrescrever sua configuração.
+
+STDIO e Bearer explícito continuam com seu comportamento anterior. Backups do
+Assistente e arquivos históricos usam o fluxo de recuperação e migração descrito
+adiante; não são convertidos silenciosamente por este importador externo.
+
 ## Transporte e MCP Nativo
 
 A forma como o Assistente consome um servidor MCP depende de três dimensões: o

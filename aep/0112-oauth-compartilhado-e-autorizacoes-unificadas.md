@@ -299,11 +299,13 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    também foram extraídos. Novos cadastros OAuth no editor MCP já usam registro
    composto e o serviço compartilhado para autorização, reautorização e renovação
    em native/bridge. A seção de evidências do consumidor MCP registra os testes.
-   Cadastros legados e importações ainda usam a persistência anterior; sua conversão
+   Cadastros legados e importações de backups históricos ainda usam a persistência anterior; sua conversão
    e o cutover pertencem à fase 3. O aceite com provedores reais permanece pendente.
    O transporte local do recurso MCP em PKCE/Client Credentials também aplica
    isolamento por origem, TLS e guard de rede compartilhado, preservando streams.
    A migração de credenciais continua exclusiva da fase 3.
+   Importações externas Cursor/Claude já criam autorização composta pendente,
+   sem discovery/login durante a importação e sem conexão automática inicial.
 3. [ ] Cutover MCP: migrar registros e referências, comprovar reinício/refresh/native/bridge,
    remover persistência dupla, configurações OAuth duplicadas e ciclo próprio de renovação.
    O inventário local preparatório está entregue (seção de evidências da fase 3);
@@ -1287,3 +1289,30 @@ A conversão offline de grants PKCE continua pendente: o formato histórico não
 registra todos os metadados necessários. Não há conversão silenciosa nem exigência
 de reconexão para continuar usando um cadastro legado. Retirada do runtime/campos
 legados e convergência de Slack também continuam pendentes.
+
+### Fase 3 — importação externa sem criar novas autorizações legadas
+
+Status: **In Progress**. O adaptador de JSON externo Cursor/Claude cria MCPs
+HTTP sem Bearer explícito com uma autorização composta pendente. A gravação
+do servidor e da entrada cifrada é atômica no store OAuth existente, vinculada
+ao usuário e à sessão do cofre. Não executa discovery, DCR ou consentimento;
+`auto_connect` fica desativado até configuração explícita do usuário.
+
+O caminho da tela MCP e o importador de Dados usam a mesma operação. Falta de
+cofre persistente ou falha de gravação não deixa servidor/credencial parcial.
+Slugs existentes são ignorados sem alteração, inclusive os legados; STDIO e
+Bearer explícito conservam os contratos anteriores. Uma falha parcial é
+reportada pelo Manager após recarregar os itens que foram importados.
+
+O marcador de procedência pertence apenas ao adaptador interno, não ao JSON.
+Backups canônicos e arquivos históricos continuam no caminho anterior para
+preservar a recuperação de cliente/tokens por snapshot: não são classificados
+como novas autorizações somente porque foram importados.
+
+Evidências: `TestExternalMCPOAuthUsesAtomicPendingAuthorization` (ambas as APIs,
+idempotência, reinício e isolamento), `TestExternalMCPOAuthFailureLeavesNoPartialImport`,
+`TestExternalMCPOAuthSkipsExistingLegacyWithoutVault`,
+`TestImportFromMCPJSON_CursorFormat` e
+`TestImportFromMCPJSONReportsLockedVaultAndLoadsSuccessfulEntries`.
+Conversão offline PKCE, cutover dos backups históricos, retirada do runtime e
+campos legados, convergência Slack e aceites funcionais continuam pendentes.
