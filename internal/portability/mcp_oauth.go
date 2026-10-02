@@ -34,11 +34,11 @@ func importExternalMCPOAuth(ctx context.Context, manager *credentials.Manager, s
 		return false, err
 	}
 	if manager == nil {
-		return false, errors.New("oauth_vault_persistence_required")
+		return false, codedErrorf(CodeCredentialVaultUnavailableImport, nil, "cofre de credenciais indisponível para importação")
 	}
 	store, err := manager.OAuthStore(ctx)
 	if err != nil {
-		return false, err
+		return false, codedErrorf(CodeCredentialVaultUnavailableImport, nil, "cofre de credenciais indisponível para importação")
 	}
 	atomicStore, ok := store.(interface {
 		CreateWithConsumer(context.Context, oauthflow.Record, func(*gorm.DB) error) error

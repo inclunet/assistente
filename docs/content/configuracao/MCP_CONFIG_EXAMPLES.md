@@ -21,6 +21,9 @@ O cofre precisa estar disponível: se a gravação falhar, nem o servidor nem a
 autorização parcial ficam salvos. Em uma importação com vários itens, os itens
 válidos são preservados e as falhas são informadas. Um servidor com o mesmo
 identificador já existente é ignorado, sem sobrescrever sua configuração.
+Os itens importados aparecem na lista MCP sem reiniciar. Se a gravação terminar,
+mas a lista não puder ser recarregada, um aviso orienta a entrar novamente;
+não é necessário repetir a importação.
 
 STDIO e Bearer explícito continuam com seu comportamento anterior. Backups do
 Assistente e arquivos históricos usam o fluxo de recuperação e migração descrito

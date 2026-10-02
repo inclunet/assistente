@@ -129,3 +129,13 @@ func TestExternalMCPOAuthSkipsExistingLegacyWithoutVault(t *testing.T) {
 		t.Fatal("existing legacy configuration modified")
 	}
 }
+
+func TestExternalMCPOAuthVaultErrorIsLocalized(t *testing.T) {
+	setupPortabilityTestDB(t)
+	for _, manager := range []*credentials.Manager{nil, credentials.NewManager(nil)} {
+		result, err := ImportConversationsWithContext(portabilityTestCtx(), `{"mcpServers":{"remote":{"url":"https://resource.example/mcp"}}}`, manager, "")
+		if err != nil || len(result.Errors) != 1 || result.Errors[0].Code != CodeCredentialVaultUnavailableImport {
+			t.Fatalf("untranslated vault error: %v %+v", err, result)
+		}
+	}
+}

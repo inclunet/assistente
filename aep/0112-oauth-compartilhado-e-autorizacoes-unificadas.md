@@ -1303,6 +1303,13 @@ cofre persistente ou falha de gravação não deixa servidor/credencial parcial.
 Slugs existentes são ignorados sem alteração, inclusive os legados; STDIO e
 Bearer explícito conservam os contratos anteriores. Uma falha parcial é
 reportada pelo Manager após recarregar os itens que foram importados.
+As fachadas de Dados também recarregam a lista MCP após liberar o lifecycle de
+restauração de conversas, incluindo sucesso parcial. A publicação é serializada
+com login/logout e recusa contexto de outro usuário. Uma falha de publicação
+gera aviso traduzido sem desfazer ou repetir o commit; falhas de cofre usam o
+código traduzível existente. `TestMCPImportPublishesDataFacadeWithoutRestart`,
+`TestExportImportReloadFailurePreservesCommittedResult` e
+`TestExternalMCPOAuthVaultErrorIsLocalized` cobrem esses contratos.
 
 O marcador de procedência pertence apenas ao adaptador interno, não ao JSON.
 Backups canônicos e arquivos históricos continuam no caminho anterior para

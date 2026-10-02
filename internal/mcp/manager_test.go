@@ -972,7 +972,7 @@ func TestImportFromMCPJSONRequiresRepositoryBeforeImport(t *testing.T) {
 func TestImportFromMCPJSONReportsLockedVaultAndLoadsSuccessfulEntries(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
 	count, err := m.ImportFromMCPJSON([]byte(`{"mcpServers":{"remote":{"url":"https://remote.example/mcp"},"local":{"command":"node"}}}`))
-	if err == nil || !strings.Contains(err.Error(), "oauth_vault_persistence_required") || count != 1 {
+	if err == nil || !strings.Contains(err.Error(), "cofre de credenciais indisponível") || count != 1 {
 		t.Fatalf("expected partial import and vault error, count=%d err=%v", count, err)
 	}
 	if _, err := m.GetConfig("local"); err != nil {

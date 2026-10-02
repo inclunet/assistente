@@ -419,6 +419,13 @@ func ImportMCPServersJSONWithContext(ctx context.Context, data []byte, credMgr *
 	return result, nil
 }
 
+// HasMCPServers identifies the canonical and external forms using the same
+// parser as import, so runtime publication is limited to MCP imports.
+func HasMCPServers(data string) bool {
+	file, _, err := parseExportFile(data)
+	return err == nil && file != nil && len(file.Resources.MCPServers) > 0
+}
+
 // ImportLegacyMCPServersWithContext imports read-only legacy JSON config files
 // into the canonical portability model. Existing DB slugs are skipped by
 // ImportMCPServerWithContext, keeping repeated startup imports idempotent.
