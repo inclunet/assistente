@@ -44,6 +44,8 @@ export function ReadMCPResource(arg1:string,arg2:string):Promise<string>;
 
 export function ReauthorizeMCPServer(arg1:string):Promise<void>;
 
+export function ReconnectMCPOAuthSnapshot(arg1:string,arg2:string):Promise<void>;
+
 export function ReconnectMCPServer(arg1:string):Promise<void>;
 
 export function RestoreMCPOAuthSnapshot(arg1:string):Promise<void>;

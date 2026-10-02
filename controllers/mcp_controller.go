@@ -58,6 +58,12 @@ func (c *MCPController) ConvertMCPOAuthClientSnapshot(ctx context.Context, id, m
 	}
 	return c.mcpMgr.ConvertOAuthClientSnapshot(ctx, id, method)
 }
+func (c *MCPController) ReconnectMCPOAuthSnapshot(ctx context.Context, id, method string) error {
+	if err := c.guardMgr(); err != nil {
+		return err
+	}
+	return c.mcpMgr.ReconnectOAuthSnapshot(ctx, id, method)
+}
 func (c *MCPController) ListMCPOAuthSnapshots(ctx context.Context) ([]credentials.OAuthSnapshotInfo, error) {
 	if err := c.guardMgr(); err != nil {
 		return nil, err

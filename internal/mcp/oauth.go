@@ -864,6 +864,11 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 		return err
 	}
 	redirectURL := callback.RedirectURI()
+	if rt.protocolOnly {
+		// Persist the callback actually used by this new grant, including a
+		// dynamically selected port for an existing manual registration.
+		rt.cfg.OAuth2CallbackPort = callback.Port()
+	}
 
 	clientID := rt.effectiveClientID()
 	clientSecret := rt.effectiveClientSecret()

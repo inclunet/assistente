@@ -356,6 +356,11 @@ describe('McpConnectionSection — Callback Host (discovered, no DCR)', () => {
 });
 
 describe('McpConnectionSection — autenticação do cliente no OAuth compartilhado', () => {
+  it('mostra e preserva o método público de um cliente PKCE manual', () => {
+    renderWith({oauthManaged: true, oauth2TokenAuthMethod: 'none'});
+    expect(screen.getByLabelText('Autenticação do cliente OAuth')).toHaveValue('none');
+    expect(screen.getByRole('option', {name: 'Cliente público (sem segredo)'})).toBeInTheDocument();
+  });
   it('permite escolher HTTP Basic pelo seletor rotulado', async () => {
     const onChange = vi.fn();
     renderWith({ oauthManaged: true, oauth2TokenAuthMethod: 'client_secret_post', onOAuth2TokenAuthMethodChange: onChange });
