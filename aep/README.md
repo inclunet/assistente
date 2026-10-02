@@ -129,8 +129,8 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 Este diretório é o **repositório único** de decisões arquiteturais do projeto
 (ver `CLAUDE.md`). Não criar outro diretório para AEPs — tudo fica em `aep/`.
 
-> **Inventário (2026-09-24):** este índice contém **108 documentos principais
-> para 107 números ocupados**. A diferença é a colisão histórica 0074, representada
+> **Inventário (2026-10-02):** este índice contém **112 documentos principais
+> para 111 números ocupados**. A diferença é a colisão histórica 0074, representada
 > temporariamente como 0074-A e 0074-B até sua renumeração. Séries multi-arquivo
 > têm o principal listado na tabela e os demais em
 > [Apêndices por AEP](#apêndices-por-aep). Convenção em
@@ -1115,6 +1115,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0110](0110-fontes-explicitas-de-credenciais.md) | Fontes explícitas de credenciais | ✅ Done |
 | [0111](0111-inicializacao-desktop-exclusiva.md) | Inicialização desktop exclusiva | 🚧 In Progress |
 | [0112](0112-oauth-compartilhado-e-autorizacoes-unificadas.md) | OAuth compartilhado e autorizações unificadas: conexão ChatGPT validada pelo mantenedor; novos cadastros MCP, inventário, barreiras de escrita, coordenação durável de PKCE e Client Credentials e recuperação estrutural de PKCE/Client Credentials com fixtures publicadas e recuperação explícita de tokens por hostname e conversão explícita de Client Credentials; conversão PKCE, retirada do legado e Slack pendentes | 🚧 In Progress |
+| [0113](0113-capabilities-parametros-e-custos-de-modelos.md) | Capabilities, parâmetros e custos por modelo e provedor | 🚧 In Progress |
 
 Correções paralelas posteriores à revisão da AEP-0103 estão registradas nas seções 10 e 11 da tasklist de conclusão: bridge, importação, restore, outbox, lifecycle e a primeira rodada real de produto. O executor desktop usa `newCommandDesktopExecutor` e `commandconfig.ProjectComplete`; autenticação é por sessão local sem JWT, a bridge é assíncrona com shutdown/join, e recovery é preflight somente leitura fail-closed sem reconciliação interprocesso. A limitação inicial de entrega somente de resumo/status foi resolvida na seção 14: `workspace.list` entrega resultado efêmero no picker compartilhado. A seção 15 liga a seleção da paleta à resolução de configuração persistida, supressão e recusa sem fallback, inclusive na bridge. A falha histórica de `internal/acpregistry` não reapareceu nas suítes completas das seções 12–14, mas sua causa não foi certificada. Providers/transporte de UI, origens físicas, recovery R04 e o aceite BASE-PRONTA permanecem pendentes.
 
