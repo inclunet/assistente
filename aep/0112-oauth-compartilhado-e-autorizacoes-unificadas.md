@@ -1135,5 +1135,8 @@ Evidências: `TestHostnameSnapshotCaptureIsPrivateAndReadOnly`,
 `TestHostnameSnapshotRecoveryFailureIsAtomic`, `TestHostnameSnapshotConcurrentRestore`,
 `TestHostnameSnapshotManagerPreservesConsumerAndResolvesToken` e
 `McpOAuthSnapshots.test.tsx` (confirmação específica e recusa de fontes externas).
+`TestHostnameSnapshotResolvesIPv6AndCaseAfterRestore` prova resolução antes/depois
+da recarga com IPv6, porta e caixa mista. O resolvedor usa `URL.Hostname()` e
+compara padrões sem distinguir caixa, sem reescrever o padrão persistido.
 Conversão transacional/idempotente, fixtures de conversão, cutover e Slack
 continuam pendentes; esta entrega não conclui a fase 3.

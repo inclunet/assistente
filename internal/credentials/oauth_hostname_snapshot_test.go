@@ -233,6 +233,47 @@ func TestHostnameSnapshotConcurrentRestore(t *testing.T) {
 	}
 }
 
+func TestHostnameSnapshotResolvesIPv6AndCaseAfterRestore(t *testing.T) {
+	for _, sample := range []struct{ pattern, url string }{
+		{"2001:DB8::1", "https://[2001:db8::1]/mcp"},
+		{"2001:db8::1", "https://[2001:DB8::1]:8443/mcp"},
+		{"SHARED.EXAMPLE", "https://shared.example:8443/mcp"},
+		{"*.EXAMPLE", "https://SHARED.example/mcp"},
+	} {
+		t.Run(sample.url, func(t *testing.T) {
+			m, _, _, ctx, _ := legacyOperationFixture(t)
+			if err := m.RegisterPatternWithContext(ctx, sample.pattern, &AuthConfig{Source: "static", Type: "bearer", Token: "copied"}); err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(t.TempDir(), "recovery")
+			info, err := m.CreateLegacyOAuthSnapshot(ctx, dir, "credential:"+sample.pattern)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := m.DeletePattern(ctx, sample.pattern); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.RestoreLegacyOAuthSnapshot(ctx, dir, info.ID, nil); err != nil {
+				t.Fatal(err)
+			}
+			for _, reload := range []bool{false, true} {
+				if reload {
+					if err := m.LoadUserCredentials(ctx, "owner"); err != nil {
+						t.Fatal(err)
+					}
+				}
+				auth, err := m.ResolveForURLWithContext(ctx, sample.url)
+				if err != nil || auth == nil || auth.Token != "copied" {
+					t.Fatal("restored pattern not resolved", err)
+				}
+				if auth, err := m.ResolveForURLWithContext(ctx, "https://unrelated.invalid"); err != nil || auth != nil {
+					t.Fatal("unrelated host matched", err)
+				}
+			}
+		})
+	}
+}
+
 func TestHostnameSnapshotCaptureIsPrivateAndReadOnly(t *testing.T) {
 	for _, pattern := range []string{"shared.example", "*.example", "2001:db8::1"} {
 		t.Run(pattern, func(t *testing.T) {

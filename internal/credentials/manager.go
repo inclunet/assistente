@@ -201,11 +201,7 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 		return nil, fmt.Errorf("URL inválida: %w", err)
 	}
 
-	domain := strings.ToLower(u.Host)
-	// Remove porta se houver
-	if idx := strings.LastIndex(domain, ":"); idx >= 0 {
-		domain = domain[:idx]
-	}
+	domain := strings.ToLower(u.Hostname())
 
 	m.mu.RLock()
 	locked := true
@@ -813,7 +809,7 @@ func IsManagedPattern(pattern string) bool {
 //	"example.com" -> "^example\.com$"
 func wildcardToRegex(pattern string) string {
 	// Escape dots e outros caracteres especiais
-	escaped := regexp.QuoteMeta(pattern)
+	escaped := regexp.QuoteMeta(strings.ToLower(pattern))
 	// * se torna [^.] (qualquer coisa menos ponto) com +
 	escaped = strings.ReplaceAll(escaped, `\*`, `[^.]+`)
 	// Anchor no início e fim

@@ -713,6 +713,8 @@ Uma credencial por hostname pode atender vários servidores e outros recursos.
 Os próximos usos desse padrão poderão utilizar o token recuperado. Restaurar não
 modifica, recria, habilita ou conecta servidores, nem associa a credencial a um
 MCP específico. O snapshot permanece disponível para consulta ou descarte.
+O resolvedor compara hostnames sem distinguir maiúsculas e minúsculas e aceita
+URLs IPv6 com ou sem porta, preservando a escrita do padrão armazenado.
 
 Snapshots PKCE anteriores continuam legíveis. Snapshots Client Credentials têm
 formato próprio e exigem uma versão com este suporte para recuperação.
