@@ -1583,6 +1583,7 @@ const es = {
         tokenAuthMethod: 'Autenticación del cliente OAuth',
         tokenAuthPost: 'Credenciales en el cuerpo (client_secret_post)',
         tokenAuthBasic: 'HTTP Basic (client_secret_basic)',
+        tokenAuthNone: 'Cliente público (sin secreto)',
         clientSecretHint: 'Solo necesario si el proveedor lo exige.',
         keepExisting: 'Déjalo vacío para conservar el actual.',
         credentialConfigured: 'Credencial configurada. Deja los campos vacíos para conservar la actual.',

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -20,12 +21,16 @@ import (
 )
 
 func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
-	for _, outcome := range []string{"success", "dcr", "denied", "commit_failure", "cancelled"} {
+	for _, outcome := range []string{"success", "public", "dcr", "denied", "commit_failure", "cancelled"} {
 		t.Run(outcome, func(t *testing.T) {
 			var exchanges atomic.Int32
 			var registrations atomic.Int32
 			var callback string
 			clientID, clientSecret := "client", "secret"
+			inputMethod, sourceSecret := "client_secret_post", "secret"
+			if outcome == "public" {
+				inputMethod, sourceSecret, clientSecret = "none", "", ""
+			}
 			if outcome == "dcr" {
 				clientID, clientSecret = "registered", ""
 			}
@@ -70,7 +75,7 @@ func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
 			if err := a.SaveConfig(cfg.Slug, cfg); err != nil {
 				t.Fatal(err)
 			}
-			if err := a.credMgr.RegisterPatternWithContext(ctx, clientCredPattern(cfg.Slug), &credentials.AuthConfig{Source: "static", Type: "oauth2", ClientID: "client", ClientSecret: "secret"}); err != nil {
+			if err := a.credMgr.RegisterPatternWithContext(ctx, clientCredPattern(cfg.Slug), &credentials.AuthConfig{Source: "static", Type: "oauth2", ClientID: "client", ClientSecret: sourceSecret}); err != nil {
 				t.Fatal(err)
 			}
 			a.snapshotRoot = t.TempDir()
@@ -79,6 +84,7 @@ func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			a.signalNeedsReauth(cfg.Slug, cfg.Name, "old grant expired")
 			db := a.repository().(*DBRepository).db
 			var before database.CredentialEntry
 			if err := db.First(&before, "user_id = ? AND pattern = ?", "owner", userTokensPattern(cfg.Slug)).Error; err != nil {
@@ -101,7 +107,7 @@ func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
 					op.End()
 					t.Error("concurrent refresh accepted")
 				}
-				if err := b.ReconnectOAuthSnapshot(ctx, info.ID, "client_secret_post"); err == nil {
+				if err := b.ReconnectOAuthSnapshot(ctx, info.ID, inputMethod); err == nil {
 					t.Error("concurrent reconnection accepted")
 				}
 				if outcome == "cancelled" {
@@ -129,8 +135,11 @@ func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
 				}
 				defer func() { _ = db.Callback().Create().Remove("reject_reconnect") }()
 			}
-			err = a.ReconnectOAuthSnapshot(ctx, info.ID, "client_secret_post")
-			if outcome != "success" && outcome != "dcr" {
+			err = a.ReconnectOAuthSnapshot(ctx, info.ID, inputMethod)
+			if outcome != "success" && outcome != "dcr" && outcome != "public" {
+				if !a.servers[cfg.Slug].NeedsReauth {
+					t.Fatal("failure cleared reauthorization warning")
+				}
 				if err == nil {
 					t.Fatal("failure accepted")
 				}
@@ -148,20 +157,34 @@ func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if a.servers[cfg.Slug].NeedsReauth {
+				t.Fatal("new migration retained old warning")
+			}
+			a.signalNeedsReauth(cfg.Slug, cfg.Name, "new rejection")
+			if err := a.ReconnectOAuthSnapshot(ctx, info.ID, inputMethod); err != nil {
+				t.Fatal("local replay", err)
+			}
+			if !a.servers[cfg.Slug].NeedsReauth {
+				t.Fatal("replay erased newer warning")
+			}
 			_, _, r := loadManaged(t, a, ctx, cfg.Slug)
 			if r.Tokens.Access != "NEW-ACCESS" || r.Tokens.Refresh != "NEW-REFRESH" || r.Client.Secret != clientSecret || r.Client.ID != clientID || r.Callback.Port == 0 || len(r.GrantedScopes) != 1 || r.GrantedScopes[0] != "read" {
 				t.Fatal("new grant metadata lost")
 			}
-			if err := b.ReconnectOAuthSnapshot(ctx, info.ID, "client_secret_post"); err != nil {
+			if err := b.ReconnectOAuthSnapshot(ctx, info.ID, inputMethod); err != nil {
 				t.Fatal("repeat", err)
 			}
 			if exchanges.Load() != 1 {
 				t.Fatal("repeat authorized again")
 			}
-			if outcome == "dcr" && (registrations.Load() != 1 || r.Client.AuthMethod != "none") {
+			if outcome == "dcr" && (registrations.Load() != 1 || r.Client.AuthMethod != "none" || r.Callback.PortPolicy != "fixed") {
 				t.Fatal("DCR fallback not covered")
 			}
-			if err := b.ReconnectOAuthSnapshot(ctx, info.ID, "none"); err == nil {
+			otherMethod := "none"
+			if inputMethod == "none" {
+				otherMethod = "client_secret_post"
+			}
+			if err := b.ReconnectOAuthSnapshot(ctx, info.ID, otherMethod); err == nil {
 				t.Fatal("retry ignored changed choice")
 			}
 			if _, err := os.Stat(info.Location); err != nil {
@@ -174,6 +197,43 @@ func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
 			}
 			if _, err := b.credMgr.ReadLegacyOAuthToken(ctx, cfg.Slug, cfg.ID); err == nil {
 				t.Fatal("old runtime still resolves")
+			}
+			if outcome == "success" || outcome == "public" {
+				projected, _, before := loadManaged(t, a, ctx, cfg.Slug)
+				if projected.OAuth2CallbackPort != 0 || before.Callback.PortPolicy != "ephemeral" {
+					t.Fatal("ephemeral callback became fixed")
+				}
+				projected.Name = "Renamed"
+				if err := a.SaveConfig(cfg.Slug, projected); err != nil {
+					t.Fatal(err)
+				}
+				_, _, afterSave := loadManaged(t, a, ctx, cfg.Slug)
+				if afterSave.Tokens != before.Tokens || afterSave.Callback != before.Callback {
+					t.Fatal("unrelated save lost grant/callback")
+				}
+				occupied, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(before.Callback.Port)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer func() { _ = occupied.Close() }()
+				browserOpen = func(raw string) error {
+					u, _ := url.Parse(raw)
+					q := u.Query()
+					callback = q.Get("redirect_uri")
+					response, err := http.Get(callback + "?state=" + url.QueryEscape(q.Get("state")) + "&code=AGAIN")
+					if err != nil {
+						return err
+					}
+					_ = response.Body.Close()
+					return nil
+				}
+				if err := a.authorizeManagedOAuth(ctx, cfg.Slug, projected); err != nil {
+					t.Fatal("ephemeral reauthorization", err)
+				}
+				_, _, renewed := loadManaged(t, a, ctx, cfg.Slug)
+				if renewed.Callback.Port == before.Callback.Port || renewed.Callback.PortPolicy != "ephemeral" || exchanges.Load() != 2 {
+					t.Fatal("reauthorization did not choose new ephemeral port")
+				}
 			}
 		})
 	}

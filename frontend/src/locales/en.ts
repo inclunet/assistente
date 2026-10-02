@@ -1580,6 +1580,7 @@ const en = {
         tokenAuthMethod: 'OAuth client authentication',
         tokenAuthPost: 'Credentials in body (client_secret_post)',
         tokenAuthBasic: 'HTTP Basic (client_secret_basic)',
+        tokenAuthNone: 'Public client (no secret)',
         clientSecretHint: 'Only required if the provider demands it.',
         keepExisting: 'Leave empty to keep the current value.',
         credentialConfigured: 'Credential configured. Leave fields empty to keep the current one.',

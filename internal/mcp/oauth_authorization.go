@@ -83,6 +83,11 @@ func (m *Manager) saveManagedOAuth(slug string, cfg ServerConfig, secret *string
 	if r.Callback.Port != 0 {
 		r.Callback.PortPolicy = "fixed"
 	}
+	if r.Callback.PortPolicy == "ephemeral" && previous.Callback.PortPolicy == "ephemeral" && r.Callback.Host == previous.Callback.Host {
+		// Preserve the last grant's effective port when saving unrelated settings;
+		// the projected configuration still asks for a new port on the next login.
+		r.Callback.Port = previous.Callback.Port
+	}
 	if r.Client.ID != cfg.OAuth2ClientID || previous.Resource != r.Resource || previous.Endpoints.Token != r.Endpoints.Token {
 		r.Client.Secret = ""
 		r.Client.GrantType = ""
@@ -98,8 +103,11 @@ func (m *Manager) saveManagedOAuth(slug string, cfg ServerConfig, secret *string
 			return errors.New("oauth_public_client_secret_not_allowed")
 		}
 		r.Client.AuthMethod, r.Client.Secret = "none", ""
-	} else if r.Client.AuthMethod == "" || r.Client.AuthMethod == "none" {
+	} else if r.Client.AuthMethod == "" {
 		r.Client.AuthMethod = "client_secret_post"
+	}
+	if r.Client.AuthMethod == "none" && (r.Client.Secret != "" || r.GrantType == "client_credentials") {
+		return oauthflow.ErrClientConfiguration
 	}
 	// A DCR registration is bound to its registration metadata. A projected ID
 	// is not a manual override; changing that metadata requires a fresh client.
@@ -212,6 +220,9 @@ func projectOAuthConfiguration(cfg ServerConfig, r oauthflow.Record) ServerConfi
 	cfg.OAuth2Scopes = append([]string(nil), r.RequestedScopes...)
 	cfg.OAuth2CallbackHost = r.Callback.Host
 	cfg.OAuth2CallbackPort = r.Callback.Port
+	if r.Callback.PortPolicy == "ephemeral" {
+		cfg.OAuth2CallbackPort = 0
+	}
 	return cfg
 }
 func validateMCPAuthorization(cfg ServerConfig, r oauthflow.Record) error {
@@ -374,7 +385,7 @@ func (m *Manager) authorizeOAuthWithStore(ctx context.Context, slug string, cfg 
 		r.Endpoints.Registration = rt.cfg.OAuth2RegistrationURL
 		r.Callback.Host = rt.cfg.OAuth2CallbackHost
 		r.Callback.Port = rt.cfg.OAuth2CallbackPort
-		if r.Callback.Port != 0 {
+		if r.Client.Method == "dcr" && r.Callback.Port != 0 {
 			r.Callback.PortPolicy = "fixed"
 		}
 		r.Audience = rt.resourceURL

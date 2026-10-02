@@ -249,6 +249,10 @@ local anterior; o provedor pode invalidar tokens antigos, algo que um snapshot
 local não consegue desfazer. A conversão direta continua exigindo todos os
 metadados e não pode inferir método, escopos ou callback histórico.
 
+A porta efetiva do novo grant é preservada sem alterar a política de callback:
+clientes manuais efêmeros continuam escolhendo uma porta a cada autorização;
+clientes fixos e cadastros DCR mantêm a política que exige a URI registrada.
+
 MCP passa a consumir o serviço comum, incluindo reautorização explícita e guarda de
 token do caminho nativo (AEP-0105). Retirar o loop/token source próprio e os campos
 OAuth duplicados do servidor após provar paridade. Durante a transição, ownership é
@@ -1255,6 +1259,8 @@ composta, troca a referência MCP e remove o par na mesma transação. A sessão
 cofre e o snapshot completo são revalidados em cada operação. O snapshot continua
 com sua retenção original. Repetir uma migração concluída com o mesmo método é
 idempotente e encerra apenas uma eventual conexão legada local.
+Uma migração com novo grant limpa o aviso antigo de reautorização após encerrar
+o runtime legado; uma repetição idempotente não apaga um aviso posterior legítimo.
 
 Cancelamento, recusa e falha local conservam o grant anterior. Uma queda deixa
 uma reserva que expira; a próxima tentativa explícita pode usar o snapshot

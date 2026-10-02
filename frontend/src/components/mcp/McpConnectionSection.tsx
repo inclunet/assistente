@@ -523,6 +523,7 @@ export function McpConnectionSection({
                 value={oauth2TokenAuthMethod}
                 onChange={(e) => onOAuth2TokenAuthMethodChange?.(e.target.value)}
                 options={[
+                  ...(authType === 'oauth2_pkce' ? [{ value: 'none', label: t('mcp.connection.tokenAuthNone') }] : []),
                   { value: 'client_secret_post', label: t('mcp.connection.tokenAuthPost') },
                   { value: 'client_secret_basic', label: t('mcp.connection.tokenAuthBasic') },
                 ]}

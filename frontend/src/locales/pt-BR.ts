@@ -1581,6 +1581,7 @@ const ptBR = {
         tokenAuthMethod: 'Autenticação do cliente OAuth',
         tokenAuthPost: 'Credenciais no corpo (client_secret_post)',
         tokenAuthBasic: 'HTTP Basic (client_secret_basic)',
+        tokenAuthNone: 'Cliente público (sem segredo)',
         clientSecretHint: 'Necessário apenas se exigido pelo provedor.',
         keepExisting: 'Deixe vazio para manter o atual.',
         credentialConfigured: 'Credencial configurada. Deixe os campos vazios para manter a atual.',

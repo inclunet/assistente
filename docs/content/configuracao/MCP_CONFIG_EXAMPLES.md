@@ -798,6 +798,11 @@ uma porta fixa ocupada impede a autorização; com DCR, o protocolo existente po
 registrar outro cliente com uma porta disponível. As decisões de acesso a destinos
 de rede seguem as mesmas permissões da conexão OAuth normal.
 
+Clientes manuais com porta automática continuam escolhendo uma porta livre nas
+próximas autorizações, mesmo que a porta usada no login anterior esteja ocupada.
+Ao editar um cliente público manual, mantenha **Cliente público (sem segredo)**
+no método de autenticação; esse método também é preservado ao renomear o cadastro.
+
 Somente após o login e a gravação concluírem o Assistente troca o cadastro para
 uma entrada composta e remove o par antigo. Use **Conectar** depois para abrir a
 conexão MCP. O snapshot permanece cifrado por seus 30 dias originais. Repetir a
