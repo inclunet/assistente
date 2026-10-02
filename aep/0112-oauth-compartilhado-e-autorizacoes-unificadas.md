@@ -1207,7 +1207,12 @@ durante a conversão; o record começa pendente e Conectar obtém um grant novo.
 
 O ID da autorização deriva do snapshot e permite repetir a mesma conversão sem
 criar outra autorização nem interromper uma conexão composta posterior. O
-transporte legado de outra instância perde ownership e não pode emitir grants.
+retry com método Basic/Post diferente retorna conflito. Uma instância que ainda
+mantém conexão legada encerra somente esse runtime ao repetir a conversão;
+conexões e tentativas compostas são identificadas pelo ownership capturado.
+Uma barreira local impede novas conexões até terminar a limpeza do runtime
+legado, sem manter a trava durante I/O (`TestClientConversionWaitsForLegacyCleanupBeforeNewConnection`).
+O transporte legado de outra instância perde ownership e não pode emitir grants.
 O snapshot permanece cifrado por sua janela original de 30 dias. Para recuperar
 o cadastro antigo depois da conversão, remover explicitamente o servidor composto
 e restaurar o snapshot: ele não sobrescreve uma autorização atual. O cliente é

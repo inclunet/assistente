@@ -8,11 +8,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/oauthflow"
 	"gorm.io/gorm"
 )
 
@@ -73,13 +76,27 @@ func TestClientConversionAtomicIdempotentAndRestart(t *testing.T) {
 			if grants.Load() != 0 {
 				t.Fatal("conversion contacted provider")
 			}
+			legacyCtx, legacyCancel := context.WithCancel(ctx)
+			defer legacyCancel()
+			b.connections[cfg.Slug] = &serverConnection{cancelSession: legacyCancel}
 			if err = b.ConvertOAuthClientSnapshot(ctx, info.ID, method); err != nil {
 				t.Fatal("repeat failed", err)
+			}
+			if legacyCtx.Err() == nil {
+				t.Fatal("repeat kept legacy connection")
+			}
+			otherMethod := "client_secret_post"
+			if method == otherMethod {
+				otherMethod = "client_secret_basic"
+			}
+			if err = b.ConvertOAuthClientSnapshot(ctx, info.ID, otherMethod); err == nil {
+				t.Fatal("repeat silently ignored changed method")
 			}
 			attemptCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			b.managedAttempts = make(map[string]context.CancelFunc)
 			b.managedAttempts[cfg.Slug] = cancel
+			b.connections[cfg.Slug] = &serverConnection{cancelSession: cancel, oauthAuthorizationID: "managed"}
 			if err = b.ConvertOAuthClientSnapshot(ctx, info.ID, method); err != nil || attemptCtx.Err() != nil {
 				t.Fatal("repeat interrupted managed attempt", err)
 			}
@@ -243,5 +260,45 @@ func TestClientConversionRollsBackAndKeepsSnapshot(t *testing.T) {
 	data, err := os.ReadFile(info.Location)
 	if err != nil || strings.Contains(string(data), "secret") {
 		t.Fatal("snapshot lost or plaintext", err)
+	}
+}
+
+func TestClientConversionWaitsForLegacyCleanupBeforeNewConnection(t *testing.T) {
+	a, _, ctx, cfg := legacyClientFixture(t, "https://service.example")
+	a.snapshotRoot = t.TempDir()
+	info, err := a.CreateOAuthSnapshot(ctx, cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	healthDone := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(healthDone) }) }
+	defer release()
+	a.connections[cfg.Slug] = &serverConnection{cancelSession: cancel, healthDone: healthDone}
+	done := make(chan error, 1)
+	go func() { done <- a.ConvertOAuthClientSnapshot(ctx, info.ID, "client_secret_post") }()
+	select {
+	case <-legacyCtx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("legacy not retired")
+	}
+	if err := a.connectWithContext(ctx, cfg.Slug); !errors.Is(err, oauthflow.ErrTransient) {
+		t.Fatal("new connection started before cleanup", err)
+	}
+	release()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cleanup did not finish")
+	}
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.retiringLegacy[cfg.Slug] {
+		t.Fatal("retirement barrier retained")
 	}
 }

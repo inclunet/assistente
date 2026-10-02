@@ -19,8 +19,7 @@ func (m *Manager) ConvertOAuthClientSnapshot(ctx context.Context, snapshotID, au
 		return credentials.ErrSnapshot
 	}
 	var slug string
-	changed := false
-	err = m.credMgr.ConvertLegacyClientCredentials(ctx, dir, snapshotID, func(row database.MCPServer, client *credentials.AuthConfig, id string) (oauthflow.Record, database.MCPServer, error) {
+	err = m.credMgr.ConvertLegacyClientCredentials(ctx, dir, snapshotID, authMethod, func(row database.MCPServer, client *credentials.AuthConfig, id string) (oauthflow.Record, database.MCPServer, error) {
 		cfg, err := serverModelToConfig(row)
 		if err != nil {
 			return oauthflow.Record{}, row, err
@@ -46,8 +45,7 @@ func (m *Manager) ConvertOAuthClientSnapshot(ctx context.Context, snapshotID, au
 		projected.UUIDModel = row.UUIDModel
 		projected.LastConnectedAt, projected.LastDiscoveredAt, projected.LastError = row.LastConnectedAt, row.LastDiscoveredAt, row.LastError
 		return record, projected, err
-	}, func(row database.MCPServer, convertedNow bool) {
-		changed = convertedNow
+	}, func(row database.MCPServer, _ bool) {
 		cfg, err := serverModelToConfig(row)
 		if err == nil {
 			slug = cfg.Slug
@@ -57,8 +55,8 @@ func (m *Manager) ConvertOAuthClientSnapshot(ctx context.Context, snapshotID, au
 	if err != nil {
 		return err
 	}
-	if changed && slug != "" {
-		_ = m.Disconnect(slug)
+	if slug != "" {
+		_ = m.disconnect(slug, true)
 	}
 	m.emit("mcp:config_changed", map[string]string{"slug": slug})
 	return nil

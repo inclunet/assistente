@@ -765,6 +765,10 @@ A conversão mantém ID e segredo em uma única autorização cifrada, troca a
 referência do servidor e remove seu par de entradas antigas na mesma transação.
 O snapshot é mantido. A conexão atual é encerrada; use **Conectar** para obter
 um token novo. Repetir a conversão do mesmo snapshot não duplica a autorização.
+Essa repetição exige o mesmo método Basic/Post; para mudá-lo depois da conversão,
+edite a autorização no cadastro. Em outra instância, a repetição encerra apenas
+a conexão que ainda usava o formato antigo. Aguarde esse encerramento antes de
+conectar novamente.
 Credenciais compartilhadas por hostname não são alteradas.
 
 Se o cadastro mudou desde o snapshot, crie outro. Se houver emissão ativa,

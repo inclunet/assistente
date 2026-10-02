@@ -28,7 +28,10 @@ func TestPublishedClientConversionPreservesHistoricalSecrets(t *testing.T) {
 			errs := make(chan error, 2)
 			for range 2 {
 				wg.Add(1)
-				go func() { defer wg.Done(); errs <- m.ConvertLegacyClientCredentials(ctx, dir, info.ID, prepare, nil) }()
+				go func() {
+					defer wg.Done()
+					errs <- m.ConvertLegacyClientCredentials(ctx, dir, info.ID, "client_secret_post", prepare, nil)
+				}()
 			}
 			wg.Wait()
 			close(errs)

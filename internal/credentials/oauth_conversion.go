@@ -15,9 +15,12 @@ import (
 // ConvertLegacyClientCredentials consumes a verified local snapshot, never a
 // frontend secret. The callback only projects MCP configuration and performs no
 // I/O. Snapshot, consumer and both legacy rows must still describe the same state.
-func (m *Manager) ConvertLegacyClientCredentials(ctx context.Context, directory, snapshotID string,
+func (m *Manager) ConvertLegacyClientCredentials(ctx context.Context, directory, snapshotID, authMethod string,
 	prepare func(database.MCPServer, *AuthConfig, string) (oauthflow.Record, database.MCPServer, error),
 	publish func(database.MCPServer, bool)) error {
+	if authMethod != "client_secret_basic" && authMethod != "client_secret_post" {
+		return oauthflow.ErrClientConfiguration
+	}
 	s, err := m.snapshotSession(ctx, directory)
 	if err != nil {
 		return err
@@ -64,6 +67,9 @@ func (m *Manager) ConvertLegacyClientCredentials(ctx context.Context, directory,
 				return ErrSnapshotConflict
 			}
 			converted, encrypted = current, entry.OAuthEnc
+			if record.Client.AuthMethod != authMethod {
+				return ErrSnapshotConflict
+			}
 			return nil
 		}
 		actual, expected := current, p.Consumer
@@ -125,6 +131,9 @@ func (m *Manager) ConvertLegacyClientCredentials(ctx context.Context, directory,
 		record, candidate, err := prepare(current, client, id)
 		if err != nil {
 			return err
+		}
+		if record.Client.AuthMethod != authMethod {
+			return ErrSnapshotConflict
 		}
 		if record.ID != id || record.UserID != p.UserID || record.ConsumerID != current.ID || record.Version != 1 || record.Revision != 1 || record.Integration != "mcp" || record.GrantType != "client_credentials" || candidate.ID != current.ID || candidate.UserID != current.UserID || candidate.Slug != current.Slug || !candidate.OAuthManaged || candidate.OAuthAuthorizationID != id {
 			return ErrSnapshotConflict
