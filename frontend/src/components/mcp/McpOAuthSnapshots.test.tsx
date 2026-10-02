@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import i18n from 'i18next';
 import axe from 'axe-core';
-import { CreateMCPOAuthSnapshot, ListMCPOAuthSnapshots, RestoreMCPOAuthSnapshot, DiscardMCPOAuthSnapshot, ConvertMCPOAuthClientSnapshot } from '@wailsjs/go/wailsapi/MCP';
+import { CreateMCPOAuthSnapshot, ListMCPOAuthSnapshots, RestoreMCPOAuthSnapshot, DiscardMCPOAuthSnapshot, ConvertMCPOAuthClientSnapshot, ReconnectMCPOAuthSnapshot } from '@wailsjs/go/wailsapi/MCP';
 import type { credentials, mcp } from '../../../wailsjs/go/models';
 import { McpOAuthSnapshots } from './McpOAuthSnapshots';
 
 const { confirm, announce } = vi.hoisted(() => ({ confirm: vi.fn(), announce: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/MCP', () => ({ CreateMCPOAuthSnapshot: vi.fn(), ListMCPOAuthSnapshots: vi.fn(), RestoreMCPOAuthSnapshot: vi.fn(), DiscardMCPOAuthSnapshot: vi.fn(), ConvertMCPOAuthClientSnapshot: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/MCP', () => ({ CreateMCPOAuthSnapshot: vi.fn(), ListMCPOAuthSnapshots: vi.fn(), RestoreMCPOAuthSnapshot: vi.fn(), DiscardMCPOAuthSnapshot: vi.fn(), ConvertMCPOAuthClientSnapshot: vi.fn(), ReconnectMCPOAuthSnapshot: vi.fn() }));
 vi.mock('../../hooks/useConfirm', () => ({ useConfirm: () => confirm }));
 vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce }) }));
 
@@ -24,6 +24,37 @@ beforeEach(() => {
 });
 
 describe('McpOAuthSnapshots', () => {
+  it.each([false, true])('reconecta PKCE somente com método e confirmação (%s)', async (accepted) => {
+    confirm.mockResolvedValue(accepted);
+    vi.mocked(ReconnectMCPOAuthSnapshot).mockResolvedValue();
+    const onConverted = vi.fn().mockResolvedValue(undefined);
+    render(<McpOAuthSnapshots consumers={consumers} onConverted={onConverted} />);
+    const button = await screen.findByRole('button', { name: 'mcp.snapshots.reconnectNamed' });
+    expect(button).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('mcp.connection.tokenAuthMethod'), { target: { value: 'none' } });
+    expect((await axe.run(document.body)).violations).toEqual([]);
+    fireEvent.click(button);
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'mcp.snapshots.reconnectConfirm' })));
+    if (accepted) {
+      await waitFor(() => expect(ReconnectMCPOAuthSnapshot).toHaveBeenCalledWith('snapshot', 'none'));
+      await waitFor(() => expect(announce).toHaveBeenCalledWith('mcp.snapshots.reconnected'));
+      expect(onConverted).toHaveBeenCalledOnce();
+      expect(screen.getByLabelText('mcp.snapshots.consumer')).toHaveFocus();
+      expect(screen.queryByRole('button', { name: 'mcp.snapshots.reconnectNamed' })).not.toBeInTheDocument();
+    } else expect(ReconnectMCPOAuthSnapshot).not.toHaveBeenCalled();
+    expect(ConvertMCPOAuthClientSnapshot).not.toHaveBeenCalled();
+  });
+  it('mantém a opção e oculta detalhes sensíveis quando a reconexão falha', async () => {
+    vi.mocked(ReconnectMCPOAuthSnapshot).mockRejectedValue(new Error('SECRET'));
+    render(<McpOAuthSnapshots consumers={consumers} />);
+    const button = await screen.findByRole('button', { name: 'mcp.snapshots.reconnectNamed' });
+    fireEvent.change(screen.getByLabelText('mcp.connection.tokenAuthMethod'), { target: { value: 'client_secret_post' } });
+    fireEvent.click(button);
+    await waitFor(() => expect(announce).toHaveBeenCalledWith('mcp.snapshots.failed', 'assertive'));
+    expect(screen.getByRole('button', { name: 'mcp.snapshots.reconnectNamed' })).toBeEnabled();
+    expect(screen.queryByText(/SECRET/)).not.toBeInTheDocument();
+    expect(announce).not.toHaveBeenCalledWith('mcp.snapshots.reconnected');
+  });
   it.each([false, true])('exige método explícito e confirmação para converter (%s)', async (accepted) => {
     confirm.mockResolvedValue(accepted);
     vi.mocked(ConvertMCPOAuthClientSnapshot).mockResolvedValue();

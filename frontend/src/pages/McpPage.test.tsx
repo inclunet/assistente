@@ -196,6 +196,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
         >
           <option value="none">None</option>
           <option value="oauth2_pkce">PKCE</option>
+          <option value="oauth2_client_credentials">Client Credentials</option>
         </select>
       </label>
       <label>
@@ -243,6 +244,20 @@ describe('McpPage — oauth2_callback_host', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
   }
+
+  it.each([false, true])('preserva método público no rename e usa Post ao trocar para Client Credentials (%s)', async (clientCredentials) => {
+    mockServers = [{slug: 'public', name: 'Public', transport: 'streamable', status: 'disconnected', enabled: true}];
+    mockGetConfig.mockResolvedValue({name: 'Public', transport: 'streamable', url: 'https://example.com/mcp', auth_type: 'oauth2_pkce', oauth_managed: true, oauth_authorization_id: 'grant', oauth2_client_id: 'public-client', oauth2_token_auth_method: 'none', oauth2_client_method: 'manual'});
+    render(<McpPage />);
+    const row = screen.getByText('Public').closest('div');
+    if (!row) throw new Error('Linha ausente');
+    await userEvent.click(within(row).getByRole('button', {name: 'mcp.actions.edit'}));
+    await screen.findByLabelText('Nome');
+    fireEvent.change(screen.getByLabelText('Nome'), {target: {value: 'Renamed'}});
+    if (clientCredentials) await userEvent.selectOptions(screen.getByLabelText('Auth Type'), 'oauth2_client_credentials');
+    await userEvent.click(screen.getByText('Salvar'));
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith('public', expect.objectContaining({name: 'Renamed', oauth2_token_auth_method: clientCredentials ? 'client_secret_post' : 'none'})));
+  });
 
   it.each(['oauth2_pkce', 'bearer', 'basic'].flatMap((authType) => [false, true].map((fail) => ({ authType, fail }))))('delega remoção e configuração none a uma única gravação atômica ($authType, $fail)', async ({ authType, fail }) => {
     mockServers = [{ slug: 'legacy', name: 'Legacy', transport: 'streamable', status: 'disconnected', enabled: true }];

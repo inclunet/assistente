@@ -89,6 +89,16 @@ func (m *MCP) ListMCPOAuthSnapshots() ([]credentials.OAuthSnapshotInfo, error) {
 	}
 	return WithUser(session, ctrl.ListMCPOAuthSnapshots)
 }
+func (m *MCP) ReconnectMCPOAuthSnapshot(id, method string) error {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.ReconnectMCPOAuthSnapshot(ctx, id, method)
+	})
+	return err
+}
 func (m *MCP) RestoreMCPOAuthSnapshot(id string) error {
 	session, ctrl, err := m.deps()
 	if err != nil {

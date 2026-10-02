@@ -219,7 +219,7 @@ export default function McpPage() {
 
     setFormOAuthManaged(config?.oauth_managed ?? false);
     setFormOAuthDeviceUrl(config?.oauth2_device_auth_url || '');
-    setFormOAuthTokenAuthMethod(config?.oauth2_token_auth_method === 'client_secret_basic' ? 'client_secret_basic' : 'client_secret_post');
+    setFormOAuthTokenAuthMethod(config?.oauth2_token_auth_method === 'none' ? 'none' : config?.oauth2_token_auth_method === 'client_secret_basic' ? 'client_secret_basic' : 'client_secret_post');
     setFormOAuth2ClientId(config?.oauth2_client_id || '');
     setRegisteredDCRClientId(config?.oauth2_client_method === 'dcr' ? config.oauth2_client_id || '' : '');
     setFormOAuth2ClientSecret('');
@@ -906,7 +906,10 @@ export default function McpPage() {
               onEnabledChange={setFormEnabled}
               onAutoConnectChange={setFormAutoConnect}
               onPreferBridgeChange={setFormPreferBridge}
-              onAuthTypeChange={setFormAuthType}
+              onAuthTypeChange={(value) => {
+                setFormAuthType(value);
+                if (value === 'oauth2_client_credentials' && formOAuthTokenAuthMethod === 'none') setFormOAuthTokenAuthMethod('client_secret_post');
+              }}
               onAuthTokenChange={setFormAuthToken}
               onAuthUsernameChange={setFormAuthUsername}
               onAuthPasswordChange={setFormAuthPassword}
