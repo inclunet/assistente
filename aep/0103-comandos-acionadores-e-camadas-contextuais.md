@@ -1,5 +1,7 @@
 # AEP-0103: Comandos, acionadores e camadas contextuais
 
+Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
+
 **Reteste de leitura ao vivo (30/09/2026): In Progress.** Após atualizar e
 recompilar, o mantenedor confirmou Enter na última mensagem concluída. A
 variante durante streaming ainda falhou e recebe correção exclusiva; não se
