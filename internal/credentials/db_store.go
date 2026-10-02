@@ -94,6 +94,9 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 	}
 
 	return database.WithSQLiteImmediateTransaction(ctx, db, "credentials.save", func(tx *gorm.DB) error {
+		if err := checkMCPConsumer(ctx, tx); err != nil {
+			return err
+		}
 		// A late legacy writer must not recreate a pair after its consumer has
 		// transferred ownership to the shared OAuth service. Check and write in
 		// the same transaction, including writes that carry a persisted ID.
@@ -459,6 +462,9 @@ func (s *DBStore) DeleteCredential(ctx context.Context, pattern string) error {
 		return db.WithContext(ctx).Where("user_id = '' AND pattern = ?", pattern).Delete(&database.CredentialEntry{}).Error
 	}
 	return database.WithSQLiteImmediateTransaction(ctx, db, "credentials.delete", func(tx *gorm.DB) error {
+		if err := checkMCPConsumer(ctx, tx); err != nil {
+			return err
+		}
 		user, err := database.RequireUserID(ctx)
 		if err != nil {
 			return err

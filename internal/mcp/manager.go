@@ -1620,6 +1620,7 @@ func (m *Manager) DeleteConfig(slug string) error {
 	if existing.AuthType == AuthOAuth2PKCE {
 		return m.detachLegacyOAuth(ctx, *existing, *existing, true)
 	}
+	ctx = withMCPConsumerSnapshot(ctx, *existing)
 	_ = m.Disconnect(slug)
 	if err := repo.DeleteServer(ctx, slug); err != nil {
 		return fmt.Errorf("erro ao deletar config: %w", err)

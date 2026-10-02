@@ -125,7 +125,25 @@ func (o *LegacyOAuthOperation) Context(ctx context.Context) context.Context {
 
 // CheckLegacyOAuthMutation runs inside the caller's write transaction. Unknown
 // encrypted control is fail-closed; ordinary saves must never erase it.
+type mcpConsumerCheckKey struct{}
+
+// WithMCPConsumerCheck fences UI mutations by the consumer snapshot they edited.
+// The check must be read-only and runs inside each credential write transaction.
+func WithMCPConsumerCheck(ctx context.Context, check func(*gorm.DB) error) context.Context {
+	return context.WithValue(ctx, mcpConsumerCheckKey{}, check)
+}
+
+func checkMCPConsumer(ctx context.Context, tx *gorm.DB) error {
+	if check, ok := ctx.Value(mcpConsumerCheckKey{}).(func(*gorm.DB) error); ok && check != nil {
+		return check(tx)
+	}
+	return nil
+}
+
 func CheckLegacyOAuthMutation(ctx context.Context, tx *gorm.DB, user, slug string) error {
+	if err := checkMCPConsumer(ctx, tx); err != nil {
+		return err
+	}
 	if !tx.Migrator().HasTable(&database.CredentialEntry{}) {
 		return nil
 	}
@@ -145,6 +163,33 @@ func CheckLegacyOAuthMutation(ctx context.Context, tx *gorm.DB, user, slug strin
 		return nil
 	}
 	return oauthflow.ErrConflict
+}
+
+// InspectMCPAuthPresence reads metadata only; absence must never fall back to cache.
+func (m *Manager) InspectMCPAuthPresence(ctx context.Context, slug, hostname string) (bool, error) {
+	base, err := m.OAuthStore(ctx)
+	if err != nil {
+		return false, err
+	}
+	s := base.(*oauthStore)
+	var count int64
+	err = s.WithSession(ctx, func() error {
+		store, ok := m.store.(*DBStore)
+		if !ok {
+			return oauthflow.ErrResource
+		}
+		return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := checkMCPConsumer(ctx, tx); err != nil {
+				return err
+			}
+			patterns := []string{"mcp-client:" + slug, "mcp-tokens:" + slug}
+			if hostname != "" {
+				patterns = append(patterns, hostname)
+			}
+			return tx.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern IN ?", s.userID, patterns).Count(&count).Error
+		})
+	})
+	return count > 0, err
 }
 
 // BeginLegacyOAuth acquires a durable attempt in the existing token row, after
