@@ -802,6 +802,9 @@ Clientes manuais com porta automática continuam escolhendo uma porta livre nas
 próximas autorizações, mesmo que a porta usada no login anterior esteja ocupada.
 Ao editar um cliente público manual, mantenha **Cliente público (sem segredo)**
 no método de autenticação; esse método também é preservado ao renomear o cadastro.
+Clientes DCR legados que já possuem segredo conservam o método Basic/Post, o
+segredo e os tokens ao renomear o servidor depois da migração. Isso não exige
+novo registro nem novo login.
 
 Somente após o login e a gravação concluírem o Assistente troca o cadastro para
 uma entrada composta e remove o par antigo. Use **Conectar** depois para abrir a

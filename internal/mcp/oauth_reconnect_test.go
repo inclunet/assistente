@@ -21,13 +21,17 @@ import (
 )
 
 func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
-	for _, outcome := range []string{"success", "public", "dcr", "denied", "commit_failure", "cancelled"} {
+	for _, outcome := range []string{"success", "public", "dcr", "dcr_post", "dcr_basic", "denied", "commit_failure", "cancelled"} {
 		t.Run(outcome, func(t *testing.T) {
 			var exchanges atomic.Int32
 			var registrations atomic.Int32
 			var callback string
 			clientID, clientSecret := "client", "secret"
 			inputMethod, sourceSecret := "client_secret_post", "secret"
+			confidentialDCR := outcome == "dcr_post" || outcome == "dcr_basic"
+			if outcome == "dcr_basic" {
+				inputMethod = "client_secret_basic"
+			}
 			if outcome == "public" {
 				inputMethod, sourceSecret, clientSecret = "none", "", ""
 			}
@@ -47,7 +51,11 @@ func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
 				}
 				exchanges.Add(1)
 				_ = r.ParseForm()
-				if r.Form.Get("client_id") != clientID || r.Form.Get("client_secret") != clientSecret || r.Form.Get("grant_type") != "authorization_code" || r.Form.Get("redirect_uri") != callback {
+				requestID, requestSecret := r.Form.Get("client_id"), r.Form.Get("client_secret")
+				if outcome == "dcr_basic" {
+					requestID, requestSecret, _ = r.BasicAuth()
+				}
+				if requestID != clientID || requestSecret != clientSecret || r.Form.Get("grant_type") != "authorization_code" || r.Form.Get("redirect_uri") != callback {
 					t.Error("incorrect grant request")
 				}
 				w.Header().Set("Content-Type", "application/json")
@@ -75,7 +83,11 @@ func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
 			if err := a.SaveConfig(cfg.Slug, cfg); err != nil {
 				t.Fatal(err)
 			}
-			if err := a.credMgr.RegisterPatternWithContext(ctx, clientCredPattern(cfg.Slug), &credentials.AuthConfig{Source: "static", Type: "oauth2", ClientID: "client", ClientSecret: sourceSecret}); err != nil {
+			legacyClient := &credentials.AuthConfig{Source: "static", Type: "oauth2", ClientID: "client", ClientSecret: sourceSecret}
+			if confidentialDCR {
+				legacyClient.ClientGrantType = "authorization_code"
+			}
+			if err := a.credMgr.RegisterPatternWithContext(ctx, clientCredPattern(cfg.Slug), legacyClient); err != nil {
 				t.Fatal(err)
 			}
 			a.snapshotRoot = t.TempDir()
@@ -136,7 +148,7 @@ func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
 				defer func() { _ = db.Callback().Create().Remove("reject_reconnect") }()
 			}
 			err = a.ReconnectOAuthSnapshot(ctx, info.ID, inputMethod)
-			if outcome != "success" && outcome != "dcr" && outcome != "public" {
+			if outcome != "success" && outcome != "dcr" && outcome != "public" && !confidentialDCR {
 				if !a.servers[cfg.Slug].NeedsReauth {
 					t.Fatal("failure cleared reauthorization warning")
 				}
@@ -179,6 +191,20 @@ func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
 			}
 			if outcome == "dcr" && (registrations.Load() != 1 || r.Client.AuthMethod != "none" || r.Callback.PortPolicy != "fixed") {
 				t.Fatal("DCR fallback not covered")
+			}
+			if confidentialDCR {
+				projected, _, before := loadManaged(t, a, ctx, cfg.Slug)
+				if before.Client.Method != "dcr" || before.Client.AuthMethod != inputMethod || before.Client.Secret != sourceSecret {
+					t.Fatal("confidential DCR metadata lost")
+				}
+				projected.Name = "Renamed DCR"
+				if err := a.SaveConfig(cfg.Slug, projected); err != nil {
+					t.Fatal(err)
+				}
+				_, _, after := loadManaged(t, a, ctx, cfg.Slug)
+				if after.Client != before.Client || after.Tokens != before.Tokens || after.Callback != before.Callback || after.State != "connected" || registrations.Load() != 0 {
+					t.Fatal("rename lost confidential DCR authorization")
+				}
 			}
 			otherMethod := "none"
 			if inputMethod == "none" {

@@ -99,10 +99,14 @@ func (m *Manager) saveManagedOAuth(slug string, cfg ServerConfig, secret *string
 	}
 	r.Client.AuthMethod = cfg.OAuth2TokenAuthMethod
 	if previous.Client.Method == "dcr" && cfg.OAuth2ClientID == previous.Client.ID {
-		if secret != nil && *secret != "" {
-			return errors.New("oauth_public_client_secret_not_allowed")
+		if previous.Client.AuthMethod == "none" {
+			if secret != nil && *secret != "" {
+				return errors.New("oauth_public_client_secret_not_allowed")
+			}
+			r.Client.AuthMethod, r.Client.Secret = "none", ""
+		} else if r.Client.AuthMethod == "" {
+			r.Client.AuthMethod = previous.Client.AuthMethod
 		}
-		r.Client.AuthMethod, r.Client.Secret = "none", ""
 	} else if r.Client.AuthMethod == "" {
 		r.Client.AuthMethod = "client_secret_post"
 	}
@@ -119,6 +123,9 @@ func (m *Manager) saveManagedOAuth(slug string, cfg ServerConfig, secret *string
 		r.Client.Secret = ""
 		r.Client.GrantType = ""
 		r.Client.Method = "dcr"
+		// A replacement registration uses the public-client DCR flow. Existing
+		// confidential registrations retain their method and secret until then.
+		r.Client.AuthMethod = "none"
 	}
 	if _, err = oauthflow.NewConfigured(r, m.authorizeOAuthNetwork); err != nil {
 		return err

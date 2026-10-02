@@ -1250,6 +1250,10 @@ do snapshot PKCE. O método do cliente é informado explicitamente (público,
 Basic ou Post); não se infere o método anteriormente negociado. Reaproveitam-se
 ID/segredo disponíveis, endpoints e política de callback. DCR sem cadastro segue
 o protocolo existente e o motor de autorização de rede compartilhado.
+Registros DCR legados confidenciais preservam método Basic/Post, segredo e
+tokens em alterações de nome; somente um novo registro usa o fluxo DCR público.
+Os cenários `dcr_basic` e `dcr_post` de
+`TestReconnectMigrationSuccessFailureAndRetry` cobrem migração e renomeação.
 
 O serviço `oauthflow` controla a nova autorização. Seu store transitório grava
 o candidato cifrado no controle da linha legada e mantém uma reserva durável
