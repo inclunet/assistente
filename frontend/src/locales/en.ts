@@ -1379,9 +1379,9 @@ const en = {
     mcp: {
       snapshots: {
         "title": "OAuth snapshots",
-        "description": "Create an encrypted copy of a legacy PKCE configuration and credential pair. Client Credentials, hostname credentials and composite authorizations are excluded.",
+        "description": "Create an encrypted copy of a legacy PKCE or Client Credentials server configuration and credentials. Shared hostname credentials and composite authorizations are excluded.",
         "retention": "Retention: 30 days. Expiration blocks recovery but never deletes the last copy without confirmation. Files are excluded from Assistente exports and synchronization.",
-        "consumer": "Legacy PKCE server",
+        "consumer": "Legacy OAuth server",
         "select": "Select a server",
         "create": "Create snapshot",
         "created": "Encrypted snapshot created.",
@@ -1394,8 +1394,8 @@ const en = {
         "expired": "Recovery period ended. Confirm the rollback window has closed before discarding.",
         "restore": "Restore configuration",
         "restoreNamed": "Restore configuration for {{name}}",
-        "restoreConfirm": "Restore only if there are no current credentials or later edits? The server will be disabled and automatic connection turned off. Old tokens will not be reused: reauthorization is required. The snapshot will remain available.",
-        "restored": "Configuration restored. Choose Reauthorize, then enable the server after authorization completes.",
+        "restoreConfirm": "Restore only if there are no current credentials or later edits? The server will be disabled and automatic connection turned off. Old tokens will not be reused. PKCE requires Reauthorize; Client Credentials obtains a new token when connecting after enabling. The snapshot will remain available.",
+        "restored": "Configuration restored with the server disabled. For PKCE, choose Reauthorize before enabling. For Client Credentials, check the client and secret before enabling and connecting.",
         "discard": "Discard snapshot",
         "discardNamed": "Discard snapshot for {{name}}",
         "discardConfirm": "Do you confirm the rollback window has closed and migration or recovery has been validated? This may remove the last copy and cannot be undone.",

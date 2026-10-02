@@ -10,9 +10,109 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/oauthflow"
 )
+
+func TestClientCredentialsSnapshotGetsNewTokenAfterEnable(t *testing.T) {
+	t.Run("configured_id", func(t *testing.T) { testClientCredentialsSnapshotGetsNewToken(t, false) })
+	t.Run("vault_only_id", func(t *testing.T) { testClientCredentialsSnapshotGetsNewToken(t, true) })
+}
+
+func testClientCredentialsSnapshotGetsNewToken(t *testing.T, vaultOnlyID bool) {
+	t.Helper()
+	var tokens, resources atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/token" {
+			tokens.Add(1)
+			if err := r.ParseForm(); err != nil {
+				t.Error(err)
+			}
+			client, secret, _ := r.BasicAuth()
+			if client == "" {
+				client, secret = r.Form.Get("client_id"), r.Form.Get("client_secret")
+			}
+			if r.Form.Get("grant_type") != "client_credentials" || client != "client" || secret != "restored-secret" {
+				t.Error("wrong recovered client or grant")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"access_token":"fresh-access","token_type":"Bearer","expires_in":3600}`)
+			return
+		}
+		resources.Add(1)
+		if r.Header.Get("Authorization") != "Bearer fresh-access" {
+			t.Error("resource used old or missing token")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	m, _, ctx, cfg := legacyWALManagers(t, server.URL)
+	m.snapshotRoot = t.TempDir()
+	m.SetOAuthNetworkAuthorizer(func(_ context.Context, d oauthflow.NetworkDestination) ([]net.IP, bool, error) {
+		return d.IPs, true, nil
+	})
+	cfg.AuthType = AuthOAuth2ClientCredentials
+	if vaultOnlyID {
+		cfg.OAuth2ClientID = ""
+	}
+	if err := m.SaveConfig("legacy", cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.credMgr.RegisterPatternWithContext(ctx, clientCredPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", ClientID: "client", ClientSecret: "restored-secret"}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := m.CreateOAuthSnapshot(ctx, cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.DeleteServerAuth("legacy"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RestoreOAuthSnapshot(ctx, info.ID); err != nil {
+		t.Fatal(err)
+	}
+	if tokens.Load() != 0 || resources.Load() != 0 {
+		t.Fatal("recovery contacted remote server")
+	}
+	m.mu.RLock()
+	status := *m.servers["legacy"]
+	m.mu.RUnlock()
+	if status.Config.Enabled || status.Config.AutoConnect || status.NeedsReauth || status.Status != StatusDisconnected {
+		t.Fatal("CC recovery enabled connection or requested interactive authorization")
+	}
+	current, err := m.GetConfig("legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.Enabled = true
+	if err := m.SaveConfig("legacy", *current); err != nil {
+		t.Fatal(err)
+	}
+	for _, reload := range []bool{false, true} {
+		if reload {
+			if err := m.credMgr.LoadUserCredentials(ctx, cfg.UserID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		client := m.buildAuthHTTPClient(ctx, "legacy", *current)
+		if client == nil {
+			t.Fatal("restored registration missing in runtime")
+		}
+		resp, err := client.Get(cfg.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+	}
+	if tokens.Load() != 2 || resources.Load() != 2 {
+		t.Fatalf("unexpected token/resource requests: %d/%d", tokens.Load(), resources.Load())
+	}
+	stored, err := m.GetConfig("legacy")
+	if err != nil || stored.OAuth2ClientID != cfg.OAuth2ClientID {
+		t.Fatalf("token resolution changed stored configuration: %v", err)
+	}
+}
 
 func TestOAuthSnapshotRestoreReauthorizeThenEnable(t *testing.T) {
 	t.Run("disabled", func(t *testing.T) { testSnapshotReauthorization(t, false) })

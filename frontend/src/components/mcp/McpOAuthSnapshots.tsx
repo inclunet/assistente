@@ -19,7 +19,7 @@ export function McpOAuthSnapshots({ consumers }: { consumers: mcp.OAuthInventory
   const consumerSelect = useRef<HTMLSelectElement>(null);
   const restoreFocus = useRef(false);
   const query = useRef<Promise<credentials.OAuthSnapshotInfo[]> | null>(null);
-  const eligible = consumers.filter((item) => item.kind === 'legacy');
+  const eligible = consumers.filter((item) => item.kind === 'legacy' || item.kind === 'client_credentials');
 
   useEffect(() => {
     active.current = true;

@@ -43,6 +43,139 @@ func TestOAuthSnapshotMissingConsumerRemainsDisabled(t *testing.T) {
 	}
 }
 
+func TestClientCredentialsSnapshotRestoresOnlyRegistration(t *testing.T) {
+	for _, removeConsumer := range []bool{false, true} {
+		t.Run(map[bool]string{false: "existing", true: "removed"}[removeConsumer], func(t *testing.T) {
+			a, b, db, ctx, id := legacyOperationFixture(t)
+			if err := db.Model(&database.MCPServer{}).Where("id = ?", id).Update("auth_type", "oauth2_client_credentials").Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := a.RegisterPatternWithContext(ctx, "mcp-client:legacy", &AuthConfig{Source: "static", Type: "oauth2", ClientID: "client", ClientSecret: "secret", Token: "misplaced-access", RefreshURL: "misplaced-refresh"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := a.RegisterPatternWithContext(ctx, "shared.example", &AuthConfig{Source: "static", Type: "bearer", Token: "shared"}); err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(t.TempDir(), "recovery")
+			info, err := a.CreateLegacyOAuthSnapshot(ctx, dir, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(info.Location)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(data, []byte("secret")) || bytes.Contains(data, []byte("misplaced")) {
+				t.Fatal("plaintext snapshot")
+			}
+			if err := b.RestoreLegacyOAuthSnapshot(ctx, dir, info.ID, nil); !errors.Is(err, ErrSnapshotConflict) {
+				t.Fatalf("overwrote current credentials: %v", err)
+			}
+			if err := a.ClearLegacyOAuth(ctx, "legacy", id, ""); err != nil {
+				t.Fatal(err)
+			}
+			if removeConsumer {
+				if err := db.Where("id = ?", id).Delete(&database.MCPServer{}).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := b.RestoreLegacyOAuthSnapshot(ctx, dir, info.ID, nil); err != nil {
+				t.Fatal(err)
+			}
+			var consumer database.MCPServer
+			if err := db.First(&consumer, "id = ?", id).Error; err != nil || consumer.Enabled || consumer.AutoConnect {
+				t.Fatalf("consumer not disabled: %v", err)
+			}
+			var rows []database.CredentialEntry
+			if err := db.Where("pattern IN ?", []string{"mcp-client:legacy", "mcp-tokens:legacy"}).Find(&rows).Error; err != nil || len(rows) != 1 {
+				t.Fatalf("unexpected recovered rows: %d %v", len(rows), err)
+			}
+			if rows[0].TokenEnc != "" || rows[0].RefreshTokenEnc != "" || rows[0].LegacyOAuthControlEnc != "" {
+				t.Fatal("restored stale tokens or interactive marker")
+			}
+			client, err := b.GetByPatternWithContext(ctx, "mcp-client:legacy")
+			if err != nil || client == nil || client.ClientID != "client" || client.ClientSecret != "secret" {
+				t.Fatalf("recovered client unavailable before restart: %v", err)
+			}
+			if err := a.LoadUserCredentials(ctx, "owner"); err != nil {
+				t.Fatal(err)
+			}
+			client, err = a.GetByPatternWithContext(ctx, "mcp-client:legacy")
+			if err != nil || client == nil || client.ClientSecret != "secret" {
+				t.Fatalf("recovered client unavailable after reload: %v", err)
+			}
+			shared, err := a.GetByPatternWithContext(ctx, "shared.example")
+			if err != nil || shared == nil || shared.Token != "shared" {
+				t.Fatal("changed shared hostname credential")
+			}
+			if err := b.RestoreLegacyOAuthSnapshot(ctx, dir, info.ID, nil); !errors.Is(err, ErrSnapshotConflict) {
+				t.Fatalf("repeated restore replaced registration: %v", err)
+			}
+		})
+	}
+}
+
+func TestClientCredentialsSnapshotRestoreRollsBackCacheAndDatabase(t *testing.T) {
+	a, _, db, ctx, id := legacyOperationFixture(t)
+	if err := db.Model(&database.MCPServer{}).Where("id = ?", id).Update("auth_type", "oauth2_client_credentials").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := a.RegisterPatternWithContext(ctx, "mcp-client:legacy", &AuthConfig{Source: "static", Type: "oauth2", ClientID: "client", ClientSecret: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "recovery")
+	info, err := a.CreateLegacyOAuthSnapshot(ctx, dir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.ClearLegacyOAuth(ctx, "legacy", id, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Callback().Update().Before("gorm:update").Register("fail_cc_restore", func(tx *gorm.DB) { _ = tx.AddError(errors.New("injected")) }); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Update().Remove("fail_cc_restore") })
+	called := false
+	if err := a.RestoreLegacyOAuthSnapshot(ctx, dir, info.ID, func(database.MCPServer) { called = true }); err == nil {
+		t.Fatal("expected rollback")
+	}
+	var count int64
+	if err := db.Model(&database.CredentialEntry{}).Count(&count).Error; err != nil || count != 0 || called {
+		t.Fatal("partial recovery")
+	}
+	if auth, err := a.GetByPatternWithContext(ctx, "mcp-client:legacy"); err != nil || auth != nil {
+		t.Fatal("uncommitted registration published to cache")
+	}
+}
+
+func TestClientCredentialsSnapshotRejectsUnreadableRegistration(t *testing.T) {
+	a, _, db, ctx, id := legacyOperationFixture(t)
+	if err := db.Model(&database.MCPServer{}).Where("id = ?", id).Update("auth_type", "oauth2_client_credentials").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := a.RegisterPatternWithContext(ctx, "mcp-client:legacy", &AuthConfig{Source: "static", Type: "oauth2", ClientID: "client", ClientSecret: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&database.CredentialEntry{}).Where("pattern = ?", "mcp-client:legacy").Update("client_secret_enc", "unreadable").Error; err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "recovery")
+	info, err := a.CreateLegacyOAuthSnapshot(ctx, dir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.ClearLegacyOAuth(ctx, "legacy", id, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.RestoreLegacyOAuthSnapshot(ctx, dir, info.ID, nil); !errors.Is(err, ErrSnapshot) {
+		t.Fatalf("unreadable registration accepted: %v", err)
+	}
+	var count int64
+	if err := db.Model(&database.CredentialEntry{}).Count(&count).Error; err != nil || count != 0 {
+		t.Fatal("unreadable recovery modified database")
+	}
+}
+
 func TestOAuthSnapshotPublicationRefusesEndedSession(t *testing.T) {
 	a, _, _, ctx, _ := legacyOperationFixture(t)
 	s, err := a.snapshotSession(ctx, filepath.Join(t.TempDir(), "recovery"))

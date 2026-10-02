@@ -1382,9 +1382,9 @@ const es = {
     mcp: {
       snapshots: {
         "title": "Snapshots OAuth",
-        "description": "Cree una copia cifrada de la configuración y del par de credenciales PKCE heredado. No incluye Client Credentials, credenciales por hostname ni autorizaciones compuestas.",
+        "description": "Cree una copia cifrada de la configuración y las credenciales de servidores PKCE o Client Credentials heredados. No incluye credenciales compartidas por hostname ni autorizaciones compuestas.",
         "retention": "Retención: 30 días. Al vencer, se bloquea la recuperación pero nunca se elimina la última copia sin confirmación. Los archivos quedan fuera de la exportación y sincronización de Assistente.",
-        "consumer": "Servidor PKCE heredado",
+        "consumer": "Servidor OAuth heredado",
         "select": "Seleccione un servidor",
         "create": "Crear snapshot",
         "created": "Snapshot cifrado creado.",
@@ -1397,8 +1397,8 @@ const es = {
         "expired": "El plazo de recuperación terminó. Confirme el fin de la ventana de rollback antes de descartar.",
         "restore": "Restaurar configuración",
         "restoreNamed": "Restaurar configuración de {{name}}",
-        "restoreConfirm": "¿Restaurar solo si no hay credenciales actuales ni cambios posteriores? El servidor quedará deshabilitado y sin conexión automática. No se reutilizarán tokens antiguos: será necesario volver a autorizar. El snapshot seguirá disponible.",
-        "restored": "Configuración restaurada. Seleccione Volver a autorizar y luego habilite el servidor.",
+        "restoreConfirm": "¿Restaurar solo si no hay credenciales actuales ni cambios posteriores? El servidor quedará deshabilitado y sin conexión automática. No se reutilizarán tokens antiguos. PKCE requiere Volver a autorizar; Client Credentials obtiene un token nuevo al conectar después de habilitar. El snapshot seguirá disponible.",
+        "restored": "Configuración restaurada con el servidor deshabilitado. Para PKCE, vuelva a autorizar antes de habilitar. Para Client Credentials, revise el cliente y el secreto antes de habilitar y conectar.",
         "discard": "Descartar snapshot",
         "discardNamed": "Descartar snapshot de {{name}}",
         "discardConfirm": "¿Confirma que terminó la ventana de rollback y que se validó la migración o recuperación? Esta acción puede eliminar la última copia y no se puede deshacer.",
