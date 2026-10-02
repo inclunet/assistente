@@ -30,3 +30,9 @@ type ProviderStore interface {
 	// Count retorna o total de provedores persistidos.
 	Count(ctx context.Context) (int, error)
 }
+
+// CredentialIdentityRevisionStore invalida fatos de compatibilidade antes de
+// trocar uma credencial cujo identificador de referência não mudou.
+type CredentialIdentityRevisionStore interface {
+	BumpCompatibilityRevision(ctx context.Context, id string) error
+}

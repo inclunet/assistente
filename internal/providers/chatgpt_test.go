@@ -30,6 +30,11 @@ func TestChatGPTPendingCanDisconnectAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	saved, err := service.store.Get(ctx, created.ID)
+	registered := service.registry.Get(created.ID)
+	if err != nil || saved.CompatibilityRevision < 1 || registered == nil || registered.CompatibilityRevision != saved.CompatibilityRevision {
+		t.Fatalf("snapshot OAuth de criação diverge do banco: saved=%+v registry=%+v err=%v", saved, registered, err)
+	}
 	if created.State != "pending" {
 		t.Fatal(created.State)
 	}
@@ -50,6 +55,7 @@ func TestImportedChatGPTRecoversWithoutForeignRegistration(t *testing.T) {
 	if err := service.store.Save(ctx, []*llm.ProviderConfig{imported}); err != nil {
 		t.Fatal(err)
 	}
+	initialRevision := imported.CompatibilityRevision
 	if err := service.Load(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +84,10 @@ func TestImportedChatGPTRecoversWithoutForeignRegistration(t *testing.T) {
 	updated, err := service.store.Get(ctx, imported.ID)
 	if err != nil || updated.CredentialPattern != "oauth:"+id {
 		t.Fatalf("reference: %v", err)
+	}
+	registered := service.registry.Get(imported.ID)
+	if updated.CompatibilityRevision <= initialRevision || registered == nil || registered.CompatibilityRevision != updated.CompatibilityRevision {
+		t.Fatalf("reconexão OAuth publicou revisão incorreta: initial=%d saved=%d registry=%+v", initialRevision, updated.CompatibilityRevision, registered)
 	}
 	// Repeating the explicit action reuses the newly created pending record.
 	again, err := service.ensureChatGPTAuthorization(ctx, store, updated, service.registry.Generation())

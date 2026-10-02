@@ -45,31 +45,70 @@ func (r *ProviderRepository) SaveLLMProvider(ctx context.Context, provider *LLMP
 	if err := RequireUserIDOrBootstrap(ctx); err != nil {
 		return err
 	}
+	if provider == nil {
+		return errors.New("llm provider inválido")
+	}
 	if provider != nil && provider.UserID == "" {
 		if userID, ok := UserIDFromContext(ctx); ok {
 			provider.UserID = userID
 		}
 	}
-	// SECURITY (AEP-0052 / fail-closed): em contexto autenticado, impedir que o
-	// Save (UPSERT por PK) sobrescreva um provider existente pertencente a OUTRO
-	// usuário ao reutilizar seu ID — vetor de hijack cross-user. Registros órfãos
-	// (user_id="") permanecem adotáveis (AdoptLegacyData). O caminho bootstrap
-	// (sem userID no ctx) não dispara esta checagem.
-	if userID, ok := UserIDFromContext(ctx); ok && provider != nil && provider.ID != "" {
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing LLMProvider
-		err := db.WithContext(ctx).Select("id", "user_id").First(&existing, "id = ?", provider.ID).Error
+		err := tx.First(&existing, "id = ?", provider.ID).Error
 		switch {
 		case err == nil:
-			if existing.UserID != "" && existing.UserID != userID {
+			// SECURITY (AEP-0052 / fail-closed): impedir que o Save (UPSERT por
+			// PK) sobrescreva provider de outro usuário ao reutilizar seu ID.
+			if userID, ok := UserIDFromContext(ctx); ok && existing.UserID != "" && existing.UserID != userID {
 				return ErrProviderCrossUser
 			}
+			provider.CompatibilityRevision = existing.CompatibilityRevision
+			if provider.CompatibilityRevision < 1 {
+				provider.CompatibilityRevision = 1
+			}
+			if providerCompatibilityIdentityChanged(&existing, provider) {
+				provider.CompatibilityRevision++
+			}
 		case errors.Is(err, gorm.ErrRecordNotFound):
-			// Sem registro pré-existente: criação normal.
+			if provider.CompatibilityRevision < 1 {
+				provider.CompatibilityRevision = 1
+			}
 		default:
 			return err
 		}
+		return tx.Save(provider).Error
+	})
+}
+
+func providerCompatibilityIdentityChanged(current, next *LLMProvider) bool {
+	if current == nil || next == nil {
+		return true
 	}
-	return db.WithContext(ctx).Save(provider).Error
+	return current.UserID != next.UserID || current.Type != next.Type || current.APIFormat != next.APIFormat || current.BaseURL != next.BaseURL ||
+		current.CredentialPattern != next.CredentialPattern || current.AuthMode != next.AuthMode ||
+		current.ReasoningContentMode != next.ReasoningContentMode ||
+		current.ACPCommand != next.ACPCommand || current.ACPArgs != next.ACPArgs || current.ACPEnv != next.ACPEnv ||
+		current.ACPCredentialEnv != next.ACPCredentialEnv || current.ACPAgentID != next.ACPAgentID
+}
+
+// BumpCompatibilityRevision registra a troca da credencial efetiva sem
+// persistir ou derivar qualquer dado do segredo. É usado antes de substituir
+// uma chave no cofre quando a referência da credencial continua igual.
+func (r *ProviderRepository) BumpCompatibilityRevision(ctx context.Context, id string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
+	result := ScopeByUser(ctx, r.db.WithContext(ctx).Model(&LLMProvider{}), "user_id").
+		Where("id = ?", id).
+		UpdateColumn("compatibility_revision", gorm.Expr("compatibility_revision + 1"))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 // GetLLMProvidersWithContext é a fachada de transição sobre a global db.

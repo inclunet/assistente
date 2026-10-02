@@ -244,7 +244,13 @@ func persistChatGPTAuthorization(ctx context.Context, store oauthflow.Store, r o
 			if current.Type != string(llm.ProviderChatGPT) || current.CredentialPattern != *expectedPattern {
 				return oauthflow.ErrConflict
 			}
-			fields := map[string]any{"credential_pattern": p.CredentialPattern, "base_url": p.BaseURL, "api_format": string(p.APIFormat), "auth_mode": string(p.AuthMode)}
+			fields := map[string]any{
+				"credential_pattern":     p.CredentialPattern,
+				"base_url":               p.BaseURL,
+				"api_format":             string(p.APIFormat),
+				"auth_mode":              string(p.AuthMode),
+				"compatibility_revision": gorm.Expr("compatibility_revision + 1"),
+			}
 			result := database.ScopeByUser(ctx, tx.Model(&database.LLMProvider{}), "user_id").Where("id = ? AND credential_pattern = ?", p.ID, *expectedPattern).Updates(fields)
 			if result.Error != nil {
 				return result.Error
@@ -252,8 +258,10 @@ func persistChatGPTAuthorization(ctx context.Context, store oauthflow.Store, r o
 			if result.RowsAffected != 1 {
 				return oauthflow.ErrConflict
 			}
-			current.CredentialPattern, current.BaseURL = p.CredentialPattern, p.BaseURL
-			current.APIFormat, current.AuthMode = string(p.APIFormat), string(p.AuthMode)
+			current, err = repository.GetLLMProvider(ctx, p.ID)
+			if err != nil {
+				return err
+			}
 			updated, err := fromDBModel(current)
 			if err != nil {
 				return err
@@ -261,7 +269,12 @@ func persistChatGPTAuthorization(ctx context.Context, store oauthflow.Store, r o
 			*p = *updated
 			return nil
 		}
-		return repository.SaveLLMProvider(ctx, toDBModel(p))
+		dbProvider := toDBModel(p)
+		if err := repository.SaveLLMProvider(ctx, dbProvider); err != nil {
+			return err
+		}
+		p.CompatibilityRevision = dbProvider.CompatibilityRevision
+		return nil
 	})
 }
 

@@ -88,28 +88,38 @@ O projeto já tem contratos que esta proposta deve preservar:
     conceitual mantém origem (observação de execução, descoberta consultada no
     endpoint, curadoria versionada pela aplicação, documentação/catálogo oficial
     ou catálogo de terceiros), escopo, instante da observação, validade quando
-    conhecida e referência externa não sensível.
+    conhecida e referência externa não sensível. Fatos de execução recebem a
+    revisão capturada pelo snapshot da configuração usado na requisição; uma
+    revisão ausente ou obsoleta é recusada. Observações futuras são inelegíveis
+    e não podem ser gravadas.
     Os escopos distinguem conexão+revisão+modelo da aplicação, identidade de
     provedor e modelo verificada por um adaptador, e informação genérica de
     referência.
-    Uma fonte genérica só pode afetar envio ou ocultação na UI depois de haver
-    vínculo explícito e validado entre sua identidade de provedor/modelo e a
-    conexão selecionada. Só fatos vinculados entram nas afirmações efetivas do
-    modelo; fatos sem vínculo podem permanecer como referência de importação,
-    mas não alteram envio nem perfil. Duas fontes para o mesmo
+    Curadoria da aplicação pode ser específica à conexão local e, nesse caso,
+    usa o escopo `connection`; curadoria que declara correspondência com uma
+    identidade de catálogo externa usa `external_binding` e exige vínculo
+    verificado. Fontes oficiais e de terceiros seguem a mesma exigência de
+    vínculo para afetar o modelo local. Referências externas são URLs públicas
+    HTTP(S) sem credenciais, query string ou fragmento; uma referência vazia é
+    permitida.
+    Fatos de conexão já estão vinculados ao provider, modelo e revisão locais.
+    Uma fonte genérica ou externa só pode afetar envio ou ocultação na UI depois
+    de haver vínculo explícito e validado entre sua identidade de provedor/modelo
+    e a conexão selecionada. Fatos externos sem vínculo podem permanecer como
+    referência de importação, mas não alteram envio nem perfil. Duas fontes para o mesmo
     modelo/capability/campo são afirmações distintas; uma não apaga
     silenciosamente a outra.
 
 7. **A resolução de fatos é determinística e respeita o escopo.** Evidência da
     revisão exata da conexão prevalece sobre dados importados de uma identidade
     externa explicitamente verificada e vinculada à mesma revisão. Afirmações
-    com revisão anterior, genéricas ou sem vínculo nunca
+    com revisão anterior, genéricas ou externas sem vínculo nunca
     omitem parâmetros nem ocultam controles, ainda que usem o mesmo ID textual
     de modelo. Entre fatos aplicáveis, a ordem é:
     1. observação direta de execução no endpoint;
     2. descoberta consultada diretamente no endpoint — inclusive endpoint de
        API oficial consultado para essa conexão;
-    3. curadoria versionada pela aplicação com vínculo exato;
+    3. curadoria versionada pela aplicação, específica à conexão ou com vínculo externo exato;
     4. documentação ou catálogo oficial importado com vínculo verificado;
     5. catálogo de terceiros importado com vínculo verificado.
     Dentro da mesma classe e escopo, prevalece a afirmação ativa mais recente;
@@ -195,8 +205,8 @@ resolução projeta um fato efetivo sem apagar afirmações concorrentes.
 
 | Fase / PR planejado | Entrega | Limite da fase |
 |---|---|---|
-| 0 — PR de documentação | Registrar e revisar esta arquitetura e a sequência de entrega. | Sem migração ou mudança de runtime. |
-| 1 — Persistência e resolução local | Adicionar revisão de compatibilidade do provedor, modelos por provedor, catálogo controlado de capabilities/campos, afirmações com origem, limites/opções tipados e resolver determinístico/cacheável. | Sem consultas externas e sem alterar o envio. |
+| 0 — PR de documentação (concluída no PR #887) | Registrar e revisar esta arquitetura e a sequência de entrega. | Sem migração ou mudança de runtime. |
+| 1 — Persistência e resolução local (concluída neste PR) | Migração v33 cria a revisão de compatibilidade, modelos por provedor, vocabulário controlado, vínculos externos verificados, afirmações com origem, limites/opções tipados e resolver local determinístico. Testes cobrem escopo, precedência, expiração, conflito e invalidação por revisão. | Sem consultas externas e sem alterar o envio. |
 | 2 — Compatibilidade no envio | Traduzir campos canônicos, omitir incompatibilidades conhecidas e aprender rejeições precisas com no máximo um retry seguro. | Integrar ao pipeline backend existente; sem caminho paralelo de mensagem. |
 | 3 — Profile Manager e vozes | Filtrar opções usando fatos locais; persistir/reutilizar listas de vozes por provedor/modelo e estados de desconhecimento. | Abrir a tela não espera por API externa. |
 | 4 — Fontes e jobs | Criar interface de importadores e uma operação de sincronização reutilizada pela chamada manual e pelos jobs, com validação, atualização idempotente, proveniência e vínculos explícitos de identidade; começar por fontes cuja cobertura e licença sejam adequadas. | Fatos externos só governam conexão com identidade de provedor/modelo explicitamente verificada. |
@@ -230,23 +240,31 @@ depender de uma fase ainda aberta deve ser empilhado sobre ela.
 
 ## Critérios de aceitação
 
-- [ ] `llm_models` é ligado a `llm_providers` e não contém `user_id` nem
+- [x] `llm_models` é ligado a `llm_providers` e não contém `user_id` nem
   `api_format`; IDs iguais em endpoints distintos não compartilham fatos
-  aprendidos automaticamente.
-- [ ] Aprendizados e vínculos importados incluem a revisão não secreta da
+  aprendidos automaticamente. Verificado por `TestLLMModelCapabilitiesRepositoryScopesModelsAndResolvesLocalFacts`.
+- [x] Aprendizados e vínculos importados incluem a revisão não secreta da
   identidade de compatibilidade; mudar endpoint, formato, adaptador ou escopo da
   conta invalida fatos efetivos anteriores sem apagar o histórico nem armazenar
-  hash/segredo da credencial.
-- [ ] Suporte de capability e de campo tem os estados suportado, não suportado
+  hash/segredo da credencial. Observações exigem a revisão capturada e fatos
+  antigos não herdam a revisão atual; snapshots de `ProviderConfig` preservam
+  essa revisão. Verificado por `TestProviderCompatibilityRevisionChangesWithOnlyConnectionIdentity`, `TestUpdateAPIKeyInvalidatesConnectionCompatibilityRevision` e testes do repositório.
+- [x] Suporte de capability e de campo tem os estados suportado, não suportado
   e desconhecido, com origem e instante de observação.
-- [ ] Campos, limites e opções enumeradas são validados por tipos e restrições
+  Persistido nas tabelas de afirmações da migração v33; a validação de domínio rejeita estados e proveniência fora do catálogo.
+- [x] Campos, limites e opções enumeradas são validados por tipos e restrições
   conhecidos; dado externo arbitrário não entra em coluna JSON sem schema
-  versionado e validação.
-- [ ] Múltiplas afirmações para o mesmo modelo/campo permanecem auditáveis e a
+  versionado e validação. Testes exercitam tipos, limites, opções e triggers SQLite.
+- [x] Múltiplas afirmações para o mesmo modelo/campo permanecem auditáveis e a
   resolução efetiva é determinística, local e coberta por testes, inclusive a
-  precedência da curadoria versionada.
-- [ ] A resolução nunca usa fato genérico para omitir campo ou ocultar controle
-  sem vínculo validado da identidade externa de provedor/modelo à conexão.
+  precedência da curadoria versionada. Verificado pelos testes de resolução em `internal/llmcapabilities`.
+- [x] A resolução nunca usa fato genérico para omitir campo ou ocultar controle
+  sem vínculo validado da identidade externa de provedor/modelo à conexão. Fatos genéricos são ignorados; vínculos externos exigem modelo, origem e revisão correspondentes.
+- [x] Escritas em provedores de sistema exigem contexto interno de bootstrap;
+  usuários autenticados podem consultar os fatos compartilhados, mas não
+  publicar afirmações globais. Timestamps futuros e referências de proveniência
+  com credenciais, query ou fragmento são recusados. Verificado por testes do
+  repositório e do resolver.
 - [ ] Parâmetros canônicos são convertidos para o formato de wire correto e
   fatos de não suporte da conexão/modelo impedem envio futuro do campo.
 - [ ] Somente uma rejeição precisa de campo incompatível produz aprendizado e

@@ -20,6 +20,10 @@ type DBStore struct{}
 // NewDBStore cria um DBStore pronto para uso.
 func NewDBStore() *DBStore { return &DBStore{} }
 
+func (s *DBStore) BumpCompatibilityRevision(ctx context.Context, id string) error {
+	return database.NewProviderRepository(database.DB()).BumpCompatibilityRevision(ctx, id)
+}
+
 // Save persiste todos os provedores fornecidos no banco.
 // Usa GORM Save (upsert por primary key).
 //
@@ -54,9 +58,11 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 					return oauthflow.ErrConflict
 				}
 			}
-			if err := repository.SaveLLMProvider(ctx, toDBModel(p)); err != nil {
+			dbProvider := toDBModel(p)
+			if err := repository.SaveLLMProvider(ctx, dbProvider); err != nil {
 				return err
 			}
+			p.CompatibilityRevision = dbProvider.CompatibilityRevision
 		}
 		return nil
 	})
@@ -137,6 +143,7 @@ func toDBModel(p *llm.ProviderConfig) *database.LLMProvider {
 		ID:                       p.ID,
 		Name:                     p.Name,
 		Type:                     string(p.Type),
+		CompatibilityRevision:    p.CompatibilityRevision,
 		APIFormat:                string(p.APIFormat),
 		BaseURL:                  p.BaseURL,
 		Model:                    p.Model,
@@ -172,6 +179,7 @@ func fromDBModel(dbP *database.LLMProvider) (*llm.ProviderConfig, error) {
 		ID:                       dbP.ID,
 		Name:                     dbP.Name,
 		Type:                     llm.ProviderType(dbP.Type),
+		CompatibilityRevision:    dbP.CompatibilityRevision,
 		APIFormat:                llm.APIFormat(dbP.APIFormat),
 		BaseURL:                  dbP.BaseURL,
 		Model:                    dbP.Model,

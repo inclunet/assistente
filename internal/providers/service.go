@@ -489,6 +489,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		ID:                       existing.ID,
 		Name:                     existing.Name,
 		Type:                     existing.Type,
+		CompatibilityRevision:    existing.CompatibilityRevision,
 		APIFormat:                existing.APIFormat,
 		BaseURL:                  existing.BaseURL,
 		Model:                    existing.Model,
@@ -590,6 +591,11 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	if req.APIKey != "" {
 		if strings.HasPrefix(updated.CredentialPattern, "oauth:") {
 			return nil, oauthflow.ErrConflict
+		}
+		if revisionStore, ok := s.store.(CredentialIdentityRevisionStore); ok {
+			if err := revisionStore.BumpCompatibilityRevision(ctx, id); err != nil {
+				return nil, fmt.Errorf("erro ao invalidar fatos do modelo antes de trocar a credencial: %w", err)
+			}
 		}
 		if err := s.credMgr.RegisterPatternWithContext(ctx, updated.CredentialPattern, &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
