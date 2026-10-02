@@ -233,6 +233,58 @@ func TestHostnameSnapshotConcurrentRestore(t *testing.T) {
 	}
 }
 
+func TestHostnameCaseCollisionNeverSelectsToken(t *testing.T) {
+	for _, patterns := range [][]string{{"SHARED.EXAMPLE", "shared.example"}, {"shared.example", "SHARED.EXAMPLE"}, {"*.EXAMPLE", "*.example"}} {
+		t.Run(patterns[0], func(t *testing.T) {
+			m, _, _, ctx, _ := legacyOperationFixture(t)
+			for _, pattern := range patterns {
+				if err := m.RegisterPatternWithContext(ctx, pattern, &AuthConfig{Source: "static", Type: "bearer", Token: pattern}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, reload := range []bool{false, true} {
+				if reload {
+					if err := m.LoadUserCredentials(ctx, "owner"); err != nil {
+						t.Fatal(err)
+					}
+				}
+				auth, err := m.ResolveForURLWithContext(ctx, "https://shared.example/mcp")
+				if auth != nil || err == nil || err.Error() != "credential_hostname_ambiguous" {
+					t.Fatal("ambiguous credential selected", err)
+				}
+			}
+		})
+	}
+}
+
+func TestHostnameSnapshotRestoreRejectsCaseEquivalentEntry(t *testing.T) {
+	m, _, _, ctx, _ := legacyOperationFixture(t)
+	if err := m.RegisterPatternWithContext(ctx, "SHARED.EXAMPLE", &AuthConfig{Source: "static", Type: "bearer", Token: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "recovery")
+	info, err := m.CreateLegacyOAuthSnapshot(ctx, dir, "credential:SHARED.EXAMPLE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.DeletePattern(ctx, "SHARED.EXAMPLE"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RegisterPatternWithContext(ctx, "shared.example", &AuthConfig{Source: "static", Type: "bearer", Token: "current"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RestoreLegacyOAuthSnapshot(ctx, dir, info.ID, nil); !errors.Is(err, ErrSnapshotConflict) {
+		t.Fatal("case collision accepted", err)
+	}
+	if err := m.LoadUserCredentials(ctx, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := m.ResolveForURLWithContext(ctx, "https://shared.example")
+	if err != nil || auth == nil || auth.Token != "current" {
+		t.Fatal("current credential changed", err)
+	}
+}
+
 func TestHostnameSnapshotInventoryMatchesCaptureEligibility(t *testing.T) {
 	for _, sample := range []struct {
 		pattern  string

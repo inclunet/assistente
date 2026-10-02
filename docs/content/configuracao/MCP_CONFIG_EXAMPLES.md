@@ -715,6 +715,9 @@ modifica, recria, habilita ou conecta servidores, nem associa a credencial a um
 MCP específico. O snapshot permanece disponível para consulta ou descarte.
 O resolvedor compara hostnames sem distinguir maiúsculas e minúsculas e aceita
 URLs IPv6 com ou sem porta, preservando a escrita do padrão armazenado.
+Se já existir uma variante do mesmo padrão com diferença apenas de maiúsculas,
+a restauração é recusada. Duplicatas desse tipo no cofre bloqueiam a resolução
+ambígua; nenhuma delas é escolhida automaticamente ou apagada.
 Entradas incompatíveis com a captura aparecem no diagnóstico, mas não no seletor
 de snapshots; isso inclui padrões com URL completa, caminho ou porta.
 

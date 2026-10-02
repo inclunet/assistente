@@ -1138,6 +1138,11 @@ Evidências: `TestHostnameSnapshotCaptureIsPrivateAndReadOnly`,
 `TestHostnameSnapshotResolvesIPv6AndCaseAfterRestore` prova resolução antes/depois
 da recarga com IPv6, porta e caixa mista. O resolvedor usa `URL.Hostname()` e
 compara padrões sem distinguir caixa, sem reescrever o padrão persistido.
+Variantes do mesmo padrão que diferem apenas por caixa bloqueiam a resolução
+ambígua antes de ler segredos ou executar fontes; o restore recusa uma variante
+equivalente já existente na mesma transação. As entradas originais são preservadas.
+Evidências: `TestHostnameCaseCollisionNeverSelectsToken` e
+`TestHostnameSnapshotRestoreRejectsCaseEquivalentEntry`.
 O inventário reutiliza a validação da captura e sinaliza `snapshot_ineligible`;
 a UI não oferece entradas inelegíveis. Testes de inventário/captura e seletor
 cobrem hostnames válidos e padrões com URL, caminho ou porta rejeitados.

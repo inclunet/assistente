@@ -476,11 +476,20 @@ func (m *Manager) restoreHostnameSnapshot(ctx context.Context, s *snapshotSessio
 			return ErrSnapshotConflict
 		}
 		var count int64
-		if err := tx.Model(&database.CredentialEntry{}).Where("id = ? OR (user_id = ? AND pattern = ?)", entry.ID, p.UserID, entry.Pattern).Count(&count).Error; err != nil {
+		if err := tx.Model(&database.CredentialEntry{}).Where("id = ?", entry.ID).Count(&count).Error; err != nil {
 			return err
 		}
 		if count != 0 {
 			return ErrSnapshotConflict
+		}
+		var patterns []string
+		if err := tx.Model(&database.CredentialEntry{}).Where("user_id = ?", p.UserID).Pluck("pattern", &patterns).Error; err != nil {
+			return err
+		}
+		for _, pattern := range patterns {
+			if strings.EqualFold(pattern, entry.Pattern) {
+				return ErrSnapshotConflict
+			}
 		}
 		return tx.Create(&entry).Error
 	})

@@ -216,6 +216,7 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 		userID = scopedUser
 	}
 	// Procura em ordem (primeira match vence)
+	var selected *DomainCredential
 	for _, dc := range m.credentials {
 		if userID != "" && dc.UserID != userID {
 			continue
@@ -224,15 +225,22 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 			continue
 		}
 		if dc.regex != nil && dc.Auth.Source != "oauth" && dc.regex.MatchString(domain) {
-			// Descriptografar antes de retornar
-			auth, err := m.decryptAuth(dc.Auth)
-			if err != nil {
-				return nil, fmt.Errorf("erro ao descriptografar credenciais: %w", err)
+			if selected == nil {
+				selected = dc
+			} else if strings.EqualFold(selected.Pattern, dc.Pattern) {
+				// Never choose a token or execute a source for ambiguous identities.
+				return nil, fmt.Errorf("credential_hostname_ambiguous")
 			}
-			m.mu.RUnlock()
-			locked = false
-			return ResolveSource(withDirectCommandDiagnostic(ctx, dc.ID), auth)
 		}
+	}
+	if selected != nil {
+		auth, err := m.decryptAuth(selected.Auth)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao descriptografar credenciais: %w", err)
+		}
+		m.mu.RUnlock()
+		locked = false
+		return ResolveSource(withDirectCommandDiagnostic(ctx, selected.ID), auth)
 	}
 
 	return nil, nil // sem credenciais para este domínio
