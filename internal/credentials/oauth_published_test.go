@@ -199,6 +199,13 @@ func TestPublishedOAuthRecovery(t *testing.T) {
 				if consumer.AuthType != wantAuth {
 					t.Fatal("recovery changed grant")
 				}
+				wantConfiguredID := "fixture-client"
+				if variant == "client_credentials" {
+					wantConfiguredID = ""
+				}
+				if consumer.OAuth2ClientID != wantConfiguredID {
+					t.Fatal("recovery changed persisted client ID")
+				}
 				if consumer.Enabled || consumer.AutoConnect || consumer.OAuth2CallbackPort != 3128 || consumer.OAuth2CallbackHost != "localhost" || consumer.OAuth2Scopes != `["read","offline_access"]` || !consumer.PreferBridge {
 					t.Fatal("consumer settings were not recovered safely")
 				}

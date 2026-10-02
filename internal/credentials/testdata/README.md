@@ -13,7 +13,7 @@ da release **0.9.0**, commit `e5dd78f975f304f8e9a8b7c330b98252735c7cc7`:
 
 Não houve alteração em `models_mcp.go` ou `db_store.go` entre 0.5.0 e 0.9.0. Os testes importam os schemas publicados existentes e os dados OAuth antes de aplicar duas vezes o AutoMigrate das duas tabelas atuais. Não executam os aplicativos históricos nem substituem os testes de upgrade completo do pacote database.
 
-Todos os valores são fictícios. A chave pública de teste contém os bytes 1 a 32;
+Todos os valores são fictícios. A chave simétrica de teste (publicada apenas para estes dados sintéticos) contém os bytes 1 a 32;
 os textos `fixture-client`, `fixture-secret`, `fixture-access`, `fixture-refresh`
 e `fixture-host-token` foram cifrados uma vez com AES-256-GCM, nonce aleatório de
 12 bytes, tag de 16 bytes e sem AAD. O formato é base64(nonce + ciphertext + tag),
@@ -25,4 +25,3 @@ ilegível e outro usuário. Verificam preservação no upgrade/captura, recupera
 sem replay de tokens, recarga, callback fixo e ausência de alteração no hostname
 ou no outro usuário. Ainda não comprovam conversão para source OAuth, rollback
 de versões executáveis nem recuperação do hostname compartilhado.
-

@@ -8,4 +8,3 @@ INSERT INTO credential_entries (id,user_id,pattern,auth_type,token_enc)
 VALUES ('fixture-host-row','018f0000-0000-7000-8000-000000000001','resource.example','bearer','JwkVBVacUzgiqs8VQ1vwEq84okfDF4mJbBI/As8swLoHmGZhYQIANM9hUto0yQ==');
 INSERT INTO credential_entries (id,user_id,pattern,auth_type,token_enc)
 VALUES ('fixture-other-row','018f0000-0000-7000-8000-000000000002','mcp-tokens:published','oauth2','lBMUXxJ+vtxeStfGpiacCfqPj+nE62I1sz/r3lKHWbJPte3j5+fpj34t');
-
