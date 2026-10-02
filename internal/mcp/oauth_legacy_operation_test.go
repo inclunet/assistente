@@ -30,6 +30,67 @@ type pausedLegacySource struct {
 	release chan struct{}
 }
 
+func TestUnmanagedAuthDeletionRollsBackEveryPattern(t *testing.T) {
+	for _, kind := range []AuthType{AuthBearer, AuthBasic, AuthOAuth2ClientCredentials, AuthNone} {
+		t.Run(string(kind), func(t *testing.T) {
+			a, _, ctx, cfg := legacyWALManagers(t, "https://auth.example")
+			cfg.AuthType = kind
+			if err := a.SaveConfig("legacy", cfg); err != nil {
+				t.Fatal(err)
+			}
+			patterns := []string{clientCredPattern("legacy"), userTokensPattern("legacy"), "auth.example"}
+			for _, pattern := range patterns {
+				if err := a.credMgr.RegisterPatternWithContext(ctx, pattern, &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "stored", ClientID: "client", ClientSecret: "secret"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			db := a.repository().(*DBRepository).db
+			calls := 0
+			if err := db.Callback().Delete().After("gorm:delete").Register("reject_partial_auth_delete", func(tx *gorm.DB) {
+				calls++
+				if calls == 2 || tx.RowsAffected > 1 {
+					_ = tx.AddError(errors.New("injected delete failure"))
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = db.Callback().Delete().Remove("reject_partial_auth_delete") })
+			if err := a.DeleteServerAuth("legacy"); err == nil {
+				t.Fatal("expected rollback")
+			}
+			var count int64
+			if err := db.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern IN ?", cfg.UserID, patterns).Count(&count).Error; err != nil || count != 3 {
+				t.Fatalf("partial removal: %d %v", count, err)
+			}
+			if err := db.Callback().Delete().Remove("reject_partial_auth_delete"); err != nil {
+				t.Fatal(err)
+			}
+			if err := a.DeleteServerAuth("legacy"); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern IN ?", cfg.UserID, patterns).Count(&count).Error; err != nil || count != 0 {
+				t.Fatalf("residue retained: %d %v", count, err)
+			}
+		})
+	}
+}
+
+func TestUnmanagedAuthDeletionKeepsInMemoryFallback(t *testing.T) {
+	m := newTestManager()
+	ctx := database.WithUserID(context.Background(), "user")
+	m.SetAuthContextProvider(func() context.Context { return ctx })
+	m.servers["memory"] = &ServerStatus{Config: ServerConfig{AuthType: AuthBearer, URL: "https://memory.example", ID: "memory-id"}}
+	if err := m.credMgr.RegisterPatternWithContext(ctx, "memory.example", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "token"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.DeleteServerAuth("memory"); err != nil {
+		t.Fatal(err)
+	}
+	if auth, err := m.credMgr.GetByPatternWithContext(ctx, "memory.example"); err != nil || auth != nil {
+		t.Fatal("memory credentials retained", err)
+	}
+}
+
 func TestLegacyNoneSaveClearsAuthoritativeAuthType(t *testing.T) {
 	for _, kind := range []AuthType{AuthBearer, AuthBasic, AuthOAuth2ClientCredentials, AuthNone} {
 		t.Run(string(kind), func(t *testing.T) {

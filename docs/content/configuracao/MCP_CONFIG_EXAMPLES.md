@@ -670,6 +670,11 @@ Salvar autenticação **Nenhuma** em um servidor remoto também remove as
 credenciais locais de forma atômica para Bearer, Basic e Client Credentials.
 O backend considera o cadastro atual, inclusive se outra instância mudou o tipo
 desde a abertura do editor; uma falha preserva configuração e credenciais.
+
+Ao remover a autenticação de um servidor, as credenciais persistidas são
+excluídas juntas. Se a operação falhar ou outra instância alterar o cadastro,
+nenhuma das credenciais é removida parcialmente.
+
 ### Recuperar configuração OAuth antiga
 
 Em **Servidores MCP → Diagnóstico OAuth → Snapshots OAuth**, selecione um
