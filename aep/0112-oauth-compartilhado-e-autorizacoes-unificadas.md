@@ -1157,6 +1157,10 @@ as mesmas barreiras duráveis do PKCE para obter tokens. A tentativa, cifrada na
 entrada de controle `mcp-tokens:<slug>`, tem prazo de 30 segundos e valida o
 consumidor e o cliente na mesma transação. Não há trava do cofre nem transação
 SQLite durante rede ou consentimento. O preflight antecede a tentativa curta e seu escopo de aprovação é preservado pelo grant de uso único, inclusive em outra origem privada.
+Se o DNS mudar para um destino que exige nova aprovação, o grant falha sem
+interação e libera a tentativa. Uma próxima tentativa explícita faz novo
+preflight fora da lease; a política e os IPs aprovados são preservados entre
+o preflight e o envio.
 
 O access token continua em memória no transporte; não foi criado outro formato
 de autorização. Cada uso adquire uma tentativa breve e relê o cliente no banco,
@@ -1177,7 +1181,7 @@ Evidências: `TestLegacyClientGrantCoordinatesProcessesAndMutations`,
 `TestLegacyClientGrantSessionEndDoesNotPublishToken`,
 `TestLegacyClientGrantFailedIssuanceCanRetryWithoutLeakingBody`,
 `TestLegacyClientGrantExpiredLeaseCanRetryWithoutReauthorization` e
-`TestLegacyClientGrantAcquisitionRollsBackAndRefusesPKCEResidue`, `TestLegacyClientGrantReusesConsentBeforeLeaseAcrossOrigins` e `TestLegacyClientGrantNativeNeverUsesCachedHostnameAfterCutover`.
+`TestLegacyClientGrantAcquisitionRollsBackAndRefusesPKCEResidue`, `TestLegacyClientGrantReusesConsentBeforeLeaseAcrossOrigins`, `TestLegacyClientGrantNativeNeverUsesCachedHostnameAfterCutover` e `TestClientGrantRefusesDNSChangeWithoutConsentInsideLease`.
 
 Este incremento fecha a barreira de concorrência que faltava ao Client
 Credentials. A conversão transacional/idempotente permanece pendente, incluindo

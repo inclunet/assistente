@@ -131,6 +131,9 @@ func (t *legacyClientGrantTransport) resolve(ctx context.Context) (*oauth2.Token
 		if grantCtx.Err() != nil {
 			return nil, grantCtx.Err()
 		}
+		if errors.Is(err, oauthflow.ErrNetworkAuthorization) {
+			return nil, oauthflow.ErrNetworkAuthorization
+		}
 		return nil, oauthflow.ErrTransient
 	}
 	if token == nil || token.AccessToken == "" || !strings.EqualFold(token.Type(), "Bearer") {

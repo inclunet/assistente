@@ -750,3 +750,5 @@ bridge local do Assistente. O token de um fallback por hostname não é enviado
 ao provedor LLM pelo MCP nativo. Autorizações Client Credentials compostas
 continuam disponíveis no modo nativo. A confirmação de rede, quando necessária,
 acontece antes da tentativa e não é repetida para o mesmo grant.
+Se o destino de rede mudar e exigir outra aprovação, a emissão é interrompida.
+Use **Conectar** novamente para avaliar o novo destino antes de obter o token.
