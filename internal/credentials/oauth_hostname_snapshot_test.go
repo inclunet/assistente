@@ -234,7 +234,12 @@ func TestHostnameSnapshotConcurrentRestore(t *testing.T) {
 }
 
 func TestHostnameCaseCollisionNeverSelectsToken(t *testing.T) {
-	for _, patterns := range [][]string{{"SHARED.EXAMPLE", "shared.example"}, {"shared.example", "SHARED.EXAMPLE"}, {"*.EXAMPLE", "*.example"}} {
+	for _, patterns := range [][]string{
+		{"SHARED.EXAMPLE", "shared.example"}, {"shared.example", "SHARED.EXAMPLE"}, {"*.EXAMPLE", "*.example"},
+		{"*.example", "SHARED.EXAMPLE", "shared.example"}, {"*.example", "shared.example", "SHARED.EXAMPLE"},
+		{"SHARED.EXAMPLE", "*.example", "shared.example"}, {"shared.example", "*.example", "SHARED.EXAMPLE"},
+		{"SHARED.EXAMPLE", "shared.example", "*.example"}, {"shared.example", "SHARED.EXAMPLE", "*.example"},
+	} {
 		t.Run(patterns[0], func(t *testing.T) {
 			m, _, _, ctx, _ := legacyOperationFixture(t)
 			for _, pattern := range patterns {

@@ -217,6 +217,7 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 	}
 	// Procura em ordem (primeira match vence)
 	var selected *DomainCredential
+	var matchedPatterns []string
 	for _, dc := range m.credentials {
 		if userID != "" && dc.UserID != userID {
 			continue
@@ -225,11 +226,15 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 			continue
 		}
 		if dc.regex != nil && dc.Auth.Source != "oauth" && dc.regex.MatchString(domain) {
+			for _, pattern := range matchedPatterns {
+				if strings.EqualFold(pattern, dc.Pattern) {
+					// Never choose a token or execute a source for ambiguous identities.
+					return nil, fmt.Errorf("credential_hostname_ambiguous")
+				}
+			}
+			matchedPatterns = append(matchedPatterns, dc.Pattern)
 			if selected == nil {
 				selected = dc
-			} else if strings.EqualFold(selected.Pattern, dc.Pattern) {
-				// Never choose a token or execute a source for ambiguous identities.
-				return nil, fmt.Errorf("credential_hostname_ambiguous")
 			}
 		}
 	}

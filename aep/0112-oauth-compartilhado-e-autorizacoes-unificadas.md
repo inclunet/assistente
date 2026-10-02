@@ -1139,7 +1139,8 @@ Evidências: `TestHostnameSnapshotCaptureIsPrivateAndReadOnly`,
 da recarga com IPv6, porta e caixa mista. O resolvedor usa `URL.Hostname()` e
 compara padrões sem distinguir caixa, sem reescrever o padrão persistido.
 Variantes do mesmo padrão que diferem apenas por caixa bloqueiam a resolução
-ambígua antes de ler segredos ou executar fontes; o restore recusa uma variante
+ambígua antes de ler segredos ou executar fontes, inclusive quando um wildcard
+precede as variantes (todas as ordens cobertas pelo teste); o restore recusa uma variante
 equivalente já existente na mesma transação. As entradas originais são preservadas.
 Evidências: `TestHostnameCaseCollisionNeverSelectsToken` e
 `TestHostnameSnapshotRestoreRejectsCaseEquivalentEntry`.
