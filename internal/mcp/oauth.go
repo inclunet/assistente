@@ -262,7 +262,8 @@ type pkceRoundTripper struct {
 	serverSlug             string
 
 	// onConfigUpdate é chamado para persistir mudanças no config (ex: porta após DCR).
-	onConfigUpdate func(ServerConfig)
+	onConfigUpdate      func(ServerConfig)
+	persistRegistration func(context.Context, ServerConfig, *credentials.LegacyOAuthOperation, *credentials.AuthConfig) error
 
 	// authCtxProvider devolve o ctx user-scoped vigente. Usado por
 	// persistTokens / persistClientCreds em refreshes assíncronos
@@ -747,13 +748,17 @@ func (rt *pkceRoundTripper) registerClient(ctx context.Context, pkce bool) error
 			return err
 		}
 	}
-	rt.persistClientCreds(result.ClientID, result.ClientSecret)
+	if rt.legacyOperation != nil && rt.persistRegistration != nil {
+		rt.configPersistenceError = rt.persistRegistration(rt.persistenceCtx(), rt.cfg, rt.legacyOperation, &credentials.AuthConfig{Source: "static", Type: "oauth2", ClientID: result.ClientID, ClientSecret: result.ClientSecret, ClientGrantType: rt.clientGrantType})
+	} else {
+		rt.persistClientCreds(result.ClientID, result.ClientSecret)
+	}
 	if rt.configPersistenceError != nil {
 		rt.cfg = previousConfig
 		rt.resolvedClientID, rt.resolvedClientSecret, rt.clientGrantType = previousID, previousSecret, previousGrant
 		return errOAuthPersistence
 	}
-	if rt.onConfigUpdate != nil {
+	if rt.onConfigUpdate != nil && (rt.legacyOperation == nil || rt.persistRegistration == nil) {
 		rt.onConfigUpdate(rt.cfg)
 	}
 	if rt.configPersistenceError != nil {

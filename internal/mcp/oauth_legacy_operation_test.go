@@ -230,6 +230,66 @@ func TestLegacyDCRDoesNotPublishConfigWhenClientSaveFails(t *testing.T) {
 	}
 }
 
+func TestLegacyDCRRollsBackClientWhenConfigSaveFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"client_id":"registered","client_secret":"secret"}`)
+	}))
+	defer server.Close()
+	a, b, ctx, cfg := legacyWALManagers(t, server.URL)
+	cfg.OAuth2ClientID = ""
+	cfg.OAuth2CallbackPort = 0
+	cfg.OAuth2RegistrationURL = server.URL + "/register"
+	if err := a.SaveConfig("legacy", cfg); err != nil {
+		t.Fatal(err)
+	}
+	db := a.repository().(*DBRepository).db
+	if err := db.Callback().Update().Before("gorm:update").Register("reject_dcr_config", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*database.MCPServer); ok {
+			_ = tx.AddError(errors.New("simulated config persistence failure"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Update().Remove("reject_dcr_config") })
+	rt := a.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
+	op, _, err := a.credMgr.BeginLegacyOAuth(ctx, "legacy", cfg.ID, true, false, rt.validateLegacyConsumer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer op.End()
+	rt.legacyOperation = op
+	defer rt.closeCallback()
+	if err := rt.registerClient(ctx, true); !errors.Is(err, errOAuthPersistence) {
+		t.Fatalf("registration did not stop: %v", err)
+	}
+	var count int64
+	if err := db.Model(&database.CredentialEntry{}).Where("pattern = ?", clientCredPattern("legacy")).Count(&count).Error; err != nil || count != 0 {
+		t.Fatal("client insert was not rolled back")
+	}
+	if auth, _ := a.credMgr.GetByPatternWithContext(ctx, clientCredPattern("legacy")); auth != nil {
+		t.Fatal("client cache published before commit")
+	}
+	stored, err := b.repository().GetServer(ctx, "legacy")
+	if err != nil || stored.OAuth2ClientID != "" || stored.OAuth2CallbackPort != 0 || rt.effectiveClientID() != "" {
+		t.Fatal("failed registration changed consumer")
+	}
+	if err := db.Callback().Update().Remove("reject_dcr_config"); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.registerClient(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = b.repository().GetServer(ctx, "legacy")
+	if err != nil || stored.OAuth2ClientID != "registered" || stored.OAuth2CallbackPort == 0 {
+		t.Fatal("successful registration did not publish callback")
+	}
+	client, err := a.credMgr.GetByPatternWithContext(ctx, clientCredPattern("legacy"))
+	if err != nil || client == nil || client.ClientID != "registered" || client.ClientSecret != "secret" {
+		t.Fatal("client and config not published together")
+	}
+}
+
 func TestLegacyNativeHostnameFallbackRequiresAbsentTokenRow(t *testing.T) {
 	a, _, ctx, cfg := legacyWALManagers(t, "https://example.com")
 	candidate := nativeMCPCandidate{managedConfig: cfg, slug: "legacy", url: cfg.URL, authType: AuthOAuth2PKCE}

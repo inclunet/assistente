@@ -1341,6 +1341,7 @@ func (m *Manager) buildPKCERoundTripperForServer(ctx context.Context, slug strin
 		}
 	}
 	rt = buildPKCERoundTripper(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate, m.credentialContext, m.authorizeOAuthNetwork, ctx)
+	rt.persistRegistration = writer.WriteRegistration
 	return rt
 }
 

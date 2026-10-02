@@ -13,6 +13,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/oauthflow"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Transitional coordination only: this is not an authorization or a converted grant.
@@ -272,6 +273,17 @@ func (o *LegacyOAuthOperation) SessionContext(ctx context.Context) (context.Cont
 
 // SaveClient fences both persistence and cache publication by the captured vault session.
 func (o *LegacyOAuthOperation) SaveClient(ctx context.Context, auth *AuthConfig) error {
+	return o.SaveClientWithConsumer(ctx, auth, nil, nil)
+}
+
+func (o *LegacyOAuthOperation) MatchesStore(store oauthflow.Store) bool {
+	s, ok := store.(*oauthStore)
+	return ok && s.manager == o.store.manager && s.userID == o.store.userID && s.epoch == o.store.epoch
+}
+
+// SaveClientWithConsumer commits DCR client and callback metadata together.
+// Callbacks must remain local and must not reenter the credential manager.
+func (o *LegacyOAuthOperation) SaveClientWithConsumer(ctx context.Context, auth *AuthConfig, update func(*gorm.DB) error, publish func()) error {
 	s, m := o.store, o.store.manager
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -283,21 +295,42 @@ func (o *LegacyOAuthOperation) SaveClient(ctx context.Context, auth *AuthConfig)
 		return err
 	}
 	pattern := "mcp-client:" + strings.TrimPrefix(o.pattern, "mcp-tokens:")
-	if err := m.store.SaveCredential(o.Context(ctx), StoredCredential{UserID: s.userID, Pattern: pattern, Auth: enc}); err != nil {
-		return err
-	}
 	var row database.CredentialEntry
-	if err := m.store.(*DBStore).db.WithContext(ctx).Where("user_id = ? AND pattern = ?", s.userID, pattern).First(&row).Error; err != nil {
+	ctx = o.Context(ctx)
+	err = database.WithSQLiteImmediateTransactionOnce(ctx, o.until, m.store.(*DBStore).db, "credentials.legacy_oauth.client", func(tx *gorm.DB) error {
+		if err := guardLegacyMCPOAuthWrite(tx, s.userID, pattern); err != nil {
+			return err
+		}
+		row = database.CredentialEntry{UserID: s.userID, Pattern: pattern, Source: "static", AuthType: "oauth2", ClientIDEnc: enc.ClientID, ClientSecretEnc: enc.ClientSecret, ClientGrantType: enc.ClientGrantType}
+		if err := tx.Omit("legacy_oauth_control_enc").Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "pattern"}}, UpdateAll: true}).Create(&row).Error; err != nil {
+			return err
+		}
+		row = database.CredentialEntry{}
+		if err := tx.Where("user_id = ? AND pattern = ?", s.userID, pattern).First(&row).Error; err != nil {
+			return err
+		}
+		if update != nil {
+			return update(tx)
+		}
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 	dc := &DomainCredential{ID: row.ID, UserID: s.userID, Pattern: pattern, Auth: enc, regex: regexp.MustCompile(wildcardToRegex(pattern))}
 	for i, old := range m.credentials {
 		if old.ID == row.ID || old.UserID == s.userID && old.Pattern == pattern {
 			m.credentials[i] = dc
+			if publish != nil {
+				publish()
+			}
 			return nil
 		}
 	}
 	m.credentials = append(m.credentials, dc)
+	if publish != nil {
+		publish()
+	}
 	return nil
 }
 

@@ -884,6 +884,15 @@ Basic/Post continua negociável somente após `invalid_client` explícito; timeo
 erro de rede e respostas ambíguas não repetem o refresh. Não se infere o método
 efetivamente negociado nem os escopos concedidos para futura conversão.
 
+O checkpoint DCR legado salva cliente, segredo e configuração de callback na
+mesma transação e publica ambos os caches somente depois do commit, sob a sessão
+capturada. Falha em qualquer gravação preserva o estado local anterior.
+Evidências: `TestLegacyDCRDoesNotPublishConfigWhenClientSaveFails` e
+`TestLegacyDCRRollsBackClientWhenConfigSaveFails`. Na manutenção de bootstrap,
+um CAS perdido relê o estado: recifragem já concluída ou controle OAuth não
+abortam a inicialização, mas um valor substituto ilegível continua sendo erro
+(`TestLegacyRefreshMaintenanceRecoversConcurrentCAS`).
+
 Uma renovação iniciada sem commit deixa o grant pendente mesmo após reinício ou
 expiração da tentativa. Conectar, probe, fallback e MCP nativo não reutilizam esse
 refresh token: é necessária **Reautorizar** explícita. Cancelar essa recuperação

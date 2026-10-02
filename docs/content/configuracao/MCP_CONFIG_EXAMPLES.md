@@ -650,3 +650,7 @@ apagar as credenciais para reautorizar. A remoção explícita continua disponí
 quando não há tentativa ativa, mas remove somente os dados locais e não revoga
 o acesso no serviço remoto. Esta proteção ainda não converte os cadastros antigos
 para o formato unificado.
+
+Ao registrar um cliente automaticamente, os dados do cliente e a configuração
+de callback são salvos juntos. Uma falha de gravação preserva o estado local
+anterior; após resolver o acesso ao cofre, tente conectar novamente.
