@@ -50,6 +50,10 @@ export function GetMCPWorkspaceRoots() {
   return window['go']['wailsapi']['MCP']['GetMCPWorkspaceRoots']();
 }
 
+export function InspectMCPOAuthInventory() {
+  return window['go']['wailsapi']['MCP']['InspectMCPOAuthInventory']();
+}
+
 export function ListMCPServers() {
   return window['go']['wailsapi']['MCP']['ListMCPServers']();
 }

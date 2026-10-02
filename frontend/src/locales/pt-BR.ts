@@ -1378,6 +1378,36 @@ const ptBR = {
     },
 
     mcp: {
+      inventory: {
+        "title": "Diagnóstico OAuth",
+        "description": "Este inventário consulta os dados locais do usuário atual. Não conecta servidores, renova tokens ou altera credenciais. É uma preparação para a migração; não confirma a validade dos tokens.",
+        "loaded": "Inventário OAuth carregado.",
+        "failed": "Não foi possível consultar o inventário. Verifique se o cofre está disponível e tente novamente.",
+        "loading": "Consultando credenciais locais…",
+        "empty": "Nenhuma configuração ou credencial OAuth encontrada.",
+        "noIssues": "Nenhuma inconsistência identificada nesta consulta. Isso não confirma que a autorização funciona.",
+        "kinds": {
+          "managed": "Autorização composta referenciada",
+          "legacy": "OAuth legado por servidor",
+          "client_credentials": "Client Credentials legado",
+          "unassociated": "Credencial sem servidor OAuth correspondente",
+          "hostname": "Credencial por hostname: pode atender outros recursos"
+        },
+        "issues": {
+          "invalid_reference": "A referência à autorização composta está ausente, ilegível ou incompatível.",
+          "legacy_residue": "Existem credenciais legadas junto da autorização composta. Não as exclua sem verificar sua origem.",
+          "external_source": "Uma credencial usa fonte externa. O diagnóstico não executa comandos nem acessa keyrings.",
+          "unreadable": "Há campos que não puderam ser decifrados. Texto de versões antigas também requer análise; os dados foram preservados.",
+          "unexpected_type": "Uma credencial tem um tipo de autenticação inesperado para esse registro.",
+          "missing_client": "Não foi encontrado client ID legível na configuração ou na credencial.",
+          "conflicting_client": "O client ID da configuração difere do armazenado na credencial.",
+          "missing_endpoint": "O endpoint de token não está persistido. Pode depender de descoberta durante a conexão.",
+          "missing_tokens": "Não foram encontrados tokens de acesso ou renovação legíveis na entrada do servidor.",
+          "unknown_registration": "O legado não registra a origem/grant do cliente. Não é possível inferir com segurança se o registro foi manual ou dinâmico.",
+          "missing_secret": "Não foi encontrado client secret legível para Client Credentials.",
+          "hostname_credential": "Há credencial OAuth por hostname que também corresponde a este servidor. A associação precisa ser verificada antes da migração."
+        }
+      },
       status: {
         connected: 'Conectado',
         connecting: 'Conectando...',

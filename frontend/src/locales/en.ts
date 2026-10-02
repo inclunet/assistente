@@ -1377,6 +1377,36 @@ const en = {
     },
 
     mcp: {
+      inventory: {
+        "title": "OAuth diagnostics",
+        "description": "This inventory reads local data for the current user. It does not connect servers, refresh tokens or change credentials. It prepares migration; it does not confirm token validity.",
+        "loaded": "OAuth inventory loaded.",
+        "failed": "Could not read the inventory. Check that the vault is available and try again.",
+        "loading": "Reading local credentials…",
+        "empty": "No OAuth configuration or credentials found.",
+        "noIssues": "No inconsistency identified in this query. This does not confirm the authorization works.",
+        "kinds": {
+          "managed": "Referenced composite authorization",
+          "legacy": "Legacy OAuth per server",
+          "client_credentials": "Legacy Client Credentials",
+          "unassociated": "Credential without a corresponding OAuth server",
+          "hostname": "Hostname credential: may serve other resources"
+        },
+        "issues": {
+          "invalid_reference": "The composite authorization reference is missing, unreadable or incompatible.",
+          "legacy_residue": "Legacy credentials coexist with the composite authorization. Verify their origin before deleting them.",
+          "external_source": "A credential uses an external source. Diagnostics do not execute commands or access keyrings.",
+          "unreadable": "Some fields could not be decrypted. Plaintext from older versions also requires investigation; data was preserved.",
+          "unexpected_type": "A credential has an unexpected authentication type for this record.",
+          "missing_client": "No readable client ID found in the configuration or credential.",
+          "conflicting_client": "The configured client ID differs from the credential.",
+          "missing_endpoint": "The token endpoint is not persisted. It may depend on discovery when connecting.",
+          "missing_tokens": "No readable access or refresh tokens found in the server entry.",
+          "unknown_registration": "The legacy record does not identify the client origin/grant. Manual or dynamic registration cannot be safely inferred.",
+          "missing_secret": "No readable client secret found for Client Credentials.",
+          "hostname_credential": "A hostname OAuth credential also matches this server. Verify its association before migration."
+        }
+      },
       status: {
         connected: 'Connected',
         connecting: 'Connecting...',

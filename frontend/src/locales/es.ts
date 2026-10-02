@@ -1380,6 +1380,36 @@ const es = {
     },
 
     mcp: {
+      inventory: {
+        "title": "Diagnóstico OAuth",
+        "description": "Este inventario consulta datos locales del usuario actual. No conecta servidores, renueva tokens ni modifica credenciales. Prepara la migración; no confirma la validez de los tokens.",
+        "loaded": "Inventario OAuth cargado.",
+        "failed": "No se pudo consultar el inventario. Compruebe que la bóveda esté disponible e inténtelo de nuevo.",
+        "loading": "Consultando credenciales locales…",
+        "empty": "No se encontraron configuraciones ni credenciales OAuth.",
+        "noIssues": "No se identificaron inconsistencias en esta consulta. Esto no confirma que la autorización funcione.",
+        "kinds": {
+          "managed": "Autorización compuesta referenciada",
+          "legacy": "OAuth heredado por servidor",
+          "client_credentials": "Client Credentials heredado",
+          "unassociated": "Credencial sin servidor OAuth correspondiente",
+          "hostname": "Credencial por hostname: puede atender otros recursos"
+        },
+        "issues": {
+          "invalid_reference": "La referencia a la autorización compuesta falta, es ilegible o es incompatible.",
+          "legacy_residue": "Existen credenciales heredadas junto a la autorización compuesta. Verifique su origen antes de eliminarlas.",
+          "external_source": "Una credencial usa una fuente externa. El diagnóstico no ejecuta comandos ni accede a keyrings.",
+          "unreadable": "No se pudieron descifrar algunos campos. El texto de versiones antiguas también requiere análisis; los datos se conservaron.",
+          "unexpected_type": "Una credencial tiene un tipo de autenticación inesperado para este registro.",
+          "missing_client": "No se encontró un client ID legible en la configuración ni en la credencial.",
+          "conflicting_client": "El client ID configurado difiere del almacenado en la credencial.",
+          "missing_endpoint": "El endpoint de tokens no está persistido. Puede depender del descubrimiento al conectar.",
+          "missing_tokens": "No se encontraron tokens de acceso ni de renovación legibles en la entrada del servidor.",
+          "unknown_registration": "El registro heredado no indica el origen/grant del cliente. No se puede inferir con seguridad si fue manual o dinámico.",
+          "missing_secret": "No se encontró un client secret legible para Client Credentials.",
+          "hostname_credential": "Una credencial OAuth por hostname también corresponde a este servidor. Verifique su asociación antes de migrar."
+        }
+      },
       status: {
         connected: 'Conectado',
         connecting: 'Conectando...',

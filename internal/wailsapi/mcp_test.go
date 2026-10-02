@@ -1,6 +1,7 @@
 package wailsapi
 
 import (
+	"assistente/controllers"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +13,9 @@ import (
 func TestMCPNotWired(t *testing.T) {
 	t.Parallel()
 	api := NewMCP()
+	if _, err := api.InspectMCPOAuthInventory(); !errors.Is(err, ErrMCPNotWired) {
+		t.Fatalf("InspectMCPOAuthInventory: got %v", err)
+	}
 	if _, err := api.ListMCPServers(); !errors.Is(err, ErrMCPNotWired) {
 		t.Fatalf("ListMCPServers: got %v", err)
 	}
@@ -23,6 +27,15 @@ func TestMCPNotWired(t *testing.T) {
 	}
 	if _, err := api.DiscoverMCPServerAuth("https://example.com"); !errors.Is(err, ErrMCPNotWired) {
 		t.Fatalf("DiscoverMCPServerAuth: got %v", err)
+	}
+}
+
+func TestMCPOAuthInventoryRequiresSession(t *testing.T) {
+	want := errors.New("no session")
+	api := NewMCP()
+	AttachMCP(api, stubSession{err: want}, controllers.NewMCPController(nil, nil, nil))
+	if _, err := api.InspectMCPOAuthInventory(); !errors.Is(err, want) {
+		t.Fatalf("got %v", err)
 	}
 }
 

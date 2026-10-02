@@ -53,6 +53,15 @@ func (m *MCP) ListMCPServers() ([]mcpmgr.ServerInfo, error) {
 	})
 }
 
+// InspectMCPOAuthInventory diagnostica o legado sem resolver ou alterar credenciais.
+func (m *MCP) InspectMCPOAuthInventory() ([]mcpmgr.OAuthInventoryItem, error) {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, ctrl.InspectMCPOAuthInventory)
+}
+
 // ConnectMCPServer conecta um servidor pelo slug.
 func (m *MCP) ConnectMCPServer(slug string) error {
 	session, ctrl, err := m.deps()
