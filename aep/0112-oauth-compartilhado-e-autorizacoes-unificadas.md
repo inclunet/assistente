@@ -1073,3 +1073,8 @@ Este incremento não inicia conversão automática nem conclui a fase 3. Faltam
 recuperação das credenciais compartilhadas por hostname, fixtures de versões
 publicadas, conversão transacional/idempotente e remoção do runtime legado.
 Slack e os aceites funcionais com provedores reais continuam pendentes.
+
+Client Credentials também resolve o Client ID apenas no cofre legado quando o
+campo da configuração está vazio, preservando a configuração persistida. O teste
+`TestClientCredentialsSnapshotGetsNewTokenAfterEnable/vault_only_id` cobre a
+obtenção de token novo antes e depois de recarregar o cofre.

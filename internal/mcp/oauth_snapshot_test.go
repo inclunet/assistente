@@ -16,6 +16,12 @@ import (
 )
 
 func TestClientCredentialsSnapshotGetsNewTokenAfterEnable(t *testing.T) {
+	t.Run("configured_id", func(t *testing.T) { testClientCredentialsSnapshotGetsNewToken(t, false) })
+	t.Run("vault_only_id", func(t *testing.T) { testClientCredentialsSnapshotGetsNewToken(t, true) })
+}
+
+func testClientCredentialsSnapshotGetsNewToken(t *testing.T, vaultOnlyID bool) {
+	t.Helper()
 	var tokens, resources atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/token" {
@@ -47,6 +53,9 @@ func TestClientCredentialsSnapshotGetsNewTokenAfterEnable(t *testing.T) {
 		return d.IPs, true, nil
 	})
 	cfg.AuthType = AuthOAuth2ClientCredentials
+	if vaultOnlyID {
+		cfg.OAuth2ClientID = ""
+	}
 	if err := m.SaveConfig("legacy", cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -98,6 +107,10 @@ func TestClientCredentialsSnapshotGetsNewTokenAfterEnable(t *testing.T) {
 	}
 	if tokens.Load() != 2 || resources.Load() != 2 {
 		t.Fatalf("unexpected token/resource requests: %d/%d", tokens.Load(), resources.Load())
+	}
+	stored, err := m.GetConfig("legacy")
+	if err != nil || stored.OAuth2ClientID != cfg.OAuth2ClientID {
+		t.Fatalf("token resolution changed stored configuration: %v", err)
 	}
 }
 

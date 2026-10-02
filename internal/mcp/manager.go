@@ -1774,7 +1774,10 @@ func (m *Manager) buildAuthHTTPClient(ctx context.Context, slug string, cfg Serv
 		return oauthflow.NewResourceHTTPClient(cfg.URL, rt)
 
 	case AuthOAuth2ClientCredentials:
-		_, clientSecret := loadClientCreds(m.credentialContext(), m.credMgr, slug)
+		clientID, clientSecret := loadClientCreds(m.credentialContext(), m.credMgr, slug)
+		if cfg.OAuth2ClientID == "" {
+			cfg.OAuth2ClientID = clientID
+		}
 		if clientSecret != "" {
 			client := buildClientCredentialsHTTPClient(ctx, cfg, clientSecret, m.authorizeOAuthNetwork)
 			logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com OAuth2 Client Credentials", slug)

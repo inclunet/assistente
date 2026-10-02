@@ -697,7 +697,7 @@ fica desabilitado e sem conexão automática. Para **PKCE**, use **Reautorizar**
 após concluir o login, habilite o servidor. Para **Client Credentials**, confira
 o cliente e o segredo recuperados, habilite e conecte: o serviço obtém um token
 novo sem consentimento no navegador. Se o cadastro era incompleto, complete os
-campos antes de conectar. Tokens antigos nunca são restaurados ao cofre ativo:
+campos antes de conectar. Se o Client ID estiver somente no cofre legado, ele será usado quando o campo da configuração estiver vazio. Tokens antigos nunca são restaurados ao cofre ativo:
 restaurar um arquivo não desfaz rotação ou revogação no serviço remoto.
 
 Snapshots PKCE anteriores continuam legíveis. Snapshots Client Credentials têm
