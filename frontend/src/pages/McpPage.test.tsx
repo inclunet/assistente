@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, type ReactNode } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { SaveMCPServerAuth } from '@wailsjs/go/wailsapi/MCP';
+import { SaveMCPServerAuth, DeleteMCPServerAuth, GetMCPServerAuthInfo } from '@wailsjs/go/wailsapi/MCP';
 
 const mockSave = vi.fn();
 const mockConnect = vi.fn();
@@ -243,6 +243,28 @@ describe('McpPage — oauth2_callback_host', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
   }
+
+  it.each(['oauth2_pkce', 'bearer', 'basic'].flatMap((authType) => [false, true].map((fail) => ({ authType, fail }))))('delega remoção e configuração none a uma única gravação atômica ($authType, $fail)', async ({ authType, fail }) => {
+    mockServers = [{ slug: 'legacy', name: 'Legacy', transport: 'streamable', status: 'disconnected', enabled: true }];
+    mockGetConfig.mockResolvedValue({ name: 'Legacy', transport: 'streamable', url: 'https://example.com/mcp', auth_type: authType, oauth_managed: false });
+    vi.mocked(GetMCPServerAuthInfo).mockResolvedValueOnce({ hasAuth: true } as Awaited<ReturnType<typeof GetMCPServerAuthInfo>>);
+    if (fail) mockSave.mockRejectedValueOnce(new Error('oauth_transient'));
+    render(<McpPage />);
+    const row = screen.getByText('Legacy').closest('div');
+    if (!row) throw new Error('Linha ausente');
+    await userEvent.click(within(row).getByRole('button', { name: 'mcp.actions.edit' }));
+    await screen.findByLabelText('Auth Type');
+    await userEvent.selectOptions(screen.getByLabelText('Auth Type'), 'none');
+    await userEvent.click(screen.getByText('Salvar'));
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith('legacy', expect.objectContaining({ auth_type: 'none' })));
+    expect(DeleteMCPServerAuth).not.toHaveBeenCalled();
+    if (fail) {
+      await waitFor(() => expect(mockToast).toHaveBeenCalled());
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    } else {
+      await waitFor(() => expect(mockSave).toHaveBeenCalledWith('legacy', expect.objectContaining({ auth_type: 'none' })));
+    }
+  });
 
   it('inicializa oauth2CallbackHost vazio para novo servidor', async () => {
     await openNewServerForm();

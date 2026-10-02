@@ -279,6 +279,13 @@ func (p *discoveryNetwork) checkDestination(ctx context.Context, u *url.URL) err
 	return nil
 }
 
+// Bound DNS only; runNetworkOperation asks for user consent on its outer context.
+func (p *discoveryNetwork) checkPreflightDestination(ctx context.Context, u *url.URL) error {
+	bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return p.checkDestination(bounded, u)
+}
+
 // Every connection checks the actual post-DNS address. No environment proxies or
 // connection pools are shared across trust decisions.
 func discoveryTransport(p *discoveryNetwork, target *url.URL) *http.Transport {
@@ -381,6 +388,32 @@ func validDiscoveredMetadata(ctx context.Context, metadata *authServerMetadata, 
 		}
 	}
 	return true
+}
+
+// PreflightOAuthEndpoint asks for destination approval before a short durable
+// refresh lease starts. The returned context retains approvals for the request;
+// socket checks still run and never trust a changed DNS destination implicitly.
+// Callers start a fresh WithNetworkOperation for each refresh, sharing it with
+// discovery when needed. A standalone call gets its own scope.
+func PreflightOAuthEndpoint(ctx context.Context, resource, endpoint string, authorize NetworkAuthorizer) (context.Context, error) {
+	if ctx.Value(networkOperationKey{}) == nil {
+		ctx = WithNetworkOperation(ctx)
+	}
+	if authorize != nil {
+		ctx = WithNetworkAuthorizer(ctx, authorize)
+	}
+	u, err := endpointURL(endpoint)
+	if err != nil {
+		return ctx, err
+	}
+	var checkErr error
+	err = runNetworkOperation(ctx, resource, func(operationCtx context.Context) {
+		checkErr = operationCtx.Value(discoveryNetworkKey{}).(*discoveryNetwork).checkPreflightDestination(operationCtx, u)
+	})
+	if err != nil {
+		return ctx, err
+	}
+	return ctx, checkErr
 }
 
 // NewNetworkHTTPClient applies the same consent and socket guard to subsequent

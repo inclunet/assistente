@@ -14,7 +14,6 @@ import { useMCPStore } from '../store/mcpStore';
 import { mcp } from '../../wailsjs/go/models';
 import {
   SaveMCPServerAuth,
-  DeleteMCPServerAuth,
   GetMCPServerAuthInfo,
   DiscoverMCPServerAuth,
   DuplicateMCPServer,
@@ -509,8 +508,6 @@ export default function McpPage() {
             );
           }
         }
-      } else if (isHTTP && formAuthType === 'none' && hasExistingAuth) {
-        await DeleteMCPServerAuth(slug);
       }
 
       addToast(isNew ? t('mcp.toast.created') : t('mcp.toast.updated'), 'success', undefined, undefined, {
@@ -523,7 +520,7 @@ export default function McpPage() {
     } finally {
       setSaving(false);
     }
-  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuthManaged, formOAuthDeviceUrl, formOAuthTokenAuthMethod, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, manualRegistrationUrl, loadedResourceUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
+  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuthManaged, formOAuthDeviceUrl, formOAuthTokenAuthMethod, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, manualRegistrationUrl, loadedResourceUrl, save, addToast, announce, handleCloseEditor, t]);
 
   const handleDelete = useCallback(async (slug: string, name: string) => {
     const shouldDelete = await confirm({

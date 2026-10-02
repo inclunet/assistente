@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/oauthflow"
 	"assistente/internal/toolcatalog"
@@ -127,6 +128,9 @@ func (r *DBRepository) saveServer(ctx context.Context, cfg *ServerConfig, allowM
 	}
 
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := credentials.CheckLegacyOAuthMutation(ctx, tx, userID, cfg.Slug); err != nil {
+			return err
+		}
 		var existing database.MCPServer
 		err := tx.Where("user_id = ? AND slug = ?", userID, cfg.Slug).First(&existing).Error
 		switch {
@@ -180,6 +184,9 @@ func (r *DBRepository) DeleteServer(ctx context.Context, slug string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row database.MCPServer
 		if err := database.ScopeByUser(ctx, tx, "user_id").Where("slug = ?", strings.TrimSpace(slug)).First(&row).Error; err != nil {
+			return err
+		}
+		if err := credentials.CheckLegacyOAuthMutation(ctx, tx, row.UserID, row.Slug); err != nil {
 			return err
 		}
 		now := r.now()

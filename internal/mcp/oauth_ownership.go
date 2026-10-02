@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/oauthflow"
 	"gorm.io/gorm"
@@ -14,16 +15,31 @@ import (
 type legacyOAuthWriterContextKey struct{}
 
 type legacyOAuthWriter struct {
-	update func(*ServerConfig) (ServerConfig, error)
+	update func(context.Context, *ServerConfig, *legacyRegistration) (ServerConfig, error)
+}
+
+type legacyRegistration struct {
+	op   *credentials.LegacyOAuthOperation
+	auth *credentials.AuthConfig
 }
 
 func (w *legacyOAuthWriter) Write(cfg ServerConfig) error {
-	_, err := w.update(&cfg)
+	_, err := w.update(nil, &cfg, nil)
 	return err
 }
 
 func (w *legacyOAuthWriter) EnablePolling() (ServerConfig, error) {
-	return w.update(nil)
+	return w.update(nil, nil, nil)
+}
+
+func (w *legacyOAuthWriter) WriteWithContext(ctx context.Context, cfg ServerConfig) error {
+	_, err := w.update(ctx, &cfg, nil)
+	return err
+}
+
+func (w *legacyOAuthWriter) WriteRegistration(ctx context.Context, cfg ServerConfig, op *credentials.LegacyOAuthOperation, auth *credentials.AuthConfig) error {
+	_, err := w.update(ctx, &cfg, &legacyRegistration{op: op, auth: auth})
+	return err
 }
 
 // The legacy protocol callback is not a user edit: it may only update the
@@ -37,14 +53,23 @@ func (m *Manager) newLegacyOAuthWriter(original ServerConfig) *legacyOAuthWriter
 	ctx := m.credentialContext()
 	user, userErr := database.RequireUserID(ctx)
 	if userErr != nil || original.UserID != user || original.ID == "" {
-		return &legacyOAuthWriter{update: func(*ServerConfig) (ServerConfig, error) { return ServerConfig{}, oauthflow.ErrConflict }}
+		return &legacyOAuthWriter{update: func(context.Context, *ServerConfig, *legacyRegistration) (ServerConfig, error) {
+			return ServerConfig{}, oauthflow.ErrConflict
+		}}
 	}
 	if m.credMgr == nil {
-		return &legacyOAuthWriter{update: func(*ServerConfig) (ServerConfig, error) { return ServerConfig{}, oauthflow.ErrResource }}
+		return &legacyOAuthWriter{update: func(context.Context, *ServerConfig, *legacyRegistration) (ServerConfig, error) {
+			return ServerConfig{}, oauthflow.ErrResource
+		}}
 	}
 	store, captureErr := m.credMgr.OAuthStore(ctx)
 	var mu sync.Mutex
-	return &legacyOAuthWriter{update: func(candidate *ServerConfig) (ServerConfig, error) {
+	baseCtx := ctx
+	return &legacyOAuthWriter{update: func(operationCtx context.Context, candidate *ServerConfig, registration *legacyRegistration) (ServerConfig, error) {
+		ctx := baseCtx
+		if operationCtx != nil {
+			ctx = operationCtx
+		}
 		mu.Lock()
 		defer mu.Unlock()
 		updated := original
@@ -62,25 +87,20 @@ func (m *Manager) newLegacyOAuthWriter(original ServerConfig) *legacyOAuthWriter
 		if !ok {
 			return ServerConfig{}, oauthflow.ErrResource
 		}
-		err := store.(interface {
-			WithSession(context.Context, func() error) error
-		}).WithSession(ctx, func() error {
-			err := database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, repo.db, "mcp.legacy_oauth_config", func(tx *gorm.DB) error {
-				var current database.MCPServer
-				if err := tx.Where("id = ? AND user_id = ? AND slug = ?", original.ID, original.UserID, original.Slug).First(&current).Error; err != nil {
-					return oauthflow.ErrConflict
-				}
-				currentConfig, err := serverModelToConfig(current)
-				if err != nil || current.OAuthManaged || current.OAuthAuthorizationID != "" || !reflect.DeepEqual(persistedLegacyConfig(currentConfig), original) {
-					return oauthflow.ErrConflict
-				}
-				updated.ID, updated.Slug, updated.UserID = original.ID, original.Slug, original.UserID
-				updated.OAuthManaged, updated.OAuthAuthorizationID = false, ""
-				return NewDBRepository(tx).SaveServer(ctx, &updated)
-			})
-			if err != nil {
-				return err
+		save := func(tx *gorm.DB) error {
+			var current database.MCPServer
+			if err := tx.Where("id = ? AND user_id = ? AND slug = ?", original.ID, original.UserID, original.Slug).First(&current).Error; err != nil {
+				return oauthflow.ErrConflict
 			}
+			currentConfig, err := serverModelToConfig(current)
+			if err != nil || current.OAuthManaged || current.OAuthAuthorizationID != "" || !reflect.DeepEqual(persistedLegacyConfig(currentConfig), original) {
+				return oauthflow.ErrConflict
+			}
+			updated.ID, updated.Slug, updated.UserID = original.ID, original.Slug, original.UserID
+			updated.OAuthManaged, updated.OAuthAuthorizationID = false, ""
+			return NewDBRepository(tx).SaveServer(ctx, &updated)
+		}
+		publish := func() {
 			// A user edit can publish after this transaction commits. Do not
 			// replace that newer in-memory configuration with this callback.
 			m.mu.Lock()
@@ -89,8 +109,24 @@ func (m *Manager) newLegacyOAuthWriter(original ServerConfig) *legacyOAuthWriter
 			}
 			m.mu.Unlock()
 			original = persistedLegacyConfig(updated)
-			return nil
-		})
+		}
+		var err error
+		if registration != nil {
+			if !registration.op.MatchesStore(store) {
+				return ServerConfig{}, oauthflow.ErrConflict
+			}
+			err = registration.op.SaveClientWithConsumer(ctx, registration.auth, save, publish)
+		} else {
+			err = store.(interface {
+				WithSession(context.Context, func() error) error
+			}).WithSession(ctx, func() error {
+				if err := database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, repo.db, "mcp.legacy_oauth_config", save); err != nil {
+					return err
+				}
+				publish()
+				return nil
+			})
+		}
 		if err == nil {
 			m.emit("mcp:config_changed", map[string]string{"slug": updated.Slug})
 		}

@@ -857,3 +857,137 @@ método de autenticação efetivamente negociado; esses casos não podem ser
 convertidos por inferência. Snapshot não desfaz rotação remota: a recuperação
 precisa distinguir restauração estrutural de validade do grant. Snapshot,
 retenção, restauração, conversão e retirada do runtime legado seguem pendentes.
+
+### Fase 3 — coordenação durável do OAuth PKCE legado
+
+Status: **In Progress**. Os consumidores PKCE persistidos agora adquirem uma
+tentativa durável antes da autorização ou renovação remota. O controle transitório
+fica cifrado pela DEK na própria entrada `mcp-tokens:<slug>`, com versão,
+identidade do consumidor, nonce, prazo e indicação de refresh pendente. Não é
+um registro composto nem uma conversão de grant. Client Credentials permanece
+fora deste incremento.
+
+A aquisição, a validação do consumidor e a leitura do par são transacionais.
+Nenhuma transação SQLite ou trava global do cofre abrange rede ou consentimento.
+A renovação tem prazo de 30 segundos; a autorização interativa, 10 minutos.
+A decisão de rede para o endpoint de token antecede a aquisição curta; os
+controles de destino continuam ativos no socket, inclusive se o DNS mudar.
+Durante a tentativa, outra instância atualizada não pode renovar, editar ou
+apagar o par/configuração. A publicação exige a mesma tentativa, consumidor e
+sessão do cofre, e salva tokens com remoção do marcador no mesmo commit.
+
+Leituras de tokens consultam o banco, incluindo MCP nativo, sem confiar no cache
+de outra instância. Mudança de recurso/configuração invalida transports antigos.
+Segredos do cliente são relidos dentro da aquisição; construir um transport não
+importa configuração sobre uma credencial potencialmente mais recente.
+Basic/Post continua negociável somente após `invalid_client` explícito; timeout,
+erro de rede e respostas ambíguas não repetem o refresh. Não se infere o método
+efetivamente negociado nem os escopos concedidos para futura conversão.
+
+O checkpoint DCR legado salva cliente, segredo e configuração de callback na
+mesma transação e publica ambos os caches somente depois do commit, sob a sessão
+capturada. Falha em qualquer gravação preserva o estado local anterior.
+Evidências: `TestLegacyDCRDoesNotPublishConfigWhenClientSaveFails` e
+`TestLegacyDCRRollsBackClientWhenConfigSaveFails`. Na manutenção de bootstrap,
+um CAS perdido relê o estado: recifragem já concluída ou controle OAuth não
+abortam a inicialização, mas um valor substituto ilegível continua sendo erro
+(`TestLegacyRefreshMaintenanceRecoversConcurrentCAS`).
+
+Uma renovação iniciada sem commit deixa o grant pendente mesmo após reinício ou
+expiração da tentativa. Conectar, probe, fallback e MCP nativo não reutilizam esse
+refresh token: é necessária **Reautorizar** explícita. Cancelar essa recuperação
+preserva a pendência. A exclusão explícita das credenciais locais pode descartar
+uma pendência inativa; não revoga o grant remoto. Uma resposta antiga não pode
+recriar o par apagado nem publicar sobre uma tentativa posterior.
+
+Evidências: `TestLegacyRefreshCoordinatesProcessesAndEdits`,
+`TestLegacyRefreshNegotiatesOnlyDefinitiveClientRejection`,
+`TestLegacyTransportRejectsChangedResourceWithValidToken`,
+`TestLegacyRefreshConsentPrecedesDurableAttempt`,
+`TestLegacyNativeRefreshUsesFreshClientWithoutBootstrapOverwrite`,
+`TestLegacyOAuthInterruptedRefreshRequiresExplicitRecovery`,
+`TestLegacyOAuthExpiredCrashMarkerSurvivesRestart` e
+`TestLegacyOAuthSessionAndFailedDeletionPreserveVault`.
+
+A resolução de tokens no mesmo transport mantém a trava local durante a leitura
+da configuração, impedindo corrida com discovery/DCR. A identidade concorrente
+usa a última configuração persistida, separada dos endpoints enriquecidos em
+memória; somente checkpoint DCR confirmado avança essa referência.
+Discovery pode resolver o
+endpoint de refresh ausente após reinício sem alterar a identidade persistida.
+A consulta de autenticação reconhece tokens de clientes públicos sem segredo;
+ao escolher `none`, o backend remove a credencial do consumidor original,
+incluindo pendência inativa, e salva a configuração na mesma transação. Falha
+de gravação preserva ambos; publicação atrasada não substitui edição posterior.
+A exclusão do servidor usa a mesma transação para remover par e consumidor,
+permitindo pendência inativa e recusando tentativa ativa. Falha de exclusão
+também preserva o grant (`TestLegacyDeleteServerAllowsInactivePendingAndRollsBack`).
+Evidências: `TestLegacyTransportSerializesTokenResolutionWithConfiguration`,
+`TestLegacyRestartDiscoversRefreshEndpoint`,
+`TestLegacyPublicClientAuthInfoAndPendingRemoval`,
+`TestLegacyDetachRollsBackCredentialsWithConfig`,
+`TestLegacyDetachLatePublicationPreservesNewEdit`,
+`TestLegacyManualDiscoveryKeepsPersistedIdentity` e `McpPage.test.tsx`.
+
+Limite: executáveis antigos não conhecem este controle e não participam da
+coordenação. Não se deve compartilhar o banco com versões anteriores durante
+operações OAuth. O controle não é um backup exportável nem comprova validade
+remota. Snapshot cifrado, retenção/restauração, fixtures publicadas, conversão
+transacional/idempotente e retirada do runtime legado continuam pendentes;
+a fase 3 não está concluída.
+
+Timeout de DNS no preflight encerra a tentativa mesmo quando o contexto externo
+continua válido, sem requisição anônima ou consentimento como fallback.
+Evidência: `TestLegacyPreflightDeadlineStopsBeforeAnonymousRequest`.
+
+
+A renovação proativa preserva o limiar de validade e adota rotações concorrentes
+sem renovar novamente. O fallback nativo por hostname relê o banco e valida
+consumidor/ausência do par na mesma transação, sem reutilizar cache removido.
+Evidências: `TestLegacyProactiveAdoptsConcurrentRotation` e
+`TestLegacyNativeFallbackDoesNotReuseDeletedHostname`.
+
+
+A escolha do detach usa a configuração já normalizada, incluindo mudança de
+HTTP PKCE para stdio com autenticação omitida. O teste de rollback também cobre
+essa transição, sem deixar o par legado órfão.
+
+
+Operações de autenticação disparadas pela UI validam o snapshot do consumidor
+na mesma transação da gravação/exclusão, inclusive quando o cache ainda indica
+None, Bearer ou Client Credentials e outra instância já alterou para PKCE.
+Excluir um cadastro genérico também recusa mudança concorrente de identidade.
+A consulta de presença usa o banco, sem retornar ao cache nem executar fontes.
+Evidências: `TestLegacyDeleteAuthRejectsStaleConsumerAndPreservesFallbacks`,
+`TestLegacyAuthMutationsRejectOtherInstanceConsumerChanges`,
+`TestLegacyGenericDeleteRejectsConsumerChangedAfterRead` e
+`TestLegacyAuthMetadataDoesNotReuseRemovedCache`.
+
+Salvar autenticação None faz o detach no backend com o tipo autoritativo atual,
+inclusive Bearer/Basic/Client Credentials ou cadastro HTTP já None. A UI não
+escolhe remover credenciais depois do save pelo tipo que carregou anteriormente.
+Atualização de stdio já sem autenticação e sem hostname permanece um save local.
+Evidências: `TestLegacyNoneSaveClearsAuthoritativeAuthType` e os casos de None em
+`McpPage.test.tsx`, incluindo rollback da configuração/credenciais.
+
+A edição sem credenciais não depende de cofre disponível: a ausência do par e
+do hostname é comprovada sob o writer SQLite antes do save. Se houver dados,
+a validação do cofre/marcador permanece obrigatória. Evidência:
+`TestSaveHTTPNoneWithoutVaultOrStoredCredentials`.
+
+
+A exclusão explícita de autenticação persistida remove cliente, tokens e hostname
+na mesma transação também para Bearer, Basic, Client Credentials e None, com
+validação do consumidor e rollback integral. O fallback não-PKCE em memória
+permanece disponível. Evidências: `TestUnmanagedAuthDeletionRollsBackEveryPattern`
+e `TestUnmanagedAuthDeletionKeepsInMemoryFallback`.
+
+Depois de resolver uma fonte externa do fallback por hostname, o runtime revalida
+consumidor, ausência de grant próprio e identidade/conteúdo da credencial na
+mesma leitura transacional. Uma alteração durante o comando invalida o resultado.
+Evidência: `TestLegacyHostnameRevalidatesAfterSourceResolution`.
+
+Toda falha da resolução coordenada do token legado é terminal para o transporte,
+inclusive erros genéricos do banco/discovery, preservando a causa para errors.Is.
+Não há envio anônimo nem autorização interativa após essa falha. Evidência:
+`TestLegacyStoreFailureStopsBeforeAnonymousRequest`. Ausência explícita de grant continua permitindo o bootstrap, coberto por `TestLegacyMissingGrantAllowsInitialProbe` e `TestLegacyPollingDCRPersistsCallbackForReauthorization`.

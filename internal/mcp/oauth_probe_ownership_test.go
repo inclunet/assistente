@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"assistente/internal/credentials"
-	"assistente/internal/database"
 	"assistente/internal/oauthflow"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/oauth2"
@@ -78,14 +77,14 @@ func TestLegacyConnectStopsAfterProbePersistenceFailure(t *testing.T) {
 	if err := m.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "old", RefreshURL: "old-refresh", ExpiresAt: time.Now().Add(-time.Hour).Unix()}); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.db.Callback().Create().Before("gorm:create").Register("reject_probe_save", func(tx *gorm.DB) {
-		if entry, ok := tx.Statement.Dest.(*database.CredentialEntry); ok && entry.Pattern == userTokensPattern("legacy") {
+	if err := repo.db.Callback().Update().Before("gorm:update").Register("reject_probe_save", func(tx *gorm.DB) {
+		if fields, ok := tx.Statement.Dest.(map[string]any); ok && fields["token_enc"] != nil {
 			_ = tx.AddError(errors.New("disk full"))
 		}
 	}); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = repo.db.Callback().Create().Remove("reject_probe_save") })
+	t.Cleanup(func() { _ = repo.db.Callback().Update().Remove("reject_probe_save") })
 	oldBrowser := browserOpen
 	browserOpen = func(string) error { browsers.Add(1); return nil }
 	defer func() { browserOpen = oldBrowser }()

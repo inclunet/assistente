@@ -630,3 +630,47 @@ não repete um corpo já consumido.
 Ao criar um servidor, as opções Habilitado e Conectar automaticamente são
 preservadas conforme escolhidas, inclusive quando desmarcadas. Um servidor
 desabilitado não aceita conexão até ser habilitado.
+
+### Renovação de conexões OAuth antigas
+
+O Assistente coordena autorizações e renovações PKCE antigas entre instâncias
+atualizadas que usam o mesmo banco. Enquanto uma tentativa estiver em andamento,
+aguarde antes de conectar, editar ou remover suas credenciais. Outra instância
+consulta os tokens salvos pela primeira, sem renovar novamente por usar um cache
+antigo. Não compartilhe o banco com versões anteriores durante essas operações.
+
+Se o aplicativo fechar durante uma renovação, ou receber uma resposta cujo
+resultado não puder ser confirmado, ele pode pedir **Reautorizar**. Use essa ação
+em **Servidores MCP** para obter novo consentimento. Reiniciar, conectar novamente
+ou enviar outra mensagem não repete o refresh token que ficou incerto. Cancelar
+a reautorização mantém esse pedido até uma autorização bem-sucedida.
+
+Se a falha ocorreu ao salvar, resolva primeiro o acesso ao cofre. Não é preciso
+apagar as credenciais para reautorizar. A remoção explícita continua disponível
+quando não há tentativa ativa, mas remove somente os dados locais e não revoga
+o acesso no serviço remoto. Esta proteção ainda não converte os cadastros antigos
+para o formato unificado.
+
+Ao registrar um cliente automaticamente, os dados do cliente e a configuração
+de callback são salvos juntos. Uma falha de gravação preserva o estado local
+anterior; após resolver o acesso ao cofre, tente conectar novamente.
+
+Clientes públicos configurados manualmente também aparecem como autenticados
+quando possuem tokens, mesmo sem segredo de cliente. Para descartar uma
+autorização pendente, escolha autenticação **Nenhuma** e salve: a remoção das
+credenciais e a alteração da configuração são confirmadas juntas. Se a gravação
+falhar ou houver uma tentativa ativa, ambas são preservadas. Cadastros que dependem de
+discovery continuam descobrindo o endpoint de renovação após reiniciar.
+
+A ação **Remover** também pode descartar um servidor com renovação pendente
+inativa: servidor e credenciais PKCE são removidos juntos. Uma tentativa ainda
+ativa impede essa exclusão até terminar.
+
+Salvar autenticação **Nenhuma** em um servidor remoto também remove as
+credenciais locais de forma atômica para Bearer, Basic e Client Credentials.
+O backend considera o cadastro atual, inclusive se outra instância mudou o tipo
+desde a abertura do editor; uma falha preserva configuração e credenciais.
+
+Ao remover a autenticação de um servidor, as credenciais persistidas são
+excluídas juntas. Se a operação falhar ou outra instância alterar o cadastro,
+nenhuma das credenciais é removida parcialmente.
