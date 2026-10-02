@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"sync"
+	"time"
 
 	"assistente/internal/database"
 	"assistente/internal/oauthflow"
@@ -64,7 +65,7 @@ func (m *Manager) newLegacyOAuthWriter(original ServerConfig) *legacyOAuthWriter
 		err := store.(interface {
 			WithSession(context.Context, func() error) error
 		}).WithSession(ctx, func() error {
-			err := repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			err := database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, repo.db, "mcp.legacy_oauth_config", func(tx *gorm.DB) error {
 				var current database.MCPServer
 				if err := tx.Where("id = ? AND user_id = ? AND slug = ?", original.ID, original.UserID, original.Slug).First(&current).Error; err != nil {
 					return oauthflow.ErrConflict

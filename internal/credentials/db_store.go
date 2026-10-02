@@ -93,7 +93,7 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 		ClientSecretEnc: cred.Auth.ClientSecret,
 	}
 
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return database.WithSQLiteImmediateTransaction(ctx, db, "credentials.save", func(tx *gorm.DB) error {
 		// A late legacy writer must not recreate a pair after its consumer has
 		// transferred ownership to the shared OAuth service. Check and write in
 		// the same transaction, including writes that carry a persisted ID.

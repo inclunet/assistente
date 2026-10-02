@@ -809,6 +809,14 @@ escritas em `mcp-client:<slug>` e `mcp-tokens:<slug>` quando o consumidor do mes
 usuário já pertence ao serviço compartilhado. A checagem e a gravação ficam na
 mesma transação, inclusive quando o escritor informa o ID da entrada existente.
 Resíduos anteriores permanecem intactos; a barreira não os apaga nem os migra.
+O salvamento adquire o writer SQLite antes da leitura do vínculo, usando o
+helper central de transação imediata e retry local. Escritas concorrentes em
+WAL não invalidam o snapshot entre checagem e upsert; não se repete o refresh
+remoto. Evidência: `TestLegacyCredentialWritePreventsStaleWALSnapshot` usa duas
+conexões e uma gravação não relacionada entre a checagem e o upsert.
+O callback de configuração usa a variante imediata compatível com savepoints,
+com retry somente na aquisição do writer. `TestLegacyConfigWriterPreventsStaleWALSnapshot`
+verifica a mesma contenção para cliente/porta DCR, com publicação coerente no cache.
 Callbacks antigos de configuração também não podem remover ou trocar o vínculo
 composto. A desvinculação explícita continua no callback transacional do cofre.
 
