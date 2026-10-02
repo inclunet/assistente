@@ -43,6 +43,9 @@ func TestMCPOAuthSnapshotsRequireSession(t *testing.T) {
 	want := errors.New("no session")
 	api := NewMCP()
 	AttachMCP(api, stubSession{err: want}, controllers.NewMCPController(nil, nil, nil))
+	if err := api.ConvertMCPOAuthClientSnapshot("snapshot", "client_secret_post"); !errors.Is(err, want) {
+		t.Fatalf("convert: %v", err)
+	}
 	if _, err := api.ListMCPOAuthSnapshots(); !errors.Is(err, want) {
 		t.Fatalf("list: %v", err)
 	}

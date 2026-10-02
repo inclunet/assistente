@@ -6,6 +6,10 @@ export function ConnectMCPServer(arg1) {
   return window['go']['wailsapi']['MCP']['ConnectMCPServer'](arg1);
 }
 
+export function ConvertMCPOAuthClientSnapshot(arg1, arg2) {
+  return window['go']['wailsapi']['MCP']['ConvertMCPOAuthClientSnapshot'](arg1, arg2);
+}
+
 export function CreateMCPOAuthSnapshot(arg1) {
   return window['go']['wailsapi']['MCP']['CreateMCPOAuthSnapshot'](arg1);
 }

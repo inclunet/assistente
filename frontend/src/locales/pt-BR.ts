@@ -1379,6 +1379,11 @@ const ptBR = {
 
     mcp: {
       snapshots: {
+        convert: 'Converter autorização',
+        convertNamed: 'Converter autorização de {{name}}',
+        convertHelp: 'Para Client Credentials, escolha o método exigido pelo servidor. O legado não preservava essa informação. Se o cadastro mudou após o snapshot, crie outro antes de converter.',
+        convertConfirm: 'Unir o ID e o segredo do cliente em uma autorização e remover as entradas antigas? O snapshot cifrado será mantido. A conexão atual será encerrada; use Conectar depois. Cadastros alterados ou tokens residuais serão recusados.',
+        converted: 'Autorização convertida. Use Conectar para obter um novo token.',
         "title": "Snapshots OAuth",
         "description": "Crie uma cópia cifrada de servidores OAuth legados ou credenciais estáticas compartilhadas por hostname. Autorizações compostas e fontes externas não são incluídas.",
         "restoreHostnameConfirm": "Restaurar a credencial por hostname, incluindo seus tokens e segredos? Ela voltará a atender todos os recursos que usam esse padrão. A restauração exige que a entrada esteja ausente e não altera servidores. Tokens expirados, revogados ou rotacionados podem não funcionar; a validade original será preservada. O snapshot permanecerá disponível.",

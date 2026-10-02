@@ -1189,3 +1189,43 @@ a resolução explícita de metadados não preservados no legado (por exemplo, o
 método Basic/Post negociado), fixtures de conversão e retirada do runtime antigo.
 Não altera registros para o formato composto automaticamente. Fase 3 e Slack
 continuam em andamento.
+
+### Fase 3 — conversão explícita de Client Credentials
+
+Status: **In Progress**. O diagnóstico permite converter um snapshot Client
+Credentials válido, com confirmação e escolha explícita de `client_secret_basic`
+ou `client_secret_post`. O legado não preservava o método negociado: a conversão
+não faz sondagem nem assume um padrão. PKCE permanece no formato anterior.
+
+A transação imediata compara consumidor, identidade local e todas as entradas
+com o snapshot cifrado antes de unir ID/segredo em um record `source=oauth`, trocar
+a referência do MCP e remover somente seu par legado. Fonte externa, registro
+incompleto, segredo ilegível, divergência de ID e tokens residuais são recusados
+sem descarte. O ID pode estar apenas na configuração ou apenas no cofre.
+Credenciais compartilhadas por hostname permanecem intocadas. Não há rede
+durante a conversão; o record começa pendente e Conectar obtém um grant novo.
+
+O ID da autorização deriva do snapshot e permite repetir a mesma conversão sem
+criar outra autorização nem interromper uma conexão composta posterior. O
+retry com método Basic/Post diferente retorna conflito. Uma instância que ainda
+mantém conexão legada encerra somente esse runtime ao repetir a conversão;
+conexões e tentativas compostas são identificadas pelo ownership capturado.
+Uma barreira local impede novas conexões até terminar a limpeza do runtime
+legado, sem manter a trava durante I/O (`TestClientConversionWaitsForLegacyCleanupBeforeNewConnection`).
+O transporte legado de outra instância perde ownership e não pode emitir grants.
+O snapshot permanece cifrado por sua janela original de 30 dias. Para recuperar
+o cadastro antigo depois da conversão, remover explicitamente o servidor composto
+e restaurar o snapshot: ele não sobrescreve uma autorização atual. O cliente é
+recuperado desabilitado; um novo grant é necessário. Downgrade nunca compartilha
+o banco ativo com uma versão antiga.
+
+Evidências: `TestClientConversionAtomicIdempotentAndRestart` (Basic/Post, ID no
+cofre/configuração, bridge/native, recarga e repetição sem desconexão),
+`TestClientConversionRefusesChangedIncompleteAndActiveRecords`,
+`TestClientConversionRollsBackAndKeepsSnapshot`,
+`TestPublishedClientConversionPreservesHistoricalSecrets` (fixtures 0.2.0–0.5.0),
+`TestMCPOAuthSnapshotsRequireSession` e `McpOAuthSnapshots.test.tsx` (confirmação,
+método obrigatório, foco e falha de recarga distinta de falha de conversão).
+
+Faltam a conversão dos grants PKCE com seus metadados, a retirada final do runtime
+e das configurações legadas e a convergência de Slack. A fase 3 não está concluída.

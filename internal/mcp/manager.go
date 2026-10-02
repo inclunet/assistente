@@ -85,32 +85,35 @@ type ToolCatalog interface {
 
 // serverConnection mantém o estado runtime de um servidor MCP conectado.
 type serverConnection struct {
-	client             *mcpsdk.Client
-	session            *mcpsdk.ClientSession
-	cancelSession      context.CancelFunc         // encerra todo o ciclo de vida da sessão
-	sessionDone        chan error                 // recebe o resultado de Wait quando a sessão termina
-	bridges            []*MCPToolBridge           // tools registradas no registry
-	cancelHealth       context.CancelFunc         // cancela health check goroutine
-	healthDone         chan struct{}              // fechado quando o health loop termina
-	cancelTokenRefresh context.CancelFunc         // cancela token refresh goroutine (OAuth2)
-	tokenRefreshDone   chan struct{}              // fechado quando o token refresh loop termina
-	logHandler         func(LogEntry)             // handler para logs do servidor
-	progressHandler    func(ProgressNotification) // handler para progresso
-	resourceSubHandler func(ResourceUpdated)      // handler para resource updates
+	oauthAuthorizationID string // immutable owner captured when the transport is built
+	client               *mcpsdk.Client
+	session              *mcpsdk.ClientSession
+	cancelSession        context.CancelFunc         // encerra todo o ciclo de vida da sessão
+	sessionDone          chan error                 // recebe o resultado de Wait quando a sessão termina
+	bridges              []*MCPToolBridge           // tools registradas no registry
+	cancelHealth         context.CancelFunc         // cancela health check goroutine
+	healthDone           chan struct{}              // fechado quando o health loop termina
+	cancelTokenRefresh   context.CancelFunc         // cancela token refresh goroutine (OAuth2)
+	tokenRefreshDone     chan struct{}              // fechado quando o token refresh loop termina
+	logHandler           func(LogEntry)             // handler para logs do servidor
+	progressHandler      func(ProgressNotification) // handler para progresso
+	resourceSubHandler   func(ResourceUpdated)      // handler para resource updates
 }
 
 // connectionAttempt representa todo o Connect em andamento, não apenas a
 // chamada ao SDK. Disconnect espera done antes de retornar, impedindo que uma
 // sessão seja publicada depois de o usuário já tê-la desconectado.
 type connectionAttempt struct {
-	cancel context.CancelFunc
-	done   chan struct{}
+	oauthAuthorizationID string
+	cancel               context.CancelFunc
+	done                 chan struct{}
 }
 
 // Manager gerencia servidores MCP: configuração, conexão, discovery de tools.
 // Thread-safe para uso concorrente.
 type Manager struct {
-	snapshotRoot      string // optional test root; production stays outside exported config
+	retiringLegacy    map[string]bool // blocks Connect until legacy cleanup effects finish
+	snapshotRoot      string          // optional test root; production stays outside exported config
 	managedAttempts   map[string]context.CancelFunc
 	mu                sync.RWMutex
 	resolver          *configdir.Resolver
@@ -615,6 +618,10 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 		return fmt.Errorf("servidor MCP '%s' está desabilitado", slug)
 	}
 
+	if m.retiringLegacy[slug] {
+		m.mu.Unlock()
+		return oauthflow.ErrTransient
+	}
 	if _, connecting := m.connectCancels[slug]; connecting {
 		m.mu.Unlock()
 		return fmt.Errorf("servidor MCP '%s' já está conectando — use Desconectar para cancelar", slug)
@@ -628,6 +635,10 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 		_ = m.Disconnect(slug)
 		m.mu.Lock()
 		status, ok = m.servers[slug]
+		if m.retiringLegacy[slug] {
+			m.mu.Unlock()
+			return oauthflow.ErrTransient
+		}
 		if !ok {
 			m.mu.Unlock()
 			return fmt.Errorf("servidor MCP '%s' não encontrado", slug)
@@ -645,7 +656,7 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	sessionCtx, sessionCancel := context.WithCancel(sessionBase)
 	sessionCtx = withOAuthInteraction(sessionCtx)
 	sessionCtx = oauthflow.WithNetworkAuthorizer(sessionCtx, m.authorizeOAuthNetwork)
-	attempt := &connectionAttempt{cancel: sessionCancel, done: make(chan struct{})}
+	attempt := &connectionAttempt{cancel: sessionCancel, done: make(chan struct{}), oauthAuthorizationID: status.Config.OAuthAuthorizationID}
 	m.connectCancels[slug] = attempt
 	status.Status = StatusConnecting
 	status.Error = ""
@@ -827,13 +838,14 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 
 	sessionDone := make(chan error, 1)
 	conn := &serverConnection{
-		client:             client,
-		session:            session,
-		cancelSession:      sessionCancel,
-		sessionDone:        sessionDone,
-		logHandler:         logHandler,
-		progressHandler:    progressHandler,
-		resourceSubHandler: resourceSubHandler,
+		oauthAuthorizationID: cfg.OAuthAuthorizationID,
+		client:               client,
+		session:              session,
+		cancelSession:        sessionCancel,
+		sessionDone:          sessionDone,
+		logHandler:           logHandler,
+		progressHandler:      progressHandler,
+		resourceSubHandler:   resourceSubHandler,
 	}
 
 	// Publica provisoriamente a sessão para permitir o discovery. A tentativa
@@ -1145,16 +1157,42 @@ func (m *Manager) refreshServerOfferingsWithContextFor(parentCtx context.Context
 // Disconnect desconecta de um servidor MCP.
 // Se o servidor está em StatusConnecting, cancela a tentativa de conexão.
 func (m *Manager) Disconnect(slug string) error {
+	return m.disconnect(slug, false)
+}
+
+// After conversion only the runtime built from legacy credentials is retired.
+// Selection and cancellation share the lock so a newer managed connection wins.
+func (m *Manager) disconnect(slug string, legacyOnly bool) error {
 	m.mu.Lock()
 	conn, ok := m.connections[slug]
 	managedCancel := m.managedAttempts[slug]
+	attempt := m.connectCancels[slug]
+	if legacyOnly {
+		managedCancel = nil
+		if conn != nil && conn.oauthAuthorizationID != "" {
+			conn, ok = nil, false
+		}
+		if attempt != nil && attempt.oauthAuthorizationID != "" {
+			attempt = nil
+		}
+	}
 	if managedCancel != nil {
 		managedCancel()
 	}
-	attempt := m.connectCancels[slug]
 	if !ok && attempt == nil && managedCancel == nil {
 		m.mu.Unlock()
 		return nil
+	}
+	if legacyOnly {
+		if m.retiringLegacy == nil {
+			m.retiringLegacy = make(map[string]bool)
+		}
+		if m.retiringLegacy[slug] {
+			m.mu.Unlock()
+			return nil
+		}
+		m.retiringLegacy[slug] = true
+		defer func() { m.mu.Lock(); delete(m.retiringLegacy, slug); m.mu.Unlock() }()
 	}
 
 	if attempt != nil {
