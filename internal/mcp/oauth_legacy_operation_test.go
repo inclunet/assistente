@@ -30,6 +30,54 @@ type pausedLegacySource struct {
 	release chan struct{}
 }
 
+func TestLegacyProactiveAdoptsConcurrentRotation(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		t.Run(map[bool]string{false: "proactive", true: "forced"}[force], func(t *testing.T) {
+			a, b, ctx, _ := legacyWALManagers(t, "https://unused.example")
+			db := a.repository().(*DBRepository).db
+			var rotated atomic.Bool
+			if err := db.Callback().Query().After("gorm:query").Register("rotate_before_resolution", func(tx *gorm.DB) {
+				row, ok := tx.Statement.Dest.(*database.CredentialEntry)
+				if !ok || row.Pattern != userTokensPattern("legacy") || !rotated.CompareAndSwap(false, true) {
+					return
+				}
+				if err := b.credMgr.RegisterPatternWithContext(ctx, row.Pattern, &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "concurrent", RefreshURL: "rotated", ExpiresAt: time.Now().Add(time.Hour).Unix()}); err != nil {
+					t.Error(err)
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = db.Callback().Query().Remove("rotate_before_resolution") })
+			refreshed, err := a.refreshOAuthTokenBestEffort(ctx, "legacy", force)
+			if err != nil || !refreshed || !rotated.Load() {
+				t.Fatalf("did not adopt concurrent token without remote refresh: %v", err)
+			}
+		})
+	}
+}
+
+func TestLegacyNativeFallbackDoesNotReuseDeletedHostname(t *testing.T) {
+	a, b, ctx, cfg := legacyWALManagers(t, "https://fallback.example")
+	if err := a.credMgr.RegisterPatternWithContext(ctx, "fallback.example", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "removed"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.credMgr.ClearLegacyOAuth(ctx, "legacy", cfg.ID, "fallback.example"); err != nil {
+		t.Fatal(err)
+	}
+	c := nativeMCPCandidate{slug: "legacy", url: cfg.URL, authType: AuthOAuth2PKCE, managedConfig: cfg}
+	token, ok := a.resolveNativeAuthToken(ctx, c)
+	if !ok || token != "" {
+		t.Fatal("fallback reused deleted cache")
+	}
+	if err := b.credMgr.RegisterPatternWithContext(ctx, "fallback.example", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "replacement"}); err != nil {
+		t.Fatal(err)
+	}
+	token, ok = a.resolveNativeAuthToken(ctx, c)
+	if !ok || token != "replacement" {
+		t.Fatal("fallback did not read replacement")
+	}
+}
+
 func (s *pausedLegacySource) Token() (*oauth2.Token, error) {
 	close(s.entered)
 	<-s.release

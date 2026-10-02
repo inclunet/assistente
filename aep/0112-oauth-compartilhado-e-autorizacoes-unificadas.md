@@ -940,3 +940,10 @@ Timeout de DNS no preflight encerra a tentativa mesmo quando o contexto externo
 continua válido, sem requisição anônima ou consentimento como fallback.
 Evidência: `TestLegacyPreflightDeadlineStopsBeforeAnonymousRequest`.
 
+
+A renovação proativa preserva o limiar de validade e adota rotações concorrentes
+sem renovar novamente. O fallback nativo por hostname relê o banco e valida
+consumidor/ausência do par na mesma transação, sem reutilizar cache removido.
+Evidências: `TestLegacyProactiveAdoptsConcurrentRotation` e
+`TestLegacyNativeFallbackDoesNotReuseDeletedHostname`.
+

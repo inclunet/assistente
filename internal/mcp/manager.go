@@ -2051,7 +2051,7 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 		if rt.oauthCfg == nil {
 			return false, oauthflow.ErrReauthorize
 		}
-		token, err := rt.resolveLegacyToken(ctx, rt.oauthCfg, true)
+		token, err := rt.resolveLegacyTokenWithValidity(ctx, rt.oauthCfg, force, tokenRefreshThreshold, auth.Token)
 		return err == nil && token.AccessToken != auth.Token, err
 	}
 
@@ -2879,7 +2879,14 @@ func (m *Manager) resolveNativeAuthToken(ctx context.Context, c nativeMCPCandida
 		token, err := rt.resolveLegacyTokenWithValidity(ctx, rt.oauthCfg, false, tokenRefreshThreshold)
 		if err != nil {
 			if errors.Is(err, oauthflow.ErrNotFound) {
-				return m.resolveNativeHostnameToken(ctx, c)
+				auth, hostErr := m.credMgr.ReadLegacyHostnameToken(ctx, c.slug, hostnameFromURL(c.url), rt.validateLegacyConsumer)
+				if hostErr != nil {
+					return "", false
+				}
+				if auth != nil {
+					return auth.Token, true
+				}
+				return "", true
 			}
 			if errors.Is(err, oauthflow.ErrReauthorize) {
 				m.signalNeedsReauth(c.slug, c.name, "oauth_reauthorization_required")

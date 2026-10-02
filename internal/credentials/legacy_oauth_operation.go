@@ -457,6 +457,64 @@ func (m *Manager) ReadLegacyOAuthToken(ctx context.Context, slug, consumerID str
 	return auth, nil
 }
 
+// ReadLegacyHostnameToken keeps the native compatibility fallback authoritative.
+// The consumer and absence of its own grant are checked in the same read snapshot.
+func (m *Manager) ReadLegacyHostnameToken(ctx context.Context, slug, hostname string, validate func(*gorm.DB) error) (*AuthConfig, error) {
+	base, err := m.OAuthStore(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s := base.(*oauthStore)
+	var auth *AuthConfig
+	var row database.CredentialEntry
+	err = s.WithSession(ctx, func() error {
+		store, ok := m.store.(*DBStore)
+		if !ok {
+			return oauthflow.ErrResource
+		}
+		return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if validate == nil {
+				return oauthflow.ErrConflict
+			}
+			if err := validate(tx); err != nil {
+				return err
+			}
+			var count int64
+			if err := tx.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern = ?", s.userID, "mcp-tokens:"+slug).Count(&count).Error; err != nil {
+				return err
+			}
+			if count != 0 {
+				return oauthflow.ErrConflict
+			}
+			if hostname == "" {
+				return nil
+			}
+			if err := tx.Where("user_id = ? AND pattern = ?", s.userID, hostname).First(&row).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return nil
+				}
+				return err
+			}
+			var err error
+			auth, err = m.decryptAuth(&AuthConfig{Source: row.Source, SourceConfigEnc: row.SourceConfigEnc, Type: row.AuthType, Token: row.TokenEnc, ExpiresAt: row.ExpiresAt})
+			return err
+		})
+	})
+	if err != nil || auth == nil {
+		return auth, err
+	}
+	sourceCtx, cancel := s.SessionContext(ctx)
+	defer cancel()
+	auth, err = ResolveSource(withDirectCommandDiagnostic(sourceCtx, row.ID), auth)
+	if err != nil {
+		return nil, err
+	}
+	if err = s.WithSession(ctx, func() error { return nil }); err != nil {
+		return nil, err
+	}
+	return auth, nil
+}
+
 // Commit publishes the complete rotated pair and clears pending in one commit.
 func (o *LegacyOAuthOperation) Commit(ctx context.Context, auth *AuthConfig) error {
 	s, m := o.store, o.store.manager
