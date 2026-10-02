@@ -962,3 +962,16 @@ Evidências: `TestLegacyDeleteAuthRejectsStaleConsumerAndPreservesFallbacks`,
 `TestLegacyAuthMutationsRejectOtherInstanceConsumerChanges`,
 `TestLegacyGenericDeleteRejectsConsumerChangedAfterRead` e
 `TestLegacyAuthMetadataDoesNotReuseRemovedCache`.
+
+Salvar autenticação None faz o detach no backend com o tipo autoritativo atual,
+inclusive Bearer/Basic/Client Credentials ou cadastro HTTP já None. A UI não
+escolhe remover credenciais depois do save pelo tipo que carregou anteriormente.
+Atualização de stdio já sem autenticação e sem hostname permanece um save local.
+Evidências: `TestLegacyNoneSaveClearsAuthoritativeAuthType` e os casos de None em
+`McpPage.test.tsx`, incluindo rollback da configuração/credenciais.
+
+A edição sem credenciais não depende de cofre disponível: a ausência do par e
+do hostname é comprovada sob o writer SQLite antes do save. Se houver dados,
+a validação do cofre/marcador permanece obrigatória. Evidência:
+`TestSaveHTTPNoneWithoutVaultOrStoredCredentials`.
+

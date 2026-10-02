@@ -1517,7 +1517,7 @@ func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
 	if cfg.OAuthManaged || cfg.OAuthAuthorizationID != "" {
 		return m.saveManagedOAuth(slug, cfg, nil)
 	}
-	if existing != nil && existing.AuthType == AuthOAuth2PKCE && cfg.AuthType == AuthNone {
+	if existing != nil && cfg.AuthType == AuthNone && (existing.AuthType != AuthNone || hostnameFromURL(existing.URL) != "") {
 		return m.detachLegacyOAuth(ctx, *existing, cfg, false)
 	}
 	if err := repo.SaveServer(ctx, &cfg); err != nil {

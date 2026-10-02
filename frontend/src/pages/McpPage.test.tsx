@@ -244,9 +244,9 @@ describe('McpPage — oauth2_callback_host', () => {
     });
   }
 
-  it.each([false, true])('delega remoção PKCE e configuração none a uma única gravação atômica (%s)', async (fail) => {
+  it.each(['oauth2_pkce', 'bearer', 'basic'].flatMap((authType) => [false, true].map((fail) => ({ authType, fail }))))('delega remoção e configuração none a uma única gravação atômica ($authType, $fail)', async ({ authType, fail }) => {
     mockServers = [{ slug: 'legacy', name: 'Legacy', transport: 'streamable', status: 'disconnected', enabled: true }];
-    mockGetConfig.mockResolvedValue({ name: 'Legacy', transport: 'streamable', url: 'https://example.com/mcp', auth_type: 'oauth2_pkce', oauth_managed: false });
+    mockGetConfig.mockResolvedValue({ name: 'Legacy', transport: 'streamable', url: 'https://example.com/mcp', auth_type: authType, oauth_managed: false });
     vi.mocked(GetMCPServerAuthInfo).mockResolvedValueOnce({ hasAuth: true } as Awaited<ReturnType<typeof GetMCPServerAuthInfo>>);
     if (fail) mockSave.mockRejectedValueOnce(new Error('oauth_transient'));
     render(<McpPage />);

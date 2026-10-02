@@ -2,8 +2,10 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
@@ -12,9 +14,6 @@ import (
 )
 
 func (m *Manager) detachLegacyOAuth(ctx context.Context, original, cfg ServerConfig, remove bool) error {
-	if m.credMgr == nil {
-		return oauthflow.ErrResource
-	}
 	cfg.ID, cfg.UserID, cfg.Slug = original.ID, original.UserID, original.Slug
 	clearOAuthConfiguration(&cfg)
 	// The cache may already lag another process. Compare publication with the
@@ -25,7 +24,7 @@ func (m *Manager) detachLegacyOAuth(ctx context.Context, original, cfg ServerCon
 		cached = current.Config
 	}
 	m.mu.RUnlock()
-	err := m.credMgr.ClearLegacyOAuthWithConsumer(ctx, original.Slug, original.ID, hostnameFromURL(original.URL), func(tx *gorm.DB) error {
+	update := func(tx *gorm.DB) error {
 		current, err := NewDBRepository(tx).GetServerByID(ctx, original.ID)
 		if err != nil || !reflect.DeepEqual(persistedLegacyConfig(*current), persistedLegacyConfig(original)) {
 			return oauthflow.ErrConflict
@@ -34,9 +33,41 @@ func (m *Manager) detachLegacyOAuth(ctx context.Context, original, cfg ServerCon
 			return NewDBRepository(tx).DeleteServer(ctx, original.Slug)
 		}
 		return NewDBRepository(tx).SaveServer(ctx, &cfg)
-	}, func() {
+	}
+	// No-auth consumers with no stored credentials do not need an unlocked
+	// vault. Prove that absence under the SQLite writer before saving.
+	saved := false
+	if repo, ok := m.repository().(*DBRepository); ok {
+		requiresVault := errors.New("stored MCP credentials require vault")
+		err := database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, repo.db, "mcp.empty_auth.detach", func(tx *gorm.DB) error {
+			if tx.Migrator().HasTable(&database.CredentialEntry{}) {
+				var count int64
+				patterns := []string{clientCredPattern(original.Slug), userTokensPattern(original.Slug), hostnameFromURL(original.URL)}
+				if err := tx.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern IN ?", original.UserID, patterns).Count(&count).Error; err != nil {
+					return err
+				}
+				if count != 0 {
+					return requiresVault
+				}
+			}
+			return update(tx)
+		})
+		if err != nil && !errors.Is(err, requiresVault) {
+			return err
+		}
+		saved = err == nil
+	}
+	var err error
+	if saved {
 		m.publishLegacyDetach(cached, cfg, remove)
-	})
+	} else {
+		if m.credMgr == nil {
+			return oauthflow.ErrResource
+		}
+		err = m.credMgr.ClearLegacyOAuthWithConsumer(ctx, original.Slug, original.ID, hostnameFromURL(original.URL), update, func() {
+			m.publishLegacyDetach(cached, cfg, remove)
+		})
+	}
 	if err != nil {
 		return err
 	}
@@ -46,6 +77,7 @@ func (m *Manager) detachLegacyOAuth(ctx context.Context, original, cfg ServerCon
 }
 
 func (m *Manager) publishLegacyDetach(original, cfg ServerConfig, remove bool) {
+	roots := m.GetWorkspaceRoots()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if current := m.servers[original.Slug]; current != nil && reflect.DeepEqual(persistedLegacyConfig(current.Config), persistedLegacyConfig(original)) {
@@ -53,6 +85,7 @@ func (m *Manager) publishLegacyDetach(original, cfg ServerConfig, remove bool) {
 			delete(m.servers, original.Slug)
 		} else {
 			current.Config = cfg
+			current.Roots = roots
 		}
 	}
 }
