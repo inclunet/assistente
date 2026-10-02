@@ -774,7 +774,7 @@ Credenciais compartilhadas por hostname não são alteradas.
 Se o cadastro mudou desde o snapshot, crie outro. Se houver emissão ativa,
 aguarde terminar antes de capturar e converter. Cadastro incompleto, segredo
 ilegível, fonte externa, ID divergente ou tokens residuais impedem a conversão,
-preservando os dados para investigação. Servidores PKCE ainda não são convertidos.
+preservando os dados para investigação. Para PKCE, use a reconexão explícita descrita abaixo.
 
 Para voltar ao cadastro anterior durante os 30 dias de retenção, remova
 explicitamente o servidor convertido e restaure o snapshot. A restauração não
@@ -782,3 +782,34 @@ sobrescreve uma autorização atual. O servidor volta desabilitado, com ID e
 segredo recuperados; habilite e conecte para emitir um token novo. Mantenha o
 snapshot até validar a conexão. Não abra o mesmo banco simultaneamente com uma
 versão antiga do Assistente.
+
+### Reconectar e migrar PKCE legado
+
+No diagnóstico OAuth, crie um snapshot do servidor PKCE. Na entrada dele,
+selecione o método exigido pelo provedor e use **Reconectar e migrar**:
+
+- **Cliente público** para clientes sem segredo, incluindo um novo cadastro DCR.
+- **Basic** ou **Post** para clientes com segredo, conforme o provedor.
+
+O Assistente reaproveita o ID e o segredo disponíveis e abre o fluxo normal de
+autorização. A nova autorização fornece os metadados que o formato antigo não
+guardava. Endpoints e a configuração de callback são reaproveitados. Sem DCR,
+uma porta fixa ocupada impede a autorização; com DCR, o protocolo existente pode
+registrar outro cliente com uma porta disponível. As decisões de acesso a destinos
+de rede seguem as mesmas permissões da conexão OAuth normal.
+
+Somente após o login e a gravação concluírem o Assistente troca o cadastro para
+uma entrada composta e remove o par antigo. Use **Conectar** depois para abrir a
+conexão MCP. O snapshot permanece cifrado por seus 30 dias originais. Repetir a
+ação com o mesmo snapshot e método não abre outro login após o sucesso.
+
+Se cancelar ou ocorrer uma falha, o cadastro local anterior é preservado.
+Durante o fluxo, renovações concorrentes são recusadas. Após queda do app,
+aguarde a reserva expirar (até dez minutos) e tente novamente com o snapshot
+original. Se o cadastro foi editado desde a captura, faça outro snapshot.
+
+O provedor pode invalidar tokens anteriores durante a nova autorização; o
+snapshot não reverte essa invalidação. A ação é opcional: cadastros legados
+continuam funcionando, e o Assistente não abre um login só porque o formato
+mudou. A conversão PKCE sem novo login ainda não está disponível quando faltam
+os metadados históricos do grant.

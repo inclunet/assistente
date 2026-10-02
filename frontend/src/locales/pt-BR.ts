@@ -1381,6 +1381,12 @@ const ptBR = {
       snapshots: {
         convert: 'Converter autorização',
         convertNamed: 'Converter autorização de {{name}}',
+        reconnect: 'Reconectar e migrar',
+        reconnectNamed: 'Reconectar e migrar {{name}}',
+        publicClient: 'Cliente público (sem segredo; inclui DCR)',
+        reconnectHelp: 'Quando faltam metadados do login antigo, reconecte para obter uma nova autorização. Escolha o método exigido pelo provedor: cliente público para DCR sem segredo ou Basic/Post para um cliente com segredo. O cadastro precisa corresponder ao snapshot.',
+        reconnectConfirm: 'Abrir uma nova autorização e migrar após o sucesso? O cadastro antigo e o snapshot cifrado serão preservados até a gravação final. Se cancelar ou falhar, não haverá troca local. O provedor pode invalidar tokens anteriores; o snapshot não desfaz essa invalidação. Depois do sucesso, use Conectar para abrir a conexão MCP.',
+        reconnected: 'Nova autorização salva e migração concluída. Use Conectar para abrir a conexão MCP.',
         convertHelp: 'Para Client Credentials, escolha o método exigido pelo servidor. O legado não preservava essa informação. Se o cadastro mudou após o snapshot, crie outro antes de converter.',
         convertConfirm: 'Unir o ID e o segredo do cliente em uma autorização e remover as entradas antigas? O snapshot cifrado será mantido. A conexão atual será encerrada; use Conectar depois. Cadastros alterados ou tokens residuais serão recusados.',
         converted: 'Autorização convertida. Use Conectar para obter um novo token.',

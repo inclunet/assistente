@@ -1383,6 +1383,12 @@ const es = {
       snapshots: {
         convert: 'Convertir autorización',
         convertNamed: 'Convertir autorización de {{name}}',
+        reconnect: 'Reconectar y migrar',
+        reconnectNamed: 'Reconectar y migrar {{name}}',
+        publicClient: 'Cliente público (sin secreto; incluye DCR)',
+        reconnectHelp: 'Cuando faltan metadatos del inicio de sesión anterior, reconecte para obtener una nueva autorización. Elija el método requerido por el proveedor: cliente público para DCR sin secreto, o Basic/Post para un cliente con secreto. La configuración debe coincidir con el snapshot.',
+        reconnectConfirm: '¿Iniciar una nueva autorización y migrar tras el éxito? La configuración anterior y el snapshot cifrado se conservarán hasta la escritura final. Si cancela o falla, no habrá cambio local. El proveedor puede invalidar tokens anteriores; el snapshot no puede deshacerlo. Tras el éxito, use Conectar para abrir la conexión MCP.',
+        reconnected: 'Nueva autorización guardada y migración completada. Use Conectar para abrir la conexión MCP.',
         convertHelp: 'Para Client Credentials, elija el método requerido por el servidor. El formato anterior no conservaba esta información. Si la configuración cambió después del snapshot, cree otro antes de convertir.',
         convertConfirm: '¿Unir el ID y el secreto del cliente en una autorización y eliminar las entradas anteriores? Se conservará el snapshot cifrado. La conexión actual se cerrará; use Conectar después. Se rechazarán registros modificados o tokens residuales.',
         converted: 'Autorización convertida. Use Conectar para obtener un token nuevo.',

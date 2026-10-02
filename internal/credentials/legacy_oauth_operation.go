@@ -18,11 +18,15 @@ import (
 
 // Transitional coordination only: this is not an authorization or a converted grant.
 type legacyOAuthControl struct {
-	Version    int
-	ConsumerID string
-	Attempt    string
-	Until      time.Time
-	Pending    bool
+	// Reconnection stages the shared service record without replacing the legacy grant.
+	Migration         *oauthflow.Record `json:",omitempty"`
+	OriginalControl   string            `json:",omitempty"`
+	MigrationInserted bool              `json:",omitempty"`
+	Version           int
+	ConsumerID        string
+	Attempt           string
+	Until             time.Time
+	Pending           bool
 }
 
 type legacyOAuthReceiptKey struct{}

@@ -240,6 +240,15 @@ referências e remoção das entradas substituídas são atômicas; na falha, pe
 porque o formato mudou. Downgrade requer restaurar snapshot compatível; não manter
 dual-write nem leitor legado permanente para credenciais já convertidas.
 
+Quando faltarem metadados do grant legado, oferecer **Reconectar e migrar** como
+ação explícita e opcional. Não é conversão offline: o usuário autoriza um novo
+grant, com reaproveitamento do cadastro disponível e captura dos metadados da
+nova autorização. O snapshot antecede o fluxo e o cutover só acontece após o
+sucesso remoto e a gravação atômica local. Cancelamento/falha preserva o cadastro
+local anterior; o provedor pode invalidar tokens antigos, algo que um snapshot
+local não consegue desfazer. A conversão direta continua exigindo todos os
+metadados e não pode inferir método, escopos ou callback histórico.
+
 MCP passa a consumir o serviço comum, incluindo reautorização explícita e guarda de
 token do caminho nativo (AEP-0105). Retirar o loop/token source próprio e os campos
 OAuth duplicados do servidor após provar paridade. Durante a transição, ownership é
@@ -1227,5 +1236,41 @@ cofre/configuração, bridge/native, recarga e repetição sem desconexão),
 `TestMCPOAuthSnapshotsRequireSession` e `McpOAuthSnapshots.test.tsx` (confirmação,
 método obrigatório, foco e falha de recarga distinta de falha de conversão).
 
-Faltam a conversão dos grants PKCE com seus metadados, a retirada final do runtime
+Faltam a conversão offline dos grants PKCE com seus metadados, a retirada final do runtime
 e das configurações legadas e a convergência de Slack. A fase 3 não está concluída.
+
+### Fase 3 — reconexão explícita para migrar PKCE legado
+
+Status: **In Progress**. O diagnóstico oferece **Reconectar e migrar** a partir
+do snapshot PKCE. O método do cliente é informado explicitamente (público,
+Basic ou Post); não se infere o método anteriormente negociado. Reaproveitam-se
+ID/segredo disponíveis, endpoints e política de callback. DCR sem cadastro segue
+o protocolo existente e o motor de autorização de rede compartilhado.
+
+O serviço `oauthflow` controla a nova autorização. Seu store transitório grava
+o candidato cifrado no controle da linha legada e mantém uma reserva durável
+de dez minutos; não há transação nem mutex durante rede/consentimento. O cadastro
+e os tokens anteriores permanecem intactos até o CAS final, que cria a entrada
+composta, troca a referência MCP e remove o par na mesma transação. A sessão do
+cofre e o snapshot completo são revalidados em cada operação. O snapshot continua
+com sua retenção original. Repetir uma migração concluída com o mesmo método é
+idempotente e encerra apenas uma eventual conexão legada local.
+
+Cancelamento, recusa e falha local conservam o grant anterior. Uma queda deixa
+uma reserva que expira; a próxima tentativa explícita pode usar o snapshot
+original, inclusive quando a linha de tokens foi criada só para a reserva.
+A barreira de refresh ambíguo anterior permanece após uma queda. A nova
+autorização pode invalidar tokens no provedor: a UI explica que rollback local
+não desfaz esse efeito remoto.
+
+Evidências: `TestReconnectMigrationSuccessFailureAndRetry` (protocolo PKCE,
+concorrência entre instâncias, cancelamento, falha de commit e idempotência),
+`TestPublishedPKCEReconnectKeepsClientAndReplacesGrant` (fixtures 0.2.0–0.5.0),
+`TestReconnectCrashPreservesPendingAndRecoversMissingTokenRow`,
+`TestReconnectRejectsChangedSnapshotBeforeAuthorization`,
+`TestMCPOAuthSnapshotsRequireSession` e `McpOAuthSnapshots.test.tsx`.
+
+A conversão offline de grants PKCE continua pendente: o formato histórico não
+registra todos os metadados necessários. Não há conversão silenciosa nem exigência
+de reconexão para continuar usando um cadastro legado. Retirada do runtime/campos
+legados e convergência de Slack também continuam pendentes.

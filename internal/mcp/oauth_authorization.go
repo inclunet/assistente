@@ -323,7 +323,11 @@ func (m *Manager) authorizeManagedOAuthInAttempt(ctx context.Context, slug strin
 	if err != nil {
 		return err
 	}
-	_, err = service.AuthorizeUsingCheckpoint(ctx, store, cfg.OAuthAuthorizationID, func(flowCtx context.Context, r oauthflow.Record, checkpoint func(oauthflow.Record) (oauthflow.Record, error)) (oauthflow.Record, error) {
+	return m.authorizeOAuthWithStore(ctx, slug, cfg, store, service)
+}
+
+func (m *Manager) authorizeOAuthWithStore(ctx context.Context, slug string, cfg ServerConfig, store oauthflow.Store, service *oauthflow.Service) error {
+	_, err := service.AuthorizeUsingCheckpoint(ctx, store, cfg.OAuthAuthorizationID, func(flowCtx context.Context, r oauthflow.Record, checkpoint func(oauthflow.Record) (oauthflow.Record, error)) (oauthflow.Record, error) {
 		// This adapter runs only the existing protocol choreography. It has no vault,
 		// config writer or live connection: only the shared service commits its result.
 		rt := &pkceRoundTripper{

@@ -82,6 +82,10 @@ export function ReauthorizeMCPServer(arg1) {
   return window['go']['wailsapi']['MCP']['ReauthorizeMCPServer'](arg1);
 }
 
+export function ReconnectMCPOAuthSnapshot(arg1, arg2) {
+  return window['go']['wailsapi']['MCP']['ReconnectMCPOAuthSnapshot'](arg1, arg2);
+}
+
 export function ReconnectMCPServer(arg1) {
   return window['go']['wailsapi']['MCP']['ReconnectMCPServer'](arg1);
 }
