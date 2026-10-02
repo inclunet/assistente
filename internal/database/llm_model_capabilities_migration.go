@@ -91,7 +91,7 @@ var llmModelCapabilitiesDDL = []string{
 		updated_at DATETIME NOT NULL,
 		CONSTRAINT fk_llm_catalog_binding_model FOREIGN KEY (model_id) REFERENCES llm_models(id) ON UPDATE CASCADE ON DELETE CASCADE,
 		CONSTRAINT ux_llm_catalog_binding_scope UNIQUE (id, model_id, provider_compatibility_revision),
-		CONSTRAINT ux_llm_catalog_binding_identity UNIQUE (model_id, provider_compatibility_revision, source, external_provider_id, external_model_id),
+		CONSTRAINT ux_llm_catalog_binding_identity UNIQUE (model_id, provider_compatibility_revision, source, external_provider_id, external_model_id, verified_at),
 		CHECK (valid_until IS NULL OR valid_until > verified_at)
 	)`,
 	`CREATE TABLE IF NOT EXISTS llm_model_capabilities (
@@ -171,6 +171,9 @@ var llmModelCapabilitiesIndexes = []string{
 	`CREATE INDEX IF NOT EXISTS idx_llm_model_capabilities_resolve ON llm_model_capabilities(model_id, provider_compatibility_revision, capability_key, observed_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_llm_model_capability_fields_resolve ON llm_model_capability_fields(model_id, provider_compatibility_revision, capability_key, field_key, observed_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_llm_model_catalog_bindings_revision ON llm_model_catalog_bindings(model_id, provider_compatibility_revision, valid_until)`,
+	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_catalog_bindings_immutable
+	 BEFORE UPDATE ON llm_model_catalog_bindings
+	 BEGIN SELECT RAISE(ABORT, 'llm_model_catalog_bindings are immutable; insert a new verification'); END`,
 	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_capability_binding_insert
 	 BEFORE INSERT ON llm_model_capabilities
 	 WHEN NEW.scope = 'external_binding' AND NOT EXISTS (

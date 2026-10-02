@@ -65,11 +65,13 @@ func (r *LLMModelCapabilitiesRepository) ListModels(ctx context.Context, provide
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
-	if _, err := r.providerRevisionForUser(ctx, r.db.WithContext(ctx), providerID); err != nil {
-		return nil, err
-	}
 	var models []LLMModel
-	err := r.db.WithContext(ctx).Where("provider_id = ?", providerID).Order("remote_id COLLATE BINARY").Find(&models).Error
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if _, err := r.providerRevisionForUser(ctx, tx, providerID); err != nil {
+			return err
+		}
+		return tx.Where("provider_id = ?", providerID).Order("remote_id COLLATE BINARY").Find(&models).Error
+	})
 	return models, err
 }
 
@@ -81,6 +83,11 @@ func (r *LLMModelCapabilitiesRepository) BindCatalogModel(ctx context.Context, b
 	}
 	if err := RequireUserIDOrBootstrap(ctx); err != nil {
 		return err
+	}
+	binding.VerifiedAt = binding.VerifiedAt.UTC()
+	if binding.ValidUntil != nil {
+		validUntil := binding.ValidUntil.UTC()
+		binding.ValidUntil = &validUntil
 	}
 	if strings.TrimSpace(binding.ExternalProviderID) == "" || strings.TrimSpace(binding.ExternalModelID) == "" || binding.ExternalProviderID != strings.TrimSpace(binding.ExternalProviderID) || binding.ExternalModelID != strings.TrimSpace(binding.ExternalModelID) || strings.ContainsRune(binding.ExternalProviderID, '\x00') || strings.ContainsRune(binding.ExternalModelID, '\x00') || !validSourceReference(binding.SourceReference) || binding.VerifiedAt.IsZero() || binding.VerifiedAt.After(time.Now()) || binding.ProviderCompatibilityRevision < 1 {
 		return ErrInvalidCatalogBinding
@@ -103,12 +110,13 @@ func (r *LLMModelCapabilitiesRepository) BindCatalogModel(ctx context.Context, b
 			return ErrInvalidCatalogBinding
 		}
 		var existing LLMModelCatalogBinding
-		find := tx.Where("model_id = ? AND provider_compatibility_revision = ? AND source = ? AND external_provider_id = ? AND external_model_id = ?", model.ID, revision, binding.Source, binding.ExternalProviderID, binding.ExternalModelID).First(&existing)
+		find := tx.Where("model_id = ? AND provider_compatibility_revision = ? AND source = ? AND external_provider_id = ? AND external_model_id = ? AND verified_at = ?", model.ID, revision, binding.Source, binding.ExternalProviderID, binding.ExternalModelID, binding.VerifiedAt).First(&existing)
 		if find.Error == nil {
-			binding.ID = existing.ID
-			binding.CreatedAt = existing.CreatedAt
-			binding.VerifiedAt = existing.VerifiedAt
-			return tx.Save(binding).Error
+			if !sameNullableTime(existing.ValidUntil, binding.ValidUntil) || existing.SourceReference != binding.SourceReference {
+				return ErrInvalidCatalogBinding
+			}
+			*binding = existing
+			return nil
 		}
 		if !errors.Is(find.Error, gorm.ErrRecordNotFound) {
 			return find.Error
@@ -209,71 +217,76 @@ func (r *LLMModelCapabilitiesRepository) Resolve(ctx context.Context, modelID st
 	if _, err := RequireUserID(ctx); err != nil {
 		return llmcapabilities.Resolution{}, err
 	}
-	revision, model, err := r.modelAndProviderRevision(ctx, r.db.WithContext(ctx), modelID)
-	if err != nil {
-		return llmcapabilities.Resolution{}, err
-	}
-	var capabilityRows []LLMModelCapability
-	if err := r.db.WithContext(ctx).Where("model_id = ? AND provider_compatibility_revision = ?", model.ID, revision).Find(&capabilityRows).Error; err != nil {
-		return llmcapabilities.Resolution{}, err
-	}
-	var fieldRows []LLMModelCapabilityField
-	if err := r.db.WithContext(ctx).Where("model_id = ? AND provider_compatibility_revision = ?", model.ID, revision).Find(&fieldRows).Error; err != nil {
-		return llmcapabilities.Resolution{}, err
-	}
-	bindingIDs := make([]string, 0)
-	seenBindings := make(map[string]struct{})
-	for _, row := range capabilityRows {
-		if row.BindingID != nil {
-			if _, exists := seenBindings[*row.BindingID]; !exists {
-				seenBindings[*row.BindingID] = struct{}{}
-				bindingIDs = append(bindingIDs, *row.BindingID)
+	var resolution llmcapabilities.Resolution
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		revision, model, err := r.modelAndProviderRevision(ctx, tx, modelID)
+		if err != nil {
+			return err
+		}
+		var capabilityRows []LLMModelCapability
+		if err := tx.Where("model_id = ? AND provider_compatibility_revision = ?", model.ID, revision).Find(&capabilityRows).Error; err != nil {
+			return err
+		}
+		var fieldRows []LLMModelCapabilityField
+		if err := tx.Where("model_id = ? AND provider_compatibility_revision = ?", model.ID, revision).Find(&fieldRows).Error; err != nil {
+			return err
+		}
+		bindingIDs := make([]string, 0)
+		seenBindings := make(map[string]struct{})
+		for _, row := range capabilityRows {
+			if row.BindingID != nil {
+				if _, exists := seenBindings[*row.BindingID]; !exists {
+					seenBindings[*row.BindingID] = struct{}{}
+					bindingIDs = append(bindingIDs, *row.BindingID)
+				}
 			}
 		}
-	}
-	for _, row := range fieldRows {
-		if row.BindingID != nil {
-			if _, exists := seenBindings[*row.BindingID]; !exists {
-				seenBindings[*row.BindingID] = struct{}{}
-				bindingIDs = append(bindingIDs, *row.BindingID)
+		for _, row := range fieldRows {
+			if row.BindingID != nil {
+				if _, exists := seenBindings[*row.BindingID]; !exists {
+					seenBindings[*row.BindingID] = struct{}{}
+					bindingIDs = append(bindingIDs, *row.BindingID)
+				}
 			}
 		}
-	}
-	bindings := make(map[string]LLMModelCatalogBinding, len(bindingIDs))
-	if len(bindingIDs) > 0 {
-		var bindingRows []LLMModelCatalogBinding
-		if err := r.db.WithContext(ctx).Where("id IN ?", bindingIDs).Find(&bindingRows).Error; err != nil {
-			return llmcapabilities.Resolution{}, err
+		bindings := make(map[string]LLMModelCatalogBinding, len(bindingIDs))
+		if len(bindingIDs) > 0 {
+			var bindingRows []LLMModelCatalogBinding
+			if err := tx.Where("id IN ?", bindingIDs).Find(&bindingRows).Error; err != nil {
+				return err
+			}
+			for _, binding := range bindingRows {
+				bindings[binding.ID] = binding
+			}
 		}
-		for _, binding := range bindingRows {
-			bindings[binding.ID] = binding
+		optionsByAssertion := make(map[string][]llmcapabilities.FieldOption)
+		fieldIDs := make([]string, 0, len(fieldRows))
+		for _, row := range fieldRows {
+			fieldIDs = append(fieldIDs, row.ID)
 		}
-	}
-	optionsByAssertion := make(map[string][]llmcapabilities.FieldOption)
-	fieldIDs := make([]string, 0, len(fieldRows))
-	for _, row := range fieldRows {
-		fieldIDs = append(fieldIDs, row.ID)
-	}
-	if len(fieldIDs) > 0 {
-		var optionRows []LLMModelCapabilityFieldOption
-		if err := r.db.WithContext(ctx).Where("assertion_id IN ?", fieldIDs).Find(&optionRows).Error; err != nil {
-			return llmcapabilities.Resolution{}, err
+		if len(fieldIDs) > 0 {
+			var optionRows []LLMModelCapabilityFieldOption
+			if err := tx.Where("assertion_id IN ?", fieldIDs).Find(&optionRows).Error; err != nil {
+				return err
+			}
+			for _, option := range optionRows {
+				optionsByAssertion[option.AssertionID] = append(optionsByAssertion[option.AssertionID], llmcapabilities.FieldOption{Value: option.Value, Label: option.Label, State: llmcapabilities.SupportState(option.SupportState)})
+			}
 		}
-		for _, option := range optionRows {
-			optionsByAssertion[option.AssertionID] = append(optionsByAssertion[option.AssertionID], llmcapabilities.FieldOption{Value: option.Value, Label: option.Label, State: llmcapabilities.SupportState(option.SupportState)})
+		domainCapabilities := make([]llmcapabilities.CapabilityAssertion, 0, len(capabilityRows))
+		for _, row := range capabilityRows {
+			verified, bindingRevision := eligibleBinding(row.BindingID, bindings, model.ID, revision, now, row.ObservedAt)
+			domainCapabilities = append(domainCapabilities, capabilityAssertionFromModel(&row, verified, bindingRevision))
 		}
-	}
-	domainCapabilities := make([]llmcapabilities.CapabilityAssertion, 0, len(capabilityRows))
-	for _, row := range capabilityRows {
-		verified, bindingRevision := eligibleBinding(row.BindingID, bindings, model.ID, revision, now, row.ObservedAt)
-		domainCapabilities = append(domainCapabilities, capabilityAssertionFromModel(&row, verified, bindingRevision))
-	}
-	domainFields := make([]llmcapabilities.FieldAssertion, 0, len(fieldRows))
-	for _, row := range fieldRows {
-		verified, bindingRevision := eligibleBinding(row.BindingID, bindings, model.ID, revision, now, row.ObservedAt)
-		domainFields = append(domainFields, fieldAssertionFromModel(&row, optionsByAssertion[row.ID], verified, bindingRevision))
-	}
-	return llmcapabilities.Resolve(now, revision, domainCapabilities, domainFields), nil
+		domainFields := make([]llmcapabilities.FieldAssertion, 0, len(fieldRows))
+		for _, row := range fieldRows {
+			verified, bindingRevision := eligibleBinding(row.BindingID, bindings, model.ID, revision, now, row.ObservedAt)
+			domainFields = append(domainFields, fieldAssertionFromModel(&row, optionsByAssertion[row.ID], verified, bindingRevision))
+		}
+		resolution = llmcapabilities.Resolve(now, revision, domainCapabilities, domainFields)
+		return nil
+	})
+	return resolution, err
 }
 
 func (r *LLMModelCapabilitiesRepository) modelAndProviderRevision(ctx context.Context, db *gorm.DB, modelID string) (int, *LLMModel, error) {
@@ -285,9 +298,13 @@ func (r *LLMModelCapabilitiesRepository) modelAndProviderRevision(ctx context.Co
 		ProviderID            string
 		UserID                string
 		CompatibilityRevision int
+		CreatedAt             time.Time
+		UpdatedAt             time.Time
+		RemoteID              string
+		DisplayName           string
 	}
 	query := db.Table("llm_models AS m").
-		Select("m.id AS model_id, m.provider_id, p.user_id, p.compatibility_revision").
+		Select("m.id AS model_id, m.provider_id, p.user_id, p.compatibility_revision, m.created_at, m.updated_at, m.remote_id, m.display_name").
 		Joins("JOIN llm_providers AS p ON p.id = m.provider_id").
 		Where("m.id = ?", modelID)
 	if userID, ok := UserIDFromContext(ctx); ok {
@@ -302,14 +319,21 @@ func (r *LLMModelCapabilitiesRepository) modelAndProviderRevision(ctx context.Co
 	if err != nil {
 		return 0, nil, err
 	}
-	var model LLMModel
-	if err := db.First(&model, "id = ?", row.ModelID).Error; err != nil {
-		return 0, nil, err
-	}
 	if row.CompatibilityRevision < 1 {
 		return 0, nil, errors.New("revisão de compatibilidade inválida no provedor")
 	}
+	model := LLMModel{
+		UUIDModel:  UUIDModel{ID: row.ModelID, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt},
+		ProviderID: row.ProviderID, RemoteID: row.RemoteID, DisplayName: row.DisplayName,
+	}
 	return row.CompatibilityRevision, &model, nil
+}
+
+func sameNullableTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.Equal(*b)
 }
 
 func (r *LLMModelCapabilitiesRepository) providerRevisionForUser(ctx context.Context, db *gorm.DB, providerID string) (int, error) {

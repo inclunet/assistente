@@ -110,6 +110,14 @@ O projeto já tem contratos que esta proposta deve preservar:
     modelo/capability/campo são afirmações distintas; uma não apaga
     silenciosamente a outra.
 
+    Um vínculo externo é uma verificação histórica imutável: renovar a mesma
+    identidade cria um novo vínculo com novo ID e `verified_at`, preservando a
+    validade anterior para que fatos observados durante uma lacuna não sejam
+    aceitos retroativamente. O banco rejeita atualizações diretas desses
+    registros. Instantes são normalizados para UTC antes da persistência;
+    repetir a mesma verificação é idempotente somente quando validade e
+    referência de origem também forem iguais.
+
 7. **A resolução de fatos é determinística e respeita o escopo.** Evidência da
     revisão exata da conexão prevalece sobre dados importados de uma identidade
     externa explicitamente verificada e vinculada à mesma revisão. Afirmações
@@ -206,7 +214,7 @@ resolução projeta um fato efetivo sem apagar afirmações concorrentes.
 | Fase / PR planejado | Entrega | Limite da fase |
 |---|---|---|
 | 0 — PR de documentação (concluída no PR #887) | Registrar e revisar esta arquitetura e a sequência de entrega. | Sem migração ou mudança de runtime. |
-| 1 — Persistência e resolução local (concluída neste PR) | Migração v33 cria a revisão de compatibilidade, modelos por provedor, vocabulário controlado, vínculos externos verificados, afirmações com origem, limites/opções tipados e resolver local determinístico. Testes cobrem escopo, precedência, expiração, conflito e invalidação por revisão. | Sem consultas externas e sem alterar o envio. |
+| 1 — Persistência e resolução local (concluída neste PR) | Migração v33 cria a revisão de compatibilidade, modelos por provedor, vocabulário controlado, vínculos externos verificados e versionados por verificação, afirmações com origem, limites/opções tipados e resolver local determinístico. Leituras de autorização e fatos usam um snapshot consistente. Testes cobrem escopo, precedência, expiração, conflito, renovação imutável e invalidação por revisão. | Sem consultas externas e sem alterar o envio. |
 | 2 — Compatibilidade no envio | Traduzir campos canônicos, omitir incompatibilidades conhecidas e aprender rejeições precisas com no máximo um retry seguro. | Integrar ao pipeline backend existente; sem caminho paralelo de mensagem. |
 | 3 — Profile Manager e vozes | Filtrar opções usando fatos locais; persistir/reutilizar listas de vozes por provedor/modelo e estados de desconhecimento. | Abrir a tela não espera por API externa. |
 | 4 — Fontes e jobs | Criar interface de importadores e uma operação de sincronização reutilizada pela chamada manual e pelos jobs, com validação, atualização idempotente, proveniência e vínculos explícitos de identidade; começar por fontes cuja cobertura e licença sejam adequadas. | Fatos externos só governam conexão com identidade de provedor/modelo explicitamente verificada. |
@@ -260,6 +268,12 @@ depender de uma fase ainda aberta deve ser empilhado sobre ela.
   precedência da curadoria versionada. Verificado pelos testes de resolução em `internal/llmcapabilities`.
 - [x] A resolução nunca usa fato genérico para omitir campo ou ocultar controle
   sem vínculo validado da identidade externa de provedor/modelo à conexão. Fatos genéricos são ignorados; vínculos externos exigem modelo, origem e revisão correspondentes.
+- [x] Renovar vínculo externo cria uma verificação histórica com novo ID sem
+  estender a validade da versão anterior; o banco rejeita atualização direta;
+  o mesmo instante normalizado em UTC é idempotente e repetir `verified_at` com
+  validade ou referência diferente é recusado. Listagem/resolução mantêm
+  autorização e fatos no mesmo snapshot. Verificado por
+  `TestLLMModelCatalogBindingRenewalPreservesVerifiedHistory` e testes de escopo.
 - [x] Escritas em provedores de sistema exigem contexto interno de bootstrap;
   usuários autenticados podem consultar os fatos compartilhados, mas não
   publicar afirmações globais. Timestamps futuros e referências de proveniência

@@ -292,6 +292,95 @@ func TestLLMModelCapabilityAssertionsRequireVerifiedCurrentBinding(t *testing.T)
 	}
 }
 
+func TestLLMModelCatalogBindingRenewalPreservesVerifiedHistory(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	ctx := WithUserID(context.Background(), "owner-a")
+	if err := db.Create(&LLMProvider{ID: "provider-a", UserID: "owner-a", Name: "A", Type: "custom", APIFormat: "openai", BaseURL: "https://one.example/v1"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	repository := NewLLMModelCapabilitiesRepository(db)
+	model, err := repository.SaveModel(ctx, "provider-a", "remote-model", "Remote")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC().Truncate(time.Microsecond)
+	oldVerifiedAt := base.Add(-6 * time.Hour)
+	oldValidUntil := base.Add(-4 * time.Hour)
+	oldBinding := &LLMModelCatalogBinding{
+		ModelID: model.ID, ProviderCompatibilityRevision: 1, Source: string(llmcapabilities.SourceOfficialCatalog),
+		ExternalProviderID: "official-vendor", ExternalModelID: "remote-model", VerifiedAt: oldVerifiedAt, ValidUntil: &oldValidUntil,
+	}
+	if err := repository.BindCatalogModel(ctx, oldBinding); err != nil {
+		t.Fatalf("criar vínculo inicial: %v", err)
+	}
+	claim := &LLMModelCapability{
+		ModelID: model.ID, CapabilityKey: string(llmcapabilities.CapabilityReasoning), SupportState: string(llmcapabilities.Supported),
+		Source: string(llmcapabilities.SourceOfficialCatalog), Scope: string(llmcapabilities.ScopeExternalBinding),
+		ProviderCompatibilityRevision: 1, BindingID: &oldBinding.ID, ObservedAt: oldVerifiedAt.Add(time.Hour),
+	}
+	if err := repository.RecordCapability(ctx, claim); err != nil {
+		t.Fatalf("registrar fato observado durante validade inicial: %v", err)
+	}
+
+	renewedVerifiedAt := base.Add(-2 * time.Hour)
+	renewedValidUntil := base.Add(2 * time.Hour)
+	renewedBinding := &LLMModelCatalogBinding{
+		ModelID: model.ID, ProviderCompatibilityRevision: 1, Source: oldBinding.Source,
+		ExternalProviderID: oldBinding.ExternalProviderID, ExternalModelID: oldBinding.ExternalModelID,
+		VerifiedAt: renewedVerifiedAt, ValidUntil: &renewedValidUntil,
+	}
+	if err := repository.BindCatalogModel(ctx, renewedBinding); err != nil {
+		t.Fatalf("renovar vínculo: %v", err)
+	}
+	if renewedBinding.ID == oldBinding.ID {
+		t.Fatal("renovação reutilizou o ID da verificação anterior")
+	}
+	var storedOld LLMModelCatalogBinding
+	if err := db.First(&storedOld, "id = ?", oldBinding.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !storedOld.VerifiedAt.Equal(oldVerifiedAt) || !sameNullableTime(storedOld.ValidUntil, &oldValidUntil) {
+		t.Fatalf("renovação alterou a validade histórica: %+v", storedOld)
+	}
+	if err := db.Exec("UPDATE llm_model_catalog_bindings SET valid_until = ? WHERE id = ?", base.Add(3*time.Hour), oldBinding.ID).Error; err == nil {
+		t.Fatal("SQLite permitiu estender diretamente a validade de uma verificação histórica")
+	}
+	resolved, err := repository.Resolve(ctx, model.ID, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resolved.Capabilities[llmcapabilities.CapabilityReasoning]; got.State != llmcapabilities.Unknown {
+		t.Fatalf("fato da verificação expirada foi revalidado retroativamente: %+v", got)
+	}
+
+	verificationWithDifferentOffsets := &LLMModelCatalogBinding{
+		ModelID: model.ID, ProviderCompatibilityRevision: 1, Source: oldBinding.Source,
+		ExternalProviderID: oldBinding.ExternalProviderID, ExternalModelID: oldBinding.ExternalModelID,
+		VerifiedAt: renewedVerifiedAt.In(time.FixedZone("offset-plus-two", 2*60*60)),
+		ValidUntil: timePointer(renewedValidUntil.In(time.FixedZone("offset-minus-five", -5*60*60))),
+	}
+	if err := repository.BindCatalogModel(ctx, verificationWithDifferentOffsets); err != nil {
+		t.Fatalf("mesmo instante com offsets diferentes deveria ser idempotente: %v", err)
+	}
+	if verificationWithDifferentOffsets.ID != renewedBinding.ID {
+		t.Fatal("mesmo instante com offsets diferentes criou outro vínculo")
+	}
+
+	changedExpiry := base.Add(3 * time.Hour)
+	duplicateVerification := &LLMModelCatalogBinding{
+		ModelID: model.ID, ProviderCompatibilityRevision: 1, Source: oldBinding.Source,
+		ExternalProviderID: oldBinding.ExternalProviderID, ExternalModelID: oldBinding.ExternalModelID,
+		VerifiedAt: renewedVerifiedAt, ValidUntil: &changedExpiry,
+	}
+	if err := repository.BindCatalogModel(ctx, duplicateVerification); !errors.Is(err, ErrInvalidCatalogBinding) {
+		t.Fatalf("mesmo instante de verificação permitiu alterar validade: %v", err)
+	}
+}
+
+func timePointer(value time.Time) *time.Time {
+	return &value
+}
+
 func TestLLMModelCapabilityRepositoryRejectsTypedConstraintViolations(t *testing.T) {
 	db := llmModelCapabilitiesTestDB(t)
 	ctx := WithUserID(context.Background(), "owner-a")
