@@ -128,6 +128,19 @@ func (m *Manager) GetServerAuthInfo(slug string) (string, bool, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return "", false, err
 	}
+	if cfg.AuthType == AuthOAuth2PKCE && cfg.ID != "" {
+		entries, err := m.credMgr.InspectLegacyOAuth(ctx)
+		if err != nil {
+			return "", false, err
+		}
+		for _, entry := range entries {
+			if entry.Pattern == userTokensPattern(slug) || entry.Pattern == clientCredPattern(slug) {
+				// Even an interrupted/unreadable grant is configuration that the
+				// user must be able to explicitly remove. Never resolve its source.
+				return string(cfg.AuthType), true, nil
+			}
+		}
+	}
 
 	clientAuth, _ := m.credMgr.GetConfigByPatternWithContext(ctx, clientCredPattern(slug))
 	if clientAuth != nil && clientAuth.Source != "" {

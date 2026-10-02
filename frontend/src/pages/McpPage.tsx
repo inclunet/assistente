@@ -479,6 +479,11 @@ export default function McpPage() {
 
     setSaving(true);
     try {
+      // Clear an inactive legacy OAuth operation while its original consumer
+      // still exists; saving auth_type=none first is blocked by that operation.
+      if (isHTTP && formAuthType === 'none' && hasExistingAuth) {
+        await DeleteMCPServerAuth(slug);
+      }
       if (config.oauth_managed && formOAuth2ClientSecret.trim()) {
         await save(slug, config, formOAuth2ClientSecret.trim());
       } else {
@@ -509,8 +514,6 @@ export default function McpPage() {
             );
           }
         }
-      } else if (isHTTP && formAuthType === 'none' && hasExistingAuth) {
-        await DeleteMCPServerAuth(slug);
       }
 
       addToast(isNew ? t('mcp.toast.created') : t('mcp.toast.updated'), 'success', undefined, undefined, {

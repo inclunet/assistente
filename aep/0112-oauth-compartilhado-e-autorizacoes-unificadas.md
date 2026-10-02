@@ -909,6 +909,16 @@ Evidências: `TestLegacyRefreshCoordinatesProcessesAndEdits`,
 `TestLegacyOAuthExpiredCrashMarkerSurvivesRestart` e
 `TestLegacyOAuthSessionAndFailedDeletionPreserveVault`.
 
+A resolução de tokens no mesmo transport mantém a trava local durante a leitura
+da configuração, impedindo corrida com discovery/DCR. Discovery pode resolver o
+endpoint de refresh ausente após reinício sem alterar a identidade persistida.
+A consulta de autenticação reconhece tokens de clientes públicos sem segredo;
+ao escolher `none`, a tela remove primeiro a credencial do consumidor original,
+incluindo pendência inativa, e só salva a configuração após essa remoção.
+Evidências: `TestLegacyTransportSerializesTokenResolutionWithConfiguration`,
+`TestLegacyRestartDiscoversRefreshEndpoint`,
+`TestLegacyPublicClientAuthInfoAndPendingRemoval` e `McpPage.test.tsx`.
+
 Limite: executáveis antigos não conhecem este controle e não participam da
 coordenação. Não se deve compartilhar o banco com versões anteriores durante
 operações OAuth. O controle não é um backup exportável nem comprova validade

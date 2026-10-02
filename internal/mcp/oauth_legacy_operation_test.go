@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -22,6 +23,154 @@ import (
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 )
+
+type pausedLegacySource struct {
+	inner   oauth2.TokenSource
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *pausedLegacySource) Token() (*oauth2.Token, error) {
+	close(s.entered)
+	<-s.release
+	return s.inner.Token()
+}
+
+func TestLegacyTransportSerializesTokenResolutionWithConfiguration(t *testing.T) {
+	for _, cached := range []bool{false, true} {
+		t.Run(map[bool]string{false: "request", true: "cached"}[cached], func(t *testing.T) {
+			a, _, ctx, cfg := legacyWALManagers(t, "https://example.com")
+			if err := a.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "valid", ExpiresAt: time.Now().Add(time.Hour).Unix()}); err != nil {
+				t.Fatal(err)
+			}
+			rt := a.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
+			paused := &pausedLegacySource{inner: rt.tokenSource, entered: make(chan struct{}), release: make(chan struct{})}
+			rt.tokenSource = paused
+			rt.base = managedTestRoundTrip(func(req *http.Request) (*http.Response, error) {
+				if req.Header.Get("Authorization") != "Bearer valid" {
+					return nil, errors.New("missing token")
+				}
+				return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
+			})
+			done := make(chan error, 1)
+			go func() {
+				if cached {
+					if rt.cachedAccessToken() != "valid" {
+						done <- errors.New("missing cached token")
+						return
+					}
+					done <- nil
+					return
+				}
+				req, _ := http.NewRequestWithContext(ctx, http.MethodGet, cfg.URL, nil)
+				resp, err := rt.RoundTrip(req)
+				if resp != nil {
+					_ = resp.Body.Close()
+				}
+				done <- err
+			}()
+			<-paused.entered
+			// Discovery/DCR uses this same lock to mutate the shared consumer.
+			// The old implementation released it before calling Token.
+			locked := !rt.mu.TryLock()
+			if !locked {
+				rt.mu.Unlock()
+			}
+			close(paused.release)
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+			if !locked {
+				t.Fatal("configuration could change while resolving the authoritative token")
+			}
+		})
+	}
+}
+
+func TestLegacyRestartDiscoversRefreshEndpoint(t *testing.T) {
+	var endpoint, resource string
+	var refreshed, prompts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/.well-known/oauth-protected-resource":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resource": resource + "/mcp", "authorization_servers": []string{endpoint}})
+		case "/.well-known/oauth-authorization-server":
+			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": endpoint, "authorization_endpoint": endpoint + "/authorize", "token_endpoint": endpoint + "/token"})
+		case "/token":
+			refreshed.Add(1)
+			_, _ = io.WriteString(w, `{"access_token":"fresh","refresh_token":"rotated","expires_in":3600,"token_type":"Bearer"}`)
+		case "/mcp":
+			if r.Header.Get("Authorization") != "Bearer fresh" {
+				w.WriteHeader(http.StatusUnauthorized)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	endpoint = server.URL
+	source := httptest.NewServer(server.Config.Handler)
+	defer source.Close()
+	resource = source.URL
+	a, b, ctx, cfg := legacyWALManagers(t, resource)
+	b.SetOAuthNetworkAuthorizer(func(_ context.Context, destination oauthflow.NetworkDestination) ([]net.IP, bool, error) {
+		prompts.Add(1)
+		return destination.IPs, true, nil
+	})
+	cfg.OAuth2TokenURL = ""
+	if err := a.SaveConfig("legacy", cfg); err != nil {
+		t.Fatal(err)
+	}
+	rt := b.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
+	for i := int32(1); i <= 2; i++ {
+		if i > 1 {
+			if err := a.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "expired", RefreshURL: "rotated", ExpiresAt: time.Now().Add(-time.Hour).Unix()}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, cfg.URL, nil)
+		resp, err := rt.RoundTrip(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != 200 || refreshed.Load() != i || prompts.Load() != i {
+			t.Fatalf("status=%d refreshes=%d approvals=%d (want %d)", resp.StatusCode, refreshed.Load(), prompts.Load(), i)
+		}
+	}
+}
+
+func TestLegacyPublicClientAuthInfoAndPendingRemoval(t *testing.T) {
+	a, b, ctx, cfg := legacyWALManagers(t, "https://example.com")
+	if err := a.credMgr.DeletePattern(ctx, clientCredPattern("legacy")); err != nil {
+		t.Fatal(err)
+	}
+	if typ, has, err := b.GetServerAuthInfo("legacy"); err != nil || !has || typ != string(AuthOAuth2PKCE) {
+		t.Fatalf("public client auth: %s %v %v", typ, has, err)
+	}
+	op, _, err := a.credMgr.BeginLegacyOAuth(ctx, "legacy", cfg.ID, false, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.DeleteServerAuth("legacy"); !errors.Is(err, oauthflow.ErrTransient) {
+		t.Fatalf("live operation removal: %v", err)
+	}
+	op.End()
+	if _, has, err := b.GetServerAuthInfo("legacy"); err != nil || !has {
+		t.Fatalf("pending grant hidden: %v %v", has, err)
+	}
+	if err := b.DeleteServerAuth("legacy"); err != nil {
+		t.Fatal(err)
+	}
+	cfg.AuthType = AuthNone
+	if err := b.SaveConfig("legacy", cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, has, err := b.GetServerAuthInfo("legacy"); err != nil || has {
+		t.Fatalf("removed grant still present: %v %v", has, err)
+	}
+}
 
 func legacyWALManagers(t *testing.T, endpoint string) (*Manager, *Manager, context.Context, ServerConfig) {
 	t.Helper()

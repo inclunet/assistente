@@ -654,3 +654,10 @@ para o formato unificado.
 Ao registrar um cliente automaticamente, os dados do cliente e a configuração
 de callback são salvos juntos. Uma falha de gravação preserva o estado local
 anterior; após resolver o acesso ao cofre, tente conectar novamente.
+
+Clientes públicos configurados manualmente também aparecem como autenticados
+quando possuem tokens, mesmo sem segredo de cliente. Para descartar uma
+autorização pendente, escolha autenticação **Nenhuma** e salve: primeiro são
+removidas as credenciais; se houver uma tentativa ativa, a configuração é
+preservada e a remoção deve ser tentada depois. Cadastros que dependem de
+discovery continuam descobrindo o endpoint de renovação após reiniciar.

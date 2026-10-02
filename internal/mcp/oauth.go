@@ -362,17 +362,26 @@ func (rt *pkceRoundTripper) effectiveScopes() []string {
 // e, depois, detectar se outro flow o substituiu. Adquire rt.mu internamente, logo
 // NÃO deve ser chamado com rt.mu já retido.
 func (rt *pkceRoundTripper) cachedAccessToken() string {
-	rt.mu.Lock()
-	ts := rt.tokenSource
-	rt.mu.Unlock()
-	if ts == nil {
-		return ""
-	}
-	tok, err := ts.Token()
+	tok, _, err := rt.currentToken()
 	if err != nil || tok == nil {
 		return ""
 	}
 	return tok.AccessToken
+}
+
+// currentToken serializes source selection and resolution with discovery/DCR.
+// Callers already holding rt.mu must use tokenSource.Token directly.
+func (rt *pkceRoundTripper) currentToken() (*oauth2.Token, bool, error) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.networkDenied != nil {
+		return nil, true, rt.networkDenied
+	}
+	if rt.tokenSource == nil {
+		return nil, false, nil
+	}
+	token, err := rt.tokenSource.Token()
+	return token, true, err
 }
 
 func containsFold(list []string, target string) bool {
@@ -404,20 +413,13 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 		sent = true
 		return rt.base.RoundTrip(cloned)
 	}
-	rt.mu.Lock()
-	ts := rt.tokenSource
-	denied := rt.networkDenied
-	rt.mu.Unlock()
-	if denied != nil {
-		return nil, denied
+	token, hasSource, tokenErr := rt.currentToken()
+	if terminalOAuthNetworkError(req.Context(), tokenErr) {
+		return nil, tokenErr
 	}
 
-	if ts != nil {
-		token, err := ts.Token()
-		if terminalOAuthNetworkError(req.Context(), err) {
-			return nil, err
-		}
-		if err == nil {
+	if hasSource {
+		if tokenErr == nil {
 			resp, err := send(token)
 			if err != nil {
 				return nil, err
@@ -444,11 +446,9 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 				return nil, silentErr
 			}
 			if silentErr == nil {
-				rt.mu.Lock()
-				ts = rt.tokenSource
-				rt.mu.Unlock()
-				if ts != nil {
-					if newToken, err := ts.Token(); err == nil {
+				newToken, hasSource, err := rt.currentToken()
+				if hasSource {
+					if err == nil {
 						resp, err := send(newToken)
 						if err != nil {
 							return nil, err
@@ -489,15 +489,11 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 		return nil, fmt.Errorf("oauth2 pkce authorization failed: %w", err)
 	}
 
-	rt.mu.Lock()
-	ts = rt.tokenSource
-	rt.mu.Unlock()
-
-	if ts == nil {
+	token, hasSource, err = rt.currentToken()
+	if !hasSource {
 		return nil, fmt.Errorf("no token after authorization")
 	}
 
-	token, err := ts.Token()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get token after authorization: %w", err)
 	}

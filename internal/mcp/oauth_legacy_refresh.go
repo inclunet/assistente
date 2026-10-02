@@ -113,7 +113,22 @@ func (rt *pkceRoundTripper) resolveLegacyTokenWithValidity(ctx context.Context, 
 	if valid(token) && !force {
 		return token, nil
 	}
-	ctx, err = oauthflow.PreflightOAuthEndpoint(ctx, rt.cfg.URL, cfg.Endpoint.TokenURL, rt.networkAuthorizer)
+	// A persisted public/manual client may rely entirely on discovery after a
+	// restart. Resolve the endpoint before the short refresh lease, without
+	// mutating the consumer configuration used by the transaction validator.
+	currentConfig := *cfg
+	ctx = oauthflow.WithNetworkOperation(ctx)
+	if currentConfig.Endpoint.TokenURL == "" {
+		if rt.networkAuthorizer != nil {
+			ctx = oauthflow.WithNetworkAuthorizer(ctx, rt.networkAuthorizer)
+		}
+		discovery, discoveryErr := discoverOAuthEndpoints(ctx, rt.cfg.URL)
+		if discoveryErr != nil {
+			return nil, discoveryErr
+		}
+		currentConfig.Endpoint.TokenURL = discovery.TokenEndpoint
+	}
+	ctx, err = oauthflow.PreflightOAuthEndpoint(ctx, rt.cfg.URL, currentConfig.Endpoint.TokenURL, rt.networkAuthorizer)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +151,6 @@ func (rt *pkceRoundTripper) resolveLegacyTokenWithValidity(ctx context.Context, 
 	client := rt.oauthHTTPClient(15 * time.Second)
 	client.Transport = &singleRefreshTransport{base: client.Transport}
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, client)
-	currentConfig := *cfg
 	if latest.ClientID != "" {
 		currentConfig.ClientID = latest.ClientID
 	}
