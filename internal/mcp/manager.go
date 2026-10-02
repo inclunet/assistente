@@ -1516,6 +1516,9 @@ func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
 	if cfg.OAuthManaged || cfg.OAuthAuthorizationID != "" {
 		return m.saveManagedOAuth(slug, cfg, nil)
 	}
+	if existing != nil && existing.AuthType == AuthOAuth2PKCE && cfg.AuthType == AuthNone {
+		return m.detachLegacyOAuth(ctx, *existing, cfg)
+	}
 	if err := repo.SaveServer(ctx, &cfg); err != nil {
 		return fmt.Errorf("erro ao salvar config: %w", err)
 	}

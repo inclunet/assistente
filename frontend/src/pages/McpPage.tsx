@@ -143,6 +143,7 @@ export default function McpPage() {
 
   // Auth fields (armazenados no credential manager, não no config JSON)
   const [formAuthType, setFormAuthType] = useState('none');
+  const [loadedAuthType, setLoadedAuthType] = useState('none');
   const [formAuthToken, setFormAuthToken] = useState('');
   const [formAuthUsername, setFormAuthUsername] = useState('');
   const [formAuthPassword, setFormAuthPassword] = useState('');
@@ -216,6 +217,7 @@ export default function McpPage() {
     setFormAuthUsername('');
     setFormAuthPassword('');
     setFormAuthType(config?.auth_type || 'none');
+    setLoadedAuthType(config?.auth_type || 'none');
     setHasExistingAuth(false);
 
     setFormOAuthManaged(config?.oauth_managed ?? false);
@@ -479,11 +481,6 @@ export default function McpPage() {
 
     setSaving(true);
     try {
-      // Clear an inactive legacy OAuth operation while its original consumer
-      // still exists; saving auth_type=none first is blocked by that operation.
-      if (isHTTP && formAuthType === 'none' && hasExistingAuth) {
-        await DeleteMCPServerAuth(slug);
-      }
       if (config.oauth_managed && formOAuth2ClientSecret.trim()) {
         await save(slug, config, formOAuth2ClientSecret.trim());
       } else {
@@ -514,6 +511,9 @@ export default function McpPage() {
             );
           }
         }
+      } else if (isHTTP && formAuthType === 'none' && hasExistingAuth && loadedAuthType !== 'oauth2_pkce' && !formOAuthManaged) {
+        // PKCE and managed OAuth detach atomically in SaveConfig.
+        await DeleteMCPServerAuth(slug);
       }
 
       addToast(isNew ? t('mcp.toast.created') : t('mcp.toast.updated'), 'success', undefined, undefined, {
@@ -526,7 +526,7 @@ export default function McpPage() {
     } finally {
       setSaving(false);
     }
-  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuthManaged, formOAuthDeviceUrl, formOAuthTokenAuthMethod, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, manualRegistrationUrl, loadedResourceUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
+  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, loadedAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuthManaged, formOAuthDeviceUrl, formOAuthTokenAuthMethod, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, manualRegistrationUrl, loadedResourceUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
 
   const handleDelete = useCallback(async (slug: string, name: string) => {
     const shouldDelete = await confirm({

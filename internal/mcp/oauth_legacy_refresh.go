@@ -174,6 +174,10 @@ func (rt *pkceRoundTripper) resolveLegacyTokenWithValidity(ctx context.Context, 
 }
 
 func (rt *pkceRoundTripper) validateLegacyConsumer(tx *gorm.DB) error {
+	expected := rt.legacyConfig
+	if expected.ID == "" {
+		expected = rt.cfg
+	}
 	var row database.MCPServer
 	if err := tx.Where("id = ? AND user_id = ?", rt.cfg.ID, rt.cfg.UserID).First(&row).Error; err != nil {
 		return oauthflow.ErrConflict
@@ -183,8 +187,8 @@ func (rt *pkceRoundTripper) validateLegacyConsumer(tx *gorm.DB) error {
 		return oauthflow.ErrConflict
 	}
 	// Polling may be a local probe adaptation; OAuth identity/configuration is not.
-	actual.DisableSSE = rt.cfg.DisableSSE
-	if !reflect.DeepEqual(persistedLegacyConfig(actual), persistedLegacyConfig(rt.cfg)) {
+	actual.DisableSSE = expected.DisableSSE
+	if !reflect.DeepEqual(persistedLegacyConfig(actual), persistedLegacyConfig(expected)) {
 		return oauthflow.ErrConflict
 	}
 	return nil

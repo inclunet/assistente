@@ -172,6 +172,128 @@ func TestLegacyPublicClientAuthInfoAndPendingRemoval(t *testing.T) {
 	}
 }
 
+func TestLegacyDetachRollsBackCredentialsWithConfig(t *testing.T) {
+	a, _, ctx, cfg := legacyWALManagers(t, "https://example.com")
+	op, _, err := a.credMgr.BeginLegacyOAuth(ctx, "legacy", cfg.ID, false, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op.End()
+	db := a.repository().(*DBRepository).db
+	if err := db.Callback().Update().Before("gorm:update").Register("reject_detach_config", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*database.MCPServer); ok {
+			_ = tx.AddError(errors.New("simulated config failure"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Update().Remove("reject_detach_config") })
+	none := cfg
+	none.AuthType = AuthNone
+	if err := a.SaveConfig("legacy", none); err == nil {
+		t.Fatal("expected save failure")
+	}
+	if _, has, err := a.GetServerAuthInfo("legacy"); err != nil || !has {
+		t.Fatalf("failed save removed grant: %v %v", has, err)
+	}
+	if _, err := a.credMgr.ReadLegacyOAuthToken(ctx, "legacy", cfg.ID, nil); !errors.Is(err, oauthflow.ErrReauthorize) {
+		t.Fatalf("pending marker changed: %v", err)
+	}
+	stored, err := a.GetConfig("legacy")
+	if err != nil || stored.AuthType != AuthOAuth2PKCE {
+		t.Fatalf("configuration changed: %v", err)
+	}
+	if err := db.Callback().Update().Remove("reject_detach_config"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SaveConfig("legacy", none); err != nil {
+		t.Fatal(err)
+	}
+	if _, has, err := a.GetServerAuthInfo("legacy"); err != nil || has {
+		t.Fatalf("successful detach retained grant: %v %v", has, err)
+	}
+	stored, err = a.repository().GetServer(ctx, "legacy")
+	if err != nil || stored.AuthType != AuthNone {
+		t.Fatalf("none not committed: %v", err)
+	}
+}
+
+func TestLegacyManualDiscoveryKeepsPersistedIdentity(t *testing.T) {
+	var endpoint string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resource": endpoint + "/mcp", "authorization_servers": []string{endpoint}})
+		case "/.well-known/oauth-authorization-server":
+			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": endpoint, "authorization_endpoint": endpoint + "/authorize", "token_endpoint": endpoint + "/token", "device_authorization_endpoint": endpoint + "/device"})
+		case "/device":
+			_ = json.NewEncoder(w).Encode(map[string]any{"device_code": "code", "user_code": "user", "verification_uri": endpoint + "/verify", "expires_in": 60, "interval": 1})
+		case "/token":
+			_, _ = io.WriteString(w, `{"access_token":"authorized","refresh_token":"fresh-refresh","expires_in":3600,"token_type":"Bearer"}`)
+		case "/authorize", "/verify", "/mcp":
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	endpoint = server.URL
+	a, _, ctx, cfg := legacyWALManagers(t, endpoint)
+	cfg.OAuth2TokenURL = ""
+	cfg.OAuth2AuthURL = ""
+	cfg.OAuth2DeviceAuthURL = ""
+	cfg.OAuth2RegistrationURL = ""
+	if err := a.SaveConfig("legacy", cfg); err != nil {
+		t.Fatal(err)
+	}
+	previousBrowser := browserOpen
+	browserOpen = func(string) error { return nil }
+	defer func() { browserOpen = previousBrowser }()
+	rt := a.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
+	rt.explicitAuthorization = true
+	if err := rt.authorize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if rt.cfg.OAuth2TokenURL == "" {
+		t.Fatal("discovery did not enrich runtime")
+	}
+	if tok, _, err := rt.currentToken(); err != nil || tok.AccessToken != "authorized" {
+		t.Fatalf("discovery invalidated identity: %v", err)
+	}
+	cfg.Name = "edited"
+	if err := a.SaveConfig("legacy", cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := rt.currentToken(); !errors.Is(err, oauthflow.ErrConflict) {
+		t.Fatalf("real edit not detected: %v", err)
+	}
+}
+
+func TestLegacyDetachLatePublicationPreservesNewEdit(t *testing.T) {
+	a, _, _, original := legacyWALManagers(t, "https://example.com")
+	detached := original
+	detached.AuthType = AuthNone
+	if err := a.SaveConfig("legacy", detached); err != nil {
+		t.Fatal(err)
+	}
+	newer, err := a.GetConfig("legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer.Name = "newer edit"
+	newer.URL = "https://new.example.com/mcp"
+	if err := a.SaveConfig("legacy", *newer); err != nil {
+		t.Fatal(err)
+	}
+	// Reproduce a detach callback delayed until after another SaveConfig
+	// committed and published; it must not roll the cache back.
+	a.publishLegacyDetach(original, detached)
+	actual, err := a.GetConfig("legacy")
+	if err != nil || actual.Name != newer.Name || actual.URL != newer.URL {
+		t.Fatalf("new edit lost: %v", err)
+	}
+}
+
 func legacyWALManagers(t *testing.T, endpoint string) (*Manager, *Manager, context.Context, ServerConfig) {
 	t.Helper()
 	dsn := filepath.Join(t.TempDir(), "legacy.db") + "?_pragma=busy_timeout(100)&_pragma=journal_mode(WAL)"

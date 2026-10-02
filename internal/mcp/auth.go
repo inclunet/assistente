@@ -1,11 +1,46 @@
 package mcp
 
 import (
+	"context"
 	"fmt"
+	"reflect"
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/oauthflow"
+	"gorm.io/gorm"
 )
+
+func (m *Manager) detachLegacyOAuth(ctx context.Context, original, cfg ServerConfig) error {
+	if m.credMgr == nil {
+		return oauthflow.ErrResource
+	}
+	cfg.ID, cfg.UserID, cfg.Slug = original.ID, original.UserID, original.Slug
+	clearOAuthConfiguration(&cfg)
+	err := m.credMgr.ClearLegacyOAuthWithConsumer(ctx, original.Slug, original.ID, hostnameFromURL(original.URL), func(tx *gorm.DB) error {
+		current, err := NewDBRepository(tx).GetServerByID(ctx, original.ID)
+		if err != nil || !reflect.DeepEqual(persistedLegacyConfig(*current), persistedLegacyConfig(original)) {
+			return oauthflow.ErrConflict
+		}
+		return NewDBRepository(tx).SaveServer(ctx, &cfg)
+	}, func() {
+		m.publishLegacyDetach(original, cfg)
+	})
+	if err != nil {
+		return err
+	}
+	_ = m.Disconnect(original.Slug)
+	m.emit("mcp:config_changed", map[string]string{"slug": original.Slug})
+	return nil
+}
+
+func (m *Manager) publishLegacyDetach(original, cfg ServerConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if current := m.servers[original.Slug]; current != nil && reflect.DeepEqual(persistedLegacyConfig(current.Config), persistedLegacyConfig(original)) {
+		current.Config = cfg
+	}
+}
 
 func (m *Manager) SaveServerAuth(slug, authType, token, username, password, clientSecret string) error {
 	if m.credMgr == nil {

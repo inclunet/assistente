@@ -37,6 +37,12 @@ type LegacyOAuthOperation struct {
 // ClearLegacyOAuth is explicit local disconnection. It atomically removes the
 // pair only after the live attempt ends; an uncertain inactive grant may be discarded.
 func (m *Manager) ClearLegacyOAuth(ctx context.Context, slug, consumerID, hostname string) error {
+	return m.ClearLegacyOAuthWithConsumer(ctx, slug, consumerID, hostname, nil, nil)
+}
+
+// ClearLegacyOAuthWithConsumer atomically detaches an inactive legacy grant and
+// updates its consumer. Publish runs only after commit, under the vault lock.
+func (m *Manager) ClearLegacyOAuthWithConsumer(ctx context.Context, slug, consumerID, hostname string, update func(*gorm.DB) error, publish func()) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	user, err := database.RequireUserID(ctx)
@@ -51,7 +57,7 @@ func (m *Manager) ClearLegacyOAuth(ctx context.Context, slug, consumerID, hostna
 	if hostname != "" {
 		patterns = append(patterns, hostname)
 	}
-	err = database.WithSQLiteImmediateTransaction(ctx, store.db, "credentials.legacy_oauth.clear", func(tx *gorm.DB) error {
+	err = database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, store.db, "credentials.legacy_oauth.clear", func(tx *gorm.DB) error {
 		var consumer database.MCPServer
 		if err := tx.Where("id = ? AND user_id = ? AND slug = ?", consumerID, user, slug).First(&consumer).Error; err != nil {
 			return oauthflow.ErrConflict
@@ -77,7 +83,13 @@ func (m *Manager) ClearLegacyOAuth(ctx context.Context, slug, consumerID, hostna
 				return oauthflow.ErrTransient
 			}
 		}
-		return tx.Where("user_id = ? AND pattern IN ?", user, patterns).Delete(&database.CredentialEntry{}).Error
+		if err := tx.Where("user_id = ? AND pattern IN ?", user, patterns).Delete(&database.CredentialEntry{}).Error; err != nil {
+			return err
+		}
+		if update != nil {
+			return update(tx)
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -100,6 +112,9 @@ func (m *Manager) ClearLegacyOAuth(ctx context.Context, slug, consumerID, hostna
 		}
 	}
 	m.credentials = kept
+	if publish != nil {
+		publish()
+	}
 	return nil
 }
 

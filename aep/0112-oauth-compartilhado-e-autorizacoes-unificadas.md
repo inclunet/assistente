@@ -910,14 +910,21 @@ Evidências: `TestLegacyRefreshCoordinatesProcessesAndEdits`,
 `TestLegacyOAuthSessionAndFailedDeletionPreserveVault`.
 
 A resolução de tokens no mesmo transport mantém a trava local durante a leitura
-da configuração, impedindo corrida com discovery/DCR. Discovery pode resolver o
+da configuração, impedindo corrida com discovery/DCR. A identidade concorrente
+usa a última configuração persistida, separada dos endpoints enriquecidos em
+memória; somente checkpoint DCR confirmado avança essa referência.
+Discovery pode resolver o
 endpoint de refresh ausente após reinício sem alterar a identidade persistida.
 A consulta de autenticação reconhece tokens de clientes públicos sem segredo;
-ao escolher `none`, a tela remove primeiro a credencial do consumidor original,
-incluindo pendência inativa, e só salva a configuração após essa remoção.
+ao escolher `none`, o backend remove a credencial do consumidor original,
+incluindo pendência inativa, e salva a configuração na mesma transação. Falha
+de gravação preserva ambos; publicação atrasada não substitui edição posterior.
 Evidências: `TestLegacyTransportSerializesTokenResolutionWithConfiguration`,
 `TestLegacyRestartDiscoversRefreshEndpoint`,
-`TestLegacyPublicClientAuthInfoAndPendingRemoval` e `McpPage.test.tsx`.
+`TestLegacyPublicClientAuthInfoAndPendingRemoval`,
+`TestLegacyDetachRollsBackCredentialsWithConfig`,
+`TestLegacyDetachLatePublicationPreservesNewEdit`,
+`TestLegacyManualDiscoveryKeepsPersistedIdentity` e `McpPage.test.tsx`.
 
 Limite: executáveis antigos não conhecem este controle e não participam da
 coordenação. Não se deve compartilhar o banco com versões anteriores durante

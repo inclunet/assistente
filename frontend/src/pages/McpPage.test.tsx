@@ -244,14 +244,11 @@ describe('McpPage — oauth2_callback_host', () => {
     });
   }
 
-  it.each([false, true])('remove OAuth antes de salvar none e preserva config se a remoção falha (%s)', async (fail) => {
+  it.each([false, true])('delega remoção PKCE e configuração none a uma única gravação atômica (%s)', async (fail) => {
     mockServers = [{ slug: 'legacy', name: 'Legacy', transport: 'streamable', status: 'disconnected', enabled: true }];
     mockGetConfig.mockResolvedValue({ name: 'Legacy', transport: 'streamable', url: 'https://example.com/mcp', auth_type: 'oauth2_pkce', oauth_managed: false });
     vi.mocked(GetMCPServerAuthInfo).mockResolvedValueOnce({ hasAuth: true } as Awaited<ReturnType<typeof GetMCPServerAuthInfo>>);
-    let completeRemoval: () => void = () => {};
-    vi.mocked(DeleteMCPServerAuth).mockImplementationOnce(() => new Promise<void>((resolve, reject) => {
-      completeRemoval = () => fail ? reject(new Error('oauth_transient')) : resolve();
-    }));
+    if (fail) mockSave.mockRejectedValueOnce(new Error('oauth_transient'));
     render(<McpPage />);
     const row = screen.getByText('Legacy').closest('div');
     if (!row) throw new Error('Linha ausente');
@@ -259,12 +256,10 @@ describe('McpPage — oauth2_callback_host', () => {
     await screen.findByLabelText('Auth Type');
     await userEvent.selectOptions(screen.getByLabelText('Auth Type'), 'none');
     await userEvent.click(screen.getByText('Salvar'));
-    await waitFor(() => expect(DeleteMCPServerAuth).toHaveBeenCalledWith('legacy'));
-    expect(mockSave).not.toHaveBeenCalled();
-    await act(async () => completeRemoval());
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith('legacy', expect.objectContaining({ auth_type: 'none' })));
+    expect(DeleteMCPServerAuth).not.toHaveBeenCalled();
     if (fail) {
       await waitFor(() => expect(mockToast).toHaveBeenCalled());
-      expect(mockSave).not.toHaveBeenCalled();
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     } else {
       await waitFor(() => expect(mockSave).toHaveBeenCalledWith('legacy', expect.objectContaining({ auth_type: 'none' })));

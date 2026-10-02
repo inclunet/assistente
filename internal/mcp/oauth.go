@@ -245,6 +245,7 @@ func (rt *pkceRoundTripper) fixBlockedEndpoint(ctx context.Context, rawURL strin
 // - Porta de callback fixa (oauth2_callback_port) para redirect_uri determinístico
 // - Parâmetro resource (RFC 8707)
 type pkceRoundTripper struct {
+	legacyConfig  ServerConfig // last persisted identity, separate from discovered endpoints
 	legacySession interface {
 		SessionContext(context.Context) (context.Context, context.CancelFunc)
 	}
@@ -760,6 +761,9 @@ func (rt *pkceRoundTripper) registerClient(ctx context.Context, pkce bool) error
 	if rt.configPersistenceError != nil {
 		return errOAuthPersistence
 	}
+	if rt.coordinatedLegacy() && (rt.persistRegistration != nil || rt.onConfigUpdate != nil) {
+		rt.legacyConfig = persistedLegacyConfig(rt.cfg)
+	}
 	logging.Infof(ctx, "mcp.oauth", "client_registration_completed server=%s pkce=%t", rt.serverSlug, pkce)
 	return nil
 }
@@ -1172,6 +1176,7 @@ func generateState() string {
 // (ex: porta após DCR).
 func buildPKCERoundTripper(cfg ServerConfig, credMgr *credentials.Manager, emitEvent emitFunc, slug string, onConfigUpdate func(ServerConfig), authCtxProvider func() context.Context, networkAuthorizer oauthflow.NetworkAuthorizer, lifetimeCtx context.Context) *pkceRoundTripper {
 	rt := &pkceRoundTripper{
+		legacyConfig:      persistedLegacyConfig(cfg),
 		base:              oauthflow.NewResourceTransport(cfg.URL, networkAuthorizer),
 		credMgr:           credMgr,
 		cfg:               cfg,
