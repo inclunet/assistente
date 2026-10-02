@@ -666,6 +666,10 @@ A ação **Remover** também pode descartar um servidor com renovação pendente
 inativa: servidor e credenciais PKCE são removidos juntos. Uma tentativa ainda
 ativa impede essa exclusão até terminar.
 
+Salvar autenticação **Nenhuma** em um servidor remoto também remove as
+credenciais locais de forma atômica para Bearer, Basic e Client Credentials.
+O backend considera o cadastro atual, inclusive se outra instância mudou o tipo
+desde a abertura do editor; uma falha preserva configuração e credenciais.
 ### Recuperar configuração OAuth antiga
 
 Em **Servidores MCP → Diagnóstico OAuth → Snapshots OAuth**, selecione um

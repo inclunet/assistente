@@ -30,6 +30,47 @@ type pausedLegacySource struct {
 	release chan struct{}
 }
 
+func TestLegacyNoneSaveClearsAuthoritativeAuthType(t *testing.T) {
+	for _, kind := range []AuthType{AuthBearer, AuthBasic, AuthOAuth2ClientCredentials, AuthNone} {
+		t.Run(string(kind), func(t *testing.T) {
+			a, b, ctx, cfg := legacyWALManagers(t, "https://old.example")
+			latest := cfg
+			latest.AuthType = kind
+			latest.URL = "https://current.example/mcp"
+			if err := b.SaveConfig("legacy", latest); err != nil {
+				t.Fatal(err)
+			}
+			if err := b.credMgr.RegisterPatternWithContext(ctx, "current.example", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "current"}); err != nil {
+				t.Fatal(err)
+			}
+			db := b.repository().(*DBRepository).db
+			writerDB := a.repository().(*DBRepository).db
+			if err := writerDB.Callback().Update().Before("gorm:update").Register("reject_none_save", func(tx *gorm.DB) { _ = tx.AddError(errors.New("failed save")) }); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = writerDB.Callback().Update().Remove("reject_none_save") })
+			none := cfg
+			none.AuthType = AuthNone
+			if err := a.SaveConfig("legacy", none); err == nil {
+				t.Fatal("expected atomic rollback")
+			}
+			var count int64
+			if err := db.Model(&database.CredentialEntry{}).Where("pattern = ?", "current.example").Count(&count).Error; err != nil || count != 1 {
+				t.Fatal("rollback lost current host", err)
+			}
+			if err := writerDB.Callback().Update().Remove("reject_none_save"); err != nil {
+				t.Fatal(err)
+			}
+			if err := a.SaveConfig("legacy", none); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern IN ?", cfg.UserID, []string{clientCredPattern("legacy"), userTokensPattern("legacy"), "current.example"}).Count(&count).Error; err != nil || count != 0 {
+				t.Fatalf("current credentials retained: %d %v", count, err)
+			}
+		})
+	}
+}
+
 func TestLegacyAuthMetadataDoesNotReuseRemovedCache(t *testing.T) {
 	a, b, ctx, cfg := legacyWALManagers(t, "https://metadata.example")
 	if err := a.SaveServerAuth("legacy", "oauth2_pkce", "", "", "", "secret"); err != nil {

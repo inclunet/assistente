@@ -40,7 +40,7 @@ func (m *Manager) ClearLegacyOAuth(ctx context.Context, slug, consumerID, hostna
 	return m.ClearLegacyOAuthWithConsumer(ctx, slug, consumerID, hostname, nil, nil)
 }
 
-// ClearLegacyOAuthWithConsumer atomically detaches an inactive legacy grant and
+// ClearLegacyOAuthWithConsumer atomically detaches unmanaged MCP credentials and
 // updates its consumer. Publish runs only after commit, under the vault lock.
 func (m *Manager) ClearLegacyOAuthWithConsumer(ctx context.Context, slug, consumerID, hostname string, update func(*gorm.DB) error, publish func()) error {
 	m.mu.Lock()
@@ -62,7 +62,7 @@ func (m *Manager) ClearLegacyOAuthWithConsumer(ctx context.Context, slug, consum
 		if err := tx.Where("id = ? AND user_id = ? AND slug = ?", consumerID, user, slug).First(&consumer).Error; err != nil {
 			return oauthflow.ErrConflict
 		}
-		if consumer.OAuthManaged || consumer.OAuthAuthorizationID != "" || consumer.AuthType != "oauth2_pkce" {
+		if consumer.OAuthManaged || consumer.OAuthAuthorizationID != "" {
 			return oauthflow.ErrConflict
 		}
 		var row database.CredentialEntry
