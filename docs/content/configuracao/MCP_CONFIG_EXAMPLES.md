@@ -729,3 +729,26 @@ automaticamente. **Descartar snapshot** pede confirmação de que a janela de
 rollback terminou e a recuperação ou migração foi validada; pode remover a última
 cópia e não pode ser desfeito. A exclusão não garante apagamento físico em SSD.
 Esta entrega ainda não converte os cadastros antigos para autorização unificada.
+
+### Client Credentials legado em múltiplas instâncias
+
+Cadastros Client Credentials antigos e persistidos também coordenam a obtenção
+de tokens entre instâncias atualizadas. Durante uma emissão, alterações do
+cliente, exclusão da autenticação e criação de snapshot são recusadas; aguarde
+terminar e repita a ação. O token continua em cache no transporte, mas cada uso
+confere o cadastro atual. Um token em memória não mantém acesso após a exclusão
+do cliente ou mudança do servidor para uma autorização composta.
+
+Falhas de emissão podem ser tentadas novamente com **Conectar**. Esse fluxo não
+precisa de login interativo nem utiliza refresh token. Se houver dados de PKCE
+misturados no cadastro, a operação é recusada para investigação, preservando os
+dados. Não compartilhe o banco com versões antigas durante operações OAuth.
+Esta proteção ainda não converte o cadastro para uma autorização unificada.
+
+Enquanto o cadastro Client Credentials permanecer legado, as ferramentas usam o
+bridge local do Assistente. O token de um fallback por hostname não é enviado
+ao provedor LLM pelo MCP nativo. Autorizações Client Credentials compostas
+continuam disponíveis no modo nativo. A confirmação de rede, quando necessária,
+acontece antes da tentativa e não é repetida para o mesmo grant.
+Se o destino de rede mudar e exigir outra aprovação, a emissão é interrompida.
+Use **Conectar** novamente para avaliar o novo destino antes de obter o token.

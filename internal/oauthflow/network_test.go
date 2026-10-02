@@ -44,6 +44,38 @@ func TestDiscoveryCannotExpandPrivateTrust(t *testing.T) {
 	}
 }
 
+func TestClientGrantRefusesDNSChangeWithoutConsentInsideLease(t *testing.T) {
+	ctx := WithNetworkOperation(context.Background())
+	scope := ctx.Value(networkOperationKey{}).(*networkApprovals)
+	ip := "10.0.0.1"
+	policy := &discoveryNetwork{scope: scope, origin: "https://resource.example:443", ips: map[string]bool{}, trusted: map[string]map[string]bool{}, lookup: func(context.Context, string) ([]net.IPAddr, error) { return []net.IPAddr{{IP: net.ParseIP(ip)}}, nil }}
+	ctx = context.WithValue(ctx, discoveryNetworkKey{}, policy)
+	prompts := 0
+	authorize := func(_ context.Context, d NetworkDestination) ([]net.IP, bool, error) {
+		prompts++
+		return d.IPs, true, nil
+	}
+	approved, err := PreflightOAuthEndpoint(ctx, "https://resource.example", "https://token.example/token", authorize)
+	if err != nil || prompts != 1 {
+		t.Fatal("initial preflight failed", err, prompts)
+	}
+	if approved.Value(discoveryNetworkKey{}) != policy {
+		t.Fatal("preflight lost pinned policy")
+	}
+	ip = "10.0.0.2"
+	_, err = RequestClientCredentialsToken(approved, ClientCredentialsConfig{Resource: "https://resource.example", TokenEndpoint: "https://token.example/token", ClientID: "client", ClientSecret: "secret"}, authorize)
+	if !errors.Is(err, ErrNetworkAuthorization) || prompts != 1 {
+		t.Fatal("DNS change prompted or reached grant", err, prompts)
+	}
+	// Only a new preflight outside the lease may ask about the new destination.
+	if _, err := PreflightOAuthEndpoint(ctx, "https://resource.example", "https://token.example/token", authorize); err != nil || prompts != 2 {
+		t.Fatal("new preflight cannot recover", err, prompts)
+	}
+	if _, err := RequestClientCredentialsToken(context.Background(), ClientCredentialsConfig{}, authorize); !errors.Is(err, ErrNetworkAuthorization) {
+		t.Fatal("grant allowed without preflight", err)
+	}
+}
+
 func TestOAuthPreflightBoundsDNSWithoutBoundingConsent(t *testing.T) {
 	target, _ := url.Parse("https://private.example/token")
 	ctx, cancel := context.WithCancel(context.Background())

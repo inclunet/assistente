@@ -1774,6 +1774,9 @@ func (m *Manager) buildAuthHTTPClient(ctx context.Context, slug string, cfg Serv
 		return oauthflow.NewResourceHTTPClient(cfg.URL, rt)
 
 	case AuthOAuth2ClientCredentials:
+		if _, persisted := m.repository().(*DBRepository); persisted && cfg.ID != "" && cfg.UserID != "" {
+			return m.legacyClientGrantHTTPClient(ctx, cfg)
+		}
 		clientID, clientSecret := loadClientCreds(m.credentialContext(), m.credMgr, slug)
 		if cfg.OAuth2ClientID == "" {
 			cfg.OAuth2ClientID = clientID
@@ -2887,6 +2890,14 @@ func (m *Manager) resolveNativeAuthToken(ctx context.Context, c nativeMCPCandida
 		return r.Tokens.Access, true
 	}
 
+	// Legacy CC has only a transport-local token cache. Never expose the generic
+	// hostname/token-row fallback to native providers. The local bridge remains
+	// available; managed CC already resolves through the shared lifecycle above.
+	if c.authType == AuthOAuth2ClientCredentials && c.managedConfig.ID != "" && c.managedConfig.UserID != "" {
+		if _, persisted := m.repository().(*DBRepository); persisted {
+			return "", false
+		}
+	}
 	if m.credMgr == nil {
 		return "", true
 	}

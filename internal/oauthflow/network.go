@@ -54,6 +54,7 @@ func NetworkAuthorizationError(ctx context.Context) error {
 }
 
 type networkOperationKey struct{}
+type networkNoInteractionKey struct{}
 type networkApprovals struct {
 	mu       sync.Mutex
 	approved map[string]map[string]bool
@@ -202,6 +203,9 @@ func runNetworkOperation(ctx context.Context, resource string, run func(context.
 		p.mu.Unlock()
 		if pending == nil {
 			return nil
+		}
+		if frozen, _ := ctx.Value(networkNoInteractionKey{}).(bool); frozen {
+			return ErrNetworkAuthorization
 		}
 		if state == nil || state.authorize == nil || attempt == 8 {
 			return ErrNetworkAuthorization
@@ -407,13 +411,15 @@ func PreflightOAuthEndpoint(ctx context.Context, resource, endpoint string, auth
 		return ctx, err
 	}
 	var checkErr error
+	approvedCtx := ctx
 	err = runNetworkOperation(ctx, resource, func(operationCtx context.Context) {
+		approvedCtx = operationCtx
 		checkErr = operationCtx.Value(discoveryNetworkKey{}).(*discoveryNetwork).checkPreflightDestination(operationCtx, u)
 	})
 	if err != nil {
 		return ctx, err
 	}
-	return ctx, checkErr
+	return approvedCtx, checkErr
 }
 
 // NewNetworkHTTPClient applies the same consent and socket guard to subsequent

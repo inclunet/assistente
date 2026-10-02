@@ -1149,3 +1149,43 @@ a UI não oferece entradas inelegíveis. Testes de inventário/captura e seletor
 cobrem hostnames válidos e padrões com URL, caminho ou porta rejeitados.
 Conversão transacional/idempotente, fixtures de conversão, cutover e Slack
 continuam pendentes; esta entrega não conclui a fase 3.
+
+### Fase 3 — coordenação do Client Credentials legado antes da conversão
+
+Status: **In Progress**. Consumidores Client Credentials persistidos agora usam
+as mesmas barreiras duráveis do PKCE para obter tokens. A tentativa, cifrada na
+entrada de controle `mcp-tokens:<slug>`, tem prazo de 30 segundos e valida o
+consumidor e o cliente na mesma transação. Não há trava do cofre nem transação
+SQLite durante rede ou consentimento. O preflight antecede a tentativa curta e seu escopo de aprovação é preservado pelo grant de uso único, inclusive em outra origem privada.
+Se o DNS mudar para um destino que exige nova aprovação, o grant falha sem
+interação e libera a tentativa. Uma próxima tentativa explícita faz novo
+preflight fora da lease; a política e os IPs aprovados são preservados entre
+o preflight e o envio.
+
+O access token continua em memória no transporte; não foi criado outro formato
+de autorização. Cada uso adquire uma tentativa breve e relê o cliente no banco,
+recusando consumidor alterado, ownership composto, exclusão, fonte externa ou
+segredo ilegível. Mudança de ID/segredo invalida o cache local. A conclusão compara
+a tentativa e a sessão antes de liberar o token. Edição, exclusão e captura de
+snapshot recusam uma tentativa ativa também neste fluxo.
+
+Client Credentials emite um grant novo, sem reutilizar refresh token. Uma falha
+ou tentativa expirada pode ser repetida; não marca refresh pendente nem exige
+consentimento interativo. Um access token ou refresh token residual do PKCE é ambiguidade e
+continua bloqueado. Respostas de erro do provedor não são expostas pela resolução.
+Client Credentials legado persistido usa o bridge local: não pode expor ao MCP nativo o fallback genérico por hostname ou token em cache. Client Credentials composto conserva o suporte nativo pelo serviço comum. Entradas não persistidas conservam o caminho anterior. Executáveis antigos não
+participam desta coordenação e não devem compartilhar o banco durante operações.
+
+Evidências: `TestLegacyClientGrantCoordinatesProcessesAndMutations`,
+`TestLegacyClientGrantRelatesCacheToCurrentClientAndOwner`,
+`TestLegacyClientGrantSessionEndDoesNotPublishToken`,
+`TestLegacyClientGrantFailedIssuanceCanRetryWithoutLeakingBody`,
+`TestLegacyClientGrantExpiredLeaseCanRetryWithoutReauthorization` e
+`TestLegacyClientGrantAcquisitionRollsBackAndRefusesPKCEResidue`, `TestLegacyClientGrantReusesConsentBeforeLeaseAcrossOrigins`, `TestLegacyClientGrantNativeNeverUsesCachedHostnameAfterCutover` e `TestClientGrantRefusesDNSChangeWithoutConsentInsideLease`.
+
+Este incremento fecha a barreira de concorrência que faltava ao Client
+Credentials. A conversão transacional/idempotente permanece pendente, incluindo
+a resolução explícita de metadados não preservados no legado (por exemplo, o
+método Basic/Post negociado), fixtures de conversão e retirada do runtime antigo.
+Não altera registros para o formato composto automaticamente. Fase 3 e Slack
+continuam em andamento.
