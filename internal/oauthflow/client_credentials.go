@@ -22,3 +22,12 @@ func ClientCredentialsTokenSource(ctx context.Context, cfg ClientCredentialsConf
 		return cc.TokenSource(operationCtx)
 	})
 }
+
+// RequestClientCredentialsToken performs one grant within the caller's approval
+// scope. Durable consumers preflight before acquiring their short lease; creating
+// a fresh scope here would prompt again while that lease is already running.
+func RequestClientCredentialsToken(ctx context.Context, cfg ClientCredentialsConfig, authorize NetworkAuthorizer) (*oauth2.Token, error) {
+	cc := &clientcredentials.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, TokenURL: cfg.TokenEndpoint, Scopes: append([]string(nil), cfg.Scopes...)}
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, NewNetworkHTTPClient(cfg.Resource, authorize, 30*time.Second))
+	return cc.TokenSource(ctx).Token()
+}

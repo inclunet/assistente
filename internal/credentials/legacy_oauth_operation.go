@@ -32,6 +32,7 @@ type LegacyOAuthOperation struct {
 	rowID, pattern, control string
 	consumerID              string
 	until                   time.Time
+	clientGrant             bool
 }
 
 // ClearLegacyOAuth is explicit local disconnection. It atomically removes the
@@ -196,6 +197,16 @@ func (m *Manager) InspectMCPAuthPresence(ctx context.Context, slug, hostname str
 // validating the persisted consumer. No lock/transaction spans protocol I/O.
 // authorize is only supplied by an explicit user action when recovering pending refresh.
 func (m *Manager) BeginLegacyOAuth(ctx context.Context, slug, consumerID string, authorize, recoverPending bool, validate func(*gorm.DB) error) (*LegacyOAuthOperation, *AuthConfig, error) {
+	return m.beginLegacyOAuth(ctx, slug, consumerID, authorize, recoverPending, false, validate)
+}
+
+// Client Credentials obtains a new grant, never replays a rotating refresh token.
+// It shares the same durable lease and mutation barriers as legacy PKCE.
+func (m *Manager) BeginLegacyClientGrant(ctx context.Context, slug, consumerID string, validate func(*gorm.DB) error) (*LegacyOAuthOperation, *AuthConfig, error) {
+	return m.beginLegacyOAuth(ctx, slug, consumerID, false, false, true, validate)
+}
+
+func (m *Manager) beginLegacyOAuth(ctx context.Context, slug, consumerID string, authorize, recoverPending, clientGrant bool, validate func(*gorm.DB) error) (*LegacyOAuthOperation, *AuthConfig, error) {
 	base, err := m.OAuthStore(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -221,7 +232,11 @@ func (m *Manager) BeginLegacyOAuth(ctx context.Context, slug, consumerID string,
 		if err := tx.Where("id = ? AND user_id = ? AND slug = ?", consumerID, s.userID, slug).First(&consumer).Error; err != nil {
 			return oauthflow.ErrConflict
 		}
-		if consumer.OAuthManaged || consumer.OAuthAuthorizationID != "" || consumer.AuthType != "oauth2_pkce" {
+		expectedType := "oauth2_pkce"
+		if clientGrant {
+			expectedType = "oauth2_client_credentials"
+		}
+		if consumer.OAuthManaged || consumer.OAuthAuthorizationID != "" || consumer.AuthType != expectedType {
 			return oauthflow.ErrConflict
 		}
 		if validate != nil {
@@ -231,7 +246,7 @@ func (m *Manager) BeginLegacyOAuth(ctx context.Context, slug, consumerID string,
 		}
 		var row database.CredentialEntry
 		err := tx.Where("user_id = ? AND pattern = ?", s.userID, "mcp-tokens:"+slug).First(&row).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) && authorize {
+		if errors.Is(err, gorm.ErrRecordNotFound) && (authorize || clientGrant) {
 			row = database.CredentialEntry{UserID: s.userID, Pattern: "mcp-tokens:" + slug, Source: "static", AuthType: "oauth2"}
 			if err := tx.Create(&row).Error; err != nil {
 				return err
@@ -273,7 +288,7 @@ func (m *Manager) BeginLegacyOAuth(ctx context.Context, slug, consumerID string,
 				return oauthflow.ErrConflict
 			}
 		}
-		if !authorize && auth.RefreshURL == "" {
+		if !authorize && !clientGrant && auth.RefreshURL == "" {
 			return oauthflow.ErrReauthorize
 		}
 		var client database.CredentialEntry
@@ -283,7 +298,7 @@ func (m *Manager) BeginLegacyOAuth(ctx context.Context, slug, consumerID string,
 		}
 		if clientErr == nil {
 			auth.ClientGrantType = client.ClientGrantType
-			if client.Source != "" && client.Source != "static" {
+			if client.Source != "" && client.Source != "static" || clientGrant && (client.AuthType != "oauth2" || client.SourceConfigEnc != "" || client.OAuthEnc != "") {
 				return oauthflow.ErrConflict
 			}
 			if client.ClientIDEnc != "" {
@@ -299,6 +314,9 @@ func (m *Manager) BeginLegacyOAuth(ctx context.Context, slug, consumerID string,
 				}
 			}
 		}
+		if clientGrant && (clientErr != nil || auth.ClientSecret == "" || auth.RefreshURL != "") {
+			return oauthflow.ErrConflict
+		}
 		var nonce [24]byte
 		if _, err := rand.Read(nonce[:]); err != nil {
 			return err
@@ -307,7 +325,7 @@ func (m *Manager) BeginLegacyOAuth(ctx context.Context, slug, consumerID string,
 		if authorize {
 			duration = 10 * time.Minute
 		}
-		control := legacyOAuthControl{Version: 1, ConsumerID: consumerID, Attempt: hex.EncodeToString(nonce[:]), Until: time.Now().Add(duration), Pending: pending || !authorize}
+		control := legacyOAuthControl{Version: 1, ConsumerID: consumerID, Attempt: hex.EncodeToString(nonce[:]), Until: time.Now().Add(duration), Pending: pending || (!authorize && !clientGrant)}
 		data, err := json.Marshal(control)
 		if err != nil {
 			return err
@@ -319,13 +337,44 @@ func (m *Manager) BeginLegacyOAuth(ctx context.Context, slug, consumerID string,
 		if err := tx.Model(&row).Update("legacy_oauth_control_enc", enc).Error; err != nil {
 			return err
 		}
-		operation = &LegacyOAuthOperation{store: s, rowID: row.ID, pattern: row.Pattern, control: enc, consumerID: consumerID, until: control.Until}
+		operation = &LegacyOAuthOperation{store: s, rowID: row.ID, pattern: row.Pattern, control: enc, consumerID: consumerID, until: control.Until, clientGrant: clientGrant}
 		return nil
 	})
 	return operation, auth, err
 }
 
 func (o *LegacyOAuthOperation) Deadline() time.Time { return o.until }
+
+// FinishClientGrant checks ownership and releases this non-rotating operation.
+// Access tokens stay in the transport cache, never in a new persistence format.
+func (o *LegacyOAuthOperation) FinishClientGrant(ctx context.Context) error {
+	s, m := o.store, o.store.manager
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !o.clientGrant || !time.Now().Before(o.until) {
+		return oauthflow.ErrConflict
+	}
+	if err := s.check(ctx); err != nil {
+		return err
+	}
+	return database.WithSQLiteImmediateTransactionOnce(ctx, o.until, m.store.(*DBStore).db, "credentials.legacy_oauth.client_grant_finish", func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&database.MCPServer{}).Where("id = ? AND user_id = ? AND auth_type = ? AND oauth_managed = ? AND oauth_authorization_id = ''", o.consumerID, s.userID, "oauth2_client_credentials", false).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 1 {
+			return oauthflow.ErrConflict
+		}
+		result := tx.Model(&database.CredentialEntry{}).Where("id = ? AND user_id = ? AND legacy_oauth_control_enc = ?", o.rowID, s.userID, o.control).Update("legacy_oauth_control_enc", "")
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return oauthflow.ErrConflict
+		}
+		return nil
+	})
+}
 
 func (o *LegacyOAuthOperation) SessionContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return o.store.SessionContext(ctx)
@@ -344,6 +393,9 @@ func (o *LegacyOAuthOperation) MatchesStore(store oauthflow.Store) bool {
 // SaveClientWithConsumer commits DCR client and callback metadata together.
 // Callbacks must remain local and must not reenter the credential manager.
 func (o *LegacyOAuthOperation) SaveClientWithConsumer(ctx context.Context, auth *AuthConfig, update func(*gorm.DB) error, publish func()) error {
+	if o.clientGrant {
+		return oauthflow.ErrConflict
+	}
 	s, m := o.store, o.store.manager
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -589,6 +641,9 @@ func (m *Manager) readLegacyHostnameToken(ctx context.Context, slug, hostname st
 
 // Commit publishes the complete rotated pair and clears pending in one commit.
 func (o *LegacyOAuthOperation) Commit(ctx context.Context, auth *AuthConfig) error {
+	if o.clientGrant {
+		return oauthflow.ErrConflict
+	}
 	s, m := o.store, o.store.manager
 	m.mu.Lock()
 	defer m.mu.Unlock()
