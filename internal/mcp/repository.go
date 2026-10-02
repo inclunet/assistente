@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/oauthflow"
 	"assistente/internal/toolcatalog"
 
 	"gorm.io/gorm"
@@ -100,6 +101,12 @@ func (r *DBRepository) GetServerByID(ctx context.Context, id string) (*ServerCon
 }
 
 func (r *DBRepository) SaveServer(ctx context.Context, cfg *ServerConfig) error {
+	return r.saveServer(ctx, cfg, false)
+}
+
+// allowManagedDetach is reserved for the shared store's atomic detach callback.
+// A stale legacy configuration callback cannot transfer ownership backwards.
+func (r *DBRepository) saveServer(ctx context.Context, cfg *ServerConfig, allowManagedDetach bool) error {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -127,7 +134,7 @@ func (r *DBRepository) SaveServer(ctx context.Context, cfg *ServerConfig) error 
 			if row.ID == "" {
 				row.ID = cfg.ID
 			}
-			if err := tx.Create(&row).Error; err != nil {
+			if err := createServerPreservingFlags(tx, &row); err != nil {
 				return err
 			}
 			cfg.ID = row.ID
@@ -135,6 +142,10 @@ func (r *DBRepository) SaveServer(ctx context.Context, cfg *ServerConfig) error 
 		case err != nil:
 			return err
 		default:
+			if !allowManagedDetach && (existing.OAuthManaged || existing.OAuthAuthorizationID != "") &&
+				(!row.OAuthManaged || row.OAuthAuthorizationID != existing.OAuthAuthorizationID) {
+				return oauthflow.ErrConflict
+			}
 			row.ID = existing.ID
 			row.CreatedAt = existing.CreatedAt
 			if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
@@ -144,6 +155,22 @@ func (r *DBRepository) SaveServer(ctx context.Context, cfg *ServerConfig) error 
 			return nil
 		}
 	})
+}
+
+// The caller supplies the transaction so both legacy and managed creation
+// preserve explicit false choices atomically with their other writes.
+func createServerPreservingFlags(tx *gorm.DB, row *database.MCPServer) error {
+	enabled, autoConnect := row.Enabled, row.AutoConnect
+	if err := tx.Create(row).Error; err != nil {
+		return err
+	}
+	if err := tx.Model(row).Updates(map[string]interface{}{
+		"enabled": enabled, "auto_connect": autoConnect,
+	}).Error; err != nil {
+		return err
+	}
+	row.Enabled, row.AutoConnect = enabled, autoConnect
+	return nil
 }
 
 func (r *DBRepository) DeleteServer(ctx context.Context, slug string) error {

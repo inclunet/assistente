@@ -274,8 +274,9 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    PKCE/OIDC, callback, extensão de registro ChatGPT, refresh coordenado, UI de conexão,
    catálogo, Responses e ferramentas locais. Se dividida em PRs, infraestrutura e
    integração formam uma entrega funcional conjunta, sem anunciar suporte antes disso.
-   **Implementação e testes automatizados entregues; aceite funcional pendente** de
-   consentimento com conta real, reconexão, catálogo e envio de mensagem pelo usuário,
+   **Implementação e testes automatizados entregues; conexão com conta real validada
+   pelo mantenedor em 01/10/2026.** Permanecem sem confirmação funcional reconexão,
+   catálogo e envio de mensagem pelo usuário,
    conforme o critério ChatGPT funcional abaixo.
 2. [ ] Paridade MCP: extrair/adaptar discovery, DCR, Device Flow, client credentials,
    callback manual/fixo e reautorização; adicionar consumidores do serviço compartilhado.
@@ -313,8 +314,9 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 - Testes `oauthflow/service_test.go`, `credentials/oauth_store_test.go`,
   `llm/chatgpt_test.go` e `ChatGPTConnection.test.tsx` cobrem o fluxo com servidores
   e tokens de teste, falha de persistência, concorrência, escopo e conclusão SSE.
-- O teste de consentimento com uma conta real depende de ação do usuário no
-  navegador. Não foi realizado automaticamente nem usa credenciais de terceiros.
+- O mantenedor confirmou em 01/10/2026 que testou a fase 1 e a conta ChatGPT
+  conectou normalmente. Essa evidência valida conexão/consentimento real; não
+  presume confirmação dos demais cenários de reconexão, catálogo e envio.
 - Modelo padrão opcional altera somente o campo em transação com a autorização;
   testes preservam edição concorrente e recusam exclusão, novo vínculo ou desconexão.
 - Coletor síncrono exige conclusão explícita; `response.completed` encerra a leitura
@@ -799,3 +801,59 @@ fixtures de conversão de versões publicadas, migração transacional/idempoten
 coordenação com escritores legados, comprovação reinício/refresh/native/bridge
 e retirada do runtime legado. Este incremento não cria snapshots nem executa
 conversão, descarte ou exportação de credenciais.
+
+### Fase 3 — barreiras contra publicação legada tardia
+
+Status: **In Progress**. Antes da conversão, a persistência passa a recusar
+escritas em `mcp-client:<slug>` e `mcp-tokens:<slug>` quando o consumidor do mesmo
+usuário já pertence ao serviço compartilhado. A checagem e a gravação ficam na
+mesma transação, inclusive quando o escritor informa o ID da entrada existente.
+Resíduos anteriores permanecem intactos; a barreira não os apaga nem os migra.
+O salvamento adquire o writer SQLite antes da leitura do vínculo, usando o
+helper central de transação imediata e retry local. Escritas concorrentes em
+WAL não invalidam o snapshot entre checagem e upsert; não se repete o refresh
+remoto. Evidência: `TestLegacyCredentialWritePreventsStaleWALSnapshot` usa duas
+conexões e uma gravação não relacionada entre a checagem e o upsert.
+O callback de configuração usa a variante imediata compatível com savepoints,
+com retry somente na aquisição do writer. `TestLegacyConfigWriterPreventsStaleWALSnapshot`
+verifica a mesma contenção para cliente/porta DCR, com publicação coerente no cache.
+Callbacks antigos de configuração também não podem remover ou trocar o vínculo
+composto. A desvinculação explícita continua no callback transacional do cofre.
+
+O token source legado propaga falha de persistência, sem informar renovação
+concluída nem iniciar outro consentimento como fallback. A apresentação usa
+mensagem localizada e não expõe o erro bruto de armazenamento. O token recebido
+fica no token source enquanto essa instância existir, permitindo repetir a
+persistência sem renovar o mesmo grant. Isso não oferece recuperação após
+descarte do transport ou reinício; recuperação durável segue pendente.
+
+Evidências: `TestManagedOAuthRejectsLateLegacyWriters`,
+`TestManagedOAuthLegacyFencePreservesOtherConsumersAndResidues`,
+`TestLegacyTokenPersistenceFailureIsTerminalAndSanitized` e
+`mcpOAuthErrors.test.ts`.
+
+O probe SSE propaga a falha tipada de persistência até Conectar, sem criar outro
+transport com o refresh token antigo. A configuração capturada precede adaptações
+locais de polling; probe e transport compartilham o mesmo escritor, e callbacks
+OAuth não persistem o `DisableSSE` transitório. O fluxo GET 405 → polling → DCR →
+reautorização preserva a URI registrada. O fallback após falha de handshake SSE altera somente a preferência
+de polling sobre o snapshot atualizado pelo DCR, preservando cliente e callback.
+Reenvios legados recriam o corpo com
+`GetBody`; ausência ou falha da fábrica impede repetir a requisição.
+Evidências: `TestLegacyConnectStopsAfterProbePersistenceFailure`,
+`TestLegacyPollingDCRPersistsCallbackForReauthorization` e
+`TestLegacyOAuthDoesNotReplayUnavailableBody`.
+
+A criação preserva `Enabled` e `AutoConnect` explicitamente na mesma transação,
+sem publicar defaults divergentes no cache. Evidência:
+`TestOAuthCreationPreservesExplicitConnectionFlags` cobre todas as combinações
+nos caminhos legado e composto, incluindo recusa de conexão quando desabilitado.
+
+Esta barreira de gravação não é exclusão antes da operação remota. Antes de
+converter, ainda é necessário coordenar autorização/refresh e edição desde
+antes do request até o commit, incluindo operações em outros processos. Os
+registros publicados não preservam necessariamente scopes concedidos nem o
+método de autenticação efetivamente negociado; esses casos não podem ser
+convertidos por inferência. Snapshot não desfaz rotação remota: a recuperação
+precisa distinguir restauração estrutural de validade do grant. Snapshot,
+retenção, restauração, conversão e retirada do runtime legado seguem pendentes.

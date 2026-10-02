@@ -117,13 +117,15 @@ func TestManagedOAuthLegacyIsNotMigratedOrUsedAsFallback(t *testing.T) {
 	if err := m.SaveConfig("legacy", legacy); err == nil {
 		t.Fatal("implicit migration")
 	}
+	// Seed historical residue before shared ownership; new legacy writes are
+	// now fenced, but old residue must still never serve as a fallback.
+	if err := m.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("new"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "LEGACY"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := m.SaveConfig("new", managedConfig("https://resource.example")); err != nil {
 		t.Fatal(err)
 	}
 	cfg, _, _ := loadManaged(t, m, ctx, "new")
-	if err := m.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("new"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "LEGACY"}); err != nil {
-		t.Fatal(err)
-	}
 	tok, ok := m.resolveNativeAuthToken(ctx, nativeMCPCandidate{slug: "new", name: "new", url: cfg.URL, authType: cfg.AuthType, managedConfig: cfg})
 	if ok || tok != "" {
 		t.Fatal("managed authorization fell back to legacy token")

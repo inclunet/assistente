@@ -1433,6 +1433,8 @@ const ptBR = {
         deviceExpired: 'O código de autorização expirou. Inicie uma nova autorização para obter outro código.',
         deviceFailed: 'Não foi possível concluir a autorização por código de dispositivo. Confira a configuração OAuth e tente novamente.',
         authorizationChanged: 'A autorização mudou ou está em uso. Aguarde a operação terminar e tente novamente.',
+        requestNotReplayable: 'O corpo da requisição não pode ser reenviado automaticamente. Tente conectar novamente.',
+        legacyPersistenceFailed: 'Não foi possível salvar a credencial OAuth. A operação foi interrompida para não informar uma renovação como concluída sem salvar o token. Verifique o acesso ao cofre antes de tentar novamente.',
         authorizationRequired: 'Este servidor precisa de autorização. Use Conectar ou Reautorizar para continuar.',
         publicClientSecret: "Este cliente DCR é público e não aceita segredo manual. Use outro ID de cliente para configurar autenticação com segredo.",
       clientConfigurationRequired: "Revise o ID e o segredo do cliente OAuth na configuração do servidor e conecte novamente.",

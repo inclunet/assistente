@@ -5,6 +5,8 @@ export function mcpOAuthErrorMessage(error: unknown, t: TFunction): string {
   if (message.includes('oauth_resource_destination_blocked')) return t('mcp.error.resourceDestinationBlocked');
   if (message.includes('oauth_discovery_destination_blocked')) return t('mcp.error.networkAuthorizationFailed');
   if (message.includes('oauth_authorization_changed')) return t('mcp.error.authorizationChanged');
+  if (message.includes('oauth_legacy_persistence_failed')) return t('mcp.error.legacyPersistenceFailed');
+  if (message.includes('oauth_request_not_replayable')) return t('mcp.error.requestNotReplayable');
   if (message.includes('oauth_client_configuration_required')) return t('mcp.error.clientConfigurationRequired');
   if (message.includes('oauth_public_client_secret_not_allowed')) return t('mcp.error.publicClientSecret');
   if (message.includes('oauth_permission_missing')) return t('mcp.error.authorizationPermissions');

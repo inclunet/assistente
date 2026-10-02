@@ -26,8 +26,10 @@ const (
 	// obsolete creation/update/removal warning formats were removed.
 	// OAuth discovery moved to oauthflow; the DCR URL/redirect diagnostic was removed.
 	// Shared OAuth grants/callbacks remove 15 legacy formats, including codes and authorization URLs.
-	expectedLegacyFormatCount  = 751
-	expectedLegacyFormatDigest = "351bcd3f09fd7f6126f642741ddb5528dd00c3fc7bb4cca4775e3e7eaf4e9a8f"
+	// Legacy OAuth now propagates a sanitized persistence error instead of
+	// logging the raw storage failure and reporting successful renewal.
+	expectedLegacyFormatCount  = 750
+	expectedLegacyFormatDigest = "a9b995559c6852950c8426d1678e83eea833941cd7fa2c82eee7865050b50487"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

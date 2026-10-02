@@ -26,6 +26,8 @@ import (
 // browserOpen opens a URL in the user's browser. Variable so tests can stub it.
 var browserOpen = browser.OpenURL
 
+var errOAuthPersistence = errors.New("oauth_legacy_persistence_failed")
+
 // oauthFlowArbiter serializa flows OAuth interativos do MCP entre
 // servidores diferentes. Sem ele, dois servidores que precisam reauth
 // simultaneamente disparavam `browser.OpenURL` ao mesmo tempo,
@@ -67,8 +69,10 @@ func (pts *persistingTokenSource) Token() (*oauth2.Token, error) {
 	defer pts.mu.Unlock()
 
 	if token.AccessToken != pts.lastToken {
+		if err := pts.rt.persistTokens(token); err != nil {
+			return nil, err
+		}
 		pts.lastToken = token.AccessToken
-		pts.rt.persistTokens(token)
 		logging.Infof(context.Background(), "mcp.oauth", "[MCP:%s] Token renovado e persistido automaticamente", pts.rt.serverSlug)
 	}
 
@@ -124,7 +128,9 @@ func (rt *pkceRoundTripper) trySilentRefresh(ctx context.Context) error {
 	}
 
 	rt.tokenSource = rt.wrapWithPersistence(newScopedTokenSource(rt.longLivedCtx(), newToken, rt.oauthCfg.TokenSource))
-	rt.persistTokens(newToken)
+	if err := rt.persistTokens(newToken); err != nil {
+		return err
+	}
 
 	rotated := newToken.RefreshToken != "" && newToken.RefreshToken != refreshToken
 	logging.Infof(ctx, "mcp.oauth", "[MCP:%s] Token renovado silenciosamente via refresh_token (rotacionado=%v)", rt.serverSlug, rotated)
@@ -357,6 +363,25 @@ func containsFold(list []string, target string) bool {
 }
 
 func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	sent := false
+	send := func(token *oauth2.Token) (*http.Response, error) {
+		cloned := req.Clone(req.Context())
+		if sent && req.Body != nil && req.Body != http.NoBody {
+			if req.GetBody == nil {
+				return nil, errors.New("oauth_request_not_replayable")
+			}
+			var err error
+			cloned.Body, err = req.GetBody()
+			if err != nil {
+				return nil, errors.New("oauth_request_not_replayable")
+			}
+		}
+		if token != nil {
+			token.SetAuthHeader(cloned)
+		}
+		sent = true
+		return rt.base.RoundTrip(cloned)
+	}
 	rt.mu.Lock()
 	ts := rt.tokenSource
 	denied := rt.networkDenied
@@ -371,9 +396,7 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 			return nil, err
 		}
 		if err == nil {
-			cloned := req.Clone(req.Context())
-			token.SetAuthHeader(cloned)
-			resp, err := rt.base.RoundTrip(cloned)
+			resp, err := send(token)
 			if err != nil {
 				return nil, err
 			}
@@ -404,9 +427,7 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 				rt.mu.Unlock()
 				if ts != nil {
 					if newToken, err := ts.Token(); err == nil {
-						retryReq := req.Clone(req.Context())
-						newToken.SetAuthHeader(retryReq)
-						resp, err := rt.base.RoundTrip(retryReq)
+						resp, err := send(newToken)
 						if err != nil {
 							return nil, err
 						}
@@ -418,13 +439,15 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 							return resp, nil
 						}
 						_ = resp.Body.Close()
+					} else if terminalOAuthNetworkError(req.Context(), err) {
+						return nil, err
 					}
 				}
 			}
 		}
 	}
 
-	resp, err := rt.base.RoundTrip(req)
+	resp, err := send(nil)
 	if err != nil {
 		return nil, err
 	}
@@ -457,9 +480,7 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 		return nil, fmt.Errorf("failed to get token after authorization: %w", err)
 	}
 
-	retryReq := req.Clone(req.Context())
-	token.SetAuthHeader(retryReq)
-	return rt.base.RoundTrip(retryReq)
+	return send(token)
 }
 
 // isSessionExpiredStatus retorna true para status HTTP que indicam sessão MCP expirada.
@@ -741,7 +762,9 @@ func (rt *pkceRoundTripper) authorizeDeviceFlow(ctx context.Context) error {
 	oauthCfg := &oauth2.Config{ClientID: clientID, Endpoint: oauth2.Endpoint{AuthURL: rt.cfg.OAuth2AuthURL, TokenURL: rt.cfg.OAuth2TokenURL}, Scopes: result.Scopes}
 	rt.oauthCfg = oauthCfg
 	rt.tokenSource = rt.wrapWithPersistence(newScopedTokenSource(rt.longLivedCtx(), result.Token, oauthCfg.TokenSource))
-	rt.persistTokens(result.Token)
+	if err := rt.persistTokens(result.Token); err != nil {
+		return err
+	}
 	if result.Token.RefreshToken == "" {
 		logging.Warnf(ctx, "mcp.oauth", "device_refresh_token_missing server=%s", rt.serverSlug)
 	}
@@ -844,7 +867,9 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 	}
 	rt.oauthCfg = oauthCfg
 	rt.tokenSource = rt.wrapWithPersistence(newScopedTokenSource(rt.longLivedCtx(), token, oauthCfg.TokenSource))
-	rt.persistTokens(token)
+	if err := rt.persistTokens(token); err != nil {
+		return err
+	}
 	logging.Infof(ctx, "mcp.oauth", "pkce_authorization_completed server=%s", rt.serverSlug)
 	return nil
 }
@@ -936,13 +961,13 @@ func (rt *pkceRoundTripper) persistClientCreds(clientID, clientSecret string) {
 // persistClientCreds: a credencial só é útil para o user que executou o flow,
 // e o ctx da operação pode não carregar o `user_id` (ex.: device flow deriva de
 // context.Background()).
-func (rt *pkceRoundTripper) persistTokens(token *oauth2.Token) {
+func (rt *pkceRoundTripper) persistTokens(token *oauth2.Token) error {
 	if rt.protocolOnly {
 		rt.issuedToken = token
-		return
+		return nil
 	}
 	if rt.credMgr == nil || token == nil {
-		return
+		return nil
 	}
 	ctx := rt.authCtx()
 	refresh := token.RefreshToken
@@ -966,8 +991,12 @@ func (rt *pkceRoundTripper) persistTokens(token *oauth2.Token) {
 		auth.ExpiresAt = token.Expiry.Unix()
 	}
 	if err := rt.credMgr.RegisterPatternWithContext(ctx, userTokensPattern(rt.serverSlug), auth); err != nil {
-		logging.Errorf(context.Background(), "mcp.oauth", "[MCP:%s] Erro ao salvar tokens do usuário: %v", rt.serverSlug, err)
+		if errors.Is(err, oauthflow.ErrConflict) {
+			return errors.Join(errOAuthPersistence, oauthflow.ErrConflict)
+		}
+		return errOAuthPersistence
 	}
+	return nil
 }
 
 // loadClientCreds carrega client_id e client_secret do credential
@@ -1142,7 +1171,7 @@ func (rt *pkceRoundTripper) oauthHTTPClient(timeout time.Duration) *http.Client 
 }
 
 func terminalOAuthNetworkError(ctx context.Context, err error) bool {
-	return err != nil && (errors.Is(err, oauthflow.ErrNetworkAuthorization) || errors.Is(err, context.Canceled) || ctx.Err() != nil)
+	return err != nil && (errors.Is(err, errOAuthPersistence) || errors.Is(err, oauthflow.ErrNetworkAuthorization) || errors.Is(err, context.Canceled) || ctx.Err() != nil)
 }
 
 func terminalDeviceGrantError(ctx context.Context, err error) bool {

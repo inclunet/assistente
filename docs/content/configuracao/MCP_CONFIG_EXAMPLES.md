@@ -609,3 +609,24 @@ O seletor de autenticação Basic/Post aplica-se a clientes configurados manualm
 Clientes DCR públicos não aceitam segredo manual. Para usar um cliente confidencial, configure outro ID de cliente e seu método de autenticação; renomear o servidor preserva o registro público existente.
 
 Reautorizar também oferece Cancelar durante o login, mesmo quando o servidor estava desconectado ou em erro. Cancelar/Desconectar encerra a tentativa; uma falha de autorização preserva o estado anterior da conexão.
+
+Se uma conexão OAuth antiga não conseguir salvar o token obtido, o Assistente
+interrompe a operação e informa a falha de gravação. Verifique o acesso ao cofre
+antes de tentar novamente. A falha de gravação não abre outro consentimento
+automaticamente. Não apague as credenciais para resolver esse erro.
+
+Servidores que já usam autorização unificada recusam gravações atrasadas no
+formato antigo e alterações antigas que tentem remover seu vínculo OAuth.
+Uma mensagem de autorização alterada indica que a lista deve ser recarregada
+antes de repetir a ação. As credenciais antigas ainda existentes são preservadas
+para diagnóstico; esta proteção não executa migração ou exclusão automática.
+
+A verificação inicial de compatibilidade SSE também interrompe a conexão se
+não conseguir salvar um token renovado. O fallback para polling preserva a
+configuração OAuth e a porta registrada. Se uma requisição não puder ser
+reenviada após autorizar, a interface orienta conectar novamente; o aplicativo
+não repete um corpo já consumido.
+
+Ao criar um servidor, as opções Habilitado e Conectar automaticamente são
+preservadas conforme escolhidas, inclusive quando desmarcadas. Um servidor
+desabilitado não aceita conexão até ser habilitado.
