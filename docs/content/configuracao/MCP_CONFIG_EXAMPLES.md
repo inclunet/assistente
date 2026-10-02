@@ -626,3 +626,7 @@ não conseguir salvar um token renovado. O fallback para polling preserva a
 configuração OAuth e a porta registrada. Se uma requisição não puder ser
 reenviada após autorizar, a interface orienta conectar novamente; o aplicativo
 não repete um corpo já consumido.
+
+Ao criar um servidor, as opções Habilitado e Conectar automaticamente são
+preservadas conforme escolhidas, inclusive quando desmarcadas. Um servidor
+desabilitado não aceita conexão até ser habilitado.

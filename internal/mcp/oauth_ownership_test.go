@@ -18,6 +18,36 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestOAuthCreationPreservesExplicitConnectionFlags(t *testing.T) {
+	for _, managed := range []bool{false, true} {
+		for _, enabled := range []bool{false, true} {
+			for _, autoConnect := range []bool{false, true} {
+				m, repo, ctx := managedFixture(t)
+				cfg := managedConfig("https://resource.example")
+				cfg.OAuthManaged, cfg.Enabled, cfg.AutoConnect = managed, enabled, autoConnect
+				if err := m.SaveConfig("flags", cfg); err != nil {
+					t.Fatal(err)
+				}
+				stored, err := repo.GetServer(ctx, "flags")
+				if err != nil {
+					t.Fatal(err)
+				}
+				m.mu.RLock()
+				cached := m.servers["flags"].Config
+				m.mu.RUnlock()
+				if stored.Enabled != enabled || stored.AutoConnect != autoConnect || cached.Enabled != enabled || cached.AutoConnect != autoConnect {
+					t.Fatalf("changed explicit flags: managed=%v enabled=%v autoConnect=%v database=%v/%v cache=%v/%v", managed, enabled, autoConnect, stored.Enabled, stored.AutoConnect, cached.Enabled, cached.AutoConnect)
+				}
+				if !enabled {
+					if err := m.Connect("flags"); err == nil {
+						t.Fatal("disabled server accepted connection")
+					}
+				}
+			}
+		}
+	}
+}
+
 func TestManagedOAuthRejectsLateLegacyWriters(t *testing.T) {
 	m, repo, ctx := managedFixture(t)
 	cfg := managedConfig("https://resource.example")

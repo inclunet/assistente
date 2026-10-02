@@ -144,7 +144,7 @@ func (m *Manager) saveManagedOAuth(slug string, cfg ServerConfig, secret *string
 			if err != nil {
 				return err
 			}
-			return tx.Create(&row).Error
+			return createServerPreservingFlags(tx, &row)
 		}
 		return NewDBRepository(tx).SaveServer(ctx, &cfg)
 	}

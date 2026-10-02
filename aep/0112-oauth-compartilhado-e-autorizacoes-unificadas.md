@@ -836,6 +836,11 @@ Evidências: `TestLegacyConnectStopsAfterProbePersistenceFailure`,
 `TestLegacyPollingDCRPersistsCallbackForReauthorization` e
 `TestLegacyOAuthDoesNotReplayUnavailableBody`.
 
+A criação preserva `Enabled` e `AutoConnect` explicitamente na mesma transação,
+sem publicar defaults divergentes no cache. Evidência:
+`TestOAuthCreationPreservesExplicitConnectionFlags` cobre todas as combinações
+nos caminhos legado e composto, incluindo recusa de conexão quando desabilitado.
+
 Esta barreira de gravação não é exclusão antes da operação remota. Antes de
 converter, ainda é necessário coordenar autorização/refresh e edição desde
 antes do request até o commit, incluindo operações em outros processos. Os

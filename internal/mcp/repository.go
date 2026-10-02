@@ -134,14 +134,10 @@ func (r *DBRepository) saveServer(ctx context.Context, cfg *ServerConfig, allowM
 			if row.ID == "" {
 				row.ID = cfg.ID
 			}
-			if err := tx.Create(&row).Error; err != nil {
+			if err := createServerPreservingFlags(tx, &row); err != nil {
 				return err
 			}
 			cfg.ID = row.ID
-			// GORM applies boolean defaults on insertion. Publish the actual
-			// persisted values, so protocol callbacks capture the same version
-			// as the repository rather than an already-stale cache projection.
-			cfg.Enabled, cfg.AutoConnect = row.Enabled, row.AutoConnect
 			return nil
 		case err != nil:
 			return err
@@ -159,6 +155,22 @@ func (r *DBRepository) saveServer(ctx context.Context, cfg *ServerConfig, allowM
 			return nil
 		}
 	})
+}
+
+// The caller supplies the transaction so both legacy and managed creation
+// preserve explicit false choices atomically with their other writes.
+func createServerPreservingFlags(tx *gorm.DB, row *database.MCPServer) error {
+	enabled, autoConnect := row.Enabled, row.AutoConnect
+	if err := tx.Create(row).Error; err != nil {
+		return err
+	}
+	if err := tx.Model(row).Updates(map[string]interface{}{
+		"enabled": enabled, "auto_connect": autoConnect,
+	}).Error; err != nil {
+		return err
+	}
+	row.Enabled, row.AutoConnect = enabled, autoConnect
+	return nil
 }
 
 func (r *DBRepository) DeleteServer(ctx context.Context, slug string) error {
