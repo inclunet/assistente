@@ -1,11 +1,107 @@
 package mcp
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"reflect"
+	"time"
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/oauthflow"
+	"gorm.io/gorm"
 )
+
+func (m *Manager) detachLegacyOAuth(ctx context.Context, original, cfg ServerConfig, remove bool) error {
+	cfg.ID, cfg.UserID, cfg.Slug = original.ID, original.UserID, original.Slug
+	clearOAuthConfiguration(&cfg)
+	// The cache may already lag another process. Compare publication with the
+	// cache captured here, while the transaction validates the DB snapshot.
+	cached := original
+	m.mu.RLock()
+	if current := m.servers[original.Slug]; current != nil {
+		cached = current.Config
+	}
+	m.mu.RUnlock()
+	update := func(tx *gorm.DB) error {
+		current, err := NewDBRepository(tx).GetServerByID(ctx, original.ID)
+		if err != nil || !reflect.DeepEqual(persistedLegacyConfig(*current), persistedLegacyConfig(original)) {
+			return oauthflow.ErrConflict
+		}
+		if remove {
+			return NewDBRepository(tx).DeleteServer(ctx, original.Slug)
+		}
+		return NewDBRepository(tx).SaveServer(ctx, &cfg)
+	}
+	// No-auth consumers with no stored credentials do not need an unlocked
+	// vault. Prove that absence under the SQLite writer before saving.
+	saved := false
+	if repo, ok := m.repository().(*DBRepository); ok {
+		requiresVault := errors.New("stored MCP credentials require vault")
+		err := database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, repo.db, "mcp.empty_auth.detach", func(tx *gorm.DB) error {
+			if tx.Migrator().HasTable(&database.CredentialEntry{}) {
+				var count int64
+				patterns := []string{clientCredPattern(original.Slug), userTokensPattern(original.Slug), hostnameFromURL(original.URL)}
+				if err := tx.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern IN ?", original.UserID, patterns).Count(&count).Error; err != nil {
+					return err
+				}
+				if count != 0 {
+					return requiresVault
+				}
+			}
+			return update(tx)
+		})
+		if err != nil && !errors.Is(err, requiresVault) {
+			return err
+		}
+		saved = err == nil
+	}
+	var err error
+	if saved {
+		m.publishLegacyDetach(cached, cfg, remove)
+	} else {
+		if m.credMgr == nil {
+			return oauthflow.ErrResource
+		}
+		err = m.credMgr.ClearLegacyOAuthWithConsumer(ctx, original.Slug, original.ID, hostnameFromURL(original.URL), update, func() {
+			m.publishLegacyDetach(cached, cfg, remove)
+		})
+	}
+	if err != nil {
+		return err
+	}
+	_ = m.Disconnect(original.Slug)
+	m.emit("mcp:config_changed", map[string]string{"slug": original.Slug})
+	return nil
+}
+
+func (m *Manager) publishLegacyDetach(original, cfg ServerConfig, remove bool) {
+	roots := m.GetWorkspaceRoots()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if current := m.servers[original.Slug]; current != nil && reflect.DeepEqual(persistedLegacyConfig(current.Config), persistedLegacyConfig(original)) {
+		if remove {
+			delete(m.servers, original.Slug)
+		} else {
+			current.Config = cfg
+			current.Roots = roots
+		}
+	}
+}
+
+func withMCPConsumerSnapshot(ctx context.Context, cfg ServerConfig) context.Context {
+	if cfg.ID == "" {
+		return ctx
+	}
+	return credentials.WithMCPConsumerCheck(ctx, func(tx *gorm.DB) error {
+		current, err := NewDBRepository(tx).GetServerByID(ctx, cfg.ID)
+		if err != nil || !reflect.DeepEqual(persistedLegacyConfig(*current), persistedLegacyConfig(cfg)) {
+			return oauthflow.ErrConflict
+		}
+		return nil
+	})
+}
 
 func (m *Manager) SaveServerAuth(slug, authType, token, username, password, clientSecret string) error {
 	if m.credMgr == nil {
@@ -22,6 +118,13 @@ func (m *Manager) SaveServerAuth(slug, authType, token, username, password, clie
 		return err
 	}
 
+	if cfg.OAuthAuthorizationID != "" {
+		if authType != string(cfg.AuthType) {
+			return fmt.Errorf("oauth_resource_not_authorized")
+		}
+		return m.saveManagedOAuth(slug, *cfg, &clientSecret)
+	}
+	ctx = withMCPConsumerSnapshot(ctx, *cfg)
 	switch authType {
 	case "bearer":
 		hostname := hostnameFromURL(cfg.URL)
@@ -66,15 +169,44 @@ func (m *Manager) DeleteServerAuth(slug string) error {
 		return err
 	}
 
+	cfgManaged, err := m.GetConfig(slug)
+	if err != nil {
+		return err
+	}
+	if cfgManaged.OAuthAuthorizationID != "" {
+		store, r, service, err := m.managedOAuth(ctx, *cfgManaged)
+		if err != nil {
+			return err
+		}
+		if err = service.InvalidateAndClearClientSecret(ctx, store, r.ID); err != nil {
+			return err
+		}
+		_ = m.Disconnect(slug)
+		return nil
+	}
+	if cfgManaged.ID != "" && (cfgManaged.AuthType == AuthOAuth2PKCE || m.credMgr.CanPersist()) {
+		return m.credMgr.ClearLegacyOAuthWithConsumer(ctx, slug, cfgManaged.ID, hostnameFromURL(cfgManaged.URL), func(tx *gorm.DB) error {
+			current, err := NewDBRepository(tx).GetServerByID(ctx, cfgManaged.ID)
+			if err != nil || !reflect.DeepEqual(persistedLegacyConfig(*current), persistedLegacyConfig(*cfgManaged)) {
+				return oauthflow.ErrConflict
+			}
+			return nil
+		}, nil)
+	}
 	// Limpar entradas OAuth (client + tokens)
-	_ = m.credMgr.DeletePattern(ctx, clientCredPattern(slug))
-	_ = m.credMgr.DeletePattern(ctx, userTokensPattern(slug))
+	ctx = withMCPConsumerSnapshot(ctx, *cfgManaged)
+	if err := m.credMgr.DeletePattern(ctx, clientCredPattern(slug)); err != nil {
+		return err
+	}
+	if err := m.credMgr.DeletePattern(ctx, userTokensPattern(slug)); err != nil {
+		return err
+	}
 
 	// Limpar entrada legacy por hostname (bearer/basic)
 	cfg, err := m.GetConfig(slug)
 	if err == nil {
 		if hostname := hostnameFromURL(cfg.URL); hostname != "" {
-			_ = m.credMgr.DeletePattern(ctx, hostname)
+			return m.credMgr.DeletePattern(ctx, hostname)
 		}
 	}
 
@@ -91,10 +223,18 @@ func (m *Manager) GetServerAuthInfo(slug string) (string, bool, error) {
 		return "", false, err
 	}
 
+	if cfg.OAuthAuthorizationID != "" {
+		_, r, _, err := m.managedOAuth(m.credentialContext(), *cfg)
+		return string(cfg.AuthType), err == nil && (r.Tokens.Access != "" || r.Client.Secret != ""), err
+	}
 	// Verifica entrada OAuth (mcp-client:{slug})
 	ctx := m.credentialContext()
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return "", false, err
+	}
+	if cfg.ID != "" {
+		has, err := m.credMgr.InspectMCPAuthPresence(withMCPConsumerSnapshot(ctx, *cfg), slug, hostnameFromURL(cfg.URL))
+		return string(cfg.AuthType), has, err
 	}
 
 	clientAuth, _ := m.credMgr.GetConfigByPatternWithContext(ctx, clientCredPattern(slug))

@@ -10,8 +10,8 @@ e implementar a source `oauth` com um serviço compartilhado de registro,
 autorização e renovação. MCP, provedores LLM e canais consomem credenciais sem
 implementar novamente esse ciclo. A primeira entrega habilita o uso oficial da
 conta ChatGPT no Assistente; entregas seguintes migram MCP para a mesma base.
-A primeira entrega implementa a base OAuth e o consumidor ChatGPT. As migrações
-MCP e Slack continuam nas fases seguintes; não estão habilitadas por esta entrega.
+A primeira entrega implementa a base OAuth e o consumidor ChatGPT. Novos cadastros OAuth no editor MCP já consomem essa base. A migração dos
+cadastros MCP legados e a convergência Slack continuam nas fases seguintes.
 
 ## Motivação
 
@@ -169,6 +169,18 @@ impedir envio de tokens/client secret para origem não autorizada. Recursos MCP
 locais explicitamente configurados devem seguir as regras de rede existentes,
 sem permitir que discovery abra acesso arbitrário à rede local.
 
+Destinos internos descobertos (inclusive redirects corporativos) reutilizam o
+`nettrust.Authorizer`, sua allowlist e o `DecisionDialog` do AEP-0091. Esta é uma
+exceção OAuth à recusa sem prompt dos redirects de ferramentas HTTP do AEP-0082;
+a política das ferramentas permanece inalterada. A decisão identifica o destino
+real, IPs e porta; aprovação não autoriza outro destino, downgrade TLS ou issuer
+incompatível. O socket revalida os IPs e não usa proxy do ambiente.
+A espera humana preserva contexto/cancelamento do chamador e fica fora dos
+orçamentos de rede. Negativa/cancelamento encerra a operação; no máximo oito
+retomadas são permitidas. `once` vale apenas para a operação OAuth em andamento.
+DCR só é retomado quando o guard impediu o envio: timeout, resposta HTTP e falha
+após envio nunca provocam repetição automática do POST.
+
 A implementação extrai e reutiliza componentes testados do OAuth MCP quando
 adequados, preservando PKCE, DCR, Device Flow e client credentials nas fases
 correspondentes. O núcleo pode atender novos fornecedores; disponibilização futura
@@ -262,13 +274,30 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    PKCE/OIDC, callback, extensão de registro ChatGPT, refresh coordenado, UI de conexão,
    catálogo, Responses e ferramentas locais. Se dividida em PRs, infraestrutura e
    integração formam uma entrega funcional conjunta, sem anunciar suporte antes disso.
-   **Implementação e testes automatizados entregues; aceite funcional pendente** de
-   consentimento com conta real, reconexão, catálogo e envio de mensagem pelo usuário,
+   **Implementação e testes automatizados entregues; conexão com conta real validada
+   pelo mantenedor em 01/10/2026.** Permanecem sem confirmação funcional reconexão,
+   catálogo e envio de mensagem pelo usuário,
    conforme o critério ChatGPT funcional abaixo.
 2. [ ] Paridade MCP: extrair/adaptar discovery, DCR, Device Flow, client credentials,
    callback manual/fixo e reautorização; adicionar consumidores do serviço compartilhado.
+   **Em andamento:** discovery e registro RFC 7591 foram extraídos para
+   `internal/oauthflow`, consumidos pela tela e pelo runtime MCP. Device Flow,
+   client credentials, cache/serialização de renovação e listener de callback
+   também foram extraídos. Novos cadastros OAuth no editor MCP já usam registro
+   composto e o serviço compartilhado para autorização, reautorização e renovação
+   em native/bridge. A seção de evidências do consumidor MCP registra os testes.
+   Cadastros legados e importações ainda usam a persistência anterior; sua conversão
+   e o cutover pertencem à fase 3. O aceite com provedores reais permanece pendente.
+   O transporte local do recurso MCP em PKCE/Client Credentials também aplica
+   isolamento por origem, TLS e guard de rede compartilhado, preservando streams.
+   A migração de credenciais continua exclusiva da fase 3.
 3. [ ] Cutover MCP: migrar registros e referências, comprovar reinício/refresh/native/bridge,
    remover persistência dupla, configurações OAuth duplicadas e ciclo próprio de renovação.
+   O inventário local preparatório está entregue (seção de evidências da fase 3);
+   snapshots recuperáveis de PKCE e Client Credentials estão entregues;
+   recuperação testada sobre fixtures dos formatos publicados 0.2.0 a 0.5.0;
+   recuperação explícita de tokens por hostname também está entregue;
+   conversão e retirada do legado permanecem pendentes.
 4. [ ] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
    conexão e referências por papel, sem alterar protocolo nem exigir OAuth inexistente.
 
@@ -288,8 +317,9 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 - Testes `oauthflow/service_test.go`, `credentials/oauth_store_test.go`,
   `llm/chatgpt_test.go` e `ChatGPTConnection.test.tsx` cobrem o fluxo com servidores
   e tokens de teste, falha de persistência, concorrência, escopo e conclusão SSE.
-- O teste de consentimento com uma conta real depende de ação do usuário no
-  navegador. Não foi realizado automaticamente nem usa credenciais de terceiros.
+- O mantenedor confirmou em 01/10/2026 que testou a fase 1 e a conta ChatGPT
+  conectou normalmente. Essa evidência valida conexão/consentimento real; não
+  presume confirmação dos demais cenários de reconexão, catálogo e envio.
 - Modelo padrão opcional altera somente o campo em transação com a autorização;
   testes preservam edição concorrente e recusam exclusão, novo vínculo ou desconexão.
 - Coletor síncrono exige conclusão explícita; `response.completed` encerra a leitura
@@ -317,7 +347,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   transação e publica os demais campos atuais. Token sem refresh exige reconexão
   persistente quando rejeitado/expirado; um token ainda válido permanece utilizável.
   Testes cobrem preservação de edições e falha na gravação da transição.
-- Revisão independente local em quarenta e sete rodadas, com correções de isolamento de
+- Revisão independente local em quarenta e oito rodadas, com correções de isolamento de
   sessão, escopo, importação e cancelamento; última rodada sem achados.
 - Importação neutraliza referências OAuth recebidas e cria referência local sem
   envelope. Sobrescrita preserva apenas o vínculo já existente no mesmo provedor/tipo,
@@ -348,8 +378,9 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 - Falhas ChatGPT usam códigos estáveis e traduções nos três idiomas. Salvar o
   modelo padrão é opcional e não invalida um consentimento já concluído, inclusive
   se a releitura da autorização falhar antes da gravação opcional.
-- MCP compartilha somente o árbitro de interação nesta fase. Discovery, DCR,
-  Device Flow, client credentials, persistência MCP e Slack permanecem pendentes.
+- Ao final da fase 1, MCP compartilhava somente o árbitro de interação.
+  As extrações seguintes de discovery, DCR, grants e callbacks estão documentadas
+  nas entregas da fase 2 abaixo; persistência unificada MCP e Slack seguem pendentes.
 
 ## Riscos
 
@@ -383,6 +414,9 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   refresh concorrente único, logout/edição/exclusão impedem gravação tardia.
 - [ ] MCP preserva discovery, Device Flow, client credentials, PKCE, native e bridge;
   reautorização explícita, sem navegador inesperado nem renovadores duplicados.
+- [x] Novos cadastros OAuth no editor MCP usam uma autorização composta, sem
+  persistência dupla nem renovador próprio; testes de PKCE/DCR/Device, Client
+  Credentials, reinício, isolamento, cancelamento e fallback listados abaixo.
 - [ ] Migração idempotente/atômica provada com registros completos, parciais, ilegíveis,
   usuários diferentes e interrupção; restore documentado e segredos preservados.
 - [ ] Slack Channels mantém bot/app token por papel numa entrada, sem OAuth artificial.
@@ -489,3 +523,709 @@ Esse fluxo não usa o registro composto OAuth. A entrega impede substituir um
 envelope OAuth por API key estática (`TestGenericAPIKeyCannotOverwriteOAuthEnvelope`),
 mas não declara atomicidade para o cadastro genérico legado. Um rollback sem CAS
 poderia apagar alterações concorrentes; a issue exige transação e testes de falha.
+
+### Primeira entrega de paridade MCP (fase 2)
+
+- `oauthflow.DiscoverOAuthContext` e `DiscoverEndpoints` concentram discovery
+  RFC 9728/8414 e OIDC; `mcp.DiscoverOAuth` preserva o DTO da tela. O runtime MCP
+  usa o mesmo componente para descobrir endpoints, scopes e Device Authorization.
+- Candidatos, ordem, saneamento, limites e cancelamento do AEP-0033 foram
+  preservados. Os testes completos foram movidos para `oauthflow/discovery_test.go`;
+  testes de consumo continuam em `mcp/oauth_test.go`.
+- `RegisterDynamicClient` recebe metadados RFC 7591 sem depender de `ServerConfig`.
+  MCP continua selecionando grants e a URI exata; o HTTP comum respeita contexto,
+  timeout de dez segundos, limite de 256 KiB e rejeita redirects. Erros não
+  incluem corpo remoto, client secret nem URL com query.
+- `registration_test.go` cobre metadados, cancelamento, redirects, respostas
+  excessivas/inválidas e confidencialidade. A tela traduz falhas de registro nos
+  três idiomas, com teste em `mcpOAuthErrors.test.ts`.
+- `network_test.go` cobre destino privado, troca de porta, IP efetivo, issuer,
+  aprovação/negativa, cancelamento e DCR com exatamente um POST transmitido.
+  `app_oauth_network_test.go` prova reuso do authorizer com identidade do usuário
+  e saneamento do pedido. Discovery exige issuer correspondente ao candidato,
+  endpoints HTTPS (HTTP somente loopback), inclusive discovery da origem inicial,
+  e recurso na origem configurada (`TestDiscoveryInitialOriginCannotBypassTLS` e
+  `TestPublicDiscoveryRejectsRemoteHTTPBeforeDNS`, incluindo prelookup);
+  aliases de path legados continuam aceitos.
+- Os consumidores MCP usam o transporte autorizado nos probes e nas chamadas
+  de token, device e refresh. O ciclo de vida dos grants continua no MCP legado;
+  sua extração e a migração de dados não foram antecipadas.
+- Aprovação temporária preserva os pares origem/IP durante a operação, inclusive
+  entre clientes HTTP e polls de Device Flow. O orçamento do handshake pausa
+  durante OAuth/consentimento, mantendo cancelamento pelo chamador e Disconnect.
+  Evidências: `TestOAuthPollingReusesConsentAcrossHTTPClients`,
+  `TestConnectDevicePollingOutlivesHandshakeAndReusesApproval` e
+  `TestConnectConsentOutlivesHandshakeBudget`; o Device Flow cobre probe SSE
+  habilitado e desabilitado, ambos com orçamento pausável.
+- Cada renovação efetiva de token abre uma nova operação de consentimento; retries
+  internos compartilham a aprovação somente nessa operação. O cache continua
+  reutilizando tokens válidos, serializando refreshes concorrentes e preservando
+  rotação do refresh token. Evidência para PKCE e Client Credentials:
+  `TestStoredAndClientCredentialsRefreshApprovalIsPerOperation`.
+- Refresh best-effort/proativo usa o mesmo cliente autorizado, preservando
+  identidade e cancelamento do chamador. Recuperação termina após recusa,
+  sem tentar reconexão nem abrir outro consentimento. Evidências:
+  `TestBestEffortRefreshUsesNetworkConsentAndCredentialIdentity`,
+  `TestBestEffortRefreshConsentRetainsCallerCancellation` e
+  `TestRecoveryStopsAfterRefreshNetworkRefusal`.
+- A pendência do transporte local do recurso MCP da [issue #874](https://github.com/inclunet/assistente/issues/874)
+  foi implementada na entrega seguinte: PKCE e Client Credentials usam
+  `oauthflow.NewResourceHTTPClient`/`NewResourceTransport`. Antes de resolver
+  credenciais, o destino deve ter a mesma origem (scheme, host e porta efetiva)
+  configurada, com HTTPS ou HTTP loopback (IP real no DNS e no socket;
+  `TestHTTPExceptionRequiresActualLoopback`). Redirects podem alterar o path, mas
+  não a origem; isso também vale para endpoints enviados por eventos SSE.
+  Consentimento de rede não amplia a audience do Bearer. Outra origem exige
+  configuração explícita da URL final e autorização compatível com o recurso.
+- A política do socket e o motor de consentimento são reutilizados. Streams do
+  recurso têm prazo para DNS (cinco segundos por consulta), conexão/cabeçalhos,
+  sem timeout OAuth no corpo; mantêm
+  cancelamento do chamador. A política de credenciais estáticas e o transporte
+  remoto do MCP nativo não são alterados por esta entrega.
+  Evidências: `TestResourceOriginCheckedBeforeAuthentication`,
+  `TestResourceCorporateConsentAndStreaming`, `TestResourceSocketCannotBypassApproval`,
+  `TestResourcePreflightDNSHasIndependentDeadline`,
+  `TestOAuthResourceRedirectsAndAudience`,
+  `TestOAuthResourceRejectsConfiguredRemoteHTTPBeforeToken` e
+  `TestOAuthResourcePreservesMCPStreaming` (PKCE/Client Credentials, SSE/Streamable).
+- Não houve conversão de dados nem mudança da URI de callback por esta extração.
+  Destinos internos adicionais podem solicitar autorização de rede. O owner de
+  tokens MCP continua exclusivamente no MCP legado
+  até a entrega dos grants e do cutover. Fases 2, 3 e 4 seguem abertas.
+
+Revisão local da extração inicial (PR #873): `review_credential_sources`, dezesseis rodadas;
+achados de rede, identidade, cancelamento e apresentação corrigidos, última rodada
+sem pendências. A validação funcional ChatGPT da fase 1 continua a cargo do
+usuário e não foi marcada como concluída por esta entrega.
+
+Revisão local da proteção do recurso MCP: `review_credential_sources`, duas rodadas;
+exceção HTTP/localhost corrigida para exigir IP real loopback e preflight DNS
+limitado independentemente do stream, zero pendências.
+
+
+### Grants e callbacks compartilhados (continuação da fase 2)
+
+- `oauthflow.AuthorizeDevice` concentra RFC 8628: apresentação pelo consumidor,
+  intervalo do servidor (padrão de cinco segundos), `authorization_pending`,
+  aumento por `slow_down`, prazo/cancelamento e scopes concedidos. Respostas são
+  limitadas e erros expõem somente códigos permitidos, sem corpo ou códigos de
+  autorização. Recusa e expiração encerram a tentativa, sem fallback PKCE.
+- `ClientCredentialsTokenSource` e `NewOperationTokenSource` compartilham cache,
+  serialização e consentimento por renovação. O MCP continua sendo o único owner
+  da persistência de seus tokens; não existe um segundo fluxo de refresh.
+- `ReserveCallback` mantém a URI exata reservada antes de DCR e da abertura do
+  navegador. `Service.Authorize` e MCP usam o mesmo listener, que verifica
+  método, host, path, state e parâmetros duplicados; callbacks inválidos não
+  consomem a tentativa válida. O resultado é consumido uma vez e a resposta
+  completa chega ao navegador antes de encerrar a autorização.
+- Clientes manuais não trocam de porta após colisão. DCR pode reservar outra
+  porta e registrar a nova URI antes de prosseguir, inclusive sem cliente inicial.
+  Device Flow/DCR pede apenas seus grants, sem callback/listener; fallback para
+  PKCE registra a URI reservada antes de abrir o navegador quando o cliente foi
+  criado exclusivamente para Device. `ClientGrantType` preserva essa informação
+  na credencial legada, inclusive após reinício; ausência do metadado preserva
+  clientes manuais/legados. Isso não converte as duas entradas MCP nem cria
+  um segundo owner. Evidências: `TestClientRegistrationGrantSurvivesReload` e
+  `TestPKCEFallbackRespectsClientRegistrationGrant`.
+- Mensagens de falha de callback, recusa, expiração, Device Flow e troca de código
+  são traduzidas em pt-BR/en/es. URLs de autorização e corpos remotos não aparecem
+  nos novos erros ou logs desses componentes.
+- Evidências: `TestDeviceGrantPollingAndScopes`,
+  `TestDeviceGrantErrorsAreTerminalAndSanitized`,
+  `TestDeviceGrantExpiresDuringPresentationAndCancelsPolling`,
+  `TestSharedCallbackRejectsInvalidRequestsWithoutConsuming`,
+  `TestSharedCallbackReservationAndCancellation`,
+  `TestAuthorizePKCEReregistersWhenFixedCallbackPortIsBusy`,
+  `TestDeviceDCRNeverRequiresCallbackPort`,
+  `TestManualPKCEPortCollisionDoesNotOpenBrowser`,
+  `TestDeviceRefusalNeverFallsBackToPKCE`,
+  `TestStoredAndClientCredentialsRefreshApprovalIsPerOperation`,
+  `TestCallbackBodyDeliveredBeforeFastAuthorizationFailure` e `mcpOAuthErrors.test.ts`.
+
+A entrega de grants/callbacks (#876) manteve a fase 2 **In Progress**: compartilhou
+os protocolos sem converter registros MCP ou transferir seu lifecycle persistido.
+A continuação abaixo integra novos cadastros ao lifecycle comum. Migração atômica,
+convergência Slack e validação funcional ChatGPT pelo usuário continuam pendentes.
+
+
+Revisão local dos grants/callbacks: `review_credential_sources`, oito rodadas;
+recuperação de porta antes de DCR e identificação persistida de registro Device-only
+corrigidas, última rodada sem pendências. A suite local não executa
+`internal/acpregistry` por restrição do antivírus; a confirmação de `internal/acp`
+no Windows encerrou com `0xffffffff`, sem asserção, após aprovação na primeira
+rodada. Esses pacotes permanecem cobertos pelo CI, sem contorno de bloqueio local.
+
+Inventário de logs: 766 → 751 formatos legados, correspondentes às quinze
+mensagens removidas na extração; zero chamadas `logging.Printf`. Novos eventos
+usam formatos normalizados sem código de dispositivo ou URL de autorização.
+
+O registro exclusivo Device declara `response_types: []`: omitir esse campo
+ativaria o padrão `code` da [RFC 7591 §2](https://www.rfc-editor.org/rfc/rfc7591#section-2).
+O DTO preserva a diferença entre ausência (padrão do protocolo), lista vazia
+(Device) e `code` (PKCE), coberta por
+`TestRegistrationResponseTypesDistinguishesDefaultFromEmpty` e pelo teste DCR MCP.
+
+A página HTML MCP usa nonce novo por resposta para seus blocos estáticos de estilo
+e fechamento da janela, sem liberar atributos inline ou recursos externos.
+Callbacks de texto mantêm `default-src 'none'`. Evidência:
+`TestHTMLCallbackUsesFreshNonceWithoutRelaxingPlaintext` (sucesso, recusa e texto).
+
+A sondagem MCP de compatibilidade usa somente `verification_uri` sem query ou
+fragmento; nunca requisita `verification_uri_complete`. Uma reescrita `/api`
+só é aplicada ao endereço completo quando origem e caminho correspondem.
+Evidência: `TestDeviceVerificationProbesOnlyCodeFreeEndpoint` e o fluxo Device MCP.
+Timeout/cancelamento do chamador preservam seu erro; somente o prazo interno
+é classificado como expiração do código, coberto por
+`TestDeviceGrantExpiresDuringPresentationAndCancelsPolling`.
+
+### Consumidor MCP de autorizações compostas (continuação da fase 2)
+
+Novos cadastros OAuth feitos no editor MCP usam `oauth_managed` e uma referência
+`OAuthAuthorizationID`. O registro cifrado contém cliente, método de autenticação,
+endpoints, scopes, callback e tokens, vinculado ao usuário e ID estável do servidor.
+A configuração persistida do servidor guarda a referência; o editor recebe uma
+projeção sem segredos. Criação e edição do consumidor/envelope são transacionais. Quando há secret
+novo, o editor usa `SaveMCPServerWithOAuthSecret` na mesma transação; remoção
+do secret e invalidação do grant também usam uma única revisão.
+Cadastros legados e importações continuam no caminho anterior: não houve conversão
+implícita, snapshot ou remoção de dados legados nesta entrega.
+
+`oauthflow.Service.AuthorizeUsing` controla lease, preservação da autorização
+anterior e commit por revisão. O adaptador MCP reutiliza a coreografia existente
+com CredentialManager e escritor de configuração ausentes, retornando somente o
+resultado ao serviço: nenhum token source desse adaptador fica numa conexão viva.
+PKCE/DCR/Device compartilham os componentes extraídos no PR #876. Client Credentials
+obtém e persiste um novo grant sem identidade OIDC ou refresh token; seu retry após
+falha não reutiliza material rotativo. OIDC ChatGPT mantém validação obrigatória.
+
+Bridge, guarda nativa e recuperação/proatividade consultam o mesmo serviço.
+Instâncias configuradas compartilham gate cancelável por autorização e leases
+persistidos entre processos. O método de autenticação do cliente (Basic ou corpo)
+é explícito e reutilizado na renovação. Aprovação inicial de rede ocorre antes da
+marca de refresh rotativo; socket e endpoint continuam protegidos.
+Startup e resolução silenciosa não abrem navegador para registros compostos;
+Conectar/Reautorizar são ações explícitas. Desconectar cancela a tentativa local.
+Respostas 404/410 mantêm a recuperação de sessão pelo bridge, sem renovar OAuth.
+O editor envia o endpoint Device herdado apenas se a URL final corresponde ao
+recurso originalmente carregado. Renomear ou desfazer uma edição de URL preserva
+o endpoint, coberto em `McpPage.test.tsx`. Permissões insuficientes têm orientação
+específica para corrigir scopes, localizada nos três idiomas.
+Edição e exclusão recusam leases ativos; CAS impede publicação de resultados
+atrasados. Logout invalida a sessão capturada pelo transporte. Resposta 403 não
+renova; 401 admite uma recuperação e replay somente com corpo recriável.
+
+Evidências: `TestManagedOAuthOneEncryptedEntryAndAtomicConsumer`,
+`TestManagedOAuthLegacyIsNotMigratedOrUsedAsFallback`,
+`TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart`,
+`TestManagedOAuthDeviceAndStartupNeverOpenBrowserImplicitly`,
+`TestManagedOAuthClientCredentialsAndDeleteFenceTransport`,
+`TestManagedOAuthEditsRefuseLiveLeasesAndRollbackConsumerFailure`,
+`TestManagedOAuthReplayFailureCloses401And403DoesNotRefresh`,
+`TestManagedOAuthTransportCannotSurviveVaultSession`,
+`TestManagedOAuthDisconnectCancelsRefreshPreflight`,
+`TestManagedOAuthReservedSlugIsAtomic`,
+`TestManagedOAuthDetachFailurePreservesAuthorization`,
+`TestManagedOAuthAuthInfoAfterRemovingSecret`,
+`TestManagedOAuthRemoveSecretFailureIsAtomic`,
+`TestConfiguredBasicAuthenticationOmitsBodyClientID`,
+`TestConfiguredRejectsChangedConsumerGrantAndScopes`,
+`TestConfiguredClientGrantWaitsForScopeCorrection`,
+`TestManagedOAuthPublishesWorkspaceRoots`,
+`TestManagedOAuthSessionExpiryTriggersBridgeRecovery`,
+`TestManagedOAuthSSEFallbackPreservesAuthorization`,
+`TestManagedOAuthRenamePreservesDiscoveredAudience`,
+`TestDeviceConfidentialClientAuthentication`,
+`TestConfiguredRefreshCoordinatesServiceInstances`,
+`TestConfiguredAuthorizationFailurePreservesPreviousAndLateResultsCannotRestore`,
+`TestConfiguredClientCredentialsRetriesWithoutRotatingRefresh` e
+`TestConfiguredFailedRotationCannotReuseRefreshAfterRestart`.
+
+Status permanece **In Progress**: falta migrar configurações/pares existentes e
+importações com snapshot e restauração, retirar o caminho legado após a conversão,
+e executar a convergência Slack. A validação com provedores reais é feita pelo usuário.
+
+Evidências adicionais da fase 2: `TestManagedOAuthRegistrationMetadataInvalidatesDCR` cobre re-registro após edição dos metadados e preservação em renomeações; `TestConfiguredClientGrantWaitsForScopeCorrection` cobre tanto escopos reduzidos como rejeição `invalid_scope`, sem repetição antes da correção.
+
+`TestManagedOAuthLatePublicationLoadsLatestCommit` prova que a publicação em memória ocorre após o commit e antes de liberar o lock do cofre, sem I/O ou falha posterior ao commit, preservando a ordem das edições.
+
+O serviço compartilhado confirma um checkpoint versionado do cliente DCR antes do consentimento, preservando o grant anterior em falha e recusando gravações tardias. Evidências: `TestConfiguredRegistrationCheckpointPreservesGrantAndFencesLateWrites` e o fluxo integrado DCR/PKCE com recusa seguida de nova tentativa sem repetir registro. A resolução em cache não contabiliza refresh; Client Credentials sinaliza correção de configuração, sem badge de reautorização interativa.
+
+O checkpoint usa `pendingRegistration` cifrado no mesmo registro: cliente/endpoints/escopos candidatos não substituem o vínculo dos tokens ativos. Somente o commit do consentimento promove o candidato; edição da configuração ou invalidação o descarta. `TestConfiguredRefusedCandidateKeepsOriginalRefreshBinding` prova renovação HTTP com o cliente original após recusa e promoção atômica na tentativa seguinte.
+
+A tentativa OAuth explícita publica o estado de conexão antes do protocolo, permite Desconectar/Cancelar durante preflight e propaga falhas até a página. Client Credentials sem escopos omite o parâmetro opcional, coberto por teste do grant.
+
+`TestOAuthCommitPublishesBeforeSessionRelease` cobre publicação mesmo com cancelamento após commit e ausência de publicação em rollback. Os roots são copiados sob o lock MCP da publicação. O seletor Basic/Post é reservado a clientes manuais/Client Credentials; DCR público permanece `none`.
+
+DCR público persiste `Client.AuthMethod=none` no candidato e no grant final, ignora segredo não solicitado na resposta de registro e recusa segredo manual enquanto o mesmo ID DCR for mantido. O teste PKCE/DCR confirma ausência de autenticação secreta na troca e no refresh, preservação em renomeação e rejeição de segredo manual. O inventário de métodos Wails autenticados inclui a gravação atômica com segredo.
+
+`TestConfiguredClientGrantReportsConfigurationErrors` cobre ID/segredo/endpoint ausentes e `invalid_client` como erro de configuração do cliente, também no caminho Conectar; não recomenda reautorização interativa para esse grant.
+
+Conectar e Reautorizar compartilham a publicação de tentativa em `beginManagedAttempt`. `TestManagedOAuthReauthorizationPublishesCancelableAttempt` cobre Cancelar/Desconectar e restauração do estado anterior em cancelamento do contexto durante Device Flow.
+
+
+### Fase 3 — inventário local antes da conversão
+
+Status: **In Progress**. O primeiro incremento da fase 3 disponibiliza
+**Diagnóstico OAuth** na página MCP, com consulta autenticada por usuário aos
+registros persistidos. Distingue autorizações compostas, pares legados por
+servidor, Client Credentials, credenciais por hostname e entradas sem consumidor
+OAuth correspondente. Detecta referências incompatíveis, material incompleto,
+client IDs divergentes, fonte externa e campos ilegíveis sem executar resolução
+de command/keyring, discovery, refresh ou consentimento.
+Inclui Bearer legado importado por hostname somente quando corresponde a um
+consumidor OAuth, normalizando o host como o resolvedor. Tokens Bearer alheios
+ao MCP não são inspecionados nem exibidos.
+Resíduos de consumidores já compostos e entradas sem consumidor mantêm os
+diagnósticos específicos de fonte externa, ilegibilidade e tipo incompatível;
+a classificação como resíduo não oculta problemas do material legado.
+
+A classificação é observacional: não declara um registro pronto para migrar,
+não prova validade remota, não infere exclusividade de credenciais por hostname
+nem a origem DCR/manual quando faltam metadados. A inspeção criptográfica é
+estrita; campos plaintext de versões antigas são reportados para análise em vez
+de tratados como segredos válidos após erro de decifragem. Nenhum dado é alterado.
+O payload da UI contém apenas identificação do consumidor e códigos diagnósticos,
+sem tokens, client IDs, endpoints ou configuração de comandos.
+
+Evidências: `internal/credentials/oauth_inventory_test.go` cobre leitura do banco,
+isolamento por usuário, ausência de mutação, chave incompatível, plaintext e fontes
+externas; `internal/mcp/oauth_inventory_test.go` cobre classificação, ausência de
+rede e referências compostas inválidas; `internal/wailsapi/mcp_test.go` cobre a
+sessão obrigatória; `McpOAuthInventory.test.tsx` cobre apresentação acessível,
+falhas sem detalhes internos e respostas após fechamento.
+O modal permanece montado para restaurar o foco da página na transição de
+fechamento; apenas o conteúdo da consulta é remontado ao reabrir. O teste de
+interface cobre fechamento por botão/Escape, restauração de foco e nova consulta.
+Uma Promise por abertura evita duplicar consultas/anúncios no replay de efeitos
+do `StrictMode`; uma reabertura cria nova consulta. Há teste explícito desse modo.
+
+Continuam pendentes na fase 3: snapshot cifrado com retenção/restauração,
+fixtures de conversão de versões publicadas, migração transacional/idempotente,
+coordenação com escritores legados, comprovação reinício/refresh/native/bridge
+e retirada do runtime legado. Este incremento não cria snapshots nem executa
+conversão, descarte ou exportação de credenciais.
+
+### Fase 3 — barreiras contra publicação legada tardia
+
+Status: **In Progress**. Antes da conversão, a persistência passa a recusar
+escritas em `mcp-client:<slug>` e `mcp-tokens:<slug>` quando o consumidor do mesmo
+usuário já pertence ao serviço compartilhado. A checagem e a gravação ficam na
+mesma transação, inclusive quando o escritor informa o ID da entrada existente.
+Resíduos anteriores permanecem intactos; a barreira não os apaga nem os migra.
+O salvamento adquire o writer SQLite antes da leitura do vínculo, usando o
+helper central de transação imediata e retry local. Escritas concorrentes em
+WAL não invalidam o snapshot entre checagem e upsert; não se repete o refresh
+remoto. Evidência: `TestLegacyCredentialWritePreventsStaleWALSnapshot` usa duas
+conexões e uma gravação não relacionada entre a checagem e o upsert.
+O callback de configuração usa a variante imediata compatível com savepoints,
+com retry somente na aquisição do writer. `TestLegacyConfigWriterPreventsStaleWALSnapshot`
+verifica a mesma contenção para cliente/porta DCR, com publicação coerente no cache.
+Callbacks antigos de configuração também não podem remover ou trocar o vínculo
+composto. A desvinculação explícita continua no callback transacional do cofre.
+
+O token source legado propaga falha de persistência, sem informar renovação
+concluída nem iniciar outro consentimento como fallback. A apresentação usa
+mensagem localizada e não expõe o erro bruto de armazenamento. O token recebido
+fica no token source enquanto essa instância existir, permitindo repetir a
+persistência sem renovar o mesmo grant. Isso não oferece recuperação após
+descarte do transport ou reinício; recuperação durável segue pendente.
+
+Evidências: `TestManagedOAuthRejectsLateLegacyWriters`,
+`TestManagedOAuthLegacyFencePreservesOtherConsumersAndResidues`,
+`TestLegacyTokenPersistenceFailureIsTerminalAndSanitized` e
+`mcpOAuthErrors.test.ts`.
+
+O probe SSE propaga a falha tipada de persistência até Conectar, sem criar outro
+transport com o refresh token antigo. A configuração capturada precede adaptações
+locais de polling; probe e transport compartilham o mesmo escritor, e callbacks
+OAuth não persistem o `DisableSSE` transitório. O fluxo GET 405 → polling → DCR →
+reautorização preserva a URI registrada. O fallback após falha de handshake SSE altera somente a preferência
+de polling sobre o snapshot atualizado pelo DCR, preservando cliente e callback.
+Reenvios legados recriam o corpo com
+`GetBody`; ausência ou falha da fábrica impede repetir a requisição.
+Evidências: `TestLegacyConnectStopsAfterProbePersistenceFailure`,
+`TestLegacyPollingDCRPersistsCallbackForReauthorization` e
+`TestLegacyOAuthDoesNotReplayUnavailableBody`.
+
+A criação preserva `Enabled` e `AutoConnect` explicitamente na mesma transação,
+sem publicar defaults divergentes no cache. Evidência:
+`TestOAuthCreationPreservesExplicitConnectionFlags` cobre todas as combinações
+nos caminhos legado e composto, incluindo recusa de conexão quando desabilitado.
+
+Esta barreira de gravação não é exclusão antes da operação remota. Antes de
+converter, ainda é necessário coordenar autorização/refresh e edição desde
+antes do request até o commit, incluindo operações em outros processos. Os
+registros publicados não preservam necessariamente scopes concedidos nem o
+método de autenticação efetivamente negociado; esses casos não podem ser
+convertidos por inferência. Snapshot não desfaz rotação remota: a recuperação
+precisa distinguir restauração estrutural de validade do grant. Snapshot,
+retenção, restauração, conversão e retirada do runtime legado seguem pendentes.
+
+### Fase 3 — coordenação durável do OAuth PKCE legado
+
+Status: **In Progress**. Os consumidores PKCE persistidos agora adquirem uma
+tentativa durável antes da autorização ou renovação remota. O controle transitório
+fica cifrado pela DEK na própria entrada `mcp-tokens:<slug>`, com versão,
+identidade do consumidor, nonce, prazo e indicação de refresh pendente. Não é
+um registro composto nem uma conversão de grant. Client Credentials permanece
+fora deste incremento.
+
+A aquisição, a validação do consumidor e a leitura do par são transacionais.
+Nenhuma transação SQLite ou trava global do cofre abrange rede ou consentimento.
+A renovação tem prazo de 30 segundos; a autorização interativa, 10 minutos.
+A decisão de rede para o endpoint de token antecede a aquisição curta; os
+controles de destino continuam ativos no socket, inclusive se o DNS mudar.
+Durante a tentativa, outra instância atualizada não pode renovar, editar ou
+apagar o par/configuração. A publicação exige a mesma tentativa, consumidor e
+sessão do cofre, e salva tokens com remoção do marcador no mesmo commit.
+
+Leituras de tokens consultam o banco, incluindo MCP nativo, sem confiar no cache
+de outra instância. Mudança de recurso/configuração invalida transports antigos.
+Segredos do cliente são relidos dentro da aquisição; construir um transport não
+importa configuração sobre uma credencial potencialmente mais recente.
+Basic/Post continua negociável somente após `invalid_client` explícito; timeout,
+erro de rede e respostas ambíguas não repetem o refresh. Não se infere o método
+efetivamente negociado nem os escopos concedidos para futura conversão.
+
+O checkpoint DCR legado salva cliente, segredo e configuração de callback na
+mesma transação e publica ambos os caches somente depois do commit, sob a sessão
+capturada. Falha em qualquer gravação preserva o estado local anterior.
+Evidências: `TestLegacyDCRDoesNotPublishConfigWhenClientSaveFails` e
+`TestLegacyDCRRollsBackClientWhenConfigSaveFails`. Na manutenção de bootstrap,
+um CAS perdido relê o estado: recifragem já concluída ou controle OAuth não
+abortam a inicialização, mas um valor substituto ilegível continua sendo erro
+(`TestLegacyRefreshMaintenanceRecoversConcurrentCAS`).
+
+Uma renovação iniciada sem commit deixa o grant pendente mesmo após reinício ou
+expiração da tentativa. Conectar, probe, fallback e MCP nativo não reutilizam esse
+refresh token: é necessária **Reautorizar** explícita. Cancelar essa recuperação
+preserva a pendência. A exclusão explícita das credenciais locais pode descartar
+uma pendência inativa; não revoga o grant remoto. Uma resposta antiga não pode
+recriar o par apagado nem publicar sobre uma tentativa posterior.
+
+Evidências: `TestLegacyRefreshCoordinatesProcessesAndEdits`,
+`TestLegacyRefreshNegotiatesOnlyDefinitiveClientRejection`,
+`TestLegacyTransportRejectsChangedResourceWithValidToken`,
+`TestLegacyRefreshConsentPrecedesDurableAttempt`,
+`TestLegacyNativeRefreshUsesFreshClientWithoutBootstrapOverwrite`,
+`TestLegacyOAuthInterruptedRefreshRequiresExplicitRecovery`,
+`TestLegacyOAuthExpiredCrashMarkerSurvivesRestart` e
+`TestLegacyOAuthSessionAndFailedDeletionPreserveVault`.
+
+A resolução de tokens no mesmo transport mantém a trava local durante a leitura
+da configuração, impedindo corrida com discovery/DCR. A identidade concorrente
+usa a última configuração persistida, separada dos endpoints enriquecidos em
+memória; somente checkpoint DCR confirmado avança essa referência.
+Discovery pode resolver o
+endpoint de refresh ausente após reinício sem alterar a identidade persistida.
+A consulta de autenticação reconhece tokens de clientes públicos sem segredo;
+ao escolher `none`, o backend remove a credencial do consumidor original,
+incluindo pendência inativa, e salva a configuração na mesma transação. Falha
+de gravação preserva ambos; publicação atrasada não substitui edição posterior.
+A exclusão do servidor usa a mesma transação para remover par e consumidor,
+permitindo pendência inativa e recusando tentativa ativa. Falha de exclusão
+também preserva o grant (`TestLegacyDeleteServerAllowsInactivePendingAndRollsBack`).
+Evidências: `TestLegacyTransportSerializesTokenResolutionWithConfiguration`,
+`TestLegacyRestartDiscoversRefreshEndpoint`,
+`TestLegacyPublicClientAuthInfoAndPendingRemoval`,
+`TestLegacyDetachRollsBackCredentialsWithConfig`,
+`TestLegacyDetachLatePublicationPreservesNewEdit`,
+`TestLegacyManualDiscoveryKeepsPersistedIdentity` e `McpPage.test.tsx`.
+
+Limite: executáveis antigos não conhecem este controle e não participam da
+coordenação. Não se deve compartilhar o banco com versões anteriores durante
+operações OAuth. O controle não é um backup exportável nem comprova validade
+remota. Naquele incremento, snapshot cifrado, retenção/restauração e fixtures
+eram pendentes; as seções seguintes registram sua entrega parcial. A conversão
+transacional/idempotente, suas fixtures e a retirada do runtime legado continuam pendentes;
+a fase 3 não está concluída.
+
+Timeout de DNS no preflight encerra a tentativa mesmo quando o contexto externo
+continua válido, sem requisição anônima ou consentimento como fallback.
+Evidência: `TestLegacyPreflightDeadlineStopsBeforeAnonymousRequest`.
+
+
+A renovação proativa preserva o limiar de validade e adota rotações concorrentes
+sem renovar novamente. O fallback nativo por hostname relê o banco e valida
+consumidor/ausência do par na mesma transação, sem reutilizar cache removido.
+Evidências: `TestLegacyProactiveAdoptsConcurrentRotation` e
+`TestLegacyNativeFallbackDoesNotReuseDeletedHostname`.
+
+
+A escolha do detach usa a configuração já normalizada, incluindo mudança de
+HTTP PKCE para stdio com autenticação omitida. O teste de rollback também cobre
+essa transição, sem deixar o par legado órfão.
+
+
+Operações de autenticação disparadas pela UI validam o snapshot do consumidor
+na mesma transação da gravação/exclusão, inclusive quando o cache ainda indica
+None, Bearer ou Client Credentials e outra instância já alterou para PKCE.
+Excluir um cadastro genérico também recusa mudança concorrente de identidade.
+A consulta de presença usa o banco, sem retornar ao cache nem executar fontes.
+Evidências: `TestLegacyDeleteAuthRejectsStaleConsumerAndPreservesFallbacks`,
+`TestLegacyAuthMutationsRejectOtherInstanceConsumerChanges`,
+`TestLegacyGenericDeleteRejectsConsumerChangedAfterRead` e
+`TestLegacyAuthMetadataDoesNotReuseRemovedCache`.
+
+Salvar autenticação None faz o detach no backend com o tipo autoritativo atual,
+inclusive Bearer/Basic/Client Credentials ou cadastro HTTP já None. A UI não
+escolhe remover credenciais depois do save pelo tipo que carregou anteriormente.
+Atualização de stdio já sem autenticação e sem hostname permanece um save local.
+Evidências: `TestLegacyNoneSaveClearsAuthoritativeAuthType` e os casos de None em
+`McpPage.test.tsx`, incluindo rollback da configuração/credenciais.
+
+A edição sem credenciais não depende de cofre disponível: a ausência do par e
+do hostname é comprovada sob o writer SQLite antes do save. Se houver dados,
+a validação do cofre/marcador permanece obrigatória. Evidência:
+`TestSaveHTTPNoneWithoutVaultOrStoredCredentials`.
+
+
+A exclusão explícita de autenticação persistida remove cliente, tokens e hostname
+na mesma transação também para Bearer, Basic, Client Credentials e None, com
+validação do consumidor e rollback integral. O fallback não-PKCE em memória
+permanece disponível. Evidências: `TestUnmanagedAuthDeletionRollsBackEveryPattern`
+e `TestUnmanagedAuthDeletionKeepsInMemoryFallback`.
+
+Depois de resolver uma fonte externa do fallback por hostname, o runtime revalida
+consumidor, ausência de grant próprio e identidade/conteúdo da credencial na
+mesma leitura transacional. Uma alteração durante o comando invalida o resultado.
+Evidência: `TestLegacyHostnameRevalidatesAfterSourceResolution`.
+
+Toda falha da resolução coordenada do token legado é terminal para o transporte,
+inclusive erros genéricos do banco/discovery, preservando a causa para errors.Is.
+Não há envio anônimo nem autorização interativa após essa falha. Evidência:
+`TestLegacyStoreFailureStopsBeforeAnonymousRequest`. Ausência explícita de grant continua permitindo o bootstrap, coberto por `TestLegacyMissingGrantAllowsInitialProbe` e `TestLegacyPollingDCRPersistsCallbackForReauthorization`.
+
+### Fase 3 — recuperação estrutural do PKCE legado
+
+Status: **In Progress**. O diagnóstico OAuth oferece criação, consulta,
+restauração e descarte de snapshots dos consumidores PKCE legados persistidos.
+Este incremento entrega recuperação estrutural; não converte grants, não executa
+fontes externas e não restaura tokens antigos sobre autorizações atuais.
+
+O envelope `legacy-pkce-v1` inclui configuração, par exato (inclusive ausências),
+controle durável, versão/build, usuário e identidade do banco. O cofre cifra todo
+o envelope com sua DEK. Os arquivos ficam em `~/.assistente-oauth-recovery/`,
+separados por hash do caminho absoluto do banco e usuário, fora dos diretórios de
+exportação/sincronização. Acesso exige a sessão e a chave compatível; a API da UI
+recebe somente identificação, localização e datas. Unix usa diretório 0700 e
+arquivo 0600; Windows usa DACL protegida exclusiva do usuário do processo.
+Publicação é exclusiva, com arquivo sincronizado antes do link final; Unix também
+sincroniza o diretório. Leitura/escrita de arquivos não retém a trava do cofre;
+a publicação valida a sessão novamente. Não há promessa de apagamento físico.
+
+A validade explícita inicial é de 30 dias. Expiração impede restauração, mas não
+remove o último arquivo: descarte exige confirmação do fim da janela de rollback
+e da validação da recuperação/migração. Antes de automatizar a conversão, sua
+janela de rollback deverá caber na retenção configurada para aquela entrega.
+
+Restaurar exige o par ausente e o consumidor original sem edições posteriores,
+ou consumidor inteiramente removido. Não substitui grant ou cadastro mais novo.
+Configuração e cliente são restaurados na mesma transação; tokens antigos ficam
+somente no snapshot, enquanto um marcador pendente força autorização explícita.
+O servidor permanece desabilitado, sem conexão automática. **Reautorizar** funciona
+nesse estado sem reconectá-lo; após concluir, o usuário pode habilitá-lo.
+O snapshot não desfaz rotação/revogação remota nem oferece downgrade automático.
+
+Evidências: `TestPrivateSnapshotPublication`, `TestWindowsSnapshotDACL`,
+`TestOAuthSnapshotRecoveryNeverReplaysStoredRefresh`,
+`TestOAuthSnapshotRejectsActiveOperationsSourcesAndWrongKey`,
+`TestOAuthSnapshotRestoreIsAtomicAndRejectsEdits`,
+`TestOAuthSnapshotMissingConsumerRemainsDisabled`,
+`TestOAuthSnapshotPublicationRefusesEndedSession`,
+`TestOAuthSnapshotTamperAndRetention`,
+`TestOAuthSnapshotRestoreReauthorizeThenEnable` e `McpOAuthSnapshots.test.tsx`.
+
+Snapshots de credenciais compartilhadas por hostname foram entregues no incremento
+descrito adiante. Continuam pendentes: conversão dos cadastros PKCE/Client Credentials e suas fixtures históricas,
+cutover transacional/idempotente, paridade após reinício/native/bridge e remoção
+do runtime legado. A convergência de Slack permanece na etapa seguinte.
+
+Revisão da recuperação: a raiz confinada tem sua identidade comparada com o
+handle protegido ainda aberto, recusando substituição por rename/reparse. O
+modal de snapshots usa semântica de formulário, e a decisão de reconectar relê
+a configuração após reautorizar. Evidências: `TestOpenRejectsDirectoryReplacedAfterProtection`,
+`TestOpenKeepsValidatedDirectoryAfterRename`, `McpOAuthInventory.test.tsx` e
+`TestOAuthSnapshotRestoreReauthorizeThenEnable/enabled_after_authorization`.
+
+### Fase 3 — recuperação de Client Credentials legado
+
+Status: **In Progress**. O mesmo diagnóstico permite criar, listar, restaurar e
+descartar snapshots dos consumidores Client Credentials legados. O envelope
+`legacy-client-credentials-v1` mantém configuração e registros específicos por
+slug; o leitor continua aceitando `legacy-pkce-v1`, sem reinterpretar seu contrato.
+Credenciais por hostname não são capturadas, removidas nem restauradas.
+
+A restauração mantém as guardas transacionais de identidade, ausência de
+credenciais atuais, sessão e retenção. Recupera somente os campos de registro do
+cliente (ID, segredo e grant), descartando access/refresh mesmo se indevidamente
+presentes na entrada de cliente. Segredos ilegíveis abortam sem publicar no banco
+ou cache. O cliente recuperado é publicado no cache após o commit para funcionar
+sem reinício; o carregamento normal do cofre preserva o resultado após reinício.
+O servidor permanece desabilitado e sem autoconexão. Client Credentials não cria
+marcador PKCE nem solicita consentimento interativo: ao habilitar e conectar,
+obtém um token novo. Cadastros incompletos exigem correção antes da conexão.
+
+Evidências: `TestClientCredentialsSnapshotRestoresOnlyRegistration`,
+`TestClientCredentialsSnapshotRestoreRollsBackCacheAndDatabase`,
+`TestClientCredentialsSnapshotRejectsUnreadableRegistration`,
+`TestClientCredentialsSnapshotGetsNewTokenAfterEnable` e
+`McpOAuthSnapshots.test.tsx`. Os testes PKCE anteriores permanecem no mesmo fluxo.
+
+Este incremento não inicia conversão automática nem conclui a fase 3. Faltam
+fixtures de conversão
+dos formatos publicados, conversão transacional/idempotente e remoção do runtime legado.
+Slack e os aceites funcionais com provedores reais continuam pendentes.
+
+Client Credentials também resolve o Client ID apenas no cofre legado quando o
+campo da configuração está vazio, preservando a configuração persistida. O teste
+`TestClientCredentialsSnapshotGetsNewTokenAfterEnable/vault_only_id` cobre a
+obtenção de token novo antes e depois de recarregar o cofre.
+
+### Fase 3 — fixtures publicadas para recuperação
+
+Status: **In Progress**. `TestPublishedOAuthRecovery` importa os schemas
+publicados 0.2.0, 0.3.0, 0.4.0 e 0.5.0 já versionados em `database/testdata`,
+acrescenta registros OAuth sintéticos com ciphertexts congelados no formato
+histórico e aplica duas vezes o AutoMigrate das tabelas de credenciais/MCP.
+A proveniência dos schemas e dos dados está nos READMEs de `testdata`.
+Não usa bancos reais, executáveis antigos ou o serializer atual para produzir
+as credenciais iniciais. Upgrade integral permanece nos testes de database.
+
+Os 16 cenários cobrem PKCE completo, Client Credentials com ID apenas no cofre,
+PKCE sem cadastro do cliente e segredo ilegível. Provam leitura criptográfica,
+preservação da expiração e das linhas cifradas na captura, callback fixo e
+endpoints, isolamento por usuário, recarga após recuperação, conflito em restore
+repetido e preservação das demais credenciais, inclusive hostname compartilhado.
+Source ausente continua bloqueada na resolução genérica conforme AEP-0110;
+recuperação explícita restaura cadastro estático e não reativa tokens antigos.
+
+Este incremento conclui a cobertura histórica da recuperação estrutural desses
+formatos. Não comprova conversão, rollback de executáveis ou recuperação de
+hostname (entregue separadamente na seção seguinte). Fixtures de conversão, cutover, retirada do
+legado e convergência Slack continuam pendentes.
+
+### Fase 3 — recuperação explícita de credenciais por hostname
+
+Status: **In Progress**. O diagnóstico permite selecionar separadamente uma entrada
+estática por hostname, inclusive padrão wildcard ou IP, e criar o envelope
+`legacy-hostname-v1`. O snapshot mantém os campos cifrados originais, sem executar
+fontes externas e sem inferir ownership de servidores a partir do hostname.
+Namespaces gerenciados, autorizações compostas e controles OAuth ativos não são
+aceitos. A sessão, chave, banco, armazenamento privado e retenção seguem as mesmas
+guardas dos demais snapshots.
+
+Decisão confirmada pelo mantenedor: a recuperação por hostname **inclui tokens**,
+pois o cofre pode ser a única cópia do token colado a partir do provedor. A UI
+explica o alcance compartilhado e pede confirmação específica antes de restaurar.
+Isso é distinto dos snapshots por servidor PKCE/Client Credentials, que continuam
+recuperando apenas a estrutura e exigindo tokens novos.
+
+O restore exige ausência do ID original e da entrada user/pattern, valida todos
+os campos cifrados sem fallback plaintext e grava a entrada integral em transação.
+Publica no cache somente após commit, como fonte estática explícita, inclusive
+para dados antigos sem source. Preserva validade e segredos; não promete reverter
+expiração, revogação ou rotação remota. Não restaura/edita servidores, inicia
+conexões ou associa o hostname a um consumidor; próximos usos do padrão podem
+usar a credencial recuperada. Falha ou colisão não sobrescreve dados atuais.
+
+Evidências: `TestHostnameSnapshotCaptureIsPrivateAndReadOnly`,
+`TestHostnameSnapshotRejectsExternalAndManagedEntries`,
+`TestHostnameSnapshotRestoresSecretsWithoutChangingConsumers`,
+`TestHostnameSnapshotRecoveryFailureIsAtomic`, `TestHostnameSnapshotConcurrentRestore`,
+`TestHostnameSnapshotManagerPreservesConsumerAndResolvesToken` e
+`McpOAuthSnapshots.test.tsx` (confirmação específica e recusa de fontes externas).
+`TestHostnameSnapshotResolvesIPv6AndCaseAfterRestore` prova resolução antes/depois
+da recarga com IPv6, porta e caixa mista. O resolvedor usa `URL.Hostname()` e
+compara padrões sem distinguir caixa, sem reescrever o padrão persistido.
+Variantes do mesmo padrão que diferem apenas por caixa bloqueiam a resolução
+ambígua antes de ler segredos ou executar fontes, inclusive quando um wildcard
+precede as variantes (todas as ordens cobertas pelo teste); o restore recusa uma variante
+equivalente já existente na mesma transação. As entradas originais são preservadas.
+Evidências: `TestHostnameCaseCollisionNeverSelectsToken` e
+`TestHostnameSnapshotRestoreRejectsCaseEquivalentEntry`.
+O inventário reutiliza a validação da captura e sinaliza `snapshot_ineligible`;
+a UI não oferece entradas inelegíveis. Testes de inventário/captura e seletor
+cobrem hostnames válidos e padrões com URL, caminho ou porta rejeitados.
+Conversão transacional/idempotente, fixtures de conversão, cutover e Slack
+continuam pendentes; esta entrega não conclui a fase 3.
+
+### Fase 3 — coordenação do Client Credentials legado antes da conversão
+
+Status: **In Progress**. Consumidores Client Credentials persistidos agora usam
+as mesmas barreiras duráveis do PKCE para obter tokens. A tentativa, cifrada na
+entrada de controle `mcp-tokens:<slug>`, tem prazo de 30 segundos e valida o
+consumidor e o cliente na mesma transação. Não há trava do cofre nem transação
+SQLite durante rede ou consentimento. O preflight antecede a tentativa curta e seu escopo de aprovação é preservado pelo grant de uso único, inclusive em outra origem privada.
+Se o DNS mudar para um destino que exige nova aprovação, o grant falha sem
+interação e libera a tentativa. Uma próxima tentativa explícita faz novo
+preflight fora da lease; a política e os IPs aprovados são preservados entre
+o preflight e o envio.
+
+O access token continua em memória no transporte; não foi criado outro formato
+de autorização. Cada uso adquire uma tentativa breve e relê o cliente no banco,
+recusando consumidor alterado, ownership composto, exclusão, fonte externa ou
+segredo ilegível. Mudança de ID/segredo invalida o cache local. A conclusão compara
+a tentativa e a sessão antes de liberar o token. Edição, exclusão e captura de
+snapshot recusam uma tentativa ativa também neste fluxo.
+
+Client Credentials emite um grant novo, sem reutilizar refresh token. Uma falha
+ou tentativa expirada pode ser repetida; não marca refresh pendente nem exige
+consentimento interativo. Um access token ou refresh token residual do PKCE é ambiguidade e
+continua bloqueado. Respostas de erro do provedor não são expostas pela resolução.
+Client Credentials legado persistido usa o bridge local: não pode expor ao MCP nativo o fallback genérico por hostname ou token em cache. Client Credentials composto conserva o suporte nativo pelo serviço comum. Entradas não persistidas conservam o caminho anterior. Executáveis antigos não
+participam desta coordenação e não devem compartilhar o banco durante operações.
+
+Evidências: `TestLegacyClientGrantCoordinatesProcessesAndMutations`,
+`TestLegacyClientGrantRelatesCacheToCurrentClientAndOwner`,
+`TestLegacyClientGrantSessionEndDoesNotPublishToken`,
+`TestLegacyClientGrantFailedIssuanceCanRetryWithoutLeakingBody`,
+`TestLegacyClientGrantExpiredLeaseCanRetryWithoutReauthorization` e
+`TestLegacyClientGrantAcquisitionRollsBackAndRefusesPKCEResidue`, `TestLegacyClientGrantReusesConsentBeforeLeaseAcrossOrigins`, `TestLegacyClientGrantNativeNeverUsesCachedHostnameAfterCutover` e `TestClientGrantRefusesDNSChangeWithoutConsentInsideLease`.
+
+Este incremento fecha a barreira de concorrência que faltava ao Client
+Credentials. A conversão transacional/idempotente permanece pendente, incluindo
+a resolução explícita de metadados não preservados no legado (por exemplo, o
+método Basic/Post negociado), fixtures de conversão e retirada do runtime antigo.
+Não altera registros para o formato composto automaticamente. Fase 3 e Slack
+continuam em andamento.
+
+### Fase 3 — conversão explícita de Client Credentials
+
+Status: **In Progress**. O diagnóstico permite converter um snapshot Client
+Credentials válido, com confirmação e escolha explícita de `client_secret_basic`
+ou `client_secret_post`. O legado não preservava o método negociado: a conversão
+não faz sondagem nem assume um padrão. PKCE permanece no formato anterior.
+
+A transação imediata compara consumidor, identidade local e todas as entradas
+com o snapshot cifrado antes de unir ID/segredo em um record `source=oauth`, trocar
+a referência do MCP e remover somente seu par legado. Fonte externa, registro
+incompleto, segredo ilegível, divergência de ID e tokens residuais são recusados
+sem descarte. O ID pode estar apenas na configuração ou apenas no cofre.
+Credenciais compartilhadas por hostname permanecem intocadas. Não há rede
+durante a conversão; o record começa pendente e Conectar obtém um grant novo.
+
+O ID da autorização deriva do snapshot e permite repetir a mesma conversão sem
+criar outra autorização nem interromper uma conexão composta posterior. O
+retry com método Basic/Post diferente retorna conflito. Uma instância que ainda
+mantém conexão legada encerra somente esse runtime ao repetir a conversão;
+conexões e tentativas compostas são identificadas pelo ownership capturado.
+Uma barreira local impede novas conexões até terminar a limpeza do runtime
+legado, sem manter a trava durante I/O (`TestClientConversionWaitsForLegacyCleanupBeforeNewConnection`).
+O transporte legado de outra instância perde ownership e não pode emitir grants.
+O snapshot permanece cifrado por sua janela original de 30 dias. Para recuperar
+o cadastro antigo depois da conversão, remover explicitamente o servidor composto
+e restaurar o snapshot: ele não sobrescreve uma autorização atual. O cliente é
+recuperado desabilitado; um novo grant é necessário. Downgrade nunca compartilha
+o banco ativo com uma versão antiga.
+
+Evidências: `TestClientConversionAtomicIdempotentAndRestart` (Basic/Post, ID no
+cofre/configuração, bridge/native, recarga e repetição sem desconexão),
+`TestClientConversionRefusesChangedIncompleteAndActiveRecords`,
+`TestClientConversionRollsBackAndKeepsSnapshot`,
+`TestPublishedClientConversionPreservesHistoricalSecrets` (fixtures 0.2.0–0.5.0),
+`TestMCPOAuthSnapshotsRequireSession` e `McpOAuthSnapshots.test.tsx` (confirmação,
+método obrigatório, foco e falha de recarga distinta de falha de conversão).
+
+Faltam a conversão dos grants PKCE com seus metadados, a retirada final do runtime
+e das configurações legadas e a convergência de Slack. A fase 3 não está concluída.

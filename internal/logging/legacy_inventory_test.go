@@ -24,8 +24,12 @@ const (
 	// removidos. Os logs da manutenção existente continuam no jobs.Manager.
 	// Provider CRUD now propagates persistence failures before publishing: three
 	// obsolete creation/update/removal warning formats were removed.
-	expectedLegacyFormatCount  = 767
-	expectedLegacyFormatDigest = "5b528b16bf500248a1e590dedf6acf11f33de9e3399f9e28509e438866562cf2"
+	// OAuth discovery moved to oauthflow; the DCR URL/redirect diagnostic was removed.
+	// Shared OAuth grants/callbacks remove 15 legacy formats, including codes and authorization URLs.
+	// Legacy OAuth now propagates a sanitized persistence error instead of
+	// logging the raw storage failure and reporting successful renewal.
+	expectedLegacyFormatCount  = 750
+	expectedLegacyFormatDigest = "a9b995559c6852950c8426d1678e83eea833941cd7fa2c82eee7865050b50487"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

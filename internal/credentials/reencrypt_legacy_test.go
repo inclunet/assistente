@@ -76,7 +76,7 @@ func TestListCredentialsWithRefreshTokensIgnoringScopeFiltersEmptyRefresh(t *tes
 func TestUpdateRefreshTokenEncByIDReturnsErrorWhenMissing(t *testing.T) {
 	setupScopedCredentialStoreTestDB(t)
 
-	if err := NewDBStore().UpdateRefreshTokenEncByID(context.Background(), "missing-cred", "encrypted"); err == nil {
+	if err := NewDBStore().UpdateRefreshTokenEncByID(context.Background(), "missing-cred", "old", "encrypted"); err == nil {
 		t.Fatal("UpdateRefreshTokenEncByID deveria falhar quando nenhuma linha é atualizada")
 	}
 }

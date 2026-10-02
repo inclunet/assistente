@@ -293,3 +293,12 @@ casos em que o PRM existia, mas a configuração ainda precisava ser completada.
 - Campos manuais existentes permanecem intactos e o formulário continua
   salvável.
 - Backend e frontend possuem testes obrigatórios para esses comportamentos.
+
+## Implementação compartilhada (AEP-0112, fase 2)
+
+O algoritmo e seus testes de descoberta residem em `internal/oauthflow/discovery.go`
+e `discovery_test.go`. `internal/mcp/discovery.go` adapta o resultado ao DTO MCP
+existente, enquanto o runtime utiliza `oauthflow.DiscoverEndpoints`. Orçamentos,
+candidatos, hints saneados e comportamento de preenchimento manual permanecem
+inalterados. Registro dinâmico RFC 7591 também usa HTTP compartilhado; migração
+de credenciais e grants permanece no plano do AEP-0112.

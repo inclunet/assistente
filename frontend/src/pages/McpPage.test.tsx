@@ -2,8 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, type ReactNode } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { SaveMCPServerAuth, DeleteMCPServerAuth, GetMCPServerAuthInfo } from '@wailsjs/go/wailsapi/MCP';
 
 const mockSave = vi.fn();
+const mockConnect = vi.fn();
+const mockToast = vi.fn();
 const mockGetConfig = vi.fn();
 const mockLoadServers = vi.fn();
 const mockDuplicate = vi.fn();
@@ -30,7 +33,7 @@ vi.mock('../store/mcpStore', () => ({
     servers: mockServers,
     isLoading: false,
     loadServers: mockLoadServers,
-    connect: vi.fn(),
+    connect: mockConnect,
     disconnect: vi.fn(),
     reconnect: vi.fn(),
     save: mockSave,
@@ -66,7 +69,7 @@ vi.mock('../hooks/useConfirm', () => ({
 
 vi.mock('../store/uiStore', () => ({
   useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
-    const s = { addToast: vi.fn() };
+    const s = { addToast: mockToast };
     return selector ? selector(s) : s;
   },
 }));
@@ -152,6 +155,11 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
     oauth2AuthUrl: string;
     oauth2TokenUrl: string;
     oauth2Scopes: string;
+    oauth2ClientSecret: string;
+    oauth2ClientId: string;
+    oauthDCRRegistered: boolean;
+    onOAuth2ClientIdChange: (value: string) => void;
+    onOAuth2ClientSecretChange: (value: string) => void;
     discoveryStatus: string;
     discoveryRegistrationUrl: string;
     oauth2CallbackHost: string;
@@ -168,6 +176,9 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
     onManualOverride: () => void;
   }) => (
     <div data-testid="connection-section">
+      <input aria-label="Client ID" value={props.oauth2ClientId} onChange={(e) => props.onOAuth2ClientIdChange(e.target.value)} />
+      <span data-testid="dcr-registered">{String(props.oauthDCRRegistered)}</span>
+      <input aria-label="Client Secret" value={props.oauth2ClientSecret} onChange={(e) => props.onOAuth2ClientSecretChange(e.target.value)} />
       <input aria-label="Server URL" value={props.url} onChange={(e) => props.onUrlChange(e.target.value)} />
       <input aria-label="Authorization URL" value={props.oauth2AuthUrl} onChange={(e) => props.onOAuth2AuthUrlChange(e.target.value)} />
       <input aria-label="Token URL" value={props.oauth2TokenUrl} onChange={(e) => props.onOAuth2TokenUrlChange(e.target.value)} />
@@ -233,6 +244,28 @@ describe('McpPage — oauth2_callback_host', () => {
     });
   }
 
+  it.each(['oauth2_pkce', 'bearer', 'basic'].flatMap((authType) => [false, true].map((fail) => ({ authType, fail }))))('delega remoção e configuração none a uma única gravação atômica ($authType, $fail)', async ({ authType, fail }) => {
+    mockServers = [{ slug: 'legacy', name: 'Legacy', transport: 'streamable', status: 'disconnected', enabled: true }];
+    mockGetConfig.mockResolvedValue({ name: 'Legacy', transport: 'streamable', url: 'https://example.com/mcp', auth_type: authType, oauth_managed: false });
+    vi.mocked(GetMCPServerAuthInfo).mockResolvedValueOnce({ hasAuth: true } as Awaited<ReturnType<typeof GetMCPServerAuthInfo>>);
+    if (fail) mockSave.mockRejectedValueOnce(new Error('oauth_transient'));
+    render(<McpPage />);
+    const row = screen.getByText('Legacy').closest('div');
+    if (!row) throw new Error('Linha ausente');
+    await userEvent.click(within(row).getByRole('button', { name: 'mcp.actions.edit' }));
+    await screen.findByLabelText('Auth Type');
+    await userEvent.selectOptions(screen.getByLabelText('Auth Type'), 'none');
+    await userEvent.click(screen.getByText('Salvar'));
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith('legacy', expect.objectContaining({ auth_type: 'none' })));
+    expect(DeleteMCPServerAuth).not.toHaveBeenCalled();
+    if (fail) {
+      await waitFor(() => expect(mockToast).toHaveBeenCalled());
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    } else {
+      await waitFor(() => expect(mockSave).toHaveBeenCalledWith('legacy', expect.objectContaining({ auth_type: 'none' })));
+    }
+  });
+
   it('inicializa oauth2CallbackHost vazio para novo servidor', async () => {
     await openNewServerForm();
     expect(screen.getByTestId('callback-host-value')).toHaveTextContent('');
@@ -265,6 +298,20 @@ describe('McpPage — oauth2_callback_host', () => {
     expect(slug).toBe('test-server');
     expect(config.oauth2_callback_host).toBe('127.0.0.1');
     expect(config.oauth2_callback_port).toBe(3118);
+    expect(config.oauth_managed).toBe(true);
+  });
+
+  it.each([false, true])('envia segredo na gravação atômica (falha=%s)', async (fail) => {
+    await openNewServerForm();
+    await userEvent.type(screen.getByLabelText('Nome'), 'Atomic');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await userEvent.selectOptions(screen.getByLabelText('Auth Type'), 'oauth2_pkce');
+    await userEvent.type(screen.getByLabelText('Client Secret'), 'secret');
+    if (fail) mockSave.mockRejectedValueOnce(new Error('atomic failure'));
+    await userEvent.click(screen.getByText('Salvar'));
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith('atomic', expect.objectContaining({oauth_managed: true}), 'secret'));
+    expect(SaveMCPServerAuth).not.toHaveBeenCalled();
+    if (fail) await waitFor(() => expect(screen.getByLabelText('Nome')).toHaveValue('Atomic'));
   });
 
   it('não inclui oauth2_callback_host quando authType não é PKCE', async () => {
@@ -338,6 +385,15 @@ describe('McpPage — oauth2_callback_host', () => {
 
     const [, config] = mockSave.mock.calls[0];
     expect(config.oauth2_callback_host).toBeUndefined();
+  });
+
+  it('traduz negativa de rede na descoberta sem preencher endpoints', async () => {
+    mockDiscover.mockResolvedValue({ found: false, status: 'partial', error: 'oauth_discovery_destination_blocked' });
+    await openNewServerForm();
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/internal');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith('mcp.error.networkAuthorizationFailed', 'error'));
+    expect(screen.getByTestId('discovery-status-value')).toHaveTextContent('not_found');
   });
 
   it('preserva endpoints OAuth preenchidos manualmente durante discovery', async () => {
@@ -627,4 +683,47 @@ describe('McpPage — oauth2_callback_host', () => {
     const [, config] = mockSave.mock.calls[mockSave.mock.calls.length - 1];
     expect(config.oauth2_registration_url).toBeUndefined();
   });
+  it.each(['rename','change','revert'])('vincula Device ao recurso original (%s)', async (mode) => {
+    mockServers = [{slug:'device',name:'Device',transport:'streamable',status:'disconnected',toolCount:0,enabled:true}];
+    mockGetConfig.mockResolvedValue({name:'Device',transport:'streamable',url:'https://old.example/mcp',auth_type:'oauth2_pkce',oauth_managed:true,oauth2_device_auth_url:'https://old.example/device',enabled:true});
+    render(<McpPage />);
+    const buttons = await screen.findAllByRole('button',{name:'mcp.actions.edit'});
+    await userEvent.click(buttons[buttons.length-1]);
+    await waitFor(() => expect(screen.getByLabelText('Server URL')).toHaveValue('https://old.example/mcp'));
+    if (mode !== 'rename') fireEvent.change(screen.getByLabelText('Server URL'),{target:{value:'https://new.example/mcp'}});
+    else fireEvent.change(screen.getByLabelText('Nome'),{target:{value:'Renamed'}});
+    if (mode === 'revert') fireEvent.change(screen.getByLabelText('Server URL'),{target:{value:'https://old.example/mcp'}});
+    await userEvent.click(screen.getByText('Salvar'));
+    await waitFor(() => expect(mockSave).toHaveBeenCalled());
+    const [,config]=mockSave.mock.calls[mockSave.mock.calls.length-1];
+    expect(config.oauth2_device_auth_url).toBe(mode === 'change' ? undefined : 'https://old.example/device');
+  });
+
+});
+
+it('mostra erro OAuth localizado sem toast de sucesso quando Conectar falha', async () => {
+ mockServers = [{slug:'managed', name:'Managed', status:'disconnected', enabled:true, transport:'streamable', authType:'oauth2_pkce', tools:[]}];
+ mockToast.mockClear();
+ mockConnect.mockRejectedValueOnce(new Error('oauth_consent_declined'));
+ render(<McpPage />);
+ const row = screen.getByText('Managed').closest('div');
+ if (!row) throw new Error('Linha do servidor ausente');
+ await userEvent.click(within(row).getByRole('button', {name:'mcp.actions.connect'}));
+ await waitFor(() => expect(mockToast).toHaveBeenCalledWith('mcp.error.consentDeclined','error'));
+ expect(mockToast.mock.calls.some((call) => call[1] === 'success')).toBe(false);
+});
+
+it('mantém vínculo DCR em modo manual e ao acrescentar espaços no mesmo ID', async () => {
+ mockServers = [{slug:'dcr',name:'Saved DCR',status:'disconnected',enabled:true,transport:'streamable',authType:'oauth2_pkce',tools:[]}];
+ mockGetConfig.mockResolvedValue({slug:'dcr',name:'Saved DCR',transport:'streamable',url:'https://example.com/mcp',auth_type:'oauth2_pkce',oauth_managed:true,oauth2_client_id:'registered',oauth2_client_method:'dcr'});
+ render(<McpPage />);
+ const row = screen.getByText('Saved DCR').closest('div');
+ if (!row) throw new Error('Linha ausente');
+ await userEvent.click(within(row).getByRole('button',{name:'mcp.actions.edit'}));
+ await screen.findByLabelText('Client ID');
+ await userEvent.click(screen.getByRole('button',{name:'Configurar manualmente'}));
+ fireEvent.change(screen.getByLabelText('Client ID'),{target:{value:' registered '}});
+ expect(screen.getByTestId('dcr-registered')).toHaveTextContent('true');
+ fireEvent.change(screen.getByLabelText('Client ID'),{target:{value:'manual-client'}});
+ expect(screen.getByTestId('dcr-registered')).toHaveTextContent('false');
 });

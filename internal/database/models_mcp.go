@@ -20,6 +20,8 @@ type MCPServer struct {
 	URL         string `json:"url,omitempty" gorm:"type:text"`
 
 	AuthType              string        `json:"authType,omitempty" gorm:"not null;default:'none';index"`
+	OAuthManaged          bool          `json:"oauthManaged,omitempty" gorm:"column:oauth_managed"`
+	OAuthAuthorizationID  string        `json:"oauthAuthorizationId,omitempty" gorm:"column:oauth_authorization_id"`
 	OAuth2ClientID        string        `json:"oauth2ClientId,omitempty"`
 	OAuth2AuthURL         string        `json:"oauth2AuthUrl,omitempty" gorm:"type:text"`
 	OAuth2TokenURL        string        `json:"oauth2TokenUrl,omitempty" gorm:"type:text"`

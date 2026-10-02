@@ -6,12 +6,24 @@ export function ConnectMCPServer(arg1) {
   return window['go']['wailsapi']['MCP']['ConnectMCPServer'](arg1);
 }
 
+export function ConvertMCPOAuthClientSnapshot(arg1, arg2) {
+  return window['go']['wailsapi']['MCP']['ConvertMCPOAuthClientSnapshot'](arg1, arg2);
+}
+
+export function CreateMCPOAuthSnapshot(arg1) {
+  return window['go']['wailsapi']['MCP']['CreateMCPOAuthSnapshot'](arg1);
+}
+
 export function DeleteMCPServer(arg1) {
   return window['go']['wailsapi']['MCP']['DeleteMCPServer'](arg1);
 }
 
 export function DeleteMCPServerAuth(arg1) {
   return window['go']['wailsapi']['MCP']['DeleteMCPServerAuth'](arg1);
+}
+
+export function DiscardMCPOAuthSnapshot(arg1, arg2) {
+  return window['go']['wailsapi']['MCP']['DiscardMCPOAuthSnapshot'](arg1, arg2);
 }
 
 export function DisconnectMCPServer(arg1) {
@@ -50,6 +62,14 @@ export function GetMCPWorkspaceRoots() {
   return window['go']['wailsapi']['MCP']['GetMCPWorkspaceRoots']();
 }
 
+export function InspectMCPOAuthInventory() {
+  return window['go']['wailsapi']['MCP']['InspectMCPOAuthInventory']();
+}
+
+export function ListMCPOAuthSnapshots() {
+  return window['go']['wailsapi']['MCP']['ListMCPOAuthSnapshots']();
+}
+
 export function ListMCPServers() {
   return window['go']['wailsapi']['MCP']['ListMCPServers']();
 }
@@ -66,12 +86,20 @@ export function ReconnectMCPServer(arg1) {
   return window['go']['wailsapi']['MCP']['ReconnectMCPServer'](arg1);
 }
 
+export function RestoreMCPOAuthSnapshot(arg1) {
+  return window['go']['wailsapi']['MCP']['RestoreMCPOAuthSnapshot'](arg1);
+}
+
 export function SaveMCPServer(arg1, arg2) {
   return window['go']['wailsapi']['MCP']['SaveMCPServer'](arg1, arg2);
 }
 
 export function SaveMCPServerAuth(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['wailsapi']['MCP']['SaveMCPServerAuth'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
+export function SaveMCPServerWithOAuthSecret(arg1, arg2, arg3) {
+  return window['go']['wailsapi']['MCP']['SaveMCPServerWithOAuthSecret'](arg1, arg2, arg3);
 }
 
 export function SetMCPWorkspaceRoots(arg1) {

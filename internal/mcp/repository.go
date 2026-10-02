@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/oauthflow"
 	"assistente/internal/toolcatalog"
 
 	"gorm.io/gorm"
@@ -100,6 +102,12 @@ func (r *DBRepository) GetServerByID(ctx context.Context, id string) (*ServerCon
 }
 
 func (r *DBRepository) SaveServer(ctx context.Context, cfg *ServerConfig) error {
+	return r.saveServer(ctx, cfg, false)
+}
+
+// allowManagedDetach is reserved for the shared store's atomic detach callback.
+// A stale legacy configuration callback cannot transfer ownership backwards.
+func (r *DBRepository) saveServer(ctx context.Context, cfg *ServerConfig, allowManagedDetach bool) error {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -108,11 +116,8 @@ func (r *DBRepository) SaveServer(ctx context.Context, cfg *ServerConfig) error 
 		return fmt.Errorf("config MCP nil")
 	}
 	cfg.Slug = strings.TrimSpace(cfg.Slug)
-	if cfg.Slug == "" {
-		return fmt.Errorf("slug do servidor MCP é obrigatório")
-	}
-	if strings.EqualFold(cfg.Slug, "native") {
-		return fmt.Errorf("slug do servidor MCP 'native' é reservado")
+	if err := validateServerSlug(cfg.Slug); err != nil {
+		return err
 	}
 	cfg.UserID = userID
 	cfg.applyDefaults(cfg.Slug)
@@ -123,6 +128,9 @@ func (r *DBRepository) SaveServer(ctx context.Context, cfg *ServerConfig) error 
 	}
 
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := credentials.CheckLegacyOAuthMutation(ctx, tx, userID, cfg.Slug); err != nil {
+			return err
+		}
 		var existing database.MCPServer
 		err := tx.Where("user_id = ? AND slug = ?", userID, cfg.Slug).First(&existing).Error
 		switch {
@@ -130,7 +138,7 @@ func (r *DBRepository) SaveServer(ctx context.Context, cfg *ServerConfig) error 
 			if row.ID == "" {
 				row.ID = cfg.ID
 			}
-			if err := tx.Create(&row).Error; err != nil {
+			if err := createServerPreservingFlags(tx, &row); err != nil {
 				return err
 			}
 			cfg.ID = row.ID
@@ -138,6 +146,10 @@ func (r *DBRepository) SaveServer(ctx context.Context, cfg *ServerConfig) error 
 		case err != nil:
 			return err
 		default:
+			if !allowManagedDetach && (existing.OAuthManaged || existing.OAuthAuthorizationID != "") &&
+				(!row.OAuthManaged || row.OAuthAuthorizationID != existing.OAuthAuthorizationID) {
+				return oauthflow.ErrConflict
+			}
 			row.ID = existing.ID
 			row.CreatedAt = existing.CreatedAt
 			if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
@@ -149,6 +161,22 @@ func (r *DBRepository) SaveServer(ctx context.Context, cfg *ServerConfig) error 
 	})
 }
 
+// The caller supplies the transaction so both legacy and managed creation
+// preserve explicit false choices atomically with their other writes.
+func createServerPreservingFlags(tx *gorm.DB, row *database.MCPServer) error {
+	enabled, autoConnect := row.Enabled, row.AutoConnect
+	if err := tx.Create(row).Error; err != nil {
+		return err
+	}
+	if err := tx.Model(row).Updates(map[string]interface{}{
+		"enabled": enabled, "auto_connect": autoConnect,
+	}).Error; err != nil {
+		return err
+	}
+	row.Enabled, row.AutoConnect = enabled, autoConnect
+	return nil
+}
+
 func (r *DBRepository) DeleteServer(ctx context.Context, slug string) error {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return err
@@ -156,6 +184,9 @@ func (r *DBRepository) DeleteServer(ctx context.Context, slug string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row database.MCPServer
 		if err := database.ScopeByUser(ctx, tx, "user_id").Where("slug = ?", strings.TrimSpace(slug)).First(&row).Error; err != nil {
+			return err
+		}
+		if err := credentials.CheckLegacyOAuthMutation(ctx, tx, row.UserID, row.Slug); err != nil {
 			return err
 		}
 		now := r.now()
@@ -302,6 +333,8 @@ func serverConfigToModel(cfg ServerConfig) (database.MCPServer, error) {
 		Env:                   env,
 		URL:                   cfg.URL,
 		AuthType:              string(cfg.AuthType),
+		OAuthManaged:          cfg.OAuthManaged,
+		OAuthAuthorizationID:  cfg.OAuthAuthorizationID,
 		OAuth2ClientID:        cfg.OAuth2ClientID,
 		OAuth2AuthURL:         cfg.OAuth2AuthURL,
 		OAuth2TokenURL:        cfg.OAuth2TokenURL,
@@ -342,6 +375,8 @@ func serverModelToConfig(row database.MCPServer) (ServerConfig, error) {
 		Env:                   env,
 		URL:                   row.URL,
 		AuthType:              AuthType(row.AuthType),
+		OAuthManaged:          row.OAuthManaged,
+		OAuthAuthorizationID:  row.OAuthAuthorizationID,
 		OAuth2ClientID:        row.OAuth2ClientID,
 		OAuth2AuthURL:         row.OAuth2AuthURL,
 		OAuth2TokenURL:        row.OAuth2TokenURL,
@@ -390,4 +425,14 @@ func unmarshalJSONString(raw string, dest any) error {
 		return nil
 	}
 	return json.Unmarshal([]byte(raw), dest)
+}
+
+func validateServerSlug(slug string) error {
+	if strings.TrimSpace(slug) == "" {
+		return fmt.Errorf("slug do servidor MCP é obrigatório")
+	}
+	if strings.EqualFold(strings.TrimSpace(slug), "native") {
+		return fmt.Errorf("slug do servidor MCP 'native' é reservado")
+	}
+	return nil
 }

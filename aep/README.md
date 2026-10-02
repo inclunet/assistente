@@ -1107,14 +1107,14 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
 | [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 🚧 In Progress |
 | [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; núcleo único de persistência, cronologia por rodada e posições de texto ACP, conclusão terminal e atividades externas | ✅ Done |
-| [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress |
+| [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress — novos cadastros compostos usam o lifecycle do AEP-0112; legado preservado |
 | [0106](0106-contencao-do-pipeline-de-jobs.md) | Contenção do pipeline de jobs (limite de concorrência + cache por slug) | 🚧 In Progress |
 | [0107](0107-tool-execution-ux.md) | Experiência de execução de tools: estado, contexto e resultados acionáveis | ✅ Done |
 | [0108](0108-sessao-acp-presa-diagnostico-e-recuperacao.md) | Sessão ACP presa: diagnóstico e recuperação | 🚧 In Progress |
 | [0109](0109-concorrencia-na-configuracao-da-tasklist.md) | Controle de concorrência na configuração da tasklist (workflow e custom actions) | ✅ Done |
 | [0110](0110-fontes-explicitas-de-credenciais.md) | Fontes explícitas de credenciais | ✅ Done |
 | [0111](0111-inicializacao-desktop-exclusiva.md) | Inicialização desktop exclusiva | 🚧 In Progress |
-| [0112](0112-oauth-compartilhado-e-autorizacoes-unificadas.md) | OAuth compartilhado e autorizações unificadas: ChatGPT, MCP e canais | 🚧 In Progress |
+| [0112](0112-oauth-compartilhado-e-autorizacoes-unificadas.md) | OAuth compartilhado e autorizações unificadas: conexão ChatGPT validada pelo mantenedor; novos cadastros MCP, inventário, barreiras de escrita, coordenação durável de PKCE e Client Credentials e recuperação estrutural de PKCE/Client Credentials com fixtures publicadas e recuperação explícita de tokens por hostname e conversão explícita de Client Credentials; conversão PKCE, retirada do legado e Slack pendentes | 🚧 In Progress |
 | [0113](0113-capabilities-parametros-e-custos-de-modelos.md) | Capabilities, parâmetros e custos por modelo e provedor | 🚧 In Progress |
 
 Correções paralelas posteriores à revisão da AEP-0103 estão registradas nas seções 10 e 11 da tasklist de conclusão: bridge, importação, restore, outbox, lifecycle e a primeira rodada real de produto. O executor desktop usa `newCommandDesktopExecutor` e `commandconfig.ProjectComplete`; autenticação é por sessão local sem JWT, a bridge é assíncrona com shutdown/join, e recovery é preflight somente leitura fail-closed sem reconciliação interprocesso. A limitação inicial de entrega somente de resumo/status foi resolvida na seção 14: `workspace.list` entrega resultado efêmero no picker compartilhado. A seção 15 liga a seleção da paleta à resolução de configuração persistida, supressão e recusa sem fallback, inclusive na bridge. A falha histórica de `internal/acpregistry` não reapareceu nas suítes completas das seções 12–14, mas sua causa não foi certificada. Providers/transporte de UI, origens físicas, recovery R04 e o aceite BASE-PRONTA permanecem pendentes.

@@ -10,6 +10,10 @@ import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccess
 type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'partial' | 'not_found' | 'manual';
 
 interface McpConnectionSectionProps {
+  oauthManaged?: boolean;
+  oauthDCRRegistered?: boolean;
+  oauth2TokenAuthMethod?: string;
+  onOAuth2TokenAuthMethodChange?: (value: string) => void;
   transport: string;
   command: string;
   args: string;
@@ -59,6 +63,10 @@ const isHTTPTransport = (transportKind: string) =>
   transportKind === 'streamable' || transportKind === 'sse';
 
 export function McpConnectionSection({
+  oauthManaged = false,
+  oauthDCRRegistered = false,
+  oauth2TokenAuthMethod = "client_secret_post",
+  onOAuth2TokenAuthMethodChange,
   transport,
   command,
   args,
@@ -508,6 +516,17 @@ export function McpConnectionSection({
                   </p>
                 )}
               </>
+            )}
+            {oauthManaged && isHTTPTransport(transport) && (authType === 'oauth2_client_credentials' || (authType === 'oauth2_pkce' && !hasDCR && !oauthDCRRegistered)) && (
+              <Select
+                label={t('mcp.connection.tokenAuthMethod')}
+                value={oauth2TokenAuthMethod}
+                onChange={(e) => onOAuth2TokenAuthMethodChange?.(e.target.value)}
+                options={[
+                  { value: 'client_secret_post', label: t('mcp.connection.tokenAuthPost') },
+                  { value: 'client_secret_basic', label: t('mcp.connection.tokenAuthBasic') },
+                ]}
+              />
             )}
             <fieldset className="mcp-fieldset">
               <legend className="mcp-fieldset__legend">{t('mcp.connection.options')}</legend>

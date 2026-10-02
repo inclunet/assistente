@@ -4309,6 +4309,50 @@ export namespace controllers {
 
 export namespace credentials {
 	
+	export class OAuthSnapshotInfo {
+	    id: string;
+	    consumerId: string;
+	    name: string;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    retainUntil: any;
+	    location: string;
+	    expired: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new OAuthSnapshotInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.consumerId = source["consumerId"];
+	        this.name = source["name"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.retainUntil = this.convertValues(source["retainUntil"], null);
+	        this.location = source["location"];
+	        this.expired = source["expired"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class OAuthSourceConfig {
 	    issuer: string;
 	    clientId: string;
@@ -6496,6 +6540,24 @@ export namespace mcp {
 		    return a;
 		}
 	}
+	export class OAuthInventoryItem {
+	    id: string;
+	    name: string;
+	    kind: string;
+	    issues: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new OAuthInventoryItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.kind = source["kind"];
+	        this.issues = source["issues"];
+	    }
+	}
 	export class Root {
 	    uri: string;
 	    name?: string;
@@ -6511,6 +6573,8 @@ export namespace mcp {
 	    }
 	}
 	export class ServerConfig {
+	    oauth2_client_method?: string;
+	    oauth2_token_auth_method?: string;
 	    id?: string;
 	    user_id?: string;
 	    slug?: string;
@@ -6522,6 +6586,8 @@ export namespace mcp {
 	    env?: Record<string, string>;
 	    url?: string;
 	    auth_type?: string;
+	    oauth_managed?: boolean;
+	    oauth_authorization_id?: string;
 	    oauth2_client_id?: string;
 	    oauth2_auth_url?: string;
 	    oauth2_token_url?: string;
@@ -6541,6 +6607,8 @@ export namespace mcp {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.oauth2_client_method = source["oauth2_client_method"];
+	        this.oauth2_token_auth_method = source["oauth2_token_auth_method"];
 	        this.id = source["id"];
 	        this.user_id = source["user_id"];
 	        this.slug = source["slug"];
@@ -6552,6 +6620,8 @@ export namespace mcp {
 	        this.env = source["env"];
 	        this.url = source["url"];
 	        this.auth_type = source["auth_type"];
+	        this.oauth_managed = source["oauth_managed"];
+	        this.oauth_authorization_id = source["oauth_authorization_id"];
 	        this.oauth2_client_id = source["oauth2_client_id"];
 	        this.oauth2_auth_url = source["oauth2_auth_url"];
 	        this.oauth2_token_url = source["oauth2_token_url"];

@@ -22,6 +22,7 @@ import (
 
 // AuthConfig descreve como autenticar em um domínio
 type AuthConfig struct {
+	ClientGrantType   string            // grant do registro; vazio preserva clientes legados/manuais
 	OAuth             *oauthflow.Record `json:"-"`
 	OAuthEnc          string            `json:"-"`
 	commandEntry      *DomainCredential // recibo transitório; nunca serializado
@@ -200,11 +201,7 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 		return nil, fmt.Errorf("URL inválida: %w", err)
 	}
 
-	domain := strings.ToLower(u.Host)
-	// Remove porta se houver
-	if idx := strings.LastIndex(domain, ":"); idx >= 0 {
-		domain = domain[:idx]
-	}
+	domain := strings.ToLower(u.Hostname())
 
 	m.mu.RLock()
 	locked := true
@@ -219,6 +216,8 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 		userID = scopedUser
 	}
 	// Procura em ordem (primeira match vence)
+	var selected *DomainCredential
+	var matchedPatterns []string
 	for _, dc := range m.credentials {
 		if userID != "" && dc.UserID != userID {
 			continue
@@ -227,15 +226,26 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 			continue
 		}
 		if dc.regex != nil && dc.Auth.Source != "oauth" && dc.regex.MatchString(domain) {
-			// Descriptografar antes de retornar
-			auth, err := m.decryptAuth(dc.Auth)
-			if err != nil {
-				return nil, fmt.Errorf("erro ao descriptografar credenciais: %w", err)
+			for _, pattern := range matchedPatterns {
+				if strings.EqualFold(pattern, dc.Pattern) {
+					// Never choose a token or execute a source for ambiguous identities.
+					return nil, fmt.Errorf("credential_hostname_ambiguous")
+				}
 			}
-			m.mu.RUnlock()
-			locked = false
-			return ResolveSource(withDirectCommandDiagnostic(ctx, dc.ID), auth)
+			matchedPatterns = append(matchedPatterns, dc.Pattern)
+			if selected == nil {
+				selected = dc
+			}
 		}
+	}
+	if selected != nil {
+		auth, err := m.decryptAuth(selected.Auth)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao descriptografar credenciais: %w", err)
+		}
+		m.mu.RUnlock()
+		locked = false
+		return ResolveSource(withDirectCommandDiagnostic(ctx, selected.ID), auth)
 	}
 
 	return nil, nil // sem credenciais para este domínio
@@ -373,6 +383,11 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 	if userID == "" && !IsInstanceSecretPattern(pattern) && m.persist {
 		return database.ErrUserScopeRequired
 	}
+	if m.persist && m.store != nil {
+		if err := m.store.DeleteCredential(ctx, pattern); err != nil {
+			return err
+		}
+	}
 	filtered := m.credentials[:0]
 	for _, dc := range m.credentials {
 		if dc.Pattern != pattern || (userID != "" && dc.UserID != userID) {
@@ -386,12 +401,6 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 	}
 	// evita manter referências antigas
 	m.credentials = append([]*DomainCredential(nil), filtered...)
-
-	if m.persist && m.store != nil {
-		if err := m.store.DeleteCredential(ctx, pattern); err != nil {
-			return err
-		}
-	}
 
 	return nil
 }
@@ -813,7 +822,7 @@ func IsManagedPattern(pattern string) bool {
 //	"example.com" -> "^example\.com$"
 func wildcardToRegex(pattern string) string {
 	// Escape dots e outros caracteres especiais
-	escaped := regexp.QuoteMeta(pattern)
+	escaped := regexp.QuoteMeta(strings.ToLower(pattern))
 	// * se torna [^.] (qualquer coisa menos ponto) com +
 	escaped = strings.ReplaceAll(escaped, `\*`, `[^.]+`)
 	// Anchor no início e fim

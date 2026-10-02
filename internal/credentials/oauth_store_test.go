@@ -192,3 +192,39 @@ func TestOAuthConsentLeasePreventsDeletionByAnotherManager(t *testing.T) {
 		t.Fatal("deleted record remained visible to first manager")
 	}
 }
+
+func TestOAuthCommitPublishesBeforeSessionRelease(t *testing.T) {
+	setupScopedCredentialStoreTestDB(t)
+	mgr := NewManagerWithStore(bytes.Repeat([]byte{7}, 32), NewDBStore(), true)
+	ctx := database.WithUserID(context.Background(), "owner")
+	raw, err := mgr.OAuthStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := raw.(*oauthStore)
+	service := oauthflow.New(oauthintegrations.ChatGPT())
+	r, _ := service.Pending("published", "owner", "chatgpt")
+	attempt, cancel := context.WithCancel(ctx)
+	published := false
+	err = store.CreateWithConsumerAndPublish(attempt, r, func(*gorm.DB) error { return nil }, func() { published = true; cancel() })
+	if err != nil || !published {
+		t.Fatalf("committed creation reported failure: %v", err)
+	}
+	saved, err := store.Load(ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved.Revision++
+	update, cancelUpdate := context.WithCancel(ctx)
+	published = false
+	err = store.CompareAndSwapWithConsumerAndPublish(update, saved, saved.Revision-1, func(*gorm.DB) error { return nil }, func() { published = true; cancelUpdate() })
+	if err != nil || !published {
+		t.Fatalf("committed edit reported failure: %v", err)
+	}
+	saved.Revision++
+	published = false
+	err = store.CompareAndSwapWithConsumerAndPublish(ctx, saved, saved.Revision-1, func(*gorm.DB) error { return errors.New("rollback") }, func() { published = true })
+	if err == nil || published {
+		t.Fatal("rollback published uncommitted state")
+	}
+}

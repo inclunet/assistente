@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -117,6 +118,30 @@ func TestSaveConfigUpdatesWorkspaceRoots(t *testing.T) {
 	mgr.mu.RUnlock()
 	if status == nil || len(status.Roots) != 1 || status.Roots[0].URI != "file:///workspace-updated" {
 		t.Fatalf("roots do server atualizado = %#v", status)
+	}
+}
+
+func TestSaveHTTPNoneWithoutVaultOrStoredCredentials(t *testing.T) {
+	for _, vault := range []*credentials.Manager{nil, credentials.NewManager(nil)} {
+		t.Run(fmt.Sprintf("vault_%v", vault != nil), func(t *testing.T) {
+			mgr := NewManager(tools.NewRegistry(), vault, func(string, any) {})
+			repo, _, _ := setupRepositoryTest(t)
+			ctx := database.WithUserID(context.Background(), "user-a")
+			mgr.SetRepository(repo)
+			mgr.SetAuthContextProvider(func() context.Context { return ctx })
+			cfg := ServerConfig{Name: "Public", Transport: TransportStreamable, URL: "https://public.example/mcp", AuthType: AuthNone, Enabled: true}
+			if err := mgr.SaveConfig("public", cfg); err != nil {
+				t.Fatal(err)
+			}
+			cfg.Name = "Updated public"
+			if err := mgr.SaveConfig("public", cfg); err != nil {
+				t.Fatal(err)
+			}
+			stored, err := repo.GetServer(ctx, "public")
+			if err != nil || stored.Name != cfg.Name {
+				t.Fatal("public edit lost", err)
+			}
+		})
 	}
 }
 
