@@ -43,6 +43,41 @@ func TestDiscoveryCannotExpandPrivateTrust(t *testing.T) {
 		})
 	}
 }
+
+func TestOAuthPreflightBoundsDNSWithoutBoundingConsent(t *testing.T) {
+	target, _ := url.Parse("https://private.example/token")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var lookupContext context.Context
+	policy := &discoveryNetwork{lookup: func(ctx context.Context, _ string) ([]net.IPAddr, error) {
+		lookupContext = ctx
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) > 5*time.Second {
+			t.Fatal("DNS has no bounded deadline")
+		}
+		return []net.IPAddr{{IP: net.ParseIP("10.0.0.1")}}, nil
+	}}
+	if err := policy.checkPreflightDestination(ctx, target); !errors.Is(err, ErrNetworkAuthorization) {
+		t.Fatalf("expected consent request: %v", err)
+	}
+	if !errors.Is(lookupContext.Err(), context.Canceled) {
+		t.Fatal("DNS scope was not released")
+	}
+	if ctx.Err() != nil {
+		t.Fatal("DNS cancellation affected consent context")
+	}
+	if _, ok := ctx.Deadline(); ok {
+		t.Fatal("consent acquired DNS deadline")
+	}
+	policy.lookup = func(ctx context.Context, _ string) ([]net.IPAddr, error) {
+		cancel()
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	if err := policy.checkPreflightDestination(ctx, target); !errors.Is(err, context.Canceled) {
+		t.Fatalf("caller cancellation lost: %v", err)
+	}
+}
 func TestDiscoverySocketRejectsPrivateDNSResult(t *testing.T) {
 	target, _ := url.Parse("https://public.example/metadata")
 	policy := &discoveryNetwork{origin: networkOrigin(target), ips: map[string]bool{"8.8.8.8": true}}

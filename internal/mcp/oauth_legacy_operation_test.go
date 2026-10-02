@@ -222,6 +222,9 @@ func TestLegacyRefreshConsentPrecedesDurableAttempt(t *testing.T) {
 	prompts := 0
 	rt.networkAuthorizer = func(ctx context.Context, destination oauthflow.NetworkDestination) ([]net.IP, bool, error) {
 		prompts++
+		if _, bounded := ctx.Deadline(); bounded {
+			t.Error("human consent inherited the DNS deadline")
+		}
 		var row database.CredentialEntry
 		if err := database.DB().Where("pattern = ?", userTokensPattern("legacy")).First(&row).Error; err != nil {
 			t.Fatal(err)

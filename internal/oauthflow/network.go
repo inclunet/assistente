@@ -279,6 +279,13 @@ func (p *discoveryNetwork) checkDestination(ctx context.Context, u *url.URL) err
 	return nil
 }
 
+// Bound DNS only; runNetworkOperation asks for user consent on its outer context.
+func (p *discoveryNetwork) checkPreflightDestination(ctx context.Context, u *url.URL) error {
+	bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return p.checkDestination(bounded, u)
+}
+
 // Every connection checks the actual post-DNS address. No environment proxies or
 // connection pools are shared across trust decisions.
 func discoveryTransport(p *discoveryNetwork, target *url.URL) *http.Transport {
@@ -397,7 +404,7 @@ func PreflightOAuthEndpoint(ctx context.Context, resource, endpoint string, auth
 	}
 	var checkErr error
 	err = runNetworkOperation(ctx, resource, func(operationCtx context.Context) {
-		checkErr = operationCtx.Value(discoveryNetworkKey{}).(*discoveryNetwork).checkDestination(operationCtx, u)
+		checkErr = operationCtx.Value(discoveryNetworkKey{}).(*discoveryNetwork).checkPreflightDestination(operationCtx, u)
 	})
 	if err != nil {
 		return ctx, err
