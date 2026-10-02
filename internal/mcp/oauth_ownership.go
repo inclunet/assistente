@@ -10,29 +10,56 @@ import (
 	"gorm.io/gorm"
 )
 
+type legacyOAuthWriterContextKey struct{}
+
+type legacyOAuthWriter struct {
+	update func(*ServerConfig) (ServerConfig, error)
+}
+
+func (w *legacyOAuthWriter) Write(cfg ServerConfig) error {
+	_, err := w.update(&cfg)
+	return err
+}
+
+func (w *legacyOAuthWriter) EnablePolling() (ServerConfig, error) {
+	return w.update(nil)
+}
+
 // The legacy protocol callback is not a user edit: it may only update the
 // original consumer while that consumer still belongs to the legacy runtime.
 func (m *Manager) legacyOAuthConfigWriter(original ServerConfig) func(ServerConfig) error {
+	return m.newLegacyOAuthWriter(original).Write
+}
+
+func (m *Manager) newLegacyOAuthWriter(original ServerConfig) *legacyOAuthWriter {
 	original = persistedLegacyConfig(original)
 	ctx := m.credentialContext()
 	user, userErr := database.RequireUserID(ctx)
 	if userErr != nil || original.UserID != user || original.ID == "" {
-		return func(ServerConfig) error { return oauthflow.ErrConflict }
+		return &legacyOAuthWriter{update: func(*ServerConfig) (ServerConfig, error) { return ServerConfig{}, oauthflow.ErrConflict }}
 	}
 	if m.credMgr == nil {
-		return func(ServerConfig) error { return oauthflow.ErrResource }
+		return &legacyOAuthWriter{update: func(*ServerConfig) (ServerConfig, error) { return ServerConfig{}, oauthflow.ErrResource }}
 	}
 	store, captureErr := m.credMgr.OAuthStore(ctx)
 	var mu sync.Mutex
-	return func(updated ServerConfig) error {
+	return &legacyOAuthWriter{update: func(candidate *ServerConfig) (ServerConfig, error) {
 		mu.Lock()
 		defer mu.Unlock()
+		updated := original
+		if candidate != nil {
+			updated = *candidate
+			updated.DisableSSE = original.DisableSSE
+		} else {
+			// Advance the transport preference from the latest callback snapshot.
+			updated.DisableSSE = true
+		}
 		if captureErr != nil {
-			return captureErr
+			return ServerConfig{}, captureErr
 		}
 		repo, ok := m.repository().(*DBRepository)
 		if !ok {
-			return oauthflow.ErrResource
+			return ServerConfig{}, oauthflow.ErrResource
 		}
 		err := store.(interface {
 			WithSession(context.Context, func() error) error
@@ -66,8 +93,8 @@ func (m *Manager) legacyOAuthConfigWriter(original ServerConfig) func(ServerConf
 		if err == nil {
 			m.emit("mcp:config_changed", map[string]string{"slug": updated.Slug})
 		}
-		return err
-	}
+		return updated, err
+	}}
 }
 
 // Compare the repository projection, not transient editor/runtime fields or

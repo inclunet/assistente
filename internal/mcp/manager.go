@@ -679,13 +679,23 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 
 	// Probe SSE: para Streamable HTTP, verifica se o servidor suporta SSE
 	// antes de conectar, evitando esperar timeouts longos em 5 retries do SDK.
+	if cfg.AuthType == AuthOAuth2PKCE && !cfg.OAuthManaged && cfg.OAuthAuthorizationID == "" {
+		// All transports in this connection share the persisted baseline captured
+		// before a probe adapts DisableSSE in its local transport configuration.
+		sessionCtx = context.WithValue(sessionCtx, legacyOAuthWriterContextKey{}, m.newLegacyOAuthWriter(cfg))
+	}
 	if cfg.Transport == TransportStreamable && !cfg.DisableSSE && cfg.URL != "" {
 		httpClient := m.buildAuthHTTPClient(sessionCtx, slug, cfg)
 		probeCtx, probeCancel := context.WithCancel(sessionCtx)
 		stopParentCancel := context.AfterFunc(parentCtx, probeCancel)
-		sseSupported, reason := probeSSESupport(probeCtx, cfg.URL, httpClient)
+		sseSupported, reason, probeErr := probeSSESupport(probeCtx, cfg.URL, httpClient)
 		stopParentCancel()
 		probeCancel()
+		if probeErr != nil {
+			sessionCancel()
+			m.setError(slug, probeErr.Error())
+			return probeErr
+		}
 		if denied := oauthflow.NetworkAuthorizationError(sessionCtx); denied != nil {
 			sessionCancel()
 			m.setError(slug, denied.Error())
@@ -731,16 +741,28 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 			!cfg.DisableSSE && cfg.Transport == TransportStreamable &&
 			strings.Contains(err.Error(), "standalone SSE") {
 			logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] SSE falhou — tentando reconectar sem SSE (polling)", slug)
-			cfg.DisableSSE = true
-			m.mu.Lock()
-			if s, ok := m.servers[slug]; ok {
-				s.Config.DisableSSE = true
-			}
-			m.mu.Unlock()
-			if cfg.OAuthAuthorizationID != "" {
-				_ = m.persistManagedPolling(sessionCtx, cfg)
+			if writer, ok := sessionCtx.Value(legacyOAuthWriterContextKey{}).(*legacyOAuthWriter); ok {
+				cfg, err = writer.EnablePolling()
+				if err != nil {
+					sessionCancel()
+					m.setError(slug, errOAuthPersistence.Error())
+					if errors.Is(err, oauthflow.ErrConflict) {
+						return errors.Join(errOAuthPersistence, oauthflow.ErrConflict)
+					}
+					return errOAuthPersistence
+				}
 			} else {
-				_ = m.SaveConfig(slug, cfg)
+				cfg.DisableSSE = true
+				m.mu.Lock()
+				if s, ok := m.servers[slug]; ok {
+					s.Config.DisableSSE = true
+				}
+				m.mu.Unlock()
+				if cfg.OAuthAuthorizationID != "" {
+					_ = m.persistManagedPolling(sessionCtx, cfg)
+				} else {
+					_ = m.SaveConfig(slug, cfg)
+				}
 			}
 
 			client = mcpsdk.NewClient(&mcpsdk.Implementation{Name: "assistente", Version: "1.0.0"}, nil)
@@ -1307,9 +1329,12 @@ func (m *Manager) reconnectWithContext(ctx context.Context, slug string) error {
 // reutilizando a infra de OAuth PKCE (discovery, DCR, device/PKCE flow) com o
 // callback de persistência de config e o ctx user-scoped do Manager.
 func (m *Manager) buildPKCERoundTripperForServer(ctx context.Context, slug string, cfg ServerConfig) *pkceRoundTripper {
-	persistConfig := m.legacyOAuthConfigWriter(cfg)
+	writer, ok := ctx.Value(legacyOAuthWriterContextKey{}).(*legacyOAuthWriter)
+	if !ok {
+		writer = m.newLegacyOAuthWriter(cfg)
+	}
 	onConfigUpdate := func(updated ServerConfig) {
-		if err := persistConfig(updated); err != nil {
+		if err := writer.Write(updated); err != nil {
 			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Erro ao persistir config após atualização OAuth: %v", slug, err)
 		}
 	}
@@ -1815,13 +1840,13 @@ func newMCPTransport() http.RoundTripper {
 // probeSSESupport sends a quick GET with Accept: text/event-stream to the MCP
 // endpoint to check if the server supports SSE. Returns (true, "") if supported,
 // or (false, reason) if not. Uses a short timeout so this doesn't slow down connect.
-func probeSSESupport(parentCtx context.Context, mcpURL string, authClient *http.Client) (bool, string) {
+func probeSSESupport(parentCtx context.Context, mcpURL string, authClient *http.Client) (bool, string, error) {
 	ctx, cancel := oauthHandshakeContext(parentCtx, parentCtx, 10*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mcpURL, nil)
 	if err != nil {
-		return true, "" // can't probe, assume SSE is supported
+		return true, "", nil // can't probe, assume SSE is supported
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
@@ -1833,26 +1858,29 @@ func probeSSESupport(parentCtx context.Context, mcpURL string, authClient *http.
 
 	resp, err := client.Do(req)
 	if err != nil {
-		if ctx.Err() != nil {
-			return false, "timeout — servidor não respondeu ao GET SSE"
+		if errors.Is(err, errOAuthPersistence) {
+			return false, "", err
 		}
-		return false, fmt.Sprintf("erro: %v", err)
+		if ctx.Err() != nil {
+			return false, "timeout — servidor não respondeu ao GET SSE", nil
+		}
+		return false, fmt.Sprintf("erro: %v", err), nil
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	ct := resp.Header.Get("Content-Type")
 	switch {
 	case resp.StatusCode == http.StatusMethodNotAllowed:
-		return false, "405 Method Not Allowed"
+		return false, "405 Method Not Allowed", nil
 	case resp.StatusCode == http.StatusNotFound:
-		return false, "404 Not Found"
+		return false, "404 Not Found", nil
 	case resp.StatusCode >= 400:
-		return false, fmt.Sprintf("HTTP %d", resp.StatusCode)
+		return false, fmt.Sprintf("HTTP %d", resp.StatusCode), nil
 	case strings.Contains(ct, "text/event-stream"):
-		return true, ""
+		return true, "", nil
 	default:
 		logging.Debugf(context.Background(), "mcp.manager", "[MCP:probe] SSE probe: HTTP %d, Content-Type: %s", resp.StatusCode, ct)
-		return true, "" // ambiguous — assume supported, let SDK handle it
+		return true, "", nil // ambiguous — assume supported, let SDK handle it
 	}
 }
 

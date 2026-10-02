@@ -363,6 +363,25 @@ func containsFold(list []string, target string) bool {
 }
 
 func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	sent := false
+	send := func(token *oauth2.Token) (*http.Response, error) {
+		cloned := req.Clone(req.Context())
+		if sent && req.Body != nil && req.Body != http.NoBody {
+			if req.GetBody == nil {
+				return nil, errors.New("oauth_request_not_replayable")
+			}
+			var err error
+			cloned.Body, err = req.GetBody()
+			if err != nil {
+				return nil, errors.New("oauth_request_not_replayable")
+			}
+		}
+		if token != nil {
+			token.SetAuthHeader(cloned)
+		}
+		sent = true
+		return rt.base.RoundTrip(cloned)
+	}
 	rt.mu.Lock()
 	ts := rt.tokenSource
 	denied := rt.networkDenied
@@ -377,9 +396,7 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 			return nil, err
 		}
 		if err == nil {
-			cloned := req.Clone(req.Context())
-			token.SetAuthHeader(cloned)
-			resp, err := rt.base.RoundTrip(cloned)
+			resp, err := send(token)
 			if err != nil {
 				return nil, err
 			}
@@ -410,9 +427,7 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 				rt.mu.Unlock()
 				if ts != nil {
 					if newToken, err := ts.Token(); err == nil {
-						retryReq := req.Clone(req.Context())
-						newToken.SetAuthHeader(retryReq)
-						resp, err := rt.base.RoundTrip(retryReq)
+						resp, err := send(newToken)
 						if err != nil {
 							return nil, err
 						}
@@ -432,7 +447,7 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 		}
 	}
 
-	resp, err := rt.base.RoundTrip(req)
+	resp, err := send(nil)
 	if err != nil {
 		return nil, err
 	}
@@ -465,9 +480,7 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 		return nil, fmt.Errorf("failed to get token after authorization: %w", err)
 	}
 
-	retryReq := req.Clone(req.Context())
-	token.SetAuthHeader(retryReq)
-	return rt.base.RoundTrip(retryReq)
+	return send(token)
 }
 
 // isSessionExpiredStatus retorna true para status HTTP que indicam sessão MCP expirada.

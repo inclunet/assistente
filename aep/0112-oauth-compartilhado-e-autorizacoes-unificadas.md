@@ -815,13 +815,26 @@ composto. A desvinculação explícita continua no callback transacional do cofr
 O token source legado propaga falha de persistência, sem informar renovação
 concluída nem iniciar outro consentimento como fallback. A apresentação usa
 mensagem localizada e não expõe o erro bruto de armazenamento. O token recebido
-fica no token source em memória para que uma nova tentativa de persistência não
-precise renovar novamente o mesmo grant.
+fica no token source enquanto essa instância existir, permitindo repetir a
+persistência sem renovar o mesmo grant. Isso não oferece recuperação após
+descarte do transport ou reinício; recuperação durável segue pendente.
 
 Evidências: `TestManagedOAuthRejectsLateLegacyWriters`,
 `TestManagedOAuthLegacyFencePreservesOtherConsumersAndResidues`,
 `TestLegacyTokenPersistenceFailureIsTerminalAndSanitized` e
 `mcpOAuthErrors.test.ts`.
+
+O probe SSE propaga a falha tipada de persistência até Conectar, sem criar outro
+transport com o refresh token antigo. A configuração capturada precede adaptações
+locais de polling; probe e transport compartilham o mesmo escritor, e callbacks
+OAuth não persistem o `DisableSSE` transitório. O fluxo GET 405 → polling → DCR →
+reautorização preserva a URI registrada. O fallback após falha de handshake SSE altera somente a preferência
+de polling sobre o snapshot atualizado pelo DCR, preservando cliente e callback.
+Reenvios legados recriam o corpo com
+`GetBody`; ausência ou falha da fábrica impede repetir a requisição.
+Evidências: `TestLegacyConnectStopsAfterProbePersistenceFailure`,
+`TestLegacyPollingDCRPersistsCallbackForReauthorization` e
+`TestLegacyOAuthDoesNotReplayUnavailableBody`.
 
 Esta barreira de gravação não é exclusão antes da operação remota. Antes de
 converter, ainda é necessário coordenar autorização/refresh e edição desde

@@ -1435,6 +1435,7 @@ const es = {
         deviceExpired: 'El código de autorización ha caducado. Inicia una nueva autorización para obtener otro código.',
         deviceFailed: 'No se pudo completar la autorización de dispositivo. Revisa la configuración OAuth e inténtalo de nuevo.',
         authorizationChanged: 'La autorización cambió o está en uso. Espere a que termine la operación e inténtelo de nuevo.',
+        requestNotReplayable: 'El cuerpo de la solicitud no se puede reenviar automáticamente. Intente conectarse de nuevo.',
         legacyPersistenceFailed: 'No se pudo guardar la credencial OAuth. La operación se detuvo para no indicar que la renovación terminó sin guardar el token. Compruebe el acceso a la bóveda antes de volver a intentarlo.',
         authorizationRequired: 'Este servidor necesita autorización. Use Conectar o Reautorizar para continuar.',
         publicClientSecret: "Este cliente DCR es público y no acepta un secreto manual. Use otro ID de cliente para configurar autenticación con secreto.",
