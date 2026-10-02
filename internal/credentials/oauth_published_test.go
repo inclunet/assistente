@@ -62,9 +62,40 @@ func publishedOAuthFixture(t *testing.T, release, variant string) (*Manager, *go
 	}
 	// Only the two tables under recovery are upgraded here. Full application
 	// migrations remain covered by database/published_upgrade_test.go.
+	type baseline struct {
+		columns []string
+		rows    []map[string]interface{}
+	}
+	baselines := map[string]baseline{}
+	for _, table := range []string{"credential_entries", "mcp_servers"} {
+		columns, err := db.Migrator().ColumnTypes(table)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var before baseline
+		for _, column := range columns {
+			before.columns = append(before.columns, column.Name())
+		}
+		if err := db.Table(table).Select(before.columns).Order("id").Find(&before.rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		if len(before.rows) == 0 {
+			t.Fatal("empty historical baseline", table)
+		}
+		baselines[table] = before
+	}
 	for range 2 {
 		if err := db.AutoMigrate(&database.CredentialEntry{}, &database.MCPServer{}); err != nil {
 			t.Fatal(err)
+		}
+		for table, before := range baselines {
+			var after []map[string]interface{}
+			if err := db.Table(table).Select(before.columns).Order("id").Find(&after).Error; err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(before.rows, after) {
+				t.Fatal("upgrade changed historical rows", table)
+			}
 		}
 	}
 	key := make([]byte, 32)
