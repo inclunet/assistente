@@ -715,6 +715,8 @@ modifica, recria, habilita ou conecta servidores, nem associa a credencial a um
 MCP específico. O snapshot permanece disponível para consulta ou descarte.
 O resolvedor compara hostnames sem distinguir maiúsculas e minúsculas e aceita
 URLs IPv6 com ou sem porta, preservando a escrita do padrão armazenado.
+Entradas incompatíveis com a captura aparecem no diagnóstico, mas não no seletor
+de snapshots; isso inclui padrões com URL completa, caminho ou porta.
 
 Snapshots PKCE anteriores continuam legíveis. Snapshots Client Credentials têm
 formato próprio e exigem uma versão com este suporte para recuperação.

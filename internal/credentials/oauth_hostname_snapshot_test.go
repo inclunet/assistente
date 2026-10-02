@@ -233,6 +233,43 @@ func TestHostnameSnapshotConcurrentRestore(t *testing.T) {
 	}
 }
 
+func TestHostnameSnapshotInventoryMatchesCaptureEligibility(t *testing.T) {
+	for _, sample := range []struct {
+		pattern  string
+		eligible bool
+	}{
+		{"shared.example", true}, {"*.EXAMPLE", true}, {"2001:db8::1", true},
+		{"shared.example/private", false}, {"shared.example:443", false}, {"https://shared.example", false},
+	} {
+		t.Run(sample.pattern, func(t *testing.T) {
+			m, _, _, ctx, _ := legacyOperationFixture(t)
+			if err := m.RegisterPatternWithContext(ctx, sample.pattern, &AuthConfig{Source: "static", Type: "oauth2", Token: "copied"}); err != nil {
+				t.Fatal(err)
+			}
+			entries, err := m.InspectLegacyOAuth(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, entry := range entries {
+				if entry.Pattern == sample.pattern {
+					found = true
+					if entry.HostnameSnapshotEligible != sample.eligible {
+						t.Fatal("incorrect inventory eligibility")
+					}
+				}
+			}
+			if !found {
+				t.Fatal("entry missing from inventory")
+			}
+			_, err = m.CreateLegacyOAuthSnapshot(ctx, filepath.Join(t.TempDir(), "recovery"), "credential:"+sample.pattern)
+			if (err == nil) != sample.eligible {
+				t.Fatal("capture disagrees with inventory", err)
+			}
+		})
+	}
+}
+
 func TestHostnameSnapshotResolvesIPv6AndCaseAfterRestore(t *testing.T) {
 	for _, sample := range []struct{ pattern, url string }{
 		{"2001:DB8::1", "https://[2001:db8::1]/mcp"},

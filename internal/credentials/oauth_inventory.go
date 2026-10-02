@@ -12,15 +12,16 @@ import (
 // LegacyOAuthEntry is a diagnostic projection, never a credential resolver.
 // ClientID stays backend-only so callers can detect conflicting registrations.
 type LegacyOAuthEntry struct {
-	Pattern         string
-	Source          string
-	AuthType        string
-	Readable        bool
-	HasAccess       bool
-	HasRefresh      bool
-	HasSecret       bool
-	ClientID        string `json:"-"`
-	ClientGrantType string
+	HostnameSnapshotEligible bool `json:"-"`
+	Pattern                  string
+	Source                   string
+	AuthType                 string
+	Readable                 bool
+	HasAccess                bool
+	HasRefresh               bool
+	HasSecret                bool
+	ClientID                 string `json:"-"`
+	ClientGrantType          string
 }
 
 func (e LegacyOAuthEntry) MatchesHost(host string) bool {
@@ -63,6 +64,7 @@ func (m *Manager) InspectLegacyOAuth(ctx context.Context, resourceHosts ...strin
 			continue
 		}
 		entry := LegacyOAuthEntry{Pattern: row.Pattern, Source: row.Source, AuthType: row.AuthType, ClientGrantType: row.ClientGrantType}
+		entry.HostnameSnapshotEligible = validSnapshotHostname(row)
 		// Imported MCP tokens can be stored as hostname bearer credentials. Only
 		// inspect these when a consumer host matches; unrelated API keys stay out.
 		if row.AuthType == "bearer" && !strings.HasPrefix(row.Pattern, "mcp-client:") && !strings.HasPrefix(row.Pattern, "mcp-tokens:") {

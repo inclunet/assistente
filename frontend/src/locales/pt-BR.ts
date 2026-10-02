@@ -1423,6 +1423,7 @@ const ptBR = {
           "invalid_reference": "A referência à autorização composta está ausente, ilegível ou incompatível.",
           "legacy_residue": "Existem credenciais legadas junto da autorização composta. Não as exclua sem verificar sua origem.",
           "external_source": "Uma credencial usa fonte externa. O diagnóstico não executa comandos nem acessa keyrings.",
+          "snapshot_ineligible": "Esta entrada não atende aos requisitos de captura como credencial estática por hostname.",
           "unreadable": "Há campos que não puderam ser decifrados. Texto de versões antigas também requer análise; os dados foram preservados.",
           "unexpected_type": "Uma credencial tem um tipo de autenticação inesperado para esse registro.",
           "missing_client": "Não foi encontrado client ID legível na configuração ou na credencial.",

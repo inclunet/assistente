@@ -19,7 +19,7 @@ export function McpOAuthSnapshots({ consumers }: { consumers: mcp.OAuthInventory
   const consumerSelect = useRef<HTMLSelectElement>(null);
   const restoreFocus = useRef(false);
   const query = useRef<Promise<credentials.OAuthSnapshotInfo[]> | null>(null);
-  const eligible = consumers.filter((item) => item.kind === 'legacy' || item.kind === 'client_credentials' || (item.kind === 'hostname' && !item.issues.includes('external_source')));
+  const eligible = consumers.filter((item) => item.kind === 'legacy' || item.kind === 'client_credentials' || (item.kind === 'hostname' && !item.issues.some((issue) => issue === 'external_source' || issue === 'snapshot_ineligible')));
 
   useEffect(() => {
     active.current = true;

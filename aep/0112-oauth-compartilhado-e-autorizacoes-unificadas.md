@@ -1138,5 +1138,8 @@ Evidências: `TestHostnameSnapshotCaptureIsPrivateAndReadOnly`,
 `TestHostnameSnapshotResolvesIPv6AndCaseAfterRestore` prova resolução antes/depois
 da recarga com IPv6, porta e caixa mista. O resolvedor usa `URL.Hostname()` e
 compara padrões sem distinguir caixa, sem reescrever o padrão persistido.
+O inventário reutiliza a validação da captura e sinaliza `snapshot_ineligible`;
+a UI não oferece entradas inelegíveis. Testes de inventário/captura e seletor
+cobrem hostnames válidos e padrões com URL, caminho ou porta rejeitados.
 Conversão transacional/idempotente, fixtures de conversão, cutover e Slack
 continuam pendentes; esta entrega não conclui a fase 3.

@@ -48,9 +48,11 @@ describe('McpOAuthSnapshots', () => {
     render(<McpOAuthSnapshots consumers={[
       { id: 'credential:shared.example', name: 'Compartilhada', kind: 'hostname', issues: [] },
       { id: 'credential:command.example', name: 'Comando', kind: 'hostname', issues: ['external_source'] },
+      { id: 'credential:shared.example/private', name: 'Caminho inelegível', kind: 'hostname', issues: ['snapshot_ineligible'] },
     ] as mcp.OAuthInventoryItem[]} />);
     await screen.findByText('Servidor');
     expect(screen.queryByRole('option', { name: 'Comando' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Caminho inelegível' })).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('mcp.snapshots.consumer'), { target: { value: 'credential:shared.example' } });
     fireEvent.click(screen.getByRole('button', { name: 'mcp.snapshots.create' }));
     await waitFor(() => expect(CreateMCPOAuthSnapshot).toHaveBeenCalledWith('credential:shared.example'));

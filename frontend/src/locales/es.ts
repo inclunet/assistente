@@ -1425,6 +1425,7 @@ const es = {
           "invalid_reference": "La referencia a la autorización compuesta falta, es ilegible o es incompatible.",
           "legacy_residue": "Existen credenciales heredadas junto a la autorización compuesta. Verifique su origen antes de eliminarlas.",
           "external_source": "Una credencial usa una fuente externa. El diagnóstico no ejecuta comandos ni accede a keyrings.",
+          "snapshot_ineligible": "Esta entrada no cumple los requisitos para capturarla como credencial estática por hostname.",
           "unreadable": "No se pudieron descifrar algunos campos. El texto de versiones antiguas también requiere análisis; los datos se conservaron.",
           "unexpected_type": "Una credencial tiene un tipo de autenticación inesperado para este registro.",
           "missing_client": "No se encontró un client ID legible en la configuración ni en la credencial.",
