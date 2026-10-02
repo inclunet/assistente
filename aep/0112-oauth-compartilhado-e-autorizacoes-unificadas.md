@@ -295,6 +295,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    remover persistência dupla, configurações OAuth duplicadas e ciclo próprio de renovação.
    O inventário local preparatório está entregue (seção de evidências da fase 3);
    snapshots recuperáveis de PKCE e Client Credentials estão entregues;
+   recuperação testada sobre fixtures dos formatos publicados 0.2.0 a 0.5.0;
    recuperação por hostname, conversão e retirada do legado permanecem pendentes.
 4. [ ] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
    conexão e referências por papel, sem alterar protocolo nem exigir OAuth inexistente.
@@ -1078,3 +1079,26 @@ Client Credentials também resolve o Client ID apenas no cofre legado quando o
 campo da configuração está vazio, preservando a configuração persistida. O teste
 `TestClientCredentialsSnapshotGetsNewTokenAfterEnable/vault_only_id` cobre a
 obtenção de token novo antes e depois de recarregar o cofre.
+
+### Fase 3 — fixtures publicadas para recuperação
+
+Status: **In Progress**. `TestPublishedOAuthRecovery` importa os schemas
+publicados 0.2.0, 0.3.0, 0.4.0 e 0.5.0 já versionados em `database/testdata`,
+acrescenta registros OAuth sintéticos com ciphertexts congelados no formato
+histórico e aplica duas vezes o AutoMigrate das tabelas de credenciais/MCP.
+A proveniência dos schemas e dos dados está nos READMEs de `testdata`.
+Não usa bancos reais, executáveis antigos ou o serializer atual para produzir
+as credenciais iniciais. Upgrade integral permanece nos testes de database.
+
+Os 16 cenários cobrem PKCE completo, Client Credentials com ID apenas no cofre,
+PKCE sem cadastro do cliente e segredo ilegível. Provam leitura criptográfica,
+preservação da expiração e das linhas cifradas na captura, callback fixo e
+endpoints, isolamento por usuário, recarga após recuperação, conflito em restore
+repetido e preservação das demais credenciais, inclusive hostname compartilhado.
+Source ausente continua bloqueada na resolução genérica conforme AEP-0110;
+recuperação explícita restaura cadastro estático e não reativa tokens antigos.
+
+Este incremento conclui a cobertura histórica da recuperação estrutural desses
+formatos. Não comprova conversão, rollback de executáveis ou recuperação de
+hostname. Fixtures de conversão, recuperação de hostname, cutover, retirada do
+legado e convergência Slack continuam pendentes.
