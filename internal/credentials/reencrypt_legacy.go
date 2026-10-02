@@ -24,7 +24,7 @@ const gcmMinCiphertextLen = 12 + 16
 // correto. NUNCA use esses métodos para servir requests do app.
 type refreshTokenReencryptStore interface {
 	ListCredentialsWithRefreshTokensIgnoringScope(ctx context.Context) ([]StoredCredential, error)
-	UpdateRefreshTokenEncByID(ctx context.Context, id, value string) error
+	UpdateRefreshTokenEncByID(ctx context.Context, id, previous, value string) error
 }
 
 // reencryptLegacyPlaintextRefreshTokens re-cifra, com a DEK atual,
@@ -84,7 +84,7 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 		value := entry.Auth.RefreshURL
 		normalizedValue := strings.TrimSpace(value)
 		if normalizedValue == "" {
-			if err := store.UpdateRefreshTokenEncByID(ctx, entry.ID, ""); err != nil {
+			if err := store.UpdateRefreshTokenEncByID(ctx, entry.ID, value, ""); err != nil {
 				return reencrypted, fmt.Errorf("limpar refresh token vazio da credencial %s: %w", entry.ID, err)
 			}
 			continue
@@ -92,7 +92,7 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 		if _, err := m.decrypt(normalizedValue); err == nil {
 			// Caso 1: já cifrado com a DEK atual.
 			if value != normalizedValue {
-				if err := store.UpdateRefreshTokenEncByID(ctx, entry.ID, normalizedValue); err != nil {
+				if err := store.UpdateRefreshTokenEncByID(ctx, entry.ID, value, normalizedValue); err != nil {
 					return reencrypted, fmt.Errorf("normalizar refresh token cifrado da credencial %s: %w", entry.ID, err)
 				}
 			}
@@ -118,7 +118,7 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 		if err != nil {
 			return reencrypted, fmt.Errorf("cifrar refresh token legado da credencial %s: %w", entry.ID, err)
 		}
-		if err := store.UpdateRefreshTokenEncByID(ctx, entry.ID, enc); err != nil {
+		if err := store.UpdateRefreshTokenEncByID(ctx, entry.ID, value, enc); err != nil {
 			return reencrypted, fmt.Errorf("regravar refresh token cifrado da credencial %s: %w", entry.ID, err)
 		}
 		reencrypted++

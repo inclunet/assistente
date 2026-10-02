@@ -383,6 +383,28 @@ func validDiscoveredMetadata(ctx context.Context, metadata *authServerMetadata, 
 	return true
 }
 
+// PreflightOAuthEndpoint asks for destination approval before a short durable
+// refresh lease starts. The returned context retains approvals for the request;
+// socket checks still run and never trust a changed DNS destination implicitly.
+func PreflightOAuthEndpoint(ctx context.Context, resource, endpoint string, authorize NetworkAuthorizer) (context.Context, error) {
+	ctx = WithNetworkOperation(ctx)
+	if authorize != nil {
+		ctx = WithNetworkAuthorizer(ctx, authorize)
+	}
+	u, err := endpointURL(endpoint)
+	if err != nil {
+		return ctx, err
+	}
+	var checkErr error
+	err = runNetworkOperation(ctx, resource, func(operationCtx context.Context) {
+		checkErr = operationCtx.Value(discoveryNetworkKey{}).(*discoveryNetwork).checkDestination(operationCtx, u)
+	})
+	if err != nil {
+		return ctx, err
+	}
+	return ctx, checkErr
+}
+
 // NewNetworkHTTPClient applies the same consent and socket guard to subsequent
 // OAuth requests. Redirects are never followed with codes, tokens or secrets.
 func NewNetworkHTTPClient(resource string, authorize NetworkAuthorizer, timeout time.Duration) *http.Client {

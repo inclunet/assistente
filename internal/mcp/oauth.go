@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/oauthflow"
 
 	"github.com/pkg/browser"
@@ -88,9 +89,13 @@ func (rt *pkceRoundTripper) wrapWithPersistence(ts oauth2.TokenSource) oauth2.To
 
 // trySilentRefresh tenta renovar o token usando o refresh_token,
 // sem abrir o browser. Retorna nil se bem-sucedido.
-func (rt *pkceRoundTripper) trySilentRefresh(ctx context.Context) error {
+func (rt *pkceRoundTripper) trySilentRefresh(ctx context.Context, rejected ...string) error {
 	if rt.oauthCfg == nil || rt.tokenSource == nil {
 		return fmt.Errorf("no oauth config or token source")
+	}
+	if rt.coordinatedLegacy() {
+		_, err := rt.resolveLegacyToken(ctx, rt.oauthCfg, true, rejected...)
+		return err
 	}
 
 	// Reload-before-refresh: prefere o refresh_token mais recente do store e cai para
@@ -127,7 +132,7 @@ func (rt *pkceRoundTripper) trySilentRefresh(ctx context.Context) error {
 		return fmt.Errorf("silent refresh failed: %w", err)
 	}
 
-	rt.tokenSource = rt.wrapWithPersistence(newScopedTokenSource(rt.longLivedCtx(), newToken, rt.oauthCfg.TokenSource))
+	rt.tokenSource = rt.newTokenSource(newToken, rt.oauthCfg)
 	if err := rt.persistTokens(newToken); err != nil {
 		return err
 	}
@@ -240,6 +245,12 @@ func (rt *pkceRoundTripper) fixBlockedEndpoint(ctx context.Context, rawURL strin
 // - Porta de callback fixa (oauth2_callback_port) para redirect_uri determinístico
 // - Parâmetro resource (RFC 8707)
 type pkceRoundTripper struct {
+	legacySession interface {
+		SessionContext(context.Context) (context.Context, context.CancelFunc)
+	}
+	legacyOperation        *credentials.LegacyOAuthOperation
+	explicitAuthorization  bool
+	configPersistenceError error
 	protocolOnly           bool
 	registrationCheckpoint func() error
 	clientAuthMethod       string
@@ -290,7 +301,17 @@ func (rt *pkceRoundTripper) authCtx() context.Context {
 	if rt.authCtxProvider == nil {
 		return context.Background()
 	}
-	return rt.authCtxProvider()
+	ctx := rt.authCtxProvider()
+	return ctx
+}
+
+// Used only by the serialized interactive protocol, while rt.mu is held.
+func (rt *pkceRoundTripper) persistenceCtx() context.Context {
+	ctx := rt.authCtx()
+	if rt.legacyOperation != nil {
+		return rt.legacyOperation.Context(ctx)
+	}
+	return ctx
 }
 
 // longLivedCtx keeps refresh independent of individual HTTP requests while
@@ -415,7 +436,7 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 
 			// Token foi rejeitado — tenta renovar silenciosamente antes de abrir o browser
 			rt.mu.Lock()
-			silentErr := rt.trySilentRefresh(req.Context())
+			silentErr := rt.trySilentRefresh(req.Context(), token.AccessToken)
 			rt.mu.Unlock()
 
 			if terminalOAuthNetworkError(req.Context(), silentErr) {
@@ -490,6 +511,11 @@ func isSessionExpiredStatus(statusCode int) bool {
 }
 
 func (rt *pkceRoundTripper) authorize(ctx context.Context) (resultErr error) {
+	if rt.legacySession != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = rt.legacySession.SessionContext(ctx)
+		defer cancel()
+	}
 	ctx = oauthflow.WithNetworkOperation(ctx)
 	endInteraction := beginOAuthInteraction(ctx)
 	defer endInteraction()
@@ -506,7 +532,10 @@ func (rt *pkceRoundTripper) authorize(ctx context.Context) (resultErr error) {
 	// authorize() só é chamado após um 401/403, ou seja, o token atual ACABOU de ser
 	// rejeitado. Capturamos o access_token rejeitado ANTES de esperar no arbiter para
 	// detectar, depois, se OUTRO flow o substituiu enquanto aguardávamos.
-	rejected := rt.cachedAccessToken()
+	rejected := ""
+	if !rt.explicitAuthorization {
+		rejected = rt.cachedAccessToken()
+	}
 
 	// Serializa entre servidores: enquanto outro MCP estiver fazendo
 	// flow OAuth interativo, este espera. rt.mu (logo abaixo) protege
@@ -529,14 +558,37 @@ func (rt *pkceRoundTripper) authorize(ctx context.Context) (resultErr error) {
 	// ele pode ter sido revogado e rejeitado com 401 — nesse caso o usuário precisa
 	// mesmo reautenticar, então seguimos o flow.
 	if rt.tokenSource != nil {
-		tok, err := rt.tokenSource.Token()
-		if terminalOAuthNetworkError(ctx, err) {
+		if !rt.explicitAuthorization {
+			tok, err := rt.tokenSource.Token()
+			if terminalOAuthNetworkError(ctx, err) {
+				return err
+			}
+			if err == nil && tok != nil && tok.Valid() && tok.AccessToken != rejected {
+				logging.Infof(ctx, "mcp.oauth", "[MCP:%s] Token renovado por outro flow enquanto aguardávamos o arbiter — pulando nova janela de autorização", rt.serverSlug)
+				return nil
+			}
+		}
+	}
+	if rt.coordinatedLegacy() {
+		ctx = database.WithUserID(ctx, rt.cfg.UserID)
+		op, latest, err := rt.credMgr.BeginLegacyOAuth(ctx, rt.serverSlug, rt.cfg.ID, true, rt.explicitAuthorization, rt.validateLegacyConsumer)
+		if err != nil {
 			return err
 		}
-		if err == nil && tok != nil && tok.Valid() && tok.AccessToken != rejected {
-			logging.Infof(ctx, "mcp.oauth", "[MCP:%s] Token renovado por outro flow enquanto aguardávamos o arbiter — pulando nova janela de autorização", rt.serverSlug)
-			return nil
+		rt.legacyOperation = op
+		rt.configPersistenceError = nil
+		rt.resolvedClientID = latest.ClientID
+		if rt.resolvedClientID == "" {
+			rt.resolvedClientID = rt.cfg.OAuth2ClientID
 		}
+		rt.resolvedClientSecret = latest.ClientSecret
+		rt.clientGrantType = latest.ClientGrantType
+		defer func() { op.End(); rt.legacyOperation = nil }()
+		var cancel context.CancelFunc
+		ctx, cancel = op.SessionContext(ctx)
+		defer cancel()
+		ctx, cancel = context.WithDeadline(ctx, op.Deadline())
+		defer cancel()
 	}
 
 	// 1. Discovery automático de endpoints OAuth (se URL MCP disponível)
@@ -697,6 +749,9 @@ func (rt *pkceRoundTripper) registerClient(ctx context.Context, pkce bool) error
 	if rt.onConfigUpdate != nil {
 		rt.onConfigUpdate(rt.cfg)
 	}
+	if rt.configPersistenceError != nil {
+		return errOAuthPersistence
+	}
 	logging.Infof(ctx, "mcp.oauth", "client_registration_completed server=%s pkce=%t", rt.serverSlug, pkce)
 	return nil
 }
@@ -761,7 +816,7 @@ func (rt *pkceRoundTripper) authorizeDeviceFlow(ctx context.Context) error {
 	}
 	oauthCfg := &oauth2.Config{ClientID: clientID, Endpoint: oauth2.Endpoint{AuthURL: rt.cfg.OAuth2AuthURL, TokenURL: rt.cfg.OAuth2TokenURL}, Scopes: result.Scopes}
 	rt.oauthCfg = oauthCfg
-	rt.tokenSource = rt.wrapWithPersistence(newScopedTokenSource(rt.longLivedCtx(), result.Token, oauthCfg.TokenSource))
+	rt.tokenSource = rt.newTokenSource(result.Token, oauthCfg)
 	if err := rt.persistTokens(result.Token); err != nil {
 		return err
 	}
@@ -866,7 +921,7 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 		return errors.New("oauth_code_exchange_failed")
 	}
 	rt.oauthCfg = oauthCfg
-	rt.tokenSource = rt.wrapWithPersistence(newScopedTokenSource(rt.longLivedCtx(), token, oauthCfg.TokenSource))
+	rt.tokenSource = rt.newTokenSource(token, oauthCfg)
 	if err := rt.persistTokens(token); err != nil {
 		return err
 	}
@@ -950,7 +1005,14 @@ func (rt *pkceRoundTripper) persistClientCreds(clientID, clientSecret string) {
 		ClientSecret:    clientSecret,
 		ClientGrantType: rt.clientGrantType,
 	}
-	if err := rt.credMgr.RegisterPatternWithContext(rt.authCtx(), clientCredPattern(rt.serverSlug), auth); err != nil {
+	if rt.legacyOperation != nil {
+		if err := rt.legacyOperation.SaveClient(rt.authCtx(), auth); err != nil {
+			rt.configPersistenceError = err
+		}
+		return
+	}
+	if err := rt.credMgr.RegisterPatternWithContext(rt.persistenceCtx(), clientCredPattern(rt.serverSlug), auth); err != nil {
+		rt.configPersistenceError = err
 		logging.Errorf(context.Background(), "mcp.oauth", "[MCP:%s] Erro ao salvar credenciais do cliente: %v", rt.serverSlug, err)
 	}
 }
@@ -969,7 +1031,17 @@ func (rt *pkceRoundTripper) persistTokens(token *oauth2.Token) error {
 	if rt.credMgr == nil || token == nil {
 		return nil
 	}
-	ctx := rt.authCtx()
+	ctx := rt.persistenceCtx()
+	if rt.legacyOperation != nil {
+		auth := &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: token.AccessToken, RefreshURL: token.RefreshToken}
+		if !token.Expiry.IsZero() {
+			auth.ExpiresAt = token.Expiry.Unix()
+		}
+		if err := rt.legacyOperation.Commit(ctx, auth); err != nil {
+			return errOAuthPersistence
+		}
+		return nil
+	}
 	refresh := token.RefreshToken
 	if refresh == "" {
 		// Refresh non-rotativo: o provedor pode não reenviar o refresh_token numa
@@ -1105,13 +1177,22 @@ func buildPKCERoundTripper(cfg ServerConfig, credMgr *credentials.Manager, emitE
 	}
 
 	bootstrapCtx := rt.authCtx()
+	if rt.coordinatedLegacy() {
+		if store, err := credMgr.OAuthStore(bootstrapCtx); err == nil {
+			rt.legacySession, _ = store.(interface {
+				SessionContext(context.Context) (context.Context, context.CancelFunc)
+			})
+		}
+	}
 
 	// Entrada 1: dados do cliente (mcp-client:{slug}) → client_id + client_secret
 	clientID, clientSecret := loadClientCreds(bootstrapCtx, credMgr, slug)
 	if clientID == "" && cfg.OAuth2ClientID != "" {
 		clientID = cfg.OAuth2ClientID
-		rt.persistClientCreds(clientID, "")
-		logging.Infof(context.Background(), "mcp.oauth", "[MCP:%s] client_id importado do config para credential manager", slug)
+		if !rt.coordinatedLegacy() {
+			rt.persistClientCreds(clientID, "")
+			logging.Infof(context.Background(), "mcp.oauth", "[MCP:%s] client_id importado do config para credential manager", slug)
+		}
 	}
 	rt.resolvedClientID = clientID
 	rt.resolvedClientSecret = clientSecret
@@ -1124,7 +1205,7 @@ func buildPKCERoundTripper(cfg ServerConfig, credMgr *credentials.Manager, emitE
 
 	// Entrada 2: tokens do usuário (mcp-tokens:{slug}) → access_token + refresh_token
 	token := loadUserTokens(bootstrapCtx, credMgr, slug)
-	if token != nil && clientID != "" {
+	if rt.coordinatedLegacy() || token != nil && clientID != "" {
 		oauthCfg := &oauth2.Config{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
@@ -1136,7 +1217,7 @@ func buildPKCERoundTripper(cfg ServerConfig, credMgr *credentials.Manager, emitE
 		}
 		rt.oauthCfg = oauthCfg
 		// Token source persistido: ctx long-lived para não morrer com o bootstrap.
-		rt.tokenSource = rt.wrapWithPersistence(newScopedTokenSource(rt.longLivedCtx(), token, oauthCfg.TokenSource))
+		rt.tokenSource = rt.newTokenSource(token, oauthCfg)
 	}
 
 	return rt
@@ -1171,7 +1252,7 @@ func (rt *pkceRoundTripper) oauthHTTPClient(timeout time.Duration) *http.Client 
 }
 
 func terminalOAuthNetworkError(ctx context.Context, err error) bool {
-	return err != nil && (errors.Is(err, errOAuthPersistence) || errors.Is(err, oauthflow.ErrNetworkAuthorization) || errors.Is(err, context.Canceled) || ctx.Err() != nil)
+	return err != nil && (errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrTransient) || errors.Is(err, oauthflow.ErrConflict) || errors.Is(err, errOAuthPersistence) || errors.Is(err, oauthflow.ErrNetworkAuthorization) || errors.Is(err, context.Canceled) || ctx.Err() != nil)
 }
 
 func terminalDeviceGrantError(ctx context.Context, err error) bool {

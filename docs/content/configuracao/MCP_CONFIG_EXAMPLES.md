@@ -630,3 +630,23 @@ não repete um corpo já consumido.
 Ao criar um servidor, as opções Habilitado e Conectar automaticamente são
 preservadas conforme escolhidas, inclusive quando desmarcadas. Um servidor
 desabilitado não aceita conexão até ser habilitado.
+
+### Renovação de conexões OAuth antigas
+
+O Assistente coordena autorizações e renovações PKCE antigas entre instâncias
+atualizadas que usam o mesmo banco. Enquanto uma tentativa estiver em andamento,
+aguarde antes de conectar, editar ou remover suas credenciais. Outra instância
+consulta os tokens salvos pela primeira, sem renovar novamente por usar um cache
+antigo. Não compartilhe o banco com versões anteriores durante essas operações.
+
+Se o aplicativo fechar durante uma renovação, ou receber uma resposta cujo
+resultado não puder ser confirmado, ele pode pedir **Reautorizar**. Use essa ação
+em **Servidores MCP** para obter novo consentimento. Reiniciar, conectar novamente
+ou enviar outra mensagem não repete o refresh token que ficou incerto. Cancelar
+a reautorização mantém esse pedido até uma autorização bem-sucedida.
+
+Se a falha ocorreu ao salvar, resolva primeiro o acesso ao cofre. Não é preciso
+apagar as credenciais para reautorizar. A remoção explícita continua disponível
+quando não há tentativa ativa, mas remove somente os dados locais e não revoga
+o acesso no serviço remoto. Esta proteção ainda não converte os cadastros antigos
+para o formato unificado.

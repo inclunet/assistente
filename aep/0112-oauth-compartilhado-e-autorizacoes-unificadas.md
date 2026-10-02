@@ -857,3 +857,52 @@ método de autenticação efetivamente negociado; esses casos não podem ser
 convertidos por inferência. Snapshot não desfaz rotação remota: a recuperação
 precisa distinguir restauração estrutural de validade do grant. Snapshot,
 retenção, restauração, conversão e retirada do runtime legado seguem pendentes.
+
+### Fase 3 — coordenação durável do OAuth PKCE legado
+
+Status: **In Progress**. Os consumidores PKCE persistidos agora adquirem uma
+tentativa durável antes da autorização ou renovação remota. O controle transitório
+fica cifrado pela DEK na própria entrada `mcp-tokens:<slug>`, com versão,
+identidade do consumidor, nonce, prazo e indicação de refresh pendente. Não é
+um registro composto nem uma conversão de grant. Client Credentials permanece
+fora deste incremento.
+
+A aquisição, a validação do consumidor e a leitura do par são transacionais.
+Nenhuma transação SQLite ou trava global do cofre abrange rede ou consentimento.
+A renovação tem prazo de 30 segundos; a autorização interativa, 10 minutos.
+A decisão de rede para o endpoint de token antecede a aquisição curta; os
+controles de destino continuam ativos no socket, inclusive se o DNS mudar.
+Durante a tentativa, outra instância atualizada não pode renovar, editar ou
+apagar o par/configuração. A publicação exige a mesma tentativa, consumidor e
+sessão do cofre, e salva tokens com remoção do marcador no mesmo commit.
+
+Leituras de tokens consultam o banco, incluindo MCP nativo, sem confiar no cache
+de outra instância. Mudança de recurso/configuração invalida transports antigos.
+Segredos do cliente são relidos dentro da aquisição; construir um transport não
+importa configuração sobre uma credencial potencialmente mais recente.
+Basic/Post continua negociável somente após `invalid_client` explícito; timeout,
+erro de rede e respostas ambíguas não repetem o refresh. Não se infere o método
+efetivamente negociado nem os escopos concedidos para futura conversão.
+
+Uma renovação iniciada sem commit deixa o grant pendente mesmo após reinício ou
+expiração da tentativa. Conectar, probe, fallback e MCP nativo não reutilizam esse
+refresh token: é necessária **Reautorizar** explícita. Cancelar essa recuperação
+preserva a pendência. A exclusão explícita das credenciais locais pode descartar
+uma pendência inativa; não revoga o grant remoto. Uma resposta antiga não pode
+recriar o par apagado nem publicar sobre uma tentativa posterior.
+
+Evidências: `TestLegacyRefreshCoordinatesProcessesAndEdits`,
+`TestLegacyRefreshNegotiatesOnlyDefinitiveClientRejection`,
+`TestLegacyTransportRejectsChangedResourceWithValidToken`,
+`TestLegacyRefreshConsentPrecedesDurableAttempt`,
+`TestLegacyNativeRefreshUsesFreshClientWithoutBootstrapOverwrite`,
+`TestLegacyOAuthInterruptedRefreshRequiresExplicitRecovery`,
+`TestLegacyOAuthExpiredCrashMarkerSurvivesRestart` e
+`TestLegacyOAuthSessionAndFailedDeletionPreserveVault`.
+
+Limite: executáveis antigos não conhecem este controle e não participam da
+coordenação. Não se deve compartilhar o banco com versões anteriores durante
+operações OAuth. O controle não é um backup exportável nem comprova validade
+remota. Snapshot cifrado, retenção/restauração, fixtures publicadas, conversão
+transacional/idempotente e retirada do runtime legado continuam pendentes;
+a fase 3 não está concluída.

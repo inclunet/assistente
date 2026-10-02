@@ -374,6 +374,11 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 	if userID == "" && !IsInstanceSecretPattern(pattern) && m.persist {
 		return database.ErrUserScopeRequired
 	}
+	if m.persist && m.store != nil {
+		if err := m.store.DeleteCredential(ctx, pattern); err != nil {
+			return err
+		}
+	}
 	filtered := m.credentials[:0]
 	for _, dc := range m.credentials {
 		if dc.Pattern != pattern || (userID != "" && dc.UserID != userID) {
@@ -387,12 +392,6 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 	}
 	// evita manter referências antigas
 	m.credentials = append([]*DomainCredential(nil), filtered...)
-
-	if m.persist && m.store != nil {
-		if err := m.store.DeleteCredential(ctx, pattern); err != nil {
-			return err
-		}
-	}
 
 	return nil
 }

@@ -87,9 +87,16 @@ func (m *Manager) DeleteServerAuth(slug string) error {
 		_ = m.Disconnect(slug)
 		return nil
 	}
+	if cfgManaged.AuthType == AuthOAuth2PKCE && cfgManaged.ID != "" {
+		return m.credMgr.ClearLegacyOAuth(ctx, slug, cfgManaged.ID, hostnameFromURL(cfgManaged.URL))
+	}
 	// Limpar entradas OAuth (client + tokens)
-	_ = m.credMgr.DeletePattern(ctx, clientCredPattern(slug))
-	_ = m.credMgr.DeletePattern(ctx, userTokensPattern(slug))
+	if err := m.credMgr.DeletePattern(ctx, clientCredPattern(slug)); err != nil {
+		return err
+	}
+	if err := m.credMgr.DeletePattern(ctx, userTokensPattern(slug)); err != nil {
+		return err
+	}
 
 	// Limpar entrada legacy por hostname (bearer/basic)
 	cfg, err := m.GetConfig(slug)

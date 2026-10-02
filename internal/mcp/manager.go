@@ -1333,12 +1333,14 @@ func (m *Manager) buildPKCERoundTripperForServer(ctx context.Context, slug strin
 	if !ok {
 		writer = m.newLegacyOAuthWriter(cfg)
 	}
+	var rt *pkceRoundTripper
 	onConfigUpdate := func(updated ServerConfig) {
-		if err := writer.Write(updated); err != nil {
+		if err := writer.WriteWithContext(rt.persistenceCtx(), updated); err != nil {
+			rt.configPersistenceError = err
 			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Erro ao persistir config após atualização OAuth: %v", slug, err)
 		}
 	}
-	rt := buildPKCERoundTripper(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate, m.credentialContext, m.authorizeOAuthNetwork, ctx)
+	rt = buildPKCERoundTripper(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate, m.credentialContext, m.authorizeOAuthNetwork, ctx)
 	return rt
 }
 
@@ -1384,6 +1386,7 @@ func (m *Manager) ReauthorizeServer(ctx context.Context, slug string) error {
 	}
 	logging.Infof(ctx, "mcp.manager", "[MCP:%s] Reautorização interativa solicitada", slug)
 	rt := m.buildPKCERoundTripperForServer(ctx, slug, cfg)
+	rt.explicitAuthorization = true
 	if err := rt.authorize(ctx); err != nil {
 		return fmt.Errorf("reautorização OAuth do servidor '%s' falhou: %w", slug, err)
 	}
@@ -2028,6 +2031,21 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 	}
 	if cfg.AuthType != AuthOAuth2PKCE {
 		return false, nil
+	}
+	if cfg.ID != "" && cfg.UserID != "" {
+		rt := m.buildPKCERoundTripperForServer(ctx, slug, cfg)
+		auth, err := m.credMgr.ReadLegacyOAuthToken(database.WithUserID(ctx, cfg.UserID), slug, cfg.ID)
+		if err != nil {
+			return false, err
+		}
+		if !force && (auth.ExpiresAt == 0 || time.Until(time.Unix(auth.ExpiresAt, 0)) > tokenRefreshThreshold) {
+			return false, nil
+		}
+		if rt.oauthCfg == nil {
+			return false, oauthflow.ErrReauthorize
+		}
+		token, err := rt.resolveLegacyToken(ctx, rt.oauthCfg, true)
+		return err == nil && token.AccessToken != auth.Token, err
 	}
 
 	authCtx := m.credentialContext()
@@ -2845,6 +2863,25 @@ func (m *Manager) resolveNativeAuthToken(ctx context.Context, c nativeMCPCandida
 	if m.credMgr == nil {
 		return "", true
 	}
+	if c.authType == AuthOAuth2PKCE && c.managedConfig.ID != "" {
+		rt := m.buildPKCERoundTripperForServer(ctx, c.slug, c.managedConfig)
+		if rt.oauthCfg == nil {
+			m.signalNeedsReauth(c.slug, c.name, "oauth_reauthorization_required")
+			return "", false
+		}
+		token, err := rt.resolveLegacyTokenWithValidity(ctx, rt.oauthCfg, false, tokenRefreshThreshold)
+		if err != nil {
+			if errors.Is(err, oauthflow.ErrNotFound) {
+				return m.resolveNativeHostnameToken(ctx, c)
+			}
+			if errors.Is(err, oauthflow.ErrReauthorize) {
+				m.signalNeedsReauth(c.slug, c.name, "oauth_reauthorization_required")
+			}
+			return "", false
+		}
+		m.clearNeedsReauth(c.slug)
+		return token.AccessToken, true
+	}
 
 	auth, err := m.credMgr.GetByPatternWithContext(ctx, userTokensPattern(c.slug))
 	if err == nil && auth != nil && auth.Token != "" {
@@ -2870,7 +2907,11 @@ func (m *Manager) resolveNativeAuthToken(ctx context.Context, c nativeMCPCandida
 		return auth.Token, true
 	}
 
-	// Sem token OAuth: tenta resolver por hostname (Bearer) como antes.
+	return m.resolveNativeHostnameToken(ctx, c)
+}
+
+func (m *Manager) resolveNativeHostnameToken(ctx context.Context, c nativeMCPCandidate) (string, bool) {
+	// Only absence of an OAuth row permits this compatibility fallback.
 	if hostname := hostnameFromURL(c.url); hostname != "" {
 		if hostAuth, hostErr := m.credMgr.GetByPatternWithContext(ctx, hostname); hostErr == nil && hostAuth != nil && hostAuth.Token != "" {
 			logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token resolvido por hostname (pattern=%s)", c.slug, hostname)

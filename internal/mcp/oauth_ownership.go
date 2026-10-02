@@ -14,16 +14,21 @@ import (
 type legacyOAuthWriterContextKey struct{}
 
 type legacyOAuthWriter struct {
-	update func(*ServerConfig) (ServerConfig, error)
+	update func(context.Context, *ServerConfig) (ServerConfig, error)
 }
 
 func (w *legacyOAuthWriter) Write(cfg ServerConfig) error {
-	_, err := w.update(&cfg)
+	_, err := w.update(nil, &cfg)
 	return err
 }
 
 func (w *legacyOAuthWriter) EnablePolling() (ServerConfig, error) {
-	return w.update(nil)
+	return w.update(nil, nil)
+}
+
+func (w *legacyOAuthWriter) WriteWithContext(ctx context.Context, cfg ServerConfig) error {
+	_, err := w.update(ctx, &cfg)
+	return err
 }
 
 // The legacy protocol callback is not a user edit: it may only update the
@@ -37,14 +42,23 @@ func (m *Manager) newLegacyOAuthWriter(original ServerConfig) *legacyOAuthWriter
 	ctx := m.credentialContext()
 	user, userErr := database.RequireUserID(ctx)
 	if userErr != nil || original.UserID != user || original.ID == "" {
-		return &legacyOAuthWriter{update: func(*ServerConfig) (ServerConfig, error) { return ServerConfig{}, oauthflow.ErrConflict }}
+		return &legacyOAuthWriter{update: func(context.Context, *ServerConfig) (ServerConfig, error) {
+			return ServerConfig{}, oauthflow.ErrConflict
+		}}
 	}
 	if m.credMgr == nil {
-		return &legacyOAuthWriter{update: func(*ServerConfig) (ServerConfig, error) { return ServerConfig{}, oauthflow.ErrResource }}
+		return &legacyOAuthWriter{update: func(context.Context, *ServerConfig) (ServerConfig, error) {
+			return ServerConfig{}, oauthflow.ErrResource
+		}}
 	}
 	store, captureErr := m.credMgr.OAuthStore(ctx)
 	var mu sync.Mutex
-	return &legacyOAuthWriter{update: func(candidate *ServerConfig) (ServerConfig, error) {
+	baseCtx := ctx
+	return &legacyOAuthWriter{update: func(operationCtx context.Context, candidate *ServerConfig) (ServerConfig, error) {
+		ctx := baseCtx
+		if operationCtx != nil {
+			ctx = operationCtx
+		}
 		mu.Lock()
 		defer mu.Unlock()
 		updated := original
