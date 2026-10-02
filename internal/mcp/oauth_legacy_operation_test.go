@@ -30,6 +30,131 @@ type pausedLegacySource struct {
 	release chan struct{}
 }
 
+func TestLegacyAuthMetadataDoesNotReuseRemovedCache(t *testing.T) {
+	a, b, ctx, cfg := legacyWALManagers(t, "https://metadata.example")
+	if err := a.SaveServerAuth("legacy", "oauth2_pkce", "", "", "", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.credMgr.RegisterPatternWithContext(ctx, "metadata.example", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "cached"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, has, err := a.GetServerAuthInfo("legacy"); err != nil || !has {
+		t.Fatal("missing setup metadata", err)
+	}
+	if err := b.credMgr.ClearLegacyOAuth(ctx, "legacy", cfg.ID, "metadata.example"); err != nil {
+		t.Fatal(err)
+	}
+	if _, has, err := a.GetServerAuthInfo("legacy"); err != nil || has {
+		t.Fatalf("removed cache reported configured: %v %v", has, err)
+	}
+}
+
+func TestLegacyAuthMutationsRejectOtherInstanceConsumerChanges(t *testing.T) {
+	for _, kind := range []AuthType{AuthNone, AuthBearer, AuthOAuth2ClientCredentials, AuthOAuth2PKCE} {
+		t.Run(string(kind), func(t *testing.T) {
+			a, b, ctx, original := legacyWALManagers(t, "https://before.example")
+			if err := a.credMgr.ClearLegacyOAuth(ctx, "legacy", original.ID, ""); err != nil {
+				t.Fatal(err)
+			}
+			cached := original
+			cached.AuthType = kind
+			if err := a.SaveConfig("legacy", cached); err != nil {
+				t.Fatal(err)
+			}
+			latest := original
+			latest.OAuth2ClientID = "new-client"
+			latest.URL = "https://after.example/mcp"
+			if err := b.SaveConfig("legacy", latest); err != nil {
+				t.Fatal(err)
+			}
+			if err := b.SaveServerAuth("legacy", "oauth2_pkce", "", "", "", "new-secret"); err != nil {
+				t.Fatal(err)
+			}
+			if err := b.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "new-token", RefreshURL: "refresh"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := a.SaveServerAuth("legacy", "oauth2_pkce", "", "", "", "old-secret"); !errors.Is(err, oauthflow.ErrConflict) {
+				t.Fatalf("stale client overwrite allowed: %v", err)
+			}
+			if err := a.DeleteServerAuth("legacy"); !errors.Is(err, oauthflow.ErrConflict) {
+				t.Fatalf("stale route deletion allowed: %v", err)
+			}
+			rt := b.buildPKCERoundTripperForServer(ctx, "legacy", latest)
+			op, auth, err := b.credMgr.BeginLegacyOAuth(ctx, "legacy", latest.ID, true, true, rt.validateLegacyConsumer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer op.End()
+			if auth.ClientID != "new-client" || auth.ClientSecret != "new-secret" || auth.Token != "new-token" {
+				t.Fatal("new grant changed")
+			}
+		})
+	}
+}
+
+type beforeDeleteRepository struct {
+	Repository
+	before func()
+}
+
+func (r beforeDeleteRepository) DeleteServer(ctx context.Context, slug string) error {
+	r.before()
+	return r.Repository.DeleteServer(ctx, slug)
+}
+
+func TestLegacyGenericDeleteRejectsConsumerChangedAfterRead(t *testing.T) {
+	a, b, ctx, original := legacyWALManagers(t, "https://delete.example")
+	none := original
+	none.AuthType = AuthNone
+	if err := a.SaveConfig("legacy", none); err != nil {
+		t.Fatal(err)
+	}
+	a.SetRepository(beforeDeleteRepository{Repository: a.repository(), before: func() {
+		if err := b.SaveConfig("legacy", original); err != nil {
+			t.Fatal(err)
+		}
+		if err := b.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "new", RefreshURL: "refresh"}); err != nil {
+			t.Fatal(err)
+		}
+	}})
+	if err := a.DeleteConfig("legacy"); !errors.Is(err, oauthflow.ErrConflict) {
+		t.Fatalf("deleted changed consumer: %v", err)
+	}
+	if _, err := b.repository().GetServer(ctx, "legacy"); err != nil {
+		t.Fatal(err)
+	}
+	if auth, err := b.credMgr.ReadLegacyOAuthToken(ctx, "legacy", original.ID); err != nil || auth.Token != "new" {
+		t.Fatal("grant changed", err)
+	}
+}
+
+func TestLegacyDeleteAuthRejectsStaleConsumerAndPreservesFallbacks(t *testing.T) {
+	a, b, ctx, cfg := legacyWALManagers(t, "https://old.example")
+	for _, host := range []string{"old.example", "new.example"} {
+		if err := a.credMgr.RegisterPatternWithContext(ctx, host, &credentials.AuthConfig{Source: "static", Type: "bearer", Token: host}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg.URL = "https://new.example/mcp"
+	if err := b.SaveConfig("legacy", cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.DeleteServerAuth("legacy"); !errors.Is(err, oauthflow.ErrConflict) {
+		t.Fatalf("stale deletion allowed: %v", err)
+	}
+	db := a.repository().(*DBRepository).db
+	var count int64
+	if err := db.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern IN ?", cfg.UserID, []string{userTokensPattern("legacy"), "old.example", "new.example"}).Count(&count).Error; err != nil || count != 3 {
+		t.Fatalf("rollback lost credentials: %d %v", count, err)
+	}
+	if err := b.DeleteServerAuth("legacy"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern IN ?", cfg.UserID, []string{userTokensPattern("legacy"), "new.example"}).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("current credentials remain: %d %v", count, err)
+	}
+}
+
 func TestLegacyProactiveAdoptsConcurrentRotation(t *testing.T) {
 	for _, force := range []bool{false, true} {
 		t.Run(map[bool]string{false: "proactive", true: "forced"}[force], func(t *testing.T) {

@@ -952,6 +952,16 @@ A escolha do detach usa a configuração já normalizada, incluindo mudança de
 HTTP PKCE para stdio com autenticação omitida. O teste de rollback também cobre
 essa transição, sem deixar o par legado órfão.
 
+
+Operações de autenticação disparadas pela UI validam o snapshot do consumidor
+na mesma transação da gravação/exclusão, inclusive quando o cache ainda indica
+None, Bearer ou Client Credentials e outra instância já alterou para PKCE.
+Excluir um cadastro genérico também recusa mudança concorrente de identidade.
+A consulta de presença usa o banco, sem retornar ao cache nem executar fontes.
+Evidências: `TestLegacyDeleteAuthRejectsStaleConsumerAndPreservesFallbacks`,
+`TestLegacyAuthMutationsRejectOtherInstanceConsumerChanges`,
+`TestLegacyGenericDeleteRejectsConsumerChangedAfterRead` e
+`TestLegacyAuthMetadataDoesNotReuseRemovedCache`.
 ### Fase 3 — recuperação estrutural do PKCE legado
 
 Status: **In Progress**. O diagnóstico OAuth oferece criação, consulta,

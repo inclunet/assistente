@@ -57,6 +57,19 @@ func (m *Manager) publishLegacyDetach(original, cfg ServerConfig, remove bool) {
 	}
 }
 
+func withMCPConsumerSnapshot(ctx context.Context, cfg ServerConfig) context.Context {
+	if cfg.ID == "" {
+		return ctx
+	}
+	return credentials.WithMCPConsumerCheck(ctx, func(tx *gorm.DB) error {
+		current, err := NewDBRepository(tx).GetServerByID(ctx, cfg.ID)
+		if err != nil || !reflect.DeepEqual(persistedLegacyConfig(*current), persistedLegacyConfig(cfg)) {
+			return oauthflow.ErrConflict
+		}
+		return nil
+	})
+}
+
 func (m *Manager) SaveServerAuth(slug, authType, token, username, password, clientSecret string) error {
 	if m.credMgr == nil {
 		return fmt.Errorf("credential manager nao inicializado")
@@ -78,6 +91,7 @@ func (m *Manager) SaveServerAuth(slug, authType, token, username, password, clie
 		}
 		return m.saveManagedOAuth(slug, *cfg, &clientSecret)
 	}
+	ctx = withMCPConsumerSnapshot(ctx, *cfg)
 	switch authType {
 	case "bearer":
 		hostname := hostnameFromURL(cfg.URL)
@@ -138,9 +152,16 @@ func (m *Manager) DeleteServerAuth(slug string) error {
 		return nil
 	}
 	if cfgManaged.AuthType == AuthOAuth2PKCE && cfgManaged.ID != "" {
-		return m.credMgr.ClearLegacyOAuth(ctx, slug, cfgManaged.ID, hostnameFromURL(cfgManaged.URL))
+		return m.credMgr.ClearLegacyOAuthWithConsumer(ctx, slug, cfgManaged.ID, hostnameFromURL(cfgManaged.URL), func(tx *gorm.DB) error {
+			current, err := NewDBRepository(tx).GetServerByID(ctx, cfgManaged.ID)
+			if err != nil || !reflect.DeepEqual(persistedLegacyConfig(*current), persistedLegacyConfig(*cfgManaged)) {
+				return oauthflow.ErrConflict
+			}
+			return nil
+		}, nil)
 	}
 	// Limpar entradas OAuth (client + tokens)
+	ctx = withMCPConsumerSnapshot(ctx, *cfgManaged)
 	if err := m.credMgr.DeletePattern(ctx, clientCredPattern(slug)); err != nil {
 		return err
 	}
@@ -152,7 +173,7 @@ func (m *Manager) DeleteServerAuth(slug string) error {
 	cfg, err := m.GetConfig(slug)
 	if err == nil {
 		if hostname := hostnameFromURL(cfg.URL); hostname != "" {
-			_ = m.credMgr.DeletePattern(ctx, hostname)
+			return m.credMgr.DeletePattern(ctx, hostname)
 		}
 	}
 
@@ -178,18 +199,9 @@ func (m *Manager) GetServerAuthInfo(slug string) (string, bool, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return "", false, err
 	}
-	if cfg.AuthType == AuthOAuth2PKCE && cfg.ID != "" {
-		entries, err := m.credMgr.InspectLegacyOAuth(ctx)
-		if err != nil {
-			return "", false, err
-		}
-		for _, entry := range entries {
-			if entry.Pattern == userTokensPattern(slug) || entry.Pattern == clientCredPattern(slug) {
-				// Even an interrupted/unreadable grant is configuration that the
-				// user must be able to explicitly remove. Never resolve its source.
-				return string(cfg.AuthType), true, nil
-			}
-		}
+	if cfg.ID != "" {
+		has, err := m.credMgr.InspectMCPAuthPresence(withMCPConsumerSnapshot(ctx, *cfg), slug, hostnameFromURL(cfg.URL))
+		return string(cfg.AuthType), has, err
 	}
 
 	clientAuth, _ := m.credMgr.GetConfigByPatternWithContext(ctx, clientCredPattern(slug))
