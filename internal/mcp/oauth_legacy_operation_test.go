@@ -183,6 +183,53 @@ func TestLegacyRefreshNegotiatesOnlyDefinitiveClientRejection(t *testing.T) {
 
 var _ oauth2.TokenSource = (*legacyTokenSource)(nil)
 
+func TestLegacyDCRDoesNotPublishConfigWhenClientSaveFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"client_id":"registered","client_secret":"secret"}`)
+	}))
+	defer server.Close()
+	a, _, ctx, cfg := legacyWALManagers(t, server.URL)
+	cfg.OAuth2ClientID = ""
+	cfg.OAuth2CallbackPort = 0
+	cfg.OAuth2RegistrationURL = server.URL + "/register"
+	if err := a.SaveConfig("legacy", cfg); err != nil {
+		t.Fatal(err)
+	}
+	db := a.repository().(*DBRepository).db
+	if err := db.Callback().Create().Before("gorm:create").Register("reject_dcr_client", func(tx *gorm.DB) {
+		if row, ok := tx.Statement.Dest.(*database.CredentialEntry); ok && row.Pattern == clientCredPattern("legacy") {
+			_ = tx.AddError(errors.New("simulated secret persistence failure"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Create().Remove("reject_dcr_client") })
+	rt := a.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
+	op, _, err := a.credMgr.BeginLegacyOAuth(ctx, "legacy", cfg.ID, true, false, rt.validateLegacyConsumer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer op.End()
+	rt.legacyOperation = op
+	defer rt.closeCallback()
+	callbacks := 0
+	write := rt.onConfigUpdate
+	rt.onConfigUpdate = func(updated ServerConfig) { callbacks++; write(updated) }
+	if err := rt.registerClient(ctx, true); !errors.Is(err, errOAuthPersistence) {
+		t.Fatalf("registration did not stop: %v", err)
+	}
+	stored, err := a.GetConfig("legacy")
+	if err != nil || stored.OAuth2ClientID != "" || stored.OAuth2CallbackPort != 0 || callbacks != 0 || rt.effectiveClientID() != "" {
+		t.Fatal("partial DCR configuration published")
+	}
+	op.End()
+	restarted := a.buildPKCERoundTripperForServer(ctx, "legacy", *stored)
+	if restarted.effectiveClientID() != "" {
+		t.Fatal("next transport would skip DCR after failed client save")
+	}
+}
+
 func TestLegacyNativeHostnameFallbackRequiresAbsentTokenRow(t *testing.T) {
 	a, _, ctx, cfg := legacyWALManagers(t, "https://example.com")
 	candidate := nativeMCPCandidate{managedConfig: cfg, slug: "legacy", url: cfg.URL, authType: AuthOAuth2PKCE}

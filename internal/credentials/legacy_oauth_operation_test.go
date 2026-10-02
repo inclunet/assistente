@@ -46,6 +46,76 @@ func legacyOperationFixture(t *testing.T) (*Manager, *Manager, *gorm.DB, context
 	return a, b, db, ctx, consumer.ID
 }
 
+type racingRefreshStore struct {
+	*DBStore
+	before func()
+}
+
+func (s *racingRefreshStore) UpdateRefreshTokenEncByID(ctx context.Context, id, previous, value string) error {
+	if s.before != nil {
+		before := s.before
+		s.before = nil
+		before()
+	}
+	return s.DBStore.UpdateRefreshTokenEncByID(ctx, id, previous, value)
+}
+
+func TestLegacyRefreshMaintenanceRecoversConcurrentCAS(t *testing.T) {
+	for _, mode := range []string{"reencrypted", "controlled", "rotated", "deleted", "unreadable"} {
+		t.Run(mode, func(t *testing.T) {
+			a, b, db, ctx, id := legacyOperationFixture(t)
+			if err := db.Model(&database.CredentialEntry{}).Where("pattern = ?", "mcp-tokens:legacy").Update("refresh_token_enc", "plain-refresh").Error; err != nil {
+				t.Fatal(err)
+			}
+			store := &racingRefreshStore{DBStore: b.store.(*DBStore)}
+			b.store = store
+			store.before = func() {
+				if n, err := a.reencryptLegacyPlaintextRefreshTokens(ctx); err != nil || n != 1 {
+					t.Fatalf("winning maintenance: n=%d err=%v", n, err)
+				}
+				switch mode {
+				case "controlled", "rotated":
+					op, _, err := a.BeginLegacyOAuth(ctx, "legacy", id, false, false, nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+					t.Cleanup(op.End)
+					if mode == "rotated" {
+						if err := op.Commit(ctx, &AuthConfig{Token: "new", RefreshURL: "new-refresh"}); err != nil {
+							t.Fatal(err)
+						}
+					}
+				case "deleted":
+					if err := db.Where("pattern = ?", "mcp-tokens:legacy").Delete(&database.CredentialEntry{}).Error; err != nil {
+						t.Fatal(err)
+					}
+				case "unreadable":
+					if err := db.Model(&database.CredentialEntry{}).Where("pattern = ?", "mcp-tokens:legacy").Update("refresh_token_enc", "unreadable-replacement").Error; err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			n, err := b.reencryptLegacyPlaintextRefreshTokens(ctx)
+			b.store = store.DBStore
+			if mode == "unreadable" {
+				if !errors.Is(err, oauthflow.ErrConflict) {
+					t.Fatalf("genuine failure hidden: %v", err)
+				}
+				return
+			}
+			if err != nil || n != 0 {
+				t.Fatalf("lost CAS aborted bootstrap or reported own write: n=%d err=%v", n, err)
+			}
+			if mode == "rotated" {
+				auth, err := b.ReadLegacyOAuthToken(ctx, "legacy", id)
+				if err != nil || auth.RefreshURL != "new-refresh" {
+					t.Fatal("rotation lost")
+				}
+			}
+		})
+	}
+}
+
 func TestLegacyOAuthOperationSerializesManagersAndPreservesRotation(t *testing.T) {
 	a, b, db, ctx, id := legacyOperationFixture(t)
 	op, auth, err := a.BeginLegacyOAuth(ctx, "legacy", id, false, false, nil)

@@ -709,6 +709,8 @@ func (rt *pkceRoundTripper) reRegisterClient(ctx context.Context) error {
 	return rt.registerClient(ctx, rt.cfg.OAuth2DeviceAuthURL == "")
 }
 func (rt *pkceRoundTripper) registerClient(ctx context.Context, pkce bool) error {
+	previousConfig := rt.cfg
+	previousID, previousSecret, previousGrant := rt.resolvedClientID, rt.resolvedClientSecret, rt.clientGrantType
 	var result *oauthflow.RegistrationResponse
 	var err error
 	var callback *oauthflow.LoopbackCallback
@@ -746,6 +748,11 @@ func (rt *pkceRoundTripper) registerClient(ctx context.Context, pkce bool) error
 		}
 	}
 	rt.persistClientCreds(result.ClientID, result.ClientSecret)
+	if rt.configPersistenceError != nil {
+		rt.cfg = previousConfig
+		rt.resolvedClientID, rt.resolvedClientSecret, rt.clientGrantType = previousID, previousSecret, previousGrant
+		return errOAuthPersistence
+	}
 	if rt.onConfigUpdate != nil {
 		rt.onConfigUpdate(rt.cfg)
 	}

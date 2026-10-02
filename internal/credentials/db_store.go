@@ -425,6 +425,21 @@ func (s *DBStore) UpdateRefreshTokenEncByID(ctx context.Context, id, previous, v
 	return nil
 }
 
+// ReadRefreshTokenEncByID is restricted to bootstrap maintenance after a lost CAS.
+// A removed row no longer requires maintenance; coordination control defers it.
+func (s *DBStore) ReadRefreshTokenEncByID(ctx context.Context, id string) (string, bool, error) {
+	db, err := s.ensureDB()
+	if err != nil {
+		return "", false, err
+	}
+	var row database.CredentialEntry
+	err = db.WithContext(ctx).Select("refresh_token_enc", "legacy_oauth_control_enc").Where("id = ?", id).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", false, nil
+	}
+	return row.RefreshTokenEnc, row.LegacyOAuthControlEnc != "", err
+}
+
 // DeleteCredential remove a credencial associada ao `pattern` exato,
 // escopada pelo usuário do contexto. Para instance secrets
 // (`internal-auth:*`/`internal-tls:*`) o escopo usa `user_id` vazio.
