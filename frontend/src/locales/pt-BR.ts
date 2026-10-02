@@ -1380,10 +1380,12 @@ const ptBR = {
     mcp: {
       snapshots: {
         "title": "Snapshots OAuth",
-        "description": "Crie uma cópia cifrada da configuração e das credenciais de servidores PKCE ou Client Credentials legados. Credenciais compartilhadas por hostname e autorizações compostas não são incluídas.",
+        "description": "Crie uma cópia cifrada de servidores OAuth legados ou credenciais estáticas compartilhadas por hostname. Autorizações compostas e fontes externas não são incluídas.",
+        "restoreHostnameConfirm": "Restaurar a credencial por hostname, incluindo seus tokens e segredos? Ela voltará a atender todos os recursos que usam esse padrão. A restauração exige que a entrada esteja ausente e não altera servidores. Tokens expirados, revogados ou rotacionados podem não funcionar; a validade original será preservada. O snapshot permanecerá disponível.",
+        "hostnameRestored": "Credencial por hostname restaurada com seus tokens e segredos. As configurações dos servidores não foram alteradas. Confira o acesso ao provedor.",
         "retention": "Retenção: 30 dias. A expiração bloqueia a restauração, mas não apaga a última cópia sem sua confirmação. Os arquivos ficam fora da exportação e sincronização do Assistente.",
-        "consumer": "Servidor OAuth legado",
-        "select": "Selecione um servidor",
+        "consumer": "Servidor ou credencial legada",
+        "select": "Selecione um servidor ou hostname",
         "create": "Criar snapshot",
         "created": "Snapshot cifrado criado.",
         "loading": "Consultando snapshots…",
@@ -1421,6 +1423,7 @@ const ptBR = {
           "invalid_reference": "A referência à autorização composta está ausente, ilegível ou incompatível.",
           "legacy_residue": "Existem credenciais legadas junto da autorização composta. Não as exclua sem verificar sua origem.",
           "external_source": "Uma credencial usa fonte externa. O diagnóstico não executa comandos nem acessa keyrings.",
+          "snapshot_ineligible": "Esta entrada não atende aos requisitos de captura como credencial estática por hostname.",
           "unreadable": "Há campos que não puderam ser decifrados. Texto de versões antigas também requer análise; os dados foram preservados.",
           "unexpected_type": "Uma credencial tem um tipo de autenticação inesperado para esse registro.",
           "missing_client": "Não foi encontrado client ID legível na configuração ou na credencial.",

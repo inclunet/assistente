@@ -56,6 +56,16 @@ func TestOAuthInventoryClassifiesWithoutInferringMigrationSafety(t *testing.T) {
 	}
 }
 
+func TestOAuthInventoryReportsHostnameSnapshotEligibility(t *testing.T) {
+	items := classifyOAuthInventory(nil, []credentials.LegacyOAuthEntry{
+		{Pattern: "shared.example", Readable: true, HostnameSnapshotEligible: true},
+		{Pattern: "shared.example/private", Readable: true},
+	})
+	if len(items) != 2 || len(items[0].Issues) != 0 || !reflect.DeepEqual(items[1].Issues, []string{"snapshot_ineligible"}) {
+		t.Fatalf("incorrect snapshot eligibility: %+v", items)
+	}
+}
+
 func TestOAuthInventoryReportsProblemsInManagedResidueAndUnassociatedEntries(t *testing.T) {
 	configs := []ServerConfig{{ID: "managed", Slug: "managed", AuthType: AuthOAuth2PKCE, OAuthManaged: true}}
 	entries := []credentials.LegacyOAuthEntry{

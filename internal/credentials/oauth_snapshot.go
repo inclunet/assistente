@@ -6,11 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net"
+	"net/url"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"runtime/debug"
 	"sort"
+	"strings"
 	"time"
 
 	"assistente/internal/database"
@@ -45,6 +48,7 @@ type legacySnapshot struct {
 	CreatedAt, RetainUntil time.Time
 	Consumer               database.MCPServer
 	Credentials            []snapshotCredential // absences are preserved by the empty slice
+	HostnameCredential     *snapshotCredential  `json:",omitempty"`
 }
 type snapshotSession struct {
 	store          *oauthStore
@@ -98,6 +102,9 @@ func (s *snapshotSession) check(ctx context.Context) error {
 	return s.store.WithSession(ctx, func() error { return nil })
 }
 func (s *snapshotSession) info(p *legacySnapshot) OAuthSnapshotInfo {
+	if p.Schema == "legacy-hostname-v1" {
+		return OAuthSnapshotInfo{ID: p.ID, ConsumerID: "credential:" + p.HostnameCredential.Entry.Pattern, Name: p.HostnameCredential.Entry.Pattern, CreatedAt: p.CreatedAt, RetainUntil: p.RetainUntil, Location: filepath.Join(s.path, p.ID+".oauth"), Expired: !time.Now().Before(p.RetainUntil)}
+	}
 	return OAuthSnapshotInfo{ID: p.ID, ConsumerID: p.Consumer.ID, Name: p.Consumer.Name, CreatedAt: p.CreatedAt, RetainUntil: p.RetainUntil, Location: filepath.Join(s.path, p.ID+".oauth"), Expired: !time.Now().Before(p.RetainUntil)}
 }
 func (s *snapshotSession) open() (*oauthsnapshot.Files, error) { return oauthsnapshot.Open(s.path) }
@@ -114,7 +121,10 @@ func (s *snapshotSession) read(ctx context.Context, files *oauthsnapshot.Files, 
 		return nil, ErrSnapshot
 	}
 	var p legacySnapshot
-	if json.Unmarshal([]byte(plain), &p) != nil || p.Version != 1 || !validLegacySnapshotSchema(p) || p.ID != id || p.UserID != s.store.userID || p.Database != s.identity || p.Consumer.UserID != s.store.userID || p.Consumer.ID == "" || p.Consumer.Slug == "" || p.Consumer.OAuthManaged || p.Consumer.OAuthAuthorizationID != "" {
+	if json.Unmarshal([]byte(plain), &p) != nil || p.Version != 1 || !validLegacySnapshotSchema(p) || p.ID != id || p.UserID != s.store.userID || p.Database != s.identity {
+		return nil, ErrSnapshot
+	}
+	if p.Schema != "legacy-hostname-v1" && (p.Consumer.UserID != s.store.userID || p.Consumer.ID == "" || p.Consumer.Slug == "" || p.Consumer.OAuthManaged || p.Consumer.OAuthAuthorizationID != "") {
 		return nil, ErrSnapshot
 	}
 	if err := s.check(ctx); err != nil {
@@ -124,8 +134,27 @@ func (s *snapshotSession) read(ctx context.Context, files *oauthsnapshot.Files, 
 }
 
 func validLegacySnapshotSchema(p legacySnapshot) bool {
+	if p.Schema == "legacy-hostname-v1" {
+		return p.HostnameCredential != nil && p.HostnameCredential.Entry.UserID == p.UserID && validSnapshotHostname(p.HostnameCredential.Entry) && p.Consumer.ID == "" && len(p.Credentials) == 0
+	}
+	if p.HostnameCredential != nil {
+		return false
+	}
 	return p.Schema == "legacy-pkce-v1" && p.Consumer.AuthType == "oauth2_pkce" ||
 		p.Schema == "legacy-client-credentials-v1" && p.Consumer.AuthType == "oauth2_client_credentials"
+}
+
+// Hostname recovery never treats managed namespaces or URL-shaped patterns as
+// shared host credentials. Preserve exact spelling, including wildcard patterns.
+func validSnapshotHostname(entry database.CredentialEntry) bool {
+	if entry.ID == "" || entry.Pattern == "" || IsManagedPattern(entry.Pattern) || entry.OAuthEnc != "" || entry.LegacyOAuthControlEnc != "" || entry.SourceConfigEnc != "" || (entry.Source != "" && entry.Source != "static") || (entry.AuthType != "oauth2" && entry.AuthType != "bearer") {
+		return false
+	}
+	if net.ParseIP(entry.Pattern) != nil {
+		return true
+	}
+	u, err := url.Parse("https://" + entry.Pattern)
+	return err == nil && u.Host == entry.Pattern && u.Hostname() == entry.Pattern && u.User == nil && u.Path == "" && u.RawQuery == "" && u.Fragment == "" && !strings.ContainsAny(entry.Pattern, " \\?#@")
 }
 
 // CreateLegacyOAuthSnapshot does not resolve credentials, invoke sources, or
@@ -152,6 +181,18 @@ func (m *Manager) CreateLegacyOAuthSnapshot(ctx context.Context, directory, cons
 	}
 	err = s.store.WithSession(ctx, func() error {
 		return database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, s.db, "oauth.snapshot.capture", func(tx *gorm.DB) error {
+			if strings.HasPrefix(consumerID, "credential:") {
+				var entry database.CredentialEntry
+				if err := tx.Where("user_id = ? AND pattern = ?", p.UserID, strings.TrimPrefix(consumerID, "credential:")).First(&entry).Error; err != nil {
+					return ErrSnapshot
+				}
+				if !validSnapshotHostname(entry) {
+					return ErrSnapshot
+				}
+				p.Schema = "legacy-hostname-v1"
+				p.HostnameCredential = &snapshotCredential{Entry: entry}
+				return nil
+			}
 			if err := tx.Where("user_id = ? AND id = ?", p.UserID, consumerID).First(&p.Consumer).Error; err != nil {
 				return ErrSnapshot
 			}
@@ -275,6 +316,9 @@ func (m *Manager) RestoreLegacyOAuthSnapshot(ctx context.Context, directory, id 
 	if !time.Now().Before(p.RetainUntil) {
 		return ErrSnapshotConflict
 	}
+	if p.Schema == "legacy-hostname-v1" {
+		return m.restoreHostnameSnapshot(ctx, s, p)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := s.store.check(ctx); err != nil {
@@ -390,6 +434,76 @@ func (m *Manager) RestoreLegacyOAuthSnapshot(ctx context.Context, directory, id 
 	if publish != nil {
 		publish(consumer)
 	}
+	return nil
+}
+
+// Hostname recovery is an explicit restoration of copied secrets, not a grant
+// conversion. Do not change consumers or infer ownership of a shared pattern.
+func (m *Manager) restoreHostnameSnapshot(ctx context.Context, s *snapshotSession, p *legacySnapshot) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := s.store.check(ctx); err != nil {
+		return ErrSnapshot
+	}
+	entry := p.HostnameCredential.Entry
+	headers := map[string]string{}
+	if entry.HeadersEnc != "" && json.Unmarshal([]byte(entry.HeadersEnc), &headers) != nil {
+		return ErrSnapshot
+	}
+	values := []string{entry.TokenEnc, entry.RefreshTokenEnc, entry.ClientIDEnc, entry.ClientSecretEnc, entry.PasswordEnc}
+	for _, value := range headers {
+		values = append(values, value)
+	}
+	for _, value := range values {
+		if value != "" {
+			if _, err := m.decrypt(value); err != nil {
+				return ErrSnapshot
+			}
+		}
+	}
+	// The user explicitly restores stored material; never resolve an external
+	// reference or reuse the permissive legacy plaintext decryption fallback.
+	entry.Source = "static"
+	auth := &AuthConfig{Source: entry.Source, Type: entry.AuthType, Token: entry.TokenEnc,
+		RefreshURL: entry.RefreshTokenEnc, ExpiresAt: entry.ExpiresAt, ClientID: entry.ClientIDEnc,
+		ClientSecret: entry.ClientSecretEnc, ClientGrantType: entry.ClientGrantType,
+		Username: entry.Username, Password: entry.PasswordEnc, Headers: headers}
+	err := database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, s.db, "oauth.snapshot.restore_hostname", func(tx *gorm.DB) error {
+		if err := s.store.check(ctx); err != nil {
+			return ErrSnapshot
+		}
+		if !time.Now().Before(p.RetainUntil) {
+			return ErrSnapshotConflict
+		}
+		var count int64
+		if err := tx.Model(&database.CredentialEntry{}).Where("id = ?", entry.ID).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 0 {
+			return ErrSnapshotConflict
+		}
+		var patterns []string
+		if err := tx.Model(&database.CredentialEntry{}).Where("user_id = ?", p.UserID).Pluck("pattern", &patterns).Error; err != nil {
+			return err
+		}
+		for _, pattern := range patterns {
+			if strings.EqualFold(pattern, entry.Pattern) {
+				return ErrSnapshotConflict
+			}
+		}
+		return tx.Create(&entry).Error
+	})
+	if err != nil {
+		return err
+	}
+	kept := m.credentials[:0]
+	for _, cached := range m.credentials {
+		if cached.UserID != entry.UserID || cached.Pattern != entry.Pattern {
+			kept = append(kept, cached)
+		}
+	}
+	m.credentials = append(kept, &DomainCredential{ID: entry.ID, UserID: entry.UserID, Pattern: entry.Pattern,
+		Auth: auth, regex: regexp.MustCompile(wildcardToRegex(entry.Pattern))})
 	return nil
 }
 

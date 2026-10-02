@@ -1379,10 +1379,12 @@ const en = {
     mcp: {
       snapshots: {
         "title": "OAuth snapshots",
-        "description": "Create an encrypted copy of a legacy PKCE or Client Credentials server configuration and credentials. Shared hostname credentials and composite authorizations are excluded.",
+        "description": "Create an encrypted copy of legacy OAuth servers or static credentials shared by hostname. Composite authorizations and external sources are excluded.",
+        "restoreHostnameConfirm": "Restore the hostname credential, including its tokens and secrets? It will serve all resources using this pattern again. Recovery requires the entry to be absent and does not change servers. Expired, revoked or rotated tokens may not work; the original expiration is preserved. The snapshot will remain available.",
+        "hostnameRestored": "Hostname credential restored with its tokens and secrets. Server configurations were not changed. Check access to the provider.",
         "retention": "Retention: 30 days. Expiration blocks recovery but never deletes the last copy without confirmation. Files are excluded from Assistente exports and synchronization.",
-        "consumer": "Legacy OAuth server",
-        "select": "Select a server",
+        "consumer": "Legacy server or credential",
+        "select": "Select a server or hostname",
         "create": "Create snapshot",
         "created": "Encrypted snapshot created.",
         "loading": "Loading snapshots…",
@@ -1420,6 +1422,7 @@ const en = {
           "invalid_reference": "The composite authorization reference is missing, unreadable or incompatible.",
           "legacy_residue": "Legacy credentials coexist with the composite authorization. Verify their origin before deleting them.",
           "external_source": "A credential uses an external source. Diagnostics do not execute commands or access keyrings.",
+          "snapshot_ineligible": "This entry does not meet the requirements for capture as a static hostname credential.",
           "unreadable": "Some fields could not be decrypted. Plaintext from older versions also requires investigation; data was preserved.",
           "unexpected_type": "A credential has an unexpected authentication type for this record.",
           "missing_client": "No readable client ID found in the configuration or credential.",

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"sync/atomic"
 	"testing"
 
@@ -14,6 +15,43 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/oauthflow"
 )
+
+func TestHostnameSnapshotManagerPreservesConsumerAndResolvesToken(t *testing.T) {
+	m, _, ctx, cfg := legacyWALManagers(t, "https://shared.example")
+	m.snapshotRoot = t.TempDir()
+	if err := m.credMgr.RegisterPatternWithContext(ctx, "shared.example", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "copied-provider-token"}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := m.CreateOAuthSnapshot(ctx, "credential:shared.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.credMgr.DeletePattern(ctx, "shared.example"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RestoreOAuthSnapshot(ctx, info.ID); err != nil {
+		t.Fatal(err)
+	}
+	after, err := m.GetConfig("legacy")
+	if err != nil || !reflect.DeepEqual(cfg, *after) {
+		t.Fatal("hostname recovery changed server", err)
+	}
+	for _, reload := range []bool{false, true} {
+		if reload {
+			if err := m.credMgr.LoadUserCredentials(ctx, "owner"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		auth, err := m.credMgr.ResolveForURLWithContext(ctx, cfg.URL)
+		if err != nil || auth == nil || auth.Token != "copied-provider-token" {
+			t.Fatal("recovered hostname token not resolved", err)
+		}
+		private, err := m.credMgr.GetByPatternWithContext(ctx, userTokensPattern("legacy"))
+		if err != nil || private == nil || private.Token != "old" {
+			t.Fatal("hostname restore changed consumer grant", err)
+		}
+	}
+}
 
 func TestClientCredentialsSnapshotGetsNewTokenAfterEnable(t *testing.T) {
 	t.Run("configured_id", func(t *testing.T) { testClientCredentialsSnapshotGetsNewToken(t, false) })

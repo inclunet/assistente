@@ -24,14 +24,38 @@ beforeEach(() => {
 });
 
 describe('McpOAuthSnapshots', () => {
-  it('permite criar snapshot de Client Credentials sem incluir credenciais compartilhadas', async () => {
+  it('permite criar snapshot de Client Credentials e inclui credenciais compartilhadas', async () => {
     render(<McpOAuthSnapshots consumers={[...consumers, { id: 'cc', name: 'Aplicação', kind: 'client_credentials', issues: [] }, { id: 'host', name: 'Compartilhada', kind: 'hostname', issues: [] }] as mcp.OAuthInventoryItem[]} />);
     await screen.findByText('Servidor');
-    expect(screen.queryByRole('option', { name: 'Compartilhada' })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Compartilhada' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('mcp.snapshots.consumer'), { target: { value: 'cc' } });
     fireEvent.click(screen.getByRole('button', { name: 'mcp.snapshots.create' }));
     await waitFor(() => expect(CreateMCPOAuthSnapshot).toHaveBeenCalledWith('cc'));
     expect(RestoreMCPOAuthSnapshot).not.toHaveBeenCalled();
+  });
+  it.each([false, true])('confirma explicitamente a restauração dos tokens por hostname (%s)', async (accepted) => {
+    confirm.mockResolvedValue(accepted);
+    vi.mocked(ListMCPOAuthSnapshots).mockResolvedValue([{ ...snapshot, consumerId: 'credential:shared.example' } as credentials.OAuthSnapshotInfo]);
+    render(<McpOAuthSnapshots consumers={consumers} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'mcp.snapshots.restoreNamed' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'mcp.snapshots.restoreHostnameConfirm' })));
+    if (accepted) {
+      await waitFor(() => expect(RestoreMCPOAuthSnapshot).toHaveBeenCalledWith('snapshot'));
+      await waitFor(() => expect(announce).toHaveBeenCalledWith('mcp.snapshots.hostnameRestored'));
+    } else expect(RestoreMCPOAuthSnapshot).not.toHaveBeenCalled();
+  });
+  it('cria snapshot pelo identificador do hostname e exclui fontes externas', async () => {
+    render(<McpOAuthSnapshots consumers={[
+      { id: 'credential:shared.example', name: 'Compartilhada', kind: 'hostname', issues: [] },
+      { id: 'credential:command.example', name: 'Comando', kind: 'hostname', issues: ['external_source'] },
+      { id: 'credential:shared.example/private', name: 'Caminho inelegível', kind: 'hostname', issues: ['snapshot_ineligible'] },
+    ] as mcp.OAuthInventoryItem[]} />);
+    await screen.findByText('Servidor');
+    expect(screen.queryByRole('option', { name: 'Comando' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Caminho inelegível' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('mcp.snapshots.consumer'), { target: { value: 'credential:shared.example' } });
+    fireEvent.click(screen.getByRole('button', { name: 'mcp.snapshots.create' }));
+    await waitFor(() => expect(CreateMCPOAuthSnapshot).toHaveBeenCalledWith('credential:shared.example'));
   });
   it('preserva a lista atual após descarte e troca de idioma', async () => {
     render(<McpOAuthSnapshots consumers={consumers} />);

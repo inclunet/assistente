@@ -296,7 +296,8 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    O inventário local preparatório está entregue (seção de evidências da fase 3);
    snapshots recuperáveis de PKCE e Client Credentials estão entregues;
    recuperação testada sobre fixtures dos formatos publicados 0.2.0 a 0.5.0;
-   recuperação por hostname, conversão e retirada do legado permanecem pendentes.
+   recuperação explícita de tokens por hostname também está entregue;
+   conversão e retirada do legado permanecem pendentes.
 4. [ ] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
    conexão e referências por papel, sem alterar protocolo nem exigir OAuth inexistente.
 
@@ -1035,8 +1036,8 @@ Evidências: `TestPrivateSnapshotPublication`, `TestWindowsSnapshotDACL`,
 `TestOAuthSnapshotTamperAndRetention`,
 `TestOAuthSnapshotRestoreReauthorizeThenEnable` e `McpOAuthSnapshots.test.tsx`.
 
-Continuam pendentes: snapshots de credenciais compartilhadas por hostname e
-conversão dos cadastros PKCE/Client Credentials e suas fixtures históricas,
+Snapshots de credenciais compartilhadas por hostname foram entregues no incremento
+descrito adiante. Continuam pendentes: conversão dos cadastros PKCE/Client Credentials e suas fixtures históricas,
 cutover transacional/idempotente, paridade após reinício/native/bridge e remoção
 do runtime legado. A convergência de Slack permanece na etapa seguinte.
 
@@ -1072,7 +1073,7 @@ Evidências: `TestClientCredentialsSnapshotRestoresOnlyRegistration`,
 `McpOAuthSnapshots.test.tsx`. Os testes PKCE anteriores permanecem no mesmo fluxo.
 
 Este incremento não inicia conversão automática nem conclui a fase 3. Faltam
-recuperação das credenciais compartilhadas por hostname, fixtures de conversão
+fixtures de conversão
 dos formatos publicados, conversão transacional/idempotente e remoção do runtime legado.
 Slack e os aceites funcionais com provedores reais continuam pendentes.
 
@@ -1101,5 +1102,50 @@ recuperação explícita restaura cadastro estático e não reativa tokens antig
 
 Este incremento conclui a cobertura histórica da recuperação estrutural desses
 formatos. Não comprova conversão, rollback de executáveis ou recuperação de
-hostname. Fixtures de conversão, recuperação de hostname, cutover, retirada do
+hostname (entregue separadamente na seção seguinte). Fixtures de conversão, cutover, retirada do
 legado e convergência Slack continuam pendentes.
+
+### Fase 3 — recuperação explícita de credenciais por hostname
+
+Status: **In Progress**. O diagnóstico permite selecionar separadamente uma entrada
+estática por hostname, inclusive padrão wildcard ou IP, e criar o envelope
+`legacy-hostname-v1`. O snapshot mantém os campos cifrados originais, sem executar
+fontes externas e sem inferir ownership de servidores a partir do hostname.
+Namespaces gerenciados, autorizações compostas e controles OAuth ativos não são
+aceitos. A sessão, chave, banco, armazenamento privado e retenção seguem as mesmas
+guardas dos demais snapshots.
+
+Decisão confirmada pelo mantenedor: a recuperação por hostname **inclui tokens**,
+pois o cofre pode ser a única cópia do token colado a partir do provedor. A UI
+explica o alcance compartilhado e pede confirmação específica antes de restaurar.
+Isso é distinto dos snapshots por servidor PKCE/Client Credentials, que continuam
+recuperando apenas a estrutura e exigindo tokens novos.
+
+O restore exige ausência do ID original e da entrada user/pattern, valida todos
+os campos cifrados sem fallback plaintext e grava a entrada integral em transação.
+Publica no cache somente após commit, como fonte estática explícita, inclusive
+para dados antigos sem source. Preserva validade e segredos; não promete reverter
+expiração, revogação ou rotação remota. Não restaura/edita servidores, inicia
+conexões ou associa o hostname a um consumidor; próximos usos do padrão podem
+usar a credencial recuperada. Falha ou colisão não sobrescreve dados atuais.
+
+Evidências: `TestHostnameSnapshotCaptureIsPrivateAndReadOnly`,
+`TestHostnameSnapshotRejectsExternalAndManagedEntries`,
+`TestHostnameSnapshotRestoresSecretsWithoutChangingConsumers`,
+`TestHostnameSnapshotRecoveryFailureIsAtomic`, `TestHostnameSnapshotConcurrentRestore`,
+`TestHostnameSnapshotManagerPreservesConsumerAndResolvesToken` e
+`McpOAuthSnapshots.test.tsx` (confirmação específica e recusa de fontes externas).
+`TestHostnameSnapshotResolvesIPv6AndCaseAfterRestore` prova resolução antes/depois
+da recarga com IPv6, porta e caixa mista. O resolvedor usa `URL.Hostname()` e
+compara padrões sem distinguir caixa, sem reescrever o padrão persistido.
+Variantes do mesmo padrão que diferem apenas por caixa bloqueiam a resolução
+ambígua antes de ler segredos ou executar fontes, inclusive quando um wildcard
+precede as variantes (todas as ordens cobertas pelo teste); o restore recusa uma variante
+equivalente já existente na mesma transação. As entradas originais são preservadas.
+Evidências: `TestHostnameCaseCollisionNeverSelectsToken` e
+`TestHostnameSnapshotRestoreRejectsCaseEquivalentEntry`.
+O inventário reutiliza a validação da captura e sinaliza `snapshot_ineligible`;
+a UI não oferece entradas inelegíveis. Testes de inventário/captura e seletor
+cobrem hostnames válidos e padrões com URL, caminho ou porta rejeitados.
+Conversão transacional/idempotente, fixtures de conversão, cutover e Slack
+continuam pendentes; esta entrega não conclui a fase 3.

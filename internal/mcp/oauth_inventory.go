@@ -159,6 +159,9 @@ func classifyOAuthInventory(configs []ServerConfig, entries []credentials.Legacy
 		}
 		item := OAuthInventoryItem{ID: "credential:" + entry.Pattern, Name: entry.Pattern, Kind: kind, Issues: []string{}}
 		item.Issues = append(item.Issues, legacyOAuthEntryIssues(entry, kind == "unassociated")...)
+		if kind == "hostname" && !entry.HostnameSnapshotEligible {
+			item.Issues = append(item.Issues, "snapshot_ineligible")
+		}
 		result = append(result, item)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
