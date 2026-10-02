@@ -6,6 +6,8 @@ import {apidto} from '../models';
 
 export function ConnectMCPServer(arg1:string):Promise<void>;
 
+export function ConvertMCPOAuthClientSnapshot(arg1:string,arg2:string):Promise<void>;
+
 export function CreateMCPOAuthSnapshot(arg1:string):Promise<credentials.OAuthSnapshotInfo>;
 
 export function DeleteMCPServer(arg1:string):Promise<void>;

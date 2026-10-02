@@ -1378,6 +1378,11 @@ const en = {
 
     mcp: {
       snapshots: {
+        convert: 'Convert authorization',
+        convertNamed: 'Convert authorization for {{name}}',
+        convertHelp: 'For Client Credentials, choose the method required by the server. Legacy records did not preserve it. If the configuration changed after the snapshot, create a new snapshot first.',
+        convertConfirm: 'Combine the client ID and secret in one authorization and remove the legacy entries? The encrypted snapshot will be kept. The current connection will close; use Connect afterward. Changed records or residual tokens will be refused.',
+        converted: 'Authorization converted. Use Connect to obtain a new token.',
         "title": "OAuth snapshots",
         "description": "Create an encrypted copy of legacy OAuth servers or static credentials shared by hostname. Composite authorizations and external sources are excluded.",
         "restoreHostnameConfirm": "Restore the hostname credential, including its tokens and secrets? It will serve all resources using this pattern again. Recovery requires the entry to be absent and does not change servers. Expired, revoked or rotated tokens may not work; the original expiration is preserved. The snapshot will remain available.",

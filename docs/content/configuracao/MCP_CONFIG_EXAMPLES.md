@@ -752,3 +752,29 @@ continuam disponíveis no modo nativo. A confirmação de rede, quando necessár
 acontece antes da tentativa e não é repetida para o mesmo grant.
 Se o destino de rede mudar e exigir outra aprovação, a emissão é interrompida.
 Use **Conectar** novamente para avaliar o novo destino antes de obter o token.
+
+### Converter Client Credentials para autorização unificada
+
+No diagnóstico OAuth, crie um snapshot do servidor Client Credentials e, na
+entrada desse snapshot, escolha o método de autenticação exigido pelo servidor:
+HTTP Basic ou credenciais no corpo. O formato antigo não guardava o método
+negociado; consulte a configuração do serviço se não souber qual escolher.
+Clique em **Converter autorização** e confirme.
+
+A conversão mantém ID e segredo em uma única autorização cifrada, troca a
+referência do servidor e remove seu par de entradas antigas na mesma transação.
+O snapshot é mantido. A conexão atual é encerrada; use **Conectar** para obter
+um token novo. Repetir a conversão do mesmo snapshot não duplica a autorização.
+Credenciais compartilhadas por hostname não são alteradas.
+
+Se o cadastro mudou desde o snapshot, crie outro. Se houver emissão ativa,
+aguarde terminar antes de capturar e converter. Cadastro incompleto, segredo
+ilegível, fonte externa, ID divergente ou tokens residuais impedem a conversão,
+preservando os dados para investigação. Servidores PKCE ainda não são convertidos.
+
+Para voltar ao cadastro anterior durante os 30 dias de retenção, remova
+explicitamente o servidor convertido e restaure o snapshot. A restauração não
+sobrescreve uma autorização atual. O servidor volta desabilitado, com ID e
+segredo recuperados; habilite e conecte para emitir um token novo. Mantenha o
+snapshot até validar a conexão. Não abra o mesmo banco simultaneamente com uma
+versão antiga do Assistente.

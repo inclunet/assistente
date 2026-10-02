@@ -72,6 +72,16 @@ func (m *MCP) CreateMCPOAuthSnapshot(id string) (credentials.OAuthSnapshotInfo, 
 		return ctrl.CreateMCPOAuthSnapshot(ctx, id)
 	})
 }
+func (m *MCP) ConvertMCPOAuthClientSnapshot(id, method string) error {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.ConvertMCPOAuthClientSnapshot(ctx, id, method)
+	})
+	return err
+}
 func (m *MCP) ListMCPOAuthSnapshots() ([]credentials.OAuthSnapshotInfo, error) {
 	session, ctrl, err := m.deps()
 	if err != nil {

@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import i18n from 'i18next';
 import axe from 'axe-core';
-import { CreateMCPOAuthSnapshot, ListMCPOAuthSnapshots, RestoreMCPOAuthSnapshot, DiscardMCPOAuthSnapshot } from '@wailsjs/go/wailsapi/MCP';
+import { CreateMCPOAuthSnapshot, ListMCPOAuthSnapshots, RestoreMCPOAuthSnapshot, DiscardMCPOAuthSnapshot, ConvertMCPOAuthClientSnapshot } from '@wailsjs/go/wailsapi/MCP';
 import type { credentials, mcp } from '../../../wailsjs/go/models';
 import { McpOAuthSnapshots } from './McpOAuthSnapshots';
 
 const { confirm, announce } = vi.hoisted(() => ({ confirm: vi.fn(), announce: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/MCP', () => ({ CreateMCPOAuthSnapshot: vi.fn(), ListMCPOAuthSnapshots: vi.fn(), RestoreMCPOAuthSnapshot: vi.fn(), DiscardMCPOAuthSnapshot: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/MCP', () => ({ CreateMCPOAuthSnapshot: vi.fn(), ListMCPOAuthSnapshots: vi.fn(), RestoreMCPOAuthSnapshot: vi.fn(), DiscardMCPOAuthSnapshot: vi.fn(), ConvertMCPOAuthClientSnapshot: vi.fn() }));
 vi.mock('../../hooks/useConfirm', () => ({ useConfirm: () => confirm }));
 vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce }) }));
 
@@ -24,6 +24,38 @@ beforeEach(() => {
 });
 
 describe('McpOAuthSnapshots', () => {
+  it.each([false, true])('exige método explícito e confirmação para converter (%s)', async (accepted) => {
+    confirm.mockResolvedValue(accepted);
+    vi.mocked(ConvertMCPOAuthClientSnapshot).mockResolvedValue();
+    const onConverted = vi.fn().mockResolvedValue(undefined);
+    render(<McpOAuthSnapshots consumers={[{ ...consumers[0], kind: 'client_credentials' }]} onConverted={onConverted} />);
+    const button = await screen.findByRole('button', { name: 'mcp.snapshots.convertNamed' });
+    expect(button).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('mcp.snapshots.consumer'), { target: { value: 'legacy' } });
+    fireEvent.change(screen.getByLabelText('mcp.connection.tokenAuthMethod'), { target: { value: 'client_secret_basic' } });
+    fireEvent.click(button);
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'mcp.snapshots.convertConfirm' })));
+    if (accepted) {
+      await waitFor(() => expect(ConvertMCPOAuthClientSnapshot).toHaveBeenCalledWith('snapshot', 'client_secret_basic'));
+      await waitFor(() => expect(announce).toHaveBeenCalledWith('mcp.snapshots.converted'));
+      expect(onConverted).toHaveBeenCalledOnce();
+      expect(ListMCPOAuthSnapshots).toHaveBeenCalledOnce();
+      expect(screen.getByRole('button', { name: 'mcp.snapshots.create' })).toBeDisabled();
+      expect(screen.getByLabelText('mcp.snapshots.consumer')).toHaveFocus();
+      expect(screen.queryByRole('button', { name: 'mcp.snapshots.convertNamed' })).not.toBeInTheDocument();
+    } else expect(ConvertMCPOAuthClientSnapshot).not.toHaveBeenCalled();
+  });
+  it('mantém sucesso se somente a atualização do inventário falha', async () => {
+    vi.mocked(ConvertMCPOAuthClientSnapshot).mockResolvedValue();
+    render(<McpOAuthSnapshots consumers={[{ ...consumers[0], kind: 'client_credentials' }]} onConverted={async () => { throw new Error('offline'); }} />);
+    const button = await screen.findByRole('button', { name: 'mcp.snapshots.convertNamed' });
+    fireEvent.change(screen.getByLabelText('mcp.connection.tokenAuthMethod'), { target: { value: 'client_secret_post' } });
+    expect((await axe.run(document.body)).violations).toEqual([]);
+    fireEvent.click(button);
+    await waitFor(() => expect(announce).toHaveBeenCalledWith('mcp.snapshots.converted'));
+    expect(announce).toHaveBeenCalledWith('mcp.inventory.failed', 'assertive');
+    expect(announce).not.toHaveBeenCalledWith('mcp.snapshots.failed', 'assertive');
+  });
   it('permite criar snapshot de Client Credentials e inclui credenciais compartilhadas', async () => {
     render(<McpOAuthSnapshots consumers={[...consumers, { id: 'cc', name: 'Aplicação', kind: 'client_credentials', issues: [] }, { id: 'host', name: 'Compartilhada', kind: 'hostname', issues: [] }] as mcp.OAuthInventoryItem[]} />);
     await screen.findByText('Servidor');

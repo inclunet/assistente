@@ -26,9 +26,11 @@ function OAuthInventoryContent() {
   const [items, setItems] = useState<mcp.OAuthInventoryItem[] | null>(null);
   const [failed, setFailed] = useState(false);
   const request = useRef<Promise<mcp.OAuthInventoryItem[]> | null>(null);
+  const mounted = useRef(false);
 
   useEffect(() => {
     let active = true;
+    mounted.current = true;
     if (!request.current) {
       request.current = Promise.resolve().then(() => InspectMCPOAuthInventory());
       announce(t('mcp.inventory.loading'));
@@ -43,7 +45,7 @@ function OAuthInventoryContent() {
         announce(t('mcp.inventory.failed'), 'assertive');
       }
     });
-    return () => { active = false; };
+    return () => { active = false; mounted.current = false; };
   }, [announce, t]);
 
   return (
@@ -64,7 +66,10 @@ function OAuthInventoryContent() {
           ))}
         </ul>
       )}
-      {items !== null && <McpOAuthSnapshots consumers={items} />}
+      {items !== null && <McpOAuthSnapshots consumers={items} onConverted={async () => {
+        const result = await InspectMCPOAuthInventory();
+        if (mounted.current) { request.current = Promise.resolve(result); setItems(result); }
+      }} />}
     </>
   );
 }

@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CreateMCPOAuthSnapshot, ListMCPOAuthSnapshots, RestoreMCPOAuthSnapshot, DiscardMCPOAuthSnapshot } from '@wailsjs/go/wailsapi/MCP';
+import { CreateMCPOAuthSnapshot, ListMCPOAuthSnapshots, RestoreMCPOAuthSnapshot, DiscardMCPOAuthSnapshot, ConvertMCPOAuthClientSnapshot } from '@wailsjs/go/wailsapi/MCP';
 import type { credentials, mcp } from '../../../wailsjs/go/models';
 import { Button } from '../ui/Button';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
 import './McpOAuthSnapshots.css';
 
-export function McpOAuthSnapshots({ consumers }: { consumers: mcp.OAuthInventoryItem[] }) {
+export function McpOAuthSnapshots({ consumers, onConverted }: { consumers: mcp.OAuthInventoryItem[]; onConverted?: () => Promise<void> }) {
   const { t, i18n } = useTranslation();
   const { announce } = useAnnouncer();
   const confirm = useConfirm();
@@ -15,6 +15,8 @@ export function McpOAuthSnapshots({ consumers }: { consumers: mcp.OAuthInventory
   const [selected, setSelected] = useState('');
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [methods, setMethods] = useState<Record<string, string>>({});
+  const [converted, setConverted] = useState<string[]>([]);
   const active = useRef(false);
   const consumerSelect = useRef<HTMLSelectElement>(null);
   const restoreFocus = useRef(false);
@@ -40,15 +42,18 @@ export function McpOAuthSnapshots({ consumers }: { consumers: mcp.OAuthInventory
     }
   }, [busy]);
 
-  async function run(action: () => Promise<unknown>, success: string) {
+  async function run(action: () => Promise<unknown>, success: string, reload = true) {
     if (!active.current) return;
     setBusy(true);
     setFailed(false);
     try {
       await action();
       if (!active.current) return;
-      const items = await ListMCPOAuthSnapshots();
-      if (active.current) { query.current = Promise.resolve(items); setSnapshots(items); announce(t(success)); }
+      if (reload) {
+        const items = await ListMCPOAuthSnapshots();
+        if (active.current) { query.current = Promise.resolve(items); setSnapshots(items); }
+      }
+      if (active.current) announce(t(success));
     } catch {
       if (active.current) { setFailed(true); announce(t('mcp.snapshots.failed'), 'assertive'); }
     } finally {
@@ -66,6 +71,22 @@ export function McpOAuthSnapshots({ consumers }: { consumers: mcp.OAuthInventory
     if (accepted && active.current) {
       restoreFocus.current = true;
       await run(() => DiscardMCPOAuthSnapshot(id, true), 'mcp.snapshots.discarded');
+    }
+  }
+
+  async function convert(item: credentials.OAuthSnapshotInfo) {
+    const method = methods[item.id];
+    if (!method) return;
+    const accepted = await confirm({ title: t('mcp.snapshots.convert'), message: t('mcp.snapshots.convertConfirm'), confirmText: t('mcp.snapshots.convert'), cancelText: t('common.cancel'), variant: 'warning' });
+    if (accepted && active.current) {
+      restoreFocus.current = true;
+      await run(async () => {
+        await ConvertMCPOAuthClientSnapshot(item.id, method);
+        if (active.current) { setConverted((ids) => [...ids, item.consumerId]); setSelected(''); }
+        try { await onConverted?.(); } catch {
+          if (active.current) announce(t('mcp.inventory.failed'), 'assertive');
+        }
+      }, 'mcp.snapshots.converted', false);
     }
   }
 
@@ -87,6 +108,16 @@ export function McpOAuthSnapshots({ consumers }: { consumers: mcp.OAuthInventory
         <p>{t('mcp.snapshots.retainUntil', { date: new Date(String(item.retainUntil)).toLocaleString(i18n?.language) })}</p>
         <p>{t('mcp.snapshots.location', { path: item.location })}</p>
         {item.expired && <p>{t('mcp.snapshots.expired')}</p>}
+        {!converted.includes(item.consumerId) && consumers.some((consumer) => consumer.id === item.consumerId && consumer.kind === 'client_credentials') && <>
+          <p>{t('mcp.snapshots.convertHelp')}</p>
+          <label htmlFor={`oauth-convert-method-${item.id}`}>{t('mcp.connection.tokenAuthMethod')}</label>
+          <select id={`oauth-convert-method-${item.id}`} value={methods[item.id] || ''} disabled={busy || item.expired} onChange={(event) => setMethods((previous) => ({ ...previous, [item.id]: event.target.value }))}>
+            <option value="">{t('mcp.snapshots.select')}</option>
+            <option value="client_secret_basic">{t('mcp.connection.tokenAuthBasic')}</option>
+            <option value="client_secret_post">{t('mcp.connection.tokenAuthPost')}</option>
+          </select>
+          <Button disabled={busy || item.expired || !methods[item.id]} aria-label={t('mcp.snapshots.convertNamed', { name: item.name })} onClick={() => void convert(item)}>{t('mcp.snapshots.convert')}</Button>
+        </>}
         <Button disabled={busy || item.expired} aria-label={t('mcp.snapshots.restoreNamed', { name: item.name })} onClick={() => void restore(item)}>{t('mcp.snapshots.restore')}</Button>
         <Button disabled={busy} variant="danger" aria-label={t('mcp.snapshots.discardNamed', { name: item.name })} onClick={() => void discard(item.id)}>{t('mcp.snapshots.discard')}</Button>
       </li>)}
