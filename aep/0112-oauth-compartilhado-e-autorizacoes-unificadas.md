@@ -947,6 +947,11 @@ consumidor/ausência do par na mesma transação, sem reutilizar cache removido.
 Evidências: `TestLegacyProactiveAdoptsConcurrentRotation` e
 `TestLegacyNativeFallbackDoesNotReuseDeletedHostname`.
 
+
+A escolha do detach usa a configuração já normalizada, incluindo mudança de
+HTTP PKCE para stdio com autenticação omitida. O teste de rollback também cobre
+essa transição, sem deixar o par legado órfão.
+
 ### Fase 3 — recuperação estrutural do PKCE legado
 
 Status: **In Progress**. O diagnóstico OAuth oferece criação, consulta,

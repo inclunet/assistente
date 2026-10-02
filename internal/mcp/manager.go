@@ -1510,6 +1510,7 @@ func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
 		return err
 	}
 	cfg.Slug = slug
+	cfg.applyDefaults(slug)
 	existing, loadErr := repo.GetServer(ctx, slug)
 	if loadErr != nil && !errors.Is(loadErr, gorm.ErrRecordNotFound) {
 		return loadErr
