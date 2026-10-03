@@ -411,6 +411,39 @@ describe('McpPage — oauth2_callback_host', () => {
     expect(screen.getByTestId('discovery-status-value')).toHaveTextContent('not_found');
   });
 
+  it('autocompleta cadastro sem DCR e salva os endpoints após escolha explícita de PKCE', async () => {
+    mockServers = [{ slug: 'legacy', name: 'Legacy', transport: 'streamable', status: 'disconnected', enabled: true }];
+    mockGetConfig.mockResolvedValue({
+      name: 'Legacy', transport: 'streamable', url: 'https://example.com/mcp',
+      auth_type: 'oauth2_client_credentials', oauth_managed: false,
+      oauth2_client_id: 'company-client',
+    });
+    mockDiscover.mockResolvedValue({
+      found: true, status: 'complete', authType: 'oauth2_pkce',
+      authUrl: 'https://auth.example/authorize', tokenUrl: 'https://auth.example/token',
+      scopes: ['sql', 'offline_access'], registrationUrl: '',
+    });
+    render(<McpPage />);
+    const row = screen.getByText('Legacy').parentElement!;
+    await userEvent.click(within(row).getByRole('button', { name: 'mcp.actions.edit' }));
+    await waitFor(() => expect(screen.getByTestId('discovery-status-value')).toHaveTextContent('found'));
+    expect(screen.getByLabelText('Auth Type')).toHaveValue('oauth2_client_credentials');
+    expect(screen.getByLabelText('Authorization URL')).toHaveValue('https://auth.example/authorize');
+    expect(screen.getByLabelText('Token URL')).toHaveValue('https://auth.example/token');
+    expect(screen.getByLabelText('OAuth Scopes')).toHaveValue('sql offline_access');
+    expect(screen.getByLabelText('Client ID')).toHaveValue('company-client');
+    expect(screen.getByLabelText('Client Secret')).toHaveValue('');
+    expect(screen.getByLabelText('Callback Host')).toHaveValue('');
+    expect(screen.getByLabelText('Callback Port')).toHaveValue('');
+    await userEvent.selectOptions(screen.getByLabelText('Auth Type'), 'oauth2_pkce');
+    await userEvent.click(screen.getByText('Salvar'));
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith('legacy', expect.objectContaining({
+      auth_type: 'oauth2_pkce', oauth2_client_id: 'company-client',
+      oauth2_auth_url: 'https://auth.example/authorize', oauth2_token_url: 'https://auth.example/token',
+      oauth2_scopes: ['sql', 'offline_access'],
+    })));
+  });
+
   it('preserva endpoints OAuth preenchidos manualmente durante discovery', async () => {
     mockDiscover.mockResolvedValue({
       found: true,

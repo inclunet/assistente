@@ -315,7 +315,14 @@ O resultado mostrado no formulário pode ser:
 - **OAuth configurado automaticamente**: endpoints obrigatórios foram
   encontrados. Se o servidor publicar registro dinâmico, o Client ID poderá ser
   registrado durante a conexão.
-- **OAuth detectado sem registro dinâmico**: informe o Client ID do aplicativo.
+- **Dados OAuth encontrados sem registro automático**: os endpoints e escopos
+  publicados preenchem os campos vazios e ficam visíveis para revisão. O tipo de
+  autenticação já configurado é preservado. Para login pessoal no navegador,
+  selecione **OAuth2 Authorization Code (PKCE)**; Client Credentials é outro
+  fluxo e não abre o navegador. Informe o Client ID do aplicativo cadastrado e
+  confira os escopos necessários. A descoberta não fornece o segredo do cliente
+  nem o callback cadastrado: obtenha esses dados com quem registrou o aplicativo.
+  A ausência de registro automático não significa que a descoberta falhou.
 - **Descoberta parcial**: o recurso protegido foi reconhecido, mas o servidor de
   autorização não foi localizado; complete os endpoints manualmente.
 - **Não detectado**: use a configuração manual, se o servidor exigir

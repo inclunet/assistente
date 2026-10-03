@@ -239,51 +239,8 @@ export function McpConnectionSection({
               </p>
             )}
 
-            {/* Estado B: Discovery sem DCR — pedir Client ID */}
-            {discoveredNoDCR && (
-              <fieldset className="mcp-fieldset">
-                <legend className="mcp-fieldset__legend">
-                  {t('mcp.connection.credentials')}
-                </legend>
-                <Input
-                  label={t('mcp.connection.clientId')}
-                  type="text"
-                  value={oauth2ClientId}
-                  onChange={(e) => onOAuth2ClientIdChange(e.target.value)}
-                  placeholder={t('mcp.connection.clientIdPlaceholder')}
-                  required
-                  autoComplete="off"
-                  fullWidth
-                />
-                <Input
-                  label={t('mcp.connection.clientSecret')}
-                  type="password"
-                  value={oauth2ClientSecret}
-                  onChange={(e) => onOAuth2ClientSecretChange(e.target.value)}
-                  placeholder={
-                    hasExistingAuth
-                      ? t('mcp.connection.passwordMask')
-                      : t('mcp.connection.clientSecretOptional')
-                  }
-                  hint={
-                    hasExistingAuth
-                      ? t('mcp.connection.keepExisting')
-                      : t('mcp.connection.clientSecretHint')
-                  }
-                  autoComplete="off"
-                  fullWidth
-                />
-                <p className="mcp-hint">
-                  {t('mcp.connection.browserAuthHintBrief')}{' '}
-                  <button type="button" className="mcp-link-btn" onClick={onManualOverride}>
-                    {t('mcp.connection.configureManually')}
-                  </button>
-                </p>
-              </fieldset>
-            )}
-
-            {/* Estado C: modo manual, discovery parcial/falhou — configuração completa */}
-            {isManualMode && (
+            {/* Sem DCR, exibir os dados preenchidos e o fluxo realmente selecionado. */}
+            {(isManualMode || discoveredNoDCR) && (
               <fieldset className="mcp-fieldset">
                 <legend className="mcp-fieldset__legend">{t('mcp.connection.auth')}</legend>
 
@@ -465,6 +422,10 @@ export function McpConnectionSection({
                   </>
                 )}
 
+                {discoveredNoDCR && authType === 'oauth2_pkce' && (
+                  <p className="mcp-hint">{t('mcp.connection.browserAuthHintBrief')}</p>
+                )}
+
                 {authType !== 'none' && (
                   <p className="mcp-hint" role="note">
                     {t('mcp.connection.encryptedStorage')}
@@ -479,7 +440,7 @@ export function McpConnectionSection({
         <details className="mcp-advanced">
           <summary>{t('mcp.connection.advanced')}</summary>
           <div className="mcp-fields">
-            {isHTTPTransport(transport) && (isManualMode || discoveredNoDCR) && (authType === 'oauth2_pkce' || discoveredNoDCR) && (
+            {isHTTPTransport(transport) && (isManualMode || discoveredNoDCR) && authType === 'oauth2_pkce' && (
               <>
                 <Select
                   label={t('mcp.connection.callbackHost')}

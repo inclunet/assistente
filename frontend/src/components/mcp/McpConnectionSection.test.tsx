@@ -133,14 +133,27 @@ describe('McpConnectionSection — Discovery states', () => {
     expect(screen.getByText(/Client ID será registrado via DCR/)).toBeInTheDocument();
   });
 
-  it('sem DCR: exibe campos Client ID e Client Secret', () => {
+  it('sem DCR: exibe dados autocompletados e o fluxo efetivo sem abrir modo manual', () => {
     renderWith({
       discoveryStatus: 'found',
       discoveryRegistrationUrl: '',
     });
     expect(screen.getByLabelText(/Client ID/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Client Secret/)).toBeInTheDocument();
-    expect(screen.queryByLabelText('Tipo de autenticação')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Tipo de autenticação')).toHaveValue('oauth2_pkce');
+    expect(screen.getByLabelText(/Authorization URL/)).toHaveValue(baseProps.oauth2AuthUrl);
+    expect(screen.getByLabelText(/Token URL/)).toHaveValue(baseProps.oauth2TokenUrl);
+    expect(screen.getByLabelText(/Scopes/)).toHaveValue(baseProps.oauth2Scopes);
+  });
+
+  it('sem DCR: permite corrigir Client Credentials e não promete login no navegador nesse fluxo', async () => {
+    const change = vi.fn();
+    renderWith({ discoveryStatus: 'found', authType: 'oauth2_client_credentials', onAuthTypeChange: change });
+    expect(screen.getByLabelText('Tipo de autenticação')).toHaveValue('oauth2_client_credentials');
+    expect(screen.queryByText(/browser abrirá/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Callback Host/)).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Tipo de autenticação'), 'oauth2_pkce');
+    expect(change).toHaveBeenCalledWith('oauth2_pkce');
   });
 
   it('discovery falhou: exibe configuração manual completa', () => {

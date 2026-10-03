@@ -1694,3 +1694,16 @@ Resultados devem identificar versão/commit, plataforma e cenário; não incluir
 tokens, client secrets, códigos, URLs completas de autorização ou backups. Um
 cenário não executado permanece pendente. Atualizar este documento e o índice
 para Done somente após registrar evidências de todos os critérios aceitos.
+
+
+### Revisão dos dados descobertos em MCP sem DCR
+
+Status: **In Progress**. O mantenedor confirmou a reconexão do MCP Slack após a
+correção da resposta OAuth. Isso não comprova os demais cenários de aceite.
+No editor MCP, a descoberta sem DCR agora apresenta os campos autocompletados e
+o fluxo efetivo, conforme a evolução do AEP-0033. As regressões em
+`McpConnectionSection.test.tsx` e `McpPage.test.tsx` cobrem a apresentação e o
+salvamento após troca explícita para PKCE. O login real do Databricks permanece
+pendente de conferir o cadastro do aplicativo e seu callback; os metadados
+públicos não fornecem esses dados privados. Os demais aceites reais permanecem
+pendentes, sem alteração dos contratos de armazenamento ou migração.
