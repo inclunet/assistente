@@ -21,6 +21,12 @@ type blockingProviderStore struct {
 	release <-chan struct{}
 }
 
+func (s *blockingProviderStore) Create(context.Context, *llm.ProviderConfig) error {
+	return errors.New("hot path fixture does not create providers")
+}
+func (s *blockingProviderStore) Exists(context.Context, string) (bool, error) {
+	return false, errors.New("hot path fixture does not create providers")
+}
 func (s *blockingProviderStore) Delete(context.Context, string) error              { return nil }
 func (s *blockingProviderStore) Save(context.Context, []*llm.ProviderConfig) error { return nil }
 func (s *blockingProviderStore) Load(context.Context) ([]*llm.ProviderConfig, error) {
@@ -530,4 +536,8 @@ func TestBatchDoesNotMaskDatabaseFailureAsDeletedConversation(t *testing.T) {
 	if errors.Is(err, ErrConversationDeleted) {
 		t.Fatalf("falha de infraestrutura mascarada como conversa deletada: %v", err)
 	}
+}
+
+func (s *blockingProviderStore) RollbackCreate(context.Context, *llm.ProviderConfig) error {
+	return errors.New("hot path fixture does not create providers")
 }

@@ -295,3 +295,47 @@ func hasProtectedOAuthConsumer(tx *gorm.DB, current database.LLMProvider) (bool,
 	err := tx.Model(&database.CredentialEntry{}).Where("id = ? AND user_id = ? AND source = ?", strings.TrimPrefix(current.CredentialPattern, "oauth:"), current.UserID, "oauth").Count(&count).Error
 	return count != 0, err
 }
+
+// Create preserva o catálogo e o histórico de um ID já persistido.
+func (s *DBStore) Create(ctx context.Context, provider *llm.ProviderConfig) error {
+	if err := database.RequireUserIDOrBootstrap(ctx); err != nil {
+		return err
+	}
+	if provider == nil {
+		return errors.New("provedor inválido")
+	}
+	model := toDBModel(provider)
+	if err := database.NewProviderRepository(database.DB()).CreateLLMProvider(ctx, model); err != nil {
+		return err
+	}
+	provider.CompatibilityRevision = model.CompatibilityRevision
+	provider.ConfigRevision = model.ConfigRevision
+	return nil
+}
+
+func (s *DBStore) Exists(ctx context.Context, id string) (bool, error) {
+	if err := database.RequireUserIDOrBootstrap(ctx); err != nil {
+		return false, err
+	}
+	var count int64
+	err := database.DB().WithContext(ctx).Model(&database.LLMProvider{}).Where("id = ?", id).Count(&count).Error
+	return count > 0, err
+}
+
+func (s *DBStore) RollbackCreate(ctx context.Context, provider *llm.ProviderConfig) error {
+	if err := database.RequireUserIDOrBootstrap(ctx); err != nil {
+		return err
+	}
+	if provider == nil || provider.ConfigRevision < 1 || provider.Type == llm.ProviderChatGPT || strings.HasPrefix(provider.CredentialPattern, "oauth:") {
+		return errors.New("reserva de criação inválida")
+	}
+	owner, _ := database.UserIDFromContext(ctx)
+	result := database.DB().WithContext(ctx).Where("id = ? AND user_id = ? AND config_revision = ? AND type = ? AND credential_pattern = ?", provider.ID, owner, provider.ConfigRevision, string(provider.Type), provider.CredentialPattern).Delete(&database.LLMProvider{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return errors.New("configuração do provedor mudou durante a criação")
+	}
+	return nil
+}
