@@ -1428,6 +1428,14 @@ Recuperação e restauração histórica: `TestSlackComposedCredentialExplicitRe
 backup também cobre entrada composta removida/ilegível. A remoção testa mapas
 atualizados após carregar o formulário, com omissão no DTO e preservação no banco.
 
+A publicação de registros genéricos e a recarga do cofre são serializadas com a
+migração, impedindo que uma leitura anterior recoloque o par removido no cache.
+A exportação que atravessa a migração prefere a representação composta da leitura
+posterior e conserva credenciais não relacionadas. Evidências determinísticas:
+`TestStaticConnectionMigrationSerializesPendingCachePublication` e
+`TestStaticConnectionExportDuringMigrationRemainsRestorable` (backup cifrado e
+restauração com sobrescrita explícita).
+
 Permanecem: cutover final do runtime MCP legado, atualização dos contratos
 correspondentes e aceites funcionais com provedores reais. PKCE histórico
 incompleto migra por reconexão aprovada, sem pendência de conversão offline.

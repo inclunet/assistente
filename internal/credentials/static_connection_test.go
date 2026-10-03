@@ -7,11 +7,96 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"assistente/internal/database"
 	"gorm.io/gorm"
 )
+
+func TestStaticConnectionMigrationSerializesPendingCachePublication(t *testing.T) {
+	for _, operation := range []string{"register", "reload"} {
+		t.Run(operation, func(t *testing.T) {
+			setupScopedCredentialStoreTestDB(t)
+			m := NewManagerWithStore(bytes.Repeat([]byte{7}, 32), NewDBStore(), true)
+			ctx := database.WithUserID(context.Background(), "owner")
+			const pattern = "channel:slack:bot_token"
+			if err := m.RegisterPatternWithContext(ctx, pattern, &AuthConfig{Source: "static", Type: "secret", Token: "before"}); err != nil {
+				t.Fatal(err)
+			}
+			type pauseKey struct{}
+			paused, release := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			unblock := func() { once.Do(func() { close(release) }) }
+			defer unblock()
+			var intercepted atomic.Bool
+			db := database.DB()
+			if err := db.Callback().Query().After("gorm:query").Register("pause_static_publication", func(tx *gorm.DB) {
+				if tx.Statement.Table == "credential_entries" && tx.Statement.Context.Value(pauseKey{}) == true && intercepted.CompareAndSwap(false, true) {
+					// The store has read the persisted ID, but the cache is not published.
+					close(paused)
+					<-release
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = db.Callback().Query().Remove("pause_static_publication") })
+			writerDone := make(chan error, 1)
+			go func() {
+				pendingCtx := context.WithValue(ctx, pauseKey{}, true)
+				if operation == "reload" {
+					writerDone <- m.LoadUserCredentials(pendingCtx, "owner")
+				} else {
+					writerDone <- m.RegisterPatternWithContext(pendingCtx, pattern, &AuthConfig{Source: "static", Type: "secret", Token: "after"})
+				}
+			}()
+			select {
+			case <-paused:
+			case <-time.After(5 * time.Second):
+				t.Fatal("writer did not reach publication gap")
+			}
+			if m.mutationMu.TryLock() {
+				m.mutationMu.Unlock()
+				t.Fatal("migration can overtake pending cache publication")
+			}
+			var id string
+			migrationDone := make(chan error, 1)
+			go func() {
+				migrationDone <- m.UpdateStaticConnection(ctx, func(*gorm.DB) (StaticConnectionUpdate, error) {
+					return StaticConnectionUpdate{Integration: "slack", ConsumerID: "channel", Legacy: map[SecretRole]string{RoleBotToken: pattern}, Commit: func(_ *gorm.DB, next string, _ map[SecretRole]bool) error { id = next; return nil }}, nil
+				})
+			}()
+			unblock()
+			for _, done := range []<-chan error{writerDone, migrationDone} {
+				select {
+				case err := <-done:
+					if err != nil {
+						t.Fatal(err)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("publication/migration did not finish")
+				}
+			}
+			want := "after"
+			if operation == "reload" {
+				want = "before"
+			}
+			got, err := m.ResolveStaticComponent(ctx, id, "slack", "channel", RoleBotToken)
+			if err != nil || got != want {
+				t.Fatal("migration lost latest token", err)
+			}
+			visible, err := m.ListVisibleCredentialsWithContext(ctx)
+			if err != nil || len(visible) != 0 {
+				t.Fatal("historical credential resurrected in visible cache", err)
+			}
+			var count int64
+			if err := db.Model(&database.CredentialEntry{}).Count(&count).Error; err != nil || count != 1 {
+				t.Fatal("migration left historical row", err)
+			}
+		})
+	}
+}
 
 func TestStaticConnectionMigratesAtomicRolesAndPreservesIsolation(t *testing.T) {
 	setupScopedCredentialStoreTestDB(t)

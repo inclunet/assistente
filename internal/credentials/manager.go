@@ -53,6 +53,9 @@ type DomainCredential struct {
 
 // Manager armazena e resolve credenciais por domínio.
 type Manager struct {
+	// mutationMu serializes store-to-cache publication with migration/reset.
+	// Store callbacks may read the manager, so store I/O must not hold mu.
+	mutationMu    sync.Mutex
 	oauthRequests map[string]map[string]context.CancelFunc
 	oauthContext  context.Context
 	oauthCancel   context.CancelFunc
@@ -135,6 +138,10 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 	if err := ValidateSource(auth); err != nil {
 		return err
 	}
+	// Persist and publish under the same operation lock used by migration.
+	// A delayed publication must not resurrect a row removed by that migration.
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	encAuth, err := m.encryptAuth(auth)
 	if err != nil {
 		return err
@@ -174,7 +181,6 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	for i, existing := range m.credentials {
 		sameStoredCredential := persistedID != "" && existing.ID == persistedID
 		sameScopedPattern := existing.Pattern == pattern && existing.UserID == userID
@@ -475,6 +481,9 @@ func (m *Manager) LoadInstanceSecrets(ctx context.Context) error {
 // usuário"). O ctx é usado apenas para deadline/cancel; o escopo de
 // query é construído explicitamente a partir do `userID`.
 func (m *Manager) LoadUserCredentials(ctx context.Context, userID string) error {
+	// Loading also publishes a store snapshot; serialize it with migration/reset.
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	if m.store == nil || !m.persist {
 		return nil
 	}
@@ -516,6 +525,8 @@ func (m *Manager) lookupPersistedByScope(ctx context.Context, userID string) ([]
 
 // Reset redefine a chave de criptografia e limpa credenciais em memória.
 func (m *Manager) Reset(encryptionKey []byte, persist bool) {
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	if len(encryptionKey) == 0 {
 		encryptionKey = make([]byte, 32)
 		rand.Read(encryptionKey)
@@ -546,7 +557,6 @@ func (m *Manager) registerEncryptedPattern(id, userID, pattern string, encAuth *
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	updated := false
 	for i, existing := range m.credentials {
 		sameStoredCredential := id != "" && existing.ID == id

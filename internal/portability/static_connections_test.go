@@ -5,11 +5,77 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"gorm.io/gorm"
 )
+
+func TestStaticConnectionExportDuringMigrationRemainsRestorable(t *testing.T) {
+	setupPortabilityTestDB(t)
+	db := database.DB()
+	if err := db.AutoMigrate(&database.Channel{}); err != nil {
+		t.Fatal(err)
+	}
+	mgr := credentials.NewManagerWithStore(bytes.Repeat([]byte{7}, 32), credentials.NewDBStore(), true)
+	ctx := database.WithUserID(context.Background(), "owner")
+	input := CredentialExport{Source: "static", AuthType: credentials.StaticConnectionType, Pattern: slackConnectionBackupPattern, StaticComponents: map[credentials.SecretRole]string{credentials.RoleBotToken: "bot", credentials.RoleAppToken: "app"}}
+	for role, token := range input.StaticComponents {
+		if err := mgr.RegisterPatternWithContext(ctx, "channel:slack:"+string(role), &credentials.AuthConfig{Source: "static", Type: "secret", Token: token}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := mgr.RegisterPatternWithContext(ctx, "other.example", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "other"}); err != nil {
+		t.Fatal(err)
+	}
+	var migrated atomic.Bool
+	if err := db.Callback().Query().After("gorm:query").Register("migrate_between_export_reads", func(tx *gorm.DB) {
+		if tx.Statement.Table == "credential_entries" && migrated.CompareAndSwap(false, true) {
+			// exportCredentials already captured the old cache; migrate before its
+			// subsequent authoritative read of composed connections.
+			if err := importStaticConnection(ctx, mgr, input, true); err != nil {
+				_ = tx.AddError(err)
+			}
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Query().Remove("migrate_between_export_reads") })
+	file, err := BuildExportFileWithContext(ctx, nil, nil, nil, mgr, ExportRequest{IncludeCredentials: true, CredentialExportPassword: "synthetic-password"}, "test")
+	if err != nil || !migrated.Load() {
+		t.Fatal("export did not cross migration", err)
+	}
+	items, err := decodeCredentialExports(file.Resources.Credentials, "synthetic-password")
+	if err != nil || len(items) != 2 {
+		t.Fatal("export mixed historical and composed formats", err)
+	}
+	var composed, other bool
+	for _, item := range items {
+		if item.Pattern == slackConnectionBackupPattern {
+			composed = item.StaticComponents[credentials.RoleBotToken] == "bot" && item.StaticComponents[credentials.RoleAppToken] == "app"
+		}
+		if item.Pattern == "other.example" {
+			other = item.Token == "other"
+		}
+	}
+	if !composed || !other {
+		t.Fatal("export lost a component or unrelated credential")
+	}
+	_, conflicts, err := loadExistingCredentialIdentifiers(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolutions := buildImportResolutionMap([]ImportResolution{
+		{ResourceType: "credential", Identifier: slackConnectionBackupPattern, Strategy: ConflictResolutionOverwrite},
+		{ResourceType: "credential", Identifier: "other.example", Strategy: ConflictResolutionOverwrite},
+	})
+	n, skipped, err := importCredentials(ctx, mgr, file.Resources.Credentials, "synthetic-password", conflicts, resolutions)
+	if err != nil || n != 2 || skipped != 0 {
+		t.Fatal("concurrent export cannot be restored", err)
+	}
+}
 
 func TestStaticConnectionPasswordBackupRoundTripAndConflict(t *testing.T) {
 	setupPortabilityTestDB(t)

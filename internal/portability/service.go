@@ -1135,6 +1135,21 @@ func exportCredentials(ctx context.Context, credMgr *credentials.Manager) ([]Cre
 	if err != nil {
 		return nil, err
 	}
+	// The two reads can straddle a migration. Prefer the authoritative composed
+	// snapshot over canonical legacy roles captured earlier from the cache.
+	for _, connection := range connections {
+		if connection.Pattern != slackConnectionBackupPattern {
+			continue
+		}
+		kept := result[:0]
+		for _, entry := range result {
+			if entry.Pattern != "channel:slack:bot_token" && entry.Pattern != "channel:slack:app_token" {
+				kept = append(kept, entry)
+			}
+		}
+		result = kept
+		break
+	}
 	return append(result, connections...), nil
 }
 

@@ -77,6 +77,8 @@ func guardLegacySlackWrite(tx *gorm.DB, userID, pattern string) error {
 // prepare/Commit only use the provided transaction; no network or reentrant
 // calls to the credential manager are allowed while it holds the vault lock.
 func (m *Manager) UpdateStaticConnection(ctx context.Context, prepare func(*gorm.DB) (StaticConnectionUpdate, error)) error {
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	captured, err := m.OAuthStore(ctx)
 	if err != nil {
 		return ErrStaticConnection
