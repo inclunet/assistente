@@ -5,6 +5,15 @@
 **Autor:** Engenharia Assistente
 **Relacionado:** AEP-0046 (UUIDv7), AEP-0052 (multi-user accounts)
 
+**Evolução da implementação:** o AEP-0112 substituiu o runtime OAuth MCP citado
+no relato abaixo pelo serviço compartilhado. `pkceRoundTripper`, token sources,
+`authCtxProvider` do transporte e escritores do par histórico foram removidos.
+As garantias de isolamento, persistência e arbitragem continuam vigentes: o store
+composto valida usuário/sessão, o lifecycle coordena renovação e commit e o árbitro
+compartilhado serializa a interação. Os leitores históricos permanecem para
+recuperação; não renovam nem autorizam requisições. Este relatório conserva os
+nomes originais para documentar o incidente e permanece Accepted.
+
 ## Resumo
 
 Em 10–11/05/2026, após a release AEP-0052 (multi-user accounts), três

@@ -17,6 +17,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/oauthflow"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"gorm.io/gorm"
 )
 
 // Runtime regressions seed the current composed format directly. Migration
@@ -172,8 +173,8 @@ func TestRecoveryStdioIgnoresResidualLegacyOAuth(t *testing.T) {
 	if result.Err != nil || !result.Reconnected || result.Refreshed || requests.Load() != 0 {
 		t.Fatalf("STDIO attempted residual OAuth: %+v requests=%d", result, requests.Load())
 	}
-	stored, err := m.credMgr.ReadLegacyOAuthToken(ctx, "legacy", cfg.ID)
-	if err != nil || stored.Token != "old" {
+	stored, err := m.credMgr.GetByPatternWithContext(ctx, userTokensPattern("legacy"))
+	if err != nil || stored == nil || stored.Token != "old" {
 		t.Fatalf("STDIO changed preserved OAuth token: %v", err)
 	}
 	m.CloseAll()
@@ -335,6 +336,57 @@ func TestHistoricalURLOnlyAuthenticationRequiresExplicitChoice(t *testing.T) {
 			persisted, err := repo.GetServer(ctx, cfg.Slug)
 			if err != nil || persisted.AuthType != AuthNone || persisted.OAuthAuthorizationID != "" {
 				t.Fatal("public choice did not survive reload")
+			}
+		})
+	}
+}
+
+// Moved from credentials: hostname resolution is no longer an OAuth vault API.
+// All five historical race cases must now stop at the MCP boundary before a
+// hostname credential can be read or its source executed, both before and after
+// the competing instance changes the database.
+func TestLegacyHostnameRevalidatesAfterSourceResolution(t *testing.T) {
+	for _, change := range []string{"unchanged", "grant", "consumer", "hostname_changed", "hostname_deleted"} {
+		t.Run(change, func(t *testing.T) {
+			a, b, ctx, cfg := legacyWALManagers(t, "https://fallback.example")
+			if err := a.credMgr.ClearLegacyOAuth(ctx, "legacy", cfg.ID, ""); err != nil {
+				t.Fatal(err)
+			}
+			if err := a.credMgr.RegisterPatternWithContext(ctx, "fallback.example", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "fallback"}); err != nil {
+				t.Fatal(err)
+			}
+			var reads atomic.Int32
+			db := a.repository().(*DBRepository).db
+			if err := db.Callback().Query().After("gorm:query").Register("observe_hostname_resolution", func(tx *gorm.DB) {
+				if row, ok := tx.Statement.Dest.(*database.CredentialEntry); ok && row.Pattern == "fallback.example" {
+					reads.Add(1)
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = db.Callback().Query().Remove("observe_hostname_resolution") })
+			candidate := nativeMCPCandidate{slug: "legacy", url: cfg.URL, authType: AuthOAuth2PKCE, managedConfig: cfg}
+			if token, ok := a.resolveNativeAuthToken(ctx, candidate); ok || token != "" || reads.Load() != 0 {
+				t.Fatal("historical OAuth resolved hostname before migration")
+			}
+			var err error
+			switch change {
+			case "grant":
+				err = b.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "new-grant"})
+			case "consumer":
+				edited := cfg
+				edited.AuthType = AuthNone
+				err = b.SaveConfig("legacy", edited)
+			case "hostname_changed":
+				err = b.credMgr.RegisterPatternWithContext(ctx, "fallback.example", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "replacement"})
+			case "hostname_deleted":
+				err = b.credMgr.DeletePattern(ctx, "fallback.example")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if token, ok := a.resolveNativeAuthToken(ctx, candidate); ok || token != "" || reads.Load() != 0 {
+				t.Fatalf("changed historical state bypassed cutover: hostname reads=%d", reads.Load())
 			}
 		})
 	}

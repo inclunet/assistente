@@ -14,19 +14,25 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/oauthflow"
-	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 )
 
-type deadlineTokenSource struct{}
-
-func (deadlineTokenSource) Token() (*oauth2.Token, error) {
-	return nil, errors.Join(errors.New("preflight"), context.DeadlineExceeded)
-}
-
 func TestLegacyPreflightDeadlineStopsBeforeAnonymousRequest(t *testing.T) {
-	ctx := context.Background() // the preflight deadline does not cancel the caller
-	rt := &pkceRoundTripper{tokenSource: deadlineTokenSource{}, base: managedTestRoundTrip(func(*http.Request) (*http.Response, error) {
+	m, ctx, cfg := managedTokenTestFixture(t, "https://example.com/mcp", "old", "refresh", time.Now().Add(-time.Hour))
+	store, _, _, err := m.managedOAuth(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := m.repository().(*DBRepository).db
+	if err := db.Callback().Query().Before("gorm:query").Register("deadline_preflight", func(tx *gorm.DB) {
+		if tx.Statement.Table == "credential_entries" {
+			_ = tx.AddError(errors.Join(errors.New("preflight"), context.DeadlineExceeded))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Query().Remove("deadline_preflight") })
+	rt := &managedOAuthTransport{manager: m, cfg: cfg, ctx: ctx, store: store, base: managedTestRoundTrip(func(*http.Request) (*http.Response, error) {
 		t.Fatal("preflight timeout must not send an anonymous request or start interactive fallback")
 		return nil, nil
 	})}
@@ -41,8 +47,12 @@ func TestLegacyPreflightDeadlineStopsBeforeAnonymousRequest(t *testing.T) {
 }
 
 func TestLegacyStoreFailureStopsBeforeAnonymousRequest(t *testing.T) {
-	m, _, ctx, cfg := legacyWALManagers(t, "https://resource.example")
-	rt := m.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
+	m, ctx, cfg := managedTokenTestFixture(t, "https://resource.example", "old", "refresh", time.Now().Add(-time.Hour))
+	store, _, _, err := m.managedOAuth(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := &managedOAuthTransport{manager: m, cfg: cfg, ctx: ctx, store: store}
 	injected := errors.New("injected store failure")
 	db := m.repository().(*DBRepository).db
 	if err := db.Callback().Query().Before("gorm:query").Register("fail_legacy_read", func(tx *gorm.DB) {
@@ -68,32 +78,27 @@ func TestLegacyStoreFailureStopsBeforeAnonymousRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	response, err := rt.RoundTrip(req)
-	if response != nil || !errors.Is(err, injected) || !errors.Is(err, errLegacyOAuthResolution) {
+	if response != nil || !errors.Is(err, injected) {
 		t.Fatalf("store failure was not preserved as terminal: %v", err)
 	}
 }
 
-func TestLegacyMissingGrantAllowsInitialProbe(t *testing.T) {
+func TestLegacyMissingGrantRequiresMigrationBeforeInitialProbe(t *testing.T) {
 	m, _, ctx, cfg := legacyWALManagers(t, "https://resource.example")
 	if err := m.DeleteServerAuth("legacy"); err != nil {
 		t.Fatal(err)
 	}
-	rt := m.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
-	called := false
-	rt.base = managedTestRoundTrip(func(req *http.Request) (*http.Response, error) {
-		called = true
-		if req.Header.Get("Authorization") != "" {
-			t.Fatal("initial probe unexpectedly authenticated")
-		}
-		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
-	})
+	client := m.buildAuthHTTPClient(ctx, "legacy", cfg)
+	oldBrowser := browserOpen
+	browserOpen = func(string) error { t.Error("missing historical grant opened browser"); return nil }
+	defer func() { browserOpen = oldBrowser }()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.URL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := rt.RoundTrip(req)
-	if err != nil || response == nil || !called {
-		t.Fatalf("missing grant prevented initial probe: %v", err)
+	response, err := client.Do(req)
+	if response != nil || !errors.Is(err, errOAuthMigrationRequired) {
+		t.Fatalf("missing historical grant allowed initial probe: %v", err)
 	}
 }
 
@@ -169,9 +174,10 @@ func TestLegacyConfigurationCallbackCannotEditManagedAuthorization(t *testing.T)
 	cfg, store, before := loadManaged(t, m, ctx, "owned")
 	legacy := cfg
 	legacy.OAuthManaged, legacy.OAuthAuthorizationID = false, ""
-	rt := m.buildPKCERoundTripperForServer(ctx, "owned", legacy)
 	legacy.OAuth2ClientID = "late-client"
-	rt.onConfigUpdate(legacy)
+	if err := repo.SaveServer(ctx, &legacy); !errors.Is(err, oauthflow.ErrConflict) {
+		t.Fatalf("legacy configuration reclaimed shared authorization: %v", err)
+	}
 	after, err := store.Load(ctx, before.ID)
 	if err != nil || after.Revision != before.Revision || after.Client.ID != before.Client.ID {
 		t.Fatal("protocol callback changed shared authorization")
@@ -185,8 +191,7 @@ func TestLegacyConfigurationCallbackCannotEditManagedAuthorization(t *testing.T)
 func TestLegacyConfigurationWriterPreservesEditsAndSession(t *testing.T) {
 	m, repo, ctx := managedFixture(t)
 	cfg := managedConfig("https://resource.example")
-	cfg.OAuthManaged = false
-	cfg.OAuth2TokenAuthMethod = "client_secret_post" // transient in legacy storage
+	cfg.OAuth2TokenAuthMethod = "none"
 	if err := m.SaveConfig("legacy", cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -194,101 +199,146 @@ func TestLegacyConfigurationWriterPreservesEditsAndSession(t *testing.T) {
 	if original.Env != nil {
 		t.Fatal("fixture must cover nil environment")
 	}
-	write := m.legacyOAuthConfigWriter(original)
-	updated := original
-	updated.OAuth2CallbackPort = 12345
-	if err := write(updated); err != nil {
+	_, store, updated := loadManaged(t, m, ctx, "legacy")
+	updated.Callback.Port, updated.Callback.PortPolicy = 12345, "fixed"
+	updated.Revision++
+	if err := store.CompareAndSwap(ctx, updated, updated.Revision-1); err != nil {
 		t.Fatal(err)
 	}
-	updated.OAuth2CallbackPort = 12346
-	if err := write(updated); err != nil {
+	_, _, updated = loadManaged(t, m, ctx, "legacy")
+	updated.Callback.Port = 12346
+	updated.Revision++
+	if err := store.CompareAndSwap(ctx, updated, updated.Revision-1); err != nil {
 		t.Fatal(err)
 	}
-	edited := updated
+	_, _, updated = loadManaged(t, m, ctx, "legacy")
+	edited := projectOAuthConfiguration(original, updated)
 	edited.Name = "User edit"
 	if err := m.SaveConfig("legacy", edited); err != nil {
 		t.Fatal(err)
 	}
-	updated.OAuth2CallbackPort = 12347
-	if err := write(updated); !errors.Is(err, oauthflow.ErrConflict) {
+	updated.Callback.Port = 12347
+	updated.Revision++
+	if err := store.CompareAndSwap(ctx, updated, updated.Revision-1); !errors.Is(err, oauthflow.ErrConflict) {
 		t.Fatalf("overwrote user edit: %v", err)
 	}
 	fresh, err := repo.GetServer(ctx, "legacy")
-	if err != nil || fresh.Name != edited.Name || fresh.OAuth2CallbackPort != edited.OAuth2CallbackPort {
+	_, _, saved := loadManaged(t, m, ctx, "legacy")
+	if err != nil || fresh.Name != edited.Name || saved.Callback.Port != edited.OAuth2CallbackPort {
 		t.Fatal("edit lost")
 	}
-	write = m.legacyOAuthConfigWriter(*fresh)
 	m.credMgr.Reset(make([]byte, 32), true)
-	if err := write(*fresh); !errors.Is(err, oauthflow.ErrConflict) {
+	saved.Revision++
+	if err := store.CompareAndSwap(ctx, saved, saved.Revision-1); !errors.Is(err, oauthflow.ErrConflict) {
 		t.Fatalf("stale session wrote: %v", err)
+	}
+}
+
+func TestManagedRuntimeRevisionConflictKeepsPublicClassification(t *testing.T) {
+	m, ctx, cfg := managedTokenTestFixture(t, "https://example.com/mcp", "old", "refresh", time.Now().Add(-time.Hour))
+	_, store, original := loadManaged(t, m, ctx, cfg.Slug)
+	newer := original
+	newer.Revision++
+	newer.Tokens.Access = "newer-token"
+	if err := store.CompareAndSwap(ctx, newer, original.Revision); err != nil {
+		t.Fatal(err)
+	}
+	bound := mcpRuntimeOAuthStore{mcpAtomicOAuthStore: store.(mcpAtomicOAuthStore), cfg: cfg}
+	stale := original
+	stale.Revision++
+	err := bound.CompareAndSwap(ctx, stale, original.Revision)
+	if !errors.Is(err, oauthflow.ErrConflict) || err.Error() != oauthflow.ErrConflict.Error() || errors.Is(err, errOAuthPersistence) {
+		t.Fatalf("revision conflict lost its safe public code: %v", err)
+	}
+	saved, err := store.Load(ctx, original.ID)
+	if err != nil || saved.Revision != newer.Revision || saved.Tokens.Access != newer.Tokens.Access {
+		t.Fatal("stale publication changed current grant", err)
 	}
 }
 
 func TestLegacyRefreshRetryPersistenceFailureDoesNotSendAnotherRequest(t *testing.T) {
 	m, repo, ctx := managedFixture(t)
-	var requests atomic.Int32
+	var requests, tokenCalls atomic.Int32
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/token" {
 			requests.Add(1)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		tokenCalls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"access_token":"fresh","refresh_token":"rotated","token_type":"Bearer","expires_in":3600}`)
 	}))
 	defer tokenServer.Close()
-	if err := m.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "old", RefreshURL: "refresh", ExpiresAt: time.Now().Add(time.Hour).Unix()}); err != nil {
+	cfg := managedConfig(tokenServer.URL)
+	cfg.OAuth2TokenAuthMethod = "none"
+	if err := m.SaveConfig("legacy", cfg); err != nil {
 		t.Fatal(err)
 	}
-	writes := 0
-	if err := repo.db.Callback().Create().Before("gorm:create").Register("reject_second_save", func(tx *gorm.DB) {
-		if tx.Statement.Table == "credential_entries" {
-			writes++
-			if writes == 2 {
-				_ = tx.AddError(errors.New("disk full"))
-			}
+	seedManagedRuntime(t, m, ctx, "legacy", "old", "refresh", time.Now().Add(time.Hour))
+	cfg, _, _ = loadManaged(t, m, ctx, "legacy")
+	if err := repo.db.Callback().Update().Before("gorm:update").Register("reject_second_save", func(tx *gorm.DB) {
+		if fields, ok := tx.Statement.Dest.(map[string]any); ok && fields["oauth_enc"] != nil && tokenCalls.Load() > 0 {
+			_ = tx.AddError(errors.New("disk full"))
 		}
 	}); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = repo.db.Callback().Create().Remove("reject_second_save") })
-	rt := &pkceRoundTripper{credMgr: m.credMgr, serverSlug: "legacy", cfg: ServerConfig{URL: tokenServer.URL}, authCtxProvider: func() context.Context { return ctx }, base: http.DefaultTransport}
-	rt.oauthCfg = &oauth2.Config{ClientID: "client", Endpoint: oauth2.Endpoint{TokenURL: tokenServer.URL + "/token", AuthStyle: oauth2.AuthStyleInParams}}
-	rt.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "old", RefreshToken: "refresh", Expiry: time.Now().Add(time.Hour)})
+	t.Cleanup(func() { _ = repo.db.Callback().Update().Remove("reject_second_save") })
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, tokenServer.URL, nil)
-	response, err := rt.RoundTrip(req)
-	if response != nil || !errors.Is(err, errOAuthPersistence) || requests.Load() != 1 {
+	response, err := m.managedHTTPClient(ctx, cfg).Do(req)
+	if response != nil || !errors.Is(err, errOAuthPersistence) || requests.Load() != 1 || tokenCalls.Load() != 1 {
 		t.Fatalf("hidden persistence failure: requests=%d err=%v", requests.Load(), err)
 	}
 }
 
 func TestLegacyTokenPersistenceFailureIsTerminalAndSanitized(t *testing.T) {
-	m, repo, ctx := managedFixture(t)
+	var tokenCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenCalls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"new-access","refresh_token":"new-refresh","token_type":"Bearer","expires_in":3600}`)
+	}))
+	defer srv.Close()
+	m, ctx, cfg := managedTokenTestFixture(t, srv.URL, "old", "refresh", time.Now().Add(-time.Hour))
+	repo := m.repository().(*DBRepository)
 	const privateError = "database error containing private material"
-	if err := repo.db.Callback().Create().Before("gorm:create").Register("reject_legacy_token", func(tx *gorm.DB) {
-		if tx.Statement.Table == "credential_entries" {
+	var failed atomic.Bool
+	if err := repo.db.Callback().Update().Before("gorm:update").Register("reject_legacy_token", func(tx *gorm.DB) {
+		if fields, ok := tx.Statement.Dest.(map[string]any); ok && fields["oauth_enc"] != nil && tokenCalls.Load() > 0 && failed.CompareAndSwap(false, true) {
 			_ = tx.AddError(errors.New(privateError))
 		}
 	}); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = repo.db.Callback().Create().Remove("reject_legacy_token") })
-	rt := &pkceRoundTripper{credMgr: m.credMgr, serverSlug: "legacy", authCtxProvider: func() context.Context { return ctx }}
-	pts := &persistingTokenSource{inner: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "new-access", RefreshToken: "new-refresh"}), rt: rt}
-	token, err := pts.Token()
-	if token != nil || !errors.Is(err, errOAuthPersistence) || strings.Contains(err.Error(), privateError) {
+	t.Cleanup(func() { _ = repo.db.Callback().Update().Remove("reject_legacy_token") })
+	token, err := m.resolveManagedOAuth(ctx, cfg, "")
+	if token.Tokens.Access != "" || !errors.Is(err, errOAuthPersistence) || strings.Contains(err.Error(), privateError) {
 		t.Fatalf("persistence failure reported as success or leaked: %v", err)
 	}
-	if pts.lastToken != "" || !terminalOAuthNetworkError(ctx, err) || !terminalDeviceGrantError(ctx, err) {
+	_, _, pending := loadManaged(t, m, ctx, "srv")
+	if !pending.RefreshPending || pending.Tokens.Access != "old" || !terminalOAuthNetworkError(ctx, err) || !terminalDeviceGrantError(ctx, err) {
 		t.Fatal("failed save could initiate another authorization")
 	}
-	if err := repo.db.Callback().Create().Remove("reject_legacy_token"); err != nil {
+	if err := repo.db.Callback().Update().Remove("reject_legacy_token"); err != nil {
 		t.Fatal(err)
 	}
-	if token, err = pts.Token(); err != nil || token.AccessToken != "new-access" {
-		t.Fatalf("same returned token could not be persisted after storage recovery: %v", err)
+	if _, err = m.resolveManagedOAuth(ctx, cfg, ""); !errors.Is(err, oauthflow.ErrReauthorize) || tokenCalls.Load() != 1 {
+		t.Fatalf("ambiguous rotation retried after storage recovery: %v", err)
 	}
-	stored := loadUserTokens(ctx, m.credMgr, "legacy")
+	// Explicit reconnection may publish the replacement grant after storage recovers.
+	store, _, service, err := m.managedOAuth(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.AuthorizeUsing(ctx, store, cfg.OAuthAuthorizationID, func(_ context.Context, r oauthflow.Record) (oauthflow.Record, error) {
+		r.Tokens = oauthflow.Tokens{Access: "new-access", Refresh: "new-refresh", Type: "Bearer", ExpiresAt: time.Now().Add(time.Hour)}
+		return r, nil
+	})
+	if err != nil {
+		t.Fatalf("explicit recovery could not persist replacement: %v", err)
+	}
+	stored := loadManagedTestToken(t, m, ctx, "srv")
 	if stored == nil || stored.RefreshToken != "new-refresh" {
 		t.Fatal("rotated token was not preserved")
 	}

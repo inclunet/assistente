@@ -13,14 +13,15 @@ conta ChatGPT no Assistente; entregas seguintes migram MCP para a mesma base.
 A primeira entrega implementa a base OAuth e o consumidor ChatGPT. Novos cadastros
 OAuth no editor MCP já consomem essa base. Client Credentials legado dispõe de
 conversão e PKCE incompleto migra por reconexão explícita. Slack já possui
-credencial composta estática e backup cifrado. Permanecem a retirada final do
-runtime MCP legado e os aceites funcionais registrados nas fases abaixo.
+credencial composta estática e backup cifrado. O transporte, os escritores e as
+APIs operacionais do runtime MCP legado foram removidos. Permanecem os aceites
+funcionais e a conclusão das validações de entrega registrados nas fases abaixo.
 As entradas operacionais de conexão, recuperação e MCP nativo já exigem
 autorização composta; o legado permanece disponível para snapshot e migração.
 
 ## Motivação
 
-Hoje `internal/mcp/oauth.go` grava duas entradas por servidor e usuário:
+No início desta proposta, `internal/mcp/oauth.go` gravava duas entradas por servidor e usuário:
 `mcp-client:<slug>` contém client ID/secret; `mcp-tokens:<slug>` contém access
 token, refresh token e expiração. Ambas usam source `static` e tipo `oauth2`;
 o refresh token ocupa o campo legado `RefreshURL`. Endpoints, scopes e
@@ -329,7 +330,9 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    recuperação explícita de tokens por hostname também está entregue;
    conversão de Client Credentials e reconexão migratória de PKCE entregues;
    entradas operacionais legadas encerradas e temporizador próprio removido.
-   Permanecem a remoção física dos helpers antigos e os aceites funcionais.
+   Runtime, transportes, escritores e APIs operacionais antigos removidos;
+   leitores históricos e snapshots permanecem somente para recuperação.
+   Permanecem a validação integral da entrega e os aceites funcionais.
 4. [ ] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
    conexão e referências por papel, sem alterar protocolo nem exigir OAuth inexistente.
    Implementação e testes automatizados descritos na evidência da fase 4 abaixo;
@@ -1545,3 +1548,55 @@ a recuperação dos tokens continua nos snapshots, sem apagamento em runtime.
 
 A retirada completa do transporte privado PKCE, dos escritores e das APIs
 operacionais do cofre ainda está pendente, assim como os aceites funcionais.
+
+### Fase 3 — retirada física do runtime e dos escritores históricos
+
+Status: **In Progress**. Foram removidos o transporte privado PKCE, token sources,
+renovação, escritores de configuração e persistência do par histórico, além das
+APIs `BeginLegacyOAuth`, `BeginLegacyClientGrant` e seus receipts. O adaptador
+`oauthProtocol` executa somente discovery/registro/consentimento; recebe o cliente
+do record e entrega tokens/checkpoints ao serviço compartilhado. Não possui cofre,
+cache de token, `RoundTrip` ou contexto destacado para renovar em background.
+
+Os campos históricos permanecem como dados de recuperação e projeções de edição,
+não como uma segunda fonte de credenciais em runtime. `legacyOAuthControl` mantém
+seu formato cifrado para snapshots e staging de reconexão. Sua presença continua
+bloqueando escritores genéricos, inclusive quando expirado ou ilegível; a exceção
+por receipt operacional foi retirada. Leitura, limpeza explícita, snapshots,
+conversão e reconexão preservam validação de usuário, sessão e consumidor.
+
+Os testes históricos foram transferidos para os fluxos reais correspondentes:
+
+- DCR, callback dinâmico/fixo, checkpoint, rollback antes/depois da escrita e
+  reinício: `TestDCRPersistsCallbackPort`, `TestDCRDoesNotOverwriteFixedPort`,
+  `TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart` e os dois
+  testes `TestLegacyDCR*` agora exercem o record composto.
+- Renovação, segredo atualizado, rejeição, concorrência e publicação tardia:
+  `TestLegacyRefreshCoordinatesProcessesAndEdits`,
+  `TestLegacyOAuthOperationSerializesManagersAndPreservesRotation` e
+  `TestLegacyClientGrantExpiredLeaseCanRetryWithoutReauthorization` usam stores
+  compartilhados reais. Gates independentes comprovam o lease durável entre
+  instâncias; uma conclusão expirada não substitui um grant mais recente.
+- Recuperação: controles históricos são fixtures cifradas, sem reintroduzir API
+  operacional em testes. `TestLegacyOAuthInterruptedRefreshRequiresExplicitRecovery`
+  percorre snapshot e reconexão até a troca atômica pelo record composto.
+- O teste de hostname foi movido de credentials para a fronteira MCP, preservando
+  os cinco cenários: nenhuma mudança, novo grant, edição do consumidor, troca e
+  exclusão do hostname. Todos recusam fallback antes de ler sua credencial.
+
+Falhas de persistência no transporte composto preservam classificação para o
+caller sem expor o diagnóstico interno. Conflitos de revisão ou consumidor
+mantêm `oauth_authorization_changed`, distinguindo edição concorrente de falha
+do cofre na interface. Evidências: `TestManagedRuntimeRevisionConflictKeepsPublicClassification`
+e `TestComposedClientGrantChecksBindingAfterNetworkConsent`.
+Retry de corpo não recriável retorna
+`oauth_request_not_replayable`, sem uma segunda chamada ao recurso ou vazamento
+do erro de `GetBody`. Evidências: os testes
+`TestLegacyTokenPersistenceFailureIsTerminalAndSanitized`,
+`TestLegacyRefreshRetryPersistenceFailureDoesNotSendAnotherRequest` e
+`TestLegacyOAuthDoesNotReplayUnavailableBody`, todos pelo transporte composto.
+
+Esta seção substitui as pendências de remoção física das entregas anteriores.
+O AEP permanece In Progress até a validação integral de entrega e os aceites
+reais pendentes de ChatGPT, MCP Slack/Atlassian e Slack Channels. O login ChatGPT
+confirmado pelo mantenedor não comprova sozinho catálogo, envio, reinício e refresh.

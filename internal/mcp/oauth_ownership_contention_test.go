@@ -50,7 +50,6 @@ func TestLegacyConfigWriterPreventsStaleWALSnapshot(t *testing.T) {
 	m.SetAuthContextProvider(func() context.Context { return ctx })
 	t.Cleanup(m.CloseAll)
 	cfg := managedConfig("https://resource.example")
-	cfg.OAuthManaged = false
 	if err := m.SaveConfig("legacy", cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +57,11 @@ func TestLegacyConfigWriterPreventsStaleWALSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writer := m.newLegacyOAuthWriter(*original)
+	_, store, candidate := loadManaged(t, m, ctx, "legacy")
+	atomicStore, ok := store.(mcpAtomicOAuthStore)
+	if !ok {
+		t.Fatal("shared vault does not support consumer transaction")
+	}
 	var attempted atomic.Bool
 	var competingErr error
 	if err := db.Callback().Query().After("gorm:query").Register("concurrent_unrelated_write", func(tx *gorm.DB) {
@@ -69,10 +72,13 @@ func TestLegacyConfigWriterPreventsStaleWALSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Callback().Query().Remove("concurrent_unrelated_write") })
-	updated := *original
-	updated.OAuth2CallbackPort = 34567
-	updated.OAuth2ClientID = "registered"
-	if err := writer.Write(updated); err != nil {
+	candidate.Callback.Port, candidate.Callback.PortPolicy = 34567, "fixed"
+	candidate.Client.ID = "registered"
+	candidate.Revision++
+	if err := atomicStore.CompareAndSwapWithConsumer(ctx, candidate, candidate.Revision-1, func(tx *gorm.DB) error {
+		var consumer database.MCPServer
+		return tx.Where("id = ? AND user_id = ?", original.ID, original.UserID).First(&consumer).Error
+	}); err != nil {
 		t.Fatalf("lost DCR metadata under contention: %v", err)
 	}
 	if !attempted.Load() || !database.IsSQLiteBusyError(competingErr) {
@@ -89,7 +95,8 @@ func TestLegacyConfigWriterPreventsStaleWALSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.OAuth2CallbackPort != 34567 || stored.OAuth2ClientID != "registered" || cached.OAuth2CallbackPort != 34567 || cached.OAuth2ClientID != "registered" {
+	_, _, persisted := loadManaged(t, m, ctx, "legacy")
+	if stored.OAuthAuthorizationID != persisted.ID || persisted.Callback.Port != 34567 || persisted.Client.ID != "registered" || cached.OAuth2CallbackPort != 34567 || cached.OAuth2ClientID != "registered" {
 		t.Fatal("DCR metadata diverges in database/cache")
 	}
 }

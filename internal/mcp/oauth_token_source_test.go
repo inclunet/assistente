@@ -50,36 +50,33 @@ func TestStoredAndClientCredentialsRefreshApprovalIsPerOperation(t *testing.T) {
 				prompts.Add(1)
 				return []net.IP{net.ParseIP("127.0.0.1")}, true, nil
 			}
-			ctx := oauthflow.WithNetworkAuthorizer(context.Background(), authorize)
 			cfg := ServerConfig{URL: "https://192.0.2.1/mcp", OAuth2ClientID: "client", OAuth2TokenURL: server.URL}
-			var source oauth2.TokenSource
-			var resolve func() (*oauth2.Token, error)
+			m, repo, ownerCtx := managedFixture(t)
+			// Each connection to SQLite :memory: is a different database.
+			pool, err := repo.db.DB()
+			if err != nil {
+				t.Fatal(err)
+			}
+			pool.SetMaxOpenConns(1)
+			m.SetOAuthNetworkAuthorizer(authorize)
+			cfg.Transport, cfg.OAuthManaged = TransportStreamable, true
 			if grant == "pkce" {
-				m := newTestManagerWithEmit(func(string, any) {})
-				defer m.CloseAll()
-				m.SetOAuthNetworkAuthorizer(authorize)
-				storeUserToken(t, m, "srv", "expired", "seed", time.Now().Add(-time.Hour).Unix())
-				source = m.buildPKCERoundTripperForServer(ctx, "srv", cfg).tokenSource
-				resolve = source.Token
-			} else {
-				m, repo, ownerCtx := managedFixture(t)
-				// Each connection to SQLite :memory: is a different database.
-				pool, err := repo.db.DB()
-				if err != nil {
+				cfg.AuthType, cfg.OAuth2TokenAuthMethod = AuthOAuth2PKCE, "none"
+				if err := m.SaveConfig("srv", cfg); err != nil {
 					t.Fatal(err)
 				}
-				pool.SetMaxOpenConns(1)
-				m.SetOAuthNetworkAuthorizer(authorize)
-				cfg.Transport, cfg.AuthType, cfg.OAuthManaged = TransportStreamable, AuthOAuth2ClientCredentials, true
+				seedManagedRuntime(t, m, ownerCtx, "srv", "expired", "seed", time.Now().Add(-time.Hour))
+			} else {
+				cfg.AuthType = AuthOAuth2ClientCredentials
 				cfg.OAuth2TokenAuthMethod = "client_secret_post"
 				if err := m.SaveConfigWithOAuthSecret("srv", cfg, "secret"); err != nil {
 					t.Fatal(err)
 				}
-				cfg, _, _ = loadManaged(t, m, ownerCtx, "srv")
-				resolve = func() (*oauth2.Token, error) {
-					r, err := m.resolveManagedOAuth(ownerCtx, cfg, "")
-					return &oauth2.Token{AccessToken: r.Tokens.Access, Expiry: r.Tokens.ExpiresAt}, err
-				}
+			}
+			cfg, _, _ = loadManaged(t, m, ownerCtx, "srv")
+			resolve := func() (*oauth2.Token, error) {
+				r, err := m.resolveManagedOAuth(ownerCtx, cfg, "")
+				return &oauth2.Token{AccessToken: r.Tokens.Access, Expiry: r.Tokens.ExpiresAt}, err
 			}
 			first, err := resolve()
 			if err != nil || first == nil || first.AccessToken != "first" {
@@ -108,10 +105,9 @@ func TestStoredAndClientCredentialsRefreshApprovalIsPerOperation(t *testing.T) {
 			if _, err := resolve(); err != nil {
 				t.Fatal(err)
 			}
-			attempts := int32(3) // Historical PKCE negotiates after definitive invalid_client.
-			if grant == "client-credentials" {
-				attempts = 2 // The composed client uses its explicitly registered auth method.
-			}
+			// Both composed grants use the explicitly registered method. Neither
+			// may negotiate another method by replaying a rotating refresh token.
+			attempts := int32(2)
 			if prompts.Load() != 2 || issued.Load() != 2 || requests.Load() != attempts {
 				t.Fatalf("prompts=%d issued=%d HTTP attempts=%d", prompts.Load(), issued.Load(), requests.Load())
 			}

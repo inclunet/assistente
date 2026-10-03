@@ -15,14 +15,12 @@ import (
 
 	"assistente/internal/oauthflow"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 )
 
 func TestLegacyOAuthDoesNotReplayUnavailableBody(t *testing.T) {
 	for _, brokenFactory := range []bool{false, true} {
 		t.Run(map[bool]string{false: "absent", true: "failure"}[brokenFactory], func(t *testing.T) {
-			m, _, ctx := managedFixture(t)
 			var resources atomic.Int32
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/token" {
@@ -38,15 +36,14 @@ func TestLegacyOAuthDoesNotReplayUnavailableBody(t *testing.T) {
 				w.WriteHeader(http.StatusUnauthorized)
 			}))
 			defer srv.Close()
-			rt := &pkceRoundTripper{credMgr: m.credMgr, serverSlug: "legacy", cfg: ServerConfig{URL: srv.URL}, authCtxProvider: func() context.Context { return ctx }, base: http.DefaultTransport}
-			rt.oauthCfg = &oauth2.Config{ClientID: "client", Endpoint: oauth2.Endpoint{TokenURL: srv.URL + "/token", AuthStyle: oauth2.AuthStyleInParams}}
-			rt.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "old", RefreshToken: "refresh", Expiry: time.Now().Add(time.Hour)})
+			m, ctx, cfg := managedTokenTestFixture(t, srv.URL, "old", "refresh", time.Now().Add(time.Hour))
+			client := m.managedHTTPClient(ctx, cfg)
 			req, _ := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL, io.NopCloser(strings.NewReader("original-body")))
 			if brokenFactory {
 				req.GetBody = func() (io.ReadCloser, error) { return nil, errors.New("private failure") }
 			}
-			response, err := rt.RoundTrip(req)
-			if response != nil || err == nil || err.Error() != "oauth_request_not_replayable" || resources.Load() != 1 {
+			response, err := client.Do(req)
+			if response != nil || err == nil || !strings.Contains(err.Error(), "oauth_request_not_replayable") || strings.Contains(err.Error(), "private failure") || resources.Load() != 1 {
 				t.Fatalf("unsafe replay: requests=%d err=%v", resources.Load(), err)
 			}
 		})
