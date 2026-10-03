@@ -30,8 +30,9 @@ const (
 	// logging the raw storage failure and reporting successful renewal.
 	// O cutover MCP remove sete formatos do refresh/reautorização legado;
 	// a renovação composta usa os eventos normalizados de oauthflow.
-	expectedLegacyFormatCount  = 743
-	expectedLegacyFormatDigest = "4d5500c0f5482d5f65b4ba5ef396b97911817622224340c4b1598b6739a8b141"
+	// A retirada do transporte antigo de Client Credentials remove dois formatos.
+	expectedLegacyFormatCount  = 741
+	expectedLegacyFormatDigest = "c4d7938e5427d243cf6d8f6c85e4d27feb24efcb35def7bb7bf0f4e2fdf078fc"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

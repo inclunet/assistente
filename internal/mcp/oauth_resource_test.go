@@ -18,12 +18,23 @@ import (
 
 func resourceTestClient(t *testing.T, grant AuthType, resource, token string) *http.Client {
 	t.Helper()
-	m := newTestManagerWithEmit(func(string, any) {})
-	t.Cleanup(m.CloseAll)
-	storeUserToken(t, m, "resource", "test-token", "refresh", time.Now().Add(time.Hour).Unix())
-	rt := &pkceRoundTripper{credMgr: m.credMgr, serverSlug: "resource"}
-	rt.persistClientCreds("client", "secret")
-	return m.buildAuthHTTPClient(context.Background(), "resource", ServerConfig{URL: resource, AuthType: grant, OAuth2ClientID: "client", OAuth2TokenURL: token})
+	m, _, ctx := managedFixture(t)
+	cfg := managedConfig(resource)
+	cfg.AuthType, cfg.OAuth2TokenURL = grant, token
+	// Prepare a valid record before exercising rejection of a forged destination.
+	if strings.HasPrefix(resource, "http://remote.example") {
+		cfg.URL = strings.Replace(resource, "http://", "https://", 1)
+		cfg.OAuth2AuthURL = cfg.URL + "/authorize"
+	}
+	if err := m.SaveConfigWithOAuthSecret("resource", cfg, "secret"); err != nil {
+		t.Fatal(err)
+	}
+	if grant == AuthOAuth2PKCE {
+		seedManagedRuntime(t, m, ctx, "resource", "test-token", "refresh", time.Now().Add(time.Hour))
+	}
+	cfg, _, _ = loadManaged(t, m, ctx, "resource")
+	cfg.URL = resource
+	return m.buildAuthHTTPClient(ctx, "resource", cfg)
 }
 
 func TestOAuthResourceRedirectsAndAudience(t *testing.T) {

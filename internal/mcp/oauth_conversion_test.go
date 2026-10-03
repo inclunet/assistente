@@ -62,7 +62,7 @@ func TestClientConversionAtomicIdempotentAndRestart(t *testing.T) {
 			}
 			a.snapshotRoot = t.TempDir()
 			b.snapshotRoot = a.snapshotRoot
-			old := b.legacyClientGrantHTTPClient(ctx, cfg)
+			old := b.buildAuthHTTPClient(ctx, cfg.Slug, cfg)
 			if err := a.credMgr.RegisterPatternWithContext(ctx, "shared.example", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "shared-token"}); err != nil {
 				t.Fatal(err)
 			}

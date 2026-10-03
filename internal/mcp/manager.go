@@ -1765,20 +1765,7 @@ func (m *Manager) buildAuthHTTPClient(ctx context.Context, slug string, cfg Serv
 		return oauthflow.NewResourceHTTPClient(cfg.URL, rt)
 
 	case AuthOAuth2ClientCredentials:
-		if _, persisted := m.repository().(*DBRepository); persisted && cfg.ID != "" && cfg.UserID != "" {
-			return m.legacyClientGrantHTTPClient(ctx, cfg)
-		}
-		clientID, clientSecret := loadClientCreds(m.credentialContext(), m.credMgr, slug)
-		if cfg.OAuth2ClientID == "" {
-			cfg.OAuth2ClientID = clientID
-		}
-		if clientSecret != "" {
-			client := buildClientCredentialsHTTPClient(ctx, cfg, clientSecret, m.authorizeOAuthNetwork)
-			logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com OAuth2 Client Credentials", slug)
-			return client
-		}
-		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] OAuth2 Client Credentials configurado mas sem client_secret no credential manager (mcp-client:%s)", slug, slug)
-		return nil
+		return oauthflow.NewResourceHTTPClient(cfg.URL, oauthErrorTransport{errOAuthMigrationRequired})
 
 	case AuthBearer:
 		if m.credMgr != nil && cfg.URL != "" {

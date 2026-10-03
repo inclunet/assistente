@@ -53,16 +53,35 @@ func TestStoredAndClientCredentialsRefreshApprovalIsPerOperation(t *testing.T) {
 			ctx := oauthflow.WithNetworkAuthorizer(context.Background(), authorize)
 			cfg := ServerConfig{URL: "https://192.0.2.1/mcp", OAuth2ClientID: "client", OAuth2TokenURL: server.URL}
 			var source oauth2.TokenSource
+			var resolve func() (*oauth2.Token, error)
 			if grant == "pkce" {
 				m := newTestManagerWithEmit(func(string, any) {})
 				defer m.CloseAll()
 				m.SetOAuthNetworkAuthorizer(authorize)
 				storeUserToken(t, m, "srv", "expired", "seed", time.Now().Add(-time.Hour).Unix())
 				source = m.buildPKCERoundTripperForServer(ctx, "srv", cfg).tokenSource
+				resolve = source.Token
 			} else {
-				source = buildClientCredentialsTokenSource(ctx, cfg, "secret", authorize)
+				m, repo, ownerCtx := managedFixture(t)
+				// Each connection to SQLite :memory: is a different database.
+				pool, err := repo.db.DB()
+				if err != nil {
+					t.Fatal(err)
+				}
+				pool.SetMaxOpenConns(1)
+				m.SetOAuthNetworkAuthorizer(authorize)
+				cfg.Transport, cfg.AuthType, cfg.OAuthManaged = TransportStreamable, AuthOAuth2ClientCredentials, true
+				cfg.OAuth2TokenAuthMethod = "client_secret_post"
+				if err := m.SaveConfigWithOAuthSecret("srv", cfg, "secret"); err != nil {
+					t.Fatal(err)
+				}
+				cfg, _, _ = loadManaged(t, m, ownerCtx, "srv")
+				resolve = func() (*oauth2.Token, error) {
+					r, err := m.resolveManagedOAuth(ownerCtx, cfg, "")
+					return &oauth2.Token{AccessToken: r.Tokens.Access, Expiry: r.Tokens.ExpiresAt}, err
+				}
 			}
-			first, err := source.Token()
+			first, err := resolve()
 			if err != nil || first == nil || first.AccessToken != "first" {
 				t.Fatalf("first refresh: %v", err)
 			}
@@ -71,7 +90,7 @@ func TestStoredAndClientCredentialsRefreshApprovalIsPerOperation(t *testing.T) {
 			errs := make(chan error, 8)
 			for i := 0; i < 8; i++ {
 				wg.Add(1)
-				go func() { defer wg.Done(); token, err := source.Token(); results <- token; errs <- err }()
+				go func() { defer wg.Done(); token, err := resolve(); results <- token; errs <- err }()
 			}
 			wg.Wait()
 			close(results)
@@ -86,10 +105,14 @@ func TestStoredAndClientCredentialsRefreshApprovalIsPerOperation(t *testing.T) {
 					t.Fatalf("concurrent refresh: %+v", token)
 				}
 			}
-			if _, err := source.Token(); err != nil {
+			if _, err := resolve(); err != nil {
 				t.Fatal(err)
 			}
-			if prompts.Load() != 2 || issued.Load() != 2 || requests.Load() != 3 {
+			attempts := int32(3) // Historical PKCE negotiates after definitive invalid_client.
+			if grant == "client-credentials" {
+				attempts = 2 // The composed client uses its explicitly registered auth method.
+			}
+			if prompts.Load() != 2 || issued.Load() != 2 || requests.Load() != attempts {
 				t.Fatalf("prompts=%d issued=%d HTTP attempts=%d", prompts.Load(), issued.Load(), requests.Load())
 			}
 			refreshesMu.Lock()
